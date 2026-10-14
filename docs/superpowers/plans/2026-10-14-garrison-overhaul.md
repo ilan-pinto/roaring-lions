@@ -96,8 +96,8 @@ prototype is not committed; its numbers are.
   folder, and read the three pins, `LADDER_CREDITS` (`tools/src/backtest/playtest.ts`),
   `CAMPAIGN_CREDITS` (`packages/app/src/ui/stores-model.ts`) and `ROSTER_MAX` (`playtest.ts`). Write
   them at the top of the ledger. Every "unchanged" in this plan means "equal to those".
-- **Lead decisions L-1 to L-5 (below) are made before Task 1.** L-1 fills Task 5's data, L-2 fills
-  Task 8's constant, and L-3 decides what Task 9 is.
+- **Lead decisions L-1 to L-5 were ruled on 2026-10-14** (section "The lead's rulings on PR #590"
+  below). L-1 fills Task 5's data, L-2 fills Task 8's constant, and L-3 decides what Task 9 is.
 
 ---
 
@@ -262,6 +262,27 @@ anything it sees over, sees it (the lift is applied at whichever end of the ray 
 - **L-5, the presentation.** Out of this plan (see "Out of scope"): the range ring of a selected
   garrisoned unit (GH-34 item 3) and the flag on a held building (GH-588 item 1) both need a mock
   first.
+
+### The lead's rulings on PR #590
+
+- **Ruling (lead, 2026-10-14), L-1:** the floors table is approved as proposed, with warehouse = 2.
+  Task 5 writes exactly: shanty 1, pump_house 1, house 2, clinic 2, concrete 2, relay 2, camp 2,
+  warehouse 2, hall 2, apartment 3; no `floors` on wall or fence.
+- **Ruling (lead, 2026-10-14), L-2:** +1 tile, on maximum and effective range; sight unchanged.
+  Task 8's `GARRISON_RANGE_BONUS` is 65536.
+- **Ruling (lead, 2026-10-14), L-3:** option (a) first: rewrite the scripted plans to fight
+  garrisons properly. Only where a plan cannot win inside the mission's time limit, ease that
+  mission's data. Each such mission change goes to the lead for approval before it lands, so
+  Task 9 stops and reports per mission. Option (c) is not on the table.
+- **Ruling (lead, 2026-10-14), L-4:** keep §5.7 as it is. The garrisoned-urban probe is carried as a
+  report-only line (Task 11's `garrison-probes.ts`), not a gate.
+- **Ruling (lead, 2026-10-14), L-5:** the held-building flag is decided: a facade banner, built
+  separately on `render/garrison-banner`. This plan does not touch it. The range ring of a selected
+  garrisoned unit stays out of scope.
+- **The prototype.** Its diff is saved at `/Users/ilpinto/dev/roaring-lions-ep/_coord/garrison-proto/`
+  (`proto.diff`, and `untracked.tar` for its new files: the draft `garrison.test.ts`, the assembled
+  `garrison-plan.test.ts` and `garrison-probes.ts`). Its worktree has been removed. The diff carries
+  the per-ruling `PROTO_ON` switches, which exist only to measure; none of them belongs in the sim.
 
 ---
 
@@ -1146,8 +1167,9 @@ describe('each floor above the ground adds to eye height (G3)', () => {
 `structures.ts`: `floors?: number;` on the JSON (doc: "Storeys; each above the ground lifts a
 garrison's eye one elevation level. Default 1.") and `floors: number;` on the type, and
 `floors: json.floors ?? 1,` in `structureTypeFromJson`. `data/structures.json`: add `"floors": N` to
-each garrisonable type with the values L-1 approved (proposed: shanty 1, pump_house 1, house 2,
-clinic 2, concrete 2, relay 2, camp 2, warehouse 2, hall 2, apartment 3; none on wall, fence).
+each garrisonable type with the values L-1 approved (ruling, lead, 2026-10-14: shanty 1,
+pump_house 1, house 2, clinic 2, concrete 2, relay 2, camp 2, warehouse 2, hall 2, apartment 3; none
+on wall, fence).
 
 - [ ] **Step 4: Implement the lift.** `raySmoke(x0, y0, x1, y1, lift0 = 0, lift1 = 0)` and
 `losRay(x0, y0, x1, y1, lift0 = 0, lift1 = 0)`: in both, the endpoint heights become
@@ -1495,8 +1517,8 @@ ability → `validate:data` red with eight lines, the shipped-missions test red.
 - Consumes: `eyePoint`, `engageable(shooter, w, t)` (Task 4).
 - Produces: `export const GARRISON_RANGE_BONUS` (Q16.16 tiles); `WeaponStats.garrisonRangeSq`, `garrisonEffRange`, `garrisonEffRangeSq`.
 
-The value is L-2's (recommended +1 tile = 65536). Measured at +1: pins unchanged; playtest the
-"+ range bonus +1" row.
+The value is L-2's (ruling, lead, 2026-10-14: +1 tile = 65536, on maximum and effective range;
+sight unchanged). Measured at +1: pins unchanged; playtest the "+ range bonus +1" row.
 
 - [ ] **Step 1: Write the failing tests** (import `GARRISON_RANGE_BONUS` from `./tuning`)
 
@@ -1558,9 +1580,10 @@ constant exists with the sim untouched, "reaches range + bonus" and the fire-ord
 ```ts
 /** Weapon range a unit gains from inside a building, Q16.16 tiles, on top of
  *  measuring from the window (lead ruling 2026-10-14, GH-34). Maximum and
- *  effective range both; not sight, not minimum range. Chosen by L-2 from a
- *  measured +1/+2 table (docs/superpowers/plans/2026-10-14-garrison-overhaul.md):
- *  §5.7 identical for both, +2 broke two more missions and two unlock gates. */
+ *  effective range both; not sight, not minimum range. +1 by the lead's ruling
+ *  of 2026-10-14 (L-2), from a measured +1/+2 table
+ *  (docs/superpowers/plans/2026-10-14-garrison-overhaul.md): §5.7 identical for
+ *  both; +2 broke two more missions and two unlock gates. */
 export const GARRISON_RANGE_BONUS = 65536; // 1 tile
 ```
 
@@ -1618,11 +1641,15 @@ the constant to 0 → "not zero" red. Undo each.
 
 ### Task 9: Carry the plans that stop winning (L-3)
 
-**This task is written for L-3 option (a)**, the recommendation. If the lead picks (b) or (c), this
-task is replaced by that ruling's own steps before execution starts.
+**Ruling (lead, 2026-10-14), L-3:** option (a) first: the scripted plans are rewritten to fight
+garrisons properly. Only where a plan cannot win inside the mission's time limit is that mission's
+data eased, and **each such mission change goes to the lead for approval before it lands**. So this
+task stops and reports per mission (Step 3). Option (c), softening the rulings, is not on the
+table.
 
 **Files:**
 - Modify: `tools/src/backtest/playtest.ts` (the plans for WH4, DA2 with `breach_team`, KR3, UZ3, UZ4; `wadiHalam4Plan` and the others located by name)
+- Modify, only with the lead's approval for that mission (L-3): `data/missions/<mission>.json`
 - Test: `pnpm playtest` itself (30 seeds), which is the gate these plans live under
 
 **Interfaces:**
@@ -1648,8 +1675,12 @@ in. Every changed line carries a comment naming this plan and the cause line fro
 - [ ] **Step 3: Measure.** `pnpm playtest`: the mission's rows 30 of 30, its time limit line clears
 its slowest win by 120 s and 20 %, and no other line differs from the expected output for the tasks
 committed so far. If a plan cannot be carried by plan changes alone within its time limit, **stop
-and bring the mission, the cause and the best seed count to the lead** (L-3 (b) or (c) for that
-mission).
+for that mission and report to the lead**: the mission, the cause line from Step 1, the best seed
+count and slowest win the plan changes reached, and the smallest data change proposed to carry it
+(for example one `rpg_team` house fewer in WH4, a longer `raze` deadline in UZ4, one more demolisher
+in the starting force). Nothing in `data/missions/` changes until the lead approves that mission's
+change; the approved change then lands as its own commit (`data: <mission> eases <what> for the
+garrison overhaul (lead, <date>)`) with the plan change, and the other missions carry on meanwhile.
 
 - [ ] **Step 4: Commit each held task with the plans it needs, in task order.** For Task 2: Task 2's
 files plus the plan changes for DA2 and WH4, committed as two commits (`sim: … (B1, #280)` first,
@@ -1835,12 +1866,14 @@ report-only probe outputs; it ends with "🤖 Generated with [Claude Code](https
   effective range, so `rangeFalloff` already reflects it; a separate named factor is a HUD change.
 - **`hud-model.ts`'s `inReach`** reads `w.range` from the unit's position; for a garrisoned unit it
   under-reports. Fix with a public sim query when the ring is redone.
-- **The flag on a held building** (GH-588 item 1). Mock first.
+- **The flag on a held building** (GH-588 item 1). Decided (ruling, lead, 2026-10-14, L-5): a facade
+  banner, built separately on `render/garrison-banner`. Nothing here touches it.
 - **A garrisoned mortar's card** says nothing about why it is silent. A HUD line, after this lands.
-- **A garrisoned §5.7 target** (L-4), if the lead wants one.
+- **A garrisoned §5.7 target.** Not wanted (ruling, lead, 2026-10-14, L-4): §5.7 stays as it is and
+  the garrisoned town is a report-only line.
 
 ## Execution
 
 Subagent-driven, task by task, with the rulings ledger at
-`/Users/ilpinto/dev/roaring-lions-ep/_coord/garrison-overhaul-progress.md`. Before Task 1: L-1 to L-5
-ruled, GH-420 merged, the Task 0 pre-flight written.
+`/Users/ilpinto/dev/roaring-lions-ep/_coord/garrison-overhaul-progress.md`. L-1 to L-5 were ruled on
+2026-10-14. Before Task 1: GH-420 merged and the Task 0 pre-flight written.
