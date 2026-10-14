@@ -27,10 +27,12 @@ const SEATS_TWO: SeatState[] = [
   { seat: 1, callsign: 'Bo', connected: true, ready: false },
 ];
 
-/** What the lobby is handed in the build: `versusMaps()`, the two maps opened for versus (#561). */
+/** What the lobby is handed in the build: `versusMaps()`, the maps opened for versus (#561), in catalogue order. */
 const MAPS = [
   { id: 'beit_sahwan_outskirts', label: 'Beit Sahwan Outskirts' },
+  { id: 'milh_flats', label: 'Milh Flats — Bir Milh' },
   { id: 'tel_marum', label: 'Tel Marum' },
+  { id: 'wadi_tarfan', label: 'Wadi Tarfan — The Three Fords' },
 ];
 
 function deps(overrides: Partial<VersusDeps> = {}): VersusDeps & { saved: string[]; navigated: [string, { replace?: boolean } | undefined][] } {
@@ -213,7 +215,7 @@ describe('showVersus (/versus)', () => {
     expect((open.mock.calls[0] as [RoomRequest])[0]).toMatchObject({ kind: 'create', matchup: 'sarim' });
   });
 
-  it('KDF vs Sarim is Tel Marum only: a side narrows the map list and says so; the mirror opens every map (the lead, 2026-10-14)', async () => {
+  it('KDF vs Sarim is Tel Marum and Wadi Tarfan only: a side narrows the map list and says so; the mirror opens every map (the lead, 2026-10-14)', async () => {
     const stage = document.createElement('div');
     const { transport } = fakeTransport();
     const open = vi.fn().mockResolvedValue(opened(transport));
@@ -223,20 +225,20 @@ describe('showVersus (/versus)', () => {
     const note = stage.querySelector<HTMLElement>('.rl-versus__side-note')!;
     const enabled = () => [...map.options].filter((o) => !o.disabled).map((o) => o.value);
     expect(note.hidden).toBe(true);
-    expect(enabled()).toEqual(['beit_sahwan_outskirts', 'tel_marum']);
-    map.value = 'beit_sahwan_outskirts';
+    expect(enabled()).toEqual(['beit_sahwan_outskirts', 'milh_flats', 'tel_marum', 'wadi_tarfan']);
+    map.value = 'milh_flats';
     side.value = 'sarim';
     side.dispatchEvent(new Event('change'));
-    expect(enabled()).toEqual(['tel_marum']);
+    expect(enabled()).toEqual(['tel_marum', 'wadi_tarfan']);
     expect(map.value).toBe('tel_marum');
     expect(note.hidden).toBe(false);
-    expect(note.textContent).toBe('KDF against Sarim is played on Tel Marum only');
+    expect(note.textContent).toBe('KDF against Sarim is played on Tel Marum and Wadi Tarfan only');
     stage.querySelector<HTMLButtonElement>('.rl-versus__open')!.click();
     await flush();
     expect((open.mock.calls[0] as [RoomRequest])[0]).toMatchObject({ kind: 'create', map: 'tel_marum', matchup: 'sarim' });
     side.value = 'mirror';
     side.dispatchEvent(new Event('change'));
-    expect(enabled()).toEqual(['beit_sahwan_outskirts', 'tel_marum']);
+    expect(enabled()).toEqual(['beit_sahwan_outskirts', 'milh_flats', 'tel_marum', 'wadi_tarfan']);
     expect(note.hidden).toBe(true);
   });
 

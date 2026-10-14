@@ -47,9 +47,11 @@ describe('play', () => {
 });
 
 describe('selfCheck', () => {
+  // Four games a map, on every map a room is offered on: four maps since the
+  // versus maps (2026-10-14), ~2 s alone and ~8 s under a full parallel run.
   it('passes on the probe as shipped, on each map a room is offered on', () => {
     for (const map of VERSUS_FAIR_MAPS) expect(selfCheck(map as MapId), map).toEqual([]);
-  });
+  }, 60_000);
 
   // The mutants below stand in for the source mutations in versus-probe.ts's
   // header (M1 swaps the winner, M2 orders nobody, M3 unseeds the sim): each is

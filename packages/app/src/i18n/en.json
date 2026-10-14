@@ -244,7 +244,7 @@
   "versus.host.open": "Open a room",
   "versus.host.side": "Your side",
   "versus.host.side.option": "{m, select, kdf {KDF — your friend plays Sarim} sarim {Sarim — your friend plays KDF} other {Mirror — KDF against KDF}}",
-  "versus.host.side.note": "KDF against Sarim is played on Tel Marum only",
+  "versus.host.side.note": "KDF against Sarim is played on Tel Marum and Wadi Tarfan only",
   "versus.faction": "{f, select, sarim {Sarim} other {KDF}}",
   "versus.join.title": "Join a match",
   "versus.join.code": "Room code",
