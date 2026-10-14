@@ -244,8 +244,9 @@ export interface PointerContext {
    *  optional so typecheck names every call site when it changes. */
   confirm: boolean;
   /**
-   * The enemy unit under the pointer (`Renderer.unitAtScreen`, filtered to
-   * a living, visible, hostile-side unit by `pointerPoint`), or -1 / absent.
+   * The enemy unit under the pointer (`Renderer.unitAtScreen` at the order
+   * radius, R-23, filtered to a living, visible, hostile-side unit by
+   * `pointerPoint`), or -1 / absent.
    * It reaches the resolver so the hover cursor, the fire panel and the click
    * all name ONE unit (GH-420, R-13). Optional because most callers (a
    * minimap click, an armed support call) point at ground, never a body.
@@ -254,9 +255,10 @@ export interface PointerContext {
   /**
    * Where that enemy stands. Only the hostile rung reads it, and only once it
    * resolves a focus: the T-D7 remainder's attack-move and the order marker go
-   * to the target's own tile (R-18). `x`/`y` stay the click's GROUND point, so
-   * an enemy that is picked but cannot be focused leaves every other rung
-   * (structure, tunnel, protected zone) exactly as it was without the pick.
+   * to the target's own tile (R-18). `x`/`y` stay the click's own point (the
+   * ground, or the building whose wall it shows, R-24), so an enemy that is
+   * picked but cannot be focused leaves every other rung (structure, tunnel,
+   * protected zone) exactly as it was without the pick.
    * Absent: the rung falls back to `x`/`y`.
    */
   hostileAt?: { x: number; y: number };
@@ -340,7 +342,7 @@ export function resolvePointer(world: IntentWorld, ctx: PointerContext): Resolut
   // on a boulder tile is still shootable.
   const target = ctx.hostile ?? -1;
   if (target >= 0 && !append) {
-    const focused = resolveFocus(world, ids, target, ctx.hostileAt ?? { x, y }, roe);
+    const focused = resolveFocus(world, ids, target, ctx.hostileAt ?? { x, y });
     if (focused) return focused;
   }
 
@@ -451,7 +453,11 @@ export function resolvePointer(world: IntentWorld, ctx: PointerContext): Resolut
  * `blocked` cursor (R-17), rather than sending a squad to plink at a tank.
  *
  * `at` is the target's own position (R-18): the remainder's attack-move and
- * the order marker go there, and only when a focus resolves.
+ * the order marker go there, and only when a focus resolves. The ROE tier is
+ * read there too (M-1): once the rung answers, the order is about the target,
+ * so a target inside a flagged zone reads `protected` however far outside it
+ * the click's ground point landed, and one outside a zone does not borrow the
+ * tier of the ground the click happened to meet.
  *
  * Shift never reaches here (T-D9): a queued click keeps its appended
  * attack-move.
@@ -460,11 +466,11 @@ function resolveFocus(
   world: IntentWorld,
   ids: number[],
   target: number,
-  at: { x: number; y: number },
-  roe: RoeTier
+  at: { x: number; y: number }
 ): Resolution | null {
   const able = ids.filter((i) => world.canFocus(i, target));
   if (able.length === 0) return null;
+  const roe = roeTierAt(world, at.x, at.y);
   const firing = able.filter((i) => world.focusHurts(i, target));
   if (firing.length === 0) {
     return {

@@ -1779,8 +1779,9 @@ export class Hud {
    * target and gives odds against it, and until this line nothing said the
    * click does not aim at it: the order goes to the tile and the sim chooses what each unit
    * shoots, so a clicked AA truck read "Engaging: Militia Cell". Read off
-   * the cursor rather than recomputed, so a refused click (`protected`), a
-   * pinned order (`pinned`) or a building verb never gets this line.
+   * the cursor rather than recomputed, so a refused click (`protected` for a
+   * protected site, `blocked` for an armour nothing selected can penetrate),
+   * a pinned order (`pinned`) or a building verb never gets this line.
    */
   private fireClickLine(): string {
     // The armed Move (L1 reopened) hovers `moveOnly` over an enemy: the click

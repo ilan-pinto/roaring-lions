@@ -501,6 +501,8 @@ describe('resolvePointer: the hostile rung (GH-420)', () => {
       const w = world({ canFocus: () => true, focusHurts: () => true, garrisoned: held(1) });
       const r = resolvePointer(w, ctx([1, 2], { append: true }));
       expect(r.intents).toEqual([{ kind: 'order', verb: 'attackMove', ids: [2], x: 12.5, y: 7.5, append: true }]);
+      // And says so, once, as the unqueued click does.
+      expect(r.note).toEqual({ text: 'Garrisoned units keep their post', tone: 'mute' });
     });
 
     it('a click on plain ground with no picked enemy is unchanged: the garrisoned unit is still ordered', () => {
@@ -542,6 +544,34 @@ describe('resolvePointer: the hostile rung (GH-420)', () => {
       expect(picked).toEqual(unpicked);
       expect(picked.at).toBeUndefined();
     }
+  });
+
+  // M-1: once the rung resolves, the order is about the target, so its ROE
+  // tier is read where the target stands, not where the click met the ground
+  // (with the body pick that can be most of a tile apart). The zone is one
+  // tile, so exactly one of the two points is inside it.
+  describe('M-1: a focused order reads the ROE tier at the target', () => {
+    const clickAt = { x: 12.5, y: 7.5 };
+    const targetAt = { x: 13.5, y: 8.5 };
+    const zoneOn = (p: { x: number; y: number }) => (x: number, y: number) =>
+      Math.floor(x) === Math.floor(p.x) && Math.floor(y) === Math.floor(p.y);
+
+    it('a target inside a flagged zone, clicked from outside it, reads protected', () => {
+      const w = world({ canFocus: () => true, focusHurts: () => true, inFlaggedZone: zoneOn(targetAt) });
+      const r = resolvePointer(w, ctx([1, 2], { ...clickAt, hostileAt: targetAt }));
+      expect(r.intents).toEqual([{ kind: 'attack', ids: [1, 2], target: 9 }]);
+      expect(r.roe).toBe('protected');
+    });
+
+    it('a target outside the zone, clicked from inside it, does not', () => {
+      const w = world({ canFocus: () => true, focusHurts: () => true, inFlaggedZone: zoneOn(clickAt) });
+      const r = resolvePointer(w, ctx([1, 2], { ...clickAt, hostileAt: targetAt }));
+      expect(r.intents).toEqual([{ kind: 'attack', ids: [1, 2], target: 9 }]);
+      expect(r.roe).toBe('free');
+      // The same click with no focus resolved is still the ground's to judge.
+      const ground = resolvePointer(world({ inFlaggedZone: zoneOn(clickAt) }), ctx([1, 2], { ...clickAt, hostileAt: targetAt }));
+      expect(ground.roe).toBe('protected');
+    });
   });
 
   it('T-D9: Shift keeps today\'s appended attack-move, no attack', () => {
