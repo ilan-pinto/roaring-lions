@@ -28,7 +28,7 @@
  * `NetChat`, which keeps to that too).
  */
 import { maps } from '@lions/data';
-import { MATCHUPS, MAX_CALLSIGN_CHARS, callsignOrDefault, cleanCallsign, matchupField, type Faction, type Matchup, type Seat, type SeatState, type WsTransport } from '@lions/net';
+import { FACTION_MATCHUP_MAPS, MATCHUPS, MAX_CALLSIGN_CHARS, callsignOrDefault, cleanCallsign, matchupField, type Faction, type Matchup, type Seat, type SeatState, type WsTransport } from '@lions/net';
 import { t } from '../i18n/t';
 import { RoomRefused, RoomStarted, type OpenedRoom, type RoomRequest } from '../net/connect';
 import { handOver } from '../net/handoff';
@@ -296,6 +296,24 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
   side.value = 'mirror';
   sideField.append(sideName, side);
   body.appendChild(sideField);
+  // KDF vs Sarim is Tel Marum only (the lead, 2026-10-14; the room refuses it
+  // anywhere else): picking a side narrows the map list to the maps it plays
+  // on, and the note says why the map moved. The mirror opens every map again.
+  const sideNote = document.createElement('p');
+  sideNote.className = 'rl-versus__side-note';
+  sideNote.textContent = t('versus.host.side.note');
+  body.appendChild(sideNote);
+  const offered = deps.maps.filter((m) => FACTION_MATCHUP_MAPS.includes(m.id));
+  // A build that ships none of those maps offers the mirror alone.
+  for (const o of side.options) o.disabled = o.value !== 'mirror' && offered.length === 0;
+  const syncSide = (): void => {
+    const narrowed = matchupField(side.value) !== 'mirror';
+    for (const o of select.options) o.disabled = narrowed && !FACTION_MATCHUP_MAPS.includes(o.value);
+    if (narrowed && !FACTION_MATCHUP_MAPS.includes(select.value) && offered.length > 0) select.value = offered[0].id;
+    sideNote.hidden = !narrowed;
+  };
+  side.addEventListener('change', syncSide);
+  syncSide();
   const openBtn = button(t('versus.host.open'), 'rl-versus__open');
   markConfirm(openBtn);
   body.appendChild(openBtn);

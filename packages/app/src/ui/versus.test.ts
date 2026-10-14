@@ -205,6 +205,40 @@ describe('showVersus (/versus)', () => {
     expect((open.mock.calls[0] as [RoomRequest])[0]).toMatchObject({ kind: 'create', matchup: 'sarim' });
   });
 
+  it('KDF vs Sarim is Tel Marum only: a side narrows the map list and says so; the mirror opens every map (the lead, 2026-10-14)', async () => {
+    const stage = document.createElement('div');
+    const { transport } = fakeTransport();
+    const open = vi.fn().mockResolvedValue(opened(transport));
+    showVersus(stage, deps({ open }));
+    const map = stage.querySelector<HTMLSelectElement>('.rl-versus__map')!;
+    const side = stage.querySelector<HTMLSelectElement>('.rl-versus__faction')!;
+    const note = stage.querySelector<HTMLElement>('.rl-versus__side-note')!;
+    const enabled = () => [...map.options].filter((o) => !o.disabled).map((o) => o.value);
+    expect(note.hidden).toBe(true);
+    expect(enabled()).toEqual(['beit_sahwan_outskirts', 'tel_marum', 'qarn_hadid']);
+    map.value = 'qarn_hadid';
+    side.value = 'sarim';
+    side.dispatchEvent(new Event('change'));
+    expect(enabled()).toEqual(['tel_marum']);
+    expect(map.value).toBe('tel_marum');
+    expect(note.hidden).toBe(false);
+    expect(note.textContent).toBe('KDF against Sarim is played on Tel Marum only');
+    stage.querySelector<HTMLButtonElement>('.rl-versus__open')!.click();
+    await flush();
+    expect((open.mock.calls[0] as [RoomRequest])[0]).toMatchObject({ kind: 'create', map: 'tel_marum', matchup: 'sarim' });
+    side.value = 'mirror';
+    side.dispatchEvent(new Event('change'));
+    expect(enabled()).toEqual(['beit_sahwan_outskirts', 'tel_marum', 'qarn_hadid']);
+    expect(note.hidden).toBe(true);
+  });
+
+  it('a build that ships no Tel Marum offers the mirror alone', () => {
+    const stage = document.createElement('div');
+    showVersus(stage, deps({ maps: [MAPS[0]!, MAPS[2]!] }));
+    const side = stage.querySelector<HTMLSelectElement>('.rl-versus__faction')!;
+    expect([...side.options].filter((o) => !o.disabled).map((o) => o.value)).toEqual(['mirror']);
+  });
+
   it('the code field upper-cases and drops 0, O, 1 and I as typed; Join opens a join for it', async () => {
     const stage = document.createElement('div');
     const { transport } = fakeTransport();
