@@ -22,7 +22,7 @@
 //   pnpm golden-baseline -- --scenario=quiet   # one scenario
 //   pnpm golden-baseline:bless -- --reason="mesh trees replace the canopy sprite"
 //
-// Flags: --port=5175 --out-dir=path --keep-server --scenario=<id>[,<id>...]
+// Flags: --port=5175 (or GOLDEN_BASELINE_PORT; a held port is refused, exit 2) --out-dir=path --keep-server --scenario=<id>[,<id>...]
 //        --baseline-dir=path --bless --reason="..."
 //
 // Exit codes (`baseline.ts` owns the constants):
@@ -144,6 +144,7 @@ import {
 } from '../golden-diff/browser';
 import { guardCapture } from '../golden-diff/capture-guard';
 import { musicOffInitScript } from '../ui-review/music-off';
+import { claimPort } from '../ui-review/port';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
@@ -151,8 +152,9 @@ const DEFAULT_BASELINE_DIR = path.join(REPO_ROOT, 'tools', 'golden-baselines');
 const TAG = 'three-baseline';
 const PIXELMATCH_THRESHOLD = 0.1; // pixelmatch's own default, unchanged from diff.ts
 
+// No `port` here: `main` takes it from `claimPort`, which reads `--port=` and
+// GOLDEN_BASELINE_PORT itself and refuses a held one.
 interface Args {
-  port: number;
   outDir: string;
   baselineDir: string;
   keepServer: boolean;
@@ -172,7 +174,6 @@ function parseArgs(argv: readonly string[]): Args {
   );
   const scenarioArg = flags.get('scenario');
   return {
-    port: Number(flags.get('port') ?? 5175),
     // Resolved against the REPO ROOT, not the cwd, and that is a fix rather
     // than a preference. Both workflows pass `--out-dir=visual-baseline-output`
     // and then upload `visual-baseline-output` from the workspace root -- but
@@ -415,8 +416,15 @@ async function main(): Promise<void> {
   // the same rule `SCENARIO_BUDGETS` already had, for the same reason.
   for (const s of scenarios) specFor(s.id);
 
+  // `--port=<n>`, else GOLDEN_BASELINE_PORT, else 5175, and a port something
+  // already holds is REFUSED, exit 2 (= EXIT_USAGE), before any server or
+  // browser starts (`ui-review/port.ts`). `ensureDevServer` alone would attach
+  // to whatever answered there and judge THAT checkout against this tree's
+  // baselines. CI runs on a fresh runner with nothing on :5175, so the only
+  // thing this changes there is a refusal that cannot fire.
+  const port = await claimPort(TAG, 'GOLDEN_BASELINE_PORT', 5175);
   mkdirSync(args.outDir, { recursive: true });
-  const devServer = await ensureDevServer(args.port, REPO_ROOT, TAG);
+  const devServer = await ensureDevServer(port, REPO_ROOT, TAG);
   const browser = await launchCaptureBrowser();
   try {
     const unmaskedRenderer = await readUnmaskedRenderer(browser);
@@ -516,7 +524,7 @@ async function main(): Promise<void> {
     // scenarios so a broken one is reported even if a capture later throws.
     // Reference-free: it asks which PATH the screen took, never what it looks
     // like -- see `screens-check.ts` for the bug that bought this.
-    const screen = await checkCampaignBoard(page, `http://localhost:${args.port}/`);
+    const screen = await checkCampaignBoard(page, `http://localhost:${port}/`);
     console.log(
       `\n[${TAG}] screen "${screen.id}": ${screen.detail} ` +
         `(data-board=${String(screen.board)}, canvas=${screen.hasCanvas}) -> ${screen.ok ? 'PASS' : 'FAIL'}`
@@ -545,7 +553,7 @@ async function main(): Promise<void> {
     // Timed on its own (Task 0's run was never timed, so this IS the number
     // spec §3.6 wanted rather than an estimate).
     const menuHostStarted = Date.now();
-    const menuHost = await checkMenuSceneHost(browser, `http://localhost:${args.port}/`);
+    const menuHost = await checkMenuSceneHost(browser, `http://localhost:${port}/`);
     const menuHostMs = Date.now() - menuHostStarted;
     console.log(
       `\n[${TAG}] screen "${menuHost.id}": ${menuHost.detail} -> ${menuHost.ok ? 'PASS' : 'FAIL'} ` +
@@ -573,7 +581,7 @@ async function main(): Promise<void> {
       // that would have made them usable and the PR that would have shown them
       // to a human. A scenario that cannot vote must not be able to do that.
       const attempt = await guardCapture(gated, `${TAG}/${scenario.id}`, () =>
-        captureScenario(page, args.port, args.outDir, scenario)
+        captureScenario(page, port, args.outDir, scenario)
       );
       if (!attempt.ok) {
         outcomes.push({

@@ -3,7 +3,7 @@
  * unit type that gained a Meshy part, drawn by the LIVE renderer in the
  * sandbox, at gameplay zoom (1.0) and close up (2.5).
  *
- *   pnpm --filter @lions/tools exec tsx src/perf/a31-captures.ts [--port=5190] [--out=docs/art/sheets/a31-parts/ingame] [--only=id,id]
+ *   pnpm --filter @lions/tools exec tsx src/perf/a31-captures.ts [--port=5190, env A31_CAPTURE_PORT; a held port is refused] [--out=docs/art/sheets/a31-parts/ingame] [--only=id,id]
  *
  * One unit type per BROWSER, as `unit-plates.ts` learned the hard way: a
  * page's third or fourth screenshot can stall for minutes and lose the WebGL
@@ -26,6 +26,7 @@ import { chromium } from 'playwright';
 import { ensureDevServer, stopDevServer } from '../golden-diff/browser';
 import { gpuLaunchArgs, resolveGpuBackend } from '../ui-review/gpu';
 import { SILENT_AUDIO, musicOffInitScript } from '../ui-review/music-off';
+import { claimPort } from '../ui-review/port';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../..');
@@ -59,13 +60,15 @@ function arg(name: string): string | undefined {
   return hit?.slice(name.length + 3);
 }
 
-const PORT = Number(arg('port') ?? 5190);
 const OUT = path.resolve(REPO_ROOT, arg('out') ?? 'docs/art/sheets/a31-parts/ingame');
 const TYPES = (arg('only')?.split(',') ?? DEFAULT_TYPES).filter(Boolean);
 // Metal on macOS, SwiftShader elsewhere (`--gpu=`): a SwiftShader screenshot of a
 // live mission at DPR 2 stalled past Playwright's 30 s here; Metal reads in ~150 ms.
 const GPU = resolveGpuBackend(process.argv, process.platform);
-if (PORT === 5177) throw new Error('port 5177 is the lead\'s everyday dev server; pick another');
+if (arg('port') === '5177') throw new Error('port 5177 is the lead\'s everyday dev server; pick another');
+// `--port=<n>`, else A31_CAPTURE_PORT, else 5190; a port something else holds is
+// refused (exit 2) rather than attached to (`ui-review/port.ts`).
+const PORT = await claimPort(TAG, 'A31_CAPTURE_PORT', 5190);
 fs.mkdirSync(OUT, { recursive: true });
 
 interface LionsWindow {

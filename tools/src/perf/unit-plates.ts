@@ -37,11 +37,13 @@
  * human's `pnpm dev`, never a port another tool already owns -- see that
  * file's own comment for the ledger: 5173 human, 5174 golden-diff, 5175
  * three-baseline, 5176 ui:shots, 5177 ui:routes, 5183 plate:host; this one
- * defaults to 5179, the next free self-managed slot -- 5178 is the OTHER
+ * defaults to 5179, the next free self-managed slot -- 5178 was the OTHER
  * convention, "point me at a server you already started", used by
- * `wreck-captures.ts`/`gait-captures.ts`, not this file. `--port` overrides
- * it, which is also how a spawned child is told which server its parent
- * already started -- see "One process per unit" below).
+ * `wreck-captures.ts`/`gait-captures.ts` until they too started their own
+ * (2026-10-14; `--attach` is how they reach a caller's server now). `--port` (or
+ * PLATES_UNITS_PORT) overrides it, and a port something already holds is
+ * refused rather than shared; `--port` is also how a spawned child is told
+ * which server its parent already started -- see "One process per unit" below).
  *
  * ## Hardware GPU: tried, and rejected as the default (fix round 1, item 1)
  *
@@ -213,6 +215,7 @@ import pixelmatch from 'pixelmatch';
 import { ensureDevServer, stopDevServer, readUnmaskedRenderer } from '../golden-diff/browser';
 import { FREEZE_FRAME_LOOP_SCRIPT, hideHudExceptCanvas } from '../golden-diff/capture-protocol';
 import { musicOffInitScript } from '../ui-review/music-off';
+import { claimPort } from '../ui-review/port';
 import { garageSeedScript, GARAGE_SEED_LEDGER } from '../ui-review/garage-seed';
 import { KIT_VEHICLE_TYPES } from '../../../packages/app/src/ui/garage-model';
 import type { BrigadeAccount } from '../../../packages/app/src/brigade-account';
@@ -300,8 +303,13 @@ function arg(name: string, fallback: string): string {
 const only = arg('only', '');
 const isKit = process.argv.includes('--kit');
 const outDir = path.resolve(REPO_ROOT, arg('out', isKit ? 'assets/ui/plates/units/kit' : 'assets/ui/plates/units'));
-const PORT = Number(arg('port', '5179'));
 const isChild = process.argv.includes('--child');
+// The orchestrator and the direct path START the server, so they claim the
+// port: `--port=<n>`, else PLATES_UNITS_PORT, else 5179, and a port something
+// already holds is refused (exit 2, `ui-review/port.ts`) instead of attached
+// to. A `--child` is the one caller that must attach -- its parent has just
+// started the server on the `--port` it was handed -- so it takes that as given.
+const PORT = isChild ? Number(arg('port', '5179')) : await claimPort(TAG, 'PLATES_UNITS_PORT', 5179);
 const useMetal = process.argv.includes('--metal');
 
 /** `--kit`: every track `id` declares, at that track's top tier. */

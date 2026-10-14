@@ -4,9 +4,12 @@
  *
  *   npx tsx src/perf/fire-link-captures.ts --port=5268 --out=<dir> --label=after [--only=rifle,hmg]
  *
- * Point it at a dev server serving whichever tree you want photographed
- * (`--label` only names the files), so a before/after pair is two runs
- * against two trees on the same port. It never starts or stops a server.
+ * It serves its own tree on `--port=<n>` (else FIRE_LINK_CAPTURE_PORT, else
+ * 5268), and a port something already holds is refused (`ui-review/port.ts`):
+ * a before/after pair is a run from each tree's checkout (`--label` only
+ * names the files). `--attach` drives a server you started on `--port`
+ * instead -- a BEFORE tree with no copy of this file. It used to attach to
+ * whatever answered on the port, always, with no error.
  *
  * Drives the REAL UI for everything that matters to the feature: the shooter
  * is selected by a left click on the canvas and ordered forward by a right
@@ -28,8 +31,11 @@
  */
 import { chromium, type Page } from 'playwright';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { devServerStopper, ensureDevServer } from '../golden-diff/browser';
 import { musicOffInitScript } from '../ui-review/music-off';
+import { claimPortOrAttach } from '../ui-review/port';
 
 /** The page-side surface this harness reads -- framing, waiting and the
  *  draw-call readout only; selection goes through real clicks. */
@@ -53,12 +59,17 @@ interface LionsWindow {
 
 const arg = (name: string): string | undefined =>
   process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
-const port = arg('port') ?? '5268';
+const TAG = 'fire-link-captures';
+const { port } = await claimPortOrAttach(TAG, 'FIRE_LINK_CAPTURE_PORT', 5268);
 const out = arg('out') ?? 'fire-link-out';
 const label = arg('label') ?? 'after';
 const only = arg('only')?.split(',');
-const base = `http://localhost:${port}`;
 mkdirSync(out, { recursive: true });
+const stopServer = devServerStopper(
+  await ensureDevServer(port, resolve(fileURLToPath(new URL('../../../', import.meta.url))), TAG),
+  TAG
+);
+const base = `http://localhost:${port}`;
 
 interface Subject {
   id: string;
@@ -84,6 +95,7 @@ try {
   }
 } finally {
   await browser.close();
+  stopServer();
 }
 const resultsPath = join(out, 'results.json');
 const prior: Record<string, unknown>[] = existsSync(resultsPath) ? JSON.parse(readFileSync(resultsPath, 'utf8')) : [];

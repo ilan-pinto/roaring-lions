@@ -5,7 +5,7 @@
 // reach it.
 import net from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
-import { busyPortMessage, portBusy, resolvePort } from './port';
+import { ATTACH_FLAG, busyPortMessage, decideAttach, decidePort, portBusy, resolvePort } from './port';
 
 const KEY = 'UI_SHOTS_PORT';
 const DEFAULT = 5176;
@@ -123,5 +123,105 @@ describe('busyPortMessage', () => {
   it('says which override chose a busy port', () => {
     expect(busyPortMessage('ui-routes', { port: 5199, source: 'env' }, 'UI_ROUTES_PORT')).toContain('from UI_ROUTES_PORT');
     expect(busyPortMessage('ui-routes', { port: 5199, source: 'flag' }, 'UI_ROUTES_PORT')).toContain('from --port');
+  });
+});
+
+/** A loopback listener this test owns, and a way to let go of it. */
+async function hold(): Promise<{ port: number; release: () => Promise<void> }> {
+  const s = net.createServer();
+  await new Promise<void>((resolve, reject) => {
+    s.once('error', reject);
+    s.listen(0, '127.0.0.1', () => resolve());
+  });
+  const address = s.address();
+  if (address === null || typeof address === 'string') throw new Error('expected a TCP address');
+  return { port: address.port, release: () => new Promise<void>((resolve) => s.close(() => resolve())) };
+}
+
+// The bug this exists for: `blast:capture` attached to a server another
+// session held on its port, and measured that tree. Each case holds a REAL
+// port and runs the real resolver against it.
+describe('decidePort refuses a held port', () => {
+  let release: (() => Promise<void>) | null = null;
+  afterEach(async () => {
+    const r = release;
+    release = null;
+    if (r) await r();
+  });
+
+  it.each(['own', 'own-or-attach'] as const)('refuses a port named by --port that something holds (%s)', async (mode) => {
+    const held = await hold();
+    release = held.release;
+    const d = await decidePort('blast-captures', 'BLAST_CAPTURE_PORT', 5181, [`--port=${held.port}`], {}, mode);
+    expect(d.ok).toBe(false);
+    if (!d.ok) {
+      expect(d.message).toContain(`port ${held.port} (from --port) is already in use`);
+      expect(d.message).toContain('BLAST_CAPTURE_PORT=<n>');
+    }
+  });
+
+  it('refuses a held port named by the environment, and a held default', async () => {
+    const held = await hold();
+    release = held.release;
+    const env = await decidePort('t', 'T_PORT', 5181, [], { T_PORT: String(held.port) }, 'own');
+    expect(env.ok).toBe(false);
+    if (!env.ok) expect(env.message).toContain('from T_PORT');
+    const dflt = await decidePort('t', 'T_PORT', held.port, [], {}, 'own');
+    expect(dflt.ok).toBe(false);
+    if (!dflt.ok) expect(dflt.message).toContain("this script's default");
+  });
+
+  it('serves on the same port once nothing holds it -- the control', async () => {
+    const held = await hold();
+    await held.release();
+    expect(await decidePort('t', 'T_PORT', 5181, [`--port=${held.port}`], {}, 'own')).toEqual({
+      ok: true,
+      port: held.port,
+      source: 'flag',
+      attach: false,
+    });
+  });
+
+  it('claimPort mode ignores --attach: a held port is still refused', async () => {
+    const held = await hold();
+    release = held.release;
+    expect((await decidePort('t', 'T_PORT', 5181, [`--port=${held.port}`, ATTACH_FLAG], {}, 'own')).ok).toBe(false);
+  });
+
+  it('--attach drives a held port, and refuses an empty one', async () => {
+    const held = await hold();
+    release = held.release;
+    const d = await decidePort('t', 'T_PORT', 5181, [`--port=${held.port}`, ATTACH_FLAG], {}, 'own-or-attach');
+    expect(d).toEqual({ ok: true, port: held.port, source: 'flag', attach: true });
+    await held.release();
+    release = null;
+    const empty = await decidePort('t', 'T_PORT', 5181, [`--port=${held.port}`, ATTACH_FLAG], {}, 'own-or-attach');
+    expect(empty.ok).toBe(false);
+    if (!empty.ok) expect(empty.message).toContain('nothing is listening');
+  });
+
+  it('a malformed port is refused, never fallen through', async () => {
+    const d = await decidePort('t', 'T_PORT', 5181, ['--port=abc'], {}, 'own');
+    expect(d.ok).toBe(false);
+  });
+});
+
+describe('decideAttach', () => {
+  it('refuses without --attach even when every port is held', async () => {
+    const held = await hold();
+    try {
+      const d = await decideAttach('t', [], [held.port]);
+      expect(d.ok).toBe(false);
+      expect(await decideAttach('t', [ATTACH_FLAG], [held.port])).toEqual({ ok: true });
+    } finally {
+      await held.release();
+    }
+  });
+
+  it('refuses --attach to a port nothing is listening on', async () => {
+    const held = await hold();
+    await held.release();
+    const d = await decideAttach('t', [ATTACH_FLAG], [held.port]);
+    expect(d.ok).toBe(false);
   });
 });

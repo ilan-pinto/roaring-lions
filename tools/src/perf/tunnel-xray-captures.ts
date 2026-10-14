@@ -1,5 +1,5 @@
 /**
- * `pnpm tunnel:capture -- --out=<dir> [--port=5194] [--only=<run id prefix>]`
+ * `pnpm tunnel:capture -- --out=<dir> [--port=5194 | TUNNEL_CAPTURE_PORT] [--only=<run id prefix>]`
  *
  * GH-471's instrument: the x-ray reveal of an identified tunnel, photographed
  * from the running game. One Metal browser, music off, its own dev server on
@@ -17,14 +17,16 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { gpuLaunchArgs } from '../ui-review/gpu';
 import { musicOffInitScript } from '../ui-review/music-off';
-import { portBusy } from '../ui-review/port';
+import { claimPort } from '../ui-review/port';
 
 const arg = (k: string, d: string): string => process.argv.find((a) => a.startsWith(`--${k}=`))?.slice(k.length + 3) ?? d;
-const PORT = Number(arg('port', '5194'));
-if (PORT === 5177) {
+if (arg('port', '') === '5177') {
   console.error('[tunnel-xray] refusing port 5177: it is the lead\'s dev server');
   process.exit(2);
 }
+// `--port=<n>`, else TUNNEL_CAPTURE_PORT, else 5194; a port something already
+// holds is refused (exit 2) before anything starts (`ui-review/port.ts`).
+const PORT = await claimPort('tunnel-xray', 'TUNNEL_CAPTURE_PORT', 5194);
 
 const OUT = resolve(arg('out', 'tunnel-xray-out'));
 const ONLY = arg('only', '');
@@ -168,10 +170,6 @@ const RUNS: Run[] = [
 ];
 
 async function main(): Promise<void> {
-  if (await portBusy(PORT)) {
-    console.error(`[tunnel-xray] port ${PORT} is already taken -- refusing to photograph someone else's server`);
-    process.exit(2);
-  }
   say(`[tunnel-xray] starting vite on :${PORT} in ${ROOT}`);
   const server: ChildProcess = spawn('pnpm', ['--filter', '@lions/app', 'exec', 'vite', '--port', String(PORT), '--strictPort'], {
     cwd: ROOT,

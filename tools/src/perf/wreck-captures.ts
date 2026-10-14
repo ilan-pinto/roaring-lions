@@ -2,8 +2,13 @@
  * The eleven-pair vehicle-wreck sheet: every mesh vehicle photographed alive
  * and wrecked, at both ends of the gameplay zoom band.
  *
- *   npx tsx tools/src/perf/wreck-captures.ts http://127.0.0.1:5178 .superpowers/wreck-captures
- *   npx tsx tools/src/perf/wreck-captures.ts <base> <out> --only=mbt_lavi --tag=-lighttint
+ *   npx tsx tools/src/perf/wreck-captures.ts .superpowers/wreck-captures [--port=5178] [--attach]
+ *   npx tsx tools/src/perf/wreck-captures.ts <out> --only=mbt_lavi --tag=-lighttint
+ *
+ * It serves its own tree on `--port=<n>` (else WRECK_CAPTURE_PORT, else 5178),
+ * and a port something already holds is refused (`ui-review/port.ts`);
+ * `--attach` drives a server you started there instead. It used to take that
+ * server's URL as its first argument and photograph whatever answered.
  *
  * 11 ids x {live, wreck} x {1.6, 2.2} = 44 PNGs. It is the instrument the
  * spec's SS4.5 asks for and the only one there is: `pnpm validate:meshes`
@@ -43,7 +48,10 @@
 import { chromium, type Page } from 'playwright';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { devServerStopper, ensureDevServer } from '../golden-diff/browser';
 import { musicOffInitScript } from '../ui-review/music-off';
+import { claimPortOrAttach, refuseRetiredBaseUrl } from '../ui-review/port';
 
 /** The zoom band `main.ts` clamps the camera to is 0.35-2.5; these are the two
  *  ends the spec names, and the lead judges the sheet at both. */
@@ -94,15 +102,20 @@ function arg(name: string, fallback: string): string {
   return hit ? hit.slice(name.length + 3) : fallback;
 }
 
+const TAG = 'wreck-captures';
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+refuseRetiredBaseUrl(TAG, process.argv.slice(2));
 const positional = process.argv.slice(2).filter((a) => !a.startsWith('--'));
-const base = positional[0] ?? 'http://127.0.0.1:5178';
-const out = positional[1] ?? '.superpowers/wreck-captures';
+const out = positional[0] ?? '.superpowers/wreck-captures';
+const { port } = await claimPortOrAttach(TAG, 'WRECK_CAPTURE_PORT', 5178);
 /** One id only, for a one-off comparison (the lighter charred tint). */
 const only = arg('only', '');
 /** Appended to every filename, so a variant run cannot overwrite the sheet. */
 const tag = arg('tag', '');
 
 fs.mkdirSync(out, { recursive: true });
+const stopServer = devServerStopper(await ensureDevServer(port, REPO_ROOT, TAG), TAG);
+const base = `http://localhost:${port}`;
 
 const browser = await chromium.launch({
   headless: true,
@@ -213,3 +226,4 @@ for (const [id, x, y] of wanted) {
 
 await browser.close();
 console.log(`done -- ${wanted.length * 4} PNG(s) under ${out}`);
+stopServer();

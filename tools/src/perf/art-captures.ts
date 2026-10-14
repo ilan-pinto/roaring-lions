@@ -1,15 +1,31 @@
 /**
  * The captures the 2026-09-14 art review was argued from, repeatable (eight
  * of its nine; 06, the billboard shot, went with the billboard path):
- *   npx tsx tools/src/perf/art-captures.ts http://127.0.0.1:5178 out/dir
+ *   npx tsx tools/src/perf/art-captures.ts out/dir [--port=5178] [--attach]
  * Headless Chromium, SwiftShader, 1440x900, device pixel ratio 1.
+ *
+ * It serves its own tree on `--port=<n>` (else ART_CAPTURE_PORT, else 5178),
+ * and a port something already holds is refused (`ui-review/port.ts`).
+ * `--attach` drives a server you started there instead -- a BEFORE tree that
+ * has no copy of this file. It used to take that server's URL as its first
+ * argument and photograph whatever answered, with no error.
  */
 import { chromium, type Page } from 'playwright';
 import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { devServerStopper, ensureDevServer } from '../golden-diff/browser';
 import { musicOffInitScript } from '../ui-review/music-off';
+import { claimPortOrAttach, refuseRetiredBaseUrl } from '../ui-review/port';
 
-const [base = 'http://127.0.0.1:5178', out = 'art-captures'] = process.argv.slice(2);
+const TAG = 'art-captures';
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+refuseRetiredBaseUrl(TAG, process.argv.slice(2));
+const [out = 'art-captures'] = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+const { port } = await claimPortOrAttach(TAG, 'ART_CAPTURE_PORT', 5178);
 fs.mkdirSync(out, { recursive: true });
+const stopServer = devServerStopper(await ensureDevServer(port, REPO_ROOT, TAG), TAG);
+const base = `http://localhost:${port}`;
 const browser = await chromium.launch({
   headless: true,
   args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
@@ -84,3 +100,4 @@ await page.goto(base + '/', { waitUntil: 'load' });
 await page.waitForTimeout(2500);
 await shot('09-menu');
 await browser.close();
+stopServer();
