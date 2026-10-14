@@ -41,7 +41,8 @@
     "motion:meshes": "tsx src/meshes/motion-pass.ts",
     "meshy": "tsx src/meshy/cli.ts",
     "video": "tsx src/video/cli.ts",
-    "test": "sh -c 'if [ \"$1\" = \"--\" ]; then shift; fi; exec vitest run --root .. \"$@\"' sh"
+    "test": "sh -c 'if [ \"$1\" = \"--\" ]; then shift; fi; exec vitest run --root .. \"$@\"' sh",
+    "agent": "tsx src/net/agent.ts"
   },
   "dependencies": {
     "@lions/data": "workspace:*",
@@ -52,6 +53,7 @@
     "@gltf-transform/core": "^4.5.1",
     "@gltf-transform/extensions": "^4.5.1",
     "@gltf-transform/functions": "^4.5.1",
+    "@modelcontextprotocol/sdk": "1.31.0",
     "@types/pngjs": "^6.0.5",
     "@types/ws": "8.18.2",
     "draco3dgltf": "^1.5.7",
@@ -59,6 +61,7 @@
     "playwright": "^1.64.0",
     "pngjs": "^7.0.0",
     "tsx": "^4.23.15",
-    "ws": "8.22.0"
+    "ws": "8.22.0",
+    "zod": "4.6.5"
   }
 }

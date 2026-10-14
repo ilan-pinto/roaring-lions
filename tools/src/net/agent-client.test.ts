@@ -2,17 +2,13 @@
 // way the browser does -- a `WsTransport`, the world from `buildMatchWorld`,
 // and the battlefield's own `runFrames` -- against the REAL `MatchRoom` over
 // the fake Durable Object runtime, with the "browser" seat driven by those
-// same app modules. No real socket: `Loop.open` bridges a `FakeSocket` to a
-// `SocketLike`, as `rejoin-catchup.test.ts` does.
+// same app modules. No real socket: `Loop.open` (`test-room.ts`) bridges a
+// `FakeSocket` to a `SocketLike`, as `rejoin-catchup.test.ts` does.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { WsTransport, type Frame, type ServerMsg, type SocketLike } from '@lions/net';
 import type { Command } from '@lions/sim';
-import type { Env } from '../../../packages/worker/src/d1';
-import { FakeState, deliverAlarm, deliverClose, openSocket, type FakeSocket } from '../../../packages/worker/src/match/fake-do';
-import { MatchRoom, TICK_MS } from '../../../packages/worker/src/match/match-room';
-import { signTicket } from '../../../packages/worker/src/match/ticket';
 import { buildMatchWorld, type MatchWorld } from '../../../packages/app/src/net/match-world';
 import { runFrames, seatWorldFor } from '../../../packages/app/src/net/frame-step';
 import { decideOnHashTick, type LocalDecision } from '../../../packages/app/src/net/outcome';
@@ -21,85 +17,13 @@ import { FogTracker } from './fog-tracker';
 import { sideView } from './view';
 import { versusConfig } from './test-config';
 import { buildId } from './build-id';
+import { Loop, ROOM_BUILD, ROOM_CODE, ROOM_MAP, ROOM_NOW, newRoom, play } from './test-room';
 
-const NOW = 1_790_000_000_000;
-const SECRET = 'agent-client-secret';
-const CODE = 'AGENTS';
-const BUILD = 'b-agent';
-const MAP = 'tel_marum';
-const env = { DB: {}, ASSETS: { fetch: async () => new Response('') }, TICKET_SECRET: SECRET } as unknown as Env;
+const NOW = ROOM_NOW;
+const CODE = ROOM_CODE;
+const BUILD = ROOM_BUILD;
+const MAP = ROOM_MAP;
 const TILE = 65536;
-
-/** The in-memory socket pair `rejoin-catchup.test.ts` uses. */
-class Loop {
-  private readonly pending = new Set<Promise<unknown>>();
-  readonly received = new Map<SocketLike, ServerMsg[]>();
-  constructor(readonly room: MatchRoom, readonly state: FakeState) {}
-  private track(p: Promise<unknown>): void {
-    this.pending.add(p);
-    const done = (): void => { this.pending.delete(p); };
-    p.then(done, done);
-  }
-  async flush(): Promise<void> {
-    while (this.pending.size > 0) await Promise.all([...this.pending]);
-  }
-  readonly open = (): SocketLike => {
-    const server: FakeSocket = openSocket(this.room);
-    let live = true;
-    const heard: ServerMsg[] = [];
-    // One socket's messages, and then its close, reach the room in the order
-    // they were sent, as a real socket's do: a `bye` and the close behind it
-    // must not race (`WsTransport.close` sends one and then the other).
-    let last: Promise<unknown> = Promise.resolve();
-    const inOrder = (f: () => Promise<unknown>): void => {
-      const next = last.then(f);
-      last = next.catch(() => {});
-      this.track(next);
-    };
-    const client: SocketLike = {
-      onopen: null, onmessage: null, onclose: null,
-      send: (data) => {
-        if (!live) throw new Error('send on a closed socket');
-        inOrder(() => this.room.webSocketMessage(server.asSocket(), data));
-      },
-      close: () => {
-        if (!live) return;
-        live = false;
-        inOrder(() => deliverClose(this.room, server, 1000, 'closed'));
-        this.track(Promise.resolve().then(() => client.onclose?.({ code: 1000 })));
-      },
-    };
-    server.onSend((text) => {
-      if (!live) return;
-      heard.push(JSON.parse(text) as ServerMsg);
-      client.onmessage?.({ data: text });
-    });
-    this.received.set(client, heard);
-    this.track(Promise.resolve().then(() => client.onopen?.({})));
-    return client;
-  };
-  async tick(): Promise<void> {
-    await vi.advanceTimersByTimeAsync(TICK_MS);
-    const storage = this.state.storage;
-    if (storage.alarmAt !== null && storage.alarmAt <= Date.now()) await deliverAlarm(this.room, storage);
-    await this.flush();
-  }
-}
-
-async function newRoom(): Promise<{ loop: Loop; ticket: (seat: 0 | 1) => Promise<string> }> {
-  const state = new FakeState();
-  const room = new MatchRoom(state, env);
-  const created = await room.fetch(new Request('https://room/create', {
-    method: 'POST', body: JSON.stringify({ code: CODE, matchId: CODE, map: MAP, mode: 'versus', build: BUILD, player: 'Host', callsign: 'Host' }),
-  }));
-  expect(created.status).toBe(200);
-  expect((await room.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player: 'Guest', callsign: 'Guest' }) }))).status).toBe(200);
-  const exp = NOW + 3600 * 1000;
-  return {
-    loop: new Loop(room, state),
-    ticket: (seat) => signTicket(SECRET, { matchId: CODE, seat, player: seat === 0 ? 'Host' : 'Guest', exp }),
-  };
-}
 
 /** The browser's versus seat, cut to the sim: `bootBattlefield`'s world, `main.ts`'s frame step. */
 class Browser {
@@ -132,15 +56,6 @@ class Browser {
 
 function agent(loop: Loop, ticket: string, seat: 0 | 1, build = BUILD): AgentClient {
   return new AgentClient({ server: 'https://room.test', code: CODE, ticket, build, role: 'seat', seat, open: loop.open, log: () => {} });
-}
-
-/** Room ticks until every runner has run `ticks` frames (bounded). */
-async function play(loop: Loop, ticks: number, runners: { pump(n: number): number }[], until: () => boolean): Promise<void> {
-  for (let i = 0; i < ticks * 2 && !until(); i++) {
-    await loop.tick();
-    for (const r of runners) r.pump(10);
-    await loop.flush();
-  }
 }
 
 const sideIds = (w: MatchWorld, side: 0 | 1): number[] => {

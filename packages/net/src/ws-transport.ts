@@ -338,13 +338,23 @@ export class WsTransport implements MatchTransport {
   take(maxTicks: number): Frame[] {
     if (this.draining) return this.clock.drain(maxTicks);
     if (this.st.kind !== 'live' && this.st.kind !== 'stalled' && this.st.kind !== 'paused') return [];
-    const out = this.clock.take(maxTicks);
+    const out = this.clock.take(maxTicks, this.closedRoundEnd());
     if (this.st.kind === 'live') this.st = { kind: 'live', behind: this.clock.behind() };
     if (this.replayFrom !== null && this.clock.behind() <= this.clock.bufferTicks) {
       this.counts.reconnects.lastReplayMs = this.now() - this.replayFrom;
       this.replayFrom = null;
     }
     return out;
+  }
+  /** In a PACED room (N4a), the last tick of the newest round the room has
+   *  closed: the room mints nothing more until the bot seats are done with it,
+   *  so its frames are final and `take` releases them past the buffer --
+   *  otherwise a bot could never run a round's last frames before saying
+   *  `done`. -1 in a realtime room, which keeps the buffer exactly as before. */
+  private closedRoundEnd(): number {
+    const pace = this.config?.pace;
+    if (pace?.kind !== 'paced') return -1;
+    return Math.floor((this.clock.newest + 1) / pace.roundTicks) * pace.roundTicks - 1;
   }
   reportTick(tick: number, digest: number | null): void {
     if (this.role !== 'seat') return;

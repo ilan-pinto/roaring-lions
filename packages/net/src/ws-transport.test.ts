@@ -685,3 +685,39 @@ describe('N4a: the advisor role, advisor and done messages, the round stall', ()
     expect(t.stats().stalls.behind.count).toBe(0);
   });
 });
+
+describe('N4a: a paced room releases a closed round past the buffer', () => {
+  const PACED: MatchConfig = { ...CONFIG, mode: 'versus', pace: { kind: 'paced', roundTicks: 20, roundWallMs: 5000 } };
+  const feed = (sock: Fake, from: number, to: number): void => { for (let tick = from; tick <= to; tick++) sock.recv({ t: 'frame', tick, cmds: [] }); };
+  it('paced: every frame of a closed round is runnable at once, and the next round is held behind the buffer again', () => {
+    const sock = fakeSocket();
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} });
+    sock.open();
+    sock.recv({ t: 'start', config: PACED });
+    // Round 0 closes on tick 19: the room mints no more until the bot is done,
+    // so ticks 18 and 19 must not wait behind a buffer that will never fill.
+    feed(sock, 0, 19);
+    expect(t.take(100).map((f) => f.tick)).toEqual(Array.from({ length: 20 }, (_, i) => i));
+    expect(t.behind()).toBe(0);
+    // Part of round 1: the open round keeps the realtime buffer.
+    feed(sock, 20, 25);
+    expect(t.take(100).map((f) => f.tick)).toEqual([20, 21, 22, 23]);
+    // Round 1 closes: the rest is released.
+    feed(sock, 26, 39);
+    expect(t.take(100).map((f) => f.tick)).toEqual(Array.from({ length: 16 }, (_, i) => 24 + i));
+    // maxTicks still bounds a batch.
+    feed(sock, 40, 59);
+    expect(t.take(5).map((f) => f.tick)).toEqual([40, 41, 42, 43, 44]);
+  });
+  it('realtime: unchanged -- frames stay bufferTicks behind the newest, at a "round boundary" too', () => {
+    const sock = fakeSocket();
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} });
+    sock.open();
+    sock.recv({ t: 'start', config: { ...CONFIG, mode: 'versus' } });
+    feed(sock, 0, 19);
+    expect(t.take(100).map((f) => f.tick)).toEqual(Array.from({ length: 18 }, (_, i) => i));
+    expect(t.behind()).toBe(2);
+    feed(sock, 20, 39);
+    expect(t.take(100).at(-1)?.tick).toBe(37);
+  });
+});

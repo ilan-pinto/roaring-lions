@@ -34,6 +34,7 @@
     "ui:shots": "pnpm --filter @lions/tools ui:shots",
     "ui:routes": "pnpm --filter @lions/tools ui:routes",
     "net:engines": "pnpm --filter @lions/tools net:engines",
+    "agent": "pnpm --silent --filter @lions/tools agent",
     "blast:capture": "pnpm --filter @lions/tools blast:capture",
     "atgm:capture": "pnpm --filter @lions/tools atgm:capture",
     "tunnel:capture": "pnpm --filter @lions/tools tunnel:capture",

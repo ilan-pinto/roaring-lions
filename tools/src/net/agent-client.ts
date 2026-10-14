@@ -20,6 +20,7 @@ import {
   type SeatWorld,
   type SocketLike,
 } from '@lions/net';
+import type { Command } from '@lions/sim';
 import { buildMatchWorld, type MatchWorld } from '../../../packages/app/src/net/match-world';
 import { runFrames, seatWorldFor } from '../../../packages/app/src/net/frame-step';
 import {
@@ -166,6 +167,24 @@ export class AgentClient {
 
   world(): MatchWorld | null {
     return this.live?.w ?? null;
+  }
+
+  /** The room's config, once the match has started. */
+  config(): MatchConfig | null {
+    return this.live?.config ?? null;
+  }
+
+  /** The seat this client plays (or advises). */
+  get seat(): Seat {
+    return this.o.seat;
+  }
+
+  /** Ownership's verdict on `cmd` from this seat, on THIS machine's world:
+   *  advisory only. The authoritative drop is `applyFrame`'s, on both
+   *  machines, when the frame carrying it runs. False before the start. */
+  precheck(cmd: Command): boolean {
+    const live = this.live;
+    return live !== null && validateCommand(cmd, this.o.seat, live.seatWorld);
   }
 
   /** Frames run so far. */
