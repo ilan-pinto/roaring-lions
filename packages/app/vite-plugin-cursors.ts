@@ -95,6 +95,7 @@ import {
   ANIMATED_CURSORS,
   CURSOR_ALIAS,
   SIGHT_OF,
+  UNBADGED_NAMES,
   cursorKey,
   type CursorName,
   type UnbadgedName,
@@ -539,6 +540,8 @@ type BareCursorName = Exclude<CursorName, 'default' | 'mount' | 'dismount' | 'ch
  *  charging group is always uniformly `soft` and the bare `charge` key can
  *  never compose -- it is always `charge-soft` (Minor 2, same review). */
 const BARE_NAMES: readonly BareCursorName[] = [
+  // `attack` (GH-420) is absent on purpose: it is a CURSOR_ALIAS of `advance`,
+  // so `advance`'s rules answer to it, bare and badged (`selectorsFor`).
   'move',
   'advance',
   'sweep',
@@ -783,8 +786,16 @@ function selectorFor(key: string, frame: number | null, variant: string | null):
  *  second rule: a key of its own that drew the same image would be a
  *  byte-identical duplicate, which the sheet's tests refuse. */
 function selectorsFor(key: string, frame: number | null, variant: string | null): string[] {
-  const names = [key, ...Object.entries(CURSOR_ALIAS).filter(([, to]) => to === key).map(([alias]) => alias)];
-  return names.map((n) => selectorFor(n, frame, variant));
+  // A badged key is `<name>-<bucket>`: its aliases are `<alias>-<bucket>`, and
+  // an alias that never earns a badge (`moveOnly`, UNBADGED_NAMES) has no
+  // badged form to answer for.
+  const dash = key.indexOf('-');
+  const base = dash < 0 ? key : key.slice(0, dash);
+  const suffix = dash < 0 ? '' : key.slice(dash);
+  const aliases = (Object.entries(CURSOR_ALIAS) as [CursorName, CursorName][])
+    .filter(([alias, to]) => to === base && (suffix === '' || !UNBADGED_NAMES.has(alias)))
+    .map(([alias]) => `${alias}${suffix}`);
+  return [key, ...aliases].map((n) => selectorFor(n, frame, variant));
 }
 
 /** The CSS text the plugin injects.

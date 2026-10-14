@@ -179,6 +179,9 @@ export function gestureVerb(g: Gesture): { verb: OrderVerb; ids: readonly number
     // about which enemy is engaged.
     case 'advance':
       return pick('order', 'attack');
+    // GH-420: the targeted order is the same shout, over the attack intent.
+    case 'attack':
+      return pick('attack', 'attack');
     case 'garrison':
       return pick('garrison', 'garrison');
     case 'mount':

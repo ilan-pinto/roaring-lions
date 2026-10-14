@@ -5,8 +5,11 @@
  * stood the way `bootBattlefield` stands them, and the read is the one
  * `main.ts`'s hover and click both call (`pointerPoint` + `cursorAt`).
  *
- * PA-08: over an enemy the cursor said `attack`, but the click is an
- * attack-move to the tile and the sim picks the target. It says `advance`.
+ * PA-08 / GH-420: over an enemy the cursor said `attack` when the click was
+ * an attack-move to the tile. It said `advance` until the targeted order
+ * (`attack` intent): now an identified enemy someone selected can hurt reads
+ * `attack` and the click fires on THAT unit, while a suspected contact still
+ * reads `advance` and still attack-moves.
  *
  * PA-14: a right-click on the house's upper wall read `move` and sent the
  * squad to the ground hidden behind the house (audit play-40, tutorial
@@ -25,7 +28,7 @@ import {
 } from '@lions/render/three-camera';
 import type { Camera, Viewport } from '@lions/render/project';
 import { standMapStructures } from '../map-sim';
-import { cursorAt, hostileUnder, pointerPoint, simIntentWorld, type PointerView } from './pointer';
+import { cursorAt, pointerPoint, simIntentWorld, type PointerView } from './pointer';
 
 const VP: Viewport = { width: 1440, height: 900 };
 const CENTRE = { x: VP.width / 2, y: VP.height / 2 };
@@ -50,7 +53,7 @@ function world() {
 }
 
 /** The renderer's three questions, answered by the real projection. */
-function viewOf(sim: Sim, cam: Camera, viewer = 0): PointerView {
+function viewOf(sim: Sim, cam: Camera, viewer = 0, visible: (x: number, y: number) => boolean = () => true): PointerView {
   const st = sim.structures;
   const drawn = (s: number): DrawnSize =>
     sim.structureTypes[st.typeIdx[s]].id === 'house'
@@ -67,7 +70,24 @@ function viewOf(sim: Sim, cam: Camera, viewer = 0): PointerView {
   return {
     screenToWorld: (px, py) => screenToWorldThree(px, py, cam, VP),
     structureAtScreen: (px, py) => structureAtScreenThree(px, py, cam, VP, structureBoxes(sim, null, drawn)),
-    isVisible: () => true,
+    isVisible: visible,
+    // Stands in for the renderer's body pick (#534): the nearest living unit,
+    // ANY side, whose projected position is within 24 px of the pixel. The
+    // enemy filter under test is `pointerPoint`'s, not this.
+    unitAtScreen: (px, py) => {
+      let best = -1;
+      let bestD = 24 * 24;
+      for (let i = 0; i < sim.entityCount; i++) {
+        if (sim.state.alive[i] === 0) continue;
+        const at = worldToScreenThree(fx.toNumber(sim.state.posX[i]), fx.toNumber(sim.state.posY[i]), cam, VP);
+        const d = (at.x - px) ** 2 + (at.y - py) ** 2;
+        if (d < bestD) {
+          bestD = d;
+          best = i;
+        }
+      }
+      return best;
+    },
     viewer,
   };
 }
@@ -79,23 +99,68 @@ const read = (sim: Sim, cam: Camera, ids: number[], px: number, py: number) => {
   return { p, ...c };
 };
 
-describe('PA-08: the cursor over an enemy says what the click does', () => {
-  it('reads advance, and the click it predicts is an attack-move to that tile', () => {
+describe('PA-08 / GH-420: the cursor over an enemy says what the click does', () => {
+  /** A rifle squad and a militia cell, the camera on the militia so it is the
+   *  screen's centre pixel. `identified` reveals the militia to side 0 through
+   *  the sim's own path; otherwise it is only a suspected contact. */
+  function setup(identified: boolean) {
     const { sim, spawn } = world();
     const squad = spawn('inf_squad', 0, 11.5, 24.5);
     const militia = spawn('militia_cell', 1, 26.5, 24.5); // `contact_open`
-    // The camera on the militia: the enemy sits at the screen's centre pixel.
+    if (identified) sim.identifyTo(0, militia);
     const cam: Camera = { x: fx.toNumber(sim.state.posX[militia]), y: fx.toNumber(sim.state.posY[militia]), zoom: 1 };
+    return { sim, squad, militia, cam, spawn };
+  }
+
+  it('an identified enemy a selected unit can hurt reads attack-soft, and the click is one attack naming it', () => {
+    const { sim, squad, militia, cam } = setup(true);
+    const r = read(sim, cam, [squad], CENTRE.x, CENTRE.y);
+
+    expect(r.p.hostile).toBe(militia);
+    expect(r.key).toBe('attack-soft');
+    // What the click will issue, from the same resolution: ONE targeted order
+    // naming the militia, and no attack-move beside it (the squad can hurt it).
+    expect(r.res.intents).toEqual([{ kind: 'attack', ids: [squad], target: militia }]);
+  });
+
+  it('a suspected contact keeps advance-soft and the attack-move to its tile', () => {
+    const { sim, squad, militia, cam } = setup(false);
     const r = read(sim, cam, [squad], CENTRE.x, CENTRE.y);
 
     expect(r.p.hostile).toBe(militia);
     expect(r.key).toBe('advance-soft');
-    expect(r.key.startsWith('attack')).toBe(false);
-    // What the click will issue, from the same resolution: one attack-move to
-    // the point, no targeted order naming the militia.
     expect(r.res.intents).toEqual([
       { kind: 'order', verb: 'attackMove', ids: [squad], x: r.p.x, y: r.p.y, append: false },
     ]);
+    // The order goes to the picked body's own position, not the ground behind it.
+    expect(r.p.x).toBeCloseTo(26.5, 5);
+    expect(r.p.y).toBeCloseTo(24.5, 5);
+  });
+
+  it('an identified enemy nobody selected can aim at falls back to the attack-move', () => {
+    const { sim, spawn, cam, militia } = setup(true);
+    const manpad = spawn('manpad_team', 0, 11.5, 24.4); // anti-air only, no ground weapon
+    const r = read(sim, cam, [manpad], CENTRE.x, CENTRE.y);
+    expect(sim.canFocus(manpad, militia)).toBe(false);
+    expect(r.name).toBe('advance');
+    expect(r.res.intents.map((i) => i.kind)).toEqual(['order']);
+  });
+
+  it('an identified armoured target nothing selected can penetrate is refused, with a reason', () => {
+    const { sim, spawn } = setup(true);
+    const squad = spawn('inf_squad', 0, 11.5, 24.6);
+    const tank = spawn('mbt_lavi', 1, 20.5, 18.5);
+    sim.identifyTo(0, tank);
+    const camOnTank: Camera = { x: 20.5, y: 18.5, zoom: 1 };
+    expect(sim.canFocus(squad, tank)).toBe(true);
+    expect(sim.focusHurts(squad, tank)).toBe(false);
+    const view = viewOf(sim, camOnTank);
+    const p = pointerPoint(view, sim, CENTRE.x, CENTRE.y);
+    expect(p.hostile).toBe(tank);
+    const c = cursorAt(sim, simIntentWorld(sim, () => false), p, { ids: [squad], armed: null, confirm: false, armedSmoke: false });
+    expect(c.res.refused).toBe(true);
+    expect(c.res.intents).toEqual([]);
+    expect(c.res.note?.text).toBe("Can't penetrate: nothing selected can hurt that armour");
   });
 });
 
@@ -222,18 +287,32 @@ describe('N1a: the enemy under the pointer is the viewer\'s enemy', () => {
     const { sim, spawn } = world();
     const theirs = spawn('inf_squad', 0, 11.5, 24.5);
     const ours = spawn('militia_cell', 1, 26.5, 24.5);
-    const seen = () => true;
-    expect(hostileUnder(sim, 11.5, 24.5, seen, 1)).toBe(theirs);
-    expect(hostileUnder(sim, 26.5, 24.5, seen, 1)).toBe(-1);
+    const at = (x: number, y: number, viewer?: number) =>
+      pointerPoint(viewOf(sim, { x, y, zoom: 1 }, viewer), sim, CENTRE.x, CENTRE.y).hostile;
+    expect(at(11.5, 24.5, 1)).toBe(theirs);
+    expect(at(26.5, 24.5, 1)).toBe(-1);
     // Viewer 0 is the single-player rule, unchanged.
-    expect(hostileUnder(sim, 11.5, 24.5, seen, 0)).toBe(-1);
-    expect(hostileUnder(sim, 26.5, 24.5, seen)).toBe(ours);
+    expect(at(11.5, 24.5, 0)).toBe(-1);
+    expect(at(26.5, 24.5)).toBe(ours);
   });
   it('a civilian is nobody\'s enemy', () => {
     const { sim, spawn } = world();
     spawn('civilians', 2, 11.5, 24.5);
-    expect(hostileUnder(sim, 11.5, 24.5, () => true, 0)).toBe(-1);
-    expect(hostileUnder(sim, 11.5, 24.5, () => true, 1)).toBe(-1);
+    for (const viewer of [0, 1]) {
+      expect(pointerPoint(viewOf(sim, { x: 11.5, y: 24.5, zoom: 1 }, viewer), sim, CENTRE.x, CENTRE.y).hostile).toBe(-1);
+    }
+  });
+  it('an enemy the fog hides is not under the pointer (no locating a defender by sweeping)', () => {
+    const { sim, spawn } = world();
+    spawn('inf_squad', 0, 11.5, 24.5);
+    const fogged = viewOf(sim, { x: 11.5, y: 24.5, zoom: 1 }, 1, () => false);
+    expect(pointerPoint(fogged, sim, CENTRE.x, CENTRE.y).hostile).toBe(-1);
+  });
+  it('a dead enemy is not under the pointer', () => {
+    const { sim, spawn } = world();
+    const theirs = spawn('inf_squad', 0, 11.5, 24.5);
+    sim.debugKill(theirs);
+    expect(pointerPoint(viewOf(sim, { x: 11.5, y: 24.5, zoom: 1 }, 1), sim, CENTRE.x, CENTRE.y).hostile).toBe(-1);
   });
   it('pointerPoint reads the view\'s viewer', () => {
     const { sim, spawn } = world();

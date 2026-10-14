@@ -130,6 +130,7 @@ export function orderVerbOf(i: PlayerIntent): TelemetryOrderVerb | null {
   switch (i.kind) {
     case 'order':
       return i.verb;
+    case 'attack':
     case 'garrison':
     case 'demolish':
     case 'chargeTunnel':
@@ -155,7 +156,7 @@ export function tallyUnit(m: CountMap, id: string): void {
   m[id] = Math.min(COUNT_MAX, (m[id] ?? 0) + 1);
 }
 
-/** `orders` counts one of the eleven `TelemetryOrderVerb`s; anything else is
+/** `orders` counts one of the twelve `TelemetryOrderVerb`s; anything else is
  *  refused rather than silently tallied under a key the contract would never
  *  recognise. Takes `string` (not `TelemetryOrderVerb`) so the runtime check
  *  stays load-bearing even if a caller's static typing is wrong or bypassed. */

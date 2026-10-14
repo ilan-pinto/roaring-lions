@@ -111,6 +111,7 @@ function sample(kind: PlayerIntent['kind']): PlayerIntent {
   switch (kind) {
     case 'select': return { kind, ids: [1], via: 'click' };
     case 'order': return { kind, verb: 'attackMove', ids: [1], x: 1, y: 1, append: false };
+    case 'attack': return { kind, ids: [1], target: 5 };
     case 'garrison': return { kind, ids: [1], structure: 2 };
     case 'demolish': return { kind, ids: [1], structure: 2 };
     case 'chargeTunnel': return { kind, ids: [1], tunnel: 0 };
@@ -127,7 +128,7 @@ function sample(kind: PlayerIntent['kind']): PlayerIntent {
 describe('order verbs (GH-254, D2: per intent)', () => {
   it('maps every intent kind: commands to their verb, presentation to null', () => {
     expect(Object.fromEntries(INTENT_KINDS.map((k) => [k, ev.orderVerbOf(sample(k))]))).toEqual({
-      select: null, order: 'attackMove', garrison: 'garrison', demolish: 'demolish', chargeTunnel: 'chargeTunnel',
+      select: null, order: 'attackMove', attack: 'attack', garrison: 'garrison', demolish: 'demolish', chargeTunnel: 'chargeTunnel',
       mount: 'mount', dismount: 'dismount', smoke: 'smoke', halt: 'halt', group: null, overlay: null, support: 'strike',
     });
   });
@@ -146,7 +147,7 @@ describe('order verbs (GH-254, D2: per intent)', () => {
     expect(m).toEqual({ move: 2 });
   });
 
-  it('tallyVerb refuses a unit-id-shaped key that is not one of the eleven verbs, even though it would pass the unit-id pattern', () => {
+  it('tallyVerb refuses a unit-id-shaped key that is not one of the twelve verbs, even though it would pass the unit-id pattern', () => {
     const m: Partial<Record<TelemetryOrderVerb, number>> = {};
     ev.tallyVerb(m, 'mbt_lavi');
     expect(m).toEqual({});

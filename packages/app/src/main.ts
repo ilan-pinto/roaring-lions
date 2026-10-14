@@ -2114,10 +2114,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const three = new ThreeRenderer(sim, opts);
   const renderer: Renderer = three;
   /** The pointer's view of the renderer, plus the side whose enemy is "under
-   *  the pointer" (`hostileUnder`). Delegates, so it reads the live renderer. */
+   *  the pointer" (`pointerPoint`). Delegates, so it reads the live renderer. */
   const pointerView: PointerView = {
     screenToWorld: (px, py) => renderer.screenToWorld(px, py),
     structureAtScreen: (px, py) => renderer.structureAtScreen(px, py),
+    unitAtScreen: (px, py) => renderer.unitAtScreen(px, py),
     isVisible: (wx, wy) => renderer.isVisible(wx, wy),
     viewer: me,
   };
@@ -4113,8 +4114,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               append: ev.shiftKey,
               armed: null,
               confirm: ev.altKey,
+              // The enemy body under the pixel (R-9, R-13): the armed chip's
+              // left click and the right click are the same order.
+              hostile: at.hostile,
             });
-            voice.hint({ hostile: renderer.hoverEntity >= 0 });
+            voice.hint({ hostile: at.hostile >= 0 });
             for (const intent of move.intents) dispatch(intent);
             if (move.note) hud.note(move.note.text, move.note.tone);
             if (move.marker) orderMarker(at.x, at.y);
@@ -4214,10 +4218,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       issueMove(intentWorld, orderSink, myLiving(), w.x, w.y, { append: ev.shiftKey });
       return;
     }
-    voice.hint({ hostile: renderer.hoverEntity >= 0 });
+    voice.hint({ hostile: w.hostile >= 0 });
     issueOrder(intentWorld, orderSink, myLiving(), w.x, w.y, {
       append: ev.shiftKey,
       confirm: ev.altKey,
+      // The same enemy id the hover cursor and the fire panel read (R-13).
+      hostile: w.hostile,
     });
   });
   // The keyboard, as data (Task 5): `resolveKey` is the one place a raw
@@ -5646,8 +5652,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         sim.state.garrisonedIn[i] !== hs
     );
 
-  // Nearest living enemy within half a tile of the cursor's GROUND point,
-  // fog-gated -- `hostileUnder`'s own comment has the rule.
+  // The enemy the pixel shows (`unitAtScreen`), alive, hostile and fog-gated --
+  // `hostileAt`'s own comment in input/pointer.ts has the rule.
   const he = pp.hostile;
   renderer.hoverEntity = he;
 

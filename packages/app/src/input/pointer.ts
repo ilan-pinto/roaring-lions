@@ -11,9 +11,10 @@
  *   hidden ground BEHIND the building (`screenToWorld` meets the ground, and
  *   the wall is in the way). `pointerPoint` asks the renderer which building
  *   the pixel shows first, and resolves the click to that building.
- * - PA-08: what the cursor names over an enemy -- `advance`, because a
- *   right-click there is an attack-move to the tile, not a targeted attack.
- *   That rule is `cursor.ts`'s; this is the path that reaches it.
+ * - PA-08: what the cursor names over an enemy. `advance` while a right-click
+ *   there is an attack-move to the tile (a suspected contact), `attack` when
+ *   it is a targeted order (GH-420). That rule is `cursor.ts`'s; this is the
+ *   path that reaches it.
  *
  * No DOM. `Sim` is read, never written.
  */
@@ -50,53 +51,43 @@ export function simIntentWorld(sim: Sim, inFlaggedZone: (x: number, y: number) =
       return sim.blocked[ty * sim.width + tx] !== 0 ? 'blocked' : 'open';
     },
     flies: (i) => sim.unitTypes[sim.state.typeIdx[i]].isAir,
+    // GH-420: the sim's own filter, so the split the click makes and the
+    // sim's refusal cannot drift (R-8). Read-only queries.
+    canFocus: (i, target) => sim.canFocus(i, target),
+    focusHurts: (i, target) => sim.focusHurts(i, target),
   };
 }
 
-/** What the pointer needs from the renderer: projection and visibility, the
- *  three questions only the renderer can answer -- plus the side this screen
+/** What the pointer needs from the renderer: projection, the unit a pixel
+ *  shows, and visibility -- the questions only the renderer can answer -- plus the side this screen
  *  commands (`viewerSideOf`, network design §5.1), which decides who counts
  *  as an enemy under the pointer. */
 export interface PointerView {
   screenToWorld(px: number, py: number): { x: number; y: number };
   structureAtScreen(px: number, py: number): number;
   isVisible(wx: number, wy: number): boolean;
+  /** The unit a click at this pixel picks (`Renderer.unitAtScreen`, PR 534), or
+   *  -1. ANY unit, own or enemy, visible or not: `pointerPoint` filters. */
+  unitAtScreen(px: number, py: number): number;
   readonly viewer: number;
 }
 
-/** How near the pointer's ground point an enemy must stand to be "under" it:
- *  half a tile, the same generosity the click-to-select test uses. */
-export const HOVER_RADIUS_TILES = 0.5;
-
 /**
- * Nearest living ENEMY (hostile to `viewer` -- never a civilian, side 2 is
- * never an aimpoint) within half a tile of a ground point, or -1. Gated on
- * `isVisible`, the condition the renderer draws a hostile by, so sweeping the
- * cursor over fog cannot locate a hidden defender through the fire panel.
+ * The enemy the pixel shows, or -1 (GH-420, R-13). One id for the hover, the
+ * fire panel, the cursor and the click: the unit the renderer's own pick
+ * names (PR 534: measured against the ground each unit's drawn body hides, so a
+ * click on a body in a group is that body and not the ground behind it),
+ * kept only if it is alive, hostile to `viewer` -- never own, never a
+ * civilian, side 2 is never an aimpoint -- and standing where
+ * `isVisible` says it is drawn. The visibility check is the fog guard that
+ * `hostileUnder` carried: in a versus room sweeping the cursor over fog must
+ * not locate a hidden defender through the fire panel.
  */
-export function hostileUnder(
-  sim: Sim,
-  wx: number,
-  wy: number,
-  isVisible: (x: number, y: number) => boolean,
-  viewer: number = 0
-): number {
-  let he = -1;
-  let bestD = HOVER_RADIUS_TILES * HOVER_RADIUS_TILES;
-  for (let i = 0; i < sim.entityCount; i++) {
-    if (sim.state.alive[i] === 0 || !isHostileSide(sim.state.side[i], viewer)) continue;
-    const ex = fx.toNumber(sim.state.posX[i]);
-    const ey = fx.toNumber(sim.state.posY[i]);
-    if (!isVisible(ex, ey)) continue;
-    const dx = ex - wx;
-    const dy = ey - wy;
-    const d = dx * dx + dy * dy;
-    if (d < bestD) {
-      bestD = d;
-      he = i;
-    }
-  }
-  return he;
+function hostileAt(view: PointerView, sim: Sim, px: number, py: number): number {
+  const hit = view.unitAtScreen(px, py);
+  if (hit < 0 || hit >= sim.entityCount) return -1;
+  if (sim.state.alive[hit] === 0 || !isHostileSide(sim.state.side[hit], view.viewer)) return -1;
+  return view.isVisible(fx.toNumber(sim.state.posX[hit]), fx.toNumber(sim.state.posY[hit])) ? hit : -1;
 }
 
 /** Where an order given at this pixel goes, and what the pointer is over. */
@@ -104,10 +95,11 @@ export interface PointerPoint {
   /** Where the pixel's ray meets the ground (`screenToWorld`). */
   readonly ground: { x: number; y: number };
   /** The point an order resolves at: `ground`, or the centre of the building
-   *  whose wall the pixel shows. */
+   *  whose wall the pixel shows, or -- over an enemy -- that enemy's own
+   *  position, since the ground under a picked body is somewhere behind it. */
   readonly x: number;
   readonly y: number;
-  /** The enemy under `ground`, or -1. */
+  /** The enemy the pixel shows (`unitAtScreen`), or -1. */
   readonly hostile: number;
   /** The building the pixel shows above its footprint, or -1 when the click
    *  is on the ground (including on a footprint the ground pick reached). */
@@ -127,8 +119,20 @@ export interface PointerPoint {
  */
 export function pointerPoint(view: PointerView, sim: Sim, px: number, py: number): PointerPoint {
   const ground = view.screenToWorld(px, py);
-  const hostile = hostileUnder(sim, ground.x, ground.y, (x, y) => view.isVisible(x, y), view.viewer);
-  const s = hostile >= 0 ? -1 : view.structureAtScreen(px, py);
+  const hostile = hostileAt(view, sim, px, py);
+  if (hostile >= 0) {
+    // The order goes to the body the player picked, not the ground under the
+    // pixel behind it: the attack-move that a suspected contact falls back to
+    // and the T-D7 remainder both aim at the enemy's tile.
+    return {
+      ground,
+      x: fx.toNumber(sim.state.posX[hostile]),
+      y: fx.toNumber(sim.state.posY[hostile]),
+      hostile,
+      facade: -1,
+    };
+  }
+  const s = view.structureAtScreen(px, py);
   if (s < 0 || sim.structures.alive[s] !== 1 || sim.structureAt(Math.floor(ground.x), Math.floor(ground.y)) === s) {
     return { ground, x: ground.x, y: ground.y, hostile, facade: -1 };
   }
@@ -181,6 +185,7 @@ export function cursorAt(sim: Sim, world: IntentWorld, p: PointerPoint, ctx: Cur
         append: false,
         armed: ctx.armed,
         confirm: ctx.confirm,
+        hostile: p.hostile,
       });
   const tx = Math.floor(p.x);
   const ty = Math.floor(p.y);

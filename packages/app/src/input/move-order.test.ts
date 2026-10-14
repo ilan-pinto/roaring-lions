@@ -31,6 +31,8 @@ function world(over: Partial<IntentWorld> = {}): IntentWorld {
     inFlaggedZone: () => false,
     groundAt: () => 'open',
     flies: () => false,
+    canFocus: () => false,
+    focusHurts: () => false,
     ...over,
   };
 }
@@ -148,6 +150,8 @@ describe('the cursor through the real pointer (tutorial ground)', () => {
       screenToWorld: (px, py) => screenToWorldThree(px, py, cam, VP),
       structureAtScreen: (px, py) => structureAtScreenThree(px, py, cam, VP, structureBoxes(sim, null, () => ({ width: 1, height: 1, depth: 1 }))),
       isVisible: () => true,
+      // The militia is the only unit at the centre pixel.
+      unitAtScreen: () => militia,
       viewer: 0,
     };
     const p = pointerPoint(view, sim, VP.width / 2, VP.height / 2);

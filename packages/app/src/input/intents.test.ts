@@ -5,6 +5,7 @@ import {
   applyIntent,
   issueOrder,
   orderDenied,
+  resolvePointer,
   sortMount,
   sortStructureOrder,
   INTENT_KINDS,
@@ -95,7 +96,7 @@ describe('INTENT_KINDS', () => {
     // Task 5's step cross-check validates tutorial JSON against this list, so
     // a kind missing here becomes a step nobody can complete.
     const kinds: PlayerIntent['kind'][] = [
-      'select', 'order', 'garrison', 'demolish', 'chargeTunnel', 'mount', 'dismount',
+      'select', 'order', 'attack', 'garrison', 'demolish', 'chargeTunnel', 'mount', 'dismount',
       'smoke', 'halt', 'group', 'overlay', 'support',
     ];
     expect([...INTENT_KINDS].sort()).toEqual([...kinds].sort());
@@ -186,6 +187,8 @@ function world(over: Partial<IntentWorld> = {}): IntentWorld {
     inFlaggedZone: () => false,
     groundAt: () => 'open',
     flies: () => false,
+    canFocus: () => false,
+    focusHurts: () => false,
     ...over,
   };
 }
@@ -348,6 +351,131 @@ describe('K-08: a click on ground nobody can enter', () => {
     const s = orderSink();
     issueOrder(world({ groundAt: () => 'blocked', structureAt: () => 7 }), s, [1], 4.5, 6.5, { append: false, confirm: false });
     expect(s.log.map((e) => e.did)).toEqual(['dispatch', 'marker']);
+  });
+});
+
+describe('applyIntent: attack (GH-420)', () => {
+  it('queues the sim attack command with the ids and the target, untouched', () => {
+    const s = sink();
+    applyIntent(s, { kind: 'attack', ids: [3, 4], target: 9 }, MAP);
+    expect(s.out).toEqual([{ kind: 'attack', ids: [3, 4], target: 9 }]);
+  });
+});
+
+// GH-420 Task 3: the hostile rung. Ids 1 and 2 are a rifle squad, id 3 an AA
+// team, id 4 a tank; the target is id 9. Each case builds the world it needs,
+// so "can focus" and "can hurt" are declared per unit, never assumed.
+describe('resolvePointer: the hostile rung (GH-420)', () => {
+  const ctx = (ids: number[], over: Partial<Parameters<typeof resolvePointer>[1]> = {}) => ({
+    ids,
+    x: 12.5,
+    y: 7.5,
+    append: false,
+    armed: null,
+    confirm: false,
+    hostile: 9,
+    ...over,
+  });
+  const everyoneHurts = world({ canFocus: () => true, focusHurts: () => true });
+
+  it('an identified enemy everybody can hurt: one attack naming it, no attack-move', () => {
+    const r = resolvePointer(everyoneHurts, ctx([1, 2]));
+    expect(r.intents).toEqual([{ kind: 'attack', ids: [1, 2], target: 9 }]);
+    expect(r.marker).toBe(true);
+    expect(r.refused).toBeUndefined();
+  });
+
+  it('T-D7: a rifle squad and an AA team on a helicopter: the AA fires, the rifles advance to its tile', () => {
+    // Rifles cannot aim at the air at all; the AA team can, and can hurt it.
+    const w = world({ canFocus: (i) => i === 3, focusHurts: (i) => i === 3 });
+    const r = resolvePointer(w, ctx([1, 2, 3]));
+    expect(r.intents).toEqual([
+      { kind: 'attack', ids: [3], target: 9 },
+      { kind: 'order', verb: 'attackMove', ids: [1, 2], x: 12.5, y: 7.5, append: false },
+    ]);
+    expect(r.marker).toBe(true);
+    expect(r.refused).toBeUndefined();
+  });
+
+  it('T-D7: a unit that can focus but would only bounce advances while the hurting one fires', () => {
+    const w = world({ canFocus: () => true, focusHurts: (i) => i === 4 });
+    const r = resolvePointer(w, ctx([1, 4]));
+    expect(r.intents).toEqual([
+      { kind: 'attack', ids: [4], target: 9 },
+      { kind: 'order', verb: 'attackMove', ids: [1], x: 12.5, y: 7.5, append: false },
+    ]);
+  });
+
+  it('nobody can focus it (a suspected contact): today\'s attack-move for the whole selection', () => {
+    const w = world({ canFocus: () => false, focusHurts: () => true });
+    const r = resolvePointer(w, ctx([1, 2, 3]));
+    expect(r.intents).toEqual([{ kind: 'order', verb: 'attackMove', ids: [1, 2, 3], x: 12.5, y: 7.5, append: false }]);
+    expect(r.refused).toBeUndefined();
+  });
+
+  it('R-1: somebody can aim at it and nobody can hurt it: refused, no intents, a reason, and a denial', () => {
+    const w = world({ canFocus: () => true, focusHurts: () => false });
+    const r = resolvePointer(w, ctx([1, 2]));
+    expect(r.intents).toEqual([]);
+    expect(r.refused).toBe(true);
+    expect(r.marker).toBe(false);
+    expect(r.note).toEqual({ text: "Can't penetrate: nothing selected can hurt that armour", tone: 'mute' });
+    expect(orderDenied(r, 2)).toBe(true);
+    // Through the one carrying-out: the note, then the deny cue, no marker.
+    const s = orderSink();
+    issueOrder(w, s, [1, 2], 12.5, 7.5, { append: false, confirm: false, hostile: 9 });
+    expect(s.log).toEqual([
+      { did: 'note', text: "Can't penetrate: nothing selected can hurt that armour", tone: 'mute' },
+      { did: 'deny' },
+    ]);
+  });
+
+  it('R-1: a wrong-domain unit beside one that can aim but not hurt does not rescue the click', () => {
+    // Rifles (1) cannot aim at the helicopter, the AA team (3) can but cannot
+    // hurt it: somebody can focus and nobody can hurt, so it is refused.
+    const w = world({ canFocus: (i) => i === 3, focusHurts: () => false });
+    expect(resolvePointer(w, ctx([1, 3])).refused).toBe(true);
+  });
+
+  it('T-D9: Shift keeps today\'s appended attack-move, no attack', () => {
+    const r = resolvePointer(everyoneHurts, ctx([1, 2], { append: true }));
+    expect(r.intents).toEqual([{ kind: 'order', verb: 'attackMove', ids: [1, 2], x: 12.5, y: 7.5, append: true }]);
+  });
+
+  it('R-12: it outranks the structure rung and the ground refusal', () => {
+    const onBuilding = world({ canFocus: () => true, focusHurts: () => true, structureAt: () => 7, groundAt: () => 'blocked' });
+    const r = resolvePointer(onBuilding, ctx([1, 2]));
+    expect(r.intents).toEqual([{ kind: 'attack', ids: [1, 2], target: 9 }]);
+    expect(r.groundRefused).toBeUndefined();
+    // And the same enemy click with no body picked is the structure rung as before.
+    expect(resolvePointer(onBuilding, ctx([1, 2], { hostile: -1 })).intents).toEqual([
+      { kind: 'order', verb: 'attackMove', ids: [1, 2], x: 12.5, y: 7.5, append: false },
+    ]);
+  });
+
+  it('an armed support call and an empty selection still come first', () => {
+    expect(resolvePointer(everyoneHurts, ctx([1], { armed: 'strike' })).intents).toEqual([]);
+    expect(resolvePointer(everyoneHurts, ctx([1], { armed: 'strike' })).armed).toBe('strike');
+    expect(resolvePointer(everyoneHurts, ctx([])).intents).toEqual([]);
+  });
+
+  it('no enemy picked: the ordinary attack-move, whatever the world would say about focus', () => {
+    const r = resolvePointer(everyoneHurts, ctx([1, 2], { hostile: undefined }));
+    expect(r.intents.map((i) => i.kind)).toEqual(['order']);
+  });
+
+  it('issueOrder carries the picked enemy through to the resolver', () => {
+    const s = orderSink();
+    issueOrder(everyoneHurts, s, [1, 2], 12.5, 7.5, { append: false, confirm: false, hostile: 9 });
+    expect(s.log.filter((e) => e.did === 'dispatch')).toEqual([
+      { did: 'dispatch', intent: { kind: 'attack', ids: [1, 2], target: 9 } },
+    ]);
+    const plain = orderSink();
+    issueOrder(everyoneHurts, plain, [1, 2], 12.5, 7.5, { append: false, confirm: false });
+    expect(plain.log.find((e) => e.did === 'dispatch')).toEqual({
+      did: 'dispatch',
+      intent: { kind: 'order', verb: 'attackMove', ids: [1, 2], x: 12.5, y: 7.5, append: false },
+    });
   });
 });
 
