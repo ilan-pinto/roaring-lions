@@ -141,7 +141,30 @@ export interface SnapRotor {
   readonly yawDeg: number;
 }
 
-export type DamageOp = ThrowTrack | PeelPlate | BreakBarrel | DropTyre | BlowOut | SnapRotor;
+/**
+ * The damaged copy simplified, ONLY to fit the cap (the lead's ruling R4:
+ * "the big trucks and the helicopter may have their damaged copies simplified
+ * to fit the cap"; the art rule: models at maximum detail, simplified only to a
+ * measured budget). meshoptimizer's `simplify` (an exact devDependency of
+ * tools), keeping `ratio` of the indices at most and stopping at `maxError`
+ * (relative to the mesh's own extent, meshopt's default scale).
+ *
+ * Put it FIRST on its mesh. It then runs on the shipped bytes themselves,
+ * which are identical on every machine, so its collapse decisions are too;
+ * the verbs after it only move vertices, and their trigonometry differs across
+ * Node versions in the last float bits (#614's CI lesson), which a collapse
+ * decision taken after them could amplify into a different index buffer.
+ */
+export interface Simplify {
+  readonly verb: 'simplify';
+  readonly mesh: string;
+  readonly ratio: number;
+  readonly maxError: number;
+  /** meshopt flags. `Permissive` lets collapses cross UV seams, which this bake is full of. */
+  readonly flags?: readonly ('LockBorder' | 'Prune' | 'Permissive' | 'Regularize')[];
+}
+
+export type DamageOp = ThrowTrack | PeelPlate | BreakBarrel | DropTyre | BlowOut | SnapRotor | Simplify;
 
 /**
  * The per-vehicle cap on what the damaged copies may add (the lead's ruling,
@@ -268,6 +291,28 @@ export const DAMAGE_RECIPES: Readonly<Record<string, readonly DamageOp[]>> = {
   // (0.40, 1.16, 0.01) -- the angular census puts blade clusters about 72
   // degrees apart with empty sectors between, which is what the split reads.
   // The copy costs about the live rotor's 50,130 Draco bytes, inside the cap.
+  // The rocket battery (R4, a big truck): its `hull_rubber` is 77,049 Draco
+  // bytes live, so even an unsimplified rubber copy is 77,756 Draco / 766,776
+  // raw (119% / 146% of the cap). Simplified FIRST, then the rear +Z tyre
+  // (wheel 2 of six) drops. The ratio is the LARGEST on a 0.01 grid that fits
+  // both caps -- the raw one binds. Measured 2026-10-15 (copy Draco / raw,
+  // share of cap, triangles of 10,839, meshopt error relative to extent):
+  //
+  //   0.78  65,392 100% / 551,374 105%   8,399  1.54e-3
+  //   0.76  64,432  98% / 533,422 102%   8,182  1.69e-3
+  //   0.75  63,806  97% / 525,091 100%   8,070  1.76e-3   (raw: 803 bytes over)
+  //   0.74  63,266  97% / 517,561  99%   7,962  1.85e-3   <- shipped
+  //   0.70  60,817  93% / 484,483  92%   7,518  2.18e-3
+  //
+  // Without `Permissive` it stalls at 8,672 triangles whatever the ratio
+  // (still 102% / 128%): the bake splits 5,015 positions into 18,851 vertices
+  // (none exact duplicates -- every one differs in UV or normal), and every
+  // split is a seam meshopt will not collapse across. 1.85e-3 of a 6.9 m
+  // hull is about 1.3 cm.
+  rocket_battery: [
+    { verb: 'simplify', mesh: 'hull_rubber', ratio: 0.74, maxError: 0.01, flags: ['Permissive'] },
+    lostRearTyre(2),
+  ],
   heli_peten: [ROTOR],
   heli_peten_gunship: [ROTOR],
 };
