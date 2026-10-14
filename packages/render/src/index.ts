@@ -41,6 +41,10 @@ export { DebugOverlay } from './overlay';
 // `packages/app` would be x-ray vision the first time the two drifted. So the
 // app calls the same function rather than agreeing with it.
 export { unitIsObserved } from './three/units/observed';
+// Who holds a building and whether the viewer may be told (lead ruling
+// 2026-10-14): the banner's rule, three-free, so the minimap's outline and
+// the HUD's "2 / 4 inside" ask the same function the renderer does.
+export { heldBuilding, heldBuildings, heldShown, type HeldBuilding, type HeldView } from './three/units/held-building';
 export {
   BattleAudio,
   isAnnouncementPriority,

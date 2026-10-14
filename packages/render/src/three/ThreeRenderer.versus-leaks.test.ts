@@ -15,12 +15,15 @@
  * writes 2 into the private fog grid itself.
  */
 import { describe, it, expect, vi } from 'vitest';
+import * as THREE from 'three';
 import { Sim, fx, type SimEvent, type UnitTypeJson } from '@lions/sim';
 import type { RendererOptions, TerrainTones } from '../api';
 import { ThreeRenderer } from './ThreeRenderer';
 import type { TracerModel } from './units/tracers';
 import type { ShellModel } from './units/shells';
 import type { OverlayBatch } from './units/overlays';
+import type { BannerSpot } from './units/banner-placement';
+import type { GarrisonBannerBatch } from './units/garrison-banner';
 
 vi.mock('three', async (importOriginal) => {
   const actual = await importOriginal<typeof import('three')>();
@@ -98,6 +101,10 @@ interface Privates {
   overlayBatch: OverlayBatch;
   updateOverlays(alpha: number): void;
   drawsEnvelope(i: number): boolean;
+  buildingMeshIdleEntities: Map<number, THREE.Object3D>;
+  bannerSpots: Map<string, BannerSpot | null>;
+  updateGarrisonBanners(): void;
+  garrisonBanners: GarrisonBannerBatch;
 }
 const priv = (r: ThreeRenderer): Privates => r as unknown as Privates;
 
@@ -262,15 +269,17 @@ describe('a selected hostile shows no route or envelope in a room (§5.1)', () =
   });
 });
 
-describe('a held building out of sight shows no holder badge in a room (N1a final review)', () => {
-  /** A side-1 rifleman garrisoned in a hut at (20, 20), far outside the
-   *  side-0 seat's sight. Returns how many badge roofs the overlay pass
-   *  pushed: the roof is the one triangle spanning -7..7 px with its apex
-   *  at 0 (a contact mark on the revealed occupant pushes triangles too). */
-  function badges(room: Pick<RendererOptions, 'viewerSide' | 'versus'>, revealHut: boolean): number {
+describe('a held building shows its holder only where it may (lead ruling 2026-10-14)', () => {
+  /** A side-1 rifleman garrisoned in a hut at (20, 20), far outside side 0's
+   *  sight. Returns how many banners the renderer draws for it, and how many
+   *  of the retired badge's roofs (the one triangle spanning -7..7 px with
+   *  its apex at 0) the overlay pass still pushes. No GLB loads under node,
+   *  so the hut's standing clone and its type's banner spot are stood in:
+   *  what is under test is the RULE that picks the banners, not the mesh. */
+  function held(room: Pick<RendererOptions, 'viewerSide' | 'versus'>, revealHut: boolean): { banners: number; badges: number } {
     const sim = new Sim({ seed: 1, width: W, height: W, capacity: 8 });
     const t = sim.addUnitType(TARGET);
-    const hut = sim.addStructureType({ id: 'hut', hp_per_tile: 80, height_px: 14, color: 'dust.1' });
+    const hut = sim.addStructureType({ id: 'hut', hp_per_tile: 80, height_px: 14, color: 'dust.1', garrison_slots: 1 });
     const hutId = sim.addStructure(hut, [20 * W + 20]);
     sim.spawn(t, 0, fx.from(4.5), fx.from(4.5));
     const inside = sim.spawn(t, 1, fx.from(20.5), fx.from(20.5));
@@ -279,27 +288,32 @@ describe('a held building out of sight shows no holder badge in a room (N1a fina
     const r = new ThreeRenderer(sim, makeOpts(room));
     r.snapshot();
     r.snapshot();
+    priv(r).buildingMeshIdleEntities.set(hutId, new THREE.Object3D());
+    priv(r).bannerSpots.set('hut', { face: '+z', x: 0, y: 0.5, z: 0.4, width: 0.3, drop: 0.4, lit: 1, solid: 1 });
     priv(r).fog.fill(0);
     if (revealHut) reveal(r, 20.5, 20.5);
     const triangle = vi.spyOn(priv(r).overlayBatch, 'triangle');
     priv(r).updateOverlays(1);
-    const n = triangle.mock.calls.filter(([, pts]) => pts[0][0] === -7 && pts[1][0] === 0 && pts[2][0] === 7).length;
+    priv(r).updateGarrisonBanners();
+    const badges = triangle.mock.calls.filter(([, pts]) => pts[0][0] === -7 && pts[1][0] === 0 && pts[2][0] === 7).length;
+    const out = { banners: priv(r).garrisonBanners.count, badges };
     r.dispose();
-    return n;
+    return out;
   }
 
-  it('single-player draws a fogged hostile garrison badge, as main does', () => {
-    expect(badges({}, false)).toBe(1);
-    expect(badges({ viewerSide: 0 }, false)).toBe(1);
+  it('single-player no longer shows a fogged hostile garrison (the badge did: the leak)', () => {
+    expect(held({}, false)).toEqual({ banners: 0, badges: 0 });
+    expect(held({ viewerSide: 0 }, false)).toEqual({ banners: 0, badges: 0 });
   });
-  it('a versus seat draws no badge for a hostile-held building it cannot see', () => {
-    expect(badges({ versus: true, viewerSide: 0 }, false)).toBe(0);
+  it('single-player shows it once the building is in sight', () => {
+    expect(held({}, true)).toEqual({ banners: 1, badges: 0 });
   });
-  it('a versus seat draws it once the building is in sight', () => {
-    expect(badges({ versus: true, viewerSide: 0 }, true)).toBe(1);
+  it('a versus seat shows no hostile-held building it cannot see, and does once it can', () => {
+    expect(held({ versus: true, viewerSide: 0 }, false)).toEqual({ banners: 0, badges: 0 });
+    expect(held({ versus: true, viewerSide: 0 }, true)).toEqual({ banners: 1, badges: 0 });
   });
-  it('a versus seat always draws its own garrison badge, fog or not', () => {
-    expect(badges({ versus: true, viewerSide: 1 }, false)).toBe(1);
+  it('a seat always shows its own garrison, fog or not', () => {
+    expect(held({ versus: true, viewerSide: 1 }, false)).toEqual({ banners: 1, badges: 0 });
   });
 });
 
