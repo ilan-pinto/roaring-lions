@@ -264,6 +264,27 @@ export default defineConfig(
                 'three/camera.ts is three.js-dependent. Production app code asks the renderer for projection ' +
                 '(Renderer.worldToScreen) rather than importing either backend\'s arithmetic directly.',
             },
+            // `three` itself, which this list did not name until #574 step 3:
+            // CLAUDE.md says three.js may be imported only under
+            // packages/render/src/three/**, but the block below guarded only
+            // packages/render/src, so `import * as THREE from 'three'` in
+            // packages/app linted clean (measured on eslint 9 before the
+            // upgrade). Static or not, it is the same main-chunk leak.
+            {
+              name: 'three',
+              message:
+                'Only packages/render/src/three/** may import three.js. packages/app reaches it through ' +
+                'the dynamic-import doors above, never directly. See CLAUDE.md\'s standing bundle rule.',
+            },
+          ],
+          // Subpaths (`three/addons/...`, `three/webgpu`) are not matched by a
+          // `paths` entry, which compares the whole specifier.
+          patterns: [
+            {
+              group: ['three/*'],
+              message:
+                'Only packages/render/src/three/** may import three.js, subpaths included. See CLAUDE.md\'s standing bundle rule.',
+            },
           ],
         },
       ],
@@ -301,6 +322,15 @@ export default defineConfig(
                 'Only packages/render/src/three/** may import three.js. The barrel and the shared ' +
                 'projection code must stay three-free, or three.js lands in the main chunk. ' +
                 'A pure constant the shared code needs belongs in project.ts (see ELEV_STEP, WORLD_Y_PER_LIFT_PIXEL).',
+            },
+          ],
+          // A `paths` entry compares the whole specifier, so it never caught
+          // `three/addons/loaders/GLTFLoader.js` (CLAUDE.md called that
+          // "discipline"). This does.
+          patterns: [
+            {
+              group: ['three/*'],
+              message: 'Only packages/render/src/three/** may import three.js, subpaths included.',
             },
           ],
         },
