@@ -24,6 +24,7 @@ import { regionBiomeFailures } from './validate_biome.mjs';
 import { briefingFailures } from './validate_briefing.mjs';
 import { videoFailures } from './validate_video.mjs';
 import { timeLimitFailures } from './validate_time_limit.mjs';
+import { garrisonStanceFailures, garrisonWeaponFailures } from './validate_garrison.mjs';
 import {
   commanderRankFailures,
   narrativeTextFailures,
@@ -256,6 +257,8 @@ const garrisonableSymbols = new Set(
       unitIds.add(u.id);
       unitsById.set(u.id, u);
     }
+    // G4: indirect fire on a unit that can garrison must hold fire inside.
+    if (u) failures.push(...garrisonWeaponFailures(u, rel(file)));
     // A carrier that cannot carry is a contradiction the schema cannot see.
     // The sim, the input layer and the unit plate all support transport, so a
     // vehicle whose whole role is carrying infantry but which declares no
@@ -942,6 +945,8 @@ const garrisonableSymbols = new Set(
     failures.push(...triggerLabelFailures(mi, rel(file)));
     // #540: the time limit, twice the target and clear of every primary deadline.
     failures.push(...timeLimitFailures(mi, rel(file)));
+    // B2: a garrison stance on a unit without the ability is silently refused at runtime.
+    failures.push(...garrisonStanceFailures(mi, unitsById, rel(file)));
   }
 }
 

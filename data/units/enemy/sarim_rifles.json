@@ -12,6 +12,7 @@
   },
   "mobility": { "speed_tiles_s": 0.9 },
   "sensors": { "optics": 1.15, "sight_tiles": 9, "signature": 0.5 },
+  "abilities": ["garrison"],
   "weapons": [
     {
       "id": "rifles",
