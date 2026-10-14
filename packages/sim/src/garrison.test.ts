@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
 import { Sim, TICKS_PER_SECOND, type SimEvent, type UnitTypeJson } from './sim';
+import { COVER_SIG } from './tuning';
 
 // The garrison overhaul (GH-280, GH-34, GH-588; lead rulings 2026-10-14).
 // docs/superpowers/plans/2026-10-14-garrison-overhaul.md
@@ -164,5 +165,32 @@ describe('a garrison takes full building cover against suppression (B1, GH-280)'
 
   it('never pins one behind the default, cover 3', () => {
     expect(pinnedTicks(undefined)).toBe(0);
+  });
+});
+
+describe('a garrisoned unit is as hard to spot as a man in cover 3 (G2)', () => {
+  function seen(garrisonCover: number | undefined) {
+    const sim = new Sim({ seed: 3, width: 48, height: 32, capacity: 16 });
+    const type = sim.addStructureType(
+      garrisonCover === undefined ? HOUSE : { ...HOUSE, garrison_cover: garrisonCover },
+    );
+    const house = rect(sim, type, 20, 14, 2, 2);
+    const rifles = sim.addUnitType(RIFLES);
+    const holder = sim.spawn(rifles, 1, fx.from(19.5), fx.from(14.5));
+    garrison(sim, holder, house);
+    sim.debugDisableFirepower(holder); // no firing signature
+    const obs = sim.spawn(rifles, 0, fx.from(27.5), fx.from(14.5));
+    sim.debugDisableFirepower(obs);
+    return sim.debugDetection(obs, holder);
+  }
+
+  it('reads the building garrison cover, not the tile under the centroid', () => {
+    const d = seen(undefined);
+    expect(d?.visible).toBe(true);
+    expect(d?.signature).toBe(fx.mul(fx.from(0.6), COVER_SIG[3]));
+  });
+
+  it('and a building that gives no cover hides nothing (the control arm)', () => {
+    expect(seen(0)?.signature).toBe(fx.from(0.6));
   });
 });

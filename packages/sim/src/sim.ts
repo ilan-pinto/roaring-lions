@@ -2940,7 +2940,14 @@ export class Sim {
     if (this.tickCount - this.lastFired[tgt] < FIRING_SIG_TICKS) {
       sig = fx.mul(sig, tType.firingSigMult);
     }
-    sig = fx.mul(sig, COVER_SIG[this.cover[(this.posY[tgt] >> 16) * this.width + (this.posX[tgt] >> 16)]]);
+    // A man at a window is as hard to pick out as a man in heavy cover: the
+    // building's garrison cover, as for suppression (G2, ruling 2026-10-14).
+    const gIn = this.garrisonedIn[tgt];
+    const tCover =
+      gIn >= 0
+        ? this.structureTypes[this.stTypeIdx[gIn]].garrisonCover
+        : this.cover[(this.posY[tgt] >> 16) * this.width + (this.posX[tgt] >> 16)];
+    sig = fx.mul(sig, COVER_SIG[tCover]);
 
     const occl = fx.add(ONE, cov * OCCL_PER_COVER);
     const denom = fx.mul(fx.max(dSq, MIN_DETECT_DIST_SQ), occl);
