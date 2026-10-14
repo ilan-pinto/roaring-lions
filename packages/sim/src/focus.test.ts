@@ -684,6 +684,7 @@ describe('focus: the order ends (T-D3, T-D4)', () => {
     let firstLost = -1;
     let ended = -1;
     let reachedLastSeen = false;
+    let waited = 0;
     for (let t = 0; t < 30 * TICKS_PER_SECOND && ended < 0; t++) {
       sim.tick();
       if (firstLost < 0 && sim.state.focusLost[me] > 0) firstLost = t;
@@ -691,12 +692,21 @@ describe('focus: the order ends (T-D3, T-D4)', () => {
         const k = foe; // side 0's slot
         const lx = int32(sim, 'lastSeenX')[k] >> 16;
         const ly = int32(sim, 'lastSeenY')[k] >> 16;
-        if (sim.state.posX[me] >> 16 === lx && sim.state.posY[me] >> 16 === ly) reachedLastSeen = true;
+        const there = sim.state.posX[me] >> 16 === lx && sim.state.posY[me] >> 16 === ly;
+        // Once there it WAITS: no leg re-issued tick after tick, which would
+        // drop and raise a halt-to-fire man on the spot.
+        if (reachedLastSeen && there) {
+          expect(sim.state.moving[me]).toBe(0);
+          waited++;
+        }
+        if (there) reachedLastSeen = true;
       }
       if (sim.state.focusTarget[me] === -1) ended = t;
     }
     expect(firstLost).toBeGreaterThan(0);
     expect(reachedLastSeen).toBe(true);
+    expect(waited).toBeGreaterThan(10);
+    expect(sim.state.brace[me]).toBe(BRACE_KNEELING);
     // The 100th consecutive lost tick ends it, and not a tick before.
     expect(ended - firstLost + 1).toBe(FOCUS_LOST_TICKS);
     expect(column(sim, 'attackMove')[me]).toBe(1);
@@ -854,5 +864,179 @@ describe('focusHurts (R-8)', () => {
       b.sim.tick();
       expect(a.sim.hash()).toBe(b.sim.hash());
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 2 fix round 1: I1 (a released focus takes its leg), R-3b (no parking
+// on a fixable blocker), R-14 (the chase follows the side's memory, never the
+// hidden truth), and the snapped goal.
+
+const SMOKER: UnitTypeJson = { ...RIFLES, id: 'f_smoker', abilities: ['garrison', 'smoke'] };
+
+/** mbt_lavi-like: a ground-only gun in slot 0, a coax that reaches the sky. */
+const LAVI_LIKE: UnitTypeJson = {
+  id: 'f_lavi_like',
+  role: 'mbt',
+  hull: { hp: 30000, armor: { front: 700, side: 300, rear: 150 } },
+  mobility: { speed_tiles_s: 1.0 },
+  sensors: { optics: 1, sight_tiles: 12, signature: 1 },
+  weapons: [
+    { id: 'lavi_gun', type: 'apfsds', range_tiles: 12, effective_range_tiles: 9.6, accuracy: 0.85, penetration: 1300, damage: 1, rof_per_min: 60, can_target: ['ground'] },
+    { id: 'lavi_coax', type: 'hmg', range_tiles: 8, accuracy: 0.5, penetration: 22, damage: 1, rof_per_min: 120, can_target: ['ground', 'air'] },
+  ],
+};
+
+const HOVER: UnitTypeJson = {
+  id: 'f_hover',
+  role: 'helicopter',
+  hull: { hp: 30000, armor: { front: 10, side: 10, rear: 10 } },
+  mobility: { speed_tiles_s: 2, domain: 'air' },
+  sensors: { optics: 1, sight_tiles: 1, signature: 1 },
+};
+
+/** Wheeled and short-armed: it has to drive right up to what it chases. */
+const BUGGY: UnitTypeJson = {
+  id: 'f_buggy',
+  role: 'technical',
+  hull: { hp: 30000, armor: { front: 20, side: 10, rear: 10 } },
+  mobility: { speed_tiles_s: 1.0 },
+  sensors: { optics: 1, sight_tiles: 8, signature: 1 },
+  weapons: [{ id: 'buggy_mg', ...GUN, range_tiles: 2, effective_range_tiles: 1.5 }],
+};
+
+describe('focus fix: a released focus takes its chase leg with it (I1)', () => {
+  function chasing(type: UnitTypeJson): { sim: Sim; me: number; far: number } {
+    const sim = new Sim({ seed: 0x430, width: 64, height: 32, capacity: 16 });
+    const me = sim.spawn(sim.addUnitType(type), 0, fx.from(10.5), fx.from(16.5));
+    const far = sim.spawn(sim.addUnitType(POST), 1, fx.from(24.5), fx.from(16.5));
+    sim.identifyTo(0, far);
+    sim.queueCommand({ kind: 'attack', ids: [me], target: far });
+    runCollect(sim, 5, () => sim.identifyTo(0, far));
+    expect(sim.state.moving[me]).toBe(1);
+    return { sim, me, far };
+  }
+
+  it('an accepted smoke order stops the chase where it stands', () => {
+    const { sim, me, far } = chasing(SMOKER);
+    sim.queueCommand({ kind: 'smoke', ids: [me], x: sim.state.posX[me], y: fx.from(18.5) });
+    sim.tick();
+    expect(sim.state.focusTarget[me]).toBe(-1);
+    expect(sim.state.moving[me]).toBe(0);
+    const x = sim.state.posX[me];
+    runCollect(sim, 600, () => sim.identifyTo(0, far));
+    expect(sim.state.posX[me]).toBe(x);
+  });
+
+  it('a refused order stops it too', () => {
+    // RIFLES has no smoke: the order is refused, and still releases the focus.
+    const { sim, me, far } = chasing(RIFLES);
+    sim.queueCommand({ kind: 'smoke', ids: [me], x: sim.state.posX[me], y: fx.from(18.5) });
+    sim.tick();
+    expect(sim.state.focusTarget[me]).toBe(-1);
+    const x = sim.state.posX[me];
+    runCollect(sim, 600, () => sim.identifyTo(0, far));
+    expect(sim.state.posX[me]).toBe(x);
+  });
+
+  it('an appended move starts fresh instead of queueing behind the chase', () => {
+    const { sim, me, far } = chasing(RIFLES);
+    const x0 = fx.toNumber(sim.state.posX[me]);
+    sim.queueCommand({ kind: 'move', ids: [me], x: fx.from(4.5), y: fx.from(16.5), append: true, exact: true });
+    let maxX = x0;
+    runCollect(sim, 15 * TICKS_PER_SECOND, () => {
+      sim.identifyTo(0, far);
+      maxX = Math.max(maxX, fx.toNumber(sim.state.posX[me]));
+    });
+    expect(maxX).toBeLessThanOrEqual(x0 + 0.06);
+    expect(fx.toNumber(sim.state.posX[me])).toBeCloseTo(4.5, 3);
+  });
+});
+
+describe('focus fix: no fixable blocker parks the unit (R-3b)', () => {
+  it('a focus only an out-of-range slot can reach is closed on, and the coax fires', () => {
+    const sim = new Sim({ seed: 0x431, width: 64, height: 32, capacity: 16 });
+    const lavi = sim.spawn(sim.addUnitType(LAVI_LIKE), 0, fx.from(6.5), fx.from(16.5));
+    const heli = sim.spawn(sim.addUnitType(HOVER), 1, fx.from(22.5), fx.from(16.5));
+    sim.identifyTo(0, heli);
+    sim.queueCommand({ kind: 'attack', ids: [lavi], target: heli });
+    const fires = firesBy(runCollect(sim, 1200, () => sim.identifyTo(0, heli)), lavi);
+    expect(tiles(sim, lavi, heli)).toBeLessThanOrEqual(8);
+    const coax = fires.filter((e) => e.weaponId === 'lavi_coax');
+    expect(coax.length).toBeGreaterThan(0);
+    expect(coax.every((e) => e.target === heli)).toBe(true);
+    expect(sim.state.focusTarget[lavi]).toBe(heli);
+  });
+
+  it('with no sight line it closes past the wall until it can see, then fires', () => {
+    const { sim, me, foe } = world();
+    sim.teleport(foe, fx.from(14.5), fx.from(16.5));
+    sim.identifyTo(0, foe);
+    for (let y = 10; y <= 22; y++) sim.setBlocked(12, y, true);
+    sim.queueCommand({ kind: 'attack', ids: [me], target: foe });
+    const fires = firesBy(runCollect(sim, 40 * TICKS_PER_SECOND, () => sim.identifyTo(0, foe)), me);
+    expect(fires.length).toBeGreaterThan(0);
+    expect(fires.every((e) => e.target === foe)).toBe(true);
+    expect(sim.state.moving[me]).toBe(0);
+    expect(fx.toNumber(sim.state.posX[me]) !== 10.5 || fx.toNumber(sim.state.posY[me]) !== 16.5).toBe(true);
+  });
+
+  it('a rifle at a tank front, inside effective range with a clear line, still holds', () => {
+    const { sim, me, foe } = world();
+    sim.debugKill(foe);
+    const heavy = sim.spawn(sim.addUnitType(HEAVY), 1, fx.from(15.5), fx.from(16.5), 32768);
+    sim.identifyTo(0, heavy);
+    sim.queueCommand({ kind: 'attack', ids: [me], target: heavy });
+    const x = sim.state.posX[me];
+    runCollect(sim, 5 * TICKS_PER_SECOND, () => sim.identifyTo(0, heavy));
+    expect(sim.state.posX[me]).toBe(x);
+    expect(sim.state.focusTarget[me]).toBe(heavy);
+  });
+});
+
+describe('focus fix: the chase follows what the side knows (R-14)', () => {
+  it('an identified but unseen target moving away does not drag the goal', () => {
+    const { sim, me, foe } = world();
+    sim.teleport(foe, fx.from(17.5), fx.from(16.5)); // in sight (8), out of reach (6)
+    sim.identifyTo(0, foe);
+    sim.queueCommand({ kind: 'attack', ids: [me], target: foe });
+    sim.tick();
+    expect(sim.state.moving[me]).toBe(1);
+    expect(int32(sim, 'goalX')[me] >> 16).toBe(17);
+    // Out of everyone's sight; still identified for a while.
+    sim.teleport(foe, fx.from(40.5), fx.from(16.5));
+    let checked = 0;
+    for (let t = 0; t < 40; t++) {
+      sim.tick();
+      if (sim.contactConfidence(0, foe) < IDENTIFIED_AT) break;
+      expect(sim.state.focusTarget[me]).toBe(foe);
+      expect(int32(sim, 'goalX')[me] >> 16).toBe(17);
+      checked++;
+    }
+    expect(checked).toBe(40);
+  });
+});
+
+describe('focus fix: the stored goal is the snapped one', () => {
+  it('a vehicle chasing a man into a boulder field drives to its edge and waits', () => {
+    const sim = new Sim({ seed: 0x432, width: 64, height: 32, capacity: 16 });
+    for (let y = 14; y <= 19; y++) for (let x = 20; x <= 23; x++) sim.setBoulder(x, y, true);
+    const buggy = sim.spawn(sim.addUnitType(BUGGY), 0, fx.from(10.5), fx.from(16.5));
+    const man = sim.spawn(sim.addUnitType(POST), 1, fx.from(21.5), fx.from(16.5));
+    sim.identifyTo(0, man);
+    sim.queueCommand({ kind: 'attack', ids: [buggy], target: man });
+    sim.tick();
+    const gx = int32(sim, 'goalX')[buggy];
+    const gy = int32(sim, 'goalY')[buggy];
+    // A tile the buggy can stand on, at its centre.
+    expect(gx >> 16 < 20 || gx >> 16 > 23 || gy >> 16 < 14 || gy >> 16 > 19).toBe(true);
+    expect(gx & 0xffff).toBe(0x8000);
+    expect(gy & 0xffff).toBe(0x8000);
+    runCollect(sim, 30 * TICKS_PER_SECOND, () => sim.identifyTo(0, man));
+    // Arrived and waiting, not pressing on a boulder with its leg still live.
+    expect(sim.state.moving[buggy]).toBe(0);
+    expect(sim.state.posX[buggy] >> 16).toBe(gx >> 16);
+    expect(sim.state.posY[buggy] >> 16).toBe(gy >> 16);
+    expect(sim.state.focusTarget[buggy]).toBe(man);
   });
 });
