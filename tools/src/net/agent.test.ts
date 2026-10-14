@@ -3,7 +3,7 @@
 // and every stdout line a JSON-RPC frame) needs a room a child process can
 // reach, and lands with the local relay in N4b (task 11).
 import { describe, expect, it } from 'vitest';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -100,33 +100,61 @@ describe('exitCodeFor', () => {
 /**
  * Interim stdout guard (ruling R3), until task 11's spawned test reads the
  * child's stdout itself: stdout is the MCP protocol channel, so neither
- * agent.ts nor any tools/src/net module it reaches may write to it.
+ * agent.ts nor any module it reaches by relative path -- tools/src/net, and
+ * the packages/app and packages/render files the harness imports directly --
+ * may write to it. `@lions/*` packages are not walked: they are shipped code
+ * with their own lint.
  */
 describe('stdout purity (static, interim)', () => {
   const here = dirname(fileURLToPath(import.meta.url));
-  /** agent.ts and every tools/src/net module it imports, transitively. */
-  function netModules(): string[] {
+  const root = resolve(here, '../../..');
+  /** A relative specifier from `from`, as a file on disk (`.ts`, or a directory's `index.ts`);
+   *  null for data (`.json`, `.css`, ...), which runs no code. */
+  const resolveSpec = (from: string, spec: string): string | null => {
+    if (/\.(?!ts$|js$)[a-z]+$/.test(spec)) return null;
+    const base = resolve(dirname(from), spec.replace(/\.js$/, ''));
+    for (const f of [base, `${base}.ts`, resolve(base, 'index.ts')]) {
+      if (f.endsWith('.ts') && existsSync(f)) return f;
+    }
+    throw new Error(`${from}: cannot resolve ${spec}`);
+  };
+  /** agent.ts and every module it imports by relative path, transitively. */
+  function reached(): string[] {
     const seen = new Set<string>();
     const visit = (file: string): void => {
       if (seen.has(file)) return;
       seen.add(file);
       const src = readFileSync(file, 'utf8');
-      for (const m of src.matchAll(/^\s*(?:import|export)\b[^'"]*?from\s+'(\.\/[^']+)'/gm)) {
-        const spec = m[1];
-        visit(resolve(here, spec.endsWith('.ts') ? spec : `${spec}.ts`));
+      for (const m of src.matchAll(/^\s*(?:import|export)\b[^'"]*?from\s+'(\.\.?\/[^']+)'|^\s*import\s+'(\.\.?\/[^']+)'/gm)) {
+        const next = resolveSpec(file, m[1] ?? m[2]);
+        if (next !== null) visit(next);
       }
     };
     visit(resolve(here, 'agent.ts'));
     return [...seen];
   }
-  it('walks the modules agent.ts reaches', () => {
-    const names = netModules().map((f) => f.slice(here.length + 1)).sort();
-    expect(names).toEqual(expect.arrayContaining(['agent-client.ts', 'agent.ts', 'build-id.ts', 'mcp-tools.ts', 'node-socket.ts', 'order-desk.ts', 'view.ts']));
+  /** Every console method Node writes to stdout, any computed console access, and stdout itself. */
+  const STDOUT = /console\.(?:log|info|debug|dir|dirxml|table)\b|console\s*\[|process\.stdout\.write\b/;
+  it('walks the modules agent.ts reaches, past tools/src/net into packages/app and packages/render', () => {
+    const names = reached().map((f) => f.slice(root.length + 1)).sort();
+    expect(names).toEqual(expect.arrayContaining([
+      'tools/src/net/agent-client.ts', 'tools/src/net/agent.ts', 'tools/src/net/build-id.ts', 'tools/src/net/mcp-tools.ts',
+      'tools/src/net/node-socket.ts', 'tools/src/net/order-desk.ts', 'tools/src/net/view.ts', 'tools/src/net/fog-tracker.ts',
+      'packages/app/src/net/match-world.ts', 'packages/app/src/net/frame-step.ts', 'packages/app/src/net/outcome.ts',
+      'packages/render/src/three/fog.ts',
+    ]));
+    expect(names.every((n) => n.startsWith('tools/src/net/') || n.startsWith('packages/app/src/') || n.startsWith('packages/render/src/'))).toBe(true);
   });
-  it('none of them writes to stdout: no console.log, console.info or process.stdout.write', () => {
-    for (const file of netModules()) {
+  it('the pattern catches every stdout writer it names, and spares stderr', () => {
+    for (const bad of ['console.log(x)', 'console.info(x)', 'console.debug(x)', 'console.dir(x)', 'console.table(x)', 'console[k](x)', 'process.stdout.write(x)']) {
+      expect(bad).toMatch(STDOUT);
+    }
+    for (const fine of ['console.warn(x)', 'console.error(x)', 'process.stderr.write(x)']) expect(fine).not.toMatch(STDOUT);
+  });
+  it('none of them writes to stdout', () => {
+    for (const file of reached()) {
       const src = readFileSync(file, 'utf8');
-      expect(src, file).not.toMatch(/console\.log\(|console\.info\(|process\.stdout\.write\(/);
+      expect(src, file).not.toMatch(STDOUT);
     }
   });
 });
