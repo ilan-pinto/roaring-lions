@@ -1774,10 +1774,10 @@ export class Hud {
 
   /**
    * What a right-click on this panel's target does, when the cursor says it
-   * is an attack-move (`advance`) -- which today is every plain order over an
-   * enemy (PA-08). The panel's heading names ONE target and gives odds
-   * against it, and until this line nothing said the click does not aim at
-   * it: the order goes to the tile and the sim chooses what each unit
+   * is an attack-move (`advance`) -- every plain order over a suspected or
+   * unreachable enemy (PA-08) -- or a targeted order (`attack`, GH-420). The panel's heading names ONE
+   * target and gives odds against it, and until this line nothing said the
+   * click does not aim at it: the order goes to the tile and the sim chooses what each unit
    * shoots, so a clicked AA truck read "Engaging: Militia Cell". Read off
    * the cursor rather than recomputed, so a refused click (`protected`), a
    * pinned order (`pinned`) or a building verb never gets this line.
@@ -1788,7 +1788,11 @@ export class Hud {
     if (this.deps.hoverCursor?.() === 'moveOnly') {
       return `<div class="rl-fire__click">${t('hud.fire.clickMoves')}</div>`;
     }
-    if (this.deps.hoverCursor?.() !== 'advance') return '';
+    // GH-420: over an identified enemy someone selected can hurt, the click is
+    // a targeted order. Over a suspected one it is still the attack-move.
+    const cursor = this.deps.hoverCursor?.();
+    if (cursor === 'attack') return `<div class="rl-fire__click">${t('hud.fire.clickTargets')}</div>`;
+    if (cursor !== 'advance') return '';
     return `<div class="rl-fire__click">${t('hud.fire.clickAdvances')}</div>`;
   }
 
@@ -2423,14 +2427,20 @@ export class Hud {
   private engagingHtml(id: number): string {
     const st = this.deps.sim.state;
     if (!isOwnSide(st.side[id], this.viewer)) return '';
-    const tgt = st.curTarget[id];
+    // GH-420: a unit with a living focus is under a fire order, and the card
+    // says so ("Ordered") in place of what it merely picked ("Engaging"). The
+    // focus is also what it shoots whenever it can, so it is the target the
+    // fire link should pulse onto.
+    const focus = st.focusTarget[id];
+    const ordered = focus >= 0 && focus < st.alive.length && st.alive[focus] === 1;
+    const tgt = ordered ? focus : st.curTarget[id];
     if (tgt < 0 || tgt >= st.alive.length || st.alive[tgt] === 0) return '';
     const ttype = this.deps.sim.unitTypes[st.typeIdx[tgt]];
     this.engagingShownFor = tgt;
     return (
       `<div class="rl-card__engaging">` +
       this.artHtml(ttype.id, roleBucket(ttype), 'rl-card__engaging-art', 14, 'chip') +
-      `<span>${t('hud.card.engaging', { target: escapeHtml(ttype.name) })}</span>` +
+      `<span>${t(ordered ? 'hud.card.ordered' : 'hud.card.engaging', { target: escapeHtml(ttype.name) })}</span>` +
       `</div>`
     );
   }

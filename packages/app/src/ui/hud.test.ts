@@ -1463,6 +1463,32 @@ describe('a dead target leaves the HUD at once (PA-19)', () => {
     expect(r.host.querySelector('.rl-card__engaging')).toBeNull();
   });
 
+  // GH-420: a unit under a fire order says "Ordered", not "Engaging", for as
+  // long as its focus lives; the order is what it shoots whenever it can.
+  it('the card says Ordered while the unit has a living focus, and Engaging again once it is gone', () => {
+    const { world } = engagedWorld();
+    // A DIFFERENT type from the one it merely picked, so the line can only
+    // name the focus by naming the right unit.
+    const other = world.sim.spawn(world.sim.state.typeIdx[world.namer], 1, fx.from(9), fx.from(1));
+    const pickedName = world.sim.unitTypes[world.sim.state.typeIdx[world.squads[0]]].name;
+    const focusName = world.sim.unitTypes[world.sim.state.typeIdx[other]].name;
+    expect(focusName).not.toBe(pickedName);
+    world.sim.state.focusTarget[world.namer] = other;
+    const r = clusterRig(() => [world.namer], {}, world);
+    const text = r.host.querySelector('.rl-card__engaging')?.textContent ?? '';
+    expect(text).toContain('Ordered');
+    expect(text).toContain(focusName);
+    expect(text).not.toContain(pickedName);
+    expect(text).not.toContain('Engaging');
+    world.sim.debugKill(other);
+    r.tick();
+    r.tick();
+    r.tick();
+    r.tick();
+    r.tick();
+    expect(r.host.querySelector('.rl-card__engaging')?.textContent).toContain('Engaging');
+  });
+
   it('the projected-fire panel hides on the next tick when its target dies', () => {
     const { world, enemy } = engagedWorld();
     vi.spyOn(world.sim, 'projectHit').mockReturnValue({ kind: 'noSolution' });
@@ -3027,6 +3053,15 @@ describe('projected fire wording (GH-345)', () => {
     for (const other of ['protected', 'pinned', undefined] as const) {
       expect(firePanel(shot, other)).not.toContain('Right-click');
     }
+  });
+  // GH-420: over an identified enemy someone selected can hurt, the click is
+  // a targeted order and the line says that instead.
+  it('says a right-click fires on the target when the cursor is attack, and never both lines', () => {
+    const shot = { kind: 'shot', weaponId: 'rifles', pHit: fx.from(0.5), hurts: true, factors: factors({}) } as const;
+    const text = firePanel(shot, 'attack');
+    expect(text).toContain('Right-click: fire on this target');
+    expect(text).not.toContain('advance and engage');
+    expect(firePanel(shot, 'advance')).not.toContain('fire on this target');
   });
   it('a clean shot carries no remedy line', () => {
     const text = firePanel({ kind: 'shot', weaponId: 'rifles', pHit: fx.from(0.5), hurts: true, factors: factors({}) });
