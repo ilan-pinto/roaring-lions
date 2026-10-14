@@ -711,7 +711,8 @@ export async function mountGarageView(host: HTMLElement, opts: GarageViewOptions
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = GARAGE_EXPOSURE;
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // PCF: three r186 removed PCFSoft and made PCF the soft filter (ThreeRenderer.init).
+    renderer.shadowMap.type = THREE.PCFShadowMap;
     renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, 2));
     renderer.setClearAlpha(0);
     renderer.setSize(w, h, false);

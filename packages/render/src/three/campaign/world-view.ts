@@ -267,7 +267,8 @@ function mountOnto(
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // PCF: three r186 removed PCFSoft and made PCF the soft filter (ThreeRenderer.init).
+  renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.setClearAlpha(0);
   renderer.domElement.style.display = 'block';
   renderer.domElement.style.width = '100%';
