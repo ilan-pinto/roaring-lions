@@ -4117,6 +4117,7 @@ export class Sim {
             for (let slot = 0; slot < type.weapons.length && slot < 2; slot++) {
               const w = type.weapons[slot];
               if (STRUCT_DAMAGE[w.cls] === 0) continue;
+              if (inside && !w.firesFromBuilding) continue;
               const dSq = this.structDistSq(s, this.posX[i], this.posY[i]);
               if (dSq > w.rangeSq || dSq < w.minRangeSq) continue;
               engagedClose = true;

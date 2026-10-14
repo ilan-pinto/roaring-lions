@@ -473,6 +473,34 @@ describe('a mortar does not fire from inside; a Spike does (G4)', () => {
     expect(s.sim.canFocus(s.id, s.target)).toBe(true);
     expect(s.sim.focusHurts(s.id, s.target)).toBe(true);
   });
+  it('and it does not breach-fire a wall beside its building either (side 1, no min range)', () => {
+    // Wall flush at x=22: at x=23 the unit (stands at 21,15) is out of BREACH_RANGE and the control arm reads 0.
+    // selectBreachTarget returns -1 for side 0; a standing side-1 unit always scans, so this is the
+    // only way into the breach loop. No min range, or min_range 4 would exceed BREACH_RANGE (2.5).
+    const breacher = (flag: boolean | undefined): number => {
+      const { sim, t } = world();
+      const w = MORTAR.weapons[0];
+      const { min_range_tiles: _min, fires_from_building: _flag, ...rest } = w;
+      void _min;
+      void _flag;
+      const ut = sim.addUnitType({
+        ...MORTAR,
+        id: 'g_breacher',
+        weapons: [flag === undefined ? rest : { ...rest, fires_from_building: flag }],
+      });
+      const house = rect(sim, t.house, 20, 14, 2, 2);
+      rect(sim, t.block, 22, 14, 2, 2); // flush against the house: within BREACH_RANGE (2.5) of the garrisoned unit at (21,15)
+      const id = sim.spawn(ut, 1, fx.from(19.5), fx.from(14.5));
+      garrison(sim, id, house);
+      let n = 0;
+      for (let k = 0; k < 30 * TICKS_PER_SECOND; k++) {
+        for (const e of sim.tick()) if (e.kind === 'fire' && e.shooter === id) n++;
+      }
+      return n;
+    };
+    expect(breacher(undefined)).toBeGreaterThan(0); // the control arm: the path is reachable
+    expect(breacher(false)).toBe(0);
+  });
   it('and it does not shell the building the enemy hides in either', () => {
     const { sim, t } = world();
     const ut = sim.addUnitType(MORTAR);
