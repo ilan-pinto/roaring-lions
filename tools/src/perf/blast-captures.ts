@@ -135,7 +135,7 @@ export const SAMPLE_MS: readonly number[] = sampleLadder(SAMPLE_WINDOW_MS, SAMPL
  * weapon: a spotter that could fire would put its own muzzle lights in the pool
  * the collapse is being measured in.
  */
-export type BlastMode = 'kill' | 'impact' | 'collapse' | 'strike' | 'aps' | 'smoke' | 'charge';
+export type BlastMode = 'kill' | 'impact' | 'collapse' | 'strike' | 'aps' | 'smoke' | 'charge' | 'kamikaze';
 
 /*
  * GH-85 adds four modes, one per effect trigger the renderer now dispatches
@@ -155,7 +155,14 @@ export type BlastMode = 'kill' | 'impact' | 'collapse' | 'strike' | 'aps' | 'smo
  *   (`typeId`) standing a tile off; rung zero is the tick after the charge
  *   resolves, when a charge no event names goes off (`resolveOverdueCharges`).
  *
- * The hostile in `strike`, `aps` and `charge` is spawned in the TRIGGER, not
+ * - `kamikaze` (GH-85, later): a side-0 `shooterId` munition (a drone) dives
+ *   on a side-1 body (`typeId`) and its warhead goes off; rung zero is the
+ *   tick the munition's own `destroyed` names its target, the tick
+ *   `ThreeRenderer` reads as the detonation. Every side-1 unit the sandbox
+ *   placed is taken off the field first, because a munition steers itself
+ *   at the nearest enemy its side has identified, order or no order.
+ *
+ * The hostile in `strike`, `aps`, `charge` and `kamikaze` is spawned in the TRIGGER, not
  * up front: `waitForMeshes` steps the sim while it waits, and a hostile on the
  * field then would start the fight before anything is photographed. Its mesh
  * is fetched first by a decoy parked out of everyone's sight (`decoyAt`),
@@ -196,6 +203,13 @@ export interface BlastSubject {
    *  building's near corner, so it lifts the fog without standing in the
    *  picture. */
   readonly spotterAt?: readonly [number, number];
+  // `kamikaze` reads `spotterAt` too: its decoy (the target's own type, on
+  // side 0, so the munition never dives on it) is parked there and kept, for
+  // the reason the collapse's spotter exists. The munition was the only eye
+  // on its target, and once it has gone off a surviving hostile hull sinks
+  // back under the fog -- measured: the first `kamikaze_armour` run drew no
+  // D9 at the 2000 ms rung and read `decals` 10923 px / 2.1289, the next two
+  // drew it and read 373 px / 0.1600, one detonation tick apart.
   /** This subject's ladder zoom, when the top of the clamp frames nothing but
    *  the subject itself. Absent means `LADDER_ZOOM` (2.5). A house fills the
    *  whole 600x400 crop at 2.5, so its light -- which falls on the ground
@@ -277,6 +291,14 @@ export interface BlastSubject {
    *  abstention -- an abstention records a reading it does not vote on, and
    *  these subjects have no layer they are a witness for. */
   readonly toggles?: false;
+  /**
+   * This subject's own toggle rung for a layer, in ms, where the layer's
+   * `LayerFloor.toggleAtMs` would miss the effect. Same rule as that field:
+   * the first ladder rung at or past it. A `kamikaze` detonation's light is
+   * `missile_impact.json`'s, which decays in 200 ms against a vehicle kill's
+   * 500 -- at the layer's own 200 ms rung it has already gone out.
+   */
+  readonly toggleAtMs?: Readonly<Partial<Record<string, number>>>;
 }
 
 /**
@@ -580,6 +602,45 @@ export const BLAST_SUBJECTS: readonly BlastSubject[] = [
       'column, for `WRECK_SMOULDER_SECONDS` (60) of SIM time and then out -- the ladder advances ' +
       'the sim, because the smoulder is dated off it',
   },
+  // ---------------------------------------------------------------------
+  // GH-85, later: a kamikaze's warhead. These two VOTE, unlike the effect
+  // subjects above: the detonation's whole claim is a light and a mark where
+  // there used to be nothing, which is exactly what `blast-light` and
+  // `decals` witness. The light is caught at 100 ms (`toggleAtMs`), inside
+  // `missile_impact`'s 200 ms decay.
+  // ---------------------------------------------------------------------
+  {
+    id: 'kamikaze_soft',
+    typeId: 'digger_crew',
+    shooterId: 'attack_drone',
+    mode: 'kamikaze',
+    x: 20,
+    y: 4,
+    standoffTiles: 4,
+    spotterAt: [23, 1],
+    isolate: true,
+    ladderMs: [0, 50, 100, 200, 400, 1000, 2000],
+    toggleAtMs: { 'blast-light': 100 },
+    why:
+      "a loitering munition on a soft body (`digger_crew`, unarmed, so it cannot shoot the drone down): " +
+      'the sim emits no `impact` there at all, so before GH-85 this drew nothing but the body falling',
+  },
+  {
+    id: 'kamikaze_armour',
+    typeId: 'dozer_d9',
+    shooterId: 'attack_drone',
+    mode: 'kamikaze',
+    x: 20,
+    y: 4,
+    standoffTiles: 4,
+    spotterAt: [23, 1],
+    isolate: true,
+    ladderMs: [0, 50, 100, 200, 400, 1000, 2000],
+    toggleAtMs: { 'blast-light': 100 },
+    why:
+      "the same munition on a hull (`dozer_d9`: 2400 hp and no weapon, so it survives the warhead and " +
+      'no vehicle-kill blast shares the frame); before GH-85 this drew only the flat `impact` flash',
+  },
   // `blast_nomesh` stood here: the same Lavi kill on the billboard path
   // (`&nomesh`), the strongest `decals` witness and the proof that a pixel
   // count is the wrong metric for that layer (65293 px moved, pixelmatch
@@ -755,7 +816,12 @@ export const LAYER_FLOORS = {
       'goes through `step(1)`; see that subject), under the steady-frame settle at its 30000 ms ' +
       'default ceiling. 3 runs: 0 px / 0.4741, 0.4390, 0.4741. It reads lower than the ' +
       '`step(1)` figures above because the mark is photographed at a true 2000 ms rather than ' +
-      'at 2000 plus a ~1.6 s latched frame, so the shroud is younger. It is still 6x the floor.',
+      'at 2000 plus a ~1.6 s latched frame, so the shroud is younger. It is still 6x the floor. ' +
+      '**The two `kamikaze` subjects vote here since 2026-10-14 (GH-85)**, floor unchanged. 3 runs on ' +
+      'darwin-arm64, ANGLE/Metal, same crop and zoom, at 2000 ms: `kamikaze_soft` 10038 px / 2.0643 on ' +
+      'all three; `kamikaze_armour` 373 px / 0.1600 on all three -- the surviving D9 stands on most of ' +
+      'its own scorch, and 0.16 is still 2.3x the floor. With the detonation mutated out (the renderer ' +
+      'main had) both read 0 px / 0.0000.',
   },
   'blast-light': {
     minDiffPixels: 1750,
@@ -776,7 +842,12 @@ export const LAYER_FLOORS = {
       '`vfxEmitters`**; these are the first readings of a working kill light. ' +
       '**`scorch_qarn_shoulder` votes here since 2026-09-25**, hand-ticked, under the ' +
       'steady-frame settle. 3 runs: 24496 px / 9.9325, 34749 / 10.5923, 24954 / 9.9812. The ' +
-      'floor is unchanged, and all three clear it by 14x on pixels.',
+      'floor is unchanged, and all three clear it by 14x on pixels. ' +
+      '**The two `kamikaze` subjects vote here since 2026-10-14 (GH-85)**, at their own 100 ms rung ' +
+      '(`BlastSubject.toggleAtMs`: `missile_impact`\'s light decays in 200). 3 runs on darwin-arm64, ' +
+      'ANGLE/Metal: `kamikaze_soft` 57600 / 15.0848, 57725 / 15.1460, 57644 / 15.1127; ' +
+      '`kamikaze_armour` 44491 / 12.7121, 44493 / 12.7112, 44491 / 12.7121. Floor unchanged; the ' +
+      'smallest clears it 25x on pixels. With the detonation mutated out both read 0 px / 0.0000.',
   },
 } satisfies Record<string, LayerFloor>;
 
@@ -909,8 +980,8 @@ const FRAME_MS = 16;
  * jolt ladder that would run `blast-light`'s A/B at 1000 ms, where a 500 ms
  * light has retired and a zero would mean nothing at all.
  */
-function toggleRungFor(layer: string, ladder: readonly number[]): number {
-  const want = (LAYER_FLOORS as Record<string, LayerFloor>)[layer]?.toggleAtMs ?? 0;
+export function toggleRungFor(layer: string, ladder: readonly number[], subject?: Pick<BlastSubject, 'toggleAtMs'>): number {
+  const want = subject?.toggleAtMs?.[layer] ?? (LAYER_FLOORS as Record<string, LayerFloor>)[layer]?.toggleAtMs ?? 0;
   return ladder.find((m) => m >= want) ?? ladder[ladder.length - 1];
 }
 /** R-M. Derived from `LAYER_FLOORS` rather than written twice, so a layer
@@ -1425,8 +1496,8 @@ async function main(): Promise<void> {
         .filter((s) => s.mode === 'kill' && s.handTick !== true)
         .flatMap((s) =>
           LAYERS.filter(
-            (l) => subjectVotesOn(s, l) && stepJumpMs > toggleRungFor(l, s.ladderMs ?? SAMPLE_MS)
-          ).map((l) => `${s.id}/${l} (rung ${toggleRungFor(l, s.ladderMs ?? SAMPLE_MS)} ms)`)
+            (l) => subjectVotesOn(s, l) && stepJumpMs > toggleRungFor(l, s.ladderMs ?? SAMPLE_MS, s)
+          ).map((l) => `${s.id}/${l} (rung ${toggleRungFor(l, s.ladderMs ?? SAMPLE_MS, s)} ms)`)
         );
       if (overshot.length > 0) {
         // SKIPPED AND RECORDED, never thrown. `guardCapture`'s own lesson
@@ -1486,7 +1557,7 @@ async function main(): Promise<void> {
         // (`fxAgeMs`), and the gap between the two columns is the freeze.
         const ladder = p.subject.ladderMs ?? SAMPLE_MS;
         // One rung per LAYER, not one per subject -- see `LayerFloor.toggleAtMs`.
-        const rungFor = new Map<string, number>(LAYERS.map((l) => [l, toggleRungFor(l, ladder)]));
+        const rungFor = new Map<string, number>(LAYERS.map((l) => [l, toggleRungFor(l, ladder, p.subject)]));
         const lastRung = Math.max(...rungFor.values());
         const probeOut: ProbeSample[] = [];
         let ageMs = trigger.ageMs;
@@ -1574,7 +1645,7 @@ interface Placed {
   structure?: number;
   cleared?: number;
   /** GH-85 modes: what to wait for a mesh on, when it is not `entity`. */
-  wait?: { id: number; vehicle: boolean }[];
+  wait?: { id: number; vehicle: boolean | null }[];
   /** GH-85 modes: the decoy that fetched the hostile's mesh, out of sight. */
   decoy?: number;
 }
@@ -1598,7 +1669,7 @@ async function spawnSubjects(
         shooter: number;
         structure?: number;
         cleared?: number;
-        wait?: { id: number; vehicle: boolean }[];
+        wait?: { id: number; vehicle: boolean | null }[];
         decoy?: number;
       }[] = [];
       for (const row of rows) {
@@ -1607,6 +1678,30 @@ async function spawnSubjects(
         if (idx < 0) throw new Error(`no unit type "${typeId}" in this build`);
         if (row.mode === 'kill') {
           out.push({ subject: row, entity: L.sim.spawn(idx, 0, row.x * fixed, row.y * fixed), shooter: -1 });
+        } else if (row.mode === 'kamikaze') {
+          // GH-85. A munition picks its own target -- the nearest enemy its
+          // SIDE has identified -- so every hostile the sandbox placed goes
+          // first, or the drone is off across the map before the trigger. The
+          // target's mesh is fetched by a FRIENDLY decoy (a munition never
+          // dives on its own side), taken off the field in the trigger.
+          for (let e = 0; e < L.sim.entityCount; e++) {
+            if (L.sim.state.alive[e] === 1 && L.sim.state.side[e] === 1) L.sim.removeFromPlay(e);
+          }
+          const munitionIdx = L.sim.unitTypes.findIndex((t) => t.id === row.shooterId);
+          if (munitionIdx < 0) throw new Error(`no unit type "${String(row.shooterId)}" in this build`);
+          const munition = L.sim.spawn(munitionIdx, 0, (row.x - (row.standoffTiles ?? 4)) * fixed, row.y * fixed);
+          const at = row.spotterAt ?? [row.x + 30, row.y];
+          const decoy = L.sim.spawn(idx, 0, at[0] * fixed, at[1] * fixed);
+          out.push({
+            subject: row,
+            entity: -1,
+            shooter: munition,
+            wait: [
+              { id: munition, vehicle: null },
+              { id: decoy, vehicle: null },
+            ],
+            decoy,
+          });
         } else if (row.mode === 'strike' || row.mode === 'aps' || row.mode === 'smoke' || row.mode === 'charge') {
           // GH-85. The FRIENDLY body is placed now; the hostile only in the
           // trigger, with its mesh fetched first by a decoy parked 30 tiles
@@ -1694,7 +1789,10 @@ async function waitForMeshes(page: import('playwright').Page, placed: readonly P
         if (tick) L.step(20);
         return rows
           .filter((r) => {
-            if (r.vehicle) return !L.renderer.vehicleMeshEntities.has(r.id);
+            // `null`: either path will do -- a kamikaze subject's bodies are
+            // a drone (a vehicle mesh) or a foot team, by type.
+            const onVehicle = L.renderer.vehicleMeshEntities.has(r.id);
+            if (r.vehicle === true || (r.vehicle === null && onVehicle)) return !onVehicle;
             const e = L.renderer.meshUnitEntities.get(r.id);
             return !e || e.actions.size === 0;
           })
@@ -1923,11 +2021,14 @@ async function triggerTriggerFx(page: import('playwright').Page, p: Placed, note
     ([row, friendly, decoy, ownEntity, fixed, cap, tickMs, frameMs]) => {
       const L = (window as unknown as LionsWindow).__lions;
       const r = L.renderer;
-      if (decoy >= 0) L.sim.removeFromPlay(decoy);
+      // A kamikaze subject's decoy, parked at `spotterAt`, STAYS: it is the
+      // side-0 eye on the target once the munition that was watching it is
+      // gone (see `spotterAt`).
+      if (decoy >= 0 && !(row.mode === 'kamikaze' && row.spotterAt !== undefined)) L.sim.removeFromPlay(decoy);
       let hostile = -1;
       let shooter = friendly;
       let target = ownEntity;
-      if (row.mode === 'strike' || row.mode === 'charge') {
+      if (row.mode === 'strike' || row.mode === 'charge' || row.mode === 'kamikaze') {
         const hostileId = row.typeId ?? row.id;
         hostile = L.sim.spawn(L.sim.unitTypes.findIndex((t) => t.id === hostileId), 1, row.x * fixed, row.y * fixed);
         target = hostile;
@@ -1950,6 +2051,7 @@ async function triggerTriggerFx(page: import('playwright').Page, p: Placed, note
           shooter?: number;
           target?: number;
           by?: number;
+          entity?: number;
           weaponId?: string;
           penetrated?: boolean;
         }[];
@@ -1981,6 +2083,16 @@ async function triggerTriggerFx(page: import('playwright').Page, p: Placed, note
             found = `smokeLaid on tick ${now}`;
             break;
           }
+        } else if (row.mode === 'kamikaze') {
+          // The detonation, as the renderer reads it: the munition's own
+          // `destroyed`, naming its target.
+          const det = events.find((e) => e.kind === 'destroyed' && e.by === target && e.entity === shooter);
+          if (det) {
+            found = `detonation on tick ${det.tick}, target ${L.sim.state.alive[target] === 1 ? 'survived' : 'killed'}`;
+            break;
+          }
+          // A munition that died any other way is not the subject.
+          if (L.sim.state.alive[shooter] === 0) break;
         } else if (row.mode === 'charge') {
           if (resolveTick < 0) {
             const shot = events.find((e) => e.kind === 'fire' && e.shooter === shooter && e.weaponId === 'charges');
