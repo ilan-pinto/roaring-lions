@@ -17,9 +17,13 @@ function settle(
   pick: (sim: Sim, id: number) => boolean,
   x: number,
   y: number,
-  seconds: number
+  seconds: number,
+  /** Remove the mission's enemies before the walk, so it measures where the
+   *  order puts the force and nothing else. */
+  noEnemy = false
 ) {
   const { sim, nameOf } = makeWorld(missionId);
+  if (noEnemy) for (const e of idsOf(sim, 1)) sim.debugKill(e);
   const ids = idsOf(sim, 0).filter(
     (i) => sim.state.carriedBy[i] < 0 && sim.state.garrisonedIn[i] < 0 && pick(sim, i)
   );
@@ -82,7 +86,12 @@ describe('a real roster lands on distinct tiles (tel_marum_2_foothold)', () => {
 
 describe('a real roster lands on distinct tiles (tel_marum_3_clearance)', () => {
   it('the foot units into the defile at (10,16) form a column', () => {
-    const { stacked, ids, sim } = settle('tel_marum_3_clearance', onFoot, 10, 16, 200);
+    // No enemy. Since a hit suppresses (BOUNCE_SUPP_MULT, 2026-10-13) the
+    // 200 s walk draws enough fire to pin one inf_squad for ten seconds; it
+    // routs, rallies where it stands and awaits orders, short of its slot and
+    // on a sibling's tile. That is GDD 5.5a doing its job, not a slotting
+    // failure, and this test is about slotting.
+    const { stacked, ids, sim } = settle('tel_marum_3_clearance', onFoot, 10, 16, 200, true);
     expect(stacked, `stacked: ${JSON.stringify(stacked)}`).toHaveLength(0);
     // Every team is inside the defile (x 10..11, y 13..21) or in the bend below it
     // -- nowhere else is reachable within the walk bound.

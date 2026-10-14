@@ -121,9 +121,15 @@ describe('projectHit', () => {
     // identification while range keeps it from firing, then closes in:
     // identification is already settled by the time range is the last
     // condition to fall, matching what stepCombat itself observes.
+    //
+    // The target is unarmed. A plain move holds fire until it arrives, and an
+    // armed target shooting the whole way in pins the shooter before it gets
+    // there now that a hit suppresses (BOUNCE_SUPP_MULT, 2026-10-13): this test
+    // is about the projection, not about walking in under fire.
     const { sim, inf } = world();
+    const unarmed = sim.addUnitType({ ...RIFLES, id: 'p_inf_unarmed', weapons: [] });
     const shooter = sim.spawn(inf, 0, fx.from(4.5), fx.from(10.5));
-    const target = sim.spawn(inf, 1, fx.from(14.5), fx.from(10.5));
+    const target = sim.spawn(unarmed, 1, fx.from(14.5), fx.from(10.5));
     run(sim, 260);
     sim.queueCommand({ kind: 'move', ids: [shooter], x: fx.from(10.5), y: fx.from(10.5) });
 

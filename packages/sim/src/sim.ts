@@ -4469,10 +4469,16 @@ export class Sim {
     });
 
     if (!penetrated) {
-      // A clang on the hull is loud inside.
+      // A clang on the hull is loud inside -- if it could have come through.
+      // A round that never could (a rifle on an MBT) is noise, and takes the
+      // HARMLESS_SUPP discount its near misses take in groundImpact, by the
+      // same test: blast, or penetration up to the side armour (lead ruling,
+      // 2026-10-13). Otherwise a rifle squad pins a tank by ringing its hull.
+      const threatens = this.prSplash[pr] > 0 || pen >= tType.armorSide;
+      const bounce = fx.mul(this.prSupp[pr], BOUNCE_SUPP_MULT);
       this.applySuppression(
         target,
-        fx.mul(this.prSupp[pr], BOUNCE_SUPP_MULT),
+        threatens ? bounce : fx.mul(bounce, HARMLESS_SUPP),
         true,
         this.side[shooter],
         this.prOriginX[pr],

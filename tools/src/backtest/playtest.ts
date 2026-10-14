@@ -860,10 +860,31 @@ const wadiHalam5Plan: Plan = (sim, _rt, ids, at) => {
   // The gate-open run lost its D9 to a mobility kill at (36,9) without it, and the raze with it.
   // A player's attack-move stops where it is sent now (the lead's ruling), so the plan says it.
   at(103, () => sim.queueCommand({ kind: 'attackMove', ids: softIn ? screen : armour, ...M(38, 19) }));
+  // Since a hit suppresses (2026-10-13), a ZU-23 the screen cannot see can pin the D9 for the rest of
+  // the clock: on seed 3 with the gate open a gun truck that routed out past the east wall rallied at
+  // (42,8) and kept the dozer pinned at (36,9) from 150 s to 300 s while the screen stood at (33,12),
+  // and the raze failed. A player sees which gun is shooting his dozer (`Picture`: identified
+  // contacts only), so the carriers go and kill it, and the hold re-anchor below leaves them to it.
+  const pic = new Picture(sim);
+  for (let when = 2; when <= 400; when += 2) at(when, () => pic.update());
+  const hunters = [...armour, ...ids('apc_kipod')];
+  const gunOnDozer = (): { x: number; y: number } | undefined => {
+    const d = dozer.find((u) => sim.state.alive[u] === 1);
+    if (d === undefined || _rt.objectiveStatus('raze_depot') !== 'active') return undefined;
+    const dx = fx.toNumber(sim.state.posX[d]);
+    const dy = fx.toNumber(sim.state.posY[d]);
+    return pic.identified('gun_truck').find((c) => (c.x - dx) ** 2 + (c.y - dy) ** 2 <= 12 * 12);
+  };
+  for (let when = 60; when <= 300; when += 10)
+    at(when, () => {
+      const g = gunOnDozer();
+      if (g) sim.queueCommand({ kind: 'attackMove', ids: hunters, ...M(g.x, g.y) });
+    });
   for (let when = 85; when <= 400; when += 45) {
     at(when, () => {
       const cur: number[] = [];
-      for (let i = 0; i < sim.entityCount; i++) if (sim.state.side[i] === 0 && sim.state.alive[i] === 1) cur.push(i);
+      const hunting = gunOnDozer() !== undefined;
+      for (let i = 0; i < sim.entityCount; i++) if (sim.state.side[i] === 0 && sim.state.alive[i] === 1 && !(hunting && hunters.includes(i))) cur.push(i);
       sim.queueCommand({ kind: 'attackMove', ids: cur, ...M(33, 12) });
     });
   }
@@ -1341,6 +1362,39 @@ const khanRafid3Plan: Plan = (sim, _rt, ids, at) => {
 
   at(0, () => sim.queueCommand({ kind: 'move', ids: at_team, ...M(24, 36) }));
   at(0, () => sim.queueCommand({ kind: 'move', ids: mortar, ...M(22, 38) }));
+
+  // A carrier lost on the way to its orchard leaves that family behind. Since a hit suppresses
+  // (2026-10-13), seed 29 lost the east-orchard Eitan by t=15 and five came in, not six. A player
+  // who sees his carrier die sends another: once the souk is his (t=60 on), a dead carrier's
+  // orchard goes to the nearest living carrier with no passengers, and any carrier holding
+  // passengers is driven to the ward when it stops.
+  const orchards: [number[], number, number][] = [
+    [jeep, 40, 34],
+    [namer, 7, 17],
+    [eitan.slice(1, 2), 40, 17],
+  ];
+  const carriers = [...jeep, ...namer, ...eitan];
+  const passengersIn = (v: number): boolean => {
+    for (let i = 0; i < sim.entityCount; i++) if (sim.state.alive[i] === 1 && sim.state.carriedBy[i] === v) return true;
+    return false;
+  };
+  const sent = new Set<number>();
+  for (let when = 60; when <= 290; when += 5)
+    at(when, () => {
+      if (_rt.objectiveStatus('get_six_in') !== 'active') return;
+      for (const v of carriers) {
+        if (sim.state.alive[v] === 1 && passengersIn(v) && sim.state.moving[v] === 0) sim.queueCommand({ kind: 'move', ids: [v], ...M(10, 35) });
+      }
+      orchards.forEach(([own, x, y], k) => {
+        if (sent.has(k) || own.some((u) => sim.state.alive[u] === 1)) return;
+        const free = carriers.filter((v) => sim.state.alive[v] === 1 && !passengersIn(v));
+        if (free.length === 0) return;
+        const d = (v: number) => (fx.toNumber(sim.state.posX[v]) - x) ** 2 + (fx.toNumber(sim.state.posY[v]) - y) ** 2;
+        const v = free.reduce((a, b) => (d(b) < d(a) ? b : a));
+        sim.queueCommand({ kind: 'move', ids: [v], ...M(x, y) });
+        sent.add(k);
+      });
+    });
 };
 
 run(
@@ -2166,6 +2220,34 @@ const qarnHadid3Plan: Plan = (sim, rt, ids, at) => {
       for (const v of carriersWithFamilies()) if (sim.state.moving[v] === 0) sim.queueCommand({ kind: 'move', ids: [v], ...M(44, 10) });
     });
   for (let when = 2; when <= 1190; when += 2) at(when, () => pic.update());
+  // Since a hit suppresses (2026-10-13) the rescue detail can be pinned and killed short of the
+  // families: on seed 5 with the gate open Qarn Hadid II had left one inf_squad, so the detail was the
+  // at_team alone, pinned at (24,8) at t=180 and dead by 190, and the column that had just taken the
+  // village stood seven tiles from the families until the clock ran out. A player watching the
+  // families stay put sends a carrier for them: once the village is his (or from t=200), the nearest
+  // free carrier goes to the nearest family still standing in the open that one of his units can see
+  // (ten tiles), and the carrier loop above drives it to the clinic once they are aboard.
+  const CARRIERS = [...armour, ...namer];
+  for (let when = 170; when <= 290; when += 10)
+    at(when, () => {
+      if (rt.objectiveStatus('get_the_families_clear') !== 'active') return;
+      if (rt.objectiveStatus('take_the_village') === 'active' && when < 200) return;
+      const st = sim.state;
+      const mine = living(sim);
+      let fam = -1;
+      for (let i = 0; i < sim.entityCount; i++) {
+        if (st.side[i] !== 2 || st.alive[i] !== 1 || st.carriedBy[i] >= 0) continue;
+        const seen = mine.some((u) => (st.posX[u] - st.posX[i]) ** 2 + (st.posY[u] - st.posY[i]) ** 2 <= (10 * 65536) ** 2);
+        if (seen) { fam = i; break; }
+      }
+      if (fam < 0) return;
+      const busy = carriersWithFamilies();
+      const free = CARRIERS.filter((v) => st.alive[v] === 1 && !busy.has(v));
+      if (free.length === 0) return;
+      const d = (v: number) => (st.posX[v] - st.posX[fam]) ** 2 + (st.posY[v] - st.posY[fam]) ** 2;
+      const v = free.reduce((a, b) => (d(b) < d(a) ? b : a));
+      sim.queueCommand({ kind: 'move', ids: [v], x: st.posX[fam], y: st.posY[fam] });
+    });
   for (let when = 190; when <= 1190; when += 10)
     at(when, () => {
       if (rt.objectiveStatus('take_the_village') !== 'active') return;
@@ -2567,16 +2649,30 @@ const uz4Plan: Plan = (sim, rt, ids, at) => {
   // exactly 5s of standing charges once a demolisher is within 2 tiles --
   // `demolish` is a hold-station timer, not a damage race, so 7,500 hp
   // comes down as fast as two squads can walk to three doors.
-  const depotEscort = [...ids('mbt_lavi'), ...ids('apc_eitan')];
+  const lavi = ids('mbt_lavi');
+  const eitan = ids('apc_eitan');
+  const depotEscort = [...lavi, ...eitan];
   at(1, () => {
-    // The escort's attack-move to (33, 8), beside the porters at (32.5, 7.5), is
+    // The tanks' attack-move to (33, 8), beside the porters at (32.5, 7.5), is
     // what walks them out: a GROUND player unit within four tiles (GH-279 ruling
     // a). The drone does not move them -- CivilianFlight skips aircraft -- and
     // it is not ordered here at all (GH-382, see t=50). Measured on the
     // pinned-seed line: `get_the_porters_clear` (a secondary) is complete (c) at
     // the victory at base tier, and still active (a) at the victory at max tier.
-    sim.queueCommand({ kind: 'attackMove', ids: depotEscort, ...M(33, 8) });
+    sim.queueCommand({ kind: 'attackMove', ids: lavi, ...M(33, 8) });
   });
+  // The armour climbs to the shelf in single file up x=33 (measured: every hull on x=33.0). Sent as one
+  // group, the faster Eitans lead,
+  // and since a hit suppresses (2026-10-13) the lead Eitan is pinned at y=17 by the RCL and ATGM in
+  // the yard and corks the ramp: on seed 5 both Lavis sat behind it at y=21 for 150 s. So the tanks
+  // lead, and the carriers follow four tiles behind the rear tank until it reaches the yard.
+  for (let when = 1; when <= 120; when += 5)
+    at(when, () => {
+      const tanks = lavi.filter((u) => sim.state.alive[u] === 1).map((u) => fx.toNumber(sim.state.posY[u]));
+      const ys = Math.max(...tanks, -Infinity);
+      if (tanks.length === 0 || ys <= 10) sim.queueCommand({ kind: 'attackMove', ids: eitan, ...M(33, 8) });
+      else sim.queueCommand({ kind: 'attackMove', ids: eitan, ...M(33, Math.min(40, ys + 4)) });
+    });
   // GH-382: the spur's eye covers the ramp, so a drone sent at t=1 is shot down on the way up; it
   // follows the escort in once the spur is clear.
   at(50, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(33.5, 8.5) }));
@@ -2586,10 +2682,26 @@ const uz4Plan: Plan = (sim, rt, ids, at) => {
     [[30, 4], [36, 3], [34, 9]],
     [[36, 3], [30, 4], [34, 9]],
   ];
-  for (let when = 45; when <= 285; when += 15)
+  // Since a hit suppresses (2026-10-13) a demolition party that walks onto the shelf while the depot's
+  // garrison still stands is pinned at the first door and dies there: on seed 2 the parties overtook
+  // an escort halted at y=17-21 and both were dead by t=115, the stockpile untouched. So the parties
+  // wait behind the escort at (33,22) until the player's own picture says the yard is his: armour
+  // standing in it, and nothing he has seen still standing around the doors. If that has not
+  // happened by t=200 they go anyway -- the clock is 300 s.
+  const DEPOT = [26, 1, 15, 14] as const;
+  const yardHeld = (): boolean =>
+    depotEscort.some((u) => sim.state.alive[u] === 1 && (fx.toNumber(sim.state.posX[u]) - 33) ** 2 + (fx.toNumber(sim.state.posY[u]) - 8) ** 2 <= 25);
+  for (let when = 45; when <= 285; when += 5)
     at(when, () => {
+      if (rt.objectiveStatus('raze_the_stockpile') !== 'active') return;
+      const go = (yardHeld() && pic.contacts(DEPOT).length === 0) || when >= 200;
       demo.forEach((u, k) => {
         if (sim.state.alive[u] !== 1) return;
+        if (!go) {
+          if (when % 15 === 0) sim.queueCommand({ kind: 'move', ids: [u], ...M(32.5 + k, 22) });
+          return;
+        }
+        if (when % 15 !== 0 && sim.state.moving[u] === 1) return;
         const door = (doors[k] ?? doors[0]).find(([x, y]) => sim.structureAt(x, y) >= 0);
         if (door) sim.queueCommand({ kind: 'demolish', ids: [u], structure: sim.structureAt(door[0], door[1]) });
       });
@@ -2759,10 +2871,14 @@ function boughtProbe(
 // min now, the Zikit died there at 153 s to the wave's own militia. Three tiles south, (42,27),
 // it identifies 2 units and the route on 11 rounds and is alive at the end; (40,26), (36,26)
 // and (40,28) also survive (49 / 51 / 9 rounds). Measured, one run each.
+// 2026-10-13, hits suppress: at (42,27) the Zikit is pinned in its first exchange (8 rounds) and
+// dies there; (40,28) and (40,26) die too (12 and 41 rounds). (36,26), the one of the three
+// survivors above still standing, identifies 3 units and the route on 50 rounds and is alive at
+// the end. Measured, one run each.
 boughtProbe('beit_sahwan_4_subterranean', bs4Plan, led4In, 'recon_zikit', 30, 'sees', (mine) => ({
   kind: 'move',
   ids: mine,
-  ...M(42, 27),
+  ...M(36, 26),
 }));
 // The Gunship is built on the first tick (50 s) and joins the `raze` approach: an
 // attack-move to the stockpile the depot escort is already walking to.
@@ -3295,7 +3411,17 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // - Wadi Halam V 210 -> 200: the sim alone, and its HOLD branch (putting -x back in the hold's place
 //   restores 210); no plan touched it. Done in 5.4 min instead of 5.8, roster out 19 both ways.
 // No star moved, and neither did any gate.
-const LADDER_CREDITS = 5952;
+// 2026-10-13, #584: hits, bounces and splash suppress (BOUNCE_SUPP_MULT x2.0, not 2/65536), a
+// bounce off armour the round could never penetrate is harmless, and SUPP_STAT_DIVISOR is 730.
+// 5952 -> 6025, +73, read off the printed per-mission credits:
+// - Beit Sahwan breach 170 -> 180, I 290 -> 300, III 270 -> 275, IV 210 -> 200;
+// - Khan Rafid I 300 -> 310, III 265 -> 260; Qarn Hadid II 190 -> 210, III 225 -> 235;
+// - Umm Zeitoun III 270 -> 280, IV 232 -> 245; Wadi Halam II 180 -> 190, V 200 -> 190.
+// The model alone, except Umm Zeitoun IV: its re-planned script (see its comment) reads 245 where
+// the old script read 249 on the new model. The other three re-plans (Qarn Hadid III, Khan Rafid
+// III, Wadi Halam V) leave the pinned seed's credits where the model put them. No star moved, and
+// every gate opens on time on 30/30 seeds.
+const LADDER_CREDITS = 6025;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
@@ -3427,7 +3553,10 @@ for (const [label, got, want] of [
 // 2026-10-11, the winning plans hold on thirty seeds: 32 -> 30, same mission. Umm Zeitoun IV's
 // escort leaves the yard for Adhal once the stockpile is down, and two of the chain's units do not
 // come back from the crest.
-const ROSTER_MAX = 30;
+// 2026-10-13, #584 (hits, bounces and splash suppress; harmless bounces; SUPP_STAT_DIVISOR 730) and
+// Umm Zeitoun IV's re-plan: 30 -> 31, same mission. The model alone read 32 there; the re-planned
+// script, whose parties wait behind the armour, brings 31 home.
+const ROSTER_MAX = 31;
 console.log(`roster maximum: ${rosterMax} at ${rosterMaxMissionId}`);
 if (rosterMax !== ROSTER_MAX) {
   console.error(`roster maximum: FAILED — expected ${ROSTER_MAX}, got ${rosterMax} at ${rosterMaxMissionId}`);
