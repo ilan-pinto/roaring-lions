@@ -5989,6 +5989,8 @@ export class Sim {
     h = hashArray(h, this.brace);
     h = hashArray(h, this.braceTicks);
     h = hashArray(h, this.braceClock);
+    h = hashArray(h, this.focusTarget);
+    h = hashArray(h, this.focusLost);
     return h >>> 0;
   }
 }
