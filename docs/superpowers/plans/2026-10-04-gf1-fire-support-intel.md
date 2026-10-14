@@ -4,29 +4,32 @@
 
 ## Changed since 4 Oct (refreshed 14 Oct)
 
-Read and grepped against `main` `f4b3ea2b` (14 Oct, after #601), and against the garrison overhaul's
-branch `origin/feat/garrison-overhaul` at `fb3174c8` (`git show <ref>:<path>`). Docs only; nothing
-run. **This section governs where it disagrees with the older dated sections below**, which stay as
-the record. Stage 4 started early, on 13 Oct (the lead); the November calendar in the older sections
-and in `2026-10-04-stage4-order.md` is history. F1 starts **when the garrison overhaul merges**.
+Read and grepped against `main` `f4b3ea2b` (14 Oct, after #601) and the garrison overhaul's branch,
+then **re-checked against `main` `cd407953`**, which carries the overhaul as #606 (merged 14 Oct).
+Every garrison fact below is now read off `main`. Line numbers in files #606 touched (`sim.ts`,
+`tuning.ts`, `determinism.test.ts`, `playtest.ts`, `stores-model.ts`) are `cd407953`'s; files it did
+not touch (`mission.ts`, `main.ts`, `playtest-run.ts`, `data/missions`, `data/maps`, `packages/net`)
+read the same on both, so a `f4b3ea2b` reference there still holds. Docs only;
+nothing run. **This section governs where it disagrees with the older dated sections below**, which
+stay as the record. Stage 4 started early, on 13 Oct (the lead); the November calendar in the older
+sections and in `2026-10-04-stage4-order.md` is history. With #606 merged, **F1 can be cut now.**
 
 **Pins: name them, never copy them.** Every pin value this plan quoted as a target is gone from
 Global Constraints and Re-pins. The executor re-reads **main's current pins** on the branch base and
 writes them into Task 1's commit message:
 - the three sim pins in `packages/sim/src/determinism.test.ts`: **flat** (`determinism (1000-tick
-  replay)`, ~L488), **relief** (`determinism over relief`, ~L857) and **orders** (`determinism of an
-  order once it is done`, ~L977). Targeted fire (#591) moved all three; the garrison overhaul
-  re-pins them again (`b378833e`, its G1);
-- `LADDER_CREDITS` (`tools/src/backtest/playtest.ts` ~L3431), held equal to `CAMPAIGN_CREDITS`
-  (`packages/app/src/ui/stores-model.ts` L63) by `tools/src/campaign_credits.test.ts`;
-- `ROSTER_MAX` (`playtest.ts` ~L3566) and `GATES` (~L3121);
+  replay)`, ~L494), **relief** (`determinism over relief`, ~L863) and **orders** (`determinism of an
+  order once it is done`, ~L983). Targeted fire (#591) moved all three, and #606 moved the flat pin
+  again;
+- `LADDER_CREDITS` (`tools/src/backtest/playtest.ts` ~L3584), held equal to `CAMPAIGN_CREDITS`
+  (`packages/app/src/ui/stores-model.ts` ~L66) by `tools/src/campaign_credits.test.ts`;
+- `ROSTER_MAX` (`playtest.ts` ~L3723), `GATES` (~L3262) and `CONDUCT_GATES` (~L3329);
 - `ECONOMY_PIN` and `ECONOMY_PIN_RELIEF`: **not in the tree** (grep, 14 Oct). F1 Task 1 and Task 5
   create them.
 
-The garrison overhaul moves `LADDER_CREDITS`/`CAMPAIGN_CREDITS` and `ROSTER_MAX` in its own two
-commits (`e8cdab88`, `53b020ba`). Those commits' values differ from the figures quoted when this
-refresh was asked for, which were a mid-branch reading (`bc0a559a`'s message). Carry neither into
-F1: read both off `main` after the merge.
+#606 re-pinned `LADDER_CREDITS`/`CAMPAIGN_CREDITS` and `ROSTER_MAX` on `main`. The figures quoted
+when this refresh was first asked for were a mid-branch reading and are not what landed. Carry no
+number from any message into F1: read the pins off `main`.
 
 ### What landed since the 11 Oct pre-flights (each checked against F1)
 
@@ -37,28 +40,28 @@ F1: read both off `main` after the merge.
 | **#570**, **#572** anti-armour target choice; ATGM range | Fights resolve differently: every (M) census in Task 2 is a fresh reading. | Task 2 |
 | **#577** H never empties a building (the Hold ruling) | App only (`input/intents.ts` `haltTargets`): H dispatches `halt` to the units outside; a unit inside is already holding. The sim's `halt` is unchanged. | Task 5, Task 8 (vocabulary) |
 | **#585** the mission time limit (#540) | `time_limit_s` on all 27 missions, `checkEnd` ends a stalled mission as a `'withdrawn'` defeat (`mission.ts` ~L1925-1947), `timeLimitTicksLeft`. The harness prints `time limit` headroom lines (`tools/src/backtest/time-limit.ts`, `HEADROOM_S` 120, `HEADROOM_RATIO` 1.2) and fails a win that crowds its limit. Two new controls, Beit Sahwan I and III, expect `withdrawn`. | Tasks 1, 2, 8, 9 |
-| **#591** targeted fire (GH-420) | An `attack` command sets a hashed `focusTarget`; any order that names a unit releases it; `reveal` and `callStrike` name no unit, so they release nothing (`sim.ts` ~L2174-2196). `stepFocus` (~L5576) walks a focused unit toward a target out of reach and, while the target is lost, to its last-seen tile for `FOCUS_LOST_TICKS` (100, 5 s). `canFocus` refuses a target not identified, and `focusStillTargetable` refuses a garrisoned one. | Tasks 5, 7, 8 |
+| **#591** targeted fire (GH-420) | An `attack` command sets a hashed `focusTarget`; any order that names a unit releases it; `reveal` and `callStrike` name no unit, so they release nothing (`sim.ts` ~L2195-2217). `stepFocus` (~L5734) walks a focused unit toward a target out of reach and, while the target is lost, to its last-seen tile for `FOCUS_LOST_TICKS` (100, 5 s). `canFocus` refuses a target not identified, and `focusStillTargetable` refuses a garrisoned one. | Tasks 5, 7, 8 |
 | **#525** GH-113 intel moments (S-F's half of the old Lane A list, landed) | `packages/app/src/ui/intel-moments.ts`: the READY/CALL/RESULT lines, the announcer's `sweep_ready`/`strike_ready`/`sweep_inbound`/`strike_inbound`, and an **intel rate** (`IntelRate`) that feeds the strip's `+N/min`, the tile's charge clock and the telemetry field `intelRate`. Its spec copies `SWEEP_RADIUS_SQ`, `STRIKE_SPLASH` and `STRIKE_DELAY_TICKS` and **reads `tuning.ts` as text** (`intel-moments.test.ts` ~L27-38). `tools/src/intel_moments_world.test.ts` **pins the trickle by literals** (8/min a drone, 5/min a holding scout, on `umm_zeitoun_4_clearance`). | Tasks 3, 6; Lane A |
 | **N0/N1a/N1b** versus (#554 … #600) | `packages/net`. Rooms run Free Play only (`main.ts` ~L1458) and build no `MissionRuntime`. `validateCommand` drops `callStrike` and `reveal` in a versus room (`packages/net/src/ownership.ts` ~L53-56, #559 F1). `cleanCommand` (`protocol.ts` ~L154) rebuilds a `callStrike` as `{ kind, caller, x, y }`. #600 adds two maps, `milh_flats` and `wadi_tarfan`, both with an `elevation` grid. | Tasks 4, 6 |
 | **#599** three r186, **#601/#603** unit polish, **#592** garrison banner | Render and art only. Nothing F1 reads. | none |
-| the garrison overhaul (`feat/garrison-overhaul`, not merged) | See "Interactions" below. Its pins move first; F1 rebases onto them. | Tasks 2, 5, 6, 7, 9 |
+| **#606** the garrison overhaul (#280, #34), merged 14 Oct | See "Interactions" below. Its pins are on `main`; F1 is cut on top of them. | Tasks 2, 5, 6, 7, 9 |
 
 ### Stale items fixed in place (14 Oct)
 
 | where | was | now |
 |---|---|---|
-| Base | cut after #291, #330, #540 and targeted fire | all four are on `main`; **cut after the garrison overhaul merges** |
+| Base | cut after #291, #330, #540 and targeted fire | all four are on `main`, and so is the garrison overhaul (#606); **cut from `main` at or after `cd407953`** |
 | Global Constraints, Re-pins | pin values quoted as expected numbers | named pins only ("main's current pins"), as above |
 | Global Constraints, Lane C | the only `packages/app` edits are `cues.ts` and `alerts.test.ts` | plus `tools/src/intel_moments_world.test.ts` (Task 3) and one `packages/net` edit (Task 6, ruling F-R5) |
 | File structure | `mission.ts` tasks 1, 3, 5, 6, 8; `determinism.test.ts` 1, 3; `tuning.ts` 2, 3, 6, 7 | `mission.ts` 1, 3, 5, 8; `determinism.test.ts` 1, 3, 5; `tuning.ts` 3, 5, 6, 7 (Task 2 writes docs only; Task 5 adds `INTEL_PER_RISE`/`HIGH_GROUND_*` and the relief fixture); two new rows |
-| D4 | `EYE_HEIGHT` `sim.ts` ~L792 | ~L834 |
+| D4 | `EYE_HEIGHT` `sim.ts` ~L792 | ~L851 |
 | Task 1 Step 1 | "a `destroy` secondary" | `destroy_all` (`SUPPORTED`, `mission.ts` ~L399, has no `destroy`) |
 | Task 3 Step 2 | `MISSION_EVENT_KINDS` ~L379; trickle ~L420, ~L1066 | ~L384; `INTEL_PER_MIN_*` ~L427-428, accrual loop ~L1086-1100 |
 | Task 3 | the trickle's only pinning test is in `mission.test.ts` | also `tools/src/intel_moments_world.test.ts` claim 1; rewritten in Task 3 (F-R9) |
 | Task 4 | 21 relief maps, 12 flat | **23 relief, 12 flat** (`milh_flats`, `wadi_tarfan` added, #600). Economy missions on relief: still 16 of 18 |
 | Task 5 | #279 ruling (a)'s sim half "not on `main`" | landed in #580 |
-| Task 6 Step 2 | `hash()` ~L5587 | ~L6198; the `pendingStrikes` loop ~L6267-6273 (hashes `x`, `y`, `readyTick`; `by` is not hashed) |
-| Task 7 Step 2 | the `smoke` command branch | `sim.ts` ~L2444-2468; the stamp is the `SMOKE_RADIUS` disc loop, `smokeLaid` pushed per carrier |
+| Task 6 Step 2 | `hash()` ~L5587 | ~L6369; the `pendingStrikes` loop ~L6440-6445 (hashes `x`, `y`, `readyTick`; `by` is not hashed) |
+| Task 7 Step 2 | the `smoke` command branch | `sim.ts` ~L2464-2488; the stamp is the `SMOKE_RADIUS` disc loop, `smokeLaid` pushed per carrier |
 | Task 8 interfaces | `sweepCost`/`strikeCost` as wrappers | they are **getters** (`get sweepCost()`, `mission.ts` ~L652), read as properties by `main.ts` ~L3677, `ui/production.ts` ~L221 and `IntelMoments`; they stay getters, and `supportCost(kind)` is the new method |
 | Task 8 | app call site `main.ts` ~L3612 | `requestSweep`/`requestStrike` at `main.ts` ~L4068-4069; `armedSupport` ~L3669 |
 | Task 8 pin | "a drone sweep moves no player unit" | "no player unit **without a focus**" (F-R6) |
@@ -102,28 +105,30 @@ counts as holding a rise (F-R7), so H and the rise never meet. Nothing else.
   longer. Whether the passive-versus-winner gate compares end totals or totals at the same tick is
   F-Q12.
 
-**The garrison overhaul (branch, read at `fb3174c8`).** Rulings 1-7 of 14 Oct; no new hashed
+**The garrison overhaul (#606, on `main` at `cd407953`).** Rulings 1-7 of 14 Oct; no new hashed
 column; new fields `garrison_cover` (default 3) and `floors` (default 1),
 `fires_from_building` (default true), `GARRISON_RANGE_BONUS` (1 tile, `tuning.ts`).
 - *Strikes and garrisons.* `applyDamage` returns at once for a garrisoned unit (the building takes the
   hit), unchanged. `stepStrikes` applies suppression with `coverProtects = false`, and `garrison_cover`
-  is read **only** under `coverProtects` (branch `applySuppression`, ruling 1). So an air strike, and a
-  barrage if it copies the strike path, pins a garrison at full value, while a mortar team's own round
-  is muffled by `garrison_cover`. F-Q13.
+  is read **only** under `coverProtects` (`applySuppression`, `sim.ts` ~L4892; ruling 1). So an air
+  strike pins a garrison at full value, while a mortar team's own round is muffled by
+  `garrison_cover`. **Ruled 14 Oct (lead), F-Q13:** the barrage honours cover (`coverProtects: true`);
+  the air strike keeps `false`.
 - *Identification from and of a garrison.* A garrisoned unit is spotted as if in cover 3 (G2), so
   enemy garrisons are identified later and pay "first identified" later. A side-0 garrison sees from
   its window and from upper floors (G1, G3 `eyeLift`), so it identifies further and is paid for it,
-  with `observer >= 0`. A starting force garrisoned at t=0 can therefore earn without moving. F-Q14.
+  with `observer >= 0`. A starting force garrisoned at t=0 can therefore earn without moving.
+  **Ruled 14 Oct (lead), F-Q14:** it is paid; Task 9's passive gate is the check.
 - *High ground.* A garrisoned unit's position stays its building's centroid, and B6 found centroids
   **outside** their own footprint (the two `khan_rafid_3` shanties), so "a blocked tile is never on a
   rise" does not exclude every garrison. Task 5 skips `garrisonedIn >= 0` (and `carriedBy >= 0`)
   explicitly (F-R7).
-- *Smoke.* On the branch `raySmoke` takes both eye lifts. A two-floor garrison's eye sits at the
+- *Smoke.* `raySmoke` takes both eye lifts (`sim.ts` ~L2777, `eyeLift` ~L2819). A two-floor garrison's eye sits at the
   plume's top and a three-floor one's above it, so a smoke screen may not blind an upper floor.
   Task 7 pins what the code does over a 3-floor `apartment`, measured.
 - *Plans and probes.* Five plans were re-scripted to fight garrisons that shoot back (UZ I, UZ III,
-  UZ IV, WH IV, DA II), with `GARRISON_RANGE_BONUS` reach. Task 2's census and Task 9's choice of a
-  spending mission read the post-merge plans. `sarim_rifles` can garrison now, and a `garrison`
+  UZ IV, WH IV, DA II), with `GARRISON_RANGE_BONUS` reach; they are `main`'s plans now, and Task 2's
+  census and Task 9's choice of a spending mission read them. `sarim_rifles` can garrison now, and a `garrison`
   stance needs the ability (`validate_garrison.mjs`), so Task 1's fixture enemy uses a stance its unit
   supports.
 - *A garrisoned caller.* `requestStrike` picks the first living surface side-0 unit, which may be in
@@ -152,7 +157,7 @@ and nothing reads them in a room.
 | 1 × 5 | `economyHash`, `determinism.test.ts` | 5 folds rise counters and the paid set; claims `ECONOMY_PIN` does not move | any `hashWord` of a length (even 0) moves the flat pin, so "does not move" is false as written | **F-R2**: fold per-rise state in a loop over `count` with **no length word**; a flat map has `count` 0 and adds nothing. `ECONOMY_PIN_RELIEF` is born in the same commit |
 | 3 × 5 | `mission.ts` `step`, `mission.test.ts` | 3 replaces the income block's intel half; 5 adds the rise pass | both edit the same block; order matters for the hash | 5 adds its pass after 3's, one pass over `playerIds`; no conflict |
 | 3 × 8 | `mission.ts`, the earn rule | 8's sweep emits `observer: -1` | 3 pays only `observer >= 0` | consistent (D3) |
-| 4 × 5 | `intel-earn.ts` | 4 produces `highGroundRises(elevation, blocked, w, h)`; 5 calls it with `sim.elevation`, `sim.blocked` (public, `sim.ts` ~L876, ~L896) | rises are open tiles only, but a garrison can stand on an open tile (B6) | **F-R7**: 5 skips garrisoned and carried units itself |
+| 4 × 5 | `intel-earn.ts` | 4 produces `highGroundRises(elevation, blocked, w, h)`; 5 calls it with `sim.elevation`, `sim.blocked` (public, `sim.ts` ~L913, ~L893) | rises are open tiles only, but a garrison can stand on an open tile (B6) | **F-R7**: 5 skips garrisoned and carried units itself |
 | 6 × 7 | `sim.ts` `stepStrikes`, `tuning.ts` `FIRE_SUPPORT`, `fire-support.test.ts` | 6 adds `profile` and `payload`; 7 fills the `'smoke'` branch | consistent; 7 depends on 6 | none |
 | 6 × 8 | `callStrike.profile` | 8's `requestSupport` queues it | consistent | none |
 | 6 × app | `tuning.ts` as text | `intel-moments.test.ts` regexes `export const STRIKE_SPLASH = (\d+);` etc. | folding the `STRIKE_*` literals into the table throws "not found in tuning.ts" | **F-R4**: keep `SWEEP_RADIUS_SQ`, `STRIKE_SPLASH`, `STRIKE_DELAY_TICKS` (and the other `STRIKE_*`) as literal `export const` lines; `FIRE_SUPPORT[0]` references them |
@@ -164,7 +169,7 @@ and nothing reads them in a room.
 | 8 × app | `sweepCost`/`strikeCost` | getters, read as properties | an interface written as methods breaks `typecheck` in `app` | **F-R10**: getters stay; `supportCost(kind)` is a method |
 | 9 × 3, 5, 8 | `playtest.ts` | 9 reads intel and calls `requestSupport` | consistent | none |
 | 9 × #540 | `plan-sweep.ts`, `time-limit.ts` | the spending plan's wins | must clear `limitHeadroom` | stated at Task 9 |
-| 2, 9 × garrison overhaul | plans, census | five plans re-scripted on the branch | a census taken before the merge measures plans that no longer exist | **F-R13**: Task 2 and Task 9 read only the post-merge base |
+| 2, 9 × garrison overhaul | plans, census | five plans re-scripted by #606 | a census taken before #606 measures plans that no longer exist | **F-R13**: Task 2 and Task 9 read only a base at or after `cd407953` |
 | 10 × 2 | numbers | 10 writes 2's approved table into GDD and README | consistent | none |
 
 **Each task against itself.**
@@ -183,7 +188,7 @@ and nothing reads them in a room.
 | 10 | census misses `debrief`; GDD L70 | fixed in place |
 
 **Rulings I could make (F-R1 … F-R13)** are above, each beside its row, plus two that have no row:
-**F-R1**, F1 is cut from `main` after the garrison overhaul merges and every count is read there; and
+**F-R1**, F1 is cut from `main` at or after `cd407953` (#606) and every count is read there; and
 **F-R11**, `economyHash` does not fold the time limit. **What only the lead can decide** is "For the lead (14 Oct)" below.
 
 ### For the lead (14 Oct)
@@ -194,21 +199,28 @@ and nothing reads them in a room.
     telemetry field `intelRate` turns to noise. F1 only rewrites the tools test that pins the trickle
     (F-R9). **Recommended:** S-F retires the intel `+N/min` and the tile clock (logistics keeps its
     own) and shows the last earn instead ("+30 high ground"), which F-Q7's feed line already carries.
+    **Ruled 14 Oct (lead):** S-F retires the intel `+N/min` and the tile clock (logistics keeps its
+    own) and shows the last earn instead.
 12. **F-Q12. What the passive gate compares.** `INTEL_PASSIVE_BEATS_WINNER` compares each control's
     total with its winning plan's. Two controls now run to their time limit (`withdrawn`), and a
     control usually runs longer than the plan it pairs with. **Recommended:** compare intel **at the earlier
     of the two end ticks**, and print both end totals beside it. Comparing end totals would charge a
     passive force for the extra minutes it lost in.
+    **Ruled 14 Oct (lead):** compare intel at the earlier of the two end ticks, and print both end
+    totals beside it.
 13. **F-Q13. Does a barrage respect cover?** The air strike suppresses with `coverProtects = false`,
     so after the overhaul it ignores `garrison_cover`. A mortar team's own round honours it (ruling 1).
     **Recommended:** a `coverProtects` field per profile: `false` for `air_strike` (byte for byte as
     today), `true` for `mortar_barrage`, so a barrage on a building suppresses its garrison exactly
     as a mortar team's round does. The alternative, a barrage that pins any garrison, makes it the
     standard answer to every building.
+    **Ruled 14 Oct (lead):** a `coverProtects` field per profile, `false` for `air_strike` (byte for
+    byte as today) and `true` for `mortar_barrage`.
 14. **F-Q14. A garrison as an observation post.** Since the overhaul a side-0 unit at an upper window
     sees further and is paid for what it identifies, even if it was placed there at t=0. The 6 Oct
     ruling denied pay to a spawn rise, not to spotting. **Recommended:** keep it (spotting is the
     act), and let Task 9's passive gate catch it if it turns into a trickle.
+    **Ruled 14 Oct (lead):** keep it; Task 9's passive gate catches it if it turns into a trickle.
 
 Still standing from earlier passes: the six 6 Oct questions, F-Q10 and the four Pre-flight 2
 questions are ruled. F-Q7 (the earn feed line) and F-Q9 (fire support on a `raze` target) are taken
@@ -402,12 +414,12 @@ currency**, and it buys a menu of four, not two.
 **Base:**
 - Read against `main` `067fab9a`; refreshed against `main` `b44df7aa` (6 Oct, see "Changed since
   4 Oct (refreshed 6 Oct)"), checked against `f2d5d9e8` (11 Oct, see "Pre-flight") and against
-  `f4b3ea2b` (14 Oct, see "Changed since 4 Oct (refreshed 14 Oct)"). Locate code by symbol; line
-  numbers drift.
-- Branch `feat/gf1-intel`, cut from `main` **after the garrison overhaul
-  (`2026-10-14-garrison-overhaul.md`, `feat/garrison-overhaul`) has merged**. Everything this plan
-  used to wait on is on `main` as of 14 Oct: #330 (October), #291/#279/#247 (#580), #540 (#585),
-  targeted fire (#591) and the Hold ruling's app half (#577). Stage 4 started early, on 13 Oct, so
+  `f4b3ea2b` and `cd407953` (14 Oct, see "Changed since 4 Oct (refreshed 14 Oct)"). Locate code by
+  symbol; line numbers drift.
+- Branch `feat/gf1-intel`, cut from `main` **at or after `cd407953`**, which carries the garrison
+  overhaul (#606, `2026-10-14-garrison-overhaul.md`). Everything this plan waited on is on `main` as
+  of 14 Oct: #330 (October), #291/#279/#247 (#580), #540 (#585), targeted fire (#591), the Hold
+  ruling's app half (#577) and the garrison overhaul (#606). Stage 4 started early, on 13 Oct, so
   there is no November slot to wait for. Worktree under `/Users/ilpinto/dev/roaring-lions-ep/`,
   `pnpm install` once. Task 1's commit message records main's current pins (the three sim pins,
   `LADDER_CREDITS`, `CAMPAIGN_CREDITS`, `ROSTER_MAX`, `GATES`), read on the branch base.
@@ -453,7 +465,7 @@ currency**, and it buys a menu of four, not two.
     would make every tile of a plateau map "high". Flat maps have no rise and pay nothing for height.
     *(6 Oct: 16 of 18 economy missions are on relief since GH-382, and #402's closing rule walks an
     arrived attack-mover off a rise toward what it identifies out of reach. `EYE_HEIGHT` is 1,
-    `packages/sim/src/sim.ts` ~L834 on 14 Oct.)* *(14 Oct: a garrisoned or carried unit never holds a
+    `packages/sim/src/sim.ts` ~L851 on `cd407953`.)* *(14 Oct: a garrisoned or carried unit never holds a
     rise, whatever tile its position sits on (F-R7), and a unit chasing a focus leaves one.)*
     *Ruled 6 Oct:*
     - *D4 stands. The lead added Hold position (`2026-10-06-hold-position.md`), which keeps a unit
@@ -476,9 +488,9 @@ currency**, and it buys a menu of four, not two.
   `eslint-disable`. The earn rule is integer lumps. The barrage draws its scatter from the
   **caller's** `rng` stream, exactly as `callStrike` does, one stream draw pair per round.
 - **The three sim pins stay UNMOVED by every task**: main's current flat, relief and orders pins
-  (`determinism.test.ts`, the `expect(...hash()).toBe(...)` lines at ~L488, ~L857 and ~L977 on
-  `f4b3ea2b`; read them on the branch base, after the garrison overhaul has re-pinned them, and
-  never copy a number from this plan). The golden replays never call a strike (grep, 14 Oct:
+  (`determinism.test.ts`, the `expect(...hash()).toBe(...)` lines at ~L494, ~L863 and ~L983 on
+  `cd407953`, which includes #606's re-pin; read them on the branch base, and never copy a number
+  from this plan). The golden replays never call a strike (grep, 14 Oct:
   `determinism.test.ts` has no `callStrike`, `reveal` or `MissionRuntime`; grep again in Task 6,
   Step 3; if one does, stop and raise it). The new `profile` field is hashed inside the
   `pendingStrikes` loop, which is empty in all three replays and in every versus room (rooms build
@@ -491,10 +503,10 @@ currency**, and it buys a menu of four, not two.
 - **`pnpm playtest`**: exit 0, every plan, control and gate on all 30 seeds, every `time limit`
   headroom line clear. Outcomes, durations, ROE, stars and credits byte-identical (R): no plan
   spends intel today, and `creditInputFrom` (`packages/sim/src/credits.ts` ~L59) reads no intel (M,
-  G3 sheet; still true at `f4b3ea2b`). `LADDER_CREDITS` (`tools/src/backtest/playtest.ts` ~L3431 on
-  `f4b3ea2b`), held equal to `CAMPAIGN_CREDITS` (`packages/app/src/ui/stores-model.ts` L63) by
-  `tools/src/campaign_credits.test.ts`, stays at main's current value, whatever the garrison
-  overhaul leaves it at; so do `ROSTER_MAX` and `GATES`. Task 9 adds new printed lines; the existing
+  G3 sheet; still true at `cd407953`). `LADDER_CREDITS` (`tools/src/backtest/playtest.ts` ~L3584 on
+  `cd407953`), held equal to `CAMPAIGN_CREDITS` (`packages/app/src/ui/stores-model.ts` ~L66) by
+  `tools/src/campaign_credits.test.ts`, stays at main's current value (#606's re-pin); so do
+  `ROSTER_MAX` and `GATES`. Task 9 adds new printed lines; the existing
   lines do not move.
 - **Every check is seen red.** Each task names a one-line mutation of the implementation that must
   turn a named test red, and the commit message quotes the red line (CLAUDE.md, "Every check gets an
@@ -521,7 +533,7 @@ currency**, and it buys a menu of four, not two.
 | `packages/sim/src/mission.ts` | `economyHash()`; the earn rule; the per-minute terms deleted (~L427-428, ~L1086-1100 on `f4b3ea2b`); the four-item `requestSupport` | 1, 3, 5, 8 (6's raze test builds a runtime, edits none) |
 | `packages/sim/src/determinism.test.ts` | The economy replay and its pins (`ECONOMY_PIN`, Task 5's `ECONOMY_PIN_RELIEF`) | 1, 3, 5 |
 | `packages/sim/src/intel-earn.ts` (+ test) | **New.** Pure: `highGroundRises(elevation, blocked, w, h)` and the median | 4 |
-| `packages/sim/src/tuning.ts` | `INTEL_EARN`, `FIRE_SUPPORT` profiles, `HIGH_GROUND_*`; the `STRIKE_*`/`SWEEP_RADIUS_SQ` literal lines stay (F-R4) | 3, 5, 6, 7 (2 only proposes numbers) |
+| `packages/sim/src/tuning.ts` | `INTEL_EARN`, `FIRE_SUPPORT` profiles (with `coverProtects`, F-Q13), `HIGH_GROUND_*`; the `STRIKE_*`/`SWEEP_RADIUS_SQ` literal lines stay (F-R4) | 3, 5, 6, 7 (2 only proposes numbers) |
 | `docs/campaign/economy/fire-support-numbers.md` | **New.** The G-NUM table | 2 |
 | `packages/sim/src/sim.ts` | `pendingStrikes[].profile`; the smoke payload; `hash()` | 6, 7 |
 | `packages/sim/src/fire-support.test.ts` | **New.** Barrage and smoke-screen sim tests | 6, 7 |
@@ -622,7 +634,7 @@ rendering; the same holds for prices).
   *(14 Oct: 36 winning plans and 25 controls on `f4b3ea2b`, on the post-garrison-overhaul plans
   only (F-R13). Report the 150th point's arrival beside each plan's `time_limit_s` as well as its
   victory tick. A garrisoned side-0 unit identifies from its window and upper floors and is paid for
-  it (F-Q14): count those identifications in their own column.)*
+  it (F-Q14, ruled 14 Oct: kept): count those identifications in their own column.)*
   *Ruled 6 Oct:*
   - *The probe applies the rulings: no pay without an observer (D3), and no pay for a spawn rise
     until a move onto it (D4).*
@@ -733,7 +745,8 @@ export interface IntelEarnedEvent { kind: 'intelEarned'; tick: number; amount: n
   on `umm_zeitoun_4_clearance`), and goes red at Step 2. Rewrite it to the new rule, in this commit
   (F-R9): stepped a minute with no contact, `runtime.intel` does not move, `IntelRate.perMin()` reads
   0 and `ticksTo(cost, intel)` reads `Infinity` (the tile shows no clock). Claim 2 (the sweep readout,
-  on `intel_start` 250) stays as it is. What the strip and tile show instead is F-Q11, S-F's.
+  on `intel_start` 250) stays as it is. What the strip and tile show instead is S-F's (F-Q11, ruled
+  14 Oct: the intel rate and clock retire; the last earn shows).
 - [ ] **Step 3: Re-pin the economy pin, once.** The commit message says: *"economy pin re-pinned:
   intel now accrues from first identification and objective completion instead of per minute
   (G3 Q1, lead 4 Oct); was N"*. Dated comment above the number. *(14 Oct, F-R3: `economyHash`
@@ -876,7 +889,8 @@ relief fixture and `ECONOMY_PIN_RELIEF`).
 ```ts
 // tuning.ts
 export interface FireSupportProfile { rounds: number; spacingTicks: number; delayTicks: number;
-  scatter: Fx; damage: Fx; splash: Fx; suppression: Fx; payload: 'he' | 'smoke' }
+  scatter: Fx; damage: Fx; splash: Fx; suppression: Fx; payload: 'he' | 'smoke';
+  coverProtects: boolean } // F-Q13, ruled 14 Oct: air_strike false, mortar_barrage true
 export const FIRE_SUPPORT: readonly FireSupportProfile[]; // index 0 = air_strike (today's constants, byte for byte)
 export const FS_AIR_STRIKE = 0, FS_MORTAR_BARRAGE = 1, FS_SMOKE_SCREEN = 2;
 // sim.ts
@@ -912,8 +926,8 @@ private pendingStrikes: { x: Fx; y: Fx; by: number; readyTick: number; profile: 
 - [ ] **Step 2: Implement.** `callStrike` queues `rounds` entries at
   `tickCount + delayTicks + i * spacingTicks`, each with its own scatter pair. `stepStrikes` reads
   damage, splash and suppression from the entry's profile. `hash()` adds
-  `hashWord(h, s.profile)` inside the existing loop (`hash()` ~L6198, the `pendingStrikes` loop
-  ~L6267-6273 on `f4b3ea2b`, which hashes `x`, `y` and `readyTick` today; `by` is not hashed,
+  `hashWord(h, s.profile)` inside the existing loop (`hash()` ~L6369, the `pendingStrikes` loop
+  ~L6440-6445 on `cd407953`, which hashes `x`, `y` and `readyTick` today; `by` is not hashed,
   unchanged). The `strike` event gains `profile: number` (additive; `SIM_EVENT_KINDS` needs no entry).
   *(14 Oct, three more things.)*
   - *F-R4: keep `STRIKE_DAMAGE`, `STRIKE_SPLASH`, `STRIKE_SUPPRESSION`, `STRIKE_DELAY_TICKS`,
@@ -924,16 +938,18 @@ private pendingStrikes: { x: Fx; y: Fx; by: number; readyTick: number; profile: 
     `{ kind, caller, x, y }` and would drop `profile` without a type error. Carry it (optional,
     integer, `0 <= profile < FIRE_SUPPORT.length`, refused otherwise) and add a round-trip test to
     `protocol.test.ts`. `ownership.ts` needs nothing: versus still drops `callStrike`.*
-  - *F-Q13: whether a barrage's suppression honours cover (and the overhaul's `garrison_cover`) is
-    the lead's. Build `coverProtects` as a profile field so either answer is one table entry;
-    `air_strike` keeps `false`, byte for byte.*
+  - *F-Q13, **Ruled 14 Oct (lead):** `coverProtects` is a profile field, `false` for `air_strike`
+    (byte for byte as today) and `true` for `mortar_barrage`, so a barrage suppresses a garrison
+    through `garrison_cover` exactly as a mortar team's round does.*
 - [ ] **Step 3: Hash coverage.** **"the strike profile is hashed"**: two sims identical but for one
   pending entry's profile hash differently. Then measure both sim pins: **unmoved** (the loop is empty
   in both replays). If either moves, a replay fires a strike and the pins move for that reason only;
   stop and raise it, because that would make this the plan's sim re-pin and the commit must say so.
-- [ ] **Step 3b (14 Oct): a garrison under a barrage.** On the post-overhaul base: a barrage round
-  centred on a garrisoned building damages the building and not the men inside (`applyDamage`'s
-  garrison return), and suppresses them by whatever F-Q13 rules. Pin both, with the ruling's date.
+- [ ] **Step 3b (14 Oct): a garrison under a barrage.** A barrage round centred on a garrisoned
+  building damages the building and not the men inside (`applyDamage`'s garrison return), and
+  suppresses them through `garrison_cover` (F-Q13, ruled 14 Oct); an air strike on the same building
+  suppresses them at full value, unchanged. Pin all three. Seen red: set the barrage's
+  `coverProtects` to `false`.
 - [ ] **Step 4: See it red.**
   - Hash `s.x` twice instead of `s.profile`: "the strike profile is hashed" fails.
   - Drop `profile` from `cleanCommand`: the protocol round-trip test fails (14 Oct).
@@ -965,15 +981,15 @@ private pendingStrikes: { x: Fx; y: Fx; by: number; readyTick: number; profile: 
     multiplies hit chance by `SMOKE_HIT_MULT` (0.55). A screened target is not selected, and an
     arrived attack-mover with no target then walks toward it if it is still identified.)*
   - *(14 Oct, #591.) **"a smoke-screen round releases no focus"**: the focus release runs in the
-    command pre-pass for every order that names a unit (`sim.ts` ~L2174-2196), and a support round
+    command pre-pass for every order that names a unit (`sim.ts` ~L2195-2217), and a support round
     names none. And, as measured behaviour: a screen laid between a focused unit and its target drops
     the contact, so the unit walks to the last-seen tile for up to `FOCUS_LOST_TICKS` (100, 5 s), then
     the focus ends (T-D3).*
-  - *(14 Oct, the garrison overhaul.) `raySmoke` takes both eye lifts on the branch. Pin, as measured,
+  - *(14 Oct, the garrison overhaul, #606.) `raySmoke` takes both eye lifts. Pin, as measured,
     whether a screen blinds a garrison on the top floor of a 3-floor `apartment` (`floors` 3,
     `eyeLift` 2) looking at a ground target through it. Do not fit the screen to either answer.*
 - [ ] **Step 2: Implement.** Extract the grid stamp from the `smoke` command branch (`sim.ts`
-  ~L2444-2468 on `f4b3ea2b`) into a private method; the payload `'smoke'` in `stepStrikes` calls it, pushes `smokeLaid` (not `strike`) and skips
+  ~L2464-2488 on `cd407953`) into a private method; the payload `'smoke'` in `stepStrikes` calls it, pushes `smokeLaid` (not `strike`) and skips
   damage. The ability branch stays `smokeCooldown` and `SMOKE_RANGE_SQ` gated; the extracted stamp
   is only the `SMOKE_RADIUS` disc write at `SMOKE_MAX`.
 - [ ] **Step 3: Measure.** Both sim pins unmoved; the extraction is behaviour-preserving, and the
@@ -1062,7 +1078,7 @@ unproven by construction.
   beside the existing line, for winning plans and passive controls alike. Then two gates in the
   `LADDER_CREDITS` idiom (`!==`, `console.error`, `process.exitCode = 1`):
   - **`INTEL_PASSIVE_BEATS_WINNER = 0`**: the count of pairs where the passive control earned more
-    than the winning plan.
+    than the winning plan, compared at the earlier of the two end ticks (F-Q12, ruled 14 Oct).
   - **`INTEL_WINNERS_ONE_SWEEP`**: the count of winning plans earning at least one drone sweep (150),
     pinned at the number Task 2 measured (R: 24 of 26 at 10 + 25, M on the G3 probe at `751b6742`,
     before GH-382 and #402).
@@ -1074,8 +1090,8 @@ unproven by construction.
     probes included) and **25 controls** (`passiveAcrossSeeds`: Beit Sahwan I and III joined with
     #540 and expect `withdrawn`), each on 30 seeds; recount on the branch base and name which runs
     each gate counts. The garrison overhaul re-scripts five plans (UZ I, III, IV; WH IV; DA II), so
-    read every numerator after it (F-R13). What "passive out-earned the winner" compares, end totals
-    or totals at the earlier end tick, is F-Q12; build the gate to the ruling.)*
+    read every numerator after it (F-R13). **Ruled 14 Oct (lead), F-Q12:** the pairs gate compares
+    intel at the earlier of the two runs' end ticks, and the line prints both end totals beside it.)*
 - [ ] **Step 2: One plan spends.** Pick the mission Task 2's arrival-time column says reaches 150
   earliest without `intel_start` (R: a clearance). Add one `requestSupport('mortar_barrage', …)` or
   `'drone_sweep'` call to its plan where the briefing promises one. The plan must still win. Its line
@@ -1142,13 +1158,13 @@ rate (census first; text only), `docs/HANDOVER.md`. *(6 Oct: `data/locales/` hol
 
 | pin | expected | the reason, for the commit |
 |---|---|---|
-| sim pins, flat, relief and orders (`determinism.test.ts` ~L488, ~L857, ~L977 on `f4b3ea2b`) | **unmoved** (R): main's current pins, read on the branch base after the garrison overhaul re-pins them. A move is a defect | — |
+| sim pins, flat, relief and orders (`determinism.test.ts` ~L494, ~L863, ~L983 on `cd407953`) | **unmoved** (R): main's current pins, read on the branch base. A move is a defect | — |
 | `ECONOMY_PIN` | **born** in Task 1, **re-pinned once** in Task 3 | intel accrues by first identification and objective completion, not per minute (G3 Q1) |
 | `ECONOMY_PIN_RELIEF` | **born** in Task 5 | a new guard for the rise term; not a re-pin |
 | `pnpm balance` | byte-identical (R) | — |
 | `pnpm playtest` | every existing line byte-identical (R), except the one plan Task 9 makes spend | new printed intel lines and two new gates |
-| `LADDER_CREDITS` (`playtest.ts` ~L3431 on `f4b3ea2b`) | unchanged (R) at main's current pin, whatever the garrison overhaul leaves it at; re-pinned in Task 9 only if the spending plan's credits move, with the term named, and `CAMPAIGN_CREDITS` (`packages/app/src/ui/stores-model.ts` L63) with it, which `tools/src/campaign_credits.test.ts` holds equal | the spending plan's term, per mission |
-| `ROSTER_MAX`, `GATES` (`playtest.ts` ~L3566, ~L3121) | unchanged (R) at main's current pins | — |
+| `LADDER_CREDITS` (`playtest.ts` ~L3584 on `cd407953`) | unchanged (R) at main's current pin (#606's re-pin); re-pinned in Task 9 only if the spending plan's credits move, with the term named, and `CAMPAIGN_CREDITS` (`packages/app/src/ui/stores-model.ts` ~L66) with it, which `tools/src/campaign_credits.test.ts` holds equal | the spending plan's term, per mission |
+| `ROSTER_MAX`, `GATES` (`playtest.ts` ~L3723, ~L3262) | unchanged (R) at main's current pins | — |
 | versus | **no pin exists**: `two-client.test.ts` and `pnpm net:engines` compare clients and engines with each other. Unaffected (no runtime in a room; versus drops `callStrike`) | — |
 
 ## Lane A needs (WP-S-F #184)
@@ -1166,7 +1182,9 @@ F1 lands sim and runtime only. The player cannot use the new menu until S-F buil
 - *(14 Oct: GH-113 landed for the two existing calls in #525 (`ui/intel-moments.ts`: READY, CALL,
   RESULT lines, four announcer ids, the strike footprint, the sweep's per-contact rings). S-F extends
   it to four kinds rather than building it. Two of its parts read the trickle: `IntelRate`'s strip
-  `+N/min` and tile clock, and the telemetry field `intelRate`. F-Q11. Its strike RESULT keys on
+  `+N/min` and tile clock, and the telemetry field `intelRate`. **Ruled 14 Oct (lead), F-Q11:** S-F
+  retires the intel `+N/min` and the tile clock (logistics keeps its own) and shows the last earn
+  instead. Its strike RESULT keys on
   `strike` events, so a barrage's rounds need `profile` there too (F-Q8). `intel.note.*` strings name
   "Satellite sweep" and "Precision strike".)*
 - **Charge timer and announcement** for each call (GH-113): "barrage inbound, 6 s". No fireworks.
