@@ -86,7 +86,62 @@ export interface BreakBarrel {
   readonly axisRadius: number;
 }
 
-export type DamageOp = ThrowTrack | PeelPlate | BreakBarrel;
+/**
+ * A wheeled hull's lost tyre (the lead's "wheel-off corner drop"): every
+ * face of that wheel (`_RL_WHEEL = wheel + 1`, #550) farther from the axle
+ * than the rim (`WRECK_FRACTIONS.LOST_WHEEL_RIM_FRAC`) is cut out and laid
+ * flat on the sand outboard of its corner. The
+ * corner itself comes down in the WRECK pass (`WreckRecipe.lostWheel`, which
+ * must name the same wheel -- `damage-pass.test.ts` holds the two tables
+ * together), so the hub this leaves bare is what the wreck rests on.
+ */
+export interface DropTyre {
+  readonly verb: 'dropTyre';
+  /** The mesh the tyre is cut from: `hull_rubber`, plus `hull_hull` where a bake put tread there AND the cap allows the copy. */
+  readonly mesh: string;
+  readonly wheel: number;
+  /** Where the tyre lies, from its own axle in the ground frame: along the hull (m), and out past the hull's side (m). */
+  readonly along: number;
+  readonly out: number;
+  readonly yawDeg: number;
+}
+
+/**
+ * Glass blown out of its frames: every face of one mesh goes except a
+ * scatter of shards, a fixed-hash `keep` fraction of them (a twin must keep a
+ * mesh -- the wreck contract wants one `WRECK_` child per live mesh node, and
+ * glTF has no empty primitive). Index work, so the copy is SMALLER than its
+ * source. With the far side's glass gone too, the cab reads see-through
+ * against the ground: an outline change, which is why it qualifies.
+ */
+export interface BlowOut {
+  readonly verb: 'blowOut';
+  readonly mesh: string;
+  readonly keep: number;
+}
+
+/**
+ * A helicopter's rotor snapped: the one rigid disc is split into its blades
+ * (faces farther than `hubRadius` from the mast, grouped by angle, a blade
+ * being a run of occupied 15-degree sectors), every blade droops toward the
+ * sand about the hub -- in the GROUND frame, whichever way the wreck pass bent
+ * the disc -- and one blade's outer part, past `snapAt`, is broken off and
+ * lies flat on the sand beside the fuselage. Closes the wreck spec's §7.9
+ * follow-up: a rigid rotor stood up whichever way the body tilted.
+ */
+export interface SnapRotor {
+  readonly verb: 'snapRotor';
+  readonly mesh: string;
+  readonly hubRadius: number;
+  readonly droopDeg: number;
+  readonly snapBlade: number;
+  readonly snapAt: number;
+  /** Where the broken piece lies, in the ground frame, m; and its yaw. */
+  readonly lieAt: readonly [number, number];
+  readonly yawDeg: number;
+}
+
+export type DamageOp = ThrowTrack | PeelPlate | BreakBarrel | DropTyre | BlowOut | SnapRotor;
 
 /**
  * The per-vehicle cap on what the damaged copies may add (the lead's ruling,
@@ -164,6 +219,27 @@ const D9: readonly DamageOp[] = [
   { verb: 'throwTrack', side: 1, slide: -1.4, out0: 0.85, out1: 1.4, wave: 0.15, lowY: 0.6 },
 ];
 
+/**
+ * Wheeled hulls: the rear +Z tyre is gone (`WreckRecipe.lostWheel` drops that
+ * corner onto its hub; it is the corner the slump already lowers) and lies
+ * flat on the sand behind and outboard of it. Only `hull_rubber` is copied:
+ * the Eitan's hull and rubber copies together would exceed the cap
+ * (37,352 + 43,468 Draco bytes live). `wheel` indexes `rl_running_gear` and
+ * must equal the wreck recipe's `lostWheel` (`damage-pass.test.ts`).
+ */
+const lostRearTyre = (wheel: number, mesh = 'hull_rubber'): DamageOp => ({ verb: 'dropTyre', mesh, wheel, along: -1.2, out: 0.8, yawDeg: 25 });
+
+const ROTOR: DamageOp = {
+  verb: 'snapRotor',
+  mesh: 'rotor_metal',
+  hubRadius: 0.6,
+  droopDeg: 32,
+  snapBlade: 0,
+  snapAt: 1.1,
+  lieAt: [-2.2, 2.0],
+  yawDeg: 35,
+};
+
 export const DAMAGE_RECIPES: Readonly<Record<string, readonly DamageOp[]>> = {
   mbt_lavi: LAVI,
   // GH-298: the command Lavi is the shipped Lavi plus a cupola, a mast and
@@ -173,4 +249,25 @@ export const DAMAGE_RECIPES: Readonly<Record<string, readonly DamageOp[]>> = {
   officer_armour: LAVI,
   ifv_namer: NAMER,
   dozer_d9: D9,
+  apc_eitan: [lostRearTyre(3)],
+  apc_kipod: [lostRearTyre(2)],
+  // The soft-skins. Rubber only, except the gun truck, whose bake puts part
+  // of each tyre in `hull_hull` and whose hull copy still fits the cap
+  // (47,506 + 5,938 Draco bytes live); its cab glass is blown out too, the
+  // one soft-skin that models glass at all (`hull_glass`, 881 Draco bytes --
+  // the jeep's, the technical's and the Shachaf's windows are painted into
+  // the bake, so there is nothing to blow out). The jeep's and the
+  // technical's hull copies would not fit: their tread in `hull_hull` sinks
+  // into the sand with the corner instead.
+  jeep_shoded: [lostRearTyre(1)],
+  technical: [lostRearTyre(1)],
+  scout_shachaf: [lostRearTyre(1)],
+  gun_truck: [lostRearTyre(1), lostRearTyre(1, 'hull_hull'), { verb: 'blowOut', mesh: 'hull_glass', keep: 0.15 }],
+  // The Peten and the Gunship (its own export plus stores): `rotor_metal` is
+  // 8,450 vertices, five blades 4.1 m across about a hub at mesh-space
+  // (0.40, 1.16, 0.01) -- the angular census puts blade clusters about 72
+  // degrees apart with empty sectors between, which is what the split reads.
+  // The copy costs about the live rotor's 50,130 Draco bytes, inside the cap.
+  heli_peten: [ROTOR],
+  heli_peten_gunship: [ROTOR],
 };

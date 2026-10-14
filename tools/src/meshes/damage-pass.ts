@@ -48,7 +48,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { NodeIO, type Accessor, type Document, type Mesh, type Node, type Primitive, type mat4 } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
-import { DAMAGE_RECIPES, type BreakBarrel, type DamageOp, type PeelPlate, type ThrowTrack } from './damage-recipes';
+import { inLostTyre, lostTyre } from './lost-tyre';
+import { DAMAGE_RECIPES, type BreakBarrel, type DamageOp, type BlowOut, type DropTyre, type PeelPlate, type SnapRotor, type ThrowTrack } from './damage-recipes';
 
 const REPO = fileURLToPath(new URL('../../../', import.meta.url));
 const VEHICLES = path.join(REPO, 'art', 'meshes', 'vehicles');
@@ -443,6 +444,132 @@ function breakBarrel(g: Geo, op: BreakBarrel, frame: Frame): number {
   return tris.length;
 }
 
+/** One wheel of the scene's `rl_running_gear` (#550). */
+interface GearWheel {
+  readonly side: string;
+  readonly centre: V3;
+  readonly radius: number;
+}
+
+function dropTyre(g: Geo, op: DropTyre, frame: Frame, wheels: readonly GearWheel[], liveRubber: Primitive): number {
+  const wheel = wheels[op.wheel];
+  if (!wheel) throw new Error(`dropTyre: no wheel ${op.wheel} in rl_running_gear (${wheels.length} wheels)`);
+  const c = wheel.centre;
+  // The same volume the wreck pass seats around (`lost-tyre.ts`), its slab
+  // measured off the LIVE rubber whichever mesh this cut is on.
+  const tyre = lostTyre(liveRubber, wheel, op.wheel);
+  // A face goes only when ALL its vertices are in the tyre: the wreck pass's
+  // seat skips tyre VERTICES, so a face cut on its centroid could take with
+  // it a vertex the seat stood the corner on (the technical's corner was left
+  // 0.047 m in the air that way).
+  const tris = g.cut((f) =>
+    g.tri(f).every((v) => {
+      const q = g.pos(v);
+      return inLostTyre(tyre, q[0], q[1], q[2]);
+    })
+  );
+  if (tris.length === 0) throw new Error(`dropTyre: no face of wheel ${op.wheel} outside its rim on ${op.mesh}`);
+  const s = c[2] >= 0 ? 1 : -1;
+  // Axle (Z) to vertical, then a yaw: the tyre lies flat. Both about its own centre.
+  const flat = (v: V3): V3 => rotate(rotate(v, [1, 0, 0], (-s * Math.PI) / 2), [0, 1, 0], (op.yawDeg * Math.PI) / 180);
+  let lowest = Infinity;
+  for (const t of tris) for (const v of t) lowest = Math.min(lowest, flat(sub(g.pos(v), c))[1]);
+  const at: V3 = [c[0] + op.along, 0.01 - lowest, s * (Math.abs(c[2]) + op.out)];
+  g.reattach(tris, (p, nn) => [xfPoint(frame.fromGround, add(flat(sub(p, c)), at)), xfDir(frame.fromGround, flat(nn))]);
+  return tris.length;
+}
+
+function blowOut(g: Geo, op: BlowOut): number {
+  const gone = g.cut((f) => hash01(f * 2654435761 + 17) >= op.keep);
+  if (g.faces === 0) throw new Error(`blowOut: keep ${op.keep} left no shard on ${op.mesh}`);
+  return gone.length;
+}
+
+function snapRotor(g: Geo, op: SnapRotor, frame: Frame): number {
+  // The hub: the middle of the disc's own plan bounds.
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (let i = 0; i < g.count; i++) {
+    const p = g.pos(i);
+    x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]);
+    y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]);
+    z0 = Math.min(z0, p[2]); z1 = Math.max(z1, p[2]);
+  }
+  const hub: V3 = [(x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2];
+  const radial = (p: V3) => Math.hypot(p[0] - hub[0], p[2] - hub[2]);
+  const SECTORS = 24;
+  const sector = (p: V3) => Math.floor(((Math.atan2(p[2] - hub[2], p[0] - hub[0]) + Math.PI) / (2 * Math.PI)) * SECTORS) % SECTORS;
+  // Blades: runs of occupied sectors, circular, from the faces past the hub.
+  const occupied = new Array<boolean>(SECTORS).fill(false);
+  const isBlade = (f: number) => g.tri(f).every((v) => radial(g.pos(v)) > op.hubRadius);
+  for (let f = 0; f < g.faces; f++) if (isBlade(f)) occupied[sector(g.centroid(f))] = true;
+  const start = occupied.findIndex((o, k) => !o && occupied[(k + 1) % SECTORS]);
+  if (start < 0) throw new Error(`snapRotor: no gap between blades on ${op.mesh} -- not a bladed disc`);
+  const bladeOf = new Array<number>(SECTORS).fill(-1);
+  let blade = -1;
+  for (let k = 1; k <= SECTORS; k++) {
+    const s = (start + k) % SECTORS;
+    if (!occupied[s]) continue;
+    if (!occupied[(s + SECTORS - 1) % SECTORS]) blade++;
+    bladeOf[s] = blade;
+  }
+  const blades = blade + 1;
+  if (blades < 2 || op.snapBlade >= blades) throw new Error(`snapRotor: ${blades} blade(s) found on ${op.mesh}`);
+
+  const groups: [number, number, number][][] = Array.from({ length: blades }, () => []);
+  const snapped: [number, number, number][] = [];
+  const all = g.cut(isBlade);
+  for (const t of all) {
+    const c = t.map((v) => g.pos(v)).reduce((a, b) => add(a, b), [0, 0, 0] as V3);
+    const b = bladeOf[sector(scale(c, 1 / 3))]!;
+    if (b === op.snapBlade && t.every((v) => radial(g.pos(v)) > op.snapAt)) snapped.push(t);
+    else groups[b]!.push(t);
+  }
+  const hubG = xfPoint(frame.toGround, hub);
+  // Each blade droops about the hub, toward the sand, as far as `droopDeg` or 2 cm above the ground.
+  for (const tris of groups) {
+    if (tris.length === 0) continue;
+    let mean: V3 = [0, 0, 0];
+    let n = 0;
+    for (const t of tris) for (const v of t) { mean = add(mean, xfPoint(frame.toGround, g.pos(v))); n++; }
+    const dir = norm([mean[0] / n - hubG[0], 0, mean[2] / n - hubG[2]]);
+    const axis = norm(cross(dir, [0, 1, 0]));
+    const pts = new Map<number, V3>();
+    for (const t of tris) for (const v of t) pts.set(v, xfPoint(frame.toGround, g.pos(v)));
+    const lowest = (th: number) => {
+      let y = Infinity;
+      for (const p of pts.values()) y = Math.min(y, add(rotate(sub(p, hubG), axis, th), hubG)[1]);
+      return y;
+    };
+    const want = (op.droopDeg * Math.PI) / 180;
+    const sign = lowest(want) < lowest(-want) ? 1 : -1;
+    let th = sign * want;
+    for (let k = 0; k < 40 && lowest(th) < 0.02; k++) th *= 0.9;
+    g.reattach(tris, (p, nn) => [
+      xfPoint(frame.fromGround, add(rotate(sub(xfPoint(frame.toGround, p), hubG), axis, th), hubG)),
+      xfDir(frame.fromGround, rotate(xfDir(frame.toGround, nn), axis, th)),
+    ]);
+  }
+  // The broken piece: flattened onto the sand beside the body.
+  if (snapped.length > 0) {
+    let c: V3 = [0, 0, 0];
+    let n = 0;
+    for (const t of snapped) for (const v of t) { c = add(c, xfPoint(frame.toGround, g.pos(v))); n++; }
+    c = scale(c, 1 / n);
+    const yaw = (op.yawDeg * Math.PI) / 180;
+    const flatOf = (p: V3): V3 => {
+      const q = sub(xfPoint(frame.toGround, p), c);
+      return rotate([q[0], q[1] * 0.15, q[2]], [0, 1, 0], yaw);
+    };
+    let low = Infinity;
+    for (const t of snapped) for (const v of t) low = Math.min(low, flatOf(g.pos(v))[1]);
+    g.reattach(snapped, (p) => [
+      xfPoint(frame.fromGround, add(flatOf(p), [op.lieAt[0], 0.01 - low, op.lieAt[1]])),
+      xfDir(frame.fromGround, [0, 1, 0]),
+    ]);
+  }
+  return all.length;
+}
+
 // ---------------------------------------------------------------------------
 // The pass
 // ---------------------------------------------------------------------------
@@ -524,6 +651,14 @@ export function applyDamagePass(doc: Document, vehicleId: string, ops: readonly 
 
   const reports: VerbReport[] = [];
   const meshNameOf = (op: DamageOp) => (op.verb === 'throwTrack' ? 'hull_rubber' : op.mesh);
+  const rg = doc.getRoot().listScenes()[0]?.getExtras().rl_running_gear as { wheels?: GearWheel[] } | undefined;
+  const wheels = rg?.wheels ?? [];
+  const liveRubber = (): Primitive => {
+    const n = doc.getRoot().listNodes().find((x) => x.getName() === 'hull_rubber');
+    const p = n?.getMesh()?.listPrimitives()[0];
+    if (!p) throw new Error(`${vehicleId}: dropTyre needs the live hull_rubber`);
+    return p;
+  };
   const byMesh = new Map<string, DamageOp[]>();
   for (const op of ops) byMesh.set(meshNameOf(op), [...(byMesh.get(meshNameOf(op)) ?? []), op]);
 
@@ -540,7 +675,17 @@ export function applyDamagePass(doc: Document, vehicleId: string, ops: readonly 
     const frame: Frame = { toGround, fromGround: invertAffine(toGround) };
     for (const op of meshOps) {
       const faces =
-        op.verb === 'throwTrack' ? throwTrack(g, op, frame) : op.verb === 'peelPlate' ? peelPlate(g, op) : breakBarrel(g, op, frame);
+        op.verb === 'throwTrack'
+          ? throwTrack(g, op, frame)
+          : op.verb === 'peelPlate'
+            ? peelPlate(g, op)
+            : op.verb === 'breakBarrel'
+              ? breakBarrel(g, op, frame)
+              : op.verb === 'dropTyre'
+                ? dropTyre(g, op, frame, wheels, liveRubber())
+                : op.verb === 'snapRotor'
+                  ? snapRotor(g, op, frame)
+                  : blowOut(g, op);
       reports.push({ verb: op.verb, mesh: source, faces });
     }
     g.compact();

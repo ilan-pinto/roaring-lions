@@ -227,3 +227,140 @@ describe('damage pass, pieces', () => {
     expect(parseDamageArgs([])).toBe('all');
   });
 });
+
+/** The wheel-off corner drop: the WRECK pass's `lostWheel` and the damage pass's `dropTyre`, together. */
+describe('lost wheel (wheeled hulls)', () => {
+  const lostIds = Object.keys(WRECK_RECIPES).filter((id) => WRECK_RECIPES[id]!.lostWheel !== undefined);
+
+  it('the two tables name the same wheel, both ways', () => {
+    expect(lostIds.length).toBeGreaterThan(0);
+    for (const id of Object.keys(DAMAGE_RECIPES)) {
+      const tyres = DAMAGE_RECIPES[id]!.filter((o) => o.verb === 'dropTyre').map((o) => (o as { wheel: number }).wheel);
+      const lost = WRECK_RECIPES[id]?.lostWheel;
+      if (lost === undefined) expect(tyres).toEqual([]);
+      else {
+        expect(tyres.length).toBeGreaterThan(0);
+        for (const w of tyres) expect(w).toBe(lost);
+      }
+    }
+    for (const id of lostIds) expect(DAMAGE_RECIPES[id]).toBeDefined();
+  });
+
+  /** The live vehicle's own lowest point and half-width, measured here, never by the pass. */
+  const liveExtent = (doc: Document): { ground: number; halfWidth: number } => {
+    let ground = Infinity;
+    let halfWidth = 0;
+    for (const n of doc.getRoot().listScenes()[0]!.listChildren()) {
+      if (n.getName().startsWith('kit_') || n.getName() === 'death_root') continue;
+      n.traverse((x) => {
+        const mesh = x.getMesh();
+        if (!mesh || x.getName().startsWith('kit_')) return;
+        const m = x.getWorldMatrix();
+        const p = mesh.listPrimitives()[0]!.getAttribute('POSITION')!.getArray() as Float32Array;
+        for (let i = 0; i < p.length; i += 3) {
+          ground = Math.min(ground, m[1] * p[i]! + m[5] * p[i + 1]! + m[9] * p[i + 2]! + m[13]);
+          halfWidth = Math.max(halfWidth, Math.abs(m[2] * p[i]! + m[6] * p[i + 1]! + m[10] * p[i + 2]! + m[14]));
+        }
+      });
+    }
+    return { ground, halfWidth };
+  };
+  const wheelOf = (doc: Document, k: number) =>
+    (doc.getRoot().listScenes()[0]!.getExtras().rl_running_gear as { wheels: { centre: number[]; radius: number }[] }).wheels[k]!;
+
+  it.each(lostIds)('%s: the lost corner comes down at least 0.03 m against the same wreck with all its wheels', async (id) => {
+    const doc = await read(id);
+    const plain = await read(id);
+    applyWreckPass(plain, id, { ...WRECK_RECIPES[id]!, lostWheel: undefined });
+    const c = wheelOf(doc, WRECK_RECIPES[id]!.lostWheel!).centre as [number, number, number];
+    const axleY = (d: Document) => {
+      const m = node(d, 'WRECK_hull_rubber').getMatrix();
+      return m[1] * c[0] + m[5] * c[1] + m[9] * c[2] + m[13];
+    };
+    // 0.03, not the tyre's thickness: where the body already sat on that
+    // corner (the jeep's rear) it can only come down until it is on the sand,
+    // which the next test holds. Measured: Eitan 0.33, Kipod 0.31, Shachaf
+    // 0.21, gun truck 0.21, jeep 0.07, technical 0.05 (design record §8).
+    expect(axleY(plain) - axleY(doc)).toBeGreaterThan(0.03);
+  });
+
+  it.each(lostIds)('%s: the hull LEANS onto the lost corner, not merely sinks (at least 0.08 m more lean across that axle)', async (id) => {
+    // Lean: the lost axle's height less the other wheel on the same axle's.
+    // A seat alone (no tip) lowers the whole body and leaves this unchanged.
+    // Measured: Eitan 0.25, Kipod 0.29, Shachaf 0.21, jeep 0.17, gun truck
+    // 0.16, technical 0.12.
+    const lean = (d: Document): number => {
+      const ws = (d.getRoot().listScenes()[0]!.getExtras().rl_running_gear as { wheels: { side: string; centre: number[] }[] }).wheels;
+      const lost = ws[WRECK_RECIPES[id]!.lostWheel!]!;
+      const other = ws
+        .filter((w) => w.side !== lost.side)
+        .reduce((a, b) => (Math.abs(b.centre[0]! - lost.centre[0]!) < Math.abs(a.centre[0]! - lost.centre[0]!) ? b : a));
+      const m = node(d, 'WRECK_hull_rubber').getMatrix();
+      const y = (c: number[]) => m[1] * c[0]! + m[5] * c[1]! + m[9] * c[2]! + m[13];
+      return y(lost.centre) - y(other.centre);
+    };
+    const doc = await read(id);
+    const plain = await read(id);
+    applyWreckPass(plain, id, { ...WRECK_RECIPES[id]!, lostWheel: undefined });
+    expect(lean(plain) - lean(doc)).toBeGreaterThan(0.08);
+  });
+
+  it.each(lostIds)('%s: the lost corner is down on the sand, and nothing away from that wheel is under it', async (id) => {
+    const doc = await read(id);
+    const { ground } = liveExtent(doc);
+    const w = wheelOf(doc, WRECK_RECIPES[id]!.lostWheel!);
+    const [cx, cy, cz] = w.centre as [number, number, number];
+    // "At that wheel": a literal cylinder about its axle, 1.1 r round and
+    // 0.5 m either side -- wider than any tyre, so the oracle does not move
+    // with the pass's own tyre volume (lost-tyre.ts).
+    let cornerLow = Infinity;
+    let elsewhereLow = Infinity;
+    for (const n of doc.getRoot().listNodes().filter((x) => x.getName().startsWith('WRECK_'))) {
+      const p = n.getMesh()!.listPrimitives()[0]!.getAttribute('POSITION')!.getArray() as Float32Array;
+      const m = n.getMatrix();
+      const turret = n.getName().startsWith('WRECK_turret') || n.getName().startsWith('WRECK_rotor');
+      for (let i = 0; i < p.length; i += 3) {
+        const y = m[1] * p[i]! + m[5] * p[i + 1]! + m[9] * p[i + 2]! + m[13];
+        const atWheel = !turret && Math.hypot(p[i]! - cx, p[i + 1]! - cy) < 1.1 * w.radius && Math.abs(p[i + 2]! - cz) < 0.5;
+        if (atWheel) cornerLow = Math.min(cornerLow, y);
+        else elsewhereLow = Math.min(elsewhereLow, y);
+      }
+    }
+    expect(cornerLow - ground).toBeLessThan(0.02);
+    expect(elsewhereLow - ground).toBeGreaterThan(-0.005);
+  });
+
+  it.each(lostIds)('%s: the tyre lies on the sand outside the hull outline', async (id) => {
+    const doc = await read(id);
+    const { halfWidth } = liveExtent(doc);
+    const outside = groundVerts(node(doc, 'WRECK_hull_rubber')).filter(([, y, z]) => Math.abs(z) > halfWidth + 0.15 && y < 0.6);
+    expect(outside.length).toBeGreaterThan(40);
+  });
+
+  it('blowOut: the gun truck keeps a scatter of glass shards and loses the rest', async () => {
+    const doc = await read('gun_truck');
+    const live = node(doc, 'hull_glass').getMesh()!.listPrimitives()[0]!.getIndices()!.getCount() / 3;
+    const kept = node(doc, 'WRECK_hull_glass').getMesh()!.listPrimitives()[0]!.getIndices()!.getCount() / 3;
+    expect(kept).toBeGreaterThan(0);
+    expect(kept / live).toBeLessThan(0.3);
+  });
+});
+
+describe('snapped rotor (Peten)', () => {
+  const groundYs = async (id: string, plainWreck: boolean): Promise<number[]> => {
+    const doc = await read(id);
+    if (plainWreck) applyWreckPass(doc, id, WRECK_RECIPES[id]!);
+    return groundVerts(node(doc, 'WRECK_rotor_metal')).map((v) => v[1]);
+  };
+  it.each(['heli_peten', 'heli_peten_gunship'])('%s: blades hang lower and a broken piece lies on the sand', async (id) => {
+    const after = await groundYs(id, false);
+    const before = await groundYs(id, true);
+    const mean = (a: number[]) => a.reduce((s, y) => s + y, 0) / a.length;
+    // The disc's mean height drops by at least 0.3 m (the bend stood it up).
+    expect(mean(before) - mean(after)).toBeGreaterThan(0.3);
+    // Hundreds of rotor vertices within 0.15 m of the sand that were not there.
+    const onSand = (a: number[]) => a.filter((y) => y < 0.15).length;
+    expect(onSand(after) - onSand(before)).toBeGreaterThan(100);
+    expect(Math.min(...after)).toBeGreaterThanOrEqual(0);
+  });
+});

@@ -29,6 +29,15 @@ export interface WreckRecipe {
   rotorPivot?: string;
   /** Node name of the canopy (the paramotor's `hull_hull`), collapsed beside the frame. */
   canopy?: string;
+  /**
+   * A wheeled hull that lost this wheel (an index into the scene's
+   * `rl_running_gear.wheels`, #550): the body tips onto that corner about the
+   * line through its two neighbours, by the tyre's thickness, and the ground
+   * seat ignores that tyre -- so the wreck rests on the bare hub. The tyre
+   * itself is cut out of the wreck's rubber by `damage:meshes` (`dropTyre`),
+   * which must name the same wheel. Added 2026-10-14 with the damage pass.
+   */
+  lostWheel?: number;
 }
 
 /**
@@ -41,14 +50,21 @@ export interface WreckRecipe {
  * in the pass; until then a kind with no member would be untested code.
  */
 export const WRECK_RECIPES: Readonly<Record<string, WreckRecipe>> = {
-  apc_eitan: { hull: 'wheeled', turretPivot: 'turret_pivot' },
+  // 2026-10-14, `lostWheel`: the REAR +Z (physical right) tyre, which is the
+  // corner the slump already lowers (the hull pitches nose-up 7 degrees and
+  // rolls 12 toward +Z, so rear-right is the low corner). Losing the front
+  // one fought the slump: measured on the Eitan, the hub stood 0.52 m up in
+  // the air with the corner "dropped". +Z is also the side the damage
+  // sheet's headings 0.5 and 0.75 show. Indices are `rl_running_gear`'s.
+  apc_eitan: { hull: 'wheeled', turretPivot: 'turret_pivot', lostWheel: 3 },
   // The Meshy Kipod (2026-09-30) carries a `turret_pivot` for its kit RWS;
   // the kit build it replaced had a fixed pintle and no pivot.
-  apc_kipod: { hull: 'wheeled', turretPivot: 'turret_pivot' },
+  apc_kipod: { hull: 'wheeled', turretPivot: 'turret_pivot', lostWheel: 2 },
   dozer_d9: { hull: 'tracked' },
   heli_peten: { hull: 'air', rotorPivot: 'rotor_pivot' },
   ifv_namer: { hull: 'tracked', turretPivot: 'turret_pivot' },
-  jeep_shoded: { hull: 'wheeled' },
+  // `lostWheel` 1 on the four 4x4s is their rear +Z tyre (see the Eitan's).
+  jeep_shoded: { hull: 'wheeled', lostWheel: 1 },
   mbt_lavi: { hull: 'tracked', turretPivot: 'turret_pivot' },
   // GH-298: the command Lavi is the shipped mbt_lavi.glb with a cupola, mast
   // and whips joined into its own turret nodes (tools/vehicles/
@@ -59,13 +75,13 @@ export const WRECK_RECIPES: Readonly<Record<string, WreckRecipe>> = {
   rocket_battery: { hull: 'wheeled' },
   // The Meshy Shachaf (GH-185, 2026-09-30) carries a `turret_pivot` on its
   // roof ring for the kit RWS (`cupola_mg`); the kit build had none.
-  scout_shachaf: { hull: 'wheeled', turretPivot: 'turret_pivot' },
-  technical: { hull: 'wheeled', turretPivot: 'turret_pivot' },
+  scout_shachaf: { hull: 'wheeled', turretPivot: 'turret_pivot', lostWheel: 1 },
+  technical: { hull: 'wheeled', turretPivot: 'turret_pivot', lostWheel: 1 },
   // B2 (GH-179, 2026-09-30): the Meshy gun truck traverses its twin AA gun
   // on a pedestal, so it takes the technical's own recipe; the Sarim
   // loitering munition is a fixed delta wing with no pivot, so it lies on
   // its side like the other two air hulls.
-  gun_truck: { hull: 'wheeled', turretPivot: 'turret_pivot' },
+  gun_truck: { hull: 'wheeled', turretPivot: 'turret_pivot', lostWheel: 1 },
   loiter_drone: { hull: 'air' },
   // The two KDF drones (GH-286 B0a, 2026-09-30). `air` like the Peten: a
   // downed drone lies on its side. No pivot of any kind -- a quadcopter has
@@ -110,6 +126,22 @@ export const WRECK_RECIPES: Readonly<Record<string, WreckRecipe>> = {
  *     (`world-materials.ts`) and `CHARRED_RAMP` (`units/vehicle-mesh-role.ts`).
  */
 export const WRECK_FRACTIONS = {
+  /**
+   * A lost wheel's RIM radius as a fraction of its tyre's: what is left of a
+   * wheel when the tyre burns off, so the corner comes down by the other
+   * (1 - 0.6) of the radius, and everything of that wheel farther out than
+   * this from the axle is "the tyre" -- cut by `damage:meshes`' `dropTyre`
+   * and ignored by the ground seat.
+   *
+   * A constant, not a measurement, and the measurement was tried: the hub is
+   * NOT separable from the tags. `_RL_WHEEL` marks the whole wheel disc, and
+   * on the Eitan and the jeep the tread is partly baked into `hull_hull`
+   * (228 of the Eitan's 315 and 426 of the jeep's 698 tagged hull vertices
+   * sit at 0.9 r or more), so "the farthest tagged non-rubber vertex" read
+   * the tyre's own radius and dropped the corner by nothing. 0.6 is a
+   * military wheel's rim-to-tyre ratio, near enough at 15 px a metre.
+   */
+  LOST_WHEEL_RIM_FRAC: 0.6,
   /**
    * Fraction of the vehicle's own CLEARANCE the body settles by -- the gap
    * between the lowest body part and the lowest point of the whole vehicle,
