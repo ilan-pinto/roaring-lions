@@ -253,7 +253,8 @@ import { runFrames, seatWorldFor, type FrameStep } from './net/frame-step';
 import { roomFlags } from './net/room-flags';
 import { netReport } from './net/net-report';
 import { viewerSideOf } from './net/viewer';
-import { campOf, factionsBySide, versusSpawns, versusUnitTypes } from './net/versus-force';
+import { campOf, factionsBySide, versusUnitTypes } from './net/versus-force';
+import { buildMatchWorld } from './net/match-world';
 import { pruneHiddenHostiles, type SeatSight } from './net/hidden-selection';
 import { garrisonRoomShown } from './net/hover-garrison';
 import { NetStatusLine, lineOverMatchEnd, matchClock } from './ui/net-status';
@@ -1778,6 +1779,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // Printed only in the sandbox: a mission brings its own zones and tunnels,
   // and none of these flags apply to it.
   if (!mission) console.info(`[lions] ${helpText()}`);
+  /** A versus room's whole world, built by the ONE function the AI harness
+   *  also calls (`net/match-world.ts`): the sim, terrain, buildings, the map's
+   *  tunnels, the unit types and both forces. Null everywhere else. */
+  const versusWorld = versusRoom && netConfig !== null ? buildMatchWorld(netConfig) : null;
   const baseMapJson =
     (maps as Record<string, MapJson | undefined>)[mapId] ?? maps.beit_sahwan_outskirts;
   // The ditch is cut into the ROWS, before `parseMap`, rather than poked into
@@ -1789,26 +1794,29 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // Sandbox-only, like every flag beside it: a mission brings its own terrain,
   // and a dev flag must never change how a real mission is fought.
   const mapJson: MapJson =
-    !mission && wantDitch
-      ? { ...baseMapJson, rows: sandboxDitchRows(baseMapJson, sandboxAnchors(baseMapJson)) }
-      : baseMapJson;
-  const map = parseMap(mapJson);
+    versusWorld !== null
+      ? versusWorld.mapJson
+      : !mission && wantDitch
+        ? { ...baseMapJson, rows: sandboxDitchRows(baseMapJson, sandboxAnchors(baseMapJson)) }
+        : baseMapJson;
+  const map = versusWorld?.map ?? parseMap(mapJson);
   // 256, not 128: `spawn` never reuses a dead unit's slot, so capacity is a
   // budget for everyone who ever draws breath in a mission rather than for how
   // many stand at once. First Light puts 104 attackers, 7 defenders and 11
   // civilians through it before the player buys anything, and running out is a
   // thrown error mid-mission, not a graceful cap.
-  const sim = new Sim({ seed: netConfig?.seed ?? SIM_SEED, width: map.width, height: map.height, capacity: 256 });
+  const sim = versusWorld?.sim ?? new Sim({ seed: netConfig?.seed ?? SIM_SEED, width: map.width, height: map.height, capacity: 256 });
   /** What the ownership check asks of the live sim: single-player is seat 0
    *  on side 0 (R10), so the check runs on one code path, room or none. */
   const seatWorld = seatWorldFor(netConfig, sim);
   // Cover AND blocked terrain, through the one function all three world
   // builders share. Rock ridges arrive here; before this existed, `map.blocked`
   // was filled by parseMap and read by nobody.
-  applyTerrain(map, sim);
+  // (A versus room's world arrives built: `buildMatchWorld` ran these.)
+  if (versusWorld === null) applyTerrain(map, sim);
   // Buildings are entities, not terrain: each contiguous run of identical
   // symbols becomes one structure with HP, a garrison and rubble.
-  standMapStructures(sim, map);
+  if (versusWorld === null) standMapStructures(sim, map);
 
   // Tunnels: registered from ONE array in ONE loop, and that same array is
   // what the mission context receives. `ctx.tunnels` is positional — entry r
@@ -1816,7 +1824,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // equal-count permutation, which would silently bury units in the wrong
   // route. Asserting `addTunnel(route) === i` on the single shared array is
   // what makes the positional contract impossible to violate from here.
-  const anchors = sandboxAnchors(mapJson);
+  const anchors = versusWorld?.anchors ?? sandboxAnchors(mapJson);
   // Only ever non-empty in the sandbox: a mission brings its own flagged
   // zones, and mixing the two would let a dev flag quietly change how a
   // real mission scores.
@@ -1842,20 +1850,23 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       pre_dug: r.pre_dug,
     });
   }
-  for (let i = 0; i < tunnelRoutes.length; i++) {
+  // A versus room's routes are the map's own and `buildMatchWorld` registered them.
+  for (let i = 0; versusWorld === null && i < tunnelRoutes.length; i++) {
     const got = sim.addTunnel(tunnelRoutes[i]);
     if (got !== i) {
       throw new Error(`tunnel "${tunnelRoutes[i].id}" registered as route ${got}, expected ${i}`);
     }
   }
 
-  const typeOf = new Map<string, number>();
+  const typeOf = versusWorld?.typeOf ?? new Map<string, number>();
   // The pre-pass's own output (`upgradePrepass`, above): enemy units pass
   // through untouched -- only a KDF unit can carry a bought tier -- and
   // `unitInfo` (cost/gate lookup) below still reads the raw JSON, never this
   // patched copy, because cost is not patchable.
-  for (const registered of prepass.registered) {
-    typeOf.set(registered.id, sim.addUnitType(registered));
+  if (versusWorld === null) {
+    for (const registered of prepass.registered) {
+      typeOf.set(registered.id, sim.addUnitType(registered));
+    }
   }
 
   // Which ROE reasons have already been narrated, so the advice attached to a
@@ -1953,12 +1964,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       const u = (units as Record<string, (typeof units)[keyof typeof units] | undefined>)[id];
       return u ? kdfUnlockGate(u, boughtUnits) : undefined;
     });
-  } else if (netConfig?.mode === 'versus') {
+  } else if (versusWorld !== null) {
     // A versus room (network design §9): the KDF force (plus the second Spike
     // team, `VERSUS_EXTRA`) on EACH side, mirrored through the hostile anchor,
     // no Sarim and no civilians. `sandboxForce`
     // keeps its meaning -- the seat's own units -- and has no crowd.
-    sandboxForce = { player: versusSpawns(sim, typeOf, anchors, versusFactions).bySide[me], civilians: [] };
+    sandboxForce = { player: versusWorld.bySide[me], civilians: [] };
   } else {
     sandboxForce = sandboxSpawns(sim, typeOf, anchors, {
       tunnel: wantTunnel,
