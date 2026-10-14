@@ -541,7 +541,7 @@ const BEFORE_NAME: Readonly<Record<string, string>> = {
 function revBytes(file: string): Buffer | null {
   const hit = revCache.get(file);
   if (hit !== undefined) return hit;
-  let bytes: Buffer | null = null;
+  let bytes: Buffer | null;
   const revFile = BEFORE_NAME[file] ?? file;
   try {
     bytes = execFileSync('git', ['-C', repo, 'show', `${rev}:assets/meshes/${revFile}`], {

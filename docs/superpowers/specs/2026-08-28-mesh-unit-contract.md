@@ -193,9 +193,16 @@ passing path.
 **The poses are PROCEDURAL, not authored**, written by `pnpm wreck:meshes` from
 a recipe of fractions of each vehicle's own measured bounds
 (`tools/src/meshes/wreck-recipes.ts`). The export side owns none of it and the
-supplied `.blend`/Meshy sources are never opened. A later per-vehicle art pass
-that ships real damaged geometry replaces a vehicle's `WRECK_` children and
-changes nothing else here.
+supplied `.blend`/Meshy sources are never opened.
+
+**Real damage, since 2026-10-14 (`pnpm damage:meshes`).** A twin may own a
+damaged COPY of its live mesh instead of sharing it, and only then. The copy
+must carry `extras.rl_damage = { source: <live node name> }` on node and mesh,
+where the source is the twin its own name says. It must have one primitive, its
+source's material, and exactly its source's attribute declarations. No other
+node may use it. All copies in a file together stay under 64 KiB Draco /
+512 KiB raw. Design and record:
+`docs/superpowers/specs/2026-10-14-wreck-damage-design.md`.
 
 ---
 
@@ -446,9 +453,10 @@ Pipeline order for a vehicle: export -> `pnpm kit:meshes` ->
 - **`buildVehicleMeshTemplate(gltf, id, textured, tiers?)` calls
   `applyVehicleKit` first.** Kept parts merge into the host geometry, host
   first, kit after (so `setDrawRange(0, hostCount)` can hide the kit, which is
-  the `kit` debug layer). The new geometry is swapped onto EVERY mesh that
-  shared the old one -- the live node and its `WRECK_` twin -- so the wreck
-  carries its kit with the host's own displacement. Every `kit_*` node is then
+  the `kit` debug layer). The new geometry is swapped onto every LIVE mesh
+  that shared the old one; the `WRECK_` twin keeps the unkitted geometry, so a
+  kitted wreck has its kit blown off (2026-10-14, with the damage pass; until
+  then the wreck carried its kit with the host's own displacement). Every `kit_*` node is then
   removed, owned or not. `tiers` absent or all 0 leaves the shipped template
   exactly.
 - **Every other reader of a vehicle GLB ignores `kit_*`**: the mesh gate's

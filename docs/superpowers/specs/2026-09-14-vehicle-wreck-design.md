@@ -422,3 +422,12 @@ anyone wants a downed helicopter to read as broken rather than as parked, is a
 per-vehicle override laying the disc FLAT against the ground (a rotor seat group
 of its own, seated like the thrown turret), which is a `WreckRecipe` field and
 a branch in the pass rather than a new number.
+
+### 10. D1 is closed
+
+**Written 2026-10-14.** The structural damage this design deferred now exists. It is in
+`2026-10-14-wreck-damage-design.md`: outline damage only, cut into a twin's own copy of its live
+mesh, which the wreck contract's clause 3 now accepts when declared. The asset-contract sentence in
+§4.1 held: "a later structural pass replaces a vehicle's `WRECK_` children with real damaged
+geometry and changes nothing else in this contract". The two exceptions were clause 3's
+shared-mesh rule and the runtime kit merge (a kitted wreck now has its kit blown off).
