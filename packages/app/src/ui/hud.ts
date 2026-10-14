@@ -1488,7 +1488,7 @@ export class Hud {
       const limit = this.shown('clock') ? limitClock(m) : null;
       if (limit) {
         rows.push(
-          `<span class="rl-strip__obj rl-strip__limit" tabindex="0">` +
+          `<span class="rl-strip__obj rl-strip__limit">` +
             `<b class="${textToneClass(limit.tone)}">${escapeHtml(limit.text)}</b></span>`
         );
       }

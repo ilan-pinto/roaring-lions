@@ -405,6 +405,35 @@ describe('top strip', () => {
     expect(tipText()).toContain('250 more a minute');
     expect(r.host.querySelector<HTMLElement>('.rl-tip')?.hidden).toBe(false);
   });
+
+  it('draws the time limit only in the last minute, as a label and a clock (GH-540)', () => {
+    const early = rig(mission({ limitTicksLeft: 61 * 20 }));
+    expect(early.host.querySelector('.rl-strip__limit')).toBeNull();
+    const late = rig(mission({ limitTicksLeft: 59 * 20 }));
+    const seg = late.host.querySelector('.rl-strip__limit');
+    expect(seg?.textContent?.trim()).toBe('Time left 0:59');
+    expect(seg?.querySelector('b')?.className).toBe(textToneClass('warn'));
+    const last = rig(mission({ limitTicksLeft: 20 * 20 }));
+    expect(last.host.querySelector('.rl-strip__limit b')?.className).toBe(textToneClass('bad'));
+  });
+
+  // The strip's focus invariant (STRIP_FOCUS_KEYS in hud.ts): the 4 Hz rebuild restores focus
+  // by a stable key, so a focusable segment with none loses focus to <body> within a second.
+  // The limit segment is a read-only label and takes no focus at all.
+  //
+  // Falsified by hand: putting `tabindex="0"` back on the `.rl-strip__limit` span turns this red.
+  it('keeps the time-limit segment out of the tab order, so no strip focusable lacks a focus key (GH-540)', () => {
+    const r = rig(mission({ limitTicksLeft: 59 * 20 }));
+    expect(r.host.querySelector('.rl-strip__limit')).not.toBeNull();
+    expect(r.host.querySelector('.rl-strip__limit')?.hasAttribute('tabindex')).toBe(false);
+    const keys = ['data-obj', 'data-tip', 'data-open-objectives'];
+    for (const el of r.host.querySelectorAll<HTMLElement>('.rl-strip [tabindex]')) {
+      expect(
+        keys.some((k) => el.hasAttribute(k)),
+        `${el.className} is focusable without a focus key`
+      ).toBe(true);
+    }
+  });
 });
 
 describe('top strip: the persistent controls', () => {
@@ -2413,15 +2442,6 @@ describe('the strip does not eat the keyboard', () => {
       expect(after, `${sel} was rebuilt`).not.toBe(before);
       expect(document.activeElement, `${sel} still has focus`).toBe(after);
     }
-  });
-
-  it('draws the time limit only in the last minute, as a label and a clock (GH-540)', () => {
-    const early = rig(mission({ limitTicksLeft: 61 * 20 }));
-    expect(early.host.querySelector('.rl-strip__limit')).toBeNull();
-    const late = rig(mission({ limitTicksLeft: 59 * 20 }));
-    const seg = late.host.querySelector('.rl-strip__limit');
-    expect(seg?.textContent?.trim()).toBe('Time left 0:59');
-    expect(seg?.querySelector('b')?.className).toBe(textToneClass('warn'));
   });
 
   // M8. Two primaries, the second a failable deadline. The strip shows the
