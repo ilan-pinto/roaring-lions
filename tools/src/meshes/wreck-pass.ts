@@ -66,6 +66,7 @@ import {
   type Document,
   type Mesh,
   type Node,
+  type Primitive,
   type Scene,
   type bbox,
   type mat4,
@@ -73,6 +74,7 @@ import {
 } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { WRECK_FRACTIONS, WRECK_RECIPES, type HullKind, type WreckRecipe } from './wreck-recipes';
+import { inLostTyre, lostTyre } from './lost-tyre';
 import { isKitName } from './kit-contract';
 
 export const DEATH_ROOT = 'death_root';
@@ -154,6 +156,20 @@ function rotationZ(t: number): mat4 {
 const aboutPoint = (p: vec3, r: mat4): mat4 =>
   multiply(translation(p[0], p[1], p[2]), multiply(r, translation(-p[0], -p[1], -p[2])));
 
+/** Rotation by `t` about the unit axis `k` (Rodrigues), column-major. */
+function rotationAxis(k: vec3, t: number): mat4 {
+  const c = Math.cos(t);
+  const s = Math.sin(t);
+  const v = 1 - c;
+  const [x, y, z] = k;
+  return [
+    c + x * x * v, y * x * v + z * s, z * x * v - y * s, 0,
+    x * y * v - z * s, c + y * y * v, z * y * v + x * s, 0,
+    x * z * v + y * s, y * z * v - x * s, c + z * z * v, 0,
+    0, 0, 0, 1,
+  ];
+}
+
 function transformPoint(m: mat4, p: vec3): vec3 {
   return [
     m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12],
@@ -210,6 +226,8 @@ interface HullMetrics {
    * settle, which is the honest answer for a dozer resting on its blade.
    */
   readonly clearance: number;
+  /** The corner drop for a recipe's `lostWheel`, or absent. */
+  corner?: Corner;
 }
 
 /**
@@ -226,7 +244,7 @@ interface HullMetrics {
  * over each vehicle's positions (measured: under 0.6 s for all eleven,
  * against 1.6-3.4 MiB Meshy exports).
  */
-function lowestY(node: Node, extra: mat4 | null): number {
+function lowestY(node: Node, extra: mat4 | null, skip?: (prim: Primitive, i: number) => boolean): number {
   const mesh = node.getMesh();
   if (!mesh) return Infinity;
   const world = node.getWorldMatrix();
@@ -238,6 +256,7 @@ function lowestY(node: Node, extra: mat4 | null): number {
     if (!pos) continue;
     const count = pos.getCount();
     for (let i = 0; i < count; i++) {
+      if (skip && skip(prim, i)) continue;
       pos.getElement(i, el);
       const y = m[1] * el[0] + m[5] * el[1] + m[9] * el[2] + m[13];
       if (y < min) min = y;
@@ -389,7 +408,93 @@ function hullDisplacement(m: HullMetrics, kind: HullKind, drops: boolean): mat4 
     m.centre,
     multiply(roll(m, rad(rollDeg)), pitch(m, rad(WRECK_FRACTIONS.HULL_PITCH_DEG)))
   );
-  return multiply(tilt, translation(0, dy, 0));
+  const settled = multiply(tilt, translation(0, dy, 0));
+  // A lost wheel tips the whole body onto that corner FIRST, in the parade
+  // pose, about the line its neighbours stand on; the slump then happens to
+  // a hull already down on its hub. Absent, nothing is multiplied at all, so
+  // every vehicle without one keeps its exact bytes.
+  return m.corner ? multiply(settled, m.corner.tip) : settled;
+}
+
+/** One wheel of `rl_running_gear` (#550), as the corner drop reads it. */
+interface GearWheel {
+  readonly side: string;
+  readonly index: number;
+  readonly centre: vec3;
+  readonly radius: number;
+}
+
+/** The wheel a recipe's `lostWheel` names, read off the scene's own running-gear record. */
+function gearWheels(scene: Scene, vehicleId: string): GearWheel[] {
+  const rg = scene.getExtras().rl_running_gear as { wheels?: GearWheel[] } | undefined;
+  if (!rg || !Array.isArray(rg.wheels) || rg.wheels.length === 0) {
+    throw new Error(`${vehicleId}: lostWheel needs the scene's rl_running_gear wheels -- run running-gear:meshes first`);
+  }
+  return rg.wheels;
+}
+
+/**
+ * The corner drop for a lost wheel.
+ *
+ * The tyre is gone, so that corner comes down by the tyre's own thickness:
+ * `(1 - LOST_WHEEL_RIM_FRAC)` of its radius (see that constant for why it is
+ * not measured). The body pivots about the line through the two wheels that
+ * still hold it up on that end and side -- the other wheel on the same axle
+ * and the nearest wheel on the same side -- by the angle that lowers the lost
+ * axle by exactly that much.
+ *
+ * The tyre's own vertices -- `lost-tyre.ts`'s volume about the axle, in ANY
+ * mesh -- are returned for the seat to ignore: the rubber ones are not in the
+ * wreck (`dropTyre` cuts them with the same definition), and any tread a Meshy
+ * bake put in `hull_hull` goes into the sand rather than holding the corner
+ * up by the thickness the drop just took away.
+ */
+function cornerDrop(scene: Scene, parts: readonly Part[], groundY: number, wheelIndex: number, vehicleId: string): Corner {
+  const wheels = gearWheels(scene, vehicleId);
+  const lost = wheels[wheelIndex];
+  if (!lost) throw new Error(`${vehicleId}: lostWheel ${wheelIndex} -- the file has ${wheels.length} wheels`);
+  const sameAxle = wheels
+    .filter((w) => w.side !== lost.side)
+    .reduce((a, b) => (Math.abs(b.centre[0] - lost.centre[0]) < Math.abs(a.centre[0] - lost.centre[0]) ? b : a));
+  const sameSide = wheels.filter((w) => w.side === lost.side && w !== lost);
+  if (sameSide.length === 0) throw new Error(`${vehicleId}: lostWheel ${wheelIndex} has no other wheel on its side`);
+  const nextOnSide = sameSide.reduce((a, b) =>
+    Math.abs(b.centre[0] - lost.centre[0]) < Math.abs(a.centre[0] - lost.centre[0]) ? b : a
+  );
+  const rubber = parts.find((p) => roleOf(p.node) === 'rubber');
+  if (!rubber) throw new Error(`${vehicleId}: lostWheel needs a rubber mesh to measure the tyre on`);
+  const tyre = lostTyre(rubber.mesh.listPrimitives()[0]!, lost, wheelIndex);
+  const drop = lost.radius - tyre.rim;
+  const el = [0, 0, 0];
+  const isTyre = (prim: Primitive, i: number): boolean => {
+    prim.getAttribute('POSITION')!.getElement(i, el);
+    return inLostTyre(tyre, el[0], el[1], el[2]);
+  };
+
+  const pa: vec3 = [sameAxle.centre[0], groundY, sameAxle.centre[2]];
+  const pb: vec3 = [nextOnSide.centre[0], groundY, nextOnSide.centre[2]];
+  const len = Math.hypot(pb[0] - pa[0], pb[2] - pa[2]);
+  const axis: vec3 = [(pb[0] - pa[0]) / len, 0, (pb[2] - pa[2]) / len];
+  // Horizontal distance from the lost axle to that line.
+  const rel = [lost.centre[0] - pa[0], lost.centre[2] - pa[2]];
+  const h = Math.abs(rel[0] * axis[2] - rel[1] * axis[0]);
+  const theta = Math.asin(Math.min(0.95, drop / h));
+  const tipFor = (t: number) => aboutPoint(pa, rotationAxis(axis, t));
+  const yAfter = (t: number) => transformPoint(tipFor(t), lost.centre)[1];
+  const tip = yAfter(theta) < yAfter(-theta) ? tipFor(theta) : tipFor(-theta);
+
+  return {
+    tip,
+    drop,
+    isLostTyre: (_node, prim, i) => isTyre(prim, i),
+  };
+}
+
+/** A lost wheel's corner drop and the tyre the seat must not stand on. */
+interface Corner {
+  readonly tip: mat4;
+  readonly drop: number;
+  readonly isLostTyre: (node: Node, prim: Primitive, i: number) => boolean;
 }
 
 /**
@@ -465,7 +570,11 @@ function canopyDisplacement(m: HullMetrics, canopyBounds: bbox): mat4 {
  */
 function seatOnGround(m: HullMetrics, parts: readonly Part[]): number {
   let min = Infinity;
-  for (const part of parts) min = Math.min(min, lowestY(part.node, part.base));
+  const corner = m.corner;
+  for (const part of parts) {
+    const skip = corner ? (prim: Primitive, i: number) => corner.isLostTyre(part.node, prim, i) : undefined;
+    min = Math.min(min, lowestY(part.node, part.base, skip));
+  }
   return Number.isFinite(min) ? m.groundY - min : 0;
 }
 
@@ -663,6 +772,10 @@ export function applyWreckPass(doc: Document, vehicleId: string, recipe: WreckRe
   }
 
   const metrics = measure(parts, vehicleId);
+  if (recipe.lostWheel !== undefined) {
+    if (recipe.hull !== 'wheeled') throw new Error(`${vehicleId}: lostWheel is for a wheeled hull, this is ${recipe.hull}`);
+    metrics.corner = cornerDrop(scene, parts, metrics.groundY, recipe.lostWheel, vehicleId);
+  }
 
   for (const part of parts) {
     if (part.seat === 'canopy') {
