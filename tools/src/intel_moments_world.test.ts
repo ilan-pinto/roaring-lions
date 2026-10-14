@@ -4,12 +4,15 @@
 // the one mission that starts with enough intel for both calls -- built the
 // way the app builds it (`mission-harness.ts`), with nothing driving it:
 //
-//  1. The tile's clock is right. The rate the app MEASURES from the floored
-//     `runtime.intel` must agree with the sim's own accrual, and the tick it
-//     predicts must be the tick the intel actually arrives. The oracle is the
-//     accrual rule written here as LITERALS -- 8 a minute a drone, 5 a minute a
-//     holding `mark_target` unit (`mission.ts`, INTEL_PER_MIN_DRONE/_SCOUT) --
-//     never imported from the code under test.
+//  1. The tile shows no clock while nothing is earned. Intel stopped trickling
+//     per minute at F1 Task 3 (G3 Q1, lead 4 Oct; F-R9): it is earned by doing,
+//     a first identification or an objective, never by waiting. So a force
+//     that stands a minute with no contact earns nothing: `runtime.intel` does
+//     not move, the rate the app MEASURES from it (`IntelRate.perMin()`) reads
+//     0, and the clock (`ticksTo(cost, intel)`) reads `Infinity`, which the
+//     tile draws as no clock. (This claim used to hold the clock against the
+//     trickle by literals, 8 a minute a drone and 5 a minute a holding scout.)
+//     What the strip and the tile show instead is WP-S-F's (F-Q11).
 //  2. The sweep readout names exactly the contacts the sim identified: one
 //     minimap ring per contact whose contact level went to "identified" on
 //     the sweep's tick, at that contact's position, and the count is the
@@ -21,43 +24,33 @@ import { IntelMoments, IntelRate, type IntelOutput } from '../../packages/app/sr
 import { missionWorld } from './mission-harness';
 
 const MISSION = 'umm_zeitoun_4_clearance';
-const DRONE_PER_MIN = 8;
-const SCOUT_PER_MIN = 5;
 
 describe(`the intel clock on ${MISSION}`, () => {
-  it('measures the sim\'s own rate and counts down to the tick the intel arrives', () => {
+  it('stands a minute with no contact: intel does not move, no rate, no clock', () => {
     const { sim, runtime } = missionWorld(MISSION, {});
-    const oracle = (): number => {
-      let r = 0;
-      for (let i = 0; i < sim.entityCount; i++) {
-        if (sim.state.alive[i] !== 1 || sim.state.side[i] !== 0 || sim.state.tunnelIn[i] >= 0) continue;
-        const ty = sim.unitTypes[sim.state.typeIdx[i]];
-        if (ty.role === 'drone') r += DRONE_PER_MIN;
-        else if (ty.canMarkTarget && sim.state.moving[i] === 0) r += SCOUT_PER_MIN;
-      }
-      return r;
-    };
+    const cost = runtime.sweepCost;
+    const start = runtime.intel;
     const rate = new IntelRate();
-    const tick = (): void => {
-      runtime.step(sim.tick());
-      rate.push(sim.tickCount, runtime.intel);
-    };
-    // A minute to fill the window, holding the oracle still so the rate the
-    // estimator sees is one rate.
-    const expected = oracle();
-    expect(expected).toBeGreaterThan(0);
+    rate.push(sim.tickCount, runtime.intel);
+    let earned = 0;
+    let contacts = 0;
     for (let k = 0; k < 1200; k++) {
-      tick();
-      expect(oracle()).toBe(expected);
+      const simEvents = sim.tick();
+      for (const e of simEvents) {
+        if (e.kind === 'contact' && e.side === 0 && e.level === 'identified') contacts++;
+      }
+      for (const e of runtime.step(simEvents)) if (e.kind === 'intelEarned') earned += e.amount;
+      rate.push(sim.tickCount, runtime.intel);
     }
-    expect(Math.abs(rate.perMin() - expected)).toBeLessThan(0.25);
-
-    // The clock: predict, then wait for it.
-    const target = runtime.intel + 20;
-    const predicted = sim.tickCount + rate.ticksTo(target, runtime.intel);
-    while (runtime.intel < target) tick();
-    // Within one tick a side of the truth, on a 20/min-plus rate.
-    expect(Math.abs(sim.tickCount - predicted)).toBeLessThanOrEqual(2);
+    // The oracle for "no contact" is the sim's own event stream, not the rule under test.
+    expect(contacts).toBe(0);
+    expect(earned).toBe(0);
+    expect(runtime.intel).toBe(start);
+    expect(rate.perMin()).toBe(0);
+    // Ask for a target above what is held, so the answer cannot be the "already there" 0:
+    // a stalled income promises no time at all.
+    const ticks = rate.ticksTo(Math.max(cost, start + 1), runtime.intel);
+    expect(ticks).toBe(Infinity);
   });
 });
 

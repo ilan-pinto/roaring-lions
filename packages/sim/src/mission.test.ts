@@ -103,6 +103,16 @@ const FOOT_PATROL: UnitTypeJson = {
   ],
 };
 
+/** A foot scout: `role: 'infantry'` (so it braces like a real squad) and `mark_target`
+ *  (so the retired per-minute trickle would have paid it 5 a minute while parked).
+ *  Appended last to the world's type list so no existing type index moves. */
+const FOOT_SCOUT: UnitTypeJson = {
+  ...SQUAD,
+  id: 'm_scout',
+  role: 'infantry',
+  abilities: ['mark_target'],
+};
+
 /** Every slot the sim could have spawned into. `Sim.count` is private, and the
  *  alive filter each caller applies covers the unspawned tail. */
 function allIds(sim: Sim): number[] {
@@ -118,7 +128,7 @@ interface World {
 function makeWorld(mission: MissionJson, ctx?: Partial<MissionContext>): World {
   const sim = new Sim({ seed: 7, width: 28, height: 12, capacity: 32 });
   const ids = new Map<string, number>();
-  for (const t of [SQUAD, AMBUSHER, RUNNER, TANK, DRONE, CIVILIANS, CARRIER, RIDER, FOOT_PATROL])
+  for (const t of [SQUAD, AMBUSHER, RUNNER, TANK, DRONE, CIVILIANS, CARRIER, RIDER, FOOT_PATROL, FOOT_SCOUT])
     ids.set(t.id, sim.addUnitType(t));
   const runtime = new MissionRuntime(sim, mission, {
     typeIdOf: (u) => {
@@ -2242,15 +2252,15 @@ describe('intel: earned by watching, spent on certainty (GDD §3)', () => {
     );
   }
 
-  it('a loitering drone earns intel; a parked rifle squad earns none', () => {
+  it('neither a loitering drone nor a parked rifle squad earns intel (no trickle, F1)', () => {
+    // Was "a loitering drone earns intel; a parked rifle squad earns none" (8 per
+    // minute, GDD §3). Intel is earned by doing now: see `describe('intel by doing')`.
     const withDrone = intelWorld({
       starting_force: [{ unit: 'm_drone', count: 1, at: [5, 5] }],
       resources: { intel_start: 0 },
     });
     withDrone.step(60 * TICKS_PER_SECOND);
-    // GDD §3 anchor: drone loiter ~8/min.
-    expect(withDrone.runtime.intel).toBeGreaterThanOrEqual(7);
-    expect(withDrone.runtime.intel).toBeLessThanOrEqual(9);
+    expect(withDrone.runtime.intel).toBe(0);
 
     const noDrone = intelWorld({
       starting_force: [{ unit: 'm_squad', count: 1, at: [5, 5] }],
@@ -2313,6 +2323,251 @@ describe('intel: earned by watching, spent on certainty (GDD §3)', () => {
     const { mission } = w.step(15 * TICKS_PER_SECOND);
     expect(mission.some((e) => e.kind === 'roe')).toBe(true);
     expect(w.runtime.roeScore).toBeLessThan(100);
+  });
+});
+
+describe('intel by doing (F1: first identification and objective completion; no trickle)', () => {
+  function doingWorld(partial: Partial<MissionJson>, ctx?: Partial<MissionContext>): World {
+    return makeWorld(
+      baseMission({
+        map: { file: 'none', player_start: [4, 6] },
+        objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
+        resources: { intel_start: 0 },
+        ...partial,
+      }),
+      ctx
+    );
+  }
+
+  const earned = (events: MissionEvent[]): Extract<MissionEvent, { kind: 'intelEarned' }>[] =>
+    events.filter((e): e is Extract<MissionEvent, { kind: 'intelEarned' }> => e.kind === 'intelEarned');
+
+  /** Two unarmed enemies (m_tech has no weapons, so nobody shoots and nobody dies)
+   *  that the squad at x=3 sees from where it stands. */
+  const WATCHED: Partial<MissionJson> = {
+    starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+    enemy: {
+      garrison: [
+        { unit: 'm_tech', count: 1, at: [7, 4], stance: { kind: 'hold_position' } },
+        { unit: 'm_tech', count: 1, at: [7, 7], stance: { kind: 'hold_position' } },
+      ],
+    },
+  };
+
+  it('a stationary scout earns nothing', () => {
+    // A foot scout that can mark, parked 60 s with nothing in sight. Earned 5 a minute
+    // on the old trickle.
+    const w = doingWorld({ starting_force: [{ unit: 'm_scout', count: 1, at: [5, 5] }] });
+    const out = w.step(60 * TICKS_PER_SECOND);
+    expect(w.sim.state.moving[0]).toBe(0);
+    expect(w.runtime.intel).toBe(0);
+    expect(earned(out.mission)).toHaveLength(0);
+  });
+
+  it('a drone on station earns nothing for loitering', () => {
+    const w = doingWorld({ starting_force: [{ unit: 'm_drone', count: 1, at: [5, 5] }] });
+    const out = w.step(60 * TICKS_PER_SECOND);
+    expect(w.runtime.intel).toBe(0);
+    expect(earned(out.mission)).toHaveLength(0);
+  });
+
+  it('each enemy pays once when first identified', () => {
+    const w = doingWorld(WATCHED);
+    const out = w.step(20 * TICKS_PER_SECOND);
+    expect(w.sim.contactLevel(0, 1)).toBe(2);
+    expect(w.sim.contactLevel(0, 2)).toBe(2);
+    expect(w.runtime.intel).toBe(20);
+    const ev = earned(out.mission);
+    expect(ev).toHaveLength(2);
+    expect(ev.map((e) => e.cause)).toEqual(['identified', 'identified']);
+    expect(ev.map((e) => e.amount)).toEqual([10, 10]);
+    expect(ev.map((e) => e.ref).sort()).toEqual([1, 2]);
+    // `at` names the integer tile the enemy stands on.
+    const byRef = new Map(ev.map((e) => [e.ref, e.at]));
+    expect(byRef.get(1)).toEqual({ x: 7, y: 4 });
+    expect(byRef.get(2)).toEqual({ x: 7, y: 7 });
+  });
+
+  it('losing and re-identifying an enemy pays nothing (D3)', () => {
+    const w = doingWorld(WATCHED);
+    w.step(20 * TICKS_PER_SECOND);
+    expect(w.runtime.intel).toBe(20);
+    // Walk away until both contacts are lost, then walk back.
+    w.sim.queueCommand({ kind: 'move', ids: [0], x: fx.from(0.5), y: fx.from(1.0) });
+    let lost = 0;
+    for (let t = 0; t < 120 * TICKS_PER_SECOND && lost < 2; t++) {
+      const se = w.sim.tick();
+      w.runtime.step(se);
+      for (const e of se) if (e.kind === 'contact' && e.side === 0 && e.level === 'lost') lost++;
+    }
+    expect(lost).toBeGreaterThanOrEqual(2);
+    expect(w.runtime.intel).toBe(20);
+    w.sim.queueCommand({ kind: 'move', ids: [0], x: fx.from(3.5), y: fx.from(5.5) });
+    let again = 0;
+    for (let t = 0; t < 60 * TICKS_PER_SECOND; t++) {
+      const se = w.sim.tick();
+      w.runtime.step(se);
+      for (const e of se) if (e.kind === 'contact' && e.side === 0 && e.level === 'identified') again++;
+    }
+    expect(again).toBeGreaterThanOrEqual(1); // identified a second time...
+    expect(w.runtime.intel).toBe(20); // ...and paid nothing for it
+  });
+
+  it('a completed objective pays 30; a failed one pays nothing (D5)', () => {
+    const done = doingWorld({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [5, 5] }],
+      objectives: [
+        { id: 'short', type: 'survive_until', primary: false, seconds: 5 },
+        { id: 'long', type: 'survive_until', primary: true, seconds: 600 },
+      ],
+    });
+    const out = done.step(6 * TICKS_PER_SECOND);
+    expect(done.runtime.intel).toBe(30);
+    const ev = earned(out.mission);
+    expect(ev).toHaveLength(1);
+    expect(ev[0]).toMatchObject({ cause: 'objective', ref: 'short', amount: 30 });
+
+    // An evacuation with no one to evacuate fails at its deadline.
+    const failed = doingWorld(
+      {
+        // No soldier near the family: nobody is coming for them.
+        starting_force: [{ unit: 'm_squad', count: 1, at: [24, 2] }],
+        civilians: { groups: [{ unit: 'm_civ', count: 1, at: [20, 6] }], refuge: 'refuge' },
+        objectives: [
+          { id: 'evac', type: 'evacuate_before', primary: false, target: 'refuge_zone', count: 1, seconds: 5 },
+          { id: 'long', type: 'survive_until', primary: true, seconds: 600 },
+        ],
+      },
+      { markers: { refuge: [2, 10] }, zones: { refuge_zone: [0, 8, 6, 4] } }
+    );
+    const fout = failed.step(6 * TICKS_PER_SECOND);
+    expect(failed.runtime.objectiveStatus('evac')).toBe('failed');
+    expect(failed.runtime.intel).toBe(0);
+    expect(earned(fout.mission)).toHaveLength(0);
+  });
+
+  it('an objective with a zone names the zone centre', () => {
+    const w = doingWorld(
+      {
+        starting_force: [{ unit: 'm_squad', count: 1, at: [5, 5] }],
+        objectives: [
+          { id: 'hold', type: 'hold_for', primary: true, target: 'post', seconds: 2 },
+        ],
+      },
+      { zones: { post: [2, 2, 6, 6] } }
+    );
+    const out = w.step(4 * TICKS_PER_SECOND);
+    const ev = earned(out.mission);
+    expect(ev).toHaveLength(1);
+    expect(ev[0].at).toEqual({ x: 5, y: 5 });
+  });
+
+  it('completeObjective pays like an internal completion', () => {
+    const w = doingWorld({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [5, 5] }],
+      objectives: [{ id: 'work_up', type: 'survive_until', primary: true, seconds: 600 }],
+    });
+    expect(w.runtime.completeObjective('work_up')).toBe(true);
+    expect(w.runtime.intel).toBe(30);
+    const out = w.step(1);
+    const ev = earned(out.mission);
+    expect(ev).toHaveLength(1);
+    expect(ev[0]).toMatchObject({ cause: 'objective', ref: 'work_up', amount: 30 });
+    // A second call is refused and pays nothing more.
+    expect(w.runtime.completeObjective('work_up')).toBe(false);
+    expect(w.runtime.intel).toBe(30);
+  });
+
+  it('suspected contacts pay nothing', () => {
+    // Far enough that the squad only ever suspects: step until a `suspected` contact event
+    // and no `identified` one has been seen, and require intel 0.
+    const w = doingWorld({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+      enemy: { garrison: [{ unit: 'm_tech', count: 1, at: [17, 5], stance: { kind: 'hold_position' } }] },
+    });
+    const levels: string[] = [];
+    for (let t = 0; t < 40 * TICKS_PER_SECOND; t++) {
+      const se = w.sim.tick();
+      w.runtime.step(se);
+      for (const e of se) if (e.kind === 'contact' && e.side === 0) levels.push(e.level);
+    }
+    // Move on a drone-free probe: nothing identified at this range, intel untouched.
+    expect(levels).not.toContain('identified');
+    expect(w.runtime.intel).toBe(0);
+    // Whatever the squad suspects pays nothing; pin by walking it to the edge of sight.
+    w.sim.queueCommand({ kind: 'move', ids: [0], x: fx.from(9.5), y: fx.from(5.5) });
+    let sawSuspected = false;
+    for (let t = 0; t < 40 * TICKS_PER_SECOND && !sawSuspected; t++) {
+      const se = w.sim.tick();
+      const m = w.runtime.step(se);
+      const ids = se.filter((e) => e.kind === 'contact' && e.side === 0 && e.level === 'identified').length;
+      sawSuspected = se.some((e) => e.kind === 'contact' && e.side === 0 && e.level === 'suspected');
+      if (sawSuspected && ids === 0) expect(earned(m)).toHaveLength(0);
+    }
+    expect(sawSuspected).toBe(true);
+  });
+
+  it('side 1 identifying side 0 pays the player nothing', () => {
+    // The enemy has the eyes: a rifle squad walks up to an armed-for-sight enemy...
+    const w = doingWorld({
+      starting_force: [{ unit: 'm_drone', count: 1, at: [3, 5] }],
+      enemy: { garrison: [{ unit: 'm_squad', count: 1, at: [4, 5], stance: { kind: 'hold_position' } }] },
+    });
+    const sides: number[] = [];
+    for (let t = 0; t < 10 * TICKS_PER_SECOND; t++) {
+      const se = w.sim.tick();
+      w.runtime.step(se);
+      for (const e of se) if (e.kind === 'contact' && e.level === 'identified') sides.push(e.side);
+    }
+    expect(sides).toContain(1); // the enemy identified the player's unit
+    expect(w.runtime.intel).toBe(10 * sides.filter((s) => s === 0).length);
+  });
+
+  it('an identification with no observer pays nothing (a sweep reveal, D3)', () => {
+    const w = doingWorld({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [3, 3] }],
+      enemy: { garrison: [{ unit: 'm_rpg', count: 1, at: [24, 10], facing_deg: 180 }] },
+      resources: { intel_start: 200 },
+    });
+    w.step(2 * TICKS_PER_SECOND);
+    expect(w.runtime.requestSweep(fx.from(24), fx.from(10))).toBe(true);
+    const out = w.step(2);
+    expect(w.sim.contactLevel(0, 1)).toBe(2);
+    expect(w.runtime.intel).toBe(50); // 200 - 150, and nothing earned
+    expect(earned(out.mission)).toHaveLength(0);
+  });
+
+  it('an enemy first revealed without an observer never pays, even when later spotted (C-R5)', () => {
+    const w = doingWorld({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+      enemy: { garrison: [{ unit: 'm_tech', count: 1, at: [20, 5], stance: { kind: 'hold_position' } }] },
+      resources: { intel_start: 200 },
+    });
+    w.step(2);
+    expect(w.runtime.requestSweep(fx.from(20), fx.from(5))).toBe(true);
+    w.step(2);
+    expect(w.sim.contactLevel(0, 1)).toBe(2);
+    expect(w.runtime.intel).toBe(50);
+    // Let the revealed contact decay to lost (nobody is watching), then walk the squad into
+    // sight so a REAL observer identifies the same enemy.
+    let lost = false;
+    for (let t = 0; t < 120 * TICKS_PER_SECOND && !lost; t++) {
+      const se = w.sim.tick();
+      w.runtime.step(se);
+      lost = se.some((e) => e.kind === 'contact' && e.side === 0 && e.level === 'lost');
+    }
+    expect(lost).toBe(true);
+    w.sim.queueCommand({ kind: 'move', ids: [0], x: fx.from(14.5), y: fx.from(5.5) });
+    let observed = 0;
+    for (let t = 0; t < 120 * TICKS_PER_SECOND; t++) {
+      const se = w.sim.tick();
+      w.runtime.step(se);
+      for (const e of se) {
+        if (e.kind === 'contact' && e.side === 0 && e.level === 'identified' && e.observer >= 0) observed++;
+      }
+    }
+    expect(observed).toBeGreaterThanOrEqual(1);
+    expect(w.runtime.intel).toBe(50);
   });
 });
 
@@ -3778,7 +4033,10 @@ describe('containment is structural: mission predicates ignore buried bodies', (
       starting_force: [{ unit: 'm_drone', count: 1, at: [3, 3], in_tunnel: 'tn_a' }],
       objectives: [SURVIVE],
     });
-    w.step(300); // 15s: a surface drone would have banked 2 intel by now
+    // 15 s. Since F1 Task 3 a surface drone would earn nothing here either (no trickle),
+    // so this now guards only that a buried drone identifies nobody; the enemy-free
+    // fixture means the pay it could draw is the identification pay.
+    w.step(300);
     expect(w.runtime.intel).toBe(0);
   });
 

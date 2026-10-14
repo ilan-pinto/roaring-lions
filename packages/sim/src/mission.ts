@@ -13,6 +13,7 @@ import { fx, HALF, type Fx } from './fixed';
 import { HASH_SEED, hashWord } from './hash';
 import { starsFor, betterResult, type Stars, type MissionResult } from './grade';
 import { TICKS_PER_SECOND, type Sim, type SimEvent } from './sim';
+import { INTEL_PER_IDENTIFIED, INTEL_PER_OBJECTIVE } from './tuning';
 import type { TunnelRouteJson } from './tunnels';
 import { unlockReason, type UnlockGate } from './unlock';
 
@@ -370,6 +371,23 @@ export type MissionEvent =
    * `speaker` to `shai | idit | net | enemy`, this type does not need to.
    */
   | { kind: 'say'; tick: number; speaker: string; text: string }
+  /**
+   * Why intel moved this tick, for the HUD's feed. Intel is earned by doing
+   * (F1, G3 Q1): the first identification of an enemy, and an objective's
+   * completion. `at` is the integer tile the feed line names (#428: a feed line
+   * says where): the identified enemy's tile, the objective's zone centre (or,
+   * for a zoneless objective, the tile of the first living player unit), the
+   * rise's tile for `highGround`. `ref` is the enemy entity id, the objective id
+   * or the rise index.
+   */
+  | {
+      kind: 'intelEarned';
+      tick: number;
+      amount: number;
+      cause: 'identified' | 'objective' | 'highGround';
+      ref: number | string;
+      at: { x: number; y: number };
+    }
   | {
       kind: 'missionEnd';
       tick: number;
@@ -384,7 +402,7 @@ export type MissionEvent =
 /** Every `MissionEvent` kind, as a value. See `SIM_EVENT_KINDS`. */
 export const MISSION_EVENT_KINDS = [
   'objective', 'trigger', 'wave', 'roe', 'built', 'evacuated', 'removed', 'unitLost', 'say',
-  'missionEnd',
+  'missionEnd', 'intelEarned',
 ] as const satisfies readonly MissionEvent['kind'][];
 
 /** Compile-time proof the list above covers the whole union. See
@@ -423,10 +441,6 @@ const CONTEST_RADIUS_SQ = 2359296;
 /** Intel prices, GDD §3. */
 const SWEEP_COST = 150;
 const STRIKE_COST = 250;
-/** Intel earned per minute, GDD §3: a drone on station, a scout team holding
- *  an observation post. Watching is what pays for certainty. */
-const INTEL_PER_MIN_DRONE = 8;
-const INTEL_PER_MIN_SCOUT = 5;
 
 interface ObjectiveState {
   def: ObjectiveJson;
@@ -541,6 +555,14 @@ export class MissionRuntime {
    *  identified a unit a locate needed, or found a route a collapse brought down. The
    *  stripe reads this, not the kill map alone. */
   private readonly contributed = new Set<number>();
+  /** Every enemy whose FIRST side-0 identification has been settled (D3). An enemy
+   *  first revealed with no observer (`observer: -1`: a sweep's reveal, a pre-marked
+   *  carry-over spawn) is settled UNPAID and never pays later, even when a real
+   *  observer sees it afterwards (C-R5). Runtime-only; folded into `economyHash`. */
+  private readonly paidIdentified = new Set<number>();
+  /** `intelEarned` events owed to the HUD from outside `step` (a forced
+   *  `completeObjective`), drained into the next step's output. */
+  private readonly pendingIntelEvents: MissionEvent[] = [];
   /** Which player entity identified each enemy entity, from `contact.observer`. */
   private readonly identifiedBy = new Map<number, number>();
   /** Which player entity found each route, from the route event's observer. */
@@ -602,7 +624,9 @@ export class MissionRuntime {
    *  arithmetic (`rate / 1200`), so only its floor is hashed (`| 0` truncates a
    *  non-negative number to its floor), and every word folded in is an int32.
    *  The build queue goes in array order (the order `requestBuild` pushed it),
-   *  each entry as its unit id's characters, then its start and ready ticks. */
+   *  each entry as its unit id's characters, then its start and ready ticks.
+   *  Then (F1 Task 3, F-R3) the settled first identifications: their count, then
+   *  their entity ids ascending. */
   economyHash(): number {
     let h = HASH_SEED;
     h = hashWord(h, this.logisticsValue | 0);
@@ -613,6 +637,10 @@ export class MissionRuntime {
       h = hashWord(h, b.startTick | 0);
       h = hashWord(h, b.readyTick | 0);
     }
+    // F1 Task 3 (F-R3): the settled first identifications, size then ids ascending.
+    h = hashWord(h, this.paidIdentified.size);
+    const settled = [...this.paidIdentified].sort((a, b) => a - b);
+    for (const id of settled) h = hashWord(h, id);
     return h >>> 0;
   }
 
@@ -743,6 +771,7 @@ export class MissionRuntime {
     // outside credits contribution off current world state exactly as
     // stepObjectives does; this is the only other place status becomes 'complete'.
     this.creditContribution(o.def);
+    this.payObjective(o.def, this.sim.tickCount, this.pendingIntelEvents);
     o.status = 'complete';
     this.externallyCompleted.push(id);
     return true;
@@ -1067,6 +1096,23 @@ export class MissionRuntime {
         if (e.side === 0 && this.sim.state.side[e.target] === 1) {
           this.identified.add(e.target);
           if (e.observer >= 0) this.identifiedBy.set(e.target, e.observer);
+          // Intel by doing (D3): the FIRST identification of each enemy settles
+          // once, paid only when a real observer made it. A reveal or a
+          // pre-marked spawn (observer -1) settles it unpaid, for good (C-R5).
+          if (!this.paidIdentified.has(e.target)) {
+            this.paidIdentified.add(e.target);
+            if (e.observer >= 0) {
+              this.intelValue += INTEL_PER_IDENTIFIED;
+              out.push({
+                kind: 'intelEarned',
+                tick,
+                amount: INTEL_PER_IDENTIFIED,
+                cause: 'identified',
+                ref: e.target,
+                at: { x: this.sim.state.posX[e.target] >> 16, y: this.sim.state.posY[e.target] >> 16 },
+              });
+            }
+          }
         }
         // Carry-over, produced. The tag joins the ledger the moment any unit of that
         // placement is identified -- no separate mark verb, and no objective needed:
@@ -1106,21 +1152,10 @@ export class MissionRuntime {
     // later slice. Fractional accrual is exact-enough JS arithmetic.
     const rate = this.mission.resources?.logistics_rate_per_min ?? 0;
     if (rate > 0) this.logisticsValue += rate / 1200;
-    // Intel accrues from units that are actually observing: a drone on
-    // station always, a scout team only while it holds position.
-    let intelPerMin = 0;
-    const st = this.sim.state;
-    for (const id of this.playerIds) {
-      if (st.alive[id] === 0) continue;
-      // Underground observes nothing and earns nothing. On the loop, not a
-      // branch, so the drone half and the stationary-scout half — a buried
-      // unit is stationary by definition — are covered by the same line.
-      if (st.tunnelIn[id] >= 0) continue;
-      const type = this.sim.unitTypes[st.typeIdx[id]];
-      if (type.role === 'drone') intelPerMin += INTEL_PER_MIN_DRONE;
-      else if (type.canMarkTarget && st.moving[id] === 0) intelPerMin += INTEL_PER_MIN_SCOUT;
-    }
-    if (intelPerMin > 0) this.intelValue += intelPerMin / 1200;
+    // Intel is NOT accrued here. There is no per-minute trickle (G3 Q1, lead 4 Oct):
+    // it is earned by doing, at the two places that pay it -- the first identification
+    // of an enemy (the contact digest above) and an objective's completion
+    // (`payObjective`).
     for (let i = this.buildQueue.length - 1; i >= 0; i--) {
       const b = this.buildQueue[i];
       if (tick < b.readyTick) continue;
@@ -1142,6 +1177,7 @@ export class MissionRuntime {
     this.stepPatrols();
     this.stepTriggers(tick, out);
     this.stepWaves(tick, out);
+    for (const ev of this.pendingIntelEvents.splice(0)) out.push(ev);
     for (const id of this.externallyCompleted.splice(0)) {
       out.push({ kind: 'objective', tick, id, status: 'complete' });
     }
@@ -1699,6 +1735,28 @@ export class MissionRuntime {
     }
   }
 
+  /** Pay the intel for a completed objective (D5): primaries and secondaries alike, and
+   *  never a failure. Called from both completion sites, so a forced
+   *  `completeObjective` pays exactly like an internal one. */
+  private payObjective(d: ObjectiveJson, tick: number, out: MissionEvent[]): void {
+    this.intelValue += INTEL_PER_OBJECTIVE;
+    const z = this.zone(d.target);
+    let x = 0;
+    let y = 0;
+    if (z !== undefined) {
+      x = z[0] + (z[2] >> 1);
+      y = z[1] + (z[3] >> 1);
+    } else {
+      for (const id of this.playerIds) {
+        if (this.sim.state.alive[id] === 0) continue;
+        x = this.sim.state.posX[id] >> 16;
+        y = this.sim.state.posY[id] >> 16;
+        break;
+      }
+    }
+    out.push({ kind: 'intelEarned', tick, amount: INTEL_PER_OBJECTIVE, cause: 'objective', ref: d.id, at: { x, y } });
+  }
+
   private stepTriggers(tick: number, out: MissionEvent[]): void {
     const triggers = this.mission.triggers ?? [];
     for (let i = 0; i < triggers.length; i++) {
@@ -1932,6 +1990,7 @@ export class MissionRuntime {
       }
       if (complete) {
         this.creditContribution(o.def);
+        this.payObjective(d, tick, out);
         o.status = 'complete';
         out.push({ kind: 'objective', tick, id: d.id, status: 'complete' });
         if (d.say) out.push({ kind: 'say', tick, speaker: d.say.speaker, text: d.say.text });

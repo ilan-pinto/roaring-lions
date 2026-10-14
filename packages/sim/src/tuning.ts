@@ -320,6 +320,15 @@ export const STRIKE_SCATTER = 19661; // 0.3 tiles
 /** Satellite sweep: everything hostile inside this radius is identified. */
 export const SWEEP_RADIUS_SQ = 3932160; // 60 tile^2 ≈ 7.7 tiles
 
+// --- intel earned by doing (F1; GDD §3) --------------------------------------
+/** Intel for the first identification of an enemy by a real observer (once per
+ *  enemy per mission, D3). Whole intel points, not Q16.16. The 10/30/30 row is
+ *  PROVISIONAL, pending the lead: see docs/campaign/economy/fire-support-numbers.md. */
+export const INTEL_PER_IDENTIFIED = 10;
+/** Intel for completing an objective, primary or secondary (never for a failure, D5).
+ *  Same provisional row as above (30 here, not the plan's first-draft 25). */
+export const INTEL_PER_OBJECTIVE = 30;
+
 // --- carriers and munitions -------------------------------------------------
 /** How close a passenger must be to climb aboard: squared tiles, Q16.16. */
 export const LOAD_RANGE_SQ = 147456; // 2.25 tile^2 = 1.5 tiles

@@ -1117,8 +1117,8 @@ interface EconomyRun {
 
 /** `extraBuild` buys one `supply_truck` at ECONOMY_EXTRA_BUILD_TICK: delivered
  *  (15 s) long before the end, so it differs from the base run in the purse
- *  alone. `leadType` swaps the drone for another type (the mutation probe). */
-function economyReplay(seed: number, extraBuild = false, leadType = 'recon_drone'): EconomyRun {
+ *  alone. */
+function economyReplay(seed: number, extraBuild = false): EconomyRun {
   const sim = new Sim({ seed, width: 48, height: 48, capacity: 32 });
   const ids = new Map<string, number>();
   for (const t of [ECO_SQUAD, ECO_DRONE, ECO_MILITIA, ECO_TRUCK]) ids.set(t.id, sim.addUnitType(t));
@@ -1129,16 +1129,7 @@ function economyReplay(seed: number, extraBuild = false, leadType = 'recon_drone
     inf_squad: { logistics: 180, buildTimeS: 15 },
     supply_truck: { logistics: 100, buildTimeS: 15 },
   };
-  const mission: MissionJson =
-    leadType === 'recon_drone'
-      ? ECO_MISSION
-      : {
-          ...ECO_MISSION,
-          starting_force: (ECO_MISSION.starting_force ?? []).map((p) =>
-            p.unit === 'recon_drone' ? { ...p, unit: leadType } : p
-          ),
-        };
-  const rt = new MissionRuntime(sim, mission, {
+  const rt = new MissionRuntime(sim, ECO_MISSION, {
     typeIdOf: (u) => {
       const t = ids.get(u);
       if (t === undefined) throw new Error(`unknown unit ${u}`);
@@ -1166,7 +1157,7 @@ function economyReplay(seed: number, extraBuild = false, leadType = 'recon_drone
     // The lead unit goes forward to a post that sees both garrison groups (a
     // drone's sight is 16), and the starting squad stays where it stands, a
     // marker at rest. A plain move: it holds fire on the way (6 Oct).
-    if (t === 5) sim.queueCommand({ kind: 'move', ids: living(leadType), x: fx.fromInt(12), y: fx.fromInt(24) });
+    if (t === 5) sim.queueCommand({ kind: 'move', ids: living('recon_drone'), x: fx.fromInt(12), y: fx.fromInt(24) });
     // Once both reinforcements have landed (ready at ticks 700 and 1100) the
     // whole force attack-moves in together. `sweep` so that a squad which
     // arrives with a contact still remembered walks on to it (6 Oct, #402).
