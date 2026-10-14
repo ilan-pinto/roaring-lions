@@ -3,10 +3,11 @@
 // and every stdout line a JSON-RPC frame) needs a room a child process can
 // reach, and lands with the local relay in N4b (task 11).
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { exitCodeFor, parseArgs, ticketClaims, type AgentArgs } from './agent';
+import { exitCodeFor, parseArgs, readTicketFile, ticketClaims, type AgentArgs } from './agent';
 
 const base = ['--server', 'https://game.test', '--code', 'ABC123'];
 const parsed = (argv: string[]): AgentArgs => {
@@ -65,6 +66,23 @@ describe('ticketClaims', () => {
     expect(ticketClaims(ticket({ matchId: 'ABC123', seat: 0, player: 'advisor', exp: 1, role: 'advisor', scope: 'assist' }))).toEqual({ seat: 0, role: 'advisor', scope: 'assist' });
     expect(ticketClaims('not a ticket')).toBeNull();
     expect(ticketClaims(ticket({ seat: 2 }))).toBeNull();
+  });
+});
+
+describe('readTicketFile', () => {
+  it('expands a leading ~/ to the home directory: an MCP client execs the agent with no shell to do it', () => {
+    const home = mkdtempSync(join(tmpdir(), 'agent-home-'));
+    try {
+      mkdirSync(join(home, '.roaring-lions'));
+      writeFileSync(join(home, '.roaring-lions', 'advisor-ticket'), 'abc.def\n');
+      // The path the lobby tells the player to save the ticket at (ui/versus.ts ADVISOR_TICKET_FILE).
+      expect(readTicketFile('~/.roaring-lions/advisor-ticket', home)).toBe('abc.def\n');
+      // An absolute path is read as written, and a ~ that is not a leading ~/ is not touched.
+      expect(readTicketFile(join(home, '.roaring-lions', 'advisor-ticket'), '/nowhere')).toBe('abc.def\n');
+      expect(() => readTicketFile(join(home, '~', 'x'), home)).toThrow(/ENOENT/);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });
 

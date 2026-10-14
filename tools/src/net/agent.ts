@@ -19,6 +19,8 @@
  */
 import { randomUUID } from 'node:crypto';
 import { readFileSync, realpathSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { Readable } from 'node:stream';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -170,6 +172,13 @@ function readFirstLine(stream: Readable): Promise<string> {
   });
 }
 
+/** A ticket file's contents. A leading `~/` is the home directory: the lobby
+ *  names `~/.roaring-lions/advisor-ticket`, and an MCP client execs this
+ *  command with no shell to expand it. */
+export function readTicketFile(file: string, home: string = homedir()): string {
+  return readFileSync(file.startsWith('~/') ? join(home, file.slice(2)) : file, 'utf8');
+}
+
 /** The seat to play and its ticket: the room's answer to a bot join, or the ticket file's. */
 async function seatAndTicket(a: AgentArgs, origin: string): Promise<{ seat: 0 | 1; ticket: string }> {
   if ('join' in a.ticket) {
@@ -184,7 +193,7 @@ async function seatAndTicket(a: AgentArgs, origin: string): Promise<{ seat: 0 | 
     if ((body.seat !== 0 && body.seat !== 1) || typeof body.ticket !== 'string') throw new Error('the join answered no seat and ticket');
     return { seat: body.seat, ticket: body.ticket };
   }
-  const raw = a.ticket.file === '-' ? await readFirstLine(process.stdin) : readFileSync(a.ticket.file, 'utf8');
+  const raw = a.ticket.file === '-' ? await readFirstLine(process.stdin) : readTicketFile(a.ticket.file);
   const ticket = raw.trim();
   const claims = ticketClaims(ticket);
   if (claims === null) throw new Error('the ticket file holds no ticket');
