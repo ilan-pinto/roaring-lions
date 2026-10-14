@@ -485,7 +485,13 @@ describe('determinism (1000-tick replay)', () => {
     // focusTarget and focusLost, join the hash. No behaviour moved: with their
     // hashArray lines removed, all three replays (flat, relief, orders)
     // reproduce the old value exactly. Was 916087385.
-    expect(a.hash()).toBe(4215479769);
+    //
+    // 2026-10-14: a garrisoned unit ranges, sees and fires from its window --
+    // the footprint tile nearest its target -- not from the centroid (lead
+    // ruling G1, garrison overhaul Task 4). This replay's shed holder fires
+    // from the window. With eyePoint returning the centroid it reads
+    // 4215479769 exactly. Was 4215479769.
+    expect(a.hash()).toBe(935671699);
   });
 
   it('the replay actually exercises halt to fire', () => {
