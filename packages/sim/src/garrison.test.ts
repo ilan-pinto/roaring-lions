@@ -132,3 +132,37 @@ describe('capacity (B5, B3)', () => {
     expect(sim.state.moving[waiter]).toBe(1);
   });
 });
+
+describe('a garrison takes full building cover against suppression (B1, GH-280)', () => {
+  // Three rifle squads fire at a house holding one man. A round that misses a
+  // building lands on its nearest footprint tile, 0.71 tiles from a 2x2
+  // house's centroid -- inside the near-miss radius -- so every miss is a near
+  // miss on the man inside. The two arms differ only in garrison_cover.
+  function pinnedTicks(garrisonCover: number | undefined): number {
+    const sim = new Sim({ seed: 11, width: 48, height: 32, capacity: 16 });
+    const type = sim.addStructureType(
+      garrisonCover === undefined ? HOUSE : { ...HOUSE, garrison_cover: garrisonCover },
+    );
+    const house = rect(sim, type, 20, 14, 2, 2);
+    const rifles = sim.addUnitType(RIFLES);
+    const holder = sim.spawn(rifles, 1, fx.from(19.5), fx.from(14.5));
+    garrison(sim, holder, house);
+    sim.debugDisableFirepower(holder); // he must not drive the attackers off
+    for (let k = 0; k < 3; k++) sim.spawn(rifles, 0, fx.from(28.5), fx.from(13.5 + k));
+    let pinned = 0;
+    for (let k = 0; k < 60 * TICKS_PER_SECOND; k++) {
+      sim.tick();
+      if (sim.state.pinned[holder] === 1) pinned++;
+    }
+    expect(sim.structures.alive[house]).toBe(1);
+    return pinned;
+  }
+
+  it('pins a garrison whose building gives no cover (the control arm)', () => {
+    expect(pinnedTicks(0)).toBeGreaterThan(200);
+  });
+
+  it('never pins one behind the default, cover 3', () => {
+    expect(pinnedTicks(undefined)).toBe(0);
+  });
+});

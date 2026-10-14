@@ -4801,7 +4801,14 @@ export class Sim {
     const vet = this.veterancy[target];
     if (vet > 0) a = fx.mul(a, fx.sub(ONE, vet * VET_SUPP_BONUS));
     if (coverProtects) {
-      const cov = this.cover[(this.posY[target] >> 16) * this.width + (this.posX[target] >> 16)];
+      // A man inside a building fights with the building's cover, not the
+      // cover of the tile under its centroid -- which is a building tile, 0
+      // (B1, GH-280: every near miss on a 2x2 house pinned its garrison).
+      const s = this.garrisonedIn[target];
+      const cov =
+        s >= 0
+          ? this.structureTypes[this.stTypeIdx[s]].garrisonCover
+          : this.cover[(this.posY[target] >> 16) * this.width + (this.posX[target] >> 16)];
       a = fx.mul(a, COVER_SUPP[cov]);
     }
     const s = fx.add(this.suppression[target], a);

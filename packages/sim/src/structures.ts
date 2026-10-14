@@ -35,6 +35,9 @@ export interface StructureTypeJson {
    *  while it still stands. The companion to rubble_cover, which is what is
    *  left once it does not. Only consulted for a low_profile type. */
   standing_cover?: number;
+  /** Cover level 0-3 a unit inside fights with, against suppression and
+   *  detection. Default 3 (lead ruling 2026-10-14, GH-280). */
+  garrison_cover?: number;
   /** A linear run of arbitrary length -- a wall, a fence -- whose tiles each
    *  stand alone: the map loader gives every tile its own structure and its own
    *  HP, and the renderer stamps a sprite per tile. Length is exactly what makes
@@ -74,6 +77,8 @@ export interface StructureType {
   lowProfile: boolean;
   /** Cover for whoever fights from behind it while it stands. */
   standingCover: number;
+  /** See StructureTypeJson.garrison_cover. */
+  garrisonCover: number;
   /** A linear run whose tiles are each their own structure -- walls, fences.
    *  See StructureTypeJson.per_tile. */
   perTile: boolean;
@@ -93,6 +98,7 @@ export function structureTypeFromJson(json: StructureTypeJson): StructureType {
     perTile: json.per_tile ?? false,
     lowProfile: json.low_profile ?? false,
     standingCover: json.standing_cover ?? 2,
+    garrisonCover: json.garrison_cover ?? 3,
   };
 }
 
