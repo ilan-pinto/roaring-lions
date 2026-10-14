@@ -109,6 +109,12 @@ render order. A damaged copy's geometry enters the template's disposal list like
 | `mesh-vehicle-shipped.test.ts` | a wreck child shares its twin's geometry or is a declared copy with its source's attributes, read through `GLTFLoader` | the damaged branch asserted the wrong way: red on `mbt_lavi`, so the branch really runs |
 | `vehicle-kit.test.ts` | the twin keeps the unkitted host geometry; it is not handed back for disposal; no LOD cage on the wreck | the `rl_wreck` skip removed: **4 red** |
 
+**The "file is current" test is NOT a byte comparison, as CI showed.** The pass's trigonometry is
+not bit-identical across Node/V8 versions: files written locally (Node 25) failed a byte compare on
+CI (Node 22) for all four vehicles. The test now requires the same faces and every attribute within
+1e-4 of what the pass writes now; a 0.1° change to the Lavi plate's angle still turns it red.
+Byte-stability of a re-run is held in-process instead.
+
 **One survivor, disclosed.** Changing the Lavi plate's `jag` from 0.07 to 0.09 changes no selected
 face. The Lavi's skirt is 17 large triangles, selected by centroid, so its torn edge is the
 triangle edges, and `jag` only bites on a finer mesh. The parameter is kept for the vehicles that

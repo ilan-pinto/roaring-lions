@@ -6,7 +6,6 @@
  * so moving a verb's own parameter cannot move its test with it (CLAUDE.md,
  * "Every check gets an input that makes it fail").
  */
-import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { NodeIO, type Document, type Node } from '@gltf-transform/core';
@@ -56,11 +55,46 @@ function groundVerts(n: Node): [number, number, number][] {
 }
 
 describe('damage pass, on the shipped files', () => {
-  it.each(ids)('%s: the file on disk is what the pass writes (re-run is a no-op on the bytes)', async (id) => {
+  // NOT a byte comparison with the file on disk, and that was learned on CI:
+  // the pass's trigonometry (Math.sin/cos/atan in the curve, the peel and the
+  // droop) is not bit-identical across Node/V8 versions, so a file written on
+  // the lead's machine differs from a CI rerun in the last float bits. What
+  // must hold everywhere is that the file is CURRENT: the same faces, the
+  // same vertex order, every attribute within 0.1 mm of what the pass writes
+  // now. Byte-stability of a re-run is held IN-PROCESS by the next test.
+  it.each(ids)('%s: the file on disk is what the pass writes (same faces; every attribute within 1e-4)', async (id) => {
+    const disk = await read(id);
     const doc = await read(id);
     applyDamagePass(doc, id, DAMAGE_RECIPES[id]!);
-    const again = Buffer.from(await io.writeBinary(doc));
-    expect(again.equals(readFileSync(vehicleFile(id)))).toBe(true);
+    const twins = (d: Document) =>
+      d
+        .getRoot()
+        .listNodes()
+        .filter((n) => DAMAGE_KEY in (n.getExtras() ?? {}))
+        .map((n) => [n.getName(), n.getMesh()!.listPrimitives()[0]!] as const);
+    const want = twins(doc);
+    const got = new Map(twins(disk));
+    expect([...got.keys()].sort()).toEqual(want.map(([n]) => n).sort());
+    for (const [name, prim] of want) {
+      const other = got.get(name)!;
+      expect(Array.from(other.getIndices()!.getArray()!)).toEqual(Array.from(prim.getIndices()!.getArray()!));
+      for (const sem of prim.listSemantics()) {
+        const a = prim.getAttribute(sem)!.getArray()!;
+        const b = other.getAttribute(sem)?.getArray();
+        expect(b?.length).toBe(a.length);
+        let worst = 0;
+        for (let i = 0; i < a.length; i++) worst = Math.max(worst, Math.abs(a[i]! - b![i]!));
+        expect({ twin: name, attribute: sem, worst: worst < 1e-4 }).toEqual({ twin: name, attribute: sem, worst: true });
+      }
+    }
+  });
+
+  it.each(ids)('%s: a re-run in one process is a no-op on the bytes', async (id) => {
+    const doc = await read(id);
+    applyDamagePass(doc, id, DAMAGE_RECIPES[id]!);
+    const once = Buffer.from(await io.writeBinary(doc));
+    applyDamagePass(doc, id, DAMAGE_RECIPES[id]!);
+    expect(Buffer.from(await io.writeBinary(doc)).equals(once)).toBe(true);
   });
 
   it.each(ids)('%s: never touches a live accessor, and the wreck pass strips every copy', async (id) => {
