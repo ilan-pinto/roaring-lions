@@ -305,4 +305,115 @@ describe('each floor above the ground adds to eye height (G3)', () => {
     const obs = sim.spawn(u.rifles, 0, fx.from(18.5), fx.from(10.5));
     expect(sim.debugDetection(obs, holder)?.visible).toBe(true);
   });
+
+  /** The same tower, block and target as `sees`, from the SHOOTER's side. */
+  function shooter(floors: number) {
+    const { sim, t, u } = world();
+    const tower = rect(sim, sim.addStructureType({ ...HOUSE, id: `g_s${floors}`, floors }), 10, 10, 2, 2);
+    rect(sim, t.block, 14, 10, 1, 1);
+    const holder = sim.spawn(u.rifles, 0, fx.from(9.5), fx.from(11.5));
+    garrison(sim, holder, tower);
+    const target = sim.spawn(u.dummy, 1, fx.from(18.5), fx.from(10.5));
+    sim.identifyTo(0, target);
+    return { sim, holder, target };
+  }
+
+  it('shooter, one floor: the block on the line leaves no shot', () => {
+    const { sim, holder, target } = shooter(1);
+    expect(sim.projectHit(holder, target).kind).not.toBe('shot');
+    const events = run(sim, 5 * TICKS_PER_SECOND);
+    expect(events.some((e) => e.kind === 'fire' && e.shooter === holder && e.target === target)).toBe(false);
+  });
+
+  it('shooter, three floors: projectHit offers the shot and the holder fires over the block', () => {
+    const { sim, holder, target } = shooter(3);
+    expect(sim.projectHit(holder, target).kind).toBe('shot');
+    let fired = false;
+    for (let k = 0; k < 10 * TICKS_PER_SECOND; k++) {
+      sim.identifyTo(0, target);
+      for (const e of sim.tick()) if (e.kind === 'fire' && e.shooter === holder && e.target === target) fired = true;
+    }
+    expect(fired).toBe(true);
+  });
+
+  /** Garrison against garrison: the enemy holds a house behind the block. */
+  function structureShots(floors: number): number {
+    const { sim, t, u } = world();
+    const mine = rect(sim, sim.addStructureType({ ...HOUSE, id: `g_m${floors}`, floors }), 10, 10, 2, 2);
+    rect(sim, t.block, 14, 10, 1, 1);
+    const theirs = rect(sim, t.house, 18, 10, 2, 2);
+    const holder = sim.spawn(u.rifles, 0, fx.from(9.5), fx.from(11.5));
+    garrison(sim, holder, mine);
+    const enemy = sim.spawn(u.rifles, 1, fx.from(20.5), fx.from(11.5));
+    garrison(sim, enemy, theirs);
+    sim.debugDisableFirepower(enemy);
+    let hits = 0;
+    for (let k = 0; k < 10 * TICKS_PER_SECOND; k++) {
+      sim.identifyTo(0, enemy);
+      for (const e of sim.tick()) if (e.kind === 'fire' && e.shooter === holder && e.structure === theirs) hits++;
+    }
+    return hits;
+  }
+
+  it('a structure behind a block: one floor does not fire on it', () => expect(structureShots(1)).toBe(0));
+  it('a structure behind a block: three floors fire on it', () => expect(structureShots(3)).toBeGreaterThan(0));
+
+  /** A real smoke screen (the `smoke` command) centred at tile (cx, cy); a
+   *  sapper lays it. The disc is radius 3, so the line y=10 from the window at
+   *  x=11 crosses its tiles near the holder. */
+  const SAPPER: UnitTypeJson = {
+    id: 'g_sapper', role: 'engineer',
+    hull: { hp: 380, armor: { front: 10, side: 10, rear: 10 } },
+    mobility: { speed_tiles_s: 1 },
+    sensors: { optics: 1, sight_tiles: 8, signature: 0.5 },
+    abilities: ['smoke'],
+    weapons: [],
+  };
+  function smoked(floors: number, holderSide: 0 | 1, screen: readonly [number, number] | null) {
+    const { sim, u } = world();
+    const tower = rect(sim, sim.addStructureType({ ...HOUSE, id: `g_k${floors}`, floors }), 10, 10, 2, 2);
+    const sapper = sim.spawn(sim.addUnitType(SAPPER), 0, fx.from(9.5), fx.from(15.5));
+    const holder = sim.spawn(u.rifles, holderSide, fx.from(9.5), fx.from(11.5));
+    garrison(sim, holder, tower);
+    const other = sim.spawn(holderSide === 0 ? u.dummy : u.rifles, holderSide === 0 ? 1 : 0, fx.from(18.5), fx.from(10.5));
+    if (screen) {
+      sim.queueCommand({ kind: 'smoke', ids: [sapper], x: fx.from(screen[0] + 0.5), y: fx.from(screen[1] + 0.5) });
+      expect(run(sim, 1).some((e) => e.kind === 'smokeLaid')).toBe(true);
+    }
+    return { sim, holder, other };
+  }
+
+  it('smoke beside the window: one floor is blinded by it, three floors look over it', () => {
+    // Screen at (11,10): its tiles x=8..14 on the line, the near four within
+    // the first half, where a three-floor eye (h 3 falling to 1) is above the
+    // plume top of 2 and a one-floor eye (h 1) is inside it.
+    const one = smoked(1, 0, [11, 10]);
+    const three = smoked(3, 0, [11, 10]);
+    const clear = smoked(1, 0, null);
+    expect(clear.sim.debugDetection(clear.holder, clear.other)?.visible).toBe(true);
+    expect(one.sim.debugDetection(one.holder, one.other)?.visible).toBe(false);
+    expect(three.sim.debugDetection(three.holder, three.other)?.visible).toBe(true);
+  });
+
+  it('smoke beside the window, seen from outside: the target end is lifted too', () => {
+    const one = smoked(1, 1, [11, 10]);
+    const three = smoked(3, 1, [11, 10]);
+    expect(one.sim.debugDetection(one.other, one.holder)?.visible).toBe(false);
+    expect(three.sim.debugDetection(three.other, three.holder)?.visible).toBe(true);
+  });
+
+  it('a thin screen on the line degrades the shot unless the floors lift the eye over it', () => {
+    // One smoked tile (12,10) -- the bottom of a disc centred at (12,13) --
+    // is thin enough not to block (255 < 320), so only hitFactors' own
+    // smoke ray prices it.
+    const pOf = (floors: number, screen: boolean): number => {
+      const { sim, holder, other } = smoked(floors, 0, screen ? [12, 13] : null);
+      sim.identifyTo(0, other);
+      const hit = sim.projectHit(holder, other);
+      if (hit.kind !== 'shot') throw new Error(`no shot: ${hit.kind}`);
+      return hit.pHit;
+    };
+    expect(pOf(1, true)).toBeLessThan(pOf(1, false)); // the screen bites at eye level
+    expect(pOf(3, true)).toBe(pOf(3, false)); // and three floors are over it
+  });
 });
