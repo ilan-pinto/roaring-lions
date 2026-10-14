@@ -194,3 +194,88 @@ describe('a garrisoned unit is as hard to spot as a man in cover 3 (G2)', () => 
     expect(seen(0)?.signature).toBe(fx.from(0.6));
   });
 });
+
+describe('range and sight are measured from the window (G1, B6)', () => {
+  it('a long building: the man inside reaches from the end tile nearest the target', () => {
+    const { sim, u } = world();
+    // 1x9 at x=10..18: centroid (14.5, 10.5), east end tile (18.5, 10.5).
+    const hall = rect(sim, sim.addStructureType({ ...HOUSE, id: 'g_long' }), 10, 10, 9, 1);
+    const holder = sim.spawn(u.rifles, 0, fx.from(14.5), fx.from(11.5));
+    garrison(sim, holder, hall);
+    // 7.5 tiles from the window, 11.5 from the centroid: out of rifle range
+    // (8) from the centroid even with a range bonus of 3.
+    const target = sim.spawn(u.dummy, 1, fx.from(26), fx.from(10.5));
+    sim.identifyTo(0, target);
+    expect(sim.projectHit(holder, target).kind).toBe('shot');
+    const events = run(sim, 10 * TICKS_PER_SECOND);
+    expect(events.some((e) => e.kind === 'fire' && e.shooter === holder && e.target === target)).toBe(true);
+  });
+
+  it('an outside observer measures to the window nearest it', () => {
+    const { sim, u } = world();
+    const hall = rect(sim, sim.addStructureType({ ...HOUSE, id: 'g_long' }), 10, 10, 9, 1);
+    const holder = sim.spawn(u.rifles, 1, fx.from(14.5), fx.from(11.5));
+    garrison(sim, holder, hall);
+    const obs = sim.spawn(u.rifles, 0, fx.from(25.5), fx.from(10.5));
+    // Window (18.5, 10.5) to (25.5, 10.5): exactly 7 tiles.
+    expect(sim.debugDetection(obs, holder)?.distSq).toBe(fx.from(49));
+  });
+
+  it('a building whose centroid falls off its own footprint does not blind its garrison (B6)', () => {
+    const { sim, u } = world();
+    // An L: the top row x=10..13 at y=10, and the stem x=10 at y=11..13. Its
+    // centroid (11.36, 11.36) is on tile (11,11), open ground -- the shape of
+    // the two khan_rafid_3 shanties.
+    const tiles = [10, 11, 12, 13].map((x) => 10 * sim.width + x);
+    for (const y of [11, 12, 13]) tiles.push(y * sim.width + 10);
+    const ell = sim.addStructure(sim.addStructureType({ ...HOUSE, id: 'g_ell' }), tiles);
+    expect(sim.structureAt(fx.toInt(sim.structures.cx[ell]), fx.toInt(sim.structures.cy[ell]))).not.toBe(ell);
+    const holder = sim.spawn(u.rifles, 0, fx.from(14.5), fx.from(12.5));
+    garrison(sim, holder, ell);
+    // Due north: from the centroid tile (11,11) the ray crosses the L's own
+    // top row at (11,10); from the window (11,10) it crosses nothing.
+    const target = sim.spawn(u.dummy, 1, fx.from(11.5), fx.from(4.5));
+    expect(sim.debugDetection(holder, target)?.visible).toBe(true);
+  });
+
+  it('garrison against garrison: fires at an enemy-held building from its own window (Review Focus 2)', () => {
+    const { sim, t, u } = world();
+    const mine = rect(sim, sim.addStructureType({ ...HOUSE, id: 'g_long' }), 4, 10, 9, 1); // x=4..12
+    const theirs = rect(sim, t.house, 19, 10, 2, 2); // nearest tile (19.5, 10.5)
+    const holder = sim.spawn(u.rifles, 0, fx.from(8.5), fx.from(11.5));
+    garrison(sim, holder, mine);
+    const enemy = sim.spawn(u.rifles, 1, fx.from(21.5), fx.from(12.5));
+    garrison(sim, enemy, theirs);
+    sim.debugDisableFirepower(enemy);
+    sim.identifyTo(0, enemy);
+    // Window (12.5, 10.5) to (19.5, 10.5) is 7 tiles; the centroid (8.5, 10.5) is 11.
+    let hits = 0;
+    for (let k = 0; k < 10 * TICKS_PER_SECOND; k++) {
+      sim.identifyTo(0, enemy);
+      for (const e of sim.tick()) if (e.kind === 'fire' && e.shooter === holder && e.structure === theirs) hits++;
+    }
+    expect(hits).toBeGreaterThan(0);
+  });
+
+  it('the window tile is the ground the eye stands on (Review Focus 3)', () => {
+    // A 1x5 building x=10..14 whose three east tiles stand two levels up; one
+    // floor. A block 3 tiles off each end, a target 7 tiles out. The centroid
+    // tile (12,10) is on the high ground, so an eye left there sees the west
+    // target and not the east one -- the reverse of what the windows see.
+    function from(east: boolean): boolean {
+      const { sim, t, u } = world();
+      for (const x of [12, 13, 14]) sim.setElevation(x, 10, 2);
+      const long = rect(sim, sim.addStructureType({ ...HOUSE, id: 'g_plinth' }), 10, 10, 5, 1);
+      const holder = sim.spawn(u.rifles, 0, fx.from(12.5), fx.from(11.5));
+      garrison(sim, holder, long);
+      const end = east ? 14 : 10;
+      const dir = east ? 1 : -1;
+      rect(sim, t.block, end + dir * 3, 10, 1, 1);
+      const target = sim.spawn(u.dummy, 1, fx.from(end + dir * 7 + 0.5), fx.from(10.5));
+      return sim.debugDetection(holder, target)?.visible ?? false;
+    }
+    expect(from(true)).toBe(true); // the high end sees over its block
+    expect(from(false)).toBe(false); // the low end, on the ground, does not
+  });
+});
+

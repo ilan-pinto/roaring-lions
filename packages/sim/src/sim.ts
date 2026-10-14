@@ -2921,17 +2921,19 @@ export class Sim {
     };
     const oType = this.unitTypes[this.typeIdx[obs]];
     const tType = this.unitTypes[this.typeIdx[tgt]];
-    const dx = fx.sub(this.posX[tgt], this.posX[obs]);
-    const dy = fx.sub(this.posY[tgt], this.posY[obs]);
-    const dSq = distSqFx(dx, dy);
+    // Both ends at their windows (G1, B6): a garrisoned observer looks out of
+    // the tile nearest the target, and a garrisoned target is seen at the tile
+    // nearest the observer's own eye.
+    this.eyePoint(obs, this.posX[tgt], this.posY[tgt]);
+    const ox = this.eyeX;
+    const oy = this.eyeY;
+    this.eyePoint(tgt, ox, oy);
+    const tx = this.eyeX;
+    const ty = this.eyeY;
+    const dSq = distSqFx(fx.sub(tx, ox), fx.sub(ty, oy));
     none.distSq = dSq;
     if (dSq > oType.sightSq) return none;
-    const cov = this.losRay(
-      this.posX[obs] >> 16,
-      this.posY[obs] >> 16,
-      this.posX[tgt] >> 16,
-      this.posY[tgt] >> 16
-    );
+    const cov = this.losRay(ox >> 16, oy >> 16, tx >> 16, ty >> 16);
     if (cov < 0) return none;
 
     let sig = tType.signature;
@@ -3050,10 +3052,11 @@ export class Sim {
     }
     if (this.contact[sSide * cap + target] < IDENTIFIED_AT) return { kind: 'unidentified' };
 
-    const px = this.posX[shooter];
-    const py = this.posY[shooter];
     const tx = this.posX[target];
     const ty = this.posY[target];
+    this.eyePoint(shooter, tx, ty);
+    const px = this.eyeX;
+    const py = this.eyeY;
     const dSq = distSqFx(fx.sub(tx, px), fx.sub(ty, py));
     const type = this.unitTypes[this.typeIdx[shooter]];
 
@@ -3545,18 +3548,24 @@ export class Sim {
    *  nothing (the `presentedArc` idiom). Never hashed, never read across
    *  ticks. */
   private engageDSq = 0;
+  /** Where the last `engageable` call measured from (the shooter, or its
+   *  window), valid only when it returned true. Scratch like engageDSq. */
+  private engageOX: Fx = 0;
+  private engageOY: Fx = 0;
 
   /**
-   * May weapon `w`, on a shooter of side `sSide` standing at (px, py), take
-   * `t` as its target THIS tick? selectTarget's whole per-candidate filter,
+   * May weapon `w` of `shooter` take `t` as its target THIS tick, measured
+   * from `eyePoint`? selectTarget's whole per-candidate filter,
    * in its own order, and the ONE copy of it: the scan, the ordered-focus
    * preference (GH-420, R-2) and stepFocus's reach test (R-3) all ask here,
    * so what a slot may shoot and what an order may prefer cannot drift.
-   * Writes `engageDSq` when it returns true. Penetration is NOT part of it:
+   * Writes `engageDSq`, `engageOX` and `engageOY` when it returns true.
+   * Penetration is NOT part of it:
    * the scan ranks an unhurtable target as a last resort rather than
    * excluding it, and the focus paths add `weaponHurts` themselves.
    */
-  private engageable(sSide: number, px: Fx, py: Fx, w: WeaponStats, t: number): boolean {
+  private engageable(shooter: number, w: WeaponStats, t: number): boolean {
+    const sSide = this.side[shooter];
     // Civilians (side 2) are never targets — collateral comes from
     // ordnance, not aimpoints. That asymmetry is what ROE scores.
     if (this.alive[t] === 0 || this.side[t] === sSide || this.side[t] > 1) return false;
@@ -3570,19 +3579,22 @@ export class Sim {
     // keeps looking and engages something it *can* hurt, instead of locking
     // on to an aircraft and firing into the sky for the rest of the fight.
     if (this.unitTypes[this.typeIdx[t]].isAir ? !w.canTargetAir : !w.canTargetGround) return false;
+    // From the window, for a man inside (G1).
+    this.eyePoint(shooter, this.posX[t], this.posY[t]);
+    const px = this.eyeX;
+    const py = this.eyeY;
     const dSq = distSqFx(fx.sub(this.posX[t], px), fx.sub(this.posY[t], py));
     if (dSq > w.rangeSq || this.minRangeBlocks(w, dSq, t)) return false;
     if ((INDIRECT_MASK & (1 << w.cls)) === 0) {
       if (this.losRay(px >> 16, py >> 16, this.posX[t] >> 16, this.posY[t] >> 16) < 0) return false;
     }
     this.engageDSq = dSq;
+    this.engageOX = px;
+    this.engageOY = py;
     return true;
   }
 
   private selectTarget(shooter: number, w: WeaponStats): number {
-    const sSide = this.side[shooter];
-    const px = this.posX[shooter];
-    const py = this.posY[shooter];
     // An ORDERED target first (GH-420, ruling R-2): the focus wins this slot
     // only if the slot could have picked it anyway AND can hurt it from here.
     // A slot that cannot -- a rifle at a tank's front, a gun that cannot
@@ -3590,7 +3602,7 @@ export class Sim {
     // it always has, so the order never turns a weapon into a waste of
     // ammunition; the focus stays set and wins again the moment it can.
     const focus = this.focusTarget[shooter];
-    if (focus >= 0 && this.engageable(sSide, px, py, w, focus) && this.weaponHurts(w, focus, px, py)) {
+    if (focus >= 0 && this.engageable(shooter, w, focus) && this.weaponHurts(w, focus, this.engageOX, this.engageOY)) {
       return focus;
     }
     const antiArmor = (ANTI_ARMOR_MASK & (1 << w.cls)) !== 0;
@@ -3599,12 +3611,12 @@ export class Sim {
     // Ranked squared distance (see `rank` below), not always the raw one.
     let bestDistSq = 0x7fffffff;
     for (let t = 0; t < this.count; t++) {
-      if (!this.engageable(sSide, px, py, w, t)) continue;
+      if (!this.engageable(shooter, w, t)) continue;
       const dSq = this.engageDSq;
       // "Can this weapon hurt that?" — the real penetration chance against the
       // face the target shows this shooter (weaponHurts). Suppressive fire at
       // armour it cannot defeat is a fallback, not a preference.
-      const hurts = this.weaponHurts(w, t, px, py);
+      const hurts = this.weaponHurts(w, t, this.engageOX, this.engageOY);
       // Nearest first — except that an anti-armour weapon counts a soft or
       // unarmed target as further off than it is, so a Spike spends its
       // missile on the tank and not the rifle squad beside it.
@@ -3637,8 +3649,6 @@ export class Sim {
   private selectStructureTarget(shooter: number, w: WeaponStats): number {
     const cap = this.capacity;
     const sSide = this.side[shooter];
-    const px = this.posX[shooter];
-    const py = this.posY[shooter];
     let best = -1;
     let bestDistSq = 0x7fffffff;
     for (let s = 0; s < this.structureCount_; s++) {
@@ -3655,6 +3665,10 @@ export class Sim {
         }
       }
       if (!hostileInside) continue;
+      // From the window toward that building, for a man inside (G1).
+      this.eyePoint(shooter, this.stCx[s], this.stCy[s]);
+      const px = this.eyeX;
+      const py = this.eyeY;
       const dSq = this.structDistSq(s, px, py);
       if (dSq > w.rangeSq || dSq < w.minRangeSq || dSq >= bestDistSq) continue;
       if ((INDIRECT_MASK & (1 << w.cls)) === 0) {
@@ -4005,19 +4019,17 @@ export class Sim {
         if (slot === 0) this.curTarget[i] = target;
         if (target < 0) continue;
         anyTarget = true;
-        const dSq = distSqFx(
-          fx.sub(this.posX[target], this.posX[i]),
-          fx.sub(this.posY[target], this.posY[i])
-        );
+        // From the window, for a man inside (G1).
+        this.eyePoint(i, this.posX[target], this.posY[target]);
+        const ox = this.eyeX;
+        const oy = this.eyeY;
+        const dSq = distSqFx(fx.sub(this.posX[target], ox), fx.sub(this.posY[target], oy));
         if (dSq <= w.effectiveRangeSq) engagedClose = true;
 
         // Hull turns toward the primary threat. Stationary, always; on the
         // move, only where facing cannot cost anything — see aimHullAt.
         if (slot === 0) {
-          this.aimHullAt(
-            i,
-            fx.atan2(fx.sub(this.posY[target], this.posY[i]), fx.sub(this.posX[target], this.posX[i]))
-          );
+          this.aimHullAt(i, fx.atan2(fx.sub(this.posY[target], oy), fx.sub(this.posX[target], ox)));
         }
 
         if (this.cooldown[i * 2 + slot] > 0 || holdFire) continue;
@@ -4039,13 +4051,16 @@ export class Sim {
           // all, to shell it from outside its own effective range. Measured to
           // the nearest footprint tile, which is what selectStructureTarget
           // ranged against.
-          if (this.structDistSq(s, this.posX[i], this.posY[i]) <= w.effectiveRangeSq) {
+          this.eyePoint(i, this.stCx[s], this.stCy[s]);
+          const sox = this.eyeX;
+          const soy = this.eyeY;
+          if (this.structDistSq(s, sox, soy) <= w.effectiveRangeSq) {
             engagedClose = true;
           }
           if (slot === 0) this.curStructure[i] = s;
-          const [tx, ty] = this.nearestStructTile(s, this.posX[i], this.posY[i]);
+          const [tx, ty] = this.nearestStructTile(s, sox, soy);
           if (slot === 0) {
-            this.aimHullAt(i, fx.atan2(fx.sub(ty, this.posY[i]), fx.sub(tx, this.posX[i])));
+            this.aimHullAt(i, fx.atan2(fx.sub(ty, soy), fx.sub(tx, sox)));
           }
           if (this.cooldown[i * 2 + slot] > 0 || holdFire) continue;
           this.fireAtStructure(i, slot, w, s, tx, ty);
@@ -4251,10 +4266,11 @@ export class Sim {
    * rolls; `projectHit` does not.
    */
   private hitFactors(shooter: number, w: WeaponStats, target: number): HitFactors {
-    const px = this.posX[shooter];
-    const py = this.posY[shooter];
     const tx = this.posX[target];
     const ty = this.posY[target];
+    this.eyePoint(shooter, tx, ty);
+    const px = this.eyeX;
+    const py = this.eyeY;
     const dSq = distSqFx(fx.sub(tx, px), fx.sub(ty, py));
     const dist = fx.sqrt(dSq);
 
@@ -4294,10 +4310,11 @@ export class Sim {
   }
 
   private fireAt(shooter: number, slot: number, w: WeaponStats, target: number): void {
-    const px = this.posX[shooter];
-    const py = this.posY[shooter];
     const tx = this.posX[target];
     const ty = this.posY[target];
+    this.eyePoint(shooter, tx, ty);
+    const px = this.eyeX;
+    const py = this.eyeY;
     const dSq = distSqFx(fx.sub(tx, px), fx.sub(ty, py));
     const dist = fx.sqrt(dSq);
     const { p, accuracy, rangeFalloff, coverMod, motionMod, stanceMod, suppressionMod } =
@@ -4378,8 +4395,9 @@ export class Sim {
    * whether the round is the sort that hurts masonry.
    */
   private fireAtStructure(shooter: number, slot: number, w: WeaponStats, s: number, tx: Fx, ty: Fx): void {
-    const px = this.posX[shooter];
-    const py = this.posY[shooter];
+    this.eyePoint(shooter, tx, ty);
+    const px = this.eyeX;
+    const py = this.eyeY;
     const dist = fx.sqrt(distSqFx(fx.sub(tx, px), fx.sub(ty, py)));
     const ratio = fx.div(dist, w.effectiveRange);
     const rangeFalloff = fx.expNeg(fx.mul(FALLOFF_SCALE[w.cls], fx.mul(ratio, ratio)));
@@ -4862,6 +4880,48 @@ export class Sim {
       if (type.standingCover > best) best = type.standingCover;
     }
     return best;
+  }
+
+  /** Scratch written by `eyePoint` and read straight after it: the hot loops
+   *  allocate nothing (the `presentedArc` idiom). Never hashed. */
+  private eyeX: Fx = 0;
+  private eyeY: Fx = 0;
+
+  /**
+   * Where unit `i` looks and shoots from toward (tx, ty) (G1, B6; lead
+   * ruling 2026-10-14). In the open: where it stands. Garrisoned: the centre
+   * of its building's footprint tile nearest (tx, ty) -- the window on that
+   * side. Its POSITION stays the centroid (where it is drawn, and where a
+   * near miss is measured to); only range, sight and the line of fire start
+   * at the window. Ties go to the first tile in footprint order. A footprint
+   * tile is always inside the building, so a centroid that falls on open
+   * ground (two khan_rafid_3 shanties) no longer blinds the men inside.
+   */
+  private eyePoint(i: number, tx: Fx, ty: Fx): void {
+    const s = this.garrisonedIn[i];
+    if (s < 0) {
+      this.eyeX = this.posX[i];
+      this.eyeY = this.posY[i];
+      return;
+    }
+    let best = 0x7fffffff;
+    let bx = this.stCx[s];
+    let by = this.stCy[s];
+    const w = this.width;
+    for (const t of this.stTiles[s]) {
+      const x = t % w;
+      const y = (t - x) / w;
+      const cx = fx.add(fx.fromInt(x), HALF);
+      const cy = fx.add(fx.fromInt(y), HALF);
+      const d = distSqFx(fx.sub(cx, tx), fx.sub(cy, ty));
+      if (d < best) {
+        best = d;
+        bx = cx;
+        by = cy;
+      }
+    }
+    this.eyeX = bx;
+    this.eyeY = by;
   }
 
   private structDistSq(s: number, px: Fx, py: Fx): number {
@@ -5760,7 +5820,6 @@ export class Sim {
   private focusInReach(i: number, t: number): boolean {
     const weapons = this.unitTypes[this.typeIdx[i]].weapons;
     if (weapons.length === 0) return true; // nothing to close with (canFocus refuses these)
-    const sSide = this.side[i];
     const px = this.posX[i];
     const py = this.posY[i];
     const air = this.unitTypes[this.typeIdx[t]].isAir;
@@ -5778,7 +5837,7 @@ export class Sim {
         const r = fx.add(w.effectiveRange, FOCUS_REACH_SLACK);
         reachSq = fx.mul(r, r);
       }
-      if (this.engageable(sSide, px, py, w, t) && this.weaponHurts(w, t, px, py)) {
+      if (this.engageable(i, w, t) && this.weaponHurts(w, t, this.engageOX, this.engageOY)) {
         anyCan = true;
         if (dSq <= reachSq) return true;
         continue;
@@ -5976,8 +6035,9 @@ export class Sim {
     if (shooter < 0 || shooter >= this.count || target < 0 || target >= this.count) return false;
     const air = this.unitTypes[this.typeIdx[target]].isAir;
     const weapons = this.unitTypes[this.typeIdx[shooter]].weapons;
-    const px = this.posX[shooter];
-    const py = this.posY[shooter];
+    this.eyePoint(shooter, this.posX[target], this.posY[target]);
+    const px = this.eyeX;
+    const py = this.eyeY;
     for (let s = 0; s < weapons.length && s < 2; s++) {
       const w = weapons[s];
       if (air ? !w.canTargetAir : !w.canTargetGround) continue;
