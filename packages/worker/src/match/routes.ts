@@ -60,7 +60,7 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
     // A versus room is offered only on the maps measured fair (#561, the lead, 2026-10-14);
     // the room checks it again. A sandbox room is no contest and is not limited.
     if (mode === 'versus' && !versusMapAllowed(map)) return new Response('map not offered for versus', { status: 400 });
-    // KDF vs Sarim is Tel Marum only (the lead, 2026-10-14); a sandbox room ignores the matchup.
+    // KDF vs Sarim plays only on FACTION_MATCHUP_MAPS (the lead, 2026-10-14); a sandbox room ignores the matchup.
     const matchup = matchupField(body.matchup);
     if (mode === 'versus' && !matchupAllowed(matchup, map)) return new Response('matchup not offered on this map', { status: 400 });
     const callsign = callsignField(body.callsign);

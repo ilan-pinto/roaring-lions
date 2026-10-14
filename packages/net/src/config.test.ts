@@ -50,18 +50,22 @@ describe('the versus matchup (2026-10-14, KDF vs Sarim)', () => {
     expect(isFactionPair('kdf,sarim')).toBe(false);
   });
 
-  it('KDF vs Sarim is Tel Marum only; the mirror plays anywhere (the lead, 2026-10-14)', () => {
-    expect(matchupAllowed('sarim', 'tel_marum')).toBe(true);
-    expect(matchupAllowed('kdf', 'tel_marum')).toBe(true);
-    for (const map of ['beit_sahwan_outskirts', 'qarn_hadid', '']) {
+  it('KDF vs Sarim is Tel Marum and Wadi Tarfan only; the mirror plays anywhere (the lead, 2026-10-14)', () => {
+    expect([...FACTION_MATCHUP_MAPS]).toEqual(['tel_marum', 'wadi_tarfan']);
+    for (const map of ['tel_marum', 'wadi_tarfan']) {
+      expect(matchupAllowed('sarim', map), map).toBe(true);
+      expect(matchupAllowed('kdf', map), map).toBe(true);
+    }
+    // Milh Flats is mirror-only: Sarim on its west seat lost 33 of 48 in the probe.
+    for (const map of ['beit_sahwan_outskirts', 'milh_flats', 'qarn_hadid', '']) {
       expect(matchupAllowed('kdf', map)).toBe(false);
       expect(matchupAllowed('sarim', map)).toBe(false);
       expect(matchupAllowed('mirror', map)).toBe(true);
     }
   });
 
-  it('a versus room is offered only on the two maps measured close to even (the lead, 2026-10-14, #561)', () => {
-    expect([...VERSUS_FAIR_MAPS]).toEqual(['beit_sahwan_outskirts', 'tel_marum']);
+  it('a versus room is offered only on the maps measured close to even (the lead, 2026-10-14, #561)', () => {
+    expect([...VERSUS_FAIR_MAPS]).toEqual(['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats']);
     for (const map of VERSUS_FAIR_MAPS) expect(versusMapAllowed(map)).toBe(true);
     // Every other shipped map, a tile study, and things that are not a map id at all.
     for (const map of ['qarn_hadid', 'wadi_halam_basin', 'deir_amun', 'umm_zeitoun', 'khan_rafid', 'marj_perimeter', 'tel_marum_3', 'tile_road', 'tutorial_ground', '', '__proto__', 'Tel_Marum']) {

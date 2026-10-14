@@ -515,7 +515,7 @@ export class MatchRoom {
       // refused here as the route refuses it, before any room state exists.
       if (mode === 'versus' && !versusMapAllowed(map)) return new Response('map not offered for versus', { status: 400 });
       // The host's matchup (2026-10-14): a versus room's only; a sandbox room is the mirror.
-      // KDF vs Sarim is Tel Marum only (the lead's ruling): refused here as the route refuses it.
+      // KDF vs Sarim plays only on FACTION_MATCHUP_MAPS (the lead's ruling): refused here as the route refuses it.
       const matchup = mode === 'versus' ? matchupField(body.matchup) : 'mirror';
       if (!matchupAllowed(matchup, map)) return new Response('matchup not offered on this map', { status: 400 });
       const factions = factionsOfMatchup(matchup);

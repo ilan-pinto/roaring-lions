@@ -18,6 +18,7 @@ export const SHIPPED_MAP_IDS: readonly string[] = [
   'khan_rafid_2',
   'khan_rafid_3',
   'marj_perimeter',
+  'milh_flats',
   'qarn_hadid',
   'qarn_hadid_2',
   'qarn_hadid_3',
@@ -40,6 +41,7 @@ export const SHIPPED_MAP_IDS: readonly string[] = [
   'wadi_halam_4',
   'wadi_halam_5',
   'wadi_halam_basin',
+  'wadi_tarfan',
 ];
 
 const SHIPPED = new Set(SHIPPED_MAP_IDS);

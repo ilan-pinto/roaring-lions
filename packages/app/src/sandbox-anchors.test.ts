@@ -144,10 +144,53 @@ describe('against the maps that actually ship', () => {
   });
 });
 
+describe('a versus map names its seats (versus_0 / versus_1)', () => {
+  // Built so the contact-range heuristic would pick something else: `farm`
+  // sits at exactly 0.6 x 48 = 28.8 tiles from `versus_0`, the seat at 38.2.
+  const markers = { versus_0: [10, 10], farm: [10, 38.8], versus_1: [37, 37] } as const;
+
+  it('reads both seats by name, whatever the heuristic would pick', () => {
+    const heuristic = sandboxAnchors({ ...MAP, markers: { versus_0: [10, 10], farm: [10, 38.8], seat: [37, 37] } });
+    expect(heuristic.hostile).toEqual([10, 38.8]);
+    const a = sandboxAnchors({ ...MAP, markers });
+    expect(a).toEqual({ friendly: [10, 10], hostile: [37, 37] });
+  });
+
+  it('does not care where the names sit in the table', () => {
+    const a = sandboxAnchors({ ...MAP, markers: { versus_1: [37, 37], kdf_start: [4, 4], farm: [10, 38.8], versus_0: [10, 10] } });
+    expect(a).toEqual({ friendly: [10, 10], hostile: [37, 37] });
+  });
+
+  it('falls back to the heuristic when only one seat is named', () => {
+    const a = sandboxAnchors({ ...MAP, markers: { versus_0: [10, 10], farm: [10, 38.8], seat: [37, 37] } });
+    expect(a.hostile).toEqual([10, 38.8]);
+    const b = sandboxAnchors({ ...MAP, markers: { farm: [10, 38.8], versus_1: [37, 37] } });
+    expect(b.friendly).toEqual([10, 38.8]);
+  });
+
+  it('puts each shipped versus map\u2019s sides on its own two seats', () => {
+    for (const id of ['wadi_tarfan', 'milh_flats'] as const) {
+      const m = maps[id] as { markers: Record<string, readonly number[]> };
+      expect(sandboxAnchors(maps[id]), id).toEqual({ friendly: m.markers.versus_0, hostile: m.markers.versus_1 });
+    }
+  });
+
+  it('no other shipped map names a seat, so none of their picks moved', () => {
+    const named = Object.entries(maps)
+      .filter(([, m]) => 'versus_0' in ((m as { markers?: object }).markers ?? {}) || 'versus_1' in ((m as { markers?: object }).markers ?? {}))
+      .map(([id]) => id)
+      .sort();
+    expect(named).toEqual(['milh_flats', 'wadi_tarfan']);
+  });
+});
+
 describe('sandboxAnchors is engine-independent', () => {
   it('picks the same anchors on every shipped map as the Math.hypot rule did', () => {
     // Pinned from the Math.hypot implementation on 2026-10-11; regenerate ONLY
-    // by running the old code, never by copying the new output.
+    // by running the old code, never by copying the new output. The two versus
+    // maps (milh_flats, wadi_tarfan, 2026-10-14) are the exception: they name
+    // their seats, which are read by name before any distance is taken, so
+    // their entries are their own `versus_0`/`versus_1` markers.
     const pinned: Record<string, { friendly: number[]; hostile: number[] }> = JSON.parse(
       readFileSync(new URL('./sandbox-anchors.pinned.json', import.meta.url), 'utf8')
     );
