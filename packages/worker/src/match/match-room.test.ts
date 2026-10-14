@@ -232,6 +232,19 @@ describe('MatchRoom', () => {
     }
   });
 
+  it('the room refuses a non-mirror matchup on any map but Tel Marum, and makes no room (the lead, 2026-10-14)', async () => {
+    for (const [map, matchup, status] of [['beit_sahwan_outskirts', 'sarim', 400], ['qarn_hadid', 'kdf', 400], ['beit_sahwan_outskirts', 'mirror', 200], ['tel_marum', 'sarim', 200]] as const) {
+      const state = new FakeState();
+      const room = new MatchRoom(state, env);
+      const res = await room.fetch(new Request('https://room/create', {
+        method: 'POST',
+        body: JSON.stringify({ code: CODE, matchId: CODE, map, build: BUILD, player: 'p-host', callsign: 'Host', mode: 'versus', matchup }),
+      }));
+      expect(res.status).toBe(status);
+      expect((await state.storage.get('state')) === undefined).toBe(status === 400);
+    }
+  });
+
   it('a sandbox room is the KDF mirror whatever the create asked for', async () => {
     const { ws0 } = await running({ matchup: 'sarim' });
     expect(ofType(ws0, 'lobby').at(-1)?.factions).toEqual(['kdf', 'kdf']);

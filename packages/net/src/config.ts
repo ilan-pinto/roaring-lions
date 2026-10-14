@@ -49,6 +49,17 @@ export function factionsOfMatchup(m: Matchup): [Faction, Faction] {
   return ['kdf', 'kdf'];
 }
 
+/** The maps a KDF-vs-Sarim matchup is offered on (the lead's ruling,
+ *  2026-10-14): Tel Marum only -- the one map the versus probe balanced the
+ *  Sarim force on. The mirror plays on every map. The lobby offers no other
+ *  pairing and the room refuses one (`matchupAllowed`). */
+export const FACTION_MATCHUP_MAPS: readonly string[] = ['tel_marum'];
+
+/** Whether `m` may be played on `map`. */
+export function matchupAllowed(m: Matchup, map: string): boolean {
+  return m === 'mirror' || FACTION_MATCHUP_MAPS.includes(map);
+}
+
 /** Whether `v` is a faction pair, by seat. */
 export function isFactionPair(v: unknown): v is [Faction, Faction] {
   return Array.isArray(v) && v.length === 2 && v.every((f) => f === 'kdf' || f === 'sarim');

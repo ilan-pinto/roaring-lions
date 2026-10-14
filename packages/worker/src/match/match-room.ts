@@ -63,7 +63,7 @@
  * `connected`) flushes the open batch with its write, so an eviction while
  * waiting for a reconnect re-sends nothing.
  */
-import { factionsOfMatchup, matchupField, parseClientMsg, validateConfig, REPLACED_CLOSE_CODE, type ClientMsg, type Frame, type MatchConfig, type Seat, type SeatConfig, type ServerMsg } from '@lions/net';
+import { factionsOfMatchup, matchupAllowed, matchupField, parseClientMsg, validateConfig, REPLACED_CLOSE_CODE, type ClientMsg, type Frame, type MatchConfig, type Seat, type SeatConfig, type ServerMsg } from '@lions/net';
 import type { Env } from '../d1';
 import type { DurableStateLike, HibernatingSocket, UpgradeInit } from '../do-types';
 import { createRoom, endedMsg, logParts, seatJoin, seatMessage, seatGone, clockTick, closeIfDue, expire, forfeitDueAt, forfeitIfDue, persistKey, revive, ROOM_TTL_MS, type Effect, type RoomState } from './room-core';
@@ -512,7 +512,10 @@ export class MatchRoom {
       const map = mapField(body.map);
       if (map === null) return new Response('unknown map', { status: 400 });
       // The host's matchup (2026-10-14): a versus room's only; a sandbox room is the mirror.
-      const factions = factionsOfMatchup(mode === 'versus' ? matchupField(body.matchup) : 'mirror');
+      // KDF vs Sarim is Tel Marum only (the lead's ruling): refused here as the route refuses it.
+      const matchup = mode === 'versus' ? matchupField(body.matchup) : 'mirror';
+      if (!matchupAllowed(matchup, map)) return new Response('matchup not offered on this map', { status: 400 });
+      const factions = factionsOfMatchup(matchup);
       this.st = createRoom(body.code, body.matchId, Date.now(), map, factions);
       this.meta = { map, build, mode, seed, callsigns: [callsignField(body.callsign), ''], seat1Reserved: false, tokens: mintTokens() };
       // The table, the keys and the TTL alarm exist from here, and only from here (#559 H-1).

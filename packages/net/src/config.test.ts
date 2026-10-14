@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { factionsOfMatchup, isFactionPair, matchupField, validateConfig, fnv1a32, type MatchConfig } from './config';
+import { factionsOfMatchup, isFactionPair, matchupAllowed, matchupField, validateConfig, fnv1a32, type MatchConfig } from './config';
 
 export const CONFIG: MatchConfig = {
   matchId: 'm1', code: 'ABCDEF', seed: 20260727, map: 'beit_sahwan_outskirts', mode: 'sandbox',
@@ -48,5 +48,15 @@ describe('the versus matchup (2026-10-14, KDF vs Sarim)', () => {
     expect(isFactionPair(['kdf'])).toBe(false);
     expect(isFactionPair(['kdf', 'rif'])).toBe(false);
     expect(isFactionPair('kdf,sarim')).toBe(false);
+  });
+
+  it('KDF vs Sarim is Tel Marum only; the mirror plays anywhere (the lead, 2026-10-14)', () => {
+    expect(matchupAllowed('sarim', 'tel_marum')).toBe(true);
+    expect(matchupAllowed('kdf', 'tel_marum')).toBe(true);
+    for (const map of ['beit_sahwan_outskirts', 'qarn_hadid', '']) {
+      expect(matchupAllowed('kdf', map)).toBe(false);
+      expect(matchupAllowed('sarim', map)).toBe(false);
+      expect(matchupAllowed('mirror', map)).toBe(true);
+    }
   });
 });
