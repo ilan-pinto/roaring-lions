@@ -295,6 +295,27 @@ The combat model is the product. Everything else is scaffolding around it.
   `pnpm validate:data`, and deliberately do NOT go through the pseudo transform.
   Unit names, roles and blurbs have no overlay yet and read English in every
   locale.
+- **Garrisons (GH-280, GH-34; lead rulings 2026-10-14).** A garrisoned unit fights with
+  `garrison_cover` (structure JSON, default 3) against suppression and detection, not the tile's cover.
+  Range, sight and the line of fire start at the window -- `eyePoint`, the footprint tile centre nearest
+  the target -- while position stays the centroid (where it is drawn, where a near miss is measured to).
+  `floors` (`data/structures.json`) lifts that eye one elevation level per floor above the first
+  (`floors - 1`, `eyeLift`; a one-floor building adds nothing). **Not everything measures from the
+  window:** tunnel and route spotting (`trailStrengthFor`, `markerSeeingRoute`, `seesTile`), the
+  breach-target reach in `stepCombat` (`selectBreachTarget`'s `structDistSq`/`reachSq` read) and the
+  ambush spring (`checkAmbushSpring`) still measure from the centroid at ground level, with no floor
+  lift; and a garrisoned unit can still lay smoke, because `smoke` is an ability and not its weapon.
+  `fires_from_building` is a weapon flag, default true; `validate_data` requires `false` on a mortar or
+  rocket weapon of a unit that can garrison (`mortar_team` carries it; `mortar_crew` and `rocket_battery`
+  have no `garrison` ability and carry no flag), and it is not required elsewhere
+  (`tools/validate_garrison.mjs`, which also refuses a garrison stance on a
+  unit without the `garrison` ability -- the runtime would silently skip it). `GARRISON_RANGE_BONUS`
+  (`tuning.ts`, +1 tile) lengthens max and effective range from inside, not sight and not min range. A
+  dead or removed occupant frees its slot; an overflow unit waits at the door, stopped, and fights.
+  **The §5.7 urban target builds no structures, so `pnpm balance` is blind to all of this** --
+  `tools/src/backtest/garrison-probes.ts` is the report-only instrument that can see it (the #280 raid
+  and the garrisoned town; no passing band yet, L-4). Run
+  `pnpm --filter @lions/tools exec tsx src/backtest/garrison-probes.ts`.
 - **Two more `localStorage` keys, beside the ledger/account pair below.**
   `lions.settings` (`packages/app/src/settings.ts`, the only reader and writer)
   holds video/audio/controls/accessibility/language and is the only thing that

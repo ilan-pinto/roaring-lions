@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "d482312853109f58b9ceb96fcbba1accd128da25",
-  "blessedAt": "2026-10-12T15:04:29.995Z",
-  "reason": "#551 kit leftovers (lead-approved 2026-10-12): slat-cage LOD at zoom 1, Peten kit size, non-metal gunmetal patch on five vehicles; only kitted moved (569 px / 0.0413)",
+  "commit": "f4b3ea2bd5352cf09e4b75d9adda07424da346ce",
+  "blessedAt": "2026-10-14T17:38:12.760Z",
+  "reason": "Unit polish 1/2 (#601) on top of three r186 (#599) and the RWS (#603): crews on the gun, raised mortar; supersedes #604. Lead approved 2026-10-14.",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -20,7 +20,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "96946120947c9dd0cf5dcecacc8bed84fc26ee12e4e66aaaed6533892393af3b"
+      "sha256": "52a1963f70d1b9446368b0b31352811f573185c417b7e369f685d1d0188c5c48"
     },
     "open-ground": {
       "tick": 60,
@@ -39,7 +39,7 @@
         "w": 450,
         "h": 400
       },
-      "sha256": "1d1afdf27d56b91613b59413f9e8997049640203cf178cab5a221b397c08ef32"
+      "sha256": "cb1127c714307c2272230620cb50df39da1544c9c3147d65a8af1df1917730cd"
     },
     "vehicle": {
       "tick": 140,
@@ -53,7 +53,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "bd678fecda17229469bd0a08f6f4745ed2ab7d53fcae749b00d8c5e0ddf4b62e"
+      "sha256": "c5c6f5409ef2a8d6365443d4f88622487676f94db1b98d7da14847aa8083c61d"
     },
     "kitted": {
       "tick": 140,
@@ -67,7 +67,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "e32cb8e16081fa97b20ff0aa26c05ca57d6a274cd0ae2a0488a9aff564ced310"
+      "sha256": "b13b479e509d0262960d42d937c7376799983368729e7a7aaa7d3cfd03e06419"
     },
     "relief": {
       "tick": 500,
@@ -81,7 +81,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "8be20a5bfe695dc52b03af14bdd0a8365d284055c3ef4cb43354eda0de272ca4"
+      "sha256": "69e89361762a8a5d59f4fc55e85ddaf9cc08cc7637544b4f8c945e7750a0e21a"
     },
     "aftermath": {
       "tick": 300,
@@ -95,7 +95,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "bcc43e633110b0e5531ebab1ecb078a2d212d015ff0a7964c11d36c2d2fc9eef"
+      "sha256": "c0dd833cf8414dedec0121753de642f91e4aa3293655c29f6813b2570deffae0"
     }
   }
 }

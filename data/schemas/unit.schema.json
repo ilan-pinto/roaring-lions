@@ -461,6 +461,11 @@
             "minimum": 0,
             "maximum": 1,
             "description": "Feeds ROE scoring. The player must be able to see this before firing."
+          },
+          "fires_from_building": {
+            "type": "boolean",
+            "default": true,
+            "description": "Whether this weapon fires while its unit is garrisoned. False for indirect fire (a mortar needs open sky over the tube; lead ruling 2026-10-14, G4). validate_data requires false on any mortar or rocket weapon of a unit with the garrison ability."
           }
         }
       }
