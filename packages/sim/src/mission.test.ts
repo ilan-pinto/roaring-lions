@@ -2996,6 +2996,47 @@ describe('high ground pays (F1 Task 5, D4)', () => {
     expect(w.runtime.intel).toBe(30);
   });
 
+  // C-R7, a decision rather than an accident: the hold count belongs to the RISE,
+  // not to the unit standing on it. `riseHolder` is scratch rebuilt every tick
+  // and only says whether SOME qualifying unit holds the rise this tick. So
+  // when A steps off and B steps on within one tick, nothing is reset and the
+  // rise still pays when the combined count reaches HIGH_GROUND_HOLD_TICKS.
+  // The rise has been held continuously for ten seconds either way; a unit
+  // that leaves and returns alone still starts again (the next test).
+  it('the hold count belongs to the rise: a same-tick hand-off keeps counting', () => {
+    const w = riseWorld({
+      starting_force: [SCOUT, { unit: 'm_scout', count: 1, at: [4, 6] }],
+    });
+    w.sim.queueCommand(mv(0, HOLD_X));
+    expect(rises(walkOnto(w, 0))).toHaveLength(0); // A is on: tick 1 of the hold
+    expect(onPlateau(w, 1)).toBe(false); // B has been seen off the rise, so it can earn
+    expect(rises(w.step(99).mission)).toHaveLength(0); // the count is at 100
+    // Between two ticks, A is taken off the plateau and B put on it: the next
+    // tick sees B and not A on the rise, with no tick of nobody in between.
+    w.sim.teleport(0, fx.from(4.5), fx.from(5.5));
+    w.sim.teleport(1, fx.from(HOLD_X), fx.from(6.5));
+    expect(onPlateau(w, 0)).toBe(false);
+    expect(onPlateau(w, 1)).toBe(true);
+    expect(rises(w.step(HOLD_TICKS - 100 - 1).mission)).toHaveLength(0); // 199
+    const out = rises(w.step(1).mission);
+    expect(out).toHaveLength(1); // 200, 100 ticks of each unit
+    expect(out[0].amount).toBe(30);
+    expect(w.runtime.intel).toBe(30);
+  });
+
+  it('a unit that leaves a rise and comes back starts the count again', () => {
+    const w = riseWorld(hold());
+    w.sim.queueCommand(mv(0, HOLD_X));
+    walkOnto(w, 0);
+    expect(rises(w.step(99).mission)).toHaveLength(0);
+    w.sim.teleport(0, fx.from(4.5), fx.from(5.5)); // off for a tick: nobody holds it
+    expect(rises(w.step(1).mission)).toHaveLength(0);
+    w.sim.teleport(0, fx.from(HOLD_X), fx.from(5.5));
+    // Back on: tick 1 of a new count, so 100 more ticks do not pay it.
+    expect(rises(w.step(HOLD_TICKS - 1).mission)).toHaveLength(0);
+    expect(rises(w.step(1).mission)).toHaveLength(1);
+  });
+
   describe('what the player\'s own orders do to a hold (#402, #537)', () => {
     // The enemy stands 8 tiles from the plateau's middle: inside the scout's sight
     // (8) and outside its rifle (7), and outside the 6-tile contest radius.

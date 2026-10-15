@@ -1073,7 +1073,11 @@ export class MissionRuntime {
     // can never land inside one.
     this.raiseMissionStructures();
     // High ground (D4): read once, from the map with the mission's own buildings
-    // standing. A flat map has no rise and the per-tick pass never runs.
+    // standing. A flat map has no rise and the per-tick pass never runs. The
+    // table is built ONCE, here: a structure that collapses later is deliberately
+    // ignored (its rubble tiles are not rises, and the median open level the
+    // rises are measured against does not shift), so a rise never appears or
+    // disappears mid-mission and the hash words below stay a fixed length.
     const rises = highGroundRises(this.sim.elevation, this.sim.blocked, this.sim.width, this.sim.height);
     this.riseOf = rises.riseOf;
     this.riseCount = rises.count;
@@ -1834,9 +1838,10 @@ export class MissionRuntime {
    * (a garrison's position is its building's centroid, which can be an open tile
    * on a rise -- F-R7) and not carried (it rides its carrier's tile). A unit also
    * earns nothing on the rise it started on until it has been seen elsewhere.
-   * The counter is per rise and resets on any tick no qualifying unit holds it;
-   * a unit that leaves and returns starts again. No allocation: the tables are
-   * fixed in `start()`.
+   * The count belongs to the RISE, not to the unit (C-R7): it resets on any tick
+   * no qualifying unit holds the rise, so one unit leaving and coming back starts
+   * again, but two units may hand a rise over within a single tick and the count
+   * carries on. No allocation: the tables are fixed in `start()`.
    */
   private stepHighGround(tick: number, out: MissionEvent[]): void {
     const rises = this.riseCount;
