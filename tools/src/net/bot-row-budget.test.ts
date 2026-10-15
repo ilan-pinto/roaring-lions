@@ -178,5 +178,11 @@ describe('Workers Free with a bot seat and an advisor (N4a task 7, R-N12, D4)', 
     expect(quiet.relayed).toBe(0);
     expect(quiet.frames).toBe(loud.frames);
     expect(loud.rows).toBe(quiet.rows);
-  });
+    // Two 60 s matches (1,200 ticks each) on fake timers, so the clock is
+    // virtual and only CPU sets the duration. Measured single-file, Apple M3
+    // Pro, 2026-10-15, five runs with the load average at 19-89 on 12 cores
+    // (two on the efficiency cores alone): 1.11-3.10 s. It crossed vitest's
+    // 5 s default only under a full parallel `pnpm test`, not single-file.
+    // The margin is for contention only.
+  }, 30_000);
 });
