@@ -2889,15 +2889,81 @@ describe('"On loan" on the card and the chip (F3 Task 8, C2)', () => {
     expect(stamp().hasAttribute('title')).toBe(false);
     stamp().dispatchEvent(new Event('mouseover', { bubbles: true }));
     expect(r.host.querySelector<HTMLElement>('.rl-tip')?.textContent).toContain(en['hud.onLoan.tip']);
-    // Focus is carried across the rebuild by the stamp's key, not its node.
+    // The 4 Hz rebuild PATCHES the card in place: the stamp is the same node
+    // and keeps focus, so nothing is re-announced (S-F polish, Task 2).
     const before = stamp();
     before.focus(); // focusin opens the tip...
     closeTip(); // ...which the player then dismisses; focus stays.
     expect(document.activeElement).toBe(before);
     for (let i = 0; i < 5; i++) r.tick();
-    expect(stamp()).not.toBe(before);
-    expect(document.activeElement).toBe(stamp());
-    // ...quietly: the restore did not open a tip the player had not asked for.
+    expect(stamp()).toBe(before);
+    expect(document.activeElement).toBe(before);
+    // ...and no tip was opened that the player had not asked for.
+    expect(r.host.querySelector<HTMLElement>('.rl-tip')?.hidden).toBe(true);
+  });
+
+  it('keeps the stamp node, its focus and its open tip while the card changes under it (no focusout, no re-announce)', () => {
+    const world = makeForce();
+    const r = clusterRig(() => [world.namer], { isOnLoan: lent(world.namer) }, world);
+    const cluster = r.host.querySelector<HTMLElement>('.rl-cluster')!;
+    const stamp = (): HTMLElement => r.host.querySelector<HTMLElement>('.rl-card .rl-loan')!;
+    const hp = (): string => r.host.querySelector('.rl-card__hp')?.textContent ?? '';
+    const before = stamp();
+    before.focus(); // opens the tip
+    const tipEl = r.host.querySelector<HTMLElement>('.rl-tip')!;
+    expect(tipEl.hidden).toBe(false);
+    const hpBefore = hp();
+    let focusouts = 0;
+    cluster.addEventListener('focusout', () => focusouts++);
+    world.sim.state.hp[world.namer] = Math.round(world.sim.state.hp[world.namer] / 2);
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(hp()).not.toBe(hpBefore); // the card really did change
+    expect(stamp()).toBe(before);
+    expect(document.activeElement).toBe(before);
+    expect(focusouts).toBe(0);
+    // The patch does not strip the attribute the tip machinery put on the node.
+    expect(tipEl.hidden).toBe(false);
+    expect(before.getAttribute('aria-describedby')).toBe(tipEl.id);
+  });
+
+  it('draws the right card when the selection moves to a unit of another type', () => {
+    const world = makeForce();
+    let pick = world.namer;
+    const r = clusterRig(() => [pick], {}, world);
+    const name = (): string => r.host.querySelector('.rl-card__name')?.textContent ?? '';
+    const namerName = name();
+    pick = world.at;
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(name()).not.toBe(namerName);
+    expect(r.host.querySelectorAll('.rl-card')).toHaveLength(1);
+    // The patched card is byte-for-byte what a fresh render of that unit draws.
+    const fresh = clusterRig(() => [world.at], {}, world);
+    expect(r.host.querySelector('.rl-card')?.innerHTML).toBe(fresh.host.querySelector('.rl-card')?.innerHTML);
+  });
+
+  it('refocuses a flag the patch could not keep, by its tip key, quietly', () => {
+    const world = makeForce();
+    let named = false;
+    const r = clusterRig(
+      () => [world.namer],
+      {
+        isOnLoan: lent(world.namer),
+        // A callsign appears above the stamp: every sibling shifts one place,
+        // so the positional patch hands the stamp's node a different job.
+        rosterEntryOf: (id) => (named && id === world.namer ? { type: 'ifv_namer', veterancy: 0, name: 'Keshet' } : undefined),
+      },
+      world
+    );
+    const stamp = (): HTMLElement => r.host.querySelector<HTMLElement>('.rl-card .rl-loan')!;
+    const before = stamp();
+    before.focus();
+    closeTip();
+    named = true;
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(r.host.querySelector('.rl-card__callsign')).not.toBeNull();
+    expect(stamp()).not.toBe(before); // the old node now plays another part...
+    expect(stamp().dataset.tip).toBe('onLoan');
+    expect(document.activeElement).toBe(stamp()); // ...and focus followed the flag, by key
     expect(r.host.querySelector<HTMLElement>('.rl-tip')?.hidden).toBe(true);
   });
 
