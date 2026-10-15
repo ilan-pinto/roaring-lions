@@ -443,7 +443,10 @@ export interface UnitType {
   transportSlots: number;
   /** Dismounted element: can ride inside a transport. */
   canEmbark: boolean;
-  /** Trained observer: earns intel while holding position (GDD §3). */
+  /** Trained observer (the `mark_target` ability). Since F1 nothing in the sim
+   *  pays intel for holding position, and nothing here reads this flag: intel is
+   *  earned by doing (identifications, high ground, objectives; MissionRuntime).
+   *  The HUD unit card lists it as a capability. */
   canMarkTarget: boolean;
   /** Reads the ground for what runs under it: a clear sight line to any tile
    *  of a tunnel route identifies the route outright, and HOLDS it
@@ -6464,6 +6467,11 @@ export class Sim {
       h = hashWord(h, s.x);
       h = hashWord(h, s.y);
       h = hashWord(h, s.readyTick);
+      // The fire-support profile picks the round pattern a queued entry lands
+      // with (F1 Task 6), so two worlds differing only in it diverge. No pin
+      // moved: pendingStrikes is empty at every hash in the golden replays and in
+      // the versus runs (no replay calls fire support), so this word is never
+      // folded in there.
       h = hashWord(h, s.profile);
     }
     h = hashArray(h, this.prActive);

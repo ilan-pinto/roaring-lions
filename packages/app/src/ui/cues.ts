@@ -75,7 +75,7 @@ export const MISSION_EVENT_SOUND: Readonly<Record<MissionEvent['kind'], EventSou
   trigger: { silent: 'a trigger speaks through its label in the feed; what it does (a wave, an objective) carries its own cue' },
   built: { silent: 'a reinforcement arriving is good news the dock and the feed already show; the announcer carries it' },
   evacuated: { silent: 'a rescue is counted on the HUD; a cue per civilian reaching the refuge would nag' },
-  intelEarned: { silent: 'the strip counter and the feed carry an intel earn; a chime per identification would nag' },
+  intelEarned: { silent: 'the strip intel counter shows the total now; the feed will carry each earn from WP-S-F (nothing consumes intelEarned there yet); a chime per identification would nag' },
   say: { silent: 'the story voice owns the commander bar; a cue under it would talk over it' },
 };
 
