@@ -79,7 +79,22 @@ function headR(x: number, cy: number, h: number): P[] {
   ];
 }
 
-export type SightOrderId = 'move' | 'attackMove' | 'halt' | 'smoke' | 'load' | 'unload' | 'sweep' | 'strike';
+/** The eight G1 orders, plus the two S-F support calls that draw a sight of
+ *  their own (`barrage`, `smokeScreen` -- the lead's picks from the support-
+ *  marks mock, 15 Oct: barrage B "Bursts", smoke screen A "Rounds to
+ *  screen"). Each call's id is its cursor name, so one id names the call
+ *  everywhere. */
+export type SightOrderId =
+  | 'move'
+  | 'attackMove'
+  | 'halt'
+  | 'smoke'
+  | 'load'
+  | 'unload'
+  | 'sweep'
+  | 'strike'
+  | 'barrage'
+  | 'smokeScreen';
 export type OrderFamily = 'manoeuvre' | 'offensive' | 'control' | 'obscurant' | 'transport';
 
 /**
@@ -163,6 +178,16 @@ export const ORDER_SIGHT: Readonly<Record<SightOrderId, OrderSightSpec>> = {
   unload: { family: 'transport', main: ORDER_FAMILY_COLOR_KEY.transport, accent: 'limestone.1', periodMs: 1100, phases: phasesFrom(0.5, 4) },
   sweep: { family: 'manoeuvre', main: ORDER_FAMILY_COLOR_KEY.manoeuvre, accent: 'water.0', periodMs: 1800, phases: phasesFrom(0.5, 4) },
   strike: { family: 'offensive', main: ORDER_FAMILY_COLOR_KEY.offensive, accent: 'vfx.fire', periodMs: 1600, phases: phasesFrom(0.5, 6) },
+  // S-F (the support-marks mock, approved 15 Oct). The barrage's accent is
+  // `vfx.ember`, not the strike's `vfx.fire` (Q5): the two offensive calls
+  // differ on the beat as well as in shape. Rest poses: the barrage at 0.75,
+  // all three bursts up (the mock's own); the smoke screen at 0.75, inside
+  // [0.73, 0.82) -- the one window where all three puffs are full (the third
+  // finishes blooming at 0.32 + 0.16 + 0.25) and the cycle's fade has not
+  // begun. The mock's 0.7 drew the third puff at radius 3.097, reaching 3.1
+  // only through the 2-decimal rounding; 0.75 is full by construction.
+  barrage: { family: 'offensive', main: ORDER_FAMILY_COLOR_KEY.offensive, accent: 'vfx.ember', periodMs: 1500, phases: phasesFrom(0.75, 6) },
+  smokeScreen: { family: 'obscurant', main: ORDER_FAMILY_COLOR_KEY.obscurant, accent: 'gunmetal.1', periodMs: 1800, phases: phasesFrom(0.75, 6) },
 };
 
 /** The three keys `ORDER_SIGHT` does not carry per order: the aim's own
@@ -304,6 +329,92 @@ function surroundStrike(t: number, p: SightPaint): string {
   return out;
 }
 
+/** An n-point star, alternating outer and inner radius, first point up --
+ *  `symbol.ts`'s `starMark` (the `heavy` mark's burst), which is private
+ *  there and fills in `currentColor`; this one returns the bare path for
+ *  `fill` to colour. */
+function star(cx: number, cy: number, ro: number, ri: number, n: number): string {
+  const pts: P[] = [];
+  for (let i = 0; i < n * 2; i++) {
+    const a = (Math.PI * i) / n - Math.PI / 2;
+    const rr = i % 2 ? ri : ro;
+    pts.push([cx + rr * Math.cos(a), cy + rr * Math.sin(a)]);
+  }
+  return poly(pts);
+}
+
+/** The barrage's three bursts, across the top band, clear of the mil marks
+ *  (a star's lowest point is y 9.5; the marks start at 10.75). */
+const BURST_PTS: readonly P[] = [
+  [4.6, 5],
+  [12, 5],
+  [19.4, 5],
+];
+
+/** Barrage B, "Bursts" (the support-marks mock, approved): no ring -- three
+ *  eight-point starbursts (the `heavy` mark's star, outer 4.5, inner 1.8)
+ *  firing in turn. A burst starts white-hot, takes the accent, then settles
+ *  to the family main; before its turn it shows last cycle's crater, a small
+ *  main-colour dot. Rest (0.75): all three stars up. */
+function surroundBarrage(t: number, p: SightPaint): string {
+  let out = '';
+  BURST_PTS.forEach(([x, y], k) => {
+    const born = 0.08 + k * 0.22;
+    if (t < born) {
+      out += fill(circle(x, y, 1.3), 0.9, p.main);
+      return;
+    }
+    const age = (t - born) / 0.16;
+    const s = age < 1 ? 0.45 + 0.55 * ease(age) : 1;
+    const fade = t < 0.9 ? 1 : 1 - (t - 0.9) / 0.1;
+    out += fill(star(x, y, 4.5 * s, 1.8 * s, 8), Math.max(fade, 0.35), age < 0.45 ? p.hot : age < 1.6 ? p.accent : p.main);
+  });
+  return out;
+}
+
+/** The smoke screen's three rounds (`ROUNDS.smoke_screen.rounds`): where each
+ *  lands, the puff it blooms into, and the arrowhead's resting tip. */
+const SCREEN_X: readonly number[] = [4.6, 12, 19.4];
+const SCREEN_PUFF_Y = 7.2;
+const SCREEN_PUFF_R = 3.1;
+const SCREEN_ROUND_TIP = 3.2;
+const SCREEN_ROUND_HALF = 1.9;
+/** An arrowhead pointing down, tip at (`cx`, `tipY`), half-width `h`. */
+function headDown(cx: number, tipY: number, h: number): P[] {
+  return [
+    [cx, tipY],
+    [cx + h, tipY - h * 1.1],
+    [cx - h, tipY - h * 1.1],
+  ];
+}
+
+/** Smoke screen A, "Rounds to screen" (the support-marks mock, approved):
+ *  three canister rounds come down as arrowheads in the accent, each blooming
+ *  into a puff in the family main where it lands -- the smoke order's own
+ *  puff, delivered from above, with no trace line (that silhouette stays the
+ *  unit order's). Retimed per the mock's Q6: a round stays drawn above its
+ *  puff after it lands, so the full static form -- three puffs, each capped
+ *  by its round -- is a phase of the cycle and `phases[0]` needs no special
+ *  case. */
+function surroundSmokeScreen(t: number, p: SightPaint): string {
+  let out = '';
+  const fade = t < 0.82 ? 1 : 1 - (t - 0.82) / 0.18;
+  SCREEN_X.forEach((x, k) => {
+    const born = k * 0.16;
+    if (t < born) return;
+    const fall = clamp((t - born) / 0.16);
+    if (fall < 1) {
+      // the round drops from above the box to its rest height
+      out += fill(poly(headDown(x, -1.2 + (SCREEN_ROUND_TIP + 1.2) * ease(fall), SCREEN_ROUND_HALF)), 1, p.accent);
+      return;
+    }
+    const age = clamp((t - born - 0.16) / 0.25);
+    out += fill(circle(x, SCREEN_PUFF_Y, 1.4 + (SCREEN_PUFF_R - 1.4) * ease(age)), fade, p.main);
+    out += fill(poly(headDown(x, SCREEN_ROUND_TIP, SCREEN_ROUND_HALF)), fade, p.accent);
+  });
+  return out;
+}
+
 const SURROUND: Readonly<Record<SightOrderId, (t: number, p: SightPaint) => string>> = {
   move: surroundMove,
   attackMove: surroundAttackMove,
@@ -313,6 +424,8 @@ const SURROUND: Readonly<Record<SightOrderId, (t: number, p: SightPaint) => stri
   unload: surroundUnload,
   sweep: surroundSweep,
   strike: surroundStrike,
+  barrage: surroundBarrage,
+  smokeScreen: surroundSmokeScreen,
 };
 
 export function surroundBody(id: SightOrderId, t: number, p: SightPaint): string {
@@ -350,6 +463,8 @@ export function orderMarkBody(id: SightOrderId, ink = 'currentColor'): string {
  * 9.3], halt [4, 0, 20, 9.5], smoke [0.6, 2.6, 23, 9.4], load [10.55, 0.5,
  * 23.5, 9], unload [0.5, 0.5, 22.37, 9], sweep [1.62, 0.46, 22.38, 8.26],
  * strike [0.19, 0.2, 23.79, 23.8]) and rounded OUTWARD to the quarter unit.
+ * The two S-F calls are the mock's own getBBox reading (barrage [0.1, 0.5,
+ * 23.9, 9.5], smokeScreen [1.5, 1.11, 22.5, 10.3]), rounded the same way.
  * A change to a surround's rest pose must re-measure it; `symbol.test.ts`
  * holds every polygon vertex of the rest body inside the crop.
  */
@@ -362,6 +477,8 @@ export const ORDER_MARK_BOUNDS: Readonly<Record<SightOrderId, readonly [number, 
   unload: [0.5, 0.5, 22.5, 9],
   sweep: [1.5, 0.25, 22.5, 8.5],
   strike: [0, 0, 24, 24],
+  barrage: [0, 0.5, 24, 9.5],
+  smokeScreen: [1.5, 1, 22.5, 10.5],
 };
 
 // Compile-time check: every order the selection row can arm is drawn here.

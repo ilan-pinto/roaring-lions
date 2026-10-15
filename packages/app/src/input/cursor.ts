@@ -101,7 +101,7 @@ export const UNBADGED_NAMES: ReadonlySet<CursorName> = new Set<UnbadgedName>([
   'protected',
   'sweep',
   'strike',
-  // The other two armed calls (S-F): drawn by the strike and smoke sights.
+  // The other two armed calls (S-F), each with a sight of its own.
   'barrage',
   'smokeScreen',
   // Describes the units' state, not who is acting: a whole order pinned
@@ -116,11 +116,14 @@ export interface CursorAnimation {
   intervalMs: number;
 }
 
-/** Which approved G1 order sight each wired cursor name draws (Q2). `advance`
+/** Which approved order sight each wired cursor name draws (Q2). `advance`
  *  is the attackMove sight -- a plain order over a hostile is an attack-move
- *  -- and the other four share their order's own id. `attack` (GH-420) is not a
+ *  -- and the other six share their order's own id: G1's move, sweep, strike
+ *  and smoke, and S-F's `barrage` and `smokeScreen` (the support-marks mock,
+ *  approved 15 Oct; until then the two calls borrowed the strike's and the
+ *  smoke order's sights as `CURSOR_ALIAS` names). `attack` (GH-420) is not a
  *  key of its own here: like `moveOnly` it is a `CURSOR_ALIAS` and is drawn by
- *  `advance`'s rule, so the plugin's sight table stays the five drawn sights. `load`, `unload` and
+ *  `advance`'s rule, so the plugin's sight table stays the seven drawn sights. `load`, `unload` and
  *  `halt` are drawn by the plugin but reach no cursor name: halt is instant,
  *  and load/unload come only from the keyboard path, whose result never
  *  reaches the hover ticker. */
@@ -130,6 +133,8 @@ const SIGHT_OF: Readonly<Partial<Record<CursorName, SightOrderId>>> = {
   sweep: 'sweep',
   strike: 'strike',
   smoke: 'smoke',
+  barrage: 'barrage',
+  smokeScreen: 'smokeScreen',
 };
 
 /** One sight's animation, read straight off `ORDER_SIGHT`: as many frames as
@@ -155,6 +160,8 @@ const anim = (id: SightOrderId): CursorAnimation => ({
  *  `advance` (the attackMove sight), `sweep`, `strike` and `smoke` -- all
  *  animate, at the frame counts and periods `ORDER_SIGHT` carries, and this
  *  table is DERIVED from it rather than restating a number that could drift.
+ *  S-F's two calls with sights of their own, `barrage` and `smokeScreen`,
+ *  joined them on the same terms (the support-marks mock, approved).
  *
  *  That reverses two things this comment used to say, and the reversal is
  *  recorded rather than silently dropped. It said a cursor animates only
@@ -214,8 +221,8 @@ export const ANIMATED_CURSORS: Readonly<Partial<Record<CursorName, CursorAnimati
   attack: anim('attackMove'),
   sweep: anim('sweep'),
   strike: anim('strike'),
-  barrage: anim('strike'),
-  smokeScreen: anim('smoke'),
+  barrage: anim('barrage'),
+  smokeScreen: anim('smokeScreen'),
   smoke: anim('smoke'),
   charge: { frames: 4, intervalMs: 200 },
   demolish: { frames: 4, intervalMs: 300 },
@@ -229,13 +236,9 @@ export const ANIMATED_CURSORS: Readonly<Partial<Record<CursorName, CursorAnimati
  *  (`attack-soft` is `advance-soft`'s image), and reads its own key so a
  *  targeted order is told from an attack-move to the tile. The plugin answers
  *  both keys with one rule (`vite-plugin-cursors.ts`). */
-export const CURSOR_ALIAS: Readonly<{ moveOnly: 'move'; attack: 'advance'; barrage: 'strike'; smokeScreen: 'smoke' }> = {
+export const CURSOR_ALIAS: Readonly<{ moveOnly: 'move'; attack: 'advance' }> = {
   moveOnly: 'move',
   attack: 'advance',
-  // S-F: the barrage and the smoke screen are armed calls with no sight of
-  // their own -- the strike's and the smoke order's, under their own keys.
-  barrage: 'strike',
-  smokeScreen: 'smoke',
 };
 
 export { SIGHT_OF };

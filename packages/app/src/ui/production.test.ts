@@ -242,6 +242,20 @@ describe('the dock’s shape', () => {
     }
   });
 
+  // S-F Task 2: the barrage and the smoke screen draw marks of their own --
+  // they borrowed the strike's ring and the smoke order's puffs until the
+  // support-marks mock. A tile falling back to either borrowed mark is red.
+  it('draws the barrage and smoke-screen tiles with their own marks, not the strike\'s or the smoke order\'s', () => {
+    const r = rig();
+    expect(r.support('mortar_barrage').querySelector('.rl-tile__glyph [data-symbol="barrage"]')).not.toBeNull();
+    expect(r.support('smoke_screen').querySelector('.rl-tile__glyph [data-symbol="smokeScreen"]')).not.toBeNull();
+    const symbols = (['smoke_screen', 'mortar_barrage', 'drone_sweep', 'air_strike'] as const).map((k) =>
+      r.support(k).querySelector('.rl-tile__glyph [data-symbol]')?.getAttribute('data-symbol')
+    );
+    expect(new Set(symbols).size).toBe(4);
+    expect(symbols).not.toContain('smoke');
+  });
+
   // The list the tile progress replaces. Its absence is the acceptance
   // criterion, so it is asserted rather than assumed.
   it('has no rl-queue list left in it', () => {

@@ -221,7 +221,15 @@ describe('ANIMATED_CURSORS follows the approved sheet', () => {
         anim: { frames: spec.phases.length, intervalMs: Math.round(spec.periodMs / spec.phases.length) },
       });
     }
-    expect(SIGHT_OF).toEqual({ move: 'move', advance: 'attackMove', sweep: 'sweep', strike: 'strike', smoke: 'smoke' });
+    expect(SIGHT_OF).toEqual({
+      move: 'move',
+      advance: 'attackMove',
+      sweep: 'sweep',
+      strike: 'strike',
+      smoke: 'smoke',
+      barrage: 'barrage',
+      smokeScreen: 'smokeScreen',
+    });
     // The two housing animations keep their shipped rates (Q1).
     expect(ANIMATED_CURSORS.charge).toEqual({ frames: 4, intervalMs: 200 });
     expect(ANIMATED_CURSORS.demolish).toEqual({ frames: 4, intervalMs: 300 });
@@ -552,10 +560,17 @@ describe('the armed cursor of each support kind (S-F)', () => {
     }
   });
 
-  it('draws the barrage with the strike sight and the screen with the smoke sight', () => {
-    expect(CURSOR_ALIAS.barrage).toBe('strike');
-    expect(CURSOR_ALIAS.smokeScreen).toBe('smoke');
-    expect(ANIMATED_CURSORS.barrage).toEqual(ANIMATED_CURSORS.strike);
-    expect(ANIMATED_CURSORS.smokeScreen).toEqual(ANIMATED_CURSORS.smoke);
+  // S-F Task 2: the barrage and the smoke screen draw sights of their own
+  // (the support-marks mock: barrage B, smoke screen A), so neither is an
+  // alias any more and each animates at its own sight's rate. Falsified:
+  // `barrage: anim('strike')` back in ANIMATED_CURSORS reddens the third line
+  // (strike is 6 x 267 ms, the barrage 6 x 250).
+  it('draws the barrage and the screen with sights of their own, not the strike\'s and the smoke order\'s', () => {
+    expect(CURSOR_ALIAS).toEqual({ moveOnly: 'move', attack: 'advance' });
+    expect({ barrage: SIGHT_OF.barrage, smokeScreen: SIGHT_OF.smokeScreen }).toEqual({ barrage: 'barrage', smokeScreen: 'smokeScreen' });
+    expect(ANIMATED_CURSORS.barrage).toEqual({ frames: 6, intervalMs: 250 });
+    expect(ANIMATED_CURSORS.smokeScreen).toEqual({ frames: 6, intervalMs: 300 });
+    expect(ANIMATED_CURSORS.barrage).not.toEqual(ANIMATED_CURSORS.strike);
+    expect(ANIMATED_CURSORS.smokeScreen).not.toEqual(ANIMATED_CURSORS.smoke);
   });
 });

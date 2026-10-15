@@ -348,7 +348,18 @@ export type StatusId = 'pinned' | 'immobilised' | 'gunOut';
 export type SymbolId = RoleBucket | SightOrderId | UtilityId | StatusId;
 
 const ROLE_IDS: readonly RoleBucket[] = ['kamikaze', 'drone', 'gunship', 'sniper', 'transport', 'soft', 'armour'];
-const ORDER_IDS: readonly SightOrderId[] = ['move', 'attackMove', 'halt', 'smoke', 'load', 'unload', 'sweep', 'strike'];
+const ORDER_IDS: readonly SightOrderId[] = [
+  'move',
+  'attackMove',
+  'halt',
+  'smoke',
+  'load',
+  'unload',
+  'sweep',
+  'strike',
+  'barrage',
+  'smokeScreen',
+];
 export const DINGBAT_IDS: readonly DingbatId[] = [
   'pause',
   'pagePrev',
@@ -367,10 +378,11 @@ export const DINGBAT_IDS: readonly DingbatId[] = [
 const UTILITY_IDS: readonly UtilityId[] = ['logistics', 'intel', 'rotateCcw', 'rotateCw', ...DINGBAT_IDS];
 const STATUS_IDS: readonly StatusId[] = ['pinned', 'immobilised', 'gunOut'];
 
-/** Seven roles, eight orders, four utility marks, three status marks: the
+/** Seven roles, ten orders, four utility marks, three status marks: the
  *  twenty the sheet G1 approved (round 2's roles and utility marks, round 5's
  *  orders) plus the pinned mark the lead picked at G-PIN and the two damage
- *  marks of pass C2/C4 -- and the thirteen GH-261 marks, thirty-five in all. */
+ *  marks of pass C2/C4 -- and the thirteen GH-261 marks, and S-F's two
+ *  support-call marks (`barrage`, `smokeScreen`), thirty-seven in all. */
 export const SYMBOL_IDS: readonly SymbolId[] = [...ROLE_IDS, ...ORDER_IDS, ...UTILITY_IDS, ...STATUS_IDS];
 
 interface RoleGlyph {
