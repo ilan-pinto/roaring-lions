@@ -1,0 +1,46 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single game-ready sandbag fighting position, a field work of a fictional army: a horseshoe ring of stacked filled burlap sandbags in stretcher and header bond, four to five courses high, the closed curved side at the front with one small rectangular firing aperture through it at chest height, the ring open at the rear as an entrance, the inside floor empty and open to the sky, a few loose bags on the ground at the entrance, a couple of bags slumped, dust on the top course. Real-world scale, 2.6 metres across, 2.6 metres deep, 1.1 metres tall, no roof. Tan and olive-tan burlap, pale sand, dust. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, aperture facing forward. No insignia, flags, stencils, text, numerals or markings of any kind.",
+    "negative_prompt": "roof, overhead cover, closed ring, full circle, trench, bunker, concrete, gabion, wire mesh, wooden crates, machine gun, weapon, soldier, person, mannequin, helmet, flag, emblem, logo, stencil, text, numbers, lettering, ground plane, base plate, plinth, dirt mound base, baked shadow",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a13e6f-4170-708b-bd53-92df41a85ba1",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 1815420092,
+    "prompt": "A single game-ready sandbag fighting position, a field work of a fictional army: a horseshoe ring of stacked filled burlap sandbags in stretcher and header bond, four to five courses high, the closed curved side at the front with one small rectangular firing aperture through it at chest height, the ring open at the rear as an entrance, the inside floor empty and open to the sky, a few loose bags on the ground at the entrance, a couple of bags slumped, dust on the top course. Real-world scale, 2.6 metres across, 2.6 metres deep, 1.1 metres tall, no roof. Tan and olive-tan burlap, pale sand, dust. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, aperture facing forward. No insignia, flags, stencils, text, numerals or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1792048843782,
+    "progress": 100,
+    "started_at": 1792048843790,
+    "finished_at": 1792048961613,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a13e6f-4170-708b-bd53-92df41a85ba1/output/model.glb?Expires=4945622400&Signature=QBlQ5jV6BP8XvLTOTtb1Oq13CgT5cY9EsDDE4RRNJdtWjACP812HYLPDIOwgXxavC7EOMzw6regOmEURvd7JJ0NB2LMAtCiJJnwjf1ypNRDuSaQUWhPJYN9H1omwJ53EW~iQeyiNXiEKta-puSU7mPCXInDVk7PBmpKKpiVy4T7TjZggQKCYq07vQxDvXLZurRcdhMg4c4LN~7KyaA6yDjlYHjTGa~B~vUFW6XigMIXIKN8bzCRDRSgFv8caz~q2gsmxrvaQzgDpliQdzNn2Parc0MGT219MecQog6E~plIxCOsec26hQVac~Sq6wN-H1oaODmSFEBSMwR75LWjj6Q__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a13e6f-4170-708b-bd53-92df41a85ba1/output/preview.png?Expires=4945622400&Signature=bwrLk3sPrjhN2RxcKaFWhAkcCnn4m7fNeV4iArE3-Q7R6kF669VPs6yczBuqz~-u0ZmU9mL5SAZDsqekzF5T9qJSuEsaPnGTKW3nmxDUodBMhP-75TzjuMJkse0p8q~2YB7B3~Upd2NpVvAHDPHUSXang0Kq5004c8is1Nd5HfTcvFKX-m51s-JQYkWTuL6JuB03cxam6GFq~ZMTBcODdaIPvOR1fIdt-R88qOfsBQzxxk~auZlv8jjoe-KKiiIXJrZGitmFnOVK7mop1e5~3uTrD8n9DlyLqvtccxXSrQAajoQl3UAo5qXt~nulkonDuW9Vf~HEePMhAytlpd0O1w__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1792048843782,
+    "started_at": 1792048843790,
+    "finished_at": 1792048961613
+  },
+  "usd_estimated": 0.4
+}

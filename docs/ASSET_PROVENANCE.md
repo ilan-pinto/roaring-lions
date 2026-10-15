@@ -216,6 +216,7 @@ one directory, `**` crosses directories).
 | `art/meshes/buildings/concrete.glb`<br>`art/meshes/buildings/concrete_wreck.glb` | Concrete block, standing and wreck | Ledger `concrete` (ramp set), own bake with the A3.2 phase 2 warm pass; wreck is the kit's collapse on the textured mesh | Meshy CLI; Blender, `export_meshy_ramp.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | The A3.2 ramp set and the tunnel props |
 | `art/meshes/buildings/shanty.glb`<br>`art/meshes/buildings/shanty_wreck.glb` | Shanty, standing and wreck | Ledger `shanty` v2 (A3.2 phase 2: text-to-3D, refine 8k, remesh -- the corrugated lean-to), own bake with the roof band shifted in Blender | Meshy CLI; Blender, `export_meshy_ramp.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | The A3.2 ramp set and the tunnel props |
 | `art/meshes/buildings/wall.glb`<br>`art/meshes/buildings/wall_wreck.glb` | Compound wall, standing and wreck | Ledger `wall` (ramp set), own bake with the A3.2 phase 2 warm pass | Meshy CLI; Blender, `export_meshy_ramp.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | The A3.2 ramp set and the tunnel props |
+| `art/meshes/buildings/hesco.glb`<br>`art/meshes/buildings/hesco_wreck.glb` | HESCO bastion run (per tile), standing and wreck | Ledger `hesco` (GH-66 field works, the re-rolled preview), own bake desaturated in Blender, plus a synthesised palette wire cage (code) | Meshy CLI; Blender, `export_meshy_ramp.py` | Yes: Meshy; the cage is code | ARR; Meshy terms pending (item 1) | GH-66 field works |
 | `art/meshes/buildings/camp.glb`<br>`art/meshes/buildings/camp_wreck.glb` | KDF field camp, standing and wreck | Ledger `camp` (ramp set), own bake | Meshy CLI; Blender, `export_meshy_ramp.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | The A3.2 ramp set and the tunnel props |
 | `art/meshes/buildings/relay.glb`<br>`art/meshes/buildings/relay_wreck.glb` | Relay hut, standing and wreck | Ledger `relay` (text-to-3D, refine 8k, remesh), own bake | Meshy CLI; Blender, `export_meshy_ramp.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | The A3.2 remainder |
 | `art/meshes/buildings/pump_house.glb`<br>`art/meshes/buildings/pump_house_wreck.glb` | Pump house, standing and wreck | Ledger `pump_house` (text-to-3D, refine 8k, remesh), own bake | Meshy CLI; Blender, `export_meshy_ramp.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | The A3.2 remainder |
@@ -1071,6 +1072,50 @@ WP-A3.3 and both were broken on `main` until this pass. And **the kit
 pinning follows the bake**: a kit part's UVs point into the same image, so
 the Eitan's armour panels took the new olive with the hull at graft time;
 the kit was still re-exported for the metal texel.
+
+## GH-66 field works -- the HESCO run, and two stops (Meshy text-to-3D), 2026-10-15
+
+The lead approved 120 credits for three barriers (`t_wall`, `hesco`,
+`sandbag_post`), with a ceiling of 180 and one preview re-roll per asset for a
+real miss on the checklist. Prompts, negative prompts and the checklist were
+drafted by a Fable agent at high effort; the T-wall was lowered to 3.0 m by the
+lead before any spend. Every preview was judged on a four-yaw sheet before any
+refine (`docs/art/sheets/gh66-field-works/previews-v1.jpg`, `-v2.jpg`). **140
+credits consumed** (`pnpm meshy -- spent`): six previews (120), one 8k refine
+(15), one remesh (5). All AI-generated with Meshy, disclosed per
+`CONTRIBUTING.md`; every prompt is in `art/meshy/ledger.jsonl`.
+
+| Asset | Preview v1 | Verdict | Preview v2 (re-roll) | Verdict | Refine (8k) | Remesh (shipped) |
+|---|---|---|---|---|---|---|
+| `hesco` | `01a13e6d-3d01-76e5-9db3-b3c79451bdc3` | fail: two rounded cells under a tall empty cage (items 3, 11) | `01a13e72-f5e5-7552-89c3-8028bfabf87f` | pass, with Blender fixes | `01a13e76-d0d1-7303-a8fb-41b4905df884` | `01a13e79-f297-7634-b07d-9204f8356612` (4,000) |
+| `t_wall` | `01a13e6b-bee8-7089-b99c-abd72c124b6f` | fail: two thick square blocks, offset (items 3, 8) | `01a13e72-2d12-74c2-af26-def8857ef58f` | fail: a low bench-shaped slab, 0.32 height to length (item 3) | -- | -- |
+| `sandbag_post` | `01a13e6f-4170-708b-bd53-92df41a85ba1` | fail: a roofed arch of bags (item 19) | `01a13e74-f2c3-7096-8749-3fc3e5716cf8` | fail: a closed O ring, 0.55 m tall (items 3, 18) | -- | -- |
+
+The checklist's rule is that a second re-roll is a stop and a report, so the
+T-wall and the sandbag post stopped there; neither ships, and the sandbag wall,
+which was to be re-laid from the post's bags, did not start.
+
+What Blender did to `hesco` (`tools/buildings/export_meshy_ramp.py`, spec
+`hesco`), each step measured:
+
+- **Scaled on length alone** to the tile's 3.0 m: 3.0 x 1.07 x **1.10 m**. The
+  design asked 1.37 m tall; the preview's own proportion is a real 1 m-cell
+  gabion, and stretching Z by 1.25 would have turned every square of the
+  bake's grid into a rectangle.
+- **The seams pinched** (`RampSpec.seams`): the remesh smoothed three cells into
+  one straight box, and `pnpm validate:meshes` read it **0.882 IoU against
+  `wall`** (limit 0.88). Pulling both long faces in 0.10 m and the top down
+  0.12 m on a Gaussian at x = +-0.5 m makes three bulging cells, and the gate
+  passes.
+- **A wire cage synthesised** (`RampSpec.wire_cage`, 0.25 m spacing, 0.035 m
+  wire, 1,248 tris, palette `metal`): the refine had its cage (see its
+  thumbnail), the 4,000-tri remesh cannot keep a wire, and in game the run
+  read as a dry-stone wall. The spacing is a read at zoom 1, not the real
+  75 mm, which would be under a pixel and moire.
+- **The bake desaturated** (`RampSpec.image_shift`, sat x 0.72 over hue
+  0-70): the refine's orange-tan fill went terracotta under the scene sun
+  beside the limestone wall.
+- Shipped: 4,352 / 3,089 tris, 2048 base colour. The wreck is `collapse()`.
 
 ## GH-238 kit leftovers -- slat LOD, the Peten's kit, dielectric metal patch, 2026-10-12
 

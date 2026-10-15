@@ -1,0 +1,46 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A straight thin concrete wall segment, as tall as it is long and ten times thinner than it is tall: exactly two flat precast reinforced-concrete panels standing edge to edge in one straight line, each panel 1.5 metres wide, 3 metres tall and only 0.3 metres thick, each standing on a flat foot slab 1.2 metres deep that sticks out equally in front and behind at ground level, so the end view is an upside-down letter T. A hairline joint between the two panels, chamfered top edge, two small steel lifting loops on top of each panel, weathered grey concrete, rust streaks under the loops, dust at the foot. Total 3 metres long, 3 metres tall, 1.2 metres deep at the foot. Plain even lighting, no ground, no plinth, centred, one object. No text, stencils, numerals or markings.",
+    "negative_prompt": "square pillars, columns, thick blocks, cubes, boxes, offset sections, staggered panels, H shape, gap between panels, thick posts, single slab, many thin panels, fence, railing, brick, stone blocks, masonry, end caps, gate, barbed wire, graffiti, stencil, text, numbers, lettering, flag, emblem, logo, ground plane, base plate, plinth, dirt mound, sandbags, baked shadow, people",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a13e72-2d12-74c2-af26-def8857ef58f",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 920424791,
+    "prompt": "A straight thin concrete wall segment, as tall as it is long and ten times thinner than it is tall: exactly two flat precast reinforced-concrete panels standing edge to edge in one straight line, each panel 1.5 metres wide, 3 metres tall and only 0.3 metres thick, each standing on a flat foot slab 1.2 metres deep that sticks out equally in front and behind at ground level, so the end view is an upside-down letter T. A hairline joint between the two panels, chamfered top edge, two small steel lifting loops on top of each panel, weathered grey concrete, rust streaks under the loops, dust at the foot. Total 3 metres long, 3 metres tall, 1.2 metres deep at the foot. Plain even lighting, no ground, no plinth, centred, one object. No text, stencils, numerals or markings.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1792049034071,
+    "progress": 100,
+    "started_at": 1792049034078,
+    "finished_at": 1792049078716,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a13e72-2d12-74c2-af26-def8857ef58f/output/model.glb?Expires=4945622400&Signature=Y-fEbbtmeaM0tWrU2J5FKH6fG120gmsR20WBi57RaFKJCoLnSyeE2rnGhtUnhuG53Exx72bSRVqVzQBoYT~VQ8hWnSG4J9sqUQDJ8l3RUAW4klbKvFGDvugSKPNXxKpLYQmk~45CE1KsfY4o8gSh5MfkMyGdu9fR0W2PiWW5B0kX5YYkGkqLYHYvslm1dkXL-F5MpTPp924c68NCINRrYELwMNo6Y~hApXUSKI9cauMFVjgHL8DJAXdXW9PyCsLIgr0~hg6AU5gfjppD26pfmviwG9DNbSkvdqItNQ7~AUUHaruU4~AU14BV~fYOYw3u~8xyRfWu4y9pTaQTf-FQug__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a13e72-2d12-74c2-af26-def8857ef58f/output/preview.png?Expires=4945622400&Signature=lVYVNDNv1945fN3Zj7Epr1RGV9g4GffQXBayErhldSyVC3lphLVRGnBw-dTeH~WiEPZOAgmrKnpwxdx~QicZe0g39r0egcX0HvTjp3KCCfPdnVqPs-hW2309aJJtbCN0Brxzx2iI46B-ji3ntjJ2nAxfrkznbNF578QNnE627y0XoAkj8RFX9wkOSq7QETpMZtmlAZPN0tuOu4zuvj9YytpOBLgZgn8ubDFLEk5CgXvFWRNedEHpNgRcX~ahq032uL8c5-WLubXbJvnyECaaAreigclmr1nOxdOocKnWPjO4Q7jkqH11oDQrCz~~rM0oZcc-gdPo9GNKJrHGGy~RSQ__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1792049034071,
+    "started_at": 1792049034078,
+    "finished_at": 1792049078716
+  },
+  "usd_estimated": 0.4
+}
