@@ -229,7 +229,7 @@ describe('cursorRules', () => {
       defaultLines(css).flatMap((l) => [...l.matchAll(/%23([0-9a-f]{6})/g)].map((m) => `#${m[1]}`))
     );
     const c = paletteColors(resolved);
-    const wired: SightOrderId[] = ['move', 'attackMove', 'sweep', 'strike', 'smoke'];
+    const wired: SightOrderId[] = ['move', 'attackMove', 'sweep', 'strike', 'smoke', 'barrage', 'smokeScreen'];
     const expected = new Set([
       ...[c.ink, c.dim, c.bad, c.warn, c.hot, c.info].map((h) => h.toLowerCase()),
       hexOf(SIGHT_KEYS.aim),
@@ -523,8 +523,8 @@ describe('the stadia sights -- the approved G1 r5 order cursors', () => {
   /** The default sheet's image for key at frame, as the cascade draws it. */
   const drawn = (key: string, frame: number): string => decodeSvgUri(markupOf(frameLineFor(css, key, frame)));
 
-  it('wires exactly move, attack, sweep, strike and smoke (Q2)', () => {
-    expect(SIGHTS.map(([n]) => n).sort()).toEqual(['advance', 'move', 'smoke', 'strike', 'sweep']);
+  it('wires exactly move, attack, sweep, strike and smoke (Q2), and the barrage and smoke screen (S-F)', () => {
+    expect(SIGHTS.map(([n]) => n).sort()).toEqual(['advance', 'barrage', 'move', 'smoke', 'smokeScreen', 'strike', 'sweep']);
   });
 
   it('draws every frame of every wired sight on the 24-box at 32 px, with the hotspot at 16 16', () => {
@@ -721,8 +721,9 @@ describe('animated cursor frames', () => {
     const keys = [...cursorImages(resolved, 'default').keys()].filter(
       (k) => ANIMATED_CURSORS[k.split('-')[0] as keyof typeof ANIMATED_CURSORS]
     );
-    // move x8, attack x8, sweep, strike, smoke, demolish x3, charge-soft
-    expect(keys.length).toBe(8 + 8 + 3 + 3 + 1);
+    // move x8, attack x8, sweep, strike, smoke, barrage, smokeScreen,
+    // demolish x3, charge-soft
+    expect(keys.length).toBe(8 + 8 + 5 + 3 + 1);
     for (const key of keys) {
       const anim = ANIMATED_CURSORS[key.split('-')[0] as keyof typeof ANIMATED_CURSORS];
       if (!anim) throw new Error(key);
@@ -1345,5 +1346,65 @@ describe('the pinned cursor', () => {
     // 0.75, so the box centre (12, 12) -- empty between the bar and the
     // chevron -- sits on CENTER, and the hotspot pixel is never painted.
     expect(artOf(css, 'pinned')).toContain('<g transform="translate(7 7) scale(0.75)">');
+  });
+});
+
+// S-F Task 2: the barrage and the smoke screen draw sights of their own (the
+// support-marks mock: barrage B "Bursts", smoke screen A "Rounds to screen").
+// Until then each was a CURSOR_ALIAS riding the strike's and the smoke
+// order's rules -- so the risk is both directions: a new key with no rule
+// (the OS arrow under an armed call) and a stale alias selector left on the
+// old rules (two rules for one key, the later winning by source order).
+describe('the barrage and smoke-screen sights (S-F)', () => {
+  const css = cursorRules(resolved);
+  const lines = css.split('\n');
+  const own = (key: string): string[] => defaultLines(css).filter((l) => l.startsWith(`canvas[data-cursor='${key}']`));
+
+  it('gives each new key rules of its own: frame 0 plus every frame that differs, at the sight hotspot', () => {
+    for (const key of ['barrage', 'smokeScreen'] as const) {
+      const rules = own(key);
+      const frames = cursorImages(resolved, 'default').get(key);
+      if (!frames) throw new Error(`no images for ${key}`);
+      const differing = frames.filter((m, f) => f > 0 && m !== frames[0]).length;
+      expect({ key, rules: rules.length }).toEqual({ key, rules: 1 + differing });
+      expect(differing).toBeGreaterThan(0);
+      for (const l of rules) expect(l).toMatch(/\)\s+16\s+16\s*,\s*auto/);
+    }
+  });
+
+  it('leaves no alias selector for them on the strike and smoke rules', () => {
+    for (const key of ['barrage', 'smokeScreen']) {
+      const answering = lines.filter((l) => l.includes(`canvas[data-cursor='${key}']`));
+      expect(answering.length).toBeGreaterThan(0);
+      // every rule that answers to the key answers to it alone
+      for (const l of answering) {
+        const others = selectorOf(l)
+          .split(', ')
+          .filter((sel) => !sel.includes(`canvas[data-cursor='${key}']`));
+        expect({ key, others }).toEqual({ key, others: [] });
+      }
+    }
+    // ...and the strike's and smoke's own rules answer to nobody else.
+    for (const key of ['strike', 'smoke']) {
+      for (const l of lines.filter((x) => selectorOf(x).includes(`canvas[data-cursor='${key}']`))) {
+        expect(l).not.toContain("data-cursor='barrage'");
+        expect(l).not.toContain("data-cursor='smokeScreen'");
+      }
+    }
+  });
+
+  it('draws them in their own family colours: the barrage in ember on the beat, the screen in limestone and gunmetal', () => {
+    const all = (key: string): string => own(key).map((l) => decodeSvgUri(markupOf(l))).join('');
+    expect(all('barrage')).toContain(`fill="${hexOf('vfx.ember')}"`);
+    expect(all('barrage')).toContain(`fill="${hexOf('team.hostile_text')}"`);
+    expect(all('smokeScreen')).toContain(`fill="${hexOf('limestone.0')}"`);
+    expect(all('smokeScreen')).toContain(`fill="${hexOf('gunmetal.1')}"`);
+  });
+
+  it('follows the colour-vision setting where its main does: the barrage (team.hostile_text) yes, the screen no', () => {
+    const cvd = (key: string): string[] => lines.filter((l) => l.includes(':root[data-cvd=') && l.includes(`canvas[data-cursor='${key}']`));
+    expect(cvd('barrage').length).toBeGreaterThan(0);
+    expect(cvd('barrage').every((l) => l.includes(hexOf('team.hostile_text', 'deuteranopia').slice(1)))).toBe(true);
+    expect(cvd('smokeScreen')).toEqual([]);
   });
 });

@@ -24,9 +24,10 @@ export interface SupportSpec {
   readonly word: string;
   readonly name: string;
   readonly blurb: string;
-  /** The tile glyph, `symbolSvg(mark)`. */
+  /** The tile glyph, `symbolSvg(mark)`: four calls, four ids (the barrage's
+   *  Bursts and the smoke screen's Rounds-to-screen since S-F Task 2). */
   readonly mark: SightOrderId;
-  /** The armed cursor. `barrage`/`smokeScreen` are CURSOR_ALIAS names. */
+  /** The armed cursor, the same id as `mark`: each call draws its own sight. */
   readonly cursor: CursorName;
   /** The keymap action that presses this tile (Task 3). */
   readonly action: Extract<Action, 'supportScreen' | 'supportBarrage' | 'supportSweep' | 'supportStrike'>;
@@ -38,7 +39,7 @@ export const SUPPORT: Readonly<Record<SupportKind, SupportSpec>> = {
     word: 'dock.support.smoke_screen.word',
     name: 'dock.support.smoke_screen.name',
     blurb: 'dock.support.smoke_screen.blurb',
-    mark: 'smoke',
+    mark: 'smokeScreen',
     cursor: 'smokeScreen',
     action: 'supportScreen',
     verb: 'smokeScreen',
@@ -47,7 +48,7 @@ export const SUPPORT: Readonly<Record<SupportKind, SupportSpec>> = {
     word: 'dock.support.mortar_barrage.word',
     name: 'dock.support.mortar_barrage.name',
     blurb: 'dock.support.mortar_barrage.blurb',
-    mark: 'strike',
+    mark: 'barrage',
     cursor: 'barrage',
     action: 'supportBarrage',
     verb: 'barrage',
