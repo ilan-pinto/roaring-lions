@@ -329,18 +329,17 @@ function surroundStrike(t: number, p: SightPaint): string {
   return out;
 }
 
-/** An n-point star, alternating outer and inner radius, first point up --
- *  `symbol.ts`'s `starMark` (the `heavy` mark's burst), which is private
- *  there and fills in `currentColor`; this one returns the bare path for
- *  `fill` to colour. */
-function star(cx: number, cy: number, ro: number, ri: number, n: number): string {
+/** An n-point star's vertices, alternating outer and inner radius, first
+ *  point up -- the one vertex loop behind both the barrage's bursts here and
+ *  `symbol.ts`'s `starMark` (the `heavy` mark's burst). */
+export function starPoints(cx: number, cy: number, ro: number, ri: number, n: number): [number, number][] {
   const pts: P[] = [];
   for (let i = 0; i < n * 2; i++) {
     const a = (Math.PI * i) / n - Math.PI / 2;
     const rr = i % 2 ? ri : ro;
     pts.push([cx + rr * Math.cos(a), cy + rr * Math.sin(a)]);
   }
-  return poly(pts);
+  return pts;
 }
 
 /** The barrage's three bursts, across the top band, clear of the mil marks
@@ -367,7 +366,7 @@ function surroundBarrage(t: number, p: SightPaint): string {
     const age = (t - born) / 0.16;
     const s = age < 1 ? 0.45 + 0.55 * ease(age) : 1;
     const fade = t < 0.9 ? 1 : 1 - (t - 0.9) / 0.1;
-    out += fill(star(x, y, 4.5 * s, 1.8 * s, 8), Math.max(fade, 0.35), age < 0.45 ? p.hot : age < 1.6 ? p.accent : p.main);
+    out += fill(poly(starPoints(x, y, 4.5 * s, 1.8 * s, 8)), Math.max(fade, 0.35), age < 0.45 ? p.hot : age < 1.6 ? p.accent : p.main);
   });
   return out;
 }

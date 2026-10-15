@@ -13,7 +13,7 @@
 // has no APP-6 original to borrow angles from.
 import type { RoleBucket } from './role.ts';
 import { escapeHtml } from './escape-html.ts';
-import { ORDER_MARK_BOUNDS, orderMarkBody, type SightOrderId } from './order-sight.ts';
+import { ORDER_MARK_BOUNDS, orderMarkBody, starPoints, type SightOrderId } from './order-sight.ts';
 
 export const VIEWBOX = '0 0 24 24';
 export const W = 2.5;
@@ -306,15 +306,10 @@ const FRAMED_TICK = path(
     ]),
   true
 );
-/** An n-point star, alternating outer and inner radius, first point up. */
+/** An n-point star, alternating outer and inner radius, first point up
+ *  (`starPoints`, shared with the barrage's bursts in order-sight.ts). */
 function starMark(cx: number, cy: number, ro: number, ri: number, n: number): string {
-  const pts: P[] = [];
-  for (let i = 0; i < n * 2; i++) {
-    const a = (Math.PI * i) / n - Math.PI / 2;
-    const rr = i % 2 ? ri : ro;
-    pts.push([cx + rr * Math.cos(a), cy + rr * Math.sin(a)]);
-  }
-  return fill(pts);
+  return fill(starPoints(cx, cy, ro, ri, n));
 }
 /** The axis-of-advance arrow (shaft + solid head) the line of departure crosses. */
 const ADVANCE_ARROW = bar([2, 12], [16, 12]) + fill([

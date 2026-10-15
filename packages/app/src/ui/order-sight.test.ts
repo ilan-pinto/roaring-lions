@@ -212,10 +212,23 @@ describe('the support-call sights (S-F)', () => {
   });
 
   it('the smoke screen lays no trace line: that silhouette stays the smoke order\'s', () => {
-    for (let f = 0; f < ORDER_SIGHT.smokeScreen.phases.length; f++) {
-      expect(sightFrame('smokeScreen', f, PAINT)).not.toContain('#acc" opacity="0.85"');
+    // The widest single shape in a surround, in 24-box units: a polygon's
+    // vertex span, a circle's diameter (`M.. a r r ...`). A trace line is a
+    // band across the box; the screen's widest shape is a puff, 6.2 wide.
+    const widest = (markup: string): number =>
+      Math.max(
+        ...[...markup.matchAll(/d="([^"]+)"/g)].map(([, d]) => {
+          const arc = /a(-?[\d.]+) /.exec(d);
+          if (arc) return 2 * Number(arc[1]);
+          const xs = [...d.matchAll(/[ML](-?[\d.]+) /g)].map((m) => Number(m[1]));
+          return Math.max(...xs) - Math.min(...xs);
+        })
+      );
+    // the instrument sees the smoke order's own trace line (x 1 to 23)
+    expect(widest(surroundBody('smoke', ORDER_SIGHT.smoke.phases[0], PAINT))).toBeGreaterThanOrEqual(22);
+    for (const t of ORDER_SIGHT.smokeScreen.phases) {
+      expect({ t, widest: widest(surroundBody('smokeScreen', t, PAINT)) <= 6.2 }).toEqual({ t, widest: true });
     }
-    expect(surroundBody('smoke', ORDER_SIGHT.smoke.phases[0], PAINT)).toContain('#acc" opacity="0.85"');
   });
 
   it('the barrage beats white-hot then in its ember accent within one cycle', () => {
