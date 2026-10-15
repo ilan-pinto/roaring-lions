@@ -37,8 +37,13 @@ const quiet = { log: () => {}, print: () => {} };
 describe('pnpm arena', () => {
   it('plays a seed twice with the seats swapped, writes two records and scores rush 1.0 on this seed', async () => {
     const out = outDir();
-    const r = await runArena(['--a', 'rush', '--b', 'passive', '--seeds', '1', '--map', 'tel_marum', '--pace', '40', '--tick-ms', '1', '--cap-ticks', '6000', '--out', out], quiet);
+    const printed: string[] = [];
+    const r = await runArena(['--a', 'rush', '--b', 'passive', '--seeds', '1', '--map', 'tel_marum', '--pace', '40', '--tick-ms', '1', '--cap-ticks', '6000', '--out', out], { ...quiet, print: (l) => { printed.push(l); } });
     expect(r.code).toBe(0);
+    // A over B, one-sided: printed with or without --gate, and without --gate never a verdict.
+    expect(printed).toContain('  rush over passive: n=2  score=1.000  p=0.2500 (one-sided exact binomial, draws half)');
+    expect(printed.some((l) => l.startsWith('gate:'))).toBe(false);
+    expect(r.gate).toBeNull();
     const files = readdirSync(out).sort();
     const jsonl = files.find((f) => f.endsWith('-rush-vs-passive.jsonl'));
     const md = files.find((f) => f.endsWith('-rush-vs-passive.md'));
@@ -152,6 +157,32 @@ describe('pnpm arena', () => {
     expect(parseArgs(['--a', 'rush', '--b', 'passive', '--matchup', 'both'])).toHaveProperty('error');
     expect(parseArgs(['--a', 'rush', '--b', 'nobody'])).toHaveProperty('error');
   });
+
+  it('reads --gate as a flag that takes no value, off by default', () => {
+    expect(parseArgs(['--a', 'rush', '--b', 'passive'])).toMatchObject({ gate: false });
+    expect(parseArgs(['--a', 'rush', '--gate', '--b', 'passive', '--seeds', '20'])).toMatchObject({ a: 'rush', b: 'passive', seeds: 20, gate: true });
+    expect(parseArgs(['--a', 'rush', '--b', 'passive', '--gate'])).toMatchObject({ gate: true });
+    expect(parseArgs(['--a', 'rush', '--b', 'passive', '--gate=yes'])).toHaveProperty('error');
+  });
+
+  it('--gate on a run that could not finish is not judged: exit 1 stays exit 1', async () => {
+    const out = outDir();
+    const printed: string[] = [];
+    const startRelay = (): never => { throw new Error('no relay in this test'); };
+    const r = await runArena(['--a', 'rush', '--b', 'passive', '--seeds', '1', '--gate', '--out', out], { log: () => {}, print: (l) => { printed.push(l); }, startRelay });
+    expect(r.code).toBe(1);
+    expect(r.gate).toBeNull();
+    expect(printed.some((l) => l.startsWith('gate: not judged'))).toBe(true);
+  });
+
+  it('--gate judges rush over passive and exits 3 on FAIL: one seed is two games, p 0.25 at best', async () => {
+    const out = outDir();
+    const printed: string[] = [];
+    const r = await runArena(['--a', 'rush', '--b', 'passive', '--seeds', '1', '--map', 'tel_marum', '--pace', '40', '--tick-ms', '1', '--cap-ticks', '6000', '--gate', '--out', out], { log: () => {}, print: (l) => { printed.push(l); } });
+    expect(r.code).toBe(3);
+    expect(r.gate).toMatchObject({ n: 2, score: 1, p: 0.25, pass: false });
+    expect(printed).toContain('gate: FAIL  rush over passive  n=2  score=1.000  p=0.2500');
+  }, 120_000);
 
   it('resolves a relative --out (and the default) against INIT_CWD, the directory pnpm was run from, not the cwd', async () => {
     const base = outDir();

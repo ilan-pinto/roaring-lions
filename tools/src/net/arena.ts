@@ -5,7 +5,7 @@
  * and nothing beyond loopback.
  *
  *   pnpm arena -- --a rush --b passive --seeds 10 --map tel_marum [--matchup mirror|kdf|sarim]
- *                 [--pace 60] [--round-wall-ms 120000] [--cap-ticks 12000] [--tick-ms 2] [--out arena-results/]
+ *                 [--pace 60] [--round-wall-ms 120000] [--cap-ticks 12000] [--tick-ms 2] [--out arena-results/] [--gate]
  *
  * A player is `passive` or `rush` (decision D8's controls), or
  * `cmd:<template>` (Task 14, `external-player.ts`): a process per game -- a
@@ -29,14 +29,21 @@
  * Writes `<out>/<date>-<a>-vs-<b>.jsonl` (one `GameRecord` a line, appended
  * as each game ends) and `.md` (`markdownReport`); `--out` defaults to
  * `arena-results/` under the directory pnpm was run from (`INIT_CWD`), and
- * nothing is ever written outside it. stdout carries the files written and
- * the tally; every log line goes to stderr.
+ * nothing is ever written outside it. stdout carries the files written, the
+ * tally and A against B (`n`, A's score, and `p`, the one-sided exact binomial
+ * that A is better than B: `headToHead`); every log line goes to stderr.
+ *
+ * `--gate` (ruled 15 Oct, coordinator, lead-delegated) then judges the run:
+ * PASS iff p < 0.05 for A over B over the non-void games, printed as one line
+ * `gate: PASS|FAIL  <A> over <B>  n=<n>  score=<s>  p=<p>` (`gateVerdict`).
  *
  * Exit codes: 0 every game played (voids included: a void is a result of the
  * arena, not a failure of it); 1 a bad command line, a player that cannot be
  * built, or a game that could not be played (a relay, a room or a start
  * config the arena could not trust); 2 a map or matchup no room offers,
- * refused before any room exists.
+ * refused before any room exists; 3 (only with `--gate`) every game played
+ * and the gate FAILED. A run that ends 1 is not judged (`gate: not judged`)
+ * and stays 1. Without `--gate` no exit code changes.
  */
 import { randomUUID } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
@@ -46,7 +53,7 @@ import { MATCHUPS, factionsOfMatchup, matchupAllowed, versusMapAllowed, type Mat
 import { MATCH_CAP_TICKS, type MatchResult, type OutcomeSim } from '../../../packages/app/src/net/outcome';
 import { scoreOf } from '../../../packages/app/src/net/scoreboard';
 import { AgentClient } from './agent-client';
-import { markdownReport, tally, type GameRecord, type Tally } from './arena-score';
+import { gateVerdict, headToHead, markdownReport, pval, tally, type GameRecord, type GateVerdict, type Tally } from './arena-score';
 import { buildId } from './build-id';
 import { capOutcome } from './cap';
 import { startLocalRelay, type LocalRelay, type LocalRelayOptions } from './local-relay';
@@ -68,10 +75,17 @@ export interface ArenaArgs {
   tickMs: number;
   /** null: `arena-results/` under the invoking directory. */
   out: string | null;
+  /** Judge the run: exit 3 unless A beats B with p < 0.05. */
+  gate: boolean;
 }
 
-const USAGE = 'usage: pnpm arena -- --a <player> --b <player> [--seeds 10] [--map tel_marum] [--matchup mirror|kdf|sarim] [--pace 60] [--round-wall-ms 120000] [--cap-ticks 12000] [--tick-ms 2] [--out arena-results/]\n  a player is passive, rush, or cmd:<template>';
+/** `--gate` FAILED: every game was played and A was not told from B at p < 0.05. */
+export const EXIT_GATE_FAIL = 3;
+
+const USAGE = 'usage: pnpm arena -- --a <player> --b <player> [--seeds 10] [--map tel_marum] [--matchup mirror|kdf|sarim] [--pace 60] [--round-wall-ms 120000] [--cap-ticks 12000] [--tick-ms 2] [--out arena-results/] [--gate]\n  a player is passive, rush, or cmd:<template>';
 const VALUED = new Set(['a', 'b', 'seeds', 'map', 'matchup', 'pace', 'round-wall-ms', 'cap-ticks', 'tick-ms', 'out']);
+/** Options that take no value. */
+const FLAGS = new Set(['gate']);
 const BUILT_IN: Record<string, (log: (line: string) => void) => ArenaPlayer> = {
   passive: (log) => inProcess('passive', passive, { log }),
   rush: (log) => inProcess('rush', rush, { log }),
@@ -94,12 +108,18 @@ function intIn(name: string, v: string | undefined, def: number, lo: number, hi:
  *  are offered is `refusalOf`'s question (exit 2), not a parse error. */
 export function parseArgs(argv: readonly string[]): ArenaArgs | { error: string } {
   const got = new Map<string, string>();
+  const flags = new Set<string>();
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--') continue;   // pnpm passes the separator through
     if (!arg.startsWith('--')) return { error: `unexpected argument "${arg}"\n${USAGE}` };
     const eq = arg.indexOf('=');
     const name = eq < 0 ? arg.slice(2) : arg.slice(2, eq);
+    if (FLAGS.has(name)) {
+      if (eq >= 0) return { error: `--${name} takes no value` };
+      flags.add(name);
+      continue;
+    }
     if (!VALUED.has(name)) return { error: `unknown option --${name}\n${USAGE}` };
     let value: string | undefined;
     if (eq >= 0) value = arg.slice(eq + 1);
@@ -131,6 +151,7 @@ export function parseArgs(argv: readonly string[]): ArenaArgs | { error: string 
     capTicks: capTicks as number,
     tickMs: tickMs as number,
     out: got.get('out') ?? null,
+    gate: flags.has('gate'),
   };
 }
 
@@ -169,6 +190,8 @@ export interface ArenaRun {
   games: GameRecord[];
   tally: Map<string, Tally> | null;
   files: { jsonl: string; md: string } | null;
+  /** `--gate`'s verdict; null without `--gate`, or when the run was not judged. */
+  gate: GateVerdict | null;
 }
 
 const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -427,7 +450,7 @@ export async function runArena(argv: readonly string[], deps: ArenaDeps = {}): P
   const print = deps.print ?? ((line: string) => { process.stdout.write(`${line}\n`); });
   const startRelay = deps.startRelay ?? startLocalRelay;
   const observe = deps.startObserver ?? startObserver;
-  const fail = (code: number, why: string): ArenaRun => { log(`arena: ${why}`); return { code, games: [], tally: null, files: null }; };
+  const fail = (code: number, why: string): ArenaRun => { log(`arena: ${why}`); return { code, games: [], tally: null, files: null, gate: null }; };
 
   const a = parseArgs(argv);
   if ('error' in a) return fail(1, a.error);
@@ -483,7 +506,19 @@ export async function runArena(argv: readonly string[], deps: ArenaDeps = {}): P
   for (const row of t.values()) {
     print(`  ${row.player}: score ${Number.isNaN(row.score) ? '—' : row.score.toFixed(3)} (${row.wins} won, ${row.draws} drawn, ${row.losses} lost, ${row.voids} void)`);
   }
-  return { code, games, tally: t, files };
+  const h = headToHead(games, names[0], names[1]);
+  print(`  ${h.a} over ${h.b}: n=${h.n}  score=${Number.isNaN(h.score) ? '—' : h.score.toFixed(3)}  p=${pval(h.p)} (one-sided exact binomial, draws half)`);
+  let gate: GateVerdict | null = null;
+  if (a.gate) {
+    // A run that could not finish proves nothing either way: its exit 1 stands.
+    if (code !== 0) print(`gate: not judged: the run did not finish (exit ${code})`);
+    else {
+      gate = gateVerdict(games, names[0], names[1]);
+      print(gate.line);
+      if (!gate.pass) code = EXIT_GATE_FAIL;
+    }
+  }
+  return { code, games, tally: t, files, gate };
 }
 
 /** Whether this module is the process's entry point (and not imported by a spec). */

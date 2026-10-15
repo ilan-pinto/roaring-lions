@@ -91,6 +91,91 @@ export function tally(games: readonly GameRecord[]): Map<string, Tally> {
   return out;
 }
 
+/** The largest n `binomialP` takes: 2^n stays a finite double up to 1023. */
+const BINOMIAL_MAX_N = 1000;
+
+/** P(X >= k) for X ~ Bin(n, 1/2) and an integer k, exactly: the sum of
+ *  C(n, i) for i = k..n over 2^n, in BigInt. The one rounding is the
+ *  numerator's conversion to a double; dividing by a power of two is exact. */
+function upperTail(k: number, n: number): number {
+  if (k <= 0) return 1;
+  if (k > n) return 0;
+  let c = 1n;          // C(n, 0)
+  let sum = 0n;
+  for (let i = 0; i <= n; i++) {
+    if (i >= k) sum += c;
+    c = (c * BigInt(n - i)) / BigInt(i + 1);   // C(n, i + 1), exact: C(n,i)(n-i) is divisible by i+1
+  }
+  return Number(sum) / 2 ** n;
+}
+
+/**
+ * The statistical gate's p (ruled 15 Oct, coordinator, lead-delegated): the
+ * one-sided exact binomial P(X >= k) for X ~ Bin(n, 1/2), the chance that a
+ * player no better than its opponent scores k or more of n non-void games.
+ * Draws count half (D7), so k = wins + draws / 2 may end in .5; then p is
+ * the MEAN of P(X >= floor k) and P(X >= ceil k), which sits between the
+ * draw-as-loss and draw-as-win readings and equals both for an integer k.
+ * No games (n = 0) is p = 1: no evidence. n is a whole number 0-1000 and
+ * 0 <= k <= n; anything else throws.
+ */
+export function binomialP(k: number, n: number): number {
+  if (!Number.isInteger(n) || n < 0 || n > BINOMIAL_MAX_N) throw new RangeError(`binomialP: n is a whole number 0-${BINOMIAL_MAX_N}, not ${n}`);
+  if (Number.isNaN(k) || k < 0 || k > n) throw new RangeError(`binomialP: k is 0-${n}, not ${k}`);
+  return (upperTail(Math.floor(k), n) + upperTail(Math.ceil(k), n)) / 2;
+}
+
+/** A against B over the games the two of them played, from A's side. */
+export interface HeadToHead {
+  a: string;
+  b: string;
+  /** Non-void games between A and B. */
+  n: number;
+  wins: number;
+  draws: number;
+  losses: number;
+  /** D7's score for A, (wins + draws / 2) / n; NaN when n is 0. */
+  score: number;
+  /** One-sided, A better than B: `binomialP(wins + draws / 2, n)`. */
+  p: number;
+}
+
+/** A's record against B. Games with any other player are not read, and a void is not a game here. */
+export function headToHead(games: readonly GameRecord[], a: string, b: string): HeadToHead {
+  let wins = 0;
+  let draws = 0;
+  let losses = 0;
+  for (const g of games) {
+    const seatA = g.players.indexOf(a);
+    if (seatA < 0 || g.players[1 - seatA] !== b) continue;
+    if (g.outcome === 'void') continue;
+    if (g.outcome === 'draw') draws++;
+    else if (g.outcome === `seat${seatA}`) wins++;
+    else losses++;
+  }
+  const n = wins + draws + losses;
+  const k = wins + draws / 2;
+  return { a, b, n, wins, draws, losses, score: n === 0 ? Number.NaN : k / n, p: binomialP(k, n) };
+}
+
+/** The gate's level: A must beat B with p < 0.05 (ruled 15 Oct, coordinator, lead-delegated). */
+export const GATE_ALPHA = 0.05;
+
+export interface GateVerdict extends HeadToHead {
+  pass: boolean;
+  /** `gate: PASS|FAIL  <A> over <B>  n=<n>  score=<s>  p=<p>`. */
+  line: string;
+}
+
+/** Whether the arena told A from B: PASS iff p < alpha, strictly. */
+export function gateVerdict(games: readonly GameRecord[], a: string, b: string, alpha: number = GATE_ALPHA): GateVerdict {
+  const h = headToHead(games, a, b);
+  const pass = h.p < alpha;
+  return { ...h, pass, line: `gate: ${pass ? 'PASS' : 'FAIL'}  ${a} over ${b}  n=${h.n}  score=${num(h.score)}  p=${pval(h.p)}` };
+}
+
+/** p to four significant figures. */
+export const pval = (p: number): string => p.toPrecision(4);
 const num = (v: number): string => (Number.isNaN(v) ? '—' : v.toFixed(3));
 const cell = (s: string): string => s.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
 const line = (cells: readonly (string | number)[]): string => `| ${cells.map((c) => cell(String(c))).join(' | ')} |`;
@@ -102,9 +187,11 @@ function winnerOf(g: GameRecord): string {
   return g.outcome;
 }
 
-/** The report: each player's tally (whole, by seat, by faction), then every
- *  game with its scoreboard, then tokens -- only when a player said any. */
-export function markdownReport(games: readonly GameRecord[]): string {
+/** The report: each player's tally (whole, by seat, by faction), A against B
+ *  with its one-sided p, then every game with its scoreboard, then tokens --
+ *  only when a player said any. `pair` is [A, B]; by default the first game's
+ *  seats, which is the arena's A and B (game 1 has A on seat 0). */
+export function markdownReport(games: readonly GameRecord[], pair: readonly [string, string] | undefined = games[0]?.players): string {
   const out: string[] = [];
   const first = games[0];
   out.push(`# Arena: ${first === undefined ? 'no games' : `${first.map}, ${first.matchup}`}`);
@@ -117,6 +204,17 @@ export function markdownReport(games: readonly GameRecord[]): string {
   out.push(line(Array.from({ length: 11 }, () => '---')));
   for (const t of tally(games).values()) {
     out.push(line([t.player, t.games, t.wins, t.draws, t.losses, t.voids, num(t.score), num(t.bySeat[0]), num(t.bySeat[1]), num(t.byFaction.kdf), num(t.byFaction.sarim)]));
+  }
+  if (pair !== undefined) {
+    const h = headToHead(games, pair[0], pair[1]);
+    out.push('');
+    out.push('## Head to head');
+    out.push('');
+    out.push(`n = non-void games between the two; p = one-sided exact binomial P(X >= wins + draws / 2), X ~ Bin(n, 1/2), the chance a player no better than its opponent scores this well (a half point averages the two whole ones). The gate (\`--gate\`) passes at p < ${GATE_ALPHA}.`);
+    out.push('');
+    out.push(line(['', 'n', 'won', 'drawn', 'lost', 'score', 'p']));
+    out.push(line(Array.from({ length: 7 }, () => '---')));
+    out.push(line([`${h.a} over ${h.b}`, h.n, h.wins, h.draws, h.losses, num(h.score), pval(h.p)]));
   }
   out.push('');
   out.push('## Games');
