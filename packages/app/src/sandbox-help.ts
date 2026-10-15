@@ -270,6 +270,6 @@ export function sandboxHelp(ctx: HelpContext): string {
     ...(tod ? [`    &tod=<value>${' '.repeat(Math.max(0, width - 3))}  ${tod.blurb}`] : []),
     ...(engines ? [`    &engines=<a|b>${' '.repeat(Math.max(0, width - 5))}  ${engines.blurb}`] : []),
     `  maps: ${ctx.mapIds.join(', ')}`,
-    `  console: __lions.help() · step(n) · goto(marker) · units() · sel([id]) · cursorKey() · voiceLog() · engines()`,
+    `  console: __lions.help() · step(n) · goto(marker) · units() · sel([id]) · cursorKey() · voiceLog() · engines() · contentDigest()`,
   ].join('\n');
 }

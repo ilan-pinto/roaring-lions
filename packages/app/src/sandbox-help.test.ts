@@ -284,3 +284,10 @@ describe('engines (GH-35)', () => {
     expect(sandboxHelp(ctx)).toMatch(/&engines=<a\|b>\s+a \| b/);
   });
 });
+
+describe('console API line', () => {
+  it('names contentDigest(), the L4 digest the engines check reads', () => {
+    const ctx = { mapId: 'tel_marum', mapIds: MAPS, on: [] };
+    expect(sandboxHelp(ctx)).toMatch(/console: .*contentDigest\(\)/);
+  });
+});

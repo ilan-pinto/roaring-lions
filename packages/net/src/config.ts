@@ -28,6 +28,10 @@ export interface MatchConfig {
   hashEveryTicks: number;
   bufferTicks: number;
   build: string;
+  /** Minted 0 by the room and kept for wire compatibility; NOT folded into
+   *  any hash since ruling L4 (N2-P3). Each client folds the digest of its
+   *  OWN content instead (`packages/app/src/net/content-digest.ts`): a number
+   *  the room hands both seats alike cannot tell them apart. */
   dataDigest: number;
 }
 

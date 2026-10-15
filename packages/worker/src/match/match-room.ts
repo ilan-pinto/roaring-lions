@@ -384,6 +384,8 @@ export class MatchRoom {
       const s = st.seats[seat];
       return { seat, side: mode === 'versus' ? seat : 0, faction: mode === 'versus' ? st.factions[seat] : 'kdf', kit: 'matched', tiers: {}, unlocks: [], player: tokens[seat], callsign: this.meta?.callsigns[seat] ?? s?.callsign ?? '', kind: kinds[seat] };
     };
+    // `dataDigest: 0` stays in the wire format, but no client folds it (L4):
+    // each folds the digest of its own content.
     const config = validateConfig({
       matchId: st.matchId, code: st.code, seed: this.meta?.seed ?? SIM_SEED_N0, map: this.meta?.map ?? DEFAULT_MAP, mode,
       seats: [seatConfig(0), seatConfig(1)],

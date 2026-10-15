@@ -19,6 +19,7 @@
     "balance": "pnpm --filter @lions/tools balance",
     "playtest": "pnpm --filter @lions/tools playtest",
     "versus:probe": "pnpm --filter @lions/tools versus:probe",
+    "versus:breach": "pnpm --filter @lions/tools versus:breach",
     "perf:units": "pnpm --filter @lions/tools perf:units",
     "perf:load": "pnpm --filter @lions/tools perf:load",
     "perf:memory": "pnpm --filter @lions/tools perf:memory",
