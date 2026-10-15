@@ -5,7 +5,7 @@
 // selection outranks the ROE marks because a click that cannot fire must not
 // warn about firing.
 import { describe, expect, it } from 'vitest';
-import { ANIMATED_CURSORS, CURSOR_ALIAS, SIGHT_OF, cursorFor, badgeFor, cursorKey, type CursorHints, type BadgeHints } from './cursor';
+import { ANIMATED_CURSORS, ARMED_CURSOR, CURSOR_ALIAS, SIGHT_OF, cursorFor, badgeFor, cursorKey, type CursorHints, type BadgeHints } from './cursor';
 import { ORDER_SIGHT } from '../ui/order-sight';
 import { SUPPORT, SUPPORT_KINDS } from '../ui/support-kinds';
 import type { Resolution } from './intents';
@@ -529,6 +529,9 @@ describe('the armed cursor of each support kind (S-F)', () => {
     for (const kind of SUPPORT_KINDS) {
       const r: Resolution = { intents: [], roe: 'free', marker: false, armed: kind };
       expect(cursorFor(r, NONE), kind).toBe(SUPPORT[kind].cursor);
+      // cursor.ts holds its own copy (it cannot value-import support-kinds.ts
+      // under vite's native config loader); the copy may never drift.
+      expect(ARMED_CURSOR[kind], kind).toBe(SUPPORT[kind].cursor);
       // ...and the table itself is pinned by literals, so a wrong row cannot
       // agree with itself.
       expect(SUPPORT[kind].cursor, kind).toBe(

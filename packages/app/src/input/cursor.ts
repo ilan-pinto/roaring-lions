@@ -11,7 +11,7 @@
 import type { PlayerIntent, Resolution } from './intents.ts';
 import type { RoleBucket } from '../ui/role.ts';
 import { ORDER_SIGHT, type SightOrderId } from '../ui/order-sight.ts';
-import { SUPPORT } from '../ui/support-kinds.ts';
+import type { SupportKind } from '@lions/sim';
 
 /** `advance` is the cursor over a hostile, and it was `attack` until WP-P4
  *  (PA-08). The rename is the point: a right-click over an enemy does not
@@ -268,12 +268,24 @@ export function winningVerb(res: Resolution, hints: CursorHints): CursorName | n
   return null;
 }
 
+/** The armed cursor of each support kind. A LOCAL table, not `SUPPORT[k].cursor`:
+ *  this module is in vite.config.ts's import chain, which Node loads natively,
+ *  and `ui/support-kinds.ts` value-imports `@lions/sim` -- extensionless
+ *  source Node cannot resolve (`tools/src/vite_config_native.test.ts`). The
+ *  `import type` above is erased. `cursor.test.ts` pins this against `SUPPORT`. */
+export const ARMED_CURSOR: Readonly<Record<SupportKind, CursorName>> = {
+  smoke_screen: 'smokeScreen',
+  mortar_barrage: 'barrage',
+  drone_sweep: 'sweep',
+  air_strike: 'strike',
+};
+
 export function cursorFor(res: Resolution, hints: CursorHints): CursorName {
   // Armed support outranks everything: it is what the pointer means, and it
   // fires with an empty selection, which is how pointerup always calls it.
   // The cursor names the call itself (Q3): sweep and strike draw different
   // sights, and res.armed already carries which one it is.
-  if (res.armed) return SUPPORT[res.armed].cursor;
+  if (res.armed) return ARMED_CURSOR[res.armed];
   // An armed smoke order is the same argument one rung down (Q2): the next
   // click lays a screen whatever is under the pointer. Below armed support,
   // because only one of the two can spend the click and a support call is
