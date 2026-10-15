@@ -150,6 +150,20 @@
       "color": "dust.1",
       "roe_penalty": 2
     },
+    "hesco": {
+      "id": "hesco",
+      "name": "HESCO Bastion",
+      "symbol": "H",
+      "hp_per_tile": 600,
+      "garrison_slots": 0,
+      "rubble_cover": 2,
+      "height_px": 6,
+      "color": "dust.2",
+      "roe_penalty": 0,
+      "per_tile": true,
+      "low_profile": true,
+      "standing_cover": 3
+    },
     "t_wall": {
       "id": "t_wall",
       "name": "T-Wall",

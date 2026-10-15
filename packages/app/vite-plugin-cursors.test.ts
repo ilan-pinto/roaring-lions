@@ -35,6 +35,7 @@ import { resolveMoveOrder, resolvePointer, type IntentWorld } from './src/input/
 import { HOTSPOT, ORDER_SIGHT, SIGHT_BOX, SIGHT_KEYS, sightFrame, type SightOrderId } from './src/ui/order-sight';
 import { roleBucket, type RoleBucket } from './src/ui/role';
 import { symbolBody } from './src/ui/symbol';
+import { SUPPORT_KINDS } from './src/ui/support-kinds';
 import {
   BADGED_VERBS,
   CENTER,
@@ -679,11 +680,11 @@ function markupOf(line: string): string {
 describe('animated cursor frames', () => {
   const css = cursorRules(deriveUiBand(raw));
 
-  it('animates exactly the wired sights (the armed move shares the move sight) plus charge and demolish, and nothing else', () => {
+  it('animates exactly the wired sights (the armed move shares the move sight) plus charge and demolish, and nothing else (S-F: and the barrage and smoke-screen aliases)', () => {
     // A silent eighth entry (or the loss of one) would otherwise only
     // surface as a visual difference nobody happened to look for.
     expect(Object.keys(ANIMATED_CURSORS).sort()).toEqual(
-      ['advance', 'attack', 'charge', 'demolish', 'move', 'moveOnly', 'smoke', 'strike', 'sweep']
+      ['advance', 'attack', 'barrage', 'charge', 'demolish', 'move', 'moveOnly', 'smoke', 'smokeScreen', 'strike', 'sweep']
     );
   });
 
@@ -1233,7 +1234,7 @@ describe('the composer and the plugin agree on every key -- Important 2', () => 
       }
     }
     const openGround = SCENARIOS[0].world;
-    for (const armed of ['strike', 'sweep'] as const) {
+    for (const armed of SUPPORT_KINDS) {
       const res = resolvePointer(openGround, { ids: [], x: 5, y: 5, append: false, armed, confirm: false });
       for (const hints of HINT_COMBOS) {
         const name = cursorFor(res, hints);

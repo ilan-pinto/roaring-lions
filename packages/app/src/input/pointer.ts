@@ -18,7 +18,7 @@
  *
  * No DOM. `Sim` is read, never written.
  */
-import { fx, type Sim } from '@lions/sim';
+import { fx, type Sim, type SupportKind } from '@lions/sim';
 import { isHostileSide } from '@lions/render';
 import { resolveMoveOrder, resolvePointer, type IntentWorld, type Resolution } from './intents';
 import { badgeFor, cursorFor, cursorKey, type CursorHints, type CursorName } from './cursor';
@@ -166,7 +166,7 @@ export function pointerPoint(view: PointerView, sim: Sim, px: number, py: number
 export interface CursorContext {
   /** The player's living selection. */
   readonly ids: number[];
-  readonly armed: 'strike' | 'sweep' | null;
+  readonly armed: SupportKind | null;
   /** Alt held. */
   readonly confirm: boolean;
   readonly armedSmoke: boolean;

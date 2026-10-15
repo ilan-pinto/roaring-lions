@@ -1,0 +1,46 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single game-ready segment of a precast reinforced-concrete blast wall run, a field work of a fictional army: exactly two identical inverted-T concrete sections side by side with a hairline vertical joint between them, each a tall thin upright slab on a wide flat T-shaped foot, a chamfered top edge, two small steel lifting loops set into the top of each section, weathered grey concrete, dust at the foot, rust streaks under each loop, chipped edges. Real-world scale, 3 metres long, 3 metres tall, foot 1.2 metres deep, slab 0.3 thick, flat plain ends that butt against an identical copy. Grey concrete, rust, dust. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, stencils, text, numerals or markings of any kind.",
+    "negative_prompt": "single slab, many thin panels, fence, railing, brick, stone blocks, masonry, posts, end caps, pillars, gate, barbed wire, graffiti, stencil, text, numbers, lettering, flag, emblem, logo, ground plane, base plate, plinth, dirt mound, sandbags, baked shadow, people",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a13e6b-bee8-7089-b99c-abd72c124b6f",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 1114259715,
+    "prompt": "A single game-ready segment of a precast reinforced-concrete blast wall run, a field work of a fictional army: exactly two identical inverted-T concrete sections side by side with a hairline vertical joint between them, each a tall thin upright slab on a wide flat T-shaped foot, a chamfered top edge, two small steel lifting loops set into the top of each section, weathered grey concrete, dust at the foot, rust streaks under each loop, chipped edges. Real-world scale, 3 metres long, 3 metres tall, foot 1.2 metres deep, slab 0.3 thick, flat plain ends that butt against an identical copy. Grey concrete, rust, dust. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, stencils, text, numerals or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1792048613512,
+    "progress": 100,
+    "started_at": 1792048613524,
+    "finished_at": 1792048699621,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a13e6b-bee8-7089-b99c-abd72c124b6f/output/model.glb?Expires=4945622400&Signature=NRrn5MBQEPubCA0dDITnjipJiNwIp7bTdARwQc-ey9KtSG7IuUr2FuHBPtY~KaGM4IoNURqflTH9V7OfAy0x5K~VtkmJF8Mb-FENIJTpwGRtwOE1YcJoB~DiA6geEz~8HmQgrC61CeR~muFFXSDQBuhRNNYEng5t5S9jPZtcE8pEhP9W86UPNKnyxvrLBpSTcCDeaeJ-WRFAG1011gQUOcQ29-rze6os4YG1wI-BX4DK4bOmTZvzyHGMmWaCzLA4d--LXQeuUag3DTMPbXmlTcZfWQTynVLkZ1HC5RMeQ5WylPRcYwoOz34ON4tVD~ym-gv~qoDvn9nmXUN2wBKNVw__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a13e6b-bee8-7089-b99c-abd72c124b6f/output/preview.png?Expires=4945622400&Signature=a23TlwAYQ3VT-QJ8B32qI~5L6vZrQ~bzuKzuYKo4G-Ztt-zSI9MCxB1RK8ZJzMr1Q~Mf7H2JaOWQioukmkrYJY7INDKrlqdM6QDnrZXpgdbHCO11qG7JhoZlHWNVY09tYP2ba4GITH6LNkZPGucexOTj6ibAvm-mUP9L2YgdN5BAyu-164gWupZeFgKfEDnj1LPGX-q1ly5DYtAucEVonEh-Rt579IeatH1ywBTtc0KUcSGAPKSX30mTFWkE1wlpHn8ccFgPl6gq2haOeyms7brafz0mr5w8N2jwANm5h3mzaDiM0AqwcfxFS2j-dRGDV54pul1Pd08gPz135KWimA__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1792048613512,
+    "started_at": 1792048613524,
+    "finished_at": 1792048699621
+  },
+  "usd_estimated": 0.4
+}

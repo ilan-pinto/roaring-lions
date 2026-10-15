@@ -6,7 +6,7 @@
  * material step, the fire, the wreck under its own shroud) is RUNTIME
  * treatment that `pnpm validate:meshes` repaints away.
  *
- *   npx tsx tools/src/perf/building-captures.ts <out> [--only=relay|pump|sheet] [--gpu=metal|swiftshader] [--port=5280] [--attach]
+ *   npx tsx tools/src/perf/building-captures.ts <out> [--only=relay|pump|pump-clean|hesco|sheet] [--gpu=metal|swiftshader] [--port=5280] [--attach]
  *
  * It serves its own tree on `--port=<n>` (else BUILDING_CAPTURE_PORT, else
  * 5280), and a port something already holds is refused (`ui-review/port.ts`),
@@ -71,7 +71,7 @@ const argv = process.argv.slice(2);
 refuseRetiredBaseUrl(TAG, argv);
 const [outArg] = argv.filter((a) => !a.startsWith('--'));
 if (!outArg) {
-  console.error('usage: building-captures.ts <out dir> [--only=relay|pump|sheet] [--gpu=...] [--port=<n>] [--attach]');
+  console.error('usage: building-captures.ts <out dir> [--only=relay|pump|pump-clean|hesco|sheet] [--gpu=...] [--port=<n>] [--attach]');
   process.exit(2);
 }
 const out = path.resolve(outArg);
@@ -232,6 +232,40 @@ if (wants('pump-clean')) {
   await page.waitForTimeout(1500);
   await frames(4);
   await both('pump_house-wadi_halam_basin-sandbox', 17.0, 20.0);
+}
+
+// --- the HESCO run beside the shipped wall and fence (GH-66) -----------------
+// No map authors `H` yet (placing it is a mission change, the lead's), so the
+// sandbox stands two runs by hand on Wadi Halam V -- the one map that ships
+// both `wall` and `fence` -- and loads the mesh the way `pump-clean` does:
+// a north-south run just west of the depot's fence (x=25, y=11-16, which
+// `perTileRunYaw` turns a quarter) and an east-west run north of it (y=1,
+// x=33-38). Hostiles are killed first so nothing fights in shot; the last
+// tile of the east-west run is destroyed, so the wreck stands in its run.
+if (wants('hesco')) {
+  await bootSandbox('/?sandbox=wadi_halam_5');
+  await page.evaluate(`(async () => {
+    const L = window.__lions;
+    for (const u of L.units(1)) L.sim.debugKill(u.id);
+    const typeIdx = L.sim.structureTypes.findIndex((t) => t.id === 'hesco');
+    if (typeIdx < 0) throw new Error('no hesco structure type');
+    const w = L.sim.width;
+    for (let y = 11; y <= 16; y++) L.sim.addStructure(typeIdx, [25 + y * w]);
+    for (let x = 33; x <= 38; x++) L.sim.addStructure(typeIdx, [x + 1 * w]);
+    await L.renderer.loadBuildingMesh('hesco', '/meshes/buildings/hesco.glb', '/meshes/buildings/hesco_wreck.glb');
+  })()`);
+  await spawnFriendly('inf_squad', 26.5, 13.5);
+  await spawnFriendly('inf_squad', 23.5, 14.5);
+  await spawnFriendly('inf_squad', 35.5, 2.5);
+  await spawnFriendly('mbt_lavi', 24.5, 9.5);
+  await step(20);
+  const wreck = await structureAt(38, 1, 'hesco');
+  await page.evaluate((id) => (window as unknown as LionsWindow).__lions.sim.debugDestroyStructure(id), wreck);
+  await step(20);
+  await page.waitForTimeout(1500);
+  await frames(240);
+  await both('hesco-west-wadi_halam_5', 25.0, 13.5);
+  await both('hesco-north-wadi_halam_5', 35.5, 2.5);
 }
 
 // --- the damage-state sheet --------------------------------------------------

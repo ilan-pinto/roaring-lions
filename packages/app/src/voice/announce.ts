@@ -53,6 +53,12 @@ export type AnnounceEventId =
   | 'strike_ready'
   | 'sweep_inbound'
   | 'strike_inbound'
+  /** S-F (2026-10-15): the smoke screen and the mortar barrage, the same
+   *  two moments (`ui/intel-moments.ts`'s `READY_ANNOUNCE`/`INBOUND_ANNOUNCE`). */
+  | 'screen_ready'
+  | 'barrage_ready'
+  | 'screen_inbound'
+  | 'barrage_inbound'
   /** The verdict's line (audio plan §5.4), priority `outcome`: raised by the
    *  outcome moment through `VoiceRuntime.outcome`, never by a mission event. */
   | 'victory'

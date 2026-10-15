@@ -1,0 +1,46 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single game-ready segment of an earth-filled wire-mesh gabion barrier run, a field work of a fictional army: exactly three square cells in a row, each a welded steel wire-mesh cage of small square grid lined with tan heavy geotextile fabric and packed with earth and gravel, open at the top, fill and folded fabric lip visible from above, each cell bulging slightly outward, spiral steel joining pins at the seams, dusty. Real-world scale, 3 metres long, 1.37 metres tall, 1.05 metres deep, flat plain ends that butt against an identical copy. Tan geotextile, grey galvanised wire, brown earth and gravel. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, stencils, text, numerals or markings of any kind.",
+    "negative_prompt": "single long box, solid concrete wall, brick, stone, sandbags, closed lid, roof, cover sheet, plants, grass, rocks on top, fence, chain-link panel, posts, wooden crate, pallet, stencil, text, numbers, lettering, flag, emblem, logo, ground plane, base plate, plinth, baked shadow, people, vehicle",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a13e6d-3d01-76e5-9db3-b3c79451bdc3",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 3984609822,
+    "prompt": "A single game-ready segment of an earth-filled wire-mesh gabion barrier run, a field work of a fictional army: exactly three square cells in a row, each a welded steel wire-mesh cage of small square grid lined with tan heavy geotextile fabric and packed with earth and gravel, open at the top, fill and folded fabric lip visible from above, each cell bulging slightly outward, spiral steel joining pins at the seams, dusty. Real-world scale, 3 metres long, 1.37 metres tall, 1.05 metres deep, flat plain ends that butt against an identical copy. Tan geotextile, grey galvanised wire, brown earth and gravel. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, stencils, text, numerals or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1792048712256,
+    "progress": 100,
+    "started_at": 1792048712266,
+    "finished_at": 1792048832229,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a13e6d-3d01-76e5-9db3-b3c79451bdc3/output/model.glb?Expires=4945622400&Signature=kwj2dFPxOtSdw2uWYmn1HSZqSCNb4Go1a4xwDY-oXm4RJ4cQyKaHHsWEverg3BXRnNITJlUWSD8eA6p6QlVLuxzDCh-P8xzNGpib34bVTt7Jz7Fh3sF5f7OpYo9IG-NUA6PccvHpCiABnk7uNzWu4Z3Lp13gB~mP0I9C4V2hMJrUldhona5dR8lyDmRSuXYwlkj8w19tTW7Hob3x1Mki-NW1X1A1C1QHa1i6npO8Ay7JfmxXRo3N5zamOveJdm4eiCobD3jSA~2Pfz-YfHFEj661NN2bM9xk9N0C2znQdXGdwBUnfajKqfyi7w7EhCwhxnASfYl5B9YRjAKBLU-Irg__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a13e6d-3d01-76e5-9db3-b3c79451bdc3/output/preview.png?Expires=4945622400&Signature=a1AACnBRbIdIXlLLBQV0sn~rwCv3SSxxUWOX09ELnhlauNmguzkL0TuBteFlla6sxluNlUWWtCuxPDArRIYxmOwbIJi-8cVfeNhpg2Aj0m3MMhISK9Y8bdXdWzu5FF3Yr1Znk3XpMOe0XcMUxuBWK-~7uE1gyDCFoodOTXpvQ9i6wRcyuZhVKREwy1vC79fa0CCGVObzXwZJfMTQAuiBDCx5WFEasEY1MHmIg5TUzLVKmZAiP3VIyj3s6HVLKj5CFZvJ2pim0k30zRHnxnRVwPTBKJ6B7X5zEXfw5NZRMJhBHKH8UhgZsGifjAqTESzpX1bV4gJcdbEbWfDPron7Rg__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1792048712256,
+    "started_at": 1792048712266,
+    "finished_at": 1792048832229
+  },
+  "usd_estimated": 0.4
+}
