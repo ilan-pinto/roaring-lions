@@ -49,9 +49,6 @@ import { ROUNDS, SWEEP_RADIUS_SQ_FX, type SupportKind } from './support-kinds';
  */
 const STRIKE_SPLASH_FX = ROUNDS.air_strike.splashFx;
 const STRIKE_DELAY_TICKS = ROUNDS.air_strike.delayTicks;
-/** The strike's splash in tiles, for the footprint. (Task 4 deletes this
- *  with `aimFootprintFor`, in favour of `footprintTiles`.) */
-export const STRIKE_SPLASH_TILES = STRIKE_SPLASH_FX / 65536;
 
 /** How much history the rate is measured over. Long enough that the slowest
  *  real income -- one holding scout, 5/min, a crossing every 12 s -- still
@@ -143,17 +140,6 @@ export function chargeClock(ticksLeft: number): ChargeClock {
   if (!Number.isFinite(ticksLeft)) return { kind: 'none' };
   if (ticksLeft < CLOCK_SECONDS_UNDER * TICKS_PER_SECOND) return { kind: 'mss', text: clockText(ticksLeft) };
   return { kind: 'minutes', n: Math.round(ticksLeft / (60 * TICKS_PER_SECOND)) };
-}
-
-/** The footprint under the armed cursor (decision 6): the strike's splash
- *  only, and only while the strike is armed and the pointer is on the map.
- *  The sweep's 15-tile circle is not drawn. */
-export function aimFootprintFor(
-  armed: SupportKind | null,
-  cursor: { x: number; y: number } | null
-): { x: number; y: number; radius: number } | null {
-  if (armed !== 'air_strike' || cursor === null) return null;
-  return { x: cursor.x, y: cursor.y, radius: STRIKE_SPLASH_TILES };
 }
 
 /** One thing to say. `key`/`params` are catalogue entries; `parts` names

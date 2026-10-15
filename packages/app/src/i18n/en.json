@@ -1025,6 +1025,7 @@
   "intel.strike.none": "no effect",
   "intel.strike.civilians": "{n, plural, one {# civilian} other {# civilians}} killed",
   "main.note.supportRefused": "support call refused — not enough intel",
+  "main.note.supportNoCaller": "support call refused — no unit left to call it in",
   "main.announce.primaryObjectives": "{n, plural, one {# primary objective} other {# primary objectives}}",
   "main.note.groupAssigned": "<b>group {slot}</b> — {n, plural, one {# unit} other {# units}}",
   "main.note.groupCleared": "group {slot} cleared",

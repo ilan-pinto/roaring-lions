@@ -5,8 +5,6 @@ import {
   IntelMoments,
   IntelRate,
   STRIKE_READOUT_DELAY_TICKS,
-  STRIKE_SPLASH_TILES,
-  aimFootprintFor,
   chargeClock,
   sweptContacts,
   type IntelLook,
@@ -15,21 +13,6 @@ import {
 
 const FX = 65536;
 const toFx = (n: number): number => Math.round(n * FX);
-
-// --- the footprint ----------------------------------------------------------
-
-describe('aimFootprintFor', () => {
-  const at = { x: 17.5, y: 8.5 };
-  it('is the strike splash under the cursor while the strike is armed', () => {
-    expect(aimFootprintFor('air_strike', at)).toEqual({ x: 17.5, y: 8.5, radius: STRIKE_SPLASH_TILES });
-    expect(STRIKE_SPLASH_TILES).toBe(2);
-  });
-  it('is nothing while nothing is armed, while the sweep is armed, or off the map', () => {
-    expect(aimFootprintFor(null, at)).toBeNull();
-    expect(aimFootprintFor('drone_sweep', at)).toBeNull();
-    expect(aimFootprintFor('air_strike', null)).toBeNull();
-  });
-});
 
 // --- the rate and the clock ---------------------------------------------------
 

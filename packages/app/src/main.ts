@@ -174,7 +174,7 @@ import { bootFailureCard, bootFailureKind, guardBoot, mountErrorCard, mountInter
 import { webgl2Available } from './ui/webgl-probe';
 import { alertNotice, evacuatedNotice, reinforceTrigger, removedNotice, ledgerSavedNotice, triggerLabel, unknownSandboxMapNotice } from './ui/mission-notice';
 import { ReinforcementDock } from './ui/production';
-import { IntelMoments, READY_FLASH_MS, aimFootprintFor, type IntelOutput } from './ui/intel-moments';
+import { IntelMoments, READY_FLASH_MS, type IntelOutput } from './ui/intel-moments';
 import { breakdownLine, strikeLine } from './ui/intel-copy';
 import { SUPPORT, SUPPORT_KINDS, type SupportKind } from './ui/support-kinds';
 import { doctrineTags } from './ui/dock-model';
@@ -192,6 +192,7 @@ import {
 } from './input/intents';
 import { ANIMATED_CURSORS, type CursorName } from './input/cursor';
 import { cursorAt, pointerPoint, simIntentWorld, type PointerView } from './input/pointer';
+import { aimFootprint, callSupport, supportAim } from './input/support-call';
 import { cursorAnimDriver } from './input/cursor-anim';
 import { prefersReducedMotion, prefersSaveData } from './ui/motion';
 import { firstLaunchIntro, introAvailable, replayIntro } from './ui/intro';
@@ -4072,26 +4073,30 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       });
       if (res.armed && runtime) {
         const call = res.armed;
-        const ok = runtime.requestSupport(call, fx.from(w.x), fx.from(w.y));
-        dispatch({ kind: 'support', call, x: w.x, y: w.y, accepted: ok });
+        // F-Q10: the click aims through `pointerPoint`, so a wall pixel is the
+        // building; `out.x/y` is the one point the dispatch, the marker and
+        // the announcer all use.
+        const out = callSupport(runtime, call, pointerView, sim, p.x, p.y);
+        const ok = out.ok;
+        dispatch({ kind: 'support', call, x: out.x, y: out.y, accepted: ok });
         if (ok && intelMoments) {
           // GH-113: "inbound -- 3 s" / "on the way", one announcer line and a
           // ring on the minimap, in place of "called on (x, y)" -- grid
           // coordinates no player reads.
-          const say = sayIntel(intelMoments.called(call, w.x, w.y, sim.tickCount));
+          const say = sayIntel(intelMoments.called(call, out.x, out.y, sim.tickCount));
           if (say.length > 0) voice.onMission([], say);
         } else {
           // Reuses the dock's own SUPPORT word keys (production.ts) so a call's
           // name reads the same on the tile and in the notice that confirms it.
           const wordKey = SUPPORT[call].word;
           hud.note(
-            ok
-              ? t('main.note.supportCalled', { name: t(wordKey), x: w.x.toFixed(0), y: w.y.toFixed(0) })
-              : t('main.note.supportRefused'),
+            out.ok
+              ? t('main.note.supportCalled', { name: t(wordKey), x: out.x.toFixed(0), y: out.y.toFixed(0) })
+              : t(out.why === 'intel' ? 'main.note.supportRefused' : 'main.note.supportNoCaller'),
             ok ? 'info' : 'mute'
           );
         }
-        if (ok) renderer.addOrderMarker(w.x, w.y);
+        if (out.ok) renderer.addOrderMarker(out.x, out.y);
         else audio.playCue(CRITICAL_CUES.uiDeny);
         production?.setArmed(null);
         dragStart = null;
@@ -5732,12 +5737,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   }
   renderer.rangeRingPreview = hf;
 
-  // GH-113: the strike's splash under the armed cursor -- the same ground
-  // point the click would spend it on (`screenToWorld`, as pointerup asks),
-  // and null the frame the strike is not armed.
-  renderer.aimFootprint = aimFootprintFor(
+  // GH-113 / S-F: the armed call's footprint under the cursor -- the same
+  // point the click would spend it on (`supportAim`, the pointerPoint rule,
+  // F-Q10), and null the frame nothing is armed (or the sweep, which draws none).
+  renderer.aimFootprint = aimFootprint(
     armedSupport,
-    armedSupport === 'air_strike' ? renderer.screenToWorld(lastCursor.x, lastCursor.y) : null
+    armedSupport ? supportAim(pointerView, sim, lastCursor.x, lastCursor.y) : null
   );
 
   // Teach the hover, but only on a real change: `updateHover` runs every
