@@ -1336,6 +1336,27 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
           '0 px / 0.0000 in-region too and fails both floors, exactly like every other layer check in ' +
           'this file.',
       },
+      {
+        layer: 'slope-light',
+        minDiffPixels: 0,
+        minMeanAbsChannelDelta: 0.0185,
+        rationale:
+          'Relief read (render/relief-read, 2026-10-15; terrain/relief-read.ts): ' +
+          'driving the slope light\'s gain to 1 (the identity) moves 0 px / 0.0555 here, ' +
+          'bit-identical on 3 fresh-page runs of tools/src/perf/relief-read-signal.ts (the gate\'s own ' +
+          'capture, repaint control 0 px / 0.0000). Floor a third of it. Falsified: with the shader term ' +
+          'removed the toggle reads 0 px / 0.0000.',
+      },
+      {
+        layer: 'height-contours',
+        minDiffPixels: 0,
+        minMeanAbsChannelDelta: 0.1605,
+        rationale:
+          'Relief read (render/relief-read, 2026-10-15; terrain/relief-read.ts): ' +
+          'driving the contour and height-tint amplitudes to 0 moves 0 px / 0.4817 here, ' +
+          'bit-identical on 3 fresh-page runs of tools/src/perf/relief-read-signal.ts. Floor a third ' +
+          'of it. Falsified: with the shader term removed the toggle reads 0 px / 0.0000.',
+      },
     ],
     rationale:
       'whole frame, tel_marum boulder corridor @ tile (10,15) zoom 2, tick 500 -- the T1-C boulder ' +
@@ -1485,6 +1506,28 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
           'rounded down: 1990 px / 0.19, down from the pre-D9 2000 px / 0.26 -- a fall, kept as ' +
           'such. No `toneCheck` on this scenario, so N-7\'s ratio-floor rule does not apply here. ' +
           'Re-derived under N-7, approved by the lead on 2026-09-27.',
+      },
+      {
+        layer: 'slope-light',
+        // 9 px is under SUB_THRESHOLD_PX: the magnitude floor carries it.
+        minDiffPixels: 0,
+        minMeanAbsChannelDelta: 0.4981,
+        rationale:
+          'Relief read (render/relief-read, 2026-10-15; terrain/relief-read.ts): ' +
+          'driving the slope light\'s gain to 1 (the identity) moves 9 px / 1.4944 here, ' +
+          'bit-identical on 3 fresh-page runs of tools/src/perf/relief-read-signal.ts (the gate\'s own ' +
+          'capture, repaint control 0 px / 0.0000). Floor a third of it. Falsified: with the shader term ' +
+          'removed the toggle reads 0 px / 0.0000.',
+      },
+      {
+        layer: 'height-contours',
+        minDiffPixels: 0,
+        minMeanAbsChannelDelta: 0.132,
+        rationale:
+          'Relief read (render/relief-read, 2026-10-15; terrain/relief-read.ts): ' +
+          'driving the contour and height-tint amplitudes to 0 moves 3 px / 0.3962 here, ' +
+          'bit-identical on 3 fresh-page runs of tools/src/perf/relief-read-signal.ts. Floor a third ' +
+          'of it. Falsified: with the shader term removed the toggle reads 0 px / 0.0000.',
       },
     ],
     rationale:

@@ -712,3 +712,38 @@ describe('GroundMaterial debug toggles -- ground-albedo and macro', () => {
     expect(m.setMacroVisible(true)).toBe(0);
   });
 });
+
+describe('GroundMaterial relief read (relief-read.ts)', () => {
+  it('ships the slope light on (gain 2) and the contours and tint on', () => {
+    const m = new GroundMaterial();
+    expect(m.uniforms.uReliefSlopeGain.value).toBe(2);
+    expect(m.uniforms.uReliefContour.value).toBe(1);
+    expect(m.uniforms.uReliefTint.value).toBe(1);
+  });
+
+  it('slope-light hides to the identity gain 1 and back, idempotently', () => {
+    const m = new GroundMaterial();
+    expect(m.setSlopeLightVisible(false)).toBe(1);
+    expect(m.uniforms.uReliefSlopeGain.value).toBe(1);
+    expect(m.setSlopeLightVisible(false), 'a second hide changes nothing').toBe(0);
+    expect(m.setSlopeLightVisible(true)).toBe(1);
+    expect(m.uniforms.uReliefSlopeGain.value).toBe(2);
+    expect(m.setSlopeLightVisible(true)).toBe(0);
+  });
+
+  it('height-contours hides BOTH the contour and the tint, idempotently, and touches nothing else', () => {
+    const m = new GroundMaterial();
+    expect(m.setHeightContoursVisible(false)).toBe(1);
+    expect([m.uniforms.uReliefContour.value, m.uniforms.uReliefTint.value]).toEqual([0, 0]);
+    expect(m.uniforms.uReliefSlopeGain.value).toBe(2);
+    expect(m.setHeightContoursVisible(false)).toBe(0);
+    expect(m.setHeightContoursVisible(true)).toBe(1);
+    expect([m.uniforms.uReliefContour.value, m.uniforms.uReliefTint.value]).toEqual([1, 1]);
+  });
+
+  it('the tint reference is the median LEVEL in world Y', () => {
+    const m = new GroundMaterial();
+    m.setReliefMedianLevel(3);
+    expect(m.uniforms.uReliefMedianY.value).toBeCloseTo(3 * (m.uniforms.uReliefLevelY.value as number), 12);
+  });
+});
