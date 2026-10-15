@@ -31,26 +31,35 @@ const MAX_IDS_PER_COMMAND = 256;
 /** A tile's centre, Q16.16: what a human's click on that tile sends. */
 const tileCentre = (t: number): number => fx.from(t + 0.5);
 
+/** How far from its own camp a unit still counts as "at home". */
+export const RUSH_HOME_TILES = 10;
+
 /**
  * Attack-move on the centroid of the contacts this seat can see, or, seeing
- * none, on the enemy's camp -- the anchor a human also knows from the map.
- * Reads only the view.
+ * none, on the enemy's camp -- the anchor a human also knows from the map --
+ * with every unit that is idle and still at home. Reads only the view.
  *
- * Two measured refinements, both orders a human can give, neither a peek:
- * - Only units that have STOPPED are ordered. A fresh order clears a unit's
- *   engagement and stance (`sim.ts`, the move/attackMove handler), so a rush
- *   that re-ordered its whole force every round kept it from ever settling to
- *   fire: on `tel_marum`, seed 1, the west rush lost to `passive` by
- *   annihilation at tick 4,280. A unit still under way keeps its last order.
- * - The order carries `sweep` (the cursor's sweep, which `cleanCommand` carries):
- *   arriving at an empty camp, a unit hunts what its OWN side has seen rather
- *   than parking in front of a defender it cannot see.
- * The reading behind them is in the task report: rush beats passive in about
- * three games of four on `tel_marum`, not in every one -- a control, not a
+ * Decision D8, as refined (ruled faithful, review round 1): rush never breaks
+ * off an engagement. A fresh order clears a unit's engagement and stance
+ * (`sim.ts`, the move/attackMove handler), so a unit that is shooting, or
+ * under way, is never re-ordered: only the view's `idle` flag (the player's
+ * own idle finder, `isIdle`) is. And a unit already out is not re-sent: the
+ * order carries `sweep` (the cursor's sweep, which `cleanCommand` carries),
+ * so having arrived it hunts what its OWN side has seen by itself. What is
+ * left at home -- the start, a unit that walked back -- is what rush commits.
+ *
+ * Measured, not assumed (task-12 report, review round 1; pure sim at the
+ * relay's latency, tel_marum, pace 60, cap 12,000): on 20 held-out seeds
+ * (2..21) x both seat orders rush scores 0.750 (30 won, 10 lost) -- 17-3
+ * from the west, 13-7 from the east, where a passive force waiting below
+ * the pass is the stronger side. Every fog-honest variant tried read
+ * 0.525-0.750 there. It is a control that tells two players apart, not a
  * dominance.
  */
 export const rush: Policy = (view) => {
-  const ids = view.units.filter((u) => !u.flags.includes('moving')).map((u) => u.id);
+  const ids = view.units
+    .filter((u) => u.flags.includes('idle') && Math.hypot(u.tile[0] - view.camp[0], u.tile[1] - view.camp[1]) <= RUSH_HOME_TILES)
+    .map((u) => u.id);
   if (ids.length === 0) return [];
   let tx: number;
   let ty: number;
@@ -89,7 +98,9 @@ export interface SeatStart {
 export interface PlayerReport {
   /** Tokens the player spent, when it says; null for a scripted player. */
   tokens: number | null;
-  /** Rounds (or realtime turns) whose policy did not answer in time. */
+  /** Policy calls abandoned for not answering in time: `roundWallMs` in a
+   *  paced room, `REALTIME_POLICY_MS` in a realtime one. A realtime turn that
+   *  comes round while a call is still pending is skipped, not counted again. */
   timeouts: number;
   errors: string[];
 }
@@ -207,8 +218,8 @@ function runInProcess(policy: Policy, s: SeatStart, log: (line: string) => void)
       const tick = client.tick();
       if (s.capTicks !== undefined && tick >= s.capTicks) { capped = true; finish(); return; }
       if (tick < nextMark) return;
-      // A realtime policy still thinking at its next turn skips that turn;
-      // its own timer counts it.
+      // A realtime turn that comes while the last call is still pending is
+      // skipped; that call's timer counts it once, however many turns it spans.
       if (pending === null) ask(nextMark);
       nextMark += every;
     }, 1);

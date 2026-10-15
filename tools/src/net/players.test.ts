@@ -3,6 +3,15 @@
 // the real `MatchRoom`, real sockets, paced rooms. Every relay and player a
 // test starts is closed by its own handle in `afterEach`; every port is the
 // OS's (`listen(0)`).
+//
+// The base rate behind the rush control, measured in the pure sim at the
+// relay's own latency (orders run in the next round's first frame), tel_marum,
+// pace 60, cap 12,000 (the arena's defaults): on 20 held-out seeds (2..21) x
+// both seat orders rush scores 0.750 against passive (30 won, 10 lost); on the
+// arena gate's own seeds (1000 + 7919n, n = 0..9) 0.750 (15 won, 5 lost), read
+// and not tuned on. Below Task 16's >= 0.9: see the task-12 report. The seed
+// pinned below (3) is a held-out seed the shipped rush wins in both orders by
+// annihilation -- a regression pin, not evidence of the rate.
 import { afterEach, describe, expect, it } from 'vitest';
 import { fx, type Command } from '@lions/sim';
 import type { MatchResult } from '../../../packages/app/src/net/outcome';
@@ -32,8 +41,8 @@ const post = (relay: LocalRelay, path: string, body: unknown): Promise<Response>
   fetch(`${relay.url}${path}`, { method: 'POST', headers: { origin: relay.origin, 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
 /** A paced versus room with two bot seats, through the relay's own routes. */
-async function pacedRoom(relay: LocalRelay, roundWallMs: number): Promise<{ code: string; tickets: [string, string] }> {
-  const pace = { kind: 'paced', roundTicks: ROUND_TICKS, roundWallMs };
+async function pacedRoom(relay: LocalRelay, roundWallMs: number, roundTicks = ROUND_TICKS): Promise<{ code: string; tickets: [string, string] }> {
+  const pace = { kind: 'paced', roundTicks, roundWallMs };
   const created = await post(relay, '/api/match', { player: 'bot-a', callsign: 'A', build: BUILD, map: MAP, mode: 'versus', kind: 'bot', pace });
   expect(created.status).toBe(201);
   const { code, ticket } = (await created.json()) as { code: string; ticket: string };
@@ -55,9 +64,9 @@ interface Game {
 
 /** Plays one game, `players[s]` on seat `s` (seat s is side s in versus), to
  *  a result or the cap; the cap's result is `capOutcome` on seat 0's sim. */
-async function play(players: [ArenaPlayer, ArenaPlayer], o: { seed: number; capTicks: number; roundWallMs?: number; timeoutMs: number }): Promise<Game> {
+async function play(players: [ArenaPlayer, ArenaPlayer], o: { seed: number; capTicks: number; roundWallMs?: number; roundTicks?: number; timeoutMs: number }): Promise<Game> {
   const relay = await relayOf(o.seed);
-  const { code, tickets } = await pacedRoom(relay, o.roundWallMs ?? 1000);
+  const { code, tickets } = await pacedRoom(relay, o.roundWallMs ?? 1000, o.roundTicks);
   const t0 = Date.now();
   const running = await Promise.all(([0, 1] as const).map((seat) => players[seat].start({
     server: relay.url, origin: relay.origin, code, seat, ticket: tickets[seat], build: BUILD, capTicks: o.capTicks,
@@ -65,7 +74,7 @@ async function play(players: [ArenaPlayer, ArenaPlayer], o: { seed: number; capT
   for (const r of running) cleanups.push(() => r.stop());
   const config = await running[0].client?.ready;
   // A malformed pace is silently realtime: a "paced" result from a realtime room would be no result.
-  expect(config?.pace).toEqual({ kind: 'paced', roundTicks: ROUND_TICKS, roundWallMs: o.roundWallMs ?? 1000 });
+  expect(config?.pace).toEqual({ kind: 'paced', roundTicks: o.roundTicks ?? ROUND_TICKS, roundWallMs: o.roundWallMs ?? 1000 });
   let timer: ReturnType<typeof setTimeout> | null = null;
   await Promise.race([
     Promise.all(running.map((r) => r.done)),
@@ -84,6 +93,34 @@ async function play(players: [ArenaPlayer, ArenaPlayer], o: { seed: number; capT
   else { expect(a.tick()).toBe(o.capTicks); expect(b.tick()).toBe(o.capTicks); }
   return { result, capped: own === null, ticks: a.tick(), ms, running };
 }
+
+const NO_SCORE = { lost: 0, lostValue: 0, destroyed: 0, destroyedValue: 0, remaining: 0 };
+/** A view with no fog to speak of: own units placed by hand, for the policy's own contract. */
+function viewOf(units: { id: number; tile: [number, number]; flags: string[] }[], contacts: { id: number; tile: [number, number] }[] = []): SideView {
+  return {
+    tick: 120, clock: '00:06', side: 0, faction: 'kdf', map: MAP, size: [48, 48], camp: [24, 44], enemyCamp: [28, 16],
+    units: units.map((u) => ({ ...u, type: 'inf_squad', hp: 100 })),
+    contacts: contacts.map((c) => ({ ...c, type: 'inf_squad', hp: 100 })),
+    held: [], score: { mine: NO_SCORE, theirs: NO_SCORE }, result: null,
+  };
+}
+
+describe('rush never breaks off an engagement', () => {
+  it('orders only idle units still at home; a unit that is shooting, moving or already out is left alone', async () => {
+    const v = viewOf([
+      { id: 1, tile: [24, 43], flags: ['idle'] },          // at home, doing nothing: sent
+      { id: 2, tile: [25, 42], flags: ['engaging'] },      // at home, halted and shooting: kept on its target
+      { id: 3, tile: [23, 44], flags: ['moving'] },        // under way: keeps its order
+      { id: 4, tile: [27, 20], flags: ['idle'] },          // already out at the front: not re-sent
+    ]);
+    expect(await rush(v)).toEqual([{ kind: 'attackMove', ids: [1], x: fx.from(28.5), y: fx.from(16.5), sweep: true }]);
+    // Seeing contacts, it sends what is at home on their centroid.
+    const seen = viewOf([{ id: 1, tile: [24, 43], flags: ['idle'] }], [{ id: 9, tile: [30, 30] }, { id: 10, tile: [32, 31] }]);
+    expect(await rush(seen)).toEqual([{ kind: 'attackMove', ids: [1], x: fx.from(31.5), y: fx.from(30.5), sweep: true }]);
+    // Nothing to send: no order at all (a flush costs a row).
+    expect(await rush(viewOf([{ id: 2, tile: [25, 42], flags: ['engaging'] }]))).toEqual([]);
+  });
+});
 
 describe('rush (fog honesty)', () => {
   it('seeing nothing, it orders on the enemy camp, never toward a hidden unit', async () => {
@@ -127,17 +164,19 @@ describe('rush (fog honesty)', () => {
         for (const [hx, hy] of c.hidden) expect(Math.hypot(hx - ox, hy - oy)).toBeGreaterThan(3);
       }
     }
-    // Checked after the calls themselves: a rush that marched on the hiders
-    // would see them, so its later calls are not blind -- the first one is.
-    expect(blind.length).toBeGreaterThanOrEqual(3);
+    // Checked after the calls themselves: the first call at tick 800 sends the
+    // whole force (all idle at home), and that is the call a cheat would aim.
+    expect(blind.length).toBeGreaterThanOrEqual(1);
+    expect(blind[0].view.tick).toBe(800);
   }, 90_000);
 });
 
-describe('the controls, on the local relay (paced 40 ticks, seed 1)', () => {
-  const CAP = 6000;
+describe('the controls, on the local relay (the arena\'s pace 60 and cap 12,000)', () => {
+  const CAP = 12_000;
+  const PACE = 60;
   // A paced game costs its frames at `tickMs` (1) and the two sims' own work,
   // never `roundWallMs` (1 s) a round: a player that forgot `done` would cost
-  // 1 s each of CAP / ROUND_TICKS rounds.
+  // 1 s each round, and seed 3's games run 1,680 and 4,360 ticks (28 and 73 rounds).
   const budgetMs = (ticks: number): number => ticks * 1 + 20_000;
 
   for (const rushSeat of [0, 1] as const) {
@@ -145,8 +184,7 @@ describe('the controls, on the local relay (paced 40 ticks, seed 1)', () => {
       const players: [ArenaPlayer, ArenaPlayer] = rushSeat === 0
         ? [inProcess('rush', rush, { log: () => {} }), inProcess('passive', passive, { log: () => {} })]
         : [inProcess('passive', passive, { log: () => {} }), inProcess('rush', rush, { log: () => {} })];
-      const game = await play(players, { seed: 1, capTicks: CAP, timeoutMs: 150_000 });
-      process.stderr.write(`rush on seat ${rushSeat}: ${JSON.stringify(game.result)} at tick ${game.ticks}, ${game.ms} ms\n`);
+      const game = await play(players, { seed: 3, capTicks: CAP, roundTicks: PACE, timeoutMs: 150_000 });
       expect(game.result.kind).toBe('won');
       if (game.result.kind !== 'won') return;
       expect(game.result.side).toBe(rushSeat);
@@ -158,7 +196,7 @@ describe('the controls, on the local relay (paced 40 ticks, seed 1)', () => {
   }
 
   it('passive against passive draws at the cap on equal forces (the mirror)', async () => {
-    const game = await play([inProcess('passive', passive, { log: () => {} }), inProcess('passive', passive, { log: () => {} })], { seed: 1, capTicks: 400, timeoutMs: 30_000 });
+    const game = await play([inProcess('passive', passive, { log: () => {} }), inProcess('passive', passive, { log: () => {} })], { seed: 1, capTicks: 10 * PACE, roundTicks: PACE, timeoutMs: 30_000 });
     expect(game.capped).toBe(true);
     expect(game.result.kind).toBe('draw');
     if (game.result.kind !== 'draw' || game.result.by === 'mutual') throw new Error(`not a draw on forces: ${JSON.stringify(game.result)}`);
