@@ -84,6 +84,44 @@ describe('sharedKitTiers: what a one-template renderer may draw in a room', () =
   });
 });
 
+describe('sharedKitTiers agrees with buildMatchWorld on which ids differ', () => {
+  // The renderer may draw one kit on an id only while the two sides run ONE
+  // sim type for it. So an id must be dropped exactly when buildMatchWorld
+  // registered side 1 its own copy (typeOfBySide differs) -- whatever either
+  // side's predicate for "same kit" turns into later.
+  const fixtures: [Tiers, Tiers][] = [
+    [{}, {}],
+    [{}, { mbt_lavi: { armour: 2 } }],
+    [{ mbt_lavi: { armour: 1 } }, { mbt_lavi: { sensors: 1 } }], // same level, different kit
+    [{ mbt_lavi: { armour: 1 }, ifv_namer: { armour: 1 } }, { mbt_lavi: { armour: 1 }, ifv_namer: { armour: 2 } }],
+    [{ mbt_lavi: { armour: 0 } }, {}], // a zero tier fields nothing
+    [{ mbt_lavi: { armour: 1, sensors: 0 } }, { mbt_lavi: { armour: 1 } }],
+  ];
+
+  it('drops exactly the ids that have a side-1 copy, over every fixture', () => {
+    let copied = 0;
+    let kept = 0;
+    for (const tiers of fixtures) {
+      const w = buildMatchWorld(room(tiers));
+      const bySide = roomKitTables(w, 0).unitKitTiersBySide;
+      const shared = sharedKitTiers(bySide);
+      for (const id of KDF_IDS) {
+        const hasCopy = w.typeOfBySide[1].get(id) !== w.typeOfBySide[0].get(id);
+        // Kept is side 0's own table (by identity); dropped is a fresh `{}`.
+        const isKept = shared[id] === bySide[0][id];
+        expect({ tiers, id, dropped: !isKept }).toEqual({ tiers, id, dropped: hasCopy });
+        if (hasCopy) {
+          copied++;
+          expect(shared[id]).toEqual({});
+        } else kept++;
+      }
+    }
+    // Not vacuous: both outcomes are exercised.
+    expect(copied).toBe(3); // fixtures 2, 3 (Lavi) and 4 (Namer)
+    expect(kept).toBeGreaterThan(0);
+  });
+});
+
 describe("screenKit: bootBattlefield's one choice of kit source", () => {
   const roster = Object.values(units);
 

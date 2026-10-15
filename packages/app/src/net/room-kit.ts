@@ -19,7 +19,7 @@
 import type { KitLevel } from '@lions/data';
 import type { KitSummary } from '../ui/kit-sign';
 import type { UpgradePrepass } from '../upgrade-prepass';
-import type { MatchWorld } from './match-world';
+import { sameKit, type MatchWorld } from './match-world';
 
 /** Each KDF type's tiers by track, as `RendererOptions.unitKitTiers` takes them. */
 export type KitTiers = Readonly<Record<string, Readonly<Record<string, number>>>>;
@@ -48,17 +48,13 @@ export function roomKitTables(world: MatchWorld, me: 0 | 1): {
  */
 export function sharedKitTiers(bySide: readonly [KitTiers, KitTiers]): KitTiers {
   const out: Record<string, Readonly<Record<string, number>>> = {};
+  // Side 0's keys are every KDF id: both prepasses run over the same roster
+  // (`buildMatchWorld`), so side 1 holds no id side 0 lacks.
   for (const [id, zero] of Object.entries(bySide[0])) {
-    out[id] = sameTiers(zero, bySide[1][id]) ? zero : Object.freeze({});
+    // `sameKit` is buildMatchWorld's own test for registering a side-1 copy.
+    out[id] = sameKit(zero, bySide[1][id]) ? zero : Object.freeze({});
   }
   return out;
-}
-
-/** Two tier tables equal on key-sorted entries, zero tiers ignored. */
-function sameTiers(a: Readonly<Record<string, number>> | undefined, b: Readonly<Record<string, number>> | undefined): boolean {
-  const entries = (t: Readonly<Record<string, number>> | undefined): string =>
-    JSON.stringify(Object.entries(t ?? {}).filter(([, n]) => n > 0).sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0)));
-  return entries(a) === entries(b);
 }
 
 /** The kit tables one battlefield screen reads: the HUD's two and the
