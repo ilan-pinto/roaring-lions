@@ -32,6 +32,7 @@ import {
   maxTiers,
 } from '@lions/data';
 import { PopulationCensus } from './population-census';
+import type { Banking } from './banking';
 // `tools` importing a pure module out of `packages/app` is the established
 // pattern (`tools/src/meshes/gait-pass.ts` imports `RIGGED_UNIT_MESHES` from
 // `packages/app/src/mesh-catalogue` the same way): `roster-cap.ts` is the one
@@ -177,6 +178,9 @@ export interface RunRecord extends IntelRun {
   roe: number;
   /** The defeat's cause (`causeText`); undefined unless lost. */
   cause?: string;
+  /** What the run did with its logistics (F2 Task 9, `banking.ts`); undefined for a mission with no
+   *  `resources` block. Recorded only: `run()` prints nothing about it, so no existing line moves. */
+  banking?: Banking;
 }
 export const runLog: RunRecord[] = [];
 
@@ -442,7 +446,11 @@ export function run(
     console.error(`${label}: FAILED — intel moved ${intelEarned} but only ${intelEventSum} was announced by intelEarned events`);
     process.exitCode = 1;
   }
-  runLog.push({ id, label, expect, result: rt.result, stuck: t >= maxTicks && rt.result === 'ongoing', minutes: t / TICKS_PER_SECOND / 60, stars: rt.stars, roe: rt.roeScore, cause, endTick: sim.tickCount, intel, spent: intelSpentTotal });
+  const banking: Banking | undefined =
+    mission.resources === undefined
+      ? undefined
+      : { start: mission.resources.logistics_start ?? 0, earned: rt.logisticsEarned(0), zoneEarned: rt.zoneLogisticsEarned(0), held: rt.logistics };
+  runLog.push({ id, label, expect, result: rt.result, stuck: t >= maxTicks && rt.result === 'ongoing', minutes: t / TICKS_PER_SECOND / 60, stars: rt.stars, roe: rt.roeScore, cause, endTick: sim.tickCount, intel, spent: intelSpentTotal, banking });
   if (rt.stars < expectStar) {
     console.error(`${label}: FAILED — expected ${expectStar} star(s), got ${rt.stars}`);
     process.exitCode = 1;
