@@ -193,6 +193,7 @@ import {
   haltTargets,
   resolvePointer,
   resolveKeyVerb,
+  type CommandSink,
   type OrderSink,
   type PlayerIntent,
   type IntentWorld,
@@ -3304,6 +3305,17 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       )
     : null;
   if (room !== null && blockedNotes !== null) room.setHooks({ onCmdRefused: () => blockedNotes.refused() });
+  /** Where a dock purchase and an armed support call go (N2 Task 5, D3, lead
+   *  16 Oct: "check, then send"): the TRANSPORT, like every other order, built
+   *  the way `dispatch` below builds its own. In single-player `room` is null
+   *  and the `LocalTransport` hands the command to the next frame; the sim sets
+   *  `build`/`support` aside and `runTick` runs them through
+   *  `runtime.applyQueued()` before `sim.tick()`. In a paused room the command
+   *  is dropped with the pause notice, as every other order is. Declared up
+   *  here, not beside `dispatch`, because the dock is built before it. */
+  const cmdSink: CommandSink = room === null
+    ? transport
+    : roomOrderSink(() => room.status(), transport, () => { blockedNotes?.blocked(); });
   /** The advisor's panel and proposal strip (N4a task 10), a versus room only.
    *  Mounted hidden and shown while the room says an advisor sits beside THIS
    *  seat (`onAdvisors`, installed with the scoreboard below, which hears
@@ -3972,6 +3984,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // the one state with no number to show.
       credits: ledgerStore.available ? ledgerStore.readAccount().balance : undefined,
       note: (html, tone) => hud.note(html, tone),
+      // N2 D3: an accepted purchase is a `build` command down the frame path.
+      dispatch: (cmd) => cmdSink.queueCommand(cmd),
       onDeny: () => audio.playCue(CRITICAL_CUES.uiDeny),
       // Read at hover time, so a rebind in Settings shows on the next tooltip.
       hotkeyLabel: (kind) => keyLabel(bindings[SUPPORT[kind].action]),
@@ -4290,7 +4304,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // F-Q10: the click aims through `pointerPoint`, so a wall pixel is the
         // building; `out.x/y` is the one point the dispatch, the marker and
         // the announcer all use.
-        const out = callSupport(runtime, call, pointerView, sim, p.x, p.y);
+        // N2 D3: `callSupport` pre-checks with `canSupport` and sends a
+        // `support` command to `cmdSink`; the spend lands in `runTick`'s
+        // `applyQueued`, before `intelMoments.beforeTick`, so the sweep's
+        // board snapshot sees the same before/after as when the click spent.
+        const out = callSupport(runtime, cmdSink, call, pointerView, sim, p.x, p.y);
         dispatch({ kind: 'support', call, x: out.x, y: out.y, accepted: out.ok });
         if (out.ok && intelMoments) {
           // GH-113: "inbound -- 3 s" / "on the way", one announcer line and a
@@ -4976,6 +4994,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
 
   // --- fixed-tick loop with render interpolation ---------------------------
   const runTick = (): void => {
+    // N2 Task 5 (D3): the dock's `build` and the armed click's `support`
+    // commands, set aside by the sim, are priced and spent here, FIRST --
+    // before `intelMoments.beforeTick` and before `sim.tick()`, which discards
+    // anything still set aside (R-3). A sweep's `reveal` and a strike's
+    // `callStrike` therefore enter the sim queue after this frame's other
+    // orders: they run last in their tick, deterministically.
+    const ranQueued = runtime && mission ? runtime.applyQueued() : 0;
     intelMoments?.beforeTick(sim);
     const events = sim.tick();
     tickQuiet = catchUpQuiet.next();
@@ -5581,7 +5606,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // be delegated rather than bound per chip.
     groupsBar.refresh();
     overlay.onTick(events);
-    if (production && sim.tickCount % 5 === 0) production.refresh();
+    // A tick that ran a purchase repaints the dock at once, so its bar starts
+    // on the tick the build did rather than at the next 4 Hz beat (N2 D3: the
+    // click's own `refresh()` runs before the spend has landed).
+    if (production && (sim.tickCount % 5 === 0 || ranQueued > 0)) production.refresh();
     // Task 6: the same 4 Hz cadence `production.refresh()` above already uses
     // (Hud.onTick's own throttle, `tickN % 5`, is private -- this mirrors it
     // rather than reaching for it), and ONLY while the tracker is open: a
