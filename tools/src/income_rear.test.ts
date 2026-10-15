@@ -18,41 +18,49 @@ const withResources = Object.values(missions as Record<string, MissionJson>)
   .sort();
 
 describe("side 0's rear is vehicle-open on every shipped mission with a resources block", () => {
-  // 18 on 15 Oct 2026: both branches are walked (camps and player_start), counted below.
-  const branches = { camp: 0, start: 0 };
+  // 18 on 15 Oct 2026. Every test below builds what it needs itself, so `-t <id>` runs alone.
+  /** Side 0's rear on one mission: which rule found it, and the tile. */
+  function rearOf(id: string): { rule: 'camp' | 'start'; x: number; y: number; open: number; onMap: boolean } {
+    const { sim, mission } = missionWorld(id, {});
+    let anchor = -1;
+    for (let s = 0; s < sim.structureCount && anchor < 0; s++) {
+      if (sim.structures.alive[s] === 0) continue;
+      if (sim.structureTypes[sim.structures.typeIdx[s]].producesFor === 0) anchor = s;
+    }
+    let x: number;
+    let y: number;
+    let rule: 'camp' | 'start';
+    if (anchor >= 0) {
+      rule = 'camp';
+      const e = sim.structureExit(anchor);
+      x = e[0] >> 16;
+      y = e[1] >> 16;
+    } else {
+      rule = 'start';
+      const ps = mission.map.player_start;
+      expect(ps, `${id} has neither a camp nor a player_start`).toBeDefined();
+      x = ps?.[0] ?? -1;
+      y = ps?.[1] ?? -1;
+    }
+    const onMap = x >= 0 && y >= 0 && x < sim.width && y < sim.height;
+    return { rule, x, y, onMap, open: onMap ? sim.blockedVehicle[y * sim.width + x] : 1 };
+  }
+
   it('finds the missions (the loop below is not vacuous)', () => {
     expect(withResources.length).toBeGreaterThanOrEqual(18);
   });
 
   for (const id of withResources) {
     it(id, () => {
-      const { sim, mission } = missionWorld(id, {});
-      let anchor = -1;
-      for (let s = 0; s < sim.structureCount && anchor < 0; s++) {
-        if (sim.structures.alive[s] === 0) continue;
-        if (sim.structureTypes[sim.structures.typeIdx[s]].producesFor === 0) anchor = s;
-      }
-      let x: number;
-      let y: number;
-      if (anchor >= 0) {
-        branches.camp++;
-        const e = sim.structureExit(anchor);
-        x = e[0] >> 16;
-        y = e[1] >> 16;
-      } else {
-        branches.start++;
-        const ps = mission.map.player_start;
-        expect(ps, `${id} has neither a camp nor a player_start`).toBeDefined();
-        x = ps?.[0] ?? -1;
-        y = ps?.[1] ?? -1;
-      }
-      expect(x >= 0 && y >= 0 && x < sim.width && y < sim.height, `${id} rear (${x}, ${y}) is on the map`).toBe(true);
-      expect(sim.blockedVehicle[y * sim.width + x], `${id} rear (${x}, ${y}) is vehicle-blocked`).toBe(0);
+      const r = rearOf(id);
+      expect(r.onMap, `${id} rear (${r.x}, ${r.y}) is on the map`).toBe(true);
+      expect(r.open, `${id} rear (${r.x}, ${r.y}) is vehicle-blocked`).toBe(0);
     });
   }
 
   it('walked both rear rules: a camp exit and a player_start', () => {
-    expect(branches.camp).toBeGreaterThan(0);
-    expect(branches.start).toBeGreaterThan(0);
+    const rules = new Set(withResources.map((id) => rearOf(id).rule));
+    expect(rules.has('camp')).toBe(true);
+    expect(rules.has('start')).toBe(true);
   });
 });

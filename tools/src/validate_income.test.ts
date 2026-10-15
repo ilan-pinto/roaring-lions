@@ -68,10 +68,10 @@ describe('incomeFailures on fixtures', () => {
       expect(out).toHaveLength(1);
       expect(out[0]).toContain('no longer sets supply_corridor');
     });
+    const lostResources = () =>
+      incomeFailures({ id: 'fixture_m', map: { file: 'fixture_map' } }, { zones: {}, markers: {} }, 'fixture_m.json', ['fixture_m']);
     it('is demoted when the listed mission loses its resources block (checked before the early return)', () => {
-      const out = incomeFailures({ id: 'fixture_m', map: { file: 'fixture_map' } }, { zones: {}, markers: {} }, 'fixture_m.json', [
-        'fixture_m',
-      ]);
+      const out = lostResources();
       expect(out).toHaveLength(1);
       expect(out[0]).toContain('no longer has a resources block');
     });
@@ -79,7 +79,9 @@ describe('incomeFailures on fixtures', () => {
       for (const out of [
         run({ supply_corridor: true, supply_entry: 'gate' }, 'fixture_m', ['fixture_m']),
         run({}, 'fixture_m', ['fixture_m']),
+        lostResources(),
       ]) {
+        expect(out).toHaveLength(1);
         expect(out[0]).toContain('delete it from CORRIDOR_ENTRY_EXEMPT in tools/validate_income.mjs and its test');
       }
     });
