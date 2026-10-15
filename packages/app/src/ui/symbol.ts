@@ -11,9 +11,9 @@
 // NATO/APP-6 frame dictates its own angles rather than the mark's chevron
 // sweep -- that sweep belongs to `order-sight.ts`'s aim alone (Q12), which
 // has no APP-6 original to borrow angles from.
-import type { RoleBucket } from './role';
-import { escapeHtml } from './escape-html';
-import { ORDER_MARK_BOUNDS, orderMarkBody, type SightOrderId } from './order-sight';
+import type { RoleBucket } from './role.ts';
+import { escapeHtml } from './escape-html.ts';
+import { ORDER_MARK_BOUNDS, orderMarkBody, type SightOrderId } from './order-sight.ts';
 
 export const VIEWBOX = '0 0 24 24';
 export const W = 2.5;

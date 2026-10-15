@@ -375,6 +375,7 @@ describe('alertsForTick agrees with MISSION_EVENT_SOUND, kind by kind', () => {
     removed: ev<'removed'>({ kind: 'removed', tick: 0, entity: 2, side: 0, unit: 'inf_squad' }),
     unitLost: lost(7, 'mbt_lavi'),
     say: ev<'say'>({ kind: 'say', tick: 0, speaker: 'shai', text: 'x' }),
+    intelEarned: ev<'intelEarned'>({ kind: 'intelEarned', tick: 0, amount: 10, cause: 'identified', ref: 4, at: { x: 7, y: 4 } }),
     missionEnd: ev<'missionEnd'>({ kind: 'missionEnd', tick: 0, result: 'victory', roeRating: 100, survivors: [], ledger: {} as never }),
   };
   it.each(MISSION_EVENT_KINDS.filter((k) => k !== 'missionEnd'))('%s', (kind) => {

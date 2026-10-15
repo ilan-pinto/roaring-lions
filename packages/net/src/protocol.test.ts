@@ -49,6 +49,8 @@ describe('parseClientMsg', () => {
       [{ kind: 'chargeTunnel', ids: [1], tunnel: 0, pad }, { kind: 'chargeTunnel', ids: [1], tunnel: 0 }],
       [{ kind: 'reveal', side: 0, x: 1, y: 2, pad }, { kind: 'reveal', side: 0, x: 1, y: 2 }],
       [{ kind: 'callStrike', caller: 3, x: 1, y: 2, pad }, { kind: 'callStrike', caller: 3, x: 1, y: 2 }],
+      // F1 Task 6 (F-R5): the fire-support profile survives the rebuild.
+      [{ kind: 'callStrike', caller: 3, x: 1, y: 2, profile: 1, pad }, { kind: 'callStrike', caller: 3, x: 1, y: 2, profile: 1 }],
       [{ kind: 'smoke', ids: [1], x: 1, y: 2, pad }, { kind: 'smoke', ids: [1], x: 1, y: 2 }],
       [{ kind: 'attack', ids: [1, 2], target: 14, pad }, { kind: 'attack', ids: [1, 2], target: 14 }],
     ];
@@ -57,6 +59,16 @@ describe('parseClientMsg', () => {
       expect(parsed).toEqual({ t: 'cmd', seq: 0, cmd: kept });
       expect(JSON.stringify(parsed)).not.toContain('AAAA');
     }
+  });
+  it('F1 Task 6 (F-R5): a callStrike profile is optional, an index into FIRE_SUPPORT, and refused otherwise', () => {
+    const parse = (cmd: Record<string, unknown>) => parseClientMsg(JSON.stringify({ t: 'cmd', seq: 0, cmd }));
+    const base = { kind: 'callStrike', caller: 3, x: 1, y: 2 };
+    for (const profile of [0, 1, 2]) {
+      expect(parse({ ...base, profile })).toEqual({ t: 'cmd', seq: 0, cmd: { ...base, profile } });
+    }
+    expect(parse(base)).toEqual({ t: 'cmd', seq: 0, cmd: base });
+    // Three profiles ship (air strike, barrage, smoke screen): 3 is one past the table.
+    for (const profile of [3, -1, 1.5, '1', null]) expect(parse({ ...base, profile })).toBeNull();
   });
   it('#559 F2: dedupes ids, keeps their first order, and refuses more than MAX_CMD_IDS distinct ids', () => {
     expect(parseClientMsg(JSON.stringify({ t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [3, 1, 3, 3, 1, 2] } })))

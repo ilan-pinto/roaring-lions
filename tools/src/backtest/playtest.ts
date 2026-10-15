@@ -30,7 +30,8 @@ import { parseWorld } from '../../../packages/app/src/campaign';
 import { payVictory } from '../../../packages/app/src/campaign-pay';
 import { stagedUnit } from './e5-probes';
 import { run, type Plan, missionStars, missionCredits, missionMinutes, missionRoe, missionRosterOut, maxTierProbes } from './playtest-run';
-import { passiveAcrossSeeds, drainPassiveSweeps, SWEEP_SEEDS } from './passive-sweep';
+import { passiveAcrossSeeds, drainPassiveSweeps, controlIntel, SWEEP_SEEDS } from './passive-sweep';
+import { reportIntel, seedsNotSpent } from './intel-gate';
 import { Picture, living } from './player-picture';
 import { PLAN_CHILD, startPlanSweep, drainPlanSweeps, reportToParent, type GateRecord } from './plan-sweep';
 
@@ -2020,6 +2021,9 @@ const ledTelMarum3 = run(
 // incomplete on a passive run, but the evacuation clock is what ends it.
 passiveAcrossSeeds('qarn_hadid_1_recon', 'qarn_hadid_1_recon (passive control)', 'defeat');
 
+// (F1 Task 9 measured, kept for the lead: a drone sweep at the notch post (31,16) at 16 s would identify the
+// low-gate post and end this mission at 0.3 min instead of 1.3, because it waits on that post alone from 18 s.
+// Not shipped; Qarn Hadid I has no fire-support dock either, so the spending plan lives at Umm Zeitoun III.)
 const ledQH1 = run(
   'qarn_hadid_1_recon',
   (sim, _rt, ids, at) => {
@@ -2694,9 +2698,54 @@ const ummZeitoun3Plan: Plan = (sim, rt, ids, at) => {
     });
 };
 
+// F1 Task 9 (GH-183), moved in the final review (C-R11): the one winning plan that SPENDS intel through
+// the menu, so "a sweep or a strike is affordable where it is designed to be" is proved by a real call and
+// not by arithmetic. It was Qarn Hadid I, the earliest 150th point of any plan with no grant (14 s,
+// `docs/campaign/economy/fire-support-numbers.md` §1.2), but Qarn Hadid I declares no `resources` block, and
+// the app builds the fire-support dock only for a mission that has one (`main.ts`, `mission.resources`): a
+// spend the player cannot make proves only the API. Umm Zeitoun III has the block and is the earliest
+// dock mission with no `intel_start` grant: its 150th point comes at 27 s of a 63 s victory on 424242
+// (median 30 s over thirty seeds; Khan Rafid I is earlier but has no dock either), and a time limit of
+// 840 s. The plan buys the sweep the moment it holds 150, polling once a second from 20 s, so a seed that
+// earns it late still spends (the 30-seed check below says it did).
+//
+// Why a SWEEP and not the barrage Task 9 chose. Measured on this plan: a `mortar_barrage` called at 32 s
+// at (33,34) left every 424242 base-tier line as it was, and still moved `umm_zeitoun_4_clearance (max
+// tier)` (roster out 32 -> 33, credits 249 -> 259) and the slowest win of both Umm Zeitoun sweep lines
+// (3.5 -> 3.3, 4.7 -> 4.9 min). A strike or barrage draws its scatter from the CALLER's own PRNG stream
+// (the first living player unit, an armed rifle squad here), which shifts that unit's later rolls, and
+// the ledger it carries into the next mission with them. A sweep queues a `reveal` and draws nothing.
+//
+// Placement: (23,37), the wadi rendezvous the plan drives the second Eitan to with the families (the
+// `move` to (23,37) above), the one piece of ground the evacuation depends on and that no unit of ours
+// is watching while the flanks fight. Nothing hostile stands within the sweep radius (SWEEP_RADIUS_SQ,
+// ~7.7 tiles) of it, so the call identifies nobody: no first identification is taken from a real
+// observer (a sweep's would be unpaid, C-R5), `intel earned` stays 270 and every other line is as it was.
+// No mission text names a sweep (a census of `data/missions/*.json`), so the point is the plan's own.
+const SPEND = { id: 'umm_zeitoun_3_clearance', kind: 'drone_sweep', price: 150, fromS: 20, untilS: 120, x: 23, y: 37 } as const;
+// The plan closure runs once for the plain victory and once more in the max-tier replay (`maxTierProbes`);
+// the second run's spend line says so, so it is not read as a second plain run.
+let spendRuns = 0;
+/** `ummZeitoun3Plan` plus the one spend. The gate-open probe above keeps the plain plan: it is not the spending plan. */
+const ummZeitoun3Spend: Plan = (sim, rt, ids, at) => {
+  ummZeitoun3Plan(sim, rt, ids, at);
+  let spent = false;
+  for (let when = SPEND.fromS; when <= SPEND.untilS; when++)
+    at(when, () => {
+      if (spent || (when < SPEND.untilS && rt.intel < SPEND.price)) return;
+      spent = true;
+      const ok = rt.supportCost(SPEND.kind) === SPEND.price && rt.requestSupport(SPEND.kind, fx.from(SPEND.x), fx.from(SPEND.y));
+      console.log(`${SPEND.id}: spend ${SPEND.kind} ${ok ? 'ok' : 'refused'}${spendRuns++ > 0 ? ' (max-tier replay)' : ''}`);
+      if (!ok) {
+        console.error(`${SPEND.id}: FAILED — requestSupport('${SPEND.kind}') was refused at ${when} s (price ${rt.supportCost(SPEND.kind)}, held ${rt.intel})`);
+        process.exitCode = 1;
+      }
+    });
+};
+
 const ledUZ3 = run(
   'umm_zeitoun_3_clearance',
-  ummZeitoun3Plan,
+  ummZeitoun3Spend,
   ledUZ2In,
   'victory',
   'umm_zeitoun_3_clearance',
@@ -3744,4 +3793,55 @@ if (rosterMax >= ROSTER_CAP) {
 // here; collect them and print one line per control (`passive-sweep.ts`).
 reportToParent(gateRecords);
 await drainPassiveSweeps();
-await drainPlanSweeps(SWEEP_SEEDS, gateRecords);
+const planRunsBySeed = await drainPlanSweeps(SWEEP_SEEDS, gateRecords);
+
+// --- F1 Task 9: the intel probe, as a gate ---------------------------------------------------------
+//
+// Task 2's census (`docs/campaign/economy/fire-support-numbers.md` §1) measured the earn rule with an
+// offline probe. These two pins read the same facts off the real runtime on every run, in the
+// `LADDER_CREDITS` idiom (`!==`, `console.error`, `process.exitCode = 1`), on the 424242 ledger seed
+// as `LADDER_CREDITS` is; `tools/src/backtest/intel-gate.ts` holds the arithmetic.
+//
+// INTEL_PASSIVE_BEATS_WINNER: pairs (a plain winning plan and the no-orders control on its mission;
+// 25 of them, `beit_sahwan_2_foothold` has no control) where the control EARNED more than its
+// winner, read at the earlier of the two runs' end ticks (F-Q12, ruled 14 Oct). It is 0 by rule: a
+// player who gives no orders must not out-earn the one who wins. Before the trickle went (a scout that
+// stood still paid 5 a minute) `khan_rafid_3_clearance`'s passive run read 189 against the winner's 20.
+// The per-pair line also prints on how many of the 30 seeds the passive side was ahead: not gated,
+// because `beit_sahwan_breach`'s passive run is ahead on 16 of 30 while 424242 passes (Task 2), and
+// that seed-dependence is the lead's to see on every run.
+const INTEL_PASSIVE_BEATS_WINNER = 0;
+// INTEL_WINNERS_ONE_SWEEP: winning plans that earn at least one drone sweep (150) by doing. It counts
+// ALL winning runs the harness makes on 424242 (the 26 plain plans plus the ten probes: gate-open x6,
+// bought x3, price-only closed x1; the max-tier replays are not counted), because each is a complete
+// playthrough of a mission with its own roster and ledger, and a player who takes the bought or the
+// gate-open route earns on that route. Counting the 26 plain alone would leave ten real plays out of
+// the number, and the probes add no short plan (35 of 36 against 25 of 26): the one short is
+// `beit_sahwan_2_foothold` (9 identified, one objective, 120), which cannot reach 150 below 15 an
+// identification. `intel_start` grants (Umm Zeitoun II, IV) are not earnings and are not counted.
+const INTEL_WINNERS_ONE_SWEEP = 35;
+{
+  // Guards the SPEND plan on every seed: 424242 in the parent is also checked by the FAILED line in its own
+  // `at()` call above; the other 29 seeds run quiet in workers and are re-verified ONLY here, for the spend
+  // (`seedsNotSpent`). The `intelEarned` cross-check in `playtest-run.ts` is not repeated per swept seed.
+  // The spending plan spent its price on EVERY seed (a refused call spends nothing, and a swept seed's
+  // own console is not read, so this is where a refusal on seed 7 is seen).
+  const missed = seedsNotSpent(planRunsBySeed, SWEEP_SEEDS, SPEND.id, SPEND.price);
+  console.log(`intel: ${SPEND.id} spent ${SPEND.price} on ${SWEEP_SEEDS.length - missed.length}/${SWEEP_SEEDS.length} seeds (${SPEND.kind})`);
+  if (missed.length > 0) {
+    console.error(`intel: FAILED — ${SPEND.id} did not spend ${SPEND.price} on seeds ${missed.join(', ')}`);
+    process.exitCode = 1;
+  }
+}
+{
+  const seeds = SWEEP_SEEDS;
+  const r = reportIntel(controlIntel(), planRunsBySeed, seeds);
+  if (r.beats !== INTEL_PASSIVE_BEATS_WINNER) {
+    console.error(`intel: FAILED — passive beats the winner on ${r.beats} pairs, expected ${INTEL_PASSIVE_BEATS_WINNER}`);
+    process.exitCode = 1;
+  }
+  if (r.sweepers !== INTEL_WINNERS_ONE_SWEEP) {
+    console.error(`intel: FAILED — ${r.sweepers} of ${r.winners} winning plans earn a sweep, expected ${INTEL_WINNERS_ONE_SWEEP}`);
+    process.exitCode = 1;
+  }
+}

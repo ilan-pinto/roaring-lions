@@ -124,11 +124,8 @@ import {
   SMOKE_HIT_FLOOR,
   SMOKE_COOLDOWN,
   SMOKE_RANGE_SQ,
-  STRIKE_DAMAGE,
-  STRIKE_SPLASH,
-  STRIKE_SUPPRESSION,
-  STRIKE_DELAY_TICKS,
-  STRIKE_SCATTER,
+  FIRE_SUPPORT,
+  FS_AIR_STRIKE,
   SWEEP_RADIUS_SQ,
   REGEN_DELAY_TICKS,
   REGEN_FRAC,
@@ -446,7 +443,10 @@ export interface UnitType {
   transportSlots: number;
   /** Dismounted element: can ride inside a transport. */
   canEmbark: boolean;
-  /** Trained observer: earns intel while holding position (GDD §3). */
+  /** Trained observer (the `mark_target` ability). Since F1 nothing in the sim
+   *  pays intel for holding position, and nothing here reads this flag: intel is
+   *  earned by doing (identifications, high ground, objectives; MissionRuntime).
+   *  The HUD unit card lists it as a capability. */
   canMarkTarget: boolean;
   /** Reads the ground for what runs under it: a clear sight line to any tile
    *  of a tunnel route identifies the route outright, and HOLDS it
@@ -653,7 +653,7 @@ export type Command =
   | { kind: 'reveal'; side: number; x: Fx; y: Fx }
   /** Bought with intel: a precision strike, attributed to the caller so
    *  ROE charges it to the player who ordered it. */
-  | { kind: 'callStrike'; caller: number; x: Fx; y: Fx }
+  | { kind: 'callStrike'; caller: number; x: Fx; y: Fx; profile?: number } // absent = FS_AIR_STRIKE
   /** Lay a screen: the counterplay to prepared fire. */
   | { kind: 'smoke'; ids: number[]; x: Fx; y: Fx }
   /**
@@ -738,7 +738,7 @@ export type SimEvent =
   | { kind: 'component'; tick: number; target: number; result: ComponentResult; overmatch: Fx }
   | { kind: 'nearMiss'; tick: number; shooter: number; weaponId: string; x: Fx; y: Fx }
   | { kind: 'ambushSprung'; tick: number; entity: number }
-  | { kind: 'strike'; tick: number; by: number; x: Fx; y: Fx }
+  | { kind: 'strike'; tick: number; by: number; x: Fx; y: Fx; profile: number }
   | { kind: 'smokeLaid'; tick: number; by: number; x: Fx; y: Fx }
   | { kind: 'revealed'; tick: number; side: number; count: number }
   | { kind: 'structureHit'; tick: number; structure: number; by: number; damage: Fx; hpLeft: Fx }
@@ -1074,7 +1074,7 @@ export class Sim {
    *  -1 and `homeTunnel` set, and is hit by the ordinary surface rules. */
   private readonly homeTunnel: Int32Array;
   /** Called-for strikes still in the air. */
-  private pendingStrikes: { x: Fx; y: Fx; by: number; readyTick: number }[] = [];
+  private pendingStrikes: { x: Fx; y: Fx; by: number; readyTick: number; profile: number }[] = [];
 
   // --- structure SoA ---
   private structureCount_ = 0;
@@ -2467,24 +2467,7 @@ export class Sim {
           if (this.smokeCooldown[id] > 0) continue;
           if (distSqFx(fx.sub(cmd.x, this.posX[id]), fx.sub(cmd.y, this.posY[id])) > SMOKE_RANGE_SQ) continue;
           this.smokeCooldown[id] = SMOKE_COOLDOWN;
-          const cx = cmd.x >> 16;
-          const cy = cmd.y >> 16;
-          for (let y = cy - SMOKE_RADIUS; y <= cy + SMOKE_RADIUS; y++) {
-            for (let x = cx - SMOKE_RADIUS; x <= cx + SMOKE_RADIUS; x++) {
-              if (x < 0 || y < 0 || x >= this.width || y >= this.height) continue;
-              const ddx = x - cx;
-              const ddy = y - cy;
-              if (ddx * ddx + ddy * ddy > SMOKE_RADIUS * SMOKE_RADIUS) continue;
-              this.smoke[y * this.width + x] = SMOKE_MAX;
-            }
-          }
-          this.pendingEvents.push({
-            kind: 'smokeLaid',
-            tick: this.tickCount,
-            by: id,
-            x: cmd.x,
-            y: cmd.y,
-          });
+          this.layScreen(cmd.x, cmd.y, id);
         }
       } else if (cmd.kind === 'reveal') {
         // Certainty, purchased: contacts inside the footprint go straight to
@@ -2510,15 +2493,25 @@ export class Sim {
         // RNG stream is not consumed from below ground.
         if (this.alive[cmd.caller] === 1 && this.tunnelIn[cmd.caller] < 0) {
           // Guided, but not perfect: scatter is drawn from the caller's own
-          // stream so replays stay identical (invariant 3).
-          const ang = this.rng.nextU32(cmd.caller) & 0xffff;
-          const rad = (this.rng.nextU32(cmd.caller) >>> 16) % (STRIKE_SCATTER + 1);
-          this.pendingStrikes.push({
-            x: fx.add(cmd.x, fx.mul(fx.cos(ang), rad)),
-            y: fx.add(cmd.y, fx.mul(fx.sin(ang), rad)),
-            by: cmd.caller,
-            readyTick: this.tickCount + STRIKE_DELAY_TICKS,
-          });
+          // stream so replays stay identical (invariant 3). Two draws a round,
+          // whatever the profile; the rounds are all queued now, so a caller
+          // who dies afterwards still has every one land.
+          const profile = cmd.profile ?? FS_AIR_STRIKE;
+          const p = FIRE_SUPPORT[profile];
+          if (p !== undefined) {
+            for (let r = 0; r < p.rounds; r++) {
+              const ang = this.rng.nextU32(cmd.caller) & 0xffff;
+              const draw = this.rng.nextU32(cmd.caller);
+              const rad = (p.wideScatter ? draw : draw >>> 16) % (p.scatter + 1);
+              this.pendingStrikes.push({
+                x: fx.add(cmd.x, fx.mul(fx.cos(ang), rad)),
+                y: fx.add(cmd.y, fx.mul(fx.sin(ang), rad)),
+                by: cmd.caller,
+                readyTick: this.tickCount + p.delayTicks + r * p.spacingTicks,
+                profile,
+              });
+            }
+          }
         }
       } else if (cmd.kind === 'load') {
         const car = cmd.carrier;
@@ -4529,29 +4522,61 @@ export class Sim {
     return type.weapons[packed & 1];
   }
 
+  /** The one smoke stamp: a SMOKE_RADIUS disc of SMOKE_MAX centred on the tile
+   *  containing (`px`, `py`), and the `smokeLaid` event for it. The carrier's
+   *  `smoke` command and a smoke-screen support round both land here, so a laid
+   *  screen and a called one are the same grid by construction. Gating (the
+   *  carrier's cooldown and range) stays with the caller. */
+  private layScreen(px: Fx, py: Fx, by: number): void {
+    const cx = px >> 16;
+    const cy = py >> 16;
+    for (let y = cy - SMOKE_RADIUS; y <= cy + SMOKE_RADIUS; y++) {
+      for (let x = cx - SMOKE_RADIUS; x <= cx + SMOKE_RADIUS; x++) {
+        if (x < 0 || y < 0 || x >= this.width || y >= this.height) continue;
+        const ddx = x - cx;
+        const ddy = y - cy;
+        if (ddx * ddx + ddy * ddy > SMOKE_RADIUS * SMOKE_RADIUS) continue;
+        this.smoke[y * this.width + x] = SMOKE_MAX;
+      }
+    }
+    this.pendingEvents.push({ kind: 'smokeLaid', tick: this.tickCount, by, x: px, y: py });
+  }
+
   /** Ordnance called in from off the map. Damage falls off with distance,
    *  buildings take structural damage, and everyone nearby is shaken —
    *  including civilians, which is what ROE will charge for. */
   private stepStrikes(): void {
     if (this.pendingStrikes.length === 0) return;
-    const still: { x: Fx; y: Fx; by: number; readyTick: number }[] = [];
+    const still: { x: Fx; y: Fx; by: number; readyTick: number; profile: number }[] = [];
     for (const s of this.pendingStrikes) {
       if (this.tickCount < s.readyTick) {
         still.push(s);
         continue;
       }
-      this.pendingEvents.push({ kind: 'strike', tick: this.tickCount, by: s.by, x: s.x, y: s.y });
-      const splashSq = fx.mul(STRIKE_SPLASH, STRIKE_SPLASH);
+      const p = FIRE_SUPPORT[s.profile];
+      // A profile outside the table cannot be queued (callStrike refuses it),
+      // so this is a type-narrowing guard, not a path.
+      if (p === undefined) continue;
+      // A smoke round is not a strike: no `strike` event (the renderer draws an
+      // air-strike burst for every one and the overlay logs PRECISION STRIKE),
+      // no damage, no suppression. It lays the same disc a carrier's `smoke`
+      // command does, and raises that command's `smokeLaid` (`by` the caller).
+      if (p.payload === 'smoke') {
+        this.layScreen(s.x, s.y, s.by);
+        continue;
+      }
+      this.pendingEvents.push({ kind: 'strike', tick: this.tickCount, by: s.by, x: s.x, y: s.y, profile: s.profile });
+      const splashSq = fx.mul(p.splash, p.splash);
       for (let i = 0; i < this.count; i++) {
         if (this.alive[i] === 0) continue;
         const dSq = distSqFx(fx.sub(this.posX[i], s.x), fx.sub(this.posY[i], s.y));
         if (dSq > splashSq) continue;
-        const falloff = fx.sub(ONE, fx.div(fx.sqrt(dSq), STRIKE_SPLASH));
-        this.applyDamage(i, fx.mul(STRIKE_DAMAGE, falloff), s.by);
+        const falloff = fx.sub(ONE, fx.div(fx.sqrt(dSq), p.splash));
+        this.applyDamage(i, fx.mul(p.damage, falloff), s.by);
         this.applySuppression(
           i,
-          fx.mul(STRIKE_SUPPRESSION, falloff),
-          false,
+          fx.mul(p.suppression, falloff),
+          p.coverProtects,
           s.by >= 0 ? this.side[s.by] : -1,
           s.x,
           s.y,
@@ -4560,7 +4585,7 @@ export class Sim {
       for (let st = 0; st < this.structureCount_; st++) {
         if (this.stAlive[st] === 0) continue;
         if (this.structDistSq(st, s.x, s.y) > splashSq) continue;
-        this.damageStructure(st, fx.mul(STRIKE_DAMAGE, ONE + ONE), s.by);
+        this.damageStructure(st, fx.mul(p.damage, ONE + ONE), s.by);
       }
     }
     this.pendingStrikes = still;
@@ -6442,6 +6467,12 @@ export class Sim {
       h = hashWord(h, s.x);
       h = hashWord(h, s.y);
       h = hashWord(h, s.readyTick);
+      // The fire-support profile picks the round pattern a queued entry lands
+      // with (F1 Task 6), so two worlds differing only in it diverge. No pin
+      // moved: pendingStrikes is empty at every hash in the golden replays and in
+      // the versus runs (no replay calls fire support), so this word is never
+      // folded in there.
+      h = hashWord(h, s.profile);
     }
     h = hashArray(h, this.prActive);
     h = hashArray(h, this.prShooter);

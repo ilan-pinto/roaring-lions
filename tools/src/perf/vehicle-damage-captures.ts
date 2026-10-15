@@ -43,6 +43,7 @@ import { fileURLToPath } from 'node:url';
 import { ensureDevServer, stopDevServer, readUnmaskedRenderer } from '../golden-diff/browser';
 import { CAPTURE_VIEWPORT, FREEZE_FRAME_LOOP_SCRIPT, hideHudExceptCanvas } from '../golden-diff/capture-protocol';
 import { musicOffInitScript, SILENT_AUDIO } from '../ui-review/music-off';
+import { tunnelRouteTiles, type TunnelRoute } from './tunnel-tiles';
 import { claimPort } from '../ui-review/port';
 import { gpuLaunchArgs, resolveGpuBackend, type GpuBackend } from '../ui-review/gpu';
 
@@ -202,11 +203,19 @@ async function bootSandbox(page: Page, base: string): Promise<void> {
 /** `kit-captures.ts`'s parade: open tiles whose zoom-2.5 box holds nothing
  *  but the vehicle and open ground, judged through the live camera. */
 async function paradeTiles(page: Page, n: number): Promise<[number, number][]> {
-  const rows = (JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'data/maps', `${MAP_ID}.json`), 'utf8')) as { rows: string[] }).rows;
+  const map = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'data/maps', `${MAP_ID}.json`), 'utf8')) as {
+    rows: string[];
+    tunnels?: TunnelRoute[];
+  };
   const obstacles: [number, number][] = [];
-  rows.forEach((row, y) => {
+  map.rows.forEach((row, y) => {
     for (let x = 0; x < row.length; x++) if (row[x] !== '.') obstacles.push([x, y]);
   });
+  // Tunnel routes count as obstacles too: a route a `mark_tunnel` carrier in
+  // the parade identifies draws its x-ray bore through the frame, which is
+  // the cyan ring and tube the paramotor's cells showed at every band
+  // (2026-10-15; `tunnel-xray` hidden, the frame's cyan went 861 -> 0 px).
+  obstacles.push(...tunnelRouteTiles(map.tunnels ?? []));
   const box = BOX['2.5'];
   return page.evaluate(
     ([count, obs, edge, bw, bh, lift, side, rise, hull]) => {
