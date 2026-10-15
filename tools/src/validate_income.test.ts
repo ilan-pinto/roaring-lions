@@ -2,6 +2,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import Ajv2020 from 'ajv/dist/2020.js';
 import { describe, expect, it } from 'vitest';
 import { CORRIDOR_ENTRY_EXEMPT, incomeFailures } from '../validate_income.mjs';
 
@@ -126,4 +127,22 @@ describe('every shipped mission passes the income cross-checks', () => {
       expect(incomeFailures(m, mp, f)).toEqual([]);
     });
   }
+});
+
+describe('the mission schema bounds income_zones at the runtime limit', () => {
+  const schema = JSON.parse(
+    readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'data', 'schemas', 'mission.schema.json'), 'utf8'),
+  );
+  // `Ajv2020` is a CJS default under this loader, as in validate_data.mjs.
+  const Ctor = ((Ajv2020 as unknown as { default?: typeof Ajv2020 }).default ?? Ajv2020) as typeof Ajv2020;
+  const validate = new Ctor({ allErrors: true, strict: false }).compile(schema);
+  const zones = (n: number) => Array.from({ length: n }, (_, i) => ({ zone: `z${i}`, rate_per_min: 1 }));
+  const errorsFor = (n: number) => {
+    validate({ id: 'm', resources: { income_zones: zones(n) } });
+    return (validate.errors ?? []).filter((e) => e.instancePath === '/resources/income_zones');
+  };
+  it('32 zones raise no income_zones error, 33 raise maxItems', () => {
+    expect(errorsFor(32)).toEqual([]);
+    expect(errorsFor(33).map((e) => e.keyword)).toEqual(['maxItems']);
+  });
 });

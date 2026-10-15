@@ -54,8 +54,9 @@ Every zone below was first surveyed at 1 a minute on every declared zone of the 
 `survey` table) to see who stands in it and when. Percentages are of the plan's ticks, over 30 seeds.
 
 **UZ II, `crest_line` [18,30,13,3] and `post_stone` [21,22,4,3].** The crest is the `hold_for`
-primary: the plan holds it 77% of the mission (empty the rest, never contested), and the 180 s and
-300 s waves march into it (`rim_crest` is inside it). The post is the `raze`/`capture` target, the
+primary: the plan holds it 77% of the mission (empty the rest, never contested) (M). **(R)** The
+180 s and 300 s waves are expected to march into it (`rim_crest` is inside it): the probe prints no
+wave path or per-wave contact, so this is read off the mission file, not measured. The post is the `raze`/`capture` target, the
 Sarim picket's ground: Sarim holds it from the start (100% in the passive control), the plan takes it
 24% of the time and leaves it for the crest at 100 s. Forward ground is the smaller rate because the
 plan does not stay; the crest is where the player is asked to stand. Both corridors run back over the
@@ -308,7 +309,9 @@ line: `mission-author`), or a model choice (the radii, ruled 6 Oct: contest stay
 
 **No proposed zone reads empty-or-contested for the whole of any plan run, on any of 30 seeds.** The
 lowest: `ford_watch` held 9% of WH II (the picket leaves once `keep_ford` completes, above), and
-`crest_top` never held by the KDF on 1 of 30 UZ IV seeds (Sarim's for that run, not empty).
+`crest_top` never held by the KDF on 1 of 30 UZ IV seeds (M). **(R)** Whether Sarim held it or it stood
+empty on that seed is not recorded: the probe prints each owner's share across the 30 seeds (kdf 14%,
+sarim 71%, empty 15%), not per run.
 
 **The red (plan Task 8 Step 4), shown once:** the `red` table points `ford_watch` at [0,44,3,3], open
 ground in WH II's south-west corner that the plan never enters. Its walk reads `empty` at every row,

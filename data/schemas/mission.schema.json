@@ -302,7 +302,7 @@
         "supply_corridor": {
           "type": "boolean",
           "default": false,
-          "description": "If true, the base logistics rate halves while the convoy route from supply_entry to the player's rear is cut (a wall, a held tile, an enemy on it). Protecting the corridor is gameplay. Requires supply_entry."
+          "description": "If true, the base logistics rate halves while the convoy route from supply_entry to the player's rear is cut (no wheeled route; an uncontested enemy within 2 tiles of the route; an open hostile tunnel vent within 3 tiles of it). Protecting the corridor is gameplay. Requires supply_entry."
         },
         "supply_entry": {
           "type": "string",
@@ -310,6 +310,7 @@
         },
         "income_zones": {
           "type": "array",
+          "maxItems": 32,
           "description": "Zones that pay logistics per minute to whichever side holds the zone uncontested (side 1 too). Each zone id must be declared by the mission's map, and none may repeat.",
           "items": {
             "type": "object",
