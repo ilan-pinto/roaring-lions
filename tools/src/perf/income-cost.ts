@@ -2,11 +2,14 @@
 //
 // What the held-ground income step costs per tick, measured headlessly (node, no browser, no GPU).
 // `MissionRuntime.stepIncome` does two kinds of work:
-//   - every tick: `zoneState` for each income zone, O(zones x living units) -- a presence test;
+//   - every tick: `zoneStates`, ONE pass over the living units through a per-tile zone bitmask (F2
+//     Task 11; until then `zoneState` per zone, O(zones x living units)) -- a presence test;
 //   - on a recheck (every CORRIDOR_RECHECK_TICKS = 20 ticks, on a `structureDestroyed`, and on any
-//     tick a zone's HOLDER changes): a route per held zone and for the convoy (a flow-field compute
-//     per goal tile, a road BFS, a field walk) and `corridorCut` over each route, which is
-//     O(living enemies x route tiles) plus, for each enemy near the route, an O(units) contest scan.
+//     tick a zone's HOLDER changes): a route per held zone and for the convoy -- since Task 11
+//     REUSED unless the vehicle mask, foot mask or elevation changed (a byte compare) or the route's
+//     ends did; only then a flow-field compute per goal tile, a road BFS, a field walk -- and
+//     `corridorCut` over each route, at every recheck, which is O(living enemies x route tiles)
+//     plus, for each enemy near the route, an O(units) contest scan.
 //
 // The world: the real `deir_amun_2` map (48 x 48, two tunnel routes, a road), the real
 // `deir_amun_2_foothold` mission cloned IN MEMORY (never on disk: ruling C-R1) with its starting

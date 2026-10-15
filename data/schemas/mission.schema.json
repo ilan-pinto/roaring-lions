@@ -310,7 +310,7 @@
         },
         "income_zones": {
           "type": "array",
-          "description": "Zones that pay logistics per minute while the player holds them. Each zone id must be declared by the mission's map, and none may repeat.",
+          "description": "Zones that pay logistics per minute to whichever side holds the zone uncontested (side 1 too). Each zone id must be declared by the mission's map, and none may repeat.",
           "items": {
             "type": "object",
             "additionalProperties": false,
