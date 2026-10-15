@@ -80,7 +80,9 @@ import {
 } from '@lions/render';
 import { fx, type Sim } from '@lions/sim';
 import { paintMapTerrain } from './map-preview';
-import { zoneStateOf } from '../objective-zones';
+import { activeObjectiveZoneNames, zoneStateOf } from '../objective-zones';
+import type { IncomeView } from './income-view';
+import { symbolBody } from './symbol';
 import type { AlertTier } from './alerts';
 import type { Tone } from './hud-model';
 import { prefersReducedMotion } from './motion';
@@ -161,6 +163,10 @@ export interface MinimapDeps {
   teamColors: readonly [string, string, string];
   /** Live objectives. A thunk: objectives complete and drop off mid-mission. */
   objectives: () => readonly MinimapObjective[];
+  /** Held income ground (S-F F2, Z-B): the HUD beat's `IncomeView`, null for a
+   *  mission with no income zones. A thunk like `objectives`; optional, and
+   *  absent draws nothing. */
+  income?: () => IncomeView | null;
   /**
    * Where the families walk to, in tiles, while an evacuation objective is
    * still being scored -- null otherwise (GH-279). A thunk for the same
@@ -628,6 +634,26 @@ export interface ObjectiveMark {
   /** `[x, y, w, h]` in tiles, or null for a marker objective. */
   rect: readonly [number, number, number, number] | null;
   at: MinimapPoint;
+  /** Income ground (S-F F2, Z-B): the logistics symbol is drawn in the mark's
+   *  corner. Absent on an objective. */
+  glyph?: boolean;
+}
+
+/**
+ * Held income ground as `ObjectiveMark`s (S-F F2, Z-B): the objective zone's
+ * own look in the state the `IncomeView` gives, plus the logistics glyph, which
+ * says "this ground pays". A zone an active objective already draws is skipped
+ * (P2-1), so it is one mark, the objective's. Null view, no marks.
+ */
+export function incomeMarks(view: IncomeView | null, activeObjectiveZones: ReadonlySet<string>): ObjectiveMark[] {
+  const out: ObjectiveMark[] = [];
+  if (view === null) return out;
+  for (const z of view.zoneViews) {
+    if (activeObjectiveZones.has(z.id)) continue;
+    const [x, y, w, h] = z.rect;
+    out.push({ state: z.state, rect: [x, y, w, h], at: { x: x + w / 2, y: y + h / 2 }, glyph: true });
+  }
+  return out;
 }
 
 /** Every ACTIVE objective that names ground, as `ObjectiveMark`s. The state is
@@ -880,6 +906,31 @@ const ZONE_STROKE = 2;
 const ZONE_KEYLINE = 4;
 const ZONE_DASH: readonly number[] = [3, 2];
 const ZONE_FILL_ALPHA = 0.12;
+/** The logistics glyph on an income mark (Z-B): 11 px, inset into the zone's
+ *  top-left corner (the centre is under the holders' unit dots), on a 1.4 px
+ *  `--mark-edge` outline. */
+export const GLYPH_PX = 11;
+export const GLYPH_INSET = 3;
+const GLYPH_EDGE = 1.4;
+
+/**
+ * The `logistics` symbol's polygons on its 24-box, read out of `symbolBody`
+ * (the strip's own mark) rather than redrawn: its body is `M x y L x y ... Z`
+ * runs, one per rectangle.
+ */
+export function logisticsPolygons(): [number, number][][] {
+  const d = /d="([^"]+)"/.exec(symbolBody('logistics'))?.[1] ?? '';
+  return d
+    .split('M')
+    .filter((run) => run.trim() !== '')
+    .map((run) => {
+      const n = run.match(/-?\d+(?:\.\d+)?/g)?.map(Number) ?? [];
+      const pts: [number, number][] = [];
+      for (let i = 0; i + 1 < n.length; i += 2) pts.push([n[i], n[i + 1]]);
+      return pts;
+    });
+}
+
 /** A marker objective's square, px. */
 const OBJECTIVE_SQUARE = 10;
 /** The suspected contact's hollow diamond (VR-36): 8 px tall, a 1.5 px stroke
@@ -1311,7 +1362,11 @@ export class Minimap {
     ctx.filter = 'none';
     ctx.imageSmoothingEnabled = true;
 
-    for (const m of objectiveMarks(this.deps.objectives(), this.deps.map)) {
+    const objectives = this.deps.objectives();
+    for (const m of objectiveMarks(objectives, this.deps.map)) {
+      this.objectiveMark(m, nowMs);
+    }
+    for (const m of incomeMarks(this.deps.income?.() ?? null, activeObjectiveZoneNames(objectives))) {
       this.objectiveMark(m, nowMs);
     }
     this.drawTunnels();
@@ -1578,6 +1633,38 @@ export class Minimap {
     ctx.lineWidth = ZONE_STROKE;
     outline();
     ctx.stroke();
+    ctx.restore();
+    if (m.glyph === true) this.logisticsGlyph(x0 + GLYPH_INSET, y0 + GLYPH_INSET, color);
+  }
+
+  /** The strip's own `logistics` symbol (`symbol.ts`), GLYPH_PX square at
+   *  (`gx`, `gy`) in `color` on a `--mark-edge` outline: it is what says the
+   *  ground pays. The outline is drawn first, whole, so a neighbouring
+   *  rectangle's fill is never covered by another's edge. */
+  private logisticsGlyph(gx: number, gy: number, color: string): void {
+    const { ctx } = this;
+    const k = GLYPH_PX / 24;
+    const trace = (poly: readonly (readonly [number, number])[]): void => {
+      ctx.beginPath();
+      poly.forEach(([px, py], i) => (i === 0 ? ctx.moveTo : ctx.lineTo).call(ctx, gx + px * k, gy + py * k));
+      ctx.closePath();
+    };
+    const polys = logisticsPolygons();
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.setLineDash([]);
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = this.chrome.markEdge;
+    ctx.lineWidth = GLYPH_EDGE;
+    for (const poly of polys) {
+      trace(poly);
+      ctx.stroke();
+    }
+    ctx.fillStyle = color;
+    for (const poly of polys) {
+      trace(poly);
+      ctx.fill();
+    }
     ctx.restore();
   }
 

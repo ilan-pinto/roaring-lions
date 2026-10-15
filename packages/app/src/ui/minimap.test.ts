@@ -36,6 +36,9 @@ import {
   MINIMAP_SIZE,
   RING_BY_TIER,
   objectiveMarks,
+  incomeMarks,
+  GLYPH_PX,
+  GLYPH_INSET,
   RING_REDUCED_INWARD_AT,
   ringRadius,
   ringStyle,
@@ -60,6 +63,7 @@ import {
   type MinimapPoint,
   type MinimapView,
 } from './minimap';
+import type { IncomeView, IncomeZoneState, IncomeZoneView } from './income-view';
 
 // --- the recording context ------------------------------------------------
 
@@ -1761,5 +1765,166 @@ describe('suspected and identified contacts (VR-36)', () => {
     mount(() => true, { sim });
     expect(recorder.dots().filter((d) => d.style === 'red').map((d) => d.shape)).toEqual(['triangle']);
     expect(recorder.strokes().filter((k) => k.style === 'red')).toEqual([]);
+  });
+});
+
+
+// --- S-F F2 Z-B: held income ground on the minimap ---------------------------
+
+function incomeZone(id: string, state: IncomeZoneState, rect: IncomeZoneView['rect']): IncomeZoneView {
+  return { id, rect, ratePerMin: 20, paysPerMin: state === 'held' ? 20 : 0, state, cut: null, route: null, cutSpan: null };
+}
+function incomeView(zoneViews: IncomeZoneView[]): IncomeView {
+  return { base: 100, zones: 0, total: 100, halved: false, halvedBy: null, zoneViews, convoy: null };
+}
+
+describe('income marks (Z-B)', () => {
+  it('mark each income zone in the state the view gives, with the logistics glyph', () => {
+    const marks = incomeMarks(
+      incomeView([incomeZone('hamlet', 'held', [18, 25, 14, 11]), incomeZone('yard', 'contested', [4, 10, 6, 4])]),
+      new Set()
+    );
+    expect(marks.map((m) => [m.state, m.glyph, m.rect])).toEqual([
+      ['held', true, [18, 25, 14, 11]],
+      ['contested', true, [4, 10, 6, 4]],
+    ]);
+    expect(marks[0]?.at).toEqual({ x: 25, y: 30.5 });
+  });
+
+  it('wears the world\'s own style for the state: dashed and pulsing unless held', () => {
+    for (const state of ['held', 'unheld', 'contested'] as const) {
+      const m = incomeMarks(incomeView([incomeZone('z', state, [4, 10, 6, 4])]), new Set())[0];
+      expect(m?.state).toBe(state);
+      expect(zoneMarkStyle(m?.state ?? 'held').dashed).toBe(state !== 'held');
+    }
+  });
+
+  it('skips a zone an active objective already draws', () => {
+    const marks = incomeMarks(
+      incomeView([incomeZone('a', 'held', [4, 10, 6, 4]), incomeZone('b', 'held', [20, 4, 3, 3])]),
+      new Set(['b'])
+    );
+    expect(marks).toHaveLength(1);
+    expect(marks[0]?.rect).toEqual([4, 10, 6, 4]);
+  });
+
+  it('is empty with no view', () => {
+    expect(incomeMarks(null, new Set())).toEqual([]);
+  });
+
+  it('leaves the objective marks without a glyph', () => {
+    expect(objectiveMarks([{ status: 'active', zone: 'west_approach', type: 'hold_for' }], makeMap())[0]?.glyph).toBeUndefined();
+  });
+});
+
+describe('income marks are drawn with the glyph in the corner (Z-B)', () => {
+  const RECT = [18, 25, 14, 11] as const;
+  const map = (): MinimapMap => makeMap({ zones: { hamlet: [...RECT] } });
+  const draw = (state: IncomeZoneState, over: Partial<MinimapDeps> = {}) => {
+    recorder.ops.length = 0;
+    return mount(() => true, { map: map(), income: () => incomeView([incomeZone('hamlet', state, [...RECT])]), ...over });
+  };
+  /** The design sheet's `logistics` body, the three rectangles, on its 24-box. */
+  const SHEET: readonly (readonly [number, number, number, number])[] = [
+    [1.5, 13, 10.75, 22],
+    [13.25, 13, 22.5, 22],
+    [7.4, 2.5, 16.6, 10.5],
+  ];
+  /** Filled paths inside the zone's top-left glyph box: nothing else is drawn there. */
+  const glyphPaths = () => {
+    const c = tileToBox(minimapProjection(W, W, MINIMAP_SIZE), RECT[0], RECT[1]);
+    const lim = GLYPH_INSET + GLYPH_PX + 1;
+    return recorder
+      .paths()
+      .filter((p) => p.points.length === 4 && p.points.every(([x, y]) => x >= c.x && x <= c.x + lim && y >= c.y && y <= c.y + lim));
+  };
+
+  it('fills the logistics symbol, inset in the zone\'s top-left corner', () => {
+    draw('held');
+    const p = minimapProjection(W, W, MINIMAP_SIZE);
+    const corner = tileToBox(p, RECT[0], RECT[1]);
+    const gx = corner.x + GLYPH_INSET;
+    const gy = corner.y + GLYPH_INSET;
+    const k = GLYPH_PX / 24;
+    const want = SHEET.map(([x0, y0, x1, y1]): [number, number][] => [
+      [gx + x0 * k, gy + y0 * k],
+      [gx + x1 * k, gy + y0 * k],
+      [gx + x1 * k, gy + y1 * k],
+      [gx + x0 * k, gy + y1 * k],
+    ]);
+    const got = glyphPaths();
+    expect(got).toHaveLength(3);
+    got.forEach((g, i) => {
+      g.points.forEach((pt, j) => {
+        expect(pt[0]).toBeCloseTo(want[i][j][0], 1);
+        expect(pt[1]).toBeCloseTo(want[i][j][1], 1);
+      });
+    });
+  });
+
+  it('is 11 px, and outlined in the mark edge under the fill', () => {
+    expect(GLYPH_PX).toBe(11);
+    const { minimap } = draw('held');
+    const edge = 'EDGE';
+    const live = 'LIVE';
+    (minimap as unknown as { chrome: Record<string, string> }).chrome = { ...(minimap as unknown as { chrome: Record<string, string> }).chrome, markEdge: edge, held: live };
+    recorder.ops.length = 0;
+    minimap.onTick();
+    const outlines = recorder.strokes().filter((s) => s.width === 1.4);
+    expect(outlines).toHaveLength(3);
+    expect(outlines.every((s) => s.style === edge)).toBe(true);
+    expect(glyphPaths().every((g) => g.style === live)).toBe(true);
+    const firstFill = recorder.ops.indexOf(glyphPaths()[0]);
+    const lastOutline = recorder.ops.map((o) => (o.kind === 'stroke' && o.width === 1.4 ? 1 : 0)).lastIndexOf(1);
+    expect(lastOutline).toBeLessThan(firstFill);
+  });
+
+  it('takes the colour of its state', () => {
+    for (const [state, key] of [['held', 'held'], ['unheld', 'unheld'], ['contested', 'contested']] as const) {
+      const { minimap } = draw(state);
+      const c = minimap as unknown as { chrome: Record<string, string> };
+      c.chrome = { ...c.chrome, held: 'H', unheld: 'U', contested: 'C' };
+      recorder.ops.length = 0;
+      minimap.onTick();
+      const want = { held: 'H', unheld: 'U', contested: 'C' }[key];
+      expect(glyphPaths().map((g) => g.style), state).toEqual([want, want, want]);
+      document.body.innerHTML = '';
+    }
+  });
+
+  it('draws the zone\'s own rectangle, dashed only while it is not held', () => {
+    const edge = (state: IncomeZoneState): number[][] => {
+      draw(state);
+      const want = rectAt(RECT[0], RECT[1], RECT[2], RECT[3]);
+      return recorder
+        .strokes()
+        .filter((k) => k.width === 2 && k.points.length === 4 && k.points.every((q, i) => Math.abs(q[0] - want[i][0]) < 1e-6 && Math.abs(q[1] - want[i][1]) < 1e-6))
+        .map((k) => k.dash);
+    };
+    expect(edge('held')).toEqual([[]]);
+    expect(edge('unheld')).toEqual([[3, 2]]);
+    expect(edge('contested')).toEqual([[3, 2]]);
+  });
+
+  it('draws one zone once when an objective already has it', () => {
+    draw('held', { objectives: () => [{ status: 'active', zone: 'hamlet', type: 'hold_for' }] });
+    expect(glyphPaths()).toHaveLength(0);
+    const want = rectAt(RECT[0], RECT[1], RECT[2], RECT[3]);
+    expect(
+      recorder.strokes().filter((k) => k.width === 2 && k.points.length === 4 && k.points.every((q, i) => Math.abs(q[0] - want[i][0]) < 1e-6 && Math.abs(q[1] - want[i][1]) < 1e-6))
+    ).toHaveLength(1);
+  });
+
+  it('draws nothing more than before for a mission with no income view (Review Focus 1)', () => {
+    const opsOf = (over: Partial<MinimapDeps>): string => {
+      recorder.ops.length = 0;
+      mount(() => true, { objectives: () => [{ status: 'active', zone: 'west_approach', type: 'hold_for' }], ...over });
+      // A blit's `srcId` is minted per canvas, so it differs between two mounts; every mark does not.
+      return JSON.stringify(recorder.ops.filter((o) => o.kind !== 'drawImage'));
+    };
+    const without = opsOf({});
+    expect(opsOf({ income: () => null })).toBe(without);
+    expect(opsOf({ income: () => incomeView([]) })).toBe(without);
+    expect(glyphPaths()).toHaveLength(0);
   });
 });

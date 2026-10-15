@@ -4,7 +4,8 @@
 // JSON. The app owns the real-time loop: the sim ticks at a fixed 20 Hz from
 // an accumulator; the renderer interpolates between ticks (invariant 1).
 
-import { objectiveZonesFor } from './objective-zones';
+import { activeObjectiveZoneNames, incomeZonesFor, objectiveZonesFor } from './objective-zones';
+import { incomeViewOf, type IncomeView } from './ui/income-view';
 import { activeRefuge, evacuationTargets, refugePoint, withEvacuationProgress } from './evacuation';
 import { unitsJustOutside, withOutsideCounts } from './hold-outside';
 import {
@@ -1961,6 +1962,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // ticks between two looks.
   let stall = stallStart(0);
   let stallActive = false;
+  /** S-F F2: held-ground income as presentation data, taken ONCE per 5-tick HUD
+   *  beat (the zone write below) and read by the minimap, and by the strip, tip,
+   *  alerts and world route as they land. Null for a mission with no income
+   *  zones and no convoy -- every shipped mission today. */
+  let income: IncomeView | null = null;
   let missionFailure: string | null = null;
   /** No refuge, no flight: `CivilianFlight.step` is never run without one. */
   const civWatch = refugeAt
@@ -3599,6 +3605,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // A thunk: objectives complete and drop off mid-mission, and a sandbox
     // has none at all.
     objectives: () => runtime?.objectiveList ?? [],
+    // S-F F2 Z-B: held income ground, from the HUD beat's one view.
+    income: () => income,
     // GH-279: the refuge, only while an evacuation is still being scored.
     refuge: () => (runtime ? activeRefuge(runtime.objectiveList, evacTargets, refugeAt) : null),
     // The map's own lit ground, photographed by the renderer (Task 15).
@@ -5553,7 +5561,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       renderer.objectiveZone = rect ?? null;
       renderer.objectiveZoneState =
         timed?.paused === 'contested' ? 'contested' : timed?.paused === 'unheld' ? 'unheld' : 'held';
-      renderer.objectiveZones = objectiveZonesFor(runtime.objectiveList, map.zones);
+      income = incomeViewOf(runtime);
+      renderer.objectiveZones = [
+        ...objectiveZonesFor(runtime.objectiveList, map.zones),
+        ...incomeZonesFor(income, activeObjectiveZoneNames(runtime.objectiveList)),
+      ];
     }
     if (tut && tut.index !== telemetryTutIndex) {
       telemetryTutIndex = tut.index;
