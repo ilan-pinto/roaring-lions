@@ -59,6 +59,7 @@
     "@types/pngjs": "^6.0.5",
     "@types/ws": "8.18.2",
     "draco3dgltf": "^1.5.7",
+    "jpeg-js": "0.4.4",
     "meshoptimizer": "1.1.1",
     "pixelmatch": "^7.2.0",
     "playwright": "^1.64.0",

@@ -67,6 +67,12 @@ export interface RosterCarryoverDeps {
    *  with this id, and roster rule R-2 runs: see `isReplayed`. Without it
    *  (an older caller) neither happens. */
   missionId?: string;
+  /** The unit TYPES this run lent (GH-183 F3, L-1; final review F1, C-R11): the types of
+   *  the placements `loanedPlacements` marked on loan, over the resolved mission. A loaned
+   *  survivor never comes home (`checkEnd` skips it), so there is no fresh body to replace
+   *  an earlier one -- R-2 therefore never replaces an earlier enlisted body whose type is
+   *  in here. Absent (every other caller): R-2 is exactly as before. */
+  lentTypes?: ReadonlySet<string>;
 }
 
 /**
@@ -87,8 +93,19 @@ export interface RosterCarryoverDeps {
  *
  * The replaced are dropped, not stood down: they are the duplicate this rule
  * exists to stop. A defeat writes nothing at all, so it replaces nothing.
+ *
+ * **Except a type this run LENT** (`lentTypes`, F3 L-1, final review F1): a loaned
+ * survivor goes back to the lender and brings nothing home, so there is no duplicate to
+ * stop -- dropping the earlier body would delete an earned unit and replace it with
+ * nothing (a Conduct dip between two wins, or a save from before L-1). It stays.
  */
-export function isReplayed(entry: RosterEntry, missionId: string, fieldedThisRun: boolean): boolean {
+export function isReplayed(
+  entry: RosterEntry,
+  missionId: string,
+  fieldedThisRun: boolean,
+  lentTypes?: ReadonlySet<string>,
+): boolean {
+  if (lentTypes?.has(entry.type) === true) return false;
   return !fieldedThisRun && entry.enlisted === missionId && (entry.missions ?? 0) <= 1;
 }
 
@@ -206,8 +223,8 @@ export function applyRosterCarryover(
   // which is what `fieldedThisRun` reads. After the replacement rows, which
   // only ever name a body fresh this run -- never one this drops.
   const missionId = deps.missionId;
-  const active = missionId === undefined ? named.roster : named.roster.filter((e, i) => !isReplayed(e, missionId, rosterIn[i].slot === undefined));
-  const reserveKept = missionId === undefined ? reserveIn : reserveIn.filter((e) => !isReplayed(e, missionId, false));
+  const active = missionId === undefined ? named.roster : named.roster.filter((e, i) => !isReplayed(e, missionId, rosterIn[i].slot === undefined, deps.lentTypes));
+  const reserveKept = missionId === undefined ? reserveIn : reserveIn.filter((e) => !isReplayed(e, missionId, false, deps.lentTypes));
   const split = splitRoster(active, reserveKept, deps.cap ?? ROSTER_CAP);
 
   // Key order matters to the bytes on disk: the keys are assigned in the order
