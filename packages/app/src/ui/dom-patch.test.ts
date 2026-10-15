@@ -72,4 +72,18 @@ describe('patchChildren', () => {
     patchChildren(el, '<button data-tip="k">y</button>');
     expect(b.getAttribute('aria-describedby')).toBe('tip-1');
   });
+
+  it('a node whose data-tip differs is replaced, not patched (present vs absent included)', () => {
+    const el = host('<span data-tip="pinned" tabindex="0">a</span><span data-tip="x">b</span>');
+    const [a, b] = [...el.children];
+    expect(patchChildren(el, '<span>a</span><span data-tip="y">b</span>')).toBe(true);
+    expect(el.children[0]).not.toBe(a);
+    expect(el.children[0].hasAttribute('data-tip')).toBe(false);
+    expect(el.children[1]).not.toBe(b);
+    expect(el.children[1].getAttribute('data-tip')).toBe('y');
+    // Same key: still kept.
+    const kept = el.children[1];
+    patchChildren(el, '<span>a</span><span data-tip="y">c</span>');
+    expect(el.children[1]).toBe(kept);
+  });
 });

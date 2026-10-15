@@ -2967,6 +2967,43 @@ describe('"On loan" on the card and the chip (F3 Task 8, C2)', () => {
     expect(r.host.querySelector<HTMLElement>('.rl-tip')?.hidden).toBe(true);
   });
 
+  it('closes the tip of a hovered flag that stops being that flag (no stale tip or aria-describedby)', () => {
+    const world = makeForce();
+    world.sim.state.pinned[world.namer] = 1;
+    const r = clusterRig(() => [world.namer], {}, world);
+    const flag = r.host.querySelector<HTMLElement>('.rl-card [data-tip="pinned"]')!;
+    flag.dispatchEvent(new Event('mouseover', { bubbles: true }));
+    const tipEl = r.host.querySelector<HTMLElement>('.rl-tip')!;
+    expect(tipEl.hidden).toBe(false);
+    expect(flag.getAttribute('aria-describedby')).toBe(tipEl.id);
+    // Recovers to "Suppressed": a state span stays at the same place, with no tip.
+    world.sim.state.pinned[world.namer] = 0;
+    world.sim.state.suppression[world.namer] = Math.round(0.62 * 65536);
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(r.host.querySelector('.rl-card__cond')?.textContent).toContain('Suppressed');
+    expect(r.host.querySelector('.rl-card [data-tip="pinned"]')).toBeNull();
+    expect(tipEl.hidden).toBe(true);
+    expect(r.host.querySelector('.rl-card [aria-describedby]')).toBeNull();
+  });
+
+  it('patches the same unit’s card in place (the hp fill is reused) but replaces the card for a different unit', () => {
+    const world = makeForce();
+    let pick = world.namer;
+    const r = clusterRig(() => [pick], { isOnLoan: lent(world.namer, world.at) }, world);
+    const fill = (): Element => r.host.querySelector('.rl-card .rl-track > i')!;
+    const stamp = (): Element => r.host.querySelector('.rl-card .rl-loan')!;
+    const fill0 = fill();
+    const stamp0 = stamp();
+    world.sim.state.hp[world.namer] = Math.round(world.sim.state.hp[world.namer] / 2);
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(fill()).toBe(fill0);
+    expect((fill() as HTMLElement).style.width).toBe('50%');
+    pick = world.at;
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(fill()).not.toBe(fill0);
+    expect(stamp()).not.toBe(stamp0);
+  });
+
   it('gives a lent chip the tab on its frame, and a chip with none lent nothing', () => {
     const world = makeForce();
     const r = clusterRig(

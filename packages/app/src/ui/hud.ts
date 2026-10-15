@@ -458,6 +458,11 @@ export class Hud {
    *  it may PATCH them in place (card over card) or must assign `innerHTML`
    *  (anything else: first render, after chips, after an empty selection). */
   private clusterShows: 'card' | 'chips' | null = null;
+  /** The unit id the cluster's card was last drawn for. A card is patched only
+   *  for the SAME unit: a different unit gets a fresh `innerHTML`, so the hp
+   *  fill (which eases its width) does not slide from one unit's health to
+   *  another's. */
+  private clusterCardUnit = -1;
   /** The chip row's own data from the last `renderChips`, so the delegated
    *  chip tooltip (bound once, in the constructor) can look a hovered chip's
    *  name and count back up by `data-tip` at SHOW time, rather than needing
@@ -2103,6 +2108,7 @@ export class Hud {
       this.cluster.style.display = 'none';
       this.chipTypes = [];
       this.clusterShows = null;
+      this.clusterCardUnit = -1;
       return;
     }
     const wasHidden = this.cluster.style.display === 'none';
@@ -2123,13 +2129,14 @@ export class Hud {
       const held = active !== null && this.cluster.contains(active) ? active.getAttribute('data-tip') : null;
       const tipWasOpen = held !== null && active !== null && active.hasAttribute('aria-describedby');
       const html = this.cardHtml(sel[0]);
-      if (this.clusterShows === 'card') patchChildren(this.cluster, html);
+      if (this.clusterShows === 'card' && this.clusterCardUnit === sel[0]) patchChildren(this.cluster, html);
       else this.cluster.innerHTML = html;
       this.clusterShows = 'card';
+      this.clusterCardUnit = sel[0];
       // "Survived" means the focused node is still in the cluster AND still
-      // the same flag. A positional patch can keep a node while giving it a
-      // different job (a callsign inserted above the stamp shifts every
-      // sibling down one place), so the key is checked too.
+      // the same flag. Since `patchChildren` treats `data-tip` as identity a
+      // kept node cannot change key, so the key check is belt-and-braces for a
+      // real browser's lazy focus fix-up (a node that lost its tabindex).
       const now = document.activeElement;
       const survived = now !== null && this.cluster.contains(now) && now.getAttribute('data-tip') === held;
       if (held !== null && !survived) {

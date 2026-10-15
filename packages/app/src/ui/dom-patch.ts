@@ -9,7 +9,7 @@
 //
 // Positional, no keys: child N of the target is compared with child N of the
 // new markup. Same node type and same tag -> the node is kept and patched;
-// otherwise that one node is replaced. An inserted or removed child therefore
+// otherwise (or when its `data-tip` differs) that one node is replaced. An inserted or removed child therefore
 // shifts everything after it, and those nodes are replaced too -- the right
 // trade for markup whose shape is stable and whose values change.
 
@@ -20,14 +20,20 @@
  *  association with the node it describes. If the html itself ever names one,
  *  it is written like any other attribute. Add to this list, never special-case
  *  a caller. */
-const BROWSER_OWNED_ATTRIBUTES: ReadonlySet<string> = new Set(['aria-describedby']);
+const EXTERNALLY_OWNED_ATTRIBUTES: ReadonlySet<string> = new Set(['aria-describedby']);
 
 function sameKind(a: Node, b: Node): boolean {
   if (a.nodeType !== b.nodeType) return false;
   if (a.nodeType !== Node.ELEMENT_NODE) return true;
   const x = a as Element;
   const y = b as Element;
-  return x.localName === y.localName && x.namespaceURI === y.namespaceURI;
+  if (x.localName !== y.localName || x.namespaceURI !== y.namespaceURI) return false;
+  // A tipped node's `data-tip` is its IDENTITY: the tooltip machinery anchors
+  // on the node and re-points only when the anchor leaves the document, so a
+  // kept node that silently became a different flag (or stopped being one)
+  // would keep showing the old flag's tip and `aria-describedby`. Present vs
+  // absent counts as different.
+  return x.getAttribute('data-tip') === y.getAttribute('data-tip');
 }
 
 function patchAttributes(target: Element, source: Element): boolean {
@@ -39,7 +45,7 @@ function patchAttributes(target: Element, source: Element): boolean {
     wrote = true;
   }
   for (const attr of Array.from(target.attributes)) {
-    if (source.hasAttribute(attr.name) || BROWSER_OWNED_ATTRIBUTES.has(attr.name)) continue;
+    if (source.hasAttribute(attr.name) || EXTERNALLY_OWNED_ATTRIBUTES.has(attr.name)) continue;
     target.removeAttribute(attr.name);
     wrote = true;
   }
@@ -80,7 +86,7 @@ function patchNodes(target: Node, source: Node): boolean {
  *
  *  `html` is parsed in an inert `<template>`: no script runs and no image loads
  *  until a node is actually inserted. `aria-describedby` is never removed (see
- *  `BROWSER_OWNED_ATTRIBUTES`). */
+ *  `EXTERNALLY_OWNED_ATTRIBUTES`). */
 export function patchChildren(target: Element, html: string): boolean {
   const template = document.createElement('template');
   template.innerHTML = html;
