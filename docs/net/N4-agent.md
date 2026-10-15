@@ -2,8 +2,9 @@
 
 `pnpm agent` is a headless client of one versus room that an AI model drives over
 MCP (stdio). Two uses, below: an **advisor** that sits beside your seat, and a
-**bot** that takes the second seat. The two further sections (the arena and its
-results) arrive with N4b.
+**bot** that takes the second seat. `pnpm arena` (section 3) plays two players
+against each other on your own machine and scores them; section 4 says what
+the harness trusts and what it does not.
 
 Every example uses `https://<your-worker>` for the deployed game and `ABC123` for
 the room code. Put your own in; never paste a real ticket anywhere that is
@@ -18,9 +19,9 @@ veto it; the other seat is told you have an advisor.
 
 1. Open a versus room as usual (menu → **Play with a friend**). In the lobby,
    under **Invite an advisor**, pick **Advise** (talk and ping only) or
-   **Assist** (also proposes orders), then press **Copy ticket**. The ticket
-   goes to your clipboard only; it is never shown on the page or put in the
-   command.
+   **Assist** (also proposes orders), press **Get advisor ticket**, then
+   **Copy ticket**. The ticket goes to your clipboard only; it is never shown
+   on the page or put in the command the lobby prints.
 2. Save the ticket into a private file outside the repo, readable by you alone:
 
    ```sh
@@ -114,3 +115,109 @@ should wait.
 Closing the agent, or the MCP client that owns it, mid-match sends `bye`, which
 the room reads as a **surrender**: you win. To walk away from a bot without
 that, use the game's own surrender or leave instead.
+
+## 3. The arena
+
+`pnpm arena` plays one player against another over a set of seeds and scores
+them. It runs **entirely on your machine**: each game gets its own local relay,
+the real Worker routes and the real `MatchRoom` on `127.0.0.1` with an
+OS-assigned port. It writes no rows, needs no secret (the relay mints a fresh
+ticket secret in memory and never logs or stores it) and uses no network beyond
+loopback. Run it from a checkout; nothing is deployed and nothing remote is
+touched.
+
+```sh
+pnpm arena -- --a rush --b passive --seeds 10 --map tel_marum --pace 60
+```
+
+- **Players.** `passive` (never orders anything) and `rush` (attack-moves its
+  idle units at home on the enemy it can see, else on the enemy camp, and never
+  breaks off a fight it is in) are the two scripted, fog-respecting controls
+  (decision D8). They are controls, not a strong AI. Anything else is
+  `cmd:<template>`, below.
+- **Games.** Seed *n* is `1000 + 7919 n`, and every seed is played twice with
+  the seats swapped, so `--seeds 10` is twenty games. The room is **paced**:
+  every `--pace` ticks (default 60, three seconds of game) it waits for each bot
+  seat to end its round, for at most `--round-wall-ms` (default 120,000). A
+  model therefore gets the same number of decisions whatever its latency.
+- **Where a game ends.** Annihilation, stalemate, or the arena's cap
+  (`--cap-ticks`, default 12,000 ticks, ten minutes of game), where the game is
+  settled the way the room settles its own 25-minute cap: the larger surviving
+  force value wins, equal values draw.
+- **Maps.** Only what a room would host: `--map` must be a versus map and
+  `--matchup` (default `mirror`; `kdf` and `sarim` where offered) a pairing that
+  map offers. Anything else exits 2 before a relay starts.
+- **Score.** `(wins + ½ draws) / non-void games`, reported overall, per seat and
+  per faction (decision D7), with the scoreboard (units lost and destroyed, with
+  their value, and the force left) in place of Conduct, which a versus room does
+  not have. A game is **void** when the room reports a desync (`void/desync`),
+  when the two sims it was judged by disagree about the result
+  (`void/disagree`), when the room ended without a result, or when a game ran
+  past its wall-time backstop (`void/timeout`). A void is a result of the arena,
+  not a failure: the exit code is 0 unless a game could not be played at all.
+- **Results** go to `arena-results/` in the directory you ran pnpm from (or
+  `--out <dir>`): `<date>-<a>-vs-<b>.jsonl`, one record per game appended as it
+  ends, and `.md`, the tables. An existing pair is never overwritten; the new
+  one gets `-2`, `-3`. stdout carries the two paths and the tally; every log
+  line goes to stderr.
+
+### A model as a player
+
+```sh
+pnpm arena -- --a "cmd:<your MCP client command with {mcp} and < {prompt}>" --b rush \
+  --seeds 10 --map tel_marum --pace 60
+```
+
+For each game the arena starts that command once per external seat, with:
+
+- `{mcp}`: the path of an MCP config that starts this checkout's harness in
+  `command` scope on the arena's room (the server is named `lions`);
+- `{prompt}`: the path of the standing prompt (the game in ten lines, the
+  tools, the loop, the fog rule, the order cadence), with the seat filled in;
+- `{seat}` and `{code}`: the seat (0 or 1) and the room code;
+- `< {prompt}` as its own token: the prompt file becomes the command's stdin.
+
+Any other `{name}` is refused. The template is split into arguments by the
+arena itself and **never passed through a shell**: quotes group words, but
+`$VAR`, `$(...)`, backquotes, `;`, `|`, `>` and globs reach the command as
+literal text. The command starts in the directory you ran pnpm from.
+
+The three files live in a fresh temporary directory (mode 0700, files 0600)
+that is removed when the command exits; the seat's ticket is only ever in that
+directory's `ticket` file, never in an argument, the environment or a log. The
+command's stdout and stderr go to `<out>/<date>-<a>-vs-<b>-game<n>-seat<s>.log`.
+
+**The arena passes your environment through unchanged and never reads a
+key.** Whatever authentication your MCP client uses stays yours. Its token use
+is reported when the command's last stdout line is JSON with
+`usage.input_tokens` and `usage.output_tokens`; it is never scored.
+
+With Claude Code, for example:
+
+```sh
+pnpm arena -- --a "cmd:claude -p --model <model-id> --mcp-config {mcp} --output-format json --allowedTools mcp__lions__* < {prompt}" \
+  --b rush --seeds 10 --map tel_marum --pace 60
+```
+
+Two things to know about external players:
+
+- **When neither seat is in this process** (`cmd:` against `cmd:`), the arena
+  watches the game through an **observer**: seat 0's own advisor, in `advise`
+  scope, which keeps its own sim in step from the frames and sends nothing that
+  touches the match. Such a game is judged by that one sim, so it cannot read
+  `void/disagree`; a desync between the two players is still caught by the
+  room's own hash check, which voids the game.
+- **A game decided at the cap** stops the in-process side at once, but gives an
+  external command a grace period (10 s) to finish by itself and print its
+  usage line before it is stopped (then terminated, then killed). The model
+  plays and spends tokens during that grace.
+
+## 4. What the harness trusts
+
+- **The `Origin` header** (decision D9): the harness sends the server's own
+  origin, because the room requires one; it is a browser's cross-site guard,
+  not authentication, and the seat ticket is what admits you.
+- **Fog is a courtesy** (decision D10): the harness shows the model only what
+  its side sees, but every socket receives the full frame stream, so a modified
+  harness could see through fog exactly as a modified browser could; versus is
+  for friends (decision 22).
