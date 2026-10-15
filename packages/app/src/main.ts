@@ -85,7 +85,7 @@ import {
 import './ui/theme.css';
 import { Hud, type HudCommanderInfo, type MissionView, type OrderHandlers, type Tone } from './ui/hud';
 import { hintFor, loadSeen, markSeen } from './ui/hint-model';
-import { createShownTimer, loadHintsSeen, markHintSeen, owedRule, type HintContext } from './ui/hint-rules';
+import { createShownTimer, hasIncomeZones, loadHintsSeen, markHintSeen, owedRule, type HintContext } from './ui/hint-rules';
 import { portraitIds, unitIcon, unitPlate } from './ui/portrait';
 import { trackCloseup } from './ui/garage-closeup';
 import { Minimap, MINIMAP_SIZE, flipRows } from './ui/minimap';
@@ -3043,6 +3043,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     const ctx: HintContext = {
       missionId: mission.id,
       hasResources: mission.resources !== undefined,
+      hasIncomeZones: hasIncomeZones(mission),
       selectedCount: sel.length,
       selectedTypes: () => new Set(sel.map((i) => sim.unitTypes[sim.state.typeIdx[i]].id)),
       forceSize: () => {

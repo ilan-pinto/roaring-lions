@@ -21,6 +21,8 @@ import type { StorageLike } from '../brigade-account';
 export interface HintContext {
   missionId: string;
   hasResources: boolean;
+  /** The mission authors a non-empty `resources.income_zones` (`hasIncomeZones`). */
+  hasIncomeZones: boolean;
   selectedCount: number;
   selectedTypes: () => ReadonlySet<string>;
   forceSize: () => number;
@@ -28,10 +30,17 @@ export interface HintContext {
   enemyPinned: () => boolean;
 }
 
+/** True when the mission authors at least one income zone. Pure, so a test can
+ *  hand it a literal mission. */
+export function hasIncomeZones(mission: { resources?: { income_zones?: readonly unknown[] } }): boolean {
+  return (mission.resources?.income_zones?.length ?? 0) > 0;
+}
+
 /** Every condition a rule declares must hold; a rule with none holds always. */
 export function ruleHolds(r: FirstUseHintRule, c: HintContext): boolean {
   if (r.mission && !r.mission.includes(c.missionId)) return false;
   if (r.resources && !c.hasResources) return false;
+  if (r.income_zones && !c.hasIncomeZones) return false;
   if (r.selected_over !== undefined && !(c.selectedCount > r.selected_over)) return false;
   if (r.selected_type) {
     const have = c.selectedTypes();

@@ -8,6 +8,7 @@
     { "id": "armour_rear", "key": "hud.hint.first.armour_rear", "keys": { "smoke": "smoke" }, "selected_type": ["mbt_lavi"] },
     { "id": "logistics", "key": "hud.hint.first.logistics", "resources": true },
     { "id": "intel", "key": "hud.hint.first.intel", "resources": true },
+    { "id": "income", "key": "hud.hint.first.income", "income_zones": true },
     { "id": "groups", "key": "hud.hint.first.groups", "force_over": 8 }
   ]
 }

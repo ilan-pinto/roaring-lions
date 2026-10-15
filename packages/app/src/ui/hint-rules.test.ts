@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { firstUseHints, type FirstUseHintRule } from '@lions/data';
 import en from '../i18n/en.json';
-import { createShownTimer, HINTS_SEEN_KEY, loadHintsSeen, markHintSeen, owedRule, ruleHolds, type HintContext } from './hint-rules';
+import { createShownTimer, HINTS_SEEN_KEY, loadHintsSeen, markHintSeen, hasIncomeZones, owedRule, ruleHolds, type HintContext } from './hint-rules';
 
 const ctx = (over: Partial<HintContext> = {}): HintContext => ({
   missionId: 'beit_sahwan_2_foothold',
   hasResources: false,
+  hasIncomeZones: false,
   selectedCount: 0,
   selectedTypes: () => new Set(),
   forceSize: () => 4,
@@ -73,6 +74,32 @@ describe('ruleHolds', () => {
     const c = ctx({ missionId: 'other', selectedCount: 5, selectedTypes: () => (asked++, new Set()) });
     ruleHolds({ id: 'x', key: 'hud.hint.first.x', mission: ['beit_sahwan_1_recon'], selected_type: ['sniper_team'] }, c);
     expect(asked).toBe(0);
+  });
+});
+
+describe('income: the held-ground hint', () => {
+  const withZones = { resources: { income_zones: [{ zone: 'z', rate_per_min: 5 }] } };
+  it('holds on a mission that authors income_zones, never on one without', () => {
+    expect(ruleHolds(rule('income'), ctx({ hasIncomeZones: true }))).toBe(true);
+    expect(ruleHolds(rule('income'), ctx({ hasResources: true }))).toBe(false);
+    expect(ruleHolds(rule('income'), ctx())).toBe(false);
+  });
+  it('hasIncomeZones reads a non-empty income_zones array only', () => {
+    expect(hasIncomeZones(withZones)).toBe(true);
+    expect(hasIncomeZones({ resources: { income_zones: [] } })).toBe(false);
+    expect(hasIncomeZones({ resources: {} })).toBe(false);
+    expect(hasIncomeZones({})).toBe(false);
+  });
+  it('fires once: offered when unseen, gone once seen', () => {
+    const c = ctx({ hasResources: true, hasIncomeZones: true });
+    const seen = new Set(['logistics', 'intel']);
+    expect(owedRule(firstUseHints, seen, c)?.id).toBe('income');
+    seen.add('income');
+    expect(owedRule(firstUseHints, seen, c)).toBeNull();
+  });
+  it('is never offered on a mission without zones', () => {
+    const c = ctx({ hasResources: true });
+    expect(owedRule(firstUseHints, new Set(['logistics', 'intel']), c)).toBeNull();
   });
 });
 

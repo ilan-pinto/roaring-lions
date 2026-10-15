@@ -798,6 +798,7 @@
   "hud.hint.first.armour_rear": "armour is thin at the rear: keep its nose to the enemy, and {smoke} lays smoke",
   "hud.hint.first.logistics": "logistics, top of the screen, is what the dock spends on reinforcements",
   "hud.hint.first.intel": "intel, beside it, buys fire support: smoke, mortars, a drone sweep or a precision strike",
+  "hud.hint.first.income": "zones you hold alone pay on top; an enemy inside pays nobody",
   "hud.hint.first.groups": "ctrl + a number binds this selection to a group; the number alone recalls it",
 
   "hud.fire.factor.range": "range",
