@@ -2352,10 +2352,10 @@ describe('intel: earned by watching, spent on certainty (GDD §3)', () => {
 });
 
 describe('the fire-support menu (F1 Task 8, GH-183)', () => {
-  // Approved row, PROVISIONAL until the lead confirms it (fire-support-numbers.md).
+  // Approved row; smoke at 100 by the lead's ruling of 15 Oct (8/40/30; smoke 100; fire-support-numbers.md).
   // Literals on purpose: the test must not read the table it checks.
   const PRICE: Record<SupportKind, number> = {
-    smoke_screen: 60,
+    smoke_screen: 100,
     mortar_barrage: 120,
     drone_sweep: 150,
     air_strike: 250,
@@ -2433,7 +2433,7 @@ describe('the fire-support menu (F1 Task 8, GH-183)', () => {
   it('a refusal on the end of a mission charges nothing', () => {
     const w = menuWorld(1000, { objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 1 }] });
     w.step(3 * TICKS_PER_SECOND);
-    const intel = w.runtime.intel; // the objective's own 30 landed on the way
+    const intel = w.runtime.intel; // the objective's own 40 landed on the way
     expect(intel).toBeGreaterThanOrEqual(1000);
     for (const k of FIRE_SUPPORT_KINDS) expect(w.runtime.requestSupport(k, AT.x, AT.y)).toBe(false);
     expect(w.runtime.intel).toBe(intel);
@@ -2595,11 +2595,11 @@ describe('intel by doing (F1: first identification and objective completion; no 
     const out = w.step(20 * TICKS_PER_SECOND);
     expect(w.sim.contactLevel(0, 1)).toBe(2);
     expect(w.sim.contactLevel(0, 2)).toBe(2);
-    expect(w.runtime.intel).toBe(20);
+    expect(w.runtime.intel).toBe(16);
     const ev = earned(out.mission);
     expect(ev).toHaveLength(2);
     expect(ev.map((e) => e.cause)).toEqual(['identified', 'identified']);
-    expect(ev.map((e) => e.amount)).toEqual([10, 10]);
+    expect(ev.map((e) => e.amount)).toEqual([8, 8]);
     expect(ev.map((e) => e.ref).sort()).toEqual([1, 2]);
     // `at` names the integer tile the enemy stands on.
     const byRef = new Map(ev.map((e) => [e.ref, e.at]));
@@ -2610,7 +2610,7 @@ describe('intel by doing (F1: first identification and objective completion; no 
   it('losing and re-identifying an enemy pays nothing (D3)', () => {
     const w = doingWorld(WATCHED);
     w.step(20 * TICKS_PER_SECOND);
-    expect(w.runtime.intel).toBe(20);
+    expect(w.runtime.intel).toBe(16);
     // Walk away until both contacts are lost, then walk back.
     w.sim.queueCommand({ kind: 'move', ids: [0], x: fx.from(0.5), y: fx.from(1.0) });
     let lost = 0;
@@ -2620,7 +2620,7 @@ describe('intel by doing (F1: first identification and objective completion; no 
       for (const e of se) if (e.kind === 'contact' && e.side === 0 && e.level === 'lost') lost++;
     }
     expect(lost).toBeGreaterThanOrEqual(2);
-    expect(w.runtime.intel).toBe(20);
+    expect(w.runtime.intel).toBe(16);
     w.sim.queueCommand({ kind: 'move', ids: [0], x: fx.from(3.5), y: fx.from(5.5) });
     let again = 0;
     for (let t = 0; t < 60 * TICKS_PER_SECOND; t++) {
@@ -2629,10 +2629,10 @@ describe('intel by doing (F1: first identification and objective completion; no 
       for (const e of se) if (e.kind === 'contact' && e.side === 0 && e.level === 'identified') again++;
     }
     expect(again).toBeGreaterThanOrEqual(1); // identified a second time...
-    expect(w.runtime.intel).toBe(20); // ...and paid nothing for it
+    expect(w.runtime.intel).toBe(16); // ...and paid nothing for it
   });
 
-  it('a completed objective pays 30; a failed one pays nothing (D5)', () => {
+  it('a completed objective pays 40; a failed one pays nothing (D5)', () => {
     const done = doingWorld({
       starting_force: [{ unit: 'm_squad', count: 1, at: [5, 5] }],
       objectives: [
@@ -2641,10 +2641,10 @@ describe('intel by doing (F1: first identification and objective completion; no 
       ],
     });
     const out = done.step(6 * TICKS_PER_SECOND);
-    expect(done.runtime.intel).toBe(30);
+    expect(done.runtime.intel).toBe(40);
     const ev = earned(out.mission);
     expect(ev).toHaveLength(1);
-    expect(ev[0]).toMatchObject({ cause: 'objective', ref: 'short', amount: 30 });
+    expect(ev[0]).toMatchObject({ cause: 'objective', ref: 'short', amount: 40 });
 
     // An evacuation with no one to evacuate fails at its deadline.
     const failed = doingWorld(
@@ -2687,14 +2687,14 @@ describe('intel by doing (F1: first identification and objective completion; no 
       objectives: [{ id: 'work_up', type: 'survive_until', primary: true, seconds: 600 }],
     });
     expect(w.runtime.completeObjective('work_up')).toBe(true);
-    expect(w.runtime.intel).toBe(30);
+    expect(w.runtime.intel).toBe(40);
     const out = w.step(1);
     const ev = earned(out.mission);
     expect(ev).toHaveLength(1);
-    expect(ev[0]).toMatchObject({ cause: 'objective', ref: 'work_up', amount: 30 });
+    expect(ev[0]).toMatchObject({ cause: 'objective', ref: 'work_up', amount: 40 });
     // A second call is refused and pays nothing more.
     expect(w.runtime.completeObjective('work_up')).toBe(false);
-    expect(w.runtime.intel).toBe(30);
+    expect(w.runtime.intel).toBe(40);
   });
 
   it('suspected contacts pay nothing', () => {
@@ -2739,7 +2739,7 @@ describe('intel by doing (F1: first identification and objective completion; no 
       for (const e of se) if (e.kind === 'contact' && e.level === 'identified') sides.push(e.side);
     }
     expect(sides).toContain(1); // the enemy identified the player's unit
-    expect(w.runtime.intel).toBe(10 * sides.filter((s) => s === 0).length);
+    expect(w.runtime.intel).toBe(8 * sides.filter((s) => s === 0).length);
   });
 
   it('an identification with no observer pays nothing (a sweep reveal, D3)', () => {
@@ -2902,12 +2902,12 @@ describe('high ground pays (F1 Task 5, D4)', () => {
     near.sim.queueCommand(mv(0, HOLD_X));
     const nearOut = [...walkOnto(near, 0), ...near.step(2 * HOLD_TICKS).mission];
     expect(rises(nearOut)).toHaveLength(0);
-    expect(near.runtime.intel).toBe(10); // the enemy was identified (and that paid); the rise did not
+    expect(near.runtime.intel).toBe(8); // the enemy was identified (and that paid); the rise did not
     const far = riseWorld(hold({ enemy: tech([18.5, 5.5]) }));
     far.sim.queueCommand(mv(0, HOLD_X));
     const farOut = [...walkOnto(far, 0), ...far.step(2 * HOLD_TICKS).mission];
     expect(rises(farOut)).toHaveLength(1);
-    expect(far.runtime.intel).toBe(10 + 30);
+    expect(far.runtime.intel).toBe(8 + 30);
   });
 
   it('a buried unit earns nothing on a rise', () => {
@@ -4598,7 +4598,7 @@ describe('containment is structural: mission predicates ignore buried bodies', (
   it('a buried drone observes nothing and earns nothing', () => {
     // An enemy stands in the drone's sight (16 tiles). Underground the drone sees
     // none of it, so nothing is identified and nothing is paid; the control, the
-    // same drone on the surface, identifies it and earns the 10. Since F1 Task 3 the
+    // same drone on the surface, identifies it and earns the 8. Since F1 Task 3 the
     // trickle is gone, so without an enemy in sight this test could not fail
     // (it was vacuous until Task 5 gave it one).
     const fixture = (buried: boolean): World =>
@@ -4613,7 +4613,7 @@ describe('containment is structural: mission predicates ignore buried bodies', (
       });
     const surface = fixture(false);
     surface.step(300);
-    expect(surface.runtime.intel).toBe(10); // the control can earn
+    expect(surface.runtime.intel).toBe(8); // the control can earn
     const w = fixture(true);
     w.step(300);
     expect(w.sim.state.tunnelIn[0]).toBe(0);

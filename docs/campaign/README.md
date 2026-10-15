@@ -42,12 +42,12 @@ in step with it.
   one mission.
 - **No base building, no harvester, no credits, no tech tree.** Two resources:
   Logistics (a per-minute rate, spent on production at a `camp` structure the
-  author places) and Intel (earned by doing, with no per-minute term: 10 per enemy
-  first identified by a real observer, 30 per objective completed, 30 per
+  author places) and Intel (earned by doing, with no per-minute term: 8 per enemy
+  first identified by a real observer, 40 per objective completed, 30 per
   high-ground rise held 10 s; `resources.intel_start` is the only authored grant,
   and there is no `intel_rate_per_min`). Intel is fire-support currency only: a
-  smoke screen 60, a mortar barrage 120, a drone sweep 150, an air strike 250
-  (rates and prices provisional, awaiting the lead; GDD §3,
+  smoke screen 100, a mortar barrage 120, a drone sweep 150, an air strike 250
+  (rates and prices ruled by the lead on 15 Oct: 8/40/30, smoke 100; GDD §3,
   `docs/campaign/economy/fire-support-numbers.md`). A drone or a still scout
   no longer earns by standing there: write a recon mission's intel as
   *identifications*, not minutes. 18 of 27 shipped missions declare a

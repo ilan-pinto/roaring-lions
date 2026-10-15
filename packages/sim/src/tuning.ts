@@ -396,9 +396,10 @@ export const FIRE_SUPPORT: readonly FireSupportProfile[] = [
 
 // --- intel earned by doing (F1; GDD §3) --------------------------------------
 /** Intel for the first identification of an enemy by a real observer (once per
- *  enemy per mission, D3). Whole intel points, not Q16.16. The 10/30/30 row is
- *  PROVISIONAL, pending the lead: see docs/campaign/economy/fire-support-numbers.md. */
-export const INTEL_PER_IDENTIFIED = 10;
+ *  enemy per mission, D3). Whole intel points, not Q16.16. The 8/40/30 row is the
+ *  lead's ruling of 15 Oct (8/40/30; smoke 100): see
+ *  docs/campaign/economy/fire-support-numbers.md. */
+export const INTEL_PER_IDENTIFIED = 8;
 /** High ground (F1, D4): how many levels above the map's median open-tile level a
  *  tile must stand to belong to a rise. Two, because a one-level rise sits exactly
  *  at eye level (`EYE_HEIGHT`, 1) and grants no sight. Whole levels, not Q16.16. */
@@ -408,12 +409,13 @@ export const HIGH_GROUND_LEVELS = 2;
  *  = 10 s at 20 Hz. */
 export const HIGH_GROUND_HOLD_TICKS = 200;
 /** Intel for holding a high-ground rise, once per rise per mission (D4). Whole
- *  intel points. The same PROVISIONAL 10/30/30 row as above, pending the lead:
+ *  intel points. The same 8/40/30 row as above (lead ruling 15 Oct; unchanged at 30):
  *  see docs/campaign/economy/fire-support-numbers.md. */
 export const INTEL_PER_RISE = 30;
 /** Intel for completing an objective, primary or secondary (never for a failure, D5).
- *  Same provisional row as above (30 here, not the plan's first-draft 25). */
-export const INTEL_PER_OBJECTIVE = 30;
+ *  Same ruled row as above (lead ruling 15 Oct: 40 here, up from the provisional 30
+ *  and the plan's first-draft 25). */
+export const INTEL_PER_OBJECTIVE = 40;
 
 // --- carriers and munitions -------------------------------------------------
 /** How close a passenger must be to climb aboard: squared tiles, Q16.16. */

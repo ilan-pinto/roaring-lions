@@ -1,5 +1,12 @@
 # Fire support: the numbers, before the code (F1 Task 2, G-NUM)
 
+> **Ruled, 2026-10-15: the lead chose the earn row 8 / 40 / 30 (identified / objective / rise) and a smoke
+> screen at 100.** Barrage 120, sweep 150 and air strike 250 stand. The 8/40/30 row in the tables below
+> is the measurement that backs the ruling (25 of 26 plain winners earn a sweep, 0 passive-beats-winner pairs,
+> `beit_sahwan_breach` passive ahead on 1 of 30 seeds), and every "proposed", "provisional" or 10/30/30 line
+> below is the pre-ruling record and is not rewritten. Shipped: `INTEL_PER_IDENTIFIED` 8, `INTEL_PER_OBJECTIVE` 40,
+> `INTEL_PER_RISE` 30 (`tuning.ts`), `SUPPORT_COST.smoke_screen` 100 (`mission.ts`).
+
 **Date:** 2026-10-14. **Scope:** GH-183 F1, plan `docs/superpowers/plans/2026-10-04-gf1-fire-support-intel.md`,
 Task 2. The earn rule (D1, D3, D4, D5) and the four-item menu (D2), measured before any code reads
 them. **Base:** branch `feat/gf1-fire-support` at `0f78359d` (main `cd407953`, the garrison overhaul

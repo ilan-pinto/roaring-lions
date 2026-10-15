@@ -481,11 +481,11 @@ export const FIRE_SUPPORT_KINDS: readonly SupportKind[] = [
   'air_strike',
 ];
 /** The one price table, keyed by kind. The sweep and the strike are today's two
- *  constants by reference; the smoke screen (60) and the barrage (120) are the
- *  approved row, PROVISIONAL until the lead confirms the G-NUM table
- *  (docs/campaign/economy/fire-support-numbers.md). */
+ *  constants by reference; the smoke screen (100) and the barrage (120) are the
+ *  approved row, smoke at 100 by the lead's ruling of 15 Oct (8/40/30; smoke 100;
+ *  docs/campaign/economy/fire-support-numbers.md). */
 const SUPPORT_COST: Readonly<Record<SupportKind, number>> = {
-  smoke_screen: 60,
+  smoke_screen: 100,
   mortar_barrage: 120,
   drone_sweep: SWEEP_COST,
   air_strike: STRIKE_COST,
