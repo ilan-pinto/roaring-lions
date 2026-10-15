@@ -225,6 +225,21 @@ function nearRoute(route: Int32Array, w: number, px: number, py: number, sq: num
   return false;
 }
 
+/** Widen `span` ([first, last] route indices, -1 = none yet) by every route tile within
+ *  `sq` of (px, py). Same units and test as `nearRoute`. */
+function widenSpan(route: Int32Array, w: number, px: number, py: number, sq: number, span: Int32Array): void {
+  for (let k = 0; k < route.length; k++) {
+    const t = route[k];
+    const tx = t % w;
+    const ty = (t - tx) / w;
+    const dx = ((px - ((tx << 16) + 32768)) >> 8) | 0;
+    const dy = ((py - ((ty << 16) + 32768)) >> 8) | 0;
+    if (dx * dx + dy * dy > sq) continue;
+    if (span[0] < 0 || k < span[0]) span[0] = k;
+    if (k > span[1]) span[1] = k;
+  }
+}
+
 /** A living surface ground unit: the only kind that interdicts or contests. */
 function onGround(view: HoldView, i: number): boolean {
   return view.alive[i] !== 0 && view.tunnelIn[i] < 0 && !view.isAir(i);
@@ -250,19 +265,41 @@ function hostileStocked(view: HoldView & VentView, r: number, enemy: number): bo
  * - 'interdicted': a living surface ground enemy within CORRIDOR_INTERDICT_SQ of a route tile
  *   and no living surface ground unit of the holder within CONTEST_RADIUS_SQ of that enemy
  *   (contested, not cut). Aircraft neither interdict nor contest; civilians never do.
+ *
+ * `span` (A3, C-R15), when given, is a caller-owned Int32Array(2) filled in the same pass with
+ * the first and last indices into `route` of the tiles that make the REPORTED cause: every
+ * route tile within CORRIDOR_VENT_SQ of a qualifying vent for 'vent', within
+ * CORRIDOR_INTERDICT_SQ of an uncontested interdictor for 'interdicted'. -1, -1 when the line
+ * is open or unreachable. Giving it changes nothing about the answer; it only makes the scan
+ * run past the first cause to collect the whole stretch. No allocation.
  */
-export function corridorCut(view: HoldView & VentView, route: Int32Array | null, holder: 0 | 1): CutCause {
+export function corridorCut(
+  view: HoldView & VentView,
+  route: Int32Array | null,
+  holder: 0 | 1,
+  span?: Int32Array,
+): CutCause {
+  if (span !== undefined) {
+    span[0] = -1;
+    span[1] = -1;
+  }
   if (route === null) return 'unreachable';
   const w = view.width;
   const enemy = holder === 0 ? 1 : 0;
 
+  let vent = false;
   for (let r = 0; r < view.tunnelCount; r++) {
     if (view.tnAlive[r] !== 1 || view.tnVentOpen[r] !== 1) continue;
     if (!hostileStocked(view, r, enemy)) continue;
     const v = view.ventAt(r);
-    if (nearRoute(route, w, v[0], v[1], CORRIDOR_VENT_SQ)) return 'vent';
+    if (!nearRoute(route, w, v[0], v[1], CORRIDOR_VENT_SQ)) continue;
+    if (span === undefined) return 'vent';
+    widenSpan(route, w, v[0], v[1], CORRIDOR_VENT_SQ, span);
+    vent = true;
   }
+  if (vent) return 'vent';
 
+  let interdicted = false;
   for (let i = 0; i < view.entityCount; i++) {
     if (view.side[i] !== enemy || !onGround(view, i)) continue;
     if (!nearRoute(route, w, view.posX[i], view.posY[i], CORRIDOR_INTERDICT_SQ)) continue;
@@ -273,7 +310,10 @@ export function corridorCut(view: HoldView & VentView, route: Int32Array | null,
       const dy = ((view.posY[j] - view.posY[i]) >> 8) | 0;
       contested = dx * dx + dy * dy <= CONTEST_RADIUS_SQ;
     }
-    if (!contested) return 'interdicted';
+    if (contested) continue;
+    if (span === undefined) return 'interdicted';
+    widenSpan(route, w, view.posX[i], view.posY[i], CORRIDOR_INTERDICT_SQ, span);
+    interdicted = true;
   }
-  return null;
+  return interdicted ? 'interdicted' : null;
 }

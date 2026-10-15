@@ -423,3 +423,54 @@ describe('corridorCut', () => {
     expect(corridorCut(view(u, v), null, 0)).toBe('unreachable');
   });
 });
+
+// Lane A's A3 (C-R15): which stretch of the route makes the cut, for the HUD to draw. A
+// caller-owned Int32Array(2) out-parameter, filled in the same pass: [first, last] route
+// indices, -1 when there is no span (not cut, or unreachable).
+describe('corridorCut: the cut span (A3, C-R15)', () => {
+  const spanOf = (units: U[], v?: V, route: Int32Array | null = ROUTE): [ReturnType<typeof corridorCut>, number[]] => {
+    const span = new Int32Array([7, 7]); // garbage in: the call must overwrite it
+    const c = corridorCut(view(units, v), route, 0, span);
+    return [c, Array.from(span)];
+  };
+
+  it('one interdictor: the route tiles within 2 tiles of it', () => {
+    // (7.5, 7.0) is 1.5 below the row: tiles x 6..8 are within 2 (route indices 4..6).
+    expect(spanOf([ENEMY_ON_ROUTE])).toEqual(['interdicted', [4, 6]]);
+  });
+
+  it('two interdictors: the span covers both', () => {
+    // (3.5, 5.5) on the row: x 2..5 (indices 0..3).
+    expect(spanOf([ENEMY_ON_ROUTE, { side: 1, x: 3.5, y: 5.5 }])).toEqual(['interdicted', [0, 6]]);
+  });
+
+  it('a contested enemy does not widen the span', () => {
+    // The enemy at (11.5, 5.5) has a friend 3 tiles off; the one at (7.5, 7.0) is 7.2 from it.
+    const units: U[] = [ENEMY_ON_ROUTE, { side: 1, x: 11.5, y: 5.5 }, { side: 0, x: 14.5, y: 5.5 }];
+    expect(spanOf(units)).toEqual(['interdicted', [4, 6]]);
+  });
+
+  it('a vent cut spans the tiles within 3 tiles of the vent, and an interdictor elsewhere does not widen it', () => {
+    // Vent at (7.5, 7.5), 2 below the row: x 5..9 are within 3 (indices 3..7).
+    const [u, v] = vent(1, [{ side: 1, x: 7.5, y: 7.5, buried: 0 }, { side: 1, x: 3.5, y: 5.5 }]);
+    expect(spanOf(u, v)).toEqual(['vent', [3, 7]]);
+  });
+
+  it('no cut and unreachable leave no span', () => {
+    expect(spanOf([])).toEqual([null, [-1, -1]]);
+    expect(spanOf([ENEMY_ON_ROUTE], undefined, null)).toEqual(['unreachable', [-1, -1]]);
+  });
+
+  it('the span changes nothing about the cause', () => {
+    const cases: [U[], V | undefined][] = [
+      [[], undefined],
+      [[ENEMY_ON_ROUTE], undefined],
+      [[ENEMY_ON_ROUTE, { side: 0, x: 7.5, y: 12.0 }], undefined],
+      vent(1, [{ side: 1, x: 7.5, y: 7.5, buried: 0 }, ENEMY_ON_ROUTE]),
+      vent(0, [{ side: 1, x: 7.5, y: 7.5, buried: 0 }, ENEMY_ON_ROUTE]),
+    ];
+    for (const [u, v] of cases) {
+      expect(corridorCut(view(u, v), ROUTE, 0, new Int32Array(2))).toBe(corridorCut(view(u, v), ROUTE, 0));
+    }
+  });
+});

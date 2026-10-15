@@ -35,7 +35,7 @@
 // First Light's passive control is seed-sensitive (see
 // `first_light_fence.test.ts`) and 424242 is the seed its verdict is pinned at.
 
-import { applyTerrain, maps, missions, parseMap, structures as structureCatalogue, units } from '@lions/data';
+import { applyTerrain, maps, missions, parseMap, roadMaskOf, structures as structureCatalogue, units } from '@lions/data';
 import type { ParsedMap } from '@lions/data';
 import {
   MissionRuntime,
@@ -136,6 +136,7 @@ export function missionStage(missionId: string, seed: number = HARNESS_SEED): Mi
     },
     markers: map.markers,
     zones: map.zones,
+    roadMask: roadMaskOf(map),
     tunnels: tunnelRoutes,
     ledger,
     unitInfo: () => null,

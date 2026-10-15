@@ -27,6 +27,7 @@ import {
   structures as structureCatalogue,
   parseMap,
   applyTerrain,
+  roadMaskOf,
   applyUpgrades,
   maxTiers,
 } from '@lions/data';
@@ -324,6 +325,7 @@ export function run(
     typeIdOf: (u) => typeOf.get(u) as number,
     markers: map.markers,
     zones: map.zones,
+    roadMask: roadMaskOf(map),
     tunnels: tunnelRoutes,
     ledger,
     unitInfo: (u) => {

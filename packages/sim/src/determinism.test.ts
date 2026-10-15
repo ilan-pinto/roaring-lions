@@ -999,6 +999,23 @@ describe('determinism of an order once it is done (900-tick replay)', () => {
 // in-test type with no `role` derives wheeled and never braces (halt to fire,
 // 6 Oct), so the squads carry `role: 'infantry'`.
 
+/** What the held-ground state passed through during a replay (F2 Task 7): every zone state
+ *  and every cut cause seen on any tick, read through the runtime's own getters. The coverage
+ *  assertions need a held, a contested and a cut state at least once each, so the pin is over
+ *  states that actually occurred. */
+interface HeldGroundSeen {
+  states: Set<number>;
+  cuts: Set<string>;
+}
+function noteHeldGround(rt: MissionRuntime, seen: HeldGroundSeen): void {
+  for (const z of rt.incomeZones) {
+    seen.states.add(z.state);
+    if (z.cut !== null) seen.cuts.add(`${z.zone}:${z.cut}`);
+  }
+  const c = rt.convoyRoute;
+  if (c !== null && c.cut !== null) seen.cuts.add(`convoy:${c.cut}`);
+}
+
 const ECONOMY_SEED = 0x0e_c0_0001;
 const ECONOMY_TICKS = 2400; // two minutes
 // ECONOMY_PIN: born 2026-10-14 at da74f887 (F1 Task 1, before any economy
@@ -1109,7 +1126,20 @@ const ECO_MISSION: MissionJson = {
   map: { file: 'beit_sahwan_outskirts', player_start: [6, 23] },
   ledger: { requires: [], produces: [] },
   structures: [{ type: 'camp', at: [6, 30], size: [2, 2] }],
-  resources: { logistics_start: 400, logistics_rate_per_min: 120, intel_start: 0 },
+  // F2 Task 7: two income zones and a live convoy. `depot` is held by the starting squad from
+  // the first tick; `crossroads` holds both militia (side 1's) until the attack-move at 1150
+  // contests it; the convoy enters beside the south militia, so it is cut from the start.
+  resources: {
+    logistics_start: 400,
+    logistics_rate_per_min: 120,
+    intel_start: 0,
+    income_zones: [
+      { zone: 'depot', rate_per_min: 30 },
+      { zone: 'crossroads', rate_per_min: 45 },
+    ],
+    supply_corridor: true,
+    supply_entry: 'convoy_entry',
+  },
   // No time_limit_s: the fixture must not withdraw.
   objectives: [
     { id: 'hold_assembly', type: 'hold_for', primary: true, target: 'assembly', seconds: 600 },
@@ -1141,6 +1171,7 @@ interface EconomyRun {
   refusedAnswer: boolean;
   purseBeforeRefusal: number;
   purseAfterRefusal: number;
+  seen: HeldGroundSeen;
 }
 
 /** `extraBuild` buys one `supply_truck` at ECONOMY_EXTRA_BUILD_TICK: delivered
@@ -1165,8 +1196,8 @@ function economyReplay(seed: number, extraBuild = false, popCap: number | null =
       if (t === undefined) throw new Error(`unknown unit ${u}`);
       return t;
     },
-    markers: {},
-    zones: { assembly: [2, 20, 10, 26] },
+    markers: { convoy_entry: [21, 26] },
+    zones: { assembly: [2, 20, 10, 26], depot: [2, 21, 5, 5], crossroads: [10, 18, 14, 12] },
     unitInfo: (u) => info[u] ?? null,
     popCaps: [popCap, null],
   });
@@ -1182,6 +1213,7 @@ function economyReplay(seed: number, extraBuild = false, popCap: number | null =
     refusedAnswer: true,
     purseBeforeRefusal: 0,
     purseAfterRefusal: 0,
+    seen: { states: new Set(), cuts: new Set() },
   };
   const living = (type: string): number[] => {
     const out: number[] = [];
@@ -1220,6 +1252,7 @@ function economyReplay(seed: number, extraBuild = false, popCap: number | null =
     for (const e of rt.step(simEvents)) {
       if (e.kind === 'built') run.built++;
     }
+    noteHeldGround(rt, run.seen);
   }
   run.secondaryDone = rt.objectiveList.find((o) => o.id === 'clear')?.status === 'complete';
   return run;
@@ -1251,6 +1284,16 @@ describe('economy replay (2400 ticks of MissionRuntime on a flat map)', () => {
     expect(r.rt.production.map((p) => p.unit)).toEqual(['supply_truck']);
     // And the run did not end: the fixture is not allowed to withdraw or win.
     expect(r.rt.result).toBe('ongoing');
+  });
+
+  // F2 Task 7: the pin is over held ground that was really held, contested and cut.
+  it('passes through a held, a contested and a cut state', () => {
+    const r = economyReplay(ECONOMY_SEED);
+    expect([...r.seen.states].some((s) => s === 0 || s === 1)).toBe(true);
+    expect(r.seen.states.has(-2)).toBe(true);
+    expect(r.seen.cuts.size).toBeGreaterThan(0);
+    // Side 1 held ground, so its purse (hashed) is not zero.
+    expect(r.rt.logisticsOf(1)).toBeGreaterThan(0);
   });
 
   // F3 Task 4: the pin is over a cap that BINDS. Without this, a fixture whose cap
@@ -1431,7 +1474,24 @@ const RELIEF_ECO_MISSION: MissionJson = {
   id: 'economy_replay_relief',
   map: { file: 'tel_marum', player_start: [24, 44] },
   ledger: { requires: [], produces: [] },
-  resources: { logistics_start: 400, logistics_rate_per_min: 120, intel_start: 0 },
+  // F2 Task 7: two income zones and a live convoy. `bench` is held by C from the first tick;
+  // `basin` holds A and B and the one militia far to the east (out of everyone's sight), so it
+  // is contested until B leaves for the pass, and then side 1 holds it. The convoy enters one
+  // tile from that militia: cut from the start. tel_marum has no roads (D5's flow route).
+  resources: {
+    logistics_start: 400,
+    logistics_rate_per_min: 120,
+    intel_start: 0,
+    income_zones: [
+      { zone: 'bench', rate_per_min: 30 },
+      { zone: 'basin', rate_per_min: 45 },
+    ],
+    supply_corridor: true,
+    supply_entry: 'convoy_entry',
+  },
+  enemy: {
+    garrison: [{ unit: 'militia_cell', count: 1, at: [39, 42], stance: { kind: 'hold_position' } }],
+  },
   // No time_limit_s, and one objective nothing here can complete: the fixture must not end.
   objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
   starting_force: [
@@ -1451,6 +1511,7 @@ interface ReliefEconomyRun {
   purseAfterRefusal: number;
   /** Every `intelEarned` the runtime emitted for a rise: tick, rise id, tile. */
   paid: { tick: number; ref: number | string; x: number; y: number }[];
+  seen: HeldGroundSeen;
 }
 
 /** `bAt` is the tick B is ordered up to the pass; null leaves it where it stands. */
@@ -1471,19 +1532,21 @@ function reliefEconomyReplay(
   }
   const ids = new Map<string, number>();
   ids.set(ECO_SQUAD.id, sim.addUnitType(ECO_SQUAD));
+  ids.set(ECO_MILITIA.id, sim.addUnitType(ECO_MILITIA));
   const rt = new MissionRuntime(sim, RELIEF_ECO_MISSION, {
     typeIdOf: (u) => {
       const t = ids.get(u);
       if (t === undefined) throw new Error(`unknown unit ${u}`);
       return t;
     },
-    markers: {},
-    zones: {},
+    markers: { convoy_entry: [40, 42] },
+    zones: { bench: [18, 25, 13, 2], basin: [6, 36, 36, 12] },
     unitInfo: (u) => (u === 'inf_squad' ? { logistics: 180, buildTimeS: 15, population: 1 } : null),
     popCaps: [popCap, null],
   });
   rt.start();
   const paid: ReliefEconomyRun['paid'] = [];
+  const seen: HeldGroundSeen = { states: new Set(), cuts: new Set() };
   let refusal: string | null = null;
   let refusedByCap = false;
   let refusedAnswer = true;
@@ -1507,6 +1570,7 @@ function reliefEconomyReplay(
         paid.push({ tick: e.tick, ref: e.ref, x: e.at.x, y: e.at.y });
       }
     }
+    noteHeldGround(rt, seen);
   }
   return {
     rt,
@@ -1516,6 +1580,7 @@ function reliefEconomyReplay(
     purseBeforeRefusal: purseBefore,
     purseAfterRefusal: purseAfter,
     paid,
+    seen,
   };
 }
 
@@ -1538,6 +1603,14 @@ describe('economy replay over relief (2400 ticks of MissionRuntime on tel_marum)
     expect(r.rt.intel).toBe(30);
     // And the run did not end.
     expect(r.rt.result).toBe('ongoing');
+  });
+
+  // F2 Task 7: the pin is over held ground that was really held, contested and cut.
+  it('passes through a held, a contested and a cut state', () => {
+    const r = reliefEconomyReplay(RELIEF_ECO_SEED);
+    expect([...r.seen.states].some((s) => s === 0 || s === 1)).toBe(true);
+    expect(r.seen.states.has(-2)).toBe(true);
+    expect(r.seen.cuts.size).toBeGreaterThan(0);
   });
 
   it('the economy hash covers the rise state', () => {

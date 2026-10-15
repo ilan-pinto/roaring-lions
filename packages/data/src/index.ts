@@ -192,6 +192,7 @@ export { videoManifest };
 export {
   parseMap,
   applyTerrain,
+  roadMaskOf,
   DECOR,
   STRUCTURE_SYMBOLS,
   TERRAIN_LEGEND,

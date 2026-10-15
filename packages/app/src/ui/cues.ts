@@ -77,6 +77,8 @@ export const MISSION_EVENT_SOUND: Readonly<Record<MissionEvent['kind'], EventSou
   evacuated: { silent: 'a rescue is counted on the HUD; a cue per civilian reaching the refuge would nag' },
   intelEarned: { silent: 'the strip intel counter shows the total now; the feed will carry each earn from WP-S-F (nothing consumes intelEarned there yet); a chime per identification would nag' },
   say: { silent: 'the story voice owns the commander bar; a cue under it would talk over it' },
+  zoneHolder: { silent: 'until WP-S-F wires the alert (F2 P2-5)' },
+  corridor: { silent: 'until WP-S-F wires the alert (F2 P2-5)' },
 };
 
 /**

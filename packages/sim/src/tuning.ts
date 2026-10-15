@@ -450,3 +450,6 @@ export const CONTEST_RADIUS_SQ = 2359296; // 36 tile^2 = 6 tiles
 export const CORRIDOR_INTERDICT_SQ = 262144; // 4 tile^2 = 2 tiles
 /** An open vent of a hostile-stocked tunnel this near a supply-route tile cuts the corridor (D4 c). */
 export const CORRIDOR_VENT_SQ = 589824; // 9 tile^2 = 3 tiles
+/** How often the mission runtime recomputes every supply route and what cuts it (F2, D4/D5),
+ *  in ticks: once a second. A structure's death and a zone's change of holder recheck at once. */
+export const CORRIDOR_RECHECK_TICKS = 20; // 1 s at 20 Hz

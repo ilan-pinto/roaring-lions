@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fx } from './fixed';
 import { Sim, TICKS_PER_SECOND, type SimEvent, type UnitTypeJson } from './sim';
-import { FS_MORTAR_BARRAGE, FS_SMOKE_SCREEN, STRIKE_DELAY_TICKS } from './tuning';
+import { CORRIDOR_RECHECK_TICKS, FS_MORTAR_BARRAGE, FS_SMOKE_SCREEN, STRIKE_DELAY_TICKS } from './tuning';
 import {
   FIRE_SUPPORT_KINDS,
   MissionRuntime,
@@ -131,6 +131,16 @@ const FOOT_GARRISON: UnitTypeJson = {
   abilities: ['mark_target', 'garrison'],
 };
 
+/** A ground holder for the held-ground cases (F2 Task 7): `role: 'infantry'` (so it is foot,
+ *  not wheeled, #402) and too tough to die by accident in a two-minute run. FOOT_PATROL's
+ *  100000 hp does not fit Q16.16 (it wraps negative and dies on the first hit), so this is its
+ *  own type, appended last so no existing type index moves. */
+const HOLDER: UnitTypeJson = {
+  ...FOOT_PATROL,
+  id: 'm_holder',
+  hull: { hp: 20000, armor: { front: 10, side: 10, rear: 10 } },
+};
+
 /** Every slot the sim could have spawned into. `Sim.count` is private, and the
  *  alive filter each caller applies covers the unspawned tail. */
 function allIds(sim: Sim): number[] {
@@ -152,7 +162,7 @@ function makeWorld(
 ): World {
   const sim = new Sim({ seed: 7, width: 28, height: 12, capacity: 32 });
   const ids = new Map<string, number>();
-  for (const t of [SQUAD, AMBUSHER, RUNNER, TANK, DRONE, CIVILIANS, CARRIER, RIDER, FOOT_PATROL, FOOT_SCOUT, FOOT_GARRISON, HG_AIR])
+  for (const t of [SQUAD, AMBUSHER, RUNNER, TANK, DRONE, CIVILIANS, CARRIER, RIDER, FOOT_PATROL, FOOT_SCOUT, FOOT_GARRISON, HG_AIR, HOLDER])
     ids.set(t.id, sim.addUnitType(t));
   prep?.(sim);
   const runtime = new MissionRuntime(sim, mission, {
@@ -5351,5 +5361,413 @@ describe('population cap (GH-183 F3)', () => {
       const w = popWorld({ starting_force: [squad(12)] }, undefined);
       expect(w.runtime.popCapped('pop_heavy')).toBe(false);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// F2 Task 7 (GH-183): held ground pays, contested ground pays nobody, a cut line pays half.
+//
+// The world is makeWorld's 28 x 12 open map with no camp, so side 0's rear is `player_start`
+// (26, 2). Zone `west` [1,1,3,3] starts its route at its centre tile (2, 2) and drives row 2
+// east to the rear: the only shortest route on open ground, so an enemy at (14, 3) is within 2
+// tiles of tiles x 12..15 (route indices 10..13). Zone `east` [20,8,4,3] starts at (22, 9), well
+// clear of that enemy. Every unit is `m_holder` (role infantry, 20000 hp, 1 damage a round), so
+// nobody dies by accident; the enemy holds position. A placement stands at its `at` exactly
+// (the tile's corner), so an enemy placed at (14, 3) is 0.5 tiles off row 2's centre line.
+describe('held-ground income and corridors (F2 Task 7)', () => {
+  const ZONES: Record<string, readonly number[]> = { west: [1, 1, 3, 3], east: [20, 8, 4, 3] };
+  const MARKERS: Record<string, readonly number[]> = { entry: [2, 10] };
+  const WEST = 2 * 28 + 2;
+  const REAR = 2 * 28 + 26;
+  const mine = (x: number, y: number): PlacementJson => ({ unit: 'm_holder', count: 1, at: [x, y] });
+  const theirs = (x: number, y: number): PlacementJson => ({
+    unit: 'm_holder',
+    count: 1,
+    at: [x, y],
+    stance: { kind: 'hold_position' },
+  });
+  interface IncomeOpts {
+    base?: number;
+    zones?: { zone: string; rate_per_min: number }[];
+    corridor?: boolean;
+    entry?: string;
+    force?: PlacementJson[];
+    enemy?: PlacementJson[];
+    roadMask?: Uint8Array;
+  }
+  function incomeWorld(o: IncomeOpts, prep?: (sim: Sim) => void): World {
+    return makeWorld(
+      baseMission({
+        map: { file: 'none', player_start: [26, 2] },
+        starting_force: o.force ?? [],
+        enemy: { garrison: o.enemy ?? [] },
+        resources: {
+          logistics_start: 0,
+          logistics_rate_per_min: o.base ?? 0,
+          ...(o.zones !== undefined ? { income_zones: o.zones } : {}),
+          ...(o.corridor !== undefined ? { supply_corridor: o.corridor } : {}),
+          ...(o.entry !== undefined ? { supply_entry: o.entry } : {}),
+        },
+        objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
+      }),
+      { zones: ZONES, markers: MARKERS, ...(o.roadMask !== undefined ? { roadMask: o.roadMask } : {}) },
+      prep
+    );
+  }
+  const zoneOf = (w: World, id: string) => {
+    const z = w.runtime.incomeZones.find((e) => e.zone === id);
+    if (z === undefined) throw new Error(`no income zone ${id}`);
+    return z;
+  };
+
+  it('a held, uncut zone pays its rate to the holder, on top of the base', () => {
+    const w = incomeWorld({ base: 60, zones: [{ zone: 'west', rate_per_min: 45 }], force: [mine(2, 2)] });
+    w.step(1200);
+    expect(w.runtime.logistics).toBe(60 + 45);
+    const z = zoneOf(w, 'west');
+    expect(z.state).toBe(0);
+    expect(z.holder).toBe(0);
+    expect(z.cut).toBeNull();
+    expect(z.cutSpan).toBeNull();
+    expect(z.paysPerMin).toBe(45);
+    expect(z.ratePerMin).toBe(45);
+    expect(z.rect).toEqual([1, 1, 3, 3]);
+    // The route runs from the zone's centre tile to the rear, along row 2.
+    expect(z.route).not.toBeNull();
+    expect(z.route?.[0]).toBe(WEST);
+    expect(z.route?.[(z.route?.length ?? 1) - 1]).toBe(REAR);
+    expect(z.route?.length).toBe(25);
+    expect(w.runtime.incomePerMin).toEqual({ base: 60, zones: 45, halvedBy: null });
+  });
+
+  it('a contested zone pays nobody, and an empty zone pays nobody', () => {
+    const w = incomeWorld({
+      zones: [{ zone: 'west', rate_per_min: 45 }, { zone: 'east', rate_per_min: 60 }],
+      force: [mine(21, 9)],
+      enemy: [theirs(22, 9)],
+    });
+    const { mission } = w.step(1200);
+    expect(w.runtime.logisticsOf(0)).toBe(0);
+    expect(w.runtime.logisticsOf(1)).toBe(0);
+    expect(zoneOf(w, 'east').state).toBe(-2);
+    expect(zoneOf(w, 'east').holder).toBe(-1);
+    expect(zoneOf(w, 'west').state).toBe(-1);
+    for (const id of ['west', 'east']) expect(zoneOf(w, id).paysPerMin).toBe(0);
+    expect(w.runtime.incomePerMin).toEqual({ base: 0, zones: 0, halvedBy: null });
+    // A1: the contested zone said so once, on the first tick; the empty one said nothing.
+    const said = mission.filter((e) => e.kind === 'zoneHolder');
+    expect(said).toEqual([{ kind: 'zoneHolder', tick: 1, zone: 'east', holder: -1, contested: true }]);
+  });
+
+  it('a cut corridor halves that zone only, and the other zone and the base pay in full', () => {
+    const w = incomeWorld({
+      base: 60,
+      zones: [{ zone: 'west', rate_per_min: 45 }, { zone: 'east', rate_per_min: 60 }],
+      force: [mine(2, 2), mine(21, 9)],
+      enemy: [theirs(14, 3)],
+    });
+    const { mission } = w.step(2400);
+    // 45/min cut is 22.5/min: 45 over two minutes, exactly; east pays 60/min in full, and so
+    // does the base (no convoy: a zone's cut never touches it).
+    expect(w.runtime.logistics).toBe(45 + 120 + 120);
+    const west = zoneOf(w, 'west');
+    const east = zoneOf(w, 'east');
+    expect(west.cut).toBe('interdicted');
+    expect(east.cut).toBeNull();
+    expect(west.paysPerMin).toBe(22.5);
+    expect(east.paysPerMin).toBe(60);
+    expect(w.runtime.incomePerMin).toEqual({ base: 60, zones: 82.5, halvedBy: null });
+    // A3: the enemy at (14.0, 3.0) is within 2 tiles of the centres of route tiles x 12..15
+    // (12.5 is 1.5 + 0.5 off: 1.58; 11.5 is 2.55), indices 10..13.
+    expect(west.cutSpan).toEqual([10, 13]);
+    expect(east.cutSpan).toBeNull();
+    // The cut was announced once, on the first tick, and never cleared.
+    const cuts = mission.filter((e) => e.kind === 'corridor');
+    expect(cuts).toEqual([{ kind: 'corridor', tick: 1, zone: 'west', cut: 'interdicted' }]);
+  });
+
+  it('an odd rate halved accrues exactly: 45/min cut is 45 units of 1/2400 a tick', () => {
+    const w = incomeWorld({ zones: [{ zone: 'west', rate_per_min: 45 }], force: [mine(2, 2)], enemy: [theirs(14, 3)] });
+    w.step(159);
+    expect(w.runtime.logistics).toBe(2); // 159 * 45 = 7155 < 7200
+    w.step(1);
+    expect(w.runtime.logistics).toBe(3); // 160 * 45 = 7200, exactly three
+    w.step(2400 - 160);
+    expect(w.runtime.logistics).toBe(45);
+  });
+
+  it('with supply_corridor, a cut convoy route halves the base; without it nothing does (D2)', () => {
+    // The enemy stands one tile from the entry (2, 10), the convoy's first tile.
+    const cut = incomeWorld({ base: 120, corridor: true, entry: 'entry', force: [mine(24, 2)], enemy: [theirs(3, 10)] });
+    cut.step(1200);
+    expect(cut.runtime.logistics).toBe(60);
+    expect(cut.runtime.incomePerMin).toEqual({ base: 60, zones: 0, halvedBy: 'interdicted' });
+    const convoy = cut.runtime.convoyRoute;
+    expect(convoy).not.toBeNull();
+    expect(convoy?.cut).toBe('interdicted');
+    expect(convoy?.route?.[0]).toBe(10 * 28 + 2);
+    expect(convoy?.cutSpan?.[0]).toBe(0);
+
+    // No supply_corridor: the same enemy on the same line halves nothing.
+    const off = incomeWorld({ base: 120, entry: 'entry', force: [mine(24, 2)], enemy: [theirs(3, 10)] });
+    off.step(1200);
+    expect(off.runtime.logistics).toBe(120);
+    expect(off.runtime.convoyRoute).toBeNull();
+    expect(off.runtime.incomePerMin.halvedBy).toBeNull();
+    // supply_corridor with no entry: no convoy, nothing halves.
+    const noEntry = incomeWorld({ base: 120, corridor: true, force: [mine(24, 2)], enemy: [theirs(3, 10)] });
+    noEntry.step(1200);
+    expect(noEntry.runtime.logistics).toBe(120);
+    expect(noEntry.runtime.convoyRoute).toBeNull();
+    // And no supply_corridor with an enemy standing ON a road: still nothing.
+    const road = new Uint8Array(28 * 12);
+    for (let x = 0; x < 28; x++) road[10 * 28 + x] = 1;
+    const onRoad = incomeWorld({ base: 120, entry: 'entry', force: [mine(24, 2)], enemy: [theirs(5, 10)], roadMask: road });
+    onRoad.step(1200);
+    expect(onRoad.runtime.logistics).toBe(120);
+  });
+
+  it('a cut convoy halves the base and never a zone', () => {
+    const w = incomeWorld({
+      base: 120,
+      corridor: true,
+      entry: 'entry',
+      zones: [{ zone: 'east', rate_per_min: 60 }],
+      force: [mine(21, 9)],
+      enemy: [theirs(3, 10)],
+    });
+    w.step(1200);
+    expect(w.runtime.logistics).toBe(60 + 60);
+    expect(zoneOf(w, 'east').cut).toBeNull();
+    expect(w.runtime.incomePerMin).toEqual({ base: 60, zones: 60, halvedBy: 'interdicted' });
+  });
+
+  it("side 1 holding a zone fills side 1's purse, never the player's, and its zone is never cut", () => {
+    // A side-0 unit stands just outside the zone, beside where a route would run; side 1 has
+    // no camp, so it has no rear and its zones have no route to cut.
+    const w = incomeWorld({ zones: [{ zone: 'east', rate_per_min: 60 }], force: [mine(25, 10)], enemy: [theirs(21, 9)] });
+    const { mission } = w.step(1200);
+    expect(w.runtime.logisticsOf(1)).toBe(60);
+    expect(w.runtime.logisticsOf(0)).toBe(0);
+    const east = zoneOf(w, 'east');
+    expect(east.holder).toBe(1);
+    expect(east.route).toBeNull();
+    expect(east.cut).toBeNull();
+    expect(east.paysPerMin).toBe(60);
+    // incomePerMin is side 0's: a zone side 1 holds is not in it.
+    expect(w.runtime.incomePerMin.zones).toBe(0);
+    expect(mission.filter((e) => e.kind === 'zoneHolder')).toEqual([
+      { kind: 'zoneHolder', tick: 1, zone: 'east', holder: 1, contested: false },
+    ]);
+  });
+
+  it('routes and cuts are rechecked every CORRIDOR_RECHECK_TICKS, not every tick', () => {
+    expect(CORRIDOR_RECHECK_TICKS).toBe(20);
+    const w = incomeWorld({ zones: [{ zone: 'west', rate_per_min: 45 }], force: [mine(2, 2)], enemy: [theirs(14, 3)] });
+    w.step(25);
+    expect(zoneOf(w, 'west').cut).toBe('interdicted');
+    const enemy = 1;
+    expect(w.sim.state.side[enemy]).toBe(1);
+    w.sim.debugKill(enemy);
+    // Ticks 26..39: the line still reads cut; the next recheck is tick 40.
+    for (let t = 26; t < 40; t++) {
+      const { mission } = w.step(1);
+      expect(mission.filter((e) => e.kind === 'corridor')).toEqual([]);
+      expect(zoneOf(w, 'west').cut).toBe('interdicted');
+    }
+    const { mission } = w.step(1);
+    expect(w.sim.tickCount).toBe(40);
+    expect(zoneOf(w, 'west').cut).toBeNull();
+    expect(zoneOf(w, 'west').cutSpan).toBeNull();
+    expect(mission.filter((e) => e.kind === 'corridor')).toEqual([{ kind: 'corridor', tick: 40, zone: 'west', cut: null }]);
+  });
+
+  it("a structure's death rechecks at once, and a route through its rubble opens", () => {
+    // A wall across the whole map at x 12..13: the zone has no wheeled way to the rear.
+    let wall = -1;
+    const w = incomeWorld({ zones: [{ zone: 'west', rate_per_min: 45 }], force: [mine(2, 2)] }, (sim) => {
+      const t = sim.addStructureType({ id: 't_wall', hp_per_tile: 60 });
+      const tiles: number[] = [];
+      for (let y = 0; y < 12; y++) for (let x = 12; x < 14; x++) tiles.push(y * 28 + x);
+      wall = sim.addStructure(t, tiles);
+    });
+    w.step(25);
+    expect(zoneOf(w, 'west').cut).toBe('unreachable');
+    expect(zoneOf(w, 'west').route).toBeNull();
+    expect(zoneOf(w, 'west').cutSpan).toBeNull();
+    expect(zoneOf(w, 'west').paysPerMin).toBe(22.5);
+    w.sim.debugDestroyStructure(wall);
+    const { mission } = w.step(1); // tick 26: not a recheck tick
+    expect(w.sim.tickCount % CORRIDOR_RECHECK_TICKS).not.toBe(0);
+    const west = zoneOf(w, 'west');
+    expect(west.cut).toBeNull();
+    // The new route crosses the rubble, row 2 straight through x 12 and 13.
+    expect(Array.from(west.route ?? [])).toContain(2 * 28 + 12);
+    expect(Array.from(west.route ?? [])).toContain(2 * 28 + 13);
+    expect(mission.filter((e) => e.kind === 'corridor')).toEqual([{ kind: 'corridor', tick: 26, zone: 'west', cut: null }]);
+  });
+
+  it("a zone's route starts at its open tile nearest the centre, ties to the lowest index", () => {
+    // A one-tile building on west's centre (2, 2): four open tiles sit 1 away, and (2, 1) has
+    // the lowest index.
+    const w = incomeWorld({ zones: [{ zone: 'west', rate_per_min: 45 }], force: [mine(1, 3)] }, (sim) => {
+      const t = sim.addStructureType({ id: 't_post', hp_per_tile: 60 });
+      sim.addStructure(t, [2 * 28 + 2]);
+    });
+    w.step(1);
+    expect(zoneOf(w, 'west').holder).toBe(0);
+    expect(zoneOf(w, 'west').route?.[0]).toBe(1 * 28 + 2);
+  });
+
+  it("the rear is the production anchor's exit tile when a side has one, for side 1 too", () => {
+    // Side 0's camp at (24, 8) and side 1's at (8, 8), both 2 x 2. Side 1 holding `east`
+    // now has a rear, so its line has a route; side 0's ends at its camp, not player_start.
+    let camps: [number, number] = [-1, -1];
+    const w = incomeWorld(
+      {
+        zones: [{ zone: 'west', rate_per_min: 45 }, { zone: 'east', rate_per_min: 60 }],
+        force: [mine(2, 2)],
+        enemy: [theirs(21, 9)],
+      },
+      (sim) => {
+        const c0 = sim.addStructureType({ id: 't_camp0', hp_per_tile: 300, produces_for: 0 });
+        const c1 = sim.addStructureType({ id: 't_camp1', hp_per_tile: 300, produces_for: 1 });
+        const block = (x: number, y: number): number[] => [y * 28 + x, y * 28 + x + 1, (y + 1) * 28 + x, (y + 1) * 28 + x + 1];
+        camps = [sim.addStructure(c0, block(24, 8)), sim.addStructure(c1, block(8, 8))];
+      }
+    );
+    w.step(1);
+    const tileOf = (p: readonly [number, number]): number => (p[1] >> 16) * 28 + (p[0] >> 16);
+    const west = zoneOf(w, 'west');
+    const east = zoneOf(w, 'east');
+    expect(west.route?.[(west.route?.length ?? 1) - 1]).toBe(tileOf(w.sim.structureExit(camps[0])));
+    expect(east.holder).toBe(1);
+    expect(east.route).not.toBeNull();
+    expect(east.route?.[(east.route?.length ?? 1) - 1]).toBe(tileOf(w.sim.structureExit(camps[1])));
+  });
+
+  it('a holder change rechecks its route at once (its rear changed)', () => {
+    // Nobody in the zone at first; a squad walks in from the east. The tick the zone becomes
+    // held, its route exists, whatever the recheck cadence says.
+    const w = incomeWorld({ zones: [{ zone: 'west', rate_per_min: 45 }], force: [mine(8.5, 2)] });
+    w.sim.queueCommand({ kind: 'move', ids: [0], x: fx.from(2.5), y: fx.from(2.5) });
+    let heldAt = -1;
+    for (let t = 0; t < 400 && heldAt < 0; t++) {
+      w.step(1);
+      const z = zoneOf(w, 'west');
+      if (z.holder === 0) {
+        heldAt = w.sim.tickCount;
+        expect(z.route).not.toBeNull();
+      } else {
+        expect(z.route).toBeNull();
+      }
+    }
+    expect(heldAt).toBeGreaterThan(0);
+    // Off the cadence, so only the holder-change recheck can have built the route.
+    expect(heldAt % CORRIDOR_RECHECK_TICKS).not.toBe(0);
+  });
+
+  it('holders: an attack-move without sweep stays in its zone; a sweep hunts on and leaves it (the control)', () => {
+    // The enemy at (8, 9) holds position. Squad 0 at (5, 6) sees it at once (so side 0
+    // remembers it) and walks to `west` with a plain move; squad 1 at (17, 3), out of its
+    // sight and range, attack-moves to `east` twice over: once plain, once with `sweep`.
+    const run = (sweep: boolean): { west: number; east: number; eastHeld: boolean; x1: number } => {
+      const w = incomeWorld({
+        zones: [{ zone: 'west', rate_per_min: 45 }, { zone: 'east', rate_per_min: 60 }],
+        force: [mine(5, 6), mine(17, 3)],
+        enemy: [theirs(8, 9)],
+      });
+      w.sim.queueCommand({ kind: 'move', ids: [0], x: fx.from(2.5), y: fx.from(2.5) });
+      w.sim.queueCommand({ kind: 'attackMove', ids: [1], x: fx.from(21.5), y: fx.from(9.5), ...(sweep ? { sweep: true } : {}) });
+      let eastHeld = false;
+      for (let t = 0; t < 1200; t++) {
+        w.step(1);
+        if (zoneOf(w, 'east').holder === 0) eastHeld = true;
+      }
+      return { west: zoneOf(w, 'west').holder, east: zoneOf(w, 'east').holder, eastHeld, x1: w.sim.state.posX[1] >> 16 };
+    };
+    const plain = run(false);
+    expect(plain.west).toBe(0);
+    expect(plain.east).toBe(0);
+    const sweeper = run(true);
+    expect(sweeper.west).toBe(0);
+    // The sweeper reached its zone, then left it for the contact.
+    expect(sweeper.eastHeld).toBe(true);
+    expect(sweeper.east).toBe(-1);
+    expect(sweeper.x1).toBeLessThan(20);
+  });
+
+  it('the economy hash folds the zone state, the cut and the side-1 purse', () => {
+    // Contested against empty: neither pays, so the purse, the population and the
+    // identifications are the same in both runs and only the state word differs.
+    const contested = incomeWorld({ zones: [{ zone: 'east', rate_per_min: 60 }], force: [mine(21, 9)], enemy: [theirs(22, 9)] });
+    const empty = incomeWorld({ zones: [{ zone: 'east', rate_per_min: 60 }], force: [mine(18, 9)], enemy: [theirs(19, 9)] });
+    contested.step(200);
+    empty.step(200);
+    expect(contested.runtime.logisticsOf(0)).toBe(empty.runtime.logisticsOf(0));
+    expect(contested.runtime.logisticsOf(1)).toBe(empty.runtime.logisticsOf(1));
+    expect(contested.runtime.economyHash()).not.toBe(empty.runtime.economyHash());
+    // A convoy cut at a base rate of 0: the purse cannot see it; the hash must.
+    const cut = incomeWorld({ corridor: true, entry: 'entry', force: [mine(24, 2)], enemy: [theirs(3, 10)] });
+    const open = incomeWorld({ corridor: true, entry: 'entry', force: [mine(24, 2)], enemy: [theirs(3, 6)] });
+    cut.step(200);
+    open.step(200);
+    expect(cut.runtime.convoyRoute?.cut).toBe('interdicted');
+    expect(open.runtime.convoyRoute?.cut).toBeNull();
+    expect(cut.runtime.logistics).toBe(open.runtime.logistics);
+    expect(cut.runtime.economyHash()).not.toBe(open.runtime.economyHash());
+    // Side 1's purse: a zone side 1 holds moves the hash through side 1's purse alone.
+    const held1 = incomeWorld({ zones: [{ zone: 'east', rate_per_min: 60 }], enemy: [theirs(21, 9)] });
+    const held1Fast = incomeWorld({ zones: [{ zone: 'east', rate_per_min: 120 }], enemy: [theirs(21, 9)] });
+    held1.step(1200);
+    held1Fast.step(1200);
+    expect(held1.runtime.logisticsOf(1)).toBe(60);
+    expect(held1Fast.runtime.logisticsOf(1)).toBe(120);
+    expect(held1.runtime.economyHash()).not.toBe(held1Fast.runtime.economyHash());
+  });
+
+  it('the getters return the runtime own objects: no copy, no allocation per read', () => {
+    const w = incomeWorld({
+      corridor: true,
+      entry: 'entry',
+      zones: [{ zone: 'west', rate_per_min: 45 }],
+      force: [mine(2, 2)],
+      enemy: [theirs(14, 3)],
+    });
+    w.step(3);
+    const zones = w.runtime.incomeZones;
+    const z0 = zones[0];
+    const convoy = w.runtime.convoyRoute;
+    const per = w.runtime.incomePerMin;
+    w.step(3);
+    expect(w.runtime.incomeZones).toBe(zones);
+    expect(w.runtime.incomeZones[0]).toBe(z0);
+    expect(w.runtime.convoyRoute).toBe(convoy);
+    expect(w.runtime.incomePerMin).toBe(per);
+    // Authored order, and a mission with no zones has an empty list and no convoy.
+    expect(zones.map((z) => z.zone)).toEqual(['west']);
+    const none = incomeWorld({});
+    expect(none.runtime.incomeZones).toEqual([]);
+    expect(none.runtime.convoyRoute).toBeNull();
+  });
+
+  it('the runtime only reads: income zones and a convoy leave the sim hash alone', () => {
+    const plain = incomeWorld({ force: [mine(2, 2), mine(21, 9)], enemy: [theirs(14, 3)] });
+    const paid = incomeWorld({
+      base: 60,
+      corridor: true,
+      entry: 'entry',
+      zones: [{ zone: 'west', rate_per_min: 45 }, { zone: 'east', rate_per_min: 60 }],
+      force: [mine(2, 2), mine(21, 9)],
+      enemy: [theirs(14, 3)],
+    });
+    plain.step(600);
+    paid.step(600);
+    expect(paid.sim.hash()).toBe(plain.sim.hash());
+  });
+
+  it('an unknown income zone or supply_entry is a load-time error', () => {
+    expect(() => incomeWorld({ zones: [{ zone: 'nowhere', rate_per_min: 10 }] })).toThrow(/income zone "nowhere"/);
+    expect(() => incomeWorld({ corridor: true, entry: 'nowhere' })).toThrow(/supply_entry "nowhere"/);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { zoneHolder, type HoldView } from './income';
+import { ZONE_CONTESTED, ZONE_EMPTY, zoneHolder, zoneState, type HoldView } from './income';
 
 // Literal units: tile coordinates (the test shifts them into Q16.16), side, and flags.
 interface U {
@@ -99,5 +99,51 @@ describe('zoneHolder (D3)', () => {
     expect(zoneHolder(v, ZONE)).toBe(0);
     const w: HoldView = { ...v, posX: [30 * ONE] };
     expect(zoneHolder(w, ZONE)).toBe(-1);
+  });
+});
+
+// Lane A's A1 (C-R13): the state behind the holder. Contested and empty both pay nobody, but the
+// HUD tells them apart, so the runtime keeps the state and folds -2 to -1 only for `zoneHolder`.
+describe('zoneState (A1, C-R13)', () => {
+  it('the constants are the documented values', () => {
+    expect(ZONE_EMPTY).toBe(-1);
+    expect(ZONE_CONTESTED).toBe(-2);
+  });
+
+  it('an empty zone is -1', () => {
+    expect(zoneState(view([]), ZONE)).toBe(ZONE_EMPTY);
+    expect(zoneState(view([{ x: 5, y: 5, side: 0 }, { x: 50, y: 50, side: 1 }]), ZONE)).toBe(-1);
+  });
+
+  it('one side present is that side', () => {
+    expect(zoneState(view([{ x: 24, y: 24, side: 0 }]), ZONE)).toBe(0);
+    expect(zoneState(view([{ x: 24, y: 24, side: 1 }]), ZONE)).toBe(1);
+  });
+
+  it('both sides present is -2, whatever the order they are scanned in', () => {
+    expect(zoneState(view([{ x: 21, y: 25, side: 0 }, { x: 26, y: 25, side: 1 }]), ZONE)).toBe(ZONE_CONTESTED);
+    expect(zoneState(view([{ x: 26, y: 25, side: 1 }, { x: 21, y: 25, side: 0 }]), ZONE)).toBe(-2);
+  });
+
+  it('an aircraft, a buried unit or a civilian beside one side leaves it that side, not -2', () => {
+    expect(zoneState(view([{ x: 22, y: 22, side: 0 }, { x: 23, y: 22, side: 1, air: true }]), ZONE)).toBe(0);
+    expect(zoneState(view([{ x: 22, y: 22, side: 1 }, { x: 23, y: 22, side: 0, air: true }]), ZONE)).toBe(1);
+    // tunnelIn 0 is route 0: buried, the `>= 0` edge.
+    const buried: HoldView = { ...view([{ x: 22, y: 22, side: 0 }, { x: 23, y: 22, side: 1 }]), tunnelIn: [-1, 0] };
+    expect(zoneState(buried, ZONE)).toBe(0);
+    expect(zoneState(view([{ x: 22, y: 22, side: 1 }, { x: 23, y: 22, side: 2 }]), ZONE)).toBe(1);
+  });
+
+  it('zoneHolder is zoneState with -2 folded to -1', () => {
+    const cases: U[][] = [
+      [],
+      [{ x: 24, y: 24, side: 0 }],
+      [{ x: 24, y: 24, side: 1 }],
+      [{ x: 21, y: 25, side: 0 }, { x: 26, y: 25, side: 1 }],
+    ];
+    for (const c of cases) {
+      const s = zoneState(view(c), ZONE);
+      expect(zoneHolder(view(c), ZONE)).toBe(s === ZONE_CONTESTED ? -1 : s);
+    }
   });
 });
