@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { firstUseHints, type FirstUseHintRule } from '@lions/data';
 import en from '../i18n/en.json';
-import { createShownTimer, HINTS_SEEN_KEY, loadHintsSeen, markHintSeen, hasIncomeZones, owedRule, ruleHolds, type HintContext } from './hint-rules';
+import { createShownTimer, HINTS_SEEN_KEY, loadHintsSeen, markHintSeen, incomeHeld, owedRule, ruleHolds, type HintContext } from './hint-rules';
 
 const ctx = (over: Partial<HintContext> = {}): HintContext => ({
   missionId: 'beit_sahwan_2_foothold',
   hasResources: false,
-  hasIncomeZones: false,
+  incomeHeld: false,
   selectedCount: 0,
   selectedTypes: () => new Set(),
   forceSize: () => 4,
@@ -78,28 +78,36 @@ describe('ruleHolds', () => {
 });
 
 describe('income: the held-ground hint', () => {
-  const withZones = { resources: { income_zones: [{ zone: 'z', rate_per_min: 5 }] } };
-  it('holds on a mission that authors income_zones, never on one without', () => {
-    expect(ruleHolds(rule('income'), ctx({ hasIncomeZones: true }))).toBe(true);
-    expect(ruleHolds(rule('income'), ctx({ hasResources: true }))).toBe(false);
-    expect(ruleHolds(rule('income'), ctx())).toBe(false);
+  it('is not owed while no zone is held: a zone mission, or none at all', () => {
+    const c = ctx({ hasResources: true, incomeHeld: false });
+    expect(ruleHolds(rule('income'), c)).toBe(false);
+    expect(owedRule(firstUseHints, new Set(), c)?.id).toBe('logistics');
+    expect(owedRule(firstUseHints, new Set(['logistics', 'intel']), c)).toBeNull();
   });
-  it('hasIncomeZones reads a non-empty income_zones array only', () => {
-    expect(hasIncomeZones(withZones)).toBe(true);
-    expect(hasIncomeZones({ resources: { income_zones: [] } })).toBe(false);
-    expect(hasIncomeZones({ resources: {} })).toBe(false);
-    expect(hasIncomeZones({})).toBe(false);
+  it('is the owed rule the moment a zone is held, ahead of unseen logistics and intel', () => {
+    const c = ctx({ hasResources: true, incomeHeld: true });
+    expect(ruleHolds(rule('income'), c)).toBe(true);
+    expect(owedRule(firstUseHints, new Set(), c)?.id).toBe('income');
   });
-  it('fires once: offered when unseen, gone once seen', () => {
-    const c = ctx({ hasResources: true, hasIncomeZones: true });
-    const seen = new Set(['logistics', 'intel']);
+  it('fires once: gone once seen, and logistics comes back after it', () => {
+    const c = ctx({ hasResources: true, incomeHeld: true });
+    const seen = new Set<string>();
     expect(owedRule(firstUseHints, seen, c)?.id).toBe('income');
     seen.add('income');
-    expect(owedRule(firstUseHints, seen, c)).toBeNull();
+    expect(owedRule(firstUseHints, seen, c)?.id).toBe('logistics');
   });
-  it('is never offered on a mission without zones', () => {
-    const c = ctx({ hasResources: true });
-    expect(owedRule(firstUseHints, new Set(['logistics', 'intel']), c)).toBeNull();
+  it('is never offered on a mission without zones (nothing is ever held there)', () => {
+    expect(owedRule(firstUseHints, new Set(['logistics', 'intel']), ctx({ hasResources: true }))).toBeNull();
+  });
+});
+
+describe('incomeHeld: the fact the income rule reads', () => {
+  const v = (...states: string[]) => ({ zoneViews: states.map((state) => ({ state })) });
+  it('is true only while some zone is held', () => {
+    expect(incomeHeld(null)).toBe(false);
+    expect(incomeHeld(v())).toBe(false);
+    expect(incomeHeld(v('unheld', 'contested'))).toBe(false);
+    expect(incomeHeld(v('unheld', 'held'))).toBe(true);
   });
 });
 

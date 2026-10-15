@@ -716,7 +716,7 @@ describe('top strip: held-ground income (S-F F2, P2-8)', () => {
     expect(tip).toContain('supply line cut: a tunnel vent beside the road');
   });
 
-  it('says "pays nothing: enemy inside" for a contested zone and nothing for empty or enemy-held', () => {
+  it('says "pays nothing, enemy inside" for a contested zone and nothing for empty or enemy-held', () => {
     const r = rig(
       mission({
         logistics: 410,
@@ -727,9 +727,68 @@ describe('top strip: held-ground income (S-F F2, P2-8)', () => {
       })
     );
     const tip = tipOf(r);
-    expect(tip).toContain('pays nothing: enemy inside');
+    expect(tip).toContain('Contested ground: pays nothing, enemy inside');
     expect(tip).not.toContain('Held ground');
     expect(tip.match(/pays nothing/g)).toHaveLength(1);
+  });
+
+  // A dimetric projection, as the renderer draws the map: up the screen is north.
+  // `pan`/`zoom` stand for the camera; the zone lines must not depend on them.
+  const dimetric = (pan = { x: 0, y: 0 }, zoom = 1) => (x: number, y: number) => ({
+    x: ((x - y) * 32) * zoom + pan.x,
+    y: ((x + y) * 16) * zoom + pan.y,
+  });
+  const zoneLines = (zs: IncomeZoneView[], project: (x: number, y: number) => { x: number; y: number } = dimetric()): string[] => {
+    const r = rig(mission({ logistics: 410, income: income({ zoneViews: zs }) }), { project });
+    const d = new DOMParser().parseFromString(tipOf(r), 'text/html');
+    closeTip();
+    return [...d.querySelectorAll('.rl-tip__blurb')].map((e) => e.textContent ?? '').filter((x) => /Held ground|pays nothing/.test(x));
+  };
+  // The test sim is 8x8, so its centre is (4,4); (1,1) lies north of it on screen, (7,7) south.
+  const north = (state: 'held' | 'contested'): IncomeZoneView =>
+    zone({ id: 'hamlet', state, rect: [0, 0, 2, 2], paysPerMin: state === 'held' ? 20 : 0 });
+  const south = (state: 'held' | 'contested'): IncomeZoneView =>
+    zone({ id: 'staging', state, rect: [6, 6, 2, 2], paysPerMin: state === 'held' ? 20 : 0 });
+
+  it('names each zone by where it lies on the map, so two contested or two held zones read apart', () => {
+    for (const state of ['contested', 'held'] as const) {
+      const out = zoneLines([north(state), south(state)]);
+      expect(out).toHaveLength(2);
+      expect(out[0]).not.toBe(out[1]);
+      expect(out[0]).toContain(t('alert.place.n'));
+      expect(out[1]).toContain(t('alert.place.s'));
+      expect(out.join('')).not.toMatch(/hamlet|staging|in view/);
+    }
+  });
+
+  it('keeps the phrase when the camera pans or zooms', () => {
+    const base = zoneLines([north('held'), south('held')]);
+    for (const [pan, zoom] of [[{ x: 900, y: -400 }, 1], [{ x: 0, y: 0 }, 2.5], [{ x: -300, y: 700 }, 0.35]] as const) {
+      expect(zoneLines([north('held'), south('held')], dimetric(pan, zoom))).toEqual(base);
+    }
+  });
+
+  it('reads "centre" for a zone beside the map centre', () => {
+    const out = zoneLines([zone({ state: 'held', rect: [3, 3, 2, 2] })]);
+    expect(out[0]).toContain(t('hud.strip.logistics.centre'));
+  });
+
+  it('numbers zones that share a place, in authored order', () => {
+    const a = zone({ id: 'a', state: 'held', rect: [0, 0, 2, 2] });
+    const b = zone({ id: 'b', state: 'contested', rect: [0, 0, 1, 1], paysPerMin: 0 });
+    const out = zoneLines([a, b, south('held')]);
+    expect(out).toHaveLength(3);
+    expect(out[0]).toContain(`${t('alert.place.n')} 1`);
+    expect(out[1]).toContain(`${t('alert.place.n')} 2`);
+    expect(out[2]).not.toMatch(/south 1|south 2/);
+    expect(new Set(out).size).toBe(3);
+  });
+
+  it('falls back to the line without a place when the HUD cannot place a zone', () => {
+    const r = rig(mission({ logistics: 410, income: income({ zoneViews: [zone({ state: 'contested', paysPerMin: 0 })] }) }));
+    const tip = tipOf(r);
+    expect(tip).toContain('pays nothing');
+    expect(tip).not.toContain('· ');
   });
 
   it('shows no unbracketed word under the pseudo-locale', () => {
@@ -748,7 +807,7 @@ describe('top strip: held-ground income (S-F F2, P2-8)', () => {
       const lines = text.match(/⟦[^⟧]*⟧/g) ?? [];
       expect(lines).toHaveLength(6);
       expect(text.replace(/⟦[^⟧]*⟧/g, '')).toBe('');
-      expect(text).not.toMatch(/\b(Convoy|Held ground|supply line|pays nothing)\b/);
+      expect(text).not.toMatch(/\b(Convoy|Held ground|Contested ground|supply line|pays nothing)\b/);
     } finally {
       setCatalogue('en', en);
     }

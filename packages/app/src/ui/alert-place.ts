@@ -33,7 +33,16 @@ const SECTORS: readonly Bearing[] = ['e', 'ne', 'n', 'nw', 'w', 'sw', 's', 'se']
 export function placeOnScreen(p: { x: number; y: number }, width: number, height: number): Place {
   if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) return 'here';
   if (p.x >= 0 && p.x <= width && p.y >= 0 && p.y <= height) return 'here';
-  const angle = Math.atan2(-(p.y - height / 2), p.x - width / 2);
+  return bearingBetween(p, { x: width / 2, y: height / 2 });
+}
+
+/**
+ * The compass bearing of screen point `a` from screen point `b`, in the same
+ * screen frame (up is north). Pure of any camera: for two projected map
+ * points the direction of their difference survives a pan and a zoom.
+ */
+export function bearingBetween(a: { x: number; y: number }, b: { x: number; y: number }): Bearing {
+  const angle = Math.atan2(-(a.y - b.y), a.x - b.x);
   const sector = Math.round(angle / (Math.PI / 4));
   return SECTORS[((sector % 8) + 8) % 8];
 }

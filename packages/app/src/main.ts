@@ -85,7 +85,7 @@ import {
 import './ui/theme.css';
 import { Hud, type HudCommanderInfo, type MissionView, type OrderHandlers, type Tone } from './ui/hud';
 import { hintFor, loadSeen, markSeen } from './ui/hint-model';
-import { createShownTimer, hasIncomeZones, loadHintsSeen, markHintSeen, owedRule, type HintContext } from './ui/hint-rules';
+import { createShownTimer, incomeHeld, loadHintsSeen, markHintSeen, owedRule, type HintContext } from './ui/hint-rules';
 import { portraitIds, unitIcon, unitPlate } from './ui/portrait';
 import { trackCloseup } from './ui/garage-closeup';
 import { Minimap, MINIMAP_SIZE, flipRows } from './ui/minimap';
@@ -3044,7 +3044,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     const ctx: HintContext = {
       missionId: mission.id,
       hasResources: mission.resources !== undefined,
-      hasIncomeZones: hasIncomeZones(mission),
+      incomeHeld: incomeHeld(income),
       selectedCount: sel.length,
       selectedTypes: () => new Set(sel.map((i) => sim.unitTypes[sim.state.typeIdx[i]].id)),
       forceSize: () => {
@@ -3103,6 +3103,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     onStripRendered: () => intelMoments?.sealEarn(),
     hoverStructure: () => renderer.hoverStructure,
     hoverEntity: () => renderer.hoverEntity,
+    // F2 follow-up: the logistics tip names each income zone by its bearing from the map's centre.
+    project: (x, y) => renderer.worldToScreen(x, y),
     hoverFriendly: () => renderer.rangeRingPreview ?? -1,
     isVisible: (wx, wy) => renderer.isVisible(wx, wy),
     hoverCursor: () => hoverCursorName,

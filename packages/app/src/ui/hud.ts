@@ -33,6 +33,8 @@ import type { ResolvedCommander } from '../campaign';
 import type { RosterEntry } from '../ledger-store';
 import type { HintLine } from './hint-model';
 import type { AlertTier } from './alerts';
+import { bearingBetween } from './alert-place';
+import { placePhrase } from './mission-notice';
 import { FeedModel } from './feed-model';
 import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
@@ -260,6 +262,9 @@ function stripFocusSelector(el: Element): string | null {
  */
 export type OrderHandlers = Record<OrderId, () => void>;
 
+/** A zone this close to the map's centre (tiles) reads "centre", not a bearing. */
+const ZONE_CENTRE_TILES = 2;
+
 export interface HudDeps {
   sim: Sim;
   getSelection: () => number[];
@@ -270,6 +275,11 @@ export interface HudDeps {
   onStripRendered?: () => void;
   hoverStructure: () => number;
   hoverEntity: () => number;
+  /** The renderer's projection of a map point to the screen
+   *  (`renderer.worldToScreen`). The logistics tip names each income zone by
+   *  its bearing from the MAP's centre, read from two projected points, which
+   *  no pan or zoom changes. Optional: absent, the zone lines carry no place. */
+  project?: (x: number, y: number) => { x: number; y: number };
   /** The cursor the pointer shows right now, bare (`input/cursor.ts`'s
    *  `CursorName`). The fire panel reads it to say what a right-click on its
    *  target does (PA-08), so the panel and the cursor are one decision.
@@ -1849,14 +1859,40 @@ export class Hud {
       line('rl-info', t('hud.strip.logistics.convoy', { n: inc.base }));
       if (inc.halvedBy !== null) line('rl-warn', t(`hud.strip.logistics.cut.${inc.halvedBy}`));
     }
-    for (const z of inc.zoneViews) {
+    // A zone is named by where it LIES ON THE MAP, never by its authoring id
+    // (no player language) and never relative to the camera (two zones in
+    // view would both read "in view"): its screen-frame bearing from the
+    // map's centre, from two projected points. No `project` dep leaves the
+    // line unplaced.
+    const project = this.deps.project;
+    const cx = this.deps.sim.width / 2;
+    const cy = this.deps.sim.height / 2;
+    const phrases = inc.zoneViews.map((z): string => {
+      if (!project || (z.state !== 'held' && z.state !== 'contested')) return '';
+      const zx = z.rect[0] + z.rect[2] / 2;
+      const zy = z.rect[1] + z.rect[3] / 2;
+      if (Math.hypot(zx - cx, zy - cy) <= ZONE_CENTRE_TILES) return t('hud.strip.logistics.centre');
+      const from = project(cx, cy);
+      const to = project(zx, zy);
+      if (![from.x, from.y, to.x, to.y].every(Number.isFinite)) return '';
+      return placePhrase([bearingBetween(to, from)]);
+    });
+    const shown = inc.zoneViews.map((z, i) => (z.state === 'held' || z.state === 'contested' ? phrases[i] : ''));
+    const where = (i: number): { where: string; place: string } => {
+      const ph = shown[i];
+      if (ph === '') return { where: 'no', place: '' };
+      const sharing = shown.reduce((n, x) => (x === ph ? n + 1 : n), 0);
+      const nth = shown.slice(0, i + 1).reduce((n, x) => (x === ph ? n + 1 : n), 0);
+      return { where: 'yes', place: sharing > 1 ? `${ph} ${nth}` : ph };
+    };
+    inc.zoneViews.forEach((z, i) => {
       if (z.state === 'held') {
-        line('rl-info', t('hud.strip.logistics.held', { n: z.paysPerMin }));
+        line('rl-info', t('hud.strip.logistics.held', { n: z.paysPerMin, ...where(i) }));
         if (z.cut !== null) line('rl-warn', t(`hud.strip.logistics.cut.${z.cut}`));
       } else if (z.state === 'contested') {
-        line('rl-warn', t('hud.strip.logistics.contested'));
+        line('rl-warn', t('hud.strip.logistics.contested', where(i)));
       }
-    }
+    });
     return rows.join('');
   }
 
