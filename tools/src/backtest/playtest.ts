@@ -30,7 +30,8 @@ import { parseWorld } from '../../../packages/app/src/campaign';
 import { payVictory } from '../../../packages/app/src/campaign-pay';
 import { stagedUnit } from './e5-probes';
 import { run, type Plan, missionStars, missionCredits, missionMinutes, missionRoe, missionRosterOut, maxTierProbes } from './playtest-run';
-import { passiveAcrossSeeds, drainPassiveSweeps, SWEEP_SEEDS } from './passive-sweep';
+import { passiveAcrossSeeds, drainPassiveSweeps, controlIntel, SWEEP_SEEDS } from './passive-sweep';
+import { reportIntel, seedsNotSpent } from './intel-gate';
 import { Picture, living } from './player-picture';
 import { PLAN_CHILD, startPlanSweep, drainPlanSweeps, reportToParent, type GateRecord } from './plan-sweep';
 
@@ -2020,9 +2021,30 @@ const ledTelMarum3 = run(
 // incomplete on a passive run, but the evacuation clock is what ends it.
 passiveAcrossSeeds('qarn_hadid_1_recon', 'qarn_hadid_1_recon (passive control)', 'defeat');
 
+// F1 Task 9 (GH-183): the one winning plan that SPENDS intel through the menu, so "a sweep or a strike is
+// affordable where it is designed to be" is proved by a real call and not by arithmetic. Picked from Task
+// 2's arrival column (`docs/campaign/economy/fire-support-numbers.md` §1.2): Qarn Hadid I reaches 150
+// earliest of any plan with no `intel_start` grant (14.5 s on 424242; the 120 a barrage costs by 14.3 s),
+// and then runs another 62 s, where Khan Rafid I and Umm Zeitoun III earn it at 22 s of 30 and 27 s of 63.
+//
+// No mission text names a sweep or a strike (a census of `data/missions/*.json`), so the placement is the
+// plan's own geometry. The barrage goes on the middle of the picket's beat, (30,19), the one unit this
+// plan's drone routing is built around (see the Qarn Hadid I comment above: a waypoint up the saddle
+// walks the drone under the picket patrolling [30,16]-[30,22]). A round lands 6-15 s after the call, so
+// 16 s puts the six on the picket at 22-31 s, while the jeep and the Eitan are still at the road party
+// (34,31) and nobody of ours is near the notch. It is called at 16 s, not earlier, because intel is
+// earned by doing and the plan holds 120 only from 14.3 s on 424242.
+// Measured, and why it is this call and not a sweep: the barrage moves NO existing line (VICTORY in
+// 1.3 min, ROE 100, stars 3, credits 310 as before, same end tick 1522); a drone sweep at the notch post
+// (31,16) would move them all, because it identifies the low-gate post at 16 s and the mission, which
+// waits on that post alone from 18 s, ends at 0.3 min instead of 1.3 (reported to the lead, not shipped).
+// No unit is ordered by this call (a support call names none, F-R6), so no focus is touched; no shipped
+// plan issues `attack`.
+const SPEND = { id: 'qarn_hadid_1_recon', kind: 'mortar_barrage', price: 120, atS: 16, x: 30, y: 19 } as const;
+
 const ledQH1 = run(
   'qarn_hadid_1_recon',
-  (sim, _rt, ids, at) => {
+  (sim, rt, ids, at) => {
     const drone = ids('recon_drone');
     const jeep = ids('jeep_shoded');
     const eitan = ids('apc_eitan');
@@ -2032,6 +2054,14 @@ const ledQH1 = run(
       sim.queueCommand({ kind: 'move', ids: drone, ...M(14, 6) });
     });
     at(20, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(28, 4) }));
+    at(SPEND.atS, () => {
+      const ok = rt.supportCost(SPEND.kind) === SPEND.price && rt.requestSupport(SPEND.kind, fx.from(SPEND.x), fx.from(SPEND.y));
+      console.log(`${SPEND.id}: spend ${SPEND.kind} ${ok ? 'ok' : 'refused'}`);
+      if (!ok) {
+        console.error(`${SPEND.id}: FAILED — requestSupport('${SPEND.kind}') was refused at ${SPEND.atS} s (price ${rt.supportCost(SPEND.kind)}, held ${rt.intel})`);
+        process.exitCode = 1;
+      }
+    });
     at(45, () => {
       sim.queueCommand({ kind: 'move', ids: jeep, ...M(24, 39) });
       sim.queueCommand({ kind: 'move', ids: eitan, ...M(24, 39) });
@@ -3744,4 +3774,52 @@ if (rosterMax >= ROSTER_CAP) {
 // here; collect them and print one line per control (`passive-sweep.ts`).
 reportToParent(gateRecords);
 await drainPassiveSweeps();
-await drainPlanSweeps(SWEEP_SEEDS, gateRecords);
+const planRunsBySeed = await drainPlanSweeps(SWEEP_SEEDS, gateRecords);
+
+// --- F1 Task 9: the intel probe, as a gate ---------------------------------------------------------
+//
+// Task 2's census (`docs/campaign/economy/fire-support-numbers.md` §1) measured the earn rule with an
+// offline probe. These two pins read the same facts off the real runtime on every run, in the
+// `LADDER_CREDITS` idiom (`!==`, `console.error`, `process.exitCode = 1`), on the 424242 ledger seed
+// as `LADDER_CREDITS` is; `tools/src/backtest/intel-gate.ts` holds the arithmetic.
+//
+// INTEL_PASSIVE_BEATS_WINNER: pairs (a plain winning plan and the no-orders control on its mission;
+// 25 of them, `beit_sahwan_2_foothold` has no control) where the control EARNED more than its
+// winner, read at the earlier of the two runs' end ticks (F-Q12, ruled 14 Oct). It is 0 by rule: a
+// player who gives no orders must not out-earn the one who wins. Before the trickle went (a scout that
+// stood still paid 5 a minute) `khan_rafid_3_clearance`'s passive run read 189 against the winner's 20.
+// The per-pair line also prints on how many of the 30 seeds the passive side was ahead: not gated,
+// because `beit_sahwan_breach`'s passive run is ahead on 16 of 30 while 424242 passes (Task 2), and
+// that seed-dependence is the lead's to see on every run.
+const INTEL_PASSIVE_BEATS_WINNER = 0;
+// INTEL_WINNERS_ONE_SWEEP: winning plans that earn at least one drone sweep (150) by doing. It counts
+// ALL winning runs the harness makes on 424242 (the 26 plain plans plus the ten probes: gate-open x6,
+// bought x3, price-only closed x1; the max-tier replays are not counted), because each is a complete
+// playthrough of a mission with its own roster and ledger, and a player who takes the bought or the
+// gate-open route earns on that route. Counting the 26 plain alone would leave ten real plays out of
+// the number, and the probes add no short plan (35 of 36 against 25 of 26): the one short is
+// `beit_sahwan_2_foothold` (9 identified, one objective, 120), which cannot reach 150 below 15 an
+// identification. `intel_start` grants (Umm Zeitoun II, IV) are not earnings and are not counted.
+const INTEL_WINNERS_ONE_SWEEP = 35;
+{
+  // The spending plan spent its price on EVERY seed (a refused call spends nothing, and a swept seed's
+  // own console is not read, so this is where a refusal on seed 7 is seen).
+  const missed = seedsNotSpent(planRunsBySeed, SWEEP_SEEDS, SPEND.id, SPEND.price);
+  console.log(`intel: ${SPEND.id} spent ${SPEND.price} on ${SWEEP_SEEDS.length - missed.length}/${SWEEP_SEEDS.length} seeds (${SPEND.kind})`);
+  if (missed.length > 0) {
+    console.error(`intel: FAILED — ${SPEND.id} did not spend ${SPEND.price} on seeds ${missed.join(', ')}`);
+    process.exitCode = 1;
+  }
+}
+{
+  const seeds = SWEEP_SEEDS;
+  const r = reportIntel(controlIntel(), planRunsBySeed, seeds);
+  if (r.beats !== INTEL_PASSIVE_BEATS_WINNER) {
+    console.error(`intel: FAILED — passive beats the winner on ${r.beats} pairs, expected ${INTEL_PASSIVE_BEATS_WINNER}`);
+    process.exitCode = 1;
+  }
+  if (r.sweepers !== INTEL_WINNERS_ONE_SWEEP) {
+    console.error(`intel: FAILED — ${r.sweepers} of ${r.winners} winning plans earn a sweep, expected ${INTEL_WINNERS_ONE_SWEEP}`);
+    process.exitCode = 1;
+  }
+}

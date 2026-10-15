@@ -146,8 +146,19 @@ export function sweepOutcome(result: 'ongoing' | 'victory' | 'defeat', cause: st
   return result === 'defeat' && cause === 'withdrawn' ? 'withdrawn' : result;
 }
 
+/** What a run earned in intel (F1, D3-D5): every rise of the held total as `[tick, amount]`, the
+ *  tick it ended on, and what the plan spent through `requestSupport`. Read by `intel-gate.ts`. */
+export interface IntelRun {
+  /** `sim.tickCount` when the run ended: the clock `intel` ticks are on. */
+  endTick: number;
+  /** One `[tick, amount]` per rise of the held total, in order. `intel_start` is not one. */
+  intel: [number, number][];
+  /** What `requestSupport` and `requestBuild` took out of the held total. */
+  spent: number;
+}
+
 /** One line per `run()` call, in call order: what the plan sweep (`plan-sweep.ts`) reads back. */
-export interface RunRecord {
+export interface RunRecord extends IntelRun {
   id: string;
   label: string;
   expect: 'victory' | 'defeat' | 'ongoing';
@@ -161,6 +172,12 @@ export interface RunRecord {
   cause?: string;
 }
 export const runLog: RunRecord[] = [];
+
+/** What the run `run()` just logged earned in intel: the last entry of this process's own `runLog`. */
+export function lastIntelRun(): IntelRun {
+  const r = runLog[runLog.length - 1];
+  return { endTick: r.endTick, intel: r.intel, spent: r.spent };
+}
 
 /** Set only by `setSweep` (`passive-sweep.ts`), for the duration of one swept run: the seed
  *  `run()` builds its `Sim` with (otherwise `PT_SEED`, otherwise 424242), and whether it keeps its
@@ -347,14 +364,36 @@ export function run(
     else timed.set(when, [fn]);
   });
   let produced: LedgerData = {};
+  // F1 Task 9: what the run EARNED in intel, read off the held total tick by tick rather than summed from
+  // the `intelEarned` events, so a source that moves the total without announcing itself (the retired
+  // per-minute trickle) is counted here and caught by the cross-check below. A rise is an earning, a
+  // fall is a spend (`requestSupport`, `requestBuild`); the orders a plan gives at the top of a tick
+  // are read apart from the step, so a tick that spends and earns is not netted.
+  const intel: [number, number][] = [];
+  let intelSpentTotal = 0;
+  let intelEventSum = 0;
+  let held = rt.intel;
+  const noteIntel = (): void => {
+    const now = rt.intel;
+    if (now > held) intel.push([sim.tickCount, now - held]);
+    else if (now < held) intelSpentTotal += held - now;
+    held = now;
+  };
   const maxTicks = 20 * 60 * TICKS_PER_SECOND;
   let t = 0;
   for (; t < maxTicks; t++) {
     const due = timed.get(t);
-    if (due) for (let k = 0; k < due.length; k++) due[k]();
+    if (due) {
+      for (let k = 0; k < due.length; k++) due[k]();
+      noteIntel();
+    }
     const evs = sim.tick();
     onEvents?.(evs);
-    for (const me of rt.step(evs)) if (me.kind === 'missionEnd') produced = me.ledger;
+    for (const me of rt.step(evs)) {
+      if (me.kind === 'missionEnd') produced = me.ledger;
+      else if (me.kind === 'intelEarned') intelEventSum += me.amount;
+    }
+    noteIntel();
     if (rt.result !== 'ongoing') break;
   }
   const cause = rt.result === 'defeat' ? causeText(rt.defeatCause) : undefined;
@@ -369,11 +408,18 @@ export function run(
   const credits = creditsFor(creditInputFrom(rt, rt.roeScore, mission.roe?.fail_below));
   if (!sweepQuiet || rt.result !== expect) console.log(runLine);
   if (!sweepQuiet) console.log(`${label}: credits ${credits}`);
-  if (rt.result !== expect) {
-    console.error(`${label}: FAILED — expected ${expect.toUpperCase()}, got ${shown}`);
+  // F1 Task 9: what the run earned, as its own line so every line above stays as it was.
+  let intelEarned = 0;
+  for (const [, amount] of intel) intelEarned += amount;
+  const intelStart = mission.resources?.intel_start ?? 0;
+  if (!sweepQuiet) console.log(`${label}: intel earned ${intelEarned} (start ${intelStart}, spent ${intelSpentTotal}, held ${rt.intel})`);
+  // Every point earned is announced as an `intelEarned` event; one that is not is a source the HUD feed,
+  // and the gate in `intel-gate.ts`, would otherwise miss.
+  if (intelEventSum !== intelEarned) {
+    console.error(`${label}: FAILED — intel moved ${intelEarned} but only ${intelEventSum} was announced by intelEarned events`);
     process.exitCode = 1;
   }
-  runLog.push({ id, label, expect, result: rt.result, stuck: t >= maxTicks && rt.result === 'ongoing', minutes: t / TICKS_PER_SECOND / 60, stars: rt.stars, roe: rt.roeScore, cause });
+  runLog.push({ id, label, expect, result: rt.result, stuck: t >= maxTicks && rt.result === 'ongoing', minutes: t / TICKS_PER_SECOND / 60, stars: rt.stars, roe: rt.roeScore, cause, endTick: sim.tickCount, intel, spent: intelSpentTotal });
   if (rt.stars < expectStar) {
     console.error(`${label}: FAILED — expected ${expectStar} star(s), got ${rt.stars}`);
     process.exitCode = 1;
