@@ -1042,6 +1042,8 @@ until all of these hold:
   and the versus-force mirror pins (`versus-force.test.ts`) each move once, and
   the commit says why.
 
+Item 5's decision memo, the non-sim prerequisite plan and what N2 needs from Lane C: `docs/superpowers/plans/2026-10-15-net-n2-prereqs.md` (15 Oct; L1–L5 ruled 15 Oct (coordinator, lead-delegated): option B, per-seat types in app/render if P5 confirms, `setStance` hold and ambush only, client-computed data digest, N2 after F3 carrying F2 Task 1).
+
 ## 11c. N4 as built: the harness, the advisor and the arena (15 Oct 2026)
 
 N4 landed in two PR series from the plan

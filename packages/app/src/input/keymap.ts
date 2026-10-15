@@ -9,10 +9,14 @@
  * recalls), which every RTS player expects on exactly those keys, and the
  * digit keys are refused as bindings for that reason.
  */
+import type { SupportKind } from '@lions/sim';
+
 export type Action =
   | 'halt' | 'move' | 'smoke' | 'load' | 'unload' | 'overlay' | 'production' | 'mute'
   | 'selectAll' | 'cycleChips' | 'jumpToAlert' | 'keysOverlay' | 'idleNext'
-  | 'panUp' | 'panDown' | 'panLeft' | 'panRight' | 'pause' | 'veto';
+  | 'panUp' | 'panDown' | 'panLeft' | 'panRight' | 'pause' | 'veto'
+  // S-F Task 3: the four fire-support calls, Z Q C V, in the dock's left-to-right order.
+  | 'supportScreen' | 'supportBarrage' | 'supportSweep' | 'supportStrike';
 
 export interface ActionSpec {
   id: Action;
@@ -42,8 +46,8 @@ export interface ActionSpec {
 export const ACTIONS: readonly ActionSpec[] = [
   { id: 'halt', label: 'keymap.halt', key: 'h', rebindable: true },
   // L1 reopened (2026-10-11): the plain move. `m` was the obvious key and is
-  // taken by mute (h f g u o b m, ctrl+a, tab, space, f1, i, w s a d and
-  // escape are the whole of what is bound), so this sits on `n`, the key
+  // taken by mute (h f g u o b m, ctrl+a, tab, space, f1, i, w s a d, z x c v
+  // and escape are the whole of what is bound), so this sits on `n`, the key
   // beside it. Free, and not a pan or digit key.
   { id: 'move', label: 'keymap.move', key: 'n', rebindable: true },
   { id: 'smoke', label: 'keymap.smoke', key: 'f', rebindable: true },
@@ -55,19 +59,19 @@ export const ACTIONS: readonly ActionSpec[] = [
   { id: 'selectAll', label: 'keymap.selectAll', key: 'a', rebindable: true, modifier: 'ctrl' },
   { id: 'cycleChips', label: 'keymap.cycleChips', key: 'tab', rebindable: false },
   // The space bar, the one key on this table that is not a letter, a word or
-  // an arrow. It is free: h f g u o b m, ctrl+a, tab, w s a d and escape are
-  // the whole of what was taken, and space is the key a hand resting on the
+  // an arrow. It is free: h f g u o b m, ctrl+a, tab, w s a d, z x c v and
+  // escape are the whole of what was taken, and space is the key a hand resting on the
   // keyboard can reach without looking -- which is the point of an alert jump.
   { id: 'jumpToAlert', label: 'keymap.jumpToAlert', key: 'space', rebindable: true },
   // F1 is the browser's own help key everywhere else on the page, and free
-  // here: h f g u o b m, ctrl+a, tab, space, w s a d and escape are the whole
-  // of what was taken. `unassignable` only refuses digits, the four arrows
+  // here: h f g u o b m, ctrl+a, tab, space, w s a d, z x c v and escape are the
+  // whole of what was taken. `unassignable` only refuses digits, the four arrows
   // and the empty string, so f1 is also a legal REBIND target for something
   // else -- there is nothing about a function key that this table treats
   // specially.
   { id: 'keysOverlay', label: 'keymap.keysOverlay', key: 'f1', rebindable: true },
   // Task 11: the idle-unit finder. Free -- h f g u o b m, ctrl+a, tab, space,
-  // f1, w s a d and escape are the whole of what was taken -- and `i` sits
+  // f1, w s a d, z x c v and escape are the whole of what was taken -- and `i` sits
   // beside the letters this table already uses without reaching for a
   // modifier or a function key.
   { id: 'idleNext', label: 'keymap.idleNext', key: 'i', rebindable: true },
@@ -75,6 +79,16 @@ export const ACTIONS: readonly ActionSpec[] = [
   { id: 'panDown', label: 'keymap.panDown', key: 's', rebindable: true },
   { id: 'panLeft', label: 'keymap.panLeft', key: 'a', rebindable: true },
   { id: 'panRight', label: 'keymap.panRight', key: 'd', rebindable: true },
+  // S-F Task 3: the fire-support calls in the dock's own order (cheapest
+  // first), under the left hand. Free -- h n f g u o b m, ctrl+a, tab, space,
+  // f1, i, w s a d, escape and N4a's hidden veto on x are the whole of what
+  // was taken. The barrage sat on x until N4a's veto (D11, lead-ruled) took
+  // it on merge; it moved to q, above a and beside the pan keys. Digits stay
+  // the control groups.
+  { id: 'supportScreen', label: 'keymap.supportScreen', key: 'z', rebindable: true },
+  { id: 'supportBarrage', label: 'keymap.supportBarrage', key: 'q', rebindable: true },
+  { id: 'supportSweep', label: 'keymap.supportSweep', key: 'c', rebindable: true },
+  { id: 'supportStrike', label: 'keymap.supportStrike', key: 'v', rebindable: true },
   { id: 'pause', label: 'keymap.pause', key: 'escape', rebindable: false },
   // N4a (D11): the veto for an advisor's `assist` proposal, while one shows.
   // `x` was free (PR 535; `n` is move-only). Hidden because it means
@@ -153,6 +167,29 @@ export function resolveKey(b: Bindings, ev: { key: string; ctrlKey: boolean; met
   if (hit) return hit;
   if (mod === undefined && k in ARROWS) return ARROWS[k];
   return null;
+}
+
+/**
+ * S-F Task 3 (fix round 1): which fire-support tile, if any, does this key
+ * press? `null` is "do nothing at all" -- no note, no cue, no arming.
+ *
+ * Two silences, both deliberate. A HIDDEN dock is inert, its keys included
+ * (GH-345, the same rule as `production`'s `b`): `shown` is `isShown('dock')`.
+ * And an auto-repeat is ignored, because `ReinforcementDock.press` TOGGLES --
+ * a held Z would flip armed/cancelled at the repeat rate and, short of intel,
+ * spam the deny cue.
+ *
+ * Takes the action's `SupportKind` lookup as a parameter so this file keeps
+ * importing nothing from `ui/`.
+ */
+export function supportKeyTarget<K>(
+  action: Action | null,
+  shown: boolean,
+  repeat: boolean,
+  kindOf: (action: Action) => K | undefined
+): K | null {
+  if (action === null || !shown || repeat) return null;
+  return kindOf(action) ?? null;
 }
 
 /**
@@ -248,7 +285,7 @@ export function escapeTarget(
  */
 export function anyArmed(
   armedOrder: 'attackMove' | 'move' | 'smoke' | null,
-  armedSupport: 'sweep' | 'strike' | null
+  armedSupport: SupportKind | null
 ): boolean {
   return armedOrder !== null || armedSupport !== null;
 }

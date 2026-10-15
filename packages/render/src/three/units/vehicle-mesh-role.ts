@@ -124,12 +124,12 @@ function sliceFrom(band: string, index: number, width: number): readonly string[
  * so the sun, the shadow map and AO had nothing left to model and the wreck
  * photographed as a silhouette. At `gunmetal.2` it is **19.8%** and 1481.
  *
- * Kept in step with `CHARRED_TINT_HEX` (`../world-materials.ts`), which is the
- * same decision on the textured path. The two must land on the same TONE or a
- * burnt Lavi and a burnt Eitan read as different events;
- * `mesh-vehicle-death.test.ts` pins that they do, within a band wide enough
- * for the hue difference this palette forces (`gunmetal` leans green,
- * `CHARRED_TINT_HEX` leans warm, and there is no warm neutral band to pick).
+ * Kept in step with `CHARRED_WRECK_KEY` (`../world-materials.ts`), the same
+ * decision on the textured path: since 2026-10-15 a textured wreck is a soot
+ * recolour onto this ramp's own lit face, so a burnt Lavi and a burnt Eitan
+ * share one key. `mesh-vehicle-death.test.ts` pins the two ALBEDOS together
+ * (it compared a multiplier with an albedo until then, which is how the
+ * textured wrecks drew ~10x darker than this path with the test green).
  */
 export const CHARRED_RAMP: readonly string[] = sliceFrom('gunmetal', 1, 3);
 

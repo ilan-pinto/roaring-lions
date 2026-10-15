@@ -3355,7 +3355,7 @@ body[data-outcome-beat] .rl-aar {
    here exactly as they do in the garage, the stores and the debrief (they
    wore `--good` here and on the outcome moment, a third colour for the same
    money); THIS mission's logistics and intel wear `--info`, the colour the
-   top strip has always given them, on `.rl-tile__cost` and the support pair
+   top strip has always given them, on `.rl-tile__cost` and the support tiles
    alike. */
 .rl-dock__credits {
   font-size: var(--t-strip);
@@ -3522,14 +3522,15 @@ body[data-outcome-beat] .rl-aar {
   display: none;
 }
 
-/* --- the two support tiles -------------------------------------------- */
+/* --- the four support tiles ------------------------------------------- */
 
-/* The pair starts its own row. The spec's mock has exactly eight buildables,
-   so 8 + 2 filled two rows of five and the two calls landed side by side by
-   luck; the shipped KDF catalogue is fourteen, which left `strike` alone on a
-   fourth row with four empty cells beside it. Photographed — it reads as a
-   layout that ran out rather than as a group. */
-.rl-tile--support[data-support='sweep'] {
+/* The calls start their own row. The spec's mock has exactly eight
+   buildables, so 8 + 2 filled two rows of five and the calls landed side by
+   side by luck; the shipped KDF catalogue is fourteen, which left the last
+   call alone on a fourth row with four empty cells beside it. Photographed —
+   it reads as a layout that ran out rather than as a group. Four calls are
+   one row of four, in the sim's order, cheapest first. */
+.rl-tile--support[data-support='smoke_screen'] {
   grid-column-start: 1;
 }
 .rl-tile--support {
@@ -3557,22 +3558,13 @@ body[data-outcome-beat] .rl-aar {
    keeps full strength -- a whole-tile dim took the build bar's lime and
    countdown down with it once already -- and only the glyph and the word
    step back. The bar is the build bar's own shape in the call's own
-   --info; the clock sits where a unit tile's countdown does. */
+   --info. There is no clock: intel is earned by doing, at no steady rate. */
 .rl-tile--support[data-charging='1'] {
   opacity: 1;
 }
 .rl-tile--support[data-charging='1'] .rl-tile__glyph,
 .rl-tile--support[data-charging='1'] .rl-tile__word {
   opacity: var(--disabled-opacity);
-}
-.rl-tile__clock {
-  position: absolute;
-  left: 3px;
-  top: 1px;
-  font-size: var(--t-s);
-  font-variant-numeric: tabular-nums;
-  color: var(--info);
-  text-shadow: var(--halo);
 }
 .rl-tile__charge {
   position: absolute;
@@ -3583,7 +3575,6 @@ body[data-outcome-beat] .rl-aar {
   background: var(--info);
   transition: width var(--dur) var(--ease-steady);
 }
-.rl-tile--support:not([data-charging='1']) .rl-tile__clock,
 .rl-tile--support:not([data-charging='1']) .rl-tile__charge {
   display: none;
 }

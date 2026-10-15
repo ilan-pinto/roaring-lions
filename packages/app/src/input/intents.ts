@@ -10,7 +10,7 @@
  * intents; this module interprets them.
  */
 
-import { fx, type Command } from '@lions/sim';
+import { fx, type Command, type SupportKind } from '@lions/sim';
 import { t } from '../i18n/t';
 
 /** The narrow slice of Sim `applyIntent` needs — so a test can record instead
@@ -35,7 +35,7 @@ export type PlayerIntent =
   | { kind: 'halt'; ids: number[] }
   | { kind: 'group'; slot: number; action: 'assign' | 'recall' }
   | { kind: 'overlay'; on: boolean }
-  | { kind: 'support'; call: 'strike' | 'sweep'; x: number; y: number; accepted: boolean };
+  | { kind: 'support'; call: SupportKind; x: number; y: number; accepted: boolean };
 
 /** Every kind in the union. Kept as a value so data can be validated against
  *  it — a `type` alone cannot be iterated at runtime. */
@@ -238,7 +238,7 @@ export interface PointerContext {
    * armed would silently consume it instead of issuing the ordinary order
    * it looks like.
    */
-  armed: 'strike' | 'sweep' | null;
+  armed: SupportKind | null;
   /** Alt is held. Only a protected STRUCTURE is gated on it; a flagged zone
    *  raises the tier without refusing the order. Required rather than
    *  optional so typecheck names every call site when it changes. */
@@ -280,7 +280,7 @@ export interface Resolution {
    * dispatching the `support` intent with the real outcome, and choosing the
    * note from it.
    */
-  armed?: 'strike' | 'sweep';
+  armed?: SupportKind;
   /**
    * Set when a protected structure gated part of the selection's click and
    * the player did not hold Alt to override it -- i.e. `suppressed` below --

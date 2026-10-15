@@ -350,7 +350,7 @@ function run(id: string, plan: Plan, ledger: LedgerData, seed: number, probe: Pr
     unitInfo: (u) => {
       const d = unitData[u];
       if (!d || d.faction !== 'kdf') return null;
-      return { logistics: d.cost.logistics, buildTimeS: d.cost.build_time_s ?? 20, unlock: gateOf(d) };
+      return { logistics: d.cost.logistics, buildTimeS: d.cost.build_time_s ?? 20, population: d.cost.population ?? 1, unlock: gateOf(d) };
     },
   });
   rt.start();

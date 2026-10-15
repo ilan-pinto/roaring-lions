@@ -216,6 +216,9 @@ TEXTURED_BUILDING_EXEMPT = {
     # The A3.2 remainder (GH-185, 2026-10-03): the relay hut and the pump
     # house, the same exporter and the same bake.
     "relay", "pump_house",
+    # GH-66 field works (2026-10-15): the HESCO bastion run, the same
+    # exporter and the same kind of bake (8k refine shipped at 2048).
+    "hesco",
 }
 
 # 2026-09-07: the identical override, extended by the project lead to six

@@ -591,8 +591,8 @@ describe('resolvePointer: the hostile rung (GH-420)', () => {
   });
 
   it('an armed support call and an empty selection still come first', () => {
-    expect(resolvePointer(everyoneHurts, ctx([1], { armed: 'strike' })).intents).toEqual([]);
-    expect(resolvePointer(everyoneHurts, ctx([1], { armed: 'strike' })).armed).toBe('strike');
+    expect(resolvePointer(everyoneHurts, ctx([1], { armed: 'air_strike' })).intents).toEqual([]);
+    expect(resolvePointer(everyoneHurts, ctx([1], { armed: 'air_strike' })).armed).toBe('air_strike');
     expect(resolvePointer(everyoneHurts, ctx([])).intents).toEqual([]);
   });
 
@@ -626,8 +626,8 @@ describe('orderDenied (polish pass F)', () => {
     expect(orderDenied(base, 0)).toBe(false);
   });
   it('an armed support call is never one: only the runtime knows if it lands', () => {
-    expect(orderDenied({ ...base, armed: 'strike' }, 0)).toBe(false);
-    expect(orderDenied({ ...base, armed: 'sweep', refused: true }, 3)).toBe(false);
+    expect(orderDenied({ ...base, armed: 'air_strike' }, 0)).toBe(false);
+    expect(orderDenied({ ...base, armed: 'drone_sweep', refused: true }, 3)).toBe(false);
   });
   it('an order that produced an intent is not one', () => {
     const order = { kind: 'order' as const, verb: 'attackMove' as const, ids: [1], x: 1, y: 1, append: false };
