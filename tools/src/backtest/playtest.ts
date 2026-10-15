@@ -29,7 +29,8 @@ import { emptyAccount, startCampaign, type BrigadeAccount } from '../../../packa
 import { parseWorld } from '../../../packages/app/src/campaign';
 import { payVictory } from '../../../packages/app/src/campaign-pay';
 import { stagedUnit } from './e5-probes';
-import { run, type Plan, missionStars, missionCredits, missionMinutes, missionRoe, missionRosterOut, maxTierProbes } from './playtest-run';
+import { run, type Plan, missionStars, missionCredits, missionMinutes, missionRoe, missionRosterOut, missionPopulation, maxTierProbes } from './playtest-run';
+import { populationLine } from './population-census';
 import { passiveAcrossSeeds, drainPassiveSweeps, controlIntel, SWEEP_SEEDS } from './passive-sweep';
 import { reportIntel, seedsNotSpent } from './intel-gate';
 import { Picture, living } from './player-picture';
@@ -3787,6 +3788,18 @@ console.log(`roster cap: ${ROSTER_CAP} (max ${rosterMax}, margin ${(ROSTER_CAP /
 if (rosterMax >= ROSTER_CAP) {
   console.error(`roster cap: FAILED — the measured maximum ${rosterMax} has reached the cap ${ROSTER_CAP}`);
   process.exitCode = 1;
+}
+
+// --- GH-183 F3 Task 5: the population census ---------------------------------------------------------
+//
+// Report only, no gate: no campaign mission has a cap, and a pinned peak would be a fitted number. One
+// line per mission, from its plain winning plan on 424242 (never a control, a probe, a replay or a swept
+// seed), read off `MissionRuntime.population` once a tick: starting is what `start()` spawned, peak the
+// highest tick, end the last. Side 0 includes the player's queued builds (D2); side 1 is the living
+// sim-side-1 units; civilians count for neither. The doctrine caps (G-G) read these.
+for (const id of missionOrder) {
+  const c = missionPopulation.get(id);
+  if (c !== undefined) console.log(populationLine(id, c));
 }
 
 // The no-orders controls' other 29 seeds ran in worker processes while the ladder above ran
