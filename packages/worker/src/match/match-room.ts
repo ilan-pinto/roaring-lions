@@ -72,6 +72,13 @@ import { DEFAULT_MAP, callsignField, kitField, mapField, paceField, seatKindFiel
 import { compactLog, writeDesync } from './desync-log';
 
 export const TICK_MS = 50;
+/** The local relay's options (N4b task 11). workerd never passes them. */
+export interface MatchRoomOptions {
+  /** The clock's period in ms; default `TICK_MS`. */
+  tickMs?: number;
+  /** A versus room's seed from its code; default 32 bits from `crypto.getRandomValues`. A sandbox room keeps N0's. */
+  seed?: (code: string) => number;
+}
 /** A sandbox room's seed: the app's SIM_SEED, so the two-machine protocol stays N0's. A versus room mints its own. */
 const SIM_SEED_N0 = 20260727;
 /** Frames per persisted row: one row a second at the 20 Hz tick. */
@@ -263,9 +270,20 @@ export class MatchRoom {
   /** Set once this instance has logged a desync: the match is void after the first, so one write is the bound. */
   private desyncLogged = false;
 
+  /** The clock's period: `TICK_MS` unless the local relay asked for another. */
+  private readonly tickMs: number;
+  /** A versus room's seed, or null for the crypto one. */
+  private readonly seedFor: ((code: string) => number) | null;
+
   /** No storage here (#559 H-1): an object is made for every code anyone
-   *  probes, and only `/create` may give it a table, a key or an alarm. */
-  constructor(private readonly ctx: DurableStateLike, private readonly env: Env) {}
+   *  probes, and only `/create` may give it a table, a key or an alarm.
+   *  `opts` is the local relay's (N4b task 11, `tools/src/net/local-relay.ts`):
+   *  workerd constructs a Durable Object with two arguments and never passes
+   *  it, so a deployed room keeps `TICK_MS` and the crypto seed. */
+  constructor(private readonly ctx: DurableStateLike, private readonly env: Env, opts: MatchRoomOptions = {}) {
+    this.tickMs = typeof opts.tickMs === 'number' && Number.isFinite(opts.tickMs) && opts.tickMs > 0 ? opts.tickMs : TICK_MS;
+    this.seedFor = opts.seed ?? null;
+  }
 
   // --- storage --------------------------------------------------------------
 
@@ -471,7 +489,7 @@ export class MatchRoom {
     const st = this.st;
     const live = st !== null && wantsClock(st);
     if (live && this.clock === null) {
-      this.clock = setInterval(() => { void this.onClock(); }, TICK_MS);
+      this.clock = setInterval(() => { void this.onClock(); }, this.tickMs);
       this.armAlarm();
     } else if (!live && this.clock !== null) {
       clearInterval(this.clock);
@@ -576,7 +594,8 @@ export class MatchRoom {
       if (textField(body.player, '') === '') return new Response('no player', { status: 400 });
       const mode = body.mode === 'versus' ? 'versus' : 'sandbox';
       // A signed int32: validateConfig takes any integer, so the sign needs no care.
-      const seed = mode === 'versus' ? crypto.getRandomValues(new Uint32Array(1))[0] | 0 : SIM_SEED_N0;
+      // A versus room's seed is the relay's when it supplies one (N4b), never otherwise.
+      const seed = mode !== 'versus' ? SIM_SEED_N0 : this.seedFor !== null ? this.seedFor(body.code) | 0 : crypto.getRandomValues(new Uint32Array(1))[0] | 0;
       const map = mapField(body.map);
       if (map === null) return new Response('unknown map', { status: 400 });
       // A versus room is offered only on the maps measured fair (#561, the lead, 2026-10-14):

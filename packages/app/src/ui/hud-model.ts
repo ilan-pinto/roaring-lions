@@ -56,7 +56,7 @@ export interface MissionView {
    *  beside intel for as long as that module says; absent shows none. Intel
    *  is earned by doing, so the strip names the last thing it was earned for
    *  where logistics names its rate. */
-  intelLastEarn?: { amount: number; cause: 'identified' | 'objective' | 'highGround' };
+  intelLastEarn?: { amount: number; cause: 'identified' | 'objective' | 'highGround' | 'mixed'; tick: number };
   /** The story voice's closing line (GDD §11), shown on the victory banner
    *  only -- `mission.ts`'s own doc comment on the field: "Shown on the
    *  victory banner." */

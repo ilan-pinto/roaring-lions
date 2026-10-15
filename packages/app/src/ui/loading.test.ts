@@ -1296,7 +1296,7 @@ describe('the Field order briefing (GH-417)', () => {
       { key: 'avoid' as const, label: 'Avoid', text: 'No fire on the civic hall' },
     ],
     marks: [{ kind: 'start' as const, x: 1, y: 1 }],
-    attached: [{ type: 'dozer_d9', name: 'D9 Dov', count: 1 }],
+    attached: [{ type: 'dozer_d9', name: 'D9 Dov', count: 1, onLoan: false }],
   };
   const fieldScreen = (el: HTMLElement, field = FIELD): ReturnType<typeof showLoading> =>
     showLoading(el, 'Break the Depot', SPREAD_BRIEFING, undefined, undefined, undefined, () => undefined, [], false, { view: viewOf(), onChange: () => undefined }, PREVIEW, undefined, field);

@@ -25,7 +25,8 @@
  *    feed's identical-line merge turns three into "x3") and one for a high
  *    ground rise with its place; an objective earn has no line here because
  *    the objective alert already says it (F-Q7). `lastEarn` is what the strip
- *    shows beside the intel word for `LAST_EARN_SHOW_TICKS`, on the sim clock.
+ *    shows beside the intel word for `LAST_EARN_SHOW_TICKS`, on the sim clock;
+ *    it sums every earn since the strip last drew (`sealEarn`).
  *  - READY. A call that becomes affordable says so once: the tile's border
  *    for `READY_FLASH_MS`, and -- when two or more prices are crossed on one
  *    tick -- every crossed tile flashes but only the DEAREST of them gets the
@@ -114,12 +115,24 @@ function distSqFx(dx: number, dy: number): number {
   return (x * x + y * y) | 0;
 }
 
-/** The strip's last earn. `amount` is summed over the tick's earns of the
- *  cause that came last. */
+/** What an intel earn was for. */
+export type EarnCause = 'identified' | 'objective' | 'highGround';
+
+/** The strip's last earn: a BATCH of every earn since the strip last drew.
+ *  The strip redraws at 4 Hz, so at 2x speed or under a `step(n)` several
+ *  ticks' earns arrive between two redraws, and a label that read only the
+ *  last tick's would under-report ("+10 spotted" for a 200-tick step that
+ *  took intel from 250 to 300). */
 export interface LastEarn {
+  /** The batch's total. */
   readonly amount: number;
-  readonly cause: 'identified' | 'objective' | 'highGround';
+  /** One cause, or `'mixed'` when the batch holds more than one. */
+  readonly cause: EarnCause | 'mixed';
+  /** The batch's FIRST earn tick: the pulse's identity, so an earn joining
+   *  an open batch does not restart the pulse. */
   readonly tick: number;
+  /** The batch's LAST earn tick: the show window runs from here. */
+  readonly lastTick: number;
 }
 
 /** One thing to say. `key`/`params` are catalogue entries; `parts` names
@@ -270,6 +283,8 @@ export class IntelMoments {
   private inFlight: InFlight[] = [];
   private readouts: { atTick: number; out: IntelOutput }[] = [];
   private last: LastEarn | null = null;
+  /** True while `last` is still collecting earns; `sealEarn` closes it. */
+  private lastOpen = false;
   private disposed = false;
 
   constructor(private readonly opts: IntelMomentsOptions) {}
@@ -478,34 +493,46 @@ export class IntelMoments {
     if (r.building) rec.building = true;
   }
 
-  /** The tick's mission events. Every `intelEarned` updates the last earn
-   *  (the cause that came last, with the tick's amounts of that cause summed)
-   *  and returns the feed's lines: one per identification, one for a high
-   *  ground rise, none for an objective (its alert already says it). Reads no
-   *  board, so an earn on its own costs no snapshot. */
+  /** The tick's mission events. Every `intelEarned` joins the OPEN batch of
+   *  earns (opening one if the last was sealed or none exists) and returns
+   *  the feed's lines: one per identification, one for a high ground rise,
+   *  none for an objective (its alert already says it). Reads no board, so
+   *  an earn on its own costs no snapshot. */
   earned(events: readonly MissionEvent[], tick: number): IntelOutput[] {
     if (this.disposed) return [];
     const out: IntelOutput[] = [];
-    let cause: LastEarn['cause'] | null = null;
     for (const e of events) {
       if (e.kind !== 'intelEarned') continue;
-      cause = e.cause;
+      if (this.last !== null && this.lastOpen) {
+        this.last = {
+          amount: this.last.amount + e.amount,
+          cause: this.last.cause === e.cause ? e.cause : 'mixed',
+          tick: this.last.tick,
+          lastTick: tick,
+        };
+      } else {
+        this.last = { amount: e.amount, cause: e.cause, tick, lastTick: tick };
+        this.lastOpen = true;
+      }
       if (e.cause === 'identified' || e.cause === 'highGround') {
         out.push({ kind: 'earn', cause: e.cause, amount: e.amount, at: { x: e.at.x, y: e.at.y } });
       }
     }
-    if (cause !== null) {
-      let amount = 0;
-      for (const e of events) if (e.kind === 'intelEarned' && e.cause === cause) amount += e.amount;
-      this.last = { amount, cause, tick };
-    }
     return out;
   }
 
-  /** What the strip shows beside intel, or null once `LAST_EARN_SHOW_TICKS`
-   *  have passed (or nothing was ever earned). */
+  /** Closes the current batch: the next earn starts a new one (and a new
+   *  pulse). Called once the strip has drawn what it holds; on an empty or
+   *  already-sealed batch it does nothing. */
+  sealEarn(): void {
+    this.lastOpen = false;
+  }
+
+  /** What the strip shows beside intel: the open or the last sealed batch,
+   *  or null once `LAST_EARN_SHOW_TICKS` have passed since its LAST earn (or
+   *  nothing was ever earned). */
   lastEarn(tick: number): LastEarn | null {
-    if (this.last === null || tick - this.last.tick >= LAST_EARN_SHOW_TICKS) return null;
+    if (this.last === null || tick - this.last.lastTick >= LAST_EARN_SHOW_TICKS) return null;
     return this.last;
   }
 
@@ -517,5 +544,6 @@ export class IntelMoments {
     this.pendingSweep = null;
     this.inFlight = [];
     this.last = null;
+    this.lastOpen = false;
   }
 }

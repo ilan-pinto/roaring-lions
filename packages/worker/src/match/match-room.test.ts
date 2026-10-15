@@ -358,6 +358,54 @@ describe('MatchRoom', () => {
     expect(ofType(a.ws1, 'start')[0].config.seed).toBe(seedA);
   });
 
+  // N4b task 11: the local relay passes a third argument; workerd never does,
+  // so a room built with two must keep the 50 ms clock and the crypto seed.
+  it('a room built without options ticks every TICK_MS and seeds a versus room from crypto.getRandomValues', async () => {
+    const intervals = vi.spyOn(globalThis, 'setInterval');
+    const real = crypto.getRandomValues.bind(crypto);
+    const rnd = vi.spyOn(crypto, 'getRandomValues').mockImplementation(<T extends ArrayBufferView | null>(a: T): T => {
+      if (a instanceof Uint32Array) { a.fill(0x9e3779b9); return a; }
+      return real(a as unknown as Uint8Array<ArrayBuffer>) as unknown as T;
+    });
+    try {
+      const { ws0 } = await running({ mode: 'versus' });
+      expect(ofType(ws0, 'start')[0].config.seed).toBe(0x9e3779b9 | 0);
+      expect(rnd.mock.calls.some(([a]) => a instanceof Uint32Array)).toBe(true);
+      const delays = intervals.mock.calls.map((c) => c[1]);
+      expect(delays.length).toBeGreaterThan(0);
+      expect(delays.every((d) => d === TICK_MS)).toBe(true);
+    } finally {
+      intervals.mockRestore();
+      rnd.mockRestore();
+    }
+  });
+  it('options (the local relay\'s, never workerd\'s): tickMs sets the clock and seed() replaces the crypto seed, given the code', async () => {
+    const intervals = vi.spyOn(globalThis, 'setInterval');
+    const rnd = vi.spyOn(crypto, 'getRandomValues');
+    const codes: string[] = [];
+    try {
+      const state = new FakeState();
+      const room = new MatchRoom(state, env, { tickMs: 7, seed: (code) => { codes.push(code); return 7; } });
+      const res = await room.fetch(new Request('https://room/create', {
+        method: 'POST', body: JSON.stringify({ code: CODE, matchId: CODE, map: 'tel_marum', build: BUILD, player: 'p-host', callsign: 'Host', mode: 'versus' }),
+      }));
+      expect(res.status).toBe(200);
+      expect((await room.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player: 'p-guest' }) }))).status).toBe(200);
+      const ws0 = await hello(room, 0);
+      const ws1 = await hello(room, 1);
+      await say(room, ws0, { t: 'ready' });
+      await say(room, ws1, { t: 'ready' });
+      expect(ofType(ws0, 'start')[0].config.seed).toBe(7);
+      expect(codes).toEqual([CODE]);
+      expect(rnd.mock.calls.some(([a]) => a instanceof Uint32Array)).toBe(false);
+      expect(intervals.mock.calls.map((c) => c[1])).toContain(7);
+      expect(intervals.mock.calls.map((c) => c[1])).not.toContain(TICK_MS);
+    } finally {
+      intervals.mockRestore();
+      rnd.mockRestore();
+    }
+  });
+
   it('a sandbox room keeps N0: both seats on side 0, seed 20260727', async () => {
     const { ws0 } = await running();
     const [start] = ofType(ws0, 'start');

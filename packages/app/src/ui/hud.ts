@@ -161,6 +161,10 @@ const CARD_BADGE = 10;
 const ORDER_GLYPH_PX = 14;
 /** The top strip's two currency marks, likewise 1em of the strip's own type. */
 const STRIP_GLYPH_PX = 14;
+
+/** How long the intel figure pulses after an earn, ms on the frame clock.
+ *  `theme.css`'s `.rl-earn-pulse` duration is the same number; a test pins it. */
+export const EARN_PULSE_MS = 900;
 /** And the size the same mark is drawn at when it is standing IN for missing
  *  art rather than labelling it — big enough to read as the picture. */
 const CHIP_MARK = 18;
@@ -259,6 +263,10 @@ export interface HudDeps {
   sim: Sim;
   getSelection: () => number[];
   getMission: () => MissionView | null;
+  /** Called at the end of every strip render, once the strip has drawn what
+   *  `getMission` handed it: `main.ts` seals the intel last-earn batch here
+   *  (`IntelMoments.sealEarn`). Optional: tests of other things omit it. */
+  onStripRendered?: () => void;
   hoverStructure: () => number;
   hoverEntity: () => number;
   /** The cursor the pointer shows right now, bare (`input/cursor.ts`'s
@@ -315,6 +323,10 @@ export interface HudDeps {
    *  own `LedgerRosterEntry` -- `main.ts` hands over the runtime's entry
    *  unchanged, and the widening is free because `slot` is optional. */
   rosterEntryOf?: (id: number) => Readonly<RosterEntry> | undefined;
+  /** True when this unit was issued for the mission and returns to its lender
+   *  afterwards (F3, `MissionRuntime.isOnLoan`). Absent -- a test, the sandbox,
+   *  a mission-less boot -- means never: nothing is stamped by omission. */
+  isOnLoan?: (id: number) => boolean;
   /** The memorial record for whoever last held this slot before it was
    *  refilled (WP-G-E4, R-6), or `undefined` if the slot has never been lost --
    *  the common case, and a fresh spawn's absent `entry.slot` never calls this
@@ -532,12 +544,21 @@ export class Hud {
   private paintedStripBody: string | null = null;
   private paintedStripInfo: string | null = null;
 
+  /** GH-77 / F-Q7: the intel earn last seen (by its sim tick, its identity) and
+   *  the frame-clock moment it was first seen, so the figure pulses once per
+   *  earn for `EARN_PULSE_MS` and not once per 4 Hz rebuild. */
+  private earnSeen: { tick: number; atMs: number } | null = null;
+
   /** True only for the length of the `focus()` call that hands focus to a
    *  rebuilt node whose predecessor had NO tip open. That call fires
    *  `focusin`, which the strip's delegated tip opens on; the resolver
    *  answers null while this is set, so a restore never opens a tip by
    *  itself -- only the player's own hover or focus does. */
   private stripTipQuiet = false;
+  /** True only while `renderCard` re-focuses a card flag it just rebuilt:
+   *  the restore fires `focusin`, which would otherwise open a tip the
+   *  keyboard player had not asked for (same rule as `stripTipQuiet`). */
+  private clusterTipQuiet = false;
 
   /** Everything this HUD put directly on `host`, in append order, so
    *  `destroy()` has one list to walk rather than a hand-kept set of field
@@ -1625,10 +1646,27 @@ export class Hud {
       // F-Q11: the last earn, not a rate -- intel comes in lumps now.
       const lastEarn =
         m.intelLastEarn !== undefined
-          ? ` <span class="rl-dim">${t('hud.strip.intel.lastEarn', { n: m.intelLastEarn.amount, cause: m.intelLastEarn.cause })}</span>`
+          ? ` <span class="rl-dim">${
+              m.intelLastEarn.cause === 'mixed'
+                ? t('hud.strip.intel.lastEarnMixed', { n: m.intelLastEarn.amount })
+                : t('hud.strip.intel.lastEarn', { n: m.intelLastEarn.amount, cause: m.intelLastEarn.cause })
+            }</span>`
           : '';
+      // GH-77 / F-Q7: an objective's earn writes no feed line, so the figure
+      // itself registers it, once. The strip is rebuilt as markup at 4 Hz,
+      // which would restart a CSS animation every time; the negative delay
+      // resumes it from how long ago the earn was first seen.
+      const nowMs = performance.now();
+      if (m.intelLastEarn !== undefined && m.intelLastEarn.tick !== this.earnSeen?.tick) {
+        this.earnSeen = { tick: m.intelLastEarn.tick, atMs: nowMs };
+      }
+      const sinceEarn = this.earnSeen !== null ? nowMs - this.earnSeen.atMs : Infinity;
+      const figure =
+        sinceEarn < EARN_PULSE_MS
+          ? `<b class="rl-earn-pulse" style="animation-delay:-${Math.round(sinceEarn)}ms">${m.intel}</b>`
+          : `<b>${m.intel}</b>`;
       info.push(
-        `<span class="rl-info" data-tip="intel" tabindex="0">${symbolSvg('intel', STRIP_GLYPH_PX)} <b>${m.intel}</b> ` +
+        `<span class="rl-info" data-tip="intel" tabindex="0">${symbolSvg('intel', STRIP_GLYPH_PX)} ${figure} ` +
           `<span class="rl-dim">${t('hud.strip.intel.word')}</span>${lastEarn}</span>`
       );
     }
@@ -1709,6 +1747,9 @@ export class Hud {
       }
     }
     this.punctuate(m);
+    // The strip now shows every earn it was handed: the next one starts a
+    // new batch. Only here -- a tooltip's re-read of `getMission` must not seal.
+    this.deps.onStripRendered?.();
   }
 
   /** Flash what just changed. Runs after the rebuild, on the fresh nodes. */
@@ -2067,7 +2108,23 @@ export class Hud {
     this.renderOrders(sel);
     if (sel.length === 1) {
       this.chipTypes = [];
+      // The rebuild destroys a focused card flag (the PINNED state, the "On
+      // loan" stamp) four times a second, as `renderStrip` does to its own:
+      // carry the node's `data-tip` KEY across the swap, never the node, and
+      // restore quietly unless its tip was open (read BEFORE the swap).
+      const active = document.activeElement;
+      const held = active !== null && this.cluster.contains(active) ? active.getAttribute('data-tip') : null;
+      const tipWasOpen = held !== null && active !== null && active.hasAttribute('aria-describedby');
       this.cluster.innerHTML = this.cardHtml(sel[0]);
+      if (held !== null) {
+        const successor = this.cluster.querySelector<HTMLElement>(`[data-tip="${CSS.escape(held)}"]`);
+        this.clusterTipQuiet = !tipWasOpen;
+        try {
+          successor?.focus({ preventScroll: true });
+        } finally {
+          this.clusterTipQuiet = false;
+        }
+      }
     } else {
       this.renderChips(sel);
     }
@@ -2221,6 +2278,7 @@ export class Hud {
         firepowerKilled: st.firepowerKilled[i] === 1,
         aboard: st.carriedBy[i] >= 0,
         own: isOwnSide(st.side[i], this.viewer),
+        onLoan: this.deps.isOnLoan?.(i) === true,
         ...(type.hasAps
           ? { aps: { ammo: st.apsAmmo[i], magazine: type.apsMagazine } }
           : {}),
@@ -2247,7 +2305,11 @@ export class Hud {
           // G-P3 "Tinted border": the chip root carries the level for
           // theme.css's per-level border tint. Absent at level 0, so an
           // unkitted chip is byte-identical to one drawn before the kit.
-          `${kit > 0 ? ` data-kit="${kit}"` : ''}>` +
+          `${kit > 0 ? ` data-kit="${kit}"` : ''}` +
+          // F3 Task 8 (C2): the "On loan" tab sits on the frame's top edge,
+          // so the root is positioned only for a chip that has one -- every
+          // other chip stays byte-identical to the one drawn before.
+          `${c.loaned > 0 ? ' data-loan="1"' : ''}>` +
           chipArtHtml(this.artHtml(c.typeId, c.bucket, 'rl-chip__art', CHIP_MARK, 'chip'), kit, c.mark) +
           `<div class="rl-chip__body">` +
           `<div class="rl-chip__top">` +
@@ -2264,7 +2326,12 @@ export class Hud {
           `<div class="rl-chip__status ${tone}"${
             c.mark === 'pinned' ? ' data-tip="pinned" tabindex="0"' : ''
           }>${c.status}${c.detail !== null ? ` <span class="rl-dim">· ${c.detail}</span>` : ''}</div>` +
-          `</div></div>`
+          `</div>` +
+          // A child of the chip FRAME, after the body: not in `.rl-chip__top`
+          // (the name column would lose its width and wrap, measured in the
+          // mock) and not in the status line (combat state only).
+          (c.loaned > 0 ? `<span class="rl-loan rl-loan--tab">${t('hud.onLoan')}</span>` : '') +
+          `</div>`
         );
       })
       .join('');
@@ -2281,9 +2348,19 @@ export class Hud {
     // PINNED flag share this same delegated binding -- both are drawn into
     // `this.cluster` -- so the pinned explanation is resolved here, ahead of
     // the type-id lookup below, rather than in a second resolver.
+    if (this.clusterTipQuiet) return null;
     if (typeId === 'pinned') return t('hud.pinned.explain');
+    // The single-unit card's "On loan" stamp: same delegation, same reason.
+    if (typeId === 'onLoan') return t('hud.onLoan.tip');
     const chip = this.chipViews.find((c) => c.typeId === typeId);
-    return chip ? t('hud.chip.selectOnly', { name: escapeHtml(chip.name), count: chip.count }) : null;
+    if (!chip) return null;
+    const base = t('hud.chip.selectOnly', { name: escapeHtml(chip.name), count: chip.count });
+    if (chip.loaned === 0) return base;
+    // Q3: every stamped chip says how many of it are lent, then why.
+    return (
+      `${base}<div class="rl-tip__blurb rl-dim">${t('hud.onLoan.some', { n: chip.loaned, count: chip.total })}</div>` +
+      `<div class="rl-tip__blurb rl-dim">${t('hud.onLoan.tip')}</div>`
+    );
   }
 
   /**
@@ -2478,6 +2555,9 @@ export class Hud {
       `<div class="rl-card__top">` +
       callsign +
       `<span class="rl-card__name${entry?.name ? ' rl-card__name--type' : ''}">${escapeHtml(type.name)}</span>` +
+      (this.deps.isOnLoan?.(id) === true
+        ? `<span class="rl-loan" data-tip="onLoan" tabindex="0">${t('hud.onLoan')}</span>`
+        : '') +
       (vet > 0 ? `<span class="rl-commend">${'★'.repeat(vet)}</span>` : '') +
       (kitted ? `<span class="rl-card__kit">${kitPipsHtml(kit.pips)}</span>` : '') +
       `<span class="rl-card__hp rl-dim">` +
