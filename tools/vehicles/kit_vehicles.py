@@ -191,6 +191,13 @@ DEVIATIONS = {
             "that plate's top edge -- drops 0.085 m"),
     },
     "apc_kipod": {
+        ("firepower", 1, "turret_metal"): (
+            "xyz",
+            "15 Oct: the Kipod carries the Eitan's station at 1.0, and the mock's sight on the station top "
+            "at y -0.24 stands over nothing on the Meshy station (it floated). As the Eitan's: it hangs "
+            "outboard of the F3 cowl's left cheek (outer face y 0.50) at y 0.63, below the station top, "
+            "forward at x -0.945 so the F2 box hangs beside it aft, its arm over the cheek into the "
+            "station top"),
         ("firepower", 3, "turret_metal"): (
             "z",
             "unit polish (14 Oct): as the Eitan's -- the cowl grows from its 3.465 foot until its port holds "
@@ -1177,8 +1184,11 @@ def parts_apc_kipod(H):
     # turns stands above 3.465. The barrel is a 12 cm square bar (y -0.066..
     # 0.054, z 3.655-3.775) out of its front face.
     # Unit polish (14 Oct): the bar measured and the cowl grown round it, as
-    # on the Eitan.
-    COWL_X = -1.10
+    # on the Eitan. Since 15 Oct the Kipod carries the Eitan's own station at
+    # 1.0 (it was 0.76, and read as a lighter class beside the Eitan), so the
+    # cowl stands where the Eitan's does against its pivot: centre 0.08 m
+    # ahead of it (-1.244 + 0.08), the box 0.35 m aft of the cowl's centre.
+    COWL_X = -1.165
     BAR = _section(H, COWL_X + 1.05 / 2)
     COWL_Z0 = 3.465
     COWL_H = max(0.44, BAR[3] + 0.02 + 0.05 - COWL_Z0)
@@ -1248,11 +1258,17 @@ def parts_apc_kipod(H):
                           bolts=0)
 
     def f1():
-        c = Vector((-1.25, -0.24, thi.z + 0.12 - 0.003))
+        # As the Eitan's, now that the station is the Eitan's at 1.0: the
+        # sight hangs outboard of the F3 cowl's left cheek, 0.22 ahead of the
+        # cowl's centre, on a bent arm over the cheek into the station top.
+        # (At 0.76 it stood on the station's top at y -0.24, where the Meshy
+        # station has nothing under it: it floated.)
+        c = Vector((COWL_X + 0.22, CHEEK_OUT + 0.012 + 0.12, thi.z - 0.13))
         out = kp.sight_box("f1_th", c, (0.32, 0.24, 0.24), (0.16, 0.07), window_centre=(0.0, 0.02),
                            visor=(0.07, 0.26, 0.025), visor_drop=0.085)
-        for i, yy in enumerate((c.y - 0.08, c.y + 0.08)):
-            out.append(kp.hex_bolt(f"f1_b{i}", (c.x - 0.10, yy, c.z + 0.12), (0, 0, 1), across=0.022, height=0.008))
+        za = COWL_TOP + 0.04
+        out += kp.bent_arm("f1_arm", [(c.x, c.y - 0.10, c.z + 0.10), (c.x, c.y - 0.10, za), (c.x, 0.26, za),
+                                      (c.x, 0.26, thi.z - 0.012)], w=0.03)
         return out
 
     def f2():
@@ -1264,11 +1280,11 @@ def parts_apc_kipod(H):
         # the box hangs outboard of the cowl's left cheek, its foot over the
         # ring; the chute arches over the cheek into the station top
         size = (0.50, 0.24, 0.34)
-        bc = Vector((-1.45, CHEEK_OUT + 0.012 + size[1] / 2, COWL_Z0 + 0.005 + size[2] / 2))
+        bc = Vector((COWL_X - 0.35, CHEEK_OUT + 0.012 + size[1] / 2, COWL_Z0 + 0.005 + size[2] / 2))
         out += kp.ammo_box("f2_box", size, kp.place(bc), lid_h=0.04, handle=False)
         za = COWL_TOP + 0.05
         out += kp.feed_chute("f2_chute", [(bc.x + 0.12, bc.y - 0.06, bc.z + 0.15), (bc.x + 0.12, bc.y - 0.06, za),
-                                          (bc.x + 0.12, 0.20, za), (bc.x + 0.12, 0.16, thi.z - 0.02)], w=0.08)
+                                          (bc.x + 0.12, 0.26, za), (bc.x + 0.12, 0.22, thi.z - 0.02)], w=0.08)
         return out
 
     def f3():
@@ -1282,7 +1298,7 @@ def parts_apc_kipod(H):
         ("sensors", 1, "hull_hull", "commander's sight head", s1),
         ("sensors", 2, "hull_hull", "ground-surveillance radar on a roof pedestal", s2),
         ("sensors", 3, "hull_hull", "telescopic mast with an EO drum", s3),
-        ("firepower", 1, "turret_metal", "thermal sight block on the RWS", f1),
+        ("firepower", 1, "turret_metal", "thermal sight block outboard of the RWS", f1),
         ("firepower", 2, "turret_metal", "heat shroud + ammunition box with feed chute", f2),
         ("firepower", 3, "turret_metal", "armoured cowl round the weapon station", f3),
     ]
