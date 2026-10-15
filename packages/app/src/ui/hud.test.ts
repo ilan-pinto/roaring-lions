@@ -372,6 +372,24 @@ describe('top strip', () => {
     }
   });
 
+  it('shows a mixed batch as a bare total', () => {
+    const r = rig(mission({ intel: 70, intelLastEarn: { amount: 40, cause: 'mixed', tick: 100 } }));
+    const intel = r.stripEl().querySelector('[data-tip="intel"]')?.textContent ?? '';
+    expect(intel).toContain('+40');
+    expect(intel).not.toContain('spotted');
+    expect(intel).not.toContain('high ground');
+    expect(intel).not.toContain('objective');
+  });
+
+  it('calls onStripRendered once per strip render', () => {
+    const onStripRendered = vi.fn();
+    const r = rig(mission({ intel: 40 }), { onStripRendered });
+    // `rig` ticks once on construction, which draws the strip once.
+    expect(onStripRendered).toHaveBeenCalledTimes(1);
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(onStripRendered).toHaveBeenCalledTimes(2);
+  });
+
   it('shows no earn when none is set, and logistics keeps its own rate', () => {
     const r = rig(mission({ logistics: 410, logisticsRate: 12, intel: 40 }));
     expect(r.stripEl().querySelector('[data-tip="intel"]')?.textContent).not.toContain('/min');
@@ -419,6 +437,17 @@ describe('top strip', () => {
       set({ ...earn(100), logistics: 102 });
       rebuild(r);
       expect(figure(r).classList.contains('rl-earn-pulse')).toBe(false);
+    });
+
+    it('an earn joining an open batch does not restart the pulse', () => {
+      const { r, set } = earnRig();
+      set(earn(100));
+      rebuild(r);
+      nowMs = 1300;
+      // The batch grew (same first tick, later last tick): same pulse, resumed.
+      set({ ...earn(100), intelLastEarn: { amount: 60, cause: 'objective', tick: 100 } });
+      rebuild(r);
+      expect(figure(r).getAttribute('style')).toContain('animation-delay:-300ms');
     });
 
     it('a second earn restarts it', () => {

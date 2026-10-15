@@ -263,6 +263,10 @@ export interface HudDeps {
   sim: Sim;
   getSelection: () => number[];
   getMission: () => MissionView | null;
+  /** Called at the end of every strip render, once the strip has drawn what
+   *  `getMission` handed it: `main.ts` seals the intel last-earn batch here
+   *  (`IntelMoments.sealEarn`). Optional: tests of other things omit it. */
+  onStripRendered?: () => void;
   hoverStructure: () => number;
   hoverEntity: () => number;
   /** The cursor the pointer shows right now, bare (`input/cursor.ts`'s
@@ -1632,7 +1636,11 @@ export class Hud {
       // F-Q11: the last earn, not a rate -- intel comes in lumps now.
       const lastEarn =
         m.intelLastEarn !== undefined
-          ? ` <span class="rl-dim">${t('hud.strip.intel.lastEarn', { n: m.intelLastEarn.amount, cause: m.intelLastEarn.cause })}</span>`
+          ? ` <span class="rl-dim">${
+              m.intelLastEarn.cause === 'mixed'
+                ? t('hud.strip.intel.lastEarnMixed', { n: m.intelLastEarn.amount })
+                : t('hud.strip.intel.lastEarn', { n: m.intelLastEarn.amount, cause: m.intelLastEarn.cause })
+            }</span>`
           : '';
       // GH-77 / F-Q7: an objective's earn writes no feed line, so the figure
       // itself registers it, once. The strip is rebuilt as markup at 4 Hz,
@@ -1729,6 +1737,9 @@ export class Hud {
       }
     }
     this.punctuate(m);
+    // The strip now shows every earn it was handed: the next one starts a
+    // new batch. Only here -- a tooltip's re-read of `getMission` must not seal.
+    this.deps.onStripRendered?.();
   }
 
   /** Flash what just changed. Runs after the rebuild, on the fresh nodes. */

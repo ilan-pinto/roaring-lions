@@ -712,6 +712,7 @@
   "hud.strip.pinned": "{n} pinned",
   "hud.strip.broken": "{n} broken",
   "hud.strip.logistics.tip": "Logistics — spent to build reinforcements at the dock.{rate, plural, =0 {} other { The mission adds {rate} more a minute.}}",
+  "hud.strip.intel.lastEarnMixed": "+{n}",
   "hud.strip.intel.lastEarn": "+{n} {cause, select, identified {spotted} objective {objective} other {high ground}}",
   "hud.strip.intel.tip": "Intel — earned by identifying the enemy, holding high ground and completing objectives; spent on fire support.",
   "hud.pinned.label": "Pinned",
