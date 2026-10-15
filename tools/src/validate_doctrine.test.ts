@@ -6,6 +6,10 @@
 // VERSUS_SARIM's unit types plus `recoilless_team` (LD3), and the KDF menu is VERSUS_KDF's types,
 // both computed from the constants in packages/app/src/net/versus-force.ts, so a force change
 // that the doctrine does not follow goes red.
+//
+// kdf.json's menu holds `recon_drone`, population 0: like the `loiter_drone` LD3 keeps off the
+// Sarim menu, it is bounded by the purse alone, since no cap refuses population 0 (F3 C-R8).
+// The later pass that sets `pop_cap` values should keep that in mind.
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import AjvModule from 'ajv/dist/2020.js';
@@ -126,6 +130,21 @@ describe('doctrineFailures, one mutation at a time', () => {
     }
   });
 
+  it('an empty set names both missing factions', () => {
+    expect(doctrineFailures([], unitsById)).toEqual([
+      'data/doctrines: no KDF doctrine (N3 needs one per seat faction)',
+      'data/doctrines: no Sarim doctrine (N3 needs one per seat faction)',
+    ]);
+  });
+
+  it("refuses an id that is not the doctrine's faction", () => {
+    const d = pair();
+    d[0].doc.id = 'sarim';
+    expect(doctrineFailures(d, unitsById)).toEqual([
+      'kdf.json: id "sarim" is not its faction "kdf" -- a doctrine\'s id is its faction',
+    ]);
+  });
+
   it('refuses a missing faction and a second doctrine of one faction', () => {
     expect(doctrineFailures([pair()[0]], unitsById)).toEqual([
       'data/doctrines: no Sarim doctrine (N3 needs one per seat faction)',
@@ -151,11 +170,51 @@ describe('doctrine.schema.json', () => {
   });
 
   it('refuses an extra property at the top and inside the budget', () => {
-    const top = { ...clone(byFaction('kdf')), pop_cap: 20 };
+    const top = { ...clone(byFaction('kdf')), commander: 'g_g0' };
     expect(validate(top)).toBe(false);
     const inner = clone(byFaction('kdf'));
     (inner.budget as Record<string, unknown>).logistics_rate_per_min = 0;
     expect(validate(inner)).toBe(false);
+  });
+
+  it('takes an optional pop_cap, an integer of at least 1, set in no shipped doctrine yet', () => {
+    expect(validate({ ...clone(byFaction('sarim')), pop_cap: 27 })).toBe(true);
+    expect(validate({ ...clone(byFaction('sarim')), pop_cap: 0 })).toBe(false);
+    expect(validate({ ...clone(byFaction('sarim')), pop_cap: 1.5 })).toBe(false);
+    for (const { doc } of shipped) expect(doc).not.toHaveProperty('pop_cap');
+  });
+
+  it('refuses each required key missing', () => {
+    for (const key of ['id', 'faction', 'name', 'menu', 'budget']) {
+      const d = clone(byFaction('kdf')) as unknown as Record<string, unknown>;
+      delete d[key];
+      expect(validate(d), key).toBe(false);
+    }
+    for (const key of ['logistics_start', 'status']) {
+      const d = clone(byFaction('kdf'));
+      delete (d.budget as Record<string, unknown>)[key];
+      expect(validate(d), `budget.${key}`).toBe(false);
+    }
+  });
+
+  it('refuses an unknown status, an empty name and an id outside the pattern', () => {
+    const status = clone(byFaction('kdf'));
+    status.budget.status = 'final';
+    expect(validate(status)).toBe(false);
+    expect(validate({ ...clone(byFaction('kdf')), name: '' })).toBe(false);
+    expect(validate({ ...clone(byFaction('kdf')), id: 'KDF' })).toBe(false);
+    expect(validate({ ...clone(byFaction('kdf')), id: 'kdf-2' })).toBe(false);
+  });
+
+  it('holds logistics_start to 1..894784, the most an Int32 purse in 1/2400ths can start with', () => {
+    expect(894784 * 2400).toBeLessThanOrEqual(2 ** 31 - 1);
+    expect(894785 * 2400).toBeGreaterThan(2 ** 31 - 1);
+    const at = (n: number) => {
+      const d = clone(byFaction('kdf'));
+      d.budget.logistics_start = n;
+      return validate(d);
+    };
+    expect([at(0), at(1), at(894784), at(894785)]).toEqual([false, true, true, false]);
   });
 
   it('refuses a repeated menu id, an empty menu, a third faction and a fractional purse', () => {

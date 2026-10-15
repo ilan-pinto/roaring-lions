@@ -6,6 +6,7 @@
 //     (sarim, rif or ashwar -- the same set versus-force.test.ts holds VERSUS_SARIM to);
 //   - no menu holds `loiter_drone` (LD3: population 0, which the cap never refuses, plus a
 //     kamikaze, is a spam risk with no balance behind it);
+//   - a doctrine's id is its faction (N3 looks doctrines up by faction, never by file order);
 //   - exactly one KDF and one Sarim doctrine, and the Sarim start purse is 1.6x the KDF's
 //     (G3 Q7, network design §2.3), compared by integer cross-multiplication (8/5).
 //
@@ -35,6 +36,11 @@ export function doctrineFailures(doctrines, unitsById) {
   for (const { file, doc } of doctrines) {
     if (!doc || typeof doc !== 'object') continue; // the schema check reports it
     const faction = doc.faction;
+    // N3 looks a doctrine up by FACTION (KDF is side 0, LD1), never by file order, so the id
+    // must name the faction it serves: one doctrine per faction, id === faction.
+    if (typeof doc.id === 'string' && doc.id !== faction) {
+      out.push(`${file}: id "${doc.id}" is not its faction "${faction}" -- a doctrine's id is its faction`);
+    }
     if (faction === 'kdf' || faction === 'sarim') {
       if (byFaction.has(faction)) {
         out.push(

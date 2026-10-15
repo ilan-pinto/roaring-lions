@@ -27,6 +27,11 @@
       "items": { "type": "string", "pattern": "^[a-z0-9_]+$" },
       "description": "Unit ids the seat may build at its camp, in dock order. Each must be a unit in data/units of the doctrine's own side."
     },
+    "pop_cap": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Optional population cap for this seat (F3's per-side MissionContext.popCaps). Not set in any shipped doctrine yet: its values await a balance call (G3 Q4; N3 prep plan E4) -- an equal cap per side would quietly undo the 1.6x budget of G3 Q7, because cheap teams are Sarim's shape. Absent means uncapped."
+    },
     "budget": {
       "type": "object",
       "required": ["logistics_start", "status"],
@@ -35,7 +40,8 @@
         "logistics_start": {
           "type": "integer",
           "minimum": 1,
-          "description": "The seat's purse at tick 0, in whole logistics -- the unit of a unit's `cost.logistics` and of `resources.logistics_start`; the sim scales it by PURSE_UNITS (F2). This is what F4's per-side `MissionContext.economy.start` reads. There is no base rate here: a skirmish is paid by held zones only (G3 Q2), so the versus rules file sets each side's rate to 0. The Sarim/KDF ratio of these numbers is pinned at 1.6 (G3 Q7)."
+          "maximum": 894784,
+          "description": "Capped at 894784 because the sim holds the purse as an Int32 in 1/2400ths (PURSE_UNITS, F2): 894784 x 2400 = 2,147,481,600 sits just under 2^31 - 1, so the start can never overflow the purse. The seat's purse at tick 0, in whole logistics -- the unit of a unit's `cost.logistics` and of `resources.logistics_start`; the sim scales it by PURSE_UNITS (F2). This is what F4's per-side `MissionContext.economy.start` reads. There is no base rate here: a skirmish is paid by held zones only (G3 Q2), so the versus rules file sets each side's rate to 0. The Sarim/KDF ratio of these numbers is pinned at 1.6 (G3 Q7)."
         },
         "status": {
           "enum": ["provisional", "swept"],
