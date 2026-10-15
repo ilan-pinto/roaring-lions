@@ -41,12 +41,16 @@
  * `abortExternalPlayers` empties with no grace: SIGTERM, then SIGKILL, and the
  * directory removed. The arena's SIGINT/SIGTERM handler calls it. Both it and
  * the `finally` remove with `force`, so whichever runs second finds nothing
- * and does not fail.
+ * and does not fail. It also sets a one-way STOP LATCH: from then on a seat is
+ * refused before its directory exists (`externalPlayersStopped`), so no seat
+ * can start while the cleanup awaits and outlive `process.exit`. A seat's
+ * latch check, `mkdtemp`, registration and `spawn` run with no await between
+ * them, so a seat is either in the registry the abort sweeps or refused.
  */
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { chmodSync, closeSync, createWriteStream, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync, type WriteStream } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ArenaPlayer, PlayerReport, RunningPlayer, SeatStart } from './players';
 
@@ -173,11 +177,20 @@ export interface ExternalOptions {
   killMs?: number;
 }
 
-/** Where a seat's temp directory is made: `os.tmpdir()`, or `LIONS_ARENA_TMPDIR`
- *  when it is set (a spec points it at a directory of its own to watch). */
-export function tempRoot(): string {
+let warnedTmpRoot = false;
+/** Where a seat's temp directory is made: `os.tmpdir()`, or `LIONS_ARENA_TMPDIR`.
+ *  TEST-ONLY: a spec points it at a directory of its own to watch. It must be
+ *  an absolute path; anything else is ignored, with one warning on stderr, so a
+ *  ticket never lands somewhere relative to whatever the cwd happens to be. */
+export function tempRoot(warn: (line: string) => void = (l) => { process.stderr.write(`${l}\n`); }): string {
   const r = process.env.LIONS_ARENA_TMPDIR;
-  return r !== undefined && r !== '' ? r : tmpdir();
+  if (r === undefined || r === '') return tmpdir();
+  if (isAbsolute(r)) return r;
+  if (!warnedTmpRoot) {
+    warnedTmpRoot = true;
+    warn(`arena: LIONS_ARENA_TMPDIR (test-only) must be an absolute path; ignoring ${JSON.stringify(r)}, using ${tmpdir()}`);
+  }
+  return tmpdir();
 }
 
 /** The most of the child's stdout kept for its last line. */
@@ -190,6 +203,13 @@ const messageOf = (e: unknown): string => (e instanceof Error ? e.message : Stri
 /** A seat that is still live: its temp directory, and its child once spawned. */
 interface LiveSeat { dir: string; child: ChildProcess | null; exited: boolean; exit: Promise<unknown> | null }
 const liveSeats = new Set<LiveSeat>();
+/** Set, for good, by the first `abortExternalPlayers`: no seat starts after it. */
+let stopLatch = false;
+
+/** Whether a signal's cleanup has begun: no new seat, and no new game, may start. */
+export function externalPlayersStopped(): boolean {
+  return stopLatch;
+}
 
 /**
  * Every live external seat ended NOW, for a signal (the arena's handler):
@@ -198,6 +218,7 @@ const liveSeats = new Set<LiveSeat>();
  * afterwards, finds nothing left to do. Never throws.
  */
 export async function abortExternalPlayers(killMs = 2000): Promise<void> {
+  stopLatch = true;
   const seats = [...liveSeats];
   liveSeats.clear();
   await Promise.all(seats.map(async (seat) => {
@@ -240,6 +261,8 @@ function runExternal(template: string, s: SeatStart, spawn: SpawnFn, graceMs: nu
     const done = new Promise<PlayerReport>((res) => { resolveDone = res; });
 
     const life = async (): Promise<PlayerReport> => {
+      // The latch, then the directory, then (no await between) the registry and the spawn.
+      if (stopLatch) throw new Error('the arena is stopping: no new external seat');
       const dir = mkdtempSync(join(tempRoot(), 'lions-arena-'));
       const seat: LiveSeat = { dir, child: null, exited: false, exit: null };
       liveSeats.add(seat);

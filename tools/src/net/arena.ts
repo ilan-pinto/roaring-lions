@@ -49,8 +49,10 @@
  * skipped `finally` blocks would: every external child is stopped and every
  * seat's temp directory, ticket and all, removed (`abortExternalPlayers`),
  * every running player stopped and every relay closed; then the arena exits
- * 130 (SIGINT) or 143 (SIGTERM). A second signal while that runs changes
- * nothing, and the run's own exit code never overtakes the signal's.
+ * 130 (SIGINT) or 143 (SIGTERM). From the first signal no new game or seat
+ * starts (the stop latch). A SECOND signal while that runs exits at once with
+ * the same code, cleanup unfinished: the escape hatch for a stuck stop. The
+ * run's own exit code never overtakes the signal's.
  */
 import { randomUUID } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
@@ -64,7 +66,7 @@ import { gateVerdict, headToHead, markdownReport, pval, tally, type GameRecord, 
 import { buildId } from './build-id';
 import { capOutcome } from './cap';
 import { startLocalRelay, type LocalRelay, type LocalRelayOptions } from './local-relay';
-import { abortExternalPlayers, externalPlayer } from './external-player';
+import { abortExternalPlayers, externalPlayer, externalPlayersStopped } from './external-player';
 import { inProcess, passive, rush, type ArenaPlayer, type PlayerReport, type RunningPlayer } from './players';
 
 export interface ArenaArgs {
@@ -509,6 +511,8 @@ export async function runArena(argv: readonly string[], deps: ArenaDeps = {}): P
         { seed, players: [B, A], names: [names[1], names[0]], logBase: join(dir, `${base}-game${2 * n + 2}`) },
       ];
       for (const g of orders) {
+        // A signal's cleanup has begun: no new relay, no new seat.
+        if (externalPlayersStopped()) throw new Error('the arena is stopping (a signal): no further game');
         const record = await playGame(g, a, build, startRelay, observe, log);
         games.push(record);
         appendFileSync(files.jsonl, `${JSON.stringify(record)}\n`);
@@ -555,27 +559,32 @@ function bounded(p: Promise<unknown>, ms: number): Promise<void> {
 /**
  * The CLI's SIGINT/SIGTERM handler: what a skipped `finally` would have
  * done, then `exit(130|143)`. The external children go first and with no
- * grace, their temp directories (each with its 0600 ticket) with them; then
- * every running player is stopped and every relay closed, each step bounded
- * so a stuck one cannot keep the process alive. Idempotent: a second signal
- * while it runs is ignored, and the game's own `finally`, if it gets to run,
- * finds everything already stopped (every stop and close is idempotent).
- * Returns `signalled()`, which the entry consults so that the run's own exit
- * code never overtakes the signal's, and `uninstall()`.
+ * grace, their temp directories (each with its 0600 ticket) with them, and
+ * the stop latch with them, so no game or seat starts after; then every
+ * running player is stopped and every relay closed, each step bounded so a
+ * stuck one cannot keep the process alive. The game's own `finally`, if it
+ * gets to run, finds everything already stopped (every stop and close is
+ * idempotent). A SECOND signal while the cleanup runs exits at once, with the
+ * same conventional code, leaving the cleanup unfinished: what a user means by
+ * a second Ctrl-C. Returns `signalled()`, which the entry consults so that the
+ * run's own exit code never overtakes the signal's, and `uninstall()`.
  */
 export function installSignalCleanup(o: { log?: (line: string) => void; exit?: (code: number) => void } = {}): { signalled: () => boolean; uninstall: () => void } {
   const log = o.log ?? ((line: string) => { process.stderr.write(`${line}\n`); });
   const exit = o.exit ?? ((code: number) => { process.exit(code); });
   let cleaning: Promise<void> | null = null;
   const onSignal = (signal: 'SIGINT' | 'SIGTERM'): void => {
-    if (cleaning !== null) return;
+    if (cleaning !== null) {
+      log(`arena: second ${signal}: exiting now, cleanup unfinished`);
+      exit(SIGNAL_EXIT[signal]);
+      return;
+    }
     log(`arena: ${signal}: stopping the players, removing the temp directories, closing the relay`);
     cleaning = (async () => {
       await bounded(abortExternalPlayers(), SIGNAL_STEP_MS);
       await Promise.all([...livePlayers].map((r) => bounded(r.stop(), SIGNAL_STEP_MS)));
       await Promise.all([...liveRelays].map((r) => bounded(r.close(), SIGNAL_STEP_MS)));
-      // A seat that made its directory after the first sweep.
-      await bounded(abortExternalPlayers(), SIGNAL_STEP_MS);
+      // No second sweep: the latch the first one set refuses every later seat.
     })().finally(() => { exit(SIGNAL_EXIT[signal]); });
   };
   const onInt = (): void => { onSignal('SIGINT'); };

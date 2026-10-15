@@ -1454,7 +1454,8 @@ and frees the port. `MatchRoom` gained one optional constructor argument,
   removed when the child exits, and on SIGINT/SIGTERM too: the arena's
   handler SIGTERMs (then SIGKILLs) every external child, removes every such
   directory, stops the players, closes the relay and exits 130/143
-  (§11c.8). `LIONS_ARENA_TMPDIR` overrides where the directories are made
+  (§11c.8). `LIONS_ARENA_TMPDIR` (test-only, absolute paths only; anything
+  else is ignored with a warning) overrides where the directories are made
   (`os.tmpdir()` by default). The template is split by the arena with no
   shell (`$VAR`, `$(...)`, `;`, `|`, `>` and globs stay literal) and fills
   `{mcp}`, `{prompt}`, `{seat}`, `{code}`; a standalone `< {prompt}` is the
@@ -1569,13 +1570,23 @@ a ten-seed arena run between two models, is the lead's to run (run protocol
     every external child (SIGKILL after 2 s), removes every seat's temp
     directory (`abortExternalPlayers`, over a registry of live seats), stops
     every running player, closes every relay, each step bounded at 5 s, and
-    exits 130 (SIGINT) or 143 (SIGTERM). A second signal while it runs is
-    ignored, the run's own exit code never overtakes the signal's, and the
-    seat's own `finally` removes with `force`, so whichever runs second finds
-    nothing. Pinned by `arena-signal.test.ts`, the arena as a real child
-    process with a sleeping `cmd:` player: red with the handler not
-    installed, with `abortExternalPlayers` emptied, with the second-signal
-    guard removed, and with the SIGKILL escalation removed.
+    exits 130 (SIGINT) or 143 (SIGTERM). The first abort also sets a one-way
+    stop latch: a seat is refused before its `mkdtemp`, and `runArena` starts
+    no further game, so nothing spawned while the cleanup awaits can outlive
+    `process.exit` (a seat's latch check, `mkdtemp`, registration and `spawn`
+    have no await between them, which is why one sweep suffices and the
+    second sweep was dropped). A SECOND signal during the cleanup exits at
+    once with the same code, cleanup unfinished: the escape hatch a second
+    Ctrl-C means. The run's own exit code never overtakes the signal's, and
+    the seat's own `finally` removes with `force`, so whichever runs second
+    finds nothing. `LIONS_ARENA_TMPDIR` is test-only and must be absolute.
+    Pinned by `arena-signal.test.ts` (the arena as a real child process in
+    its own process group, with a sleeping `cmd:` player; red with the
+    handler not installed, with `abortExternalPlayers` emptied, with the
+    SIGKILL escalation removed, and with the second signal ignored rather
+    than exiting), `arena-latch.test.ts` (red with either latch check
+    removed) and `external-player.test.ts` (red with the absolute-path check
+    removed).
   - **Closed:** the local relay did not serialize a room's events across
     sockets. Its socket messages, socket closes and alarm now run on ONE
     promise chain per room, in arrival order, each to completion; it was a
