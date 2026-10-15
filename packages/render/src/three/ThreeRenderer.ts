@@ -6272,11 +6272,21 @@ export class ThreeRenderer implements Renderer {
         this.warmingTemplates.delete(key);
         if (this.disposed) return;
         // A template that cannot be decoded is a mesh that failed: drop it,
-        // and the type draws the failed-mesh proxy box like any other.
+        // and the type draws the failed-mesh proxy box like any other. What is
+        // dropped is disposed with it, as teardown and a reload do: a cold
+        // type is never instantiated (`updateMeshUnits`/`updateVehicleMeshes`
+        // skip it), so no clone shares these buffers and textures, and each
+        // side's template owns its own (a side-1 kit is a separate load).
         this.coldUnitTypes.delete(unitTypeId);
+        const droppedUnits = this.meshUnitTemplates.get(unitTypeId);
         this.meshUnitTemplates.delete(unitTypeId);
-        this.vehicleMeshTemplates.delete(unitTypeId);
-        this.vehicleMeshTemplates.delete(`${unitTypeId}${SIDE_1_TEMPLATE_SUFFIX}`);
+        if (droppedUnits) for (const template of droppedUnits) disposeMeshUnitTemplate(template);
+        for (const key of [unitTypeId, `${unitTypeId}${SIDE_1_TEMPLATE_SUFFIX}`]) {
+          const droppedVehicle = this.vehicleMeshTemplates.get(key);
+          if (!droppedVehicle) continue;
+          this.vehicleMeshTemplates.delete(key);
+          disposeVehicleMeshTemplate(droppedVehicle);
+        }
         this.noteMeshFailure(unitTypeId, '(texture decode)', err);
       }
     );
