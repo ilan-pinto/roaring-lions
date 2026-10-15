@@ -8,7 +8,11 @@ export interface SeatConfig {
   side: 0 | 1;
   faction: Faction;
   kit: 'matched' | 'brigade';
-  tiers: Record<string, number>;
+  /** The seat's bought kit, the account's own `ownedTiers` shape and the one
+   *  `upgradePrepass` takes: unit type id -> track -> tier. `{}` for a matched
+   *  room. Structural checks only (`isTiers`); the room cannot check a claim
+   *  against an account. */
+  tiers: Record<string, Record<string, number>>;
   unlocks: string[];
   player: string;
   callsign: string;
@@ -100,13 +104,19 @@ export function isFactionPair(v: unknown): v is [Faction, Faction] {
 
 const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
 const isStr = (v: unknown): v is string => typeof v === 'string';
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** `tiers` is `{ typeId: { track: n } }` with every leaf a non-negative integer. */
+function isTiers(v: unknown): v is Record<string, Record<string, number>> {
+  return isRecord(v) && Object.values(v).every((t) => isRecord(t) && Object.values(t).every((n) => isInt(n) && n >= 0));
+}
 
 function isSeatConfig(v: unknown, seat: Seat): v is SeatConfig {
   if (typeof v !== 'object' || v === null) return false;
   const s = v as Record<string, unknown>;
   return s.seat === seat && (s.side === 0 || s.side === 1) && (s.faction === 'kdf' || s.faction === 'sarim') &&
-    (s.kit === 'matched' || s.kit === 'brigade') && typeof s.tiers === 'object' && s.tiers !== null &&
-    Object.values(s.tiers as Record<string, unknown>).every(isInt) && Array.isArray(s.unlocks) && s.unlocks.every(isStr) &&
+    (s.kit === 'matched' || s.kit === 'brigade') && isTiers(s.tiers) &&
+    Array.isArray(s.unlocks) && s.unlocks.every(isStr) &&
     isStr(s.player) && isStr(s.callsign) && (s.kind === 'human' || s.kind === 'bot');
 }
 

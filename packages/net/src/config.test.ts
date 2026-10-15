@@ -22,6 +22,28 @@ describe('validateConfig', () => {
   });
 });
 
+describe('validateConfig: SeatConfig.tiers is the account\'s nested per-type shape', () => {
+  const withTiers = (tiers: unknown) => ({ ...CONFIG, seats: [{ ...CONFIG.seats[0], kit: 'brigade', tiers }, CONFIG.seats[1]] });
+  it('accepts a nested per-type tier map, and still accepts {}', () => {
+    expect(validateConfig(withTiers({ mbt_lavi: { armour: 2 } }))?.seats[0].tiers).toEqual({ mbt_lavi: { armour: 2 } });
+    expect(validateConfig(withTiers({}))).not.toBeNull();
+    expect(validateConfig(withTiers({ mbt_lavi: { armour: 0, firepower: 3 }, inf_squad: {} }))).not.toBeNull();
+  });
+  it('refuses the old flat shape', () => {
+    expect(validateConfig(withTiers({ mbt_lavi: 2 }))).toBeNull();
+  });
+  it('refuses a fractional or negative leaf', () => {
+    expect(validateConfig(withTiers({ mbt_lavi: { armour: 1.5 } }))).toBeNull();
+    expect(validateConfig(withTiers({ mbt_lavi: { armour: -1 } }))).toBeNull();
+  });
+  it('refuses a non-numeric leaf, an array at either level and null', () => {
+    expect(validateConfig(withTiers({ mbt_lavi: { armour: '2' } }))).toBeNull();
+    expect(validateConfig(withTiers({ mbt_lavi: [2] }))).toBeNull();
+    expect(validateConfig(withTiers([]))).toBeNull();
+    expect(validateConfig(withTiers({ mbt_lavi: null }))).toBeNull();
+  });
+});
+
 describe('fnv1a32', () => {
   it('is the standard FNV-1a of the UTF-8 bytes', () => {
     expect(fnv1a32('')).toBe(0x811c9dc5 | 0);
