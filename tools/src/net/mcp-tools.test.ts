@@ -102,6 +102,67 @@ describe('order in command scope (case 2)', () => {
   });
 });
 
+describe('order: attackMove with sweep (N4b minors)', () => {
+  it('sweep: true reaches the room on the frame and both sims queue it with sweep: true', async () => {
+    const { loop, a, c } = await twoSeats();
+    const ctx = createContext(a.client, 'command');
+    const wa = a.client.world() as MatchWorld;
+    const wc = c.client.world() as MatchWorld;
+    const own = sideIds(wa, 0)[0];
+    const queuedA = vi.spyOn(wa.sim, 'queueCommand');
+    const queuedC = vi.spyOn(wc.sim, 'queueCommand');
+    const r = await call(ctx, 'order', { verb: 'attackMove', ids: [own], x: 20, y: 20, sweep: true });
+    expect(r.ok, r.text).toBe(true);
+    await drive(loop, [a.client, c.client], call(ctx, 'wait', { ticks: 40 }));
+    // What seat 0 sent, and what the room minted into a frame for BOTH seats.
+    const sent = sentBy(loop, a).filter((m) => m.t === 'cmd');
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ cmd: { kind: 'attackMove', ids: [own], sweep: true } });
+    for (const j of [a, c]) {
+      const framed = heardBy(loop, j).flatMap((m) => (m.t === 'frame' ? m.cmds : [])).map((s) => s.cmd);
+      expect(framed).toEqual([{ kind: 'attackMove', ids: [own], x: fx.from(20.5), y: fx.from(20.5), sweep: true }]);
+    }
+    // Applied: ownership passed it, on both machines, into the sim with the flag.
+    for (const q of [queuedA, queuedC]) {
+      expect(q.mock.calls.map(([cmd]) => cmd)).toEqual([{ kind: 'attackMove', ids: [own], x: fx.from(20.5), y: fx.from(20.5), sweep: true }]);
+    }
+  });
+  it('sweep without it is absent from the command, and sweep: false is carried as false', async () => {
+    const { loop, a, c } = await twoSeats();
+    const ctx = createContext(a.client, 'command');
+    const own = sideIds(a.client.world() as MatchWorld, 0)[0];
+    expect((await call(ctx, 'order', { verb: 'attackMove', ids: [own], x: 20, y: 20 })).ok).toBe(true);
+    expect((await call(ctx, 'order', { verb: 'attackMove', ids: [own], x: 21, y: 20, sweep: false })).ok).toBe(true);
+    await drive(loop, [a.client, c.client], call(ctx, 'wait', { ticks: 40 }));
+    const sent = sentBy(loop, a).filter((m) => m.t === 'cmd').map((m) => (m as { cmd: Record<string, unknown> }).cmd);
+    expect(sent).toHaveLength(2);
+    expect('sweep' in sent[0]).toBe(false);
+    expect(sent[1].sweep).toBe(false);
+  });
+  it('sweep on any verb but attackMove is refused, and nothing is sent', async () => {
+    const { loop, a } = await twoSeats();
+    const ctx = createContext(a.client, 'command');
+    const own = sideIds(a.client.world() as MatchWorld, 0)[0];
+    for (const args of [
+      { verb: 'move', ids: [own], x: 12, y: 14, sweep: true },
+      { verb: 'move', ids: [own], x: 12, y: 14, sweep: false },
+      { verb: 'halt', ids: [own], sweep: true },
+    ]) {
+      const r = await call(ctx, 'order', args);
+      expect(r.ok, JSON.stringify(args)).toBe(false);
+      expect(body(r)).toEqual({ error: 'invalid', detail: 'sweep is for attackMove only' });
+    }
+    const notBool = await call(ctx, 'order', { verb: 'attackMove', ids: [own], x: 12, y: 14, sweep: 'yes' });
+    expect(body(notBool)).toEqual({ error: 'invalid', detail: 'sweep is true or false' });
+    await loop.flush();
+    expect(sentBy(loop, a).filter((m) => m.t === 'cmd')).toEqual([]);
+  });
+  it('the schema offers sweep as a boolean', () => {
+    const order = TOOLS.find((t) => t.name === 'order');
+    expect((order?.schema.properties as Record<string, unknown>).sweep).toMatchObject({ type: 'boolean' });
+  });
+});
+
 describe('order in assist scope (case 3)', () => {
   it('sends a proposal to the seat and NO cmd: the room received an advisor message and zero cmds from it', async () => {
     const room = await newRoom();

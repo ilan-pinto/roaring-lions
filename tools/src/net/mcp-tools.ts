@@ -285,14 +285,27 @@ function buildOrder(view: SideView, a: Record<string, unknown>): Command | { err
     if (a.x < 0 || a.y < 0 || a.x >= view.size[0] || a.y >= view.size[1]) return { error: 'off the map' };
     return { x: tileFx(a.x), y: tileFx(a.y) };
   };
+  // `sweep` is an attackMove flag: having arrived, hunt what the side remembers
+  // (sim.ts). It is legal in versus -- `cleanCommand` carries it and ownership
+  // checks only the ids and the map edge; the versus drop (#559 F1) is fire
+  // support, `callStrike`/`reveal` -- and meaningless on every other verb, so
+  // it is refused there rather than silently dropped.
+  if (a.sweep !== undefined) {
+    if (verb !== 'attackMove') return { error: 'invalid', detail: 'sweep is for attackMove only' };
+    if (typeof a.sweep !== 'boolean') return { error: 'invalid', detail: 'sweep is true or false' };
+  }
   const need = (key: 'structure' | 'tunnel'): number | { error: string; detail: string } =>
     isInt(a[key]) ? a[key] : { error: 'invalid', detail: `${verb} needs an integer ${key}` };
   switch (verb) {
     case 'move':
-    case 'attackMove':
     case 'smoke': {
       const p = point();
       return 'error' in p ? p : { kind: verb, ids, x: p.x, y: p.y };
+    }
+    case 'attackMove': {
+      const p = point();
+      if ('error' in p) return p;
+      return typeof a.sweep === 'boolean' ? { kind: verb, ids, x: p.x, y: p.y, sweep: a.sweep } : { kind: verb, ids, x: p.x, y: p.y };
     }
     case 'halt':
     case 'unload':
@@ -319,7 +332,7 @@ function buildOrder(view: SideView, a: Record<string, unknown>): Command | { err
 
 const order: ToolDef = {
   name: 'order',
-  description: `Order your units. verb: ${ORDER_VERBS.join(' | ')}; ids: your unit ids; x, y: a tile (move, attackMove, smoke); target: a contact id (attack); structure (garrison, demolish); carrier (load); tunnel (chargeTunnel); note: a line for your human (assist). command: queued on the order desk (at most 4 sent a second, 12 queued) -> { ref, status }. assist: proposed to your human, who accepts or vetoes -> { proposal, status }.`,
+  description: `Order your units. verb: ${ORDER_VERBS.join(' | ')}; ids: your unit ids; x, y: a tile (move, attackMove, smoke); sweep: true (attackMove only) to go on, once there, hunting the enemies your side remembers instead of holding the tile; target: a contact id (attack); structure (garrison, demolish); carrier (load); tunnel (chargeTunnel); note: a line for your human (assist). command: queued on the order desk (at most 4 sent a second, 12 queued) -> { ref, status }. assist: proposed to your human, who accepts or vetoes -> { proposal, status }.`,
   scopes: ['assist', 'command'],
   schema: {
     type: 'object',
@@ -332,6 +345,7 @@ const order: ToolDef = {
       structure: { type: 'integer' },
       carrier: { type: 'integer' },
       tunnel: { type: 'integer' },
+      sweep: { type: 'boolean', description: 'attackMove only: on arrival, go on to hunt remembered enemies' },
       note: { type: 'string' },
     },
     required: ['verb', 'ids'],

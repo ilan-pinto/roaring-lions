@@ -1271,9 +1271,9 @@ plan the difference is named.
   `wait`, `inbox` and `say` in every scope; `ping` in `advise` and `assist`;
   `order` in `assist` and `command`; `end_round` in `command`. `set_stance`,
   `build` and `fire_support` (§8.3) arrive with N2/N3's commands, and the
-  test pinning `toolsFor` makes that a deliberate change. `order` carries no
-  `sweep`, so a model cannot ask for the sweep cursor the in-process `rush`
-  uses.
+  test pinning `toolsFor` makes that a deliberate change. `order` takes an
+  optional boolean `sweep` on `attackMove` only (refused on every other verb),
+  so a model can ask for the same sweep the in-process `rush` uses (§11c.8).
 - **The order desk** (`order-desk.ts`, decision D4) is the bot's cadence: at
   most one flush every `DESK_FLUSH_TICKS` = 20 ticks, of at most 4 commands,
   from a queue of `DESK_MAX_QUEUE` = 12; a thirteenth `order` answers
@@ -1549,7 +1549,19 @@ a ten-seed arena run between two models, is the lead's to run (run protocol
 - **A remote arena** against the Worker and `/stats/arena` wait on D6.
 - **Parked minors**, none load-bearing. Three were closed in the N4b minors
   pass (15 Oct, `fix/net-n4b-minors`); two stay parked.
-  - The MCP `order` has no `sweep`.
+  - **Closed:** the MCP `order` had no `sweep`. It is legal for the agent
+    seat: `attackMove` is in `COMMAND_KINDS`, `cleanCommand` already carries
+    its `sweep`, and `validateCommand` checks an `attackMove` only for owned
+    ids and the map edge; the versus drop (#559 F1) is fire support,
+    `callStrike` and `reveal`, and `sweep` is a movement flag, not fire
+    support. `order` now takes an optional boolean `sweep` on `attackMove`
+    only and builds it into the command; on any other verb it answers
+    `invalid` (`sweep is for attackMove only`), and a non-boolean answers
+    `invalid` (`sweep is true or false`). `arena-prompt.md` names it.
+    Pinned by `mcp-tools.test.ts`: `sweep: true` is on the cmd seat 0 sent,
+    on the frame both seats heard, and on the command both sims queued;
+    `sweep` on `move`/`halt` is refused with nothing sent. Red with the
+    field dropped from the built command, and with the verb guard removed.
   - **Closed:** SIGINT/SIGTERM on the arena cleaned nothing (the signal skips
     every `finally`, leaving the 0700 temp directory and its 0600 ticket).
     `installSignalCleanup`, installed by the CLI entry only, now SIGTERMs
