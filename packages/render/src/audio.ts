@@ -12,6 +12,7 @@
 import { WEAPON_CLASS, type Sim, type SimEvent } from '@lions/sim';
 import { buildRadioChain, scheduleSquelch, type RadioChain, type Squelch } from './radio';
 import { isOwnSide } from './relation';
+import { EngineVoices, type EngineSpec, type EngineState, type EngineVariantId } from './engines';
 
 export { RADIO_BAND_HZ, RADIO_FX } from './radio';
 
@@ -156,6 +157,8 @@ export interface AudioManifest {
    *  never by set name. `$comment` is allowed and ignored. */
   cues?: Record<string, CueEntry>;
   voices?: VoiceManifest;
+  /** GH-35: the vehicle engine loops (`engines.ts`), on the sfx bus. */
+  engines?: EngineSpec;
 }
 
 /** Who wins a voice slot (N5, and the audio plan's §5.1 ladder since AU-5).
@@ -599,16 +602,18 @@ export interface Placement {
 }
 
 /** `playSet`'s placement arithmetic, lifted verbatim so a placed voice and a
- *  battle clip cannot drift. `gain` excludes the set's own gain. */
-export function placement(dx: number, dy: number): Placement {
+ *  battle clip cannot drift. `gain` excludes the set's own gain. `radius` is
+ *  the audible range in tiles: a one-shot's AUDIBLE_TILES by default, an
+ *  engine's shorter ENGINE_RADIUS_TILES (GH-35) -- one law, R a parameter. */
+export function placement(dx: number, dy: number, radius: number = AUDIBLE_TILES): Placement {
   const dist = Math.hypot(dx, dy);
-  if (dist > AUDIBLE_TILES) return { audible: false, gain: 0, pan: 0, lowpassHz: 0 };
-  const atten = 1 - dist / AUDIBLE_TILES;
+  if (!(radius > 0) || dist > radius) return { audible: false, gain: 0, pan: 0, lowpassHz: 0 };
+  const atten = 1 - dist / radius;
   return {
     audible: true,
     gain: atten * atten,
     // Screen-space left/right: in 2:1 dimetric, +x is right, +y is left.
-    pan: Math.max(-1, Math.min(1, (dx - dy) / (AUDIBLE_TILES * 0.7))),
+    pan: Math.max(-1, Math.min(1, (dx - dy) / (radius * 0.7))),
     // Distance dulls as well as quietens -- high frequencies go first.
     lowpassHz: 1200 + atten * atten * 12000,
   };
@@ -980,6 +985,14 @@ export class BattleAudio {
   /** Which elements this mixer has asked to play, so play/pause is issued on
    *  a change rather than every 20 ms step. */
   private readonly musicPlaying: Record<'theme' | MusicBed, boolean> = { theme: true, calm: false, battle: false };
+  /** GH-35: the vehicle engine voices, on the sfx bus. */
+  private readonly engines = new EngineVoices({
+    ctx: () => this.ctx,
+    bus: () => this.sfx,
+    decode: (v) => (this.ctx ? this.fetchDecode(this.ctx, v) : Promise.resolve(null)),
+    rand: () => this.rand(),
+    place: (dx, dy, radius) => placement(dx, dy, radius),
+  });
 
   /** Browsers require a user gesture before audio starts. */
   attach(): void {
@@ -1051,6 +1064,7 @@ export class BattleAudio {
     // what the last one could not fetch, or could not fit, is not remembered.
     this.voiceFailed.clear();
     this.voiceBudgetSkipped.clear();
+    this.engines.useSpec(manifest.engines);
     // Re-apply the user's own sliders now that the manifest's level is known,
     // so the two compose whichever order they arrive in (a manifest can load
     // after the settings screen has already set gains, or before).
@@ -1526,6 +1540,8 @@ export class BattleAudio {
     // it, and start it again on unmute.
     if (this.muted) this.stopAmbienceSource(AMB_FADE_OUT_S);
     else this.startAmbience(AMB_FADE_OUT_S);
+    // The engines likewise; the next tick's `updateEngines` brings them back.
+    if (this.muted) this.engines.stopAll(AMB_FADE_OUT_S);
     return this.muted;
   }
 
@@ -1708,6 +1724,9 @@ export class BattleAudio {
       // attack, and the source ends there, remembering where it was.
       this.ambPaused = true;
       this.stopAmbienceSource(DUCK_TABLE.pause.attackS);
+      // The engines too (GH-35): the sim has stopped, and no tick comes to
+      // update them until it resumes -- which is what brings them back.
+      this.engines.stopAll(DUCK_TABLE.pause.attackS);
     } else {
       this.setHold('pause', null);
       if (this.ambPaused) {
@@ -1747,6 +1766,7 @@ export class BattleAudio {
   leaveMission(): void {
     this.stopVoices();
     this.setAmbience(null);
+    this.engines.stop();
     for (const id of [...this.holds.keys()]) this.setHold(id, null);
     this.cueBlockUntil = 0;
     this.setMusicScene('menu');
@@ -1785,6 +1805,36 @@ export class BattleAudio {
     if (this.ambLoaded) return this.startAmbience(AMB_FADE_IN_S);
     this.loadAmbience(bed);
     return this.muted ? 'muted' : 'loading';
+  }
+
+  /**
+   * GH-35: engines on for this mission. Every loop plays its data `pick`
+   * unless `override` (the sandbox's `&engines=a|b`) names one candidate for
+   * all of them. Safe before `attach()`: the loops decode once a context
+   * exists. `leaveMission` turns them off.
+   */
+  startEngines(override: EngineVariantId | null = null): void {
+    this.engines.start(override);
+  }
+
+  /**
+   * One sim tick of engine voices (GH-35): ramp each vehicle's speed, pick
+   * the nearest `voice_cap`, move their crossfades. `fogVisible` is the
+   * renderer's own fog query: a vehicle the listener's side does not own is
+   * heard only where it can be seen, so an engine never gives a hidden enemy
+   * away. Reads the sim, never writes it (invariant 4).
+   */
+  updateEngines(sim: Sim, fogVisible: (wx: number, wy: number) => boolean): void {
+    const st = sim.state;
+    const audible = (id: number): boolean =>
+      isOwnSide(st.side[id], this.viewer) || fogVisible(st.posX[id] / 65536, st.posY[id] / 65536);
+    const canSound = !this.muted && this.ctx !== null && this.ctx.state === 'running';
+    this.engines.update(sim, this.listener, audible, canSound);
+  }
+
+  /** What the engines are doing: a readback for tests and the sandbox. */
+  engineState(): EngineState {
+    return this.engines.state();
   }
 
   ambienceState(): AmbienceState {

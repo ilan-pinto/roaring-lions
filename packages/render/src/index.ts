@@ -69,6 +69,7 @@ export {
   type VoiceStatus,
   type VoiceVariant,
 } from './audio';
+export { ENGINE_VARIANTS, isEngineVariant, type EngineSpec, type EngineState, type EngineVariantId } from './engines';
 export { type EmitterSpec } from './vfx';
 export type { Renderer } from './api';
 

@@ -119,6 +119,30 @@ describe('runFrames', () => {
     expect(sim.tickCount).toBe(100 + 20);
     expect(transport.reports.at(-1)).toEqual([19, matchDigest(1000 + 100 + 20, 0, 77)]);
   });
+  it('beforeFrame: once per frame, with the frame, before its commands are queued; never when no frame comes', () => {
+    const sim = fakeSim();
+    const frames: Frame[] = [
+      { tick: 0, cmds: [{ seat: 0, seq: 0, cmd: move([0]) }] },
+      { tick: 1, cmds: [] },
+      { tick: 2, cmds: [{ seat: 1, seq: 0, cmd: move([4]) }, { seat: 0, seq: 1, cmd: move([1]) }] },
+    ];
+    const transport = new ScriptedTransport(frames);
+    const cfg = config();
+    const seen: { tick: number; queuedBefore: number; ranBefore: number }[] = [];
+    const step = {
+      transport, sim, seatWorld: seatWorldFor(cfg, sim), runTick: sim.runTick, config: cfg,
+      beforeFrame: (f: Frame) => { seen.push({ tick: f.tick, queuedBefore: sim.queued.length, ranBefore: sim.ranWith.length }); },
+    };
+    expect(runFrames(step, 2).ran).toBe(2);
+    expect(runFrames(step, 5).ran).toBe(1);
+    expect(runFrames(step, 5).ran).toBe(0);   // the transport yields nothing: no call
+    // Each call came before that frame's commands reached the sim, and after the previous frame's tick ran.
+    expect(seen).toEqual([
+      { tick: 0, queuedBefore: 0, ranBefore: 0 },
+      { tick: 1, queuedBefore: 0, ranBefore: 1 },
+      { tick: 2, queuedBefore: 0, ranBefore: 2 },
+    ]);
+  });
 });
 
 describe('seatWorldFor', () => {

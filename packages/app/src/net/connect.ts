@@ -28,7 +28,7 @@ import { playerId } from './player-id';
 import { takeHanded } from './handoff';
 import { forgetSeat, loadSeat, saveSeat } from './ticket-store';
 import type { StorageLike } from '../telemetry/identity';
-import { LocalTransport, WsTransport, callsignOrDefault, type Faction, type Matchup, type MatchConfig, type MatchTransport, type Seat, type SeatState, type SocketLike } from '@lions/net';
+import { LocalTransport, WsTransport, callsignOrDefault, type AdvisorScope, type Faction, type Matchup, type MatchConfig, type MatchTransport, type Seat, type SeatState, type SocketLike } from '@lions/net';
 
 export interface ConnectDeps {
   fetch: typeof fetch;
@@ -335,4 +335,59 @@ function awaitLobby(code: string, seat: Seat, ticket: string, build: string, dep
     });
     deps.signal?.addEventListener('abort', onAbort, { once: true });
   });
+}
+
+// --- the advisor's ticket (N4a Task 9, decision D1) ----------------------------
+
+/** The room's answer to an advisor-ticket request was not a ticket: `status` is
+ *  the HTTP status, 0 for a request that never got one (offline) or an answer
+ *  with no ticket in it. The lobby words every one of them the same way. */
+export class AdvisorRefused extends Error {
+  constructor(readonly status: number) {
+    super(`advisor ticket refused: HTTP ${status}`);
+    this.name = 'AdvisorRefused';
+  }
+}
+
+/**
+ * Trades this seat's ticket for an advisor ticket on the same seat
+ * (`POST /api/match/:code/advisor`). Like the rest of this module the ticket
+ * travels in the body only: a URL is logged and remembered, a body is not.
+ * An advisor ticket cannot be traded for another (the Worker refuses it).
+ */
+export async function requestAdvisorTicket(
+  code: string,
+  seatTicket: string,
+  scope: AdvisorScope,
+  deps: Pick<ConnectDeps, 'fetch' | 'origin' | 'signal'>,
+): Promise<string> {
+  let res: Response;
+  try {
+    res = await deps.fetch(`${deps.origin}/api/match/${encodeURIComponent(code.toUpperCase())}/advisor`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ticket: seatTicket, scope }),
+      ...(deps.signal ? { signal: deps.signal } : {}),
+    });
+  } catch {
+    throw new AdvisorRefused(0);
+  }
+  if (res.status !== 200 && res.status !== 201) throw new AdvisorRefused(res.status);
+  let body: unknown;
+  try { body = await res.json(); } catch { throw new AdvisorRefused(0); }
+  const ticket = typeof body === 'object' && body !== null ? (body as { ticket?: unknown }).ticket : undefined;
+  if (typeof ticket !== 'string' || ticket === '') throw new AdvisorRefused(0);
+  return ticket;
+}
+
+/** The lobby's call: the seat ticket this tab stored for `code` (`ticket-store.ts`)
+ *  is what is traded. A tab that holds no seat in the room has nothing to trade. */
+export async function inviteAdvisor(
+  code: string,
+  scope: AdvisorScope,
+  deps: Pick<ConnectDeps, 'fetch' | 'origin' | 'session' | 'signal'>,
+): Promise<string> {
+  const stored = loadSeat(deps.session ?? null, code);
+  if (stored === null) throw new AdvisorRefused(0);
+  return requestAdvisorTicket(code, stored.ticket, scope, deps);
 }

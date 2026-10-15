@@ -211,3 +211,43 @@ describe('the room closes itself after the result (L-1, R-B26)', () => {
     for (const r of ['void', 'expired', 'over']) expect(endingLoser(r, 0)).toBeNull();
   });
 });
+
+describe('N4a: advisor, done, advisors and the round stall', () => {
+  const MOVE = { kind: 'move', ids: [1], x: 3, y: 4 };
+  it('parseClientMsg returns an advisor message CLEANED, and refuses one it cannot clean', () => {
+    const raw = JSON.stringify({ t: 'advisor', a: { kind: 'proposal', id: 2, cmd: { ...MOVE, pad: 'x'.repeat(5000) }, note: 'go' } });
+    expect(raw.length).toBeGreaterThan(MAX_MESSAGE_BYTES);
+    expect(parseClientMsg(raw)).toBeNull();   // over the cap, whatever it carries
+    const small = JSON.stringify({ t: 'advisor', a: { kind: 'proposal', id: 2, cmd: { ...MOVE, pad: 'x'.repeat(100) }, note: 'go‮' } });
+    expect(parseClientMsg(small)).toEqual({ t: 'advisor', a: { kind: 'proposal', id: 2, cmd: MOVE, note: 'go' } });
+    expect(parseClientMsg(JSON.stringify({ t: 'advisor', a: { kind: 'ping', x: 256, y: 0 } }))).toBeNull();
+    expect(parseClientMsg(JSON.stringify({ t: 'advisor' }))).toBeNull();
+  });
+  it('done carries a round that is a non-negative integer', () => {
+    expect(parseClientMsg(JSON.stringify({ t: 'done', round: 4 }))).toEqual({ t: 'done', round: 4 });
+    expect(parseClientMsg(JSON.stringify({ t: 'done', round: 0 }))).toEqual({ t: 'done', round: 0 });
+    expect(parseClientMsg(JSON.stringify({ t: 'done', round: -1 }))).toBeNull();
+    expect(parseClientMsg(JSON.stringify({ t: 'done', round: 1.5 }))).toBeNull();
+    expect(parseClientMsg(JSON.stringify({ t: 'done' }))).toBeNull();
+  });
+  it('parseServerMsg: advisor relays a cleaned message and its sender', () => {
+    expect(parseServerMsg(JSON.stringify({ t: 'advisor', from: 'advisor', a: { kind: 'text', text: 'hi‮' } })))
+      .toEqual({ t: 'advisor', from: 'advisor', a: { kind: 'text', text: 'hi' } });
+    expect(parseServerMsg(JSON.stringify({ t: 'advisor', from: 'human', a: { kind: 'accept', id: 1 } })))
+      .toEqual({ t: 'advisor', from: 'human', a: { kind: 'accept', id: 1 } });
+    expect(parseServerMsg(JSON.stringify({ t: 'advisor', from: 'bot', a: { kind: 'accept', id: 1 } }))).toBeNull();
+    expect(parseServerMsg(JSON.stringify({ t: 'advisor', from: 'human', a: { kind: 'accept', id: 1.5 } }))).toBeNull();
+  });
+  it('parseServerMsg: advisors accepts null or a scope per seat, and refuses the rest', () => {
+    expect(parseServerMsg(JSON.stringify({ t: 'advisors', present: [null, 'assist'] }))).toEqual({ t: 'advisors', present: [null, 'assist'] });
+    expect(parseServerMsg(JSON.stringify({ t: 'advisors', present: ['advise', null] }))).toEqual({ t: 'advisors', present: ['advise', null] });
+    expect(parseServerMsg(JSON.stringify({ t: 'advisors', present: ['command', null] }))).toBeNull();
+    expect(parseServerMsg(JSON.stringify({ t: 'advisors', present: [null] }))).toBeNull();
+    expect(parseServerMsg(JSON.stringify({ t: 'advisors', present: [null, null, null] }))).toBeNull();
+    expect(parseServerMsg(JSON.stringify({ t: 'advisors' }))).toBeNull();
+  });
+  it('a stall with reason round parses; an unknown reason does not', () => {
+    expect(parseServerMsg(JSON.stringify({ t: 'stall', reason: 'round', seat: 1 }))).toEqual({ t: 'stall', reason: 'round', seat: 1 });
+    expect(parseServerMsg(JSON.stringify({ t: 'stall', reason: 'later', seat: 1 }))).toBeNull();
+  });
+});
