@@ -175,7 +175,7 @@ import { webgl2Available } from './ui/webgl-probe';
 import { alertNotice, evacuatedNotice, reinforceTrigger, removedNotice, ledgerSavedNotice, triggerLabel, unknownSandboxMapNotice } from './ui/mission-notice';
 import { ReinforcementDock } from './ui/production';
 import { IntelMoments, READY_FLASH_MS, type IntelOutput } from './ui/intel-moments';
-import { breakdownLine, strikeLine } from './ui/intel-copy';
+import { barrageLine, breakdownLine, strikeLine } from './ui/intel-copy';
 import { SUPPORT, SUPPORT_KINDS, type SupportKind } from './ui/support-kinds';
 import { doctrineTags } from './ui/dock-model';
 import {
@@ -3676,7 +3676,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // the screen: no readout lands on the next one, and the footprint goes.
   const intelMoments =
     runtime && mission?.resources
-      ? new IntelMoments({ sweepCost: runtime.sweepCost, strikeCost: runtime.strikeCost, toFx: fx.from, viewer: me })
+      ? new IntelMoments({ supportCost: (k) => runtime.supportCost(k), toFx: fx.from, viewer: me })
       : null;
   onDispose(() => {
     intelMoments?.dispose();
@@ -3692,6 +3692,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       if (o.kind === 'note') hud.note(t(o.key, o.params), o.tone, { tier: o.tier });
       else if (o.kind === 'breakdown') hud.note(breakdownLine(o), 'info', { tier: 'minor' });
       else if (o.kind === 'strikeResult') hud.note(strikeLine(o), o.civiliansKilled > 0 ? 'bad' : 'warn', { tier: 'important' });
+      else if (o.kind === 'barrageResult') hud.note(barrageLine(o), o.civiliansKilled > 0 ? 'bad' : 'warn', { tier: 'important' });
       else if (o.kind === 'flash') minimap.flash(o.points, performance.now(), { tier: o.tier, tone: o.tone });
       else if (o.kind === 'announce') announce.push({ event: o.event });
       else if (o.kind === 'ready') production?.flashReady(o.support, performance.now(), READY_FLASH_MS);

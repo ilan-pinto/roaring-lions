@@ -57,7 +57,7 @@ describe(`the intel clock on ${MISSION}`, () => {
 describe(`the sweep readout on ${MISSION}`, () => {
   it('rings exactly the contacts the sim identified, and says the sim\'s count', () => {
     const { sim, runtime } = missionWorld(MISSION, {});
-    const moments = new IntelMoments({ sweepCost: runtime.sweepCost, strikeCost: runtime.strikeCost, toFx: fx.from });
+    const moments = new IntelMoments({ supportCost: (k) => runtime.supportCost(k), toFx: fx.from });
     for (let k = 0; k < 40; k++) {
       const ev = sim.tick();
       runtime.step(ev);

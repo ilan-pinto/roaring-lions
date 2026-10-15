@@ -20,14 +20,28 @@ export function breakdownLine(out: Extract<IntelOutput, { kind: 'breakdown' }>):
   return parts.join(' · ');
 }
 
-/** The strike's one line (decision 10): what it hit, never the Conduct
- *  number -- the ROE lines on the same tick already price it. */
-export function strikeLine(out: Extract<IntelOutput, { kind: 'strikeResult' }>): string {
+/** What a round, or a barrage's six, did -- the counts both readouts carry. */
+type Effect = Pick<Extract<IntelOutput, { kind: 'strikeResult' | 'barrageResult' }>, 'down' | 'hit' | 'building' | 'civiliansKilled'>;
+
+/** The effect half of a readout line, shared by the strike and the barrage
+ *  so the two say "2 down · 1 hit" in the same words. */
+export function effectText(out: Effect): string {
   const parts: string[] = [];
   if (out.down > 0) parts.push(t('intel.strike.down', { n: out.down }));
   if (out.hit > 0) parts.push(t('intel.strike.hit', { n: out.hit }));
   if (out.building) parts.push(t('intel.strike.building'));
   if (out.civiliansKilled > 0) parts.push(t('intel.strike.civilians', { n: out.civiliansKilled }));
   if (parts.length === 0) parts.push(t('intel.strike.none'));
-  return t('intel.note.strikeResult', { effect: parts.join(' · ') });
+  return parts.join(' · ');
+}
+
+/** The strike's one line (decision 10): what it hit, never the Conduct
+ *  number -- the ROE lines on the same tick already price it. */
+export function strikeLine(out: Extract<IntelOutput, { kind: 'strikeResult' }>): string {
+  return t('intel.note.strikeResult', { effect: effectText(out) });
+}
+
+/** The barrage's one line, after its last round: the strike's words. */
+export function barrageLine(out: Extract<IntelOutput, { kind: 'barrageResult' }>): string {
+  return t('intel.note.barrageResult', { effect: effectText(out) });
 }

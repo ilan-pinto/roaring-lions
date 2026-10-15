@@ -837,7 +837,7 @@
       }
     },
     "announcements": {
-      "$comment": "GH-110 announcement lines: objective, deadline, loss, reinforcement and contact calls. Each carries an i18n caption key and an `audio` key that must exist in voices.lines (empty until recorded, ElevenLabs licence D5 unconfirmed): empty or unrecorded means caption only. Priority high > normal > low; a lower one stays quiet for hold_s after a higher one spoke. Polish pass F: mission_start (Shai on the net as the deploy gate clears, A4) and roe (a Conduct penalty, 'Check your fire', A9). The lead recorded five lines in his own voice on 2026-10-09 (mission_start, objective_active, objective_complete, reinforcements and defeat: keys he.common.announce_<event>); objective_failed, deadline, wave, unit_lost and roe are still caption-only. `defeat` is the outcome line (audio plan section 5.4), priority `outcome`: no mission event raises it; the outcome moment does, through VoiceRuntime.outcome, and it starts as the stinger's head ends (OUTCOME_LINE_DELAY_S). There is no `victory` entry until that line is recorded. Every recorded line plays unplaced, so it goes out through the walkie-talkie chain like every other radio line. Every announcement caption shows whatever the captions setting says (A5). GH-113 (2026-10-11): the intel calls -- sweep_ready/strike_ready (normal) when a call becomes affordable, sweep_inbound/strike_inbound (high) when one is called; raised by the app (ui/intel-moments.ts), caption-only until recorded. There is no result line: the feed carries the result once.",
+      "$comment": "GH-110 announcement lines: objective, deadline, loss, reinforcement and contact calls. Each carries an i18n caption key and an `audio` key that must exist in voices.lines (empty until recorded, ElevenLabs licence D5 unconfirmed): empty or unrecorded means caption only. Priority high > normal > low; a lower one stays quiet for hold_s after a higher one spoke. Polish pass F: mission_start (Shai on the net as the deploy gate clears, A4) and roe (a Conduct penalty, 'Check your fire', A9). The lead recorded five lines in his own voice on 2026-10-09 (mission_start, objective_active, objective_complete, reinforcements and defeat: keys he.common.announce_<event>); objective_failed, deadline, wave, unit_lost and roe are still caption-only. `defeat` is the outcome line (audio plan section 5.4), priority `outcome`: no mission event raises it; the outcome moment does, through VoiceRuntime.outcome, and it starts as the stinger's head ends (OUTCOME_LINE_DELAY_S). There is no `victory` entry until that line is recorded. Every recorded line plays unplaced, so it goes out through the walkie-talkie chain like every other radio line. Every announcement caption shows whatever the captions setting says (A5). GH-113 (2026-10-11): the intel calls -- sweep_ready/strike_ready (normal) when a call becomes affordable, sweep_inbound/strike_inbound (high) when one is called; raised by the app (ui/intel-moments.ts), caption-only until recorded. There is no result line: the feed carries the result once. S-F (2026-10-15): screen_*/barrage_* for the two new calls, caption-only until recorded.",
       "hold_s": 3,
       "caption_s": 3.5,
       "events": {
@@ -915,6 +915,30 @@
         },
         "strike_inbound": {
           "caption": "announce.strikeInbound",
+          "audio": "",
+          "cooldown_s": 2,
+          "priority": "high"
+        },
+        "screen_ready": {
+          "caption": "announce.screenReady",
+          "audio": "",
+          "cooldown_s": 20,
+          "priority": "normal"
+        },
+        "barrage_ready": {
+          "caption": "announce.barrageReady",
+          "audio": "",
+          "cooldown_s": 20,
+          "priority": "normal"
+        },
+        "screen_inbound": {
+          "caption": "announce.screenInbound",
+          "audio": "",
+          "cooldown_s": 2,
+          "priority": "high"
+        },
+        "barrage_inbound": {
+          "caption": "announce.barrageInbound",
           "audio": "",
           "cooldown_s": 2,
           "priority": "high"
