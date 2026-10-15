@@ -16,6 +16,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { AgentClient } from './agent-client';
 import { serveLocalRelay, startLocalRelay, type LocalRelay } from './local-relay';
+import { MatchRoom } from '../../../packages/worker/src/match/match-room';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../../..');
@@ -192,6 +193,108 @@ describe('startLocalRelay', () => {
     expect((await post(second, '/api/match', { player: 'p', build: BUILD, map: MAP, mode: 'versus' })).status).toBe(201);
     // close() twice is harmless.
     await relay.close();
+  }, 30_000);
+
+  it('a room handles its events one at a time, in arrival order, whichever socket they came from (a DO input gate)', async () => {
+    const relay = await relayOf();
+    const { code } = await versusRoom(relay);
+    // Every message handler, and the close handler, awaits: per-socket chains would let them interleave.
+    const seen: string[] = [];
+    const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+    vi.spyOn(MatchRoom.prototype, 'webSocketMessage').mockImplementation(async (_ws, msg) => {
+      seen.push(`in:${String(msg)}`);
+      await sleep(40);
+      seen.push(`out:${String(msg)}`);
+    });
+    const realClose = MatchRoom.prototype.webSocketClose;
+    vi.spyOn(MatchRoom.prototype, 'webSocketClose').mockImplementation(async function (this: MatchRoom, ws) {
+      seen.push('in:close');
+      await sleep(40);
+      await realClose.call(this, ws);
+      seen.push('out:close');
+    });
+    const open = (): Promise<WebSocket> => new Promise((res, rej) => {
+      const ws = new WebSocket(`${relay.url.replace(/^http/, 'ws')}/api/match/${code}/ws`, { origin: relay.origin });
+      own(ws, (w) => { w.terminate(); });
+      ws.on('open', () => { res(ws); });
+      ws.on('error', rej);
+    });
+    const a = await open();
+    const b = await open();
+    a.send('A1');
+    await sleep(5);
+    b.send('B1');
+    await sleep(5);
+    a.send('A2');
+    await sleep(5);
+    b.send('B2');
+    await sleep(5);
+    b.close();
+    const deadline = Date.now() + 5000;
+    while (!seen.includes('out:close') && Date.now() < deadline) await sleep(10);
+    expect(seen).toEqual(['in:A1', 'out:A1', 'in:B1', 'out:B1', 'in:A2', 'out:A2', 'in:B2', 'out:B2', 'in:close', 'out:close']);
+  }, 30_000);
+
+  /** One raw socket on a fresh room, with `webSocketMessage` replaced by `handle` and `alarm` recording itself. */
+  async function gatedRoom(handle: (room: MatchRoom, msg: string, seen: string[]) => Promise<void>): Promise<{ ws: WebSocket; seen: string[] }> {
+    const relay = await relayOf();
+    const { code } = await versusRoom(relay);
+    const seen: string[] = [];
+    vi.spyOn(MatchRoom.prototype, 'webSocketMessage').mockImplementation(async function (this: MatchRoom, _ws, msg) { await handle(this, String(msg), seen); });
+    vi.spyOn(MatchRoom.prototype, 'alarm').mockImplementation(async () => { seen.push('alarm'); });
+    const ws = await new Promise<WebSocket>((res, rej) => {
+      const w = new WebSocket(`${relay.url.replace(/^http/, 'ws')}/api/match/${code}/ws`, { origin: relay.origin });
+      own(w, (x) => { x.terminate(); });
+      w.on('open', () => { res(w); });
+      w.on('error', rej);
+    });
+    return { ws, seen };
+  }
+  /** The room's own storage, which the alarm poll reads (`FakeState.storage`). */
+  const storageOf = (room: MatchRoom): { alarmAt: number | null } => (room as unknown as { ctx: { storage: { alarmAt: number | null } } }).ctx.storage;
+  const nap = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+  it('an alarm that falls due during a message handler waits for it: message in, message out, then the alarm', async () => {
+    const { ws, seen } = await gatedRoom(async (room, msg, log) => {
+      log.push(`in:${msg}`);
+      storageOf(room).alarmAt = Date.now();
+      // Longer than two alarm polls (250 ms): the poll sees it due while the handler runs.
+      await nap(700);
+      log.push(`out:${msg}`);
+    });
+    ws.send('M');
+    const deadline = Date.now() + 5000;
+    while (!seen.includes('alarm') && Date.now() < deadline) await nap(10);
+    expect(seen).toEqual(['in:M', 'out:M', 'alarm']);
+  }, 30_000);
+
+  it('an alarm an earlier event cleared does not fire: its due time is read when its turn comes, not when it was queued', async () => {
+    const { ws, seen } = await gatedRoom(async (room, msg, log) => {
+      log.push(`in:${msg}`);
+      storageOf(room).alarmAt = Date.now();
+      await nap(700);
+      // The handler changes its mind, as `setAlarm`/`deleteAlarm` may.
+      storageOf(room).alarmAt = null;
+      log.push(`out:${msg}`);
+    });
+    ws.send('M');
+    await nap(1400);
+    expect(seen).toEqual(['in:M', 'out:M']);
+  }, 30_000);
+
+  it('a handler that throws does not jam the gate: the next message is still handled', async () => {
+    const { ws, seen } = await gatedRoom(async (_room, msg, log) => {
+      log.push(`in:${msg}`);
+      await nap(20);
+      if (msg === 'X') throw new Error('handler threw');
+      log.push(`out:${msg}`);
+    });
+    ws.send('X');
+    await nap(5);
+    ws.send('Y');
+    const deadline = Date.now() + 5000;
+    while (!seen.includes('out:Y') && Date.now() < deadline) await nap(10);
+    expect(seen).toEqual(['in:X', 'in:Y', 'out:Y']);
   }, 30_000);
 
   it('the secret pin: nothing the relay (or a client of it) writes, to any stream, ever carries the ticket secret', async () => {

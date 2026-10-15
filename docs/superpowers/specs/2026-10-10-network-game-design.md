@@ -1271,9 +1271,10 @@ plan the difference is named.
   `wait`, `inbox` and `say` in every scope; `ping` in `advise` and `assist`;
   `order` in `assist` and `command`; `end_round` in `command`. `set_stance`,
   `build` and `fire_support` (§8.3) arrive with N2/N3's commands, and the
-  test pinning `toolsFor` makes that a deliberate change. `order` carries no
-  `sweep`, so a model cannot ask for the sweep cursor the in-process `rush`
-  uses.
+  test pinning `toolsFor` makes that a deliberate change. `order` takes an
+  optional boolean `sweep` on `attackMove` only (refused on every other verb),
+  in `command` scope only when both seats are bots, so an arena model can ask
+  for the same sweep the in-process `rush` uses (§11c.8, ruled 15 Oct).
 - **The order desk** (`order-desk.ts`, decision D4) is the bot's cadence: at
   most one flush every `DESK_FLUSH_TICKS` = 20 ticks, of at most 4 commands,
   from a queue of `DESK_MAX_QUEUE` = 12; a thirteenth `order` answers
@@ -1370,7 +1371,10 @@ with the secret supplied, which the specs use to pin that the chosen secret
 never reaches a log; the env has no D1 (a desync's D1 write fails with a logged
 error, and the desync still reaches both clients) and no rate limiters. The
 upgrade passes `handleMatch`'s Origin, code and method checks first. Alarms
-are a 250 ms poll; `close()` terminates every socket, clears every interval
+are a 250 ms poll; a room's socket messages, socket closes and alarm run on
+one chain per room, in arrival order, each to completion -- stricter than
+workerd's input gate, which serializes only across storage awaits; `fetch`,
+`acceptSocket` and the room's own clock are not on the chain (§11c.8); `close()` terminates every socket, clears every interval
 and frees the port. `MatchRoom` gained one optional constructor argument,
 `{tickMs?, seed?(code)}`, which workerd never passes: production keeps
 `TICK_MS` and its crypto seed, pinned by a characterization test. Only
@@ -1448,7 +1452,12 @@ and frees the port. `MatchRoom` gained one optional constructor argument,
   0700 temp directory with three 0600 files (the seat's `ticket`, `mcp.json`
   naming this checkout's harness in `command` scope by absolute `tsx` and
   `agent.ts`, and `prompt.md`, the standing prompt with the seat filled in),
-  removed when the child exits. The template is split by the arena with no
+  removed when the child exits, and on SIGINT/SIGTERM too: the arena's
+  handler SIGTERMs (then SIGKILLs) every external child, removes every such
+  directory, stops the players, closes the relay and exits 130/143
+  (§11c.8). `LIONS_ARENA_TMPDIR` (test-only, absolute paths only; anything
+  else is ignored with a warning) overrides where the directories are made
+  (`os.tmpdir()` by default). The template is split by the arena with no
   shell (`$VAR`, `$(...)`, `;`, `|`, `>` and globs stay literal) and fills
   `{mcp}`, `{prompt}`, `{seat}`, `{code}`; a standalone `< {prompt}` is the
   child's stdin. The child inherits the parent environment unchanged; the
@@ -1541,13 +1550,77 @@ a ten-seed arena run between two models, is the lead's to run (run protocol
 - **WP-G-G0's doctrine commander**, when it lands, replaces `rush` as the
   arena's opponent and answers decision 18 as written.
 - **A remote arena** against the Worker and `/stats/arena` wait on D6.
-- **Parked minors**, none load-bearing: the MCP `order` has no `sweep`; a
-  cap game costs an external client up to 10 s of grace; SIGINT on the arena
-  skips temp-directory cleanup (the ticket dies with the relay's in-memory
-  secret); the local relay does not serialize room events across sockets as
-  the Durable Object's input gate would (look there first if a local arena
-  ever reads a void/desync); a model's `end_round` still accepts a stale
-  mid-round `done` after a wall release (harmless).
+- **Parked minors**, none load-bearing. Three were closed in the N4b minors
+  pass (15 Oct, `fix/net-n4b-minors`); two stay parked.
+  - **Closed:** the MCP `order` had no `sweep`. It is legal for the agent
+    seat: `attackMove` is in `COMMAND_KINDS`, `cleanCommand` already carries
+    its `sweep`, and `validateCommand` checks an `attackMove` only for owned
+    ids and the map edge; the versus drop (#559 F1) is fire support,
+    `callStrike` and `reveal`, and `sweep` is a movement flag, not fire
+    support. **Ruled 15 Oct (coordinator, lead-delegated window):** the
+    human UI never sends `sweep` (the lead's 11 Oct ruling that a clicked
+    tile means that tile), so an agent able to send it would hold a
+    capability a human seat lacks. In `command` scope it is accepted only
+    when BOTH seats of the room's `MatchConfig` are `kind: 'bot'` (the arena:
+    parity with the in-process `rush`), and refused with
+    `not available against a human seat` when either is human; in `assist`
+    it is always refused (`not in this scope`), since a human would be
+    accepting a sweep the strip does not describe. Any value, `false`
+    included, counts as asking. Where it is allowed, `order` takes an
+    optional boolean `sweep` on `attackMove` only and builds it into the
+    command; on any other verb it answers `invalid` (`sweep is for
+    attackMove only`), and a non-boolean answers `invalid` (`sweep is true or
+    false`). `mcp-tools.ts` and `arena-prompt.md` carry the ruling. Pinned by
+    `mcp-tools.test.ts`: bot against bot, `sweep: true` is on the cmd seat 0
+    sent, on the frame both seats heard, and on the command both sims
+    queued, and `sweep` on `move`/`halt` is refused; with a human in either
+    seat (or both) it is refused and nothing carrying it is sent; in assist
+    it is refused even bot against bot, with no proposal sent. Red with the
+    field dropped from the built command, with the verb guard removed, with
+    the human-seat check removed, with the assist refusal removed, and with
+    the gate refusing bot against bot too.
+  - **Closed:** SIGINT/SIGTERM on the arena cleaned nothing (the signal skips
+    every `finally`, leaving the 0700 temp directory and its 0600 ticket).
+    `installSignalCleanup`, installed by the CLI entry only, now SIGTERMs
+    every external child (SIGKILL after 2 s), removes every seat's temp
+    directory (`abortExternalPlayers`, over a registry of live seats), stops
+    every running player, closes every relay, each step bounded at 5 s, and
+    exits 130 (SIGINT) or 143 (SIGTERM). The first abort also sets a one-way
+    stop latch: a seat is refused before its `mkdtemp`, and `runArena` starts
+    no further game, so nothing spawned while the cleanup awaits can outlive
+    `process.exit` (a seat's latch check, `mkdtemp`, registration and `spawn`
+    have no await between them, which is why one sweep suffices and the
+    second sweep was dropped). A SECOND signal during the cleanup exits at
+    once with the same code, cleanup unfinished: the escape hatch a second
+    Ctrl-C means. The run's own exit code never overtakes the signal's, and
+    the seat's own `finally` removes with `force`, so whichever runs second
+    finds nothing. `LIONS_ARENA_TMPDIR` is test-only and must be absolute.
+    Pinned by `arena-signal.test.ts` (the arena as a real child process in
+    its own process group, with a sleeping `cmd:` player; red with the
+    handler not installed, with `abortExternalPlayers` emptied, with the
+    SIGKILL escalation removed, and with the second signal ignored rather
+    than exiting), `arena-latch.test.ts` (red with either latch check
+    removed) and `external-player.test.ts` (red with the absolute-path check
+    removed).
+  - **Closed:** the local relay did not serialize a room's events across
+    sockets. Its socket messages, socket closes and alarm now run on ONE
+    promise chain per room, in arrival order, each to completion; it was a
+    chain per socket, so two sockets and the alarm could interleave across
+    any await. This is stricter than workerd, whose input gate serializes
+    only across storage awaits, so the relay can hide an interleaving a real
+    Durable Object allows but never produce one it forbids. `fetch`,
+    `acceptSocket` and the room's own clock are not on the chain. An alarm's
+    due time is re-read when its turn comes, not when it is queued; a handler
+    that throws is logged and the chain goes on. Pinned by
+    `local-relay.test.ts`: two sockets of one room with a 40 ms handler read
+    strict in/out alternation in arrival order (red with a gate per socket);
+    an alarm falling due mid-handler fires after it (red with the alarm off
+    the chain); an alarm the handler cleared does not fire (red without the
+    re-read); a throwing handler does not jam the next message (red without
+    the chain's `.catch`).
+  - Parked: a cap game costs an external client up to 10 s of grace.
+  - Parked: a model's `end_round` still accepts a stale mid-round `done`
+    after a wall release (harmless).
 
 ## 12. Testing and gates
 

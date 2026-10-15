@@ -491,6 +491,31 @@ export function showDownloadProgress(host: HTMLElement, title: string): Download
   };
 }
 
+/**
+ * Run `fn` once the frame now being built has been painted: a task queued
+ * from inside an animation-frame callback runs after that frame's paint.
+ * Where there is no `requestAnimationFrame` (a test environment without a
+ * visual), a plain task.
+ */
+export function afterPaint(fn: () => void): void {
+  if (typeof window.requestAnimationFrame !== 'function') {
+    window.setTimeout(fn, 0);
+    return;
+  }
+  window.requestAnimationFrame(() => window.setTimeout(fn, 0));
+}
+
+/** The Deploy stamp, answered: its label says so and it takes no second
+ *  press. `aria-disabled` rather than `disabled`, so focus stays on it and
+ *  the `:disabled` look (the "may not deploy short" state) is not borrowed
+ *  for a different meaning. */
+function showPressed(deploy: HTMLButtonElement): void {
+  deploy.dataset.state = 'deploying';
+  deploy.setAttribute('aria-disabled', 'true');
+  deploy.setAttribute('aria-busy', 'true');
+  deploy.textContent = t('loading.deploy.pressed');
+}
+
 export function showLoading(
   host: HTMLElement,
   title: string,
@@ -797,7 +822,12 @@ export function showLoading(
   deploy.addEventListener('click', () => {
     if (disposed) return;
     if (settleDeploy) settleDeploy();
-    else deployQueued = true;
+    else {
+      // Kept for `done()` (PA-27), and shown as answered now: the art gate
+      // may take seconds yet, and an unchanged stamp reads as a lost click.
+      deployQueued = true;
+      showPressed(deploy);
+    }
   });
 
   // The back edge Escape now uses (see `onBack`'s own doc comment above).
@@ -1089,6 +1119,9 @@ export function showLoading(
       // as any other key a long briefing is scrolled with.
       return new Promise<void>((resolve, reject) => {
         let gone = false;
+        /** Deploy was answered: the pressed state is up and the resolve is
+         *  waiting on its paint. */
+        let pressed = false;
         const cleanup = (): void => {
           if (gone) return;
           gone = true;
@@ -1104,7 +1137,9 @@ export function showLoading(
         // Escape and the back link (fix round 1), so both tear the screen
         // down the same way rather than the link bypassing `cleanup()`.
         const goBack = (): void => {
-          if (!onBack) return;
+          // Pressed: the mission is starting, and a back edge now would tear
+          // the screen down under a resolve that is one frame away.
+          if (!onBack || pressed) return;
           cleanup();
           onBack();
         };
@@ -1114,14 +1149,31 @@ export function showLoading(
           goBack();
         };
         settleDeploy = (): void => {
-          cleanup();
-          // Settled: a later `dispose()` (the ordinary battlefield teardown,
-          // minutes into the mission) must not reject a promise the player
-          // already answered. Rejecting a settled promise is a no-op in JS, so
-          // this is for the reader rather than the runtime.
-          pendingCleanup = null;
-          pendingReject = null;
-          resolve();
+          // H3 (polish plan): whoever awaits `done()` starts the mission
+          // synchronously -- the runtime, the HUD, the minimap, the dock and
+          // the first world frame -- and nothing paints until it returns:
+          // 450-520 ms measured on an M3 Pro at 1400x900 (`tel_marum_2_foothold`),
+          // the briefing frozen under a button that showed no sign of the
+          // click. So the press is drawn FIRST, and the promise resolves only
+          // once that frame has painted. The screen stays up meanwhile, which
+          // is what keeps it, and not a blank stage, on screen through the
+          // synchronous start.
+          if (pressed) return;
+          pressed = true;
+          showPressed(deploy);
+          afterPaint(() => {
+            // A `dispose()` in the frame we waited for has already removed
+            // the screen and REJECTED the promise; `cleanup()` is then a
+            // no-op and `resolve()` cannot settle it again, so no guard here.
+            cleanup();
+            // Settled: a later `dispose()` (the ordinary battlefield teardown,
+            // minutes into the mission) must not reject a promise the player
+            // already answered. Rejecting a settled promise is a no-op in JS, so
+            // this is for the reader rather than the runtime.
+            pendingCleanup = null;
+            pendingReject = null;
+            resolve();
+          });
         };
         // `goBack` deliberately does NOT clear these: it tears the screen down
         // without settling the promise, so whoever is awaiting `done()` is

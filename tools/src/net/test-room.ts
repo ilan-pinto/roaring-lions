@@ -98,13 +98,14 @@ export interface Room {
 }
 
 /** A created versus room with both seats joined. `pace` and `guest: 'bot'`
- *  make it a paced room (decision D5: only a bot seat makes it pace). */
-export async function newRoom(o: { pace?: Pace; guest?: 'human' | 'bot' } = {}): Promise<Room> {
+ *  make it a paced room (decision D5: only a bot seat makes it pace).
+ *  `host`/`guest` are the seats' kinds in the start config (default human). */
+export async function newRoom(o: { pace?: Pace; host?: 'human' | 'bot'; guest?: 'human' | 'bot' } = {}): Promise<Room> {
   const state = new FakeState();
   const room = new MatchRoom(state, env);
   const created = await room.fetch(new Request('https://room/create', {
     method: 'POST',
-    body: JSON.stringify({ code: ROOM_CODE, matchId: ROOM_CODE, map: ROOM_MAP, mode: 'versus', build: ROOM_BUILD, player: 'Host', callsign: 'Host', ...(o.pace ? { pace: o.pace } : {}) }),
+    body: JSON.stringify({ code: ROOM_CODE, matchId: ROOM_CODE, map: ROOM_MAP, mode: 'versus', build: ROOM_BUILD, player: 'Host', callsign: 'Host', ...(o.pace ? { pace: o.pace } : {}), ...(o.host ? { kind: o.host } : {}) }),
   }));
   expect(created.status).toBe(200);
   const joined = await room.fetch(new Request('https://room/join', {

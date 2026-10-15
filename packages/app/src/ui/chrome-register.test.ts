@@ -202,6 +202,8 @@ describe('the chrome register: theme.css', () => {
         '.rl-loading__deploy:hover',
         '.rl-loading__deploy:focus-visible',
         '.rl-loading__deploy:disabled',
+        // the stamp answered (H3): the same band, sunk into the screen's ground
+        ".rl-loading__deploy[data-state='deploying']",
         '.rl-aar__nav .rl-aar__primary',
       ]);
       const offenders = styled

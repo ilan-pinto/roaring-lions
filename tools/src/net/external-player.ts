@@ -35,11 +35,22 @@
  * (a client that has seen the result prints its usage line and exits), then
  * SIGTERM, then SIGKILL. Its MCP server is ITS child, which goes when its
  * stdin closes.
+ *
+ * A signal skips every `finally`, so each live seat (its temp directory, and
+ * its child once spawned) is also in a module registry, which
+ * `abortExternalPlayers` empties with no grace: SIGTERM, then SIGKILL, and the
+ * directory removed. The arena's SIGINT/SIGTERM handler calls it. Both it and
+ * the `finally` remove with `force`, so whichever runs second finds nothing
+ * and does not fail. It also sets a one-way STOP LATCH: from then on a seat is
+ * refused before its directory exists (`externalPlayersStopped`), so no seat
+ * can start while the cleanup awaits and outlive `process.exit`. A seat's
+ * latch check, `mkdtemp`, registration and `spawn` run with no await between
+ * them, so a seat is either in the registry the abort sweeps or refused.
  */
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { chmodSync, closeSync, createWriteStream, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync, type WriteStream } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ArenaPlayer, PlayerReport, RunningPlayer, SeatStart } from './players';
 
@@ -166,12 +177,64 @@ export interface ExternalOptions {
   killMs?: number;
 }
 
+let warnedTmpRoot = false;
+/** Where a seat's temp directory is made: `os.tmpdir()`, or `LIONS_ARENA_TMPDIR`.
+ *  TEST-ONLY: a spec points it at a directory of its own to watch. It must be
+ *  an absolute path; anything else is ignored, with one warning on stderr, so a
+ *  ticket never lands somewhere relative to whatever the cwd happens to be. */
+export function tempRoot(warn: (line: string) => void = (l) => { process.stderr.write(`${l}\n`); }): string {
+  const r = process.env.LIONS_ARENA_TMPDIR;
+  if (r === undefined || r === '') return tmpdir();
+  if (isAbsolute(r)) return r;
+  if (!warnedTmpRoot) {
+    warnedTmpRoot = true;
+    warn(`arena: LIONS_ARENA_TMPDIR (test-only) must be an absolute path; ignoring ${JSON.stringify(r)}, using ${tmpdir()}`);
+  }
+  return tmpdir();
+}
+
 /** The most of the child's stdout kept for its last line. */
 const TAIL_CHARS = 256 * 1024;
 /** After the child exits, how long its pipes may take to drain into the log. */
 const DRAIN_MS = 2000;
 
 const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+/** A seat that is still live: its temp directory, and its child once spawned. */
+interface LiveSeat { dir: string; child: ChildProcess | null; exited: boolean; exit: Promise<unknown> | null }
+const liveSeats = new Set<LiveSeat>();
+/** Set, for good, by the first `abortExternalPlayers`: no seat starts after it. */
+let stopLatch = false;
+
+/** Whether a signal's cleanup has begun: no new seat, and no new game, may start. */
+export function externalPlayersStopped(): boolean {
+  return stopLatch;
+}
+
+/**
+ * Every live external seat ended NOW, for a signal (the arena's handler):
+ * each child SIGTERM, then SIGKILL after `killMs`, each temp directory and its
+ * ticket removed. Idempotent: a second call, or the seat's own `finally`
+ * afterwards, finds nothing left to do. Never throws.
+ */
+export async function abortExternalPlayers(killMs = 2000): Promise<void> {
+  stopLatch = true;
+  const seats = [...liveSeats];
+  liveSeats.clear();
+  await Promise.all(seats.map(async (seat) => {
+    const { child } = seat;
+    // The directory and its ticket go FIRST, before any wait on the child: a
+    // second signal exits mid-wait, and must not leave the ticket on disk.
+    try { rmSync(seat.dir, { recursive: true, force: true }); } catch { /* tried again below */ }
+    if (child !== null && !seat.exited) {
+      try { child.kill('SIGTERM'); } catch { /* already gone */ }
+      if (seat.exit !== null) await within(seat.exit, killMs);
+      if (!seat.exited) { try { child.kill('SIGKILL'); } catch { /* already gone */ } }
+    }
+    // Again: anything the child wrote while it was dying.
+    try { rmSync(seat.dir, { recursive: true, force: true }); } catch { /* the finally tries again */ }
+  }));
+}
 
 /** Resolves after `ms`, or when `p` settles; never keeps the process alive by itself. */
 function within(p: Promise<unknown>, ms: number): Promise<void> {
@@ -202,7 +265,11 @@ function runExternal(template: string, s: SeatStart, spawn: SpawnFn, graceMs: nu
     const done = new Promise<PlayerReport>((res) => { resolveDone = res; });
 
     const life = async (): Promise<PlayerReport> => {
-      const dir = mkdtempSync(join(tmpdir(), 'lions-arena-'));
+      // The latch, then the directory, then (no await between) the registry and the spawn.
+      if (stopLatch) throw new Error('the arena is stopping: no new external seat');
+      const dir = mkdtempSync(join(tempRoot(), 'lions-arena-'));
+      const seat: LiveSeat = { dir, child: null, exited: false, exit: null };
+      liveSeats.add(seat);
       let log: WriteStream | null = null;
       try {
         chmodSync(dir, 0o700);
@@ -247,8 +314,10 @@ function runExternal(template: string, s: SeatStart, spawn: SpawnFn, graceMs: nu
         let exited = false;
         let stoppedByUs = false;
         const exit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((res) => {
-          child.once('exit', (code, signal) => { exited = true; res({ code, signal }); });
+          child.once('exit', (code, signal) => { exited = true; seat.exited = true; res({ code, signal }); });
         });
+        seat.child = child;
+        seat.exit = exit;
         // `close` also waits on the pipes, which a grandchild may still hold; `exit` is the child.
         const closed = new Promise<void>((res) => { child.once('close', () => { res(); }); });
         await new Promise<void>((res, rej) => {
@@ -289,6 +358,7 @@ function runExternal(template: string, s: SeatStart, spawn: SpawnFn, graceMs: nu
           const l = log;
           await new Promise<void>((res) => { l.end(res); });
         }
+        liveSeats.delete(seat);
         rmSync(dir, { recursive: true, force: true });
       }
     };
