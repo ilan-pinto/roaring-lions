@@ -84,6 +84,7 @@ export function describeCommand(cmd: Command): string {
     case 'attackMove': return t('net.advisor.cmd.attackMove', { n, x: tile(cmd.x), y: tile(cmd.y) });
     case 'smoke': return t('net.advisor.cmd.smoke', { n, x: tile(cmd.x), y: tile(cmd.y) });
     case 'halt': return t('net.advisor.cmd.halt', { n });
+    case 'setStance': return t(cmd.stance === 'hold' ? 'net.advisor.cmd.setStance.hold' : 'net.advisor.cmd.setStance.ambush', { n });
     case 'unload': return t('net.advisor.cmd.unload', { n });
     case 'garrison': return t('net.advisor.cmd.garrison', { n });
     case 'load': return t('net.advisor.cmd.load', { n });

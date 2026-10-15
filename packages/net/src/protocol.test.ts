@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { endingLoser, parseClientMsg, parseServerMsg, FORFEIT_MS, MAX_MESSAGE_BYTES, MAX_CMD_IDS, OVER_CLOSE_MS } from './protocol';
+import { cleanCommand, endingLoser, parseClientMsg, parseServerMsg, FORFEIT_MS, MAX_MESSAGE_BYTES, MAX_CMD_IDS, OVER_CLOSE_MS } from './protocol';
 import type { MatchConfig } from './config';
 
 const CFG: MatchConfig = {
@@ -257,5 +257,25 @@ describe('N4a: advisor, done, advisors and the round stall', () => {
   it('a stall with reason round parses; an unknown reason does not', () => {
     expect(parseServerMsg(JSON.stringify({ t: 'stall', reason: 'round', seat: 1 }))).toEqual({ t: 'stall', reason: 'round', seat: 1 });
     expect(parseServerMsg(JSON.stringify({ t: 'stall', reason: 'later', seat: 1 }))).toBeNull();
+  });
+});
+
+describe('cleanCommand: setStance', () => {
+  it('setStance: hold takes no radius; ambush takes an optional integer radius in (0, 10 tiles]', () => {
+    expect(cleanCommand({ kind: 'setStance', ids: [1], stance: 'hold' })).toEqual({ kind: 'setStance', ids: [1], stance: 'hold' });
+    expect(cleanCommand({ kind: 'setStance', ids: [1], stance: 'ambush' })).toEqual({ kind: 'setStance', ids: [1], stance: 'ambush' });
+    expect(cleanCommand({ kind: 'setStance', ids: [1], stance: 'ambush', radius: 196608 })).toEqual({ kind: 'setStance', ids: [1], stance: 'ambush', radius: 196608 });
+    const bad: unknown[] = [
+      { kind: 'setStance', ids: [1], stance: 'patrol' },
+      { kind: 'setStance', ids: [1], stance: 'hold', radius: 196608 },
+      { kind: 'setStance', ids: [1], stance: 'ambush', radius: 0 },
+      { kind: 'setStance', ids: [1], stance: 'ambush', radius: -65536 },
+      { kind: 'setStance', ids: [1], stance: 'ambush', radius: 655361 },
+      { kind: 'setStance', ids: [1], stance: 'ambush', radius: 3.5 },
+      { kind: 'setStance', stance: 'hold' },
+    ];
+    for (const b of bad) expect(cleanCommand(b), JSON.stringify(b)).toBeNull();
+    // An unknown key is stripped, not carried (the #566 rule this function exists for).
+    expect(cleanCommand({ kind: 'setStance', ids: [1], stance: 'ambush', pad: 'x'.repeat(4000) })).toEqual({ kind: 'setStance', ids: [1], stance: 'ambush' });
   });
 });

@@ -94,5 +94,6 @@ export {
 } from './sim';
 // Halt-to-fire clip timing for the renderer (spec 2026-10-05-infantry-halt-to-fire §5).
 export { KNEEL_DROP_TICKS, KNEEL_RISE_TICKS } from './tuning';
+export { AMBUSH_RADIUS_DEFAULT, AMBUSH_RADIUS_MAX } from './tuning';
 // The fire-support profile table (F1 Task 6): `callStrike.profile` indexes it.
 export { FIRE_SUPPORT, FS_AIR_STRIKE, FS_MORTAR_BARRAGE, FS_SMOKE_SCREEN, type FireSupportProfile } from './tuning';

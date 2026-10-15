@@ -36,7 +36,7 @@ export function validateCommand(cmd: Command, seat: Seat, world: SeatWorld): boo
   switch (cmd.kind) {
     case 'move': case 'attackMove': case 'smoke':
       return cmd.ids.length > 0 && cmd.ids.every(own) && onMap(cmd.x, cmd.y);
-    case 'halt': case 'unload':
+    case 'halt': case 'unload': case 'setStance':
       return cmd.ids.length > 0 && cmd.ids.every(own);
     case 'garrison': case 'demolish':
       return cmd.ids.length > 0 && cmd.ids.every(own) && world.structureExists(cmd.structure);

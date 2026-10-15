@@ -453,3 +453,9 @@ export const CORRIDOR_VENT_SQ = 589824; // 9 tile^2 = 3 tiles
 /** How often the mission runtime recomputes every supply route and what cuts it (F2, D4/D5),
  *  in ticks: once a second. A structure's death and a zone's change of holder recheck at once. */
 export const CORRIDOR_RECHECK_TICKS = 20; // 1 s at 20 Hz
+
+/** N2 (R-1): the ambush radius `setStance{ambush}` uses when it names none --
+ *  3 tiles, mission JSON's own default (Q16.16) -- and the most the wire accepts,
+ *  10 tiles, the largest `tiles` any shipped mission authors. */
+export const AMBUSH_RADIUS_DEFAULT = 196608;
+export const AMBUSH_RADIUS_MAX = 655360;

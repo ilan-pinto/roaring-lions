@@ -252,6 +252,8 @@ describe('describeCommand', () => {
   it('words each order through the catalogue', () => {
     expect(describeCommand(move([1]))).toBe('Move 1 unit to (24, 31)');
     expect(describeCommand({ kind: 'attackMove', ids: [1, 2], x: 3 * ONE, y: 4 * ONE })).toBe('Attack-move 2 units to (3, 4)');
+    expect(describeCommand({ kind: 'setStance', ids: [1, 2], stance: 'ambush' })).toBe('Set an ambush with 2 units');
+    expect(describeCommand({ kind: 'setStance', ids: [1, 2], stance: 'hold' })).toBe('Hold 2 units where they stand');
     expect(describeCommand({ kind: 'halt', ids: [1, 2] })).toBe('Halt 2 units');
     expect(describeCommand({ kind: 'attack', ids: [1], target: 9 })).toBe('Fire on an enemy with 1 unit');
   });

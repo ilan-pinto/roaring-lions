@@ -130,6 +130,7 @@ import {
   REGEN_DELAY_TICKS,
   REGEN_FRAC,
   REGEN_CAP,
+  AMBUSH_RADIUS_DEFAULT,
 } from './tuning';
 
 export const TICKS_PER_SECOND = 20;
@@ -676,6 +677,13 @@ export type Command =
    *  who sent it: the sim does not know which side is "the player". */
   | { kind: 'attackMove'; ids: number[]; x: Fx; y: Fx; append?: boolean; exact?: boolean; sweep?: boolean }
   | { kind: 'halt'; ids: number[] }
+  /** N2 (L3, D2). `hold`: halt's own writes on a free unit -- the walk ends, an
+   *  ambush is dropped, the unit stands and fires on what comes; a garrisoned or
+   *  carried unit is left as it is (the building or the vehicle is its hold).
+   *  `ambush`: the same halt, then `setAmbush(id, radius ?? AMBUSH_RADIUS_DEFAULT)`.
+   *  Both skip a dead, routed, garrisoned or carried id; a buried one never gets
+   *  here (the containment filter). `patrol` is N3's. */
+  | { kind: 'setStance'; ids: number[]; stance: 'hold' | 'ambush'; radius?: Fx }
   | { kind: 'garrison'; ids: number[]; structure: number }
   /** Climb aboard a vehicle with seats. */
   | { kind: 'load'; ids: number[]; carrier: number }
@@ -1942,6 +1950,12 @@ export class Sim {
     this.commandQueue.push(cmd);
   }
 
+  /** The ambush radius squared when the unit is in ambush, else 0. Read-only
+   *  and unhashed (N2). */
+  ambushRadiusSqOf(id: number): Fx {
+    return this.stance[id] === 1 ? this.ambushRadiusSq[id] : 0;
+  }
+
   /** Put a unit in ambush: hold fire and minimum signature until a target
    *  closes to `tiles` (Q16.16). Cleared when sprung or when re-ordered. */
   setAmbush(id: number, tiles: Fx): void {
@@ -2203,6 +2217,31 @@ export class Sim {
       reserved[y * this.width + x] = 1;
     }
     return reserved;
+  }
+
+  /** What `halt` writes for one unit, after it has left any building. */
+  private haltUnit(id: number): void {
+    this.garrisonGoal[id] = -1;
+    // And a boarding order: stepTransport re-sets `moving` every tick
+    // to chase the carrier while `boardGoal` is latched, so a rider
+    // halted on its way to a vehicle walked on to it -- measured 15.9
+    // tiles in 10 s (orders-obeyed.test.ts). `demolishOrder` and
+    // `chargeOrder` are left alone on purpose: their steps only ever
+    // STOP a unit in range, never start one, so a halt already holds
+    // them (pinned beside the boarding test).
+    this.boardGoal[id] = -1;
+    this.wpCount[id] = 0;
+    this.moving[id] = 0;
+    this.fieldRef[id] = -1;
+    // A halted unit stays halted (the lead's ruling, 2026-10-11). The
+    // attack-move latch has to go with `moving`: left set, stepSweep
+    // read an idle attack-mover with a remembered contact and walked it
+    // off again on the very next tick -- measured 9 / 11 / 28 tiles
+    // away 10 s after a halt for inf_squad / mbt_lavi / jeep_shoded.
+    this.attackMove[id] = 0;
+    this.sweepOrder[id] = 0;
+    this.engaging[id] = 0;
+    this.stance[id] = 0;
   }
 
   private applyCommands(): void {
@@ -2732,31 +2771,22 @@ export class Sim {
           this.engaging[id] = 0;
           this.stance[id] = 0; // any order overrides a held stance
         }
-      } else {
+      } else if (cmd.kind === 'setStance') {
+        // BEFORE the halt branch, which touches only `cmd.ids`.
+        for (const id of cmd.ids) {
+          if (this.alive[id] === 0 || this.routed[id] === 1) continue;
+          if (this.garrisonedIn[id] >= 0 || this.carriedBy[id] >= 0) continue; // the building or the vehicle is the hold (D2)
+          this.haltUnit(id);
+          if (cmd.stance === 'ambush') this.setAmbush(id, cmd.radius ?? AMBUSH_RADIUS_DEFAULT);
+        }
+      } else if (cmd.kind === 'halt') {
         for (const id of cmd.ids) {
           if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
-          this.garrisonGoal[id] = -1;
-          // And a boarding order: stepTransport re-sets `moving` every tick
-          // to chase the carrier while `boardGoal` is latched, so a rider
-          // halted on its way to a vehicle walked on to it -- measured 15.9
-          // tiles in 10 s (orders-obeyed.test.ts). `demolishOrder` and
-          // `chargeOrder` are left alone on purpose: their steps only ever
-          // STOP a unit in range, never start one, so a halt already holds
-          // them (pinned beside the boarding test).
-          this.boardGoal[id] = -1;
-          this.wpCount[id] = 0;
-          this.moving[id] = 0;
-          this.fieldRef[id] = -1;
-          // A halted unit stays halted (the lead's ruling, 2026-10-11). The
-          // attack-move latch has to go with `moving`: left set, stepSweep
-          // read an idle attack-mover with a remembered contact and walked it
-          // off again on the very next tick -- measured 9 / 11 / 28 tiles
-          // away 10 s after a halt for inf_squad / mbt_lavi / jeep_shoded.
-          this.attackMove[id] = 0;
-          this.sweepOrder[id] = 0;
-          this.engaging[id] = 0;
-          this.stance[id] = 0;
+          this.haltUnit(id);
         }
+      } else {
+        const unhandled: never = cmd;
+        void unhandled;
       }
     }
     this.commandQueue = [];

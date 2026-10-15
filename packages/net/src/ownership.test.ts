@@ -37,6 +37,18 @@ describe('validateCommand', () => {
   });
 });
 
+describe('validateCommand: setStance', () => {
+  it('passes for own units in single-player and versus; a foreign id or an empty ids drops it', () => {
+    const versus = { ...world, versus: true };
+    const own: Command = { kind: 'setStance', ids: [1, 2], stance: 'ambush' };
+    expect(validateCommand(own, 0, world)).toBe(true);
+    expect(validateCommand(own, 0, versus)).toBe(true);
+    expect(validateCommand({ kind: 'setStance', ids: [1, 12], stance: 'hold' }, 0, world)).toBe(false);
+    expect(validateCommand({ kind: 'setStance', ids: [1, 12], stance: 'hold' }, 0, versus)).toBe(false);
+    expect(validateCommand({ kind: 'setStance', ids: [], stance: 'hold' }, 0, world)).toBe(false);
+  });
+});
+
 describe('validateCommand: the map and the target', () => {
   it('drops a point off the map', () => {
     expect(validateCommand({ kind: 'move', ids: [1], x: 10 * F, y: 10 * F }, 0, world)).toBe(true);

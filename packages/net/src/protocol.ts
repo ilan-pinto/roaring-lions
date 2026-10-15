@@ -3,7 +3,7 @@
  * the ONLY way bytes become one. Spec §3.2.3. The room never learns a
  * position: the only battle facts here are `Command`s and hashes.
  */
-import { FIRE_SUPPORT, type Command } from '@lions/sim';
+import { AMBUSH_RADIUS_MAX, FIRE_SUPPORT, type Command } from '@lions/sim';
 import { isFactionPair, validateConfig, type Faction, type MatchConfig, type Seat } from './config';
 import type { Frame, Stamped } from './frames';
 import { ADVISOR_SCOPES, cleanAdvisorMsg, type AdvisorMsg, type AdvisorScope } from './advisor';
@@ -32,7 +32,7 @@ export const FORFEIT_MS = 60_000;
 
 /** `Command['kind']` as a value, so a wire command can be checked at runtime. */
 export const COMMAND_KINDS = [
-  'move', 'attackMove', 'halt', 'garrison', 'load', 'unload', 'reveal', 'callStrike', 'smoke', 'demolish', 'chargeTunnel', 'attack',
+  'move', 'attackMove', 'halt', 'setStance', 'garrison', 'load', 'unload', 'reveal', 'callStrike', 'smoke', 'demolish', 'chargeTunnel', 'attack',
 ] as const satisfies readonly Command['kind'][];
 
 /** The other half of the pin (N2 prerequisite P1): `satisfies` above catches a
@@ -186,6 +186,12 @@ export function cleanCommand(v: unknown): Command | null {
         : null;
     case 'smoke':
       return ids === null || !isInt(c.x) || !isInt(c.y) ? null : { kind, ids, x: c.x, y: c.y };
+    case 'setStance': {
+      if (ids === null || (c.stance !== 'hold' && c.stance !== 'ambush')) return null;
+      if (c.stance === 'hold') return c.radius === undefined ? { kind, ids, stance: 'hold' } : null;
+      if (c.radius === undefined) return { kind, ids, stance: 'ambush' };
+      return isInt(c.radius) && c.radius > 0 && c.radius <= AMBUSH_RADIUS_MAX ? { kind, ids, stance: 'ambush', radius: c.radius } : null;
+    }
     default: {
       const unreachable: never = kind;
       return unreachable;

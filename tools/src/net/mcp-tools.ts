@@ -50,7 +50,8 @@ export interface ToolDef {
 }
 
 /** The verbs `order` builds: every command kind but the intel two, which a versus room drops (#559 F1). */
-export const ORDER_VERBS = COMMAND_KINDS.filter((k) => k !== 'reveal' && k !== 'callStrike');
+// setStance is excluded from ORDER_VERBS; a model verb is an N3/N4 follow-up.
+export const ORDER_VERBS = COMMAND_KINDS.filter((k) => k !== 'reveal' && k !== 'callStrike' && k !== 'setStance');
 type Verb = (typeof ORDER_VERBS)[number];
 export const WAIT_MAX_TICKS = 200;
 /** How often `wait` looks again, and the longest it blocks in wall time. */
