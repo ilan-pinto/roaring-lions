@@ -13,8 +13,8 @@
 // only to the aim's own chevron -- an APP-6 frame dictates its own angles and
 // wins over it everywhere else in the sheet (`symbol.ts`'s role frames).
 
-import { CHEVRON_SWEEP } from './mark';
-import type { OrderId } from './selection-model';
+import { CHEVRON_SWEEP } from './mark.ts';
+import type { OrderId } from './selection-model.ts';
 
 type P = [number, number];
 const W = 2.5;
