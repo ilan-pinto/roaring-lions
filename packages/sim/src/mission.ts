@@ -1824,7 +1824,17 @@ export class MissionRuntime {
       let cut: CutCause = null;
       let span: [number, number] | null = null;
       const holder = z.holder;
-      if (holder !== -1 && this.rearOk[holder] === 1) {
+      if (holder === -1) {
+        // C-R19: nobody holds the zone (empty or contested), so it has no line. Its cut resets
+        // to null SILENTLY: a `corridor` event saying `cut: null` here would read as "line
+        // restored" at the moment the zone is lost. The next held recheck speaks only if its
+        // cause differs from null.
+        z.route = null;
+        z.cutSpan = null;
+        z.cut = null;
+        continue;
+      }
+      if (this.rearOk[holder] === 1) {
         route = this.zoneRoute(k, holder);
         cut = corridorCut(this.holdView, route, holder, this.cutSpan);
         span = this.spanOf(z.spanStore);
@@ -1938,7 +1948,9 @@ export class MissionRuntime {
   /**
    * A side's rear (C-R17) into `rearX`/`rearY`/`rearOk`: the exit tile of its production anchor
    * when it has one, else for side 0 `map.player_start`; side 1 with no anchor has none (its
-   * zones are never cut), and so has side 0 with neither (no line to cut). Re-read only when
+   * zones are never cut), and so has side 0 with neither (no line to cut). A convoy drives to
+   * it, so it must be open on the VEHICLE mask: `structureExit` reads the foot mask, and a
+   * boulder or ditch there would make every line 'unreachable' (`openRear`). Re-read only when
    * the anchor or the terrain changed: `structureExit` allocates its answer.
    */
   private syncRear(side: 0 | 1): void {
@@ -1949,16 +1961,55 @@ export class MissionRuntime {
     this.rearOk[side] = 0;
     if (anchor >= 0) {
       const e = this.sim.structureExit(anchor);
-      this.rearX[side] = e[0] >> 16;
-      this.rearY[side] = e[1] >> 16;
+      this.openRear(side, e[0] >> 16, e[1] >> 16);
       this.rearOk[side] = 1;
       return;
     }
     const ps = this.mission.map.player_start;
     if (side === 0 && ps !== undefined && ps.length >= 2) {
-      this.rearX[side] = ps[0] | 0;
-      this.rearY[side] = ps[1] | 0;
+      this.openRear(side, ps[0] | 0, ps[1] | 0);
       this.rearOk[side] = 1;
+    }
+  }
+
+  /**
+   * Side `side`'s rear at the tile nearest (x, y) open on the vehicle mask (F2 Task 11): (x, y)
+   * itself when it is open; else the first square ring around it (Chebyshev radius 1, 2, ...)
+   * holding an open tile, and within that ring the smallest squared distance, ties to the
+   * lowest tile index. (x, y) off the map, or no open tile anywhere: (x, y) unchanged, and the
+   * line reads 'unreachable' exactly as it did. Every shipped rear is open today
+   * (tools/src/income_rear.test.ts), so this moves no shipped answer.
+   */
+  private openRear(side: 0 | 1, x: number, y: number): void {
+    this.rearX[side] = x;
+    this.rearY[side] = y;
+    const w = this.sim.width;
+    const h = this.sim.height;
+    const mask = this.sim.blockedVehicle;
+    if (x < 0 || y < 0 || x >= w || y >= h || mask[y * w + x] === 0) return;
+    const maxR = w > h ? w : h;
+    for (let r = 1; r <= maxR; r++) {
+      let best = -1;
+      let bestD = 0;
+      // Row-major over the ring, so a later tile at the same distance has a higher index and
+      // `<` keeps the lowest.
+      for (let ty = y - r; ty <= y + r; ty++) {
+        if (ty < 0 || ty >= h) continue;
+        const edgeRow = ty === y - r || ty === y + r;
+        for (let tx = x - r; tx <= x + r; tx += edgeRow ? 1 : 2 * r) {
+          if (tx < 0 || tx >= w || mask[ty * w + tx] !== 0) continue;
+          const d = (tx - x) * (tx - x) + (ty - y) * (ty - y);
+          if (best < 0 || d < bestD) {
+            best = ty * w + tx;
+            bestD = d;
+          }
+        }
+      }
+      if (best >= 0) {
+        this.rearX[side] = best % w;
+        this.rearY[side] = (best - (best % w)) / w;
+        return;
+      }
     }
   }
 

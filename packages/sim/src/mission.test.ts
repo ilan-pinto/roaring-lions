@@ -1992,7 +1992,6 @@ describe('the purse is an exact integer accumulator (F2 Task 1)', () => {
     for (let t = 1; t <= 300; t++) {
       w.step(1);
       const shown = w.runtime.logistics;
-      expect(Number.isInteger(shown)).toBe(true);
       // 45/min is 3 per 80 ticks, exactly.
       expect(shown).toBe(200 + Math.floor((45 * t) / 1200));
     }
@@ -5736,6 +5735,92 @@ describe('held-ground income and corridors (F2 Task 7)', () => {
   it('more than 32 income zones are refused at construction', () => {
     const zones = Array.from({ length: 33 }, () => ({ zone: 'west', rate_per_min: 1 }));
     expect(() => incomeWorld({ zones })).toThrow(/33 income zones, at most 32/);
+  });
+
+  // C-R19: a zone nobody holds has no line, so losing it resets its cut silently. A `corridor`
+  // event saying `cut: null` there would read as "line restored" at the moment the zone falls.
+  it('losing a zone resets its cut without a corridor event; holding it again says the cut again', () => {
+    const w = incomeWorld({ zones: [{ zone: 'west', rate_per_min: 45 }], force: [mine(2, 2)], enemy: [theirs(14, 3)] });
+    const first = w.step(2);
+    expect(first.mission.filter((e) => e.kind === 'corridor')).toEqual([{ kind: 'corridor', tick: 1, zone: 'west', cut: 'interdicted' }]);
+    const west = zoneOf(w, 'west');
+    w.sim.state.posX[0] = fx.from(8.5); // out of the zone: empty
+    const lost = w.step(1);
+    expect(west.holder).toBe(-1);
+    expect(west.cut).toBeNull();
+    expect(west.route).toBeNull();
+    expect(lost.mission.filter((e) => e.kind === 'zoneHolder')).toEqual([
+      { kind: 'zoneHolder', tick: 3, zone: 'west', holder: -1, contested: false },
+    ]);
+    expect(lost.mission.filter((e) => e.kind === 'corridor')).toEqual([]);
+    w.sim.state.posX[0] = fx.from(2.5); // back in: the line is cut again, and says so
+    const back = w.step(1);
+    expect(west.cut).toBe('interdicted');
+    expect(back.mission.filter((e) => e.kind === 'corridor')).toEqual([{ kind: 'corridor', tick: 4, zone: 'west', cut: 'interdicted' }]);
+    // An uncut line lost and retaken says nothing at all about the corridor.
+    const open = incomeWorld({ zones: [{ zone: 'west', rate_per_min: 45 }], force: [mine(2, 2)] });
+    open.step(2);
+    open.sim.state.posX[0] = fx.from(8.5);
+    const a = open.step(1);
+    open.sim.state.posX[0] = fx.from(2.5);
+    const b = open.step(1);
+    expect([...a.mission, ...b.mission].filter((e) => e.kind === 'corridor')).toEqual([]);
+    expect(zoneOf(open, 'west').cut).toBeNull();
+  });
+
+  // Task 7 finding (1): a convoy drives to the rear, so the rear must be open on the VEHICLE
+  // mask. `structureExit` reads the foot mask and `player_start` is authored for boots.
+  it('a rear on a boulder moves to the nearest vehicle-open tile, ring by ring, ties lowest index', () => {
+    // player_start (26, 2) is a boulder: ring 1 holds four tiles at distance 1; (26, 1) has the
+    // lowest index.
+    const w = incomeWorld({ zones: [{ zone: 'west', rate_per_min: 45 }], force: [mine(2, 2)] }, (sim) => {
+      sim.setBoulder(26, 2, true);
+    });
+    w.step(1);
+    const west = zoneOf(w, 'west');
+    expect(west.cut).toBeNull();
+    expect(west.route?.[(west.route?.length ?? 1) - 1]).toBe(1 * 28 + 26);
+    // A camp whose exit tile (the first foot-open tile of its ring, (23, 7) for a 2 x 2 camp at
+    // (24, 8)) is a boulder: the rear is (23, 6), the lowest-index tile at distance 1.
+    const c = incomeWorld({ zones: [{ zone: 'west', rate_per_min: 45 }], force: [mine(2, 2)] }, (sim) => {
+      const t = sim.addStructureType({ id: 't_camp0', hp_per_tile: 300, produces_for: 0 });
+      sim.addStructure(t, [8 * 28 + 24, 8 * 28 + 25, 9 * 28 + 24, 9 * 28 + 25]);
+      sim.setBoulder(23, 7, true);
+    });
+    c.step(1);
+    const tileOf = (p: readonly [number, number]): number => (p[1] >> 16) * 28 + (p[0] >> 16);
+    expect(tileOf(c.sim.structureExit(0))).toBe(7 * 28 + 23);
+    const cw = zoneOf(c, 'west');
+    expect(cw.cut).toBeNull();
+    expect(cw.route?.[(cw.route?.length ?? 1) - 1]).toBe(6 * 28 + 23);
+    // Ring 2 when ring 1 is shut: boulders on all eight of (26, 2)'s neighbours too. (24, 0) and
+    // (24, 4) are at distance 8; (25, 0) .. (27, 0) and (24, 1) .. at 5 or 4; the lowest
+    // distance on ring 2 is 4, at (26, 0), (24, 2) and (26, 4): (26, 0) has the lowest index.
+    const r2 = incomeWorld({ zones: [{ zone: 'west', rate_per_min: 45 }], force: [mine(2, 2)] }, (sim) => {
+      for (let y = 1; y <= 3; y++) for (let x = 25; x <= 27; x++) sim.setBoulder(x, y, true);
+    });
+    r2.step(1);
+    const rw = zoneOf(r2, 'west');
+    expect(rw.route?.[(rw.route?.length ?? 1) - 1]).toBe(0 * 28 + 26);
+  });
+
+  // Task 7 finding (2): the per-zone cut word must reach economyHash. A rate-0 zone pays nothing
+  // either way, so two runtimes that differ ONLY in whether that zone's line is cut have the
+  // same purse, population, identifications and zone state: only the cut word can tell them.
+  it('the per-zone cut word reaches economyHash (a rate-0 zone, cut against uncut)', () => {
+    const cut = incomeWorld({ zones: [{ zone: 'west', rate_per_min: 0 }], force: [mine(2, 2)], enemy: [theirs(14, 3)] });
+    const open = incomeWorld({ zones: [{ zone: 'west', rate_per_min: 0 }], force: [mine(2, 2)], enemy: [theirs(14, 7)] });
+    cut.step(200);
+    open.step(200);
+    expect(zoneOf(cut, 'west').cut).toBe('interdicted');
+    expect(zoneOf(open, 'west').cut).toBeNull();
+    expect(zoneOf(cut, 'west').state).toBe(zoneOf(open, 'west').state);
+    expect(cut.runtime.logisticsOf(0)).toBe(open.runtime.logisticsOf(0));
+    expect(cut.runtime.logisticsOf(1)).toBe(open.runtime.logisticsOf(1));
+    expect(cut.runtime.intel).toBe(open.runtime.intel);
+    expect(cut.runtime.population(0)).toBe(open.runtime.population(0));
+    expect(cut.runtime.population(1)).toBe(open.runtime.population(1));
+    expect(cut.runtime.economyHash()).not.toBe(open.runtime.economyHash());
   });
 
   it('holders: an attack-move without sweep stays in its zone; a sweep hunts on and leaves it (the control)', () => {

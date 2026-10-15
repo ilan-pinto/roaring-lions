@@ -255,13 +255,28 @@ describe('corridorRoute: the road (D5)', () => {
 });
 
 describe('corridorRoute: a field that loops', () => {
-  it('is null at the step cap rather than a hang', () => {
+  it('is null at the step cap rather than a hang', { timeout: 2000 }, () => {
     const f = new FlowField(3, 1);
     f.dirs.fill(255);
     f.dirs[0] = 0; // E
     f.dirs[1] = 4; // W: tile 0 and 1 send each other round forever
-    const loop: RouteSource = { width: 3, height: 1, vehicleMask: new Uint8Array(3), roadMask: null, fieldFor: () => f };
+    // A vitest timeout cannot interrupt a synchronous loop, so the field's `dirs` also count
+    // their reads and throw well past the cap (3 cells): without the cap this test goes red
+    // with that error instead of hanging the worker.
+    let reads = 0;
+    const counted = new Proxy(f.dirs, {
+      get(target, prop, receiver) {
+        if (typeof prop === 'string' && /^[0-9]+$/.test(prop) && ++reads > 1000) {
+          throw new Error(`walkField read dirs ${reads} times: the step cap is gone`);
+        }
+        const v: unknown = Reflect.get(target, prop, receiver === counted ? target : receiver);
+        return typeof v === 'function' ? v.bind(target) : v;
+      },
+    });
+    const looped = { dirs: counted } as unknown as FlowField;
+    const loop: RouteSource = { width: 3, height: 1, vehicleMask: new Uint8Array(3), roadMask: null, fieldFor: () => looped };
     expect(corridorRoute(loop, pt(0, 0), pt(2, 0))).toBeNull();
+    expect(reads).toBeLessThanOrEqual(4);
   });
 });
 

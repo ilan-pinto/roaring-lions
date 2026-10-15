@@ -80,6 +80,10 @@ describe('zoneHolder (D3)', () => {
   it('a buried unit holds nothing and contests nothing', () => {
     expect(zoneHolder(view([{ x: 24, y: 24, side: 1, buried: true }]), ZONE)).toBe(-1);
     expect(zoneHolder(view([{ x: 22, y: 22, side: 0 }, { x: 24, y: 24, side: 1, buried: true }]), ZONE)).toBe(0);
+    // tunnelIn 0 is route 0, buried: the `>= 0` edge (a `> 0` test would count it).
+    const route0: HoldView = { ...view([{ x: 22, y: 22, side: 0 }, { x: 24, y: 24, side: 1 }]), tunnelIn: [-1, 0] };
+    expect(zoneHolder(route0, ZONE)).toBe(0);
+    expect(zoneHolder({ ...view([{ x: 24, y: 24, side: 1 }]), tunnelIn: [0] }, ZONE)).toBe(-1);
   });
 
   it('a dead unit holds nothing and contests nothing', () => {

@@ -28,7 +28,9 @@ export interface RouteSource {
 
 /** A `RouteSource` whose fields are fresh `FlowField`s over `vehicleMask` and `elevation`
  *  (so climbs are priced as a unit's are). Nothing is cached: the owner of the mask knows
- *  when it changed. */
+ *  when it changed. It captures `vehicleMask` BY REFERENCE: build it after the terrain is laid
+ *  (`applyTerrain`, boulders included: the first boulder replaces `sim.blockedVehicle` with a
+ *  new array), and build it again for each recheck if the mask can change in between. */
 export function makeRouteSource(
   width: number,
   height: number,
