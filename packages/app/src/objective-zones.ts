@@ -1,4 +1,5 @@
 import type { ObjectiveZoneView } from '@lions/render';
+import type { IncomeView } from './ui/income-view';
 
 /** The shape `MissionRuntime.objectiveList` yields, narrowed to what this needs. */
 export interface ZoneObjective {
@@ -42,6 +43,36 @@ export function objectiveZonesFor(
     const rect = zones[o.zone];
     if (rect === undefined) continue;
     out.push({ id: o.id, rect, state: zoneStateOf(o) });
+  }
+  return out;
+}
+
+/** The zones the ACTIVE objectives are about. An income zone one of them already
+ *  draws is drawn once, by the objective (P2-1), on the map and the minimap alike. */
+export function activeObjectiveZoneNames(objectives: readonly Pick<ZoneObjective, 'status' | 'zone'>[]): ReadonlySet<string> {
+  const names = new Set<string>();
+  for (const o of objectives) if (o.status === 'active' && o.zone !== undefined) names.add(o.zone);
+  return names;
+}
+
+/**
+ * Held income ground (S-F F2, Z-B), as the renderer draws it: the objective
+ * zone's own outline and ground band with NO new world mark. Held is `held`
+ * (solid), unheld `unheld` (dashed -- an enemy-held and an empty zone read
+ * alike), contested `contested`; never `target`, which is ground to bring
+ * down. What a zone pays is told by the minimap mark's glyph and the logistics
+ * tip, not here. Ids are `income:<zone>`; a zone an active objective already
+ * draws is skipped. Reads the IncomeView, never the runtime.
+ */
+export function incomeZonesFor(
+  view: IncomeView | null,
+  activeObjectiveZones: ReadonlySet<string>
+): ObjectiveZoneView[] {
+  const out: ObjectiveZoneView[] = [];
+  if (view === null) return out;
+  for (const z of view.zoneViews) {
+    if (activeObjectiveZones.has(z.id)) continue;
+    out.push({ id: `income:${z.id}`, rect: z.rect, state: z.state });
   }
   return out;
 }

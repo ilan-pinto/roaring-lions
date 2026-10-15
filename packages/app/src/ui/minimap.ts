@@ -80,7 +80,9 @@ import {
 } from '@lions/render';
 import { fx, type Sim } from '@lions/sim';
 import { paintMapTerrain } from './map-preview';
-import { zoneStateOf } from '../objective-zones';
+import { activeObjectiveZoneNames, zoneStateOf } from '../objective-zones';
+import type { IncomeView } from './income-view';
+import { symbolBody } from './symbol';
 import type { AlertTier } from './alerts';
 import type { Tone } from './hud-model';
 import { prefersReducedMotion } from './motion';
@@ -161,6 +163,10 @@ export interface MinimapDeps {
   teamColors: readonly [string, string, string];
   /** Live objectives. A thunk: objectives complete and drop off mid-mission. */
   objectives: () => readonly MinimapObjective[];
+  /** Held income ground (S-F F2, Z-B): the HUD beat's `IncomeView`, null for a
+   *  mission with no income zones. A thunk like `objectives`; optional, and
+   *  absent draws nothing. */
+  income?: () => IncomeView | null;
   /**
    * Where the families walk to, in tiles, while an evacuation objective is
    * still being scored -- null otherwise (GH-279). A thunk for the same
@@ -275,6 +281,10 @@ export const CHROME = {
   /** An identified tunnel route (GH-471), the world x-ray's own colour --
    *  `--intercept` is `vfx.interceptor`, the bore's rim. */
   tunnel: 'var(--intercept)',
+  /** A supply route (S-F F2 C3): the open stretch, and the cut stretch. A cut
+   *  is `--warn`, never `--bad`; dashed vs solid carries it without colour. */
+  route: 'var(--info)',
+  routeCut: 'var(--warn)',
   /** Under the map, on the two edges a non-square map would letterbox. */
   ground: 'var(--panel-bg-solid)',
 } as const;
@@ -628,6 +638,73 @@ export interface ObjectiveMark {
   /** `[x, y, w, h]` in tiles, or null for a marker objective. */
   rect: readonly [number, number, number, number] | null;
   at: MinimapPoint;
+  /** Income ground (S-F F2, Z-B): the logistics symbol is drawn in the mark's
+   *  corner. Absent on an objective. */
+  glyph?: boolean;
+}
+
+/** One supply route as tile-centre polylines: the open stretches and the cut one. */
+export interface RouteLines {
+  readonly open: [number, number][][];
+  readonly cut: [number, number][][];
+}
+
+/**
+ * A route (tile indices `y * width + x`) split at its cut. `cutSpan` is inclusive
+ * `[first, last]` into `route`; with no span a cut route is cut whole, an open one
+ * not at all. A one-tile span `[k, k]` still reads cut: the segments touching
+ * tile `k` (tiles `k - 1` to `k + 1`, clamped to the route) are the cut stretch,
+ * so at either end of the route its one adjacent segment dashes -- as the world
+ * route's `segmentIsCut` draws it. Stretches share their boundary tile, so the
+ * line is unbroken.
+ */
+export function routeLines(
+  route: readonly number[] | null,
+  cutSpan: readonly [number, number] | null,
+  cut: boolean,
+  width: number
+): RouteLines {
+  const none: RouteLines = { open: [], cut: [] };
+  if (route === null || route.length < 2 || width <= 0) return none;
+  const pts = route.map((i): [number, number] => [(i % width) + 0.5, Math.floor(i / width) + 0.5]);
+  if (cutSpan === null) return cut ? { open: [], cut: [pts] } : { open: [pts], cut: [] };
+  const end = pts.length - 1;
+  let first = Math.max(0, Math.min(cutSpan[0], end));
+  let last = Math.max(first, Math.min(cutSpan[1], end));
+  if (first === last) {
+    first = Math.max(0, first - 1);
+    last = Math.min(end, last + 1);
+  }
+  const open: [number, number][][] = [];
+  if (first > 0) open.push(pts.slice(0, first + 1));
+  if (last < end) open.push(pts.slice(last));
+  return { open, cut: [pts.slice(first, last + 1)] };
+}
+
+/** Every side-0 route in the view: the convoy, then each zone side 0 holds. */
+export function incomeRoutes(view: IncomeView | null, width: number): RouteLines[] {
+  if (view === null) return [];
+  const out: RouteLines[] = [];
+  if (view.convoy) out.push(routeLines(view.convoy.route, view.convoy.cutSpan, view.convoy.cut !== null, width));
+  for (const z of view.zoneViews) out.push(routeLines(z.route, z.cutSpan, z.cut !== null, width));
+  return out;
+}
+
+/**
+ * Held income ground as `ObjectiveMark`s (S-F F2, Z-B): the objective zone's
+ * own look in the state the `IncomeView` gives, plus the logistics glyph, which
+ * says "this ground pays". A zone an active objective already draws is skipped
+ * (P2-1), so it is one mark, the objective's. Null view, no marks.
+ */
+export function incomeMarks(view: IncomeView | null, activeObjectiveZones: ReadonlySet<string>): ObjectiveMark[] {
+  const out: ObjectiveMark[] = [];
+  if (view === null) return out;
+  for (const z of view.zoneViews) {
+    if (activeObjectiveZones.has(z.id)) continue;
+    const [x, y, w, h] = z.rect;
+    out.push({ state: z.state, rect: [x, y, w, h], at: { x: x + w / 2, y: y + h / 2 }, glyph: true });
+  }
+  return out;
 }
 
 /** Every ACTIVE objective that names ground, as `ObjectiveMark`s. The state is
@@ -880,6 +957,35 @@ const ZONE_STROKE = 2;
 const ZONE_KEYLINE = 4;
 const ZONE_DASH: readonly number[] = [3, 2];
 const ZONE_FILL_ALPHA = 0.12;
+/** A supply route (F2 C3): thin, on a keyline; the cut stretch is dashed. */
+export const ROUTE_STROKE = 1.5;
+export const ROUTE_KEYLINE = 3;
+export const ROUTE_CUT_DASH: readonly number[] = [3, 2];
+/** The logistics glyph on an income mark (Z-B): 11 px, inset into the zone's
+ *  top-left corner (the centre is under the holders' unit dots), on a 1.4 px
+ *  `--mark-edge` outline. */
+export const GLYPH_PX = 11;
+export const GLYPH_INSET = 3;
+const GLYPH_EDGE = 1.4;
+
+/**
+ * The `logistics` symbol's polygons on its 24-box, read out of `symbolBody`
+ * (the strip's own mark) rather than redrawn: its body is `M x y L x y ... Z`
+ * runs, one per rectangle.
+ */
+export function logisticsPolygons(): [number, number][][] {
+  const d = /d="([^"]+)"/.exec(symbolBody('logistics'))?.[1] ?? '';
+  return d
+    .split('M')
+    .filter((run) => run.trim() !== '')
+    .map((run) => {
+      const n = run.match(/-?\d+(?:\.\d+)?/g)?.map(Number) ?? [];
+      const pts: [number, number][] = [];
+      for (let i = 0; i + 1 < n.length; i += 2) pts.push([n[i], n[i + 1]]);
+      return pts;
+    });
+}
+
 /** A marker objective's square, px. */
 const OBJECTIVE_SQUARE = 10;
 /** The suspected contact's hollow diamond (VR-36): 8 px tall, a 1.5 px stroke
@@ -1311,7 +1417,14 @@ export class Minimap {
     ctx.filter = 'none';
     ctx.imageSmoothingEnabled = true;
 
-    for (const m of objectiveMarks(this.deps.objectives(), this.deps.map)) {
+    const objectives = this.deps.objectives();
+    // Supply routes sit UNDER the zone marks and unit dots (F2 C3), rebuilt from
+    // the view every draw: nothing about a route is kept between beats.
+    this.drawRoutes(this.deps.income?.() ?? null);
+    for (const m of objectiveMarks(objectives, this.deps.map)) {
+      this.objectiveMark(m, nowMs);
+    }
+    for (const m of incomeMarks(this.deps.income?.() ?? null, activeObjectiveZoneNames(objectives))) {
       this.objectiveMark(m, nowMs);
     }
     this.drawTunnels();
@@ -1394,6 +1507,44 @@ export class Minimap {
     ctx.lineTo(at.x - half, at.y + DOT / 3);
     ctx.closePath();
     ctx.fill();
+  }
+
+  /** S-F F2 (C3): every side-0 supply route (`incomeRoutes`), always drawn --
+   *  the open stretches a thin solid `route` line, the cut stretch dashed
+   *  `routeCut`, each on a `markEdge` keyline. Over the terrain and the zones,
+   *  under the unit dots. */
+  private drawRoutes(view: IncomeView | null): void {
+    const { ctx, proj } = this;
+    const lines = incomeRoutes(view, this.deps.map.width);
+    if (lines.length === 0) return;
+    const trace = (pts: [number, number][]): void => {
+      ctx.beginPath();
+      pts.forEach(([x, y], i) => {
+        const p = tileToBox(proj, x, y);
+        if (i === 0) ctx.moveTo(p.x, p.y);
+        else ctx.lineTo(p.x, p.y);
+      });
+    };
+    const pass = (stretches: [number, number][][], color: string, dash: readonly number[]): void => {
+      for (const [style, width, d] of [
+        [this.chrome.markEdge, ROUTE_KEYLINE, []],
+        [color, ROUTE_STROKE, dash],
+      ] as const) {
+        ctx.setLineDash([...d]);
+        ctx.strokeStyle = style;
+        ctx.lineWidth = width;
+        for (const pts of stretches) {
+          trace(pts);
+          ctx.stroke();
+        }
+      }
+    };
+    for (const l of lines) {
+      pass(l.open, this.chrome.route, []);
+      pass(l.cut, this.chrome.routeCut, ROUTE_CUT_DASH);
+    }
+    ctx.setLineDash([]);
+    ctx.lineWidth = 1;
   }
 
   /**
@@ -1578,6 +1729,38 @@ export class Minimap {
     ctx.lineWidth = ZONE_STROKE;
     outline();
     ctx.stroke();
+    ctx.restore();
+    if (m.glyph === true) this.logisticsGlyph(x0 + GLYPH_INSET, y0 + GLYPH_INSET, color);
+  }
+
+  /** The strip's own `logistics` symbol (`symbol.ts`), GLYPH_PX square at
+   *  (`gx`, `gy`) in `color` on a `--mark-edge` outline: it is what says the
+   *  ground pays. The outline is drawn first, whole, so a neighbouring
+   *  rectangle's fill is never covered by another's edge. */
+  private logisticsGlyph(gx: number, gy: number, color: string): void {
+    const { ctx } = this;
+    const k = GLYPH_PX / 24;
+    const trace = (poly: readonly (readonly [number, number])[]): void => {
+      ctx.beginPath();
+      poly.forEach(([px, py], i) => (i === 0 ? ctx.moveTo : ctx.lineTo).call(ctx, gx + px * k, gy + py * k));
+      ctx.closePath();
+    };
+    const polys = logisticsPolygons();
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.setLineDash([]);
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = this.chrome.markEdge;
+    ctx.lineWidth = GLYPH_EDGE;
+    for (const poly of polys) {
+      trace(poly);
+      ctx.stroke();
+    }
+    ctx.fillStyle = color;
+    for (const poly of polys) {
+      trace(poly);
+      ctx.fill();
+    }
     ctx.restore();
   }
 

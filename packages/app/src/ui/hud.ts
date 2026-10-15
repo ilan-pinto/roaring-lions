@@ -438,6 +438,9 @@ export interface HudDeps {
 
 export class Hud {
   private readonly strip: HTMLDivElement;
+  /** S-F F2 C3: the logistics figure under the pointer / holding focus. */
+  private logisticsHover = false;
+  private logisticsFocus = false;
   private readonly stripBody: HTMLDivElement;
   private readonly stripInfo: HTMLDivElement;
   private readonly speedChips: { el: HTMLButtonElement; speed: number }[] = [];
@@ -686,6 +689,40 @@ export class Hud {
     );
     this.tipDisposers.push(stripTip.dispose);
     this.refreshStripTip = stripTip.refresh;
+
+    // S-F F2 C3: the logistics figure HELD -- hovered or keyboard-focused,
+    // the two alike (Review Focus 4) -- is what shows the world supply route
+    // (`main.ts` reads `logisticsHeld` every frame). Delegated on the strip
+    // for the tip's reason: the figure is rewritten at 4 Hz. Hover and focus
+    // are tracked apart, so the pointer leaving a focused figure does not
+    // drop it; each is the answer to "is the event's node inside the figure",
+    // on enter from its target and on leave from where it went.
+    const inLogistics = (n: EventTarget | null): boolean =>
+      n instanceof Element && this.strip.contains(n) && n.closest('[data-tip="logistics"]') !== null;
+    const onOver = (ev: Event): void => {
+      this.logisticsHover = inLogistics(ev.target);
+    };
+    const onOut = (ev: Event): void => {
+      this.logisticsHover = inLogistics((ev as MouseEvent).relatedTarget);
+    };
+    const onFocusIn = (ev: Event): void => {
+      this.logisticsFocus = inLogistics(ev.target);
+    };
+    const onFocusOut = (ev: Event): void => {
+      this.logisticsFocus = inLogistics((ev as FocusEvent).relatedTarget);
+    };
+    this.strip.addEventListener('mouseover', onOver);
+    this.strip.addEventListener('mouseout', onOut);
+    this.strip.addEventListener('focusin', onFocusIn);
+    this.strip.addEventListener('focusout', onFocusOut);
+    this.tipDisposers.push(() => {
+      this.strip.removeEventListener('mouseover', onOver);
+      this.strip.removeEventListener('mouseout', onOut);
+      this.strip.removeEventListener('focusin', onFocusIn);
+      this.strip.removeEventListener('focusout', onFocusOut);
+      this.logisticsHover = false;
+      this.logisticsFocus = false;
+    });
 
     // Speed. Rendered even where the frame loop has not wired it, because a
     // strip that grows a control the moment a dependency appears is a strip
@@ -993,6 +1030,16 @@ export class Hud {
     // by construction rather than by remembering to name it twice.
     this.roots.push(this.strip, this.cmd, this.clock, this.sel, this.fire, this.held, this.banner, this.invoice);
     host.append(...this.roots);
+  }
+
+  /**
+   * S-F F2 C3: the strip's logistics figure is hovered or keyboard-focused
+   * (the two alike), and is on the strip at all. What shows side 0's supply
+   * routes in the world; `main.ts` reads it every frame.
+   */
+  get logisticsHeld(): boolean {
+    if (!this.logisticsHover && !this.logisticsFocus) return false;
+    return this.strip.querySelector('[data-tip="logistics"]') !== null;
   }
 
   /**
@@ -1635,9 +1682,14 @@ export class Hud {
 
     const info: string[] = [];
     if (m?.logistics !== undefined && this.shown('logistics')) {
+      // S-F F2: with held-ground income the figure is base + zones, and a `½`
+      // in --warn follows while anything is halved (the cause lives in the tip).
+      const inc = m.income ?? null;
+      const rateN = inc !== null ? inc.total : m.logisticsRate;
       const rate =
-        m.logisticsRate !== undefined && m.logisticsRate > 0
-          ? ` <span class="rl-dim">${t('hud.strip.rate', { n: m.logisticsRate })}</span>`
+        rateN !== undefined && rateN > 0
+          ? ` <span class="rl-dim">${t('hud.strip.rate', { n: rateN })}</span>` +
+            (inc !== null && inc.halved ? `<span class="rl-warn">${t('hud.strip.rate.halved')}</span>` : '')
           : '';
       // GH-229 fix round 2, the minimal slice of GH-77: the icon alone named
       // nothing to a player who had not memorised it, and the dock's own
@@ -1780,6 +1832,34 @@ export class Hud {
     }
   }
 
+  /** The logistics tip. With no income view it is today's sentence, unchanged;
+   *  with one, the sentence (minus the mission-adds clause the breakdown now
+   *  says) is followed by the convoy line, then one line per zone side 0 holds
+   *  or is contesting, each cut's cause in --warn. Empty and enemy-held zones
+   *  say nothing. */
+  private logisticsTipHtml(): string {
+    const m = this.deps.getMission();
+    const inc = m?.income ?? null;
+    if (inc === null) return t('hud.strip.logistics.tip', { rate: m?.logisticsRate ?? 0 });
+    const rows: string[] = [t('hud.strip.logistics.tip', { rate: 0 })];
+    const line = (cls: string, text: string): void => {
+      rows.push(`<div class="rl-tip__blurb ${cls}">${escapeHtml(text)}</div>`);
+    };
+    if (inc.base > 0 || inc.halvedBy !== null) {
+      line('rl-info', t('hud.strip.logistics.convoy', { n: inc.base }));
+      if (inc.halvedBy !== null) line('rl-warn', t(`hud.strip.logistics.cut.${inc.halvedBy}`));
+    }
+    for (const z of inc.zoneViews) {
+      if (z.state === 'held') {
+        line('rl-info', t('hud.strip.logistics.held', { n: z.paysPerMin }));
+        if (z.cut !== null) line('rl-warn', t(`hud.strip.logistics.cut.${z.cut}`));
+      } else if (z.state === 'contested') {
+        line('rl-warn', t('hud.strip.logistics.contested'));
+      }
+    }
+    return rows.join('');
+  }
+
   /**
    * The strip's five field tooltips, keyed by the `data-tip` the hovered
    * span carries -- Conduct first, the one §6 names, since the ROE numeral
@@ -1794,7 +1874,7 @@ export class Hud {
       case 'conduct':
         return this.invoiceHtml() ?? conductDefinition();
       case 'logistics':
-        return t('hud.strip.logistics.tip', { rate: this.deps.getMission()?.logisticsRate ?? 0 });
+        return this.logisticsTipHtml();
       case 'intel':
         return t('hud.strip.intel.tip');
       case 'pinned':
