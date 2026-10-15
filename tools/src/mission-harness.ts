@@ -95,8 +95,13 @@ export interface MissionWorld {
 }
 
 /** Builds `missionId`'s map and `Sim` the way the app does, with no runtime
- *  yet. See `MissionStage`. */
-export function missionStage(missionId: string, seed: number = HARNESS_SEED): MissionStage {
+ *  yet. See `MissionStage`. `capacity` is the sim's entity ceiling (256, the app's;
+ *  a cost harness that wants 300 living units asks for more). */
+export function missionStage(
+  missionId: string,
+  seed: number = HARNESS_SEED,
+  capacity: number = 256,
+): MissionStage {
   const found = (missions as Record<string, unknown>)[missionId];
   if (found === undefined) throw new Error(`unknown mission ${missionId}`);
   const mission = found as MissionJson;
@@ -104,7 +109,7 @@ export function missionStage(missionId: string, seed: number = HARNESS_SEED): Mi
   if (mapJson === undefined) throw new Error(`mission ${missionId} names unknown map ${mission.map.file}`);
   const map = parseMap(mapJson as Parameters<typeof parseMap>[0]);
 
-  const sim = new Sim({ seed, width: map.width, height: map.height, capacity: 256 });
+  const sim = new Sim({ seed, width: map.width, height: map.height, capacity });
   applyTerrain(map, sim);
   const structIdx = new Map<string, number>();
   for (const [id, spec] of Object.entries(structureCatalogue)) {

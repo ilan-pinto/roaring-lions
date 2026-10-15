@@ -28,7 +28,7 @@ describe('the road mask reaches every mission runtime (C-R4)', () => {
     .map((p) => relative(ROOT, p))
     .sort();
 
-  it('the seven sites are the ones on the tree', () => {
+  it('the eight sites are the ones on the tree', () => {
     expect(sites).toEqual([
       'packages/app/src/mission-start.ts',
       'tools/src/backtest/fl_ladder.ts',
@@ -36,6 +36,7 @@ describe('the road mask reaches every mission runtime (C-R4)', () => {
       'tools/src/backtest/saddle-price.ts',
       'tools/src/backtest/wh_pacing.ts',
       'tools/src/mission-harness.ts',
+      'tools/src/perf/income-cost.ts',
       'tools/src/walk_world.ts',
     ]);
   });
