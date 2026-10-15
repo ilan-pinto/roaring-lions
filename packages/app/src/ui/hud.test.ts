@@ -439,6 +439,23 @@ describe('top strip', () => {
       expect(r.stripEl().innerHTML).not.toContain('rl-earn-pulse');
     });
 
+    it('keeps keyboard focus on the intel span across rebuilds inside the window', () => {
+      const { r, set } = earnRig();
+      set(earn(100));
+      rebuild(r);
+      const span = (): HTMLElement => r.stripEl().querySelector<HTMLElement>('[data-tip="intel"]')!;
+      span().focus();
+      expect(document.activeElement).toBe(span());
+      nowMs = 1300;
+      set({ ...earn(100), logistics: 101 });
+      rebuild(r);
+      nowMs = 1600;
+      set({ ...earn(100), logistics: 102 });
+      rebuild(r);
+      expect(figure(r).classList.contains('rl-earn-pulse')).toBe(true);
+      expect(document.activeElement).toBe(span());
+    });
+
     it('the CSS window matches EARN_PULSE_MS, and reduced motion holds still', () => {
       const css = readFileSync(resolve(process.cwd(), 'packages/app/src/ui/theme.css'), 'utf8');
       // Every duration in the sheet names a rung (chrome-register VR-29), so
@@ -449,8 +466,16 @@ describe('top strip', () => {
       expect(rung).not.toBeNull();
       expect(Number(rung![1])).toBe(EARN_PULSE_MS);
       const media = /@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\n\}/.exec(css)![0];
-      expect(media).toMatch(/\.rl-earn-pulse\s*\{[^}]*animation:\s*none/);
-      expect(css).toMatch(/:root\[data-motion='reduce'\] \.rl-earn-pulse\s*\{[^}]*animation:\s*none/);
+      // The figure already sits in --info, so reduced motion holds an underline, not a colour.
+      const holds = (block: string): void => {
+        expect(block).toMatch(/animation:\s*none/);
+        expect(block).toMatch(/text-decoration:\s*underline/);
+      };
+      holds(/\.rl-earn-pulse\s*\{[^}]*\}/.exec(media)![0]);
+      holds(/:root\[data-motion='reduce'\] \.rl-earn-pulse\s*\{[^}]*\}/.exec(css)![0]);
+      const keyframes = /@keyframes rl-earn-pulse\s*\{(?:[^{}]*\{[^}]*\})+\s*\}/.exec(css)![0];
+      expect(keyframes).toContain('scale: 1.3');
+      expect(keyframes).not.toMatch(/color\s*:/);
     });
   });
 
