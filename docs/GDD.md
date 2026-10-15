@@ -73,7 +73,7 @@ Every region is defined by terrain and doctrine, never by a people — see `CONT
 - **Completing an objective:** 30, for a primary or a secondary, and never for one that failed.
 - **Holding high ground:** 30 for a rise (a connected stretch of open ground at least two levels above the map's lower-median open level) once a ground unit has stood on it for 10 seconds with no enemy near. Once per rise per mission; a unit that spawned on a rise earns nothing until it has stood elsewhere and come back.
 
-A mission may also grant a starting amount (`intel_start`). Intel is **fire-support currency only**: it buys the four calls below and nothing else. It is not an information currency, and it does not buy knowledge of the map. The calls are player-side only.
+A mission may also grant a starting amount (`intel_start`). Intel is **fire-support currency only**: in shipped content it buys the four calls below and nothing else (the engine still allows a unit to declare a `cost.intel`, and no shipped unit does). It is not an information currency, and it does not buy knowledge of the map. The calls are player-side only.
 
 | Call | Intel | What it does |
 |---|---|---|
