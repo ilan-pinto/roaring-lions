@@ -93,6 +93,10 @@ export interface SeatStart {
    *  there on its own, so seat 0's sim can be read AT the cap (`capOutcome`).
    *  Absent: it plays until the match ends or it is stopped. */
   capTicks?: number;
+  /** Where a player that runs a process appends that process's stdout and
+   *  stderr (the arena's `<out>/<game>-<seat>.log`). An in-process player
+   *  logs through its own `log` and ignores it. */
+  logFile?: string;
 }
 
 export interface PlayerReport {

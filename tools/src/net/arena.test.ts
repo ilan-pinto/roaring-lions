@@ -143,7 +143,7 @@ describe('pnpm arena', () => {
     }
   }, 60_000);
 
-  it('reads its command line: defaults, a bad value, and an external player that is not yet built', () => {
+  it('reads its command line: defaults, a bad value, an unknown player', () => {
     const a = parseArgs(['--', '--a', 'rush', '--b', 'passive']);
     expect(a).toMatchObject({ a: 'rush', b: 'passive', seeds: 10, map: 'tel_marum', matchup: 'mirror', pace: 60, roundWallMs: 120_000, capTicks: 12_000, tickMs: 2 });
     expect(parseArgs(['--a', 'rush'])).toHaveProperty('error');
@@ -152,7 +152,7 @@ describe('pnpm arena', () => {
     expect(parseArgs(['--a', 'rush', '--b', 'nobody'])).toHaveProperty('error');
   });
 
-  it('refuses cmd:<template> until Task 14, with exit 1 and no room', async () => {
+  it('refuses a cmd:<template> naming a placeholder it does not offer ({ticket}), with exit 1 and no room', async () => {
     let relays = 0;
     const out = outDir();
     const r = await runArena(['--a', 'cmd:claude {ticket}', '--b', 'passive', '--seeds', '1', '--out', out], {

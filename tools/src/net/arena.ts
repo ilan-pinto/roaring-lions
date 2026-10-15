@@ -7,14 +7,21 @@
  *   pnpm arena -- --a rush --b passive --seeds 10 --map tel_marum [--matchup mirror|kdf|sarim]
  *                 [--pace 60] [--round-wall-ms 120000] [--cap-ticks 12000] [--tick-ms 2] [--out arena-results/]
  *
- * A player is `passive` or `rush` (decision D8's controls), or, from Task 14,
- * `cmd:<template>`. Seed n is `1000 + 7919 n`, the versus probe's sequence:
+ * A player is `passive` or `rush` (decision D8's controls), or
+ * `cmd:<template>` (Task 14, `external-player.ts`): a process per game -- a
+ * model's client -- that drives `pnpm agent` over MCP, its output in
+ * `<out>/<game>-<seat>.log`. Seed n is `1000 + 7919 n`, the versus probe's sequence:
  * game 1 has A on seat 0, game 2 has B there. The arena plays only what a
  * room offers (`versusMapAllowed`, `matchupAllowed`), and trusts a run only
  * once the room's start config says the pace, seed, map and factions it asked
  * for: a malformed pace is silently realtime, and a realtime result is no
  * result here. At `--cap-ticks` both players stop on their own and the game
  * is decided by `capOutcome` on seat 0's sim (ruling N1), recorded `by: 'cap'`.
+ * The arena reads a game through a seat that runs in this process; when
+ * neither does (`cmd` vs `cmd`), through an OBSERVER: seat 0's own advisor
+ * (`advise` scope, minted from seat 0's ticket by the room's advisor route),
+ * which keeps its own sim in step from the frames every socket receives and
+ * sends nothing that touches the match.
  * A game whose two sims report different results, or whose room sends
  * `desync`, is `void`.
  *
@@ -37,11 +44,12 @@ import { pathToFileURL } from 'node:url';
 import { MATCHUPS, factionsOfMatchup, matchupAllowed, versusMapAllowed, type MatchConfig, type Matchup, type TransportStatus } from '@lions/net';
 import { MATCH_CAP_TICKS, type MatchResult, type OutcomeSim } from '../../../packages/app/src/net/outcome';
 import { scoreOf } from '../../../packages/app/src/net/scoreboard';
-import type { AgentClient } from './agent-client';
+import { AgentClient } from './agent-client';
 import { markdownReport, tally, type GameRecord, type Tally } from './arena-score';
 import { buildId } from './build-id';
 import { capOutcome } from './cap';
 import { startLocalRelay, type LocalRelay, type LocalRelayOptions } from './local-relay';
+import { externalPlayer } from './external-player';
 import { inProcess, passive, rush, type ArenaPlayer, type PlayerReport, type RunningPlayer } from './players';
 
 export interface ArenaArgs {
@@ -132,11 +140,12 @@ export function refusalOf(map: string, matchup: Matchup): string | null {
   return null;
 }
 
-/** The player a spec names. `cmd:<template>` is Task 14's: it alone adds a branch here. */
+/** The player a spec names. A `cmd:` template that cannot be run (an open
+ *  quote, a placeholder that is not one) throws here, before any room. */
 export function resolvePlayer(spec: string, log: (line: string) => void): ArenaPlayer {
   const make = BUILT_IN[spec] as ((log: (line: string) => void) => ArenaPlayer) | undefined;
   if (make !== undefined) return make(log);
-  if (EXTERNAL.test(spec)) throw new Error('external players (cmd:<template>) arrive in Task 14');
+  if (EXTERNAL.test(spec)) return externalPlayer(spec, spec);
   throw new Error(`unknown player "${spec}"`);
 }
 
@@ -261,22 +270,98 @@ export function untrusted(config: Pick<MatchConfig, 'pace' | 'seed' | 'map' | 's
   return null;
 }
 
-interface GameSpec { seed: number; players: [ArenaPlayer, ArenaPlayer]; names: [string, string] }
+interface GameSpec {
+  seed: number;
+  players: [ArenaPlayer, ArenaPlayer];
+  names: [string, string];
+  /** `<out>/<game>`: the prefix of each seat's `-seat<n>.log`. */
+  logBase: string;
+}
+
+/** How long the observer's advisor ticket may take. */
+const OBSERVER_TICKET_MS = 10_000;
+
+/**
+ * The arena's reader for a game neither of whose seats runs here: seat 0's
+ * own advisor, on an `advise` ticket the room's advisor route mints from seat
+ * 0's ticket (decision D1: a seat invites its own). It keeps its own sim in
+ * step from the frame stream every socket receives (decision D10) and stops,
+ * as the in-process player does, on a result, the room ending, a desync or
+ * the cap tick, so the cap is read AT the cap. An advisor socket sends
+ * nothing the room acts on but `advisor` messages, and this one sends none:
+ * it orders nothing, readies nothing, and its going stalls nothing. It counts
+ * toward the room's 8 sockets, as every advisor does.
+ */
+export async function startObserver(relay: Pick<LocalRelay, 'url' | 'origin'>, code: string, seatTicket: string, build: string, capTicks: number, log: (line: string) => void): Promise<RunningPlayer & { client: AgentClient }> {
+  const res = await withTimeout(
+    fetch(`${relay.url}/api/match/${encodeURIComponent(code)}/advisor`, {
+      method: 'POST', headers: { origin: relay.origin, 'content-type': 'application/json' }, body: JSON.stringify({ ticket: seatTicket, scope: 'advise' }),
+    }),
+    OBSERVER_TICKET_MS, 'the observer\'s advisor ticket',
+  );
+  if (res.status !== 200) throw new Error(`the room refused the observer an advisor ticket: HTTP ${res.status}`);
+  const { ticket } = (await res.json()) as { ticket?: unknown };
+  if (typeof ticket !== 'string') throw new Error('the advisor route answered no ticket');
+  const client = new AgentClient({ server: relay.url, code, ticket, build, role: 'advisor', seat: 0, log });
+  const report: PlayerReport = { tokens: null, timeouts: 0, errors: [] };
+  let finished = false;
+  let loop: ReturnType<typeof setInterval> | null = null;
+  let resolveDone: (r: PlayerReport) => void = () => {};
+  const done = new Promise<PlayerReport>((r) => { resolveDone = r; });
+  const finish = (why: string | null): void => {
+    if (finished) return;
+    finished = true;
+    if (loop !== null) clearInterval(loop);
+    if (why !== null) report.errors.push(why);
+    resolveDone(report);
+  };
+  client.ready.then(() => {
+    if (finished) return;
+    loop = setInterval(() => {
+      if (finished) return;
+      if (client.failed() !== null) { finish(`failed: ${client.failed() ?? ''}`); return; }
+      const tick = client.tick();
+      const starved = tick < capTicks ? client.pump(capTicks - tick) === 0 : true;
+      if (client.result() !== null) { finish(null); return; }
+      const st = client.transport.status();
+      if (st.kind === 'desync') { finish(`desync at tick ${st.tick}`); return; }
+      if (st.kind === 'closed' && starved) { finish(`the room ended: ${st.reason}`); return; }
+      if (client.tick() >= capTicks) finish(null);
+    }, 1);
+  }, (e: unknown) => { finish(`did not start: ${messageOf(e)}`); });
+  let stopped: Promise<void> | null = null;
+  return {
+    client,
+    done,
+    stop: () => {
+      stopped ??= (async () => {
+        finish(null);
+        // An advisor always detaches quietly: no `bye`, nothing for the room to act on.
+        client.close();
+        await done;
+      })();
+      return stopped;
+    },
+  };
+}
 
 /** One game on its own relay, to a result or the cap. Every player and the
  *  relay are closed before it returns, whatever happened. */
 async function playGame(g: GameSpec, a: ArenaArgs, build: string, startRelay: NonNullable<ArenaDeps['startRelay']>, log: (line: string) => void): Promise<GameRecord> {
   const relay = await startRelay({ tickMs: a.tickMs, seedFor: () => g.seed, log });
   const running: RunningPlayer[] = [];
+  let observer: (RunningPlayer & { client: AgentClient }) | null = null;
   try {
     const { code, tickets } = await openRoom(relay, a, build, g.names);
     for (const seat of [0, 1] as const) {
-      running.push(await g.players[seat].start({ server: relay.url, origin: relay.origin, code, seat, ticket: tickets[seat], build, capTicks: a.capTicks }));
+      running.push(await g.players[seat].start({ server: relay.url, origin: relay.origin, code, seat, ticket: tickets[seat], build, capTicks: a.capTicks, logFile: `${g.logBase}-seat${seat}.log` }));
     }
     const clients: [AgentClient | null, AgentClient | null] = [running[0].client, running[1].client];
-    const referee = clients[0] ?? clients[1];
-    // Task 14: an external player has no client here; the arena needs one in-process seat to read.
-    if (referee === null) throw new Error('the arena reads the match through an in-process seat, and neither seat is one');
+    // An external player has no client here: with neither seat in this
+    // process, the arena reads the game through seat 0's own advisor.
+    if (clients[0] === null && clients[1] === null) observer = await startObserver(relay, code, tickets[0], build, a.capTicks, log);
+    const referee = clients[0] ?? clients[1] ?? observer?.client ?? null;
+    if (referee === null) throw new Error('the arena has no client to read the match through');
     const config = await withTimeout(referee.ready, START_TIMEOUT_MS, 'the match start');
     // Trust nothing the room did not confirm.
     const distrust = untrusted(config, a, g.seed);
@@ -286,12 +371,21 @@ async function playGame(g: GameSpec, a: ArenaArgs, build: string, startRelay: No
     // A backstop only: every round waited out by wall time, plus a minute.
     const budgetMs = (Math.ceil(a.capTicks / a.pace) + 2) * a.roundWallMs + 60_000;
     let timedOut = false;
-    await withTimeout(Promise.all(running.map((r) => r.done)), budgetMs, 'the game').catch((e: unknown) => {
+    // The game is over when everything that READS it here is: the in-process
+    // seats, or the observer. An external player cannot stop itself at the
+    // cap, so it is waited for only through them, and then stopped.
+    const readers = [...running.filter((r) => r.client !== null), ...(observer === null ? [] : [observer])];
+    await withTimeout(Promise.all(readers.map((r) => r.done)), budgetMs, 'the game').catch((e: unknown) => {
       timedOut = true;
       log(`seed ${g.seed}: ${messageOf(e)}`);
     });
-    // Read the room's last word BEFORE stopping: a stop closes the transport (`SeatSnapshot`).
-    const seen: [SeatSnapshot | null, SeatSnapshot | null] = [clients[0] && snapshotOf(clients[0]), clients[1] && snapshotOf(clients[1])];
+    // Read the room's last word BEFORE stopping: a stop closes the transport
+    // (`SeatSnapshot`). The observer advises seat 0 and holds seat 0's sim,
+    // so it stands in seat 0's place for `judge`.
+    const seen: [SeatSnapshot | null, SeatSnapshot | null] = observer === null
+      ? [clients[0] && snapshotOf(clients[0]), clients[1] && snapshotOf(clients[1])]
+      : [snapshotOf(observer.client), null];
+    if (observer !== null) await observer.stop();
     for (const r of running) await r.stop();
     const reports = await Promise.all(running.map((r) => r.done)) as [PlayerReport, PlayerReport];
     const sides: [0 | 1, 0 | 1] = [config.seats[0].side as 0 | 1, config.seats[1].side as 0 | 1];
@@ -303,6 +397,7 @@ async function playGame(g: GameSpec, a: ArenaArgs, build: string, startRelay: No
       outcome: verdict.outcome, by: verdict.by, ticks: referee.tick(), score: scoreOf(sim), reports,
     };
   } finally {
+    if (observer !== null) await observer.stop();
     for (const r of running) {
       try { await r.stop(); } catch (e) { log(`stopping a player: ${messageOf(e)}`); }
     }
@@ -357,8 +452,8 @@ export async function runArena(argv: readonly string[], deps: ArenaDeps = {}): P
       const seed = seedOf(n);
       // Game 1: A on seat 0. Game 2: the same seed with the seats swapped.
       const orders: GameSpec[] = [
-        { seed, players: [A, B], names: [names[0], names[1]] },
-        { seed, players: [B, A], names: [names[1], names[0]] },
+        { seed, players: [A, B], names: [names[0], names[1]], logBase: join(dir, `${base}-game${2 * n + 1}`) },
+        { seed, players: [B, A], names: [names[1], names[0]], logBase: join(dir, `${base}-game${2 * n + 2}`) },
       ];
       for (const g of orders) {
         const record = await playGame(g, a, build, startRelay, log);
