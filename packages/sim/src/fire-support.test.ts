@@ -4,7 +4,7 @@ import { MissionRuntime, type MissionEvent, type MissionJson } from './mission';
 import { Rng } from './rng';
 import { Sim, type SimEvent, type UnitTypeJson } from './sim';
 import {
-  FIRE_SUPPORT, FOCUS_LOST_TICKS, FS_AIR_STRIKE, FS_MORTAR_BARRAGE, FS_SMOKE_SCREEN, SMOKE_BLOCKS_AT, SMOKE_MAX, SMOKE_RADIUS,
+  type FireSupportProfile, FIRE_SUPPORT, FOCUS_LOST_TICKS, FS_AIR_STRIKE, FS_MORTAR_BARRAGE, FS_SMOKE_SCREEN, SMOKE_BLOCKS_AT, SMOKE_MAX, SMOKE_RADIUS,
 } from './tuning';
 
 // Fire support, Task 6 of F1 (GH-183): `callStrike.profile` indexes FIRE_SUPPORT
@@ -431,15 +431,32 @@ describe('a smoke-screen round lays a screen', () => {
   });
 
   it('does no damage and no suppression, to anyone, however close', () => {
-    // A target ON the landing point: an HE round of any weight would mark it.
-    const w = openWorld(7);
-    callScreen(w.sim, w.caller);
-    const [first] = smokes(run(w.sim, 81));
-    w.sim.teleport(w.near, first.x, first.y);
-    run(w.sim, 150);
-    expect(w.sim.state.hp[w.near]).toBe(1966080000);
-    expect(w.sim.state.suppression[w.near]).toBe(0);
-    expect(w.sim.state.hp[w.caller]).toBe(400 * 65536);
+    // The shipped smoke row is all zeros, so a round that FELL THROUGH to the
+    // HE path would read zeros and pass this test whether or not the
+    // `payload === 'smoke'` branch exists. So the row is made hostile for the
+    // duration: a big, heavy, suppressive "smoke" row. Only the branch keeps a
+    // unit standing inside it unhurt. Restored in `finally`, so no other test
+    // sees it.
+    const table = FIRE_SUPPORT as FireSupportProfile[];
+    const shipped = table[FS_SMOKE_SCREEN];
+    table[FS_SMOKE_SCREEN] = { ...shipped, damage: 7864320, splash: 8 * 65536, suppression: 65536 };
+    try {
+      const w = openWorld(7);
+      callScreen(w.sim, w.caller);
+      const [first] = smokes(run(w.sim, 81));
+      // Off-centre (a quarter tile from the first landing, inside every
+      // round's splash): an HE fall-through would hurt it by distance falloff.
+      w.sim.teleport(w.near, first.x + 16384, first.y);
+      const events = run(w.sim, 150);
+      expect(w.sim.state.hp[w.near]).toBe(1966080000);
+      expect(w.sim.state.suppression[w.near]).toBe(0);
+      expect(w.sim.state.hp[w.far]).toBe(1966080000);
+      expect(w.sim.state.suppression[w.far]).toBe(0);
+      expect(w.sim.state.hp[w.caller]).toBe(400 * 65536);
+      expect(strikes(events)).toEqual([]);
+    } finally {
+      table[FS_SMOKE_SCREEN] = shipped;
+    }
   });
 
   it('breaks a sight line, which is why it exists', () => {
