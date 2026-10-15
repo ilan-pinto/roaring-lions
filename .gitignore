@@ -170,3 +170,12 @@ art/meshy/rws-50-20261014-01a13a83/texture_*
 # `pnpm arena` (N4b task 13) writes its JSONL and markdown here by default:
 # local results, never committed (decision D6: no remote arena results yet).
 arena-results/
+# The concrete strongpoint (15 Oct): the two previews, the 8k refine and the
+# remesh are 12-70 MB each; task.json and thumbnail.png are kept, the models
+# and textures are in ~/dev/roaring-lions-art-backup/concrete-strongpoint-*.
+art/meshy/concrete-strongpoint-20261015-01a14049/model.glb
+art/meshy/concrete-strongpoint-b-20261015-01a1404e/model.glb
+art/meshy/concrete-strongpoint-20261015-01a14051/model.*
+art/meshy/concrete-strongpoint-20261015-01a14051/texture_*
+art/meshy/concrete-strongpoint-20261015-01a14054/model.glb
+art/meshy/concrete-strongpoint-20261015-01a14054/texture_*
