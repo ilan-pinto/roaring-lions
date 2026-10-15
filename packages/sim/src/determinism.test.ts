@@ -193,9 +193,10 @@ function run(
   ticks: number,
   extraIdleUnit = false,
   onEvent?: (e: SimEvent) => void,
-  onTick?: (sim: Sim, events: SimEvent[]) => void
+  onTick?: (sim: Sim, events: SimEvent[]) => void,
+  humanHeld?: readonly [boolean, boolean]
 ): Sim {
-  const sim = new Sim({ seed, width: 48, height: 48, capacity: 128 });
+  const sim = new Sim({ seed, width: 48, height: 48, capacity: 128, ...(humanHeld ? { humanHeld } : {}) });
   const rifles = sim.addUnitType(RIFLES);
   const tank = sim.addUnitType(TANK);
 
@@ -756,8 +757,8 @@ for (let y = 14; y <= 22; y++) {
  * hash moved" into "the route moved". The hash alone cannot say that, because
  * `elevation` is itself hashed.
  */
-function relief(seed: number, ticks: number, raised: boolean): { sim: Sim; tiles0: Set<number> } {
-  const sim = new Sim({ seed, width: RELIEF_W, height: RELIEF_H, capacity: 32 });
+function relief(seed: number, ticks: number, raised: boolean, humanHeld?: readonly [boolean, boolean]): { sim: Sim; tiles0: Set<number> } {
+  const sim = new Sim({ seed, width: RELIEF_W, height: RELIEF_H, capacity: 32, ...(humanHeld ? { humanHeld } : {}) });
   if (raised) {
     for (const t of HILL) sim.setElevation(t % RELIEF_W, (t - (t % RELIEF_W)) / RELIEF_W, 8);
   }
@@ -864,6 +865,13 @@ describe('determinism over relief (900-tick replay round a hill)', () => {
     expect(relief(RELIEF_SEED, RELIEF_TICKS, true).sim.hash()).toBe(2842924511);
   });
 
+  it("N2: the explicit single-player table is today's rule on all three golden replays", () => {
+    // LITERALS, as the pins above: an oracle that imports its expectation cannot fail.
+    expect(run(0x1310_0001, 1000, false, undefined, undefined, [true, false]).hash()).toBe(935671699);
+    expect(relief(RELIEF_SEED, RELIEF_TICKS, true, [true, false]).sim.hash()).toBe(2842924511);
+    expect(orders(ORDERS_SEED, [true, false]).sim.hash()).toBe(3272041047);
+  });
+
   it('the relief changes the route, not merely the hash', () => {
     // `elevation` is part of hash(), so "the hash differs" is true of any
     // raised map whatever the pathing does, and is worth nothing on its own.
@@ -922,8 +930,8 @@ describe('determinism over relief (900-tick replay round a hill)', () => {
 
 const ORDERS_SEED = 0x0b_e7_0011;
 
-function orders(seed: number): { sim: Sim; halted: number; plain: number; sweeper: number; haltAt: [number, number] } {
-  const sim = new Sim({ seed, width: 48, height: 48, capacity: 16 });
+function orders(seed: number, humanHeld?: readonly [boolean, boolean]): { sim: Sim; halted: number; plain: number; sweeper: number; haltAt: [number, number] } {
+  const sim = new Sim({ seed, width: 48, height: 48, capacity: 16, ...(humanHeld ? { humanHeld } : {}) });
   const rifles = sim.addUnitType(RIFLES);
   const halted = sim.spawn(rifles, 0, fx.fromInt(4), fx.fromInt(10));
   const plain = sim.spawn(rifles, 0, fx.fromInt(4), fx.fromInt(24));

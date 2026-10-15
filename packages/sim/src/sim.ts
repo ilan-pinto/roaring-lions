@@ -825,6 +825,11 @@ export interface SimConfig {
   width: number;
   height: number;
   capacity: number;
+  /** N2 (L1): which combatant side a person holds, by side index 0 and 1.
+   *  From `seatRules(config).humanHeld` (`@lions/net`); the sim never reads a
+   *  config. Absent: `[true, false]`, single-player's rule. Side 2 (civilians)
+   *  is never human-held. Not hashed (R-2). */
+  humanHeld?: readonly [boolean, boolean];
 }
 
 /** Read-only detection factors for one observer→target pair (debug overlay). */
@@ -1289,7 +1294,16 @@ export class Sim {
   private readonly fieldGoalKey: number[] = [];
   private readonly fieldDomain: number[] = [];
 
+  /** 1 = a person holds that side; index 2 (civilians) stays 0. */
+  private readonly humanHeldBySide = new Uint8Array(3);
+
   constructor(config: SimConfig) {
+    const held = config.humanHeld ?? [true, false];
+    if (held.length !== 2 || typeof held[0] !== 'boolean' || typeof held[1] !== 'boolean') {
+      throw new Error('Sim: humanHeld must be two booleans, one per combatant side');
+    }
+    this.humanHeldBySide[0] = held[0] ? 1 : 0;
+    this.humanHeldBySide[1] = held[1] ? 1 : 0;
     this.width = config.width;
     this.height = config.height;
     this.capacity = config.capacity;
@@ -3781,13 +3795,20 @@ export class Sim {
    * form of the same question, and it is the one that makes a blind wall get
    * cut while a gate twenty feet away still gets used.
    */
+  /** True when a person holds `side` (the seat table). Side 2, and any number
+   *  outside 0..2, is false. */
+  isHumanHeld(side: number): boolean {
+    return side >= 0 && side <= 2 && this.humanHeldBySide[side] === 1;
+  }
+
   private selectBreachTarget(i: number): number {
-    // The player never cuts a wall by accident. The conditions below already
+    // A side a person holds never cuts a wall by accident (single-player holds
+    // side 0 only, today's rule; a versus room holds both, N2 spec §2.2). The conditions below already
     // spare a garrison holding its own compound, but a unit ordered out through
     // a gate on the far side satisfies every one of them against its own wire,
     // and there is no notion of who owns a structure to appeal to. Breaching on
     // our side is a decision, and there is a `demolish` order to make it with.
-    if (this.side[i] === 0) return -1;
+    if (this.humanHeldBySide[this.side[i]] === 1) return -1;
     const w = this.width;
     const ux = this.posX[i] >> 16;
     const uy = this.posY[i] >> 16;
