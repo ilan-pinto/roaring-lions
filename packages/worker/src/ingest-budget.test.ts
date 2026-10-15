@@ -52,6 +52,14 @@ describe('#559 M-3: /api/events write budget', () => {
     expect(h.n('SELECT COUNT(*) AS n FROM event_batch')).toBe(INGEST_DAY.player + 1);
   });
 
+  // 605 requests, each keyed-hashing its address (HMAC through crypto.subtle):
+  // past the day's cap IS the claim, so they are not cut. Measured single-file,
+  // Apple M3 Pro, 2026-10-15: under 0.1 s in three runs at a load average of
+  // 12-20 on 12 cores, 0.24-1.68 s in three at 31-78 (two other test loops
+  // running), up to five times the player test above, which makes as many
+  // requests unhashed. The 5 s crossing was reported from agents' full
+  // parallel `pnpm test` runs on a loaded machine, not reproduced single-file
+  // (1.68 s at most). The margin is for contention only.
   it('an address is counted per day under a keyed hash -- never the address itself -- whatever players it invents', async () => {
     const h = setup('ticket-secret');
     for (let i = 0; i < INGEST_DAY.ip + 5; i++) await h.post([hb(1000 + i, i)]);
@@ -63,7 +71,7 @@ describe('#559 M-3: /api/events write budget', () => {
     // Another address still lands.
     await h.post([hb(1, 1)], '203.0.113.9');
     expect(h.n('SELECT COUNT(*) AS n FROM event_batch')).toBe(INGEST_DAY.ip + 1);
-  });
+  }, 30_000);
 
   it('the same address hashes differently on another day', async () => {
     const h = setup('ticket-secret');
