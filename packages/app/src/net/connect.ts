@@ -279,12 +279,15 @@ export async function openRoom(req: RoomRequest, build: string, deps: OpenDeps):
   const creating = req.kind === 'create';
   const url = creating ? `${deps.origin}/api/match` : `${deps.origin}/api/match/${encodeURIComponent(req.code.toUpperCase())}/join`;
   const player = playerId(deps.store);
-  // The seat's claim travels in the body, create and join alike; the room records
-  // it as stated and mints it only into a brigade room (decision 22).
-  const tiers = deps.tiers?.() ?? {};
+  // The seat's claim travels in the body only. A create sends it just for a
+  // brigade room, so a matched room's storage never holds the host's account;
+  // a join always sends it, since a guest cannot know the room's rule (the room
+  // records it and mints it only into a brigade room, decision 22).
+  const kit = creating ? req.kit ?? 'matched' : null;
+  const claim = kit === 'matched' ? {} : { tiers: deps.tiers?.() ?? {} };
   const body = creating
-    ? { player, callsign: callsignOrDefault(req.callsign), map: req.map, build, mode: 'versus', matchup: req.matchup ?? 'mirror', kit: req.kit ?? 'matched', tiers }
-    : { player, callsign: callsignOrDefault(req.callsign), build, tiers };
+    ? { player, callsign: callsignOrDefault(req.callsign), map: req.map, build, mode: 'versus', matchup: req.matchup ?? 'mirror', kit, ...claim }
+    : { player, callsign: callsignOrDefault(req.callsign), build, ...claim };
   let res: Response;
   try {
     res = await deps.fetch(url, {

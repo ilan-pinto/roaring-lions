@@ -608,10 +608,11 @@ register exactly today's type list and hash today's bytes).
   tiers:* `SeatConfig.tiers` is `Record<typeId, Record<track, number>>`, the
   account's `ownedTiers` shape and the one `upgradePrepass` takes; a matched
   room mints `{}`, so nothing on the wire changes for it. (3) *Structural
-  checks only* (decision 22): the room refuses what is malformed or
-  impossible (an unknown type, a non-KDF type, an unknown track, a tier
-  outside 0..max, oversize input, a `__proto__`-style key), records the claim
-  as stated, and cannot check it against an account until ST6. `unlocks`
+  checks only* (decision 22): the room cleans what is malformed or
+  impossible (unknown or non-KDF types, unknown tracks and prototype-style
+  keys are dropped; tiers are truncated and clamped to 0..max; the output is
+  bounded by the track table; nothing is refused), records the cleaned claim,
+  and cannot check it against an account until ST6. `unlocks`
   stays `[]` until N3's production can field one.
 - **Wire.** `POST /api/match` takes `kit` (`matched` | `brigade`; only a
   versus room can be `brigade`) and `tiers`; `POST .../join` takes `tiers`.

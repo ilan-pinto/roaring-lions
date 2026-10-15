@@ -450,7 +450,7 @@ describe('openRoom: the lobby\'s create and join (N1b task 6, R-B8)', () => {
     const session = memory();
     const p = openRoom({ kind: 'create', map: 'qarn_hadid', callsign: 'Ari' }, 'b', deps({ fetch: f, openSocket: () => sock, session }));
     await tick();
-    expect(calls).toEqual([{ url: 'http://x/api/match', body: { player: 'pid-o', callsign: 'Ari', map: 'qarn_hadid', build: 'b', mode: 'versus', matchup: 'mirror', kit: 'matched', tiers: {} } }]);
+    expect(calls).toEqual([{ url: 'http://x/api/match', body: { player: 'pid-o', callsign: 'Ari', map: 'qarn_hadid', build: 'b', mode: 'versus', matchup: 'mirror', kit: 'matched' } }]);
     expect(loadSeat(session, 'ABCDEF')).toEqual({ ticket: 'tk-o', seat: 0 });
     sock.onopen?.({});
     sock.onmessage?.({ data: JSON.stringify(LOBBY_TWO) });
@@ -492,6 +492,8 @@ describe('openRoom: the lobby\'s create and join (N1b task 6, R-B8)', () => {
         void openRoom({ kind: 'create', map: 'tel_marum', callsign: 'Ari', ...kit }, 'b', deps({ fetch: f, openSocket: () => fakeSocket(), tiers: () => OWNED })).catch(() => {});
         await tick();
         expect(calls[0].body.kit).toBe('matched');
+        // A matched room mints nothing from a claim, so the host's account never leaves the machine.
+        expect('tiers' in calls[0].body).toBe(false);
       }
     });
 
