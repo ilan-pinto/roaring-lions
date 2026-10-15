@@ -3,7 +3,7 @@
  * the ONLY way bytes become one. Spec §3.2.3. The room never learns a
  * position: the only battle facts here are `Command`s and hashes.
  */
-import type { Command } from '@lions/sim';
+import { FIRE_SUPPORT, type Command } from '@lions/sim';
 import { isFactionPair, validateConfig, type Faction, type MatchConfig, type Seat } from './config';
 import type { Frame, Stamped } from './frames';
 
@@ -152,7 +152,14 @@ export function cleanCommand(v: unknown): Command | null {
     case 'reveal':
       return isInt(c.side) && isInt(c.x) && isInt(c.y) ? { kind, side: c.side, x: c.x, y: c.y } : null;
     case 'callStrike':
-      return isInt(c.caller) && isInt(c.x) && isInt(c.y) ? { kind, caller: c.caller, x: c.x, y: c.y } : null;
+      if (!isInt(c.caller) || !isInt(c.x) || !isInt(c.y)) return null;
+      // F-R5: `profile` is optional (absent = the air strike) but, when present,
+      // must index the FIRE_SUPPORT table -- anything else is refused, never
+      // silently turned into an air strike on one machine and not another.
+      if (c.profile === undefined) return { kind, caller: c.caller, x: c.x, y: c.y };
+      return isInt(c.profile) && c.profile >= 0 && c.profile < FIRE_SUPPORT.length
+        ? { kind, caller: c.caller, x: c.x, y: c.y, profile: c.profile }
+        : null;
     case 'smoke':
       return ids === null || !isInt(c.x) || !isInt(c.y) ? null : { kind, ids, x: c.x, y: c.y };
     default: {

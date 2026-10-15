@@ -174,13 +174,23 @@ company at First Light. Fix is §7 G2.
 |---|---|---|
 | "here is the picture" | `locate` — completes when units carrying `target` are identified, or on `count` identifications | `packages/sim/src/mission.ts` `SUPPORTED`; 10 shipped |
 | "here is what we carried out of last time" | `intel.marked_positions`. A tagged garrison recon identified **spawns pre-identified and forfeits its ambush** | produced by `beit_sahwan_1_recon`, `_4_subterranean`, `tel_marum_1_recon`, `wadi_halam_1_fords`, `_3_counterraid`; required by `beit_sahwan_3_clearance`, `_4_subterranean`, `tel_marum_2_foothold`, `wadi_halam_3_counterraid` |
-| "this is what certainty costs" | the Intel resource — sweep 150, precision strike 250 | **barely exists.** One shipped mission declares any (`beit_sahwan_breach`, `intel_start: 60`); none declares a rate |
+| "this is what certainty costs" | the Intel resource — sweep 150, precision strike 250 | **barely exists.** One shipped mission declares any (`beit_sahwan_breach`, `intel_start: 60`); none declares a rate *(Superseded by F1, 2026-10-15: intel is earned by doing — 10 per enemy first identified by a real observer, 30 per objective completed, 30 per high-ground rise held 10 s — with no per-minute term; there is no `intel_rate_per_min` field and none will be added; it is spent on four calls, smoke screen 60, mortar barrage 120, drone sweep 150, air strike 250; numbers provisional pending the lead; see docs/GDD.md §3.)* |
 
 That last row shapes what `narrative-designer` can write: **Idit's voice cannot
 lean on the Intel economy, because the campaign does not have one.** Her
 mechanical surface is `locate` + `marked_positions`. Trading certainty for
 logistics on screen needs an `intel_rate_per_min` in some missions first —
 `mission-author` work, not writing (§7 G10).
+
+> **Superseded by F1, 2026-10-15.** Intel now exists and is earned by doing:
+> 10 per enemy first identified by a real observer, 30 per objective completed,
+> 30 per high-ground rise held 10 s. There is no per-minute term, no
+> `intel_rate_per_min` field and none will be added (the lead's ruling: a trickle
+> by another name). It is spent on four calls: smoke screen 60, mortar barrage
+> 120, drone sweep 150, air strike 250. The narrative intent stands and gets
+> easier: Idit's voice can lean on what the player earns by doing, and "this is
+> what certainty costs" is a price the player pays out of what they earned.
+> Numbers are provisional pending the lead; see docs/GDD.md §3.
 
 ### 2.3 The three villains
 
@@ -640,7 +650,7 @@ Ordered by how much of the storyline each blocks.
 | **G7** | **The execute and abduction twists (T1, T5, T12) have no verb.** `do.kind` is `commit / withdraw_to / spawn / reinforce / dismount` — nothing removes or kills | Two symmetric verbs: `remove` (a group leaves play — abduction; `reinforce` already writes to the player's side, so this is its mirror) and `execute` (a named civilian group dies). Both are commands on a tick boundary, so determinism holds. **T12 also wants a friendly-tagged HVT** — a schema field on a placement | `sim-guard` |
 | **G8** | **Taking a villain alive is a zone hold, not a capture of him.** GH-18 is M2; GDD §5.5a says prisoners score ROE credit where kills score nothing — exactly this storyline's restraint theme | **Do not wait for it.** `capture` is live (10 s uninterrupted zone hold), so SPADE's end and T11 work today as a small zone around where he stands, and upgrade in place when GH-18 lands | `mission-author` now; `sim-guard` for GH-18 |
 | **G9** | **`mark`, `escort`, `no_collateral_above` throw.** `escort` is the obvious shape for T5 and for a D9 mission | Out of scope; recorded so nobody authors one by reading the schema. `SUPPORTED` (`packages/sim/src/mission.ts`) lists exactly nine (GH-2, GH-4) | `sim-guard` |
-| **G10** | **No Intel economy for Idit to spend.** One mission declares `intel_start`; none declares a rate | An `intel_rate_per_min` on Sur and Naharin missions, so the sweep (150) and precision strike (250) are choices rather than lore. Content, not engine | `mission-author` |
+| **G10** | **No Intel economy for Idit to spend.** One mission declares `intel_start`; none declares a rate | An `intel_rate_per_min` on Sur and Naharin missions, so the sweep (150) and precision strike (250) are choices rather than lore. Content, not engine *(Superseded by F1, 2026-10-15: intel is earned by doing (10 per enemy first identified by a real observer, 30 per objective completed, 30 per high-ground rise held 10 s), with no per-minute term; there is no `intel_rate_per_min` field and none will be added; it is spent on four calls (smoke screen 60, mortar barrage 120, drone sweep 150, air strike 250); numbers provisional pending the lead; see docs/GDD.md §3. The "no economy for Idit to spend" gap is closed without content: she can lean on what the player earns by doing.)* | `mission-author` |
 | **G11** | **`debrief` is one string shown on every mission end**, where `aftermath` shows on victory only, so a debrief cannot say different things for a win and a loss and the paired Shai/Idit lines in the Act I sheet stay `engine` | `debrief_victory` / `debrief_defeat` (or `debrief: { victory, defeat }`), read by `showEndScreen` off `missionEnd.result` | `sim-guard` (schema) + `render-vfx` (`ui/menu.ts`) |
 
 ---

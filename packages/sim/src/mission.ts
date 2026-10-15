@@ -10,8 +10,18 @@
 
 import { CivilianFlight, missionShepherds } from './civilians';
 import { fx, HALF, type Fx } from './fixed';
+import { HASH_SEED, hashWord } from './hash';
 import { starsFor, betterResult, type Stars, type MissionResult } from './grade';
 import { TICKS_PER_SECOND, type Sim, type SimEvent } from './sim';
+import { highGroundRises } from './intel-earn';
+import {
+  FS_MORTAR_BARRAGE,
+  FS_SMOKE_SCREEN,
+  HIGH_GROUND_HOLD_TICKS,
+  INTEL_PER_IDENTIFIED,
+  INTEL_PER_OBJECTIVE,
+  INTEL_PER_RISE,
+} from './tuning';
 import type { TunnelRouteJson } from './tunnels';
 import { unlockReason, type UnlockGate } from './unlock';
 
@@ -369,6 +379,23 @@ export type MissionEvent =
    * `speaker` to `shai | idit | net | enemy`, this type does not need to.
    */
   | { kind: 'say'; tick: number; speaker: string; text: string }
+  /**
+   * Why intel moved this tick, for the HUD's feed. Intel is earned by doing
+   * (F1, G3 Q1): the first identification of an enemy, and an objective's
+   * completion. `at` is the integer tile the feed line names (#428: a feed line
+   * says where): the identified enemy's tile, the objective's zone centre (or,
+   * for a zoneless objective, the tile of the first living player unit), the
+   * tile the paying unit stands on for `highGround`. `ref` is the enemy entity id, the objective id
+   * or the rise index.
+   */
+  | {
+      kind: 'intelEarned';
+      tick: number;
+      amount: number;
+      cause: 'identified' | 'objective' | 'highGround';
+      ref: number | string;
+      at: { x: number; y: number };
+    }
   | {
       kind: 'missionEnd';
       tick: number;
@@ -383,7 +410,7 @@ export type MissionEvent =
 /** Every `MissionEvent` kind, as a value. See `SIM_EVENT_KINDS`. */
 export const MISSION_EVENT_KINDS = [
   'objective', 'trigger', 'wave', 'roe', 'built', 'evacuated', 'removed', 'unitLost', 'say',
-  'missionEnd',
+  'missionEnd', 'intelEarned',
 ] as const satisfies readonly MissionEvent['kind'][];
 
 /** Compile-time proof the list above covers the whole union. See
@@ -419,13 +446,40 @@ const ZONE_DEDUCT_COOLDOWN = 200;
  *  squared, in Q16.16. Objective zones are big — 'no enemy anywhere in the
  *  zone' let one routed survivor in a far corner freeze a hold forever. */
 const CONTEST_RADIUS_SQ = 2359296;
+
+/** Is entity `i`'s tile inside the zone rectangle `[x, y, w, h]`? */
+function tileInZone(st: Sim['state'], i: number, zone: readonly number[]): boolean {
+  const tx = st.posX[i] >> 16;
+  const ty = st.posY[i] >> 16;
+  return tx >= zone[0] && tx < zone[0] + zone[2] && ty >= zone[1] && ty < zone[1] + zone[3];
+}
 /** Intel prices, GDD §3. */
 const SWEEP_COST = 150;
 const STRIKE_COST = 250;
-/** Intel earned per minute, GDD §3: a drone on station, a scout team holding
- *  an observation post. Watching is what pays for certainty. */
-const INTEL_PER_MIN_DRONE = 8;
-const INTEL_PER_MIN_SCOUT = 5;
+
+/** The fire-support menu (F1, GH-183): four calls, one entry point. */
+export type SupportKind = 'smoke_screen' | 'mortar_barrage' | 'drone_sweep' | 'air_strike';
+export const FIRE_SUPPORT_KINDS: readonly SupportKind[] = [
+  'smoke_screen',
+  'mortar_barrage',
+  'drone_sweep',
+  'air_strike',
+];
+/** The one price table, keyed by kind. The sweep and the strike are today's two
+ *  constants by reference; the smoke screen (60) and the barrage (120) are the
+ *  approved row, PROVISIONAL until the lead confirms the G-NUM table
+ *  (docs/campaign/economy/fire-support-numbers.md). */
+const SUPPORT_COST: Readonly<Record<SupportKind, number>> = {
+  smoke_screen: 60,
+  mortar_barrage: 120,
+  drone_sweep: SWEEP_COST,
+  air_strike: STRIKE_COST,
+};
+/** `callStrike.profile` for the two new rounds that fire. */
+const SUPPORT_PROFILE: Readonly<Record<'smoke_screen' | 'mortar_barrage', number>> = {
+  smoke_screen: FS_SMOKE_SCREEN,
+  mortar_barrage: FS_MORTAR_BARRAGE,
+};
 
 interface ObjectiveState {
   def: ObjectiveJson;
@@ -540,6 +594,35 @@ export class MissionRuntime {
    *  identified a unit a locate needed, or found a route a collapse brought down. The
    *  stripe reads this, not the kill map alone. */
   private readonly contributed = new Set<number>();
+  /** Every enemy whose FIRST side-0 identification has been settled (D3). An enemy
+   *  first revealed with no observer (`observer: -1`: a sweep's reveal, a pre-marked
+   *  carry-over spawn) is settled UNPAID and never pays later, even when a real
+   *  observer sees it afterwards (C-R5). Runtime-only; folded into `economyHash`. */
+  private readonly paidIdentified = new Set<number>();
+  /** `intelEarned` events owed to the HUD from outside `step` (a forced
+   *  `completeObjective`), drained into the next step's output. */
+  private readonly pendingIntelEvents: MissionEvent[] = [];
+  // --- high ground (F1 Task 5, D4) -------------------------------------------
+  // Runtime-only, all folded into `economyHash` (F-R2). The rise tables are
+  // built once, at the end of the structure raising in `start()` rather than in
+  // the constructor: a mission's own buildings block tiles, and the median and
+  // the 4-connected components must be read from the map as it will be played.
+  // Every array below is allocated there (or here, for the per-entity one), never
+  // per tick.
+  /** Tile -> rise id, -1 where the tile is not on a rise. Empty until `start()`. */
+  private riseOf: Int16Array = new Int16Array(0);
+  /** Number of rises; 0 on a flat map, where the whole pass is skipped. */
+  private riseCount = 0;
+  /** Consecutive ticks a qualifying uncontested unit has stood on each rise. */
+  private riseHold: Int32Array = new Int32Array(0);
+  /** 1 once a rise has paid: once per rise per mission. */
+  private risePaid: Uint8Array = new Uint8Array(0);
+  /** Scratch, per rise per tick: the first qualifying unit's id + 1, 0 for none. */
+  private riseHolder: Int32Array = new Int32Array(0);
+  /** Per player entity: the rise it stood on when first seen (-1 = none, -2 =
+   *  not seen yet). Cleared to -1 the first time a qualifying unit is seen
+   *  anywhere else, which is when a rise starts to pay it (D4, ruled 6 Oct). */
+  private readonly spawnRise: Int16Array;
   /** Which player entity identified each enemy entity, from `contact.observer`. */
   private readonly identifiedBy = new Map<number, number>();
   /** Which player entity found each route, from the route event's observer. */
@@ -582,6 +665,7 @@ export class MissionRuntime {
     this.marked = new Set(ctx.ledger?.['intel.marked_positions'] ?? []);
     this.logisticsValue = mission.resources?.logistics_start ?? 0;
     this.intelValue = mission.resources?.intel_start ?? 0;
+    this.spawnRise = new Int16Array(sim.capacity).fill(-2);
   }
 
   /** Spendable logistics, floored for display. */
@@ -591,6 +675,48 @@ export class MissionRuntime {
 
   get intel(): number {
     return this.intelValue - (this.intelValue % 1);
+  }
+
+  /** A 32-bit hash over every piece of runtime economy state: the floored purse
+   *  (logistics, intel), the build queue, and, from F2/F4 on, the zone owners and
+   *  production lines. Uses the sim's own hashWord, so the two hashes compose.
+   *
+   *  Read-only, and integer-only on purpose: the purse accrues in JS number
+   *  arithmetic (`rate / 1200`), so only its floor is hashed (`| 0` truncates a
+   *  non-negative number to its floor), and every word folded in is an int32.
+   *  The build queue goes in array order (the order `requestBuild` pushed it),
+   *  each entry as its unit id's characters, then its start and ready ticks.
+   *  Then (F1 Task 3, F-R3) the settled first identifications: their count, then
+   *  their entity ids ascending. */
+  economyHash(): number {
+    let h = HASH_SEED;
+    h = hashWord(h, this.logisticsValue | 0);
+    h = hashWord(h, this.intelValue | 0);
+    h = hashWord(h, this.buildQueue.length);
+    for (const b of this.buildQueue) {
+      for (let i = 0; i < b.unit.length; i++) h = hashWord(h, b.unit.charCodeAt(i));
+      h = hashWord(h, b.startTick | 0);
+      h = hashWord(h, b.readyTick | 0);
+    }
+    // F1 Task 3 (F-R3): the settled first identifications, size then ids ascending.
+    h = hashWord(h, this.paidIdentified.size);
+    const settled = [...this.paidIdentified].sort((a, b) => a - b);
+    for (const id of settled) h = hashWord(h, id);
+    // F1 Task 5 (F-R2): the high-ground state. A loop over `count` with NO length
+    // word, so a flat map (count 0, and no unit ever records a rise) adds nothing
+    // and ECONOMY_PIN does not move. Per rise: the hold counter and the paid flag;
+    // then, per player entity that has a spawn rise recorded, its id and that rise.
+    for (let r = 0; r < this.riseCount; r++) {
+      h = hashWord(h, this.riseHold[r]);
+      h = hashWord(h, this.risePaid[r]);
+    }
+    for (let i = 0; i < this.playerIds.length; i++) {
+      const id = this.playerIds[i];
+      if (this.spawnRise[id] < 0) continue;
+      h = hashWord(h, id);
+      h = hashWord(h, this.spawnRise[id]);
+    }
+    return h >>> 0;
   }
 
   /** Field production: spend logistics/intel, deploy at player_start after
@@ -650,10 +776,53 @@ export class MissionRuntime {
 
   /** What a satellite sweep and a precision strike cost, for the HUD. */
   get sweepCost(): number {
-    return SWEEP_COST;
+    return SUPPORT_COST.drone_sweep;
   }
   get strikeCost(): number {
-    return STRIKE_COST;
+    return SUPPORT_COST.air_strike;
+  }
+
+  /** What one fire-support call costs, in intel. A method, unlike the two
+   *  getters above, which the app reads as properties (F-R10). */
+  supportCost(kind: SupportKind): number {
+    // An unknown kind (an untyped caller) must not read as free or as undefined:
+    // positive infinity is unaffordable by construction, and the sim does not throw.
+    if (!FIRE_SUPPORT_KINDS.includes(kind)) return Number.POSITIVE_INFINITY;
+    return SUPPORT_COST[kind];
+  }
+
+  /**
+   * The fire-support menu's one entry (F1, GH-183). Not ended, affordable, and
+   * for the three that fire, a living SURFACE caller who owns the ROE bill: a
+   * buried unit can neither observe the round nor own its bill, and drawing
+   * scatter from its RNG stream would consume a stream the containment rule
+   * says is idle down there. The drone sweep names no caller (today's sweep).
+   * Refusal charges nothing. None of these commands names a unit, so no
+   * player focus is touched (F-R6).
+   */
+  requestSupport(kind: SupportKind, x: Fx, y: Fx): boolean {
+    // A kind outside the menu (a JS or untyped caller) has no price: refuse before
+    // the affordability test, where `intel < undefined` is false and would pass.
+    if (!FIRE_SUPPORT_KINDS.includes(kind)) return false;
+    const cost = SUPPORT_COST[kind];
+    if (this.ended || this.intelValue < cost) return false;
+    if (kind === 'drone_sweep') {
+      this.intelValue -= cost;
+      this.sim.queueCommand({ kind: 'reveal', side: 0, x, y });
+      return true;
+    }
+    const caller = this.playerIds.find(
+      (id) => this.sim.state.alive[id] === 1 && this.sim.state.tunnelIn[id] < 0,
+    );
+    if (caller === undefined) return false;
+    this.intelValue -= cost;
+    if (kind === 'air_strike') {
+      // No `profile`: absent is the air strike, and the command stays as it was.
+      this.sim.queueCommand({ kind: 'callStrike', caller, x, y });
+    } else {
+      this.sim.queueCommand({ kind: 'callStrike', caller, x, y, profile: SUPPORT_PROFILE[kind] });
+    }
+    return true;
   }
 
   /**
@@ -662,10 +831,7 @@ export class MissionRuntime {
    * to do yourself (GDD §3).
    */
   requestSweep(x: Fx, y: Fx): boolean {
-    if (this.ended || this.intelValue < SWEEP_COST) return false;
-    this.intelValue -= SWEEP_COST;
-    this.sim.queueCommand({ kind: 'reveal', side: 0, x, y });
-    return true;
+    return this.requestSupport('drone_sweep', x, y);
   }
 
   /**
@@ -674,17 +840,7 @@ export class MissionRuntime {
    * civilian block is meant to be a decision, not a reflex.
    */
   requestStrike(x: Fx, y: Fx): boolean {
-    if (this.ended || this.intelValue < STRIKE_COST) return false;
-    // Living AND on the surface: a buried unit can neither observe the
-    // strike nor own its ROE bill, and drawing scatter from its RNG stream
-    // would consume a stream the containment rule says is idle down there.
-    const caller = this.playerIds.find(
-      (id) => this.sim.state.alive[id] === 1 && this.sim.state.tunnelIn[id] < 0,
-    );
-    if (caller === undefined) return false;
-    this.intelValue -= STRIKE_COST;
-    this.sim.queueCommand({ kind: 'callStrike', caller, x, y });
-    return true;
+    return this.requestSupport('air_strike', x, y);
   }
 
   requestBuild(unitId: string): boolean {
@@ -720,6 +876,7 @@ export class MissionRuntime {
     // outside credits contribution off current world state exactly as
     // stepObjectives does; this is the only other place status becomes 'complete'.
     this.creditContribution(o.def);
+    this.payObjective(o.def, this.sim.tickCount, this.pendingIntelEvents);
     o.status = 'complete';
     this.externallyCompleted.push(id);
     return true;
@@ -915,6 +1072,18 @@ export class MissionRuntime {
     // Mission-placed buildings go up BEFORE any force spawns, so a placement
     // can never land inside one.
     this.raiseMissionStructures();
+    // High ground (D4): read once, from the map with the mission's own buildings
+    // standing. A flat map has no rise and the per-tick pass never runs. The
+    // table is built ONCE, here: a structure that collapses later is deliberately
+    // ignored (its rubble tiles are not rises, and the median open level the
+    // rises are measured against does not shift), so a rise never appears or
+    // disappears mid-mission and the hash words below stay a fixed length.
+    const rises = highGroundRises(this.sim.elevation, this.sim.blocked, this.sim.width, this.sim.height);
+    this.riseOf = rises.riseOf;
+    this.riseCount = rises.count;
+    this.riseHold = new Int32Array(rises.count);
+    this.risePaid = new Uint8Array(rises.count);
+    this.riseHolder = new Int32Array(rises.count);
     for (const p of this.mission.starting_force ?? []) this.spawnPlacement(p, 0);
     for (const p of this.mission.enemy?.garrison ?? []) this.spawnPlacement(p, 1);
     for (const p of this.mission.civilians?.groups ?? []) this.spawnPlacement(p, 2);
@@ -1027,6 +1196,9 @@ export class MissionRuntime {
     // spawns all land through step(), which runs after start() returns. See
     // startingIds above.
     this.startingIds = [...this.playerIds];
+    // Where the starting force stood at tick zero: a unit on a rise from the
+    // start earns nothing there until it has stood elsewhere (D4, ruled 6 Oct).
+    this.noteSpawnRises();
   }
 
   /** Advance the mission one tick. Call immediately after sim.tick(). */
@@ -1044,6 +1216,23 @@ export class MissionRuntime {
         if (e.side === 0 && this.sim.state.side[e.target] === 1) {
           this.identified.add(e.target);
           if (e.observer >= 0) this.identifiedBy.set(e.target, e.observer);
+          // Intel by doing (D3): the FIRST identification of each enemy settles
+          // once, paid only when a real observer made it. A reveal or a
+          // pre-marked spawn (observer -1) settles it unpaid, for good (C-R5).
+          if (!this.paidIdentified.has(e.target)) {
+            this.paidIdentified.add(e.target);
+            if (e.observer >= 0) {
+              this.intelValue += INTEL_PER_IDENTIFIED;
+              out.push({
+                kind: 'intelEarned',
+                tick,
+                amount: INTEL_PER_IDENTIFIED,
+                cause: 'identified',
+                ref: e.target,
+                at: { x: this.sim.state.posX[e.target] >> 16, y: this.sim.state.posY[e.target] >> 16 },
+              });
+            }
+          }
         }
         // Carry-over, produced. The tag joins the ledger the moment any unit of that
         // placement is identified -- no separate mark verb, and no objective needed:
@@ -1083,21 +1272,10 @@ export class MissionRuntime {
     // later slice. Fractional accrual is exact-enough JS arithmetic.
     const rate = this.mission.resources?.logistics_rate_per_min ?? 0;
     if (rate > 0) this.logisticsValue += rate / 1200;
-    // Intel accrues from units that are actually observing: a drone on
-    // station always, a scout team only while it holds position.
-    let intelPerMin = 0;
-    const st = this.sim.state;
-    for (const id of this.playerIds) {
-      if (st.alive[id] === 0) continue;
-      // Underground observes nothing and earns nothing. On the loop, not a
-      // branch, so the drone half and the stationary-scout half — a buried
-      // unit is stationary by definition — are covered by the same line.
-      if (st.tunnelIn[id] >= 0) continue;
-      const type = this.sim.unitTypes[st.typeIdx[id]];
-      if (type.role === 'drone') intelPerMin += INTEL_PER_MIN_DRONE;
-      else if (type.canMarkTarget && st.moving[id] === 0) intelPerMin += INTEL_PER_MIN_SCOUT;
-    }
-    if (intelPerMin > 0) this.intelValue += intelPerMin / 1200;
+    // Intel is NOT accrued here. There is no per-minute trickle (G3 Q1, lead 4 Oct):
+    // it is earned by doing, at the two places that pay it -- the first identification
+    // of an enemy (the contact digest above) and an objective's completion
+    // (`payObjective`).
     for (let i = this.buildQueue.length - 1; i >= 0; i--) {
       const b = this.buildQueue[i];
       if (tick < b.readyTick) continue;
@@ -1119,6 +1297,11 @@ export class MissionRuntime {
     this.stepPatrols();
     this.stepTriggers(tick, out);
     this.stepWaves(tick, out);
+    this.stepHighGround(tick, out);
+    // Guarded: `splice(0)` allocates an array every call, and this runs every tick.
+    if (this.pendingIntelEvents.length > 0) {
+      for (const ev of this.pendingIntelEvents.splice(0)) out.push(ev);
+    }
     for (const id of this.externallyCompleted.splice(0)) {
       out.push({ kind: 'objective', tick, id, status: 'complete' });
     }
@@ -1596,27 +1779,113 @@ export class MissionRuntime {
    */
   private contestedIn(zone: readonly number[]): boolean {
     const st = this.sim.state;
-    const inZone = (i: number): boolean => {
-      const tx = st.posX[i] >> 16;
-      const ty = st.posY[i] >> 16;
-      return tx >= zone[0] && tx < zone[0] + zone[2] && ty >= zone[1] && ty < zone[1] + zone[3];
-    };
-    for (let e = 0; e < this.sim.entityCount; e++) {
-      if (st.alive[e] === 0 || st.side[e] !== 1 || !inZone(e)) continue;
-      // A buried unit contests nothing and anchors no contest — either side.
-      // Without this, a stocked route whose spawn point sits inside the zone
-      // holds a capture hostage from underground, with nothing on the map
-      // for the player to shoot.
-      if (st.tunnelIn[e] >= 0) continue;
-      for (let f = 0; f < this.sim.entityCount; f++) {
-        if (st.alive[f] === 0 || st.side[f] !== 0 || !inZone(f)) continue;
-        if (st.tunnelIn[f] >= 0) continue;
-        const dx = (fx.sub(st.posX[e], st.posX[f]) >> 8) | 0;
-        const dy = (fx.sub(st.posY[e], st.posY[f]) >> 8) | 0;
-        if (dx * dx + dy * dy <= CONTEST_RADIUS_SQ) return true;
-      }
+    for (let f = 0; f < this.sim.entityCount; f++) {
+      if (st.alive[f] === 0 || st.side[f] !== 0 || !tileInZone(st, f, zone)) continue;
+      if (st.tunnelIn[f] >= 0) continue;
+      if (this.enemyNear(f, zone)) return true;
     }
     return false;
+  }
+
+  /**
+   * Is a living enemy within CONTEST_RADIUS_SQ of player unit `f`? The hold rule's
+   * own test, shared with the high-ground pass so there is one copy of the number
+   * and of what counts. It counts ANY living side-1 unit that is not buried (a
+   * garrisoned or carried one included, as the hold rule always has), and with a
+   * `zone` only those standing inside it. A buried enemy contests nothing and
+   * anchors no contest -- either side. Without this, a stocked route whose spawn
+   * point sits inside the zone holds a capture hostage from underground, with
+   * nothing on the map for the player to shoot.
+   */
+  private enemyNear(f: number, zone?: readonly number[]): boolean {
+    const st = this.sim.state;
+    for (let e = 0; e < this.sim.entityCount; e++) {
+      if (st.alive[e] === 0 || st.side[e] !== 1) continue;
+      if (zone !== undefined && !tileInZone(st, e, zone)) continue;
+      if (st.tunnelIn[e] >= 0) continue;
+      const dx = (fx.sub(st.posX[e], st.posX[f]) >> 8) | 0;
+      const dy = (fx.sub(st.posY[e], st.posY[f]) >> 8) | 0;
+      if (dx * dx + dy * dy <= CONTEST_RADIUS_SQ) return true;
+    }
+    return false;
+  }
+
+  /** The rise a unit's tile belongs to, or -1 (off the map counts as none). */
+  private riseUnder(id: number): number {
+    const st = this.sim.state;
+    const tx = st.posX[id] >> 16;
+    const ty = st.posY[id] >> 16;
+    if (tx < 0 || ty < 0 || tx >= this.sim.width || ty >= this.sim.height) return -1;
+    return this.riseOf[ty * this.sim.width + tx];
+  }
+
+  /** Record, for every player entity not yet seen, the rise it stands on now. */
+  private noteSpawnRises(): void {
+    if (this.riseCount === 0) return;
+    for (let i = 0; i < this.playerIds.length; i++) {
+      const id = this.playerIds[i];
+      if (this.spawnRise[id] === -2 && this.sim.state.alive[id] === 1) {
+        this.spawnRise[id] = this.riseUnder(id);
+      }
+    }
+  }
+
+  /**
+   * High ground pays intel (F1, D4): a rise pays INTEL_PER_RISE once per mission to
+   * the first surface unit to stand on it for HIGH_GROUND_HOLD_TICKS in a row with
+   * no enemy inside CONTEST_RADIUS_SQ. Holding ground is a ground act, so a unit
+   * qualifies only when it is alive, not buried, not an aircraft, not garrisoned
+   * (a garrison's position is its building's centroid, which can be an open tile
+   * on a rise -- F-R7) and not carried (it rides its carrier's tile). A unit also
+   * earns nothing on the rise it started on until it has been seen elsewhere.
+   * The count belongs to the RISE, not to the unit (C-R7): it resets on any tick
+   * no qualifying unit holds the rise, so one unit leaving and coming back starts
+   * again, but two units may hand a rise over within a single tick and the count
+   * carries on. No allocation: the tables are fixed in `start()`.
+   */
+  private stepHighGround(tick: number, out: MissionEvent[]): void {
+    const rises = this.riseCount;
+    if (rises === 0) return;
+    this.noteSpawnRises();
+    const st = this.sim.state;
+    const holders = this.riseHolder;
+    holders.fill(0);
+    for (let i = 0; i < this.playerIds.length; i++) {
+      const id = this.playerIds[i];
+      if (st.alive[id] === 0) continue;
+      if (st.tunnelIn[id] >= 0) continue;
+      if (this.sim.unitTypes[st.typeIdx[id]].isAir) continue;
+      if (st.garrisonedIn[id] >= 0) continue;
+      if (st.carriedBy[id] >= 0) continue;
+      const rise = this.riseUnder(id);
+      // Seen anywhere but the rise it started on: from here on it can earn.
+      if (this.spawnRise[id] !== rise) this.spawnRise[id] = -1;
+      if (rise < 0 || this.risePaid[rise] === 1 || this.spawnRise[id] === rise) continue;
+      if (holders[rise] !== 0) continue; // a second unit adds nothing to a count
+      if (this.enemyNear(id)) continue;
+      holders[rise] = id + 1;
+    }
+    for (let r = 0; r < rises; r++) {
+      if (this.risePaid[r] === 1) continue;
+      if (holders[r] === 0) {
+        this.riseHold[r] = 0;
+        continue;
+      }
+      this.riseHold[r]++;
+      if (this.riseHold[r] < HIGH_GROUND_HOLD_TICKS) continue;
+      this.risePaid[r] = 1;
+      this.riseHold[r] = 0;
+      this.intelValue += INTEL_PER_RISE;
+      const id = holders[r] - 1;
+      out.push({
+        kind: 'intelEarned',
+        tick,
+        amount: INTEL_PER_RISE,
+        cause: 'highGround',
+        ref: r,
+        at: { x: st.posX[id] >> 16, y: st.posY[id] >> 16 },
+      });
+    }
   }
 
   private livingIn(zone: readonly number[], side: number): number {
@@ -1674,6 +1943,28 @@ export class MissionRuntime {
         if (by !== undefined) this.contributed.add(by);
       }
     }
+  }
+
+  /** Pay the intel for a completed objective (D5): primaries and secondaries alike, and
+   *  never a failure. Called from both completion sites, so a forced
+   *  `completeObjective` pays exactly like an internal one. */
+  private payObjective(d: ObjectiveJson, tick: number, out: MissionEvent[]): void {
+    this.intelValue += INTEL_PER_OBJECTIVE;
+    const z = this.zone(d.target);
+    let x = 0;
+    let y = 0;
+    if (z !== undefined) {
+      x = z[0] + (z[2] >> 1);
+      y = z[1] + (z[3] >> 1);
+    } else {
+      for (const id of this.playerIds) {
+        if (this.sim.state.alive[id] === 0) continue;
+        x = this.sim.state.posX[id] >> 16;
+        y = this.sim.state.posY[id] >> 16;
+        break;
+      }
+    }
+    out.push({ kind: 'intelEarned', tick, amount: INTEL_PER_OBJECTIVE, cause: 'objective', ref: d.id, at: { x, y } });
   }
 
   private stepTriggers(tick: number, out: MissionEvent[]): void {
@@ -1909,6 +2200,7 @@ export class MissionRuntime {
       }
       if (complete) {
         this.creditContribution(o.def);
+        this.payObjective(d, tick, out);
         o.status = 'complete';
         out.push({ kind: 'objective', tick, id: d.id, status: 'complete' });
         if (d.say) out.push({ kind: 'say', tick, speaker: d.say.speaker, text: d.say.text });

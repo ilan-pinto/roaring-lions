@@ -19,7 +19,7 @@ import { fork, type ChildProcess } from 'node:child_process';
 import { availableParallelism } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import type { LedgerData } from '@lions/sim';
-import { run, setSweep, sweepOutcome } from './playtest-run';
+import { run, lastIntelRun, setSweep, sweepOutcome, type IntelRun } from './playtest-run';
 import type { SweepJob, SweepReply } from './passive-sweep-worker';
 
 /** The seeds a swept control runs on: the pinned 424242 first, then 1..29 (PR #533's set). */
@@ -28,11 +28,15 @@ export const SWEEP_SEEDS: readonly number[] = [424242, ...Array.from({ length: 2
 type Expect = 'defeat' | 'ongoing' | 'withdrawn';
 
 interface Control {
+  /** The mission the control runs, which is the id its winning plan is labelled with. */
+  id: string;
   label: string;
   expect: Expect;
   seeds: readonly number[];
   /** Seed -> outcome, filled as runs come back. */
   got: Map<number, string>;
+  /** Seed -> what the run earned (`intel-gate.ts`), filled with `got`. */
+  intel: Map<number, IntelRun>;
 }
 
 const controls: Control[] = [];
@@ -61,7 +65,7 @@ export function seedLabel(label: string, seed: number): string {
   return `${label.slice(0, -1)}, seed ${seed})`;
 }
 
-function runInline(id: string, label: string, expect: Expect, ledger: LedgerData, seed: number, quiet: boolean): string {
+function runInline(id: string, label: string, expect: Expect, ledger: LedgerData, seed: number, quiet: boolean): { result: string; intel: IntelRun } {
   const m = { result: 'ongoing', stars: 0, roeScore: 0, credits: 0 } as NonNullable<Parameters<typeof run>[10]>;
   try {
     setSweep(seed, quiet);
@@ -69,7 +73,7 @@ function runInline(id: string, label: string, expect: Expect, ledger: LedgerData
   } finally {
     setSweep(undefined, false);
   }
-  return sweepOutcome(m.result, m.cause);
+  return { result: sweepOutcome(m.result, m.cause), intel: lastIntelRun() };
 }
 
 function spawnWorkers(n: number): void {
@@ -81,6 +85,7 @@ function spawnWorkers(n: number): void {
     const child = fork(path, [], { execArgv: process.execArgv, serialization: 'advanced', stdio: 'inherit' });
     child.on('message', (msg: SweepReply) => {
       controls[msg.control].got.set(msg.seed, msg.result);
+      controls[msg.control].intel.set(msg.seed, msg.intel);
       settle(w, `${msg.control}:${msg.seed}`);
     });
     // A worker that dies with runs owed must not hang the harness: what it owed stays without a
@@ -109,13 +114,17 @@ export function passiveAcrossSeeds(
 ): void {
   // A seed's child process in the plan sweep (`plan-sweep.ts`) runs the winning plans only.
   if (process.env.PT_PLAN_CHILD === '1') return;
-  const control: Control = { label, expect, seeds, got: new Map() };
+  const control: Control = { id, label, expect, seeds, got: new Map(), intel: new Map() };
   const index = controls.push(control) - 1;
-  control.got.set(seeds[0], runInline(id, label, expect, ledger, seeds[0], false));
+  const first = runInline(id, label, expect, ledger, seeds[0], false);
+  control.got.set(seeds[0], first.result);
+  control.intel.set(seeds[0], first.intel);
   const n = workerCount();
   for (const seed of seeds.slice(1)) {
     if (n === 0) {
-      control.got.set(seed, runInline(id, seedLabel(label, seed), expect, ledger, seed, true));
+      const r = runInline(id, seedLabel(label, seed), expect, ledger, seed, true);
+      control.got.set(seed, r.result);
+      control.intel.set(seed, r.intel);
       continue;
     }
     if (workers.length === 0) spawnWorkers(n);
@@ -127,6 +136,11 @@ export function passiveAcrossSeeds(
       if (err) settle(w, key);
     });
   }
+}
+
+/** Each control's mission id and what it earned on each seed it came back from (`intel-gate.ts`). */
+export function controlIntel(): { id: string; label: string; intel: ReadonlyMap<number, IntelRun> }[] {
+  return controls.map((c) => ({ id: c.id, label: c.label, intel: c.intel }));
 }
 
 /** A control runs to its own deadline (4-5 min), so one still ONGOING was at the 20-minute cap. */

@@ -209,7 +209,7 @@ describe('the strike readout', () => {
     b.state.alive[0] = 0;
     b.state.alive[3] = 0;
     const events: SimEvent[] = [
-      { kind: 'strike', tick: 61, by: 9, x: toFx(17.5), y: toFx(8.5) },
+      { kind: 'strike', tick: 61, by: 9, x: toFx(17.5), y: toFx(8.5), profile: 0 },
       { kind: 'destroyed', tick: 61, entity: 0, by: 9 },
       { kind: 'destroyed', tick: 61, entity: 3, by: 9 },
     ];
@@ -242,7 +242,7 @@ describe('dispose', () => {
     m.called('strike', 17.5, 8.5, 1);
     m.beforeTick(b);
     b.state.hp[0] -= toFx(30);
-    m.afterTick(b, 61, [{ kind: 'strike', tick: 61, by: 9, x: toFx(17.5), y: toFx(8.5) }], 2);
+    m.afterTick(b, 61, [{ kind: 'strike', tick: 61, by: 9, x: toFx(17.5), y: toFx(8.5), profile: 0 }], 2);
     m.dispose();
     expect(m.afterTick(b, 61 + STRIKE_READOUT_DELAY_TICKS, [], 150)).toEqual([]);
     expect(m.called('sweep', 1, 1, 80)).toEqual([]);
@@ -294,7 +294,7 @@ describe('a seat on side 1 (N1a task 6)', () => {
     b.state.hp[2] -= toFx(30);
     b.state.alive[0] = 0;
     const events: SimEvent[] = [
-      { kind: 'strike', tick: 61, by: 9, x: toFx(17.5), y: toFx(8.5) },
+      { kind: 'strike', tick: 61, by: 9, x: toFx(17.5), y: toFx(8.5), profile: 0 },
       { kind: 'destroyed', tick: 61, entity: 0, by: 9 },
     ];
     m.afterTick(b, 61, events, 2);
