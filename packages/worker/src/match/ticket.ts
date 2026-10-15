@@ -2,9 +2,12 @@
  *  TICKET_SECRET -- the same Web Crypto pattern as `../auth.ts`'s stats cookie,
  *  NEVER the same secret (rotating STATS_PASSWORD is how dashboard sessions
  *  are revoked). Sent in the first WebSocket message, never the URL. */
-import type { Seat } from '@lions/net';
+import { ADVISOR_SCOPES, type AdvisorScope, type Seat } from '@lions/net';
 
-export interface Ticket { matchId: string; seat: Seat; player: string; exp: number }
+/** `role` absent means `seat` (every ticket minted before N4). An `advisor`
+ *  ticket names the seat it advises and carries a `scope`; an advisor is never
+ *  a seat, and the room treats the two differently (N4a). */
+export interface Ticket { matchId: string; seat: Seat; player: string; exp: number; role?: 'seat' | 'advisor'; scope?: AdvisorScope }
 
 function b64url(bytes: Uint8Array): string {
   let bin = '';
@@ -47,5 +50,10 @@ export async function verifyTicket(secret: string, raw: string, now: number): Pr
   const v = t as Record<string, unknown>;
   if (typeof v.matchId !== 'string' || (v.seat !== 0 && v.seat !== 1) || typeof v.player !== 'string' || typeof v.exp !== 'number') return null;
   if (v.exp <= now) return null;
-  return { matchId: v.matchId, seat: v.seat, player: v.player, exp: v.exp };
+  const base: Omit<Ticket, 'role' | 'scope'> = { matchId: v.matchId, seat: v.seat, player: v.player, exp: v.exp };
+  // Absent role is a seat (a ticket from before N4); a seat's stray scope is dropped.
+  if (v.role === undefined || v.role === 'seat') return { ...base, role: 'seat' };
+  // An advisor without a valid scope is nothing: never guessed at `advise`.
+  if (v.role === 'advisor' && (ADVISOR_SCOPES as readonly unknown[]).includes(v.scope)) return { ...base, role: 'advisor', scope: v.scope as AdvisorScope };
+  return null;
 }

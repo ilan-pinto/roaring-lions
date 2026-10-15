@@ -81,6 +81,18 @@
  *                 the only writers of `uMacroAmp` are `groundUniforms()` and
  *                 `setMacroVisible` (grepped), so it holds across the gate's
  *                 repaint, the `fog` layer's standard.
+ * - `slope-light` relief read A (`terrain/relief-read.ts`): the ground's
+ *                 lighting-normal gain driven to 1, the identity
+ *                 (`GroundMaterial.setSlopeLightVisible`). Moves only ground
+ *                 on a SLOPE: flat ground has no horizontal normal to
+ *                 exaggerate, so a flat map reads 0 for it by construction.
+ *                 Witnessed on `relief` and `aftermath`; a plain uniform
+ *                 write nothing per-frame re-asserts, the `macro` standard.
+ * - `height-contours` relief read B: the contour and height-tint amplitudes
+ *                 driven to 0 (`GroundMaterial.setHeightContoursVisible`).
+ *                 The tint is relative to the map's median open level and
+ *                 contours sit at HALF levels, so flat ground -- all median,
+ *                 all whole levels -- reads 0 by construction too.
  * - `roads`       the procedural road (#226), `uRoadOn` driven to 0
  *                 (`GroundMaterial.setRoadsVisible`). Everything road-shaped
  *                 on the ground goes with it -- the packed surface tone, the
@@ -332,6 +344,8 @@ export const DEBUG_LAYERS = [
   'tunnel-xray',
   'running-gear',
   'garrison-banner',
+  'slope-light',
+  'height-contours',
 ] as const;
 
 export type DebugLayer = (typeof DEBUG_LAYERS)[number];

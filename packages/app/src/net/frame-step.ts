@@ -9,7 +9,7 @@
  * Acks and hashes are keyed by the FRAME's tick (R32), never `sim.tickCount`:
  * the room numbers frames from 0 and knows nothing of how the sim counts.
  */
-import { applyFrame, matchDigest, type MatchConfig, type MatchTransport, type Seat, type SeatWorld } from '@lions/net';
+import { applyFrame, matchDigest, type Frame, type MatchConfig, type MatchTransport, type Seat, type SeatWorld } from '@lions/net';
 import type { Command } from '@lions/sim';
 
 /** The slice of `Sim` the body touches. */
@@ -31,6 +31,10 @@ export interface FrameStep {
    *  tick). The frames behind it in the batch are not run -- the match is
    *  over and the caller steps no more. Absent in single-player. */
   stopAfter?: (tick: number) => boolean;
+  /** Called with each frame BEFORE `applyFrame` queues its commands (N4a
+   *  task 4): the AI harness reads its own seat's stamped commands here to
+   *  settle its order ledger. Absent in the browser. */
+  beforeFrame?: (frame: Frame) => void;
 }
 
 /** A hash tick closes a window of `hashEveryTicks` frames: ticks 19, 39, ... at 20. */
@@ -45,6 +49,7 @@ export function runFrames(step: FrameStep, maxTicks: number): { ran: number; dro
   let ran = 0;
   let dropped = 0;
   for (const f of transport.take(maxTicks)) {
+    step.beforeFrame?.(f);
     dropped += applyFrame(f, sim, seatWorld).dropped;
     runTick();
     ran++;

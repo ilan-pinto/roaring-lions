@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Seat } from '@lions/net';
-import { NetChat, chatFeedLine, chatOpens, type ChatDeps } from './net-chat';
+import { NetChat, chatFeedLine, chatOpens, roomEnterAction, type ChatDeps } from './net-chat';
 
 const NAMES: Record<Seat, string> = { 0: 'A', 1: 'B' };
 
@@ -161,5 +161,26 @@ describe('chatOpens (the battlefield\'s Enter, R-B12: no keymap action)', () => 
     expect(chatOpens({ ...enter, metaKey: true }, free)).toBe(false);
     expect(chatOpens({ ...enter, altKey: true }, free)).toBe(false);
     expect(chatOpens({ ...enter, key: 'h' }, free)).toBe(false);
+  });
+});
+
+describe('roomEnterAction (Enter never accepts an advisor proposal)', () => {
+  const enter = { key: 'Enter', repeat: false, ctrlKey: false, metaKey: false, altKey: false };
+  const free = { inRoom: true, modalOpen: false };
+  it('with a proposal showing, Enter does not call accept and still opens the chat', () => {
+    const accept = vi.fn(() => true);
+    expect(roomEnterAction(enter, free, { accept })).toBe('chat');
+    expect(accept).not.toHaveBeenCalled();
+  });
+  it('with no advisor, or nothing showing, Enter opens the chat', () => {
+    expect(roomEnterAction(enter, free, null)).toBe('chat');
+    expect(roomEnterAction(enter, free, { accept: () => false })).toBe('chat');
+  });
+  it('over a dialog, in single-player, or on another key, nothing', () => {
+    const accept = vi.fn(() => true);
+    expect(roomEnterAction(enter, { inRoom: true, modalOpen: true }, { accept })).toBeNull();
+    expect(roomEnterAction(enter, { inRoom: false, modalOpen: false }, { accept })).toBeNull();
+    expect(roomEnterAction({ ...enter, key: 'x' }, free, { accept })).toBeNull();
+    expect(accept).not.toHaveBeenCalled();
   });
 });

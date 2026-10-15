@@ -15,6 +15,9 @@ export const AUDIO_IMPORT_MAP: Readonly<Record<string, string>> = {
   '@lions/sim': './sim.js',
   './radio': './radio.js',
   './relation': './relation.js',
+  // GH-35: the engine voices. Imports only a TYPE from @lions/sim, which the
+  // type-strip removes; the mix scenes play no engines (no `updateEngines`).
+  './engines': './engines.js',
 };
 
 // `from '<spec>'` (import / re-export) and a bare side-effect `import '<spec>'`.

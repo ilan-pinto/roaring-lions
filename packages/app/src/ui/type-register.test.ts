@@ -184,6 +184,8 @@ describe('the type register: theme.css', () => {
       '.rl-versus__code',
       '.rl-versus__field input[type=\'text\']',
       '.rl-versus__field select',
+      // the advisor's shell command (N4a): code to paste, read character by character
+      '.rl-versus__advisor-command',
       ':root',
     ]);
     const seen: string[] = [];

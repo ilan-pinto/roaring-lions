@@ -7245,6 +7245,74 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-versus__seat[data-ready='1'] .rl-versus__state {
   color: var(--good);
 }
+/* The advisor (N4a, decision D1): a badge on the seat card both players see,
+   and the invite control on the viewer's own card. */
+.rl-versus__advisor-badge {
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  color: var(--info);
+  border: 1px solid var(--info); /* px-ok */
+  padding: 0 var(--s2);
+}
+.rl-versus__advisor-invite {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s2);
+  min-width: 0;
+  padding-top: var(--s2);
+  border-top: 1px solid var(--panel-frame); /* px-ok */
+}
+.rl-versus__advisor-scope {
+  display: flex;
+  gap: var(--s3);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.rl-versus__advisor-legend {
+  position: absolute;
+  width: 1px; /* px-ok */
+  height: 1px; /* px-ok */
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.rl-versus__advisor-choice {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  font-size: var(--t-s);
+  color: var(--ink);
+}
+.rl-versus__advisor-hint,
+.rl-versus__advisor-note,
+.rl-versus__advisor-file,
+.rl-versus__advisor-status,
+.rl-versus__advisor-copied {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  color: var(--ink-mute);
+}
+.rl-versus__advisor-result {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s2);
+  max-width: 100%;
+}
+.rl-versus__advisor-command {
+  display: block;
+  max-width: 100%;
+  padding: var(--s2);
+  font: var(--t-s) var(--font-mono);
+  color: var(--ink);
+  background: var(--panel-bg-solid);
+  border: 1px solid var(--panel-frame); /* px-ok */
+  overflow-wrap: anywhere;
+  user-select: all;
+}
 .rl-versus__dot {
   flex: none;
   width: 0.6rem;
@@ -7944,6 +8012,83 @@ button.rl-menu__item[data-kind='aside'] {
   font-size: var(--t-s);
 }
 
+/* The advisor's panel and proposal strip (ui/advisor.ts, N4a task 10): a small
+   docked feed with a box to answer it, and the strip that shows one proposed
+   order for two seconds. Every line is text an advisor wrote, drawn as text. */
+.rl-advisor {
+  position: fixed;
+  top: calc(var(--hud-strip-h) + var(--s3));
+  left: var(--s3);
+  width: 22rem;
+  max-width: calc(100vw - var(--s6));
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-frame); /* px-ok */
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  z-index: 20;
+}
+.rl-advisor[hidden],
+.rl-advisor__strip[hidden],
+.rl-advisor__note[hidden] {
+  display: none;
+}
+.rl-advisor__feed {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 7rem;
+  overflow-y: auto;
+}
+.rl-advisor__feed:empty {
+  display: none;
+}
+.rl-advisor__line {
+  overflow-wrap: anywhere;
+}
+.rl-advisor__strip {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  padding: var(--s2);
+  border: 1px solid var(--selected); /* px-ok */
+  background: var(--selected-fill);
+}
+.rl-advisor__note,
+.rl-advisor__what {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.rl-advisor__what {
+  font-weight: 600;
+}
+.rl-advisor__row {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+}
+.rl-advisor__hint,
+.rl-advisor__count {
+  color: var(--ink-mute);
+}
+.rl-advisor__count {
+  margin-left: auto;
+}
+.rl-advisor__input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--panel-bg-solid);
+  color: var(--ink);
+  border: 1px solid var(--panel-frame); /* px-ok */
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  padding: var(--s1) var(--s2);
+}
+
 /* The versus scoreboard (ui/net-score.ts, 2026-10-14): each side's destroyed
    and lost, with their value, under the strip's right end while the match
    runs; the full table, with the force left, on the match-over panel. The
@@ -7960,6 +8105,33 @@ button.rl-menu__item[data-kind='aside'] {
 }
 .rl-net-score[hidden] {
   display: none;
+}
+/* N4a (decision D1): each seat's advisor, under the running table, so the
+   friend sees an advisor admitted mid-match as well as in the lobby. */
+.rl-net-score__advisors {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--s1);
+  padding-top: var(--s1);
+  color: var(--ink-dim);
+  font: 600 var(--t-s) var(--font-body);
+}
+.rl-net-score__advisors[hidden] {
+  display: none;
+}
+.rl-net-score__advisor {
+  display: flex;
+  gap: var(--s2);
+  white-space: nowrap;
+}
+.rl-net-score__who {
+  max-width: 10rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rl-net-score__advisor[data-row='mine'] .rl-net-score__who {
+  color: var(--good);
 }
 .rl-net-board {
   border-collapse: collapse;
