@@ -2,6 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { LocalTransport, matchDigest, type Frame, type MatchConfig, type MatchTransport, type TransportStatus } from '@lions/net';
 import type { Command } from '@lions/sim';
 import { runFrames, seatWorldFor } from './frame-step';
+import { shippedContentDigest } from './content-digest';
+
+/** The digest of THIS client's own content (L4), as a test hands it in. The
+ *  config fixture's room-minted `dataDigest` is 77 on purpose: a value
+ *  `runFrames` must ignore. */
+const OWN = 55;
 
 const config = (over: Partial<MatchConfig> = {}): MatchConfig => ({
   matchId: 'ABCDEF', code: 'ABCDEF', seed: 5, map: 'tel_marum', mode: 'sandbox',
@@ -88,7 +94,7 @@ describe('runFrames', () => {
     const frames: Frame[] = Array.from({ length: 41 }, (_, tick) => ({ tick, cmds: [] }));
     const transport = new ScriptedTransport(frames);
     const cfg = config();
-    const step = { transport, sim, seatWorld: seatWorldFor(cfg, sim), runTick: sim.runTick, config: cfg };
+    const step = { transport, sim, seatWorld: seatWorldFor(cfg, sim), runTick: sim.runTick, config: cfg, dataDigest: OWN };
     let ran = 0;
     for (let i = 0; i < 20; i++) ran += runFrames(step, 4).ran;
     expect(ran).toBe(41);
@@ -97,8 +103,8 @@ describe('runFrames', () => {
     // Ticks 19 and 39 are the ends of the first two 20-tick windows. The digest
     // is taken AFTER the frame's tick ran: the sim stood at 100 + tick + 1.
     expect(hashed).toEqual([
-      [19, matchDigest(1000 + 100 + 20, 0, 77)],
-      [39, matchDigest(1000 + 100 + 40, 0, 77)],
+      [19, matchDigest(1000 + 100 + 20, 0, OWN)],
+      [39, matchDigest(1000 + 100 + 40, 0, OWN)],
     ]);
     expect(sim.hashCalls).toBe(2);
   });
@@ -110,13 +116,23 @@ describe('runFrames', () => {
     const asked: number[] = [];
     // A digest that moves with the sim, so one read on the wrong tick shows.
     const runtimeDigest = (): number => { asked.push(sim.tickCount); return 5000 + sim.tickCount; };
-    const step = { transport, sim, seatWorld: seatWorldFor(cfg, sim), runTick: sim.runTick, config: cfg, runtimeDigest };
+    const step = { transport, sim, seatWorld: seatWorldFor(cfg, sim), runTick: sim.runTick, config: cfg, runtimeDigest, dataDigest: OWN };
     for (let i = 0; i < 20; i++) runFrames(step, 4);
     expect(transport.reports.filter(([, d]) => d !== null)).toEqual([
-      [19, matchDigest(1000 + 100 + 20, 5000 + 100 + 20, 77)],
-      [39, matchDigest(1000 + 100 + 40, 5000 + 100 + 40, 77)],
+      [19, matchDigest(1000 + 100 + 20, 5000 + 100 + 20, OWN)],
+      [39, matchDigest(1000 + 100 + 40, 5000 + 100 + 40, OWN)],
     ]);
     expect(asked).toEqual([120, 140]);
+  });
+  it('dataDigest (L4): absent, this client folds its OWN shipped content digest -- never the room-minted config.dataDigest', () => {
+    const sim = fakeSim();
+    const frames: Frame[] = Array.from({ length: 20 }, (_, tick) => ({ tick, cmds: [] }));
+    const transport = new ScriptedTransport(frames);
+    const cfg = config();
+    const step = { transport, sim, seatWorld: seatWorldFor(cfg, sim), runTick: sim.runTick, config: cfg };
+    runFrames(step, 20);
+    expect(shippedContentDigest()).not.toBe(77);
+    expect(transport.reports.at(-1)).toEqual([19, matchDigest(1000 + 100 + 20, 0, shippedContentDigest())]);
   });
   it('runtimeDigest: never asked in single-player, where nothing is hashed', () => {
     const sim = fakeSim();
@@ -133,7 +149,7 @@ describe('runFrames', () => {
     const cfg = config();
     const asked: number[] = [];
     const step = {
-      transport, sim, seatWorld: seatWorldFor(cfg, sim), runTick: sim.runTick, config: cfg,
+      transport, sim, seatWorld: seatWorldFor(cfg, sim), runTick: sim.runTick, config: cfg, dataDigest: OWN,
       stopAfter: (tick: number) => { asked.push(tick); return tick === 19; },
     };
     // One batch holds all 30 frames: the stop lands mid-batch, and the 10
@@ -141,7 +157,7 @@ describe('runFrames', () => {
     expect(runFrames(step, 30).ran).toBe(20);
     expect(asked).toEqual(Array.from({ length: 20 }, (_, t) => t));
     expect(sim.tickCount).toBe(100 + 20);
-    expect(transport.reports.at(-1)).toEqual([19, matchDigest(1000 + 100 + 20, 0, 77)]);
+    expect(transport.reports.at(-1)).toEqual([19, matchDigest(1000 + 100 + 20, 0, OWN)]);
   });
   it('beforeFrame: once per frame, with the frame, before its commands are queued; never when no frame comes', () => {
     const sim = fakeSim();

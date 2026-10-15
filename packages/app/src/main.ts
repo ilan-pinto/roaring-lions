@@ -255,6 +255,7 @@ import { netReport } from './net/net-report';
 import { viewerSideOf } from './net/viewer';
 import { campOf, factionsBySide, versusUnitTypes } from './net/versus-force';
 import { buildMatchWorld } from './net/match-world';
+import { shippedContentDigest } from './net/content-digest';
 import { pruneHiddenHostiles, type SeatSight } from './net/hidden-selection';
 import { garrisonRoomShown } from './net/hover-garrison';
 import { NetStatusLine, lineOverMatchEnd, matchClock } from './ui/net-status';
@@ -5475,6 +5476,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     seatWorld,
     runTick,
     config: netConfig,
+    // L4: this client's OWN content digest, folded into every hash it
+    // reports. Taken here at boot in a room, so its ~50 ms cold computation
+    // is not a hitch on tick 19; single-player hashes nothing and never pays it.
+    ...(netConfig !== null ? { dataDigest: shippedContentDigest() } : {}),
     // A versus match is decided on a hash tick, from sim state alone (N1b
     // task 10), and no frame runs after the tick that decided it: both seats
     // stop on the same tick with the same result.
@@ -5565,6 +5570,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       renderer,
       runtime,
       audio,
+
+      /** This build's digest of its shipped unit, structure and map JSON
+       *  (L4, `net/content-digest.ts`) -- the one a room client folds into
+       *  every hash. Read by CI's `net:engines` against Node's own. */
+      contentDigest: () => shippedContentDigest(),
 
       /** What this build reads off the URL, and what the console offers.
        *  The three sandbox flags used to be reachable only by reading

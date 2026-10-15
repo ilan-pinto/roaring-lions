@@ -23,6 +23,7 @@ import {
 import type { Command } from '@lions/sim';
 import { buildMatchWorld, type MatchWorld } from '../../../packages/app/src/net/match-world';
 import { runFrames, seatWorldFor } from '../../../packages/app/src/net/frame-step';
+import { shippedContentDigest } from '../../../packages/app/src/net/content-digest';
 import {
   decideOnHashTick,
   matchResult,
@@ -62,6 +63,8 @@ interface Live {
   side: 0 | 1;
   fog: FogTracker;
   seatWorld: SeatWorld;
+  /** This client's own content digest (L4), taken once at the start. */
+  dataDigest: number;
 }
 
 /** Where a room's socket lives, and the Origin to send it: the browser's own
@@ -170,7 +173,7 @@ export class AgentClient {
     const w = buildMatchWorld(config);
     // ONE side for the fog and the view: the seat's own, from the config.
     const side = config.seats[this.o.seat].side as 0 | 1;
-    this.live = { config, w, side, fog: new FogTracker(w.sim, side), seatWorld: seatWorldFor(config, w.sim) };
+    this.live = { config, w, side, fog: new FogTracker(w.sim, side), seatWorld: seatWorldFor(config, w.sim), dataDigest: shippedContentDigest() };
     this.log(`match ${config.code} started: ${config.map}, seat ${this.o.seat} (side ${side}, ${w.factions[side]})`);
   }
 
@@ -211,7 +214,7 @@ export class AgentClient {
   pump(maxTicks: number): number {
     const live = this.live;
     if (live === null || this.decided !== null) return 0;
-    const { config, w, fog, seatWorld } = live;
+    const { config, w, fog, seatWorld, dataDigest } = live;
     const sim = w.sim;
     const seat = this.o.seat;
     const { ran } = runFrames({
@@ -221,6 +224,7 @@ export class AgentClient {
       runTick: () => { sim.tick(); fog.step(); },
       config,
       runtimeDigest: this.o.runtimeDigest,
+      dataDigest,
       beforeFrame: (f: Frame) => {
         const own = canonicalOrder(f.cmds)
           .filter((s) => s.seat === seat)

@@ -4,7 +4,10 @@
 //
 // The check is network design §12's "two-engine determinism": Chromium,
 // Firefox and WebKit boot the same sandbox, get the same orders at the same
-// ticks, and must report the same `__lions.sim.hash()`.
+// ticks, and must report the same `__lions.sim.hash()`. Since N2-P3 each
+// engine also reports `__lions.contentDigest()` (ruling L4), and every one
+// must equal the digest Node computes from the same checkout: the browser
+// half of "the data digest is equal in browser and Node".
 
 /** What one engine reported, read back off its page. */
 export interface EngineReading {
@@ -17,6 +20,8 @@ export interface EngineReading {
   /** `__lions.sim.tickCount` after the script, and the hash read there. */
   tick: number;
   hash: number;
+  /** `__lions.contentDigest()`: this engine's digest of the shipped content (L4). */
+  contentDigest: number;
 }
 
 export interface Verdict {
@@ -33,7 +38,9 @@ export interface Verdict {
  * itself whatever it computes, so a run that lost two of its three engines
  * would otherwise print PASS over a comparison that never happened.
  */
-export function verdict(results: Readonly<Record<string, EngineReading>>, targetTick: number, firstOrderTick: number): Verdict {
+export function verdict(
+  results: Readonly<Record<string, EngineReading>>, targetTick: number, firstOrderTick: number, nodeContentDigest: number,
+): Verdict {
   const all = JSON.stringify(results);
   const readings = Object.values(results);
   if (readings.length < 2) {
@@ -53,11 +60,23 @@ export function verdict(results: Readonly<Record<string, EngineReading>>, target
   if (readings.some((r) => r.tick !== targetTick)) {
     return { ok: false, message: `FAIL: an engine missed the target tick ${targetTick}: ${all}` };
   }
+  // L4: every engine's content digest is Node's -- checked before the sim
+  // hash, because two engines on different data have no hash worth comparing.
+  const offContent = Object.entries(results).find(([, r]) => r.contentDigest !== nodeContentDigest);
+  if (offContent !== undefined) {
+    return {
+      ok: false,
+      message: `FAIL: content digest: ${offContent[0]} computed ${offContent[1].contentDigest}, Node computed ${nodeContentDigest}: ${all}`,
+    };
+  }
   const hashes = new Set(readings.map((r) => r.hash));
   if (hashes.size !== 1) {
     return { ok: false, message: `FAIL: engines disagree: ${all}` };
   }
-  return { ok: true, message: `PASS: ${readings.length} engines, tick ${targetTick}, hash ${readings[0].hash}` };
+  return {
+    ok: true,
+    message: `PASS: ${readings.length} engines, tick ${targetTick}, hash ${readings[0].hash}, content digest ${nodeContentDigest} (equal to Node's)`,
+  };
 }
 
 /**
@@ -99,7 +118,7 @@ export function annotationText(s: string): string {
 }
 
 export function decide(
-  outcomes: Readonly<Record<string, EngineOutcome>>, targetTick: number, firstOrderTick: number,
+  outcomes: Readonly<Record<string, EngineOutcome>>, targetTick: number, firstOrderTick: number, nodeContentDigest: number,
 ): Decision {
   const lines: Decision['lines'] = [];
   const results: Record<string, EngineReading> = {};
@@ -120,7 +139,7 @@ export function decide(
   }
   const booted = Object.keys(results).length;
   if (booted >= 2) {
-    const v = verdict(results, targetTick, firstOrderTick);
+    const v = verdict(results, targetTick, firstOrderTick, nodeContentDigest);
     if (!v.ok) return { exit: 1, lines: [...lines, { level: 'error', text: v.message }] };
     lines.push({ level: 'log', text: `${v.message} (${Object.keys(results).join(', ')})` });
   }
@@ -142,7 +161,7 @@ export function decide(
   if (booted < 2) {
     // Unreachable from the tool (every engine is a reading, unbootable or
     // broken), and refused rather than passed: one engine agrees with itself.
-    return { exit: 1, lines: [...lines, { level: 'error', text: verdict(results, targetTick, firstOrderTick).message }] };
+    return { exit: 1, lines: [...lines, { level: 'error', text: verdict(results, targetTick, firstOrderTick, nodeContentDigest).message }] };
   }
   return { exit: 0, lines };
 }

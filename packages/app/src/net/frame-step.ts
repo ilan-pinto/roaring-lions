@@ -11,6 +11,7 @@
  */
 import { applyFrame, matchDigest, type Frame, type MatchConfig, type MatchTransport, type Seat, type SeatWorld } from '@lions/net';
 import type { Command } from '@lions/sim';
+import { shippedContentDigest } from './content-digest';
 
 /** The slice of `Sim` the body touches. */
 export interface FrameSim {
@@ -40,6 +41,12 @@ export interface FrameStep {
    *  literal 0 stood. Absent means 0, so a client with nothing to add reports
    *  exactly what it did before. N2 wires its versus runtime here in one line. */
   runtimeDigest?: () => number;
+  /** THIS client's own content digest (ruling L4, N2-P3, `content-digest.ts`),
+   *  folded into every reported hash. Absent means `shippedContentDigest()`,
+   *  computed on the first hash tick; a room's battlefield passes it at boot
+   *  instead, so that ~50 ms cold computation is not a hitch at tick 19.
+   *  The room-minted `config.dataDigest` is never folded. */
+  dataDigest?: number;
 }
 
 /** A hash tick closes a window of `hashEveryTicks` frames: ticks 19, 39, ... at 20. */
@@ -60,7 +67,7 @@ export function runFrames(step: FrameStep, maxTicks: number): { ran: number; dro
     ran++;
     transport.reportTick(
       f.tick,
-      config !== null && isHashTick(f.tick, config) ? matchDigest(sim.hash(), step.runtimeDigest?.() ?? 0, config.dataDigest) : null,
+      config !== null && isHashTick(f.tick, config) ? matchDigest(sim.hash(), step.runtimeDigest?.() ?? 0, step.dataDigest ?? shippedContentDigest()) : null,
     );
     if (step.stopAfter?.(f.tick) === true) break;
   }

@@ -12,6 +12,8 @@ import { sandboxAnchors } from '../../../packages/app/src/sandbox-anchors';
 import { buildMatchWorld } from '../../../packages/app/src/net/match-world';
 import { runFrames, seatWorldFor, type FrameStep } from '../../../packages/app/src/net/frame-step';
 import { versusConfig } from './test-config';
+import { contentDigest, shippedContent, shippedContentDigest } from '../../../packages/app/src/net/content-digest';
+import { units } from '@lions/data';
 
 const MISSION = 'beit_sahwan_1_recon';
 const TICKS = 1000;
@@ -256,8 +258,9 @@ describe('the reported match digest (runFrames)', () => {
     const b = client();
     expect([...a.feed.digests.keys()]).toEqual([19, 39, 59]);
     expect(firstDisagreement(a.feed.digests, b.feed.digests)).toBeNull();
+    // L4: each client folds its OWN content digest, never the room-minted one.
     for (const [tick, d] of a.feed.digests) {
-      expect(d).toBe(matchDigest(a.feed.simHashes.get(tick) ?? NaN, 0, a.config.dataDigest));
+      expect(d).toBe(matchDigest(a.feed.simHashes.get(tick) ?? NaN, 0, shippedContentDigest()));
     }
   }, 60_000);
 
@@ -265,6 +268,17 @@ describe('the reported match digest (runFrames)', () => {
     const a = client();
     const b = client((sim) => ({ runtimeDigest: () => sim.tickCount }));
     // The sims agree: only the runtime digest differs.
+    expect([...b.feed.simHashes]).toEqual([...a.feed.simHashes]);
+    expect(firstDisagreement(a.feed.digests, b.feed.digests)).toBe(19);
+  }, 60_000);
+
+  it('L4: a client whose content has one unit\'s hp changed desyncs at the first hash tick (19)', () => {
+    const inf = units.inf_squad;
+    const changed = contentDigest({ ...shippedContent(), units: { ...units, inf_squad: { ...inf, hull: { ...inf.hull, hp: inf.hull.hp + 1 } } } });
+    const a = client();
+    const b = client(() => ({ dataDigest: changed }));
+    // An inf_squad's hp moves nothing before the forces meet: the sims agree,
+    // and only the data digest can see the two clients are not on one build.
     expect([...b.feed.simHashes]).toEqual([...a.feed.simHashes]);
     expect(firstDisagreement(a.feed.digests, b.feed.digests)).toBe(19);
   }, 60_000);
