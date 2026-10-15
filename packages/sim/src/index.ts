@@ -34,7 +34,7 @@ export {
   missionShepherds,
   type CivilianFlightOptions,
 } from './civilians';
-export { unlockReason, isBoughtOnly, starsEarned, conductAtLeast, resolveUpgrades, type UnlockGate } from './unlock';
+export { unlockReason, isBoughtOnly, starsEarned, conductAtLeast, resolveUpgrades, loanedPlacements, type UnlockGate } from './unlock';
 export {
   starsFor,
   starRoeFloor,

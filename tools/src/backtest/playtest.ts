@@ -29,7 +29,8 @@ import { emptyAccount, startCampaign, type BrigadeAccount } from '../../../packa
 import { parseWorld } from '../../../packages/app/src/campaign';
 import { payVictory } from '../../../packages/app/src/campaign-pay';
 import { stagedUnit } from './e5-probes';
-import { run, type Plan, missionStars, missionCredits, missionMinutes, missionRoe, missionRosterOut, maxTierProbes } from './playtest-run';
+import { run, type Plan, missionStars, missionCredits, missionMinutes, missionRoe, missionRosterOut, missionPopulation, maxTierProbes } from './playtest-run';
+import { censusViolations, populationLine } from './population-census';
 import { passiveAcrossSeeds, drainPassiveSweeps, controlIntel, SWEEP_SEEDS } from './passive-sweep';
 import { reportIntel, seedsNotSpent } from './intel-gate';
 import { Picture, living } from './player-picture';
@@ -3769,7 +3770,13 @@ for (const [label, got, want] of [
 // escort into the yard once no AT gun is seen and shoots the warehouse down from 3-5 tiles (the
 // sarim_rifles inside it kill sapper parties at the door), so the stockpile falls by 215 s and two
 // more of the chain's units come home.
-const ROSTER_MAX = 33;
+// 2026-10-15, a loaned survivor returns to the lender (G3 Q5, L-1; GH-183): 33 -> 29, same mission.
+// Tel Marum III lends two Lavis, a Namer and a drone (4 bodies) whose survivors used to join the
+// roster and ride its ledger into Umm Zeitoun's from_ledger pool. Per mission, `roster out` before ->
+// after: Tel Marum III 11 -> 7 (-4); Umm Zeitoun I 14 -> 10, II 19 -> 15, III 25 -> 21, IV 33 -> 29
+// (each 0 of its own, the 4 inherited). -4 + 0 + 0 + 0 + 0 = -4. Qarn Hadid, off the same ledger,
+// reads 22 -> 18 by the same four. No outcome, star, credit or sweep line moved.
+const ROSTER_MAX = 29;
 console.log(`roster maximum: ${rosterMax} at ${rosterMaxMissionId}`);
 if (rosterMax !== ROSTER_MAX) {
   console.error(`roster maximum: FAILED — expected ${ROSTER_MAX}, got ${rosterMax} at ${rosterMaxMissionId}`);
@@ -3787,6 +3794,25 @@ console.log(`roster cap: ${ROSTER_CAP} (max ${rosterMax}, margin ${(ROSTER_CAP /
 if (rosterMax >= ROSTER_CAP) {
   console.error(`roster cap: FAILED — the measured maximum ${rosterMax} has reached the cap ${ROSTER_CAP}`);
   process.exitCode = 1;
+}
+
+// --- GH-183 F3 Task 5: the population census ---------------------------------------------------------
+//
+// Report only, no gate: no campaign mission has a cap, and a pinned peak would be a fitted number. One
+// line per mission, from its plain winning plan on 424242 (never a control, a probe, a replay or a swept
+// seed), read off `MissionRuntime.population` once a tick: starting is what `start()` spawned, peak the
+// highest tick, end the last. Side 0 includes the player's queued builds (D2); side 1 is the living
+// sim-side-1 units; civilians count for neither. The doctrine caps (G-G) read these.
+for (const id of missionOrder) {
+  const c = missionPopulation.get(id);
+  if (c === undefined) continue;
+  console.log(populationLine(id, c));
+  // Standing invariant (final review M1): a census whose peak sits below its own start or end was
+  // not sampled. Prints nothing when sound, so every existing line is unchanged.
+  for (const v of censusViolations(id, c)) {
+    console.error(v);
+    process.exitCode = 1;
+  }
 }
 
 // The no-orders controls' other 29 seeds ran in worker processes while the ladder above ran
