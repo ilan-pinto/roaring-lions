@@ -8,12 +8,12 @@ import { originAllowed } from '../origin';
 import { signTicket, verifyTicket } from './ticket';
 import { mintCode, isCode } from './code';
 import { ADVISOR_SCOPES, matchupAllowed, matchupField, versusMapAllowed, type AdvisorScope } from '@lions/net';
-import { callsignField, mapField, paceField, seatKindField, textField } from './room-fields';
+import { callsignField, kitField, mapField, paceField, seatKindField, seatTiersField, textField } from './room-fields';
 
 const TICKET_MS = 6 * 3600 * 1000;
 const CODE_ATTEMPTS = 5;
 
-interface CreateBody { player?: unknown; callsign?: unknown; map?: unknown; build?: unknown; mode?: unknown; matchup?: unknown; kind?: unknown; pace?: unknown; ticket?: unknown; scope?: unknown }
+interface CreateBody { player?: unknown; callsign?: unknown; map?: unknown; build?: unknown; mode?: unknown; matchup?: unknown; kind?: unknown; pace?: unknown; kit?: unknown; tiers?: unknown; ticket?: unknown; scope?: unknown }
 
 async function readBody(req: Request): Promise<CreateBody> {
   try {
@@ -67,10 +67,14 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
     // N4a: the host's seat kind and the pace, cleaned and clamped (D5) here and again by the room.
     const kind = seatKindField(body.kind);
     const pace = paceField(body.pace);
+    // Per-seat kit: the room's kit rule (a sandbox room is always matched) and the host's
+    // claim, cleaned against the shipped tracks here and again by the room (decision 22).
+    const kit = mode === 'versus' ? kitField(body.kit) : 'matched';
+    const tiers = seatTiersField(body.tiers);
     for (let attempt = 0; attempt < CODE_ATTEMPTS; attempt++) {
       const c = mintCode();
       const res = await rooms.get(rooms.idFromName(c)).fetch(new Request('https://room/create', {
-        method: 'POST', body: JSON.stringify({ code: c, matchId: c, map, build, mode, player, callsign, matchup, kind, pace }),
+        method: 'POST', body: JSON.stringify({ code: c, matchId: c, map, build, mode, player, callsign, matchup, kind, pace, kit, tiers }),
       }));
       if (res.status === 409) continue;   // that code is taken
       if (!res.ok) return new Response('room', { status: 502 });
@@ -89,7 +93,7 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
     const body = await readBody(req);
     const player = playerOf(body);
     if (player === '') return new Response('player required', { status: 400 });
-    const res = await stub.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player, callsign: callsignField(body.callsign), kind: seatKindField(body.kind) }) }));
+    const res = await stub.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player, callsign: callsignField(body.callsign), kind: seatKindField(body.kind), tiers: seatTiersField(body.tiers) }) }));
     if (res.status !== 200) return new Response('', { status: res.status });
     const { seat } = (await res.json()) as { seat: 0 | 1 };
     const ticket = await signTicket(secret, { matchId: code, seat, player, exp: now + TICKET_MS });

@@ -106,9 +106,22 @@ const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInt
 const isStr = (v: unknown): v is string => typeof v === 'string';
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-/** `tiers` is `{ typeId: { track: n } }` with every leaf a non-negative integer. */
+/** Bounds on a seat's `tiers`, so a config read back from a replay or the
+ *  room's own storage is bounded as well as the client's message is. The
+ *  shipped kit is 19 KDF types with at most 3 tracks of at most 3 tiers each;
+ *  every bound sits at three times that or more, so it never refuses a real
+ *  claim, and `packages/worker/src/match/kit-tracks.test.ts` fails if the
+ *  shipped tracks ever outgrow one of them. */
+export const TIERS_MAX_TYPES = 64;
+export const TIERS_MAX_TRACKS = 8;
+export const TIERS_MAX_TIER = 16;
+/** `tiers` is `{ typeId: { track: n } }` with every leaf an integer in
+ *  0..TIERS_MAX_TIER, at most TIERS_MAX_TYPES ids and TIERS_MAX_TRACKS tracks
+ *  an id. Own enumerable keys only (`Object.keys`/`Object.values`). */
 function isTiers(v: unknown): v is Record<string, Record<string, number>> {
-  return isRecord(v) && Object.values(v).every((t) => isRecord(t) && Object.values(t).every((n) => isInt(n) && n >= 0));
+  if (!isRecord(v) || Object.keys(v).length > TIERS_MAX_TYPES) return false;
+  return Object.values(v).every((t) => isRecord(t) && Object.keys(t).length <= TIERS_MAX_TRACKS &&
+    Object.values(t).every((n) => isInt(n) && n >= 0 && n <= TIERS_MAX_TIER));
 }
 
 function isSeatConfig(v: unknown, seat: Seat): v is SeatConfig {

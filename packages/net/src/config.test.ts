@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { FACTION_MATCHUP_MAPS, VERSUS_FAIR_MAPS, factionsOfMatchup, isFactionPair, matchupAllowed, matchupField, validateConfig, fnv1a32, versusMapAllowed, type MatchConfig } from './config';
+import { FACTION_MATCHUP_MAPS, TIERS_MAX_TIER, TIERS_MAX_TRACKS, TIERS_MAX_TYPES, VERSUS_FAIR_MAPS, factionsOfMatchup, isFactionPair, matchupAllowed, matchupField, validateConfig, fnv1a32, versusMapAllowed, type MatchConfig } from './config';
 
 export const CONFIG: MatchConfig = {
   matchId: 'm1', code: 'ABCDEF', seed: 20260727, map: 'beit_sahwan_outskirts', mode: 'sandbox',
@@ -41,6 +41,19 @@ describe('validateConfig: SeatConfig.tiers is the account\'s nested per-type sha
     expect(validateConfig(withTiers({ mbt_lavi: [2] }))).toBeNull();
     expect(validateConfig(withTiers([]))).toBeNull();
     expect(validateConfig(withTiers({ mbt_lavi: null }))).toBeNull();
+  });
+  it('is bounded: at most TIERS_MAX_TYPES ids, TIERS_MAX_TRACKS tracks an id, and no leaf above TIERS_MAX_TIER', () => {
+    const ids = (n: number) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`u${i}`, { armour: 1 }]));
+    const tracks = (n: number) => ({ mbt_lavi: Object.fromEntries(Array.from({ length: n }, (_, i) => [`t${i}`, 1])) });
+    expect(validateConfig(withTiers(ids(TIERS_MAX_TYPES)))).not.toBeNull();
+    expect(validateConfig(withTiers(ids(TIERS_MAX_TYPES + 1)))).toBeNull();
+    expect(validateConfig(withTiers(tracks(TIERS_MAX_TRACKS)))).not.toBeNull();
+    expect(validateConfig(withTiers(tracks(TIERS_MAX_TRACKS + 1)))).toBeNull();
+    expect(validateConfig(withTiers({ mbt_lavi: { armour: TIERS_MAX_TIER } }))).not.toBeNull();
+    expect(validateConfig(withTiers({ mbt_lavi: { armour: TIERS_MAX_TIER + 1 } }))).toBeNull();
+    expect(validateConfig(withTiers({ mbt_lavi: { armour: Number.MAX_SAFE_INTEGER } }))).toBeNull();
+    expect(validateConfig(withTiers({ mbt_lavi: { armour: Infinity } }))).toBeNull();
+    expect(validateConfig(withTiers({ mbt_lavi: { armour: NaN } }))).toBeNull();
   });
 });
 

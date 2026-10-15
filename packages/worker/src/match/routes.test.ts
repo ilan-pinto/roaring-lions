@@ -63,7 +63,7 @@ describe('/api/match', () => {
     expect(createBodies[0]).toMatchObject({ player: 'id-1', callsign: 'Ari', mode: 'versus' });
     const join = await handleMatch(post(`${ORIGIN}/api/match/${code}/join`, { player: 'id-2', callsign: 'Bo' }), env, NOW);
     expect(await verifyTicket('secret', ((await join.json()) as { ticket: string }).ticket, NOW)).toMatchObject({ seat: 1, player: 'id-2' });
-    expect(joinBodies[0]).toEqual({ player: 'id-2', callsign: 'Bo', kind: 'human' });
+    expect(joinBodies[0]).toEqual({ player: 'id-2', callsign: 'Bo', kind: 'human', tiers: {} });
     // Anything but 'versus' is a sandbox; an absent callsign is 'Lion'.
     await handleMatch(post(`${ORIGIN}/api/match`, { player: 'id-3', build: 'b1', mode: 'conquest' }), env, NOW);
     expect(createBodies[1]).toMatchObject({ mode: 'sandbox', callsign: 'Lion' });
@@ -126,10 +126,10 @@ describe('/api/match', () => {
     expect(createBodies[0]).toMatchObject({ callsign: 'A ri BO ' + 'x'.repeat(16) });
     expect((createBodies[0] as { callsign: string }).callsign).toHaveLength(24);
     await handleMatch(post(`${ORIGIN}/api/match/${code}/join`, { player: 'id-2', callsign: '\u202E\u0007\u200B' }), env, NOW);
-    expect(joinBodies[0]).toEqual({ player: 'id-2', callsign: 'Lion', kind: 'human' });
+    expect(joinBodies[0]).toEqual({ player: 'id-2', callsign: 'Lion', kind: 'human', tiers: {} });
     const again = await handleMatch(post(`${ORIGIN}/api/match/${code}/join`, { player: 'id-4', callsign: 'Bo\tX\u2028Y' }), env, NOW);
     expect(again.status).toBeLessThan(500);
-    expect(joinBodies[1]).toEqual({ player: 'id-4', callsign: 'Bo X Y', kind: 'human' });
+    expect(joinBodies[1]).toEqual({ player: 'id-4', callsign: 'Bo X Y', kind: 'human', tiers: {} });
   });
   it('a missing or empty player answers 400 on create and join, before any room is touched', async () => {
     const { env, createBodies, joinBodies } = fakeRooms();
@@ -238,6 +238,27 @@ describe('/api/match', () => {
     expect((await handleMatch(evil, env, NOW)).status).toBe(403);
     expect(wsSeen).toHaveLength(0);
   });
+  describe('per-seat kit: the kit rule and each seat\'s claim reach the room cleaned', () => {
+    it('create carries kit and the host\'s tiers; join carries the guest\'s tiers; both cleaned against the shipped tracks', async () => {
+      const { env, createBodies, joinBodies } = fakeRooms();
+      const claim = JSON.parse('{"mbt_lavi":{"armour":99,"warp":1},"__proto__":{"armour":1},"sarim_rifles":{"armour":1}}') as unknown;
+      const res = await handleMatch(post(`${ORIGIN}/api/match`, { player: 'p1', build: 'b1', mode: 'versus', map: 'tel_marum', kit: 'brigade', tiers: claim }), env, NOW);
+      const { code } = (await res.json()) as { code: string };
+      expect(createBodies[0]).toMatchObject({ kit: 'brigade', tiers: { mbt_lavi: { armour: 3 } } });
+      expect(Object.keys(createBodies[0].tiers as object)).toEqual(['mbt_lavi']);
+      await handleMatch(post(`${ORIGIN}/api/match/${code}/join`, { player: 'p2', tiers: { inf_squad: { sensors: 2.7 }, constructor: { armour: 1 } } }), env, NOW);
+      expect(joinBodies[0]).toMatchObject({ tiers: { inf_squad: { sensors: 2 } } });
+      expect(Object.keys(joinBodies[0].tiers as object)).toEqual(['inf_squad']);
+    });
+    it('anything but exactly brigade is matched, a sandbox room is always matched, and junk tiers are {}', async () => {
+      const { env, createBodies } = fakeRooms();
+      await handleMatch(post(`${ORIGIN}/api/match`, { player: 'p1', build: 'b1', mode: 'versus', map: 'tel_marum', kit: 'Brigade', tiers: 'x' }), env, NOW);
+      await handleMatch(post(`${ORIGIN}/api/match`, { player: 'p1', build: 'b1', kit: 'brigade', tiers: { mbt_lavi: { armour: 1 } } }), env, NOW);
+      expect(createBodies.map((b) => b.kit)).toEqual(['matched', 'matched']);
+      expect(createBodies[0].tiers).toEqual({});
+    });
+  });
+
   describe('N4a task 7: bot seats, the pace and the advisor ticket', () => {
     it('the host\'s seat kind and pace reach the room cleaned and clamped (D5); the guest\'s kind reaches /join', async () => {
       const { env, createBodies, joinBodies } = fakeRooms();
