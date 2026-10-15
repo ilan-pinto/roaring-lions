@@ -4,7 +4,9 @@
 // JSON. The app owns the real-time loop: the sim ticks at a fixed 20 Hz from
 // an accumulator; the renderer interpolates between ticks (invariant 1).
 
-import { objectiveZonesFor } from './objective-zones';
+import { activeObjectiveZoneNames, incomeZonesFor, objectiveZonesFor } from './objective-zones';
+import { incomeViewOf, type IncomeView } from './ui/income-view';
+import { SupplyRouteDisplay } from './ui/supply-route-display';
 import { activeRefuge, evacuationTargets, refugePoint, withEvacuationProgress } from './evacuation';
 import { unitsJustOutside, withOutsideCounts } from './hold-outside';
 import {
@@ -83,7 +85,7 @@ import {
 import './ui/theme.css';
 import { Hud, type HudCommanderInfo, type MissionView, type OrderHandlers, type Tone } from './ui/hud';
 import { hintFor, loadSeen, markSeen } from './ui/hint-model';
-import { createShownTimer, loadHintsSeen, markHintSeen, owedRule, type HintContext } from './ui/hint-rules';
+import { createShownTimer, hasIncomeZones, loadHintsSeen, markHintSeen, owedRule, type HintContext } from './ui/hint-rules';
 import { portraitIds, unitIcon, unitPlate } from './ui/portrait';
 import { trackCloseup } from './ui/garage-closeup';
 import { Minimap, MINIMAP_SIZE, flipRows } from './ui/minimap';
@@ -1961,6 +1963,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // ticks between two looks.
   let stall = stallStart(0);
   let stallActive = false;
+  /** S-F F2: held-ground income as presentation data, taken ONCE per 5-tick HUD
+   *  beat (the zone write below) and read by the minimap, the strip, its tip, the
+   *  world zones and the world route. NOT by the alerts: they read the runtime
+   *  at alert time, every tick, since this may be a beat stale. Null for a mission with no income
+   *  zones and no convoy -- every shipped mission today. */
+  let income: IncomeView | null = null;
   let missionFailure: string | null = null;
   /** No refuge, no flight: `CivilianFlight.step` is never run without one. */
   const civWatch = refugeAt
@@ -2749,6 +2757,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           // how the two drift.
           logistics: mission.resources ? runtime.logistics : undefined,
           logisticsRate: mission.resources?.logistics_rate_per_min,
+          income,
           intel: mission.resources ? runtime.intel : undefined,
           intelLastEarn: intelMoments?.lastEarn(sim.tickCount) ?? undefined,
           // The story voice's closing line (GDD §11) -- read straight off the
@@ -3035,6 +3044,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     const ctx: HintContext = {
       missionId: mission.id,
       hasResources: mission.resources !== undefined,
+      hasIncomeZones: hasIncomeZones(mission),
       selectedCount: sel.length,
       selectedTypes: () => new Set(sel.map((i) => sim.unitTypes[sim.state.typeIdx[i]].id)),
       forceSize: () => {
@@ -3599,6 +3609,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // A thunk: objectives complete and drop off mid-mission, and a sandbox
     // has none at all.
     objectives: () => runtime?.objectiveList ?? [],
+    // S-F F2 Z-B: held income ground, from the HUD beat's one view.
+    income: () => income,
     // GH-279: the refuge, only while an evacuation is still being scored.
     refuge: () => (runtime ? activeRefuge(runtime.objectiveList, evacTargets, refugeAt) : null),
     // The map's own lit ground, photographed by the renderer (Task 15).
@@ -4317,6 +4329,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  minor one while nothing heavier has happened (`nextJump`, WP-P5). A
    *  plain local: presentation state read by exactly one keydown case. */
   let jumpTarget: JumpTarget | null = null;
+  /** S-F F2 C3: when the world draws side 0's supply routes -- while the
+   *  strip's logistics figure is held, or for `ROUTE_JUMP_SHOW_MS` after a
+   *  jump lands on a supply alert, on the frame clock -- written every frame
+   *  in the loop below. Presentation only; nothing the sim reads. */
+  const supplyRouteDisplay = new SupplyRouteDisplay();
+  onDispose(() => {
+    renderer.supplyRoutes = null;
+  });
 
   canvas.addEventListener('contextmenu', (ev) => {
     ev.preventDefault();
@@ -4584,6 +4604,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           renderer.camera.x = jumpTarget.at.x;
           renderer.camera.y = jumpTarget.at.y;
           keepOnMap();
+          // S-F F2 C3: landing on a supply alert shows the line it is about.
+          if (jumpTarget.kind === 'supply') supplyRouteDisplay.jumpLanded(performance.now());
         } else {
           // Not padding. A key that does nothing and says nothing is
           // indistinguishable from a key that is broken -- the lesson the
@@ -4863,7 +4885,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // The tier styles the line (WP-P5, C3) and ranks the jump key.
       if (a.line) hud.note(...alertNotice(a.line), { tier: a.tier });
       if (a.marks.length > 0) minimap.flash(a.marks, performance.now(), { tier: a.tier, tone: a.tone });
-      jumpTarget = nextJump(jumpTarget, a.tier, a.at);
+      jumpTarget = nextJump(jumpTarget, a.tier, a.at, a.kind);
     }
   };
 
@@ -5553,7 +5575,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       renderer.objectiveZone = rect ?? null;
       renderer.objectiveZoneState =
         timed?.paused === 'contested' ? 'contested' : timed?.paused === 'unheld' ? 'unheld' : 'held';
-      renderer.objectiveZones = objectiveZonesFor(runtime.objectiveList, map.zones);
+      income = incomeViewOf(runtime);
+      renderer.objectiveZones = [
+        ...objectiveZonesFor(runtime.objectiveList, map.zones),
+        ...incomeZonesFor(income, activeObjectiveZoneNames(runtime.objectiveList)),
+      ];
     }
     if (tut && tut.index !== telemetryTutIndex) {
       telemetryTutIndex = tut.index;
@@ -6163,6 +6189,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       const kept = pruneHiddenHostiles(renderer.selection, seatSight);
       if (kept !== renderer.selection) renderer.selection = kept;
     }
+    // S-F F2 C3: the world supply route, on demand, from the HUD beat's one
+    // view. Hover and focus alike (`Hud.logisticsHeld`); a confirm dialog or
+    // the pause menu clears it. Timed on the frame clock, never sim ticks.
+    renderer.supplyRoutes = supplyRouteDisplay.routes({
+      view: income,
+      logisticsHeld: hud.logisticsHeld,
+      modalOpen: isDialogOpen() || pauseHandle !== null,
+      nowMs: performance.now(),
+    });
     renderer.frame(alpha, lastFrameMs * (pose?.timeScale ?? 1));
 
     updateHover();
