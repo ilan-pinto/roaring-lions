@@ -4,7 +4,7 @@
 // DOM. Everything else in this file is pure and does not care.
 
 import { describe, expect, it } from 'vitest';
-import { ACTIONS, anyArmed, bindingsFrom, escapeTarget, heldAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, rebind, resolveKey, shouldYieldSpace } from './keymap';
+import { ACTIONS, anyArmed, bindingsFrom, escapeTarget, heldAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, rebind, resolveKey, shouldYieldSpace, supportKeyTarget } from './keymap';
 import { SUPPORT, SUPPORT_KINDS } from '../ui/support-kinds';
 
 describe('keymap', () => {
@@ -104,6 +104,15 @@ describe('keymap', () => {
     const b = bindingsFrom({ halt: 'j' });
     expect(b.supportScreen).toBe('z');
     expect(b.supportStrike).toBe('v');
+  });
+  it('a support key does nothing while the dock is hidden or on auto-repeat', () => {
+    const kindOf = (a: string) => SUPPORT_KINDS.find((k) => SUPPORT[k].action === a);
+    expect(supportKeyTarget('supportStrike', true, false, kindOf)).toBe('air_strike');
+    expect(supportKeyTarget('supportScreen', true, false, kindOf)).toBe('smoke_screen');
+    expect(supportKeyTarget('supportStrike', false, false, kindOf)).toBeNull(); // GH-345: hidden dock
+    expect(supportKeyTarget('supportStrike', true, true, kindOf)).toBeNull(); // held key
+    expect(supportKeyTarget('halt', true, false, kindOf)).toBeNull();
+    expect(supportKeyTarget(null, true, false, kindOf)).toBeNull();
   });
   it('a support key passes no modal; only the pans do', () => {
     expect(passesThroughModal('supportScreen')).toBe(false);

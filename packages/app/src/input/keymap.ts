@@ -81,9 +81,9 @@ export const ACTIONS: readonly ActionSpec[] = [
   { id: 'panRight', label: 'keymap.panRight', key: 'd', rebindable: true },
   // S-F Task 3: the fire-support calls, the bottom row left to right in the
   // dock's own order (cheapest first). Free -- h n f g u o b m, ctrl+a, tab,
-  // space, f1, i, w s a d and escape were the whole of what was bound -- and
-  // adjacent to each other so a hand can find them without looking. Digits
-  // stay the control groups.
+  // space, f1, i, w s a d and escape are the whole of what was taken -- and
+  // adjacent to each other, so a hand finds them without looking. Digits stay
+  // the control groups.
   { id: 'supportScreen', label: 'keymap.supportScreen', key: 'z', rebindable: true },
   { id: 'supportBarrage', label: 'keymap.supportBarrage', key: 'x', rebindable: true },
   { id: 'supportSweep', label: 'keymap.supportSweep', key: 'c', rebindable: true },
@@ -160,6 +160,29 @@ export function resolveKey(b: Bindings, ev: { key: string; ctrlKey: boolean; met
   if (hit) return hit;
   if (mod === undefined && k in ARROWS) return ARROWS[k];
   return null;
+}
+
+/**
+ * S-F Task 3 (fix round 1): which fire-support tile, if any, does this key
+ * press? `null` is "do nothing at all" -- no note, no cue, no arming.
+ *
+ * Two silences, both deliberate. A HIDDEN dock is inert, its keys included
+ * (GH-345, the same rule as `production`'s `b`): `shown` is `isShown('dock')`.
+ * And an auto-repeat is ignored, because `ReinforcementDock.press` TOGGLES --
+ * a held Z would flip armed/cancelled at the repeat rate and, short of intel,
+ * spam the deny cue.
+ *
+ * Takes the action's `SupportKind` lookup as a parameter so this file keeps
+ * importing nothing from `ui/`.
+ */
+export function supportKeyTarget<K>(
+  action: Action | null,
+  shown: boolean,
+  repeat: boolean,
+  kindOf: (action: Action) => K | undefined
+): K | null {
+  if (action === null || !shown || repeat) return null;
+  return kindOf(action) ?? null;
 }
 
 /**

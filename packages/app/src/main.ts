@@ -147,7 +147,7 @@ import { objectiveStatusShout } from './ui/objective-status';
 import { pauseMenu, type PauseDeps } from './ui/pause';
 import { advance as advanceClock, type Clock } from './shell/clock';
 import { applySettings, loadSettings, saveSettings, settingsBus, type Settings } from './settings';
-import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace } from './input/keymap';
+import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace, supportKeyTarget } from './input/keymap';
 import { buyUnlock, buyUpgrade } from './brigade-account';
 import { payVictory } from './campaign-pay';
 import { tierLine } from './ui/grade-copy';
@@ -4441,8 +4441,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       case 'supportBarrage':
       case 'supportSweep':
       case 'supportStrike': {
-        const kind = SUPPORT_KINDS.find((k) => SUPPORT[k].action === action);
-        if (kind !== undefined) production?.press(kind);
+        // A hidden dock is inert, its keys included (GH-345), and a held key
+        // must not re-toggle the arming: both live in `supportKeyTarget`.
+        const kind = supportKeyTarget(action, isShown('dock'), ev.repeat, (a) => SUPPORT_KINDS.find((k) => SUPPORT[k].action === a));
+        if (kind !== null) production?.press(kind);
         break;
       }
       case 'jumpToAlert':
