@@ -5738,6 +5738,28 @@ describe('held-ground income and corridors (F2 Task 7)', () => {
     expect(() => incomeWorld({ zones })).toThrow(/33 income zones, at most 32/);
   });
 
+  it('a roadMask that is not width * height is refused, naming both lengths', () => {
+    // The map is 28 x 12 = 336 cells.
+    expect(() => incomeWorld({ base: 60, roadMask: new Uint8Array(28 * 12 - 1) })).toThrow(/roadMask has 335 cells, the map has 336 \(28 x 12\)/);
+    expect(() => incomeWorld({ base: 60, roadMask: new Uint8Array(28 * 12) })).not.toThrow();
+  });
+
+  it('a consumer cannot write into a cached route (typed read-only)', () => {
+    const w = incomeWorld({ base: 60, zones: [{ zone: 'west', rate_per_min: 45 }], force: [mine(2, 2)] });
+    w.step(40);
+    const r = zoneOf(w, 'west').route;
+    if (r !== null) {
+      // @ts-expect-error route is ArrayLike<number>: its indices are read-only
+      r[0] = 0;
+    }
+    const c = w.runtime.convoyRoute;
+    if (c !== null && c.route !== null) {
+      // @ts-expect-error the same for the convoy's route
+      c.route[0] = 0;
+    }
+    expect(true).toBe(true);
+  });
+
   // C-R19: a zone nobody holds has no line, so losing it resets its cut silently. A `corridor`
   // event saying `cut: null` there would read as "line restored" at the moment the zone falls.
   it('losing a zone resets its cut without a corridor event; holding it again says the cut again', () => {
@@ -5817,7 +5839,7 @@ describe('held-ground income and corridors (F2 Task 7)', () => {
         }
       }
     };
-    const last = (r: Int32Array | null | undefined): number => (r === null || r === undefined ? -1 : r[r.length - 1]);
+    const last = (r: ArrayLike<number> | null | undefined): number => (r === null || r === undefined ? -1 : r[r.length - 1]);
     const near = incomeWorld({ zones: [{ zone: 'west', rate_per_min: 45 }], force: [mine(2, 2)] }, (sim) =>
       shut(sim, 4, [[23, 5], [22, 2]])
     );
@@ -6101,7 +6123,7 @@ describe('held-ground income and corridors (F2 Task 7)', () => {
         }
       );
     }
-    const copy = (r: Int32Array | null): number[] | null => (r === null ? null : Array.from(r));
+    const copy = (r: ArrayLike<number> | null): number[] | null => (r === null ? null : Array.from(r));
 
     it('a world with no camp: a structure on a zone start, a boulder on the rear, a wall across the convoy, a ridge', () => {
       const w = oracleWorld(false);
@@ -6167,7 +6189,7 @@ describe('held-ground income and corridors (F2 Task 7)', () => {
       const w = oracleWorld(true);
       const sim = w.sim;
       const east = zoneOf(w, 'east');
-      const last = (r: Int32Array | null): number => (r === null ? -1 : r[r.length - 1]);
+      const last = (r: ArrayLike<number> | null): number => (r === null ? -1 : r[r.length - 1]);
       toRecheck(w);
       expectFresh(w, true, 'untouched');
       expect(last(east.route)).toBe(7 * W + 23);

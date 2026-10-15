@@ -126,8 +126,8 @@ function lcg(seed: number): () => number {
  *  step. `states`/`holders` are in ZONES order; `routes` says which zones must hold a real route. */
 function assertNotVacuous(
   scenario: ScenarioName,
-  zones: readonly { state: number; holder: number; route: Int32Array | null; cut: string | null }[],
-  convoy: { route: Int32Array | null } | null,
+  zones: readonly { state: number; holder: number; route: ArrayLike<number> | null; cut: string | null }[],
+  convoy: { route: ArrayLike<number> | null } | null,
   rechecks: number,
   ticks: number,
 ): void {
@@ -360,7 +360,7 @@ function runOnce(scenario: ScenarioName, ticks: number, warmup: number, seed: nu
 
   // Routes are known: place side 1's spread and, for `interdict`, move side 0 off the routes.
   const routeTiles = new Set<number>();
-  const collect = (r: Int32Array | null): void => {
+  const collect = (r: ArrayLike<number> | null): void => {
     if (r === null) return;
     for (let i = 0; i < r.length; i++) routeTiles.add(r[i]);
   };

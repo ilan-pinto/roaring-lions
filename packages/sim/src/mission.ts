@@ -379,19 +379,23 @@ export interface ZoneIncome {
    *  nobody holds the zone or the holder has no rear. Rechecked, not every tick. */
   cut: CutCause;
   /** The tiles from the zone to its holder's rear (D5), indices y * width + x; null when
-   *  nobody holds it, the holder has no rear, or there is no wheeled way ('unreachable'). */
-  route: Int32Array | null;
+   *  nobody holds it, the holder has no rear, or there is no wheeled way ('unreachable').
+   *  Read-only for a consumer: it is the runtime's cached array, and it is REUSED STORAGE
+   *  (replaced or cleared at a recheck, never mutated by a consumer). Copy it to keep it. */
+  route: ArrayLike<number> | null;
   /** First and last indices into `route` of the tiles that make the cut (A3, C-R15); null
-   *  when not cut or unreachable. */
+   *  when not cut or unreachable. REUSED STORAGE: the pair is mutated in place at a recheck,
+   *  so copy it if you keep it. */
   cutSpan: readonly [number, number] | null;
   /** What it pays its holder a minute, for display (A4, C-R16): the rate, half of it while
    *  cut (it may end in .5), 0 when empty or contested. Never read by the runtime. */
   readonly paysPerMin: number;
 }
 
-/** The supply convoy's line (D2): from `supply_entry` to side 0's rear. */
+/** The supply convoy's line (D2): from `supply_entry` to side 0's rear. `route` is read-only
+ *  for a consumer, and `route` and `cutSpan` are reused storage (see `ZoneIncome`): copy to keep. */
 export interface ConvoyRoute {
-  route: Int32Array | null;
+  route: ArrayLike<number> | null;
   cut: CutCause;
   cutSpan: readonly [number, number] | null;
 }
@@ -485,12 +489,16 @@ export type MissionEvent =
   /**
    * An income zone's state changed (F2; A1, C-R13): who holds it now, and whether nobody does
    * because both sides stand in it. Fires on change only, empty <-> contested included; a zone
-   * that starts empty says nothing.
+   * that starts empty says nothing. `holder` -1 (lost, or contested) silently clears that zone's
+   * `cut` (C-R19): no `corridor` event follows, so a consumer that tracks cuts from events must
+   * drop the zone's cut on this event itself.
    */
   | { kind: 'zoneHolder'; tick: number; zone: string; holder: Holder; contested: boolean }
   /**
    * What cuts a supply line changed (F2, D4): `zone` names the income zone whose line it is,
-   * null for the convoy (D2). `cut` null means the line is open again. On change only.
+   * null for the convoy (D2). `cut` null means the line is open again. On change only. It is
+   * not sent when a zone's cut is cleared because the zone lost its holder: that is the
+   * `zoneHolder` event with holder -1 (C-R19).
    */
   | { kind: 'corridor'; tick: number; zone: string | null; cut: CutCause }
   /**
@@ -879,6 +887,11 @@ export class MissionRuntime {
     this.spawnRise = new Int16Array(sim.capacity).fill(-2);
 
     // Held ground (F2). Unknown names are load-time wiring faults, like an unknown marker.
+    if (ctx.roadMask !== undefined && ctx.roadMask.length !== sim.width * sim.height) {
+      throw new Error(
+        `mission ${mission.id}: roadMask has ${ctx.roadMask.length} cells, the map has ${sim.width * sim.height} (${sim.width} x ${sim.height})`,
+      );
+    }
     for (const z of mission.resources?.income_zones ?? []) {
       const r = ctx.zones[z.zone];
       if (r === undefined || r.length !== 4) {
@@ -984,13 +997,17 @@ export class MissionRuntime {
     return (this.zoneEarnedUnits[side] / PURSE_UNITS) | 0;
   }
 
-  /** The mission's income zones in authored order (A2, C-R14): the runtime's own objects. */
+  /** The mission's income zones in authored order (A2, C-R14): the runtime's own objects.
+   *  `route` and `cutSpan` are reused storage, mutated in place at a recheck: copy to keep.
+   *  A zone losing its holder clears its `cut` with a `zoneHolder` event (holder -1) and no
+   *  `corridor` event (C-R19). */
   get incomeZones(): readonly Readonly<ZoneIncome>[] {
     return this.incomeZoneList;
   }
 
   /** The supply convoy's line (A2, C-R14), or null when the mission has none (no
-   *  `supply_corridor: true` with a `supply_entry`). The runtime's own object. */
+   *  `supply_corridor: true` with a `supply_entry`). The runtime's own object: `route` and
+   *  `cutSpan` are reused storage, mutated in place at a recheck (copy to keep). */
   get convoyRoute(): Readonly<ConvoyRoute> | null {
     return this.convoy;
   }
