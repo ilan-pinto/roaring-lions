@@ -287,6 +287,15 @@ export const BUILDING_MESHES: Readonly<Record<string, { readonly idle: string; r
   // barrier (`H`) beside `wall` and `fence`. No map authors it yet -- placing
   // it is a mission change, and missions are the lead's.
   hesco: { idle: 'buildings/hesco.glb', wreck: 'buildings/hesco_wreck.glb' },
+  // GH-66 field works (2026-10-15), built in Blender from code
+  // (`tools/buildings/export_barriers.py`), all `per_tile`. No map authors
+  // them yet: placing a barrier is a mission change, and missions are the
+  // lead's. The T-wall stays off every map until own-side sappers stop
+  // levelling it (SW-1: their exemption is keyed on `low_profile`, and the
+  // T-wall is the first per-tile type that is not).
+  t_wall: { idle: 'buildings/t_wall.glb', wreck: 'buildings/t_wall_wreck.glb' },
+  sandbag_wall: { idle: 'buildings/sandbag_wall.glb', wreck: 'buildings/sandbag_wall_wreck.glb' },
+  sandbag_post: { idle: 'buildings/sandbag_post.glb', wreck: 'buildings/sandbag_post_wreck.glb' },
 };
 
 /** Decor: seven families, three variants each, keyed `<family>_<variant>` --

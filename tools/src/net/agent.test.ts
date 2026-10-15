@@ -1,7 +1,7 @@
-// N4a task 8: `pnpm agent`'s command line, its exit codes, and the interim
+// N4a task 8: `pnpm agent`'s command line, its exit codes, and the static
 // stdout guard. The spawned end-to-end case (a real MCP client over stdio,
-// and every stdout line a JSON-RPC frame) needs a room a child process can
-// reach, and lands with the local relay in N4b (task 11).
+// and every stdout line a JSON-RPC frame) is in `local-relay.test.ts` (N4b
+// task 11), against a room the child reaches on 127.0.0.1.
 import { describe, expect, it } from 'vitest';
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -98,14 +98,15 @@ describe('exitCodeFor', () => {
 });
 
 /**
- * Interim stdout guard (ruling R3), until task 11's spawned test reads the
- * child's stdout itself: stdout is the MCP protocol channel, so neither
+ * Static stdout guard (ruling R3), kept beside task 11's spawned test, which
+ * reads the child's stdout itself: this one names the file and line, and
+ * covers paths the spawned run never takes. stdout is the MCP protocol channel, so neither
  * agent.ts nor any module it reaches by relative path -- tools/src/net, and
  * the packages/app and packages/render files the harness imports directly --
  * may write to it. `@lions/*` packages are not walked: they are shipped code
  * with their own lint.
  */
-describe('stdout purity (static, interim)', () => {
+describe('stdout purity (static)', () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const root = resolve(here, '../../..');
   /** A relative specifier from `from`, as a file on disk (`.ts`, or a directory's `index.ts`);

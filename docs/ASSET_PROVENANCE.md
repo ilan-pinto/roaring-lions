@@ -217,6 +217,8 @@ one directory, `**` crosses directories).
 | `art/meshes/buildings/shanty.glb`<br>`art/meshes/buildings/shanty_wreck.glb` | Shanty, standing and wreck | Ledger `shanty` v2 (A3.2 phase 2: text-to-3D, refine 8k, remesh -- the corrugated lean-to), own bake with the roof band shifted in Blender | Meshy CLI; Blender, `export_meshy_ramp.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | The A3.2 ramp set and the tunnel props |
 | `art/meshes/buildings/wall.glb`<br>`art/meshes/buildings/wall_wreck.glb` | Compound wall, standing and wreck | Ledger `wall` (ramp set), own bake with the A3.2 phase 2 warm pass | Meshy CLI; Blender, `export_meshy_ramp.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | The A3.2 ramp set and the tunnel props |
 | `art/meshes/buildings/hesco.glb`<br>`art/meshes/buildings/hesco_wreck.glb` | HESCO bastion run (per tile), standing and wreck | Ledger `hesco` (GH-66 field works, the re-rolled preview), own bake desaturated in Blender, plus a synthesised palette wire cage (code) | Meshy CLI; Blender, `export_meshy_ramp.py` | Yes: Meshy; the cage is code | ARR; Meshy terms pending (item 1) | GH-66 field works |
+| `art/meshes/buildings/{t_wall,t_wall_wreck}.glb`<br>`art/src/buildings/t_wall.blend` | Precast T-wall run (per tile), standing and wreck | Code: `tools/buildings/export_barriers.py` over `kit.py`; 0 credits | Blender, code | No | ARR, project original | GH-66 field works |
+| `art/meshes/buildings/{sandbag_wall,sandbag_wall_wreck,sandbag_post,sandbag_post_wreck}.glb`<br>`art/src/buildings/{sandbag_wall,sandbag_post}.blend` | Sandbag wall run (per tile) and one-man sandbag post, standing and wreck | Code: `kit.sandbag` pillow bags laid by `tools/buildings/export_barriers.py`; 0 credits | Blender, code | No | ARR, project original | GH-66 field works |
 | `art/meshes/buildings/camp.glb`<br>`art/meshes/buildings/camp_wreck.glb` | KDF field camp, standing and wreck | Ledger `camp` (ramp set), own bake | Meshy CLI; Blender, `export_meshy_ramp.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | The A3.2 ramp set and the tunnel props |
 | `art/meshes/buildings/relay.glb`<br>`art/meshes/buildings/relay_wreck.glb` | Relay hut, standing and wreck | Ledger `relay` (text-to-3D, refine 8k, remesh), own bake | Meshy CLI; Blender, `export_meshy_ramp.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | The A3.2 remainder |
 | `art/meshes/buildings/pump_house.glb`<br>`art/meshes/buildings/pump_house_wreck.glb` | Pump house, standing and wreck | Ledger `pump_house` (text-to-3D, refine 8k, remesh), own bake | Meshy CLI; Blender, `export_meshy_ramp.py` | Yes: Meshy | ARR; Meshy terms pending (item 1) | The A3.2 remainder |
@@ -1116,6 +1118,22 @@ What Blender did to `hesco` (`tools/buildings/export_meshy_ramp.py`, spec
   0-70): the refine's orange-tan fill went terracotta under the scene sun
   beside the limestone wall.
 - Shipped: 4,352 / 3,089 tris, 2048 base colour. The wreck is `collapse()`.
+
+**The two stops, built in Blender instead (art/field-works-2).** The
+coordinator's ruling under the lead's delegation: the T-wall and the sandbag
+post from code at 0 credits, palette colour, maximum detail, and the sandbag
+wall laid from the post's own bags. No AI-generated art in any of the three.
+
+| File | Draws as | How | Tris (standing / wreck) |
+|---|---|---|---|
+| `t_wall.glb` + `_wreck` | `t_wall` (`T`) | two inverted-T precast sections per tile, 3.0 m, tapering stem, haunch and chamfers, four lifting loops, rust bleed, form-tie dimples; the wreck leaves one section leaning and the other snapped, its top lying face-down toward the camera | 840 / 996 |
+| `sandbag_wall.glb` + `_wreck` | `sandbag_wall` (`g`) | seven courses of `kit.sandbag` pillows, stretcher and header, two deep below and one above, half bags at the butt; the wreck is two courses and a spill | 6,720 / 4,080 |
+| `sandbag_post.glb` + `_wreck` | `sandbag_post` (`q`) | a horseshoe of the same bags turned so the closed front faces the camera corner, a firing aperture with a `glass` pane the facing gate judges, three loose bags; the wreck is the front breached and a spill | 8,402 / 4,440 |
+
+Silhouette IoU on the gate's own renders (limit 0.88), highest pair each:
+`sandbag_wall` vs `wall` 0.781 and vs `hesco` 0.701; `sandbag_post` vs
+`militia_firing_position` 0.615; `t_wall` vs `sandbag_post` 0.596. Shape sheet
+and in-game captures: `docs/art/sheets/gh66-field-works/`.
 
 ## GH-238 kit leftovers -- slat LOD, the Peten's kit, dielectric metal patch, 2026-10-12
 
