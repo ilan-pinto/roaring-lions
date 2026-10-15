@@ -164,14 +164,14 @@ def uv_coverage(objs, w, h):
     return mask
 
 
-def paint_patch_arrays(images, x, y, scale_from):
+def paint_patch_arrays(images, x, y, scale_from, hexv=None):
     """The patch's pixels into plain uint8 arrays: `images` is
     {name: (h, w, c) uint8}, `(x, y)` the block on the `scale_from`
     (w, h) grid. Returns the names painted. The glTF side of
     `paint_metal_patch`, for a file whose Meshy source is no longer on disk
     (`patch_metal_glb.py`)."""
     w0, h0 = scale_from
-    rgb = tuple(int(round(c * 255)) for c in _hex_bytes(METAL_HEX))
+    rgb = tuple(int(round(c * 255)) for c in _hex_bytes(hexv or METAL_HEX))
     painted = []
     for name, arr in images.items():
         ih, iw = arr.shape[:2]
