@@ -32,7 +32,8 @@
         "force_over": { "type": "integer", "minimum": 1, "description": "The player fields more than this many living units." },
         "carrier_empty_seat": { "const": true, "description": "A selected carrier has a free seat." },
         "enemy_pinned": { "const": true, "description": "Some hostile is pinned." },
-        "resources": { "const": true, "description": "The mission has a logistics economy." }
+        "resources": { "const": true, "description": "The mission has a logistics economy." },
+        "income_held": { "const": true, "description": "Side 0 holds at least one income zone right now (the first time ground pays; false on a mission with no zones)." }
       }
     }
   }

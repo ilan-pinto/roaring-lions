@@ -19,6 +19,8 @@
  * SPECIFIC test named goes red, then reverting. See this task's own report
  * for exactly what was broken and what each break's failure message said.
  */
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
 import {
   HULL_RENDER_ORDER,
@@ -42,6 +44,7 @@ import {
   TUNNEL_XRAY_FIGURE_RENDER_ORDER,
   TUNNEL_XRAY_BEAM_RENDER_ORDER,
   ZONE_BAND_RENDER_ORDER,
+  SUPPLY_ROUTE_RENDER_ORDER,
 } from './render-order';
 
 describe('render order bands', () => {
@@ -198,5 +201,23 @@ describe('render order bands', () => {
     expect(ZONE_BAND_RENDER_ORDER).toBeLessThan(SELECTION_RING_RENDER_ORDER);
     expect(ZONE_BAND_RENDER_ORDER).toBeLessThan(TURRET_RENDER_ORDER);
     expect(ZONE_BAND_RENDER_ORDER).toBeLessThan(OVERLAY_RENDER_ORDER);
+  });
+
+  // S-F F2 C3: the world supply route is ground, in its own band between the
+  // zone band and the tunnel x-ray / selection ring -- never the overlay tier.
+  it('the supply route sits in its own band above the zone band and below the tunnel x-ray and the selection ring, never band 4', () => {
+    expect(SUPPLY_ROUTE_RENDER_ORDER).toBe(0.2);
+    expect(SUPPLY_ROUTE_RENDER_ORDER).toBeGreaterThan(ZONE_BAND_RENDER_ORDER);
+    expect(SUPPLY_ROUTE_RENDER_ORDER).toBeLessThan(TUNNEL_XRAY_RENDER_ORDER);
+    expect(SUPPLY_ROUTE_RENDER_ORDER).toBeLessThan(SELECTION_RING_RENDER_ORDER);
+    expect(SUPPLY_ROUTE_RENDER_ORDER).not.toBe(OVERLAY_RENDER_ORDER);
+  });
+
+  it('every band constant has its row in the table', () => {
+    // The table at the top of render-order.ts is the one place a reader
+    // finds a band; a constant with no row is a band nobody can reason about.
+    const src = readFileSync(fileURLToPath(new URL('./render-order.ts', import.meta.url)), 'utf8');
+    const table = src.slice(0, src.indexOf('export const'));
+    expect(table).toMatch(/^ \* \| 0\.2 +\| `SUPPLY_ROUTE_RENDER_ORDER`/m);
   });
 });

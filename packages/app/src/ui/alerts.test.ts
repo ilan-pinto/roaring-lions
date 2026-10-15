@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { MissionEvent, SimEvent } from '@lions/sim';
 import { MISSION_EVENT_KINDS } from '@lions/sim';
 import { MISSION_EVENT_SOUND, tickCue } from './cues';
+import { FeedModel } from './feed-model';
 import {
   PINNED_COOLDOWN_TICKS,
   UNDER_FIRE_COOLDOWN_TICKS,
@@ -30,7 +31,20 @@ const world: AlertWorld = {
   arrivedAt: () => null,
   reinforcement: () => null,
   viewer: 0,
+  // F2 P2-4: two zones. `staging` is in view, `east_pass` is east of the
+  // camera; `holders` is what the runtime would answer, set per test.
+  zoneAt: (z) => (z === 'staging' ? { x: 2, y: 3 } : z === 'east_pass' ? { x: 30, y: 10 } : null),
+  zoneHolder: (z) => holders.get(z) ?? -1,
+  // Like the real adapter (`alert-world.ts`): `supplyCutAt` places ANY line
+  // with a route, open or cut, and only `supplyCut` says whether it is cut.
+  // `staging` has no route; `east_pass` and the convoy do.
+  supplyCutAt: (z) => (z === null ? { x: 20.5, y: 4.5 } : z === 'east_pass' ? { x: 12.5, y: 9.5 } : null),
+  supplyCut: (z) => (cutZones.has(z ?? '') ? 'interdicted' : null),
 };
+const holders = new Map<string, number>();
+/** Zones whose supply line the runtime would report cut right now (`''` is
+ *  the convoy). */
+const cutZones = new Set<string>();
 const destroyed = (entity: number, by: number): SimEvent => ({ kind: 'destroyed', tick: 0, entity, by }) as SimEvent;
 const lost = (entity: number, unit: string): MissionEvent =>
   ({ kind: 'unitLost', tick: 0, entity, side: 0, unit }) as MissionEvent;
@@ -289,6 +303,16 @@ describe('nextJump: Space goes to the latest important or major alert', () => {
   it('an alert with no place leaves the key where it was', () => {
     expect(nextJump({ at: p(1), tier: 'minor' }, 'major', null)?.at).toEqual(p(1));
   });
+  // S-F F2 C3: a jump that lands on a supply alert shows the world route, so
+  // the target remembers what KIND of alert it is.
+  it('keeps the kind of the alert it points at, and the kind it kept when a minor one is refused', () => {
+    let j = nextJump(null, 'important', p(1), 'supply');
+    expect(j?.kind).toBe('supply');
+    j = nextJump(j, 'minor', p(2), 'underFire');
+    expect(j?.kind).toBe('supply');
+    j = nextJump(j, 'important', p(3), 'unitLost');
+    expect(j?.kind).toBe('unitLost');
+  });
 });
 
 // --- polish pass F: the cue each alert sounds -----------------------------
@@ -377,7 +401,7 @@ describe('alertsForTick agrees with MISSION_EVENT_SOUND, kind by kind', () => {
     say: ev<'say'>({ kind: 'say', tick: 0, speaker: 'shai', text: 'x' }),
     intelEarned: ev<'intelEarned'>({ kind: 'intelEarned', tick: 0, amount: 10, cause: 'identified', ref: 4, at: { x: 7, y: 4 } }),
     missionEnd: ev<'missionEnd'>({ kind: 'missionEnd', tick: 0, result: 'victory', roeRating: 100, survivors: [], ledger: {} as never }),
-    zoneHolder: ev<'zoneHolder'>({ kind: 'zoneHolder', tick: 0, zone: 'staging', holder: -1, contested: true }),
+    zoneHolder: ev<'zoneHolder'>({ kind: 'zoneHolder', tick: 0, zone: 'staging', holder: 0, contested: false }),
     corridor: ev<'corridor'>({ kind: 'corridor', tick: 0, zone: null, cut: 'interdicted' }),
   };
   it.each(MISSION_EVENT_KINDS.filter((k) => k !== 'missionEnd'))('%s', (kind) => {
@@ -648,5 +672,216 @@ describe('alertsForTick — a seat on side 1 (N1a task 6)', () => {
   it('an ambush sprung by side 0 is bad news; one of side 1\'s springing is not', () => {
     expect(kinds([ambush(2)])).toEqual(['ambush']);
     expect(kinds([ambush(12)])).toEqual([]);
+  });
+});
+
+// F2 P2-4/P2-5 (S-F): held ground and supply lines.
+describe('alertsForTick — held ground and supply lines (F2)', () => {
+  const zh = (zone: string, holder: -1 | 0 | 1, contested = false): MissionEvent =>
+    ev<'zoneHolder'>({ kind: 'zoneHolder', tick: 0, zone, holder, contested });
+  afterEach(() => {
+    holders.clear();
+    cutZones.clear();
+  });
+  const cor = (zone: string | null, cut: 'unreachable' | 'interdicted' | 'vent' | null): MissionEvent => {
+    if (cut !== null) cutZones.add(zone ?? '');
+    else cutZones.delete(zone ?? '');
+    return ev<'corridor'>({ kind: 'corridor', tick: 0, zone, cut });
+  };
+  const run = (events: MissionEvent[], state = initAlertState(), tick = 40) => alertsForTick(state, [], events, world, tick);
+  const LATER = 400;
+  const keyOf = (a: { line: { key: string } | null }) => a.line?.key;
+
+  it('gained is minor and good, placed at the zone centre, with the minor cue', () => {
+    const { alerts } = run([zh('staging', 0)]);
+    expect(alerts).toEqual([
+      {
+        kind: 'zone',
+        tier: 'minor',
+        tone: 'good',
+        line: { key: 'alert.zone.gained', params: {}, tone: 'good', place: ['here'] },
+        cue: 'alert.minor',
+        at: { x: 2, y: 3 },
+        marks: [{ x: 2, y: 3 }],
+        count: 1,
+      },
+    ]);
+  });
+
+  it('contested is minor and warn, only on ground we held', () => {
+    const held = run([zh('east_pass', 0)]).state;
+    const { alerts } = run([zh('east_pass', -1, true)], held, LATER);
+    expect(alerts).toMatchObject([{ kind: 'zone', tier: 'minor', tone: 'warn', cue: 'alert.minor', line: { key: 'alert.zone.contested', place: ['e'] } }]);
+    expect(run([zh('east_pass', -1, true)]).alerts).toEqual([]);
+  });
+
+  it('lost is important and warn, whether the enemy took it or it emptied', () => {
+    const held = run([zh('staging', 0)]).state;
+    for (const e of [zh('staging', 1), zh('staging', -1)]) {
+      expect(run([e], held, LATER).alerts).toMatchObject([{ kind: 'zone', tier: 'important', tone: 'warn', cue: 'alert.important', line: { key: 'alert.zone.lost' } }]);
+    }
+    // ... and from contested too, once.
+    const contested = run([zh('staging', -1, true)], held, LATER).state;
+    expect(run([zh('staging', 1)], contested, LATER * 2).alerts.map(keyOf)).toEqual(['alert.zone.lost']);
+  });
+
+  it('an enemy taking ground we never held is silent', () => {
+    expect(run([zh('staging', 1)]).alerts).toEqual([]);
+    expect(run([zh('staging', -1)]).alerts).toEqual([]);
+  });
+
+  it('regaining ground after a contest is gained again; holding it again is not repeated', () => {
+    const a = run([zh('staging', 0)]);
+    const b = run([zh('staging', -1, true)], a.state, LATER);
+    expect(run([zh('staging', 0)], b.state, LATER * 2).alerts.map(keyOf)).toEqual(['alert.zone.gained']);
+    expect(run([zh('staging', 0)], a.state).alerts).toEqual([]);
+  });
+
+  it('a cut is important and warn, jumps to the first cut tile, and is placed there', () => {
+    holders.set('east_pass', 0);
+    const { alerts } = run([cor('east_pass', 'interdicted')]);
+    holders.clear();
+    expect(alerts).toEqual([
+      {
+        kind: 'supply',
+        tier: 'important',
+        tone: 'warn',
+        line: { key: 'alert.supply.cut', params: { what: 'zone' }, tone: 'warn', place: ['e'] },
+        cue: 'alert.important',
+        at: { x: 12.5, y: 9.5 },
+        marks: [{ x: 12.5, y: 9.5 }],
+        count: 1,
+      },
+    ]);
+    expect(nextJump(null, alerts[0].tier, alerts[0].at)).toEqual({ at: { x: 12.5, y: 9.5 }, tier: 'important' });
+  });
+
+  it('the convoy (zone null) is worded as the convoy and needs no zone', () => {
+    const { alerts } = run([cor(null, 'unreachable')]);
+    expect(alerts).toMatchObject([{ kind: 'supply', line: { key: 'alert.supply.cut', params: { what: 'convoy' } } }]);
+  });
+
+  it('a route with nothing to point at has no place and no jump', () => {
+    holders.set('staging', 0);
+    const { alerts } = run([cor('staging', 'vent')]);
+    holders.clear();
+    expect(alerts).toMatchObject([{ kind: 'supply', at: null, marks: [], line: { place: [] } }]);
+  });
+
+  it('a cut on a zone we do not hold is the enemy\'s line and is silent', () => {
+    holders.set('east_pass', 1);
+    expect(run([cor('east_pass', 'interdicted')]).alerts).toEqual([]);
+    holders.clear();
+    expect(run([cor('east_pass', 'interdicted')]).alerts).toEqual([]);
+  });
+
+  it('open is minor and good, and only follows a cut we told them about', () => {
+    expect(run([cor(null, null)]).alerts).toEqual([]);
+    const cut = run([cor(null, 'interdicted')]).state;
+    const { alerts } = run([cor(null, null)], cut);
+    expect(alerts).toMatchObject([{ kind: 'supply', tier: 'minor', tone: 'good', cue: 'alert.minor', line: { key: 'alert.supply.open', params: { what: 'convoy' } } }]);
+    expect(run([cor(null, null)], run([cor(null, null)], cut).state).alerts).toEqual([]);
+  });
+
+  it('losing a zone clears its remembered cut (C-R19): a later open is not news', () => {
+    holders.set('east_pass', 0);
+    const held = run([zh('east_pass', 0)]).state;
+    const cut = run([cor('east_pass', 'interdicted')], held).state;
+    const lostIt = run([zh('east_pass', 1)], cut).state;
+    holders.set('east_pass', 0);
+    expect(run([cor('east_pass', null)], lostIt).alerts).toEqual([]);
+    holders.clear();
+  });
+
+  it('a flicker at the edge: one merged feed line, one cue a tick', () => {
+    let state = initAlertState();
+    const feed = new FeedModel();
+    const pushes: string[] = [];
+    let ms = 0;
+    for (const holder of [0, -1, 0, -1, 0] as const) {
+      const r = alertsForTick(state, [], [zh('staging', holder)], world, 40 + ms / 50);
+      state = r.state;
+      expect(tickCue(r.alerts.map((a) => a.cue))).toBe(r.alerts.length > 0 ? r.alerts[0].cue : null);
+      for (const a of r.alerts) if (a.line) pushes.push(feed.push(JSON.stringify([a.line.key, a.line.place]), (ms += 1000)).kind);
+    }
+    // gained, lost, gained, lost, gained: the two keys alternate, and each
+    // repeat inside 8 s merges into the line already saying so.
+    expect(pushes).toEqual(['new', 'new', 'merged', 'merged', 'merged']);
+  });
+
+  const flicker = (zone: string, holders_: readonly (readonly [number, boolean])[], from: number, step: number) => {
+    let state = initAlertState();
+    const out: { cue: string | null; marks: number; at: unknown }[] = [];
+    holders_.forEach(([h, c], i) => {
+      const r = alertsForTick(state, [], [zh(zone, h as -1 | 0 | 1, c)], world, from + i * step);
+      state = r.state;
+      for (const a of r.alerts) out.push({ cue: a.cue, marks: a.marks.length, at: a.at });
+    });
+    return { out, state };
+  };
+
+  it('a 0/-1 flicker cues and marks once a window; a genuine change after it cues again', () => {
+    const seq = Array.from({ length: 20 }, (_, i) => [i % 2 === 0 ? 0 : -1, false] as const);
+    const { out, state } = flicker('staging', seq, 40, 4);
+    // 20 flips over 76 ticks, inside one 200-tick window: every line, one cue.
+    expect(out).toHaveLength(20);
+    expect(out.filter((o) => o.cue !== null)).toHaveLength(1);
+    expect(out.filter((o) => o.marks > 0)).toHaveLength(1);
+    expect(out.filter((o) => o.at !== null)).toHaveLength(1);
+    const later = alertsForTick(state, [], [zh('staging', 0)], world, 40 + 76 + 250).alerts;
+    expect(later).toMatchObject([{ cue: 'alert.minor', marks: [{ x: 2, y: 3 }] }]);
+  });
+
+  it('a 0/-2 (contested) flicker is held to one cue and one mark a window too', () => {
+    const seq = Array.from({ length: 20 }, (_, i) => (i % 2 === 0 ? ([0, false] as const) : ([-1, true] as const)));
+    const { out } = flicker('staging', seq, 40, 4);
+    expect(out.filter((o) => o.cue !== null)).toHaveLength(1);
+    expect(out.filter((o) => o.marks > 0)).toHaveLength(1);
+  });
+
+  it('a cut that changes cause is not announced again, and a later open still is', () => {
+    holders.set('east_pass', 0);
+    const first = run([cor('east_pass', 'interdicted')]);
+    expect(first.alerts.map(keyOf)).toEqual(['alert.supply.cut']);
+    const again = run([cor('east_pass', 'vent')], first.state);
+    expect(again.alerts).toEqual([]);
+    const third = run([cor('east_pass', 'unreachable')], again.state);
+    expect(third.alerts).toEqual([]);
+    expect(run([cor('east_pass', null)], third.state).alerts.map(keyOf)).toEqual(['alert.supply.open']);
+  });
+
+  it('taking a zone whose line is already cut announces the cut (no corridor event came)', () => {
+    cutZones.add('east_pass');
+    holders.set('east_pass', 0);
+    const { alerts, state } = run([zh('east_pass', 0)]);
+    expect(alerts.map(keyOf)).toEqual(['alert.zone.gained', 'alert.supply.cut']);
+    expect(alerts[1]).toMatchObject({ tier: 'important', at: { x: 12.5, y: 9.5 } });
+    // remembered, so the line opening later is news
+    expect(run([cor('east_pass', null)], state).alerts.map(keyOf)).toEqual(['alert.supply.open']);
+  });
+
+  it('taking a zone whose line is open is gained ground only, and a later cut is still news', () => {
+    holders.set('east_pass', 0);
+    const { alerts, state } = run([zh('east_pass', 0)]);
+    expect(alerts.map(keyOf)).toEqual(['alert.zone.gained']);
+    expect(run([cor('east_pass', 'interdicted')], state, LATER).alerts.map(keyOf)).toEqual(['alert.supply.cut']);
+  });
+
+  it('two zone events in one tick raise one cue', () => {
+    const { alerts } = run([zh('staging', 0), zh('east_pass', 0)]);
+    expect(alerts).toHaveLength(2);
+    expect(tickCue(alerts.map((a) => a.cue))).toBe('alert.minor');
+  });
+
+  it('a seat on side 1 reads its own ground, not side 0\'s', () => {
+    const one: AlertWorld = { ...world, viewer: 1 };
+    expect(alertsForTick(initAlertState(), [], [zh('staging', 0)], one, 40).alerts).toEqual([]);
+    expect(alertsForTick(initAlertState(), [], [zh('staging', 1)], one, 40).alerts.map(keyOf)).toEqual(['alert.zone.gained']);
+  });
+
+  it('has its lines in the catalogue', () => {
+    for (const k of ['zone.gained', 'zone.contested', 'zone.lost', 'supply.cut', 'supply.open']) {
+      expect((en as Record<string, string>)['alert.' + k], k).toMatch(/<b>/);
+    }
   });
 });

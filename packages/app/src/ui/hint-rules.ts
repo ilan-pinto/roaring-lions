@@ -21,6 +21,8 @@ import type { StorageLike } from '../brigade-account';
 export interface HintContext {
   missionId: string;
   hasResources: boolean;
+  /** Side 0 holds at least one income zone this beat (`incomeHeld`); false on a mission with none. */
+  incomeHeld: boolean;
   selectedCount: number;
   selectedTypes: () => ReadonlySet<string>;
   forceSize: () => number;
@@ -28,10 +30,17 @@ export interface HintContext {
   enemyPinned: () => boolean;
 }
 
+/** True while side 0 holds an income zone, from the HUD beat's one `IncomeView`
+ *  (null on a mission with no zones and no convoy). */
+export function incomeHeld(view: { zoneViews: readonly { state: string }[] } | null): boolean {
+  return view !== null && view.zoneViews.some((z) => z.state === 'held');
+}
+
 /** Every condition a rule declares must hold; a rule with none holds always. */
 export function ruleHolds(r: FirstUseHintRule, c: HintContext): boolean {
   if (r.mission && !r.mission.includes(c.missionId)) return false;
   if (r.resources && !c.hasResources) return false;
+  if (r.income_held && !c.incomeHeld) return false;
   if (r.selected_over !== undefined && !(c.selectedCount > r.selected_over)) return false;
   if (r.selected_type) {
     const have = c.selectedTypes();

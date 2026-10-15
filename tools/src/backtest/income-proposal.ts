@@ -1,8 +1,9 @@
-// F2 Task 2 (GH-183): the held-ground income PROPOSAL, as data, for the lead to decide.
+// F2 Task 2 (GH-183): the held-ground income table, as data (the lead approved it 15 Oct; it ships in
+// `data/missions/`).
 //
 // REPORT-ONLY. Nothing here is read by the game, by `pnpm playtest` or by CI. It is the table
-// `docs/campaign/economy/income-numbers.md` proposes, kept as code so the measurement can be
-// repeated after the lead answers: `income-probe.ts` applies one of these tables IN MEMORY to the
+// `docs/campaign/economy/income-numbers.md` records as approved, kept as code so the measurement can be
+// repeated: `income-probe.ts` applies one of these tables IN MEMORY to the
 // parsed mission JSON (never to `data/missions/*.json`, which is the lead's: F2 ruling C-R1) and
 // records what the real `MissionRuntime` does with it, and `income-probe-report.ts` prints it.
 

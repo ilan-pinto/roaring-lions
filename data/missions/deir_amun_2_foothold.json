@@ -29,7 +29,14 @@
     { "unit": "recon_drone", "count": 1, "at": [24, 43] },
     { "unit": "inf_squad", "count": 1, "at": [25, 44], "upgrades_to": "breach_team" }
   ],
-  "resources": { "logistics_start": 400, "logistics_rate_per_min": 120 },
+  "resources": {
+    "logistics_start": 400,
+    "logistics_rate_per_min": 120,
+    "income_zones": [
+      { "zone": "pump_yard", "rate_per_min": 28 },
+      { "zone": "the_wadi", "rate_per_min": 20 }
+    ]
+  },
   "structures": [{ "type": "camp", "at": [21, 35], "size": [2, 2] }],
   "objectives": [
     { "id": "hold_the_yard", "type": "hold_for", "primary": true, "target": "pump_yard", "seconds": 240,

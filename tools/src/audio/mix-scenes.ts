@@ -137,6 +137,10 @@ function alertWorld(): AlertWorld {
     reinforcement: () => null,
     // A single-player scene: the player is side 0.
     viewer: 0,
+    zoneAt: () => null,
+    zoneHolder: () => -1,
+    supplyCutAt: () => null,
+    supplyCut: () => null,
   };
 }
 
