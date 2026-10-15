@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://roaringlions.dev/schemas/doctrine.schema.json",
+  "title": "Doctrine",
+  "description": "A faction's skirmish doctrine (network design §2.3 and §6.1; N3 prep LD2, ruled 16 Oct): what a seat may build and the logistics it starts a match with. N3's minimum only -- WP-G-G extends it with the commander. Read by nothing in the runtime yet; `pnpm validate:data` (tools/validate_doctrine.mjs) holds the cross-file rules the schema cannot see: every menu id is a unit of the doctrine's own side, no menu holds `loiter_drone` (LD3), and the Sarim budget is 1.6x the KDF's (G3 Q7).",
+  "type": "object",
+  "required": ["id", "faction", "name", "menu", "budget"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]+$"
+    },
+    "faction": {
+      "enum": ["kdf", "sarim"],
+      "description": "The seat faction a room's matchup picks (`@lions/net` `Faction`). A `sarim` doctrine's menu may hold any opposition unit (sarim, rif or ashwar faction), as `VERSUS_SARIM` already fields the Rif `gun_truck`."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Display name, plain English, as a unit's `name` is."
+    },
+    "menu": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+      "description": "Unit ids the seat may build at its camp, in dock order. Each must be a unit in data/units of the doctrine's own side."
+    },
+    "budget": {
+      "type": "object",
+      "required": ["logistics_start", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "logistics_start": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The seat's purse at tick 0, in whole logistics -- the unit of a unit's `cost.logistics` and of `resources.logistics_start`; the sim scales it by PURSE_UNITS (F2). This is what F4's per-side `MissionContext.economy.start` reads. There is no base rate here: a skirmish is paid by held zones only (G3 Q2), so the versus rules file sets each side's rate to 0. The Sarim/KDF ratio of these numbers is pinned at 1.6 (G3 Q7)."
+        },
+        "status": {
+          "enum": ["provisional", "swept"],
+          "description": "`provisional` until G4's re-sweep of G3 Q7 (1.45-1.8x over 30 seeds) sets the numbers; `swept` after it. No balance claim is made while it reads provisional."
+        }
+      }
+    }
+  }
+}
