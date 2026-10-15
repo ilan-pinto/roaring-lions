@@ -252,7 +252,10 @@ describe('tileState', () => {
 
   it('is not capped when the runtime does not say so, however the reason reads', () => {
     expect(tileState(unit(), view()).capped).toBe(null);
-    expect(tileState(unit(), view({ buildBlockedReason: () => 'field camp destroyed — no production', popCapped: () => false })).capped).toBe(null);
+    // A fallen camp outranks the cap in the runtime (`popCapped` is false), and the tile reads the camp's own reason.
+    const fallen = tileState(unit(), view({ buildBlockedReason: () => 'field camp destroyed — no production', popCapped: () => false }));
+    expect(fallen.capped).toBe(null);
+    expect(fallen.lock?.full).toBe('field camp destroyed — no production');
     // A view that predates the cap has no popCapped at all.
     expect(tileState(unit(), view({ buildBlockedReason: () => 'field camp destroyed — no production' })).capped).toBe(null);
   });
@@ -276,6 +279,15 @@ describe('tileState', () => {
     );
     expect(state.capped?.full).toBe('Population 11/12. Eitan APC needs 2.');
     expect(state.capped?.short).toBe('pop full');
+  });
+
+  it('never shows the sim’s English when the view cannot say how full: the full line is the short label', () => {
+    const state = tileState(
+      unit(),
+      view({ buildBlockedReason: () => 'population cap reached (12/12)', popCapped: () => true })
+    );
+    expect(state.capped).toEqual({ short: 'pop full', full: 'pop full' });
+    expect(JSON.stringify(state)).not.toContain('population cap reached');
   });
 
   it('reads the unit population as 1 when the caller gives none', () => {

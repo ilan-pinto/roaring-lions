@@ -2880,6 +2880,27 @@ describe('"On loan" on the card and the chip (F3 Task 8, C2)', () => {
     expect(owned.host.querySelector('.rl-loan')).toBeNull();
   });
 
+  it('gives the card stamp a reachable reason: a delegated, focusable tip that survives the 4 Hz rebuild', () => {
+    const world = makeForce();
+    const r = clusterRig(() => [world.namer], { isOnLoan: lent(world.namer) }, world);
+    const stamp = (): HTMLElement => r.host.querySelector<HTMLElement>('.rl-card .rl-loan')!;
+    expect(stamp().dataset.tip).toBe('onLoan');
+    expect(stamp().getAttribute('tabindex')).toBe('0');
+    expect(stamp().hasAttribute('title')).toBe(false);
+    stamp().dispatchEvent(new Event('mouseover', { bubbles: true }));
+    expect(r.host.querySelector<HTMLElement>('.rl-tip')?.textContent).toContain(en['hud.onLoan.tip']);
+    // Focus is carried across the rebuild by the stamp's key, not its node.
+    const before = stamp();
+    before.focus(); // focusin opens the tip...
+    closeTip(); // ...which the player then dismisses; focus stays.
+    expect(document.activeElement).toBe(before);
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(stamp()).not.toBe(before);
+    expect(document.activeElement).toBe(stamp());
+    // ...quietly: the restore did not open a tip the player had not asked for.
+    expect(r.host.querySelector<HTMLElement>('.rl-tip')?.hidden).toBe(true);
+  });
+
   it('gives a lent chip the tab on its frame, and a chip with none lent nothing', () => {
     const world = makeForce();
     const r = clusterRig(

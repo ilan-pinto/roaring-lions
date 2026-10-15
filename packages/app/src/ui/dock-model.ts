@@ -272,7 +272,7 @@ export function tileState(
   // too: a lock is the more useful thing to read, and "pop full" on a unit the
   // campaign has not opened would be a second, wrong reason.
   if (sentence === null && view.popCapped?.(unit.id) === true) {
-    return { affordable, lock: null, capped: { short: t('dock.cap.short'), full: capSentence(unit, view, reason) }, queue: queueFor(view, unit.id) };
+    return { affordable, lock: null, capped: { short: t('dock.cap.short'), full: capSentence(unit, view) }, queue: queueFor(view, unit.id) };
   }
   return {
     affordable,
@@ -285,12 +285,13 @@ export function tileState(
 /**
  * The capped tile's full line, with the numbers (Q6). At the cap it is "A unit
  * must fall first."; with room left but not enough for THIS unit (11/12 and a
- * 2-population Eitan) it names what the unit needs. `fallback` is the runtime's
- * own text, for a view that says capped without saying how full.
+ * 2-population Eitan) it names what the unit needs. A view that says capped
+ * without saying how full gets the short label's own words: the sim's English
+ * (`population cap reached (...)`) never reaches the player by construction.
  */
-function capSentence(unit: DockUnit, view: DockView, fallback: string): string {
+function capSentence(unit: DockUnit, view: DockView): string {
   const pop = view.populationView?.() ?? null;
-  if (pop === null) return fallback;
+  if (pop === null) return t('dock.cap.short');
   if (pop.used < pop.cap) {
     return t('dock.cap.need', { used: pop.used, cap: pop.cap, name: unit.name, need: unit.population ?? 1 });
   }

@@ -273,7 +273,7 @@ describe('the chrome register: theme.css', () => {
 
   describe('VR-27: one disabled', () => {
     const DISABLED = /:disabled|\[disabled\]|\[aria-disabled='true'\]/;
-    const DIMMED = /:disabled|\[disabled\]|\[aria-disabled='true'\]|\[data-locked='1'\]|\[data-poor='1'\]|\[data-inert='1'\]|\[data-paused='1'\]/;
+    const DIMMED = /:disabled|\[disabled\]|\[aria-disabled='true'\]|\[data-locked='1'\]|\[data-poor='1'\]|\[data-inert='1'\]|\[data-paused='1'\]|\[data-capped='1'\]/;
 
     it('dims every unusable state to --disabled-opacity, never a number of its own', () => {
       const dims = styled.filter((r) => r.selectors.some((s) => DIMMED.test(s.replace(/:not\([^)]*\)/g, ''))));

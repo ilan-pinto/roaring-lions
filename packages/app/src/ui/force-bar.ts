@@ -99,11 +99,10 @@ export function forceBar(opts: {
   title.id = 'rl-force-title';
   const placed = el('div', 'rl-force__placed');
   const anyLent = opts.attached.some((a) => a.onLoan);
-  const hint = el(
-    'p',
-    'rl-force__hint',
-    t(view !== null && view.eligible.length > 0 ? 'deploy.hint' : anyLent ? 'deploy.hint.fixedLoan' : 'deploy.hint.fixed')
-  );
+  /** Whether any place here is the player's to fill: the hint and each card's
+   *  note read this one decision. */
+  const choosing = view !== null && view.eligible.length > 0;
+  const hint = el('p', 'rl-force__hint', t(choosing ? 'deploy.hint' : anyLent ? 'deploy.hint.fixedLoan' : 'deploy.hint.fixed'));
   head.append(title, placed, hint);
   for (const n of opts.notes ?? []) head.appendChild(el('p', 'rl-force__note', n));
 
@@ -248,8 +247,6 @@ export function forceBar(opts: {
     b.querySelector<HTMLButtonElement>('button:not([disabled])')?.focus({ preventScroll: true });
   };
 
-  /** Whether any place here is the player's to fill. */
-  const choosing = view !== null && view.eligible.length > 0;
   const unitName = (type: string): string => opts.attached.find((a) => a.type === type)?.name ?? opts.unitName?.(type) ?? type;
   const fixedCard = (type: string, name: string, note: string | null): HTMLLIElement => {
     const li = document.createElement('li');

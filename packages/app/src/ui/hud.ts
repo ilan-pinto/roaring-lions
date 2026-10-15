@@ -553,6 +553,10 @@ export class Hud {
    *  answers null while this is set, so a restore never opens a tip by
    *  itself -- only the player's own hover or focus does. */
   private stripTipQuiet = false;
+  /** True only while `renderCard` re-focuses a card flag it just rebuilt:
+   *  the restore fires `focusin`, which would otherwise open a tip the
+   *  keyboard player had not asked for (same rule as `stripTipQuiet`). */
+  private clusterTipQuiet = false;
 
   /** Everything this HUD put directly on `host`, in append order, so
    *  `destroy()` has one list to walk rather than a hand-kept set of field
@@ -2102,7 +2106,23 @@ export class Hud {
     this.renderOrders(sel);
     if (sel.length === 1) {
       this.chipTypes = [];
+      // The rebuild destroys a focused card flag (the PINNED state, the "On
+      // loan" stamp) four times a second, as `renderStrip` does to its own:
+      // carry the node's `data-tip` KEY across the swap, never the node, and
+      // restore quietly unless its tip was open (read BEFORE the swap).
+      const active = document.activeElement;
+      const held = active !== null && this.cluster.contains(active) ? active.getAttribute('data-tip') : null;
+      const tipWasOpen = held !== null && active !== null && active.hasAttribute('aria-describedby');
       this.cluster.innerHTML = this.cardHtml(sel[0]);
+      if (held !== null) {
+        const successor = this.cluster.querySelector<HTMLElement>(`[data-tip="${CSS.escape(held)}"]`);
+        this.clusterTipQuiet = !tipWasOpen;
+        try {
+          successor?.focus({ preventScroll: true });
+        } finally {
+          this.clusterTipQuiet = false;
+        }
+      }
     } else {
       this.renderChips(sel);
     }
@@ -2326,7 +2346,10 @@ export class Hud {
     // PINNED flag share this same delegated binding -- both are drawn into
     // `this.cluster` -- so the pinned explanation is resolved here, ahead of
     // the type-id lookup below, rather than in a second resolver.
+    if (this.clusterTipQuiet) return null;
     if (typeId === 'pinned') return t('hud.pinned.explain');
+    // The single-unit card's "On loan" stamp: same delegation, same reason.
+    if (typeId === 'onLoan') return t('hud.onLoan.tip');
     const chip = this.chipViews.find((c) => c.typeId === typeId);
     if (!chip) return null;
     const base = t('hud.chip.selectOnly', { name: escapeHtml(chip.name), count: chip.count });
@@ -2531,7 +2554,7 @@ export class Hud {
       callsign +
       `<span class="rl-card__name${entry?.name ? ' rl-card__name--type' : ''}">${escapeHtml(type.name)}</span>` +
       (this.deps.isOnLoan?.(id) === true
-        ? `<span class="rl-loan" title="${escapeHtml(t('hud.onLoan.tip'))}">${t('hud.onLoan')}</span>`
+        ? `<span class="rl-loan" data-tip="onLoan" tabindex="0">${t('hud.onLoan')}</span>`
         : '') +
       (vet > 0 ? `<span class="rl-commend">${'★'.repeat(vet)}</span>` : '') +
       (kitted ? `<span class="rl-card__kit">${kitPipsHtml(kit.pips)}</span>` : '') +

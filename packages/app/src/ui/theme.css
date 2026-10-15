@@ -3402,8 +3402,9 @@ body[data-outcome-beat] .rl-aar {
 /* Population, used/cap, beside the credits (F3 Lane A, the mock's 5h). The tone
    is the class on the element: `rl-info` below the cap, `rl-warn` at it, with
    the word in `rl-dim`. Same size and halo as the credit chip; pushed to the
-   far edge of the header. Hidden while the mission is uncapped -- the author
-   rule for `display` would otherwise beat the `hidden` attribute. */
+   far edge of the header. Hidden while the mission is uncapped by the `hidden`
+   attribute; no author `display` rule here would beat it, so the `[hidden]`
+   rule below is defensive (it keeps a later `display` on this class honest). */
 .rl-dock__pop {
   margin-left: auto;
   font-size: var(--t-strip);
