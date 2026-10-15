@@ -1013,7 +1013,9 @@ const ECONOMY_TICKS = 2400; // two minutes
 // lead 4 Oct); economyHash() folds population(0), population(1), popCap(0), popCap(1)
 // (null as -1) after every earlier fold, and the fixture gained a cap of 5 and one
 // refused build (and a population-0 drone, as shipped); was 331788258.
-const ECONOMY_PIN = 537142626;
+// re-pinned 2026-10-15, F1 follow-up: lead ruling 15 Oct: 8/40/30, smoke 100 (a first
+// identification pays 8, an objective 40); was 537142626.
+const ECONOMY_PIN = 3794140228;
 const ECONOMY_EXTRA_BUILD_TICK = 1000;
 // F3 Task 4 (GH-183): side 0's cap, and the one build it refuses. The force is the
 // drone (population 0) and one squad (1); the builds at 400 and 800 bring it to 3,
