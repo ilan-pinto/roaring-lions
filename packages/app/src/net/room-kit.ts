@@ -65,7 +65,7 @@ function rendererTiers(factions: MatchWorld['factions'], t0: KitTiers, t1: KitTi
 export interface ScreenKit {
   kitByType: Map<string, KitSummary>;
   unitKit: Readonly<Record<string, KitLevel>>;
-  /** `RendererOptions.unitKitTiers`: side 0's table. */
+  /** `RendererOptions.unitKitTiers`: the room's one table for the id -- side 0's, unless side 0 is not KDF (then side 1's). */
   unitKitTiers: KitTiers;
   /** Both sides' tiers in a versus room, for the renderer's per-side
    *  templates (`RendererOptions.unitKitTiersBySide`); absent everywhere
