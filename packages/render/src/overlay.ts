@@ -217,7 +217,10 @@ export class DebugOverlay {
         break;
       }
       case 'strike':
-        this.line(t + `<b>PRECISION STRIKE</b> called by ${this.name(e.by)}`, 'var(--hot)');
+        this.line(
+          t + (e.profile === 1 ? `<b>MORTAR BARRAGE</b> round, called by ${this.name(e.by)}` : `<b>PRECISION STRIKE</b> called by ${this.name(e.by)}`),
+          'var(--hot)'
+        );
         break;
       case 'smokeLaid':
         this.line(t + `${this.name(e.by)} lays a <b>smoke screen</b>`, 'var(--ink-mute)');
