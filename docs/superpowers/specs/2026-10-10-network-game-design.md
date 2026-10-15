@@ -536,7 +536,12 @@ tick and the report button. Both are `aria-live` lines, through `t()`.
   (N3 ruling LD4, 16 Oct, deferred those orders to §6.3. **The lead's 15 Oct
   request supersedes LD4:** in versus the Sarim seat gets tunnels as its
   asymmetric advantage, and the orders are queued as #681. That is its own
-  package straight after N3, sketched in `plans/2026-10-16-net-n3-prep.md` §6.)
+  package straight after N3, sketched in `plans/2026-10-16-net-n3-prep.md` §6.
+  **Ruled 15 Oct (lead):**
+  - travel takes time, scaled by route length;
+  - fighters vent only on the player's order, with "stay down" as the default;
+  - `yahalom_squad` joins the versus KDF menu;
+  - `enterTunnel` is Sarim-seat only.)
 - On a human-held side no scripted trigger fires, no wave spawns and the
   doctrine commander does not run. Civilians stay on side 2 and the ROE
   scoring still charges the KDF seat (Conduct is a KDF doctrine, not a
