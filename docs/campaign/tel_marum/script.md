@@ -613,7 +613,7 @@ the force is never wiped. The raze deadline is the whole loss condition.
 |---|---|---|
 | ~~**G12/G-D** — a wave cannot speak~~ | **CLOSED 2026-09-06.** The 210s wave's line is applied; the 180s wave's "companion" line was never actually written down anywhere | — |
 | **G-I** (Act I) — `built` prints a raw unit id | narrative §12 | this is the one mission in the act that buys units repeatedly |
-| **G10 (corrected)** — no authored intel *rate* field | design §7 | not blocking: `intel_start:150` alone funds one satellite sweep; the drone/stationary-scout accrual (8/5 per min) already exists with no schema change |
+| **G10 (corrected)** — no authored intel *rate* field | design §7 | not blocking: `intel_start:150` alone funds one satellite sweep; the drone/stationary-scout accrual (8/5 per min) already exists with no schema change *(Superseded by F1, 2026-10-15: that accrual does not exist and the per-minute term is gone; intel is earned by doing and spent on four calls; `intel_rate_per_min` is dropped; see docs/GDD.md §3.)* |
 
 ---
 

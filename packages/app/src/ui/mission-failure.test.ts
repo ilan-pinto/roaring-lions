@@ -161,6 +161,12 @@ describe('4. the time limit warns once, a minute out (GH-540)', () => {
     expect(limitWarningLine()).toBe('One minute left to finish the mission');
   });
 
+  // 16,800 ticks of a real mission runtime: the 14:00 limit IS the claim, so it
+  // cannot be shortened. Measured single-file, Apple M3 Pro, 2026-10-15, six runs
+  // with the load average at 38-106 on 12 cores throughout: 0.60-0.81 s in the
+  // fastest two, 2.4-5.0 s in the other four -- and past vitest's 5 s default more
+  // than once under a full parallel `pnpm test` on a loaded machine. The margin is
+  // for contention only: needing it on a quiet machine would be a regression.
   it("Beit Sahwan I with no orders: the runtime's own cause words the end at 14:00", () => {
     const mission = missions.beit_sahwan_1_recon as unknown as MissionJson;
     const map = parseMap(maps[mission.map.file as keyof typeof maps]);
@@ -190,5 +196,5 @@ describe('4. the time limit warns once, a minute out (GH-540)', () => {
     expect(failureReason(rt.defeatCause, rt.objectiveList, end)).toBe(
       'Out of time — Identify six garrison positions was not finished'
     );
-  });
+  }, 30_000);
 });

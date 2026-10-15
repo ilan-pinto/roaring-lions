@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fx } from './fixed';
 import { Sim, TICKS_PER_SECOND, type SimEvent, type UnitTypeJson } from './sim';
-import { STRIKE_DELAY_TICKS } from './tuning';
+import { FS_MORTAR_BARRAGE, FS_SMOKE_SCREEN, STRIKE_DELAY_TICKS } from './tuning';
 import {
+  FIRE_SUPPORT_KINDS,
   MissionRuntime,
+  type SupportKind,
   type LedgerData,
   type LedgerRosterEntry,
   type MissionContext,
@@ -103,6 +105,32 @@ const FOOT_PATROL: UnitTypeJson = {
   ],
 };
 
+/** A foot scout: `role: 'infantry'` (so it braces like a real squad) and `mark_target`
+ *  (so the retired per-minute trickle would have paid it 5 a minute while parked).
+ *  Appended last to the world's type list so no existing type index moves. */
+const FOOT_SCOUT: UnitTypeJson = {
+  ...SQUAD,
+  id: 'm_scout',
+  role: 'infantry',
+  abilities: ['mark_target'],
+};
+
+/** An aircraft (`mobility.domain: 'air'`; the plain DRONE fixture is not one), for
+ *  the high-ground drone case. Appended last, like the type below it. */
+const HG_AIR: UnitTypeJson = {
+  ...DRONE,
+  id: 'm_hg_air',
+  mobility: { speed_tiles_s: 2.2, domain: 'air' },
+};
+
+/** A foot unit that can garrison, for the high-ground garrison case. Appended
+ *  last to the world's type list so no existing type index moves. */
+const FOOT_GARRISON: UnitTypeJson = {
+  ...FOOT_SCOUT,
+  id: 'm_hg_garrison',
+  abilities: ['mark_target', 'garrison'],
+};
+
 /** Every slot the sim could have spawned into. `Sim.count` is private, and the
  *  alive filter each caller applies covers the unspawned tail. */
 function allIds(sim: Sim): number[] {
@@ -115,11 +143,18 @@ interface World {
   step: (ticks: number) => { sim: SimEvent[]; mission: MissionEvent[] };
 }
 
-function makeWorld(mission: MissionJson, ctx?: Partial<MissionContext>): World {
+/** `prep` runs on the bare sim before the runtime is built, so a test can lay
+ *  relief, a building or a tunnel that `start()` will then read. */
+function makeWorld(
+  mission: MissionJson,
+  ctx?: Partial<MissionContext>,
+  prep?: (sim: Sim) => void,
+): World {
   const sim = new Sim({ seed: 7, width: 28, height: 12, capacity: 32 });
   const ids = new Map<string, number>();
-  for (const t of [SQUAD, AMBUSHER, RUNNER, TANK, DRONE, CIVILIANS, CARRIER, RIDER, FOOT_PATROL])
+  for (const t of [SQUAD, AMBUSHER, RUNNER, TANK, DRONE, CIVILIANS, CARRIER, RIDER, FOOT_PATROL, FOOT_SCOUT, FOOT_GARRISON, HG_AIR])
     ids.set(t.id, sim.addUnitType(t));
+  prep?.(sim);
   const runtime = new MissionRuntime(sim, mission, {
     typeIdOf: (u) => {
       const t = ids.get(u);
@@ -2242,15 +2277,15 @@ describe('intel: earned by watching, spent on certainty (GDD §3)', () => {
     );
   }
 
-  it('a loitering drone earns intel; a parked rifle squad earns none', () => {
+  it('neither a loitering drone nor a parked rifle squad earns intel (no trickle, F1)', () => {
+    // Was "a loitering drone earns intel; a parked rifle squad earns none" (8 per
+    // minute, GDD §3). Intel is earned by doing now: see `describe('intel by doing')`.
     const withDrone = intelWorld({
       starting_force: [{ unit: 'm_drone', count: 1, at: [5, 5] }],
       resources: { intel_start: 0 },
     });
     withDrone.step(60 * TICKS_PER_SECOND);
-    // GDD §3 anchor: drone loiter ~8/min.
-    expect(withDrone.runtime.intel).toBeGreaterThanOrEqual(7);
-    expect(withDrone.runtime.intel).toBeLessThanOrEqual(9);
+    expect(withDrone.runtime.intel).toBe(0);
 
     const noDrone = intelWorld({
       starting_force: [{ unit: 'm_squad', count: 1, at: [5, 5] }],
@@ -2313,6 +2348,776 @@ describe('intel: earned by watching, spent on certainty (GDD §3)', () => {
     const { mission } = w.step(15 * TICKS_PER_SECOND);
     expect(mission.some((e) => e.kind === 'roe')).toBe(true);
     expect(w.runtime.roeScore).toBeLessThan(100);
+  });
+});
+
+describe('the fire-support menu (F1 Task 8, GH-183)', () => {
+  // Approved row, PROVISIONAL until the lead confirms it (fire-support-numbers.md).
+  // Literals on purpose: the test must not read the table it checks.
+  const PRICE: Record<SupportKind, number> = {
+    smoke_screen: 60,
+    mortar_barrage: 120,
+    drone_sweep: 150,
+    air_strike: 250,
+  };
+  const AT = { x: fx.from(20.5), y: fx.from(6.5) };
+
+  function menuWorld(intelStart: number, partial: Partial<MissionJson> = {}): World {
+    return makeWorld(
+      baseMission({
+        map: { file: 'none', player_start: [4, 6] },
+        objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
+        starting_force: [{ unit: 'm_squad', count: 1, at: [3, 3] }],
+        enemy: { garrison: [{ unit: 'm_rpg', count: 1, at: [24, 10], facing_deg: 180 }] },
+        resources: { intel_start: intelStart },
+        ...partial,
+      }),
+    );
+  }
+
+  it('lists the four kinds, each at its price', () => {
+    expect([...FIRE_SUPPORT_KINDS].sort()).toEqual(Object.keys(PRICE).sort());
+    const w = menuWorld(0);
+    for (const k of FIRE_SUPPORT_KINDS) expect(w.runtime.supportCost(k)).toBe(PRICE[k]);
+    expect(w.runtime.sweepCost).toBe(150); // still getters (F-R10)
+    expect(w.runtime.strikeCost).toBe(250);
+  });
+
+  it.each(FIRE_SUPPORT_KINDS)('%s deducts its price and queues its command', (kind) => {
+    const w = menuWorld(500);
+    const spy = vi.spyOn(w.sim, 'queueCommand');
+    expect(w.runtime.requestSupport(kind, AT.x, AT.y)).toBe(true);
+    expect(w.runtime.intel).toBe(500 - PRICE[kind]);
+    expect(spy).toHaveBeenCalledTimes(1);
+    const cmd = spy.mock.calls[0][0];
+    if (kind === 'drone_sweep') {
+      expect(cmd).toEqual({ kind: 'reveal', side: 0, x: AT.x, y: AT.y });
+    } else {
+      expect(cmd.kind).toBe('callStrike');
+      if (cmd.kind !== 'callStrike') return;
+      expect(cmd.caller).toBe(0);
+      if (kind === 'air_strike') {
+        // toBe(undefined) passes for an absent key and a present-undefined one alike.
+        expect('profile' in cmd).toBe(false);
+      } else {
+        expect(cmd.profile).toBe(kind === 'smoke_screen' ? FS_SMOKE_SCREEN : FS_MORTAR_BARRAGE);
+      }
+    }
+  });
+
+  it.each(FIRE_SUPPORT_KINDS)('%s refuses when short by 1 intel, and charges nothing', (kind) => {
+    const w = menuWorld(PRICE[kind] - 1);
+    const spy = vi.spyOn(w.sim, 'queueCommand');
+    expect(w.runtime.requestSupport(kind, AT.x, AT.y)).toBe(false);
+    expect(w.runtime.intel).toBe(PRICE[kind] - 1);
+    expect(spy).not.toHaveBeenCalled();
+    // The control: exactly the price is enough.
+    const exact = menuWorld(PRICE[kind]);
+    expect(exact.runtime.requestSupport(kind, AT.x, AT.y)).toBe(true);
+    expect(exact.runtime.intel).toBe(0);
+  });
+
+  it('a barrage and a smoke screen refuse with no living caller, like the strike; the sweep needs none', () => {
+    const w = menuWorld(1000);
+    w.sim.debugKill(0); // the only player unit; nothing has stepped, so the mission is not ended
+    const spy = vi.spyOn(w.sim, 'queueCommand');
+    for (const k of ['smoke_screen', 'mortar_barrage', 'air_strike'] as const) {
+      expect(w.runtime.requestSupport(k, AT.x, AT.y)).toBe(false);
+    }
+    expect(w.runtime.intel).toBe(1000);
+    expect(spy).not.toHaveBeenCalled();
+    expect(w.runtime.requestSupport('drone_sweep', AT.x, AT.y)).toBe(true);
+    expect(w.runtime.intel).toBe(850);
+  });
+
+  it('a refusal on the end of a mission charges nothing', () => {
+    const w = menuWorld(1000, { objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 1 }] });
+    w.step(3 * TICKS_PER_SECOND);
+    const intel = w.runtime.intel; // the objective's own 30 landed on the way
+    expect(intel).toBeGreaterThanOrEqual(1000);
+    for (const k of FIRE_SUPPORT_KINDS) expect(w.runtime.requestSupport(k, AT.x, AT.y)).toBe(false);
+    expect(w.runtime.intel).toBe(intel);
+  });
+
+  it('requestSweep and requestStrike are the same calls as before', () => {
+    const w = menuWorld(1000);
+    const spy = vi.spyOn(w.sim, 'queueCommand');
+    expect(w.runtime.requestSweep(AT.x, AT.y)).toBe(true);
+    expect(w.runtime.requestStrike(AT.x, AT.y)).toBe(true);
+    expect(w.runtime.intel).toBe(1000 - 150 - 250);
+    // toStrictEqual: a present `profile: undefined` is not an absent key.
+    expect(spy.mock.calls.map(([c]) => c)).toStrictEqual([
+      { kind: 'reveal', side: 0, x: AT.x, y: AT.y },
+      { kind: 'callStrike', caller: 0, x: AT.x, y: AT.y }, // no profile key: the air strike, as it was
+    ]);
+  });
+
+  it('an unknown kind is refused: no charge, no command, intel stays a number', () => {
+    const w = menuWorld(1000);
+    const spy = vi.spyOn(w.sim, 'queueCommand');
+    for (const bogus of ['bogus', 'toString', '__proto__', '']) {
+      expect(w.runtime.requestSupport(bogus as SupportKind, AT.x, AT.y)).toBe(false);
+      expect(w.runtime.supportCost(bogus as SupportKind)).toBe(Number.POSITIVE_INFINITY);
+    }
+    expect(w.runtime.intel).toBe(1000);
+    expect(spy).not.toHaveBeenCalled();
+    // Nothing was corrupted: a real call still charges its price exactly.
+    expect(w.runtime.requestSupport('air_strike', AT.x, AT.y)).toBe(true);
+    expect(w.runtime.intel).toBe(750);
+    expect(w.runtime.requestSupport('bogus' as SupportKind, AT.x, AT.y)).toBe(false);
+    expect(w.runtime.intel).toBe(750);
+  });
+
+  describe('a drone sweep and the player\'s orders (#402, #537, #591, F-R6)', () => {
+    // Enemy at [24,10] stands beyond every sight on the board, so the sweep is what
+    // identifies him. Player units: 0 a plain arrived attack-mover, 1 a halted one.
+    const sweepWorld = (): World =>
+      menuWorld(500, {
+        starting_force: [
+          { unit: 'm_squad', count: 1, at: [3, 3] },
+          { unit: 'm_squad', count: 1, at: [3, 8] },
+        ],
+      });
+    const ENEMY = 2;
+    const tile = (w: World, i: number): [number, number] => [w.sim.state.posX[i], w.sim.state.posY[i]];
+
+    it('a drone sweep moves no player unit without a focus', () => {
+      const w = sweepWorld();
+      w.sim.queueCommand({ kind: 'attackMove', ids: [0], x: fx.from(5.5), y: fx.from(3.5) });
+      w.sim.queueCommand({ kind: 'halt', ids: [1] });
+      w.step(4 * TICKS_PER_SECOND); // arrived
+      expect(w.sim.contactLevel(0, ENEMY)).toBe(0);
+      const before = [tile(w, 0), tile(w, 1)];
+      expect(w.runtime.requestSupport('drone_sweep', fx.from(24.5), fx.from(10.5))).toBe(true);
+      w.step(10 * TICKS_PER_SECOND);
+      expect(w.sim.contactLevel(0, ENEMY)).toBe(2); // it did reveal him
+      expect([tile(w, 0), tile(w, 1)]).toEqual(before);
+    });
+
+    it('an attack-mover ordered with sweep: true walks toward what the sweep reveals', () => {
+      const w = sweepWorld();
+      w.sim.queueCommand({ kind: 'attackMove', ids: [0], x: fx.from(5.5), y: fx.from(3.5), sweep: true });
+      w.step(4 * TICKS_PER_SECOND);
+      const before = tile(w, 0);
+      expect(w.runtime.requestSupport('drone_sweep', fx.from(24.5), fx.from(10.5))).toBe(true);
+      w.step(10 * TICKS_PER_SECOND);
+      expect(w.sim.contactLevel(0, ENEMY)).toBe(2);
+      expect(w.sim.state.posX[0] - before[0]).toBeGreaterThan(fx.from(3));
+    });
+
+    it('a focused unit whose lost target a sweep re-identifies keeps its chase', () => {
+      const lostFor = (sweepAt: number | null): { target: number; lost: number } => {
+        const w = sweepWorld();
+        w.sim.identifyTo(0, ENEMY);
+        w.sim.queueCommand({ kind: 'attack', ids: [0], target: ENEMY });
+        w.step(1);
+        expect(w.sim.state.focusTarget[0]).toBe(ENEMY);
+        // Nobody sees him from here: the contact only decays.
+        for (let t = 0; w.sim.state.focusLost[0] < 60 && t < 600; t++) w.step(1);
+        expect(w.sim.state.focusLost[0]).toBe(60);
+        if (sweepAt !== null) {
+          expect(w.runtime.requestSupport('drone_sweep', fx.from(24.5), fx.from(10.5))).toBe(true);
+        }
+        // Past where an uninterrupted count (100 ticks) would have ended it.
+        w.step(60);
+        return { target: w.sim.state.focusTarget[0], lost: w.sim.state.focusLost[0] };
+      };
+      // The control: no sweep, and the order ends.
+      expect(lostFor(null).target).toBe(-1);
+      // With the sweep the count restarts and the chase stands.
+      const swept = lostFor(0);
+      expect(swept.target).toBe(ENEMY);
+      expect(swept.lost).toBeLessThan(60);
+    });
+
+    it.each(FIRE_SUPPORT_KINDS)('calling %s leaves every focus standing', (kind) => {
+      const w = sweepWorld();
+      w.sim.identifyTo(0, ENEMY);
+      // Unit 0 is also the first living surface unit, i.e. the caller.
+      w.sim.queueCommand({ kind: 'attack', ids: [0, 1], target: ENEMY });
+      w.step(1);
+      expect(w.runtime.requestSupport(kind, fx.from(14.5), fx.from(6.5))).toBe(true);
+      w.step(1);
+      expect([w.sim.state.focusTarget[0], w.sim.state.focusTarget[1]]).toEqual([ENEMY, ENEMY]);
+      w.step(TICKS_PER_SECOND);
+      expect([w.sim.state.focusTarget[0], w.sim.state.focusTarget[1]]).toEqual([ENEMY, ENEMY]);
+    });
+  });
+});
+
+describe('intel by doing (F1: first identification and objective completion; no trickle)', () => {
+  function doingWorld(partial: Partial<MissionJson>, ctx?: Partial<MissionContext>): World {
+    return makeWorld(
+      baseMission({
+        map: { file: 'none', player_start: [4, 6] },
+        objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
+        resources: { intel_start: 0 },
+        ...partial,
+      }),
+      ctx
+    );
+  }
+
+  const earned = (events: MissionEvent[]): Extract<MissionEvent, { kind: 'intelEarned' }>[] =>
+    events.filter((e): e is Extract<MissionEvent, { kind: 'intelEarned' }> => e.kind === 'intelEarned');
+
+  /** Two unarmed enemies (m_tech has no weapons, so nobody shoots and nobody dies)
+   *  that the squad at x=3 sees from where it stands. */
+  const WATCHED: Partial<MissionJson> = {
+    starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+    enemy: {
+      garrison: [
+        { unit: 'm_tech', count: 1, at: [7, 4], stance: { kind: 'hold_position' } },
+        { unit: 'm_tech', count: 1, at: [7, 7], stance: { kind: 'hold_position' } },
+      ],
+    },
+  };
+
+  it('a stationary scout earns nothing', () => {
+    // A foot scout that can mark, parked 60 s with nothing in sight. Earned 5 a minute
+    // on the old trickle.
+    const w = doingWorld({ starting_force: [{ unit: 'm_scout', count: 1, at: [5, 5] }] });
+    const out = w.step(60 * TICKS_PER_SECOND);
+    expect(w.sim.state.moving[0]).toBe(0);
+    expect(w.runtime.intel).toBe(0);
+    expect(earned(out.mission)).toHaveLength(0);
+  });
+
+  it('a drone on station earns nothing for loitering', () => {
+    const w = doingWorld({ starting_force: [{ unit: 'm_drone', count: 1, at: [5, 5] }] });
+    const out = w.step(60 * TICKS_PER_SECOND);
+    expect(w.runtime.intel).toBe(0);
+    expect(earned(out.mission)).toHaveLength(0);
+  });
+
+  it('each enemy pays once when first identified', () => {
+    const w = doingWorld(WATCHED);
+    const out = w.step(20 * TICKS_PER_SECOND);
+    expect(w.sim.contactLevel(0, 1)).toBe(2);
+    expect(w.sim.contactLevel(0, 2)).toBe(2);
+    expect(w.runtime.intel).toBe(20);
+    const ev = earned(out.mission);
+    expect(ev).toHaveLength(2);
+    expect(ev.map((e) => e.cause)).toEqual(['identified', 'identified']);
+    expect(ev.map((e) => e.amount)).toEqual([10, 10]);
+    expect(ev.map((e) => e.ref).sort()).toEqual([1, 2]);
+    // `at` names the integer tile the enemy stands on.
+    const byRef = new Map(ev.map((e) => [e.ref, e.at]));
+    expect(byRef.get(1)).toEqual({ x: 7, y: 4 });
+    expect(byRef.get(2)).toEqual({ x: 7, y: 7 });
+  });
+
+  it('losing and re-identifying an enemy pays nothing (D3)', () => {
+    const w = doingWorld(WATCHED);
+    w.step(20 * TICKS_PER_SECOND);
+    expect(w.runtime.intel).toBe(20);
+    // Walk away until both contacts are lost, then walk back.
+    w.sim.queueCommand({ kind: 'move', ids: [0], x: fx.from(0.5), y: fx.from(1.0) });
+    let lost = 0;
+    for (let t = 0; t < 120 * TICKS_PER_SECOND && lost < 2; t++) {
+      const se = w.sim.tick();
+      w.runtime.step(se);
+      for (const e of se) if (e.kind === 'contact' && e.side === 0 && e.level === 'lost') lost++;
+    }
+    expect(lost).toBeGreaterThanOrEqual(2);
+    expect(w.runtime.intel).toBe(20);
+    w.sim.queueCommand({ kind: 'move', ids: [0], x: fx.from(3.5), y: fx.from(5.5) });
+    let again = 0;
+    for (let t = 0; t < 60 * TICKS_PER_SECOND; t++) {
+      const se = w.sim.tick();
+      w.runtime.step(se);
+      for (const e of se) if (e.kind === 'contact' && e.side === 0 && e.level === 'identified') again++;
+    }
+    expect(again).toBeGreaterThanOrEqual(1); // identified a second time...
+    expect(w.runtime.intel).toBe(20); // ...and paid nothing for it
+  });
+
+  it('a completed objective pays 30; a failed one pays nothing (D5)', () => {
+    const done = doingWorld({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [5, 5] }],
+      objectives: [
+        { id: 'short', type: 'survive_until', primary: false, seconds: 5 },
+        { id: 'long', type: 'survive_until', primary: true, seconds: 600 },
+      ],
+    });
+    const out = done.step(6 * TICKS_PER_SECOND);
+    expect(done.runtime.intel).toBe(30);
+    const ev = earned(out.mission);
+    expect(ev).toHaveLength(1);
+    expect(ev[0]).toMatchObject({ cause: 'objective', ref: 'short', amount: 30 });
+
+    // An evacuation with no one to evacuate fails at its deadline.
+    const failed = doingWorld(
+      {
+        // No soldier near the family: nobody is coming for them.
+        starting_force: [{ unit: 'm_squad', count: 1, at: [24, 2] }],
+        civilians: { groups: [{ unit: 'm_civ', count: 1, at: [20, 6] }], refuge: 'refuge' },
+        objectives: [
+          { id: 'evac', type: 'evacuate_before', primary: false, target: 'refuge_zone', count: 1, seconds: 5 },
+          { id: 'long', type: 'survive_until', primary: true, seconds: 600 },
+        ],
+      },
+      { markers: { refuge: [2, 10] }, zones: { refuge_zone: [0, 8, 6, 4] } }
+    );
+    const fout = failed.step(6 * TICKS_PER_SECOND);
+    expect(failed.runtime.objectiveStatus('evac')).toBe('failed');
+    expect(failed.runtime.intel).toBe(0);
+    expect(earned(fout.mission)).toHaveLength(0);
+  });
+
+  it('an objective with a zone names the zone centre', () => {
+    const w = doingWorld(
+      {
+        starting_force: [{ unit: 'm_squad', count: 1, at: [5, 5] }],
+        objectives: [
+          { id: 'hold', type: 'hold_for', primary: true, target: 'post', seconds: 2 },
+        ],
+      },
+      { zones: { post: [2, 2, 6, 6] } }
+    );
+    const out = w.step(4 * TICKS_PER_SECOND);
+    const ev = earned(out.mission);
+    expect(ev).toHaveLength(1);
+    expect(ev[0].at).toEqual({ x: 5, y: 5 });
+  });
+
+  it('completeObjective pays like an internal completion', () => {
+    const w = doingWorld({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [5, 5] }],
+      objectives: [{ id: 'work_up', type: 'survive_until', primary: true, seconds: 600 }],
+    });
+    expect(w.runtime.completeObjective('work_up')).toBe(true);
+    expect(w.runtime.intel).toBe(30);
+    const out = w.step(1);
+    const ev = earned(out.mission);
+    expect(ev).toHaveLength(1);
+    expect(ev[0]).toMatchObject({ cause: 'objective', ref: 'work_up', amount: 30 });
+    // A second call is refused and pays nothing more.
+    expect(w.runtime.completeObjective('work_up')).toBe(false);
+    expect(w.runtime.intel).toBe(30);
+  });
+
+  it('suspected contacts pay nothing', () => {
+    // Far enough that the squad only ever suspects: step until a `suspected` contact event
+    // and no `identified` one has been seen, and require intel 0.
+    const w = doingWorld({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+      enemy: { garrison: [{ unit: 'm_tech', count: 1, at: [17, 5], stance: { kind: 'hold_position' } }] },
+    });
+    const levels: string[] = [];
+    for (let t = 0; t < 40 * TICKS_PER_SECOND; t++) {
+      const se = w.sim.tick();
+      w.runtime.step(se);
+      for (const e of se) if (e.kind === 'contact' && e.side === 0) levels.push(e.level);
+    }
+    // Move on a drone-free probe: nothing identified at this range, intel untouched.
+    expect(levels).not.toContain('identified');
+    expect(w.runtime.intel).toBe(0);
+    // Whatever the squad suspects pays nothing; pin by walking it to the edge of sight.
+    w.sim.queueCommand({ kind: 'move', ids: [0], x: fx.from(9.5), y: fx.from(5.5) });
+    let sawSuspected = false;
+    for (let t = 0; t < 40 * TICKS_PER_SECOND && !sawSuspected; t++) {
+      const se = w.sim.tick();
+      const m = w.runtime.step(se);
+      const ids = se.filter((e) => e.kind === 'contact' && e.side === 0 && e.level === 'identified').length;
+      sawSuspected = se.some((e) => e.kind === 'contact' && e.side === 0 && e.level === 'suspected');
+      if (sawSuspected && ids === 0) expect(earned(m)).toHaveLength(0);
+    }
+    expect(sawSuspected).toBe(true);
+  });
+
+  it('side 1 identifying side 0 pays the player nothing', () => {
+    // The enemy has the eyes: a rifle squad walks up to an armed-for-sight enemy...
+    const w = doingWorld({
+      starting_force: [{ unit: 'm_drone', count: 1, at: [3, 5] }],
+      enemy: { garrison: [{ unit: 'm_squad', count: 1, at: [4, 5], stance: { kind: 'hold_position' } }] },
+    });
+    const sides: number[] = [];
+    for (let t = 0; t < 10 * TICKS_PER_SECOND; t++) {
+      const se = w.sim.tick();
+      w.runtime.step(se);
+      for (const e of se) if (e.kind === 'contact' && e.level === 'identified') sides.push(e.side);
+    }
+    expect(sides).toContain(1); // the enemy identified the player's unit
+    expect(w.runtime.intel).toBe(10 * sides.filter((s) => s === 0).length);
+  });
+
+  it('an identification with no observer pays nothing (a sweep reveal, D3)', () => {
+    const w = doingWorld({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [3, 3] }],
+      enemy: { garrison: [{ unit: 'm_rpg', count: 1, at: [24, 10], facing_deg: 180 }] },
+      resources: { intel_start: 200 },
+    });
+    w.step(2 * TICKS_PER_SECOND);
+    expect(w.runtime.requestSweep(fx.from(24), fx.from(10))).toBe(true);
+    const out = w.step(2);
+    expect(w.sim.contactLevel(0, 1)).toBe(2);
+    expect(w.runtime.intel).toBe(50); // 200 - 150, and nothing earned
+    expect(earned(out.mission)).toHaveLength(0);
+  });
+
+  it('an enemy first revealed without an observer never pays, even when later spotted (C-R5)', () => {
+    const w = doingWorld({
+      starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+      enemy: { garrison: [{ unit: 'm_tech', count: 1, at: [20, 5], stance: { kind: 'hold_position' } }] },
+      resources: { intel_start: 200 },
+    });
+    w.step(2);
+    expect(w.runtime.requestSweep(fx.from(20), fx.from(5))).toBe(true);
+    w.step(2);
+    expect(w.sim.contactLevel(0, 1)).toBe(2);
+    expect(w.runtime.intel).toBe(50);
+    // Let the revealed contact decay to lost (nobody is watching), then walk the squad into
+    // sight so a REAL observer identifies the same enemy.
+    let lost = false;
+    for (let t = 0; t < 120 * TICKS_PER_SECOND && !lost; t++) {
+      const se = w.sim.tick();
+      w.runtime.step(se);
+      lost = se.some((e) => e.kind === 'contact' && e.side === 0 && e.level === 'lost');
+    }
+    expect(lost).toBe(true);
+    w.sim.queueCommand({ kind: 'move', ids: [0], x: fx.from(14.5), y: fx.from(5.5) });
+    let observed = 0;
+    for (let t = 0; t < 120 * TICKS_PER_SECOND; t++) {
+      const se = w.sim.tick();
+      w.runtime.step(se);
+      for (const e of se) {
+        if (e.kind === 'contact' && e.side === 0 && e.level === 'identified' && e.observer >= 0) observed++;
+      }
+    }
+    expect(observed).toBeGreaterThanOrEqual(1);
+    expect(w.runtime.intel).toBe(50);
+  });
+});
+
+// --- high ground pays (F1 Task 5, D4) -------------------------------------------
+// A 4x3 plateau of level 3 on a flat 28x12 map: x 8..11, y 4..6. The median open
+// level is 0, so every plateau tile stands HIGH_GROUND_LEVELS above it: one rise,
+// id 0. Units are placed OFF it and walk on, because a unit that starts on a rise
+// earns nothing there until it has left (D4, ruled 6 Oct). Orders are a plain
+// move, a plain attack-move or a halt: these keep a unit where it was sent
+// (#537), where an `attackMove` with `sweep: true` (the AI's kind) walks on.
+describe('high ground pays (F1 Task 5, D4)', () => {
+  const PLATEAU = { x0: 8, x1: 11, y0: 4, y1: 6 };
+  const HOLD_X = 10.5; // inside the plateau, 2.5 tiles from either side edge
+  const EDGE_X = 11.95; // the plateau's east edge: one tick's step from tile 12
+  const HOLD_TICKS = 200;
+  const onPlateau = (w: World, id: number): boolean => {
+    const tx = w.sim.state.posX[id] >> 16;
+    const ty = w.sim.state.posY[id] >> 16;
+    return tx >= PLATEAU.x0 && tx <= PLATEAU.x1 && ty >= PLATEAU.y0 && ty <= PLATEAU.y1;
+  };
+  const rises = (events: MissionEvent[]): Extract<MissionEvent, { kind: 'intelEarned' }>[] =>
+    events.filter(
+      (e): e is Extract<MissionEvent, { kind: 'intelEarned' }> => e.kind === 'intelEarned' && e.cause === 'highGround',
+    );
+  const mv = (id: number, x: number, y = 5.5) => ({ kind: 'move' as const, ids: [id], x: fx.from(x), y: fx.from(y) });
+
+  function riseWorld(
+    partial: Partial<MissionJson>,
+    opts: { tunnel?: boolean; house?: boolean } = {},
+  ): World {
+    return makeWorld(
+      baseMission({
+        map: { file: 'none', player_start: [2, 8] },
+        objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
+        resources: { intel_start: 0 },
+        ...partial,
+      }),
+      undefined,
+      (sim) => {
+        for (let y = PLATEAU.y0; y <= PLATEAU.y1; y++) {
+          for (let x = PLATEAU.x0; x <= PLATEAU.x1; x++) sim.setElevation(x, y, 3);
+        }
+        if (opts.tunnel === true) sim.addTunnel({ id: 'tn_hg', points: [[1, 1], [3, 1]], dig_tiles_per_s: 1 });
+        if (opts.house === true) {
+          const t = sim.addStructureType({ id: 'hg_house', name: 'House', hp_per_tile: 200, garrison_slots: 2, rubble_cover: 2 });
+          // Tiles (8,5) and (10,5): the centroid is (9.5, 5.5), the OPEN tile (9,5),
+          // which is on the plateau (F-R7: the blocked mask alone does not exclude a garrison).
+          sim.addStructure(t, [5 * sim.width + 8, 5 * sim.width + 10]);
+        }
+      },
+    );
+  }
+
+  /** Step one tick at a time until unit `id` first stands on the plateau (the
+   *  runtime has counted that tick: it is tick 1 of the hold). Returns every
+   *  mission event seen on the way. */
+  function walkOnto(w: World, id: number, limit = 400): MissionEvent[] {
+    const seen: MissionEvent[] = [];
+    for (let t = 0; t < limit && !onPlateau(w, id); t++) seen.push(...w.step(1).mission);
+    expect(onPlateau(w, id)).toBe(true);
+    return seen;
+  }
+
+  const SCOUT = { unit: 'm_scout', count: 1, at: [4, 5] as [number, number] };
+  const hold = (extra: Partial<MissionJson> = {}): Partial<MissionJson> => ({ starting_force: [SCOUT], ...extra });
+  const tech = (at: [number, number]) => ({
+    garrison: [{ unit: 'm_tech', count: 1, at, stance: { kind: 'hold_position' as const } }],
+  });
+
+  it('a unit standing 10 s on a rise pays 30 once', () => {
+    const w = riseWorld(hold());
+    w.sim.queueCommand(mv(0, HOLD_X));
+    expect(rises(walkOnto(w, 0))).toHaveLength(0);
+    // The tick that put it on the plateau was tick 1 of the hold: 198 more is 199.
+    expect(rises(w.step(HOLD_TICKS - 2).mission)).toHaveLength(0);
+    const out = rises(w.step(1).mission);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ kind: 'intelEarned', cause: 'highGround', amount: 30, ref: 0 });
+    expect(out[0].at).toEqual({ x: w.sim.state.posX[0] >> 16, y: w.sim.state.posY[0] >> 16 });
+    expect(w.runtime.intel).toBe(30);
+    // And once: ten more seconds of the same hold pay nothing.
+    expect(rises(w.step(2 * HOLD_TICKS).mission)).toHaveLength(0);
+    expect(w.runtime.intel).toBe(30);
+  });
+
+  it('leaving at 9.95 s pays nothing; returning restarts the count', () => {
+    const w = riseWorld(hold());
+    w.sim.queueCommand(mv(0, EDGE_X));
+    walkOnto(w, 0);
+    // Parked on the east edge. A unit that has halted is braced and takes four ticks
+    // to stand before it moves, so ask it to leave four ticks early: it is still on
+    // the rise for ticks 196-199 and off on the tick the count would reach 200.
+    expect(rises(w.step(HOLD_TICKS - 6).mission)).toHaveLength(0); // the hold is at 195
+    expect(w.sim.state.posX[0] >> 16).toBe(11);
+    w.sim.queueCommand(mv(0, 13.5));
+    expect(rises(w.step(4).mission)).toHaveLength(0);
+    expect(onPlateau(w, 0)).toBe(true); // 199 ticks (9.95 s) on the rise
+    expect(rises(w.step(1).mission)).toHaveLength(0);
+    expect(onPlateau(w, 0)).toBe(false); // and gone before the 200th
+    expect(rises(w.step(10).mission)).toHaveLength(0);
+    // Back on: the count starts from one again, not from 199.
+    w.sim.queueCommand(mv(0, EDGE_X));
+    walkOnto(w, 0);
+    expect(rises(w.step(HOLD_TICKS - 2).mission)).toHaveLength(0);
+    expect(rises(w.step(1).mission)).toHaveLength(1);
+    expect(w.runtime.intel).toBe(30);
+  });
+
+  it('an enemy inside the contest radius stops the count', () => {
+    // CONTEST_RADIUS_SQ is the hold rule's own number: 6 tiles. 4.5 away contests;
+    // 8 away (the same scout still identifies it) does not.
+    const near = riseWorld(hold({ enemy: tech([15, 5.5]) }));
+    near.sim.queueCommand(mv(0, HOLD_X));
+    const nearOut = [...walkOnto(near, 0), ...near.step(2 * HOLD_TICKS).mission];
+    expect(rises(nearOut)).toHaveLength(0);
+    expect(near.runtime.intel).toBe(10); // the enemy was identified (and that paid); the rise did not
+    const far = riseWorld(hold({ enemy: tech([18.5, 5.5]) }));
+    far.sim.queueCommand(mv(0, HOLD_X));
+    const farOut = [...walkOnto(far, 0), ...far.step(2 * HOLD_TICKS).mission];
+    expect(rises(farOut)).toHaveLength(1);
+    expect(far.runtime.intel).toBe(10 + 30);
+  });
+
+  it('a buried unit earns nothing on a rise', () => {
+    const w = riseWorld(hold(), { tunnel: true });
+    w.sim.queueCommand(mv(0, HOLD_X));
+    walkOnto(w, 0);
+    w.step(50);
+    // Under the plateau at tick 50: its coordinates still name a plateau tile.
+    w.sim.putInTunnel(0, 0);
+    expect(w.sim.state.tunnelIn[0]).toBe(0);
+    expect(onPlateau(w, 0)).toBe(true);
+    expect(rises(w.step(2 * HOLD_TICKS).mission)).toHaveLength(0);
+    expect(w.runtime.intel).toBe(0);
+  });
+
+  it('a drone over a rise earns nothing', () => {
+    const w = riseWorld({ starting_force: [{ unit: 'm_hg_air', count: 1, at: [4, 5] }] });
+    w.sim.queueCommand(mv(0, HOLD_X));
+    const out = [...walkOnto(w, 0), ...w.step(2 * HOLD_TICKS).mission];
+    expect(onPlateau(w, 0)).toBe(true);
+    expect(rises(out)).toHaveLength(0);
+    expect(w.runtime.intel).toBe(0);
+  });
+
+  it('a garrisoned unit earns nothing on a rise', () => {
+    const w = riseWorld({ starting_force: [{ unit: 'm_hg_garrison', count: 1, at: [4, 5] }] }, { house: true });
+    w.sim.queueCommand({ kind: 'garrison', ids: [0], structure: 0 });
+    const out: MissionEvent[] = [];
+    for (let t = 0; t < 400 && w.sim.state.garrisonedIn[0] < 0; t++) out.push(...w.step(1).mission);
+    expect(w.sim.state.garrisonedIn[0]).toBe(0);
+    // Its position is the building's centroid: an OPEN tile of the plateau.
+    expect(w.sim.state.posX[0] >> 16).toBe(9);
+    expect(w.sim.state.posY[0] >> 16).toBe(5);
+    expect(w.sim.blocked[5 * w.sim.width + 9]).toBe(0);
+    out.push(...w.step(2 * HOLD_TICKS).mission);
+    expect(rises(out)).toHaveLength(0);
+    expect(w.runtime.intel).toBe(0);
+  });
+
+  it('a carried unit earns nothing on a rise', () => {
+    // The carrier starts ON the plateau (so it is itself unpaid until it has stood
+    // elsewhere); the rider starts off it and climbs aboard there. Its position is
+    // the carrier's, a plateau tile, for the rest of the run.
+    const w = riseWorld({
+      starting_force: [
+        { unit: 'm_rider', count: 1, at: [4, 5] },
+        { unit: 'm_carrier', count: 1, at: [9.5, 5.5] },
+      ],
+    });
+    w.sim.queueCommand({ kind: 'load', ids: [0], carrier: 1 });
+    const out: MissionEvent[] = [];
+    for (let t = 0; t < 400 && w.sim.state.carriedBy[0] < 0; t++) out.push(...w.step(1).mission);
+    expect(w.sim.state.carriedBy[0]).toBe(1);
+    out.push(...w.step(2 * HOLD_TICKS).mission);
+    expect(onPlateau(w, 0)).toBe(true);
+    expect(rises(out)).toHaveLength(0);
+    expect(w.runtime.intel).toBe(0);
+  });
+
+  it('a unit that spawned on a rise earns nothing standing there', () => {
+    const w = riseWorld({ starting_force: [{ unit: 'm_scout', count: 1, at: [10, 5] }] });
+    expect(onPlateau(w, 0)).toBe(true);
+    expect(rises(w.step(3 * HOLD_TICKS).mission)).toHaveLength(0);
+    // It pays only after it has stood elsewhere and come back.
+    w.sim.queueCommand(mv(0, 4.5));
+    for (let t = 0; t < 400 && onPlateau(w, 0); t++) w.step(1);
+    expect(onPlateau(w, 0)).toBe(false);
+    w.sim.queueCommand(mv(0, HOLD_X));
+    walkOnto(w, 0);
+    expect(rises(w.step(HOLD_TICKS - 2).mission)).toHaveLength(0);
+    expect(rises(w.step(1).mission)).toHaveLength(1);
+  });
+
+  it('a second unit on a paid rise pays nothing', () => {
+    const w = riseWorld({
+      starting_force: [SCOUT, { unit: 'm_scout', count: 1, at: [4, 6] }],
+    });
+    w.sim.queueCommand(mv(0, HOLD_X));
+    walkOnto(w, 0);
+    expect(rises(w.step(HOLD_TICKS).mission)).toHaveLength(1);
+    // A second unit climbs on and holds twice as long.
+    w.sim.queueCommand(mv(1, HOLD_X, 6.5));
+    const out = [...walkOnto(w, 1), ...w.step(2 * HOLD_TICKS).mission];
+    expect(onPlateau(w, 1)).toBe(true);
+    expect(rises(out)).toHaveLength(0);
+    expect(w.runtime.intel).toBe(30);
+  });
+
+  // C-R7, a decision rather than an accident: the hold count belongs to the RISE,
+  // not to the unit standing on it. `riseHolder` is scratch rebuilt every tick
+  // and only says whether SOME qualifying unit holds the rise this tick. So
+  // when A steps off and B steps on within one tick, nothing is reset and the
+  // rise still pays when the combined count reaches HIGH_GROUND_HOLD_TICKS.
+  // The rise has been held continuously for ten seconds either way; a unit
+  // that leaves and returns alone still starts again (the next test).
+  it('the hold count belongs to the rise: a same-tick hand-off keeps counting', () => {
+    const w = riseWorld({
+      starting_force: [SCOUT, { unit: 'm_scout', count: 1, at: [4, 6] }],
+    });
+    w.sim.queueCommand(mv(0, HOLD_X));
+    expect(rises(walkOnto(w, 0))).toHaveLength(0); // A is on: tick 1 of the hold
+    expect(onPlateau(w, 1)).toBe(false); // B has been seen off the rise, so it can earn
+    expect(rises(w.step(99).mission)).toHaveLength(0); // the count is at 100
+    // Between two ticks, A is taken off the plateau and B put on it: the next
+    // tick sees B and not A on the rise, with no tick of nobody in between.
+    w.sim.teleport(0, fx.from(4.5), fx.from(5.5));
+    w.sim.teleport(1, fx.from(HOLD_X), fx.from(6.5));
+    expect(onPlateau(w, 0)).toBe(false);
+    expect(onPlateau(w, 1)).toBe(true);
+    expect(rises(w.step(HOLD_TICKS - 100 - 1).mission)).toHaveLength(0); // 199
+    const out = rises(w.step(1).mission);
+    expect(out).toHaveLength(1); // 200, 100 ticks of each unit
+    expect(out[0].amount).toBe(30);
+    expect(w.runtime.intel).toBe(30);
+  });
+
+  it('a unit that leaves a rise and comes back starts the count again', () => {
+    const w = riseWorld(hold());
+    w.sim.queueCommand(mv(0, HOLD_X));
+    walkOnto(w, 0);
+    expect(rises(w.step(99).mission)).toHaveLength(0);
+    w.sim.teleport(0, fx.from(4.5), fx.from(5.5)); // off for a tick: nobody holds it
+    expect(rises(w.step(1).mission)).toHaveLength(0);
+    w.sim.teleport(0, fx.from(HOLD_X), fx.from(5.5));
+    // Back on: tick 1 of a new count, so 100 more ticks do not pay it.
+    expect(rises(w.step(HOLD_TICKS - 1).mission)).toHaveLength(0);
+    expect(rises(w.step(1).mission)).toHaveLength(1);
+  });
+
+  describe('what the player\'s own orders do to a hold (#402, #537)', () => {
+    // The enemy stands 8 tiles from the plateau's middle: inside the scout's sight
+    // (8) and outside its rifle (7), and outside the 6-tile contest radius.
+    const OUT_OF_REACH = tech([18.5, 5.5]);
+    const ENEMY = 1;
+    const mover = (sweep?: boolean) => ({
+      kind: 'attackMove' as const,
+      ids: [0],
+      x: fx.from(HOLD_X),
+      y: fx.from(5.5),
+      ...(sweep === undefined ? {} : { sweep }),
+    });
+
+    it('a plain attack-mover that identifies an enemy out of reach stays on the rise and is paid', () => {
+      const w = riseWorld(hold({ enemy: OUT_OF_REACH }));
+      w.sim.queueCommand(mover());
+      const out = [...walkOnto(w, 0), ...w.step(2 * HOLD_TICKS).mission];
+      expect(w.sim.contactLevel(0, ENEMY)).toBe(2); // it did see him
+      expect(onPlateau(w, 0)).toBe(true);
+      expect(rises(out)).toHaveLength(1);
+    });
+
+    it('an attack-mover ordered with sweep: true walks off and is not paid', () => {
+      const w = riseWorld(hold({ enemy: OUT_OF_REACH }));
+      w.sim.queueCommand(mover(true));
+      const out = [...walkOnto(w, 0), ...w.step(2 * HOLD_TICKS).mission];
+      expect(w.sim.contactLevel(0, ENEMY)).toBe(2);
+      expect(onPlateau(w, 0)).toBe(false);
+      expect(rises(out)).toHaveLength(0);
+    });
+
+    it('a halted unit stays on the rise and is paid', () => {
+      const w = riseWorld(hold({ enemy: OUT_OF_REACH }));
+      // The sweeping order again, halted the tick it reaches its goal, before the
+      // sweep can carry it on toward what it remembers.
+      w.sim.queueCommand(mover(true));
+      const out: MissionEvent[] = [];
+      for (let t = 0; t < 400 && w.sim.state.posX[0] < fx.from(HOLD_X); t++) out.push(...w.step(1).mission);
+      expect(onPlateau(w, 0)).toBe(true);
+      w.sim.queueCommand({ kind: 'halt', ids: [0] });
+      out.push(...w.step(2 * HOLD_TICKS).mission);
+      expect(w.sim.contactLevel(0, ENEMY)).toBe(2); // it saw him from there
+      expect(onPlateau(w, 0)).toBe(true);
+      expect(rises(out)).toHaveLength(1);
+    });
+
+    it('a unit chasing a focus off a rise is not paid, and its count resets', () => {
+      const w = riseWorld(hold({ enemy: OUT_OF_REACH }));
+      w.sim.queueCommand(mv(0, HOLD_X));
+      walkOnto(w, 0);
+      // Well into the hold, and the enemy identified but out of reach.
+      expect(rises(w.step(150).mission)).toHaveLength(0);
+      expect(w.sim.contactLevel(0, ENEMY)).toBe(2);
+      w.sim.queueCommand({ kind: 'attack', ids: [0], target: ENEMY });
+      const chase: MissionEvent[] = [];
+      for (let t = 0; t < 400 && onPlateau(w, 0); t++) chase.push(...w.step(1).mission);
+      expect(onPlateau(w, 0)).toBe(false); // stepFocus walked it off
+      chase.push(...w.step(HOLD_TICKS).mission);
+      expect(rises(chase)).toHaveLength(0);
+      // The count restarted: back on the rise it takes the whole ten seconds again.
+      w.sim.queueCommand(mv(0, HOLD_X));
+      walkOnto(w, 0);
+      expect(rises(w.step(HOLD_TICKS - 2).mission)).toHaveLength(0);
+      expect(rises(w.step(1).mission)).toHaveLength(1);
+    });
+  });
+
+  it('a flat map pays nothing for height', () => {
+    // No relief laid: no rise exists, and a unit standing anywhere for a minute earns nothing.
+    const w = makeWorld(
+      baseMission({
+        map: { file: 'none', player_start: [2, 8] },
+        objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
+        resources: { intel_start: 0 },
+        starting_force: [SCOUT],
+      }),
+    );
+    w.sim.queueCommand(mv(0, HOLD_X));
+    const out = w.step(60 * TICKS_PER_SECOND);
+    expect(rises(out.mission)).toHaveLength(0);
+    expect(w.runtime.intel).toBe(0);
   });
 });
 
@@ -3670,7 +4475,7 @@ describe('containment is structural: mission predicates ignore buried bodies', (
       civilians: { groups: [{ unit: 'm_civ', count: 1, at: [21, 5], in_tunnel: 'tn_a' }] },
       roe: { enabled: true, disproportionate_ordnance_penalty: 3 },
     });
-    const strike: SimEvent = { kind: 'strike', tick: 1, by: 0, x: fx.from(21.5), y: fx.from(5.5) };
+    const strike: SimEvent = { kind: 'strike', tick: 1, by: 0, x: fx.from(21.5), y: fx.from(5.5), profile: 0 };
     const fire: SimEvent = {
       kind: 'fire',
       tick: 1,
@@ -3773,12 +4578,46 @@ describe('containment is structural: mission predicates ignore buried bodies', (
     expect(strike?.kind === 'strike' && strike.by).toBe(1); // the surface unit owns it
   });
 
+  it('a barrage and a smoke screen are called by the first LIVING SURFACE unit too', () => {
+    for (const kind of ['mortar_barrage', 'smoke_screen'] as const) {
+      const w = world16({
+        starting_force: [
+          { unit: 'm_squad', count: 1, at: [3, 3], in_tunnel: 'tn_a' }, // playerIds[0], buried
+          { unit: 'm_squad', count: 1, at: [10, 5] },
+        ],
+        objectives: [SURVIVE],
+        resources: { intel_start: 250 },
+      });
+      const spy = vi.spyOn(w.sim, 'queueCommand');
+      expect(w.runtime.requestSupport(kind, fx.from(20.5), fx.from(5.5))).toBe(true);
+      const cmd = spy.mock.calls[0][0];
+      expect(cmd.kind === 'callStrike' && cmd.caller).toBe(1);
+    }
+  });
+
   it('a buried drone observes nothing and earns nothing', () => {
-    const w = world16({
-      starting_force: [{ unit: 'm_drone', count: 1, at: [3, 3], in_tunnel: 'tn_a' }],
-      objectives: [SURVIVE],
-    });
-    w.step(300); // 15s: a surface drone would have banked 2 intel by now
+    // An enemy stands in the drone's sight (16 tiles). Underground the drone sees
+    // none of it, so nothing is identified and nothing is paid; the control, the
+    // same drone on the surface, identifies it and earns the 10. Since F1 Task 3 the
+    // trickle is gone, so without an enemy in sight this test could not fail
+    // (it was vacuous until Task 5 gave it one).
+    const fixture = (buried: boolean): World =>
+      world16({
+        starting_force: [
+          buried
+            ? { unit: 'm_drone', count: 1, at: [3, 3], in_tunnel: 'tn_a' }
+            : { unit: 'm_drone', count: 1, at: [3, 3] },
+        ],
+        objectives: [SURVIVE],
+        enemy: { garrison: [{ unit: 'm_tech', count: 1, at: [8, 6], stance: { kind: 'hold_position' } }] },
+      });
+    const surface = fixture(false);
+    surface.step(300);
+    expect(surface.runtime.intel).toBe(10); // the control can earn
+    const w = fixture(true);
+    w.step(300);
+    expect(w.sim.state.tunnelIn[0]).toBe(0);
+    expect(w.sim.contactLevel(0, 1)).toBe(0);
     expect(w.runtime.intel).toBe(0);
   });
 

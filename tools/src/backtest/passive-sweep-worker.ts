@@ -4,7 +4,7 @@
 // line and FAILED line to this process's stdout/stderr, which the parent shares.
 
 import type { LedgerData } from '@lions/sim';
-import { run, setSweep, sweepOutcome } from './playtest-run';
+import { run, lastIntelRun, setSweep, sweepOutcome, type IntelRun } from './playtest-run';
 
 export interface SweepJob {
   /** Index of the control in the parent's list. */
@@ -20,6 +20,7 @@ export interface SweepReply {
   control: number;
   seed: number;
   result: string;
+  intel: IntelRun;
 }
 
 if (process.send) {
@@ -31,7 +32,7 @@ if (process.send) {
     // A miss is the parent's to count and report (`drainPassiveSweeps`); this process's own exit
     // code is kept for a crash, which the parent reports as runs left unanswered.
     process.exitCode = 0;
-    const reply: SweepReply = { control: job.control, seed: job.seed, result: sweepOutcome(m.result, m.cause) };
+    const reply: SweepReply = { control: job.control, seed: job.seed, result: sweepOutcome(m.result, m.cause), intel: lastIntelRun() };
     process.send?.(reply);
   });
 }

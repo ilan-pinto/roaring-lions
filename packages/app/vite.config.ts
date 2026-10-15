@@ -2,9 +2,9 @@ import { defineConfig } from 'vite';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
-import { palettePlugin } from './vite-plugin-palette';
-import { cursorsPlugin } from './vite-plugin-cursors';
-import { assetWatchPlugin } from './vite-plugin-asset-watch';
+import { palettePlugin } from './vite-plugin-palette.ts';
+import { cursorsPlugin } from './vite-plugin-cursors.ts';
+import { assetWatchPlugin } from './vite-plugin-asset-watch.ts';
 
 // The version shown in the menu and the HUD. Root package.json is the single
 // source of truth; only major.minor is displayed, so a patch bump is invisible.

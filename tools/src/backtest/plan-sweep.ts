@@ -129,11 +129,14 @@ function reportLimitHeadroom(runSets: Iterable<readonly RunRecord[]>): void {
  * question "would a player who plays these plans on any of these seeds unlock the unit when the
  * campaign says", not a re-reading of the 424242 numbers.
  */
-export async function drainPlanSweeps(seeds: readonly number[], gates424242: GateRecord[]): Promise<void> {
-  if (PLAN_CHILD) return;
+export async function drainPlanSweeps(
+  seeds: readonly number[],
+  gates424242: GateRecord[]
+): Promise<ReadonlyMap<number, readonly RunRecord[]>> {
+  if (PLAN_CHILD) return new Map();
   if (process.env.PT_PLAN_SWEEP === '0') {
     reportLimitHeadroom([runLog]);
-    return;
+    return new Map([[seeds[0], runLog.slice()]]);
   }
   if (pending > 0) await new Promise<void>((resolve) => (onIdle = resolve));
   const bySeed = new Map<number, RunRecord[]>([[seeds[0], runLog.slice()]]);
@@ -176,4 +179,5 @@ export async function drainPlanSweeps(seeds: readonly number[], gates424242: Gat
     }
   }
   reportLimitHeadroom(bySeed.values());
+  return bySeed;
 }

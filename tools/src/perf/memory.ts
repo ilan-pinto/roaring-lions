@@ -7,6 +7,7 @@
 //   pnpm perf:memory -- --gpu=swiftshader              # CI's rasteriser, on a Mac
 //   pnpm perf:memory -- --viewport=1440x900 --dpr=2    # a retina laptop's drawing buffer
 //   pnpm perf:memory -- --serve=preview                # the production build (pnpm build first)
+//   pnpm perf:memory -- --keep-source-maps             # serve the dev server's inline maps as they are
 //
 // ONE browser, ONE page, ONE JS realm for the whole walk -- the menu, the
 // campaign board, then each mission booted SOFTLY (a same-origin anchor click,
@@ -40,6 +41,16 @@
 // At each mission checkpoint it also reads `__lions.renderer.debugMemoryInventory()`
 // (scene and template bytes by owner) and the sim's flow-field pool.
 //
+// On the dev server, every script is fetched through a Playwright route that
+// cuts the trailing `//# sourceMappingURL=data:...` off it (`strip-inline-maps.ts`)
+// before the page sees it. Vite 8 inlines a base64 map into every module it
+// serves and the page keeps each module's source text alive, so the maps were
+// 14 of the menu's 77 MiB of JS -- dev-only bytes that blunted the leak
+// check, which is a percentage of that menu. `--keep-source-maps` turns the
+// route off; a strip that removes nothing is an instrument failure (exit 2),
+// since it would mean the budgets are judging a different page than the one
+// they were measured on.
+//
 // Exit codes: 0 report (or every budget met), 1 OVER BUDGET or a leak check
 // failed, 2 the INSTRUMENT failed (bad arguments, a boot that never finished,
 // a readback that came back empty), 3 `--gate` with no budget for this capture
@@ -48,7 +59,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { chromium, type Browser, type CDPSession, type Page } from 'playwright';
+import { chromium, type Browser, type BrowserContext, type CDPSession, type Page } from 'playwright';
 import { ensureDevServer, isServerUp, readUnmaskedRenderer, stopDevServer } from '../golden-diff/browser';
 import { dismissDeployGate } from '../golden-diff/capture-guard';
 import { musicOffInitScript } from '../ui-review/music-off';
@@ -56,6 +67,7 @@ import { claimPort } from '../ui-review/port';
 import { claimGpuBackend, gpuLaunchArgs } from '../ui-review/gpu';
 import { GL_LEDGER_INIT_SCRIPT, liveContexts, liveGpuBytes, type LedgerReadout } from './memory-ledger';
 import { envKeyFor, judge, MEMORY_BUDGETS, type Reading } from './memory-budgets';
+import { addToTally, emptyTally, stripInlineSourceMaps, type StripTally } from './strip-inline-maps';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(HERE, '..', '..', '..');
@@ -86,6 +98,9 @@ interface Args {
    *  `dist/`, served by `vite preview`, which is what a player downloads.
    *  Run `pnpm build` first. */
   serve: 'dev' | 'preview';
+  /** Cut inline source maps off every served script (dev only; a preview
+   *  build has none). Default on; `--keep-source-maps` turns it off. */
+  stripMaps: boolean;
   /** CSS viewport and device pixel ratio. Every full-screen target scales
    *  with width x height x dpr^2, so a number without these is half a number. */
   width: number;
@@ -116,6 +131,7 @@ function parseArgs(argv: string[]): Args {
     gate: argv.includes('--gate'),
     out: out ? path.resolve(REPO_ROOT, out) : null,
     serve,
+    stripMaps: serve === 'dev' && !argv.includes('--keep-source-maps'),
     width: w,
     height: h,
     dpr,
@@ -324,6 +340,7 @@ async function main(): Promise<number> {
   const port = await claimPort(TAG, 'PERF_MEMORY_PORT', 5178);
   let server: ChildProcess | null = null;
   let browser: Browser | null = null;
+  const routeFailures: string[] = [];
   const t0 = Date.now();
   try {
     server = args.serve === 'preview' ? await startPreview(port) : await ensureDevServer(port, REPO_ROOT, TAG);
@@ -332,11 +349,13 @@ async function main(): Promise<number> {
     const env = envKeyFor(process.platform, process.arch, renderer);
     console.log(
       `[${TAG}] renderer: ${renderer}  env: ${env}  platform ${process.platform}/${process.arch}  ` +
-        `viewport ${args.width}x${args.height} @${args.dpr}x  serve=${args.serve}  play ${args.playS} s sim time per mission`
+        `viewport ${args.width}x${args.height} @${args.dpr}x  serve=${args.serve}${args.stripMaps ? ' (inline maps stripped)' : ''}  play ${args.playS} s sim time per mission`
     );
     const context = await browser.newContext({ viewport: { width: args.width, height: args.height }, deviceScaleFactor: args.dpr });
     await context.addInitScript(musicOffInitScript());
     await context.addInitScript(GL_LEDGER_INIT_SCRIPT);
+    const strip = args.stripMaps ? emptyTally() : null;
+    if (strip) await routeStripInlineMaps(context, strip, routeFailures);
     const page = await context.newPage();
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(e.message));
@@ -381,15 +400,36 @@ async function main(): Promise<number> {
       for (const e of [...new Set(errors)].slice(0, 10)) console.warn(`  ${e.slice(0, 300)}`);
     }
     console.log(`[${TAG}] walk took ${((Date.now() - t0) / 1000).toFixed(0)} s, ${boots} document load(s)`);
+    if (strip) {
+      console.log(
+        `[${TAG}] inline source maps stripped: ${strip.maps} from ${strip.withMaps} of ${strip.scripts} script(s), ` +
+          `${mib(strip.removed)} MiB of text the page never saw (--keep-source-maps to serve them)`
+      );
+      if (routeFailures.length > 0) {
+        throw new InstrumentError(`${routeFailures.length} script(s) could not be fetched through the strip route:\n  ${routeFailures.slice(0, 5).join('\n  ')}`);
+      }
+      if (strip.removed === 0) {
+        throw new InstrumentError(
+          `the inline-map strip removed nothing from ${strip.scripts} script(s) -- the dev server's map format changed, or the route never matched; ` +
+            'the budgets were measured with the maps stripped, so this walk is not comparable to them'
+        );
+      }
+    } else console.log(`[${TAG}] inline source maps NOT stripped (${args.serve === 'preview' ? 'a preview build has none' : '--keep-source-maps'})`);
 
     printAttribution(readings);
     if (args.out) {
       mkdirSync(path.dirname(path.resolve(args.out)), { recursive: true });
-      writeFileSync(args.out, JSON.stringify({ env, renderer, args, readings }, null, 2));
+      writeFileSync(args.out, JSON.stringify({ env, renderer, args, strip, readings }, null, 2));
       console.log(`[${TAG}] wrote ${args.out}`);
     }
     if (!args.gate) return EXIT_OK;
     const budget = MEMORY_BUDGETS[env];
+    if (budget && args.serve === 'dev' && !args.stripMaps) {
+      console.warn(
+        `[${TAG}] --gate with --keep-source-maps: the JS budgets were measured with the inline maps stripped, ` +
+          'so every JS reading here carries ~32 MiB of map text they do not allow for'
+      );
+    }
     if (!budget) {
       console.error(`[${TAG}] --gate: no budget for capture environment "${env}" -- nothing was judged (exit 3).`);
       return EXIT_NO_BUDGET;
@@ -401,12 +441,56 @@ async function main(): Promise<number> {
     return failed === 0 ? EXIT_OK : EXIT_OVER_BUDGET;
   } catch (err) {
     console.error(`[${TAG}] INSTRUMENT FAILED: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
+    for (const f of routeFailures.slice(0, 5)) console.error(`[${TAG}]   a script the strip route could not fetch: ${f}`);
     return EXIT_INSTRUMENT;
   } finally {
     if (browser) await browser.close().catch(() => undefined);
     stopDevServer(server, TAG);
   }
 }
+
+/** Route every script through `stripInlineSourceMaps`. Only `script`
+ *  requests are fetched through Node: everything else -- the GLBs, the
+ *  textures, the audio -- `continue`s untouched, so the route costs the walk
+ *  one round trip per module and nothing per asset. A response that is not
+ *  JavaScript is passed on byte for byte.
+ *
+ *  The fetch is retried: Node opens a socket per routed request, where the
+ *  browser would have kept six, and a boot's ~650 modules at once had the dev
+ *  server reset one (`connect ECONNRESET`, one walk in three locally). A
+ *  handler that throws is an unhandled rejection that kills the walk before
+ *  its `finally` stops the dev server, so nothing here may throw: a script
+ *  that still cannot be fetched is aborted, which fails the walk's boot --
+ *  an instrument failure, exit 2, with the server stopped. */
+async function routeStripInlineMaps(context: BrowserContext, tally: StripTally, failures: string[]): Promise<void> {
+  await context.route('**/*', async (route) => {
+    try {
+      if (route.request().resourceType() !== 'script') return await route.continue();
+      let lastErr: unknown = null;
+      for (let attempt = 0; attempt < ROUTE_FETCH_ATTEMPTS; attempt++) {
+        try {
+          const res = await route.fetch();
+          const type = res.headers()['content-type'] ?? '';
+          if (!/javascript/i.test(type)) return await route.fulfill({ response: res });
+          const s = stripInlineSourceMaps(await res.text());
+          addToTally(tally, s);
+          return await route.fulfill({ response: res, body: s.text });
+        } catch (err) {
+          lastErr = err;
+          await new Promise((r) => setTimeout(r, 100 * (attempt + 1)));
+        }
+      }
+      failures.push(`${route.request().url()}: ${lastErr instanceof Error ? lastErr.message.split('\n')[0] : String(lastErr)}`);
+      await route.abort('failed');
+    } catch {
+      // The page or the context went away under a request in flight (the
+      // walk's own `browser.close`): nothing left to answer.
+    }
+  });
+}
+
+/** See `routeStripInlineMaps`. */
+const ROUTE_FETCH_ATTEMPTS = 5;
 
 async function startPreview(port: number): Promise<ChildProcess> {
   if (!existsSync(path.join(REPO_ROOT, 'packages', 'app', 'dist', 'index.html'))) throw new InstrumentError('--serve=preview needs a build: run `pnpm build` first');
