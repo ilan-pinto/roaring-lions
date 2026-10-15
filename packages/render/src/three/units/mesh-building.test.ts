@@ -7,10 +7,16 @@ import {
   disposeBuildingMeshTemplate,
   buildingSettleScale,
   BUILDING_SETTLE_SECONDS,
+  SELF_LIT_KEY,
+  wallTreatmentOf,
 } from './mesh-building';
 import { MESH_SCALE } from './mesh-anim';
 import { liftTone } from '../world-materials';
-import { rampForBuildingRole } from './building-mesh-role';
+import { rampForBuildingRole, rampForWallTone } from './building-mesh-role';
+import { Sim } from '@lions/sim';
+
+type StructureTypeJson = Parameters<Sim['addStructureType']>[0];
+import structuresJson from '../../../../../data/structures.json';
 
 describe('buildBuildingMeshTemplate', () => {
   it('assigns one lit standard material per role, incl. the wall from its own colour key, shadows on', async () => {
@@ -118,5 +124,80 @@ describe('buildingSettleScale', () => {
     const result = buildingSettleScale(BUILDING_SETTLE_SECONDS * 5);
     expect(result.scaleFactor).toBe(1);
     expect(result.done).toBe(true);
+  });
+});
+
+// #643: a north-south T-wall run read dark -- its camera face is the side the
+// scene sun never reaches. The type now asks for an exact palette step
+// (`wall_tone`) and a self-lit term (`wall_self_lit`) on its WALL role only.
+describe('wall treatment (wall_tone, wall_self_lit)', () => {
+  const structures = (structuresJson as unknown as { types: Record<string, StructureTypeJson> }).types;
+
+  it('wall_tone draws the named step exactly, where the colour key draws the slice it starts lit', async () => {
+    const gltf = await parseRigidFixture({ parts: [{ nodeName: 'wall', extrasRole: 'wall' }] });
+    const keyed = buildBuildingMeshTemplate(gltf, 'gunmetal.0', 'panel');
+    const toned = buildBuildingMeshTemplate(
+      await parseRigidFixture({ parts: [{ nodeName: 'wall', extrasRole: 'wall' }] }),
+      'gunmetal.0',
+      'panel',
+      false,
+      { tone: 'gunmetal.0' }
+    );
+    // A literal oracle, not the module's own lookup: `gunmetal` is
+    // #C3C7C4 / #8E9491 / #5C625F / #363B39 in data/palette.json.
+    expect((keyed.materials[0] as THREE.MeshStandardMaterial).color.getHexString()).toBe('8e9491');
+    expect((toned.materials[0] as THREE.MeshStandardMaterial).color.getHexString()).toBe('c3c7c4');
+  });
+
+  it('the self-lit term lands on the wall role and no other', async () => {
+    const gltf = await parseRigidFixture({
+      parts: [
+        { nodeName: 'wall', extrasRole: 'wall' },
+        { nodeName: 'metal', extrasRole: 'metal' },
+        { nodeName: 'rust', extrasRole: 'rust' },
+      ],
+    });
+    const template = buildBuildingMeshTemplate(gltf, 'gunmetal.0', 'panel', false, { tone: 'gunmetal.0', selfLit: 0.08 });
+    const seen: string[] = [];
+    template.root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const m = mesh.material as THREE.MeshStandardMaterial;
+      seen.push(mesh.name);
+      if (mesh.name === 'wall') {
+        expect(m.emissive.getHexString()).toBe(m.color.getHexString());
+        expect(m.emissiveIntensity).toBeCloseTo(0.08, 9);
+        expect(m.userData[SELF_LIT_KEY]).toBe(0.08);
+      } else {
+        expect(m.emissive.getHex()).toBe(0);
+        expect(m.userData[SELF_LIT_KEY]).toBeUndefined();
+        // and the tone never reaches another role either
+        expect(m.color.getHexString()).not.toBe('c3c7c4');
+      }
+    });
+    expect(seen.sort()).toEqual(['metal', 'rust', 'wall']);
+  });
+
+  it('a type that names neither gets the shipped wall: no tone, no glow', async () => {
+    const gltf = await parseRigidFixture({ parts: [{ nodeName: 'wall', extrasRole: 'wall' }] });
+    const m = buildBuildingMeshTemplate(gltf, 'limestone.3', 'brick', false, {}).materials[0] as THREE.MeshStandardMaterial;
+    expect(m.color.getHexString()).toBe('b8a182');
+    expect(m.emissive.getHex()).toBe(0);
+  });
+
+  it('rampForWallTone refuses a malformed key, an unknown band and a step past the band', () => {
+    expect(rampForWallTone('gunmetal.3')).toEqual(['#363B39']);
+    expect(() => rampForWallTone('gunmetal')).toThrow(/malformed/);
+    expect(() => rampForWallTone('gunmetal.4')).toThrow(/4 steps/);
+    expect(() => rampForWallTone('nope.0')).toThrow();
+  });
+
+  it('the shipped data reaches the renderer through the sim: the T-wall alone asks for a treatment', () => {
+    const sim = new Sim({ seed: 1, width: 4, height: 4, capacity: 2 });
+    for (const json of Object.values(structures)) sim.addStructureType(json);
+    const asked = sim.structureTypes
+      .map((t) => [t.id, wallTreatmentOf(t)] as const)
+      .filter(([, w]) => Object.keys(w).length > 0);
+    expect(asked).toEqual([['t_wall', { tone: 'gunmetal.0', selfLit: 0.08 }]]);
   });
 });
