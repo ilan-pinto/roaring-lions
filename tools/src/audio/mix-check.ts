@@ -496,6 +496,9 @@ async function main(): Promise<void> {
   );
   const radioJs = stripTypeScriptTypes(readFileSync(join(ROOT, 'packages/render/src/radio.ts'), 'utf8'));
   const relationJs = stripTypeScriptTypes(readFileSync(join(ROOT, 'packages/render/src/relation.ts'), 'utf8'));
+  const enginesJs = rewriteAudioImports(
+    stripTypeScriptTypes(readFileSync(join(ROOT, 'packages/render/src/engines.ts'), 'utf8')),
+  );
   const simJs = `export const WEAPON_CLASS = ${JSON.stringify(WEAPON_CLASS)};\n`;
   // OUTCOME_LINE_DELAY_S is read from the mixer itself, as the app does.
   const delay = /export const OUTCOME_LINE_DELAY_S = ([\d.]+);/.exec(audioJs);
@@ -521,6 +524,7 @@ async function main(): Promise<void> {
         if (path === '/audio.js') return route.fulfill({ contentType: 'text/javascript', body: audioJs });
         if (path === '/radio.js') return route.fulfill({ contentType: 'text/javascript', body: radioJs });
         if (path === '/relation.js') return route.fulfill({ contentType: 'text/javascript', body: relationJs });
+        if (path === '/engines.js') return route.fulfill({ contentType: 'text/javascript', body: enginesJs });
         if (path === '/sim.js') return route.fulfill({ contentType: 'text/javascript', body: simJs });
         if (path.startsWith('/audio/')) {
           const body = serveFile(path.slice('/audio/'.length));

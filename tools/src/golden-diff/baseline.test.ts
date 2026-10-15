@@ -798,6 +798,11 @@ describe('BASELINES layerChecks', () => {
         // sensitivity where the layer actually draws). This was `3403 px /
         // 0.2858` against the OLD one-rectangle skirt, whole-frame.
         skirt: { px: 2705, mean: 3.0455 },
+        // Relief read, 2026-10-15: tools/src/perf/relief-read-signal.ts (the
+        // gate's own capture), 3 fresh-page runs, bit-identical. Both layers'
+        // contributions are sub-threshold here: magnitude floors alone.
+        'slope-light': { px: 0, mean: 0.0555 },
+        'height-contours': { px: 0, mean: 0.4817 },
       },
       // Ground fix wave (I-2), 2026-09-25: `aftermath` reframed off the
       // sandbox force (zoom 2.2, no drone). 23 consecutive fresh-process
@@ -813,6 +818,9 @@ describe('BASELINES layerChecks', () => {
         // Ground plan 2, Task 5, 2026-09-27: one wrecked car in frame, 3 runs,
         // bit-identical.
         props: { px: 5351, mean: 0.4518 },
+        // Relief read, 2026-10-15: the same tool, 3 fresh-page runs, bit-identical.
+        'slope-light': { px: 9, mean: 1.4944 },
+        'height-contours': { px: 3, mean: 0.3962 },
       },
       // The LOW end of the measured range (29622-29624 px / 2.9600-2.9620 over
       // 5 runs), so "floor is a third of the signal" is checked against the

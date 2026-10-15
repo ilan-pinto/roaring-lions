@@ -7,6 +7,8 @@ import { CODE_ALPHABET, PENDING_LOBBY_EXPIRE_MS, filterCode, showVersus, showVer
 import { RoomRefused, RoomStarted, type OpenedRoom, type RoomRequest } from '../net/connect';
 import { takeHanded } from '../net/handoff';
 import { isDialogOpen } from './confirm';
+import { AdvisorRefused } from '../net/connect';
+import { missingKeys } from '../i18n/t';
 
 /** The methods the screens call on a transport, recorded. */
 function fakeTransport() {
@@ -47,6 +49,8 @@ function deps(overrides: Partial<VersusDeps> = {}): VersusDeps & { saved: string
     navigate: (href, opts) => { navigated.push([href, opts]); },
     copy: vi.fn().mockResolvedValue(true),
     linkFor: (code) => `https://game.test/versus/${code}`,
+    serverOrigin: 'https://game.test',
+    advisorTicket: vi.fn().mockResolvedValue('ADV-TICKET-SECRET'),
     ...overrides,
   };
 }
@@ -623,5 +627,177 @@ describe('showVersusRoom by a direct link (the guest\'s path)', () => {
     resolveOpen(opened(transport));
     await flush();
     expect(fake.close).toHaveBeenCalledTimes(1);
+  });
+});
+
+// N4a Task 9 (decision D1): a seat invites its OWN advisor from the lobby, and
+// both seat cards wear a badge for whichever advisors the room says are seated.
+describe('the lobby: invite an advisor, and the advisor badge (N4a Task 9)', () => {
+  const COMMAND = 'pnpm --silent agent -- --server https://game.test --code ABCDEF --scope assist --ticket-file ~/.roaring-lions/advisor-ticket';
+
+  /** A lobby for `seat`, both seats in. */
+  async function lobbyAs(seat: 0 | 1, over: Partial<VersusDeps> = {}) {
+    const { fake, transport } = fakeTransport();
+    const d = deps({ open: vi.fn().mockResolvedValue(opened(transport, { seat })), ...over });
+    const entry = document.createElement('div');
+    const leaveEntry = showVersus(entry, d);
+    entry.querySelector<HTMLButtonElement>('.rl-versus__open')!.click();
+    await flush();
+    leaveEntry();
+    const stage = document.createElement('div');
+    document.body.appendChild(stage);
+    room(stage, 'ABCDEF', d);
+    fake.hooks.onLobby?.(SEATS_TWO, seat, 'tel_marum');
+    const cards = () => [...stage.querySelectorAll<HTMLElement>('.rl-versus__seat')];
+    return { fake, d, stage, cards };
+  }
+
+  it('renders the control in the viewer\'s own seat card only, for either seat', async () => {
+    for (const seat of [0, 1] as const) {
+      const { cards, stage } = await lobbyAs(seat);
+      const has = cards().map((c) => c.querySelector('.rl-versus__advisor-invite') !== null);
+      expect(has).toEqual(seat === 0 ? [true, false] : [false, true]);
+      expect(stage.querySelectorAll('.rl-versus__advisor-invite')).toHaveLength(1);
+      document.body.replaceChildren();
+    }
+  });
+
+  it('offers Advise (the default) and Assist, with a hint for the one chosen', async () => {
+    const { stage } = await lobbyAs(0);
+    const radios = [...stage.querySelectorAll<HTMLInputElement>('.rl-versus__advisor-scope input[type="radio"]')];
+    expect(radios.map((r) => r.value)).toEqual(['advise', 'assist']);
+    expect(radios.map((r) => r.checked)).toEqual([true, false]);
+    const hint = stage.querySelector('.rl-versus__advisor-hint')!;
+    expect(hint.textContent).toMatch(/^Advise:/);
+    radios[1]!.checked = true;
+    radios[1]!.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(hint.textContent).toMatch(/^Assist:/);
+  });
+
+  it('mints a ticket for the chosen scope and shows the ready-to-paste command, the ticket nowhere in it', async () => {
+    const { d, stage } = await lobbyAs(0);
+    const assist = stage.querySelector<HTMLInputElement>('.rl-versus__advisor-scope input[value="assist"]')!;
+    assist.checked = true;
+    assist.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(stage.querySelector('.rl-versus__advisor-command')).toBeNull();
+    stage.querySelector<HTMLButtonElement>('.rl-versus__advisor-mint')!.click();
+    await flush();
+    expect(d.advisorTicket).toHaveBeenCalledWith('ABCDEF', 'assist');
+    const cmd = stage.querySelector('.rl-versus__advisor-command')!;
+    expect(cmd.textContent).toBe(COMMAND);
+    expect(cmd.textContent).toContain('--ticket-file ');
+    expect(cmd.textContent).toContain('pnpm --silent agent');
+    // The ticket is on the clipboard path alone: not in the command, a URL, an attribute or any text.
+    expect(stage.textContent).not.toContain('ADV-TICKET-SECRET');
+    expect(stage.innerHTML).not.toContain('ADV-TICKET-SECRET');
+    expect(stage.querySelector('.rl-versus__advisor-note')?.textContent).toBe('Your advisor sees what your side sees. Your friend is told you have one.');
+    expect(stage.querySelector('.rl-versus__advisor-file')?.textContent).toContain('~/.roaring-lions/advisor-ticket');
+  });
+
+  it('Copy ticket puts the ticket on the clipboard and says so; a refused copy says that', async () => {
+    const { d, stage } = await lobbyAs(0);
+    expect(stage.querySelector('.rl-versus__advisor-copy')).toBeNull();
+    stage.querySelector<HTMLButtonElement>('.rl-versus__advisor-mint')!.click();
+    await flush();
+    stage.querySelector<HTMLButtonElement>('.rl-versus__advisor-copy')!.click();
+    await flush();
+    expect(d.copy).toHaveBeenCalledWith('ADV-TICKET-SECRET');
+    expect(stage.querySelector('.rl-versus__advisor-copied')?.textContent).toBe('Ticket copied');
+    (d.copy as ReturnType<typeof vi.fn>).mockResolvedValueOnce(false);
+    stage.querySelector<HTMLButtonElement>('.rl-versus__advisor-copy')!.click();
+    await flush();
+    expect(stage.querySelector('.rl-versus__advisor-copied')?.textContent).toMatch(/^Copy failed/);
+    expect(stage.textContent).not.toContain('ADV-TICKET-SECRET');
+  });
+
+  it('a changed scope retires the ticket and command shown for the old one', async () => {
+    const { stage } = await lobbyAs(0);
+    stage.querySelector<HTMLButtonElement>('.rl-versus__advisor-mint')!.click();
+    await flush();
+    expect(stage.querySelector('.rl-versus__advisor-command')).not.toBeNull();
+    const assist = stage.querySelector<HTMLInputElement>('.rl-versus__advisor-scope input[value="assist"]')!;
+    assist.checked = true;
+    assist.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(stage.querySelector('.rl-versus__advisor-command')).toBeNull();
+    expect(stage.querySelector('.rl-versus__advisor-copy')).toBeNull();
+  });
+
+  it('survives the lobby\'s repaint: a ready toggle does not lose the minted command', async () => {
+    const { fake, stage } = await lobbyAs(0);
+    stage.querySelector<HTMLButtonElement>('.rl-versus__advisor-mint')!.click();
+    await flush();
+    fake.hooks.onLobby?.([{ ...SEATS_TWO[0]!, ready: true }, SEATS_TWO[1]!], 0, 'tel_marum');
+    expect(stage.querySelector('.rl-versus__advisor-command')?.textContent).toContain('--scope advise');
+    expect(stage.querySelectorAll('.rl-versus__advisor-invite')).toHaveLength(1);
+  });
+
+  it('a refusal (403) says the advisor failed, shows no command, and lets the player ask again', async () => {
+    const advisorTicket = vi.fn().mockRejectedValueOnce(new AdvisorRefused(403)).mockResolvedValue('ADV-TICKET-SECRET');
+    const { stage } = await lobbyAs(0, { advisorTicket });
+    const mint = stage.querySelector<HTMLButtonElement>('.rl-versus__advisor-mint')!;
+    mint.click();
+    await flush();
+    const status = stage.querySelector('.rl-versus__advisor-status')!;
+    expect(status.getAttribute('role')).toBe('status');
+    expect(status.textContent).toBe('The room refused the advisor ticket. Try again.');
+    expect(stage.querySelector('.rl-versus__advisor-command')).toBeNull();
+    expect(mint.disabled).toBe(false);
+    mint.click();
+    await flush();
+    expect(status.textContent).toBe('');
+    expect(stage.querySelector('.rl-versus__advisor-command')).not.toBeNull();
+  });
+
+  it('asks once at a time: a second click while the room is answering does nothing', async () => {
+    let resolve!: (t: string) => void;
+    const advisorTicket = vi.fn().mockReturnValue(new Promise<string>((r) => { resolve = r; }));
+    const { stage } = await lobbyAs(0, { advisorTicket });
+    const mint = stage.querySelector<HTMLButtonElement>('.rl-versus__advisor-mint')!;
+    mint.click();
+    mint.click();
+    expect(advisorTicket).toHaveBeenCalledTimes(1);
+    expect(mint.disabled).toBe(true);
+    resolve('ADV-TICKET-SECRET');
+    await flush();
+    expect(mint.disabled).toBe(false);
+  });
+
+  it('the badge on each seat card follows the room\'s advisors, seat by seat', async () => {
+    const { fake, cards } = await lobbyAs(0);
+    const badges = () => cards().map((c) => c.querySelector('.rl-versus__advisor-badge')?.textContent ?? null);
+    expect(badges()).toEqual([null, null]);
+    fake.hooks.onAdvisors?.(['advise', null]);
+    expect(badges()).toEqual(['Advisor: advise', null]);
+    fake.hooks.onAdvisors?.([null, 'assist']);
+    expect(badges()).toEqual([null, 'Advisor: assist']);
+    fake.hooks.onAdvisors?.(['assist', 'advise']);
+    expect(badges()).toEqual(['Advisor: assist', 'Advisor: advise']);
+    fake.hooks.onAdvisors?.([null, null]);
+    expect(badges()).toEqual([null, null]);
+  });
+
+  it('the badge survives a lobby repaint and shows on the friend\'s card too', async () => {
+    const { fake, cards } = await lobbyAs(1);
+    fake.hooks.onAdvisors?.(['advise', null]);
+    fake.hooks.onLobby?.(SEATS_TWO.map((s) => ({ ...s, ready: true })), 1, 'tel_marum');
+    expect(cards()[0]!.querySelector('.rl-versus__advisor-badge')?.textContent).toBe('Advisor: advise');
+    expect(cards()[0]!.querySelector('.rl-versus__advisor-invite')).toBeNull();
+  });
+
+  it('every string it draws went through t()', async () => {
+    const advisorTicket = vi.fn().mockRejectedValueOnce(new AdvisorRefused(403)).mockResolvedValue('ADV-TICKET-SECRET');
+    const { fake, stage } = await lobbyAs(0, { advisorTicket });
+    fake.hooks.onAdvisors?.(['advise', 'assist']);
+    const mint = stage.querySelector<HTMLButtonElement>('.rl-versus__advisor-mint')!;
+    mint.click();
+    await flush();
+    mint.click();
+    await flush();
+    stage.querySelector<HTMLButtonElement>('.rl-versus__advisor-copy')!.click();
+    await flush();
+    const assist = stage.querySelector<HTMLInputElement>('.rl-versus__advisor-scope input[value="assist"]')!;
+    assist.checked = true;
+    assist.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(missingKeys()).toEqual([]);
   });
 });

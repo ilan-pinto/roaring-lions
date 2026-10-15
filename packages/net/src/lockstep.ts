@@ -24,10 +24,13 @@ export class LockstepClock {
     return 'ok';
   }
 
-  /** Frames runnable now, oldest first, at most `maxTicks` of them. */
-  take(maxTicks: number): Frame[] {
+  /** Frames runnable now, oldest first, at most `maxTicks` of them.
+   *  `final`: a tick known to be final whatever arrives next (a paced room's
+   *  closed round, N4a), released even inside the buffer; never past `newest`. */
+  take(maxTicks: number, final = -1): Frame[] {
     const out: Frame[] = [];
-    while (out.length < maxTicks && this.nextTick <= this.newest - this.bufferTicks) {
+    const upTo = Math.max(this.newest - this.bufferTicks, Math.min(final, this.newest));
+    while (out.length < maxTicks && this.nextTick <= upTo) {
       const f = this.frames.get(this.nextTick);
       if (f === undefined) break;
       this.frames.delete(this.nextTick);

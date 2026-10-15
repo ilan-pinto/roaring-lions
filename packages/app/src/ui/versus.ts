@@ -28,7 +28,7 @@
  * `NetChat`, which keeps to that too).
  */
 import { maps } from '@lions/data';
-import { FACTION_MATCHUP_MAPS, MATCHUPS, MAX_CALLSIGN_CHARS, callsignOrDefault, cleanCallsign, matchupField, versusMapAllowed, type Faction, type Matchup, type Seat, type SeatState, type WsTransport } from '@lions/net';
+import { ADVISOR_SCOPES, FACTION_MATCHUP_MAPS, MATCHUPS, MAX_CALLSIGN_CHARS, callsignOrDefault, cleanCallsign, matchupField, versusMapAllowed, type AdvisorScope, type Faction, type Matchup, type Seat, type SeatState, type WsTransport } from '@lions/net';
 import { t } from '../i18n/t';
 import { RoomRefused, RoomStarted, type OpenedRoom, type RoomRequest } from '../net/connect';
 import { handOver } from '../net/handoff';
@@ -90,6 +90,22 @@ export interface VersusDeps {
   copy(text: string): Promise<boolean>;
   /** The absolute URL of `routes.versusRoom(code)`. */
   linkFor(code: string): string;
+  /** The server's origin, as the advisor's command names it (`--server`). */
+  serverOrigin: string;
+  /** Trades this tab's seat ticket for an advisor ticket (`inviteAdvisor`,
+   *  `net/connect.ts`). Rejects with an `AdvisorRefused` when the room says no. */
+  advisorTicket(code: string, scope: AdvisorScope): Promise<string>;
+}
+
+/** Where the lobby tells a player to save the copied advisor ticket: a private
+ *  file the command reads (`--ticket-file`). A ticket on a command line shows
+ *  in the process list and the shell history, and the MCP client that spawns
+ *  the agent owns its stdin, so a file is the one channel that works. */
+export const ADVISOR_TICKET_FILE = '~/.roaring-lions/advisor-ticket';
+
+/** The ready-to-paste command. The ticket is never in it. */
+export function advisorCommand(origin: string, code: string, scope: AdvisorScope): string {
+  return `pnpm --silent agent -- --server ${origin} --code ${code} --scope ${scope} --ticket-file ${ADVISOR_TICKET_FILE}`;
 }
 
 /** A room between `/versus` and the start. */
@@ -109,6 +125,8 @@ interface Room {
   repaint: (() => void) | null;
   /** The mounted lobby's chat, or null while none is mounted. */
   chat: NetChat | null;
+  /** The advisor each seat has seated, as the room last said (N4a). */
+  advisors: [AdvisorScope | null, AdvisorScope | null];
 }
 
 /** Opened on `/versus`, waiting for its lobby to mount: the lobby takes it
@@ -159,7 +177,7 @@ function adopt(o: OpenedRoom, deps: VersusDeps): Room {
   const room: Room = {
     code: o.code, seat: o.seat, transport: o.transport,
     seats: o.lobby.seats, map: o.lobby.map, factions: o.lobby.factions,
-    phase: 'lobby', error: null, repaint: null, chat: null,
+    phase: 'lobby', error: null, repaint: null, chat: null, advisors: [null, null],
   };
   o.transport.setHooks({
     onLobby: (seats, _you, map, factions) => {
@@ -191,6 +209,11 @@ function adopt(o: OpenedRoom, deps: VersusDeps): Room {
     },
     // The room echoes every line to both seats, this one's own included.
     onChat: (seat, text) => room.chat?.receive(seat, text),
+    // The badges: the transport clears them on a reconnect, before the room's next say.
+    onAdvisors: (present) => {
+      room.advisors = present;
+      room.repaint?.();
+    },
   });
   return room;
 }
@@ -241,6 +264,120 @@ function callsignField(deps: VersusDeps): { el: HTMLElement; input: HTMLInputEle
   });
   el.append(name, input);
   return { el, input };
+}
+
+/** The "Invite an advisor" control for this seat (N4a, decision D1): a scope
+ *  choice, a button that asks the room for an advisor ticket, and then the
+ *  command to paste and a Copy ticket button. Built once per lobby and moved
+ *  between repaints, so a minted command survives a ready toggle. The ticket
+ *  lives in this closure only: never in the DOM, a URL or the command. */
+function advisorInvite(room: Room, deps: VersusDeps, alive: () => boolean): HTMLElement {
+  const el = document.createElement('div');
+  el.className = 'rl-versus__advisor-invite';
+  const heading = document.createElement('span');
+  heading.className = 'rl-versus__label';
+  heading.textContent = t('net.advisor.invite');
+
+  const scopes = document.createElement('fieldset');
+  scopes.className = 'rl-versus__advisor-scope';
+  const legend = document.createElement('legend');
+  legend.className = 'rl-versus__advisor-legend';
+  legend.textContent = t('net.advisor.scope');
+  scopes.appendChild(legend);
+  let scope: AdvisorScope = 'advise';
+  for (const value of ADVISOR_SCOPES) {
+    const label = document.createElement('label');
+    label.className = 'rl-versus__advisor-choice';
+    const radio = document.createElement('input');
+    radio.type = 'radio';
+    radio.name = `advisor-scope-${room.code}`;
+    radio.value = value;
+    radio.checked = value === scope;
+    radio.addEventListener('change', () => {
+      if (!radio.checked) return;
+      scope = value;
+      // The ticket and the command in view were for the other scope.
+      retire();
+      hint.textContent = t(`net.advisor.scope.${scope}.hint`);
+    });
+    const text = document.createElement('span');
+    text.textContent = t(`net.advisor.scope.${value}`);
+    label.append(radio, text);
+    scopes.appendChild(label);
+  }
+  const hint = document.createElement('p');
+  hint.className = 'rl-versus__advisor-hint';
+  hint.textContent = t(`net.advisor.scope.${scope}.hint`);
+
+  const mint = button(t('net.advisor.mint'), 'rl-versus__advisor-mint');
+  const status = messageLine('rl-versus__advisor-status');
+  const note = document.createElement('p');
+  note.className = 'rl-versus__advisor-note';
+  note.textContent = t('net.advisor.note');
+  const result = document.createElement('div');
+  result.className = 'rl-versus__advisor-result';
+
+  let ticket: string | null = null;
+  let asking = 0;
+  let busy = false;
+  /** Forgets the ticket and takes the command off screen. */
+  function retire(): void {
+    asking++;
+    busy = false;
+    mint.disabled = false;
+    ticket = null;
+    status.textContent = '';
+    result.replaceChildren();
+  }
+  const showTicket = (minted: string, forScope: AdvisorScope): void => {
+    ticket = minted;
+    const caption = document.createElement('span');
+    caption.className = 'rl-versus__label';
+    caption.textContent = t('net.advisor.command.label');
+    const cmd = document.createElement('code');
+    cmd.className = 'rl-versus__advisor-command';
+    cmd.textContent = advisorCommand(deps.serverOrigin, room.code, forScope);
+    const file = document.createElement('p');
+    file.className = 'rl-versus__advisor-file';
+    file.textContent = t('net.advisor.ticketFile', { path: ADVISOR_TICKET_FILE });
+    const copy = button(t('net.advisor.copyTicket'), 'rl-versus__advisor-copy');
+    const copied = messageLine('rl-versus__advisor-copied');
+    copy.addEventListener('click', () => {
+      const mine = ticket;
+      if (mine === null) return;
+      void deps.copy(mine).then((ok) => {
+        if (alive() && ticket === mine) copied.textContent = t(ok ? 'net.advisor.ticketCopied' : 'net.advisor.ticketCopyFailed');
+      });
+    });
+    result.replaceChildren(caption, cmd, file, copy, copied);
+  };
+  mint.addEventListener('click', () => {
+    if (busy) return;
+    retire();
+    busy = true;
+    mint.disabled = true;
+    const mine = asking;
+    const forScope = scope;
+    status.textContent = t('net.advisor.minting');
+    deps.advisorTicket(room.code, forScope).then(
+      (minted) => {
+        if (!alive() || asking !== mine) return;
+        busy = false;
+        mint.disabled = false;
+        status.textContent = '';
+        showTicket(minted, forScope);
+      },
+      () => {
+        if (!alive() || asking !== mine) return;
+        busy = false;
+        mint.disabled = false;
+        status.textContent = t('net.advisor.failed');
+      },
+    );
+  });
+
+  el.append(heading, scopes, hint, mint, status, note, result);
+  return el;
 }
 
 function frame(title: string): { wrap: HTMLElement; body: HTMLElement; footStart: HTMLElement } {
@@ -479,6 +616,9 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
       nameOf: (seat) => r.seats.find((x) => x.seat === seat)?.callsign ?? '',
     }, { docked: true });
 
+    // Built once: only this seat's card ever holds it, and a repaint moves it.
+    const invite = advisorInvite(r, deps, () => !disposed && r.repaint !== null);
+
     const card = (n: Seat): HTMLElement => {
       const el = document.createElement('div');
       el.className = 'rl-versus__seat';
@@ -514,6 +654,17 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
       if (s.ready) el.dataset.ready = '1';
       state.textContent = t(s.ready ? 'versus.room.ready' : 'versus.room.notReady');
       el.appendChild(state);
+      // Whoever the room says advises this seat, for both players to see (D1).
+      const advisor = r.advisors[n];
+      if (advisor !== null) {
+        const badge = document.createElement('span');
+        badge.className = 'rl-versus__advisor-badge';
+        badge.dataset.scope = advisor;
+        badge.textContent = t('net.advisor.badge', { scope: advisor });
+        el.appendChild(badge);
+      }
+      // Only the viewer's own seat invites an advisor, and only while the lobby is open.
+      if (n === r.seat && r.phase === 'lobby') el.appendChild(invite);
       return el;
     };
 

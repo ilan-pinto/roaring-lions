@@ -178,8 +178,10 @@ describe('the Move key', () => {
   it('resolves from the keyboard and can be rebound onto a free key', () => {
     const b = bindingsFrom({});
     expect(resolveKey(b, { key: 'n', ctrlKey: false, metaKey: false })).toBe('move');
-    const r = rebind(b, 'move', 'q');
-    expect(r.ok && resolveKey(r.bindings, { key: 'q', ctrlKey: false, metaKey: false })).toBe('move');
+    // `x` was the free key here until N4a's veto took it (D11); `j` is free.
+    const r = rebind(b, 'move', 'j');
+    expect(r.ok && resolveKey(r.bindings, { key: 'j', ctrlKey: false, metaKey: false })).toBe('move');
+    expect(rebind(b, 'move', 'x')).toMatchObject({ ok: false, takenBy: 'veto' });
     expect(rebind(b, 'move', 'm')).toMatchObject({ ok: false, takenBy: 'mute' });
   });
   it('an armed Move is something Escape disarms, before it opens the pause menu', () => {

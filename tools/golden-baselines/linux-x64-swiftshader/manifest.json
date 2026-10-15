@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "f4b3ea2bd5352cf09e4b75d9adda07424da346ce",
-  "blessedAt": "2026-10-14T17:38:12.760Z",
-  "reason": "Unit polish 1/2 (#601) on top of three r186 (#599) and the RWS (#603): crews on the gun, raised mortar; supersedes #604. Lead approved 2026-10-14.",
+  "commit": "05492a636807a30a9559f1442f4707704e7962a0",
+  "blessedAt": "2026-10-15T06:20:03.922Z",
+  "reason": "Relief reads (#620): slope light gain 2 + median-relative height contours move relief (tel_marum) and aftermath (qarn_hadid) only; lead approved merge 2026-10-15.",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -81,7 +81,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "69e89361762a8a5d59f4fc55e85ddaf9cc08cc7637544b4f8c945e7750a0e21a"
+      "sha256": "5d9630456de8827bd2cf6228722e6003f53d8561d0de11603940d993790e0b04"
     },
     "aftermath": {
       "tick": 300,
@@ -95,7 +95,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "c0dd833cf8414dedec0121753de642f91e4aa3293655c29f6813b2570deffae0"
+      "sha256": "59ec186ce1d8cb9c4a0a7c640ab076aefeea298078cf77083b57adf5ff8917c4"
     }
   }
 }

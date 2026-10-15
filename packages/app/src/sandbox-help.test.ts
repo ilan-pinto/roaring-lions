@@ -271,3 +271,16 @@ describe('tod (R-12, N-23)', () => {
     expect(sandboxHelp(ctx)).toContain('dawn | day | dusk | night');
   });
 });
+
+describe('engines (GH-35)', () => {
+  it('is a known URL parameter, never a Free play flag, and no typo warning', () => {
+    expect(KNOWN_PARAMS.map((p) => p.name)).toContain('engines');
+    expect(SANDBOX_FLAGS.map((f) => f.name as string)).not.toContain('engines');
+    expect(unknownParams(new URLSearchParams('?sandbox=tel_marum&engines=b'))).toEqual([]);
+  });
+
+  it('__lions.help() lists it, with its two values', () => {
+    const ctx = { mapId: 'tel_marum', mapIds: MAPS, on: [] };
+    expect(sandboxHelp(ctx)).toMatch(/&engines=<a\|b>\s+a \| b/);
+  });
+});
