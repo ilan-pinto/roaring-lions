@@ -180,8 +180,10 @@ no walls, so it never fires there. Over 800 paired seeds on the walled maps
 (every seed played twice with only the side label swapped), result flips
 went 9 for the side carrying the rule and 12 against (p = 0.66), end-value
 margin 35 up and 43 down (p = 0.43), a pooled 95% interval on the win-rate
-shift of about −1.5 to +0.8 percentage points. It costs side 1 about 9
-unit-seconds a game halted at walls under the probe's attack-move play; a
+shift of about −1.5 to +0.8 percentage points (a paired-flip interval: net
+−3 of 800 pairs, 9 for minus 12 against, standard error √21 / 800 = 0.57
+points, so −0.375 ± 1.96 × 0.57). It costs side 1 about 9
+unit-seconds a game on `milh_flats` halted at walls under the probe's attack-move play; a
 player who routes along walls will breach more, so the behaviour is real and
 policy-dependent, and only its outcome effect is null. Nothing breaches in
 the mirror pins' first 200 ticks. **It is therefore a parity item for N2,
@@ -495,7 +497,7 @@ draw outside fog (fixed in the same pass).
 ### 5.2 HUD, camera, briefing
 
 Objectives, Conduct, logistics and intel become per-side views of per-side
-runtime state (N2 for the state; N1 shows the match clock, pop and purse of
+runtime state (N3 for the state, since no versus runtime exists through N2 (L1); N1 shows the match clock, pop and purse of
 the viewer's side only). Each seat's camera starts at its own camp. The
 Shai/Idit briefing beats do not play in a match; the lobby is the briefing.
 The pause menu keeps Resume, Settings and Quit; Restart is gone, Quit is
@@ -561,7 +563,7 @@ keeps today's behaviour for side 0 as the human seat (the seat table's
 default is today's rule), the golden replay issues none of the new commands
 and builds no runtime, and a versus room still runs no `MissionRuntime` until
 N3. So the three sim pins in `determinism.test.ts`, F1's `ECONOMY_PIN` and
-the versus mirror pins are **expected not to move** in N2; if one does, it is
+`ECONOMY_PIN_RELIEF` and the versus mirror pins are **expected not to move** in N2; if one does, it is
 a defect to explain, not a planned move. One pin is BORN: a runtime-digest
 pin for `MissionRuntime.digest()`. Decision memo and the non-sim
 prerequisites (P1–P7): `docs/superpowers/plans/2026-10-15-net-n2-prereqs.md`.
@@ -753,8 +755,9 @@ green, per the working rules on every WP issue.
 **Beside Stage 4.** N0 and N1 touch no sim file, so lane C (WP-G-F, from
 2 Nov) is undisturbed. `ThreeRenderer.ts` is the one shared file: `viewerSide`
 is a single PR in N1 scheduled against the polish lane's own touches of it.
-N2's sim work takes the lane C slot after M2 (27 Nov) and lands the integer
-purse together with F2 Task 1 rather than beside it. N3 rides on WP-G-G,
+N2's sim work comes directly after F3 (L5; ruled 15 Oct, coordinator,
+lead-delegated), carrying F2 Task 1 (the integer purse) as its first task
+rather than landing beside it. N3 rides on WP-G-G,
 whose zones, pop caps and production are the skirmish rules the Sarim seat
 plays.
 
@@ -1159,7 +1162,7 @@ until all of these hold:
   takes the table as given and never reads a config.
 - **The pins. Ruled 15 Oct (coordinator, lead-delegated), L1:** this bullet
   first said the three sim pins in `determinism.test.ts`, F1's
-  `ECONOMY_PIN` and the versus-force mirror pins (`versus-force.test.ts`,
+  `ECONOMY_PIN`, `ECONOMY_PIN_RELIEF` and the versus-force mirror pins (`versus-force.test.ts`,
   580559085 / 1260439781; `match-world.test.ts`, 3043363756 / 1260439781)
   "each move once". Under option B they are **expected not to move**: the
   seat table's default is today's rule, the golden replay issues no new
