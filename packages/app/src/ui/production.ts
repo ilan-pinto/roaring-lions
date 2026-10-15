@@ -91,8 +91,11 @@ export interface ProductionOptions {
    * (F1), so there is no rate to read a time off. Absent: the tile only dims.
    */
   supportCharge?: (kind: SupportKind) => { fraction: number; title: string };
-  /** Plays the deny cue when a click (or `press`) finds the intel short.
-   *  `main.ts` supplies `CRITICAL_CUES.uiDeny`. */
+  /** Plays the deny cue on every click the dock refuses: a support call the
+   *  intel cannot pay for (click or `press`), and a unit tile that is locked,
+   *  capped by population, or one the runtime declines to build -- one deny
+   *  path for the whole dock. An accepted build never calls it. `main.ts`
+   *  supplies `CRITICAL_CUES.uiDeny`. */
   onDeny?: () => void;
   /** The bound key's label for a call, for the tooltip's last line (Task 3
    *  wires it). Absent prints nothing. */
@@ -154,6 +157,12 @@ export class ReinforcementDock {
    *  additionally drop its listeners and the app-wide Escape hook if this
    *  dock's tip happens to be the one showing when the mission ends. */
   private readonly tipDisposers: Disposer[] = [];
+  /** The header's population readout. Built once, hidden while the mission is
+   *  uncapped; unlike the credit chip it CHANGES (units die, builds queue), so
+   *  `refresh()` repaints it. `popShown` is what is painted, so the 4 Hz beat
+   *  rewrites the DOM only when a number moved. */
+  private readonly pop: HTMLElement;
+  private popShown = '';
 
   constructor(
     host: HTMLElement,
@@ -198,6 +207,14 @@ export class ReinforcementDock {
       head.appendChild(credits);
       this.tipDisposers.push(bindTip(credits, () => t('dock.credits.tip'), { host: this.el }));
     }
+
+    // Population, beside the credits (the approved mock's 5h): `--info` with a
+    // dim word, the warn tone at the cap. Not on the top strip, which has no
+    // room for it at 1400 wide. Text only; the figures are numbers.
+    this.pop = document.createElement('span');
+    this.pop.className = 'rl-dock__pop';
+    this.pop.hidden = true;
+    head.appendChild(this.pop);
 
     const grid = document.createElement('div');
     grid.className = 'rl-dock__grid';
@@ -321,6 +338,14 @@ export class ReinforcementDock {
       const name = escapeHtml(unit.name);
       if (state.lock !== null) {
         this.opts.note(t('dock.note.locked', { name, reason: escapeHtml(state.lock.full) }), 'warn');
+        this.opts.onDeny?.();
+        return;
+      }
+      // The cap: the line already carries the numbers (and, with room left
+      // but not enough, the unit's name), so it is the note as it stands.
+      if (state.capped !== null) {
+        this.opts.note(escapeHtml(state.capped.full), 'warn');
+        this.opts.onDeny?.();
         return;
       }
       if (this.opts.runtime.requestBuild(unit.id)) {
@@ -329,6 +354,7 @@ export class ReinforcementDock {
         this.opts.note(t('dock.note.building', { name }), 'info');
       } else {
         this.opts.note(t('dock.note.cannotBuild', { name }), 'mute');
+        this.opts.onDeny?.();
       }
       el.blur(); // keep the keyboard on the battlefield
       this.refresh(); // the bar starts now, not at the next 4 Hz beat
@@ -408,13 +434,21 @@ export class ReinforcementDock {
   private unitTipHtml(unit: BuildableUnit): string {
     const blurb =
       unit.blurb === undefined ? '' : `<div class="rl-tip__blurb">${escapeHtml(unit.blurb)}</div>`;
+    // The rich tip covers the native `title`, so a mouse player would never see
+    // why a capped tile is refused: the full line goes here too, as one warn line.
+    // A locked tile gets the same line with its gate sentence; the two are
+    // exclusive (`tileState`: a lock outranks the cap), so at most one shows.
+    const state = tileState(unit, this.opts.runtime, this.opts.ledger, this.opts.missionName);
+    const refusal = state.lock ?? state.capped;
+    const capLine = refusal === null ? '' : `<div class="rl-warn">${escapeHtml(refusal.full)}</div>`;
     return (
       `<div class="rl-tip__head">` +
       `<span class="rl-tip__name">${escapeHtml(unit.name)}</span>` +
       `<span class="rl-tip__cost">${unit.logistics} · ${unit.buildTimeS}s</span>` +
       `</div>` +
       `<div class="rl-tip__tags">${roleBadgeSvg(unit.bucket, TIP_BADGE)} ${unit.tags.map(escapeHtml).join(' · ')}</div>` +
-      blurb
+      blurb +
+      capLine
     );
   }
 
@@ -463,7 +497,9 @@ export class ReinforcementDock {
   focusFirst(): boolean {
     if (this.unitTiles.length === 0) return false;
     // Not named `t`: this file imports the catalogue's own `t()`.
-    const open = this.unitTiles.find((tile) => tile.el.dataset.locked === '0' && tile.el.dataset.poor === '0');
+    const open = this.unitTiles.find(
+      (tile) => tile.el.dataset.locked === '0' && tile.el.dataset.capped === '0' && tile.el.dataset.poor === '0'
+    );
     (open ?? this.unitTiles[0]).el.focus();
     return true;
   }
@@ -473,23 +509,28 @@ export class ReinforcementDock {
     for (const tile of this.unitTiles) {
       const state = tileState(tile.unit, rt, this.opts.ledger, this.opts.missionName);
       tile.el.dataset.locked = state.lock === null ? '0' : '1';
+      tile.el.dataset.capped = state.capped === null ? '0' : '1';
       // A lock outranks the price: a type the campaign has not opened is not
-      // "expensive", and dimming it twice would say two things at once.
-      tile.el.dataset.poor = state.lock === null && !state.affordable ? '1' : '0';
+      // "expensive", and dimming it twice would say two things at once. A
+      // capped tile is refused for a reason that is not the price either.
+      tile.el.dataset.poor = state.lock === null && state.capped === null && !state.affordable ? '1' : '0';
       tile.el.dataset.queued = state.queue === null ? '0' : '1';
       // Ruling 1 (WP-A3.3): bought, and its model has not landed yet.
       const pending = this.bought.has(tile.unit.id) && (this.opts.meshPending?.(tile.unit.id) ?? false);
       tile.el.dataset.meshPending = pending ? '1' : '0';
 
-      tile.lock.textContent = state.lock?.short ?? '';
+      tile.lock.textContent = state.lock?.short ?? state.capped?.short ?? '';
       tile.left.textContent = state.queue === null ? '' : `${state.queue.secs}s`;
       tile.bar.style.width = state.queue === null ? '0' : `${state.queue.percent.toFixed(1)}%`;
 
       const queued =
         state.queue === null ? '' : t('dock.tile.queuedSuffix', { n: state.queue.count, secs: state.queue.secs });
+      // The cap sentence that names the unit has its nameless twin (`title`):
+      // the label opens with the name already.
+      const refusal = state.lock !== null ? state.lock.full : state.capped?.title ?? null;
       const title =
-        state.lock !== null
-          ? t('dock.tile.titleLocked', { name: tile.unit.name, reason: state.lock.full })
+        refusal !== null
+          ? t('dock.tile.titleLocked', { name: tile.unit.name, reason: refusal })
           : t('dock.tile.title', { name: tile.unit.name, logistics: tile.unit.logistics, queued });
       tile.el.title = title;
       // A button's accessible name comes from its own text, and this one's
@@ -505,6 +546,7 @@ export class ReinforcementDock {
       const kit = state.lock === null ? (tile.unit.kit ?? 0) : 0;
       tile.el.setAttribute('aria-label', kit === 0 ? title : `${title}, ${kitLevelLabel(kit)}`);
     }
+    this.paintPopulation();
     const now = performance.now();
     for (const tile of this.supportTiles) {
       const poor = rt.intel < tile.cost;
@@ -518,5 +560,25 @@ export class ReinforcementDock {
       if (charge !== undefined) tile.el.setAttribute('aria-label', charge.title);
       tile.el.dataset.readyFlash = now < tile.flashUntil ? '1' : '0';
     }
+  }
+
+  /** The header readout: `used/cap population` while the mission is capped,
+   *  gone while it is not. Warn at the cap, `--info` below it. */
+  private paintPopulation(): void {
+    const view = this.opts.runtime.populationView?.() ?? null;
+    if (view === null) {
+      this.pop.hidden = true;
+      this.popShown = '';
+      return;
+    }
+    this.pop.hidden = false;
+    const at = view.used >= view.cap;
+    const key = `${view.used}/${view.cap}`;
+    if (key !== this.popShown) {
+      this.popShown = key;
+      this.pop.innerHTML = t('dock.pop', { used: view.used, cap: view.cap });
+    }
+    this.pop.classList.toggle('rl-warn', at);
+    this.pop.classList.toggle('rl-info', !at);
   }
 }

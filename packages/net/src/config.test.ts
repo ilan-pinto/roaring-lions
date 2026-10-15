@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { FACTION_MATCHUP_MAPS, VERSUS_FAIR_MAPS, factionsOfMatchup, isFactionPair, matchupAllowed, matchupField, validateConfig, fnv1a32, versusMapAllowed, type MatchConfig } from './config';
+import { FACTION_MATCHUP_MAPS, TIERS_MAX_TIER, TIERS_MAX_TRACKS, TIERS_MAX_TYPES, VERSUS_FAIR_MAPS, factionsOfMatchup, isFactionPair, matchupAllowed, matchupField, validateConfig, fnv1a32, versusMapAllowed, type MatchConfig } from './config';
 
 export const CONFIG: MatchConfig = {
   matchId: 'm1', code: 'ABCDEF', seed: 20260727, map: 'beit_sahwan_outskirts', mode: 'sandbox',
@@ -19,6 +19,56 @@ describe('validateConfig', () => {
     expect(validateConfig({ ...CONFIG, seed: 1.5 })).toBeNull();
     expect(validateConfig({ ...CONFIG, mode: 'coop' })).toBeNull();
     expect(validateConfig({ ...CONFIG, seats: [CONFIG.seats[0], { ...CONFIG.seats[1], faction: 'ashwar' }] })).toBeNull();
+  });
+});
+
+describe('validateConfig: SeatConfig.tiers is the account\'s nested per-type shape', () => {
+  const withTiers = (tiers: unknown) => ({ ...CONFIG, seats: [{ ...CONFIG.seats[0], kit: 'brigade', tiers }, CONFIG.seats[1]] });
+  it('accepts a nested per-type tier map, and still accepts {}', () => {
+    expect(validateConfig(withTiers({ mbt_lavi: { armour: 2 } }))?.seats[0].tiers).toEqual({ mbt_lavi: { armour: 2 } });
+    expect(validateConfig(withTiers({}))).not.toBeNull();
+    expect(validateConfig(withTiers({ mbt_lavi: { armour: 0, firepower: 3 }, inf_squad: {} }))).not.toBeNull();
+  });
+  it('refuses the old flat shape', () => {
+    expect(validateConfig(withTiers({ mbt_lavi: 2 }))).toBeNull();
+  });
+  it('refuses a fractional or negative leaf', () => {
+    expect(validateConfig(withTiers({ mbt_lavi: { armour: 1.5 } }))).toBeNull();
+    expect(validateConfig(withTiers({ mbt_lavi: { armour: -1 } }))).toBeNull();
+  });
+  it('refuses a non-numeric leaf, an array at either level and null', () => {
+    expect(validateConfig(withTiers({ mbt_lavi: { armour: '2' } }))).toBeNull();
+    expect(validateConfig(withTiers({ mbt_lavi: [2] }))).toBeNull();
+    expect(validateConfig(withTiers([]))).toBeNull();
+    expect(validateConfig(withTiers({ mbt_lavi: null }))).toBeNull();
+  });
+  it('is bounded: at most TIERS_MAX_TYPES ids, TIERS_MAX_TRACKS tracks an id, and no leaf above TIERS_MAX_TIER', () => {
+    const ids = (n: number) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`u${i}`, { armour: 1 }]));
+    const tracks = (n: number) => ({ mbt_lavi: Object.fromEntries(Array.from({ length: n }, (_, i) => [`t${i}`, 1])) });
+    expect(validateConfig(withTiers(ids(TIERS_MAX_TYPES)))).not.toBeNull();
+    expect(validateConfig(withTiers(ids(TIERS_MAX_TYPES + 1)))).toBeNull();
+    expect(validateConfig(withTiers(tracks(TIERS_MAX_TRACKS)))).not.toBeNull();
+    expect(validateConfig(withTiers(tracks(TIERS_MAX_TRACKS + 1)))).toBeNull();
+    expect(validateConfig(withTiers({ mbt_lavi: { armour: TIERS_MAX_TIER } }))).not.toBeNull();
+    expect(validateConfig(withTiers({ mbt_lavi: { armour: TIERS_MAX_TIER + 1 } }))).toBeNull();
+    expect(validateConfig(withTiers({ mbt_lavi: { armour: Number.MAX_SAFE_INTEGER } }))).toBeNull();
+    expect(validateConfig(withTiers({ mbt_lavi: { armour: Infinity } }))).toBeNull();
+    expect(validateConfig(withTiers({ mbt_lavi: { armour: NaN } }))).toBeNull();
+  });
+  it('refuses __proto__, constructor and prototype as a key at either level (JSON-parsed, so each is an OWN key)', () => {
+    // JSON.parse defines "__proto__" as an own property rather than setting
+    // the prototype, so this is the shape a replay file or a stored config
+    // really arrives in. Each control beside it is the same text with the
+    // key renamed, so the refusal is the key and nothing else.
+    const parsed = (text: string) => validateConfig(withTiers(JSON.parse(text)));
+    for (const key of ['__proto__', 'constructor', 'prototype']) {
+      expect(parsed(`{"${key}": {"armour": 1}}`), `type ${key}`).toBeNull();
+      expect(parsed(`{"mbt_lavi": {"${key}": 1}}`), `track ${key}`).toBeNull();
+    }
+    expect(parsed('{"proto": {"armour": 1}}')).not.toBeNull();
+    expect(parsed('{"mbt_lavi": {"constructors": 1}}')).not.toBeNull();
+    // An own "__proto__" really is an own key here (not a prototype set).
+    expect(Object.keys(JSON.parse('{"__proto__": {"armour": 1}}'))).toEqual(['__proto__']);
   });
 });
 

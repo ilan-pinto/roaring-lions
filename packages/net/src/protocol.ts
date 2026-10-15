@@ -35,6 +35,15 @@ export const COMMAND_KINDS = [
   'move', 'attackMove', 'halt', 'garrison', 'load', 'unload', 'reveal', 'callStrike', 'smoke', 'demolish', 'chargeTunnel', 'attack',
 ] as const satisfies readonly Command['kind'][];
 
+/** The other half of the pin (N2 prerequisite P1): `satisfies` above catches a
+ *  kind that is not a `Command`, this catches a `Command` kind missing from the
+ *  list. Add a kind to the sim's `Command` and forget the whitelist, and
+ *  `cleanCommand` would silently drop it off the wire; now it is a compile
+ *  error that names the kind. */
+type MissingCommandKind = Exclude<Command['kind'], (typeof COMMAND_KINDS)[number]>;
+const COMMAND_KINDS_COMPLETE: [MissingCommandKind] extends [never] ? true : { missingFromCOMMAND_KINDS: MissingCommandKind } = true;
+void COMMAND_KINDS_COMPLETE;
+
 export interface SeatState { seat: Seat; callsign: string; connected: boolean; ready: boolean }
 
 export type ClientMsg =
@@ -58,6 +67,9 @@ export type ClientMsg =
 export const ERROR_CODES = ['bad_message', 'bad_ticket', 'build_mismatch', 'full', 'not_running', 'origin'] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
+/** A room's kit rule, as the lobby names it (`SeatConfig['kit']`). */
+export type LobbyKit = 'matched' | 'brigade';
+
 /** `round`: a paced room is waiting for a bot seat's `done` (N4a). */
 export type StallReason = 'behind' | 'gone' | 'round';
 /** Why a room ended. `over`: it closed itself `OVER_CLOSE_MS` after the result both seats reached (L-1).
@@ -67,8 +79,10 @@ export type EndedReason = (typeof ENDED_REASONS)[number];
 
 export type ServerMsg =
   /** `factions`, by seat: what the host picked (KDF vs Sarim, or the mirror).
-   *  Absent from a room made before it existed, which is the mirror. */
-  | { t: 'lobby'; config: MatchConfig | null; seats: SeatState[]; you: Seat; map: string; factions?: [Faction, Faction] }
+   *  Absent from a room made before it existed, which is the mirror.
+   *  `kit`: the room's kit rule (per-seat kit); the room names it only when it
+   *  is `brigade`, so absent is `matched`, which every older room was. */
+  | { t: 'lobby'; config: MatchConfig | null; seats: SeatState[]; you: Seat; map: string; factions?: [Faction, Faction]; kit?: LobbyKit }
   | { t: 'start'; config: MatchConfig }
   | { t: 'frame'; tick: number; cmds: Stamped[] }
   | { t: 'stall'; reason: StallReason; seat: Seat }
@@ -265,8 +279,9 @@ export function parseServerMsg(raw: string): ServerMsg | null {
       const c = m.config === null || m.config === undefined ? null : validateConfig(m.config);
       if (c === null && m.config !== null && m.config !== undefined) return null;
       if (m.factions !== undefined && !isFactionPair(m.factions)) return null;
+      if (m.kit !== undefined && m.kit !== 'matched' && m.kit !== 'brigade') return null;
       return Array.isArray(m.seats) && m.seats.every(isSeatState) && isSeat(m.you) && isStr(m.map)
-        ? { t: 'lobby', config: c, seats: m.seats, you: m.you, map: m.map, ...(m.factions !== undefined ? { factions: m.factions } : {}) } : null;
+        ? { t: 'lobby', config: c, seats: m.seats, you: m.you, map: m.map, ...(m.factions !== undefined ? { factions: m.factions } : {}), ...(m.kit !== undefined ? { kit: m.kit } : {}) } : null;
     }
     case 'start': { const c = validateConfig(m.config); return c ? { t: 'start', config: c } : null; }
     case 'frame': return isInt(m.tick) && Array.isArray(m.cmds) && m.cmds.every(isStamped) ? { t: 'frame', tick: m.tick, cmds: m.cmds } : null;

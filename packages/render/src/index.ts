@@ -21,6 +21,11 @@ export type { RendererOptions, TerrainTones, TerrainScatter, OpenScatter, GroveF
 // to translate `Settings.video.quality` into `RendererOptions.quality`
 // before the renderer's chunk has loaded.
 export { QUALITY_PRESETS, type RenderQuality } from './quality';
+// Per-seat kit (Task 6): which vehicle template a (type, side) draws from.
+// Pure and three-free, so it stays on the barrel; the app's room-kit test
+// holds it against `buildMatchWorld`, which decides "side 1 gets its own
+// type" with the same `sameTrackTiers` (app -> render, the legal direction).
+export { sameTrackTiers, templateKey, type KitTiers, type KitTiersBySide } from './three/units/kit-template-key';
 // VR-33: the ground colour of every order's route and marker -- backend-
 // neutral (zero imports), read by the app's cursor-agreement test.
 export { ORDER_GROUND_COLOR_KEY } from './order-ground';

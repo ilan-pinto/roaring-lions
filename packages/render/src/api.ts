@@ -22,6 +22,8 @@ import type { RenderQuality } from './quality';
 import type { LightOverride, TimeOfDay } from './three/time-of-day';
 // Three-free too (`three/units/building-fit.ts` imports nothing).
 import type { BuildingFit } from './three/units/building-fit';
+// Three-free too (`three/units/kit-template-key.ts` imports nothing).
+import type { KitTiers, KitTiersBySide } from './three/units/kit-template-key';
 
 export type { LightOverride, TimeOfDay } from './three/time-of-day';
 export type { BuildingFit } from './three/units/building-fit';
@@ -359,8 +361,23 @@ export interface RendererOptions {
    * on the field. The app fills it from `upgradePrepass`, the same per-type
    * tiers the sim's unit types were patched with. Three-only:
    * `PixiRenderer` has no mesh path and ignores it, like `shellColors`.
+   *
+   * Side 0's table. With no `unitKitTiersBySide` (single-player, a mission,
+   * the sandbox) every side reads it and every type has ONE template, as it
+   * always has.
    */
-  unitKitTiers?: Readonly<Record<string, Readonly<Record<string, number>>>>;
+  unitKitTiers?: KitTiers;
+  /**
+   * A versus room's two seats' tiers, side 0's then side 1's, from the room's
+   * world (per-seat kit plan, Task 6; `app/net/room-kit.ts`). Given, it wins
+   * over `unitKitTiers` for both sides, and a type whose side-1 tiers differ
+   * from side 0's gets a second template, keyed `${id}#s1`
+   * (`three/units/kit-template-key.ts`'s `templateKey`), so each side's hull
+   * wears the kit its own sim type runs. A type whose two tiers agree --
+   * every type in a matched room -- shares one template and loads nothing
+   * new.
+   */
+  unitKitTiersBySide?: KitTiersBySide;
 }
 
 /** One outlined objective zone: its rect in tiles and how it is going. */

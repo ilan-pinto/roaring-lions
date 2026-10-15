@@ -147,9 +147,34 @@ function unit(over: Partial<UnitFacts> = {}): UnitFacts {
     pinned: false,
     moving: false,
     aboard: false,
+    onLoan: false,
     ...over,
   };
 }
+
+describe('chips — on loan (F3 Task 8)', () => {
+  it('counts the lent members of a chip against its size: 2 of 3 reads 2/3', () => {
+    const [chip] = groupChips([unit({ onLoan: true }), unit(), unit({ onLoan: true })]);
+    expect(chip.loaned).toBe(2);
+    expect(chip.total).toBe(3);
+  });
+
+  it('reads 0 lent for a chip none of whose members are, and never splits the chip', () => {
+    const chips = groupChips([unit(), unit(), unit({ typeId: 'mbt_lavi', name: 'Lavi', bucket: 'armour', onLoan: true })]);
+    expect(chips.map((c) => [c.typeId, c.loaned, c.total])).toEqual([
+      ['inf_squad', 0, 2],
+      ['mbt_lavi', 1, 1],
+    ]);
+  });
+
+  it('does not touch the status line: a lent, pinned chip still says PINNED', () => {
+    const [plain] = groupChips([unit({ pinned: true })]);
+    const [lent] = groupChips([unit({ pinned: true, onLoan: true })]);
+    expect(lent.status).toBe(plain.status);
+    expect(lent.mark).toBe(plain.mark);
+    expect(lent.statusTone).toBe(plain.statusTone);
+  });
+});
 
 describe('chips — grouping', () => {
   it('makes one chip per unit type and counts the members', () => {

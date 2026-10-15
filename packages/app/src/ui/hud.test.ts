@@ -2855,6 +2855,255 @@ describe('the single-unit card — kit (WP-S3g §3.4, D2)', () => {
     expect(r.host.querySelector('.rl-card .rl-kit-pips')).toBeNull();
     expect(r.host.querySelector('.rl-card__hp')?.textContent).not.toContain('kit');
   });
+
+  it('a seat on side 1 reads its own kit for its own unit, and none for side 0\'s of the same id', () => {
+    // Per-seat kit (Task 5): in a versus room side 1's kitted type shares side
+    // 0's id, so `kitOf` (the viewer's side's table) must be asked only about
+    // an OWN unit -- asked about side 0's namer it would mark side 0 with side
+    // 1's kit.
+    const world = makeForce();
+    world.sim.state.side[world.namer] = 1;
+    const own = clusterRig(() => [world.namer], { viewer: 1, kitOf: () => summary() }, world);
+    expect(own.host.querySelector('.rl-card .rl-kit-pips')).not.toBeNull();
+    expect(own.host.querySelector('.rl-card__hp')?.textContent).toMatch(/ · \+750 kit$/);
+    const foe = makeForce();
+    const r = clusterRig(() => [foe.namer], { viewer: 1, kitOf: () => summary() }, foe);
+    expect(r.host.querySelector('.rl-card .rl-kit-pips')).toBeNull();
+    expect(r.host.querySelector('.rl-card__hp')?.textContent).not.toContain('kit');
+  });
+});
+
+describe('"On loan" on the card and the chip (F3 Task 8, C2)', () => {
+  const lent = (...ids: number[]): ((id: number) => boolean) => {
+    const set = new Set(ids);
+    return (id) => set.has(id);
+  };
+  const chipOf = (r: ClusterRig, type: string): HTMLElement | undefined =>
+    r.chips().find((c) => c.dataset.type === type);
+  const tab = (c: HTMLElement | undefined): HTMLElement | null =>
+    c?.querySelector<HTMLElement>('.rl-loan') ?? null;
+
+  it('stamps the card of a lent unit, right after the name, and not the card of an owned one', () => {
+    const world = makeForce();
+    const r = clusterRig(() => [world.namer], { isOnLoan: lent(world.namer) }, world);
+    const name = r.host.querySelector('.rl-card__name');
+    const stamp = r.host.querySelector<HTMLElement>('.rl-card .rl-loan');
+    expect(stamp?.textContent).toBe(en['hud.onLoan']);
+    expect(name?.nextElementSibling).toBe(stamp);
+    expect(stamp?.classList.contains('rl-loan--tab')).toBe(false);
+    const w2 = makeForce();
+    const owned = clusterRig(() => [w2.namer], { isOnLoan: lent() }, w2);
+    expect(owned.host.querySelector('.rl-loan')).toBeNull();
+  });
+
+  it('gives the card stamp a reachable reason: a delegated, focusable tip that survives the 4 Hz rebuild', () => {
+    const world = makeForce();
+    const r = clusterRig(() => [world.namer], { isOnLoan: lent(world.namer) }, world);
+    const stamp = (): HTMLElement => r.host.querySelector<HTMLElement>('.rl-card .rl-loan')!;
+    expect(stamp().dataset.tip).toBe('onLoan');
+    expect(stamp().getAttribute('tabindex')).toBe('0');
+    expect(stamp().hasAttribute('title')).toBe(false);
+    stamp().dispatchEvent(new Event('mouseover', { bubbles: true }));
+    expect(r.host.querySelector<HTMLElement>('.rl-tip')?.textContent).toContain(en['hud.onLoan.tip']);
+    // The 4 Hz rebuild PATCHES the card in place: the stamp is the same node
+    // and keeps focus, so nothing is re-announced (S-F polish, Task 2).
+    const before = stamp();
+    before.focus(); // focusin opens the tip...
+    closeTip(); // ...which the player then dismisses; focus stays.
+    expect(document.activeElement).toBe(before);
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(stamp()).toBe(before);
+    expect(document.activeElement).toBe(before);
+    // ...and no tip was opened that the player had not asked for.
+    expect(r.host.querySelector<HTMLElement>('.rl-tip')?.hidden).toBe(true);
+  });
+
+  it('keeps the stamp node, its focus and its open tip while the card changes under it (no focusout, no re-announce)', () => {
+    const world = makeForce();
+    const r = clusterRig(() => [world.namer], { isOnLoan: lent(world.namer) }, world);
+    const cluster = r.host.querySelector<HTMLElement>('.rl-cluster')!;
+    const stamp = (): HTMLElement => r.host.querySelector<HTMLElement>('.rl-card .rl-loan')!;
+    const hp = (): string => r.host.querySelector('.rl-card__hp')?.textContent ?? '';
+    const before = stamp();
+    before.focus(); // opens the tip
+    const tipEl = r.host.querySelector<HTMLElement>('.rl-tip')!;
+    expect(tipEl.hidden).toBe(false);
+    const hpBefore = hp();
+    let focusouts = 0;
+    cluster.addEventListener('focusout', () => focusouts++);
+    world.sim.state.hp[world.namer] = Math.round(world.sim.state.hp[world.namer] / 2);
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(hp()).not.toBe(hpBefore); // the card really did change
+    expect(stamp()).toBe(before);
+    expect(document.activeElement).toBe(before);
+    expect(focusouts).toBe(0);
+    // The patch does not strip the attribute the tip machinery put on the node.
+    expect(tipEl.hidden).toBe(false);
+    expect(before.getAttribute('aria-describedby')).toBe(tipEl.id);
+  });
+
+  it('draws the right card when the selection moves to a unit of another type', () => {
+    const world = makeForce();
+    let pick = world.namer;
+    const r = clusterRig(() => [pick], {}, world);
+    const name = (): string => r.host.querySelector('.rl-card__name')?.textContent ?? '';
+    const namerName = name();
+    pick = world.at;
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(name()).not.toBe(namerName);
+    expect(r.host.querySelectorAll('.rl-card')).toHaveLength(1);
+    // The patched card is byte-for-byte what a fresh render of that unit draws.
+    const fresh = clusterRig(() => [world.at], {}, world);
+    expect(r.host.querySelector('.rl-card')?.innerHTML).toBe(fresh.host.querySelector('.rl-card')?.innerHTML);
+  });
+
+  it('refocuses a flag the patch could not keep, by its tip key, quietly', () => {
+    const world = makeForce();
+    let named = false;
+    const r = clusterRig(
+      () => [world.namer],
+      {
+        isOnLoan: lent(world.namer),
+        // A callsign appears above the stamp: every sibling shifts one place,
+        // so the positional patch hands the stamp's node a different job.
+        rosterEntryOf: (id) => (named && id === world.namer ? { type: 'ifv_namer', veterancy: 0, name: 'Keshet' } : undefined),
+      },
+      world
+    );
+    const stamp = (): HTMLElement => r.host.querySelector<HTMLElement>('.rl-card .rl-loan')!;
+    const before = stamp();
+    before.focus();
+    closeTip();
+    named = true;
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(r.host.querySelector('.rl-card__callsign')).not.toBeNull();
+    expect(stamp()).not.toBe(before); // the old node now plays another part...
+    expect(stamp().dataset.tip).toBe('onLoan');
+    expect(document.activeElement).toBe(stamp()); // ...and focus followed the flag, by key
+    expect(r.host.querySelector<HTMLElement>('.rl-tip')?.hidden).toBe(true);
+  });
+
+  it('closes the tip of a hovered flag that stops being that flag (no stale tip or aria-describedby)', () => {
+    const world = makeForce();
+    world.sim.state.pinned[world.namer] = 1;
+    const r = clusterRig(() => [world.namer], {}, world);
+    const flag = r.host.querySelector<HTMLElement>('.rl-card [data-tip="pinned"]')!;
+    flag.dispatchEvent(new Event('mouseover', { bubbles: true }));
+    const tipEl = r.host.querySelector<HTMLElement>('.rl-tip')!;
+    expect(tipEl.hidden).toBe(false);
+    expect(flag.getAttribute('aria-describedby')).toBe(tipEl.id);
+    // Recovers to "Suppressed": a state span stays at the same place, with no tip.
+    world.sim.state.pinned[world.namer] = 0;
+    world.sim.state.suppression[world.namer] = Math.round(0.62 * 65536);
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(r.host.querySelector('.rl-card__cond')?.textContent).toContain('Suppressed');
+    expect(r.host.querySelector('.rl-card [data-tip="pinned"]')).toBeNull();
+    expect(tipEl.hidden).toBe(true);
+    expect(r.host.querySelector('.rl-card [aria-describedby]')).toBeNull();
+  });
+
+  it('patches the same unit’s card in place (the hp fill is reused) but replaces the card for a different unit', () => {
+    const world = makeForce();
+    let pick = world.namer;
+    const r = clusterRig(() => [pick], { isOnLoan: lent(world.namer, world.at) }, world);
+    const fill = (): Element => r.host.querySelector('.rl-card .rl-track > i')!;
+    const stamp = (): Element => r.host.querySelector('.rl-card .rl-loan')!;
+    const fill0 = fill();
+    const stamp0 = stamp();
+    world.sim.state.hp[world.namer] = Math.round(world.sim.state.hp[world.namer] / 2);
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(fill()).toBe(fill0);
+    expect((fill() as HTMLElement).style.width).toBe('50%');
+    pick = world.at;
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(fill()).not.toBe(fill0);
+    expect(stamp()).not.toBe(stamp0);
+  });
+
+  it('gives a lent chip the tab on its frame, and a chip with none lent nothing', () => {
+    const world = makeForce();
+    const r = clusterRig(
+      () => [...world.squads, world.at, world.namer],
+      { isOnLoan: lent(world.namer) },
+      world
+    );
+    expect(tab(chipOf(r, 'ifv_namer'))?.textContent).toBe(en['hud.onLoan']);
+    expect(tab(chipOf(r, 'ifv_namer'))?.classList.contains('rl-loan--tab')).toBe(true);
+    expect(chipOf(r, 'ifv_namer')?.dataset.loan).toBe('1');
+    for (const type of ['inf_squad', 'at_team']) {
+      expect(tab(chipOf(r, type)), type).toBeNull();
+      expect(chipOf(r, type)?.hasAttribute('data-loan'), type).toBe(false);
+    }
+  });
+
+  it('stamps a chip when ANY of its units is lent, and never splits it', () => {
+    const world = makeForce();
+    const r = clusterRig(() => [...world.squads, world.at], { isOnLoan: lent(world.squads[1]) }, world);
+    expect(r.chips().map((c) => c.dataset.type)).toEqual(['inf_squad', 'at_team']);
+    expect(tab(chipOf(r, 'inf_squad'))).not.toBeNull();
+    expect(chipOf(r, 'inf_squad')?.textContent).toContain('×2');
+  });
+
+  it('keeps the tab out of the name’s text flow and out of the status line (a long name must not wrap for it)', () => {
+    const world = makeForce();
+    const r = clusterRig(() => [...world.squads, world.at, world.namer], { isOnLoan: lent(world.namer) }, world);
+    const chip = chipOf(r, 'ifv_namer')!;
+    const stamp = tab(chip)!;
+    expect(stamp.parentElement).toBe(chip);
+    expect(stamp.closest('.rl-chip__top')).toBeNull();
+    expect(stamp.closest('.rl-chip__name')).toBeNull();
+    expect(stamp.closest('.rl-chip__status')).toBeNull();
+    // The name row reads exactly as it does with nothing on loan.
+    const plain = clusterRig(() => [...world.squads, world.at, world.namer], {}, world);
+    expect(chip.querySelector('.rl-chip__top')?.outerHTML).toBe(
+      chipOf(plain, 'ifv_namer')?.querySelector('.rl-chip__top')?.outerHTML
+    );
+  });
+
+  it('keeps the kit sign, the pinned mark and the stamp together, and the status line unchanged', () => {
+    const world = makeForce();
+    world.sim.state.pinned[world.namer] = 1;
+    const sel = (): number[] => [...world.squads, world.namer];
+    const base = clusterRig(sel, { kitLevelOf: (t) => (t === 'ifv_namer' ? 2 : 0) }, world);
+    const status = chipOf(base, 'ifv_namer')?.querySelector('.rl-chip__status')?.outerHTML;
+    const r = clusterRig(
+      sel,
+      { kitLevelOf: (t) => (t === 'ifv_namer' ? 2 : 0), isOnLoan: lent(world.namer) },
+      world
+    );
+    const chip = chipOf(r, 'ifv_namer')!;
+    expect(chip.querySelector('.rl-kit-host > .rl-kit-icon')?.getAttribute('data-kit')).toBe('2');
+    expect(chip.querySelector('.rl-kit-host > .rl-pin-mark')?.getAttribute('data-mark')).toBe('pinned');
+    expect(tab(chip)).not.toBeNull();
+    expect(tab(chip)?.closest('.rl-kit-host')).toBeNull();
+    expect(chip.querySelector('.rl-chip__status')?.outerHTML).toBe(status);
+    expect(chip.querySelector('.rl-chip__status')?.textContent).toContain('1 PINNED');
+  });
+
+  it('says "N of M on loan" and why in the chip tooltip, only on a stamped chip', () => {
+    const world = makeForce();
+    const r = clusterRig(() => [...world.squads, world.at], { isOnLoan: lent(world.squads[0]) }, world);
+    const tipOver = (type: string): string => {
+      chipOf(r, type)!.querySelector('.rl-chip__name > span')!.dispatchEvent(new Event('mouseover', { bubbles: true }));
+      return r.host.querySelector<HTMLElement>('.rl-tip')!.textContent!;
+    };
+    const lentTip = tipOver('inf_squad');
+    expect(lentTip).toContain('1 of 2 on loan');
+    expect(lentTip).toContain(en['hud.onLoan.tip']);
+    const plainTip = tipOver('at_team');
+    expect(plainTip).not.toContain('on loan');
+    expect(plainTip).not.toContain(en['hud.onLoan.tip']);
+  });
+
+  it('stamps nothing when the HUD has no isOnLoan dep', () => {
+    const world = makeForce();
+    const chips = clusterRig(() => [...world.squads, world.at, world.namer], {}, world);
+    expect(chips.host.querySelector('.rl-loan')).toBeNull();
+    expect(chips.host.querySelector('[data-loan]')).toBeNull();
+    const w2 = makeForce();
+    const card = clusterRig(() => [w2.namer], {}, w2);
+    expect(card.host.querySelector('.rl-loan')).toBeNull();
+  });
 });
 
 describe('the kit sign on the HUD’s icons (WP-S3g plan 2b)', () => {

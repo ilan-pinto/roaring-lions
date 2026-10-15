@@ -90,21 +90,27 @@ export function versusUnitTypes(factions: readonly [Faction, Faction]): Set<stri
  *  `VERSUS_SARIM` -- side 1's offsets mirrored through its own anchor so the
  *  two forces face each other. Side 0 is placed first, then side 1, as the
  *  mirror always was, so a KDF-vs-KDF room spawns exactly what it did. No
- *  civilians: in a room the only opposition is the other seat. */
+ *  civilians: in a room the only opposition is the other seat.
+ *
+ *  `typeOf` is one id -> type map for both sides (the headless probes, and
+ *  every room before per-seat kit), or one per SIDE (`buildMatchWorld`), so
+ *  each side spawns the types its own kit registered. */
 export function versusSpawns(
   sim: Sim,
-  typeOf: Map<string, number>,
+  typeOf: Map<string, number> | readonly [Map<string, number>, Map<string, number>],
   anchors: SandboxAnchors,
   factions: readonly [Faction, Faction] = ['kdf', 'kdf'],
 ): VersusForce {
-  const place = placeOnOpen(sim, typeOf);
+  const [typeOf0, typeOf1] = typeOf instanceof Map ? [typeOf, typeOf] : typeOf;
+  const place0 = placeOnOpen(sim, typeOf0);
+  const place1 = placeOnOpen(sim, typeOf1);
   const [ax, ay] = anchors.friendly;
   const [bx, by] = anchors.hostile;
   const faceA = hostileFacing(bx, by, ax, ay); // side 0 looks at side 1
   const faceB = hostileFacing(ax, ay, bx, by); // side 1 looks at side 0
   const bySide: [number[], number[]] = [[], []];
-  for (const [id, dx, dy] of versusForceOf(factions[0])) bySide[0].push(place(id, 0, ax + dx, ay + dy, faceA));
-  for (const [id, dx, dy] of versusForceOf(factions[1])) bySide[1].push(place(id, 1, bx - dx, by - dy, faceB));
+  for (const [id, dx, dy] of versusForceOf(factions[0])) bySide[0].push(place0(id, 0, ax + dx, ay + dy, faceA));
+  for (const [id, dx, dy] of versusForceOf(factions[1])) bySide[1].push(place1(id, 1, bx - dx, by - dy, faceB));
   return { bySide };
 }
 

@@ -2774,11 +2774,15 @@ body[data-outcome-beat] .rl-aar {
 
 /* Wraps upward: the cluster is anchored at the bottom, so a second row of
    chips grows into the map rather than off the bottom of the screen. */
+/* Row gap is one step wider than the column gap (F3 Task 8, C2): a second row's
+   "On loan" tab straddles its chip's top edge and bit about 3px into the chip
+   above it at --s1. */
 .rl-cluster {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: var(--s1);
+  row-gap: var(--s2);
+  column-gap: var(--s1);
 }
 
 /* --- multi-select: one chip per unit type ----------------------------- */
@@ -2794,6 +2798,38 @@ body[data-outcome-beat] .rl-aar {
   pointer-events: auto;
   cursor: pointer;
   transition: border-color var(--dur-fast) var(--ease);
+}
+/* The "On loan" stamp (F3 Task 8): a static fact, so no motion. Display face in
+   capitals by CSS (VR-20), the neutral dim ink with a 1px outline of the same
+   ink -- never --on, --selected, --info or --commend, which all mean something
+   else. On the card it follows the name in the title row; on a chip it is a
+   tab straddling the frame's top edge at the right (C2), off the art's kit
+   sign and status mark and off the name column, so no name wraps for it. */
+.rl-loan {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  align-self: center;
+  font-family: var(--font-display);
+  font-size: var(--t-xs);
+  font-weight: 700;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  line-height: 1.4;
+  color: var(--ink-dim);
+  border: 1px solid var(--ink-dim);
+  padding: 0 var(--s1);
+  white-space: nowrap;
+}
+.rl-chip[data-loan='1'] {
+  position: relative;
+}
+.rl-loan--tab {
+  position: absolute;
+  top: 0;
+  right: var(--s2);
+  transform: translateY(-50%);
+  background: var(--panel-bg);
 }
 /* G-P3 "Tinted border" (the lead, 2026-09-27): an own chip whose type
    carries kit (`hud.ts` sets data-kit only at level 1-3) tints its border
@@ -3363,6 +3399,20 @@ body[data-outcome-beat] .rl-aar {
   text-shadow: var(--halo);
   pointer-events: auto;
 }
+/* Population, used/cap, beside the credits (F3 Lane A, the mock's 5h). The tone
+   is the class on the element: `rl-info` below the cap, `rl-warn` at it, with
+   the word in `rl-dim`. Same size and halo as the credit chip; pushed to the
+   far edge of the header. Hidden while the mission is uncapped by the `hidden`
+   attribute; no author `display` rule here would beat it, so the `[hidden]`
+   rule below is defensive (it keeps a later `display` on this class honest). */
+.rl-dock__pop {
+  margin-left: auto;
+  font-size: var(--t-strip);
+  text-shadow: var(--halo);
+}
+.rl-dock__pop[hidden] {
+  display: none;
+}
 .rl-dock__grid {
   display: grid;
   grid-template-columns: repeat(5, var(--tile));
@@ -3520,6 +3570,24 @@ body[data-outcome-beat] .rl-aar {
 .rl-tile[data-locked='0'] .rl-tile__lock,
 .rl-tile[data-locked='1'] .rl-tile__cost {
   display: none;
+}
+/* The population cap refuses this build (F3 Lane A): the one disabled
+   treatment, the tile as a whole, with its short label where the price was.
+   After the rule above so the label wins the display tie; a campaign lock
+   never carries `data-capped` (`tileState` gives it the lock). */
+.rl-tile[data-capped='1'] {
+  cursor: not-allowed;
+}
+/* Not while a copy is building: the bar and the clock keep full strength, the
+   rule `[data-poor='1']` above learned. */
+.rl-tile[data-capped='1']:not([data-queued='1']) {
+  opacity: var(--disabled-opacity);
+}
+.rl-tile[data-capped='1'] .rl-tile__cost {
+  display: none;
+}
+.rl-tile[data-capped='1'] .rl-tile__lock {
+  display: block;
 }
 
 /* --- the four support tiles ------------------------------------------- */
@@ -7216,6 +7284,16 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-versus__side-note[hidden] {
   display: none;
 }
+/* Bring your brigade (per-seat kit): the host's toggle, its friends-only
+   note, and the room's kit line. */
+.rl-versus__kit input[type='checkbox'] {
+  accent-color: var(--good);
+}
+.rl-versus__kit-note {
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  color: var(--ink-mute);
+}
 .rl-versus__share {
   font-family: var(--font-body);
   font-size: var(--t-s);
@@ -7351,12 +7429,14 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-versus__dot[data-connected='1'] {
   background: var(--good);
 }
-.rl-versus__room-map {
+.rl-versus__room-map,
+.rl-versus__room-kit {
   display: flex;
   gap: var(--s2);
   font-size: var(--t-s);
 }
-.rl-versus__map-name {
+.rl-versus__map-name,
+.rl-versus__kit-name {
   color: var(--ink);
 }
 .rl-versus__chat:empty {
