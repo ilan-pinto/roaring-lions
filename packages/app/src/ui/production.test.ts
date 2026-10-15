@@ -37,6 +37,9 @@ interface FakeRuntime extends ProductionRuntime {
   blocked: Record<string, string>;
   builds: string[];
   buildOk: boolean;
+  /** Unit ids the cap refuses, and the readout; null is an uncapped mission. */
+  capped: Set<string>;
+  pop: { used: number; cap: number } | null;
 }
 
 function fakeRuntime(over: Partial<FakeRuntime> = {}): FakeRuntime {
@@ -48,7 +51,12 @@ function fakeRuntime(over: Partial<FakeRuntime> = {}): FakeRuntime {
     blocked: {},
     builds: [],
     buildOk: true,
-    buildBlockedReason: (id) => rt.blocked[id] ?? null,
+    capped: new Set<string>(),
+    pop: null,
+    buildBlockedReason: (id) =>
+      rt.blocked[id] ?? (rt.capped.has(id) && rt.pop !== null ? `population cap reached (${rt.pop.used}/${rt.pop.cap})` : null),
+    popCapped: (id) => rt.blocked[id] === undefined && rt.capped.has(id),
+    populationView: () => rt.pop,
     requestBuild: (id) => {
       rt.builds.push(id);
       return rt.buildOk;
@@ -912,5 +920,203 @@ describe('onBought (GH-254)', () => {
     tile.click();
     expect(rt.builds).toEqual([]);
     expect(bought).toEqual([]);
+  });
+});
+
+// ----------------------------------------------------------------------
+// Population (F3 Lane A, S-F)
+// ----------------------------------------------------------------------
+
+describe('population in the dock', () => {
+  const eitan = (): DockUnit => dockUnit({ id: 'apc_eitan', name: 'Eitan APC', logistics: 400, population: 2 });
+  const drone = (): DockUnit => dockUnit({ id: 'recon_drone', name: 'Recon Drone', logistics: 100, population: 0 });
+  const readout = (r: Rig): HTMLElement => r.host.querySelector<HTMLElement>('.rl-dock__pop')!;
+
+  // Review Focus 5.
+  it('shows no readout while the mission is uncapped', () => {
+    const r = rig([dockUnit()], fakeRuntime({ pop: null }));
+    expect(readout(r).hidden).toBe(true);
+    expect(readout(r).textContent).toBe('');
+    expect(r.tile('inf_squad').dataset.capped).toBe('0');
+  });
+
+  it('shows used/cap and the word in --info below the cap, in the header beside the credits', () => {
+    const r = rig([dockUnit()], fakeRuntime({ pop: { used: 9, cap: 12 } }), undefined, { credits: 40 });
+    expect(readout(r).hidden).toBe(false);
+    expect(readout(r).textContent).toBe('9/12 population');
+    expect(readout(r).classList.contains('rl-info')).toBe(true);
+    expect(readout(r).classList.contains('rl-warn')).toBe(false);
+    expect(readout(r).querySelector('.rl-dim')?.textContent).toBe('population');
+    expect(readout(r).parentElement).toBe(r.host.querySelector('.rl-dock__head'));
+  });
+
+  it('turns to the warn tone at the cap', () => {
+    const r = rig([dockUnit()], fakeRuntime({ pop: { used: 12, cap: 12 } }));
+    expect(readout(r).textContent).toBe('12/12 population');
+    expect(readout(r).classList.contains('rl-warn')).toBe(true);
+    expect(readout(r).classList.contains('rl-info')).toBe(false);
+  });
+
+  it('follows the runtime on the 4 Hz repaint: a unit falls, a build queues', () => {
+    const rt = fakeRuntime({ pop: { used: 12, cap: 12 } });
+    const r = rig([dockUnit()], rt);
+    expect(readout(r).textContent).toBe('12/12 population');
+    rt.pop = { used: 11, cap: 12 };
+    r.dock.refresh();
+    expect(readout(r).textContent).toBe('11/12 population');
+    expect(readout(r).classList.contains('rl-info')).toBe(true);
+    rt.pop = { used: 12, cap: 12 };
+    r.dock.refresh();
+    expect(readout(r).classList.contains('rl-warn')).toBe(true);
+    // …and goes away again if the mission stops reporting a cap.
+    rt.pop = null;
+    r.dock.refresh();
+    expect(readout(r).hidden).toBe(true);
+  });
+
+  it('marks a capped tile: data-capped, the short label, the full line on title and aria-label', () => {
+    // Short of logistics too, so `poor` has something to decline.
+    const rt = fakeRuntime({ logistics: 0, pop: { used: 12, cap: 12 }, capped: new Set(['inf_squad']) });
+    const r = rig([dockUnit(), drone()], rt);
+    const tile = r.tile('inf_squad');
+    expect(tile.dataset.capped).toBe('1');
+    expect(tile.dataset.locked).toBe('0');
+    // A capped tile is refused for a reason that is not its price.
+    expect(tile.dataset.poor).toBe('0');
+    expect(tile.querySelector('.rl-tile__lock')?.textContent).toBe('pop full');
+    expect(tile.title).toBe('Rifle Squad — Population 12/12. A unit must fall first.');
+    expect(tile.getAttribute('aria-label')).toBe(tile.title);
+    // The other tile (a drone takes no population) is untouched.
+    expect(r.tile('recon_drone').dataset.capped).toBe('0');
+    expect(r.tile('recon_drone').querySelector('.rl-tile__lock')?.textContent).toBe('');
+  });
+
+  // Review Focus 4.
+  it('at 11/12 a 2-population unit is capped and says what it needs; a drone never is', () => {
+    const rt = fakeRuntime({ pop: { used: 11, cap: 12 }, capped: new Set(['apc_eitan']) });
+    const r = rig([eitan(), drone()], rt);
+    expect(r.tile('apc_eitan').dataset.capped).toBe('1');
+    expect(r.tile('apc_eitan').title).toContain('Population 11/12. Eitan APC needs 2.');
+    expect(r.tile('recon_drone').dataset.capped).toBe('0');
+  });
+
+  // Review Focus 3.
+  it('reads the lock, not "pop full", on a locked tile that is also over the cap', () => {
+    const rt = fakeRuntime({
+      pop: { used: 12, cap: 12 },
+      capped: new Set(['inf_squad']),
+      blocked: { inf_squad: 'requires campaign Conduct 55 (no missions rated yet)' },
+    });
+    const r = rig([dockUnit({ unlock: { roeMin: 55 } })], rt);
+    expect(r.tile('inf_squad').dataset.locked).toBe('1');
+    expect(r.tile('inf_squad').dataset.capped).toBe('0');
+    expect(r.tile('inf_squad').querySelector('.rl-tile__lock')?.textContent).toBe('Conduct ≥55');
+  });
+
+  it('adds the full line to the rich tip as one warn line, and nothing on an open tile', () => {
+    const rt = fakeRuntime({ pop: { used: 11, cap: 12 }, capped: new Set(['apc_eitan']) });
+    const r = rig([eitan(), dockUnit()], rt);
+    hover(r.tile('apc_eitan'));
+    const warn = r.tip().querySelectorAll('.rl-warn');
+    expect(warn).toHaveLength(1);
+    expect(warn[0].textContent).toBe('Population 11/12. Eitan APC needs 2.');
+    unhover(r.tile('apc_eitan'));
+    hover(r.tile('inf_squad'));
+    expect(r.tip().querySelectorAll('.rl-warn')).toHaveLength(0);
+    unhover(r.tile('inf_squad'));
+  });
+
+  it('writes the unit name in the tip line as text, never as markup', () => {
+    const rt = fakeRuntime({ pop: { used: 11, cap: 12 }, capped: new Set(['apc_eitan']) });
+    const r = rig([dockUnit({ id: 'apc_eitan', name: '<i>Eitan</i>', population: 2 })], rt);
+    hover(r.tile('apc_eitan'));
+    expect(r.tip().querySelector('.rl-warn i')).toBeNull();
+    expect(r.tip().querySelector('.rl-warn')?.textContent).toContain('<i>Eitan</i>');
+    unhover(r.tile('apc_eitan'));
+  });
+
+  it('sends B past a capped tile as it does past a locked one', () => {
+    const rt = fakeRuntime({ pop: { used: 12, cap: 12 }, capped: new Set(['inf_squad']) });
+    const r = rig([dockUnit(), drone()], rt);
+    expect(r.dock.focusFirst()).toBe(true);
+    expect(document.activeElement).toBe(r.tile('recon_drone'));
+  });
+
+  describe('the deny cue on the unit tiles', () => {
+    it('plays on a locked tile, queues nothing, and says why', () => {
+      const onDeny = vi.fn();
+      const r = rig([dockUnit()], fakeRuntime({ blocked: { inf_squad: 'locked' } }), undefined, { onDeny });
+      r.tile('inf_squad').click();
+      expect(onDeny).toHaveBeenCalledTimes(1);
+      expect(r.rt.builds).toEqual([]);
+      expect(r.notes[0].html).toContain('is locked');
+    });
+
+    it('plays on a capped tile, queues nothing, and the note carries the numbers', () => {
+      const onDeny = vi.fn();
+      const rt = fakeRuntime({ pop: { used: 11, cap: 12 }, capped: new Set(['apc_eitan']) });
+      const r = rig([eitan()], rt, undefined, { onDeny });
+      r.tile('apc_eitan').click();
+      expect(onDeny).toHaveBeenCalledTimes(1);
+      expect(r.rt.builds).toEqual([]);
+      expect(r.notes).toHaveLength(1);
+      expect(r.notes[0].tone).toBe('warn');
+      expect(r.notes[0].html).toContain('Population 11/12. Eitan APC needs 2.');
+    });
+
+    it('plays on a build the runtime refuses', () => {
+      const onDeny = vi.fn();
+      const r = rig([dockUnit()], fakeRuntime({ buildOk: false }), undefined, { onDeny });
+      r.tile('inf_squad').click();
+      expect(onDeny).toHaveBeenCalledTimes(1);
+      expect(r.notes[0].html).toContain('insufficient logistics');
+    });
+
+    it('never plays for an accepted build', () => {
+      const onDeny = vi.fn();
+      const r = rig([dockUnit()], fakeRuntime(), undefined, { onDeny });
+      r.tile('inf_squad').click();
+      expect(r.rt.builds).toEqual(['inf_squad']);
+      expect(onDeny).not.toHaveBeenCalled();
+    });
+
+    it('still plays when intel is short on a support tile', () => {
+      const onDeny = vi.fn();
+      const r = rig([dockUnit()], fakeRuntime({ intel: 0 }), undefined, { onDeny });
+      r.support('drone_sweep').click();
+      expect(onDeny).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // The join no fake can make: the REAL runtime's cap, its popCapped, its
+  // populationView -- and the queue counting against it (D2).
+  it('against a real capped runtime: the build that fills the cap caps the next click', () => {
+    const sim = new Sim({ seed: 3, width: 16, height: 16, capacity: 16 });
+    const typeIdx = sim.addUnitType(units.inf_squad as unknown as UnitTypeJson);
+    const runtime = new MissionRuntime(
+      sim,
+      {
+        id: 'dock_cap',
+        map: { file: 'none', player_start: [2, 2] },
+        ledger: { requires: [], produces: [] },
+        objectives: [{ id: 'win', type: 'destroy_all', primary: true }],
+        resources: { logistics_start: 5000, pop_cap: 1 },
+      },
+      { typeIdOf: () => typeIdx, markers: {}, zones: {}, unitInfo: () => ({ logistics: 292, buildTimeS: 15, population: 1 }) }
+    );
+    runtime.start();
+    const onDeny = vi.fn();
+    const r = rig([dockUnit({ population: 1 })], runtime as unknown as FakeRuntime, undefined, { onDeny });
+    expect(readout(r).textContent).toBe('0/1 population');
+    expect(r.tile('inf_squad').dataset.capped).toBe('0');
+    r.tile('inf_squad').click();
+    expect(onDeny).not.toHaveBeenCalled();
+    // The click's own refresh already shows the queued build counted.
+    expect(readout(r).textContent).toBe('1/1 population');
+    expect(readout(r).classList.contains('rl-warn')).toBe(true);
+    expect(r.tile('inf_squad').dataset.capped).toBe('1');
+    r.tile('inf_squad').click();
+    expect(onDeny).toHaveBeenCalledTimes(1);
+    expect(runtime.production).toHaveLength(1);
   });
 });

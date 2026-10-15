@@ -3399,6 +3399,19 @@ body[data-outcome-beat] .rl-aar {
   text-shadow: var(--halo);
   pointer-events: auto;
 }
+/* Population, used/cap, beside the credits (F3 Lane A, the mock's 5h). The tone
+   is the class on the element: `rl-info` below the cap, `rl-warn` at it, with
+   the word in `rl-dim`. Same size and halo as the credit chip; pushed to the
+   far edge of the header. Hidden while the mission is uncapped -- the author
+   rule for `display` would otherwise beat the `hidden` attribute. */
+.rl-dock__pop {
+  margin-left: auto;
+  font-size: var(--t-strip);
+  text-shadow: var(--halo);
+}
+.rl-dock__pop[hidden] {
+  display: none;
+}
 .rl-dock__grid {
   display: grid;
   grid-template-columns: repeat(5, var(--tile));
@@ -3556,6 +3569,24 @@ body[data-outcome-beat] .rl-aar {
 .rl-tile[data-locked='0'] .rl-tile__lock,
 .rl-tile[data-locked='1'] .rl-tile__cost {
   display: none;
+}
+/* The population cap refuses this build (F3 Lane A): the one disabled
+   treatment, the tile as a whole, with its short label where the price was.
+   After the rule above so the label wins the display tie; a campaign lock
+   never carries `data-capped` (`tileState` gives it the lock). */
+.rl-tile[data-capped='1'] {
+  cursor: not-allowed;
+}
+/* Not while a copy is building: the bar and the clock keep full strength, the
+   rule `[data-poor='1']` above learned. */
+.rl-tile[data-capped='1']:not([data-queued='1']) {
+  opacity: var(--disabled-opacity);
+}
+.rl-tile[data-capped='1'] .rl-tile__cost {
+  display: none;
+}
+.rl-tile[data-capped='1'] .rl-tile__lock {
+  display: block;
 }
 
 /* --- the four support tiles ------------------------------------------- */

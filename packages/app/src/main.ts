@@ -3826,6 +3826,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             kit: kitLevelOf(u.id),
             tags: doctrineTags(bucket, abilities),
             blurb: 'blurb' in u ? (u.blurb as string) : undefined,
+            // What it takes of the population cap (schema default 1, a drone 0) --
+            // the same read `unitInfo` above hands the runtime. Only words the
+            // capped tile's "needs N" line; the cap itself is the runtime's call.
+            population: 'population' in u.cost ? u.cost.population : 1,
             // The same gate `unitInfo` above hands `MissionRuntime`, so the tile's
             // lock sentence (`gateSentence`, via `dock-model.ts`'s `tileState`) can
             // never disagree with what the runtime is actually enforcing.

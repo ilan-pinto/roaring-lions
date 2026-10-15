@@ -54,6 +54,12 @@ export interface DockUnit {
    *  `buildBlockedReason` sentence, so the tile can never show the sim's own
    *  bare wording -- a floor with a parenthetical, or an id verbatim. */
   unlock?: UnlockGate;
+  /** What one of these takes of the side's population cap -- the unit JSON's
+   *  `cost.population`, schema default 1 (a drone is 0). Absent reads as 1, so
+   *  a caller that never heard of the cap is judged as the runtime judges it.
+   *  Used only to word the capped tile's "needs N" line; WHETHER it is capped
+   *  is the runtime's call (`DockView.popCapped`), never recomputed here. */
+  population?: number;
 }
 
 /** The live numbers a tile is judged against. A narrow view of
@@ -68,6 +74,13 @@ export interface DockView {
     totalTicks: number;
   }[];
   buildBlockedReason(unitId: string): string | null;
+  /** MissionRuntime's own question: is the population cap the FIRST thing
+   *  refusing this build (after the unlock gate and the camp)? Optional so a
+   *  view that predates the cap reads as never capped. */
+  popCapped?(unitId: string): boolean;
+  /** Side 0's population against its cap, or null when uncapped (every
+   *  campaign mission today, where the dock shows no readout). */
+  populationView?(): { used: number; cap: number } | null;
 }
 
 export interface QueueState {
@@ -88,6 +101,12 @@ export interface TileState {
    *  structured gate is what is blocking, the runtime's own (already plain
    *  English) text for a non-gate block such as a destroyed field camp. */
   lock: { short: string; full: string } | null;
+  /** The population cap is what refuses this build, or null. Exclusive with
+   *  `lock`: a campaign lock outranks it (`popCapped` only speaks when the gate
+   *  and the camp did not), so a locked tile reads its lock, never "pop full".
+   *  `short` fits the tile; `full` is the numbers sentence (`title`, the rich
+   *  tip, the click's note). */
+  capped: { short: string; full: string } | null;
   queue: QueueState | null;
 }
 
@@ -243,13 +262,37 @@ export function tileState(
   missionName: (id: string) => string | undefined = () => undefined
 ): TileState {
   const reason = view.buildBlockedReason(unit.id);
+  const affordable = view.logistics >= unit.logistics;
   if (reason === null) {
-    return { affordable: view.logistics >= unit.logistics, lock: null, queue: queueFor(view, unit.id) };
+    return { affordable, lock: null, capped: null, queue: queueFor(view, unit.id) };
   }
   const sentence = unit.unlock ? gateSentence(unit.unlock, ledger, missionName) : null;
+  // The cap is the runtime's call (`popCapped` already puts the gate and the
+  // camp first), but a gate that is still closed on this side of the wire wins
+  // too: a lock is the more useful thing to read, and "pop full" on a unit the
+  // campaign has not opened would be a second, wrong reason.
+  if (sentence === null && view.popCapped?.(unit.id) === true) {
+    return { affordable, lock: null, capped: { short: t('dock.cap.short'), full: capSentence(unit, view, reason) }, queue: queueFor(view, unit.id) };
+  }
   return {
-    affordable: view.logistics >= unit.logistics,
+    affordable,
     lock: { short: lockLabel(unit.unlock, ledger), full: sentence ?? reason },
+    capped: null,
     queue: queueFor(view, unit.id),
   };
+}
+
+/**
+ * The capped tile's full line, with the numbers (Q6). At the cap it is "A unit
+ * must fall first."; with room left but not enough for THIS unit (11/12 and a
+ * 2-population Eitan) it names what the unit needs. `fallback` is the runtime's
+ * own text, for a view that says capped without saying how full.
+ */
+function capSentence(unit: DockUnit, view: DockView, fallback: string): string {
+  const pop = view.populationView?.() ?? null;
+  if (pop === null) return fallback;
+  if (pop.used < pop.cap) {
+    return t('dock.cap.need', { used: pop.used, cap: pop.cap, name: unit.name, need: unit.population ?? 1 });
+  }
+  return t('dock.cap.full', { used: pop.used, cap: pop.cap });
 }
