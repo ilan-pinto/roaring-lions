@@ -1359,7 +1359,7 @@ describe('economy replay (2400 ticks of MissionRuntime on a flat map)', () => {
     expect(reliefEconomyReplay(RELIEF_ECO_SEED, {}, 'command').rt.economyHash()).toBe(ECONOMY_PIN_RELIEF);
   });
 
-  // RUNTIME_DIGEST_PIN: born 2026-10-15 on a5f7e6b4 (N2 Task 6), read from the first run. Move it deliberately, in the
+  // RUNTIME_DIGEST_PIN: born 2026-10-15 in a5c0deab (N2 Task 6), read from the first run. Move it deliberately, in the
   // commit that moves runtime state, and say why; economyHash() is its first word, so
   // every ECONOMY_PIN move moves it too -- name both in that commit.
   const RUNTIME_DIGEST_PIN = 2984314042;

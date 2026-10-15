@@ -28,6 +28,7 @@ import { starsFor, betterResult, type Stars, type MissionResult } from './grade'
 import { TICKS_PER_SECOND, type Sim, type SimEvent } from './sim';
 import { highGroundRises } from './intel-earn';
 import {
+  AMBUSH_RADIUS_DEFAULT,
   CONTEST_RADIUS_SQ,
   CORRIDOR_RECHECK_TICKS,
   FIRE_SUPPORT_KINDS,
@@ -1123,7 +1124,16 @@ export class MissionRuntime {
    *    state (a `first_contact` trigger fires);
    *  - `zoneDeductedAt` is a cooldown whose effect is the ROE score;
    *  - `patrols[].idx` acts only through the orders it queues into the sim,
-   *    which `sim.hash()` covers.
+   *    which `sim.hash()` covers;
+   *  - `identified` acts only through a `locate` objective's status and
+   *    `paidIdentified`, both folded;
+   *  - `earnedUnits` and `zoneEarnedUnits` are debrief/ledger reads; the purse
+   *    they feed is folded through `economyHash()`;
+   *  - the per-step buffers `externallyCompleted` and `pendingIntelEvents` are
+   *    drained within the step;
+   *  - `onLoan` and `razeExempt` are fixed at `start()`;
+   *  - the rear, zone-route, convoy-route and vent caches are derived from map
+   *    data.
    *  N3 adds folds for whatever its versus rules read. */
   digest(): number {
     let h = hashWord(HASH_SEED, this.economyHash() | 0);
@@ -2450,7 +2460,7 @@ export class MissionRuntime {
         // ambusher simply holds position instead. The GDD calls `ambush` "the entire
         // reason recon quality matters by Phase 5", so this is that sentence made
         // mechanical.
-        if (!preMarked) this.sim.setAmbush(id, fx.from(p.stance.tiles ?? 3));
+        if (!preMarked) this.sim.setAmbush(id, p.stance.tiles === undefined ? AMBUSH_RADIUS_DEFAULT : fx.from(p.stance.tiles));
       } else if (p.stance?.kind === 'patrol' && p.stance.waypoints && p.stance.waypoints.length >= 2) {
         this.patrols.push({
           id,

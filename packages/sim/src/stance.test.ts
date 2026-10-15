@@ -87,6 +87,23 @@ describe('setStance (N2, L3)', () => {
     sim.tick();
     expect([sim.state.carriedBy[u], sim.ambushRadiusSqOf(u)]).toEqual([car, 0]);
   });
+  it('a buried unit (in a tunnel) is unaffected by hold AND by ambush: the containment filter drops it', () => {
+    const sim = new Sim({ seed: 9, width: 32, height: 16, capacity: 16 });
+    const idx = sim.addTunnel({ id: 'tn', points: [[4, 6], [12, 6]] as const, dig_tiles_per_s: 1 });
+    const u = sim.spawn(sim.addUnitType(RIFLES), 1, fx.from(8.5), fx.from(6.5));
+    sim.putInTunnel(u, idx);
+    expect(sim.state.tunnelIn[u]).toBe(idx);
+    sim.queueCommand({ kind: 'setStance', ids: [u], stance: 'ambush' });
+    sim.tick();
+    expect([sim.state.tunnelIn[u], sim.ambushRadiusSqOf(u)]).toEqual([idx, 0]);
+    sim.queueCommand({ kind: 'setStance', ids: [u], stance: 'hold' });
+    sim.tick();
+    expect(sim.state.tunnelIn[u]).toBe(idx);
+  });
+  it('the mission default radius is fx.from(3), the sim default', () => {
+    expect(fx.from(3)).toBe(196608);
+    expect(AMBUSH_RADIUS_DEFAULT).toBe(fx.from(3));
+  });
   it('ambush skips a dead id and still applies to the living one beside it', () => {
     const { sim, rifles } = field();
     const a = sim.spawn(rifles, 1, fx.from(4.5), fx.from(8.5));
