@@ -17,6 +17,7 @@ import {
 import { stallHintLine, stallStart, stallStep, tickIsActive } from './ui/stall-hint';
 import { nameKind, type NamesJson } from './names';
 import { applyRosterCarryover } from './roster-carryover';
+import { attachedFor } from './attached-force';
 import { logDestroyed, logMissionEvent, newMissionLog, type MissionLog } from './mission-log';
 import { lostRecordFor, predecessorOf } from './roster-lost';
 import {
@@ -2394,9 +2395,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             flaggedZones: m.roe?.flagged_zones,
             zoneName: briefPlaces.zone,
           }),
-          attached: (m.starting_force ?? [])
-            .filter((p) => p.from_ledger !== true)
-            .map((p) => ({ type: p.unit, name: unitName(p.unit), count: p.count })),
+          // From the RESOLVED force, the array `loanedForce` indexes (GH-183).
+          attached: attachedFor(m.starting_force ?? [], loanedForce, unitName),
           unitName,
         };
       })()
@@ -3089,6 +3089,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // before a runtime exists on some paths (`runtime` is set only `if
     // (mission)`, above), so this must read the variable at call time.
     rosterEntryOf: (id) => runtime?.rosterEntryOf(id),
+    // The same closure rule: `runtime` is read at call time. A sandbox has
+    // none, and then nothing is ever on loan.
+    isOnLoan: (id) => runtime?.isOnLoan(id) ?? false,
     // Reads `ledger`, this battlefield's own `const`: the campaign as it was
     // read at boot, never rebound. That is the right ledger mid-mission, when
     // the card is read: this mission's own losses reach `roster.lost` only
@@ -3823,6 +3826,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             kit: kitLevelOf(u.id),
             tags: doctrineTags(bucket, abilities),
             blurb: 'blurb' in u ? (u.blurb as string) : undefined,
+            // What it takes of the population cap (schema default 1, a drone 0) --
+            // the same read `unitInfo` above hands the runtime. Only words the
+            // capped tile's "needs N" line; the cap itself is the runtime's call.
+            population: 'population' in u.cost ? u.cost.population : 1,
             // The same gate `unitInfo` above hands `MissionRuntime`, so the tile's
             // lock sentence (`gateSentence`, via `dock-model.ts`'s `tileState`) can
             // never disagree with what the runtime is actually enforcing.
