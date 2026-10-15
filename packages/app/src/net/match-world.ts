@@ -1,5 +1,6 @@
 import { applyTerrain, maps, parseMap, units, type MapJson, type ParsedMap } from '@lions/data';
 import type { Faction, MatchConfig, SeatConfig } from '@lions/net';
+import { sameTrackTiers } from '@lions/render';
 import { Sim, type TunnelRouteJson } from '@lions/sim';
 import { standMapStructures } from '../map-sim';
 import { sandboxAnchors, type SandboxAnchors } from '../sandbox-anchors';
@@ -87,7 +88,10 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
   roster.forEach((u, k) => {
     // A Sarim side 1 fields no KDF type, so a copy for it would be registered and never spawned.
     if (factions[1] !== 'kdf' || u.faction !== 'kdf') return;
-    if (sameKit(kitBySide[0].unitKitTiers[u.id], kitBySide[1].unitKitTiers[u.id])) return;
+    // The ONE "same kit" predicate, shared with the renderer's `templateKey`
+    // so it never draws one kit on an id whose two sim types differ, nor loads
+    // a second template for an id whose two sim types are one.
+    if (sameTrackTiers(kitBySide[0].unitKitTiers[u.id], kitBySide[1].unitKitTiers[u.id])) return;
     typeOf1.set(u.id, sim.addUnitType(kitBySide[1].registered[k]));
   });
   const typeOfBySide = [typeOf, typeOf1] as const;
@@ -146,17 +150,4 @@ function ownValue(o: unknown, key: string): unknown {
   if (typeof o !== 'object' || o === null || Array.isArray(o)) return undefined;
   const d = Object.getOwnPropertyDescriptor(o, key);
   return d !== undefined && 'value' in d ? d.value : undefined;
-}
-
-/** Whether two effective kits are the same, on key-sorted entries with zero
- *  tiers ignored (a zero tier fields nothing). The ONE predicate for "side 1
- *  gets its own type". The renderer's `templateKey` (`@lions/render`) mirrors
- *  it -- `render` imports nothing from `app` -- and `room-kit.test.ts` holds
- *  the two together against this world, so the renderer never draws one kit
- *  on an id whose two sim types differ, nor loads a second template for an
- *  id whose two sim types are one. */
-export function sameKit(a: Readonly<Record<string, number>> | undefined, b: Readonly<Record<string, number>> | undefined): boolean {
-  const entries = (t: Readonly<Record<string, number>> | undefined): string =>
-    JSON.stringify(Object.entries(t ?? {}).filter(([, n]) => n > 0).sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0)));
-  return entries(a) === entries(b);
 }

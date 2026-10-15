@@ -10,7 +10,8 @@
 // - Side 0, any side past 1 (civilians), and single-player (no `bySide`)
 //   draw the id's one template, exactly as before this file existed.
 // - Side 1 shares that template when its tiers for the id equal side 0's,
-//   under `buildMatchWorld`'s own `sameKit` rule (zero tiers field nothing;
+//   under `sameTrackTiers`, the rule `buildMatchWorld` itself decides with
+//   (zero tiers field nothing;
 //   key order does not matter). So a matched room, or a brigade room whose
 //   seats hold the same kit, loads nothing new.
 // - Otherwise side 1 draws `${id}#s1`, built with side 1's tiers.
@@ -31,9 +32,9 @@ export const SIDE_1_TEMPLATE_SUFFIX = '#s1';
 
 /**
  * Whether two tier tables field the same kit: key-sorted entries with zero
- * tiers dropped. Mirrors `buildMatchWorld`'s `sameKit` (`app/net/match-world.ts`),
- * which decides whether side 1 gets its own sim type; `room-kit.test.ts`
- * holds `templateKey` against that world so the two cannot drift.
+ * tiers dropped. The ONE "same kit" predicate: `buildMatchWorld`
+ * (`app/net/match-world.ts`) imports it to decide whether side 1 gets its own
+ * sim type, and `room-kit.test.ts` holds `templateKey` against that world.
  */
 export function sameTrackTiers(a: TrackTiers | undefined, b: TrackTiers | undefined): boolean {
   const entries = (t: TrackTiers | undefined): string =>

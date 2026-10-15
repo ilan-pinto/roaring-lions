@@ -2,7 +2,7 @@
  * Which vehicle template a unit draws from (per-seat kit plan, Task 6).
  *
  * A versus room registers side 1 its own sim type for an id only when its kit
- * differs from side 0's (`buildMatchWorld`'s `sameKit`), and both copies keep
+ * differs from side 0's (`sameTrackTiers`, which `buildMatchWorld` imports), and both copies keep
  * the SAME type id. So the renderer cannot key a kitted hull by id alone: it
  * keys by (id, side), and side 1 shares side 0's key whenever the two kits
  * agree -- which is what keeps a matched room loading nothing new.

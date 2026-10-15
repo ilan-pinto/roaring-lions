@@ -74,7 +74,7 @@ describe("templateKey agrees with buildMatchWorld on which ids differ", () => {
   // ONE shared template everywhere else -- so a matched room, or a brigade
   // room whose seats agree, loads nothing new. `templateKey` lives in render,
   // which imports nothing from app, so this is what holds its rule to
-  // `sameKit`, whatever either turns into later.
+  // the world's own split, whatever either turns into later.
   const fixtures: [Tiers, Tiers, [Faction, Faction]?][] = [
     [{}, {}],
     [{}, { mbt_lavi: { armour: 2 } }],
