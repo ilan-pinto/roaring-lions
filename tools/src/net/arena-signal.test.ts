@@ -73,8 +73,10 @@ function startArena(o: { stubborn?: boolean } = {}): { arena: ChildProcess; tmpR
   cleanups.push(async () => {
     // The failure path (or a sleeper the arena left on purpose): the group we
     // made, by the arena's own pid, which leads it. ESRCH means it is empty.
+    // Only while the arena still runs: once it has exited, its pid (and so the
+    // group id) may be reused by an unrelated process.
     const pgid = arena.pid;
-    if (pgid !== undefined) {
+    if (pgid !== undefined && arena.exitCode === null && arena.signalCode === null) {
       try { process.kill(-pgid, 'SIGKILL'); } catch { /* the group is gone */ }
     }
     if (arena.exitCode === null && arena.signalCode === null) await exit;

@@ -223,11 +223,15 @@ export async function abortExternalPlayers(killMs = 2000): Promise<void> {
   liveSeats.clear();
   await Promise.all(seats.map(async (seat) => {
     const { child } = seat;
+    // The directory and its ticket go FIRST, before any wait on the child: a
+    // second signal exits mid-wait, and must not leave the ticket on disk.
+    try { rmSync(seat.dir, { recursive: true, force: true }); } catch { /* tried again below */ }
     if (child !== null && !seat.exited) {
       try { child.kill('SIGTERM'); } catch { /* already gone */ }
       if (seat.exit !== null) await within(seat.exit, killMs);
       if (!seat.exited) { try { child.kill('SIGKILL'); } catch { /* already gone */ } }
     }
+    // Again: anything the child wrote while it was dying.
     try { rmSync(seat.dir, { recursive: true, force: true }); } catch { /* the finally tries again */ }
   }));
 }

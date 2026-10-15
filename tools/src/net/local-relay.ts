@@ -103,7 +103,7 @@ interface Hosted {
   state: FakeState;
   /** An alarm delivery is queued or running: the poll queues no second one. */
   alarming: boolean;
-  /** The room's input gate: the tail of the one chain every event of this room runs on. */
+  /** The room's input gate: the tail of the one chain this room's socket messages, socket closes and alarms run on. */
   gate: Promise<void>;
 }
 
