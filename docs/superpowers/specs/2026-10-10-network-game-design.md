@@ -1273,7 +1273,8 @@ plan the difference is named.
   `build` and `fire_support` (§8.3) arrive with N2/N3's commands, and the
   test pinning `toolsFor` makes that a deliberate change. `order` takes an
   optional boolean `sweep` on `attackMove` only (refused on every other verb),
-  so a model can ask for the same sweep the in-process `rush` uses (§11c.8).
+  in `command` scope only when both seats are bots, so an arena model can ask
+  for the same sweep the in-process `rush` uses (§11c.8, ruled 15 Oct).
 - **The order desk** (`order-desk.ts`, decision D4) is the bot's cadence: at
   most one flush every `DESK_FLUSH_TICKS` = 20 ticks, of at most 4 commands,
   from a queue of `DESK_MAX_QUEUE` = 12; a thirteenth `order` answers
@@ -1556,14 +1557,28 @@ a ten-seed arena run between two models, is the lead's to run (run protocol
     its `sweep`, and `validateCommand` checks an `attackMove` only for owned
     ids and the map edge; the versus drop (#559 F1) is fire support,
     `callStrike` and `reveal`, and `sweep` is a movement flag, not fire
-    support. `order` now takes an optional boolean `sweep` on `attackMove`
-    only and builds it into the command; on any other verb it answers
-    `invalid` (`sweep is for attackMove only`), and a non-boolean answers
-    `invalid` (`sweep is true or false`). `arena-prompt.md` names it.
-    Pinned by `mcp-tools.test.ts`: `sweep: true` is on the cmd seat 0 sent,
-    on the frame both seats heard, and on the command both sims queued;
-    `sweep` on `move`/`halt` is refused with nothing sent. Red with the
-    field dropped from the built command, and with the verb guard removed.
+    support. **Ruled 15 Oct (coordinator, lead-delegated window):** the
+    human UI never sends `sweep` (the lead's 11 Oct ruling that a clicked
+    tile means that tile), so an agent able to send it would hold a
+    capability a human seat lacks. In `command` scope it is accepted only
+    when BOTH seats of the room's `MatchConfig` are `kind: 'bot'` (the arena:
+    parity with the in-process `rush`), and refused with
+    `not available against a human seat` when either is human; in `assist`
+    it is always refused (`not in this scope`), since a human would be
+    accepting a sweep the strip does not describe. Any value, `false`
+    included, counts as asking. Where it is allowed, `order` takes an
+    optional boolean `sweep` on `attackMove` only and builds it into the
+    command; on any other verb it answers `invalid` (`sweep is for
+    attackMove only`), and a non-boolean answers `invalid` (`sweep is true or
+    false`). `mcp-tools.ts` and `arena-prompt.md` carry the ruling. Pinned by
+    `mcp-tools.test.ts`: bot against bot, `sweep: true` is on the cmd seat 0
+    sent, on the frame both seats heard, and on the command both sims
+    queued, and `sweep` on `move`/`halt` is refused; with a human in either
+    seat (or both) it is refused and nothing carrying it is sent; in assist
+    it is refused even bot against bot, with no proposal sent. Red with the
+    field dropped from the built command, with the verb guard removed, with
+    the human-seat check removed, with the assist refusal removed, and with
+    the gate refusing bot against bot too.
   - **Closed:** SIGINT/SIGTERM on the arena cleaned nothing (the signal skips
     every `finally`, leaving the 0700 temp directory and its 0600 ticket).
     `installSignalCleanup`, installed by the CLI entry only, now SIGTERMs

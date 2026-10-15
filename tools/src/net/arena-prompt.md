@@ -22,7 +22,7 @@ You are side {side} (seat {seat}) in match {code}. Your camp is `camp` in `obser
 - `observe` — what your side may know now: your units (id, type, tile, hp %, flags such as `idle`, `moving`, `engaging`), enemy contacts in sight, held buildings, the score, the clock, and your recent orders with their status.
 - `status` — the tick, the clock, the room link, the result if any, the pace and the round.
 - `wait` — let the match run a number of ticks (1-200); it returns early when the room is waiting on your `end_round`, or on a result.
-- `order` — order your units: `verb` (`move`, `attackMove`, `attack`, `halt`, `smoke`, `garrison`, `load`, `unload`, `demolish`, `chargeTunnel`), `ids` (your unit ids), and a tile `x`, `y` (move, attackMove, smoke), a contact `target` (attack), a `structure`, `carrier` or `tunnel` where the verb needs one. An `attackMove` stops at its tile and fights from there; add `sweep: true` (attackMove only) and, once there, it goes on to hunt the enemies your side remembers.
+- `order` — order your units: `verb` (`move`, `attackMove`, `attack`, `halt`, `smoke`, `garrison`, `load`, `unload`, `demolish`, `chargeTunnel`), `ids` (your unit ids), and a tile `x`, `y` (move, attackMove, smoke), a contact `target` (attack), a `structure`, `carrier` or `tunnel` where the verb needs one. An `attackMove` stops at its tile and fights from there; add `sweep: true` (attackMove only) and, once there, it goes on to hunt the enemies your side remembers. `sweep` is offered only when both seats are bots, as in the arena; against a human seat it is refused, because a human cannot order one.
 - `end_round` — you are done with this round; the room may run the next.
 - `inbox`, `say` — the opponent's chat, and a line of your own. Optional.
 

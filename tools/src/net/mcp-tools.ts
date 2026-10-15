@@ -4,7 +4,8 @@
  *
  * Every tool answers JSON text. An acting tool answers what was accepted, or
  * why not: `queue_full`, `not your unit`, `not a contact`, `unknown verb`,
- * `off the map`, `invalid`, `not in this scope`, `match over`. The pre-check
+ * `off the map`, `invalid`, `not in this scope`, `match over`,
+ * `not available against a human seat`. The pre-check
  * runs ownership's own `validateCommand` on the harness's world, and it is
  * ADVISORY: the authoritative drop is `applyFrame`'s, on both machines, and
  * the order ledger reports it (`dropped`).
@@ -289,7 +290,8 @@ function buildOrder(view: SideView, a: Record<string, unknown>): Command | { err
   // (sim.ts). It is legal in versus -- `cleanCommand` carries it and ownership
   // checks only the ids and the map edge; the versus drop (#559 F1) is fire
   // support, `callStrike`/`reveal` -- and meaningless on every other verb, so
-  // it is refused there rather than silently dropped.
+  // it is refused there rather than silently dropped. WHO may send it is
+  // `sweepRefusal`'s question, asked before this.
   if (a.sweep !== undefined) {
     if (verb !== 'attackMove') return { error: 'invalid', detail: 'sweep is for attackMove only' };
     if (typeof a.sweep !== 'boolean') return { error: 'invalid', detail: 'sweep is true or false' };
@@ -330,9 +332,28 @@ function buildOrder(view: SideView, a: Record<string, unknown>): Command | { err
   }
 }
 
+/**
+ * Why this seat may not send `sweep`, or null. The ruling (15 Oct,
+ * coordinator, lead-delegated): the human UI never sends `sweep` (the lead's
+ * 11 Oct ruling that a clicked tile means that tile), so an agent that could
+ * would have a capability a human seat lacks. In `command` scope it is offered
+ * only when BOTH seats of the room's start config are `kind: 'bot'` -- the
+ * arena, parity with the in-process `rush` -- and never in `assist`, where a
+ * human would be accepting a sweep the strip does not describe. Any value,
+ * `false` included, counts as asking.
+ */
+function sweepRefusal(ctx: ToolContext): ToolResult | null {
+  if (ctx.scope === 'assist') return refuse('not in this scope', { detail: 'sweep is not offered in assist: your human\'s strip does not describe a sweep' });
+  const seats = ctx.client.config()?.seats;
+  if (seats === undefined || !seats.every((s) => s.kind === 'bot')) {
+    return refuse('not available against a human seat', { detail: 'sweep is offered only when both seats are bots (the arena)' });
+  }
+  return null;
+}
+
 const order: ToolDef = {
   name: 'order',
-  description: `Order your units. verb: ${ORDER_VERBS.join(' | ')}; ids: your unit ids; x, y: a tile (move, attackMove, smoke); sweep: true (attackMove only) to go on, once there, hunting the enemies your side remembers instead of holding the tile; target: a contact id (attack); structure (garrison, demolish); carrier (load); tunnel (chargeTunnel); note: a line for your human (assist). command: queued on the order desk (at most 4 sent a second, 12 queued) -> { ref, status }. assist: proposed to your human, who accepts or vetoes -> { proposal, status }.`,
+  description: `Order your units. verb: ${ORDER_VERBS.join(' | ')}; ids: your unit ids; x, y: a tile (move, attackMove, smoke); sweep: true (attackMove only, command scope, and only when both seats are bots) to go on, once there, hunting the enemies your side remembers instead of holding the tile; target: a contact id (attack); structure (garrison, demolish); carrier (load); tunnel (chargeTunnel); note: a line for your human (assist). command: queued on the order desk (at most 4 sent a second, 12 queued) -> { ref, status }. assist: proposed to your human, who accepts or vetoes -> { proposal, status }.`,
   scopes: ['assist', 'command'],
   schema: {
     type: 'object',
@@ -345,7 +366,7 @@ const order: ToolDef = {
       structure: { type: 'integer' },
       carrier: { type: 'integer' },
       tunnel: { type: 'integer' },
-      sweep: { type: 'boolean', description: 'attackMove only: on arrival, go on to hunt remembered enemies' },
+      sweep: { type: 'boolean', description: 'attackMove only, and only bot against bot in command scope: on arrival, go on to hunt remembered enemies' },
       note: { type: 'string' },
     },
     required: ['verb', 'ids'],
@@ -357,6 +378,10 @@ const order: ToolDef = {
     if (view === null) return refuse('match not started');
     if (over(ctx)) return refuse('match over');
     const a = argsOf(raw);
+    if (a.sweep !== undefined) {
+      const no = sweepRefusal(ctx);
+      if (no !== null) return no;
+    }
     const built = buildOrder(view, a);
     if ('error' in built) return refuse(built.error, built.detail === undefined ? {} : { detail: built.detail });
     // The room's own rebuild, then ownership's verdict on this machine's world.
