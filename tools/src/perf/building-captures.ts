@@ -6,7 +6,7 @@
  * material step, the fire, the wreck under its own shroud) is RUNTIME
  * treatment that `pnpm validate:meshes` repaints away.
  *
- *   npx tsx tools/src/perf/building-captures.ts <out> [--only=relay|pump|pump-clean|hesco|barriers|sheet] [--gpu=metal|swiftshader] [--port=5280] [--attach]
+ *   npx tsx tools/src/perf/building-captures.ts <out> [--only=relay|pump|pump-clean|hesco|barriers|posts-ns|sheet] [--gpu=metal|swiftshader] [--port=5280] [--attach]
  *
  * It serves its own tree on `--port=<n>` (else BUILDING_CAPTURE_PORT, else
  * 5280), and a port something already holds is refused (`ui-review/port.ts`),
@@ -71,7 +71,7 @@ const argv = process.argv.slice(2);
 refuseRetiredBaseUrl(TAG, argv);
 const [outArg] = argv.filter((a) => !a.startsWith('--'));
 if (!outArg) {
-  console.error('usage: building-captures.ts <out dir> [--only=relay|pump|pump-clean|hesco|barriers|sheet] [--gpu=...] [--port=<n>] [--attach]');
+  console.error('usage: building-captures.ts <out dir> [--only=relay|pump|pump-clean|hesco|barriers|posts-ns|sheet] [--gpu=...] [--port=<n>] [--attach]');
   process.exit(2);
 }
 const out = path.resolve(outArg);
@@ -318,6 +318,50 @@ if (wants('barriers')) {
   await frames(240);
   await both('barriers-west-wadi_halam_5', 23.0, 13.5);
   await both('barriers-north-wadi_halam_5', 36.0, 2.5);
+}
+
+// --- SW-5: two sandbag posts stacked north-south ------------------------------
+// The post is a horseshoe with no long axis: its closed front and firing
+// aperture face the camera corner by authoring. `perTileRunYaw` used to turn
+// any per-tile type with same-type neighbours only north/south a quarter, so
+// two posts one above the other each turned their slot away from the camera
+// (`PER_TILE_FACING` in `units/run-direction.ts` keeps them authored now).
+// Beside them, for contrast, a two-tile north-south sandbag wall, which
+// SHOULD still turn to read along its run. Same stage as `barriers`, at
+// 1400x900. Hostiles are killed first so nothing fights in shot.
+if (wants('posts-ns')) {
+  // Restored after: the page is shared, and the `sheet` job after this
+  // one photographs at the page's own 1440x900.
+  const viewport = page.viewportSize();
+  await page.setViewportSize({ width: 1400, height: 900 });
+  try {
+    await bootSandbox('/?sandbox=wadi_halam_5');
+    await page.evaluate(`(async () => {
+      const L = window.__lions;
+      for (const u of L.units(1)) L.sim.debugKill(u.id);
+      const w = L.sim.width;
+      const idx = (id) => {
+        const i = L.sim.structureTypes.findIndex((t) => t.id === id);
+        if (i < 0) throw new Error('no ' + id + ' structure type');
+        return i;
+      };
+      L.sim.addStructure(idx('sandbag_post'), [19 + 12 * w]);
+      L.sim.addStructure(idx('sandbag_post'), [19 + 13 * w]);
+      L.sim.addStructure(idx('sandbag_wall'), [21 + 12 * w]);
+      L.sim.addStructure(idx('sandbag_wall'), [21 + 13 * w]);
+      for (const id of ['sandbag_wall', 'sandbag_post']) {
+        await L.renderer.loadBuildingMesh(id, '/meshes/buildings/' + id + '.glb', '/meshes/buildings/' + id + '_wreck.glb');
+      }
+    })()`);
+    await spawnFriendly('inf_squad', 17.0, 15.5);
+    await spawnFriendly('inf_squad', 23.0, 15.5);
+    await step(20);
+    await page.waitForTimeout(1500);
+    await frames(60);
+    await both('sw5-posts-ns', 20.0, 13.0);
+  } finally {
+    if (viewport) await page.setViewportSize(viewport);
+  }
 }
 
 // --- the damage-state sheet --------------------------------------------------

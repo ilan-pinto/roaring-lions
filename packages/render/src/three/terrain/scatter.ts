@@ -533,7 +533,9 @@ function scatterTileEmitter(
     const rnd = tileHash(x, y);
     const decorHere = input.decor ? input.decor[ti] : 0;
     const coverHere = input.cover[ti];
-    const blocked = input.blocked[ti] !== 0;
+    // A `^` tile draws no open-ground grain by its symbol, not by the mask --
+    // see `tileSurface` (`control-map.ts`) for why.
+    const blocked = input.blocked[ti] !== 0 || decorHere === DECOR_RIDGE;
 
     // The tile's own composited-and-quantised ground tone -- what every
     // mark on this tile composites over, per the rule this task inherits
