@@ -53,6 +53,28 @@ in step with it.
   *identifications*, not minutes. 18 of 27 shipped missions declare a
   `resources` block. Unit availability is gated by campaign ROE rating, completed
   missions and earned stars, not by tiers.
+- **Held-ground income is in the schema and in no mission yet** (F2, GH-183; the lead decides
+  the missions). `resources.income_zones` is a list of `{ zone, rate_per_min }` (a zone of the
+  mission's own map, an integer rate of at least 1, no zone twice); `resources.supply_entry` is
+  a marker of the map, where the supply convoy enters. A zone pays its rate, on top of
+  `logistics_rate_per_min`, to the side that holds it (a living surface ground unit of that
+  side inside and none of the other side; contested and empty pay nobody) and **half while its
+  own supply line is cut** (no wheeled route; an uncontested enemy within 2 tiles of the route;
+  an open hostile vent within 3 tiles: GDD §3). The base rate halves only on a mission that
+  says `supply_corridor: true` and names a `supply_entry`, and only while the line from that
+  entry to the player's rear (the camp's exit, else `player_start`) is cut. `validate:data`
+  (`tools/validate_income.mjs`) refuses, by mission id: a zone the map does not declare, the
+  same zone twice, `supply_corridor: true` with no `supply_entry`, and an entry the map does
+  not declare. **The pending exemption:** `umm_zeitoun_2_buildup` and `umm_zeitoun_4_clearance`
+  set `supply_corridor` and name no entry (their `supply_entry` marker, (24,47), is already on
+  their maps), so `CORRIDOR_ENTRY_EXEMPT` excuses exactly those two; the lead's data commit
+  deletes it, and a demotion test fails once either mission names its entry. **Choose an
+  income zone for ground both sides want**: the plan crosses it and the enemy also marches
+  on it. A zone that holds the starting force pays a passive player by construction, and
+  `pnpm playtest` holds side 0's zone income in the four no-orders controls at 0
+  (`ZONE_PASSIVE_INCOME`); pick rates by the 40%-of-the-phase-anchor rule in
+  `docs/campaign/economy/income-numbers.md`, where the proposed table for Umm Zeitoun II and
+  IV, Deir Amun II and Wadi Halam II (and its measurement over 30 seeds) waits for the lead.
 - **The player force is placed, not built.** `starting_force` plus ledger
   survivors (`from_ledger`), plus authored `reinforce` triggers and waves.
   The issued force is the brigade's to lend. A placement may field a unit whose

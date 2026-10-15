@@ -377,6 +377,8 @@ describe('alertsForTick agrees with MISSION_EVENT_SOUND, kind by kind', () => {
     say: ev<'say'>({ kind: 'say', tick: 0, speaker: 'shai', text: 'x' }),
     intelEarned: ev<'intelEarned'>({ kind: 'intelEarned', tick: 0, amount: 10, cause: 'identified', ref: 4, at: { x: 7, y: 4 } }),
     missionEnd: ev<'missionEnd'>({ kind: 'missionEnd', tick: 0, result: 'victory', roeRating: 100, survivors: [], ledger: {} as never }),
+    zoneHolder: ev<'zoneHolder'>({ kind: 'zoneHolder', tick: 0, zone: 'staging', holder: -1, contested: true }),
+    corridor: ev<'corridor'>({ kind: 'corridor', tick: 0, zone: null, cut: 'interdicted' }),
   };
   it.each(MISSION_EVENT_KINDS.filter((k) => k !== 'missionEnd'))('%s', (kind) => {
     const cues = alertsForTick(initAlertState(), [], [sample[kind]], world, 40)

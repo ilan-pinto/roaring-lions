@@ -6,6 +6,7 @@ import {
   TERRAIN_LEGEND,
   applyTerrain,
   parseMap,
+  roadMaskOf,
   type MapJson,
   type TerrainSink,
 } from './map';
@@ -607,5 +608,37 @@ describe('tel_marum, the first shipped map with relief', () => {
     for (const [name, [x, y]] of Object.entries(maps.tel_marum.markers)) {
       expect(`${name}:${map.blocked[y * 48 + x]}`).toBe(`${name}:0`);
     }
+  });
+});
+
+// F2 (C-R4): the road mask the mission runtime routes convoys along. One helper, so the game and
+// every harness hand the runtime the same roads.
+describe('roadMaskOf', () => {
+  it('is 1 exactly where the decor is a road, row-major', () => {
+    const m = parseMap({ ...TINY, rows: ['.rr#', 'r23#', '..o.'] });
+    const mask = roadMaskOf(m);
+    expect(mask).toBeInstanceOf(Uint8Array);
+    expect(Array.from(mask)).toEqual([0, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0]);
+  });
+
+  it('a map with no roads is all zero, and the mask is a fresh array', () => {
+    const m = parseMap(TINY);
+    const mask = roadMaskOf(m);
+    expect(mask.length).toBe(12);
+    expect(mask.every((v) => v === 0)).toBe(true);
+    expect(mask).not.toBe(m.decor);
+  });
+
+  it('agrees with the decor on every shipped map', () => {
+    let roads = 0;
+    for (const json of Object.values(maps)) {
+      const m = parseMap(json as MapJson);
+      const mask = roadMaskOf(m);
+      for (let t = 0; t < mask.length; t++) {
+        expect(mask[t]).toBe(m.decor[t] === DECOR.road ? 1 : 0);
+        roads += mask[t];
+      }
+    }
+    expect(roads).toBeGreaterThan(0);
   });
 });

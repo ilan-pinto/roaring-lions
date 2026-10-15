@@ -35,7 +35,7 @@ import {
   Sim, fx, TICKS_PER_SECOND, MissionRuntime,
   type MissionJson, type TunnelRouteJson,
 } from '@lions/sim';
-import { units, maps, missions, structures as structureCatalogue, parseMap, applyTerrain } from '@lions/data';
+import { units, maps, missions, structures as structureCatalogue, parseMap, applyTerrain, roadMaskOf } from '@lions/data';
 
 const M = (x: number, y: number) => ({ x: fx.from(x), y: fx.from(y) });
 const MISSION = 'tel_marum_3_clearance';
@@ -67,7 +67,7 @@ function walk(seed: number, foot: 'pass' | 'corridor', perfectEyes: boolean) {
   for (const u of Object.values(units)) typeOf.set(u.id, sim.addUnitType(u));
   const rt = new MissionRuntime(sim, mission, {
     typeIdOf: (u) => typeOf.get(u) as number,
-    markers: map.markers, zones: map.zones, tunnels: tunnelRoutes, ledger: {},
+    markers: map.markers, zones: map.zones, roadMask: roadMaskOf(map), tunnels: tunnelRoutes, ledger: {},
     unitInfo: (u) => {
       const d = (units as Record<string, { faction: string; cost: { logistics: number; build_time_s?: number; population?: number } } | undefined>)[u];
       if (!d || d.faction !== 'kdf') return null;

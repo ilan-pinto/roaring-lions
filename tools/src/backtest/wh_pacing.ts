@@ -56,7 +56,7 @@ import {
   type UnlockGate,
   type SimEvent,
 } from '@lions/sim';
-import { units, maps, missions, structures as structureCatalogue, parseMap, applyTerrain } from '@lions/data';
+import { units, maps, missions, structures as structureCatalogue, parseMap, applyTerrain, roadMaskOf } from '@lions/data';
 
 type Tier = 'passive' | 'naive' | 'sensible' | 'optimal';
 type At = (t: number, fn: () => void) => void;
@@ -345,6 +345,7 @@ function run(id: string, plan: Plan, ledger: LedgerData, seed: number, probe: Pr
     typeIdOf: (u) => typeOf.get(u) as number,
     markers: map.markers,
     zones: map.zones,
+    roadMask: roadMaskOf(map),
     tunnels: tunnelRoutes,
     ledger,
     unitInfo: (u) => {

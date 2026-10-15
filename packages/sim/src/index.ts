@@ -22,6 +22,8 @@ export {
   type LedgerData,
   type LedgerRosterEntry,
   type MissionEventKindsAreExhaustive,
+  type ZoneIncome,
+  type ConvoyRoute,
   type DefeatCause,
 } from './mission';
 // The civilian flight rule, shared by `MissionRuntime` and the `&civ` sandbox.
@@ -34,6 +36,18 @@ export {
   missionShepherds,
   type CivilianFlightOptions,
 } from './civilians';
+// Held-ground income (F2, D3): who holds a zone, from a narrow view of unit state.
+export { zoneHolder, zoneState, ZONE_CONTESTED, ZONE_EMPTY, type Holder, type HoldView, type ZoneState } from './income';
+// The tiles a supply convoy drives (F2, D5): the road where one joins the ends, else the wheeled field.
+export {
+  corridorRoute,
+  corridorCut,
+  makeRouteSource,
+  type CutCause,
+  type RouteSource,
+  type TileXY,
+  type VentView,
+} from './corridor';
 export { unlockReason, isBoughtOnly, starsEarned, conductAtLeast, resolveUpgrades, loanedPlacements, type UnlockGate } from './unlock';
 export {
   starsFor,
