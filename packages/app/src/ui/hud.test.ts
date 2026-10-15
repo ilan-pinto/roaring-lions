@@ -24,6 +24,7 @@ import { textToneClass } from './hud-model';
 import type { IncomeView, IncomeZoneView } from './income-view';
 import { alertNotice } from './mission-notice';
 import { closeTip } from './tooltip';
+import type { Place } from './alert-place';
 import type { CursorName } from '../input/cursor';
 import en from '../i18n/en.json';
 import { pseudo } from '../i18n/pseudo';
@@ -716,7 +717,7 @@ describe('top strip: held-ground income (S-F F2, P2-8)', () => {
     expect(tip).toContain('supply line cut: a tunnel vent beside the road');
   });
 
-  it('says "pays nothing: enemy inside" for a contested zone and nothing for empty or enemy-held', () => {
+  it('says "pays nothing, enemy inside" for a contested zone and nothing for empty or enemy-held', () => {
     const r = rig(
       mission({
         logistics: 410,
@@ -727,9 +728,40 @@ describe('top strip: held-ground income (S-F F2, P2-8)', () => {
       })
     );
     const tip = tipOf(r);
-    expect(tip).toContain('pays nothing: enemy inside');
+    expect(tip).toContain('Contested ground: pays nothing, enemy inside');
     expect(tip).not.toContain('Held ground');
     expect(tip.match(/pays nothing/g)).toHaveLength(1);
+  });
+
+  it('names each zone by its place, so two contested or two held zones read apart', () => {
+    // The place is the alert layer's own (camera-relative `Place`), asked through `placeOf`.
+    const placeOf = (x: number): Place => (x < 10 ? 'w' : 'e');
+    const lines = (zs: IncomeZoneView[]): string[] => {
+      const r = rig(mission({ logistics: 410, income: income({ zoneViews: zs }) }), { placeOf });
+      const d = new DOMParser().parseFromString(tipOf(r), 'text/html');
+      closeTip();
+      return [...d.querySelectorAll('.rl-tip__blurb')].map((e) => e.textContent ?? '').filter((x) => /Held ground|pays nothing/.test(x));
+    };
+    const west = t('alert.place.w');
+    const east = t('alert.place.e');
+    for (const state of ['contested', 'held'] as const) {
+      const out = lines([
+        zone({ id: 'hamlet', state, rect: [2, 2, 4, 4], paysPerMin: state === 'held' ? 20 : 0 }),
+        zone({ id: 'staging', state, rect: [30, 2, 4, 4], paysPerMin: state === 'held' ? 20 : 0 }),
+      ]);
+      expect(out).toHaveLength(2);
+      expect(out[0]).not.toBe(out[1]);
+      expect(out[0]).toContain(west);
+      expect(out[1]).toContain(east);
+      expect(out.join('')).not.toMatch(/hamlet|staging/);
+    }
+  });
+
+  it('falls back to the line without a place when the HUD cannot place a zone', () => {
+    const r = rig(mission({ logistics: 410, income: income({ zoneViews: [zone({ state: 'contested', paysPerMin: 0 })] }) }));
+    const tip = tipOf(r);
+    expect(tip).toContain('pays nothing');
+    expect(tip).not.toContain('· ');
   });
 
   it('shows no unbracketed word under the pseudo-locale', () => {
@@ -748,7 +780,7 @@ describe('top strip: held-ground income (S-F F2, P2-8)', () => {
       const lines = text.match(/⟦[^⟧]*⟧/g) ?? [];
       expect(lines).toHaveLength(6);
       expect(text.replace(/⟦[^⟧]*⟧/g, '')).toBe('');
-      expect(text).not.toMatch(/\b(Convoy|Held ground|supply line|pays nothing)\b/);
+      expect(text).not.toMatch(/\b(Convoy|Held ground|Contested ground|supply line|pays nothing)\b/);
     } finally {
       setCatalogue('en', en);
     }

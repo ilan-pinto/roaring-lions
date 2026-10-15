@@ -33,6 +33,9 @@ import type { ResolvedCommander } from '../campaign';
 import type { RosterEntry } from '../ledger-store';
 import type { HintLine } from './hint-model';
 import type { AlertTier } from './alerts';
+import type { Place } from './alert-place';
+import type { IncomeZoneView } from './income-view';
+import { placePhrase } from './mission-notice';
 import { FeedModel } from './feed-model';
 import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
@@ -270,6 +273,10 @@ export interface HudDeps {
   onStripRendered?: () => void;
   hoverStructure: () => number;
   hoverEntity: () => number;
+  /** Where a map point lies relative to the camera, the alert layer's own
+   *  `Place` (`ui/alert-world.ts`): the logistics tip names each income zone
+   *  by it. Optional: absent, the tip's zone lines carry no place. */
+  placeOf?: (x: number, y: number) => Place;
   /** The cursor the pointer shows right now, bare (`input/cursor.ts`'s
    *  `CursorName`). The fire panel reads it to say what a right-click on its
    *  target does (PA-08), so the panel and the cursor are one decision.
@@ -1849,12 +1856,21 @@ export class Hud {
       line('rl-info', t('hud.strip.logistics.convoy', { n: inc.base }));
       if (inc.halvedBy !== null) line('rl-warn', t(`hud.strip.logistics.cut.${inc.halvedBy}`));
     }
+    // A zone is named by its PLACE (the alert layer's camera-relative `Place`
+    // of the rect's centre), never by its authoring id, which is no player
+    // language. No `placeOf` dep, or no place, leaves the line unplaced.
+    const where = (z: IncomeZoneView): { where: string; place: string } => {
+      const place = this.deps.placeOf
+        ? placePhrase([this.deps.placeOf(z.rect[0] + z.rect[2] / 2, z.rect[1] + z.rect[3] / 2)])
+        : '';
+      return { where: place === '' ? 'no' : 'yes', place };
+    };
     for (const z of inc.zoneViews) {
       if (z.state === 'held') {
-        line('rl-info', t('hud.strip.logistics.held', { n: z.paysPerMin }));
+        line('rl-info', t('hud.strip.logistics.held', { n: z.paysPerMin, ...where(z) }));
         if (z.cut !== null) line('rl-warn', t(`hud.strip.logistics.cut.${z.cut}`));
       } else if (z.state === 'contested') {
-        line('rl-warn', t('hud.strip.logistics.contested'));
+        line('rl-warn', t('hud.strip.logistics.contested', where(z)));
       }
     }
     return rows.join('');
