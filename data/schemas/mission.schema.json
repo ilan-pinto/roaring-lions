@@ -296,13 +296,39 @@
           "minimum": 0
         },
         "logistics_rate_per_min": {
-          "type": "number",
+          "type": "integer",
           "minimum": 0
         },
         "supply_corridor": {
           "type": "boolean",
           "default": false,
-          "description": "If true, logistics income can be interdicted by the enemy. Protecting the corridor becomes gameplay."
+          "description": "If true, the base logistics rate halves while the convoy route from supply_entry to the player's rear is cut (a wall, a held tile, an enemy on it). Protecting the corridor is gameplay. Requires supply_entry."
+        },
+        "supply_entry": {
+          "type": "string",
+          "description": "Map marker where the convoy enters. Required when supply_corridor is true."
+        },
+        "income_zones": {
+          "type": "array",
+          "description": "Zones that pay logistics per minute while the player holds them. Each zone id must be declared by the mission's map, and none may repeat.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "zone",
+              "rate_per_min"
+            ],
+            "properties": {
+              "zone": {
+                "type": "string",
+                "description": "A zone id declared by the mission's map."
+              },
+              "rate_per_min": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
         },
         "pop_cap": {
           "type": "integer",

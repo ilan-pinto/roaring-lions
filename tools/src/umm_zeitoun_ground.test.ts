@@ -124,6 +124,42 @@ describe('every mission names a map it owns, and every marker stands on passable
   });
 });
 
+// F2 (GH-183), the convoy's door. The lead's 6 Oct rule: `supply_entry` is the map-edge tile
+// nearest the player's start along the shortest passable path, priced through the VEHICLE mask
+// (a convoy is trucks: blocked | boulder) by the real FlowField, uphill term included. Ties go to
+// the lowest cost, then the lowest y, then the lowest x. Both maps start at (24,45) and both
+// resolve to (24,47), two orthogonal steps (cost 20) down the road's south end. The derivation
+// is recomputed from the shipped map AND the tile is pinned as a literal, so a re-draw that moves
+// the answer is seen from either side.
+describe('the supply entry: the map-edge tile nearest the start, through the vehicle mask', () => {
+  for (const id of ['umm_zeitoun_2', 'umm_zeitoun_4']) {
+    it(`${id}: the marker is the argmin, a literal (24,47) at cost 20, off every blocked and boulder tile`, () => {
+      const m = J(id);
+      const { sim, map } = world(m);
+      const start = m.markers!.kdf_start;
+      expect(start).toEqual([24, 45]);
+      const field = new FlowField(map.width, map.height);
+      field.compute(sim.blockedVehicle, sim.elevation, start[0], start[1]);
+      const edge: { cost: number; x: number; y: number }[] = [];
+      for (let y = 0; y < map.height; y++)
+        for (let x = 0; x < map.width; x++) {
+          if (x !== 0 && y !== 0 && x !== map.width - 1 && y !== map.height - 1) continue;
+          const cost = field.costAt(y * map.width + x);
+          if (sim.blockedVehicle[y * map.width + x] === 0 && cost < 0x7fffffff) edge.push({ cost, x, y });
+        }
+      expect(edge.length).toBeGreaterThan(0);
+      edge.sort((a, b) => a.cost - b.cost || a.y - b.y || a.x - b.x);
+      const best = edge[0];
+      expect(m.markers!.supply_entry).toEqual([best.x, best.y]);
+      expect([best.x, best.y, best.cost]).toEqual([24, 47, 20]);
+      const at = m.markers!.supply_entry[1] * map.width + m.markers!.supply_entry[0];
+      expect(sim.blocked[at], `${id} supply_entry on a wall`).toBe(0);
+      expect(map.boulder[at], `${id} supply_entry on a boulder`).toBe(0);
+      expect(sim.blockedVehicle[at], `${id} supply_entry off the vehicle mask`).toBe(0);
+    });
+  }
+});
+
 describe('II: the south rim', () => {
   const m = J('umm_zeitoun_2');
   const rc = mk(m, 'rim_crest');
