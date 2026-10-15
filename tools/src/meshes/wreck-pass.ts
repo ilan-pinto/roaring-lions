@@ -53,11 +53,18 @@
  * clearance -- a kitted file must wreck exactly as its ungrafted self does,
  * which `wreck-pass.test.ts` pins.
  *
+ * **It also stamps `extras.rl_bake_luma` on every textured material**
+ * (`bake-luma.ts`): the bake's mean linear luminance, which the runtime's
+ * soot recolour normalises by and caps against. A material carries no geometry,
+ * so the stamp moves no accessor; it is here because every vehicle comes
+ * through this pass and the char is the wreck's.
+ *
  * No Draco here: `art/meshes/` is the uncompressed source of record and
  * `pnpm encode:meshes` mirrors it to `assets/meshes/` afterwards.
  */
 import { readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { stampBakeLuma } from './bake-luma';
 import { fileURLToPath } from 'node:url';
 import {
   NodeIO,
@@ -826,6 +833,11 @@ export function applyWreckPass(doc: Document, vehicleId: string, recipe: WreckRe
   }
 
   addClips(doc, liveTop, deathRoot);
+
+  // The char's one measured input: each bake's mean luminance, which the
+  // runtime soot recolour normalises by and caps against (`bake-luma.ts`).
+  // Here rather than in a pass of its own so the pipeline order is unchanged.
+  stampBakeLuma(doc);
 }
 
 // ---------------------------------------------------------------------------

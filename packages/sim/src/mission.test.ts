@@ -1932,7 +1932,7 @@ describe('civilians and ROE (GDD §6)', () => {
 
 describe('economy (GDD §3, just enough for M1)', () => {
   const ECON_CTX: Partial<MissionContext> = {
-    unitInfo: (u) => (u === 'm_squad' ? { logistics: 300, buildTimeS: 2 } : null),
+    unitInfo: (u) => (u === 'm_squad' ? { logistics: 300, buildTimeS: 2, population: 1 } : null),
   };
 
   it('accrues logistics income and builds units that deploy at player_start', () => {
@@ -2024,7 +2024,7 @@ describe('economy (GDD §3, just enough for M1)', () => {
       },
       markers: {},
       zones: {},
-      unitInfo: (u) => (u === 'm_squad' ? { logistics: 300, buildTimeS: 2 } : null),
+      unitInfo: (u) => (u === 'm_squad' ? { logistics: 300, buildTimeS: 2, population: 1 } : null),
     });
     runtime.start();
     let camp = -1;
@@ -2173,10 +2173,10 @@ describe('economy (GDD §3, just enough for M1)', () => {
 });
 
 describe('ROE-gated unit unlocks (GDD §6)', () => {
-  const CATALOGUE: Record<string, { logistics: number; buildTimeS: number; unlock?: { roeMin?: number; afterMission?: string } }> = {
-    m_squad: { logistics: 100, buildTimeS: 1 },
-    m_tank: { logistics: 200, buildTimeS: 1, unlock: { roeMin: 60 } },
-    m_demo: { logistics: 150, buildTimeS: 1, unlock: { afterMission: 'prologue' } },
+  const CATALOGUE: Record<string, { logistics: number; buildTimeS: number; population: number; unlock?: { roeMin?: number; afterMission?: string } }> = {
+    m_squad: { logistics: 100, buildTimeS: 1, population: 1 },
+    m_tank: { logistics: 200, buildTimeS: 1, population: 1, unlock: { roeMin: 60 } },
+    m_demo: { logistics: 150, buildTimeS: 1, population: 1, unlock: { afterMission: 'prologue' } },
   };
   const ctx = (): Partial<MissionContext> => ({ unitInfo: (u) => CATALOGUE[u] ?? null });
 
@@ -2262,8 +2262,8 @@ describe('holding ground', () => {
 });
 
 describe('intel: earned by watching, spent on certainty (GDD §3)', () => {
-  const CATALOGUE: Record<string, { logistics: number; buildTimeS: number }> = {
-    m_squad: { logistics: 100, buildTimeS: 1 },
+  const CATALOGUE: Record<string, { logistics: number; buildTimeS: number; population: number }> = {
+    m_squad: { logistics: 100, buildTimeS: 1, population: 1 },
   };
 
   function intelWorld(partial: Partial<MissionJson>): World {
@@ -4963,5 +4963,314 @@ describe('unitLost', () => {
   it('is in MISSION_EVENT_KINDS', async () => {
     const { MISSION_EVENT_KINDS } = await import('./mission');
     expect(MISSION_EVENT_KINDS).toContain('unitLost');
+  });
+});
+
+// Population cap (GH-183 F3 Task 3): `population(side)` counts every living unit of the
+// side however it got there (D1) plus the player's queued builds (D2); `buildBlockedReason`
+// refuses a build that would pass the cap, after the unlock and camp checks; a cap never
+// removes anything (D3). The campaign sets no cap (the schema refuses one), so every fixture
+// here caps through `ctx.popCaps`, which also overrides `resources.pop_cap`.
+describe('population cap (GH-183 F3)', () => {
+  const POP_BASE: UnitTypeJson = {
+    id: 'pop_inf',
+    role: 'infantry', // no role derives as wheeled: cannot board, never braces (#402's fixture trap)
+    hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 } },
+    mobility: { speed_tiles_s: 1.5 },
+    sensors: { optics: 1.0, sight_tiles: 8, signature: 0.6 },
+    abilities: ['garrison'],
+    weapons: [
+      { id: 'rifles', type: 'small_arms', range_tiles: 7, effective_range_tiles: 5.5, accuracy: 0.6, penetration: 8, damage: 25, suppression: 40, rof_per_min: 300 },
+    ],
+  };
+  const POP_HEAVY: UnitTypeJson = { ...POP_BASE, id: 'pop_heavy', cost: { population: 2 } };
+  const POP_DRONE: UnitTypeJson = {
+    id: 'pop_drone',
+    role: 'drone',
+    hull: { hp: 120, armor: { front: 0, side: 0, rear: 0 } },
+    mobility: { speed_tiles_s: 2.2 },
+    sensors: { optics: 2, sight_tiles: 16, signature: 0.3 },
+    cost: { population: 0 },
+  };
+  const POP_APC: UnitTypeJson = {
+    id: 'pop_apc',
+    role: 'apc',
+    hull: { hp: 900, armor: { front: 20, side: 15, rear: 10 }, transport_slots: 3 },
+    mobility: { speed_tiles_s: 2.2, turn_rate_deg_s: 160 },
+    sensors: { optics: 1.0, sight_tiles: 9, signature: 0.8 },
+  };
+  const POP_CIV: UnitTypeJson = {
+    id: 'pop_civ',
+    hull: { hp: 200, armor: { front: 0, side: 0, rear: 0 } },
+    mobility: { speed_tiles_s: 0.8 },
+    sensors: { optics: 0.5, sight_tiles: 4, signature: 0.7 },
+  };
+  const CATALOGUE: Record<
+    string,
+    { logistics: number; buildTimeS: number; population: number; unlock?: { roeMin?: number } }
+  > = {
+    pop_inf: { logistics: 10, buildTimeS: 1, population: 1 },
+    pop_heavy: { logistics: 10, buildTimeS: 1, population: 2 },
+    pop_drone: { logistics: 10, buildTimeS: 1, population: 0 },
+    pop_gated: { logistics: 10, buildTimeS: 1, population: 1, unlock: { roeMin: 60 } },
+  };
+  const GATED: UnitTypeJson = { ...POP_BASE, id: 'pop_gated' };
+  const CAMP = { id: 'pop_camp', name: 'Field Camp', hp_per_tile: 300, garrison_slots: 3, produces_for: 0 };
+
+  function popWorld(
+    partial: Partial<MissionJson>,
+    cap: number | null | undefined,
+    opts: { house?: boolean; tunnel?: boolean; camp?: boolean; caps?: readonly [number | null, number | null] } = {}
+  ): World & { house: number } {
+    const sim = new Sim({ seed: 7, width: 28, height: 12, capacity: 64 });
+    const ids = new Map<string, number>();
+    for (const t of [POP_BASE, POP_HEAVY, POP_DRONE, POP_APC, POP_CIV, GATED]) ids.set(t.id, sim.addUnitType(t));
+    let house = -1;
+    if (opts.house === true) {
+      const ht = sim.addStructureType({ id: 'pop_house', name: 'House', hp_per_tile: 200, garrison_slots: 4, rubble_cover: 2 });
+      house = sim.addStructure(ht, [5 * sim.width + 8, 5 * sim.width + 10]);
+    }
+    if (opts.camp === true) sim.addStructureType(CAMP);
+    const tunnels: TunnelRouteJson[] = [];
+    if (opts.tunnel === true) {
+      const route: TunnelRouteJson = { id: 'tn_pop', points: [[1, 1], [3, 1]], dig_tiles_per_s: 1 };
+      sim.addTunnel(route);
+      tunnels.push(route);
+    }
+    const mission = baseMission({
+      map: { file: 'none', player_start: [4, 6] },
+      objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
+      resources: { logistics_start: 1000 },
+      ...(opts.camp === true ? { structures: [{ type: 'pop_camp', at: [18, 8], size: [2, 2] }] } : {}),
+      ...partial,
+    });
+    const runtime = new MissionRuntime(sim, mission, {
+      typeIdOf: (u) => {
+        const t = ids.get(u);
+        if (t === undefined) throw new Error(`unknown unit ${u}`);
+        return t;
+      },
+      markers: {},
+      zones: {},
+      ledger: {},
+      unitInfo: (u) => CATALOGUE[u] ?? null,
+      ...(tunnels.length > 0 ? { tunnels } : {}),
+      ...(opts.caps !== undefined ? { popCaps: opts.caps } : cap !== undefined ? { popCaps: [cap, null] as const } : {}),
+    });
+    runtime.start();
+    return {
+      sim,
+      runtime,
+      house,
+      step: (ticks: number) => {
+        const out: { sim: SimEvent[]; mission: MissionEvent[] } = { sim: [], mission: [] };
+        for (let i = 0; i < ticks; i++) {
+          const se = sim.tick();
+          out.sim.push(...se);
+          out.mission.push(...runtime.step(se));
+        }
+        return out;
+      },
+    };
+  }
+  const squad = (n: number, unit = 'pop_inf', at: [number, number] = [3, 5]): PlacementJson => ({ unit, count: n, at });
+
+  it('uncapped: the view is null and every build behaves as on main', () => {
+    const w = popWorld({ starting_force: [squad(12)] }, undefined);
+    expect(w.runtime.popCap(0)).toBeNull();
+    expect(w.runtime.populationView()).toBeNull();
+    expect(w.runtime.population(0)).toBe(12);
+    expect(w.runtime.buildBlockedReason('pop_heavy')).toBeNull();
+    expect(w.runtime.requestBuild('pop_heavy')).toBe(true);
+    expect(w.runtime.popCapped('pop_heavy')).toBe(false);
+  });
+
+  it('cap 6 with 5 used: a 1-pop build succeeds, a 2-pop build is refused and costs nothing', () => {
+    const w = popWorld({ starting_force: [squad(5)] }, 6);
+    expect(w.runtime.population(0)).toBe(5);
+    expect(w.runtime.populationView()).toEqual({ used: 5, cap: 6 });
+    expect(w.runtime.buildBlockedReason('pop_heavy')).toBe('population cap reached (5/6)');
+    const before = w.runtime.logistics;
+    expect(w.runtime.requestBuild('pop_heavy')).toBe(false);
+    expect(w.runtime.logistics).toBe(before);
+    expect(w.runtime.production.length).toBe(0);
+    expect(w.runtime.requestBuild('pop_inf')).toBe(true);
+    expect(w.runtime.logistics).toBe(before - 10);
+  });
+
+  it('a queued build reserves its slot at queue time (D2): the third at 5/7 is refused', () => {
+    const w = popWorld({ starting_force: [squad(5)] }, 7);
+    expect(w.runtime.requestBuild('pop_inf')).toBe(true);
+    expect(w.runtime.population(0)).toBe(6);
+    expect(w.runtime.requestBuild('pop_inf')).toBe(true);
+    expect(w.runtime.population(0)).toBe(7);
+    const before = w.runtime.logistics;
+    expect(w.runtime.requestBuild('pop_inf')).toBe(false);
+    expect(w.runtime.buildBlockedReason('pop_inf')).toBe('population cap reached (7/7)');
+    expect(w.runtime.logistics).toBe(before);
+  });
+
+  it('a build that completes is counted exactly once on every tick across its spawn', () => {
+    const w = popWorld({ starting_force: [squad(5)] }, 7);
+    expect(w.runtime.requestBuild('pop_inf')).toBe(true);
+    const spawned = w.sim.entityCount;
+    for (let t = 0; t < 3 * TICKS_PER_SECOND; t++) {
+      w.step(1);
+      expect(w.runtime.population(0)).toBe(6);
+    }
+    expect(w.sim.entityCount).toBe(spawned + 1); // it did arrive during the loop
+    expect(w.runtime.production.length).toBe(0);
+  });
+
+  it('a unit that dies frees its population on the same tick', () => {
+    const w = popWorld({ starting_force: [squad(3, 'pop_heavy')] }, 6);
+    expect(w.runtime.population(0)).toBe(6);
+    expect(w.runtime.buildBlockedReason('pop_inf')).toBe('population cap reached (6/6)');
+    w.sim.debugKill(0);
+    expect(w.runtime.population(0)).toBe(4);
+    expect(w.runtime.buildBlockedReason('pop_inf')).toBeNull();
+    expect(w.runtime.populationView()).toEqual({ used: 4, cap: 6 });
+  });
+
+  it('a carried squad still counts (D1)', () => {
+    const w = popWorld(
+      {
+        starting_force: [squad(2, 'pop_inf', [4, 5]), { unit: 'pop_apc', count: 1, at: [9.5, 5.5] }],
+      },
+      10
+    );
+    w.sim.queueCommand({ kind: 'load', ids: [0, 1], carrier: 2 });
+    for (let t = 0; t < 400 && (w.sim.state.carriedBy[0] < 0 || w.sim.state.carriedBy[1] < 0); t++) w.step(1);
+    expect(w.sim.state.carriedBy[0]).toBe(2);
+    expect(w.sim.state.carriedBy[1]).toBe(2);
+    expect(w.runtime.population(0)).toBe(3);
+  });
+
+  it('a garrisoned squad still counts (D1)', () => {
+    const w = popWorld({ starting_force: [squad(2, 'pop_inf', [4, 5])] }, 10, { house: true });
+    w.sim.queueCommand({ kind: 'garrison', ids: [0, 1], structure: w.house });
+    for (let t = 0; t < 600 && (w.sim.state.garrisonedIn[0] < 0 || w.sim.state.garrisonedIn[1] < 0); t++) w.step(1);
+    expect(w.sim.state.garrisonedIn[0]).toBe(w.house);
+    expect(w.sim.state.garrisonedIn[1]).toBe(w.house);
+    expect(w.runtime.population(0)).toBe(2);
+  });
+
+  it('a buried squad still counts (D1)', () => {
+    const w = popWorld(
+      { starting_force: [{ unit: 'pop_inf', count: 2, at: [1, 1], in_tunnel: 'tn_pop' }] },
+      10,
+      { tunnel: true }
+    );
+    expect(w.sim.state.tunnelIn[0]).toBe(0);
+    expect(w.sim.state.tunnelIn[1]).toBe(0);
+    expect(w.runtime.population(0)).toBe(2);
+  });
+
+  it('a drone (population 0) is never refused by the cap, full or over', () => {
+    const full = popWorld({ starting_force: [squad(3)] }, 3);
+    expect(full.runtime.buildBlockedReason('pop_inf')).toBe('population cap reached (3/3)');
+    expect(full.runtime.buildBlockedReason('pop_drone')).toBeNull();
+    expect(full.runtime.requestBuild('pop_drone')).toBe(true);
+    expect(full.runtime.population(0)).toBe(3);
+    const over = popWorld({ starting_force: [squad(5)] }, 3);
+    expect(over.runtime.buildBlockedReason('pop_drone')).toBeNull();
+    expect(over.runtime.requestBuild('pop_drone')).toBe(true);
+  });
+
+  it('a starting force of 8 under a cap of 6 stands, and builds wait until two die (D3)', () => {
+    const w = popWorld({ starting_force: [squad(8)] }, 6);
+    expect(w.sim.entityCount).toBe(8);
+    expect(w.runtime.population(0)).toBe(8);
+    expect(w.runtime.buildBlockedReason('pop_inf')).toBe('population cap reached (8/6)');
+    expect(w.runtime.requestBuild('pop_inf')).toBe(false);
+    w.sim.debugKill(0);
+    w.sim.debugKill(1);
+    expect(w.runtime.population(0)).toBe(6);
+    expect(w.runtime.requestBuild('pop_inf')).toBe(false); // 6 + 1 > 6
+    w.sim.debugKill(2);
+    expect(w.runtime.requestBuild('pop_inf')).toBe(true); // 5 + 1 <= 6
+  });
+
+  it('a trigger spawn above the cap spawns (D3)', () => {
+    const w = popWorld(
+      {
+        starting_force: [squad(2)],
+        triggers: [
+          { id: 'arrive', on: { kind: 'timer_s', value: 1 }, do: { kind: 'reinforce', units: [squad(3, 'pop_inf', [2, 6])] } },
+        ],
+      },
+      3
+    );
+    w.step(40);
+    expect(w.sim.entityCount).toBe(5);
+    expect(w.runtime.population(0)).toBe(5);
+    expect(w.runtime.buildBlockedReason('pop_inf')).toBe('population cap reached (5/3)');
+  });
+
+  it('counts a side by the sim side of each unit: civilians count for nobody (C-R7)', () => {
+    const w = popWorld(
+      {
+        starting_force: [squad(2)],
+        enemy: { garrison: [{ unit: 'pop_heavy', count: 2, at: [24, 5] }] },
+        civilians: { groups: [{ unit: 'pop_civ', count: 3, at: [14, 8] }] },
+      },
+      undefined,
+      { caps: [null, 4] }
+    );
+    expect(w.runtime.population(0)).toBe(2);
+    expect(w.runtime.population(1)).toBe(4);
+    expect(w.runtime.popCap(0)).toBeNull();
+    expect(w.runtime.popCap(1)).toBe(4);
+  });
+
+  it('the cap is ctx.popCaps, which overrides resources.pop_cap, else the mission field for side 0', () => {
+    const fromMission = popWorld({ starting_force: [squad(2)], resources: { logistics_start: 100, pop_cap: 9 } }, undefined);
+    expect(fromMission.runtime.popCap(0)).toBe(9);
+    expect(fromMission.runtime.popCap(1)).toBeNull();
+    expect(fromMission.runtime.populationView()).toEqual({ used: 2, cap: 9 });
+    const overridden = popWorld({ starting_force: [squad(2)], resources: { logistics_start: 100, pop_cap: 9 } }, 4);
+    expect(overridden.runtime.popCap(0)).toBe(4);
+    const lifted = popWorld({ starting_force: [squad(2)], resources: { logistics_start: 100, pop_cap: 9 } }, null);
+    expect(lifted.runtime.popCap(0)).toBeNull();
+  });
+
+  describe('popCapped: true only when the cap is the first refusal', () => {
+    it('is true for an ungated 2-pop build at 11/12', () => {
+      const w = popWorld({ starting_force: [squad(11)] }, 12);
+      expect(w.runtime.buildBlockedReason('pop_heavy')).toBe('population cap reached (11/12)');
+      expect(w.runtime.popCapped('pop_heavy')).toBe(true);
+      expect(w.runtime.popCapped('pop_inf')).toBe(false); // 11 + 1 <= 12
+    });
+
+    it('is false for a gated, still-locked unit on a full side: the gate speaks first', () => {
+      const w = popWorld({ starting_force: [squad(12)] }, 12);
+      expect(w.runtime.popCapped('pop_inf')).toBe(true);
+      expect(w.runtime.buildBlockedReason('pop_gated')).toMatch(/Conduct 60/);
+      expect(w.runtime.popCapped('pop_gated')).toBe(false);
+    });
+
+    it('is false when the camp is destroyed: the camp reason speaks first', () => {
+      const w = popWorld({ starting_force: [squad(12)] }, 12, { camp: true });
+      expect(w.runtime.popCapped('pop_inf')).toBe(true); // camp stands, side full
+      let camp = -1;
+      for (let i = 0; i < w.sim.structureCount; i++) {
+        if (w.sim.structureTypes[w.sim.structures.typeIdx[i]].id === 'pop_camp') camp = i;
+      }
+      expect(camp).toBeGreaterThanOrEqual(0);
+      w.sim.debugDestroyStructure(camp);
+      expect(w.runtime.buildBlockedReason('pop_inf')).toBe('field camp destroyed — no production');
+      expect(w.runtime.popCapped('pop_inf')).toBe(false);
+    });
+
+    it('is false for a drone, and for an unknown unit', () => {
+      const w = popWorld({ starting_force: [squad(12)] }, 12);
+      expect(w.runtime.popCapped('pop_drone')).toBe(false);
+      expect(w.runtime.popCapped('nonsense')).toBe(false);
+    });
+
+    it('is false on an uncapped side', () => {
+      const w = popWorld({ starting_force: [squad(12)] }, undefined);
+      expect(w.runtime.popCapped('pop_heavy')).toBe(false);
+    });
   });
 });

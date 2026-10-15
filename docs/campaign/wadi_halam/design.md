@@ -766,6 +766,8 @@ one dies. That is the mission's whole economy and it should stay that way.
 > a competent player has earned them; a careless one gets them anyway. Resolving
 > the hole in the obvious direction would strip V of both demolishers and the
 > `raze` deadline is what keeps that a *lost* mission rather than a stuck one.
+>
+> Superseded 2026-10-15 (F3, G3 Q5): a feature, not a hole: a gated placement is on loan for that mission and returns afterwards; Conduct floors now dozer_d9 87, demo_squad 77, recon_drone 70, ifv_namer 85.
 
 **Enemy stance.** `wh_gate_rpg` — an `rpg_team` in `ambush(3)` **on the gate
 marker** — plus three `gun_truck` on `hold_position` inside the wire and a second
