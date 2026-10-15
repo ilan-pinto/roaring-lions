@@ -44,10 +44,15 @@ The per-side surfaces a two-seat runtime needs are arriving in Lane C anyway: F3
 side, F2 adds a side-1 purse (`enemyLogisticsAcc`), and F4 adds production lines per anchor per side.
 
 **And one side-0 rule bites in versus today, with no runtime involved.** `Sim.selectBreachTarget`
-(`sim.ts` ~L3758) returns early for `side === 0`. So in a mirror match, seat 1's units auto-breach
-nearby walls and seat 0's never do, including a unit **standing still** next to an ungarrisonable,
-unoccupied wall (the method's own "standing still is not a reason to stop" half). The effect on
-results has not been measured (P6).
+(`sim.ts` ~L3752) returns early for `side === 0`. So in a mirror match, seat 1's units auto-breach
+walls and seat 0's never do. A seat-1 unit cuts a wall when all of these hold: it has no live target,
+or only one across a low structure (the `distracted` test at the call site, ~L4124); it carries a
+structure-damaging weapon (`STRUCT_DAMAGE[w.cls] !== 0`) with the wall in reach; the wall is
+ungarrisonable, unoccupied, not protected, and inside `BREACH_RANGE_SQ`; and, if the unit is
+moving on a live field, the detour test says going round costs more than `BREACH_DETOUR_SLACK`. A
+unit **standing still** skips the detour test (the method's own "standing still is not a reason to
+stop" half). That appears to **favour** seat 1, the reverse of §2.2's "mildly unfair to the side-1
+seat". The effect on results has not been measured (P6).
 
 ## 2. Options
 
@@ -60,6 +65,12 @@ results has not been measured (P6).
 | UI | Purse, support menu and Conduct in versus HUD and debrief, all new in rooms | None in rooms. The command path replaces two direct calls in single-player | None |
 | Arena (decision 19) | Conduct becomes reportable, but D7 already ruled the scoreboard in its place | Unchanged (D7) | Unchanged |
 | Risk | Builds per-side state twice, once ahead of the plans that own it; a ROE "defeat" inside a match that `outcome.ts` says is ongoing | The seat table is exercised by single-player only until N3; the breach rule is the one live versus effect | The breach asymmetry stays in every versus match until N3 (Jan–Feb 2027); N3 grows |
+
+**B departs from the spec's "the golden hash moves once"** (the §7.1 heading, the §9 N2 row and
+§11b.4's "The pins" bullet). Under B, every sim-side change keeps today's behaviour for side 0 as the
+human seat. The golden replay issues none of the new commands and builds no runtime. So the
+expectation is that no sim pin moves. If one does, it is a defect to explain, not the planned move.
+P7 corrects the spec.
 
 ## 3. Recommendation
 
@@ -85,12 +96,13 @@ Sub-points, each also needing the lead:
 - **L3. `setStance` in N2 ships `hold` and `ambush` only (recommended).** `ambush` routes to
   `Sim.setAmbush` (`sim.ts` ~L1901). `patrol` needs the runtime's `stepPatrols`, so it moves to N3.
 - **L4. The data digest is folded by each client from its own content (recommended)**, rather than
-  minted by the room. The Worker does not import `@lions/data`, and a room-minted constant that
-  both clients fold cannot catch two clients with different data. This rewords §11b.4's "the room's
+  minted by the room. The Worker imports `@lions/data` only for its telemetry subpath, never the
+  unit, structure or map content a digest would cover. And a room-minted constant that both clients
+  fold cannot catch two clients with different data. This rewords §11b.4's "the room's
   `dataDigest: 0` becomes a real digest".
 - **L5. Schedule: N2 directly after F3, carrying F2 Task 1 as its first task (recommended).** F2
   then starts at its Task 2. See §5.
-- **When N3 builds the versus runtime**, its rules are data (a schema-validated file, mission-shaped
+- **A restatement of CLAUDE.md's rule, not a new ruling:** when N3 builds the versus runtime, its rules are data (a schema-validated file, mission-shaped
   or its own), never a mission synthesised in TypeScript. CLAUDE.md: missions are declarative data.
 
 ## 4. Plan: the prerequisites that do not touch `packages/sim`
@@ -118,7 +130,9 @@ tick, and the two-client test reports a desync at tick 19.
 
 **P3. The data digest (L4).** A pure `contentDigest()` over the shipped unit, structure and map JSON,
 in key-sorted order, beside `match-world.ts`. `runFrames` folds it in place of `config.dataDigest`.
-*Check:* stable across two processes, and equal in browser and Node. *Falsify:* one client built
+*Check:* stable across two processes. Equal in browser and Node, with the browser half run by
+CI's `net:engines` job (`tools/src/net/two-engine.ts`: Chromium, Firefox and WebKit), never by a
+local `ui:routes`. *Falsify:* one client built
 with one unit's `hp` changed desyncs at the first hash tick. Hash it in insertion order, and a
 re-ordered but equal JSON turns the stability test red.
 
@@ -144,9 +158,13 @@ pins' first 200 ticks.
 `curStructure` on garrisonable structures too, and side 0 stops reading 0. Post the numbers on the
 N2 issue: they say whether the N1 mirror readings (#596, #600) carry a side bias.
 
-**P7. The spec follows the ruling.** After L1–L5 are ruled, update §7.1, the §9 N2 row, §11b.4
-item 5 and decision 19's note to match.
-*Check:* each claim cites a symbol that exists on `main`.
+**P7. The spec follows the ruling.** After L1–L5 are ruled, update the spec to match: §7.1 (its
+heading's "the golden hash moves once"), the §9 N2 row, §11b.4 item 4 ("before N2 adds its four":
+three now, `build`, `support` and `setStance`, since F1 replaced `sweep`/`strike`), item 5,
+§11b.4's "The pins" bullet, §2.2's breach wording (from P6's reading), and decision 19's note.
+*Check:* grep every cited symbol against `main` and confirm each one is found.
+*Falsify:* plant a citation to a symbol that does not exist (`MissionRuntime.noSuchMethod`), and the
+grep reports it missing.
 
 ## 5. What N2 needs from Lane C
 
