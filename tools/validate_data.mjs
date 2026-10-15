@@ -24,6 +24,7 @@ import { regionBiomeFailures } from './validate_biome.mjs';
 import { briefingFailures } from './validate_briefing.mjs';
 import { videoFailures } from './validate_video.mjs';
 import { timeLimitFailures } from './validate_time_limit.mjs';
+import { popCapFailures } from './validate_pop_cap.mjs';
 import { garrisonStanceFailures, garrisonWeaponFailures } from './validate_garrison.mjs';
 import {
   commanderRankFailures,
@@ -945,6 +946,8 @@ const garrisonableSymbols = new Set(
     failures.push(...triggerLabelFailures(mi, rel(file)));
     // #540: the time limit, twice the target and clear of every primary deadline.
     failures.push(...timeLimitFailures(mi, rel(file)));
+    // F3 (GH-183): the population cap is off in the campaign (lead, G3 Q4).
+    failures.push(...popCapFailures(mi, rel(file)));
     // B2: a garrison stance on a unit without the ability is silently refused at runtime.
     failures.push(...garrisonStanceFailures(mi, unitsById, rel(file)));
   }

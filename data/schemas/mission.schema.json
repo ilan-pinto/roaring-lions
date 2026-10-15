@@ -303,6 +303,11 @@
           "type": "boolean",
           "default": false,
           "description": "If true, logistics income can be interdicted by the enemy. Protecting the corridor becomes gameplay."
+        },
+        "pop_cap": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Player-side population cap. Off in the campaign (lead, G3 Q4, 4 Oct): refused on any mission with a town. Skirmish and co-op set it through the doctrine."
         }
       }
     },
