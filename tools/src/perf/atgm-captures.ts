@@ -470,7 +470,7 @@ async function main(): Promise<void> {
   const toggles: ToggleReading[] = [];
   const windowFires: Record<string, { tick: number; shooter: number; weaponId: string }[]> = {};
   const fired: Record<string, { tick: number; weaponId: string; ticksWaited: number } | null> = {};
-  let env = '';
+  let env: string;
   const browser = await chromium.launch({ headless: true });
   try {
     const gl = (await readUnmaskedRenderer(browser)).replace(/\|/g, '/');

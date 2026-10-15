@@ -39,13 +39,14 @@ updates:
       - dependency-name: three
         update-types: ["version-update:semver-minor"]
       # jsdom is pinned to ~30.0.1 (security review #559): 30.1 and later
-      # break vitest 4's fake setImmediate. Lift this when vitest fixes it.
+      # break vitest 4's fake setImmediate. Vitest 5 does not fix it (#574
+      # step 2, measured: the same two audio.test.ts dispose specs count
+      # jsdom's own media timers, and net-chat.test.ts's Escape spec keeps
+      # focus on a hidden input). Lift this when both are fixed.
       - dependency-name: jsdom
         versions: [">=30.1.0"]
-    # The postcss override in pnpm-workspace.yaml (^8.5.29, a floor forcing
-    # the nanoid / source-map-js advisory fixes) is left alone: Dependabot
-    # updates direct dependencies, and the override is dropped by hand once
-    # vite's own range resolves past it.
+    # The postcss override that stood in pnpm-workspace.yaml is gone: vite 8
+    # requires postcss ^8.5.29 itself (#574 step 2).
 
   - package-ecosystem: github-actions
     directory: /

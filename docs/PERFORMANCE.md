@@ -1728,18 +1728,100 @@ The ledger gets the smallest margin because it does not move run to run.
 
 | environment | kind | JS (MiB) | GPU ledger | process | leak: JS over first menu | GPU over first menu | DOM nodes over | released contexts reachable |
 |---|---|---|---|---|---|---|---|---|
-| `linux-x64-swiftshader` (CI, n=4) | menu (and every menu after a leave) | 75 | 601 | 2,046 | +20% (measured <= +9.8%) | +2% (measured +0.0%) | 50 (measured 0) | 0 (measured 0) |
-| | board | 40 | 159 | 939 | | | | |
-| | mission | 157 | 1,015 | 3,659 | | | | |
-| `darwin-arm64-metal` (local only, n=4) | menu | 79 | 601 | 2,419 | +30% (measured <= +14.6%) | +2% | 50 | 0 |
-| | board | 40 | 159 | 812 | | | | |
-| | mission | 162 | 1,015 | 4,010 | | | | |
+| `linux-x64-swiftshader` (CI) | menu (and every menu after a leave) | 65 | 266 | 1,406 | +20% (measured <= +13.7%) | +2% (measured +0.0%) | 50 (measured 0) | 0 (measured 0) |
+| | board | 26 | 159 | 810 | | | | |
+| | mission | 154 | 1,015 | 2,511 | | | | |
+| `darwin-arm64-metal` (local only) | menu | 68 | 266 | 1,743 | +30% (measured <= +16.4%) | +2% | 50 | 0 |
+| | board | 26 | 159 | 662 | | | | |
+| | mission | 153 | 1,015 | 2,880 | | | | |
 
-The leak percentages are about twice the largest measured, rounded up to 5.
-**What they can resolve:** at +20% of a 54 MiB menu, a leak smaller than
-~11 MiB of JS passes the JS check -- a retained `Sim` alone (a few MiB) would.
-The DOM-node and released-context checks are exact, so anything that holds a
-left screen's DOM or its renderer fails regardless of size.
+The JS column is measured with inline source maps stripped (below; CI n=3,
+Metal n=3); GPU, process and bitmaps were re-derived at the three savings
+(further down, and in `memory-budgets.ts`), and the bitmap ceilings (16 /
+16 / 161 MiB) are not in this table. The leak percentages were set at about
+twice the largest measured, rounded up to 5, when the menu was ~60 MiB; they
+were left alone when it shrank, which is what buys the sensitivity back.
+
+**The walk strips inline source maps** (#611's follow-up). The gate measures
+the DEV server, and vite 8 inlines a base64 source map into every module it
+serves (#574 step 2: the prebundled `three` chunk's map moved from a `.map`
+file into the chunk, and Oxc keeps the comments esbuild dropped). The page
+keeps each module's source text alive, so the maps were JS heap the gate
+judged -- dev-only, a production build (`--serve=preview`) never had them
+(Metal: menu 38.6 on vite 7 and 38.5 on vite 8) -- and they were in the
+FIRST-MENU reading the leak percentage is taken of. #611 had to raise the
+JS ceilings to 105 / 66 / 192 for them, and +20% of a 77 MiB menu let
+~15 MiB of after-leave growth through.
+
+`memory.ts` now routes every `script` request through
+`stripInlineSourceMaps` (`strip-inline-maps.ts`), which cuts the trailing
+`//# sourceMappingURL=data:...` (or a CSS `/*# ... */` block) before the page
+sees it; everything else continues untouched. It is anchored at the end of
+the file, so a module that merely contains the text is never cut.
+`--keep-source-maps` turns it off (and `--gate` then warns that the budgets
+do not allow for the maps); `--serve=preview` has nothing to strip. The walk
+prints what it removed, and a strip that removes nothing, or a script the
+route cannot fetch after five tries, is exit 2: the budgets were measured on
+the stripped page. The retries are not decoration -- Node opens a socket per
+routed request, a boot's ~650 module fetches at once had the dev server reset
+one in one walk of three locally, and the handler's unhandled rejection
+killed the walk before its `finally` stopped the dev server.
+
+This was preferred over gating a `--serve=preview` build: the gate was
+designed around the dev server (it is what CI already runs, with no build
+step), and the strip changes the page by exactly one thing, the map text.
+The 2.2 MiB of Oxc-kept comments stay; nothing short of a build removes them.
+
+| reading (MiB) | CI #611 (n=4) | CI stripped (n=3) | Metal unstripped (n=3) | Metal stripped (n=3) |
+|---|---|---|---|---|
+| menu | 77.0-77.1 | 45.5-45.7 | 78.7-78.8 | 46.4 |
+| menu-kind, largest | 83.7 | 51.9 | 86.6 | 54.0 |
+| board | 52.5-52.6 | 20.0-20.1 | 52.8-52.9 | 20.3 |
+| mission, largest | 153.1 | 122.5 | 154.9 | 121.9 |
+| after-leave JS over the first menu | <= +8.6% | +4.7-6.3 MiB, <= +13.7% | +5.9-7.9 MiB, <= +10.0% | +5.7-7.6 MiB, <= +16.4% |
+| map text removed | -- | 16.3 MiB, 642 of 655 scripts | -- | 16.3 MiB, 642 of 655 scripts |
+
+CI stripped is this PR's own `memory` job, run 38650120593 attempts 1-3; the
+three walks agree within 0.2 MiB at every checkpoint. The Metal columns are
+interleaved walks of one tree (M3 Pro, 1400x900 @1x, music off). The heap
+reads ~32 MiB less at every checkpoint for 16.3 MiB of text removed: the page
+held each map about twice. The after-leave growth is the same in MiB with or
+without the maps, so none of it is map text; as a percentage of the smaller
+menu it reads larger, still inside +20% / +30%. GPU and bitmaps did not move;
+the process total moved down (Metal menu <= 1,312 against <= 1,413) and its
+ceilings are left alone.
+
+**What they can resolve:** the leak check fails a walk whose menu after a
+leave holds more than +20% of the first menu -- **9.1 MiB** of JS on CI
+(45.6 MiB menu), against 15.4 under #611 and ~11 before vite 8 (54 MiB
+menu); on Metal +30% of 46.4 is 13.9 MiB, against 23.6. The walk already
+grows 4.7-6.3 MiB over its three leaves on CI, so an extra retained
+allocation of roughly 3 MiB or more is caught there; at 0.2 MiB of
+run-to-run spread that headroom is not noise. A retained `Sim` (a few MiB)
+is now near the line rather than well under it. The DOM-node and
+released-context checks are exact, so anything that holds a left screen's
+DOM or its renderer fails regardless of size.
+
+**Falsified, red now and green under #611.** A temporary line in
+`bootBattlefield`'s `teardown` (`main.ts`) retained a fresh allocation on
+every leave, `window.__rlProbe = new Uint8Array(N * 1048576).fill(1)`, and
+was reverted. Metal walks, each judged by the gate and then offline
+(`judge()`) against both environments' budgets; "#611" is an unstripped walk
+(`--keep-source-maps`) against #611's budgets, which is what #611 ran:
+
+| probe | stripped, this PR's budgets | unstripped, #611's budgets |
+|---|---|---|
+| none | darwin and linux: every budget met | darwin and linux: every budget met |
+| 12 MiB | **exit 1**: after-leave +17.9 / +18.8 / +19.7 MiB, +38.6-42.6% against +30% (darwin); linux also red | darwin **green**, +22.7-25.2% against +30%; linux red, +25% against +20% |
+| 6 MiB | darwin green, +25.4-28.4% against +30%; linux **red**, against +20% | darwin and linux **green** (<= +17.6%) |
+
+So on Metal's budgets a 12 MiB leak passed #611's gate and fails this one;
+on CI's budgets (judged here on Metal readings, whose after-leave growth runs
+~1.3 MiB above CI's) the window is lower: a 6 MiB leak passed #611's and
+fails this one, while 12 MiB already failed both, because the walk's own
+after-leave growth plus 12 exceeds +20% of 77. The strip itself is falsified
+by `strip-inline-maps.test.ts` (four one-line mutations -- unanchored, one
+map only, `#` only, LF only -- all red).
 
 It runs as its OWN job, `memory`, beside `visual` rather than as a step in
 it, which is where it started: as a step it measured 917 s on top of a job

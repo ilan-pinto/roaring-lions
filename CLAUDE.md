@@ -62,7 +62,8 @@ pnpm test:determinism # replay 1000 ticks from seed, assert state hash
 pnpm lint
 pnpm validate:data    # JSON Schema check on all content
 pnpm validate:meshes  # the art gate: palette + silhouette IoU on art/meshes/**, rendered headlessly
-pnpm kit:meshes       # graft art/parts/kit/<id>.glb into the vehicle GLBs (then wreck:meshes, encode:meshes)
+pnpm kit:meshes       # graft art/parts/kit/<id>.glb into the vehicle GLBs (then wreck:meshes, damage:meshes, encode:meshes)
+pnpm damage:meshes    # cut real damage into the WRECK_ twins (after wreck:meshes, before encode:meshes)
 pnpm kit:capture      # in-game kitted-vehicle sheets, the `kit` toggle reading, the garage turntables
 pnpm validate:ui      # no colour literals AND no bare chrome strings in UI source
 pnpm ui:routes        # drive the shell: one JS realm, two missions, no reload (60-74 s local, ~130 s on CI: no GPU there)
@@ -663,8 +664,11 @@ yours; each one records what the next phase inherits.
   per-level chip border tint (G-P3, `docs/superpowers/plans/2026-09-27-garage-kit-on-icons.md`),
   drawn as SVG rather than a Meshy render so it stays crisp at 8–10 px.
 - **`three` may only be imported under `packages/render/src/three/**`**, enforced
-  by eslint. Note the rule's `paths` entry does NOT catch subpath imports like
-  `three/addons/loaders/GLTFLoader.js` — keep those inside by discipline.
+  by eslint in `packages/render/src` and `packages/app/src` (non-test), subpaths
+  like `three/addons/loaders/GLTFLoader.js` included (a `three/*` pattern beside
+  the `three` path, since #574 step 3; before it `packages/app` was not covered
+  at all and subpaths were "discipline"). `tools/` is not covered and imports
+  three for its harnesses.
 - **The colour pipeline is the standard one since Phase 0 (2026-09-14).**
   `renderer.outputColorSpace = SRGBColorSpace`, ACES tone mapping at exposure
   1.0 applied in the composer's `OutputPass`, and every world material a
@@ -1784,11 +1788,14 @@ for vehicles.
   vehicle's existing bake). **Pipeline, order load-bearing:** export ->
   `pnpm kit:meshes` (a gltf-transform graft: every live accessor stays
   byte-identical) -> `pnpm wreck:meshes` (never twins, measures or clips a
-  `kit_*`) -> `pnpm encode:meshes`. `applyVehicleKit` (`units/vehicle-kit.ts`)
+  `kit_*`) -> `pnpm damage:meshes` -> `pnpm encode:meshes`. `applyVehicleKit` (`units/vehicle-kit.ts`)
   runs first in `buildVehicleMeshTemplate`: it keeps the parts whose tier is at
   most the type's bought tier, merges them into the host geometry HOST FIRST,
-  swaps that onto every mesh over the old one (the `WRECK_` twin too), and
-  deletes every `kit_*` node. The tiers are `RendererOptions.unitKitTiers`,
+  swaps that onto every LIVE mesh over the old one, and deletes every `kit_*`
+  node. **The `WRECK_` twin keeps the unkitted geometry: a kitted vehicle's
+  wreck has its kit blown off** (the lead's ruling, 2026-10-14, with the
+  damage pass), so the old host geometry stays drawn and is not handed back
+  for disposal. The tiers are `RendererOptions.unitKitTiers`,
   from `upgradePrepass`'s own per-type tiers object; tiers absent or 0 is the
   shipped template, so the existing golden scenarios cannot move. The `kit`
   debug layer is `setDrawRange(0, rlKitBaseCount)`, which is why host-first is
@@ -2005,8 +2012,11 @@ Two traps found while building it, neither specific to this screen.
 `dist-campaign` and `dist-cursorverify` together made `pnpm lint` red with
 **8,631 errors**, every one `no-undef` on a minified bundle. `**/dist-*/**` and
 `.superpowers/**` are ignored now, alongside `**/dist/**`.
-**`window.localStorage` in this vitest jsdom config is a bare `{}`** -- no
-`getItem`, no `setItem`, no `length`. Any UI code reaching it must guard
+**`window.localStorage` in this vitest jsdom config WAS a bare `{}`** -- no
+`getItem`, no `setItem`, no `length` -- under vitest 4 on Node 25 (CI's Node 22
+always had jsdom's real `Storage`). Since vitest 5 (#574 step 2) Node 25 reads
+a real `Storage` too, measured; a spec that needs a counting store still
+installs its own. Any UI code reaching it must still guard
 (`retired-keys.ts`'s `forgetRetiredKeys` does, which is also right for a real
 browser with site data blocked, where the property access itself throws). It
 made `worldmap.test.ts`'s "does not write to localStorage" test **unable to
@@ -2296,14 +2306,38 @@ the paragraph above, ~:306) -- nothing new here.
   material for a textured one — so **`pnpm validate:meshes` cannot see it**: that
   gate repaints every vehicle from the palette tables before rendering and says so
   on its passing path. It judges the SHAPE, two ways, against a measured floor.
-  **What is still missing is real damaged GEOMETRY.** D1 in the spec: a wreck is
-  the same parts slumped and recoloured, and a torn hull or a missing wheel is a
-  later per-vehicle art pass that replaces a vehicle's `WRECK_` children and
-  changes nothing else in the contract. The one model that ever had any is the D9
-  — `d9.blend`'s seven `WRECK_` parts, deleted at export by
-  `export_mesh_vehicle.py`, and `31c9799` replaced `dozer_d9.glb` with a Meshy
-  export anyway. Also still open: a rigid rotor cannot droop, so `heli_peten`'s
-  wreck is distinguished mostly by its charring and by losing its air lift.
+  **Real damaged GEOMETRY ships for thirteen, since 2026-10-14** (`pnpm
+  damage:meshes`, `tools/src/meshes/damage-pass.ts`; design and record
+  `docs/superpowers/specs/2026-10-14-wreck-damage-design.md`, which closes the
+  wreck spec's D1). **The rule is OUTLINE damage only** -- a thrown track on the
+  sand, a peeled plate, a broken barrel or rotor, a wheel-off corner drop --
+  because the charred wreck draws near-black and a hole or cavity in it has
+  nothing to stand out against (a mock measured it; the lead ruled no roof
+  holes and no missing wheels on skirted tanks). The pass gives a `WRECK_`
+  twin its OWN mesh only where a recipe cuts it, marked `extras.rl_damage =
+  { source }` on node and mesh; `validate_mesh_assets.py`'s wreck clause 3
+  accepts exactly that in place of a shared mesh, and clause 3c caps the
+  copies at **64 KiB Draco / 512 KiB raw per file** (numbers read from
+  `damage-recipes.ts`; every file's spend is printed on the passing path).
+  Debris is built in `death_root` space and carried into the twin by its
+  inverse matrix, so it is +0 nodes and +0 draw calls. Order: ... -> `wreck`
+  -> `damage` -> `encode`; the wreck pass disposes every damaged copy, so a
+  re-wreck must be followed by a re-damage, and `damage -> damage` is a no-op
+  on the bytes. Shipped: `mbt_lavi` and `officer_armour` (thrown track,
+  door-swung skirt plate, drooped barrel), `ifv_namer` and `dozer_d9` (thrown
+  track only: their rubber copies are most of the cap). **Wheeled hulls lose
+  their rear +Z tyre** (`apc_eitan`, `apc_kipod`, `scout_shachaf`, `jeep_shoded`,
+  `technical`, `gun_truck`): `WreckRecipe.lostWheel` tips the body onto that
+  corner in the WRECK pass and its seat ignores the tyre, which is a VOLUME
+  about the axle (`lost-tyre.ts`, read by both passes), not the `_RL_WHEEL`
+  tag -- #550's 0.99 r cut leaves outer tread untagged, and that tread held
+  the corner up. The gun truck's glass is blown out, and the Petens' rotor is
+  split into five blades that droop, one snapped onto the sand. The rocket
+  battery's rubber copy is SIMPLIFIED to fit the cap (`simplify`,
+  meshoptimizer 1.1.1, an exact tools devDependency; ratio 0.74, the largest
+  that fits, raw binding; run first so its collapses see the shipped bytes).
+  The corner-drop pivot runs to the FARTHEST same-side wheel: the nearest
+  threw a 6x6's cab a metre into the air. Record: the design spec's §7.
 - Tunnels are implemented (`feat/tunnel-subsystem`): routes are map data, a digger
   advances one and leaves surface spoil, stocked fighters surface at the vent to fire a
   volley and submerge, and a `yahalom_squad` charge collapses a route. Both content keys

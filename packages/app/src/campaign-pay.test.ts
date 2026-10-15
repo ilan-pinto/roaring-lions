@@ -65,7 +65,7 @@ describe('payVictory: a new campaign pays again, and a locked mission by address
     ledger = {};
     r = play(acct, ledger, 'khan_rafid_1_recon', 310);
     expect([r.scope, r.paid]).toEqual(['campaign', 310]);
-    ({ account: acct, ledger } = r);
+    acct = r.account;
     expect(acct.balance).toBe(620);
 
     // By address, out of order: scope is lifetime. First time ever pays.

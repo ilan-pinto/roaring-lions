@@ -233,7 +233,7 @@ const perTileTypes = new Set(
 
 async function trianglesFor(type: string): Promise<Float32Array[] | null> {
   if (triangleCache.has(type)) return triangleCache.get(type) ?? null;
-  let tris: Float32Array[] | null = null;
+  let tris: Float32Array[] | null;
   try {
     tris = await readTriangles(join(ROOT, 'art/meshes/buildings', `${type}.glb`));
   } catch {

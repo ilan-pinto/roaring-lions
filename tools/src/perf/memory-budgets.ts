@@ -171,6 +171,51 @@ export const BITMAP_FLOOR_MIB = 16;
 // mission <= 2010.6; Metal n=3 menu-kind <= 1394.1, board 529.5, mission <=
 // 2303.2. Menu GPU 601 -> 266 (230.8 x 1.15) -- the lock, since main's 522
 // fails it -- and the process ceilings x 1.25, only lowered.
+// #574 step 2 (vite 7 -> 8) RAISED the three JS ceilings, by the same rule
+// (largest reading x 1.25, rounded up), and nothing else. Every JS reading
+// moved by one constant, +16.2-18.7 MiB, the same at the menu, the board and
+// the missions, and none of it ships: a production build (`--serve=preview`)
+// reads the same before and after (Metal: menu 38.6 / 38.5, board 12.8 /
+// 12.7 MiB). It is the dev server's script text the page keeps alive. Vite 8
+// inlines the prebundled `three` chunk's source map as base64 (vite 7 left it
+// in a `.map` file the page never fetched), its Oxc transform keeps comments
+// esbuild dropped, and its inline maps are larger. Stripping every inline
+// `sourceMappingURL=data:` from the served modules (a Playwright route, the
+// menu's heap after two GCs, Metal, n=2 each) reads main 61.0 -> 42.6 and
+// vite 8 77.2 -> 44.8 MiB: the maps are 14.0 MiB of the 16.2, and the
+// remaining 2.2 is comment text. Not switchable in config: vite 8 forces
+// `sourcemap: 'hidden'` on the dep optimizer and inlines the map when it
+// serves the chunk, and Oxc has no option that drops comments. The browser-log
+// forwarding vite 8 turns on under an AI agent is not it: CI, where it is off,
+// moved by the same amount as Metal, where it was on.
+// CI n=4 at vite 8 (run 38617289151; run 38626014915 attempts 1-3): menu
+// 77.0-77.1, menu-kind <= 83.7, board 52.5-52.6, mission <= 153.1 MiB, against
+// main's 60.7-60.9 / 66.7 / 36.2 / 134.4 (n=3, runs 38608056858, 38617193616,
+// 38618354579). Metal n=3 at vite 8: menu-kind <= 85.0, board 52.7, mission
+// <= 153.3, against main's 69.5 / 36.5 / 136.7 (n=3). After-leave JS stays
+// <= +8.6% of the first menu on both, inside the unchanged leak percentages --
+// which now resolve less: +20% of a 77 MiB menu is ~15 MiB, not ~11.
+// The walk now STRIPS every inline source map from the scripts the dev server
+// serves (`strip-inline-maps.ts`, a Playwright route; `--keep-source-maps`
+// turns it off), and the three JS ceilings were LOWERED by the same rule to
+// what is left. 16.3 MiB of map text comes off 642 of 655 scripts, and the
+// heap reads ~32 MiB less at every checkpoint (the page held each map about
+// twice). Metal n=3, interleaved with n=3 unstripped on the same tree: menu
+// 46.4 (unstripped 78.7-78.8), menu-kind <= 54.0 (86.6), board 20.3 (52.8-52.9),
+// mission <= 121.9 (154.9) MiB. After-leave JS is the SAME in MiB either way,
+// +5.7-7.6 (+5.9-7.9 unstripped): none of it is map text, so as a percentage
+// of the smaller menu it reads +12.2-16.4% (was +7.5-10.0%), inside the
+// unchanged leak percentages -- which is the point: +30% of 46.4 MiB fails a
+// walk at 13.9 MiB of after-leave growth where +30% of 78.8 let 23.6 through.
+// GPU and bitmaps did not move; process moved DOWN (menu <= 1312 against
+// <= 1413) and its ceilings are left alone.
+// CI n=3 stripped (run 38650120593, attempts 1-3): menu 45.5-45.7, menu-kind
+// <= 51.9, board 20.0-20.1, mission <= 122.5 MiB; after-leave +4.7-6.3 MiB
+// (+10.4-13.7%), the three walks within 0.2 MiB of each other at every
+// checkpoint. Linux JS ceilings: menu 105 -> 65, board 66 -> 26, mission
+// 192 -> 154. GPU, bitmaps and process did not move (menu process <= 1124
+// against 1406). The leak check now fails a walk at +9.1 MiB of after-leave
+// growth on CI (+20% of 45.6), where #611's let +15.4 through.
 export const MEMORY_BUDGETS: Readonly<Record<string, MemoryBudget>> = {
   // CI's `memory` job. ubuntu-latest, ANGLE/SwiftShader, 1400x900 @1x, dev
   // server, n=4 walks on four runners (2026-10-08, run 37826952688: the
@@ -182,10 +227,10 @@ export const MEMORY_BUDGETS: Readonly<Record<string, MemoryBudget>> = {
   // mission process total of 2946.7. Leak percentages are about twice the
   // largest measured, rounded up to 5.
   'linux-x64-swiftshader': {
-    conditions: 'linux-x64-swiftshader: ubuntu-latest, SwiftShader, 1400x900 @1x, dev server, n=4 (process and bitmaps re-measured at GH-469 savings 1+2+3: CI n=1, Metal n=3), margins JS x1.25 GPU x1.15 process x1.25 bitmaps x1.15',
-    menu: { jsTotalMiB: 75, gpuMiB: 266, processMiB: 1406, bitmapsMiB: 16 },
-    board: { jsTotalMiB: 40, gpuMiB: 159, processMiB: 810, bitmapsMiB: 16 },
-    mission: { jsTotalMiB: 157, gpuMiB: 1015, processMiB: 2511, bitmapsMiB: 161 },
+    conditions: 'linux-x64-swiftshader: ubuntu-latest, SwiftShader, 1400x900 @1x, dev server, n=4 (process and bitmaps re-measured at GH-469 savings 1+2+3: CI n=1, Metal n=3; JS re-measured at vite 8 with inline source maps stripped: CI n=3, Metal n=3), margins JS x1.25 GPU x1.15 process x1.25 bitmaps x1.15',
+    menu: { jsTotalMiB: 65, gpuMiB: 266, processMiB: 1406, bitmapsMiB: 16 },
+    board: { jsTotalMiB: 26, gpuMiB: 159, processMiB: 810, bitmapsMiB: 16 },
+    mission: { jsTotalMiB: 154, gpuMiB: 1015, processMiB: 2511, bitmapsMiB: 161 },
     leak: { jsOverMenuPct: 20, gpuOverMenuPct: 2, maxRetainedLostContexts: 0, maxExtraNodes: 50 },
   },
   // Local only -- CI never runs here. M3 Pro, ANGLE/Metal, 1400x900 @1x, dev
@@ -194,10 +239,10 @@ export const MEMORY_BUDGETS: Readonly<Record<string, MemoryBudget>> = {
   // 882.2 / 3207.3 MiB; after-leave JS +14.6% and GPU +0.0% over the menu,
   // DOM nodes +0.
   'darwin-arm64-metal': {
-    conditions: 'darwin-arm64-metal: M3 Pro, ANGLE/Metal, 1400x900 @1x, dev server, n=4 (process and bitmaps re-measured at GH-469 savings 1+2+3: CI n=1, Metal n=3), margins JS x1.25 GPU x1.15 process x1.25 bitmaps x1.15',
-    menu: { jsTotalMiB: 79, gpuMiB: 266, processMiB: 1743, bitmapsMiB: 16 },
-    board: { jsTotalMiB: 40, gpuMiB: 159, processMiB: 662, bitmapsMiB: 16 },
-    mission: { jsTotalMiB: 162, gpuMiB: 1015, processMiB: 2880, bitmapsMiB: 161 },
+    conditions: 'darwin-arm64-metal: M3 Pro, ANGLE/Metal, 1400x900 @1x, dev server, n=4 (process and bitmaps re-measured at GH-469 savings 1+2+3: CI n=1, Metal n=3; JS re-measured at vite 8 with inline source maps stripped: CI n=3, Metal n=3), margins JS x1.25 GPU x1.15 process x1.25 bitmaps x1.15',
+    menu: { jsTotalMiB: 68, gpuMiB: 266, processMiB: 1743, bitmapsMiB: 16 },
+    board: { jsTotalMiB: 26, gpuMiB: 159, processMiB: 662, bitmapsMiB: 16 },
+    mission: { jsTotalMiB: 153, gpuMiB: 1015, processMiB: 2880, bitmapsMiB: 161 },
     leak: { jsOverMenuPct: 30, gpuOverMenuPct: 2, maxRetainedLostContexts: 0, maxExtraNodes: 50 },
   },
 };

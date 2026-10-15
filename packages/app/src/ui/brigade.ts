@@ -524,7 +524,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   for (const row of rows) {
     const base = opts.baseOf(row.u.id);
     const merged: UpgradableUnit = { ...base, id: row.u.id, upgrades: row.u.upgrades };
-    let kitted: UpgradableUnit = merged;
+    let kitted: UpgradableUnit;
     try {
       kitted = applyUpgrades(merged, maxTiers(merged));
     } catch {
