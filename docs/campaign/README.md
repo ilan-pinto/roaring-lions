@@ -42,9 +42,16 @@ in step with it.
   one mission.
 - **No base building, no harvester, no credits, no tech tree.** Two resources:
   Logistics (a per-minute rate, spent on production at a `camp` structure the
-  author places) and Intel (drones and stationary markers earn it; it buys a
-  satellite sweep or a precision strike). Only 6 of 14 shipped missions declare
-  any economy. Unit availability is gated by campaign ROE rating, completed
+  author places) and Intel (earned by doing, with no per-minute term: 10 per enemy
+  first identified by a real observer, 30 per objective completed, 30 per
+  high-ground rise held 10 s; `resources.intel_start` is the only authored grant,
+  and there is no `intel_rate_per_min`). Intel is fire-support currency only: a
+  smoke screen 60, a mortar barrage 120, a drone sweep 150, an air strike 250
+  (rates and prices provisional, awaiting the lead; GDD §3,
+  `docs/campaign/economy/fire-support-numbers.md`). A drone or a still scout
+  no longer earns by standing there: write a recon mission's intel as
+  *identifications*, not minutes. 18 of 27 shipped missions declare a
+  `resources` block. Unit availability is gated by campaign ROE rating, completed
   missions and earned stars, not by tiers.
 - **The player force is placed, not built.** `starting_force` plus ledger
   survivors (`from_ledger`), plus authored `reinforce` triggers and waves.

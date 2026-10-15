@@ -8,6 +8,18 @@ them. **Base:** branch `feat/gf1-fire-support` at `0f78359d` (main `cd407953`, t
 the probe sources are kept in the session scratchpad (`t2/probe-src/`, with a README to re-run).
 Every number below is **(M)** measured unless marked **(R)** reasoned.
 
+> **Note, 2026-10-15 (F1 Task 10): the shipped rule differs from the probe's on one case.** The probe
+> priced a later real-observer identification of an enemy first seen at `observer: -1` as **paid**
+> (the "identified" bullet in §1's opening method list and the "Identified after a sweep or a pre-mark" count in §1.2).
+> Ruling C-R5 (Task 3) decided the case the other way: an enemy whose first identification has no
+> observer (a sweep reveal, a pre-marked carry-over) is settled unpaid and **never pays**, even if a
+> real observer sees it afterwards. The totals and tables in this document were measured under the
+> probe's rule and are not rewritten. Task 9's gate measured the shipped rule over the same ledger
+> seed and reached the same verdicts (10/30/30 still gives 25 of 26 plain winners a sweep; passive
+> never beats a winner on 424242); end totals are 10-30 lower on `beit_sahwan_3_clearance`,
+> `wadi_halam_3_counterraid`, `beit_sahwan_4_subterranean`, `qarn_hadid_3_clearance`,
+> `umm_zeitoun_3_clearance` and `umm_zeitoun_4_clearance`, the six missions the §1.2 line lists.
+
 ## The proposal, in one place
 
 **Provisional: adopted by the F1 controller 14 Oct to unblock Tasks 3-9; awaiting the lead's

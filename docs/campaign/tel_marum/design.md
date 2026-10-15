@@ -736,7 +736,7 @@ wells, the post over the crest line, the hamlet, the depot.
   **stationary** `inf_squad` accrues 5 (`INTEL_PER_MIN_DRONE` / `_SCOUT`;
   `inf_squad`, `sniper_team`, `recon_drone` and `attack_drone` all carry
   `mark_target`). A build-up that holds ground therefore *pays* in intel, with no
-  new schema field at all.
+  new schema field at all. *(Superseded by F1, 2026-10-15: intel is earned by doing, with no per-minute term and no `intel_rate_per_min`; see docs/GDD.md §3.)*
 - **4 (clearance):** `logistics_start 600`, `logistics_rate_per_min 100`,
   `intel_start 250` — one **precision strike** (`STRIKE_COST` 250), which is
   attributed to a living caller so the ROE bill lands on the player who ordered
@@ -1023,7 +1023,7 @@ where the gap is the same. **None of them stops the act shipping.**
 | **G12** | **A wave cannot speak.** The wave item is `{at_seconds, trigger, to, units}` — `say` was added to triggers and objectives and **not** to waves | Add `say?: { speaker, text }` to the wave item, emitted when the wave spawns. The `wave` `MissionEvent` already exists, so this is one field and one push | `sim-guard` | Reinforcements arriving is the most legible thing that happens in a mission and it is the one event with no voice. Workaround: a `timer_s` trigger at the same second, carrying the line and no `do` — **which the schema does not allow, because `do` is required.** So today the workaround costs a real order |
 | **G13** | **An author cannot choose where an enemy round lands.** T8's literal form — a rocket into the block the player may not shoot into — needs sim work | Out of scope, recorded. §5.3 delivers the *meaning* with placement instead: his rounds kill people the player is scored on saving, and `stepRoe` charges him nothing | `sim-guard` | None — the design is written around it |
 | **G14** | **A structure's destruction cannot carry authored consequences.** `COLLAPSE_SHOCK` is a tuning constant, not a per-structure field, so "the magazine goes up" (T-U11) is not authorable | A `collapse_damage` / `collapse_radius` on a structure type in `data/structures.json` | `sim-guard` | One twist candidate, cut cleanly |
-| **G10 (corrected)** | **No Intel *rate*.** `resources` is `additionalProperties: false` with exactly `logistics_start`, `intel_start`, `logistics_rate_per_min`, `supply_corridor` — **so `intel_rate_per_min` is a schema field plus a runtime line, not "content, not engine" as `storyline.md` §7 records** | Add `intel_rate_per_min`, accrued beside logistics. **But note it is only half needed:** Intel already accrues at 8/min per living drone and 5/min per stationary `mark_target` carrier, so `intel_start` alone gives Act II a real economy today (§5.0) | `sim-guard` (schema + one line); `mission-author` for the content half | None blocking. The storyline's classification should be corrected |
+| **G10 (corrected)** | **No Intel *rate*.** `resources` is `additionalProperties: false` with exactly `logistics_start`, `intel_start`, `logistics_rate_per_min`, `supply_corridor` — **so `intel_rate_per_min` is a schema field plus a runtime line, not "content, not engine" as `storyline.md` §7 records** | Add `intel_rate_per_min`, accrued beside logistics. **But note it is only half needed:** Intel already accrues at 8/min per living drone and 5/min per stationary `mark_target` carrier, so `intel_start` alone gives Act II a real economy today (§5.0) | `sim-guard` (schema + one line); `mission-author` for the content half | None blocking. The storyline's classification should be corrected *(Superseded by F1, 2026-10-15: intel is earned by doing; `intel_rate_per_min` is dropped; see docs/GDD.md §3.)* |
 | **G6** | **No friendly-tagged HVT / `capture` cannot require its target alive** | recorded; Act II uses neither | `sim-guard` | None — Adhal dies by `eliminate_hvt`, which is honest for an observer |
 | **G9** | **`mark`, `escort`, `no_collateral_above` throw.** `escort` is the obvious shape for a demolition party | Out of scope; recorded so nobody authors one by reading the schema | `sim-guard`; GH-2, GH-4 | None |
 | **G15** | **`playtest` cannot express "this mission got 3× longer".** Its assertion is `result === expect` and nothing else; a mission can blow out sevenfold and CI stays green (GH-84) | A per-mission duration ceiling in the harness — a design call, and **not** `target_minutes`, for the reasons `storyline.md` and CLAUDE.md both record | `playtest` | Act II adds four plans to a harness that cannot see the thing this act is most likely to get wrong |
@@ -1062,7 +1062,7 @@ cat data/campaign/{commander.json,world.json}
 cat data/missions/tel_marum_{1_recon,2_foothold,3_clearance}.json   # triggers: [] in all three
 sed: packages/sim/src/mission.ts  SUPPORTED, stepTriggers (remove), stepRoe,
      locate/raze/collapse checks, markedThisMission, requestSweep/requestStrike,
-     INTEL_PER_MIN_DRONE=8 / _SCOUT=5, SWEEP_COST=150, STRIKE_COST=250
+     INTEL_PER_MIN_DRONE=8 / _SCOUT=5, SWEEP_COST=150, STRIKE_COST=250  (superseded by F1, 2026-10-15: intel is earned by doing; see docs/GDD.md §3)
 sed: packages/sim/src/sim.ts      losRay, detectionPair, stepDemolition, DEMO_SECONDS=5
 sed: packages/sim/src/civilians.ts  CIV_FLEE_AT, SHEPHERD_RADIUS_SQ (4 tiles)
 sed: packages/app/src/campaign.ts   campaignRoe, unlock gating (completed_missions only)
