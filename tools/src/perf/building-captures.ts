@@ -330,31 +330,38 @@ if (wants('barriers')) {
 // SHOULD still turn to read along its run. Same stage as `barriers`, at
 // 1400x900. Hostiles are killed first so nothing fights in shot.
 if (wants('posts-ns')) {
+  // Restored after: the page is shared, and the `sheet` job after this
+  // one photographs at the page's own 1440x900.
+  const viewport = page.viewportSize();
   await page.setViewportSize({ width: 1400, height: 900 });
-  await bootSandbox('/?sandbox=wadi_halam_5');
-  await page.evaluate(`(async () => {
-    const L = window.__lions;
-    for (const u of L.units(1)) L.sim.debugKill(u.id);
-    const w = L.sim.width;
-    const idx = (id) => {
-      const i = L.sim.structureTypes.findIndex((t) => t.id === id);
-      if (i < 0) throw new Error('no ' + id + ' structure type');
-      return i;
-    };
-    L.sim.addStructure(idx('sandbag_post'), [19 + 12 * w]);
-    L.sim.addStructure(idx('sandbag_post'), [19 + 13 * w]);
-    L.sim.addStructure(idx('sandbag_wall'), [21 + 12 * w]);
-    L.sim.addStructure(idx('sandbag_wall'), [21 + 13 * w]);
-    for (const id of ['sandbag_wall', 'sandbag_post']) {
-      await L.renderer.loadBuildingMesh(id, '/meshes/buildings/' + id + '.glb', '/meshes/buildings/' + id + '_wreck.glb');
-    }
-  })()`);
-  await spawnFriendly('inf_squad', 17.0, 15.5);
-  await spawnFriendly('inf_squad', 23.0, 15.5);
-  await step(20);
-  await page.waitForTimeout(1500);
-  await frames(60);
-  await both('sw5-posts-ns', 20.0, 13.0);
+  try {
+    await bootSandbox('/?sandbox=wadi_halam_5');
+    await page.evaluate(`(async () => {
+      const L = window.__lions;
+      for (const u of L.units(1)) L.sim.debugKill(u.id);
+      const w = L.sim.width;
+      const idx = (id) => {
+        const i = L.sim.structureTypes.findIndex((t) => t.id === id);
+        if (i < 0) throw new Error('no ' + id + ' structure type');
+        return i;
+      };
+      L.sim.addStructure(idx('sandbag_post'), [19 + 12 * w]);
+      L.sim.addStructure(idx('sandbag_post'), [19 + 13 * w]);
+      L.sim.addStructure(idx('sandbag_wall'), [21 + 12 * w]);
+      L.sim.addStructure(idx('sandbag_wall'), [21 + 13 * w]);
+      for (const id of ['sandbag_wall', 'sandbag_post']) {
+        await L.renderer.loadBuildingMesh(id, '/meshes/buildings/' + id + '.glb', '/meshes/buildings/' + id + '_wreck.glb');
+      }
+    })()`);
+    await spawnFriendly('inf_squad', 17.0, 15.5);
+    await spawnFriendly('inf_squad', 23.0, 15.5);
+    await step(20);
+    await page.waitForTimeout(1500);
+    await frames(60);
+    await both('sw5-posts-ns', 20.0, 13.0);
+  } finally {
+    if (viewport) await page.setViewportSize(viewport);
+  }
 }
 
 // --- the damage-state sheet --------------------------------------------------
