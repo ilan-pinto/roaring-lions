@@ -1067,6 +1067,10 @@ plan the difference is named.
   and the harness share, and the harness's fog (`tools/src/net/view.ts`) calls
   the renderer's own sight and draw-gate predicates, so a model and a human on
   the same seat see the same units (§11's "must share one function").
+  Building it in Node also required the world-builder pin of N4b Task 1: the
+  browser path registers a map's tunnels with the sim, and the builder must do
+  the same or the two worlds diverge (`beit_sahwan_outskirts` is pinned at hash
+  3043363756, `tel_marum` at 1260439781, in `match-world.test.ts`).
 - **The ticket is never on a command line or in a URL.** `--ticket-file`
   reads a private file (a leading `~/` is expanded by the agent itself, since an
   MCP client does not). `--ticket-file -` reads stdin and works only from a
@@ -1124,7 +1128,9 @@ plan the difference is named.
   browser shows the proposal (the note, the order in words, a two-second
   countdown that counts only frames that run) and sends it as its own `cmd`
   unless vetoed, after re-checking that it still makes sense: an order naming
-  a unit that has since died is dropped, and the feed says so. Up to three wait.
+  a unit that has since died is dropped, and the feed says so. `PROPOSAL_QUEUE` = 3
+  counts the proposal being shown: three are held, two of them waiting, and a
+  fourth vetoes the oldest waiting one, never the one on screen.
   **X** (D11), the **Veto** button, or **Escape** in the advisor's text box
   veto it; the **Accept** button takes it at once. **Enter does not accept**
   (the coordinator's ruling of 15 Oct, on #619): Enter opens the chat, so
@@ -1136,7 +1142,9 @@ plan the difference is named.
   callsign, then the badge), text only, hidden when nobody advises (N4a final
   review F2, built rather than deferred). The room sends `advisors` to every
   seated socket when one joins or leaves, and again to a seat that rejoins;
-  the transport clears stale badges on a relink.
+  the transport clears stale badges on a relink, and replays the last
+  `advisors` it heard to an `onAdvisors` hook that arrives later (the
+  battlefield's, after the lobby's).
 - **Fog is the harness's courtesy** (D10): the advisor's socket receives the
   full frame stream like any client, and `observe` is fogged. A modified
   harness could see through fog exactly as a modified browser can, under the
@@ -1175,9 +1183,11 @@ plan the difference is named.
 ### 11c.4 The local relay (decision D2; revises §8.5's D1 path)
 
 `tools/src/net/local-relay.ts` hosts the real Worker routes (`handleMatch`)
-and the real `MatchRoom` in Node on `127.0.0.1`, `listen(0)`, over `ws`. The
-`TICKET_SECRET` is minted in memory from `randomBytes(32)`, never logged and
-never written; the env has no D1 (a desync's D1 write fails with a logged
+and the real `MatchRoom` in Node on `127.0.0.1`, `listen(0)`, over `ws`.
+`startLocalRelay` mints the `TICKET_SECRET` in memory from `randomBytes(32)`,
+never logged and never written; `serveLocalRelay(secret)` is the same relay
+with the secret supplied, which the specs use to pin that the chosen secret
+never reaches a log; the env has no D1 (a desync's D1 write fails with a logged
 error, and the desync still reaches both clients) and no rate limiters. The
 upgrade passes `handleMatch`'s Origin, code and method checks first. Alarms
 are a 250 ms poll; `close()` terminates every socket, clears every interval
@@ -1210,7 +1220,7 @@ and frees the port. `MatchRoom` gained one optional constructor argument,
   `AgentClient` in the arena's own process: it pumps to the round boundary,
   asks the policy, submits through the desk, flushes, then sends `done`. A
   policy that has not answered in `roundWallMs` is abandoned and counted as a
-  timeout. At its cap tick it stops by itself (so seat 0's sim can be read on
+  timeout. At its cap tick it stops by itself (so the reading seat's sim can be read on
   exactly that tick) and detaches without a `bye`.
 
 ### 11c.6 The arena and its scoring (decision D7; D6 "not now")
@@ -1227,7 +1237,9 @@ and frees the port. `MatchRoom` gained one optional constructor argument,
 - **The cap is the arena's, not the room's**: at `--cap-ticks` (default
   12,000, not `MATCH_CAP_TICKS`' 30,000) the game is settled by `capOutcome`,
   the room's own decision-24 rule (`outcomeOf(sim, MATCH_CAP_TICKS)`: the
-  larger surviving force value wins), on seat 0's sim, recorded `by: 'cap'`.
+  larger surviving force value wins), on the reading seat's sim (seat 0's when
+  it runs in the arena's process, else seat 1's, else the observer's),
+  recorded `by: 'cap'`.
 - **Score** = (wins + ½ draws) / non-void games, overall, per seat and per
   faction; a cut with no non-void game reads `—`, never 0. The per-game table
   carries the scoreboard (decision 25: lost and destroyed with their value,
@@ -1237,8 +1249,12 @@ and frees the port. `MatchRoom` gained one optional constructor argument,
   arena stops the players, since a stop overwrites the transport's status).
   `void/disagree`: the two sims the game was judged by report different
   results, or one decided and the other did not with no room ending. `void`
-  named for the room's closed reason (`expired`, `unfinished`), and
-  `void/timeout` past the game's wall-time backstop. A void is a result: the
+  named for the room's closed reason (e.g. `expired`), `void/unfinished` as the
+  arena's own fallback when the room did not close (not a room reason), and
+  `void/timeout` past the game's wall-time backstop. The full `by` vocabulary
+  of a record: `annihilation`, `stalemate`, `time`, `cap`, `forfeit`,
+  `surrender`, `left` or `mutual` for a result, and `desync`, `disagree`,
+  `timeout`, `unfinished` or a room's closed reason for a void. A void is a result: the
   arena exits 0 unless a game could not be played at all (exit 1).
 - **External players** (`external-player.ts`): per game and external seat, a
   0700 temp directory with three 0600 files (the seat's `ticket`, `mcp.json`
@@ -1252,8 +1268,9 @@ and frees the port. `MatchRoom` gained one optional constructor argument,
 - **The observer.** When neither seat runs in the arena's process
   (`cmd:` against `cmd:`), the arena reads the game through seat 0's own
   advisor (`advise` scope, minted from seat 0's ticket), which keeps its own
-  sim in step and sends nothing the room acts on. Such a game has **one
-  judging sim**, so it cannot read `void/disagree`; a desync between the two
+  sim in step and sends nothing the room acts on. Any game with an external
+  seat has **one judging sim** (the in-process seat's, or the observer's), so
+  it cannot read `void/disagree`; a desync between the two
   players is still caught by the room's hash check. It takes seat 0's one
   advisor slot.
 - **A cap-decided game** stops the in-process side at once but gives an

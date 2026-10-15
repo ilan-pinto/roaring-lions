@@ -81,8 +81,8 @@ veto it; the other seat is told you have an advisor.
      background tab holds the countdown where it was, and you always get a
      moment to veto after coming back. Accepting while the room is paused is
      refused the same way, since a paused room takes no orders.
-   - Up to three proposals wait; a fourth drops the oldest one still waiting,
-     never the one you are reading.
+   - Up to three proposals are held (the one you are reading and two waiting);
+     a fourth drops the oldest one still waiting, never the one you are reading.
 
    X only vetoes while a proposal shows; with none it does nothing. Enter always
    opens the chat, proposal or not.
@@ -139,14 +139,18 @@ pnpm arena -- --a rush --b passive --seeds 10 --map tel_marum --pace 60
   the seats swapped, so `--seeds 10` is twenty games. The room is **paced**:
   every `--pace` ticks (default 60, three seconds of game) it waits for each bot
   seat to end its round, for at most `--round-wall-ms` (default 120,000). A
-  model therefore gets the same number of decisions whatever its latency.
+  model therefore gets the same number of decisions whatever its latency. A
+  model that never calls `end_round` costs the whole `--round-wall-ms` every
+  round, so lower it for model runs (for example `--round-wall-ms 20000`).
 - **Where a game ends.** Annihilation, stalemate, or the arena's cap
   (`--cap-ticks`, default 12,000 ticks, ten minutes of game), where the game is
   settled the way the room settles its own 25-minute cap: the larger surviving
   force value wins, equal values draw.
 - **Maps.** Only what a room would host: `--map` must be a versus map and
   `--matchup` (default `mirror`; `kdf` and `sarim` where offered) a pairing that
-  map offers. Anything else exits 2 before a relay starts.
+  map offers. A matchup name that does not exist is a command-line error (exit
+  1); a real matchup or map that no room offers exits 2. Either is refused
+  before a relay starts.
 - **Score.** `(wins + ½ draws) / non-void games`, reported overall, per seat and
   per faction (decision D7), with the scoreboard (units lost and destroyed, with
   their value, and the force left) in place of Conduct, which a versus room does
@@ -188,7 +192,9 @@ directory's `ticket` file, never in an argument, the environment or a log. The
 command's stdout and stderr go to `<out>/<date>-<a>-vs-<b>-game<n>-seat<s>.log`.
 
 **The arena passes your environment through unchanged and never reads a
-key.** Whatever authentication your MCP client uses stays yours. Its token use
+key.** Whatever authentication your MCP client uses stays yours: keep it in your
+client's own configuration or environment, never in the template, which is
+recorded in the results. Its token use
 is reported when the command's last stdout line is JSON with
 `usage.input_tokens` and `usage.output_tokens`; it is never scored.
 
@@ -204,13 +210,14 @@ Two things to know about external players:
 - **When neither seat is in this process** (`cmd:` against `cmd:`), the arena
   watches the game through an **observer**: seat 0's own advisor, in `advise`
   scope, which keeps its own sim in step from the frames and sends nothing that
-  touches the match. Such a game is judged by that one sim, so it cannot read
-  `void/disagree`; a desync between the two players is still caught by the
+  touches the match. A game with any external seat is judged by one sim (the
+  in-process seat's, or the observer's), so it cannot read `void/disagree`; a desync between the two players is still caught by the
   room's own hash check, which voids the game.
-- **A game decided at the cap** stops the in-process side at once, but gives an
-  external command a grace period (10 s) to finish by itself and print its
-  usage line before it is stopped (then terminated, then killed). The model
-  plays and spends tokens during that grace.
+- **At the end of any game** (the cap, a result, the room ending) the
+  in-process side stops at once, but an external command that is still alive
+  gets a grace period (10 s) to finish by itself and print its usage line
+  before it is stopped (then terminated, then killed). The model plays and
+  spends tokens during that grace.
 
 ## 4. What the harness trusts
 

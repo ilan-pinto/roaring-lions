@@ -16,7 +16,8 @@
  * once the room's start config says the pace, seed, map and factions it asked
  * for: a malformed pace is silently realtime, and a realtime result is no
  * result here. At `--cap-ticks` both players stop on their own and the game
- * is decided by `capOutcome` on seat 0's sim (ruling N1), recorded `by: 'cap'`.
+ * is decided by `capOutcome` on the reading seat's sim (ruling N1: seat 0's
+ * when it runs in this process, else seat 1's, else the observer's), recorded `by: 'cap'`.
  * The arena reads a game through a seat that runs in this process; when
  * neither does (`cmd` vs `cmd`), through an OBSERVER: seat 0's own advisor
  * (`advise` scope, minted from seat 0's ticket by the room's advisor route),
@@ -228,7 +229,8 @@ export function snapshotOf(c: AgentClient): SeatSnapshot {
  *  this process). A desync the room sent to either seat is `void`/`desync`;
  *  two sims reporting different results are `void`/`disagree`; two seats with
  *  no result, both standing on the cap tick, are decided by `capOutcome` on
- *  seat 0's sim and recorded `by: 'cap'`. */
+ *  the reading seat's sim (seat 0's, else seat 1's, which is also the observer's
+ *  when neither runs here) and recorded `by: 'cap'`. */
 export function judge(
   seats: readonly [SeatSnapshot | null, SeatSnapshot | null],
   sides: readonly [0 | 1, 0 | 1],

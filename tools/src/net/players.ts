@@ -90,7 +90,7 @@ export interface SeatStart {
   ticket: string;
   build: string;
   /** The arena's cap: the player runs no frame past this tick and stops
-   *  there on its own, so seat 0's sim can be read AT the cap (`capOutcome`).
+   *  there on its own, so the reading seat's sim can be read AT the cap (`capOutcome`).
    *  Absent: it plays until the match ends or it is stopped. */
   capTicks?: number;
   /** Where a player that runs a process appends that process's stdout and

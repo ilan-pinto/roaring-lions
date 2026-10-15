@@ -23,11 +23,12 @@ export interface GameRecord {
   outcome: 'seat0' | 'seat1' | 'draw' | 'void';
   /** annihilation | stalemate | time | cap | forfeit | surrender | left | mutual;
    *  for a void: desync (the room sent it), disagree (the two sims reported
-   *  different results), timeout, unfinished, or the room's own ending reason
-   *  (e.g. `expired`). */
+   *  different results), timeout, or the room's own ending reason (e.g.
+   *  `expired`); `unfinished` when the room never closed (the arena's own
+   *  fallback, not a room reason). */
   by: string;
   ticks: number;
-  /** By SIDE, from seat 0's sim at the end. In versus seat s plays side s
+  /** By SIDE, from the reading seat's sim at the end (seat 0's in-process, else seat 1's, else the observer's). In versus seat s plays side s
    *  (`match-room.ts`), so index s is also seat s's line. */
   score: MatchScore;
   /** By seat. */

@@ -6,7 +6,7 @@
  * for that rule: the control tests (players.test.ts) and the arena (Task 13)
  * both import it, and neither re-implements outcome logic.
  *
- * Asked of seat 0's sim, stopped on the cap tick: both seats' sims hold the
+ * Asked of the reading seat's sim (seat 0's, else seat 1's, else the observer's), stopped on the cap tick: both seats' sims hold the
  * same state there, so the answer is the one either seat would have reached.
  * A pure read: nothing here writes to the sim.
  */
