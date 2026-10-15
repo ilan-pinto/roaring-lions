@@ -256,7 +256,7 @@ jobs:
       - name: three engines, one hash (network design §12)
         if: ${{ success() || failure() }}
         timeout-minutes: 15
-        run: xvfb-run -a pnpm net:engines -- --port=5183 --require=chromium,firefox,webkit
+        run: pnpm net:engines -- --port=5183 --firefox-headed --require=chromium,firefox,webkit
       # I9 (final review). The branch's headline claim -- a battlefield can be
       # LEFT cleanly, in one JS realm, with no page reload -- is proved by
       # exactly one instrument, and until this it ran only when somebody
