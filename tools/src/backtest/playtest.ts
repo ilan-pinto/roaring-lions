@@ -2021,33 +2021,12 @@ const ledTelMarum3 = run(
 // incomplete on a passive run, but the evacuation clock is what ends it.
 passiveAcrossSeeds('qarn_hadid_1_recon', 'qarn_hadid_1_recon (passive control)', 'defeat');
 
-// F1 Task 9 (GH-183): the one winning plan that SPENDS intel through the menu, so "a sweep or a strike is
-// affordable where it is designed to be" is proved by a real call and not by arithmetic. Picked from Task
-// 2's arrival column (`docs/campaign/economy/fire-support-numbers.md` §1.2): Qarn Hadid I reaches 150
-// earliest of any plan with no `intel_start` grant (14.5 s on 424242; the 120 a barrage costs by 14.3 s),
-// and then runs another 62 s, where Khan Rafid I and Umm Zeitoun III earn it at 22 s of 30 and 27 s of 63.
-//
-// No mission text names a sweep or a strike (a census of `data/missions/*.json`), so the placement is the
-// plan's own geometry. The barrage goes on the middle of the picket's beat, (30,19), the one unit this
-// plan's drone routing is built around (see the Qarn Hadid I comment above: a waypoint up the saddle
-// walks the drone under the picket patrolling [30,16]-[30,22]). A round lands 6-15 s after the call, so
-// 16 s puts the six on the picket at 22-31 s, while the jeep and the Eitan are still at the road party
-// (34,31) and nobody of ours is near the notch. It is called at 16 s, not earlier, because intel is
-// earned by doing and the plan holds 120 only from 14.3 s on 424242.
-// Measured, and why it is this call and not a sweep: the barrage moves NO existing line (VICTORY in
-// 1.3 min, ROE 100, stars 3, credits 310 as before, same end tick 1522); a drone sweep at the notch post
-// (31,16) would move them all, because it identifies the low-gate post at 16 s and the mission, which
-// waits on that post alone from 18 s, ends at 0.3 min instead of 1.3 (reported to the lead, not shipped).
-// No unit is ordered by this call (a support call names none, F-R6), so no focus is touched; no shipped
-// plan issues `attack`.
-const SPEND = { id: 'qarn_hadid_1_recon', kind: 'mortar_barrage', price: 120, atS: 16, x: 30, y: 19 } as const;
-// The plan closure runs once for the plain victory and once more in the max-tier replay (`maxTierProbes`);
-// the second run's spend line says so, so it is not read as a second plain run.
-let spendRuns = 0;
-
+// (F1 Task 9 measured, kept for the lead: a drone sweep at the notch post (31,16) at 16 s would identify the
+// low-gate post and end this mission at 0.3 min instead of 1.3, because it waits on that post alone from 18 s.
+// Not shipped; Qarn Hadid I has no fire-support dock either, so the spending plan lives at Umm Zeitoun III.)
 const ledQH1 = run(
   'qarn_hadid_1_recon',
-  (sim, rt, ids, at) => {
+  (sim, _rt, ids, at) => {
     const drone = ids('recon_drone');
     const jeep = ids('jeep_shoded');
     const eitan = ids('apc_eitan');
@@ -2057,14 +2036,6 @@ const ledQH1 = run(
       sim.queueCommand({ kind: 'move', ids: drone, ...M(14, 6) });
     });
     at(20, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(28, 4) }));
-    at(SPEND.atS, () => {
-      const ok = rt.supportCost(SPEND.kind) === SPEND.price && rt.requestSupport(SPEND.kind, fx.from(SPEND.x), fx.from(SPEND.y));
-      console.log(`${SPEND.id}: spend ${SPEND.kind} ${ok ? 'ok' : 'refused'}${spendRuns++ > 0 ? ' (max-tier replay)' : ''}`);
-      if (!ok) {
-        console.error(`${SPEND.id}: FAILED — requestSupport('${SPEND.kind}') was refused at ${SPEND.atS} s (price ${rt.supportCost(SPEND.kind)}, held ${rt.intel})`);
-        process.exitCode = 1;
-      }
-    });
     at(45, () => {
       sim.queueCommand({ kind: 'move', ids: jeep, ...M(24, 39) });
       sim.queueCommand({ kind: 'move', ids: eitan, ...M(24, 39) });
@@ -2727,9 +2698,54 @@ const ummZeitoun3Plan: Plan = (sim, rt, ids, at) => {
     });
 };
 
+// F1 Task 9 (GH-183), moved in the final review (C-R11): the one winning plan that SPENDS intel through
+// the menu, so "a sweep or a strike is affordable where it is designed to be" is proved by a real call and
+// not by arithmetic. It was Qarn Hadid I, the earliest 150th point of any plan with no grant (14 s,
+// `docs/campaign/economy/fire-support-numbers.md` §1.2), but Qarn Hadid I declares no `resources` block, and
+// the app builds the fire-support dock only for a mission that has one (`main.ts`, `mission.resources`): a
+// spend the player cannot make proves only the API. Umm Zeitoun III has the block and is the earliest
+// dock mission with no `intel_start` grant: its 150th point comes at 27 s of a 63 s victory on 424242
+// (median 30 s over thirty seeds; Khan Rafid I is earlier but has no dock either), and a time limit of
+// 840 s. The plan buys the sweep the moment it holds 150, polling once a second from 20 s, so a seed that
+// earns it late still spends (the 30-seed check below says it did).
+//
+// Why a SWEEP and not the barrage Task 9 chose. Measured on this plan: a `mortar_barrage` called at 32 s
+// at (33,34) left every 424242 base-tier line as it was, and still moved `umm_zeitoun_4_clearance (max
+// tier)` (roster out 32 -> 33, credits 249 -> 259) and the slowest win of both Umm Zeitoun sweep lines
+// (3.5 -> 3.3, 4.7 -> 4.9 min). A strike or barrage draws its scatter from the CALLER's own PRNG stream
+// (the first living player unit, an armed rifle squad here), which shifts that unit's later rolls, and
+// the ledger it carries into the next mission with them. A sweep queues a `reveal` and draws nothing.
+//
+// Placement: (23,37), the wadi rendezvous the plan drives the second Eitan to with the families (the
+// `move` to (23,37) above), the one piece of ground the evacuation depends on and that no unit of ours
+// is watching while the flanks fight. Nothing hostile stands within the sweep radius (SWEEP_RADIUS_SQ,
+// ~7.7 tiles) of it, so the call identifies nobody: no first identification is taken from a real
+// observer (a sweep's would be unpaid, C-R5), `intel earned` stays 270 and every other line is as it was.
+// No mission text names a sweep (a census of `data/missions/*.json`), so the point is the plan's own.
+const SPEND = { id: 'umm_zeitoun_3_clearance', kind: 'drone_sweep', price: 150, fromS: 20, untilS: 120, x: 23, y: 37 } as const;
+// The plan closure runs once for the plain victory and once more in the max-tier replay (`maxTierProbes`);
+// the second run's spend line says so, so it is not read as a second plain run.
+let spendRuns = 0;
+/** `ummZeitoun3Plan` plus the one spend. The gate-open probe above keeps the plain plan: it is not the spending plan. */
+const ummZeitoun3Spend: Plan = (sim, rt, ids, at) => {
+  ummZeitoun3Plan(sim, rt, ids, at);
+  let spent = false;
+  for (let when = SPEND.fromS; when <= SPEND.untilS; when++)
+    at(when, () => {
+      if (spent || (when < SPEND.untilS && rt.intel < SPEND.price)) return;
+      spent = true;
+      const ok = rt.supportCost(SPEND.kind) === SPEND.price && rt.requestSupport(SPEND.kind, fx.from(SPEND.x), fx.from(SPEND.y));
+      console.log(`${SPEND.id}: spend ${SPEND.kind} ${ok ? 'ok' : 'refused'}${spendRuns++ > 0 ? ' (max-tier replay)' : ''}`);
+      if (!ok) {
+        console.error(`${SPEND.id}: FAILED — requestSupport('${SPEND.kind}') was refused at ${when} s (price ${rt.supportCost(SPEND.kind)}, held ${rt.intel})`);
+        process.exitCode = 1;
+      }
+    });
+};
+
 const ledUZ3 = run(
   'umm_zeitoun_3_clearance',
-  ummZeitoun3Plan,
+  ummZeitoun3Spend,
   ledUZ2In,
   'victory',
   'umm_zeitoun_3_clearance',
