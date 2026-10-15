@@ -1188,7 +1188,12 @@ interface EconomyRun {
 /** `extraBuild` buys one `supply_truck` at ECONOMY_EXTRA_BUILD_TICK: delivered
  *  (15 s) long before the end, so it differs from the base run in the purse
  *  alone. */
-function economyReplay(seed: number, extraBuild = false, popCap: number | null = ECONOMY_POP_CAP): EconomyRun {
+function economyReplay(
+  seed: number,
+  extraBuild = false,
+  popCap: number | null = ECONOMY_POP_CAP,
+  via: 'direct' | 'command' = 'direct',
+): EconomyRun {
   const sim = new Sim({ seed, width: 48, height: 48, capacity: 32 });
   const ids = new Map<string, number>();
   for (const t of [ECO_SQUAD, ECO_DRONE, ECO_MILITIA, ECO_TRUCK]) ids.set(t.id, sim.addUnitType(t));
@@ -1226,6 +1231,14 @@ function economyReplay(seed: number, extraBuild = false, popCap: number | null =
     purseAfterRefusal: 0,
     seen: { states: new Set(), cuts: new Set() },
   };
+  // N2: `command` routes every purchase through `queueCommand` and drains it at
+  // the call site, so the order of commands inside the sim queue is the direct
+  // path's own.
+  const build = (u: string): boolean => {
+    if (via === 'direct') return rt.requestBuild(u);
+    sim.queueCommand({ kind: 'build', side: 0, unit: u });
+    return rt.applyQueued() === 1;
+  };
   const living = (type: string): number[] => {
     const out: number[] = [];
     for (let id = 0; id < sim.entityCount; id++) {
@@ -1236,14 +1249,14 @@ function economyReplay(seed: number, extraBuild = false, popCap: number | null =
     return out;
   };
   for (let t = 0; t < ECONOMY_TICKS; t++) {
-    if (t === 400 || t === 800) rt.requestBuild('inf_squad');
-    if (extraBuild && t === ECONOMY_EXTRA_BUILD_TICK) rt.requestBuild('supply_truck');
-    if (t === ECONOMY_LATE_BUILD_TICK) rt.requestBuild('supply_truck');
+    if (t === 400 || t === 800) build('inf_squad');
+    if (extraBuild && t === ECONOMY_EXTRA_BUILD_TICK) build('supply_truck');
+    if (t === ECONOMY_LATE_BUILD_TICK) build('supply_truck');
     if (t === ECONOMY_REFUSED_BUILD_TICK) {
       run.refusal = rt.buildBlockedReason('heavy_convoy');
       run.refusedByCap = rt.popCapped('heavy_convoy');
       run.purseBeforeRefusal = rt.logistics;
-      run.refusedAnswer = rt.requestBuild('heavy_convoy');
+      run.refusedAnswer = build('heavy_convoy');
       run.purseAfterRefusal = rt.logistics;
     }
     // The lead unit goes forward to a post that sees both garrison groups (a
@@ -1339,6 +1352,11 @@ describe('economy replay (2400 ticks of MissionRuntime on a flat map)', () => {
 
   it('the economy replay pins its hash', () => {
     expect(economyReplay(ECONOMY_SEED).rt.economyHash()).toBe(ECONOMY_PIN);
+  });
+
+  it('N2: the command path reproduces both economy pins byte for byte', () => {
+    expect(economyReplay(ECONOMY_SEED, false, ECONOMY_POP_CAP, 'command').rt.economyHash()).toBe(ECONOMY_PIN);
+    expect(reliefEconomyReplay(RELIEF_ECO_SEED, {}, 'command').rt.economyHash()).toBe(ECONOMY_PIN_RELIEF);
   });
 });
 
@@ -1532,6 +1550,7 @@ interface ReliefEconomyRun {
 function reliefEconomyReplay(
   seed: number,
   opts: { aOrdered?: boolean; bAt?: number | null; popCap?: number } = {},
+  via: 'direct' | 'command' = 'direct',
 ): ReliefEconomyRun {
   const popCap = opts.popCap ?? RELIEF_ECO_POP_CAP;
   const aOrdered = opts.aOrdered ?? true;
@@ -1571,7 +1590,12 @@ function reliefEconomyReplay(
       refusal = rt.buildBlockedReason('inf_squad');
       refusedByCap = rt.popCapped('inf_squad');
       purseBefore = rt.logistics;
-      refusedAnswer = rt.requestBuild('inf_squad');
+      if (via === 'direct') {
+        refusedAnswer = rt.requestBuild('inf_squad');
+      } else {
+        sim.queueCommand({ kind: 'build', side: 0, unit: 'inf_squad' });
+        refusedAnswer = rt.applyQueued() === 1;
+      }
       purseAfter = rt.logistics;
     }
     // A: up to the middle of the bench (tiles y 25-26), at tick 5.

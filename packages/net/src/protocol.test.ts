@@ -279,3 +279,25 @@ describe('cleanCommand: setStance', () => {
     expect(cleanCommand({ kind: 'setStance', ids: [1], stance: 'ambush', pad: 'x'.repeat(4000) })).toEqual({ kind: 'setStance', ids: [1], stance: 'ambush' });
   });
 });
+
+describe('cleanCommand: build and support (N2)', () => {
+  it('rebuilds both shapes from their declared fields, and refuses a bad unit id, kind, point or side', () => {
+    expect(cleanCommand({ kind: 'build', side: 0, unit: 'inf_squad' })).toEqual({ kind: 'build', side: 0, unit: 'inf_squad' });
+    expect(cleanCommand({ kind: 'support', side: 0, support: 'drone_sweep', x: 131072, y: 196608 }))
+      .toEqual({ kind: 'support', side: 0, support: 'drone_sweep', x: 131072, y: 196608 });
+    const bad: unknown[] = [
+      { kind: 'build', side: 0, unit: 'Inf Squad' },
+      { kind: 'build', side: 0, unit: 'x'.repeat(33) },
+      { kind: 'build', side: 0, unit: 3 },
+      { kind: 'build', unit: 'inf_squad' },
+      { kind: 'support', side: 0, support: 'nuke', x: 0, y: 0 },
+      { kind: 'support', side: 0, support: 'air_strike', x: 1.5, y: 0 },
+      { kind: 'support', support: 'air_strike', x: 0, y: 0 },
+    ];
+    for (const b of bad) expect(cleanCommand(b), JSON.stringify(b)).toBeNull();
+    // An unknown key is stripped, not carried (#566).
+    expect(cleanCommand({ kind: 'build', side: 0, unit: 'inf_squad', pad: 'x'.repeat(4000) })).toEqual({ kind: 'build', side: 0, unit: 'inf_squad' });
+    expect(cleanCommand({ kind: 'support', side: 0, support: 'smoke_screen', x: 1, y: 2, pad: 'x'.repeat(4000) }))
+      .toEqual({ kind: 'support', side: 0, support: 'smoke_screen', x: 1, y: 2 });
+  });
+});

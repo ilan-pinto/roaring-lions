@@ -78,7 +78,7 @@ const tile = (v: number): number => Math.floor(v / ONE);
 
 /** One order in plain words, for the strip. Every word is a catalogue line. */
 export function describeCommand(cmd: Command): string {
-  const n = cmd.kind === 'reveal' || cmd.kind === 'callStrike' ? 0 : cmd.ids.length;
+  const n = 'ids' in cmd ? cmd.ids.length : 0;
   switch (cmd.kind) {
     case 'move': return t('net.advisor.cmd.move', { n, x: tile(cmd.x), y: tile(cmd.y) });
     case 'attackMove': return t('net.advisor.cmd.attackMove', { n, x: tile(cmd.x), y: tile(cmd.y) });
@@ -93,6 +93,8 @@ export function describeCommand(cmd: Command): string {
     case 'attack': return t('net.advisor.cmd.attack', { n });
     case 'reveal': return t('net.advisor.cmd.reveal', { x: tile(cmd.x), y: tile(cmd.y) });
     case 'callStrike': return t('net.advisor.cmd.callStrike', { x: tile(cmd.x), y: tile(cmd.y) });
+    case 'build': return t('net.advisor.cmd.build', { unit: cmd.unit });
+    case 'support': return t('net.advisor.cmd.support', { support: cmd.support, x: tile(cmd.x), y: tile(cmd.y) });
   }
 }
 

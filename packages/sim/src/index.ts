@@ -83,6 +83,7 @@ export {
   BRACE_RISING,
   type SimConfig,
   type Command,
+  type RuntimeCommand,
   type SimEvent,
   type UnitTypeJson,
   type WeaponJson,

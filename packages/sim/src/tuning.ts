@@ -394,6 +394,19 @@ export const FIRE_SUPPORT: readonly FireSupportProfile[] = [
   },
 ];
 
+/** The fire-support menu (F1, GH-183): four calls, one entry point. Here rather
+ *  than in `mission.ts` (N2, R-4) so `sim.ts` can name the kinds on its
+ *  `support` command without importing the runtime; `mission.ts` re-exports both.
+ *  Declared AFTER `FIRE_SUPPORT`: `ui/support-kinds.test.ts` finds that table
+ *  as the first `export const FIRE_SUPPORT` in this file's text. */
+export type SupportKind = 'smoke_screen' | 'mortar_barrage' | 'drone_sweep' | 'air_strike';
+export const FIRE_SUPPORT_KINDS: readonly SupportKind[] = [
+  'smoke_screen',
+  'mortar_barrage',
+  'drone_sweep',
+  'air_strike',
+];
+
 // --- intel earned by doing (F1; GDD §3) --------------------------------------
 /** Intel for the first identification of an enemy by a real observer (once per
  *  enemy per mission, D3). Whole intel points, not Q16.16. The 8/40/30 row is the

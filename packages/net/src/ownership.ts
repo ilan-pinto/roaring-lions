@@ -16,7 +16,9 @@ export interface SeatWorld {
   /** A versus room (`config.mode === 'versus'`). Intel -- `callStrike` and
    *  `reveal` -- is priced, cooled down and ranged only by the mission
    *  runtime, and a room runs none, so in versus both kinds are dropped
-   *  (#559 F1): the same answer on both machines, from the shared config. */
+   *  (#559 F1): the same answer on both machines, from the shared config.
+   *  `build` and `support` (N2) are priced only by the runtime too, and drop
+   *  in versus for the same reason. */
   readonly versus: boolean;
 }
 
@@ -53,6 +55,10 @@ export function validateCommand(cmd: Command, seat: Seat, world: SeatWorld): boo
     case 'callStrike':
       return !world.versus && own(cmd.caller) && onMap(cmd.x, cmd.y);
     case 'reveal':
+      return !world.versus && cmd.side === side && onMap(cmd.x, cmd.y);
+    case 'build':
+      return !world.versus && cmd.side === side;
+    case 'support':
       return !world.versus && cmd.side === side && onMap(cmd.x, cmd.y);
   }
 }

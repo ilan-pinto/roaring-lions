@@ -305,6 +305,8 @@
   "net.advisor.cmd.attack": "Fire on an enemy with {n, plural, one {# unit} other {# units}}",
   "net.advisor.cmd.reveal": "Reveal the ground near ({x}, {y})",
   "net.advisor.cmd.callStrike": "Call a strike on ({x}, {y})",
+  "net.advisor.cmd.build": "Build {unit}",
+  "net.advisor.cmd.support": "Call {support} on ({x}, {y})",
   "versus.room.leave": "Leave",
   "versus.room.leave.confirm.title": "Leave the room?",
   "versus.room.leave.confirm.body": "The room closes for both of you.",

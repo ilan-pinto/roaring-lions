@@ -109,3 +109,23 @@ describe('applyFrame', () => {
     expect(queued).toEqual([{ kind: 'halt', ids: [1] }, { kind: 'halt', ids: [11] }]);
   });
 });
+
+describe('validateCommand: build and support (N2)', () => {
+  it('single-player: seat 0 may buy for side 0 only, and a support off the map drops', () => {
+    expect(validateCommand({ kind: 'build', side: 0, unit: 'inf_squad' }, 0, world)).toBe(true);
+    expect(validateCommand({ kind: 'build', side: 1, unit: 'inf_squad' }, 0, world)).toBe(false);
+    expect(validateCommand({ kind: 'support', side: 0, support: 'drone_sweep', x: 2 * F, y: 3 * F }, 0, world)).toBe(true);
+    expect(validateCommand({ kind: 'support', side: 1, support: 'drone_sweep', x: 2 * F, y: 3 * F }, 0, world)).toBe(false);
+    expect(validateCommand({ kind: 'support', side: 0, support: 'air_strike', x: 48 * F, y: 3 * F }, 0, world)).toBe(false);
+    expect(validateCommand({ kind: 'support', side: 0, support: 'air_strike', x: 2 * F, y: -1 }, 0, world)).toBe(false);
+  });
+  it('versus: both drop for every side (no runtime prices them; the #559 rule)', () => {
+    const versus = { ...world, versus: true };
+    for (const seat of [0, 1] as const) {
+      for (const side of [0, 1]) {
+        expect(validateCommand({ kind: 'build', side, unit: 'inf_squad' }, seat, versus)).toBe(false);
+        expect(validateCommand({ kind: 'support', side, support: 'drone_sweep', x: 2 * F, y: 3 * F }, seat, versus)).toBe(false);
+      }
+    }
+  });
+});

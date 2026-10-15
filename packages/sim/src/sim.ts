@@ -131,6 +131,7 @@ import {
   REGEN_FRAC,
   REGEN_CAP,
   AMBUSH_RADIUS_DEFAULT,
+  type SupportKind,
 } from './tuning';
 
 export const TICKS_PER_SECOND = 20;
@@ -718,7 +719,18 @@ export type Command =
    * target's facing, so that judgement is the app's to show and the combat
    * step's to apply. A refused id is a no-op.
    */
-  | { kind: 'attack'; ids: number[]; target: number };
+  | { kind: 'attack'; ids: number[]; target: number }
+  /** N2: buy a unit. The MissionRuntime prices and queues it; the sim never
+   *  executes it (R-3). Side 0 only until N3 (C-R3). */
+  | { kind: 'build'; side: number; unit: string }
+  /** N2: one call from F1's fire-support menu, priced as `build` is. */
+  | { kind: 'support'; side: number; support: SupportKind; x: Fx; y: Fx };
+
+/** The two commands the sim sets aside for the MissionRuntime to price (N2):
+ *  `queueCommand` never hands them to `applyCommands`. */
+export type RuntimeCommand = Extract<Command, { kind: 'build' | 'support' }>;
+/** `takeRuntimeCommands`' answer when nothing is set aside: shared, frozen, no allocation. */
+const NO_RUNTIME_COMMANDS: readonly RuntimeCommand[] = Object.freeze([]);
 
 /** The same command aimed at fewer units. A generic copy rather than an
  *  in-place splice, because the queued object belongs to the sender. */
@@ -1278,7 +1290,14 @@ export class Sim {
   };
 
   private readonly seed: number;
-  private commandQueue: Command[] = [];
+  /** What `applyCommands` executes. Typed without the two runtime kinds, so its
+   *  branch chain's exhaustive `never` end stays sound without a branch for
+   *  them: they cannot reach it (`queueCommand` sets them aside). */
+  private commandQueue: Exclude<Command, RuntimeCommand>[] = [];
+  /** `build`/`support`, set aside for the MissionRuntime (`takeRuntimeCommands`).
+   *  Never executed by the sim, never hashed, and emptied at the start of every
+   *  `applyCommands` (R-3). */
+  private runtimeQueue: RuntimeCommand[] = [];
   private pendingEvents: SimEvent[] = [];
   private readonly fields: FlowField[] = [];
   /**
@@ -1947,7 +1966,18 @@ export class Sim {
   }
 
   queueCommand(cmd: Command): void {
-    this.commandQueue.push(cmd);
+    // N2: the two runtime-priced kinds go to their own list; the sim never runs them.
+    if (cmd.kind === 'build' || cmd.kind === 'support') this.runtimeQueue.push(cmd);
+    else this.commandQueue.push(cmd);
+  }
+
+  /** The runtime-priced commands queued since the last take, in queue order;
+   *  empties the list. Shared empty array when none (no allocation). */
+  takeRuntimeCommands(): readonly RuntimeCommand[] {
+    if (this.runtimeQueue.length === 0) return NO_RUNTIME_COMMANDS;
+    const out = this.runtimeQueue;
+    this.runtimeQueue = [];
+    return out;
   }
 
   /** The ambush radius squared when the unit is in ambush, else 0. Read-only
@@ -2245,6 +2275,7 @@ export class Sim {
   }
 
   private applyCommands(): void {
+    if (this.runtimeQueue.length !== 0) this.runtimeQueue = []; // R-3: no runtime took them
     const q = this.commandQueue;
     for (let c = 0; c < q.length; c++) {
       let cmd = q[c];
@@ -2785,6 +2816,10 @@ export class Sim {
           this.haltUnit(id);
         }
       } else {
+        // Exhaustive over what `commandQueue` can hold: `build` and `support`
+        // are excluded from its type (`queueCommand` sets them aside for the
+        // runtime, N2), so they need no branch here and a new sim kind still
+        // fails to compile until it gets one.
         const unhandled: never = cmd;
         void unhandled;
       }
