@@ -8,9 +8,9 @@
  *
  * No DOM here: this module is pure and its tests run in environment: 'node'.
  */
-import type { PlayerIntent, Resolution } from './intents';
-import type { RoleBucket } from '../ui/role';
-import { ORDER_SIGHT, type SightOrderId } from '../ui/order-sight';
+import type { PlayerIntent, Resolution } from './intents.ts';
+import type { RoleBucket } from '../ui/role.ts';
+import { ORDER_SIGHT, type SightOrderId } from '../ui/order-sight.ts';
 
 /** `advance` is the cursor over a hostile, and it was `attack` until WP-P4
  *  (PA-08). The rename is the point: a right-click over an enemy does not

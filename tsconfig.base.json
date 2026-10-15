@@ -20,6 +20,13 @@
     "verbatimModuleSyntax": true,
     "resolveJsonModule": true,
     "skipLibCheck": true,
+    // Vite's native config loader (`--configLoader native`, planned as the
+    // default) loads packages/app/vite.config.ts through Node's own type
+    // stripping, which resolves relative imports literally: that config and
+    // every file it pulls in name their imports with `.ts`. Legal because
+    // nothing here emits (`noEmit`); an emitting build would need
+    // `rewriteRelativeImportExtensions` instead.
+    "allowImportingTsExtensions": true,
     "noEmit": true
   }
 }
