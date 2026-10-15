@@ -18,3 +18,32 @@ export function perTileRunYaw(sameTypeAt: (dx: number, dy: number) => boolean): 
   const ns = sameTypeAt(0, -1) || sameTypeAt(0, 1);
   return ns && !ew ? Math.PI / 2 : 0;
 }
+
+/**
+ * Which per-tile structure types follow their run (`perTileRunYaw`) and which
+ * keep their AUTHORED facing whatever their neighbours. Exhaustive over every
+ * `per_tile: true` type in `data/structures.json` -- `run-direction.test.ts`
+ * reads that file and fails on a per-tile type with no entry, so a new one
+ * must choose here rather than inherit a turn by default.
+ *
+ * `sandbag_post` (SW-5) is the one `authored` type: a one-tile horseshoe with
+ * no long axis, whose closed front and firing aperture are turned toward the
+ * camera corner at export (`tools/buildings/export_barriers.py`,
+ * `build_sandbag_post`). Turned a quarter beside a north-south neighbour, two
+ * stacked posts pointed their slots away from the camera.
+ */
+export const PER_TILE_FACING: Readonly<Record<string, 'run' | 'authored'>> = {
+  wall: 'run',
+  fence: 'run',
+  hesco: 'run',
+  t_wall: 'run',
+  sandbag_wall: 'run',
+  sandbag_post: 'authored',
+};
+
+/** The yaw for one per-tile instance of `typeId`: its run's yaw, or 0 for a
+ *  type that keeps its authored facing. A type missing from
+ *  `PER_TILE_FACING` follows its run, the behaviour before the table. */
+export function perTileYawFor(typeId: string, sameTypeAt: (dx: number, dy: number) => boolean): number {
+  return PER_TILE_FACING[typeId] === 'authored' ? 0 : perTileRunYaw(sameTypeAt);
+}
