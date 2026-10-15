@@ -151,3 +151,7 @@ art/meshy/rws-50-20261014-01a13a7d/model.*
 art/meshy/rws-50-20261014-01a13a7d/texture_*
 art/meshy/rws-50-20261014-01a13a83/model.*
 art/meshy/rws-50-20261014-01a13a83/texture_*
+
+# `pnpm arena` (N4b task 13) writes its JSONL and markdown here by default:
+# local results, never committed (decision D6: no remote arena results yet).
+arena-results/
