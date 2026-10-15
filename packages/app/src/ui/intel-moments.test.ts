@@ -27,12 +27,12 @@ describe('the earn lines and the last earn (F-Q11, F-Q7)', () => {
 
   it('identified pays a line each, objective none, high ground one with its tile', () => {
     const m = moments();
-    expect(m.earned([earn('identified', 10, 5, 6), earn('identified', 10, 7, 8), earn('identified', 10, 9, 1)], 100)).toEqual([
-      { kind: 'earn', cause: 'identified', amount: 10, at: { x: 5, y: 6 } },
-      { kind: 'earn', cause: 'identified', amount: 10, at: { x: 7, y: 8 } },
-      { kind: 'earn', cause: 'identified', amount: 10, at: { x: 9, y: 1 } },
+    expect(m.earned([earn('identified', 8, 5, 6), earn('identified', 8, 7, 8), earn('identified', 8, 9, 1)], 100)).toEqual([
+      { kind: 'earn', cause: 'identified', amount: 8, at: { x: 5, y: 6 } },
+      { kind: 'earn', cause: 'identified', amount: 8, at: { x: 7, y: 8 } },
+      { kind: 'earn', cause: 'identified', amount: 8, at: { x: 9, y: 1 } },
     ]);
-    expect(m.earned([earn('objective', 30)], 101)).toEqual([]);
+    expect(m.earned([earn('objective', 40)], 101)).toEqual([]);
     expect(m.earned([earn('highGround', 30, 12, 13)], 102)).toEqual([
       { kind: 'earn', cause: 'highGround', amount: 30, at: { x: 12, y: 13 } },
     ]);
@@ -44,9 +44,9 @@ describe('the earn lines and the last earn (F-Q11, F-Q7)', () => {
     m.earned([earn('highGround', 30)], 100);
     expect(m.lastEarn(100)).toEqual({ amount: 30, cause: 'highGround', tick: 100, lastTick: 100 });
     m.sealEarn();
-    // Three identifications in one tick are one earn of thirty; the objective beside them makes it mixed.
-    m.earned([earn('objective', 30), earn('identified', 10), earn('identified', 10), earn('identified', 10)], 200);
-    expect(m.lastEarn(200)).toEqual({ amount: 60, cause: 'mixed', tick: 200, lastTick: 200 });
+    // Three identifications in one tick are one earn of twenty-four; the objective beside them makes it mixed.
+    m.earned([earn('objective', 40), earn('identified', 8), earn('identified', 8), earn('identified', 8)], 200);
+    expect(m.lastEarn(200)).toEqual({ amount: 64, cause: 'mixed', tick: 200, lastTick: 200 });
     expect(LAST_EARN_SHOW_TICKS).toBe(600);
     expect(m.lastEarn(200 + LAST_EARN_SHOW_TICKS - 1)).not.toBeNull();
     expect(m.lastEarn(200 + LAST_EARN_SHOW_TICKS)).toBeNull();
@@ -57,46 +57,46 @@ describe('the earn lines and the last earn (F-Q11, F-Q7)', () => {
 
   it('earns across many ticks before a redraw sum into one label', () => {
     const m = moments();
-    m.earned([earn('identified', 10)], 100);
-    m.earned([earn('identified', 10)], 140);
-    m.earned([earn('identified', 10)], 180);
-    expect(m.lastEarn(180)).toEqual({ amount: 30, cause: 'identified', tick: 100, lastTick: 180 });
+    m.earned([earn('identified', 8)], 100);
+    m.earned([earn('identified', 8)], 140);
+    m.earned([earn('identified', 8)], 180);
+    expect(m.lastEarn(180)).toEqual({ amount: 24, cause: 'identified', tick: 100, lastTick: 180 });
   });
 
   it('a sealed batch is closed', () => {
     const m = moments();
-    m.earned([earn('identified', 10)], 100);
-    m.earned([earn('identified', 10)], 140);
+    m.earned([earn('identified', 8)], 100);
+    m.earned([earn('identified', 8)], 140);
     m.sealEarn();
     // The sealed batch still shows until a new earn replaces it.
-    expect(m.lastEarn(150)).toEqual({ amount: 20, cause: 'identified', tick: 100, lastTick: 140 });
+    expect(m.lastEarn(150)).toEqual({ amount: 16, cause: 'identified', tick: 100, lastTick: 140 });
     m.sealEarn(); // sealing twice does nothing
-    m.earned([earn('identified', 10)], 200);
-    expect(m.lastEarn(200)).toEqual({ amount: 10, cause: 'identified', tick: 200, lastTick: 200 });
+    m.earned([earn('identified', 8)], 200);
+    expect(m.lastEarn(200)).toEqual({ amount: 8, cause: 'identified', tick: 200, lastTick: 200 });
   });
 
   it('sealing with nothing earned does nothing', () => {
     const m = moments();
     m.sealEarn();
     expect(m.lastEarn(0)).toBeNull();
-    m.earned([earn('identified', 10)], 5);
-    expect(m.lastEarn(5)).toMatchObject({ amount: 10, tick: 5 });
+    m.earned([earn('identified', 8)], 5);
+    expect(m.lastEarn(5)).toMatchObject({ amount: 8, tick: 5 });
   });
 
   it('mixed causes read mixed', () => {
     const m = moments();
-    m.earned([earn('identified', 10)], 100);
+    m.earned([earn('identified', 8)], 100);
     m.earned([earn('highGround', 30)], 120);
-    expect(m.lastEarn(120)).toEqual({ amount: 40, cause: 'mixed', tick: 100, lastTick: 120 });
+    expect(m.lastEarn(120)).toEqual({ amount: 38, cause: 'mixed', tick: 100, lastTick: 120 });
     // Once mixed, it stays mixed even when a later earn repeats the first cause.
-    m.earned([earn('identified', 10)], 130);
-    expect(m.lastEarn(130)).toMatchObject({ amount: 50, cause: 'mixed' });
+    m.earned([earn('identified', 8)], 130);
+    expect(m.lastEarn(130)).toMatchObject({ amount: 46, cause: 'mixed' });
   });
 
   it('the window runs from the last earn', () => {
     const m = moments();
-    m.earned([earn('identified', 10)], 100);
-    m.earned([earn('identified', 10)], 500);
+    m.earned([earn('identified', 8)], 100);
+    m.earned([earn('identified', 8)], 500);
     expect(m.lastEarn(500)).not.toBeNull();
     expect(m.lastEarn(500 + LAST_EARN_SHOW_TICKS - 1)).not.toBeNull();
     expect(m.lastEarn(500 + LAST_EARN_SHOW_TICKS)).toBeNull();
@@ -107,7 +107,7 @@ describe('the earn lines and the last earn (F-Q11, F-Q7)', () => {
     const m = moments();
     for (let k = 1; k < 100; k++) {
       m.beforeTick(look);
-      m.earned(k === 50 ? [earn('identified', 10)] : [], k);
+      m.earned(k === 50 ? [earn('identified', 8)] : [], k);
       m.afterTick(look, k, [], 0);
     }
     expect(reads()).toBe(0);
@@ -115,9 +115,9 @@ describe('the earn lines and the last earn (F-Q11, F-Q7)', () => {
 
   it('says nothing and keeps nothing after dispose', () => {
     const m = moments();
-    m.earned([earn('identified', 10)], 10);
+    m.earned([earn('identified', 8)], 10);
     m.dispose();
-    expect(m.earned([earn('identified', 10)], 11)).toEqual([]);
+    expect(m.earned([earn('identified', 8)], 11)).toEqual([]);
     expect(m.lastEarn(11)).toBeNull();
   });
 });
@@ -147,8 +147,8 @@ function board(pieces: Piece[]): IntelLook & { state: { hp: Int32Array; alive: U
   return { entityCount: n, state, unitTypes: [{ name: 'Sarim Rifles' }, { name: 'Recoilless Team' }, { name: 'Civilians' }] };
 }
 
-/** The sim's provisional price row (mission.ts SUPPORT_COST), as literals. */
-const PRICE: Readonly<Record<SupportKind, number>> = { smoke_screen: 60, mortar_barrage: 120, drone_sweep: 150, air_strike: 250 };
+/** The sim's ruled price row (mission.ts SUPPORT_COST; smoke 100 by the lead's ruling of 15 Oct), as literals. */
+const PRICE: Readonly<Record<SupportKind, number>> = { smoke_screen: 100, mortar_barrage: 120, drone_sweep: 150, air_strike: 250 };
 const supportCost = (k: SupportKind): number => PRICE[k];
 const moments = (): IntelMoments => new IntelMoments({ supportCost, toFx });
 const of = <K extends IntelOutput['kind']>(outs: IntelOutput[], kind: K): Extract<IntelOutput, { kind: K }>[] =>
@@ -262,7 +262,7 @@ describe('ready', () => {
 
   it('names each of the four calls by its own announcement when it alone crosses', () => {
     const cases: [SupportKind, number, number, string][] = [
-      ['smoke_screen', 50, 60, 'screen_ready'],
+      ['smoke_screen', 90, 100, 'screen_ready'],
       ['mortar_barrage', 100, 120, 'barrage_ready'],
       ['drone_sweep', 140, 150, 'sweep_ready'],
       ['air_strike', 200, 250, 'strike_ready'],
