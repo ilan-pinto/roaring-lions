@@ -1071,6 +1071,23 @@ yours; each one records what the next phase inherits.
   whole check). The haze reads noticeably weaker over fog-shrouded ground than the approved mock
   (+3.7 vs the mock's +16) — the lead's ruling, 2026-09-28, is "keep as built": R-14's ordering
   (haze before the shroud, inside one pass) stands.
+- **Relief reads through two ground-shader terms, both presentation-only** (2026-10-15,
+  `terrain/relief-read.ts`; mock and decision in `docs/superpowers/specs/2026-10-15-relief-read-design.md`).
+  Smooth open ground turns its normal only a few degrees over a 3-4 level bluff, so before this
+  relief read almost entirely through the terraced `^` walls. **A, slope light**: for LIGHTING
+  only, the world normal's tilt becomes `atan(RELIEF_SLOPE_GAIN x tan(tilt))` (gain 2), capped at
+  `RELIEF_SLOPE_MAX_TILT_DEG` (38) so a shade face never falls to sky light alone, and never
+  flattened; flat ground and walls are untouched, shadows still come from the geometry. **B, height
+  contours and tint**: on ground TOPS only, a thin line where the surface crosses a HALF level
+  (constant pixel width via `fwidth`) and a tint by height relative to the map's MEDIAN open level
+  -- the same median the haze's low-lying term reads (`hazeReferenceLevel`) -- so a flat map, all
+  whole levels and all median, does not move. Debug layers `slope-light` (gain to 1) and
+  `height-contours` (both amplitudes to 0) are uniform writes nothing per-frame re-asserts, the
+  `macro` standard. Floors are a third of `tools/src/perf/relief-read-signal.ts`'s reading (the
+  gate's own capture, 3 runs, bit-identical); with the shader terms removed both read 0 px /
+  0.0000. **The frame cost is NOT measured on a quiet machine**: +0 draw calls, +0 programs, +0
+  textures, ALU per ground fragment only; every timing taken so far was swamped by load. A valley
+  AO boost (no visible effect) was rejected, and a tell-crown summit is held for an art pass.
 - **`day` is the light preset, not a table lookup, and it is byte-identical to what shipped before
   this plan** (spec §3.6, R-12; `time-of-day.ts`). `LightPreset` (`dawn`/`day`/`dusk`, each with
   its own sun direction, intensities, `hazeFar` and an optional sky-tint `hazeKey`) reproduces
@@ -1157,7 +1174,10 @@ yours; each one records what the next phase inherits.
   `packages/render/src/three/debug-layers.ts`. Since WP-A2 plan 1 there are
   **22 checks**: `quiet` 8 (`scatter`, `decor`, `ground-albedo`, `roads`, `macro`,
   `buildings`, `vignette`, `skirt`), `open-ground` 4, `vehicle` 1 (`units`),
-  `relief` 5, and `aftermath` 4 (`decals`, `roads`, `macro`, `scatter`). **`macro`,
+  `relief` 5, and `aftermath` 4 (`decals`, `roads`, `macro`, `scatter`); relief read
+  (2026-10-15) added `slope-light` and `height-contours` to both `relief` and
+  `aftermath`, the only gated frames with relief (both read sub-threshold pixels there,
+  so magnitude floors carry them). **`macro`,
   `roads` and `decals` are new, and `scorch` is gone** (removed, not aliased, R-17:
   `decals` hides both pools). Hiding `ground-albedo` zeroes only the slot
   strengths. The scatter TONE backdrop hides `ground-albedo` AND `macro`, because

@@ -6,7 +6,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MatchScore } from '../net/scoreboard';
 import { showNetEnd } from './net-end';
-import { NetScoreboard, scoreTable } from './net-score';
+import { NetScoreboard, advisorPresenceHook, scoreTable } from './net-score';
 
 afterEach(() => {
   document.body.innerHTML = '';
@@ -69,6 +69,57 @@ describe('NetScoreboard', () => {
     expect(document.querySelector<HTMLElement>('.rl-net-score')?.hidden).toBe(true);
     board.dispose();
     expect(document.querySelector('.rl-net-score')).toBeNull();
+  });
+});
+
+describe('the HUD names each seat\'s advisor (decision D1)', () => {
+  /** [row, who, badge] for every advisor chip on the board. */
+  const chips = (): string[][] => [...document.querySelectorAll<HTMLElement>('.rl-net-score__advisor')].map((el) => [
+    el.dataset.row ?? '',
+    el.querySelector('.rl-net-score__who')?.textContent ?? '',
+    el.querySelector('.rl-net-score__badge')?.textContent ?? '',
+  ]);
+
+  it('shows the other seat\'s advisor (and this one\'s), by callsign as text, under the table', () => {
+    const board = new NetScoreboard(document.body, 1, { theirs: '<img src=x>' });
+    board.update(SCORE);
+    expect(chips()).toEqual([]);
+    // The other seat's advisor, admitted into the running room.
+    board.advisors({ mine: null, theirs: 'assist' });
+    expect(chips()).toEqual([['theirs', '<img src=x>', 'Advisor: assist']]);
+    expect(document.querySelector('.rl-net-score img')).toBeNull();
+    board.advisors({ mine: 'assist', theirs: 'advise' });
+    expect(chips()).toEqual([['mine', 'You', 'Advisor: assist'], ['theirs', '<img src=x>', 'Advisor: advise']]);
+    // A repaint of the numbers keeps the chips; the room clearing them clears them.
+    board.update([{ ...SCORE[0], lost: 2 }, SCORE[1]]);
+    expect(chips()).toHaveLength(2);
+    expect(document.querySelector('.rl-net-score table')).not.toBeNull();
+    board.advisors({ mine: null, theirs: null });
+    expect(chips()).toEqual([]);
+    expect(document.querySelector<HTMLElement>('.rl-net-score__advisors')?.hidden).toBe(true);
+    board.dispose();
+    expect(document.querySelector('.rl-net-score__advisors')).toBeNull();
+  });
+
+  it('one room hook feeds both: the panel hears this seat\'s advisor, the board both seats\', until the match is over', () => {
+    const onPresence = vi.fn();
+    const advisors = vi.fn();
+    let over = false;
+    const hook = advisorPresenceHook(1, { panel: { onPresence }, board: { advisors } }, () => !over);
+    // The room names advisors by SEAT; this is seat 1, whatever side it plays.
+    hook(['assist', null]);
+    expect(onPresence).toHaveBeenLastCalledWith(null);
+    expect(advisors).toHaveBeenLastCalledWith({ mine: null, theirs: 'assist' });
+    hook([null, 'advise']);
+    expect(onPresence).toHaveBeenLastCalledWith('advise');
+    expect(advisors).toHaveBeenLastCalledWith({ mine: 'advise', theirs: null });
+    over = true;
+    hook(['assist', 'assist']);
+    expect(onPresence).toHaveBeenCalledTimes(2);
+    expect(advisors).toHaveBeenCalledTimes(2);
+    // A room with no panel (or no board) still feeds the other.
+    advisorPresenceHook(0, { panel: null, board: { advisors } }, () => true)([null, 'assist']);
+    expect(advisors).toHaveBeenLastCalledWith({ mine: null, theirs: 'assist' });
   });
 });
 

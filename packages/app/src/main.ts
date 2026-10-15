@@ -244,8 +244,8 @@ import { bindLiveTeamColors } from './live-team-colors';
 import { garageColors, garageGroundTexture, garageModelSource } from './garage-model-source';
 import { standMapStructures } from './map-sim';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
-import { PAUSES_PER_SEAT, WsTransport, type Seat, type TransportStatus } from '@lions/net';
-import { JoinNeedsConfirmation, connectMatch, openRoom, type Connected } from './net/connect';
+import { PAUSES_PER_SEAT, WsTransport, validateCommand, type Seat, type TransportStatus } from '@lions/net';
+import { JoinNeedsConfirmation, connectMatch, inviteAdvisor, openRoom, type Connected } from './net/connect';
 import { desyncReportDraft, withoutReplay } from './net/desync-report';
 import { blockedOrderNotes, escapeOpensPause, hudExit, matchLeaveCopy, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderCopy, surrenderOffered } from './net/room-pause';
 import { CatchUpQuiet, roomTickCap, tickCostEma, INITIAL_TICK_COST_MS } from './net/catch-up';
@@ -254,16 +254,19 @@ import { runFrames, seatWorldFor, type FrameStep } from './net/frame-step';
 import { roomFlags } from './net/room-flags';
 import { netReport } from './net/net-report';
 import { viewerSideOf } from './net/viewer';
-import { campOf, factionsBySide, versusSpawns, versusUnitTypes } from './net/versus-force';
+import { campOf, factionsBySide, versusUnitTypes } from './net/versus-force';
+import { buildMatchWorld } from './net/match-world';
 import { pruneHiddenHostiles, type SeatSight } from './net/hidden-selection';
 import { garrisonRoomShown } from './net/hover-garrison';
 import { NetStatusLine, lineOverMatchEnd, matchClock } from './ui/net-status';
-import { NetChat, chatFeedLine, chatOpens } from './ui/net-chat';
+import { NetChat, chatFeedLine, roomEnterAction } from './ui/net-chat';
 import { showNetEnd } from './ui/net-end';
-import { NetScoreboard } from './ui/net-score';
+import { describeCommand, mountAdvisorPanel, type AdvisorPanel } from './ui/advisor';
+import { NetScoreboard, advisorPresenceHook } from './ui/net-score';
 import { scoreOf, showsScoreboard } from './net/scoreboard';
 import { decideOnHashTick, matchResult, reportOver, roomEndingOutcome, type LocalDecision, type MatchResult } from './net/outcome';
 import { lightOverrideOf, timeOfDayOf } from './time-of-day';
+import { enginesOf } from './engines-flag';
 import { buildingFitOf } from './building-fit-flag';
 import { registerServiceWorker } from './service-worker';
 import {
@@ -1251,6 +1254,10 @@ async function main(): Promise<void> {
       }
     },
     linkFor: (code) => new URL(routes.versusRoom(code), location.origin).href,
+    serverOrigin: location.origin,
+    // The ticket this tab stored for the room is what is traded (decision D1).
+    advisorTicket: (code, scope) =>
+      inviteAdvisor(code, scope, { fetch: window.fetch.bind(window), origin: location.origin, session: safeStorageLike(() => window.sessionStorage) }),
   };
 
   // --- the screens ---------------------------------------------------------
@@ -1779,6 +1786,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // Printed only in the sandbox: a mission brings its own zones and tunnels,
   // and none of these flags apply to it.
   if (!mission) console.info(`[lions] ${helpText()}`);
+  /** A versus room's whole world, built by the ONE function the AI harness
+   *  also calls (`net/match-world.ts`): the sim, terrain, buildings, the map's
+   *  tunnels, the unit types and both forces. Null everywhere else. */
+  const versusWorld = versusRoom && netConfig !== null ? buildMatchWorld(netConfig) : null;
   const baseMapJson =
     (maps as Record<string, MapJson | undefined>)[mapId] ?? maps.beit_sahwan_outskirts;
   // The ditch is cut into the ROWS, before `parseMap`, rather than poked into
@@ -1790,26 +1801,29 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // Sandbox-only, like every flag beside it: a mission brings its own terrain,
   // and a dev flag must never change how a real mission is fought.
   const mapJson: MapJson =
-    !mission && wantDitch
-      ? { ...baseMapJson, rows: sandboxDitchRows(baseMapJson, sandboxAnchors(baseMapJson)) }
-      : baseMapJson;
-  const map = parseMap(mapJson);
+    versusWorld !== null
+      ? versusWorld.mapJson
+      : !mission && wantDitch
+        ? { ...baseMapJson, rows: sandboxDitchRows(baseMapJson, sandboxAnchors(baseMapJson)) }
+        : baseMapJson;
+  const map = versusWorld?.map ?? parseMap(mapJson);
   // 256, not 128: `spawn` never reuses a dead unit's slot, so capacity is a
   // budget for everyone who ever draws breath in a mission rather than for how
   // many stand at once. First Light puts 104 attackers, 7 defenders and 11
   // civilians through it before the player buys anything, and running out is a
   // thrown error mid-mission, not a graceful cap.
-  const sim = new Sim({ seed: netConfig?.seed ?? SIM_SEED, width: map.width, height: map.height, capacity: 256 });
+  const sim = versusWorld?.sim ?? new Sim({ seed: netConfig?.seed ?? SIM_SEED, width: map.width, height: map.height, capacity: 256 });
   /** What the ownership check asks of the live sim: single-player is seat 0
    *  on side 0 (R10), so the check runs on one code path, room or none. */
   const seatWorld = seatWorldFor(netConfig, sim);
   // Cover AND blocked terrain, through the one function all three world
   // builders share. Rock ridges arrive here; before this existed, `map.blocked`
   // was filled by parseMap and read by nobody.
-  applyTerrain(map, sim);
+  // (A versus room's world arrives built: `buildMatchWorld` ran these.)
+  if (versusWorld === null) applyTerrain(map, sim);
   // Buildings are entities, not terrain: each contiguous run of identical
   // symbols becomes one structure with HP, a garrison and rubble.
-  standMapStructures(sim, map);
+  if (versusWorld === null) standMapStructures(sim, map);
 
   // Tunnels: registered from ONE array in ONE loop, and that same array is
   // what the mission context receives. `ctx.tunnels` is positional — entry r
@@ -1817,7 +1831,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // equal-count permutation, which would silently bury units in the wrong
   // route. Asserting `addTunnel(route) === i` on the single shared array is
   // what makes the positional contract impossible to violate from here.
-  const anchors = sandboxAnchors(mapJson);
+  const anchors = versusWorld?.anchors ?? sandboxAnchors(mapJson);
   // Only ever non-empty in the sandbox: a mission brings its own flagged
   // zones, and mixing the two would let a dev flag quietly change how a
   // real mission scores.
@@ -1843,20 +1857,23 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       pre_dug: r.pre_dug,
     });
   }
-  for (let i = 0; i < tunnelRoutes.length; i++) {
+  // A versus room's routes are the map's own and `buildMatchWorld` registered them.
+  for (let i = 0; versusWorld === null && i < tunnelRoutes.length; i++) {
     const got = sim.addTunnel(tunnelRoutes[i]);
     if (got !== i) {
       throw new Error(`tunnel "${tunnelRoutes[i].id}" registered as route ${got}, expected ${i}`);
     }
   }
 
-  const typeOf = new Map<string, number>();
+  const typeOf = versusWorld?.typeOf ?? new Map<string, number>();
   // The pre-pass's own output (`upgradePrepass`, above): enemy units pass
   // through untouched -- only a KDF unit can carry a bought tier -- and
   // `unitInfo` (cost/gate lookup) below still reads the raw JSON, never this
   // patched copy, because cost is not patchable.
-  for (const registered of prepass.registered) {
-    typeOf.set(registered.id, sim.addUnitType(registered));
+  if (versusWorld === null) {
+    for (const registered of prepass.registered) {
+      typeOf.set(registered.id, sim.addUnitType(registered));
+    }
   }
 
   // Which ROE reasons have already been narrated, so the advice attached to a
@@ -1966,12 +1983,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     loanedForce = loanedPlacements(mission, ledger, gateOf);
     const resolvedForce = resolvedMission.starting_force ?? [];
     lentTypes = new Set(loanedForce.map((i) => resolvedForce[i].unit));
-  } else if (netConfig?.mode === 'versus') {
+  } else if (versusWorld !== null) {
     // A versus room (network design §9): the KDF force (plus the second Spike
     // team, `VERSUS_EXTRA`) on EACH side, mirrored through the hostile anchor,
     // no Sarim and no civilians. `sandboxForce`
     // keeps its meaning -- the seat's own units -- and has no crowd.
-    sandboxForce = { player: versusSpawns(sim, typeOf, anchors, versusFactions).bySide[me], civilians: [] };
+    sandboxForce = { player: versusWorld.bySide[me], civilians: [] };
   } else {
     sandboxForce = sandboxSpawns(sim, typeOf, anchors, {
       tunnel: wantTunnel,
@@ -3181,6 +3198,34 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       )
     : null;
   if (room !== null && blockedNotes !== null) room.setHooks({ onCmdRefused: () => blockedNotes.refused() });
+  /** The advisor's panel and proposal strip (N4a task 10), a versus room only.
+   *  Mounted hidden and shown while the room says an advisor sits beside THIS
+   *  seat (`onAdvisors`, installed with the scoreboard below, which hears
+   *  what the lobby already heard). A proposal the human lets stand is queued through
+   *  the same order sink a click uses, as this seat's own `cmd`; `validate` is
+   *  the ownership check on the live sim, and refuses while the room is paused
+   *  (a paused room would drop the order, and the advisor must be told no). */
+  let advisorPanel: AdvisorPanel | null = null;
+  if (room !== null && netConfig !== null && netSeat !== null && versusRoom) {
+    const myNetSeat: Seat = netSeat;
+    const orderSink = roomOrderSink(() => room.status(), transport, () => blockedNotes?.blocked());
+    const panel = mountAdvisorPanel(document.body, {
+      send: (a) => room.advisor(a),
+      queueCommand: (cmd) => orderSink.queueCommand(cmd),
+      validate: (cmd) => !ordersWait(room.status()) && validateCommand(cmd, myNetSeat, seatWorld),
+      now: () => performance.now(),
+      describe: describeCommand,
+      // The field's own ping (R-10): a minimap flash and a marker on the ground.
+      ping: (x, y) => {
+        if (x >= map.width || y >= map.height) return;
+        minimap.ping(x, y, performance.now());
+        renderer.addOrderMarker(x, y);
+      },
+    });
+    advisorPanel = panel;
+    room.setHooks({ onAdvisor: (from, a) => panel.onAdvisor(from, a) });
+    onDispose(() => panel.dispose());
+  }
   // Pass K: a /free-play/<id> link naming no shipped map still loads the
   // default ground (a typo in a dev URL should not look like a broken build),
   // but the PLAYER is told, by name -- it used to be a console line only, and
@@ -3656,6 +3701,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // SWITCHED OFF (AMBIENCE_ENABLED, the lead's ruling 2026-10-09): null here,
   // so no bed starts and none is fetched.
   audio.setAmbience(ambienceBedToPlay(map));
+  // GH-35: the vehicles' engines, until `leaveMission` above. A mission plays
+  // every loop's data pick; the sandbox's `&engines=a|b` overrides them all,
+  // so the lead can hear candidate A against B in the game.
+  const engineChoice = enginesOf(mission, params);
+  if (engineChoice.warning) console.warn(`[lions] ${engineChoice.warning}`);
+  audio.startEngines(engineChoice.value);
   if (mission) {
     audio.playCue(CRITICAL_CUES.missionStart);
     // AU-5: no bark while the start cue and the title card own the moment.
@@ -4340,7 +4391,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // N1b task 9 (R-B12): in a room, a bare Enter opens the chat. Not a keymap
     // action, so single-player's Controls and F1 card are unchanged; never over
     // a dialog or the pause menu.
-    if (netChat !== null && chatOpens(ev, { inRoom: true, modalOpen: isDialogOpen() || pauseHandle !== null || netEnd !== null })) {
+    // N4a (D11 as ruled): Enter does NOT accept an advisor's proposal -- a
+    // player reaching for chat would take it by accident. Accept is the panel's
+    // button or its 2 s deadline; Enter always opens the chat (`roomEnterAction`).
+    if (netChat !== null && roomEnterAction(ev, { inRoom: true, modalOpen: isDialogOpen() || pauseHandle !== null || netEnd !== null }, advisorPanel) === 'chat') {
       ev.preventDefault();
       netChat.open();
       return;
@@ -4524,6 +4578,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // `paintMute`, `hud.mute.muted`/`hud.mute.unmuted`): the key and the
         // chip say the same thing about the same state.
         hud.note(t(audioMuted ? 'hud.mute.muted' : 'hud.mute.unmuted'), 'mute');
+        break;
+      case 'veto':
+        // N4a (D11): X vetoes the advisor's proposal that shows. Nothing showing
+        // (or no advisor at all) and the key does nothing, as it always did.
+        if (advisorPanel?.veto()) ev.preventDefault();
         break;
       case 'pause': {
         // Fix wave I1: the in-mission objectives tracker (the strip's `+N`
@@ -4746,6 +4805,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     renderer.setQuiet?.(false);
     audio.setListener(renderer.camera);
     if (!tickQuiet) audio.onEvents(events, sim);
+    // GH-35: engine loops follow each vehicle's speed. Fog-gated by the
+    // renderer's own query, so an engine never gives away a hidden enemy.
+    if (!tickQuiet) audio.updateEngines(sim, (wx, wy) => renderer.isVisible(wx, wy));
     pinnedSince.onEvents(events);
     if (!tickQuiet) voice.onTick(events);
     // PA-25: a Free Play sandbox has no runtime, and the alert layer below
@@ -5469,6 +5531,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const scoreNames = { theirs: netConfig?.seats[otherSeat].callsign ?? '' };
   const netScore = showsScoreboard(netConfig) ? new NetScoreboard(document.body, me, scoreNames) : null;
   if (netScore !== null) onDispose(() => netScore.dispose());
+  /** Who has an advisor (decision D1): this seat's own to its panel, both
+   *  seats' to the board, so an advisor admitted into the running room shows
+   *  to the friend as well as in the lobby. Installed here, after both exist:
+   *  `setHooks` replays the room's last `advisors` at once, and clears to
+   *  none on a relink. */
+  if (room !== null && netSeat !== null && versusRoom) {
+    room.setHooks({ onAdvisors: advisorPresenceHook(netSeat, { panel: advisorPanel, board: netScore }, () => netEnd === null) });
+  }
   /** The match is over on this screen (N1b task 10). The sim is stepped no
    *  more; the transport is NOT closed (R-B11) -- the panel's buttons
    *  navigate, and this battlefield's disposer sends the room its `bye`. The
@@ -5486,6 +5556,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     closeOpenDialog();
     netStatus?.hide();
     netScore?.hide();
+    advisorPanel?.onPresence(null);
     netEnd = showNetEnd(document.body, result, me, {
       again: () => req.navigate(routes.versus()),
       menu: () => req.navigate(routes.menu()),
@@ -5537,6 +5608,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
        *  the runtime's ring and the stats are what the MIXER holds, so a
        *  wiring fault shows here rather than agreeing with the logic. */
       voiceLog: () => ({ entries: voice.log(), stats: audio.voiceStats() }),
+
+      /** GH-35: the engine voices as the MIXER holds them -- which candidate
+       *  (`override` null = each loop's data pick), how many loops decoded,
+       *  and every vehicle sounding with its family, speed share and layers. */
+      engines: () => audio.engineState(),
 
       /** Jump the camera to a named marker, or to a tile. Walking to the far
        *  corner of a 48×48 map to look at one ridge is most of the cost of
@@ -5907,6 +5983,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       }
     }
     if (netEnd === null) netScore?.update(scoreOf(sim));
+    // The advisor's 2 s deadline counts the frames that run here, so a room pause holds it.
+    if (netEnd === null && room !== null && !ordersWait(room.status())) advisorPanel?.frame();
     if (netEnd === null || lineOverMatchEnd(transport.status())) netStatus?.paint(transport.status(), Date.now(), room?.forfeitClock() ?? null);
     // A room's pause (either seat's) quiets the mix and dims the strip as a
     // local pause does; the room's status is the only thing that says so.

@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { WsTransport, type MatchConfig } from '@lions/net';
-import { connectMatch, openRoom, JoinNeedsConfirmation, RELOAD_REFUSED, RoomRefused, RoomStarted, type OpenDeps } from './connect';
+import { AdvisorRefused, connectMatch, openRoom, requestAdvisorTicket, inviteAdvisor, JoinNeedsConfirmation, RELOAD_REFUSED, RoomRefused, RoomStarted, type OpenDeps } from './connect';
 import { handOver, dropHanded, takeHanded } from './handoff';
 import { loadSeat, saveSeat } from './ticket-store';
 import type { StorageLike } from '../telemetry/identity';
@@ -625,5 +625,64 @@ describe('openRoom: the lobby\'s create and join (N1b task 6, R-B8)', () => {
     ac.abort();
     await expect(p).rejects.toThrow();
     expect(sock.sent.map((s) => (JSON.parse(s) as { t: string }).t)).toContain('bye');
+  });
+});
+
+describe('requestAdvisorTicket (N4a Task 9, decision D1)', () => {
+  const asking = (status: number, body: unknown = { ticket: 'adv-tk' }) => {
+    const calls: { url: string; init: RequestInit }[] = [];
+    const f = (async (url: string, init?: RequestInit) => {
+      calls.push({ url, init: init ?? {} });
+      return status < 300 ? Response.json(body, { status }) : new Response('', { status });
+    }) as unknown as typeof fetch;
+    return { f, calls };
+  };
+
+  it('trades the seat ticket for an advisor ticket: the seat ticket rides in the BODY, never in the URL', async () => {
+    const { f, calls } = asking(200);
+    const ticket = await requestAdvisorTicket('abcdef', 'seat-tk', 'assist', { fetch: f, origin: 'http://x' });
+    expect(ticket).toBe('adv-tk');
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe('http://x/api/match/ABCDEF/advisor');
+    expect(calls[0].url).not.toMatch(/ticket=|seat-tk/);
+    expect(calls[0].init.method).toBe('POST');
+    expect((calls[0].init.headers as Record<string, string>)['content-type']).toBe('application/json');
+    expect(JSON.parse(String(calls[0].init.body))).toEqual({ ticket: 'seat-tk', scope: 'assist' });
+  });
+
+  it('a refusal (403 bad ticket, 400 bad scope, any other status) rejects with AdvisorRefused naming the status', async () => {
+    for (const status of [400, 403, 404, 429, 500]) {
+      const { f } = asking(status);
+      await expect(requestAdvisorTicket('ABCDEF', 'seat-tk', 'advise', { fetch: f, origin: 'http://x' })).rejects.toMatchObject({ name: 'AdvisorRefused', status });
+    }
+  });
+
+  it('a network failure, and an answer with no ticket, are refusals too', async () => {
+    const down = (async () => { throw new TypeError('offline'); }) as unknown as typeof fetch;
+    await expect(requestAdvisorTicket('ABCDEF', 'seat-tk', 'advise', { fetch: down, origin: 'http://x' })).rejects.toBeInstanceOf(AdvisorRefused);
+    for (const body of [{}, { ticket: '' }, { ticket: 7 }, null]) {
+      const { f } = asking(200, body);
+      await expect(requestAdvisorTicket('ABCDEF', 'seat-tk', 'advise', { fetch: f, origin: 'http://x' })).rejects.toBeInstanceOf(AdvisorRefused);
+    }
+  });
+});
+
+describe('inviteAdvisor: the lobby asks with the ticket this tab stored for the room (N4a Task 9)', () => {
+  it('sends the STORED seat ticket in the body, and returns the advisor ticket', async () => {
+    const session = memory();
+    saveSeat(session, 'ABCDEF', { ticket: 'stored-seat-tk', seat: 1 });
+    const calls: { url: string; body: unknown }[] = [];
+    const f = (async (url: string, init?: RequestInit) => {
+      calls.push({ url, body: JSON.parse(String(init?.body)) });
+      return Response.json({ ticket: 'adv-tk' });
+    }) as unknown as typeof fetch;
+    expect(await inviteAdvisor('ABCDEF', 'advise', { fetch: f, origin: 'http://x', session })).toBe('adv-tk');
+    expect(calls).toEqual([{ url: 'http://x/api/match/ABCDEF/advisor', body: { ticket: 'stored-seat-tk', scope: 'advise' } }]);
+  });
+  it('a tab with no stored seat asks nothing and is refused', async () => {
+    const f = vi.fn();
+    await expect(inviteAdvisor('ABCDEF', 'advise', { fetch: f as never, origin: 'http://x', session: memory() })).rejects.toBeInstanceOf(AdvisorRefused);
+    await expect(inviteAdvisor('ABCDEF', 'advise', { fetch: f as never, origin: 'http://x', session: null })).rejects.toBeInstanceOf(AdvisorRefused);
+    expect(f).not.toHaveBeenCalled();
   });
 });

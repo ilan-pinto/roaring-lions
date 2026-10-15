@@ -1,19 +1,19 @@
-/** `/api/match*` (spec §3.2.1): create, join, and the socket upgrade. Origin
+/** `/api/match*` (spec §3.2.1): create, join, the advisor ticket, and the socket upgrade. Origin
  *  is REQUIRED (the `/api/feedback` rule, `../origin.ts`), on the upgrade too.
- *  ROOM_LIMIT counts create and join only: a client reconnecting once a
+ *  ROOM_LIMIT counts create, join and the advisor ticket only: a client reconnecting once a
  *  second would trip a six-a-minute limit on the upgrade (R20). The upgrade
  *  has its own, WS_LIMIT, at 60 a minute (#559 M-1). */
 import type { Env, RateLimiter } from '../d1';
 import { originAllowed } from '../origin';
-import { signTicket } from './ticket';
+import { signTicket, verifyTicket } from './ticket';
 import { mintCode, isCode } from './code';
-import { matchupAllowed, matchupField, versusMapAllowed } from '@lions/net';
-import { callsignField, mapField, textField } from './room-fields';
+import { ADVISOR_SCOPES, matchupAllowed, matchupField, versusMapAllowed, type AdvisorScope } from '@lions/net';
+import { callsignField, mapField, paceField, seatKindField, textField } from './room-fields';
 
 const TICKET_MS = 6 * 3600 * 1000;
 const CODE_ATTEMPTS = 5;
 
-interface CreateBody { player?: unknown; callsign?: unknown; map?: unknown; build?: unknown; mode?: unknown; matchup?: unknown }
+interface CreateBody { player?: unknown; callsign?: unknown; map?: unknown; build?: unknown; mode?: unknown; matchup?: unknown; kind?: unknown; pace?: unknown; ticket?: unknown; scope?: unknown }
 
 async function readBody(req: Request): Promise<CreateBody> {
   try {
@@ -39,7 +39,7 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
   const secret = env.TICKET_SECRET;
   const rooms = env.ROOMS;
   if (!secret || !rooms) return new Response('matches are not configured', { status: 503 });
-  const m = new URL(req.url).pathname.match(/^\/api\/match(?:\/([^/]+)\/(join|ws))?$/);
+  const m = new URL(req.url).pathname.match(/^\/api\/match(?:\/([^/]+)\/(join|ws|advisor))?$/);
   if (!m) return new Response('not found', { status: 404 });
   const [, rawCode, action] = m;
   // Codes are minted upper case; a lower-case one typed into a URL is the same room.
@@ -64,10 +64,13 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
     const matchup = matchupField(body.matchup);
     if (mode === 'versus' && !matchupAllowed(matchup, map)) return new Response('matchup not offered on this map', { status: 400 });
     const callsign = callsignField(body.callsign);
+    // N4a: the host's seat kind and the pace, cleaned and clamped (D5) here and again by the room.
+    const kind = seatKindField(body.kind);
+    const pace = paceField(body.pace);
     for (let attempt = 0; attempt < CODE_ATTEMPTS; attempt++) {
       const c = mintCode();
       const res = await rooms.get(rooms.idFromName(c)).fetch(new Request('https://room/create', {
-        method: 'POST', body: JSON.stringify({ code: c, matchId: c, map, build, mode, player, callsign, matchup }),
+        method: 'POST', body: JSON.stringify({ code: c, matchId: c, map, build, mode, player, callsign, matchup, kind, pace }),
       }));
       if (res.status === 409) continue;   // that code is taken
       if (!res.ok) return new Response('room', { status: 502 });
@@ -78,6 +81,7 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
   }
 
   if (!isCode(code)) return new Response('bad code', { status: 400 });
+  if (action === 'advisor') return advisorTicket(req, env, secret, code, now);
   const stub = rooms.get(rooms.idFromName(code));
   if (action === 'join') {
     if (req.method !== 'POST') return new Response('method', { status: 405 });
@@ -85,7 +89,7 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
     const body = await readBody(req);
     const player = playerOf(body);
     if (player === '') return new Response('player required', { status: 400 });
-    const res = await stub.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player, callsign: callsignField(body.callsign) }) }));
+    const res = await stub.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player, callsign: callsignField(body.callsign), kind: seatKindField(body.kind) }) }));
     if (res.status !== 200) return new Response('', { status: res.status });
     const { seat } = (await res.json()) as { seat: 0 | 1 };
     const ticket = await signTicket(secret, { matchId: code, seat, player, exp: now + TICKET_MS });
@@ -96,4 +100,24 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
   // #559 M-1: its own per-IP limit, before any Durable Object is reached.
   if (await limited(req, env.WS_LIMIT)) return new Response('slow down', { status: 429 });
   return stub.fetch(new Request('https://room/ws', req));
+}
+
+/**
+ * `POST /api/match/:code/advisor` (N4a, decision D1): a seat invites its OWN
+ * advisor by trading its seat ticket for an advisor ticket on the same seat,
+ * expiring when the seat ticket does. Only a seat ticket for this code is
+ * accepted, so an advisor ticket can never mint another. The room is not
+ * asked and nothing is written: the ticket is the whole grant, and the room
+ * checks it at the advisor's hello like any other.
+ */
+async function advisorTicket(req: Request, env: Env, secret: string, code: string, now: number): Promise<Response> {
+  if (req.method !== 'POST') return new Response('method', { status: 405 });
+  if (await limited(req, env.ROOM_LIMIT)) return new Response('slow down', { status: 429 });
+  const body = await readBody(req);
+  if (!(ADVISOR_SCOPES as readonly unknown[]).includes(body.scope)) return new Response('bad scope', { status: 400 });
+  const scope = body.scope as AdvisorScope;
+  const seat = typeof body.ticket === 'string' ? await verifyTicket(secret, body.ticket, now) : null;
+  if (seat === null || seat.role !== 'seat' || seat.matchId !== code) return new Response('bad ticket', { status: 403 });
+  const ticket = await signTicket(secret, { matchId: code, seat: seat.seat, player: 'advisor', exp: seat.exp, role: 'advisor', scope });
+  return Response.json({ ticket });
 }

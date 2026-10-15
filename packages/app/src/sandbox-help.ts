@@ -149,6 +149,14 @@ export const KNOWN_PARAMS: readonly UrlParam[] = [
     blurb: 'dawn | day | dusk | night — the sandbox’s light; a mission uses its own',
   },
   {
+    name: 'engines',
+    // GH-35. A value flag like `tod`, not a SANDBOX_FLAGS boolean: `a | b`
+    // picks which engine-loop candidate EVERY vehicle plays, so the lead can
+    // compare the two in the game. A mission never reads it -- it plays each
+    // loop's own `pick` in data/audio.json (`engines-flag.ts`).
+    blurb: 'a | b — which engine-loop candidate every vehicle plays (GH-35); a mission uses data/audio.json’s picks',
+  },
+  {
     name: 'fitbuildings',
     // Lead ruling 7 Oct. Not a SANDBOX_FLAGS entry: it works on a mission
     // too, and it is a value flag like `tod`. `building-fit-flag.ts` reads it.
@@ -252,13 +260,16 @@ export function sandboxHelp(ctx: HelpContext): string {
   // comment) -- printed as its own line rather than folded into the table
   // above, which the four callers all read as "on or off".
   const tod = KNOWN_PARAMS.find((p) => p.name === 'tod');
+  // `engines` likewise (GH-35): a value, printed on its own line.
+  const engines = KNOWN_PARAMS.find((p) => p.name === 'engines');
   return [
     `sandbox: ${ctx.mapId}`,
     `  flags on: ${ctx.on.length > 0 ? ctx.on.join(', ') : '(none)'}`,
     `  available:`,
     flags,
     ...(tod ? [`    &tod=<value>${' '.repeat(Math.max(0, width - 3))}  ${tod.blurb}`] : []),
+    ...(engines ? [`    &engines=<a|b>${' '.repeat(Math.max(0, width - 5))}  ${engines.blurb}`] : []),
     `  maps: ${ctx.mapIds.join(', ')}`,
-    `  console: __lions.help() · step(n) · goto(marker) · units() · sel([id]) · cursorKey() · voiceLog()`,
+    `  console: __lions.help() · step(n) · goto(marker) · units() · sel([id]) · cursorKey() · voiceLog() · engines()`,
   ].join('\n');
 }

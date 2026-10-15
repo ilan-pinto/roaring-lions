@@ -4,7 +4,7 @@
 // DOM. Everything else in this file is pure and does not care.
 
 import { describe, expect, it } from 'vitest';
-import { ACTIONS, anyArmed, bindingsFrom, escapeTarget, heldAction, isTextEntry, keyLabel, overridesOf, rebind, resolveKey, shouldYieldSpace } from './keymap';
+import { ACTIONS, PLAYER_ACTIONS, anyArmed, bindingsFrom, escapeTarget, heldAction, isTextEntry, keyLabel, overridesOf, rebind, resolveKey, shouldYieldSpace } from './keymap';
 
 describe('keymap', () => {
   it('ships the bindings main.ts had hard-coded, in the same letters', () => {
@@ -275,5 +275,16 @@ describe('bindingsFrom rejects non-key-names (security review #559, F3)', () => 
     const b = bindingsFrom({ halt: '<img src=x data-pwn=1>', move: 'j' });
     expect(b.halt).toBe('h');
     expect(b.move).toBe('j');
+  });
+});
+
+describe('the advisor veto key (N4a, D11)', () => {
+  it('X resolves to veto, with no modifier, and is not shown in the player\'s key list', () => {
+    const b = bindingsFrom({});
+    expect(resolveKey(b, { key: 'x', ctrlKey: false, metaKey: false })).toBe('veto');
+    expect(resolveKey(b, { key: 'X', ctrlKey: false, metaKey: false })).toBe('veto');
+    expect(resolveKey(b, { key: 'x', ctrlKey: true, metaKey: false })).toBeNull();
+    expect(PLAYER_ACTIONS.map((a) => a.id)).not.toContain('veto');
+    expect(ACTIONS.filter((a) => a.key === 'x' && a.modifier === undefined).map((a) => a.id)).toEqual(['veto']);
   });
 });

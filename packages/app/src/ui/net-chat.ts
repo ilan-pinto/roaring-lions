@@ -141,6 +141,21 @@ export function chatOpens(
   return ctx.inRoom && !ctx.modalOpen && ev.key === 'Enter' && !ev.repeat && !ev.ctrlKey && !ev.metaKey && !ev.altKey;
 }
 
+/** What a battlefield keydown does about Enter in a room: open the chat or
+ *  nothing. Extracted from `main.ts`'s listener so the decision is testable.
+ *  Enter NEVER accepts an advisor's proposal (N4a, the coordinator's ruling: a
+ *  player reaching for chat would accept by accident) -- accepting is the
+ *  panel's Accept button or the 2 s deadline. `advisor` is taken, and never
+ *  called, so a test can hand it a live `accept` and see it left alone. */
+export function roomEnterAction(
+  ev: Pick<KeyboardEvent, 'key' | 'repeat' | 'ctrlKey' | 'metaKey' | 'altKey'>,
+  ctx: { inRoom: boolean; modalOpen: boolean },
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- see above: deliberately ignored
+  _advisor: { accept(): boolean } | null,
+): 'chat' | null {
+  return chatOpens(ev, ctx) ? 'chat' : null;
+}
+
 /** One feed line for the battlefield's HUD, which sets `innerHTML`: both
  *  values escaped, then the catalogue's line. */
 export function chatFeedLine(name: string, text: string): string {

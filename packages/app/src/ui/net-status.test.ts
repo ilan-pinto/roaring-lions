@@ -25,6 +25,10 @@ describe('netStatusText', () => {
     expect(netStatusText({ kind: 'stalled', reason: 'gone', seat: 0 }, nameOf)).toBe('Waiting for seat-0: connection lost');
     expect(netStatusText({ kind: 'stalled', reason: 'connecting', seat: null }, nameOf)).toBe('Waiting for me: connection lost');
   });
+  it('a paced room\'s round stall names the seat it waits on, not a lost connection (N4a Task 9, carried from Task 5)', () => {
+    expect(netStatusText({ kind: 'stalled', reason: 'round', seat: 1 }, nameOf)).toBe('Waiting for seat-1 to finish its turn');
+    expect(netStatusText({ kind: 'stalled', reason: 'round', seat: 0 }, nameOf)).not.toMatch(/connection lost/);
+  });
   it('a desync names the match time its window closed at, and the room as the reference (N1b task 11)', () => {
     expect(netStatusText({ kind: 'desync', tick: 39 }, nameOf, 0, 'TESTAB')).toBe('Desync at 0:02 in room TESTAB. The match is void.');
     expect(netStatusText({ kind: 'desync', tick: 1219 }, nameOf, 0, 'QX7K2M')).toBe('Desync at 1:01 in room QX7K2M. The match is void.');
