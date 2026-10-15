@@ -1,5 +1,5 @@
 import { applyTerrain, maps, parseMap, units, type MapJson, type ParsedMap } from '@lions/data';
-import type { Faction, MatchConfig, SeatConfig } from '@lions/net';
+import { seatRules, type Faction, type MatchConfig, type SeatConfig } from '@lions/net';
 import { sameTrackTiers } from '@lions/render';
 import { Sim, type TunnelRouteJson } from '@lions/sim';
 import { standMapStructures } from '../map-sim';
@@ -52,7 +52,7 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
   if (mapJson === undefined) throw new Error(`buildMatchWorld: map "${config.map}" is not shipped`);
   const map = parseMap(mapJson);
   // 256: see `bootBattlefield` -- `spawn` never reuses a dead unit's slot.
-  const sim = new Sim({ seed: config.seed, width: map.width, height: map.height, capacity: 256 });
+  const sim = new Sim({ seed: config.seed, width: map.width, height: map.height, capacity: 256, humanHeld: seatRules(config).humanHeld });
   applyTerrain(map, sim);
   standMapStructures(sim, map);
 
