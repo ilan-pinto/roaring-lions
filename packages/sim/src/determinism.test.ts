@@ -1127,11 +1127,11 @@ function economyReplay(seed: number, extraBuild = false): EconomyRun {
   const ids = new Map<string, number>();
   for (const t of [ECO_SQUAD, ECO_DRONE, ECO_MILITIA, ECO_TRUCK]) ids.set(t.id, sim.addUnitType(t));
   sim.addStructureType(ECO_CAMP);
-  const info: Record<string, { logistics: number; buildTimeS: number }> = {
+  const info: Record<string, { logistics: number; buildTimeS: number; population: number }> = {
     // The shipped squad costs 292; at 120/min a second one is out of reach at
     // tick 800 (see the note in the commit), so the fixture prices it at 180.
-    inf_squad: { logistics: 180, buildTimeS: 15 },
-    supply_truck: { logistics: 100, buildTimeS: 15 },
+    inf_squad: { logistics: 180, buildTimeS: 15, population: 1 },
+    supply_truck: { logistics: 100, buildTimeS: 15, population: 1 },
   };
   const rt = new MissionRuntime(sim, ECO_MISSION, {
     typeIdOf: (u) => {

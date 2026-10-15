@@ -2560,6 +2560,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           return {
             logistics: u.cost.logistics,
             buildTimeS: 'build_time_s' in u.cost ? u.cost.build_time_s : 20,
+            // What the unit takes of the side's population cap (GH-183); the schema default is 1.
+            population: 'population' in u.cost ? u.cost.population : 1,
             unlock: kdfUnlockGate(u, boughtUnits),
           };
         },

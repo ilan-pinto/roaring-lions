@@ -323,7 +323,7 @@ export function run(
         | {
             faction: string;
             unlock?: { roe_rating_min?: number; stars_min?: number; after_mission?: string; price?: number };
-            cost: { logistics: number; build_time_s?: number };
+            cost: { logistics: number; build_time_s?: number; population?: number };
           }
         | undefined
       >)[u];
@@ -331,6 +331,7 @@ export function run(
       return {
         logistics: d.cost.logistics,
         buildTimeS: d.cost.build_time_s ?? 20,
+        population: d.cost.population ?? 1,
         // `bought` resolved here as in `main.ts`'s `kdfUnlockGate`: `requestBuild` reads THIS
         // gate through `buildBlockedReason`, so without it a purchase opened `resolveUpgrades`
         // and stayed closed to the build queue.

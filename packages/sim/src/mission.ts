@@ -245,6 +245,9 @@ export interface MissionJson {
     intel_start?: number;
     logistics_rate_per_min?: number;
     supply_corridor?: boolean;
+    /** Side 0's population cap (GH-183). The schema refuses it on every campaign
+     *  mission; `MissionContext.popCaps` overrides it. Absent = uncapped. */
+    pop_cap?: number;
   };
   civilians?: {
     groups: readonly PlacementJson[];
@@ -317,7 +320,14 @@ export interface MissionContext {
     /** Progression gate from the unit schema (GDD §6): restraint is what
      *  pays for the good equipment. */
     unlock?: { roeMin?: number; starsMin?: number; afterMission?: string };
+    /** What one unit takes of its side's population cap: `cost.population`,
+     *  absent in the unit JSON = 1. A queued build reserves this (D2). */
+    population: number;
   } | null;
+  /** Doctrine or co-op caps, by side; when given it OVERRIDES `resources.pop_cap`
+   *  (null = uncapped on that side). Absent: side 0 reads the mission's own field,
+   *  side 1 is uncapped. */
+  popCaps?: readonly [number | null, number | null];
 }
 
 export type ObjectiveStatus = 'active' | 'complete' | 'failed';
@@ -583,6 +593,8 @@ export class MissionRuntime {
   private logisticsValue = 0;
   private intelValue = 0;
   private readonly buildQueue: { unit: string; startTick: number; readyTick: number }[] = [];
+  /** Scratch for `firstRefusal`: did the population check speak? Not state; never hashed. */
+  private refusedByPopulation = false;
   private readonly identified = new Set<number>();
   /** Tags marked by a previous mission, read from the incoming ledger. */
   private readonly marked: Set<string>;
@@ -743,7 +755,16 @@ export class MissionRuntime {
     return -1;
   }
 
-  buildBlockedReason(unitId: string): string | null {
+  /**
+   * Why a build is refused, or null. The ONE walk of the checks, in their order:
+   * no catalogue entry, the unlock gate, the camp, then the population cap.
+   * `buildBlockedReason` and `popCapped` both read it, so the order they report
+   * cannot drift. `refusedByPopulation` is set to whether the cap was the check
+   * that spoke; a field rather than a returned pair so a per-frame dock query
+   * allocates nothing.
+   */
+  private firstRefusal(unitId: string): string | null {
+    this.refusedByPopulation = false;
     const info = this.ctx.unitInfo?.(unitId);
     if (!info) return 'not available in the field';
     const unlock = unlockReason(info.unlock as UnlockGate | undefined, this.ctx.ledger);
@@ -753,16 +774,77 @@ export class MissionRuntime {
     // camps existed producing exactly as it did. Only a mission that HAS a
     // camp can lose production by losing it; a mission with neither was never
     // able to build in the first place.
-    if (this.productionAnchor(0) >= 0) return null;
+    //
     // No camp standing. Whether that BLOCKS production depends on whether this
     // mission ever had one -- asked of the mission JSON, not the live sim.
     // Reading it off the sim instead would make `player_start` a silent
     // fallback the moment the camp fell, which is precisely the coupling this
     // feature exists to create: a mission that fields a camp loses production
     // with it, and a mission that never fielded one is untouched.
-    if (this.declaresProduction(0)) return 'field camp destroyed — no production';
-    if (!this.mission.map.player_start) return 'no field camp — production needs one standing';
+    if (this.productionAnchor(0) < 0) {
+      if (this.declaresProduction(0)) return 'field camp destroyed — no production';
+      if (!this.mission.map.player_start) return 'no field camp — production needs one standing';
+    }
+    // Last, so the gate and the camp speak first. A unit that takes no population
+    // (a drone) is never refused here, even by a side already over its cap (D3).
+    const cap = this.popCap(0);
+    if (cap !== null && info.population > 0) {
+      const used = this.population(0);
+      if (used + info.population > cap) {
+        this.refusedByPopulation = true;
+        return `population cap reached (${used}/${cap})`;
+      }
+    }
     return null;
+  }
+
+  buildBlockedReason(unitId: string): string | null {
+    return this.firstRefusal(unitId);
+  }
+
+  /**
+   * True only when the population cap is the FIRST thing refusing this build, in
+   * `buildBlockedReason`'s own order: a locked unit or a fallen camp reads false
+   * (that reason speaks first), so a dock can tell "full" from "locked". A pure read.
+   */
+  popCapped(unitId: string): boolean {
+    return this.firstRefusal(unitId) !== null && this.refusedByPopulation;
+  }
+
+  /** What a side's population cap is, or null when uncapped. `ctx.popCaps` overrides
+   *  the mission's `resources.pop_cap`, which only side 0 has. */
+  popCap(side: 0 | 1): number | null {
+    const caps = this.ctx.popCaps;
+    if (caps !== undefined) return caps[side];
+    return side === 0 ? this.mission.resources?.pop_cap ?? null : null;
+  }
+
+  /**
+   * What a side takes of its cap: every living unit whose sim side is `side`, however it
+   * got there and whatever it is doing (D1: garrisoned, carried and buried all count; a
+   * civilian is side 2 and counts for nobody), plus, for side 0, the builds queued but
+   * not yet spawned (D2, the queue has no side). A queued entry leaves `buildQueue` in
+   * the same `step` that spawns its unit, so it is counted once on every tick: as a
+   * reservation, then as a body. One pass over the ids; no allocation.
+   */
+  population(side: 0 | 1): number {
+    let used = 0;
+    const st = this.sim.state;
+    for (let i = 0; i < this.sim.entityCount; i++) {
+      if (st.alive[i] === 1 && st.side[i] === side) used += this.sim.unitTypes[st.typeIdx[i]].population;
+    }
+    if (side === 0) {
+      for (let k = 0; k < this.buildQueue.length; k++) {
+        used += this.ctx.unitInfo?.(this.buildQueue[k].unit)?.population ?? 0;
+      }
+    }
+    return used;
+  }
+
+  /** Side 0's population for the HUD; null when uncapped (the HUD hides). */
+  populationView(): { used: number; cap: number } | null {
+    const cap = this.popCap(0);
+    return cap === null ? null : { used: this.population(0), cap };
   }
 
   /** Does this mission field a production structure at all, alive or dead? */
