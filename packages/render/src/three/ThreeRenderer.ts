@@ -543,7 +543,7 @@ import { ShroudTexture } from './shroud-texture';
 import { hazeRadiance, hazeReferenceLevel } from './haze';
 import { FogOfWarPass } from './fog-pass';
 import { SmokeMesh } from './smoke-mesh';
-import { perTileRunYaw } from './units/run-direction';
+import { perTileYawFor } from './units/run-direction';
 import { drawBlockedMask } from './terrain/draw-mask';
 import { TrailMesh, collapsedRouteLevel, type TrailInstanceInput } from './trail-mesh';
 import { ORDER_GROUND_COLOR_KEY } from '../order-ground';
@@ -8248,14 +8248,18 @@ export class ThreeRenderer implements Renderer {
    * settle step last wrote alone.
    */
   /** A per-tile structure turns to read along its run -- see
-   *  `units/run-direction.ts`. Neighbours are read off the sim's own tile
-   *  index, dead or alive: a breached fence still lies along its run. */
+   *  `units/run-direction.ts` -- unless its type keeps its authored facing
+   *  (`PER_TILE_FACING`, the sandbag post). Neighbours are read through
+   *  `sim.structureAt`, which answers only for a LIVING structure: a wreck
+   *  reads its run off the tiles still standing when it falls. The standing
+   *  mesh and its wreck both come through here, so a post's wreck keeps the
+   *  post's authored facing. */
   private perTileYaw(s: number): number {
     const st = this.sim.structures;
     const x = st.minX[s];
     const y = st.minY[s];
     const typeIdx = st.typeIdx[s];
-    return perTileRunYaw((dx, dy) => {
+    return perTileYawFor(this.sim.structureTypes[typeIdx].id, (dx, dy) => {
       const n = this.sim.structureAt(x + dx, y + dy);
       return n >= 0 && n !== s && st.typeIdx[n] === typeIdx;
     });
