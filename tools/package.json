@@ -8,6 +8,7 @@
     "balance": "tsx src/balance/cli.ts",
     "playtest": "tsx src/backtest/playtest.ts",
     "versus:probe": "tsx src/backtest/versus-probe.ts",
+    "versus:breach": "tsx src/backtest/versus-breach.ts",
     "e5:probes": "tsx src/backtest/e5-probes.ts",
     "perf:units": "tsx src/perf/three-units.ts",
     "perf:load": "tsx src/perf/load-profile.ts",
