@@ -105,7 +105,7 @@
       "target": "pasture",
       "seconds": 300,
       "text": "Hold the pasture for five minutes",
-      "say": { "speaker": "net", "text": "Five minutes of pasture, uncontested. The crossing is laid and the corridor is open behind you." }
+      "say": { "speaker": "net", "text": "Five minutes of pasture, uncontested. The crossing is laid behind you." }
     },
     {
       "id": "keep_ford",
