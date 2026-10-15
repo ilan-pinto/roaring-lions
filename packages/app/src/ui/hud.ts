@@ -537,6 +537,8 @@ export class Hud {
   private beats: string[] = [];
   private beatIdx = 0;
   private beatTimer = 0;
+  /** H3: the commander bar's landing pulse (`landCommander`). */
+  private landTimer = 0;
   /** A `say` line (GDD §11) currently overriding the bar's own beat display
    *  -- see `say()`. Cleared by paging (`pageCommander`) or replaced by the
    *  next line; never by a timer, so a radio transmission does not vanish
@@ -1079,6 +1081,7 @@ export class Hud {
     for (const row of this.feedRows.values()) window.clearTimeout(row.timer);
     this.feedRows.clear();
     window.clearTimeout(this.beatTimer);
+    window.clearTimeout(this.landTimer);
     // `dismiss()` releases the card's two window listeners and its timer, then
     // fades it over 250 ms before removing the node -- so the element is still
     // on the host when this returns. Teardown has to be synchronous (the
@@ -1122,6 +1125,32 @@ export class Hud {
     // released rather than left running against a node about to be covered.
     this.title?.dismiss();
     this.title = titleCard(this.host, name, subtitle, dispatch);
+  }
+
+  /**
+   * H3: take the title card down now, the way a click on it would (its own
+   * 250 ms fade). The intro's skip input is consumed before the card's own
+   * window listeners can see it, so the skip dismisses the card through
+   * here. A no-op with no card up.
+   */
+  dismissTitle(): void {
+    this.title?.dismiss();
+  }
+
+  /** H3: where the briefing card folds to -- the commander bar's viewport
+   *  rect, or null when the bar is not drawn (no orders, or disclosure has
+   *  it hidden), where the card only fades. */
+  commanderRect(): DOMRect | null {
+    if (this.cmd.style.display === 'none' || this.cmd.hasAttribute('data-hud-hidden')) return null;
+    const r = this.cmd.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 ? r : null;
+  }
+
+  /** H3: the card has landed -- one `--band-mission` outline pulse on the
+   *  bar, so the eye follows the orders to where they now live. */
+  landCommander(ms: number): void {
+    window.clearTimeout(this.landTimer);
+    this.landTimer = flash(this.cmd, 'rl-cmd--landed', ms);
   }
 
   /**

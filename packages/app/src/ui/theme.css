@@ -373,6 +373,20 @@
   /* Constant rate, for a fill that tracks a running quantity (a progress bar)
      and a spinner. Everything else moves on --ease (VR-29). */
   --ease-steady: linear;
+  /* H3: the briefing -> battlefield transition (`mission-intro.ts`). Each is
+     the CSS half of `INTRO_MS`, whose timers end the same animations, and
+     `mission-intro.test.ts` pins every one to it. `--ease-fold` is the
+     fold's own symmetric ease (ruling, 2026-10-15): the card leaves and
+     arrives at rest, which --ease's fast start would not. */
+  --dur-intro-fold: 650ms;
+  --delay-intro-backdrop: 100ms;
+  --dur-intro-backdrop: 450ms;
+  --delay-intro-card-fade: 480ms;
+  --dur-intro-card-fade: 170ms;
+  --dur-intro-hud: 250ms;
+  --dur-intro-pulse: 700ms;
+  --dur-intro-fade: 200ms;
+  --ease-fold: cubic-bezier(0.65, 0, 0.35, 1);
 }
 
 /* --- colour-vision variants (Task 12) --------------------------------
@@ -5333,6 +5347,92 @@ button.rl-menu__item[data-kind='aside'] {
   animation: none;
   opacity: 1;
   transform: none;
+}
+
+/* H3: the briefing -> battlefield transition (`ui/mission-intro.ts`, the
+   DOM half in `ui/mission-intro-run.ts`). `data-intro` is set on the KEPT
+   deploy screen once the first world frame has been drawn under it.
+
+   `fold`: the card folds onto the commander bar -- translated and scaled to
+   the bar's width, its bottom clipped to the bar's height (`--fold-*`, set
+   from `foldGeometry` on the box; absent, the card stays put and only
+   fades) -- while the backdrop fades and the world comes up. The runner
+   removes the screen at the landing. */
+.rl-loading[data-intro='fold'] {
+  animation: rl-intro-backdrop var(--dur-intro-backdrop) var(--ease) var(--delay-intro-backdrop) both;
+}
+.rl-loading[data-intro='fold'] .rl-loading__box {
+  /* Identity, until `loading.ts`'s `leave` sets the measured fold inline. */
+  --fold-dx: 0px;
+  --fold-dy: 0px;
+  --fold-scale: 1;
+  --fold-clip: 0px;
+  transform-origin: 0 0;
+  animation:
+    rl-intro-fold var(--dur-intro-fold) var(--ease-fold) both,
+    rl-intro-out var(--dur-intro-card-fade) var(--ease) var(--delay-intro-card-fade) both;
+}
+@keyframes rl-intro-backdrop {
+  to {
+    background-color: transparent;
+  }
+}
+@keyframes rl-intro-fold {
+  from {
+    transform: none;
+    clip-path: inset(0 0 0 0);
+  }
+  to {
+    transform: translate(var(--fold-dx), var(--fold-dy)) scale(var(--fold-scale));
+    clip-path: inset(0 0 var(--fold-clip) 0);
+  }
+}
+@keyframes rl-intro-out {
+  to {
+    opacity: 0;
+  }
+}
+/* `fade`: reduced motion's whole transition -- no fold, no camera, the
+   screen's opacity alone, linear. */
+.rl-loading[data-intro='fade'] {
+  animation: rl-intro-out var(--dur-intro-fade) var(--ease-steady) both;
+}
+/* The ONE named exemption from the sheet's reduced-motion collapse (ruling,
+   2026-10-15): `fade` exists only under reduced motion, and collapsed to
+   1 ms it would be the cut this transition replaces. Opacity is not
+   movement; nothing else in the intro is exempt. Both reduced-motion
+   switches, like every rule in that pair; each outranks the collapse's
+   `*` by specificity, both being `!important`. */
+@media (prefers-reduced-motion: reduce) {
+  .rl-loading[data-intro='fade'] {
+    animation-duration: var(--dur-intro-fade) !important;
+  }
+}
+:root[data-motion='reduce'] .rl-loading[data-intro='fade'] {
+  animation-duration: var(--dur-intro-fade) !important;
+}
+/* The battlefield's panes wait under the folding card (`rl-intro-held`),
+   then step in (`rl-intro-in`, the full intro only; reduced motion cuts).
+   `!important` like `.rl-beat-hidden`: a pane's own opacity or transition
+   must not show through the hold. */
+.rl-intro-held {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+.rl-intro-in {
+  transition: opacity var(--dur-intro-hud) var(--ease) !important;
+}
+/* The card has landed: the bar it became takes one outline pulse. */
+.rl-cmd--landed {
+  animation: rl-cmd-landed var(--dur-intro-pulse) var(--ease);
+}
+@keyframes rl-cmd-landed {
+  from {
+    outline: 2px solid var(--band-mission);
+  }
+  to {
+    outline: 2px solid transparent;
+  }
 }
 
 /* Kit pips (ui/kit-sign.ts): three columns, 0-3 filled, tier 1 at the

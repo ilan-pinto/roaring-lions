@@ -2266,6 +2266,59 @@ describe('destroy', () => {
       commander: TEST_COMMANDER,
     });
 
+  // H3: the briefing card folds onto the commander bar, and a skip of the
+  // transition dismisses the title card through the HUD.
+  it('dismissTitle() takes the card down through its own fade', () => {
+    vi.useFakeTimers();
+    try {
+      const hud = bodyHud();
+      hud.announce('Beit Sahwan II', '2 primary objective(s)', 'Move out.');
+      const card = document.body.querySelector('.rl-titlecard');
+      hud.dismissTitle();
+      expect(card?.classList.contains('rl-leave')).toBe(true);
+      vi.advanceTimersByTime(250);
+      expect(document.body.querySelector('.rl-titlecard')).toBeNull();
+      hud.dismissTitle();
+      hud.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('commanderRect() is null while the bar is not drawn, the rect once it is', () => {
+    const hud = bodyHud();
+    hud.brief([]);
+    expect(hud.commanderRect()).toBeNull();
+    hud.brief(['Move out.']);
+    const cmd = document.body.querySelector<HTMLElement>('.rl-cmd');
+    expect(cmd).not.toBeNull();
+    if (!cmd) return;
+    // jsdom lays nothing out: an empty rect is "not drawn" too.
+    expect(hud.commanderRect()).toBeNull();
+    cmd.getBoundingClientRect = () => new DOMRect(8, 56, 520, 96);
+    expect(hud.commanderRect()).toEqual(new DOMRect(8, 56, 520, 96));
+    cmd.setAttribute('data-hud-hidden', '');
+    expect(hud.commanderRect()).toBeNull();
+    hud.destroy();
+  });
+
+  it('landCommander() pulses the bar once, and destroy() clears the pulse timer', () => {
+    vi.useFakeTimers();
+    try {
+      const hud = bodyHud();
+      hud.landCommander(700);
+      const cmd = document.body.querySelector<HTMLElement>('.rl-cmd');
+      expect(cmd?.classList.contains('rl-cmd--landed')).toBe(true);
+      vi.advanceTimersByTime(700);
+      expect(cmd?.classList.contains('rl-cmd--landed')).toBe(false);
+      hud.landCommander(700);
+      hud.destroy();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('removes everything it put on the body, and can be called twice', () => {
     const before = document.body.children.length;
     const hud = bodyHud();
