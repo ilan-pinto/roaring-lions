@@ -1450,7 +1450,11 @@ and frees the port. `MatchRoom` gained one optional constructor argument,
   0700 temp directory with three 0600 files (the seat's `ticket`, `mcp.json`
   naming this checkout's harness in `command` scope by absolute `tsx` and
   `agent.ts`, and `prompt.md`, the standing prompt with the seat filled in),
-  removed when the child exits. The template is split by the arena with no
+  removed when the child exits, and on SIGINT/SIGTERM too: the arena's
+  handler SIGTERMs (then SIGKILLs) every external child, removes every such
+  directory, stops the players, closes the relay and exits 130/143
+  (§11c.8). `LIONS_ARENA_TMPDIR` overrides where the directories are made
+  (`os.tmpdir()` by default). The template is split by the arena with no
   shell (`$VAR`, `$(...)`, `;`, `|`, `>` and globs stay literal) and fills
   `{mcp}`, `{prompt}`, `{seat}`, `{code}`; a standalone `< {prompt}` is the
   child's stdin. The child inherits the parent environment unchanged; the
@@ -1546,8 +1550,19 @@ a ten-seed arena run between two models, is the lead's to run (run protocol
 - **Parked minors**, none load-bearing. Three were closed in the N4b minors
   pass (15 Oct, `fix/net-n4b-minors`); two stay parked.
   - The MCP `order` has no `sweep`.
-  - SIGINT on the arena skips temp-directory cleanup (the ticket dies with
-    the relay's in-memory secret).
+  - **Closed:** SIGINT/SIGTERM on the arena cleaned nothing (the signal skips
+    every `finally`, leaving the 0700 temp directory and its 0600 ticket).
+    `installSignalCleanup`, installed by the CLI entry only, now SIGTERMs
+    every external child (SIGKILL after 2 s), removes every seat's temp
+    directory (`abortExternalPlayers`, over a registry of live seats), stops
+    every running player, closes every relay, each step bounded at 5 s, and
+    exits 130 (SIGINT) or 143 (SIGTERM). A second signal while it runs is
+    ignored, the run's own exit code never overtakes the signal's, and the
+    seat's own `finally` removes with `force`, so whichever runs second finds
+    nothing. Pinned by `arena-signal.test.ts`, the arena as a real child
+    process with a sleeping `cmd:` player: red with the handler not
+    installed, with `abortExternalPlayers` emptied, with the second-signal
+    guard removed, and with the SIGKILL escalation removed.
   - **Closed:** the local relay now serializes room events as the Durable
     Object's input gate would. Every message and close from any of a room's
     sockets, and its alarm, run on ONE promise chain per room, in arrival

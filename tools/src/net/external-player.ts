@@ -35,6 +35,13 @@
  * (a client that has seen the result prints its usage line and exits), then
  * SIGTERM, then SIGKILL. Its MCP server is ITS child, which goes when its
  * stdin closes.
+ *
+ * A signal skips every `finally`, so each live seat (its temp directory, and
+ * its child once spawned) is also in a module registry, which
+ * `abortExternalPlayers` empties with no grace: SIGTERM, then SIGKILL, and the
+ * directory removed. The arena's SIGINT/SIGTERM handler calls it. Both it and
+ * the `finally` remove with `force`, so whichever runs second finds nothing
+ * and does not fail.
  */
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { chmodSync, closeSync, createWriteStream, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync, type WriteStream } from 'node:fs';
@@ -166,12 +173,43 @@ export interface ExternalOptions {
   killMs?: number;
 }
 
+/** Where a seat's temp directory is made: `os.tmpdir()`, or `LIONS_ARENA_TMPDIR`
+ *  when it is set (a spec points it at a directory of its own to watch). */
+export function tempRoot(): string {
+  const r = process.env.LIONS_ARENA_TMPDIR;
+  return r !== undefined && r !== '' ? r : tmpdir();
+}
+
 /** The most of the child's stdout kept for its last line. */
 const TAIL_CHARS = 256 * 1024;
 /** After the child exits, how long its pipes may take to drain into the log. */
 const DRAIN_MS = 2000;
 
 const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+/** A seat that is still live: its temp directory, and its child once spawned. */
+interface LiveSeat { dir: string; child: ChildProcess | null; exited: boolean; exit: Promise<unknown> | null }
+const liveSeats = new Set<LiveSeat>();
+
+/**
+ * Every live external seat ended NOW, for a signal (the arena's handler):
+ * each child SIGTERM, then SIGKILL after `killMs`, each temp directory and its
+ * ticket removed. Idempotent: a second call, or the seat's own `finally`
+ * afterwards, finds nothing left to do. Never throws.
+ */
+export async function abortExternalPlayers(killMs = 2000): Promise<void> {
+  const seats = [...liveSeats];
+  liveSeats.clear();
+  await Promise.all(seats.map(async (seat) => {
+    const { child } = seat;
+    if (child !== null && !seat.exited) {
+      try { child.kill('SIGTERM'); } catch { /* already gone */ }
+      if (seat.exit !== null) await within(seat.exit, killMs);
+      if (!seat.exited) { try { child.kill('SIGKILL'); } catch { /* already gone */ } }
+    }
+    try { rmSync(seat.dir, { recursive: true, force: true }); } catch { /* the finally tries again */ }
+  }));
+}
 
 /** Resolves after `ms`, or when `p` settles; never keeps the process alive by itself. */
 function within(p: Promise<unknown>, ms: number): Promise<void> {
@@ -202,7 +240,9 @@ function runExternal(template: string, s: SeatStart, spawn: SpawnFn, graceMs: nu
     const done = new Promise<PlayerReport>((res) => { resolveDone = res; });
 
     const life = async (): Promise<PlayerReport> => {
-      const dir = mkdtempSync(join(tmpdir(), 'lions-arena-'));
+      const dir = mkdtempSync(join(tempRoot(), 'lions-arena-'));
+      const seat: LiveSeat = { dir, child: null, exited: false, exit: null };
+      liveSeats.add(seat);
       let log: WriteStream | null = null;
       try {
         chmodSync(dir, 0o700);
@@ -247,8 +287,10 @@ function runExternal(template: string, s: SeatStart, spawn: SpawnFn, graceMs: nu
         let exited = false;
         let stoppedByUs = false;
         const exit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((res) => {
-          child.once('exit', (code, signal) => { exited = true; res({ code, signal }); });
+          child.once('exit', (code, signal) => { exited = true; seat.exited = true; res({ code, signal }); });
         });
+        seat.child = child;
+        seat.exit = exit;
         // `close` also waits on the pipes, which a grandchild may still hold; `exit` is the child.
         const closed = new Promise<void>((res) => { child.once('close', () => { res(); }); });
         await new Promise<void>((res, rej) => {
@@ -289,6 +331,7 @@ function runExternal(template: string, s: SeatStart, spawn: SpawnFn, graceMs: nu
           const l = log;
           await new Promise<void>((res) => { l.end(res); });
         }
+        liveSeats.delete(seat);
         rmSync(dir, { recursive: true, force: true });
       }
     };
