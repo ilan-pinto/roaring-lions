@@ -6,6 +6,7 @@
 
 import { activeObjectiveZoneNames, incomeZonesFor, objectiveZonesFor } from './objective-zones';
 import { incomeViewOf, type IncomeView } from './ui/income-view';
+import { SupplyRouteDisplay } from './ui/supply-route-display';
 import { activeRefuge, evacuationTargets, refugePoint, withEvacuationProgress } from './evacuation';
 import { unitsJustOutside, withOutsideCounts } from './hold-outside';
 import {
@@ -4326,6 +4327,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  minor one while nothing heavier has happened (`nextJump`, WP-P5). A
    *  plain local: presentation state read by exactly one keydown case. */
   let jumpTarget: JumpTarget | null = null;
+  /** S-F F2 C3: when the world draws side 0's supply routes -- while the
+   *  strip's logistics figure is held, or for `ROUTE_JUMP_SHOW_MS` after a
+   *  jump lands on a supply alert, on the frame clock -- written every frame
+   *  in the loop below. Presentation only; nothing the sim reads. */
+  const supplyRouteDisplay = new SupplyRouteDisplay();
+  onDispose(() => {
+    renderer.supplyRoutes = null;
+  });
 
   canvas.addEventListener('contextmenu', (ev) => {
     ev.preventDefault();
@@ -4593,6 +4602,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           renderer.camera.x = jumpTarget.at.x;
           renderer.camera.y = jumpTarget.at.y;
           keepOnMap();
+          // S-F F2 C3: landing on a supply alert shows the line it is about.
+          if (jumpTarget.kind === 'supply') supplyRouteDisplay.jumpLanded(performance.now());
         } else {
           // Not padding. A key that does nothing and says nothing is
           // indistinguishable from a key that is broken -- the lesson the
@@ -4872,7 +4883,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // The tier styles the line (WP-P5, C3) and ranks the jump key.
       if (a.line) hud.note(...alertNotice(a.line), { tier: a.tier });
       if (a.marks.length > 0) minimap.flash(a.marks, performance.now(), { tier: a.tier, tone: a.tone });
-      jumpTarget = nextJump(jumpTarget, a.tier, a.at);
+      jumpTarget = nextJump(jumpTarget, a.tier, a.at, a.kind);
     }
   };
 
@@ -6176,6 +6187,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       const kept = pruneHiddenHostiles(renderer.selection, seatSight);
       if (kept !== renderer.selection) renderer.selection = kept;
     }
+    // S-F F2 C3: the world supply route, on demand, from the HUD beat's one
+    // view. Hover and focus alike (`Hud.logisticsHeld`); a confirm dialog or
+    // the pause menu clears it. Timed on the frame clock, never sim ticks.
+    renderer.supplyRoutes = supplyRouteDisplay.routes({
+      view: income,
+      logisticsHeld: hud.logisticsHeld,
+      modalOpen: isDialogOpen() || pauseHandle !== null,
+      nowMs: performance.now(),
+    });
     renderer.frame(alpha, lastFrameMs * (pose?.timeScale ?? 1));
 
     updateHover();

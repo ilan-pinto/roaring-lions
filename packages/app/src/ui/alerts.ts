@@ -783,10 +783,18 @@ export function missionEventTier(e: MissionEvent): AlertTier | null {
 export interface JumpTarget {
   at: { x: number; y: number };
   tier: AlertTier;
+  /** The alert's kind, when the caller had one (S-F F2 C3: a jump that lands
+   *  on a `supply` alert shows the world supply route for a moment). */
+  kind?: Alert['kind'];
 }
 
-export function nextJump(current: JumpTarget | null, tier: AlertTier, at: { x: number; y: number } | null): JumpTarget | null {
+export function nextJump(
+  current: JumpTarget | null,
+  tier: AlertTier,
+  at: { x: number; y: number } | null,
+  kind?: Alert['kind']
+): JumpTarget | null {
   if (at === null) return current;
-  if (tier !== 'minor' || current === null || current.tier === 'minor') return { at, tier };
+  if (tier !== 'minor' || current === null || current.tier === 'minor') return { at, tier, kind };
   return current;
 }

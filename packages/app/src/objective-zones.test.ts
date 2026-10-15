@@ -112,3 +112,32 @@ describe('main.ts wiring (Z-B)', () => {
     expect(main).toMatch(/income: \(\) => income,/);
   });
 });
+
+// S-F F2 C3 (Review Focus 4): the world supply route is written every frame from the HUD
+// beat's one view, held by the logistics figure (hover or focus alike), cleared by any open
+// dialog or the pause menu, and null on teardown. A Space jump onto a supply alert opens the
+// display's jump window on the frame clock.
+describe('main.ts wiring (C3, the world supply route)', () => {
+  const main = readFileSync(join(__dirname, 'main.ts'), 'utf8');
+  it('writes renderer.supplyRoutes from the display, every frame, from the beat\'s one view', () => {
+    expect(main.match(/incomeViewOf\(/g)).toHaveLength(1);
+    const write = /renderer\.supplyRoutes = supplyRouteDisplay\.routes\(\{([\s\S]*?)\}\);/.exec(main);
+    expect(write).not.toBeNull();
+    const body = write?.[1] ?? '';
+    expect(body).toMatch(/view: income,/);
+    expect(body).toMatch(/logisticsHeld: hud\.logisticsHeld,/);
+    expect(body).toMatch(/modalOpen: isDialogOpen\(\) \|\| pauseHandle !== null,/);
+    expect(body).toMatch(/nowMs: performance\.now\(\),/);
+    // In the frame loop, before the frame is drawn.
+    const loop = main.slice(main.indexOf('const loop = (): void => {'));
+    expect(loop.indexOf('renderer.supplyRoutes = supplyRouteDisplay.routes(')).toBeGreaterThan(0);
+    expect(loop.indexOf('renderer.supplyRoutes = supplyRouteDisplay.routes(')).toBeLessThan(loop.indexOf('renderer.frame('));
+  });
+  it('clears the route on teardown', () => {
+    expect(main).toMatch(/onDispose\(\(\) => \{\s*renderer\.supplyRoutes = null;\s*\}\);/);
+  });
+  it('remembers the alert kind for the jump key, and a jump onto a supply alert opens the window', () => {
+    expect(main).toMatch(/jumpTarget = nextJump\(jumpTarget, a\.tier, a\.at, a\.kind\);/);
+    expect(main).toMatch(/if \(jumpTarget\.kind === 'supply'\) supplyRouteDisplay\.jumpLanded\(performance\.now\(\)\);/);
+  });
+});

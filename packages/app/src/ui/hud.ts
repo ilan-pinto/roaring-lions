@@ -438,6 +438,9 @@ export interface HudDeps {
 
 export class Hud {
   private readonly strip: HTMLDivElement;
+  /** S-F F2 C3: the logistics figure under the pointer / holding focus. */
+  private logisticsHover = false;
+  private logisticsFocus = false;
   private readonly stripBody: HTMLDivElement;
   private readonly stripInfo: HTMLDivElement;
   private readonly speedChips: { el: HTMLButtonElement; speed: number }[] = [];
@@ -686,6 +689,40 @@ export class Hud {
     );
     this.tipDisposers.push(stripTip.dispose);
     this.refreshStripTip = stripTip.refresh;
+
+    // S-F F2 C3: the logistics figure HELD -- hovered or keyboard-focused,
+    // the two alike (Review Focus 4) -- is what shows the world supply route
+    // (`main.ts` reads `logisticsHeld` every frame). Delegated on the strip
+    // for the tip's reason: the figure is rewritten at 4 Hz. Hover and focus
+    // are tracked apart, so the pointer leaving a focused figure does not
+    // drop it; each is the answer to "is the event's node inside the figure",
+    // on enter from its target and on leave from where it went.
+    const inLogistics = (n: EventTarget | null): boolean =>
+      n instanceof Element && this.strip.contains(n) && n.closest('[data-tip="logistics"]') !== null;
+    const onOver = (ev: Event): void => {
+      this.logisticsHover = inLogistics(ev.target);
+    };
+    const onOut = (ev: Event): void => {
+      this.logisticsHover = inLogistics((ev as MouseEvent).relatedTarget);
+    };
+    const onFocusIn = (ev: Event): void => {
+      this.logisticsFocus = inLogistics(ev.target);
+    };
+    const onFocusOut = (ev: Event): void => {
+      this.logisticsFocus = inLogistics((ev as FocusEvent).relatedTarget);
+    };
+    this.strip.addEventListener('mouseover', onOver);
+    this.strip.addEventListener('mouseout', onOut);
+    this.strip.addEventListener('focusin', onFocusIn);
+    this.strip.addEventListener('focusout', onFocusOut);
+    this.tipDisposers.push(() => {
+      this.strip.removeEventListener('mouseover', onOver);
+      this.strip.removeEventListener('mouseout', onOut);
+      this.strip.removeEventListener('focusin', onFocusIn);
+      this.strip.removeEventListener('focusout', onFocusOut);
+      this.logisticsHover = false;
+      this.logisticsFocus = false;
+    });
 
     // Speed. Rendered even where the frame loop has not wired it, because a
     // strip that grows a control the moment a dependency appears is a strip
@@ -1016,6 +1053,16 @@ export class Hud {
    * `tipDisposers` runs first rather than being left to the DOM removal that
    * follows it.
    */
+  /**
+   * S-F F2 C3: the strip's logistics figure is hovered or keyboard-focused
+   * (the two alike), and is on the strip at all. What shows side 0's supply
+   * routes in the world; `main.ts` reads it every frame.
+   */
+  get logisticsHeld(): boolean {
+    if (!this.logisticsHover && !this.logisticsFocus) return false;
+    return this.strip.querySelector('[data-tip="logistics"]') !== null;
+  }
+
   destroy(): void {
     // WP-AU1 D8: the caption's own pending `setTimeout` first -- R-18, a DOM
     // builder whose timer dies with it. `roots.remove()` below takes the

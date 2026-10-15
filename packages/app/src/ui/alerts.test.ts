@@ -298,6 +298,16 @@ describe('nextJump: Space goes to the latest important or major alert', () => {
   it('an alert with no place leaves the key where it was', () => {
     expect(nextJump({ at: p(1), tier: 'minor' }, 'major', null)?.at).toEqual(p(1));
   });
+  // S-F F2 C3: a jump that lands on a supply alert shows the world route, so
+  // the target remembers what KIND of alert it is.
+  it('keeps the kind of the alert it points at, and the kind it kept when a minor one is refused', () => {
+    let j = nextJump(null, 'important', p(1), 'supply');
+    expect(j?.kind).toBe('supply');
+    j = nextJump(j, 'minor', p(2), 'underFire');
+    expect(j?.kind).toBe('supply');
+    j = nextJump(j, 'important', p(3), 'unitLost');
+    expect(j?.kind).toBe('unitLost');
+  });
 });
 
 // --- polish pass F: the cue each alert sounds -----------------------------

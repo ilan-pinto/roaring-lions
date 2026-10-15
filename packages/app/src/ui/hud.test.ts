@@ -588,6 +588,81 @@ describe('top strip', () => {
   });
 });
 
+// S-F F2 C3 (Review Focus 4): the world supply route shows while the logistics figure is
+// hovered OR keyboard-focused, the two alike, and goes on mouseleave / blur. `main.ts` reads
+// `logisticsHeld` every frame.
+describe('top strip: the logistics figure held, for the world supply route (S-F F2 C3)', () => {
+  const logi = (r: Rig): HTMLElement => r.host.querySelector<HTMLElement>('[data-tip="logistics"]')!;
+  const m = () => mission({ logistics: 410, logisticsRate: 120 });
+
+  it('is not held until the figure is hovered, and hover holds it', () => {
+    const r = rig(m());
+    expect(r.hud.logisticsHeld).toBe(false);
+    logi(r).dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    expect(r.hud.logisticsHeld).toBe(true);
+    // The pointer leaves the strip for the battlefield.
+    logi(r).dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body }));
+    expect(r.hud.logisticsHeld).toBe(false);
+    r.hud.destroy();
+  });
+
+  it('holds over a child of the figure (its glyph, its number), and lets go on another field', () => {
+    const r = rig(mission({ logistics: 410, logisticsRate: 120, intel: 40 }));
+    const b = logi(r).querySelector('b')!;
+    b.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    expect(r.hud.logisticsHeld).toBe(true);
+    b.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: logi(r) }));
+    expect(r.hud.logisticsHeld).toBe(true);
+    const intel = r.host.querySelector<HTMLElement>('[data-tip="intel"]')!;
+    logi(r).dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: intel }));
+    intel.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    expect(r.hud.logisticsHeld).toBe(false);
+    r.hud.destroy();
+  });
+
+  it('keyboard focus holds it exactly as hover does, and blur lets go', () => {
+    const r = rig(m());
+    logi(r).focus();
+    expect(document.activeElement).toBe(logi(r));
+    expect(r.hud.logisticsHeld).toBe(true);
+    logi(r).blur();
+    expect(r.hud.logisticsHeld).toBe(false);
+    r.hud.destroy();
+  });
+
+  it('focus and hover are separate: the pointer leaving does not drop a focused figure', () => {
+    const r = rig(m());
+    logi(r).focus();
+    logi(r).dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    logi(r).dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body }));
+    expect(r.hud.logisticsHeld).toBe(true);
+    r.hud.destroy();
+  });
+
+  it('stays held across the 4 Hz rebuild that replaces the figure under a still pointer', () => {
+    const mm = m();
+    const r = rig(mm);
+    logi(r).dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    const before = logi(r);
+    mm.logistics = 450;
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(logi(r)).not.toBe(before);
+    expect(r.hud.logisticsHeld).toBe(true);
+    r.hud.destroy();
+  });
+
+  it('is not held when the strip carries no logistics figure at all', () => {
+    const mm = m();
+    const r = rig(mm);
+    logi(r).dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    mm.logistics = undefined;
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(r.host.querySelector('[data-tip="logistics"]')).toBeNull();
+    expect(r.hud.logisticsHeld).toBe(false);
+    r.hud.destroy();
+  });
+});
+
 describe('top strip: held-ground income (S-F F2, P2-8)', () => {
   const zone = (over: Partial<IncomeZoneView>): IncomeZoneView => ({
     id: 'hamlet', rect: [0, 0, 1, 1], ratePerMin: 20, paysPerMin: 20, state: 'held', cut: null,
