@@ -217,7 +217,7 @@ describe('the ROE tier', () => {
 describe('an armed support call', () => {
   // A building on the tile, and a non-empty selection that would otherwise
   // split into a demolish/garrison/order group -- so a resolution of
-  // { intents: [], armed: 'sweep' } proves the arm branch pre-empts the
+  // { intents: [], armed: 'drone_sweep' } proves the arm branch pre-empts the
   // structure branch rather than merely agreeing with it on empty ground.
   const buildingWorld = (over: Partial<IntentWorld> = {}): IntentWorld =>
     emptyWorld({ structureAt: () => 7, canGarrison: () => true, ...over });
@@ -228,12 +228,12 @@ describe('an armed support call', () => {
       x: 3.5,
       y: 3.5,
       append: false,
-      armed: 'sweep',
+      armed: 'drone_sweep',
       confirm: false,
     });
     expect(r.intents).toEqual([]);
     expect(r.marker).toBe(false);
-    expect(r.armed).toBe('sweep');
+    expect(r.armed).toBe('drone_sweep');
   });
 
   it('outranks the empty-selection return too — pointerup\'s real call shape', () => {
@@ -247,10 +247,10 @@ describe('an armed support call', () => {
       x: 3.5,
       y: 3.5,
       append: false,
-      armed: 'strike',
+      armed: 'air_strike',
       confirm: false,
     });
-    expect(r.armed).toBe('strike');
+    expect(r.armed).toBe('air_strike');
   });
 
   it('the same building, unarmed, still gives the ordinary structure split', () => {

@@ -194,7 +194,7 @@ describe('Telemetry', () => {
     m.onIntent({ kind: 'order', verb: 'move', ids: [1], x: 0, y: 0, append: false });
     m.onIntent({ kind: 'order', verb: 'move', ids: [1], x: 1, y: 1, append: false });
     m.onIntent({ kind: 'select', ids: [1], via: 'click' });
-    m.onIntent({ kind: 'support', call: 'strike', x: 0, y: 0, accepted: false });
+    m.onIntent({ kind: 'support', call: 'air_strike', x: 0, y: 0, accepted: false });
     m.onBought('inf_squad');
     m.onBought('inf_squad');
     m.onBought('mbt_lavi');

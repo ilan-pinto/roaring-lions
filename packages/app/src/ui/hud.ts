@@ -161,6 +161,10 @@ const CARD_BADGE = 10;
 const ORDER_GLYPH_PX = 14;
 /** The top strip's two currency marks, likewise 1em of the strip's own type. */
 const STRIP_GLYPH_PX = 14;
+
+/** How long the intel figure pulses after an earn, ms on the frame clock.
+ *  `theme.css`'s `.rl-earn-pulse` duration is the same number; a test pins it. */
+export const EARN_PULSE_MS = 900;
 /** And the size the same mark is drawn at when it is standing IN for missing
  *  art rather than labelling it — big enough to read as the picture. */
 const CHIP_MARK = 18;
@@ -259,6 +263,10 @@ export interface HudDeps {
   sim: Sim;
   getSelection: () => number[];
   getMission: () => MissionView | null;
+  /** Called at the end of every strip render, once the strip has drawn what
+   *  `getMission` handed it: `main.ts` seals the intel last-earn batch here
+   *  (`IntelMoments.sealEarn`). Optional: tests of other things omit it. */
+  onStripRendered?: () => void;
   hoverStructure: () => number;
   hoverEntity: () => number;
   /** The cursor the pointer shows right now, bare (`input/cursor.ts`'s
@@ -529,6 +537,11 @@ export class Hud {
    *  rebuild untouched (Task 10, fix round 1). Null until the first paint. */
   private paintedStripBody: string | null = null;
   private paintedStripInfo: string | null = null;
+
+  /** GH-77 / F-Q7: the intel earn last seen (by its sim tick, its identity) and
+   *  the frame-clock moment it was first seen, so the figure pulses once per
+   *  earn for `EARN_PULSE_MS` and not once per 4 Hz rebuild. */
+  private earnSeen: { tick: number; atMs: number } | null = null;
 
   /** True only for the length of the `focus()` call that hands focus to a
    *  rebuilt node whose predecessor had NO tip open. That call fires
@@ -1620,14 +1633,31 @@ export class Hud {
       );
     }
     if (m?.intel !== undefined && this.shown('intel')) {
-      // GH-113: the same `+N/min` the logistics figure wears, measured.
-      const intelRate =
-        m.intelRate !== undefined && Math.round(m.intelRate) > 0
-          ? ` <span class="rl-dim">${t('hud.strip.rate', { n: Math.round(m.intelRate) })}</span>`
+      // F-Q11: the last earn, not a rate -- intel comes in lumps now.
+      const lastEarn =
+        m.intelLastEarn !== undefined
+          ? ` <span class="rl-dim">${
+              m.intelLastEarn.cause === 'mixed'
+                ? t('hud.strip.intel.lastEarnMixed', { n: m.intelLastEarn.amount })
+                : t('hud.strip.intel.lastEarn', { n: m.intelLastEarn.amount, cause: m.intelLastEarn.cause })
+            }</span>`
           : '';
+      // GH-77 / F-Q7: an objective's earn writes no feed line, so the figure
+      // itself registers it, once. The strip is rebuilt as markup at 4 Hz,
+      // which would restart a CSS animation every time; the negative delay
+      // resumes it from how long ago the earn was first seen.
+      const nowMs = performance.now();
+      if (m.intelLastEarn !== undefined && m.intelLastEarn.tick !== this.earnSeen?.tick) {
+        this.earnSeen = { tick: m.intelLastEarn.tick, atMs: nowMs };
+      }
+      const sinceEarn = this.earnSeen !== null ? nowMs - this.earnSeen.atMs : Infinity;
+      const figure =
+        sinceEarn < EARN_PULSE_MS
+          ? `<b class="rl-earn-pulse" style="animation-delay:-${Math.round(sinceEarn)}ms">${m.intel}</b>`
+          : `<b>${m.intel}</b>`;
       info.push(
-        `<span class="rl-info" data-tip="intel" tabindex="0">${symbolSvg('intel', STRIP_GLYPH_PX)} <b>${m.intel}</b> ` +
-          `<span class="rl-dim">${t('hud.strip.intel.word')}</span>${intelRate}</span>`
+        `<span class="rl-info" data-tip="intel" tabindex="0">${symbolSvg('intel', STRIP_GLYPH_PX)} ${figure} ` +
+          `<span class="rl-dim">${t('hud.strip.intel.word')}</span>${lastEarn}</span>`
       );
     }
     // Suppression: shown only when there is some. A permanent "0 pinned" is
@@ -1707,6 +1737,9 @@ export class Hud {
       }
     }
     this.punctuate(m);
+    // The strip now shows every earn it was handed: the next one starts a
+    // new batch. Only here -- a tooltip's re-read of `getMission` must not seal.
+    this.deps.onStripRendered?.();
   }
 
   /** Flash what just changed. Runs after the rebuild, on the fresh nodes. */
@@ -2452,7 +2485,6 @@ export class Hud {
     if (type.canDemolish) caps.push(t('hud.card.cap.demolish'));
     if (type.isKamikaze) caps.push(t('hud.card.cap.kamikaze'));
     if (type.transportSlots > 0) caps.push(t('hud.card.cap.transport', { n: type.transportSlots }));
-    if (type.canMarkTarget) caps.push(t('hud.card.cap.markTarget'));
     if (caps.length === 0) caps.push(t('hud.card.cap.none'));
 
     return (
