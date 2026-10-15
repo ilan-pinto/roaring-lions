@@ -390,6 +390,16 @@ describe('WsTransport', () => {
     expect(seen).toEqual([[1, 0, 'tel_marum']]);
   });
 
+  it('onLobby carries the room\'s kit rule, and nothing for a matched or older room (per-seat kit)', () => {
+    const sock = fakeSocket();
+    const seen: unknown[] = [];
+    new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {}, onLobby: (_s, _y, _m, _f, kit) => { seen.push(kit); } });
+    sock.open();
+    sock.recv({ t: 'lobby', config: null, seats: [], you: 1, map: 'tel_marum', kit: 'brigade' });
+    sock.recv({ t: 'lobby', config: null, seats: [], you: 1, map: 'tel_marum' });
+    expect(seen).toEqual(['brigade', undefined]);
+  });
+
   it('onLobby carries the lobby\'s factions by seat, and nothing for an older room (2026-10-14)', () => {
     const sock = fakeSocket();
     const seen: unknown[] = [];

@@ -2855,6 +2855,22 @@ describe('the single-unit card — kit (WP-S3g §3.4, D2)', () => {
     expect(r.host.querySelector('.rl-card .rl-kit-pips')).toBeNull();
     expect(r.host.querySelector('.rl-card__hp')?.textContent).not.toContain('kit');
   });
+
+  it('a seat on side 1 reads its own kit for its own unit, and none for side 0\'s of the same id', () => {
+    // Per-seat kit (Task 5): in a versus room side 1's kitted type shares side
+    // 0's id, so `kitOf` (the viewer's side's table) must be asked only about
+    // an OWN unit -- asked about side 0's namer it would mark side 0 with side
+    // 1's kit.
+    const world = makeForce();
+    world.sim.state.side[world.namer] = 1;
+    const own = clusterRig(() => [world.namer], { viewer: 1, kitOf: () => summary() }, world);
+    expect(own.host.querySelector('.rl-card .rl-kit-pips')).not.toBeNull();
+    expect(own.host.querySelector('.rl-card__hp')?.textContent).toMatch(/ · \+750 kit$/);
+    const foe = makeForce();
+    const r = clusterRig(() => [foe.namer], { viewer: 1, kitOf: () => summary() }, foe);
+    expect(r.host.querySelector('.rl-card .rl-kit-pips')).toBeNull();
+    expect(r.host.querySelector('.rl-card__hp')?.textContent).not.toContain('kit');
+  });
 });
 
 describe('"On loan" on the card and the chip (F3 Task 8, C2)', () => {

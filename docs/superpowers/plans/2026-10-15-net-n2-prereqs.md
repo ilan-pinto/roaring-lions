@@ -92,6 +92,9 @@ Sub-points, each also needing the lead:
   registered a second time under the same ids. `outcome.ts` and `scoreboard.ts` look costs up by
   `unitTypes[...].id`, which still resolves. What remains is app work (`buildMatchWorld`, a type map
   per side) and render work (`unitKitTiers` is keyed by type id), landed with "bring your brigade".
+  **As built (16 Oct, `feat/net-seat-kit`, plan `2026-10-16-net-per-seat-kit.md`):** done in app and
+  render with no sim edit. Decisions ruled 16 Oct (coordinator, lead-delegated): base-cost pricing,
+  nested `SeatConfig.tiers`, structural-only trust. Spec §7.1 carries the account.
 - **L3. `setStance` in N2 ships `hold` and `ambush` only. Ruled 15 Oct (coordinator, lead-delegated).** `ambush` routes to
   `Sim.setAmbush` (`sim.ts` ~L1901). `patrol` needs the runtime's `stepPatrols`, so it moves to N3.
 - **L4. The data digest is folded by each client from its own content (Ruled 15 Oct (coordinator, lead-delegated))**, rather than
@@ -180,7 +183,7 @@ grep reports it missing.
 | 9 | `MissionRuntime.digest()`: `economyHash` plus objectives, triggers, waves, Conduct and civilian latches, wired through P2 | the network hash must see runtime state once N3 runs one | N2 | with 8 | no; a new `RUNTIME_DIGEST_PIN` is born |
 | 10 | Side-1 purse and held zones | a versus purse per seat | F2 (rest) | after N2 | not N2's need under B; N3's |
 | 11 | Production lines per side | the Sarim `build` from the doctrine menu (§6.1) | F4 | after F2 | N3's |
-| 12 | Per-seat unit types | "bring your brigade" | app and render, if P5 confirms (L2); else N2 | any time | no sim pin |
+| 12 | Per-seat unit types | "bring your brigade" | app and render (L2, confirmed by P5); **built 16 Oct** on `feat/net-seat-kit` | done | no sim pin moved |
 
 **Scheduling.** N2 cannot start until F3 has merged with `gates` and `determinism` green (rows 3 and
 5). It needs nothing from F2 beyond Task 1 and nothing from F4 (rows 4, 10 and 11). **Ruled 15 Oct (coordinator, lead-delegated)
@@ -203,6 +206,6 @@ move. Each commit message lists its falsifications, watched red.
 | P2 | done | `3dd5c86a` | `FrameStep.runtimeDigest` (absent = 0) and `AgentClientOptions.runtimeDigest`; a digest that returns the tick desyncs at tick 19 |
 | P3 | done | `e877c8e7` | `shippedContentDigest()` (`content-digest.ts`), key-sorted; the room's `dataDigest: 0` stays on the wire, unfolded. Roster ORDER is covered by the build check, not the digest. The network-report pins in `frame-step.test.ts` were re-pinned; the sim pins did not move |
 | P4 | done | `c7626ffe` | `seatRules`: versus `[true, true]` (a bot seat is a player too), single-player and sandbox `[true, false]` |
-| P5 | done | `b375d07c`, `bf76cc77` | **Confirmed: per-seat unit types need no sim code** (L2), proven through combat. Follow-ups: patched copies keep the base id; `unitKitTiers`/`kitByType`/`unitKit` need per-side keys; per-side tiers come from the shared config |
+| P5 | done | `b375d07c`, `bf76cc77` | **Confirmed: per-seat unit types need no sim code** (L2), proven through combat. Follow-ups: patched copies keep the base id; `unitKitTiers`/`kitByType`/`unitKit` need per-side keys; per-side tiers come from the shared config. **All three built 16 Oct** (`feat/net-seat-kit`): per-side registration from `SeatConfig.tiers` (now nested), per-side render/HUD kit tables, the host's friends-only lobby toggle and `kit`/`tiers` on the wire |
 | P6 | done | `c5826d1c`, `6e1a3596` | The side-0 auto-breach fires only on walled maps (`milh_flats`, `wadi_tarfan`); no measurable outcome effect over 800 paired seeds (flips 9/12, p = 0.66; margin 35/43, p = 0.43; win-rate shift about −1.5 to +0.8 pp); none in the mirror pins' first 200 ticks. A parity item for N2, not a live fairness bug |
 | P7 | done | this commit | The spec follows L1–L5 and P1–P6: §0, §2.1, §2.2, §3.1, §3.3, §3.4, §7.1, §7.4, §9, decision 19, §11b.2, §11b.4 |

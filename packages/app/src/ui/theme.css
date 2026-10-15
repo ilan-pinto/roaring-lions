@@ -7284,6 +7284,16 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-versus__side-note[hidden] {
   display: none;
 }
+/* Bring your brigade (per-seat kit): the host's toggle, its friends-only
+   note, and the room's kit line. */
+.rl-versus__kit input[type='checkbox'] {
+  accent-color: var(--good);
+}
+.rl-versus__kit-note {
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  color: var(--ink-mute);
+}
 .rl-versus__share {
   font-family: var(--font-body);
   font-size: var(--t-s);
@@ -7419,12 +7429,14 @@ button.rl-menu__item[data-kind='aside'] {
 .rl-versus__dot[data-connected='1'] {
   background: var(--good);
 }
-.rl-versus__room-map {
+.rl-versus__room-map,
+.rl-versus__room-kit {
   display: flex;
   gap: var(--s2);
   font-size: var(--t-s);
 }
-.rl-versus__map-name {
+.rl-versus__map-name,
+.rl-versus__kit-name {
   color: var(--ink);
 }
 .rl-versus__chat:empty {
