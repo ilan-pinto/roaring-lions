@@ -110,7 +110,7 @@ export function parseTemplate(template: string): ParsedTemplate {
   }
   if (argv.length === 0) throw new Error('the template is empty');
   for (const text of [...argv, ...(stdinFrom === null ? [] : [stdinFrom])]) {
-    for (const m of text.matchAll(/\{([a-z_]+)\}/g)) {
+    for (const m of text.matchAll(/\{([A-Za-z_]+)\}/g)) {
       if (!(PLACEHOLDERS as readonly string[]).includes(m[1])) {
         throw new Error(`the template names {${m[1]}}, which is not a placeholder: ${PLACEHOLDERS.map((p) => `{${p}}`).join(', ')}`);
       }
@@ -122,7 +122,7 @@ export function parseTemplate(template: string): ParsedTemplate {
 /** `parseTemplate`, then each placeholder filled in INSIDE its argument: a value never splits into two. */
 export function renderTemplate(template: string, values: Record<Placeholder, string>): ParsedTemplate {
   const p = parseTemplate(template);
-  const fill = (t: string): string => t.replace(/\{([a-z_]+)\}/g, (_, name: string) => values[name as Placeholder]);
+  const fill = (t: string): string => t.replace(/\{([A-Za-z_]+)\}/g, (_, name: string) => values[name as Placeholder]);
   return { argv: p.argv.map(fill), stdinFrom: p.stdinFrom === null ? null : fill(p.stdinFrom) };
 }
 
@@ -221,14 +221,16 @@ function runExternal(template: string, s: SeatStart, spawn: SpawnFn, graceMs: nu
           log.on('error', (e) => { process.stderr.write(`arena: the log ${file} could not be written: ${messageOf(e)}\n`); });
         }
 
-        const stdin = t.stdinFrom === null ? null : openSync(t.stdinFrom, 'r');
+        // A relative `< path` means what it says where the child starts (INIT_CWD, else the cwd).
+        const childCwd = process.env.INIT_CWD ?? process.cwd();
+        const stdin = t.stdinFrom === null ? null : openSync(resolve(childCwd, t.stdinFrom), 'r');
         let child: ChildProcess;
         try {
           child = spawn(t.argv[0], t.argv.slice(1), {
             shell: false,
             // The parent's environment, as it is: the arena adds nothing to it.
             env: process.env,
-            cwd: process.env.INIT_CWD ?? process.cwd(),
+            cwd: childCwd,
             stdio: [stdin ?? 'ignore', 'pipe', 'pipe'],
           });
         } finally {

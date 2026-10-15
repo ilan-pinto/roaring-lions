@@ -5,7 +5,7 @@
 // No test here reads, sets or needs a key: the stand-in model
 // (`test-mcp-client.ts`) plays the shipped `rush` through MCP tools alone.
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -101,6 +101,9 @@ describe('the template parser', () => {
     const v = { mcp: '/t/mcp.json', prompt: '/t/prompt.md', seat: '1', code: 'ABC123' };
     expect(renderTemplate('x --c={code} {mcp} "{seat} {seat}" < {prompt}', v)).toEqual({ argv: ['x', '--c=ABC123', '/t/mcp.json', '1 1'], stdinFrom: '/t/prompt.md' });
     expect(() => parseTemplate('claude {ticket}')).toThrow(/\{ticket\}/);
+    // `{MCP}` is not `{mcp}`: a name in another case is refused, never passed through as literal text.
+    expect(() => parseTemplate('claude {MCP}')).toThrow(/\{MCP\}/);
+    expect(() => parseTemplate('claude < {Prompt}')).toThrow(/\{Prompt\}/);
     // A literal JSON argument is not a placeholder.
     expect(renderTemplate('x \'{"a":1}\'', v).argv).toEqual(['x', '{"a":1}']);
   });
@@ -205,6 +208,23 @@ describe('an external player\'s process (stand-in children)', () => {
     expect(prompt).toContain('You are side 0');
     expect(prompt).toContain('end_round');
     expect(prompt).not.toContain(tickets[0]);
+  }, 30_000);
+
+  it('a relative `< path` is read from the directory pnpm was run from (INIT_CWD), the same one the child starts in', async () => {
+    const relay = await relayOf();
+    const { code, tickets } = await room(relay);
+    const base = tempDir('ext-initcwd-');
+    writeFileSync(join(base, 'in.txt'), 'standing orders from a relative path\n');
+    const logs = tempDir('ext-logs-');
+    const out = join(logs, 'child.log');
+    const saved = process.env.INIT_CWD;
+    process.env.INIT_CWD = base;
+    cleanups.push(() => { if (saved === undefined) delete process.env.INIT_CWD; else process.env.INIT_CWD = saved; });
+    const cat = externalPlayer('cat', 'cmd:node -e "process.stdin.pipe(process.stdout)" < in.txt', {});
+    const r = await started(cat, relay, code, tickets[0], out);
+    await r.done;
+    await r.stop();
+    expect(readFileSync(out, 'utf8')).toContain('standing orders from a relative path');
   }, 30_000);
 
   it('case 5: the child gets process.env as it is -- the arena adds no KEY, TOKEN or SECRET', async () => {
