@@ -3640,6 +3640,15 @@ export class ThreeRenderer implements Renderer {
         // (`GROUND_ALBEDOS[id].gain`, never a hardcoded 1), which is why the
         // previous values are stashed rather than recomputed.
         return this.setGroundAlbedoOn(visible);
+      case 'slope-light':
+        // A uniform, the `macro` shape: the slope light's gain to 1 (the
+        // identity) and back (`GroundMaterial.setSlopeLightVisible`). Its
+        // only writers are `groundUniforms()` and that method.
+        return this.groundMat.setSlopeLightVisible(visible);
+      case 'height-contours':
+        // The same shape: the contour and tint amplitudes to 0 and back
+        // (`GroundMaterial.setHeightContoursVisible`).
+        return this.groundMat.setHeightContoursVisible(visible);
       case 'macro':
         // A uniform, like `ground-albedo` above: the macro field's amplitude
         // to 0 and back (`GroundMaterial.setMacroVisible`), 1 when it changed
@@ -10393,6 +10402,10 @@ export class ThreeRenderer implements Renderer {
     // median of the open set only by the tiles it reopens.
     this.hazeRefLevel = hazeReferenceLevel(composed.input);
     this.applyHaze();
+    // Relief read's height tint is relative to the SAME median
+    // (`terrain/relief-read.ts`): the median itself tints by exactly 1, so a
+    // flat map -- all median -- is unchanged.
+    this.groundMat.setReliefMedianLevel(this.hazeRefLevel);
 
     // The control map is built from `composed.input` -- the SAME draw mask
     // the ground itself was, so a live low-profile structure stays open
