@@ -118,3 +118,60 @@ otherwise plain `<b>`. An absent `intelLastEarn` clears nothing (the window simp
 3. UI proof on a free port, music off, one browser: an objective or identification earn pulses the
    figure; `data-motion='reduce'` holds it still in `--info`.
 4. Ready PR stacked on #628 (base `feat/sf-fire-support`), not merged; merge `main` once #628 lands.
+
+---
+
+### Task 2 (added 2026-10-15, coordinator): the last earn sums every earn since the last redraw
+
+**Why:** `IntelMoments.lastEarn` sums only the earns of ONE tick (same cause). The strip redraws at 4 Hz, so
+at 2x speed or under a `step(n)` several ticks' earns arrive between two redraws and the label shows only
+the last tick's: a 200-tick step from 250 to 300 intel read "+10 spotted".
+
+**Files:**
+- Modify: `packages/app/src/ui/intel-moments.ts` (`earned`, `lastEarn`, `LastEarn`, new `sealEarn`),
+  `packages/app/src/ui/hud.ts` (`renderStrip` ~L1514: call the new dep at its end; the label ~L1634),
+  `packages/app/src/ui/hud-model.ts` (`intelLastEarn.cause` gains `'mixed'`), `packages/app/src/main.ts`
+  (the HUD deps: `onStripRendered`), `packages/app/src/i18n/en.json`, tests
+  (`intel-moments.test.ts`, `hud.test.ts`).
+
+**Interfaces:**
+
+```ts
+// intel-moments.ts
+export type EarnCause = 'identified' | 'objective' | 'highGround';
+export interface LastEarn {
+  readonly amount: number;            // the batch's total
+  readonly cause: EarnCause | 'mixed'; // one cause, or 'mixed' when the batch holds more than one
+  readonly tick: number;               // the batch's FIRST earn tick: the pulse's identity
+  readonly lastTick: number;           // the batch's LAST earn tick: the show window runs from here
+}
+/** Closes the current batch: the next earn starts a new one (and a new pulse). Called once the
+ *  strip has drawn what it holds. */
+sealEarn(): void;
+// hud.ts HudDeps:
+onStripRendered?: () => void;
+```
+
+Rules: `earned()` adds every `intelEarned` to the OPEN batch (opening one if the last was sealed or none
+exists); `lastEarn(tick)` returns the open or the last sealed batch while `tick - lastTick <
+LAST_EARN_SHOW_TICKS`, else null. `sealEarn()` on an empty or already-sealed batch does nothing. The HUD
+calls `onStripRendered` at the end of every `renderStrip`, and `main.ts` wires it to
+`intelMoments?.sealEarn()`. A NEW batch's first earn is what restarts the pulse (its `tick` differs);
+earns joining an open batch do not restart it. `objective` earns join the batch (they still write no feed
+line). Mixed label: new key `hud.strip.intel.lastEarnMixed` = `+{n}`; the strip uses it when
+`cause === 'mixed'`.
+
+- [ ] **Step 1: failing tests.** `intel-moments.test.ts`:
+  - "earns across many ticks before a redraw sum into one label": `earned` at ticks 100, 140, 180 (10
+    identified each) with no `sealEarn` between → `lastEarn(180)` is `{ amount: 30, cause: 'identified',
+    tick: 100, lastTick: 180 }`. Red on today's code (it reads 10).
+  - "a sealed batch is closed": after `sealEarn()`, an earn at 200 → `{ amount: 10, tick: 200 }`.
+  - "mixed causes read mixed": identified 10 + highGround 30 unsealed → `{ amount: 40, cause: 'mixed' }`.
+  - "the window runs from the last earn": earns at 100 and 500 unsealed → present at 500 + 599, null at
+    500 + 600.
+  - `hud.test.ts`: a `+40` label for `cause: 'mixed'`; `onStripRendered` is called once per strip render.
+  - The tools world test (`tools/src/intel_moments_world.test.ts`) still holds.
+- [ ] **Step 2: run, see red.** **Step 3: implement.** **Step 4:** `pnpm lint && pnpm typecheck &&
+  pnpm test && pnpm validate:ui && pnpm build`. **Step 5: see red** by a one-line mutation (e.g. reset the
+  batch on every `earned` call) and quote it. **Step 6: commit** `app: the strip's last earn sums every
+  earn since the last redraw (S-F)`.
