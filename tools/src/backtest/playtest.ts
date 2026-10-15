@@ -3886,15 +3886,15 @@ const INTEL_WINNERS_ONE_SWEEP = 35;
 // spend (`logistics_start` + earned): 15 of 18 on 424242. It is what the branch prints, not the 16 of 18
 // read at 751b6742, before GH-382 and #402. A plan that banks most of its purse has nothing to buy, which is
 // the problem F4 gives a reason to solve; F2 measures it and does not touch it, so no plan gains an
-// order here (and none gains income either: no shipped mission has an income zone yet, ruling C-R1).
+// order here. The four D7 missions have authored their income zones since the lead approved them on
+// 15 Oct (ruling C-R1).
 const BANKING_OVER_30_WINNERS = 15;
 // ZONE_PASSIVE_INCOME: income from ZONES earned by the no-orders controls of the four D7 missions
 // (umm_zeitoun_2_buildup, umm_zeitoun_4_clearance, deir_amun_2_foothold, wadi_halam_2_laager), side 0,
 // whole logistics. It is 0 by rule: a force that never moves holds only the ground it was placed on,
-// and no starting force may pay for standing still. It is 0 today because NO shipped zone exists yet
-// (C-R1: the lead holds the data commit that authors them); that commit re-pins this, and it must
-// still read 0 there, which it does only if no zone covers a starting placement (a `staging` zone
-// that paid would make this positive). A 0 is only evidence if the four controls were RUN: a control
+// and no starting force may pay for standing still. The four D7 missions author their zones (lead-
+// approved 15 Oct, ruling C-R1), and it is 0 because no authored zone covers a starting placement (a
+// `staging` zone that paid would make this positive, and none is authored). A 0 is only evidence if the four controls were RUN: a control
 // renamed or dropped contributes nothing and would read 0 silently, so the gate also requires all four
 // found, prints "D7 controls found 4/4", and fails naming any that is missing (F2 Task 11).
 const ZONE_PASSIVE_INCOME = 0;

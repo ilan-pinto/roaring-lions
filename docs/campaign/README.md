@@ -53,8 +53,8 @@ in step with it.
   *identifications*, not minutes. 18 of 27 shipped missions declare a
   `resources` block. Unit availability is gated by campaign ROE rating, completed
   missions and earned stars, not by tiers.
-- **Held-ground income is in the schema and in no mission yet** (F2, GH-183; the lead decides
-  the missions). `resources.income_zones` is a list of `{ zone, rate_per_min }` (a zone of the
+- **Held-ground income is in the schema and in four missions** (F2, GH-183; the lead approved the
+  table on 15 Oct: `docs/campaign/economy/income-numbers.md`). `resources.income_zones` is a list of `{ zone, rate_per_min }` (a zone of the
   mission's own map, an integer rate of at least 1, no zone twice); `resources.supply_entry` is
   a marker of the map, where the supply convoy enters. A zone pays its rate, on top of
   `logistics_rate_per_min`, to the side that holds it (a living surface ground unit of that
@@ -65,16 +65,17 @@ in step with it.
   entry to the player's rear (the camp's exit, else `player_start`) is cut. `validate:data`
   (`tools/validate_income.mjs`) refuses, by mission id: a zone the map does not declare, the
   same zone twice, `supply_corridor: true` with no `supply_entry`, and an entry the map does
-  not declare. **The pending exemption:** `umm_zeitoun_2_buildup` and `umm_zeitoun_4_clearance`
-  set `supply_corridor` and name no entry (their `supply_entry` marker, (24,47), is already on
-  their maps), so `CORRIDOR_ENTRY_EXEMPT` excuses exactly those two; the lead's data commit
-  deletes it, and a demotion test fails once either mission names its entry. **Choose an
+  not declare. `umm_zeitoun_2_buildup` and `umm_zeitoun_4_clearance` set `supply_corridor` and name
+  `supply_entry` (UZ II at the west rim (3,31), UZ IV at (24,47)); the pending exemption that excused
+  them is deleted. `tools/src/income_census.test.ts` holds every authored zone and convoy to a wheeled
+  route at t=0 (`horn_west` on UZ III must not be authored as a zone without opening its boulders).
+  **Choose an
   income zone for ground both sides want**: the plan crosses it and the enemy also marches
   on it. A zone that holds the starting force pays a passive player by construction, and
   `pnpm playtest` holds side 0's zone income in the four no-orders controls at 0
   (`ZONE_PASSIVE_INCOME`); pick rates by the 40%-of-the-phase-anchor rule in
-  `docs/campaign/economy/income-numbers.md`, where the proposed table for Umm Zeitoun II and
-  IV, Deir Amun II and Wadi Halam II (and its measurement over 30 seeds) waits for the lead.
+  `docs/campaign/economy/income-numbers.md`, where the approved table for Umm Zeitoun II and
+  IV, Deir Amun II and Wadi Halam II (and its measurement over 30 seeds) is the shipped one.
 - **The player force is placed, not built.** `starting_force` plus ledger
   survivors (`from_ledger`), plus authored `reinforce` triggers and waves.
   The issued force is the brigade's to lend. A placement may field a unit whose
