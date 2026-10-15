@@ -1487,9 +1487,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   /** `&kit` (sandbox only, WP-S3g plan 2) swaps the account's tiers for the
    *  fixed ladder BEFORE the one prepass, so the swap reaches the sim, the HUD
    *  card and the unit icons together; a mission never takes it (`bootTiers`).
-   *  A room takes the base ladder for everyone (the config's `kit: 'matched'`):
-   *  each machine's own brigade account would otherwise give the two sims
-   *  different unit stats, and they would part at the first shot. */
+   *  A room never reads this machine's account here -- each machine's own
+   *  brigade account would give the two sims different unit stats, and they
+   *  would part at the first shot -- so a room's boot prepass is the base
+   *  ladder. A SANDBOX room plays on it. A VERSUS room does not: its world
+   *  registers each side's kit from the shared config (`buildMatchWorld`),
+   *  and its screen's kit tables come from that world through `screenKit`,
+   *  never from this prepass. */
   const bootKit = inRoom ? {} : bootTiers(ownedTiers, { mission: req.missionId !== null, kitFlag: flags.kit }, roster);
   const prepass = upgradePrepass(roster, bootKit);
   /** The end screen and the debrief mount on `document.body`, not on the
