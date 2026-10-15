@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { ZONE_CONTESTED, ZONE_EMPTY, zoneHolder, zoneState, type HoldView } from './income';
+import {
+  MAX_INCOME_ZONES,
+  ZONE_CONTESTED,
+  ZONE_EMPTY,
+  zoneHolder,
+  zoneState,
+  zoneStates,
+  zoneTileMask,
+  type HoldView,
+} from './income';
 
 // Literal units: tile coordinates (the test shifts them into Q16.16), side, and flags.
 interface U {
@@ -145,5 +154,88 @@ describe('zoneState (A1, C-R13)', () => {
       const s = zoneState(view(c), ZONE);
       expect(zoneHolder(view(c), ZONE)).toBe(s === ZONE_CONTESTED ? -1 : s);
     }
+  });
+});
+
+// F2 Task 11: the runtime reads every zone's state in one pass over the units, through a per-tile
+// zone bitmask. `zoneState` stays the definition; this pins the one-pass reading to it.
+describe('zoneStates: one pass over the units, equal to zoneState per zone', () => {
+  // A seeded integer LCG (Numerical Recipes constants): the same worlds on every run.
+  function lcg(seed: number): (n: number) => number {
+    let s = seed >>> 0;
+    return (n: number) => {
+      s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+      return s % n;
+    };
+  }
+
+  it('agrees with zoneState on 600 randomised worlds: overlaps, off-map rects and units, every flag', () => {
+    const rnd = lcg(20261015);
+    let compared = 0;
+    let contested = 0;
+    let held = 0;
+    for (let world = 0; world < 600; world++) {
+      const w = 4 + rnd(20);
+      const h = 4 + rnd(20);
+      const zoneCount = 1 + rnd(MAX_INCOME_ZONES);
+      const rects: [number, number, number, number][] = [];
+      for (let k = 0; k < zoneCount; k++) {
+        // Rects may start off the map and run past its far edges (zoneTileMask clips them).
+        rects.push([rnd(w + 4) - 2, rnd(h + 4) - 2, 1 + rnd(8), 1 + rnd(8)]);
+      }
+      const n = rnd(60);
+      const air = new Uint8Array(n);
+      const v: HoldView = {
+        entityCount: n,
+        alive: Array.from({ length: n }, () => (rnd(5) === 0 ? 0 : 1)),
+        side: Array.from({ length: n }, () => rnd(3)),
+        // Tiles from -2 to the far edge + 1: some units stand off the map, inside an off-map rect.
+        posX: Array.from({ length: n }, () => ((rnd(w + 4) - 2) << 16) + rnd(65536)),
+        posY: Array.from({ length: n }, () => ((rnd(h + 4) - 2) << 16) + rnd(65536)),
+        // -1 surface; 0 and 3 buried (0 is the `>= 0` edge).
+        tunnelIn: Array.from({ length: n }, () => [-1, -1, -1, 0, 3][rnd(5)]),
+        isAir: (i) => air[i] === 1,
+      };
+      for (let i = 0; i < n; i++) air[i] = rnd(6) === 0 ? 1 : 0;
+      const mask = zoneTileMask(w, h, rects);
+      const out = new Int32Array(zoneCount);
+      zoneStates(v, w, h, mask, rects, out);
+      for (let k = 0; k < zoneCount; k++) {
+        expect(out[k], `world ${world} zone ${k}`).toBe(zoneState(v, rects[k]));
+        if (out[k] === ZONE_CONTESTED) contested++;
+        if (out[k] === 0 || out[k] === 1) held++;
+        compared++;
+      }
+    }
+    // The fixture is not vacuous: it reaches every state many times.
+    expect(compared).toBeGreaterThan(5000);
+    expect(contested).toBeGreaterThan(100);
+    expect(held).toBeGreaterThan(500);
+  });
+
+  it('overlapping zones each see a unit standing in both', () => {
+    const rects: [number, number, number, number][] = [
+      [0, 0, 4, 4],
+      [2, 2, 4, 4],
+    ];
+    const mask = zoneTileMask(8, 8, rects);
+    expect(mask[3 * 8 + 3]).toBe(3);
+    const out = new Int32Array(2);
+    zoneStates(view([{ x: 3, y: 3, side: 1 }]), 8, 8, mask, rects, out);
+    expect(Array.from(out)).toEqual([1, 1]);
+    zoneStates(view([{ x: 3, y: 3, side: 1 }, { x: 5, y: 5, side: 0 }]), 8, 8, mask, rects, out);
+    expect(Array.from(out)).toEqual([1, ZONE_CONTESTED]);
+  });
+
+  it('zone 31 uses the top bit, and more than 32 zones are refused', () => {
+    const rects: [number, number, number, number][] = [];
+    for (let k = 0; k < MAX_INCOME_ZONES; k++) rects.push([k, 0, 1, 1]);
+    const mask = zoneTileMask(32, 1, rects);
+    const out = new Int32Array(32);
+    zoneStates(view([{ x: 31, y: 0, side: 0 }]), 32, 1, mask, rects, out);
+    expect(out[31]).toBe(0);
+    expect(out[30]).toBe(ZONE_EMPTY);
+    expect(MAX_INCOME_ZONES).toBe(32);
+    expect(() => zoneTileMask(33, 1, [...rects, [32, 0, 1, 1]])).toThrow(/33 income zones: at most 32/);
   });
 });

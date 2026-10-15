@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fx } from './fixed';
+import { FlowField } from './flowfield';
 import { Sim, TICKS_PER_SECOND, type SimEvent, type UnitTypeJson } from './sim';
 import { CORRIDOR_RECHECK_TICKS, FS_MORTAR_BARRAGE, FS_SMOKE_SCREEN, STRIKE_DELAY_TICKS } from './tuning';
 import {
@@ -5394,6 +5395,7 @@ describe('held-ground income and corridors (F2 Task 7)', () => {
     force?: PlacementJson[];
     enemy?: PlacementJson[];
     roadMask?: Uint8Array;
+    tunnels?: TunnelRouteJson[];
   }
   function incomeWorld(o: IncomeOpts, prep?: (sim: Sim) => void): World {
     return makeWorld(
@@ -5410,8 +5412,16 @@ describe('held-ground income and corridors (F2 Task 7)', () => {
         },
         objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
       }),
-      { zones: ZONES, markers: MARKERS, ...(o.roadMask !== undefined ? { roadMask: o.roadMask } : {}) },
-      prep
+      {
+        zones: ZONES,
+        markers: MARKERS,
+        ...(o.roadMask !== undefined ? { roadMask: o.roadMask } : {}),
+        ...(o.tunnels !== undefined ? { tunnels: o.tunnels } : {}),
+      },
+      (sim) => {
+        for (const t of o.tunnels ?? []) sim.addTunnel(t);
+        prep?.(sim);
+      }
     );
   }
   const zoneOf = (w: World, id: string) => {
@@ -5665,6 +5675,67 @@ describe('held-ground income and corridors (F2 Task 7)', () => {
     expect(heldAt).toBeGreaterThan(0);
     // Off the cadence, so only the holder-change recheck can have built the route.
     expect(heldAt % CORRIDOR_RECHECK_TICKS).not.toBe(0);
+  });
+
+  // F2 Task 11: a recheck recomputes a route only when the terrain or one of its ends changed.
+  // A holder that flips every tick rechecks every tick and runs the cut test every tick, and
+  // never another Dijkstra: the routes are the same objects it computed the first time.
+  it('a flapping holder rechecks every tick, recomputes no flow field and reuses its routes', () => {
+    const w = incomeWorld({
+      corridor: true,
+      entry: 'entry',
+      zones: [{ zone: 'west', rate_per_min: 45 }],
+      force: [mine(2, 2)],
+      enemy: [theirs(14, 3)],
+    });
+    w.step(2);
+    const west = zoneOf(w, 'west');
+    const route = west.route;
+    const convoyRoute = w.runtime.convoyRoute?.route ?? null;
+    expect(route).not.toBeNull();
+    expect(convoyRoute).not.toBeNull();
+    const computes = vi.spyOn(FlowField.prototype, 'compute');
+    try {
+      let flips = 0;
+      for (let t = 0; t < 40; t++) {
+        // The holder steps out of the zone and back in, a tick at a time (a test may write the
+        // sim's positions between ticks; the runtime never does).
+        w.sim.state.posX[0] = fx.from((t & 1) === 0 ? 8.5 : 2.5);
+        const { mission } = w.step(1);
+        flips += mission.filter((e) => e.kind === 'zoneHolder').length;
+        // The cut test still runs every recheck: held, the line reads interdicted at once.
+        expect(west.cut).toBe((t & 1) === 0 ? null : 'interdicted');
+      }
+      expect(flips).toBe(40);
+      expect(computes).not.toHaveBeenCalled();
+      expect(west.route).toBe(route);
+      expect(w.runtime.convoyRoute?.route).toBe(convoyRoute);
+    } finally {
+      computes.mockRestore();
+    }
+  });
+
+  it('a vent cuts a line through the runtime, read from its copy of the vents', () => {
+    // A pre-dug route whose vent (14, 4) is 2 tiles from row 2's tile (14, 2), stocked by an
+    // enemy that starts inside it: the line from `west` is cut by the vent.
+    const route: TunnelRouteJson = { id: 'tn_cut', points: [[14, 10], [14, 4]], dig_tiles_per_s: 1, pre_dug: true };
+    const w = incomeWorld({
+      zones: [{ zone: 'west', rate_per_min: 45 }],
+      force: [mine(2, 2)],
+      enemy: [{ unit: 'm_holder', count: 1, at: [14, 10], in_tunnel: 'tn_cut' }],
+      tunnels: [route],
+    });
+    w.step(1);
+    expect(w.sim.state.tunnelIn[1]).toBe(0);
+    const west = zoneOf(w, 'west');
+    expect(west.cut).toBe('vent');
+    // Route tiles x 12..16 of row 2 lie within 3 tiles of the vent centre (14.5, 4.5).
+    expect(west.cutSpan).toEqual([10, 14]);
+  });
+
+  it('more than 32 income zones are refused at construction', () => {
+    const zones = Array.from({ length: 33 }, () => ({ zone: 'west', rate_per_min: 1 }));
+    expect(() => incomeWorld({ zones })).toThrow(/33 income zones, at most 32/);
   });
 
   it('holders: an attack-move without sweep stays in its zone; a sweep hunts on and leaves it (the control)', () => {

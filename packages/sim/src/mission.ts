@@ -11,7 +11,17 @@
 import { CivilianFlight, missionShepherds } from './civilians';
 import { corridorCut, corridorRoute, type CutCause, type RouteSource, type VentView } from './corridor';
 import { FlowField } from './flowfield';
-import { ZONE_CONTESTED, ZONE_EMPTY, zoneState, type Holder, type HoldView, type ZoneState } from './income';
+import {
+  asZoneState,
+  MAX_INCOME_ZONES,
+  ZONE_CONTESTED,
+  ZONE_EMPTY,
+  zoneStates,
+  zoneTileMask,
+  type Holder,
+  type HoldView,
+  type ZoneState,
+} from './income';
 import { fx, HALF, type Fx } from './fixed';
 import { HASH_SEED, hashWord } from './hash';
 import { starsFor, betterResult, type Stars, type MissionResult } from './grade';
@@ -538,6 +548,13 @@ const PURSE_UNITS = 2400;
 const TICKS_PER_MINUTE = 60 * TICKS_PER_SECOND;
 
 /** A cut cause as a hash word: open 0, unreachable 1, vent 2, interdicted 3 (C-R17). */
+/** Byte-for-byte equality of two masks of the same map (F2 Task 11). */
+function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
 function cutCode(cut: CutCause): number {
   if (cut === null) return 0;
   if (cut === 'unreachable') return 1;
@@ -718,11 +735,49 @@ export class MissionRuntime {
    *  step in `stepIncome` (the cadence, a structure's death, a change of holder). */
   private corridorsDirty = true;
   /** The runtime's own vehicle-domain flow fields, one per goal tile, created once and
-   *  recomputed in place at most once per recheck (`stamp` against `recheckStamp`). Never
-   *  `Sim.fieldFor`: that is private, pooled, and writes sim state. */
+   *  recomputed in place only when the terrain they were computed over changed (`stamp`
+   *  against `terrainVersion`; F2 Task 11). Never `Sim.fieldFor`: that is private, pooled,
+   *  and writes sim state. */
   private readonly corridorFields = new Map<number, { field: FlowField; stamp: number }>();
-  private recheckStamp = 0;
-  /** The read-only slice of the sim that `zoneState` and `corridorCut` read. Built once. */
+  // --- what a route is a function of (F2 Task 11) ------------------------------------
+  // A route is a pure function of the vehicle mask, the elevation, the road mask (static), and
+  // its two ends; a rear is a function of the production anchor and the foot mask its exit is
+  // read from. So the runtime keeps a copy of all three masks, compares them byte for byte at
+  // every recheck, and bumps `terrainVersion` only when one differs. Fields, starts, rears and
+  // routes are keyed on that version and their ends: the same inputs give the same answer,
+  // so a recheck with nothing changed reuses them. `corridorCut` still runs at every recheck.
+  /** 0 until the first recheck; bumped whenever a copied mask differs from the sim's. */
+  private terrainVersion = 0;
+  private readonly seenVehicle: Uint8Array;
+  private readonly seenBlocked: Uint8Array;
+  private readonly seenElevation: Uint8Array;
+  /** Per side: the rear tile, whether it has one, and the anchor and version it was read at. */
+  private readonly rearX = new Int32Array(2);
+  private readonly rearY = new Int32Array(2);
+  private readonly rearOk = new Uint8Array(2);
+  private readonly rearAnchor = new Int32Array(2).fill(-2);
+  private readonly rearVersion = new Int32Array(2).fill(-1);
+  /** Per zone: its start tile index (-1 none open) and the version it was read at. */
+  private readonly zoneFrom: Int32Array;
+  private readonly zoneFromVersion: Int32Array;
+  /** Per zone and holder side (index 2 * zone + side): the route, and its key
+   *  (version, from, rear x, rear y) at 4 * that index. */
+  private readonly zoneRoutes: (Int32Array | null)[];
+  private readonly zoneRouteKey: Int32Array;
+  /** The convoy's route and its key (version, rear x, rear y). */
+  private convoyRouteCache: Int32Array | null = null;
+  private readonly convoyRouteKey = new Int32Array(3).fill(-1);
+  /** Tunnel vents, Q16.16 (x, y) pairs, read once per route: they are fixed by `addTunnel`.
+   *  `ventAt` hands out `ventOut`, refilled per call, so a recheck allocates no tuple. */
+  private ventXY = new Int32Array(0);
+  private ventsKnown = 0;
+  private readonly ventOut: [number, number] = [0, 0];
+  /** Per tile, a bit for every income zone covering it (`zoneTileMask`), the rects in authored
+   *  order, and the per-zone states `zoneStates` fills each tick: zone state in one pass. */
+  private readonly zoneTiles: Uint32Array;
+  private readonly zoneRects: (readonly [number, number, number, number])[] = [];
+  private readonly zoneStateOut: Int32Array;
+  /** The read-only slice of the sim that `zoneStates` and `corridorCut` read. Built once. */
   private readonly holdView: HoldView & VentView;
   private readonly routeSource: RouteSource;
   private readonly cutSpan = new Int32Array(2);
@@ -831,6 +886,17 @@ export class MissionRuntime {
       }
       this.incomeZoneList.push(new ZoneIncomeState(z.zone, [r[0], r[1], r[2], r[3]], z.rate_per_min));
     }
+    const zoneCount = this.incomeZoneList.length;
+    if (zoneCount > MAX_INCOME_ZONES) {
+      throw new Error(`mission ${mission.id}: ${zoneCount} income zones, at most ${MAX_INCOME_ZONES} are supported`);
+    }
+    for (const z of this.incomeZoneList) this.zoneRects.push(z.rect);
+    this.zoneTiles = zoneCount > 0 ? zoneTileMask(sim.width, sim.height, this.zoneRects) : new Uint32Array(0);
+    this.zoneStateOut = new Int32Array(zoneCount);
+    this.zoneFrom = new Int32Array(zoneCount).fill(-1);
+    this.zoneFromVersion = new Int32Array(zoneCount).fill(-1);
+    this.zoneRoutes = new Array<Int32Array | null>(2 * zoneCount).fill(null);
+    this.zoneRouteKey = new Int32Array(8 * zoneCount).fill(-1);
     const entryName = mission.resources?.supply_entry;
     let entry: { x: number; y: number } | null = null;
     if (entryName !== undefined) {
@@ -841,6 +907,10 @@ export class MissionRuntime {
     const live = mission.resources?.supply_corridor === true && entry !== null;
     this.convoyEntry = live ? entry : null;
     this.convoy = live ? { route: null, cut: null, cutSpan: null } : null;
+    const cells = zoneCount > 0 || live ? sim.width * sim.height : 0;
+    this.seenVehicle = new Uint8Array(cells);
+    this.seenBlocked = new Uint8Array(cells);
+    this.seenElevation = new Uint8Array(cells);
 
     const st = sim.state;
     this.holdView = {
@@ -860,8 +930,13 @@ export class MissionRuntime {
       tnAlive: sim.tnAlive,
       tnVentOpen: sim.tnVentOpen,
       tnDigger: sim.tnDigger,
-      // Read at a recheck only, and only for a vent that is open and stocked by the enemy.
-      ventAt: (r: number) => sim.tunnelVent(r),
+      // Read at a recheck only, and only for a vent that is open and stocked by the enemy. From
+      // the runtime's copy (`syncVents`), into one reused pair: no tuple a call.
+      ventAt: (r: number): readonly [number, number] => {
+        this.ventOut[0] = this.ventXY[2 * r];
+        this.ventOut[1] = this.ventXY[2 * r + 1];
+        return this.ventOut;
+      },
     };
     const fields = this.corridorFields;
     // The masks are read through the sim at every call: `blockedVehicle` stops aliasing
@@ -880,9 +955,9 @@ export class MissionRuntime {
           e = { field: new FlowField(sim.width, sim.height), stamp: -1 };
           fields.set(key, e);
         }
-        if (e.stamp !== this.recheckStamp) {
+        if (e.stamp !== this.terrainVersion) {
           e.field.compute(sim.blockedVehicle, sim.elevation, gx, gy);
-          e.stamp = this.recheckStamp;
+          e.stamp = this.terrainVersion;
         }
         return e.field;
       },
@@ -930,7 +1005,8 @@ export class MissionRuntime {
     const read = this.incomeRead;
     read.base = (this.baseUnitsPerTick() * TICKS_PER_MINUTE) / PURSE_UNITS;
     let zones = 0;
-    for (const z of this.incomeZoneList) if (z.holder === 0) zones += z.unitsPerTick;
+    const list = this.incomeZoneList;
+    for (let k = 0; k < list.length; k++) if (list[k].holder === 0) zones += list[k].unitsPerTick;
     read.zones = (zones * TICKS_PER_MINUTE) / PURSE_UNITS;
     read.halvedBy = this.convoy !== null ? this.convoy.cut : null;
     return read;
@@ -1691,10 +1767,11 @@ export class MissionRuntime {
   // ------------------------------------------------------------- held ground
 
   /**
-   * F2 Task 7. Zone states every tick (O(zones x units), no allocation); routes and cuts at a
-   * recheck: every CORRIDOR_RECHECK_TICKS, the step that digests a `structureDestroyed` (the
-   * blocked mask changed, so rubble may open a route), and the tick a zone's holder changes
-   * (its rear changed). Events on change only. Then pay.
+   * F2 Task 7. Zone states every tick, in one pass over the units (`zoneStates`, F2 Task 11);
+   * routes and cuts at a recheck: every CORRIDOR_RECHECK_TICKS, the step that digests a
+   * `structureDestroyed` (the blocked mask changed, so rubble may open a route), and the tick a
+   * zone's holder changes (its rear changed). Events on change only. Then pay. No allocation
+   * on any of these paths beyond the events themselves and a route whose inputs changed.
    */
   private stepIncome(simEvents: SimEvent[], tick: number, out: MissionEvent[]): void {
     const zones = this.incomeZoneList;
@@ -1702,9 +1779,12 @@ export class MissionRuntime {
     for (let i = 0; i < simEvents.length; i++) {
       if (simEvents[i].kind === 'structureDestroyed') recheck = true;
     }
+    if (zones.length > 0) {
+      zoneStates(this.holdView, this.sim.width, this.sim.height, this.zoneTiles, this.zoneRects, this.zoneStateOut);
+    }
     for (let k = 0; k < zones.length; k++) {
       const z = zones[k];
-      const s = zoneState(this.holdView, z.rect);
+      const s = asZoneState(this.zoneStateOut[k]);
       if (s === z.state) continue;
       z.state = s;
       const holder: Holder = s === ZONE_CONTESTED ? -1 : s;
@@ -1730,16 +1810,22 @@ export class MissionRuntime {
     }
   }
 
-  /** Recompute every route and what cuts it; a `corridor` event per changed cause. */
+  /** Every route and what cuts it; a `corridor` event per changed cause. A route is recomputed
+   *  only when the terrain or one of its ends changed (F2 Task 11); the cut always is. */
   private recheckCorridors(tick: number, out: MissionEvent[]): void {
-    this.recheckStamp++;
-    for (const z of this.incomeZoneList) {
+    this.syncTerrain();
+    this.syncVents();
+    this.syncRear(0);
+    this.syncRear(1);
+    const zones = this.incomeZoneList;
+    for (let k = 0; k < zones.length; k++) {
+      const z = zones[k];
       let route: Int32Array | null = null;
       let cut: CutCause = null;
       let span: [number, number] | null = null;
       const holder = z.holder;
-      if (holder !== -1 && this.rearOf(holder)) {
-        route = this.zoneStart(z.rect) ? corridorRoute(this.routeSource, this.fromTile, this.rearTile) : null;
+      if (holder !== -1 && this.rearOk[holder] === 1) {
+        route = this.zoneRoute(k, holder);
         cut = corridorCut(this.holdView, route, holder, this.cutSpan);
         span = this.spanOf(z.spanStore);
       }
@@ -1756,8 +1842,17 @@ export class MissionRuntime {
       let route: Int32Array | null = null;
       let cut: CutCause = null;
       let span: [number, number] | null = null;
-      if (this.rearOf(0)) {
-        route = corridorRoute(this.routeSource, entry, this.rearTile);
+      if (this.rearOk[0] === 1) {
+        const key = this.convoyRouteKey;
+        if (key[0] !== this.terrainVersion || key[1] !== this.rearX[0] || key[2] !== this.rearY[0]) {
+          this.rearTile.x = this.rearX[0];
+          this.rearTile.y = this.rearY[0];
+          this.convoyRouteCache = corridorRoute(this.routeSource, entry, this.rearTile);
+          key[0] = this.terrainVersion;
+          key[1] = this.rearX[0];
+          key[2] = this.rearY[0];
+        }
+        route = this.convoyRouteCache;
         cut = corridorCut(this.holdView, route, 0, this.cutSpan);
         span = this.spanOf(this.convoySpanStore);
       }
@@ -1770,34 +1865,109 @@ export class MissionRuntime {
     }
   }
 
+  /** Zone `k`'s route to `side`'s rear: the cached one while the terrain, the zone's start tile
+   *  and the rear are what it was computed from, else computed now and cached. */
+  private zoneRoute(k: number, side: 0 | 1): Int32Array | null {
+    const ver = this.terrainVersion;
+    const w = this.sim.width;
+    if (this.zoneFromVersion[k] !== ver) {
+      this.zoneFrom[k] = this.zoneStart(this.zoneRects[k]) ? this.fromTile.y * w + this.fromTile.x : -1;
+      this.zoneFromVersion[k] = ver;
+    }
+    const from = this.zoneFrom[k];
+    const c = 2 * k + side;
+    const key = this.zoneRouteKey;
+    const o = 4 * c;
+    const rx = this.rearX[side];
+    const ry = this.rearY[side];
+    if (key[o] !== ver || key[o + 1] !== from || key[o + 2] !== rx || key[o + 3] !== ry) {
+      let route: Int32Array | null = null;
+      if (from >= 0) {
+        this.fromTile.x = from % w;
+        this.fromTile.y = (from - this.fromTile.x) / w;
+        this.rearTile.x = rx;
+        this.rearTile.y = ry;
+        route = corridorRoute(this.routeSource, this.fromTile, this.rearTile);
+      }
+      this.zoneRoutes[c] = route;
+      key[o] = ver;
+      key[o + 1] = from;
+      key[o + 2] = rx;
+      key[o + 3] = ry;
+    }
+    return this.zoneRoutes[c];
+  }
+
+  /** Compare the sim's vehicle mask, foot mask and elevation with the runtime's copies, byte
+   *  for byte; on any difference copy all three and bump `terrainVersion`, which stales every
+   *  field, start, rear and route keyed on it. */
+  private syncTerrain(): void {
+    const sim = this.sim;
+    if (
+      this.terrainVersion > 0 &&
+      sameBytes(this.seenVehicle, sim.blockedVehicle) &&
+      sameBytes(this.seenBlocked, sim.blocked) &&
+      sameBytes(this.seenElevation, sim.elevation)
+    ) {
+      return;
+    }
+    this.seenVehicle.set(sim.blockedVehicle);
+    this.seenBlocked.set(sim.blocked);
+    this.seenElevation.set(sim.elevation);
+    this.terrainVersion++;
+  }
+
+  /** Copy every vent the runtime has not read yet (a vent is fixed by `addTunnel`). Grows the
+   *  copy only when a route was added since: never in steady state. */
+  private syncVents(): void {
+    const n = this.sim.tunnelCount;
+    if (n <= this.ventsKnown) return;
+    if (this.ventXY.length < 2 * n) {
+      const grown = new Int32Array(2 * n);
+      grown.set(this.ventXY);
+      this.ventXY = grown;
+    }
+    for (let r = this.ventsKnown; r < n; r++) {
+      const v = this.sim.tunnelVent(r);
+      this.ventXY[2 * r] = v[0];
+      this.ventXY[2 * r + 1] = v[1];
+    }
+    this.ventsKnown = n;
+  }
+
+  /**
+   * A side's rear (C-R17) into `rearX`/`rearY`/`rearOk`: the exit tile of its production anchor
+   * when it has one, else for side 0 `map.player_start`; side 1 with no anchor has none (its
+   * zones are never cut), and so has side 0 with neither (no line to cut). Re-read only when
+   * the anchor or the terrain changed: `structureExit` allocates its answer.
+   */
+  private syncRear(side: 0 | 1): void {
+    const anchor = this.productionAnchor(side);
+    if (anchor === this.rearAnchor[side] && this.rearVersion[side] === this.terrainVersion) return;
+    this.rearAnchor[side] = anchor;
+    this.rearVersion[side] = this.terrainVersion;
+    this.rearOk[side] = 0;
+    if (anchor >= 0) {
+      const e = this.sim.structureExit(anchor);
+      this.rearX[side] = e[0] >> 16;
+      this.rearY[side] = e[1] >> 16;
+      this.rearOk[side] = 1;
+      return;
+    }
+    const ps = this.mission.map.player_start;
+    if (side === 0 && ps !== undefined && ps.length >= 2) {
+      this.rearX[side] = ps[0] | 0;
+      this.rearY[side] = ps[1] | 0;
+      this.rearOk[side] = 1;
+    }
+  }
+
   /** Copy the last `corridorCut` span into `store`, or null when it found none. */
   private spanOf(store: [number, number]): [number, number] | null {
     if (this.cutSpan[0] < 0) return null;
     store[0] = this.cutSpan[0];
     store[1] = this.cutSpan[1];
     return store;
-  }
-
-  /**
-   * A side's rear into `rearTile` (C-R17): the exit tile of its production anchor when it has
-   * one, else for side 0 `map.player_start`; side 1 with no anchor has none (its zones are
-   * never cut), and so has side 0 with neither (no line to cut). False when there is none.
-   */
-  private rearOf(side: 0 | 1): boolean {
-    const anchor = this.productionAnchor(side);
-    if (anchor >= 0) {
-      const e = this.sim.structureExit(anchor);
-      this.rearTile.x = e[0] >> 16;
-      this.rearTile.y = e[1] >> 16;
-      return true;
-    }
-    const ps = this.mission.map.player_start;
-    if (side === 0 && ps !== undefined && ps.length >= 2) {
-      this.rearTile.x = ps[0] | 0;
-      this.rearTile.y = ps[1] | 0;
-      return true;
-    }
-    return false;
   }
 
   /** The zone tile a route starts from, into `fromTile` (C-R17): the tile open on the vehicle

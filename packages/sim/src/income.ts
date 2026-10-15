@@ -63,3 +63,83 @@ export function zoneHolder(view: HoldView, zone: readonly [number, number, numbe
   const s = zoneState(view, zone);
   return s === ZONE_CONTESTED ? -1 : s;
 }
+
+/** The most income zones a mission may declare: one bit each in `zoneTileMask`'s words. */
+export const MAX_INCOME_ZONES = 32;
+
+/**
+ * A per-tile bitmask of the zones covering each map tile (F2 Task 11): bit k is set on every
+ * in-map tile of `rects[k]`. Zones may overlap, so a tile can carry several bits. Built once,
+ * when the runtime is constructed; `zoneStates` reads it every tick. Throws on more than
+ * MAX_INCOME_ZONES zones, which one Uint32 per tile cannot hold.
+ */
+export function zoneTileMask(
+  width: number,
+  height: number,
+  rects: readonly (readonly [number, number, number, number])[],
+): Uint32Array {
+  if (rects.length > MAX_INCOME_ZONES) {
+    throw new Error(`${rects.length} income zones: at most ${MAX_INCOME_ZONES} are supported (one bit per zone a tile)`);
+  }
+  const mask = new Uint32Array(width * height);
+  for (let k = 0; k < rects.length; k++) {
+    const r = rects[k];
+    const bit = (1 << k) >>> 0;
+    for (let y = r[1] < 0 ? 0 : r[1]; y < r[1] + r[3] && y < height; y++) {
+      for (let x = r[0] < 0 ? 0 : r[0]; x < r[0] + r[2] && x < width; x++) mask[y * width + x] |= bit;
+    }
+  }
+  return mask;
+}
+
+/**
+ * Every zone's `zoneState` in ONE pass over the units (F2 Task 11): `out[k]` is exactly
+ * `zoneState(view, rects[k])` for each k. A unit's tile looks up its zones in `mask`
+ * (`zoneTileMask(width, height, rects)`) and ORs them into a per-side presence word; a tile
+ * outside the map, which the mask cannot hold, is tested against every rect directly, so the
+ * answer does not depend on units staying on the map. O(units + zones) instead of
+ * O(zones x units); no allocation.
+ */
+export function zoneStates(
+  view: HoldView,
+  width: number,
+  height: number,
+  mask: Uint32Array,
+  rects: readonly (readonly [number, number, number, number])[],
+  out: Int32Array,
+): void {
+  let present0 = 0;
+  let present1 = 0;
+  for (let i = 0; i < view.entityCount; i++) {
+    if (view.alive[i] === 0) continue;
+    const s = view.side[i];
+    if (s !== 0 && s !== 1) continue;
+    if (view.tunnelIn[i] >= 0) continue;
+    const tx = view.posX[i] >> 16;
+    const ty = view.posY[i] >> 16;
+    let bits = 0;
+    if (tx >= 0 && ty >= 0 && tx < width && ty < height) {
+      bits = mask[ty * width + tx];
+    } else {
+      for (let k = 0; k < rects.length; k++) {
+        const r = rects[k];
+        if (tx >= r[0] && tx < r[0] + r[2] && ty >= r[1] && ty < r[1] + r[3]) bits |= 1 << k;
+      }
+    }
+    if (bits === 0) continue;
+    if (view.isAir(i)) continue;
+    if (s === 0) present0 |= bits;
+    else present1 |= bits;
+  }
+  for (let k = 0; k < rects.length; k++) {
+    const bit = 1 << k;
+    const p0 = (present0 & bit) !== 0;
+    const p1 = (present1 & bit) !== 0;
+    out[k] = p0 && p1 ? ZONE_CONTESTED : p0 ? 0 : p1 ? 1 : ZONE_EMPTY;
+  }
+}
+
+/** A `zoneStates` word as a ZoneState (the array is Int32 storage; the values are the four). */
+export function asZoneState(v: number): ZoneState {
+  return v === 0 ? 0 : v === 1 ? 1 : v === ZONE_CONTESTED ? ZONE_CONTESTED : ZONE_EMPTY;
+}
