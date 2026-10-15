@@ -301,7 +301,7 @@ plan.
 
 | system | code | what spacing does there | plan change |
 |---|---|---|---|
-| **Group formations** | `formation.ts` `assignFormation`: `VEHICLE_SPACING` 2, both sideways and between vehicle ranks; `MAX_LATERAL` 3; the phase-2 overflow drops the spacing. `tools/src/formation_walk.test.ts` | **Sideways:** slots are never contested, because `2 × half_width ≤ 1.46 < 2`. **Ranks:** contested. A rank sits 2 tiles behind the one in front, and vehicles arrive facing the approach, so four long hull pairs overlap there by `half_length_A + half_length_B − 2`: Namer–Namer 0.44 tile, Kipod 0.40, Eitan 0.38. Today they visibly overlap in formation. After spacing, the arriving rear vehicle stops at contact, up to 0.44 tile short of its slot (V-R5, V-D5). **The D9 is not in a vehicle rank at all:** it is `DOMAIN_FOOT` (role `engineer` is in `FOOT_ROLES`), so `assignFormation` gives it a rear slot at `INFANTRY_SPACING` 1 (`sim.ts` L2335, `formation.ts` L152 and L190–193), and the `2 × half_width ≤ 2` test does not cover it. Until #598 (the D9's `wheeled` data fix) lands, a D9 stands about 1.0–1.4 tile inside the front rank's last vehicle and is pushed out on arrival; **#598 should land before spacing**. **Overflow:** slots are 1 tile apart (or the origin, when nothing is free), so every pair contests them. **`formation_walk`:** the `tel_marum_2_foothold` force (2 Eitans, 1 Lavi) fills one sideways rank, so its `y === 30` and distinct-tile asserts should hold (R) | V-D3 restated. `formation_walk.test.ts` is a named gate in Task 2. A new tools walk asserts that no pair overlaps after a real group move. **Lead Q2** (rank depth) |
+| **Group formations** | `formation.ts` `assignFormation`: `VEHICLE_SPACING` 2, both sideways and between vehicle ranks; `MAX_LATERAL` 3; the phase-2 overflow drops the spacing. `tools/src/formation_walk.test.ts` | **Sideways:** slots are never contested, because `2 × half_width ≤ 1.46 < 2`. **Ranks:** contested. A rank sits 2 tiles behind the one in front, and vehicles arrive facing the approach, so four long hull pairs overlap there by `half_length_A + half_length_B − 2`: Namer–Namer 0.44 tile, Kipod 0.40, Eitan 0.38. Today they visibly overlap in formation. After spacing, the arriving rear vehicle stops at contact, up to 0.44 tile short of its slot (V-R5, V-D5). **The D9 is not in a vehicle rank at all:** it is `DOMAIN_FOOT` (role `engineer` is in `FOOT_ROLES`), so `assignFormation` gives it a rear slot at `INFANTRY_SPACING` 1 (`sim.ts` L2335, `formation.ts` L152 and L190–193), and the `2 × half_width ≤ 2` test does not cover it. Until #598 (the D9's `wheeled` data fix) lands, a D9 stands about 1.0–1.4 tile inside the front rank's last vehicle and is pushed out on arrival; **#598 lands before spacing** (ruled 15 Oct, coordinator, lead-delegated window: its own small Lane C PR right after F2). **Overflow:** slots are 1 tile apart (or the origin, when nothing is free), so every pair contests them. **`formation_walk`:** the `tel_marum_2_foothold` force (2 Eitans, 1 Lavi) fills one sideways rank, so its `y === 30` and distinct-tile asserts should hold (R) | V-D3 restated. `formation_walk.test.ts` is a named gate in Task 2. A new tools walk asserts that no pair overlaps after a real group move. **Lead Q2** (rank depth) |
 | **Targeted fire (GH-420)** | `stepFocus` (`focusInReach`, and the wait when "already standing on the goal tile"); `FOCUS_REACH_SLACK` 0.5 tile; `FOCUS_LOST_TICKS` 100; `Command` `attack`; `focusTarget` | **Observed target:** untouched, because a chaser stops at effective range long before contact. **Lost target:** its last-seen tile may be held by a parked vehicle. V-D5 then ends the leg at contact, but `stepFocus`'s on-goal test (own tile = goal tile) is false, so it re-issues the leg every tick and `moving` flickers. **A stopped focuser** pushed by up to 0.25 tile stays inside the 0.5-tile hysteresis band, so pushes do not make it close in again | V-R9: `stepFocus` asks `goalHeldByVehicle`, and a test pins "no flicker" |
 | Garrison overhaul (#606) | `stepGarrison` (overflow units "wait at the door, stopped", ~L5398); `eyePoint` L5012; `garrisonedIn` | Garrisons and door queues are foot units; vehicles cannot garrison. A garrisoned unit is excluded (V-R13). `eyePoint` reads a structure, not a vehicle. A vehicle parked on a door tile does not block infantry, because separation is vehicle-to-vehicle only | none |
 | **Versus determinism** | `stepSeparation` itself; `versusSpawns` (`packages/app/src/net/versus-force.ts`); `SANDBOX_KDF` (`sandbox-force.ts` L31); `tools/src/net/two-client.test.ts`; CI's `net:engines` (`tools/src/net/two-engine.ts`); `content-digest.ts` | **Determinism:** integer arithmetic only (`fx.mul`, `fx.div`, `fx.sqrt`, the `fx.sin`/`fx.cos` lookup table); no `rng`; Jacobi sums, so visiting order does not matter; scratch arrays preallocated; ids sorted ascending only to fill the list. The one rule that uses id order is the tie-break for coincident vehicles. Both clients share it, because ids are creation order and every per-entity column is hashed by id. **It changes every versus world.** The KDF force places a Lavi at `(0,−3)` beside the D9 at `(−1,−3)`, and a Lavi at `(0,3)` beside the jeep at `(1,3)`. On `beit_sahwan_outskirts` both pairs lie along the facing axis (facing about −2°), with capsule overlaps of about 1.17 and 0.49 tile at tick 0 (R), which resolve within 5 ticks. On `tel_marum` the pairs stand side by side, overlapping by about 0.22 and not at all. The Sarim force has no pair in contact (R): its gun trucks are 2+ tiles apart sideways, and its Grads clear the trucks by at least 0.58 tile. **`shippedContentDigest()` moves** with the unit JSON. No literal pins it, and two clients on different builds then desync on the first hash tick, which is the designed guard | Task 2a and Task 2 re-pin the five versus literal sites, each with its reason. Two-client equality and `net:engines` are named gates |
@@ -382,16 +382,19 @@ Per superpowers:subagent-driven-development. These rows were read, not run.
 
 ---
 
-## Questions for the lead
+## Questions for the lead (both ruled 15 Oct, coordinator, lead-delegated window)
 
-Only these two need the lead's taste. Every other open point is ruled above.
+Both were ruled as recommended, and a third ruling was added:
+- **Q1 ruled: wrecks do not block vehicles.**
+- **Q2 ruled: keep 2-tile ranks.** The arriving rear vehicle may stop up to 0.44 tile short of its slot.
+- **#598 lands before spacing.** It goes in as its own small Lane C PR right after F2, since only one sim plan can be in flight at a time. Spacing's pre-flight re-reads the D9's domain and formation slot after #598.
 
 1. **Should wrecks block vehicles?**
    - The sim has no wreck body, so a living tank can stand on the wreck mesh of the tank it killed
      (see Interactions, wrecks).
    - Making wrecks solid needs a new sim body or a footprint on the dead, with its own pins and its
      own playtest reading.
-   - **Recommended:** no, not in this plan. Raise it again if the after-captures show tanks sitting in
+   - **Ruled 15 Oct (coordinator, lead-delegated window): no**, not in this plan. Raise it again if the after-captures show tanks sitting in
      wrecks.
 2. **How deep should a formation rank be for long hulls?**
    - Ranks are 2 tiles deep and a Namer is 2.44 tiles long. So today, two Namers in consecutive ranks
@@ -400,7 +403,7 @@ Only these two need the lead's taste. Every other open point is ruled above.
      its slot.
    - The alternative is a 3-tile vehicle rank in `formation.ts`. That moves the formation pins and
      every group order.
-   - **Recommended:** accept the short stop, and judge it on screen in the after-captures.
+   - **Ruled 15 Oct (coordinator, lead-delegated window): keep 2-tile ranks** and accept the short stop (up to 0.44 tile); judge it on screen in the after-captures.
 
 ---
 
