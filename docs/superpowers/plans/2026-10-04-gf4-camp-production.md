@@ -6,8 +6,9 @@
 
 Docs only; nothing run. Read against `origin/main` `199065f1` (F1 #625 + #640, F3 #629, the garrison
 overhaul #606, the N2 prerequisites #644, #619, #632, #649 and #650 merged; #658, the doctrines, is
-**not** merged), F2's branch `feat/gf2-held-ground` at `61f2f04a` (Tasks 1–7, 2 and 9 done; Task 10
-and the final wave pending; ledger `_coord/s4-f2-progress.md`), and N2's plan on `main`
+**not** merged), F2's branch `feat/gf2-held-ground`, read at `61f2f04a`; its tip is now `3e7530bf` (Tasks 1–7, 2, 9
+and 10 done; the coordinator's Task 11, C-R20, is pending and rewrites `rearOf`, the zone-state pass
+and the recheck's field reuse; ledger `_coord/s4-f2-progress.md`), and N2's plan on `main`
 (`docs/superpowers/plans/2026-10-16-net-n2-sim.md`, #653). Lane C's order is F1 → F3 → F2 → N2 →
 **F4**, one sim plan in flight, so F4 is cut from `main` **after N2 merges**.
 
@@ -101,7 +102,9 @@ What changed, and why:
   `0 <= line < MAX_PRODUCTION_LINES` and `index` as an int `-1 <= index < MAX_LINE_QUEUE` (-1 is the
   item in progress). Why a runtime cap at all: the cheapest unit costs 186 logistics and a
   doctrine start may be 894784 (the Int32 ceiling), so without a cap a queue can reach ~4,800
-  entries and every cancel index would be legal. The five building plans never queue more than 2
+  entries and every cancel index would be legal. The same ceiling bounds every start purse:
+  `enemy.production.logistics_start` carries `"maximum": 894784` (Task 7), and the runtime throws at
+  construction on an `economy.logisticsStart` above it (Task 2b). The five building plans never queue more than 2
   (R: their schedules against their purses, Task 1 measures), and Task 10 prints the largest queue
   each reaches. *Cost if wrong:* a constant, and one refusal string the dock shows.
 
@@ -121,7 +124,7 @@ Read, not run. A ruling (R-F4-n) stands until the controller's pre-flight overtu
 | S-4 | 3 × 4 | `ProductionLine`, `productionLines(side).contested` | 3 calls `advance(line, false)`; 4 supplies the flag | consistent | — |
 | S-5 | 3 × 5 | line `rally`, `spawnPlacement`'s ids | 3 deploys at the exit; 5 queues the rally order for the ids | consistent | — |
 | S-6 | 3 × 6 | `economyHash` | 3 deletes `buildQueue`, which `economyHash` folds (count, then unit chars, start and ready tick per item); 6 re-pins | **Conflict:** deleting the fold in Task 3 moves `ECONOMY_PIN` three tasks early | **R-F4-8:** Tasks 3–5b fold side 0's items exactly as `buildQueue` did: in flattened line order (current, then queued), count, unit chars, `startTick = readyTick - buildTicks`, `readyTick = now + ticks ahead + own`. On the flat fixture no two builds overlap (400→700, 800→1100, 2300→2600 still in progress at tick 2400) and the relief fixture builds nothing, so the words are byte-identical (R). Task 6 replaces the fold. A pin that moves before Task 6 is a stop |
-| S-7 | 3 × 7 | which structures are lines; `productionAnchor`; `declaresProduction` | 3 reads the TYPE's `producesFor`; 7 adds a per-placement `side` | **Conflict:** four readers of the type field (lines, `productionAnchor`, `declaresProduction`, `stepDemolition`'s own-camp skip at `sim.ts` ~L5499) plus F2's `rearOf` through `productionAnchor` | **R-F4-9:** Task 7 adds `Sim.structureProducesFor(s)` (the override, else the type's) and switches all four readers in the same commit; `declaresProduction` reads `spec.side ?? type.produces_for`. A test per reader |
+| S-7 | 3 × 7 | which structures are lines; `productionAnchor`; `declaresProduction` | 3 reads the TYPE's `producesFor`; 7 adds a per-placement `side` | **Conflict:** five readers of the type field (lines, `productionAnchor`, `declaresProduction`, `stepDemolition`'s own-camp skip at `sim.ts` ~L5499, and the render side's `ThreeRenderer.structureIsOwn`, `packages/render/src/three/ThreeRenderer.ts` ~L5857) plus F2's `rearOf` through `productionAnchor` | **R-F4-9:** Task 7 adds `Sim.structureProducesFor(s)` (the override, else the type's) and switches all five readers in the same commit; `declaresProduction` reads `spec.side ?? type.produces_for`. A test per reader |
 | S-8 | 3 × 9 | `requestBuild(unit, line, 1)`, `spend(1, …)` | 3 builds the side-1 path; 9's spender calls it | consistent (ask 10: no second spend path) | — |
 | S-9 | 3 × 10 | `requestBuild(unitId)` | the five plans and `boughtProbe` call it with no line or side | consistent: trailing defaults | — |
 | S-10 | 4 × 9 | the per-line contest | 4 implements `1 - line.side`; 9 needs a KDF squad to freeze side 1's line | consistent; the mirror is pinned in Task 4 | — |
@@ -146,7 +149,7 @@ Read, not run. A ruling (R-F4-n) stands until the controller's pre-flight overtu
 | 5 | yes | rally per side; `canSetRally` is the click-time pre-check |
 | 5b | yes | five kinds through one set-aside list; `COMMAND_KINDS`/`cleanCommand`/`validateCommand` in the same commit (P1 pin) |
 | 6 | yes | moves four pins for one reason; the command-path equivalence extends to the cancel and the rally |
-| 7 | fixed | `group` not `tag` (R-F4-7); the four readers (R-F4-9); the line bound per side (R-F4-4) |
+| 7 | fixed | `group` not `tag` (R-F4-7); the five readers, one render-side (R-F4-9); the line bound per side (R-F4-4) |
 | 8 | yes | whole-logistics purse (S-2) |
 | 9 | fixed | "no `built` for side 1" became "`built` side 1, app silent" (R-F4-1); side 1's start/rate source when `ctx.economy` is absent is `enemy.production` |
 | 10 | yes | F2's banking gates re-read; largest queue printed (R-F4-4) |
@@ -170,7 +173,7 @@ rules-file loader answers from the doctrine menu. *Cost if wrong:* a second cont
 | F-4 | `rearOf(side)` (C-R17) | `structureExit(productionAnchor(side))`, else `player_start` for side 0 | lines per camp; Task 7's override | consistent: `rearOf` stays "first living anchor"; with the override a side-1 camp becomes side 1's rear, as C-R17 intends ("once side 1 has a camp") | R-F4-9 routes `productionAnchor` through the override |
 | F-5 | contest | `CONTEST_RADIUS_SQ` in `tuning.ts` (C-R7); `holdView: HoldView & VentView` (~L726, `isAir`, `tunnelIn`) | D1 per line | consistent | Task 4 reuses `holdView` and imports the constant |
 | F-6 | `economyHash` | appends `logisticsOf(1)`, zone states and cut codes after F3's words (C-R17, C-R18) | Task 6's line fold | consistent: Task 6 replaces the build-queue fold IN PLACE (after intel, before the identifications) and appends nothing after F2's words | — |
-| F-7 | `MissionContext` | `roadMask` filled at seven non-test sites (C-R4) | `economy`, optional | consistent: absent at every site, so no site changes | — |
+| F-7 | `MissionContext` | `roadMask` filled at eight non-test sites (F2 tip; C-R4 listed seven) | `economy`, optional | consistent: absent at every site, so no site changes | — |
 | F-8 | `population(side)` (F3) | side 0 counts `buildQueue` only (F3 D2) | per-side line reservation | consistent; replaced in Task 3 | — |
 | F-9 | `MISSION_EVENT_KINDS`, `cues.ts`, `alerts.test.ts` | F2 adds `zoneHolder`, `corridor` (silent rows) | F4 adds no kind; `built` gains a field | consistent | R-F4-1 |
 | F-10 | playtest | F2's 36 banking lines, `BANKING_OVER_30_WINNERS` 15, `ZONE_PASSIVE_INCOME` 0; F2 Task 8 data **held for the lead** (C-R1) | Task 10 re-proves | serial timing can move a plan's purse at the end, so the banking line can move | Task 10 re-reads both gates; if F2's Task 8 data lands before F4, re-read the baselines |
@@ -492,8 +495,8 @@ against `main` `199065f1`, F2's `61f2f04a` and N2's plan (refresh of 16 Oct). No
 4. **A rally set on the tick its item finishes, through the command path.** Expected: `applyQueued`
    runs before `sim.tick()`, so the item that finishes on that tick walks to the new point. Pinned
    in Task 5b.
-5. **A side-1 line next to a side-1 squad, and a side-0 line next to a side-0 drone.** Expected:
-   neither is contested (own side; aircraft). Pinned in Task 4.
+5. **A side-0 line next to a side-1 drone, and a side-1 line next to a side-1 squad.** Expected:
+   neither is contested (aircraft; own side). Pinned in Task 4.
 
 ---
 
@@ -507,6 +510,7 @@ against `main` `199065f1`, F2's `61f2f04a` and N2's plan (refresh of 16 Oct). No
 | `packages/sim/src/mission.ts` (+ `mission.test.ts`, new `production-runtime.test.ts`) | `MissionContext.economy`; per-side base accrual; lines per anchor per side; `spend`/`refund`; per-side refusals; contested; rally; `productionOf`; `built.side`; the enemy purse and spender; `applyQueued`'s five kinds | 2b, 3, 4, 5, 5b, 9 |
 | `packages/sim/src/sim.ts` | `Command` gains `cancelBuild`, `setRally`, `clearRally` and `build.line?`; `RuntimeCommand`; `queueCommand`; `structureProducesFor` (R-F4-9) | 5b, 7 |
 | `packages/sim/src/structures.ts`, `data/schemas/mission.schema.json` | `structures[].side`; `enemy.production` | 7 |
+| `packages/render/src/three/ThreeRenderer.ts` (+ test) | `structureIsOwn` reads `sim.structureProducesFor(s)` (R-F4-9) | 7 |
 | `tools/validate_production.mjs` (+ `.d.mts`), `tools/src/validate_production.test.ts`, `tools/validate_data.mjs` | the `enemy.production` and line-count rules | 7 |
 | `packages/sim/src/determinism.test.ts` | The economy and runtime-digest re-pin | 6 |
 | `packages/sim/src/index.ts` | exports `productionOf`'s row type, `lineContested`, the two bounds | 2, 3, 4 |
@@ -631,7 +635,10 @@ private baseUnitsPerTick(side: 0 | 1): number;
   - with `economy` and a mission `resources` block that says otherwise, the context wins:
     `logistics_start: 50` and `logisticsStart: [400, 0]` reads 400;
   - side 1's base rate is not halved by a cut convoy: on F2's convoy fixture with the convoy cut,
-    after 1200 steps side 0 earned 60 and side 1 earned 60 with rates `[120, 60]`.
+    after 1200 steps side 0 earned 60 and side 1 earned 60 with rates `[120, 60]`;
+  - `logisticsStart: [0, 894785]` throws at construction, `'mission <id>: economy.logisticsStart[1]
+    894785 is above 894784, the largest start an Int32 purse in 1/2400ths holds'`; `[0, 894784]`
+    constructs and reads `logisticsOf(1)` 894784 (R-F4-4).
 - [ ] **Step 2: Implement.** The constructor seeds `purse[s] = start[s] * PURSE_UNITS`;
   `stepIncome` adds `baseUnitsPerTick(0)` to `purse[0]` and `baseUnitsPerTick(1)` to `purse[1]`
   (and to `earnedUnits[s]`), in that order, where F2 adds side 0's today.
@@ -639,7 +646,7 @@ private baseUnitsPerTick(side: 0 | 1): number;
   `economy`. `pnpm playtest` and `pnpm balance` byte-identical.
 - [ ] **Step 4: See it red.** Feed side 1 side 0's base rate (`baseUnitsPerTick(0)` into
   `purse[1]`): `ECONOMY_PIN` goes red, because `logisticsOf(1)` is hashed (C-R18). Apply the convoy
-  halving to side 1: the cut-convoy test fails.
+  halving to side 1: the cut-convoy test fails. Compare the ceiling with `>=`: the 894784 case throws.
 
 ---
 
@@ -694,7 +701,21 @@ production needs one standing'`); the population cap (`popCap(side)`, `populatio
 **the queue bound** (R-F4-4): with `line` named, that line holds `MAX_LINE_QUEUE` waiting items; with
 none named, every line of the side does → `'production queue full (16)'`.
 
-- [ ] **Step 1: Write the failing tests** (`production-runtime.test.ts`; a 40 × 12 map; unit
+**A dead camp's line keeps its index for the mission** (*Ruled 15 Oct (coordinator, lead-delegated
+window)*): every verb naming it refuses (`requestBuild`, `canBuild`, `cancelBuild`, `setRally`,
+`clearRally`), D6's shortest-queue choice and building skip it, `productionLines(side)` still lists it
+(so the indices commands carry never shift) with `current` null and `queued` 0, and the other lines
+keep their indices. Why: a command stamped on one machine's tick must name the same line on the
+other, and an index that renumbers when a camp falls would retarget an in-flight cancel. *Cost if
+wrong:* the dock filters dead lines itself.
+
+- [ ] **Step 1: Audit, before any edit.** List every existing test and harness that relies on
+  parallel deployment or on the old `buildQueue`, and say how each changes: `mission.test.ts`
+  ~L5097–5105 (two builds delivered together), `population-census.test.ts` (the reservation),
+  `packages/app/src/ui/production.test.ts`'s runtime mocks (the `production` shape), and the
+  report-only `tools/src/backtest/bs_ladder.ts` and `wh_pacing.ts`. A test that asserted parallel
+  delivery is rewritten to the serial expectation in this task, never deleted.
+- [ ] **Step 2: Write the failing tests** (`production-runtime.test.ts`; a 40 × 12 map; unit
   `n2_squad` costing 300, `buildTimeS` 2 = 40 ticks, population 1, answered for both sides by a
   side-aware `unitInfo`; `economy: { logisticsStart: [1200, 1200], logisticsRatePerMin: [0, 0] }`;
   a `camp` type with `produces_for: 0` and a `camp_s1` type with `produces_for: 1`):
@@ -711,6 +732,16 @@ none named, every line of the side does → `'production queue full (16)'`.
     and `buildBlockedReason('n2_squad')` reads `'field camp destroyed — no production'`;
   - **the camp dies on its item's finishing tick** (Review Focus 3): destroyed at tick 50 before
     `rt.step`: no `built` at 50;
+  - **a dead camp's line keeps its index**: two side-0 camps, one build on each at tick 10, camp 0
+    destroyed at tick 30: line 1 delivers at tick 50, `productionLines(0).length` stays 2,
+    `productionLines(0)[0]` reads `current: null, queued: 0`, a build with no line named goes to line
+    1, and `requestBuild('n2_squad', 0)`, `canBuild('n2_squad', 0)`, `cancelBuild(0, -1)` and
+    `setRally(0, fx.from(20), fx.from(5))` all return false;
+  - **Review Focus 2, the camp that died this tick**: one item in progress and one queued on camp 0
+    (purse 1200 − 600), camp 0 destroyed at tick 30, then `cancelBuild(0, 0)` in the same step
+    returns false and `logisticsOf(0)` reads the D4 refund once (900), not twice (1200);
+  - **a side-1 camp death refunds `purse[1]`**: a side-1 item in progress and one queued, the
+    `camp_s1` destroyed: `[logisticsOf(0), logisticsOf(1)]` reads `[1200, 900]`;
   - **per side (LD6 asks 1–3)**: `requestBuild('n2_squad', undefined, 1)` on the `camp_s1` line is
     accepted, `[logisticsOf(0), logisticsOf(1)]` reads `[1200, 900]`, and at tick 50 the event is
     `{ kind: 'built', tick: 50, unit: 'n2_squad', side: 1 }`; `unitInfo` was asked
@@ -718,8 +749,13 @@ none named, every line of the side does → `'production queue full (16)'`.
   - a side-1 build with no side-1 camp is refused with `'no field camp — production needs one
     standing'`, even with `player_start` authored, and `logisticsOf(1)` stays 1200;
   - a side-1 item with `intel: 10` is refused `'not available in the field'`, purse unchanged;
-  - `popCaps: [null, 1]`: a second side-1 build is refused, `buildBlockedReason('n2_squad', 1)` reads
-    `'population cap reached (1/1)'`, `popCapped('n2_squad', 1)` is true, and side 0 is unaffected;
+  - `popCaps: [null, 1]`, with a side-0 build queued FIRST: a second side-1 build is refused,
+    `buildBlockedReason('n2_squad', 1)` reads `'population cap reached (1/1)'`, `popCapped('n2_squad',
+    1)` is true, `populationView(1)` reads `{ used: 1, cap: 1 }`, and side 0 is unaffected (the queued
+    side-0 build is what turns the "count every line regardless of side" mutation red);
+  - `canBuild('n2_squad', undefined, 1)` agrees with `requestBuild` on side 1 for each of: funded
+    (`[true, true]`), unfunded (`[false, false]`), capped (`[false, false]`); `canBuild('n2_squad', 1,
+    1)` with one side-1 line reads false;
   - the F3 cap and reservation bind across lines: `popCaps: [2, null]`, two lines, three builds: the
     third is refused (one reservation pool per side);
   - `cancelBuild` refunds exactly: side 0 `[1200 → 900 → 1200]`, side 1 likewise on `purse[1]`;
@@ -736,8 +772,8 @@ none named, every line of the side does → `'production queue full (16)'`.
     'sarim_rifles', side: 1 }` produces no `arrival`; `announce` produces no `reinforcements`; a
     tutorial `mission` await on `built` is not satisfied by a side-1 event and is by a side-0 one;
     `describeMissionEvent` still returns null for both.
-- [ ] **Step 2: Implement.** Lines are built in `start()` after `raiseMissionStructures` (which
-  runs before any force spawns; `mission.ts` ~L1943 on F2), from the structures whose producer side
+- [ ] **Step 3: Implement.** Lines are built in `start()` after `raiseMissionStructures` (which
+  runs before any force spawns; defined ~L1943, called from `start()` ~L1446 on F2), from the structures whose producer side
   is the line's side, in structure index order (map and mission alike); a side-0 mission with none
   gets one `player_start` line (D2). More than `MAX_PRODUCTION_LINES` for a side throws.
   `productionAnchor(side)` stays for `firstRefusal`'s camp clause and F2's `rearOf`. The flat
@@ -750,17 +786,20 @@ none named, every line of the side does → `'production queue full (16)'`.
   `startTick = readyTick - buildTicks` and `readyTick = tick + ticksLeft`. App: `alerts.ts`,
   `announce.ts` and `tutorial/runtime.ts` read `built` only when `e.side === 0`; `mix-scenes.ts`'s
   literal gains `side: 0`.
-- [ ] **Step 3: Measure.** Every pin in "Global pins" reads back unchanged, including both economy
+- [ ] **Step 4: Measure.** Every pin in "Global pins" reads back unchanged, including both economy
   pins and both runtime-digest pins, and N2's command-path equivalence. `playtest`: only the lines
   Task 1 predicted move; nothing else. Do not edit plans here; Task 10 owns that. If a building plan
   now **fails**, stop: Task 10 must land before this task's commit can be green, so reorder within
   the branch and say so.
-- [ ] **Step 4: See it red.** Put every build on line 0 whatever D6 says: "two camps are two lines"
+- [ ] **Step 5: See it red.** Put every build on line 0 whatever D6 says: "two camps are two lines"
   and the D6 test fail. Keep the old parallel push beside the line: the first test fails. Spend from
   `purse[0]` whatever the side: the per-side test reads `[900, 1200]`. Count every line in
   `population(side)` regardless of side: the cap test fails. Let side 1 fall back to `player_start`:
   the no-camp test fails. Fold `ticksLeft` in place of `readyTick`: `ECONOMY_PIN` goes red (the flat
   fixture's 2300 build is still in progress at tick 2400). Drop the alerts filter: the app test fails.
+  Drop dead lines from `productionLines`: line 1 becomes line 0 and the dead-index test fails. Skip
+  the dead-line check in `cancelBuild`: the same-tick cancel refunds twice (1200). Drop `side` from
+  `canBuild`'s refusal: the side-1 agreement test reads `[true, false]` when capped.
 
 ---
 
@@ -844,7 +883,9 @@ canSetRally(line: number, x: Fx, y: Fx, side: 0 | 1 = 0): boolean;
     enemy out of reach; the control is the same order with `sweep: true`, which walks off
     (`stepSweep`, ~L5986, skips `sweepOrder` 0, #537);
   - the rally order reaches the sim through `queueCommand` and nowhere else: a spy on the command
-    queue sees one `attackMove` with the spawned ids and no `sweep`.
+    queue sees one `attackMove` with the spawned ids and no `sweep`;
+  - `clearRally` after `setRally`: the next finished unit stays at the exit (no `attackMove` queued
+    for it), and `productionLines(0)[0].rally` reads null.
 - [ ] **Step 2: Implement.** `spawnPlacement` returns the spawned ids (`number[]`, ~L1983 on F2);
   queue `{ kind: 'attackMove', ids, x, y }` with no `sweep` for them in the same tick. The blocked
   check is the runtime's (the sim's own goal-setters snap a blocked goal, `nearestOpenTile`, `sim.ts`
@@ -852,7 +893,8 @@ canSetRally(line: number, x: Fx, y: Fx, side: 0 | 1 = 0): boolean;
 - [ ] **Step 3: See it red.** Set `sweep: true` on the rally order: "holds on arrival" fails. Write
   `goalX/goalY` directly instead of queueing a command (both private, `sim.ts` ~L983; the mutation
   needs a cast): the spy test fails, and invariant 4 says why it must. Accept blocked tiles: the `#`
-  test fails. Ignore `side` and look the line up in side 0's list: the side-1 test fails.
+  test fails. Ignore `side` and look the line up in side 0's list: the side-1 test fails. Make
+  `clearRally` a no-op that returns true: the clear test sees an `attackMove` queued.
 
 ---
 
@@ -914,7 +956,7 @@ adds `onMap(cmd.x, cmd.y)`; the blocked-tile refusal stays the runtime's (`SeatW
   - `ownership.test.ts`: single-player seat 0: side 0 passes and side 1 drops for each kind;
     `setRally` off the map drops; **versus: all three drop for every side**;
   - `advisor.test.ts`: `describeCommand({ kind: 'cancelBuild', side: 0, line: 0, index: -1 })` is
-    `'Cancel line 0, item -1'`; `setRally` at `fx.from(2), fx.from(3)` on line 0 is
+    `'Cancel the item in progress on line 0'`, and with `index: 2` it is `'Cancel line 0, item 2'`; `setRally` at `fx.from(2), fx.from(3)` on line 0 is
     `'Rally line 0 at (2, 3)'`; `clearRally` on line 0 is `'Clear rally on line 0'`; `build` with
     `line: 1` is still `'Build inf_squad'`;
   - `mcp-tools.test.ts`: `unknown verb` for `cancelBuild`, `setRally` and `clearRally`.
@@ -925,6 +967,7 @@ adds `onMap(cmd.x, cmd.y)`; the blocked-tile refusal stays the runtime's (`SeatW
   becomes a `switch (c.kind)` with the skip first. `COMMAND_KINDS` gains the three; `cleanCommand`
   the three cases and `build`'s `line`; `validateCommand` the three cases. `describeCommand` the three
   cases; `en.json`: `"net.advisor.cmd.cancelBuild": "Cancel line {line}, item {index}"`,
+  `"net.advisor.cmd.cancelCurrent": "Cancel the item in progress on line {line}"` (index -1),
   `"net.advisor.cmd.setRally": "Rally line {line} at ({x}, {y})"`,
   `"net.advisor.cmd.clearRally": "Clear rally on line {line}"`. `ORDER_VERBS`' filter drops the
   three (a model verb is an N3/N4 follow-up).
@@ -953,30 +996,35 @@ adds `onMap(cmd.x, cmd.y)`; the blocked-tile refusal stays the runtime's (`SeatW
   (clear of `depot`, `crossroads` and the convoy route, so F2's zone and cut words do not move for a
   second reason), a rally point, a cancel, and an enemy squad that contests one camp for 10 s; the
   cancel and the rally go through `cancelBuild`/`setRally` in the direct path and through commands in
-  N2's `'command'` path.
+  N2's `'command'` path. Two pair tests sit beside the pins: **(a)** the flat fixture run twice,
+  differing only in the rally point (`(14, 30)` against `(15, 30)`): `expect(a.rt.economyHash()).not.toBe(b.rt.economyHash())`;
+  **(b)** two one-line fixtures differing only in the line's side (a `camp` against a `camp_s1`,
+  each with one item in progress): the hashes differ.
 - [ ] **Step 2: Re-pin once.** Commit: *"economy pins re-pinned: serial production lines per camp,
   the contested pause and rally points (G3 Q3, lead 4 Oct); the fixtures gained a second camp, a
   rally point, a cancel and a contested window; ECONOMY_PIN was N, ECONOMY_PIN_RELIEF was M;
   RUNTIME_DIGEST_PIN and _RELIEF move with them, because digest() folds economyHash() first (N2
   Task 6), was P / Q"*. Coverage: assert the replay passes through a frozen line, a refund and a
   rally arrival. N2's equivalence test reproduces the new `ECONOMY_PIN` and `_RELIEF` exactly.
-- [ ] **Step 3: See it red.** Hash `ticksLeft` but not `rally`: a fixture variant with a different
-  rally point hashes the same, and the pair test written for it fails. Drop the line's `side` word: a
-  pair of one-line fixtures differing only in the line's side hashes the same.
+- [ ] **Step 3: See it red.** Hash `ticksLeft` but not `rally`: pair test (a) reads equal hashes and
+  fails. Drop the line's `side` word: pair test (b) reads equal hashes and fails.
 
 ---
 
 ## Task 7: an enemy camp and its menu, in the schema
 
-**Model:** sonnet. **Agent:** `mission-author`. **Depends:** Task 1.
+**Model:** sonnet. **Agent:** `mission-author`. **Depends:** Tasks 1 and 3.
 
 **Files:** `data/schemas/mission.schema.json`, `packages/sim/src/structures.ts`,
-`packages/sim/src/sim.ts` (the per-structure override), `packages/sim/src/mission.ts` (types and the
-four readers), `tools/validate_production.mjs` (+ `.d.mts`), `tools/src/validate_production.test.ts`,
+`packages/sim/src/sim.ts` (the per-structure override), `packages/sim/src/mission.ts` (types and four
+of the five readers), `packages/render/src/three/ThreeRenderer.ts` (`structureIsOwn`, the fifth, ~L5857)
+and its test, `tools/validate_production.mjs` (+ `.d.mts`), `tools/src/validate_production.test.ts`,
 `tools/validate_data.mjs` (wiring, as F2 wired `validate_income.mjs`).
 *`produces_for` is a TYPE field (`structures.ts` ~L68/L102, `StructureType.producesFor`), so a
 per-placement `side` is new per-structure state in `Sim`, fixed at `start()` and left out of
-`hash()`, which keeps the sim pins unmoved (R).*
+`hash()`, which keeps the sim pins unmoved (R).* `Sim.setStructureProducesFor` is setup-only state,
+written at `start()` and omitted from `hash()`; that is acceptable because Task 6 folds every line's
+side into `economyHash`, so a client built with a different override diverges on the economy hash.
 
 **Interfaces:**
 
@@ -986,7 +1034,7 @@ per-placement `side` is new per-structure state in `Sim`, fixed at `start()` and
 "enemy.production": { "type": "object", "additionalProperties": false,
   "required": ["menu"],
   "properties": {
-    "logistics_start": { "type": "integer", "minimum": 0 },
+    "logistics_start": { "type": "integer", "minimum": 0, "maximum": 894784 },
     "logistics_rate_per_min": { "type": "integer", "minimum": 0 },
     "menu": { "type": "array", "minItems": 1, "items": { "type": "string" } },
     "rally": { "type": "string", "description": "Map marker built units walk to." },
@@ -1012,12 +1060,15 @@ mission JSON for any unit id, so `enemy.production.menu` is loaded at boot. None
   `player_start` line); `buildBlockedReason('n2_squad', 1)` reads null and side 0's camp clause reads
   as for a mission with no camp; side 1's own demolisher does not set charges on it (the
   `stepDemolition` skip, `sim.ts` ~L5499) while a side-0 one does; F2's rear for side 1 is that
-  camp's exit (an income zone held by side 1 gets a route).
-- [ ] **Step 3: Implement.** The four readers go through `structureProducesFor`; `declaresProduction`
+  camp's exit (an income zone held by side 1 gets a route); `ThreeRenderer.structureIsOwn` reads a
+  `camp` placed with `side: 1` as not own for a side-0 viewer and as own for a side-1 viewer.
+- [ ] **Step 3: Implement.** The five readers go through `structureProducesFor` (the render side's
+  `structureIsOwn` replaces `stype.producesFor` with `this.sim.structureProducesFor(s)`); `declaresProduction`
   reads `spec.side ?? type.produces_for`. `validate:data` passes on the shipped tree (no mission uses
   either field, D7).
 - [ ] **Step 4: See it red.** Remove the side-1 camp check: a menu with nowhere to build passes.
-  Leave `stepDemolition` on the type field: side 1's demolisher sets charges on its own camp.
+  Leave `stepDemolition` on the type field: side 1's demolisher sets charges on its own camp. Leave
+  `structureIsOwn` on the type field: the render test reads the side-1 camp as own for side 0.
 
 ---
 
@@ -1139,7 +1190,9 @@ export function spendDown(menu: readonly LineItem[], last: number, purse: number
   in the PR body.
 - [ ] **Step 4:** The network spec §7.1 and §11b.4: which LD6 asks landed and where (this plan's
   table), that side 1 is still skipped by `applyQueued` and dropped in versus (N3 lifts both), and
-  that `built.side` is filtered to 0 in the app (N3 switches to `viewerSide`). Name the commits.
+  that `built.side` is filtered to 0 in the app (N3 switches to `viewerSide`). Name the commits. The
+  N3 prep note (`2026-10-16-net-n3-prep.md`, #655) §5 ask 7 reads the ruled names,
+  `MissionContext.economy = { logisticsStart, logisticsRatePerMin }` (whole logistics, by side).
 
 ---
 
@@ -1164,6 +1217,8 @@ export function spendDown(menu: readonly LineItem[], last: number, purse: number
 - [ ] **2. Re-read at pre-flight** (named because they depend on work not merged on 16 Oct):
   - F2's final names: `purse`, `PURSE_UNITS`, `logisticsOf`, `baseUnitsPerTick`, `stepIncome`'s
     place before the deploy loop, `holdView`, `rearOf`, `CONTEST_RADIUS_SQ` in `tuning.ts`;
+  - C-R20's final shapes of `rearOf`, `holdView` and `stepIncome` (F2 Task 11, the coordinator's,
+    pending at `3e7530bf`);
   - F2's final `ECONOMY_PIN` / `_RELIEF` (275731552 / 145368021 at `9f4fd7d7`; the final wave may
     move them) and `BANKING_OVER_30_WINNERS`;
   - whether F2's Task 8 data (zones on four missions, C-R1) landed: if so, re-take the playtest
