@@ -1,7 +1,6 @@
 # N2 prerequisites outside `packages/sim`: the versus-runtime decision, a short plan, and what N2 needs from Lane C
 
-**Status:** proposal, docs only. Nothing here is ruled. Every "Lead decision needed" item states a
-recommendation first.
+**Status:** docs only. L1–L5 below were each accepted as recommended: Ruled 15 Oct (coordinator, lead-delegated). P1–P7 are the plan that follows.
 
 **Spec:** `docs/superpowers/specs/2026-10-10-network-game-design.md`, §7.1 (sim changes), §9 (N2 row),
 §10 (decisions 18, 19), §11b.3 (N4 rulings D7, D8), §11b.4 (N2's prerequisites, sim surfaces).
@@ -74,7 +73,7 @@ P7 corrects the spec.
 
 ## 3. Recommendation
 
-**Lead decision needed (L1): option B.** N2 makes the sim seat-aware and the runtime
+**L1: option B. Ruled 15 Oct (coordinator, lead-delegated).** N2 makes the sim seat-aware and the runtime
 network-hashable. A versus room keeps running no `MissionRuntime`, and the first versus runtime is
 N3's opening task, built on the per-side state F2–F4 deliver. The reasons:
 
@@ -88,19 +87,19 @@ N3's opening task, built on the per-side state F2–F4 deliver. The reasons:
 
 Sub-points, each also needing the lead:
 
-- **L2. Per-seat unit types leave N2 (recommended), if P5 confirms they need no sim code.**
+- **L2. Per-seat unit types leave N2, if P5 confirms they need no sim code. Ruled 15 Oct (coordinator, lead-delegated).**
   `Sim.addUnitType` (`sim.ts` ~L1430) appends with no id check, so seat 1's patched roster can be
   registered a second time under the same ids. `outcome.ts` and `scoreboard.ts` look costs up by
   `unitTypes[...].id`, which still resolves. What remains is app work (`buildMatchWorld`, a type map
   per side) and render work (`unitKitTiers` is keyed by type id), landed with "bring your brigade".
-- **L3. `setStance` in N2 ships `hold` and `ambush` only (recommended).** `ambush` routes to
+- **L3. `setStance` in N2 ships `hold` and `ambush` only. Ruled 15 Oct (coordinator, lead-delegated).** `ambush` routes to
   `Sim.setAmbush` (`sim.ts` ~L1901). `patrol` needs the runtime's `stepPatrols`, so it moves to N3.
-- **L4. The data digest is folded by each client from its own content (recommended)**, rather than
+- **L4. The data digest is folded by each client from its own content (Ruled 15 Oct (coordinator, lead-delegated))**, rather than
   minted by the room. The Worker imports `@lions/data` only for its telemetry subpath, never the
   unit, structure or map content a digest would cover. And a room-minted constant that both clients
   fold cannot catch two clients with different data. This rewords §11b.4's "the room's
   `dataDigest: 0` becomes a real digest".
-- **L5. Schedule: N2 directly after F3, carrying F2 Task 1 as its first task (recommended).** F2
+- **L5. Schedule: N2 directly after F3, carrying F2 Task 1 as its first task. Ruled 15 Oct (coordinator, lead-delegated).** F2
   then starts at its Task 2. See §5.
 - **A restatement of CLAUDE.md's rule, not a new ruling:** when N3 builds the versus runtime, its rules are data (a schema-validated file, mission-shaped
   or its own), never a mission synthesised in TypeScript. CLAUDE.md: missions are declarative data.
@@ -184,7 +183,7 @@ grep reports it missing.
 | 12 | Per-seat unit types | "bring your brigade" | app and render, if P5 confirms (L2); else N2 | any time | no sim pin |
 
 **Scheduling.** N2 cannot start until F3 has merged with `gates` and `determinism` green (rows 3 and
-5). It needs nothing from F2 beyond Task 1 and nothing from F4 (rows 4, 10 and 11). **Recommended
+5). It needs nothing from F2 beyond Task 1 and nothing from F4 (rows 4, 10 and 11). **Ruled 15 Oct (coordinator, lead-delegated)
 (L5):** cut N2 from `main` straight after F3. It opens with F2 Task 1 (the integer purse,
 hash-neutral) and then rows 6–9, and F2 resumes at its Task 2 after N2. On the stage 4 calendar that
 puts N2 in F2's old slot and pushes F2, F4 and vehicle spacing back by N2's length (one plan,
