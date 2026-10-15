@@ -117,11 +117,17 @@ export const TIERS_MAX_TRACKS = 8;
 export const TIERS_MAX_TIER = 16;
 /** `tiers` is `{ typeId: { track: n } }` with every leaf an integer in
  *  0..TIERS_MAX_TIER, at most TIERS_MAX_TYPES ids and TIERS_MAX_TRACKS tracks
- *  an id. Own enumerable keys only (`Object.keys`/`Object.values`). */
+ *  an id. Own enumerable keys only (`Object.keys`/`Object.entries`), and no
+ *  key at either level may be `__proto__`, `constructor` or `prototype`:
+ *  JSON.parse makes each an OWN key, which any later spread or assignment
+ *  copy turns into a prototype or an inherited read. No shipped type id or
+ *  track carries one of those names. */
+const RESERVED_KEYS: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype']);
 function isTiers(v: unknown): v is Record<string, Record<string, number>> {
   if (!isRecord(v) || Object.keys(v).length > TIERS_MAX_TYPES) return false;
-  return Object.values(v).every((t) => isRecord(t) && Object.keys(t).length <= TIERS_MAX_TRACKS &&
-    Object.values(t).every((n) => isInt(n) && n >= 0 && n <= TIERS_MAX_TIER));
+  return Object.entries(v).every(([id, t]) => !RESERVED_KEYS.has(id) && isRecord(t) &&
+    Object.keys(t).length <= TIERS_MAX_TRACKS &&
+    Object.entries(t).every(([track, n]) => !RESERVED_KEYS.has(track) && isInt(n) && n >= 0 && n <= TIERS_MAX_TIER));
 }
 
 function isSeatConfig(v: unknown, seat: Seat): v is SeatConfig {

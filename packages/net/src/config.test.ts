@@ -55,6 +55,21 @@ describe('validateConfig: SeatConfig.tiers is the account\'s nested per-type sha
     expect(validateConfig(withTiers({ mbt_lavi: { armour: Infinity } }))).toBeNull();
     expect(validateConfig(withTiers({ mbt_lavi: { armour: NaN } }))).toBeNull();
   });
+  it('refuses __proto__, constructor and prototype as a key at either level (JSON-parsed, so each is an OWN key)', () => {
+    // JSON.parse defines "__proto__" as an own property rather than setting
+    // the prototype, so this is the shape a replay file or a stored config
+    // really arrives in. Each control beside it is the same text with the
+    // key renamed, so the refusal is the key and nothing else.
+    const parsed = (text: string) => validateConfig(withTiers(JSON.parse(text)));
+    for (const key of ['__proto__', 'constructor', 'prototype']) {
+      expect(parsed(`{"${key}": {"armour": 1}}`), `type ${key}`).toBeNull();
+      expect(parsed(`{"mbt_lavi": {"${key}": 1}}`), `track ${key}`).toBeNull();
+    }
+    expect(parsed('{"proto": {"armour": 1}}')).not.toBeNull();
+    expect(parsed('{"mbt_lavi": {"constructors": 1}}')).not.toBeNull();
+    // An own "__proto__" really is an own key here (not a prototype set).
+    expect(Object.keys(JSON.parse('{"__proto__": {"armour": 1}}'))).toEqual(['__proto__']);
+  });
 });
 
 describe('fnv1a32', () => {
