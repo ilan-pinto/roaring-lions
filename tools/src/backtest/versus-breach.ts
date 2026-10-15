@@ -20,7 +20,10 @@
 // already stopped at its goal when it starts on a wall is counted too, though
 // the wall cost it no movement), wall HP removed by a breaching shooter
 // (against wall HP removed any other way: splash, a stray round; demolition is
-// 0 here, nobody is ordered to demolish), and walls brought down.
+// 0 here, nobody is ordered to demolish), and walls brought down. The HP split
+// lags by a tick, like the halted bound: a tick's events are folded before
+// that tick's `curStructure` is read, so wall HP on the tick a unit first
+// acquires a wall counts as "other", and breaching HP reads slightly low.
 //
 // The play is the versus probe's own: each side's whole force attack-moves on
 // the other's living centroid, re-ordered every 20 s, decided by the real rule
@@ -305,17 +308,23 @@ export function pinWindow(mapId: MapId, how: 'helper' | 'room', breach: BreachFn
 // Statistics
 // ---------------------------------------------------------------------------
 
-/** Two-sided exact binomial (sign) test at p = 1/2: `plus` successes of `n`. */
+/**
+ * Two-sided exact binomial (sign) test at p = 1/2: `plus` successes of `n`.
+ * Each term C(n, i) / 2^n is built in log space, so no intermediate overflows:
+ * `2 ** n` is Infinity from n = 1024 and the plain form returned NaN there.
+ * A term below the smallest double underflows to 0, which is the right answer.
+ */
 export function signTestP(plus: number, n: number): number {
   if (n === 0) return 1;
   const k = Math.min(plus, n - plus);
+  const logHalfN = n * Math.LN2;
   let tail = 0;
-  let c = 1; // C(n, 0)
+  let logC = 0; // ln C(n, 0)
   for (let i = 0; i <= k; i++) {
-    tail += c;
-    c = (c * (n - i)) / (i + 1);
+    tail += Math.exp(logC - logHalfN);
+    logC += Math.log(n - i) - Math.log(i + 1);
   }
-  return Math.min(1, (2 * tail) / 2 ** n);
+  return Math.min(1, 2 * tail);
 }
 
 /** Camp B's score in a game: 1 a win, 1/2 a draw, 0 a loss. */

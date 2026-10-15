@@ -103,6 +103,17 @@ describe('the sign test', () => {
     expect(signTestP(9, 10)).toBeCloseTo((2 * 11) / 1024, 12);
     expect(signTestP(2, 20)).toBeCloseTo((2 * (1 + 20 + 190)) / 2 ** 20, 12);
   });
+
+  it('stays a probability past n = 1023, where 2 ** n overflows a double', () => {
+    for (const n of [1023, 1024, 1030, 3000]) {
+      expect(signTestP(Math.floor(n / 2), n)).toBe(1);
+      const lopsided = signTestP(Math.floor(n / 2) - 200, n);
+      expect(Number.isFinite(lopsided)).toBe(true);
+      expect(lopsided).toBeGreaterThanOrEqual(0);
+      expect(lopsided).toBeLessThan(1e-6);
+    }
+    expect(signTestP(0, 1100)).toBe(0); // 2 * 2^-1100 underflows to 0, not NaN
+  });
 });
 
 describe('effectOf', () => {
