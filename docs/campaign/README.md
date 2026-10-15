@@ -58,7 +58,7 @@ in step with it.
   The issued force is the brigade's to lend. A placement may field a unit whose
   gate is closed; it is on loan for that mission and returns afterwards (its mark
   on the unit card, selection chip and Field order card lands with WP-S-F #184;
-  a loaned survivor never joins `roster.surviving_units`). Gates govern what you
+  a loaned survivor never joins `roster.surviving_units`; open question for the lead: a gated unit that arrives by a `reinforce` trigger is judged by nobody, the loan covers `starting_force` only, and it is kept -- today only `wadi_halam_5_depot`'s second `demo_squad`). Gates govern what you
   build and what you upgrade to. Restraint shapes the issued force through
   `upgrades_to` and `gate_only` (lead, G3 Q5, 4 Oct). There is **no population
   cap in the campaign**: `resources.pop_cap` exists for skirmish and co-op

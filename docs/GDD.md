@@ -255,7 +255,7 @@ Carry-over persists between missions rather than within one. Missions declare a 
 
 Beit Sahwan III reads `tunnel_mouths_marked`. If Mission I went badly the list is short and the player finds shafts under fire. This also creates free replay value: replay Mission I for a better ledger.
 
-**The issued force is the brigade's to lend.** A placement may field a unit whose gate is closed; it is on loan for that mission and returns afterwards (its mark on the unit card, selection chip and Field order card lands with WP-S-F #184). Gates govern what you build and what you upgrade to. Restraint shapes the issued force through `upgrades_to` and `gate_only` (lead, G3 Q5, 4 Oct). A loaned survivor does not join `roster.surviving_units`: the brigade does not keep what it was lent.
+**The issued force is the brigade's to lend.** A placement may field a unit whose gate is closed; it is on loan for that mission and returns afterwards (its mark on the unit card, selection chip and Field order card lands with WP-S-F #184). Gates govern what you build and what you upgrade to. Restraint shapes the issued force through `upgrades_to` and `gate_only` (lead, G3 Q5, 4 Oct). A loaned survivor does not join `roster.surviving_units`: the brigade does not keep what it was lent. (Open question for the lead, F3 final review: a gated unit that arrives by a `reinforce` trigger is judged by nobody -- the loan covers `starting_force` only -- and is kept; today only `wadi_halam_5_depot`'s second `demo_squad`, 75 s in, behind the same Conduct 77 gate as the loaned starting one.)
 
 ### Objective vocabulary
 
