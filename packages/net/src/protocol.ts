@@ -35,6 +35,15 @@ export const COMMAND_KINDS = [
   'move', 'attackMove', 'halt', 'garrison', 'load', 'unload', 'reveal', 'callStrike', 'smoke', 'demolish', 'chargeTunnel', 'attack',
 ] as const satisfies readonly Command['kind'][];
 
+/** The other half of the pin (N2 prerequisite P1): `satisfies` above catches a
+ *  kind that is not a `Command`, this catches a `Command` kind missing from the
+ *  list. Add a kind to the sim's `Command` and forget the whitelist, and
+ *  `cleanCommand` would silently drop it off the wire; now it is a compile
+ *  error that names the kind. */
+type MissingCommandKind = Exclude<Command['kind'], (typeof COMMAND_KINDS)[number]>;
+const COMMAND_KINDS_COMPLETE: [MissingCommandKind] extends [never] ? true : { missingFromCOMMAND_KINDS: MissingCommandKind } = true;
+void COMMAND_KINDS_COMPLETE;
+
 export interface SeatState { seat: Seat; callsign: string; connected: boolean; ready: boolean }
 
 export type ClientMsg =
