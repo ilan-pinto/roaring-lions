@@ -42,7 +42,9 @@ function legitimateBodies(): { create: object; join: object } {
   };
 }
 
-/** The advisor body carries a seat ticket, b64url(payload).b64url(sig); its longest payload names a 64-unit player of 3-byte characters. */
+/** A control or lone-surrogate unit in `player`/`build` would serialise as 6 bytes (\uXXXX), against the
+ *  3 measured here; no real client sends those, and even then the maximum is about 2028 bytes, under cap / 1.5.
+ *  The advisor body carries a seat ticket, b64url(payload).b64url(sig); its longest payload names a 64-unit player of 3-byte characters. */
 async function measuredMax(): Promise<number> {
   const b = legitimateBodies();
   const ticket = await signTicket('secret', { matchId: 'ABCDEF', seat: 1, player: '€'.repeat(MAX_FIELD_CHARS), exp: NOW + 6 * 3600 * 1000 });
@@ -122,15 +124,20 @@ async function withRoom(): Promise<ReturnType<typeof fakeRooms>> {
 }
 
 describe('the /api/match body cap', () => {
-  it('the cap is its literal, set at about twice the largest legitimate body, and that body leaves headroom', async () => {
+  it('the cap constant is its literal', () => {
     expect(MATCH_BODY_MAX_BYTES).toBe(CAP_LITERAL);
-    const max = await measuredMax();
-    // The measured number is also written beside the constant: it must not go stale.
+  });
+
+  it('the measured size recorded beside the constant is the one measured now (it must not go stale)', async () => {
     const src = readFileSync(new URL('./routes.ts', import.meta.url), 'utf8');
     const m = src.match(/largest legitimate body measured (\d+) bytes/);
     expect(m, 'routes.ts must record the measured size beside MATCH_BODY_MAX_BYTES').not.toBeNull();
-    expect(Number(m?.[1])).toBe(max);
-    // Table growth that eats the headroom goes red here (cap / 1.5).
+    expect(Number(m?.[1])).toBe(await measuredMax());
+  });
+
+  it('the largest legitimate body leaves headroom: it is at most cap / 1.5, and the cap at most 3x it', async () => {
+    const max = await measuredMax();
+    // Table growth that eats the headroom goes red here.
     expect(max).toBeLessThanOrEqual(MATCH_BODY_MAX_BYTES / 1.5);
     expect(MATCH_BODY_MAX_BYTES).toBeLessThanOrEqual(max * 3);
   });
