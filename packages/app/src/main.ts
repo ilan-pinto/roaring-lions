@@ -3103,8 +3103,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     onStripRendered: () => intelMoments?.sealEarn(),
     hoverStructure: () => renderer.hoverStructure,
     hoverEntity: () => renderer.hoverEntity,
-    // F2 follow-up: the logistics tip names each income zone by its place, the alerts' own.
-    placeOf: (x, y) => alertWorld.placeOf(x, y),
+    // F2 follow-up: the logistics tip names each income zone by its bearing from the map's centre.
+    project: (x, y) => renderer.worldToScreen(x, y),
     hoverFriendly: () => renderer.rangeRingPreview ?? -1,
     isVisible: (wx, wy) => renderer.isVisible(wx, wy),
     hoverCursor: () => hoverCursorName,

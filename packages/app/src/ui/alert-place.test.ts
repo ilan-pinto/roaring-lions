@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { distinctPlaces, placeOnScreen } from './alert-place';
+import { bearingBetween, distinctPlaces, placeOnScreen } from './alert-place';
 
 // A 1000 x 600 viewport; its centre is (500, 300).
 const W = 1000;
@@ -36,5 +36,14 @@ describe('placeOnScreen', () => {
 describe('distinctPlaces', () => {
   it('keeps first-seen order and drops repeats', () => {
     expect(distinctPlaces(['n', 'here', 'n', 'sw', 'here'])).toEqual(['n', 'here', 'sw']);
+  });
+});
+
+describe('bearingBetween', () => {
+  it('reads the screen-frame bearing of a point from another, up being north', () => {
+    const o = { x: 100, y: 100 };
+    expect(bearingBetween({ x: 100, y: 40 }, o)).toBe('n');
+    expect(bearingBetween({ x: 160, y: 100 }, o)).toBe('e');
+    expect(bearingBetween({ x: 40, y: 160 }, o)).toBe('sw');
   });
 });

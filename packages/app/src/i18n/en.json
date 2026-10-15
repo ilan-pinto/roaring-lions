@@ -760,6 +760,7 @@
   "hud.strip.logistics.cut.vent": "supply line cut: a tunnel vent beside the road",
   "hud.strip.logistics.cut.unreachable": "supply line cut: no road through",
   "hud.strip.logistics.contested": "Contested ground{where, select, yes { · {place}} other {}}: pays nothing, enemy inside",
+  "hud.strip.logistics.centre": "the centre",
   "hud.strip.logistics.word": "logistics",
   "hud.strip.intel.word": "intel",
   "hud.strip.pinned": "{n} pinned",
