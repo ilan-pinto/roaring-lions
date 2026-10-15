@@ -3060,6 +3060,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     conductInvoice: () => ({ lines: invoiceLines(deductions, placeNames), floor: mission?.roe?.fail_below }),
     getSelection: () => renderer.selection,
     getMission,
+    // The strip has drawn the last earn's batch: the next earn opens a new one.
+    onStripRendered: () => intelMoments?.sealEarn(),
     hoverStructure: () => renderer.hoverStructure,
     hoverEntity: () => renderer.hoverEntity,
     hoverFriendly: () => renderer.rangeRingPreview ?? -1,
