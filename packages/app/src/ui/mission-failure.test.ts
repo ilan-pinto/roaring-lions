@@ -78,10 +78,11 @@ describe('1. failureReason: a lost mission names the primary that lost it, and w
 
   // 6,000 ticks of a real mission runtime: the raze's 300 s deadline IS the
   // claim, so it cannot be shortened. Measured single-file, Apple M3 Pro,
-  // 2026-10-15, three runs
-  // at a load average of 12-20 on 12 cores: 0.24-0.26 s; three at 31-78 (two other test loops running): 0.47-1.78 s -- and past vitest's 5 s default under a full parallel
-  // `pnpm test` on a loaded machine. The margin is for contention only:
-  // needing it on a quiet machine would be a regression.
+  // 2026-10-15: 0.24-0.26 s in three runs at a load average of 12-20 on 12
+  // cores, 0.47-1.78 s in three at 31-78 (two other test loops running). The
+  // 5 s crossing was reported from agents' full parallel `pnpm test` runs on a
+  // loaded machine, not reproduced single-file (1.78 s at most). The margin is
+  // for contention only: needing it on a quiet machine would be a regression.
   it("Umm Zeitoun II passive: the runtime's own cause words the 300 s raze", () => {
     const mission = missions.umm_zeitoun_2_buildup as unknown as MissionJson;
     const map = parseMap(maps[mission.map.file as keyof typeof maps]);

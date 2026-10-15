@@ -29,9 +29,10 @@ const ids = Object.keys(DAMAGE_RECIPES);
 // 12 cores read "never touches" 0.15-0.47 s, the lost-wheel pair 0.13-0.71 s,
 // breakBarrel 0.24-0.38 s, the snapped rotor 0.13-0.15 s; three at 31-78 (two
 // other test loops running) 0.24-2.00 / 0.23-1.86 / 0.56-1.54 / 0.31-1.52 s.
-// Under a full parallel `pnpm test` on a loaded machine two of them crossed
-// 5 s. The margin is for contention only: needing it on a quiet machine
-// would be a regression.
+// Two of them crossing 5 s was reported from agents' full parallel `pnpm test`
+// runs on a loaded machine, not reproduced single-file (2.00 s at most). The
+// margin is for contention only: needing it on a quiet machine would be a
+// regression.
 const WRECK_PASS_TIMEOUT_MS = 30_000;
 
 // meshoptimizer's WASM, for the rocket battery's `simplify`.

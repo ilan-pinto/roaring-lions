@@ -25,7 +25,8 @@ import {
 // Re-measured 2026-10-15 for the four added since, three runs each at a load
 // average of 12-20 then three at 31-78: one seed 0.34-0.35 / 0.62-3.30 s, the
 // cut side 0.16-0.18 / 0.30-1.04 s, M1 0.26-0.28 / 0.35-2.07 s, main's exit 2
-// 0.26 / 0.33-2.09 s; "one seed" crossed 5 s under a full parallel run.
+// 0.26 / 0.33-2.09 s. "One seed" crossing 5 s was reported from agents' full
+// parallel runs, not reproduced single-file (3.30 s at most).
 // The margin is for contention only: needing it on a quiet machine would be
 // a regression. (`selfCheck` on every open map, below, keeps its own 60 s.)
 const FULL_GAMES_TIMEOUT_MS = 30_000;

@@ -66,8 +66,15 @@ interface Game {
   ms: number;
   /** The longest round wait either seat saw (`stats().stalls.round`, from the
    *  room's `stall` to its `resume`): the room holding a boundary for a bot
-   *  seat's `done`, and NOT the frames' own work, so it does not read the machine. */
+   *  seat's `done`. Not the game's total: the window holds only what the
+   *  seats do inside it, catching up on at most about one round of frames
+   *  and answering, which is bounded and tiny against the wall. */
   roundWaitMs: number;
+  /** Per seat, the round waits the room CLOSED (a `stall` then its `resume`),
+   *  as of the moment that seat finished: a count, so it does not read the
+   *  machine. A wait still open then (the boundary at the cap, which no seat
+   *  is asked about) is left out. */
+  roundWaits: [number, number];
   running: [RunningPlayer, RunningPlayer];
 }
 
@@ -81,6 +88,15 @@ async function play(players: [ArenaPlayer, ArenaPlayer], o: { seed: number; capT
     server: relay.url, origin: relay.origin, code, seat, ticket: tickets[seat], build: BUILD, capTicks: o.capTicks,
   }))) as [RunningPlayer, RunningPlayer];
   for (const r of running) cleanups.push(() => r.stop());
+  // Read in the same microtask the player finishes in, before any later
+  // message (the cap's own wait being released, say) can land.
+  const finishedWaits = running.map((r) => r.done.then(() => {
+    const t = r.client?.transport;
+    if (t === undefined) throw new Error('an in-process player has a client');
+    const st = t.status();
+    const open = st.kind === 'stalled' && st.reason === 'round' ? 1 : 0;
+    return t.stats().stalls.round.count - open;
+  }));
   const config = await running[0].client?.ready;
   // A malformed pace is silently realtime: a "paced" result from a realtime room would be no result.
   expect(config?.pace).toEqual({ kind: 'paced', roundTicks: o.roundTicks ?? ROUND_TICKS, roundWallMs: o.roundWallMs ?? ARENA_ROUND_WALL_MS });
@@ -94,6 +110,7 @@ async function play(players: [ArenaPlayer, ArenaPlayer], o: { seed: number; capT
   const [a, b] = running.map((r) => r.client);
   if (a === null || b === null) throw new Error('an in-process player has a client');
   const roundWaitMs = Math.max(a.transport.stats().stalls.round.longestMs, b.transport.stats().stalls.round.longestMs);
+  const [w0, w1] = await Promise.all(finishedWaits);
   const sim = a.world()?.sim;
   if (sim === undefined) throw new Error('seat 0 never built its world');
   const own = a.result();
@@ -101,7 +118,7 @@ async function play(players: [ArenaPlayer, ArenaPlayer], o: { seed: number; capT
   // Both seats ran the same frames: they agree on the result, or both stand at the cap.
   if (own !== null) expect(b.result()).toEqual(own);
   else { expect(a.tick()).toBe(o.capTicks); expect(b.tick()).toBe(o.capTicks); }
-  return { result, capped: own === null, ticks: a.tick(), ms, roundWaitMs, running };
+  return { result, capped: own === null, ticks: a.tick(), ms, roundWaitMs, roundWaits: [w0, w1], running };
 }
 
 const NO_SCORE = { lost: 0, lostValue: 0, destroyed: 0, destroyedValue: 0, remaining: 0 };
@@ -193,7 +210,8 @@ describe('the controls, on the local relay (the arena\'s pace 60 and cap 12,000)
   // the efficiency cores alone, 7.6 s on a quiet run). So these games play on
   // the arena's own 120 s wall and the check asks the room: no round wait, as
   // either seat saw it, reached even half of it. A healthy one reads
-  // milliseconds; one round left to the wall read 119,998-119,999 ms (a seat
+  // milliseconds (the window holds only the seats' catch-up on at most about
+  // one round of frames and their answer, tiny against the wall); one round left to the wall read 119,998-119,999 ms (a seat
   // hears the `stall` a little after the room closes the round, hence half and
   // not the whole wall); a player that never says `done` does not finish
   // inside `timeoutMs` at all.
@@ -247,15 +265,17 @@ describe('a model that hangs', () => {
     // boundary is the cap, where the player stops before asking.
     const waited = ROUNDS - 1;
     expect(game.ms).toBeGreaterThanOrEqual(waited * 1000 * 0.9);
-    // About one wall a round, and not two: the room's longest wait as a seat
-    // saw it, stall to resume. Not the game's total, which also counts the
-    // frames' own work and read the machine (`ms < waited * 1000 + 3000` had
-    // 3 s of slack for 160 ticks plus the connect); the wait leaves that out,
-    // and only a late `stall` message can shorten it, by one batch of frames.
-    // It is also what proves the ROOM waited: with `roundGate` never waiting,
-    // `ms` still read 3.1 s (the hung seat's own 1 s timer holds it), and this 0.
-    expect(game.roundWaitMs).toBeGreaterThan(1000 / 2);
-    expect(game.roundWaitMs).toBeLessThan(1000 * 1.5);
+    // The room held each of those boundaries, once: a count, which carries the
+    // weight because it does not read the machine. `ms` alone could not say
+    // so: with `roundGate` never waiting it still read 3.1 s, the hung seat's
+    // own 1 s timer holding its own frames; this reads 0 there.
+    expect(game.roundWaits).toEqual([waited, waited]);
+    // ...for about one wall each, and not two: the longest wait as a seat saw
+    // it, stall to resume. Not the game's total (`ms < waited * 1000 + 3000`,
+    // 3 s of slack for 160 ticks plus the connect, which read the machine).
+    // The window is still wall time, so its cap sits just under two walls
+    // (a doubled wait read 1,998 ms) and not tight on one.
+    expect(game.roundWaitMs).toBeLessThan(1000 * 1.9);
     const [hung, calm] = await Promise.all(game.running.map((r) => r.done));
     expect(hung.timeouts).toBe(waited);
     expect(hung.errors).toEqual([]);
