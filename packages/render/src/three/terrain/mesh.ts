@@ -29,7 +29,13 @@
  */
 import * as THREE from 'three';
 import type { MeshData } from './ground';
-import { srgbToLinear } from './shared';
+import { srgbToLinear, WORLD_PER_LEVEL } from './shared';
+import {
+  RELIEF_ALBEDO_GLSL,
+  RELIEF_FRAGMENT_GLSL,
+  RELIEF_NORMAL_GLSL,
+  RELIEF_SLOPE_GAIN,
+} from './relief-read';
 import {
   HEIGHT_BLEND,
   MACRO_HUE,
@@ -589,6 +595,8 @@ attribute vec2 groundUv;
 varying float vWallAlbedo;
 varying vec2 vGroundUv;
 varying vec2 vRlWorldXZ;
+varying float vRlWorldY;
+varying vec3 vRlWorldN;
 `;
 
 /** The fragment half: one quartet of uniforms per `GROUND_SLOTS` entry, the
@@ -848,6 +856,14 @@ function groundUniforms(): Record<string, THREE.IUniform> {
   u.uRutTone = { value: new THREE.Vector3(1, 1, 1) };
   u.uRoadGrainTiles = { value: ROAD_GRAIN_TILES };
   u.uRoadGrainGain = { value: 0 };
+  // Relief read (`relief-read.ts`): the slope light's gain (1 is off), the
+  // contour and tint amplitudes (0 is off), the map's median open-ground
+  // height and one level's height, both in world Y.
+  u.uReliefSlopeGain = { value: RELIEF_SLOPE_GAIN };
+  u.uReliefContour = { value: 1 };
+  u.uReliefTint = { value: 1 };
+  u.uReliefMedianY = { value: 0 };
+  u.uReliefLevelY = { value: WORLD_PER_LEVEL };
   return u;
 }
 
@@ -910,11 +926,17 @@ export class GroundMaterial extends THREE.MeshStandardMaterial {
           '#include <begin_vertex>',
           `#include <begin_vertex>
 vWallAlbedo = wallAlbedo; vGroundUv = groundUv;
-vRlWorldXZ = (modelMatrix * vec4(transformed, 1.0)).xz;`
+vRlWorldXZ = (modelMatrix * vec4(transformed, 1.0)).xz;
+vRlWorldY = (modelMatrix * vec4(transformed, 1.0)).y;
+vRlWorldN = normalize(mat3(modelMatrix) * objectNormal);`
         );
+      // Relief read (`relief-read.ts`): the lighting normal is replaced after
+      // three's own normal stage, and the contours and tint multiply the
+      // albedo after every blend, on ground tops only.
       shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>', `#include <common>\n${GROUND_VARYINGS_GLSL}`)
-        .replace('#include <color_fragment>', `#include <color_fragment>\n${GROUND_BLEND_GLSL}`);
+        .replace('#include <common>', `#include <common>\n${GROUND_VARYINGS_GLSL}\n${RELIEF_FRAGMENT_GLSL}`)
+        .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${RELIEF_NORMAL_GLSL}`)
+        .replace('#include <color_fragment>', `#include <color_fragment>\n${GROUND_BLEND_GLSL}\n${RELIEF_ALBEDO_GLSL}`);
     };
   }
 
@@ -981,6 +1003,54 @@ vRlWorldXZ = (modelMatrix * vec4(transformed, 1.0)).xz;`
    * mark whose colour has collapsed into its tile's tone still differs by the
    * macro factor and the check stops seeing the defect it exists for.
    */
+  /** Non-null only while `slope-light` is hidden: the gain to put back. */
+  private slopeStash: number | null = null;
+  /** Non-null only while `height-contours` is hidden: [contour, tint] to put back. */
+  private contourStash: [number, number] | null = null;
+
+  /**
+   * Backs `setDebugLayerVisible('slope-light', ...)`: the slope light's gain
+   * to 1 (the identity: the lighting normal is the geometric one) and back.
+   * The `macro` contract: a second hide is a no-op and reports 0, so the
+   * stash is never overwritten with the identity it just wrote. Nothing
+   * per-frame writes the uniform, so the write holds across a repaint.
+   */
+  setSlopeLightVisible(visible: boolean): number {
+    if (!visible) {
+      if (this.slopeStash !== null) return 0;
+      this.slopeStash = this.uniforms.uReliefSlopeGain.value as number;
+      this.uniforms.uReliefSlopeGain.value = 1;
+      return 1;
+    }
+    const stash = this.slopeStash;
+    if (stash === null) return 0;
+    this.uniforms.uReliefSlopeGain.value = stash;
+    this.slopeStash = null;
+    return 1;
+  }
+
+  /** Backs `setDebugLayerVisible('height-contours', ...)`: the contour AND tint amplitudes to 0 and back, one layer for option B. */
+  setHeightContoursVisible(visible: boolean): number {
+    if (!visible) {
+      if (this.contourStash !== null) return 0;
+      this.contourStash = [this.uniforms.uReliefContour.value as number, this.uniforms.uReliefTint.value as number];
+      this.uniforms.uReliefContour.value = 0;
+      this.uniforms.uReliefTint.value = 0;
+      return 1;
+    }
+    const stash = this.contourStash;
+    if (stash === null) return 0;
+    this.uniforms.uReliefContour.value = stash[0];
+    this.uniforms.uReliefTint.value = stash[1];
+    this.contourStash = null;
+    return 1;
+  }
+
+  /** The tint's reference: the map's median open-ground level, in levels. */
+  setReliefMedianLevel(level: number): void {
+    this.uniforms.uReliefMedianY.value = level * WORLD_PER_LEVEL;
+  }
+
   setMacroVisible(visible: boolean): number {
     if (!visible) {
       // A second hide is a no-op and reports it (`was === want ? 0 : 1`,
