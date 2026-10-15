@@ -13,6 +13,7 @@ import { scoreFor, scoreOf, type SideScore } from '../../../packages/app/src/net
 import { heldBuildings, heldShown } from '../../../packages/render/src/three/units/held-building';
 import { unitIsObserved } from '../../../packages/render/src/three/units/observed';
 import { fx } from '@lions/sim';
+import { isIdle } from '../../../packages/app/src/ui/idle';
 import type { FogTracker } from './fog-tracker';
 
 export interface UnitLine { id: number; type: string; tile: [number, number]; hp: number; flags: string[] }
@@ -66,6 +67,16 @@ export function sideView(w: MatchWorld, side: 0 | 1, fog: FogTracker, result: st
       if (st.tunnelIn[i] >= 0) flags.push('buried');
       if (st.mobilityKilled[i] !== 0) flags.push('immobile');
       if (st.firepowerKilled[i] !== 0) flags.push('disarmed');
+      // What the player's own HUD shows of its own units: the unit card's
+      // "Engaging" (the sim's current target), and the idle finder's key
+      // (`isIdle`, the app's own predicate, built the way `main.ts` builds it).
+      // Never computed for a contact.
+      if (st.curTarget[i] >= 0 || st.curStructure[i] >= 0) flags.push('engaging');
+      if (isIdle({
+        alive: true, side: s, moving: st.moving[i] !== 0, waypoints: sim.waypointCount(i),
+        curTarget: st.curTarget[i], curStructure: st.curStructure[i], demoTarget: st.demoTarget[i],
+        carriedBy: st.carriedBy[i], garrisonedIn: st.garrisonedIn[i],
+      }, side)) flags.push('idle');
       units.push({ id: i, type: type.id, tile, hp, flags });
       continue;
     }

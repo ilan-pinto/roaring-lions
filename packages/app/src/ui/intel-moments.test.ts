@@ -38,20 +38,68 @@ describe('the earn lines and the last earn (F-Q11, F-Q7)', () => {
     ]);
   });
 
-  it('lastEarn is the latest, summed within a tick, and gone after LAST_EARN_SHOW_TICKS', () => {
+  it('lastEarn is the open batch, sealed between redraws, and gone after LAST_EARN_SHOW_TICKS', () => {
     const m = moments();
     expect(m.lastEarn(0)).toBeNull();
     m.earned([earn('highGround', 30)], 100);
-    expect(m.lastEarn(100)).toEqual({ amount: 30, cause: 'highGround', tick: 100 });
-    // Three identifications in one tick are one earn of thirty; the cause that came last wins.
+    expect(m.lastEarn(100)).toEqual({ amount: 30, cause: 'highGround', tick: 100, lastTick: 100 });
+    m.sealEarn();
+    // Three identifications in one tick are one earn of thirty; the objective beside them makes it mixed.
     m.earned([earn('objective', 30), earn('identified', 10), earn('identified', 10), earn('identified', 10)], 200);
-    expect(m.lastEarn(200)).toEqual({ amount: 30, cause: 'identified', tick: 200 });
+    expect(m.lastEarn(200)).toEqual({ amount: 60, cause: 'mixed', tick: 200, lastTick: 200 });
     expect(LAST_EARN_SHOW_TICKS).toBe(600);
     expect(m.lastEarn(200 + LAST_EARN_SHOW_TICKS - 1)).not.toBeNull();
     expect(m.lastEarn(200 + LAST_EARN_SHOW_TICKS)).toBeNull();
     // A tick with no earn leaves the last one standing until it expires.
     m.earned([], 250);
     expect(m.lastEarn(260)).toMatchObject({ tick: 200 });
+  });
+
+  it('earns across many ticks before a redraw sum into one label', () => {
+    const m = moments();
+    m.earned([earn('identified', 10)], 100);
+    m.earned([earn('identified', 10)], 140);
+    m.earned([earn('identified', 10)], 180);
+    expect(m.lastEarn(180)).toEqual({ amount: 30, cause: 'identified', tick: 100, lastTick: 180 });
+  });
+
+  it('a sealed batch is closed', () => {
+    const m = moments();
+    m.earned([earn('identified', 10)], 100);
+    m.earned([earn('identified', 10)], 140);
+    m.sealEarn();
+    // The sealed batch still shows until a new earn replaces it.
+    expect(m.lastEarn(150)).toEqual({ amount: 20, cause: 'identified', tick: 100, lastTick: 140 });
+    m.sealEarn(); // sealing twice does nothing
+    m.earned([earn('identified', 10)], 200);
+    expect(m.lastEarn(200)).toEqual({ amount: 10, cause: 'identified', tick: 200, lastTick: 200 });
+  });
+
+  it('sealing with nothing earned does nothing', () => {
+    const m = moments();
+    m.sealEarn();
+    expect(m.lastEarn(0)).toBeNull();
+    m.earned([earn('identified', 10)], 5);
+    expect(m.lastEarn(5)).toMatchObject({ amount: 10, tick: 5 });
+  });
+
+  it('mixed causes read mixed', () => {
+    const m = moments();
+    m.earned([earn('identified', 10)], 100);
+    m.earned([earn('highGround', 30)], 120);
+    expect(m.lastEarn(120)).toEqual({ amount: 40, cause: 'mixed', tick: 100, lastTick: 120 });
+    // Once mixed, it stays mixed even when a later earn repeats the first cause.
+    m.earned([earn('identified', 10)], 130);
+    expect(m.lastEarn(130)).toMatchObject({ amount: 50, cause: 'mixed' });
+  });
+
+  it('the window runs from the last earn', () => {
+    const m = moments();
+    m.earned([earn('identified', 10)], 100);
+    m.earned([earn('identified', 10)], 500);
+    expect(m.lastEarn(500)).not.toBeNull();
+    expect(m.lastEarn(500 + LAST_EARN_SHOW_TICKS - 1)).not.toBeNull();
+    expect(m.lastEarn(500 + LAST_EARN_SHOW_TICKS)).toBeNull();
   });
 
   it('an earn with nothing else going on takes no snapshot', () => {

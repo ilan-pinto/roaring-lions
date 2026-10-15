@@ -46,7 +46,8 @@
     "meshy": "tsx src/meshy/cli.ts",
     "video": "tsx src/video/cli.ts",
     "test": "sh -c 'if [ \"$1\" = \"--\" ]; then shift; fi; exec vitest run --root .. \"$@\"' sh",
-    "agent": "tsx src/net/agent.ts"
+    "agent": "tsx src/net/agent.ts",
+    "arena": "tsx src/net/arena.ts"
   },
   "dependencies": {
     "@lions/data": "workspace:*",
