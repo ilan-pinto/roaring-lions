@@ -704,7 +704,7 @@ describe('invariant 4: the dock never touches the sim', () => {
       typeIdOf: () => typeIdx,
       markers: {},
       zones: {},
-      unitInfo: () => ({ logistics: 292, buildTimeS: 15 }),
+      unitInfo: () => ({ logistics: 292, buildTimeS: 15, population: 1 }),
     });
     runtime.start();
     const queued: number[] = [];
@@ -748,7 +748,7 @@ describe('invariant 4: the dock never touches the sim', () => {
         markers: {},
         zones: {},
         // The shipped gate on the Lavi, asked of an empty ledger.
-        unitInfo: () => ({ logistics: 906, buildTimeS: 45, unlock: { roeMin: 55 } }),
+        unitInfo: () => ({ logistics: 906, buildTimeS: 45, population: 1, unlock: { roeMin: 55 } }),
       }
     );
     runtime.start();

@@ -172,6 +172,12 @@ export interface UnitTypeJson {
   demolition_method?: string;
   /** Seconds of held station to set a tunnel collapse charge. Absent = CHARGE_SECONDS. */
   tunnel_charge_time_s?: number;
+  /** Authored cost, mirroring data/schemas/unit.schema.json. Only `population` is
+   *  read by the sim (UnitType.population); the rest are the app's and the balance
+   *  tool's. The other keys are declared, not just `population`, because TypeScript's
+   *  weak-type rule rejects a JSON module import whose `cost` (civilians.json:
+   *  `{ logistics: 0 }`) shares no property with a type whose keys are all optional. */
+  cost?: { logistics?: number; intel?: number; build_time_s?: number; population?: number };
   hull: {
     hp: number;
     armor: { front: number; side: number; rear: number; top?: number };
@@ -439,6 +445,14 @@ export interface UnitType {
    * a vehicle field would be a second field computed for nothing.
    */
   moveDomain: number;
+  /**
+   * What this unit takes of its side's population while it lives: a non-negative
+   * integer, `cost.population` in the unit JSON, absent = 1 (the schema default).
+   *
+   * Parsed and carried, and read by no sim system yet (F3 plan, Task 1). Not in
+   * `hash()`: it is a property of the unit TYPE, and type tables are not hashed.
+   */
+  population: number;
   /** Seats for infantry. */
   transportSlots: number;
   /** Dismounted element: can ride inside a transport. */
@@ -533,8 +547,23 @@ function weaponFromJson(w: WeaponJson): WeaponStats {
   };
 }
 
+/**
+ * `cost.population`, validated: an integer, zero or more. Absent is 1, the
+ * schema default. A bad value throws naming the unit and the field, because a
+ * fractional or negative population would make every later sum over the side
+ * non-integer or wrong, and nothing downstream would say why.
+ */
+function populationFromJson(id: string, raw: number | undefined): number {
+  if (raw === undefined) return 1;
+  if (!Number.isInteger(raw) || raw < 0) {
+    throw new Error(`unit ${id}: cost.population must be a non-negative integer, got ${raw}`);
+  }
+  return raw;
+}
+
 export function unitTypeFromJson(json: UnitTypeJson): UnitType {
   const aps = json.hull.aps;
+  const population = populationFromJson(json.id, json.cost?.population);
   let apsMask = 0;
   for (const t of aps?.ineffective_vs ?? []) {
     if (t === 'apfsds' || t === 'kinetic') {
@@ -583,6 +612,7 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
     // Air never pays for a vehicle field: it flies over the boulders the
     // vehicle mask exists to describe.
     moveDomain: !isAir && wheeled ? DOMAIN_VEHICLE : DOMAIN_FOOT,
+    population,
     transportSlots: json.hull.transport_slots ?? 0,
     canEmbark: json.hull.can_embark ?? FOOT_ROLES.has(json.role ?? ''),
     canMarkTarget: abilities.includes('mark_target'),

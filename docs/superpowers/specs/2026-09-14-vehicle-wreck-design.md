@@ -239,6 +239,29 @@ near-black sheet), and `.superpowers/wreck-captures-lighttint-0x4a423a/`
 (an earlier, since-superseded lighter-tint probe on the Lavi alone).
 Nothing in the recipe table controls this.
 
+**Superseded on the textured path, 2026-10-15 (`render/wreck-tone`).** The
+tint above was a MULTIPLIER on the bake, and the shipped bakes' mean linear
+luminance is 0.04-0.13, so a textured wreck's effective albedo was
+0.005-0.016 -- the retired `shadow.1` near-black -- while the palette path's
+was 0.118. On the bakes shipping by then, 58-78 % of every textured wreck's
+pixels sat below luma 8 (the 09-15 acceptance reading was 39.1 %), and the
+damaged geometry of #614/#616/#618 drew black on black. The test that was
+meant to hold the two paths together compared the multiplier's luminance
+with the palette albedo's, so it stayed green. No palette key fixes a
+multiply: it tops out at the bake itself, and the brightest neutral key keeps
+the livery hue.
+
+The textured wreck is now a SOOT RECOLOUR (`charredTexturedMaterial`): albedo
+= `CHARRED_WRECK_KEY` (`gunmetal.2`, the palette path's own lit face) x the
+bake texel's LUMINANCE, normalised by the bake's mean (`extras.rl_bake_luma`,
+stamped on every textured material by `pnpm wreck:meshes`) and capped at
+`CHARRED_WRECK_CAP` = 0.8 of the live bake's mean, so a wreck never reads
+lighter than its living vehicle. The cap was measured on screen (14 vehicles,
+4 headings, zoom 1 and 2): the worst frame read 1.10x the live hull at cap 1,
+0.99x at 0.85, 0.95x at 0.8. `CHARRED_TINT_KEY` (`limestone.7`) stays, for
+the living-hull and building SCARS only. Record and sheets:
+`_coord/wreck-tone/` (outside the repo) and the PR.
+
 ### 2. The `masted` kind has no taker and was not written
 
 §4.1's table lists five kinds. Four shipped. `masted` — "the mast or weapon

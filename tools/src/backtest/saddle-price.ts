@@ -69,9 +69,9 @@ function walk(seed: number, foot: 'pass' | 'corridor', perfectEyes: boolean) {
     typeIdOf: (u) => typeOf.get(u) as number,
     markers: map.markers, zones: map.zones, tunnels: tunnelRoutes, ledger: {},
     unitInfo: (u) => {
-      const d = (units as Record<string, { faction: string; cost: { logistics: number; build_time_s?: number } } | undefined>)[u];
+      const d = (units as Record<string, { faction: string; cost: { logistics: number; build_time_s?: number; population?: number } } | undefined>)[u];
       if (!d || d.faction !== 'kdf') return null;
-      return { logistics: d.cost.logistics, buildTimeS: d.cost.build_time_s ?? 20 };
+      return { logistics: d.cost.logistics, buildTimeS: d.cost.build_time_s ?? 20, population: d.cost.population ?? 1 };
     },
   });
   rt.start();

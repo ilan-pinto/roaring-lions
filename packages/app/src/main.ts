@@ -29,6 +29,7 @@ import {
   missionShepherds,
   MissionRuntime,
   resolveUpgrades,
+  loanedPlacements,
   starRoeFloor,
   starsEarned,
   zoneContains,
@@ -1967,11 +1968,23 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  the spawner stays gate-blind. Every other reader of `mission` -- briefing,
    *  debrief, `getMission()` -- keeps the original JSON. */
   let resolvedMission: MissionJson | undefined;
+  /** Indices into `resolvedMission.starting_force` of the placements on loan (GH-183, D5),
+   *  handed to the runtime so it can answer `isOnLoan`. Computed with the SAME lookup as
+   *  `resolveUpgrades` above (one const, so the two cannot drift). */
+  let loanedForce: readonly number[] | undefined;
+  /** The unit TYPES those placements lend, for `applyRosterCarryover`: R-2 must not replace
+   *  an earlier enlisted body of a type this run lent (F3 final review F1). Derived from the
+   *  same indices into the same resolved force, never a second way. */
+  let lentTypes: ReadonlySet<string> | undefined;
   if (mission) {
-    resolvedMission = resolveUpgrades(mission, ledger, (id) => {
+    const gateOf = (id: string) => {
       const u = (units as Record<string, (typeof units)[keyof typeof units] | undefined>)[id];
       return u ? kdfUnlockGate(u, boughtUnits) : undefined;
-    });
+    };
+    resolvedMission = resolveUpgrades(mission, ledger, gateOf);
+    loanedForce = loanedPlacements(mission, ledger, gateOf);
+    const resolvedForce = resolvedMission.starting_force ?? [];
+    lentTypes = new Set(loanedForce.map((i) => resolvedForce[i].unit));
   } else if (versusWorld !== null) {
     // A versus room (network design §9): the KDF force (plus the second Spike
     // team, `VERSUS_EXTRA`) on EACH side, mirrored through the hostile anchor,
@@ -2573,12 +2586,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         zones: map.zones,
         tunnels: tunnelRoutes,
         ledger: sentLedger,
+        loaned: loanedForce,
         unitInfo: (id) => {
           const u = (units as Record<string, (typeof units)[keyof typeof units] | undefined>)[id];
           if (!u || u.faction !== 'kdf') return null;
           return {
             logistics: u.cost.logistics,
             buildTimeS: 'build_time_s' in u.cost ? u.cost.build_time_s : 20,
+            // What the unit takes of the side's population cap (GH-183); the schema default is 1.
+            population: 'population' in u.cost ? u.cost.population : 1,
             unlock: kdfUnlockGate(u, boughtUnits),
           };
         },
@@ -4928,6 +4944,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             mev.result === 'victory'
               ? applyRosterCarryover(ledger, mev.ledger, lostThisMission, {
                   missionId: mission.id,
+                  lentTypes,
                   kindOf: (typeId) => nameKind(unitFor(typeId), names as NamesJson),
                   names: names as NamesJson,
                   // The same lookup `alertWorld.unitName` uses (spec §4.7's own
