@@ -982,7 +982,8 @@ export class ThreeRenderer implements Renderer {
    *  own comment for why this is NOT `hoverEntity`, which stays the hostile
    *  hover the cursor hinting and the projected-fire panel read. */
   rangeRingPreview = -1;
-  /** GH-113: see `Renderer.aimFootprint`. Drawn in the overlay pass beside the
+  /** GH-113 / S-F: see `Renderer.aimFootprint`. The armed fire-support call's
+   *  ring(s), per kind (`aimRingSpecs`), drawn in the overlay pass beside the
    *  refuge ring; `null` draws nothing. */
   aimFootprint: AimFootprint | null = null;
   objectiveZone: readonly number[] | null = null;

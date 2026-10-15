@@ -617,10 +617,11 @@ export interface Renderer {
    *  has no range-envelope redesign and ignores this, exactly as it ignores
    *  `objectiveZones` above. `main.ts` writes it unconditionally. */
   rangeRingPreview?: number;
-  /** GH-113: the precision strike's splash under the armed cursor, in tiles --
-   *  `x`/`y` the ground point the click would land on, `radius` the splash.
-   *  An ORDER PREVIEW, never a status mark: the app writes it every frame
-   *  while the strike is armed and `null` the moment it is not (spent,
+  /** GH-113 / S-F: the armed fire-support call's footprint under the cursor, in
+   *  tiles -- `x`/`y` the ground point the click would land on, `radius` the
+   *  outer footprint (the strike's splash, the barrage's reach, the smoke
+   *  screen's cloud). An ORDER PREVIEW, never a status mark: the app writes it
+   *  every frame while a call is armed and `null` the moment it is not (spent,
    *  cancelled, or the screen torn down). Optional on the seam like
    *  `rangeRingPreview`; absent or `null` draws nothing.
    *
