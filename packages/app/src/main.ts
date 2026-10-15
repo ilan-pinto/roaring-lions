@@ -176,7 +176,7 @@ import { alertNotice, evacuatedNotice, reinforceTrigger, removedNotice, ledgerSa
 import { ReinforcementDock } from './ui/production';
 import { IntelMoments, READY_FLASH_MS, aimFootprintFor, type IntelOutput } from './ui/intel-moments';
 import { breakdownLine, strikeLine } from './ui/intel-copy';
-import { SUPPORT, type SupportKind } from './ui/support-kinds';
+import { SUPPORT, SUPPORT_KINDS, type SupportKind } from './ui/support-kinds';
 import { doctrineTags } from './ui/dock-model';
 import {
   applyIntent,
@@ -3758,6 +3758,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       credits: ledgerStore.available ? ledgerStore.readAccount().balance : undefined,
       note: (html, tone) => hud.note(html, tone),
       onDeny: () => audio.playCue(CRITICAL_CUES.uiDeny),
+      // Read at hover time, so a rebind in Settings shows on the next tooltip.
+      hotkeyLabel: (kind) => keyLabel(bindings[SUPPORT[kind].action]),
       supportCharge: (kind) => {
         const cost = runtime.supportCost(kind);
         const have = runtime.intel;
@@ -4430,6 +4432,19 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // cannot quick-cast -- and both end in this same call.
         runVerb('smoke');
         break;
+      // S-F Task 3: Z X C V press the dock's four fire-support tiles -- the very
+      // `press` a click on a tile runs, so a key and its tile are one path (the
+      // GH-153 rule). With no dock (a mission without `resources`) there is
+      // nothing to press and nothing is played: the key is bound either way.
+      // The modal guard above already ran, and none of the four passes it.
+      case 'supportScreen':
+      case 'supportBarrage':
+      case 'supportSweep':
+      case 'supportStrike': {
+        const kind = SUPPORT_KINDS.find((k) => SUPPORT[k].action === action);
+        if (kind !== undefined) production?.press(kind);
+        break;
+      }
       case 'jumpToAlert':
         // Space is also the activation key of whatever holds focus, and the
         // dock's `focusFirst()` and a Tab onto a chip both leave a button

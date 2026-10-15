@@ -11,6 +11,7 @@
 import { FIRE_SUPPORT_KINDS, type SupportKind } from '@lions/sim';
 import type { TelemetryOrderVerb } from '@lions/data/telemetry';
 import type { CursorName } from '../input/cursor';
+import type { Action } from '../input/keymap';
 import type { SightOrderId } from './order-sight';
 
 export type { SupportKind };
@@ -28,7 +29,7 @@ export interface SupportSpec {
   /** The armed cursor. `barrage`/`smokeScreen` are CURSOR_ALIAS names. */
   readonly cursor: CursorName;
   /** The keymap action that presses this tile (Task 3). */
-  readonly action: 'supportScreen' | 'supportBarrage' | 'supportSweep' | 'supportStrike';
+  readonly action: Extract<Action, 'supportScreen' | 'supportBarrage' | 'supportSweep' | 'supportStrike'>;
   readonly verb: TelemetryOrderVerb;
 }
 

@@ -4,7 +4,8 @@
 // DOM. Everything else in this file is pure and does not care.
 
 import { describe, expect, it } from 'vitest';
-import { ACTIONS, anyArmed, bindingsFrom, escapeTarget, heldAction, isTextEntry, keyLabel, overridesOf, rebind, resolveKey, shouldYieldSpace } from './keymap';
+import { ACTIONS, anyArmed, bindingsFrom, escapeTarget, heldAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, rebind, resolveKey, shouldYieldSpace } from './keymap';
+import { SUPPORT, SUPPORT_KINDS } from '../ui/support-kinds';
 
 describe('keymap', () => {
   it('ships the bindings main.ts had hard-coded, in the same letters', () => {
@@ -74,6 +75,42 @@ describe('keymap', () => {
   it('every action in ACTIONS has a distinct default key within its modifier class', () => {
     const plain = ACTIONS.filter((a) => a.modifier === undefined).map((a) => a.key);
     expect(new Set(plain).size).toBe(plain.length);
+  });
+  // S-F Task 3: Z X C V, left to right as the dock draws its four tiles.
+  it('the four support keys resolve to their actions', () => {
+    const b = bindingsFrom({});
+    const press = (key: string) => resolveKey(b, { key, ctrlKey: false, metaKey: false });
+    expect(press('z')).toBe('supportScreen');
+    expect(press('x')).toBe('supportBarrage');
+    expect(press('c')).toBe('supportSweep');
+    expect(press('v')).toBe('supportStrike');
+    expect(press('Z')).toBe('supportScreen');
+    // The keymap and the support table cannot drift: every kind names a real row,
+    // and the bottom row reads in the dock's own left-to-right order.
+    for (const kind of SUPPORT_KINDS) expect(ACTIONS.find((a) => a.id === SUPPORT[kind].action)).toBeDefined();
+    expect(SUPPORT_KINDS.map((k) => b[SUPPORT[k].action])).toEqual(['z', 'x', 'c', 'v']);
+  });
+  it('the support keys are rebindable and listed to a player', () => {
+    for (const kind of SUPPORT_KINDS) {
+      const row = ACTIONS.find((a) => a.id === SUPPORT[kind].action);
+      expect(row?.rebindable).toBe(true);
+      expect(row?.hidden).toBeUndefined();
+      expect(row?.modifier).toBeUndefined();
+    }
+    expect(rebind(bindingsFrom({}), 'supportBarrage', 'z')).toEqual({ ok: false, takenBy: 'supportScreen' });
+    expect(rebind(bindingsFrom({}), 'supportBarrage', 'q')).toMatchObject({ ok: true });
+  });
+  it('a saved controls object without the support actions gets their defaults', () => {
+    const b = bindingsFrom({ halt: 'j' });
+    expect(b.supportScreen).toBe('z');
+    expect(b.supportStrike).toBe('v');
+  });
+  it('a support key passes no modal; only the pans do', () => {
+    expect(passesThroughModal('supportScreen')).toBe(false);
+    expect(passesThroughModal('supportBarrage')).toBe(false);
+    expect(passesThroughModal('supportSweep')).toBe(false);
+    expect(passesThroughModal('supportStrike')).toBe(false);
+    expect(passesThroughModal('panUp')).toBe(true);
   });
   it('jumpToAlert is bound, rebindable and free of the existing letters', () => {
     const b = bindingsFrom({});
