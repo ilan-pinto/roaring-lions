@@ -896,7 +896,8 @@ export function showLoading(
       panel.hidden = !open;
       toggle.setAttribute('aria-expanded', String(open));
     };
-    toggle.addEventListener('click', () => setOpen(panel.hidden));
+    // `hidden` is `boolean | 'until-found'` (TS 6 DOM lib); either non-false value is closed.
+    toggle.addEventListener('click', () => setOpen(panel.hidden !== false));
     close.addEventListener('click', () => {
       setOpen(false);
       toggle.focus({ preventScroll: true });
