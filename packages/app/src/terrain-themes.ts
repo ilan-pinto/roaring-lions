@@ -29,6 +29,26 @@
 import { paletteColor, type GroveSpecies, type ParsedMap, type TerrainTheme } from '@lions/data';
 import type { GroveFamily, TerrainTones } from '@lions/render';
 
+/**
+ * VR-05 (option 1, approved by the lead off the VR-04/05 mock): every mesh
+ * foliage family and the scatter tussock (`low`) draw `scrub.1`, the cedar's
+ * blue-green, on every theme. Untinted, foliage drew the decor ramp's lift,
+ * `olive.1` -- the KDF uniform's own albedo, so a squad in a grove was olive
+ * on olive, and a Namer's olive bake sat within ΔE2000 2.0-3.6 of arid
+ * foliage. A theme `decorColors` tint is an instance tone (+0 draw calls, the
+ * channel GH-322's highland already used). `leafDark/Mid/Lit` stay: they feed
+ * `grove.ts`, which draws nothing since the mesh trees, and the mock left them.
+ * Pinned by `tools/src/foliage-figure-ground.test.ts`.
+ */
+const FOLIAGE = paletteColor('scrub.1');
+const FOLIAGE_DECOR_COLORS: Readonly<Record<string, string>> = {
+  'tree:foliage': FOLIAGE,
+  'desert_tree:foliage': FOLIAGE,
+  'bush:foliage': FOLIAGE,
+  'grass:foliage': FOLIAGE,
+  'cedar:foliage': FOLIAGE,
+};
+
 export const TERRAIN_THEMES: Record<TerrainTheme, TerrainTones> = {
   arid: {
     open: paletteColor('limestone.3'),
@@ -44,7 +64,7 @@ export const TERRAIN_THEMES: Record<TerrainTheme, TerrainTones> = {
     rock: paletteColor('limestone.6'),
     rockLit: paletteColor('limestone.3'),
     earth: paletteColor('terracotta.2'),
-    low: paletteColor('olive.1'),
+    low: FOLIAGE,
     trunk: paletteColor('dust.5'),
     trunkLit: paletteColor('dust.3'),
     leafDark: paletteColor('olive.2'),
@@ -65,6 +85,7 @@ export const TERRAIN_THEMES: Record<TerrainTheme, TerrainTones> = {
     groveFamily: 'desert_tree',
     // N-18: the haze is dust, not fog -- the desert's own lightest dust.
     haze: paletteColor('dust.0'),
+    decorColors: FOLIAGE_DECOR_COLORS,
   },
   green: {
     open: paletteColor('grass.2'),
@@ -85,7 +106,7 @@ export const TERRAIN_THEMES: Record<TerrainTheme, TerrainTones> = {
     rock: paletteColor('limestone.6'),
     rockLit: paletteColor('limestone.3'),
     earth: paletteColor('dust.5'),
-    low: paletteColor('scrub.0'),
+    low: FOLIAGE,
     trunk: paletteColor('dust.5'),
     trunkLit: paletteColor('dust.3'),
     leafDark: paletteColor('scrub.1'),
@@ -112,6 +133,7 @@ export const TERRAIN_THEMES: Record<TerrainTheme, TerrainTones> = {
     groveFamily: 'tree',
     // N-18: a pale limestone haze over the basin rather than a desert dust.
     haze: paletteColor('limestone.1'),
+    decorColors: FOLIAGE_DECOR_COLORS,
   },
   // GH-322: the Sur front -- "rockets range onto Kedem's north from behind a
   // mountain wall". The lead's rulings of 1 Oct, on the revision-2 mock:
@@ -135,7 +157,7 @@ export const TERRAIN_THEMES: Record<TerrainTheme, TerrainTones> = {
     rock: paletteColor('karst.3'),
     rockLit: paletteColor('karst.1'),
     earth: paletteColor('terracotta.2'),
-    low: paletteColor('olive.2'),
+    low: FOLIAGE,
     trunk: paletteColor('dust.5'),
     trunkLit: paletteColor('dust.3'),
     leafDark: paletteColor('olive.3'),
@@ -155,9 +177,9 @@ export const TERRAIN_THEMES: Record<TerrainTheme, TerrainTones> = {
     decorColors: {
       // The lead's pick: cedar needles on scrub.1, a deep blue-green that
       // reads as a conifer under the sun where olive reads as an olive.
-      'cedar:foliage': paletteColor('scrub.1'),
-      // Grey-green garrigue, one olive step darker than the ramp's own lift.
-      'bush:foliage': paletteColor('olive.2'),
+      // VR-05 then took every foliage family there (`FOLIAGE_DECOR_COLORS`);
+      // the highland bush was olive.2, one step off the KDF uniform.
+      ...FOLIAGE_DECOR_COLORS,
       // Left at limestone.6 the chips and outcrops read as orange crumbs on
       // the earth; grey limestone, the ridge walls' own family.
       'boulder:rock': paletteColor('karst.2'),
