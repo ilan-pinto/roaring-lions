@@ -233,15 +233,22 @@ jobs:
       #
       # Exit codes (Ruling R39, `tools/src/net/two-engine-verdict.ts`'s
       # `decide`): 1 the engines that booted disagree, missed the tick or
-      # booted incomparable forces -- a hard failure; 2 an engine started and
-      # then broke (boot card, timeout, lost context) or the tool failed --
-      # a failure, engine named; 3 an engine could not LAUNCH or create WebGL2
-      # on this runner -- an environment finding, not a determinism one, so it
-      # passes here: the tool has already printed a `::warning::` per engine
-      # (and one saying no cross-engine reading was taken if fewer than two
-      # booted), and the engines that did boot were still compared, so a real
-      # disagreement among them is still exit 1. Without this an unbootable
-      # engine would redden `visual` and skip `version` on every push.
+      # booted incomparable forces; 2 an engine started and then broke (boot
+      # card, timeout, lost context), the tool failed, or a REQUIRED engine
+      # could not boot; 3 a non-required engine could not launch or create
+      # WebGL2 -- an environment finding the tool still allows.
+      #
+      # ON CI ALL THREE ARE REQUIRED, so 3 cannot happen here and any non-zero
+      # exit fails the step. Until 15 Oct 2026 this step passed exit 3, and it
+      # exited 3 on every run: headless Firefox on ubuntu-latest has no WebGL2
+      # at all, with or without `webgl.force-enabled`, so the check compared
+      # Chromium against WebKit and never read SpiderMonkey -- and had WebKit
+      # stopped booting too, it would have compared nothing and still passed.
+      # Firefox runs HEADED under `xvfb-run` now (`--firefox-headed`), where it
+      # gets Mesa's llvmpipe: measured in mcr.microsoft.com/playwright:
+      # v1.64.0-noble, headless `null` vs headed `llvmpipe`. `--require` turns
+      # an engine that stops booting into a named red, not a quiet warning.
+      # (xvfb-run comes with the `--with-deps` install above.)
       #
       # Runs after a failed golden gate too (a red picture must not hide the
       # cross-engine reading); not on cancel. The timeout is a hang guard: the
@@ -249,20 +256,7 @@ jobs:
       - name: three engines, one hash (network design §12)
         if: ${{ success() || failure() }}
         timeout-minutes: 15
-        run: |
-          set +e
-          pnpm net:engines -- --port=5183
-          code=$?
-          if [ "$code" = "3" ]; then
-            {
-              echo "### :warning: Three-engine check: an engine could not boot"
-              echo ""
-              echo "At least one engine could not launch or create WebGL2 on this runner."
-              echo "See the step's warnings for which; any engines that booted were compared."
-            } >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          exit $code
+        run: xvfb-run -a pnpm net:engines -- --port=5183 --firefox-headed --require=chromium,firefox,webkit
       # I9 (final review). The branch's headline claim -- a battlefield can be
       # LEFT cleanly, in one JS realm, with no page reload -- is proved by
       # exactly one instrument, and until this it ran only when somebody

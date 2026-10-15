@@ -15,14 +15,17 @@
 // broke (a boot-failure card, a boot or script timeout, a lost context) or the
 // tool itself failed; 3 an engine could not LAUNCH or create a WebGL2 context
 // on this runner -- an environment finding, printed as a `::warning::` per
-// engine, with the engines that did boot still compared. CI passes exit 3.
+// engine, with the engines that did boot still compared -- UNLESS that engine
+// is named in `--require=`, when it is exit 2. CI requires all three and runs
+// Firefox headed under `xvfb-run` (`--firefox-headed`), so on CI exit 3 cannot
+// happen and an engine that stops booting reddens the job by name.
 import { chromium, firefox, webkit, type Browser, type Page } from 'playwright';
 import { fileURLToPath } from 'node:url';
 import { ensureDevServer, stopDevServer } from '../golden-diff/browser';
 import { BOOT_FREEZE_INIT_SCRIPT, FREEZE_FRAME_LOOP_STATEMENTS } from '../golden-diff/capture-protocol';
 import { claimPort } from '../ui-review/port';
 import { musicOffInitScript } from '../ui-review/music-off';
-import { decide, type EngineOutcome, type EngineReading } from './two-engine-verdict';
+import { decide, parseEngineArgs, type EngineOutcome, type EngineReading } from './two-engine-verdict';
 import { shippedContentDigest } from '../../../packages/app/src/net/content-digest';
 
 const REPO = fileURLToPath(new URL('../../../', import.meta.url));
@@ -188,15 +191,21 @@ async function reading(launch: () => Promise<Browser>, name: string, port: numbe
 }
 
 async function main(): Promise<number> {
+  // Parsed before the port is claimed or a server starts: a bad flag costs nothing.
+  const args = parseEngineArgs(process.argv.slice(2));
   const port = await claimPort(TAG, 'NET_ENGINES_PORT', 5183);
+  if (args.require.length > 0) console.log(`[${TAG}] required on this runner: ${args.require.join(', ')}`);
+  if (args.firefoxHeaded) console.log(`[${TAG}] firefox: headed (DISPLAY=${process.env.DISPLAY ?? 'unset'})`);
   const server = await ensureDevServer(port, REPO, TAG);
   try {
     const engines: [string, () => Promise<Browser>][] = [
       ['chromium', () => chromium.launch()],
-      // Headless Firefox may blocklist WebGL on a GPU-less Linux runner; the
-      // pref lifts that. This check is about the sim's arithmetic, not about
+      // Headless Firefox on a GPU-less Linux runner creates no WebGL2 context
+      // at all; headed under `xvfb-run` it gets Mesa's llvmpipe
+      // (`--firefox-headed`, see `parseEngineArgs`). The pref lifts Firefox's
+      // GPU blocklist: this check is about the sim's arithmetic, not about
       // which GPUs Firefox trusts.
-      ['firefox', () => firefox.launch({ firefoxUserPrefs: { 'webgl.force-enabled': true } })],
+      ['firefox', () => firefox.launch({ headless: !args.firefoxHeaded, firefoxUserPrefs: { 'webgl.force-enabled': true } })],
       ['webkit', () => webkit.launch()],
     ];
     const outcomes: Record<string, EngineOutcome> = {};
@@ -215,7 +224,7 @@ async function main(): Promise<number> {
     // every engine's `__lions.contentDigest()` must equal.
     const nodeContent = shippedContentDigest();
     console.log(`[${TAG}] node ${process.version}: content digest ${nodeContent}`);
-    const d = decide(outcomes, TARGET_TICK, FIRST_ORDER_TICK, nodeContent);
+    const d = decide(outcomes, TARGET_TICK, FIRST_ORDER_TICK, nodeContent, args.require);
     // A `::warning::` line must START the line for the runner to read it, so
     // it is printed bare; everything else carries the tag.
     for (const { level, text } of d.lines) {
