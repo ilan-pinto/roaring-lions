@@ -290,8 +290,10 @@ describe('cleanCommand: build and support (N2)', () => {
       { kind: 'build', side: 0, unit: 'x'.repeat(33) },
       { kind: 'build', side: 0, unit: 3 },
       { kind: 'build', unit: 'inf_squad' },
+      { kind: 'build', side: 0.5, unit: 'inf_squad' },
       { kind: 'support', side: 0, support: 'nuke', x: 0, y: 0 },
       { kind: 'support', side: 0, support: 'air_strike', x: 1.5, y: 0 },
+      { kind: 'support', side: 0, support: 'air_strike', x: 0, y: 2.5 },
       { kind: 'support', support: 'air_strike', x: 0, y: 0 },
     ];
     for (const b of bad) expect(cleanCommand(b), JSON.stringify(b)).toBeNull();
