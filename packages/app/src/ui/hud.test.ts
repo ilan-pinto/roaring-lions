@@ -357,6 +357,28 @@ describe('top strip', () => {
     expect(r.strip()).not.toContain('◎');
   });
 
+  // F-Q11: intel is earned by doing, so the strip names the last earn where
+  // logistics names its rate -- and carries no intel `+N/min` at all.
+  it('shows the last intel earn beside the word, and no intel rate', () => {
+    const r = rig(mission({ logistics: 410, logisticsRate: 12, intel: 40, intelLastEarn: { amount: 30, cause: 'highGround' } }));
+    const intel = r.stripEl().querySelector('[data-tip="intel"]')?.textContent ?? '';
+    expect(intel).toContain('+30 high ground');
+    expect(intel).not.toContain('/min');
+    const labels: [ 'identified' | 'objective', string ][] = [['identified', '+10 spotted'], ['objective', '+30 objective']];
+    for (const [cause, text] of labels) {
+      const amount = cause === 'identified' ? 10 : 30;
+      const w = rig(mission({ intel: 40, intelLastEarn: { amount, cause } }));
+      expect(w.stripEl().querySelector('[data-tip="intel"]')?.textContent).toContain(text);
+    }
+  });
+
+  it('shows no earn when none is set, and logistics keeps its own rate', () => {
+    const r = rig(mission({ logistics: 410, logisticsRate: 12, intel: 40 }));
+    expect(r.stripEl().querySelector('[data-tip="intel"]')?.textContent).not.toContain('/min');
+    expect(r.stripEl().querySelector('[data-tip="intel"]')?.textContent).not.toContain('+');
+    expect(r.stripEl().querySelector('[data-tip="logistics"]')?.textContent).toContain('+12/min');
+  });
+
   it('drops the rate when the mission pays none, rather than printing +0/min', () => {
     expect(rig(mission({ logistics: 410, logisticsRate: 0 })).strip()).not.toContain('/min');
   });

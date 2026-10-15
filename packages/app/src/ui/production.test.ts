@@ -17,12 +17,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import { units } from '@lions/data';
 import {
+  FIRE_SUPPORT_KINDS,
   MissionRuntime,
   Sim,
   type MissionJson,
   type UnitTypeJson,
 } from '@lions/sim';
-import { ReinforcementDock, type ProductionRuntime, type SupportKind } from './production';
+import { ReinforcementDock, type ProductionOptions, type ProductionRuntime, type SupportKind } from './production';
 import type { DockUnit } from './dock-model';
 import type { Tone } from './hud';
 import { closeTip } from './tooltip';
@@ -42,8 +43,7 @@ function fakeRuntime(over: Partial<FakeRuntime> = {}): FakeRuntime {
   const rt: FakeRuntime = {
     logistics: 1000,
     intel: 100,
-    sweepCost: 30,
-    strikeCost: 60,
+    supportCost: (k) => ({ smoke_screen: 10, mortar_barrage: 20, drone_sweep: 30, air_strike: 60 })[k],
     production: [],
     blocked: {},
     builds: [],
@@ -86,7 +86,8 @@ interface Rig {
 function rig(
   unitList: DockUnit[] = [dockUnit()],
   rt = fakeRuntime(),
-  meshPending?: (unitId: string) => boolean
+  meshPending?: (unitId: string) => boolean,
+  extra: Partial<ProductionOptions> = {}
 ): Rig {
   document.body.replaceChildren();
   const host = document.createElement('div');
@@ -99,6 +100,7 @@ function rig(
     note: (html, tone) => notes.push({ html, tone }),
     onArm: (kind) => arms.push(kind),
     meshPending,
+    ...extra,
   });
   const q = <T extends HTMLElement>(sel: string): T => {
     const el = host.querySelector<T>(sel);
@@ -130,11 +132,22 @@ const unhover = (el: HTMLElement): void => {
 // ----------------------------------------------------------------------
 
 describe('the dock’s shape', () => {
-  it('draws one tile per buildable plus the two support calls', () => {
+  it('draws one tile per buildable plus the four support calls', () => {
     const r = rig([dockUnit(), dockUnit({ id: 'mbt_lavi', name: 'Lavi MBT' })]);
-    expect(r.tiles()).toHaveLength(4);
-    expect(r.support('sweep').textContent).toContain('sweep 30');
-    expect(r.support('strike').textContent).toContain('strike 60');
+    expect(r.tiles()).toHaveLength(6);
+    expect(r.support('drone_sweep').textContent).toContain('sweep 30');
+    expect(r.support('air_strike').textContent).toContain('strike 60');
+  });
+
+  it('four support tiles, in the sim’s order, each showing its own price', () => {
+    const r = rig();
+    const tiles = [...r.host.querySelectorAll<HTMLElement>('[data-support]')];
+    expect(tiles.map((el) => el.dataset.support)).toEqual([...FIRE_SUPPORT_KINDS]);
+    const price = { smoke_screen: 10, mortar_barrage: 20, drone_sweep: 30, air_strike: 60 };
+    const word = { smoke_screen: 'screen', mortar_barrage: 'barrage', drone_sweep: 'sweep', air_strike: 'strike' };
+    for (const k of FIRE_SUPPORT_KINDS) {
+      expect(r.support(k).querySelector('.rl-tile__word')?.textContent).toBe(`${word[k]} ${price[k]}`);
+    }
   });
 
   it('names the key its label promises', () => {
@@ -211,12 +224,12 @@ describe('the dock’s shape', () => {
 
   it('draws the sweep and strike tiles with the order marks', () => {
     const r = rig();
-    expect(r.support('sweep').querySelector('.rl-tile__glyph [data-symbol="sweep"]')).not.toBeNull();
-    expect(r.support('strike').querySelector('.rl-tile__glyph [data-symbol="strike"]')).not.toBeNull();
-    expect(r.support('sweep').textContent).not.toContain('◎');
-    expect(r.support('strike').textContent).not.toContain('✸');
+    expect(r.support('drone_sweep').querySelector('.rl-tile__glyph [data-symbol="sweep"]')).not.toBeNull();
+    expect(r.support('air_strike').querySelector('.rl-tile__glyph [data-symbol="strike"]')).not.toBeNull();
+    expect(r.support('drone_sweep').textContent).not.toContain('◎');
+    expect(r.support('air_strike').textContent).not.toContain('✸');
     // Fix round 1: cropped to the surround, not the cursor's full 24-box.
-    for (const k of ['sweep', 'strike'] as const) {
+    for (const k of ['drone_sweep', 'air_strike'] as const) {
       expect(r.support(k).querySelector('svg')?.getAttribute('viewBox')).not.toBe('0 0 24 24');
     }
   });
@@ -337,16 +350,16 @@ describe('tile states', () => {
 
   it('marks a support call armed, and only the one armed', () => {
     const r = rig();
-    r.support('sweep').click();
-    expect(r.support('sweep').dataset.armed).toBe('1');
-    expect(r.support('strike').dataset.armed).toBe('0');
-    expect(r.arms).toEqual(['sweep']);
+    r.support('drone_sweep').click();
+    expect(r.support('drone_sweep').dataset.armed).toBe('1');
+    expect(r.support('air_strike').dataset.armed).toBe('0');
+    expect(r.arms).toEqual(['drone_sweep']);
   });
 
   it('dims a support call there is not enough intel for', () => {
     const r = rig([dockUnit()], fakeRuntime({ intel: 40 }));
-    expect(r.support('sweep').dataset.poor).toBe('0');
-    expect(r.support('strike').dataset.poor).toBe('1');
+    expect(r.support('drone_sweep').dataset.poor).toBe('0');
+    expect(r.support('air_strike').dataset.poor).toBe('1');
   });
 });
 
@@ -476,18 +489,77 @@ describe('what a click does', () => {
 
   it('will not arm a support call there is no intel for', () => {
     const r = rig([dockUnit()], fakeRuntime({ intel: 0 }));
-    r.support('sweep').click();
+    r.support('drone_sweep').click();
     expect(r.arms).toEqual([]);
-    expect(r.support('sweep').dataset.armed).toBe('0');
+    expect(r.support('drone_sweep').dataset.armed).toBe('0');
     expect(r.notes[0].tone).toBe('mute');
+  });
+
+  it('a short click denies: a note, the cue, nothing armed', () => {
+    const onDeny = vi.fn();
+    const r = rig([dockUnit()], fakeRuntime({ intel: 15 }), undefined, { onDeny });
+    r.support('mortar_barrage').click();
+    expect(onDeny).toHaveBeenCalledTimes(1);
+    expect(r.notes).toHaveLength(1);
+    expect(r.notes[0].html).toContain('mortar barrage');
+    expect(r.arms).toEqual([]);
+    expect(r.support('mortar_barrage').dataset.armed).toBe('0');
+  });
+
+  it('an affordable click arms it and only it; a second click disarms', () => {
+    for (const kind of FIRE_SUPPORT_KINDS) {
+      const r = rig();
+      r.support(kind).click();
+      for (const other of FIRE_SUPPORT_KINDS) {
+        expect(r.support(other).dataset.armed).toBe(other === kind ? '1' : '0');
+      }
+      r.support(kind).click();
+      expect(r.support(kind).dataset.armed).toBe('0');
+      expect(r.arms).toEqual([kind, null]);
+    }
+  });
+
+  it('press is the click', () => {
+    const onDeny = vi.fn();
+    const r = rig([dockUnit()], fakeRuntime({ intel: 100 }), undefined, { onDeny });
+    expect(r.dock.press('air_strike')).toBe(true);
+    expect(r.support('air_strike').dataset.armed).toBe('1');
+    expect(onDeny).not.toHaveBeenCalled();
+    expect(r.dock.press('air_strike')).toBe(false); // a second press disarms
+    expect(r.support('air_strike').dataset.armed).toBe('0');
+    const poor = rig([dockUnit()], fakeRuntime({ intel: 10 }), undefined, { onDeny });
+    expect(poor.dock.press('air_strike')).toBe(false);
+    expect(onDeny).toHaveBeenCalledTimes(1);
+    expect(poor.support('air_strike').dataset.armed).toBe('0');
+  });
+
+  it('no clock on a charging tile', () => {
+    const r = rig([dockUnit()], fakeRuntime({ intel: 5 }), undefined, {
+      supportCharge: (kind) => ({ fraction: 0.5, title: `charging ${kind}` }),
+    });
+    r.dock.refresh();
+    for (const kind of FIRE_SUPPORT_KINDS) {
+      expect(r.support(kind).querySelector('.rl-tile__clock')).toBeNull();
+      expect(r.support(kind).dataset.charging).toBe('1');
+      expect(r.support(kind).getAttribute('aria-label')).toBe(`charging ${kind}`);
+    }
+  });
+
+  it('the tooltip names the bound key when the shell supplies one, and says nothing when not', () => {
+    const r = rig([dockUnit()], fakeRuntime(), undefined, { hotkeyLabel: (k) => (k === 'air_strike' ? 'R' : undefined) });
+    hover(r.support('air_strike'));
+    expect(r.tip().textContent).toContain('Key R');
+    unhover(r.support('air_strike'));
+    hover(r.support('drone_sweep'));
+    expect(r.tip().textContent).not.toContain('Key');
   });
 
   it('disarms when the armed call is clicked again', () => {
     const r = rig();
-    r.support('strike').click();
-    r.support('strike').click();
-    expect(r.arms).toEqual(['strike', null]);
-    expect(r.support('strike').dataset.armed).toBe('0');
+    r.support('air_strike').click();
+    r.support('air_strike').click();
+    expect(r.arms).toEqual(['air_strike', null]);
+    expect(r.support('air_strike').dataset.armed).toBe('0');
   });
 
   // The tiles are repainted 4 Hz. A rebuild by innerHTML would drop the
@@ -593,7 +665,7 @@ describe('the hover tooltip', () => {
 
   it('describes a support call too, since a glyph explains nothing on its own', () => {
     const r = rig();
-    hover(r.support('strike'));
+    hover(r.support('air_strike'));
     expect(r.tip().querySelector('.rl-tip__name')?.textContent).toBe('Precision strike');
     expect(r.tip().querySelector('.rl-tip__cost')?.textContent).toBe('60 intel');
     expect(r.tip().querySelector('.rl-tip__blurb')).not.toBe(null);
@@ -649,8 +721,8 @@ describe('invariant 4: the dock never touches the sim', () => {
     const before = w.sim.entityCount;
     const r = rig([dockUnit()], w.runtime as unknown as FakeRuntime);
     r.tile('inf_squad').click();
-    r.support('sweep').click();
-    r.support('strike').click();
+    r.support('drone_sweep').click();
+    r.support('air_strike').click();
     r.dock.refresh();
     expect(w.queued).toHaveLength(0);
     // …and the build really did land in the runtime's queue, so the zero above
