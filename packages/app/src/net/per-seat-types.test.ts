@@ -209,6 +209,9 @@ describe('per-seat unit types with no sim code (N2-P5, ruling L2)', () => {
   describe("through combat (the probe's attack-move, 90 s on beit_sahwan_outskirts)", { timeout: 60_000 }, () => {
     let memo: ReturnType<typeof run> | undefined;
     const kitRun = (): ReturnType<typeof run> => (memo ??= run('beit_sahwan_outskirts', BATTLE_TICKS, 'kit', true));
+    let identityMemo: ReturnType<typeof run> | undefined;
+    const identityRun = (): ReturnType<typeof run> =>
+      (identityMemo ??= run('beit_sahwan_outskirts', BATTLE_TICKS, 'identity', true));
 
     it('fire is exchanged: both sides take damage and lose units', () => {
       const kit = kitRun();
@@ -227,7 +230,7 @@ describe('per-seat unit types with no sim code (N2-P5, ruling L2)', () => {
 
     it('duplicate registrations alone change no fight: identity copies play the mirror unit for unit', () => {
       const base = run('beit_sahwan_outskirts', BATTLE_TICKS, 'base', true);
-      const identity = run('beit_sahwan_outskirts', BATTLE_TICKS, 'identity', true);
+      const identity = identityRun();
       expect(fate(identity)).toEqual(fate(base));
     });
 
@@ -239,7 +242,7 @@ describe('per-seat unit types with no sim code (N2-P5, ruling L2)', () => {
     });
 
     it('hits on side 1 read its OWN patched armour: plates move the fight from an identical tick 0', () => {
-      const identity = run('beit_sahwan_outskirts', BATTLE_TICKS, 'identity', true);
+      const identity = identityRun();
       const plates = run('beit_sahwan_outskirts', BATTLE_TICKS, 'plates', true);
       expect(plates.hash0).toBe(identity.hash0);
       expect(fate(plates)).not.toEqual(fate(identity));
