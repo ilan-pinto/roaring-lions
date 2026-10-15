@@ -98,9 +98,8 @@ describe('ThreeRenderer per-tile facing (SW-5)', () => {
   });
 
   it('gives a wreck its standing building facing', () => {
-    // One tile of each run dies, as the `barriers` capture does: the wreck's
-    // neighbours are read through `sim.structureAt`, which answers only for a
-    // LIVING structure, so a wreck reads its run off the tile still standing.
+    // One tile of each run dies, so the wreck has a living neighbour; the
+    // whole-run case, where none is left, is the describe below.
     const { sim, priv, posts, fences } = build();
     priv.updateBuildingMeshes();
     sim.structures.alive[posts[1]] = 0;
@@ -108,5 +107,91 @@ describe('ThreeRenderer per-tile facing (SW-5)', () => {
     priv.updateBuildingMeshes();
     expect(priv.buildingMeshWreckEntities.get(posts[1])!.rotation.y, 'post wreck').toBe(0);
     expect(priv.buildingMeshWreckEntities.get(fences[1])!.rotation.y, 'fence wreck').toBeCloseTo(Math.PI / 2, 12);
+  });
+});
+
+/** A run of `n` same-type tiles starting at (x, y), stepping by (dx, dy). */
+function runOf(sim: Sim, typeIdx: number, x: number, y: number, dx: number, dy: number, n: number): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) out.push(sim.addStructure(typeIdx, [x + i * dx + (y + i * dy) * sim.width]));
+  return out;
+}
+
+function buildRuns(): {
+  sim: Sim; priv: BuildingMeshPrivate; ns: number[]; ew: number[]; posts: number[];
+} {
+  const sim = new Sim({ seed: 1, width: 10, height: 10, capacity: 1 });
+  const post = sim.addStructureType({ id: 'sandbag_post', hp_per_tile: 400, height_px: 6, color: 'dust.3', per_tile: true });
+  const fence = sim.addStructureType({ id: 'fence', hp_per_tile: 60, height_px: 6, color: 'dust.3', per_tile: true });
+  const ns = runOf(sim, fence, 4, 2, 0, 1, 4);
+  const ew = runOf(sim, fence, 1, 8, 1, 0, 4);
+  const posts = runOf(sim, post, 8, 2, 0, 1, 3);
+  const renderer = new ThreeRenderer(sim, makeOpts());
+  const priv = renderer as unknown as BuildingMeshPrivate;
+  for (const id of ['sandbag_post', 'fence']) {
+    priv.buildingMeshIdleTemplates.set(id, fakeTemplate());
+    priv.buildingMeshWreckTemplates.set(id, fakeTemplate());
+  }
+  return { sim, priv, ns, ew, posts };
+}
+
+describe('ThreeRenderer per-tile facing: a wreck reads its AUTHORED run (SW-5)', () => {
+  it('turns every wreck of a fully destroyed north-south run along it, last tile included', () => {
+    const { sim, priv, ns } = buildRuns();
+    priv.updateBuildingMeshes();
+    // Top to bottom, a frame after each death: by the last, no tile of the
+    // run is left standing for the wreck to read its direction from.
+    for (const s of ns) {
+      sim.structures.alive[s] = 0;
+      priv.updateBuildingMeshes();
+    }
+    for (const s of ns) {
+      expect(priv.buildingMeshWreckEntities.get(s)!.rotation.y, `fence wreck ${s}`).toBeCloseTo(Math.PI / 2, 12);
+    }
+  });
+
+  it('turns the wrecks of a run that was already dead when the first update ran (a late-loading mesh)', () => {
+    const { sim, priv, ns } = buildRuns();
+    for (const s of ns) sim.structures.alive[s] = 0;
+    priv.updateBuildingMeshes();
+    for (const s of ns) {
+      expect(priv.buildingMeshWreckEntities.get(s)!.rotation.y, `fence wreck ${s}`).toBeCloseTo(Math.PI / 2, 12);
+    }
+  });
+
+  it('control: a fully destroyed east-west run keeps every wreck at yaw 0', () => {
+    const { sim, priv, ew } = buildRuns();
+    priv.updateBuildingMeshes();
+    for (const s of ew) {
+      sim.structures.alive[s] = 0;
+      priv.updateBuildingMeshes();
+    }
+    for (const s of ew) expect(priv.buildingMeshWreckEntities.get(s)!.rotation.y, `fence wreck ${s}`).toBe(0);
+  });
+
+  it('control: sandbag posts stay at yaw 0 standing and as wrecks, however the run dies', () => {
+    const { sim, priv, posts } = buildRuns();
+    priv.updateBuildingMeshes();
+    for (const s of posts) expect(priv.buildingMeshIdleEntities.get(s)!.rotation.y, `post ${s}`).toBe(0);
+    for (const s of posts) {
+      sim.structures.alive[s] = 0;
+      priv.updateBuildingMeshes();
+    }
+    for (const s of posts) expect(priv.buildingMeshWreckEntities.get(s)!.rotation.y, `post wreck ${s}`).toBe(0);
+  });
+
+  it('a tile built after the first update joins the lookup (a mid-mission build)', () => {
+    const { sim, priv, ns } = buildRuns();
+    priv.updateBuildingMeshes();
+    const fence = sim.structures.typeIdx[ns[0]];
+    // Extend the north-south run by one tile, then destroy only the new tile
+    // and the one above it: the lookup must have been rebuilt to see them.
+    const extra = sim.addStructure(fence, [4 + 6 * sim.width]);
+    priv.updateBuildingMeshes();
+    for (const s of [ns[3], extra]) {
+      sim.structures.alive[s] = 0;
+      priv.updateBuildingMeshes();
+    }
+    expect(priv.buildingMeshWreckEntities.get(extra)!.rotation.y).toBeCloseTo(Math.PI / 2, 12);
   });
 });
