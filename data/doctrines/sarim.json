@@ -1,0 +1,17 @@
+{
+  "id": "sarim",
+  "faction": "sarim",
+  "name": "Sarim",
+  "menu": [
+    "sarim_rifles",
+    "atgm_cell",
+    "gun_truck",
+    "manpad_team",
+    "rocket_battery",
+    "recoilless_team"
+  ],
+  "budget": {
+    "logistics_start": 4800,
+    "status": "provisional"
+  }
+}
