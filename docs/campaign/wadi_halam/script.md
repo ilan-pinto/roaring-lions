@@ -221,7 +221,7 @@ deadline is the families.
 | Event Name | IF | THEN | narrative cue bound | status |
 |---|---|---|---|---|
 | The brief plays | mission start | `briefing` (unchanged; *re-brief n*) | narrative §4.2 | live |
-| Village held 20s | `objective(take_village, complete)` | `objectives[].say` | net: *"Village is held. Four houses, four cells, and none of them left it."* — flat, because this is the smaller half | live |
+| Village held 20s | `objective(take_village, complete)` | `objectives[].say` | net: *"Village is held. Every cell under a roof we left standing is still at its window."* — flat, because this is the smaller half | live |
 | Cache guard killed/taken | `objective(kill_cache_guard, complete)` | `objectives[].say` | idit: *"That is not a fighter, that is a book-keeper with a launcher... names the depot east of here..."* | live |
 | **[C]** Families out in time | `objective(evac_families, complete)` @≤300s | `objectives[].say`; **now a primary**, so completing it is required for victory | shai: *"Every one of them is at the refuge."* — thirty-four characters, the most important line in the game | live |
 | **[C]** Families NOT out in time | `objective(evac_families, failed)` @300s | `objectives[].say_on_fail`; **now loses the mission** (already reached `failed` today, but `primary: false` meant `checkEnd` never read it) | idit: *"Nine did not come in at First Light. Somebody has to keep saying the number, and it is not going to be you."* | live |
@@ -940,7 +940,7 @@ Ledger fix (§3, item 3):
 `say_on_fail`, **and the one word**:
 
 ```json
-{ "id": "take_village", "say": { "speaker": "net", "text": "Village is held. Four houses, four cells, and none of them left it." } }
+{ "id": "take_village", "say": { "speaker": "net", "text": "Village is held. Every cell under a roof we left standing is still at its window." } }
 ```
 ```json
 { "id": "kill_cache_guard", "say": { "speaker": "idit", "text": "That is not a fighter, that is a book-keeper with a launcher. What he was holding names the depot east of here and says how much of it is still full." } }

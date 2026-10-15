@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { isTelemetryEvent, type TelemetryEnvelope, type TelemetryOrderVerb } from '@lions/data/telemetry';
+import { TELEMETRY_ORDER_VERBS, isTelemetryEvent, type TelemetryEnvelope, type TelemetryOrderVerb } from '@lions/data/telemetry';
 import { INTENT_KINDS, type PlayerIntent } from '../input/intents';
+import { SUPPORT, SUPPORT_KINDS } from '../ui/support-kinds';
 import * as ev from './events';
 
 const env: TelemetryEnvelope = {
@@ -121,7 +122,7 @@ function sample(kind: PlayerIntent['kind']): PlayerIntent {
     case 'halt': return { kind, ids: [1] };
     case 'group': return { kind, slot: 1, action: 'assign' };
     case 'overlay': return { kind, on: true };
-    case 'support': return { kind, call: 'strike', x: 1, y: 1, accepted: true };
+    case 'support': return { kind, call: 'air_strike', x: 1, y: 1, accepted: true };
   }
 }
 
@@ -135,8 +136,22 @@ describe('order verbs (GH-254, D2: per intent)', () => {
 
   it('a plain move is move, a sweep is sweep, and a refused support call is not an order', () => {
     expect(ev.orderVerbOf({ kind: 'order', verb: 'move', ids: [1], x: 0, y: 0, append: true })).toBe('move');
-    expect(ev.orderVerbOf({ kind: 'support', call: 'sweep', x: 0, y: 0, accepted: true })).toBe('sweep');
-    expect(ev.orderVerbOf({ kind: 'support', call: 'strike', x: 0, y: 0, accepted: false })).toBeNull();
+    expect(ev.orderVerbOf({ kind: 'support', call: 'drone_sweep', x: 0, y: 0, accepted: true })).toBe('sweep');
+    expect(ev.orderVerbOf({ kind: 'support', call: 'air_strike', x: 0, y: 0, accepted: false })).toBeNull();
+  });
+
+  it('maps an accepted support call of each kind to its table verb, a refused one to null (S-F)', () => {
+    for (const call of SUPPORT_KINDS) {
+      const verb = ev.orderVerbOf({ kind: 'support', call, x: 0, y: 0, accepted: true });
+      expect(verb, call).toBe(SUPPORT[call].verb);
+      // The table is also pinned by literals: an oracle that reads the table it
+      // checks cannot fail when the table is wrong.
+      expect(verb, call).toBe(
+        { smoke_screen: 'smokeScreen', mortar_barrage: 'barrage', drone_sweep: 'sweep', air_strike: 'strike' }[call]
+      );
+      expect(TELEMETRY_ORDER_VERBS as readonly string[], call).toContain(verb);
+      expect(ev.orderVerbOf({ kind: 'support', call, x: 0, y: 0, accepted: false }), call).toBeNull();
+    }
   });
 
   it('tallyVerb counts, and refuses a key that is not a real order verb', () => {

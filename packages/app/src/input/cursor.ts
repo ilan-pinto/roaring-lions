@@ -11,6 +11,7 @@
 import type { PlayerIntent, Resolution } from './intents.ts';
 import type { RoleBucket } from '../ui/role.ts';
 import { ORDER_SIGHT, type SightOrderId } from '../ui/order-sight.ts';
+import type { SupportKind } from '@lions/sim';
 
 /** `advance` is the cursor over a hostile, and it was `attack` until WP-P4
  *  (PA-08). The rename is the point: a right-click over an enemy does not
@@ -42,6 +43,8 @@ export type CursorName =
   | 'mount'
   | 'dismount'
   | 'smoke'
+  | 'barrage'
+  | 'smokeScreen'
   | 'pinned';
 
 /** What the resolution cannot know, because resolvePointer never looks at
@@ -76,7 +79,17 @@ export interface CursorHints {
  *  `BADGED_VERBS` is typed so one of these can never appear as a key at
  *  all. One rule, several callers -- the same pattern this milestone
  *  already uses for `zoneContains`, `roleBucket` and `cursorKey` itself. */
-export type UnbadgedName = 'default' | 'moveOnly' | 'blocked' | 'costly' | 'protected' | 'sweep' | 'strike' | 'pinned';
+export type UnbadgedName =
+  | 'default'
+  | 'moveOnly'
+  | 'blocked'
+  | 'costly'
+  | 'protected'
+  | 'sweep'
+  | 'strike'
+  | 'barrage'
+  | 'smokeScreen'
+  | 'pinned';
 
 export const UNBADGED_NAMES: ReadonlySet<CursorName> = new Set<UnbadgedName>([
   'default',
@@ -88,6 +101,9 @@ export const UNBADGED_NAMES: ReadonlySet<CursorName> = new Set<UnbadgedName>([
   'protected',
   'sweep',
   'strike',
+  // The other two armed calls (S-F): drawn by the strike and smoke sights.
+  'barrage',
+  'smokeScreen',
   // Describes the units' state, not who is acting: a whole order pinned
   // means nobody is, so a role badge would name an actor that does not move.
   'pinned',
@@ -198,6 +214,8 @@ export const ANIMATED_CURSORS: Readonly<Partial<Record<CursorName, CursorAnimati
   attack: anim('attackMove'),
   sweep: anim('sweep'),
   strike: anim('strike'),
+  barrage: anim('strike'),
+  smokeScreen: anim('smoke'),
   smoke: anim('smoke'),
   charge: { frames: 4, intervalMs: 200 },
   demolish: { frames: 4, intervalMs: 300 },
@@ -211,9 +229,13 @@ export const ANIMATED_CURSORS: Readonly<Partial<Record<CursorName, CursorAnimati
  *  (`attack-soft` is `advance-soft`'s image), and reads its own key so a
  *  targeted order is told from an attack-move to the tile. The plugin answers
  *  both keys with one rule (`vite-plugin-cursors.ts`). */
-export const CURSOR_ALIAS: Readonly<{ moveOnly: 'move'; attack: 'advance' }> = {
+export const CURSOR_ALIAS: Readonly<{ moveOnly: 'move'; attack: 'advance'; barrage: 'strike'; smokeScreen: 'smoke' }> = {
   moveOnly: 'move',
   attack: 'advance',
+  // S-F: the barrage and the smoke screen are armed calls with no sight of
+  // their own -- the strike's and the smoke order's, under their own keys.
+  barrage: 'strike',
+  smokeScreen: 'smoke',
 };
 
 export { SIGHT_OF };
@@ -246,12 +268,24 @@ export function winningVerb(res: Resolution, hints: CursorHints): CursorName | n
   return null;
 }
 
+/** The armed cursor of each support kind. A LOCAL table, not `SUPPORT[k].cursor`:
+ *  this module is in vite.config.ts's import chain, which Node loads natively,
+ *  and `ui/support-kinds.ts` value-imports `@lions/sim` -- extensionless
+ *  source Node cannot resolve (`tools/src/vite_config_native.test.ts`). The
+ *  `import type` above is erased. `cursor.test.ts` pins this against `SUPPORT`. */
+export const ARMED_CURSOR: Readonly<Record<SupportKind, CursorName>> = {
+  smoke_screen: 'smokeScreen',
+  mortar_barrage: 'barrage',
+  drone_sweep: 'sweep',
+  air_strike: 'strike',
+};
+
 export function cursorFor(res: Resolution, hints: CursorHints): CursorName {
   // Armed support outranks everything: it is what the pointer means, and it
   // fires with an empty selection, which is how pointerup always calls it.
   // The cursor names the call itself (Q3): sweep and strike draw different
   // sights, and res.armed already carries which one it is.
-  if (res.armed) return res.armed;
+  if (res.armed) return ARMED_CURSOR[res.armed];
   // An armed smoke order is the same argument one rung down (Q2): the next
   // click lays a screen whatever is under the pointer. Below armed support,
   // because only one of the two can spend the click and a support call is
