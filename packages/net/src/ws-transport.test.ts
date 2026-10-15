@@ -611,3 +611,162 @@ describe('WsTransport: a log in parts (#559 H-1)', () => {
     expect(t.forfeitClock()).toEqual({ seat: 1, untilMs: 30_000 });
   });
 });
+
+describe('N4a: the advisor role, advisor and done messages, the round stall', () => {
+  it('a role: advisor transport sends no ack, hash, ready, over or bye (but does say hello)', () => {
+    const sock = fakeSocket();
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} }, () => 0, 'advisor');
+    sock.open();
+    sock.recv({ t: 'start', config: CONFIG });
+    sock.sent.length = 0;
+    t.reportTick(19, 123);
+    t.ready();
+    t.over(5);
+    t.close();
+    expect(sock.sent).toEqual([]);
+  });
+  it('a seat transport still sends all five (the same calls, the default role)', () => {
+    const sock = fakeSocket();
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} }, () => 0);
+    sock.open();
+    sock.recv({ t: 'start', config: CONFIG });
+    sock.sent.length = 0;
+    t.reportTick(19, 123);
+    t.ready();
+    t.over(5);
+    t.close();
+    expect(sock.sent.map((s) => (JSON.parse(s) as { t: string }).t)).toEqual(['ack', 'hash', 'ready', 'over', 'bye']);
+  });
+  it('an advisor still says hello, and advisor() and done() send their messages', () => {
+    const sock = fakeSocket();
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} }, () => 0, 'advisor');
+    sock.open();
+    t.advisor({ kind: 'ping', x: 3, y: 4 });
+    t.done(2);
+    expect(sock.sent.map((s) => JSON.parse(s))).toEqual([
+      { t: 'hello', ticket: 'tkt', build: 'b' },
+      { t: 'advisor', a: { kind: 'ping', x: 3, y: 4 } },
+      { t: 'done', round: 2 },
+    ]);
+  });
+  it('onAdvisor and onAdvisors fire with what the room relayed', () => {
+    const sock = fakeSocket();
+    const heard: unknown[] = [];
+    new WsTransport(() => sock, 'tkt', 'b', {
+      onStart: () => {},
+      onAdvisor: (from, a) => { heard.push(['advisor', from, a]); },
+      onAdvisors: (present) => { heard.push(['advisors', present]); },
+    });
+    sock.open();
+    sock.recv({ t: 'advisor', from: 'advisor', a: { kind: 'text', text: 'hold' } });
+    sock.recv({ t: 'advisors', present: [null, 'assist'] });
+    sock.recv({ t: 'advisor', from: 'advisor', a: { kind: 'ping', x: 999, y: 0 } });   // unparseable: dropped by the parser
+    expect(heard).toEqual([
+      ['advisor', 'advisor', { kind: 'text', text: 'hold' }],
+      ['advisors', [null, 'assist']],
+    ]);
+  });
+  it('setHooks replays the advisors the room last named to an onAdvisors it installs (the lobby hands over before the battlefield hooks)', () => {
+    const sock = fakeSocket();
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} });
+    sock.open();
+    const seen: unknown[] = [];
+    t.setHooks({ onAdvisors: (p) => { seen.push(p); } });
+    expect(seen).toEqual([]);   // the room has said nothing yet
+    sock.recv({ t: 'advisors', present: ['assist', null] });
+    expect(seen).toEqual([['assist', null]]);
+    const late: unknown[] = [];
+    t.setHooks({ onAdvisors: (p) => { late.push(p); } });
+    expect(late).toEqual([['assist', null]]);
+  });
+  it('a reconnect clears the advisor badges before the room names them again (N4a Task 9: a seat that missed a [null, null] while away)', () => {
+    vi.useFakeTimers();
+    const sock = fakeSocket();
+    const heard: unknown[] = [];
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {}, onLobby: () => { heard.push('lobby'); }, onAdvisors: (p) => { heard.push(['advisors', p]); } });
+    sock.open();
+    sock.recv({ t: 'lobby', config: null, seats: [{ seat: 0, callsign: 'A', connected: true, ready: false }], you: 0, map: 'tel_marum' });
+    sock.recv({ t: 'advisors', present: ['advise', null] });
+    // A first lobby is no reconnect: nothing was cleared.
+    expect(heard).toEqual(['lobby', ['advisors', ['advise', null]]]);
+    heard.length = 0;
+    sock.closeFromServer();
+    vi.runAllTimers();
+    sock.open();
+    sock.recv({ t: 'lobby', config: null, seats: [{ seat: 0, callsign: 'A', connected: true, ready: false }], you: 0, map: 'tel_marum' });
+    expect(heard).toEqual([['advisors', [null, null]], 'lobby']);
+    // Later lobbies (a ready toggle) keep what the room last said.
+    heard.length = 0;
+    sock.recv({ t: 'advisors', present: [null, 'assist'] });
+    sock.recv({ t: 'lobby', config: null, seats: [{ seat: 0, callsign: 'A', connected: true, ready: true }], you: 0, map: 'tel_marum' });
+    expect(heard).toEqual([['advisors', [null, 'assist']], 'lobby']);
+    expect(t.status()).toEqual({ kind: 'waiting' });
+  });
+  it('a reconnect into a running match clears the advisor badges on its log too', () => {
+    vi.useFakeTimers();
+    const sock = fakeSocket();
+    const heard: unknown[] = [];
+    new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {}, onAdvisors: (p) => { heard.push(p); } });
+    sock.open();
+    sock.recv({ t: 'start', config: CONFIG });
+    sock.closeFromServer();
+    vi.runAllTimers();
+    sock.open();
+    sock.recv({ t: 'log', config: CONFIG, frames: [] });
+    expect(heard).toEqual([[null, null]]);
+  });
+  it('stats().stalls.round counts a round stall, once from its start, with its longest', () => {
+    let now = 0;
+    const sock = fakeSocket();
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} }, () => now);
+    sock.open();
+    sock.recv({ t: 'start', config: CONFIG });
+    expect(t.stats().stalls.round).toEqual({ count: 0, longestMs: 0 });
+    now = 1000;
+    sock.recv({ t: 'stall', reason: 'round', seat: 1 });
+    sock.recv({ t: 'stall', reason: 'round', seat: 1 });
+    expect(t.status()).toEqual({ kind: 'stalled', reason: 'round', seat: 1 });
+    now = 3500;
+    expect(t.stats().stalls.round).toEqual({ count: 1, longestMs: 2500 });
+    sock.recv({ t: 'resume' });
+    now = 9000;
+    expect(t.stats().stalls.round).toEqual({ count: 1, longestMs: 2500 });
+    expect(t.stats().stalls.behind.count).toBe(0);
+  });
+});
+
+describe('N4a: a paced room releases a closed round past the buffer', () => {
+  const PACED: MatchConfig = { ...CONFIG, mode: 'versus', pace: { kind: 'paced', roundTicks: 20, roundWallMs: 5000 } };
+  const feed = (sock: Fake, from: number, to: number): void => { for (let tick = from; tick <= to; tick++) sock.recv({ t: 'frame', tick, cmds: [] }); };
+  it('paced: every frame of a closed round is runnable at once, and the next round is held behind the buffer again', () => {
+    const sock = fakeSocket();
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} });
+    sock.open();
+    sock.recv({ t: 'start', config: PACED });
+    // Round 0 closes on tick 19: the room mints no more until the bot is done,
+    // so ticks 18 and 19 must not wait behind a buffer that will never fill.
+    feed(sock, 0, 19);
+    expect(t.take(100).map((f) => f.tick)).toEqual(Array.from({ length: 20 }, (_, i) => i));
+    expect(t.behind()).toBe(0);
+    // Part of round 1: the open round keeps the realtime buffer.
+    feed(sock, 20, 25);
+    expect(t.take(100).map((f) => f.tick)).toEqual([20, 21, 22, 23]);
+    // Round 1 closes: the rest is released.
+    feed(sock, 26, 39);
+    expect(t.take(100).map((f) => f.tick)).toEqual(Array.from({ length: 16 }, (_, i) => 24 + i));
+    // maxTicks still bounds a batch.
+    feed(sock, 40, 59);
+    expect(t.take(5).map((f) => f.tick)).toEqual([40, 41, 42, 43, 44]);
+  });
+  it('realtime: unchanged -- frames stay bufferTicks behind the newest, at a "round boundary" too', () => {
+    const sock = fakeSocket();
+    const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} });
+    sock.open();
+    sock.recv({ t: 'start', config: { ...CONFIG, mode: 'versus' } });
+    feed(sock, 0, 19);
+    expect(t.take(100).map((f) => f.tick)).toEqual(Array.from({ length: 18 }, (_, i) => i));
+    expect(t.behind()).toBe(2);
+    feed(sock, 20, 39);
+    expect(t.take(100).at(-1)?.tick).toBe(37);
+  });
+});

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { handleMatch } from './routes';
-import { verifyTicket } from './ticket';
+import { signTicket, verifyTicket } from './ticket';
 import type { Env, RateLimiter } from '../d1';
 
 const NOW = 1_790_000_000_000;
@@ -8,8 +8,10 @@ const ORIGIN = 'https://roaring-lions.pint12.workers.dev';
 
 /** A namespace whose every stub answers from one in-memory table of rooms.
  *  `/join` reserves the seat at once, as the real room does (R5). */
-function fakeRooms(): { env: Env; created: string[]; createBodies: Record<string, unknown>[]; joinBodies: Record<string, unknown>[]; wsSeen: Request[]; limited: string[] } {
+function fakeRooms(): { env: Env; created: string[]; createBodies: Record<string, unknown>[]; joinBodies: Record<string, unknown>[]; wsSeen: Request[]; limited: string[]; calls: string[] } {
   const rooms = new Map<string, { seats: number }>();
+  /** Every path any room stub was asked for, in order. */
+  const calls: string[] = [];
   const created: string[] = [];
   const createBodies: Record<string, unknown>[] = [];
   const joinBodies: Record<string, unknown>[] = [];
@@ -18,6 +20,7 @@ function fakeRooms(): { env: Env; created: string[]; createBodies: Record<string
   const stub = (name: string) => ({
     fetch: async (req: Request): Promise<Response> => {
       const path = new URL(req.url).pathname;
+      calls.push(path);
       const room = rooms.get(name);
       if (path === '/create') { createBodies.push(await req.json() as Record<string, unknown>); rooms.set(name, { seats: 1 }); created.push(name); return Response.json({ ok: true }); }
       if (path === '/state') return room ? Response.json({ status: 'lobby', seats: room.seats }) : new Response('', { status: 404 });
@@ -32,7 +35,7 @@ function fakeRooms(): { env: Env; created: string[]; createBodies: Record<string
     TICKET_SECRET: 'secret', ROOM_LIMIT: limiter,
     ROOMS: { idFromName: (n: string) => n, get: (id: unknown) => stub(id as string) },
   } as unknown as Env;
-  return { env, created, createBodies, joinBodies, wsSeen, limited };
+  return { env, created, createBodies, joinBodies, wsSeen, limited, calls };
 }
 
 const post = (url: string, body: unknown, origin = ORIGIN) =>
@@ -60,7 +63,7 @@ describe('/api/match', () => {
     expect(createBodies[0]).toMatchObject({ player: 'id-1', callsign: 'Ari', mode: 'versus' });
     const join = await handleMatch(post(`${ORIGIN}/api/match/${code}/join`, { player: 'id-2', callsign: 'Bo' }), env, NOW);
     expect(await verifyTicket('secret', ((await join.json()) as { ticket: string }).ticket, NOW)).toMatchObject({ seat: 1, player: 'id-2' });
-    expect(joinBodies[0]).toEqual({ player: 'id-2', callsign: 'Bo' });
+    expect(joinBodies[0]).toEqual({ player: 'id-2', callsign: 'Bo', kind: 'human' });
     // Anything but 'versus' is a sandbox; an absent callsign is 'Lion'.
     await handleMatch(post(`${ORIGIN}/api/match`, { player: 'id-3', build: 'b1', mode: 'conquest' }), env, NOW);
     expect(createBodies[1]).toMatchObject({ mode: 'sandbox', callsign: 'Lion' });
@@ -123,10 +126,10 @@ describe('/api/match', () => {
     expect(createBodies[0]).toMatchObject({ callsign: 'A ri BO ' + 'x'.repeat(16) });
     expect((createBodies[0] as { callsign: string }).callsign).toHaveLength(24);
     await handleMatch(post(`${ORIGIN}/api/match/${code}/join`, { player: 'id-2', callsign: '\u202E\u0007\u200B' }), env, NOW);
-    expect(joinBodies[0]).toEqual({ player: 'id-2', callsign: 'Lion' });
+    expect(joinBodies[0]).toEqual({ player: 'id-2', callsign: 'Lion', kind: 'human' });
     const again = await handleMatch(post(`${ORIGIN}/api/match/${code}/join`, { player: 'id-4', callsign: 'Bo\tX\u2028Y' }), env, NOW);
     expect(again.status).toBeLessThan(500);
-    expect(joinBodies[1]).toEqual({ player: 'id-4', callsign: 'Bo X Y' });
+    expect(joinBodies[1]).toEqual({ player: 'id-4', callsign: 'Bo X Y', kind: 'human' });
   });
   it('a missing or empty player answers 400 on create and join, before any room is touched', async () => {
     const { env, createBodies, joinBodies } = fakeRooms();
@@ -234,5 +237,56 @@ describe('/api/match', () => {
     const evil = new Request(`${ORIGIN}/api/match/ABCDEF/ws`, { headers: { origin: 'https://evil.example', upgrade: 'websocket' } });
     expect((await handleMatch(evil, env, NOW)).status).toBe(403);
     expect(wsSeen).toHaveLength(0);
+  });
+  describe('N4a task 7: bot seats, the pace and the advisor ticket', () => {
+    it('the host\'s seat kind and pace reach the room cleaned and clamped (D5); the guest\'s kind reaches /join', async () => {
+      const { env, createBodies, joinBodies } = fakeRooms();
+      const res = await handleMatch(post(`${ORIGIN}/api/match`, { player: 'p1', build: 'b1', mode: 'versus', map: 'tel_marum', kind: 'bot', pace: { kind: 'paced', roundTicks: 5, roundWallMs: 10_000_000 } }), env, NOW);
+      const { code } = (await res.json()) as { code: string };
+      expect(createBodies[0]).toMatchObject({ kind: 'bot', pace: { kind: 'paced', roundTicks: 20, roundWallMs: 600_000 } });
+      await handleMatch(post(`${ORIGIN}/api/match`, { player: 'p1', build: 'b1', kind: 'BOT', pace: { kind: 'paced', roundTicks: 'x', roundWallMs: 1 } }), env, NOW);
+      expect(createBodies[1]).toMatchObject({ kind: 'human', pace: { kind: 'realtime' } });
+      await handleMatch(post(`${ORIGIN}/api/match`, { player: 'p1', build: 'b1', pace: { kind: 'paced', roundTicks: 40.7, roundWallMs: 999 } }), env, NOW);
+      expect(createBodies[2]).toMatchObject({ kind: 'human', pace: { kind: 'paced', roundTicks: 40, roundWallMs: 1000 } });
+      await handleMatch(post(`${ORIGIN}/api/match/${code}/join`, { player: 'p2', kind: 'bot' }), env, NOW);
+      expect(joinBodies[0]).toMatchObject({ kind: 'bot' });
+    });
+
+    const seatTicket = (code: string, seat: 0 | 1, o: { exp?: number; role?: 'seat' | 'advisor' } = {}): Promise<string> =>
+      signTicket('secret', { matchId: code, seat, player: 'p-host', exp: o.exp ?? NOW + 60_000, ...(o.role === 'advisor' ? { role: 'advisor', scope: 'assist' } : o.role === 'seat' ? { role: 'seat' } : {}) });
+
+    it('mints an advisor ticket from the seat\'s own ticket: same seat, the seat ticket\'s expiry, the scope asked for -- and never calls the room', async () => {
+      const { env, calls, limited } = fakeRooms();
+      for (const [seat, scope] of [[0, 'assist'], [1, 'advise']] as const) {
+        const res = await handleMatch(post(`${ORIGIN}/api/match/ABCDEF/advisor`, { ticket: await seatTicket('ABCDEF', seat), scope }), env, NOW);
+        expect(res.status).toBe(200);
+        const { ticket } = (await res.json()) as { ticket: string };
+        expect(await verifyTicket('secret', ticket, NOW)).toEqual({ matchId: 'ABCDEF', seat, player: 'advisor', exp: NOW + 60_000, role: 'advisor', scope });
+      }
+      // A pre-N4 seat ticket (no role) and an explicit seat ticket both work; a lower-case code is the same room.
+      expect((await handleMatch(post(`${ORIGIN}/api/match/abcdef/advisor`, { ticket: await seatTicket('ABCDEF', 0, { role: 'seat' }), scope: 'advise' }), env, NOW)).status).toBe(200);
+      expect(calls).toEqual([]);
+      expect(limited).toHaveLength(3);   // ROOM_LIMIT applies
+    });
+
+    it('refuses an advisor ticket as the input, another code\'s ticket, an expired one and junk (403); a bad scope is 400; nothing reaches a room', async () => {
+      const { env, calls } = fakeRooms();
+      const url = `${ORIGIN}/api/match/ABCDEF/advisor`;
+      const statusOf = async (body: unknown): Promise<number> => (await handleMatch(post(url, body), env, NOW)).status;
+      expect(await statusOf({ ticket: await seatTicket('ABCDEF', 0, { role: 'advisor' }), scope: 'assist' })).toBe(403);
+      expect(await statusOf({ ticket: await seatTicket('ZZZZZZ', 0), scope: 'assist' })).toBe(403);
+      expect(await statusOf({ ticket: await seatTicket('ABCDEF', 0, { exp: NOW }), scope: 'assist' })).toBe(403);
+      expect(await statusOf({ ticket: 'not.a.ticket', scope: 'assist' })).toBe(403);
+      expect(await statusOf({ ticket: 7, scope: 'assist' })).toBe(403);
+      expect(await statusOf({ scope: 'assist' })).toBe(403);
+      for (const scope of ['command', 'ASSIST', '', undefined, 1]) expect(await statusOf({ ticket: await seatTicket('ABCDEF', 0), scope }), String(scope)).toBe(400);
+      expect(calls).toEqual([]);
+      expect((await handleMatch(new Request(url, { headers: { origin: ORIGIN } }), env, NOW)).status).toBe(405);
+      const evil = post(url, { ticket: await seatTicket('ABCDEF', 0), scope: 'assist' }, 'https://evil.example');
+      expect((await handleMatch(evil, env, NOW)).status).toBe(403);
+      const refusing = { ...env, ROOM_LIMIT: { limit: async () => ({ success: false }) } };
+      expect((await handleMatch(post(url, { ticket: await seatTicket('ABCDEF', 0), scope: 'assist' }), refusing, NOW)).status).toBe(429);
+      expect(calls).toEqual([]);
+    });
   });
 });

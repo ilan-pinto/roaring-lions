@@ -64,6 +64,14 @@ export interface RoomState {
   cmdChars: number;
   /** When the room ended, null while it lives: the room is wiped `PURGE_AFTER_MS` later (#559 H-1). */
   endedAtMs: number | null;
+  /** Paced rounds (N4a task 6), all MEMORY ONLY: none is in `persistKey`, so the
+   *  wait, `done` and the release cost zero rows. The newest round each seat has
+   *  finished thinking about (`done`); -1 before any. */
+  doneRound: [number, number];
+  /** When the last frame of the newest closed round was minted; null before one, and after a wake. */
+  roundClosedAtMs: number | null;
+  /** The bot seat a round is waiting on, while it waits. */
+  roundWait: Seat | null;
 }
 export type Effect =
   | { kind: 'send'; to: Seat | 'all'; msg: ServerMsg }
@@ -108,7 +116,7 @@ export const MAX_LOG_CMD_CHARS = 2_000_000;
 const MAX_OPEN_HASHES = 16;
 
 export function createRoom(code: string, matchId: string, nowMs: number, map = '', factions: [Faction, Faction] = ['kdf', 'kdf']): RoomState {
-  return { code, matchId, createdMs: nowMs, status: 'lobby', config: null, seats: [null, null], tick: 0, pending: [], hashes: {}, lastHashTick: -1, stall: null, endedReason: null, pause: null, pausesLeft: [PAUSES_PER_SEAT, PAUSES_PER_SEAT], lastChatMs: [-1, -1], surrendered: null, map, factions, over: [-1, -1], closeAtMs: null, cmdTokens: [CMD_BUDGET.burst, CMD_BUDGET.burst], cmdTokensAtMs: [nowMs, nowMs], cmdChars: 0, endedAtMs: null };
+  return { code, matchId, createdMs: nowMs, status: 'lobby', config: null, seats: [null, null], tick: 0, pending: [], hashes: {}, lastHashTick: -1, stall: null, endedReason: null, pause: null, pausesLeft: [PAUSES_PER_SEAT, PAUSES_PER_SEAT], lastChatMs: [-1, -1], surrendered: null, map, factions, over: [-1, -1], closeAtMs: null, cmdTokens: [CMD_BUDGET.burst, CMD_BUDGET.burst], cmdTokensAtMs: [nowMs, nowMs], cmdChars: 0, endedAtMs: null, doneRound: [-1, -1], roundClosedAtMs: null, roundWait: null };
 }
 
 /** Every way a room ends goes through here, so the end is dated (#559 H-1). */
@@ -236,7 +244,7 @@ export function logParts(config: MatchConfig, frames: readonly Frame[], maxChars
   return runs.map((run, part) => ({ t: 'log', config, frames: run, part, parts: runs.length }));
 }
 
-function pausedMsg(st: RoomState, nowMs: number, pause: { seat: Seat; untilMs: number }): ServerMsg {
+export function pausedMsg(st: RoomState, nowMs: number, pause: { seat: Seat; untilMs: number }): ServerMsg {
   return { t: 'paused', seat: pause.seat, remainingMs: Math.max(0, pause.untilMs - nowMs), pausesLeft: [st.pausesLeft[0], st.pausesLeft[1]] };
 }
 
@@ -247,6 +255,7 @@ function endPause(st: RoomState, nowMs: number): Effect[] {
   for (const s of st.seats) if (s) s.lastSeenMs = nowMs;
   st.status = 'running';
   st.stall = null;
+  st.roundWait = null;   // the resume told clients the room runs: a wait still in force is announced again
   return [{ kind: 'send', to: 'all', msg: { t: 'resume' } }, ...recheckStall(st, nowMs)];
 }
 
@@ -304,6 +313,18 @@ export function seatMessage(st: RoomState, seat: Seat, msg: ClientMsg, nowMs: nu
   s.lastSeenMs = nowMs;
   switch (msg.t) {
     case 'hello': return [];   // handled by the DO before seatJoin
+    // N4a: the DO relays a seat's advisor message to that seat's advisor socket
+    // (`match-room.ts`); the room's state takes nothing from it, so it writes nothing.
+    case 'advisor': return [];
+    case 'done': {
+      // Only a bot seat in a paced room, and only for a round that has CLOSED:
+      // a `done` for the round still being minted must not pre-release the next.
+      const pace = pacedOf(st);
+      if (pace === null || st.config?.seats[seat].kind !== 'bot') return [];
+      if (msg.round > Math.floor(st.tick / pace.roundTicks) - 1 || msg.round <= st.doneRound[seat]) return [];
+      st.doneRound[seat] = msg.round;
+      return [];
+    }
     case 'ready': {
       if (st.status !== 'lobby') return [];
       s.ready = true;
@@ -424,6 +445,27 @@ function spendCmdToken(st: RoomState, seat: Seat, nowMs: number): boolean {
   return true;
 }
 
+/** The pace of a paced room, or null (realtime, or no config yet). */
+function pacedOf(st: RoomState): { roundTicks: number; roundWallMs: number } | null {
+  const pace = st.config?.pace;
+  return pace !== undefined && pace.kind === 'paced' ? pace : null;
+}
+
+/** The bot seat the NEXT frame must wait for, or null when it may be minted.
+ *  A room waits only at a round boundary, only for a bot seat that has not said
+ *  `done` for the round just closed, and never past `roundWallMs` from the
+ *  round's last frame. A human seat is never waited for. */
+export function roundGate(st: RoomState, nowMs: number): Seat | null {
+  const pace = pacedOf(st);
+  if (pace === null || st.config === null || st.tick <= 0 || st.tick % pace.roundTicks !== 0) return null;
+  const round = st.tick / pace.roundTicks - 1;
+  if (st.roundClosedAtMs === null || nowMs - st.roundClosedAtMs >= pace.roundWallMs) return null;
+  for (const seat of [0, 1] as const) {
+    if (st.config.seats[seat].kind === 'bot' && st.doneRound[seat] < round) return seat;
+  }
+  return null;
+}
+
 /** Why the clock must stop, if it must: the first seat that is gone, silent,
  *  or too far behind. Null means run. Silence is judged only while running:
  *  during a stall no frames flow, so a healthy seat has nothing to ack and
@@ -435,7 +477,8 @@ function stallFor(st: RoomState, nowMs: number): { reason: 'behind' | 'gone'; se
     // 'behind' (the more specific cause); only a dead socket is always 'gone'.
     if (!s.connected) return { reason: 'gone', seat: s.seat };
     if (st.tick - 1 - s.lastAck >= STALL_BEHIND_TICKS) return { reason: 'behind', seat: s.seat };
-    if (st.status === 'running' && nowMs - s.lastSeenMs > STALL_SILENT_MS) return { reason: 'gone', seat: s.seat };
+    // A round wait is not silence: a model thinking for 40 s sends nothing, and that is not a dead socket.
+    if (st.status === 'running' && st.roundWait === null && nowMs - s.lastSeenMs > STALL_SILENT_MS) return { reason: 'gone', seat: s.seat };
   }
   return null;
 }
@@ -453,6 +496,7 @@ function recheckStall(st: RoomState, nowMs: number, mayStall = true): Effect[] {
     st.status = 'running';
     st.stall = null;
     for (const seatState of st.seats) if (seatState) seatState.lastSeenMs = nowMs;   // the wait was not silence
+    st.roundWait = null;   // the resume told clients the room runs: a round wait still in force is announced again
     return [{ kind: 'send', to: 'all', msg: { t: 'resume' } }];
   }
   if (want && st.status === 'stalled' && (st.stall?.reason !== want.reason || st.stall.seat !== want.seat)) {
@@ -519,6 +563,13 @@ export function revive(st: RoomState, tick: number, nowMs: number): void {
     st.tick = tick;
     st.pending = [];
   }
+  // Paced rounds are memory only. A woken room releases the round at once rather
+  // than waiting a full `roundWallMs` for a `done` it lost.
+  const pace = pacedOf(st);
+  const lastClosed = pace === null ? -1 : Math.floor(st.tick / pace.roundTicks) - 1;
+  st.doneRound = [lastClosed, lastClosed];
+  st.roundWait = null;
+  st.roundClosedAtMs = null;
   for (const s of st.seats) {
     if (!s) continue;
     s.lastAck = Math.max(s.lastAck, st.tick - 1);
@@ -557,6 +608,18 @@ export function clockTick(st: RoomState, nowMs: number): Effect[] {
   }
   out.push(...recheckStall(st, nowMs));
   if (st.status !== 'running') return out;
+  // Paced: at a round boundary, wait for the bot seat(s) -- never a human.
+  const waitOn = roundGate(st, nowMs);
+  if (waitOn !== null) {
+    if (st.roundWait === null) { st.roundWait = waitOn; out.push({ kind: 'send', to: 'all', msg: { t: 'stall', reason: 'round', seat: waitOn } }); }
+    return out;
+  }
+  if (st.roundWait !== null) {
+    st.roundWait = null;
+    // The wait was not silence: no seat acked a frame that was not minted.
+    for (const seatState of st.seats) if (seatState) seatState.lastSeenMs = nowMs;
+    out.push({ kind: 'send', to: 'all', msg: { t: 'resume' } });
+  }
   // At most MAX_CMDS_PER_SEAT_PER_FRAME of each seat's commands (#559 F2); the
   // rest wait, in arrival order, for the next frames.
   const take: Stamped[] = [];
@@ -575,6 +638,8 @@ export function clockTick(st: RoomState, nowMs: number): Effect[] {
   const frame: Frame = { tick: st.tick, cmds: canonicalOrder(take) };
   st.pending = wait;
   st.tick++;
+  const paced = pacedOf(st);
+  if (paced !== null && (frame.tick + 1) % paced.roundTicks === 0) st.roundClosedAtMs = nowMs;
   out.push({ kind: 'frame', frame });
   out.push({ kind: 'send', to: 'all', msg: { t: 'frame', tick: frame.tick, cmds: frame.cmds } });
   return out;
