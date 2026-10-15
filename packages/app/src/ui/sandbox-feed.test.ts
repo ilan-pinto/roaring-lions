@@ -19,6 +19,9 @@ const world: AlertWorld = {
   arrivedAt: () => null,
   reinforcement: () => null,
   viewer: 0,
+  zoneAt: () => null,
+  zoneHolder: () => -1,
+  supplyCutAt: () => null,
 };
 const destroyed = (entity: number, by: number): SimEvent => ({ kind: 'destroyed', tick: 0, entity, by }) as SimEvent;
 const fire = (target: number): SimEvent =>
