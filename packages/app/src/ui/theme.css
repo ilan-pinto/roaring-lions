@@ -5110,6 +5110,15 @@ button.rl-menu__item[data-kind='aside'] {
   cursor: not-allowed;
   background: var(--band-mission);
 }
+/* Answered (H3): the mission is starting, which can take half a second of
+   synchronous work before the world paints. The stamp sinks into the
+   screen's own ground, so the click visibly landed, and does not light on
+   hover. After `:hover` and `:disabled`, equal specificity, so order decides. */
+.rl-loading__deploy[data-state='deploying'] {
+  background: color-mix(in srgb, var(--band-mission) 55%, var(--panel-bg-solid));
+  color: var(--ink-mute);
+  cursor: progress;
+}
 
 /* The deploy spread (shell Phase 3, Task 3; spec Decision 4: "the briefing as
    a two-column spread -- portrait and orders left, the roster's force and a

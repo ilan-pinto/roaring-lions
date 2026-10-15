@@ -1411,3 +1411,100 @@ describe('the download screen (K-15)', () => {
     dl.dispose();
   });
 });
+
+// H3: whoever awaits `done()` starts the mission synchronously, and nothing
+// paints until that returns -- 450-520 ms measured, the briefing frozen under
+// an unchanged button. The press is drawn first, and `done()` resolves only
+// after the frame carrying it has painted.
+describe('the Deploy press is painted before the mission starts', () => {
+  let frames: FrameRequestCallback[] = [];
+  beforeEach(() => {
+    frames = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb: FrameRequestCallback) => {
+      frames.push(cb);
+      return frames.length;
+    });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+  /** Run the queued animation frame, then the task it queues after paint. */
+  const paint = async (): Promise<void> => {
+    const run = frames;
+    frames = [];
+    for (const cb of run) cb(performance.now());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  };
+
+  it('shows the press at once, keeps the screen up, and hands over only after that frame paints', async () => {
+    const el = document.createElement('div');
+    const screen = showLoading(el, 'Break the Depot', 'Seven structures.');
+    let handed = false;
+    const done = screen.done().then(() => {
+      handed = true;
+    });
+    const button = el.querySelector<HTMLButtonElement>('.rl-loading__deploy');
+    button?.click();
+    expect(button?.dataset.state).toBe('deploying');
+    expect(button?.getAttribute('aria-busy')).toBe('true');
+    expect(button?.textContent).toBe('Deploying');
+    // Not handed over yet, however many microtasks or tasks pass: the press
+    // has not been painted.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(handed).toBe(false);
+    expect(el.querySelector('.rl-loading')).not.toBeNull();
+    await paint();
+    await done;
+    expect(handed).toBe(true);
+    expect(el.querySelector('.rl-loading')).toBeNull();
+  });
+
+  it('shows a click queued before done() (PA-27) as pressed straight away', async () => {
+    const el = document.createElement('div');
+    const screen = showLoading(el, 'Break the Depot', 'Seven structures.');
+    const button = el.querySelector<HTMLButtonElement>('.rl-loading__deploy');
+    button?.click();
+    expect(button?.dataset.state).toBe('deploying');
+    const done = screen.done();
+    await paint();
+    await done;
+    expect(el.querySelector('.rl-loading')).toBeNull();
+  });
+
+  it('a dispose in the pressed frame rejects done() and nothing hands over', async () => {
+    const el = document.createElement('div');
+    const screen = showLoading(el, 'Break the Depot', 'Seven structures.');
+    let handed = false;
+    let rejected = false;
+    const done = screen.done().then(
+      () => {
+        handed = true;
+      },
+      () => {
+        rejected = true;
+      }
+    );
+    el.querySelector<HTMLButtonElement>('.rl-loading__deploy')?.click();
+    screen.dispose();
+    await paint();
+    await done;
+    expect(rejected).toBe(true);
+    expect(handed).toBe(false);
+    expect(el.querySelector('.rl-loading')).toBeNull();
+  });
+
+  it('Escape does not go back once Deploy is pressed', async () => {
+    const el = document.createElement('div');
+    let backCalls = 0;
+    const screen = showLoading(el, 'Break the Depot', 'Seven structures.', undefined, undefined, undefined, () => {
+      backCalls++;
+    });
+    const done = screen.done();
+    el.querySelector<HTMLButtonElement>('.rl-loading__deploy')?.click();
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(backCalls).toBe(0);
+    await paint();
+    await done;
+    expect(backCalls).toBe(0);
+  });
+});
