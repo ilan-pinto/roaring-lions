@@ -36,4 +36,7 @@ export const TEXTURED_BUILDING_TYPES: ReadonlySet<string> = new Set([
   // text-to-3D remeshes shipping their own bake through the same exporter.
   'relay',
   'pump_house',
+  // GH-66 field works (2026-10-15): the HESCO bastion run, through
+  // `export_meshy_ramp.py` like the two above.
+  'hesco',
 ]);
