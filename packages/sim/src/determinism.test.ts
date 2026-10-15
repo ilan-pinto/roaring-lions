@@ -1009,7 +1009,11 @@ const ECONOMY_TICKS = 2400; // two minutes
 // (10 each) and objective completion (30 each) instead of per minute (G3 Q1,
 // lead 4 Oct), and economyHash() folds the settled first identifications
 // (size, then ids ascending); was 3286554442.
-const ECONOMY_PIN = 331788258;
+// re-pinned 2026-10-15, F3 Task 4: population and the cap are economy state (G3 Q4,
+// lead 4 Oct); economyHash() folds population(0), population(1), popCap(0), popCap(1)
+// (null as -1) after every earlier fold, and the fixture gained a cap of 5 and one
+// refused build (and a population-0 drone, as shipped); was 331788258.
+const ECONOMY_PIN = 537142626;
 const ECONOMY_EXTRA_BUILD_TICK = 1000;
 // F3 Task 4 (GH-183): side 0's cap, and the one build it refuses. The force is the
 // drone (population 0) and one squad (1); the builds at 400 and 800 bring it to 3,
@@ -1416,7 +1420,10 @@ const RELIEF_ECO_REFUSED_BUILD_TICK = 100;
 // economyHash; there is no earlier value, so this is a birth, not a re-pin).
 // ECONOMY_PIN above did not move for the same change: the flat map has no
 // rise, and the fold is a loop over `count` with no length word (F-R2).
-const ECONOMY_PIN_RELIEF = 2992706492;
+// re-pinned 2026-10-15, F3 Task 4: the same fold (population and both caps joined
+// economyHash()), and the relief fixture gained a unitInfo catalogue, a cap of 3 (its
+// three starting squads) and one refused build; was 2992706492.
+const ECONOMY_PIN_RELIEF = 2682592505;
 
 const RELIEF_ECO_MISSION: MissionJson = {
   id: 'economy_replay_relief',
