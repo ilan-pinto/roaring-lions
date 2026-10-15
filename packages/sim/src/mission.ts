@@ -1101,6 +1101,48 @@ export class MissionRuntime {
     return h >>> 0;
   }
 
+  /** The network hash of everything the runtime decides that the sim does not
+   *  hold (spec §7.1): `economyHash()` first -- the purse, the build queue, the
+   *  settled identifications, high ground, population and caps, F2's zones and
+   *  corridors -- then, in this order: each objective in authored order (status
+   *  code, holdTicks, paused code); each trigger's fired latch; each wave's
+   *  spawned latch; the ROE score (floored) and its failed latch; the civilian
+   *  latches (fled, evacuated: size then ids ascending). Integer-only, composed
+   *  with the sim's own `hashWord`. Read-only.
+   *
+   *  Status codes: active 0, complete 1, failed 2. Paused codes: null 0,
+   *  unheld 1, contested 2. Every fold has a twin in `runtime-digest.test.ts`
+   *  that isolates it (R-5).
+   *
+   *  Not folded (R-5), each a choice:
+   *  - `ended`, `resultValue` and `withdrawnValue` are derived from folded state
+   *    and the tick;
+   *  - `firstContact`, `kills`, `contributed`, `identifiedBy`, `routeFoundBy`,
+   *    `markedThisMission`, `entityRoster` and `promotedValue` feed only the
+   *    outgoing ledger and veterancy at the end, or show up later in folded
+   *    state (a `first_contact` trigger fires);
+   *  - `zoneDeductedAt` is a cooldown whose effect is the ROE score;
+   *  - `patrols[].idx` acts only through the orders it queues into the sim,
+   *    which `sim.hash()` covers.
+   *  N3 adds folds for whatever its versus rules read. */
+  digest(): number {
+    let h = hashWord(HASH_SEED, this.economyHash() | 0);
+    for (let i = 0; i < this.objectives.length; i++) {
+      const o = this.objectives[i];
+      h = hashWord(h, o.status === 'active' ? 0 : o.status === 'complete' ? 1 : 2);
+      h = hashWord(h, o.holdTicks | 0);
+      h = hashWord(h, o.paused === null ? 0 : o.paused === 'unheld' ? 1 : 2);
+    }
+    for (let i = 0; i < this.firedTriggers.length; i++) h = hashWord(h, this.firedTriggers[i] ? 1 : 0);
+    for (let i = 0; i < this.spawnedWaves.length; i++) h = hashWord(h, this.spawnedWaves[i] ? 1 : 0);
+    // Floored: every deduction is an integer today, and `| 0` floors the
+    // non-negative score (it is clamped at 0) without Math.
+    h = hashWord(h, this.roeScoreValue | 0);
+    h = hashWord(h, this.roeFailed ? 1 : 0);
+    h = this.civFlight.digestInto(h);
+    return h >>> 0;
+  }
+
   /** Field production: spend logistics/intel, deploy at player_start after
    *  the build time. Returns false when unaffordable or unknown. */
   /**

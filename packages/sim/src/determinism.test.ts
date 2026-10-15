@@ -1358,6 +1358,23 @@ describe('economy replay (2400 ticks of MissionRuntime on a flat map)', () => {
     expect(economyReplay(ECONOMY_SEED, false, ECONOMY_POP_CAP, 'command').rt.economyHash()).toBe(ECONOMY_PIN);
     expect(reliefEconomyReplay(RELIEF_ECO_SEED, {}, 'command').rt.economyHash()).toBe(ECONOMY_PIN_RELIEF);
   });
+
+  // RUNTIME_DIGEST_PIN: born 2026-10-15 on a5f7e6b4 (N2 Task 6), read from the first run. Move it deliberately, in the
+  // commit that moves runtime state, and say why; economyHash() is its first word, so
+  // every ECONOMY_PIN move moves it too -- name both in that commit.
+  const RUNTIME_DIGEST_PIN = 2984314042;
+  const RUNTIME_DIGEST_PIN_RELIEF = 3060732596;
+  it('the economy replay pins its runtime digest', () => {
+    expect(economyReplay(ECONOMY_SEED).rt.digest()).toBe(RUNTIME_DIGEST_PIN);
+  });
+  it('the relief economy replay pins its runtime digest', () => {
+    expect(reliefEconomyReplay(RELIEF_ECO_SEED).rt.digest()).toBe(RUNTIME_DIGEST_PIN_RELIEF);
+  });
+  it('two runs agree on the runtime digest, and it is not the economy hash', () => {
+    const a = economyReplay(ECONOMY_SEED).rt;
+    expect(a.digest()).toBe(economyReplay(ECONOMY_SEED).rt.digest());
+    expect(a.digest()).not.toBe(a.economyHash());
+  });
 });
 
 /** `data/maps/tel_marum.json` at 2026-10-15 (F1 Task 5), as a snapshot: 1 = a tile the sim

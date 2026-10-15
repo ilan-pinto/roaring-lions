@@ -5711,6 +5711,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     seatWorld,
     runTick,
     config: netConfig,
+    // N2: folds 0 in every room until N3 starts a runtime there (L1);
+    // single-player is never asked.
+    runtimeDigest: () => runtime?.digest() ?? 0,
     // L4: this client's OWN content digest, folded into every hash it
     // reports. Taken here at boot in a room, so its ~50 ms cold computation
     // is not a hitch on tick 19; single-player hashes nothing and never pays it.
