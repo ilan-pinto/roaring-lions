@@ -1370,9 +1370,10 @@ with the secret supplied, which the specs use to pin that the chosen secret
 never reaches a log; the env has no D1 (a desync's D1 write fails with a logged
 error, and the desync still reaches both clients) and no rate limiters. The
 upgrade passes `handleMatch`'s Origin, code and method checks first. Alarms
-are a 250 ms poll; every event of a room (any socket's message or close, and
-its alarm) runs on one chain per room, in arrival order, as the input gate
-would order them (§11c.8); `close()` terminates every socket, clears every interval
+are a 250 ms poll; a room's socket messages, socket closes and alarm run on
+one chain per room, in arrival order, each to completion -- stricter than
+workerd's input gate, which serializes only across storage awaits; `fetch`,
+`acceptSocket` and the room's own clock are not on the chain (§11c.8); `close()` terminates every socket, clears every interval
 and frees the port. `MatchRoom` gained one optional constructor argument,
 `{tickMs?, seed?(code)}`, which workerd never passes: production keeps
 `TICK_MS` and its crypto seed, pinned by a characterization test. Only
@@ -1575,14 +1576,22 @@ a ten-seed arena run between two models, is the lead's to run (run protocol
     process with a sleeping `cmd:` player: red with the handler not
     installed, with `abortExternalPlayers` emptied, with the second-signal
     guard removed, and with the SIGKILL escalation removed.
-  - **Closed:** the local relay now serializes room events as the Durable
-    Object's input gate would. Every message and close from any of a room's
-    sockets, and its alarm, run on ONE promise chain per room, in arrival
-    order; it was a chain per socket, so two sockets and the alarm could
-    interleave across awaits. An alarm's due time is re-read when its turn
-    comes, not when it is queued. Pinned by `local-relay.test.ts` (two sockets
-    of one room, a 40 ms handler, strict in/out alternation in arrival order);
-    a socket given its own gate turns it red.
+  - **Closed:** the local relay did not serialize a room's events across
+    sockets. Its socket messages, socket closes and alarm now run on ONE
+    promise chain per room, in arrival order, each to completion; it was a
+    chain per socket, so two sockets and the alarm could interleave across
+    any await. This is stricter than workerd, whose input gate serializes
+    only across storage awaits, so the relay can hide an interleaving a real
+    Durable Object allows but never produce one it forbids. `fetch`,
+    `acceptSocket` and the room's own clock are not on the chain. An alarm's
+    due time is re-read when its turn comes, not when it is queued; a handler
+    that throws is logged and the chain goes on. Pinned by
+    `local-relay.test.ts`: two sockets of one room with a 40 ms handler read
+    strict in/out alternation in arrival order (red with a gate per socket);
+    an alarm falling due mid-handler fires after it (red with the alarm off
+    the chain); an alarm the handler cleared does not fire (red without the
+    re-read); a throwing handler does not jam the next message (red without
+    the chain's `.catch`).
   - Parked: a cap game costs an external client up to 10 s of grace.
   - Parked: a model's `end_round` still accepts a stale mid-round `done`
     after a wall release (harmless).

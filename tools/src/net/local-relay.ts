@@ -17,12 +17,17 @@
  * - The alarm: nothing in node fires a Durable Object alarm, so the relay
  *   checks every room's scheduled alarm every `ALARM_POLL_MS` and delivers the
  *   ones due (the TTL, a forfeit, the result's close, the wipe).
- * - The input gate: a Durable Object runs one event at a time. Every event for
- *   a room -- a message or a close from any of its sockets, and its alarm --
- *   goes through ONE promise chain per room, in arrival order, so a handler
- *   that awaits is never overlapped by another event of the same room. (Until
- *   the N4b minors the chain was per socket: two sockets' messages and the
- *   alarm could interleave across awaits, which workerd would not allow.)
+ * - One chain per room: a socket message, a socket close and the alarm, from
+ *   any of the room's sockets, run on ONE promise chain per room, in arrival
+ *   order; each runs to completion before the next starts. That is STRICTER
+ *   than workerd, whose input gate holds other events back only across
+ *   storage awaits, not across every await -- so the relay can hide an
+ *   interleaving a real Durable Object would allow, never produce one it
+ *   would not. Not on the chain: the HTTP routes' `fetch` (create, join,
+ *   advisor, the `/ws` probe), `acceptSocket`, and the room's own clock,
+ *   which `MatchRoom` drives from its own interval. (Until the N4b minors the
+ *   chain was per socket, so two sockets' messages and the alarm could
+ *   interleave across any await.)
  *
  * The ticket secret is minted in memory at start (`randomBytes(32)`) and is
  * never logged and never written: a ticket from one relay is worthless to the
@@ -160,7 +165,8 @@ export async function serveLocalRelay(o: LocalRelayOptions & { ticketSecret: str
     ASSETS: { fetch: async () => new Response('not found', { status: 404 }) },
   } as Env;
 
-  /** Runs `f` after every event of the room that arrived before it, and before any that arrives after. */
+  /** Runs `f` after every chained event of the room that arrived before it,
+   *  and before any that arrives after; a throw is logged and the chain goes on. */
   const gated = (h: Hosted, what: string, f: () => Promise<void>): Promise<void> => {
     h.gate = h.gate.then(f).catch((e: unknown) => { log(`local relay: ${what} failed: ${e instanceof Error ? e.message : String(e)}`); });
     return h.gate;
