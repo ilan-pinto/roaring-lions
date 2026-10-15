@@ -7,9 +7,11 @@ import { templateKey } from '@lions/render';
 import { roomKitTables, screenKit } from './room-kit';
 
 type Tiers = Record<string, Record<string, number>>;
-/** A versus config, KDF against KDF, each SEAT's kit mode and tiers given. */
-function room(tiers: [Tiers, Tiers], kit: 'matched' | 'brigade' = 'brigade'): MatchConfig {
-  const seat = (s: 0 | 1) => ({ seat: s, side: s, faction: 'kdf', kit, tiers: tiers[s], unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' });
+type Faction = 'kdf' | 'sarim';
+/** A versus config, KDF against KDF unless `factions` says otherwise, each
+ *  SEAT's kit mode and tiers given. */
+function room(tiers: [Tiers, Tiers], kit: 'matched' | 'brigade' = 'brigade', factions: [Faction, Faction] = ['kdf', 'kdf']): MatchConfig {
+  const seat = (s: 0 | 1) => ({ seat: s, side: s, faction: factions[s], kit, tiers: tiers[s], unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' });
   const c = validateConfig({ matchId: 'M', code: 'ABCDEF', seed: 1234, map: 'tel_marum', mode: 'versus', seats: [seat(0), seat(1)], pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b', dataDigest: 0 });
   if (c === null) throw new Error('bad fixture');
   return c;
@@ -73,7 +75,7 @@ describe("templateKey agrees with buildMatchWorld on which ids differ", () => {
   // room whose seats agree, loads nothing new. `templateKey` lives in render,
   // which imports nothing from app, so this is what holds its rule to
   // `sameKit`, whatever either turns into later.
-  const fixtures: [Tiers, Tiers][] = [
+  const fixtures: [Tiers, Tiers, [Faction, Faction]?][] = [
     [{}, {}],
     [{}, { mbt_lavi: { armour: 2 } }],
     [{ mbt_lavi: { armour: 1 } }, { mbt_lavi: { sensors: 1 } }], // same level, different kit
@@ -81,13 +83,17 @@ describe("templateKey agrees with buildMatchWorld on which ids differ", () => {
     [{ mbt_lavi: { armour: 0 } }, {}], // a zero tier fields nothing
     [{ mbt_lavi: { armour: 1, sensors: 0 } }, { mbt_lavi: { armour: 1 } }],
     [{ mbt_lavi: { armour: 1, sensors: 2 } }, { mbt_lavi: { sensors: 2, armour: 1 } }], // key order
+    // A kitted KDF side 0 against a Sarim side 1: the world registers no
+    // side-1 copy (side 1 fields no KDF type), so no `#s1` template either.
+    [{ mbt_lavi: { armour: 2 } }, {}, ['kdf', 'sarim']],
   ];
 
   it('splits exactly the ids that have a side-1 copy, over every fixture', () => {
     let split = 0;
     let shared = 0;
-    for (const tiers of fixtures) {
-      const w = buildMatchWorld(room(tiers));
+    for (const [t0, t1, factions] of fixtures) {
+      const tiers: [Tiers, Tiers] = [t0, t1];
+      const w = buildMatchWorld(room(tiers, 'brigade', factions));
       const bySide = screenKit(upgradePrepass(Object.values(units), {}), w, 0).unitKitTiersBySide;
       for (const id of KDF_IDS) {
         const hasCopy = w.typeOfBySide[1].get(id) !== w.typeOfBySide[0].get(id);
@@ -104,6 +110,18 @@ describe("templateKey agrees with buildMatchWorld on which ids differ", () => {
     // Not vacuous: both outcomes are exercised.
     expect(split).toBe(3); // fixtures 2, 3 (Lavi) and 4 (Namer)
     expect(shared).toBeGreaterThan(0);
+  });
+
+  it("a Sarim side 0 against a kitted KDF side 1: one template per id, wearing side 1's kit", () => {
+    // Side 0 fields no KDF type, so the id's one template is drawn by side 1
+    // alone: it wears side 1's kit -- the kit side 1's sim copy runs -- and no
+    // `#s1` copy is parsed beside a base template nobody draws.
+    const w = buildMatchWorld(room([{}, { mbt_lavi: { armour: 2 } }], 'brigade', ['sarim', 'kdf']));
+    expect(w.typeOfBySide[1].get('mbt_lavi')).not.toBe(w.typeOfBySide[0].get('mbt_lavi'));
+    const bySide = screenKit(upgradePrepass(Object.values(units), {}), w, 1).unitKitTiersBySide;
+    for (const id of KDF_IDS) expect(templateKey(id, 1, bySide)).toBe(id);
+    // The table the renderer builds the `id` template from (`templateKitTiers`).
+    expect(bySide?.[0].mbt_lavi).toEqual({ armour: 2 });
   });
 
   it('a matched room splits nothing, whatever the seats claimed', () => {

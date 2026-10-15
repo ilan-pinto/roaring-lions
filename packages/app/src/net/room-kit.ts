@@ -35,11 +35,29 @@ export function roomKitTables(world: MatchWorld, me: 0 | 1): {
   unitKitTiersBySide: KitTiersBySide;
 } {
   const mine = world.kitBySide[me];
+  const t0 = world.kitBySide[0].unitKitTiers;
+  const t1 = world.kitBySide[1].unitKitTiers;
   return {
     kitByType: mine.kitByType,
     unitKit: mine.unitKit,
-    unitKitTiersBySide: [world.kitBySide[0].unitKitTiers, world.kitBySide[1].unitKitTiers],
+    unitKitTiersBySide: rendererTiers(world.factions, t0, t1),
   };
+}
+
+/**
+ * Both sides' tables as the renderer should read them. Only a KDF side fields
+ * a kitted type, so where one side is not KDF there is only ONE kit on the
+ * field for any KDF id, and the two sides are handed the same table:
+ * `templateKey` then splits nothing, and no `#s1` template is parsed beside
+ * one nobody draws. A KDF side 0 against a Sarim side 1 hands side 0's kit
+ * (the world registers no side-1 copy); a Sarim side 0 against a KDF side 1
+ * hands side 1's, so the id's one template wears the kit side 1's sim copy
+ * runs.
+ */
+function rendererTiers(factions: MatchWorld['factions'], t0: KitTiers, t1: KitTiers): KitTiersBySide {
+  if (factions[1] !== 'kdf') return [t0, t0];
+  if (factions[0] !== 'kdf') return [t1, t1];
+  return [t0, t1];
 }
 
 /** The kit tables one battlefield screen reads: the HUD's two and the
