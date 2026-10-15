@@ -450,7 +450,7 @@ describe('openRoom: the lobby\'s create and join (N1b task 6, R-B8)', () => {
     const session = memory();
     const p = openRoom({ kind: 'create', map: 'qarn_hadid', callsign: 'Ari' }, 'b', deps({ fetch: f, openSocket: () => sock, session }));
     await tick();
-    expect(calls).toEqual([{ url: 'http://x/api/match', body: { player: 'pid-o', callsign: 'Ari', map: 'qarn_hadid', build: 'b', mode: 'versus', matchup: 'mirror' } }]);
+    expect(calls).toEqual([{ url: 'http://x/api/match', body: { player: 'pid-o', callsign: 'Ari', map: 'qarn_hadid', build: 'b', mode: 'versus', matchup: 'mirror', kit: 'matched', tiers: {} } }]);
     expect(loadSeat(session, 'ABCDEF')).toEqual({ ticket: 'tk-o', seat: 0 });
     sock.onopen?.({});
     sock.onmessage?.({ data: JSON.stringify(LOBBY_TWO) });
@@ -458,7 +458,7 @@ describe('openRoom: the lobby\'s create and join (N1b task 6, R-B8)', () => {
     expect(r.code).toBe('ABCDEF');
     expect(r.seat).toBe(0);
     // A lobby that names no factions is the mirror.
-    expect(r.lobby).toEqual({ seats: LOBBY_TWO.seats, map: 'qarn_hadid', factions: ['kdf', 'kdf'] });
+    expect(r.lobby).toEqual({ seats: LOBBY_TWO.seats, map: 'qarn_hadid', factions: ['kdf', 'kdf'], kit: 'matched' });
     expect(r.transport).toBeInstanceOf(WsTransport);
     // Both seats connected, and still only the hello: the lobby's Ready is the player's.
     expect(sock.sent.map((s) => (JSON.parse(s) as { t: string }).t)).toEqual(['hello']);
@@ -473,6 +473,56 @@ describe('openRoom: the lobby\'s create and join (N1b task 6, R-B8)', () => {
     sock.onopen?.({});
     sock.onmessage?.({ data: JSON.stringify({ ...LOBBY_TWO, factions: ['sarim', 'kdf'] }) });
     expect((await p).lobby.factions).toEqual(['sarim', 'kdf']);
+  });
+
+  describe('per-seat kit: the claim on the wire', () => {
+    const OWNED = { mbt_lavi: { armour: 2, sensors: 1 }, inf_squad: { firepower: 3 } };
+
+    it('a create with the toggle on carries kit: brigade and the account\'s tiers', async () => {
+      const { f, calls } = answering(201);
+      void openRoom({ kind: 'create', map: 'tel_marum', callsign: 'Ari', kit: 'brigade' }, 'b', deps({ fetch: f, openSocket: () => fakeSocket(), tiers: () => OWNED })).catch(() => {});
+      await tick();
+      expect(calls[0].body.kit).toBe('brigade');
+      expect(calls[0].body.tiers).toEqual(OWNED);
+    });
+
+    it('a create with the toggle off carries kit: matched, and so does a create that never heard of the toggle', async () => {
+      for (const kit of [{ kit: 'matched' as const }, {}]) {
+        const { f, calls } = answering(201);
+        void openRoom({ kind: 'create', map: 'tel_marum', callsign: 'Ari', ...kit }, 'b', deps({ fetch: f, openSocket: () => fakeSocket(), tiers: () => OWNED })).catch(() => {});
+        await tick();
+        expect(calls[0].body.kit).toBe('matched');
+      }
+    });
+
+    it('a join carries the guest\'s tiers and no kit (the room\'s rule is the host\'s)', async () => {
+      const { f, calls } = answering(200, { code: 'ABCDEF', seat: 1, ticket: 'tk-j' });
+      void openRoom({ kind: 'join', code: 'ABCDEF', callsign: 'Bo' }, 'b', deps({ fetch: f, openSocket: () => fakeSocket(), tiers: () => OWNED })).catch(() => {});
+      await tick();
+      expect(calls[0].body.tiers).toEqual(OWNED);
+      expect('kit' in calls[0].body).toBe(false);
+    });
+
+    it('the account is read when the request is made, never in the URL', async () => {
+      const { f, calls } = answering(201);
+      let reads = 0;
+      void openRoom({ kind: 'create', map: 'tel_marum', callsign: 'Ari', kit: 'brigade' }, 'b', deps({ fetch: f, openSocket: () => fakeSocket(), tiers: () => { reads++; return OWNED; } })).catch(() => {});
+      await tick();
+      expect(reads).toBe(1);
+      expect(calls[0].url).toBe('http://x/api/match');
+    });
+
+    it('a lobby that names brigade comes back as the room\'s kit rule, and one that names nothing is matched', async () => {
+      for (const [lobby, kit] of [[{ ...LOBBY_TWO, kit: 'brigade' }, 'brigade'], [LOBBY_TWO, 'matched']] as const) {
+        const { f } = answering(201);
+        const sock = fakeSocket();
+        const p = openRoom({ kind: 'create', map: 'tel_marum', callsign: 'Ari', kit: 'brigade' }, 'b', deps({ fetch: f, openSocket: () => sock }));
+        await tick();
+        sock.onopen?.({});
+        sock.onmessage?.({ data: JSON.stringify(lobby) });
+        expect((await p).lobby.kit).toBe(kit);
+      }
+    });
   });
 
   it('cleans the callsign it sends, on create and on join (N1b follow-up): the same function the room runs', async () => {
@@ -497,7 +547,7 @@ describe('openRoom: the lobby\'s create and join (N1b task 6, R-B8)', () => {
     const sock = fakeSocket();
     const p = openRoom({ kind: 'join', code: 'abcdef', callsign: 'Bo' }, 'b', deps({ fetch: f, openSocket: () => sock }));
     await tick();
-    expect(calls).toEqual([{ url: 'http://x/api/match/ABCDEF/join', body: { player: 'pid-o', callsign: 'Bo', build: 'b' } }]);
+    expect(calls).toEqual([{ url: 'http://x/api/match/ABCDEF/join', body: { player: 'pid-o', callsign: 'Bo', build: 'b', tiers: {} } }]);
     sock.onopen?.({});
     sock.onmessage?.({ data: JSON.stringify({ ...LOBBY_TWO, you: 1 }) });
     expect((await p).seat).toBe(1);

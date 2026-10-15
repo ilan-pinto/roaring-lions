@@ -28,7 +28,7 @@
  * `NetChat`, which keeps to that too).
  */
 import { maps } from '@lions/data';
-import { ADVISOR_SCOPES, FACTION_MATCHUP_MAPS, MATCHUPS, MAX_CALLSIGN_CHARS, callsignOrDefault, cleanCallsign, matchupField, versusMapAllowed, type AdvisorScope, type Faction, type Matchup, type Seat, type SeatState, type WsTransport } from '@lions/net';
+import { ADVISOR_SCOPES, FACTION_MATCHUP_MAPS, MATCHUPS, MAX_CALLSIGN_CHARS, callsignOrDefault, cleanCallsign, matchupField, versusMapAllowed, type AdvisorScope, type Faction, type LobbyKit, type Matchup, type Seat, type SeatState, type WsTransport } from '@lions/net';
 import { t } from '../i18n/t';
 import { RoomRefused, RoomStarted, type OpenedRoom, type RoomRequest } from '../net/connect';
 import { handOver } from '../net/handoff';
@@ -117,6 +117,8 @@ interface Room {
   map: string;
   /** Each seat's faction, by seat (the host's matchup). */
   factions: [Faction, Faction];
+  /** The room's kit rule (per-seat kit), shown to both seats. */
+  kit: LobbyKit;
   /** `closed`: this tab left (and said `bye`). `ended`: the room ended under it. */
   phase: 'lobby' | 'started' | 'ended' | 'closed';
   /** An i18n key for a refusal the room sent after the lobby opened. */
@@ -176,14 +178,16 @@ function startedElsewhere(err: unknown, deps: VersusDeps): boolean {
 function adopt(o: OpenedRoom, deps: VersusDeps): Room {
   const room: Room = {
     code: o.code, seat: o.seat, transport: o.transport,
-    seats: o.lobby.seats, map: o.lobby.map, factions: o.lobby.factions,
+    seats: o.lobby.seats, map: o.lobby.map, factions: o.lobby.factions, kit: o.lobby.kit,
     phase: 'lobby', error: null, repaint: null, chat: null, advisors: [null, null],
   };
   o.transport.setHooks({
-    onLobby: (seats, _you, map, factions) => {
+    onLobby: (seats, _you, map, factions, kit) => {
       room.seats = seats;
       room.map = map;
       if (factions !== undefined) room.factions = factions;
+      // The room names the rule only when it is `brigade`; silence is matched.
+      room.kit = kit ?? 'matched';
       room.repaint?.();
     },
     onStart: (config) => {
@@ -455,6 +459,23 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
   };
   side.addEventListener('change', syncSide);
   syncSide();
+  // Bring your brigade (per-seat kit): HOST only, off by default, and labelled
+  // friends-only. The room cannot check a claim against an account (no server
+  // ledger yet), so the note says so; the joiner has no say in the rule.
+  const kitField = document.createElement('label');
+  kitField.className = 'rl-versus__field rl-versus__kit';
+  const kitBox = document.createElement('input');
+  kitBox.type = 'checkbox';
+  kitBox.className = 'rl-versus__kit-toggle';
+  kitBox.checked = false;
+  const kitName = document.createElement('span');
+  kitName.textContent = t('versus.host.kit');
+  kitField.append(kitBox, kitName);
+  body.appendChild(kitField);
+  const kitNote = document.createElement('p');
+  kitNote.className = 'rl-versus__kit-note';
+  kitNote.textContent = t('versus.host.kit.note');
+  body.appendChild(kitNote);
   const openBtn = button(t('versus.host.open'), 'rl-versus__open');
   markConfirm(openBtn);
   body.appendChild(openBtn);
@@ -505,7 +526,7 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
       },
     );
   };
-  openBtn.addEventListener('click', () => start({ kind: 'create', map: select.value, matchup: matchupField(side.value), callsign: callsignOrDefault(callsign.input.value) }));
+  openBtn.addEventListener('click', () => start({ kind: 'create', map: select.value, matchup: matchupField(side.value), kit: kitBox.checked ? 'brigade' : 'matched', callsign: callsignOrDefault(callsign.input.value) }));
   const join = (): void => {
     if (code.value.length !== CODE_LENGTH) return;
     start({ kind: 'join', code: code.value, callsign: callsignOrDefault(callsign.input.value) });
@@ -594,6 +615,15 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
     const mapValue = document.createElement('span');
     mapValue.className = 'rl-versus__map-name';
     mapLine.append(mapName, mapValue);
+    // The room's kit rule, the same line for both seats.
+    const kitLine = document.createElement('p');
+    kitLine.className = 'rl-versus__room-kit';
+    const kitLabel = document.createElement('span');
+    kitLabel.className = 'rl-versus__label';
+    kitLabel.textContent = t('versus.room.kit');
+    const kitValue = document.createElement('span');
+    kitValue.className = 'rl-versus__kit-name';
+    kitLine.append(kitLabel, kitValue);
     const status = messageLine('rl-versus__status');
     const ready = button(t('versus.room.ready'), 'rl-versus__ready');
     markConfirm(ready);
@@ -671,6 +701,8 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
     const paint = (): void => {
       seats.replaceChildren(...SEAT_ORDER.map(card));
       mapValue.textContent = deps.maps.find((m) => m.id === r.map)?.label ?? r.map;
+      kitLine.dataset.kit = r.kit;
+      kitValue.textContent = t('versus.room.kit.value', { kit: r.kit });
       const mine = r.seats.find((x) => x.seat === r.seat);
       const pressed = readySent || mine?.ready === true;
       ready.setAttribute('aria-pressed', pressed ? 'true' : 'false');
@@ -678,7 +710,7 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
       status.textContent = r.error !== null ? t(r.error) : r.phase === 'ended' ? t('versus.room.ended') : '';
     };
     r.repaint = paint;
-    body.append(share, big, copyRow, seats, mapLine, status, ready, chat);
+    body.append(share, big, copyRow, seats, mapLine, kitLine, status, ready, chat);
     paint();
 
     // The way back is Leave, confirmed: it closes the room for both seats.

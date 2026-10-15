@@ -118,7 +118,7 @@ interface Seat {
   side: 0 | 1;                // sim side; civilians stay side 2
   faction: 'kdf' | 'sarim';
   kit: 'matched' | 'brigade'; // Decision 5
-  tiers: Record<string, number>;   // empty for matched kit and for sarim
+  tiers: Record<string, Record<string, number>>;   // typeId -> track -> tier, the account's own shape; empty for matched kit and for sarim (16 Oct, see §7.1)
   unlocks: string[];               // empty for matched kit
   player: string;             // anonymous UUID today, Steam id after ST5
   callsign: string;
@@ -595,6 +595,45 @@ lookup, `unitCost` by default);
 keyed by type id and need per-side keys; and **both seats build the per-side
 tiers from the shared config**, or their worlds diverge.
 
+**Per-seat kit, as built (16 Oct 2026, plan `docs/superpowers/plans/2026-10-16-net-per-seat-kit.md`,
+branch `feat/net-seat-kit`).** All three follow-ups are done and no file
+under `packages/sim/` changed; the versus and match-world pins did not move
+(a `matched` room, and a `brigade` room whose seats hold equal or empty tiers,
+register exactly today's type list and hash today's bytes).
+- **Rulings, three lead decisions taken as recommended. Ruled 16 Oct
+  (coordinator, lead-delegated).** (1) *Base-cost pricing:* a kitted unit is
+  priced at its base id's cost (`forcesOf`/`scoreOf` need no mapping), so
+  decision 24's surviving-value tiebreak favours the seat with the stronger
+  units at equal value; recorded, revisited with N3's economy. (2) *Nested
+  tiers:* `SeatConfig.tiers` is `Record<typeId, Record<track, number>>`, the
+  account's `ownedTiers` shape and the one `upgradePrepass` takes; a matched
+  room mints `{}`, so nothing on the wire changes for it. (3) *Structural
+  checks only* (decision 22): the room refuses what is malformed or
+  impossible (an unknown type, a non-KDF type, an unknown track, a tier
+  outside 0..max, oversize input, a `__proto__`-style key), records the claim
+  as stated, and cannot check it against an account until ST6. `unlocks`
+  stays `[]` until N3's production can field one.
+- **Wire.** `POST /api/match` takes `kit` (`matched` | `brigade`; only a
+  versus room can be `brigade`) and `tiers`; `POST .../join` takes `tiers`.
+  Both are cleaned against a plain list of the shipped tracks
+  (`packages/worker/src/match/kit-tracks.ts`, pinned to the data by a test)
+  and minted into the config at the start: a `brigade` room mints each KDF
+  seat's own claim; a Sarim seat and a matched room mint `{}`. The lobby
+  message names the rule (`kit`, only when it is `brigade`; absent is
+  `matched`) so both seats see it before Ready.
+- **The world comes from the config alone.** `buildMatchWorld` registers a
+  patched roster per side from `SeatConfig.tiers` (each leaf clamped to the
+  track's maximum, own keys only), `main.ts` and the HUD read each side's kit
+  from the world, and the renderer takes plain per-side tables
+  (`unitKitTiersBySide`) with one vehicle template per differing tier set.
+  No room path reads `accountState()` or `bootTiers` to build anything; the
+  local account is read once, to fill the create/join body, and never goes
+  in a URL.
+- **Lobby.** The host's create form has a "Bring your brigade" checkbox,
+  default off, host only, labelled friends-only through the catalogue; the
+  room screen shows the rule to both seats. It must not be offered in any
+  public or ranked room.
+
 Everything else in the tick is untouched. `pnpm test:determinism` must pass
 before every commit here, and the two-client CI test (§12) beside it.
 
@@ -1017,6 +1056,14 @@ are, not as the spec drew them.**
   one row. So a match writes `max(command frames a second, 1)` rows a second,
   plus 0.2 for the watchdog: about 1.2 idle and **2.2 with one order a second
   from each seat**.
+- **Per-seat kit (16 Oct 2026), the as-built note for item 12 of §11b.4.**
+  The three rulings above (base-cost pricing; nested `SeatConfig.tiers`;
+  structural-only trust) are recorded in §7.1 with the wire, the world and
+  the lobby. What a later reader will otherwise get wrong: `tiers` is the
+  account's nested per-type shape and no longer the flat `Record<string,
+  number>` this section's `Seat` block once declared; the lobby message now
+  carries `kit` for a `brigade` room; and the claim is client-trusted, so
+  `brigade` is never to be offered outside a friends' room.
 
 ### 11b.3 What N4 inherits, and the shape its plan takes
 

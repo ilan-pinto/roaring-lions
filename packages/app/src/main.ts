@@ -1238,6 +1238,10 @@ async function main(): Promise<void> {
         store: versusStore,
         // Seat tickets are per TAB (R-B6): the battlefield's reload rejoins with it.
         session: safeStorageLike(() => window.sessionStorage),
+        // The local account's bought kit goes into the create/join BODY and
+        // nowhere else (per-seat kit): this is the one read of the account on
+        // a room path. The world is built from the room's config, never from it.
+        tiers: () => accountState().ownedTiers,
         ...(signal ? { signal } : {}),
       }),
     maps: versusMaps(),
