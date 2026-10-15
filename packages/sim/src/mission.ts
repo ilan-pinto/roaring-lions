@@ -547,7 +547,6 @@ const PURSE_UNITS = 2400;
 /** Ticks a minute, for the per-minute display reads (A4). */
 const TICKS_PER_MINUTE = 60 * TICKS_PER_SECOND;
 
-/** A cut cause as a hash word: open 0, unreachable 1, vent 2, interdicted 3 (C-R17). */
 /** Byte-for-byte equality of two masks of the same map (F2 Task 11). */
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false;
@@ -555,6 +554,7 @@ function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
   return true;
 }
 
+/** A cut cause as a hash word: open 0, unreachable 1, vent 2, interdicted 3 (C-R17). */
 function cutCode(cut: CutCause): number {
   if (cut === null) return 0;
   if (cut === 'unreachable') return 1;
@@ -1974,11 +1974,14 @@ export class MissionRuntime {
 
   /**
    * Side `side`'s rear at the tile nearest (x, y) open on the vehicle mask (F2 Task 11): (x, y)
-   * itself when it is open; else the first square ring around it (Chebyshev radius 1, 2, ...)
-   * holding an open tile, and within that ring the smallest squared distance, ties to the
-   * lowest tile index. (x, y) off the map, or no open tile anywhere: (x, y) unchanged, and the
-   * line reads 'unreachable' exactly as it did. Every shipped rear is open today
-   * (tools/src/income_rear.test.ts), so this moves no shipped answer.
+   * itself when it is open; else the open tile with the smallest squared distance to it, ties to
+   * the lowest tile index. The scan walks square rings (Chebyshev radius 1, 2, ...) and keeps
+   * going while a ring can still hold something as near as the best so far: every tile on ring
+   * `r` is at least `r * r` away, so it stops at the first ring with `r * r` above the best
+   * (a corner of ring 3, at 18, does not beat the middle of ring 4's edge, at 16). (x, y) off
+   * the map, or no open tile anywhere: (x, y) unchanged, and the line reads 'unreachable'
+   * exactly as it did. Every shipped rear is open today (tools/src/income_rear.test.ts), so
+   * this moves no shipped answer.
    */
   private openRear(side: 0 | 1, x: number, y: number): void {
     this.rearX[side] = x;
@@ -1988,28 +1991,28 @@ export class MissionRuntime {
     const mask = this.sim.blockedVehicle;
     if (x < 0 || y < 0 || x >= w || y >= h || mask[y * w + x] === 0) return;
     const maxR = w > h ? w : h;
+    let best = -1;
+    let bestD = 0;
     for (let r = 1; r <= maxR; r++) {
-      let best = -1;
-      let bestD = 0;
-      // Row-major over the ring, so a later tile at the same distance has a higher index and
-      // `<` keeps the lowest.
+      if (best >= 0 && r * r > bestD) break;
       for (let ty = y - r; ty <= y + r; ty++) {
         if (ty < 0 || ty >= h) continue;
         const edgeRow = ty === y - r || ty === y + r;
         for (let tx = x - r; tx <= x + r; tx += edgeRow ? 1 : 2 * r) {
           if (tx < 0 || tx >= w || mask[ty * w + tx] !== 0) continue;
           const d = (tx - x) * (tx - x) + (ty - y) * (ty - y);
-          if (best < 0 || d < bestD) {
-            best = ty * w + tx;
+          const t = ty * w + tx;
+          // Rings are not in index order, so a tie compares the index itself.
+          if (best < 0 || d < bestD || (d === bestD && t < best)) {
+            best = t;
             bestD = d;
           }
         }
       }
-      if (best >= 0) {
-        this.rearX[side] = best % w;
-        this.rearY[side] = (best - (best % w)) / w;
-        return;
-      }
+    }
+    if (best >= 0) {
+      this.rearX[side] = best % w;
+      this.rearY[side] = (best - (best % w)) / w;
     }
   }
 

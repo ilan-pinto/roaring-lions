@@ -15,6 +15,7 @@ import {
   type ObjectiveJson,
   type PlacementJson,
 } from './mission';
+import { corridorCut, corridorRoute, makeRouteSource } from './corridor';
 import type { TunnelRouteJson } from './tunnels';
 
 // Mission runtime tests: the declarative vocabulary (GDD §6) interpreted
@@ -5804,6 +5805,35 @@ describe('held-ground income and corridors (F2 Task 7)', () => {
     expect(rw.route?.[(rw.route?.length ?? 1) - 1]).toBe(0 * 28 + 26);
   });
 
+  // Minor 1 (fix round 1): the rear is the Euclidean-nearest open tile, not the first ring's. From
+  // player_start (26, 2), with every tile within four of it shut but two: the corner (23, 5) of
+  // ring 3 is 18 away and loses to (22, 2), the middle of ring 4's edge, 16 away. The old
+  // ring-first rule took the corner.
+  it('a rear is the strictly nearest open tile by squared distance, not the first ring that has one', () => {
+    const shut = (sim: Sim, reach: number, open: readonly (readonly [number, number])[]): void => {
+      for (let y = 0; y <= 2 + reach; y++) {
+        for (let x = 26 - reach; x <= 27; x++) {
+          if (!open.some((o) => o[0] === x && o[1] === y)) sim.setBoulder(x, y, true);
+        }
+      }
+    };
+    const last = (r: Int32Array | null | undefined): number => (r === null || r === undefined ? -1 : r[r.length - 1]);
+    const near = incomeWorld({ zones: [{ zone: 'west', rate_per_min: 45 }], force: [mine(2, 2)] }, (sim) =>
+      shut(sim, 4, [[23, 5], [22, 2]])
+    );
+    near.step(1);
+    expect(zoneOf(near, 'west').cut).toBeNull();
+    expect(last(zoneOf(near, 'west').route)).toBe(2 * 28 + 22);
+    // A tie across rings goes to the lowest index: (22, 5), on ring 4, and (21, 2), on ring 5,
+    // are both 25 away, and (21, 2) is the lower tile.
+    const tie = incomeWorld({ zones: [{ zone: 'west', rate_per_min: 45 }], force: [mine(2, 2)] }, (sim) =>
+      shut(sim, 5, [[22, 5], [21, 2]])
+    );
+    tie.step(1);
+    expect(zoneOf(tie, 'west').cut).toBeNull();
+    expect(last(zoneOf(tie, 'west').route)).toBe(2 * 28 + 21);
+  });
+
   // Task 7 finding (2): the per-zone cut word must reach economyHash. A rate-0 zone pays nothing
   // either way, so two runtimes that differ ONLY in whether that zone's line is cut have the
   // same purse, population, identifications and zone state: only the cut word can tell them.
@@ -5925,5 +5955,246 @@ describe('held-ground income and corridors (F2 Task 7)', () => {
   it('an unknown income zone or supply_entry is a load-time error', () => {
     expect(() => incomeWorld({ zones: [{ zone: 'nowhere', rate_per_min: 10 }] })).toThrow(/income zone "nowhere"/);
     expect(() => incomeWorld({ corridor: true, entry: 'nowhere' })).toThrow(/supply_entry "nowhere"/);
+  });
+
+  // F2 Task 11 fix round 1: the route cache against a FRESH oracle. The runtime keys its zone
+  // starts, rears, routes and convoy on a terrain version, and each of those keys must go red
+  // when the one thing it guards changes. The oracle below is a restatement from literals and
+  // the documented rules (the zone rects, the player start, the camp's ring, "the open tile
+  // nearest the zone's centre", "the exit, else the nearest vehicle-open tile"), over a
+  // `makeRouteSource` built NOW from copies of the sim's masks. It calls nothing the runtime
+  // caches: not `zoneRoute`, not `syncRear`, not `openRear`.
+  describe('the route cache against a fresh oracle', () => {
+    const W = 28;
+    const H = 12;
+    const RECTS: readonly (readonly [string, number, number, number, number])[] = [
+      ['west', 1, 1, 3, 3],
+      ['east', 20, 8, 4, 3],
+    ];
+    const ENTRY = { x: 2, y: 10 };
+    const PLAYER_START = { x: 26, y: 2 };
+    /** The camp the second world raises: a 2 x 2 at (24, 8); its ring is x 23..26, y 7..10. */
+    const CAMP = [8 * W + 24, 8 * W + 25, 9 * W + 24, 9 * W + 25];
+    const column = (x: number, y0: number, y1: number): number[] => {
+      const t: number[] = [];
+      for (let y = y0; y <= y1; y++) t.push(y * W + x);
+      return t;
+    };
+
+    /** The vehicle-open tile of the zone nearest its centre; ties to the lowest index. */
+    function oracleStart(sim: Sim, r: readonly [string, number, number, number, number]): { x: number; y: number } | null {
+      const cx = r[1] + Math.floor(r[3] / 2);
+      const cy = r[2] + Math.floor(r[4] / 2);
+      let best: { x: number; y: number } | null = null;
+      let bestD = Infinity;
+      for (let y = r[2]; y < r[2] + r[4]; y++) {
+        for (let x = r[1]; x < r[1] + r[3]; x++) {
+          if (sim.blockedVehicle[y * W + x] !== 0) continue;
+          const d = (x - cx) * (x - cx) + (y - cy) * (y - cy);
+          if (d < bestD) {
+            best = { x, y };
+            bestD = d;
+          }
+        }
+      }
+      return best;
+    }
+
+    /** The tile nearest (x, y) by squared distance that is open on the vehicle mask; ties lowest index. */
+    function oracleNearestOpen(sim: Sim, x: number, y: number): { x: number; y: number } {
+      let best = { x, y };
+      let bestD = Infinity;
+      for (let ty = 0; ty < H; ty++) {
+        for (let tx = 0; tx < W; tx++) {
+          if (sim.blockedVehicle[ty * W + tx] !== 0) continue;
+          const d = (tx - x) * (tx - x) + (ty - y) * (ty - y);
+          if (d < bestD) {
+            best = { x: tx, y: ty };
+            bestD = d;
+          }
+        }
+      }
+      return best;
+    }
+
+    /** Side 0's rear: the camp's exit (the first FOOT-open tile of its ring, row-major) while the
+     *  camp stands, else the player start; either moved to the nearest vehicle-open tile. */
+    function oracleRear(sim: Sim, campStands: boolean): { x: number; y: number } {
+      let at = PLAYER_START;
+      if (campStands) {
+        let exit: { x: number; y: number } | null = null;
+        for (let y = 7; y <= 10 && exit === null; y++) {
+          for (let x = 23; x <= 26 && exit === null; x++) {
+            if (sim.blocked[y * W + x] === 0) exit = { x, y };
+          }
+        }
+        if (exit === null) throw new Error('the oracle camp has no exit');
+        at = exit;
+      }
+      return sim.blockedVehicle[at.y * W + at.x] === 0 ? at : oracleNearestOpen(sim, at.x, at.y);
+    }
+
+    /** At the recheck just run, every zone's and the convoy's route and cut equal a fresh answer. */
+    function expectFresh(w: World, campStands: boolean, label: string): void {
+      const sim = w.sim;
+      const st = sim.state;
+      const src = makeRouteSource(W, H, sim.blockedVehicle.slice(), sim.elevation.slice(), null);
+      const view = {
+        entityCount: sim.entityCount,
+        alive: st.alive,
+        side: st.side,
+        posX: st.posX,
+        posY: st.posY,
+        tunnelIn: st.tunnelIn,
+        isAir: () => false,
+        width: W,
+        tunnelCount: sim.tunnelCount,
+        tnAlive: sim.tnAlive,
+        tnVentOpen: sim.tnVentOpen,
+        tnDigger: sim.tnDigger,
+        ventAt: (r: number) => sim.tunnelVent(r),
+      };
+      const rear = oracleRear(sim, campStands);
+      const span = new Int32Array(2);
+      for (const r of RECTS) {
+        const z = zoneOf(w, r[0]);
+        expect(z.holder, `${label}: ${r[0]} held`).toBe(0);
+        const start = oracleStart(sim, r);
+        const route = start === null ? null : corridorRoute(src, start, rear);
+        const cut = corridorCut(view, route, 0, span);
+        expect(z.route, `${label}: ${r[0]} route`).toEqual(route);
+        expect(z.cut, `${label}: ${r[0]} cut`).toBe(cut);
+        expect(z.cutSpan, `${label}: ${r[0]} span`).toEqual(span[0] < 0 ? null : [span[0], span[1]]);
+      }
+      const convoy = w.runtime.convoyRoute;
+      if (convoy === null) throw new Error('the oracle world has a convoy');
+      const route = corridorRoute(src, ENTRY, rear);
+      const cut = corridorCut(view, route, 0, span);
+      expect(convoy.route, `${label}: convoy route`).toEqual(route);
+      expect(convoy.cut, `${label}: convoy cut`).toBe(cut);
+      expect(convoy.cutSpan, `${label}: convoy span`).toEqual(span[0] < 0 ? null : [span[0], span[1]]);
+    }
+
+    /** Step to the next tick on the recheck cadence (at least one tick). */
+    function toRecheck(w: World): void {
+      do w.step(1);
+      while (w.sim.tickCount % CORRIDOR_RECHECK_TICKS !== 0);
+    }
+
+    const neutral = (sim: Sim): number => sim.addStructureType({ id: 't_neutral', hp_per_tile: 300 });
+    function oracleWorld(camp: boolean): World {
+      return incomeWorld(
+        {
+          corridor: true,
+          entry: 'entry',
+          zones: [{ zone: 'west', rate_per_min: 45 }, { zone: 'east', rate_per_min: 60 }],
+          force: [mine(2, 2), mine(21, 9)],
+          // On row 3, west of every wall below, and 1 tile from row 2: it interdicts the west line.
+          enemy: [theirs(13, 3)],
+        },
+        (sim) => {
+          neutral(sim);
+          if (camp) {
+            const t = sim.addStructureType({ id: 't_camp0', hp_per_tile: 300, produces_for: 0 });
+            sim.addStructure(t, CAMP);
+          }
+        }
+      );
+    }
+    const copy = (r: Int32Array | null): number[] | null => (r === null ? null : Array.from(r));
+
+    it('a world with no camp: a structure on a zone start, a boulder on the rear, a wall across the convoy, a ridge', () => {
+      const w = oracleWorld(false);
+      const sim = w.sim;
+      const west = zoneOf(w, 'west');
+      const convoy = w.runtime.convoyRoute;
+      if (convoy === null) throw new Error('no convoy');
+      const t = 0; // the neutral type, the only one
+      toRecheck(w);
+      expectFresh(w, false, 'untouched');
+      expect(west.cut).toBe('interdicted');
+      expect(west.route?.[0]).toBe(2 * W + 2);
+      expect(west.route?.[(west.route?.length ?? 1) - 1]).toBe(2 * W + 26);
+
+      // (a) A structure raised on the west start (2, 2): the start moves to (2, 1), the lowest
+      // index of the four open neighbours at distance 1. Destroyed, it moves back, and the
+      // collapse itself rechecks on the next tick, off the cadence.
+      const onStart = sim.addStructure(t, [2 * W + 2]);
+      toRecheck(w);
+      expectFresh(w, false, 'structure on the west start');
+      expect(west.route?.[0]).toBe(1 * W + 2);
+      sim.debugDestroyStructure(onStart);
+      w.step(1);
+      expect(sim.tickCount % CORRIDOR_RECHECK_TICKS).not.toBe(0);
+      expectFresh(w, false, 'that structure destroyed');
+      expect(west.route?.[0]).toBe(2 * W + 2);
+
+      // (b) The player start (26, 2) turned into a boulder: the rear moves to (26, 1).
+      sim.setBoulder(26, 2, true);
+      toRecheck(w);
+      expectFresh(w, false, 'boulder on the player start');
+      expect(west.route?.[(west.route?.length ?? 1) - 1]).toBe(1 * W + 26);
+      sim.setBoulder(26, 2, false);
+      toRecheck(w);
+      expectFresh(w, false, 'that boulder removed');
+      expect(west.route?.[(west.route?.length ?? 1) - 1]).toBe(2 * W + 26);
+
+      // (d) A wall across the convoy's path (x 14, y 0..9): the line has to go round by row 10.
+      const before = copy(convoy.route);
+      const wall = sim.addStructure(t, column(14, 0, 9));
+      toRecheck(w);
+      expectFresh(w, false, 'wall across the convoy');
+      expect(copy(convoy.route)).not.toEqual(before);
+      sim.debugDestroyStructure(wall);
+      w.step(1);
+      expectFresh(w, false, 'that wall destroyed');
+      expect(copy(convoy.route)).toEqual(before);
+
+      // (f) A ridge, nine levels, across the same column: only the ground changes. A climb is
+      // priced, so the west line (and the convoy) go round it, with no mask touched.
+      const flat = copy(west.route);
+      for (let y = 0; y <= 9; y++) sim.setElevation(14, y, 9);
+      toRecheck(w);
+      expectFresh(w, false, 'ridge');
+      expect(copy(west.route)).not.toEqual(flat);
+      for (let y = 0; y <= 9; y++) sim.setElevation(14, y, 0);
+      toRecheck(w);
+      expectFresh(w, false, 'ridge levelled');
+      expect(copy(west.route)).toEqual(flat);
+    });
+
+    it('a world with a camp: a boulder at its exit, then a structure over it that moves the foot exit and not the vehicle mask', () => {
+      const w = oracleWorld(true);
+      const sim = w.sim;
+      const east = zoneOf(w, 'east');
+      const last = (r: Int32Array | null): number => (r === null ? -1 : r[r.length - 1]);
+      toRecheck(w);
+      expectFresh(w, true, 'untouched');
+      expect(last(east.route)).toBe(7 * W + 23);
+
+      // (b) The exit (23, 7) is a boulder: foot-open, vehicle-shut. The rear is (23, 6).
+      sim.setBoulder(23, 7, true);
+      toRecheck(w);
+      expectFresh(w, true, 'boulder at the camp exit');
+      expect(last(east.route)).toBe(6 * W + 23);
+
+      // (e) A structure over that boulder shuts the tile to boots too. The vehicle mask is
+      // byte-for-byte what it was (the tile was already shut), the foot mask is not, and the
+      // camp's exit moves to (24, 7), a tile open to both.
+      const vehicleBefore = Array.from(sim.blockedVehicle);
+      const footBefore = Array.from(sim.blocked);
+      sim.addStructure(0, [7 * W + 23]);
+      expect(Array.from(sim.blockedVehicle)).toEqual(vehicleBefore);
+      expect(Array.from(sim.blocked)).not.toEqual(footBefore);
+      toRecheck(w);
+      expectFresh(w, true, 'structure over the boulder');
+      expect(last(east.route)).toBe(7 * W + 24);
+
+      // The camp falls: no anchor, the rear is the player start.
+      sim.debugDestroyStructure(0);
+      w.step(1);
+      expectFresh(w, false, 'camp destroyed');
+      expect(last(east.route)).toBe(2 * W + 26);
+    });
   });
 });
