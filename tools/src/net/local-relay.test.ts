@@ -16,6 +16,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { AgentClient } from './agent-client';
 import { serveLocalRelay, startLocalRelay, type LocalRelay } from './local-relay';
+import { MatchRoom } from '../../../packages/worker/src/match/match-room';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../../..');
@@ -193,6 +194,46 @@ describe('startLocalRelay', () => {
     // close() twice is harmless.
     await relay.close();
   }, 30_000);
+
+  it('a room handles its events one at a time, in arrival order, whichever socket they came from (a DO input gate)', async () => {
+    const relay = await relayOf();
+    const { code } = await versusRoom(relay);
+    // Every message handler, and the close handler, awaits: per-socket chains would let them interleave.
+    const seen: string[] = [];
+    const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+    vi.spyOn(MatchRoom.prototype, 'webSocketMessage').mockImplementation(async (_ws, msg) => {
+      seen.push(`in:${String(msg)}`);
+      await sleep(40);
+      seen.push(`out:${String(msg)}`);
+    });
+    const realClose = MatchRoom.prototype.webSocketClose;
+    vi.spyOn(MatchRoom.prototype, 'webSocketClose').mockImplementation(async function (this: MatchRoom, ws) {
+      seen.push('in:close');
+      await sleep(40);
+      await realClose.call(this, ws);
+      seen.push('out:close');
+    });
+    const open = (): Promise<WebSocket> => new Promise((res, rej) => {
+      const ws = new WebSocket(`${relay.url.replace(/^http/, 'ws')}/api/match/${code}/ws`, { origin: relay.origin });
+      own(ws, (w) => { w.terminate(); });
+      ws.on('open', () => { res(ws); });
+      ws.on('error', rej);
+    });
+    const a = await open();
+    const b = await open();
+    a.send('A1');
+    await sleep(5);
+    b.send('B1');
+    await sleep(5);
+    a.send('A2');
+    await sleep(5);
+    b.send('B2');
+    await sleep(5);
+    b.close();
+    const deadline = Date.now() + 5000;
+    while (!seen.includes('out:close') && Date.now() < deadline) await sleep(10);
+    expect(seen).toEqual(['in:A1', 'out:A1', 'in:B1', 'out:B1', 'in:A2', 'out:A2', 'in:B2', 'out:B2', 'in:close', 'out:close']);
+  });
 
   it('the secret pin: nothing the relay (or a client of it) writes, to any stream, ever carries the ticket secret', async () => {
     const SECRET = 'pin-secret-0d9f3a7c-relay-test-only';

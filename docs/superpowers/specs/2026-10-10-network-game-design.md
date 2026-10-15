@@ -1370,7 +1370,9 @@ with the secret supplied, which the specs use to pin that the chosen secret
 never reaches a log; the env has no D1 (a desync's D1 write fails with a logged
 error, and the desync still reaches both clients) and no rate limiters. The
 upgrade passes `handleMatch`'s Origin, code and method checks first. Alarms
-are a 250 ms poll; `close()` terminates every socket, clears every interval
+are a 250 ms poll; every event of a room (any socket's message or close, and
+its alarm) runs on one chain per room, in arrival order, as the input gate
+would order them (§11c.8); `close()` terminates every socket, clears every interval
 and frees the port. `MatchRoom` gained one optional constructor argument,
 `{tickMs?, seed?(code)}`, which workerd never passes: production keeps
 `TICK_MS` and its crypto seed, pinned by a characterization test. Only
@@ -1541,13 +1543,22 @@ a ten-seed arena run between two models, is the lead's to run (run protocol
 - **WP-G-G0's doctrine commander**, when it lands, replaces `rush` as the
   arena's opponent and answers decision 18 as written.
 - **A remote arena** against the Worker and `/stats/arena` wait on D6.
-- **Parked minors**, none load-bearing: the MCP `order` has no `sweep`; a
-  cap game costs an external client up to 10 s of grace; SIGINT on the arena
-  skips temp-directory cleanup (the ticket dies with the relay's in-memory
-  secret); the local relay does not serialize room events across sockets as
-  the Durable Object's input gate would (look there first if a local arena
-  ever reads a void/desync); a model's `end_round` still accepts a stale
-  mid-round `done` after a wall release (harmless).
+- **Parked minors**, none load-bearing. Three were closed in the N4b minors
+  pass (15 Oct, `fix/net-n4b-minors`); two stay parked.
+  - The MCP `order` has no `sweep`.
+  - SIGINT on the arena skips temp-directory cleanup (the ticket dies with
+    the relay's in-memory secret).
+  - **Closed:** the local relay now serializes room events as the Durable
+    Object's input gate would. Every message and close from any of a room's
+    sockets, and its alarm, run on ONE promise chain per room, in arrival
+    order; it was a chain per socket, so two sockets and the alarm could
+    interleave across awaits. An alarm's due time is re-read when its turn
+    comes, not when it is queued. Pinned by `local-relay.test.ts` (two sockets
+    of one room, a 40 ms handler, strict in/out alternation in arrival order);
+    a socket given its own gate turns it red.
+  - Parked: a cap game costs an external client up to 10 s of grace.
+  - Parked: a model's `end_round` still accepts a stale mid-round `done`
+    after a wall release (harmless).
 
 ## 12. Testing and gates
 

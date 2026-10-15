@@ -17,6 +17,12 @@
  * - The alarm: nothing in node fires a Durable Object alarm, so the relay
  *   checks every room's scheduled alarm every `ALARM_POLL_MS` and delivers the
  *   ones due (the TTL, a forfeit, the result's close, the wipe).
+ * - The input gate: a Durable Object runs one event at a time. Every event for
+ *   a room -- a message or a close from any of its sockets, and its alarm --
+ *   goes through ONE promise chain per room, in arrival order, so a handler
+ *   that awaits is never overlapped by another event of the same room. (Until
+ *   the N4b minors the chain was per socket: two sockets' messages and the
+ *   alarm could interleave across awaits, which workerd would not allow.)
  *
  * The ticket secret is minted in memory at start (`randomBytes(32)`) and is
  * never logged and never written: a ticket from one relay is worthless to the
@@ -87,7 +93,14 @@ class RelaySocket extends FakeSocket {
   }
 }
 
-interface Hosted { room: MatchRoom; state: FakeState; alarming: boolean }
+interface Hosted {
+  room: MatchRoom;
+  state: FakeState;
+  /** An alarm delivery is queued or running: the poll queues no second one. */
+  alarming: boolean;
+  /** The room's input gate: the tail of the one chain every event of this room runs on. */
+  gate: Promise<void>;
+}
 
 /** A body up to `MAX_BODY_BYTES`, or null when it is larger. */
 function readBody(req: IncomingMessage): Promise<Buffer | null> {
@@ -120,7 +133,7 @@ export async function serveLocalRelay(o: LocalRelayOptions & { ticketSecret: str
     let h = hosted.get(code);
     if (h === undefined) {
       const state = new FakeState();
-      h = { state, room: new MatchRoom(state, env, { tickMs: o.tickMs, seed: o.seedFor }), alarming: false };
+      h = { state, room: new MatchRoom(state, env, { tickMs: o.tickMs, seed: o.seedFor }), alarming: false, gate: Promise.resolve() };
       hosted.set(code, h);
     }
     return h;
@@ -147,23 +160,25 @@ export async function serveLocalRelay(o: LocalRelayOptions & { ticketSecret: str
     ASSETS: { fetch: async () => new Response('not found', { status: 404 }) },
   } as Env;
 
+  /** Runs `f` after every event of the room that arrived before it, and before any that arrives after. */
+  const gated = (h: Hosted, what: string, f: () => Promise<void>): Promise<void> => {
+    h.gate = h.gate.then(f).catch((e: unknown) => { log(`local relay: ${what} failed: ${e instanceof Error ? e.message : String(e)}`); });
+    return h.gate;
+  };
+
   const sockets = new Set<Promise<void>>();
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_WS_PAYLOAD });
 
-  /** One accepted socket, wired to its room. Messages and then the close reach
-   *  the room in the order they arrived, as a real socket's do. */
+  /** One accepted socket, wired to its room. Its messages and then its close
+   *  join the ROOM's gate, so they keep their order and never overlap another
+   *  socket's events or the alarm. */
   const attach = (ws: WebSocket, h: Hosted): void => {
     const fake = new RelaySocket(ws);
-    let last: Promise<void> = Promise.resolve();
-    const inOrder = (f: () => Promise<void>): Promise<void> => {
-      last = last.then(f).catch((e: unknown) => { log(`local relay: room handler failed: ${e instanceof Error ? e.message : String(e)}`); });
-      return last;
-    };
-    ws.on('message', (data: RawData) => { void inOrder(() => h.room.webSocketMessage(fake.asSocket(), text(data))); });
+    ws.on('message', (data: RawData) => { void gated(h, 'room handler', () => h.room.webSocketMessage(fake.asSocket(), text(data))); });
     ws.on('error', () => { /* a close follows */ });
     const done = new Promise<void>((res) => {
       ws.once('close', (code: number) => {
-        void inOrder(() => deliverClose(h.room, fake, code === 1005 || code === 1006 ? 1000 : code, 'closed')).then(() => {
+        void gated(h, 'room handler', () => deliverClose(h.room, fake, code === 1005 || code === 1006 ? 1000 : code, 'closed')).then(() => {
           sockets.delete(done);
           res();
         });
@@ -230,15 +245,22 @@ export async function serveLocalRelay(o: LocalRelayOptions & { ticketSecret: str
     }
   };
 
-  /** Delivers every room's alarm that has fallen due, one at a time per room. */
+  /** Queues every room's alarm that has fallen due on that room's gate. The
+   *  scheduled time is consumed when the delivery RUNS, not when it is queued:
+   *  an event ahead of it may move or clear it, and then nothing fires. */
   const alarms = setInterval(() => {
     for (const h of hosted.values()) {
       const at = h.state.storage.alarmAt;
       if (at === null || at > Date.now() || h.alarming || closing) continue;
       h.alarming = true;
-      deliverAlarm(h.room, h.state.storage)
-        .catch((e: unknown) => { log(`local relay: alarm failed: ${e instanceof Error ? e.message : String(e)}`); })
-        .finally(() => { h.alarming = false; });
+      void gated(h, 'alarm', async () => {
+        try {
+          const due = h.state.storage.alarmAt;
+          if (due !== null && due <= Date.now() && !closing) await deliverAlarm(h.room, h.state.storage);
+        } finally {
+          h.alarming = false;
+        }
+      });
     }
   }, ALARM_POLL_MS);
 
