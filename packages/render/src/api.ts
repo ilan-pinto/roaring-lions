@@ -161,6 +161,22 @@ export interface OpenScatter {
  */
 export type GroveFamily = 'tree' | 'desert_tree' | 'cedar';
 
+/**
+ * The ring(s) under an armed fire-support cursor (GH-113, S-F Task 1). `x`/`y`
+ * the ground point the click would land on, `radius` the outer footprint in
+ * tiles. `kind` picks the ring style and defaults to `strike` (one `vfx.fire`
+ * ring, the original); `barrage` adds an inner `vfx.ember` ring at `scatter`
+ * tiles (where its rounds land, inside the splash that `radius` reaches);
+ * `smoke` is one `limestone.0` ring. `scatter` is read only for `barrage`.
+ */
+export interface AimFootprint {
+  readonly x: number;
+  readonly y: number;
+  readonly radius: number;
+  readonly kind?: 'strike' | 'barrage' | 'smoke';
+  readonly scatter?: number;
+}
+
 export interface RendererOptions {
   background: string;
   /** Team marker colours by side index (0 player, 1 hostile, 2 neutral). */
@@ -618,13 +634,16 @@ export interface Renderer {
    *  has no range-envelope redesign and ignores this, exactly as it ignores
    *  `objectiveZones` above. `main.ts` writes it unconditionally. */
   rangeRingPreview?: number;
-  /** GH-113: the precision strike's splash under the armed cursor, in tiles --
-   *  `x`/`y` the ground point the click would land on, `radius` the splash.
-   *  An ORDER PREVIEW, never a status mark: the app writes it every frame
-   *  while the strike is armed and `null` the moment it is not (spent,
+  /** GH-113 / S-F: the armed fire-support call's footprint under the cursor, in
+   *  tiles -- `x`/`y` the ground point the click would land on, `radius` the
+   *  outer footprint (the strike's splash, the barrage's reach, the smoke
+   *  screen's cloud). An ORDER PREVIEW, never a status mark: the app writes it
+   *  every frame while a call is armed and `null` the moment it is not (spent,
    *  cancelled, or the screen torn down). Optional on the seam like
-   *  `rangeRingPreview`; absent or `null` draws nothing. */
-  aimFootprint?: { readonly x: number; readonly y: number; readonly radius: number } | null;
+   *  `rangeRingPreview`; absent or `null` draws nothing.
+   *
+   *  S-F Task 1: the rings are per kind -- see `AimFootprint`. */
+  aimFootprint?: AimFootprint | null;
   objectiveZone: readonly number[] | null;
   objectiveZoneState: 'held' | 'unheld' | 'contested';
   /** Every active objective that is about a piece of ground, not only the

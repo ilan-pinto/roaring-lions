@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { FIRE_SUPPORT_KINDS, Sim, fx, type SupportKind } from '@lions/sim';
 import { aimFootprint, callSupport, supportAim, type SupportRuntime } from './support-call';
 import type { PointerView } from './pointer';
-import { footprintTiles } from '../ui/support-kinds';
+import { footprintTiles, ROUNDS } from '../ui/support-kinds';
 
 const W = 32;
 
@@ -79,7 +79,16 @@ describe('supportAim', () => {
 describe('aimFootprint', () => {
   const at = { x: 17.5, y: 8.5 };
   it.each(FIRE_SUPPORT_KINDS.filter((k) => k !== 'drone_sweep'))('%s radius is footprintTiles', (kind) => {
-    expect(aimFootprint(kind, at)).toEqual({ x: 17.5, y: 8.5, radius: footprintTiles(kind) });
+    expect(aimFootprint(kind, at)?.radius).toBe(footprintTiles(kind));
+    expect(aimFootprint(kind, at)).toMatchObject({ x: 17.5, y: 8.5 });
+  });
+  it('names the ring style per kind: strike and smoke plain, barrage with its 1.5-tile scatter', () => {
+    expect(aimFootprint('air_strike', at)).toEqual({ x: 17.5, y: 8.5, radius: 2, kind: 'strike' });
+    expect(aimFootprint('smoke_screen', at)).toEqual({ x: 17.5, y: 8.5, radius: 4.5, kind: 'smoke' });
+    expect(aimFootprint('mortar_barrage', at)).toEqual({ x: 17.5, y: 8.5, radius: 2.5, kind: 'barrage', scatter: 1.5 });
+  });
+  it("the barrage scatter is the table's scatterFx, so it cannot drift from the rounds", () => {
+    expect(aimFootprint('mortar_barrage', at)?.scatter).toBe(ROUNDS.mortar_barrage.scatterFx / 65536);
   });
   it('is nothing for the sweep, for no kind, or off the map', () => {
     expect(aimFootprint('drone_sweep', at)).toBeNull();

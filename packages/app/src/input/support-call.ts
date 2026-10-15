@@ -12,7 +12,8 @@
  */
 import { fx, type Sim, type SupportKind } from '@lions/sim';
 import { pointerPoint, type PointerView } from './pointer';
-import { footprintTiles } from '../ui/support-kinds';
+import type { AimFootprint } from '@lions/render';
+import { footprintTiles, ROUNDS } from '../ui/support-kinds';
 
 /** The slice of `MissionRuntime` a call needs. */
 export interface SupportRuntime {
@@ -50,12 +51,20 @@ export function callSupport(
   return { ok: false, kind, x, y, why: rt.intel < rt.supportCost(kind) ? 'intel' : 'caller' };
 }
 
-/** The ring under the armed cursor, at the same point the click would spend it on. */
-export function aimFootprint(
-  kind: SupportKind | null,
-  at: { x: number; y: number } | null
-): { x: number; y: number; radius: number } | null {
+/** The ring(s) under the armed cursor, at the same point the click would spend
+ *  it on. The kind picks the renderer's ring style (S-F Task 1): a barrage also
+ *  carries its scatter, the radius its rounds land inside. */
+export function aimFootprint(kind: SupportKind | null, at: { x: number; y: number } | null): AimFootprint | null {
   if (kind === null || at === null) return null;
   const radius = footprintTiles(kind);
-  return radius === null ? null : { x: at.x, y: at.y, radius };
+  if (radius === null) return null;
+  const base = { x: at.x, y: at.y, radius };
+  switch (kind) {
+    case 'mortar_barrage':
+      return { ...base, kind: 'barrage', scatter: ROUNDS.mortar_barrage.scatterFx / 65536 };
+    case 'smoke_screen':
+      return { ...base, kind: 'smoke' };
+    default:
+      return { ...base, kind: 'strike' };
+  }
 }

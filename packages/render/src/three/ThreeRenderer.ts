@@ -116,7 +116,7 @@
 import { firePointOnMap } from './units/fire-points';
 import * as THREE from 'three';
 import { fx, WEAPON_CLASS, type Fx, type MissionEvent, type Sim, type SimEvent } from '@lions/sim';
-import type { ObjectiveZoneView, Renderer, RendererOptions, TerrainTones } from '../api'; // both, after Step 2
+import type { AimFootprint, ObjectiveZoneView, Renderer, RendererOptions, TerrainTones } from '../api'; // both, after Step 2
 import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, type Camera } from '../project';
 import { QUALITY_PRESETS } from '../quality';
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec, type ParticleSpec } from '../vfx';
@@ -611,10 +611,8 @@ import {
   REFUGE_RING_STYLE,
   REFUGE_RING_EDGE_STYLE,
   REFUGE_RING_EDGE_ALPHA,
-  AIM_FOOTPRINT_COLOR_KEY,
-  AIM_FOOTPRINT_FALLBACK_COLOR,
-  AIM_FOOTPRINT_STYLE,
-  AIM_FOOTPRINT_EDGE_STYLE,
+  aimRingSpecs,
+  haloStyleOf,
 } from './units/overlays';
 import { paletteHex } from './palette-hex';
 import {
@@ -985,9 +983,10 @@ export class ThreeRenderer implements Renderer {
    *  own comment for why this is NOT `hoverEntity`, which stays the hostile
    *  hover the cursor hinting and the projected-fire panel read. */
   rangeRingPreview = -1;
-  /** GH-113: see `Renderer.aimFootprint`. Drawn in the overlay pass beside the
+  /** GH-113 / S-F: see `Renderer.aimFootprint`. The armed fire-support call's
+   *  ring(s), per kind (`aimRingSpecs`), drawn in the overlay pass beside the
    *  refuge ring; `null` draws nothing. */
-  aimFootprint: { readonly x: number; readonly y: number; readonly radius: number } | null = null;
+  aimFootprint: AimFootprint | null = null;
   objectiveZone: readonly number[] | null = null;
   objectiveZones?: readonly ObjectiveZoneView[];
   objectiveZoneState: 'held' | 'unheld' | 'contested' = 'held';
@@ -10394,11 +10393,14 @@ export class ThreeRenderer implements Renderer {
     if (aim) {
       const groundYa = groundWorldY(elevation, width, height, aim.x, aim.y);
       const aanchor: [number, number, number] = [aim.x, groundYa, aim.y];
-      const { rightR, upR } = tileRadiusToEllipsePx(aim.radius, TILE_W, TILE_H);
       const edge = this.overlayColor(REFUGE_RING_EDGE_COLOR_KEY, REFUGE_RING_EDGE_FALLBACK_COLOR);
-      const hot = this.overlayColor(AIM_FOOTPRINT_COLOR_KEY, AIM_FOOTPRINT_FALLBACK_COLOR);
-      this.overlayBatch.dashedEllipseRing(aanchor, rightR, upR, AIM_FOOTPRINT_EDGE_STYLE, edge, REFUGE_RING_EDGE_ALPHA);
-      this.overlayBatch.dashedEllipseRing(aanchor, rightR, upR, AIM_FOOTPRINT_STYLE, hot, 1);
+      // S-F: the rings are per kind (`aimRingSpecs`). Each is its halo, then its dash.
+      for (const ring of aimRingSpecs(aim.kind, aim.radius, aim.scatter)) {
+        const { rightR, upR } = tileRadiusToEllipsePx(ring.radiusTiles, TILE_W, TILE_H);
+        const tone = this.overlayColor(ring.colorKey);
+        this.overlayBatch.dashedEllipseRing(aanchor, rightR, upR, haloStyleOf(ring.style), edge, REFUGE_RING_EDGE_ALPHA);
+        this.overlayBatch.dashedEllipseRing(aanchor, rightR, upR, ring.style, tone, 1);
+      }
     }
 
     // Garrison hover highlight -- renderer.ts's own doorway-arrow affordance,
