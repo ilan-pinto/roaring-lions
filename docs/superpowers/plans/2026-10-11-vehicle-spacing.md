@@ -2,15 +2,16 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task by task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-## Refreshed 16 Oct: capsules, a slide and a stall valve, footprints by opt-in; re-read against main `6a3408a1`, F2's branch, N2's and F4's plans
+## Refreshed 15 Oct: capsules, a slide and a stall valve, footprints by opt-in; re-read against main `6a3408a1`, F2's branch, N2's and F4's plans
 
 Docs only. Nothing was run except one scratch script that reproduces `fxMul`, `fxDiv` and `fxSqrt`
 by hand to derive the fixed-point literals; it lives in the scratchpad and is not committed.
 
 Sources read:
 - `origin/main` `6a3408a1` (#658 merged);
-- F2's branch `feat/gf2-held-ground` at its tip, **`79f35206`**. The brief said `3e7530bf`, but Task 11
-  (C-R20) has two commits on top of that, `92b0189a` and `79f35206`, and its review is still open;
+- F2's branch `feat/gf2-held-ground` at its tip, **`53282f8f`** (`79f35206` plus `627f970b` and
+  `53282f8f`; no pin or constant cited here moved). Task 11 (C-R20) is on the branch and its review is
+  still open;
 - N2's plan, `docs/superpowers/plans/2026-10-16-net-n2-sim.md`, on `main`;
 - F4's refreshed plan, `origin/docs/f4-plan-refresh` (PR #660).
 
@@ -57,8 +58,9 @@ What changed, and why:
    - #247 has landed, so `manpad_team` is `wheeled: false`.
    - Ten unit types move on the vehicle domain. `moto_rpg` is one of them (V-R4); the D9 is not.
 4. **The versus pins move.** The 11 Oct plan did not know they existed. The KDF mirror force spawns
-   a Lavi one tile in front of the D9 and another Lavi one tile behind the jeep, and both pairs
-   overlap at tick 0. The re-pin table names these pins, together with the two-client and two-engine
+   a Lavi one tile in front of the D9 and another Lavi one tile behind the jeep. On
+   `beit_sahwan_outskirts` both pairs overlap at tick 0; on `tel_marum` they stand side by side and
+   only the Lavi/D9 pair touches. The re-pin table names these pins, together with the two-client and two-engine
    tests that guard them.
 5. **A pre-flight scan** now follows the interactions. It has rows for pairs of tasks, each task on
    its own, and rows against F2, N2 and F4, with a ruling beside each conflict.
@@ -66,13 +68,14 @@ What changed, and why:
    The Tue 24 – Wed 25 Nov slot now probably needs three days, not two. Spacing is still the first
    item to slip to Stage 5 (stage4-order, ruled 11 Oct).
 7. **Found, but not this plan's to fix:**
-   - The D9 paths on the foot mask, because `FOOT_ROLES` contains `engineer`, so it drives through
-     boulder fields that stop every other vehicle.
-   - 23 shipped maps now carry `b` tiles (counted from their rows at `6a3408a1`). `wadi_halam_5` is
-     one of them, and Wadi Halam V's `raze` primary uses the D9.
-   - The fix is `wheeled: true` on `dozer_d9`. It moves formation fronts and paths, so it needs its
-     own issue, its own re-pin and its own playtest reading. It is raised in the report and not
-     folded in here.
+   - The D9 paths on the foot mask, because `FOOT_ROLES` contains `engineer`. So it drives through
+     boulder fields (`b`, on 23 of 35 maps) and anti-tank ditches (`d`, on 6 maps) that stop every
+     other vehicle. `wadi_halam_5` carries `b`, and Wadi Halam V's `raze` primary uses the D9.
+   - It is also slotted as foot: `assignFormation` puts it in a rear rank at `INFANTRY_SPACING` 1,
+     inside the vehicle ranks (see Interactions, formations).
+   - This is already tracked as **#598** (HANDOVER L24/L30): `wheeled: true` on `dozer_d9`. It moves
+     formation fronts and paths, so it carries its own re-pin and playtest reading. It is not folded in
+     here, and it should land before spacing.
 
 **Goal:** Two ground vehicles never stand inside each other, and a group of vehicles does not drive
 through itself. Movement stays on flow fields (no per-unit A*).
@@ -89,7 +92,7 @@ converge at every gap, and the closing rule (`stepSweep`) sends every sweeping c
 own position. So vehicles meet on the route and again at the end.
 - *(Pre-flight 2, 2026-10-11:)* since #537 the meeting at the end applies only to orders that `sweep`:
   AI waves, `commit`s and the balance backtest. A player's group stops in its slots.
-- *(16 Oct:)* the meeting on the route is mostly nose to tail, which is why the shape is a capsule.
+- *(15 Oct:)* the meeting on the route is mostly nose to tail, which is why the shape is a capsule.
   Formation ranks are themselves only 2 tiles deep, while pairs of hulls are up to 2.44 tiles long
   (see V-D3).
 
@@ -136,7 +139,7 @@ own position. So vehicles meet on the route and again at the end.
 - F2: `_coord/s4-f2-progress.md` (rulings C-R1..C-R20).
 
 **Base:**
-- Written 11 Oct against `main` `f2d5d9e8`. Pre-flight 2 was against `49715ff9`. **Refreshed 16 Oct
+- Written 11 Oct against `main` `f2d5d9e8`. Pre-flight 2 was against `49715ff9`. **Refreshed 15 Oct
   against `6a3408a1`.**
 - Branch `feat/vehicle-spacing`, cut from `main` **after F4 merges** (stage4-order, For the lead
   item 1).
@@ -165,9 +168,9 @@ own position. So vehicles meet on the route and again at the end.
 
 ---
 
-## Rulings (16 Oct)
+## Rulings (15 Oct)
 
-Each is **Ruled 16 Oct (coordinator, lead-delegated window)**. A ruling stands until the controller's
+Each is **Ruled 15 Oct (coordinator, lead-delegated window)**. A ruling stands until the controller's
 pre-flight overturns it.
 
 - **V-R1. A unit takes part if and only if its type declares `mobility.footprint` and it is not
@@ -178,11 +181,11 @@ pre-flight overturns it.
   - *Cost if wrong:* a new vehicle without a footprint drives through others. The tools test fails on
     any vehicle-domain type without one (apart from the named exemption), so it cannot ship that way.
 - **V-R2. A capsule, not a circle.** This supersedes V-D2's default and closes For the lead item 3.
-  - *Why:* a circle leaves 0.78–1.36 tile of overlap per same-type pair when they meet nose to tail,
+  - *Why:* a circle leaves 0.70–1.36 tile of overlap per same-type pair when they meet nose to tail,
     which is how they meet on the route this plan exists for. A capsule is exact along a hull's long
     axis. It costs one pure segment-to-segment function, run only after an integer broad phase.
   - *Cost if wrong:* about one more day of implementation. Long hulls in consecutive formation ranks
-    also nudge each other (V-D3, lead Q2).
+    stop at contact, up to 0.44 tile short of the rear slot (V-D3, lead Q2).
 - **V-R3. The footprint numbers** are the hull half-extents behind `ELLIPSE_BY_TYPE`. They were
   inverted by hand from `ellipseFor`, rounded to 0.01, and are re-measured in Task 1 Step 0.
   - An unscaled row is `semi-axis − 0.3`.
@@ -274,8 +277,9 @@ pre-flight overturns it.
   - *Cost if wrong:* the versus pins move twice. That is accepted: two reasons, two commits, each with
     its own proof.
 - **V-R13. Carried, garrisoned and buried units are excluded in code, not by assumption.**
-  - No vehicle can be any of the three today: `canEmbark` and `canGarrison` belong to foot roles or
-    abilities, and no vehicle tunnels. The exclusion is there for whatever comes later.
+  - No vehicle can be any of the three today, except `rocket_battery`, whose `canEmbark` defaults true
+    (its role `artillery` is in `FOOT_ROLES`; HANDOVER #581). The code exclusion covers it.
+    Otherwise `canEmbark` and `canGarrison` belong to foot roles or abilities, and no vehicle tunnels.
   - `stepSeparation` runs before `stepTransport`, so passengers ride the pushed hull in the same tick.
 - **V-R14. N2's stances are not anchors.**
   - A vehicle on `hold` or `ambush` (N2 Task 3, `setStance`) is pushed like any other.
@@ -290,17 +294,17 @@ pre-flight overturns it.
 
 ---
 
-## Interactions (16 Oct)
+## Interactions (15 Oct)
 
 How spacing meets each system it touches, and the code each rests on. Rows in **bold** change the
 plan.
 
 | system | code | what spacing does there | plan change |
 |---|---|---|---|
-| **Group formations** | `formation.ts` `assignFormation`: `VEHICLE_SPACING` 2, both sideways and between vehicle ranks; `MAX_LATERAL` 3; the phase-2 overflow drops the spacing. `tools/src/formation_walk.test.ts` | **Sideways:** slots are never contested, because `2 × half_width ≤ 1.46 < 2`. **Ranks:** contested. A rank sits 2 tiles behind the one in front, and vehicles arrive facing the approach, so four long hull pairs overlap there by `half_length_A + half_length_B − 2`: Namer–Namer 0.44 tile, Kipod 0.40, Eitan 0.38, D9 0.28. Today they visibly overlap in formation. After spacing, the rear rank gives way by up to 0.22 tile each, once, at arrival. **Overflow:** slots are 1 tile apart (or the origin, when nothing is free), so every pair contests them. **`formation_walk`:** the `tel_marum_2_foothold` force (2 Eitans, 1 Lavi) fills one sideways rank, so its `y === 30` and distinct-tile asserts should hold (R) | V-D3 restated. `formation_walk.test.ts` is a named gate in Task 2. A new tools walk asserts that no pair overlaps after a real group move. **Lead Q2** (rank depth) |
+| **Group formations** | `formation.ts` `assignFormation`: `VEHICLE_SPACING` 2, both sideways and between vehicle ranks; `MAX_LATERAL` 3; the phase-2 overflow drops the spacing. `tools/src/formation_walk.test.ts` | **Sideways:** slots are never contested, because `2 × half_width ≤ 1.46 < 2`. **Ranks:** contested. A rank sits 2 tiles behind the one in front, and vehicles arrive facing the approach, so four long hull pairs overlap there by `half_length_A + half_length_B − 2`: Namer–Namer 0.44 tile, Kipod 0.40, Eitan 0.38. Today they visibly overlap in formation. After spacing, the arriving rear vehicle stops at contact, up to 0.44 tile short of its slot (V-R5, V-D5). **The D9 is not in a vehicle rank at all:** it is `DOMAIN_FOOT` (role `engineer` is in `FOOT_ROLES`), so `assignFormation` gives it a rear slot at `INFANTRY_SPACING` 1 (`sim.ts` L2335, `formation.ts` L152 and L190–193), and the `2 × half_width ≤ 2` test does not cover it. Until #598 (the D9's `wheeled` data fix) lands, a D9 stands about 1.0–1.4 tile inside the front rank's last vehicle and is pushed out on arrival; **#598 should land before spacing**. **Overflow:** slots are 1 tile apart (or the origin, when nothing is free), so every pair contests them. **`formation_walk`:** the `tel_marum_2_foothold` force (2 Eitans, 1 Lavi) fills one sideways rank, so its `y === 30` and distinct-tile asserts should hold (R) | V-D3 restated. `formation_walk.test.ts` is a named gate in Task 2. A new tools walk asserts that no pair overlaps after a real group move. **Lead Q2** (rank depth) |
 | **Targeted fire (GH-420)** | `stepFocus` (`focusInReach`, and the wait when "already standing on the goal tile"); `FOCUS_REACH_SLACK` 0.5 tile; `FOCUS_LOST_TICKS` 100; `Command` `attack`; `focusTarget` | **Observed target:** untouched, because a chaser stops at effective range long before contact. **Lost target:** its last-seen tile may be held by a parked vehicle. V-D5 then ends the leg at contact, but `stepFocus`'s on-goal test (own tile = goal tile) is false, so it re-issues the leg every tick and `moving` flickers. **A stopped focuser** pushed by up to 0.25 tile stays inside the 0.5-tile hysteresis band, so pushes do not make it close in again | V-R9: `stepFocus` asks `goalHeldByVehicle`, and a test pins "no flicker" |
 | Garrison overhaul (#606) | `stepGarrison` (overflow units "wait at the door, stopped", ~L5398); `eyePoint` L5012; `garrisonedIn` | Garrisons and door queues are foot units; vehicles cannot garrison. A garrisoned unit is excluded (V-R13). `eyePoint` reads a structure, not a vehicle. A vehicle parked on a door tile does not block infantry, because separation is vehicle-to-vehicle only | none |
-| **Versus determinism** | `stepSeparation` itself; `versusSpawns` (`packages/app/src/net/versus-force.ts`); `SANDBOX_KDF` (`sandbox-force.ts` L31); `tools/src/net/two-client.test.ts`; CI's `net:engines` (`tools/src/net/two-engine.ts`); `content-digest.ts` | **Determinism:** integer arithmetic only (`fx.mul`, `fx.div`, `fx.sqrt`, the `fx.sin`/`fx.cos` lookup table); no `rng`; Jacobi sums, so visiting order does not matter; scratch arrays preallocated; ids sorted ascending only to fill the list. The one rule that uses id order is the tie-break for coincident vehicles. Both clients share it, because ids are creation order and every per-entity column is hashed by id. **It changes every versus world.** The KDF force places a Lavi at `(0,−3)` beside the D9 at `(−1,−3)`, and a Lavi at `(0,3)` beside the jeep at `(1,3)`. Both pairs lie along the facing axis, with capsule overlaps of about 1.19 and 0.49 tile at tick 0 (R), which resolve within 5 ticks. The Sarim force has no pair in contact (R): its gun trucks are 2+ tiles apart sideways, and its Grads clear the trucks by at least 0.58 tile. **`shippedContentDigest()` moves** with the unit JSON. No literal pins it, and two clients on different builds then desync on the first hash tick, which is the designed guard | Task 2a and Task 2 re-pin the five versus literal sites, each with its reason. Two-client equality and `net:engines` are named gates |
+| **Versus determinism** | `stepSeparation` itself; `versusSpawns` (`packages/app/src/net/versus-force.ts`); `SANDBOX_KDF` (`sandbox-force.ts` L31); `tools/src/net/two-client.test.ts`; CI's `net:engines` (`tools/src/net/two-engine.ts`); `content-digest.ts` | **Determinism:** integer arithmetic only (`fx.mul`, `fx.div`, `fx.sqrt`, the `fx.sin`/`fx.cos` lookup table); no `rng`; Jacobi sums, so visiting order does not matter; scratch arrays preallocated; ids sorted ascending only to fill the list. The one rule that uses id order is the tie-break for coincident vehicles. Both clients share it, because ids are creation order and every per-entity column is hashed by id. **It changes every versus world.** The KDF force places a Lavi at `(0,−3)` beside the D9 at `(−1,−3)`, and a Lavi at `(0,3)` beside the jeep at `(1,3)`. On `beit_sahwan_outskirts` both pairs lie along the facing axis (facing about −2°), with capsule overlaps of about 1.17 and 0.49 tile at tick 0 (R), which resolve within 5 ticks. On `tel_marum` the pairs stand side by side, overlapping by about 0.22 and not at all. The Sarim force has no pair in contact (R): its gun trucks are 2+ tiles apart sideways, and its Grads clear the trucks by at least 0.58 tile. **`shippedContentDigest()` moves** with the unit JSON. No literal pins it, and two clients on different builds then desync on the first hash tick, which is the designed guard | Task 2a and Task 2 re-pin the five versus literal sites, each with its reason. Two-client equality and `net:engines` are named gates |
 | Flow fields, boulders, `wheeled` | `FlowField` (no corner cutting, flowfield.ts L68–71); `fieldFor`; `maskFor`; `blockedVehicleMask` (an alias of `blocked` on a map with no boulders); `UnitType.wheeled` and `moveDomain` | Fields stay per goal and per domain. Separation never writes a mask, so F2's C-R20 mask cache is untouched. A push can carry a vehicle across a tile edge, and on the next tick it follows that tile's direction. **The corner rule** (V-R10) keeps a shove from crossing a wall corner that the field would not cross. The D9 clips against the foot mask, because that is the mask it paths on | V-R10. The D9's domain is a separate issue (changelog item 7) |
 | Breach detours | `selectBreachTarget` L3782 (`side === 0`, which N2 changes to `isHumanHeld`); `BREACH_DETOUR_SLACK`; `FlowField.costAt` | A moving unit compares its tile's `costAt` with the straight-line distance. A push may change that tile, and both reads are integers, per tile. A vehicle stopped at contact by V-D5 now takes the stationary branch, where before it drove on into the other hull. So an AI (not human-held) vehicle may pick a breach target a little earlier. No new path; `playtest` measures it | named in Task 2 Step 6 |
 | Transport | `stepTransport` L5188 (passengers copy the carrier's position; a boarder chases the carrier until within `LOAD_RANGE_SQ`); `canSeat` | Carriers are vehicles; riders are foot units and are excluded. Separation runs before `stepTransport`, so riders move with a pushed carrier in the same tick. A boarder already chases a carrier that moves | none |
@@ -312,7 +316,7 @@ plan.
 
 ---
 
-## Pre-flight scan (refreshed 16 Oct)
+## Pre-flight scan (refreshed 15 Oct)
 
 Per superpowers:subagent-driven-development. These rows were read, not run.
 
@@ -341,7 +345,7 @@ Per superpowers:subagent-driven-development. These rows were read, not run.
 | 3 | fixed | The harness had no `stepSeparation` phase to attribute time to (S-7) |
 | 4 | yes | — |
 
-**Against F2's branch (`feat/gf2-held-ground` `79f35206`)**
+**Against F2's branch (`feat/gf2-held-ground` `53282f8f`)**
 
 | # | shared | F2 has | found | ruling |
 |---|---|---|---|---|
@@ -371,7 +375,7 @@ Per superpowers:subagent-driven-development. These rows were read, not run.
 |---|---|---|---|---|
 | R-1 | deploy | units at `structureExit` | Coincident vehicles | V-D4's split. F4's fixtures have no footprint |
 | R-2 | rally | one `attackMove` with no sweep, to reserved tiles | Two rallied vehicles meet at contact | V-D5; consistent |
-| R-3 | `ECONOMY_PIN`/`_RELIEF`, `RUNTIME_DIGEST_PIN`/`_RELIEF` | moved once, in F4 Task 6 | Their values are unknown on 16 Oct | **Re-read at pre-flight.** Spacing predicts they do not move |
+| R-3 | `ECONOMY_PIN`/`_RELIEF`, `RUNTIME_DIGEST_PIN`/`_RELIEF` | moved once, in F4 Task 6 | Their values are unknown on 15 Oct | **Re-read at pre-flight.** Spacing predicts they do not move |
 | R-4 | `sim.ts`: `structureProducesFor`, and `stepDemolition`'s skip for the side's own camp (F4 Task 7) | — | The anchor reads `demoTicks`, not the skip | consistent |
 | R-5 | `playtest` | Task 10's plan edits, on five building plans | Spacing's baseline is the tree after F4 | The pre-flight baseline |
 | R-6 | the `Command` union | `cancelBuild`, `setRally`, `clearRally` | — | consistent |
@@ -392,10 +396,11 @@ Only these two need the lead's taste. Every other open point is ruled above.
 2. **How deep should a formation rank be for long hulls?**
    - Ranks are 2 tiles deep and a Namer is 2.44 tiles long. So today, two Namers in consecutive ranks
      overlap by 0.44 tile while standing in their slots.
-   - After spacing they arrive and nudge apart; the rear one ends up to 0.22 tile behind its slot.
+   - After spacing, the arriving rear vehicle stops at contact (V-R5, V-D5), up to 0.44 tile short of
+     its slot.
    - The alternative is a 3-tile vehicle rank in `formation.ts`. That moves the formation pins and
      every group order.
-   - **Recommended:** accept the nudge, and judge it on screen in the after-captures.
+   - **Recommended:** accept the short stop, and judge it on screen in the after-captures.
 
 ---
 
@@ -420,22 +425,22 @@ Read and grepped, not run.
 - **#534 found the player-side symptom too:** two Namers ending a group move on an identical position,
   so a click can never single one out ("Not changed" in #534). V-D4's coincident split is the fix for
   that; add it to the PR's evidence.
-- **Pins.** Three sim pins: flat `1202444260`, relief `3354895120`, orders `2737216487`. *(16 Oct: now
+- **Pins.** Three sim pins: flat `1202444260`, relief `3354895120`, orders `2737216487`. *(15 Oct: now
   935671699 / 2842924511 / 3272041047, and none moves for behaviour, V-R11.)*
 - **Playtest is 30 seeds** (#539, #542).
   - "Every outcome class holds" now means: every winning plan wins on 30/30 seeds, every control loses
     on 30/30, and every gate opens on time on 30/30.
   - A pushed hull that costs one plan one seed is red. The fix is a plan follow-up in its own commit
     (the #542 pattern), never a mission edit folded into the re-pin.
-- `LADDER_CREDITS` = `CAMPAIGN_CREDITS` = 5917, `ROSTER_MAX` 30. *(16 Oct: 5940, 5940, 29.)*
+- `LADDER_CREDITS` = `CAMPAIGN_CREDITS` = 5917, `ROSTER_MAX` 30. *(15 Oct: 5940, 5940, 29.)*
 - **Ruling (lead, 2026-10-11): Hold has no sim column**, so there is no held state to exempt: a halted
-  vehicle is pushed like any other. *(16 Oct: carried over to N2's stances, V-R14.)*
+  vehicle is pushed like any other. *(15 Oct: carried over to N2's stances, V-R14.)*
 
 ---
 
 ## Decisions
 
-The 11 Oct defaults, each with its 16 Oct status.
+The 11 Oct defaults, each with its 15 Oct status.
 
 - **V-D1. Who takes part.**
   - ~~A unit takes part when its move domain is `DOMAIN_VEHICLE` and it is not air.~~ **Superseded by
@@ -450,10 +455,13 @@ The 11 Oct defaults, each with its 16 Oct status.
   - Side-on, head-on and nose-to-tail contact are all resolved exactly. Corners are rounded by
     `half_width`.
 - **V-D3. A footprint never contests a SIDEWAYS formation slot.**
-  - `2 × half_width ≤ VEHICLE_SPACING` (2). The widest hull is the D9, at 1.46.
-  - Restated 16 Oct: **rank** slots (2 tiles along the approach) are contested by long hulls, because
-    those hulls genuinely overlap there today (see Interactions, formations). The rear rank gives way
-    once, at arrival (lead Q2).
+  - `2 × half_width ≤ VEHICLE_SPACING` (2). The widest is the D9's 1.46, but the D9 is foot-domain
+    today, so it takes a rear slot at `INFANTRY_SPACING` 1 and this bound does not cover it: it overlaps
+    the front rank by about 1.0–1.4 tile until #598 makes it `wheeled` (see Interactions,
+    formations). The widest hull this bound does cover is the Namer's 1.38.
+  - Restated 15 Oct: **rank** slots (2 tiles along the approach) are contested by long hulls, because
+    those hulls genuinely overlap there today (see Interactions, formations). The arriving rear vehicle
+    stops at contact, up to 0.44 tile short of its slot (V-R5, V-D5; lead Q2).
   - Overflow slots, 1 tile apart, are contested by every pair.
 - **V-D4. The push.** Rewritten as V-R5 (the shares) and V-R8 (the cap).
   - It applies to a pair whose capsules overlap by `ov > 0`. The normal runs from B's closest point
@@ -568,6 +576,7 @@ The five uncovered conditions most likely to bite. Each is pinned by a test in t
 | `packages/sim/src/separation.test.ts` | **New.** The sim tests | 2 |
 | `packages/sim/src/determinism.test.ts` | the column re-pin (2a); `separationReplay` and `SEPARATION_PIN` (2) | 2a, 2 |
 | `packages/app/src/net/versus-force.test.ts` (L112), `per-seat-types.test.ts` (L167), `match-world.test.ts` (L25, L188), `tools/src/backtest/versus-breach.test.ts` (L22–25) | the versus literals | 2a, 2 |
+| `packages/sim/src/fire-support.test.ts` (L79, `HASH` 2460528690) | a `sim.hash()` literal: the column re-pin | 2a |
 | `tools/src/vehicle_footprint.test.ts` | **New.** The footprint census | 1 |
 | `tools/src/vehicle_spacing_walk.test.ts` | **New.** Real rosters: a group move, and the versus spawn | 2 |
 | `tools/src/backtest/playtest.ts`, `packages/app/src/ui/stores-model.ts` | only if a line moves | 2 |
@@ -582,7 +591,7 @@ The five uncovered conditions most likely to bite. Each is pinned by a test in t
 - [ ] **1. The base.** `main` must contain F2's, N2's and F4's merges: check with
   `grep -n "logisticsOf\|applyQueued\|productionLines" packages/sim/src/mission.ts`. Cut
   `feat/vehicle-spacing` from it. If F4 has not merged, stop.
-- [ ] **2. Re-read at pre-flight.** Each of these depends on work not merged on 16 Oct.
+- [ ] **2. Re-read at pre-flight.** Each of these depends on work not merged on 15 Oct.
   - **The sim pins:** 935671699 / 2842924511 / 3272041047 on `6a3408a1`. F2, N2 and F4 all predict
     they do not move.
   - **The economy and digest pins:**
@@ -796,11 +805,15 @@ The five uncovered conditions most likely to bite. Each is pinned by a test in t
     });
     it('side by side 0.9 tile apart: overlap 3933 (0.96 - 0.9, less one unit of floor)', () => {
       expect(capsuleOverlap(cap([10, 10, 0], [10, 10.9, 0]), 0, 5, out)).toBe(3933);
-      expect([out[0], out[1]]).toEqual([0, -ONE]); // B is south of A: A is pushed north
+      expect([out[0], out[1]]).toEqual([0, -65537]); // B is south of A: A is pushed north (floored sqrt: 58982 / 58981)
     });
     it('nose to tail 1.5 tiles apart: overlap 15729 -- a circle of the half-width reads apart', () => {
       expect(capsuleOverlap(cap([10, 10, 0], [11.5, 10, 0]), 0, 5, out)).toBe(15729);
       expect(fx.from(1.5)).toBeGreaterThan(2 * W); // the circle's verdict, for contrast
+    });
+    it('nose to tail with B BEHIND A: the same overlap, the normal along +x (the t > ONE branch)', () => {
+      expect(capsuleOverlap(cap([10, 10, 0], [8.5, 10, 0]), 0, 5, out)).toBe(15729);
+      expect([out[0], out[1]]).toEqual([65537, 0]);
     });
     it('coincident hulls: overlap is the radius sum and the normal is (0, 0)', () => {
       expect(capsuleOverlap(cap([10.5, 10.5, 0], [10.5, 10.5, 0]), 0, 5, out)).toBe(62914);
@@ -890,9 +903,11 @@ The five uncovered conditions most likely to bite. Each is pinned by a test in t
   - Drop the `fx.mul(c, centreAlong)` term: the first two tests fail.
   - Use `halfLen` for the segment half instead of `halfLen − halfWid`: the nose-to-tail literal
     fails.
-  - Swap `bb - c` for `bb + c` in the `t > ONE` branch: the nose-to-tail literal fails, because it
-    takes that branch's sibling. If the mutation survives, add a case that takes `t > ONE` (B ahead of
-    A, pointing back) and quote it.
+  - Swap `bb - c` for `bb + c` in the `t > ONE` branch: "B BEHIND A" fails. That case exists for this
+    mutation: without it the mutation survives all six other tests, because none of them takes the
+    `t > ONE` branch.
+  - Swap `-c` for `c` in the `t < 0` branch (`s = clamp01(fx.div(c, aa))`): the first nose-to-tail
+    literal (B ahead, 15729) fails, because that case takes the `t < 0` branch.
   - Return `dx` without normalising it: the side-by-side normal fails.
 - [ ] **Step 5: Commit** `sim: capsule geometry for vehicle spacing, pure (GH-421, V-R2)`.
 
@@ -933,6 +948,7 @@ sites (see File structure).
   - `per-seat-types.test.ts` L167;
   - `match-world.test.ts` L25 and L188 (`PINS`);
   - `versus-breach.test.ts` L22–25;
+  - `packages/sim/src/fire-support.test.ts` L79 (`HASH` 2460528690);
   - any literal that pre-flight step 2 found (N2's, F4's or N3's).
 
   `ECONOMY_PIN` and `_RELIEF` come from `economyHash()`, so they do not move.
@@ -1295,7 +1311,8 @@ versus literal sites.
   - **Re-pin the versus literals** (the five sites of Task 2a), each with the comment:
 
     > 2026-11-xx: vehicle spacing (GH-421, lead 6 Oct). Behaviour moved: the KDF force spawns a Lavi
-    > one tile from the D9 and one from the jeep, in contact, and they separate in ticks 1–5. With
+    > one tile from the D9 and one from the jeep, in contact (on beit_sahwan_outskirts about 1.17 and
+    > 0.49 tile; on tel_marum, side by side, about 0.22 and none), and they separate in ticks 1–5. With
     > `stepSeparation` returning at once this reproduces Task 2a's value. Was N.
 - [ ] **Step 5: See it red.**
   - Return early from `stepSeparation`: the head-on, group, versus-spawn and coincident tests fail.
@@ -1370,6 +1387,8 @@ versus literal sites.
   - "sim pins, once" becomes "a column re-pin, then the versus pins for behaviour; golden replays
     unmoved".
 - [ ] `CLAUDE.md`:
+  - correct the stale map-format line "tel_marum is the first (and so far only) map to author any"
+    boulders: `b` is on 23 of 35 maps and `d` on 6 (re-count at the time);
   - under "Known scaling debts", one line: "vehicles separate as capsules, V-D1–V-D10;
     `stepSeparation` is a V² broad phase; infantry still stack by design";
   - under "Adding content: A unit", the `mobility.footprint` rule: the footprint is the vehicle
@@ -1384,6 +1403,7 @@ versus literal sites.
 |---|---|---|---|---|
 | `shippedContentDigest()` | computed, no literal | **moves** | 1 | The unit JSON gains `footprint`. Two clients on different builds desync on the first hash tick, as designed |
 | sim pins, flat / relief / orders | 935671699 / 2842924511 / 3272041047 (re-read) | **column re-pin** in 2a; **read back unchanged** in 2 | 2a | `sepStall` joins the hash. No fixture declares a footprint (V-R11) |
+| `fire-support.test.ts` `HASH` (L79) | 2460528690 (re-read) | **column re-pin** in 2a; read back unchanged in 2 (no footprint in its fixtures) | 2a | `sepStall` joins the hash |
 | `ECONOMY_PIN` / `_RELIEF` | 3794140228 / 2682592505 on `main`; F2 sets 275731552 / 145368021; F4 Task 6 moves them (re-read) | **unmoved** (R) | — | `economyHash()` does not fold `sim.hash()`, and no `ECO_*` type has a footprint |
 | `RUNTIME_DIGEST_PIN` / `_RELIEF` | born in N2 Task 6, moved in F4 Task 6 (re-read) | **unmoved** (R); if the digest folds `sim.hash()`, moved in 2a | 2a? | as above |
 | `SEPARATION_PIN` | — | **born** | 2 | separation over a group, a head-on pair, a corridor pair and an anchor |
@@ -1402,13 +1422,13 @@ versus literal sites.
 *Kept as the record; every item is now ruled.*
 
 1. **Where it lands.** **RULED 11 Oct (lead): (a), Tue 24 – Wed 25 Nov, slipping to Stage 5 if the
-   economy runs over.** *(16 Oct: it probably needs three days now, not two; see changelog item 6.
+   economy runs over.** *(15 Oct: it probably needs three days now, not two; see changelog item 6.
    The order is F2 → N2 → F4 → spacing.)*
-2. **Confirm V-D1–V-D8.** *Ruled 16 Oct (coordinator, lead-delegated window): V-D1, V-D2 and V-D4 are
+2. **Confirm V-D1–V-D8.** *Ruled 15 Oct (coordinator, lead-delegated window): V-D1, V-D2 and V-D4 are
    rewritten (V-R1, V-R2, V-R5, V-R8), V-D3 is restated, and V-D9 and V-D10 are added; the rest
    stand as written.*
-3. **Circle or capsule (V-D2).** *Ruled 16 Oct: a capsule (V-R2), on the measured nose-to-tail
+3. **Circle or capsule (V-D2).** *Ruled 15 Oct: a capsule (V-R2), on the measured nose-to-tail
    overlap.*
-4. **If a §5.7 target fails.** *Ruled 16 Oct: as recommended (V-R16).*
+4. **If a §5.7 target fails.** *Ruled 15 Oct: as recommended (V-R16).*
 5. **New, for taste:** wrecks as obstacles, and the formation rank depth. See "Questions for the
    lead" above.
