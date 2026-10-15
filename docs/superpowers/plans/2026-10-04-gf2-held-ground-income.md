@@ -2,6 +2,26 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task by task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+## Pre-flight 3 (2026-10-15), against `3736b434` (F3 #629 on main `6fa22076`, plus the 15 Oct earn-row ruling, #640)
+
+Read, grepped and the baselines run (`pnpm balance`, `pnpm playtest`: exit 0, 491 lines). F1 (#625), F3 (#629), the
+garrison overhaul (#606), targeted fire (#591), the time limit (#585), versus N4a (#619) and #640 have landed since
+Pre-flight 2. Every ruling and D-default stands. The full verification table and the controller rulings (C-R1..C-R11) are
+in the run's ledger (`_coord/s4-f2-progress.md` in the Stage 4 coordination folder).
+
+| where | correction |
+|---|---|
+| Global, Re-pins | Sim pins are flat **935671699**, relief **2842924511**, orders **3272041047** (`determinism.test.ts` ~L495, ~L864, ~L984; moved by #591), all unmoved by F2. `ECONOMY_PIN` **3794140228** (#640), `ECONOMY_PIN_RELIEF` **2682592505** (F3): Task 7 moves them once. `LADDER_CREDITS` = `CAMPAIGN_CREDITS` = **5940** (`playtest.ts` ~L3634, `stores-model.ts:66`), `ROSTER_MAX` **29** (~L3779) |
+| Line numbers | `mission.ts`: `logisticsValue` L601 (hashed as `| 0` at L714), `requestBuild` L957, income block ~L1387, `productionAnchor` L770, `contestedIn` L1896, `livingIn` L2007, `CONTEST_RADIUS_SQ` L463, `MissionContext` L299 (F3 added `popCaps`, `loaned`), `stepPatrols` L1857, enemy `sweep: true` L2134 / L2228. `sim.ts`: `tunnelVent` L1704, `fieldFor` L2030 (private), `blockedVehicle` L1493 |
+| File structure, Task 7 | **Seven** non-test `new MissionRuntime(` sites, not five: `mission-start.ts` (its ctx is built in `main.ts` ~L2577), `tools/src/backtest/playtest-run.ts` (not `playtest.ts`), `fl_ladder.ts`, `saddle-price.ts`, `wh_pacing.ts`, `mission-harness.ts`, `walk_world.ts`. One `@lions/data` helper builds the road mask for all of them (C-R4) |
+| Task 1 | The purse is **per side** (coordinator, 15 Oct: N2 consumes Task 1): side 1's slot is Task 7's `enemyLogisticsAcc`, empty and unhashed until Task 7 (C-R3). Intel is already integer lumps (F1), so Step 2's intel clause is a no-op |
+| Task 3, Task 8 | **Every `data/missions` edit is held for the lead** (coordinator rule): the two `supply_entry` fields and Task 8's zones. The `supply_entry` markers go on the two UZ maps; the validator's "required" rule carries a named, demoting exemption for the two missions until the data lands (C-R1) |
+| Task 2 | Runs after Task 7 and measures its proposal in memory on the real runtime; it does not halt the run (C-R2) |
+| Task 5 | The `tel_marum` case reads shipped JSON, so it lives in `tools/src/`, not `packages/sim` (C-R6) |
+| Task 6 | No `sim.ts` edit (`tunnelVent` exists, C-R5). `CONTEST_RADIUS_SQ` moves to `tuning.ts`, value unchanged (C-R7) |
+| Task 9 | No shipped zone yet: `ZONE_PASSIVE_INCOME` pins 0 and both new gates are shown red in memory (C-R9) |
+| Branch | `feat/gf2-held-ground`, cut from `sim/f1-earn-row` (#640) |
+
 ## Changed since 4 Oct
 
 Refreshed against `main` `b44df7aa` (6 Oct). Corrections only; every ruling and D-default stands.
