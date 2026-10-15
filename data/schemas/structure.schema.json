@@ -69,6 +69,17 @@
             "type": "string",
             "description": "Presentation only: palette key."
           },
+          "wall_tone": {
+            "type": "string",
+            "pattern": "^[a-z]+\\.[0-9]+$",
+            "description": "Presentation only: the palette step (band.index) a mesh building's wall role draws exactly, instead of the lit step of the slice `color` starts. For a wall whose wanted tone is its band's lightest step, which no `color` key can draw."
+          },
+          "wall_self_lit": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 0.25,
+            "description": "Presentation only: a self-lit term on the wall role, as a fraction of its albedo. Lifts a face the scene sun never reaches, without touching the sun or the shared lights."
+          },
           "roe_penalty": {
             "type": "integer",
             "minimum": 0,

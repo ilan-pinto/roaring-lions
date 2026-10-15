@@ -14,5 +14,14 @@ describe('the 9x9 tier boundary (GH-346): a ring near the threshold cannot bury'
     for (const r of RELIEFS) {
       expect(await sweep(r, r.footSteep, ringGridFor(radius, radius), radius, radius, HEADINGS), r.id).toBeLessThanOrEqual(BURIAL_LIMIT);
     }
-  }, 60_000);
+    // Every steep tile of both reliefs at five offsets and eight headings, on the
+    // 9x9 tier's grid: the costliest of the boundary sweeps, and exhaustive by
+    // design, so it is not cut. Measured single-file, Apple M3 Pro, 2026-10-15,
+    // fifteen rings (five runs) with the load average at 13-79 on 12 cores (two
+    // runs on the efficiency cores alone): 7.1-27.6 s a ring, against 2.1-11.5 s
+    // for `ring_burial_xl`/`_large`; 4.4 s for one ring at load 33. One ring
+    // crossed the old 60 s under a full parallel `pnpm test` (timed out at
+    // 60.5 s), not single-file. The sweep yields every 250 ms, so a long ring
+    // cannot starve vitest's worker RPC. The margin is for contention only.
+  }, 180_000);
 });

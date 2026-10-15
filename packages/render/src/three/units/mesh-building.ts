@@ -31,7 +31,7 @@ import * as THREE from 'three';
 import { coldGltfLoader, gltfLoader } from './gltf-loader';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { rampMaterial, texturedMaterial } from '../world-materials';
-import { isBuildingMeshRole, rampForBuildingRole, type WallSurface } from './building-mesh-role';
+import { isBuildingMeshRole, rampForBuildingRole, rampForWallTone, type WallSurface } from './building-mesh-role';
 import { MESH_SCALE } from './mesh-anim';
 import { WORLD_RENDER_ORDER } from './render-order';
 
@@ -64,11 +64,50 @@ export interface BuildingMeshTemplate {
  * removal this task did not ask for. A future lit-coursing mechanism has a
  * parameter already waiting for it.
  */
+/**
+ * What a structure type asks of its `wall` role beyond its `color` key --
+ * `data/structures.json`'s optional `wall_tone` and `wall_self_lit`, read off
+ * `Sim.structureTypes` by `ThreeRenderer` (#643, the T-wall). Both act on the
+ * `wall` role ONLY: roof, trim, metal, rust and every other role keep their
+ * shared ramps and no self-lit term, whatever the type asks.
+ *
+ *  - `tone`: the palette step the wall draws EXACTLY (`rampForWallTone`).
+ *  - `selfLit`: an emissive equal to the wall's albedo times this factor, so
+ *    a face the scene sun never reaches (a north-south T-wall run's +x side,
+ *    lit by the hemisphere alone) is lifted without moving the sun or the
+ *    shared lights. Marked on the material's `userData.rlSelfLit` so a scar
+ *    clone (`building-damage.ts`) can keep the term tied to its own albedo.
+ */
+export interface WallTreatment {
+  readonly tone?: string;
+  readonly selfLit?: number;
+}
+
+/** A structure type's `WallTreatment`, from the fields `structureTypeFromJson`
+ *  carries (`wallTone`, `wallSelfLit`); empty for a type that names neither. */
+export function wallTreatmentOf(type: { readonly wallTone?: string; readonly wallSelfLit?: number }): WallTreatment {
+  return {
+    ...(type.wallTone !== undefined ? { tone: type.wallTone } : {}),
+    ...(type.wallSelfLit !== undefined ? { selfLit: type.wallSelfLit } : {}),
+  };
+}
+
+/** The `userData` key a self-lit wall material carries its factor under. */
+export const SELF_LIT_KEY = 'rlSelfLit';
+
+/** Gives `mat` a self-lit term of `factor` x its own albedo. */
+export function applySelfLit(mat: THREE.MeshStandardMaterial, factor: number): void {
+  mat.emissive.copy(mat.color);
+  mat.emissiveIntensity = factor;
+  mat.userData[SELF_LIT_KEY] = factor;
+}
+
 export function buildBuildingMeshTemplate(
   gltf: Pick<GLTF, 'scene'>,
   wallColorKey: string,
   _wallSurface: WallSurface,
-  allowTextured = false
+  allowTextured = false,
+  wall: WallTreatment = {}
 ): BuildingMeshTemplate {
   const root = gltf.scene;
   root.scale.setScalar(MESH_SCALE);
@@ -130,7 +169,11 @@ export function buildBuildingMeshTemplate(
     // along with it: a lit `MeshStandardMaterial` gets its facet separation
     // and its specular response from the scene's real sun and its shared
     // roughness/metalness instead of a hand-picked ramp step.
-    const mat = rampMaterial(rampForBuildingRole(role, wallColorKey));
+    const isWall = role === 'wall';
+    const mat = rampMaterial(
+      isWall && wall.tone !== undefined ? rampForWallTone(wall.tone) : rampForBuildingRole(role, wallColorKey)
+    );
+    if (isWall && wall.selfLit !== undefined && wall.selfLit > 0) applySelfLit(mat, wall.selfLit);
     mesh.material = mat;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -163,10 +206,11 @@ export async function loadBuildingMeshTemplate(
   wallSurface: WallSurface,
   allowTextured = false,
   /** GH-469: keep the textures encoded until `warmColdTextures`. */
-  cold = false
+  cold = false,
+  wall: WallTreatment = {}
 ): Promise<BuildingMeshTemplate> {
   const gltf = await (cold ? coldGltfLoader() : gltfLoader()).loadAsync(glbUrl);
-  return buildBuildingMeshTemplate(gltf, wallColorKey, wallSurface, allowTextured);
+  return buildBuildingMeshTemplate(gltf, wallColorKey, wallSurface, allowTextured, wall);
 }
 
 /** One placed structure's mesh instance -- a plain clone with no per-entity
