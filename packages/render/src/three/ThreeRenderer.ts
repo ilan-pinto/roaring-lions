@@ -8219,34 +8219,6 @@ export class ThreeRenderer implements Renderer {
     updateMeshWrecks(this.meshWrecks, (x, y) => this.isExplored(x, y));
   }
 
-  /**
-   * Building meshes: called separately from `frame()`, alongside
-   * `updateStructures`. Unlike every unit path above, a building mesh clone
-   * is positioned exactly ONCE, at creation -- a structure's footprint never
-   * moves and a building never turns (mesh-unit-contract.md: "rigid and
-   * never turns... no pivot"), so there is no per-frame transform to redo.
-   * What this method actually does every frame is the idle<->wreck SWAP,
-   * mirroring `updateStructures`'s own per-frame poll of live `Sim` state
-   * for the identical reason that method's own doc comment gives: structure
-   * death is not (yet) wired through `onEvents` the way unit death is, so
-   * polling `st.alive` is still the source of truth for "did this one just
-   * die".
-   *
-   * One pass over `sim.structureCount`, not one pass per mesh-enabled type
-   * (`updateStructures`'s own O(types x structureCount) shape) -- there is
-   * no per-type instance BUFFER to write here, only a plain `Map` lookup per
-   * structure, so folding every type into a single scan costs nothing extra.
-   *
-   * GH #143 follow-up: a freshly-instantiated wreck clone is armed into
-   * `buildingMeshSettling` at a squashed Y scale rather than left at its
-   * template's full baseline -- `stepBuildingMeshSettle` grows it in over
-   * the next `BUILDING_SETTLE_SECONDS` of real frames. `!this.
-   * buildingMeshWreckEntities.has(s)` already guards this to fire exactly
-   * ONCE per structure (this method itself is polled every frame, same as
-   * `updateStructures`), so a later frame that finds the wreck clone already
-   * present skips straight past this block and leaves whatever scale the
-   * settle step last wrote alone.
-   */
   /** Tile (`y * width + x`) -> the structure authored on it, dead or alive;
    *  rebuilt by `perTileLayout` when `sim.structureCount` changes. */
   private perTileLayoutOf: Int32Array | null = null;
@@ -8260,6 +8232,7 @@ export class ThreeRenderer implements Renderer {
   private perTileLayout(): Int32Array {
     const count = this.sim.structureCount;
     if (this.perTileLayoutOf !== null && this.perTileLayoutCount === count) return this.perTileLayoutOf;
+    // Per-tile structures are single-tile: keyed on minX/minY alone.
     const st = this.sim.structures;
     const w = this.sim.width;
     const of = this.perTileLayoutOf !== null && this.perTileLayoutOf.length === w * this.sim.height
@@ -8302,6 +8275,34 @@ export class ThreeRenderer implements Renderer {
     });
   }
 
+  /**
+   * Building meshes: called separately from `frame()`, alongside
+   * `updateStructures`. Unlike every unit path above, a building mesh clone
+   * is positioned exactly ONCE, at creation -- a structure's footprint never
+   * moves and a building never turns (mesh-unit-contract.md: "rigid and
+   * never turns... no pivot"), so there is no per-frame transform to redo.
+   * What this method actually does every frame is the idle<->wreck SWAP,
+   * mirroring `updateStructures`'s own per-frame poll of live `Sim` state
+   * for the identical reason that method's own doc comment gives: structure
+   * death is not (yet) wired through `onEvents` the way unit death is, so
+   * polling `st.alive` is still the source of truth for "did this one just
+   * die".
+   *
+   * One pass over `sim.structureCount`, not one pass per mesh-enabled type
+   * (`updateStructures`'s own O(types x structureCount) shape) -- there is
+   * no per-type instance BUFFER to write here, only a plain `Map` lookup per
+   * structure, so folding every type into a single scan costs nothing extra.
+   *
+   * GH #143 follow-up: a freshly-instantiated wreck clone is armed into
+   * `buildingMeshSettling` at a squashed Y scale rather than left at its
+   * template's full baseline -- `stepBuildingMeshSettle` grows it in over
+   * the next `BUILDING_SETTLE_SECONDS` of real frames. `!this.
+   * buildingMeshWreckEntities.has(s)` already guards this to fire exactly
+   * ONCE per structure (this method itself is polled every frame, same as
+   * `updateStructures`), so a later frame that finds the wreck clone already
+   * present skips straight past this block and leaves whatever scale the
+   * settle step last wrote alone.
+   */
   /** The fit (`units/building-fit.ts`) for structure `s`'s mesh:
    *  `opts.buildingFit`, absent being `DEFAULT_BUILDING_FIT` (`stretch`,
    *  lead ruling 7 Oct); unit scale under `off` and until the type's

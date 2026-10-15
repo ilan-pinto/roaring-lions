@@ -180,18 +180,20 @@ describe('ThreeRenderer per-tile facing: a wreck reads its AUTHORED run (SW-5)',
     for (const s of posts) expect(priv.buildingMeshWreckEntities.get(s)!.rotation.y, `post wreck ${s}`).toBe(0);
   });
 
-  it('a tile built after the first update joins the lookup (a mid-mission build)', () => {
+  it('a run built after the first update joins the lookup (a mid-mission build)', () => {
     const { sim, priv, ns } = buildRuns();
     priv.updateBuildingMeshes();
     const fence = sim.structures.typeIdx[ns[0]];
-    // Extend the north-south run by one tile, then destroy only the new tile
-    // and the one above it: the lookup must have been rebuilt to see them.
-    const extra = sim.addStructure(fence, [4 + 6 * sim.width]);
+    // A NEW north-south pair with no neighbour in the layout the first update
+    // built: only a rebuilt lookup can see that each is the other's run.
+    const pair = runOf(sim, fence, 6, 2, 0, 1, 2);
     priv.updateBuildingMeshes();
-    for (const s of [ns[3], extra]) {
+    for (const s of pair) {
       sim.structures.alive[s] = 0;
       priv.updateBuildingMeshes();
     }
-    expect(priv.buildingMeshWreckEntities.get(extra)!.rotation.y).toBeCloseTo(Math.PI / 2, 12);
+    for (const s of pair) {
+      expect(priv.buildingMeshWreckEntities.get(s)!.rotation.y, `fence wreck ${s}`).toBeCloseTo(Math.PI / 2, 12);
+    }
   });
 });
