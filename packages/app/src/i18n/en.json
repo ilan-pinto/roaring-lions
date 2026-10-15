@@ -737,7 +737,7 @@
   "hud.hint.projectedFire": "the panel beside your target shows the odds before you fire",
   "hud.hint.dock": "press {key} to open the reinforcements dock and call in support",
   "hud.hint.first.group_move": "drag a box to take the whole squad, and shift + right-click queues waypoints",
-  "hud.hint.first.sniper": "a sniper outranges infantry: put it on high ground, where every enemy it identifies earns intel",
+  "hud.hint.first.sniper": "a sniper outranges infantry: every enemy it identifies earns intel, wherever it stands, and holding a rise earns more",
   "hud.hint.first.drones": "a recon drone sees without being shot at; an attack drone is one-use ordnance, not a scout",
   "hud.hint.first.mount_up": "{load} loads the selected infantry into a carrier, {unload} dismounts them",
   "hud.hint.first.pins": "a pinned enemy cannot shoot back while rounds keep landing: keep firing, or move past it",

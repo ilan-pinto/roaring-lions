@@ -40,7 +40,13 @@ describe('no chrome line still describes the intel trickle', () => {
     expect(playerText(catalogue['hud.strip.intel.tip']).text).toMatch(/high ground/);
     expect(playerText(catalogue['hud.strip.intel.tip']).text).toMatch(/objectives/);
     expect(playerText(catalogue['hud.hint.first.intel']).text).toMatch(/smoke.*mortars.*sweep.*precision strike/);
-    expect(playerText(catalogue['hud.hint.first.sniper']).text).toMatch(/high ground/);
+  });
+
+  it('the sniper hint does not tie identification to high ground', () => {
+    const text = playerText(catalogue['hud.hint.first.sniper']).text;
+    expect(text).toMatch(/every enemy it identifies earns intel, wherever it stands/);
+    expect(text).not.toMatch(/high ground, where/);
+    expect(text).not.toMatch(/see further|sees further/);
   });
 
   it('the fallback "called" note carries no grid coordinates', () => {
