@@ -52,6 +52,7 @@ import {
   structures as structureCatalogue,
   parseMap,
   applyTerrain,
+  CIVILIAN_COLOR_KEY,
   paletteColor,
   vfxEmitters,
   type ParsedMap,
@@ -475,7 +476,7 @@ function aridTerrainTones(): TerrainTones {
 function buildRendererOptions(): RendererOptions {
   return {
     background: paletteColor('shadow.1'),
-    teamColors: [paletteColor('team.kedem'), paletteColor('team.hostile'), paletteColor('team.neutral')],
+    teamColors: [paletteColor('team.kedem'), paletteColor('team.hostile'), paletteColor(CIVILIAN_COLOR_KEY)],
     hullColors: [paletteColor('olive.1'), paletteColor('dust.2'), paletteColor('limestone.1')],
     infantryColors: [paletteColor('olive.0'), paletteColor('dust.0'), paletteColor('limestone.1')],
     groupColors: [

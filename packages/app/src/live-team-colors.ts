@@ -6,7 +6,7 @@
  * root and `theme.css` re-points `--friendly`/`--bad`/`--warn`/`--bad-text`
  * -- while the renderer and the minimap kept the colours `rendererOptionsFor`
  * resolved at boot until the next mission, so a `--warn` feed line and a
- * neutral ring could be two different yellows on one screen.
+ * slot-2 (civilian-colour) ring could be two different colours on one screen.
  *
  * This is the one subscription that closes the split. It resolves a variant
  * through exactly the two `@lions/data` functions `rendererOptionsFor` uses
