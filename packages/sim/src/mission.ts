@@ -15,6 +15,7 @@ import { starsFor, betterResult, type Stars, type MissionResult } from './grade'
 import { TICKS_PER_SECOND, type Sim, type SimEvent } from './sim';
 import { highGroundRises } from './intel-earn';
 import {
+  CONTEST_RADIUS_SQ,
   FS_MORTAR_BARRAGE,
   FS_SMOKE_SCREEN,
   HIGH_GROUND_HOLD_TICKS,
@@ -459,12 +460,6 @@ const STRUCTURAL_COLLATERAL = 19661;
 /** One structure deduction per zone per this many ticks (10 s): damage to a
  *  protected site is assessed per incident, not per round. */
 const ZONE_DEDUCT_COOLDOWN = 200;
-/** How close an enemy must be to your troops to be contesting the ground
- *  rather than merely standing somewhere inside a large rectangle: 6 tiles,
- *  squared, in Q16.16. Objective zones are big — 'no enemy anywhere in the
- *  zone' let one routed survivor in a far corner freeze a hold forever. */
-const CONTEST_RADIUS_SQ = 2359296;
-
 /** Is entity `i`'s tile inside the zone rectangle `[x, y, w, h]`? */
 function tileInZone(st: Sim['state'], i: number, zone: readonly number[]): boolean {
   const tx = st.posX[i] >> 16;

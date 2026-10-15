@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DIR_DX, DIR_DY, FlowField } from './flowfield';
-import { corridorRoute, makeRouteSource, type RouteSource } from './corridor';
+import { corridorCut, corridorRoute, makeRouteSource, type RouteSource, type VentView } from './corridor';
+import type { HoldView } from './income';
 
 // Hand-drawn grids. Symbols: '.' open, '#' building (blocked to all), 'b' boulder and 'd' ditch
 // (a wall to anything on wheels, open on foot), 'r' road, 'x' a road tile that is also a building
@@ -283,5 +284,142 @@ describe('corridorRoute: relief', () => {
     const k = corridorRoute(makeRouteSource(9, 3, g.vehicle, knoll, null), pt(0, 1), pt(8, 1));
     expect(k).not.toBeNull();
     expect(Array.from(k ?? [])).not.toContain(1 * 9 + 4);
+  });
+});
+
+// --- corridorCut (F2 Task 6, D4) -------------------------------------------------------------
+// Literal views: a route along row 5 of a 20-wide map, x = 2..12.
+const W = 20;
+const ROUTE = Int32Array.from({ length: 11 }, (_, i) => 5 * W + 2 + i);
+const q = (tiles: number): number => Math.round(tiles * 65536); // Math is a test oracle here
+
+interface U {
+  side: number;
+  x: number; // tiles
+  y: number;
+  air?: boolean;
+  buried?: number; // tunnelIn
+  dead?: boolean;
+}
+interface V {
+  alive: number[];
+  open: number[];
+  digger: number[];
+  vents: [number, number][]; // tiles
+}
+
+function view(units: U[], v: V = { alive: [], open: [], digger: [], vents: [] }): HoldView & VentView {
+  return {
+    entityCount: units.length,
+    alive: units.map((u) => (u.dead === true ? 0 : 1)),
+    side: units.map((u) => u.side),
+    posX: units.map((u) => q(u.x)),
+    posY: units.map((u) => q(u.y)),
+    tunnelIn: units.map((u) => u.buried ?? -1),
+    isAir: (i: number) => units[i].air === true,
+    width: W,
+    tunnelCount: v.vents.length,
+    tnAlive: v.alive,
+    tnVentOpen: v.open,
+    tnDigger: v.digger,
+    ventAt: (r: number) => [q(v.vents[r][0]), q(v.vents[r][1])] as const,
+  };
+}
+const cut = (units: U[], v?: V, holder: 0 | 1 = 0): ReturnType<typeof corridorCut> => corridorCut(view(units, v), ROUTE, holder);
+// Tile centres sit at +0.5, so route tile (7,5) is centred at (7.5, 5.5).
+const ENEMY_ON_ROUTE: U = { side: 1, x: 7.5, y: 7.0 }; // 1.5 tiles off the centre line
+const vent = (open: number, stock: U[], digger = -1): [U[], V] => [
+  stock,
+  { alive: [1], open: [open], digger: [digger], vents: [[7.5, 7.5]] }, // 2 tiles off
+];
+
+describe('corridorCut', () => {
+  it('no route is unreachable', () => {
+    expect(corridorCut(view([]), null, 0)).toBe('unreachable');
+  });
+
+  it('an enemy 1.5 tiles off the route, no friend near, interdicts', () => {
+    expect(cut([ENEMY_ON_ROUTE])).toBe('interdicted');
+    expect(corridorCut(view([{ side: 0, x: 7.5, y: 7.0 }]), ROUTE, 1)).toBe('interdicted'); // seen from side 1
+  });
+
+  it('a friendly within 6 tiles of the interdictor makes it contested, not cut', () => {
+    expect(cut([ENEMY_ON_ROUTE, { side: 0, x: 7.5, y: 12.0 }])).toBeNull(); // 5 tiles
+    expect(cut([ENEMY_ON_ROUTE, { side: 0, x: 7.5, y: 13.1 }])).toBe('interdicted'); // 6.1 tiles
+  });
+
+  it('an aircraft on either side neither interdicts nor contests', () => {
+    expect(cut([{ side: 1, x: 7.5, y: 6.0, air: true }])).toBeNull();
+    expect(cut([ENEMY_ON_ROUTE, { side: 0, x: 7.5, y: 8.0, air: true }])).toBe('interdicted');
+  });
+
+  it('a buried friendly or a dead friendly does not contest', () => {
+    expect(cut([ENEMY_ON_ROUTE, { side: 0, x: 7.5, y: 8.0, buried: 0 }])).toBe('interdicted');
+    expect(cut([ENEMY_ON_ROUTE, { side: 0, x: 7.5, y: 8.0, dead: true }])).toBe('interdicted');
+  });
+
+  it('the interdictor is in at exactly 2 tiles and out just past it', () => {
+    // Route tile (7,5) centre (7.5, 5.5); straight below it.
+    expect(cut([{ side: 1, x: 7.5, y: 7.5 }])).toBe('interdicted');
+    expect(cut([{ side: 1, x: 7.5, y: 7.5 + 1 / 256 }])).toBeNull();
+    // Off the end: 2 tiles past the last tile (12,5), along the row.
+    expect(cut([{ side: 1, x: 14.5, y: 5.5 }])).toBe('interdicted');
+    expect(cut([{ side: 1, x: 14.5 + 1 / 256, y: 5.5 }])).toBeNull();
+  });
+
+  it('civilians, dead enemies and buried enemies never interdict', () => {
+    expect(cut([{ side: 2, x: 7.5, y: 5.5 }])).toBeNull();
+    expect(cut([{ ...ENEMY_ON_ROUTE, dead: true }])).toBeNull();
+    expect(cut([{ ...ENEMY_ON_ROUTE, buried: 0 }])).toBeNull();
+  });
+
+  it('a friendly unit alone is not a cut', () => {
+    expect(cut([{ side: 0, x: 7.5, y: 5.5 }])).toBeNull();
+  });
+
+  it('an open vent 2 tiles off the route, stocked by the enemy, cuts; closed, it does not', () => {
+    const [u, v] = vent(1, [{ side: 1, x: 7.5, y: 7.5, buried: 0 }]);
+    expect(cut(u, v)).toBe('vent');
+    const [u2, v2] = vent(0, [{ side: 1, x: 7.5, y: 7.5, buried: 0 }]);
+    expect(cut(u2, v2)).toBeNull();
+  });
+
+  it('a vent stocked by the holder own side does not cut', () => {
+    const [u, v] = vent(1, [{ side: 0, x: 7.5, y: 7.5, buried: 0 }]);
+    expect(cut(u, v)).toBeNull();
+    expect(corridorCut(view(u, v), ROUTE, 1)).toBe('vent'); // the same vent is hostile to side 1
+  });
+
+  it('an enemy digger counts as stocking; a dead or friendly digger does not', () => {
+    const [u, v] = vent(1, [{ side: 1, x: 0, y: 0 }], 0);
+    expect(cut(u, v)).toBe('vent');
+    const [u2, v2] = vent(1, [{ side: 1, x: 0, y: 0, dead: true }], 0);
+    expect(cut(u2, v2)).toBeNull();
+    const [u3, v3] = vent(1, [{ side: 0, x: 0, y: 0 }], 0);
+    expect(cut(u3, v3)).toBeNull();
+  });
+
+  it('the vent radius is 3 tiles, in and out', () => {
+    const stock: U[] = [{ side: 1, x: 0, y: 0, buried: 0 }];
+    const at = (x: number, y: number): V => ({ alive: [1], open: [1], digger: [-1], vents: [[x, y]] });
+    expect(cut(stock, at(7.5, 8.5))).toBe('vent'); // exactly 3
+    expect(cut(stock, at(7.5, 8.5 + 1 / 256))).toBeNull();
+  });
+
+  it('a vent of a dead route does not cut', () => {
+    const [u, v] = vent(1, [{ side: 1, x: 7.5, y: 7.5, buried: 0 }]);
+    v.alive = [0];
+    expect(cut(u, v)).toBeNull();
+  });
+
+  it('a stocker buried in a different route does not stock this one', () => {
+    const [u, v] = vent(1, [{ side: 1, x: 7.5, y: 7.5, buried: 1 }]);
+    expect(cut(u, v)).toBeNull();
+  });
+
+  it('precedence: unreachable over vent over interdicted', () => {
+    const [u, v] = vent(1, [{ side: 1, x: 7.5, y: 7.5, buried: 0 }, ENEMY_ON_ROUTE]);
+    expect(cut(u, v)).toBe('vent');
+    expect(corridorCut(view(u, v), null, 0)).toBe('unreachable');
   });
 });

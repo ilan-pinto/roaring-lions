@@ -37,7 +37,15 @@ export {
 // Held-ground income (F2, D3): who holds a zone, from a narrow view of unit state.
 export { zoneHolder, type Holder, type HoldView } from './income';
 // The tiles a supply convoy drives (F2, D5): the road where one joins the ends, else the wheeled field.
-export { corridorRoute, makeRouteSource, type RouteSource, type TileXY } from './corridor';
+export {
+  corridorRoute,
+  corridorCut,
+  makeRouteSource,
+  type CutCause,
+  type RouteSource,
+  type TileXY,
+  type VentView,
+} from './corridor';
 export { unlockReason, isBoughtOnly, starsEarned, conductAtLeast, resolveUpgrades, loanedPlacements, type UnlockGate } from './unlock';
 export {
   starsFor,

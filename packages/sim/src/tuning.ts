@@ -435,3 +435,18 @@ export const REGEN_DELAY_TICKS = 200;
 export const REGEN_FRAC = 16; // 0.00024
 /** Field recovery ceiling: walking wounded mend, serious damage does not. */
 export const REGEN_CAP = 45875; // 0.7
+
+// --- held ground and supply corridors (F2, GH-183) ---------------------------
+// Squared distances, in the mission.ts convention: per axis d = (fx.sub(a, b) >> 8) | 0
+// (1/256 tile), compared as dx*dx + dy*dy <= SQ.
+/** How close an enemy must be to your troops to be contesting the ground
+ *  rather than merely standing somewhere inside a large rectangle: 6 tiles,
+ *  squared, in Q16.16. Objective zones are big — 'no enemy anywhere in the
+ *  zone' let one routed survivor in a far corner freeze a hold forever.
+ *  Also the corridor's contest radius: a friendly this near an interdictor
+ *  makes the line contested, not cut (moved here from mission.ts, value unchanged). */
+export const CONTEST_RADIUS_SQ = 2359296; // 36 tile^2 = 6 tiles
+/** A surface ground enemy this near a supply-route tile interdicts the corridor (D4 b). */
+export const CORRIDOR_INTERDICT_SQ = 262144; // 4 tile^2 = 2 tiles
+/** An open vent of a hostile-stocked tunnel this near a supply-route tile cuts the corridor (D4 c). */
+export const CORRIDOR_VENT_SQ = 589824; // 9 tile^2 = 3 tiles

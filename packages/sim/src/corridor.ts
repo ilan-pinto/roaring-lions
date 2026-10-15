@@ -6,6 +6,8 @@
 // Integer only; no clock, no PRNG.
 
 import { DIR_DX, DIR_DY, DIR_NONE, FlowField } from './flowfield';
+import type { HoldView } from './income';
+import { CONTEST_RADIUS_SQ, CORRIDOR_INTERDICT_SQ, CORRIDOR_VENT_SQ } from './tuning';
 
 export interface TileXY {
   readonly x: number;
@@ -187,4 +189,91 @@ function roadPath(src: RouteSource, start: number, goal: number): boolean {
     }
   }
   return false;
+}
+
+/** Why a convoy route is cut (D4): no wheeled route at all, an open vent of a hostile-stocked
+ *  tunnel beside it, or an uncontested enemy on it. null = the line is open. */
+export type CutCause = 'unreachable' | 'interdicted' | 'vent' | null;
+
+/** The tunnel slice `corridorCut` reads, narrow so a test builds it from literals and Task 7
+ *  adapts a `Sim` to it (`tunnelCount`, `tnAlive`, `tnVentOpen`, `tnDigger` are the sim's own;
+ *  `ventAt` is `Sim.tunnelVent`). */
+export interface VentView {
+  /** The map width in tiles: a route holds tile indices `y * width + x`. */
+  readonly width: number;
+  /** Routes to scan: 0..tunnelCount-1. */
+  readonly tunnelCount: number;
+  readonly tnAlive: ArrayLike<number>;
+  readonly tnVentOpen: ArrayLike<number>;
+  /** The unit digging the route, -1 when none. */
+  readonly tnDigger: ArrayLike<number>;
+  /** The vent's tile centre, Q16.16. */
+  ventAt(r: number): readonly [number, number];
+}
+
+/** Is the Q16.16 point (px, py) within `sq` of any route tile's centre? Units are the
+ *  mission.ts convention: per axis `(a - b) >> 8`, then dx*dx + dy*dy <= sq. */
+function nearRoute(route: Int32Array, w: number, px: number, py: number, sq: number): boolean {
+  for (let k = 0; k < route.length; k++) {
+    const t = route[k];
+    const tx = t % w;
+    const ty = (t - tx) / w;
+    const dx = ((px - ((tx << 16) + 32768)) >> 8) | 0;
+    const dy = ((py - ((ty << 16) + 32768)) >> 8) | 0;
+    if (dx * dx + dy * dy <= sq) return true;
+  }
+  return false;
+}
+
+/** A living surface ground unit: the only kind that interdicts or contests. */
+function onGround(view: HoldView, i: number): boolean {
+  return view.alive[i] !== 0 && view.tunnelIn[i] < 0 && !view.isAir(i);
+}
+
+/** Is route `r` stocked by the enemy: a living enemy buried in it, or an enemy digger? */
+function hostileStocked(view: HoldView & VentView, r: number, enemy: number): boolean {
+  const d = view.tnDigger[r];
+  if (d >= 0 && view.alive[d] !== 0 && view.side[d] === enemy) return true;
+  for (let i = 0; i < view.entityCount; i++) {
+    if (view.alive[i] !== 0 && view.tunnelIn[i] === r && view.side[i] === enemy) return true;
+  }
+  return false;
+}
+
+/**
+ * D4: what cuts the supply route that serves `holder` (the enemy is the other of 0 and 1;
+ * side 2 is nobody). Precedence unreachable > vent > interdicted, for the HUD's one reason.
+ *
+ * - `route === null`: 'unreachable'.
+ * - 'vent': a live route with its vent open and stocked by the enemy (a living enemy buried
+ *   in it, or its digger) whose vent centre is within CORRIDOR_VENT_SQ of a route tile.
+ * - 'interdicted': a living surface ground enemy within CORRIDOR_INTERDICT_SQ of a route tile
+ *   and no living surface ground unit of the holder within CONTEST_RADIUS_SQ of that enemy
+ *   (contested, not cut). Aircraft neither interdict nor contest; civilians never do.
+ */
+export function corridorCut(view: HoldView & VentView, route: Int32Array | null, holder: 0 | 1): CutCause {
+  if (route === null) return 'unreachable';
+  const w = view.width;
+  const enemy = holder === 0 ? 1 : 0;
+
+  for (let r = 0; r < view.tunnelCount; r++) {
+    if (view.tnAlive[r] !== 1 || view.tnVentOpen[r] !== 1) continue;
+    if (!hostileStocked(view, r, enemy)) continue;
+    const v = view.ventAt(r);
+    if (nearRoute(route, w, v[0], v[1], CORRIDOR_VENT_SQ)) return 'vent';
+  }
+
+  for (let i = 0; i < view.entityCount; i++) {
+    if (view.side[i] !== enemy || !onGround(view, i)) continue;
+    if (!nearRoute(route, w, view.posX[i], view.posY[i], CORRIDOR_INTERDICT_SQ)) continue;
+    let contested = false;
+    for (let j = 0; j < view.entityCount && !contested; j++) {
+      if (view.side[j] !== holder || !onGround(view, j)) continue;
+      const dx = ((view.posX[j] - view.posX[i]) >> 8) | 0;
+      const dy = ((view.posY[j] - view.posY[i]) >> 8) | 0;
+      contested = dx * dx + dy * dy <= CONTEST_RADIUS_SQ;
+    }
+    if (!contested) return 'interdicted';
+  }
+  return null;
 }
