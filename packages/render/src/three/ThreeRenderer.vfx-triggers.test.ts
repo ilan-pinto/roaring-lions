@@ -256,6 +256,7 @@ describe('the one-shot sim events (GH-85)', () => {
     expect(log).toContain('mortar_base_dust');
     r.dispose();
   });
+
   it('a demolition charge that misses goes off where the sim says it landed', () => {
     const { r, shooter, log } = world(SAPPER, 1);
     r.onEvents([{ kind: 'nearMiss', tick: 1, shooter, weaponId: 'charges', x: fx.from(5), y: fx.from(5) } as SimEvent]);

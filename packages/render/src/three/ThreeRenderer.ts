@@ -642,6 +642,10 @@ import { CONTACT_MARK, contactHaloTriangles, contactScale, contactShapeOf, conta
 
 
 
+/** COPIED from tuning.ts (FS_MORTAR_BARRAGE, SMOKE_RANGE_SQ); the vfx-triggers spec reads tuning.ts as text. */
+const FS_MORTAR_BARRAGE = 1;
+const CARRIER_SMOKE_RANGE_SQ_TILES = 5242880 / 65536; // tuning.ts SMOKE_RANGE_SQ, 80 tile^2
+
 /** Recoil/flinch decay durations, seconds -- redeclared from `renderer.ts`'s
  *  own `RECOIL_SECONDS`/`FLINCH_SECONDS` (private, unexported) rather than
  *  imported, the same reason everything else redeclared from `renderer.ts`
@@ -651,9 +655,6 @@ import { CONTACT_MARK, contactHaloTriangles, contactScale, contactShapeOf, conta
  *  (`drainTimers` below, mirroring `PixiRenderer.frame()`'s own
  *  top-of-frame drain, `renderer.ts:1882-1888`), not the per-entity decision
  *  `entityFrame` makes with the already-drained value. */
-/** COPIED from tuning.ts (FS_MORTAR_BARRAGE, SMOKE_RANGE_SQ); the vfx-triggers spec reads tuning.ts as text. */
-const FS_MORTAR_BARRAGE = 1;
-const CARRIER_SMOKE_RANGE_SQ_TILES = 5242880 / 65536; // tuning.ts SMOKE_RANGE_SQ, 80 tile^2
 const RECOIL_SECONDS = 0.15;
 const FLINCH_SECONDS = 0.18;
 

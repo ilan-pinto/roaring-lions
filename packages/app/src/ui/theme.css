@@ -3355,7 +3355,7 @@ body[data-outcome-beat] .rl-aar {
    here exactly as they do in the garage, the stores and the debrief (they
    wore `--good` here and on the outcome moment, a third colour for the same
    money); THIS mission's logistics and intel wear `--info`, the colour the
-   top strip has always given them, on `.rl-tile__cost` and the support pair
+   top strip has always given them, on `.rl-tile__cost` and the support tiles
    alike. */
 .rl-dock__credits {
   font-size: var(--t-strip);

@@ -4089,9 +4089,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // building; `out.x/y` is the one point the dispatch, the marker and
         // the announcer all use.
         const out = callSupport(runtime, call, pointerView, sim, p.x, p.y);
-        const ok = out.ok;
-        dispatch({ kind: 'support', call, x: out.x, y: out.y, accepted: ok });
-        if (ok && intelMoments) {
+        dispatch({ kind: 'support', call, x: out.x, y: out.y, accepted: out.ok });
+        if (out.ok && intelMoments) {
           // GH-113: "inbound -- 3 s" / "on the way", one announcer line and a
           // ring on the minimap, in place of "called on (x, y)" -- grid
           // coordinates no player reads.
@@ -4105,7 +4104,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             out.ok
               ? t('main.note.supportCalled', { name: t(wordKey) })
               : t(out.why === 'intel' ? 'main.note.supportRefused' : 'main.note.supportNoCaller'),
-            ok ? 'info' : 'mute'
+            out.ok ? 'info' : 'mute'
           );
         }
         if (out.ok) renderer.addOrderMarker(out.x, out.y);

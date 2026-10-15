@@ -14,7 +14,7 @@
 // app's palette plugin. Naming a variable costs no import, so the one-way
 // dependency rule (app → render → sim) is untouched.
 
-import { fx, type Sim, type SimEvent } from '@lions/sim';
+import { fx, FS_MORTAR_BARRAGE, type Sim, type SimEvent } from '@lions/sim';
 import { isGrindingHit, structureHpBand } from './grind';
 
 const PANEL_CSS =
@@ -218,7 +218,7 @@ export class DebugOverlay {
       }
       case 'strike':
         this.line(
-          t + (e.profile === 1 ? `<b>MORTAR BARRAGE</b> round, called by ${this.name(e.by)}` : `<b>PRECISION STRIKE</b> called by ${this.name(e.by)}`),
+          t + (e.profile === FS_MORTAR_BARRAGE ? `<b>MORTAR BARRAGE</b> round, called by ${this.name(e.by)}` : `<b>PRECISION STRIKE</b> called by ${this.name(e.by)}`),
           'var(--hot)'
         );
         break;
