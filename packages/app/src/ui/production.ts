@@ -1,8 +1,10 @@
 // The reinforcements dock: bottom-left, a grid of 60px tiles (GH-153 slice 3).
 //
 // Reinforcements deploy at the field camp after their build time, paid from
-// mission logistics. Fire support is bought with intel; arming a purchase puts
-// the cursor into targeting mode and the next click on the map spends it.
+// mission logistics. Fire support is bought with intel: four calls (S-F), one
+// tile each, in the sim's own order. Arming a purchase puts the cursor into
+// targeting mode and the next click on the map spends it. A click the intel
+// cannot pay for is denied -- a note and the deny cue -- never silently dropped.
 //
 // This replaced a column of text buttons (`Rifle Squad (120)`) and a separate
 // `rl-queue` list underneath them. The list is gone on purpose rather than
@@ -25,7 +27,7 @@ import { bindTip } from './tooltip';
 import { tileState, type DockUnit, type DockView } from './dock-model';
 import { kitIconSignHtml, kitLevelLabel } from './kit-sign';
 import type { Tone } from './hud';
-import { SUPPORT as SUPPORT_SPEC, type SupportKind } from './support-kinds';
+import { SUPPORT, SUPPORT_KINDS, type SupportKind } from './support-kinds';
 
 export type { SupportKind };
 
@@ -38,8 +40,8 @@ export type BuildableUnit = DockUnit;
  *  the three fields the tile states are computed from. */
 export interface ProductionRuntime extends DockView {
   readonly intel: number;
-  readonly sweepCost: number;
-  readonly strikeCost: number;
+  /** MissionRuntime's own method: what one call costs in intel. */
+  supportCost(kind: SupportKind): number;
   requestBuild(unitId: string): boolean;
 }
 
@@ -84,27 +86,32 @@ export interface ProductionOptions {
   meshPending?: (unitId: string) => boolean;
   /**
    * GH-113: how far a support call is from affordable, for the tile's charge
-   * bar and the clock in its corner -- `fraction` of the cost in hand, and
-   * `clock`/`title` already worded by the caller (`ui/intel-moments.ts`'s
-   * `chargeClock`, through `t()`). Absent: the tile only dims, as before.
+   * bar -- `fraction` of the cost in hand, and the accessible `title` already
+   * worded by the caller through `t()`. No clock: intel is earned by doing
+   * (F1), so there is no rate to read a time off. Absent: the tile only dims.
    */
-  supportCharge?: (kind: SupportKind) => { fraction: number; clock: string; title: string };
+  supportCharge?: (kind: SupportKind) => { fraction: number; title: string };
+  /** Plays the deny cue when a click (or `press`) finds the intel short.
+   *  `main.ts` supplies `CRITICAL_CUES.uiDeny`. */
+  onDeny?: () => void;
+  /** The bound key's label for a call, for the tooltip's last line (Task 3
+   *  wires it). Absent prints nothing. */
+  hotkeyLabel?: (kind: SupportKind) => string | undefined;
 }
 
-/** The fire-support calls the dock draws, in tile order (Task 2 makes it all
- *  four). Everything else about a call -- its catalogue KEYS (`word`/`name`/
- *  `blurb`), its glyph -- is a row of `support-kinds.ts`'s `SUPPORT`. Keys,
- *  not text: a table resolved to text at import time freezes in whatever
- *  locale was active before `main.ts`'s boot calls `setCatalogue`, so
- *  `buildSupportTile` and `supportTipHtml` call `t()` at render time. */
-const DOCK_SUPPORT: readonly SupportKind[] = ['drone_sweep', 'air_strike'];
+/* The fire-support calls the dock draws are `support-kinds.ts`'s
+ * `SUPPORT_KINDS`, the sim's own order. Everything else about a call -- its
+ * catalogue KEYS (`word`/`name`/`blurb`), its glyph -- is a row of `SUPPORT`.
+ * Keys, not text: a table resolved to text at import time freezes in whatever
+ * locale was active before `main.ts`'s boot calls `setCatalogue`, so
+ * `buildSupportTile` and `supportTipHtml` call `t()` at render time. */
 
 /** The tile cost's logistics mark. Built once: it is the same markup on
  *  every tile, and a constant is what lets the price beside it stay a text
  *  node. The px is the attribute fallback -- theme.css draws `.rl-sym` at 1em
  *  of the cost's own type. */
 const LOGISTICS_MARK = symbolSvg('logistics', 12);
-/** The support tiles' sweep/strike mark; 1em of `.rl-tile__glyph`'s 1.125rem. */
+/** The support tiles' mark; 1em of `.rl-tile__glyph`'s 1.125rem. */
 const SUPPORT_GLYPH_PX = 18;
 /** The tooltip's role badge. S3e (Q7): was 8, where an APP-6 mark is a smudge;
  *  10 is the floor wherever a unit is badged. */
@@ -126,7 +133,6 @@ interface SupportTile {
   kind: SupportKind;
   cost: number;
   bar: HTMLElement;
-  clock: HTMLElement;
   /** Frame-clock ms until which the border says "ready" (GH-113). */
   flashUntil: number;
 }
@@ -197,9 +203,8 @@ export class ReinforcementDock {
     grid.className = 'rl-dock__grid';
 
     for (const unit of opts.units) grid.appendChild(this.buildUnitTile(unit));
-    for (const kind of DOCK_SUPPORT) {
-      const cost = kind === 'drone_sweep' ? opts.runtime.sweepCost : opts.runtime.strikeCost;
-      grid.appendChild(this.buildSupportTile(kind, cost));
+    for (const kind of SUPPORT_KINDS) {
+      grid.appendChild(this.buildSupportTile(kind, opts.runtime.supportCost(kind)));
     }
 
     this.el.append(head, grid);
@@ -338,7 +343,7 @@ export class ReinforcementDock {
   }
 
   private buildSupportTile(kind: SupportKind, cost: number): HTMLButtonElement {
-    const spec = SUPPORT_SPEC[kind];
+    const spec = SUPPORT[kind];
     const el = document.createElement('button');
     el.type = 'button';
     el.className = 'rl-tile rl-tile--support';
@@ -348,31 +353,40 @@ export class ReinforcementDock {
       `<span class="rl-tile__glyph">${symbolSvg(spec.mark, SUPPORT_GLYPH_PX)}</span>` +
       `<span class="rl-tile__word">${t(spec.word)} ${cost}</span>`;
     // GH-113: the charge, in the build bar's own language -- a bar along the
-    // bottom and a clock in the corner, where the unit tiles put a queue.
-    const clock = document.createElement('span');
-    clock.className = 'rl-tile__clock';
+    // bottom. No clock beside it (S-F): intel arrives when the player earns
+    // it, at no rate a time could be read from.
     const bar = document.createElement('span');
     bar.className = 'rl-tile__charge';
-    el.append(clock, bar);
+    el.append(bar);
 
     el.addEventListener('click', () => {
-      if (this.opts.runtime.intel < cost) {
-        this.opts.note(t('dock.note.noIntel', { name: t(spec.name).toLowerCase() }), 'mute');
-        return;
-      }
-      this.setArmed(this.armed === kind ? null : kind);
-      this.opts.note(
-        this.armed ? t('dock.note.armed', { name: t(spec.name) }) : t('dock.note.cancelled'),
-        'info'
-      );
+      this.press(kind);
       el.blur();
     });
-    // Same `clear` reasoning as the unit tiles above -- the support pair sits
-    // on its own row, below every unit row.
+    // Same `clear` reasoning as the unit tiles above -- the support calls sit
+    // on their own rows, below every unit row.
     this.tipDisposers.push(bindTip(el, () => this.supportTipHtml(kind, cost), { host: this.el, clear: this.el }));
 
-    this.supportTiles.push({ el, kind, cost, bar, clock, flashUntil: 0 });
+    this.supportTiles.push({ el, kind, cost, bar, flashUntil: 0 });
     return el;
+  }
+
+  /** The tile's click, callable from a hotkey: arms or disarms `kind`, or
+   *  denies with a note and the cue when intel is short. Returns true if armed. */
+  press(kind: SupportKind): boolean {
+    const spec = SUPPORT[kind];
+    const tile = this.supportTiles.find((x) => x.kind === kind);
+    if (tile === undefined || this.opts.runtime.intel < tile.cost) {
+      this.opts.note(t('dock.note.noIntel', { name: t(spec.name).toLowerCase() }), 'mute');
+      this.opts.onDeny?.();
+      return false;
+    }
+    this.setArmed(this.armed === kind ? null : kind);
+    this.opts.note(
+      this.armed ? t('dock.note.armed', { name: t(spec.name) }) : t('dock.note.cancelled'),
+      'info'
+    );
+    return this.armed === kind;
   }
 
   // ------------------------------------------------------------------
@@ -405,13 +419,16 @@ export class ReinforcementDock {
   }
 
   private supportTipHtml(kind: SupportKind, cost: number): string {
-    const spec = SUPPORT_SPEC[kind];
+    const spec = SUPPORT[kind];
+    const key = this.opts.hotkeyLabel?.(kind);
+    const hotkey = key === undefined || key === '' ? '' : `<div class="rl-tip__tags">${escapeHtml(t('dock.tip.hotkey', { key }))}</div>`;
     return (
       `<div class="rl-tip__head">` +
       `<span class="rl-tip__name">${t(spec.name)}</span>` +
       `<span class="rl-tip__cost">${t('dock.tip.intelCost', { n: cost })}</span>` +
       `</div>` +
-      `<div class="rl-tip__blurb">${t(spec.blurb)}</div>`
+      `<div class="rl-tip__blurb">${t(spec.blurb)}</div>` +
+      hotkey
     );
   }
 
@@ -493,12 +510,11 @@ export class ReinforcementDock {
       const poor = rt.intel < tile.cost;
       tile.el.dataset.poor = poor ? '1' : '0';
       const charge = this.opts.supportCharge?.(tile.kind);
-      // Charging: the tile keeps full strength so the bar and the clock do --
+      // Charging: the tile keeps full strength so the bar does --
       // the defect the build bar already fixed (`.rl-tile[data-poor='1']`'s
       // own comment) -- and only the glyph and the word dim.
       tile.el.dataset.charging = poor && charge !== undefined ? '1' : '0';
       tile.bar.style.width = charge === undefined || !poor ? '0' : `${(charge.fraction * 100).toFixed(1)}%`;
-      tile.clock.textContent = charge === undefined || !poor ? '' : charge.clock;
       if (charge !== undefined) tile.el.setAttribute('aria-label', charge.title);
       tile.el.dataset.readyFlash = now < tile.flashUntil ? '1' : '0';
     }

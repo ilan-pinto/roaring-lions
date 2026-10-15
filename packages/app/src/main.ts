@@ -175,7 +175,7 @@ import { webgl2Available } from './ui/webgl-probe';
 import { alertNotice, evacuatedNotice, reinforceTrigger, removedNotice, ledgerSavedNotice, triggerLabel, unknownSandboxMapNotice } from './ui/mission-notice';
 import { ReinforcementDock } from './ui/production';
 import { IntelMoments, READY_FLASH_MS, aimFootprintFor, type IntelOutput } from './ui/intel-moments';
-import { breakdownLine, chargeText, strikeLine } from './ui/intel-copy';
+import { breakdownLine, strikeLine } from './ui/intel-copy';
 import { SUPPORT, type SupportKind } from './ui/support-kinds';
 import { doctrineTags } from './ui/dock-model';
 import {
@@ -3757,9 +3757,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // the one state with no number to show.
       credits: ledgerStore.available ? ledgerStore.readAccount().balance : undefined,
       note: (html, tone) => hud.note(html, tone),
+      onDeny: () => audio.playCue(CRITICAL_CUES.uiDeny),
       supportCharge: (kind) => {
-        const c = intelMoments?.charge(kind, runtime.intel);
-        return c === undefined ? { fraction: 0, clock: '', title: '' } : { fraction: c.fraction, ...chargeText(kind, c.clock) };
+        const cost = runtime.supportCost(kind);
+        const have = runtime.intel;
+        const name = t(SUPPORT[kind].name);
+        return {
+          fraction: Math.min(1, have / cost),
+          title: have >= cost ? t('dock.support.charge.ready', { name }) : t('dock.support.charge.short', { name, have, cost }),
+        };
       },
       onArm: (kind) => {
         armedSupport = kind;

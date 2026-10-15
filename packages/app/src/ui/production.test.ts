@@ -17,12 +17,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import { units } from '@lions/data';
 import {
+  FIRE_SUPPORT_KINDS,
   MissionRuntime,
   Sim,
   type MissionJson,
   type UnitTypeJson,
 } from '@lions/sim';
-import { ReinforcementDock, type ProductionRuntime, type SupportKind } from './production';
+import { ReinforcementDock, type ProductionOptions, type ProductionRuntime, type SupportKind } from './production';
 import type { DockUnit } from './dock-model';
 import type { Tone } from './hud';
 import { closeTip } from './tooltip';
@@ -42,8 +43,7 @@ function fakeRuntime(over: Partial<FakeRuntime> = {}): FakeRuntime {
   const rt: FakeRuntime = {
     logistics: 1000,
     intel: 100,
-    sweepCost: 30,
-    strikeCost: 60,
+    supportCost: (k) => ({ smoke_screen: 10, mortar_barrage: 20, drone_sweep: 30, air_strike: 60 })[k],
     production: [],
     blocked: {},
     builds: [],
@@ -86,7 +86,8 @@ interface Rig {
 function rig(
   unitList: DockUnit[] = [dockUnit()],
   rt = fakeRuntime(),
-  meshPending?: (unitId: string) => boolean
+  meshPending?: (unitId: string) => boolean,
+  extra: Partial<ProductionOptions> = {}
 ): Rig {
   document.body.replaceChildren();
   const host = document.createElement('div');
@@ -99,6 +100,7 @@ function rig(
     note: (html, tone) => notes.push({ html, tone }),
     onArm: (kind) => arms.push(kind),
     meshPending,
+    ...extra,
   });
   const q = <T extends HTMLElement>(sel: string): T => {
     const el = host.querySelector<T>(sel);
@@ -130,11 +132,22 @@ const unhover = (el: HTMLElement): void => {
 // ----------------------------------------------------------------------
 
 describe('the dock’s shape', () => {
-  it('draws one tile per buildable plus the two support calls', () => {
+  it('draws one tile per buildable plus the four support calls', () => {
     const r = rig([dockUnit(), dockUnit({ id: 'mbt_lavi', name: 'Lavi MBT' })]);
-    expect(r.tiles()).toHaveLength(4);
+    expect(r.tiles()).toHaveLength(6);
     expect(r.support('drone_sweep').textContent).toContain('sweep 30');
     expect(r.support('air_strike').textContent).toContain('strike 60');
+  });
+
+  it('four support tiles, in the sim’s order, each showing its own price', () => {
+    const r = rig();
+    const tiles = [...r.host.querySelectorAll<HTMLElement>('[data-support]')];
+    expect(tiles.map((el) => el.dataset.support)).toEqual([...FIRE_SUPPORT_KINDS]);
+    const price = { smoke_screen: 10, mortar_barrage: 20, drone_sweep: 30, air_strike: 60 };
+    const word = { smoke_screen: 'screen', mortar_barrage: 'barrage', drone_sweep: 'sweep', air_strike: 'strike' };
+    for (const k of FIRE_SUPPORT_KINDS) {
+      expect(r.support(k).querySelector('.rl-tile__word')?.textContent).toBe(`${word[k]} ${price[k]}`);
+    }
   });
 
   it('names the key its label promises', () => {
@@ -480,6 +493,65 @@ describe('what a click does', () => {
     expect(r.arms).toEqual([]);
     expect(r.support('drone_sweep').dataset.armed).toBe('0');
     expect(r.notes[0].tone).toBe('mute');
+  });
+
+  it('a short click denies: a note, the cue, nothing armed', () => {
+    const onDeny = vi.fn();
+    const r = rig([dockUnit()], fakeRuntime({ intel: 15 }), undefined, { onDeny });
+    r.support('mortar_barrage').click();
+    expect(onDeny).toHaveBeenCalledTimes(1);
+    expect(r.notes).toHaveLength(1);
+    expect(r.notes[0].html).toContain('mortar barrage');
+    expect(r.arms).toEqual([]);
+    expect(r.support('mortar_barrage').dataset.armed).toBe('0');
+  });
+
+  it('an affordable click arms it and only it; a second click disarms', () => {
+    for (const kind of FIRE_SUPPORT_KINDS) {
+      const r = rig();
+      r.support(kind).click();
+      for (const other of FIRE_SUPPORT_KINDS) {
+        expect(r.support(other).dataset.armed).toBe(other === kind ? '1' : '0');
+      }
+      r.support(kind).click();
+      expect(r.support(kind).dataset.armed).toBe('0');
+      expect(r.arms).toEqual([kind, null]);
+    }
+  });
+
+  it('press is the click', () => {
+    const onDeny = vi.fn();
+    const r = rig([dockUnit()], fakeRuntime({ intel: 100 }), undefined, { onDeny });
+    expect(r.dock.press('air_strike')).toBe(true);
+    expect(r.support('air_strike').dataset.armed).toBe('1');
+    expect(onDeny).not.toHaveBeenCalled();
+    expect(r.dock.press('air_strike')).toBe(false); // a second press disarms
+    expect(r.support('air_strike').dataset.armed).toBe('0');
+    const poor = rig([dockUnit()], fakeRuntime({ intel: 10 }), undefined, { onDeny });
+    expect(poor.dock.press('air_strike')).toBe(false);
+    expect(onDeny).toHaveBeenCalledTimes(1);
+    expect(poor.support('air_strike').dataset.armed).toBe('0');
+  });
+
+  it('no clock on a charging tile', () => {
+    const r = rig([dockUnit()], fakeRuntime({ intel: 5 }), undefined, {
+      supportCharge: (kind) => ({ fraction: 0.5, title: `charging ${kind}` }),
+    });
+    r.dock.refresh();
+    for (const kind of FIRE_SUPPORT_KINDS) {
+      expect(r.support(kind).querySelector('.rl-tile__clock')).toBeNull();
+      expect(r.support(kind).dataset.charging).toBe('1');
+      expect(r.support(kind).getAttribute('aria-label')).toBe(`charging ${kind}`);
+    }
+  });
+
+  it('the tooltip names the bound key when the shell supplies one, and says nothing when not', () => {
+    const r = rig([dockUnit()], fakeRuntime(), undefined, { hotkeyLabel: (k) => (k === 'air_strike' ? 'R' : undefined) });
+    hover(r.support('air_strike'));
+    expect(r.tip().textContent).toContain('Key R');
+    unhover(r.support('air_strike'));
+    hover(r.support('drone_sweep'));
+    expect(r.tip().textContent).not.toContain('Key');
   });
 
   it('disarms when the armed call is clicked again', () => {

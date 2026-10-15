@@ -10,25 +10,7 @@
 
 import { t } from '../i18n/t';
 import { escapeHtml } from './escape-html';
-import type { ChargeClock, IntelOutput } from './intel-moments';
-import { SUPPORT, type SupportKind } from './support-kinds';
-
-/** The tile's corner, and its accessible name. */
-export function chargeText(kind: SupportKind, clock: ChargeClock): { clock: string; title: string } {
-  const name = t(SUPPORT[kind].name);
-  switch (clock.kind) {
-    case 'ready':
-      return { clock: '', title: t('dock.support.charge.ready', { name }) };
-    case 'none':
-      return { clock: t('dock.support.clock.none'), title: t('dock.support.charge.none', { name }) };
-    case 'mss':
-      return { clock: clock.text, title: t('dock.support.charge.eta', { name, clock: clock.text }) };
-    case 'minutes': {
-      const text = t('dock.support.clock.minutes', { n: clock.n });
-      return { clock: text, title: t('dock.support.charge.eta', { name, clock: text }) };
-    }
-  }
-}
+import type { IntelOutput } from './intel-moments';
 
 /** The sweep's breakdown line: who it identified, by type, then the
  *  civilians standing in the circle. */
