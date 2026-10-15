@@ -533,6 +533,15 @@ tick and the report button. Both are `aria-live` lines, through `t()`.
   either side.
 - Tunnels stay map-authored: diggers dig on their own, stocked fighters vent
   as today, and the player may order fighters into a mouth and out at a vent.
+  (N3 ruling LD4, 16 Oct, deferred those orders to §6.3. **The lead's 15 Oct
+  request supersedes LD4:** in versus the Sarim seat gets tunnels as its
+  asymmetric advantage, and the orders are queued as #681. That is its own
+  package straight after N3, sketched in `plans/2026-10-16-net-n3-prep.md` §6.
+  **Ruled 15 Oct (lead):**
+  - travel takes time, scaled by route length;
+  - fighters vent only on the player's order, with "stay down" as the default;
+  - `yahalom_squad` joins the versus KDF menu;
+  - `enterTunnel` is Sarim-seat only.)
 - On a human-held side no scripted trigger fires, no wave spawns and the
   doctrine commander does not run. Civilians stay on side 2 and the ROE
   scoring still charges the KDF seat (Conduct is a KDF doctrine, not a
@@ -545,7 +554,8 @@ triggers, waves and the commander"), all in N2/N3. Nothing else in the tick.
 
 ### 6.3 The follow-on: the full insurgent toolkit
 
-Player-dug tunnels, IED placement, crowd-cover orders, a Sarim upgrade
+Player-dug tunnels (ordering fighters through an AUTHORED route has left this
+list: #681, see §6.1), IED placement, crowd-cover orders, a Sarim upgrade
 ladder, a Sarim fire-support menu. Each is a sim mechanic with balance behind
 it, and nothing here exists. It is its own package after N3, and §2.1's
 `Seat` and §3.2.3's protocol leave room for it (a `setStance` with more
