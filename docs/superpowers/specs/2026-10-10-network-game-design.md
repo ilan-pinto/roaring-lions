@@ -1042,6 +1042,8 @@ until all of these hold:
   and the versus-force mirror pins (`versus-force.test.ts`) each move once, and
   the commit says why.
 
+Item 5's decision memo, the non-sim prerequisite plan and what N2 needs from Lane C: `docs/superpowers/plans/2026-10-15-net-n2-prereqs.md` (15 Oct, lead decisions L1–L5 open).
+
 ## 12. Testing and gates
 
 Every check here arrives with its falsification, per CLAUDE.md.
