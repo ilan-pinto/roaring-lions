@@ -96,6 +96,8 @@ describe('the chrome register: theme.css', () => {
       '.rl-garage__buy',
       '.rl-menu--garage .rl-stores__buy',
       '.rl-aar__nav .rl-aar__primary',
+      // F3 Task 8: the "On loan" stamp
+      '.rl-loan',
     ];
 
     it('sets every tile, tab and stamp in the display face, in capitals', () => {
@@ -151,6 +153,35 @@ describe('the chrome register: theme.css', () => {
         .flatMap((r) => COLOUR.flatMap((p) => decl(r.body, p)));
       expect(used.length).toBeGreaterThanOrEqual(6);
       expect(used.filter((v) => !/--bad(-text)?\b|--band-ink|^transparent$/.test(v))).toEqual([]);
+    });
+  });
+
+  // F3 Task 8 (C2, approved from the mock): the "On loan" stamp is dim ink and
+  // an outline of the same ink, at the label size, and the chip cluster's row
+  // gap is one step wider than its column gap so a second row's tab clears the
+  // row above. Falsified by hand: `.rl-loan` colour -> `var(--on)`, its size ->
+  // `var(--t-s)`, and the cluster `row-gap` -> `var(--s1)`.
+  describe('F3 Task 8: the on-loan stamp', () => {
+    const own = (sel: string, prop: string): string[] => rulesFor(sel).flatMap((r) => decl(r.body, prop));
+
+    it('is dim ink with a one-pixel outline of the same ink, at the label size', () => {
+      expect(own('.rl-loan', 'color')).toEqual(['var(--ink-dim)']);
+      expect(own('.rl-loan', 'border')).toEqual(['1px solid var(--ink-dim)']);
+      expect(own('.rl-loan', 'font-size')).toEqual(['var(--t-xs)']);
+    });
+
+    it('is a tab on the chip frame: absolute inside a positioned chip, on a panel ground', () => {
+      expect(own('.rl-loan--tab', 'position')).toEqual(['absolute']);
+      expect(own('.rl-loan--tab', 'top')).toEqual(['0']);
+      expect(own('.rl-loan--tab', 'right')).toEqual(['var(--s2)']);
+      expect(own('.rl-loan--tab', 'background')).toEqual(['var(--panel-bg)']);
+      expect(own(".rl-chip[data-loan='1']", 'position')).toEqual(['relative']);
+    });
+
+    it('spaces the chip cluster’s rows one step wider than its columns', () => {
+      const flexRule = rulesFor('.rl-cluster').find((r) => decl(r.body, 'display').includes('flex'));
+      expect(flexRule && decl(flexRule.body, 'row-gap')).toEqual(['var(--s2)']);
+      expect(flexRule && decl(flexRule.body, 'column-gap')).toEqual(['var(--s1)']);
     });
   });
 

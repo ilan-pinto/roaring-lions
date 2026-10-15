@@ -2857,6 +2857,115 @@ describe('the single-unit card — kit (WP-S3g §3.4, D2)', () => {
   });
 });
 
+describe('"On loan" on the card and the chip (F3 Task 8, C2)', () => {
+  const lent = (...ids: number[]): ((id: number) => boolean) => {
+    const set = new Set(ids);
+    return (id) => set.has(id);
+  };
+  const chipOf = (r: ClusterRig, type: string): HTMLElement | undefined =>
+    r.chips().find((c) => c.dataset.type === type);
+  const tab = (c: HTMLElement | undefined): HTMLElement | null =>
+    c?.querySelector<HTMLElement>('.rl-loan') ?? null;
+
+  it('stamps the card of a lent unit, right after the name, and not the card of an owned one', () => {
+    const world = makeForce();
+    const r = clusterRig(() => [world.namer], { isOnLoan: lent(world.namer) }, world);
+    const name = r.host.querySelector('.rl-card__name');
+    const stamp = r.host.querySelector<HTMLElement>('.rl-card .rl-loan');
+    expect(stamp?.textContent).toBe(en['hud.onLoan']);
+    expect(name?.nextElementSibling).toBe(stamp);
+    expect(stamp?.classList.contains('rl-loan--tab')).toBe(false);
+    const w2 = makeForce();
+    const owned = clusterRig(() => [w2.namer], { isOnLoan: lent() }, w2);
+    expect(owned.host.querySelector('.rl-loan')).toBeNull();
+  });
+
+  it('gives a lent chip the tab on its frame, and a chip with none lent nothing', () => {
+    const world = makeForce();
+    const r = clusterRig(
+      () => [...world.squads, world.at, world.namer],
+      { isOnLoan: lent(world.namer) },
+      world
+    );
+    expect(tab(chipOf(r, 'ifv_namer'))?.textContent).toBe(en['hud.onLoan']);
+    expect(tab(chipOf(r, 'ifv_namer'))?.classList.contains('rl-loan--tab')).toBe(true);
+    expect(chipOf(r, 'ifv_namer')?.dataset.loan).toBe('1');
+    for (const type of ['inf_squad', 'at_team']) {
+      expect(tab(chipOf(r, type)), type).toBeNull();
+      expect(chipOf(r, type)?.hasAttribute('data-loan'), type).toBe(false);
+    }
+  });
+
+  it('stamps a chip when ANY of its units is lent, and never splits it', () => {
+    const world = makeForce();
+    const r = clusterRig(() => [...world.squads, world.at], { isOnLoan: lent(world.squads[1]) }, world);
+    expect(r.chips().map((c) => c.dataset.type)).toEqual(['inf_squad', 'at_team']);
+    expect(tab(chipOf(r, 'inf_squad'))).not.toBeNull();
+    expect(chipOf(r, 'inf_squad')?.textContent).toContain('×2');
+  });
+
+  it('keeps the tab out of the name’s text flow and out of the status line (a long name must not wrap for it)', () => {
+    const world = makeForce();
+    const r = clusterRig(() => [...world.squads, world.at, world.namer], { isOnLoan: lent(world.namer) }, world);
+    const chip = chipOf(r, 'ifv_namer')!;
+    const stamp = tab(chip)!;
+    expect(stamp.parentElement).toBe(chip);
+    expect(stamp.closest('.rl-chip__top')).toBeNull();
+    expect(stamp.closest('.rl-chip__name')).toBeNull();
+    expect(stamp.closest('.rl-chip__status')).toBeNull();
+    // The name row reads exactly as it does with nothing on loan.
+    const plain = clusterRig(() => [...world.squads, world.at, world.namer], {}, world);
+    expect(chip.querySelector('.rl-chip__top')?.outerHTML).toBe(
+      chipOf(plain, 'ifv_namer')?.querySelector('.rl-chip__top')?.outerHTML
+    );
+  });
+
+  it('keeps the kit sign, the pinned mark and the stamp together, and the status line unchanged', () => {
+    const world = makeForce();
+    world.sim.state.pinned[world.namer] = 1;
+    const sel = (): number[] => [...world.squads, world.namer];
+    const base = clusterRig(sel, { kitLevelOf: (t) => (t === 'ifv_namer' ? 2 : 0) }, world);
+    const status = chipOf(base, 'ifv_namer')?.querySelector('.rl-chip__status')?.outerHTML;
+    const r = clusterRig(
+      sel,
+      { kitLevelOf: (t) => (t === 'ifv_namer' ? 2 : 0), isOnLoan: lent(world.namer) },
+      world
+    );
+    const chip = chipOf(r, 'ifv_namer')!;
+    expect(chip.querySelector('.rl-kit-host > .rl-kit-icon')?.getAttribute('data-kit')).toBe('2');
+    expect(chip.querySelector('.rl-kit-host > .rl-pin-mark')?.getAttribute('data-mark')).toBe('pinned');
+    expect(tab(chip)).not.toBeNull();
+    expect(tab(chip)?.closest('.rl-kit-host')).toBeNull();
+    expect(chip.querySelector('.rl-chip__status')?.outerHTML).toBe(status);
+    expect(chip.querySelector('.rl-chip__status')?.textContent).toContain('1 PINNED');
+  });
+
+  it('says "N of M on loan" and why in the chip tooltip, only on a stamped chip', () => {
+    const world = makeForce();
+    const r = clusterRig(() => [...world.squads, world.at], { isOnLoan: lent(world.squads[0]) }, world);
+    const tipOver = (type: string): string => {
+      chipOf(r, type)!.querySelector('.rl-chip__name > span')!.dispatchEvent(new Event('mouseover', { bubbles: true }));
+      return r.host.querySelector<HTMLElement>('.rl-tip')!.textContent!;
+    };
+    const lentTip = tipOver('inf_squad');
+    expect(lentTip).toContain('1 of 2 on loan');
+    expect(lentTip).toContain(en['hud.onLoan.tip']);
+    const plainTip = tipOver('at_team');
+    expect(plainTip).not.toContain('on loan');
+    expect(plainTip).not.toContain(en['hud.onLoan.tip']);
+  });
+
+  it('stamps nothing when the HUD has no isOnLoan dep', () => {
+    const world = makeForce();
+    const chips = clusterRig(() => [...world.squads, world.at, world.namer], {}, world);
+    expect(chips.host.querySelector('.rl-loan')).toBeNull();
+    expect(chips.host.querySelector('[data-loan]')).toBeNull();
+    const w2 = makeForce();
+    const card = clusterRig(() => [w2.namer], {}, w2);
+    expect(card.host.querySelector('.rl-loan')).toBeNull();
+  });
+});
+
 describe('the kit sign on the HUD’s icons (WP-S3g plan 2b)', () => {
   const levels =
     (map: Record<string, KitLevel>) =>

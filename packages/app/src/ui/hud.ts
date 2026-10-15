@@ -323,6 +323,10 @@ export interface HudDeps {
    *  own `LedgerRosterEntry` -- `main.ts` hands over the runtime's entry
    *  unchanged, and the widening is free because `slot` is optional. */
   rosterEntryOf?: (id: number) => Readonly<RosterEntry> | undefined;
+  /** True when this unit was issued for the mission and returns to its lender
+   *  afterwards (F3, `MissionRuntime.isOnLoan`). Absent -- a test, the sandbox,
+   *  a mission-less boot -- means never: nothing is stamped by omission. */
+  isOnLoan?: (id: number) => boolean;
   /** The memorial record for whoever last held this slot before it was
    *  refilled (WP-G-E4, R-6), or `undefined` if the slot has never been lost --
    *  the common case, and a fresh spawn's absent `entry.slot` never calls this
@@ -2252,6 +2256,7 @@ export class Hud {
         firepowerKilled: st.firepowerKilled[i] === 1,
         aboard: st.carriedBy[i] >= 0,
         own: isOwnSide(st.side[i], this.viewer),
+        onLoan: this.deps.isOnLoan?.(i) === true,
         ...(type.hasAps
           ? { aps: { ammo: st.apsAmmo[i], magazine: type.apsMagazine } }
           : {}),
@@ -2278,7 +2283,11 @@ export class Hud {
           // G-P3 "Tinted border": the chip root carries the level for
           // theme.css's per-level border tint. Absent at level 0, so an
           // unkitted chip is byte-identical to one drawn before the kit.
-          `${kit > 0 ? ` data-kit="${kit}"` : ''}>` +
+          `${kit > 0 ? ` data-kit="${kit}"` : ''}` +
+          // F3 Task 8 (C2): the "On loan" tab sits on the frame's top edge,
+          // so the root is positioned only for a chip that has one -- every
+          // other chip stays byte-identical to the one drawn before.
+          `${c.loaned > 0 ? ' data-loan="1"' : ''}>` +
           chipArtHtml(this.artHtml(c.typeId, c.bucket, 'rl-chip__art', CHIP_MARK, 'chip'), kit, c.mark) +
           `<div class="rl-chip__body">` +
           `<div class="rl-chip__top">` +
@@ -2295,7 +2304,12 @@ export class Hud {
           `<div class="rl-chip__status ${tone}"${
             c.mark === 'pinned' ? ' data-tip="pinned" tabindex="0"' : ''
           }>${c.status}${c.detail !== null ? ` <span class="rl-dim">· ${c.detail}</span>` : ''}</div>` +
-          `</div></div>`
+          `</div>` +
+          // A child of the chip FRAME, after the body: not in `.rl-chip__top`
+          // (the name column would lose its width and wrap, measured in the
+          // mock) and not in the status line (combat state only).
+          (c.loaned > 0 ? `<span class="rl-loan rl-loan--tab">${t('hud.onLoan')}</span>` : '') +
+          `</div>`
         );
       })
       .join('');
@@ -2314,7 +2328,14 @@ export class Hud {
     // the type-id lookup below, rather than in a second resolver.
     if (typeId === 'pinned') return t('hud.pinned.explain');
     const chip = this.chipViews.find((c) => c.typeId === typeId);
-    return chip ? t('hud.chip.selectOnly', { name: escapeHtml(chip.name), count: chip.count }) : null;
+    if (!chip) return null;
+    const base = t('hud.chip.selectOnly', { name: escapeHtml(chip.name), count: chip.count });
+    if (chip.loaned === 0) return base;
+    // Q3: every stamped chip says how many of it are lent, then why.
+    return (
+      `${base}<div class="rl-tip__blurb rl-dim">${t('hud.onLoan.some', { n: chip.loaned, count: chip.total })}</div>` +
+      `<div class="rl-tip__blurb rl-dim">${t('hud.onLoan.tip')}</div>`
+    );
   }
 
   /**
@@ -2509,6 +2530,9 @@ export class Hud {
       `<div class="rl-card__top">` +
       callsign +
       `<span class="rl-card__name${entry?.name ? ' rl-card__name--type' : ''}">${escapeHtml(type.name)}</span>` +
+      (this.deps.isOnLoan?.(id) === true
+        ? `<span class="rl-loan" title="${escapeHtml(t('hud.onLoan.tip'))}">${t('hud.onLoan')}</span>`
+        : '') +
       (vet > 0 ? `<span class="rl-commend">${'★'.repeat(vet)}</span>` : '') +
       (kitted ? `<span class="rl-card__kit">${kitPipsHtml(kit.pips)}</span>` : '') +
       `<span class="rl-card__hp rl-dim">` +

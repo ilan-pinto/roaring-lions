@@ -3089,6 +3089,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // before a runtime exists on some paths (`runtime` is set only `if
     // (mission)`, above), so this must read the variable at call time.
     rosterEntryOf: (id) => runtime?.rosterEntryOf(id),
+    // The same closure rule: `runtime` is read at call time. A sandbox has
+    // none, and then nothing is ever on loan.
+    isOnLoan: (id) => runtime?.isOnLoan(id) ?? false,
     // Reads `ledger`, this battlefield's own `const`: the campaign as it was
     // read at boot, never rebound. That is the right ledger mid-mission, when
     // the card is read: this mission's own losses reach `roster.lost` only
