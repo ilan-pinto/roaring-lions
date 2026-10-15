@@ -1,5 +1,6 @@
 /** The network hash (spec §3.4): `sim.hash()` folded with the mission
- *  runtime's digest (0 until N2 adds one) and the build's data digest, using
+ *  runtime's digest (0 until N2 adds one) and the client's own data digest
+ *  (L4: its content, not the room's `config.dataDigest`), using
  *  the same word fold as `packages/sim/src/hash.ts`. Reimplemented rather than
  *  imported: the sim barrel does not export its hash primitives, and net must
  *  not reach into sim internals. */

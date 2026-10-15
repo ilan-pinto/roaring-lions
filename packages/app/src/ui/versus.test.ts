@@ -56,7 +56,7 @@ function deps(overrides: Partial<VersusDeps> = {}): VersusDeps & { saved: string
 }
 
 const opened = (transport: WsTransport, over: Partial<OpenedRoom> = {}): OpenedRoom => ({
-  code: 'ABCDEF', seat: 0, transport, lobby: { seats: [SEATS_TWO[0]!], map: 'tel_marum', factions: ['kdf', 'kdf'] }, ...over,
+  code: 'ABCDEF', seat: 0, transport, lobby: { seats: [SEATS_TWO[0]!], map: 'tel_marum', factions: ['kdf', 'kdf'], kit: 'matched' }, ...over,
 });
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -196,7 +196,7 @@ describe('showVersus (/versus)', () => {
     stage.querySelector<HTMLButtonElement>('.rl-versus__open')!.click();
     await flush();
     expect(open).toHaveBeenCalledTimes(1);
-    expect((open.mock.calls[0] as [RoomRequest])[0]).toEqual({ kind: 'create', map: 'beit_sahwan_outskirts', matchup: 'mirror', callsign: 'Dov' });
+    expect((open.mock.calls[0] as [RoomRequest])[0]).toEqual({ kind: 'create', map: 'beit_sahwan_outskirts', matchup: 'mirror', kit: 'matched', callsign: 'Dov' });
     expect(d.navigated).toEqual([['/versus/ABCDEF', undefined]]);
   });
 
@@ -303,6 +303,71 @@ describe('showVersus (/versus)', () => {
     await flush();
     expect(fake.close).toHaveBeenCalledTimes(1);
     expect(d.navigated).toEqual([]);
+  });
+});
+
+// Per-seat kit: "Bring your brigade", a host's toggle for a friends' room.
+describe('bring your brigade: the host\'s toggle and the room\'s kit line', () => {
+  const toggle = (stage: ParentNode) => stage.querySelector<HTMLInputElement>('input.rl-versus__kit-toggle');
+
+  it('is on the host\'s create form only, unchecked, labelled friends-only through the catalogue', () => {
+    const stage = document.createElement('div');
+    showVersus(stage, deps());
+    const box = toggle(stage);
+    expect(box?.type).toBe('checkbox');
+    expect(box?.checked).toBe(false);
+    // Inside the host section's own field, not beside the join code.
+    const field = box!.closest('.rl-versus__field')!;
+    expect(field.textContent).toContain('Bring your brigade');
+    expect(stage.querySelector('.rl-versus__kit-note')?.textContent).toMatch(/friends only/i);
+    expect(stage.querySelectorAll('input.rl-versus__kit-toggle')).toHaveLength(1);
+    expect(missingKeys()).toEqual([]);
+  });
+
+  it('is not on the guest\'s direct-link join screen, nor in a lobby either seat sits in', async () => {
+    const guest = document.createElement('div');
+    room(guest, 'ABCDEF', deps());
+    expect(toggle(guest)).toBeNull();
+    const { stage } = await hostedRoom();
+    expect(toggle(stage)).toBeNull();
+  });
+
+  it('a checked toggle asks for a brigade room; unchecked asks for a matched one', async () => {
+    for (const [checked, kit] of [[true, 'brigade'], [false, 'matched']] as const) {
+      const { transport } = fakeTransport();
+      const open = vi.fn().mockResolvedValue(opened(transport));
+      const stage = document.createElement('div');
+      showVersus(stage, deps({ open }));
+      toggle(stage)!.checked = checked;
+      stage.querySelector<HTMLButtonElement>('.rl-versus__open')!.click();
+      await flush();
+      expect((open.mock.calls[0] as [RoomRequest])[0]).toMatchObject({ kind: 'create', kit });
+      // The room opened here is parked for its lobby; mounting it takes it, as the router would.
+      room(document.createElement('div'), 'ABCDEF', deps());
+    }
+  });
+
+  it('the room screen says what the kit rule is, to the host and to the guest alike, and updates with the lobby', async () => {
+    for (const kit of ['brigade', 'matched'] as const) {
+      const { transport } = fakeTransport();
+      const open = vi.fn().mockResolvedValue(opened(transport, { seat: 1, lobby: { seats: SEATS_TWO, map: 'tel_marum', factions: ['kdf', 'kdf'], kit } }));
+      const stage = document.createElement('div');
+      room(stage, 'ABCDEF', deps({ open }));
+      stage.querySelector<HTMLButtonElement>('.rl-versus__join')!.click();
+      await flush();
+      const line = stage.querySelector('.rl-versus__room-kit');
+      expect(line?.querySelector('.rl-versus__kit-name')?.textContent, kit).toBe(kit === 'brigade' ? 'Brigades (friends only)' : 'Standard kit for both');
+      expect(line?.getAttribute('data-kit')).toBe(kit);
+    }
+    expect(missingKeys()).toEqual([]);
+  });
+
+  it('a lobby repaint that carries the rule moves the line; textContent only', async () => {
+    const { fake, stage } = await hostedRoom();
+    expect(stage.querySelector('.rl-versus__room-kit')?.getAttribute('data-kit')).toBe('matched');
+    fake.hooks.onLobby?.(SEATS_TWO, 0, 'tel_marum', ['kdf', 'kdf'], 'brigade');
+    expect(stage.querySelector('.rl-versus__room-kit')?.getAttribute('data-kit')).toBe('brigade');
+    expect(stage.querySelector('.rl-versus__room-kit')?.innerHTML).not.toMatch(/<(?!\/?span)/);
   });
 });
 
@@ -588,7 +653,7 @@ describe('a lobby reload into a room that has already started (Task 7 review (g)
 describe('showVersusRoom by a direct link (the guest\'s path)', () => {
   it('asks for a callsign, joins this code, then shows the lobby on the same transport', async () => {
     const { fake, transport } = fakeTransport();
-    const open = vi.fn().mockResolvedValue(opened(transport, { seat: 1, lobby: { seats: SEATS_TWO, map: 'tel_marum', factions: ['kdf', 'kdf'] } }));
+    const open = vi.fn().mockResolvedValue(opened(transport, { seat: 1, lobby: { seats: SEATS_TWO, map: 'tel_marum', factions: ['kdf', 'kdf'], kit: 'matched' } }));
     const d = deps({ open, callsign: { get: () => '', set: () => {} } });
     const stage = document.createElement('div');
     const dispose = room(stage, 'ABCDEF', d);

@@ -127,7 +127,12 @@ export interface TileSurface {
 export function tileSurface(input: TerrainInput, x: number, y: number): TileSurface {
   const ti = y * input.width + x;
   const decorHere = input.decor ? input.decor[ti] : 0;
-  if (input.blocked[ti] !== 0) return decorHere === DECOR_RIDGE ? { kind: 'rock', strength: 1 } : { kind: 'pad', strength: 0 };
+  // A `^` tile is ROCK by its symbol, not by the mask: the draw mask may
+  // stop terracing a ridge tile (a tell's crown drawn as a smooth summit),
+  // and it is still bedrock. Neutral on every shipped map today, where a
+  // ridge tile is always blocked (`rock-keying.test.ts` pins that).
+  if (decorHere === DECOR_RIDGE) return { kind: 'rock', strength: 1 };
+  if (input.blocked[ti] !== 0) return { kind: 'pad', strength: 0 };
   if (decorHere === DECOR_ROAD) return { kind: 'road', strength: 1 };
   if (decorHere === DECOR_GROVE) return { kind: 'grove', strength: 1 };
   if (decorHere === DECOR_KNOLL) return { kind: 'knoll', strength: 1 };

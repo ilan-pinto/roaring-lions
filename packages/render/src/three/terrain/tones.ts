@@ -179,10 +179,12 @@ export function groundTone(
   const rnd = tileHash(x, y);
   const decorHere = input.decor ? input.decor[ti] : 0;
 
+  // A `^` tile takes the ridge tone by its symbol, not by the mask -- see
+  // `tileSurface` (`control-map.ts`) for why.
+  if (decorHere === DECOR_RIDGE) {
+    return quantise(composite(background, tones.rock, 0.92), palette);
+  }
   if (input.blocked[ti] !== 0) {
-    if (decorHere === DECOR_RIDGE) {
-      return quantise(composite(background, tones.rock, 0.92), palette);
-    }
     const openWash = composite(background, tones.open, 0.92 + rnd * 0.08);
     return quantise(composite(openWash, tones.underBuilding, 0.22), palette);
   }

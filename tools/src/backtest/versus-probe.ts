@@ -94,7 +94,7 @@ export interface PlayOptions {
   cutSide?: 0 | 1;
 }
 
-function world(mapId: MapId, seed: number) {
+export function world(mapId: MapId, seed: number) {
   const map = parseMap(maps[mapId]);
   const sim = new Sim({ seed, width: map.width, height: map.height, capacity: 256 });
   applyTerrain(map, sim);
@@ -105,7 +105,7 @@ function world(mapId: MapId, seed: number) {
 }
 
 /** The raw Q16.16 centroid of a side's living units, or null when none live. */
-function centroid(sim: Sim, side: number): [number, number] | null {
+export function centroid(sim: Sim, side: number): [number, number] | null {
   let x = 0;
   let y = 0;
   let n = 0;

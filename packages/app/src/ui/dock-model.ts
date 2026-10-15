@@ -105,8 +105,9 @@ export interface TileState {
    *  `lock`: a campaign lock outranks it (`popCapped` only speaks when the gate
    *  and the camp did not), so a locked tile reads its lock, never "pop full".
    *  `short` fits the tile; `full` is the numbers sentence (`title`, the rich
-   *  tip, the click's note). */
-  capped: { short: string; full: string } | null;
+   *  tip, the click's note); `title` is the same sentence WITHOUT the unit's
+   *  name, for the tile's `title`/`aria-label`, which already open with it. */
+  capped: { short: string; full: string; title: string } | null;
   queue: QueueState | null;
 }
 
@@ -272,7 +273,7 @@ export function tileState(
   // too: a lock is the more useful thing to read, and "pop full" on a unit the
   // campaign has not opened would be a second, wrong reason.
   if (sentence === null && view.popCapped?.(unit.id) === true) {
-    return { affordable, lock: null, capped: { short: t('dock.cap.short'), full: capSentence(unit, view) }, queue: queueFor(view, unit.id) };
+    return { affordable, lock: null, capped: { short: t('dock.cap.short'), full: capSentence(unit, view, true), title: capSentence(unit, view, false) }, queue: queueFor(view, unit.id) };
   }
   return {
     affordable,
@@ -289,11 +290,14 @@ export function tileState(
  * without saying how full gets the short label's own words: the sim's English
  * (`population cap reached (...)`) never reaches the player by construction.
  */
-function capSentence(unit: DockUnit, view: DockView): string {
+function capSentence(unit: DockUnit, view: DockView, named: boolean): string {
   const pop = view.populationView?.() ?? null;
   if (pop === null) return t('dock.cap.short');
   if (pop.used < pop.cap) {
-    return t('dock.cap.need', { used: pop.used, cap: pop.cap, name: unit.name, need: unit.population ?? 1 });
+    const need = unit.population ?? 1;
+    return named
+      ? t('dock.cap.need', { used: pop.used, cap: pop.cap, name: unit.name, need })
+      : t('dock.cap.needTitle', { used: pop.used, cap: pop.cap, need });
   }
   return t('dock.cap.full', { used: pop.used, cap: pop.cap });
 }

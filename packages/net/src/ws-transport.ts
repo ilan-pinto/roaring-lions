@@ -10,7 +10,7 @@ import type { Faction, MatchConfig, Seat } from './config';
 import type { AdvisorMsg, AdvisorScope } from './advisor';
 import type { Frame } from './frames';
 import { LockstepClock } from './lockstep';
-import { parseServerMsg, type ClientMsg, type SeatState, type ServerMsg } from './protocol';
+import { parseServerMsg, type ClientMsg, type LobbyKit, type SeatState, type ServerMsg } from './protocol';
 import type { MatchTransport, TransportStatus } from './transport';
 
 /** The room's `ACK_EVERY`: a seat acks the last tick of every ten it ran. */
@@ -39,8 +39,9 @@ export interface SocketLike {
 }
 
 export interface WsTransportHooks {
-  /** `factions`, by seat: the room's matchup (absent from an older room: the mirror). */
-  onLobby?(seats: SeatState[], you: Seat, map: string, factions?: [Faction, Faction]): void;
+  /** `factions`, by seat: the room's matchup (absent from an older room: the mirror).
+   *  `kit`: the room's kit rule, named only for `brigade` (absent is matched). */
+  onLobby?(seats: SeatState[], you: Seat, map: string, factions?: [Faction, Faction], kit?: LobbyKit): void;
   onStart(config: MatchConfig): void;
   onDesync?(tick: number, hashes: [number, number]): void;
   onEnded?(reason: string, seat?: Seat): void;
@@ -254,7 +255,7 @@ export class WsTransport implements MatchTransport {
           if (this.droppedAt !== null) this.setAdvisors([null, null]);
           this.relinked(); this.setStalled(null); this.st = { kind: 'waiting' };
         }
-        this.hooks.onLobby?.(msg.seats, msg.you, msg.map, msg.factions);
+        this.hooks.onLobby?.(msg.seats, msg.you, msg.map, msg.factions, msg.kit);
         return;
       case 'start':
         this.begin(msg.config);

@@ -247,7 +247,11 @@ describe('tileState', () => {
       view({ buildBlockedReason: () => 'population cap reached (12/12)', popCapped: () => true, ...pop(12, 12) })
     );
     expect(state.lock).toBe(null);
-    expect(state.capped).toEqual({ short: 'pop full', full: 'Population 12/12. A unit must fall first.' });
+    expect(state.capped).toEqual({
+      short: 'pop full',
+      full: 'Population 12/12. A unit must fall first.',
+      title: 'Population 12/12. A unit must fall first.',
+    });
   });
 
   it('is not capped when the runtime does not say so, however the reason reads', () => {
@@ -278,6 +282,8 @@ describe('tileState', () => {
       view({ buildBlockedReason: () => 'population cap reached (11/12)', popCapped: () => true, ...pop(11, 12) })
     );
     expect(state.capped?.full).toBe('Population 11/12. Eitan APC needs 2.');
+    // The nameless twin, for a label that opens with the name already.
+    expect(state.capped?.title).toBe('Population 11/12; needs 2.');
     expect(state.capped?.short).toBe('pop full');
   });
 
@@ -286,7 +292,7 @@ describe('tileState', () => {
       unit(),
       view({ buildBlockedReason: () => 'population cap reached (12/12)', popCapped: () => true })
     );
-    expect(state.capped).toEqual({ short: 'pop full', full: 'pop full' });
+    expect(state.capped).toEqual({ short: 'pop full', full: 'pop full', title: 'pop full' });
     expect(JSON.stringify(state)).not.toContain('population cap reached');
   });
 
