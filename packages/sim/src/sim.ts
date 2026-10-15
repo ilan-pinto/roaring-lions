@@ -418,9 +418,11 @@ export interface UnitType {
    * which is four men and a tube, does. Deriving this from the role would
    * drive a rocket truck through terrain that stops a jeep. The default is
    * `!FOOT_ROLES.has(role)`, and only a unit the default gets wrong says so
-   * in JSON. Two do, one each way: `rocket_battery` (`wheeled: true`), and
-   * `manpad_team` (`wheeled: false`, GH-247) -- two men and a launcher, whose
-   * role `aa` cannot join FOOT_ROLES because `gun_truck` declares it too.
+   * in JSON. Three do: `rocket_battery` (`wheeled: true`); `dozer_d9`
+   * (`wheeled: true`, GH-598) -- a tracked bulldozer whose role `engineer` is
+   * shared with three foot teams; and `manpad_team` (`wheeled: false`,
+   * GH-247) -- two men and a launcher, whose role `aa` cannot join FOOT_ROLES
+   * because `gun_truck` declares it too.
    */
   wheeled: boolean;
   /**

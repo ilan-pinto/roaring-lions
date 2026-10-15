@@ -96,8 +96,8 @@ describe('per-type ring radius', () => {
     expect(byUnit('mortar_team')?.ringClass).toBe('foot');
   });
 
-  it('dozer_d9 is classed foot by the sim and light by the render-side override', () => {
-    expect(ringClassOf(unitTypeFromJson(units.dozer_d9 as unknown as UnitTypeJson))).toBe('foot');
+  it('dozer_d9 is classed armour by the sim (GH-598) and light by the render-side override', () => {
+    expect(ringClassOf(unitTypeFromJson(units.dozer_d9 as unknown as UnitTypeJson))).toBe('armour');
     expect(byUnit('dozer_d9')?.ringClass).toBe('light');
   });
 
