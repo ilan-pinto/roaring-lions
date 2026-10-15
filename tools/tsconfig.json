@@ -1,4 +1,9 @@
 {
   "extends": "../tsconfig.base.json",
-  "include": ["src"]
+  // tools imports app sources (mesh-catalogue, shell/links, ui/portrait, ...)
+  // that read `import.meta.env` / `import.meta.glob` and the build-time
+  // globals vite injects. The app declares those in its own vite-env.d.ts;
+  // without it here, `tsc -p tools` reports them as missing (6 errors) while
+  // the root program -- which includes that file -- stays green.
+  "include": ["src", "../packages/app/src/vite-env.d.ts"]
 }

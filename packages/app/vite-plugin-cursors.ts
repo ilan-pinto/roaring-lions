@@ -99,10 +99,10 @@ import {
   cursorKey,
   type CursorName,
   type UnbadgedName,
-} from './src/input/cursor';
-import { HOTSPOT, ORDER_SIGHT, SIGHT_BOX, SIGHT_KEYS, sightFrame, type SightOrderId, type SightPaint } from './src/ui/order-sight';
-import type { RoleBucket } from './src/ui/role';
-import { symbolBody } from './src/ui/symbol';
+} from './src/input/cursor.ts';
+import { HOTSPOT, ORDER_SIGHT, SIGHT_BOX, SIGHT_KEYS, sightFrame, type SightOrderId, type SightPaint } from './src/ui/order-sight.ts';
+import type { RoleBucket } from './src/ui/role.ts';
+import { symbolBody } from './src/ui/symbol.ts';
 
 interface PaletteBand {
   colors: Record<string, string>;
