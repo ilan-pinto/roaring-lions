@@ -699,7 +699,8 @@ export class MissionRuntime {
    *  The build queue goes in array order (the order `requestBuild` pushed it),
    *  each entry as its unit id's characters, then its start and ready ticks.
    *  Then (F1 Task 3, F-R3) the settled first identifications: their count, then
-   *  their entity ids ascending. */
+   *  their entity ids ascending. Last (F3 Task 4): both sides' population and
+   *  both caps, null as -1. */
   economyHash(): number {
     let h = HASH_SEED;
     h = hashWord(h, this.logisticsValue | 0);
@@ -728,6 +729,17 @@ export class MissionRuntime {
       h = hashWord(h, id);
       h = hashWord(h, this.spawnRise[id]);
     }
+    // F3 Task 4 (GH-183, G3 Q4): population is economy state. Appended LAST, after
+    // every earlier fold, so F1's order is untouched and the new words sit at the
+    // tail. Both sides' population (integers: sums of `UnitType.population`, queued
+    // builds included for side 0), then both caps as int32 with null (uncapped) as
+    // -1, a value no real cap can equal (caps are integers >= 1).
+    h = hashWord(h, this.population(0));
+    h = hashWord(h, this.population(1));
+    const cap0 = this.popCap(0);
+    const cap1 = this.popCap(1);
+    h = hashWord(h, cap0 === null ? -1 : cap0 | 0);
+    h = hashWord(h, cap1 === null ? -1 : cap1 | 0);
     return h >>> 0;
   }
 
