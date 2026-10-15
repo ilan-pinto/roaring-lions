@@ -1,0 +1,48 @@
+{
+  "request": {
+    "mode": "refine",
+    "preview_task_id": "01a13e72-f5e5-7552-89c3-8028bfabf87f",
+    "texture_resolution": "8k"
+  },
+  "response": {
+    "id": "01a13e76-d0d1-7303-a8fb-41b4905df884",
+    "type": "text-to-3d-refine",
+    "mode": "refine",
+    "name": "",
+    "model_type": "standard",
+    "seed": 3994137556,
+    "prompt": "A long straight low barrier three times as long as it is deep: exactly three cube-shaped earth-filled gabion cells in one straight row, each cell 1 metre wide, 1.05 metres deep and 1.37 metres tall, square corners, square flat ends. Each cell is a welded steel wire-mesh cage of small square grid lined with tan heavy geotextile fabric and packed full with brown earth and gravel right up to the top rim, open at the top so the fill shows from above, a folded fabric lip at the rim, the sides bulging slightly outward, spiral steel joining pins at the two seams, dusty. Total 3 metres long, 1.05 metres deep, 1.37 metres tall. Tan geotextile, grey galvanised wire, brown earth. Plain even lighting, no ground, no plinth, centred, one object. No text, stencils, numerals or markings.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1792049336538,
+    "progress": 100,
+    "started_at": 1792049336541,
+    "finished_at": 1792049508181,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a13e76-d0d1-7303-a8fb-41b4905df884/output/model.glb?Expires=4945622400&Signature=NoNMzTsmoWvzWGt-01HeXH13s6eAZmkINNZ9kfYGDjrsE~tl-JRYLaFCxyLWVmO26Ji~BYE3xxA8d6G7gH0yoKSuVA2GJsde5Z-O1lbuRtHWfy56I6w9ywW9YM~6vp8c-pQaXPLtl5AolXs-Wqd3zkjgoYh8Wu1iOUFPrTe4uza1N~M790ELAy5V9yizhBZD6OOj6AkJVCVGiTI2kbSjVIC-Qnq5lObbgE2TM5X7ntQ1te4v6LVn7PT4OjckzwmjoA9WENhGF01TJSOZBp4U-AqxugfdE8Y31RcLcmiDP4deEqPYM1ohnaXEsFXv6ixYnP2Yd2rrO-5Onbr1kDG5OA__&Key-Pair-Id=K1VGYTHIYLM9UM",
+      "fbx": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a13e76-d0d1-7303-a8fb-41b4905df884/output/model.fbx?Expires=4945622400&Signature=civk64tGdyqCAU~8Hi-yWvOkBZb04EhSbLAjNXOJpHvwzcN0r0F1Z8vYB52OcJ4NqLpcb6S8RPCg97z2qEydrWEHX0nCIii4cthSsrTAP1izTQh65tCcVhT7vXqrsdfbvhfxQeB7LMtBsuQjQ2EU7CzRrL9njXTbXUA3hq2OWnzNHOq-VFVA55CIkpbS19SdTat4DOpPRPid52i1Wipdo6sFXWeb9QybUemdr8Zjpb7fNZ3~kpUq5RTi44oR3E3kdCYt0~ZSbybmqV~syF54EIOmIseJBH41YnZ1eqAree-LsDKiI3Zr~v5ad~edwBDTD79VwydWlTKxYaYPUzZCng__&Key-Pair-Id=K1VGYTHIYLM9UM",
+      "usdz": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a13e76-d0d1-7303-a8fb-41b4905df884/output/model.usdz?Expires=4945622400&Signature=Yo5trl4q2qajgH7SX7gm~ydh752fNeOkcWZsBAR26eQGMszzxif9HagfU2jrOVYyleWaxI08rhUdF1fiRIyLgiXar1Vf2fGsPtS0iIhwyAXC90cpPUZ5NmwSvkcrQa168QOpELq29jx3wtqhrxMM0sEjP2xXPedAGyruW3YT-I6prgRDiS-YJGsNZGM5D39jLE0FY~Ada9K~VWZLpgZk9h7piPWMkkEy44T-3p~qrNjZxV7zdYsNSedMBwRtookRi8qUYXRfdCoJpgHFr2QD7pV3HGQT~J5rw3C4nl5n18pEUMCrhm1IISSlhBAPdvS8Yk8S2qwog24uhCulzF3z6w__&Key-Pair-Id=K1VGYTHIYLM9UM",
+      "obj": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a13e76-d0d1-7303-a8fb-41b4905df884/output/model.obj?Expires=4945622400&Signature=KCnIFn36~qtkhtyJITN9dbT4c~ljH-~JfulLdkhuNCBkjSuo0-1ZN0sgckZMy5Z8C27aN9up4Xkyt~lE1EX4IcJXJBLD4MUeD2QnTLVNqE6Lac3-K5niVwt3kZ17Fk9Z9JpBIIXX6hdv58lDuc9Cs5y1r-OsMPH42IfOXfBtdRrcuc98d7N3mGLcc8rIIr-dJaxZjm0dTC9PVlBah-1zE-QFoCYqkrMdFPvjzFUO~p1YhRZ9zCpfQShBb9wESxRIROIriuxCN92f37iEnZBaRoUJkoaW9LsijaVwvV1Qw9woyesT3d0GU-KEAGV8odc2-nCm3HyXihyQIKMFbu6Q8w__&Key-Pair-Id=K1VGYTHIYLM9UM",
+      "mtl": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a13e76-d0d1-7303-a8fb-41b4905df884/output/model.mtl?Expires=4945622400&Signature=dMbD7HJumMR1Jrmdf-cY4RSCS7dAu7JutqGBU3NLG8dZ365wZHsqvCxA2jOyqeP8fFsrff0CsIxTXCpLU-wJUOXpDrfw4Ibf7YGVW5einxrpkOSFZUfKtlNgR7vxS0b4i0~yRA8LuKR8TVWNpawWH4TbZzL7wMCU5br319KlceYvxy283GeI6uP24t~DZ6WMzr~NJsYpR2SQODpIzmSMtj5pmVEbISEWDyaEKOg6KlKiyLqT0gKoNgCv9i86UmRHYk62omEVCXtS1KR8WandHsAxy0uOPRUnB0KgGVAR55LWgX7k6ZW032KM0jIOvpVtPVWyd57Bk6HN-EgnOa~yPQ__&Key-Pair-Id=K1VGYTHIYLM9UM",
+      "stl": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a13e76-d0d1-7303-a8fb-41b4905df884/output/model.stl?Expires=4945622400&Signature=qoz~SqMH1thgxWYASVDqKkXS6FStFqkXOoOOTPsXp-Xn5jNx6yxOQ0typlAmAD~oEHO~oa3f3InagIVs0wtlVEvC6F8j42b6BM5SmA-UFHzzXoHRHgnuc6N7YoF8SHZLq4BkAaScYztemYjIYGlY829XCMkLjx01kuXuOEomfqH9AZvtl3GnM70w5bKjpm2QloA0OqHpwzNuZyKvQSzYO1SxcyyMOGTmGZ8pSRouZZ7jToJ1Wc9GeIuk57SIMDLCBrecUs4qNuE~iL2xTB~sF2bozieuy6I3ZIWJ1vMhAIc~Zm0KlUuzLSSyPz9S999MgHGEQDz7~ughMzpGTUlGag__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a13e76-d0d1-7303-a8fb-41b4905df884/output/preview.png?Expires=4945622400&Signature=PnF4VCz-lXM3KmFecoFdsIBAd9-ryIgo-YGGmZL5APjGU~Ro1UZcAse1VbqgeCAD2eXXTke2FNwyibprYYuH1yz6LW062T2wtkniFBuCzYg84eoI4fcCSVyH0oxRXaW0e3c3b9nVTDHBB~DvWOiyzejY7lzOniLggxI2~8pGPcwVE8VMsK0RM3m4LH1v~~jJ15Y8YdWAOXjUordrPqcV0MtmrFOhffKyQIuu0VzUOECxUX5Fr1VEA6yy8OS1JTiV2VM~mR7h4azofrfqW-eFMZOQO42U5omNzeyWfU3mthuSjYguzhsBjFjicmy0nBUf7Z3D4tYzH7hkXiTw2tBYog__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [
+      {
+        "base_color": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a13e76-d0d1-7303-a8fb-41b4905df884/output/texture_0.png?Expires=4945622400&Signature=X34ar-PUQapMhDbauxsN4tKnOkEbDSXc2ZLVGEY91UzY4tkFD68xnflEPD5cqOZQ6P8bZFCcxnQi5GGATnpFuiBlEBwPLGJNCrd04L3oep4mzymXEReWplRr3GT7VzQc6cssTwxH8ZofbmvF9MEpXxff5~YD2vvzsB6RH3Z~Z0CIoySoVSNv1RqNtpqPs8QTuQbjxOef~SQKR-yr-RJv7lzM-~DahVaokYhkoKxg0I9tPzgSMLD3TvgwDxkmtHCv0m9RmWz3rYOh0bc6CHPA4Zb1e40AtgBpuosLb~Hybl2DUn0vwL0flPyjoVC0L0g4Bh0u4rwmQ-swmFZ7fWuP6A__&Key-Pair-Id=K1VGYTHIYLM9UM"
+      }
+    ],
+    "hd_texture": true,
+    "texture_resolution": "8k",
+    "consumed_credits": 15
+  },
+  "consumed_credits": 15,
+  "timestamps": {
+    "created_at": 1792049336538,
+    "started_at": 1792049336541,
+    "finished_at": 1792049508181
+  },
+  "usd_estimated": 0.3
+}

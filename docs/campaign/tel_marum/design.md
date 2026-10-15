@@ -750,7 +750,8 @@ wells, the post over the crest line, the hamlet, the depot.
 
 **What the force is, and the one hole.** `starting_force` **never consults a
 unit's `unlock` gate** (`spawnPlacement` has no equivalent of `requestBuild`'s
-`buildBlockedReason`) — a known hole every shipped mission already relies on. What
+`buildBlockedReason`) — a known hole every shipped mission already relies on
+(Superseded 2026-10-15 (F3, G3 Q5): a feature, not a hole: a gated placement is on loan for that mission and returns afterwards; Conduct floors now dozer_d9 87, demo_squad 77, recon_drone 70, ifv_namer 85.). What
 a campaign arriving here plausibly holds is not in doubt: Act I's and Tel Marum's
 plans measured ROE **75 / 100 / 100 / 94 / 98 / 100 / 100 / 100** this session, a
 mean of ~96, well past every threshold. So `demo_squad` (50), `mbt_lavi` (55),

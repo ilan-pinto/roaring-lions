@@ -1,0 +1,46 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A long straight low barrier three times as long as it is deep: exactly three cube-shaped earth-filled gabion cells in one straight row, each cell 1 metre wide, 1.05 metres deep and 1.37 metres tall, square corners, square flat ends. Each cell is a welded steel wire-mesh cage of small square grid lined with tan heavy geotextile fabric and packed full with brown earth and gravel right up to the top rim, open at the top so the fill shows from above, a folded fabric lip at the rim, the sides bulging slightly outward, spiral steel joining pins at the two seams, dusty. Total 3 metres long, 1.05 metres deep, 1.37 metres tall. Tan geotextile, grey galvanised wire, brown earth. Plain even lighting, no ground, no plinth, centred, one object. No text, stencils, numerals or markings.",
+    "negative_prompt": "two cells, four cells, rounded ends, oval, cylinder, cage taller than the fill, empty cage, half-filled, lid, plates on top, panels on top, debris on the ground, gravel apron, square plan, single long box, solid concrete wall, brick, stone, sandbags, roof, plants, grass, fence, chain-link panel, posts, wooden crate, pallet, stencil, text, numbers, lettering, flag, emblem, logo, ground plane, base plate, plinth, baked shadow, people, vehicle",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a13e72-f5e5-7552-89c3-8028bfabf87f",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 3994137556,
+    "prompt": "A long straight low barrier three times as long as it is deep: exactly three cube-shaped earth-filled gabion cells in one straight row, each cell 1 metre wide, 1.05 metres deep and 1.37 metres tall, square corners, square flat ends. Each cell is a welded steel wire-mesh cage of small square grid lined with tan heavy geotextile fabric and packed full with brown earth and gravel right up to the top rim, open at the top so the fill shows from above, a folded fabric lip at the rim, the sides bulging slightly outward, spiral steel joining pins at the two seams, dusty. Total 3 metres long, 1.05 metres deep, 1.37 metres tall. Tan geotextile, grey galvanised wire, brown earth. Plain even lighting, no ground, no plinth, centred, one object. No text, stencils, numerals or markings.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1792049085342,
+    "progress": 100,
+    "started_at": 1792049085350,
+    "finished_at": 1792049209004,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a13e72-f5e5-7552-89c3-8028bfabf87f/output/model.glb?Expires=4945622400&Signature=hqfM~CRWUUVUqmZCES6dn0T0CzRaWBxnap3rfq9BZRdGhWry8HgRrV06ug9BKOKj0TqN5wgJ7YEF7-iXWwkm~n0Z6RGb0iqxJEtt-3T2XS9CEZcvpoe0d5vSkIIxhvoZye1SyIWVUoM~C5UkFPV2u3kPF5SQJquxCmuXvg4nG7EnkiGVgqq8dJF933-5cxwtbzKmumncYjbcGuOGRl9YRQ7Opix9lkCTua3REmDFCylMfzawPHoDlnIOBaKx8ly3KWBJVBkwCWlw13cMSlseZZm6-54Q1RbaxWSvJ1JsBrVxH~OYVA7kbEO1Av2p8opNhf~zr9U7wHHdNEfccWFGZA__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a13e72-f5e5-7552-89c3-8028bfabf87f/output/preview.png?Expires=4945622400&Signature=QwQLzpl9GKPq-B51zEb3EQz1~b59MD4QAyQV~bMOnme2Cc74ak4afUIlE1xJMAW-O3y3zMAwvo0I6znKn3C~owf2FBgmQqAIC-dpSM1UIQsQ2JmUxVGGnsMFwl9ffQPwBNn1S2O80EjCfS9FIjaf9TlyjvMFm5cztqyDAzVgbqiFUAmAuw0M-LQ-~5~AHjWQJAufQQFjVhPVgagL6UizGqHS09k9CPvgDM5XBiIj8uf7S0wM21Dj2hsvlYqnlhLcB0PF5iawBLEIYFP7uwcOgjExqFTPLOb~Uev4tgles73CjQqL9a8JC7XBdaWCP0WNg9ahxjisL9AUee2zK5FwvA__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1792049085342,
+    "started_at": 1792049085350,
+    "finished_at": 1792049209004
+  },
+  "usd_estimated": 0.4
+}

@@ -572,7 +572,7 @@ families.
 | mission start | `title` | system | `Wadi Halam IV — Wadi Halam` · *2 primary objectives* (*3* under C) | shipped | live |
 | mission start | `brief` | Shai / Idit | beats 1–3, §4.2 | | live |
 | `objective(take_village, complete)` | `toast` | system | `OBJECTIVE COMPLETE — Clear and hold the village for 20 seconds` | shipped | live |
-| `objective(take_village, complete)` | `radio` | **net** | "Village is held. Four houses, four cells, and none of them left it." | `objectives[].say`; flat, because taking the village is the *smaller* half of this mission | live |
+| `objective(take_village, complete)` | `radio` | **net** | "Village is held. Every cell under a roof we left standing is still at its window." | `objectives[].say`; flat, because taking the village is the *smaller* half of this mission | live |
 | `objective(kill_cache_guard, complete)` | `toast` | system | `OBJECTIVE COMPLETE — Kill or capture the quartermaster holding Hallaq's cache` | **applied this pass** | live |
 | `objective(kill_cache_guard, complete)` | `radio` | **Idit** | "That is not a fighter, that is a book-keeper with a launcher. What he was holding names the depot east of here and says how much of it is still full." | `objectives[].say`; the line that turns mission V from a map into a consequence | live |
 | `objective(evac_families, complete)` | `toast` | system | `OBJECTIVE COMPLETE — Shepherd the families to the refuge before the road closes` | shipped | live |

@@ -22,6 +22,8 @@ import type { RenderQuality } from './quality';
 import type { LightOverride, TimeOfDay } from './three/time-of-day';
 // Three-free too (`three/units/building-fit.ts` imports nothing).
 import type { BuildingFit } from './three/units/building-fit';
+// Three-free too (`three/units/kit-template-key.ts` imports nothing).
+import type { KitTiers, KitTiersBySide } from './three/units/kit-template-key';
 
 export type { LightOverride, TimeOfDay } from './three/time-of-day';
 export type { BuildingFit } from './three/units/building-fit';
@@ -158,6 +160,22 @@ export interface OpenScatter {
  * (GH-322).
  */
 export type GroveFamily = 'tree' | 'desert_tree' | 'cedar';
+
+/**
+ * The ring(s) under an armed fire-support cursor (GH-113, S-F Task 1). `x`/`y`
+ * the ground point the click would land on, `radius` the outer footprint in
+ * tiles. `kind` picks the ring style and defaults to `strike` (one `vfx.fire`
+ * ring, the original); `barrage` adds an inner `vfx.ember` ring at `scatter`
+ * tiles (where its rounds land, inside the splash that `radius` reaches);
+ * `smoke` is one `limestone.0` ring. `scatter` is read only for `barrage`.
+ */
+export interface AimFootprint {
+  readonly x: number;
+  readonly y: number;
+  readonly radius: number;
+  readonly kind?: 'strike' | 'barrage' | 'smoke';
+  readonly scatter?: number;
+}
 
 export interface RendererOptions {
   background: string;
@@ -359,8 +377,23 @@ export interface RendererOptions {
    * on the field. The app fills it from `upgradePrepass`, the same per-type
    * tiers the sim's unit types were patched with. Three-only:
    * `PixiRenderer` has no mesh path and ignores it, like `shellColors`.
+   *
+   * Side 0's table. With no `unitKitTiersBySide` (single-player, a mission,
+   * the sandbox) every side reads it and every type has ONE template, as it
+   * always has.
    */
-  unitKitTiers?: Readonly<Record<string, Readonly<Record<string, number>>>>;
+  unitKitTiers?: KitTiers;
+  /**
+   * A versus room's two seats' tiers, side 0's then side 1's, from the room's
+   * world (per-seat kit plan, Task 6; `app/net/room-kit.ts`). Given, it wins
+   * over `unitKitTiers` for both sides, and a type whose side-1 tiers differ
+   * from side 0's gets a second template, keyed `${id}#s1`
+   * (`three/units/kit-template-key.ts`'s `templateKey`), so each side's hull
+   * wears the kit its own sim type runs. A type whose two tiers agree --
+   * every type in a matched room -- shares one template and loads nothing
+   * new.
+   */
+  unitKitTiersBySide?: KitTiersBySide;
 }
 
 /** One outlined objective zone: its rect in tiles and how it is going. */
@@ -601,13 +634,16 @@ export interface Renderer {
    *  has no range-envelope redesign and ignores this, exactly as it ignores
    *  `objectiveZones` above. `main.ts` writes it unconditionally. */
   rangeRingPreview?: number;
-  /** GH-113: the precision strike's splash under the armed cursor, in tiles --
-   *  `x`/`y` the ground point the click would land on, `radius` the splash.
-   *  An ORDER PREVIEW, never a status mark: the app writes it every frame
-   *  while the strike is armed and `null` the moment it is not (spent,
+  /** GH-113 / S-F: the armed fire-support call's footprint under the cursor, in
+   *  tiles -- `x`/`y` the ground point the click would land on, `radius` the
+   *  outer footprint (the strike's splash, the barrage's reach, the smoke
+   *  screen's cloud). An ORDER PREVIEW, never a status mark: the app writes it
+   *  every frame while a call is armed and `null` the moment it is not (spent,
    *  cancelled, or the screen torn down). Optional on the seam like
-   *  `rangeRingPreview`; absent or `null` draws nothing. */
-  aimFootprint?: { readonly x: number; readonly y: number; readonly radius: number } | null;
+   *  `rangeRingPreview`; absent or `null` draws nothing.
+   *
+   *  S-F Task 1: the rings are per kind -- see `AimFootprint`. */
+  aimFootprint?: AimFootprint | null;
   objectiveZone: readonly number[] | null;
   objectiveZoneState: 'held' | 'unheld' | 'contested';
   /** Every active objective that is about a piece of ground, not only the

@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
 import { MAX_LATERAL } from './formation';
-import { MAX_FLOW_FIELDS, Sim, TICKS_PER_SECOND, type SimEvent, type UnitTypeJson } from './sim';
+import {
+  MAX_FLOW_FIELDS,
+  Sim,
+  TICKS_PER_SECOND,
+  unitTypeFromJson,
+  type SimEvent,
+  type UnitTypeJson,
+} from './sim';
 
 // Minimal schema-shaped types for exercising the core. Combat stats are
 // present but only movement/detection-agnostic behaviour is tested here.
@@ -511,5 +518,44 @@ describe('formation on arrival', () => {
       22, 23, 24, 25, 26, 27, 28,
     ]);
     expect(fx.toInt(sim.state.posX[rank1[0]])).toBe(25);
+  });
+});
+
+// Population (`cost.population`, schema default 1; spec plan 2026-10-04 F3 D1).
+// Parsed here, read by no sim system yet. Every expected value is a literal.
+// The fixture is an infantry foot unit (`role: 'infantry'`): population does not
+// depend on the role, the fixture just has to not be a wheeled-by-default vehicle.
+describe('unit population (cost.population)', () => {
+  const FOOT: UnitTypeJson = {
+    id: 'test_pop_foot',
+    role: 'infantry',
+    hull: { hp: 100, armor: { front: 10, side: 10, rear: 10 } },
+    mobility: { speed_tiles_s: 2.0 },
+    sensors: { optics: 1.0, sight_tiles: 8, signature: 0.6 },
+    weapons: [],
+  };
+
+  it('reads cost.population from the JSON', () => {
+    expect(unitTypeFromJson({ ...FOOT, cost: { population: 3 } }).population).toBe(3);
+  });
+
+  it('defaults to 1 when the cost block is absent (the schema default)', () => {
+    expect(unitTypeFromJson(FOOT).population).toBe(1);
+  });
+
+  it('defaults to 1 when the cost block has no population field', () => {
+    expect(unitTypeFromJson({ ...FOOT, cost: {} }).population).toBe(1);
+  });
+
+  it('accepts an explicit 0 (a drone that takes no population)', () => {
+    expect(unitTypeFromJson({ ...FOOT, cost: { population: 0 } }).population).toBe(0);
+  });
+
+  it('refuses a negative population, naming the field', () => {
+    expect(() => unitTypeFromJson({ ...FOOT, cost: { population: -1 } })).toThrow(/population/);
+  });
+
+  it('refuses a non-integer population, naming the field', () => {
+    expect(() => unitTypeFromJson({ ...FOOT, cost: { population: 1.5 } })).toThrow(/population/);
   });
 });

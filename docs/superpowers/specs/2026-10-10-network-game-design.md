@@ -51,7 +51,8 @@ replay recorder), `docs/superpowers/specs/2026-10-04-g3-decision-sheet.md`
   `build`; the full insurgent toolkit is a named follow-on. (Decision 9.)
 - **Five stages, none blocking Stage 4:** N0 two-machine test in October (no
   rule changes); N1 the mirror 1v1 by end of November (no sim change); N2 the
-  sim seat work in December after M2; N3 the Sarim seat with WP-G-G in
+  sim seat work in December after M2 (since 15 Oct: directly after F3, L5,
+  §9); N3 the Sarim seat with WP-G-G in
   January–February; N4 the AI harness and arena in parallel from January.
   M4 "play with a friend" moves from 16 Apr 2027 to end of February 2027.
 
@@ -108,7 +109,7 @@ interface MatchConfig {
   bufferTicks: 2;
   build: string;              // app version
   commit: string;
-  dataDigest: string;         // FNV over the unit, map and doctrine JSON the build ships
+  dataDigest: number;         // room-minted 0, kept on the wire and never folded (L4, below)
   rules: { win: 'annihilation'; capMinutes: 25; tiebreak: 'held_ground_seconds' };
 }
 
@@ -117,7 +118,7 @@ interface Seat {
   side: 0 | 1;                // sim side; civilians stay side 2
   faction: 'kdf' | 'sarim';
   kit: 'matched' | 'brigade'; // Decision 5
-  tiers: Record<string, number>;   // empty for matched kit and for sarim
+  tiers: Record<string, Record<string, number>>;   // typeId -> track -> tier, the account's own shape; empty for matched kit and for sarim (16 Oct, see §7.1)
   unlocks: string[];               // empty for matched kit
   player: string;             // anonymous UUID today, Steam id after ST5
   callsign: string;
@@ -135,8 +136,26 @@ sends **what it owns, earned and bought alike** — the lead's ruling of 11 Oct,
 which supersedes the 1 Oct earned-only rule for friends' rooms; the room
 records the claim and it stays client-trusted until ST6's server ledger; the
 toggle is never offered outside a friends' room), the tutorial is absent, every sandbox flag
-is refused, and `build` + `commit` + `dataDigest` must match on both clients
-or the lobby refuses to start and says which differs.
+is refused, and `build` + `commit` must match on both clients or the lobby
+refuses to start and says which differs. (This line first read
+`build` + `commit` + `dataDigest`, a room-minted digest compared at the lobby;
+that design is retired, next paragraph.)
+
+**The data digest is the client's own, not the room's. Ruled 15 Oct
+(coordinator, lead-delegated) (L4), built in N2-P3 (`e877c8e7`).** The room
+mints `dataDigest: 0` and the field stays in the wire format (`validateConfig`
+still requires it), but no client folds it: the Worker carries no unit,
+structure or map content to vouch for, and one number handed to both seats
+cannot tell two clients' data apart. Each client instead folds
+`shippedContentDigest()` (`packages/app/src/net/content-digest.ts`):
+`fnv1a32` over `canonicalJson` of its own `{maps, structures, units}`, every
+object's keys sorted, so a loader's insertion order never reaches the hash.
+Two clients on different data therefore desync at the first hash tick (19),
+even while their sims still agree. The lobby compares only the build string
+(`<package version>+<commit>`, §11b.2), and **that build check, not the
+digest, is what covers roster ORDER**: `units` is keyed by id and the digest
+sorts its keys, so it cannot see the order that assigns type indices (§7.4),
+while two clients on one build ship one bundle and so one order.
 
 ### 2.2 Seat versus side
 
@@ -145,10 +164,31 @@ and the contact arrays are sized `2 × capacity` (sim.ts:1256-1263). A
 **faction is a property of the seat's roster, not of the side index**: a
 KDF v KDF match registers the KDF catalogue and spawns it on side 1 for the
 second seat. The rules that hard-code "side 0 is the player" today (no
-auto-breach at sim.ts:3415; ROE, production anchor, sweeps, strikes,
-`unitLost` in mission.ts) become seat or faction rules in N2 (§7.1). Until
-N2 those rules are mildly unfair to the side-1 seat in a mirror match and
-the N1 lobby says so.
+auto-breach in `Sim.selectBreachTarget`; ROE, production anchor, fire
+support, `unitLost` in mission.ts) become seat or faction rules in N2 (§7.1).
+A versus room runs no `MissionRuntime` until N3 (L1, §11b.4), so of these
+only the breach rule acts in a match today.
+
+**The breach rule, measured (N2-P6, `c5826d1c`/`6e1a3596`,
+`tools/src/backtest/versus-breach.ts`).** This line used to say the side-0
+rules are "mildly unfair to the side-1 seat"; for the breach rule the
+asymmetry runs the other way (seat 1 auto-breaches, seat 0 never does) and
+its effect on results is nil within measurement. It can fire only on a map
+with ungarrisonable walls or fences: of the four fair maps that is
+`milh_flats` and `wadi_tarfan`; `beit_sahwan_outskirts` and `tel_marum` have
+no walls, so it never fires there. Over 800 paired seeds on the walled maps
+(every seed played twice with only the side label swapped), result flips
+went 9 for the side carrying the rule and 12 against (p = 0.66), end-value
+margin 35 up and 43 down (p = 0.43), a pooled 95% interval on the win-rate
+shift of about −1.5 to +0.8 percentage points (a paired-flip interval: net
+−3 of 800 pairs, 9 for minus 12 against, standard error √21 / 800 = 0.57
+points, so −0.375 ± 1.96 × 0.57). It costs side 1 about 9
+unit-seconds a game on `milh_flats` halted at walls under the probe's attack-move play; a
+player who routes along walls will breach more, so the behaviour is real and
+policy-dependent, and only its outcome effect is null. Nothing breaches in
+the mirror pins' first 200 ticks. **It is therefore a parity item for N2,
+not a live fairness bug**: N2 makes the rule ask the seat table, and the
+lobby needs no warning about it (N1 built none).
 
 ### 2.3 Map and win rule
 
@@ -180,7 +220,9 @@ Contents:
 
 - `protocol.ts` — every message in §3.2.3, as types plus a `parse` that
   refuses anything over 4 KB or of unknown kind.
-- `config.ts` — `MatchConfig`, its validator, and `dataDigest`.
+- `config.ts` — `MatchConfig`, its validator, and `dataDigest` (a wire
+  field the room mints as 0 and no client folds; the folded data digest is
+  each client's own, `packages/app/src/net/content-digest.ts`, §2.1, L4).
 - `frames.ts` — `Frame { tick, cmds: Stamped[] }`, `Stamped { seat, seq,
   cmd: Command }`, the canonical order `(tick, seat, seq)`.
 - `lockstep.ts` — `LockstepClock`: buffers frames, yields "ticks runnable
@@ -314,8 +356,11 @@ the browser at any speed.
 - **The three direct runtime calls** (`requestBuild` from the dock at
   ui/production.ts:330, `requestSweep` and `requestStrike` at
   main.ts:3612-3613) mutate `MissionRuntime` at event time today. In a match
-  they are commands (`build`, `sweep`, `strike`) applied in `applyFrame`
-  (N1 wraps them in the net layer; N2 makes them sim commands, §7.1). The
+  they are commands applied in `applyFrame` (N1 wraps them in the net layer;
+  N2 makes them sim commands, §7.1). Since F1 the sweep and the strike are
+  two kinds of one call, `requestSupport(kind)` (main.ts still reaches it
+  through the `requestSweep`/`requestStrike` wrappers), so N2's kinds are
+  `build` and `support`, plus `setStance` (L3). The
   tutorial's `completeObjective` does not exist in a match.
 - **The replay recorder** (`feedback/replay.ts`) records frames instead of
   intents, which closes its three documented gaps (the direct calls, float
@@ -326,7 +371,14 @@ the browser at any speed.
 ### 3.4 Desync (Decision 10)
 
 Every `hashEveryTicks` (20) each client sends `hash{tick, h}` where `h` is
-`digest(sim.hash(), runtime.digest(), dataDigest)`. The room compares when
+`matchDigest(sim.hash(), runtimeDigest, contentDigest)`, folded in
+`runFrames` (`packages/app/src/net/frame-step.ts`). **Ruled 15 Oct
+(coordinator, lead-delegated):** the third term is the client's own
+`shippedContentDigest()`, never the room-minted `config.dataDigest` (L4,
+§2.1); the second is the `FrameStep.runtimeDigest` seam (N2-P2,
+`3dd5c86a`), absent meaning 0. N2 wires `runtime.digest()` into it in one
+line, and it folds non-zero only once a room runs a runtime, which is N3's
+(L1). The room compares when
 both arrive. On mismatch: `desync{tick, hashes}` to both, the match is
 `void`, both frame logs and hash series go to D1, and each client shows a
 banner naming the tick with a one-click report that reuses the feedback
@@ -339,8 +391,9 @@ structures, tunnels and RNG state. It does **not** cover `MissionRuntime` at
 all (objectives, fired triggers, waves, the purse, Conduct, the build queue,
 the civilian latches) nor `removed`, the flow-field pool, `pendingStrikes.by`
 or the registered unit-type table. `runtime.digest()` (N2) covers the first
-group; the data digest covers the type table; the others are derived or
-inert and are left out on purpose, stated in `digest.ts`.
+group; the data digest covers the type table's content (its ORDER is
+covered by the lobby's build check, §2.1); the others are derived or inert
+and are left out on purpose, stated in `digest.ts`.
 
 ### 3.5 Security
 
@@ -444,7 +497,7 @@ draw outside fog (fixed in the same pass).
 ### 5.2 HUD, camera, briefing
 
 Objectives, Conduct, logistics and intel become per-side views of per-side
-runtime state (N2 for the state; N1 shows the match clock, pop and purse of
+runtime state (N3 for the state, since no versus runtime exists through N2 (L1); N1 shows the match clock, pop and purse of
 the viewer's side only). Each seat's camera starts at its own camp. The
 Shai/Idit briefing beats do not play in a match; the lobby is the briefing.
 The pause menu keeps Resume, Settings and Quit; Restart is gone, Quit is
@@ -502,18 +555,85 @@ stances, a `build` menu that grows, a `dig` command).
 
 ## 7. What changes, what must not, and the audit
 
-### 7.1 Sim (N2, all additive; the golden hash moves once)
+### 7.1 Sim (N2, all additive; the sim pins are expected not to move)
+
+**Ruled 15 Oct (coordinator, lead-delegated): option B (L1).** This heading
+first read "the golden hash moves once". Under option B every sim-side change
+keeps today's behaviour for side 0 as the human seat (the seat table's
+default is today's rule), the golden replay issues none of the new commands
+and builds no runtime, and a versus room still runs no `MissionRuntime` until
+N3. So the three sim pins in `determinism.test.ts`, F1's `ECONOMY_PIN` and
+`ECONOMY_PIN_RELIEF` and the versus mirror pins are **expected not to move** in N2; if one does, it is
+a defect to explain, not a planned move. One pin is BORN: a runtime-digest
+pin for `MissionRuntime.digest()`. Decision memo and the non-sim
+prerequisites (P1–P7): `docs/superpowers/plans/2026-10-15-net-n2-prereqs.md`.
 
 | Change | Where | Why |
 |---|---|---|
-| `MissionRuntime.digest()` | mission.ts | the network hash must see objectives, triggers, waves, purse, Conduct, build queue, civilian latches |
-| Integer purse | mission.ts:1063, 1078 | `logisticsValue`/`intelValue` accrue in doubles; F2 Task 1 already makes them integer, and that is the one deliberate hash move, stated in its commit |
-| Side-0 rules → seat rules | sim.ts:3415 (auto-breach), mission.ts:655-692, 1022-1054, 1287, 1338, 1377 | a side is no longer "the player"; the rule asks the seat table |
-| Per-seat unit types | `addUnitType` callers, mission-start.ts | "bring your brigade" needs two KDF seats with different tiers; a seat's roster registers as its own variants |
-| `build`, `sweep`, `strike` as `Command`s | sim.ts command union, mission.ts:653-694 | the three direct runtime calls become tick-stamped input |
-| `setStance` | sim.ts, mission.ts | the Sarim seat's verb (§6) |
-| `humanHeld[side]` | mission.ts | triggers, waves and the commander skip a human-held side |
+| `MissionRuntime.digest()` | mission.ts, composing F1's `economyHash` | the network hash must see objectives, triggers, waves, purse, Conduct, build queue, civilian latches. Wired through the `FrameStep.runtimeDigest` seam (N2-P2); non-zero in a room only from N3 |
+| Integer purse | mission.ts, `logisticsValue`/`intelValue` | they accrue in doubles; F2 Task 1, carried as N2's first task (L5), makes them integer. Hash-neutral: the golden replay builds no runtime and the economy pin hashes the floor |
+| Side-0 rules → seat rules | `Sim.selectBreachTarget` (auto-breach); mission.ts's side-0 sites (`unitLost`, `identifiedBy`, `routeFoundBy`, `contributed`, the Conduct actor, zone contest, `from_ledger`) | a side is no longer "the player"; the rule asks the seat table, whose default is today's rule. The breach rule is a parity item, not a live fairness bug (§2.2, P6) |
+| `build`, `support`, `setStance` as `Command`s | sim.ts `Command` union; mission.ts `requestBuild`, `requestSupport` | the direct runtime calls become tick-stamped input. F1 replaced the `sweep`/`strike` pair with `requestSupport(kind: SupportKind)` (`requestSweep`/`requestStrike` survive as wrappers over it), so N2 adds three kinds, not four |
+| `setStance` `hold` and `ambush` only | sim.ts (`ambush` → `Sim.setAmbush`) | the Sarim seat's verb (§6). **Ruled 15 Oct (coordinator, lead-delegated) (L3):** `patrol` needs the runtime's `stepPatrols` and moves to N3 |
+| `humanHeld[side]` | mission.ts | triggers, waves and the commander skip a human-held side. The table arrives from `seatRules` in `@lions/net` (N2-P4); the sim never reads a config |
 | `Sim.seatOf(entity)` read; issuer-aware `queueCommand(cmd, seat)` later | sim.ts | the ownership check moves from the net layer into the sim when Stage 4's lane C slot opens |
+
+**Per-seat unit types are no longer sim work. Ruled 15 Oct (coordinator,
+lead-delegated) (L2), confirmed by N2-P5 (`b375d07c`, `bf76cc77`,
+`packages/app/src/net/per-seat-types.test.ts`).** This table carried a
+"per-seat unit types" row (`addUnitType` callers, mission-start.ts). The
+spike needed no sim edit: `Sim.addUnitType` appends with no id check and the
+sim never resolves a type by id, so side 1's patched roster
+(`upgradePrepass`/`applyUpgrades`, same ids) registers a second time and
+spawns through a per-side type map; unused copies move no hash; side 1's
+units carry, fire with and are hit through their own patched stats; and
+`forcesOf`/`scoreOf` still price every unit. The work moves to app and render
+with "bring your brigade", and the spike names three follow-ups: **patched
+copies keep the base id** (a distinct id prices at 0 through the `costOf`
+lookup, `unitCost` by default);
+**the render/HUD kit tables** (`unitKitTiers`, `kitByType`, `unitKit`) are
+keyed by type id and need per-side keys; and **both seats build the per-side
+tiers from the shared config**, or their worlds diverge.
+
+**Per-seat kit, as built (16 Oct 2026, plan `docs/superpowers/plans/2026-10-16-net-per-seat-kit.md`,
+branch `feat/net-seat-kit`).** All three follow-ups are done and no file
+under `packages/sim/` changed; the versus and match-world pins did not move
+(a `matched` room, and a `brigade` room whose seats hold equal or empty tiers,
+register exactly today's type list and hash today's bytes).
+- **Rulings, three lead decisions taken as recommended. Ruled 16 Oct
+  (coordinator, lead-delegated).** (1) *Base-cost pricing:* a kitted unit is
+  priced at its base id's cost (`forcesOf`/`scoreOf` need no mapping), so
+  decision 24's surviving-value tiebreak favours the seat with the stronger
+  units at equal value; recorded, revisited with N3's economy. (2) *Nested
+  tiers:* `SeatConfig.tiers` is `Record<typeId, Record<track, number>>`, the
+  account's `ownedTiers` shape and the one `upgradePrepass` takes; a matched
+  room mints `{}`, so nothing on the wire changes for it. (3) *Structural
+  checks only* (decision 22): the room cleans what is malformed or
+  impossible (unknown or non-KDF types, unknown tracks and prototype-style
+  keys are dropped; tiers are truncated and clamped to 0..max; the output is
+  bounded by the track table; nothing is refused), records the cleaned claim,
+  and cannot check it against an account until ST6. `unlocks`
+  stays `[]` until N3's production can field one.
+- **Wire.** `POST /api/match` takes `kit` (`matched` | `brigade`; only a
+  versus room can be `brigade`) and `tiers`; `POST .../join` takes `tiers`.
+  Both are cleaned against a plain list of the shipped tracks
+  (`packages/worker/src/match/kit-tracks.ts`, pinned to the data by a test)
+  and minted into the config at the start: a `brigade` room mints each KDF
+  seat's own claim; a Sarim seat and a matched room mint `{}`. The lobby
+  message names the rule (`kit`, only when it is `brigade`; absent is
+  `matched`) so both seats see it before Ready.
+- **The world comes from the config alone.** `buildMatchWorld` registers a
+  patched roster per side from `SeatConfig.tiers` (each leaf clamped to the
+  track's maximum, own keys only), `main.ts` and the HUD read each side's kit
+  from the world, and the renderer takes plain per-side tables
+  (`unitKitTiersBySide`) with one vehicle template per differing tier set.
+  No room path reads `accountState()` or `bootTiers` to build anything; the
+  local account is read once, to fill the create/join body, and never goes
+  in a URL.
+- **Lobby.** The host's create form has a "Bring your brigade" checkbox,
+  default off, host only, labelled friends-only through the catalogue; the
+  room screen shows the rule to both seats. It must not be offered in any
+  public or ranked room.
 
 Everything else in the tick is untouched. `pnpm test:determinism` must pass
 before every commit here, and the two-client CI test (§12) beside it.
@@ -554,8 +674,9 @@ what the design above closes, most dangerous first:
 1. **Per-player browser state reaches the sim** — ledger (roster, veterancy,
    pre-revealed enemies, build gates), account and coin wallet (tiers,
    bought units), tutorial flag, `?fresh`, a stale service-worker build.
-   Closed by §2.1: the config is the only input, and build/data digests must
-   match.
+   Closed by §2.1: the config is the only input, the build must match at
+   the lobby, and each client's own data digest must agree at the first hash
+   tick (L4).
 2. **Three direct runtime calls at event time** (`requestBuild`,
    `requestSweep`, `requestStrike`) and the tutorial's wall-clock
    `completeObjective`. Closed by §3.3.
@@ -579,9 +700,13 @@ what the design above closes, most dangerous first:
 9. **`window.__lions.step`** and the sandbox flags: refused in a match
    (§7.3).
 
-Known-good and relied upon: static roster order gives type indices, so the
-data digest must cover the roster file order; `SIM_SEED` is a constant and
-the match seed replaces it through the config; boot ordering is synchronous.
+Known-good and relied upon: static roster order gives type indices, so
+something must cover the roster file order. **Ruled 15 Oct (coordinator,
+lead-delegated) (L4):** the data digest does not: it is key-sorted
+(`canonicalJson`) and `units` is keyed by id, so the lobby's build check
+covers the order instead (one build, one bundle, one order; §2.1).
+`SIM_SEED` is a constant and the match seed replaces it through the config;
+boot ordering is synchronous.
 
 ---
 
@@ -662,7 +787,7 @@ green, per the working rules on every WP issue.
 |---|---|---|---|---|
 | **N0 · two-machine test** (re-scoped #190) | 12–31 Oct | new `packages/net`, `MatchRoom` DO, `MatchTransport`, tick loop; `wrangler.jsonc` bindings | two laptops in one sandbox room, both ordering the KDF force (no ownership, no sides), hashes compared every 20 ticks for ten minutes; the two-client CI test; a report with RTT, stall count, replay time | hashes equal on 10/10 ten-minute runs across two machines; report on #190 |
 | **N1 · versus, mirror** | 2–27 Nov, beside Stage 4 | app, render (`viewerSide`), worker; no sim | code and link, lobby, tickets, pause/stall/reconnect, desync report, chat and pings, `pickUnit` leak closed; **KDF v KDF on a placed-force sandbox map** | Ilan and a friend play three matches to a result; one deliberate desync reported end to end |
-| **N2 · sim seat work** | 1–19 Dec, after M2 | sim (lane C slot) | runtime digest, integer purse (with F2), seat rules, per-seat types, direct calls as commands, `setStance`, `humanHeld`; golden hash moves once | determinism green with the new pins; mirror match re-played on N2 bytes with equal hashes |
+| **N2 · sim seat work** | directly after F3 (L5) | sim (lane C slot) | F2 Task 1 first (integer purse), then runtime digest, seat rules (`humanHeld`, the breach rule), `build`/`support`/`setStance` (`hold`, `ambush`) as commands. A room still runs no runtime (L1); per-seat types are app/render work (L2). **Ruled 15 Oct (coordinator, lead-delegated)**; this row first read "per-seat types … golden hash moves once": under option B the sim pins are expected not to move | determinism green with the sim pins unmoved and the new runtime-digest pin born; mirror match re-played on N2 bytes with equal hashes |
 | **N3 · the Sarim seat** | Jan–Feb 2027, with WP-G-G | sim, data, app | KDF v Sarim on the skirmish rules (zones, pop caps, doctrine production), the lobby's side pick live, `build` from the doctrine menu | G5 #169 closed 5 Feb with this spec's answers; Ilan plays five KDF v Sarim matches |
 | **N4 · AI harness and arena** | Jan–Mar 2027, in parallel from N1's protocol | net, tools, worker | `pnpm agent` (MCP, three scopes), advisor panel, `pnpm arena`, `/stats/arena` | an `assist` advisor completes a match with Ilan; a ten-seed arena run between two models reported |
 | Follow-ons | after N3/N4 | | insurgent toolkit (§6.3), sim snapshot (§3.2.6), spectators as a feature, accounts via ST5, skirmish payouts | own specs |
@@ -670,8 +795,9 @@ green, per the working rules on every WP issue.
 **Beside Stage 4.** N0 and N1 touch no sim file, so lane C (WP-G-F, from
 2 Nov) is undisturbed. `ThreeRenderer.ts` is the one shared file: `viewerSide`
 is a single PR in N1 scheduled against the polish lane's own touches of it.
-N2's sim work takes the lane C slot after M2 (27 Nov) and lands the integer
-purse together with F2 Task 1 rather than beside it. N3 rides on WP-G-G,
+N2's sim work comes directly after F3 (L5; ruled 15 Oct, coordinator,
+lead-delegated), carrying F2 Task 1 (the integer purse) as its first task
+rather than landing beside it. N3 rides on WP-G-G,
 whose zones, pop caps and production are the skirmish rules the Sarim seat
 plays.
 
@@ -714,8 +840,8 @@ Defaults recorded with the recommendation; overturn any in review:
 | 15 | Pings | sender and sender's advisor only |
 | 16 | Chat | text, 280 characters, relay only, in version one |
 | 17 | Speed | host-set in the lobby, applied by the room; never local |
-| 18 | Unattended bot seat | the doctrine commander. **Not built yet** (WP-G-G0 has not landed); N4 ships scripted baseline bots instead (§11b, N4 plan) |
-| 19 | Arena scoring | win rate over the seed set with sides swapped; Conduct and tokens reported only. A versus room runs no `MissionRuntime`, so there is no Conduct to report until N2/N3; the arena reports the scoreboard (decision 25) in its place (§11b) |
+| 18 | Unattended bot seat | the doctrine commander. **Not built yet** (WP-G-G0 has not landed); N4 ships scripted baseline bots instead (§11b, N4 plan). **Shipped in N4b** (§11c.5): `passive` and `rush`, fog-respecting, in-process only; `rush` scores 0.750 against `passive` on `tel_marum` over ten seeds, and 0.675 over the gate's twenty (p 0.019, §11c.7). A bot seat with a model attached is `pnpm agent --scope command --join` |
+| 19 | Arena scoring | win rate over the seed set with sides swapped; Conduct and tokens reported only. A versus room runs no `MissionRuntime`, so there is no Conduct to report until N3 (**Ruled 15 Oct (coordinator, lead-delegated), L1**: N2 keeps rooms runtime-free; this note first read "until N2/N3"); the arena reports the scoreboard (decision 25) in its place (§11b). **Shipped in N4b** (§11c.6, D7): (wins + ½ draws) / non-void games, overall, per seat and per faction, each seed played twice with the seats swapped; the scoreboard per game; tokens when the client prints them, never scored; a game the room desyncs or the two sims disagree on is void. Results go to local files, not D1 (D6 "not now") |
 | 20 | Skirmish payout | none in version one; earned credits for a result is a later ST/G-G question |
 | 21 | Storage | Durable Object SQLite for the room, D1 for results and desync logs; nothing in R2 |
 | 22 | Cheat posture | friends only, stated in the lobby; no authoritative sim in this design |
@@ -893,7 +1019,12 @@ are, not as the spec drew them.**
   `advisor`.
 - The room mints `dataDigest: 0`. The lobby compares only the build string
   (`<package version>+<commit>`, `hello.build`), and a mismatch is
-  `build_mismatch`, close code 4002.
+  `build_mismatch`, close code 4002. **Since N2-P3 (`e877c8e7`; Ruled 15 Oct
+  (coordinator, lead-delegated), L4)** the minted 0 stays on the wire and is
+  never folded: each client folds its own key-sorted content digest
+  (`shippedContentDigest()`), so different data is a desync at tick 19, and
+  roster ORDER, which a key-sorted digest cannot see, is covered by this
+  build check (§2.1).
 - `pace` is always minted `realtime`, and **paced mode is not implemented**:
   `room-core.ts` reads no `pace`.
 - Seat `kind` is always `human`. `/join` hands out seat 1 only; there is no bot
@@ -926,6 +1057,14 @@ are, not as the spec drew them.**
   one row. So a match writes `max(command frames a second, 1)` rows a second,
   plus 0.2 for the watchdog: about 1.2 idle and **2.2 with one order a second
   from each seat**.
+- **Per-seat kit (16 Oct 2026), the as-built note for item 12 of §11b.4.**
+  The three rulings above (base-cost pricing; nested `SeatConfig.tiers`;
+  structural-only trust) are recorded in §7.1 with the wire, the world and
+  the lobby. What a later reader will otherwise get wrong: `tiers` is the
+  account's nested per-type shape and no longer the flat `Record<string,
+  number>` this section's `Seat` block once declared; the lobby message now
+  carries `kit` for a `brigade` room; and the claim is client-trusted, so
+  `brigade` is never to be offered outside a friends' room.
 
 ### 11b.3 What N4 inherits, and the shape its plan takes
 
@@ -998,11 +1137,22 @@ until all of these hold:
    Targeted fire (`attack`, #591) has landed, and Hold's sim command was
    retired by the lead's ruling of 11 Oct (stage 4 order, ruling 1). Any new
    kind that lands in the meantime must be in `@lions/net`'s whitelist and
-   ownership check before N2 adds its four.
+   ownership check before N2 adds its three: `build`, `support` and
+   `setStance` (this item first said four; F1 replaced the `sweep`/`strike`
+   pair with `requestSupport(kind: SupportKind)`). Since N2-P1 (`d407f8e3`)
+   the whitelist is pinned both ways: `COMMAND_KINDS` is checked against
+   `Command['kind']` by `MissingCommandKind` in
+   `packages/net/src/protocol.ts`, so a kind missing from the list is a
+   compile error naming it, not a silent drop.
 5. **A decision on whether a versus room runs a `MissionRuntime` at all.**
-   Today it runs none: no economy, no ROE, no Conduct. Without one, N2's
-   seat rules have nothing to act on until N3. N2 either builds a minimal
-   versus runtime or only re-keys the side-0 rules for N3 to use.
+   **Resolved: Ruled 15 Oct (coordinator, lead-delegated), L1, option B.**
+   A versus room keeps running none through N2. N2 makes the sim seat-aware
+   (the seat table, the breach rule, the side-0 sites re-keyed with today's
+   rule as the default) and the runtime network-hashable
+   (`runtime.digest()`, the three commands), and the first versus runtime is
+   N3's opening task, built on the per-side state F2–F4 deliver. Its rules
+   will be data, never a mission synthesised in TypeScript. The memo, the
+   options and the reasons: `docs/superpowers/plans/2026-10-15-net-n2-prereqs.md`.
 
 **Sim surfaces N2 touches.** Locate them by symbol; line numbers are as of
 `f4b3ea2b`.
@@ -1021,26 +1171,383 @@ until all of these hold:
 - **Zone presence and contest** count side 1 against side 0 (~L1600–1614).
 - **Placement:** `from_ledger` applies to side 0 only (~L1309), and
   `playerIds`/`enemyIds`/`civIds` are bucketed by side (~L1360).
-- **The direct runtime calls** `requestSweep`, `requestStrike` and
-  `requestBuild` (~L664–690) become tick-stamped `Command`s (§7.1).
-- **`sim.ts` `selectBreachTarget`**: "side 0 never auto-breaches" (~L3694;
-  the spec's L3415 has drifted) becomes a per-seat rule.
-- **The `Command` union** (`sim.ts` ~L606) gains `build`, `sweep`, `strike`
-  and `setStance`. In `@lions/net`, `COMMAND_KINDS` and `cleanCommand` (whose
-  `never` default makes `tsc` fail until the kind is handled) and
-  `validateCommand` (an exhaustive switch) must each handle them in the same
-  PR. `SeatWorld.versus`'s blanket drop of `callStrike`/`reveal` is
-  re-decided once a runtime prices them in versus.
-- **The network hash:** `frame-step.ts` passes `runtimeDigest = 0` to
-  `matchDigest` (~L51). N2 supplies `runtime.digest()` there, and the room's
-  `dataDigest: 0` becomes a real digest.
+- **The direct runtime calls** `requestSupport(kind)` (F1; `requestSweep`
+  and `requestStrike` are wrappers over it) and `requestBuild` (~L803–846 at
+  `c8123109`) become tick-stamped `Command`s (§7.1).
+- **`sim.ts` `selectBreachTarget`**: "side 0 never auto-breaches" (~L3752 at
+  `c8123109`; the spec's L3415 has drifted) becomes a per-seat rule. N2-P6
+  measured it: a parity item with no measurable outcome effect, firing only
+  on the walled maps (§2.2).
+- **The `Command` union** (`sim.ts` ~L623 at `c8123109`) gains `build`,
+  `support` and `setStance` (`hold` and `ambush` only: **Ruled 15 Oct
+  (coordinator, lead-delegated), L3**; `ambush` routes to `Sim.setAmbush`,
+  and `patrol`, which needs the runtime's `stepPatrols`, moves to N3). In
+  `@lions/net`, `COMMAND_KINDS` and `cleanCommand` (whose `never` default
+  makes `tsc` fail until the kind is handled) and `validateCommand` (an
+  exhaustive switch) must each handle them in the same PR; N2-P1's
+  `MissingCommandKind` makes a kind missing from `COMMAND_KINDS` a compile
+  error too. `SeatWorld.versus`'s blanket drop of `callStrike`/`reveal`
+  stays: no runtime prices them in versus until N3.
+- **The network hash:** `runFrames` (`frame-step.ts`) folds
+  `matchDigest(sim.hash(), step.runtimeDigest?.() ?? 0, step.dataDigest ??
+  shippedContentDigest())`. N2-P2 (`3dd5c86a`) built the runtime-digest seam,
+  `FrameStep.runtimeDigest` (absent = 0, asked once per hash tick after that
+  tick ran; the harness passes it through `AgentClientOptions.runtimeDigest`),
+  so N2 wires `runtime.digest()` in one line. **Ruled 15 Oct (coordinator,
+  lead-delegated), L4**, built in N2-P3 (`e877c8e7`): this bullet first said
+  "the room's `dataDigest: 0` becomes a real digest"; instead each client
+  folds its own key-sorted content digest and the room's 0 stays on the
+  wire, unfolded (§2.1). Roster order is covered by the build check.
 - **Per-seat unit types:** `main.ts` builds every room with `bootKit = {}`
-  (~L1476). "Bring your brigade" needs per-seat registration (§7.1).
+  (~L1484). **Ruled 15 Oct (coordinator, lead-delegated), L2; confirmed by
+  N2-P5:** they need no sim code and leave N2 for app and render, with "bring
+  your brigade" (§7.1 lists the three follow-ups).
 - **`humanHeld[side]`:** triggers, waves and the commander skip a human-held
-  side.
-- **The pins:** the three sim pins in `determinism.test.ts`, F1's economy pin,
-  and the versus-force mirror pins (`versus-force.test.ts`) each move once, and
-  the commit says why.
+  side. N2-P4 (`c7626ffe`) built the table on the net side,
+  `seatRules(config)` in `packages/net/src/seat-rules.ts`: a versus room
+  (human or bot seats) gives `humanHeld` `[true, true]`, and single-player
+  (`null`) or a sandbox room gives `[true, false]`, today's rule. N2's sim
+  takes the table as given and never reads a config.
+- **The pins. Ruled 15 Oct (coordinator, lead-delegated), L1:** this bullet
+  first said the three sim pins in `determinism.test.ts`, F1's
+  `ECONOMY_PIN`, `ECONOMY_PIN_RELIEF` and the versus-force mirror pins (`versus-force.test.ts`,
+  580559085 / 1260439781; `match-world.test.ts`, 3043363756 / 1260439781)
+  "each move once". Under option B they are **expected not to move**: the
+  seat table's default is today's rule, the golden replay issues no new
+  command and builds no runtime, F2 Task 1 is hash-neutral, and N2-P6 found
+  no breach in the mirror pins' first 200 ticks (a future versus pin on
+  `wadi_tarfan` or `milh_flats` that issues orders could be moved by breach
+  parity). A pin that moves is a defect to explain. One pin is born: the
+  runtime digest's.
+
+Item 5's decision memo, the non-sim prerequisite plan and what N2 needs from Lane C: `docs/superpowers/plans/2026-10-15-net-n2-prereqs.md` (15 Oct; L1–L5 ruled 15 Oct (coordinator, lead-delegated): option B, per-seat types in app/render (P5 confirmed: no sim code), `setStance` hold and ambush only, client-computed data digest, N2 after F3 carrying F2 Task 1).
+
+## 11c. N4 as built: the harness, the advisor and the arena (15 Oct 2026)
+
+N4 landed in two PR series from the plan
+`docs/superpowers/plans/2026-10-14-net-n4-ai-harness.md`: **N4a** (Tasks
+1–10, PR #619: the harness, the room's new sockets and the advisor) and
+**N4b** (Tasks 11–14 and 16, stacked on it: the local relay, the baselines and
+the arena). Task 15 is deferred (D6, below). No file under `packages/sim`
+changed, and neither the determinism pins nor the versus mirror pins moved.
+The run protocol, for a player, is `docs/net/N4-agent.md`. As in §11b,
+everything below is what the code does, and where it differs from §8 or the
+plan the difference is named.
+
+### 11c.1 The harness
+
+- **`pnpm agent`** (`tools/src/net/agent.ts`) is a headless client of one
+  versus room serving MCP over stdio. Flags: `--server`, `--code`, `--scope
+  advise|assist|command`, and either `--ticket-file <path>` or `--join` (a
+  `command` bot asking the room for the free seat), plus `--build` and
+  `--origin`. It is not §8.1's `--room --seat [--model]`: the seat comes from
+  the ticket, and the model is whatever MCP client drives it.
+- **The world is the browser's.** `buildMatchWorld`
+  (`packages/app/src/net/match-world.ts`) is the one builder the battlefield
+  and the harness share, and the harness's fog (`tools/src/net/view.ts`) calls
+  the renderer's own sight and draw-gate predicates, so a model and a human on
+  the same seat see the same units (§11's "must share one function").
+  Building it in Node also required the world-builder pin of N4b Task 1: the
+  browser path registers a map's tunnels with the sim, and the builder must do
+  the same or the two worlds diverge (`beit_sahwan_outskirts` is pinned at hash
+  3043363756, `tel_marum` at 1260439781, in `match-world.test.ts`).
+- **The ticket is never on a command line or in a URL.** `--ticket-file`
+  reads a private file (a leading `~/` is expanded by the agent itself, since an
+  MCP client does not). `--ticket-file -` reads stdin and works only from a
+  terminal: under an MCP client stdin is the protocol. The lobby prints `pnpm
+  --silent agent -- … --ticket-file ~/.roaring-lions/advisor-ticket` and
+  copies the ticket to the clipboard only (an N4a ruling, overriding the
+  plan's `--ticket-file -`).
+- **stdout is the MCP channel.** Every log line goes to stderr. A spawned
+  test reads every raw stdout line of a real agent and requires each to be
+  JSON-RPC (Task 11), beside N4a's static source scan. `pnpm --silent` is in
+  every documented command because a package manager's own banner on stdout
+  corrupts the session.
+- **Exit codes:** 0 the match ended or reached a result, 1 a failure (a world
+  the checkout cannot build included), 2 `bad_ticket` or `build_mismatch`, 3
+  a desync. `build_mismatch` names only the harness's own build: the room
+  sends none.
+- **Tools** (`mcp-tools.ts`, `toolsFor(scope)`): `observe`, `status`,
+  `wait`, `inbox` and `say` in every scope; `ping` in `advise` and `assist`;
+  `order` in `assist` and `command`; `end_round` in `command`. `set_stance`,
+  `build` and `fire_support` (§8.3) arrive with N2/N3's commands, and the
+  test pinning `toolsFor` makes that a deliberate change. `order` carries no
+  `sweep`, so a model cannot ask for the sweep cursor the in-process `rush`
+  uses.
+- **The order desk** (`order-desk.ts`, decision D4) is the bot's cadence: at
+  most one flush every `DESK_FLUSH_TICKS` = 20 ticks, of at most 4 commands,
+  from a queue of `DESK_MAX_QUEUE` = 12; a thirteenth `order` answers
+  `queue_full`. Each order is normalised through `cleanCommand` before it is
+  queued (one the room would refuse answers `invalid` and is never sent; an
+  `advise` desk answers `not in this scope`), and is then reported
+  `queued`, `sent`, `applied`, `dropped` (refused by `validateCommand` on both
+  machines) or `lost` (no echo `DESK_LOST_AFTER_TICKS` = 40 ticks after it was
+  sent). A bot seat therefore writes the same 2.2 rows/s the R-N12 budget
+  accepted for a human, pinned with the room's own `rowsWritten`.
+- **`bye` on close is a surrender.** Closing the agent or its MCP client
+  mid-match sends `bye`, which decision 23 reads as leaving. After a result
+  or the room's end it detaches without one (N4a final review F6: a `bye`
+  after `over` made the room record the winner as the leaver).
+
+### 11c.2 The advisor socket (decisions D1, D10, D11)
+
+- **A third socket of its seat, not a seat.** `POST
+  /api/match/:code/advisor` trades a seat ticket for an advisor ticket on the
+  same seat (`role: 'advisor'`, `scope: 'advise'|'assist'`); an advisor ticket
+  cannot mint another. One advisor per seat: a newer hello retires the older
+  socket. It counts toward `MAX_ROOM_SOCKETS` (8) and spends the same
+  per-socket budget.
+- **The room relays only `advisor` messages**, between a seat's own sockets
+  and that seat's advisor, never to the other seat, stores nothing and stamps
+  nothing into a frame. At most one relayed advisor message per
+  `ADVISOR_MIN_GAP_MS` = 250 ms per advisor socket. An advisor's `cmd`,
+  `ready`, `pause`, `resume`, `surrender`, `hash`, `ack`, `bye` and `chat` are
+  ignored with no state change, and its disconnecting never stalls the room or
+  starts a forfeit.
+- **An `assist` order never comes from the advisor's socket.** The human's
+  browser shows the proposal (the note, the order in words, a two-second
+  countdown that counts only frames that run) and sends it as its own `cmd`
+  unless vetoed, after re-checking that it still makes sense: an order naming
+  a unit that has since died is dropped, and the feed says so. `PROPOSAL_QUEUE` = 3
+  counts the proposal being shown: three are held, two of them waiting, and a
+  fourth vetoes the oldest waiting one, never the one on screen.
+  **X** (D11), the **Veto** button, or **Escape** in the advisor's text box
+  veto it; the **Accept** button takes it at once. **Enter does not accept**
+  (the coordinator's ruling of 15 Oct, on #619): Enter opens the chat, so
+  reaching for chat never takes an order by accident. This revises D11's
+  "Enter or a click on Accept takes it at once".
+- **Both seats are told** (D1): the lobby shows an "Advisor: advise/assist"
+  badge on each seat card, and the versus HUD carries an **advisor chip** per
+  seat that has one under the running scoreboard ("You" or the other seat's
+  callsign, then the badge), text only, hidden when nobody advises (N4a final
+  review F2, built rather than deferred). The room sends `advisors` to every
+  seated socket when one joins or leaves, and again to a seat that rejoins;
+  the transport clears stale badges on a relink, and replays the last
+  `advisors` it heard to an `onAdvisors` hook that arrives later (the
+  battlefield's, after the lobby's).
+- **Fog is the harness's courtesy** (D10): the advisor's socket receives the
+  full frame stream like any client, and `observe` is fogged. A modified
+  harness could see through fog exactly as a modified browser can, under the
+  friends-only posture (decision 22).
+- **`Origin`** (D9): the harness sends the server's own origin; it is a
+  browser's cross-site guard, not authentication. The seat ticket is the
+  authentication.
+
+### 11c.3 Paced mode (decision 8, D5; revises §3.2.7)
+
+- **Minted only with a bot seat.** `POST /api/match` and `/join` accept
+  `kind: 'bot'`; the room mints `pace: {kind: 'paced', roundTicks,
+  roundWallMs}` only when at least one seat is a bot, otherwise `realtime`.
+  `roundTicks` is clamped to 20–1,200 and `roundWallMs` to 1,000–600,000. A
+  malformed `pace` is silently `realtime`, so the arena checks the start
+  config before trusting a run.
+- **The room waits at a round boundary** (`room-core.ts` `roundGate`), only
+  for a bot seat that has not sent `done` for the round just closed, and never
+  past `roundWallMs` from that round's last frame. **A human seat is never
+  waited for.** While it waits, every seat hears `stall{reason: 'round'}`; a
+  round wait is not silence, so it does not make a seat `gone`, and on release
+  every seat's last-seen time is reset. `done`, the wait and the release are
+  memory only and write zero rows; a woken room releases the round at once.
+- **`done` is only ever deliberate.** The harness sends `done(round)` when
+  the model calls `end_round` (or the in-process player after its policy has
+  answered and its orders were flushed), never on receiving a frame, so a hung
+  model really is waited for, up to `roundWallMs`. A `done` for the round
+  still being minted is ignored.
+- **The paced `WsTransport` release** (`packages/net`, a shipped change): in a
+  paced room the transport releases frames up to the newest closed round
+  boundary regardless of `bufferTicks`, so a bot runs a round's last frame
+  before it decides; a closed round's frames are final. Realtime behaviour is
+  byte-for-byte unchanged. Orders flushed before `done` are stamped into the
+  first frame of the next round (pinned: sent at tick 39, applied at 40).
+
+### 11c.4 The local relay (decision D2; revises §8.5's D1 path)
+
+`tools/src/net/local-relay.ts` hosts the real Worker routes (`handleMatch`)
+and the real `MatchRoom` in Node on `127.0.0.1`, `listen(0)`, over `ws`.
+`startLocalRelay` mints the `TICKET_SECRET` in memory from `randomBytes(32)`,
+never logged and never written; `serveLocalRelay(secret)` is the same relay
+with the secret supplied, which the specs use to pin that the chosen secret
+never reaches a log; the env has no D1 (a desync's D1 write fails with a logged
+error, and the desync still reaches both clients) and no rate limiters. The
+upgrade passes `handleMatch`'s Origin, code and method checks first. Alarms
+are a 250 ms poll; `close()` terminates every socket, clears every interval
+and frees the port. `MatchRoom` gained one optional constructor argument,
+`{tickMs?, seed?(code)}`, which workerd never passes: production keeps
+`TICK_MS` and its crypto seed, pinned by a characterization test. Only
+`tools/` imports `packages/worker`; a test fails on any file under
+`packages/{app,render,net,sim}/src` that does.
+
+### 11c.5 The baselines (decision D8; answers decision 18 for now)
+
+- **`passive`** orders nothing. **`rush`** orders only its own units that are
+  `idle` (the app's own idle finder) **and within 10 tiles of its camp**, an
+  attack-move with `sweep` on the centroid of the contacts it can see, else on
+  the enemy camp. It **never breaks off an engagement**: a unit that is
+  shooting (`engaging`, the HUD card's own flag) or still moving is never
+  re-ordered, because the sim's move handler clears `engaging` and `stance` on
+  every new order, and a rush that re-ordered its whole force every round lost
+  to `passive`. Both read only the fogged `SideView`; `engaging` and `idle`
+  are computed for the viewer's own units only.
+- **Its measured strength:** on `tel_marum` at pace 60 and a 12,000-tick
+  cap, **0.750** against `passive` on held-out seeds 2–21 (30-0-10, both seat
+  orders), and **0.750** on the arena's own ten seeds (15-5). The west seat
+  wins 17 of 20; the east, attacking through the pass into a force waiting
+  below it, wins 13 of 20. Sixteen fog-honest variants were measured (Task
+  12's table) and none reached 0.9; the shipped one ties for best and is the
+  stateless reading faithful to D8. A stronger control would be a stateful
+  attacker that gathers its force before moving, which is a lead decision.
+- **The in-process player** (`players.ts` `inProcess`) runs a `Policy` on an
+  `AgentClient` in the arena's own process: it pumps to the round boundary,
+  asks the policy, submits through the desk, flushes, then sends `done`. A
+  policy that has not answered in `roundWallMs` is abandoned and counted as a
+  timeout. At its cap tick it stops by itself (so the reading seat's sim can be read on
+  exactly that tick) and detaches without a `bye`.
+
+### 11c.6 The arena and its scoring (decision D7; D6 "not now")
+
+- **`pnpm arena -- --a <player> --b <player> [--seeds 10] [--map
+  tel_marum] [--matchup mirror|kdf|sarim] [--pace 60] [--round-wall-ms
+  120000] [--cap-ticks 12000] [--tick-ms 2] [--out arena-results/]
+  [--gate]`.** A
+  player is `passive`, `rush` or `cmd:<template>`. Seed *n* is `1000 + 7919
+  n` (the versus probe's sequence), each played twice with the seats swapped,
+  every game on its own local relay with two bot seats in a paced room. Only a
+  map and matchup a room offers are played (`versusMapAllowed`,
+  `matchupAllowed`; exit 2 otherwise), and a game is trusted only once the
+  room's start config names the requested pace, seed, map and factions.
+- **The cap is the arena's, not the room's**: at `--cap-ticks` (default
+  12,000, not `MATCH_CAP_TICKS`' 30,000) the game is settled by `capOutcome`,
+  the room's own decision-24 rule (`outcomeOf(sim, MATCH_CAP_TICKS)`: the
+  larger surviving force value wins), on the reading seat's sim (seat 0's when
+  it runs in the arena's process, else seat 1's, else the observer's),
+  recorded `by: 'cap'`.
+- **Score** = (wins + ½ draws) / non-void games, overall, per seat and per
+  faction; a cut with no non-void game reads `—`, never 0. The per-game table
+  carries the scoreboard (decision 25: lost and destroyed with their value,
+  force left) in place of Conduct. Tokens are reported when an external
+  client's last stdout line carries them, never scored.
+- **Void, and why.** `void/desync`: the room sent `desync` (read before the
+  arena stops the players, since a stop overwrites the transport's status).
+  `void/disagree`: the two sims the game was judged by report different
+  results, or one decided and the other did not with no room ending. `void`
+  named for the room's closed reason (e.g. `expired`), `void/unfinished` as the
+  arena's own fallback when the room did not close (not a room reason), and
+  `void/timeout` past the game's wall-time backstop. The full `by` vocabulary
+  of a record: `annihilation`, `stalemate`, `time`, `cap`, `forfeit`,
+  `surrender`, `left` or `mutual` for a result, and `desync`, `disagree`,
+  `timeout`, `unfinished` or a room's closed reason for a void. A void is a result: the
+  arena exits 0 unless a game could not be played at all (exit 1).
+- **A over B, and `--gate`** (ruled 15 Oct, coordinator, lead-delegated;
+  §11c.7). stdout and the report's "Head to head" table read `--a` against
+  `--b`: `n` (non-void games between the two), A's score and the one-sided
+  exact binomial `p` that A is better. `--gate` passes iff p < 0.05, prints
+  `gate: PASS|FAIL  <A> over <B>  n=<n>  score=<s>  p=<p>` and exits **3** on
+  FAIL; a run that ends 1 is not judged and stays 1. Without `--gate` the exit
+  codes are 0, 1 and 2 as above.
+- **External players** (`external-player.ts`): per game and external seat, a
+  0700 temp directory with three 0600 files (the seat's `ticket`, `mcp.json`
+  naming this checkout's harness in `command` scope by absolute `tsx` and
+  `agent.ts`, and `prompt.md`, the standing prompt with the seat filled in),
+  removed when the child exits. The template is split by the arena with no
+  shell (`$VAR`, `$(...)`, `;`, `|`, `>` and globs stay literal) and fills
+  `{mcp}`, `{prompt}`, `{seat}`, `{code}`; a standalone `< {prompt}` is the
+  child's stdin. The child inherits the parent environment unchanged; the
+  arena never reads a key. Its output goes to a per-seat log under `--out`.
+- **The observer.** When neither seat runs in the arena's process
+  (`cmd:` against `cmd:`), the arena reads the game through seat 0's own
+  advisor (`advise` scope, minted from seat 0's ticket), which keeps its own
+  sim in step and sends nothing the room acts on. Any game with an external
+  seat has **one judging sim** (the in-process seat's, or the observer's), so
+  it cannot read `void/disagree`; a desync between the two
+  players is still caught by the room's hash check. It takes seat 0's one
+  advisor slot.
+- **A cap-decided game** stops the in-process side at once but gives an
+  external client a 10 s grace to finish and print its usage line before
+  SIGTERM, then SIGKILL, each through the child's own handle. The model plays,
+  and spends tokens, during the grace.
+- **Output:** `<out>/<date>-<a>-vs-<b>.jsonl` (one record per game, appended
+  as it ends) and `.md`; an existing pair is never overwritten.
+  `arena-results/` is git-ignored.
+- **D6 was ruled "not now" (14 Oct).** There is no D1 `matches` table and no
+  `/stats/arena`: the arena runs locally and reports to files. Task 15 (the
+  table, its migration and the stats page, one D1 row per versus match) is
+  deferred until a later "yes". §8.5's remote arena is not built.
+
+### 11c.7 The N4 gate
+
+**Ruled 15 Oct (coordinator, lead-delegated): the gate is statistical, not a
+fitted bar.** It asks whether the arena can tell a better player from a worse
+one. On `tel_marum`, over **40 games** (20 seeds × 2 seat orders), `rush` must
+beat `passive` with a **one-sided exact binomial p < 0.05**:
+
+- p = P(X ≥ k) for X ~ Bin(n, ½), the chance that a player no better than its
+  opponent scores k or more; n = the non-void games between the two;
+  k = wins + ½ draws (D7). A half-point k takes the **mean of P(X ≥ ⌊k⌋) and
+  P(X ≥ ⌈k⌉)**, which lies between the draw-as-loss and draw-as-win readings
+  (`binomialP`, exact in BigInt). The pass is strict, p < 0.05.
+- The command is `pnpm arena -- --a rush --b passive --seeds 20 --map
+  tel_marum --pace 60 --tick-ms 2 --gate`; it prints `gate: PASS|FAIL  <A>
+  over <B>  n=<n>  score=<s>  p=<p>` and exits 3 on FAIL (§11c.6).
+- Its falsification is the players swapped (`--a passive --b rush`), which
+  must FAIL. `rush` and the map were not tuned for it.
+
+**Read on 15 Oct (pace 60, cap 12,000, tick 2 ms, mirror; every game played,
+none void):**
+
+| Run | n | W-D-L (A) | Score (A) | p | Verdict | Wall |
+|---|---|---|---|---|---|---|
+| `--a rush --b passive` | 40 | 27-0-13 | 0.675 | 0.01924 | **PASS**, exit 0 | 749 s |
+| `--a passive --b rush` (falsification) | 40 | 13-0-27 | 0.325 | 0.9917 | **FAIL**, exit 3 | 742 s |
+
+Rush scores 0.850 from seat 0 (west) and 0.500 from seat 1 (east, through
+the pass); 21 games went to the cap and 19 ended in annihilation. The
+swapped run replayed the same 40 games (identical records as a set, only the
+order differs). The first
+ten seeds reproduce the earlier 10-seed run game for game (15-5); seeds
+10-19 read 12-8. Both p values agree with an independent computation
+(Python, `math.comb` over `fractions.Fraction`): P(X ≥ 27 | 40) =
+0.019239 and P(X ≥ 13 | 40) = 0.991705.
+
+**History: the bar this ruling replaced.** The plan's Step 2 gate was `pnpm
+arena -- --a rush --b passive --seeds 10 --map tel_marum --pace 60 --tick-ms
+2`, with `rush ≥ 0.9` read as "the controls work". **Read on 15 Oct: rush
+0.750 (15-0-5, no void), so the gate was red as written.** The bar, the map and rush were left as they are (ruling
+N4); the reading equals Task 12's measurement game for game. Rush wins 0.900
+from the west seat and 0.600 from the east. For the lead's decision, the same
+run on the other versus maps (mirror, ten seeds, pace 60, cap 12,000; every
+game played, none void):
+
+| Map | Rush vs passive | W-D-L | Rush on seat 0 | Rush on seat 1 |
+|---|---|---|---|---|
+| `tel_marum` (the gate) | 0.750 | 15-0-5 | 0.900 | 0.600 |
+| `beit_sahwan_outskirts` | 0.400 | 8-0-12 | 0.200 | 0.600 |
+| `wadi_tarfan` | 0.600 | 12-0-8 | 0.600 | 0.600 |
+| `milh_flats` | 0.650 | 13-0-7 | 0.700 | 0.600 |
+
+No versus map reaches 0.9. The arena ran every game and the room voided
+none, so the gap is the control's strength (a stateless rush into a force
+that holds its ground), not a broken control path. That choice (a lower bar,
+another gate map or a stronger, stateful control) was answered by the ruling
+above: a statistical gate on the same map with the same rush.
+
+Spec §9's N4 gate itself, an `assist` advisor completing a match with Ilan and
+a ten-seed arena run between two models, is the lead's to run (run protocol
+§1 and §3); no subagent runs a model or reads a key.
+
+### 11c.8 What later work inherits
+
+- **N2** adds `set_stance`, `build` and `fire_support` to the harness's tools
+  with its `Command` kinds; `toolsFor`'s pin goes red until they are listed.
+- **WP-G-G0's doctrine commander**, when it lands, replaces `rush` as the
+  arena's opponent and answers decision 18 as written.
+- **A remote arena** against the Worker and `/stats/arena` wait on D6.
+- **Parked minors**, none load-bearing: the MCP `order` has no `sweep`; a
+  cap game costs an external client up to 10 s of grace; SIGINT on the arena
+  skips temp-directory cleanup (the ticket dies with the relay's in-memory
+  secret); the local relay does not serialize room events across sockets as
+  the Durable Object's input gate would (look there first if a local arena
+  ever reads a void/desync); a model's `end_round` still accepts a stale
+  mid-round `done` after a wall release (harmless).
 
 ## 12. Testing and gates
 

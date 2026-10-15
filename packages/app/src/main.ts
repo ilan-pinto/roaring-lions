@@ -17,6 +17,7 @@ import {
 import { stallHintLine, stallStart, stallStep, tickIsActive } from './ui/stall-hint';
 import { nameKind, type NamesJson } from './names';
 import { applyRosterCarryover } from './roster-carryover';
+import { attachedFor } from './attached-force';
 import { logDestroyed, logMissionEvent, newMissionLog, type MissionLog } from './mission-log';
 import { lostRecordFor, predecessorOf } from './roster-lost';
 import {
@@ -29,6 +30,7 @@ import {
   missionShepherds,
   MissionRuntime,
   resolveUpgrades,
+  loanedPlacements,
   starRoeFloor,
   starsEarned,
   zoneContains,
@@ -147,7 +149,7 @@ import { objectiveStatusShout } from './ui/objective-status';
 import { pauseMenu, type PauseDeps } from './ui/pause';
 import { advance as advanceClock, type Clock } from './shell/clock';
 import { applySettings, loadSettings, saveSettings, settingsBus, type Settings } from './settings';
-import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace } from './input/keymap';
+import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace, supportKeyTarget } from './input/keymap';
 import { buyUnlock, buyUpgrade } from './brigade-account';
 import { payVictory } from './campaign-pay';
 import { tierLine } from './ui/grade-copy';
@@ -172,10 +174,11 @@ import { watchSmallScreen } from './ui/small-screen';
 import { watchNoGpu } from './ui/no-gpu';
 import { bootFailureCard, bootFailureKind, guardBoot, mountErrorCard, mountInterrupted, watchContextLoss } from './ui/boot-failure';
 import { webgl2Available } from './ui/webgl-probe';
-import { alertNotice, evacuatedNotice, reinforceTrigger, removedNotice, ledgerSavedNotice, triggerLabel, unknownSandboxMapNotice } from './ui/mission-notice';
+import { alertNotice, evacuatedNotice, placePhrase, reinforceTrigger, removedNotice, ledgerSavedNotice, triggerLabel, unknownSandboxMapNotice } from './ui/mission-notice';
 import { ReinforcementDock } from './ui/production';
-import { IntelMoments, READY_FLASH_MS, aimFootprintFor, type IntelOutput } from './ui/intel-moments';
-import { breakdownLine, chargeText, strikeLine } from './ui/intel-copy';
+import { IntelMoments, READY_FLASH_MS, type IntelOutput } from './ui/intel-moments';
+import { barrageLine, breakdownLine, strikeLine } from './ui/intel-copy';
+import { SUPPORT, SUPPORT_KINDS, type SupportKind } from './ui/support-kinds';
 import { doctrineTags } from './ui/dock-model';
 import {
   applyIntent,
@@ -191,6 +194,7 @@ import {
 } from './input/intents';
 import { ANIMATED_CURSORS, type CursorName } from './input/cursor';
 import { cursorAt, pointerPoint, simIntentWorld, type PointerView } from './input/pointer';
+import { aimFootprint, callSupport, supportAim } from './input/support-call';
 import { cursorAnimDriver } from './input/cursor-anim';
 import { prefersReducedMotion, prefersSaveData } from './ui/motion';
 import { firstLaunchIntro, introAvailable, replayIntro } from './ui/intro';
@@ -255,6 +259,8 @@ import { netReport } from './net/net-report';
 import { viewerSideOf } from './net/viewer';
 import { campOf, factionsBySide, versusUnitTypes } from './net/versus-force';
 import { buildMatchWorld } from './net/match-world';
+import { screenKit } from './net/room-kit';
+import { shippedContentDigest } from './net/content-digest';
 import { pruneHiddenHostiles, type SeatSight } from './net/hidden-selection';
 import { garrisonRoomShown } from './net/hover-garrison';
 import { NetStatusLine, lineOverMatchEnd, matchClock } from './ui/net-status';
@@ -1233,6 +1239,10 @@ async function main(): Promise<void> {
         store: versusStore,
         // Seat tickets are per TAB (R-B6): the battlefield's reload rejoins with it.
         session: safeStorageLike(() => window.sessionStorage),
+        // The local account's bought kit goes into the create/join BODY and
+        // nowhere else (per-seat kit): this is the one read of the account on
+        // a room path. The world is built from the room's config, never from it.
+        tiers: () => accountState().ownedTiers,
         ...(signal ? { signal } : {}),
       }),
     maps: versusMaps(),
@@ -1477,16 +1487,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   /** `&kit` (sandbox only, WP-S3g plan 2) swaps the account's tiers for the
    *  fixed ladder BEFORE the one prepass, so the swap reaches the sim, the HUD
    *  card and the unit icons together; a mission never takes it (`bootTiers`).
-   *  A room takes the base ladder for everyone (the config's `kit: 'matched'`):
-   *  each machine's own brigade account would otherwise give the two sims
-   *  different unit stats, and they would part at the first shot. */
+   *  A room never reads this machine's account here -- each machine's own
+   *  brigade account would give the two sims different unit stats, and they
+   *  would part at the first shot -- so a room's boot prepass is the base
+   *  ladder. A SANDBOX room plays on it. A VERSUS room does not: its world
+   *  registers each side's kit from the shared config (`buildMatchWorld`),
+   *  and its screen's kit tables come from that world through `screenKit`,
+   *  never from this prepass. */
   const bootKit = inRoom ? {} : bootTiers(ownedTiers, { mission: req.missionId !== null, kitFlag: flags.kit }, roster);
   const prepass = upgradePrepass(roster, bootKit);
-  const kitByType = prepass.kitByType;
-  /** The one level every unit ICON reads (WP-S3g plan 2b): the prepass's own
-   *  `unitKit`, never re-derived -- the loop that registered the sim's types
-   *  and filled the card's pips. 0 for any type the prepass did not see. */
-  const kitLevelOf = (typeId: string): KitLevel => prepass.unitKit[typeId] ?? 0;
   /** The end screen and the debrief mount on `document.body`, not on the
    *  stage, so the router cannot clear them: whoever tears a battlefield down
    *  has to. Collected here and drained by `teardown` below. */
@@ -1789,6 +1798,19 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  also calls (`net/match-world.ts`): the sim, terrain, buildings, the map's
    *  tunnels, the unit types and both forces. Null everywhere else. */
   const versusWorld = versusRoom && netConfig !== null ? buildMatchWorld(netConfig) : null;
+  /** The kit this screen draws (`net/room-kit.ts`'s `screenKit`): the boot
+   *  prepass above everywhere but a versus room, which reads each SIDE's kit
+   *  from its world -- the HUD tables for this viewer's side (a card or chip
+   *  carries kit only for an own unit), and the renderer both sides. Side 1's
+   *  kitted units share side 0's type ids, so an id-keyed table describes one
+   *  side; the viewer's is the one the HUD reads. */
+  const kit = screenKit(prepass, versusWorld, me);
+  const kitByType = kit.kitByType;
+  /** The one level every unit ICON reads (WP-S3g plan 2b): the prepass's own
+   *  `unitKit` (the viewer's side's, in a versus room), never re-derived --
+   *  the loop that registered the sim's types and filled the card's pips. 0
+   *  for any type the prepass did not see. */
+  const kitLevelOf = (typeId: string): KitLevel => kit.unitKit[typeId] ?? 0;
   const baseMapJson =
     (maps as Record<string, MapJson | undefined>)[mapId] ?? maps.beit_sahwan_outskirts;
   // The ditch is cut into the ROWS, before `parseMap`, rather than poked into
@@ -1864,6 +1886,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     }
   }
 
+  // A versus room's `typeOf` is SIDE 0's map: side 1's kitted types share its
+  // ids under other indices (`typeOfBySide`). Every id -> index read below is
+  // a mission's or the sandbox's (`startMission`, the dock, `sandboxSpawns`),
+  // so a room reads none; a room-side lookup by id must pick a side's map.
   const typeOf = versusWorld?.typeOf ?? new Map<string, number>();
   // The pre-pass's own output (`upgradePrepass`, above): enemy units pass
   // through untouched -- only a KDF unit can carry a bought tier -- and
@@ -1965,11 +1991,23 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  the spawner stays gate-blind. Every other reader of `mission` -- briefing,
    *  debrief, `getMission()` -- keeps the original JSON. */
   let resolvedMission: MissionJson | undefined;
+  /** Indices into `resolvedMission.starting_force` of the placements on loan (GH-183, D5),
+   *  handed to the runtime so it can answer `isOnLoan`. Computed with the SAME lookup as
+   *  `resolveUpgrades` above (one const, so the two cannot drift). */
+  let loanedForce: readonly number[] | undefined;
+  /** The unit TYPES those placements lend, for `applyRosterCarryover`: R-2 must not replace
+   *  an earlier enlisted body of a type this run lent (F3 final review F1). Derived from the
+   *  same indices into the same resolved force, never a second way. */
+  let lentTypes: ReadonlySet<string> | undefined;
   if (mission) {
-    resolvedMission = resolveUpgrades(mission, ledger, (id) => {
+    const gateOf = (id: string) => {
       const u = (units as Record<string, (typeof units)[keyof typeof units] | undefined>)[id];
       return u ? kdfUnlockGate(u, boughtUnits) : undefined;
-    });
+    };
+    resolvedMission = resolveUpgrades(mission, ledger, gateOf);
+    loanedForce = loanedPlacements(mission, ledger, gateOf);
+    const resolvedForce = resolvedMission.starting_force ?? [];
+    lentTypes = new Set(loanedForce.map((i) => resolvedForce[i].unit));
   } else if (versusWorld !== null) {
     // A versus room (network design §9): the KDF force (plus the second Spike
     // team, `VERSUS_EXTRA`) on EACH side, mirrored through the hostile anchor,
@@ -2025,8 +2063,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     reducedMotion: prefersReducedMotion,
     // GH-238: the bought kit each vehicle wears, from the one prepass that
     // registered the sim's types and drew the card -- so the hull on the
-    // field is the hull the sim is running.
-    unitKitTiers: prepass.unitKitTiers,
+    // field is the hull the sim is running. A versus room: each side's own
+    // kit, side 0's as `unitKitTiers` and both as `unitKitTiersBySide`, so a
+    // type whose two kits differ draws a template per side (`screenKit`,
+    // `templateKey`). Everywhere else `unitKitTiersBySide` is absent and the
+    // renderer builds the one template per type it always has.
+    unitKitTiers: kit.unitKitTiers,
+    ...(kit.unitKitTiersBySide !== undefined ? { unitKitTiersBySide: kit.unitKitTiersBySide } : {}),
     // Network design §5.1: whose force this screen draws as its own, and
     // whether fog is private to this seat (absent/false is single-player).
     viewerSide: me,
@@ -2379,9 +2422,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             flaggedZones: m.roe?.flagged_zones,
             zoneName: briefPlaces.zone,
           }),
-          attached: (m.starting_force ?? [])
-            .filter((p) => p.from_ledger !== true)
-            .map((p) => ({ type: p.unit, name: unitName(p.unit), count: p.count })),
+          // From the RESOLVED force, the array `loanedForce` indexes (GH-183).
+          attached: attachedFor(m.starting_force ?? [], loanedForce, unitName),
           unitName,
         };
       })()
@@ -2571,12 +2613,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         zones: map.zones,
         tunnels: tunnelRoutes,
         ledger: sentLedger,
+        loaned: loanedForce,
         unitInfo: (id) => {
           const u = (units as Record<string, (typeof units)[keyof typeof units] | undefined>)[id];
           if (!u || u.faction !== 'kdf') return null;
           return {
             logistics: u.cost.logistics,
             buildTimeS: 'build_time_s' in u.cost ? u.cost.build_time_s : 20,
+            // What the unit takes of the side's population cap (GH-183); the schema default is 1.
+            population: 'population' in u.cost ? u.cost.population : 1,
             unlock: kdfUnlockGate(u, boughtUnits),
           };
         },
@@ -2703,7 +2748,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           logistics: mission.resources ? runtime.logistics : undefined,
           logisticsRate: mission.resources?.logistics_rate_per_min,
           intel: mission.resources ? runtime.intel : undefined,
-          intelRate: intelMoments?.rate.perMin(),
+          intelLastEarn: intelMoments?.lastEarn(sim.tickCount) ?? undefined,
           // The story voice's closing line (GDD §11) -- read straight off the
           // mission JSON, like `name`/`briefing` already are. The sim never
           // sees this field either (`mission.ts`'s own doc comment).
@@ -3042,6 +3087,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     conductInvoice: () => ({ lines: invoiceLines(deductions, placeNames), floor: mission?.roe?.fail_below }),
     getSelection: () => renderer.selection,
     getMission,
+    // The strip has drawn the last earn's batch: the next earn opens a new one.
+    onStripRendered: () => intelMoments?.sealEarn(),
     hoverStructure: () => renderer.hoverStructure,
     hoverEntity: () => renderer.hoverEntity,
     hoverFriendly: () => renderer.rangeRingPreview ?? -1,
@@ -3069,6 +3116,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // before a runtime exists on some paths (`runtime` is set only `if
     // (mission)`, above), so this must read the variable at call time.
     rosterEntryOf: (id) => runtime?.rosterEntryOf(id),
+    // The same closure rule: `runtime` is read at call time. A sandbox has
+    // none, and then nothing is ever on loan.
+    isOnLoan: (id) => runtime?.isOnLoan(id) ?? false,
     // Reads `ledger`, this battlefield's own `const`: the campaign as it was
     // read at boot, never rebound. That is the right ledger mid-mission, when
     // the card is read: this mission's own losses reach `roster.lost` only
@@ -3717,7 +3767,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // Reinforcements and fire support: the dock, bottom left (GH-153 slice 3).
   let production: ReinforcementDock | null = null;
   /** Armed fire-support purchase awaiting a target, if any. */
-  let armedSupport: 'sweep' | 'strike' | null = null;
+  let armedSupport: SupportKind | null = null;
   // GH-113: the intel calls' presentation -- the charge clock, the ready and
   // call announcements, the readouts. Read-only over the sim (invariant 4);
   // its outputs go to the HUD's own note(), the minimap's own flash() and the
@@ -3725,7 +3775,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // the screen: no readout lands on the next one, and the footprint goes.
   const intelMoments =
     runtime && mission?.resources
-      ? new IntelMoments({ sweepCost: runtime.sweepCost, strikeCost: runtime.strikeCost, toFx: fx.from, viewer: me })
+      ? new IntelMoments({ supportCost: (k) => runtime.supportCost(k), toFx: fx.from, viewer: me })
       : null;
   onDispose(() => {
     intelMoments?.dispose();
@@ -3741,7 +3791,19 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       if (o.kind === 'note') hud.note(t(o.key, o.params), o.tone, { tier: o.tier });
       else if (o.kind === 'breakdown') hud.note(breakdownLine(o), 'info', { tier: 'minor' });
       else if (o.kind === 'strikeResult') hud.note(strikeLine(o), o.civiliansKilled > 0 ? 'bad' : 'warn', { tier: 'important' });
-      else if (o.kind === 'flash') minimap.flash(o.points, performance.now(), { tier: o.tier, tone: o.tone });
+      else if (o.kind === 'barrageResult') hud.note(barrageLine(o), o.civiliansKilled > 0 ? 'bad' : 'warn', { tier: 'important' });
+      else if (o.kind === 'earn') {
+        // F-Q7: the earn line, minor and info. Where a rise was taken is worded
+        // exactly as the alert layer words its `{place}` (`placePhrase` over
+        // the same `placeOf`), so the two cannot name one tile two ways.
+        hud.note(
+          o.cause === 'identified'
+            ? t('intel.note.earnIdentified', { n: o.amount })
+            : t('intel.note.earnHighGround', { n: o.amount, place: placePhrase([alertWorld.placeOf(o.at.x, o.at.y)]) }),
+          'info',
+          { tier: 'minor' }
+        );
+      } else if (o.kind === 'flash') minimap.flash(o.points, performance.now(), { tier: o.tier, tone: o.tone });
       else if (o.kind === 'announce') announce.push({ event: o.event });
       else if (o.kind === 'ready') production?.flashReady(o.support, performance.now(), READY_FLASH_MS);
     }
@@ -3791,6 +3853,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             kit: kitLevelOf(u.id),
             tags: doctrineTags(bucket, abilities),
             blurb: 'blurb' in u ? (u.blurb as string) : undefined,
+            // What it takes of the population cap (schema default 1, a drone 0) --
+            // the same read `unitInfo` above hands the runtime. Only words the
+            // capped tile's "needs N" line; the cap itself is the runtime's call.
+            population: 'population' in u.cost ? u.cost.population : 1,
             // The same gate `unitInfo` above hands `MissionRuntime`, so the tile's
             // lock sentence (`gateSentence`, via `dock-model.ts`'s `tileState`) can
             // never disagree with what the runtime is actually enforcing.
@@ -3807,9 +3873,17 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // the one state with no number to show.
       credits: ledgerStore.available ? ledgerStore.readAccount().balance : undefined,
       note: (html, tone) => hud.note(html, tone),
+      onDeny: () => audio.playCue(CRITICAL_CUES.uiDeny),
+      // Read at hover time, so a rebind in Settings shows on the next tooltip.
+      hotkeyLabel: (kind) => keyLabel(bindings[SUPPORT[kind].action]),
       supportCharge: (kind) => {
-        const c = intelMoments?.charge(kind, runtime.intel);
-        return c === undefined ? { fraction: 0, clock: '', title: '' } : { fraction: c.fraction, ...chargeText(kind, c.clock) };
+        const cost = runtime.supportCost(kind);
+        const have = runtime.intel;
+        const name = t(SUPPORT[kind].name);
+        return {
+          fraction: Math.min(1, have / cost),
+          title: have >= cost ? t('dock.support.charge.ready', { name }) : t('dock.support.charge.short', { name, have, cost }),
+        };
       },
       onArm: (kind) => {
         armedSupport = kind;
@@ -4114,29 +4188,29 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       });
       if (res.armed && runtime) {
         const call = res.armed;
-        const ok =
-          call === 'sweep'
-            ? runtime.requestSweep(fx.from(w.x), fx.from(w.y))
-            : runtime.requestStrike(fx.from(w.x), fx.from(w.y));
-        dispatch({ kind: 'support', call, x: w.x, y: w.y, accepted: ok });
-        if (ok && intelMoments) {
+        // F-Q10: the click aims through `pointerPoint`, so a wall pixel is the
+        // building; `out.x/y` is the one point the dispatch, the marker and
+        // the announcer all use.
+        const out = callSupport(runtime, call, pointerView, sim, p.x, p.y);
+        dispatch({ kind: 'support', call, x: out.x, y: out.y, accepted: out.ok });
+        if (out.ok && intelMoments) {
           // GH-113: "inbound -- 3 s" / "on the way", one announcer line and a
           // ring on the minimap, in place of "called on (x, y)" -- grid
           // coordinates no player reads.
-          const say = sayIntel(intelMoments.called(call, w.x, w.y, sim.tickCount));
+          const say = sayIntel(intelMoments.called(call, out.x, out.y, sim.tickCount));
           if (say.length > 0) voice.onMission([], say);
         } else {
           // Reuses the dock's own SUPPORT word keys (production.ts) so a call's
           // name reads the same on the tile and in the notice that confirms it.
-          const wordKey = call === 'sweep' ? 'dock.support.sweep.word' : 'dock.support.strike.word';
+          const wordKey = SUPPORT[call].word;
           hud.note(
-            ok
-              ? t('main.note.supportCalled', { name: t(wordKey), x: w.x.toFixed(0), y: w.y.toFixed(0) })
-              : t('main.note.supportRefused'),
-            ok ? 'info' : 'mute'
+            out.ok
+              ? t('main.note.supportCalled', { name: t(wordKey) })
+              : t(out.why === 'intel' ? 'main.note.supportRefused' : 'main.note.supportNoCaller'),
+            out.ok ? 'info' : 'mute'
           );
         }
-        if (ok) renderer.addOrderMarker(w.x, w.y);
+        if (out.ok) renderer.addOrderMarker(out.x, out.y);
         else audio.playCue(CRITICAL_CUES.uiDeny);
         production?.setArmed(null);
         dragStart = null;
@@ -4480,6 +4554,21 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // cannot quick-cast -- and both end in this same call.
         runVerb('smoke');
         break;
+      // S-F Task 3: Z Q C V press the dock's four fire-support tiles -- the very
+      // `press` a click on a tile runs, so a key and its tile are one path (the
+      // GH-153 rule). With no dock (a mission without `resources`) there is
+      // nothing to press and nothing is played: the key is bound either way.
+      // The modal guard above already ran, and none of the four passes it.
+      case 'supportScreen':
+      case 'supportBarrage':
+      case 'supportSweep':
+      case 'supportStrike': {
+        // A hidden dock is inert, its keys included (GH-345), and a held key
+        // must not re-toggle the arming: both live in `supportKeyTarget`.
+        const kind = supportKeyTarget(action, isShown('dock'), ev.repeat, (a) => SUPPORT_KINDS.find((k) => SUPPORT[k].action === a));
+        if (kind !== null) production?.press(kind);
+        break;
+      }
       case 'jumpToAlert':
         // Space is also the activation key of whatever holds focus, and the
         // dock's `focusFirst()` and a Tab onto a chip both leave a button
@@ -4813,7 +4902,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // and implements nothing.
       renderer.onMissionEvents?.(missionEvents);
       if (tickIsActive(events, missionEvents, me)) stallActive = true;
-      const intelAnnounce = intelMoments ? sayIntel(intelMoments.afterTick(sim, sim.tickCount, events, runtime.intel)) : [];
+      const intelAnnounce = intelMoments
+        ? sayIntel([
+            ...intelMoments.afterTick(sim, sim.tickCount, events, runtime.intel),
+            ...intelMoments.earned(missionEvents, sim.tickCount),
+          ])
+        : [];
       if (!tickQuiet) voice.onMission(missionEvents, intelAnnounce);
 
       // The alert layer (spec acceptance (a)): one classification of the tick,
@@ -4884,6 +4978,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             mev.result === 'victory'
               ? applyRosterCarryover(ledger, mev.ledger, lostThisMission, {
                   missionId: mission.id,
+                  lentTypes,
                   kindOf: (typeId) => nameKind(unitFor(typeId), names as NamesJson),
                   names: names as NamesJson,
                   // The same lookup `alertWorld.unitName` uses (spec §4.7's own
@@ -5475,6 +5570,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     seatWorld,
     runTick,
     config: netConfig,
+    // L4: this client's OWN content digest, folded into every hash it
+    // reports. Taken here at boot in a room, so its ~50 ms cold computation
+    // is not a hitch on tick 19; single-player hashes nothing and never pays it.
+    ...(netConfig !== null ? { dataDigest: shippedContentDigest() } : {}),
     // A versus match is decided on a hash tick, from sim state alone (N1b
     // task 10), and no frame runs after the tick that decided it: both seats
     // stop on the same tick with the same result.
@@ -5565,6 +5664,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       renderer,
       runtime,
       audio,
+
+      /** This build's digest of its shipped unit, structure and map JSON
+       *  (L4, `net/content-digest.ts`) -- the one a room client folds into
+       *  every hash. Read by CI's `net:engines` against Node's own. */
+      contentDigest: () => shippedContentDigest(),
 
       /** What this build reads off the URL, and what the console offers.
        *  The three sandbox flags used to be reachable only by reading
@@ -5794,12 +5898,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   }
   renderer.rangeRingPreview = hf;
 
-  // GH-113: the strike's splash under the armed cursor -- the same ground
-  // point the click would spend it on (`screenToWorld`, as pointerup asks),
-  // and null the frame the strike is not armed.
-  renderer.aimFootprint = aimFootprintFor(
+  // GH-113 / S-F: the armed call's footprint under the cursor -- the same
+  // point the click would spend it on (`supportAim`, the pointerPoint rule,
+  // F-Q10), and null the frame nothing is armed (or the sweep, which draws none).
+  renderer.aimFootprint = aimFootprint(
     armedSupport,
-    armedSupport === 'strike' ? renderer.screenToWorld(lastCursor.x, lastCursor.y) : null
+    armedSupport ? supportAim(pointerView, sim, lastCursor.x, lastCursor.y) : null
   );
 
   // Teach the hover, but only on a real change: `updateHover` runs every

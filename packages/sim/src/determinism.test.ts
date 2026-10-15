@@ -1009,8 +1009,23 @@ const ECONOMY_TICKS = 2400; // two minutes
 // (10 each) and objective completion (30 each) instead of per minute (G3 Q1,
 // lead 4 Oct), and economyHash() folds the settled first identifications
 // (size, then ids ascending); was 3286554442.
-const ECONOMY_PIN = 331788258;
+// re-pinned 2026-10-15, F3 Task 4: population and the cap are economy state (G3 Q4,
+// lead 4 Oct); economyHash() folds population(0), population(1), popCap(0), popCap(1)
+// (null as -1) after every earlier fold, and the fixture gained a cap of 5 and one
+// refused build (and a population-0 drone, as shipped); was 331788258.
+// re-pinned 2026-10-15, F1 follow-up: lead ruling 15 Oct: 8/40/30, smoke 100 (a first
+// identification pays 8, an objective 40); was 537142626.
+const ECONOMY_PIN = 3794140228;
 const ECONOMY_EXTRA_BUILD_TICK = 1000;
+// F3 Task 4 (GH-183): side 0's cap, and the one build it refuses. The force is the
+// drone (population 0) and one squad (1); the builds at 400 and 800 bring it to 3,
+// the extra truck at 1000 to 4 and the late truck at 2300 to 5 -- so 5 is the
+// SMALLEST cap that refuses nothing the F1 replay already did, and the plan's 12
+// would never bind. The refused build is a 10-population `heavy_convoy` asked at
+// 1200 (it would fit under no cap that leaves the rest standing), so a cap of 5, 6
+// or 7 all refuse it and the cap is the ONLY difference between those runs.
+const ECONOMY_POP_CAP = 5;
+const ECONOMY_REFUSED_BUILD_TICK = 1200;
 // Still building when the replay ends (15 s = 300 ticks to deliver), so the
 // pinned hash carries a non-empty queue and not just a purse.
 const ECONOMY_LATE_BUILD_TICK = 2300;
@@ -1044,6 +1059,8 @@ const ECO_DRONE: UnitTypeJson = {
   hull: { hp: 120, armor: { front: 0, side: 0, rear: 0 }, crew: 0, suppression_resistance: 1.0 },
   mobility: { speed_tiles_s: 2.2, turn_rate_deg_s: 180, domain: 'air' },
   sensors: { optics: 2.0, sight_tiles: 16, signature: 0.3, firing_signature_mult: 1.0 },
+  // The shipped drone takes no population (F3 Task 4: population now decides behaviour).
+  cost: { population: 0 },
 };
 
 const ECO_MILITIA: UnitTypeJson = {
@@ -1117,21 +1134,30 @@ interface EconomyRun {
   built: number;
   identified: number;
   secondaryDone: boolean;
+  /** What `buildBlockedReason('heavy_convoy')` read the tick the refused build was asked. */
+  refusal: string | null;
+  refusedByCap: boolean;
+  /** `requestBuild('heavy_convoy')`'s answer, and the purse either side of it. */
+  refusedAnswer: boolean;
+  purseBeforeRefusal: number;
+  purseAfterRefusal: number;
 }
 
 /** `extraBuild` buys one `supply_truck` at ECONOMY_EXTRA_BUILD_TICK: delivered
  *  (15 s) long before the end, so it differs from the base run in the purse
  *  alone. */
-function economyReplay(seed: number, extraBuild = false): EconomyRun {
+function economyReplay(seed: number, extraBuild = false, popCap: number | null = ECONOMY_POP_CAP): EconomyRun {
   const sim = new Sim({ seed, width: 48, height: 48, capacity: 32 });
   const ids = new Map<string, number>();
   for (const t of [ECO_SQUAD, ECO_DRONE, ECO_MILITIA, ECO_TRUCK]) ids.set(t.id, sim.addUnitType(t));
   sim.addStructureType(ECO_CAMP);
-  const info: Record<string, { logistics: number; buildTimeS: number }> = {
+  const info: Record<string, { logistics: number; buildTimeS: number; population: number }> = {
     // The shipped squad costs 292; at 120/min a second one is out of reach at
     // tick 800 (see the note in the commit), so the fixture prices it at 180.
-    inf_squad: { logistics: 180, buildTimeS: 15 },
-    supply_truck: { logistics: 100, buildTimeS: 15 },
+    inf_squad: { logistics: 180, buildTimeS: 15, population: 1 },
+    supply_truck: { logistics: 100, buildTimeS: 15, population: 1 },
+    // Never fielded: the cap refuses it (it needs no unit type, nothing spawns).
+    heavy_convoy: { logistics: 100, buildTimeS: 15, population: 10 },
   };
   const rt = new MissionRuntime(sim, ECO_MISSION, {
     typeIdOf: (u) => {
@@ -1142,9 +1168,21 @@ function economyReplay(seed: number, extraBuild = false): EconomyRun {
     markers: {},
     zones: { assembly: [2, 20, 10, 26] },
     unitInfo: (u) => info[u] ?? null,
+    popCaps: [popCap, null],
   });
   rt.start();
-  const run: EconomyRun = { sim, rt, built: 0, identified: 0, secondaryDone: false };
+  const run: EconomyRun = {
+    sim,
+    rt,
+    built: 0,
+    identified: 0,
+    secondaryDone: false,
+    refusal: null,
+    refusedByCap: false,
+    refusedAnswer: true,
+    purseBeforeRefusal: 0,
+    purseAfterRefusal: 0,
+  };
   const living = (type: string): number[] => {
     const out: number[] = [];
     for (let id = 0; id < sim.entityCount; id++) {
@@ -1158,6 +1196,13 @@ function economyReplay(seed: number, extraBuild = false): EconomyRun {
     if (t === 400 || t === 800) rt.requestBuild('inf_squad');
     if (extraBuild && t === ECONOMY_EXTRA_BUILD_TICK) rt.requestBuild('supply_truck');
     if (t === ECONOMY_LATE_BUILD_TICK) rt.requestBuild('supply_truck');
+    if (t === ECONOMY_REFUSED_BUILD_TICK) {
+      run.refusal = rt.buildBlockedReason('heavy_convoy');
+      run.refusedByCap = rt.popCapped('heavy_convoy');
+      run.purseBeforeRefusal = rt.logistics;
+      run.refusedAnswer = rt.requestBuild('heavy_convoy');
+      run.purseAfterRefusal = rt.logistics;
+    }
     // The lead unit goes forward to a post that sees both garrison groups (a
     // drone's sight is 16), and the starting squad stays where it stands, a
     // marker at rest. A plain move: it holds fire on the way (6 Oct).
@@ -1206,6 +1251,36 @@ describe('economy replay (2400 ticks of MissionRuntime on a flat map)', () => {
     expect(r.rt.production.map((p) => p.unit)).toEqual(['supply_truck']);
     // And the run did not end: the fixture is not allowed to withdraw or win.
     expect(r.rt.result).toBe('ongoing');
+  });
+
+  // F3 Task 4: the pin is over a cap that BINDS. Without this, a fixture whose cap
+  // never refuses anything would pin population and the cap while testing neither.
+  it('the cap really refuses a build, and the refusal costs nothing', () => {
+    const r = economyReplay(ECONOMY_SEED);
+    expect(r.refusal).toMatch(/^population cap reached \(\d+\/5\)$/);
+    expect(r.refusedByCap).toBe(true);
+    expect(r.refusedAnswer).toBe(false);
+    expect(r.purseAfterRefusal).toBe(r.purseBeforeRefusal);
+    // And it refused exactly that one: a cap of 7 admits nothing more than 5 does
+    // (the convoy needs 10), so the same builds went through under both.
+    expect(r.built).toBe(economyReplay(ECONOMY_SEED, false, 7).built);
+    expect(r.built).toBe(2); // the two squads; the late truck is still in flight
+    expect(r.rt.popCap(0)).toBe(5);
+    expect(r.rt.popCapped('supply_truck')).toBe(false);
+  });
+
+  it('the economy hash covers the cap', () => {
+    // 5, 6 and 7 all refuse the convoy and admit every other build, so the runs
+    // are identical in every respect but the cap.
+    const at5 = economyReplay(ECONOMY_SEED, false, 5);
+    const at6 = economyReplay(ECONOMY_SEED, false, 6);
+    const at7 = economyReplay(ECONOMY_SEED, false, 7);
+    for (const r of [at5, at6, at7]) expect(r.refusedByCap).toBe(true);
+    expect(at6.built).toBe(at5.built);
+    expect(at6.rt.population(0)).toBe(at5.rt.population(0));
+    expect(at6.rt.logistics).toBe(at5.rt.logistics);
+    expect(at6.rt.economyHash()).not.toBe(at5.rt.economyHash());
+    expect(at7.rt.economyHash()).not.toBe(at6.rt.economyHash());
   });
 
   it('the economy replay pins its hash', () => {
@@ -1337,11 +1412,20 @@ const RELIEF_ECO_ELEVATION: readonly string[] = [
 const RELIEF_ECO_SEED = 0x0e_c0_0005;
 const RELIEF_ECO_TICKS = 2400;
 const RELIEF_ECO_B_ORDER_TICK = 1700;
+// F3 Task 4 (GH-183, C-R5): the relief fixture gets the flat one's coverage. Its three
+// squads are side 0's whole starting population, so a cap of 3 is full on the first
+// tick and the one build asked at tick 100 is refused. (Caps 2 and 3 both refuse it:
+// the cap is the only difference between those runs.)
+const RELIEF_ECO_POP_CAP = 3;
+const RELIEF_ECO_REFUSED_BUILD_TICK = 100;
 // ECONOMY_PIN_RELIEF: born 2026-10-15 at F1 Task 5 (the rise state joined
 // economyHash; there is no earlier value, so this is a birth, not a re-pin).
 // ECONOMY_PIN above did not move for the same change: the flat map has no
 // rise, and the fold is a loop over `count` with no length word (F-R2).
-const ECONOMY_PIN_RELIEF = 2992706492;
+// re-pinned 2026-10-15, F3 Task 4: the same fold (population and both caps joined
+// economyHash()), and the relief fixture gained a unitInfo catalogue, a cap of 3 (its
+// three starting squads) and one refused build; was 2992706492.
+const ECONOMY_PIN_RELIEF = 2682592505;
 
 const RELIEF_ECO_MISSION: MissionJson = {
   id: 'economy_replay_relief',
@@ -1359,12 +1443,22 @@ const RELIEF_ECO_MISSION: MissionJson = {
 
 interface ReliefEconomyRun {
   rt: MissionRuntime;
+  /** What `buildBlockedReason('inf_squad')` read the tick the refused build was asked. */
+  refusal: string | null;
+  refusedByCap: boolean;
+  refusedAnswer: boolean;
+  purseBeforeRefusal: number;
+  purseAfterRefusal: number;
   /** Every `intelEarned` the runtime emitted for a rise: tick, rise id, tile. */
   paid: { tick: number; ref: number | string; x: number; y: number }[];
 }
 
 /** `bAt` is the tick B is ordered up to the pass; null leaves it where it stands. */
-function reliefEconomyReplay(seed: number, opts: { aOrdered?: boolean; bAt?: number | null } = {}): ReliefEconomyRun {
+function reliefEconomyReplay(
+  seed: number,
+  opts: { aOrdered?: boolean; bAt?: number | null; popCap?: number } = {},
+): ReliefEconomyRun {
+  const popCap = opts.popCap ?? RELIEF_ECO_POP_CAP;
   const aOrdered = opts.aOrdered ?? true;
   const bAt = opts.bAt === undefined ? RELIEF_ECO_B_ORDER_TICK : opts.bAt;
   const sim = new Sim({ seed, width: 48, height: 48, capacity: 32 });
@@ -1385,10 +1479,24 @@ function reliefEconomyReplay(seed: number, opts: { aOrdered?: boolean; bAt?: num
     },
     markers: {},
     zones: {},
+    unitInfo: (u) => (u === 'inf_squad' ? { logistics: 180, buildTimeS: 15, population: 1 } : null),
+    popCaps: [popCap, null],
   });
   rt.start();
   const paid: ReliefEconomyRun['paid'] = [];
+  let refusal: string | null = null;
+  let refusedByCap = false;
+  let refusedAnswer = true;
+  let purseBefore = 0;
+  let purseAfter = 0;
   for (let t = 0; t < RELIEF_ECO_TICKS; t++) {
+    if (t === RELIEF_ECO_REFUSED_BUILD_TICK) {
+      refusal = rt.buildBlockedReason('inf_squad');
+      refusedByCap = rt.popCapped('inf_squad');
+      purseBefore = rt.logistics;
+      refusedAnswer = rt.requestBuild('inf_squad');
+      purseAfter = rt.logistics;
+    }
     // A: up to the middle of the bench (tiles y 25-26), at tick 5.
     if (aOrdered && t === 5) sim.queueCommand({ kind: 'move', ids: [0], x: fx.from(24.5), y: fx.from(25.5) });
     // B: up the valley to the pass (tiles x 19-29, y 12-17), late.
@@ -1400,7 +1508,15 @@ function reliefEconomyReplay(seed: number, opts: { aOrdered?: boolean; bAt?: num
       }
     }
   }
-  return { rt, paid };
+  return {
+    rt,
+    refusal,
+    refusedByCap,
+    refusedAnswer,
+    purseBeforeRefusal: purseBefore,
+    purseAfterRefusal: purseAfter,
+    paid,
+  };
 }
 
 describe('economy replay over relief (2400 ticks of MissionRuntime on tel_marum)', () => {
@@ -1435,6 +1551,24 @@ describe('economy replay over relief (2400 ticks of MissionRuntime on tel_marum)
     const late = reliefEconomyReplay(RELIEF_ECO_SEED, { bAt: RELIEF_ECO_B_ORDER_TICK + 60 });
     expect(late.paid).toEqual(reliefEconomyReplay(RELIEF_ECO_SEED).paid);
     expect(late.rt.economyHash()).not.toBe(base);
+  });
+
+  it('the cap really refuses a build on relief, and the refusal costs nothing', () => {
+    const r = reliefEconomyReplay(RELIEF_ECO_SEED);
+    expect(r.refusal).toBe('population cap reached (3/3)');
+    expect(r.refusedByCap).toBe(true);
+    expect(r.refusedAnswer).toBe(false);
+    expect(r.purseAfterRefusal).toBe(r.purseBeforeRefusal);
+    expect(r.rt.production).toHaveLength(0);
+    expect(r.rt.population(0)).toBe(3);
+  });
+
+  it('the economy hash covers the cap on relief', () => {
+    const at3 = reliefEconomyReplay(RELIEF_ECO_SEED, { popCap: 3 });
+    const at2 = reliefEconomyReplay(RELIEF_ECO_SEED, { popCap: 2 });
+    expect(at2.refusedByCap).toBe(true);
+    expect(at2.rt.logistics).toBe(at3.rt.logistics);
+    expect(at2.rt.economyHash()).not.toBe(at3.rt.economyHash());
   });
 
   it('the relief economy replay pins its hash', () => {

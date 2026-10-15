@@ -30,17 +30,17 @@ const last = (ws: FakeSocket): ServerMsg | undefined => msgs(ws).at(-1);
 const ofType = <T extends ServerMsg['t']>(ws: FakeSocket, t: T): Extract<ServerMsg, { t: T }>[] =>
   msgs(ws).filter((m): m is Extract<ServerMsg, { t: T }> => m.t === t);
 
-interface CreateOpts { mode?: string; join?: boolean; code?: string; db?: D1Like; matchup?: string; kind?: string; pace?: unknown; joinKind?: string }
+interface CreateOpts { mode?: string; join?: boolean; code?: string; db?: D1Like; matchup?: string; kind?: string; pace?: unknown; joinKind?: string; kit?: unknown; tiers?: unknown; joinTiers?: unknown }
 /** Creates the room and, unless `join: false`, has the guest reserve seat 1 as the Worker does. */
 async function created(state = new FakeState(), opts: CreateOpts = {}): Promise<{ state: FakeState; room: MatchRoom }> {
   const room = new MatchRoom(state, opts.db ? ({ ...env, DB: opts.db } as Env) : env);
   const res = await room.fetch(new Request('https://room/create', {
     method: 'POST',
-    body: JSON.stringify({ code: opts.code ?? CODE, matchId: opts.code ?? CODE, map: 'tel_marum', build: BUILD, player: 'p-host', callsign: 'Host', ...(opts.mode ? { mode: opts.mode } : {}), ...(opts.matchup ? { matchup: opts.matchup } : {}), ...(opts.kind ? { kind: opts.kind } : {}), ...(opts.pace ? { pace: opts.pace } : {}) }),
+    body: JSON.stringify({ code: opts.code ?? CODE, matchId: opts.code ?? CODE, map: 'tel_marum', build: BUILD, player: 'p-host', callsign: 'Host', ...(opts.mode ? { mode: opts.mode } : {}), ...(opts.matchup ? { matchup: opts.matchup } : {}), ...(opts.kind ? { kind: opts.kind } : {}), ...(opts.pace ? { pace: opts.pace } : {}), ...(opts.kit !== undefined ? { kit: opts.kit } : {}), ...(opts.tiers !== undefined ? { tiers: opts.tiers } : {}) }),
   }));
   expect(res.status).toBe(200);
   if (opts.join !== false) {
-    const join = await room.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player: 'p-guest', callsign: 'Guest', ...(opts.joinKind ? { kind: opts.joinKind } : {}) }) }));
+    const join = await room.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player: 'p-guest', callsign: 'Guest', ...(opts.joinKind ? { kind: opts.joinKind } : {}), ...(opts.joinTiers !== undefined ? { tiers: opts.joinTiers } : {}) }) }));
     expect(join.status).toBe(200);
   }
   return { state, room };
@@ -356,6 +356,54 @@ describe('MatchRoom', () => {
     expect(seedA).not.toBe(seedB);
     // Both seats of one match carry the one seed.
     expect(ofType(a.ws1, 'start')[0].config.seed).toBe(seedA);
+  });
+
+  // N4b task 11: the local relay passes a third argument; workerd never does,
+  // so a room built with two must keep the 50 ms clock and the crypto seed.
+  it('a room built without options ticks every TICK_MS and seeds a versus room from crypto.getRandomValues', async () => {
+    const intervals = vi.spyOn(globalThis, 'setInterval');
+    const real = crypto.getRandomValues.bind(crypto);
+    const rnd = vi.spyOn(crypto, 'getRandomValues').mockImplementation(<T extends ArrayBufferView | null>(a: T): T => {
+      if (a instanceof Uint32Array) { a.fill(0x9e3779b9); return a; }
+      return real(a as unknown as Uint8Array<ArrayBuffer>) as unknown as T;
+    });
+    try {
+      const { ws0 } = await running({ mode: 'versus' });
+      expect(ofType(ws0, 'start')[0].config.seed).toBe(0x9e3779b9 | 0);
+      expect(rnd.mock.calls.some(([a]) => a instanceof Uint32Array)).toBe(true);
+      const delays = intervals.mock.calls.map((c) => c[1]);
+      expect(delays.length).toBeGreaterThan(0);
+      expect(delays.every((d) => d === TICK_MS)).toBe(true);
+    } finally {
+      intervals.mockRestore();
+      rnd.mockRestore();
+    }
+  });
+  it('options (the local relay\'s, never workerd\'s): tickMs sets the clock and seed() replaces the crypto seed, given the code', async () => {
+    const intervals = vi.spyOn(globalThis, 'setInterval');
+    const rnd = vi.spyOn(crypto, 'getRandomValues');
+    const codes: string[] = [];
+    try {
+      const state = new FakeState();
+      const room = new MatchRoom(state, env, { tickMs: 7, seed: (code) => { codes.push(code); return 7; } });
+      const res = await room.fetch(new Request('https://room/create', {
+        method: 'POST', body: JSON.stringify({ code: CODE, matchId: CODE, map: 'tel_marum', build: BUILD, player: 'p-host', callsign: 'Host', mode: 'versus' }),
+      }));
+      expect(res.status).toBe(200);
+      expect((await room.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player: 'p-guest' }) }))).status).toBe(200);
+      const ws0 = await hello(room, 0);
+      const ws1 = await hello(room, 1);
+      await say(room, ws0, { t: 'ready' });
+      await say(room, ws1, { t: 'ready' });
+      expect(ofType(ws0, 'start')[0].config.seed).toBe(7);
+      expect(codes).toEqual([CODE]);
+      expect(rnd.mock.calls.some(([a]) => a instanceof Uint32Array)).toBe(false);
+      expect(intervals.mock.calls.map((c) => c[1])).toContain(7);
+      expect(intervals.mock.calls.map((c) => c[1])).not.toContain(TICK_MS);
+    } finally {
+      intervals.mockRestore();
+      rnd.mockRestore();
+    }
   });
 
   it('a sandbox room keeps N0: both seats on side 0, seed 20260727', async () => {
@@ -1550,5 +1598,94 @@ describe('bot seats and the paced config (N4a task 7, D5)', () => {
     await deliverAlarm(revived, state.storage);
     await vi.advanceTimersByTimeAsync(3 * TICK_MS);
     expect(ofType(ws0, 'frame').at(-1)?.tick).toBeGreaterThanOrEqual(20);
+  });
+});
+
+describe('per-seat kit: the room records each seat\'s claim and mints it only into a brigade KDF seat', () => {
+  const HOST = { mbt_lavi: { armour: 2, warp: 1 }, sarim_rifles: { armour: 1 } };
+  const GUEST = { inf_squad: { sensors: 99 } };
+  const startOf = async (opts: CreateOpts) => {
+    const { ws0, ws1 } = await running(opts);
+    const [start] = ofType(ws0, 'start');
+    expect(ofType(ws1, 'start')[0].config).toEqual(start.config);
+    expect(validateConfig(JSON.parse(JSON.stringify(start.config)))).not.toBeNull();
+    return start.config;
+  };
+  it('the lobby names the kit rule to both seats when it is brigade, and says nothing for a matched or sandbox room', async () => {
+    const lobbyKit = async (opts: CreateOpts) => {
+      const { room } = await created(new FakeState(), opts);
+      const ws0 = await hello(room, 0);
+      const ws1 = await hello(room, 1);
+      return [ofType(ws0, 'lobby').at(-1)?.kit, ofType(ws1, 'lobby').at(-1)?.kit];
+    };
+    expect(await lobbyKit({ mode: 'versus', kit: 'brigade' })).toEqual(['brigade', 'brigade']);
+    expect(await lobbyKit({ mode: 'versus', kit: 'matched' })).toEqual([undefined, undefined]);
+    expect(await lobbyKit({ mode: 'versus' })).toEqual([undefined, undefined]);
+    expect(await lobbyKit({ kit: 'brigade' })).toEqual([undefined, undefined]);
+  });
+  it('a matched room with tiers in both bodies mints tiers {} on both seats', async () => {
+    const c = await startOf({ mode: 'versus', kit: 'matched', tiers: HOST, joinTiers: GUEST });
+    expect(c.seats.map((s) => [s.kit, s.tiers])).toEqual([['matched', {}], ['matched', {}]]);
+  });
+  it('no kit in the body is a matched room', async () => {
+    const c = await startOf({ mode: 'versus', tiers: HOST, joinTiers: GUEST });
+    expect(c.seats.map((s) => [s.kit, s.tiers])).toEqual([['matched', {}], ['matched', {}]]);
+  });
+  it('a brigade room mints each seat\'s own claim, cleaned', async () => {
+    const c = await startOf({ mode: 'versus', kit: 'brigade', tiers: HOST, joinTiers: GUEST });
+    expect(c.seats.map((s) => [s.kit, s.tiers])).toEqual([['brigade', { mbt_lavi: { armour: 2 } }], ['brigade', { inf_squad: { sensors: 3 } }]]);
+  });
+  it('a Sarim seat in a brigade room mints {}; its KDF opponent keeps its claim', async () => {
+    const c = await startOf({ mode: 'versus', matchup: 'kdf', kit: 'brigade', tiers: HOST, joinTiers: GUEST });
+    expect(c.seats.map((s) => [s.faction, s.kit, s.tiers])).toEqual([['kdf', 'brigade', { mbt_lavi: { armour: 2 } }], ['sarim', 'brigade', {}]]);
+    const d = await startOf({ mode: 'versus', matchup: 'sarim', kit: 'brigade', tiers: HOST, joinTiers: GUEST });
+    expect(d.seats.map((s) => [s.faction, s.tiers])).toEqual([['sarim', {}], ['kdf', { inf_squad: { sensors: 3 } }]]);
+  });
+  it('a sandbox room is always matched', async () => {
+    const c = await startOf({ kit: 'brigade', tiers: HOST, joinTiers: GUEST });
+    expect(c.mode).toBe('sandbox');
+    expect(c.seats.map((s) => [s.kit, s.tiers])).toEqual([['matched', {}], ['matched', {}]]);
+  });
+  it('a room persisted before the kit existed revives matched, with no claims', async () => {
+    const { state } = await created(new FakeState(), { mode: 'versus' });
+    const meta = await state.storage.get<Record<string, unknown>>('meta');
+    delete meta?.kit;
+    delete meta?.claims;
+    await state.storage.put('meta', meta);
+    const room = new MatchRoom(state, env);
+    const ws0 = await hello(room, 0);
+    const ws1 = await hello(room, 1);
+    await say(room, ws0, { t: 'ready' });
+    await say(room, ws1, { t: 'ready' });
+    const [start] = ofType(ws0, 'start');
+    expect(start.config.seats.map((s) => [s.kit, s.tiers])).toEqual([['matched', {}], ['matched', {}]]);
+    expect(validateConfig(start.config)).not.toBeNull();
+  });
+  it('stored claims are cleaned again on revive: own keys only, clamped, a malformed pair is two empty claims', async () => {
+    const { state } = await created(new FakeState(), { mode: 'versus', kit: 'brigade' });
+    const meta = await state.storage.get<Record<string, unknown>>('meta');
+    if (!meta) throw new Error('no meta');
+    meta.claims = [JSON.parse('{"mbt_lavi":{"armour":99},"__proto__":{"armour":1}}'), { at_team: { firepower: 1 }, nope: { armour: 1 } }];
+    await state.storage.put('meta', meta);
+    const c1 = await (async () => {
+      const room = new MatchRoom(state, env);
+      const ws0 = await hello(room, 0);
+      const ws1 = await hello(room, 1);
+      await say(room, ws0, { t: 'ready' });
+      await say(room, ws1, { t: 'ready' });
+      return ofType(ws0, 'start')[0].config;
+    })();
+    expect(c1.seats.map((s) => s.tiers)).toEqual([{ mbt_lavi: { armour: 3 } }, { at_team: { firepower: 1 } }]);
+    const other = await created(new FakeState(), { mode: 'versus', kit: 'brigade', tiers: HOST });
+    const m2 = await other.state.storage.get<Record<string, unknown>>('meta');
+    if (!m2) throw new Error('no meta');
+    m2.claims = 'junk';
+    await other.state.storage.put('meta', m2);
+    const room = new MatchRoom(other.state, env);
+    const ws0 = await hello(room, 0);
+    const ws1 = await hello(room, 1);
+    await say(room, ws0, { t: 'ready' });
+    await say(room, ws1, { t: 'ready' });
+    expect(ofType(ws0, 'start')[0].config.seats.map((s) => [s.kit, s.tiers])).toEqual([['brigade', {}], ['brigade', {}]]);
   });
 });

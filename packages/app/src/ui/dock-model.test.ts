@@ -236,4 +236,86 @@ describe('tileState', () => {
     );
     expect(asked).toEqual(['dozer_d9']);
   });
+
+  // ---- population (F3 Lane A, S-F) ----
+
+  const pop = (used: number, cap: number): Pick<DockView, 'populationView'> => ({ populationView: () => ({ used, cap }) });
+
+  it('marks a unit the runtime says is population-capped, and does not lock it', () => {
+    const state = tileState(
+      unit({ population: 1 }),
+      view({ buildBlockedReason: () => 'population cap reached (12/12)', popCapped: () => true, ...pop(12, 12) })
+    );
+    expect(state.lock).toBe(null);
+    expect(state.capped).toEqual({
+      short: 'pop full',
+      full: 'Population 12/12. A unit must fall first.',
+      title: 'Population 12/12. A unit must fall first.',
+    });
+  });
+
+  it('is not capped when the runtime does not say so, however the reason reads', () => {
+    expect(tileState(unit(), view()).capped).toBe(null);
+    // A fallen camp outranks the cap in the runtime (`popCapped` is false), and the tile reads the camp's own reason.
+    const fallen = tileState(unit(), view({ buildBlockedReason: () => 'field camp destroyed — no production', popCapped: () => false }));
+    expect(fallen.capped).toBe(null);
+    expect(fallen.lock?.full).toBe('field camp destroyed — no production');
+    // A view that predates the cap has no popCapped at all.
+    expect(tileState(unit(), view({ buildBlockedReason: () => 'field camp destroyed — no production' })).capped).toBe(null);
+  });
+
+  // Review Focus 3.
+  it('lets a campaign lock outrank the cap: a locked unit over the cap reads its lock', () => {
+    const state = tileState(
+      unit({ unlock: { roeMin: 55 } }),
+      view({ buildBlockedReason: () => 'population cap reached (12/12)', popCapped: () => true, ...pop(12, 12) }),
+      {}
+    );
+    expect(state.capped).toBe(null);
+    expect(state.lock?.short).toBe('Conduct ≥55');
+  });
+
+  // Review Focus 4.
+  it('names what the unit needs when room is left but not enough for it', () => {
+    const state = tileState(
+      unit({ name: 'Eitan APC', population: 2 }),
+      view({ buildBlockedReason: () => 'population cap reached (11/12)', popCapped: () => true, ...pop(11, 12) })
+    );
+    expect(state.capped?.full).toBe('Population 11/12. Eitan APC needs 2.');
+    // The nameless twin, for a label that opens with the name already.
+    expect(state.capped?.title).toBe('Population 11/12; needs 2.');
+    expect(state.capped?.short).toBe('pop full');
+  });
+
+  it('never shows the sim’s English when the view cannot say how full: the full line is the short label', () => {
+    const state = tileState(
+      unit(),
+      view({ buildBlockedReason: () => 'population cap reached (12/12)', popCapped: () => true })
+    );
+    expect(state.capped).toEqual({ short: 'pop full', full: 'pop full', title: 'pop full' });
+    expect(JSON.stringify(state)).not.toContain('population cap reached');
+  });
+
+  it('reads the unit population as 1 when the caller gives none', () => {
+    const state = tileState(
+      unit({ name: 'Rifle Squad' }),
+      view({ buildBlockedReason: () => 'x', popCapped: () => true, ...pop(11, 12) })
+    );
+    expect(state.capped?.full).toBe('Population 11/12. Rifle Squad needs 1.');
+  });
+
+  it('never calls the runtime’s capped answer for a unit it does not name', () => {
+    const asked: string[] = [];
+    tileState(
+      unit({ id: 'recon_drone' }),
+      view({
+        buildBlockedReason: () => 'x',
+        popCapped: (id) => {
+          asked.push(id);
+          return false;
+        },
+      })
+    );
+    expect(asked).toEqual(['recon_drone']);
+  });
 });

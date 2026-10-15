@@ -4,11 +4,16 @@
 import { describe, it, expect } from 'vitest';
 import { fx } from '@lions/sim';
 import type { Command } from '@lions/sim';
-import { LockstepClock, applyFrame, canonicalOrder, type Frame, type SeatWorld, type Stamped } from '@lions/net';
+import { LockstepClock, applyFrame, canonicalOrder, matchDigest, type Frame, type MatchTransport, type SeatWorld, type Stamped, type TransportStatus } from '@lions/net';
 import { missionWorld } from '../mission-harness';
 import { buildWorld } from '../../../packages/app/src/net/versus-world.test-helper';
 import { versusSpawns } from '../../../packages/app/src/net/versus-force';
 import { sandboxAnchors } from '../../../packages/app/src/sandbox-anchors';
+import { buildMatchWorld } from '../../../packages/app/src/net/match-world';
+import { runFrames, seatWorldFor, type FrameStep } from '../../../packages/app/src/net/frame-step';
+import { versusConfig } from './test-config';
+import { contentDigest, shippedContent, shippedContentDigest } from '../../../packages/app/src/net/content-digest';
+import { units } from '@lions/data';
 
 const MISSION = 'beit_sahwan_1_recon';
 const TICKS = 1000;
@@ -191,5 +196,90 @@ describe('versus: two sides, one frame stream', () => {
     const r = runVersus(versusFrames(true), () => 0);
     expect(r.drops).not.toContain(CRAFT_TICK);
     expect(r.drops.length).toBeGreaterThan(0);
+  }, 60_000);
+});
+
+// N2-P2: what a client REPORTS on a hash tick, through the battlefield's own
+// `runFrames` -- the sim hash folded with the runtime digest (absent: 0) and
+// the data digest. Two clients that agree on the sim but not on the runtime
+// must be a desync on the first hash tick, or the seam is not wired.
+describe('the reported match digest (runFrames)', () => {
+  const MAP = 'beit_sahwan_outskirts';
+  const RTICKS = 60;
+
+  /** A room stand-in that hands out a fixed stream and records each digest
+   *  beside the sim hash it was taken over. */
+  class Feed implements MatchTransport {
+    readonly local = false;
+    readonly digests = new Map<number, number>();
+    readonly simHashes = new Map<number, number>();
+    private frames: Frame[];
+    constructor(frames: Frame[], private readonly sim: { hash(): number }) { this.frames = [...frames]; }
+    queueCommand(): void {}
+    take(max: number): Frame[] { return this.frames.splice(0, max); }
+    reportTick(tick: number, digest: number | null): void {
+      if (digest === null) return;
+      this.digests.set(tick, digest);
+      this.simHashes.set(tick, this.sim.hash());
+    }
+    status(): TransportStatus { return { kind: 'live', behind: this.frames.length }; }
+    close(): void {}
+  }
+
+  function framesFor(bySide: [number[], number[]], anchors: { readonly friendly: readonly [number, number]; readonly hostile: readonly [number, number] }): Frame[] {
+    const [hx, hy] = anchors.hostile;
+    const [fx0, fy0] = anchors.friendly;
+    const byTick = new Map<number, Stamped[]>([
+      [5, [
+        { seat: 0, seq: 0, cmd: { kind: 'attackMove', ids: bySide[0], x: fx.from(hx + 0.5), y: fx.from(hy + 0.5) } },
+        { seat: 1, seq: 0, cmd: { kind: 'attackMove', ids: bySide[1], x: fx.from(fx0 + 0.5), y: fx.from(fy0 + 0.5) } },
+      ]],
+    ]);
+    return stream(byTick, RTICKS);
+  }
+
+  /** One client: its own world, the shared stream, `runFrames` as the browser and the harness call it. */
+  function client(extra: (sim: { tickCount: number }) => Partial<FrameStep> = () => ({})) {
+    const config = versusConfig(MAP);
+    const w = buildMatchWorld(config);
+    const feed = new Feed(framesFor(w.bySide, w.anchors), w.sim);
+    const step: FrameStep = { transport: feed, sim: w.sim, seatWorld: seatWorldFor(config, w.sim), runTick: () => w.sim.tick(), config, ...extra(w.sim) };
+    expect(runFrames(step, RTICKS).ran).toBe(RTICKS);
+    return { feed, config };
+  }
+
+  const firstDisagreement = (a: Map<number, number>, b: Map<number, number>): number | null => {
+    for (const [tick, d] of [...a].sort(([p], [q]) => p - q)) if (b.get(tick) !== d) return tick;
+    return null;
+  };
+
+  it('two clients report the same digest on every hash tick; with no runtime digest it folds 0', () => {
+    const a = client();
+    const b = client();
+    expect([...a.feed.digests.keys()]).toEqual([19, 39, 59]);
+    expect(firstDisagreement(a.feed.digests, b.feed.digests)).toBeNull();
+    // L4: each client folds its OWN content digest, never the room-minted one.
+    for (const [tick, d] of a.feed.digests) {
+      expect(d).toBe(matchDigest(a.feed.simHashes.get(tick) ?? NaN, 0, shippedContentDigest()));
+    }
+  }, 60_000);
+
+  it('a runtime digest one client does not share is a desync on the first hash tick (19)', () => {
+    const a = client();
+    const b = client((sim) => ({ runtimeDigest: () => sim.tickCount }));
+    // The sims agree: only the runtime digest differs.
+    expect([...b.feed.simHashes]).toEqual([...a.feed.simHashes]);
+    expect(firstDisagreement(a.feed.digests, b.feed.digests)).toBe(19);
+  }, 60_000);
+
+  it('L4: a client whose content has one unit\'s hp changed desyncs at the first hash tick (19)', () => {
+    const inf = units.inf_squad;
+    const changed = contentDigest({ ...shippedContent(), units: { ...units, inf_squad: { ...inf, hull: { ...inf.hull, hp: inf.hull.hp + 1 } } } });
+    const a = client();
+    const b = client(() => ({ dataDigest: changed }));
+    // An inf_squad's hp moves nothing before the forces meet: the sims agree,
+    // and only the data digest can see the two clients are not on one build.
+    expect([...b.feed.simHashes]).toEqual([...a.feed.simHashes]);
+    expect(firstDisagreement(a.feed.digests, b.feed.digests)).toBe(19);
   }, 60_000);
 });

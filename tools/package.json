@@ -8,7 +8,9 @@
     "balance": "tsx src/balance/cli.ts",
     "playtest": "tsx src/backtest/playtest.ts",
     "versus:probe": "tsx src/backtest/versus-probe.ts",
+    "versus:breach": "tsx src/backtest/versus-breach.ts",
     "e5:probes": "tsx src/backtest/e5-probes.ts",
+    "field-works:probe": "tsx src/backtest/sandbag-post-probe.ts",
     "perf:units": "tsx src/perf/three-units.ts",
     "perf:load": "tsx src/perf/load-profile.ts",
     "perf:memory": "tsx src/perf/memory.ts",
@@ -44,7 +46,8 @@
     "meshy": "tsx src/meshy/cli.ts",
     "video": "tsx src/video/cli.ts",
     "test": "sh -c 'if [ \"$1\" = \"--\" ]; then shift; fi; exec vitest run --root .. \"$@\"' sh",
-    "agent": "tsx src/net/agent.ts"
+    "agent": "tsx src/net/agent.ts",
+    "arena": "tsx src/net/arena.ts"
   },
   "dependencies": {
     "@lions/data": "workspace:*",
@@ -59,6 +62,7 @@
     "@types/pngjs": "^6.0.5",
     "@types/ws": "8.18.2",
     "draco3dgltf": "^1.5.7",
+    "jpeg-js": "0.4.4",
     "meshoptimizer": "1.1.1",
     "pixelmatch": "^7.2.0",
     "playwright": "^1.64.0",

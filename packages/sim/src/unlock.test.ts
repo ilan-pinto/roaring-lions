@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { isBoughtOnly, resolveUpgrades, starsEarned, unlockReason, type UnlockGate } from './unlock';
+import { isBoughtOnly, loanedPlacements, resolveUpgrades, starsEarned, unlockReason, type UnlockGate } from './unlock';
 import type { LedgerData, MissionJson, PlacementJson } from './mission';
 
 describe('unlockReason', () => {
@@ -216,5 +216,60 @@ describe('resolveUpgrades gate_only', () => {
     expect(original.gate_only).toBe(true);
     expect(original.upgrades_to).toBe('scout_shachaf');
     expect((gatedMission.starting_force as PlacementJson[]).length).toBe(2);
+  });
+});
+
+describe('loanedPlacements (D5)', () => {
+  const conduct = (n: number): LedgerData => ({ 'roe.mission_ratings': { a: n } });
+  const force = (...f: PlacementJson[]): MissionJson => ({ id: 'm', starting_force: f }) as unknown as MissionJson;
+  const lavi: PlacementJson = { unit: 'mbt_lavi', count: 1, at: [1, 1] };
+  const gateOf = (gates: Record<string, UnlockGate>) => (id: string): UnlockGate | undefined => gates[id];
+
+  it('lends a unit whose Conduct floor the ledger is under, and stops lending once it clears it', () => {
+    const g = gateOf({ mbt_lavi: { roeMin: 90 } });
+    expect(loanedPlacements(force(lavi), conduct(80), g)).toEqual([0]);
+    expect(loanedPlacements(force(lavi), conduct(95), g)).toEqual([]);
+  });
+
+  it('does not lend a bought unit, though its earned gate is closed', () => {
+    const g = gateOf({ mbt_lavi: { roeMin: 90, bought: true } });
+    expect(loanedPlacements(force(lavi), conduct(80), g)).toEqual([]);
+  });
+
+  it('does not lend an ungated unit', () => {
+    expect(loanedPlacements(force(lavi), conduct(80), gateOf({}))).toEqual([]);
+  });
+
+  it('judges an upgrades_to placement by the unit fielded: open upgrade, not lent', () => {
+    const jeep: PlacementJson = { unit: 'jeep_shoded', count: 1, at: [1, 1], upgrades_to: 'apc_kipod' };
+    // jeep_shoded is itself gated here so a skipped resolveUpgrades would call it on loan.
+    const g = gateOf({ apc_kipod: { starsMin: 1 }, jeep_shoded: { roeMin: 99 } });
+    const earned: LedgerData = { 'campaign.mission_results': { a: { stars: 3, roe: 90, ticks: 1, lost: 0 } } };
+    expect(loanedPlacements(force(jeep), earned, g)).toEqual([]);
+  });
+
+  it('judges an upgrades_to placement by the base unit when the upgrade is closed', () => {
+    const jeep: PlacementJson = { unit: 'jeep_shoded', count: 1, at: [1, 1], upgrades_to: 'apc_kipod' };
+    const g = gateOf({ apc_kipod: { starsMin: 1 }, jeep_shoded: { roeMin: 99 } });
+    expect(loanedPlacements(force(jeep), {}, g)).toEqual([0]);
+    const open = gateOf({ apc_kipod: { starsMin: 1 } });
+    expect(loanedPlacements(force(jeep), {}, open)).toEqual([]);
+  });
+
+  it('indexes the RESOLVED force: a gate_only placement closed by its gate is absent and shifts the rest', () => {
+    const only: PlacementJson = { unit: 'jeep_shoded', count: 1, at: [1, 1], upgrades_to: 'apc_kipod', gate_only: true };
+    const g = gateOf({ apc_kipod: { starsMin: 1 }, mbt_lavi: { roeMin: 90 } });
+    expect(loanedPlacements(force(only, lavi), {}, g)).toEqual([0]);
+  });
+
+  it('never lends a from_ledger placement', () => {
+    const g = gateOf({ mbt_lavi: { roeMin: 90 } });
+    expect(loanedPlacements(force({ ...lavi, from_ledger: true }), conduct(80), g)).toEqual([]);
+  });
+
+  it('answers every loaned index, in order', () => {
+    const g = gateOf({ mbt_lavi: { roeMin: 90 } });
+    const inf: PlacementJson = { unit: 'inf_squad', count: 2, at: [2, 2] };
+    expect(loanedPlacements(force(lavi, inf, lavi), {}, g)).toEqual([0, 2]);
   });
 });

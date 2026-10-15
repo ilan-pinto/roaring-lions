@@ -1,7 +1,8 @@
 // Chromium, Firefox and WebKit boot the same sandbox, receive the same order
 // script at the same ticks through `__lions.sim.queueCommand`, step to the
 // same tick with the frame loop frozen, and must report the same
-// `__lions.sim.hash()` (network design §12, "two-engine determinism"). Every
+// `__lions.sim.hash()` (network design §12, "two-engine determinism") -- and
+// the same `__lions.contentDigest()` as Node computes here (L4). Every
 // determinism run before this was V8; this is the first cross-engine reading.
 //
 // Run by CI's `visual` job (`pnpm net:engines -- --port=5183`), never locally:
@@ -22,6 +23,7 @@ import { BOOT_FREEZE_INIT_SCRIPT, FREEZE_FRAME_LOOP_STATEMENTS } from '../golden
 import { claimPort } from '../ui-review/port';
 import { musicOffInitScript } from '../ui-review/music-off';
 import { decide, type EngineOutcome, type EngineReading } from './two-engine-verdict';
+import { shippedContentDigest } from '../../../packages/app/src/net/content-digest';
 
 const REPO = fileURLToPath(new URL('../../../', import.meta.url));
 const MAP = 'beit_sahwan_outskirts';
@@ -75,7 +77,7 @@ for (const t of ticks) {
   for (const c of plan[t]) L.sim.queueCommand(c);
 }
 if (L.sim.tickCount < ${TARGET_TICK}) L.step(${TARGET_TICK} - L.sim.tickCount);
-return JSON.stringify({ start, tick: L.sim.tickCount, hash: L.sim.hash() });
+return JSON.stringify({ start, tick: L.sim.tickCount, hash: L.sim.hash(), contentDigest: L.contentDigest() });
 })()`;
 
 /** An engine that could not launch, or cannot create WebGL2 here: an
@@ -163,10 +165,10 @@ async function reading(launch: () => Promise<Browser>, name: string, port: numbe
     };
     console.log(`[${TAG}] ${name}: boot tick ${boot.tick}, ${boot.units} KDF unit(s), ${boot.hostiles} hostile`);
     const end = JSON.parse((await within(page.evaluate(ORDER_SCRIPT), SCRIPT_TIMEOUT_MS, `${name}: the order script`)) as string) as {
-      start: number; tick: number; hash: number;
+      start: number; tick: number; hash: number; contentDigest: number;
     };
-    console.log(`[${TAG}] ${name}: orders from tick ${end.start}; tick ${end.tick} hash ${end.hash}`);
-    return { bootTick: end.start, bootUnits: boot.units, bootHostiles: boot.hostiles, tick: end.tick, hash: end.hash };
+    console.log(`[${TAG}] ${name}: orders from tick ${end.start}; tick ${end.tick} hash ${end.hash}; content digest ${end.contentDigest}`);
+    return { bootTick: end.start, bootUnits: boot.units, bootHostiles: boot.hostiles, tick: end.tick, hash: end.hash, contentDigest: end.contentDigest };
   } catch (err) {
     // Whatever broke (a lost context mid-step, a navigation timeout), it is
     // this engine's, and the message says which.
@@ -209,7 +211,11 @@ async function main(): Promise<number> {
         else throw err;
       }
     }
-    const d = decide(outcomes, TARGET_TICK, FIRST_ORDER_TICK);
+    // L4: the digest of this checkout's content as NODE computes it, which
+    // every engine's `__lions.contentDigest()` must equal.
+    const nodeContent = shippedContentDigest();
+    console.log(`[${TAG}] node ${process.version}: content digest ${nodeContent}`);
+    const d = decide(outcomes, TARGET_TICK, FIRST_ORDER_TICK, nodeContent);
     // A `::warning::` line must START the line for the runner to read it, so
     // it is printed bare; everything else carries the tag.
     for (const { level, text } of d.lines) {

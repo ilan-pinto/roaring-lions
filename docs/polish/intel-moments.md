@@ -1,5 +1,11 @@
 # Intel ability moments (GH-113): as built
 
+> **2026-10-15 (S-F, F-Q11):** the strip's intel `+N/min` and the support tile's clock described
+> below are retired. Intel is earned in lumps by doing now (F1), so the strip shows the last
+> earn ("+30 high ground") for 30 s instead, and the feed gets one line per identification and
+> one for a high ground rise. Logistics keeps its own `+N/min`. The rest of this page is as built
+> on 2026-10-11.
+
 Status: **approved by the lead on 2026-10-11 and built.** The approved set is direction A of
 the mock, plus two pieces of direction B: the strike footprint while aiming, and the sweep
 breakdown with a minimap ring per contact. The mock's sheet and its full note are on draft
@@ -18,11 +24,11 @@ Umm Zeitoun IV:
 | | |
 |---|---|
 | **Readiness** | Each support tile gets a 3 px `--info` charge bar and a clock in its corner, the build bar's own language. The clock reads m:ss under 2:00, `~N min` above, and `—` when no intel is coming in. While charging, the tile keeps full strength: only the glyph and word dim, so the bar and clock never dim with them. The strip shows `+N/min` beside intel, as it already does for logistics. The tile's accessible name says when the call is ready. |
-| **Ready** | The tile border lights for 1.6 s, and the feed gets one minor line ("Satellite sweep ready"). The announcer says `sweep_ready` / `strike_ready` ("Sweep is up." / "Strike package ready."). |
-| **Aim** | While the strike is armed, its 2-tile splash is drawn on the ground under the cursor as a dashed `vfx.fire` ring over the world halo (`Renderer.aimFootprint`). It is static and disappears the frame the strike is spent or cancelled. The sweep draws no footprint. |
-| **Call** | "Precision strike inbound — 3 s" / "Satellite sweep on the way" replaces "called on (x, y)". The announcer says `strike_inbound` / `sweep_inbound` at high priority. The minimap shows an important ring at the target: warn for a strike, info for a sweep. |
-| **Sweep result** | A major line, "Satellite sweep — 8 contacts identified", where the count is the sim's own `revealed` count. A minor breakdown line follows: "Sarim Rifles ×5 · ATGM Cell · Recoilless Team · Rocket Battery · 4 civilians in the area". The minimap gets a minor info ring on every contact identified. |
-| **Strike result** | One line 0.7 s after the round, on the sim clock, saying what the splash hit: "Strike: 4 hit", "1 down · 3 hit" or "no effect". It is amber, and `--bad` when a civilian is killed, with civilians named only when non-zero. Conduct is never repeated: the ROE lines on the same tick already price it. |
+| **Ready** | The tile border lights for 1.6 s, and the feed gets one minor line ("Drone sweep ready"). The announcer says `sweep_ready` / `strike_ready` ("Sweep is up." / "Strike package ready."). |
+| **Aim** | While a call is armed, its footprint is drawn on the ground under the cursor as a dashed ring over the world halo (`Renderer.aimFootprint`), per kind: the strike a `vfx.fire` ring at 2.0 tiles; the barrage the same `vfx.fire` ring at 2.5 plus an inner dashed `vfx.ember` ring at its 1.5-tile scatter, where the rounds land; the smoke screen a `limestone.0` ring at 4.5 (the obscurant family's colour, no longer fire). It is static and disappears the frame the call is spent or cancelled. The drone sweep draws no footprint. A smoke-screen ring aimed into standing smoke draws under the smoke (band 5, veiled up to 0.72) because the rings stay in the overlay band; the halo still carries it. *(S-F, 2026-10-15: the barrage and smoke screen join the strike; before it only the strike drew a ring.)* |
+| **Call** | "Precision strike inbound — 3 s" / "Drone sweep on the way" replaces "called on (x, y)". The announcer says `strike_inbound` / `sweep_inbound` at high priority. The minimap shows an important ring at the target: warn for a strike, info for a sweep. *(S-F, 2026-10-15: the barrage has its own inbound line, "Mortar barrage inbound — N s", and the smoke screen "Smoke screen inbound — N s".)* |
+| **Sweep result** | A major line, "Drone sweep — 8 contacts identified", where the count is the sim's own `revealed` count. A minor breakdown line follows: "Sarim Rifles ×5 · ATGM Cell · Recoilless Team · Rocket Battery · 4 civilians in the area". The minimap gets a minor info ring on every contact identified. |
+| **Strike result** | One line 0.7 s after the round, on the sim clock, saying what the splash hit: "Strike: 4 hit", "1 down · 3 hit" or "no effect". It is amber, and `--bad` when a civilian is killed, with civilians named only when non-zero. Conduct is never repeated: the ROE lines on the same tick already price it.  *(S-F, 2026-10-15: the barrage gets one such readout, "Barrage: …", after its sixth round, in the same words; the smoke screen has no readout.)* |
 
 Nothing else was added to the world. There is no sound beyond the voice lines, and the four
 announcements are caption-only until the lead records them.
