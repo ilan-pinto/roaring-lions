@@ -69,7 +69,7 @@ Every region is defined by terrain and doctrine, never by a people — see `CONT
 
 **Intel** — earned by doing, never by waiting. There is no per-minute income: a unit standing still earns nothing. Three things pay, in whole points:
 
-- **Finding the enemy:** 10 for each enemy first identified by a real observer (a living unit, or a drone, that sees it). Once per enemy per mission; an enemy lost and re-identified pays nothing a second time. An enemy first identified with no observer (a bought drone sweep, a carry-over mark from the last mission) never pays, even if a unit sees it later.
+- **Finding the enemy:** 8 for each enemy first identified by a real observer (a living unit, or a drone, that sees it). Once per enemy per mission; an enemy lost and re-identified pays nothing a second time. An enemy first identified with no observer (a bought drone sweep, a carry-over mark from the last mission) never pays, even if a unit sees it later.
 - **Completing an objective:** 30, for a primary or a secondary, and never for one that failed.
 - **Holding high ground:** 30 for a rise (a connected stretch of open ground at least two levels above the map's lower-median open level) once a ground unit has stood on it for 10 seconds with no enemy near. Once per rise per mission; a unit that spawned on a rise earns nothing until it has stood elsewhere and come back.
 
@@ -94,7 +94,7 @@ The cost curve prices units against each other; these anchors tie it to time. Al
 
 - Logistics income: Foothold ~120/min with the corridor intact, Build-up ~200/min, Clearance ~80/min trickle. Interdiction halves it.
 - A Clearance mission's total spend (starting force included) ≈ one combined-arms company: 2 MBT, 2 IFV, 4–6 squads, support — ~4,500–5,500 logistics.
-- Intel: 10 per enemy identified, 30 per objective, 30 per high-ground rise held (no per-minute term; provisional). Smoke screen 60 · mortar barrage 120 · drone sweep 150 · air strike 250. A bought call is a decision, not a drip: a plain win earns about one sweep's worth.
+- Intel: 8 per enemy identified, 40 per objective, 30 per high-ground rise held (no per-minute term; the lead's ruling of 15 Oct: 8/40/30, smoke 100). Smoke screen 100 · mortar barrage 120 · drone sweep 150 · air strike 250. A bought call is a decision, not a drip: a plain win earns about one sweep's worth.
 - Sanity rule: banking >30% unspent at a win means income is too high or objectives too cheap.
 
 ---
