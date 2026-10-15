@@ -3,7 +3,8 @@
 // validate_*.mjs is one: validate_data.mjs runs its whole sweep at import time and exits.
 //
 // The one check the plain-node sweep cannot make lives here: the Sarim menu is the shipped
-// VERSUS_SARIM's unit types plus `recoilless_team` (LD3), and the KDF menu is VERSUS_KDF's types,
+// VERSUS_SARIM's unit types plus `recoilless_team` (LD3), and the KDF menu is VERSUS_KDF's types
+// plus `yahalom_squad` (ruled 15 Oct, lead, #681: the one KDF answer to the Sarim seat's tunnels),
 // both computed from the constants in packages/app/src/net/versus-force.ts, so a force change
 // that the doctrine does not follow goes red.
 //
@@ -72,8 +73,13 @@ describe('the shipped doctrines', () => {
     expect([...byFaction('sarim').menu].sort()).toEqual([...versus, 'recoilless_team'].sort());
   });
 
-  it("KDF's menu is VERSUS_KDF's types (LD3, a matched room)", () => {
-    expect([...byFaction('kdf').menu].sort()).toEqual(typesOf(VERSUS_KDF).sort());
+  it("KDF's menu is VERSUS_KDF's types plus yahalom_squad (LD3; ruled 15 Oct, lead, #681)", () => {
+    // On the MENU, not in the placed force: fielding one in VERSUS_KDF moved the mirror
+    // (kdf/kdf) probe outside 60/40 on three open maps (PR table), and the placed force
+    // is what a room fights with until production lands.
+    const versus = typesOf(VERSUS_KDF);
+    expect(versus).not.toContain('yahalom_squad'); // else "plus" would add nothing
+    expect([...byFaction('kdf').menu].sort()).toEqual([...versus, 'yahalom_squad'].sort());
   });
 
   it('no menu holds loiter_drone (LD3)', () => {
