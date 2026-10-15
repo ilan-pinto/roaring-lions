@@ -32,6 +32,7 @@ import { forceBar, type AttachedUnit, type ForceBar } from './force-bar';
 import { briefingVideo as makeBriefingVideo } from './briefing-video';
 import { backdropPlan } from './cinematics-model';
 import { prefersReducedMotion, prefersSaveData } from './motion';
+import type { FoldGeometry } from './mission-intro';
 
 /**
  * Does this screen wait for the player before handing over the field?
@@ -374,8 +375,24 @@ export interface LoadingScreen {
    * Hand the field to the game. Resolves at once when there is no briefing to
    * read; otherwise waits for the player to deploy, so the orders they were
    * given are not swept off screen the instant the last sheet lands.
+   * `keep` (H3) leaves the screen up after a deploy for `leave`/`remove`
+   * below; a screen that never held (no briefing) is removed regardless.
    */
-  done(): Promise<void>;
+  done(opts?: { keep?: boolean }): Promise<void>;
+  /**
+   * H3: with `keep`, a deploy resolves `done()` and leaves the screen up, so
+   * the briefing -> battlefield transition (`mission-intro-run.ts`) can take
+   * it down over the first world frames. `leave` starts that: `fold` folds the
+   * box onto the commander bar (`foldGeometry`; null folds nothing and only
+   * fades the card) while the backdrop fades; `fade` is reduced motion's
+   * 200 ms opacity fade of the whole screen. The animations are theme.css's,
+   * keyed on `data-intro`. A no-op once the screen is gone.
+   */
+  leave(mode: { kind: 'fold'; geometry: FoldGeometry | null } | { kind: 'fade' }): void;
+  /** The box's viewport rect, for `foldGeometry`; null once removed. */
+  boxRect(): DOMRect | null;
+  /** Take a kept screen off the stage. Idempotent; `dispose()` does it too. */
+  remove(): void;
   /**
    * Take the screen down without starting the mission, from outside.
    *
@@ -1092,7 +1109,29 @@ export function showLoading(
       wrap.remove();
       reject?.(new DOMException('loading screen disposed', 'AbortError'));
     },
-    done(): Promise<void> {
+    leave(mode): void {
+      if (wrap.parentNode === null) return;
+      if (mode.kind === 'fade') {
+        wrap.dataset.intro = 'fade';
+        return;
+      }
+      const g = mode.geometry;
+      if (g) {
+        box.style.setProperty('--fold-dx', `${g.dx}px`);
+        box.style.setProperty('--fold-dy', `${g.dy}px`);
+        box.style.setProperty('--fold-scale', String(g.scale));
+        box.style.setProperty('--fold-clip', `${g.clipBottomPx}px`);
+      }
+      wrap.dataset.intro = 'fold';
+    },
+    boxRect(): DOMRect | null {
+      return wrap.parentNode !== null ? box.getBoundingClientRect() : null;
+    },
+    remove(): void {
+      wrap.remove();
+    },
+    done(opts?: { keep?: boolean }): Promise<void> {
+      const keep = opts?.keep === true;
       if (disposed) {
         return Promise.reject(new DOMException('loading screen disposed', 'AbortError'));
       }
@@ -1122,16 +1161,18 @@ export function showLoading(
         /** Deploy was answered: the pressed state is up and the resolve is
          *  waiting on its paint. */
         let pressed = false;
-        const cleanup = (): void => {
+        /** `keep` (H3): the deploy path leaves the screen up for the
+         *  transition; every other path (back, dispose) still removes it. */
+        const cleanup = (removeScreen = true): void => {
           if (gone) return;
           gone = true;
           window.removeEventListener('keydown', onKey);
-          wrap.remove();
+          if (removeScreen) wrap.remove();
         };
         // Published so `dispose()` can tear this down from outside and unpark
         // whoever is awaiting it. Cleared on every path that settles the
         // promise, so a later `dispose()` cannot reject a resolved one.
-        pendingCleanup = cleanup;
+        pendingCleanup = () => cleanup();
         pendingReject = reject;
         // The one path out that does NOT start the mission -- shared by
         // Escape and the back link (fix round 1), so both tear the screen
@@ -1165,7 +1206,7 @@ export function showLoading(
             // A `dispose()` in the frame we waited for has already removed
             // the screen and REJECTED the promise; `cleanup()` is then a
             // no-op and `resolve()` cannot settle it again, so no guard here.
-            cleanup();
+            cleanup(!keep);
             // Settled: a later `dispose()` (the ordinary battlefield teardown,
             // minutes into the mission) must not reject a promise the player
             // already answered. Rejecting a settled promise is a no-op in JS, so
