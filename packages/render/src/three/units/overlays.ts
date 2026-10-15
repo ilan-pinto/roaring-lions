@@ -405,14 +405,68 @@ export const REFUGE_RING_EDGE_STYLE: DashedRingStyle = {
  * so reduced motion has nothing to take away.
  */
 export const AIM_FOOTPRINT_COLOR_KEY = 'vfx.fire';
-export const AIM_FOOTPRINT_FALLBACK_COLOR = paletteHex(AIM_FOOTPRINT_COLOR_KEY);
 export const AIM_FOOTPRINT_STYLE: DashedRingStyle = { widthPx: 2, dashPx: 5, gapPx: 3 };
-export const AIM_FOOTPRINT_EDGE_STYLE: DashedRingStyle = {
-  widthPx: AIM_FOOTPRINT_STYLE.widthPx + REFUGE_RING_EDGE_EXTRA_PX,
-  dashPx: AIM_FOOTPRINT_STYLE.dashPx,
-  gapPx: AIM_FOOTPRINT_STYLE.gapPx,
-  extendPx: REFUGE_RING_EDGE_EXTRA_PX / 2,
-};
+
+/** One drawn aim ring: its radius in tiles, its dash, its palette key. The
+ *  halo under it is `haloStyleOf(style)` in `REFUGE_RING_EDGE_COLOR_KEY`. */
+export interface AimRingSpec {
+  readonly radiusTiles: number;
+  readonly style: DashedRingStyle;
+  readonly colorKey: string;
+}
+
+/** What a fire-support call's armed preview is about (S-F Task 1). Mirrors
+ *  `Renderer.aimFootprint.kind`; absent means `strike`, today's single ring. */
+export type AimKind = 'strike' | 'barrage' | 'smoke';
+
+/** The barrage's inner ring: the 1.5-tile scatter its rounds land inside
+ *  (`ROUNDS.mortar_barrage.scatterFx`), `vfx.ember`, finer and tighter than the
+ *  outer so it reads as a second, lesser boundary. Approved mock, ring C. */
+export const AIM_SCATTER_COLOR_KEY = 'vfx.ember';
+export const AIM_SCATTER_STYLE: DashedRingStyle = { widthPx: 1.5, dashPx: 3, gapPx: 3 };
+/** The smoke screen's ring: today's geometry in the obscurant family's main
+ *  (`limestone.0`, `--order-obscurant`), so the colour says smoke and no
+ *  longer fire. Approved mock, smoke ring A. */
+export const AIM_SMOKE_COLOR_KEY = 'limestone.0';
+
+/** The halo that goes under a ring of this style: the same dash, widened. */
+export function haloStyleOf(style: DashedRingStyle): DashedRingStyle {
+  return {
+    widthPx: style.widthPx + REFUGE_RING_EDGE_EXTRA_PX,
+    dashPx: style.dashPx,
+    gapPx: style.gapPx,
+    extendPx: REFUGE_RING_EDGE_EXTRA_PX / 2,
+  };
+}
+
+/**
+ * The rings an armed call draws, outermost first. Strike (and an absent kind):
+ * one `vfx.fire` ring, unchanged. Barrage: that same ring at the footprint
+ * radius plus an inner `vfx.ember` ring at `scatterTiles` -- only when it is a
+ * real, smaller ring. Smoke screen: one ring, `limestone.0`.
+ *
+ * Every ring stays in the overlay band (4). A smoke-screen ring aimed into
+ * STANDING smoke therefore draws under `SmokeMesh` (band 5), veiled by up to
+ * 0.72 of it: recorded, not fixed -- a new band is out of scope (Q7), and the
+ * `shadow.1` halo still carries the ring there.
+ */
+export function aimRingSpecs(
+  kind: AimKind | undefined,
+  radiusTiles: number,
+  scatterTiles: number | undefined
+): readonly AimRingSpec[] {
+  switch (kind) {
+    case 'smoke':
+      return [{ radiusTiles, style: AIM_FOOTPRINT_STYLE, colorKey: AIM_SMOKE_COLOR_KEY }];
+    case 'barrage': {
+      const outer: AimRingSpec = { radiusTiles, style: AIM_FOOTPRINT_STYLE, colorKey: AIM_FOOTPRINT_COLOR_KEY };
+      if (scatterTiles === undefined || !(scatterTiles > 0) || scatterTiles >= radiusTiles) return [outer];
+      return [outer, { radiusTiles: scatterTiles, style: AIM_SCATTER_STYLE, colorKey: AIM_SCATTER_COLOR_KEY }];
+    }
+    default:
+      return [{ radiusTiles, style: AIM_FOOTPRINT_STYLE, colorKey: AIM_FOOTPRINT_COLOR_KEY }];
+  }
+}
 
 /** RGB triple, LINEAR, in 0..1, memoised -- the last step before a resolved
  *  palette hex becomes vertex colour, mirroring `fx.ts`'s own
