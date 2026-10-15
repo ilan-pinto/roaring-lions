@@ -714,8 +714,8 @@ Defaults recorded with the recommendation; overturn any in review:
 | 15 | Pings | sender and sender's advisor only |
 | 16 | Chat | text, 280 characters, relay only, in version one |
 | 17 | Speed | host-set in the lobby, applied by the room; never local |
-| 18 | Unattended bot seat | the doctrine commander. **Not built yet** (WP-G-G0 has not landed); N4 ships scripted baseline bots instead (§11b, N4 plan) |
-| 19 | Arena scoring | win rate over the seed set with sides swapped; Conduct and tokens reported only. A versus room runs no `MissionRuntime`, so there is no Conduct to report until N2/N3; the arena reports the scoreboard (decision 25) in its place (§11b) |
+| 18 | Unattended bot seat | the doctrine commander. **Not built yet** (WP-G-G0 has not landed); N4 ships scripted baseline bots instead (§11b, N4 plan). **Shipped in N4b** (§11c.5): `passive` and `rush`, fog-respecting, in-process only; `rush` scores 0.750 against `passive` on `tel_marum` over ten seeds, and 0.675 over the gate's twenty (p 0.019, §11c.7). A bot seat with a model attached is `pnpm agent --scope command --join` |
+| 19 | Arena scoring | win rate over the seed set with sides swapped; Conduct and tokens reported only. A versus room runs no `MissionRuntime`, so there is no Conduct to report until N2/N3; the arena reports the scoreboard (decision 25) in its place (§11b). **Shipped in N4b** (§11c.6, D7): (wins + ½ draws) / non-void games, overall, per seat and per faction, each seed played twice with the seats swapped; the scoreboard per game; tokens when the client prints them, never scored; a game the room desyncs or the two sims disagree on is void. Results go to local files, not D1 (D6 "not now") |
 | 20 | Skirmish payout | none in version one; earned credits for a result is a later ST/G-G question |
 | 21 | Storage | Durable Object SQLite for the room, D1 for results and desync logs; nothing in R2 |
 | 22 | Cheat posture | friends only, stated in the lobby; no authoritative sim in this design |
@@ -1043,6 +1043,333 @@ until all of these hold:
   the commit says why.
 
 Item 5's decision memo, the non-sim prerequisite plan and what N2 needs from Lane C: `docs/superpowers/plans/2026-10-15-net-n2-prereqs.md` (15 Oct; L1–L5 ruled 15 Oct (coordinator, lead-delegated): option B, per-seat types in app/render if P5 confirms, `setStance` hold and ambush only, client-computed data digest, N2 after F3 carrying F2 Task 1).
+
+## 11c. N4 as built: the harness, the advisor and the arena (15 Oct 2026)
+
+N4 landed in two PR series from the plan
+`docs/superpowers/plans/2026-10-14-net-n4-ai-harness.md`: **N4a** (Tasks
+1–10, PR #619: the harness, the room's new sockets and the advisor) and
+**N4b** (Tasks 11–14 and 16, stacked on it: the local relay, the baselines and
+the arena). Task 15 is deferred (D6, below). No file under `packages/sim`
+changed, and neither the determinism pins nor the versus mirror pins moved.
+The run protocol, for a player, is `docs/net/N4-agent.md`. As in §11b,
+everything below is what the code does, and where it differs from §8 or the
+plan the difference is named.
+
+### 11c.1 The harness
+
+- **`pnpm agent`** (`tools/src/net/agent.ts`) is a headless client of one
+  versus room serving MCP over stdio. Flags: `--server`, `--code`, `--scope
+  advise|assist|command`, and either `--ticket-file <path>` or `--join` (a
+  `command` bot asking the room for the free seat), plus `--build` and
+  `--origin`. It is not §8.1's `--room --seat [--model]`: the seat comes from
+  the ticket, and the model is whatever MCP client drives it.
+- **The world is the browser's.** `buildMatchWorld`
+  (`packages/app/src/net/match-world.ts`) is the one builder the battlefield
+  and the harness share, and the harness's fog (`tools/src/net/view.ts`) calls
+  the renderer's own sight and draw-gate predicates, so a model and a human on
+  the same seat see the same units (§11's "must share one function").
+  Building it in Node also required the world-builder pin of N4b Task 1: the
+  browser path registers a map's tunnels with the sim, and the builder must do
+  the same or the two worlds diverge (`beit_sahwan_outskirts` is pinned at hash
+  3043363756, `tel_marum` at 1260439781, in `match-world.test.ts`).
+- **The ticket is never on a command line or in a URL.** `--ticket-file`
+  reads a private file (a leading `~/` is expanded by the agent itself, since an
+  MCP client does not). `--ticket-file -` reads stdin and works only from a
+  terminal: under an MCP client stdin is the protocol. The lobby prints `pnpm
+  --silent agent -- … --ticket-file ~/.roaring-lions/advisor-ticket` and
+  copies the ticket to the clipboard only (an N4a ruling, overriding the
+  plan's `--ticket-file -`).
+- **stdout is the MCP channel.** Every log line goes to stderr. A spawned
+  test reads every raw stdout line of a real agent and requires each to be
+  JSON-RPC (Task 11), beside N4a's static source scan. `pnpm --silent` is in
+  every documented command because a package manager's own banner on stdout
+  corrupts the session.
+- **Exit codes:** 0 the match ended or reached a result, 1 a failure (a world
+  the checkout cannot build included), 2 `bad_ticket` or `build_mismatch`, 3
+  a desync. `build_mismatch` names only the harness's own build: the room
+  sends none.
+- **Tools** (`mcp-tools.ts`, `toolsFor(scope)`): `observe`, `status`,
+  `wait`, `inbox` and `say` in every scope; `ping` in `advise` and `assist`;
+  `order` in `assist` and `command`; `end_round` in `command`. `set_stance`,
+  `build` and `fire_support` (§8.3) arrive with N2/N3's commands, and the
+  test pinning `toolsFor` makes that a deliberate change. `order` carries no
+  `sweep`, so a model cannot ask for the sweep cursor the in-process `rush`
+  uses.
+- **The order desk** (`order-desk.ts`, decision D4) is the bot's cadence: at
+  most one flush every `DESK_FLUSH_TICKS` = 20 ticks, of at most 4 commands,
+  from a queue of `DESK_MAX_QUEUE` = 12; a thirteenth `order` answers
+  `queue_full`. Each order is normalised through `cleanCommand` before it is
+  queued (one the room would refuse answers `invalid` and is never sent; an
+  `advise` desk answers `not in this scope`), and is then reported
+  `queued`, `sent`, `applied`, `dropped` (refused by `validateCommand` on both
+  machines) or `lost` (no echo `DESK_LOST_AFTER_TICKS` = 40 ticks after it was
+  sent). A bot seat therefore writes the same 2.2 rows/s the R-N12 budget
+  accepted for a human, pinned with the room's own `rowsWritten`.
+- **`bye` on close is a surrender.** Closing the agent or its MCP client
+  mid-match sends `bye`, which decision 23 reads as leaving. After a result
+  or the room's end it detaches without one (N4a final review F6: a `bye`
+  after `over` made the room record the winner as the leaver).
+
+### 11c.2 The advisor socket (decisions D1, D10, D11)
+
+- **A third socket of its seat, not a seat.** `POST
+  /api/match/:code/advisor` trades a seat ticket for an advisor ticket on the
+  same seat (`role: 'advisor'`, `scope: 'advise'|'assist'`); an advisor ticket
+  cannot mint another. One advisor per seat: a newer hello retires the older
+  socket. It counts toward `MAX_ROOM_SOCKETS` (8) and spends the same
+  per-socket budget.
+- **The room relays only `advisor` messages**, between a seat's own sockets
+  and that seat's advisor, never to the other seat, stores nothing and stamps
+  nothing into a frame. At most one relayed advisor message per
+  `ADVISOR_MIN_GAP_MS` = 250 ms per advisor socket. An advisor's `cmd`,
+  `ready`, `pause`, `resume`, `surrender`, `hash`, `ack`, `bye` and `chat` are
+  ignored with no state change, and its disconnecting never stalls the room or
+  starts a forfeit.
+- **An `assist` order never comes from the advisor's socket.** The human's
+  browser shows the proposal (the note, the order in words, a two-second
+  countdown that counts only frames that run) and sends it as its own `cmd`
+  unless vetoed, after re-checking that it still makes sense: an order naming
+  a unit that has since died is dropped, and the feed says so. `PROPOSAL_QUEUE` = 3
+  counts the proposal being shown: three are held, two of them waiting, and a
+  fourth vetoes the oldest waiting one, never the one on screen.
+  **X** (D11), the **Veto** button, or **Escape** in the advisor's text box
+  veto it; the **Accept** button takes it at once. **Enter does not accept**
+  (the coordinator's ruling of 15 Oct, on #619): Enter opens the chat, so
+  reaching for chat never takes an order by accident. This revises D11's
+  "Enter or a click on Accept takes it at once".
+- **Both seats are told** (D1): the lobby shows an "Advisor: advise/assist"
+  badge on each seat card, and the versus HUD carries an **advisor chip** per
+  seat that has one under the running scoreboard ("You" or the other seat's
+  callsign, then the badge), text only, hidden when nobody advises (N4a final
+  review F2, built rather than deferred). The room sends `advisors` to every
+  seated socket when one joins or leaves, and again to a seat that rejoins;
+  the transport clears stale badges on a relink, and replays the last
+  `advisors` it heard to an `onAdvisors` hook that arrives later (the
+  battlefield's, after the lobby's).
+- **Fog is the harness's courtesy** (D10): the advisor's socket receives the
+  full frame stream like any client, and `observe` is fogged. A modified
+  harness could see through fog exactly as a modified browser can, under the
+  friends-only posture (decision 22).
+- **`Origin`** (D9): the harness sends the server's own origin; it is a
+  browser's cross-site guard, not authentication. The seat ticket is the
+  authentication.
+
+### 11c.3 Paced mode (decision 8, D5; revises §3.2.7)
+
+- **Minted only with a bot seat.** `POST /api/match` and `/join` accept
+  `kind: 'bot'`; the room mints `pace: {kind: 'paced', roundTicks,
+  roundWallMs}` only when at least one seat is a bot, otherwise `realtime`.
+  `roundTicks` is clamped to 20–1,200 and `roundWallMs` to 1,000–600,000. A
+  malformed `pace` is silently `realtime`, so the arena checks the start
+  config before trusting a run.
+- **The room waits at a round boundary** (`room-core.ts` `roundGate`), only
+  for a bot seat that has not sent `done` for the round just closed, and never
+  past `roundWallMs` from that round's last frame. **A human seat is never
+  waited for.** While it waits, every seat hears `stall{reason: 'round'}`; a
+  round wait is not silence, so it does not make a seat `gone`, and on release
+  every seat's last-seen time is reset. `done`, the wait and the release are
+  memory only and write zero rows; a woken room releases the round at once.
+- **`done` is only ever deliberate.** The harness sends `done(round)` when
+  the model calls `end_round` (or the in-process player after its policy has
+  answered and its orders were flushed), never on receiving a frame, so a hung
+  model really is waited for, up to `roundWallMs`. A `done` for the round
+  still being minted is ignored.
+- **The paced `WsTransport` release** (`packages/net`, a shipped change): in a
+  paced room the transport releases frames up to the newest closed round
+  boundary regardless of `bufferTicks`, so a bot runs a round's last frame
+  before it decides; a closed round's frames are final. Realtime behaviour is
+  byte-for-byte unchanged. Orders flushed before `done` are stamped into the
+  first frame of the next round (pinned: sent at tick 39, applied at 40).
+
+### 11c.4 The local relay (decision D2; revises §8.5's D1 path)
+
+`tools/src/net/local-relay.ts` hosts the real Worker routes (`handleMatch`)
+and the real `MatchRoom` in Node on `127.0.0.1`, `listen(0)`, over `ws`.
+`startLocalRelay` mints the `TICKET_SECRET` in memory from `randomBytes(32)`,
+never logged and never written; `serveLocalRelay(secret)` is the same relay
+with the secret supplied, which the specs use to pin that the chosen secret
+never reaches a log; the env has no D1 (a desync's D1 write fails with a logged
+error, and the desync still reaches both clients) and no rate limiters. The
+upgrade passes `handleMatch`'s Origin, code and method checks first. Alarms
+are a 250 ms poll; `close()` terminates every socket, clears every interval
+and frees the port. `MatchRoom` gained one optional constructor argument,
+`{tickMs?, seed?(code)}`, which workerd never passes: production keeps
+`TICK_MS` and its crypto seed, pinned by a characterization test. Only
+`tools/` imports `packages/worker`; a test fails on any file under
+`packages/{app,render,net,sim}/src` that does.
+
+### 11c.5 The baselines (decision D8; answers decision 18 for now)
+
+- **`passive`** orders nothing. **`rush`** orders only its own units that are
+  `idle` (the app's own idle finder) **and within 10 tiles of its camp**, an
+  attack-move with `sweep` on the centroid of the contacts it can see, else on
+  the enemy camp. It **never breaks off an engagement**: a unit that is
+  shooting (`engaging`, the HUD card's own flag) or still moving is never
+  re-ordered, because the sim's move handler clears `engaging` and `stance` on
+  every new order, and a rush that re-ordered its whole force every round lost
+  to `passive`. Both read only the fogged `SideView`; `engaging` and `idle`
+  are computed for the viewer's own units only.
+- **Its measured strength:** on `tel_marum` at pace 60 and a 12,000-tick
+  cap, **0.750** against `passive` on held-out seeds 2–21 (30-0-10, both seat
+  orders), and **0.750** on the arena's own ten seeds (15-5). The west seat
+  wins 17 of 20; the east, attacking through the pass into a force waiting
+  below it, wins 13 of 20. Sixteen fog-honest variants were measured (Task
+  12's table) and none reached 0.9; the shipped one ties for best and is the
+  stateless reading faithful to D8. A stronger control would be a stateful
+  attacker that gathers its force before moving, which is a lead decision.
+- **The in-process player** (`players.ts` `inProcess`) runs a `Policy` on an
+  `AgentClient` in the arena's own process: it pumps to the round boundary,
+  asks the policy, submits through the desk, flushes, then sends `done`. A
+  policy that has not answered in `roundWallMs` is abandoned and counted as a
+  timeout. At its cap tick it stops by itself (so the reading seat's sim can be read on
+  exactly that tick) and detaches without a `bye`.
+
+### 11c.6 The arena and its scoring (decision D7; D6 "not now")
+
+- **`pnpm arena -- --a <player> --b <player> [--seeds 10] [--map
+  tel_marum] [--matchup mirror|kdf|sarim] [--pace 60] [--round-wall-ms
+  120000] [--cap-ticks 12000] [--tick-ms 2] [--out arena-results/]
+  [--gate]`.** A
+  player is `passive`, `rush` or `cmd:<template>`. Seed *n* is `1000 + 7919
+  n` (the versus probe's sequence), each played twice with the seats swapped,
+  every game on its own local relay with two bot seats in a paced room. Only a
+  map and matchup a room offers are played (`versusMapAllowed`,
+  `matchupAllowed`; exit 2 otherwise), and a game is trusted only once the
+  room's start config names the requested pace, seed, map and factions.
+- **The cap is the arena's, not the room's**: at `--cap-ticks` (default
+  12,000, not `MATCH_CAP_TICKS`' 30,000) the game is settled by `capOutcome`,
+  the room's own decision-24 rule (`outcomeOf(sim, MATCH_CAP_TICKS)`: the
+  larger surviving force value wins), on the reading seat's sim (seat 0's when
+  it runs in the arena's process, else seat 1's, else the observer's),
+  recorded `by: 'cap'`.
+- **Score** = (wins + ½ draws) / non-void games, overall, per seat and per
+  faction; a cut with no non-void game reads `—`, never 0. The per-game table
+  carries the scoreboard (decision 25: lost and destroyed with their value,
+  force left) in place of Conduct. Tokens are reported when an external
+  client's last stdout line carries them, never scored.
+- **Void, and why.** `void/desync`: the room sent `desync` (read before the
+  arena stops the players, since a stop overwrites the transport's status).
+  `void/disagree`: the two sims the game was judged by report different
+  results, or one decided and the other did not with no room ending. `void`
+  named for the room's closed reason (e.g. `expired`), `void/unfinished` as the
+  arena's own fallback when the room did not close (not a room reason), and
+  `void/timeout` past the game's wall-time backstop. The full `by` vocabulary
+  of a record: `annihilation`, `stalemate`, `time`, `cap`, `forfeit`,
+  `surrender`, `left` or `mutual` for a result, and `desync`, `disagree`,
+  `timeout`, `unfinished` or a room's closed reason for a void. A void is a result: the
+  arena exits 0 unless a game could not be played at all (exit 1).
+- **A over B, and `--gate`** (ruled 15 Oct, coordinator, lead-delegated;
+  §11c.7). stdout and the report's "Head to head" table read `--a` against
+  `--b`: `n` (non-void games between the two), A's score and the one-sided
+  exact binomial `p` that A is better. `--gate` passes iff p < 0.05, prints
+  `gate: PASS|FAIL  <A> over <B>  n=<n>  score=<s>  p=<p>` and exits **3** on
+  FAIL; a run that ends 1 is not judged and stays 1. Without `--gate` the exit
+  codes are 0, 1 and 2 as above.
+- **External players** (`external-player.ts`): per game and external seat, a
+  0700 temp directory with three 0600 files (the seat's `ticket`, `mcp.json`
+  naming this checkout's harness in `command` scope by absolute `tsx` and
+  `agent.ts`, and `prompt.md`, the standing prompt with the seat filled in),
+  removed when the child exits. The template is split by the arena with no
+  shell (`$VAR`, `$(...)`, `;`, `|`, `>` and globs stay literal) and fills
+  `{mcp}`, `{prompt}`, `{seat}`, `{code}`; a standalone `< {prompt}` is the
+  child's stdin. The child inherits the parent environment unchanged; the
+  arena never reads a key. Its output goes to a per-seat log under `--out`.
+- **The observer.** When neither seat runs in the arena's process
+  (`cmd:` against `cmd:`), the arena reads the game through seat 0's own
+  advisor (`advise` scope, minted from seat 0's ticket), which keeps its own
+  sim in step and sends nothing the room acts on. Any game with an external
+  seat has **one judging sim** (the in-process seat's, or the observer's), so
+  it cannot read `void/disagree`; a desync between the two
+  players is still caught by the room's hash check. It takes seat 0's one
+  advisor slot.
+- **A cap-decided game** stops the in-process side at once but gives an
+  external client a 10 s grace to finish and print its usage line before
+  SIGTERM, then SIGKILL, each through the child's own handle. The model plays,
+  and spends tokens, during the grace.
+- **Output:** `<out>/<date>-<a>-vs-<b>.jsonl` (one record per game, appended
+  as it ends) and `.md`; an existing pair is never overwritten.
+  `arena-results/` is git-ignored.
+- **D6 was ruled "not now" (14 Oct).** There is no D1 `matches` table and no
+  `/stats/arena`: the arena runs locally and reports to files. Task 15 (the
+  table, its migration and the stats page, one D1 row per versus match) is
+  deferred until a later "yes". §8.5's remote arena is not built.
+
+### 11c.7 The N4 gate
+
+**Ruled 15 Oct (coordinator, lead-delegated): the gate is statistical, not a
+fitted bar.** It asks whether the arena can tell a better player from a worse
+one. On `tel_marum`, over **40 games** (20 seeds × 2 seat orders), `rush` must
+beat `passive` with a **one-sided exact binomial p < 0.05**:
+
+- p = P(X ≥ k) for X ~ Bin(n, ½), the chance that a player no better than its
+  opponent scores k or more; n = the non-void games between the two;
+  k = wins + ½ draws (D7). A half-point k takes the **mean of P(X ≥ ⌊k⌋) and
+  P(X ≥ ⌈k⌉)**, which lies between the draw-as-loss and draw-as-win readings
+  (`binomialP`, exact in BigInt). The pass is strict, p < 0.05.
+- The command is `pnpm arena -- --a rush --b passive --seeds 20 --map
+  tel_marum --pace 60 --tick-ms 2 --gate`; it prints `gate: PASS|FAIL  <A>
+  over <B>  n=<n>  score=<s>  p=<p>` and exits 3 on FAIL (§11c.6).
+- Its falsification is the players swapped (`--a passive --b rush`), which
+  must FAIL. `rush` and the map were not tuned for it.
+
+**Read on 15 Oct (pace 60, cap 12,000, tick 2 ms, mirror; every game played,
+none void):**
+
+| Run | n | W-D-L (A) | Score (A) | p | Verdict | Wall |
+|---|---|---|---|---|---|---|
+| `--a rush --b passive` | 40 | 27-0-13 | 0.675 | 0.01924 | **PASS**, exit 0 | 749 s |
+| `--a passive --b rush` (falsification) | 40 | 13-0-27 | 0.325 | 0.9917 | **FAIL**, exit 3 | 742 s |
+
+Rush scores 0.850 from seat 0 (west) and 0.500 from seat 1 (east, through
+the pass); 21 games went to the cap and 19 ended in annihilation. The
+swapped run replayed the same 40 games (identical records as a set, only the
+order differs). The first
+ten seeds reproduce the earlier 10-seed run game for game (15-5); seeds
+10-19 read 12-8. Both p values agree with an independent computation
+(Python, `math.comb` over `fractions.Fraction`): P(X ≥ 27 | 40) =
+0.019239 and P(X ≥ 13 | 40) = 0.991705.
+
+**History: the bar this ruling replaced.** The plan's Step 2 gate was `pnpm
+arena -- --a rush --b passive --seeds 10 --map tel_marum --pace 60 --tick-ms
+2`, with `rush ≥ 0.9` read as "the controls work". **Read on 15 Oct: rush
+0.750 (15-0-5, no void), so the gate was red as written.** The bar, the map and rush were left as they are (ruling
+N4); the reading equals Task 12's measurement game for game. Rush wins 0.900
+from the west seat and 0.600 from the east. For the lead's decision, the same
+run on the other versus maps (mirror, ten seeds, pace 60, cap 12,000; every
+game played, none void):
+
+| Map | Rush vs passive | W-D-L | Rush on seat 0 | Rush on seat 1 |
+|---|---|---|---|---|
+| `tel_marum` (the gate) | 0.750 | 15-0-5 | 0.900 | 0.600 |
+| `beit_sahwan_outskirts` | 0.400 | 8-0-12 | 0.200 | 0.600 |
+| `wadi_tarfan` | 0.600 | 12-0-8 | 0.600 | 0.600 |
+| `milh_flats` | 0.650 | 13-0-7 | 0.700 | 0.600 |
+
+No versus map reaches 0.9. The arena ran every game and the room voided
+none, so the gap is the control's strength (a stateless rush into a force
+that holds its ground), not a broken control path. That choice (a lower bar,
+another gate map or a stronger, stateful control) was answered by the ruling
+above: a statistical gate on the same map with the same rush.
+
+Spec §9's N4 gate itself, an `assist` advisor completing a match with Ilan and
+a ten-seed arena run between two models, is the lead's to run (run protocol
+§1 and §3); no subagent runs a model or reads a key.
+
+### 11c.8 What later work inherits
+
+- **N2** adds `set_stance`, `build` and `fire_support` to the harness's tools
+  with its `Command` kinds; `toolsFor`'s pin goes red until they are listed.
+- **WP-G-G0's doctrine commander**, when it lands, replaces `rush` as the
+  arena's opponent and answers decision 18 as written.
+- **A remote arena** against the Worker and `/stats/arena` wait on D6.
+- **Parked minors**, none load-bearing: the MCP `order` has no `sweep`; a
+  cap game costs an external client up to 10 s of grace; SIGINT on the arena
+  skips temp-directory cleanup (the ticket dies with the relay's in-memory
+  secret); the local relay does not serialize room events across sockets as
+  the Durable Object's input gate would (look there first if a local arena
+  ever reads a void/desync); a model's `end_round` still accepts a stale
+  mid-round `done` after a wall release (harmless).
 
 ## 12. Testing and gates
 

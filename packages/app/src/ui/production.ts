@@ -1,8 +1,10 @@
 // The reinforcements dock: bottom-left, a grid of 60px tiles (GH-153 slice 3).
 //
 // Reinforcements deploy at the field camp after their build time, paid from
-// mission logistics. Fire support is bought with intel; arming a purchase puts
-// the cursor into targeting mode and the next click on the map spends it.
+// mission logistics. Fire support is bought with intel: four calls (S-F), one
+// tile each, in the sim's own order. Arming a purchase puts the cursor into
+// targeting mode and the next click on the map spends it. A click the intel
+// cannot pay for is denied -- a note and the deny cue -- never silently dropped.
 //
 // This replaced a column of text buttons (`Rifle Squad (120)`) and a separate
 // `rl-queue` list underneath them. The list is gone on purpose rather than
@@ -25,8 +27,9 @@ import { bindTip } from './tooltip';
 import { tileState, type DockUnit, type DockView } from './dock-model';
 import { kitIconSignHtml, kitLevelLabel } from './kit-sign';
 import type { Tone } from './hud';
+import { SUPPORT, SUPPORT_KINDS, type SupportKind } from './support-kinds';
 
-export type SupportKind = 'sweep' | 'strike';
+export type { SupportKind };
 
 /** What a tile needs to draw one buildable type. `DockUnit` is the shape;
  *  re-exported under the name `main.ts` and the ticket already use. */
@@ -37,8 +40,8 @@ export type BuildableUnit = DockUnit;
  *  the three fields the tile states are computed from. */
 export interface ProductionRuntime extends DockView {
   readonly intel: number;
-  readonly sweepCost: number;
-  readonly strikeCost: number;
+  /** MissionRuntime's own method: what one call costs in intel. */
+  supportCost(kind: SupportKind): number;
   requestBuild(unitId: string): boolean;
 }
 
@@ -83,48 +86,35 @@ export interface ProductionOptions {
   meshPending?: (unitId: string) => boolean;
   /**
    * GH-113: how far a support call is from affordable, for the tile's charge
-   * bar and the clock in its corner -- `fraction` of the cost in hand, and
-   * `clock`/`title` already worded by the caller (`ui/intel-moments.ts`'s
-   * `chargeClock`, through `t()`). Absent: the tile only dims, as before.
+   * bar -- `fraction` of the cost in hand, and the accessible `title` already
+   * worded by the caller through `t()`. No clock: intel is earned by doing
+   * (F1), so there is no rate to read a time off. Absent: the tile only dims.
    */
-  supportCharge?: (kind: SupportKind) => { fraction: number; clock: string; title: string };
+  supportCharge?: (kind: SupportKind) => { fraction: number; title: string };
+  /** Plays the deny cue on every click the dock refuses: a support call the
+   *  intel cannot pay for (click or `press`), and a unit tile that is locked,
+   *  capped by population, or one the runtime declines to build -- one deny
+   *  path for the whole dock. An accepted build never calls it. `main.ts`
+   *  supplies `CRITICAL_CUES.uiDeny`. */
+  onDeny?: () => void;
+  /** The bound key's label for a call, for the tooltip's last line (Task 3
+   *  wires it). Absent prints nothing. */
+  hotkeyLabel?: (kind: SupportKind) => string | undefined;
 }
 
-/** The two fire-support calls, as the dock draws them. `word`/`name`/`blurb`
- *  are catalogue KEYS, not text -- the same `ORDERS[].label`/`ACTIONS[].label`
- *  convention (see either file's own doc comment): a module-level table
- *  resolved to text once, at import time, freezes in whatever locale was
- *  active before `main.ts`'s boot ever calls `setCatalogue`. Every reader
- *  below (`buildSupportTile`, `unitTipHtml`/`supportTipHtml`, the click
- *  handler's own notes) calls `t()` at render/use time instead. */
-const SUPPORT: readonly {
-  /** Also the mark: `symbolSvg(kind)`, the G1 sheet's static sweep/strike
-   *  order graphic (S3e, Q4) -- the same id the cursor's sight is keyed by. */
-  kind: SupportKind;
-  word: string;
-  name: string;
-  blurb: string;
-}[] = [
-  {
-    kind: 'sweep',
-    word: 'dock.support.sweep.word',
-    name: 'dock.support.sweep.name',
-    blurb: 'dock.support.sweep.blurb',
-  },
-  {
-    kind: 'strike',
-    word: 'dock.support.strike.word',
-    name: 'dock.support.strike.name',
-    blurb: 'dock.support.strike.blurb',
-  },
-];
+/* The fire-support calls the dock draws are `support-kinds.ts`'s
+ * `SUPPORT_KINDS`, the sim's own order. Everything else about a call -- its
+ * catalogue KEYS (`word`/`name`/`blurb`), its glyph -- is a row of `SUPPORT`.
+ * Keys, not text: a table resolved to text at import time freezes in whatever
+ * locale was active before `main.ts`'s boot calls `setCatalogue`, so
+ * `buildSupportTile` and `supportTipHtml` call `t()` at render time. */
 
 /** The tile cost's logistics mark. Built once: it is the same markup on
  *  every tile, and a constant is what lets the price beside it stay a text
  *  node. The px is the attribute fallback -- theme.css draws `.rl-sym` at 1em
  *  of the cost's own type. */
 const LOGISTICS_MARK = symbolSvg('logistics', 12);
-/** The support tiles' sweep/strike mark; 1em of `.rl-tile__glyph`'s 1.125rem. */
+/** The support tiles' mark; 1em of `.rl-tile__glyph`'s 1.125rem. */
 const SUPPORT_GLYPH_PX = 18;
 /** The tooltip's role badge. S3e (Q7): was 8, where an APP-6 mark is a smudge;
  *  10 is the floor wherever a unit is badged. */
@@ -146,7 +136,6 @@ interface SupportTile {
   kind: SupportKind;
   cost: number;
   bar: HTMLElement;
-  clock: HTMLElement;
   /** Frame-clock ms until which the border says "ready" (GH-113). */
   flashUntil: number;
 }
@@ -168,6 +157,12 @@ export class ReinforcementDock {
    *  additionally drop its listeners and the app-wide Escape hook if this
    *  dock's tip happens to be the one showing when the mission ends. */
   private readonly tipDisposers: Disposer[] = [];
+  /** The header's population readout. Built once, hidden while the mission is
+   *  uncapped; unlike the credit chip it CHANGES (units die, builds queue), so
+   *  `refresh()` repaints it. `popShown` is what is painted, so the 4 Hz beat
+   *  rewrites the DOM only when a number moved. */
+  private readonly pop: HTMLElement;
+  private popShown = '';
 
   constructor(
     host: HTMLElement,
@@ -213,13 +208,20 @@ export class ReinforcementDock {
       this.tipDisposers.push(bindTip(credits, () => t('dock.credits.tip'), { host: this.el }));
     }
 
+    // Population, beside the credits (the approved mock's 5h): `--info` with a
+    // dim word, the warn tone at the cap. Not on the top strip, which has no
+    // room for it at 1400 wide. Text only; the figures are numbers.
+    this.pop = document.createElement('span');
+    this.pop.className = 'rl-dock__pop';
+    this.pop.hidden = true;
+    head.appendChild(this.pop);
+
     const grid = document.createElement('div');
     grid.className = 'rl-dock__grid';
 
     for (const unit of opts.units) grid.appendChild(this.buildUnitTile(unit));
-    for (const spec of SUPPORT) {
-      const cost = spec.kind === 'sweep' ? opts.runtime.sweepCost : opts.runtime.strikeCost;
-      grid.appendChild(this.buildSupportTile(spec, cost));
+    for (const kind of SUPPORT_KINDS) {
+      grid.appendChild(this.buildSupportTile(kind, opts.runtime.supportCost(kind)));
     }
 
     this.el.append(head, grid);
@@ -336,6 +338,14 @@ export class ReinforcementDock {
       const name = escapeHtml(unit.name);
       if (state.lock !== null) {
         this.opts.note(t('dock.note.locked', { name, reason: escapeHtml(state.lock.full) }), 'warn');
+        this.opts.onDeny?.();
+        return;
+      }
+      // The cap: the line already carries the numbers (and, with room left
+      // but not enough, the unit's name), so it is the note as it stands.
+      if (state.capped !== null) {
+        this.opts.note(escapeHtml(state.capped.full), 'warn');
+        this.opts.onDeny?.();
         return;
       }
       if (this.opts.runtime.requestBuild(unit.id)) {
@@ -344,6 +354,7 @@ export class ReinforcementDock {
         this.opts.note(t('dock.note.building', { name }), 'info');
       } else {
         this.opts.note(t('dock.note.cannotBuild', { name }), 'mute');
+        this.opts.onDeny?.();
       }
       el.blur(); // keep the keyboard on the battlefield
       this.refresh(); // the bar starts now, not at the next 4 Hz beat
@@ -357,44 +368,51 @@ export class ReinforcementDock {
     return el;
   }
 
-  private buildSupportTile(
-    spec: (typeof SUPPORT)[number],
-    cost: number
-  ): HTMLButtonElement {
+  private buildSupportTile(kind: SupportKind, cost: number): HTMLButtonElement {
+    const spec = SUPPORT[kind];
     const el = document.createElement('button');
     el.type = 'button';
     el.className = 'rl-tile rl-tile--support';
-    el.dataset.support = spec.kind;
+    el.dataset.support = kind;
     el.dataset.armed = '0';
     el.innerHTML =
-      `<span class="rl-tile__glyph">${symbolSvg(spec.kind, SUPPORT_GLYPH_PX)}</span>` +
+      `<span class="rl-tile__glyph">${symbolSvg(spec.mark, SUPPORT_GLYPH_PX)}</span>` +
       `<span class="rl-tile__word">${t(spec.word)} ${cost}</span>`;
     // GH-113: the charge, in the build bar's own language -- a bar along the
-    // bottom and a clock in the corner, where the unit tiles put a queue.
-    const clock = document.createElement('span');
-    clock.className = 'rl-tile__clock';
+    // bottom. No clock beside it (S-F): intel arrives when the player earns
+    // it, at no rate a time could be read from.
     const bar = document.createElement('span');
     bar.className = 'rl-tile__charge';
-    el.append(clock, bar);
+    el.append(bar);
 
     el.addEventListener('click', () => {
-      if (this.opts.runtime.intel < cost) {
-        this.opts.note(t('dock.note.noIntel', { name: t(spec.name).toLowerCase() }), 'mute');
-        return;
-      }
-      this.setArmed(this.armed === spec.kind ? null : spec.kind);
-      this.opts.note(
-        this.armed ? t('dock.note.armed', { name: t(spec.name) }) : t('dock.note.cancelled'),
-        'info'
-      );
+      this.press(kind);
       el.blur();
     });
-    // Same `clear` reasoning as the unit tiles above -- the support pair sits
-    // on its own row, below every unit row.
-    this.tipDisposers.push(bindTip(el, () => this.supportTipHtml(spec, cost), { host: this.el, clear: this.el }));
+    // Same `clear` reasoning as the unit tiles above -- the support calls sit
+    // on their own rows, below every unit row.
+    this.tipDisposers.push(bindTip(el, () => this.supportTipHtml(kind, cost), { host: this.el, clear: this.el }));
 
-    this.supportTiles.push({ el, kind: spec.kind, cost, bar, clock, flashUntil: 0 });
+    this.supportTiles.push({ el, kind, cost, bar, flashUntil: 0 });
     return el;
+  }
+
+  /** The tile's click, callable from a hotkey: arms or disarms `kind`, or
+   *  denies with a note and the cue when intel is short. Returns true if armed. */
+  press(kind: SupportKind): boolean {
+    const spec = SUPPORT[kind];
+    const tile = this.supportTiles.find((x) => x.kind === kind);
+    if (tile === undefined || this.opts.runtime.intel < tile.cost) {
+      this.opts.note(t('dock.note.noIntel', { name: t(spec.name).toLowerCase() }), 'mute');
+      this.opts.onDeny?.();
+      return false;
+    }
+    this.setArmed(this.armed === kind ? null : kind);
+    this.opts.note(
+      this.armed ? t('dock.note.armed', { name: t(spec.name) }) : t('dock.note.cancelled'),
+      'info'
+    );
+    return this.armed === kind;
   }
 
   // ------------------------------------------------------------------
@@ -416,23 +434,32 @@ export class ReinforcementDock {
   private unitTipHtml(unit: BuildableUnit): string {
     const blurb =
       unit.blurb === undefined ? '' : `<div class="rl-tip__blurb">${escapeHtml(unit.blurb)}</div>`;
+    // The rich tip covers the native `title`, so a mouse player would never see
+    // why a capped tile is refused: the full line goes here too, as one warn line.
+    const capped = tileState(unit, this.opts.runtime, this.opts.ledger, this.opts.missionName).capped;
+    const capLine = capped === null ? '' : `<div class="rl-warn">${escapeHtml(capped.full)}</div>`;
     return (
       `<div class="rl-tip__head">` +
       `<span class="rl-tip__name">${escapeHtml(unit.name)}</span>` +
       `<span class="rl-tip__cost">${unit.logistics} · ${unit.buildTimeS}s</span>` +
       `</div>` +
       `<div class="rl-tip__tags">${roleBadgeSvg(unit.bucket, TIP_BADGE)} ${unit.tags.map(escapeHtml).join(' · ')}</div>` +
-      blurb
+      blurb +
+      capLine
     );
   }
 
-  private supportTipHtml(spec: (typeof SUPPORT)[number], cost: number): string {
+  private supportTipHtml(kind: SupportKind, cost: number): string {
+    const spec = SUPPORT[kind];
+    const key = this.opts.hotkeyLabel?.(kind);
+    const hotkey = key === undefined || key === '' ? '' : `<div class="rl-tip__tags">${escapeHtml(t('dock.tip.hotkey', { key }))}</div>`;
     return (
       `<div class="rl-tip__head">` +
       `<span class="rl-tip__name">${t(spec.name)}</span>` +
       `<span class="rl-tip__cost">${t('dock.tip.intelCost', { n: cost })}</span>` +
       `</div>` +
-      `<div class="rl-tip__blurb">${t(spec.blurb)}</div>`
+      `<div class="rl-tip__blurb">${t(spec.blurb)}</div>` +
+      hotkey
     );
   }
 
@@ -467,7 +494,9 @@ export class ReinforcementDock {
   focusFirst(): boolean {
     if (this.unitTiles.length === 0) return false;
     // Not named `t`: this file imports the catalogue's own `t()`.
-    const open = this.unitTiles.find((tile) => tile.el.dataset.locked === '0' && tile.el.dataset.poor === '0');
+    const open = this.unitTiles.find(
+      (tile) => tile.el.dataset.locked === '0' && tile.el.dataset.capped === '0' && tile.el.dataset.poor === '0'
+    );
     (open ?? this.unitTiles[0]).el.focus();
     return true;
   }
@@ -477,23 +506,26 @@ export class ReinforcementDock {
     for (const tile of this.unitTiles) {
       const state = tileState(tile.unit, rt, this.opts.ledger, this.opts.missionName);
       tile.el.dataset.locked = state.lock === null ? '0' : '1';
+      tile.el.dataset.capped = state.capped === null ? '0' : '1';
       // A lock outranks the price: a type the campaign has not opened is not
-      // "expensive", and dimming it twice would say two things at once.
-      tile.el.dataset.poor = state.lock === null && !state.affordable ? '1' : '0';
+      // "expensive", and dimming it twice would say two things at once. A
+      // capped tile is refused for a reason that is not the price either.
+      tile.el.dataset.poor = state.lock === null && state.capped === null && !state.affordable ? '1' : '0';
       tile.el.dataset.queued = state.queue === null ? '0' : '1';
       // Ruling 1 (WP-A3.3): bought, and its model has not landed yet.
       const pending = this.bought.has(tile.unit.id) && (this.opts.meshPending?.(tile.unit.id) ?? false);
       tile.el.dataset.meshPending = pending ? '1' : '0';
 
-      tile.lock.textContent = state.lock?.short ?? '';
+      tile.lock.textContent = state.lock?.short ?? state.capped?.short ?? '';
       tile.left.textContent = state.queue === null ? '' : `${state.queue.secs}s`;
       tile.bar.style.width = state.queue === null ? '0' : `${state.queue.percent.toFixed(1)}%`;
 
       const queued =
         state.queue === null ? '' : t('dock.tile.queuedSuffix', { n: state.queue.count, secs: state.queue.secs });
+      const refusal = state.lock ?? state.capped;
       const title =
-        state.lock !== null
-          ? t('dock.tile.titleLocked', { name: tile.unit.name, reason: state.lock.full })
+        refusal !== null
+          ? t('dock.tile.titleLocked', { name: tile.unit.name, reason: refusal.full })
           : t('dock.tile.title', { name: tile.unit.name, logistics: tile.unit.logistics, queued });
       tile.el.title = title;
       // A button's accessible name comes from its own text, and this one's
@@ -509,19 +541,39 @@ export class ReinforcementDock {
       const kit = state.lock === null ? (tile.unit.kit ?? 0) : 0;
       tile.el.setAttribute('aria-label', kit === 0 ? title : `${title}, ${kitLevelLabel(kit)}`);
     }
+    this.paintPopulation();
     const now = performance.now();
     for (const tile of this.supportTiles) {
       const poor = rt.intel < tile.cost;
       tile.el.dataset.poor = poor ? '1' : '0';
       const charge = this.opts.supportCharge?.(tile.kind);
-      // Charging: the tile keeps full strength so the bar and the clock do --
+      // Charging: the tile keeps full strength so the bar does --
       // the defect the build bar already fixed (`.rl-tile[data-poor='1']`'s
       // own comment) -- and only the glyph and the word dim.
       tile.el.dataset.charging = poor && charge !== undefined ? '1' : '0';
       tile.bar.style.width = charge === undefined || !poor ? '0' : `${(charge.fraction * 100).toFixed(1)}%`;
-      tile.clock.textContent = charge === undefined || !poor ? '' : charge.clock;
       if (charge !== undefined) tile.el.setAttribute('aria-label', charge.title);
       tile.el.dataset.readyFlash = now < tile.flashUntil ? '1' : '0';
     }
+  }
+
+  /** The header readout: `used/cap population` while the mission is capped,
+   *  gone while it is not. Warn at the cap, `--info` below it. */
+  private paintPopulation(): void {
+    const view = this.opts.runtime.populationView?.() ?? null;
+    if (view === null) {
+      this.pop.hidden = true;
+      this.popShown = '';
+      return;
+    }
+    this.pop.hidden = false;
+    const at = view.used >= view.cap;
+    const key = `${view.used}/${view.cap}`;
+    if (key !== this.popShown) {
+      this.popShown = key;
+      this.pop.innerHTML = t('dock.pop', { used: view.used, cap: view.cap });
+    }
+    this.pop.classList.toggle('rl-warn', at);
+    this.pop.classList.toggle('rl-info', !at);
   }
 }

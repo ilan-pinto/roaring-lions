@@ -26,6 +26,14 @@ const LIBRARY: Readonly<Record<string, string>> = {
   'ui-review/port.ts': 'the claim itself',
 };
 
+/** Servers that bind 127.0.0.1 on a port the OS assigns (`listen(0, ...)`)
+ *  and build their URL from the port they got. They never take a fixed port
+ *  and never attach to one, so they cannot reach another session's server and
+ *  port.ts has nothing to claim. Each one is held to that shape below. */
+const OS_ASSIGNED: Readonly<Record<string, string>> = {
+  'net/local-relay.ts': "the arena's local relay (N4b): one per game, listen(0) on 127.0.0.1",
+};
+
 const SERVES = /\bensureDevServer\(|\bstartPreview\(|\bthreeUrl\(|https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])[:/$]/;
 const CLAIMS = /\b(?:claimPort|claimPortOrAttach|decidePort|requireAttach)\(/;
 const ENV_KEY = /'([A-Z0-9_]+_PORT)'/g;
@@ -59,7 +67,7 @@ function serverHarnesses(root = SRC): Map<string, string> {
   const found = new Map<string, string>();
   for (const file of walk(root)) {
     const rel = relative(root, file).split('\\').join('/');
-    if (rel in LIBRARY) continue;
+    if (rel in LIBRARY || rel in OS_ASSIGNED) continue;
     const body = code(readFileSync(file, 'utf8'));
     if (SERVES.test(body)) found.set(rel, body);
   }
@@ -80,6 +88,16 @@ describe('port census', () => {
 
   it('every library exemption still exists, so the list cannot rot into a blanket pass', () => {
     for (const rel of Object.keys(LIBRARY)) expect(statSync(join(SRC, rel)).isFile(), rel).toBe(true);
+  });
+
+  it('every OS-assigned exemption binds port 0 on loopback and names no fixed port', () => {
+    for (const rel of Object.keys(OS_ASSIGNED)) {
+      const body = code(readFileSync(join(SRC, rel), 'utf8'));
+      expect(/\.listen\(0, '127\.0\.0\.1'/.test(body), `${rel} listens on port 0 on 127.0.0.1`).toBe(true);
+      expect(/\.listen\((?!0, '127\.0\.0\.1')/.test(body), `${rel} listens nowhere else`).toBe(false);
+      expect(/\bensureDevServer\(|\bstartPreview\(|\bthreeUrl\(/.test(body), `${rel} starts no dev server`).toBe(false);
+      expect(/(?:localhost|127\.0\.0\.1|\[::1\]):\d/.test(body), `${rel} spells no literal port`).toBe(false);
+    }
   });
 
   it('every harness that serves or attaches goes through port.ts', () => {

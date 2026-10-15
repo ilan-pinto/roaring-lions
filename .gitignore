@@ -123,6 +123,21 @@ art/meshy/shanty-20261011-01a12a27/refine/model.*
 art/meshy/shanty-20261011-01a12a27/refine/texture_0_*.png
 art/meshy/shanty-20261011-01a12a2d/model.glb
 art/meshy/shanty-20261011-01a12a2d/texture_0_*.png
+# GH-66 field works (15 Oct): the HESCO 8k refine and its 4,000-tri remesh
+# source (92 MB, read by export_meshy_ramp.py -- hesco), and the five
+# previews judged on the checklist (two T-wall and two sandbag-post failures,
+# the first HESCO failure, the passing HESCO), kept on disk and copied to
+# ~/dev/roaring-lions-art-backup; task.json and the thumbnails are tracked.
+art/meshy/hesco-20261015-01a13e6d/model.glb
+art/meshy/hesco-20261015-01a13e72/model.glb
+art/meshy/hesco-20261015-01a13e76/model.*
+art/meshy/hesco-20261015-01a13e76/texture_*
+art/meshy/hesco-20261015-01a13e79/model.glb
+art/meshy/hesco-20261015-01a13e79/texture_*
+art/meshy/sandbag-post-20261015-01a13e6f/model.glb
+art/meshy/sandbag-post-20261015-01a13e74/model.glb
+art/meshy/t-wall-20261015-01a13e6b/model.glb
+art/meshy/t-wall-20261015-01a13e72/model.glb
 
 # --- generated video takes (pnpm video) --------------------------------------
 # Every take `pnpm video -- generate --spend` downloads lands here with its
@@ -151,3 +166,7 @@ art/meshy/rws-50-20261014-01a13a7d/model.*
 art/meshy/rws-50-20261014-01a13a7d/texture_*
 art/meshy/rws-50-20261014-01a13a83/model.*
 art/meshy/rws-50-20261014-01a13a83/texture_*
+
+# `pnpm arena` (N4b task 13) writes its JSONL and markdown here by default:
+# local results, never committed (decision D6: no remote arena results yet).
+arena-results/

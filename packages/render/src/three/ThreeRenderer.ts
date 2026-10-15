@@ -327,6 +327,7 @@ import {
   spawnBurst,
   SHELL_PROFILES,
   type ShellModel,
+  type ShellKind,
 } from './units/shells';
 import {
   MissileFx,
@@ -542,7 +543,7 @@ import { ShroudTexture } from './shroud-texture';
 import { hazeRadiance, hazeReferenceLevel } from './haze';
 import { FogOfWarPass } from './fog-pass';
 import { SmokeMesh } from './smoke-mesh';
-import { perTileRunYaw } from './units/run-direction';
+import { perTileYawFor } from './units/run-direction';
 import { drawBlockedMask } from './terrain/draw-mask';
 import { TrailMesh, collapsedRouteLevel, type TrailInstanceInput } from './trail-mesh';
 import { ORDER_GROUND_COLOR_KEY } from '../order-ground';
@@ -640,6 +641,10 @@ import { CONTACT_MARK, contactHaloTriangles, contactScale, contactShapeOf, conta
 
 
 
+
+/** COPIED from tuning.ts (FS_MORTAR_BARRAGE, SMOKE_RANGE_SQ); the vfx-triggers spec reads tuning.ts as text. */
+const FS_MORTAR_BARRAGE = 1;
+const CARRIER_SMOKE_RANGE_SQ_TILES = 5242880 / 65536; // tuning.ts SMOKE_RANGE_SQ, 80 tile^2
 
 /** Recoil/flinch decay durations, seconds -- redeclared from `renderer.ts`'s
  *  own `RECOIL_SECONDS`/`FLINCH_SECONDS` (private, unexported) rather than
@@ -4526,7 +4531,19 @@ export class ThreeRenderer implements Renderer {
         // terrain-scale and the sim's sight rules already treat it as an
         // obstacle. Single-player throws every pop, as before.
         const layer = e.by;
-        if (
+        if (this.isCalledSmoke(layer, fx.toNumber(e.x), fx.toNumber(e.y))) {
+          // F-Q8: a CALLED round (a caller with no launcher, or one beyond a
+          // carrier's own reach) has no launcher to pop at its caller. The
+          // screen is `SmokeMesh`'s, from the sim grid; the point gets a
+          // shell's thud instead, once the seat can see where it lands.
+          const px = fx.toNumber(e.x);
+          const py = fx.toNumber(e.y);
+          // Versus: a hostile caller's thud is thrown only where the seat can
+          // see the point (the same rule as the carrier pop above).
+          if (hostileEffectVisible(this.versus, layer < 0 || isOwnSide(this.sim.state.side[layer], this.viewer), this.isVisible(px, py))) {
+            this.spawnNamedBurst('mortar_base_dust', px, py, 0);
+          }
+        } else if (
           layer < 0 ||
           hostileEffectVisible(
             this.versus,
@@ -4537,7 +4554,7 @@ export class ThreeRenderer implements Renderer {
           this.spawnSmokeDischarge(layer, fx.toNumber(e.x), fx.toNumber(e.y));
         }
       } else if (e.kind === 'strike') {
-        this.onStrike(e.x, e.y, e.tick);
+        this.onStrike(e);
       } else if (e.kind === 'tunnelCollapsed') {
         this.onTunnelCollapsed(e.tunnel, e.tick);
       } else if (e.kind === 'tunnelContact' && isOwnSide(e.side, this.viewer) && e.level === 'identified') {
@@ -5315,16 +5332,23 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
-   * The `strike` case, ported from `renderer.ts:833-846`: a scatter of 18
-   * puffs around the impact point, positioned by the SAME deterministic
-   * per-sample hash Pixi uses (`PixiRenderer.h2`, which `renderer.ts`'s own
-   * doc comment says IS `tileHash` -- imported directly here rather than
-   * reimplemented, so the two backends scatter identically for the same
-   * tick/strike, not merely similarly).
+   * The `strike` case. F-Q8: the sim's `profile` picks the look. Profile 0 (a
+   * precision strike) keeps the air-strike scatter ported from
+   * `renderer.ts:833-846`: 18 puffs around the impact point, positioned by the
+   * SAME deterministic per-sample hash Pixi used (`tileHash`). Profile 1
+   * (`FS_MORTAR_BARRAGE`, one round of a barrage) lands as a mortar shell --
+   * burst, light, shake, hit-stop, crater and scorch at a mortar bomb's own
+   * `impactPower` -- and draws none of the 18 puffs. Any other profile reads as
+   * a precision strike.
    */
-  private onStrike(ex: Fx, ey: Fx, tick: number): void {
-    const sx = fx.toNumber(ex);
-    const sy = fx.toNumber(ey);
+  private onStrike(e: { x: Fx; y: Fx; tick: number; profile: number }): void {
+    const sx = fx.toNumber(e.x);
+    const sy = fx.toNumber(e.y);
+    const tick = e.tick;
+    if (e.profile === FS_MORTAR_BARRAGE) {
+      this.spawnShellLandingAt('mortar', sx, sy);
+      return;
+    }
     for (let k = 0; k < 18; k++) {
       const a = tileHash(k * 11 + tick, k * 17 + tick);
       const b = tileHash(k * 23 + tick, k * 5 + tick);
@@ -8224,14 +8248,18 @@ export class ThreeRenderer implements Renderer {
    * settle step last wrote alone.
    */
   /** A per-tile structure turns to read along its run -- see
-   *  `units/run-direction.ts`. Neighbours are read off the sim's own tile
-   *  index, dead or alive: a breached fence still lies along its run. */
+   *  `units/run-direction.ts` -- unless its type keeps its authored facing
+   *  (`PER_TILE_FACING`, the sandbag post). Neighbours are read through
+   *  `sim.structureAt`, which answers only for a LIVING structure: a wreck
+   *  reads its run off the tiles still standing when it falls. The standing
+   *  mesh and its wreck both come through here, so a post's wreck keeps the
+   *  post's authored facing. */
   private perTileYaw(s: number): number {
     const st = this.sim.structures;
     const x = st.minX[s];
     const y = st.minY[s];
     const typeIdx = st.typeIdx[s];
-    return perTileRunYaw((dx, dy) => {
+    return perTileYawFor(this.sim.structureTypes[typeIdx].id, (dx, dy) => {
       const n = this.sim.structureAt(x + dx, y + dy);
       return n >= 0 && n !== s && st.typeIdx[n] === typeIdx;
     });
@@ -8908,7 +8936,13 @@ export class ThreeRenderer implements Renderer {
    * top of the burst rather than instead of it.
    */
   private spawnShellImpactFx(s: ShellModel): void {
-    const power = SHELL_PROFILES[s.kind].impactPower;
+    this.spawnShellLandingAt(s.kind, s.tx, s.ty);
+  }
+
+  /** A shell of `kind` landing at (tx, ty): the body `spawnShellImpactFx` always
+   *  had, lifted out so a barrage round (F-Q8) lands through the same code. */
+  private spawnShellLandingAt(kind: ShellKind, tx: number, ty: number): void {
+    const power = SHELL_PROFILES[kind].impactPower;
     // The one gate on this whole method, unchanged: `impactPower` is 0 for
     // `bolt`, so direct fire never detonates on landing (a missile is
     // `MissileFx`'s since GH-250 and lands through `spawnMissileImpactFx`). A
@@ -8916,8 +8950,8 @@ export class ThreeRenderer implements Renderer {
     // `this.shells`, the indirect list) -- this is what keeps that true if
     // the two lists are ever merged.
     if (power <= 0) return;
-    const yawTurns = tileHash(Math.floor(s.tx), Math.floor(s.ty));
-    this.spawnCollapseFx(SHELL_IMPACT_EMITTER_ID, s.tx, s.ty, power, yawTurns);
+    const yawTurns = tileHash(Math.floor(tx), Math.floor(ty));
+    this.spawnCollapseFx(SHELL_IMPACT_EMITTER_ID, tx, ty, power, yawTurns);
     // R-Q/G0 #14: the mortar/Grad half of the blast, at the ROUND's own
     // power (0.3 mortar, 0.45 rocket) rather than a kill's. Same four calls
     // as the vehicle-kill branch and the same silent no-ops when the emitter
@@ -8933,18 +8967,18 @@ export class ThreeRenderer implements Renderer {
     // that method short-circuits on a renderer with no `ParticleSystem` yet,
     // which is a fact about the particle pool and not about whether the
     // ground was scorched.
-    const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, s.tx, s.ty);
+    const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, tx, ty);
     const em = this.emitterLibrary.byName(SHELL_IMPACT_EMITTER_ID);
     const light = blastLightSpec(em, power);
     if (light) {
-      this.flashLights.spawn(s.tx, s.ty, worldY, light, this.overlayColor(light.color ?? 'vfx.fire', FLASH_LIGHT_FALLBACK));
+      this.flashLights.spawn(tx, ty, worldY, light, this.overlayColor(light.color ?? 'vfx.fire', FLASH_LIGHT_FALLBACK));
     }
-    this.shakeState = pushShake(this.shakeState, blastShake(em, power), s.tx, s.ty);
+    this.shakeState = pushShake(this.shakeState, blastShake(em, power), tx, ty);
     this.hitStop = requestHitStop(this.hitStop, blastHitStopMs(em, power));
     // The crater first, then the scorch over it: both persistent, both at
     // the ROUND's own power (R-13's `0.15 + power` for the crater).
-    this.stampGroundDecal(this.persistentStamp('crater', s.tx, s.ty, craterRadiusTiles(power)));
-    this.stampGroundDecal(this.persistentStamp('scorch', s.tx, s.ty, scorchRadiusTiles(power)));
+    this.stampGroundDecal(this.persistentStamp('crater', tx, ty, craterRadiusTiles(power)));
+    this.stampGroundDecal(this.persistentStamp('scorch', tx, ty, scorchRadiusTiles(power)));
   }
 
   /**
@@ -9076,6 +9110,17 @@ export class ThreeRenderer implements Renderer {
       const offset = (layer.direction_offset_deg ?? 0) / 360;
       this.particleSystem.spawn(layer, x, y, dir + offset, APS_LAUNCH_MAGNITUDE, prio, fxLayerIndex(em.layer, layer.additive ?? false));
     }
+  }
+
+  /** A `smokeLaid` whose layer cannot lay smoke itself (`by < 0`, or a type
+   *  without the `smoke` ability), or stands beyond a carrier's own range of the
+   *  point, is a called round (F-Q8): there is no launcher to pop at it. */
+  private isCalledSmoke(by: number, sx: number, sy: number): boolean {
+    if (by < 0) return true;
+    if (!this.sim.unitTypes[this.sim.state.typeIdx[by]].canSmoke) return true;
+    const dx = sx - this.curX[by];
+    const dy = sy - this.curY[by];
+    return dx * dx + dy * dy > CARRIER_SMOKE_RANGE_SQ_TILES;
   }
 
   /**

@@ -175,7 +175,7 @@ describe('an order record hides what the seat can no longer see', () => {
     // the open, on foot or wheels, not inside a building, carrier or tunnel.
     const st = w.sim.state;
     const inOpen = (id: number): boolean => st.garrisonedIn[id] < 0 && st.carriedBy[id] < 0 && st.tunnelIn[id] < 0;
-    const [mine, spare] = a.client.view().units.filter((u) => u.flags.length === 0).map((u) => u.id);
+    const [mine, spare] = a.client.view().units.filter((u) => u.flags.every((f) => f === 'idle')).map((u) => u.id);
     const enemy = sideIds(w, 1).filter(inOpen)[0];
     expect([mine, spare, enemy].every((id) => id !== undefined)).toBe(true);
     // The sim's own dev hooks, identically on both machines between the same

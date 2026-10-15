@@ -1,0 +1,46 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A low U-shaped wall of stacked sandbags lying on the ground like a letter U seen from above, open to the sky with no roof and nothing spanning across the top: a sandbag fighting position, the curved closed side at the front with one small rectangular firing gap through it, the two straight arms of the U running back and ending open at the rear as an entrance, the inside floor empty. Five courses of filled burlap sandbags in stretcher and header bond, a few slumped bags, two loose bags on the ground at the entrance. 2.6 metres across, 2.6 metres front to back, 1.1 metres tall, walls one or two bags thick. Tan and olive-tan burlap, pale sand, dust. Plain even lighting, no ground, no plinth, centred, one object. No text, stencils, numerals or markings.",
+    "negative_prompt": "arch, tunnel, vault, dome, igloo, bridge, roof of sandbags, bags across the top, covered, overhead cover, roof, closed ring, full circle, trench, bunker, concrete, gabion, wire mesh, wooden crates, machine gun, weapon, soldier, person, mannequin, helmet, flag, emblem, logo, stencil, text, numbers, lettering, ground plane, base plate, plinth, dirt mound base, baked shadow",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a13e74-f2c3-7096-8749-3fc3e5716cf8",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 1463248706,
+    "prompt": "A low U-shaped wall of stacked sandbags lying on the ground like a letter U seen from above, open to the sky with no roof and nothing spanning across the top: a sandbag fighting position, the curved closed side at the front with one small rectangular firing gap through it, the two straight arms of the U running back and ending open at the rear as an entrance, the inside floor empty. Five courses of filled burlap sandbags in stretcher and header bond, a few slumped bags, two loose bags on the ground at the entrance. 2.6 metres across, 2.6 metres front to back, 1.1 metres tall, walls one or two bags thick. Tan and olive-tan burlap, pale sand, dust. Plain even lighting, no ground, no plinth, centred, one object. No text, stencils, numerals or markings.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1792049215675,
+    "progress": 100,
+    "started_at": 1792049215677,
+    "finished_at": 1792049270546,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a13e74-f2c3-7096-8749-3fc3e5716cf8/output/model.glb?Expires=4945622400&Signature=iLdaSHLrO0a7JXc9CTFeWhPG8wZNrJ5HVYiieoQ55joMYytZrp4IFRRc6ymD-ZD261icG0u7Py~I476mUYyD9d-C4a6T5aL0l-55f46c2KVbr0BKG9BHvy9uloDTKHt6t4U40zhCWMxZ3IBwlDxgBN2BTVRHlap6yiNpOcbHIEbIv2nSsvewATj5YrwOhFHNtVZHcpOtsllf7TaH1cIayu8xJOiEeip~LA~PQ4GlqFwN5TrPN1M~0YY2mnEYuRs~rfbwCJWNuYSeJH5s0Cdc8IF5Bp1nXI2Zc~h0Hf1nEiblbn7FgACHgnCofVjYLN0Aj4KxBYFGRB~viCRZ2ycgrQ__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a13e74-f2c3-7096-8749-3fc3e5716cf8/output/preview.png?Expires=4945622400&Signature=aL1yyZSiqjXzslWuoSYtqtmfTtM2t91waS9DzMlXiVohS17JGefCdyU8kKAUDD9Z37ujPdT1y0Ooq86040p9f0RyfkCz-DyVPxZ8z2~5yM8THOIWXy~2QQWIHF2oTB~MEmqk0KzeuMYLbvr3K7OHQHLynnsuW8nDiP1cj9GasrZsc5C8NhgJ9s-F74frCKp~Exd2yQ1IY8GXWORwP9vTopb-4xpLYigptANO0EHKTK2kjtpBO6sTizby3seO1sWauk~O1Cc1c6oLnesmpv-yHxq8rtjIeFvk0x-~ABHgKOXB3YQtz5YdrTBGQT0BimIVnKxrsWdJNy8Aj4NyJnLQ1A__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1792049215675,
+    "started_at": 1792049215677,
+    "finished_at": 1792049270546
+  },
+  "usd_estimated": 0.4
+}
