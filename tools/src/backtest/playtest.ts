@@ -2041,6 +2041,9 @@ passiveAcrossSeeds('qarn_hadid_1_recon', 'qarn_hadid_1_recon (passive control)',
 // No unit is ordered by this call (a support call names none, F-R6), so no focus is touched; no shipped
 // plan issues `attack`.
 const SPEND = { id: 'qarn_hadid_1_recon', kind: 'mortar_barrage', price: 120, atS: 16, x: 30, y: 19 } as const;
+// The plan closure runs once for the plain victory and once more in the max-tier replay (`maxTierProbes`);
+// the second run's spend line says so, so it is not read as a second plain run.
+let spendRuns = 0;
 
 const ledQH1 = run(
   'qarn_hadid_1_recon',
@@ -2056,7 +2059,7 @@ const ledQH1 = run(
     at(20, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(28, 4) }));
     at(SPEND.atS, () => {
       const ok = rt.supportCost(SPEND.kind) === SPEND.price && rt.requestSupport(SPEND.kind, fx.from(SPEND.x), fx.from(SPEND.y));
-      console.log(`${SPEND.id}: spend ${SPEND.kind} ${ok ? 'ok' : 'refused'}`);
+      console.log(`${SPEND.id}: spend ${SPEND.kind} ${ok ? 'ok' : 'refused'}${spendRuns++ > 0 ? ' (max-tier replay)' : ''}`);
       if (!ok) {
         console.error(`${SPEND.id}: FAILED — requestSupport('${SPEND.kind}') was refused at ${SPEND.atS} s (price ${rt.supportCost(SPEND.kind)}, held ${rt.intel})`);
         process.exitCode = 1;
@@ -3802,6 +3805,9 @@ const INTEL_PASSIVE_BEATS_WINNER = 0;
 // identification. `intel_start` grants (Umm Zeitoun II, IV) are not earnings and are not counted.
 const INTEL_WINNERS_ONE_SWEEP = 35;
 {
+  // Guards the SPEND plan on every seed: 424242 in the parent is also checked by the FAILED line in its own
+  // `at()` call above; the other 29 seeds run quiet in workers and are re-verified ONLY here, for the spend
+  // (`seedsNotSpent`). The `intelEarned` cross-check in `playtest-run.ts` is not repeated per swept seed.
   // The spending plan spent its price on EVERY seed (a refused call spends nothing, and a swept seed's
   // own console is not read, so this is where a refusal on seed 7 is seen).
   const missed = seedsNotSpent(planRunsBySeed, SWEEP_SEEDS, SPEND.id, SPEND.price);

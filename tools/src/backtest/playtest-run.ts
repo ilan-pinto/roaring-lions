@@ -408,13 +408,19 @@ export function run(
   const credits = creditsFor(creditInputFrom(rt, rt.roeScore, mission.roe?.fail_below));
   if (!sweepQuiet || rt.result !== expect) console.log(runLine);
   if (!sweepQuiet) console.log(`${label}: credits ${credits}`);
+  if (rt.result !== expect) {
+    console.error(`${label}: FAILED — expected ${expect.toUpperCase()}, got ${shown}`);
+    process.exitCode = 1;
+  }
   // F1 Task 9: what the run earned, as its own line so every line above stays as it was.
   let intelEarned = 0;
   for (const [, amount] of intel) intelEarned += amount;
   const intelStart = mission.resources?.intel_start ?? 0;
   if (!sweepQuiet) console.log(`${label}: intel earned ${intelEarned} (start ${intelStart}, spent ${intelSpentTotal}, held ${rt.intel})`);
   // Every point earned is announced as an `intelEarned` event; one that is not is a source the HUD feed,
-  // and the gate in `intel-gate.ts`, would otherwise miss.
+  // and the gate in `intel-gate.ts`, would otherwise miss. This guards every run in the parent process
+  // (seed 424242); the swept seeds (30, in workers) are quiet and are re-verified only for the spend
+  // (`seedsNotSpent`), not for this cross-check.
   if (intelEventSum !== intelEarned) {
     console.error(`${label}: FAILED — intel moved ${intelEarned} but only ${intelEventSum} was announced by intelEarned events`);
     process.exitCode = 1;
