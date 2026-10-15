@@ -281,6 +281,10 @@ export const CHROME = {
   /** An identified tunnel route (GH-471), the world x-ray's own colour --
    *  `--intercept` is `vfx.interceptor`, the bore's rim. */
   tunnel: 'var(--intercept)',
+  /** A supply route (S-F F2 C3): the open stretch, and the cut stretch. A cut
+   *  is `--warn`, never `--bad`; dashed vs solid carries it without colour. */
+  route: 'var(--info)',
+  routeCut: 'var(--warn)',
   /** Under the map, on the two edges a non-square map would letterbox. */
   ground: 'var(--panel-bg-solid)',
 } as const;
@@ -639,6 +643,44 @@ export interface ObjectiveMark {
   glyph?: boolean;
 }
 
+/** One supply route as tile-centre polylines: the open stretches and the cut one. */
+export interface RouteLines {
+  readonly open: [number, number][][];
+  readonly cut: [number, number][][];
+}
+
+/**
+ * A route (tile indices `y * width + x`) split at its cut. `cutSpan` is inclusive
+ * `[first, last]` into `route`; with no span a cut route is cut whole, an open one
+ * not at all. Stretches share their boundary tile, so the line is unbroken.
+ */
+export function routeLines(
+  route: readonly number[] | null,
+  cutSpan: readonly [number, number] | null,
+  cut: boolean,
+  width: number
+): RouteLines {
+  const none: RouteLines = { open: [], cut: [] };
+  if (route === null || route.length < 2 || width <= 0) return none;
+  const pts = route.map((i): [number, number] => [(i % width) + 0.5, Math.floor(i / width) + 0.5]);
+  if (cutSpan === null) return cut ? { open: [], cut: [pts] } : { open: [pts], cut: [] };
+  const first = Math.max(0, Math.min(cutSpan[0], pts.length - 1));
+  const last = Math.max(first, Math.min(cutSpan[1], pts.length - 1));
+  const open: [number, number][][] = [];
+  if (first > 0) open.push(pts.slice(0, first + 1));
+  if (last < pts.length - 1) open.push(pts.slice(last));
+  return { open, cut: last > first ? [pts.slice(first, last + 1)] : [] };
+}
+
+/** Every side-0 route in the view: the convoy, then each zone side 0 holds. */
+export function incomeRoutes(view: IncomeView | null, width: number): RouteLines[] {
+  if (view === null) return [];
+  const out: RouteLines[] = [];
+  if (view.convoy) out.push(routeLines(view.convoy.route, view.convoy.cutSpan, view.convoy.cut !== null, width));
+  for (const z of view.zoneViews) out.push(routeLines(z.route, z.cutSpan, z.cut !== null, width));
+  return out;
+}
+
 /**
  * Held income ground as `ObjectiveMark`s (S-F F2, Z-B): the objective zone's
  * own look in the state the `IncomeView` gives, plus the logistics glyph, which
@@ -906,6 +948,10 @@ const ZONE_STROKE = 2;
 const ZONE_KEYLINE = 4;
 const ZONE_DASH: readonly number[] = [3, 2];
 const ZONE_FILL_ALPHA = 0.12;
+/** A supply route (F2 C3): thin, on a keyline; the cut stretch is dashed. */
+export const ROUTE_STROKE = 1.5;
+export const ROUTE_KEYLINE = 3;
+export const ROUTE_CUT_DASH: readonly number[] = [3, 2];
 /** The logistics glyph on an income mark (Z-B): 11 px, inset into the zone's
  *  top-left corner (the centre is under the holders' unit dots), on a 1.4 px
  *  `--mark-edge` outline. */
@@ -1363,6 +1409,9 @@ export class Minimap {
     ctx.imageSmoothingEnabled = true;
 
     const objectives = this.deps.objectives();
+    // Supply routes sit UNDER the zone marks and unit dots (F2 C3), rebuilt from
+    // the view every draw: nothing about a route is kept between beats.
+    this.drawRoutes(this.deps.income?.() ?? null);
     for (const m of objectiveMarks(objectives, this.deps.map)) {
       this.objectiveMark(m, nowMs);
     }
@@ -1469,6 +1518,40 @@ export class Minimap {
   /** GH-471: every route the viewer's side holds identified, as a line with a square
    *  at each shaft (`tunnelMarks`); nothing for a suspected or unknown one.
    *  Over the terrain and the zones, under the unit dots. */
+  private drawRoutes(view: IncomeView | null): void {
+    const { ctx, proj } = this;
+    const lines = incomeRoutes(view, this.deps.map.width);
+    if (lines.length === 0) return;
+    const trace = (pts: [number, number][]): void => {
+      ctx.beginPath();
+      pts.forEach(([x, y], i) => {
+        const p = tileToBox(proj, x, y);
+        if (i === 0) ctx.moveTo(p.x, p.y);
+        else ctx.lineTo(p.x, p.y);
+      });
+    };
+    const pass = (stretches: [number, number][][], color: string, dash: readonly number[]): void => {
+      for (const [style, width, d] of [
+        [this.chrome.markEdge, ROUTE_KEYLINE, []],
+        [color, ROUTE_STROKE, dash],
+      ] as const) {
+        ctx.setLineDash([...d]);
+        ctx.strokeStyle = style;
+        ctx.lineWidth = width;
+        for (const pts of stretches) {
+          trace(pts);
+          ctx.stroke();
+        }
+      }
+    };
+    for (const l of lines) {
+      pass(l.open, this.chrome.route, []);
+      pass(l.cut, this.chrome.routeCut, ROUTE_CUT_DASH);
+    }
+    ctx.setLineDash([]);
+    ctx.lineWidth = 1;
+  }
+
   private drawTunnels(): void {
     const { ctx, proj } = this;
     for (const mark of tunnelMarks(this.deps.sim, this.deps.viewer ?? 0)) {

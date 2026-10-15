@@ -37,6 +37,9 @@ import {
   RING_BY_TIER,
   objectiveMarks,
   incomeMarks,
+  routeLines,
+  ROUTE_STROKE,
+  ROUTE_CUT_DASH,
   GLYPH_PX,
   GLYPH_INSET,
   RING_REDUCED_INWARD_AT,
@@ -1926,5 +1929,107 @@ describe('income marks are drawn with the glyph in the corner (Z-B)', () => {
     expect(opsOf({ income: () => null })).toBe(without);
     expect(opsOf({ income: () => incomeView([]) })).toBe(without);
     expect(glyphPaths()).toHaveLength(0);
+  });
+});
+
+// --- S-F F2 C3: supply routes on the minimap, always on ---------------------
+
+describe('supply routes on the minimap (C3)', () => {
+  const idx = (x: number, y: number): number => y * W + x;
+  const ROUTE = [idx(10, 10), idx(11, 10), idx(12, 10), idx(13, 10), idx(14, 10)];
+  const viewWith = (over: Partial<IncomeView> = {}): IncomeView => ({ ...incomeView([]), ...over });
+  const lines = (over: Partial<MinimapDeps>) => {
+    recorder.ops.length = 0;
+    const m = mount(() => true, { ...over });
+    const c = m.minimap as unknown as { chrome: Record<string, string> };
+    c.chrome = { ...c.chrome, route: 'R', routeCut: 'X' };
+    recorder.ops.length = 0;
+    m.minimap.onTick();
+    return recorder.strokes().filter((k) => k.style === 'R' || k.style === 'X');
+  };
+  const centre = (x: number, y: number): [number, number] => {
+    const p = tileToBox(minimapProjection(W, W, MINIMAP_SIZE), x + 0.5, y + 0.5);
+    return [p.x, p.y];
+  };
+
+  it('splits a route at its cut span, sharing the boundary tiles', () => {
+    expect(routeLines(ROUTE, [1, 3], true, W)).toEqual({
+      open: [[centre0(10), centre0(11)], [centre0(13), centre0(14)]],
+      cut: [[centre0(11), centre0(12), centre0(13)]],
+    });
+    function centre0(x: number): [number, number] {
+      return [x + 0.5, 10.5];
+    }
+  });
+
+  it('draws an open route as one solid path through the tile centres', () => {
+    const s = lines({ income: () => viewWith({ convoy: { route: ROUTE, cut: null, cutSpan: null } }) });
+    expect(s).toHaveLength(1);
+    expect(s[0].style).toBe('R');
+    expect(s[0].dash).toEqual([]);
+    expect(s[0].width).toBe(ROUTE_STROKE);
+    expect(s[0].points).toEqual([10, 11, 12, 13, 14].map((x) => centre(x, 10)));
+  });
+
+  it('draws dashed only over the cut span; the rest stays solid', () => {
+    const s = lines({ income: () => viewWith({ convoy: { route: ROUTE, cut: 'interdicted', cutSpan: [1, 3] } }) });
+    const dashed = s.filter((k) => k.style === 'X');
+    expect(dashed).toHaveLength(1);
+    expect(dashed[0].dash).toEqual([...ROUTE_CUT_DASH]);
+    expect(dashed[0].points).toEqual([11, 12, 13].map((x) => centre(x, 10)));
+    const solid = s.filter((k) => k.style === 'R');
+    expect(solid.map((k) => k.dash)).toEqual([[], []]);
+    expect(solid.map((k) => k.points)).toEqual([[10, 11].map((x) => centre(x, 10)), [13, 14].map((x) => centre(x, 10))]);
+  });
+
+  it('draws a cut route with no span whole-dashed', () => {
+    const s = lines({ income: () => viewWith({ convoy: { route: ROUTE, cut: 'unreachable', cutSpan: null } }) });
+    expect(s.map((k) => k.style)).toEqual(['X']);
+    expect(s[0].dash).toEqual([...ROUTE_CUT_DASH]);
+  });
+
+  it('draws the convoy and every zone side 0 holds', () => {
+    const z = { ...incomeZone('a', 'held', [4, 10, 6, 4]), route: [idx(20, 20), idx(21, 20)] };
+    const e = incomeZone('b', 'unheld', [4, 10, 6, 4]); // enemy's: route null
+    const s = lines({ income: () => viewWith({ convoy: { route: ROUTE, cut: null, cutSpan: null }, zoneViews: [z, e] }) });
+    expect(s).toHaveLength(2);
+  });
+
+  it('draws nothing without a route', () => {
+    expect(lines({})).toHaveLength(0);
+    expect(lines({ income: () => null })).toHaveLength(0);
+    expect(lines({ income: () => viewWith({ convoy: { route: null, cut: null, cutSpan: null } }) })).toHaveLength(0);
+  });
+
+  it('replaces a recomputed route on the next beat and keeps nothing', () => {
+    let route = ROUTE;
+    const m = mount(() => true, { income: () => viewWith({ convoy: { route, cut: null, cutSpan: null } }) });
+    const c = m.minimap as unknown as { chrome: Record<string, string> };
+    c.chrome = { ...c.chrome, route: 'R' };
+    route = [idx(30, 30), idx(31, 31)];
+    recorder.ops.length = 0;
+    m.minimap.onTick();
+    const s = recorder.strokes().filter((k) => k.style === 'R');
+    expect(s).toHaveLength(1);
+    expect(s[0].points).toEqual([centre(30, 30), centre(31, 31)]);
+  });
+
+  it('is under the zone marks and the unit dots', () => {
+    const z = { ...incomeZone('hamlet', 'held', [4, 10, 6, 4]), route: [idx(10, 10), idx(12, 10)] };
+    recorder.ops.length = 0;
+    const m = mount(() => true, {
+      map: makeMap({ zones: { hamlet: [4, 10, 6, 4] } }),
+      income: () => viewWith({ zoneViews: [z] }),
+    });
+    const c = m.minimap as unknown as { chrome: Record<string, string> };
+    c.chrome = { ...c.chrome, route: 'R' };
+    recorder.ops.length = 0;
+    m.minimap.onTick();
+    const last = recorder.ops.map((o) => (o.kind === 'stroke' && o.style === 'R' ? 1 : 0)).lastIndexOf(1);
+    const firstDot = recorder.ops.findIndex((o) => o.kind === 'fillRect' && o.w === 6);
+    const firstGlyph = recorder.ops.findIndex((o) => o.kind === 'fillPath');
+    expect(last).toBeGreaterThan(-1);
+    expect(last).toBeLessThan(firstDot);
+    expect(last).toBeLessThan(firstGlyph);
   });
 });
