@@ -72,7 +72,8 @@ veto it; the other seat is told you have an advisor.
    proposal the strip shows the note, the order in plain words ("Move 3 units
    to (24, 31)") and a countdown:
    - **X**, the **Veto** button, or **Escape** while typing in the advisor's
-     box vetoes it. **Enter** (or the **Accept** button) takes it at once.
+     box vetoes it. The **Accept** button takes it at once; **Enter** does not (it opens the chat,
+     so reaching for chat never accepts by accident).
    - Left alone, it is taken after two seconds of play, **if it still makes
      sense**: an order naming a unit that has since died is dropped, and the
      feed says so. The two seconds count only frames that run, so a pause or a
@@ -82,8 +83,8 @@ veto it; the other seat is told you have an advisor.
    - Up to three proposals wait; a fourth drops the oldest one still waiting,
      never the one you are reading.
 
-   X only vetoes while a proposal shows; with none it does nothing, and Enter
-   then opens the chat as before.
+   X only vetoes while a proposal shows; with none it does nothing. Enter always
+   opens the chat, proposal or not.
 
 If the room refuses the agent with `build_mismatch`, the agent is on a different
 commit from the deployed game (the room never plays two builds against each

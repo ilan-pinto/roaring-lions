@@ -7,8 +7,9 @@
  *
  * THE PROPOSAL IS NOT AN ORDER UNTIL THE HUMAN LETS IT BE. It shows for
  * `PROPOSAL_MS` with its note and a plain-words description of the order;
- * X vetoes it, Enter or the Accept button takes it at once, and at the
- * deadline it is taken. Taking it means running `validate` (the same
+ * X vetoes it, the Accept button takes it at once (Enter does not: it opens
+ * the chat, and a player reaching for chat would accept by accident), and at
+ * the deadline it is taken. Taking it means running `validate` (the same
  * ownership check both machines run, on the LIVE sim: the ids may have died
  * or the order may have gone stale while the human read it) and then queuing
  * the command through the battlefield's own transport as THIS seat's `cmd`,
@@ -64,7 +65,7 @@ export interface AdvisorPanel {
   frame(): void;
   /** The X key. False when nothing shows, so the key goes on to whatever else it does. */
   veto(): boolean;
-  /** Enter, or the Accept button. False when nothing shows. */
+  /** The Accept button. False when nothing shows. Not bound to Enter. */
   accept(): boolean;
   /** Whether a proposal is on screen right now. */
   readonly showing: boolean;

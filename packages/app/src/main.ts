@@ -258,7 +258,7 @@ import { buildMatchWorld } from './net/match-world';
 import { pruneHiddenHostiles, type SeatSight } from './net/hidden-selection';
 import { garrisonRoomShown } from './net/hover-garrison';
 import { NetStatusLine, lineOverMatchEnd, matchClock } from './ui/net-status';
-import { NetChat, chatFeedLine, chatOpens } from './ui/net-chat';
+import { NetChat, chatFeedLine, roomEnterAction } from './ui/net-chat';
 import { showNetEnd } from './ui/net-end';
 import { describeCommand, mountAdvisorPanel, type AdvisorPanel } from './ui/advisor';
 import { NetScoreboard, advisorPresenceHook } from './ui/net-score';
@@ -4368,14 +4368,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // N1b task 9 (R-B12): in a room, a bare Enter opens the chat. Not a keymap
     // action, so single-player's Controls and F1 card are unchanged; never over
     // a dialog or the pause menu.
-    // N4a (D11): while an advisor's proposal shows, a bare Enter takes it at
-    // once; with nothing showing `accept()` answers false and Enter opens the chat below.
-    if (advisorPanel !== null && ev.key === 'Enter' && !ev.repeat && !ev.ctrlKey && !ev.metaKey && !ev.altKey
-        && !(isDialogOpen() || pauseHandle !== null || netEnd !== null) && advisorPanel.accept()) {
-      ev.preventDefault();
-      return;
-    }
-    if (netChat !== null && chatOpens(ev, { inRoom: true, modalOpen: isDialogOpen() || pauseHandle !== null || netEnd !== null })) {
+    // N4a (D11 as ruled): Enter does NOT accept an advisor's proposal -- a
+    // player reaching for chat would take it by accident. Accept is the panel's
+    // button or its 2 s deadline; Enter always opens the chat (`roomEnterAction`).
+    if (netChat !== null && roomEnterAction(ev, { inRoom: true, modalOpen: isDialogOpen() || pauseHandle !== null || netEnd !== null }, advisorPanel) === 'chat') {
       ev.preventDefault();
       netChat.open();
       return;
