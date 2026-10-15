@@ -9,6 +9,8 @@
  * recalls), which every RTS player expects on exactly those keys, and the
  * digit keys are refused as bindings for that reason.
  */
+import type { SupportKind } from '@lions/sim';
+
 export type Action =
   | 'halt' | 'move' | 'smoke' | 'load' | 'unload' | 'overlay' | 'production' | 'mute'
   | 'selectAll' | 'cycleChips' | 'jumpToAlert' | 'keysOverlay' | 'idleNext'
@@ -242,7 +244,7 @@ export function escapeTarget(
  */
 export function anyArmed(
   armedOrder: 'attackMove' | 'move' | 'smoke' | null,
-  armedSupport: 'sweep' | 'strike' | null
+  armedSupport: SupportKind | null
 ): boolean {
   return armedOrder !== null || armedSupport !== null;
 }

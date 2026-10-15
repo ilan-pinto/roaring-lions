@@ -1,16 +1,11 @@
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { SimEvent } from '@lions/sim';
 import {
   CLOCK_SECONDS_UNDER,
   IntelMoments,
   IntelRate,
-  STRIKE_DELAY_TICKS,
   STRIKE_READOUT_DELAY_TICKS,
-  STRIKE_SPLASH_FX,
   STRIKE_SPLASH_TILES,
-  SWEEP_RADIUS_SQ_FX,
   aimFootprintFor,
   chargeClock,
   sweptContacts,
@@ -21,36 +16,18 @@ import {
 const FX = 65536;
 const toFx = (n: number): number => Math.round(n * FX);
 
-// --- the copies of the sim's numbers --------------------------------------
-
-describe('the sim numbers this file copies', () => {
-  // Read as TEXT, the `PROJ_SPEED` rule: the app must not import tuning, and a
-  // copy nobody pins is a copy that drifts.
-  const tuning = readFileSync(fileURLToPath(new URL('../../../sim/src/tuning.ts', import.meta.url)), 'utf8');
-  const constant = (name: string): number => {
-    const m = tuning.match(new RegExp(`export const ${name} = (\\d+);`));
-    if (!m) throw new Error(`${name} not found in tuning.ts`);
-    return Number(m[1]);
-  };
-  it('matches tuning.ts', () => {
-    expect(SWEEP_RADIUS_SQ_FX).toBe(constant('SWEEP_RADIUS_SQ'));
-    expect(STRIKE_SPLASH_FX).toBe(constant('STRIKE_SPLASH'));
-    expect(STRIKE_DELAY_TICKS).toBe(constant('STRIKE_DELAY_TICKS'));
-  });
-});
-
 // --- the footprint ----------------------------------------------------------
 
 describe('aimFootprintFor', () => {
   const at = { x: 17.5, y: 8.5 };
   it('is the strike splash under the cursor while the strike is armed', () => {
-    expect(aimFootprintFor('strike', at)).toEqual({ x: 17.5, y: 8.5, radius: STRIKE_SPLASH_TILES });
+    expect(aimFootprintFor('air_strike', at)).toEqual({ x: 17.5, y: 8.5, radius: STRIKE_SPLASH_TILES });
     expect(STRIKE_SPLASH_TILES).toBe(2);
   });
   it('is nothing while nothing is armed, while the sweep is armed, or off the map', () => {
     expect(aimFootprintFor(null, at)).toBeNull();
-    expect(aimFootprintFor('sweep', at)).toBeNull();
-    expect(aimFootprintFor('strike', null)).toBeNull();
+    expect(aimFootprintFor('drone_sweep', at)).toBeNull();
+    expect(aimFootprintFor('air_strike', null)).toBeNull();
   });
 });
 
@@ -167,7 +144,7 @@ describe('the sweep readout', () => {
     const b = board(pieces);
     const m = moments();
     m.afterTick(b, 1, [], 252);
-    m.called('sweep', 33, 10, 1);
+    m.called('drone_sweep', 33, 10, 1);
     m.beforeTick(b);
     const revealed: SimEvent = { kind: 'revealed', tick: 2, side: 0, count: 3 };
     const outs = m.afterTick(b, 2, [revealed], 102);
@@ -200,7 +177,7 @@ describe('the strike readout', () => {
     ]);
     const m = moments();
     m.afterTick(b, 1, [], 252);
-    const called = m.called('strike', 17.5, 8.5, 1);
+    const called = m.called('air_strike', 17.5, 8.5, 1);
     expect(of(called, 'note')[0]).toMatchObject({ key: 'intel.note.strikeInbound', params: { n: 3 }, tone: 'warn' });
     expect(of(called, 'announce')[0].event).toBe('strike_inbound');
     m.beforeTick(b);
@@ -227,7 +204,7 @@ describe('ready', () => {
     expect(m.afterTick(b, 1, [], 252)).toEqual([]);
     expect(m.afterTick(b, 2, [], 102)).toEqual([]);
     const outs = m.afterTick(b, 3, [], 150);
-    expect(of(outs, 'ready')).toEqual([{ kind: 'ready', support: 'sweep' }]);
+    expect(of(outs, 'ready')).toEqual([{ kind: 'ready', support: 'drone_sweep' }]);
     expect(of(outs, 'announce')).toEqual([{ kind: 'announce', event: 'sweep_ready' }]);
     expect(of(outs, 'note')[0]).toMatchObject({ key: 'intel.note.ready', tier: 'minor' });
     expect(m.afterTick(b, 4, [], 151)).toEqual([]);
@@ -239,13 +216,13 @@ describe('dispose', () => {
     const b = board([{ side: 1, x: 17.5, y: 8.5 }]);
     const m = moments();
     m.afterTick(b, 1, [], 252);
-    m.called('strike', 17.5, 8.5, 1);
+    m.called('air_strike', 17.5, 8.5, 1);
     m.beforeTick(b);
     b.state.hp[0] -= toFx(30);
     m.afterTick(b, 61, [{ kind: 'strike', tick: 61, by: 9, x: toFx(17.5), y: toFx(8.5), profile: 0 }], 2);
     m.dispose();
     expect(m.afterTick(b, 61 + STRIKE_READOUT_DELAY_TICKS, [], 150)).toEqual([]);
-    expect(m.called('sweep', 1, 1, 80)).toEqual([]);
+    expect(m.called('drone_sweep', 1, 1, 80)).toEqual([]);
   });
 });
 
@@ -272,7 +249,7 @@ describe('a seat on side 1 (N1a task 6)', () => {
       const b = board(pieces);
       const m = seat1();
       m.afterTick(b, 1, [], 252);
-      m.called('sweep', 33, 10, 1);
+      m.called('drone_sweep', 33, 10, 1);
       m.beforeTick(b);
       return m.afterTick(b, 2, [{ kind: 'revealed', tick: 2, side, count: 2 }], 102);
     };
@@ -288,7 +265,7 @@ describe('a seat on side 1 (N1a task 6)', () => {
     ]);
     const m = seat1();
     m.afterTick(b, 1, [], 252);
-    m.called('strike', 17.5, 8.5, 1);
+    m.called('air_strike', 17.5, 8.5, 1);
     m.beforeTick(b);
     b.state.hp[1] -= toFx(30);
     b.state.hp[2] -= toFx(30);

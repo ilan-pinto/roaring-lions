@@ -3529,7 +3529,7 @@ body[data-outcome-beat] .rl-aar {
    luck; the shipped KDF catalogue is fourteen, which left `strike` alone on a
    fourth row with four empty cells beside it. Photographed — it reads as a
    layout that ran out rather than as a group. */
-.rl-tile--support[data-support='sweep'] {
+.rl-tile--support[data-support='drone_sweep'] {
   grid-column-start: 1;
 }
 .rl-tile--support {

@@ -5,8 +5,9 @@
 // selection outranks the ROE marks because a click that cannot fire must not
 // warn about firing.
 import { describe, expect, it } from 'vitest';
-import { ANIMATED_CURSORS, SIGHT_OF, cursorFor, badgeFor, cursorKey, type CursorHints, type BadgeHints } from './cursor';
+import { ANIMATED_CURSORS, CURSOR_ALIAS, SIGHT_OF, cursorFor, badgeFor, cursorKey, type CursorHints, type BadgeHints } from './cursor';
 import { ORDER_SIGHT } from '../ui/order-sight';
+import { SUPPORT, SUPPORT_KINDS } from '../ui/support-kinds';
 import type { Resolution } from './intents';
 import type { RoleBucket } from '../ui/role';
 
@@ -123,12 +124,12 @@ describe('cursorFor', () => {
     expect(cursorFor(moving({ roe: 'protected' }), NONE)).toBe('protected');
   });
 
-  it('names the armed call itself -- sweep or strike (Q3)', () => {
+  it('names the armed call itself -- sweep or strike (Q3), now through the support table', () => {
     // The approved sheet draws the two calls differently, and res.armed
     // already carries which one it is, so the cursor names it rather than
     // folding both into one 'support'.
-    expect(cursorFor({ intents: [], roe: 'free', marker: false, armed: 'sweep' }, NONE)).toBe('sweep');
-    expect(cursorFor({ intents: [], roe: 'free', marker: false, armed: 'strike' }, NONE)).toBe('strike');
+    expect(cursorFor({ intents: [], roe: 'free', marker: false, armed: 'drone_sweep' }, NONE)).toBe('sweep');
+    expect(cursorFor({ intents: [], roe: 'free', marker: false, armed: 'air_strike' }, NONE)).toBe('strike');
   });
 
   it('keeps an armed call above protected and above the empty selection', () => {
@@ -136,7 +137,7 @@ describe('cursorFor', () => {
     // ids: []. If this rung slipped below the empty-selection rung, the armed
     // cursor would never appear.
     expect(
-      cursorFor({ intents: [], roe: 'protected', marker: false, armed: 'strike' }, NONE)
+      cursorFor({ intents: [], roe: 'protected', marker: false, armed: 'air_strike' }, NONE)
     ).toBe('strike');
   });
 
@@ -151,8 +152,8 @@ describe('cursorFor', () => {
 
   it('puts an armed support call above armed smoke', () => {
     const armedSmoke: CursorHints = { hostile: false, blocked: false, armedSmoke: true };
-    expect(cursorFor({ intents: [], roe: 'free', marker: false, armed: 'sweep' }, armedSmoke)).toBe('sweep');
-    expect(cursorFor({ intents: [], roe: 'free', marker: false, armed: 'strike' }, armedSmoke)).toBe('strike');
+    expect(cursorFor({ intents: [], roe: 'free', marker: false, armed: 'drone_sweep' }, armedSmoke)).toBe('sweep');
+    expect(cursorFor({ intents: [], roe: 'free', marker: false, armed: 'air_strike' }, armedSmoke)).toBe('strike');
   });
 
   it('is unchanged by armedSmoke: false or absent', () => {
@@ -211,7 +212,7 @@ describe('attack (GH-420)', () => {
 describe('ANIMATED_CURSORS follows the approved sheet', () => {
   it('animates the wired sights at ORDER_SIGHT\'s own frame counts and rates, plus charge and demolish', () => {
     expect(Object.keys(ANIMATED_CURSORS).sort()).toEqual(
-      ['advance', 'attack', 'charge', 'demolish', 'move', 'moveOnly', 'smoke', 'strike', 'sweep']
+      ['advance', 'attack', 'barrage', 'charge', 'demolish', 'move', 'moveOnly', 'smoke', 'smokeScreen', 'strike', 'sweep']
     );
     for (const [name, id] of Object.entries(SIGHT_OF)) {
       const spec = ORDER_SIGHT[id];
@@ -302,7 +303,7 @@ describe('the cursor names the verb', () => {
     // before the structure branch can set refused. That is an implementation
     // invariant, not a type one: change the resolver and the order starts
     // mattering with nothing to catch it.
-    const r = res([], { armed: 'sweep', refused: true });
+    const r = res([], { armed: 'drone_sweep', refused: true });
     expect(cursorFor(r, NONE)).toBe('sweep');
   });
 });
@@ -411,7 +412,7 @@ describe('the badge says who is doing it', () => {
   });
 
   it('gives no badge for an armed support call', () => {
-    const r = res([], { armed: 'strike' });
+    const r = res([], { armed: 'air_strike' });
     const name = cursorFor(r, NONE);
     expect(name).toBe('strike');
     expect(badgeFor(r, NONE, buckets({ 1: 'soft' }), name)).toBeNull();
@@ -440,7 +441,7 @@ describe('the badge says who is doing it', () => {
     // real demolish intent underneath that would otherwise badge, and armed
     // must still win.
     const r = res([{ kind: 'demolish', ids: [1], structure: 3 }] as Resolution['intents'], {
-      armed: 'strike',
+      armed: 'air_strike',
     });
     expect(badgeFor(r, NONE, buckets({ 1: 'armour' }), 'demolish')).toBeNull();
   });
@@ -488,7 +489,7 @@ describe('the pinned cursor', () => {
   });
 
   it('never outranks armed support, protected or demolish', () => {
-    expect(cursorFor({ ...orderRes([1]), armed: 'strike' }, { hostile: false, blocked: false, pinned: true })).toBe('strike');
+    expect(cursorFor({ ...orderRes([1]), armed: 'air_strike' }, { hostile: false, blocked: false, pinned: true })).toBe('strike');
     expect(cursorFor({ ...orderRes([1]), roe: 'protected' }, { hostile: false, blocked: false, pinned: true })).toBe('protected');
     const demolishing: Resolution = {
       ...orderRes([1]),
@@ -516,5 +517,42 @@ describe('the pinned cursor', () => {
   it('does not animate', () => {
     expect(ANIMATED_CURSORS.pinned).toBeUndefined();
     expect(SIGHT_OF.pinned).toBeUndefined();
+  });
+});
+
+describe('the armed cursor of each support kind (S-F)', () => {
+  const buckets = (map: Record<number, RoleBucket>): BadgeHints => ({
+    bucketOf: (id) => map[id] ?? 'armour',
+  });
+
+  it('ranks an armed resolution to SUPPORT[kind].cursor, whatever else is true', () => {
+    for (const kind of SUPPORT_KINDS) {
+      const r: Resolution = { intents: [], roe: 'free', marker: false, armed: kind };
+      expect(cursorFor(r, NONE), kind).toBe(SUPPORT[kind].cursor);
+      // ...and the table itself is pinned by literals, so a wrong row cannot
+      // agree with itself.
+      expect(SUPPORT[kind].cursor, kind).toBe(
+        { smoke_screen: 'smokeScreen', mortar_barrage: 'barrage', drone_sweep: 'sweep', air_strike: 'strike' }[kind]
+      );
+      expect(cursorFor({ ...r, roe: 'protected' }, { hostile: true, blocked: true, armedSmoke: true }), kind).toBe(
+        SUPPORT[kind].cursor
+      );
+    }
+  });
+
+  it('badges none of the four', () => {
+    for (const kind of SUPPORT_KINDS) {
+      const r: Resolution = { intents: [], roe: 'free', marker: false, armed: kind };
+      const name = cursorFor(r, NONE);
+      expect(badgeFor(r, NONE, buckets({ 1: 'soft' }), name), kind).toBeNull();
+      expect(cursorKey(name, 'soft'), kind).toBe(name);
+    }
+  });
+
+  it('draws the barrage with the strike sight and the screen with the smoke sight', () => {
+    expect(CURSOR_ALIAS.barrage).toBe('strike');
+    expect(CURSOR_ALIAS.smokeScreen).toBe('smoke');
+    expect(ANIMATED_CURSORS.barrage).toEqual(ANIMATED_CURSORS.strike);
+    expect(ANIMATED_CURSORS.smokeScreen).toEqual(ANIMATED_CURSORS.smoke);
   });
 });

@@ -25,8 +25,9 @@ import { bindTip } from './tooltip';
 import { tileState, type DockUnit, type DockView } from './dock-model';
 import { kitIconSignHtml, kitLevelLabel } from './kit-sign';
 import type { Tone } from './hud';
+import { SUPPORT as SUPPORT_SPEC, type SupportKind } from './support-kinds';
 
-export type SupportKind = 'sweep' | 'strike';
+export type { SupportKind };
 
 /** What a tile needs to draw one buildable type. `DockUnit` is the shape;
  *  re-exported under the name `main.ts` and the ticket already use. */
@@ -90,34 +91,13 @@ export interface ProductionOptions {
   supportCharge?: (kind: SupportKind) => { fraction: number; clock: string; title: string };
 }
 
-/** The two fire-support calls, as the dock draws them. `word`/`name`/`blurb`
- *  are catalogue KEYS, not text -- the same `ORDERS[].label`/`ACTIONS[].label`
- *  convention (see either file's own doc comment): a module-level table
- *  resolved to text once, at import time, freezes in whatever locale was
- *  active before `main.ts`'s boot ever calls `setCatalogue`. Every reader
- *  below (`buildSupportTile`, `unitTipHtml`/`supportTipHtml`, the click
- *  handler's own notes) calls `t()` at render/use time instead. */
-const SUPPORT: readonly {
-  /** Also the mark: `symbolSvg(kind)`, the G1 sheet's static sweep/strike
-   *  order graphic (S3e, Q4) -- the same id the cursor's sight is keyed by. */
-  kind: SupportKind;
-  word: string;
-  name: string;
-  blurb: string;
-}[] = [
-  {
-    kind: 'sweep',
-    word: 'dock.support.sweep.word',
-    name: 'dock.support.sweep.name',
-    blurb: 'dock.support.sweep.blurb',
-  },
-  {
-    kind: 'strike',
-    word: 'dock.support.strike.word',
-    name: 'dock.support.strike.name',
-    blurb: 'dock.support.strike.blurb',
-  },
-];
+/** The fire-support calls the dock draws, in tile order (Task 2 makes it all
+ *  four). Everything else about a call -- its catalogue KEYS (`word`/`name`/
+ *  `blurb`), its glyph -- is a row of `support-kinds.ts`'s `SUPPORT`. Keys,
+ *  not text: a table resolved to text at import time freezes in whatever
+ *  locale was active before `main.ts`'s boot calls `setCatalogue`, so
+ *  `buildSupportTile` and `supportTipHtml` call `t()` at render time. */
+const DOCK_SUPPORT: readonly SupportKind[] = ['drone_sweep', 'air_strike'];
 
 /** The tile cost's logistics mark. Built once: it is the same markup on
  *  every tile, and a constant is what lets the price beside it stay a text
@@ -217,9 +197,9 @@ export class ReinforcementDock {
     grid.className = 'rl-dock__grid';
 
     for (const unit of opts.units) grid.appendChild(this.buildUnitTile(unit));
-    for (const spec of SUPPORT) {
-      const cost = spec.kind === 'sweep' ? opts.runtime.sweepCost : opts.runtime.strikeCost;
-      grid.appendChild(this.buildSupportTile(spec, cost));
+    for (const kind of DOCK_SUPPORT) {
+      const cost = kind === 'drone_sweep' ? opts.runtime.sweepCost : opts.runtime.strikeCost;
+      grid.appendChild(this.buildSupportTile(kind, cost));
     }
 
     this.el.append(head, grid);
@@ -357,17 +337,15 @@ export class ReinforcementDock {
     return el;
   }
 
-  private buildSupportTile(
-    spec: (typeof SUPPORT)[number],
-    cost: number
-  ): HTMLButtonElement {
+  private buildSupportTile(kind: SupportKind, cost: number): HTMLButtonElement {
+    const spec = SUPPORT_SPEC[kind];
     const el = document.createElement('button');
     el.type = 'button';
     el.className = 'rl-tile rl-tile--support';
-    el.dataset.support = spec.kind;
+    el.dataset.support = kind;
     el.dataset.armed = '0';
     el.innerHTML =
-      `<span class="rl-tile__glyph">${symbolSvg(spec.kind, SUPPORT_GLYPH_PX)}</span>` +
+      `<span class="rl-tile__glyph">${symbolSvg(spec.mark, SUPPORT_GLYPH_PX)}</span>` +
       `<span class="rl-tile__word">${t(spec.word)} ${cost}</span>`;
     // GH-113: the charge, in the build bar's own language -- a bar along the
     // bottom and a clock in the corner, where the unit tiles put a queue.
@@ -382,7 +360,7 @@ export class ReinforcementDock {
         this.opts.note(t('dock.note.noIntel', { name: t(spec.name).toLowerCase() }), 'mute');
         return;
       }
-      this.setArmed(this.armed === spec.kind ? null : spec.kind);
+      this.setArmed(this.armed === kind ? null : kind);
       this.opts.note(
         this.armed ? t('dock.note.armed', { name: t(spec.name) }) : t('dock.note.cancelled'),
         'info'
@@ -391,9 +369,9 @@ export class ReinforcementDock {
     });
     // Same `clear` reasoning as the unit tiles above -- the support pair sits
     // on its own row, below every unit row.
-    this.tipDisposers.push(bindTip(el, () => this.supportTipHtml(spec, cost), { host: this.el, clear: this.el }));
+    this.tipDisposers.push(bindTip(el, () => this.supportTipHtml(kind, cost), { host: this.el, clear: this.el }));
 
-    this.supportTiles.push({ el, kind: spec.kind, cost, bar, clock, flashUntil: 0 });
+    this.supportTiles.push({ el, kind, cost, bar, clock, flashUntil: 0 });
     return el;
   }
 
@@ -426,7 +404,8 @@ export class ReinforcementDock {
     );
   }
 
-  private supportTipHtml(spec: (typeof SUPPORT)[number], cost: number): string {
+  private supportTipHtml(kind: SupportKind, cost: number): string {
+    const spec = SUPPORT_SPEC[kind];
     return (
       `<div class="rl-tip__head">` +
       `<span class="rl-tip__name">${t(spec.name)}</span>` +

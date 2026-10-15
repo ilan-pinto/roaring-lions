@@ -39,6 +39,9 @@ export const TELEMETRY_ORDER_VERBS = [
   'halt',
   'strike',
   'sweep',
+  // S-F: appended after 'sweep' so every existing count keeps its key.
+  'barrage',
+  'smokeScreen',
 ] as const;
 export type TelemetryOrderVerb = (typeof TELEMETRY_ORDER_VERBS)[number];
 

@@ -40,19 +40,17 @@ import { TICKS_PER_SECOND } from '@lions/sim';
 import { isHostileSide, isOwnSide } from '@lions/render';
 import type { AlertTier } from './alerts';
 import { clockText, type Tone } from './hud-model';
-
-export type SupportKind = 'sweep' | 'strike';
+import { ROUNDS, SWEEP_RADIUS_SQ_FX, type SupportKind } from './support-kinds';
 
 /**
- * The sim's own numbers for the two calls, COPIED from
- * `packages/sim/src/tuning.ts` and never exported from it -- the same rule
- * `render`'s `PROJ_SPEED` copy follows. `intel-moments.test.ts` reads
- * tuning.ts as TEXT and fails the moment either side moves.
+ * The sim's numbers for the calls are COPIED once, in `support-kinds.ts`
+ * (`SWEEP_RADIUS_SQ_FX`, `ROUNDS`), which `support-kinds.test.ts` pins to
+ * tuning.ts as TEXT. This module reads them from there.
  */
-export const SWEEP_RADIUS_SQ_FX = 3932160; // tuning.ts SWEEP_RADIUS_SQ: 60 tile^2
-export const STRIKE_SPLASH_FX = 131072; // tuning.ts STRIKE_SPLASH: 2.0 tiles
-export const STRIKE_DELAY_TICKS = 60; // tuning.ts STRIKE_DELAY_TICKS: 3 s
-/** The strike's splash in tiles, for the footprint. */
+const STRIKE_SPLASH_FX = ROUNDS.air_strike.splashFx;
+const STRIKE_DELAY_TICKS = ROUNDS.air_strike.delayTicks;
+/** The strike's splash in tiles, for the footprint. (Task 4 deletes this
+ *  with `aimFootprintFor`, in favour of `footprintTiles`.) */
 export const STRIKE_SPLASH_TILES = STRIKE_SPLASH_FX / 65536;
 
 /** How much history the rate is measured over. Long enough that the slowest
@@ -154,7 +152,7 @@ export function aimFootprintFor(
   armed: SupportKind | null,
   cursor: { x: number; y: number } | null
 ): { x: number; y: number; radius: number } | null {
-  if (armed !== 'strike' || cursor === null) return null;
+  if (armed !== 'air_strike' || cursor === null) return null;
   return { x: cursor.x, y: cursor.y, radius: STRIKE_SPLASH_TILES };
 }
 
@@ -259,7 +257,7 @@ const TYPE_NAME_LIMIT = 4;
 export class IntelMoments {
   readonly rate = new IntelRate();
   private readonly snap = new Snapshot();
-  private prevReady: Record<SupportKind, boolean | null> = { sweep: null, strike: null };
+  private prevReady: Record<'drone_sweep' | 'air_strike', boolean | null> = { drone_sweep: null, air_strike: null };
   private pendingSweep: { x: number; y: number } | null = null;
   /** Ticks by which each accepted strike must have landed. A call the sim
    *  drops (its caller died before the command ran) expires here rather than
@@ -275,7 +273,7 @@ export class IntelMoments {
   }
 
   private cost(k: SupportKind): number {
-    return k === 'sweep' ? this.opts.sweepCost : this.opts.strikeCost;
+    return k === 'drone_sweep' ? this.opts.sweepCost : this.opts.strikeCost;
   }
 
   /** Call right before `sim.tick()`. Copies the board only while a call is
@@ -289,7 +287,7 @@ export class IntelMoments {
   /** The player's call, accepted by the runtime. `x`/`y` in tiles. */
   called(kind: SupportKind, x: number, y: number, tick: number): IntelOutput[] {
     if (this.disposed) return [];
-    if (kind === 'sweep') {
+    if (kind === 'drone_sweep') {
       this.pendingSweep = { x, y };
       return [
         { kind: 'note', key: 'intel.note.sweepInbound', params: {}, tone: 'info', tier: 'important' },
@@ -322,13 +320,13 @@ export class IntelMoments {
     const out: IntelOutput[] = [];
     this.rate.push(tick, intel);
 
-    for (const k of ['sweep', 'strike'] as const) {
+    for (const k of ['drone_sweep', 'air_strike'] as const) {
       const ready = intel >= this.cost(k);
       if (this.prevReady[k] === false && ready) {
         out.push(
           { kind: 'ready', support: k },
           { kind: 'note', key: 'intel.note.ready', params: { kind: k }, tone: 'info', tier: 'minor' },
-          { kind: 'announce', event: k === 'sweep' ? 'sweep_ready' : 'strike_ready' }
+          { kind: 'announce', event: k === 'drone_sweep' ? 'sweep_ready' : 'strike_ready' }
         );
       }
       this.prevReady[k] = ready;

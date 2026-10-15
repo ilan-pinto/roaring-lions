@@ -176,6 +176,7 @@ import { alertNotice, evacuatedNotice, reinforceTrigger, removedNotice, ledgerSa
 import { ReinforcementDock } from './ui/production';
 import { IntelMoments, READY_FLASH_MS, aimFootprintFor, type IntelOutput } from './ui/intel-moments';
 import { breakdownLine, chargeText, strikeLine } from './ui/intel-copy';
+import { SUPPORT, type SupportKind } from './ui/support-kinds';
 import { doctrineTags } from './ui/dock-model';
 import {
   applyIntent,
@@ -3666,7 +3667,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // Reinforcements and fire support: the dock, bottom left (GH-153 slice 3).
   let production: ReinforcementDock | null = null;
   /** Armed fire-support purchase awaiting a target, if any. */
-  let armedSupport: 'sweep' | 'strike' | null = null;
+  let armedSupport: SupportKind | null = null;
   // GH-113: the intel calls' presentation -- the charge clock, the ready and
   // call announcements, the readouts. Read-only over the sim (invariant 4);
   // its outputs go to the HUD's own note(), the minimap's own flash() and the
@@ -4063,10 +4064,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       });
       if (res.armed && runtime) {
         const call = res.armed;
-        const ok =
-          call === 'sweep'
-            ? runtime.requestSweep(fx.from(w.x), fx.from(w.y))
-            : runtime.requestStrike(fx.from(w.x), fx.from(w.y));
+        const ok = runtime.requestSupport(call, fx.from(w.x), fx.from(w.y));
         dispatch({ kind: 'support', call, x: w.x, y: w.y, accepted: ok });
         if (ok && intelMoments) {
           // GH-113: "inbound -- 3 s" / "on the way", one announcer line and a
@@ -4077,7 +4075,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         } else {
           // Reuses the dock's own SUPPORT word keys (production.ts) so a call's
           // name reads the same on the tile and in the notice that confirms it.
-          const wordKey = call === 'sweep' ? 'dock.support.sweep.word' : 'dock.support.strike.word';
+          const wordKey = SUPPORT[call].word;
           hud.note(
             ok
               ? t('main.note.supportCalled', { name: t(wordKey), x: w.x.toFixed(0), y: w.y.toFixed(0) })
@@ -5716,7 +5714,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // and null the frame the strike is not armed.
   renderer.aimFootprint = aimFootprintFor(
     armedSupport,
-    armedSupport === 'strike' ? renderer.screenToWorld(lastCursor.x, lastCursor.y) : null
+    armedSupport === 'air_strike' ? renderer.screenToWorld(lastCursor.x, lastCursor.y) : null
   );
 
   // Teach the hover, but only on a real change: `updateHover` runs every

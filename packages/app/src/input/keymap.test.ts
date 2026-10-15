@@ -259,10 +259,10 @@ describe('keymap', () => {
       expect(anyArmed('smoke', null)).toBe(true);
     });
     it('is true while a sweep call is armed', () => {
-      expect(anyArmed(null, 'sweep')).toBe(true);
+      expect(anyArmed(null, 'drone_sweep')).toBe(true);
     });
     it('is true while a strike call is armed', () => {
-      expect(anyArmed(null, 'strike')).toBe(true);
+      expect(anyArmed(null, 'air_strike')).toBe(true);
     });
     it('is false when nothing is armed', () => {
       expect(anyArmed(null, null)).toBe(false);

@@ -10,16 +10,12 @@
 
 import { t } from '../i18n/t';
 import { escapeHtml } from './escape-html';
-import type { ChargeClock, IntelOutput, SupportKind } from './intel-moments';
-
-const NAME_KEY: Readonly<Record<SupportKind, string>> = {
-  sweep: 'dock.support.sweep.name',
-  strike: 'dock.support.strike.name',
-};
+import type { ChargeClock, IntelOutput } from './intel-moments';
+import { SUPPORT, type SupportKind } from './support-kinds';
 
 /** The tile's corner, and its accessible name. */
 export function chargeText(kind: SupportKind, clock: ChargeClock): { clock: string; title: string } {
-  const name = t(NAME_KEY[kind]);
+  const name = t(SUPPORT[kind].name);
   switch (clock.kind) {
     case 'ready':
       return { clock: '', title: t('dock.support.charge.ready', { name }) };

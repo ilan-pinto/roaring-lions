@@ -133,8 +133,8 @@ describe('the dock’s shape', () => {
   it('draws one tile per buildable plus the two support calls', () => {
     const r = rig([dockUnit(), dockUnit({ id: 'mbt_lavi', name: 'Lavi MBT' })]);
     expect(r.tiles()).toHaveLength(4);
-    expect(r.support('sweep').textContent).toContain('sweep 30');
-    expect(r.support('strike').textContent).toContain('strike 60');
+    expect(r.support('drone_sweep').textContent).toContain('sweep 30');
+    expect(r.support('air_strike').textContent).toContain('strike 60');
   });
 
   it('names the key its label promises', () => {
@@ -211,12 +211,12 @@ describe('the dock’s shape', () => {
 
   it('draws the sweep and strike tiles with the order marks', () => {
     const r = rig();
-    expect(r.support('sweep').querySelector('.rl-tile__glyph [data-symbol="sweep"]')).not.toBeNull();
-    expect(r.support('strike').querySelector('.rl-tile__glyph [data-symbol="strike"]')).not.toBeNull();
-    expect(r.support('sweep').textContent).not.toContain('◎');
-    expect(r.support('strike').textContent).not.toContain('✸');
+    expect(r.support('drone_sweep').querySelector('.rl-tile__glyph [data-symbol="sweep"]')).not.toBeNull();
+    expect(r.support('air_strike').querySelector('.rl-tile__glyph [data-symbol="strike"]')).not.toBeNull();
+    expect(r.support('drone_sweep').textContent).not.toContain('◎');
+    expect(r.support('air_strike').textContent).not.toContain('✸');
     // Fix round 1: cropped to the surround, not the cursor's full 24-box.
-    for (const k of ['sweep', 'strike'] as const) {
+    for (const k of ['drone_sweep', 'air_strike'] as const) {
       expect(r.support(k).querySelector('svg')?.getAttribute('viewBox')).not.toBe('0 0 24 24');
     }
   });
@@ -337,16 +337,16 @@ describe('tile states', () => {
 
   it('marks a support call armed, and only the one armed', () => {
     const r = rig();
-    r.support('sweep').click();
-    expect(r.support('sweep').dataset.armed).toBe('1');
-    expect(r.support('strike').dataset.armed).toBe('0');
-    expect(r.arms).toEqual(['sweep']);
+    r.support('drone_sweep').click();
+    expect(r.support('drone_sweep').dataset.armed).toBe('1');
+    expect(r.support('air_strike').dataset.armed).toBe('0');
+    expect(r.arms).toEqual(['drone_sweep']);
   });
 
   it('dims a support call there is not enough intel for', () => {
     const r = rig([dockUnit()], fakeRuntime({ intel: 40 }));
-    expect(r.support('sweep').dataset.poor).toBe('0');
-    expect(r.support('strike').dataset.poor).toBe('1');
+    expect(r.support('drone_sweep').dataset.poor).toBe('0');
+    expect(r.support('air_strike').dataset.poor).toBe('1');
   });
 });
 
@@ -476,18 +476,18 @@ describe('what a click does', () => {
 
   it('will not arm a support call there is no intel for', () => {
     const r = rig([dockUnit()], fakeRuntime({ intel: 0 }));
-    r.support('sweep').click();
+    r.support('drone_sweep').click();
     expect(r.arms).toEqual([]);
-    expect(r.support('sweep').dataset.armed).toBe('0');
+    expect(r.support('drone_sweep').dataset.armed).toBe('0');
     expect(r.notes[0].tone).toBe('mute');
   });
 
   it('disarms when the armed call is clicked again', () => {
     const r = rig();
-    r.support('strike').click();
-    r.support('strike').click();
-    expect(r.arms).toEqual(['strike', null]);
-    expect(r.support('strike').dataset.armed).toBe('0');
+    r.support('air_strike').click();
+    r.support('air_strike').click();
+    expect(r.arms).toEqual(['air_strike', null]);
+    expect(r.support('air_strike').dataset.armed).toBe('0');
   });
 
   // The tiles are repainted 4 Hz. A rebuild by innerHTML would drop the
@@ -593,7 +593,7 @@ describe('the hover tooltip', () => {
 
   it('describes a support call too, since a glyph explains nothing on its own', () => {
     const r = rig();
-    hover(r.support('strike'));
+    hover(r.support('air_strike'));
     expect(r.tip().querySelector('.rl-tip__name')?.textContent).toBe('Precision strike');
     expect(r.tip().querySelector('.rl-tip__cost')?.textContent).toBe('60 intel');
     expect(r.tip().querySelector('.rl-tip__blurb')).not.toBe(null);
@@ -649,8 +649,8 @@ describe('invariant 4: the dock never touches the sim', () => {
     const before = w.sim.entityCount;
     const r = rig([dockUnit()], w.runtime as unknown as FakeRuntime);
     r.tile('inf_squad').click();
-    r.support('sweep').click();
-    r.support('strike').click();
+    r.support('drone_sweep').click();
+    r.support('air_strike').click();
     r.dock.refresh();
     expect(w.queued).toHaveLength(0);
     // …and the build really did land in the runtime's queue, so the zero above

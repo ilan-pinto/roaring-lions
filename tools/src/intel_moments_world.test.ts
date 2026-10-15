@@ -69,7 +69,7 @@ describe(`the sweep readout on ${MISSION}`, () => {
     const before = new Int8Array(sim.entityCount);
     for (let i = 0; i < sim.entityCount; i++) before[i] = sim.contactLevel(0, i);
     expect(runtime.requestSweep(fx.from(at.x), fx.from(at.y))).toBe(true);
-    moments.called('sweep', at.x, at.y, sim.tickCount);
+    moments.called('drone_sweep', at.x, at.y, sim.tickCount);
 
     moments.beforeTick(sim);
     const events = sim.tick();
