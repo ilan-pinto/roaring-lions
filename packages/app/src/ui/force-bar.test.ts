@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { LedgerRosterEntry } from '@lions/sim';
 import { deployRosterView, type DeployRosterView } from './deploy-roster';
 import { defaultSelection, type DeploySelection } from './deploy-select';
-import { benchOrder, forceBar } from './force-bar';
+import { benchOrder, forceBar, type AttachedUnit } from './force-bar';
 
 const NAMES: Record<string, string> = { inf_squad: 'Rifle Squad', at_team: 'Spike AT Team', dozer_d9: 'D9 Dov', apc_eitan: 'Eitan APC' };
 const unitName = (id: string): string => NAMES[id] ?? id;
@@ -37,12 +37,12 @@ function view(pool = POOL): DeployRosterView {
   return v;
 }
 
-function mount(v: DeployRosterView | null = view()): { el: HTMLElement; deploy: HTMLButtonElement; changes: DeploySelection[]; bar: ReturnType<typeof forceBar> } {
+function mount(v: DeployRosterView | null = view(), attached: AttachedUnit[] = [{ type: 'dozer_d9', name: 'D9 Dov', count: 1, onLoan: false }]): { el: HTMLElement; deploy: HTMLButtonElement; changes: DeploySelection[]; bar: ReturnType<typeof forceBar> } {
   const deploy = document.createElement('button');
   const changes: DeploySelection[] = [];
   const bar = forceBar({
     view: v,
-    attached: [{ type: 'dozer_d9', name: 'D9 Dov', count: 1 }],
+    attached,
     deploy,
     unitName,
     onChange: (s) => changes.push(s),
@@ -204,5 +204,49 @@ describe('forceBar (GH-417, H2)', () => {
     const e = (poolIndex: number, veterancy: number, missions: number, kills: number) => ({ poolIndex, type: 'x', typeName: 'X', veterancy, missions, kills });
     const sorted = [e(0, 0, 0, 0), e(1, 1, 0, 0), e(2, 1, 2, 0), e(3, 1, 2, 5), e(4, 0, 0, 0)].sort(benchOrder);
     expect(sorted.map((x) => x.poolIndex)).toEqual([3, 2, 1, 0, 4]);
+  });
+});
+
+describe('forceBar on loan (F3 Task 8, S-F)', () => {
+  const LENT: AttachedUnit[] = [
+    { type: 'dozer_d9', name: 'D9 Dov', count: 1, onLoan: false },
+    { type: 'mbt_lavi', name: 'Lavi MBT', count: 2, onLoan: true },
+  ];
+  const noteOf = (el: HTMLElement, type: string): string[] =>
+    [...el.querySelectorAll<HTMLElement>(`.rl-force__slot--fixed[data-type="${type}"] .rl-force__type`)].map((n) => n.textContent ?? '');
+  const hintOf = (el: HTMLElement): string => el.querySelector('.rl-force__hint')?.textContent ?? '';
+
+  it('a lent card reads "on loan" when the player is choosing', () => {
+    const { el } = mount(view(), LENT);
+    expect(noteOf(el, 'mbt_lavi')).toEqual(['on loan', 'on loan']);
+    expect(noteOf(el, 'dozer_d9')).toEqual(['from brigade']);
+  });
+
+  it('a lent card reads "on loan" when there is nothing to choose; a brigade card is silent', () => {
+    const { el } = mount(null, LENT);
+    expect(noteOf(el, 'mbt_lavi')).toEqual(['on loan', 'on loan']);
+    expect(noteOf(el, 'dozer_d9')).toEqual([]);
+  });
+
+  it('the fixed hint swaps only when a lent card exists', () => {
+    expect(hintOf(mount(null, LENT).el)).toBe('Every unit here is assigned for this mission.');
+    document.body.innerHTML = '';
+    expect(hintOf(mount(null).el)).toBe('Every unit here is assigned by brigade.');
+  });
+
+  it('a choosing screen keeps its own hint even with a lent card', () => {
+    expect(hintOf(mount(view(), LENT).el)).toBe('Click a card to field someone else of that type.');
+  });
+
+  it('a mission with no loan is byte-identical in markup to a bar that never heard of loans', () => {
+    const plain: AttachedUnit[] = [{ type: 'dozer_d9', name: 'D9 Dov', count: 1, onLoan: false }];
+    const { el } = mount(null, plain);
+    const html = el.outerHTML;
+    expect(html).not.toContain('on loan');
+    expect(html).not.toContain('assigned for this mission');
+    expect(html).toContain('assigned by brigade');
+    const card = el.querySelector('.rl-force__slot--fixed');
+    expect(card?.className).toBe('rl-force__slot rl-force__slot--fixed');
+    expect([...(card?.querySelector('.rl-force__body')?.children ?? [])].map((c) => c.className)).toEqual(['rl-force__name']);
   });
 });

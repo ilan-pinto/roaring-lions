@@ -17,6 +17,7 @@ import {
 import { stallHintLine, stallStart, stallStep, tickIsActive } from './ui/stall-hint';
 import { nameKind, type NamesJson } from './names';
 import { applyRosterCarryover } from './roster-carryover';
+import { attachedFor } from './attached-force';
 import { logDestroyed, logMissionEvent, newMissionLog, type MissionLog } from './mission-log';
 import { lostRecordFor, predecessorOf } from './roster-lost';
 import {
@@ -2394,9 +2395,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             flaggedZones: m.roe?.flagged_zones,
             zoneName: briefPlaces.zone,
           }),
-          attached: (m.starting_force ?? [])
-            .filter((p) => p.from_ledger !== true)
-            .map((p) => ({ type: p.unit, name: unitName(p.unit), count: p.count })),
+          // From the RESOLVED force, the array `loanedForce` indexes (GH-183).
+          attached: attachedFor(m.starting_force ?? [], loanedForce, unitName),
           unitName,
         };
       })()

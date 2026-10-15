@@ -29,6 +29,8 @@ export interface AttachedUnit {
   type: string;
   name: string;
   count: number;
+  /** The brigade has not earned this type: the mission lends it (GH-183). */
+  onLoan: boolean;
 }
 
 /** The bench's order: stripes, then missions, then kills, then pool order --
@@ -96,7 +98,12 @@ export function forceBar(opts: {
   const title = el('h2', 'rl-force__title', t('deploy.force'));
   title.id = 'rl-force-title';
   const placed = el('div', 'rl-force__placed');
-  const hint = el('p', 'rl-force__hint', t(view !== null && view.eligible.length > 0 ? 'deploy.hint' : 'deploy.hint.fixed'));
+  const anyLent = opts.attached.some((a) => a.onLoan);
+  const hint = el(
+    'p',
+    'rl-force__hint',
+    t(view !== null && view.eligible.length > 0 ? 'deploy.hint' : anyLent ? 'deploy.hint.fixedLoan' : 'deploy.hint.fixed')
+  );
   head.append(title, placed, hint);
   for (const n of opts.notes ?? []) head.appendChild(el('p', 'rl-force__note', n));
 
@@ -319,7 +326,9 @@ export function forceBar(opts: {
       }
     }
     for (const a of opts.attached) {
-      const note = choosing ? t('deploy.attached') : null;
+      // A lent card says so whether or not there is a choice to make: it is a
+      // fact about the unit. A brigade card names its source only when choosing.
+      const note = a.onLoan ? t('deploy.onLoan') : choosing ? t('deploy.attached') : null;
       for (let i = 0; i < a.count; i++) slots.appendChild(fixedCard(a.type, a.name, note));
     }
     placed.textContent = totalPlaces > 0 ? t('deploy.placed', { n: filled, of: totalPlaces }) : '';
