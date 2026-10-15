@@ -34,6 +34,8 @@ export {
   missionShepherds,
   type CivilianFlightOptions,
 } from './civilians';
+// Held-ground income (F2, D3): who holds a zone, from a narrow view of unit state.
+export { zoneHolder, type Holder, type HoldView } from './income';
 export { unlockReason, isBoughtOnly, starsEarned, conductAtLeast, resolveUpgrades, loanedPlacements, type UnlockGate } from './unlock';
 export {
   starsFor,
