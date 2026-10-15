@@ -100,7 +100,7 @@
       "target": "village",
       "seconds": 20,
       "text": "Take and hold the village for 20 seconds",
-      "say": { "speaker": "net", "text": "Village is held. Four houses, four cells, and none of them left it." }
+      "say": { "speaker": "net", "text": "Village is held. Every cell under a roof we left standing is still at its window." }
     },
     {
       "id": "kill_cache_guard",
