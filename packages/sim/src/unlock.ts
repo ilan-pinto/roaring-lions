@@ -162,3 +162,29 @@ export function resolveUpgrades(
     .filter((p): p is PlacementJson => p !== null);
   return { ...mission, starting_force: force };
 }
+
+/**
+ * D5. Indices into the RESOLVED `starting_force` (the array `resolveUpgrades` returns -- a
+ * dropped `gate_only` entry is gone from it and an upgraded entry carries its new `unit`) of
+ * the placements that field a unit whose gate is closed for this ledger. On loan = not
+ * `from_ledger` (that is the brigade's own body) and `unlockReason(gateOf(unit), ledger)`
+ * is not null, `bought` included because `gateOf` resolves it. Pure; the app and the
+ * playtest harness call it with the SAME `gateOf` they resolve upgrades with.
+ *
+ * Takes the whole authored `MissionJson` (not a `Pick`) because it calls `resolveUpgrades`
+ * itself rather than re-deriving it.
+ */
+export function loanedPlacements(
+  mission: MissionJson,
+  ledger: LedgerData | undefined,
+  gateOf: (unitId: string) => UnlockGate | undefined
+): readonly number[] {
+  const force = resolveUpgrades(mission, ledger, gateOf).starting_force ?? [];
+  const loaned: number[] = [];
+  for (let i = 0; i < force.length; i++) {
+    const p = force[i];
+    if (p.from_ledger === true) continue;
+    if (unlockReason(gateOf(p.unit), ledger) !== null) loaned.push(i);
+  }
+  return loaned;
+}

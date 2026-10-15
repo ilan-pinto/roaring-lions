@@ -29,6 +29,7 @@ import {
   missionShepherds,
   MissionRuntime,
   resolveUpgrades,
+  loanedPlacements,
   starRoeFloor,
   starsEarned,
   zoneContains,
@@ -1948,11 +1949,17 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  the spawner stays gate-blind. Every other reader of `mission` -- briefing,
    *  debrief, `getMission()` -- keeps the original JSON. */
   let resolvedMission: MissionJson | undefined;
+  /** Indices into `resolvedMission.starting_force` of the placements on loan (GH-183, D5),
+   *  handed to the runtime so it can answer `isOnLoan`. Computed with the SAME lookup as
+   *  `resolveUpgrades` above (one const, so the two cannot drift). */
+  let loanedForce: readonly number[] | undefined;
   if (mission) {
-    resolvedMission = resolveUpgrades(mission, ledger, (id) => {
+    const gateOf = (id: string) => {
       const u = (units as Record<string, (typeof units)[keyof typeof units] | undefined>)[id];
       return u ? kdfUnlockGate(u, boughtUnits) : undefined;
-    });
+    };
+    resolvedMission = resolveUpgrades(mission, ledger, gateOf);
+    loanedForce = loanedPlacements(mission, ledger, gateOf);
   } else if (netConfig?.mode === 'versus') {
     // A versus room (network design §9): the KDF force (plus the second Spike
     // team, `VERSUS_EXTRA`) on EACH side, mirrored through the hostile anchor,
@@ -2554,6 +2561,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         zones: map.zones,
         tunnels: tunnelRoutes,
         ledger: sentLedger,
+        loaned: loanedForce,
         unitInfo: (id) => {
           const u = (units as Record<string, (typeof units)[keyof typeof units] | undefined>)[id];
           if (!u || u.faction !== 'kdf') return null;

@@ -8,6 +8,7 @@ import {
   TICKS_PER_SECOND,
   MissionRuntime,
   resolveUpgrades,
+  loanedPlacements,
   creditsFor,
   creditInputFrom,
   type MissionJson,
@@ -316,7 +317,10 @@ export function run(
     return withBought(gate, unitId);
   };
   const resolvedMission = resolveUpgrades(mission, ledger, unlockOf);
+  // F3 Task 6: who is on loan, from the SAME lookup the line above resolved with (as main.ts does).
+  const loaned = loanedPlacements(mission, ledger, unlockOf);
   const rt = new MissionRuntime(sim, resolvedMission, {
+    loaned,
     typeIdOf: (u) => typeOf.get(u) as number,
     markers: map.markers,
     zones: map.zones,

@@ -328,6 +328,11 @@ export interface MissionContext {
    *  (null = uncapped on that side). Absent: side 0 reads the mission's own field,
    *  side 1 is uncapped. */
   popCaps?: readonly [number | null, number | null];
+  /** Indices into the RESOLVED `starting_force` (the array this runtime is given, after
+   *  `resolveUpgrades`) of the placements that are on loan: `loanedPlacements`' answer
+   *  (unlock.ts, D5). The runtime never sees a gate, so the app and the harness compute it
+   *  with the same lookup they resolve upgrades with and hand it in. Absent = nothing on loan. */
+  loaned?: readonly number[];
 }
 
 export type ObjectiveStatus = 'active' | 'complete' | 'failed';
@@ -579,6 +584,9 @@ export class MissionRuntime {
    *  (stepRoe runs before stepObjectives), and a raze whose deadline has
    *  passed still names a military target, not a civilian one. */
   private readonly razeExempt = new Set<number>();
+  /** Entity ids of the bodies the starting force fielded from a placement that is on loan
+   *  (`ctx.loaned`, D5). Built once in `start()`, read by `isOnLoan`; nothing per tick. */
+  private readonly onLoan = new Set<number>();
   /** Objective id -> the route indices whose mouths its zone held at mission
    *  start. Mirrors razeTargets, though for a different reason: ctx.tunnels
    *  is static so a rescan could not shrink, but snapshotting at start() is
@@ -829,6 +837,13 @@ export class MissionRuntime {
     const caps = this.ctx.popCaps;
     if (caps !== undefined) return caps[side];
     return side === 0 ? this.mission.resources?.pop_cap ?? null : null;
+  }
+
+  /** True when `id` is a body the starting force fielded from a placement that is on loan
+   *  (`MissionContext.loaned`, D5). Fixed at `start()`; a unit spawned later, a `from_ledger`
+   *  draw and an enemy are never on loan. */
+  isOnLoan(id: number): boolean {
+    return this.onLoan.has(id);
   }
 
   /**
@@ -1178,7 +1193,12 @@ export class MissionRuntime {
     this.riseHold = new Int32Array(rises.count);
     this.risePaid = new Uint8Array(rises.count);
     this.riseHolder = new Int32Array(rises.count);
-    for (const p of this.mission.starting_force ?? []) this.spawnPlacement(p, 0);
+    const loaned = new Set(this.ctx.loaned ?? []);
+    const force = this.mission.starting_force ?? [];
+    for (let i = 0; i < force.length; i++) {
+      const ids = this.spawnPlacement(force[i], 0);
+      if (loaned.has(i)) for (const id of ids) this.onLoan.add(id);
+    }
     for (const p of this.mission.enemy?.garrison ?? []) this.spawnPlacement(p, 1);
     for (const p of this.mission.civilians?.groups ?? []) this.spawnPlacement(p, 2);
     // Snapshot the garrison before any wave or trigger can add to it. See
