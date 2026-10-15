@@ -13,9 +13,9 @@
  * `composeTerrain` result (ground, scatter, residual, building boxes, decor
  * and prop placements) for every non-highland shipped map, hashed, against
  * hashes recorded at `origin/main` 7dc3d134 -- the commit before the biome.
- * The pins were REGENERATED for VR-05, because the tussock `low` tone moved
- * to `scrub.1` on every theme (and foliage with it); that is a deliberate
- * change to how non-highland maps draw.
+ * The ARID pins were REGENERATED for VR-05 (tussock `low` and foliage moved to
+ * `scrub.1`: a deliberate change to how arid maps draw). Green maps keep
+ * `origin/main`'s pins, by the lead's ruling that green keeps its foliage.
  *
  * The tones come through `rendererOptionsFor`, the app's one route from a map
  * to its `TerrainTones`, so a per-map grove override that leaked onto a map

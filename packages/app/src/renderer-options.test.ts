@@ -54,17 +54,19 @@ describe('rendererOptionsFor', () => {
     expect(rendererOptionsFor(parseMap(maps.qarn_hadid), HIGH, '/').terrainTones).toBe(TERRAIN_THEMES.highland);
   });
 
-  // VR-05 gave every theme a foliage `decorColors` tint (scrub.1, pinned in
-  // tools/src/foliage-figure-ground.test.ts); the rest stays highland-only.
+  // VR-05 gave arid (not green, by the lead's ruling; pinned in
+  // tools/src/foliage-figure-ground.test.ts) a foliage `decorColors` tint; the
+  // rest stays highland-only.
   it('gives arid and green none of the highland-only fields, so they draw as before', () => {
     for (const t of [TERRAIN_THEMES.arid, TERRAIN_THEMES.green]) {
       expect(t.paletteRamps).toBeUndefined();
-      expect(Object.keys(t.decorColors ?? {}).sort()).toEqual(
-        ['bush', 'cedar', 'desert_tree', 'grass', 'tree'].map((f) => `${f}:foliage`).sort()
-      );
       expect(t.openScatter).toBeUndefined();
       expect(t.macroHue).toBeUndefined();
     }
+    expect(Object.keys(TERRAIN_THEMES.arid.decorColors ?? {}).sort()).toEqual(
+      ['bush', 'cedar', 'desert_tree', 'grass', 'tree'].map((f) => `${f}:foliage`).sort()
+    );
+    expect(TERRAIN_THEMES.green.decorColors).toBeUndefined();
   });
 
   it('serves every ground texture from the deploy base', () => {

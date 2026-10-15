@@ -7,8 +7,8 @@
  * (`units/mesh-role.ts`, the `olive` ramp), so a rifleman in a grove was
  * olive on olive, and the mock measured an arid Namer against arid foliage at
  * ΔE2000 2.0-3.6 in the rendered frame. Option 1 tints every foliage family
- * (`decorColors['<family>:foliage']`) and the scatter tussock (`low`) on every
- * theme with `scrub.1`, the cedar's approved blue-green -- exactly the mock's
+ * (`decorColors['<family>:foliage']`) and the scatter tussock (`low`) on arid
+ * and highland with `scrub.1` (green kept as it was, by the lead's ruling), the cedar's approved blue-green -- exactly the mock's
  * prototype (`terrainTonesFor` writing all five families plus `low`).
  *
  * `leafDark`/`leafMid`/`leafLit` are NOT moved, because the mock did not move
@@ -31,14 +31,19 @@ const KDF_UNIFORM_KEY = 'olive.1';
 const UNTINTED_FOLIAGE_KEY = 'olive.1';
 /** Every decor family that carries a `foliage` role. */
 const FOLIAGE_FAMILIES = ['tree', 'desert_tree', 'bush', 'grass', 'cedar'] as const;
-const THEMES = ['arid', 'green', 'highland'] as const;
+/**
+ * Green is EXCLUDED by the lead's ruling: the Wadi Halam frames were mixed (the
+ * Eitan reads worse on scrub), so green keeps its foliage as it was. It is
+ * pinned UNMOVED below instead.
+ */
+const THEMES = ['arid', 'highland'] as const;
 
 /**
  * WHAT THIS GUARD IS: a regression pin on the palette-KEY bracket, nothing
  * more. It refuses `olive.1` and `olive.2` and accepts `scrub.1`, measured as
  * CIE76 against `olive.1` through `tools/src/cvd.ts` (the repo's colour
  * instrument). CIE76 against `olive.1`:
- *   olive.1 0.00 (arid and green status quo), olive.2 13.77 (highland bush
+ *   olive.1 0.00 (arid status quo), olive.2 13.77 (highland bush
  *   status quo), scrub.1 15.89 (option 1), scrub.0 16.29.
  * The floor of 15 sits between the two keys that bracket the lead's decision
  * (13.77 refused, 15.89 accepted). It is not a rendered-frame measurement: the
@@ -123,7 +128,14 @@ function foliageHex(theme: (typeof THEMES)[number], family: string): string {
   return TERRAIN_THEMES[theme].decorColors?.[`${family}:foliage`] ?? paletteColor(UNTINTED_FOLIAGE_KEY);
 }
 
-describe('VR-05: foliage is scrub.1, off the KDF olive', () => {
+describe('VR-05: green keeps its foliage, by the lead\'s ruling', () => {
+  it('green has no decorColors and its tussock is scrub.0, as on origin/main', () => {
+    expect(TERRAIN_THEMES.green.decorColors).toBeUndefined();
+    expect(TERRAIN_THEMES.green.low).toBe(paletteColor('scrub.0'));
+  });
+});
+
+describe('VR-05: foliage is scrub.1, off the KDF olive (arid and highland)', () => {
   for (const theme of THEMES) {
     it(`${theme}: every foliage family and the tussock draw scrub.1`, () => {
       for (const family of FOLIAGE_FAMILIES) {

@@ -32,12 +32,15 @@ import type { GroveFamily, TerrainTones } from '@lions/render';
 /**
  * VR-05 (option 1, approved by the lead off the VR-04/05 mock): every mesh
  * foliage family and the scatter tussock (`low`) draw `scrub.1`, the cedar's
- * blue-green, on every theme. Untinted, foliage drew the decor ramp's lift,
- * `olive.1` -- the KDF uniform's own albedo, so a squad in a grove was olive
+ * blue-green, on the arid and highland themes. Untinted, foliage drew the
+ * decor ramp's lift, `olive.1` -- the KDF uniform's own albedo, so a squad in a grove was olive
  * on olive, and a Namer's olive bake sat within ΔE2000 2.0-3.6 of arid
  * foliage. A theme `decorColors` tint is an instance tone (+0 draw calls, the
  * channel GH-322's highland already used). `leafDark/Mid/Lit` stay: they feed
  * `grove.ts`, which draws nothing since the mesh trees, and the mock left them.
+ * GREEN is left as it was (the lead's ruling): the Wadi Halam frames were
+ * mixed, the Eitan reads worse on scrub, so green carries no `decorColors` and
+ * its `low` stays `scrub.0`.
  * Pinned by `tools/src/foliage-figure-ground.test.ts`.
  */
 const FOLIAGE = paletteColor('scrub.1');
@@ -106,7 +109,7 @@ export const TERRAIN_THEMES: Record<TerrainTheme, TerrainTones> = {
     rock: paletteColor('limestone.6'),
     rockLit: paletteColor('limestone.3'),
     earth: paletteColor('dust.5'),
-    low: FOLIAGE,
+    low: paletteColor('scrub.0'),
     trunk: paletteColor('dust.5'),
     trunkLit: paletteColor('dust.3'),
     leafDark: paletteColor('scrub.1'),
@@ -128,13 +131,11 @@ export const TERRAIN_THEMES: Record<TerrainTheme, TerrainTones> = {
     // correct for what it is; a poplar needs the ratio the other side of 1.
     crownRatio: 1.5,
     scatter: 'sward',
-    // The grove family stays `tree` on the one green map, the river basin.
-    // Its olive groves now draw in the scrub tone (`decorColors` below),
-    // chosen off the KDF olive so a uniform in a grove reads (VR-05).
+    // The olive stays where it belongs: the one green map is the river basin,
+    // and an olive terrace there is the picture the Naharin arc is written on.
     groveFamily: 'tree',
     // N-18: a pale limestone haze over the basin rather than a desert dust.
     haze: paletteColor('limestone.1'),
-    decorColors: FOLIAGE_DECOR_COLORS,
   },
   // GH-322: the Sur front -- "rockets range onto Kedem's north from behind a
   // mountain wall". The lead's rulings of 1 Oct, on the revision-2 mock:
