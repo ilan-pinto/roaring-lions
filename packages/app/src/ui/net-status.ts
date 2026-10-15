@@ -41,9 +41,10 @@ export function netStatusText(
     case 'waiting':
       return t('net.waiting');
     case 'stalled':
-      return s.reason === 'behind'
-        ? t('net.stall.behind', { seat: nameOf(s.seat) })
-        : t('net.stall.gone', { seat: nameOf(s.reason === 'connecting' ? null : s.seat) });
+      if (s.reason === 'behind') return t('net.stall.behind', { seat: nameOf(s.seat) });
+      // A paced room holds a round until its bot seat is done: not a lost link.
+      if (s.reason === 'round') return t('net.stall.round', { seat: nameOf(s.seat) });
+      return t('net.stall.gone', { seat: nameOf(s.reason === 'connecting' ? null : s.seat) });
     case 'desync':
       return t('net.desync', { time: matchClock(s.tick), code });
     case 'paused':

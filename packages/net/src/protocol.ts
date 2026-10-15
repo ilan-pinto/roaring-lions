@@ -6,6 +6,7 @@
 import { FIRE_SUPPORT, type Command } from '@lions/sim';
 import { isFactionPair, validateConfig, type Faction, type MatchConfig, type Seat } from './config';
 import type { Frame, Stamped } from './frames';
+import { ADVISOR_SCOPES, cleanAdvisorMsg, type AdvisorMsg, type AdvisorScope } from './advisor';
 
 export const MAX_MESSAGE_BYTES = 4096;
 /** The most characters of frames one `log` message carries (#559 H-1): a long
@@ -48,12 +49,17 @@ export type ClientMsg =
   | { t: 'surrender' }
   | { t: 'chat'; text: string }
   /** This seat's sim decided the match on `tick` (L-1): sent once, so the room can close itself. */
-  | { t: 'over'; tick: number };
+  | { t: 'over'; tick: number }
+  /** An advisor's (or its human's) message for the OTHER half of one seat's pair (N4a): the room relays it, stores nothing. */
+  | { t: 'advisor'; a: AdvisorMsg }
+  /** This seat has finished `round` of a paced room (N4a): a bot seat's turn is over. */
+  | { t: 'done'; round: number };
 
 export const ERROR_CODES = ['bad_message', 'bad_ticket', 'build_mismatch', 'full', 'not_running', 'origin'] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
-export type StallReason = 'behind' | 'gone';
+/** `round`: a paced room is waiting for a bot seat's `done` (N4a). */
+export type StallReason = 'behind' | 'gone' | 'round';
 /** Why a room ended. `over`: it closed itself `OVER_CLOSE_MS` after the result both seats reached (L-1).
  *  `forfeit`: a versus seat stayed disconnected for `FORFEIT_MS`; `seat` names it, and it lost. */
 export const ENDED_REASONS = ['left', 'void', 'expired', 'surrender', 'over', 'forfeit'] as const;
@@ -88,6 +94,10 @@ export type ServerMsg =
   | { t: 'back'; seat: Seat }
   /** `seat`: who lost by the ending -- surrendered, left (`bye`) or forfeited. */
   | { t: 'ended'; reason: EndedReason; seat?: Seat }
+  /** What a seat's advisor (or its human) said, to that seat's pair only; never to the other seat. */
+  | { t: 'advisor'; from: 'human' | 'advisor'; a: AdvisorMsg }
+  /** Which advisor scope each seat has seated, or null: the badge both seats see (decision D1). */
+  | { t: 'advisors'; present: [AdvisorScope | null, AdvisorScope | null] }
   | { t: 'error'; code: ErrorCode };
 
 const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
@@ -208,6 +218,8 @@ export function parseClientMsg(raw: string): ClientMsg | null {
     case 'surrender': return { t: 'surrender' };
     case 'chat': return isStr(m.text) && m.text.length <= CHAT_MAX_CHARS ? { t: 'chat', text: m.text } : null;
     case 'over': return isInt(m.tick) && m.tick >= 0 ? { t: 'over', tick: m.tick } : null;
+    case 'advisor': { const a = cleanAdvisorMsg(m.a); return a === null ? null : { t: 'advisor', a }; }
+    case 'done': return isInt(m.round) && m.round >= 0 ? { t: 'done', round: m.round } : null;
     default: return null;
   }
 }
@@ -258,7 +270,7 @@ export function parseServerMsg(raw: string): ServerMsg | null {
     }
     case 'start': { const c = validateConfig(m.config); return c ? { t: 'start', config: c } : null; }
     case 'frame': return isInt(m.tick) && Array.isArray(m.cmds) && m.cmds.every(isStamped) ? { t: 'frame', tick: m.tick, cmds: m.cmds } : null;
-    case 'stall': return (m.reason === 'behind' || m.reason === 'gone') && isSeat(m.seat) ? { t: 'stall', reason: m.reason, seat: m.seat } : null;
+    case 'stall': return (m.reason === 'behind' || m.reason === 'gone' || m.reason === 'round') && isSeat(m.seat) ? { t: 'stall', reason: m.reason, seat: m.seat } : null;
     case 'resume': return { t: 'resume' };
     case 'hashOk': return isInt(m.tick) ? { t: 'hashOk', tick: m.tick } : null;
     case 'desync': return isInt(m.tick) && Array.isArray(m.hashes) && m.hashes.length === 2 && m.hashes.every(isInt)
@@ -281,6 +293,15 @@ export function parseServerMsg(raw: string): ServerMsg | null {
       const reason = m.reason as EndedReason;
       if (m.seat === undefined) return { t: 'ended', reason };
       return isSeat(m.seat) ? { t: 'ended', reason, seat: m.seat } : null;
+    }
+    case 'advisor': {
+      const a = cleanAdvisorMsg(m.a);
+      return a !== null && (m.from === 'human' || m.from === 'advisor') ? { t: 'advisor', from: m.from, a } : null;
+    }
+    case 'advisors': {
+      const p = m.present;
+      const ok = (v: unknown): v is AdvisorScope | null => v === null || (ADVISOR_SCOPES as readonly unknown[]).includes(v);
+      return Array.isArray(p) && p.length === 2 && ok(p[0]) && ok(p[1]) ? { t: 'advisors', present: [p[0], p[1]] } : null;
     }
     case 'error': return (ERROR_CODES as readonly unknown[]).includes(m.code) ? { t: 'error', code: m.code as ErrorCode } : null;
     default: return null;

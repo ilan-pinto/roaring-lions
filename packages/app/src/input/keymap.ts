@@ -14,8 +14,8 @@ import type { SupportKind } from '@lions/sim';
 export type Action =
   | 'halt' | 'move' | 'smoke' | 'load' | 'unload' | 'overlay' | 'production' | 'mute'
   | 'selectAll' | 'cycleChips' | 'jumpToAlert' | 'keysOverlay' | 'idleNext'
-  | 'panUp' | 'panDown' | 'panLeft' | 'panRight' | 'pause'
-  // S-F Task 3: the four fire-support calls, Z X C V, in the dock's left-to-right order.
+  | 'panUp' | 'panDown' | 'panLeft' | 'panRight' | 'pause' | 'veto'
+  // S-F Task 3: the four fire-support calls, Z Q C V, in the dock's left-to-right order.
   | 'supportScreen' | 'supportBarrage' | 'supportSweep' | 'supportStrike';
 
 export interface ActionSpec {
@@ -79,16 +79,23 @@ export const ACTIONS: readonly ActionSpec[] = [
   { id: 'panDown', label: 'keymap.panDown', key: 's', rebindable: true },
   { id: 'panLeft', label: 'keymap.panLeft', key: 'a', rebindable: true },
   { id: 'panRight', label: 'keymap.panRight', key: 'd', rebindable: true },
-  // S-F Task 3: the fire-support calls, the bottom row left to right in the
-  // dock's own order (cheapest first). Free -- h n f g u o b m, ctrl+a, tab,
-  // space, f1, i, w s a d and escape are the whole of what was taken -- and
-  // adjacent to each other, so a hand finds them without looking. Digits stay
+  // S-F Task 3: the fire-support calls in the dock's own order (cheapest
+  // first), under the left hand. Free -- h n f g u o b m, ctrl+a, tab, space,
+  // f1, i, w s a d, escape and N4a's hidden veto on x are the whole of what
+  // was taken. The barrage sat on x until N4a's veto (D11, lead-ruled) took
+  // it on merge; it moved to q, above a and beside the pan keys. Digits stay
   // the control groups.
   { id: 'supportScreen', label: 'keymap.supportScreen', key: 'z', rebindable: true },
-  { id: 'supportBarrage', label: 'keymap.supportBarrage', key: 'x', rebindable: true },
+  { id: 'supportBarrage', label: 'keymap.supportBarrage', key: 'q', rebindable: true },
   { id: 'supportSweep', label: 'keymap.supportSweep', key: 'c', rebindable: true },
   { id: 'supportStrike', label: 'keymap.supportStrike', key: 'v', rebindable: true },
   { id: 'pause', label: 'keymap.pause', key: 'escape', rebindable: false },
+  // N4a (D11): the veto for an advisor's `assist` proposal, while one shows.
+  // `x` was free (PR 535; `n` is move-only). Hidden because it means
+  // nothing outside a versus room with an advisor beside you, so single-player's
+  // Controls list and F1 card are unchanged; rebindable all the same, and the
+  // key falls through (`AdvisorPanel.veto()` answers false) when nothing shows.
+  { id: 'veto', label: 'keymap.veto', key: 'x', rebindable: true, hidden: true },
 ];
 
 /** The actions a player is SHOWN -- F1's card and the Controls settings

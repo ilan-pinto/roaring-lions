@@ -4,7 +4,7 @@
 // DOM. Everything else in this file is pure and does not care.
 
 import { describe, expect, it } from 'vitest';
-import { ACTIONS, anyArmed, bindingsFrom, escapeTarget, heldAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, rebind, resolveKey, shouldYieldSpace, supportKeyTarget } from './keymap';
+import { ACTIONS, PLAYER_ACTIONS, anyArmed, bindingsFrom, escapeTarget, heldAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, rebind, resolveKey, shouldYieldSpace, supportKeyTarget } from './keymap';
 import { SUPPORT, SUPPORT_KINDS } from '../ui/support-kinds';
 
 describe('keymap', () => {
@@ -76,19 +76,20 @@ describe('keymap', () => {
     const plain = ACTIONS.filter((a) => a.modifier === undefined).map((a) => a.key);
     expect(new Set(plain).size).toBe(plain.length);
   });
-  // S-F Task 3: Z X C V, left to right as the dock draws its four tiles.
+  // S-F Task 3: Z Q C V in the dock's order (the barrage left x to N4a's veto, D11).
   it('the four support keys resolve to their actions', () => {
     const b = bindingsFrom({});
     const press = (key: string) => resolveKey(b, { key, ctrlKey: false, metaKey: false });
     expect(press('z')).toBe('supportScreen');
-    expect(press('x')).toBe('supportBarrage');
+    expect(press('q')).toBe('supportBarrage');
+    expect(press('x')).toBe('veto');
     expect(press('c')).toBe('supportSweep');
     expect(press('v')).toBe('supportStrike');
     expect(press('Z')).toBe('supportScreen');
     // The keymap and the support table cannot drift: every kind names a real row,
-    // and the bottom row reads in the dock's own left-to-right order.
+    // and the keys read in the dock's own left-to-right order.
     for (const kind of SUPPORT_KINDS) expect(ACTIONS.find((a) => a.id === SUPPORT[kind].action)).toBeDefined();
-    expect(SUPPORT_KINDS.map((k) => b[SUPPORT[k].action])).toEqual(['z', 'x', 'c', 'v']);
+    expect(SUPPORT_KINDS.map((k) => b[SUPPORT[k].action])).toEqual(['z', 'q', 'c', 'v']);
   });
   it('the support keys are rebindable and listed to a player', () => {
     for (const kind of SUPPORT_KINDS) {
@@ -98,7 +99,8 @@ describe('keymap', () => {
       expect(row?.modifier).toBeUndefined();
     }
     expect(rebind(bindingsFrom({}), 'supportBarrage', 'z')).toEqual({ ok: false, takenBy: 'supportScreen' });
-    expect(rebind(bindingsFrom({}), 'supportBarrage', 'q')).toMatchObject({ ok: true });
+    expect(rebind(bindingsFrom({}), 'supportBarrage', 'x')).toEqual({ ok: false, takenBy: 'veto' });
+    expect(rebind(bindingsFrom({}), 'supportBarrage', 'k')).toMatchObject({ ok: true });
   });
   it('a saved controls object without the support actions gets their defaults', () => {
     const b = bindingsFrom({ halt: 'j' });
@@ -321,5 +323,16 @@ describe('bindingsFrom rejects non-key-names (security review #559, F3)', () => 
     const b = bindingsFrom({ halt: '<img src=x data-pwn=1>', move: 'j' });
     expect(b.halt).toBe('h');
     expect(b.move).toBe('j');
+  });
+});
+
+describe('the advisor veto key (N4a, D11)', () => {
+  it('X resolves to veto, with no modifier, and is not shown in the player\'s key list', () => {
+    const b = bindingsFrom({});
+    expect(resolveKey(b, { key: 'x', ctrlKey: false, metaKey: false })).toBe('veto');
+    expect(resolveKey(b, { key: 'X', ctrlKey: false, metaKey: false })).toBe('veto');
+    expect(resolveKey(b, { key: 'x', ctrlKey: true, metaKey: false })).toBeNull();
+    expect(PLAYER_ACTIONS.map((a) => a.id)).not.toContain('veto');
+    expect(ACTIONS.filter((a) => a.key === 'x' && a.modifier === undefined).map((a) => a.id)).toEqual(['veto']);
   });
 });

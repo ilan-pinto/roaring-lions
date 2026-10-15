@@ -51,6 +51,18 @@ Checks (all fail the build):
                   louder than battle (audio plan section 6.1). The level step
                   at the wrap is printed, not gated: a musical loop may wrap
                   from a fill into a downbeat.
+  12. ENGINES -- `engines` (GH-35): every loop declares both candidates, `a`
+                  and `b`, each with the clip licence/source bar and both
+                  encodings on disk; `pick` is `a` or `b`; a gain in (0, 1];
+                  every family layer names a declared loop and only the
+                  `tracked` family carries a `clank`; every `by_type` id is a
+                  shipped unit and every value a family or `none`; the cap,
+                  radius and hysteresis in range. With ffmpeg and ffprobe BOTH
+                  encodings of every candidate decoded: length against
+                  `loop_s` (to 1 ms), channels, true peak <= -6 dBTP, no level
+                  step or gap at the wrap, and heard (file + gain + master) at
+                  or under -36 LUFS -- about 10 LU under the firefight's -26,
+                  where the numbers sheet put one moving vehicle at -38.
   6. VOICES    -- licence/source/generator/text/translit/en on every voice
                   variant; ASCII voice/<lang>/<class>/<trigger>_<nn><take>.ogg|m4a
                   paths filed under their own key; keys in a language some
@@ -364,6 +376,159 @@ def check_ambience(man, failures, notes, audio_dir=AUDIO_DIR, measure=measure_be
     return declared
 
 
+# GH-35: the engine loops. PR #597's numbers sheet: one moving vehicle at the
+# camera centre is heard about 12 LU under combat (-38 against the firefight's
+# -26). The gate is a CEILING with 2 LU of room, not a band: an idle loop is
+# meant to sit 6 LU under its moving loop, and a clank 3 LU under that.
+ENGINE_HEARD_MAX_LUFS = -36.0
+ENGINE_MAX_TRUE_PEAK_DBTP = -6.0
+ENGINE_LOOP_RANGE_S = (2.0, 30.0)
+ENGINE_VARIANTS = ("a", "b")
+ENGINE_LAYERS = ("idle", "move", "clank", "rotor")
+ENGINE_CAP_RANGE = (1, 8)
+ENGINE_RADIUS_RANGE = (4.0, 26.0)
+UNITS_DIR = os.path.join(ROOT, "data", "units")
+
+
+def shipped_unit_ids(units_dir=UNITS_DIR):
+    """Every unit id under data/units/, read off the JSON."""
+    ids = set()
+    for dirpath, _, files in os.walk(units_dir):
+        for fn in files:
+            if fn.endswith(".json"):
+                with open(os.path.join(dirpath, fn)) as fh:
+                    uid = json.load(fh).get("id")
+                if uid:
+                    ids.add(uid)
+    return ids
+
+
+def _num(v):
+    return not isinstance(v, bool) and isinstance(v, (int, float))
+
+
+def check_engines(man, failures, notes, audio_dir=AUDIO_DIR, measure=measure_bed, unit_ids=None):
+    """GH-35: the `engines` section. The shape always; with ffmpeg, both
+    encodings of both candidates of every loop decoded and measured. Returns
+    every file declared. Which family a unit type gets, and the mix maths, are
+    vitests (packages/render/src/engines.test.ts)."""
+    declared = set()
+    eng = man.get("engines")
+    if eng is None:
+        return declared
+    if not isinstance(eng, dict):
+        failures.append("engines: not an object")
+        return declared
+    cap = eng.get("voice_cap")
+    if not _num(cap) or cap != int(cap) or not ENGINE_CAP_RANGE[0] <= cap <= ENGINE_CAP_RANGE[1]:
+        failures.append(f"engines: voice_cap {cap!r} is not a whole number in {ENGINE_CAP_RANGE[0]}..{ENGINE_CAP_RANGE[1]}")
+    radius = eng.get("radius_tiles")
+    if not _num(radius) or not ENGINE_RADIUS_RANGE[0] <= radius <= ENGINE_RADIUS_RANGE[1]:
+        failures.append(f"engines: radius_tiles {radius!r} outside {ENGINE_RADIUS_RANGE[0]}..{ENGINE_RADIUS_RANGE[1]}")
+    hyst = eng.get("hysteresis_tiles")
+    if not _num(hyst) or not 0 <= hyst <= 6:
+        failures.append(f"engines: hysteresis_tiles {hyst!r} outside 0..6")
+
+    loops = eng.get("loops")
+    if not isinstance(loops, dict) or not [k for k in loops if not k.startswith("$")]:
+        failures.append("engines: no loops declared")
+        loops = {}
+    master = man.get("master_gain", 1.0)
+    for loop, spec in loops.items():
+        if loop.startswith("$"):
+            continue
+        label = f"engines loop '{loop}'"
+        if not isinstance(spec, dict):
+            failures.append(f"{label}: not an object")
+            continue
+        gain = spec.get("gain")
+        if not _num(gain) or not 0 < gain <= 1:
+            failures.append(f"{label}: gain {gain!r} outside (0, 1]")
+            gain = None
+        if spec.get("pick") not in ENGINE_VARIANTS:
+            failures.append(f"{label}: pick {spec.get('pick')!r} is not one of {', '.join(ENGINE_VARIANTS)}")
+        for variant in ENGINE_VARIANTS:
+            v = spec.get(variant)
+            vlabel = f"{label} candidate {variant}"
+            if not isinstance(v, dict) or not v.get("file"):
+                failures.append(f"{vlabel}: not declared (both candidates ship until the lead picks)")
+                continue
+            check_licensed_file(v, failures, MAX_BYTES, audio_dir=audio_dir)
+            declared |= {v[r] for r in ("file", "alt") if v.get(r)}
+            loop_s, channels = v.get("loop_s"), v.get("channels")
+            if not _num(loop_s) or not ENGINE_LOOP_RANGE_S[0] <= loop_s <= ENGINE_LOOP_RANGE_S[1]:
+                failures.append(f"{vlabel}: loop_s {loop_s!r} outside {ENGINE_LOOP_RANGE_S[0]}..{ENGINE_LOOP_RANGE_S[1]} s")
+                continue
+            if channels != 1 or isinstance(channels, bool):
+                failures.append(f"{vlabel}: channels {channels!r} -- an engine is a placed sound, mono")
+                continue
+            for role in ("file", "alt"):
+                rel = v.get(role)
+                path = os.path.join(audio_dir, rel) if rel else None
+                if not path or not os.path.exists(path):
+                    continue  # check_licensed_file already names a missing file
+                got = measure(path)
+                if got is None:
+                    notes.append(f"{rel}: engine loop NOT measured (no ffmpeg/ffprobe on PATH) -- loop, channels, peak, level and seam unchecked")
+                    continue
+                if got["channels"] != channels:
+                    failures.append(f"{rel}: decodes to {got['channels']} channel(s), the manifest declares {channels}")
+                if abs(got["seconds"] - loop_s) > AMB_LOOP_TOL_S:
+                    failures.append(
+                        f"{rel}: decodes to {got['seconds']:.4f} s, the loop is {loop_s:.4f} s -- "
+                        "an encoder's priming or padding left in loops with a gap"
+                    )
+                if got["true_peak"] > ENGINE_MAX_TRUE_PEAK_DBTP + 1e-9:
+                    failures.append(f"{rel}: true peak {got['true_peak']:+.1f} dBTP, over the engine ceiling {ENGINE_MAX_TRUE_PEAK_DBTP} dBTP")
+                if got["seam_level_db"] > AMB_SEAM_LEVEL_DB:
+                    failures.append(f"{rel}: the loop's seam steps {got['seam_level_db']:.1f} dB (over {AMB_SEAM_LEVEL_DB})")
+                if got["seam_gap_db"] < -AMB_SEAM_GAP_DB:
+                    failures.append(f"{rel}: a gap at the loop's seam, {got['seam_gap_db']:.1f} dB under the file's own floor")
+                heard = None
+                if gain is not None:
+                    heard = got["integrated"] + _db(gain * master)
+                    if heard > ENGINE_HEARD_MAX_LUFS + 1e-9:
+                        failures.append(
+                            f"{rel}: heard at {heard:.1f} LUFS at the camera ({got['integrated']:.1f} LUFS, gain {gain}, "
+                            f"master {master}), over the engine ceiling {ENGINE_HEARD_MAX_LUFS}"
+                        )
+                notes.append(
+                    f"{rel}: {got['seconds']:.3f} s loop, {got['true_peak']:+.1f} dBTP, "
+                    + (f"heard {heard:.1f} LUFS, " if heard is not None else "")
+                    + f"seam {got['seam_level_db']:.1f} dB / gap {got['seam_gap_db']:+.1f} dB"
+                )
+
+    families = eng.get("families")
+    if not isinstance(families, dict) or not families:
+        failures.append("engines: no families declared")
+        families = {}
+    for fam, layers in families.items():
+        if not isinstance(layers, dict) or not layers:
+            failures.append(f"engines family '{fam}': no layers")
+            continue
+        for layer, loop in layers.items():
+            if layer not in ENGINE_LAYERS:
+                failures.append(f"engines family '{fam}': unknown layer '{layer}' (one of {', '.join(ENGINE_LAYERS)})")
+            elif loop not in loops:
+                failures.append(f"engines family '{fam}': layer '{layer}' names loop '{loop}', which is not declared")
+        if "clank" in layers and fam != "tracked":
+            failures.append(f"engines family '{fam}': only the tracked family carries a track clank")
+
+    by_type = eng.get("by_type") or {}
+    if not isinstance(by_type, dict):
+        failures.append("engines: by_type is not an object")
+        by_type = {}
+    ids = shipped_unit_ids() if unit_ids is None else unit_ids
+    for uid, fam in by_type.items():
+        if uid.startswith("$"):
+            continue
+        if uid not in ids:
+            failures.append(f"engines by_type: '{uid}' is not a shipped unit id")
+        if fam != "none" and fam not in families:
+            failures.append(f"engines by_type: '{uid}' names family '{fam}', which is not declared (or 'none')")
+    return declared
+
+
 # AU-7: the mission beds as heard, audio plan section 6.1.
 BED_HEARD_LUFS = {"calm": -28.0, "battle": -26.0}
 BED_HEARD_TOL_LU = 2.0
@@ -450,6 +615,9 @@ def check_commercial(man, failures):
     found += list((man.get("music") or {}).get("tracks", []))
     found += [b for b in ((man.get("music") or {}).get("beds") or {}).values() if isinstance(b, dict)]
     found += [b for b in ((man.get("ambience") or {}).get("beds") or {}).values() if isinstance(b, dict)]
+    for loop in ((man.get("engines") or {}).get("loops") or {}).values():
+        if isinstance(loop, dict):
+            found += [loop[v] for v in ENGINE_VARIANTS if isinstance(loop.get(v), dict)]
     for line in ((man.get("voices") or {}).get("lines") or {}).values():
         found += line.get("variants", [])
     for v in found:
@@ -486,6 +654,10 @@ def commercial_manifest(man):
     if isinstance(amb, dict):
         for name in [n for n, b in amb.items() if not keep(b)]:
             del amb[name]
+    for loop in ((out.get("engines") or {}).get("loops") or {}).values():
+        if isinstance(loop, dict):
+            for v in [v for v in ENGINE_VARIANTS if isinstance(loop.get(v), dict) and not keep(loop[v])]:
+                del loop[v]
     for line in ((out.get("voices") or {}).get("lines") or {}).values():
         line["variants"] = [v for v in line.get("variants", []) if keep(v)]
     return out, excluded
@@ -815,6 +987,7 @@ def main(argv=None):
     check_music_levels(music, failures, notes)
     declared_amb = check_ambience(man, failures, notes)
     declared_beds = check_music_beds(man, failures, notes)
+    declared_engines = check_engines(man, failures, notes)
     total_cues = check_cues(man, failures)
     if commercial:
         check_commercial(man, failures)
@@ -845,6 +1018,7 @@ def main(argv=None):
         declared |= declared_voice
         declared |= declared_amb
         declared |= declared_beds
+        declared |= declared_engines
         for dirpath, _, files in os.walk(AUDIO_DIR):
             for fn in files:
                 if os.path.splitext(fn)[1].lower() not in ALLOWED_EXT:
@@ -867,6 +1041,7 @@ def main(argv=None):
     voice_note += f", {total_cues} cue(s) mapped" if total_cues else ""
     voice_note += f", {len(declared_amb) // 2} ambience bed(s)" if declared_amb else ""
     voice_note += f", {len(declared_beds) // 2} music bed(s)" if declared_beds else ""
+    voice_note += f", {len(declared_engines) // 2} engine loop candidate(s)" if declared_engines else ""
     voice_note += ", commercial build clean" if commercial else ""
     if total_variants == 0:
         print(f"audio gate passed: manifest valid, no recordings yet (procedural synth in use){music_note}{voice_note}")
