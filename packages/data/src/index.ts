@@ -541,7 +541,9 @@ function teamColorsFor(variant: ColorVisionVariant): Record<string, string> {
  * The three team colours -- kedem, hostile, civilian -- for a colour-vision
  * variant. Slot 2 is `CIVILIAN_COLOR_KEY` in every variant (VR-04); the
  * variant's own `neutral` is the WARNING yellow, reached by key through
- * `variantAwareResolver('team.neutral')`, not through this tuple. `'default'` reads `reserved.team.colors`, the plain palette; any
+ * `variantAwareResolver('team.neutral')`, not through this tuple.
+ *
+ * `'default'` reads `reserved.team.colors`, the plain palette; any
  * other variant reads the matching entry of `reserved.team.variants`
  * (`tools/src/cvd.ts`'s gate is what keeps every one of those pairs apart
  * under simulated deficiency). Read once at construction, the same as the

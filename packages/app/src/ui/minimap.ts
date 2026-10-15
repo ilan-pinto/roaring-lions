@@ -156,7 +156,7 @@ export interface MinimapDeps {
    *  SAME values the battlefield is drawn with, so the minimap cannot show a
    *  different-coloured version of the same ground. */
   tones: TerrainTones;
-  /** `RendererOptions.teamColors`: [own, hostile, neutral] -- indexed by
+  /** `RendererOptions.teamColors`: [own, hostile, civilian] -- indexed by
    *  `colorSlot(side, viewer)`, never by the side itself. Passed rather
    *  than re-resolved for the same reason -- a dot is the field's own colour
    *  for that side, by construction. */

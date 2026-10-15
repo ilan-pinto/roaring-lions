@@ -16,7 +16,7 @@ export function isOwnSide(side: number, viewer: number): boolean {
 export function isHostileSide(side: number, viewer: number): boolean {
   return side !== 2 && side !== viewer;
 }
-/** The colour slot a side draws in for this viewer: 0 friendly, 1 hostile, 2 neutral. */
+/** The colour slot a side draws in for this viewer: 0 friendly, 1 hostile, 2 civilian. */
 export function colorSlot(side: number, viewer: number): 0 | 1 | 2 {
   const r = relationOf(side, viewer);
   return r === 'own' ? 0 : r === 'hostile' ? 1 : 2;

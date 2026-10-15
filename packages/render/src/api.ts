@@ -192,7 +192,7 @@ export interface SupplyRouteView {
 
 export interface RendererOptions {
   background: string;
-  /** Team marker colours by side index (0 player, 1 hostile, 2 neutral). */
+  /** Team marker colours by side index (0 player, 1 hostile, 2 civilian). */
   teamColors: [string, string, string];
   /** The sim side the person at this screen commands (network design §5.1).
    *  Absent means 0, which is single-player and every campaign mission. */
