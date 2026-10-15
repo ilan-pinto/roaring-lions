@@ -190,6 +190,8 @@ export interface AlertState {
    *  convoy). A line lost with its holder clears silently (C-R19), so the
    *  zone's `zoneHolder` event drops its entry. */
   readonly cuts: ReadonlyMap<string, string>;
+  /** F2 P2-4: the tick each zone last RAISED a cue, for `ZONE_COOLDOWN_TICKS`. */
+  readonly zoneCued: ReadonlyMap<string, number>;
 }
 
 /**
@@ -207,13 +209,21 @@ export interface AlertState {
 export const UNDER_FIRE_COOLDOWN_TICKS = 100;
 
 export function initAlertState(): AlertState {
-  return { lastUnderFire: new Map(), wavesSeen: new Set(), lastPinned: -Infinity, tunnelsAnnounced: new Set(), zones: new Map(), cuts: new Map() };
+  return { lastUnderFire: new Map(), wavesSeen: new Set(), lastPinned: -Infinity, tunnelsAnnounced: new Set(), zones: new Map(), cuts: new Map(), zoneCued: new Map() };
 }
 
 /** A man pinned sounds the minor cue at most once in four seconds, whoever
  *  he is (the audio plan's "first in 4 s"): a pinned squad pins in a ripple,
  *  and the feed's own pinned line (GH-262) already names each one. */
 export const PINNED_COOLDOWN_TICKS = 80;
+
+/** Ten seconds at 20 Hz. A zone on the edge of a fight flips holder every few
+ *  ticks, and each flip would otherwise chime, flash the minimap and re-arm
+ *  the jump key. Inside this window of a zone's last CUED alert, a further
+ *  transition keeps its feed line (the feed merges it) but takes no cue, no
+ *  flash and no jump target. Longer than the feed's 8 s merge window, so a
+ *  flicker is one chime per merged line; a real change after it cues again. */
+export const ZONE_COOLDOWN_TICKS = 200;
 
 /**
  * Which authored wave a `wave` event is. The event carries only its tick and
@@ -248,6 +258,7 @@ export function alertsForTick(
   let wavesSeen = state.wavesSeen;
   let zones: ReadonlyMap<string, 'own' | 'contested'> = state.zones;
   let cuts: ReadonlyMap<string, string> = state.cuts;
+  let zoneCued: ReadonlyMap<string, number> = state.zoneCued;
   /** Copy-on-write edits of the two maps above. */
   const editZones = (f: (m: Map<string, 'own' | 'contested'>) => void): void => {
     const m = new Map(zones);
@@ -258,6 +269,14 @@ export function alertsForTick(
     const m = new Map(cuts);
     f(m);
     cuts = m;
+  };
+  /** Whether a zone may cue now; stamps the tick when it may. */
+  const zoneMayCue = (zone: string): boolean => {
+    if (tick - (zoneCued.get(zone) ?? -Infinity) < ZONE_COOLDOWN_TICKS) return false;
+    const m = new Map(zoneCued);
+    m.set(zone, tick);
+    zoneCued = m;
+    return true;
   };
   /** F2 P2-4: held-ground and supply-line alerts, in event order. */
   const ground: Alert[] = [];
@@ -362,14 +381,33 @@ export function alertsForTick(
       const centre = world.zoneAt(e.zone);
       const place = centre === null ? [] : [world.placeOf(centre.x, centre.y)];
       const say = (key: string, tier: AlertTier, tone: Tone): void => {
+        const loud = zoneMayCue(e.zone);
         ground.push({
           kind: 'zone',
           tier,
           tone,
           line: { key, params: {}, tone, place },
-          cue: ALERT_CUE[tier],
-          at: centre,
-          marks: centre === null ? [] : [centre],
+          cue: loud ? ALERT_CUE[tier] : null,
+          at: loud ? centre : null,
+          marks: loud && centre !== null ? [centre] : [],
+          count: 1,
+        });
+      };
+      const cutAlert = (): void => {
+        // A takeover can land on a line already cut with no `corridor` event:
+        // read the world, remember it, and say so.
+        const cutAt = world.supplyCutAt(e.zone);
+        if (cutAt === null) return;
+        editCuts((m) => m.set(e.zone, 'cut'));
+        const loud = zoneMayCue(e.zone + '/cut');
+        ground.push({
+          kind: 'supply',
+          tier: 'important',
+          tone: 'warn',
+          line: { key: 'alert.supply.cut', params: { what: 'zone' }, tone: 'warn', place: [world.placeOf(cutAt.x, cutAt.y)] },
+          cue: loud ? ALERT_CUE.important : null,
+          at: loud ? cutAt : null,
+          marks: loud ? [cutAt] : [],
           count: 1,
         });
       };
@@ -380,7 +418,10 @@ export function alertsForTick(
         if (prev === 'own') say('alert.zone.contested', 'minor', 'warn');
       } else if (isOwnSide(e.holder, viewer)) {
         next = 'own';
-        if (prev !== 'own') say('alert.zone.gained', 'minor', 'good');
+        if (prev !== 'own') {
+          say('alert.zone.gained', 'minor', 'good');
+          cutAlert();
+        }
       } else {
         next = undefined;
         if (prev !== undefined) say('alert.zone.lost', 'important', 'warn');
@@ -400,7 +441,11 @@ export function alertsForTick(
       const place = at === null ? [] : [world.placeOf(at.x, at.y)];
       const what = e.zone === null ? 'convoy' : 'zone';
       if (e.cut !== null) {
+        // A cut that only changes cause (interdicted -> vent -> unreachable)
+        // is the same news: store the new cause, say nothing.
+        const already = remembered !== undefined;
         editCuts((m) => m.set(name, e.cut as string));
+        if (already) continue;
         ground.push({
           kind: 'supply',
           tier: 'important',
@@ -547,9 +592,9 @@ export function alertsForTick(
   const lastPinned = pinnedSounds ? tick : state.lastPinned;
   const nextState: AlertState =
     lastUnderFire === state.lastUnderFire && wavesSeen === state.wavesSeen && lastPinned === state.lastPinned && tunnelsAnnounced === state.tunnelsAnnounced &&
-    zones === state.zones && cuts === state.cuts
+    zones === state.zones && cuts === state.cuts && zoneCued === state.zoneCued
       ? state
-      : { lastUnderFire, wavesSeen, lastPinned, tunnelsAnnounced, zones, cuts };
+      : { lastUnderFire, wavesSeen, lastPinned, tunnelsAnnounced, zones, cuts, zoneCued };
 
   // --- emit, loudest first ------------------------------------------------
   for (const [typeId, entities] of lostByType) {

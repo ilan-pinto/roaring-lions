@@ -1175,7 +1175,7 @@
   "alert.zone.gained": "<b>ground held</b> — income zone ours{where, select, yes { · {place}} other {}}",
   "alert.zone.contested": "<b>ground contested</b> — an enemy is inside{where, select, yes { · {place}} other {}}",
   "alert.zone.lost": "<b>ground lost</b> — income zone no longer ours{where, select, yes { · {place}} other {}}",
-  "alert.supply.cut": "<b>supply cut</b> — {what, select, convoy {convoy route} other {income line}} halved{where, select, yes { · {place}} other {}}",
+  "alert.supply.cut": "<b>supply cut</b> — {what, select, convoy {convoy income} other {income from this ground}} halved{where, select, yes { · {place}} other {}}",
   "alert.supply.open": "<b>supply open</b> — {what, select, convoy {convoy route} other {income line}} restored{where, select, yes { · {place}} other {}}",
   "alert.place.here": "in view",
   "alert.place.n": "north",

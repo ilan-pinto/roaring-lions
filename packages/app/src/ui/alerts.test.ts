@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { MissionEvent, SimEvent } from '@lions/sim';
 import { MISSION_EVENT_KINDS } from '@lions/sim';
 import { MISSION_EVENT_SOUND, tickCue } from './cues';
@@ -35,9 +35,11 @@ const world: AlertWorld = {
   // camera; `holders` is what the runtime would answer, set per test.
   zoneAt: (z) => (z === 'staging' ? { x: 2, y: 3 } : z === 'east_pass' ? { x: 30, y: 10 } : null),
   zoneHolder: (z) => holders.get(z) ?? -1,
-  supplyCutAt: (z) => (z === null ? { x: 20.5, y: 4.5 } : z === 'east_pass' ? { x: 12.5, y: 9.5 } : null),
+  supplyCutAt: (z) => (z === null ? { x: 20.5, y: 4.5 } : z === 'east_pass' && cutZones.has(z) ? { x: 12.5, y: 9.5 } : null),
 };
 const holders = new Map<string, number>();
+/** Zones whose supply line the runtime would report cut right now. */
+const cutZones = new Set<string>();
 const destroyed = (entity: number, by: number): SimEvent => ({ kind: 'destroyed', tick: 0, entity, by }) as SimEvent;
 const lost = (entity: number, unit: string): MissionEvent =>
   ({ kind: 'unitLost', tick: 0, entity, side: 0, unit }) as MissionEvent;
@@ -662,9 +664,16 @@ describe('alertsForTick — a seat on side 1 (N1a task 6)', () => {
 describe('alertsForTick — held ground and supply lines (F2)', () => {
   const zh = (zone: string, holder: -1 | 0 | 1, contested = false): MissionEvent =>
     ev<'zoneHolder'>({ kind: 'zoneHolder', tick: 0, zone, holder, contested });
-  const cor = (zone: string | null, cut: 'unreachable' | 'interdicted' | 'vent' | null): MissionEvent =>
-    ev<'corridor'>({ kind: 'corridor', tick: 0, zone, cut });
+  afterEach(() => {
+    holders.clear();
+    cutZones.clear();
+  });
+  const cor = (zone: string | null, cut: 'unreachable' | 'interdicted' | 'vent' | null): MissionEvent => {
+    if (zone !== null && cut !== null) cutZones.add(zone);
+    return ev<'corridor'>({ kind: 'corridor', tick: 0, zone, cut });
+  };
   const run = (events: MissionEvent[], state = initAlertState(), tick = 40) => alertsForTick(state, [], events, world, tick);
+  const LATER = 400;
   const keyOf = (a: { line: { key: string } | null }) => a.line?.key;
 
   it('gained is minor and good, placed at the zone centre, with the minor cue', () => {
@@ -685,7 +694,7 @@ describe('alertsForTick — held ground and supply lines (F2)', () => {
 
   it('contested is minor and warn, only on ground we held', () => {
     const held = run([zh('east_pass', 0)]).state;
-    const { alerts } = run([zh('east_pass', -1, true)], held);
+    const { alerts } = run([zh('east_pass', -1, true)], held, LATER);
     expect(alerts).toMatchObject([{ kind: 'zone', tier: 'minor', tone: 'warn', cue: 'alert.minor', line: { key: 'alert.zone.contested', place: ['e'] } }]);
     expect(run([zh('east_pass', -1, true)]).alerts).toEqual([]);
   });
@@ -693,11 +702,11 @@ describe('alertsForTick — held ground and supply lines (F2)', () => {
   it('lost is important and warn, whether the enemy took it or it emptied', () => {
     const held = run([zh('staging', 0)]).state;
     for (const e of [zh('staging', 1), zh('staging', -1)]) {
-      expect(run([e], held).alerts).toMatchObject([{ kind: 'zone', tier: 'important', tone: 'warn', cue: 'alert.important', line: { key: 'alert.zone.lost' } }]);
+      expect(run([e], held, LATER).alerts).toMatchObject([{ kind: 'zone', tier: 'important', tone: 'warn', cue: 'alert.important', line: { key: 'alert.zone.lost' } }]);
     }
     // ... and from contested too, once.
-    const contested = run([zh('staging', -1, true)], held).state;
-    expect(run([zh('staging', 1)], contested).alerts.map(keyOf)).toEqual(['alert.zone.lost']);
+    const contested = run([zh('staging', -1, true)], held, LATER).state;
+    expect(run([zh('staging', 1)], contested, LATER * 2).alerts.map(keyOf)).toEqual(['alert.zone.lost']);
   });
 
   it('an enemy taking ground we never held is silent', () => {
@@ -707,8 +716,8 @@ describe('alertsForTick — held ground and supply lines (F2)', () => {
 
   it('regaining ground after a contest is gained again; holding it again is not repeated', () => {
     const a = run([zh('staging', 0)]);
-    const b = run([zh('staging', -1, true)], a.state);
-    expect(run([zh('staging', 0)], b.state).alerts.map(keyOf)).toEqual(['alert.zone.gained']);
+    const b = run([zh('staging', -1, true)], a.state, LATER);
+    expect(run([zh('staging', 0)], b.state, LATER * 2).alerts.map(keyOf)).toEqual(['alert.zone.gained']);
     expect(run([zh('staging', 0)], a.state).alerts).toEqual([]);
   });
 
@@ -774,7 +783,7 @@ describe('alertsForTick — held ground and supply lines (F2)', () => {
     const pushes: string[] = [];
     let ms = 0;
     for (const holder of [0, -1, 0, -1, 0] as const) {
-      const r = alertsForTick(state, [], [zh('staging', holder)], world, 40);
+      const r = alertsForTick(state, [], [zh('staging', holder)], world, 40 + ms / 50);
       state = r.state;
       expect(tickCue(r.alerts.map((a) => a.cue))).toBe(r.alerts.length > 0 ? r.alerts[0].cue : null);
       for (const a of r.alerts) if (a.line) pushes.push(feed.push(JSON.stringify([a.line.key, a.line.place]), (ms += 1000)).kind);
@@ -782,6 +791,57 @@ describe('alertsForTick — held ground and supply lines (F2)', () => {
     // gained, lost, gained, lost, gained: the two keys alternate, and each
     // repeat inside 8 s merges into the line already saying so.
     expect(pushes).toEqual(['new', 'new', 'merged', 'merged', 'merged']);
+  });
+
+  const flicker = (zone: string, holders_: readonly (readonly [number, boolean])[], from: number, step: number) => {
+    let state = initAlertState();
+    const out: { cue: string | null; marks: number; at: unknown }[] = [];
+    holders_.forEach(([h, c], i) => {
+      const r = alertsForTick(state, [], [zh(zone, h as -1 | 0 | 1, c)], world, from + i * step);
+      state = r.state;
+      for (const a of r.alerts) out.push({ cue: a.cue, marks: a.marks.length, at: a.at });
+    });
+    return { out, state };
+  };
+
+  it('a 0/-1 flicker cues and marks once a window; a genuine change after it cues again', () => {
+    const seq = Array.from({ length: 20 }, (_, i) => [i % 2 === 0 ? 0 : -1, false] as const);
+    const { out, state } = flicker('staging', seq, 40, 4);
+    // 20 flips over 76 ticks, inside one 200-tick window: every line, one cue.
+    expect(out).toHaveLength(20);
+    expect(out.filter((o) => o.cue !== null)).toHaveLength(1);
+    expect(out.filter((o) => o.marks > 0)).toHaveLength(1);
+    expect(out.filter((o) => o.at !== null)).toHaveLength(1);
+    const later = alertsForTick(state, [], [zh('staging', 0)], world, 40 + 76 + 250).alerts;
+    expect(later).toMatchObject([{ cue: 'alert.minor', marks: [{ x: 2, y: 3 }] }]);
+  });
+
+  it('a 0/-2 (contested) flicker is held to one cue and one mark a window too', () => {
+    const seq = Array.from({ length: 20 }, (_, i) => (i % 2 === 0 ? ([0, false] as const) : ([-1, true] as const)));
+    const { out } = flicker('staging', seq, 40, 4);
+    expect(out.filter((o) => o.cue !== null)).toHaveLength(1);
+    expect(out.filter((o) => o.marks > 0)).toHaveLength(1);
+  });
+
+  it('a cut that changes cause is not announced again, and a later open still is', () => {
+    holders.set('east_pass', 0);
+    const first = run([cor('east_pass', 'interdicted')]);
+    expect(first.alerts.map(keyOf)).toEqual(['alert.supply.cut']);
+    const again = run([cor('east_pass', 'vent')], first.state);
+    expect(again.alerts).toEqual([]);
+    const third = run([cor('east_pass', 'unreachable')], again.state);
+    expect(third.alerts).toEqual([]);
+    expect(run([cor('east_pass', null)], third.state).alerts.map(keyOf)).toEqual(['alert.supply.open']);
+  });
+
+  it('taking a zone whose line is already cut announces the cut (no corridor event came)', () => {
+    cutZones.add('east_pass');
+    holders.set('east_pass', 0);
+    const { alerts, state } = run([zh('east_pass', 0)]);
+    expect(alerts.map(keyOf)).toEqual(['alert.zone.gained', 'alert.supply.cut']);
+    expect(alerts[1]).toMatchObject({ tier: 'important', at: { x: 12.5, y: 9.5 } });
+    // remembered, so the line opening later is news
+    expect(run([cor('east_pass', null)], state).alerts.map(keyOf)).toEqual(['alert.supply.open']);
   });
 
   it('two zone events in one tick raise one cue', () => {
