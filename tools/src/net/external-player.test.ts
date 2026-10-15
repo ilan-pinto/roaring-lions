@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runArena } from './arena';
 import type { GameRecord } from './arena-score';
-import { externalPlayer, parseTemplate, renderTemplate, tokensOf, type SpawnFn } from './external-player';
+import { externalPlayer, parseTemplate, renderTemplate, tempRoot, tokensOf, type SpawnFn } from './external-player';
 import { startLocalRelay, type LocalRelay } from './local-relay';
 import { inProcess, passive, type ArenaPlayer, type RunningPlayer } from './players';
 
@@ -292,4 +292,23 @@ describe('a model over MCP, end to end (the stand-in client, no model, no key)',
       expect(game.score).toBeDefined();
     }
   }, 180_000);
+});
+
+describe('LIONS_ARENA_TMPDIR (test-only)', () => {
+  it('an absolute path is used; anything else is ignored for os.tmpdir(), with one warning', () => {
+    const before = process.env.LIONS_ARENA_TMPDIR;
+    cleanups.push(() => { if (before === undefined) delete process.env.LIONS_ARENA_TMPDIR; else process.env.LIONS_ARENA_TMPDIR = before; });
+    const warned: string[] = [];
+    const warn = (l: string): void => { warned.push(l); };
+    delete process.env.LIONS_ARENA_TMPDIR;
+    expect(tempRoot(warn)).toBe(tmpdir());
+    process.env.LIONS_ARENA_TMPDIR = '/abs/arena-root';
+    expect(tempRoot(warn)).toBe('/abs/arena-root');
+    expect(warned).toEqual([]);
+    process.env.LIONS_ARENA_TMPDIR = 'relative/arena-root';
+    expect(tempRoot(warn)).toBe(tmpdir());
+    expect(tempRoot(warn)).toBe(tmpdir());
+    expect(warned).toHaveLength(1);
+    expect(warned[0]).toMatch(/must be an absolute path; ignoring "relative\/arena-root"/);
+  });
 });
