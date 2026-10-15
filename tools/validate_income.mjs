@@ -12,39 +12,15 @@
 // import time and exits.
 
 /**
- * PENDING EXEMPTION (F2 C-R1): these two missions set `supply_corridor` and still name no
- * `supply_entry`, because the lead lands their mission-data commit (Task 8). The marker is
- * already on their maps. Delete an entry the moment its mission names an entry: the demotion
- * check below fails otherwise.
- */
-export const CORRIDOR_ENTRY_EXEMPT = ['umm_zeitoun_2_buildup', 'umm_zeitoun_4_clearance'];
-
-/**
  * @param {unknown} mission  a parsed mission
  * @param {unknown} map      the parsed map JSON the mission plays on
  * @param {string} file      for messages
- * @param {readonly string[]} [exempt]
  */
-export function incomeFailures(mission, map, file, exempt = CORRIDOR_ENTRY_EXEMPT) {
+export function incomeFailures(mission, map, file) {
   const out = [];
   const id = mission?.id ?? file;
   const res = mission?.resources;
-  const exempted = exempt.includes(id);
   const entry = res?.supply_entry;
-  // Demotion first, before anything can return early: an exemption that excuses nothing is
-  // itself a failure, and that includes an exempt mission that lost its `resources` block.
-  if (exempted && (entry !== undefined || res?.supply_corridor !== true)) {
-    out.push(
-      `${file}: ${id} is on the pending supply_entry exemption but ` +
-        (entry !== undefined
-          ? `now names supply_entry "${entry}"`
-          : res === undefined
-            ? 'no longer has a resources block'
-            : 'no longer sets supply_corridor') +
-        ' -- delete it from CORRIDOR_ENTRY_EXEMPT in tools/validate_income.mjs and its test' +
-        ' (tools/src/validate_income.test.ts)'
-    );
-  }
   if (res === undefined) return out;
 
   const zones = new Set(Object.keys(map?.zones ?? {}));
@@ -65,7 +41,7 @@ export function incomeFailures(mission, map, file, exempt = CORRIDOR_ENTRY_EXEMP
   if (entry !== undefined && !markers.has(entry)) {
     out.push(`${file}: ${id} supply_entry "${entry}" is not a marker on map "${mission?.map?.file}"`);
   }
-  if (res.supply_corridor === true && entry === undefined && !exempted) {
+  if (res.supply_corridor === true && entry === undefined) {
     out.push(`${file}: ${id} sets supply_corridor but names no supply_entry -- the convoy has no entry to route from`);
   }
   return out;

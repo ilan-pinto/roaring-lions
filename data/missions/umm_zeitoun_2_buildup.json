@@ -50,7 +50,12 @@
     "logistics_start": 500,
     "logistics_rate_per_min": 150,
     "intel_start": 150,
-    "supply_corridor": true
+    "supply_corridor": true,
+    "supply_entry": "supply_entry",
+    "income_zones": [
+      { "zone": "crest_line", "rate_per_min": 50 },
+      { "zone": "post_stone", "rate_per_min": 30 }
+    ]
   },
   "structures": [
     { "type": "camp", "at": [20, 43], "size": [2, 2] }

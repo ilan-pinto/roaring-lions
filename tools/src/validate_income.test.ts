@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { describe, expect, it } from 'vitest';
-import { CORRIDOR_ENTRY_EXEMPT, incomeFailures } from '../validate_income.mjs';
+import { incomeFailures } from '../validate_income.mjs';
 
 const map = {
   id: 'm',
@@ -12,12 +12,11 @@ const map = {
   markers: { gate: [0, 7], rear: [3, 3] },
 };
 const mission = (resources: Record<string, unknown>, id = 'fixture_m') => ({ id, map: { file: 'm' }, resources });
-const run = (resources: Record<string, unknown>, id?: string, exempt: readonly string[] = []) =>
-  incomeFailures(mission(resources, id), map, 'fixture.json', exempt);
+const run = (resources: Record<string, unknown>, id?: string) => incomeFailures(mission(resources, id), map, 'fixture.json');
 
 describe('incomeFailures on fixtures', () => {
   it('passes a mission with no resources, and one with only a base rate', () => {
-    expect(incomeFailures({ id: 'x' }, map, 'x.json', [])).toEqual([]);
+    expect(incomeFailures({ id: 'x' }, map, 'x.json')).toEqual([]);
     expect(run({ logistics_rate_per_min: 20 })).toEqual([]);
   });
   it('passes declared zones, each once, and a declared entry', () => {
@@ -54,42 +53,6 @@ describe('incomeFailures on fixtures', () => {
   it('refuses an entry that names a zone but not a marker', () => {
     expect(run({ supply_entry: 'hill' })).toHaveLength(1);
   });
-
-  describe('the pending exemption', () => {
-    it('excuses a listed mission that sets the corridor with no entry', () => {
-      expect(run({ supply_corridor: true }, 'fixture_m', ['fixture_m'])).toEqual([]);
-    });
-    it('is demoted (fails) when the listed mission now names an entry', () => {
-      const out = run({ supply_corridor: true, supply_entry: 'gate' }, 'fixture_m', ['fixture_m']);
-      expect(out).toHaveLength(1);
-      expect(out[0]).toContain('delete it from CORRIDOR_ENTRY_EXEMPT');
-    });
-    it('is demoted when the listed mission no longer sets the corridor', () => {
-      const out = run({}, 'fixture_m', ['fixture_m']);
-      expect(out).toHaveLength(1);
-      expect(out[0]).toContain('no longer sets supply_corridor');
-    });
-    const lostResources = () =>
-      incomeFailures({ id: 'fixture_m', map: { file: 'fixture_map' } }, { zones: {}, markers: {} }, 'fixture_m.json', ['fixture_m']);
-    it('is demoted when the listed mission loses its resources block (checked before the early return)', () => {
-      const out = lostResources();
-      expect(out).toHaveLength(1);
-      expect(out[0]).toContain('no longer has a resources block');
-    });
-    it('every demotion message says to delete the exemption AND its test', () => {
-      for (const out of [
-        run({ supply_corridor: true, supply_entry: 'gate' }, 'fixture_m', ['fixture_m']),
-        run({}, 'fixture_m', ['fixture_m']),
-        lostResources(),
-      ]) {
-        expect(out).toHaveLength(1);
-        expect(out[0]).toContain('delete it from CORRIDOR_ENTRY_EXEMPT in tools/validate_income.mjs and its test');
-      }
-    });
-    it('names exactly the two Umm Zeitoun missions awaiting the lead', () => {
-      expect([...CORRIDOR_ENTRY_EXEMPT].sort()).toEqual(['umm_zeitoun_2_buildup', 'umm_zeitoun_4_clearance']);
-    });
-  });
 });
 
 describe('every shipped mission passes the income cross-checks', () => {
@@ -104,20 +67,6 @@ describe('every shipped mission passes the income cross-checks', () => {
   it('finds the missions and the maps (the loop below is not vacuous)', () => {
     expect(files.length).toBeGreaterThan(20);
     expect(maps.size).toBeGreaterThan(5);
-  });
-  it('the demotion fires on a shipped exempt mission that gains an entry (in-memory copy)', () => {
-    for (const id of CORRIDOR_ENTRY_EXEMPT) {
-      const m = JSON.parse(readFileSync(join(root, 'missions', `${id}.json`), 'utf8'));
-      const mp = maps.get(m.map.file);
-      expect(m.resources.supply_corridor, `${id} still sets the corridor`).toBe(true);
-      expect(m.resources.supply_entry, `${id} still names no entry`).toBeUndefined();
-      const copy = { ...m, resources: { ...m.resources, supply_entry: 'supply_entry' } };
-      const out = incomeFailures(copy, mp, `${id}.json`);
-      expect(out).toHaveLength(1);
-      expect(out[0]).toContain('delete it from CORRIDOR_ENTRY_EXEMPT');
-      // ... and the same copy passes once the exemption is gone.
-      expect(incomeFailures(copy, mp, `${id}.json`, [])).toEqual([]);
-    }
   });
   for (const f of files) {
     it(f, () => {
