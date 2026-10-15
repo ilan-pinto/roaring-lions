@@ -4103,7 +4103,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           const wordKey = SUPPORT[call].word;
           hud.note(
             out.ok
-              ? t('main.note.supportCalled', { name: t(wordKey), x: out.x.toFixed(0), y: out.y.toFixed(0) })
+              ? t('main.note.supportCalled', { name: t(wordKey) })
               : t(out.why === 'intel' ? 'main.note.supportRefused' : 'main.note.supportNoCaller'),
             ok ? 'info' : 'mute'
           );

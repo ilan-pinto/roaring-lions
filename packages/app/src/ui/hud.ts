@@ -2452,7 +2452,6 @@ export class Hud {
     if (type.canDemolish) caps.push(t('hud.card.cap.demolish'));
     if (type.isKamikaze) caps.push(t('hud.card.cap.kamikaze'));
     if (type.transportSlots > 0) caps.push(t('hud.card.cap.transport', { n: type.transportSlots }));
-    if (type.canMarkTarget) caps.push(t('hud.card.cap.markTarget'));
     if (caps.length === 0) caps.push(t('hud.card.cap.none'));
 
     return (
