@@ -6,10 +6,10 @@ import { sandboxAnchors, type SandboxAnchors } from '../sandbox-anchors';
 import { upgradePrepass, type UpgradePrepass } from '../upgrade-prepass';
 import { factionsBySide, versusSpawns } from './versus-force';
 
-/** The world a versus room plays at tick 0. */
 /** One unit of the shipped roster, as the prepass takes and returns it. */
 export type RosterUnit = (typeof units)[keyof typeof units];
 
+/** The world a versus room plays at tick 0. */
 export interface MatchWorld {
   sim: Sim;
   /** Side 0's id -> sim type index; the same object as `typeOfBySide[0]`. */
@@ -70,7 +70,8 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
   // Each side's kit comes from the CONFIG alone (never this machine's
   // account), so both seats register the same types in the same order. Side
   // 0 registers the whole roster, as every room always has; side 1 appends a
-  // copy only of a KDF type whose kit differs from side 0's, in roster order.
+  // copy only of a KDF type whose kit differs from side 0's, in roster order,
+  // and only when side 1 is itself a KDF side.
   // A matched room, or a brigade room whose seats claim the same kit,
   // therefore registers exactly the roster and nothing else.
   const roster: readonly RosterUnit[] = Object.values(units);
@@ -82,15 +83,16 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
   const typeOf = new Map<string, number>();
   for (const registered of kitBySide[0].registered) typeOf.set(registered.id, sim.addUnitType(registered));
   const typeOf1 = new Map(typeOf);
+  const factions = factionsBySide(config);
   roster.forEach((u, k) => {
-    if (u.faction !== 'kdf') return;
+    // A Sarim side 1 fields no KDF type, so a copy for it would be registered and never spawned.
+    if (factions[1] !== 'kdf' || u.faction !== 'kdf') return;
     if (sameKit(kitBySide[0].unitKitTiers[u.id], kitBySide[1].unitKitTiers[u.id])) return;
     typeOf1.set(u.id, sim.addUnitType(kitBySide[1].registered[k]));
   });
   const typeOfBySide = [typeOf, typeOf1] as const;
 
   const anchors = sandboxAnchors(mapJson);
-  const factions = factionsBySide(config);
   const { bySide } = versusSpawns(sim, typeOfBySide, anchors, factions);
   return { sim, typeOf, typeOfBySide, kitBySide, mapJson, map, anchors, factions, bySide };
 }

@@ -127,6 +127,14 @@ describe('buildMatchWorld: each side registers and spawns its own kit', () => {
     const sarim = buildMatchWorld(brigade('tel_marum', [{}, LAVI1], { factions: ['kdf', 'sarim'] }));
     expect(sarim.sim.unitTypes.length).toBe(MATCHED_TYPES);
   });
+
+  it("a kitted KDF side 0 against a Sarim side 1 registers no copy side 1 could never spawn", () => {
+    // Side 1's kit ({}) differs from side 0's, but side 1 is Sarim and fields
+    // no KDF type: a base copy for it would be registered and never used.
+    const w = buildMatchWorld(brigade('tel_marum', [LAVI1, {}], { factions: ['kdf', 'sarim'] }));
+    expect(w.sim.unitTypes.length).toBe(MATCHED_TYPES);
+    expect(laviHp(w, 0)).toEqual([LAVI_ARMOUR1_HP, LAVI_ARMOUR1_HP]);
+  });
 });
 
 describe("seatKitTiers: a seat's claim as the world reads it", () => {
@@ -172,5 +180,46 @@ describe("seatKitTiers: a seat's claim as the world reads it", () => {
     const at16 = hashAfter(buildMatchWorld(brigade('tel_marum', [{}, { mbt_lavi: { armour: 16 } }])), 20);
     const at3 = hashAfter(buildMatchWorld(brigade('tel_marum', [{}, { mbt_lavi: { armour: 3 } }])), 20);
     expect(at16).toBe(at3);
+  });
+});
+
+describe("a matched room, and a brigade room with equal claims, build today's bytes", () => {
+  // LITERALS: the same two pins the first describe holds (seed 20260727, 200 ticks).
+  const PINS = [['beit_sahwan_outskirts', 3043363756], ['tel_marum', 1260439781]] as const;
+  const SEED = 20260727;
+
+  it("kit 'matched' with empty tiers: the pins, and the roster registered once", () => {
+    for (const [map, pin] of PINS) {
+      const w = buildMatchWorld(config(map, ['kdf', 'kdf'], SEED));
+      expect(w.sim.unitTypes.length).toBe(MATCHED_TYPES);
+      expect(hashAfter(w, 200)).toBe(pin);
+    }
+  });
+
+  it("kit 'brigade' with empty tiers on both seats: the same pins, the same type count", () => {
+    for (const [map, pin] of PINS) {
+      const w = buildMatchWorld(brigade(map, [{}, {}], { seed: SEED }));
+      expect(w.sim.unitTypes.length).toBe(MATCHED_TYPES);
+      expect(hashAfter(w, 200)).toBe(pin);
+    }
+  });
+
+  it("kit 'brigade' with EQUAL non-empty claims: the roster once, one kit on both sides, one type per placement", () => {
+    for (const [map] of PINS) {
+      const w = buildMatchWorld(brigade(map, [LAVI1, LAVI1], { seed: SEED }));
+      expect(w.sim.unitTypes.length).toBe(MATCHED_TYPES);
+      expect(laviHp(w, 0)).toEqual([LAVI_ARMOUR1_HP, LAVI_ARMOUR1_HP]);
+      expect(laviHp(w, 1)).toEqual([LAVI_ARMOUR1_HP, LAVI_ARMOUR1_HP]);
+      // Both sides read one id -> index table, so a placement and its mirror share a type.
+      for (const [id, idx] of w.typeOfBySide[0]) expect(w.typeOfBySide[1].get(id)).toBe(idx);
+      expect(w.bySide[0].map((i) => w.sim.state.typeIdx[i])).toEqual(w.bySide[1].map((i) => w.sim.state.typeIdx[i]));
+    }
+  });
+
+  it("two equal non-empty claims given in a different key order build one world", () => {
+    const a: Tiers = { mbt_lavi: { armour: 1, firepower: 1 } };
+    const b: Tiers = { mbt_lavi: { firepower: 1, armour: 1 } };
+    const w = buildMatchWorld(brigade('tel_marum', [a, b], { seed: SEED }));
+    expect(w.sim.unitTypes.length).toBe(MATCHED_TYPES);
   });
 });

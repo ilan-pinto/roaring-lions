@@ -1,12 +1,12 @@
 /**
- * N2-P5, the per-seat unit types spike (ruling L2, 15 Oct): can each SEAT of a
- * versus room field its own kit -- side 1's KDF types patched by bought tiers
- * while side 0's are not -- with no sim code at all?
+ * N2-P5, the per-seat unit types spike (ruling L2, 15 Oct), and what shipped
+ * from it: can each SEAT of a versus room field its own kit -- side 1's KDF
+ * types patched by bought tiers while side 0's are not -- with no sim code at
+ * all?
  *
  * The recipe is app-side only: register the roster once (side 0, the base
  * ladder, exactly the mirror's world), then register a SECOND, patched copy
- * of every KDF type through the app's own `upgradePrepass` (the very loop
- * `bootBattlefield` and `buildMatchWorld` register through), and spawn each
+ * of every KDF type through the app's own `upgradePrepass`, and spawn each
  * side through its own id -> type-index map. The sim keys nothing on a type's
  * `id` (`addUnitType` appends; the only reads of `UnitType.id` in the sim are
  * the `spawn` event and the mission runtime, which a room does not run), so
@@ -15,13 +15,16 @@
  * The patched copy KEEPS the base id (`applyUpgrades` patches stats, never
  * the id), which is why `forcesOf` and `scoreOf` -- both of which price a unit
  * by `unitCost(sim.unitTypes[typeIdx[i]].id)` -- price it at the base cost
- * with no mapping. Whether a kitted unit SHOULD be worth more on the board is
- * a design call for the per-seat-kit work, not something this spike decides.
+ * with no mapping. That is the shipped rule for this version (ruling, 16 Oct):
+ * a kitted unit is worth its base cost on the board.
  *
- * The world is `buildWorld` rather than `buildMatchWorld`: the latter spawns
- * both forces through ONE type map inside itself, so a per-side spawn cannot
- * be put through it without changing app code, and this spike is a test only.
- * The control below pins that this world and spawner ARE the mirror.
+ * The first half of this file builds the spike's own world by hand
+ * (`buildWorld` plus a per-side spawner copied from `versusSpawns`), which is
+ * how the question was first answered and the control pins that this world IS
+ * the mirror. The shipped builder is `buildMatchWorld` (`match-world.ts`): it
+ * registers side 0's roster, appends a copy only of a KDF type whose cleaned
+ * claim (`seatKitTiers`) differs on side 1, and spawns each side through its
+ * own table -- the last describe here runs that builder end to end.
  */
 import { describe, it, expect } from 'vitest';
 import { applyUpgrades, readPath, units, type UpgradableUnit } from '@lions/data';
@@ -29,6 +32,8 @@ import { fx, type Sim } from '@lions/sim';
 import { VERSUS_KDF } from './versus-force';
 import { forcesOf, unitCost } from './outcome';
 import { scoreOf } from './scoreboard';
+import { validateConfig, type MatchConfig } from '@lions/net';
+import { buildMatchWorld, type MatchWorld } from './match-world';
 import { upgradePrepass } from '../upgrade-prepass';
 import { sandboxAnchors, type SandboxAnchors } from '../sandbox-anchors';
 import { hostileFacing } from '../sandbox-facing';
@@ -282,5 +287,46 @@ describe('per-seat unit types with no sim code (N2-P5, ruling L2)', () => {
     expect(s0.remaining).toBe(valueOf(even));
     expect(s0.destroyedValue).toBe(s1.lostValue);
     expect(forcesOf(sim)).toEqual([valueOf(even), valueOf(odd)]);
+  });
+});
+
+describe('the shipped builder (buildMatchWorld) with side 1 on a kit', { timeout: 60_000 }, () => {
+  /** A beit room on the probe's seed; side 1 claims the armour and firepower
+   *  tiers on every KDF type (the spike's `KIT`), side 0 claims nothing. */
+  function room(kit1: 'matched' | 'brigade'): MatchConfig {
+    const seat = (s: 0 | 1) => ({
+      seat: s, side: s, faction: 'kdf', kit: s === 1 ? kit1 : 'brigade', tiers: s === 1 ? KIT : {},
+      unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human',
+    });
+    const c = validateConfig({
+      matchId: 'M', code: 'ABCDEF', seed: 20260727, map: 'beit_sahwan_outskirts', mode: 'versus', seats: [seat(0), seat(1)],
+      pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b', dataDigest: 0,
+    });
+    if (c === null) throw new Error('bad fixture');
+    return c;
+  }
+  const play = (w: MatchWorld, ticks: number): MatchWorld => {
+    for (let t = 0; t < ticks; t++) {
+      if (t % ORDER_EVERY === 0) order(w.sim, w.bySide);
+      w.sim.tick();
+    }
+    return w;
+  };
+  const fateOf = (w: MatchWorld) =>
+    w.bySide.map((ids) => ids.map((i) => [w.sim.state.alive[i], w.sim.state.hp[i], w.sim.state.posX[i], w.sim.state.posY[i]]));
+
+  it("the fight differs from the matched room's, and the board still prices at base cost (6664 a side at tick 0)", () => {
+    const matched = buildMatchWorld(room('matched'));
+    const kitted = buildMatchWorld(room('brigade'));
+    expect(forcesOf(kitted.sim)).toEqual([6664, 6664]);
+    expect(forcesOf(matched.sim)).toEqual([6664, 6664]);
+    const [k0, k1] = scoreOf(kitted.sim);
+    expect([k0.remaining, k1.remaining]).toEqual([6664, 6664]);
+    expect([k0.lostValue, k1.lostValue]).toEqual([0, 0]);
+    expect(fateOf(play(kitted, BATTLE_TICKS))).not.toEqual(fateOf(play(matched, BATTLE_TICKS)));
+    // After combat the board still sums to the base cost, kitted losses included.
+    const [s0, s1] = scoreOf(kitted.sim);
+    expect(s1.lostValue + s1.remaining).toBe(6664);
+    expect(s0.lostValue + s0.remaining).toBe(6664);
   });
 });
