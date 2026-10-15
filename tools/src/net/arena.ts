@@ -158,6 +158,8 @@ export interface ArenaDeps {
   startRelay?: (o: LocalRelayOptions) => Promise<LocalRelay>;
   /** The player a spec names; default `resolvePlayer`. */
   resolvePlayer?: (spec: string, log: (line: string) => void) => ArenaPlayer;
+  /** The reader for a game with no in-process seat; default `startObserver`. */
+  startObserver?: typeof startObserver;
   now?: () => Date;
 }
 
@@ -347,7 +349,7 @@ export async function startObserver(relay: Pick<LocalRelay, 'url' | 'origin'>, c
 
 /** One game on its own relay, to a result or the cap. Every player and the
  *  relay are closed before it returns, whatever happened. */
-async function playGame(g: GameSpec, a: ArenaArgs, build: string, startRelay: NonNullable<ArenaDeps['startRelay']>, log: (line: string) => void): Promise<GameRecord> {
+async function playGame(g: GameSpec, a: ArenaArgs, build: string, startRelay: NonNullable<ArenaDeps['startRelay']>, observe: typeof startObserver, log: (line: string) => void): Promise<GameRecord> {
   const relay = await startRelay({ tickMs: a.tickMs, seedFor: () => g.seed, log });
   const running: RunningPlayer[] = [];
   let observer: (RunningPlayer & { client: AgentClient }) | null = null;
@@ -359,7 +361,7 @@ async function playGame(g: GameSpec, a: ArenaArgs, build: string, startRelay: No
     const clients: [AgentClient | null, AgentClient | null] = [running[0].client, running[1].client];
     // An external player has no client here: with neither seat in this
     // process, the arena reads the game through seat 0's own advisor.
-    if (clients[0] === null && clients[1] === null) observer = await startObserver(relay, code, tickets[0], build, a.capTicks, log);
+    if (clients[0] === null && clients[1] === null) observer = await observe(relay, code, tickets[0], build, a.capTicks, log);
     const referee = clients[0] ?? clients[1] ?? observer?.client ?? null;
     if (referee === null) throw new Error('the arena has no client to read the match through');
     const config = await withTimeout(referee.ready, START_TIMEOUT_MS, 'the match start');
@@ -397,7 +399,10 @@ async function playGame(g: GameSpec, a: ArenaArgs, build: string, startRelay: No
       outcome: verdict.outcome, by: verdict.by, ticks: referee.tick(), score: scoreOf(sim), reports,
     };
   } finally {
-    if (observer !== null) await observer.stop();
+    // Every close is guarded: one that fails is logged and the next still runs.
+    if (observer !== null) {
+      try { await observer.stop(); } catch (e) { log(`stopping the observer: ${messageOf(e)}`); }
+    }
     for (const r of running) {
       try { await r.stop(); } catch (e) { log(`stopping a player: ${messageOf(e)}`); }
     }
@@ -419,6 +424,7 @@ export async function runArena(argv: readonly string[], deps: ArenaDeps = {}): P
   const log = deps.log ?? ((line: string) => { process.stderr.write(`${line}\n`); });
   const print = deps.print ?? ((line: string) => { process.stdout.write(`${line}\n`); });
   const startRelay = deps.startRelay ?? startLocalRelay;
+  const observe = deps.startObserver ?? startObserver;
   const fail = (code: number, why: string): ArenaRun => { log(`arena: ${why}`); return { code, games: [], tally: null, files: null }; };
 
   const a = parseArgs(argv);
@@ -437,7 +443,8 @@ export async function runArena(argv: readonly string[], deps: ArenaDeps = {}): P
     return fail(1, messageOf(e));
   }
 
-  const dir = resolve(a.out ?? join(process.env.INIT_CWD ?? process.cwd(), 'arena-results'));
+  // `pnpm --filter` runs this from tools/: a relative path means what it says where the user ran pnpm.
+  const dir = resolve(process.env.INIT_CWD ?? process.cwd(), a.out ?? 'arena-results');
   mkdirSync(dir, { recursive: true });
   const date = (deps.now?.() ?? new Date()).toISOString().slice(0, 10);
   const base = freshBase(dir, `${date}-${fileSafe(a.a)}-vs-${fileSafe(a.b)}`);
@@ -456,7 +463,7 @@ export async function runArena(argv: readonly string[], deps: ArenaDeps = {}): P
         { seed, players: [B, A], names: [names[1], names[0]], logBase: join(dir, `${base}-game${2 * n + 2}`) },
       ];
       for (const g of orders) {
-        const record = await playGame(g, a, build, startRelay, log);
+        const record = await playGame(g, a, build, startRelay, observe, log);
         games.push(record);
         appendFileSync(files.jsonl, `${JSON.stringify(record)}\n`);
         const winner = record.outcome === 'seat0' ? record.players[0] : record.outcome === 'seat1' ? record.players[1] : record.outcome;

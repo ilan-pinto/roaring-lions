@@ -8,11 +8,12 @@
 // against passive is 0.750 over many seeds (players.test.ts, the task-12
 // report), not 1.0. This seed is one rush wins from both seats -- see the
 // task-13 report for the two records it wrote.
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { judge, parseArgs, refusalOf, resolvePlayer, runArena, untrusted, type SeatSnapshot } from './arena';
+import type { AgentClient } from './agent-client';
 import type { ArenaPlayer } from './players';
 import type { GameRecord } from './arena-score';
 import { startLocalRelay } from './local-relay';
@@ -151,6 +152,56 @@ describe('pnpm arena', () => {
     expect(parseArgs(['--a', 'rush', '--b', 'passive', '--matchup', 'both'])).toHaveProperty('error');
     expect(parseArgs(['--a', 'rush', '--b', 'nobody'])).toHaveProperty('error');
   });
+
+  it('resolves a relative --out (and the default) against INIT_CWD, the directory pnpm was run from, not the cwd', async () => {
+    const base = outDir();
+    const saved = process.env.INIT_CWD;
+    process.env.INIT_CWD = base;
+    try {
+      // A relay that cannot start ends each run at the first game, after the output directory exists.
+      const startRelay = (): never => { throw new Error('no relay in this test'); };
+      const r1 = await runArena(['--a', 'rush', '--b', 'passive', '--seeds', '1', '--out', 'rel-out'], { ...quiet, startRelay });
+      expect(r1.code).toBe(1);
+      expect(existsSync(join(base, 'rel-out'))).toBe(true);
+      expect(existsSync(join(process.cwd(), 'rel-out'))).toBe(false);
+      const r2 = await runArena(['--a', 'rush', '--b', 'passive', '--seeds', '1'], { ...quiet, startRelay });
+      expect(r2.code).toBe(1);
+      expect(existsSync(join(base, 'arena-results'))).toBe(true);
+    } finally {
+      if (saved === undefined) delete process.env.INIT_CWD; else process.env.INIT_CWD = saved;
+      rmSync(join(process.cwd(), 'rel-out'), { recursive: true, force: true });
+    }
+  });
+
+  it('an observer whose stop rejects still lets the players stop and the relay close', async () => {
+    let relayClosed = false;
+    const stops: string[] = [];
+    const lines: string[] = [];
+    const out = outDir();
+    const stubPlayer = (name: string): ArenaPlayer => ({
+      name,
+      start: async () => ({ client: null, done: Promise.resolve({ tokens: null, timeouts: 0, errors: [] }), stop: async () => { stops.push(name); } }),
+    });
+    const r = await runArena(['--a', 'cmd:x', '--b', 'cmd:y', '--seeds', '1', '--pace', '40', '--tick-ms', '1', '--cap-ticks', '400', '--out', out], {
+      ...quiet,
+      log: (l) => { lines.push(l); },
+      resolvePlayer: (spec) => stubPlayer(spec),
+      startRelay: async (o) => {
+        const relay = await startLocalRelay({ ...o, log: () => {} });
+        return { ...relay, close: async () => { relayClosed = true; await relay.close(); } };
+      },
+      // The observer's reading fails the game, and its own stop then rejects too.
+      startObserver: async () => ({
+        client: { ready: Promise.reject(new Error('the observer never saw a start')) } as unknown as AgentClient,
+        done: Promise.resolve({ tokens: null, timeouts: 0, errors: [] }),
+        stop: () => Promise.reject(new Error('the observer would not stop')),
+      }),
+    });
+    expect(r.code).toBe(1);
+    expect(lines.some((l) => l.includes('the observer never saw a start'))).toBe(true);
+    expect(stops.sort()).toEqual(['cmd:x', 'cmd:y']);
+    expect(relayClosed).toBe(true);
+  }, 30_000);
 
   it('refuses a cmd:<template> naming a placeholder it does not offer ({ticket}), with exit 1 and no room', async () => {
     let relays = 0;
