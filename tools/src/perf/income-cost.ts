@@ -8,7 +8,7 @@
 //     per goal tile, a road BFS, a field walk) and `corridorCut` over each route, which is
 //     O(living enemies x route tiles) plus, for each enemy near the route, an O(units) contest scan.
 //
-// The world: the real `deir_amun_2` map (48 x 48, six tunnel routes, a road), the real
+// The world: the real `deir_amun_2` map (48 x 48, two tunnel routes, a road), the real
 // `deir_amun_2_foothold` mission cloned IN MEMORY (never on disk: ruling C-R1) with its starting
 // force and enemy emptied, four income zones (`pump_yard`, `hamlet`, `store_yard`, `the_wadi`) and a
 // live convoy (`supply_corridor` + a `supply_entry` marker added in memory), and 300 living units:
@@ -32,10 +32,16 @@
 //   held4-clean      side 0 holds all four; no enemy within 3.5 tiles of any route (nothing is cut)
 //   held4-scatter    side 0 holds all four; the 140 side-1 ground units scattered at random
 //   held4-interdict  side 0 holds all four; side-1 units stacked within 1.5 tiles of the routes and
-//                    side 0 kept 6.5+ tiles from them: every enemy near a route runs the contest scan
+//                    side 0's spread kept 6.5+ tiles from them: every enemy near a route runs the
+//                    contest scan. Each zone's 20 occupants stack on its tile farthest from the
+//                    routes, and half the enemy stack stands 6.5+ tiles from them, so a line is
+//                    really cut (F2 Task 11: with the roads in, the routes are short, and occupants
+//                    spread over the zones contested every route tile on seeds 1001 and 1003)
 //   flap-one         one zone alternates empty <-> held by side 0 every tick (a recheck every tick)
 //   flap-swap        one zone alternates held by side 0 <-> held by side 1 every tick
 //   flap-all         every zone alternates empty <-> held every tick, on top of held4-clean
+// A flap scenario must recheck on every measured tick (a holder change each tick); a flapper that
+// stopped moving would read as a cheap tick, so `assertNotVacuous` requires it (F2 Task 11).
 
 import { writeFileSync } from 'node:fs';
 import { FlowField, MissionRuntime, type MissionJson, type SimEvent, type MissionEvent } from '@lions/sim';
@@ -119,6 +125,8 @@ function assertNotVacuous(
   scenario: ScenarioName,
   zones: readonly { state: number; holder: number; route: Int32Array | null; cut: string | null }[],
   convoy: { route: Int32Array | null } | null,
+  rechecks: number,
+  ticks: number,
 ): void {
   const fail = (why: string): never => {
     throw new Error(`income-cost ${scenario}: the bench did not build the state it measures (${why})`);
@@ -147,6 +155,9 @@ function assertNotVacuous(
     for (let k = 0; k < 3; k++) steady(k, 0, 0, true);
   }
   // flap-all ends on whichever half of the flap it stopped on; the convoy check above is its floor.
+  // Every flap scenario changes a holder on every measured tick, so every tick rechecks. A flapper
+  // that never moved would recheck on the cadence alone (ticks / 20) and read as cheap.
+  if (scenario.startsWith('flap') && rechecks < ticks) fail(`${rechecks} rechecks in ${ticks} ticks: the holder did not flap`);
 }
 
 // --- one run --------------------------------------------------------------------------------
@@ -377,9 +388,23 @@ function runOnce(scenario: ScenarioName, ticks: number, warmup: number, seed: nu
   } else if (scenario === 'held4-interdict') {
     const near = openTiles.filter((p) => dist2ToRoute(p.tx, p.ty) <= 1.5 * 1.5);
     if (near.length === 0) throw new Error('interdict: no open non-zone tile within 1.5 tiles of a route');
-    for (const id of spreadIds) {
-      const p = pick(near);
-      place(id, p.tx, p.ty);
+    // The zone occupants (side 0's first 80, 20 a zone) stack on their zone's tile farthest from
+    // every route tile: still inside, so nothing about the holders or routes changes, but out of
+    // contest range (6 tiles) of as much of the line as the zone allows.
+    for (let k = 0; k < 4; k++) {
+      let best = zoneTiles[k][0];
+      for (const q of zoneTiles[k]) if (dist2ToRoute(q.tx, q.ty) > dist2ToRoute(best.tx, best.ty)) best = q;
+      for (let i = 20 * k; i < 20 * k + 20; i++) place(side0[i], best.tx, best.ty);
+    }
+    const occTiles: Placer[] = [];
+    for (let i = 0; i < 80; i++) occTiles.push({ tx: sim.state.posX[side0[i]] >> 16, ty: sim.state.posY[side0[i]] >> 16 });
+    const clearOfZones = near.filter((p) =>
+      occTiles.every((q) => (q.tx - p.tx) * (q.tx - p.tx) + (q.ty - p.ty) * (q.ty - p.ty) >= 6.5 * 6.5),
+    );
+    if (clearOfZones.length === 0) throw new Error('interdict: no route tile 6.5+ tiles from every zone occupant');
+    for (let i = 0; i < spreadIds.length; i++) {
+      const p = pick((i & 1) === 0 ? clearOfZones : near);
+      place(spreadIds[i], p.tx, p.ty);
     }
     // Side 0's spread (not its zone occupants) at least 6.5 tiles from every route tile.
     const far = openTiles.filter((p) => dist2ToRoute(p.tx, p.ty) >= 6.5 * 6.5);
@@ -484,7 +509,7 @@ function runOnce(scenario: ScenarioName, ticks: number, warmup: number, seed: nu
     throw new Error(`the bench mission ended (${runtime.result}) at tick ${sim.tickCount}: its numbers would be of an ended runtime`);
   }
   const conv = runtime.convoyRoute;
-  assertNotVacuous(scenario, runtime.incomeZones, conv);
+  assertNotVacuous(scenario, runtime.incomeZones, conv, probe.rechecks - r0, ticks);
   return {
     scenario,
     ticks,
