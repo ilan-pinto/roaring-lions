@@ -3,7 +3,12 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    // TS 6 folds lib.dom.iterable into lib.dom (DOM.Iterable is an empty file now).
+    "lib": ["ES2022", "DOM"],
+    // TS 6 (and 7) default `types` to [] instead of every @types package.
+    // @types/node is the only installed one that declares globals; naming it
+    // keeps every per-package tsconfig seeing what it saw under TS 5.
+    "types": ["node"],
     "strict": true,
     // noUncheckedIndexedAccess is deliberately OFF: the sim hot loop indexes
     // typed arrays constantly and non-null assertions are banned in sim code.

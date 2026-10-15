@@ -179,7 +179,7 @@ describe('showBrigade — the header and the rail', () => {
     ]);
     expect(host.querySelector('.rl-garage__tab[data-bucket="all"]')?.getAttribute('aria-selected')).toBe('true');
     const hidden = (id: string): boolean =>
-      host.querySelector<HTMLButtonElement>(`.rl-garage__card[data-unit="${id}"]`)?.hidden ?? false;
+      (host.querySelector<HTMLButtonElement>(`.rl-garage__card[data-unit="${id}"]`)?.hidden ?? false) !== false;
     expect([hidden('inf_squad'), hidden('ifv_namer'), hidden('breach_team')]).toEqual([false, false, false]);
 
     host.querySelector<HTMLButtonElement>('.rl-garage__tab[data-bucket="transport"]')?.click();
