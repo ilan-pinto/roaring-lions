@@ -841,7 +841,8 @@ export class MissionRuntime {
 
   /** True when `id` is a body the starting force fielded from a placement that is on loan
    *  (`MissionContext.loaned`, D5). Fixed at `start()`; a unit spawned later, a `from_ledger`
-   *  draw and an enemy are never on loan. */
+   *  draw and an enemy are never on loan. A loaned carrier's authored `passengers` are not
+   *  on loan either: they are separate placements, judged by their own types. */
   isOnLoan(id: number): boolean {
     return this.onLoan.has(id);
   }
@@ -2375,6 +2376,9 @@ export class MissionRuntime {
         kills: (origin?.kills ?? 0) + (this.kills.get(id) ?? 0),
       };
       if (origin?.name !== undefined) entry.name = origin.name;
+      // L-1 (GH-183): a loaned body goes back to the lender. It stays in `survivors` (the
+      // debrief count) and in `startingHome` (credits), but never joins the brigade's roster.
+      if (this.onLoan.has(id)) continue;
       roster.push(entry);
     }
     // Survivors first, then whoever was never fielded: a unit that stayed in the pool

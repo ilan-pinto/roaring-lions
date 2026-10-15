@@ -3,8 +3,9 @@
 // records the ids those placements spawn, every body of a count-N placement included.
 import { describe, expect, it } from 'vitest';
 import { MissionRuntime } from './mission';
-import type { MissionJson } from './mission';
-import { Sim, type UnitTypeJson } from './sim';
+import type { LedgerRosterEntry, MissionEvent, MissionJson } from './mission';
+
+import { Sim, TICKS_PER_SECOND, type UnitTypeJson } from './sim';
 
 const INF: UnitTypeJson = {
   id: 'loan_inf',
@@ -61,5 +62,72 @@ describe('MissionRuntime.isOnLoan', () => {
   it('never answers true for an enemy, whatever the indices say', () => {
     const { rt } = start([0, 1, 2, 3]);
     expect(rt.isOnLoan(6)).toBe(false);
+  });
+});
+
+// L-1 (GH-183 F3 Task 7): a loaned survivor goes back to the lender. `checkEnd` still counts it as
+// a survivor and as home (the debrief and the credits), but it never joins `roster.surviving_units`.
+describe('checkEnd returns a loaned survivor (L-1)', () => {
+  function play(loaned: readonly number[], kill?: number): { events: MissionEvent[]; rt: MissionRuntime; sim: Sim } {
+    const sim = new Sim({ seed: 3, width: 28, height: 12, capacity: 64 });
+    const type = sim.addUnitType(INF);
+    const mission: MissionJson = {
+      id: 'loan_end',
+      map: { file: 'none', player_start: [4, 6] },
+      ledger: { requires: [], produces: ['roster.surviving_units'] },
+      objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 2 }],
+      resources: { logistics_start: 0 },
+      starting_force: [
+        { unit: 'loan_inf', count: 1, at: [3, 3] },
+        { unit: 'loan_inf', count: 1, at: [3, 6] },
+      ],
+      enemy: { garrison: [{ unit: 'loan_inf', count: 1, at: [26, 10] }] },
+    };
+    const rt = new MissionRuntime(sim, mission, { typeIdOf: () => type, markers: {}, zones: {}, ledger: {}, loaned });
+    rt.start();
+    const events: MissionEvent[] = [];
+    if (kill !== undefined) sim.debugKill(kill);
+    for (let i = 0; i < 4 * TICKS_PER_SECOND; i++) events.push(...rt.step(sim.tick()));
+    return { events, rt, sim };
+  }
+  const endOf = (events: MissionEvent[]): Extract<MissionEvent, { kind: 'missionEnd' }> => {
+    const end = events.find((e) => e.kind === 'missionEnd');
+    if (end?.kind !== 'missionEnd') throw new Error('no end');
+    return end;
+  };
+
+  it('the produced roster holds the open placement only; the loaned one is a survivor and at home', () => {
+    const { events, rt } = play([0]);
+    const end = endOf(events);
+    expect(end.result).toBe('victory');
+    const roster = end.ledger['roster.surviving_units'] as LedgerRosterEntry[];
+    expect(roster.map((r) => r.type)).toEqual(['loan_inf']);
+    expect(roster).toHaveLength(1);
+    // Both bodies are still counted as survivors (the debrief) and at home (credits).
+    expect(end.survivors).toEqual(['loan_inf', 'loan_inf']);
+    expect(rt.startingHome).toBe(2);
+    expect(rt.startingCount).toBe(2);
+  });
+
+  it('with nothing on loan both survivors join the roster (the control)', () => {
+    const roster = endOf(play([]).events).ledger['roster.surviving_units'] as LedgerRosterEntry[];
+    expect(roster).toHaveLength(2);
+  });
+
+  it('a loaned unit that earned a stripe loses it on return, and still counts as promoted', () => {
+    const { events, rt } = play([0, 1]);
+    const roster = endOf(events).ledger['roster.surviving_units'] as LedgerRosterEntry[];
+    expect(roster).toEqual([]);
+    expect(rt.promotedCount).toBe(2);
+  });
+
+  it('a loaned unit killed in the mission is a loss like any other, and the open one still returns', () => {
+    const { events, rt } = play([0], 0);
+    const lost = events.filter((e) => e.kind === 'unitLost');
+    expect(lost.map((e) => (e.kind === 'unitLost' ? e.entity : -1))).toEqual([0]);
+    const end = endOf(events);
+    expect(end.survivors).toEqual(['loan_inf']);
+    expect(rt.startingHome).toBe(1);
+    expect(end.ledger['roster.surviving_units'] as LedgerRosterEntry[]).toHaveLength(1);
   });
 });
