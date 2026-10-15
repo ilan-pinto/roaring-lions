@@ -29,6 +29,22 @@ export function incomeFailures(mission, map, file, exempt = CORRIDOR_ENTRY_EXEMP
   const out = [];
   const id = mission?.id ?? file;
   const res = mission?.resources;
+  const exempted = exempt.includes(id);
+  const entry = res?.supply_entry;
+  // Demotion first, before anything can return early: an exemption that excuses nothing is
+  // itself a failure, and that includes an exempt mission that lost its `resources` block.
+  if (exempted && (entry !== undefined || res?.supply_corridor !== true)) {
+    out.push(
+      `${file}: ${id} is on the pending supply_entry exemption but ` +
+        (entry !== undefined
+          ? `now names supply_entry "${entry}"`
+          : res === undefined
+            ? 'no longer has a resources block'
+            : 'no longer sets supply_corridor') +
+        ' -- delete it from CORRIDOR_ENTRY_EXEMPT in tools/validate_income.mjs and its test' +
+        ' (tools/src/validate_income.test.ts)'
+    );
+  }
   if (res === undefined) return out;
 
   const zones = new Set(Object.keys(map?.zones ?? {}));
@@ -46,21 +62,11 @@ export function incomeFailures(mission, map, file, exempt = CORRIDOR_ENTRY_EXEMP
     seen.add(z);
   }
 
-  const entry = res.supply_entry;
-  const exempted = exempt.includes(id);
   if (entry !== undefined && !markers.has(entry)) {
     out.push(`${file}: ${id} supply_entry "${entry}" is not a marker on map "${mission?.map?.file}"`);
   }
   if (res.supply_corridor === true && entry === undefined && !exempted) {
     out.push(`${file}: ${id} sets supply_corridor but names no supply_entry -- the convoy has no entry to route from`);
-  }
-  // Demotion: an exemption that excuses nothing is itself a failure.
-  if (exempted && (entry !== undefined || res.supply_corridor !== true)) {
-    out.push(
-      `${file}: ${id} is on the pending supply_entry exemption but ` +
-        (entry !== undefined ? `now names supply_entry "${entry}"` : 'no longer sets supply_corridor') +
-        ' -- delete it from CORRIDOR_ENTRY_EXEMPT in tools/validate_income.mjs'
-    );
   }
   return out;
 }

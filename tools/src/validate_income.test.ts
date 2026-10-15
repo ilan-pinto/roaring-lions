@@ -68,6 +68,21 @@ describe('incomeFailures on fixtures', () => {
       expect(out).toHaveLength(1);
       expect(out[0]).toContain('no longer sets supply_corridor');
     });
+    it('is demoted when the listed mission loses its resources block (checked before the early return)', () => {
+      const out = incomeFailures({ id: 'fixture_m', map: { file: 'fixture_map' } }, { zones: {}, markers: {} }, 'fixture_m.json', [
+        'fixture_m',
+      ]);
+      expect(out).toHaveLength(1);
+      expect(out[0]).toContain('no longer has a resources block');
+    });
+    it('every demotion message says to delete the exemption AND its test', () => {
+      for (const out of [
+        run({ supply_corridor: true, supply_entry: 'gate' }, 'fixture_m', ['fixture_m']),
+        run({}, 'fixture_m', ['fixture_m']),
+      ]) {
+        expect(out[0]).toContain('delete it from CORRIDOR_ENTRY_EXEMPT in tools/validate_income.mjs and its test');
+      }
+    });
     it('names exactly the two Umm Zeitoun missions awaiting the lead', () => {
       expect([...CORRIDOR_ENTRY_EXEMPT].sort()).toEqual(['umm_zeitoun_2_buildup', 'umm_zeitoun_4_clearance']);
     });

@@ -3894,7 +3894,9 @@ const BANKING_OVER_30_WINNERS = 15;
 // and no starting force may pay for standing still. It is 0 today because NO shipped zone exists yet
 // (C-R1: the lead holds the data commit that authors them); that commit re-pins this, and it must
 // still read 0 there, which it does only if no zone covers a starting placement (a `staging` zone
-// that paid would make this positive).
+// that paid would make this positive). A 0 is only evidence if the four controls were RUN: a control
+// renamed or dropped contributes nothing and would read 0 silently, so the gate also requires all four
+// found, prints "D7 controls found 4/4", and fails naming any that is missing (F2 Task 11).
 const ZONE_PASSIVE_INCOME = 0;
 {
   const D7 = ['umm_zeitoun_2_buildup', 'umm_zeitoun_4_clearance', 'deir_amun_2_foothold', 'wadi_halam_2_laager'];
@@ -3908,12 +3910,16 @@ const ZONE_PASSIVE_INCOME = 0;
   }
   let zonePassive = 0;
   let controls = 0;
+  const d7Found = new Set<string>();
   for (const c of controlIntel()) {
     const r = runLog.find((x) => x.id === c.id && x.label === c.label);
     if (r?.banking === undefined) continue;
     controls++;
     console.log(bankingLine(c.id, 'passive control', r.banking));
-    if (D7.includes(c.id)) zonePassive += r.banking.zoneEarned;
+    if (D7.includes(c.id)) {
+      zonePassive += r.banking.zoneEarned;
+      d7Found.add(c.id);
+    }
   }
   console.log(
     `banking: ${over30} of ${winners} winning plans bank over 30% (${controls} passive controls reported); ` +
@@ -3921,6 +3927,12 @@ const ZONE_PASSIVE_INCOME = 0;
   );
   if (over30 !== BANKING_OVER_30_WINNERS) {
     console.error(`banking: FAILED — ${over30} of ${winners} winning plans bank over 30%, expected ${BANKING_OVER_30_WINNERS}`);
+    process.exitCode = 1;
+  }
+  console.log(`banking: D7 controls found ${d7Found.size}/${D7.length}`);
+  const d7Missing = D7.filter((id) => !d7Found.has(id));
+  if (d7Missing.length > 0) {
+    console.error(`banking: FAILED — no passive control ran for ${d7Missing.join(', ')}: ZONE_PASSIVE_INCOME read nothing there`);
     process.exitCode = 1;
   }
   if (zonePassive !== ZONE_PASSIVE_INCOME) {

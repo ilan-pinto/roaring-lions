@@ -20,7 +20,12 @@ export interface Banking {
 }
 
 /** What the run took out of the purse: start + earned - held. Each term is floored to whole
- *  logistics by the runtime, so this can be one off the true spend; it is never negative. */
+ *  logistics by the runtime, so this can be one off the true spend; it is never negative.
+ *  The same flooring nudges the banked percent too: `held` and `earned` are each under one
+ *  logistic below the true purse, which moves held / (start + earned) by less than 100 / (start +
+ *  earned) points -- under 0.21 of a point on the smallest purse the report prints (484, 15 Oct
+ *  2026) and under 0.2 on every other. `bankedOver` can therefore only flip on a run within that
+ *  much of 30%. */
 export function spentOf(b: Banking): number {
   return Math.max(0, b.start + b.earned - b.held);
 }
