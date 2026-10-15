@@ -443,6 +443,9 @@ const SUPPORTED = new Set([
   'evacuate_before', 'raze', 'collapse',
 ]);
 
+/** Purse units per whole logistics: 1/2400ths (see `MissionRuntime.purse`). */
+const PURSE_UNITS = 2400;
+
 /** Spread for multi-unit placements: 1.25 tiles. */
 const SPREAD = 81920;
 /** "Danger close": civilians within this of an aimpoint make heavy ordnance
@@ -598,7 +601,14 @@ export class MissionRuntime {
   private roeFailed = false;
   /** Survivors that came back a stripe more veteran this mission; set in checkEnd. */
   private promotedValue = 0;
-  private logisticsValue = 0;
+  /** The logistics purse, per side, in 1/2400ths of a logistics. Integer on purpose:
+   *  income from a base rate plus (F2) several zones, each possibly halved, is a sum
+   *  whose float rounding depends on the order of addition, and that is a desync the
+   *  day the economy is locked in step. At 20 Hz a full source adds 2 * rate units a
+   *  tick and a halved one adds rate, both exact for every integer per-minute rate
+   *  (rate / 1200 logistics a tick = 2 * rate / 2400). Side 0 earns and spends;
+   *  side 1's slot exists and stays 0 until a later task gives it a source. */
+  private readonly purse = new Int32Array(2);
   private intelValue = 0;
   private readonly buildQueue: { unit: string; startTick: number; readyTick: number }[] = [];
   /** Scratch for `firstRefusal`: did the population check speak? Not state; never hashed. */
@@ -683,14 +693,19 @@ export class MissionRuntime {
     // What recon marked last mission. A tag in here spawns pre-revealed and gives up
     // its ambush; everything else spawns exactly as authored.
     this.marked = new Set(ctx.ledger?.['intel.marked_positions'] ?? []);
-    this.logisticsValue = mission.resources?.logistics_start ?? 0;
+    this.purse[0] = (mission.resources?.logistics_start ?? 0) * PURSE_UNITS;
     this.intelValue = mission.resources?.intel_start ?? 0;
     this.spawnRise = new Int16Array(sim.capacity).fill(-2);
   }
 
   /** Spendable logistics, floored for display. */
   get logistics(): number {
-    return this.logisticsValue - (this.logisticsValue % 1);
+    return this.logisticsOf(0);
+  }
+
+  /** One side's spendable logistics, floored to whole logistics. */
+  logisticsOf(side: 0 | 1): number {
+    return (this.purse[side] / PURSE_UNITS) | 0;
   }
 
   get intel(): number {
@@ -701,9 +716,9 @@ export class MissionRuntime {
    *  (logistics, intel), the build queue, and, from F2/F4 on, the zone owners and
    *  production lines. Uses the sim's own hashWord, so the two hashes compose.
    *
-   *  Read-only, and integer-only on purpose: the purse accrues in JS number
-   *  arithmetic (`rate / 1200`), so only its floor is hashed (`| 0` truncates a
-   *  non-negative number to its floor), and every word folded in is an int32.
+   *  Read-only, and integer-only on purpose: the purse is an exact integer
+   *  accumulator (1/2400ths), and only side 0's floored whole logistics is hashed,
+   *  so every word folded in is an int32.
    *  The build queue goes in array order (the order `requestBuild` pushed it),
    *  each entry as its unit id's characters, then its start and ready ticks.
    *  Then (F1 Task 3, F-R3) the settled first identifications: their count, then
@@ -711,7 +726,7 @@ export class MissionRuntime {
    *  both caps, null as -1. */
   economyHash(): number {
     let h = HASH_SEED;
-    h = hashWord(h, this.logisticsValue | 0);
+    h = hashWord(h, this.logisticsOf(0));
     h = hashWord(h, this.intelValue | 0);
     h = hashWord(h, this.buildQueue.length);
     for (const b of this.buildQueue) {
@@ -959,8 +974,9 @@ export class MissionRuntime {
     const info = this.ctx.unitInfo?.(unitId);
     if (!info) return false;
     if (this.buildBlockedReason(unitId) !== null) return false;
-    if (this.logisticsValue < info.logistics || this.intelValue < (info.intel ?? 0)) return false;
-    this.logisticsValue -= info.logistics;
+    const cost = info.logistics * PURSE_UNITS;
+    if (this.purse[0] < cost || this.intelValue < (info.intel ?? 0)) return false;
+    this.purse[0] -= cost;
     this.intelValue -= info.intel ?? 0;
     this.buildQueue.push({
       unit: unitId,
@@ -1385,9 +1401,10 @@ export class MissionRuntime {
     }
 
     // Income: logistics arrive by rate; interdiction (supply_corridor) is a
-    // later slice. Fractional accrual is exact-enough JS arithmetic.
+    // later slice. Exact integer accrual: a full source adds 2 * rate units of
+    // 1/2400 a tick (rate per minute / 1200 ticks a minute).
     const rate = this.mission.resources?.logistics_rate_per_min ?? 0;
-    if (rate > 0) this.logisticsValue += rate / 1200;
+    if (rate > 0) this.purse[0] += 2 * rate;
     // Intel is NOT accrued here. There is no per-minute trickle (G3 Q1, lead 4 Oct):
     // it is earned by doing, at the two places that pay it -- the first identification
     // of an enemy (the contact digest above) and an objective's completion

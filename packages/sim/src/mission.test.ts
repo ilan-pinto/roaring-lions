@@ -1930,6 +1930,85 @@ describe('civilians and ROE (GDD §6)', () => {
   });
 });
 
+describe('the purse is an exact integer accumulator (F2 Task 1)', () => {
+  const CTX: Partial<MissionContext> = {
+    unitInfo: (u) => (u === 'm_squad' ? { logistics: 300, buildTimeS: 2, population: 1 } : null),
+  };
+  const purseWorld = (start: number, rate: number): World =>
+    makeWorld(
+      baseMission({
+        map: { file: 'none', player_start: [4, 6] },
+        starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+        resources: { logistics_start: start, logistics_rate_per_min: rate },
+        objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
+      }),
+      CTX
+    );
+
+  it('120/min gives exactly 120 after 1200 ticks, and 1/min gives 0 after 9 ticks', () => {
+    const a = purseWorld(0, 120);
+    a.step(1200);
+    expect(a.runtime.logistics).toBe(120);
+    const b = purseWorld(0, 1);
+    b.step(9);
+    expect(b.runtime.logistics).toBe(0);
+    b.step(1200 - 9);
+    expect(b.runtime.logistics).toBe(1);
+  });
+
+  it('80/min (not a divisor of 1200) gives exactly 80 after 1200 ticks and a whole one every 15', () => {
+    const w = purseWorld(0, 80);
+    w.step(14);
+    expect(w.runtime.logistics).toBe(0);
+    w.step(1);
+    expect(w.runtime.logistics).toBe(1);
+    w.step(1200 - 15);
+    expect(w.runtime.logistics).toBe(80);
+  });
+
+  it('an odd rate accrues exactly: 45/min gives 45 after 1200 ticks and 90 after 2400', () => {
+    const w = purseWorld(0, 45);
+    w.step(1200);
+    expect(w.runtime.logistics).toBe(45);
+    w.step(1200);
+    expect(w.runtime.logistics).toBe(90);
+  });
+
+  it('spending then accruing never shows a fractional purse, and the refusal is exact', () => {
+    const w = purseWorld(500, 45);
+    expect(w.runtime.requestBuild('m_squad')).toBe(true);
+    expect(w.runtime.logistics).toBe(200);
+    for (let t = 1; t <= 300; t++) {
+      w.step(1);
+      const shown = w.runtime.logistics;
+      expect(Number.isInteger(shown)).toBe(true);
+      // 45/min is 3 per 80 ticks, exactly.
+      expect(shown).toBe(200 + Math.floor((45 * t) / 1200));
+    }
+    // Exact refusal: 299 logistics refuses a 300 build, and the tick that
+    // completes the 300th logistic accepts it.
+    const edge = purseWorld(299, 60);
+    edge.step(19);
+    expect(edge.runtime.requestBuild('m_squad')).toBe(false);
+    expect(edge.runtime.logistics).toBe(299);
+    edge.step(1);
+    expect(edge.runtime.logistics).toBe(300);
+    expect(edge.runtime.requestBuild('m_squad')).toBe(true);
+    expect(edge.runtime.logistics).toBe(0);
+  });
+
+  it("side 1's purse reads 0 and a side-0 build never touches it", () => {
+    const w = purseWorld(500, 120);
+    expect(w.runtime.logisticsOf(1)).toBe(0);
+    expect(w.runtime.logisticsOf(0)).toBe(500);
+    expect(w.runtime.requestBuild('m_squad')).toBe(true);
+    w.step(600);
+    expect(w.runtime.logisticsOf(1)).toBe(0);
+    expect(w.runtime.logisticsOf(0)).toBe(200 + 60);
+    expect(w.runtime.logistics).toBe(w.runtime.logisticsOf(0));
+  });
+});
+
 describe('economy (GDD §3, just enough for M1)', () => {
   const ECON_CTX: Partial<MissionContext> = {
     unitInfo: (u) => (u === 'm_squad' ? { logistics: 300, buildTimeS: 2, population: 1 } : null),
