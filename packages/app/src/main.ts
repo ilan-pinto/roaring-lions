@@ -265,6 +265,7 @@ import { NetScoreboard, advisorPresenceHook } from './ui/net-score';
 import { scoreOf, showsScoreboard } from './net/scoreboard';
 import { decideOnHashTick, matchResult, reportOver, roomEndingOutcome, type LocalDecision, type MatchResult } from './net/outcome';
 import { lightOverrideOf, timeOfDayOf } from './time-of-day';
+import { enginesOf } from './engines-flag';
 import { buildingFitOf } from './building-fit-flag';
 import { registerServiceWorker } from './service-worker';
 import {
@@ -3684,6 +3685,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // SWITCHED OFF (AMBIENCE_ENABLED, the lead's ruling 2026-10-09): null here,
   // so no bed starts and none is fetched.
   audio.setAmbience(ambienceBedToPlay(map));
+  // GH-35: the vehicles' engines, until `leaveMission` above. A mission plays
+  // every loop's data pick; the sandbox's `&engines=a|b` overrides them all,
+  // so the lead can hear candidate A against B in the game.
+  const engineChoice = enginesOf(mission, params);
+  if (engineChoice.warning) console.warn(`[lions] ${engineChoice.warning}`);
+  audio.startEngines(engineChoice.value);
   if (mission) {
     audio.playCue(CRITICAL_CUES.missionStart);
     // AU-5: no bark while the start cue and the title card own the moment.
@@ -4782,6 +4789,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     renderer.setQuiet?.(false);
     audio.setListener(renderer.camera);
     if (!tickQuiet) audio.onEvents(events, sim);
+    // GH-35: engine loops follow each vehicle's speed. Fog-gated by the
+    // renderer's own query, so an engine never gives away a hidden enemy.
+    if (!tickQuiet) audio.updateEngines(sim, (wx, wy) => renderer.isVisible(wx, wy));
     pinnedSince.onEvents(events);
     if (!tickQuiet) voice.onTick(events);
     // PA-25: a Free Play sandbox has no runtime, and the alert layer below
@@ -5581,6 +5591,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
        *  the runtime's ring and the stats are what the MIXER holds, so a
        *  wiring fault shows here rather than agreeing with the logic. */
       voiceLog: () => ({ entries: voice.log(), stats: audio.voiceStats() }),
+
+      /** GH-35: the engine voices as the MIXER holds them -- which candidate
+       *  (`override` null = each loop's data pick), how many loops decoded,
+       *  and every vehicle sounding with its family, speed share and layers. */
+      engines: () => audio.engineState(),
 
       /** Jump the camera to a named marker, or to a tile. Walking to the far
        *  corner of a 48×48 map to look at one ridge is most of the cost of
