@@ -283,6 +283,10 @@ export const BUILDING_MESHES: Readonly<Record<string, { readonly idle: string; r
   // on any map.
   relay: { idle: 'buildings/relay.glb', wreck: 'buildings/relay_wreck.glb' },
   pump_house: { idle: 'buildings/pump_house.glb', wreck: 'buildings/pump_house_wreck.glb' },
+  // GH-66 field works (2026-10-15): the HESCO bastion run, a `per_tile`
+  // barrier (`H`) beside `wall` and `fence`. No map authors it yet -- placing
+  // it is a mission change, and missions are the lead's.
+  hesco: { idle: 'buildings/hesco.glb', wreck: 'buildings/hesco_wreck.glb' },
 };
 
 /** Decor: seven families, three variants each, keyed `<family>_<variant>` --

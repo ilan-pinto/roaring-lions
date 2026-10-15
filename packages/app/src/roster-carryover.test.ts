@@ -18,6 +18,7 @@
 // pool entry spread whole, slot and all.
 import { describe, expect, it } from 'vitest';
 import { names as namesJson, units } from '@lions/data';
+import { MissionRuntime, Sim, TICKS_PER_SECOND, type MissionJson, type UnitTypeJson } from '@lions/sim';
 import { nameKind, type NamesJson } from './names';
 import { applyRosterCarryover, type RosterCarryover, type RosterCarryoverDeps } from './roster-carryover';
 import { lostRecordFor } from './roster-lost';
@@ -332,5 +333,124 @@ describe('R-2: a replay replaces, it does not append', () => {
     const two = play(one.ledger, WH5);
     expect(active(two)).toHaveLength(9);
     expect(active(two).some((r) => r.enlisted !== undefined)).toBe(false);
+  });
+});
+
+// --- L-1 (GH-183 F3 Task 7): a loaned survivor goes back to the lender ---------
+//
+// `fight` above is a stand-in for the sim; this describe uses the real `MissionRuntime`'s own
+// `checkEnd` write, so the skip is under test where it lives, and feeds its produced ledger into
+// the app's own `applyRosterCarryover`. Control arm: the same mission with nothing on loan.
+describe('L-1: a loaned survivor does not join the roster', () => {
+  const INF: UnitTypeJson = {
+    id: 'inf_squad',
+    role: 'infantry', // a type with no role derives as wheeled (#402's fixture trap)
+    hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 } },
+    mobility: { speed_tiles_s: 1.5 },
+    sensors: { optics: 1.0, sight_tiles: 8, signature: 0.6 },
+    abilities: ['garrison'],
+    weapons: [
+      { id: 'rifles', type: 'small_arms', range_tiles: 7, effective_range_tiles: 5.5, accuracy: 0.6, penetration: 8, damage: 25, suppression: 40, rof_per_min: 300 },
+    ],
+  };
+  const LENDING = 'wadi_halam_1_fords';
+
+  /** Wins `LENDING` with one fresh `inf_squad`, on loan or not, over `before`'s roster as the unfielded pool, and returns the sim's produced ledger. */
+  function lend(loaned: readonly number[], before: CampaignLedger): CampaignLedger {
+    const sim = new Sim({ seed: 3, width: 28, height: 12, capacity: 32 });
+    const type = sim.addUnitType(INF);
+    const mission: MissionJson = {
+      id: LENDING,
+      map: { file: 'none', player_start: [4, 6] },
+      ledger: { requires: [], produces: ['roster.surviving_units'] },
+      objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 2 }],
+      resources: { logistics_start: 0 },
+      starting_force: [{ unit: 'inf_squad', count: 1, at: [3, 6] }],
+      enemy: { garrison: [{ unit: 'inf_squad', count: 1, at: [26, 10] }] },
+    };
+    const rt = new MissionRuntime(sim, mission, { typeIdOf: () => type, markers: {}, zones: {}, ledger: before, loaned });
+    rt.start();
+    for (let i = 0; i < 4 * TICKS_PER_SECOND; i++) {
+      for (const e of rt.step(sim.tick())) if (e.kind === 'missionEnd') return { 'roster.surviving_units': e.ledger['roster.surviving_units'] };
+    }
+    throw new Error('the mission did not end');
+  }
+
+  /** Sela's place (slot 0) fell in an earlier mission: a vacant slot of the loaned unit's own type. */
+  const VACANT: CampaignLedger = {
+    'roster.surviving_units': [{ type: 'mbt_lavi', veterancy: 0, missions: 1, kills: 0, name: '1-2 Ayil', slot: 1 }],
+    'roster.lost': [{ slot: 0, type: 'inf_squad', veterancy: 1, missions: 2, kills: 5, name: 'Sela', missionId: 'beit_sahwan_2_foothold', tick: 90 }],
+    'campaign.names_issued': { squad: 1, vehicle: 1, task: 0 },
+    'campaign.slots_issued': 2,
+  };
+
+  it('leaves the vacant slot vacant and writes no replacement row', () => {
+    const got = applyRosterCarryover(VACANT, lend([0], VACANT), [], { ...deps(), missionId: LENDING });
+    expect(got.replacements).toEqual([]);
+    expect(got.ledger['roster.surviving_units']?.map((r) => r.type)).toEqual(['mbt_lavi']);
+    expect(got.ledger['roster.reserve']).toEqual([]);
+  });
+
+  it('control: the same body not on loan takes the vacant slot', () => {
+    const got = applyRosterCarryover(VACANT, lend([], VACANT), [], { ...deps(), missionId: LENDING });
+    expect(got.replacements).toHaveLength(1);
+    expect(got.replacements[0].predecessor).toBe('Sela');
+    expect(got.ledger['roster.surviving_units']?.map((r) => r.type)).toEqual(['inf_squad', 'mbt_lavi']);
+  });
+
+  it('a replay of the lending mission replaces nothing it did not enlist', () => {
+    const first = applyRosterCarryover(VACANT, lend([0], VACANT), [], { ...deps(), missionId: LENDING });
+    const second = applyRosterCarryover(first.ledger, lend([0], first.ledger), [], { ...deps(), missionId: LENDING });
+    expect(second.ledger['roster.surviving_units']).toEqual(first.ledger['roster.surviving_units']);
+    expect(second.ledger['roster.lost']).toEqual(first.ledger['roster.lost']);
+    expect(second.replacements).toEqual([]);
+    expect(second.ledger['campaign.slots_issued']).toBe(first.ledger['campaign.slots_issued']);
+  });
+
+  // --- final review F1 (C-R11): R-2 must not delete an earned body the run lends ---------
+  //
+  // R-2 drops an earlier body this mission enlisted, unfielded, `missions <= 1`, on the
+  // assumption this run's fresh body replaces it. A loaned survivor never comes home, so for
+  // a lent type nothing replaces it. `lentTypes` is what `main.ts` derives from
+  // `loanedPlacements`; absent, R-2 is as before.
+  const EARNED: RosterEntry = { type: 'inf_squad', veterancy: 0, missions: 1, kills: 0, name: 'Earned', slot: 0, enlisted: LENDING };
+  const EARNED_SAVE: CampaignLedger = {
+    'roster.surviving_units': [EARNED],
+    'campaign.slots_issued': 1,
+    'campaign.names_issued': { squad: 1, vehicle: 0, task: 0 },
+  };
+  const survivors = (l: CampaignLedger) => (l['roster.surviving_units'] ?? []).map((r) => [r.name, r.type, r.enlisted]);
+
+  it('(a) a win enlisted the body, Conduct then dips: the replay lends and the earned body stays', () => {
+    // Win 1: the gate is open, nothing on loan; the fresh body comes home enlisted by LENDING.
+    const empty: CampaignLedger = { 'campaign.names_issued': { squad: 0, vehicle: 0, task: 0 }, 'campaign.slots_issued': 0 };
+    const won = applyRosterCarryover(empty, lend([], empty), [], { ...deps(), missionId: LENDING });
+    expect(survivors(won.ledger).map((r) => r[2])).toEqual([LENDING]);
+    // Win 2 (a replay, now on loan): R-2 would drop the earned body and nothing replaces it.
+    const again = applyRosterCarryover(won.ledger, lend([0], won.ledger), [], { ...deps(), missionId: LENDING, lentTypes: new Set(['inf_squad']) });
+    expect(again.ledger['roster.surviving_units']).toEqual(won.ledger['roster.surviving_units']);
+    expect(again.ledger['roster.reserve']).toEqual([]);
+  });
+
+  it('(b) a pre-L-1 save: an enlisted body with missions 1 survives a replay that lends its type', () => {
+    const got = applyRosterCarryover(EARNED_SAVE, lend([0], EARNED_SAVE), [], { ...deps(), missionId: LENDING, lentTypes: new Set(['inf_squad']) });
+    expect(survivors(got.ledger)).toEqual([['Earned', 'inf_squad', LENDING]]);
+  });
+
+  it('(b) and the same body stood down in the reserve is kept there', () => {
+    const stood: CampaignLedger = { ...EARNED_SAVE, 'roster.surviving_units': [], 'roster.reserve': [EARNED] };
+    const got = applyRosterCarryover(stood, lend([0], stood), [], { ...deps(), missionId: LENDING, lentTypes: new Set(['inf_squad']) });
+    expect([...(got.ledger['roster.surviving_units'] ?? []), ...(got.ledger['roster.reserve'] ?? [])].map((r) => r.name)).toEqual(['Earned']);
+  });
+
+  it('control: nothing lent, or a different type lent, R-2 still replaces the earlier body', () => {
+    const none = applyRosterCarryover(EARNED_SAVE, lend([], EARNED_SAVE), [], { ...deps(), missionId: LENDING, lentTypes: new Set() });
+    expect(none.ledger['roster.surviving_units']?.map((r) => r.name)).not.toContain('Earned');
+    expect(none.ledger['roster.surviving_units']).toHaveLength(1);
+    const other = applyRosterCarryover(EARNED_SAVE, lend([], EARNED_SAVE), [], { ...deps(), missionId: LENDING, lentTypes: new Set(['mbt_lavi']) });
+    expect(other.ledger['roster.surviving_units']?.map((r) => r.name)).not.toContain('Earned');
+    const absent = applyRosterCarryover(EARNED_SAVE, lend([], EARNED_SAVE), [], { ...deps(), missionId: LENDING });
+    expect(absent.ledger['roster.surviving_units']?.map((r) => r.name)).not.toContain('Earned');
+    expect(absent.ledger['roster.surviving_units']).toHaveLength(1);
   });
 });

@@ -94,7 +94,7 @@ describe('one line per gesture, ranked by the cursor (N1, R-4)', () => {
       [{ kind: 'select', ids: [1], via: 'click' }],
       [{ kind: 'group', slot: 1, action: 'recall' }],
       [{ kind: 'overlay', on: true }],
-      [{ kind: 'support', call: 'strike', x: 1, y: 1, accepted: true }],
+      [{ kind: 'support', call: 'air_strike', x: 1, y: 1, accepted: true }],
       [order()],
     ] as PlayerIntent[][]) {
       const d = once(g(intents));

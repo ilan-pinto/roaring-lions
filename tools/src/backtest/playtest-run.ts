@@ -8,6 +8,7 @@ import {
   TICKS_PER_SECOND,
   MissionRuntime,
   resolveUpgrades,
+  loanedPlacements,
   creditsFor,
   creditInputFrom,
   type MissionJson,
@@ -29,6 +30,7 @@ import {
   applyUpgrades,
   maxTiers,
 } from '@lions/data';
+import { PopulationCensus } from './population-census';
 // `tools` importing a pure module out of `packages/app` is the established
 // pattern (`tools/src/meshes/gait-pass.ts` imports `RIGGED_UNIT_MESHES` from
 // `packages/app/src/mesh-catalogue` the same way): `roster-cap.ts` is the one
@@ -74,6 +76,10 @@ export const missionRoe = new Map<string, number>();
  *  `missionStars`, so a control's defeat (which writes nothing to a real
  *  ledger anyway) and a gate-open or max-tier probe can never contribute. */
 export const missionRosterOut = new Map<string, number>();
+
+/** This mission's winning-plan population census (GH-183 F3 Task 5), same guard as `missionStars`.
+ *  Report only: `playtest.ts` prints it and gates nothing on it. */
+export const missionPopulation = new Map<string, PopulationCensus>();
 
 /** Brigade economy Task 5: everything a plain `label === id` VICTORY run needs to be
  *  replayed with every KDF type patched to its own maximum tier. Recorded under the
@@ -311,7 +317,10 @@ export function run(
     return withBought(gate, unitId);
   };
   const resolvedMission = resolveUpgrades(mission, ledger, unlockOf);
+  // F3 Task 6: who is on loan, from the SAME lookup the line above resolved with (as main.ts does).
+  const loaned = loanedPlacements(mission, ledger, unlockOf);
   const rt = new MissionRuntime(sim, resolvedMission, {
+    loaned,
     typeIdOf: (u) => typeOf.get(u) as number,
     markers: map.markers,
     zones: map.zones,
@@ -323,7 +332,7 @@ export function run(
         | {
             faction: string;
             unlock?: { roe_rating_min?: number; stars_min?: number; after_mission?: string; price?: number };
-            cost: { logistics: number; build_time_s?: number };
+            cost: { logistics: number; build_time_s?: number; population?: number };
           }
         | undefined
       >)[u];
@@ -331,6 +340,7 @@ export function run(
       return {
         logistics: d.cost.logistics,
         buildTimeS: d.cost.build_time_s ?? 20,
+        population: d.cost.population ?? 1,
         // `bought` resolved here as in `main.ts`'s `kdfUnlockGate`: `requestBuild` reads THIS
         // gate through `buildBlockedReason`, so without it a purchase opened `resolveUpgrades`
         // and stayed closed to the build queue.
@@ -339,6 +349,9 @@ export function run(
     },
   });
   rt.start();
+  // F3 Task 5: read off the runtime once a tick, after the step; the start is what `start()` spawned.
+  const census = new PopulationCensus();
+  census.begin(rt);
   const ids = (t: string): number[] => {
     const out: number[] = [];
     for (let i = 0; i < sim.entityCount; i++)
@@ -394,8 +407,10 @@ export function run(
       else if (me.kind === 'intelEarned') intelEventSum += me.amount;
     }
     noteIntel();
+    census.sample(rt);
     if (rt.result !== 'ongoing') break;
   }
+  census.finish(rt);
   const cause = rt.result === 'defeat' ? causeText(rt.defeatCause) : undefined;
   const mins = (t / TICKS_PER_SECOND / 60).toFixed(1);
   const shown = outcomeName(rt.result, t >= maxTicks);
@@ -443,6 +458,7 @@ export function run(
     // `missionOrder` in `playtest.ts` -- see the `roster cap:` comment block near
     // `LADDER_CREDITS` for why this number is honest.
     missionRosterOut.set(id, (produced['roster.surviving_units'] ?? []).length);
+    missionPopulation.set(id, census);
     // Brigade economy Task 5: record this same plain victory for the max-tier
     // replay pass in `playtest.ts`. `tiers === undefined` is belt-and-suspenders -- a max-tier
     // replay always passes a label distinct from `id` (see `MaxTierProbe`'s own
