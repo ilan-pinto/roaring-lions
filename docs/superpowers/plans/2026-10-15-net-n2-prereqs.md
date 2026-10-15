@@ -190,3 +190,19 @@ puts N2 in F2's old slot and pushes F2, F4 and vehicle spacing back by N2's leng
 roughly 8–10 tasks). If the lead would rather keep the economy on its dates, N2 goes after F2 and
 skips row 4: nothing in rows 6–9 needs F2's zones. P1–P7 can all land before then, since none
 touches `packages/sim`.
+
+## 6. As built (15 Oct, branch `feat/net-n2-prereqs`)
+
+All seven landed with no file under `packages/sim/` changed; `pnpm test:determinism` and the
+versus mirror pins (580559085 / 1260439781; `match-world.test.ts` 3043363756 / 1260439781) did not
+move. Each commit message lists its falsifications, watched red.
+
+| Task | Status | Commits | What it found |
+|---|---|---|---|
+| P1 | done | `d407f8e3` | `MissingCommandKind` in `protocol.ts`: dropping `'attack'` is a `tsc` error naming it |
+| P2 | done | `3dd5c86a` | `FrameStep.runtimeDigest` (absent = 0) and `AgentClientOptions.runtimeDigest`; a digest that returns the tick desyncs at tick 19 |
+| P3 | done | `e877c8e7` | `shippedContentDigest()` (`content-digest.ts`), key-sorted; the room's `dataDigest: 0` stays on the wire, unfolded. Roster ORDER is covered by the build check, not the digest. The network-report pins in `frame-step.test.ts` were re-pinned; the sim pins did not move |
+| P4 | done | `c7626ffe` | `seatRules`: versus `[true, true]` (a bot seat is a player too), single-player and sandbox `[true, false]` |
+| P5 | done | `b375d07c`, `bf76cc77` | **Confirmed: per-seat unit types need no sim code** (L2), proven through combat. Follow-ups: patched copies keep the base id; `unitKitTiers`/`kitByType`/`unitKit` need per-side keys; per-side tiers come from the shared config |
+| P6 | done | `c5826d1c`, `6e1a3596` | The side-0 auto-breach fires only on walled maps (`milh_flats`, `wadi_tarfan`); no measurable outcome effect over 800 paired seeds (flips 9/12, p = 0.66; margin 35/43, p = 0.43; win-rate shift about −1.5 to +0.8 pp); none in the mirror pins' first 200 ticks. A parity item for N2, not a live fairness bug |
+| P7 | done | this commit | The spec follows L1–L5 and P1–P6: §0, §2.1, §2.2, §3.1, §3.3, §3.4, §7.1, §7.4, §9, decision 19, §11b.2, §11b.4 |
