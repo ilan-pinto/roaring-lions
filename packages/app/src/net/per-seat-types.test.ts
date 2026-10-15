@@ -1,6 +1,6 @@
 /**
  * N2-P5, the per-seat unit types spike (ruling L2, 15 Oct): can each SEAT of a
- * versus room field its own kit -- side 1's KDF types patched by a bought tier
+ * versus room field its own kit -- side 1's KDF types patched by bought tiers
  * while side 0's are not -- with no sim code at all?
  *
  * The recipe is app-side only: register the roster once (side 0, the base
@@ -17,9 +17,14 @@
  * by `unitCost(sim.unitTypes[typeIdx[i]].id)` -- price it at the base cost
  * with no mapping. Whether a kitted unit SHOULD be worth more on the board is
  * a design call for the per-seat-kit work, not something this spike decides.
+ *
+ * The world is `buildWorld` rather than `buildMatchWorld`: the latter spawns
+ * both forces through ONE type map inside itself, so a per-side spawn cannot
+ * be put through it without changing app code, and this spike is a test only.
+ * The control below pins that this world and spawner ARE the mirror.
  */
 import { describe, it, expect } from 'vitest';
-import { units, type UpgradableUnit } from '@lions/data';
+import { applyUpgrades, readPath, units, type UpgradableUnit } from '@lions/data';
 import { fx, type Sim } from '@lions/sim';
 import { VERSUS_KDF } from './versus-force';
 import { forcesOf, unitCost } from './outcome';
@@ -30,31 +35,70 @@ import { hostileFacing } from '../sandbox-facing';
 import { placeOnOpen } from '../sandbox-place';
 import { buildWorld } from './versus-world.test-helper';
 
-type RosterUnit = UpgradableUnit & { readonly id: string; readonly faction: string; readonly hull: { readonly hp: number } };
+type RosterUnit = UpgradableUnit & { readonly id: string; readonly faction: string };
 const roster = Object.values(units) as unknown as RosterUnit[];
+const kdf = roster.filter((u) => u.faction === 'kdf');
 
-/** Side 1's kit: the `armour` track at tier 1 on every KDF type that has one. */
-const SIDE1_TIERS: Record<string, Record<string, number>> = {};
-for (const u of roster) if (u.faction === 'kdf' && u.upgrades?.armour) SIDE1_TIERS[u.id] = { armour: 1 };
+/** Side 1's kit: the `armour` AND `firepower` tracks at tier 1 on every KDF
+ *  type (a track a type does not declare is ignored by `applyUpgrades`). */
+const tiersFor = (tracks: readonly string[]): Record<string, Record<string, number>> =>
+  Object.fromEntries(kdf.map((u) => [u.id, Object.fromEntries(tracks.map((t) => [t, 1]))]));
+const KIT = tiersFor(['armour', 'firepower']);
 
-const HP_DELTA = (id: string): number => {
+const baseOf = (id: string): RosterUnit => {
   const u = roster.find((x) => x.id === id);
-  return (u?.upgrades?.armour?.tiers[0]?.patch['hull.hp'] as number | undefined) ?? 0;
+  if (!u) throw new Error(`no unit ${id}`);
+  return u;
 };
+const read = (u: UpgradableUnit, path: string): number => readPath(u, path) ?? NaN;
+const tierPatch = (id: string, track: string, path: string): number =>
+  (baseOf(id).upgrades?.[track]?.tiers[0]?.patch[path] as number | undefined) ?? 0;
 
-/** The mirror's world (`buildWorld`: side 0's types, the base ladder) plus a
- *  second, patched registration of every KDF type for side 1, appended so
- *  every side-0 index is the one the mirror always had. Returns one id -> type
- *  map per SIDE. */
-function perSeatWorld(mapId: 'beit_sahwan_outskirts' | 'tel_marum', patchSide1 = true) {
+/** Side 1's registrations, one variant per question. Every variant except
+ *  `base` registers a full set of KDF copies, so the type-index layout -- and
+ *  with it the tick-0 hash's typeIdx column -- is identical across them and a
+ *  difference after combat can only come from the stats.
+ *  - `base`: no copies; side 1 spawns on side 0's types (the mirror).
+ *  - `identity`: copies with no tier, stat for stat the base.
+ *  - `armour`: armour track only. `kit`: armour + firepower.
+ *  - `plates`: the armour track's plate deltas WITHOUT its hull.hp delta, so
+ *    the tick-0 state equals `identity`'s and only the target's armour lookup
+ *    can tell them apart -- scaled by `PLATE_GAIN`, because the real tier-1
+ *    plates (+14 on a Lavi's front, +1 on a squad) flip no roll in this 90 s
+ *    fight: measured, the unscaled fate reads equal to `identity`'s. The sim
+ *    reads plate off the TARGET's own type index (`presentedArmor`), so the
+ *    gain only makes a difference observable, it changes no path. */
+const PLATE_GAIN = 20;
+type Variant = 'base' | 'identity' | 'armour' | 'kit' | 'plates';
+function side1Types(variant: Exclude<Variant, 'base'>): RosterUnit[] {
+  switch (variant) {
+    case 'identity':
+      return upgradePrepass(kdf, {}).registered;
+    case 'armour':
+      return upgradePrepass(kdf, tiersFor(['armour'])).registered;
+    case 'kit':
+      return upgradePrepass(kdf, KIT).registered;
+    case 'plates':
+      return kdf.map((u) => {
+        const armour = u.upgrades?.armour;
+        if (!armour) return applyUpgrades(u, {});
+        const patch: Record<string, number> = {};
+        for (const [path, d] of Object.entries(armour.tiers[0].patch)) {
+          if (path !== 'hull.hp') patch[path] = d * PLATE_GAIN;
+        }
+        const tiers = [{ ...armour.tiers[0], patch }, ...armour.tiers.slice(1)];
+        return applyUpgrades({ ...u, upgrades: { ...u.upgrades, armour: { ...armour, tiers } } }, { armour: 1 });
+      });
+  }
+}
+
+/** The mirror's world (`buildWorld`: side 0's types, the base ladder) plus
+ *  side 1's registrations, appended so every side-0 index is the one the
+ *  mirror always had. Returns one id -> type map per SIDE. */
+function perSeatWorld(mapId: 'beit_sahwan_outskirts' | 'tel_marum', variant: Variant) {
   const { sim, typeOf, map } = buildWorld(mapId);
   const typeOf1 = new Map(typeOf);
-  if (patchSide1) {
-    for (const t of upgradePrepass(roster, SIDE1_TIERS).registered) {
-      if (t.faction !== 'kdf') continue; // only the brigade buys kit
-      typeOf1.set(t.id, sim.addUnitType(t as never));
-    }
-  }
+  if (variant !== 'base') for (const t of side1Types(variant)) typeOf1.set(t.id, sim.addUnitType(t as never));
   return { sim, map, typeOfBySide: [typeOf, typeOf1] as const };
 }
 
@@ -73,39 +117,82 @@ function perSeatSpawns(sim: Sim, typeOfBySide: readonly [Map<string, number>, Ma
   return bySide;
 }
 
-function run(mapId: 'beit_sahwan_outskirts' | 'tel_marum', ticks: number, patchSide1 = true) {
-  const w = perSeatWorld(mapId, patchSide1);
-  const bySide = perSeatSpawns(w.sim, w.typeOfBySide, sandboxAnchors(w.map));
-  for (let i = 0; i < ticks; i++) w.sim.tick();
-  return { ...w, bySide };
+/** The versus probe's play (`tools/src/backtest/versus-probe.ts`): every
+ *  20 s each side's living units attack-move on the other side's centroid. */
+const ORDER_EVERY = 400;
+function order(sim: Sim, bySide: readonly [number[], number[]]): void {
+  for (const side of [0, 1] as const) {
+    let x = 0;
+    let y = 0;
+    let n = 0;
+    for (const i of bySide[side === 0 ? 1 : 0]) {
+      if (sim.state.alive[i] !== 1) continue;
+      x += sim.state.posX[i];
+      y += sim.state.posY[i];
+      n++;
+    }
+    const ids = bySide[side].filter((i) => sim.state.alive[i] === 1);
+    if (n > 0 && ids.length > 0) sim.queueCommand({ kind: 'attackMove', ids, x: Math.round(x / n), y: Math.round(y / n) });
+  }
 }
+
+function run(mapId: 'beit_sahwan_outskirts' | 'tel_marum', ticks: number, variant: Variant = 'kit', fight = false) {
+  const w = perSeatWorld(mapId, variant);
+  const bySide = perSeatSpawns(w.sim, w.typeOfBySide, sandboxAnchors(w.map));
+  const hash0 = w.sim.hash();
+  for (let t = 0; t < ticks; t++) {
+    if (fight && t % ORDER_EVERY === 0) order(w.sim, bySide);
+    w.sim.tick();
+  }
+  return { ...w, bySide, hash0 };
+}
+
+/** What a unit's fight did to it, read per placement (side, k). */
+const fate = (r: ReturnType<typeof run>) =>
+  r.bySide.map((ids) => ids.map((i) => [r.sim.state.alive[i], r.sim.state.hp[i], r.sim.state.posX[i], r.sim.state.posY[i]]));
+
+/** 90 s of the probe's play: long enough on beit for both sides to lose units. */
+const BATTLE_TICKS = 1800;
 
 describe('per-seat unit types with no sim code (N2-P5, ruling L2)', () => {
   it('the per-seat spawner IS the mirror when both seats share one map (the pin holds)', () => {
     // Control: the test's spawner with side 1 on side 0's types reproduces
     // versus-force.test.ts's pinned mirror hash, so what follows differs from
-    // the mirror ONLY by side 1's patched registrations.
-    expect(run('beit_sahwan_outskirts', 200, false).sim.hash()).toBe(580559085);
+    // the mirror ONLY by side 1's registrations.
+    expect(run('beit_sahwan_outskirts', 200, 'base').sim.hash()).toBe(580559085);
   });
 
-  it("side 1's KDF units carry the patched HP; side 0's carry the base", () => {
+  it("side 1's KDF units carry the patched HP and weapon; side 0's carry the base", () => {
     const { sim, bySide } = run('beit_sahwan_outskirts', 0);
-    let patched = 0;
+    let hpPatched = 0;
+    let weaponPatched = 0;
     VERSUS_KDF.forEach(([id], k) => {
-      const base = roster.find((u) => u.id === id)!.hull.hp;
+      const base = baseOf(id);
       const a = bySide[0][k];
       const b = bySide[1][k];
-      expect(sim.state.hp[a]).toBe(fx.from(base));
-      expect(sim.state.hp[b]).toBe(fx.from(base + HP_DELTA(id)));
+      const hpDelta = tierPatch(id, 'armour', 'hull.hp');
+      expect(sim.state.hp[a]).toBe(fx.from(read(base, 'hull.hp')));
+      expect(sim.state.hp[b]).toBe(fx.from(read(base, 'hull.hp') + hpDelta));
       // Same id on both seats: what the pricing below relies on.
-      expect(sim.unitTypes[sim.state.typeIdx[b]].id).toBe(sim.unitTypes[sim.state.typeIdx[a]].id);
-      if (HP_DELTA(id) > 0) {
-        expect(sim.state.typeIdx[b]).not.toBe(sim.state.typeIdx[a]);
-        patched++;
+      const ta = sim.unitTypes[sim.state.typeIdx[a]];
+      const tb = sim.unitTypes[sim.state.typeIdx[b]];
+      expect(tb.id).toBe(ta.id);
+      expect(sim.state.typeIdx[b]).not.toBe(sim.state.typeIdx[a]);
+      if (hpDelta > 0) hpPatched++;
+      const penDelta = tierPatch(id, 'firepower', 'weapons[0].penetration');
+      const accDelta = tierPatch(id, 'firepower', 'weapons[0].accuracy');
+      if (ta.weapons.length > 0) {
+        expect(ta.weapons[0].penetration).toBe(fx.from(read(base, 'weapons[0].penetration')));
+        expect(tb.weapons[0].penetration).toBe(fx.from(read(base, 'weapons[0].penetration') + penDelta));
+        expect(tb.weapons[0].accuracy).toBe(fx.from(read(base, 'weapons[0].accuracy') + accDelta));
       }
+      if (penDelta > 0) weaponPatched++;
     });
-    // Every placement in the KDF versus force has an armour track.
-    expect(patched).toBe(VERSUS_KDF.length);
+    // Every placement in the KDF versus force has an armour track; all but
+    // the unarmed D9 and recon drone have a firepower track.
+    expect(hpPatched).toBe(VERSUS_KDF.length);
+    expect(weaponPatched).toBe(VERSUS_KDF.filter(([id]) => baseOf(id).upgrades?.firepower).length);
+    expect(weaponPatched).toBeGreaterThanOrEqual(VERSUS_KDF.length - 2);
   });
 
   for (const mapId of ['beit_sahwan_outskirts', 'tel_marum'] as const) {
@@ -113,9 +200,63 @@ describe('per-seat unit types with no sim code (N2-P5, ruling L2)', () => {
       const a = run(mapId, 200);
       const b = run(mapId, 200);
       expect(a.sim.hash()).toBe(b.sim.hash());
-      expect(a.sim.hash()).not.toBe(run(mapId, 200, false).sim.hash());
+      expect(a.sim.hash()).not.toBe(run(mapId, 200, 'base').sim.hash());
     });
   }
+
+  // Each battle is 1800 ticks of a 30-unit fight (~1.6 s locally); the
+  // explicit timeout keeps a slow CI runner from reading that as a hang.
+  describe("through combat (the probe's attack-move, 90 s on beit_sahwan_outskirts)", { timeout: 60_000 }, () => {
+    let memo: ReturnType<typeof run> | undefined;
+    const kitRun = (): ReturnType<typeof run> => (memo ??= run('beit_sahwan_outskirts', BATTLE_TICKS, 'kit', true));
+
+    it('fire is exchanged: both sides take damage and lose units', () => {
+      const kit = kitRun();
+      for (const side of [0, 1] as const) {
+        const dead = kit.bySide[side].filter((i) => kit.sim.state.alive[i] === 0).length;
+        expect(dead).toBeGreaterThan(0);
+      }
+      const [s0, s1] = scoreOf(kit.sim);
+      expect(s0.lostValue).toBeGreaterThan(0);
+      expect(s1.lostValue).toBeGreaterThan(0);
+    });
+
+    it('two runs hash equal through combat', () => {
+      expect(run('beit_sahwan_outskirts', BATTLE_TICKS, 'kit', true).sim.hash()).toBe(kitRun().sim.hash());
+    });
+
+    it('duplicate registrations alone change no fight: identity copies play the mirror unit for unit', () => {
+      const base = run('beit_sahwan_outskirts', BATTLE_TICKS, 'base', true);
+      const identity = run('beit_sahwan_outskirts', BATTLE_TICKS, 'identity', true);
+      expect(fate(identity)).toEqual(fate(base));
+    });
+
+    it('side 1 fires its OWN patched weapon: firepower moves the fight from an identical tick 0', () => {
+      const kit = kitRun();
+      const armour = run('beit_sahwan_outskirts', BATTLE_TICKS, 'armour', true);
+      expect(armour.hash0).toBe(kit.hash0);
+      expect(fate(kit)).not.toEqual(fate(armour));
+    });
+
+    it('hits on side 1 read its OWN patched armour: plates move the fight from an identical tick 0', () => {
+      const identity = run('beit_sahwan_outskirts', BATTLE_TICKS, 'identity', true);
+      const plates = run('beit_sahwan_outskirts', BATTLE_TICKS, 'plates', true);
+      expect(plates.hash0).toBe(identity.hash0);
+      expect(fate(plates)).not.toEqual(fate(identity));
+    });
+
+    it('scoreOf prices the post-combat board, patched losses included, at base cost', () => {
+      const kit = kitRun();
+      const valueOf = (side: 0 | 1, alive: 0 | 1): number =>
+        VERSUS_KDF.reduce((s, [id], k) => s + (kit.sim.state.alive[kit.bySide[side][k]] === alive ? unitCost(id) : 0), 0);
+      const [s0, s1] = scoreOf(kit.sim);
+      expect(s1.lostValue).toBe(valueOf(1, 0));
+      expect(s1.remaining).toBe(valueOf(1, 1));
+      expect(s0.lostValue).toBe(valueOf(0, 0));
+      expect(s0.remaining).toBe(valueOf(0, 1));
+      expect(s1.lostValue + s1.remaining).toBe(6664);
+    });
+  });
 
   it('forcesOf and scoreOf price every unit, patched ones included, at its base cost', () => {
     const { sim, bySide } = run('beit_sahwan_outskirts', 0);
