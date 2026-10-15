@@ -343,6 +343,7 @@ export interface FirstUseHintRule {
   carrier_empty_seat?: true;
   enemy_pinned?: true;
   resources?: true;
+  income_held?: true;
 }
 
 /** The one-line hints for lessons the tutorial no longer teaches (GH-345

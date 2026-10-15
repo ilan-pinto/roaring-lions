@@ -1508,3 +1508,88 @@ describe('the Deploy press is painted before the mission starts', () => {
     expect(backCalls).toBe(0);
   });
 });
+
+// H3: the briefing -> battlefield transition keeps the screen through the
+// deploy and takes it down itself (`mission-intro-run.ts`).
+describe('a kept screen (H3)', () => {
+  const deploy = async (keep: boolean): Promise<{ el: HTMLElement; screen: ReturnType<typeof showLoading> }> => {
+    const el = document.createElement('div');
+    const screen = showLoading(el, 'Break the Depot', 'Seven structures.');
+    const done = screen.done({ keep });
+    el.querySelector<HTMLButtonElement>('.rl-loading__deploy')?.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await done;
+    return { el, screen };
+  };
+
+  it('keep: the deploy resolves done() and leaves the screen up; without it the screen goes as before', async () => {
+    expect((await deploy(true)).el.querySelector('.rl-loading')).not.toBeNull();
+    expect((await deploy(false)).el.querySelector('.rl-loading')).toBeNull();
+  });
+
+  it('keep takes the Escape listener off all the same: Escape no longer goes back', async () => {
+    const el = document.createElement('div');
+    let back = 0;
+    const screen = showLoading(el, 'Break the Depot', 'Seven structures.', undefined, undefined, undefined, () => {
+      back++;
+    });
+    const done = screen.done({ keep: true });
+    el.querySelector<HTMLButtonElement>('.rl-loading__deploy')?.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await done;
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(back).toBe(0);
+  });
+
+  it('keep does not strand a screen that never held (no briefing)', async () => {
+    const el = document.createElement('div');
+    const screen = showLoading(el, 'M0 sandbox');
+    await screen.done({ keep: true });
+    expect(el.querySelector('.rl-loading')).toBeNull();
+  });
+
+  it('leave(fold) marks the screen and hands the box its geometry', async () => {
+    const { el, screen } = await deploy(true);
+    screen.leave({ kind: 'fold', geometry: { dx: -400, dy: -90, scale: 1.25, clipBottomPx: 512.5 } });
+    const wrap = el.querySelector<HTMLElement>('.rl-loading');
+    const box = el.querySelector<HTMLElement>('.rl-loading__box');
+    expect(wrap?.dataset.intro).toBe('fold');
+    expect(box?.style.getPropertyValue('--fold-dx')).toBe('-400px');
+    expect(box?.style.getPropertyValue('--fold-dy')).toBe('-90px');
+    expect(box?.style.getPropertyValue('--fold-scale')).toBe('1.25');
+    expect(box?.style.getPropertyValue('--fold-clip')).toBe('512.5px');
+  });
+
+  it('leave(fold) with no bar folds nothing: the card only fades', async () => {
+    const { el, screen } = await deploy(true);
+    screen.leave({ kind: 'fold', geometry: null });
+    expect(el.querySelector<HTMLElement>('.rl-loading')?.dataset.intro).toBe('fold');
+    expect(el.querySelector<HTMLElement>('.rl-loading__box')?.style.getPropertyValue('--fold-dx')).toBe('');
+  });
+
+  it('leave(fade) is reduced motion: the whole screen, no fold', async () => {
+    const { el, screen } = await deploy(true);
+    screen.leave({ kind: 'fade' });
+    expect(el.querySelector<HTMLElement>('.rl-loading')?.dataset.intro).toBe('fade');
+    expect(el.querySelector<HTMLElement>('.rl-loading__box')?.style.getPropertyValue('--fold-dx')).toBe('');
+  });
+
+  it('remove() takes it down; boxRect() is null after', async () => {
+    const { el, screen } = await deploy(true);
+    expect(screen.boxRect()).not.toBeNull();
+    screen.remove();
+    expect(el.querySelector('.rl-loading')).toBeNull();
+    expect(screen.boxRect()).toBeNull();
+    screen.remove();
+  });
+
+  it('dispose() mid-leave removes the screen, and a later leave() is a no-op', async () => {
+    const { el, screen } = await deploy(true);
+    const wrap = el.querySelector<HTMLElement>('.rl-loading');
+    screen.leave({ kind: 'fade' });
+    screen.dispose();
+    expect(el.querySelector('.rl-loading')).toBeNull();
+    screen.leave({ kind: 'fold', geometry: null });
+    expect(wrap?.dataset.intro).toBe('fade');
+  });
+});
