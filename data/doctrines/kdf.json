@@ -1,0 +1,21 @@
+{
+  "id": "kdf",
+  "faction": "kdf",
+  "name": "KDF",
+  "menu": [
+    "mbt_lavi",
+    "ifv_namer",
+    "apc_eitan",
+    "inf_squad",
+    "at_team",
+    "mortar_team",
+    "jeep_shoded",
+    "recon_drone",
+    "dozer_d9",
+    "heli_peten"
+  ],
+  "budget": {
+    "logistics_start": 3000,
+    "status": "provisional"
+  }
+}

@@ -5,24 +5,37 @@
  *  has its own, WS_LIMIT, at 60 a minute (#559 M-1). */
 import type { Env, RateLimiter } from '../d1';
 import { originAllowed } from '../origin';
+import { readCapped } from '../read-capped';
 import { signTicket, verifyTicket } from './ticket';
 import { mintCode, isCode } from './code';
 import { ADVISOR_SCOPES, matchupAllowed, matchupField, versusMapAllowed, type AdvisorScope } from '@lions/net';
 import { callsignField, kitField, mapField, paceField, seatKindField, seatTiersField, textField } from './room-fields';
 
+/** A size bound on the request bodies of create, join and the advisor ticket (hardening). */
+// largest legitimate body measured 1644 bytes (full brigade claim, 16 Oct); cap ≈ 2×
+export const MATCH_BODY_MAX_BYTES = 3584;
 const TICKET_MS = 6 * 3600 * 1000;
 const CODE_ATTEMPTS = 5;
 
 interface CreateBody { player?: unknown; callsign?: unknown; map?: unknown; build?: unknown; mode?: unknown; matchup?: unknown; kind?: unknown; pace?: unknown; kit?: unknown; tiers?: unknown; ticket?: unknown; scope?: unknown }
 
-async function readBody(req: Request): Promise<CreateBody> {
+/** The JSON body, `{}` when it is unreadable, or null when it is over `MATCH_BODY_MAX_BYTES`
+ *  (the caller answers 413). An oversize body is refused before it is read or parsed: a
+ *  declared length over the cap at once, and an undeclared or understated one after at
+ *  most cap + 1 bytes (`readCapped`). */
+async function readBody(req: Request): Promise<CreateBody | null> {
+  const declared = req.headers.get('content-length');
+  if (declared !== null && Number(declared) > MATCH_BODY_MAX_BYTES) return null;
+  const raw = await readCapped(req, MATCH_BODY_MAX_BYTES);
+  if (raw === null) return null;
   try {
-    const v: unknown = await req.json();
+    const v: unknown = JSON.parse(new TextDecoder().decode(raw));
     return typeof v === 'object' && v !== null ? (v as CreateBody) : {};
   } catch {
     return {};
   }
 }
+const tooLarge = (): Response => new Response('too large', { status: 413 });
 /** The anonymous player id the ticket carries (network design §4); the
  *  callsign is a label and travels separately. Empty means no id: refused. */
 const playerOf = (b: CreateBody): string => textField(b.player, '');
@@ -49,6 +62,7 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
     if (req.method !== 'POST') return new Response('method', { status: 405 });
     if (await limited(req, env.ROOM_LIMIT)) return new Response('slow down', { status: 429 });
     const body = await readBody(req);
+    if (body === null) return tooLarge();
     // The room checks every hello's build against this one; empty would switch that check off.
     const build = textField(body.build, '');
     if (build === '') return new Response('build required', { status: 400 });
@@ -91,6 +105,7 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
     if (req.method !== 'POST') return new Response('method', { status: 405 });
     if (await limited(req, env.ROOM_LIMIT)) return new Response('slow down', { status: 429 });
     const body = await readBody(req);
+    if (body === null) return tooLarge();
     const player = playerOf(body);
     if (player === '') return new Response('player required', { status: 400 });
     const res = await stub.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player, callsign: callsignField(body.callsign), kind: seatKindField(body.kind), tiers: seatTiersField(body.tiers) }) }));
@@ -118,6 +133,7 @@ async function advisorTicket(req: Request, env: Env, secret: string, code: strin
   if (req.method !== 'POST') return new Response('method', { status: 405 });
   if (await limited(req, env.ROOM_LIMIT)) return new Response('slow down', { status: 429 });
   const body = await readBody(req);
+  if (body === null) return tooLarge();
   if (!(ADVISOR_SCOPES as readonly unknown[]).includes(body.scope)) return new Response('bad scope', { status: 400 });
   const scope = body.scope as AdvisorScope;
   const seat = typeof body.ticket === 'string' ? await verifyTicket(secret, body.ticket, now) : null;

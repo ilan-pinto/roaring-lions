@@ -10,6 +10,8 @@
 //   data/maps/**     against data/schemas/map.schema.json, plus grid
 //                    dimensions and marker/zone bounds
 //   data/tutorial/** against data/schemas/tutorial.schema.json
+//   data/doctrines/** against data/schemas/doctrine.schema.json, plus the
+//                    menu and budget rules in tools/validate_doctrine.mjs
 //   tools/fixtures/units/** against the unit schema (synthetic, but must parse)
 //   data/palette.json structural sanity (32 locked colours)
 //   every vfx palette_ref resolves to a real palette key — raw hex is how
@@ -26,6 +28,7 @@ import { videoFailures } from './validate_video.mjs';
 import { timeLimitFailures } from './validate_time_limit.mjs';
 import { popCapFailures } from './validate_pop_cap.mjs';
 import { incomeFailures } from './validate_income.mjs';
+import { doctrineFailures } from './validate_doctrine.mjs';
 import { garrisonStanceFailures, garrisonWeaponFailures } from './validate_garrison.mjs';
 import {
   commanderRankFailures,
@@ -166,12 +169,14 @@ const schemas = {
   names: loadJson(join(ROOT, 'data/schemas/names.schema.json')),
   diorama: loadJson(join(ROOT, 'data/schemas/diorama.schema.json')),
   hints: loadJson(join(ROOT, 'data/schemas/first_use_hints.schema.json')),
+  doctrine: loadJson(join(ROOT, 'data/schemas/doctrine.schema.json')),
 };
 
 let checked = 0;
 if (
   schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tutorial &&
-  schemas.world && schemas.countries && schemas.commander && schemas.names && schemas.diorama && schemas.hints
+  schemas.world && schemas.countries && schemas.commander && schemas.names && schemas.diorama && schemas.hints &&
+  schemas.doctrine
 ) {
   const validators = {
     unit: ajv.compile(schemas.unit),
@@ -185,12 +190,14 @@ if (
     names: ajv.compile(schemas.names),
     diorama: ajv.compile(schemas.diorama),
     hints: ajv.compile(schemas.hints),
+    doctrine: ajv.compile(schemas.doctrine),
   };
   checked += validateDir(join(ROOT, 'data/units'), validators.unit, 'unit.schema');
   checked += validateDir(join(ROOT, 'data/missions'), validators.mission, 'mission.schema');
   checked += validateDir(join(ROOT, 'data/vfx'), validators.vfx, 'vfx_emitter.schema');
   checked += validateDir(join(ROOT, 'data/maps'), validators.map, 'map.schema');
   checked += validateDir(join(ROOT, 'data/tutorial'), validators.tutorial, 'tutorial.schema');
+  checked += validateDir(join(ROOT, 'data/doctrines'), validators.doctrine, 'doctrine.schema');
   checked += validateDir(join(ROOT, 'tools/fixtures/units'), validators.unit, 'unit.schema');
   // data/campaign is a mixed directory: world.json is hand-authored, countries.json
   // is generated geometry, commander.json is hand-authored. Each gets its own schema.
@@ -1222,6 +1229,20 @@ const garrisonableSymbols = new Set(
       }
     }
   }
+}
+
+// --- skirmish doctrines (N3 prep, LD2/LD3) ------------------------------------
+// A menu id is a unit of the doctrine's own side, no menu builds loiter_drone, and
+// Sarim starts with 1.6x the KDF's purse (G3 Q7). The menu-equals-VERSUS_SARIM
+// cross-check needs app code: tools/src/validate_doctrine.test.ts.
+{
+  const doctrineUnits = new Map();
+  for (const file of jsonFilesIn(join(ROOT, 'data/units'))) {
+    const u = loadJson(file);
+    if (u?.id) doctrineUnits.set(u.id, u);
+  }
+  const doctrines = jsonFilesIn(join(ROOT, 'data/doctrines')).map((file) => ({ file: rel(file), doc: loadJson(file) }));
+  failures.push(...doctrineFailures(doctrines, doctrineUnits));
 }
 
 // --- map grid + bounds checks (beyond what JSON Schema can express) ---------

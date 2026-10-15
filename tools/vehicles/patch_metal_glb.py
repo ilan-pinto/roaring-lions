@@ -20,6 +20,12 @@ more JPEG generation, which is why the provenance records the run.
 
     python3 tools/vehicles/patch_metal_glb.py --metallic-only art/meshes/vehicles/<id>.glb
 
+    python3 tools/vehicles/patch_metal_glb.py --hex=#C3C7C4 art/meshes/vehicles/heli_peten.glb
+
+paints the patch in another colour (2026-10-15, K5): the Peten's named
+light-metal tone (`kit_vehicles.TONE_DEVIATIONS`), which its bake has no
+flat texel for. The exporter finds it by that colour and refuses without it.
+
 (GH-238 leftovers, 2026-10-12) rewrites ONLY the patch's `metallic_roughness`
 texels to `bake_fix.METAL_METALLIC` / `METAL_ROUGHNESS` on a file that already
 carries the patch: the block is found by its COLOUR (the one 8-aligned square
@@ -98,7 +104,7 @@ def _image_name(j, idx):
 PATCH_TOL = 12
 
 
-def patch(path, metallic_only=False):
+def patch(path, metallic_only=False, hexv=None):
     j, b = _read(path)
     mat = j["materials"][0]
     base_idx = j["textures"][mat["pbrMetallicRoughness"]["baseColorTexture"]["index"]]["source"]
@@ -150,7 +156,7 @@ def patch(path, metallic_only=False):
                              f"want exactly one -- run without --metallic-only to paint one")
         x, y = hits[0]
         named = {"metallic_roughness": named["metallic_roughness"]}
-    painted = bake_fix.paint_patch_arrays(named, x, y, (w, h))
+    painted = bake_fix.paint_patch_arrays(named, x, y, (w, h), hexv)
 
     # Rebuild the BIN chunk: every bufferView in its original order, image
     # views re-encoded, everything else copied.
@@ -183,7 +189,7 @@ def patch(path, metallic_only=False):
         fh.write(struct.pack("<II", len(out), 0x004E4942))
         fh.write(out)
     uv = ((x + bake_fix.PATCH / 2.0) / w, (y + bake_fix.PATCH / 2.0) / h)
-    print(f"[{os.path.basename(path)}] metal patch: {bake_fix.PATCH}x{bake_fix.PATCH} {bake_fix.METAL_HEX} at texel "
+    print(f"[{os.path.basename(path)}] metal patch: {bake_fix.PATCH}x{bake_fix.PATCH} {hexv or bake_fix.METAL_HEX} at texel "
           f"({x}, {y}) of {w}x{h}, uv ({uv[0]:.5f}, {uv[1]:.5f}), guard {bake_fix.GUARD}; {tris} live triangles "
           f"rasterised, atlas coverage {100.0 * mask.mean():.1f}%; painted {', '.join(painted)}; "
           f"{'metallic_roughness' if metallic_only else 'images'} re-encoded JPEG q{JPEG_QUALITY} "
@@ -193,7 +199,10 @@ def patch(path, metallic_only=False):
 if __name__ == "__main__":
     argv = sys.argv[1:]
     only = "--metallic-only" in argv
-    files = [a for a in argv if a != "--metallic-only"]
+    hexv = next((a[6:] for a in argv if a.startswith("--hex=")), None)
+    files = [a for a in argv if a != "--metallic-only" and not a.startswith("--hex=")]
     if len(files) != 1 or any(a.startswith("--") for a in files):
-        raise SystemExit("usage: patch_metal_glb.py [--metallic-only] <vehicle.glb>")
-    patch(files[0], metallic_only=only)
+        raise SystemExit("usage: patch_metal_glb.py [--metallic-only | --hex=#RRGGBB] <vehicle.glb>")
+    if hexv is not None and (only or len(hexv) != 7 or not hexv.startswith("#")):
+        raise SystemExit("patch_metal_glb.py: --hex=#RRGGBB paints a new patch (not with --metallic-only)")
+    patch(files[0], metallic_only=only, hexv=hexv)

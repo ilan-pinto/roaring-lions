@@ -116,7 +116,7 @@
 import { firePointOnMap } from './units/fire-points';
 import * as THREE from 'three';
 import { fx, WEAPON_CLASS, type Fx, type MissionEvent, type Sim, type SimEvent } from '@lions/sim';
-import type { ObjectiveZoneView, Renderer, RendererOptions, TerrainTones } from '../api'; // both, after Step 2
+import type { AimFootprint, ObjectiveZoneView, Renderer, RendererOptions, TerrainTones } from '../api'; // both, after Step 2
 import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, type Camera } from '../project';
 import { QUALITY_PRESETS } from '../quality';
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec, type ParticleSpec } from '../vfx';
@@ -611,10 +611,8 @@ import {
   REFUGE_RING_STYLE,
   REFUGE_RING_EDGE_STYLE,
   REFUGE_RING_EDGE_ALPHA,
-  AIM_FOOTPRINT_COLOR_KEY,
-  AIM_FOOTPRINT_FALLBACK_COLOR,
-  AIM_FOOTPRINT_STYLE,
-  AIM_FOOTPRINT_EDGE_STYLE,
+  aimRingSpecs,
+  haloStyleOf,
 } from './units/overlays';
 import { paletteHex } from './palette-hex';
 import {
@@ -985,9 +983,10 @@ export class ThreeRenderer implements Renderer {
    *  own comment for why this is NOT `hoverEntity`, which stays the hostile
    *  hover the cursor hinting and the projected-fire panel read. */
   rangeRingPreview = -1;
-  /** GH-113: see `Renderer.aimFootprint`. Drawn in the overlay pass beside the
+  /** GH-113 / S-F: see `Renderer.aimFootprint`. The armed fire-support call's
+   *  ring(s), per kind (`aimRingSpecs`), drawn in the overlay pass beside the
    *  refuge ring; `null` draws nothing. */
-  aimFootprint: { readonly x: number; readonly y: number; readonly radius: number } | null = null;
+  aimFootprint: AimFootprint | null = null;
   objectiveZone: readonly number[] | null = null;
   objectiveZones?: readonly ObjectiveZoneView[];
   objectiveZoneState: 'held' | 'unheld' | 'contested' = 'held';
@@ -6273,11 +6272,21 @@ export class ThreeRenderer implements Renderer {
         this.warmingTemplates.delete(key);
         if (this.disposed) return;
         // A template that cannot be decoded is a mesh that failed: drop it,
-        // and the type draws the failed-mesh proxy box like any other.
+        // and the type draws the failed-mesh proxy box like any other. What is
+        // dropped is disposed with it, as teardown and a reload do: a cold
+        // type is never instantiated (`updateMeshUnits`/`updateVehicleMeshes`
+        // skip it), so no clone shares these buffers and textures, and each
+        // side's template owns its own (a side-1 kit is a separate load).
         this.coldUnitTypes.delete(unitTypeId);
+        const droppedUnits = this.meshUnitTemplates.get(unitTypeId);
         this.meshUnitTemplates.delete(unitTypeId);
-        this.vehicleMeshTemplates.delete(unitTypeId);
-        this.vehicleMeshTemplates.delete(`${unitTypeId}${SIDE_1_TEMPLATE_SUFFIX}`);
+        if (droppedUnits) for (const template of droppedUnits) disposeMeshUnitTemplate(template);
+        for (const key of [unitTypeId, `${unitTypeId}${SIDE_1_TEMPLATE_SUFFIX}`]) {
+          const droppedVehicle = this.vehicleMeshTemplates.get(key);
+          if (!droppedVehicle) continue;
+          this.vehicleMeshTemplates.delete(key);
+          disposeVehicleMeshTemplate(droppedVehicle);
+        }
         this.noteMeshFailure(unitTypeId, '(texture decode)', err);
       }
     );
@@ -8296,6 +8305,62 @@ export class ThreeRenderer implements Renderer {
     updateMeshWrecks(this.meshWrecks, (x, y) => this.isExplored(x, y));
   }
 
+  /** Tile (`y * width + x`) -> the structure authored on it, dead or alive;
+   *  rebuilt by `perTileLayout` when `sim.structureCount` changes. */
+  private perTileLayoutOf: Int32Array | null = null;
+  private perTileLayoutCount = -1;
+
+  /** The authored layout: every structure the sim ever created, alive or not
+   *  (`sim.structures` keeps its footprint and type after it falls). Built
+   *  lazily and again only when a structure is added (a mid-mission build),
+   *  so `perTileYaw` allocates nothing per call. A tile a later structure
+   *  re-used keeps the LIVING one, else the newest. */
+  private perTileLayout(): Int32Array {
+    const count = this.sim.structureCount;
+    if (this.perTileLayoutOf !== null && this.perTileLayoutCount === count) return this.perTileLayoutOf;
+    // Per-tile structures are single-tile: keyed on minX/minY alone.
+    const st = this.sim.structures;
+    const w = this.sim.width;
+    const of = this.perTileLayoutOf !== null && this.perTileLayoutOf.length === w * this.sim.height
+      ? this.perTileLayoutOf.fill(-1)
+      : new Int32Array(w * this.sim.height).fill(-1);
+    for (let s = 0; s < count; s++) {
+      const t = st.minY[s] * w + st.minX[s];
+      const prev = of[t];
+      if (prev < 0 || st.alive[s] === 1 || st.alive[prev] === 0) of[t] = s;
+    }
+    this.perTileLayoutOf = of;
+    this.perTileLayoutCount = count;
+    return of;
+  }
+
+  /** A per-tile structure turns to read along its run -- see
+   *  `units/run-direction.ts` -- unless its type keeps its authored facing
+   *  (`PER_TILE_FACING`, the sandbag post). The run is read from the AUTHORED
+   *  layout (`perTileLayout`: every structure the sim holds, dead or alive),
+   *  not from the neighbours still standing, so a wreck faces along its run
+   *  even when it is the last tile of the run to fall (`sim.structureAt`
+   *  answers only for a living structure and would leave it isolated, yaw 0).
+   *  The standing mesh and its wreck both come through here, so a post's
+   *  wreck keeps the post's authored facing. Called when a mesh or wreck is
+   *  created, not per frame. */
+  private perTileYaw(s: number): number {
+    const st = this.sim.structures;
+    const x = st.minX[s];
+    const y = st.minY[s];
+    const typeIdx = st.typeIdx[s];
+    const layout = this.perTileLayout();
+    const w = this.sim.width;
+    const h = this.sim.height;
+    return perTileYawFor(this.sim.structureTypes[typeIdx].id, (dx, dy) => {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= w || ny >= h) return false;
+      const n = layout[ny * w + nx];
+      return n >= 0 && n !== s && st.typeIdx[n] === typeIdx;
+    });
+  }
+
   /**
    * Building meshes: called separately from `frame()`, alongside
    * `updateStructures`. Unlike every unit path above, a building mesh clone
@@ -8324,24 +8389,6 @@ export class ThreeRenderer implements Renderer {
    * present skips straight past this block and leaves whatever scale the
    * settle step last wrote alone.
    */
-  /** A per-tile structure turns to read along its run -- see
-   *  `units/run-direction.ts` -- unless its type keeps its authored facing
-   *  (`PER_TILE_FACING`, the sandbag post). Neighbours are read through
-   *  `sim.structureAt`, which answers only for a LIVING structure: a wreck
-   *  reads its run off the tiles still standing when it falls. The standing
-   *  mesh and its wreck both come through here, so a post's wreck keeps the
-   *  post's authored facing. */
-  private perTileYaw(s: number): number {
-    const st = this.sim.structures;
-    const x = st.minX[s];
-    const y = st.minY[s];
-    const typeIdx = st.typeIdx[s];
-    return perTileYawFor(this.sim.structureTypes[typeIdx].id, (dx, dy) => {
-      const n = this.sim.structureAt(x + dx, y + dy);
-      return n >= 0 && n !== s && st.typeIdx[n] === typeIdx;
-    });
-  }
-
   /** The fit (`units/building-fit.ts`) for structure `s`'s mesh:
    *  `opts.buildingFit`, absent being `DEFAULT_BUILDING_FIT` (`stretch`,
    *  lead ruling 7 Oct); unit scale under `off` and until the type's
@@ -10394,11 +10441,14 @@ export class ThreeRenderer implements Renderer {
     if (aim) {
       const groundYa = groundWorldY(elevation, width, height, aim.x, aim.y);
       const aanchor: [number, number, number] = [aim.x, groundYa, aim.y];
-      const { rightR, upR } = tileRadiusToEllipsePx(aim.radius, TILE_W, TILE_H);
       const edge = this.overlayColor(REFUGE_RING_EDGE_COLOR_KEY, REFUGE_RING_EDGE_FALLBACK_COLOR);
-      const hot = this.overlayColor(AIM_FOOTPRINT_COLOR_KEY, AIM_FOOTPRINT_FALLBACK_COLOR);
-      this.overlayBatch.dashedEllipseRing(aanchor, rightR, upR, AIM_FOOTPRINT_EDGE_STYLE, edge, REFUGE_RING_EDGE_ALPHA);
-      this.overlayBatch.dashedEllipseRing(aanchor, rightR, upR, AIM_FOOTPRINT_STYLE, hot, 1);
+      // S-F: the rings are per kind (`aimRingSpecs`). Each is its halo, then its dash.
+      for (const ring of aimRingSpecs(aim.kind, aim.radius, aim.scatter)) {
+        const { rightR, upR } = tileRadiusToEllipsePx(ring.radiusTiles, TILE_W, TILE_H);
+        const tone = this.overlayColor(ring.colorKey);
+        this.overlayBatch.dashedEllipseRing(aanchor, rightR, upR, haloStyleOf(ring.style), edge, REFUGE_RING_EDGE_ALPHA);
+        this.overlayBatch.dashedEllipseRing(aanchor, rightR, upR, ring.style, tone, 1);
+      }
     }
 
     // Garrison hover highlight -- renderer.ts's own doorway-arrow affordance,

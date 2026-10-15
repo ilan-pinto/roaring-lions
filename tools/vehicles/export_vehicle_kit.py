@@ -435,9 +435,10 @@ def patch_colour_mask(lin):
     return np.sqrt(((lin - target) ** 2).sum(axis=-1)) < PATCH_COLOUR_TOL
 
 
-def choose_tones(live):
+def choose_tones(live, vid=None):
     """{tone: uv} from the vehicle's own bake, or None for a vehicle with no
-    bake on its hull (then no host is textured either)."""
+    bake on its hull (then no host is textured either). A tone named in
+    `kit_vehicles.TONE_DEVIATIONS[vid]` is pinned to its own patch instead."""
     hull = next((o for o in live if o.name == "hull_hull"), None)
     mat = hull.data.materials[0] if hull and hull.data.materials else None
     img, _ = _linked_image(mat, "Base Color")
@@ -569,8 +570,25 @@ def choose_tones(live):
         log(f"TONE metal source: no metallic texel and no textured *_metal node -- the greyest paint "
             f"(saturation <= {cut:.3f} in hull_hull's 25-95th luminance band, {len(grey)} texels); "
             f"dark: the 5th luminance percentile of every textured island")
-    tones["metal"] = find_tone("metal", lin, [(src, mmask), ("every textured island", every)], metal_target, nrm)
-    tones["dark"] = find_tone("dark", lin, [(src, mmask), ("every textured island", every)], dark_target, nrm)
+    named = kv.TONE_DEVIATIONS.get(vid, {}).get("metal")
+    if named is not None:
+        import bake_fix
+        hexv, reason = named
+        metal_target = tuple(_srgb_to_linear(np.array(bake_fix._hex_bytes(hexv))))
+        pmask = (np.sqrt(((lin - np.array(metal_target)) ** 2).sum(axis=-1)) < PATCH_COLOUR_TOL) & ~every
+        if int(pmask.sum()) < bake_fix.PATCH * bake_fix.PATCH // 2:
+            raise Refused(f"tone metal: TONE_DEVIATIONS names {hexv} for {vid}, and the bake carries "
+                          f"{int(pmask.sum())} texel(s) of it off every island -- paint the patch first: "
+                          f"python3 tools/vehicles/patch_metal_glb.py --hex={hexv} art/meshes/vehicles/{vid}.glb")
+        log(f"DEVIATION tone metal (named, {vid}): pinned to the {hexv} patch ({int(pmask.sum())} texels off every "
+            f"island) -- {reason}")
+        mmask, src = pmask, f"the {hexv} patch"
+        tones["metal"] = find_tone("metal", lin, [(src, mmask)], metal_target, nrm)
+    else:
+        tones["metal"] = find_tone("metal", lin, [(src, mmask), ("every textured island", every)], metal_target, nrm)
+    tones["dark"] = find_tone("dark", lin, [(src if named is None else "every textured island",
+                                             mmask if named is None else every),
+                                            ("every textured island", every)], dark_target, nrm)
     return tones
 
 
@@ -788,7 +806,7 @@ def run(vid, preview_dir, out_dir=OUT_DIR):
     if refusals:
         raise Refused("; ".join(refusals))
 
-    tones = choose_tones(live)
+    tones = choose_tones(live, vid)
     kit = {}
     for (track, tier, host), pieces in built.items():
         h = hosts[host]

@@ -35,13 +35,26 @@
  *
  * Before any cell is trusted, the MERGE is checked from the renderer itself,
  * not from the account: the type's tiers as the renderer received them
- * (`opts.unitKitTiers`), and its template's triangle count and kit triangle
- * count (`rlKitBaseCount`, `three/units/vehicle-kit.ts`). Those are held
- * against the GLB the dev server serves (`assets/meshes/vehicles/<id>.glb`,
- * whose `kit_<track>_<tier>_<host>` nodes are read off its JSON chunk): a
- * vehicle whose GLB carries a part its tiers own must show kit triangles, one
- * that carries none must show none, L0 must draw the shipped template, and the
- * kit may only grow with L. Any contradiction exits 1 -- a silent no-op (the
+ * (`opts.unitKitTiers`), and its template's LIVE meshes' triangle count and
+ * kit triangle count (`rlKitBaseCount`, `three/units/vehicle-kit.ts`). Those
+ * are held against the GLB the dev server serves
+ * (`assets/meshes/vehicles/<id>.glb`, whose `kit_<track>_<tier>_<host>` nodes
+ * are read off its JSON chunk): a vehicle whose GLB carries a part its tiers
+ * own must show kit triangles, one that carries none must show none, L0 must
+ * draw the shipped template, the kit may only grow with L, and every live
+ * mesh's HOST half -- the first `rlKitBaseCount` indices, resolved to their
+ * positions -- must be L0's mesh exactly, triangle for triangle and in order.
+ * That last one is what holds `applyVehicleKit`'s host-first order, which the
+ * `kit` debug layer's `setDrawRange(0, rlKitBaseCount)` depends on; a count
+ * alone cannot see it, since a kit-first merge has the same triangles.
+ *
+ * Only LIVE meshes count (`rl_wreck` unset). Since the wreck-damage ruling of
+ * 2026-10-14 a kitted vehicle's `WRECK_` twin keeps the host's own unkitted
+ * geometry, so from L1 on the template OWNS both the merged live geometry and
+ * the old one; counting `geometries` read every kitted host twice (Kipod L1:
+ * 17,244 host tris against L0's 11,624 -- exactly its hull_hull 5,101 and
+ * turret_metal 519, both shared with their twins) and the check failed on
+ * every kitted vehicle, on `main`, with nothing wrong. Any contradiction exits 1 -- a silent no-op (the
  * seed not arriving, a merge that kept nothing) is exactly the failure a sheet
  * of identical pictures would otherwise hide. A vehicle with no kit grafted yet
  * is printed as such and simply looks the same in every column.
@@ -313,9 +326,24 @@ function shortCommit(): string {
 // --------------------------------------------------------- page types ----
 
 interface TemplateGeometry {
-  index: { count: number } | null;
-  attributes: { position: { count: number } };
+  index: { count: number; array: ArrayLike<number> } | null;
+  attributes: { position: { count: number; array: ArrayLike<number> } };
   userData: Record<string, unknown>;
+}
+
+interface TemplateObject {
+  name: string;
+  isMesh?: boolean;
+  geometry?: TemplateGeometry;
+  userData: Record<string, unknown>;
+  traverse(fn: (o: TemplateObject) => void): void;
+}
+
+/** One live mesh's host half: its own triangles and a hash of them, in draw
+ *  order (the first `rlKitBaseCount` indices resolved to positions). */
+interface HostReading {
+  tris: number;
+  hash: string;
 }
 
 interface LionsWindow {
@@ -339,7 +367,7 @@ interface LionsWindow {
       worldToScreen(wx: number, wy: number): { x: number; y: number };
       // Private on `ThreeRenderer`; read here as a capture instrument, never written.
       opts?: { unitKitTiers?: Record<string, Record<string, number>> };
-      vehicleMeshTemplates?: Map<string, { geometries: TemplateGeometry[] }>;
+      vehicleMeshTemplates?: Map<string, { root: TemplateObject }>;
     };
   };
 }
@@ -348,9 +376,12 @@ interface LionsWindow {
 interface MergeReading {
   tiers: Record<string, number> | null;
   loaded: boolean;
+  /** Over the LIVE meshes' distinct geometries only. */
   tris: number;
   kitTris: number;
   kittedGeometries: number;
+  /** By live mesh name. */
+  hosts: Record<string, HostReading>;
 }
 
 // ------------------------------------------------------------- helpers ----
@@ -460,6 +491,7 @@ async function measureFacing(page: Page, at: [number, number]): Promise<{ turns:
 }
 
 async function readMerge(page: Page, ids: readonly string[]): Promise<Record<string, MergeReading>> {
+  // No inner named functions: tsx wraps them in a `__name` the page lacks.
   return page.evaluate((wanted) => {
     const r = (window as unknown as LionsWindow).__lions.renderer;
     const out: Record<string, MergeReading> = {};
@@ -469,18 +501,38 @@ async function readMerge(page: Page, ids: readonly string[]): Promise<Record<str
       let tris = 0;
       let kitTris = 0;
       let kitted = 0;
+      const hosts: Record<string, HostReading> = {};
       if (t) {
-        for (const g of t.geometries) {
+        const seen = new Set<TemplateGeometry>();
+        const meshes: TemplateObject[] = [];
+        t.root.traverse((o) => {
+          if (o.isMesh && o.geometry && o.userData.rl_wreck !== true) meshes.push(o);
+        });
+        for (const o of meshes) {
+          const g = o.geometry as TemplateGeometry;
           const count = g.index ? g.index.count : g.attributes.position.count;
+          const base = typeof g.userData.rlKitBaseCount === 'number' ? (g.userData.rlKitBaseCount as number) : count;
+          // FNV-1a over the host half's positions, at 0.1 mm, in draw order.
+          const pos = g.attributes.position.array;
+          let h = 0x811c9dc5;
+          for (let i = 0; i < base; i++) {
+            const v = g.index ? g.index.array[i] : i;
+            for (let c = 0; c < 3; c++) {
+              h ^= Math.round(pos[v * 3 + c] * 1e4) | 0;
+              h = Math.imul(h, 0x01000193);
+            }
+          }
+          hosts[o.name] = { tris: base / 3, hash: (h >>> 0).toString(16) };
+          if (seen.has(g)) continue;
+          seen.add(g);
           tris += count / 3;
-          const base = g.userData.rlKitBaseCount;
-          if (typeof base === 'number') {
+          if (typeof g.userData.rlKitBaseCount === 'number') {
             kitTris += (count - base) / 3;
             kitted++;
           }
         }
       }
-      out[id] = { tiers: tiers ? { ...tiers } : null, loaded: !!t, tris, kitTris, kittedGeometries: kitted };
+      out[id] = { tiers: tiers ? { ...tiers } : null, loaded: !!t, tris, kitTris, kittedGeometries: kitted, hosts };
     }
     return out;
   }, ids);
@@ -692,6 +744,7 @@ function checkMerges(ids: readonly VehicleId[], results: ReadonlyMap<number, Lev
     const cols: string[] = [];
     let prevKit = -1;
     let l0Tris = -1;
+    let l0Hosts: Record<string, HostReading> | null = null;
     for (const level of LEVELS) {
       const res = results.get(level);
       if (!res) continue;
@@ -706,9 +759,27 @@ function checkMerges(ids: readonly VehicleId[], results: ReadonlyMap<number, Lev
       if (expectKit && m.kitTris <= 0) failures.push(`${id} L${level}: GLB carries owned kit but the template merged none`);
       if (!expectKit && m.kitTris !== 0) failures.push(`${id} L${level}: ${m.kitTris} kit tris merged with nothing owned`);
       if (m.kitTris < prevKit) failures.push(`${id} L${level}: kit shrank (${prevKit} -> ${m.kitTris})`);
-      if (level === 0) l0Tris = m.tris;
-      else if (l0Tris >= 0 && m.tris - m.kitTris !== l0Tris) {
-        failures.push(`${id} L${level}: host tris ${m.tris - m.kitTris} != L0's shipped ${l0Tris}`);
+      if (level === 0) {
+        l0Tris = m.tris;
+        l0Hosts = m.hosts;
+      } else {
+        if (l0Tris >= 0 && m.tris - m.kitTris !== l0Tris) {
+          failures.push(`${id} L${level}: live host tris ${m.tris - m.kitTris} != L0's shipped ${l0Tris}`);
+        }
+        if (l0Hosts) {
+          const names = new Set([...Object.keys(l0Hosts), ...Object.keys(m.hosts)]);
+          for (const name of names) {
+            const a = l0Hosts[name];
+            const b = m.hosts[name];
+            if (!a || !b) failures.push(`${id} L${level}: live mesh "${name}" ${a ? 'missing' : 'not in L0'}`);
+            else if (a.tris !== b.tris || a.hash !== b.hash) {
+              failures.push(
+                `${id} L${level}: "${name}"'s first rlKitBaseCount indices are not L0's mesh ` +
+                  `(${b.tris} tris #${b.hash} vs ${a.tris} #${a.hash}) -- the merge is not host-first`
+              );
+            }
+          }
+        }
       }
       prevKit = m.kitTris;
     }
