@@ -3770,7 +3770,13 @@ for (const [label, got, want] of [
 // escort into the yard once no AT gun is seen and shoots the warehouse down from 3-5 tiles (the
 // sarim_rifles inside it kill sapper parties at the door), so the stockpile falls by 215 s and two
 // more of the chain's units come home.
-const ROSTER_MAX = 33;
+// 2026-10-15, a loaned survivor returns to the lender (G3 Q5, L-1; GH-183): 33 -> 29, same mission.
+// Tel Marum III lends two Lavis, a Namer and a drone (4 bodies) whose survivors used to join the
+// roster and ride its ledger into Umm Zeitoun's from_ledger pool. Per mission, `roster out` before ->
+// after: Tel Marum III 11 -> 7 (-4); Umm Zeitoun I 14 -> 10, II 19 -> 15, III 25 -> 21, IV 33 -> 29
+// (each 0 of its own, the 4 inherited). -4 + 0 + 0 + 0 + 0 = -4. Qarn Hadid, off the same ledger,
+// reads 22 -> 18 by the same four. No outcome, star, credit or sweep line moved.
+const ROSTER_MAX = 29;
 console.log(`roster maximum: ${rosterMax} at ${rosterMaxMissionId}`);
 if (rosterMax !== ROSTER_MAX) {
   console.error(`roster maximum: FAILED — expected ${ROSTER_MAX}, got ${rosterMax} at ${rosterMaxMissionId}`);
