@@ -7,7 +7,8 @@
  * no sim change.
  *
  *   band 8-6  clean    the template's own materials, untouched
- *   band 5-3  scarred  colour lerped toward the wreck's charred tone by
+ *   band 5-3  scarred  colour lerped toward the scar tint (`CHARRED_TINT_HEX`,
+ *                      the wreck's tint until the soot recolour) by
  *                      `(1 - band/8) * VEHICLE_SCAR_MIX`, roughness toward 1
  *                      by the same mix -- the building formula
  *   band 2-1  wisp     the same scar, plus the existing thin

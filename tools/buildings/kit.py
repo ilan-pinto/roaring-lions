@@ -459,3 +459,80 @@ def sandbag_row(name, start, end, at_z, count, role="wall", size=(0.62, 0.42, 0.
                 box(f"{name}_{course}_{i}", (sx, sy, sz), (cx, cy, at_z + sz * (course + 0.5)), role)
             )
     return out
+
+
+def _jit(*ints):
+    """Deterministic 0..1 from integers, for per-bag variation. The same
+    FNV-style mix as render_building._hash01 (not imported, to keep this
+    module free of the renderer); no `random`, no `mathutils.noise`."""
+    h = 2166136261
+    for v in ints:
+        h ^= (int(v) & 0xFFFFFFFF)
+        h = (h * 16777619) & 0xFFFFFFFF
+        h ^= h >> 13
+    return (h & 0xFFFFFFFF) / 4294967295.0
+
+
+def sandbag(name, at, yaw=0.0, role="wood", size=(0.58, 0.34, 0.17), seed=0,
+            rings=6, segments=12):
+    """One filled sandbag as a PILLOW, not a box (GH-66 field works).
+
+    A superquadric (squarish in plan, flat on top and bottom) whose two ends
+    pinch thinner and lower -- a filled bag's sewn end and tied neck -- with a
+    flat bottom so it sits on the course below, and a per-bag jitter of size,
+    sag and twist from `seed` so a wall of them is not a tiled pattern. `at`
+    is the centre of the bag's base; `yaw` turns it about z. Real vertices,
+    object scale 1, like every kit part.
+
+    Sizes are a filled 14 x 26 inch bag (0.58 x 0.34 x 0.17 m); a course is
+    `size[2] * 0.92` tall, because a laid bag settles into the one below.
+    """
+    a = size[0] / 2.0 * (0.94 + 0.10 * _jit(seed, 1))
+    b = size[1] / 2.0 * (0.94 + 0.10 * _jit(seed, 2))
+    c = size[2] * (0.92 + 0.12 * _jit(seed, 3))
+    sag = 0.10 + 0.12 * _jit(seed, 4)        # how much the middle of the top settles
+    twist = (_jit(seed, 5) - 0.5) * 0.10      # radians of yaw scatter
+    e1, e2 = 0.45, 0.30                       # roundness: vertical, plan
+
+    def spow(x, e):
+        return math.copysign(abs(x) ** e, x)
+
+    verts = []
+    for r in range(rings + 1):
+        eta = -math.pi / 2 + math.pi * r / rings
+        for s in range(segments):
+            om = -math.pi + 2 * math.pi * s / segments
+            x = a * spow(math.cos(eta), e1) * spow(math.cos(om), e2)
+            y = b * spow(math.cos(eta), e1) * spow(math.sin(om), e2)
+            z = spow(math.sin(eta), e1)                       # -1..1
+            u = x / a                                         # -1..1 along the bag
+            end = u ** 4
+            # Ends pinch: thinner across, lower on top. Bottom is flattened.
+            y *= 1.0 - 0.30 * end
+            # The top dome is 0.8 of the height, the flattened belly 0.2.
+            if z >= 0.0:
+                h = c * 0.8 * z * (1.0 - 0.45 * end) * (1.0 - sag * (1.0 - u * u) * 0.5)
+            else:
+                h = c * 0.2 * z
+            verts.append((x, y, h + c * 0.2))
+    faces = []
+    for r in range(rings):
+        for s in range(segments):
+            i0 = r * segments + s
+            i1 = r * segments + (s + 1) % segments
+            faces.append((i0, i1, i1 + segments, i0 + segments))
+    ob = _mesh(name, verts, faces, role)
+    # Weld the two poles (each ring 0 / ring `rings` is one point repeated).
+    import bmesh
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=1e-5)
+    bm.to_mesh(ob.data)
+    bm.free()
+    cy, sy = math.cos(yaw + twist), math.sin(yaw + twist)
+    ax, ay, az = at
+    for v in ob.data.vertices:
+        x, y, z = v.co
+        v.co = (ax + x * cy - y * sy, ay + x * sy + y * cy, az + z)
+    ob.data.update()
+    return ob

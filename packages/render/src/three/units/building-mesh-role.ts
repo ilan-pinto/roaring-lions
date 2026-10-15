@@ -179,6 +179,12 @@ const WALL_SURFACE: Record<string, WallSurface> = {
   // breeze-block shed, `concrete`'s and `shanty`'s own.
   relay: 'panel',
   pump_house: 'flat',
+  // GH-66 HESCO run: textured, so never drawn as coursing (see `clinic`).
+  hesco: 'flat',
+  // GH-66 field works: precast concrete panels, and two of sandbags.
+  t_wall: 'panel',
+  sandbag_wall: 'flat',
+  sandbag_post: 'flat',
 };
 
 /** The `WallSurface` for a `data/structures.json` type id. Throws for an

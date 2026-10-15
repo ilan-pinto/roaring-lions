@@ -1460,9 +1460,22 @@ later protocol change, not part of N4.
 - [ ] **Step 2: Gates.** Run `pnpm test && pnpm typecheck && pnpm lint &&
   pnpm validate:ui && pnpm validate:data && pnpm test:determinism` (all
   green; determinism unmoved), then `pnpm arena -- --a rush --b passive
-  --seeds 10 --map tel_marum --pace 60 --tick-ms 2`. Paste the markdown table
-  into the PR body. `rush` must score ≥ 0.9; if it does not, the controls are
-  broken, not the bots.
+  --seeds 20 --map tel_marum --pace 60 --tick-ms 2 --gate`. Paste the
+  markdown table into the PR body.
+  **Ruled 15 Oct (coordinator, lead-delegated):** the gate asks whether the
+  arena can tell a better player from a worse one, with no fitted threshold.
+  Over 40 games (20 seeds × 2 seat orders) on `tel_marum`, `rush` must beat
+  `passive` with a **one-sided exact binomial p < 0.05**: p = P(X ≥ k) for
+  X ~ Bin(n, ½), k = wins + ½ draws (D7), n = non-void games between the two;
+  a half-point k takes the mean of P(X ≥ ⌊k⌋) and P(X ≥ ⌈k⌉). `--gate` prints
+  `gate: PASS|FAIL  <A> over <B>  n=<n>  score=<s>  p=<p>` and exits 3 on
+  FAIL. Falsify by swapping the players (`--a passive --b rush`): it must
+  FAIL. `rush` and the map are not tuned for it. Spec §11c.7 carries the
+  reading.
+  ~~`rush` must score ≥ 0.9; if it does not, the controls are broken, not the
+  bots.~~ *Superseded by the ruling above: the 10-seed run read 0.750
+  (15-0-5) against that bar, and a fitted 0.9 measured the control's
+  strength, not whether the controls work.*
 - [ ] **Step 3: The spec §9 N4 gate,** run by the lead, not a subagent:
   - an `assist` advisor completes a match with Ilan (protocol §1);
   - a ten-seed arena run between two models (protocol §3, two `cmd:`

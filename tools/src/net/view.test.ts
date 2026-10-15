@@ -51,6 +51,35 @@ describe('sideView', () => {
     const other = sideView(w, 1, new FogTracker(w.sim, 1), null);
     expect(other.camp).toEqual(v.enemyCamp);
   });
+  it('flags an own unit that is shooting `engaging`, and one the idle finder would hand the player `idle` -- own units only', () => {
+    const w = buildMatchWorld(versusConfig('tel_marum'));
+    const fog = new FogTracker(w.sim, 0);
+    const mine = w.bySide[0][0];
+    const enemy = w.bySide[1][0];
+    // At rest on its spawn, nothing in reach: the idle finder's idle.
+    w.sim.tick(); fog.step();
+    const line0 = sideView(w, 0, fog, null).units.find((u) => u.id === mine);
+    expect(line0?.flags).toContain('idle');
+    expect(line0?.flags).not.toContain('engaging');
+    // Walk an enemy into its reach, by the sim's own command path.
+    w.sim.queueCommand({ kind: 'move', ids: [enemy], x: w.sim.state.posX[mine] + (3 << 16), y: w.sim.state.posY[mine], exact: true });
+    let line = line0;
+    for (let i = 0; i < 1200 && !(line?.flags.includes('engaging') ?? false); i++) {
+      w.sim.tick(); fog.step();
+      line = sideView(w, 0, fog, null).units.find((u) => u.id === mine);
+    }
+    expect(line?.flags).toContain('engaging');
+    expect(line?.flags).not.toContain('idle');
+    expect(w.sim.state.curTarget[mine]).toBeGreaterThanOrEqual(0);
+    // A moving unit is not idle either.
+    w.sim.queueCommand({ kind: 'move', ids: [w.bySide[0][1]], x: w.sim.state.posX[w.bySide[0][1]] + (6 << 16), y: w.sim.state.posY[w.bySide[0][1]], exact: true });
+    w.sim.tick(); fog.step();
+    const mover = sideView(w, 0, fog, null).units.find((u) => u.id === w.bySide[0][1]);
+    expect(mover?.flags).toContain('moving');
+    expect(mover?.flags).not.toContain('idle');
+    // Contacts carry no flags at all: the viewer is never told what an enemy is doing.
+    for (const c of sideView(w, 0, fog, null).contacts) expect(Object.keys(c).sort()).toEqual(['hp', 'id', 'tile', 'type']);
+  });
   it('steps fog on the renderer cadence: a reveal holds for three more calls, then decays on the fourth', () => {
     const w = buildMatchWorld(versusConfig('tel_marum'));
     const fog = new FogTracker(w.sim, 0);

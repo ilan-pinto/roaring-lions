@@ -245,6 +245,9 @@ export interface MissionJson {
     intel_start?: number;
     logistics_rate_per_min?: number;
     supply_corridor?: boolean;
+    /** Side 0's population cap (GH-183). The schema refuses it on every campaign
+     *  mission; `MissionContext.popCaps` overrides it. Absent = uncapped. */
+    pop_cap?: number;
   };
   civilians?: {
     groups: readonly PlacementJson[];
@@ -317,7 +320,19 @@ export interface MissionContext {
     /** Progression gate from the unit schema (GDD §6): restraint is what
      *  pays for the good equipment. */
     unlock?: { roeMin?: number; starsMin?: number; afterMission?: string };
+    /** What one unit takes of its side's population cap: `cost.population`,
+     *  absent in the unit JSON = 1. A queued build reserves this (D2). */
+    population: number;
   } | null;
+  /** Doctrine or co-op caps, by side; when given it OVERRIDES `resources.pop_cap`
+   *  (null = uncapped on that side). Absent: side 0 reads the mission's own field,
+   *  side 1 is uncapped. */
+  popCaps?: readonly [number | null, number | null];
+  /** Indices into the RESOLVED `starting_force` (the array this runtime is given, after
+   *  `resolveUpgrades`) of the placements that are on loan: `loanedPlacements`' answer
+   *  (unlock.ts, D5). The runtime never sees a gate, so the app and the harness compute it
+   *  with the same lookup they resolve upgrades with and hand it in. Absent = nothing on loan. */
+  loaned?: readonly number[];
 }
 
 export type ObjectiveStatus = 'active' | 'complete' | 'failed';
@@ -569,6 +584,9 @@ export class MissionRuntime {
    *  (stepRoe runs before stepObjectives), and a raze whose deadline has
    *  passed still names a military target, not a civilian one. */
   private readonly razeExempt = new Set<number>();
+  /** Entity ids of the bodies the starting force fielded from a placement that is on loan
+   *  (`ctx.loaned`, D5). Built once in `start()`, read by `isOnLoan`; nothing per tick. */
+  private readonly onLoan = new Set<number>();
   /** Objective id -> the route indices whose mouths its zone held at mission
    *  start. Mirrors razeTargets, though for a different reason: ctx.tunnels
    *  is static so a rescan could not shrink, but snapshotting at start() is
@@ -583,6 +601,8 @@ export class MissionRuntime {
   private logisticsValue = 0;
   private intelValue = 0;
   private readonly buildQueue: { unit: string; startTick: number; readyTick: number }[] = [];
+  /** Scratch for `firstRefusal`: did the population check speak? Not state; never hashed. */
+  private refusedByPopulation = false;
   private readonly identified = new Set<number>();
   /** Tags marked by a previous mission, read from the incoming ledger. */
   private readonly marked: Set<string>;
@@ -687,7 +707,8 @@ export class MissionRuntime {
    *  The build queue goes in array order (the order `requestBuild` pushed it),
    *  each entry as its unit id's characters, then its start and ready ticks.
    *  Then (F1 Task 3, F-R3) the settled first identifications: their count, then
-   *  their entity ids ascending. */
+   *  their entity ids ascending. Last (F3 Task 4): both sides' population and
+   *  both caps, null as -1. */
   economyHash(): number {
     let h = HASH_SEED;
     h = hashWord(h, this.logisticsValue | 0);
@@ -716,6 +737,17 @@ export class MissionRuntime {
       h = hashWord(h, id);
       h = hashWord(h, this.spawnRise[id]);
     }
+    // F3 Task 4 (GH-183, G3 Q4): population is economy state. Appended LAST, after
+    // every earlier fold, so F1's order is untouched and the new words sit at the
+    // tail. Both sides' population (integers: sums of `UnitType.population`, queued
+    // builds included for side 0), then both caps as int32 with null (uncapped) as
+    // -1, a value no real cap can equal (caps are integers >= 1).
+    h = hashWord(h, this.population(0));
+    h = hashWord(h, this.population(1));
+    const cap0 = this.popCap(0);
+    const cap1 = this.popCap(1);
+    h = hashWord(h, cap0 === null ? -1 : cap0 | 0);
+    h = hashWord(h, cap1 === null ? -1 : cap1 | 0);
     return h >>> 0;
   }
 
@@ -743,7 +775,16 @@ export class MissionRuntime {
     return -1;
   }
 
-  buildBlockedReason(unitId: string): string | null {
+  /**
+   * Why a build is refused, or null. The ONE walk of the checks, in their order:
+   * no catalogue entry, the unlock gate, the camp, then the population cap.
+   * `buildBlockedReason` and `popCapped` both read it, so the order they report
+   * cannot drift. `refusedByPopulation` is set to whether the cap was the check
+   * that spoke; a field rather than a returned pair so a per-frame dock query
+   * allocates nothing.
+   */
+  private firstRefusal(unitId: string): string | null {
+    this.refusedByPopulation = false;
     const info = this.ctx.unitInfo?.(unitId);
     if (!info) return 'not available in the field';
     const unlock = unlockReason(info.unlock as UnlockGate | undefined, this.ctx.ledger);
@@ -753,16 +794,86 @@ export class MissionRuntime {
     // camps existed producing exactly as it did. Only a mission that HAS a
     // camp can lose production by losing it; a mission with neither was never
     // able to build in the first place.
-    if (this.productionAnchor(0) >= 0) return null;
+    //
     // No camp standing. Whether that BLOCKS production depends on whether this
     // mission ever had one -- asked of the mission JSON, not the live sim.
     // Reading it off the sim instead would make `player_start` a silent
     // fallback the moment the camp fell, which is precisely the coupling this
     // feature exists to create: a mission that fields a camp loses production
     // with it, and a mission that never fielded one is untouched.
-    if (this.declaresProduction(0)) return 'field camp destroyed — no production';
-    if (!this.mission.map.player_start) return 'no field camp — production needs one standing';
+    if (this.productionAnchor(0) < 0) {
+      if (this.declaresProduction(0)) return 'field camp destroyed — no production';
+      if (!this.mission.map.player_start) return 'no field camp — production needs one standing';
+    }
+    // Last, so the gate and the camp speak first. A unit that takes no population
+    // (a drone) is never refused here, even by a side already over its cap (D3).
+    const cap = this.popCap(0);
+    if (cap !== null && info.population > 0) {
+      const used = this.population(0);
+      if (used + info.population > cap) {
+        this.refusedByPopulation = true;
+        return `population cap reached (${used}/${cap})`;
+      }
+    }
     return null;
+  }
+
+  buildBlockedReason(unitId: string): string | null {
+    return this.firstRefusal(unitId);
+  }
+
+  /**
+   * True only when the population cap is the FIRST thing refusing this build, in
+   * `buildBlockedReason`'s own order: a locked unit or a fallen camp reads false
+   * (that reason speaks first), so a dock can tell "full" from "locked". No observable state change
+   * (writes only an unhashed scratch flag).
+   */
+  popCapped(unitId: string): boolean {
+    return this.firstRefusal(unitId) !== null && this.refusedByPopulation;
+  }
+
+  /** What a side's population cap is, or null when uncapped. `ctx.popCaps` overrides
+   *  the mission's `resources.pop_cap`, which only side 0 has. */
+  popCap(side: 0 | 1): number | null {
+    const caps = this.ctx.popCaps;
+    if (caps !== undefined) return caps[side];
+    return side === 0 ? this.mission.resources?.pop_cap ?? null : null;
+  }
+
+  /** True when `id` is a body the starting force fielded from a placement that is on loan
+   *  (`MissionContext.loaned`, D5). Fixed at `start()`; a unit spawned later, a `from_ledger`
+   *  draw and an enemy are never on loan. A loaned carrier's authored `passengers` are not
+   *  on loan either: they are separate placements, judged by their own types. */
+  isOnLoan(id: number): boolean {
+    return this.onLoan.has(id);
+  }
+
+  /**
+   * What a side takes of its cap: every living unit whose sim side is `side`, however it
+   * got there and whatever it is doing (D1: garrisoned, carried and buried all count; a
+   * civilian is side 2 and counts for nobody), plus, for side 0, the builds queued but
+   * not yet spawned (D2, the queue has no side). A queued entry leaves `buildQueue` in
+   * the same `step` that spawns its unit, so it is counted once on every tick: as a
+   * reservation, then as a body. One pass over the ids; no allocation.
+   */
+  population(side: 0 | 1): number {
+    let used = 0;
+    const st = this.sim.state;
+    for (let i = 0; i < this.sim.entityCount; i++) {
+      if (st.alive[i] === 1 && st.side[i] === side) used += this.sim.unitTypes[st.typeIdx[i]].population;
+    }
+    if (side === 0) {
+      for (let k = 0; k < this.buildQueue.length; k++) {
+        used += this.ctx.unitInfo?.(this.buildQueue[k].unit)?.population ?? 0;
+      }
+    }
+    return used;
+  }
+
+  /** Side 0's population for the HUD; null when uncapped (the HUD hides). */
+  populationView(): { used: number; cap: number } | null {
+    const cap = this.popCap(0);
+    return cap === null ? null : { used: this.population(0), cap };
   }
 
   /** Does this mission field a production structure at all, alive or dead? */
@@ -1084,7 +1195,12 @@ export class MissionRuntime {
     this.riseHold = new Int32Array(rises.count);
     this.risePaid = new Uint8Array(rises.count);
     this.riseHolder = new Int32Array(rises.count);
-    for (const p of this.mission.starting_force ?? []) this.spawnPlacement(p, 0);
+    const loaned = new Set(this.ctx.loaned ?? []);
+    const force = this.mission.starting_force ?? [];
+    for (let i = 0; i < force.length; i++) {
+      const ids = this.spawnPlacement(force[i], 0);
+      if (loaned.has(i)) for (const id of ids) this.onLoan.add(id);
+    }
     for (const p of this.mission.enemy?.garrison ?? []) this.spawnPlacement(p, 1);
     for (const p of this.mission.civilians?.groups ?? []) this.spawnPlacement(p, 2);
     // Snapshot the garrison before any wave or trigger can add to it. See
@@ -2261,6 +2377,9 @@ export class MissionRuntime {
         kills: (origin?.kills ?? 0) + (this.kills.get(id) ?? 0),
       };
       if (origin?.name !== undefined) entry.name = origin.name;
+      // L-1 (GH-183): a loaned body goes back to the lender. It stays in `survivors` (the
+      // debrief count) and in `startingHome` (credits), but never joins the brigade's roster.
+      if (this.onLoan.has(id)) continue;
       roster.push(entry);
     }
     // Survivors first, then whoever was never fielded: a unit that stayed in the pool

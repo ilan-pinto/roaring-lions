@@ -207,6 +207,10 @@ export interface UnitFacts {
   /** Side 0 -- the player's own. Absent reads as not own, so a chip never
    *  claims kit it cannot prove (plan 2b). */
   own?: boolean;
+  /** Issued for this mission and returning to its lender afterwards (F3,
+   *  `MissionRuntime.isOnLoan`). Required, not optional: a caller that does
+   *  not know must say `false`, so no path stamps a unit by omission. */
+  onLoan: boolean;
 }
 
 export interface ChipView {
@@ -232,6 +236,13 @@ export interface ChipView {
   mark: ChipMark | null;
   /** A muted second clause naming the next state down, or null. */
   detail: string | null;
+  /** How many of the chip's `total` are on loan (F3 Task 8). A chip is never
+   *  split into lent and owned: `loaned > 0` stamps the whole chip and the
+   *  tooltip says "{loaned} of {total} on loan". */
+  loaned: number;
+  /** The chip's unit count -- `count`, named beside `loaned` so the pair
+   *  reads as a fraction. */
+  total: number;
 }
 
 /** Which status mark a chip's art carries. */
@@ -293,6 +304,7 @@ export function groupChips(units: UnitFacts[]): ChipView[] {
     let shaken = 0;
     let aboard = 0;
     let moving = 0;
+    let loaned = 0;
     let apsAmmo = 0;
     let apsMag = 0;
     for (const u of group) {
@@ -309,6 +321,7 @@ export function groupChips(units: UnitFacts[]): ChipView[] {
       else if (band === 'shaken') shaken++;
       if (u.aboard) aboard++;
       if (u.moving) moving++;
+      if (u.onLoan) loaned++;
       if (u.aps) {
         apsAmmo += u.aps.ammo;
         apsMag += u.aps.magazine;
@@ -342,6 +355,8 @@ export function groupChips(units: UnitFacts[]): ChipView[] {
       pinned: mark === 'pinned',
       mark,
       detail,
+      loaned,
+      total: group.length,
     };
   });
 }

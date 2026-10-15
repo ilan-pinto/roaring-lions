@@ -149,6 +149,62 @@
       "height_px": 11,
       "color": "dust.1",
       "roe_penalty": 2
+    },
+    "hesco": {
+      "id": "hesco",
+      "name": "HESCO Bastion",
+      "symbol": "H",
+      "hp_per_tile": 600,
+      "garrison_slots": 0,
+      "rubble_cover": 2,
+      "height_px": 6,
+      "color": "dust.2",
+      "roe_penalty": 0,
+      "per_tile": true,
+      "low_profile": true,
+      "standing_cover": 3
+    },
+    "t_wall": {
+      "id": "t_wall",
+      "name": "T-Wall",
+      "symbol": "T",
+      "hp_per_tile": 900,
+      "garrison_slots": 0,
+      "rubble_cover": 2,
+      "height_px": 15,
+      "color": "gunmetal.0",
+      "roe_penalty": 0,
+      "per_tile": true
+    },
+    "sandbag_wall": {
+      "id": "sandbag_wall",
+      "name": "Sandbag Wall",
+      "symbol": "g",
+      "hp_per_tile": 160,
+      "garrison_slots": 0,
+      "rubble_cover": 1,
+      "height_px": 5,
+      "color": "dust.4",
+      "roe_penalty": 0,
+      "per_tile": true,
+      "low_profile": true,
+      "standing_cover": 2
+    },
+    "sandbag_post": {
+      "id": "sandbag_post",
+      "name": "Sandbag Post",
+      "symbol": "q",
+      "hp_per_tile": 120,
+      "garrison_slots": 1,
+      "garrison_cover": 1,
+      "floors": 1,
+      "rubble_cover": 1,
+      "height_px": 0,
+      "color": "dust.4",
+      "roe_penalty": 0,
+      "per_tile": true,
+      "low_profile": true,
+      "standing_cover": 2
     }
   }
 }

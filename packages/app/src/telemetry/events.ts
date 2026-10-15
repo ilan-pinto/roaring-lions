@@ -13,6 +13,7 @@ import {
 } from '@lions/data/telemetry';
 import type { DefeatCause } from '@lions/sim';
 import type { PlayerIntent } from '../input/intents';
+import { SUPPORT } from '../ui/support-kinds';
 
 /** What the builders read from a live mission. Built by the caller from
  *  `MissionRuntime` and `sim.tickCount` -- a read, never a write (invariant 4). */
@@ -140,7 +141,7 @@ export function orderVerbOf(i: PlayerIntent): TelemetryOrderVerb | null {
     case 'halt':
       return i.kind;
     case 'support':
-      return i.accepted ? i.call : null;
+      return i.accepted ? SUPPORT[i.call].verb : null;
     case 'select':
     case 'group':
     case 'overlay':
@@ -156,7 +157,7 @@ export function tallyUnit(m: CountMap, id: string): void {
   m[id] = Math.min(COUNT_MAX, (m[id] ?? 0) + 1);
 }
 
-/** `orders` counts one of the twelve `TelemetryOrderVerb`s; anything else is
+/** `orders` counts one of the `TelemetryOrderVerb`s (fourteen since S-F); anything else is
  *  refused rather than silently tallied under a key the contract would never
  *  recognise. Takes `string` (not `TelemetryOrderVerb`) so the runtime check
  *  stays load-bearing even if a caller's static typing is wrong or bypassed. */
