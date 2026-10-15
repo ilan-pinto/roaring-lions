@@ -161,6 +161,10 @@ const CARD_BADGE = 10;
 const ORDER_GLYPH_PX = 14;
 /** The top strip's two currency marks, likewise 1em of the strip's own type. */
 const STRIP_GLYPH_PX = 14;
+
+/** How long the intel figure pulses after an earn, ms on the frame clock.
+ *  `theme.css`'s `.rl-earn-pulse` duration is the same number; a test pins it. */
+export const EARN_PULSE_MS = 900;
 /** And the size the same mark is drawn at when it is standing IN for missing
  *  art rather than labelling it — big enough to read as the picture. */
 const CHIP_MARK = 18;
@@ -529,6 +533,11 @@ export class Hud {
    *  rebuild untouched (Task 10, fix round 1). Null until the first paint. */
   private paintedStripBody: string | null = null;
   private paintedStripInfo: string | null = null;
+
+  /** GH-77 / F-Q7: the intel earn last seen (by its sim tick, its identity) and
+   *  the frame-clock moment it was first seen, so the figure pulses once per
+   *  earn for `EARN_PULSE_MS` and not once per 4 Hz rebuild. */
+  private earnSeen: { tick: number; atMs: number } | null = null;
 
   /** True only for the length of the `focus()` call that hands focus to a
    *  rebuilt node whose predecessor had NO tip open. That call fires
@@ -1625,8 +1634,21 @@ export class Hud {
         m.intelLastEarn !== undefined
           ? ` <span class="rl-dim">${t('hud.strip.intel.lastEarn', { n: m.intelLastEarn.amount, cause: m.intelLastEarn.cause })}</span>`
           : '';
+      // GH-77 / F-Q7: an objective's earn writes no feed line, so the figure
+      // itself registers it, once. The strip is rebuilt as markup at 4 Hz,
+      // which would restart a CSS animation every time; the negative delay
+      // resumes it from how long ago the earn was first seen.
+      const nowMs = performance.now();
+      if (m.intelLastEarn !== undefined && m.intelLastEarn.tick !== this.earnSeen?.tick) {
+        this.earnSeen = { tick: m.intelLastEarn.tick, atMs: nowMs };
+      }
+      const sinceEarn = this.earnSeen !== null ? nowMs - this.earnSeen.atMs : Infinity;
+      const figure =
+        sinceEarn < EARN_PULSE_MS
+          ? `<b class="rl-earn-pulse" style="animation-delay:-${Math.round(sinceEarn)}ms">${m.intel}</b>`
+          : `<b>${m.intel}</b>`;
       info.push(
-        `<span class="rl-info" data-tip="intel" tabindex="0">${symbolSvg('intel', STRIP_GLYPH_PX)} <b>${m.intel}</b> ` +
+        `<span class="rl-info" data-tip="intel" tabindex="0">${symbolSvg('intel', STRIP_GLYPH_PX)} ${figure} ` +
           `<span class="rl-dim">${t('hud.strip.intel.word')}</span>${lastEarn}</span>`
       );
     }

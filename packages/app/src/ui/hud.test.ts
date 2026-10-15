@@ -18,7 +18,7 @@ import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { units, type KitLevel } from '@lions/data';
 import { Sim, fx, type HitProjection, type UnitTypeJson } from '@lions/sim';
-import { Hud as HudClass, type HudCommanderInfo, type HudDeps, type MissionView } from './hud';
+import { EARN_PULSE_MS, Hud as HudClass, type HudCommanderInfo, type HudDeps, type MissionView } from './hud';
 import type { KitSummary } from './kit-sign';
 import { textToneClass } from './hud-model';
 import { alertNotice } from './mission-notice';
@@ -360,14 +360,14 @@ describe('top strip', () => {
   // F-Q11: intel is earned by doing, so the strip names the last earn where
   // logistics names its rate -- and carries no intel `+N/min` at all.
   it('shows the last intel earn beside the word, and no intel rate', () => {
-    const r = rig(mission({ logistics: 410, logisticsRate: 12, intel: 40, intelLastEarn: { amount: 30, cause: 'highGround' } }));
+    const r = rig(mission({ logistics: 410, logisticsRate: 12, intel: 40, intelLastEarn: { amount: 30, cause: 'highGround', tick: 100 } }));
     const intel = r.stripEl().querySelector('[data-tip="intel"]')?.textContent ?? '';
     expect(intel).toContain('+30 high ground');
     expect(intel).not.toContain('/min');
     const labels: [ 'identified' | 'objective', string ][] = [['identified', '+10 spotted'], ['objective', '+30 objective']];
     for (const [cause, text] of labels) {
       const amount = cause === 'identified' ? 10 : 30;
-      const w = rig(mission({ intel: 40, intelLastEarn: { amount, cause } }));
+      const w = rig(mission({ intel: 40, intelLastEarn: { amount, cause, tick: 100 } }));
       expect(w.stripEl().querySelector('[data-tip="intel"]')?.textContent).toContain(text);
     }
   });
@@ -377,6 +377,81 @@ describe('top strip', () => {
     expect(r.stripEl().querySelector('[data-tip="intel"]')?.textContent).not.toContain('/min');
     expect(r.stripEl().querySelector('[data-tip="intel"]')?.textContent).not.toContain('+');
     expect(r.stripEl().querySelector('[data-tip="logistics"]')?.textContent).toContain('+12/min');
+  });
+
+  // GH-77 / F-Q7: an objective's earn writes no feed line, so the figure
+  // pulses itself, once per earn -- across the strip's 4 Hz markup rebuilds.
+  describe('the intel figure pulse', () => {
+    let nowMs = 1000;
+    beforeEach(() => {
+      nowMs = 1000;
+      vi.spyOn(performance, 'now').mockImplementation(() => nowMs);
+    });
+    afterEach(() => vi.restoreAllMocks());
+
+    const earnRig = (): { r: Rig; set: (m: MissionView) => void } => {
+      let cur = mission({ logistics: 100, intel: 40 });
+      const r = rig(cur, { getMission: () => cur });
+      return { r, set: (m) => (cur = m) };
+    };
+    // The strip rebuilds on every fifth `onTick` (4 Hz).
+    const rebuild = (r: Rig): void => {
+      for (let i = 0; i < 5; i++) r.tick();
+    };
+    const figure = (r: Rig): HTMLElement =>
+      r.stripEl().querySelector<HTMLElement>('[data-tip="intel"] b')!;
+    const earn = (tick: number): MissionView =>
+      mission({ logistics: 100, intel: 70, intelLastEarn: { amount: 30, cause: 'objective', tick } });
+
+    it('an earn pulses the intel figure once', () => {
+      const { r, set } = earnRig();
+      set(earn(100));
+      rebuild(r);
+      expect(figure(r).classList.contains('rl-earn-pulse')).toBe(true);
+      expect(figure(r).getAttribute('style')).toContain('animation-delay:-0ms');
+      // A rebuild with changed markup (logistics moved) resumes it, it does not restart it.
+      nowMs = 1300;
+      set({ ...earn(100), logistics: 101 });
+      rebuild(r);
+      expect(figure(r).classList.contains('rl-earn-pulse')).toBe(true);
+      expect(figure(r).getAttribute('style')).toContain('animation-delay:-300ms');
+      nowMs = 1000 + EARN_PULSE_MS;
+      set({ ...earn(100), logistics: 102 });
+      rebuild(r);
+      expect(figure(r).classList.contains('rl-earn-pulse')).toBe(false);
+    });
+
+    it('a second earn restarts it', () => {
+      const { r, set } = earnRig();
+      set(earn(100));
+      rebuild(r);
+      nowMs = 1500;
+      set(earn(140));
+      rebuild(r);
+      expect(figure(r).classList.contains('rl-earn-pulse')).toBe(true);
+      expect(figure(r).getAttribute('style')).toContain('animation-delay:-0ms');
+    });
+
+    it('no earn, no pulse', () => {
+      const { r, set } = earnRig();
+      set(mission({ logistics: 100, intel: 40 }));
+      rebuild(r);
+      expect(r.stripEl().innerHTML).not.toContain('rl-earn-pulse');
+    });
+
+    it('the CSS window matches EARN_PULSE_MS, and reduced motion holds still', () => {
+      const css = readFileSync(resolve(process.cwd(), 'packages/app/src/ui/theme.css'), 'utf8');
+      // Every duration in the sheet names a rung (chrome-register VR-29), so
+      // the animation names one and the rung's value is what is pinned.
+      const rule = /\.rl-earn-pulse\s*\{[^}]*animation:\s*rl-earn-pulse\s+var\((--dur-[a-z-]+)\)/.exec(css);
+      expect(rule).not.toBeNull();
+      const rung = new RegExp(`${rule![1]}:\\s*(\\d+)ms`).exec(css);
+      expect(rung).not.toBeNull();
+      expect(Number(rung![1])).toBe(EARN_PULSE_MS);
+      const media = /@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\n\}/.exec(css)![0];
+      expect(media).toMatch(/\.rl-earn-pulse\s*\{[^}]*animation:\s*none/);
+      expect(css).toMatch(/:root\[data-motion='reduce'\] \.rl-earn-pulse\s*\{[^}]*animation:\s*none/);
+    });
   });
 
   it('drops the rate when the mission pays none, rather than printing +0/min', () => {
