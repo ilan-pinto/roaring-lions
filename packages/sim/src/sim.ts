@@ -3769,6 +3769,12 @@ export class Sim {
     return best;
   }
 
+  /** True when a person holds `side` (the seat table). Side 2, and any number
+   *  outside 0..2, is false. */
+  isHumanHeld(side: number): boolean {
+    return side >= 0 && side <= 2 && this.humanHeldBySide[side] === 1;
+  }
+
   /**
    * The wall in the way, or -1.
    *
@@ -3795,19 +3801,14 @@ export class Sim {
    * form of the same question, and it is the one that makes a blind wall get
    * cut while a gate twenty feet away still gets used.
    */
-  /** True when a person holds `side` (the seat table). Side 2, and any number
-   *  outside 0..2, is false. */
-  isHumanHeld(side: number): boolean {
-    return side >= 0 && side <= 2 && this.humanHeldBySide[side] === 1;
-  }
-
   private selectBreachTarget(i: number): number {
     // A side a person holds never cuts a wall by accident (single-player holds
-    // side 0 only, today's rule; a versus room holds both, N2 spec §2.2). The conditions below already
-    // spare a garrison holding its own compound, but a unit ordered out through
-    // a gate on the far side satisfies every one of them against its own wire,
-    // and there is no notion of who owns a structure to appeal to. Breaching on
-    // our side is a decision, and there is a `demolish` order to make it with.
+    // side 0 only, today's rule; a versus room holds both, N2 spec §2.2). The
+    // conditions below already spare a garrison holding its own compound, but a
+    // unit ordered out through a gate on the far side satisfies every one of
+    // them against its own wire, and there is no notion of who owns a structure
+    // to appeal to. Breaching on our side is a decision, and there is a
+    // `demolish` order to make it with.
     if (this.humanHeldBySide[this.side[i]] === 1) return -1;
     const w = this.width;
     const ux = this.posX[i] >> 16;
