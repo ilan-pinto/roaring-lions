@@ -5,6 +5,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import * as THREE from 'three';
 import { Sim, fx, type UnitTypeJson } from '@lions/sim';
+import { SIDE_1_TEMPLATE_SUFFIX } from './units/kit-template-key';
 import type { RendererOptions, TerrainTones } from '../api';
 import { ThreeRenderer } from './ThreeRenderer';
 import { MESH_SCALE } from './units/mesh-anim';
@@ -217,5 +218,69 @@ describe('cold infantry templates', () => {
     priv.updateMeshUnits(1, 16);
     expect(priv.meshUnitEntities.size).toBe(1);
     warn.mockRestore();
+  });
+});
+
+describe('a cold unit type whose textures fail to decode', () => {
+  const failing = vi.fn(async () => {
+    throw new Error('bad png');
+  });
+
+  /** Every geometry and material a template owns, with dispose spied. */
+  function spyDispose(t: { materials: readonly THREE.Material[]; geometries: readonly THREE.BufferGeometry[] }) {
+    return [...t.materials, ...t.geometries].map((r) => vi.spyOn(r, 'dispose'));
+  }
+
+  it('disposes both vehicle templates (side 0 and the side-1 kit twin), not leaving them for the context release', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { renderer, priv } = await unitRig();
+    priv.imageDecoder = failing;
+    const side0 = priv.vehicleMeshTemplates.get(VEH.id) as VehicleMeshTemplate;
+    const gltf = await parseRigidFixture({ parts: [{ nodeName: 'hull_hull', extrasRole: 'hull' }] });
+    const side1 = buildVehicleMeshTemplate(gltf, VEH.id);
+    const tex = new THREE.Texture();
+    markColdTexture(tex, new Blob(['png']));
+    side1.root.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh) (m.material as THREE.MeshStandardMaterial).map = tex;
+    });
+    priv.vehicleMeshTemplates.set(`${VEH.id}${SIDE_1_TEMPLATE_SUFFIX}`, side1);
+    const spies0 = spyDispose(side0);
+    const spies1 = spyDispose(side1);
+    expect(spies0.length).toBeGreaterThan(0);
+    expect(spies1.length).toBeGreaterThan(0);
+    renderer.warmUnitMesh(VEH.id);
+    await flush();
+    expect(renderer.failedMeshTypes().has(VEH.id)).toBe(true);
+    expect(priv.vehicleMeshTemplates.size).toBe(0);
+    expect(priv.coldUnitTypes.has(VEH.id)).toBe(false);
+    for (const s of [...spies0, ...spies1]) expect(s).toHaveBeenCalledTimes(1);
+    err.mockRestore();
+  });
+
+  it('disposes an infantry template', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const sim = new Sim({ seed: 1, width: 10, height: 10, capacity: 4 });
+    sim.addUnitType(INF);
+    const renderer = new ThreeRenderer(sim, makeOpts());
+    const priv = renderer as unknown as ColdPrivates;
+    priv.imageDecoder = failing;
+    const template = buildMeshUnitTemplate(await parseFixture({ roleName: 'uniform', clipName: 'idle' }), 'kdf');
+    const tex = new THREE.Texture();
+    markColdTexture(tex, new Blob(['png']));
+    template.root.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh) (m.material as THREE.MeshStandardMaterial).map = tex;
+    });
+    priv.meshUnitTemplates.set(INF.id, [template]);
+    priv.coldUnitTypes.add(INF.id);
+    const spies = spyDispose(template);
+    expect(spies.length).toBeGreaterThan(0);
+    renderer.warmUnitMesh(INF.id);
+    await flush();
+    expect(renderer.failedMeshTypes().has(INF.id)).toBe(true);
+    expect(priv.meshUnitTemplates.has(INF.id)).toBe(false);
+    for (const s of spies) expect(s).toHaveBeenCalledTimes(1);
+    err.mockRestore();
   });
 });
