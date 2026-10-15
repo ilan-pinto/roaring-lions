@@ -490,6 +490,7 @@ import { kitLodIsFar, setKitDrawRange, setKitLod } from './units/vehicle-kit';
 import { SIDE_1_TEMPLATE_SUFFIX, templateKey, templateKitTiers } from './units/kit-template-key';
 import {
   loadBuildingMeshTemplate,
+  wallTreatmentOf,
   instantiateBuildingMesh,
   disposeBuildingMeshTemplate,
   buildingSettleScale,
@@ -6491,7 +6492,9 @@ export class ThreeRenderer implements Renderer {
       idleUrl,
       wallColorKey,
       wallSurface,
-      allowTextured
+      allowTextured,
+      false,
+      wallTreatmentOf(structureType)
     );
     if (this.opts.maxTextureSize !== undefined) await capTextureSize(idleTemplate.root, this.opts.maxTextureSize);
     const previousIdle = this.buildingMeshIdleTemplates.get(structureId);
@@ -6585,7 +6588,9 @@ export class ThreeRenderer implements Renderer {
       TEXTURED_BUILDING_TYPES.has(structureId),
       // GH-469: a wreck is drawn only when one of these collapses, so its
       // textures stay encoded until the type is first hit (`warmWreck`).
-      true
+      true,
+      // The same concrete standing and fallen (#643).
+      wallTreatmentOf(structureType)
     );
     const previousWreck = this.buildingMeshWreckTemplates.get(structureId);
     if (previousWreck) {

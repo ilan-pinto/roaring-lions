@@ -201,6 +201,29 @@ export function wallSurfaceForBuilding(structureId: string): WallSurface {
 }
 
 /**
+ * The one-step "ramp" a `wall_tone` key names (`data/structures.json`,
+ * "band.index"): the wall draws exactly that palette step, where a `color`
+ * key draws the LIT step of the slice it starts (`liftTone` takes index 1 of
+ * three). That is the only way to draw a band's lightest step -- the T-wall's
+ * `gunmetal.0`, which its `color` key could not reach (#643). Throws for a
+ * malformed key, an unknown band or an index past the band's end, never a
+ * default colour.
+ */
+export function rampForWallTone(wallTone: string): readonly string[] {
+  const dot = wallTone.indexOf('.');
+  const band = dot < 0 ? '' : wallTone.slice(0, dot);
+  const index = dot < 0 ? NaN : Number(wallTone.slice(dot + 1));
+  if (!band || !Number.isInteger(index) || index < 0) {
+    throw new Error(`building-mesh-role: malformed wall tone "${wallTone}" -- expected "band.index"`);
+  }
+  const ramp = readRamp(band);
+  if (index >= ramp.length) {
+    throw new Error(`building-mesh-role: wall tone "${wallTone}" -- the ${band} ramp has ${ramp.length} steps`);
+  }
+  return [ramp[index]];
+}
+
+/**
  * The ramp slice a building's `rl_role` shades through. `wallColorKey` is a
  * "band.index" string (`data/structures.json`'s own `color` field, e.g.
  * `"limestone.4"`) -- REQUIRED, not defaulted, mirroring
