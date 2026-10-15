@@ -8,8 +8,10 @@ import { describe, it, expect, vi } from 'vitest';
 import { bindLiveTeamColors } from './live-team-colors';
 import { DEFAULT_SETTINGS, settingsBus, type ColorVision, type Settings } from './settings';
 
-const DEUTERANOPIA = ['#0072B2', '#D55E00', '#F0E442'];
-const TRITANOPIA_NEUTRAL = '#CC79A7';
+// Slot 2 is the civilian's limestone.0 in every variant (VR-04); the warning
+// yellow is reached by key through the resolver, not through this tuple.
+const CIVILIAN = '#F2E8D5';
+const DEUTERANOPIA = ['#0072B2', '#D55E00', CIVILIAN];
 
 function withVision(v: ColorVision): Settings {
   return { ...DEFAULT_SETTINGS, accessibility: { ...DEFAULT_SETTINGS.accessibility, colorVision: v } };
@@ -43,11 +45,11 @@ describe('bindLiveTeamColors (VR-01)', () => {
   it('every variant in turn, and back to default', () => {
     const w = setUp();
     w.bus.notify(withVision('tritanopia'));
-    expect(w.renderer.setTeamColors.mock.calls[0][0][2]).toBe(TRITANOPIA_NEUTRAL);
+    expect(w.renderer.setTeamColors.mock.calls[0][0][2]).toBe(CIVILIAN);
     w.bus.notify(withVision('protanopia'));
     expect(w.renderer.setTeamColors.mock.calls[1][0]).toEqual(DEUTERANOPIA);
     w.bus.notify(withVision('default'));
-    expect(w.renderer.setTeamColors.mock.calls[2][0]).toEqual(['#2F6FD9', '#D93A2B', '#E8C33A']);
+    expect(w.renderer.setTeamColors.mock.calls[2][0]).toEqual(['#2F6FD9', '#D93A2B', CIVILIAN]);
     expect(w.minimap.setTeamColors).toHaveBeenCalledTimes(3);
   });
 
