@@ -91,51 +91,116 @@ export function texturedMaterial(loaded: THREE.Material): THREE.MeshStandardMate
 }
 
 /**
- * The tint a charred wreck multiplies its own bake by.
+ * The SCAR tint: what a damaged-but-living hull or building is lerped toward
+ * (`units/vehicle-damage.ts`, `units/building-damage.ts`). It was the wreck's
+ * tint too until the soot recolour below (2026-10-15); the scars were approved
+ * on their own mock sheet (`_coord/vehicle-damage`, 2026-10-14) against THIS
+ * value, so they keep it and the wreck has a constant of its own.
  *
- * A TINT rather than a replacement because the bake is the asset: the lead's
- * "use as-is" applies to a wreck exactly as it applies to a live vehicle, so
- * the photograph's own panel lines, rivets and roughness must survive, only
- * darker and desaturated by the multiply. `MeshStandardMaterial.color`
- * multiplies `map` per-fragment, which is precisely that.
- *
- * **Chosen by the project lead on 2026-09-15: "a sooty dark grey that keeps the
- * bakes' detail visible".** It was `0x2a2620` until then, and the reason it
- * moved is the eleven-pair screenshot sheet: at that value seven of the eleven
- * wrecks photographed as featureless black silhouettes at gameplay zoom, with
- * no panel line, hatch or wheel surviving. Measured inside `mbt_lavi`'s own
- * hull at zoom 2.2, **67.2%** of the body's pixels were crushed below
- * luminance 8 and the whole hull held 545 distinct colours; at this value it
- * is **39.1%** and 949. The lead's call is detail over darkness, and the
- * shipped value is the darker of the two candidates captured for it -- the
- * lighter one (`0x8a7f74`) reads as a dusty vehicle rather than a burnt one.
- *
- * Kept in step with `CHARRED_RAMP` (`units/vehicle-mesh-role.ts`), which is
- * the same decision on the palette path: the two must land on the same TONE or
- * a burnt Lavi and a burnt Eitan read as different events.
- * `mesh-vehicle-death.test.ts` pins that they do.
- *
- * **A palette entry since polish VR-10 (2026-10-08).** The lead's `0x6a5f55` was
- * the one material colour outside `data/palette.json`; it is now
- * `limestone.7` (`#75624A`), the nearest entry a world material may use --
- * CIEDE2000 6.24 from the old value, at the same luminance (0.130 against
- * 0.1335, so the detail-over-darkness measurement above still describes it).
- * `karst.3` (`#6E6960`) is nearer at 4.66, but `karst` is `theme_only`:
- * procedural terrain and decor tint, nothing else.
+ * History, kept because the measurement explains the wreck's own move: chosen
+ * by the project lead on 2026-09-15 ("a sooty dark grey that keeps the bakes'
+ * detail visible") as `0x6a5f55`, a palette entry (`limestone.7`, `#75624A`)
+ * since polish VR-10 (2026-10-08). As a MULTIPLIER on a bake whose mean linear
+ * luminance is 0.04-0.13 it put a wreck's effective albedo at 0.005-0.016 --
+ * the retired `shadow.1` near-black -- and on the bakes that shipped by
+ * 2026-10-15 58-78 % of every wreck's pixels sat below luma 8.
  */
 export const CHARRED_TINT_KEY = 'limestone.7';
 export const CHARRED_TINT_HEX = parseInt(paletteHex(CHARRED_TINT_KEY).slice(1), 16);
 
 /**
- * The charred sibling of `texturedMaterial`: the same normalised bake, on a
- * material of its OWN, tinted to `CHARRED_TINT_HEX` and driven fully rough.
+ * The palette key a textured WRECK is recoloured onto: `gunmetal.2`
+ * (`#5C625F`), the lit face of `CHARRED_RAMP` (`units/vehicle-mesh-role.ts`),
+ * so the textured and the palette wreck are one decision with one key.
+ * `mesh-vehicle-death.test.ts` pins the two together, albedo against albedo.
+ */
+export const CHARRED_WRECK_KEY = 'gunmetal.2';
+
+/**
+ * The brightness cap: a wreck's mean albedo may reach at most this fraction of
+ * its OWN live bake's mean, so a wreck never reads lighter dead than alive.
+ * Uncapped, the darkest bakes are gained up past the vehicle they were:
+ * `apc_eitan` (bake mean 0.052) read luma 57 dead against 39 alive in the mock,
+ * the grey-livery look the lead rejected on 2026-09-15.
  *
- * A clone, never a mutation, for the reason every material rule in this file
- * turns on: `loaded` is the one material `GLTFLoader` built for that glTF
- * primitive, and a wreck mesh SHARES it with its live twin (the wreck pass
- * gives the two nodes the same `mesh` index), so darkening it in place would
+ * **0.8, measured, not 1.** Equal albedo is not equal brightness on screen: a
+ * wreck lies tilted, and at some headings its slumped faces catch more sun than
+ * the level hull did. Fourteen textured vehicles, four headings x zoom 1 and
+ * 2, wreck mean luma over its own pixels against the live hull's at the same
+ * spot and heading (ANGLE/Metal, wrecks in sight; `_coord/wreck-tone/`): the
+ * WORST single frame read 1.10x the live hull at cap 1 (`apc_kipod`; the
+ * Namer and the jeep 1.08, the Eitan 1.05), 1.03 at 0.9, 0.99 at 0.85, and
+ * **0.95 at 0.8** -- the first rung with headroom on every vehicle, which this
+ * is. The cap binds on every shipped bake darker than `keyLuma / cap` (0.148):
+ * all of them but `paramotor`'s wing (0.164), which lands on the key itself.
+ */
+export const CHARRED_WRECK_CAP = 0.8;
+
+/** The material extras key the wreck pass writes (`tools/src/meshes/bake-luma.ts`):
+ *  the bake's mean linear luminance. `GLTFLoader` hands extras over as `userData`. */
+export const BAKE_LUMA_KEY = 'rl_bake_luma';
+
+/** Rec. 709 luminance of a LINEAR colour -- the shader's own weights. */
+export function linearLuma(c: THREE.Color): number {
+  return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+}
+
+/**
+ * The colour a soot-recoloured wreck carries in `color`: the key, times the
+ * gain that puts the wreck's MEAN albedo on `min(keyLuma, cap x bakeLuma)`.
+ *
+ * The shader multiplies `color` by each texel's luminance `Y`, so the albedo's
+ * mean luminance is `luma(color) x bakeLuma`. Solving for that mean:
+ * `gain = min(1 / bakeLuma, cap / keyLuma)`. Uncapped, every wreck lands on the
+ * key whatever its bake ("charring is the fire, not the paint"); capped, it
+ * lands on its own live bake's mean and never above it.
+ */
+export function sootColor(bakeLuma: number, key: string = CHARRED_WRECK_KEY, cap: number = CHARRED_WRECK_CAP): THREE.Color {
+  if (!(bakeLuma > 0)) throw new Error(`sootColor: bake luminance must be positive, got ${bakeLuma}`);
+  const color = new THREE.Color(paletteHex(key));
+  const gain = Math.min(1 / bakeLuma, cap / linearLuma(color));
+  return color.multiplyScalar(gain);
+}
+
+/** The fragment chunk: the bake's LUMINANCE, not its colour, times `color`.
+ *  Clamped at 1, the physical ceiling of an albedo. Replaces `map_fragment`. */
+export const SOOT_MAP_FRAGMENT = /* glsl */ `#ifdef USE_MAP
+  vec4 sampledDiffuseColor = texture2D( map, vMapUv );
+  diffuseColor.rgb = min( diffuseColor.rgb * dot( sampledDiffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) ), vec3( 1.0 ) );
+  diffuseColor.a *= sampledDiffuseColor.a;
+#endif`;
+
+/** One program for every wreck: the per-vehicle number rides in `color`. */
+export const SOOT_PROGRAM_KEY = 'rl-soot';
+
+function sootOnBeforeCompile(shader: { fragmentShader: string }): void {
+  if (!shader.fragmentShader.includes('#include <map_fragment>')) {
+    throw new Error('charredTexturedMaterial: the fragment shader has no <map_fragment> to replace');
+  }
+  shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', SOOT_MAP_FRAGMENT);
+}
+
+/**
+ * The charred sibling of `texturedMaterial`: a SOOT RECOLOUR of the same bake,
+ * on a material of its own, driven fully rough.
+ *
+ * Settled 2026-10-15 (the wreck-tone mock, `_coord/wreck-tone/`): the bake's
+ * detail survives as LUMINANCE, its livery hue does not, and the mean lands on
+ * `CHARRED_WRECK_KEY` under `CHARRED_WRECK_CAP` (`sootColor`). It replaced a
+ * plain multiply by `CHARRED_TINT_HEX`, which no palette key could lift off
+ * near-black on these bakes: a multiply tops out at the bake itself, and the
+ * brightest neutral key kept the livery hue, so an Eitan read as a live green
+ * APC.
+ *
+ * Needs `extras.rl_bake_luma` on the loaded material, written by the wreck
+ * pass, and refuses loudly without it: a wreck charred off a guessed mean is
+ * the near-black this replaced, or the grey livery the cap exists to prevent.
+ *
+ * A clone, never a mutation: `loaded` is shared with the live twin (the wreck
+ * pass gives both nodes the same `mesh`), so recolouring it in place would
  * char the living vehicle too. The clone keeps `map`, `metalnessMap` and
- * `normalMap` by reference -- one upload, two draws.
+ * `normalMap` by reference -- one upload, two draws -- and every wreck shares
+ * one program (`SOOT_PROGRAM_KEY`).
  *
  * `roughness: 1` and `metalness: 0` are not cosmetic defaults: a burnt-out
  * hull has no specular highlight left, and leaving the bake's own gloss
@@ -144,10 +209,19 @@ export const CHARRED_TINT_HEX = parseInt(paletteHex(CHARRED_TINT_KEY).slice(1), 
  * including over a bake that ships its own `roughnessMap`.
  */
 export function charredTexturedMaterial(loaded: THREE.Material): THREE.MeshStandardMaterial {
+  const bakeLuma = (loaded.userData as Record<string, unknown> | undefined)?.[BAKE_LUMA_KEY];
+  if (typeof bakeLuma !== 'number' || !(bakeLuma > 0)) {
+    throw new Error(
+      `charredTexturedMaterial: material "${loaded.name}" carries no extras.${BAKE_LUMA_KEY} -- ` +
+        'run `pnpm wreck:meshes` (then damage:meshes and encode:meshes) on its GLB'
+    );
+  }
   const charred = texturedMaterial(loaded).clone();
-  charred.color.setHex(CHARRED_TINT_HEX);
+  charred.color.copy(sootColor(bakeLuma));
   charred.roughness = 1;
   charred.metalness = 0;
+  charred.onBeforeCompile = sootOnBeforeCompile;
+  charred.customProgramCacheKey = () => SOOT_PROGRAM_KEY;
   charred.needsUpdate = true;
   return charred;
 }
