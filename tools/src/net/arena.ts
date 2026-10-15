@@ -147,6 +147,8 @@ export interface ArenaDeps {
   print?: (line: string) => void;
   /** The local relay, per game. */
   startRelay?: (o: LocalRelayOptions) => Promise<LocalRelay>;
+  /** The player a spec names; default `resolvePlayer`. */
+  resolvePlayer?: (spec: string, log: (line: string) => void) => ArenaPlayer;
   now?: () => Date;
 }
 
@@ -195,43 +197,51 @@ const seatOfSide = (sides: readonly [0 | 1, 0 | 1], side: 0 | 1): 0 | 1 => (side
 /** The room's own endings, which the seat that gave up never hears. */
 const ROOM_ENDINGS: readonly string[] = ['forfeit', 'surrender', 'left'];
 
-/** What `judge` reads of a seat's client. */
-export interface JudgedClient {
-  result(): MatchResult | null;
-  tick(): number;
-  world(): { readonly sim: OutcomeSim } | null;
-  readonly transport: { status(): TransportStatus };
+/** What `judge` reads of one seat: a SNAPSHOT, taken once both players have
+ *  finished and BEFORE the arena stops them. Stopping a player closes its
+ *  transport, which overwrites the room's last word (`desync`, the reason an
+ *  ended room gave) with `left`/`detached`; read afterwards, that word is gone. */
+export interface SeatSnapshot {
+  result: MatchResult | null;
+  tick: number;
+  status: TransportStatus;
+  sim: OutcomeSim | null;
 }
 
-/** The record's outcome from the players' clients (null for a player not in
- *  this process), read once both have finished. A desync either seat saw, or
- *  two results that differ, is `void`; two clients with no result, both
- *  standing on the cap tick, are decided by `capOutcome` on seat 0's sim. */
+/** A seat's client as it stands now. Call before `stop()`. */
+export function snapshotOf(c: AgentClient): SeatSnapshot {
+  return { result: c.result(), tick: c.tick(), status: c.transport.status(), sim: c.world()?.sim ?? null };
+}
+
+/** The record's outcome from the seats' snapshots (null for a player not in
+ *  this process). A desync the room sent to either seat is `void`/`desync`;
+ *  two sims reporting different results are `void`/`disagree`; two seats with
+ *  no result, both standing on the cap tick, are decided by `capOutcome` on
+ *  seat 0's sim and recorded `by: 'cap'`. */
 export function judge(
-  clients: readonly [JudgedClient | null, JudgedClient | null],
+  seats: readonly [SeatSnapshot | null, SeatSnapshot | null],
   sides: readonly [0 | 1, 0 | 1],
   capTicks: number,
 ): { outcome: GameRecord['outcome']; by: string } {
-  const live = clients.filter((c): c is JudgedClient => c !== null);
+  const live = seats.filter((c): c is SeatSnapshot => c !== null);
   for (const c of live) {
-    if (c.transport.status().kind === 'desync') return { outcome: 'void', by: 'desync' };
+    if (c.status.kind === 'desync') return { outcome: 'void', by: 'desync' };
   }
-  const results = live.map((c) => c.result());
+  const results = live.map((c) => c.result);
   const decided = results.filter((r): r is MatchResult => r !== null);
   const toOutcome = (r: MatchResult, by: string): { outcome: GameRecord['outcome']; by: string } => (
     r.kind === 'draw' ? { outcome: 'draw', by } : { outcome: `seat${seatOfSide(sides, r.side)}`, by }
   );
   if (decided.length > 0) {
     // Two sims that ran the same frames reach the same result, or the game proves nothing.
-    if (decided.some((r) => JSON.stringify(r) !== JSON.stringify(decided[0]))) return { outcome: 'void', by: 'desync' };
+    if (decided.some((r) => JSON.stringify(r) !== JSON.stringify(decided[0]))) return { outcome: 'void', by: 'disagree' };
     // One decided and one did not: only a room's ending, which the leaver never hears, may do that.
-    if (decided.length < results.length && !ROOM_ENDINGS.includes(decided[0].by)) return { outcome: 'void', by: 'desync' };
+    if (decided.length < results.length && !ROOM_ENDINGS.includes(decided[0].by)) return { outcome: 'void', by: 'disagree' };
     return toOutcome(decided[0], decided[0].by);
   }
-  const referee = clients[0] ?? clients[1];
-  const sim = referee?.world()?.sim;
-  if (referee !== null && sim !== undefined && live.every((c) => c.tick() === capTicks)) return toOutcome(capOutcome(sim), 'cap');
-  const st = referee?.transport.status();
+  const referee = seats[0] ?? seats[1];
+  if (referee !== null && referee.sim !== null && live.every((c) => c.tick === capTicks)) return toOutcome(capOutcome(referee.sim), 'cap');
+  const st = referee?.status;
   return { outcome: 'void', by: st?.kind === 'closed' ? st.reason : 'unfinished' };
 }
 
@@ -280,10 +290,12 @@ async function playGame(g: GameSpec, a: ArenaArgs, build: string, startRelay: No
       timedOut = true;
       log(`seed ${g.seed}: ${messageOf(e)}`);
     });
+    // Read the room's last word BEFORE stopping: a stop closes the transport (`SeatSnapshot`).
+    const seen: [SeatSnapshot | null, SeatSnapshot | null] = [clients[0] && snapshotOf(clients[0]), clients[1] && snapshotOf(clients[1])];
     for (const r of running) await r.stop();
     const reports = await Promise.all(running.map((r) => r.done)) as [PlayerReport, PlayerReport];
     const sides: [0 | 1, 0 | 1] = [config.seats[0].side as 0 | 1, config.seats[1].side as 0 | 1];
-    const verdict = timedOut ? { outcome: 'void' as const, by: 'timeout' } : judge(clients, sides, a.capTicks);
+    const verdict = timedOut ? { outcome: 'void' as const, by: 'timeout' } : judge(seen, sides, a.capTicks);
     const sim = referee.world()?.sim;
     if (sim === undefined) throw new Error('the reading seat never built its world');
     return {
@@ -294,7 +306,8 @@ async function playGame(g: GameSpec, a: ArenaArgs, build: string, startRelay: No
     for (const r of running) {
       try { await r.stop(); } catch (e) { log(`stopping a player: ${messageOf(e)}`); }
     }
-    await relay.close();
+    // A failed close is logged, never thrown: it must not mask the game's own error.
+    try { await relay.close(); } catch (e) { log(`closing the relay: ${messageOf(e)}`); }
   }
 }
 
@@ -322,8 +335,9 @@ export async function runArena(argv: readonly string[], deps: ArenaDeps = {}): P
   let A: ArenaPlayer;
   let B: ArenaPlayer;
   try {
-    A = resolvePlayer(a.a, log);
-    B = resolvePlayer(a.b, log);
+    const resolveOne = deps.resolvePlayer ?? resolvePlayer;
+    A = resolveOne(a.a, log);
+    B = resolveOne(a.b, log);
   } catch (e) {
     return fail(1, messageOf(e));
   }

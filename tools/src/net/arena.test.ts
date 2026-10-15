@@ -11,8 +11,9 @@
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
-import { judge, parseArgs, refusalOf, runArena, untrusted, type JudgedClient } from './arena';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { judge, parseArgs, refusalOf, resolvePlayer, runArena, untrusted, type SeatSnapshot } from './arena';
+import type { ArenaPlayer } from './players';
 import type { GameRecord } from './arena-score';
 import { startLocalRelay } from './local-relay';
 import type { TransportStatus } from '@lions/net';
@@ -87,15 +88,60 @@ describe('pnpm arena', () => {
 
   it('does not trust a room whose start config is not what it asked for: exit 1, no record', async () => {
     // A relay that ignores the arena's seed: the room starts, on the wrong world.
+    // Its close then rejects (after really closing): that must not mask why the game failed.
     const out = outDir();
+    const lines: string[] = [];
     const r = await runArena(['--a', 'rush', '--b', 'passive', '--seeds', '1', '--pace', '40', '--tick-ms', '1', '--cap-ticks', '400', '--out', out], {
-      ...quiet, startRelay: (o) => startLocalRelay({ ...o, seedFor: () => 1 }),
+      ...quiet,
+      log: (l) => { lines.push(l); },
+      startRelay: async (o) => {
+        const relay = await startLocalRelay({ ...o, seedFor: () => 1, log: () => {} });
+        return { ...relay, close: async () => { await relay.close(); throw new Error('the relay would not close'); } };
+      },
     });
     expect(r.code).toBe(1);
+    expect(lines.some((l) => l.includes('a game could not be played') && l.includes('seed 1, not 1000'))).toBe(true);
     expect(r.games).toEqual([]);
     const jsonl = readdirSync(out).find((f) => f.endsWith('.jsonl'));
     expect(readFileSync(join(out, jsonl ?? ''), 'utf8')).toBe('');
   }, 30_000);
+
+  it('voids a game in which the room sent desync, read before the arena stops the players', async () => {
+    // A rush seat whose transport reports one corrupted hash: the room pairs it
+    // with the other seat's true one and sends `desync` (room-core). Nothing
+    // touches either sim; only the hash on the wire is wrong.
+    const corrupting = (spec: string, log: (line: string) => void): ArenaPlayer => {
+      const inner = resolvePlayer(spec, log);
+      if (spec !== 'rush') return inner;
+      return {
+        name: inner.name,
+        start: async (s) => {
+          const r = await inner.start(s);
+          const t = r.client?.transport;
+          if (t !== undefined) {
+            const report = t.reportTick.bind(t);
+            let corrupted = false;
+            t.reportTick = (tick, digest) => {
+              if (digest !== null && !corrupted) { corrupted = true; report(tick, digest ^ 1); return; }
+              report(tick, digest);
+            };
+          }
+          return r;
+        },
+      };
+    };
+    // The relay has no D1, so the room's desync log says why on console.error.
+    const quietError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const out = outDir();
+      const r = await runArena(['--a', 'rush', '--b', 'passive', '--seeds', '1', '--pace', '40', '--tick-ms', '1', '--cap-ticks', '400', '--out', out], { ...quiet, resolvePlayer: corrupting });
+      expect(r.code).toBe(0);
+      expect(r.games.map((g) => [g.outcome, g.by])).toEqual([['void', 'desync'], ['void', 'desync']]);
+      expect(r.tally?.get('rush')).toMatchObject({ games: 2, voids: 2 });
+    } finally {
+      quietError.mockRestore();
+    }
+  }, 60_000);
 
   it('reads its command line: defaults, a bad value, and an external player that is not yet built', () => {
     const a = parseArgs(['--', '--a', 'rush', '--b', 'passive']);
@@ -123,8 +169,8 @@ const capSim: OutcomeSim = {
   state: { side: [0, 1], alive: [1, 1], typeIdx: [0, 1], mobilityKilled: [0, 0], firepowerKilled: [0, 0] },
   unitTypes: [{ id: 'mbt_lavi', weapons: [{}], stepPerTick: 1 }, { id: 'inf_squad', weapons: [{}], stepPerTick: 1 }],
 };
-function client(result: MatchResult | null, o: { tick?: number; status?: TransportStatus } = {}): JudgedClient {
-  return { result: () => result, tick: () => o.tick ?? 600, world: () => ({ sim: capSim }), transport: { status: () => o.status ?? { kind: 'live', behind: 0 } } };
+function client(result: MatchResult | null, o: { tick?: number; status?: TransportStatus } = {}): SeatSnapshot {
+  return { result, tick: o.tick ?? 600, sim: capSim, status: o.status ?? { kind: 'live', behind: 0 } };
 }
 const won = (side: 0 | 1, by: 'annihilation' | 'forfeit' = 'annihilation'): MatchResult => ({ kind: 'won', side, by });
 const SIDES: [0, 1] = [0, 1];
@@ -135,9 +181,10 @@ describe('judge', () => {
     expect(judge([client({ kind: 'draw', by: 'mutual' }), client({ kind: 'draw', by: 'mutual' })], SIDES, 6000)).toEqual({ outcome: 'draw', by: 'mutual' });
   });
   it('voids a game whose two sims report different results', () => {
-    expect(judge([client(won(0)), client(won(1))], SIDES, 6000)).toEqual({ outcome: 'void', by: 'desync' });
+    // `disagree`, not `desync`: the arena caught it, not the room.
+    expect(judge([client(won(0)), client(won(1))], SIDES, 6000)).toEqual({ outcome: 'void', by: 'disagree' });
     // One decided by its own sim and one not: they disagree too.
-    expect(judge([client(won(0)), client(null)], SIDES, 6000)).toEqual({ outcome: 'void', by: 'desync' });
+    expect(judge([client(won(0)), client(null)], SIDES, 6000)).toEqual({ outcome: 'void', by: 'disagree' });
   });
   it('voids a game in which the room sent desync, whatever the sims say', () => {
     expect(judge([client(won(0), { status: { kind: 'desync', tick: 480 } }), client(won(0))], SIDES, 6000)).toEqual({ outcome: 'void', by: 'desync' });

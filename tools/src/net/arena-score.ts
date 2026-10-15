@@ -21,8 +21,10 @@ export interface GameRecord {
   /** By seat. */
   factions: [Faction, Faction];
   outcome: 'seat0' | 'seat1' | 'draw' | 'void';
-  /** annihilation | stalemate | time | cap | forfeit | surrender | left | mutual | desync,
-   *  or the room's own ending reason for a void it closed (e.g. `expired`). */
+  /** annihilation | stalemate | time | cap | forfeit | surrender | left | mutual;
+   *  for a void: desync (the room sent it), disagree (the two sims reported
+   *  different results), timeout, unfinished, or the room's own ending reason
+   *  (e.g. `expired`). */
   by: string;
   ticks: number;
   /** By SIDE, from seat 0's sim at the end. In versus seat s plays side s
