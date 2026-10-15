@@ -30,7 +30,7 @@ import { parseWorld } from '../../../packages/app/src/campaign';
 import { payVictory } from '../../../packages/app/src/campaign-pay';
 import { stagedUnit } from './e5-probes';
 import { run, type Plan, missionStars, missionCredits, missionMinutes, missionRoe, missionRosterOut, missionPopulation, maxTierProbes } from './playtest-run';
-import { populationLine } from './population-census';
+import { censusViolations, populationLine } from './population-census';
 import { passiveAcrossSeeds, drainPassiveSweeps, controlIntel, SWEEP_SEEDS } from './passive-sweep';
 import { reportIntel, seedsNotSpent } from './intel-gate';
 import { Picture, living } from './player-picture';
@@ -3805,7 +3805,14 @@ if (rosterMax >= ROSTER_CAP) {
 // sim-side-1 units; civilians count for neither. The doctrine caps (G-G) read these.
 for (const id of missionOrder) {
   const c = missionPopulation.get(id);
-  if (c !== undefined) console.log(populationLine(id, c));
+  if (c === undefined) continue;
+  console.log(populationLine(id, c));
+  // Standing invariant (final review M1): a census whose peak sits below its own start or end was
+  // not sampled. Prints nothing when sound, so every existing line is unchanged.
+  for (const v of censusViolations(id, c)) {
+    console.error(v);
+    process.exitCode = 1;
+  }
 }
 
 // The no-orders controls' other 29 seeds ran in worker processes while the ladder above ran

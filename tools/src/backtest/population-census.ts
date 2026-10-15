@@ -54,3 +54,24 @@ export function populationLine(id: string, c: PopulationCensus): string {
   const side = (s: SideCensus): string => `start ${s.start}, peak ${s.peak}, end ${s.end}`;
   return `population ${id}: side 0 ${side(c.side0)}; side 1 ${side(c.side1)} (report only)`;
 }
+
+/**
+ * The standing invariant on a census (final review M1): per side, `peak >= max(start, end)` and
+ * `peak >= 0`. A sampler that never ran leaves `peak` at the starting figure while `end` is whatever
+ * `finish` read, so a census with `end > start` and no samples breaks it -- the report-only lines
+ * would otherwise print a peak below an end without anyone being told. Returns one named message per
+ * broken side; empty when the census is sound.
+ */
+export function censusViolations(id: string, c: PopulationCensus): string[] {
+  const out: string[] = [];
+  const sides: [number, SideCensus][] = [
+    [0, c.side0],
+    [1, c.side1],
+  ];
+  for (const [n, s] of sides) {
+    if (s.peak < 0 || s.peak < s.start || s.peak < s.end) {
+      out.push(`population census ${id}: side ${n} peak ${s.peak} below start ${s.start} / end ${s.end}`);
+    }
+  }
+  return out;
+}

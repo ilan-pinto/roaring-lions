@@ -4,7 +4,7 @@
 // the peak climbs, and the build queue's reservation (side 0 only) must show in the peak too.
 import { describe, expect, it } from 'vitest';
 import { MissionRuntime, Sim, type MissionJson, type UnitTypeJson } from '@lions/sim';
-import { PopulationCensus, populationLine } from './population-census';
+import { PopulationCensus, censusViolations, populationLine } from './population-census';
 
 const INF: UnitTypeJson = {
   id: 'cen_inf',
@@ -112,5 +112,41 @@ describe('population census (GH-183 F3 Task 5)', () => {
     expect(populationLine('census_fixture', c)).toBe(
       'population census_fixture: side 0 start 2, peak 8, end 8; side 1 start 1, peak 1, end 1 (report only)'
     );
+  });
+});
+
+describe('censusViolations: peak >= max(start, end) and peak >= 0, per side (final review M1)', () => {
+  const census = (a: [number, number, number], b: [number, number, number]): PopulationCensus => {
+    const c = new PopulationCensus();
+    [c.side0.start, c.side0.peak, c.side0.end] = a;
+    [c.side1.start, c.side1.peak, c.side1.end] = b;
+    return c;
+  };
+
+  it('a sound census, including peak == start == end and a falling side, reports nothing', () => {
+    expect(censusViolations('m', census([8, 8, 7], [6, 6, 0]))).toEqual([]);
+    expect(censusViolations('m', census([0, 0, 0], [3, 3, 3]))).toEqual([]);
+  });
+
+  it('names the side, the peak and the figure it fell below', () => {
+    expect(censusViolations('m', census([8, 8, 11], [6, 6, 4]))).toEqual(['population census m: side 0 peak 8 below start 8 / end 11']);
+    expect(censusViolations('m', census([8, 8, 8], [9, 6, 4]))).toEqual(['population census m: side 1 peak 6 below start 9 / end 4']);
+  });
+
+  it('a negative peak is a violation even when start and end are lower still', () => {
+    expect(censusViolations('m', census([-2, -1, -3], [0, 0, 0]))).toHaveLength(1);
+  });
+
+  it('a census that was begun and finished but never sampled breaks it when the end rose', () => {
+    const w = world({ reinforce: true });
+    const rt = w.rt;
+    rt.start();
+    const c = new PopulationCensus();
+    c.begin(rt);
+    // No `sample` calls: the reinforcement lands, `finish` reads a larger end, the peak stays at the start.
+    for (let i = 0; i < 3 * 20; i++) rt.step(w.sim.tick());
+    c.finish(rt);
+    expect(c.side0.end).toBeGreaterThan(c.side0.start);
+    expect(censusViolations('fixture', c)).toHaveLength(1);
   });
 });
