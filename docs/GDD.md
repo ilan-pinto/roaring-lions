@@ -77,12 +77,12 @@ A mission may also grant a starting amount (`intel_start`). Intel is **fire-supp
 
 | Call | Intel | What it does |
 |---|---|---|
-| Smoke screen | 60 | Three smoke rounds, up to 1.5 tiles off the aim point, that blind sight lines; no damage |
+| Smoke screen | 100 | Three smoke rounds, up to 1.5 tiles off the aim point, that blind sight lines; no damage |
 | Mortar barrage | 120 | Six rounds, 1.5 tiles of scatter, 6 s after the call; hurts, suppresses, and the ROE bill follows the caller |
 | Drone sweep | 150 | Everything hostile around a point becomes identified at once; pays no intel itself |
 | Air strike | 250 | One heavy round on a point; the ROE bill follows the caller |
 
-Those four rates and prices are **provisional**, adopted ahead of the lead's confirmation (`docs/campaign/economy/fire-support-numbers.md`; 8 / 40 / 30 is the seed-robust alternative if the lead prefers it). The design target they were measured against: a player who wins plainly can afford a drone sweep over a mission, and one who sits still cannot.
+The earn row (8 / 40 / 30) and the smoke screen at 100 were **ruled by the lead on 15 Oct**; the barrage 120, sweep 150 and air strike 250 stand as adopted (`docs/campaign/economy/fire-support-numbers.md` holds the measurements). The design target they were measured against: a player who wins plainly can afford a drone sweep over a mission, and one who sits still cannot.
 
 The split is the point. Logistics buys mass; Intel buys certainty. Most missions cannot afford both.
 
