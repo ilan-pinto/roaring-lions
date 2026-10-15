@@ -2772,7 +2772,7 @@ export class Sim {
           this.stance[id] = 0; // any order overrides a held stance
         }
       } else if (cmd.kind === 'setStance') {
-        // BEFORE the halt branch, which touches only `cmd.ids`.
+        // Not a plain halt: it must skip garrisoned and carried ids, which halt would pull out of their post.
         for (const id of cmd.ids) {
           if (this.alive[id] === 0 || this.routed[id] === 1) continue;
           if (this.garrisonedIn[id] >= 0 || this.carriedBy[id] >= 0) continue; // the building or the vehicle is the hold (D2)

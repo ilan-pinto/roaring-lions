@@ -68,6 +68,25 @@ describe('setStance (N2, L3)', () => {
     sim.tick();
     expect([sim.state.garrisonedIn[u], sim.ambushRadiusSqOf(u)]).toEqual([s, 0]);
   });
+  it('a carried unit is left as it is by hold AND by ambush (D2): still aboard, no ambush', () => {
+    // carriers.test.ts's fixture: a jeep with two seats, boarded through the sim's own `load` command.
+    const sim = new Sim({ seed: 6, width: 40, height: 20, capacity: 32 });
+    const jeep = sim.addUnitType({
+      id: 'c_jeep', role: 'technical', hull: { hp: 500, armor: { front: 12, side: 8, rear: 8 }, transport_slots: 2 },
+      mobility: { speed_tiles_s: 2.8, turn_rate_deg_s: 150 }, sensors: { optics: 1, sight_tiles: 9, signature: 0.8 }, weapons: [],
+    });
+    const car = sim.spawn(jeep, 1, fx.from(6.5), fx.from(10.5));
+    const u = sim.spawn(sim.addUnitType(RIFLES), 1, fx.from(5.5), fx.from(10.5));
+    sim.queueCommand({ kind: 'load', ids: [u], carrier: car });
+    for (let i = 0; i < 10 * TICKS_PER_SECOND && sim.state.carriedBy[u] < 0; i++) sim.tick();
+    expect(sim.state.carriedBy[u]).toBe(car);
+    sim.queueCommand({ kind: 'setStance', ids: [u], stance: 'ambush' });
+    sim.tick();
+    expect([sim.state.carriedBy[u], sim.ambushRadiusSqOf(u)]).toEqual([car, 0]);
+    sim.queueCommand({ kind: 'setStance', ids: [u], stance: 'hold' });
+    sim.tick();
+    expect([sim.state.carriedBy[u], sim.ambushRadiusSqOf(u)]).toEqual([car, 0]);
+  });
   it('ambush skips a dead id and still applies to the living one beside it', () => {
     const { sim, rifles } = field();
     const a = sim.spawn(rifles, 1, fx.from(4.5), fx.from(8.5));

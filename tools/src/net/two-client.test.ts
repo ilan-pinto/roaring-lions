@@ -194,7 +194,7 @@ describe('versus: two sides, one frame stream', () => {
   it('a setStance ambush is stamped and agreed on by both clients, not dropped, and it moves the hash (N2 L3)', () => {
     const at = (tick: number, seat: 0 | 1, seq: number, cmd: Command): [number, Stamped] => [tick, { seat, seq, cmd }];
     const frames = versusFrames(true, (theirs) => [
-      at(8, 1, 9, { kind: 'setStance', ids: theirs.slice(0, 2), stance: 'ambush' }),
+      at(12, 1, 9, { kind: 'setStance', ids: theirs.slice(0, 2), stance: 'ambush' }),
     ]);
     const a = runVersus(frames);
     const b = runVersus(frames);
