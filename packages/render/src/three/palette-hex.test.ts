@@ -72,7 +72,7 @@ describe('render fallbacks follow a palette revision', () => {
       expect(preset.skyFallback).toBe(invert(paletteHex(preset.skyKey)));
     }
     const sil = await import('./units/silhouette');
-    expect([...sil.SILHOUETTE_FALLBACK_HEX_BY_SIDE]).toEqual(['team.kedem', 'team.hostile', 'team.neutral'].map((k) => invert(paletteHex(k))));
+    expect([...sil.SILHOUETTE_FALLBACK_HEX_BY_SIDE]).toEqual(['team.kedem', 'team.hostile', 'limestone.0'].map((k) => invert(paletteHex(k))));
     const ov = await import('./units/overlays');
     expect(ov.objectiveZoneFallbackColor('contested')).toBe(invert(paletteHex('team.hostile')));
     expect(ov.objectiveZoneFallbackColor('unheld')).toBe(invert(paletteHex('team.neutral')));

@@ -47,16 +47,22 @@ const TONES: TerrainTones = {
   crownRatio: 0.52, scatter: 'stone', groveFamily: 'desert_tree', haze: '#E0B87A',
 };
 
-/** Boot set and switched set: [kedem, hostile, neutral]. */
-const BOOT: [string, string, string] = ['#2F6FD9', '#D93A2B', '#E8C33A'];
-const SWITCHED: [string, string, string] = ['#0072B2', '#D55E00', '#F0E442'];
+/** Boot set and switched set: [kedem, hostile, civilian]. Slot 2 is the
+ *  civilian's pale (VR-04); the warning yellow (`team.neutral`, what an HP bar
+ *  at mid fills with) is its own colour, BOOT_WARN / SWITCHED_WARN, so the two
+ *  meanings cannot pass for each other. */
+const BOOT: [string, string, string] = ['#2F6FD9', '#D93A2B', '#F2E8D5'];
+const SWITCHED: [string, string, string] = ['#0072B2', '#D55E00', '#ECE0C8'];
+const BOOT_WARN = '#E8C33A';
+const SWITCHED_WARN = '#F0E442';
 const SCRUB = '#6B8A4A';
 
 function resolverFor(team: readonly [string, string, string]): (key: string) => string {
   return (key) => {
     if (key === 'team.kedem') return team[0];
     if (key === 'team.hostile') return team[1];
-    if (key === 'team.neutral') return team[2];
+    if (key === 'limestone.0') return team[2];
+    if (key === 'team.neutral') return team === SWITCHED ? SWITCHED_WARN : BOOT_WARN;
     if (key === 'scrub.0') return SCRUB;
     return '#101010';
   };
@@ -153,7 +159,7 @@ describe('VR-03: friendly low health is amber, never enemy red', () => {
     w.sim.state.hp[w.mine] = fx.from(30);
     w.sim.state.hp[w.theirs] = fx.from(30);
     w.draw();
-    expect(w.hpFill(AT.mine)).toBe(BOOT[2]);
+    expect(w.hpFill(AT.mine)).toBe(BOOT_WARN);
     expect(w.hpFill(AT.mine)).not.toBe(BOOT[1]);
     expect(w.hpFill(AT.theirs)).toBe(BOOT[1]);
   });
@@ -163,7 +169,7 @@ describe('VR-03: friendly low health is amber, never enemy red', () => {
     w.sim.state.hp[w.mine] = fx.from(1);
     w.sim.state.hp[w.theirs] = fx.from(299);
     w.draw();
-    expect(w.hpFill(AT.mine)).toBe(BOOT[2]);
+    expect(w.hpFill(AT.mine)).toBe(BOOT_WARN);
     expect(w.hpFill(AT.theirs)).toBe(SCRUB);
   });
 
@@ -173,7 +179,7 @@ describe('VR-03: friendly low health is amber, never enemy red', () => {
     str.hp[w.hutMine] = str.maxHp[w.hutMine] * 0.1;
     str.hp[w.hutTheirs] = str.maxHp[w.hutTheirs] * 0.1;
     w.draw();
-    expect(w.integrityFill(w.hutMine)).toBe(BOOT[2]);
+    expect(w.integrityFill(w.hutMine)).toBe(BOOT_WARN);
     expect(w.integrityFill(w.hutTheirs)).toBe(BOOT[1]);
   });
 });
@@ -186,7 +192,7 @@ describe('VR-01: setTeamColors re-colours the world mid-mission', () => {
     w.draw();
     expect(w.pushed.find((p) => p.x === AT.mine[0])?.color).toEqual(cachedHexToLinear(BOOT[0]));
     expect(w.tri.mock.calls.some((c) => c[2] === BOOT[1])).toBe(true);
-    expect(w.hpFill(AT.mine)).toBe(BOOT[2]);
+    expect(w.hpFill(AT.mine)).toBe(BOOT_WARN);
 
     w.renderer.setTeamColors([...SWITCHED], resolverFor(SWITCHED));
     w.draw();
@@ -195,7 +201,7 @@ describe('VR-01: setTeamColors re-colours the world mid-mission', () => {
     expect(w.tri.mock.calls.some((c) => c[2] === SWITCHED[1])).toBe(true);
     expect(w.tri.mock.calls.some((c) => c[2] === BOOT[1])).toBe(false);
     // The HP bar asks by KEY, so it follows the switched resolver.
-    expect(w.hpFill(AT.mine)).toBe(SWITCHED[2]);
+    expect(w.hpFill(AT.mine)).toBe(SWITCHED_WARN);
   });
 
   it('the three shared occlusion-silhouette materials take the switched colours in place', () => {

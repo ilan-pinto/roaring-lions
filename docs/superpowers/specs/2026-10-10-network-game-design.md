@@ -552,6 +552,15 @@ tick and the report button. Both are `aria-live` lines, through `t()`.
   either side.
 - Tunnels stay map-authored: diggers dig on their own, stocked fighters vent
   as today, and the player may order fighters into a mouth and out at a vent.
+  (N3 ruling LD4, 16 Oct, deferred those orders to §6.3. **The lead's 15 Oct
+  request supersedes LD4:** in versus the Sarim seat gets tunnels as its
+  asymmetric advantage, and the orders are queued as #681. That is its own
+  package straight after N3, sketched in `plans/2026-10-16-net-n3-prep.md` §6.
+  **Ruled 15 Oct (lead):**
+  - travel takes time, scaled by route length;
+  - fighters vent only on the player's order, with "stay down" as the default;
+  - `yahalom_squad` joins the versus KDF menu;
+  - `enterTunnel` is Sarim-seat only.)
 - On a human-held side no scripted trigger fires, no wave spawns and the
   doctrine commander does not run. **N3's, not N2's (D1, ruled 16 Oct by the
   lead):** the meaning is the versus-rules design (a `reinforce` trigger
@@ -570,7 +579,8 @@ half of the seat rule (§7.1); the trigger, wave and commander half is N3's.
 
 ### 6.3 The follow-on: the full insurgent toolkit
 
-Player-dug tunnels, IED placement, crowd-cover orders, a Sarim upgrade
+Player-dug tunnels (ordering fighters through an AUTHORED route has left this
+list: #681, see §6.1), IED placement, crowd-cover orders, a Sarim upgrade
 ladder, a Sarim fire-support menu. Each is a sim mechanic with balance behind
 it, and nothing here exists. It is its own package after N3, and §2.1's
 `Seat` and §3.2.3's protocol leave room for it (a `setStance` with more
@@ -939,9 +949,16 @@ by this design:
   duplicate copies of up to 19 ticks when the object restarts mid-frame;
   `LockstepClock` discards them as `'duplicate'`, so no client runs one twice,
   and N1 dedupes the log on write.
-- **Headless Firefox on CI has no WebGL2**, so the three-engine check reports
-  Chromium and WebKit only; a Firefox reading needs either a software GL flag
-  or a headed runner, and until then the cross-engine claim is two engines.
+- **Headless Firefox on CI has no WebGL2**, so the three-engine check reported
+  Chromium and WebKit only, and CI passed its exit 3 on every run. **Closed
+  15 Oct 2026:** with no X display Firefox reads `null` for WebGL2 with or
+  without `webgl.force-enabled`; under `xvfb-run` it gets Mesa's llvmpipe,
+  headed or headless (measured in `mcr.microsoft.com/playwright:v1.64.0-noble`
+  and on CI, PRs #678/#679). The display is the ingredient. CI now runs
+  `xvfb-run -a pnpm net:engines -- --firefox-headed --require=chromium,firefox,webkit`:
+  Firefox is read, and an engine that stops booting is exit 2 by name rather
+  than an exit-3 warning. R39's exit 3 survives for engines not `--require`d
+  (a local run). `two-engine.test.ts` pins the CI step's flags.
 
 ## 11b. The lead's rulings of 13–14 Oct, N1 as built, and what N4 and N2 inherit (14 Oct 2026)
 
