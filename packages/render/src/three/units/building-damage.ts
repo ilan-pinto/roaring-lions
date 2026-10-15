@@ -35,9 +35,10 @@
  * before its capture tick) reads 0 px. The assertion is the PR's `visual`
  * job, not this comment.
  *
- * The treatment is the vehicle wreck's own (`charredTexturedMaterial`,
- * `../world-materials.ts`) applied partially: a textured bake keeps its
- * photograph and is tinted toward `CHARRED_TINT_HEX`; a palette material has
+ * The treatment is the vehicle wreck's former one applied partially (the
+ * wreck moved to a soot recolour on 2026-10-15; the scars did not): a textured
+ * bake keeps its photograph and is tinted toward `CHARRED_TINT_HEX`
+ * (`../world-materials.ts`); a palette material has
  * no map and is lerped toward the charred ramp's lit tone instead
  * (`CHARRED_RAMP`, the same slice a palette vehicle wreck takes). Both are
  * CLONES, never mutations -- a template material is shared by every clone of

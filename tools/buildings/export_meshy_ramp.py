@@ -86,6 +86,10 @@ OUT_RELAY = os.path.join(OUT_DIR, "relay.glb")
 OUT_RELAY_WRECK = os.path.join(OUT_DIR, "relay_wreck.glb")
 OUT_PUMP_HOUSE = os.path.join(OUT_DIR, "pump_house.glb")
 OUT_PUMP_HOUSE_WRECK = os.path.join(OUT_DIR, "pump_house_wreck.glb")
+# GH-66 field works (2026-10-15; `_coord/field-works/prompts.md`): the HESCO
+# bastion run, a `per_tile` barrier beside `wall` and `fence`.
+OUT_HESCO = os.path.join(OUT_DIR, "hesco.glb")
+OUT_HESCO_WRECK = os.path.join(OUT_DIR, "hesco_wreck.glb")
 OUTPUTS = {
     "concrete": (OUT_CONCRETE, OUT_CONCRETE_WRECK),
     "shanty": (OUT_SHANTY, OUT_SHANTY_WRECK),
@@ -93,6 +97,7 @@ OUTPUTS = {
     "camp": (OUT_CAMP, OUT_CAMP_WRECK),
     "relay": (OUT_RELAY, OUT_RELAY_WRECK),
     "pump_house": (OUT_PUMP_HOUSE, OUT_PUMP_HOUSE_WRECK),
+    "hesco": (OUT_HESCO, OUT_HESCO_WRECK),
 }
 
 #: A face is an "opening" when its bake luminance is below this fraction of
@@ -153,6 +158,31 @@ class RampSpec:
     #: negative prompt named terracotta; the bible's answer to a wrong bake
     #: is Blender, not a re-roll.
     roof_shift: dict = None
+    #: GH-66 HESCO: pinch the run at these x positions (metres, after the
+    #: scale) so the cells read as cells -- a gabion line is three bulging
+    #: bags of earth tied at the seams, and the remesh smoothed it into one
+    #: straight box whose silhouette read 0.882 IoU against `wall` (limit
+    #: 0.88). `(xs, sigma_m, waist_m, dip_m)`: within ~2 sigma of a seam,
+    #: both long faces move inward by up to `waist_m` and the top drops by up
+    #: to `dip_m`, on a Gaussian, so the bake slides with the surface and
+    #: the planar butt ends at x = +-1.5 are untouched.
+    seams: tuple = None
+    #: GH-66 HESCO: an HSV band move (`bake_fix.band_shift` kwargs) over the
+    #: WHOLE bake, after the yaw. The refine painted the fill a saturated
+    #: orange-tan that the scene sun pushed to terracotta beside the
+    #: limestone wall; the bible's answer to a wrong bake is Blender.
+    image_shift: dict = None
+    #: GH-66 HESCO: `(spacing_m, wire_m)` -- a welded-mesh cage synthesised
+    #: as thin outward-facing quads on the two long faces, the two ends and
+    #: the top rims, following the `seams` pinch. The refine HAD the cage
+    #: (its thumbnail shows it standing proud of the fill); the 4,000-tri
+    #: remesh cannot keep a wire and baked the fill alone, so in game the
+    #: run read as a dry-stone wall. Palette `metal` role, no UVs, so it
+    #: draws the gunmetal ramp (`textured.split_textured_roles`'s per-mesh
+    #: rule, the warehouse roof cap's precedent). The spacing is a READ, not
+    #: the real 75 mm: at zoom 1 a tile is ~50 px, so 75 mm would be under a
+    #: pixel and moire (the slat-cage lesson, GH-238).
+    wire_cage: tuple = None
 
 
 def _credit(what):
@@ -211,6 +241,27 @@ SPECS = {
     # for ("never hidden behind the roof from the camera").
     "pump_house": RampSpec("pump_house", _credit("Pump house (standing + destroyed)"),
                            size_axis="z", size_m=3.8, glass=True, face=True, yaw=1),
+    # GH-66 HESCO bastion run (2026-10-15): one 3 m `per_tile` segment, long
+    # axis +X, so `perTileRunYaw` turns a north-south run a quarter as it does
+    # the wall and the fence. Scaled on LENGTH to the tile's own 3.0 m and
+    # nothing else: the re-rolled preview came back 1.90 x 0.68 x 0.70 (source
+    # units), which is 3.0 x 1.07 x 1.10 m -- the asked 1.05 m depth almost
+    # exactly, and 1.10 m tall against the asked 1.37. That is a real low
+    # gabion class (the 1 m cell), and stretching Z by 1.25 would turn every
+    # square of the wire grid -- the one detail the bake is for -- into a
+    # rectangle, so the height is shipped as generated and the design table
+    # says 1.10. No front, so no glass role: the facing gate names it, like
+    # the wall. The first preview (01a13e6d) failed the checklist -- two
+    # rounded cells under a tall empty cage -- and was not refined.
+    "hesco": RampSpec("hesco", (
+        "HESCO bastion segment (standing + destroyed) -- AI-generated (Meshy "
+        "text-to-3D preview + 8k refine + remesh), disclosed per CONTRIBUTING.md; "
+        "re-scaled, role-split and collapsed for its wreck in Blender for Roaring Lions"),
+        size_axis="x", size_m=3.0, glass=False, face=False, tri_cap=5000,
+        seams=((-0.5, 0.5), 0.09, 0.10, 0.12),
+        wire_cage=(0.25, 0.035),
+        image_shift={"sat_min": 0.0, "hue_lo": 0.0, "hue_hi": 70.0,
+                     "hue_shift": 0.0, "sat_mul": 0.72, "val_mul": 1.0}),
 }
 
 
@@ -427,6 +478,87 @@ def _finalize(role_objs, label):
     textured.split_textured_roles(role_objs, label)
 
 
+def _wire_cage(spec, mn, mx, label):
+    """The `wire_cage` quads (see `RampSpec.wire_cage`) as one mesh object
+    named for the `metal` role. Pure geometry from the bounds and the
+    `seams` pinch; no UVs, no material."""
+    spacing, wire = spec.wire_cage
+    half_y = max(-mn.y, mx.y)
+    top = mx.z
+    xs_seam, sigma, waist, dip = spec.seams if spec.seams is not None else ((), 1.0, 0.0, 0.0)
+
+    def g(x):
+        return max((math.exp(-((x - x0) / sigma) ** 2) for x0 in xs_seam), default=0.0)
+
+    def face_y(x):
+        return half_y - waist * g(x) + 0.015
+
+    def z_at(x, z):
+        return z * (1.0 - dip * g(x) / top)
+
+    verts, faces = [], []
+
+    def quad(a, b, c, d, outward):
+        n = (b - a).cross(c - a)
+        if n.dot(outward) < 0.0:
+            a, b, c, d = d, c, b, a
+        base = len(verts)
+        verts.extend([tuple(a), tuple(b), tuple(c), tuple(d)])
+        faces.append((base, base + 1, base + 2, base + 3))
+
+    x0, x1 = mn.x, mx.x
+    steps = max(2, int(round((x1 - x0) / 0.0625)))
+    levels = []
+    z = 0.06
+    while z < top - 0.04:
+        levels.append(z)
+        z += spacing
+    levels.append(top - wire / 2.0)
+    verticals = []
+    edges = sorted(set([x0, x1] + list(xs_seam)))
+    for a, b in zip(edges, edges[1:]):
+        n = max(1, int(round((b - a) / spacing)))
+        verticals.extend(a + (b - a) * k / n for k in range(n + 1))
+    verticals = sorted(set(round(v, 4) for v in verticals))
+    for side in (1.0, -1.0):
+        out = Vector((0.0, side, 0.0))
+        for zl in levels:
+            for k in range(steps):
+                xa = x0 + (x1 - x0) * k / steps
+                xb = x0 + (x1 - x0) * (k + 1) / steps
+                ya, yb = side * face_y(xa), side * face_y(xb)
+                za, zb = z_at(xa, zl), z_at(xb, zl)
+                quad(Vector((xa, ya, za - wire / 2)), Vector((xa, ya, za + wire / 2)),
+                     Vector((xb, yb, zb + wire / 2)), Vector((xb, yb, zb - wire / 2)), out)
+        for xv in verticals:
+            yv = side * face_y(xv)
+            zt = z_at(xv, top)
+            quad(Vector((xv - wire / 2, yv, 0.0)), Vector((xv + wire / 2, yv, 0.0)),
+                 Vector((xv + wire / 2, yv, zt)), Vector((xv - wire / 2, yv, zt)), out)
+    # The two butt ends: the cage closes each cell, so a run's last tile
+    # shows a grid on its end face too.
+    for side in (1.0, -1.0):
+        out = Vector((side, 0.0, 0.0))
+        xe = side * (max(-x0, x1) + 0.015)
+        for zl in levels:
+            quad(Vector((xe, -half_y, zl - wire / 2)), Vector((xe, -half_y, zl + wire / 2)),
+                 Vector((xe, half_y, zl + wire / 2)), Vector((xe, half_y, zl - wire / 2)), out)
+        n = max(1, int(round(2 * half_y / spacing)))
+        for k in range(n + 1):
+            yv = -half_y + 2 * half_y * k / n
+            quad(Vector((xe, yv - wire / 2, 0.0)), Vector((xe, yv + wire / 2, 0.0)),
+                 Vector((xe, yv + wire / 2, top)), Vector((xe, yv - wire / 2, top)), out)
+    me = bpy.data.meshes.new(f"{label}_metal")
+    me.from_pydata(verts, [], faces)
+    me.validate()
+    me.update()
+    ob = bpy.data.objects.new(f"{label}_metal", me)
+    bpy.context.collection.objects.link(ob)
+    print(f"[{label}] wire cage: {len(faces)} quads ({2 * len(faces)} tris), {len(levels)} rows, "
+          f"{len(verticals)} uprights a side, spacing {spacing} m, wire {wire} m")
+    return ob
+
+
 def _tris(objs):
     return sum(len(p.vertices) - 2 for o in objs for p in o.data.polygons)
 
@@ -493,6 +625,22 @@ def export(unit_id, probe=False):
         mn, mx = _bounds([ob])
     _bake([ob], Matrix.Translation(-Vector(((mn.x + mx.x) / 2.0, (mn.y + mx.y) / 2.0, mn.z))))
     mn, mx = _bounds([ob])
+    if spec.seams is not None:
+        xs, sigma, waist, dip = spec.seams
+        half_y = (mx.y - mn.y) / 2.0
+        top = mx.z
+        for v in ob.data.vertices:
+            g = max(math.exp(-((v.co.x - x0) / sigma) ** 2) for x0 in xs)
+            if g < 1e-4:
+                continue
+            # Inward on Y in proportion to how far out the vertex already
+            # is, so the core does not cross; down on Z in proportion to
+            # height, so the foot stays on the ground.
+            v.co.y -= math.copysign(waist * g * min(abs(v.co.y) / half_y, 1.0), v.co.y)
+            v.co.z -= dip * g * (v.co.z / top)
+        ob.data.update()
+        print(f"[{unit_id}] seams at x={list(xs)}: waist {waist} m, dip {dip} m, sigma {sigma} m")
+        mn, mx = _bounds([ob])
     height = mx.z - mn.z
     print(f"[{unit_id}] {spec.size_axis} -> {spec.size_m} m (mpu {mpu:.5f}); "
           f"x[{mn.x:+.2f},{mx.x:+.2f}] y[{mn.y:+.2f},{mx.y:+.2f}] z[{mn.z:+.2f},{mx.z:+.2f}]")
@@ -527,6 +675,8 @@ def export(unit_id, probe=False):
               f"{100.0 * mask.mean():.1f}% of the bake")
         bake_fix.band_shift_image(base, f"{unit_id} roof", mask=mask, **spec.roof_shift)
     roles = _split(ob, {"wall": wall, "roof": roof, "glass": glass}, unit_id)
+    if spec.wire_cage is not None:
+        roles["metal"] = _wire_cage(spec, mn, mx, unit_id)
 
     # Wreck: duplicates of the same pieces, collapsed in place.
     wreck = {}
@@ -548,6 +698,8 @@ def export(unit_id, probe=False):
 
     if spec.colour_balance is not None:
         bake_fix.colour_balance_image(base, spec.colour_balance, unit_id)
+    if spec.image_shift is not None:
+        bake_fix.band_shift_image(base, f"{unit_id} bake", **spec.image_shift)
     tex_px = textured.prepare_textured_images()
     print(f"[{unit_id}] shipping base_color at {tex_px[0]}x{tex_px[1]}, JPEG q{textured.JPEG_QUALITY}")
     os.makedirs(OUT_DIR, exist_ok=True)

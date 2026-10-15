@@ -29,7 +29,7 @@ import {
 } from './mesh-vehicle';
 import { applyMeshClip } from './mesh-clip';
 import { CHARRED_RAMP } from './vehicle-mesh-role';
-import { CHARRED_TINT_HEX, liftTone, rampMaterial } from '../world-materials';
+import { BAKE_LUMA_KEY, liftTone, rampMaterial } from '../world-materials';
 import {
   MAX_MESH_WRECKS,
   MESH_DEATH_SECONDS,
@@ -181,63 +181,116 @@ describe('buildVehicleMeshTemplate, with a death root', () => {
     expect(liveTurret.color.getHex()).not.toBe(liveHull.color.getHex());
   });
 
-  it('tints a TEXTURED wreck\'s own clone of the bake, keeping the map and dropping the gloss', async () => {
+  /** A textured fixture: the bake installed on both twins, as `GLTFLoader`
+   *  would hand back for a Meshy export (they share one glTF mesh), carrying
+   *  the wreck pass's `extras.rl_bake_luma` as `userData` unless told not to. */
+  async function texturedWreck(bakeLuma: number | null): Promise<{
+    charred: THREE.MeshStandardMaterial;
+    live: THREE.MeshStandardMaterial;
+    bake: THREE.MeshStandardMaterial;
+    map: THREE.Texture;
+  }> {
     const gltf = await parseRigidFixture({
       parts: [{ nodeName: 'hull_hull', extrasRole: 'hull' }],
       clipNames: WRECK_CLIPS,
       deathRoot: { parts: ['hull_hull'] },
     });
-    // The fixture authors no materials (a vehicle GLB carries none), so the
-    // bake is installed here -- the same thing `GLTFLoader` would hand back
-    // for a Meshy export, on BOTH nodes, because they share one glTF mesh.
     const map = new THREE.Texture();
     const bake = new THREE.MeshStandardMaterial({ map, roughness: 0.2, metalness: 1 });
+    bake.name = 'material';
+    if (bakeLuma !== null) bake.userData[BAKE_LUMA_KEY] = bakeLuma;
     for (const mesh of meshesOf(gltf.scene)) mesh.material = bake;
-
     const template = buildVehicleMeshTemplate(gltf, 'mbt_lavi', true);
-    const charred = byName(template.root, 'WRECK_hull_hull').material as THREE.MeshStandardMaterial;
-    const live = byName(template.root, 'hull_hull').material as THREE.MeshStandardMaterial;
+    return {
+      charred: byName(template.root, 'WRECK_hull_hull').material as THREE.MeshStandardMaterial,
+      live: byName(template.root, 'hull_hull').material as THREE.MeshStandardMaterial,
+      bake,
+      map,
+    };
+  }
 
+  const lum = (c: THREE.Color): number => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+
+  it('recolours a TEXTURED wreck on its own clone of the bake, keeping the map and dropping the gloss', async () => {
+    const { charred, live, bake, map } = await texturedWreck(0.09049);
     expect(charred).not.toBe(live);
     expect(charred).not.toBe(bake);
-    expect(charred.color.getHex()).toBe(CHARRED_TINT_HEX);
     expect(charred.roughness).toBe(1);
     expect(charred.metalness).toBe(0);
     // The photograph survives the char -- one upload, two draws.
     expect(charred.map).toBe(map);
     // And the live twin is untouched by it: a clone, never a mutation.
     expect(live.color.getHex()).toBe(0xffffff);
+    expect(live.onBeforeCompile).toBe(THREE.Material.prototype.onBeforeCompile);
   });
 
-  it('lands both charring paths on the same TONE, and neither of them on black', () => {
-    // The two constants are one decision made twice -- the project lead's
-    // 2026-09-15 "a sooty dark grey that keeps the bakes' detail visible" --
-    // and nothing else in the tree couples them. A retune of one without the
-    // other would ship a burnt Lavi and a burnt Eitan that read as different
-    // events, and no other test here can see it: each path asserts only that
-    // it applied its OWN constant.
-    const ramp = new THREE.Color(liftTone(CHARRED_RAMP));
-    const tint = new THREE.Color(CHARRED_TINT_HEX);
-    const lum = (c: THREE.Color): number => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+  it('takes the bake\'s LUMINANCE, not its colour: the fragment chunk is replaced, on one shared program', async () => {
+    const { charred } = await texturedWreck(0.09049);
+    const shader = { fragmentShader: THREE.ShaderLib.standard.fragmentShader } as THREE.WebGLProgramParametersWithUniforms;
+    charred.onBeforeCompile(shader, undefined as unknown as THREE.WebGLRenderer);
+    expect(shader.fragmentShader).not.toContain('#include <map_fragment>');
+    expect(shader.fragmentShader).toContain('dot( sampledDiffuseColor.rgb, vec3( 0.2126, 0.7152, 0.0722 ) )');
+    // Every wreck of every type shares the one program; the per-vehicle
+    // number rides in `color`.
+    const other = (await texturedWreck(0.05233)).charred;
+    expect(charred.customProgramCacheKey()).toBe(other.customProgramCacheKey());
+  });
 
-    // Measured on the shipped pair: ramp `#5C625F` 0.1345, tint `0x6a5f55`
-    // 0.1335 -- 0.001 apart, because they were picked against each other. The
-    // band is 0.06, wide enough that either may be nudged a palette step
-    // without a false red and far under the 0.1345-vs-0.0044 gap the retired
-    // `shadow.1` ramp opened against this tint.
-    expect(Math.abs(lum(ramp) - lum(tint))).toBeLessThan(0.06);
+  it('refuses a textured wreck whose bake carries no rl_bake_luma -- a guessed mean is a wrong tone', async () => {
+    await expect(texturedWreck(null)).rejects.toThrow(/rl_bake_luma/);
+  });
 
-    // And a floor, because the failure this pair exists to fix was not "the
-    // two disagreed", it was "both were so dark that the sun, the shadow map
-    // and AO had nothing left to model". `shadow.1` (`#14150F`) is 0.0044 and
-    // `0x2a2620` is 0.0225; the shipped pair is ~0.134.
-    expect(lum(ramp)).toBeGreaterThan(0.05);
-    expect(lum(tint)).toBeGreaterThan(0.05);
+  it('lands the textured wreck\'s ALBEDO on the palette wreck\'s, capped at its own live bake', async () => {
+    // Albedo against albedo. Until 2026-10-15 this compared the textured
+    // path's MULTIPLIER (limestone.7, 0.130) with the palette path's ALBEDO
+    // (gunmetal.2, 0.118): 0.001 apart on paper, while the textured wrecks
+    // drew at 0.005-0.016 -- a multiplier times a bake of mean 0.04-0.13 --
+    // roughly ten times darker than the palette path, with this test green.
+    //
+    // The oracle is LITERALS: each bake's mean is the number the wreck pass
+    // measured from the shipped JPEG (`tools/src/meshes/bake-luma.ts`), and
+    // the palette albedo is read off a BUILT palette wreck, not off a constant
+    // the code under test also reads.
+    const palette = byName((await buildTemplate()).root, 'WRECK_hull_hull').material as THREE.MeshStandardMaterial;
+    const paletteAlbedo = lum(palette.color);
+    expect(paletteAlbedo).toBeGreaterThan(0.1); // gunmetal.2, ~0.118 linear
+    const paletteHue = palette.color.clone().multiplyScalar(1 / paletteAlbedo);
 
-    // Still a CHAR, not a repaint: comfortably darker than the sand it lies
-    // on and than any live vehicle's own lit face.
-    expect(lum(ramp)).toBeLessThan(0.35);
-    expect(lum(tint)).toBeLessThan(0.35);
+    const SHIPPED_BAKES: Record<string, number> = {
+      apc_eitan: 0.05233, // the darkest common bake -- the grey-livery case
+      dozer_d9: 0.04835,
+      mbt_lavi: 0.09049,
+      heli_peten: 0.06802,
+      technical_bed: 0.04131,
+      gun_truck: 0.12035, // brighter than the key: uncapped
+      technical_cab: 0.12634,
+      paramotor_wing: 0.16378,
+    };
+    for (const [name, bakeLuma] of Object.entries(SHIPPED_BAKES)) {
+      const { charred } = await texturedWreck(bakeLuma);
+      // The shader multiplies `color` by each texel's luminance, so the
+      // wreck's mean albedo is luma(color) x the bake's mean.
+      const albedo = lum(charred.color) * bakeLuma;
+
+      // 1. Never lighter dead than alive: the cap. Equal ALBEDO is not
+      //    enough on screen (a slumped wreck catches more sun at some
+      //    headings): measured over fourteen vehicles, the largest albedo
+      //    ratio at which no frame read the wreck above its live hull was
+      //    0.85 (worst frame 0.99x). So the bound is that literal.
+      expect(albedo, `${name}: wreck albedo ${albedo.toFixed(4)} over 0.85 x its live bake ${bakeLuma}`).toBeLessThanOrEqual(0.85 * bakeLuma);
+      // 1b. ...and never lighter than the palette wreck: a bake brighter than
+      //     the key is darkened onto it, not left at its own brightness.
+      expect(albedo, `${name}: wreck albedo ${albedo.toFixed(4)} over the palette wreck ${paletteAlbedo.toFixed(4)}`).toBeLessThanOrEqual(paletteAlbedo * 1.02);
+      // 2. As near the palette wreck's tone as the cap allows -- the
+      //    near-black failure. limestone.7 as a multiplier reads 0.0118 on the
+      //    Lavi against a floor of 0.068 here.
+      const target = Math.min(paletteAlbedo, bakeLuma);
+      expect(albedo, `${name}: wreck albedo ${albedo.toFixed(4)} vs target ${target.toFixed(4)}`).toBeGreaterThan(0.75 * target);
+      // 3. And in the palette wreck's HUE: grey, not the livery and not a
+      //    warm tint. Charring is the fire, not the paint.
+      const hue = charred.color.clone().multiplyScalar(1 / lum(charred.color));
+      expect(Math.abs(hue.r - paletteHue.r) + Math.abs(hue.g - paletteHue.g) + Math.abs(hue.b - paletteHue.b), name).toBeLessThan(1e-6);
+    }
   });
 
   it('puts every charred material in `materials` and every SHARED geometry in `geometries` exactly once', async () => {
@@ -285,6 +338,7 @@ describe('buildVehicleMeshTemplate, with a death root', () => {
       deathRoot: { parts: ['hull_hull', 'turret_metal'] },
     });
     const bake = new THREE.MeshStandardMaterial({ map: new THREE.Texture() });
+    bake.userData[BAKE_LUMA_KEY] = 0.09049; // what the wreck pass stamps on the Lavi's bake
     for (const mesh of meshesOf(gltf.scene)) mesh.material = bake; // all four, one object
 
     const template = buildVehicleMeshTemplate(gltf, 'mbt_lavi', true);

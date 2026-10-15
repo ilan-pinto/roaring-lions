@@ -2322,8 +2322,14 @@ the paragraph above, ~:306) -- nothing new here.
   curve, window, `MeshWreck` cap and fog rule unchanged. A vehicle wreck therefore
   shares `MAX_MESH_WRECKS` (256) with infantry corpses. Charring is a runtime
   material treatment of anything marked `rl_wreck` — one shared charred ramp
-  slice for a palette vehicle, one memoised tinted clone per distinct loaded
-  material for a textured one — so **`pnpm validate:meshes` cannot see it**: that
+  slice for a palette vehicle, one memoised SOOT-RECOLOURED clone per distinct
+  loaded material for a textured one (since 2026-10-15, `charredTexturedMaterial`:
+  the bake's LUMINANCE onto `CHARRED_WRECK_KEY` `gunmetal.2`, normalised by the
+  bake's own mean, `extras.rl_bake_luma`, which `pnpm wreck:meshes` stamps on every
+  textured material and the runtime refuses to char without, and capped by
+  `CHARRED_WRECK_CAP` so a wreck never reads lighter than its living vehicle;
+  the old multiply by `limestone.7` drew every textured wreck near-black, and
+  that tint now belongs to the SCARS alone) — so **`pnpm validate:meshes` cannot see it**: that
   gate repaints every vehicle from the palette tables before rendering and says so
   on its passing path. It judges the SHAPE, two ways, against a measured floor.
   **Real damaged GEOMETRY ships for thirteen, since 2026-10-14** (`pnpm
