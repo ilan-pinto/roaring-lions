@@ -152,6 +152,11 @@ describe('MatchRoom', () => {
       expect(ws0.closed).toEqual({ code: 1008, reason: 'rate' });
     });
 
+    // 4,000 ticks minted on the fake clock, then a 600-message replay (3.75x
+    // the socket burst, which is the claim). Measured single-file, Apple M3 Pro,
+    // 2026-10-15, three runs
+    // at a load average of 12-20 on 12 cores: 0.11-0.12 s; three at 31-78 (two other test loops running): 0.57-0.98 s -- and past vitest's 5 s default under a full parallel
+    // `pnpm test` on a loaded machine. The margin is for contention only.
     it('a rejoining seat replaying its log may ack and hash every minted tick at once: advancing acks and hashes are free', async () => {
       const { room, ws0, ws1 } = await running();
       for (let tick = 9; tick < 4000; tick += 10) {
@@ -169,7 +174,7 @@ describe('MatchRoom', () => {
       for (let i = 0; i <= SOCKET_BUDGET.burst; i++) await say(room, again, { t: 'ack', tick: 9 });
       expect(again.closed?.code).toBe(1008);
       expect(ws1.closed?.code).toBe(4000);   // the replaced socket
-    });
+    }, 30_000);
   });
 
   it('closes a socket whose first message is not a hello', async () => {

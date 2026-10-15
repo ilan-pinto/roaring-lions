@@ -21,6 +21,19 @@ const vehicleFile = (id: string) => path.join(REPO, 'art', 'meshes', 'vehicles',
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS);
 const ids = Object.keys(DAMAGE_RECIPES);
 
+// Every test that runs `applyWreckPass` carries this instead of vitest's 5 s
+// default: the wreck pass is what costs here (0.9-2.1 s a call on an Apple M3
+// Pro under load, profiled 2026-10-15 against a 4-40 ms GLB read and a 4-48 ms
+// damage pass), and it is the fact under test, so it is not cut. Measured
+// single-file, 2026-10-15, per test: three runs at a load average of 12-20 on
+// 12 cores read "never touches" 0.15-0.47 s, the lost-wheel pair 0.13-0.71 s,
+// breakBarrel 0.24-0.38 s, the snapped rotor 0.13-0.15 s; three at 31-78 (two
+// other test loops running) 0.24-2.00 / 0.23-1.86 / 0.56-1.54 / 0.31-1.52 s.
+// Under a full parallel `pnpm test` on a loaded machine two of them crossed
+// 5 s. The margin is for contention only: needing it on a quiet machine
+// would be a regression.
+const WRECK_PASS_TIMEOUT_MS = 30_000;
+
 // meshoptimizer's WASM, for the rocket battery's `simplify`.
 beforeAll(async () => {
   await damagePassReady;
@@ -118,7 +131,7 @@ describe('damage pass, on the shipped files', () => {
       const live = node(rewrecked, n.getName().slice('WRECK_'.length));
       expect(n.getMesh()).toBe(live.getMesh());
     }
-  });
+  }, WRECK_PASS_TIMEOUT_MS);
 
   it.each(ids)('%s: every damaged copy carries exactly its source attribute set and material', async (id) => {
     const doc = await read(id);
@@ -199,7 +212,7 @@ describe('damage verbs change the OUTLINE (Lavi)', () => {
     expect(muzzleY(plain) - muzzleY(broken)).toBeGreaterThan(0.4);
     // and nothing on it goes under the ground
     expect(Math.min(...groundVerts(node(broken, 'WRECK_turret_metal')).map((v) => v[1]))).toBeGreaterThanOrEqual(0);
-  });
+  }, WRECK_PASS_TIMEOUT_MS);
 });
 
 describe('damage pass, pieces', () => {
@@ -304,7 +317,7 @@ describe('lost wheel (wheeled hulls)', () => {
       return;
     }
     expect(axleY(plain) - axleY(doc)).toBeGreaterThan(0.03);
-  });
+  }, WRECK_PASS_TIMEOUT_MS);
 
   it.each(lostIds)('%s: the hull LEANS onto the lost corner, not merely sinks (at least 0.08 m more lean across that axle)', async (id) => {
     // Lean: the lost axle's height less the other wheel on the same axle's.
@@ -325,7 +338,7 @@ describe('lost wheel (wheeled hulls)', () => {
     const plain = await read(id);
     applyWreckPass(plain, id, { ...WRECK_RECIPES[id]!, lostWheel: undefined });
     expect(lean(plain) - lean(doc)).toBeGreaterThan(0.08);
-  });
+  }, WRECK_PASS_TIMEOUT_MS);
 
   it.each(lostIds)('%s: the lost corner is down on the sand, and nothing away from that wheel is under it', async (id) => {
     const doc = await read(id);
@@ -388,7 +401,7 @@ describe('snapped rotor (Peten)', () => {
     const onSand = (a: number[]) => a.filter((y) => y < 0.15).length;
     expect(onSand(after) - onSand(before)).toBeGreaterThan(100);
     expect(Math.min(...after)).toBeGreaterThanOrEqual(0);
-  });
+  }, WRECK_PASS_TIMEOUT_MS);
 });
 
 describe('simplified copy (rocket battery)', () => {

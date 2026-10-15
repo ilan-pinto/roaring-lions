@@ -11,14 +11,21 @@ import {
   candidateMaps, main, parseArrangements, play, reading, seedOf, selfCheck, tally, type Played, type PlayFn,
 } from './versus-probe';
 
-// The tests that play four or more FULL tel_marum games (the M3 and uncut
-// mutants, and `main`'s table) carry this instead of vitest's 5 s default.
+// Every test that plays FULL games carries this instead of vitest's 5 s
+// default: the M1, M3 and uncut mutants and `main`'s two runs (four or more
+// tel_marum games each), the cut-side control (eight, on four maps), and
+// "one seed as one game" (two, but the file's first, so it also pays the
+// sim's first-game warm-up).
 // They are CPU-bound sim runs with no I/O, and each game is the claim, so
 // they are not cut. Measured single-file, Apple M3 Pro, 2026-10-15, six
 // runs with the load average at 38-106 on 12 cores throughout (no idle run
 // was to be had): the fastest two read M3 0.42-0.51 s, uncut 0.65-0.68 s,
 // main 0.73-0.84 s; the other four up to 2.9 / 3.3 / 3.1 s; and under a full
 // parallel `pnpm test` on a loaded machine they crossed 5 s more than once.
+// Re-measured 2026-10-15 for the four added since, three runs each at a load
+// average of 12-20 then three at 31-78: one seed 0.34-0.35 / 0.62-3.30 s, the
+// cut side 0.16-0.18 / 0.30-1.04 s, M1 0.26-0.28 / 0.35-2.07 s, main's exit 2
+// 0.26 / 0.33-2.09 s; "one seed" crossed 5 s under a full parallel run.
 // The margin is for contention only: needing it on a quiet machine would be
 // a regression. (`selfCheck` on every open map, below, keeps its own 60 s.)
 const FULL_GAMES_TIMEOUT_MS = 30_000;
@@ -42,7 +49,7 @@ describe('play', () => {
     const a = play('tel_marum', ['kdf', 'kdf'], seedOf(3));
     expect(play('tel_marum', ['kdf', 'kdf'], seedOf(3))).toEqual(a);
     expect(a.ticks).toBeGreaterThan(0);
-  });
+  }, FULL_GAMES_TIMEOUT_MS);
   it('a game nobody closes in is decided on surviving value at the cap: level forces draw, the larger force wins', () => {
     // 2 s: the forces are 28 tiles apart and no one has fired.
     expect(play('tel_marum', ['kdf', 'kdf'], seedOf(0), { capTicks: 40 })).toEqual({ winner: null, by: 'cap', ticks: 40 });
@@ -55,7 +62,7 @@ describe('play', () => {
       expect(play(map as MapId, ['kdf', 'kdf'], seedOf(0), { cutSide: 1 })).toMatchObject({ winner: 0, by: 'annihilation' });
       expect(play(map as MapId, ['kdf', 'kdf'], seedOf(0), { cutSide: 0 })).toMatchObject({ winner: 1, by: 'annihilation' });
     }
-  });
+  }, FULL_GAMES_TIMEOUT_MS);
 });
 
 describe('selfCheck', () => {
@@ -80,7 +87,7 @@ describe('selfCheck', () => {
     const failed = selfCheck('tel_marum', swapped);
     expect(failed).toHaveLength(2);
     expect(failed[0]).toContain('should win by annihilation');
-  });
+  }, FULL_GAMES_TIMEOUT_MS);
   it('goes red when the orders never close the distance, so a control runs to the cap (M2)', () => {
     const failed = selfCheck('tel_marum', ordersNobody);
     expect(failed.length).toBeGreaterThanOrEqual(2);
@@ -177,7 +184,7 @@ describe('main', () => {
     expect(r.code).toBe(2);
     expect(r.err).toContain('SELF-CHECK FAILED');
     expect(r.out).not.toMatch(/tel_marum\s+kdf\/kdf/);
-  });
+  }, FULL_GAMES_TIMEOUT_MS);
   it('refuses a map the build does not ship', () => {
     expect(() => main(['--maps=atlantis'])).toThrow(/not a shipped map/);
   });
