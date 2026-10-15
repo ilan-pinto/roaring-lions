@@ -4,7 +4,6 @@
 import { describe, expect, it } from 'vitest';
 import { MissionRuntime } from './mission';
 import type { LedgerRosterEntry, MissionEvent, MissionJson } from './mission';
-
 import { Sim, TICKS_PER_SECOND, type UnitTypeJson } from './sim';
 
 const INF: UnitTypeJson = {

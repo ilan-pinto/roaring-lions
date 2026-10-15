@@ -825,7 +825,8 @@ export class MissionRuntime {
   /**
    * True only when the population cap is the FIRST thing refusing this build, in
    * `buildBlockedReason`'s own order: a locked unit or a fallen camp reads false
-   * (that reason speaks first), so a dock can tell "full" from "locked". A pure read.
+   * (that reason speaks first), so a dock can tell "full" from "locked". No observable state change
+   * (writes only an unhashed scratch flag).
    */
   popCapped(unitId: string): boolean {
     return this.firstRefusal(unitId) !== null && this.refusedByPopulation;

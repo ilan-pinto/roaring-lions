@@ -133,7 +133,8 @@ export function conductAtLeast(ledger: LedgerData | undefined, floor: number): b
  * Field the earned unit where a placement offers one (spec §4.6, `upgrades_to`). Pure and
  * called ONCE, by the app and by the playtest harness, before `new MissionRuntime` -- so
  * the runtime never learns a gate exists (spawnPlacement stays gate-blind on purpose: the
- * Wadi Halam V D9 hole is a separate decision) and both callers share one implementation.
+ * Wadi Halam V D9 is a feature, decided 4 Oct (G3 Q5): on loan for that mission, L-1) and both callers share
+ * one implementation.
  *
  * Trust boundary: `unlockOf(upgrades_to)` returning `undefined` reads as an OPEN gate
  * (`unlockReason(undefined, ledger)` is `null`), same as a unit with no `unlock` at all --
