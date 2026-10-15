@@ -13,6 +13,8 @@
 //   data/doctrines/** against data/schemas/doctrine.schema.json, plus the
 //                    menu and budget rules in tools/validate_doctrine.mjs
 //   tools/fixtures/units/** against the unit schema (synthetic, but must parse)
+//   data/structures.json against data/schemas/structure.schema.json, and its
+//                    `color`/`wall_tone` keys against the palette
 //   data/palette.json structural sanity (32 locked colours)
 //   every vfx palette_ref resolves to a real palette key — raw hex is how
 //   one contributor quietly breaks the contrast rule for the whole game.
@@ -169,6 +171,10 @@ const schemas = {
   names: loadJson(join(ROOT, 'data/schemas/names.schema.json')),
   diorama: loadJson(join(ROOT, 'data/schemas/diorama.schema.json')),
   hints: loadJson(join(ROOT, 'data/schemas/first_use_hints.schema.json')),
+  // data/structures.json had a schema and nothing that read it until #643
+  // (the T-wall's `wall_tone`/`wall_self_lit`), so every field it named
+  // was a comment.
+  structure: loadJson(join(ROOT, 'data/schemas/structure.schema.json')),
   doctrine: loadJson(join(ROOT, 'data/schemas/doctrine.schema.json')),
 };
 
@@ -176,7 +182,7 @@ let checked = 0;
 if (
   schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tutorial &&
   schemas.world && schemas.countries && schemas.commander && schemas.names && schemas.diorama && schemas.hints &&
-  schemas.doctrine
+  schemas.structure && schemas.doctrine
 ) {
   const validators = {
     unit: ajv.compile(schemas.unit),
@@ -190,6 +196,7 @@ if (
     names: ajv.compile(schemas.names),
     diorama: ajv.compile(schemas.diorama),
     hints: ajv.compile(schemas.hints),
+    structure: ajv.compile(schemas.structure),
     doctrine: ajv.compile(schemas.doctrine),
   };
   checked += validateDir(join(ROOT, 'data/units'), validators.unit, 'unit.schema');
@@ -207,6 +214,7 @@ if (
   checked += validateFile(join(ROOT, 'data/campaign/names.json'), validators.names, 'names.schema');
   checked += validateFile(join(ROOT, 'data/front/menu_diorama.json'), validators.diorama, 'diorama.schema');
   checked += validateFile(join(ROOT, 'data/hints/first_use.json'), validators.hints, 'first_use_hints.schema');
+  checked += validateFile(join(ROOT, 'data/structures.json'), validators.structure, 'structure.schema');
 } else {
   failures.push('schema files missing or unparseable — cannot validate content');
 }
@@ -1383,6 +1391,22 @@ if (palette) {
     for (const { ref, path } of refs) {
       if (!paletteKeys.has(ref)) {
         failures.push(`${rel(file)}: ${path} references unknown palette key "${ref}"`);
+      }
+    }
+  }
+}
+
+// --- structure palette keys --------------------------------------------------
+// A structure's `color` and `wall_tone` are palette keys, and a ramp key must
+// name a step that exists: `wall_tone` is drawn EXACTLY (#643), so
+// "gunmetal.4" would be a renderer throw at mission load, not a fallback.
+if (palette && structureCatalogue) {
+  const structuresPath = join(ROOT, 'data/structures.json');
+  for (const [id, spec] of Object.entries(structureCatalogue.types ?? {})) {
+    for (const field of ['color', 'wall_tone']) {
+      const key = spec[field];
+      if (key !== undefined && !paletteKeys.has(key)) {
+        failures.push(`${rel(structuresPath)}: ${id}.${field} names unknown palette key "${key}"`);
       }
     }
   }

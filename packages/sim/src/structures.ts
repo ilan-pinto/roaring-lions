@@ -21,6 +21,15 @@ export interface StructureTypeJson {
   height_px?: number;
   /** Presentation only: palette key for the walls. */
   color?: string;
+  /** Presentation only: the palette step a mesh building's `wall` role draws,
+   *  EXACTLY ("band.index"), instead of the lit step of the slice `color`
+   *  starts. For a wall whose wanted tone is the lightest step of its band,
+   *  which no `color` key can draw (the T-wall, #643). */
+  wall_tone?: string;
+  /** Presentation only: a self-lit term on the `wall` role, as a fraction of
+   *  its albedo (0..0.25). Lifts a face the scene sun never reaches without
+   *  touching the sun or the shared lights (the T-wall, #643). */
+  wall_self_lit?: number;
   /** ROE cost when the player levels it (GDD §6). */
   roe_penalty?: number;
   /** Which side this structure builds units for, if any. See `producesFor`
@@ -87,6 +96,10 @@ export interface StructureType {
   /** A linear run whose tiles are each their own structure -- walls, fences.
    *  See StructureTypeJson.per_tile. */
   perTile: boolean;
+  /** Presentation only. See StructureTypeJson.wall_tone. */
+  wallTone?: string;
+  /** Presentation only. See StructureTypeJson.wall_self_lit. */
+  wallSelfLit?: number;
 }
 
 export function structureTypeFromJson(json: StructureTypeJson): StructureType {
@@ -105,6 +118,8 @@ export function structureTypeFromJson(json: StructureTypeJson): StructureType {
     standingCover: json.standing_cover ?? 2,
     garrisonCover: json.garrison_cover ?? 3,
     floors: json.floors ?? 1,
+    ...(json.wall_tone !== undefined ? { wallTone: json.wall_tone } : {}),
+    ...(json.wall_self_lit !== undefined ? { wallSelfLit: json.wall_self_lit } : {}),
   };
 }
 

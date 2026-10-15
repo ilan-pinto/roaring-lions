@@ -14,6 +14,7 @@ import {
 } from './building-damage';
 import { CHARRED_TINT_HEX, liftTone } from '../world-materials';
 import { CHARRED_RAMP } from './vehicle-mesh-role';
+import { applySelfLit } from './mesh-building';
 
 const texturedBase = (): THREE.MeshStandardMaterial =>
   new THREE.MeshStandardMaterial({ map: new THREE.Texture(), color: 0xffffff, roughness: 0.6 });
@@ -154,5 +155,19 @@ describe('BuildingScarMaterials', () => {
     scars.dispose();
     expect(scars.size).toBe(0);
     expect(mapDisposed).toBe(false);
+  });
+});
+
+describe('scarredMaterial and a self-lit wall (#643)', () => {
+  it('keeps the self-lit term tied to the scarred albedo, and leaves a plain material unlit', () => {
+    const lit = new THREE.MeshStandardMaterial({ color: '#C3C7C4' });
+    applySelfLit(lit, 0.08);
+    const scarred = scarredMaterial(lit, 3);
+    expect(scarred.color.getHexString()).not.toBe(lit.color.getHexString());
+    expect(scarred.emissive.getHexString()).toBe(scarred.color.getHexString());
+    expect(scarred.emissiveIntensity).toBeCloseTo(0.08, 9);
+
+    const plain = scarredMaterial(new THREE.MeshStandardMaterial({ color: '#C3C7C4' }), 3);
+    expect(plain.emissive.getHex()).toBe(0);
   });
 });

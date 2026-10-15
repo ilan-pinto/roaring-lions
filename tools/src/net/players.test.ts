@@ -23,6 +23,11 @@ import type { SideView } from './view';
 const BUILD = 'b-players';
 const MAP = 'tel_marum';
 const ROUND_TICKS = 40;
+/** The arena's own round wall (`arena.ts`, `--round-wall-ms`, default 120 s):
+ *  every paced game here plays on it unless the test is ABOUT the wall. A
+ *  healthy round is released by both seats' `done` in milliseconds, so at
+ *  120 s no load this machine sees can make the wall release one first. */
+const ARENA_ROUND_WALL_MS = 120_000;
 
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
@@ -59,6 +64,17 @@ interface Game {
   capped: boolean;
   ticks: number;
   ms: number;
+  /** The longest round wait either seat saw (`stats().stalls.round`, from the
+   *  room's `stall` to its `resume`): the room holding a boundary for a bot
+   *  seat's `done`. Not the game's total: the window holds only what the
+   *  seats do inside it, catching up on at most about one round of frames
+   *  and answering, which is bounded and tiny against the wall. */
+  roundWaitMs: number;
+  /** Per seat, the round waits the room CLOSED (a `stall` then its `resume`),
+   *  as of the moment that seat finished: a count, so it does not read the
+   *  machine. A wait still open then (the boundary at the cap, which no seat
+   *  is asked about) is left out. */
+  roundWaits: [number, number];
   running: [RunningPlayer, RunningPlayer];
 }
 
@@ -66,15 +82,24 @@ interface Game {
  *  a result or the cap; the cap's result is `capOutcome` on seat 0's sim. */
 async function play(players: [ArenaPlayer, ArenaPlayer], o: { seed: number; capTicks: number; roundWallMs?: number; roundTicks?: number; timeoutMs: number }): Promise<Game> {
   const relay = await relayOf(o.seed);
-  const { code, tickets } = await pacedRoom(relay, o.roundWallMs ?? 1000, o.roundTicks);
+  const { code, tickets } = await pacedRoom(relay, o.roundWallMs ?? ARENA_ROUND_WALL_MS, o.roundTicks);
   const t0 = Date.now();
   const running = await Promise.all(([0, 1] as const).map((seat) => players[seat].start({
     server: relay.url, origin: relay.origin, code, seat, ticket: tickets[seat], build: BUILD, capTicks: o.capTicks,
   }))) as [RunningPlayer, RunningPlayer];
   for (const r of running) cleanups.push(() => r.stop());
+  // Read in the same microtask the player finishes in, before any later
+  // message (the cap's own wait being released, say) can land.
+  const finishedWaits = running.map((r) => r.done.then(() => {
+    const t = r.client?.transport;
+    if (t === undefined) throw new Error('an in-process player has a client');
+    const st = t.status();
+    const open = st.kind === 'stalled' && st.reason === 'round' ? 1 : 0;
+    return t.stats().stalls.round.count - open;
+  }));
   const config = await running[0].client?.ready;
   // A malformed pace is silently realtime: a "paced" result from a realtime room would be no result.
-  expect(config?.pace).toEqual({ kind: 'paced', roundTicks: o.roundTicks ?? ROUND_TICKS, roundWallMs: o.roundWallMs ?? 1000 });
+  expect(config?.pace).toEqual({ kind: 'paced', roundTicks: o.roundTicks ?? ROUND_TICKS, roundWallMs: o.roundWallMs ?? ARENA_ROUND_WALL_MS });
   let timer: ReturnType<typeof setTimeout> | null = null;
   await Promise.race([
     Promise.all(running.map((r) => r.done)),
@@ -84,6 +109,8 @@ async function play(players: [ArenaPlayer, ArenaPlayer], o: { seed: number; capT
   const ms = Date.now() - t0;
   const [a, b] = running.map((r) => r.client);
   if (a === null || b === null) throw new Error('an in-process player has a client');
+  const roundWaitMs = Math.max(a.transport.stats().stalls.round.longestMs, b.transport.stats().stalls.round.longestMs);
+  const [w0, w1] = await Promise.all(finishedWaits);
   const sim = a.world()?.sim;
   if (sim === undefined) throw new Error('seat 0 never built its world');
   const own = a.result();
@@ -91,7 +118,7 @@ async function play(players: [ArenaPlayer, ArenaPlayer], o: { seed: number; capT
   // Both seats ran the same frames: they agree on the result, or both stand at the cap.
   if (own !== null) expect(b.result()).toEqual(own);
   else { expect(a.tick()).toBe(o.capTicks); expect(b.tick()).toBe(o.capTicks); }
-  return { result, capped: own === null, ticks: a.tick(), ms, running };
+  return { result, capped: own === null, ticks: a.tick(), ms, roundWaitMs, roundWaits: [w0, w1], running };
 }
 
 const NO_SCORE = { lost: 0, lostValue: 0, destroyed: 0, destroyedValue: 0, remaining: 0 };
@@ -174,10 +201,20 @@ describe('rush (fog honesty)', () => {
 describe('the controls, on the local relay (the arena\'s pace 60 and cap 12,000)', () => {
   const CAP = 12_000;
   const PACE = 60;
-  // A paced game costs its frames at `tickMs` (1) and the two sims' own work,
-  // never `roundWallMs` (1 s) a round: a player that forgot `done` would cost
-  // 1 s each round, and seed 3's games run 1,680 and 4,360 ticks (28 and 73 rounds).
-  const budgetMs = (ticks: number): number => ticks * 1 + 20_000;
+  // Every round of a paced game is released by both seats' `done`, never by
+  // the wall: a player that forgot `done`, or sent it for the wrong round,
+  // would leave each boundary to `roundWallMs`. This was a wall-clock budget
+  // on the whole game (1 ms a tick + 20 s), and that read the MACHINE, not the
+  // player: under a loaded full `pnpm test` seed 3's 4,360 ticks took 40.7 s
+  // against its 24.4 s budget with every round released by `done` (31.6 s on
+  // the efficiency cores alone, 7.6 s on a quiet run). So these games play on
+  // the arena's own 120 s wall and the check asks the room: no round wait, as
+  // either seat saw it, reached even half of it. A healthy one reads
+  // milliseconds (the window holds only the seats' catch-up on at most about
+  // one round of frames and their answer, tiny against the wall); one round left to the wall read 119,998-119,999 ms (a seat
+  // hears the `stall` a little after the room closes the round, hence half and
+  // not the whole wall); a player that never says `done` does not finish
+  // inside `timeoutMs` at all.
 
   for (const rushSeat of [0, 1] as const) {
     it(`rush beats passive with rush on seat ${rushSeat}, by annihilation or on forces at the cap`, async () => {
@@ -189,7 +226,7 @@ describe('the controls, on the local relay (the arena\'s pace 60 and cap 12,000)
       if (game.result.kind !== 'won') return;
       expect(game.result.side).toBe(rushSeat);
       expect(['annihilation', 'time']).toContain(game.result.by);
-      expect(game.ms).toBeLessThan(budgetMs(game.ticks));
+      expect(game.roundWaitMs).toBeLessThan(ARENA_ROUND_WALL_MS / 2);
       const reports = await Promise.all(game.running.map((r) => r.done));
       for (const r of reports) expect(r).toEqual({ tokens: null, timeouts: 0, errors: [] });
     }, 180_000);
@@ -228,7 +265,17 @@ describe('a model that hangs', () => {
     // boundary is the cap, where the player stops before asking.
     const waited = ROUNDS - 1;
     expect(game.ms).toBeGreaterThanOrEqual(waited * 1000 * 0.9);
-    expect(game.ms).toBeLessThan(waited * 1000 + 3000);
+    // The room held each of those boundaries, once: a count, which carries the
+    // weight because it does not read the machine. `ms` alone could not say
+    // so: with `roundGate` never waiting it still read 3.1 s, the hung seat's
+    // own 1 s timer holding its own frames; this reads 0 there.
+    expect(game.roundWaits).toEqual([waited, waited]);
+    // ...for about one wall each, and not two: the longest wait as a seat saw
+    // it, stall to resume. Not the game's total (`ms < waited * 1000 + 3000`,
+    // 3 s of slack for 160 ticks plus the connect, which read the machine).
+    // The window is still wall time, so its cap sits just under two walls
+    // (a doubled wait read 1,998 ms) and not tight on one.
+    expect(game.roundWaitMs).toBeLessThan(1000 * 1.9);
     const [hung, calm] = await Promise.all(game.running.map((r) => r.done));
     expect(hung.timeouts).toBe(waited);
     expect(hung.errors).toEqual([]);

@@ -173,6 +173,8 @@
       "rubble_cover": 2,
       "height_px": 15,
       "color": "gunmetal.0",
+      "wall_tone": "gunmetal.0",
+      "wall_self_lit": 0.08,
       "roe_penalty": 0,
       "per_tile": true
     },
