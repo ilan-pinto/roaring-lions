@@ -1032,7 +1032,10 @@ const ECONOMY_TICKS = 2400; // two minutes
 // refused build (and a population-0 drone, as shipped); was 331788258.
 // re-pinned 2026-10-15, F1 follow-up: lead ruling 15 Oct: 8/40/30, smoke 100 (a first
 // identification pays 8, an objective 40); was 537142626.
-const ECONOMY_PIN = 3794140228;
+// re-pinned 2026-10-15, F2 Task 7: held-ground income and corridors (G3 Q2, lead 4 Oct);
+// economyHash() appends side 1's floored purse, each income zone's state and cut code and
+// the convoy's cut code, and the fixture gained two zones and a convoy route; was 3794140228.
+const ECONOMY_PIN = 275731552;
 const ECONOMY_EXTRA_BUILD_TICK = 1000;
 // F3 Task 4 (GH-183): side 0's cap, and the one build it refuses. The force is the
 // drone (population 0) and one squad (1); the builds at 400 and 800 bring it to 3,
@@ -1468,7 +1471,10 @@ const RELIEF_ECO_REFUSED_BUILD_TICK = 100;
 // re-pinned 2026-10-15, F3 Task 4: the same fold (population and both caps joined
 // economyHash()), and the relief fixture gained a unitInfo catalogue, a cap of 3 (its
 // three starting squads) and one refused build; was 2992706492.
-const ECONOMY_PIN_RELIEF = 2682592505;
+// re-pinned 2026-10-15, F2 Task 7: held-ground income and corridors (G3 Q2, lead 4 Oct);
+// the same fold, and the relief fixture gained two zones, a convoy route and the militia
+// that cuts it; was 2682592505.
+const ECONOMY_PIN_RELIEF = 145368021;
 
 const RELIEF_ECO_MISSION: MissionJson = {
   id: 'economy_replay_relief',
