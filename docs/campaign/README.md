@@ -55,6 +55,16 @@ in step with it.
   missions and earned stars, not by tiers.
 - **The player force is placed, not built.** `starting_force` plus ledger
   survivors (`from_ledger`), plus authored `reinforce` triggers and waves.
+  The issued force is the brigade's to lend. A placement may field a unit whose
+  gate is closed; it is on loan for that mission and returns afterwards (its mark
+  on the unit card, selection chip and Field order card lands with WP-S-F #184;
+  a loaned survivor never joins `roster.surviving_units`). Gates govern what you
+  build and what you upgrade to. Restraint shapes the issued force through
+  `upgrades_to` and `gate_only` (lead, G3 Q5, 4 Oct). There is **no population
+  cap in the campaign**: `resources.pop_cap` exists for skirmish and co-op
+  (through the doctrine, never equal across doctrines: G3 Q4/Q7), and
+  `validate:data` refuses it on any mission that declares a town, which is every
+  campaign mission. Do not author one.
   Credits (the brigade account) are not a ledger key: a mission never reads or
   produces them, and nothing in mission JSON can reference the balance. Credits
   also buy a unit's upgrade tiers, which the sim sees only as a patched type,

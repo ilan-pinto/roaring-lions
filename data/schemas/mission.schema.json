@@ -225,7 +225,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "description": "Player deployment. Deliberately NOT the shared placement $def, and deliberately without `in_tunnel`: the runtime would accept a buried player unit, but nothing player-side can dig a route open, every command to a buried body is refused, and its living corpse would hold off the wipe-loss check -- an unlosable, unplayable start. additionalProperties:false is the gate that keeps that state unauthorable; validate_data.mjs refuses the same key on reinforce triggers, the other player-side spawn path.",
+        "description": "Player deployment. The issued force is the brigade's to lend. A placement may field a unit whose gate is closed; it is on loan for that mission and returns afterwards (it does not join roster.surviving_units). Gates govern what you build and what you upgrade to. Restraint shapes the issued force through upgrades_to and gate_only (lead, G3 Q5, 4 Oct). Deliberately NOT the shared placement $def, and deliberately without `in_tunnel`: the runtime would accept a buried player unit, but nothing player-side can dig a route open, every command to a buried body is refused, and its living corpse would hold off the wipe-loss check -- an unlosable, unplayable start. additionalProperties:false is the gate that keeps that state unauthorable; validate_data.mjs refuses the same key on reinforce triggers, the other player-side spawn path.",
         "required": [
           "unit",
           "count"

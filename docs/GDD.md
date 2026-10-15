@@ -86,6 +86,8 @@ Those four rates and prices are **provisional**, adopted ahead of the lead's con
 
 The split is the point. Logistics buys mass; Intel buys certainty. Most missions cannot afford both.
 
+**Population cap.** A side may have a cap on how many units it fields: each unit type declares a population cost (most teams 1, APCs 2, the main battle tank 3, drones 0), the living units of the side count against the cap, and a queued build reserves its share the moment it is queued. The cap refuses builds only. It never removes anything: a starting force, a trigger spawn or a wave above the cap stands, and a unit costing 0 is never refused. **It is off in the campaign**, where the mission's authored force and its clock set the scale (`validate:data` refuses `resources.pop_cap` on every mission that declares a town, which is every campaign mission), and **on in skirmish and co-op, set through the doctrine** (lead, G3 Q4, 4 Oct). The cap is never equal across doctrines: the Sarim field at 1.6x the budget (G3 Q7), so an equal cap would undo it. The HUD shows used/cap only when a cap is on; that chrome lands with WP-S-F #184.
+
 ### Economy anchors
 
 The cost curve prices units against each other; these anchors tie it to time. All provisional until mission playtests.
@@ -252,6 +254,8 @@ Carry-over persists between missions rather than within one. Missions declare a 
 ```
 
 Beit Sahwan III reads `tunnel_mouths_marked`. If Mission I went badly the list is short and the player finds shafts under fire. This also creates free replay value: replay Mission I for a better ledger.
+
+**The issued force is the brigade's to lend.** A placement may field a unit whose gate is closed; it is on loan for that mission and returns afterwards (its mark on the unit card, selection chip and Field order card lands with WP-S-F #184). Gates govern what you build and what you upgrade to. Restraint shapes the issued force through `upgrades_to` and `gate_only` (lead, G3 Q5, 4 Oct). A loaned survivor does not join `roster.surviving_units`: the brigade does not keep what it was lent.
 
 ### Objective vocabulary
 
