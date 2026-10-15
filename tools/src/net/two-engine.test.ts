@@ -103,6 +103,12 @@ describe('two-engine decision (exit codes, R39)', () => {
     expect(decide({ chromium: ok(5), firefox: ok(5, { bootTick: FIRST_ORDER + 1 }), webkit: noGl('webkit') }, TARGET, FIRST_ORDER, CONTENT).exit).toBe(1);
   });
 
+  it('exit 1: a lone booted engine whose content digest is off Node is a failure, not a quiet exit 3', () => {
+    const d = decide({ chromium: ok(5, { contentDigest: 3 }), firefox: noGl('firefox'), webkit: noGl('webkit') }, TARGET, FIRST_ORDER, CONTENT);
+    expect(d.exit).toBe(1);
+    expect(d.lines.some((l) => l.level === 'error' && l.text.startsWith('FAIL: content digest: chromium computed 3'))).toBe(true);
+  });
+
   it('exit 2: an engine that started and broke is a failure even when the other two agree', () => {
     const d = decide({ chromium: ok(5), firefox: ok(5), webkit: brokenOn('webkit') }, TARGET, FIRST_ORDER, CONTENT);
     expect(d.exit).toBe(2);

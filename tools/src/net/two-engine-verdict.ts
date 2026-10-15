@@ -29,6 +29,17 @@ export interface Verdict {
   message: string;
 }
 
+/** L4 (browser == Node): the first reading whose content digest is not Node's,
+ *  as a FAIL message, or null. `decide` calls it on every reading BEFORE its
+ *  two-engine gate, so a lone booted engine is still held to Node's digest. */
+export function contentMismatch(
+  results: Readonly<Record<string, EngineReading>>, nodeContentDigest: number,
+): string | null {
+  const off = Object.entries(results).find(([, r]) => r.contentDigest !== nodeContentDigest);
+  if (off === undefined) return null;
+  return `FAIL: content digest: ${off[0]} computed ${off[1].contentDigest}, Node computed ${nodeContentDigest}: ${JSON.stringify(results)}`;
+}
+
 /**
  * Pass only when at least two engines reported, every one booted the same
  * forces no later than the first planned order, every one reached
@@ -62,13 +73,8 @@ export function verdict(
   }
   // L4: every engine's content digest is Node's -- checked before the sim
   // hash, because two engines on different data have no hash worth comparing.
-  const offContent = Object.entries(results).find(([, r]) => r.contentDigest !== nodeContentDigest);
-  if (offContent !== undefined) {
-    return {
-      ok: false,
-      message: `FAIL: content digest: ${offContent[0]} computed ${offContent[1].contentDigest}, Node computed ${nodeContentDigest}: ${all}`,
-    };
-  }
+  const offContent = contentMismatch(results, nodeContentDigest);
+  if (offContent !== null) return { ok: false, message: offContent };
   const hashes = new Set(readings.map((r) => r.hash));
   if (hashes.size !== 1) {
     return { ok: false, message: `FAIL: engines disagree: ${all}` };
@@ -138,6 +144,9 @@ export function decide(
     }
   }
   const booted = Object.keys(results).length;
+  // The digest is per-engine, not per-pair: check it before the pair gate.
+  const offContent = contentMismatch(results, nodeContentDigest);
+  if (offContent !== null) return { exit: 1, lines: [...lines, { level: 'error', text: offContent }] };
   if (booted >= 2) {
     const v = verdict(results, targetTick, firstOrderTick, nodeContentDigest);
     if (!v.ok) return { exit: 1, lines: [...lines, { level: 'error', text: v.message }] };
