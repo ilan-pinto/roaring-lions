@@ -11,6 +11,18 @@ import {
   candidateMaps, main, parseArrangements, play, reading, seedOf, selfCheck, tally, type Played, type PlayFn,
 } from './versus-probe';
 
+// The tests that play four or more FULL tel_marum games (the M3 and uncut
+// mutants, and `main`'s table) carry this instead of vitest's 5 s default.
+// They are CPU-bound sim runs with no I/O, and each game is the claim, so
+// they are not cut. Measured single-file, Apple M3 Pro, 2026-10-15, six
+// runs with the load average at 38-106 on 12 cores throughout (no idle run
+// was to be had): the fastest two read M3 0.42-0.51 s, uncut 0.65-0.68 s,
+// main 0.73-0.84 s; the other four up to 2.9 / 3.3 / 3.1 s; and under a full
+// parallel `pnpm test` on a loaded machine they crossed 5 s more than once.
+// The margin is for contention only: needing it on a quiet machine would be
+// a regression. (`selfCheck` on every open map, below, keeps its own 60 s.)
+const FULL_GAMES_TIMEOUT_MS = 30_000;
+
 const game = (winner: 0 | 1 | null, by: Played['by'] = 'annihilation', ticks = 1200): Played => ({ winner, by, ticks });
 
 describe('the probe parameters the lead set (#561, #589)', () => {
@@ -77,10 +89,10 @@ describe('selfCheck', () => {
   it('goes red when one seed reads two different games (M3)', () => {
     const failed = selfCheck('tel_marum', unseeded());
     expect(failed.some((f) => f.includes('one seed played twice'))).toBe(true);
-  });
+  }, FULL_GAMES_TIMEOUT_MS);
   it('goes red when the control does not cut the weak side', () => {
     expect(selfCheck('tel_marum', uncut).length).toBeGreaterThanOrEqual(1);
-  });
+  }, FULL_GAMES_TIMEOUT_MS);
 });
 
 describe('tally', () => {
@@ -155,7 +167,7 @@ describe('main', () => {
     expect(r.out).toMatch(/tel_marum\s+kdf\/kdf\s+\d+\s+\d+/);
     // Two seeds are not the bar, and it says so.
     expect(r.out).toContain('only 2 seeds: the bar is 48');
-  });
+  }, FULL_GAMES_TIMEOUT_MS);
   it('a failed self-check exits 2 and prints no table: a probe that cannot tell its sides apart reports nothing', () => {
     const swapped: PlayFn = (m, a, s, o) => {
       const g = play(m, a, s, o);
