@@ -38,6 +38,19 @@ const EXPECTED_FACE: Readonly<Record<string, BannerSpot['face']>> = {
   pump_house: '+z',
 };
 
+/** Garrisonable types that get NO banner, and why. `bannerSpotFor` wants a
+ *  flat run of wall the cloth can hang against for `BANNER_MIN_DROP`, and
+ *  these have none -- the renderer then draws no banner (`ThreeRenderer`
+ *  skips a type whose spot is null). An entry here is a claim that the
+ *  search really comes back empty: the demotion test below fails the moment
+ *  it finds a spot, so a stale exemption cannot outlive its reason. */
+const NO_BANNER: Readonly<Record<string, string>> = {
+  // GH-66: a 1.09 m horseshoe of pillow bags, every course a row of bumps
+  // and nothing flat; its occupant stands IN the ring (`height_px` 0), so
+  // the held read is the man himself, in his own team colour.
+  sandbag_post: 'a ring of bags, no flat face to hang from',
+};
+
 const structures = JSON.parse(
   readFileSync(fileURLToPath(new URL('../../../../../data/structures.json', import.meta.url)), 'utf8')
 ) as { types: Record<string, { garrison_slots: number }> };
@@ -97,7 +110,11 @@ describe('the banner spot on every garrisonable building as shipped', () => {
   });
 
   it('covers exactly the types the data says can be held', () => {
-    expect(types).toEqual(Object.keys(EXPECTED_FACE).sort());
+    expect(types).toEqual([...Object.keys(EXPECTED_FACE), ...Object.keys(NO_BANNER)].sort());
+  });
+
+  it.each(Object.keys(NO_BANNER).sort())('%s: still has no banner spot (else move it to EXPECTED_FACE)', (type) => {
+    expect(spots.get(type)?.spot ?? null, `${type} now has a spot: delete its NO_BANNER entry`).toBeNull();
   });
 
   it.each(Object.keys(EXPECTED_FACE).sort())('%s: a spot on its expected face, a real cloth', (type) => {
