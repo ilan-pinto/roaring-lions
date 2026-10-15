@@ -165,8 +165,13 @@ export interface AlertWorld {
   zoneHolder(zone: string): number;
   /** F2 P2-4: the first cut tile of a supply line -- `route[cutSpan[0]]` --
    *  or the route's midpoint when the span is unknown; `zone` null is the
-   *  convoy. Null when there is no route (so no place). */
+   *  convoy. Null when there is no route (so no place). It answers for an
+   *  OPEN line too -- it places, it does not judge; `supplyCut` judges. */
   supplyCutAt(zone: string | null): { x: number; y: number } | null;
+  /** F2 P2-4: why the live supply line is cut right now (the runtime's own
+   *  `CutCause`), or null while it is open or absent; `zone` null is the
+   *  convoy. Read at alert time, like `zoneHolder`. */
+  supplyCut(zone: string | null): string | null;
 }
 
 /** What has to survive between ticks. Read-only on the way in and
@@ -395,10 +400,13 @@ export function alertsForTick(
       };
       const cutAlert = (): void => {
         // A takeover can land on a line already cut with no `corridor` event:
-        // read the world, remember it, and say so.
+        // read the world, remember it, and say so. Only a line that IS cut:
+        // `supplyCutAt` places an open line as readily as a cut one.
+        const cause = world.supplyCut(e.zone);
+        if (cause === null) return;
         const cutAt = world.supplyCutAt(e.zone);
         if (cutAt === null) return;
-        editCuts((m) => m.set(e.zone, 'cut'));
+        editCuts((m) => m.set(e.zone, cause));
         const loud = zoneMayCue(e.zone + '/cut');
         ground.push({
           kind: 'supply',

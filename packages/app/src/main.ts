@@ -1964,8 +1964,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   let stall = stallStart(0);
   let stallActive = false;
   /** S-F F2: held-ground income as presentation data, taken ONCE per 5-tick HUD
-   *  beat (the zone write below) and read by the minimap, and by the strip, tip,
-   *  alerts and world route as they land. Null for a mission with no income
+   *  beat (the zone write below) and read by the minimap, the strip, its tip, the
+   *  world zones and the world route. NOT by the alerts: they read the runtime
+   *  at alert time, every tick, since this may be a beat stale. Null for a mission with no income
    *  zones and no convoy -- every shipped mission today. */
   let income: IncomeView | null = null;
   let missionFailure: string | null = null;

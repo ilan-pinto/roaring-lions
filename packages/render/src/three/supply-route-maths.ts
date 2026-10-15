@@ -54,10 +54,15 @@ export interface SupplyRibbon {
 }
 
 /** Whether segment `j` (tile `j` to tile `j + 1`) lies on the cut stretch,
- *  an inclusive `[first, last]` span of tile indices. A one-tile span cuts no
- *  segment, exactly as the minimap's `routeLines` draws it. */
+ *  an inclusive `[first, last]` span of tile indices. A one-tile span `[k, k]`
+ *  still reads CUT: the segments touching tile `k` (`k - 1` and `k`) dash, so
+ *  at either end of the route its one adjacent segment does -- exactly as the
+ *  minimap's `routeLines` draws it. */
 export function segmentIsCut(j: number, cutSpan: readonly [number, number] | null): boolean {
-  return cutSpan !== null && j >= cutSpan[0] && j < cutSpan[1];
+  if (cutSpan === null) return false;
+  const [first, last] = cutSpan;
+  if (first === last) return j >= first - 1 && j <= first;
+  return j >= first && j < last;
 }
 
 interface Pt {

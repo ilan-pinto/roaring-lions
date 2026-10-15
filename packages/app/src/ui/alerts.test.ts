@@ -35,10 +35,15 @@ const world: AlertWorld = {
   // camera; `holders` is what the runtime would answer, set per test.
   zoneAt: (z) => (z === 'staging' ? { x: 2, y: 3 } : z === 'east_pass' ? { x: 30, y: 10 } : null),
   zoneHolder: (z) => holders.get(z) ?? -1,
-  supplyCutAt: (z) => (z === null ? { x: 20.5, y: 4.5 } : z === 'east_pass' && cutZones.has(z) ? { x: 12.5, y: 9.5 } : null),
+  // Like the real adapter (`alert-world.ts`): `supplyCutAt` places ANY line
+  // with a route, open or cut, and only `supplyCut` says whether it is cut.
+  // `staging` has no route; `east_pass` and the convoy do.
+  supplyCutAt: (z) => (z === null ? { x: 20.5, y: 4.5 } : z === 'east_pass' ? { x: 12.5, y: 9.5 } : null),
+  supplyCut: (z) => (cutZones.has(z ?? '') ? 'interdicted' : null),
 };
 const holders = new Map<string, number>();
-/** Zones whose supply line the runtime would report cut right now. */
+/** Zones whose supply line the runtime would report cut right now (`''` is
+ *  the convoy). */
 const cutZones = new Set<string>();
 const destroyed = (entity: number, by: number): SimEvent => ({ kind: 'destroyed', tick: 0, entity, by }) as SimEvent;
 const lost = (entity: number, unit: string): MissionEvent =>
@@ -679,7 +684,8 @@ describe('alertsForTick — held ground and supply lines (F2)', () => {
     cutZones.clear();
   });
   const cor = (zone: string | null, cut: 'unreachable' | 'interdicted' | 'vent' | null): MissionEvent => {
-    if (zone !== null && cut !== null) cutZones.add(zone);
+    if (cut !== null) cutZones.add(zone ?? '');
+    else cutZones.delete(zone ?? '');
     return ev<'corridor'>({ kind: 'corridor', tick: 0, zone, cut });
   };
   const run = (events: MissionEvent[], state = initAlertState(), tick = 40) => alertsForTick(state, [], events, world, tick);
@@ -852,6 +858,13 @@ describe('alertsForTick — held ground and supply lines (F2)', () => {
     expect(alerts[1]).toMatchObject({ tier: 'important', at: { x: 12.5, y: 9.5 } });
     // remembered, so the line opening later is news
     expect(run([cor('east_pass', null)], state).alerts.map(keyOf)).toEqual(['alert.supply.open']);
+  });
+
+  it('taking a zone whose line is open is gained ground only, and a later cut is still news', () => {
+    holders.set('east_pass', 0);
+    const { alerts, state } = run([zh('east_pass', 0)]);
+    expect(alerts.map(keyOf)).toEqual(['alert.zone.gained']);
+    expect(run([cor('east_pass', 'interdicted')], state, LATER).alerts.map(keyOf)).toEqual(['alert.supply.cut']);
   });
 
   it('two zone events in one tick raise one cue', () => {

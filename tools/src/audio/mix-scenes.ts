@@ -140,6 +140,7 @@ function alertWorld(): AlertWorld {
     zoneAt: () => null,
     zoneHolder: () => -1,
     supplyCutAt: () => null,
+    supplyCut: () => null,
   };
 }
 

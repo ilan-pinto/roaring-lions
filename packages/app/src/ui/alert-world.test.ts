@@ -201,4 +201,33 @@ describe('zoneAt, zoneHolder and supplyCutAt (F2)', () => {
     expect(w.supplyCutAt('nope')).toBeNull();
     expect(world(null).supplyCutAt(null)).toBeNull();
   });
+
+  it('supplyCut is the live line\'s own cause, null while it is open or absent', () => {
+    const w = world(rt);
+    expect(w.supplyCut('a')).toBeNull();
+    expect(w.supplyCut(null)).toBeNull();
+    expect(w.supplyCut('nope')).toBeNull();
+    expect(world(null).supplyCut(null)).toBeNull();
+    const cutRt = { incomeZones: [{ zone: 'a', holder: 0, cut: 'vent', route: [at(1, 1)], cutSpan: [0, 0] }], convoyRoute: { route: [at(9, 9)], cut: 'interdicted', cutSpan: null } } as unknown as MissionRuntime;
+    expect(world(cutRt).supplyCut('a')).toBe('vent');
+    expect(world(cutRt).supplyCut(null)).toBe('interdicted');
+  });
+
+  // Final review, Critical 1: taking a zone whose line is OPEN is gained
+  // ground and nothing else -- and a real cut afterwards is still news.
+  // Through the REAL adapter, whose `supplyCutAt` answers the route's
+  // midpoint for any line with a route, cut or not.
+  it('gaining a zone whose line is open raises no cut, and the later real cut is announced', () => {
+    const line = { zone: 'a', holder: 0, cut: null as string | null, route: [at(1, 1), at(2, 1), at(3, 1), at(4, 1)], cutSpan: null as [number, number] | null };
+    const live = { incomeZones: [line], convoyRoute: null } as unknown as MissionRuntime;
+    const w = world(live);
+    const keys = (a: readonly Alert[]) => a.map((x) => x.line?.key);
+    const gained = alertsForTick(initAlertState(), [], [{ kind: 'zoneHolder', tick: 0, zone: 'a', holder: 0, contested: false }], w, 40);
+    expect(keys(gained.alerts)).toEqual(['alert.zone.gained']);
+    line.cut = 'interdicted';
+    line.cutSpan = [2, 3];
+    const cut = alertsForTick(gained.state, [], [{ kind: 'corridor', tick: 0, zone: 'a', cut: 'interdicted' }], w, 400);
+    expect(keys(cut.alerts)).toEqual(['alert.supply.cut']);
+    expect(cut.alerts[0].at).toEqual({ x: 3.5, y: 1.5 });
+  });
 });

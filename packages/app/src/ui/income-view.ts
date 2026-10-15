@@ -1,6 +1,8 @@
 // The F2 income read model (S-F): the held-ground income state of a MissionRuntime, as plain
-// presentation data. The minimap, strip, alerts and world route read ONLY this; none of them
-// touches the runtime's income getters. It copies, it never derives: the totals are the
+// presentation data. The minimap, the strip, its tip, the world zones and the world route read
+// ONLY this; none of them touches the runtime's income getters. The alerts do NOT: they read the
+// runtime at alert time, per tick (`alert-world.ts`'s `zoneHolder`, `supplyCut`, `supplyCutAt`),
+// because this view may be a HUD beat stale. It copies, it never derives: the totals are the
 // runtime's own `incomePerMin`, and `route`/`cutSpan` are copied because the runtime reuses
 // that storage in place at a recheck.
 //

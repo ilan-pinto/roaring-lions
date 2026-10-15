@@ -652,7 +652,11 @@ export interface RouteLines {
 /**
  * A route (tile indices `y * width + x`) split at its cut. `cutSpan` is inclusive
  * `[first, last]` into `route`; with no span a cut route is cut whole, an open one
- * not at all. Stretches share their boundary tile, so the line is unbroken.
+ * not at all. A one-tile span `[k, k]` still reads cut: the segments touching
+ * tile `k` (tiles `k - 1` to `k + 1`, clamped to the route) are the cut stretch,
+ * so at either end of the route its one adjacent segment dashes -- as the world
+ * route's `segmentIsCut` draws it. Stretches share their boundary tile, so the
+ * line is unbroken.
  */
 export function routeLines(
   route: readonly number[] | null,
@@ -664,12 +668,17 @@ export function routeLines(
   if (route === null || route.length < 2 || width <= 0) return none;
   const pts = route.map((i): [number, number] => [(i % width) + 0.5, Math.floor(i / width) + 0.5]);
   if (cutSpan === null) return cut ? { open: [], cut: [pts] } : { open: [pts], cut: [] };
-  const first = Math.max(0, Math.min(cutSpan[0], pts.length - 1));
-  const last = Math.max(first, Math.min(cutSpan[1], pts.length - 1));
+  const end = pts.length - 1;
+  let first = Math.max(0, Math.min(cutSpan[0], end));
+  let last = Math.max(first, Math.min(cutSpan[1], end));
+  if (first === last) {
+    first = Math.max(0, first - 1);
+    last = Math.min(end, last + 1);
+  }
   const open: [number, number][][] = [];
   if (first > 0) open.push(pts.slice(0, first + 1));
-  if (last < pts.length - 1) open.push(pts.slice(last));
-  return { open, cut: last > first ? [pts.slice(first, last + 1)] : [] };
+  if (last < end) open.push(pts.slice(last));
+  return { open, cut: [pts.slice(first, last + 1)] };
 }
 
 /** Every side-0 route in the view: the convoy, then each zone side 0 holds. */
@@ -1500,24 +1509,10 @@ export class Minimap {
     ctx.fill();
   }
 
-  /**
-   * The alert marks: a stroked ring, fading over its tier's life.
-   *
-   * Drawn AFTER the unit dots and BEFORE the viewport outline. A mark the
-   * player must see over the dots -- a squad wiped out is exactly the moment
-   * its own dot stops being there -- and under the frame that says where they
-   * are looking, which is the one mark that must never be obscured.
-   *
-   * VR-36 (approved 2026-10-08): it used to be one amber ring for every
-   * alert, so a lost tank and a delivered jeep looked alike. Now the TIER sets
-   * size, width, life and a double ring for major (`RING_BY_TIER`), the TONE
-   * sets the colour, and good news settles inward where bad news spreads out
-   * (`ringStyle`). Every ring sits on a `--mark-edge` keyline two pixels
-   * wider, at the same alpha.
-   */
-  /** GH-471: every route the viewer's side holds identified, as a line with a square
-   *  at each shaft (`tunnelMarks`); nothing for a suspected or unknown one.
-   *  Over the terrain and the zones, under the unit dots. */
+  /** S-F F2 (C3): every side-0 supply route (`incomeRoutes`), always drawn --
+   *  the open stretches a thin solid `route` line, the cut stretch dashed
+   *  `routeCut`, each on a `markEdge` keyline. Over the terrain and the zones,
+   *  under the unit dots. */
   private drawRoutes(view: IncomeView | null): void {
     const { ctx, proj } = this;
     const lines = incomeRoutes(view, this.deps.map.width);
@@ -1552,6 +1547,24 @@ export class Minimap {
     ctx.lineWidth = 1;
   }
 
+  /**
+   * The alert marks: a stroked ring, fading over its tier's life.
+   *
+   * Drawn AFTER the unit dots and BEFORE the viewport outline. A mark the
+   * player must see over the dots -- a squad wiped out is exactly the moment
+   * its own dot stops being there -- and under the frame that says where they
+   * are looking, which is the one mark that must never be obscured.
+   *
+   * VR-36 (approved 2026-10-08): it used to be one amber ring for every
+   * alert, so a lost tank and a delivered jeep looked alike. Now the TIER sets
+   * size, width, life and a double ring for major (`RING_BY_TIER`), the TONE
+   * sets the colour, and good news settles inward where bad news spreads out
+   * (`ringStyle`). Every ring sits on a `--mark-edge` keyline two pixels
+   * wider, at the same alpha.
+   */
+  /** GH-471: every route the viewer's side holds identified, as a line with a square
+   *  at each shaft (`tunnelMarks`); nothing for a suspected or unknown one.
+   *  Over the terrain and the zones, under the unit dots. */
   private drawTunnels(): void {
     const { ctx, proj } = this;
     for (const mark of tunnelMarks(this.deps.sim, this.deps.viewer ?? 0)) {

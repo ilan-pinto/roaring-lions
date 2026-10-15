@@ -108,6 +108,11 @@ export function alertWorldFor(d: AlertWorldDeps): AlertWorld {
       if (i === undefined) return null;
       return { x: (i % map.width) + 0.5, y: Math.floor(i / map.width) + 0.5 };
     },
+    supplyCut: (zone) => {
+      const rt = d.runtime();
+      const line = zone === null ? rt?.convoyRoute : rt?.incomeZones.find((z) => z.zone === zone);
+      return line?.cut ?? null;
+    },
     reinforcement: (triggerId) => {
       const r = reinforceTrigger<{ marker?: string; at?: readonly number[] }>(d.mission ?? undefined, triggerId);
       if (r === null) return null;

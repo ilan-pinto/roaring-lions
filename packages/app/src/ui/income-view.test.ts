@@ -84,6 +84,22 @@ describe('incomeViewOf', () => {
     expect(v?.halved).toBe(false);
   });
 
+  it('a zone nobody holds (empty or contested) drops a STALE line the runtime still carries', () => {
+    const stale = { cut: 'interdicted' as const, route: [9, 10, 11], cutSpan: [0, 1] as [number, number], paysPerMin: 5 };
+    const v = incomeViewOf(
+      rt([
+        zone({ zone: 'x', state: ZONE_EMPTY, holder: -1, ...stale }),
+        zone({ zone: 'c', state: ZONE_CONTESTED, holder: -1, ...stale }),
+        zone({ zone: 'e', state: 1, holder: 1, ...stale }),
+      ]),
+    );
+    for (const z of v?.zoneViews ?? []) {
+      expect(z, z.id).toMatchObject({ paysPerMin: 0, cut: null, route: null, cutSpan: null });
+    }
+    expect(v?.zoneViews).toHaveLength(3);
+    expect(v?.halved).toBe(false);
+  });
+
   it('an empty zone reads unheld', () => {
     const v = incomeViewOf(rt([zone({ zone: 'x', state: ZONE_EMPTY, holder: -1, paysPerMin: 0 })]));
     expect(v?.zoneViews[0]).toMatchObject({ state: 'unheld', paysPerMin: 0 });

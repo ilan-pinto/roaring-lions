@@ -286,7 +286,7 @@
  *                 Returns 1. No `layerChecks` entry: no gated scenario has a
  *                 supply corridor, and none shows the route, which the app
  *                 writes only while the logistics figure is hovered.
-
+ *
  * ONE MORE FOR KITTED VEHICLES (GH-238, plan 3):
  * - `kit`         the bought kit merged into each mesh vehicle's host
  *                 geometry at load (`units/vehicle-kit.ts`). Host first, kit

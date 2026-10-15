@@ -1962,6 +1962,14 @@ describe('supply routes on the minimap (C3)', () => {
     }
   });
 
+  it('a one-tile cut span still dashes the segments touching that tile, one at either end', () => {
+    const c = (x: number): [number, number] => [x + 0.5, 10.5];
+    // ROUTE is tiles x = 10..14 on row 10; index 2 is x = 12.
+    expect(routeLines(ROUTE, [2, 2], true, W)).toEqual({ open: [[c(10), c(11)], [c(13), c(14)]], cut: [[c(11), c(12), c(13)]] });
+    expect(routeLines(ROUTE, [0, 0], true, W)).toEqual({ open: [[c(11), c(12), c(13), c(14)]], cut: [[c(10), c(11)]] });
+    expect(routeLines(ROUTE, [4, 4], true, W)).toEqual({ open: [[c(10), c(11), c(12), c(13)]], cut: [[c(13), c(14)]] });
+  });
+
   it('draws an open route as one solid path through the tile centres', () => {
     const s = lines({ income: () => viewWith({ convoy: { route: ROUTE, cut: null, cutSpan: null } }) });
     expect(s).toHaveLength(1);

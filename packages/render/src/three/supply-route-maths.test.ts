@@ -25,6 +25,15 @@ describe('segmentIsCut', () => {
     expect([0, 1, 2, 3, 4].map((j) => segmentIsCut(j, span))).toEqual([false, false, true, true, false]);
     expect(segmentIsCut(0, null)).toBe(false);
   });
+
+  it('a one-tile span reads cut: the segments touching that tile dash, one at either end', () => {
+    // Tiles 0..5, segments 0..4. Tile 2 alone: segments 1-2 and 2-3.
+    expect([0, 1, 2, 3, 4].map((j) => segmentIsCut(j, [2, 2]))).toEqual([false, true, true, false, false]);
+    // The first tile: only segment 0 touches it.
+    expect([0, 1, 2, 3, 4].map((j) => segmentIsCut(j, [0, 0]))).toEqual([true, false, false, false, false]);
+    // The last tile (5): only segment 4 touches it.
+    expect([0, 1, 2, 3, 4].map((j) => segmentIsCut(j, [5, 5]))).toEqual([false, false, false, false, true]);
+  });
 });
 
 describe('buildSupplyRibbon', () => {

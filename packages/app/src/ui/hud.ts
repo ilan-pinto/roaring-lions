@@ -1033,6 +1033,16 @@ export class Hud {
   }
 
   /**
+   * S-F F2 C3: the strip's logistics figure is hovered or keyboard-focused
+   * (the two alike), and is on the strip at all. What shows side 0's supply
+   * routes in the world; `main.ts` reads it every frame.
+   */
+  get logisticsHeld(): boolean {
+    if (!this.logisticsHover && !this.logisticsFocus) return false;
+    return this.strip.querySelector('[data-tip="logistics"]') !== null;
+  }
+
+  /**
    * Take the HUD off the host.
    *
    * The HUD mounts on `document.body` in `main.ts`, not on the stage the
@@ -1053,16 +1063,6 @@ export class Hud {
    * `tipDisposers` runs first rather than being left to the DOM removal that
    * follows it.
    */
-  /**
-   * S-F F2 C3: the strip's logistics figure is hovered or keyboard-focused
-   * (the two alike), and is on the strip at all. What shows side 0's supply
-   * routes in the world; `main.ts` reads it every frame.
-   */
-  get logisticsHeld(): boolean {
-    if (!this.logisticsHover && !this.logisticsFocus) return false;
-    return this.strip.querySelector('[data-tip="logistics"]') !== null;
-  }
-
   destroy(): void {
     // WP-AU1 D8: the caption's own pending `setTimeout` first -- R-18, a DOM
     // builder whose timer dies with it. `roots.remove()` below takes the
@@ -1832,15 +1832,6 @@ export class Hud {
     }
   }
 
-  /**
-   * The strip's five field tooltips, keyed by the `data-tip` the hovered
-   * span carries -- Conduct first, the one §6 names, since the ROE numeral
-   * is the least self-explanatory thing on screen. `null` for anything else
-   * `bindDelegatedTip`'s `[data-tip]` selector could in principle match,
-   * which there is currently nothing of, but a resolver that cannot say "no
-   * tip here" is a resolver that will show stale content the day something
-   * else in the strip picks up the same attribute by accident.
-   */
   /** The logistics tip. With no income view it is today's sentence, unchanged;
    *  with one, the sentence (minus the mission-adds clause the breakdown now
    *  says) is followed by the convoy line, then one line per zone side 0 holds
@@ -1869,6 +1860,15 @@ export class Hud {
     return rows.join('');
   }
 
+  /**
+   * The strip's five field tooltips, keyed by the `data-tip` the hovered
+   * span carries -- Conduct first, the one §6 names, since the ROE numeral
+   * is the least self-explanatory thing on screen. `null` for anything else
+   * `bindDelegatedTip`'s `[data-tip]` selector could in principle match,
+   * which there is currently nothing of, but a resolver that cannot say "no
+   * tip here" is a resolver that will show stale content the day something
+   * else in the strip picks up the same attribute by accident.
+   */
   private stripTipHtml(key: string | undefined): string | null {
     switch (key) {
       case 'conduct':
