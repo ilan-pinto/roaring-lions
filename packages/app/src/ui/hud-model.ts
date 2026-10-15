@@ -16,6 +16,7 @@ import { TICKS_PER_SECOND } from '@lions/sim';
 import { isOwnSide } from '@lions/render';
 import { t } from '../i18n/t';
 import { symbolSvg } from './symbol';
+import type { IncomeView } from './income-view';
 
 export interface ObjectiveView {
   id: string;
@@ -51,6 +52,10 @@ export interface MissionView {
    *  sentence back apart in the renderer is how the two drift. */
   logistics?: number;
   logisticsRate?: number;
+  /** S-F F2: held-ground income (`incomeViewOf`, taken once per HUD beat). When
+   *  present the strip's rate reads `income.total` and the tip breaks it down;
+   *  null or absent falls back to `logisticsRate`, byte-identical to before. */
+  income?: IncomeView | null;
   intel?: number;
   /** F-Q11: the last intel earn (`ui/intel-moments.ts`'s `lastEarn`), shown
    *  beside intel for as long as that module says; absent shows none. Intel

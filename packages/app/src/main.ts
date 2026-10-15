@@ -2755,6 +2755,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           // how the two drift.
           logistics: mission.resources ? runtime.logistics : undefined,
           logisticsRate: mission.resources?.logistics_rate_per_min,
+          income,
           intel: mission.resources ? runtime.intel : undefined,
           intelLastEarn: intelMoments?.lastEarn(sim.tickCount) ?? undefined,
           // The story voice's closing line (GDD §11) -- read straight off the
