@@ -111,8 +111,9 @@ export interface EngineTypeFacts {
  * `by_type` first: it names every tracked type and every rotor, and `none`
  * silences a vehicle. The flags cannot do that on their own, which is the
  * finding PR #597 recorded: `wheeled` is "wheels or tracks", true for a tank
- * and a jeep alike, and FALSE for the D9 (its role `engineer` is a foot role),
- * so a tracked/wheeled split, and the D9 itself, have to be named. Otherwise:
+ * and a jeep alike (and, since GH-598, for the D9, which was FALSE until then
+ * because its role `engineer` is a foot role), so a tracked/wheeled split has
+ * to be named, the D9 included. Otherwise:
  * an air unit is silent (the drones and the paramotor -- a propeller is the
  * whine the candidates were built to avoid), any other vehicle is `wheeled`,
  * and a foot unit is silent.

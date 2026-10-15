@@ -22,12 +22,14 @@ export function ringClassOf(t: { isAir: boolean; wheeled: boolean; isSoft: boole
 }
 
 /**
- * Render-side class overrides, keyed by unit type id. The sim classes
- * `dozer_d9` as foot (role `engineer` is in its FOOT_ROLES, and
- * `mobility.wheeled` is not authored), so `ringClassOf` alone would give a
- * tracked 1.26-tile hull the rifleman's ring. Sim data is not ours to change
- * (it would move the pathing domain); the ring reads it as what its flags give
- * once it is a vehicle: soft-skinned, so `light`.
+ * Render-side class overrides, keyed by unit type id. Until GH-598 the sim
+ * classed `dozer_d9` as foot (role `engineer` is in its FOOT_ROLES, and
+ * `mobility.wheeled` was not authored), so `ringClassOf` alone gave a tracked
+ * 1.26-tile hull the rifleman's ring, and this override made it `light`. Its
+ * JSON says `wheeled: true` now, and with front armour 240 it is not soft, so
+ * `ringClassOf` reads `armour`; the override still holds the `light` ring it
+ * shipped with, so GH-598 moves no ring. Whether it should read `armour` is a
+ * render call, not the sim's.
  */
 export const RING_CLASS_OVERRIDE: Readonly<Record<string, RingClass>> = { dozer_d9: 'light' };
 

@@ -3632,7 +3632,15 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // - Qarn Hadid III 235 -> 216: ROE 100 -> 91, roster out 23 -> 22, find_the_grove_post left open;
 // - Umm Zeitoun IV 245 -> 265: the plan drives in on the warehouse once no AT gun is seen, roster out 31 -> 33.
 // Every plan, control and gate holds on 30 seeds; no star moved.
-const LADDER_CREDITS = 5940;
+// 2026-10-15, GH-598: the D9 is a vehicle (`mobility.wheeled: true`; its `engineer` role had made it
+// foot). 5940 -> 5930, -10, read off the printed per-mission credits:
+// - Wadi Halam V 210 -> 200: roster out 18 -> 17. Not a route: the dozer's track is identical to
+//   t=80 s (nothing on its road is a boulder). The plan's hold re-anchor at 85 s is the first group
+//   order to include the D9, and a group order slots it in the vehicle front rank now, not the
+//   infantry grid behind; every slot behind it moves, and a demo_squad dies at the gate (32.5,14.5)
+//   at 232 s where it lived before. Still VICTORY, ROE 100, ★★, 30/30 seeds (slowest 5.4 -> 5.5 min).
+// No other mission fields a D9 and no plan builds one; no star or gate moved.
+const LADDER_CREDITS = 5930;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
