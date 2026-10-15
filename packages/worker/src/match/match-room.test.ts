@@ -1563,6 +1563,18 @@ describe('per-seat kit: the room records each seat\'s claim and mints it only in
     expect(validateConfig(JSON.parse(JSON.stringify(start.config)))).not.toBeNull();
     return start.config;
   };
+  it('the lobby names the kit rule to both seats when it is brigade, and says nothing for a matched or sandbox room', async () => {
+    const lobbyKit = async (opts: CreateOpts) => {
+      const { room } = await created(new FakeState(), opts);
+      const ws0 = await hello(room, 0);
+      const ws1 = await hello(room, 1);
+      return [ofType(ws0, 'lobby').at(-1)?.kit, ofType(ws1, 'lobby').at(-1)?.kit];
+    };
+    expect(await lobbyKit({ mode: 'versus', kit: 'brigade' })).toEqual(['brigade', 'brigade']);
+    expect(await lobbyKit({ mode: 'versus', kit: 'matched' })).toEqual([undefined, undefined]);
+    expect(await lobbyKit({ mode: 'versus' })).toEqual([undefined, undefined]);
+    expect(await lobbyKit({ kit: 'brigade' })).toEqual([undefined, undefined]);
+  });
   it('a matched room with tiers in both bodies mints tiers {} on both seats', async () => {
     const c = await startOf({ mode: 'versus', kit: 'matched', tiers: HOST, joinTiers: GUEST });
     expect(c.seats.map((s) => [s.kit, s.tiers])).toEqual([['matched', {}], ['matched', {}]]);

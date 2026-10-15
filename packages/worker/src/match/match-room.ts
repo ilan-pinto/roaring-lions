@@ -400,13 +400,18 @@ export class MatchRoom {
   private advisorsFor(seat: Seat): WebSocket[] {
     return this.ctx.getWebSockets().filter((ws) => advisorOf(ws)?.seat === seat);
   }
+  /** A `lobby` as `seat` is told it: its own seat, and the room's kit rule when
+   *  it is `brigade` (the lobby shows it to both seats; absent is matched). */
+  private lobbyFor(msg: Extract<ServerMsg, { t: 'lobby' }>, seat: Seat): ServerMsg {
+    return { ...msg, you: seat, ...(this.meta?.kit === 'brigade' && this.meta.mode === 'versus' ? { kit: 'brigade' as const } : {}) };
+  }
   /** `'all'` reaches every seated socket, advisors included, each `lobby` naming
    *  the socket's own seat; a seat-targeted message reaches that seat's own
    *  sockets and never its advisor. */
   private send(to: Seat | 'all', msg: ServerMsg): void {
     const seats: Seat[] = to === 'all' ? [0, 1] : [to];
     for (const seat of seats) {
-      const text = JSON.stringify(msg.t === 'lobby' ? { ...msg, you: seat } : msg);
+      const text = JSON.stringify(msg.t === 'lobby' ? this.lobbyFor(msg, seat) : msg);
       const targets = to === 'all' ? [...this.socketsFor(seat), ...this.advisorsFor(seat)] : this.socketsFor(seat);
       for (const ws of targets) { try { ws.send(text); } catch { /* closing */ } }
     }
@@ -758,7 +763,7 @@ export class MatchRoom {
   private advisorHello(ws: WebSocket, st: RoomState, seat: Seat, scope: AdvisorScope): void {
     for (const old of this.advisorsFor(seat)) if (old !== ws) retire(old);
     (ws as HibernatingSocket).serializeAttachment({ seat, role: 'advisor', scope } satisfies SocketAttachment);
-    if (st.status === 'lobby') reply(ws, lobbyMsg(st, seat));
+    if (st.status === 'lobby') reply(ws, this.lobbyFor(lobbyMsg(st, seat) as Extract<ServerMsg, { t: 'lobby' }>, seat));
     else if (st.config !== null) {
       for (const part of logParts(st.config, this.readLog())) reply(ws, part);
       if (st.pause !== null) reply(ws, pausedMsg(st, Date.now(), st.pause));
