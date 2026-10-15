@@ -365,7 +365,7 @@ describe('MatchRoom', () => {
     const real = crypto.getRandomValues.bind(crypto);
     const rnd = vi.spyOn(crypto, 'getRandomValues').mockImplementation(<T extends ArrayBufferView | null>(a: T): T => {
       if (a instanceof Uint32Array) { a.fill(0x9e3779b9); return a; }
-      return real(a as unknown as Uint8Array) as unknown as T;
+      return real(a as unknown as Uint8Array<ArrayBuffer>) as unknown as T;
     });
     try {
       const { ws0 } = await running({ mode: 'versus' });
