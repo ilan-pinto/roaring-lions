@@ -24,7 +24,7 @@
 //   after  (NW 10.5, SW  9.5, SE 37.5)  passive  0/100 [100/0/0/0]   naive 99  sensible 100  optimal 100
 // Every winning run reads 5.00 min: the relief hold is a fixed 300 s clock.
 import { Sim, fx, TICKS_PER_SECOND, MissionRuntime, type MissionJson, type TunnelRouteJson } from '@lions/sim';
-import { units, maps, missions, structures as structureCatalogue, parseMap, applyTerrain } from '@lions/data';
+import { units, maps, missions, structures as structureCatalogue, parseMap, applyTerrain, roadMaskOf } from '@lions/data';
 
 type Tier = 'passive' | 'naive' | 'sensible' | 'optimal';
 const ID = 'beit_sahwan_breach';
@@ -63,6 +63,7 @@ export function runFirstLight(tier: Tier, seed: number, mission: MissionJson = m
     typeIdOf: (u) => typeOf.get(u) as number,
     markers: map.markers,
     zones: map.zones,
+    roadMask: roadMaskOf(map),
     tunnels: tunnelRoutes,
     ledger: {},
     unitInfo: () => null,

@@ -26,9 +26,13 @@ THE PARTS.
     and ties `metal`; streaks `rust`.
   * Sandbags: `kit.sandbag`, a pillow (superquadric, pinched sewn ends, a
     settled top, a flat belly) jittered per bag by a deterministic integer
-    hash, role `wood` (`dust.4`, the kit's sandbag role). The wall and the
-    post are laid from the SAME bag, course by course, stretcher and header,
-    so a run of wall beside a post reads as one material.
+    hash, role `wall`, so a bag takes its type's own `color` (`limestone.2`,
+    which draws `limestone.3`, #C8B494). It was the shared `wood` role until
+    15 Oct, which draws `dust.1` for every building's timber: saturation 0.58
+    against the textured HESCO's 0.38 beside it, an orange the D2 seam audit
+    flagged (finding 3). The wall and the post are laid from the SAME bag,
+    course by course, stretcher and header, so a run of wall beside a post
+    reads as one material.
   * Sandbag wall: 7 courses (1.09 m), two bags deep for the bottom four,
     one above -- a tapered parapet -- with half bags at the butt ends of the
     offset courses so a run joins flush at x = +-1.5.
@@ -318,7 +322,7 @@ def lay_run(label, x0, x1, y, z, offset, seed, full_len=BAG[0] + 0.02):
         starts = [(x0 + i * step, x0 + (i + 1) * step) for i in range(n)]
     for i, (a, b) in enumerate(starts):
         L = (b - a) - 0.02
-        bag = kit.sandbag(f"{label}_{i}", ((a + b) / 2.0, y, z), 0.0, "wood",
+        bag = kit.sandbag(f"{label}_{i}", ((a + b) / 2.0, y, z), 0.0, "wall",
                           (L, BAG[1], BAG[2]), seed=seed * 101 + i)
         out.append(bag)
     return out
@@ -329,7 +333,7 @@ def lay_headers(label, x0, x1, y, z, seed):
     n = max(1, int(round((x1 - x0) / (BAG[1] + 0.01))))
     step = (x1 - x0) / n
     for i in range(n):
-        out.append(kit.sandbag(f"{label}_{i}", (x0 + step * (i + 0.5), y, z), math.pi / 2, "wood",
+        out.append(kit.sandbag(f"{label}_{i}", (x0 + step * (i + 0.5), y, z), math.pi / 2, "wall",
                                (BAG[0], step - 0.01, BAG[2]), seed=seed * 101 + i))
     return out
 
@@ -372,7 +376,7 @@ def spill(label, n, xr, yr, keep_out, seed):
         x = xr[0] + (xr[1] - xr[0]) * kit._jit(seed, i, 1)
         side = -1.0 if kit._jit(seed, i, 2) < 0.6 else 1.0  # more of it toward the camera
         y = side * (keep_out + (max(abs(yr[0]), abs(yr[1])) - keep_out) * kit._jit(seed, i, 3))
-        b = kit.sandbag(f"{label}_{i}", (x, y, 0.0), math.pi * kit._jit(seed, i, 4), "wood", seed=seed * 131 + i)
+        b = kit.sandbag(f"{label}_{i}", (x, y, 0.0), math.pi * kit._jit(seed, i, 4), "wall", seed=seed * 131 + i)
         tilt_bag(b, seed * 17 + i, 25.0)
         out.append(b)
     return out
@@ -434,7 +438,7 @@ def build_sandbag_post(state):
                 p, t = u_at(L * (i + 0.5) / n)
                 if wreck and abs(front_angle(p)) < 40 and c >= 1:
                     continue
-                parts.append(kit.sandbag(f"sp_{c}_{i}", (p.x, p.y, z), t + math.pi / 2, "wood",
+                parts.append(kit.sandbag(f"sp_{c}_{i}", (p.x, p.y, z), t + math.pi / 2, "wall",
                                          (BAG[0], L / n - 0.01, BAG[2]), seed=c * 1000 + i))
             continue
         for r, d in enumerate(rows):
@@ -451,7 +455,7 @@ def build_sandbag_post(state):
                     continue
                 if wreck and abs(fa) < 40 and c >= 1 and p.x > CX_POST:
                     continue
-                parts.append(kit.sandbag(f"sp_{c}_{r}_{i}", (p.x, p.y, z), t, "wood",
+                parts.append(kit.sandbag(f"sp_{c}_{r}_{i}", (p.x, p.y, z), t, "wall",
                                          (row_len / n - 0.02, BAG[1], BAG[2]), seed=c * 1000 + r * 100 + i))
     if not wreck:
         # The aperture's pane: dark, set back at the inner face, facing out.
@@ -466,7 +470,7 @@ def build_sandbag_post(state):
         # Three loose bags at the entrance.
         for i in range(3):
             b = kit.sandbag(f"sp_loose_{i}", (ARM_X - 0.15 - 0.1 * i, -0.35 + 0.35 * i, 0.0),
-                            math.pi * (0.3 + 0.4 * kit._jit(i, 41)), "wood", seed=900 + i)
+                            math.pi * (0.3 + 0.4 * kit._jit(i, 41)), "wall", seed=900 + i)
             tilt_bag(b, 900 + i, 12.0)
             parts.append(b)
     else:
@@ -475,7 +479,7 @@ def build_sandbag_post(state):
             a = math.radians(-50 + 100 * kit._jit(i, 51))
             r = R_POST + 0.25 + 0.45 * kit._jit(i, 52)
             b = kit.sandbag(f"sp_spill_{i}", (CX_POST + r * math.cos(a), r * math.sin(a), 0.0),
-                            math.pi * kit._jit(i, 53), "wood", seed=950 + i)
+                            math.pi * kit._jit(i, 53), "wall", seed=950 + i)
             tilt_bag(b, 950 + i, 30.0)
             parts.append(b)
     turn = Matrix.Rotation(POST_YAW, 4, "Z")

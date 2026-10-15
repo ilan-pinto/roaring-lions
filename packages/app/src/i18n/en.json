@@ -630,6 +630,7 @@
   "loading.brought.conduct": "Conduct {n}",
   "loading.brought.none": "No survivors carried forward. The brigade fields a fresh remnant for each slot.",
   "loading.deploy": "Deploy",
+  "loading.deploy.pressed": "Deploying",
   "loading.progress": "Loading {loaded} of {expected}",
   "loading.ready": "Ready",
   "loading.preparing": "Loading…",

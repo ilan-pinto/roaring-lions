@@ -2434,3 +2434,113 @@ Still whole on a collapse: the decor batches (`buildDecorMesh`, 3-11 ms at
 4x in the same profiles) and the prop placements (2-5 ms), which sort every
 candidate map-wide and space them under a cap, so a prop's acceptance is not a
 function of the tiles near it.
+
+## Held-ground income (F2, GH-183), 2026-10-15
+
+What `MissionRuntime.stepIncome` costs per tick at the GDD's 300-unit target. **Tick cost, not frame
+cost**: nothing here touches the renderer, so there is no frame-time number and no draw call. The
+step does two kinds of work. Every tick, the presence test: since Task 11 `zoneStates`, ONE pass over
+the living units through a per-tile zone bitmask (it was `zoneState` per zone, O(zones x units)). On a
+recheck (every 20 ticks, on a `structureDestroyed`, and on any tick a zone's holder changes): a route
+per held zone and for the convoy, and `corridorCut` over each route, O(living enemies x route tiles)
+plus an O(units) contest scan for each enemy near a route. Since Task 11 a route is REUSED unless the
+terrain or one of its ends changed: the runtime keeps a copy of `blockedVehicle`, `blocked` and the
+elevation, compares them byte for byte at each recheck, and only a difference stales its flow fields
+(one `FlowField.compute` per goal tile), zone starts, rears and routes. The cut test still runs at
+every recheck. Same answers by construction, and the pins agree: the sim pins, `ECONOMY_PIN` and
+`ECONOMY_PIN_RELIEF` (both fixtures carry two zones and a live convoy), `pnpm balance` and `pnpm
+playtest` did not move.
+
+### The instrument
+
+`tools/src/perf/income-cost.ts`, report-only (no gate, not in CI). It builds the real `deir_amun_2`
+map (48x48, two tunnel routes, a road, a camp at (21,35) as the rear) with `deir_amun_2_foothold`
+cloned IN MEMORY (starting force, enemy, triggers and ROE emptied; four income zones
+`pump_yard`, `hamlet`, `store_yard`, `the_wadi`; `supply_corridor` and a `supply_entry` at the
+`store_road` marker, so a convoy of 29 tiles is live; the map's roads in `roadMask`), and **300 living
+units**: 140 + 140 unarmed ground (`dozer_d9` and `digger_crew`, so nobody dies and the count holds)
+and 10 + 10 `recon_drone` (air, which the presence test must skip). It wraps the prototype methods
+`stepIncome`, `recheckCorridors` and `FlowField.compute` with a clock (TypeScript `private` is
+compile-time only; the same trick as `sim-scaling.ts`) and moves its flappers by writing the sim's
+position arrays between ticks, which a bench may do and the game never does. A run that did not
+build its state throws rather than reading cheap: the end states are asserted, a flap scenario must
+recheck on every measured tick (Task 11: a dead flapper rechecks on the cadence alone), and the bench
+mission ending throws.
+`pnpm --filter @lions/tools exec tsx src/perf/income-cost.ts [--scenario=N] [--runs=5] [--ticks=2000]`.
+
+**`held4-interdict` was re-staged in Task 11.** Task 10's passes ran before the harness gained the
+`roadMask` line; with the roads in, the routes are short and the zone occupants, spread over their
+zones, contested every route tile, so the committed scenario threw "0 zones cut" on seeds 1001 and
+1003. Each zone's 20 occupants now stack on its tile farthest from the routes, and half the enemy
+stack stands 6.5+ tiles from them: every zone and the convoy end interdicted, on every seed. It is
+therefore MORE adversarial than the scenario Task 10 measured (half the stack is uncontested, so half
+the contest scans run the whole unit list), and its Task 10 row below is not comparable with it.
+
+### Task 11: before and after, one machine, interleaved
+
+**Conditions.** Apple M3 Pro, 12 cores, macOS (Darwin 27.0.0), node v25.9.0 under tsx, no browser, no
+GPU, **a shared machine with other sessions running** (1-minute load 14.6-21.6 during the run,
+16:34-16:45 IDT). Harness and "after" sim at `53282f8f`; "before" = the same harness over the sim
+sources of `92b0189a` (`mission.ts`, `income.ts`, `corridor.ts` copied in per run), so only the sim
+differs. Per scenario, before and after alternate, two rounds, 3 runs of 2,000 timed ticks (+200
+warm-up) each: 6 runs a cell. Microseconds; `performance.now()`; the `control` (no zones, no convoy)
+reads 0.6-2.5 us mean, the wrapper's floor. Budget 50,000 us a tick. Raw: the task-11 scratch
+`ab/{before,after}-<scenario>-r{1,2}.json`.
+
+| Scenario | Before: mean / median-based amortised | After: mean / median-based | Recheck tick median, before -> after | Field computes a recheck |
+|---|---|---|---|---|
+| `mixed`: 1 held by side 0, 1 contested, 1 held by side 1, 1 empty | 65-91 / 58-64 | **20-27 / 16-17** | 493-589 -> 77-88 | 2 -> 0 |
+| `held4-clean`: side 0 holds all four, nothing cut | 96-132 / 77-85 | **20-36 / 17-18** | 762-845 -> 111-120 | 3 -> 0 |
+| `held4-scatter`: same, 140 enemies scattered | 95-184 / 78-85 | **22-43 / 18-21** | 782-884 -> 136-155 | 3 -> 0 |
+| `held4-interdict`: every line interdicted, half the stack uncontested | 179-273 / 169-206 | **107-131 / 100-113** (one run 301 / 205 under a load spike) | 2,526-3,322 -> 1,752-2,005 (3,786) | 3 -> 0 |
+| `flap-one`: one zone empty <-> held each tick | 614-1,984 / 597-1,154 | **120-589 / 101-160** | (every tick) | 2.5 -> 0 |
+| `flap-swap`: one zone side 0 <-> side 1 each tick | 615-876 / 592-694 | **110-142 / 95-102** | (every tick) | 2.5 -> 0 |
+| `flap-all`: every zone empty <-> held each tick | 506-681 / 575-644 | **80-130 / 94-102** | (every tick) | 2 -> 0 |
+
+**Is amortised under the 0.1 ms line now?** For every steady state but the adversarial one, yes, with
+room: **0.02-0.04 ms a tick** on the mean, 0.016-0.021 on the median (0.04-0.09% of the budget),
+about 4x below the before column. The presence test (the non-recheck tick) fell from 35-45 us to 11-17 us, the
+recheck from 0.5-0.9 ms to 0.08-0.16 ms, and `FlowField.compute` from 2-3 calls a recheck to none.
+**`held4-interdict` is not: 0.10-0.13 ms a tick** (median-based 0.100-0.113), because what is left of
+its recheck (1.75-2.0 ms, no field computed) is the cut test itself: 140 enemies within 2 tiles of five
+lines, half of them uncontested, so each runs `nearRoute` over every route and an O(300) contest scan.
+That is the cost `corridorCut` was specified to pay at every recheck and Task 11 left it as it was.
+**A flapping holder** now costs a cut test a tick, not a Dijkstra: **~0.1 ms a tick** on the median
+(0.095-0.16), 6x less, and it allocates nothing per tick but the `zoneHolder` / `corridor` events
+themselves (a reused route is the same object; `structureExit` is read only when the anchor or the
+terrain changed; the vents are copied once).
+
+The tail: p99 over a run (a recheck tick) went 1.0-1.7 ms -> 0.14-0.33 ms in `held4-clean` and
+0.6-0.9 -> 0.12-0.20 in `mixed`. The single worst tick of a run still reaches 0.4-21 ms after (1-123
+ms before). This run's `control`, which does no income work, read a worst tick of 0.02-1.7 ms (19.6
+ms in Task 10's passes), so a single spike is still not attributable to the step: unresolved, as
+Task 10 left it (`node --trace-gc` then: longest scavenge 3.76 ms).
+
+### Task 10's reading (before Task 11, for the record)
+
+Measured at `752e78d0`'s harness without the `roadMask` line (so on the flow routes, and with the old
+interdict staging), three passes, 5 runs of 2,000 ticks, load 11-44: amortised **0.07-0.15 ms a tick**
+on the mean (quiet pass 0.09-0.10), 0.06-0.12 on the median; presence test 38-45 us a tick (4 zones x
+300 units); a recheck 0.53-0.94 ms median steady and 1.1-2.4 ms interdicted, ~80% of it
+`FlowField.compute` (2-3 computes, ~0.2-0.3 ms each); a flapping holder ~0.7 ms a tick on the median
+when quiet (1.2-1.4 loaded), allocating a route per recheck. Its remedy -- fields reused while the
+mask holds, and one pass for the presence test -- is what Task 11 built (the mask is compared byte
+for byte rather than versioned on `structureDestroyed`, so a mask change no event announces is seen
+too, and routes, starts and rears are cached as well as fields).
+
+### Still not built
+
+The cut test's contest scan (O(units) per enemy near a route, per line) is what keeps the adversarial
+case at 0.1 ms. A per-recheck tile grid of the holder's living ground units would make each contest
+query O(contest-radius tiles) instead of O(units) with the same answers; not built: no shipped mission
+has a zone, and the steady cases are a fifth of the line.
+
+### What this does not measure
+
+Open hostile vents (`hostileStocked` is O(units) per open stocked route per cut test; the bench has
+none open: bounded by routes x zones x N, not measured); routes longer than 29 tiles (the cut test
+scales with route length; the longest on this map are 18-29); maps other than 48x48; side 1 holding
+zones against a rear (side 1 has no camp in the bench, so its zones are never cut and never routed);
+a terrain change (a structure falling) inside the measured window: that recheck pays the old cost
+once (fields, starts, rears and routes recomputed), and none of the scenarios fells one; the renderer
+(the zones' display is Lane A's, WP-S-F #184).

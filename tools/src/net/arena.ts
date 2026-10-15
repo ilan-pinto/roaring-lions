@@ -44,6 +44,15 @@
  * refused before any room exists; 3 (only with `--gate`) every game played
  * and the gate FAILED. A run that ends 1 is not judged (`gate: not judged`)
  * and stays 1. Without `--gate` no exit code changes.
+ *
+ * SIGINT and SIGTERM (`installSignalCleanup`, the CLI entry only) do what the
+ * skipped `finally` blocks would: every external child is stopped and every
+ * seat's temp directory, ticket and all, removed (`abortExternalPlayers`),
+ * every running player stopped and every relay closed; then the arena exits
+ * 130 (SIGINT) or 143 (SIGTERM). From the first signal no new game or seat
+ * starts (the stop latch). A SECOND signal while that runs exits at once with
+ * the same code, cleanup unfinished: the escape hatch for a stuck stop. The
+ * run's own exit code never overtakes the signal's.
  */
 import { randomUUID } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
@@ -57,7 +66,7 @@ import { gateVerdict, headToHead, markdownReport, pval, tally, type GameRecord, 
 import { buildId } from './build-id';
 import { capOutcome } from './cap';
 import { startLocalRelay, type LocalRelay, type LocalRelayOptions } from './local-relay';
-import { externalPlayer } from './external-player';
+import { abortExternalPlayers, externalPlayer, externalPlayersStopped } from './external-player';
 import { inProcess, passive, rush, type ArenaPlayer, type PlayerReport, type RunningPlayer } from './players';
 
 export interface ArenaArgs {
@@ -372,21 +381,32 @@ export async function startObserver(relay: Pick<LocalRelay, 'url' | 'origin'>, c
   };
 }
 
+/** What is running right now, for a signal: `playGame` adds each relay and
+ *  player as it starts and removes it once its own `finally` has closed it. */
+const liveRelays = new Set<LocalRelay>();
+const livePlayers = new Set<RunningPlayer>();
+
 /** One game on its own relay, to a result or the cap. Every player and the
  *  relay are closed before it returns, whatever happened. */
 async function playGame(g: GameSpec, a: ArenaArgs, build: string, startRelay: NonNullable<ArenaDeps['startRelay']>, observe: typeof startObserver, log: (line: string) => void): Promise<GameRecord> {
   const relay = await startRelay({ tickMs: a.tickMs, seedFor: () => g.seed, log });
+  liveRelays.add(relay);
   const running: RunningPlayer[] = [];
   let observer: (RunningPlayer & { client: AgentClient }) | null = null;
   try {
     const { code, tickets } = await openRoom(relay, a, build, g.names);
     for (const seat of [0, 1] as const) {
-      running.push(await g.players[seat].start({ server: relay.url, origin: relay.origin, code, seat, ticket: tickets[seat], build, capTicks: a.capTicks, logFile: `${g.logBase}-seat${seat}.log` }));
+      const r = await g.players[seat].start({ server: relay.url, origin: relay.origin, code, seat, ticket: tickets[seat], build, capTicks: a.capTicks, logFile: `${g.logBase}-seat${seat}.log` });
+      running.push(r);
+      livePlayers.add(r);
     }
     const clients: [AgentClient | null, AgentClient | null] = [running[0].client, running[1].client];
     // An external player has no client here: with neither seat in this
     // process, the arena reads the game through seat 0's own advisor.
-    if (clients[0] === null && clients[1] === null) observer = await observe(relay, code, tickets[0], build, a.capTicks, log);
+    if (clients[0] === null && clients[1] === null) {
+      observer = await observe(relay, code, tickets[0], build, a.capTicks, log);
+      livePlayers.add(observer);
+    }
     const referee = clients[0] ?? clients[1] ?? observer?.client ?? null;
     if (referee === null) throw new Error('the arena has no client to read the match through');
     const config = await withTimeout(referee.ready, START_TIMEOUT_MS, 'the match start');
@@ -427,12 +447,15 @@ async function playGame(g: GameSpec, a: ArenaArgs, build: string, startRelay: No
     // Every close is guarded: one that fails is logged and the next still runs.
     if (observer !== null) {
       try { await observer.stop(); } catch (e) { log(`stopping the observer: ${messageOf(e)}`); }
+      livePlayers.delete(observer);
     }
     for (const r of running) {
       try { await r.stop(); } catch (e) { log(`stopping a player: ${messageOf(e)}`); }
+      livePlayers.delete(r);
     }
     // A failed close is logged, never thrown: it must not mask the game's own error.
     try { await relay.close(); } catch (e) { log(`closing the relay: ${messageOf(e)}`); }
+    liveRelays.delete(relay);
   }
 }
 
@@ -488,6 +511,8 @@ export async function runArena(argv: readonly string[], deps: ArenaDeps = {}): P
         { seed, players: [B, A], names: [names[1], names[0]], logBase: join(dir, `${base}-game${2 * n + 2}`) },
       ];
       for (const g of orders) {
+        // A signal's cleanup has begun: no new relay, no new seat.
+        if (externalPlayersStopped()) throw new Error('the arena is stopping (a signal): no further game');
         const record = await playGame(g, a, build, startRelay, observe, log);
         games.push(record);
         appendFileSync(files.jsonl, `${JSON.stringify(record)}\n`);
@@ -521,6 +546,57 @@ export async function runArena(argv: readonly string[], deps: ArenaDeps = {}): P
   return { code, games, tally: t, files, gate };
 }
 
+/** The conventional exit for a process ended by a signal: 128 + its number. */
+export const SIGNAL_EXIT: Readonly<Record<'SIGINT' | 'SIGTERM', number>> = { SIGINT: 130, SIGTERM: 143 };
+/** How long any one step of a signal's cleanup may take before the next runs. */
+const SIGNAL_STEP_MS = 5000;
+
+/** Resolves when `p` settles or after `ms`, whichever is first; never rejects. */
+function bounded(p: Promise<unknown>, ms: number): Promise<void> {
+  return withTimeout(p, ms, 'cleanup').then(() => {}, () => {});
+}
+
+/**
+ * The CLI's SIGINT/SIGTERM handler: what a skipped `finally` would have
+ * done, then `exit(130|143)`. The external children go first and with no
+ * grace, their temp directories (each with its 0600 ticket) with them, and
+ * the stop latch with them, so no game or seat starts after; then every
+ * running player is stopped and every relay closed, each step bounded so a
+ * stuck one cannot keep the process alive. The game's own `finally`, if it
+ * gets to run, finds everything already stopped (every stop and close is
+ * idempotent). A SECOND signal while the cleanup runs exits at once, with the
+ * same conventional code, leaving the cleanup unfinished: what a user means by
+ * a second Ctrl-C. Returns `signalled()`, which the entry consults so that the
+ * run's own exit code never overtakes the signal's, and `uninstall()`.
+ */
+export function installSignalCleanup(o: { log?: (line: string) => void; exit?: (code: number) => void } = {}): { signalled: () => boolean; uninstall: () => void } {
+  const log = o.log ?? ((line: string) => { process.stderr.write(`${line}\n`); });
+  const exit = o.exit ?? ((code: number) => { process.exit(code); });
+  let cleaning: Promise<void> | null = null;
+  const onSignal = (signal: 'SIGINT' | 'SIGTERM'): void => {
+    if (cleaning !== null) {
+      log(`arena: second ${signal}: exiting now, cleanup unfinished`);
+      exit(SIGNAL_EXIT[signal]);
+      return;
+    }
+    log(`arena: ${signal}: stopping the players, removing the temp directories, closing the relay`);
+    cleaning = (async () => {
+      await bounded(abortExternalPlayers(), SIGNAL_STEP_MS);
+      await Promise.all([...livePlayers].map((r) => bounded(r.stop(), SIGNAL_STEP_MS)));
+      await Promise.all([...liveRelays].map((r) => bounded(r.close(), SIGNAL_STEP_MS)));
+      // No second sweep: the latch the first one set refuses every later seat.
+    })().finally(() => { exit(SIGNAL_EXIT[signal]); });
+  };
+  const onInt = (): void => { onSignal('SIGINT'); };
+  const onTerm = (): void => { onSignal('SIGTERM'); };
+  process.on('SIGINT', onInt);
+  process.on('SIGTERM', onTerm);
+  return {
+    signalled: () => cleaning !== null,
+    uninstall: () => { process.off('SIGINT', onInt); process.off('SIGTERM', onTerm); },
+  };
+}
+
 /** Whether this module is the process's entry point (and not imported by a spec). */
 function isEntry(): boolean {
   const entry = process.argv[1];
@@ -532,8 +608,10 @@ function isEntry(): boolean {
   }
 }
 if (isEntry()) {
+  const signals = installSignalCleanup();
   runArena(process.argv.slice(2)).then(
-    (r) => { process.exit(r.code); },
-    (err: unknown) => { process.stderr.write(`arena: ${messageOf(err)}\n`); process.exit(1); },
+    // Once a signal has arrived its handler exits, with its own code.
+    (r) => { if (!signals.signalled()) process.exit(r.code); },
+    (err: unknown) => { process.stderr.write(`arena: ${messageOf(err)}\n`); if (!signals.signalled()) process.exit(1); },
   );
 }

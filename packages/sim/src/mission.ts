@@ -9,12 +9,27 @@
 // map markers/zones.
 
 import { CivilianFlight, missionShepherds } from './civilians';
+import { corridorCut, corridorRoute, type CutCause, type RouteSource, type VentView } from './corridor';
+import { FlowField } from './flowfield';
+import {
+  asZoneState,
+  MAX_INCOME_ZONES,
+  ZONE_CONTESTED,
+  ZONE_EMPTY,
+  zoneStates,
+  zoneTileMask,
+  type Holder,
+  type HoldView,
+  type ZoneState,
+} from './income';
 import { fx, HALF, type Fx } from './fixed';
 import { HASH_SEED, hashWord } from './hash';
 import { starsFor, betterResult, type Stars, type MissionResult } from './grade';
 import { TICKS_PER_SECOND, type Sim, type SimEvent } from './sim';
 import { highGroundRises } from './intel-earn';
 import {
+  CONTEST_RADIUS_SQ,
+  CORRIDOR_RECHECK_TICKS,
   FS_MORTAR_BARRAGE,
   FS_SMOKE_SCREEN,
   HIGH_GROUND_HOLD_TICKS,
@@ -244,7 +259,13 @@ export interface MissionJson {
     logistics_start?: number;
     intel_start?: number;
     logistics_rate_per_min?: number;
+    /** D2: the base rate halves while the convoy route from `supply_entry` to the rear is
+     *  cut. Without both this and `supply_entry`, nothing halves the base. */
     supply_corridor?: boolean;
+    /** F2: ground that pays its holder (D3, D6), each zone a name in the map's zones. */
+    income_zones?: readonly { zone: string; rate_per_min: number }[];
+    /** F2 (D2): the map marker the supply convoy enters by. */
+    supply_entry?: string;
     /** Side 0's population cap (GH-183). The schema refuses it on every campaign
      *  mission; `MissionContext.popCaps` overrides it. Absent = uncapped. */
     pop_cap?: number;
@@ -333,6 +354,77 @@ export interface MissionContext {
    *  (unlock.ts, D5). The runtime never sees a gate, so the app and the harness compute it
    *  with the same lookup they resolve upgrades with and hand it in. Absent = nothing on loan. */
   loaned?: readonly number[];
+  /** 1 where the map's decor is a road, row-major (`roadMaskOf`, @lions/data; C-R4). Supply
+   *  convoys take the road where one joins their ends (D5). Absent = the map has no roads, and
+   *  every convoy takes the wheeled flow route. */
+  roadMask?: Uint8Array;
+}
+
+/**
+ * One income zone as the runtime keeps it (F2; Lane A's A2, C-R14). The runtime's own object,
+ * updated in place: `incomeZones` hands these out and never copies them. Only `state` and
+ * `cut` reach `economyHash`; the rest is presentation.
+ */
+export interface ZoneIncome {
+  /** The zone's name in the map's zones. */
+  readonly zone: string;
+  /** x, y, width, height, in tiles. */
+  readonly rect: readonly [number, number, number, number];
+  readonly ratePerMin: number;
+  /** Who stands in it: 0, 1, ZONE_EMPTY (-1) or ZONE_CONTESTED (-2). Every tick. */
+  state: ZoneState;
+  /** `state` with contested folded into nobody: who it pays. */
+  holder: Holder;
+  /** What cuts the line from the zone to its holder's rear (D4); null while open, and while
+   *  nobody holds the zone or the holder has no rear. Rechecked, not every tick. */
+  cut: CutCause;
+  /** The tiles from the zone to its holder's rear (D5), indices y * width + x; null when
+   *  nobody holds it, the holder has no rear, or there is no wheeled way ('unreachable').
+   *  Read-only for a consumer: it is the runtime's cached array, and it is REUSED STORAGE
+   *  (replaced or cleared at a recheck, never mutated by a consumer). Copy it to keep it. */
+  route: ArrayLike<number> | null;
+  /** First and last indices into `route` of the tiles that make the cut (A3, C-R15); null
+   *  when not cut or unreachable. REUSED STORAGE: the pair is mutated in place at a recheck,
+   *  so copy it if you keep it. */
+  cutSpan: readonly [number, number] | null;
+  /** What it pays its holder a minute, for display (A4, C-R16): the rate, half of it while
+   *  cut (it may end in .5), 0 when empty or contested. Never read by the runtime. */
+  readonly paysPerMin: number;
+}
+
+/** The supply convoy's line (D2): from `supply_entry` to side 0's rear. `route` is read-only
+ *  for a consumer, and `route` and `cutSpan` are reused storage (see `ZoneIncome`): copy to keep. */
+export interface ConvoyRoute {
+  route: ArrayLike<number> | null;
+  cut: CutCause;
+  cutSpan: readonly [number, number] | null;
+}
+
+/** A `ZoneIncome` with its paying rule. `paysPerMin` is a getter so it is never stored. */
+class ZoneIncomeState implements ZoneIncome {
+  state: ZoneState = ZONE_EMPTY;
+  holder: Holder = -1;
+  cut: CutCause = null;
+  route: Int32Array | null = null;
+  cutSpan: [number, number] | null = null;
+  /** The span's storage, reused at every recheck (no allocation). */
+  readonly spanStore: [number, number] = [-1, -1];
+
+  constructor(
+    readonly zone: string,
+    readonly rect: readonly [number, number, number, number],
+    readonly ratePerMin: number,
+  ) {}
+
+  /** Purse units (1/2400) a tick this zone pays its holder: 2 * rate in full, rate cut. */
+  get unitsPerTick(): number {
+    if (this.holder < 0) return 0;
+    return this.cut !== null ? this.ratePerMin : 2 * this.ratePerMin;
+  }
+
+  get paysPerMin(): number {
+    return (this.unitsPerTick * TICKS_PER_MINUTE) / PURSE_UNITS;
+  }
 }
 
 export type ObjectiveStatus = 'active' | 'complete' | 'failed';
@@ -395,6 +487,21 @@ export type MissionEvent =
    */
   | { kind: 'say'; tick: number; speaker: string; text: string }
   /**
+   * An income zone's state changed (F2; A1, C-R13): who holds it now, and whether nobody does
+   * because both sides stand in it. Fires on change only, empty <-> contested included; a zone
+   * that starts empty says nothing. `holder` -1 (lost, or contested) silently clears that zone's
+   * `cut` (C-R19): no `corridor` event follows, so a consumer that tracks cuts from events must
+   * drop the zone's cut on this event itself.
+   */
+  | { kind: 'zoneHolder'; tick: number; zone: string; holder: Holder; contested: boolean }
+  /**
+   * What cuts a supply line changed (F2, D4): `zone` names the income zone whose line it is,
+   * null for the convoy (D2). `cut` null means the line is open again. On change only. It is
+   * not sent when a zone's cut is cleared because the zone lost its holder: that is the
+   * `zoneHolder` event with holder -1 (C-R19).
+   */
+  | { kind: 'corridor'; tick: number; zone: string | null; cut: CutCause }
+  /**
    * Why intel moved this tick, for the HUD's feed. Intel is earned by doing
    * (F1, G3 Q1): the first identification of an enemy, and an objective's
    * completion. `at` is the integer tile the feed line names (#428: a feed line
@@ -425,7 +532,7 @@ export type MissionEvent =
 /** Every `MissionEvent` kind, as a value. See `SIM_EVENT_KINDS`. */
 export const MISSION_EVENT_KINDS = [
   'objective', 'trigger', 'wave', 'roe', 'built', 'evacuated', 'removed', 'unitLost', 'say',
-  'missionEnd', 'intelEarned',
+  'missionEnd', 'intelEarned', 'zoneHolder', 'corridor',
 ] as const satisfies readonly MissionEvent['kind'][];
 
 /** Compile-time proof the list above covers the whole union. See
@@ -443,6 +550,26 @@ const SUPPORTED = new Set([
   'evacuate_before', 'raze', 'collapse',
 ]);
 
+/** Purse units per whole logistics: 1/2400ths (see `MissionRuntime.purse`). */
+const PURSE_UNITS = 2400;
+/** Ticks a minute, for the per-minute display reads (A4). */
+const TICKS_PER_MINUTE = 60 * TICKS_PER_SECOND;
+
+/** Byte-for-byte equality of two masks of the same map (F2 Task 11). */
+function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+/** A cut cause as a hash word: open 0, unreachable 1, vent 2, interdicted 3 (C-R17). */
+function cutCode(cut: CutCause): number {
+  if (cut === null) return 0;
+  if (cut === 'unreachable') return 1;
+  if (cut === 'vent') return 2;
+  return 3;
+}
+
 /** Spread for multi-unit placements: 1.25 tiles. */
 const SPREAD = 81920;
 /** "Danger close": civilians within this of an aimpoint make heavy ordnance
@@ -456,12 +583,6 @@ const STRUCTURAL_COLLATERAL = 19661;
 /** One structure deduction per zone per this many ticks (10 s): damage to a
  *  protected site is assessed per incident, not per round. */
 const ZONE_DEDUCT_COOLDOWN = 200;
-/** How close an enemy must be to your troops to be contesting the ground
- *  rather than merely standing somewhere inside a large rectangle: 6 tiles,
- *  squared, in Q16.16. Objective zones are big — 'no enemy anywhere in the
- *  zone' let one routed survivor in a far corner freeze a hold forever. */
-const CONTEST_RADIUS_SQ = 2359296;
-
 /** Is entity `i`'s tile inside the zone rectangle `[x, y, w, h]`? */
 function tileInZone(st: Sim['state'], i: number, zone: readonly number[]): boolean {
   const tx = st.posX[i] >> 16;
@@ -598,7 +719,85 @@ export class MissionRuntime {
   private roeFailed = false;
   /** Survivors that came back a stripe more veteran this mission; set in checkEnd. */
   private promotedValue = 0;
-  private logisticsValue = 0;
+  /** The logistics purse, per side, in 1/2400ths of a logistics. Integer on purpose:
+   *  income from a base rate plus (F2) several zones, each possibly halved, is a sum
+   *  whose float rounding depends on the order of addition, and that is a desync the
+   *  day the economy is locked in step. At 20 Hz a full source adds 2 * rate units a
+   *  tick and a halved one adds rate, both exact for every integer per-minute rate
+   *  (rate / 1200 logistics a tick = 2 * rate / 2400). Side 0 earns and spends;
+   *  side 1's slot exists and stays 0 until a later task gives it a source. */
+  private readonly purse = new Int32Array(2);
+  /** Per side, whole logistics earned so far (base and zones), and the zones' share of it
+   *  (C-R8, for Task 9's banking report). Kept in purse units; read floored. Derived from
+   *  the hashed purse effects, so not hashed itself. */
+  private readonly earnedUnits = new Int32Array(2);
+  private readonly zoneEarnedUnits = new Int32Array(2);
+  // --- held ground (F2 Task 7) -------------------------------------------------
+  /** The mission's income zones, in authored order (A2). Built in the constructor. */
+  private readonly incomeZoneList: ZoneIncomeState[] = [];
+  /** The convoy (D2): live only with `supply_corridor: true` AND a `supply_entry`. */
+  private readonly convoy: ConvoyRoute | null;
+  private readonly convoySpanStore: [number, number] = [-1, -1];
+  private readonly convoyEntry: { x: number; y: number } | null;
+  /** True until the first step, which computes every route. Later rechecks are decided per
+   *  step in `stepIncome` (the cadence, a structure's death, a change of holder). */
+  private corridorsDirty = true;
+  /** The runtime's own vehicle-domain flow fields, one per goal tile, created once and
+   *  recomputed in place only when the terrain they were computed over changed (`stamp`
+   *  against `terrainVersion`; F2 Task 11). Never `Sim.fieldFor`: that is private, pooled,
+   *  and writes sim state. */
+  private readonly corridorFields = new Map<number, { field: FlowField; stamp: number }>();
+  // --- what a route is a function of (F2 Task 11) ------------------------------------
+  // A route is a pure function of the vehicle mask, the elevation, the road mask (static), and
+  // its two ends; a rear is a function of the production anchor and the foot mask its exit is
+  // read from. So the runtime keeps a copy of all three masks, compares them byte for byte at
+  // every recheck, and bumps `terrainVersion` only when one differs. Fields, starts, rears and
+  // routes are keyed on that version and their ends: the same inputs give the same answer,
+  // so a recheck with nothing changed reuses them. `corridorCut` still runs at every recheck.
+  /** 0 until the first recheck; bumped whenever a copied mask differs from the sim's. */
+  private terrainVersion = 0;
+  private readonly seenVehicle: Uint8Array;
+  private readonly seenBlocked: Uint8Array;
+  private readonly seenElevation: Uint8Array;
+  /** Per side: the rear tile, whether it has one, and the anchor and version it was read at. */
+  private readonly rearX = new Int32Array(2);
+  private readonly rearY = new Int32Array(2);
+  private readonly rearOk = new Uint8Array(2);
+  private readonly rearAnchor = new Int32Array(2).fill(-2);
+  private readonly rearVersion = new Int32Array(2).fill(-1);
+  /** Per zone: its start tile index (-1 none open) and the version it was read at. */
+  private readonly zoneFrom: Int32Array;
+  private readonly zoneFromVersion: Int32Array;
+  /** Per zone and holder side (index 2 * zone + side): the route, and its key
+   *  (version, from, rear x, rear y) at 4 * that index. */
+  private readonly zoneRoutes: (Int32Array | null)[];
+  private readonly zoneRouteKey: Int32Array;
+  /** The convoy's route and its key (version, rear x, rear y). */
+  private convoyRouteCache: Int32Array | null = null;
+  private readonly convoyRouteKey = new Int32Array(3).fill(-1);
+  /** Tunnel vents, Q16.16 (x, y) pairs, read once per route: they are fixed by `addTunnel`.
+   *  `ventAt` hands out `ventOut`, refilled per call, so a recheck allocates no tuple. */
+  private ventXY = new Int32Array(0);
+  private ventsKnown = 0;
+  private readonly ventOut: [number, number] = [0, 0];
+  /** Per tile, a bit for every income zone covering it (`zoneTileMask`), the rects in authored
+   *  order, and the per-zone states `zoneStates` fills each tick: zone state in one pass. */
+  private readonly zoneTiles: Uint32Array;
+  private readonly zoneRects: (readonly [number, number, number, number])[] = [];
+  private readonly zoneStateOut: Int32Array;
+  /** The read-only slice of the sim that `zoneStates` and `corridorCut` read. Built once. */
+  private readonly holdView: HoldView & VentView;
+  private readonly routeSource: RouteSource;
+  private readonly cutSpan = new Int32Array(2);
+  /** Scratch for routes: reused tile objects (no allocation at a recheck beyond the route). */
+  private readonly fromTile = { x: 0, y: 0 };
+  private readonly rearTile = { x: 0, y: 0 };
+  /** Side 0's per-minute income, for the HUD (A4): refilled by its getter, never allocated. */
+  private readonly incomeRead: { base: number; zones: number; halvedBy: CutCause } = {
+    base: 0,
+    zones: 0,
+    halvedBy: null,
+  };
   private intelValue = 0;
   private readonly buildQueue: { unit: string; startTick: number; readyTick: number }[] = [];
   /** Scratch for `firstRefusal`: did the population check speak? Not state; never hashed. */
@@ -683,14 +882,158 @@ export class MissionRuntime {
     // What recon marked last mission. A tag in here spawns pre-revealed and gives up
     // its ambush; everything else spawns exactly as authored.
     this.marked = new Set(ctx.ledger?.['intel.marked_positions'] ?? []);
-    this.logisticsValue = mission.resources?.logistics_start ?? 0;
+    this.purse[0] = (mission.resources?.logistics_start ?? 0) * PURSE_UNITS;
     this.intelValue = mission.resources?.intel_start ?? 0;
     this.spawnRise = new Int16Array(sim.capacity).fill(-2);
+
+    // Held ground (F2). Unknown names are load-time wiring faults, like an unknown marker.
+    if (ctx.roadMask !== undefined && ctx.roadMask.length !== sim.width * sim.height) {
+      throw new Error(
+        `mission ${mission.id}: roadMask has ${ctx.roadMask.length} cells, the map has ${sim.width * sim.height} (${sim.width} x ${sim.height})`,
+      );
+    }
+    for (const z of mission.resources?.income_zones ?? []) {
+      const r = ctx.zones[z.zone];
+      if (r === undefined || r.length !== 4) {
+        throw new Error(`mission ${mission.id}: unknown income zone "${z.zone}"`);
+      }
+      this.incomeZoneList.push(new ZoneIncomeState(z.zone, [r[0], r[1], r[2], r[3]], z.rate_per_min));
+    }
+    const zoneCount = this.incomeZoneList.length;
+    if (zoneCount > MAX_INCOME_ZONES) {
+      throw new Error(`mission ${mission.id}: ${zoneCount} income zones, at most ${MAX_INCOME_ZONES} are supported`);
+    }
+    for (const z of this.incomeZoneList) this.zoneRects.push(z.rect);
+    this.zoneTiles = zoneCount > 0 ? zoneTileMask(sim.width, sim.height, this.zoneRects) : new Uint32Array(0);
+    this.zoneStateOut = new Int32Array(zoneCount);
+    this.zoneFrom = new Int32Array(zoneCount).fill(-1);
+    this.zoneFromVersion = new Int32Array(zoneCount).fill(-1);
+    this.zoneRoutes = new Array<Int32Array | null>(2 * zoneCount).fill(null);
+    this.zoneRouteKey = new Int32Array(8 * zoneCount).fill(-1);
+    const entryName = mission.resources?.supply_entry;
+    let entry: { x: number; y: number } | null = null;
+    if (entryName !== undefined) {
+      const m = ctx.markers[entryName];
+      if (m === undefined) throw new Error(`mission ${mission.id}: unknown supply_entry "${entryName}"`);
+      entry = { x: m[0] | 0, y: m[1] | 0 };
+    }
+    const live = mission.resources?.supply_corridor === true && entry !== null;
+    this.convoyEntry = live ? entry : null;
+    this.convoy = live ? { route: null, cut: null, cutSpan: null } : null;
+    const cells = zoneCount > 0 || live ? sim.width * sim.height : 0;
+    this.seenVehicle = new Uint8Array(cells);
+    this.seenBlocked = new Uint8Array(cells);
+    this.seenElevation = new Uint8Array(cells);
+
+    const st = sim.state;
+    this.holdView = {
+      get entityCount() {
+        return sim.entityCount;
+      },
+      alive: st.alive,
+      side: st.side,
+      posX: st.posX,
+      posY: st.posY,
+      tunnelIn: st.tunnelIn,
+      isAir: (i: number) => sim.unitTypes[st.typeIdx[i]].isAir,
+      width: sim.width,
+      get tunnelCount() {
+        return sim.tunnelCount;
+      },
+      tnAlive: sim.tnAlive,
+      tnVentOpen: sim.tnVentOpen,
+      tnDigger: sim.tnDigger,
+      // Read at a recheck only, and only for a vent that is open and stocked by the enemy. From
+      // the runtime's copy (`syncVents`), into one reused pair: no tuple a call.
+      ventAt: (r: number): readonly [number, number] => {
+        this.ventOut[0] = this.ventXY[2 * r];
+        this.ventOut[1] = this.ventXY[2 * r + 1];
+        return this.ventOut;
+      },
+    };
+    const fields = this.corridorFields;
+    // The masks are read through the sim at every call: `blockedVehicle` stops aliasing
+    // `blocked` at the first boulder, and terrain is laid after this constructor runs.
+    this.routeSource = {
+      width: sim.width,
+      height: sim.height,
+      get vehicleMask() {
+        return sim.blockedVehicle;
+      },
+      roadMask: ctx.roadMask ?? null,
+      fieldFor: (gx: number, gy: number): FlowField => {
+        const key = gy * sim.width + gx;
+        let e = fields.get(key);
+        if (e === undefined) {
+          e = { field: new FlowField(sim.width, sim.height), stamp: -1 };
+          fields.set(key, e);
+        }
+        if (e.stamp !== this.terrainVersion) {
+          e.field.compute(sim.blockedVehicle, sim.elevation, gx, gy);
+          e.stamp = this.terrainVersion;
+        }
+        return e.field;
+      },
+    };
   }
 
   /** Spendable logistics, floored for display. */
   get logistics(): number {
-    return this.logisticsValue - (this.logisticsValue % 1);
+    return this.logisticsOf(0);
+  }
+
+  /** One side's spendable logistics, floored to whole logistics. */
+  logisticsOf(side: 0 | 1): number {
+    return (this.purse[side] / PURSE_UNITS) | 0;
+  }
+
+  /** Whole logistics one side has earned this mission, base and zones (C-R8). Read-only. */
+  logisticsEarned(side: 0 | 1): number {
+    return (this.earnedUnits[side] / PURSE_UNITS) | 0;
+  }
+
+  /** The zones' share of `logisticsEarned`, whole logistics (C-R8). Read-only. */
+  zoneLogisticsEarned(side: 0 | 1): number {
+    return (this.zoneEarnedUnits[side] / PURSE_UNITS) | 0;
+  }
+
+  /** The mission's income zones in authored order (A2, C-R14): the runtime's own objects.
+   *  `route` and `cutSpan` are reused storage, mutated in place at a recheck: copy to keep.
+   *  A zone losing its holder clears its `cut` with a `zoneHolder` event (holder -1) and no
+   *  `corridor` event (C-R19). */
+  get incomeZones(): readonly Readonly<ZoneIncome>[] {
+    return this.incomeZoneList;
+  }
+
+  /** The supply convoy's line (A2, C-R14), or null when the mission has none (no
+   *  `supply_corridor: true` with a `supply_entry`). The runtime's own object: `route` and
+   *  `cutSpan` are reused storage, mutated in place at a recheck (copy to keep). */
+  get convoyRoute(): Readonly<ConvoyRoute> | null {
+    return this.convoy;
+  }
+
+  /**
+   * Side 0's income a minute, for the HUD (A4, C-R16): the base (halved while the convoy is
+   * cut), the zones side 0 holds, and what halves the base, if anything. Computed for display
+   * from the integer per-tick units; the numbers may end in .5 and are never read back. One
+   * object, refilled per read.
+   */
+  get incomePerMin(): Readonly<{ base: number; zones: number; halvedBy: CutCause }> {
+    const read = this.incomeRead;
+    read.base = (this.baseUnitsPerTick() * TICKS_PER_MINUTE) / PURSE_UNITS;
+    let zones = 0;
+    const list = this.incomeZoneList;
+    for (let k = 0; k < list.length; k++) if (list[k].holder === 0) zones += list[k].unitsPerTick;
+    read.zones = (zones * TICKS_PER_MINUTE) / PURSE_UNITS;
+    read.halvedBy = this.convoy !== null ? this.convoy.cut : null;
+    return read;
+  }
+
+  /** Purse units a tick the base rate pays side 0: 2 * rate, rate while the convoy is cut. */
+  private baseUnitsPerTick(): number {
+    const rate = this.mission.resources?.logistics_rate_per_min ?? 0;
+    if (rate <= 0) return 0;
+    return this.convoy !== null && this.convoy.cut !== null ? rate : 2 * rate;
   }
 
   get intel(): number {
@@ -701,9 +1044,9 @@ export class MissionRuntime {
    *  (logistics, intel), the build queue, and, from F2/F4 on, the zone owners and
    *  production lines. Uses the sim's own hashWord, so the two hashes compose.
    *
-   *  Read-only, and integer-only on purpose: the purse accrues in JS number
-   *  arithmetic (`rate / 1200`), so only its floor is hashed (`| 0` truncates a
-   *  non-negative number to its floor), and every word folded in is an int32.
+   *  Read-only, and integer-only on purpose: the purse is an exact integer
+   *  accumulator (1/2400ths), and only side 0's floored whole logistics is hashed,
+   *  so every word folded in is an int32.
    *  The build queue goes in array order (the order `requestBuild` pushed it),
    *  each entry as its unit id's characters, then its start and ready ticks.
    *  Then (F1 Task 3, F-R3) the settled first identifications: their count, then
@@ -711,7 +1054,7 @@ export class MissionRuntime {
    *  both caps, null as -1. */
   economyHash(): number {
     let h = HASH_SEED;
-    h = hashWord(h, this.logisticsValue | 0);
+    h = hashWord(h, this.logisticsOf(0));
     h = hashWord(h, this.intelValue | 0);
     h = hashWord(h, this.buildQueue.length);
     for (const b of this.buildQueue) {
@@ -748,6 +1091,16 @@ export class MissionRuntime {
     const cap1 = this.popCap(1);
     h = hashWord(h, cap0 === null ? -1 : cap0 | 0);
     h = hashWord(h, cap1 === null ? -1 : cap1 | 0);
+    // F2 Task 7 (GH-183, G3 Q2, C-R17): held ground. Appended after every earlier word.
+    // Side 1's floored purse (zones pay it, D6); per income zone in authored order its state
+    // (ZoneState, contested -2 apart from empty -1) and its cut code; then the convoy's cut
+    // code, -1 when the mission has no convoy. Routes and spans are presentation: not hashed.
+    h = hashWord(h, this.logisticsOf(1));
+    for (const z of this.incomeZoneList) {
+      h = hashWord(h, z.state);
+      h = hashWord(h, cutCode(z.cut));
+    }
+    h = hashWord(h, this.convoy === null ? -1 : cutCode(this.convoy.cut));
     return h >>> 0;
   }
 
@@ -959,8 +1312,9 @@ export class MissionRuntime {
     const info = this.ctx.unitInfo?.(unitId);
     if (!info) return false;
     if (this.buildBlockedReason(unitId) !== null) return false;
-    if (this.logisticsValue < info.logistics || this.intelValue < (info.intel ?? 0)) return false;
-    this.logisticsValue -= info.logistics;
+    const cost = info.logistics * PURSE_UNITS;
+    if (this.purse[0] < cost || this.intelValue < (info.intel ?? 0)) return false;
+    this.purse[0] -= cost;
     this.intelValue -= info.intel ?? 0;
     this.buildQueue.push({
       unit: unitId,
@@ -1384,10 +1738,11 @@ export class MissionRuntime {
       }
     }
 
-    // Income: logistics arrive by rate; interdiction (supply_corridor) is a
-    // later slice. Fractional accrual is exact-enough JS arithmetic.
-    const rate = this.mission.resources?.logistics_rate_per_min ?? 0;
-    if (rate > 0) this.logisticsValue += rate / 1200;
+    // Income (F2): the base rate to side 0, halved while a live convoy is cut (D2), and every
+    // held zone to its holder, halved while its own line is cut (D1, D3, D6). Exact integer
+    // accrual: a full source adds 2 * rate units of 1/2400 a tick (rate per minute / 1200
+    // ticks a minute), a halved one adds rate.
+    this.stepIncome(simEvents, tick, out);
     // Intel is NOT accrued here. There is no per-minute trickle (G3 Q1, lead 4 Oct):
     // it is earned by doing, at the two places that pay it -- the first identification
     // of an enemy (the contact digest above) and an objective's completion
@@ -1424,6 +1779,295 @@ export class MissionRuntime {
     this.stepObjectives(tick, out);
     this.checkEnd(tick, out);
     return out;
+  }
+
+  // ------------------------------------------------------------- held ground
+
+  /**
+   * F2 Task 7. Zone states every tick, in one pass over the units (`zoneStates`, F2 Task 11);
+   * routes and cuts at a recheck: every CORRIDOR_RECHECK_TICKS, the step that digests a
+   * `structureDestroyed` (the blocked mask changed, so rubble may open a route), and the tick a
+   * zone's holder changes (its rear changed). Events on change only. Then pay. No allocation
+   * on any of these paths beyond the events themselves and a route whose inputs changed.
+   */
+  private stepIncome(simEvents: SimEvent[], tick: number, out: MissionEvent[]): void {
+    const zones = this.incomeZoneList;
+    let recheck = this.corridorsDirty || tick % CORRIDOR_RECHECK_TICKS === 0;
+    for (let i = 0; i < simEvents.length; i++) {
+      if (simEvents[i].kind === 'structureDestroyed') recheck = true;
+    }
+    if (zones.length > 0) {
+      zoneStates(this.holdView, this.sim.width, this.sim.height, this.zoneTiles, this.zoneRects, this.zoneStateOut);
+    }
+    for (let k = 0; k < zones.length; k++) {
+      const z = zones[k];
+      const s = asZoneState(this.zoneStateOut[k]);
+      if (s === z.state) continue;
+      z.state = s;
+      const holder: Holder = s === ZONE_CONTESTED ? -1 : s;
+      if (holder !== z.holder) {
+        z.holder = holder;
+        recheck = true;
+      }
+      out.push({ kind: 'zoneHolder', tick, zone: z.zone, holder, contested: s === ZONE_CONTESTED });
+    }
+    if (recheck && (zones.length > 0 || this.convoy !== null)) this.recheckCorridors(tick, out);
+    this.corridorsDirty = false;
+
+    const base = this.baseUnitsPerTick();
+    this.purse[0] += base;
+    this.earnedUnits[0] += base;
+    for (let k = 0; k < zones.length; k++) {
+      const z = zones[k];
+      if (z.holder < 0) continue;
+      const units = z.unitsPerTick;
+      this.purse[z.holder] += units;
+      this.earnedUnits[z.holder] += units;
+      this.zoneEarnedUnits[z.holder] += units;
+    }
+  }
+
+  /** Every route and what cuts it; a `corridor` event per changed cause. A route is recomputed
+   *  only when the terrain or one of its ends changed (F2 Task 11); the cut always is. */
+  private recheckCorridors(tick: number, out: MissionEvent[]): void {
+    this.syncTerrain();
+    this.syncVents();
+    this.syncRear(0);
+    this.syncRear(1);
+    const zones = this.incomeZoneList;
+    for (let k = 0; k < zones.length; k++) {
+      const z = zones[k];
+      let route: Int32Array | null = null;
+      let cut: CutCause = null;
+      let span: [number, number] | null = null;
+      const holder = z.holder;
+      if (holder === -1) {
+        // C-R19: nobody holds the zone (empty or contested), so it has no line. Its cut resets
+        // to null SILENTLY: a `corridor` event saying `cut: null` here would read as "line
+        // restored" at the moment the zone is lost. The next held recheck speaks only if its
+        // cause differs from null.
+        z.route = null;
+        z.cutSpan = null;
+        z.cut = null;
+        continue;
+      }
+      if (this.rearOk[holder] === 1) {
+        route = this.zoneRoute(k, holder);
+        cut = corridorCut(this.holdView, route, holder, this.cutSpan);
+        span = this.spanOf(z.spanStore);
+      }
+      z.route = route;
+      z.cutSpan = span;
+      if (cut !== z.cut) {
+        z.cut = cut;
+        out.push({ kind: 'corridor', tick, zone: z.zone, cut });
+      }
+    }
+    const convoy = this.convoy;
+    const entry = this.convoyEntry;
+    if (convoy !== null && entry !== null) {
+      let route: Int32Array | null = null;
+      let cut: CutCause = null;
+      let span: [number, number] | null = null;
+      if (this.rearOk[0] === 1) {
+        const key = this.convoyRouteKey;
+        if (key[0] !== this.terrainVersion || key[1] !== this.rearX[0] || key[2] !== this.rearY[0]) {
+          this.rearTile.x = this.rearX[0];
+          this.rearTile.y = this.rearY[0];
+          this.convoyRouteCache = corridorRoute(this.routeSource, entry, this.rearTile);
+          key[0] = this.terrainVersion;
+          key[1] = this.rearX[0];
+          key[2] = this.rearY[0];
+        }
+        route = this.convoyRouteCache;
+        cut = corridorCut(this.holdView, route, 0, this.cutSpan);
+        span = this.spanOf(this.convoySpanStore);
+      }
+      convoy.route = route;
+      convoy.cutSpan = span;
+      if (cut !== convoy.cut) {
+        convoy.cut = cut;
+        out.push({ kind: 'corridor', tick, zone: null, cut });
+      }
+    }
+  }
+
+  /** Zone `k`'s route to `side`'s rear: the cached one while the terrain, the zone's start tile
+   *  and the rear are what it was computed from, else computed now and cached. */
+  private zoneRoute(k: number, side: 0 | 1): Int32Array | null {
+    const ver = this.terrainVersion;
+    const w = this.sim.width;
+    if (this.zoneFromVersion[k] !== ver) {
+      this.zoneFrom[k] = this.zoneStart(this.zoneRects[k]) ? this.fromTile.y * w + this.fromTile.x : -1;
+      this.zoneFromVersion[k] = ver;
+    }
+    const from = this.zoneFrom[k];
+    const c = 2 * k + side;
+    const key = this.zoneRouteKey;
+    const o = 4 * c;
+    const rx = this.rearX[side];
+    const ry = this.rearY[side];
+    if (key[o] !== ver || key[o + 1] !== from || key[o + 2] !== rx || key[o + 3] !== ry) {
+      let route: Int32Array | null = null;
+      if (from >= 0) {
+        this.fromTile.x = from % w;
+        this.fromTile.y = (from - this.fromTile.x) / w;
+        this.rearTile.x = rx;
+        this.rearTile.y = ry;
+        route = corridorRoute(this.routeSource, this.fromTile, this.rearTile);
+      }
+      this.zoneRoutes[c] = route;
+      key[o] = ver;
+      key[o + 1] = from;
+      key[o + 2] = rx;
+      key[o + 3] = ry;
+    }
+    return this.zoneRoutes[c];
+  }
+
+  /** Compare the sim's vehicle mask, foot mask and elevation with the runtime's copies, byte
+   *  for byte; on any difference copy all three and bump `terrainVersion`, which stales every
+   *  field, start, rear and route keyed on it. */
+  private syncTerrain(): void {
+    const sim = this.sim;
+    if (
+      this.terrainVersion > 0 &&
+      sameBytes(this.seenVehicle, sim.blockedVehicle) &&
+      sameBytes(this.seenBlocked, sim.blocked) &&
+      sameBytes(this.seenElevation, sim.elevation)
+    ) {
+      return;
+    }
+    this.seenVehicle.set(sim.blockedVehicle);
+    this.seenBlocked.set(sim.blocked);
+    this.seenElevation.set(sim.elevation);
+    this.terrainVersion++;
+  }
+
+  /** Copy every vent the runtime has not read yet (a vent is fixed by `addTunnel`). Grows the
+   *  copy only when a route was added since: never in steady state. */
+  private syncVents(): void {
+    const n = this.sim.tunnelCount;
+    if (n <= this.ventsKnown) return;
+    if (this.ventXY.length < 2 * n) {
+      const grown = new Int32Array(2 * n);
+      grown.set(this.ventXY);
+      this.ventXY = grown;
+    }
+    for (let r = this.ventsKnown; r < n; r++) {
+      const v = this.sim.tunnelVent(r);
+      this.ventXY[2 * r] = v[0];
+      this.ventXY[2 * r + 1] = v[1];
+    }
+    this.ventsKnown = n;
+  }
+
+  /**
+   * A side's rear (C-R17) into `rearX`/`rearY`/`rearOk`: the exit tile of its production anchor
+   * when it has one, else for side 0 `map.player_start`; side 1 with no anchor has none (its
+   * zones are never cut), and so has side 0 with neither (no line to cut). A convoy drives to
+   * it, so it must be open on the VEHICLE mask: `structureExit` reads the foot mask, and a
+   * boulder or ditch there would make every line 'unreachable' (`openRear`). Re-read only when
+   * the anchor or the terrain changed: `structureExit` allocates its answer.
+   */
+  private syncRear(side: 0 | 1): void {
+    const anchor = this.productionAnchor(side);
+    if (anchor === this.rearAnchor[side] && this.rearVersion[side] === this.terrainVersion) return;
+    this.rearAnchor[side] = anchor;
+    this.rearVersion[side] = this.terrainVersion;
+    this.rearOk[side] = 0;
+    if (anchor >= 0) {
+      const e = this.sim.structureExit(anchor);
+      this.openRear(side, e[0] >> 16, e[1] >> 16);
+      this.rearOk[side] = 1;
+      return;
+    }
+    const ps = this.mission.map.player_start;
+    if (side === 0 && ps !== undefined && ps.length >= 2) {
+      this.openRear(side, ps[0] | 0, ps[1] | 0);
+      this.rearOk[side] = 1;
+    }
+  }
+
+  /**
+   * Side `side`'s rear at the tile nearest (x, y) open on the vehicle mask (F2 Task 11): (x, y)
+   * itself when it is open; else the open tile with the smallest squared distance to it, ties to
+   * the lowest tile index. The scan walks square rings (Chebyshev radius 1, 2, ...) and keeps
+   * going while a ring can still hold something as near as the best so far: every tile on ring
+   * `r` is at least `r * r` away, so it stops at the first ring with `r * r` above the best
+   * (a corner of ring 3, at 18, does not beat the middle of ring 4's edge, at 16). (x, y) off
+   * the map, or no open tile anywhere: (x, y) unchanged, and the line reads 'unreachable'
+   * exactly as it did. Every shipped rear is open today (tools/src/income_rear.test.ts), so
+   * this moves no shipped answer.
+   */
+  private openRear(side: 0 | 1, x: number, y: number): void {
+    this.rearX[side] = x;
+    this.rearY[side] = y;
+    const w = this.sim.width;
+    const h = this.sim.height;
+    const mask = this.sim.blockedVehicle;
+    if (x < 0 || y < 0 || x >= w || y >= h || mask[y * w + x] === 0) return;
+    const maxR = w > h ? w : h;
+    let best = -1;
+    let bestD = 0;
+    for (let r = 1; r <= maxR; r++) {
+      if (best >= 0 && r * r > bestD) break;
+      for (let ty = y - r; ty <= y + r; ty++) {
+        if (ty < 0 || ty >= h) continue;
+        const edgeRow = ty === y - r || ty === y + r;
+        for (let tx = x - r; tx <= x + r; tx += edgeRow ? 1 : 2 * r) {
+          if (tx < 0 || tx >= w || mask[ty * w + tx] !== 0) continue;
+          const d = (tx - x) * (tx - x) + (ty - y) * (ty - y);
+          const t = ty * w + tx;
+          // Rings are not in index order, so a tie compares the index itself.
+          if (best < 0 || d < bestD || (d === bestD && t < best)) {
+            best = t;
+            bestD = d;
+          }
+        }
+      }
+    }
+    if (best >= 0) {
+      this.rearX[side] = best % w;
+      this.rearY[side] = (best - (best % w)) / w;
+    }
+  }
+
+  /** Copy the last `corridorCut` span into `store`, or null when it found none. */
+  private spanOf(store: [number, number]): [number, number] | null {
+    if (this.cutSpan[0] < 0) return null;
+    store[0] = this.cutSpan[0];
+    store[1] = this.cutSpan[1];
+    return store;
+  }
+
+  /** The zone tile a route starts from, into `fromTile` (C-R17): the tile open on the vehicle
+   *  mask nearest `(x + (w >> 1), y + (h >> 1))`, squared distance, ties to the lowest index.
+   *  False when no tile of the zone is open (the route is then 'unreachable'). */
+  private zoneStart(rect: readonly [number, number, number, number]): boolean {
+    const w = this.sim.width;
+    const h = this.sim.height;
+    const mask = this.sim.blockedVehicle;
+    const cx = rect[0] + (rect[2] >> 1);
+    const cy = rect[1] + (rect[3] >> 1);
+    let best = -1;
+    let bestD = 0;
+    for (let y = rect[1] < 0 ? 0 : rect[1]; y < rect[1] + rect[3] && y < h; y++) {
+      for (let x = rect[0] < 0 ? 0 : rect[0]; x < rect[0] + rect[2] && x < w; x++) {
+        if (mask[y * w + x] !== 0) continue;
+        const d = (x - cx) * (x - cx) + (y - cy) * (y - cy);
+        // Row-major scan: a later tile at the same distance has a higher index, so `<` keeps
+        // the lowest.
+        if (best < 0 || d < bestD) {
+          best = y * w + x;
+          bestD = d;
+        }
+      }
+    }
+    if (best < 0) return false;
+    this.fromTile.x = best % w;
+    this.fromTile.y = (best - this.fromTile.x) / w;
+    return true;
   }
 
   // ------------------------------------------------------------------ spawns

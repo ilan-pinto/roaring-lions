@@ -206,7 +206,10 @@ arena itself and **never passed through a shell**: quotes group words, but
 literal text. The command starts in the directory you ran pnpm from.
 
 The three files live in a fresh temporary directory (mode 0700, files 0600)
-that is removed when the command exits; the seat's ticket is only ever in that
+that is removed when the command exits, and also if you stop the arena with
+Ctrl-C or SIGTERM: the arena then starts nothing new, stops every command it
+started, removes those directories and exits 130 (143 for SIGTERM). A second
+Ctrl-C while it does exits at once, leaving that cleanup unfinished; the seat's ticket is only ever in that
 directory's `ticket` file, never in an argument, the environment or a log. The
 command's stdout and stderr go to `<out>/<date>-<a>-vs-<b>-game<n>-seat<s>.log`.
 
