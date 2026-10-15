@@ -1028,6 +1028,7 @@
   "dock.cap.short": "pop full",
   "dock.cap.full": "Population {used}/{cap}. A unit must fall first.",
   "dock.cap.need": "Population {used}/{cap}. {name} needs {need}.",
+  "dock.cap.needTitle": "Population {used}/{cap}; needs {need}.",
   "dock.support.smoke_screen.word": "screen",
   "dock.support.smoke_screen.name": "Smoke screen",
   "dock.support.smoke_screen.blurb": "Three smoke rounds land around a point over four seconds. It hides; it hurts no one.",

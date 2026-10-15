@@ -53,6 +53,7 @@ import { aimPenaltyPct, breakSeconds, combatBand, hpWord, recoverySeconds, suppr
 import { bindDelegatedTip, bindTip } from './tooltip';
 import { VoiceCaption } from './voice-caption';
 import { weaponName } from './weapon-name';
+import { patchChildren } from './dom-patch';
 import { heldHoverTarget, heldReadout, type HeldReadout } from './held-readout';
 import {
   beatDwellMs,
@@ -453,6 +454,15 @@ export class Hud {
    *  not leave the frame pointing past the end of the row. */
   private chipFocus = 0;
   private chipTypes: string[] = [];
+  /** What the cluster's children currently are, so `renderCard` knows whether
+   *  it may PATCH them in place (card over card) or must assign `innerHTML`
+   *  (anything else: first render, after chips, after an empty selection). */
+  private clusterShows: 'card' | 'chips' | null = null;
+  /** The unit id the cluster's card was last drawn for. A card is patched only
+   *  for the SAME unit: a different unit gets a fresh `innerHTML`, so the hp
+   *  fill (which eases its width) does not slide from one unit's health to
+   *  another's. */
+  private clusterCardUnit = -1;
   /** The chip row's own data from the last `renderChips`, so the delegated
    *  chip tooltip (bound once, in the constructor) can look a hovered chip's
    *  name and count back up by `data-tip` at SHOW time, rather than needing
@@ -2097,6 +2107,8 @@ export class Hud {
       this.orderBar.style.display = 'none';
       this.cluster.style.display = 'none';
       this.chipTypes = [];
+      this.clusterShows = null;
+      this.clusterCardUnit = -1;
       return;
     }
     const wasHidden = this.cluster.style.display === 'none';
@@ -2106,15 +2118,28 @@ export class Hud {
     this.renderOrders(sel);
     if (sel.length === 1) {
       this.chipTypes = [];
-      // The rebuild destroys a focused card flag (the PINNED state, the "On
-      // loan" stamp) four times a second, as `renderStrip` does to its own:
-      // carry the node's `data-tip` KEY across the swap, never the node, and
-      // restore quietly unless its tip was open (read BEFORE the swap).
+      // The card is PATCHED in place when the last render was also a card
+      // (`patchChildren`): a focused flag (the PINNED state, the "On loan"
+      // stamp) keeps its node, so focus never moves and nothing is
+      // re-announced. Only when the patch had to REPLACE the focused node (a
+      // structure change) does the older fallback run: carry the node's
+      // `data-tip` KEY across the swap, never the node, and restore quietly
+      // unless its tip was open (read BEFORE the swap).
       const active = document.activeElement;
       const held = active !== null && this.cluster.contains(active) ? active.getAttribute('data-tip') : null;
       const tipWasOpen = held !== null && active !== null && active.hasAttribute('aria-describedby');
-      this.cluster.innerHTML = this.cardHtml(sel[0]);
-      if (held !== null) {
+      const html = this.cardHtml(sel[0]);
+      if (this.clusterShows === 'card' && this.clusterCardUnit === sel[0]) patchChildren(this.cluster, html);
+      else this.cluster.innerHTML = html;
+      this.clusterShows = 'card';
+      this.clusterCardUnit = sel[0];
+      // "Survived" means the focused node is still in the cluster AND still
+      // the same flag. Since `patchChildren` treats `data-tip` as identity a
+      // kept node cannot change key, so the key check is belt-and-braces for a
+      // real browser's lazy focus fix-up (a node that lost its tabindex).
+      const now = document.activeElement;
+      const survived = now !== null && this.cluster.contains(now) && now.getAttribute('data-tip') === held;
+      if (held !== null && !survived) {
         const successor = this.cluster.querySelector<HTMLElement>(`[data-tip="${CSS.escape(held)}"]`);
         this.clusterTipQuiet = !tipWasOpen;
         try {
@@ -2126,8 +2151,8 @@ export class Hud {
     } else {
       this.renderChips(sel);
     }
-    // `this.cluster.innerHTML` was just replaced wholesale either way -- by
-    // the chips or by the single-unit card -- so a chip tip shown for the
+    // The cluster's children were just rebuilt (chips, or a card that may
+    // have replaced some of its nodes) -- so a chip tip shown for the
     // pre-rebuild node needs the same rescue `renderStrip` needs above (fix
     // round 1, I1). Dropping to one unit removes every `[data-tip]` from the
     // cluster entirely, which `refresh` reads as "no replacement" and hides.
@@ -2292,6 +2317,7 @@ export class Hud {
     // back one, not throw it to the front of the row.
     if (this.chipFocus >= chips.length) this.chipFocus = Math.max(0, chips.length - 1);
 
+    this.clusterShows = 'chips';
     this.cluster.innerHTML = chips
       .map((c, i) => {
         const tone = c.statusTone === null ? 'rl-dim' : textToneClass(c.statusTone);

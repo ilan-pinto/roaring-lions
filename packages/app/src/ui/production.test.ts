@@ -996,7 +996,10 @@ describe('population in the dock', () => {
     const rt = fakeRuntime({ pop: { used: 11, cap: 12 }, capped: new Set(['apc_eitan']) });
     const r = rig([eitan(), drone()], rt);
     expect(r.tile('apc_eitan').dataset.capped).toBe('1');
-    expect(r.tile('apc_eitan').title).toContain('Population 11/12. Eitan APC needs 2.');
+    // The label opens with the name, so the sentence after the dash does not repeat it.
+    expect(r.tile('apc_eitan').title).toBe('Eitan APC — Population 11/12; needs 2.');
+    const label = r.tile('apc_eitan').getAttribute('aria-label') ?? '';
+    expect(label.split('Eitan APC')).toHaveLength(2);
     expect(r.tile('recon_drone').dataset.capped).toBe('0');
   });
 
@@ -1023,6 +1026,32 @@ describe('population in the dock', () => {
     unhover(r.tile('apc_eitan'));
     hover(r.tile('inf_squad'));
     expect(r.tip().querySelectorAll('.rl-warn')).toHaveLength(0);
+    unhover(r.tile('inf_squad'));
+  });
+
+  it('puts a locked tile\'s gate sentence in its rich tip as one warn line', () => {
+    const rt = fakeRuntime({ blocked: { inf_squad: 'requires campaign Conduct 55 (no missions rated yet)' } });
+    const r = rig([dockUnit({ unlock: { roeMin: 55 } })], rt);
+    hover(r.tile('inf_squad'));
+    const warn = r.tip().querySelectorAll('.rl-warn');
+    expect(warn).toHaveLength(1);
+    expect(warn[0].textContent).toBe(r.tile('inf_squad').title.replace('Rifle Squad — ', ''));
+    expect(warn[0].textContent).not.toContain('requires campaign');
+    expect(warn[0].textContent?.length).toBeGreaterThan(0);
+    unhover(r.tile('inf_squad'));
+  });
+
+  it('shows the lock sentence and no cap line on a tile both locked and over the cap', () => {
+    const rt = fakeRuntime({
+      pop: { used: 12, cap: 12 },
+      capped: new Set(['inf_squad']),
+      blocked: { inf_squad: 'requires campaign Conduct 55 (no missions rated yet)' },
+    });
+    const r = rig([dockUnit({ unlock: { roeMin: 55 } })], rt);
+    hover(r.tile('inf_squad'));
+    const warn = r.tip().querySelectorAll('.rl-warn');
+    expect(warn).toHaveLength(1);
+    expect(warn[0].textContent).not.toContain('Population');
     unhover(r.tile('inf_squad'));
   });
 

@@ -436,8 +436,11 @@ export class ReinforcementDock {
       unit.blurb === undefined ? '' : `<div class="rl-tip__blurb">${escapeHtml(unit.blurb)}</div>`;
     // The rich tip covers the native `title`, so a mouse player would never see
     // why a capped tile is refused: the full line goes here too, as one warn line.
-    const capped = tileState(unit, this.opts.runtime, this.opts.ledger, this.opts.missionName).capped;
-    const capLine = capped === null ? '' : `<div class="rl-warn">${escapeHtml(capped.full)}</div>`;
+    // A locked tile gets the same line with its gate sentence; the two are
+    // exclusive (`tileState`: a lock outranks the cap), so at most one shows.
+    const state = tileState(unit, this.opts.runtime, this.opts.ledger, this.opts.missionName);
+    const refusal = state.lock ?? state.capped;
+    const capLine = refusal === null ? '' : `<div class="rl-warn">${escapeHtml(refusal.full)}</div>`;
     return (
       `<div class="rl-tip__head">` +
       `<span class="rl-tip__name">${escapeHtml(unit.name)}</span>` +
@@ -522,10 +525,12 @@ export class ReinforcementDock {
 
       const queued =
         state.queue === null ? '' : t('dock.tile.queuedSuffix', { n: state.queue.count, secs: state.queue.secs });
-      const refusal = state.lock ?? state.capped;
+      // The cap sentence that names the unit has its nameless twin (`title`):
+      // the label opens with the name already.
+      const refusal = state.lock !== null ? state.lock.full : state.capped?.title ?? null;
       const title =
         refusal !== null
-          ? t('dock.tile.titleLocked', { name: tile.unit.name, reason: refusal.full })
+          ? t('dock.tile.titleLocked', { name: tile.unit.name, reason: refusal })
           : t('dock.tile.title', { name: tile.unit.name, logistics: tile.unit.logistics, queued });
       tile.el.title = title;
       // A button's accessible name comes from its own text, and this one's
