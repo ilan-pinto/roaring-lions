@@ -77,3 +77,4 @@ export * from './prop-place';
 export * from './sway';
 export * from './tiled-mesh';
 export * from './incremental';
+export * from './crown';

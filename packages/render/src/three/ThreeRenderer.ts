@@ -544,6 +544,7 @@ import { FogOfWarPass } from './fog-pass';
 import { SmokeMesh } from './smoke-mesh';
 import { perTileRunYaw } from './units/run-direction';
 import { drawBlockedMask } from './terrain/draw-mask';
+import { crownIsEmpty, crownMask, liftCrowns, unterraceCrowns } from './terrain/crown';
 import { TrailMesh, collapsedRouteLevel, type TrailInstanceInput } from './trail-mesh';
 import { ORDER_GROUND_COLOR_KEY } from '../order-ground';
 import { TunnelProps, type TunnelPropsInput, type TunnelRouteView } from './tunnel-props';
@@ -3640,6 +3641,24 @@ export class ThreeRenderer implements Renderer {
         // (`GROUND_ALBEDOS[id].gain`, never a hardcoded 1), which is why the
         // previous values are stashed rather than recomputed.
         return this.setGroundAlbedoOn(visible);
+      case 'crown': {
+        // Crown summits back to today's terraced pad and back
+        // (`terrain/crown.ts`). Not a uniform: the dome is geometry and a
+        // control-map texel, so this flips the switch and flags a terrain
+        // rebuild, which the gate's own zero-time repaint (`frame(1, 0)`)
+        // performs -- and which drops the minimap's ground photograph, the
+        // one place `relief` and `aftermath` show a crown at all (their 3D
+        // frames hold none). Returns the crown tiles affected.
+        const hidden = !visible;
+        if (hidden === this.crownHidden) return 0;
+        this.crownHidden = hidden;
+        this.applyCrowns();
+        this.refreshSurface();
+        this.terrainDirty = true;
+        let tiles = 0;
+        if (this.crown) for (const c of this.crown) tiles += c;
+        return tiles;
+      }
       case 'slope-light':
         // A uniform, the `macro` shape: the slope light's gain to 1 (the
         // identity) and back (`GroundMaterial.setSlopeLightVisible`). Its
@@ -4805,7 +4824,7 @@ export class ThreeRenderer implements Renderer {
         if (this.decalGround !== null) {
           this.decalGround = {
             ...this.decalGround,
-            input: { ...this.decalGround.input, blocked: drawBlockedMask(this.sim) },
+            input: { ...this.decalGround.input, blocked: crownDrawMask(this.sim, this.drawnCrown()) },
           };
         }
         {
@@ -5903,9 +5922,45 @@ export class ThreeRenderer implements Renderer {
   //     particle actually appears); the sheet maps and tutorial focus stay
   //     retained only, for B3/B4.
   setElevation(elevation: Uint8Array): void {
-    this.retained.elevationLevels = elevation;
+    this.crownRawLevels = elevation;
+    this.applyCrowns();
     this.refreshSurface();
     this.terrainDirty = true;
+  }
+
+  /**
+   * Crown summits (`terrain/crown.ts`): the raw levels the sim handed in,
+   * kept so the lift is always taken off THEM, never off a lift; the crown
+   * mask of the current map (null when it has none, or before decor and
+   * elevation have both arrived); and the `crown` debug layer's switch.
+   */
+  private crownRawLevels: Uint8Array | null = null;
+  private crown: Uint8Array | null = null;
+  private crownHidden = false;
+
+  /** The crown mask the DRAWN surface uses this frame: null when there is
+   *  none or the `crown` debug layer is hidden, which is exactly today's
+   *  terraced pad. */
+  private drawnCrown(): Uint8Array | null {
+    return this.crownHidden ? null : this.crown;
+  }
+
+  /** Recompute the crown mask and `retained.elevationLevels` from the raw
+   *  levels. Needs both the decor and the elevation; the sim's `blocked`
+   *  (a crown touches no other blocked tile) is set by `applyTerrain` before
+   *  either arrives. With no crown the levels are the sim's own array,
+   *  untouched. */
+  private applyCrowns(): void {
+    const decor = this.retained.decor;
+    const levels = this.crownRawLevels;
+    if (decor && levels) {
+      const mask = crownMask(decor, this.sim.blocked, levels, this.sim.width, this.sim.height);
+      this.crown = crownIsEmpty(mask) ? null : mask;
+    } else {
+      this.crown = null;
+    }
+    const drawn = this.drawnCrown();
+    this.retained.elevationLevels = drawn && levels ? liftCrowns(levels, drawn) : levels;
   }
 
   /**
@@ -5922,9 +5977,10 @@ export class ThreeRenderer implements Renderer {
    * the GPU re-upload beside it.
    */
   private refreshSurface(): void {
+    const crown = this.drawnCrown();
     this.retained.elevation = terrainSurfaceFrom(
       this.retained.elevationLevels,
-      this.sim.blocked,
+      crown ? unterraceCrowns(this.sim.blocked, crown) : this.sim.blocked,
       this.sim.width,
       this.sim.height
     );
@@ -5933,6 +5989,10 @@ export class ThreeRenderer implements Renderer {
   }
   setDecor(decor: Uint8Array): void {
     this.retained.decor = decor;
+    if (this.crownRawLevels) {
+      this.applyCrowns();
+      this.refreshSurface();
+    }
     this.terrainDirty = true;
   }
   /**
@@ -10390,7 +10450,8 @@ export class ThreeRenderer implements Renderer {
       (id) => this.buildingMeshIdleTemplates.has(id),
       this.opts.terrainTones,
       this.opts.resolveColor,
-      this.opts.background
+      this.opts.background,
+      this.drawnCrown()
     );
     const composed = build.composed;
     this.terrainState = build.state;
@@ -11031,6 +11092,12 @@ export interface ComposedTerrainBuild {
  * milliseconds. Prop placements cannot splice per tile: they are sorted and
  * spaced map-wide under a cap (`prop-place.ts`).
  */
+/** The draw mask (`terrain/draw-mask.ts`) with a crown's tiles cleared. */
+function crownDrawMask(sim: Sim, crown: Uint8Array | null): Uint8Array {
+  const mask = drawBlockedMask(sim);
+  return crown ? unterraceCrowns(mask, crown) : mask;
+}
+
 export function composeTerrainFrom(
   prev: TerrainBuildState | null,
   sim: Sim,
@@ -11039,7 +11106,11 @@ export function composeTerrainFrom(
   hasArt: (structureId: string) => boolean,
   tones: TerrainTones,
   resolveColor: ((key: string) => string) | undefined,
-  background: string
+  background: string,
+  /** Crown summits (`terrain/crown.ts`): the tiles drawn as a smooth dome
+   *  rather than a terrace, or null for none. `elevation` must already carry
+   *  their lift. */
+  crown: Uint8Array | null = null
 ): ComposedTerrainBuild {
   const input: TerrainInput = {
     width: sim.width,
@@ -11049,7 +11120,10 @@ export function composeTerrainFrom(
     // The DRAW mask, not the sim's: a live low-profile structure (fence,
     // compound wall) stands on the ground rather than covering it, so its
     // tiles draw as open ground under the mesh -- terrain/draw-mask.ts.
-    blocked: drawBlockedMask(sim),
+    // A crown summit leaves it too, so it draws as a dome (`terrain/crown.ts`).
+    blocked: crownDrawMask(sim, crown),
+    // Read only by `decorPlacements`, to seat the rocks on a crown's slope.
+    crown,
     cover: sim.cover,
     // Read only by `decorPlacements`'s `boulder` family below -- ground/
     // scatter/buildings are indifferent to it, the same reason a

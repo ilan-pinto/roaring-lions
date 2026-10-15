@@ -8,7 +8,9 @@
  * layers' floors by the one-third rule from a measured reading, and to be
  * re-run when they need re-deriving.
  *
- *   npx tsx src/perf/relief-read-signal.ts --port=<n> --attach [--runs=3] [--scenario=relief,aftermath] [--out-dir=...]
+ *   npx tsx src/perf/relief-read-signal.ts --port=<n> --attach [--runs=3] [--scenario=relief,aftermath] [--layers=slope-light,height-contours] [--out-dir=...]
+ *
+ * `--layers=crown` measures the crown summits' toggle (`terrain/crown.ts`) the same way.
  *
  * Drives a dev server the CALLER started on that port, confirmed by `--attach`
  * (`ui-review/port.ts`'s `requireAttach`: refused unless something listens
@@ -37,7 +39,7 @@ await requireAttach('relief-read-signal', [port]);
 const runs = Number(arg('runs', '3'));
 const wanted = arg('scenario', 'relief,aftermath').split(',');
 const outDir = path.resolve(arg('out-dir', '.superpowers/relief-read-signal'));
-const LAYERS = ['slope-light', 'height-contours'] as const;
+const LAYERS = arg('layers', 'slope-light,height-contours').split(',');
 const PIXELMATCH_THRESHOLD = 0.1; // the gate's own
 
 const browser = await launchCaptureBrowser();
@@ -64,7 +66,10 @@ try {
         const hidden = path.join(dir, `${layer}-hidden.png`);
         await rephotograph(page, layerToggleScript(layer, false), hidden, res.rect);
         await page.evaluate(layerToggleScript(layer, true));
-        const d = computeDiff(shown, hidden, { outDir: dir, diffFileName: `diff-${layer}.png`, threshold: PIXELMATCH_THRESHOLD, region: spec?.region ?? undefined });
+        // The gate's own region rule: a layer check's own region, else the scenario's.
+        const check = spec?.layerChecks?.find((c) => c.layer === layer);
+        const region = check && check.region !== undefined ? check.region : spec?.region;
+        const d = computeDiff(shown, hidden, { outDir: dir, diffFileName: `diff-${layer}.png`, threshold: PIXELMATCH_THRESHOLD, region: region ?? undefined });
         readings[id]![layer]!.push({ px: d.diffPixels, mean: d.meanAbsChannelDelta });
         console.log(`${id} r${r + 1}: hiding "${layer}" moves ${d.diffPixels} px / ${d.meanAbsChannelDelta.toFixed(4)}`);
       }
