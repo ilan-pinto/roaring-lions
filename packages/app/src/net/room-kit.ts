@@ -12,23 +12,27 @@
 // - The HUD's tables (`kitByType`, `unitKit`) are the VIEWER's side: the card,
 //   the chips and the frame sign are drawn only for an own unit
 //   (`hud.ts`, `isOwnSide`), so the viewer's side is the only side they read.
-// - The renderer draws both sides, so it gets both (`unitKitTiersBySide`).
+// - The renderer draws both sides, so it gets both (`unitKitTiersBySide`),
+//   and keys a vehicle template by (type id, side): side 1 draws its own
+//   template exactly where its kit differs from side 0's (`templateKey`,
+//   `@lions/render`), and shares side 0's everywhere else.
 //
 // Nothing here reads the account: a tier one machine read locally would be a
 // desync at the first shot, and a kit drawn that the sim is not running.
 import type { KitLevel } from '@lions/data';
+import type { KitTiers, KitTiersBySide } from '@lions/render';
 import type { KitSummary } from '../ui/kit-sign';
 import type { UpgradePrepass } from '../upgrade-prepass';
-import { sameKit, type MatchWorld } from './match-world';
+import type { MatchWorld } from './match-world';
 
 /** Each KDF type's tiers by track, as `RendererOptions.unitKitTiers` takes them. */
-export type KitTiers = Readonly<Record<string, Readonly<Record<string, number>>>>;
+export type { KitTiers };
 
 /** The tables a seat's screen draws, from the world alone. */
 export function roomKitTables(world: MatchWorld, me: 0 | 1): {
   kitByType: Map<string, KitSummary>;
   unitKit: Readonly<Record<string, KitLevel>>;
-  unitKitTiersBySide: readonly [KitTiers, KitTiers];
+  unitKitTiersBySide: KitTiersBySide;
 } {
   const mine = world.kitBySide[me];
   return {
@@ -38,44 +42,26 @@ export function roomKitTables(world: MatchWorld, me: 0 | 1): {
   };
 }
 
-/**
- * What a renderer with ONE template per type id may draw in a room: each id's
- * tiers where the two sides agree, and `{}` (no kit) where they differ -- so
- * neither side's hull ever wears a kit its sim type is not running. A matched
- * room, or a brigade room whose seats hold the same kit, therefore passes its
- * tiers through whole. The interim until the renderer builds a template per
- * side (`unitKitTiersBySide`, plan Task 6), which draws a differing id right.
- */
-export function sharedKitTiers(bySide: readonly [KitTiers, KitTiers]): KitTiers {
-  const out: Record<string, Readonly<Record<string, number>>> = {};
-  // Side 0's keys are every KDF id: both prepasses run over the same roster
-  // (`buildMatchWorld`), so side 1 holds no id side 0 lacks.
-  for (const [id, zero] of Object.entries(bySide[0])) {
-    // `sameKit` is buildMatchWorld's own test for registering a side-1 copy.
-    out[id] = sameKit(zero, bySide[1][id]) ? zero : Object.freeze({});
-  }
-  return out;
-}
-
 /** The kit tables one battlefield screen reads: the HUD's two and the
- *  renderer's one. */
+ *  renderer's (one table, plus both sides' in a versus room). */
 export interface ScreenKit {
   kitByType: Map<string, KitSummary>;
   unitKit: Readonly<Record<string, KitLevel>>;
-  /** `RendererOptions.unitKitTiers`. */
+  /** `RendererOptions.unitKitTiers`: side 0's table. */
   unitKitTiers: KitTiers;
   /** Both sides' tiers in a versus room, for the renderer's per-side
-   *  templates (plan Task 6); absent everywhere else. */
-  unitKitTiersBySide?: readonly [KitTiers, KitTiers];
+   *  templates (`RendererOptions.unitKitTiersBySide`); absent everywhere
+   *  else, which keeps every other screen on one template per type. */
+  unitKitTiersBySide?: KitTiersBySide;
 }
 
 /**
  * `bootBattlefield`'s one choice of kit source. No versus world (single-player,
  * a mission, the sandbox, a sandbox room): the boot's own prepass, exactly the
  * tables it read before rooms had kit. A versus world: `roomKitTables` for
- * this viewer, and the renderer's single table through `sharedKitTiers` until
- * it takes one per side -- never the boot prepass, which a room builds from no
- * account and which describes neither seat.
+ * this viewer, and both sides' tables for the renderer (`unitKitTiers` is
+ * side 0's, as `RendererOptions` reads it) -- never the boot prepass, which a
+ * room builds from no account and which describes neither seat.
  */
 export function screenKit(
   prepass: Pick<UpgradePrepass<unknown>, 'kitByType' | 'unitKit' | 'unitKitTiers'>,
@@ -87,7 +73,7 @@ export function screenKit(
   return {
     kitByType: room.kitByType,
     unitKit: room.unitKit,
-    unitKitTiers: sharedKitTiers(room.unitKitTiersBySide),
+    unitKitTiers: room.unitKitTiersBySide[0],
     unitKitTiersBySide: room.unitKitTiersBySide,
   };
 }

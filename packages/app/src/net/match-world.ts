@@ -150,8 +150,11 @@ function ownValue(o: unknown, key: string): unknown {
 
 /** Whether two effective kits are the same, on key-sorted entries with zero
  *  tiers ignored (a zero tier fields nothing). The ONE predicate for "side 1
- *  gets its own type": `room-kit.ts`'s `sharedKitTiers` imports it, so the
- *  renderer never draws one kit on an id whose two sim types differ. */
+ *  gets its own type". The renderer's `templateKey` (`@lions/render`) mirrors
+ *  it -- `render` imports nothing from `app` -- and `room-kit.test.ts` holds
+ *  the two together against this world, so the renderer never draws one kit
+ *  on an id whose two sim types differ, nor loads a second template for an
+ *  id whose two sim types are one. */
 export function sameKit(a: Readonly<Record<string, number>> | undefined, b: Readonly<Record<string, number>> | undefined): boolean {
   const entries = (t: Readonly<Record<string, number>> | undefined): string =>
     JSON.stringify(Object.entries(t ?? {}).filter(([, n]) => n > 0).sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0)));

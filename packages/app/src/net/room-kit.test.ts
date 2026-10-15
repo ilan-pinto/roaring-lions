@@ -3,7 +3,8 @@ import { units } from '@lions/data';
 import { validateConfig, type MatchConfig } from '@lions/net';
 import { buildMatchWorld } from './match-world';
 import { upgradePrepass } from '../upgrade-prepass';
-import { roomKitTables, screenKit, sharedKitTiers } from './room-kit';
+import { templateKey } from '@lions/render';
+import { roomKitTables, screenKit } from './room-kit';
 
 type Tiers = Record<string, Record<string, number>>;
 /** A versus config, KDF against KDF, each SEAT's kit mode and tiers given. */
@@ -64,31 +65,14 @@ describe('roomKitTables: a versus seat draws its own kit, from the world alone',
   });
 });
 
-describe('sharedKitTiers: what a one-template renderer may draw in a room', () => {
-  it('drops an id whose two sides differ, so neither side wears the other\'s kit', () => {
-    const shared = sharedKitTiers([{ mbt_lavi: {}, ifv_namer: { armour: 1 } }, { mbt_lavi: { armour: 2 }, ifv_namer: { armour: 1 } }]);
-    expect(shared.mbt_lavi).toEqual({});
-    expect(shared.ifv_namer).toEqual({ armour: 1 });
-    // Both sides kitted, differently: still neither side's.
-    expect(sharedKitTiers([{ mbt_lavi: { armour: 1 } }, { mbt_lavi: { armour: 2 } }]).mbt_lavi).toEqual({});
-  });
-
-  it('keeps an id whose sides agree in a different key order', () => {
-    const shared = sharedKitTiers([{ mbt_lavi: { armour: 1, sensors: 2 } }, { mbt_lavi: { sensors: 2, armour: 1 } }]);
-    expect(shared.mbt_lavi).toEqual({ armour: 1, sensors: 2 });
-  });
-
-  it('a kitted world draws side 1\'s Lavi base until the renderer takes a template per side', () => {
-    const w = buildMatchWorld(room([{}, { mbt_lavi: { armour: 2 } }]));
-    expect(sharedKitTiers(roomKitTables(w, 1).unitKitTiersBySide).mbt_lavi).toEqual({});
-  });
-});
-
-describe('sharedKitTiers agrees with buildMatchWorld on which ids differ', () => {
-  // The renderer may draw one kit on an id only while the two sides run ONE
-  // sim type for it. So an id must be dropped exactly when buildMatchWorld
-  // registered side 1 its own copy (typeOfBySide differs) -- whatever either
-  // side's predicate for "same kit" turns into later.
+describe("templateKey agrees with buildMatchWorld on which ids differ", () => {
+  // The renderer gives a (type, side) its own vehicle template exactly when
+  // side 1 runs its own sim type for that id: a template per side where
+  // buildMatchWorld registered a side-1 copy (typeOfBySide differs), and the
+  // ONE shared template everywhere else -- so a matched room, or a brigade
+  // room whose seats agree, loads nothing new. `templateKey` lives in render,
+  // which imports nothing from app, so this is what holds its rule to
+  // `sameKit`, whatever either turns into later.
   const fixtures: [Tiers, Tiers][] = [
     [{}, {}],
     [{}, { mbt_lavi: { armour: 2 } }],
@@ -96,29 +80,36 @@ describe('sharedKitTiers agrees with buildMatchWorld on which ids differ', () =>
     [{ mbt_lavi: { armour: 1 }, ifv_namer: { armour: 1 } }, { mbt_lavi: { armour: 1 }, ifv_namer: { armour: 2 } }],
     [{ mbt_lavi: { armour: 0 } }, {}], // a zero tier fields nothing
     [{ mbt_lavi: { armour: 1, sensors: 0 } }, { mbt_lavi: { armour: 1 } }],
+    [{ mbt_lavi: { armour: 1, sensors: 2 } }, { mbt_lavi: { sensors: 2, armour: 1 } }], // key order
   ];
 
-  it('drops exactly the ids that have a side-1 copy, over every fixture', () => {
-    let copied = 0;
-    let kept = 0;
+  it('splits exactly the ids that have a side-1 copy, over every fixture', () => {
+    let split = 0;
+    let shared = 0;
     for (const tiers of fixtures) {
       const w = buildMatchWorld(room(tiers));
-      const bySide = roomKitTables(w, 0).unitKitTiersBySide;
-      const shared = sharedKitTiers(bySide);
+      const bySide = screenKit(upgradePrepass(Object.values(units), {}), w, 0).unitKitTiersBySide;
       for (const id of KDF_IDS) {
         const hasCopy = w.typeOfBySide[1].get(id) !== w.typeOfBySide[0].get(id);
-        // Kept is side 0's own table (by identity); dropped is a fresh `{}`.
-        const isKept = shared[id] === bySide[0][id];
-        expect({ tiers, id, dropped: !isKept }).toEqual({ tiers, id, dropped: hasCopy });
+        // Side 0 never splits; side 1 splits exactly where the sim did.
+        expect(templateKey(id, 0, bySide)).toBe(id);
+        const key = templateKey(id, 1, bySide);
+        expect({ tiers, id, split: key !== id }).toEqual({ tiers, id, split: hasCopy });
         if (hasCopy) {
-          copied++;
-          expect(shared[id]).toEqual({});
-        } else kept++;
+          split++;
+          expect(key).toBe(`${id}#s1`);
+        } else shared++;
       }
     }
     // Not vacuous: both outcomes are exercised.
-    expect(copied).toBe(3); // fixtures 2, 3 (Lavi) and 4 (Namer)
-    expect(kept).toBeGreaterThan(0);
+    expect(split).toBe(3); // fixtures 2, 3 (Lavi) and 4 (Namer)
+    expect(shared).toBeGreaterThan(0);
+  });
+
+  it('a matched room splits nothing, whatever the seats claimed', () => {
+    const w = buildMatchWorld(room([{}, { mbt_lavi: { armour: 2 } }], 'matched'));
+    const bySide = screenKit(upgradePrepass(Object.values(units), {}), w, 1).unitKitTiersBySide;
+    for (const id of KDF_IDS) expect(templateKey(id, 1, bySide)).toBe(id);
   });
 });
 
@@ -142,8 +133,11 @@ describe("screenKit: bootBattlefield's one choice of kit source", () => {
     expect(screenKit(prepass, w, 0).unitKit.mbt_lavi).toBe(0);
     expect(screenKit(prepass, w, 0).kitByType.get('mbt_lavi')?.level).toBe(0);
     expect(screenKit(prepass, w, 1).unitKitTiersBySide?.[1].mbt_lavi).toEqual({ armour: 2, sensors: 2 });
-    // One renderer table for both sides draws the differing Lavi base, on both screens.
+    // The renderer's one table is side 0's on BOTH screens, and side 1's
+    // differing Lavi draws from its own template (`templateKey`).
     expect(screenKit(prepass, w, 0).unitKitTiers.mbt_lavi).toEqual({});
     expect(screenKit(prepass, w, 1).unitKitTiers.mbt_lavi).toEqual({});
+    expect(screenKit(prepass, w, 1).unitKitTiers).toBe(w.kitBySide[0].unitKitTiers);
+    expect(templateKey('mbt_lavi', 1, screenKit(prepass, w, 0).unitKitTiersBySide)).toBe('mbt_lavi#s1');
   });
 });

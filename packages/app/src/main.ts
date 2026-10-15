@@ -2054,9 +2054,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     reducedMotion: prefersReducedMotion,
     // GH-238: the bought kit each vehicle wears, from the one prepass that
     // registered the sim's types and drew the card -- so the hull on the
-    // field is the hull the sim is running. A versus room: the kit both sides
-    // share, until the renderer takes a template per side (`screenKit`).
+    // field is the hull the sim is running. A versus room: each side's own
+    // kit, side 0's as `unitKitTiers` and both as `unitKitTiersBySide`, so a
+    // type whose two kits differ draws a template per side (`screenKit`,
+    // `templateKey`). Everywhere else `unitKitTiersBySide` is absent and the
+    // renderer builds the one template per type it always has.
     unitKitTiers: kit.unitKitTiers,
+    ...(kit.unitKitTiersBySide !== undefined ? { unitKitTiersBySide: kit.unitKitTiersBySide } : {}),
     // Network design §5.1: whose force this screen draws as its own, and
     // whether fog is private to this seat (absent/false is single-player).
     viewerSide: me,
