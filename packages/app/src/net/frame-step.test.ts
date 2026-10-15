@@ -102,6 +102,30 @@ describe('runFrames', () => {
     ]);
     expect(sim.hashCalls).toBe(2);
   });
+  it('runtimeDigest (N2-P2): folded in place of 0, asked once per hash tick, after that tick ran', () => {
+    const sim = fakeSim();
+    const frames: Frame[] = Array.from({ length: 41 }, (_, tick) => ({ tick, cmds: [] }));
+    const transport = new ScriptedTransport(frames);
+    const cfg = config();
+    const asked: number[] = [];
+    // A digest that moves with the sim, so one read on the wrong tick shows.
+    const runtimeDigest = (): number => { asked.push(sim.tickCount); return 5000 + sim.tickCount; };
+    const step = { transport, sim, seatWorld: seatWorldFor(cfg, sim), runTick: sim.runTick, config: cfg, runtimeDigest };
+    for (let i = 0; i < 20; i++) runFrames(step, 4);
+    expect(transport.reports.filter(([, d]) => d !== null)).toEqual([
+      [19, matchDigest(1000 + 100 + 20, 5000 + 100 + 20, 77)],
+      [39, matchDigest(1000 + 100 + 40, 5000 + 100 + 40, 77)],
+    ]);
+    expect(asked).toEqual([120, 140]);
+  });
+  it('runtimeDigest: never asked in single-player, where nothing is hashed', () => {
+    const sim = fakeSim();
+    const transport = new LocalTransport();
+    let asked = 0;
+    const step = { transport, sim, seatWorld: seatWorldFor(null, sim), runTick: sim.runTick, config: null, runtimeDigest: () => ++asked };
+    runFrames(step, 40);
+    expect(asked).toBe(0);
+  });
   it('stopAfter: no frame runs after the one it says stop on, and that one is still reported', () => {
     const sim = fakeSim();
     const frames: Frame[] = Array.from({ length: 30 }, (_, tick) => ({ tick, cmds: [] }));

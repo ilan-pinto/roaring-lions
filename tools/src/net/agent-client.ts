@@ -49,6 +49,10 @@ export interface AgentClientOptions {
   open?: () => SocketLike;
   /** Default: stderr. stdout is the MCP protocol channel and never written. */
   log?: (line: string) => void;
+  /** Folded into every hash this seat reports (`FrameStep.runtimeDigest`,
+   *  N2-P2). Absent -- 0 -- until N2's versus runtime, exactly as the
+   *  browser's is; the room compares it like the rest of the digest. */
+  runtimeDigest?: () => number;
 }
 
 /** The match's state, built at `start` (or the first `log`). */
@@ -216,6 +220,7 @@ export class AgentClient {
       seatWorld,
       runTick: () => { sim.tick(); fog.step(); },
       config,
+      runtimeDigest: this.o.runtimeDigest,
       beforeFrame: (f: Frame) => {
         const own = canonicalOrder(f.cmds)
           .filter((s) => s.seat === seat)

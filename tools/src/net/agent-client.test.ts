@@ -167,6 +167,18 @@ describe('AgentClient against the real room', () => {
     expect(a.transport.stats().hashOk.count).toBeGreaterThanOrEqual(3);
   });
 
+  it('N2-P2: the harness folds its runtime digest; one seat\'s alone is a desync the room names at tick 19', async () => {
+    const { loop, ticket } = await newRoom();
+    const a = new AgentClient({ server: 'https://room.test', code: CODE, ticket: await ticket(0), build: BUILD, role: 'seat', seat: 0, open: loop.open, log: () => {}, runtimeDigest: () => 7 });
+    const c = agent(loop, await ticket(1), 1);
+    await loop.flush();
+    await Promise.all([a.ready, c.ready]);
+    await play(loop, 40, [a, c], () => (a.tick() >= 40 && c.tick() >= 40) || a.transport.stats().desyncTick !== null);
+    // The two sims agree; only the runtime digest differs.
+    expect((a.world() as MatchWorld).sim.hash()).toBe((c.world() as MatchWorld).sim.hash());
+    expect(a.transport.stats().desyncTick).toBe(19);
+  });
+
   it('a seat\'s close() is a leave: the room ends the match, and the other client\'s result reads it once its frames are run', async () => {
     const { loop, ticket } = await newRoom();
     const a = agent(loop, await ticket(0), 0);

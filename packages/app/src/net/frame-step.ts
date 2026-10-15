@@ -35,6 +35,11 @@ export interface FrameStep {
    *  task 4): the AI harness reads its own seat's stamped commands here to
    *  settle its order ledger. Absent in the browser. */
   beforeFrame?: (frame: Frame) => void;
+  /** The match state that lives OUTSIDE the sim (N2-P2): asked once per hash
+   *  tick, after that tick ran, and folded into the reported digest where the
+   *  literal 0 stood. Absent means 0, so a client with nothing to add reports
+   *  exactly what it did before. N2 wires its versus runtime here in one line. */
+  runtimeDigest?: () => number;
 }
 
 /** A hash tick closes a window of `hashEveryTicks` frames: ticks 19, 39, ... at 20. */
@@ -53,7 +58,10 @@ export function runFrames(step: FrameStep, maxTicks: number): { ran: number; dro
     dropped += applyFrame(f, sim, seatWorld).dropped;
     runTick();
     ran++;
-    transport.reportTick(f.tick, config !== null && isHashTick(f.tick, config) ? matchDigest(sim.hash(), 0, config.dataDigest) : null);
+    transport.reportTick(
+      f.tick,
+      config !== null && isHashTick(f.tick, config) ? matchDigest(sim.hash(), step.runtimeDigest?.() ?? 0, config.dataDigest) : null,
+    );
     if (step.stopAfter?.(f.tick) === true) break;
   }
   return { ran, dropped };
