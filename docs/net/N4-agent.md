@@ -159,6 +159,25 @@ pnpm arena -- --a rush --b passive --seeds 10 --map tel_marum --pace 60
   (`void/disagree`), when the room ended without a result, or when a game ran
   past its wall-time backstop (`void/timeout`). A void is a result of the arena,
   not a failure: the exit code is 0 unless a game could not be played at all.
+- **A against B.** stdout and the report also read `--a` against `--b`
+  directly: `n` (the non-void games between them), A's score, and `p`, the
+  one-sided exact binomial chance that a player no better than its opponent
+  scores this well: P(X ≥ wins + ½ draws) for X ~ Bin(n, ½). A half point (a
+  draw) takes the mean of the two whole-point readings either side of it.
+- **`--gate`** judges the run (ruled 15 Oct, coordinator, lead-delegated): it
+  passes iff A beats B with **p < 0.05**, and prints one line,
+  `gate: PASS|FAIL  <A> over <B>  n=<n>  score=<s>  p=<p>`. The N4 gate is
+  ```sh
+  pnpm arena -- --a rush --b passive --seeds 20 --map tel_marum --pace 60 --tick-ms 2 --gate
+  ```
+  forty games, both seat orders; with the players swapped (`--a passive --b
+  rush`) it must FAIL. There is no fitted bar: twenty seeds is enough for
+  15 of 20 to read p ≈ 0.02, while two games can never pass (p ≥ 0.25).
+- **Exit codes.** 0 every game played (voids included); 1 a bad command line,
+  a player that cannot be built, or a game that could not be played; 2 a map
+  or matchup no room offers; **3, only with `--gate`, every game played and the
+  gate FAILED**. A run that ends 1 prints `gate: not judged` and stays 1.
+  Without `--gate` the codes are exactly 0, 1 and 2.
 - **Results** go to `arena-results/` in the directory you ran pnpm from (or
   `--out <dir>`): `<date>-<a>-vs-<b>.jsonl`, one record per game appended as it
   ends, and `.md`, the tables. An existing pair is never overwritten; the new

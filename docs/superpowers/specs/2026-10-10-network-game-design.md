@@ -714,7 +714,7 @@ Defaults recorded with the recommendation; overturn any in review:
 | 15 | Pings | sender and sender's advisor only |
 | 16 | Chat | text, 280 characters, relay only, in version one |
 | 17 | Speed | host-set in the lobby, applied by the room; never local |
-| 18 | Unattended bot seat | the doctrine commander. **Not built yet** (WP-G-G0 has not landed); N4 ships scripted baseline bots instead (§11b, N4 plan). **Shipped in N4b** (§11c.5): `passive` and `rush`, fog-respecting, in-process only; `rush` scores 0.750 against `passive` on `tel_marum`. A bot seat with a model attached is `pnpm agent --scope command --join` |
+| 18 | Unattended bot seat | the doctrine commander. **Not built yet** (WP-G-G0 has not landed); N4 ships scripted baseline bots instead (§11b, N4 plan). **Shipped in N4b** (§11c.5): `passive` and `rush`, fog-respecting, in-process only; `rush` scores 0.750 against `passive` on `tel_marum` over ten seeds, and 0.675 over the gate's twenty (p 0.019, §11c.7). A bot seat with a model attached is `pnpm agent --scope command --join` |
 | 19 | Arena scoring | win rate over the seed set with sides swapped; Conduct and tokens reported only. A versus room runs no `MissionRuntime`, so there is no Conduct to report until N2/N3; the arena reports the scoreboard (decision 25) in its place (§11b). **Shipped in N4b** (§11c.6, D7): (wins + ½ draws) / non-void games, overall, per seat and per faction, each seed played twice with the seats swapped; the scoreboard per game; tokens when the client prints them, never scored; a game the room desyncs or the two sims disagree on is void. Results go to local files, not D1 (D6 "not now") |
 | 20 | Skirmish payout | none in version one; earned credits for a result is a later ST/G-G question |
 | 21 | Storage | Durable Object SQLite for the room, D1 for results and desync logs; nothing in R2 |
@@ -1227,7 +1227,8 @@ and frees the port. `MatchRoom` gained one optional constructor argument,
 
 - **`pnpm arena -- --a <player> --b <player> [--seeds 10] [--map
   tel_marum] [--matchup mirror|kdf|sarim] [--pace 60] [--round-wall-ms
-  120000] [--cap-ticks 12000] [--tick-ms 2] [--out arena-results/]`.** A
+  120000] [--cap-ticks 12000] [--tick-ms 2] [--out arena-results/]
+  [--gate]`.** A
   player is `passive`, `rush` or `cmd:<template>`. Seed *n* is `1000 + 7919
   n` (the versus probe's sequence), each played twice with the seats swapped,
   every game on its own local relay with two bot seats in a paced room. Only a
@@ -1256,6 +1257,13 @@ and frees the port. `MatchRoom` gained one optional constructor argument,
   `surrender`, `left` or `mutual` for a result, and `desync`, `disagree`,
   `timeout`, `unfinished` or a room's closed reason for a void. A void is a result: the
   arena exits 0 unless a game could not be played at all (exit 1).
+- **A over B, and `--gate`** (ruled 15 Oct, coordinator, lead-delegated;
+  §11c.7). stdout and the report's "Head to head" table read `--a` against
+  `--b`: `n` (non-void games between the two), A's score and the one-sided
+  exact binomial `p` that A is better. `--gate` passes iff p < 0.05, prints
+  `gate: PASS|FAIL  <A> over <B>  n=<n>  score=<s>  p=<p>` and exits **3** on
+  FAIL; a run that ends 1 is not judged and stays 1. Without `--gate` the exit
+  codes are 0, 1 and 2 as above.
 - **External players** (`external-player.ts`): per game and external seat, a
   0700 temp directory with three 0600 files (the seat's `ticket`, `mcp.json`
   naming this checkout's harness in `command` scope by absolute `tsx` and
@@ -1287,10 +1295,43 @@ and frees the port. `MatchRoom` gained one optional constructor argument,
 
 ### 11c.7 The N4 gate
 
-The plan's Step 2 gate is `pnpm arena -- --a rush --b passive --seeds 10
---map tel_marum --pace 60 --tick-ms 2`, with `rush ≥ 0.9` read as "the
-controls work". **Read on 15 Oct: rush 0.750 (15-0-5, no void), so the gate
-is red as written.** The bar, the map and rush were left as they are (ruling
+**Ruled 15 Oct (coordinator, lead-delegated): the gate is statistical, not a
+fitted bar.** It asks whether the arena can tell a better player from a worse
+one. On `tel_marum`, over **40 games** (20 seeds × 2 seat orders), `rush` must
+beat `passive` with a **one-sided exact binomial p < 0.05**:
+
+- p = P(X ≥ k) for X ~ Bin(n, ½), the chance that a player no better than its
+  opponent scores k or more; n = the non-void games between the two;
+  k = wins + ½ draws (D7). A half-point k takes the **mean of P(X ≥ ⌊k⌋) and
+  P(X ≥ ⌈k⌉)**, which lies between the draw-as-loss and draw-as-win readings
+  (`binomialP`, exact in BigInt). The pass is strict, p < 0.05.
+- The command is `pnpm arena -- --a rush --b passive --seeds 20 --map
+  tel_marum --pace 60 --tick-ms 2 --gate`; it prints `gate: PASS|FAIL  <A>
+  over <B>  n=<n>  score=<s>  p=<p>` and exits 3 on FAIL (§11c.6).
+- Its falsification is the players swapped (`--a passive --b rush`), which
+  must FAIL. `rush` and the map were not tuned for it.
+
+**Read on 15 Oct (pace 60, cap 12,000, tick 2 ms, mirror; every game played,
+none void):**
+
+| Run | n | W-D-L (A) | Score (A) | p | Verdict | Wall |
+|---|---|---|---|---|---|---|
+| `--a rush --b passive` | 40 | 27-0-13 | 0.675 | 0.01924 | **PASS**, exit 0 | 749 s |
+| `--a passive --b rush` (falsification) | 40 | 13-0-27 | 0.325 | 0.9917 | **FAIL**, exit 3 | 742 s |
+
+Rush scores 0.850 from seat 0 (west) and 0.500 from seat 1 (east, through
+the pass); 21 games went to the cap and 19 ended in annihilation. The
+swapped run replayed the same 40 games (identical records as a set, only the
+order differs). The first
+ten seeds reproduce the earlier 10-seed run game for game (15-5); seeds
+10-19 read 12-8. Both p values agree with an independent computation
+(Python, `math.comb` over `fractions.Fraction`): P(X ≥ 27 | 40) =
+0.019239 and P(X ≥ 13 | 40) = 0.991705.
+
+**History: the bar this ruling replaced.** The plan's Step 2 gate was `pnpm
+arena -- --a rush --b passive --seeds 10 --map tel_marum --pace 60 --tick-ms
+2`, with `rush ≥ 0.9` read as "the controls work". **Read on 15 Oct: rush
+0.750 (15-0-5, no void), so the gate was red as written.** The bar, the map and rush were left as they are (ruling
 N4); the reading equals Task 12's measurement game for game. Rush wins 0.900
 from the west seat and 0.600 from the east. For the lead's decision, the same
 run on the other versus maps (mirror, ten seeds, pace 60, cap 12,000; every
@@ -1305,8 +1346,9 @@ game played, none void):
 
 No versus map reaches 0.9. The arena ran every game and the room voided
 none, so the gap is the control's strength (a stateless rush into a force
-that holds its ground), not a broken control path. The choice between a lower
-bar, another gate map and a stronger, stateful control is the lead's.
+that holds its ground), not a broken control path. That choice (a lower bar,
+another gate map or a stronger, stateful control) was answered by the ruling
+above: a statistical gate on the same map with the same rush.
 
 Spec §9's N4 gate itself, an `assist` advisor completing a match with Ilan and
 a ten-seed arena run between two models, is the lead's to run (run protocol
