@@ -533,6 +533,13 @@ export async function loadVehicleMeshTemplate(
  *  turns only this vehicle's turret. */
 export interface VehicleMeshEntity extends ClipPlayer {
   readonly typeId: string;
+  /**
+   * The key of the template this clone was made from: `typeId`, or
+   * `${typeId}#s1` for a versus side-1 hull whose kit differs from side 0's
+   * (`kit-template-key.ts`). Recorded at clone time so the death hand-off
+   * and the scar memo read the SAME template the living hull was drawn from.
+   */
+  readonly templateKey: string;
   readonly root: THREE.Object3D;
   /**
    * This clone's own mixer, or `null` when its GLB authored no clips --
@@ -599,7 +606,12 @@ export interface VehicleMeshEntity extends ClipPlayer {
  * independently, by the same name-then-extras rule `buildVehicleMeshTemplate`
  * uses, so a future rename stays consistent between the two lookups.
  */
-export function instantiateVehicleMesh(template: VehicleMeshTemplate, typeId: string): VehicleMeshEntity {
+export function instantiateVehicleMesh(
+  template: VehicleMeshTemplate,
+  typeId: string,
+  /** `templateKey`'s result; absent is `typeId`, the one-template case. */
+  templateKey: string = typeId
+): VehicleMeshEntity {
   const root = template.root.clone(true);
   let turretPivot: THREE.Object3D | null = null;
   if (template.hasTurretPivot) {
@@ -654,6 +666,7 @@ export function instantiateVehicleMesh(template: VehicleMeshTemplate, typeId: st
 
   return {
     typeId,
+    templateKey,
     root,
     mixer,
     actions,

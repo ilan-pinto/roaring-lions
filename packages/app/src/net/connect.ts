@@ -28,7 +28,7 @@ import { playerId } from './player-id';
 import { takeHanded } from './handoff';
 import { forgetSeat, loadSeat, saveSeat } from './ticket-store';
 import type { StorageLike } from '../telemetry/identity';
-import { LocalTransport, WsTransport, callsignOrDefault, type AdvisorScope, type Faction, type Matchup, type MatchConfig, type MatchTransport, type Seat, type SeatState, type SocketLike } from '@lions/net';
+import { LocalTransport, WsTransport, callsignOrDefault, type AdvisorScope, type Faction, type LobbyKit, type Matchup, type MatchConfig, type MatchTransport, type Seat, type SeatState, type SocketLike } from '@lions/net';
 
 export interface ConnectDeps {
   fetch: typeof fetch;
@@ -196,8 +196,9 @@ function awaitStart(code: string, seat: Seat, ticket: string, build: string, dep
 
 /** What the `/versus` screens ask for. */
 export type RoomRequest =
-  /** `matchup`: the host's pick -- KDF or Sarim for itself, or the mirror. */
-  | { kind: 'create'; map: string; callsign: string; matchup?: Matchup }
+  /** `matchup`: the host's pick -- KDF or Sarim for itself, or the mirror.
+   *  `kit`: the host's "Bring your brigade" toggle (per-seat kit); absent is `matched`. */
+  | { kind: 'create'; map: string; callsign: string; matchup?: Matchup; kit?: LobbyKit }
   | { kind: 'join'; code: string; callsign: string };
 
 /** The room as its first `lobby` message described it. */
@@ -206,13 +207,21 @@ export interface LobbyState {
   map: string;
   /** Each seat's faction, by seat; the KDF mirror for a room that names none. */
   factions: [Faction, Faction];
+  /** The room's kit rule: `brigade` when the lobby names it, else `matched`. */
+  kit: LobbyKit;
 }
 
 /** An open room: its code, this tab's seat, the live transport (nothing said
  *  but `hello`), and the lobby it first answered with. */
 export interface OpenedRoom { code: string; seat: Seat; transport: WsTransport; lobby: LobbyState }
 
-export type OpenDeps = Pick<ConnectDeps, 'fetch' | 'origin' | 'openSocket' | 'store' | 'session' | 'signal'>;
+export type OpenDeps = Pick<ConnectDeps, 'fetch' | 'origin' | 'openSocket' | 'store' | 'session' | 'signal'> & {
+  /** The local account's bought kit, in the account's own shape (per-seat kit). It
+   *  is read at the request and goes into the create/join BODY and nowhere else:
+   *  the world is built from the room's config, never from this machine's account,
+   *  and a tier in a URL would be logged. Absent is an empty claim. */
+  tiers?: () => Record<string, Record<string, number>>;
+};
 
 /** Why a room could not be opened, as the lobby words it: no such room, a
  *  full one, a different build, or anything else (offline, a 5xx, a room
@@ -270,9 +279,15 @@ export async function openRoom(req: RoomRequest, build: string, deps: OpenDeps):
   const creating = req.kind === 'create';
   const url = creating ? `${deps.origin}/api/match` : `${deps.origin}/api/match/${encodeURIComponent(req.code.toUpperCase())}/join`;
   const player = playerId(deps.store);
+  // The seat's claim travels in the body only. A create sends it just for a
+  // brigade room, so a matched room's storage never holds the host's account;
+  // a join always sends it, since a guest cannot know the room's rule (the room
+  // records it and mints it only into a brigade room, decision 22).
+  const kit = creating ? req.kit ?? 'matched' : null;
+  const claim = kit === 'matched' ? {} : { tiers: deps.tiers?.() ?? {} };
   const body = creating
-    ? { player, callsign: callsignOrDefault(req.callsign), map: req.map, build, mode: 'versus', matchup: req.matchup ?? 'mirror' }
-    : { player, callsign: callsignOrDefault(req.callsign), build };
+    ? { player, callsign: callsignOrDefault(req.callsign), map: req.map, build, mode: 'versus', matchup: req.matchup ?? 'mirror', kit, ...claim }
+    : { player, callsign: callsignOrDefault(req.callsign), build, ...claim };
   let res: Response;
   try {
     res = await deps.fetch(url, {
@@ -319,11 +334,11 @@ function awaitLobby(code: string, seat: Seat, ticket: string, build: string, dep
     };
     const onAbort = (): void => fail(aborted());
     const transport: WsTransport = new WsTransport(() => deps.openSocket(wsUrl), ticket, build, {
-      onLobby: (seats, _you, map, factions) => {
+      onLobby: (seats, _you, map, factions, kit) => {
         if (settled) return;
         settled = true;
         deps.signal?.removeEventListener('abort', onAbort);
-        resolve({ code, seat, transport, lobby: { seats, map, factions: factions ?? ['kdf', 'kdf'] } });
+        resolve({ code, seat, transport, lobby: { seats, map, factions: factions ?? ['kdf', 'kdf'], kit: kit ?? 'matched' } });
       },
       onStart: (config) => fail(new RoomStarted(config.map, code), false),
       onError: (c) => {

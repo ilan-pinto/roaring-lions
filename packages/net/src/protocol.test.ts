@@ -151,6 +151,14 @@ describe('N1b messages', () => {
     expect(parseServerMsg(JSON.stringify({ t: 'ended', reason: 'surrender', seat: 1 }))).toEqual({ t: 'ended', reason: 'surrender', seat: 1 });
     expect(parseServerMsg(JSON.stringify({ t: 'ended', reason: 'boredom' }))).toBeNull();
   });
+  it('a lobby carries the room\'s kit rule when it is brigade, and refuses a rule that is neither (per-seat kit)', () => {
+    const lobby = { t: 'lobby', config: null, seats: [], you: 1, map: 'tel_marum', factions: ['kdf', 'kdf'], kit: 'brigade' };
+    expect(parseServerMsg(JSON.stringify(lobby))).toEqual(lobby);
+    expect(parseServerMsg(JSON.stringify({ ...lobby, kit: 'matched' }))).toEqual({ ...lobby, kit: 'matched' });
+    expect(parseServerMsg(JSON.stringify({ ...lobby, kit: 'everything' }))).toBeNull();
+    const older = { t: 'lobby', config: null, seats: [], you: 1, map: 'tel_marum', factions: ['kdf', 'kdf'] };
+    expect(parseServerMsg(JSON.stringify(older))).toEqual(older);
+  });
   it('a lobby carries the factions by seat when it has them, and refuses a malformed pair (2026-10-14)', () => {
     const lobby = { t: 'lobby', config: null, seats: [], you: 1, map: 'tel_marum', factions: ['sarim', 'kdf'] };
     expect(parseServerMsg(JSON.stringify(lobby))).toEqual(lobby);

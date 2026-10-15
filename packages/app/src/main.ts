@@ -259,6 +259,7 @@ import { netReport } from './net/net-report';
 import { viewerSideOf } from './net/viewer';
 import { campOf, factionsBySide, versusUnitTypes } from './net/versus-force';
 import { buildMatchWorld } from './net/match-world';
+import { screenKit } from './net/room-kit';
 import { shippedContentDigest } from './net/content-digest';
 import { pruneHiddenHostiles, type SeatSight } from './net/hidden-selection';
 import { garrisonRoomShown } from './net/hover-garrison';
@@ -1238,6 +1239,10 @@ async function main(): Promise<void> {
         store: versusStore,
         // Seat tickets are per TAB (R-B6): the battlefield's reload rejoins with it.
         session: safeStorageLike(() => window.sessionStorage),
+        // The local account's bought kit goes into the create/join BODY and
+        // nowhere else (per-seat kit): this is the one read of the account on
+        // a room path. The world is built from the room's config, never from it.
+        tiers: () => accountState().ownedTiers,
         ...(signal ? { signal } : {}),
       }),
     maps: versusMaps(),
@@ -1482,16 +1487,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   /** `&kit` (sandbox only, WP-S3g plan 2) swaps the account's tiers for the
    *  fixed ladder BEFORE the one prepass, so the swap reaches the sim, the HUD
    *  card and the unit icons together; a mission never takes it (`bootTiers`).
-   *  A room takes the base ladder for everyone (the config's `kit: 'matched'`):
-   *  each machine's own brigade account would otherwise give the two sims
-   *  different unit stats, and they would part at the first shot. */
+   *  A room never reads this machine's account here -- each machine's own
+   *  brigade account would give the two sims different unit stats, and they
+   *  would part at the first shot -- so a room's boot prepass is the base
+   *  ladder. A SANDBOX room plays on it. A VERSUS room does not: its world
+   *  registers each side's kit from the shared config (`buildMatchWorld`),
+   *  and its screen's kit tables come from that world through `screenKit`,
+   *  never from this prepass. */
   const bootKit = inRoom ? {} : bootTiers(ownedTiers, { mission: req.missionId !== null, kitFlag: flags.kit }, roster);
   const prepass = upgradePrepass(roster, bootKit);
-  const kitByType = prepass.kitByType;
-  /** The one level every unit ICON reads (WP-S3g plan 2b): the prepass's own
-   *  `unitKit`, never re-derived -- the loop that registered the sim's types
-   *  and filled the card's pips. 0 for any type the prepass did not see. */
-  const kitLevelOf = (typeId: string): KitLevel => prepass.unitKit[typeId] ?? 0;
   /** The end screen and the debrief mount on `document.body`, not on the
    *  stage, so the router cannot clear them: whoever tears a battlefield down
    *  has to. Collected here and drained by `teardown` below. */
@@ -1794,6 +1798,19 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  also calls (`net/match-world.ts`): the sim, terrain, buildings, the map's
    *  tunnels, the unit types and both forces. Null everywhere else. */
   const versusWorld = versusRoom && netConfig !== null ? buildMatchWorld(netConfig) : null;
+  /** The kit this screen draws (`net/room-kit.ts`'s `screenKit`): the boot
+   *  prepass above everywhere but a versus room, which reads each SIDE's kit
+   *  from its world -- the HUD tables for this viewer's side (a card or chip
+   *  carries kit only for an own unit), and the renderer both sides. Side 1's
+   *  kitted units share side 0's type ids, so an id-keyed table describes one
+   *  side; the viewer's is the one the HUD reads. */
+  const kit = screenKit(prepass, versusWorld, me);
+  const kitByType = kit.kitByType;
+  /** The one level every unit ICON reads (WP-S3g plan 2b): the prepass's own
+   *  `unitKit` (the viewer's side's, in a versus room), never re-derived --
+   *  the loop that registered the sim's types and filled the card's pips. 0
+   *  for any type the prepass did not see. */
+  const kitLevelOf = (typeId: string): KitLevel => kit.unitKit[typeId] ?? 0;
   const baseMapJson =
     (maps as Record<string, MapJson | undefined>)[mapId] ?? maps.beit_sahwan_outskirts;
   // The ditch is cut into the ROWS, before `parseMap`, rather than poked into
@@ -1869,6 +1886,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     }
   }
 
+  // A versus room's `typeOf` is SIDE 0's map: side 1's kitted types share its
+  // ids under other indices (`typeOfBySide`). Every id -> index read below is
+  // a mission's or the sandbox's (`startMission`, the dock, `sandboxSpawns`),
+  // so a room reads none; a room-side lookup by id must pick a side's map.
   const typeOf = versusWorld?.typeOf ?? new Map<string, number>();
   // The pre-pass's own output (`upgradePrepass`, above): enemy units pass
   // through untouched -- only a KDF unit can carry a bought tier -- and
@@ -2042,8 +2063,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     reducedMotion: prefersReducedMotion,
     // GH-238: the bought kit each vehicle wears, from the one prepass that
     // registered the sim's types and drew the card -- so the hull on the
-    // field is the hull the sim is running.
-    unitKitTiers: prepass.unitKitTiers,
+    // field is the hull the sim is running. A versus room: each side's own
+    // kit, side 0's as `unitKitTiers` and both as `unitKitTiersBySide`, so a
+    // type whose two kits differ draws a template per side (`screenKit`,
+    // `templateKey`). Everywhere else `unitKitTiersBySide` is absent and the
+    // renderer builds the one template per type it always has.
+    unitKitTiers: kit.unitKitTiers,
+    ...(kit.unitKitTiersBySide !== undefined ? { unitKitTiersBySide: kit.unitKitTiersBySide } : {}),
     // Network design §5.1: whose force this screen draws as its own, and
     // whether fog is private to this seat (absent/false is single-player).
     viewerSide: me,

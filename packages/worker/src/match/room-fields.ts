@@ -1,5 +1,6 @@
 import { callsignOrDefault, type Pace, type SeatConfig } from '@lions/net';
 import { isShippedMap } from './map-ids';
+import { KIT_TRACKS } from './kit-tracks';
 
 /** What `/api/match` and the room's `/create` both read from a create body:
  *  one default map and one cap, so the route and the room cannot disagree. */
@@ -47,4 +48,49 @@ export function paceField(v: unknown): Pace {
   if (p.kind !== 'paced' || typeof p.roundTicks !== 'number' || typeof p.roundWallMs !== 'number') return { kind: 'realtime' };
   if (!Number.isFinite(p.roundTicks) || !Number.isFinite(p.roundWallMs)) return { kind: 'realtime' };
   return { kind: 'paced', roundTicks: clamp(p.roundTicks, ROUND_TICKS_RANGE), roundWallMs: clamp(p.roundWallMs, ROUND_WALL_MS_RANGE) };
+}
+
+export type Kit = SeatConfig['kit'];
+/** A room's kit rule (per-seat kit): `brigade` -- each seat fields the kit it
+ *  claims -- only when the body says exactly that; anything else is `matched`. */
+export function kitField(v: unknown): Kit {
+  return v === 'brigade' ? 'brigade' : 'matched';
+}
+
+export type SeatTiers = SeatConfig['tiers'];
+/** `o[k]` when it is an OWN DATA property; never the prototype chain, never a getter. */
+function ownValue(o: object, k: string): unknown {
+  return Object.getOwnPropertyDescriptor(o, k)?.value;
+}
+const isObject = (v: unknown): v is object => typeof v === 'object' && v !== null && !Array.isArray(v);
+/**
+ * A seat's kit claim, cleaned against the shipped tracks (`KIT_TRACKS`):
+ * structural checks only (decision 22). It walks the TABLE, not the body, so
+ * it reads at most `Object.keys(KIT_TRACKS).length` ids and each id's own
+ * tracks, and its output is bounded by construction. An id the table does not
+ * name (a non-KDF type, a prototype key) and a track that id does not declare
+ * are never read. Each tier is truncated and clamped to 0..that track's
+ * maximum, and an entry left at 0 -- and a type left with none -- is dropped.
+ * Both levels are built on `Object.create(null)` and read own data properties
+ * only, so nothing in a body can reach or set a prototype.
+ */
+export function seatTiersField(v: unknown): SeatTiers {
+  const out = Object.create(null) as SeatTiers;
+  if (!isObject(v)) return out;
+  for (const id of Object.keys(KIT_TRACKS)) {
+    const claimed = ownValue(v, id);
+    if (!isObject(claimed)) continue;
+    const tracks = KIT_TRACKS[id];
+    let kept: Record<string, number> | null = null;
+    for (const track of Object.keys(tracks)) {
+      const n = ownValue(claimed, track);
+      if (typeof n !== 'number' || !Number.isFinite(n)) continue;
+      const tier = Math.min(tracks[track], Math.max(0, Math.trunc(n)));
+      if (tier === 0) continue;
+      kept ??= Object.create(null) as Record<string, number>;
+      kept[track] = tier;
+    }
+    if (kept !== null) out[id] = kept;
+  }
+  return out;
 }

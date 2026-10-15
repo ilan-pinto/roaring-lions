@@ -343,14 +343,16 @@ export interface HudDeps {
    *  account behind it. Tiers are type-wide and fixed for the mission (brigade
    *  D3), so `main.ts` reads them once at boot -- the account can change
    *  between missions, and the card must show what the sim actually applied.
-   *  Only ever asked about side 0; absent in tests that do not exercise it. */
+   *  Only ever asked about the VIEWER's own units (`deps.viewer`), so in a
+   *  versus room it is that side's kit (`net/room-kit.ts`): side 1's kitted
+   *  types share side 0's ids. Absent in tests that do not exercise it. */
   kitOf?: (typeId: string) => KitSummary | null;
   /** Pass C2/C4 (D3): ticks this unit has been pinned without breaking,
    *  from the sim's own `pinned` event (`ui/pinned-since.ts`), or null. */
   pinnedTicks?: (id: number) => number | null;
   /** The kit level every HUD icon carries (plan 2b): main.ts's one read of
-   *  upgradePrepass.unitKit. Asked only about side 0; absent reads as 0
-   *  everywhere. */
+   *  upgradePrepass.unitKit. Asked only about the viewer's own units (the
+   *  viewer's side's table in a versus room); absent reads as 0 everywhere. */
   kitLevelOf?: (typeId: string) => KitLevel;
   /** Narrow the selection to one chip's sub-group. */
   setSelection?: (ids: number[]) => void;

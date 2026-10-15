@@ -8,7 +8,11 @@ export interface SeatConfig {
   side: 0 | 1;
   faction: Faction;
   kit: 'matched' | 'brigade';
-  tiers: Record<string, number>;
+  /** The seat's bought kit, the account's own `ownedTiers` shape and the one
+   *  `upgradePrepass` takes: unit type id -> track -> tier. `{}` for a matched
+   *  room. Structural checks only (`isTiers`); the room cannot check a claim
+   *  against an account. */
+  tiers: Record<string, Record<string, number>>;
   unlocks: string[];
   player: string;
   callsign: string;
@@ -100,13 +104,38 @@ export function isFactionPair(v: unknown): v is [Faction, Faction] {
 
 const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
 const isStr = (v: unknown): v is string => typeof v === 'string';
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** Bounds on a seat's `tiers`, so a config read back from a replay or the
+ *  room's own storage is bounded as well as the client's message is. The
+ *  shipped kit is 19 KDF types with at most 3 tracks of at most 3 tiers each;
+ *  every bound sits at three times that or more, so it never refuses a real
+ *  claim, and `packages/worker/src/match/kit-tracks.test.ts` fails if the
+ *  shipped tracks ever outgrow one of them. */
+export const TIERS_MAX_TYPES = 64;
+export const TIERS_MAX_TRACKS = 8;
+export const TIERS_MAX_TIER = 16;
+/** `tiers` is `{ typeId: { track: n } }` with every leaf an integer in
+ *  0..TIERS_MAX_TIER, at most TIERS_MAX_TYPES ids and TIERS_MAX_TRACKS tracks
+ *  an id. Own enumerable keys only (`Object.keys`/`Object.entries`), and no
+ *  key at either level may be `__proto__`, `constructor` or `prototype`:
+ *  JSON.parse makes each an OWN key, which any later spread or assignment
+ *  copy turns into a prototype or an inherited read. No shipped type id or
+ *  track carries one of those names. */
+const RESERVED_KEYS: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype']);
+function isTiers(v: unknown): v is Record<string, Record<string, number>> {
+  if (!isRecord(v) || Object.keys(v).length > TIERS_MAX_TYPES) return false;
+  return Object.entries(v).every(([id, t]) => !RESERVED_KEYS.has(id) && isRecord(t) &&
+    Object.keys(t).length <= TIERS_MAX_TRACKS &&
+    Object.entries(t).every(([track, n]) => !RESERVED_KEYS.has(track) && isInt(n) && n >= 0 && n <= TIERS_MAX_TIER));
+}
 
 function isSeatConfig(v: unknown, seat: Seat): v is SeatConfig {
   if (typeof v !== 'object' || v === null) return false;
   const s = v as Record<string, unknown>;
   return s.seat === seat && (s.side === 0 || s.side === 1) && (s.faction === 'kdf' || s.faction === 'sarim') &&
-    (s.kit === 'matched' || s.kit === 'brigade') && typeof s.tiers === 'object' && s.tiers !== null &&
-    Object.values(s.tiers as Record<string, unknown>).every(isInt) && Array.isArray(s.unlocks) && s.unlocks.every(isStr) &&
+    (s.kit === 'matched' || s.kit === 'brigade') && isTiers(s.tiers) &&
+    Array.isArray(s.unlocks) && s.unlocks.every(isStr) &&
     isStr(s.player) && isStr(s.callsign) && (s.kind === 'human' || s.kind === 'bot');
 }
 
