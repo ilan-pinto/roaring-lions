@@ -1,5 +1,11 @@
 # Intel ability moments (GH-113): as built
 
+> **2026-10-15 (S-F, F-Q11):** the strip's intel `+N/min` and the support tile's clock described
+> below are retired. Intel is earned in lumps by doing now (F1), so the strip shows the last
+> earn ("+30 high ground") for 30 s instead, and the feed gets one line per identification and
+> one for a high ground rise. Logistics keeps its own `+N/min`. The rest of this page is as built
+> on 2026-10-11.
+
 Status: **approved by the lead on 2026-10-11 and built.** The approved set is direction A of
 the mock, plus two pieces of direction B: the strike footprint while aiming, and the sweep
 breakdown with a minimap ring per contact. The mock's sheet and its full note are on draft

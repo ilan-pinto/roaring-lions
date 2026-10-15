@@ -1620,14 +1620,14 @@ export class Hud {
       );
     }
     if (m?.intel !== undefined && this.shown('intel')) {
-      // GH-113: the same `+N/min` the logistics figure wears, measured.
-      const intelRate =
-        m.intelRate !== undefined && Math.round(m.intelRate) > 0
-          ? ` <span class="rl-dim">${t('hud.strip.rate', { n: Math.round(m.intelRate) })}</span>`
+      // F-Q11: the last earn, not a rate -- intel comes in lumps now.
+      const lastEarn =
+        m.intelLastEarn !== undefined
+          ? ` <span class="rl-dim">${t('hud.strip.intel.lastEarn', { n: m.intelLastEarn.amount, cause: m.intelLastEarn.cause })}</span>`
           : '';
       info.push(
         `<span class="rl-info" data-tip="intel" tabindex="0">${symbolSvg('intel', STRIP_GLYPH_PX)} <b>${m.intel}</b> ` +
-          `<span class="rl-dim">${t('hud.strip.intel.word')}</span>${intelRate}</span>`
+          `<span class="rl-dim">${t('hud.strip.intel.word')}</span>${lastEarn}</span>`
       );
     }
     // Suppression: shown only when there is some. A permanent "0 pinned" is

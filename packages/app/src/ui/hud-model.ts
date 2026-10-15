@@ -52,11 +52,11 @@ export interface MissionView {
   logistics?: number;
   logisticsRate?: number;
   intel?: number;
-  /** GH-113: intel a minute, MEASURED from what the runtime reports
-   *  (`ui/intel-moments.ts`'s `IntelRate`), never re-derived from the sim's
-   *  accrual rule. Shown beside intel as logistics shows its own rate; absent
-   *  or 0 shows none. */
-  intelRate?: number;
+  /** F-Q11: the last intel earn (`ui/intel-moments.ts`'s `lastEarn`), shown
+   *  beside intel for as long as that module says; absent shows none. Intel
+   *  is earned by doing, so the strip names the last thing it was earned for
+   *  where logistics names its rate. */
+  intelLastEarn?: { amount: number; cause: 'identified' | 'objective' | 'highGround' };
   /** The story voice's closing line (GDD §11), shown on the victory banner
    *  only -- `mission.ts`'s own doc comment on the field: "Shown on the
    *  victory banner." */

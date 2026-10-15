@@ -4,15 +4,15 @@
 // the one mission that starts with enough intel for both calls -- built the
 // way the app builds it (`mission-harness.ts`), with nothing driving it:
 //
-//  1. The tile shows no clock while nothing is earned. Intel stopped trickling
+//  1. The strip shows no earn while nothing is earned. Intel stopped trickling
 //     per minute at F1 Task 3 (G3 Q1, lead 4 Oct; F-R9): it is earned by doing,
-//     a first identification or an objective, never by waiting. So a force
-//     that stands a minute with no contact earns nothing: `runtime.intel` does
-//     not move, the rate the app MEASURES from it (`IntelRate.perMin()`) reads
-//     0, and the clock (`ticksTo(cost, intel)`) reads `Infinity`, which the
-//     tile draws as no clock. (This claim used to hold the clock against the
-//     trickle by literals, 8 a minute a drone and 5 a minute a holding scout.)
-//     What the strip and the tile show instead is WP-S-F's (F-Q11).
+//     a first identification, an objective or a rise taken, never by waiting.
+//     So a force that stands a minute with no contact earns nothing:
+//     `runtime.intel` does not move, `moments.earned` (fed every tick's mission
+//     events, as `main.ts` feeds it) says no line, and `lastEarn` is null.
+//     F-Q11 retired the strip's `+N/min` and the tile's clock that used to be
+//     held here against the trickle by literals (8 a minute a drone, 5 a minute
+//     a holding scout).
 //  2. The sweep readout names exactly the contacts the sim identified: one
 //     minimap ring per contact whose contact level went to "identified" on
 //     the sweep's tick, at that contact's position, and the count is the
@@ -20,37 +20,34 @@
 
 import { describe, expect, it } from 'vitest';
 import { fx } from '@lions/sim';
-import { IntelMoments, IntelRate, type IntelOutput } from '../../packages/app/src/ui/intel-moments';
+import { IntelMoments, type IntelOutput } from '../../packages/app/src/ui/intel-moments';
 import { missionWorld } from './mission-harness';
 
 const MISSION = 'umm_zeitoun_4_clearance';
 
-describe(`the intel clock on ${MISSION}`, () => {
-  it('stands a minute with no contact: intel does not move, no rate, no clock', () => {
+describe(`the last earn on ${MISSION}`, () => {
+  it('stands a minute with no contact: intel does not move, no earn line, no last earn', () => {
     const { sim, runtime } = missionWorld(MISSION, {});
-    const cost = runtime.sweepCost;
     const start = runtime.intel;
-    const rate = new IntelRate();
-    rate.push(sim.tickCount, runtime.intel);
+    const moments = new IntelMoments({ supportCost: (k) => runtime.supportCost(k), toFx: fx.from });
     let earned = 0;
     let contacts = 0;
+    const lines: IntelOutput[] = [];
     for (let k = 0; k < 1200; k++) {
       const simEvents = sim.tick();
       for (const e of simEvents) {
         if (e.kind === 'contact' && e.side === 0 && e.level === 'identified') contacts++;
       }
-      for (const e of runtime.step(simEvents)) if (e.kind === 'intelEarned') earned += e.amount;
-      rate.push(sim.tickCount, runtime.intel);
+      const missionEvents = runtime.step(simEvents);
+      for (const e of missionEvents) if (e.kind === 'intelEarned') earned += e.amount;
+      lines.push(...moments.earned(missionEvents, sim.tickCount));
     }
     // The oracle for "no contact" is the sim's own event stream, not the rule under test.
     expect(contacts).toBe(0);
     expect(earned).toBe(0);
     expect(runtime.intel).toBe(start);
-    expect(rate.perMin()).toBe(0);
-    // Ask for a target above what is held, so the answer cannot be the "already there" 0:
-    // a stalled income promises no time at all.
-    const ticks = rate.ticksTo(Math.max(cost, start + 1), runtime.intel);
-    expect(ticks).toBe(Infinity);
+    expect(lines.filter((o) => o.kind === 'earn')).toEqual([]);
+    expect(moments.lastEarn(sim.tickCount)).toBeNull();
   });
 });
 

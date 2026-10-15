@@ -172,7 +172,7 @@ import { watchSmallScreen } from './ui/small-screen';
 import { watchNoGpu } from './ui/no-gpu';
 import { bootFailureCard, bootFailureKind, guardBoot, mountErrorCard, mountInterrupted, watchContextLoss } from './ui/boot-failure';
 import { webgl2Available } from './ui/webgl-probe';
-import { alertNotice, evacuatedNotice, reinforceTrigger, removedNotice, ledgerSavedNotice, triggerLabel, unknownSandboxMapNotice } from './ui/mission-notice';
+import { alertNotice, evacuatedNotice, placePhrase, reinforceTrigger, removedNotice, ledgerSavedNotice, triggerLabel, unknownSandboxMapNotice } from './ui/mission-notice';
 import { ReinforcementDock } from './ui/production';
 import { IntelMoments, READY_FLASH_MS, type IntelOutput } from './ui/intel-moments';
 import { barrageLine, breakdownLine, strikeLine } from './ui/intel-copy';
@@ -2688,7 +2688,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           logistics: mission.resources ? runtime.logistics : undefined,
           logisticsRate: mission.resources?.logistics_rate_per_min,
           intel: mission.resources ? runtime.intel : undefined,
-          intelRate: intelMoments?.rate.perMin(),
+          intelLastEarn: intelMoments?.lastEarn(sim.tickCount) ?? undefined,
           // The story voice's closing line (GDD §11) -- read straight off the
           // mission JSON, like `name`/`briefing` already are. The sim never
           // sees this field either (`mission.ts`'s own doc comment).
@@ -3693,7 +3693,18 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       else if (o.kind === 'breakdown') hud.note(breakdownLine(o), 'info', { tier: 'minor' });
       else if (o.kind === 'strikeResult') hud.note(strikeLine(o), o.civiliansKilled > 0 ? 'bad' : 'warn', { tier: 'important' });
       else if (o.kind === 'barrageResult') hud.note(barrageLine(o), o.civiliansKilled > 0 ? 'bad' : 'warn', { tier: 'important' });
-      else if (o.kind === 'flash') minimap.flash(o.points, performance.now(), { tier: o.tier, tone: o.tone });
+      else if (o.kind === 'earn') {
+        // F-Q7: the earn line, minor and info. Where a rise was taken is worded
+        // exactly as the alert layer words its `{place}` (`placePhrase` over
+        // the same `placeOf`), so the two cannot name one tile two ways.
+        hud.note(
+          o.cause === 'identified'
+            ? t('intel.note.earnIdentified', { n: o.amount })
+            : t('intel.note.earnHighGround', { n: o.amount, place: placePhrase([alertWorld.placeOf(o.at.x, o.at.y)]) }),
+          'info',
+          { tier: 'minor' }
+        );
+      } else if (o.kind === 'flash') minimap.flash(o.points, performance.now(), { tier: o.tier, tone: o.tone });
       else if (o.kind === 'announce') announce.push({ event: o.event });
       else if (o.kind === 'ready') production?.flashReady(o.support, performance.now(), READY_FLASH_MS);
     }
@@ -4778,7 +4789,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // and implements nothing.
       renderer.onMissionEvents?.(missionEvents);
       if (tickIsActive(events, missionEvents, me)) stallActive = true;
-      const intelAnnounce = intelMoments ? sayIntel(intelMoments.afterTick(sim, sim.tickCount, events, runtime.intel)) : [];
+      const intelAnnounce = intelMoments
+        ? sayIntel([
+            ...intelMoments.afterTick(sim, sim.tickCount, events, runtime.intel),
+            ...intelMoments.earned(missionEvents, sim.tickCount),
+          ])
+        : [];
       if (!tickQuiet) voice.onMission(missionEvents, intelAnnounce);
 
       // The alert layer (spec acceptance (a)): one classification of the tick,

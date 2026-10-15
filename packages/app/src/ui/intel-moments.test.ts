@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { SimEvent } from '@lions/sim';
+import type { MissionEvent, SimEvent } from '@lions/sim';
 import type { SupportKind } from './support-kinds';
 import {
-  CLOCK_SECONDS_UNDER,
   IntelMoments,
-  IntelRate,
+  LAST_EARN_SHOW_TICKS,
   STRIKE_READOUT_DELAY_TICKS,
-  chargeClock,
   sweptContacts,
   type IntelLook,
   type IntelOutput,
@@ -15,64 +13,64 @@ import {
 const FX = 65536;
 const toFx = (n: number): number => Math.round(n * FX);
 
-// --- the rate and the clock ---------------------------------------------------
+// --- the last earn ------------------------------------------------------------
 
-describe('IntelRate', () => {
-  /** A counter accruing `perMin` exactly as the runtime does -- a fraction a
-   *  tick -- and reported floored, as `runtime.intel` is. */
-  function feed(rate: IntelRate, perMin: number, from: number, ticks: number, start = 0): number {
-    let v = start;
-    for (let k = 0; k < ticks; k++) {
-      v += perMin / 1200;
-      rate.push(from + k, Math.floor(v));
+describe('the earn lines and the last earn (F-Q11, F-Q7)', () => {
+  const earn = (cause: 'identified' | 'objective' | 'highGround', amount: number, x = 3, y = 4, tick = 100): MissionEvent => ({
+    kind: 'intelEarned',
+    tick,
+    amount,
+    cause,
+    ref: 1,
+    at: { x, y },
+  });
+
+  it('identified pays a line each, objective none, high ground one with its tile', () => {
+    const m = moments();
+    expect(m.earned([earn('identified', 10, 5, 6), earn('identified', 10, 7, 8), earn('identified', 10, 9, 1)], 100)).toEqual([
+      { kind: 'earn', cause: 'identified', amount: 10, at: { x: 5, y: 6 } },
+      { kind: 'earn', cause: 'identified', amount: 10, at: { x: 7, y: 8 } },
+      { kind: 'earn', cause: 'identified', amount: 10, at: { x: 9, y: 1 } },
+    ]);
+    expect(m.earned([earn('objective', 30)], 101)).toEqual([]);
+    expect(m.earned([earn('highGround', 30, 12, 13)], 102)).toEqual([
+      { kind: 'earn', cause: 'highGround', amount: 30, at: { x: 12, y: 13 } },
+    ]);
+  });
+
+  it('lastEarn is the latest, summed within a tick, and gone after LAST_EARN_SHOW_TICKS', () => {
+    const m = moments();
+    expect(m.lastEarn(0)).toBeNull();
+    m.earned([earn('highGround', 30)], 100);
+    expect(m.lastEarn(100)).toEqual({ amount: 30, cause: 'highGround', tick: 100 });
+    // Three identifications in one tick are one earn of thirty; the cause that came last wins.
+    m.earned([earn('objective', 30), earn('identified', 10), earn('identified', 10), earn('identified', 10)], 200);
+    expect(m.lastEarn(200)).toEqual({ amount: 30, cause: 'identified', tick: 200 });
+    expect(LAST_EARN_SHOW_TICKS).toBe(600);
+    expect(m.lastEarn(200 + LAST_EARN_SHOW_TICKS - 1)).not.toBeNull();
+    expect(m.lastEarn(200 + LAST_EARN_SHOW_TICKS)).toBeNull();
+    // A tick with no earn leaves the last one standing until it expires.
+    m.earned([], 250);
+    expect(m.lastEarn(260)).toMatchObject({ tick: 200 });
+  });
+
+  it('an earn with nothing else going on takes no snapshot', () => {
+    const { look, reads } = spied(board([{ side: 1, x: 12, y: 7 }]));
+    const m = moments();
+    for (let k = 1; k < 100; k++) {
+      m.beforeTick(look);
+      m.earned(k === 50 ? [earn('identified', 10)] : [], k);
+      m.afterTick(look, k, [], 0);
     }
-    return v;
-  }
-
-  it('reads a constant income to within a tenth of a point a minute, floored input and all', () => {
-    for (const perMin of [5, 8, 13, 25, 28]) {
-      const r = new IntelRate();
-      feed(r, perMin, 0, 1200);
-      expect(Math.abs(r.perMin() - perMin)).toBeLessThan(0.1);
-    }
+    expect(reads()).toBe(0);
   });
 
-  it('ignores spending: a drop is not income', () => {
-    const r = new IntelRate();
-    let v = feed(r, 25, 0, 600, 252);
-    v -= 150;
-    r.push(600, Math.floor(v));
-    feed(r, 25, 601, 600, v);
-    expect(Math.abs(r.perMin() - 25)).toBeLessThan(0.1);
-  });
-
-  it('reads 0 once nothing has come in for a whole window', () => {
-    const r = new IntelRate();
-    feed(r, 25, 0, 600);
-    for (let k = 600; k < 600 + 30 * 20 + 2; k++) r.push(k, 300);
-    expect(r.perMin()).toBe(0);
-    expect(r.ticksTo(400, 300)).toBe(Infinity);
-  });
-
-  it('counts down to the tick the cost is reached', () => {
-    const r = new IntelRate();
-    const v = feed(r, 24, 0, 1200, 100);
-    const intel = Math.floor(v);
-    // 24/min is 0.02 a tick: 150 - 124 = 26 more is 1300 ticks.
-    expect(r.ticksTo(150, intel)).toBeGreaterThan(1290);
-    expect(r.ticksTo(150, intel)).toBeLessThan(1310);
-    expect(r.ticksTo(100, intel)).toBe(0);
-  });
-});
-
-describe('chargeClock', () => {
-  it('reads ready, m:ss under two minutes, whole minutes above, and a dash when nothing comes in', () => {
-    expect(chargeClock(0)).toEqual({ kind: 'ready' });
-    expect(chargeClock(Infinity)).toEqual({ kind: 'none' });
-    expect(chargeClock(99 * 20)).toEqual({ kind: 'mss', text: '1:39' });
-    expect(chargeClock(CLOCK_SECONDS_UNDER * 20 - 1)).toEqual({ kind: 'mss', text: '2:00' });
-    expect(chargeClock(CLOCK_SECONDS_UNDER * 20)).toEqual({ kind: 'minutes', n: 2 });
-    expect(chargeClock(382 * 20)).toEqual({ kind: 'minutes', n: 6 });
+  it('says nothing and keeps nothing after dispose', () => {
+    const m = moments();
+    m.earned([earn('identified', 10)], 10);
+    m.dispose();
+    expect(m.earned([earn('identified', 10)], 11)).toEqual([]);
+    expect(m.lastEarn(11)).toBeNull();
   });
 });
 
@@ -332,6 +330,26 @@ describe('the barrage readout', () => {
     const results = [...said.entries()].flatMap(([k, outs]) => of(outs, 'barrageResult').map((r) => [k, r] as const));
     expect(results).toEqual([
       [302 + STRIKE_READOUT_DELAY_TICKS, { kind: 'barrageResult', down: 1, hit: 1, building: false, civiliansKilled: 0 }],
+    ]);
+  });
+
+  it('counts only what a round\'s own 1.0-tile splash hurt: 1.5 tiles out is not hit', () => {
+    const b = board([
+      { side: 1, x: 20.5, y: 10 }, // 0: inside the barrage splash, hurt by round 3
+      { side: 1, x: 21.5, y: 10 }, // 1: 1.5 tiles out: inside a strike's 2.0, outside the barrage's 1.0
+    ]);
+    const m = moments();
+    m.afterTick(b, 1, [], 0);
+    m.called('mortar_barrage', 20, 10, 1);
+    const said = run(b, m, 302 + STRIKE_READOUT_DELAY_TICKS, (k) => {
+      if (k === 194) {
+        b.state.hp[0] -= toFx(20);
+        b.state.hp[1] -= toFx(20);
+      }
+      return [round(k, 20, 10)];
+    });
+    expect(of(said.get(302 + STRIKE_READOUT_DELAY_TICKS) ?? [], 'barrageResult')).toEqual([
+      { kind: 'barrageResult', down: 0, hit: 1, building: false, civiliansKilled: 0 },
     ]);
   });
 

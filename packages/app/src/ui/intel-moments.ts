@@ -16,12 +16,16 @@
  *
  * Four jobs:
  *
- *  - RATE. The intel rate is measured from what the runtime reports, never
- *    re-derived from the sim's accrual rule (a second copy of a game rule in
- *    `app` is the thing CLAUDE.md forbids). `runtime.intel` is FLOORED, so a
- *    rate taken from two samples of it is off by up to a whole point; the
- *    estimator instead times the integer CROSSINGS, which are exact for a
- *    constant rate. It answers the strip's `+N/min` and the tile's clock.
+ *  - EARN. Since F1 intel is earned in lumps by doing (a first identification,
+ *    an objective, a rise taken), never by waiting, so there is no rate to
+ *    measure and no clock to count down (F-Q11, the lead, 2026-10-15: the
+ *    strip's `+N/min` and the support tile's clock retire; logistics keeps its
+ *    own). The runtime announces each lump as an `intelEarned` MissionEvent
+ *    and `earned` words it: the feed gets one line per identification (the
+ *    feed's identical-line merge turns three into "x3") and one for a high
+ *    ground rise with its place; an objective earn has no line here because
+ *    the objective alert already says it (F-Q7). `lastEarn` is what the strip
+ *    shows beside the intel word for `LAST_EARN_SHOW_TICKS`, on the sim clock.
  *  - READY. A call that becomes affordable says so once: the tile's border
  *    for `READY_FLASH_MS`, and -- when two or more prices are crossed on one
  *    tick -- every crossed tile flashes but only the DEAREST of them gets the
@@ -42,11 +46,11 @@
  *    on the same tick.
  */
 
-import type { SimEvent } from '@lions/sim';
+import type { MissionEvent, SimEvent } from '@lions/sim';
 import { TICKS_PER_SECOND } from '@lions/sim';
 import { isHostileSide, isOwnSide } from '@lions/render';
 import type { AlertTier } from './alerts';
-import { clockText, type Tone } from './hud-model';
+import type { Tone } from './hud-model';
 import {
   FS_AIR_STRIKE,
   FS_MORTAR_BARRAGE,
@@ -90,11 +94,9 @@ export const INBOUND_ANNOUNCE: Readonly<Record<SupportKind, AnnounceId>> = {
   air_strike: 'strike_inbound',
 };
 
-/** How much history the rate is measured over. Long enough that the slowest
- *  real income -- one holding scout, 5/min, a crossing every 12 s -- still
- *  has two crossings inside it; short enough that a force starting to move
- *  shows in the clock within half a minute. */
-export const INTEL_RATE_WINDOW_TICKS = 30 * TICKS_PER_SECOND;
+/** How long the strip keeps showing the last earn: thirty seconds on the
+ *  SIM clock, so a paused game holds it and nothing needs a timer. */
+export const LAST_EARN_SHOW_TICKS = 30 * TICKS_PER_SECOND;
 
 /** The readout lands this long after the round: the impact is the
  *  renderer's moment, the sentence is the commander's. On the SIM clock, so
@@ -104,11 +106,6 @@ export const STRIKE_READOUT_DELAY_TICKS = Math.round(0.7 * TICKS_PER_SECOND);
 /** How long the tile's border says "ready", ms on the frame clock. */
 export const READY_FLASH_MS = 1600;
 
-/** Under this the clock reads m:ss; above it, whole minutes (decision 3):
- *  the rate moves as units start and stop, and a second hand that jumps a
- *  minute either way is a clock nobody can trust. */
-export const CLOCK_SECONDS_UNDER = 120;
-
 /** Distance squared in Q16.16 exactly as the sim's private `distSqFx`
  *  computes it, so a contact on the boundary is in or out for both. */
 function distSqFx(dx: number, dy: number): number {
@@ -117,69 +114,12 @@ function distSqFx(dx: number, dy: number): number {
   return (x * x + y * y) | 0;
 }
 
-/**
- * Times the integer crossings of a floored, accruing counter. Spending (a
- * drop) is not income and moves nothing; only rises count.
- */
-export class IntelRate {
-  /** [tick, cumulative income] at each rise, oldest first. */
-  private readonly rises: [number, number][] = [];
-  private income = 0;
-  private last: number | null = null;
-  private lastTick = 0;
-
-  push(tick: number, intel: number): void {
-    this.lastTick = tick;
-    if (this.last !== null && intel > this.last) {
-      this.income += intel - this.last;
-      this.rises.push([tick, this.income]);
-      // Keep one rise older than the window as the anchor.
-      while (this.rises.length > 2 && tick - this.rises[1][0] > INTEL_RATE_WINDOW_TICKS) this.rises.shift();
-    }
-    this.last = intel;
-  }
-
-  /** Intel a minute, or 0 while unknown or stopped. */
-  perMin(): number {
-    const n = this.rises.length;
-    if (n < 2) return 0;
-    const [t0, i0] = this.rises[0];
-    const [t1, i1] = this.rises[n - 1];
-    // Nothing has come in for a whole window: whatever earned it stopped.
-    if (this.lastTick - t1 > INTEL_RATE_WINDOW_TICKS) return 0;
-    if (t1 <= t0) return 0;
-    return ((i1 - i0) / (t1 - t0)) * TICKS_PER_SECOND * 60;
-  }
-
-  /** Ticks until `intel` reaches `cost` at the current rate: 0 when it
-   *  already has, `Infinity` when nothing is coming in. */
-  ticksTo(cost: number, intel: number): number {
-    if (intel >= cost) return 0;
-    const r = this.perMin();
-    if (r <= 0) return Infinity;
-    const perTick = r / (60 * TICKS_PER_SECOND);
-    // `intel` is floored: the fraction earned since the last crossing is
-    // still on its way to the next point, and without it the clock runs up
-    // to one whole point slow (2.5 s at 24/min).
-    const lastRise = this.rises[this.rises.length - 1][0];
-    const frac = Math.min(0.999, Math.max(0, (this.lastTick - lastRise) * perTick));
-    return (cost - intel - frac) / perTick;
-  }
-}
-
-/** What the tile's corner says. `text` is final for `mss`; `minutes` is
- *  formatted by the caller through `t('dock.support.clock.minutes')`. */
-export type ChargeClock =
-  | { kind: 'ready' }
-  | { kind: 'none' }
-  | { kind: 'mss'; text: string }
-  | { kind: 'minutes'; n: number };
-
-export function chargeClock(ticksLeft: number): ChargeClock {
-  if (ticksLeft <= 0) return { kind: 'ready' };
-  if (!Number.isFinite(ticksLeft)) return { kind: 'none' };
-  if (ticksLeft < CLOCK_SECONDS_UNDER * TICKS_PER_SECOND) return { kind: 'mss', text: clockText(ticksLeft) };
-  return { kind: 'minutes', n: Math.round(ticksLeft / (60 * TICKS_PER_SECOND)) };
+/** The strip's last earn. `amount` is summed over the tick's earns of the
+ *  cause that came last. */
+export interface LastEarn {
+  readonly amount: number;
+  readonly cause: 'identified' | 'objective' | 'highGround';
+  readonly tick: number;
 }
 
 /** One thing to say. `key`/`params` are catalogue entries; `parts` names
@@ -189,6 +129,7 @@ export type IntelOutput =
   | { kind: 'breakdown'; types: readonly { name: string; n: number }[]; civilians: number }
   | { kind: 'strikeResult'; down: number; hit: number; building: boolean; civiliansKilled: number }
   | { kind: 'barrageResult'; down: number; hit: number; building: boolean; civiliansKilled: number }
+  | { kind: 'earn'; cause: 'identified' | 'highGround'; amount: number; at: { x: number; y: number } }
   | { kind: 'flash'; points: readonly { x: number; y: number }[]; tier: AlertTier; tone: Tone }
   | { kind: 'announce'; event: AnnounceId }
   | { kind: 'ready'; support: SupportKind };
@@ -317,7 +258,6 @@ function barrageResult(rec: BarrageInFlight): IntelOutput {
 }
 
 export class IntelMoments {
-  readonly rate = new IntelRate();
   private readonly snap = new Snapshot();
   private readonly prevReady: Record<SupportKind, boolean | null> = {
     smoke_screen: null,
@@ -329,6 +269,7 @@ export class IntelMoments {
   /** Accepted strikes and barrages, oldest first. */
   private inFlight: InFlight[] = [];
   private readouts: { atTick: number; out: IntelOutput }[] = [];
+  private last: LastEarn | null = null;
   private disposed = false;
 
   constructor(private readonly opts: IntelMomentsOptions) {}
@@ -395,7 +336,6 @@ export class IntelMoments {
   ): IntelOutput[] {
     if (this.disposed) return [];
     const out: IntelOutput[] = [];
-    this.rate.push(tick, intel);
 
     // Every tile whose price was crossed this tick flashes; only the dearest
     // of them is said and voiced, so two prices crossed together are one line.
@@ -538,10 +478,35 @@ export class IntelMoments {
     if (r.building) rec.building = true;
   }
 
-  /** Readiness for the dock tile. */
-  charge(kind: SupportKind, intel: number): { fraction: number; clock: ChargeClock } {
-    const cost = this.cost(kind);
-    return { fraction: Math.max(0, Math.min(1, intel / cost)), clock: chargeClock(this.rate.ticksTo(cost, intel)) };
+  /** The tick's mission events. Every `intelEarned` updates the last earn
+   *  (the cause that came last, with the tick's amounts of that cause summed)
+   *  and returns the feed's lines: one per identification, one for a high
+   *  ground rise, none for an objective (its alert already says it). Reads no
+   *  board, so an earn on its own costs no snapshot. */
+  earned(events: readonly MissionEvent[], tick: number): IntelOutput[] {
+    if (this.disposed) return [];
+    const out: IntelOutput[] = [];
+    let cause: LastEarn['cause'] | null = null;
+    for (const e of events) {
+      if (e.kind !== 'intelEarned') continue;
+      cause = e.cause;
+      if (e.cause === 'identified' || e.cause === 'highGround') {
+        out.push({ kind: 'earn', cause: e.cause, amount: e.amount, at: { x: e.at.x, y: e.at.y } });
+      }
+    }
+    if (cause !== null) {
+      let amount = 0;
+      for (const e of events) if (e.kind === 'intelEarned' && e.cause === cause) amount += e.amount;
+      this.last = { amount, cause, tick };
+    }
+    return out;
+  }
+
+  /** What the strip shows beside intel, or null once `LAST_EARN_SHOW_TICKS`
+   *  have passed (or nothing was ever earned). */
+  lastEarn(tick: number): LastEarn | null {
+    if (this.last === null || tick - this.last.tick >= LAST_EARN_SHOW_TICKS) return null;
+    return this.last;
   }
 
   /** Nothing said after this: a readout still waiting on its 0.7 s never
@@ -551,5 +516,6 @@ export class IntelMoments {
     this.readouts = [];
     this.pendingSweep = null;
     this.inFlight = [];
+    this.last = null;
   }
 }
