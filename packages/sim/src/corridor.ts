@@ -91,8 +91,8 @@ function walkField(field: FlowField, cells: number, w: number, a: number, b: num
  * 3. Otherwise R_from / R_to are the open road tiles nearest `from` / `to` (smallest squared
  *    tile distance, ties to the lowest index). If a BFS over road tiles joins them, the route
  *    is the field walk `from` -> R_from, the BFS path, and the field walk R_to -> `to`, with
- *    no tile repeated at a junction; a leg with no way through makes the whole route null.
- *    If no road path joins them it is case 2.
+ *    no tile repeated at a junction. If no road path joins them, or either end cannot reach
+ *    its road tile by vehicle, it is case 2: null then means only "no wheeled route at all".
  *
  * The BFS takes neighbours in direction order 0..7 and a diagonal only when both orthogonal
  * companions are open, the corner rule `FlowField.compute` applies.
@@ -139,19 +139,22 @@ export function corridorRoute(src: RouteSource, from: TileXY, to: TileXY): Int32
     const rx = rFrom % w;
     const ry = (rFrom - rx) / w;
     const first = walkField(src.fieldFor(rx, ry), cells, w, a, rFrom, 0, false);
-    if (first < 0) return null;
-    // The BFS path, forward: it is read backwards from R_to, so fill from the end.
-    const roadStart = first - 1; // R_from is already the last tile of the first leg
-    let n = roadStart + len;
-    for (let t = rTo; ; t = scratchParent[t]) {
-      scratchRoute[--n] = t;
-      if (t === rFrom) break;
+    if (first >= 0) {
+      // The BFS path, forward: it is read backwards from R_to, so fill from the end.
+      const roadStart = first - 1; // R_from is already the last tile of the first leg
+      let n = roadStart + len;
+      for (let t = rTo; ; t = scratchParent[t]) {
+        scratchRoute[--n] = t;
+        if (t === rFrom) break;
+      }
+      const end = roadStart + len;
+      const tx = b % w;
+      const last = walkField(src.fieldFor(tx, (b - tx) / w), cells, w, rTo, b, end, true);
+      if (last >= 0) return scratchRoute.slice(0, last);
     }
-    const end = roadStart + len;
-    const tx = b % w;
-    const last = walkField(src.fieldFor(tx, (b - tx) / w), cells, w, rTo, b, end, true);
-    if (last < 0) return null;
-    return scratchRoute.slice(0, last);
+    // A road joins the two ends' nearest road tiles but an end cannot reach its road tile by
+    // vehicle: the road is not the route. Fall through to the plain flow walk, so null means
+    // only "no wheeled route" (D4 a).
   }
 
   const tx = b % w;
@@ -215,7 +218,7 @@ export interface VentView {
 
 /** Is the Q16.16 point (px, py) within `sq` of any route tile's centre? Units are the
  *  mission.ts convention: per axis `(a - b) >> 8`, then dx*dx + dy*dy <= sq. */
-function nearRoute(route: Int32Array, w: number, px: number, py: number, sq: number): boolean {
+function nearRoute(route: ArrayLike<number>, w: number, px: number, py: number, sq: number): boolean {
   for (let k = 0; k < route.length; k++) {
     const t = route[k];
     const tx = t % w;
@@ -229,7 +232,7 @@ function nearRoute(route: Int32Array, w: number, px: number, py: number, sq: num
 
 /** Widen `span` ([first, last] route indices, -1 = none yet) by every route tile within
  *  `sq` of (px, py). Same units and test as `nearRoute`. */
-function widenSpan(route: Int32Array, w: number, px: number, py: number, sq: number, span: Int32Array): void {
+function widenSpan(route: ArrayLike<number>, w: number, px: number, py: number, sq: number, span: Int32Array): void {
   for (let k = 0; k < route.length; k++) {
     const t = route[k];
     const tx = t % w;
@@ -277,7 +280,7 @@ function hostileStocked(view: HoldView & VentView, r: number, enemy: number): bo
  */
 export function corridorCut(
   view: HoldView & VentView,
-  route: Int32Array | null,
+  route: ArrayLike<number> | null,
   holder: 0 | 1,
   span?: Int32Array,
 ): CutCause {

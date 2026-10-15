@@ -236,11 +236,26 @@ describe('corridorRoute: the road (D5)', () => {
     expect(Array.from(r)).not.toContain(idx(g, 4, 2));
   });
 
-  it('a road-connected pair whose approach is walled off: null, not a fall back', () => {
-    // `from` sits in a sealed pocket beside the road: R_from is the road tile next door
-    // and no field walk reaches it.
+  it('no wheeled route at all (a sealed pocket beside a road): null', () => {
+    // `from` sits in a sealed pocket beside the road: R_from is the road tile next door,
+    // no field walk reaches it, and the plain flow walk has no way out either.
     const g = parse(['rrrrrrrr', '########', '#.#....#', '#.#....#', '########']);
     expect(corridorRoute(source(g), pt(1, 2), pt(4, 3))).toBeNull();
+  });
+
+  it('a road the ends cannot reach is not the route: the flow walk, not null', () => {
+    // A wall across x=7; roads only at x=8-9 on the far side. Both nearest road tiles are
+    // road-connected, but neither end can drive to its road tile. The ends reach each other.
+    const rows: string[] = [];
+    for (let y = 0; y < 10; y++) rows.push('.......#rr');
+    const g = parse(rows);
+    const roaded = corridorRoute(source(g), pt(6, 0), pt(0, 9));
+    const plain = corridorRoute(source(g, false), pt(6, 0), pt(0, 9));
+    expect(plain).not.toBeNull();
+    expect(plain?.length).toBe(10);
+    expect(roaded).not.toBeNull();
+    expect(Array.from(roaded ?? [])).toEqual(Array.from(plain ?? [1]));
+    if (roaded !== null) expectDrivable(g, roaded, [6, 0], [0, 9]);
   });
 
   it('with the road mask absent or empty, the flow route', () => {
