@@ -8,7 +8,7 @@
  * agree -- which is what keeps a matched room loading nothing new.
  */
 import { describe, expect, it } from 'vitest';
-import { sameTrackTiers, templateKey, templateKitTiers, type KitTiersBySide } from './kit-template-key';
+import { SIDE_1_TEMPLATE_SUFFIX, sameTrackTiers, templateKey, templateKitTiers, type KitTiersBySide } from './kit-template-key';
 
 describe('templateKey', () => {
   it("side 1 gets its own key when its tiers for the id differ from side 0's", () => {
@@ -34,6 +34,13 @@ describe('templateKey', () => {
     const bySide: KitTiersBySide = [{ mbt_lavi: {}, ifv_namer: { armour: 1 } }, { mbt_lavi: { armour: 2 }, ifv_namer: { armour: 1 } }];
     expect(templateKey('mbt_lavi', 1, bySide)).toBe('mbt_lavi#s1');
     expect(templateKey('ifv_namer', 1, bySide)).toBe('ifv_namer');
+  });
+
+  it('the side-1 key is spelled by SIDE_1_TEMPLATE_SUFFIX, the one the renderer looks up', () => {
+    // `ThreeRenderer` finds (and drops) a stale side-1 template, and warms or
+    // forgets a cold one, by `${id}${SIDE_1_TEMPLATE_SUFFIX}`: a second
+    // spelling here would file a template those paths never find.
+    expect(templateKey('mbt_lavi', 1, [{}, { mbt_lavi: { armour: 1 } }])).toBe(`mbt_lavi${SIDE_1_TEMPLATE_SUFFIX}`);
   });
 });
 

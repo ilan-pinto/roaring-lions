@@ -14,7 +14,8 @@
 //   (zero tiers field nothing;
 //   key order does not matter). So a matched room, or a brigade room whose
 //   seats hold the same kit, loads nothing new.
-// - Otherwise side 1 draws `${id}#s1`, built with side 1's tiers.
+// - Otherwise side 1 draws `${id}${SIDE_1_TEMPLATE_SUFFIX}` (`#s1`), built
+//   with side 1's tiers.
 //
 // The tables are plain data from the app's room world (`net/room-kit.ts`);
 // `render` never imports `net`.
@@ -26,8 +27,9 @@ export type KitTiers = Readonly<Record<string, TrackTiers>>;
 /** Side 0's table, then side 1's: `RendererOptions.unitKitTiersBySide`. */
 export type KitTiersBySide = readonly [KitTiers, KitTiers];
 
-/** The suffix a side-1 template's key carries (`templateKey`'s `#s${side}`
- *  for the only side that can differ from side 0). */
+/** The suffix a side-1 template's key carries: the ONE spelling, which
+ *  `templateKey` builds the key from and `ThreeRenderer` looks it up by.
+ *  Side 1 is the only side whose key can differ from the id. */
 export const SIDE_1_TEMPLATE_SUFFIX = '#s1';
 
 /**
@@ -55,7 +57,9 @@ export function sameTrackTiers(a: TrackTiers | undefined, b: TrackTiers | undefi
 export function templateKey(id: string, side: number, bySide: KitTiersBySide | undefined): string {
   const own: KitTiers | undefined = bySide?.[side];
   if (bySide === undefined || own === undefined) return id;
-  return sameTrackTiers(bySide[0][id], own[id]) ? id : `${id}#s${side}`;
+  // Only side 1 can get here unshared: side 0 compares equal to itself, and
+  // a side past the two seats has no table.
+  return sameTrackTiers(bySide[0][id], own[id]) ? id : `${id}${SIDE_1_TEMPLATE_SUFFIX}`;
 }
 
 /**
