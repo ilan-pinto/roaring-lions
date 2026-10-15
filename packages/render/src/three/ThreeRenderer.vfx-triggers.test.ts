@@ -11,6 +11,7 @@
  * handed to the real `useEmitters`, so an id the renderer names and no file
  * carries is a red test rather than a stub that agrees with itself.
  */
+import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import { Sim, fx, type SimEvent, type UnitTypeJson } from '@lions/sim';
 import type { RendererOptions, TerrainTones } from '../api';
@@ -26,6 +27,8 @@ import smoulderJson from '../../../../data/vfx/wreck_smoulder.json';
 import apsJson from '../../../../data/vfx/aps_launch.json';
 import demolitionJson from '../../../../data/vfx/demolition_blast.json';
 import dischargeJson from '../../../../data/vfx/smoke_discharge.json';
+import shellImpactJson from '../../../../data/vfx/shell_impact.json';
+import mortarBaseDustJson from '../../../../data/vfx/mortar_base_dust.json';
 
 vi.mock('three', async (importOriginal) => {
   const actual = await importOriginal<typeof import('three')>();
@@ -79,7 +82,9 @@ const ROCKET_TRAIL = rocketTrailJson as unknown as EmitterSpec;
 const MISSILE_TRAIL = missileTrailJson as unknown as EmitterSpec;
 // The shipped pair, as `vfxEmitters` registers them: the rocket's puffs are drawn
 // by the missile trail's sprite mesh, which needs both looks wired.
-const ALL = [RICOCHET, PENETRATION, SMOULDER, APS, DEMOLITION, DISCHARGE, MISSILE_TRAIL, ROCKET_TRAIL];
+const SHELL_IMPACT = shellImpactJson as unknown as EmitterSpec;
+const MORTAR_BASE_DUST = mortarBaseDustJson as unknown as EmitterSpec;
+const ALL = [RICOCHET, PENETRATION, SMOULDER, APS, DEMOLITION, DISCHARGE, MISSILE_TRAIL, ROCKET_TRAIL, SHELL_IMPACT, MORTAR_BASE_DUST];
 
 const weapon = (id: string, type: string, penetration: number, range = 10) => ({
   id, type, range_tiles: range, effective_range_tiles: range * 0.8, accuracy: 0.95,
@@ -95,6 +100,8 @@ const GUNNER: UnitTypeJson = {
 const MACHINE_GUNNER: UnitTypeJson = {
   ...GUNNER, id: 't_mg', weapons: [weapon('coax', 'hmg', 1)],
 };
+/** A layer that can lay smoke itself (the `smoke` ability), as a carrier does. */
+const SMOKER: UnitTypeJson = { ...GUNNER, id: 't_smoker', abilities: ['smoke'] };
 const LAUNCHER: UnitTypeJson = {
   ...GUNNER, id: 't_at', weapons: [weapon('spike', 'atgm', 1, 9)],
 };
@@ -226,9 +233,27 @@ describe('the one-shot sim events (GH-85)', () => {
   });
 
   it('laying smoke throws smoke_discharge at the unit that laid it', () => {
-    const { r, shooter, log } = world(GUNNER);
+    const { r, shooter, log } = world(SMOKER);
     r.onEvents([{ kind: 'smokeLaid', tick: 1, by: shooter, x: fx.from(9), y: fx.from(4.5) } as SimEvent]);
     expect(log).toEqual(expect.arrayContaining(['smoke_discharge']));
+    expect(log).not.toContain('mortar_base_dust');
+    r.dispose();
+  });
+
+  it('a called smoke round throws no launcher pop at its caller, a thud at the point instead (F-Q8)', () => {
+    // GUNNER has no `smoke` ability: whoever it is, it cannot have lit this itself.
+    const { r, shooter, log } = world(GUNNER);
+    r.onEvents([{ kind: 'smokeLaid', tick: 1, by: shooter, x: fx.from(9), y: fx.from(4.5) } as SimEvent]);
+    expect(log).not.toContain('smoke_discharge');
+    expect(log).toContain('mortar_base_dust');
+    r.dispose();
+  });
+
+  it('a carrier far from its point is a called round too', () => {
+    const { r, shooter, log } = world(SMOKER);
+    r.onEvents([{ kind: 'smokeLaid', tick: 1, by: shooter, x: fx.from(24.5), y: fx.from(4.5) } as SimEvent]);
+    expect(log).not.toContain('smoke_discharge');
+    expect(log).toContain('mortar_base_dust');
     r.dispose();
   });
 
@@ -283,6 +308,35 @@ describe('the one-shot sim events (GH-85)', () => {
     expect(priv(r).pendingCharges).toHaveLength(0);
     expect(log).toContain('demolition_blast');
     r.dispose();
+  });
+});
+
+describe('a fire-support round draws by its profile (F-Q8)', () => {
+  const strike = (shooter: number, profile: number): SimEvent =>
+    ({ kind: 'strike', tick: 1, by: shooter, x: fx.from(12.5), y: fx.from(8.5), profile }) as SimEvent;
+
+  it('a barrage round lands as a mortar shell: burst, no 18 puffs', () => {
+    const { r, shooter, log } = world(GUNNER);
+    r.onEvents([strike(shooter, 1)]);
+    expect(log).toContain('shell_impact');
+    expect(log.filter((k) => k === 'flat')).toHaveLength(0);
+    r.dispose();
+  });
+
+  it('a precision strike keeps its 18 puffs and no shell burst', () => {
+    const { r, shooter, log } = world(GUNNER);
+    r.onEvents([strike(shooter, 0)]);
+    expect(log.filter((k) => k === 'flat')).toHaveLength(18);
+    expect(log).not.toContain('shell_impact');
+    r.dispose();
+  });
+
+  it('the copied numbers match tuning.ts', () => {
+    const tuning = readFileSync(new URL('../../../sim/src/tuning.ts', import.meta.url), 'utf8');
+    const num = (name: string): number => Number(new RegExp(`export const ${name} = (\\d+)`).exec(tuning)?.[1]);
+    const src = readFileSync(new URL('./ThreeRenderer.ts', import.meta.url), 'utf8');
+    expect(src).toContain(`const FS_MORTAR_BARRAGE = ${num('FS_MORTAR_BARRAGE')};`);
+    expect(src).toContain(`const CARRIER_SMOKE_RANGE_SQ_TILES = ${num('SMOKE_RANGE_SQ')} / 65536;`);
   });
 });
 

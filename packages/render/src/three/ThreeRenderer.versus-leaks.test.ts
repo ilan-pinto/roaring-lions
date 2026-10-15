@@ -393,7 +393,8 @@ describe('hostile smoke laid out of sight throws no discharge in a room (R-N14 l
    *  many times the renderer threw the launcher's pop. */
   function pops(room: Room, revealLayer: boolean): number {
     const sim = new Sim({ seed: 1, width: W, height: W, capacity: 8 });
-    const t = sim.addUnitType(TARGET);
+    // F-Q8: only a type with the `smoke` ability pops a launcher; any other layer is a called round.
+    const t = sim.addUnitType({ ...TARGET, abilities: ['smoke'] });
     sim.spawn(t, 0, fx.from(4.5), fx.from(4.5));
     const layer = sim.spawn(t, 1, fx.from(20.5), fx.from(20.5));
     const r = new ThreeRenderer(sim, makeOpts(room));
