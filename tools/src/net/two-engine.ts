@@ -17,7 +17,7 @@
 // on this runner -- an environment finding, printed as a `::warning::` per
 // engine, with the engines that did boot still compared -- UNLESS that engine
 // is named in `--require=`, when it is exit 2. CI requires all three and runs
-// Firefox headed under `xvfb-run` (`--firefox-headed`), so on CI exit 3 cannot
+// Firefox under `xvfb-run`, headed (`--firefox-headed`), so on CI exit 3 cannot
 // happen and an engine that stops booting reddens the job by name.
 import { chromium, firefox, webkit, type Browser, type Page } from 'playwright';
 import { fileURLToPath } from 'node:url';
@@ -117,7 +117,7 @@ async function waitForBattlefield(page: Page, name: string, pageErrors: readonly
   )) as boolean;
   if (!webgl2) {
     throw new EngineUnbootable(
-      `${name}: headless ${name} on this runner cannot create a WebGL2 context, so the battlefield cannot boot and there is no hash to compare. ` +
+      `${name}: ${name} on this runner cannot create a WebGL2 context (on Linux it needs an X display: xvfb-run), so the battlefield cannot boot and there is no hash to compare. ` +
         `That is a finding about ${name} on this runner, not a determinism result.`
     );
   }
@@ -200,9 +200,9 @@ async function main(): Promise<number> {
   try {
     const engines: [string, () => Promise<Browser>][] = [
       ['chromium', () => chromium.launch()],
-      // Headless Firefox on a GPU-less Linux runner creates no WebGL2 context
-      // at all; headed under `xvfb-run` it gets Mesa's llvmpipe
-      // (`--firefox-headed`, see `parseEngineArgs`). The pref lifts Firefox's
+      // Firefox on a GPU-less Linux runner with no X display creates no WebGL2
+      // context at all; under `xvfb-run` it gets Mesa's llvmpipe. CI runs it
+      // headed there (`--firefox-headed`, see `parseEngineArgs`). The pref lifts Firefox's
       // GPU blocklist: this check is about the sim's arithmetic, not about
       // which GPUs Firefox trusts.
       ['firefox', () => firefox.launch({ headless: !args.firefoxHeaded, firefoxUserPrefs: { 'webgl.force-enabled': true } })],

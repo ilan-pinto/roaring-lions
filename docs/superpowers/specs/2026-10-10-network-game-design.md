@@ -906,9 +906,10 @@ by this design:
   and N1 dedupes the log on write.
 - **Headless Firefox on CI has no WebGL2**, so the three-engine check reported
   Chromium and WebKit only, and CI passed its exit 3 on every run. **Closed
-  15 Oct 2026:** headless Firefox reads `null` for WebGL2 with or without
-  `webgl.force-enabled`, but headed under `xvfb-run` it gets Mesa's llvmpipe
-  (measured in `mcr.microsoft.com/playwright:v1.64.0-noble`). CI now runs
+  15 Oct 2026:** with no X display Firefox reads `null` for WebGL2 with or
+  without `webgl.force-enabled`; under `xvfb-run` it gets Mesa's llvmpipe,
+  headed or headless (measured in `mcr.microsoft.com/playwright:v1.64.0-noble`
+  and on CI, PRs #678/#679). The display is the ingredient. CI now runs
   `xvfb-run -a pnpm net:engines -- --firefox-headed --require=chromium,firefox,webkit`:
   Firefox is read, and an engine that stops booting is exit 2 by name rather
   than an exit-3 warning. R39's exit 3 survives for engines not `--require`d

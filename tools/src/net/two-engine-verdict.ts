@@ -203,11 +203,12 @@ export interface EngineArgs {
   /** `--require=a,b`: engines whose failure to boot is exit 2, not exit 3. */
   require: string[];
   /**
-   * `--firefox-headed`: launch Firefox with a window. Headless Firefox on a
-   * GPU-less Linux runner creates no WebGL2 context at all, whatever its prefs
-   * (measured 15 Oct 2026 in `mcr.microsoft.com/playwright:v1.64.0-noble`:
-   * headless `null` with and without `webgl.force-enabled`; headed under
-   * `xvfb-run`, `llvmpipe`). So CI runs the tool under `xvfb-run` with this flag.
+   * `--firefox-headed`: launch Firefox with a window. Firefox on a GPU-less
+   * Linux runner with no X display creates no WebGL2 context at all, whatever
+   * its prefs (measured 15 Oct 2026 in `mcr.microsoft.com/playwright:v1.64.0-noble`:
+   * `null` with and without `webgl.force-enabled`). Under `xvfb-run` it gets
+   * `llvmpipe` -- headed in that image and on CI, and headless too on CI: the
+   * display is what matters. CI runs the tool under `xvfb-run` with this flag.
    */
   firefoxHeaded: boolean;
 }

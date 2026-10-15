@@ -240,15 +240,16 @@ jobs:
       #
       # ON CI ALL THREE ARE REQUIRED, so 3 cannot happen here and any non-zero
       # exit fails the step. Until 15 Oct 2026 this step passed exit 3, and it
-      # exited 3 on every run: headless Firefox on ubuntu-latest has no WebGL2
-      # at all, with or without `webgl.force-enabled`, so the check compared
-      # Chromium against WebKit and never read SpiderMonkey -- and had WebKit
-      # stopped booting too, it would have compared nothing and still passed.
-      # Firefox runs HEADED under `xvfb-run` now (`--firefox-headed`), where it
-      # gets Mesa's llvmpipe: measured in mcr.microsoft.com/playwright:
-      # v1.64.0-noble, headless `null` vs headed `llvmpipe`. `--require` turns
-      # an engine that stops booting into a named red, not a quiet warning.
-      # (xvfb-run comes with the `--with-deps` install above.)
+      # exited 3 on every run: with no X display Firefox on ubuntu-latest has
+      # no WebGL2 at all, with or without `webgl.force-enabled`, so the check
+      # compared Chromium against WebKit and never read SpiderMonkey -- and
+      # had WebKit stopped booting too, it would have compared nothing and
+      # still passed. THE DISPLAY IS THE INGREDIENT: under `xvfb-run` Firefox
+      # gets Mesa's llvmpipe, headed (mcr.microsoft.com/playwright:v1.64.0-noble,
+      # and PR #678's run) and even headless (#679's first round). It runs
+      # headed (`--firefox-headed`), the configuration measured end to end.
+      # `--require` turns an engine that stops booting into a named red, not a
+      # quiet warning. (xvfb-run comes with the `--with-deps` install above.)
       #
       # Runs after a failed golden gate too (a red picture must not hide the
       # cross-engine reading); not on cancel. The timeout is a hang guard: the
