@@ -3,9 +3,14 @@
 // test below is seen red under a one-line mutation of versus-breach.ts (B1-B3 in
 // its header; the commit message says which was run).
 import { describe, expect, it } from 'vitest';
-import { garrisonControl, pinWindow, playCamps, signTestP, spawnCamps, sameGame, type CampGame } from './versus-breach';
+import type { MapId } from '@lions/data';
+import { VERSUS_FAIR_MAPS } from '@lions/net';
+import {
+  effectOf, emptyActivity, garrisonControl, pairingsOn, pinWindow, playCamps, signTestP, spawnCamps, sameGame, type CampGame,
+} from './versus-breach';
 import { play, seedOf, world } from './versus-probe';
 import { sandboxAnchors } from '../../../packages/app/src/sandbox-anchors';
+import { versusSpawns } from '../../../packages/app/src/net/versus-force';
 
 // CPU-bound sim runs, several full games a test; see versus-probe.test.ts.
 const FULL_GAMES_TIMEOUT_MS = 30_000;
@@ -48,6 +53,25 @@ describe('the counter', () => {
 });
 
 describe('the swap', () => {
+  it("normal arm IS the shipped versusSpawns, for every pairing the probe plays on every fair map", () => {
+    let pairings = 0;
+    for (const map of VERSUS_FAIR_MAPS as readonly MapId[]) {
+      for (const fac of pairingsOn(map)) {
+        pairings++;
+        const shipped = world(map, seedOf(0));
+        const bySide = versusSpawns(shipped.sim, shipped.typeOf, sandboxAnchors(shipped.map), fac).bySide;
+        const mine = world(map, seedOf(0));
+        const camps = spawnCamps(mine.sim, mine.typeOf, sandboxAnchors(mine.map), fac, 'normal');
+        expect(camps).toEqual(bySide);
+        expect(mine.sim.entityCount).toBe(shipped.sim.entityCount);
+        const read = (sim: typeof mine.sim) => Array.from({ length: sim.entityCount }, (_, i) => [
+          sim.unitTypes[sim.state.typeIdx[i]].id, sim.state.side[i], sim.state.posX[i], sim.state.posY[i], sim.state.facing[i],
+        ]);
+        expect(read(mine.sim)).toEqual(read(shipped.sim));
+      }
+    }
+    expect(pairings).toBe(8); // 4 mirrors + 2 faction maps x 2 orders: the loop ran
+  });
   it('moves only the side labels: same tiles, same ids, camp A first', () => {
     const tiles = (arm: 'normal' | 'swapped') => {
       const { sim, typeOf, map } = world('milh_flats', seedOf(0));
@@ -78,5 +102,41 @@ describe('the sign test', () => {
     expect(signTestP(1, 10)).toBeCloseTo((2 * 11) / 1024, 12);
     expect(signTestP(9, 10)).toBeCloseTo((2 * 11) / 1024, 12);
     expect(signTestP(2, 20)).toBeCloseTo((2 * (1 + 20 + 190)) / 2 ** 20, 12);
+  });
+});
+
+describe('effectOf', () => {
+  // Hand-built pairs, literal expectations: the verdict's direction and the swap control.
+  const cg = (winnerCamp: 0 | 1 | null, value: [number, number], ticks = 100, breach: [number, number] = [0, 0]): CampGame => {
+    const activity = emptyActivity();
+    activity.ticks = breach;
+    return { winnerCamp, by: 'annihilation', ticks, value, activity };
+  };
+  it('counts better/worse, margin up/down, identical and unexplained', () => {
+    const e = effectOf([
+      // B wins carrying the rule, loses without it: better; margin 200 vs -200: up.
+      [cg(1, [100, 300], 100, [0, 5]), cg(0, [300, 100])],
+      // B loses carrying it, wins without: worse; margin -200 vs 200: down.
+      [cg(0, [300, 100]), cg(1, [100, 300], 100, [0, 3])],
+      // A draw carrying it against a loss without: better; margins level: neither.
+      [cg(null, [200, 200], 100, [0, 1]), cg(0, [200, 200])],
+      // The same game in both arms, nobody breached: identical, not unexplained.
+      [cg(1, [100, 150]), cg(1, [100, 150])],
+      // Different games, nobody breached in either arm: unexplained; margin 50 vs 20: up.
+      [cg(1, [100, 150], 100), cg(1, [100, 120], 140)],
+    ]);
+    expect(e.n).toBe(5);
+    expect(e.better).toBe(2);
+    expect(e.worse).toBe(1);
+    expect(e.marginUp).toBe(2);
+    expect(e.marginDown).toBe(1);
+    expect(e.identical).toBe(1);
+    expect(e.unexplained).toBe(1);
+    expect(e.bWinsNormal).toBe(3);
+    expect(e.drawsNormal).toBe(1);
+    expect(e.bWinsSwapped).toBe(3);
+    expect(e.p).toBeCloseTo(1, 12); // 2 of 3
+    expect(e.meanMarginNormal).toBeCloseTo((200 - 200 + 0 + 50 + 50) / 5, 9);
+    expect(e.meanMarginSwapped).toBeCloseTo((-200 + 200 + 0 + 50 + 20) / 5, 9);
   });
 });

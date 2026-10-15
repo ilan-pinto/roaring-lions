@@ -10,11 +10,17 @@
 // cannot garrison and it holds no demolition (`state.demoTarget < 0`):
 // `selectStructureTarget`, the only other writer of `curStructure`, picks only
 // OCCUPIED buildings, and a structure with no garrison slots is never occupied,
-// so a wall in `curStructure` is a breach and nothing else. Per side it counts
-// breach unit-ticks, the unit-ticks of those spent halted or braced (time lost),
-// wall HP removed by a breaching shooter (against wall HP removed any other way:
-// splash, a stray round; demolition is 0 here, nobody is ordered to demolish),
-// and walls brought down.
+// so a wall in `curStructure` is a breach and nothing else. The sim writes
+// `curStructure` for weapon SLOT 0 only, so a breach fired by a slot-1 weapon
+// alone is invisible to this counter. Nil for the versus forces: the only
+// two-slot units are the Lavi and the Peten, and each one's slot 0 hurts
+// structures, has no minimum range, and reaches past BREACH_RANGE_SQ's
+// 2.5 tiles (12 and 7.5 tiles), so slot 0 fires on every wall slot 1 could. Per side it counts breach unit-ticks, the unit-ticks
+// of those spent halted or braced ("time lost" -- an UPPER bound: a unit
+// already stopped at its goal when it starts on a wall is counted too, though
+// the wall cost it no movement), wall HP removed by a breaching shooter
+// (against wall HP removed any other way: splash, a stray round; demolition is
+// 0 here, nobody is ordered to demolish), and walls brought down.
 //
 // The play is the versus probe's own: each side's whole force attack-moves on
 // the other's living centroid, re-ordered every 20 s, decided by the real rule
