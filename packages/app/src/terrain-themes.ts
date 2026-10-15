@@ -128,8 +128,9 @@ export const TERRAIN_THEMES: Record<TerrainTheme, TerrainTones> = {
     // correct for what it is; a poplar needs the ratio the other side of 1.
     crownRatio: 1.5,
     scatter: 'sward',
-    // The olive stays where it belongs: the one green map is the river basin,
-    // and an olive terrace there is the picture the Naharin arc is written on.
+    // The grove family stays `tree` on the one green map, the river basin.
+    // Its olive groves now draw in the scrub tone (`decorColors` below),
+    // chosen off the KDF olive so a uniform in a grove reads (VR-05).
     groveFamily: 'tree',
     // N-18: a pale limestone haze over the basin rather than a desert dust.
     haze: paletteColor('limestone.1'),

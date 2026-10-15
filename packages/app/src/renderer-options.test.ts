@@ -59,7 +59,9 @@ describe('rendererOptionsFor', () => {
   it('gives arid and green none of the highland-only fields, so they draw as before', () => {
     for (const t of [TERRAIN_THEMES.arid, TERRAIN_THEMES.green]) {
       expect(t.paletteRamps).toBeUndefined();
-      expect(Object.keys(t.decorColors ?? {}).every((k) => k.endsWith(':foliage'))).toBe(true);
+      expect(Object.keys(t.decorColors ?? {}).sort()).toEqual(
+        ['bush', 'cedar', 'desert_tree', 'grass', 'tree'].map((f) => `${f}:foliage`).sort()
+      );
       expect(t.openScatter).toBeUndefined();
       expect(t.macroHue).toBeUndefined();
     }
