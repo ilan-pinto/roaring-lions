@@ -100,7 +100,7 @@ The split is the point. Logistics buys mass; Intel buys certainty. Most missions
 
 The cost curve prices units against each other; these anchors tie it to time. All provisional until mission playtests.
 
-- Logistics income: Foothold ~120/min with the corridor intact, Build-up ~200/min, Clearance ~80/min trickle. Interdiction halves it. The proposed zone rates (`docs/campaign/economy/income-numbers.md`, not shipped) price a full hold of every paying zone at 40% of the phase's anchor, paid on top of the mission's own base rate.
+- Logistics income: Foothold ~120/min with the corridor intact, Build-up ~200/min, Clearance ~80/min trickle. Interdiction halves it. The zone rates (`docs/campaign/economy/income-numbers.md`, approved and shipped 15 Oct) price a full hold of every paying zone at 40% of the phase's anchor, paid on top of the mission's own base rate.
 - A Clearance mission's total spend (starting force included) ≈ one combined-arms company: 2 MBT, 2 IFV, 4–6 squads, support — ~4,500–5,500 logistics.
 - Intel: 8 per enemy identified, 40 per objective, 30 per high-ground rise held (no per-minute term; the lead's ruling of 15 Oct: 8/40/30, smoke 100). Smoke screen 100 · mortar barrage 120 · drone sweep 150 · air strike 250. A bought call is a decision, not a drip: a plain win earns about one sweep's worth.
 - Sanity rule: banking >30% unspent at a win means income is too high or objectives too cheap.

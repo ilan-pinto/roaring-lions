@@ -2532,8 +2532,9 @@ too, and routes, starts and rears are cached as well as fields).
 
 The cut test's contest scan (O(units) per enemy near a route, per line) is what keeps the adversarial
 case at 0.1 ms. A per-recheck tile grid of the holder's living ground units would make each contest
-query O(contest-radius tiles) instead of O(units) with the same answers; not built: no shipped mission
-has a zone, and the steady cases are a fifth of the line.
+query O(contest-radius tiles) instead of O(units) with the same answers; not built: four missions now
+author zones (lead-approved 15 Oct) and the measured costs above are unchanged, and the steady cases
+are a fifth of the line.
 
 ### What this does not measure
 

@@ -74,8 +74,8 @@ in step with it.
   on it. A zone that holds the starting force pays a passive player by construction, and
   `pnpm playtest` holds side 0's zone income in the four no-orders controls at 0
   (`ZONE_PASSIVE_INCOME`); pick rates by the 40%-of-the-phase-anchor rule in
-  `docs/campaign/economy/income-numbers.md`, where the proposed table for Umm Zeitoun II and
-  IV, Deir Amun II and Wadi Halam II (and its measurement over 30 seeds) waits for the lead.
+  `docs/campaign/economy/income-numbers.md`, where the approved table for Umm Zeitoun II and
+  IV, Deir Amun II and Wadi Halam II (and its measurement over 30 seeds) is the shipped one.
 - **The player force is placed, not built.** `starting_force` plus ledger
   survivors (`from_ledger`), plus authored `reinforce` triggers and waves.
   The issued force is the brigade's to lend. A placement may field a unit whose

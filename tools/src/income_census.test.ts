@@ -49,7 +49,7 @@ interface Reading {
  */
 function census(mission: MissionJson & { resources?: Res }): Reading {
   const scratch = `__census_${mission.id}`;
-  all[scratch] = mission;
+  all[scratch] = mission; // restored in `finally`; vitest isolates each file's module graph, so no other file sees it
   const out: Reading = { zones: 0, convoys: 0, failures: [] };
   try {
     const authored = mission.resources?.income_zones ?? [];
@@ -132,6 +132,7 @@ describe('the census sees what it guards: umm_zeitoun_3_clearance horn_west (C-R
     expect(r.failures).toHaveLength(1);
     expect(r.failures[0]).toContain('umm_zeitoun_3_clearance');
     expect(r.failures[0]).toContain('"horn_west"');
+    expect(r.failures[0]).toContain('no wheeled route');
   });
   it('control: the sibling horn, reachable by vehicle, passes the same census', () => {
     const r = census(withZone('horn_east'));
