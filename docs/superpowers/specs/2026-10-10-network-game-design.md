@@ -623,6 +623,23 @@ line. The "Built" column below names the commit that made each row true.
 | `humanHeld[side]` | mission.ts | triggers, waves and the commander skip a human-held side. The table arrives from `seatRules` in `@lions/net` (N2-P4); the sim never reads a config | The table and `Sim.isHumanHeld` are built (`963d6613`); `seatRules` feeds them (`3689dd9f`). **"Triggers, waves and the commander skip a human-held side" is N3's** (D1, ruled 16 Oct) |
 | `Sim.seatOf(entity)` read; issuer-aware `queueCommand(cmd, seat)` later | sim.ts | the ownership check moves from the net layer into the sim when Stage 4's lane C slot opens | **N3 or later** (D4, ruled 16 Oct): ownership stays in `@lions/net` (`validateCommand`), which N2 extended for the three kinds (`7bd5d7c8`, `fe9a42d7`) |
 
+**F4 (LD6) as built (16 Oct 2026, branch `feat/gf4-camp-production`, base `8c18f590`; GH-183, closes GH-136).** All ten asks landed, in these commits (the table is in `docs/superpowers/plans/2026-10-16-net-n3-prep.md` §5):
+
+| ask | landed in |
+|---|---|
+| 1 `requestBuild`/`canBuild` by line and side; `build.line?` | `52c472d3` (runtime), `ff742342` (`Command`, `cleanCommand`, `applyQueued`) |
+| 2 one `spend`/`refund` on `purse[side]` | `52c472d3`; `f33af5a1` (the AI spender goes through it) |
+| 3 `firstRefusal`/`popCapped`/`populationView`/`population` by side, camp clause per side | `52c472d3`, `629afef9`, `61efc0e9` |
+| 4 `cancelBuild(line, index, side)` | `52c472d3`, `ff742342` |
+| 5 `setRally`/`clearRally`/`canSetRally` | `944a9fc2`, `ff742342` |
+| 6 stable `productionLines(side)` index, `productionOf(side)` | `52c472d3` (R-F4-3) |
+| 7 `MissionContext.economy = { logisticsStart, logisticsRatePerMin }`, whole logistics, by side | `fbec6743`; `f33af5a1` (`enemy.production` as side 1's absent-context source) |
+| 8 `built.side`, app filtered to the viewer's side | `52c472d3`; `f33af5a1` (the side-1 case) |
+| 9 the contested pause per line | `14be3fe6` |
+| 10 side-1 AI production through the same path | `692851cb` (`spendDown`), `f33af5a1` |
+
+Still N3's: `applyQueued` skips `side !== 0` for all five runtime kinds and `validateCommand` drops all five in versus (N3 lifts both in one commit with its two-seat test), so side 1 is reached today only by a direct call and the AI spender; `built` carries `side` and the app filters to side 0 (`isOwnSide`; the announcer takes viewer 0, the tutorial `!== 0`), which N3 switches to `viewerSide`; no shipped mission gives side 1 a camp (D7). A dead camp's line keeps its index. `declaresProduction` was deleted (the camp clause reads the lines). The economy and digest pins moved once, `e0c39d39`: `ECONOMY_PIN` 275731552 -> 904873885, `ECONOMY_PIN_RELIEF` 145368021 -> 2771311510, `RUNTIME_DIGEST_PIN` 2984314042 -> 2037118941, `RUNTIME_DIGEST_PIN_RELIEF` 3060732596 -> 1884258391; the sim pins did not move. Numbers: `docs/campaign/economy/production-numbers.md`.
+
 **Per-seat unit types are no longer sim work. Ruled 15 Oct (coordinator,
 lead-delegated) (L2), confirmed by N2-P5 (`b375d07c`, `bf76cc77`,
 `packages/app/src/net/per-seat-types.test.ts`).** This table carried a
@@ -1207,6 +1224,8 @@ until all of these hold:
    N3's opening task, built on the per-side state F2–F4 deliver. Its rules
    will be data, never a mission synthesised in TypeScript. The memo, the
    options and the reasons: `docs/superpowers/plans/2026-10-15-net-n2-prereqs.md`.
+
+**LD6 closure (16 Oct):** the ten F4 asks landed on `feat/gf4-camp-production`; which commit carries which, and what remains N3's (the two side-0 gates, the `viewerSide` filter), are in §7.1 "F4 (LD6) as built".
 
 **Sim surfaces N2 touches.** Locate them by symbol; line numbers are as of
 `f4b3ea2b`.
