@@ -18,6 +18,19 @@
 // drift from it; it is unaltered when this was written) and a no-orders passive control. One
 // forked worker per slot, as `plan-sweep.ts` does, each running a queue of (kind, seed) jobs.
 //
+// Three rows. `plan` and `passive` carry the camp; `control` is the shipped plan on the UNCHANGED
+// mission (no side-1 camp, no enemy.production), so a defeat in `plan` can be attributed: if the
+// same seed also loses in `control`, the camp did not cause it.
+//
+// Harness differences from `playtest-run.ts` (the instrument `pnpm playtest` uses), all harmless on
+// Tel Marum III: no `loaned` placements (that mission draws nothing from the ledger, and the ledger
+// here is `{}` as the shipped plan's `ledgerIn` is); `resolveUpgrades` is given `() => undefined`
+// for the unlock lookup, so a gated placement is not upgraded (Tel Marum III has no `upgrades_to`
+// placement); and the KDF `unitInfo` carries no `unlock` gate (only `requestBuild` reads it, and
+// this plan buys nothing). The plan is a COPY of the Tel Marum III closure at playtest.ts's
+// `const ledTelMarum3 = run('tel_marum_3_clearance', ...)` (~L1960), unaltered when this was
+// written, so it can drift from it.
+//
 // Per run: units bought (counted from `built` events with `side: 1`), logistics unspent at the end
 // as a share of the purse (start + earned), the outcome and its length. Expected: unspent near
 // the leftover below the cheapest item (D8), against the spike's banked thousands.
@@ -32,7 +45,7 @@ const ID = 'tel_marum_3_clearance' as const;
 const CAMP_TILE: [number, number] = [27, 7];
 const START = 640;
 
-type Kind = 'plan' | 'passive';
+type Kind = 'plan' | 'passive' | 'control';
 interface Job { kind: Kind; seed: number }
 interface Reply extends Job {
   bought: number;
@@ -74,7 +87,7 @@ const SHIPPED_PLAN: Plan = (sim, ids, at) => {
 
 function runOne(job: Job): Reply {
   const base = missions[ID] as unknown as MissionJson;
-  const mission: MissionJson = {
+  const mission: MissionJson = job.kind === 'control' ? base : {
     ...base,
     structures: [...(base.structures ?? []), { type: 'camp', at: CAMP_TILE, size: [2, 2], side: 1 }],
     enemy: {
@@ -118,7 +131,7 @@ function runOne(job: Job): Reply {
     return out;
   };
   const timed = new Map<number, (() => void)[]>();
-  if (job.kind === 'plan') {
+  if (job.kind !== 'passive') {
     SHIPPED_PLAN(sim, ids, (t, fn) => {
       const when = t * TICKS_PER_SECOND;
       const l = timed.get(when);
@@ -136,7 +149,7 @@ function runOne(job: Job): Reply {
     for (const me of rt.step(evs)) if (me.kind === 'built' && me.side === 1) bought++;
     if (rt.result !== 'ongoing') break;
   }
-  const purse = START + rt.logisticsEarned(1);
+  const purse = Math.max(1, (job.kind === 'control' ? 0 : START) + rt.logisticsEarned(1));
   const cause = rt.result === 'defeat' ? (typeof rt.defeatCause === 'string' ? rt.defeatCause : rt.defeatCause === undefined ? '' : `objective:${rt.defeatCause.objective}`) : '';
   return {
     ...job,
@@ -154,7 +167,7 @@ if (process.argv[2] === '--worker') {
   });
 } else {
   const jobs: Job[] = [];
-  for (const kind of ['plan', 'passive'] as const) for (const seed of SWEEP_SEEDS) jobs.push({ kind, seed });
+  for (const kind of ['plan', 'passive', 'control'] as const) for (const seed of SWEEP_SEEDS) jobs.push({ kind, seed });
   const replies: Reply[] = [];
   const path = fileURLToPath(import.meta.url);
   const workers = Math.max(1, Math.min(8, availableParallelism() - 1));
@@ -168,9 +181,9 @@ if (process.argv[2] === '--worker') {
   const report = (): void => {
     console.log(`enemy-production probe: ${ID} + a side-1 camp at tile ${CAMP_TILE.join(',')} (beside battery_position 25,6), purse ${START}, menu sarim_rifles/atgm_cell`);
     console.log('seeds: main SWEEP_SEEDS (424242, then 1..29), not the G3 sheet\'s set. REPORT ONLY, no gate.');
-    for (const kind of ['plan', 'passive'] as const) {
+    for (const kind of ['plan', 'passive', 'control'] as const) {
       const rs = replies.filter((r) => r.kind === kind).sort((a, b) => SWEEP_SEEDS.indexOf(a.seed) - SWEEP_SEEDS.indexOf(b.seed));
-      console.log(`\n${kind === 'plan' ? 'shipped winning plan' : 'passive control (no orders)'}`);
+      console.log(`\n${kind === 'plan' ? 'shipped winning plan' : kind === 'passive' ? 'passive control (no orders)' : 'CONTROL: shipped plan, NO side-1 camp (unchanged mission)'}`);
       console.log('seed      bought  unspent%  outcome   minutes  cause');
       for (const r of rs) {
         console.log(`${String(r.seed).padEnd(9)} ${String(r.bought).padStart(6)}  ${String(r.unspentPct).padStart(7)}  ${r.result.padEnd(8)}  ${r.minutes.toFixed(1).padStart(7)}  ${r.cause}`);
