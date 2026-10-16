@@ -61,6 +61,8 @@ export function mapPicture(id: string, className: string, startsFor: Seat | null
   return wrap;
 }
 
+let fairIds = 0;
+
 function chip(text: string, kind?: string): HTMLElement {
   const c = document.createElement('span');
   c.className = 'rl-versus__chip';
@@ -98,7 +100,14 @@ export function mapCard(id: string, label: string, seat: Seat, className = ''): 
   if (json !== undefined) chips.appendChild(chip(t('versus.lobby.map.size', { w: json.width, h: json.height })));
   const fair = chip(t('versus.lobby.map.fair'), 'fair');
   fair.title = t('versus.lobby.map.fair.tip');
-  chips.append(fair, chip(t('versus.lobby.map.pairing', { both: String(pairsBoth(id)) }), pairsBoth(id) ? undefined : 'quiet'));
+  // The reason is a sentence a screen reader can reach, not only a tooltip:
+  // the chip's description, and next in reading order.
+  const why = document.createElement('span');
+  why.className = 'rl-versus__sr';
+  why.id = `rl-versus-fair-${++fairIds}`;
+  why.textContent = t('versus.lobby.map.fair.tip');
+  fair.setAttribute('aria-describedby', why.id);
+  chips.append(fair, why, chip(t('versus.lobby.map.pairing', { both: String(pairsBoth(id)) }), pairsBoth(id) ? undefined : 'quiet'));
   text.appendChild(chips);
   const key = document.createElement('div');
   key.className = 'rl-versus__startkey';

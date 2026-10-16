@@ -7,9 +7,10 @@
  *
  * Drawn as a FACE-OFF (the lead's direction C with A's map card, 2026-10-16):
  * the host picks a side first (KDF, Sarim or Mirror, one radio group), and the
- * two sides stand as cards -- yours, VS, your friend's -- tinted by the team
- * colours (`--side-kdf`/`--side-sarim`, which follow the colour-vision
- * setting). The side narrows the ground: on a faction pick, the mirror-only
+ * two sides stand as cards -- yours, VS, your friend's -- tinted by RELATION
+ * as the match draws them (`--side-you`/`--side-friend`: the own and hostile
+ * team colours, which follow the colour-vision setting; the faction is in the
+ * name and portrait, never the colour). The side narrows the ground: on a faction pick, the mirror-only
  * maps grey out with the reason. Then the ground (a map card: its picture with
  * both starts, its line, "Measured even" and its pairing), the brigade
  * switch, and Open a room. In the lobby the room code stands in your friend's
@@ -237,6 +238,12 @@ function adopt(o: OpenedRoom, deps: VersusDeps): Room {
   });
   return room;
 }
+
+/** How long after the lobby is in the document its live region is filled. A
+ *  region that ENTERS the document already holding its text is not announced
+ *  by most screen readers (they speak changes), so it mounts empty and is
+ *  filled once the insertion has been rendered (fix round 1, Important 1). */
+export const ANNOUNCE_AFTER_MOUNT_MS = 100;
 
 function messageLine(className: string): HTMLParagraphElement {
   const p = document.createElement('p');
@@ -660,7 +667,13 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
   paintKit();
   kitRow.append(kitSwitch, kitHint);
   const openBtn = stamp(t('versus.host.open'), 'rl-versus__open');
-  act.append(kitRow, openBtn);
+  // Open a room says its own failure here, beside the stamp, on a line
+  // reserved like the join bar's -- never under the join cells.
+  const openMsg = messageLine('rl-versus__open-msg');
+  const openCol = document.createElement('div');
+  openCol.className = 'rl-versus__open-col';
+  openCol.append(openBtn, openMsg);
+  act.append(kitRow, openCol);
   body.appendChild(act);
 
   /** A side narrows the ground: a mirror-only map greys out with its reason,
@@ -753,6 +766,8 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
     busy = true;
     sync();
     sayError('');
+    openMsg.textContent = '';
+    delete openMsg.dataset.tone;
     deps.open(req, leaving.signal).then(
       (o) => {
         // Left while the room opened: nobody will take it, so it is closed here.
@@ -765,7 +780,10 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
         busy = false;
         sync();
         if (fromJoin) sayError(errorLine(err));
-        else msg.textContent = errorLine(err);
+        else {
+          openMsg.dataset.tone = 'bad';
+          openMsg.textContent = errorLine(err);
+        }
       },
     );
   };
@@ -824,6 +842,17 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
   /** What takes the focus once the screen is in the document (Copy link, when
    *  the room opens with the code in the friend's card). */
   const focusOnMount: { el: HTMLElement | null } = { el: null };
+  /** What the live region says once the screen is in the document. */
+  let announceOnMount: string | null = null;
+  let announceTimer: ReturnType<typeof setTimeout> | null = null;
+  const announce = (text: string): void => {
+    live.textContent = '';
+    if (announceTimer !== null) clearTimeout(announceTimer);
+    announceTimer = setTimeout(() => {
+      announceTimer = null;
+      if (!disposed) live.textContent = text;
+    }, ANNOUNCE_AFTER_MOUNT_MS);
+  };
   const roomName = document.createElement('span');
   roomName.className = 'rl-versus__room-name';
   roomName.textContent = t('versus.room.title', { code });
@@ -989,6 +1018,9 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
       // Your card first, your friend's across from it, whichever seat you hold.
       const mine = r.seat;
       const theirs: Seat = mine === 0 ? 1 : 0;
+      // Moving the code block drops a focus inside it to <body>: put it back.
+      const held = document.activeElement;
+      const keep = held instanceof HTMLElement && codeBlock.contains(held) ? held : null;
       seats.replaceChildren(card(mine), versusMark(), card(theirs));
       // The code is beside the title unless it is in the friend's card.
       if (!seats.contains(codeBlock)) {
@@ -998,6 +1030,7 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
         codeBlock.dataset.place = 'card';
         headEnd.replaceChildren(roomName);
       }
+      if (keep !== null && keep.isConnected && document.activeElement !== keep) keep.focus({ preventScroll: true });
       if (paintedMap !== r.map) {
         paintedMap = r.map;
         const label = deps.maps.find((m) => m.id === r.map)?.label ?? r.map;
@@ -1017,9 +1050,15 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
     // The room is open and the friend's seat holds its code: say so once, and
     // put the player on the control that sends it.
     if (seats.contains(codeBlock)) {
-      live.textContent = t('versus.lobby.room.announce', { code: r.code });
+      const text = t('versus.lobby.room.announce', { code: r.code });
       focusOnMount.el = copyBtn;
-      if (wrap.isConnected) copyBtn.focus({ preventScroll: true });
+      if (wrap.isConnected) {
+        announce(text);
+        copyBtn.focus({ preventScroll: true });
+      } else {
+        live.textContent = '';
+        announceOnMount = text;
+      }
     }
 
     // The way back is Leave, confirmed: it closes the room for both seats.
@@ -1049,6 +1088,7 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
       busy = true;
       go.disabled = true;
       msg.textContent = '';
+      delete msg.dataset.tone;
       deps.open({ kind: 'join', code, callsign: callsignOrDefault(callsign.input.value) }, leaving.signal).then(
         (o) => {
           if (disposed) { o.transport.close(); return; }
@@ -1085,9 +1125,11 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
   stagger(body);
   stage.appendChild(wrap);
   focusOnMount.el?.focus({ preventScroll: true });
+  if (announceOnMount !== null) announce(announceOnMount);
   return () => {
     disposed = true;
     leaving.abort();
+    if (announceTimer !== null) clearTimeout(announceTimer);
     window.removeEventListener('keydown', onKey);
     leaveDialog?.close();
     if (room !== null) {

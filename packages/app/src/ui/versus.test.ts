@@ -3,7 +3,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { maps, paletteTeamColors } from '@lions/data';
 import { VERSUS_FAIR_MAPS, type MatchConfig, type SeatState, type WsTransport, type WsTransportHooks } from '@lions/net';
-import { CODE_ALPHABET, PENDING_LOBBY_EXPIRE_MS, filterCode, showVersus, showVersusRoom, versusMaps, type VersusDeps } from './versus';
+import { ANNOUNCE_AFTER_MOUNT_MS, CODE_ALPHABET, PENDING_LOBBY_EXPIRE_MS, filterCode, showVersus, showVersusRoom, versusMaps, type VersusDeps } from './versus';
 import { RoomRefused, RoomStarted, type OpenedRoom, type RoomRequest } from '../net/connect';
 import { takeHanded } from '../net/handoff';
 import { isDialogOpen } from './confirm';
@@ -188,12 +188,12 @@ describe('showVersus (/versus)', () => {
     const d = deps();
     const stage = mountPick(d);
     const input = stage.querySelector<HTMLInputElement>('.rl-versus__callsign')!;
-    input.value = '  G‮al\u0000  ＢＯ ';
+    input.value = '  G\u202eal\u0000  ＢＯ ';
     input.dispatchEvent(new Event('change'));
     expect(input.value).toBe('Gal BO');
     expect(d.saved).toEqual(['Gal BO']);
     // Nothing usable left: the field empties and the empty name is saved ('Lion' is only where it is sent).
-    input.value = '​\u0007';
+    input.value = '\u200b\u0007';
     input.dispatchEvent(new Event('change'));
     expect(input.value).toBe('');
     expect(d.saved.at(-1)).toBe('');
@@ -204,7 +204,7 @@ describe('showVersus (/versus)', () => {
     const open = vi.fn().mockResolvedValue(opened(transport));
     const stage = mountPick(deps({ open }));
     const field = stage.querySelector<HTMLInputElement>('.rl-versus__callsign')!;
-    field.value = 'D‮ov\u0000';
+    field.value = 'D\u202eov\u0000';
     stage.querySelector<HTMLButtonElement>('.rl-versus__open')!.click();
     await flush();
     expect((open.mock.calls[0] as [RoomRequest])[0]).toMatchObject({ kind: 'create', callsign: 'Dov' });
@@ -388,6 +388,30 @@ describe('showVersus (/versus)', () => {
     expect(/\.rl-versus__msg:empty[^{]*\{[^}]*display\s*:\s*none/.test(css)).toBe(false);
   });
 
+  it('a room that fails to open says so on its own reserved line beside Open a room, not under the join cells', async () => {
+    const d = deps({ open: vi.fn().mockRejectedValue(new Error('offline')) });
+    const stage = mountPick(d);
+    const openMsg = stage.querySelector<HTMLElement>('.rl-versus__act .rl-versus__open-msg');
+    expect(openMsg).not.toBeNull();
+    expect(openMsg!.textContent).toBe('');
+    expect(openMsg!.getAttribute('role')).toBe('status');
+    stage.querySelector<HTMLButtonElement>('.rl-versus__open')!.click();
+    await flush();
+    expect(openMsg!.textContent).toBe('Could not reach the room: try again');
+    expect(openMsg!.dataset.tone).toBe('bad');
+    expect(stage.querySelector('.rl-versus__join-bar .rl-versus__msg')?.textContent).toBe('');
+    // Reserved like the join line: the sheet holds its height, not the text.
+    const css = readFileSync(`${process.cwd()}/packages/app/src/ui/theme.css`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    const rule = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((m) => m[1].split(',').map((x) => x.trim()).includes('.rl-versus__open-msg'));
+    expect(rule.some((m) => /min-height\s*:/.test(m[2]))).toBe(true);
+  });
+
+  it('"Measured even" says why to a screen reader, not only in a tooltip', () => {
+    const stage = mountPick(deps());
+    const fair = stage.querySelector<HTMLElement>('.rl-versus__chip[data-kind="fair"]')!;
+    expect(describedBy(fair)).toBe('Both starts were measured close to even in test matches');
+  });
+
   it('a room that opens after the screen was left is closed, not navigated to', async () => {
     const stage = document.createElement('div');
     const { fake, transport } = fakeTransport();
@@ -495,11 +519,16 @@ describe('bring your brigade: the host\'s toggle and the room\'s kit line', () =
   });
 });
 
-// The face-off's tints (ruling 2026-10-16): two semantic tokens in theme.css,
-// mapped from the team colours and re-pointed by every colour-vision block, so
-// a card's tint is the colour the variant resolver gives that side.
-describe('the faction tints follow the colour-vision setting', () => {
+// The face-off's tints (ruling 2026-10-16, made relational in fix round 1):
+// the match colours by RELATION, not faction -- `ThreeRenderer` paints
+// `teamColors[colorSlot(side, viewer)]`, so each player sees their own force
+// in team.kedem and the other in team.hostile, whatever the faction. The lobby
+// does the same: two semantic tokens in theme.css, --side-you and
+// --side-friend, mapped from the team colours and re-pointed by every
+// colour-vision block, keyed on who a card is, never on its faction.
+describe('the side tints are by relation, as the match draws them, and follow the colour-vision setting', () => {
   const css = readFileSync(`${process.cwd()}/packages/app/src/ui/theme.css`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({ sel: m[1].trim(), body: m[2] }));
   const palette = JSON.parse(readFileSync(`${process.cwd()}/data/palette.json`, 'utf8')) as {
     reserved: { team: { colors: Record<string, string>; variants: Record<string, Record<string, string>> } };
   };
@@ -510,25 +539,66 @@ describe('the faction tints follow the colour-vision setting', () => {
     const table = m[1] === undefined ? palette.reserved.team.colors : palette.reserved.team.variants[m[1]];
     return table?.[m[2]!]?.toLowerCase();
   };
-  const block = (selector: string): string =>
-    [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((m) => m[1].trim() === selector).map((m) => m[2]).join(';');
+  const block = (selector: string): string => rules.filter((r) => r.sel === selector).map((r) => r.body).join(';');
   const tokenIn = (body: string, name: string): string | undefined => new RegExp(`${name}\\s*:\\s*var\\((--rl-[\\w-]+)\\)`).exec(body)?.[1];
+  /** The --side-* token the sheet tints an element's bottom edge with, read
+   *  from every rule whose selector the element matches. */
+  const tintOf = (el: Element): string[] => {
+    const out: string[] = [];
+    for (const r of rules) {
+      const hit = r.sel.split(',').some((one) => {
+        try { return el.matches(one.trim()); } catch { return false; }
+      });
+      const m = /border-bottom-color\s*:\s*var\((--side-[\w-]+)\)/.exec(r.body);
+      if (hit && m !== null) out.push(m[1]!);
+    }
+    return out;
+  };
 
   for (const variant of ['default', 'deuteranopia', 'protanopia', 'tritanopia'] as const) {
-    it(`${variant}: --side-kdf and --side-sarim are the resolver's own two team colours`, () => {
+    it(`${variant}: --side-you and --side-friend are the resolver's own and hostile team colours`, () => {
       const body = variant === 'default' ? block(':root') : block(`:root[data-cvd='${variant}']`);
       const [kedem, hostile] = paletteTeamColors(variant);
-      expect(hexOf(tokenIn(body, '--side-kdf') ?? '')).toBe(kedem.toLowerCase());
-      expect(hexOf(tokenIn(body, '--side-sarim') ?? '')).toBe(hostile.toLowerCase());
+      expect(hexOf(tokenIn(body, '--side-you') ?? '')).toBe(kedem.toLowerCase());
+      expect(hexOf(tokenIn(body, '--side-friend') ?? '')).toBe(hostile.toLowerCase());
     });
   }
 
-  it('a face-off card and a seat card take their tint from those tokens, by faction, and nothing else names a team colour for them', () => {
-    const tinted = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((m) => /rl-versus/.test(m[1]) && /--side-(kdf|sarim)/.test(m[2]));
-    expect(tinted.map((m) => m[1].trim())).toEqual(expect.arrayContaining([".rl-versus__fcard[data-faction='kdf']", ".rl-versus__fcard[data-faction='sarim']"]));
+  it('no faction token survives and no faction-keyed rule tints anything; nothing else names a team colour for the lobby', () => {
+    expect(css).not.toMatch(/--side-(kdf|sarim)/);
+    expect(rules.filter((r) => /rl-versus/.test(r.sel) && /data-(faction|side)=/.test(r.sel) && /--side-/.test(r.body))).toEqual([]);
     expect(css).not.toMatch(/--vl-/);
-    const stray = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((m) => /rl-versus/.test(m[1]) && /--rl-team/.test(m[2]));
-    expect(stray).toEqual([]);
+    expect(rules.filter((r) => /rl-versus/.test(r.sel) && /--rl-team/.test(r.body))).toEqual([]);
+  });
+
+  it('on the pick screen: your card wears your colour and your friend\'s the other, a Sarim pick and a mirror alike', () => {
+    const stage = mountPick(deps());
+    const card = (who: string) => stage.querySelector<HTMLElement>(`.rl-versus__fcard[data-who="${who}"]`)!;
+    // The mirror: two KDF cards, two colours.
+    expect(tintOf(card('you'))).toEqual(['--side-you']);
+    expect(tintOf(card('friend'))).toEqual(['--side-friend']);
+    pick(sideRadio(stage, 'sarim'));
+    expect(card('you').dataset.faction).toBe('sarim');
+    expect(tintOf(card('you'))).toEqual(['--side-you']);
+    expect(tintOf(card('friend'))).toEqual(['--side-friend']);
+  });
+
+  it('in the room: your seat wears your colour whichever seat and faction you hold', async () => {
+    const { fake, stage } = await hostedRoom();
+    const seat = (who: string) => stage.querySelector<HTMLElement>(`.rl-versus__seat[data-who="${who}"]`)!;
+    fake.hooks.onLobby?.(SEATS_TWO, 0, 'tel_marum', ['sarim', 'kdf']);
+    expect(seat('you').dataset.faction).toBe('sarim');
+    expect(tintOf(seat('you'))).toEqual(['--side-you']);
+    expect(tintOf(seat('friend'))).toEqual(['--side-friend']);
+    fake.hooks.onLobby?.(SEATS_TWO, 0, 'tel_marum', ['kdf', 'kdf']);
+    expect(tintOf(seat('you'))).toEqual(['--side-you']);
+    expect(tintOf(seat('friend'))).toEqual(['--side-friend']);
+  });
+
+  it('the KDF / Sarim / Mirror segments are not faction-coloured: the checked one wears your colour', () => {
+    const checked = rules.filter((r) => r.sel.split(',').map((x) => x.trim()).includes('.rl-versus__side:has(.rl-versus__side-radio:checked)'));
+    expect(checked.some((r) => /border-bottom-color\s*:\s*var\(--side-you\)/.test(r.body))).toBe(true);
+    expect(rules.filter((r) => /\.rl-versus__side\[data-side=/.test(r.sel) && /border/.test(r.body))).toEqual([]);
   });
 });
 
@@ -550,6 +620,12 @@ describe('showVersusRoom (/versus/:code) with the lobby handed from /versus', ()
     expect([...code.querySelectorAll('.rl-versus__code-char')].map((c) => c.textContent)).toEqual(['A', 'B', 'C', 'D', 'E', 'F']);
     const live = stage.querySelector<HTMLElement>('.rl-versus__live')!;
     expect(live.getAttribute('aria-live')).toBe('polite');
+    // The region enters the document EMPTY and is filled afterwards: a screen
+    // reader announces a change to a live region, not a region that arrives
+    // already holding its text (fix round 1, Important 1).
+    expect(live.isConnected).toBe(true);
+    expect(live.textContent).toBe('');
+    await new Promise((r) => setTimeout(r, ANNOUNCE_AFTER_MOUNT_MS + 20));
     expect(live.textContent).toBe('Room ABCDEF is open. Send your friend the code or the link.');
     // The player lands on the control that sends it.
     expect(document.activeElement).toBe(friend().querySelector('.rl-versus__copy'));
@@ -560,6 +636,20 @@ describe('showVersusRoom (/versus/:code) with the lobby handed from /versus', ()
     expect(friend().querySelector('.rl-versus__code')).toBeNull();
     expect(stage.querySelector('.rl-versus__code')?.textContent).toBe('ABCDEF');
     expect(missingKeys()).toEqual([]);
+  });
+
+  it('keeps the focus on Copy link when the code moves out of the friend\'s card to the head', async () => {
+    const { fake, stage } = await hostedRoom();
+    const copy = stage.querySelector<HTMLButtonElement>('.rl-versus__copy')!;
+    expect(document.activeElement).toBe(copy);
+    fake.hooks.onLobby?.(SEATS_TWO, 0, 'tel_marum');
+    expect(stage.querySelector('.rl-versus__head-end')?.contains(copy)).toBe(true);
+    expect(document.activeElement).toBe(copy);
+    // A focus elsewhere is left where it is.
+    const ready = stage.querySelector<HTMLButtonElement>('.rl-versus__ready')!;
+    ready.focus();
+    fake.hooks.onLobby?.(SEATS_TWO, 0, 'tel_marum');
+    expect(document.activeElement).toBe(ready);
   });
 
   it('Copy link copies the absolute link and says it was copied', async () => {
@@ -863,6 +953,20 @@ describe('showVersusRoom by a direct link (the guest\'s path)', () => {
     await flush();
     expect(stage.querySelector('.rl-versus__msg')?.textContent).toBe('That room is full');
     expect(stage.querySelector('.rl-versus__seat')).toBeNull();
+  });
+
+  it('a second try clears the last error, its tone with it', async () => {
+    const open = vi.fn().mockRejectedValueOnce(new RoomRefused('full', 'x')).mockReturnValueOnce(new Promise<OpenedRoom>(() => {}));
+    const stage = document.createElement('div');
+    room(stage, 'ABCDEF', deps({ open }));
+    const go = stage.querySelector<HTMLButtonElement>('.rl-versus__join')!;
+    const msg = stage.querySelector<HTMLElement>('.rl-versus__msg')!;
+    go.click();
+    await flush();
+    expect(msg.dataset.tone).toBe('bad');
+    go.click();
+    expect(msg.textContent).toBe('');
+    expect(msg.dataset.tone).toBeUndefined();
   });
 
   it('a join that lands after the screen was left is closed', async () => {

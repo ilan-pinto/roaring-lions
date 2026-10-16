@@ -210,14 +210,18 @@
   --order-obscurant: var(--rl-limestone-0);
   --order-transport: var(--rl-vfx-tracer);
   --friendly: var(--rl-team-kedem);
-  /* The two sides of a friend match (ui/versus.ts's face-off, ruling
-     2026-10-16): KDF wears the team colour the battlefield gives Kedem and
-     Sarim the hostile one, through the same --rl-team-* entries -- so the
-     colour-vision blocks below re-point them with the rest, and a card's tint
-     is what @lions/data's paletteTeamColors(variant) resolves for that side
-     (versus.test.ts holds the pair). A tint, never text on its own. */
-  --side-kdf: var(--rl-team-kedem);
-  --side-sarim: var(--rl-team-hostile);
+  /* The two sides of a friend match (ui/versus.ts's face-off), by RELATION,
+     as the match draws them: `ThreeRenderer` paints each player's own force in
+     team.kedem and the other in team.hostile whatever the faction
+     (render/src/relation.ts's colorSlot), so YOUR card wears the own colour
+     and your friend's the hostile one -- a Sarim host's card is blue here as
+     in the match, and a mirror shows two colours (fix round 1, 2026-10-16).
+     Through the same --rl-team-* entries, so the colour-vision blocks below
+     re-point them with the rest, and each is what @lions/data's
+     paletteTeamColors(variant) resolves (versus.test.ts holds the pair). A
+     tint, never text on its own: the faction is in the name and portrait. */
+  --side-you: var(--rl-team-kedem);
+  --side-friend: var(--rl-team-hostile);
   /* The INTERACTIVE colour, and nothing else (VR-31): hover, the focus ring,
      the selected register below. It shares dust.0 with --commend (credits,
      stars) and --mark-1 (the brand chevron), each declared on its own line
@@ -399,11 +403,11 @@
 
 /* --- colour-vision variants (Task 12) --------------------------------
  * `applySettings` (settings.ts) writes `data-cvd` on the root from
- * `accessibility.colorVision`, immediately -- these four tokens are the ONLY
- * runtime-reactive part of a variant (with the friend match's two side
- * tints, --side-kdf/--side-sarim, re-pointed beside them), because they feed
- * the same --friendly/--bad/--warn/--bad-text chain every static HUD rule
- * already reads. The
+ * `accessibility.colorVision`, immediately -- the six tokens each block
+ * re-points (--friendly/--bad/--warn/--bad-text, and the friend match's two
+ * side tints, --side-you/--side-friend) are the ONLY runtime-reactive part of
+ * a variant, because they feed the chain every static HUD rule (and the
+ * versus face-off) already reads. The
  * map and the minimap are the other half of the feature and do NOT react
  * live: `main.ts` reads `paletteTeamColors()` once, at battlefield
  * construction, so a variant switched mid-mission paints the canvas from the
@@ -418,24 +422,24 @@
   --bad: var(--rl-team-deuteranopia-hostile);
   --warn: var(--rl-team-deuteranopia-neutral);
   --bad-text: var(--rl-team-deuteranopia-hostile-text);
-  --side-kdf: var(--rl-team-deuteranopia-kedem);
-  --side-sarim: var(--rl-team-deuteranopia-hostile);
+  --side-you: var(--rl-team-deuteranopia-kedem);
+  --side-friend: var(--rl-team-deuteranopia-hostile);
 }
 :root[data-cvd='protanopia'] {
   --friendly: var(--rl-team-protanopia-kedem);
   --bad: var(--rl-team-protanopia-hostile);
   --warn: var(--rl-team-protanopia-neutral);
   --bad-text: var(--rl-team-protanopia-hostile-text);
-  --side-kdf: var(--rl-team-protanopia-kedem);
-  --side-sarim: var(--rl-team-protanopia-hostile);
+  --side-you: var(--rl-team-protanopia-kedem);
+  --side-friend: var(--rl-team-protanopia-hostile);
 }
 :root[data-cvd='tritanopia'] {
   --friendly: var(--rl-team-tritanopia-kedem);
   --bad: var(--rl-team-tritanopia-hostile);
   --warn: var(--rl-team-tritanopia-neutral);
   --bad-text: var(--rl-team-tritanopia-hostile-text);
-  --side-kdf: var(--rl-team-tritanopia-kedem);
-  --side-sarim: var(--rl-team-tritanopia-hostile);
+  --side-you: var(--rl-team-tritanopia-kedem);
+  --side-friend: var(--rl-team-tritanopia-hostile);
 }
 
 /* Breakpoint widths stay in raw viewport px, not rem: they SET --ui-scale
@@ -7527,9 +7531,6 @@ fieldset.rl-versus__maps {
   padding: var(--s1) var(--s4);
   border-bottom-width: 3px; /* px-ok */
 }
-.rl-versus__side[data-side='kdf'] { border-bottom-color: var(--side-kdf); }
-.rl-versus__side[data-side='sarim'] { border-bottom-color: var(--side-sarim); }
-.rl-versus__side[data-side='mirror'] { border-bottom-color: var(--ink-dim); }
 .rl-versus__side-name {
   font-family: var(--font-display);
   font-size: var(--t-m);
@@ -7545,6 +7546,11 @@ fieldset.rl-versus__maps {
 .rl-versus__tile:has(.rl-versus__map-radio:checked) {
   border-color: var(--selected);
   background: var(--selected-fill);
+}
+/* The segments are not faction-coloured (a side is a relation in the match,
+   not a colour): the one you picked wears YOUR colour along its foot. */
+.rl-versus__side:has(.rl-versus__side-radio:checked) {
+  border-bottom-color: var(--side-you);
 }
 .rl-versus__side[data-off='1'],
 .rl-versus__tile[data-off='1'] {
@@ -7576,8 +7582,9 @@ fieldset.rl-versus__maps {
   align-items: stretch;
   gap: var(--s4);
 }
-/* A card's tint is its side's (--side-kdf, --side-sarim: the team colours,
-   re-pointed by the colour-vision blocks with them). */
+/* A card's tint is WHO it is, not its faction (--side-you, --side-friend: the
+   own and hostile team colours, as the match draws them, re-pointed by the
+   colour-vision blocks with them). */
 .rl-versus__fcard {
   display: flex;
   flex-direction: column;
@@ -7592,13 +7599,13 @@ fieldset.rl-versus__maps {
   border-bottom-width: 5px; /* px-ok */
   background: var(--panel-bg-solid);
 }
-.rl-versus__fcard[data-faction='kdf'] {
-  border-bottom-color: var(--side-kdf);
-  background: linear-gradient(to top, color-mix(in srgb, var(--side-kdf) 22%, transparent), transparent 70%), var(--panel-bg-solid);
+.rl-versus__fcard[data-who='you'] {
+  border-bottom-color: var(--side-you);
+  background: linear-gradient(to top, color-mix(in srgb, var(--side-you) 22%, transparent), transparent 70%), var(--panel-bg-solid);
 }
-.rl-versus__fcard[data-faction='sarim'] {
-  border-bottom-color: var(--side-sarim);
-  background: linear-gradient(to top, color-mix(in srgb, var(--side-sarim) 22%, transparent), transparent 70%), var(--panel-bg-solid);
+.rl-versus__fcard[data-who='friend'] {
+  border-bottom-color: var(--side-friend);
+  background: linear-gradient(to top, color-mix(in srgb, var(--side-friend) 22%, transparent), transparent 70%), var(--panel-bg-solid);
 }
 .rl-versus__fcard[data-empty='1'] {
   border-style: dashed;
@@ -7953,7 +7960,24 @@ fieldset.rl-versus__maps {
   text-transform: uppercase;
 }
 /* The error line is RESERVED (ruling 2026-10-16): one line tall whether or
-   not it says anything, so an error does not shove the screen down. */
+   not it says anything, so an error does not shove the screen down. Open a
+   room keeps its own, beside the stamp, so a failed open never reads as a
+   join error under the code cells (fix round 1). */
+.rl-versus__open-msg {
+  min-height: calc(var(--lh-body) * 1em);
+  margin: 0;
+  line-height: var(--lh-body);
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  color: var(--ink-mute);
+  text-align: right;
+}
+.rl-versus__open-col {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--s1);
+}
 .rl-versus__msg {
   grid-column: 1 / -1;
   min-height: calc(var(--lh-body) * 1em);
@@ -7964,6 +7988,7 @@ fieldset.rl-versus__maps {
   color: var(--ink-mute);
 }
 .rl-versus__msg[data-tone='bad'],
+.rl-versus__open-msg[data-tone='bad'],
 .rl-versus__status {
   color: var(--bad-text);
 }
@@ -8198,6 +8223,8 @@ fieldset.rl-versus__maps {
     flex-direction: column;
     align-items: stretch;
   }
+  .rl-versus__open-col { align-items: stretch; }
+  .rl-versus__open-msg { text-align: left; }
 }
 
 /* Reduced motion: the colour and knob transitions stop (the entrance
