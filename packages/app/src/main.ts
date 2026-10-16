@@ -193,6 +193,7 @@ import {
   haltTargets,
   resolvePointer,
   resolveKeyVerb,
+  type CommandSink,
   type OrderSink,
   type PlayerIntent,
   type IntentWorld,
@@ -252,7 +253,7 @@ import { bindLiveTeamColors } from './live-team-colors';
 import { garageColors, garageGroundTexture, garageModelSource } from './garage-model-source';
 import { standMapStructures } from './map-sim';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
-import { PAUSES_PER_SEAT, WsTransport, validateCommand, type Seat, type TransportStatus } from '@lions/net';
+import { PAUSES_PER_SEAT, WsTransport, seatRules, validateCommand, type Seat, type TransportStatus } from '@lions/net';
 import { JoinNeedsConfirmation, connectMatch, inviteAdvisor, openRoom, type Connected } from './net/connect';
 import { desyncReportDraft, withoutReplay } from './net/desync-report';
 import { blockedOrderNotes, escapeOpensPause, hudExit, matchLeaveCopy, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderCopy, surrenderOffered } from './net/room-pause';
@@ -1842,7 +1843,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // many stand at once. First Light puts 104 attackers, 7 defenders and 11
   // civilians through it before the player buys anything, and running out is a
   // thrown error mid-mission, not a graceful cap.
-  const sim = versusWorld?.sim ?? new Sim({ seed: netConfig?.seed ?? SIM_SEED, width: map.width, height: map.height, capacity: 256 });
+  const sim = versusWorld?.sim ?? new Sim({ seed: netConfig?.seed ?? SIM_SEED, width: map.width, height: map.height, capacity: 256, humanHeld: seatRules(netConfig).humanHeld });
   /** What the ownership check asks of the live sim: single-player is seat 0
    *  on side 0 (R10), so the check runs on one code path, room or none. */
   const seatWorld = seatWorldFor(netConfig, sim);
@@ -3308,6 +3309,17 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       )
     : null;
   if (room !== null && blockedNotes !== null) room.setHooks({ onCmdRefused: () => blockedNotes.refused() });
+  /** Where a dock purchase and an armed support call go (N2 Task 5, D3, lead
+   *  16 Oct: "check, then send"): the TRANSPORT, like every other order, built
+   *  the way `dispatch` below builds its own. In single-player `room` is null
+   *  and the `LocalTransport` hands the command to the next frame; the sim sets
+   *  `build`/`support` aside and `runTick` runs them through
+   *  `runtime.applyQueued()` before `sim.tick()`. In a paused room the command
+   *  is dropped with the pause notice, as every other order is. Declared up
+   *  here, not beside `dispatch`, because the dock is built before it. */
+  const cmdSink: CommandSink = room === null
+    ? transport
+    : roomOrderSink(() => room.status(), transport, () => { blockedNotes?.blocked(); });
   /** The advisor's panel and proposal strip (N4a task 10), a versus room only.
    *  Mounted hidden and shown while the room says an advisor sits beside THIS
    *  seat (`onAdvisors`, installed with the scoreboard below, which hears
@@ -3976,6 +3988,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // the one state with no number to show.
       credits: ledgerStore.available ? ledgerStore.readAccount().balance : undefined,
       note: (html, tone) => hud.note(html, tone),
+      // N2 D3: an accepted purchase is a `build` command down the frame path.
+      dispatch: (cmd) => cmdSink.queueCommand(cmd),
       onDeny: () => audio.playCue(CRITICAL_CUES.uiDeny),
       // Read at hover time, so a rebind in Settings shows on the next tooltip.
       hotkeyLabel: (kind) => keyLabel(bindings[SUPPORT[kind].action]),
@@ -4294,7 +4308,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // F-Q10: the click aims through `pointerPoint`, so a wall pixel is the
         // building; `out.x/y` is the one point the dispatch, the marker and
         // the announcer all use.
-        const out = callSupport(runtime, call, pointerView, sim, p.x, p.y);
+        // N2 D3: `callSupport` pre-checks with `canSupport` and sends a
+        // `support` command to `cmdSink`; the spend lands in `runTick`'s
+        // `applyQueued`, before `intelMoments.beforeTick`, so the sweep's
+        // board snapshot sees the same before/after as when the click spent.
+        const out = callSupport(runtime, cmdSink, call, pointerView, sim, p.x, p.y);
         dispatch({ kind: 'support', call, x: out.x, y: out.y, accepted: out.ok });
         if (out.ok && intelMoments) {
           // GH-113: "inbound -- 3 s" / "on the way", one announcer line and a
@@ -4980,6 +4998,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
 
   // --- fixed-tick loop with render interpolation ---------------------------
   const runTick = (): void => {
+    // N2 Task 5 (D3): the dock's `build` and the armed click's `support`
+    // commands, set aside by the sim, are priced and spent here, FIRST --
+    // before `intelMoments.beforeTick` and before `sim.tick()`, which discards
+    // anything still set aside (R-3). A sweep's `reveal` and a strike's
+    // `callStrike` therefore enter the sim queue after this frame's other
+    // orders: they run last in their tick, deterministically.
+    const ranQueued = runtime && mission ? runtime.applyQueued() : 0;
     intelMoments?.beforeTick(sim);
     const events = sim.tick();
     tickQuiet = catchUpQuiet.next();
@@ -5585,7 +5610,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // be delegated rather than bound per chip.
     groupsBar.refresh();
     overlay.onTick(events);
-    if (production && sim.tickCount % 5 === 0) production.refresh();
+    // A tick that ran a purchase repaints the dock at once, so its bar starts
+    // on the tick the build did rather than at the next 4 Hz beat (N2 D3: the
+    // click's own `refresh()` runs before the spend has landed).
+    if (production && (sim.tickCount % 5 === 0 || ranQueued > 0)) production.refresh();
     // Task 6: the same 4 Hz cadence `production.refresh()` above already uses
     // (Hud.onTick's own throttle, `tickN % 5`, is private -- this mirrors it
     // rather than reaching for it), and ONLY while the tracker is open: a
@@ -5687,6 +5715,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     seatWorld,
     runTick,
     config: netConfig,
+    // N2: folds 0 in every room until N3 starts a runtime there (L1);
+    // single-player is never asked.
+    runtimeDigest: () => runtime?.digest() ?? 0,
     // L4: this client's OWN content digest, folded into every hash it
     // reports. Taken here at boot in a room, so its ~50 ms cold computation
     // is not a hitch on tick 19; single-player hashes nothing and never pays it.

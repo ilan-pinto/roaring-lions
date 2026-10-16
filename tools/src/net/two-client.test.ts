@@ -130,7 +130,7 @@ describe('versus: two sides, one frame stream', () => {
     return { ...w, anchors, bySide };
   }
 
-  function versusFrames(withSeat1Orders: boolean): Frame[] {
+  function versusFrames(withSeat1Orders: boolean, extraFor?: (theirs: number[]) => [number, Stamped][]): Frame[] {
     const probe = versusWorld();
     const [fx0, fy0] = probe.anchors.friendly;
     const [hx, hy] = probe.anchors.hostile;
@@ -151,6 +151,7 @@ describe('versus: two sides, one frame stream', () => {
         : []),
       at(300, 0, 1, { kind: 'halt', ids: mine }),
       at(500, 0, 2, { kind: 'attackMove', ids: mine, x: fx.from(hx + 0.5), y: fx.from(hy + 0.5) }),
+      ...(extraFor ? extraFor(theirs) : []),
     ];
     const byTick = new Map<number, Stamped[]>();
     for (const [tick, s] of entries) byTick.set(tick, [...(byTick.get(tick) ?? []), s]);
@@ -188,6 +189,19 @@ describe('versus: two sides, one frame stream', () => {
     // The orders did something: without seat 1's orders the final state differs.
     const without = runVersus(versusFrames(false));
     expect(without.hashes[VTICKS - 1]).not.toBe(a.hashes[VTICKS - 1]);
+  }, 60_000);
+
+  it('a setStance ambush is stamped and agreed on by both clients, not dropped, and it moves the hash (N2 L3)', () => {
+    const at = (tick: number, seat: 0 | 1, seq: number, cmd: Command): [number, Stamped] => [tick, { seat, seq, cmd }];
+    const frames = versusFrames(true, (theirs) => [
+      at(12, 1, 9, { kind: 'setStance', ids: theirs.slice(0, 2), stance: 'ambush' }),
+    ]);
+    const a = runVersus(frames);
+    const b = runVersus(frames);
+    expect(a.hashes).toEqual(b.hashes);
+    expect(a.drops).toEqual([CRAFT_TICK]);
+    const base = runVersus(versusFrames(true));
+    expect(a.hashes[19]).not.toBe(base.hashes[19]);
   }, 60_000);
 
   it('the crafted command is dropped for ownership, not for being malformed', () => {

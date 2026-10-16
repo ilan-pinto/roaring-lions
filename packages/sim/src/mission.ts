@@ -28,8 +28,11 @@ import { starsFor, betterResult, type Stars, type MissionResult } from './grade'
 import { TICKS_PER_SECOND, type Sim, type SimEvent } from './sim';
 import { highGroundRises } from './intel-earn';
 import {
+  AMBUSH_RADIUS_DEFAULT,
   CONTEST_RADIUS_SQ,
   CORRIDOR_RECHECK_TICKS,
+  FIRE_SUPPORT_KINDS,
+  type SupportKind,
   FS_MORTAR_BARRAGE,
   FS_SMOKE_SCREEN,
   HIGH_GROUND_HOLD_TICKS,
@@ -593,14 +596,9 @@ function tileInZone(st: Sim['state'], i: number, zone: readonly number[]): boole
 const SWEEP_COST = 150;
 const STRIKE_COST = 250;
 
-/** The fire-support menu (F1, GH-183): four calls, one entry point. */
-export type SupportKind = 'smoke_screen' | 'mortar_barrage' | 'drone_sweep' | 'air_strike';
-export const FIRE_SUPPORT_KINDS: readonly SupportKind[] = [
-  'smoke_screen',
-  'mortar_barrage',
-  'drone_sweep',
-  'air_strike',
-];
+/** The fire-support menu (F1, GH-183) lives in `tuning.ts` since N2 (R-4), so
+ *  `sim.ts` can name it; re-exported here so every import site stays as it was. */
+export { FIRE_SUPPORT_KINDS, type SupportKind } from './tuning';
 /** The one price table, keyed by kind. The sweep and the strike are today's two
  *  constants by reference; the smoke screen (100) and the barrage (120) are the
  *  approved row, smoke at 100 by the lead's ruling of 15 Oct (8/40/30; smoke 100;
@@ -1104,6 +1102,57 @@ export class MissionRuntime {
     return h >>> 0;
   }
 
+  /** The network hash of everything the runtime decides that the sim does not
+   *  hold (spec §7.1): `economyHash()` first -- the purse, the build queue, the
+   *  settled identifications, high ground, population and caps, F2's zones and
+   *  corridors -- then, in this order: each objective in authored order (status
+   *  code, holdTicks, paused code); each trigger's fired latch; each wave's
+   *  spawned latch; the ROE score (floored) and its failed latch; the civilian
+   *  latches (fled, evacuated: size then ids ascending). Integer-only, composed
+   *  with the sim's own `hashWord`. Read-only.
+   *
+   *  Status codes: active 0, complete 1, failed 2. Paused codes: null 0,
+   *  unheld 1, contested 2. Every fold has a twin in `runtime-digest.test.ts`
+   *  that isolates it (R-5).
+   *
+   *  Not folded (R-5), each a choice:
+   *  - `ended`, `resultValue` and `withdrawnValue` are derived from folded state
+   *    and the tick;
+   *  - `firstContact`, `kills`, `contributed`, `identifiedBy`, `routeFoundBy`,
+   *    `markedThisMission`, `entityRoster` and `promotedValue` feed only the
+   *    outgoing ledger and veterancy at the end, or show up later in folded
+   *    state (a `first_contact` trigger fires);
+   *  - `zoneDeductedAt` is a cooldown whose effect is the ROE score;
+   *  - `patrols[].idx` acts only through the orders it queues into the sim,
+   *    which `sim.hash()` covers;
+   *  - `identified` acts only through a `locate` objective's status and
+   *    `paidIdentified`, both folded;
+   *  - `earnedUnits` and `zoneEarnedUnits` are debrief/ledger reads; the purse
+   *    they feed is folded through `economyHash()`;
+   *  - the per-step buffers `externallyCompleted` and `pendingIntelEvents` are
+   *    drained within the step;
+   *  - `onLoan` and `razeExempt` are fixed at `start()`;
+   *  - the rear, zone-route, convoy-route and vent caches are derived from map
+   *    data.
+   *  N3 adds folds for whatever its versus rules read. */
+  digest(): number {
+    let h = hashWord(HASH_SEED, this.economyHash() | 0);
+    for (let i = 0; i < this.objectives.length; i++) {
+      const o = this.objectives[i];
+      h = hashWord(h, o.status === 'active' ? 0 : o.status === 'complete' ? 1 : 2);
+      h = hashWord(h, o.holdTicks | 0);
+      h = hashWord(h, o.paused === null ? 0 : o.paused === 'unheld' ? 1 : 2);
+    }
+    for (let i = 0; i < this.firedTriggers.length; i++) h = hashWord(h, this.firedTriggers[i] ? 1 : 0);
+    for (let i = 0; i < this.spawnedWaves.length; i++) h = hashWord(h, this.spawnedWaves[i] ? 1 : 0);
+    // Floored: every deduction is an integer today, and `| 0` floors the
+    // non-negative score (it is clamped at 0) without Math.
+    h = hashWord(h, this.roeScoreValue | 0);
+    h = hashWord(h, this.roeFailed ? 1 : 0);
+    h = this.civFlight.digestInto(h);
+    return h >>> 0;
+  }
+
   /** Field production: spend logistics/intel, deploy at player_start after
    *  the build time. Returns false when unaffordable or unknown. */
   /**
@@ -1256,6 +1305,30 @@ export class MissionRuntime {
   }
 
   /**
+   * True when `requestSupport(kind, ...)` would accept now (N2, D3). No state
+   * change: the click-time pre-check the dock and the armed support click read
+   * before they dispatch a `support` command, which the runtime re-checks when it
+   * runs (`applyQueued`). The point plays no part in the decision.
+   */
+  canSupport(kind: SupportKind): boolean {
+    // A kind outside the menu (a JS or untyped caller) has no price: refuse before
+    // the affordability test, where `intel < undefined` is false and would pass.
+    if (!FIRE_SUPPORT_KINDS.includes(kind)) return false;
+    if (this.ended || this.intelValue < SUPPORT_COST[kind]) return false;
+    // The sweep names no caller; the three that fire need a living surface one.
+    return kind === 'drone_sweep' || this.surfaceCaller() !== -1;
+  }
+
+  /** The first living player unit above ground, or -1: who owns a fire-support
+   *  call's ROE bill (see `requestSupport`). */
+  private surfaceCaller(): number {
+    const caller = this.playerIds.find(
+      (id) => this.sim.state.alive[id] === 1 && this.sim.state.tunnelIn[id] < 0,
+    );
+    return caller === undefined ? -1 : caller;
+  }
+
+  /**
    * The fire-support menu's one entry (F1, GH-183). Not ended, affordable, and
    * for the three that fire, a living SURFACE caller who owns the ROE bill: a
    * buried unit can neither observe the round nor own its bill, and drawing
@@ -1265,20 +1338,19 @@ export class MissionRuntime {
    * player focus is touched (F-R6).
    */
   requestSupport(kind: SupportKind, x: Fx, y: Fx): boolean {
-    // A kind outside the menu (a JS or untyped caller) has no price: refuse before
-    // the affordability test, where `intel < undefined` is false and would pass.
-    if (!FIRE_SUPPORT_KINDS.includes(kind)) return false;
+    // The one decision, shared with `canSupport` (N2, D3), so the pre-check and
+    // the outcome cannot drift.
+    if (!this.canSupport(kind)) return false;
     const cost = SUPPORT_COST[kind];
-    if (this.ended || this.intelValue < cost) return false;
     if (kind === 'drone_sweep') {
       this.intelValue -= cost;
       this.sim.queueCommand({ kind: 'reveal', side: 0, x, y });
       return true;
     }
-    const caller = this.playerIds.find(
-      (id) => this.sim.state.alive[id] === 1 && this.sim.state.tunnelIn[id] < 0,
-    );
-    if (caller === undefined) return false;
+    const caller = this.surfaceCaller();
+    // Belt and braces: the predicate already refused a callerless strike, but
+    // the executor never queues one from -1 even if the two ever drift.
+    if (caller === -1) return false;
     this.intelValue -= cost;
     if (kind === 'air_strike') {
       // No `profile`: absent is the air strike, and the command stays as it was.
@@ -1307,13 +1379,41 @@ export class MissionRuntime {
     return this.requestSupport('air_strike', x, y);
   }
 
-  requestBuild(unitId: string): boolean {
+  /**
+   * True when `requestBuild(unitId)` would accept now (N2, D3). No state change
+   * beyond `buildBlockedReason`'s own unhashed scratch flag. `requestBuild` asks
+   * this same predicate first, so the click-time pre-check and the outcome
+   * cannot drift.
+   */
+  canBuild(unitId: string): boolean {
     if (this.ended) return false;
     const info = this.ctx.unitInfo?.(unitId);
     if (!info) return false;
     if (this.buildBlockedReason(unitId) !== null) return false;
+    return this.purse[0] >= info.logistics * PURSE_UNITS && this.intelValue >= (info.intel ?? 0);
+  }
+
+  /**
+   * Run the `build` and `support` commands the sim set aside (N2), in queue
+   * order, through `requestBuild` and `requestSupport` exactly as a direct call
+   * would. Call BEFORE `sim.tick()`: anything still set aside when the tick
+   * starts is discarded (R-3). A command for a side other than 0 is refused
+   * (C-R3: every spend is side 0's until N3/F4). Returns how many were accepted.
+   */
+  applyQueued(): number {
+    let accepted = 0;
+    for (const c of this.sim.takeRuntimeCommands()) {
+      if (c.side !== 0) continue; // C-R3: only side 0 spends until N3/F4
+      if (c.kind === 'build' ? this.requestBuild(c.unit) : this.requestSupport(c.support, c.x, c.y)) accepted++;
+    }
+    return accepted;
+  }
+
+  requestBuild(unitId: string): boolean {
+    if (!this.canBuild(unitId)) return false;
+    const info = this.ctx.unitInfo?.(unitId);
+    if (!info) return false; // canBuild refused this already; narrows the type without an assertion
     const cost = info.logistics * PURSE_UNITS;
-    if (this.purse[0] < cost || this.intelValue < (info.intel ?? 0)) return false;
     this.purse[0] -= cost;
     this.intelValue -= info.intel ?? 0;
     this.buildQueue.push({
@@ -2360,7 +2460,7 @@ export class MissionRuntime {
         // ambusher simply holds position instead. The GDD calls `ambush` "the entire
         // reason recon quality matters by Phase 5", so this is that sentence made
         // mechanical.
-        if (!preMarked) this.sim.setAmbush(id, fx.from(p.stance.tiles ?? 3));
+        if (!preMarked) this.sim.setAmbush(id, p.stance.tiles === undefined ? AMBUSH_RADIUS_DEFAULT : fx.from(p.stance.tiles));
       } else if (p.stance?.kind === 'patrol' && p.stance.waypoints && p.stance.waypoints.length >= 2) {
         this.patrols.push({
           id,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FIRE_SUPPORT_KINDS, Sim, fx, type SupportKind } from '@lions/sim';
+import { FIRE_SUPPORT_KINDS, Sim, fx, type Command } from '@lions/sim';
 import { aimFootprint, callSupport, supportAim, type SupportRuntime } from './support-call';
 import type { PointerView } from './pointer';
 import { footprintTiles, ROUNDS } from '../ui/support-kinds';
@@ -25,46 +25,50 @@ function viewOver(structure: number): PointerView {
   };
 }
 
+/** The runtime slice and the order sink a call reads (N2, D3: "check, then
+ *  send"). `canSupport` is the click-time pre-check; an accepted call goes to
+ *  the sink as a `support` command and the runtime spends when it runs it.
+ *  The slice has no `requestSupport` any more: the click never spends. */
 function runtime(accept: boolean, intel = 500, cost = 60) {
-  const calls: { kind: SupportKind; x: number; y: number }[] = [];
+  const sent: Command[] = [];
   const rt: SupportRuntime = {
     intel,
     supportCost: () => cost,
-    requestSupport: (kind, x, y) => {
-      calls.push({ kind, x, y });
-      return accept;
-    },
+    canSupport: () => accept,
   };
-  return { rt, calls };
+  const sink = { queueCommand: (cmd: Command) => void sent.push(cmd) };
+  return { rt, sink, sent };
 }
 
 describe.each(FIRE_SUPPORT_KINDS)('callSupport(%s)', (kind) => {
-  it('a wall click aims at the building', () => {
+  it('a wall click aims at the building, and queues exactly one support command there', () => {
     const { sim, house } = world();
-    const { rt, calls } = runtime(true);
-    const out = callSupport(rt, kind, viewOver(house), sim, 5, 5);
-    expect(calls).toEqual([{ kind, x: fx.from(11), y: fx.from(11) }]);
+    const { rt, sink, sent } = runtime(true);
+    const out = callSupport(rt, sink, kind, viewOver(house), sim, 5, 5);
+    expect(sent).toEqual([{ kind: 'support', side: 0, support: kind, x: fx.from(11), y: fx.from(11) }]);
     expect(out).toEqual({ ok: true, kind, x: 11, y: 11 });
   });
 
   it('a ground click aims at the ground', () => {
     const { sim } = world();
-    const { rt, calls } = runtime(true);
-    const out = callSupport(rt, kind, viewOver(-1), sim, 5, 5);
-    expect(calls).toEqual([{ kind, x: fx.from(14.2), y: fx.from(9.1) }]);
+    const { rt, sink, sent } = runtime(true);
+    const out = callSupport(rt, sink, kind, viewOver(-1), sim, 5, 5);
+    expect(sent).toEqual([{ kind: 'support', side: 0, support: kind, x: fx.from(14.2), y: fx.from(9.1) }]);
     expect(out.ok).toBe(true);
   });
 
-  it('a refusal with too little intel says intel', () => {
+  it('a refusal with too little intel says intel, and queues nothing', () => {
     const { sim } = world();
-    const { rt } = runtime(false, 10, 60);
-    expect(callSupport(rt, kind, viewOver(-1), sim, 5, 5)).toMatchObject({ ok: false, why: 'intel' });
+    const { rt, sink, sent } = runtime(false, 10, 60);
+    expect(callSupport(rt, sink, kind, viewOver(-1), sim, 5, 5)).toMatchObject({ ok: false, why: 'intel' });
+    expect(sent).toEqual([]);
   });
 
-  it('a refusal with intel in hand says caller', () => {
+  it('a refusal with intel in hand says caller, and queues nothing', () => {
     const { sim } = world();
-    const { rt } = runtime(false, 500, 60);
-    expect(callSupport(rt, kind, viewOver(-1), sim, 5, 5)).toMatchObject({ ok: false, why: 'caller' });
+    const { rt, sink, sent } = runtime(false, 500, 60);
+    expect(callSupport(rt, sink, kind, viewOver(-1), sim, 5, 5)).toMatchObject({ ok: false, why: 'caller' });
+    expect(sent).toEqual([]);
   });
 });
 

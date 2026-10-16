@@ -214,3 +214,42 @@ describe('gates stay the main event', () => {
     expect(fx.toNumber(sim.state.posX[u])).toBeGreaterThan(16);
   });
 });
+
+describe('the seat table decides who never cuts a wall by accident (N2)', () => {
+  /** The sealed-wall attack from the first test, from either side, under a table. */
+  function hits(side: 0 | 1, humanHeld?: readonly [boolean, boolean]): boolean {
+    const sim = new Sim({ seed: 3, width: 32, height: 16, capacity: 32, ...(humanHeld ? { humanHeld } : {}) });
+    const wall = sim.addStructureType(FENCE);
+    for (let y = 0; y < sim.height; y++) sim.addStructure(wall, [y * sim.width + 16]);
+    const u = sim.spawn(sim.addUnitType(RPG), side, fx.from(13.5), fx.from(8.5));
+    sim.queueCommand({ kind: 'attackMove', ids: [u], x: fx.from(28.5), y: fx.from(8.5) });
+    return run(sim, 90 * TICKS_PER_SECOND).some((e) => e.kind === 'structureHit');
+  }
+
+  it("absent, the table is single-player's: side 0 never breaches, side 1 does", () => {
+    expect(hits(0)).toBe(false);
+    expect(hits(1)).toBe(true);
+  });
+  it('[true, false] given explicitly reads exactly as absent', () => {
+    expect(hits(0, [true, false])).toBe(false);
+    expect(hits(1, [true, false])).toBe(true);
+  });
+  it('a versus room, [true, true]: neither seat breaches', () => {
+    expect(hits(0, [true, true])).toBe(false);
+    expect(hits(1, [true, true])).toBe(false);
+  });
+  it('it is the table, not the side number: [false, true] lets side 0 breach and stops side 1', () => {
+    expect(hits(0, [false, true])).toBe(true);
+    expect(hits(1, [false, true])).toBe(false);
+  });
+  it('isHumanHeld reads the table; side 2 and anything outside 0..2 are never human-held', () => {
+    const sim = new Sim({ seed: 1, width: 4, height: 4, capacity: 4, humanHeld: [false, true] });
+    expect([0, 1, 2, 3, -1].map((s) => sim.isHumanHeld(s))).toEqual([false, true, false, false, false]);
+    const plain = new Sim({ seed: 1, width: 4, height: 4, capacity: 4 });
+    expect([0, 1, 2].map((s) => plain.isHumanHeld(s))).toEqual([true, false, false]);
+  });
+  it('refuses a table that is not two booleans', () => {
+    expect(() => new Sim({ seed: 1, width: 4, height: 4, capacity: 4, humanHeld: [true] as never })).toThrow(/humanHeld/);
+    expect(() => new Sim({ seed: 1, width: 4, height: 4, capacity: 4, humanHeld: [1, 0] as never })).toThrow(/humanHeld/);
+  });
+});

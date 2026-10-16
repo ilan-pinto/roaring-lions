@@ -193,9 +193,10 @@ function run(
   ticks: number,
   extraIdleUnit = false,
   onEvent?: (e: SimEvent) => void,
-  onTick?: (sim: Sim, events: SimEvent[]) => void
+  onTick?: (sim: Sim, events: SimEvent[]) => void,
+  humanHeld?: readonly [boolean, boolean]
 ): Sim {
-  const sim = new Sim({ seed, width: 48, height: 48, capacity: 128 });
+  const sim = new Sim({ seed, width: 48, height: 48, capacity: 128, ...(humanHeld ? { humanHeld } : {}) });
   const rifles = sim.addUnitType(RIFLES);
   const tank = sim.addUnitType(TANK);
 
@@ -756,8 +757,8 @@ for (let y = 14; y <= 22; y++) {
  * hash moved" into "the route moved". The hash alone cannot say that, because
  * `elevation` is itself hashed.
  */
-function relief(seed: number, ticks: number, raised: boolean): { sim: Sim; tiles0: Set<number> } {
-  const sim = new Sim({ seed, width: RELIEF_W, height: RELIEF_H, capacity: 32 });
+function relief(seed: number, ticks: number, raised: boolean, humanHeld?: readonly [boolean, boolean]): { sim: Sim; tiles0: Set<number> } {
+  const sim = new Sim({ seed, width: RELIEF_W, height: RELIEF_H, capacity: 32, ...(humanHeld ? { humanHeld } : {}) });
   if (raised) {
     for (const t of HILL) sim.setElevation(t % RELIEF_W, (t - (t % RELIEF_W)) / RELIEF_W, 8);
   }
@@ -864,6 +865,13 @@ describe('determinism over relief (900-tick replay round a hill)', () => {
     expect(relief(RELIEF_SEED, RELIEF_TICKS, true).sim.hash()).toBe(2842924511);
   });
 
+  it("N2: the explicit single-player table is today's rule on all three golden replays", () => {
+    // LITERALS, as the pins above: an oracle that imports its expectation cannot fail.
+    expect(run(0x1310_0001, 1000, false, undefined, undefined, [true, false]).hash()).toBe(935671699);
+    expect(relief(RELIEF_SEED, RELIEF_TICKS, true, [true, false]).sim.hash()).toBe(2842924511);
+    expect(orders(ORDERS_SEED, [true, false]).sim.hash()).toBe(3272041047);
+  });
+
   it('the relief changes the route, not merely the hash', () => {
     // `elevation` is part of hash(), so "the hash differs" is true of any
     // raised map whatever the pathing does, and is worth nothing on its own.
@@ -922,8 +930,8 @@ describe('determinism over relief (900-tick replay round a hill)', () => {
 
 const ORDERS_SEED = 0x0b_e7_0011;
 
-function orders(seed: number): { sim: Sim; halted: number; plain: number; sweeper: number; haltAt: [number, number] } {
-  const sim = new Sim({ seed, width: 48, height: 48, capacity: 16 });
+function orders(seed: number, humanHeld?: readonly [boolean, boolean]): { sim: Sim; halted: number; plain: number; sweeper: number; haltAt: [number, number] } {
+  const sim = new Sim({ seed, width: 48, height: 48, capacity: 16, ...(humanHeld ? { humanHeld } : {}) });
   const rifles = sim.addUnitType(RIFLES);
   const halted = sim.spawn(rifles, 0, fx.fromInt(4), fx.fromInt(10));
   const plain = sim.spawn(rifles, 0, fx.fromInt(4), fx.fromInt(24));
@@ -1180,7 +1188,12 @@ interface EconomyRun {
 /** `extraBuild` buys one `supply_truck` at ECONOMY_EXTRA_BUILD_TICK: delivered
  *  (15 s) long before the end, so it differs from the base run in the purse
  *  alone. */
-function economyReplay(seed: number, extraBuild = false, popCap: number | null = ECONOMY_POP_CAP): EconomyRun {
+function economyReplay(
+  seed: number,
+  extraBuild = false,
+  popCap: number | null = ECONOMY_POP_CAP,
+  via: 'direct' | 'command' = 'direct',
+): EconomyRun {
   const sim = new Sim({ seed, width: 48, height: 48, capacity: 32 });
   const ids = new Map<string, number>();
   for (const t of [ECO_SQUAD, ECO_DRONE, ECO_MILITIA, ECO_TRUCK]) ids.set(t.id, sim.addUnitType(t));
@@ -1218,6 +1231,14 @@ function economyReplay(seed: number, extraBuild = false, popCap: number | null =
     purseAfterRefusal: 0,
     seen: { states: new Set(), cuts: new Set() },
   };
+  // N2: `command` routes every purchase through `queueCommand` and drains it at
+  // the call site, so the order of commands inside the sim queue is the direct
+  // path's own.
+  const build = (u: string): boolean => {
+    if (via === 'direct') return rt.requestBuild(u);
+    sim.queueCommand({ kind: 'build', side: 0, unit: u });
+    return rt.applyQueued() === 1;
+  };
   const living = (type: string): number[] => {
     const out: number[] = [];
     for (let id = 0; id < sim.entityCount; id++) {
@@ -1228,14 +1249,14 @@ function economyReplay(seed: number, extraBuild = false, popCap: number | null =
     return out;
   };
   for (let t = 0; t < ECONOMY_TICKS; t++) {
-    if (t === 400 || t === 800) rt.requestBuild('inf_squad');
-    if (extraBuild && t === ECONOMY_EXTRA_BUILD_TICK) rt.requestBuild('supply_truck');
-    if (t === ECONOMY_LATE_BUILD_TICK) rt.requestBuild('supply_truck');
+    if (t === 400 || t === 800) build('inf_squad');
+    if (extraBuild && t === ECONOMY_EXTRA_BUILD_TICK) build('supply_truck');
+    if (t === ECONOMY_LATE_BUILD_TICK) build('supply_truck');
     if (t === ECONOMY_REFUSED_BUILD_TICK) {
       run.refusal = rt.buildBlockedReason('heavy_convoy');
       run.refusedByCap = rt.popCapped('heavy_convoy');
       run.purseBeforeRefusal = rt.logistics;
-      run.refusedAnswer = rt.requestBuild('heavy_convoy');
+      run.refusedAnswer = build('heavy_convoy');
       run.purseAfterRefusal = rt.logistics;
     }
     // The lead unit goes forward to a post that sees both garrison groups (a
@@ -1331,6 +1352,28 @@ describe('economy replay (2400 ticks of MissionRuntime on a flat map)', () => {
 
   it('the economy replay pins its hash', () => {
     expect(economyReplay(ECONOMY_SEED).rt.economyHash()).toBe(ECONOMY_PIN);
+  });
+
+  it('N2: the command path reproduces both economy pins byte for byte', () => {
+    expect(economyReplay(ECONOMY_SEED, false, ECONOMY_POP_CAP, 'command').rt.economyHash()).toBe(ECONOMY_PIN);
+    expect(reliefEconomyReplay(RELIEF_ECO_SEED, {}, 'command').rt.economyHash()).toBe(ECONOMY_PIN_RELIEF);
+  });
+
+  // RUNTIME_DIGEST_PIN: born 2026-10-15 in a5c0deab (N2 Task 6), read from the first run. Move it deliberately, in the
+  // commit that moves runtime state, and say why; economyHash() is its first word, so
+  // every ECONOMY_PIN move moves it too -- name both in that commit.
+  const RUNTIME_DIGEST_PIN = 2984314042;
+  const RUNTIME_DIGEST_PIN_RELIEF = 3060732596;
+  it('the economy replay pins its runtime digest', () => {
+    expect(economyReplay(ECONOMY_SEED).rt.digest()).toBe(RUNTIME_DIGEST_PIN);
+  });
+  it('the relief economy replay pins its runtime digest', () => {
+    expect(reliefEconomyReplay(RELIEF_ECO_SEED).rt.digest()).toBe(RUNTIME_DIGEST_PIN_RELIEF);
+  });
+  it('two runs agree on the runtime digest, and it is not the economy hash', () => {
+    const a = economyReplay(ECONOMY_SEED).rt;
+    expect(a.digest()).toBe(economyReplay(ECONOMY_SEED).rt.digest());
+    expect(a.digest()).not.toBe(a.economyHash());
   });
 });
 
@@ -1524,6 +1567,7 @@ interface ReliefEconomyRun {
 function reliefEconomyReplay(
   seed: number,
   opts: { aOrdered?: boolean; bAt?: number | null; popCap?: number } = {},
+  via: 'direct' | 'command' = 'direct',
 ): ReliefEconomyRun {
   const popCap = opts.popCap ?? RELIEF_ECO_POP_CAP;
   const aOrdered = opts.aOrdered ?? true;
@@ -1563,7 +1607,12 @@ function reliefEconomyReplay(
       refusal = rt.buildBlockedReason('inf_squad');
       refusedByCap = rt.popCapped('inf_squad');
       purseBefore = rt.logistics;
-      refusedAnswer = rt.requestBuild('inf_squad');
+      if (via === 'direct') {
+        refusedAnswer = rt.requestBuild('inf_squad');
+      } else {
+        sim.queueCommand({ kind: 'build', side: 0, unit: 'inf_squad' });
+        refusedAnswer = rt.applyQueued() === 1;
+      }
       purseAfter = rt.logistics;
     }
     // A: up to the middle of the bench (tiles y 25-26), at tick 5.
