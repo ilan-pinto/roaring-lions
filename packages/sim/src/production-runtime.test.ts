@@ -1,6 +1,7 @@
 // F4 Task 3: production lines in MissionRuntime, serial, keyed by side. Builds its own runtime
 // from literals (as runtime-commands.test.ts does); reads no shipped JSON.
 import { describe, expect, it } from 'vitest';
+import { vi } from 'vitest';
 import { fx } from './fixed';
 import { Sim, type UnitTypeJson } from './sim';
 import { MissionRuntime, type MissionEvent, type MissionJson } from './mission';
@@ -186,6 +187,7 @@ describe('production lines in the runtime (F4 Task 3)', () => {
     expect(w.rt.requestBuild('n2_squad', 0)).toBe(false);
     expect(w.rt.canBuild('n2_squad', 0)).toBe(false);
     expect(w.rt.cancelBuild(0, -1)).toBe(false);
+    expect(w.rt.setRally(0, fx.from(20), fx.from(5))).toBe(false);
     expect(w.rt.requestBuild('n2_squad')).toBe(true);
     expect(w.rt.productionLines(0)[1].queued).toBe(1);
     w.step(100);
@@ -418,5 +420,144 @@ describe('no production while the camp is contested (F4 Task 4)', () => {
     w.step(60);
     expect(w.builtTicks()).toEqual([]);
     expect(w.rt.productionLines(0)[0].contested).toBe(true);
+  });
+});
+
+describe('the rally point (F4 Task 5)', () => {
+  const X = fx.from(20.5);
+  const Y = fx.from(5.5);
+  const at = (w: ReturnType<typeof world>, id: number) => pos(w, id);
+  /** Build one squad at tick 10 on side 0's line 0 and return its entity id (spawned on tick 50). */
+  const buildOne = (w: ReturnType<typeof world>): number => {
+    w.step(10);
+    const before = w.sim.entityCount;
+    expect(w.rt.requestBuild('n2_squad')).toBe(true);
+    w.step(40);
+    expect(w.sim.entityCount).toBe(before + 1);
+    return before;
+  };
+
+  it('a finished unit gets one no-sweep attackMove on its deploy tick and arrives', () => {
+    const w = world();
+    expect(w.rt.setRally(0, X, Y)).toBe(true);
+    const spy = vi.spyOn(w.sim, 'queueCommand');
+    const id = buildOne(w);
+    expect(spy).toHaveBeenCalledTimes(1);
+    const cmd = spy.mock.calls[0][0];
+    expect(cmd).toEqual({ kind: 'attackMove', ids: [id], x: X, y: Y });
+    expect('sweep' in cmd).toBe(false);
+    w.step(400);
+    expect(dist(at(w, id), [20.5, 5.5])).toBeLessThan(1.5);
+  });
+
+  it('with no rally point it stands at the exit and nothing is queued', () => {
+    const w = world();
+    const spy = vi.spyOn(w.sim, 'queueCommand');
+    const id = buildOne(w);
+    const exit = w.rt.productionLines(0)[0].exit;
+    const e: [number, number] = [fx.toNumber(exit[0]), fx.toNumber(exit[1])];
+    w.step(100);
+    expect(spy).not.toHaveBeenCalled();
+    expect(dist(at(w, id), e)).toBeLessThan(1.5);
+  });
+
+  it('a point on a blocked tile is refused, the previous one kept, and canSetRally agrees', () => {
+    const w = world();
+    expect(w.rt.setRally(0, X, Y)).toBe(true);
+    const camp = w.rt.productionLines(0)[0];
+    const bx = fx.from(10.5);
+    const by = fx.from(3.5); // inside the 2x2 camp footprint
+    expect(w.sim.blocked[3 * 40 + 10]).toBe(1);
+    expect(w.rt.canSetRally(0, bx, by)).toBe(false);
+    expect(w.rt.setRally(0, bx, by)).toBe(false);
+    expect(w.rt.canSetRally(0, fx.from(-1), Y)).toBe(false);
+    expect(w.rt.canSetRally(0, fx.from(40.5), Y)).toBe(false);
+    expect(w.rt.canSetRally(0, X, Y)).toBe(true);
+    expect(w.rt.canSetRally(5, X, Y)).toBe(false);
+    expect(w.rt.productionLines(0)[0].rally).toEqual([X, Y]);
+    expect(camp.anchor).toBeGreaterThanOrEqual(0);
+  });
+
+  it('a point set while an item is in progress applies to that item', () => {
+    const w = world();
+    w.step(10);
+    w.rt.requestBuild('n2_squad');
+    w.step(20);
+    const id = w.sim.entityCount;
+    expect(w.rt.setRally(0, X, Y)).toBe(true);
+    w.step(20);
+    w.step(400);
+    expect(dist(at(w, id), [20.5, 5.5])).toBeLessThan(1.5);
+  });
+
+  it('side 1: its finished unit goes to its own point; a mission with no side-1 line refuses', () => {
+    const w = world({ camps: [], campsS1: [[10, 3]] });
+    expect(w.rt.setRally(0, X, Y, 1)).toBe(true);
+    w.step(10);
+    const id = w.sim.entityCount;
+    expect(w.rt.requestBuild('n2_squad', 0, 1)).toBe(true);
+    w.step(440);
+    expect(dist(at(w, id), [20.5, 5.5])).toBeLessThan(1.5);
+    const none = world();
+    expect(none.rt.setRally(0, X, Y, 1)).toBe(false);
+    expect(none.rt.canSetRally(0, X, Y, 1)).toBe(false);
+    expect(none.rt.clearRally(0, 1)).toBe(false);
+  });
+
+  it('two items one build time apart land on two tiles, not one', () => {
+    const w = world();
+    w.rt.setRally(0, X, Y);
+    w.step(10);
+    const a = w.sim.entityCount;
+    w.rt.requestBuild('n2_squad');
+    w.rt.requestBuild('n2_squad');
+    w.step(600);
+    expect(dist(at(w, a), [20.5, 5.5])).toBeLessThan(2.5);
+    expect(dist(at(w, a + 1), [20.5, 5.5])).toBeLessThan(2.5);
+    expect(dist(at(w, a), at(w, a + 1))).toBeGreaterThan(0.4);
+  });
+
+  it('a foot unit with a rally point never drops at the exit (#402)', () => {
+    const w = world();
+    w.rt.setRally(0, X, Y);
+    const id = buildOne(w);
+    const exit = w.rt.productionLines(0)[0].exit;
+    const e: [number, number] = [fx.toNumber(exit[0]), fx.toNumber(exit[1])];
+    for (let i = 0; i < 40; i++) {
+      w.step(1);
+      expect(w.sim.state.brace[id]).toBe(0);
+    }
+    expect(dist(at(w, id), e)).toBeGreaterThan(1.5);
+  });
+
+  it('a rallied unit holds on arrival; the same order with sweep: true walks off', () => {
+    const run = (sweep: boolean): number => {
+      const w = world();
+      // An identified enemy 7.5 tiles from the point: in sight (8), out of the rifles' reach (7).
+      w.sim.spawn(w.t, 1, fx.from(28), Y);
+      let id: number;
+      if (sweep) {
+        w.step(10);
+        id = w.sim.spawn(w.t, 0, fx.from(9.5), fx.from(2.5));
+        w.sim.queueCommand({ kind: 'attackMove', ids: [id], x: X, y: Y, sweep: true });
+      } else {
+        w.rt.setRally(0, X, Y);
+        id = buildOne(w);
+      }
+      w.step(500); // ample time to arrive and then, for the control, to walk off
+      return dist(at(w, id), [20.5, 5.5]);
+    };
+    expect(run(false)).toBeLessThan(0.3);
+    expect(run(true)).toBeGreaterThan(1.5);
+  });
+
+  it('clearRally: the next unit stays at the exit, no attackMove queued, and the line reads null', () => {
+    const w = world();
+    w.rt.setRally(0, X, Y);
+    expect(w.rt.clearRally(0)).toBe(true);
+    expect(w.rt.productionLines(0)[0].rally).toBeNull();
+    const spy = vi.spyOn(w.sim, 'queueCommand');
+    buildOne(w);
+    expect(spy).not.toHaveBeenCalled();
   });
 });

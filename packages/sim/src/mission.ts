@@ -1514,6 +1514,33 @@ export class MissionRuntime {
     return true;
   }
 
+  /** D5, LD6 ask 5. True when `setRally` would accept now: a living line of `side`, an on-map open tile. */
+  canSetRally(line: number, x: Fx, y: Fx, side: 0 | 1 = 0): boolean {
+    if (this.ended || this.livingLine(side, line) === null) return false;
+    const tx = x >> 16;
+    const ty = y >> 16;
+    if (tx < 0 || ty < 0 || tx >= this.sim.width || ty >= this.sim.height) return false;
+    return this.sim.blocked[ty * this.sim.width + tx] === 0;
+  }
+
+  /** D5. A blocked or off-map point is refused (never snapped) and the previous point is kept. */
+  setRally(line: number, x: Fx, y: Fx, side: 0 | 1 = 0): boolean {
+    if (!this.canSetRally(line, x, y, side)) return false;
+    const l = this.livingLine(side, line);
+    if (l === null) return false;
+    l.rally = { x, y };
+    return true;
+  }
+
+  /** True for a living line (whether or not it had a point); false for an unknown or dead line. */
+  clearRally(line: number, side: 0 | 1 = 0): boolean {
+    if (this.ended) return false;
+    const l = this.livingLine(side, line);
+    if (l === null) return false;
+    l.rally = null;
+    return true;
+  }
+
   /** D3, LD6 ask 4. index -1 = the item in progress. Refunds `purse[side]` (and intel, side 0). */
   cancelBuild(line: number, index: number, side: 0 | 1 = 0): boolean {
     if (this.ended) return false;
@@ -2088,11 +2115,16 @@ export class MissionRuntime {
         if (done === null) continue;
         // `origin` is the same channel a carrier's passengers use. With no camp (side 0's
         // `player_start` line) it is undefined and the placement falls through, unchanged.
-        this.spawnPlacement(
+        const ids = this.spawnPlacement(
           { unit: done.unit, count: 1 },
           line.side,
           line.anchor >= 0 ? this.sim.structureExit(line.anchor) : undefined
         );
+        // D5: a rally point is a no-sweep attack-move, queued on the deploy tick. `sweep` is left
+        // off on purpose: an arrived attack-mover holds (sweepOrder 0, #537).
+        if (line.rally !== null && ids.length > 0) {
+          this.sim.queueCommand({ kind: 'attackMove', ids, x: line.rally.x, y: line.rally.y });
+        }
         out.push({ kind: 'built', tick, unit: done.unit, side: line.side });
       }
     }
