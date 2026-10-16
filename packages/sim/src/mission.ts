@@ -26,7 +26,7 @@ import { fx, HALF, type Fx } from './fixed';
 import { HASH_SEED, hashWord } from './hash';
 import { starsFor, betterResult, type Stars, type MissionResult } from './grade';
 import { TICKS_PER_SECOND, type Sim, type SimEvent } from './sim';
-import { advance, cancel, enqueue, lineContested, type LineItem, type ProductionLine } from './production';
+import { advance, cancel, enqueue, lineContested, spendDown, type LineItem, type ProductionLine } from './production';
 import { highGroundRises } from './intel-earn';
 import {
   AMBUSH_RADIUS_DEFAULT,
@@ -291,8 +291,10 @@ export interface MissionJson {
   };
   enemy?: {
     faction?: string;
-    /** F4 Task 7: the enemy's camp menu and purse. Task 9 makes side 1 buy from it; the sim
-     *  does not read it yet. `group` (R-F4-7) is given to every built unit. */
+    /** F4 Task 7/9: the enemy's camp menu and purse. Side 1 buys from `menu` through its camp
+     *  lines (`spendDown`, D8); `logistics_start` / `logistics_rate_per_min` are its purse when
+     *  `ctx.economy` is absent; `rally` is a marker every built unit attack-moves to, and
+     *  `group` (R-F4-7) is given to every built unit so a trigger can `commit` them. */
     production?: {
       menu: readonly string[];
       logistics_start?: number;
@@ -826,6 +828,11 @@ export class MissionRuntime {
    *  A dead camp's line keeps its index for the mission: indices commands carry never shift.
    *  Built in `start()`; side 0 with no camp gets one `player_start` line (D2). */
   private readonly lines: [ProductionLine[], ProductionLine[]] = [[], []];
+  /** F4 Task 9 (D8): side 1's menu as priced line items (built once at `start()`), and per side-1
+   *  line the menu index it bought last. Derived from the authored menu and the lines' own
+   *  hashed state; not hashed itself. Empty when the mission has no `enemy.production`. */
+  private enemyMenu: LineItem[] = [];
+  private readonly enemyLast: number[] = [];
   /** Scratch for `firstRefusal`: did the population check speak? Not state; never hashed. */
   private refusedByPopulation = false;
   private readonly identified = new Set<number>();
@@ -910,7 +917,12 @@ export class MissionRuntime {
     this.marked = new Set(ctx.ledger?.['intel.marked_positions'] ?? []);
     const eco = ctx.economy;
     for (const side of [0, 1] as const) {
-      const start = eco !== undefined ? eco.logisticsStart[side] : side === 0 ? (mission.resources?.logistics_start ?? 0) : 0;
+      const start =
+        eco !== undefined
+          ? eco.logisticsStart[side]
+          : side === 0
+            ? (mission.resources?.logistics_start ?? 0)
+            : (mission.enemy?.production?.logistics_start ?? 0);
       if (start > MAX_PURSE_START) {
         throw new Error(
           `mission ${mission.id}: economy.logisticsStart[${side}] ${start} is above ${MAX_PURSE_START}, the largest start an Int32 purse in 1/2400ths holds`,
@@ -1070,7 +1082,11 @@ export class MissionRuntime {
   private baseUnitsPerTick(side: 0 | 1): number {
     const eco = this.ctx.economy;
     const rate =
-      eco !== undefined ? eco.logisticsRatePerMin[side] : side === 0 ? (this.mission.resources?.logistics_rate_per_min ?? 0) : 0;
+      eco !== undefined
+        ? eco.logisticsRatePerMin[side]
+        : side === 0
+          ? (this.mission.resources?.logistics_rate_per_min ?? 0)
+          : (this.mission.enemy?.production?.logistics_rate_per_min ?? 0);
     if (rate <= 0) return 0;
     return side === 0 && this.convoy !== null && this.convoy.cut !== null ? rate : 2 * rate;
   }
@@ -1871,6 +1887,7 @@ export class MissionRuntime {
     // can never land inside one.
     this.raiseMissionStructures();
     this.buildLines();
+    this.buildEnemyMenu();
     // High ground (D4): read once, from the map with the mission's own buildings
     // standing. A flat map has no rise and the per-tick pass never runs. The
     // table is built ONCE, here: a structure that collapses later is deliberately
@@ -2127,8 +2144,9 @@ export class MissionRuntime {
         if (done === null) continue;
         // `origin` is the same channel a carrier's passengers use. With no camp (side 0's
         // `player_start` line) it is undefined and the placement falls through, unchanged.
+        const group = line.side === 1 ? this.mission.enemy?.production?.group : undefined;
         const ids = this.spawnPlacement(
-          { unit: done.unit, count: 1 },
+          group === undefined ? { unit: done.unit, count: 1 } : { unit: done.unit, count: 1, group },
           line.side,
           line.anchor >= 0 ? this.sim.structureExit(line.anchor) : undefined
         );
@@ -2140,6 +2158,7 @@ export class MissionRuntime {
         out.push({ kind: 'built', tick, unit: done.unit, side: line.side });
       }
     }
+    this.stepEnemyBuy();
   }
 
   /**
@@ -2534,6 +2553,64 @@ export class MissionRuntime {
           );
         }
       }
+    }
+  }
+
+  /**
+   * F4 Task 9. Price `enemy.production.menu` once through `ctx.unitInfo(unit, 1)` and point every
+   * side-1 line at the authored `rally` marker. A menu entry the catalogue does not know, or one
+   * that costs intel (side 1 has none), is a wiring fault and throws. No `enemy.production`: no
+   * menu, so side 1 never buys, whatever its purse (D7).
+   */
+  private buildEnemyMenu(): void {
+    const prod = this.mission.enemy?.production;
+    if (prod === undefined) return;
+    for (const unit of prod.menu) {
+      const info = this.ctx.unitInfo?.(unit, 1);
+      if (info === undefined || info === null) {
+        throw new Error(`mission ${this.mission.id}: enemy.production.menu names "${unit}", which side 1 cannot build`);
+      }
+      if ((info.intel ?? 0) > 0) {
+        throw new Error(`mission ${this.mission.id}: enemy.production.menu names "${unit}", which costs intel (side 1 has none)`);
+      }
+      this.enemyMenu.push({
+        unit,
+        logistics: info.logistics,
+        intel: 0,
+        population: info.population,
+        buildTicks: info.buildTimeS * TICKS_PER_SECOND,
+      });
+    }
+    for (let k = 0; k < this.lines[1].length; k++) {
+      this.enemyLast.push(-1);
+      if (prod.rally !== undefined) {
+        const [rx, ry] = this.markerPos(prod.rally);
+        if (!this.setRally(k, rx, ry, 1)) {
+          throw new Error(`mission ${this.mission.id}: enemy.production.rally "${prod.rally}" is not an open tile`);
+        }
+      }
+    }
+  }
+
+  /**
+   * D8. Once a tick, after the lines advance: each idle, living side-1 line asks `spendDown` and
+   * buys through the same `requestBuild(unit, line, 1)` a player's click takes (LD6 ask 10): no
+   * second spend path. `last` moves on the ask, not on success, so a unit the gate or the cap
+   * refuses is passed over rather than retried every tick.
+   */
+  private stepEnemyBuy(): void {
+    const menu = this.enemyMenu;
+    if (menu.length === 0) return;
+    const lines = this.lines[1];
+    const cap = this.popCap(1);
+    for (let k = 0; k < lines.length; k++) {
+      const line = lines[k];
+      if (!this.lineAlive(line) || line.current !== null) continue;
+      const room = cap === null ? null : cap - this.population(1);
+      const i = spendDown(menu, this.enemyLast[k], this.logisticsOf(1), room, true);
+      if (i === null) continue;
+      this.enemyLast[k] = i;
+      this.requestBuild(menu[i].unit, k, 1);
     }
   }
 

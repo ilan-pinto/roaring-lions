@@ -32,6 +32,12 @@ interface Opts {
   start?: readonly [number, number];
   popCaps?: readonly [number | null, number | null];
   intelCost?: number;
+  /** F4 Task 9: the mission's `enemy` block, the markers it names, and its triggers. */
+  enemy?: MissionJson['enemy'];
+  markers?: Record<string, [number, number]>;
+  triggers?: MissionJson['triggers'];
+  /** True = no `ctx.economy`: the sources are the mission's own (side 1: `enemy.production`). */
+  noEconomy?: boolean;
 }
 
 /** A 40 x 12 map; `n2_squad` costs 300 and builds in 2 s = 40 ticks, population 1, for either side. */
@@ -52,6 +58,8 @@ function world(o: Opts = {}) {
     ledger: { requires: [], produces: [] },
     objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
     starting_force: [{ unit: 'n2_squad', count: 1, at: [3, 8] }],
+    ...(o.enemy !== undefined ? { enemy: o.enemy } : {}),
+    ...(o.triggers !== undefined ? { triggers: o.triggers } : {}),
     structures: [
       ...camps.map(([x, y]) => ({ type: 'camp', at: [x, y], size: [2, 2] })),
       ...campsS1.map(([x, y]) => ({ type: 'camp_s1', at: [x, y], size: [2, 2] })),
@@ -59,12 +67,14 @@ function world(o: Opts = {}) {
     ],
   };
   const rt = new MissionRuntime(sim, mission, {
-    typeIdOf: () => t, markers: {}, zones: {},
-    economy: { logisticsStart: o.start ?? [1200, 1200], logisticsRatePerMin: [0, 0] },
+    typeIdOf: () => t, markers: o.markers ?? {}, zones: {},
+    ...(o.noEconomy === true ? {} : { economy: { logisticsStart: o.start ?? [1200, 1200], logisticsRatePerMin: [0, 0] as [number, number] } }),
     ...(o.popCaps !== undefined ? { popCaps: o.popCaps } : {}),
     unitInfo: (u, side) => {
       asked.push([u, side]);
       if (u === 'n2_squad') return { logistics: 300, buildTimeS: 2, population: 1 };
+      if (u === 'n2_cheap') return { logistics: 200, buildTimeS: 2, population: 1 };
+      if (u === 'n2_dear') return { logistics: 1000, buildTimeS: 2, population: 1 };
       if (u === 'n2_intel') return { logistics: 300, intel: o.intelCost ?? 10, buildTimeS: 2, population: 1 };
       return null;
     },
@@ -595,5 +605,114 @@ describe('structures[].side overrides the type (F4 Task 7, R-F4-9)', () => {
     w.step(60);
     const e = w.sim.structureExit(0);
     expect(dist(pos(w, before), [fx.toNumber(e[0]), fx.toNumber(e[1])])).toBeLessThan(1.5);
+  });
+});
+
+describe('the enemy buys through the same line (F4 Task 9, D8)', () => {
+  const RALLY = { rally_pt: [30, 8] as [number, number] };
+  const prod = (p: Partial<NonNullable<NonNullable<MissionJson['enemy']>['production']>> = {}) =>
+    ({ production: { menu: ['n2_squad', 'n2_cheap'], logistics_start: 1000, ...p } });
+  const S1 = { campsS1: [[30, 3]] as const, camps: [] as const, noEconomy: true as const };
+  const sideOf = (w: ReturnType<typeof world>) => w.built().map((e) => (e.kind === 'built' ? e.side : -1));
+
+  it('LD6 ask 7: with no ctx.economy side 1 starts at logistics_start and earns the authored rate; the context wins when given', () => {
+    // A one-item menu priced 1000 against a start of 640: nothing is bought, so the purse is pure source.
+    const w = world({ ...S1, noEconomy: true, enemy: prod({ menu: ['n2_dear'], logistics_start: 640, logistics_rate_per_min: 60 }) });
+    expect(w.rt.logisticsOf(1)).toBe(640);
+    w.step(1200);
+    expect(w.rt.logisticsOf(1)).toBe(700);
+    expect(w.built()).toHaveLength(0);
+    const c = world({ campsS1: [[30, 3]], camps: [], enemy: prod({ menu: ['n2_dear'], logistics_start: 640, logistics_rate_per_min: 60 }), start: [0, 5] });
+    expect(c.rt.logisticsOf(1)).toBe(5);
+    c.step(1200);
+    expect(c.rt.logisticsOf(1)).toBe(5);
+  });
+
+  it('buys one unit at a time through requestBuild(unit, line, 1), and every purse write is that path', () => {
+    const w = world({ ...S1, enemy: prod() });
+    const spy = vi.spyOn(w.rt, 'requestBuild');
+    w.step(10);
+    // one at a time: only the first item is bought while it builds; nothing queues behind it
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(w.rt.logisticsOf(1)).toBe(700);
+    expect(w.rt.productionLines(1)[0].queued).toBe(0);
+    w.step(240);
+    // start 1000: 300 (700), 200 (500), 300 (200), then 200 (0)... rate 0, so exactly four buys
+    expect(spy.mock.calls.map((c) => [c[0], c[1], c[2]])).toEqual([
+      ['n2_squad', 0, 1], ['n2_cheap', 0, 1], ['n2_squad', 0, 1], ['n2_cheap', 0, 1],
+    ]);
+    expect(w.rt.logisticsOf(1)).toBe(0);
+    // serial: one build time (40 ticks) apart, first on the tick after the first spawn
+    expect(w.builtTicks().map((t, i, a) => (i === 0 ? 0 : t - a[i - 1]))).toEqual([0, 40, 40, 40]);
+    expect(sideOf(w)).toEqual([1, 1, 1, 1]);
+    expect(w.rt.productionLines(1)[0].queued).toBe(0);
+  });
+
+  it('never waits to save up, and skips an item the cap refuses', () => {
+    const w = world({ ...S1, enemy: prod({ logistics_start: 250 }) });
+    w.step(5);
+    expect(w.events.some((e) => e.kind === 'built')).toBe(false);
+    expect(w.rt.logisticsOf(1)).toBe(50); // the 200 item was bought straight away, not the 300 one
+    const capped = world({ ...S1, enemy: prod(), popCaps: [null, 1] });
+    capped.step(300);
+    expect(capped.built()).toHaveLength(1);
+  });
+
+  it('a KDF squad contesting the camp freezes the line; a side-1 squad beside it does not', () => {
+    const run = (foeSide: 0 | 1): number[] => {
+      const w = world({ ...S1, enemy: prod({ logistics_start: 300, menu: ['n2_squad'] }) });
+      const e = w.rt.productionLines(1)[0].exit;
+      w.sim.spawn(w.t, foeSide, e[0] + fx.from(3), e[1]);
+      w.step(100);
+      return w.builtTicks();
+    };
+    expect(run(0)).toEqual([]);
+    expect(run(1)).toEqual([41]);
+  });
+
+  it('built units carry the authored group and attack-move, no sweep, to the rally marker, and hold there', () => {
+    const w = world({ ...S1, markers: RALLY, enemy: prod({ menu: ['n2_squad'], logistics_start: 300, rally: 'rally_pt', group: 'camp_guard' }) });
+    const spy = vi.spyOn(w.sim, 'queueCommand');
+    w.step(41);
+    expect(spy).toHaveBeenCalledTimes(1);
+    const cmd = spy.mock.calls[0][0];
+    const id = w.sim.entityCount - 1;
+    expect(cmd).toEqual({ kind: 'attackMove', ids: [id], x: fx.from(30.5), y: fx.from(8.5) });
+    expect('sweep' in cmd).toBe(false);
+    w.step(300);
+    expect(dist(pos(w, id), [30.5, 8.5])).toBeLessThan(0.5);
+  });
+
+  it('a trigger that commits that group sends the bought units on with sweep: true', () => {
+    const w = world({
+      ...S1, markers: { ...RALLY, push_to: [10, 8] },
+      enemy: prod({ menu: ['n2_squad'], logistics_start: 300, rally: 'rally_pt', group: 'camp_guard' }),
+      triggers: [{ id: 'push', label: 'The camp guard moves', on: { kind: 'timer_s', value: 10 }, do: { kind: 'commit', group: 'camp_guard', to: 'push_to' } }],
+    });
+    const spy = vi.spyOn(w.sim, 'queueCommand');
+    w.step(450);
+    const id = w.sim.entityCount - 1;
+    const commits = spy.mock.calls.map((c) => c[0]).filter((c) => c.kind === 'attackMove' && 'sweep' in c);
+    expect(commits).toHaveLength(1);
+    expect(commits[0]).toMatchObject({ ids: [id], sweep: true });
+    expect(pos(w, id)[0]).toBeLessThan(25);
+  });
+
+  it('D7: with no enemy.production block side 1 never buys, even with a purse', () => {
+    const w = world({ campsS1: [[30, 3]], camps: [], start: [0, 5000] });
+    w.step(300);
+    expect(w.built()).toHaveLength(0);
+    expect(w.rt.logisticsOf(1)).toBe(5000);
+  });
+
+  it('R-F4-1: a side-1 purchase emits { kind: built, unit, side: 1 }', () => {
+    const w = world({ ...S1, enemy: prod({ menu: ['n2_squad'], logistics_start: 300 }) });
+    w.step(41);
+    expect(w.built()).toEqual([{ kind: 'built', tick: 41, unit: 'n2_squad', side: 1 }]);
+  });
+
+  it('a menu entry the catalogue refuses, or one that costs intel, throws at start()', () => {
+    expect(() => world({ ...S1, enemy: prod({ menu: ['nope'] }) })).toThrow(/cannot build/);
+    expect(() => world({ ...S1, enemy: prod({ menu: ['n2_intel'] }) })).toThrow(/intel/);
   });
 });
