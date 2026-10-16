@@ -1649,6 +1649,21 @@ const deirAmun2Plan: Plan = (sim, rt, ids, at) => {
   at(0, () => sim.queueCommand({ kind: 'move', ids: mortar, ...M(24, 40) }));
   at(0, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(15, 31) }));
 
+  // F4 Task 10 (Step 2): the camp's rally point is the pump gate the hold force takes, `M(15, 31)`,
+  // beside the `pump_gate` marker (15,32) and 6.5 tiles from the camp exit (20.5,34.5). Every squad
+  // bought below leaves the camp on a no-sweep attack-move to the gate and fights there. The camp's
+  // 6-tile radius covers `pump_gate`, so the line pauses during that fight (D1, ruled 6 Oct).
+  // Measured against the no-rally plan (30 seeds): headroom 445 -> 446 s, banking 939/171 -> 938/170,
+  // side-1 end population 7 -> 8; VICTORY 30/30 either way.
+  // A refused rally must fail loudly: setRally answers false for a blocked or off-map tile, and a
+  // plan that silently ran without it would be measuring the no-rally figures.
+  at(0, () => {
+    if (!rt.setRally(0, fx.from(15), fx.from(31))) {
+      console.error('deir_amun_2_foothold: FAILED -- setRally(0, 15, 31) was refused; the plan\'s camp rally is not set');
+      process.exitCode = 1;
+    }
+  });
+
   // Spend logistics as it lands, once the camp is producing.
   for (let when = 60; when <= 420; when += 40) {
     at(when, () => void rt.requestBuild('inf_squad'));
@@ -3946,5 +3961,26 @@ const ZONE_PASSIVE_INCOME = 0;
   if (zonePassive !== ZONE_PASSIVE_INCOME) {
     console.error(`banking: FAILED — the D7 passive controls earned ${zonePassive} from zones, expected ${ZONE_PASSIVE_INCOME}`);
     process.exitCode = 1;
+  }
+}
+
+const BUILDING_PLANS = ['beit_sahwan_2_foothold', 'deir_amun_2_foothold', 'wadi_halam_2_laager', 'wadi_halam_4_village', 'umm_zeitoun_3_clearance'];
+// --- F4 Task 10: the largest queue each building plan reached (R-F4-4), report only ------------------
+//
+// Side 0's production lines, in-progress item plus waiting items summed over lines, sampled every tick
+// (`playtest-run.ts`) and maximised over all 30 plan-sweep seeds: the 424242 run alone would miss a plan
+// (umm_zeitoun_3_clearance) that wins before its first build on that seed. Expected <= 2: the plans
+// pace their buys by the clock, and `MAX_LINE_QUEUE` (16) is headroom, not a fitted number. Appended
+// last so no earlier line moves; gates nothing. A plan that never queued on any seed prints 0.
+{
+  const largest = new Map<string, number>();
+  for (const runs of planRunsBySeed.values()) {
+    for (const r of runs) {
+      if (r.expect !== 'victory' || r.label !== r.id || r.banking === undefined) continue;
+      largest.set(r.id, Math.max(largest.get(r.id) ?? 0, r.maxQueue));
+    }
+  }
+  for (const [id, q] of largest) {
+    if (q > 0 || BUILDING_PLANS.includes(id)) console.log(`largest queue ${id}: ${q} (max over ${SWEEP_SEEDS.length} seeds, report only)`);
   }
 }

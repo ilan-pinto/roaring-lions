@@ -94,6 +94,12 @@ export function describeCommand(cmd: Command): string {
     case 'reveal': return t('net.advisor.cmd.reveal', { x: tile(cmd.x), y: tile(cmd.y) });
     case 'callStrike': return t('net.advisor.cmd.callStrike', { x: tile(cmd.x), y: tile(cmd.y) });
     case 'build': return t('net.advisor.cmd.build', { unit: cmd.unit });
+    case 'cancelBuild':
+      return cmd.index < 0
+        ? t('net.advisor.cmd.cancelCurrent', { line: cmd.line })
+        : t('net.advisor.cmd.cancelBuild', { line: cmd.line, index: cmd.index });
+    case 'setRally': return t('net.advisor.cmd.setRally', { line: cmd.line, x: tile(cmd.x), y: tile(cmd.y) });
+    case 'clearRally': return t('net.advisor.cmd.clearRally', { line: cmd.line });
     case 'support': return t('net.advisor.cmd.support', { support: cmd.support, x: tile(cmd.x), y: tile(cmd.y) });
   }
 }

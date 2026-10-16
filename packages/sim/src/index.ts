@@ -98,3 +98,7 @@ export { KNEEL_DROP_TICKS, KNEEL_RISE_TICKS } from './tuning';
 export { AMBUSH_RADIUS_DEFAULT, AMBUSH_RADIUS_MAX } from './tuning';
 // The fire-support profile table (F1 Task 6): `callStrike.profile` indexes it.
 export { FIRE_SUPPORT, FS_AIR_STRIKE, FS_MORTAR_BARRAGE, FS_SMOKE_SCREEN, type FireSupportProfile } from './tuning';
+// The production line types, the contest test and the two bounds (R-F4-4). The state machine
+// (advance, enqueue, cancel, spendDown) is the runtime's own; nothing outside the sim imports it.
+export { lineContested, type LineItem, type ProductionLine } from './production';
+export { MAX_PRODUCTION_LINES, MAX_LINE_QUEUE } from './tuning';

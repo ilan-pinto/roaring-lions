@@ -303,3 +303,35 @@ describe('cleanCommand: build and support (N2)', () => {
       .toEqual({ kind: 'support', side: 0, support: 'smoke_screen', x: 1, y: 2 });
   });
 });
+
+describe('cleanCommand: the line verbs (F4 Task 5b)', () => {
+  it('rebuilds the clean shapes and strips unknown keys', () => {
+    const pad = 'x'.repeat(4000);
+    const ok: [Record<string, unknown>, Record<string, unknown>][] = [
+      [{ kind: 'build', side: 0, unit: 'inf_squad', line: 0 }, { kind: 'build', side: 0, unit: 'inf_squad', line: 0 }],
+      [{ kind: 'cancelBuild', side: 0, line: 3, index: -1 }, { kind: 'cancelBuild', side: 0, line: 3, index: -1 }],
+      [{ kind: 'cancelBuild', side: 0, line: 0, index: 15 }, { kind: 'cancelBuild', side: 0, line: 0, index: 15 }],
+      [{ kind: 'setRally', side: 0, line: 1, x: 5, y: 6 }, { kind: 'setRally', side: 0, line: 1, x: 5, y: 6 }],
+      [{ kind: 'clearRally', side: 0, line: 2 }, { kind: 'clearRally', side: 0, line: 2 }],
+    ];
+    for (const [raw, clean] of ok) {
+      expect(cleanCommand(raw), JSON.stringify(raw)).toEqual(clean);
+      expect(cleanCommand({ ...raw, pad }), JSON.stringify(raw)).toEqual(clean);
+    }
+  });
+  it('refuses a line or index out of range, a non-integer, a string and a missing line', () => {
+    const bad: unknown[] = [
+      { kind: 'build', side: 0, unit: 'inf_squad', line: -1 },
+      { kind: 'build', side: 0, unit: 'inf_squad', line: 4 },
+      { kind: 'build', side: 0, unit: 'inf_squad', line: 1.5 },
+      { kind: 'build', side: 0, unit: 'inf_squad', line: '0' },
+      { kind: 'cancelBuild', side: 0, line: 0, index: -2 },
+      { kind: 'cancelBuild', side: 0, line: 0, index: 16 },
+      { kind: 'cancelBuild', side: 0, index: 0 },
+      { kind: 'setRally', side: 0, line: 0, x: 1.5, y: 2 },
+      { kind: 'setRally', side: 0, x: 1, y: 2 },
+      { kind: 'clearRally', side: 0 },
+    ];
+    for (const b of bad) expect(cleanCommand(b), JSON.stringify(b)).toBeNull();
+  });
+});

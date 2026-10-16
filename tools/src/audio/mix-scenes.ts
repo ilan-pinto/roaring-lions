@@ -292,7 +292,7 @@ export function buildScenes(manifest: ManifestLike, outcomeLineDelayS: number): 
 
   // (b) An announcement over the calm bed: reinforcements arrive (a `built`
   // mission event; its arrival alert is silent by design, VR-37).
-  const b = decideMission(manifest, 2500, 100, {}, { 30: [{ kind: 'built', tick: 30, unit: 'inf_squad' }] });
+  const b = decideMission(manifest, 2500, 100, {}, { 30: [{ kind: 'built', tick: 30, unit: 'inf_squad', side: 0 }] });
   scenes.push({
     id: 'b_announce_calm',
     title: 'announcement (reinforcements) over the calm bed',

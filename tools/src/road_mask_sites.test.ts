@@ -28,9 +28,10 @@ describe('the road mask reaches every mission runtime (C-R4)', () => {
     .map((p) => relative(ROOT, p))
     .sort();
 
-  it('the eight sites are the ones on the tree', () => {
+  it('the nine sites are the ones on the tree', () => {
     expect(sites).toEqual([
       'packages/app/src/mission-start.ts',
+      'tools/src/backtest/enemy-production-probe.ts',
       'tools/src/backtest/fl_ladder.ts',
       'tools/src/backtest/playtest-run.ts',
       'tools/src/backtest/saddle-price.ts',

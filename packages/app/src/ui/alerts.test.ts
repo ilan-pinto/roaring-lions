@@ -247,12 +247,24 @@ describe('alertsForTick — arrivals', () => {
     expect(b.alerts[0].line?.place).toEqual(['here']);
   });
 
+  it('an enemy purchase (`built` side 1) raises no arrival (R-F4-1)', () => {
+    const dockWorld: AlertWorld = { ...world, arrivedAt: () => ({ x: 30, y: 3 }) };
+    const { alerts } = alertsForTick(
+      initAlertState(),
+      [],
+      [{ kind: 'built', tick: 50, unit: 'sarim_rifles', side: 1 } as MissionEvent],
+      dockWorld,
+      40
+    );
+    expect(alerts.filter((a) => a.kind === 'arrival')).toEqual([]);
+  });
+
   it('says where the dock delivered a unit', () => {
     const dockWorld: AlertWorld = { ...world, arrivedAt: (id) => (id === 'mbt_lavi' ? { x: 30, y: 3 } : null) };
     const { alerts } = alertsForTick(
       initAlertState(),
       [],
-      [{ kind: 'built', tick: 0, unit: 'mbt_lavi' } as MissionEvent],
+      [{ kind: 'built', tick: 0, unit: 'mbt_lavi', side: 0 } as MissionEvent],
       dockWorld,
       40
     );
@@ -367,7 +379,7 @@ describe('alertsForTick — the cue follows the tier (polish pass F, A2)', () =>
     expect(cuesOf(ev<'removed'>({ kind: 'removed', tick: 0, entity: 2, side: 0, unit: 'inf_squad' }))).toEqual(['alert.important']);
     expect(cuesOf(ev<'roe'>({ kind: 'roe', tick: 0, penalty: 5, reason: 'r', score: 95 }))).toEqual(['alert.important']);
     expect(cuesOf(ev<'removed'>({ kind: 'removed', tick: 0, entity: 2, side: 2, unit: 'civilian' })).filter((c) => c !== null)).toEqual([]);
-    expect(cuesOf(ev<'built'>({ kind: 'built', tick: 0, unit: 'inf_squad' })).filter((c) => c !== null)).toEqual([]);
+    expect(cuesOf(ev<'built'>({ kind: 'built', tick: 0, unit: 'inf_squad', side: 0 })).filter((c) => c !== null)).toEqual([]);
   });
 });
 
@@ -394,7 +406,7 @@ describe('alertsForTick agrees with MISSION_EVENT_SOUND, kind by kind', () => {
     trigger: ev<'trigger'>({ kind: 'trigger', tick: 0, id: 't' }),
     wave: ev<'wave'>({ kind: 'wave', tick: 0, count: 3 }),
     roe: ev<'roe'>({ kind: 'roe', tick: 0, penalty: 5, reason: 'r', score: 90 }),
-    built: ev<'built'>({ kind: 'built', tick: 0, unit: 'inf_squad' }),
+    built: ev<'built'>({ kind: 'built', tick: 0, unit: 'inf_squad', side: 0 }),
     evacuated: ev<'evacuated'>({ kind: 'evacuated', tick: 0, entity: 30 }),
     removed: ev<'removed'>({ kind: 'removed', tick: 0, entity: 2, side: 0, unit: 'inf_squad' }),
     unitLost: lost(7, 'mbt_lavi'),

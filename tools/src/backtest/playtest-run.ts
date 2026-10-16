@@ -181,6 +181,9 @@ export interface RunRecord extends IntelRun {
   /** What the run did with its logistics (F2 Task 9, `banking.ts`); undefined for a mission with no
    *  `resources` block. Recorded only: `run()` prints nothing about it, so no existing line moves. */
   banking?: Banking;
+  /** F4 Task 10 (R-F4-4): the most items side 0's production lines held at once over the run, the one
+   *  in progress plus those waiting, summed across lines. Sampled every tick; report only. */
+  maxQueue: number;
 }
 export const runLog: RunRecord[] = [];
 
@@ -400,6 +403,7 @@ export function run(
   };
   const maxTicks = 20 * 60 * TICKS_PER_SECOND;
   let t = 0;
+  let maxQueue = 0;
   for (; t < maxTicks; t++) {
     const due = timed.get(t);
     if (due) {
@@ -414,6 +418,11 @@ export function run(
     }
     noteIntel();
     census.sample(rt);
+    if (mission.resources !== undefined) {
+      let depth = 0;
+      for (const l of rt.productionLines(0)) depth += l.queued + (l.current === null ? 0 : 1);
+      if (depth > maxQueue) maxQueue = depth;
+    }
     if (rt.result !== 'ongoing') break;
   }
   census.finish(rt);
@@ -450,7 +459,7 @@ export function run(
     mission.resources === undefined
       ? undefined
       : { start: mission.resources.logistics_start ?? 0, earned: rt.logisticsEarned(0), zoneEarned: rt.zoneLogisticsEarned(0), held: rt.logistics };
-  runLog.push({ id, label, expect, result: rt.result, stuck: t >= maxTicks && rt.result === 'ongoing', minutes: t / TICKS_PER_SECOND / 60, stars: rt.stars, roe: rt.roeScore, cause, endTick: sim.tickCount, intel, spent: intelSpentTotal, banking });
+  runLog.push({ id, label, expect, result: rt.result, stuck: t >= maxTicks && rt.result === 'ongoing', minutes: t / TICKS_PER_SECOND / 60, stars: rt.stars, roe: rt.roeScore, cause, endTick: sim.tickCount, intel, spent: intelSpentTotal, banking, maxQueue });
   if (rt.stars < expectStar) {
     console.error(`${label}: FAILED — expected ${expectStar} star(s), got ${rt.stars}`);
     process.exitCode = 1;
