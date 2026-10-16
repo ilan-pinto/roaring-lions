@@ -16,6 +16,8 @@ const CAMP_S1 = { id: 'camp_s1', name: 'Enemy Camp', hp_per_tile: 300, garrison_
 
 interface Opts {
   camps?: readonly (readonly [number, number])[];
+  /** Camps raised on the sim before the runtime exists, as a map-grid `c` tile would be. */
+  gridCamps?: readonly (readonly [number, number])[];
   campsS1?: readonly (readonly [number, number])[];
   playerStart?: boolean;
   start?: readonly [number, number];
@@ -29,7 +31,10 @@ function world(o: Opts = {}) {
   const t = sim.addUnitType(SQUAD);
   sim.addStructureType(CAMP);
   sim.addStructureType(CAMP_S1);
-  const camps = o.camps ?? [[10, 3]];
+  for (const [gx, gy] of o.gridCamps ?? []) {
+    sim.addStructure(0, [gy * 40 + gx, gy * 40 + gx + 1, (gy + 1) * 40 + gx, (gy + 1) * 40 + gx + 1]);
+  }
+  const camps = o.camps ?? (o.gridCamps !== undefined ? [] : [[10, 3]]);
   const campsS1 = o.campsS1 ?? [];
   const asked: [string, number][] = [];
   const mission: MissionJson = {
@@ -134,6 +139,17 @@ describe('production lines in the runtime (F4 Task 3)', () => {
     expect(w.rt.logisticsOf(0)).toBe(900);
     expect(w.rt.production).toEqual([]);
     expect(w.rt.buildBlockedReason('n2_squad')).toBe('field camp destroyed — no production');
+  });
+
+  it('a map-grid camp that dies with player_start authored refuses canBuild, as requestBuild does', () => {
+    const w = world({ gridCamps: [[10, 3]] });
+    w.step(10);
+    expect(w.rt.canBuild('n2_squad')).toBe(true);
+    w.sim.debugDestroyStructure(0);
+    w.step(2);
+    expect(w.rt.canBuild('n2_squad')).toBe(false);
+    expect(w.rt.buildBlockedReason('n2_squad')).toBe('field camp destroyed — no production');
+    expect(w.rt.requestBuild('n2_squad')).toBe(false);
   });
 
   it('the camp dies on its item\'s finishing tick: nothing is delivered', () => {

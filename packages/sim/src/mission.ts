@@ -1077,8 +1077,9 @@ export class MissionRuntime {
    *  Read-only, and integer-only on purpose: the purse is an exact integer
    *  accumulator (1/2400ths), and only side 0's floored whole logistics is hashed,
    *  so every word folded in is an int32.
-   *  The build queue goes in array order (the order `requestBuild` pushed it),
-   *  each entry as its unit id's characters, then its start and ready ticks.
+   *  The build items (R-F4-8's interim fold) are side 0's line items in flattened line
+   *  order, current then queued, each as its unit id's characters, then
+   *  `startTick = readyTick - buildTicks` and its ready tick.
    *  Then (F1 Task 3, F-R3) the settled first identifications: their count, then
    *  their entity ids ascending. Last (F3 Task 4): both sides' population and
    *  both caps, null as -1. */
@@ -1250,18 +1251,17 @@ export class MissionRuntime {
     if (unlock !== null) return unlock;
     // LD6 ask 2: intel is side 0's, so a side-1 item that costs any is not on its menu.
     if (side === 1 && (info.intel ?? 0) > 0) return 'not available in the field';
-    // Where would it deploy? A camp if the mission placed one, else side 0's `player_start` --
-    // the fallback that keeps every mission authored before camps existed producing exactly
-    // as it did. Only a mission that HAS a camp can lose production by losing it.
-    //
-    // No camp standing. Whether that BLOCKS production depends on whether this mission ever
-    // had one -- asked of the mission JSON, not the live sim. Reading it off the sim instead
-    // would make `player_start` a silent fallback the moment the camp fell. Side 1 never
-    // falls back to `player_start` (LD6 ask 3).
-    if (this.productionAnchor(side) < 0) {
-      if (side === 1) return 'no field camp — production needs one standing';
-      if (this.declaresProduction(0)) return 'field camp destroyed — no production';
-      if (!this.mission.map.player_start) return 'no field camp — production needs one standing';
+    // Where would it deploy? A line of the side's own: a camp (mission structure or map-grid
+    // `c` tile) or, for side 0 with no camp at all, `player_start`. The clause reads the LINES,
+    // not the mission JSON, so it agrees with `requestBuild` (which needs a living line):
+    // a side with no living line is refused, "destroyed" if it ever had a camp line, else
+    // "no field camp". Side 1 never falls back to `player_start` (LD6 ask 3).
+    if (this.shortestLine(side) === null) {
+      const lines = this.lines[side];
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].anchor >= 0) return 'field camp destroyed — no production';
+      }
+      return 'no field camp — production needs one standing';
     }
     // So the gate and the camp speak first. A unit that takes no population (a drone) is never
     // refused here, even by a side already over its cap (D3).
@@ -1335,7 +1335,9 @@ export class MissionRuntime {
     for (let i = 0; i < this.sim.entityCount; i++) {
       if (st.alive[i] === 1 && st.side[i] === side) used += this.sim.unitTypes[st.typeIdx[i]].population;
     }
-    for (const l of this.lines[side]) {
+    const lines = this.lines[side];
+    for (let li = 0; li < lines.length; li++) {
+      const l = lines[li];
       if (!this.lineAlive(l)) continue;
       if (l.current !== null) used += l.current.population;
       for (let k = 0; k < l.queue.length; k++) used += l.queue[k].population;
@@ -1347,15 +1349,6 @@ export class MissionRuntime {
   populationView(side: 0 | 1 = 0): { used: number; cap: number } | null {
     const cap = this.popCap(side);
     return cap === null ? null : { used: this.population(side), cap };
-  }
-
-  /** Does this mission field a production structure at all, alive or dead? */
-  private declaresProduction(side: number): boolean {
-    for (const spec of this.mission.structures ?? []) {
-      const t = this.sim.structureTypes.find((x) => x.id === spec.type);
-      if (t !== undefined && t.producesFor === side) return true;
-    }
-    return false;
   }
 
   /** What a satellite sweep and a precision strike cost, for the HUD. */
@@ -2055,7 +2048,7 @@ export class MissionRuntime {
 
   /**
    * F4: per line, side 0's lines then side 1's. A dead camp loses its line first (D4: the item
-   * in progress is lost with the refund, queued items refunded, the rally goes with it), read
+   * in progress is lost, not refunded, queued items refunded, the rally goes with it), read
    * before the advance so a camp that dies on its item's finishing tick delivers nothing. Then
    * one tick of the line (Task 4 supplies the contest flag) and a finished item spawns at the
    * line's exit, beside the camp that built it, with `built` carrying the line's side.
