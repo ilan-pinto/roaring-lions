@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
 import { MissionRuntime, type MissionJson } from './mission';
+import { enqueue } from './production';
 import { BRACE_DROPPING, BRACE_KNEELING, BRACE_RISING, Sim, type SimEvent, type UnitTypeJson } from './sim';
 
 // The canary for invariants 2 and 3 (CLAUDE.md): replay 1000 ticks from a
@@ -1057,6 +1058,15 @@ const ECONOMY_REFUSED_BUILD_TICK = 1200;
 // Still building when the replay ends (15 s = 300 ticks to deliver), so the
 // pinned hash carries a non-empty queue and not just a purse.
 const ECONOMY_LATE_BUILD_TICK = 2300;
+// F4 Task 6 (GH-183, G3 Q3): the second camp's line (line 1) builds one truck at 1500, a raider
+// contests the camp's door from RAIDER_IN to RAIDER_OUT (10 s, so the line freezes for 200
+// ticks), and the truck is cancelled at 1800 still in progress (a refund of its 100). Line 0
+// carries a rally point at (14, 30) from tick 100: the first squad (ready 700) walks to it.
+const ECONOMY_LINE_TRUCK_TICK = 1500;
+const ECONOMY_RAIDER_IN_TICK = 1510;
+const ECONOMY_RAIDER_OUT_TICK = 1750;
+const ECONOMY_CANCEL_TICK = 1800;
+const ECONOMY_RALLY_TILE_X = 14;
 
 const ECO_SQUAD: UnitTypeJson = {
   id: 'inf_squad',
@@ -1132,11 +1142,19 @@ const ECO_CAMP = {
   produces_for: 0,
 };
 
+const ECO_CAMP_S1 = { ...ECO_CAMP, id: 'camp_s1', name: 'Enemy Camp', produces_for: 1 };
+
 const ECO_MISSION: MissionJson = {
   id: 'economy_replay',
   map: { file: 'beit_sahwan_outskirts', player_start: [6, 23] },
   ledger: { requires: [], produces: [] },
-  structures: [{ type: 'camp', at: [6, 30], size: [2, 2] }],
+  // F4 Task 6: a second camp, so there are two production lines. It sits at the south-west
+  // corner, clear of `depot` (y 21-25), `crossroads` (x 10-23, y 18-29) and the convoy's route
+  // (from (21, 26) to the first camp), so F2's zone and cut words are not moved for a second reason.
+  structures: [
+    { type: 'camp', at: [6, 30], size: [2, 2] },
+    { type: 'camp', at: [2, 40], size: [2, 2] },
+  ],
   // F2 Task 7: two income zones and a live convoy. `depot` is held by the starting squad from
   // the first tick; `crossroads` holds both militia (side 1's) until the attack-move at 1150
   // contests it; the convoy enters beside the south militia, so it is cut from the start.
@@ -1165,6 +1183,10 @@ const ECO_MISSION: MissionJson = {
     garrison: [
       { unit: 'militia_cell', count: 1, at: [20, 22], group: 'north', stance: { kind: 'hold_position' } },
       { unit: 'militia_cell', count: 1, at: [20, 26], group: 'south', stance: { kind: 'hold_position' } },
+      // F4 Task 6: the raider. Last, so the others keep their entity ids. It walks to the second
+      // camp's door for ECONOMY_CONTEST_TICKS and is then removed (debugKill), which keeps the
+      // secondary `clear` completable by the force alone.
+      { unit: 'militia_cell', count: 1, at: [9, 41], group: 'raider', stance: { kind: 'hold_position' } },
     ],
   },
 };
@@ -1183,6 +1205,13 @@ interface EconomyRun {
   purseBeforeRefusal: number;
   purseAfterRefusal: number;
   seen: HeldGroundSeen;
+  /** F4 Task 6: ticks line 1 was contested, ticks it was contested AND made no progress, the tick
+   *  the first squad came within a tile of the rally point (-1 never), and what the cancel paid back. */
+  contestedTicks: number;
+  frozenTicks: number;
+  rallyArrivedTick: number;
+  cancelAnswer: boolean;
+  refund: number;
 }
 
 /** `extraBuild` buys one `supply_truck` at ECONOMY_EXTRA_BUILD_TICK: delivered
@@ -1193,6 +1222,8 @@ function economyReplay(
   extraBuild = false,
   popCap: number | null = ECONOMY_POP_CAP,
   via: 'direct' | 'command' = 'direct',
+  rallyTileX: number = ECONOMY_RALLY_TILE_X,
+  ticks: number = ECONOMY_TICKS,
 ): EconomyRun {
   const sim = new Sim({ seed, width: 48, height: 48, capacity: 32 });
   const ids = new Map<string, number>();
@@ -1230,15 +1261,34 @@ function economyReplay(
     purseBeforeRefusal: 0,
     purseAfterRefusal: 0,
     seen: { states: new Set(), cuts: new Set() },
+    contestedTicks: 0,
+    frozenTicks: 0,
+    rallyArrivedTick: -1,
+    cancelAnswer: false,
+    refund: 0,
   };
   // N2: `command` routes every purchase through `queueCommand` and drains it at
   // the call site, so the order of commands inside the sim queue is the direct
   // path's own.
-  const build = (u: string): boolean => {
-    if (via === 'direct') return rt.requestBuild(u);
-    sim.queueCommand({ kind: 'build', side: 0, unit: u });
+  const build = (u: string, line?: number): boolean => {
+    if (via === 'direct') return rt.requestBuild(u, line);
+    sim.queueCommand({ kind: 'build', side: 0, unit: u, line });
     return rt.applyQueued() === 1;
   };
+  const setRally = (line: number, x: number, y: number): boolean => {
+    if (via === 'direct') return rt.setRally(line, fx.fromInt(x), fx.fromInt(y));
+    sim.queueCommand({ kind: 'setRally', side: 0, line, x: fx.fromInt(x), y: fx.fromInt(y) });
+    return rt.applyQueued() === 1;
+  };
+  const cancelBuild = (line: number, index: number): boolean => {
+    if (via === 'direct') return rt.cancelBuild(line, index);
+    sim.queueCommand({ kind: 'cancelBuild', side: 0, line, index });
+    return rt.applyQueued() === 1;
+  };
+  // The raider is the last enemy placed.
+  let raider = -1;
+  for (let id = 0; id < sim.entityCount; id++) if (sim.state.side[id] === 1) raider = id;
+  let prevProgress = -1;
   const living = (type: string): number[] => {
     const out: number[] = [];
     for (let id = 0; id < sim.entityCount; id++) {
@@ -1248,9 +1298,18 @@ function economyReplay(
     }
     return out;
   };
-  for (let t = 0; t < ECONOMY_TICKS; t++) {
-    if (t === 400 || t === 800) build('inf_squad');
-    if (extraBuild && t === ECONOMY_EXTRA_BUILD_TICK) build('supply_truck');
+  for (let t = 0; t < ticks; t++) {
+    if (t === 100) setRally(0, rallyTileX, 30);
+    if (t === 400 || t === 800) build('inf_squad', 0);
+    if (t === ECONOMY_LINE_TRUCK_TICK) build('supply_truck', 1);
+    if (t === ECONOMY_RAIDER_IN_TICK) sim.queueCommand({ kind: 'move', ids: [raider], x: fx.fromInt(6), y: fx.fromInt(40) });
+    if (t === ECONOMY_RAIDER_OUT_TICK) sim.debugKill(raider);
+    if (t === ECONOMY_CANCEL_TICK) {
+      const before = rt.logistics;
+      run.cancelAnswer = cancelBuild(1, -1);
+      run.refund = rt.logistics - before;
+    }
+    if (extraBuild && t === ECONOMY_EXTRA_BUILD_TICK) build('supply_truck', 0);
     if (t === ECONOMY_LATE_BUILD_TICK) build('supply_truck');
     if (t === ECONOMY_REFUSED_BUILD_TICK) {
       run.refusal = rt.buildBlockedReason('heavy_convoy');
@@ -1277,6 +1336,19 @@ function economyReplay(
       if (e.kind === 'built') run.built++;
     }
     noteHeldGround(rt, run.seen);
+    const l1 = rt.productionLines(0)[1];
+    if (l1.contested) {
+      run.contestedTicks++;
+      if (l1.progress === prevProgress) run.frozenTicks++;
+    }
+    prevProgress = l1.progress;
+    if (run.rallyArrivedTick < 0 && t < 1150) {
+      for (const id of living('inf_squad')) {
+        const dx = sim.state.posX[id] - fx.fromInt(rallyTileX);
+        const dy = sim.state.posY[id] - fx.fromInt(30);
+        if (id !== 1 && fx.mul(dx, dx) + fx.mul(dy, dy) <= fx.fromInt(1)) run.rallyArrivedTick = t;
+      }
+    }
   }
   run.secondaryDone = rt.objectiveList.find((o) => o.id === 'clear')?.status === 'complete';
   return run;
@@ -1318,6 +1390,66 @@ describe('economy replay (2400 ticks of MissionRuntime on a flat map)', () => {
     expect(r.seen.cuts.size).toBeGreaterThan(0);
     // Side 1 held ground, so its purse (hashed) is not zero.
     expect(r.rt.logisticsOf(1)).toBeGreaterThan(0);
+  });
+
+  // F4 Task 6: the pin is over production that really paused, refunded and walked to a rally point.
+  it('passes through a frozen line, a refund and a rally arrival', () => {
+    const r = economyReplay(ECONOMY_SEED);
+    // The raider stood at the second camp's door for 10 s: 200 ticks (to within the 1-tick
+    // edges of the radius), every one of them with the item in progress not advancing.
+    expect(r.contestedTicks).toBeGreaterThanOrEqual(195);
+    expect(r.contestedTicks).toBeLessThanOrEqual(205);
+    expect(r.frozenTicks).toBe(r.contestedTicks);
+    // The truck was cancelled in progress: accepted, and its 100 came back.
+    expect(r.cancelAnswer).toBe(true);
+    expect(r.refund).toBe(100);
+    // The first squad walked from the first camp to the rally point and stood on it.
+    expect(r.rallyArrivedTick).toBeGreaterThan(700);
+    expect(r.rallyArrivedTick).toBeLessThan(1150);
+    const lines = r.rt.productionLines(0);
+    expect(lines).toHaveLength(2);
+    expect(lines[0].rally).toEqual([fx.fromInt(ECONOMY_RALLY_TILE_X), fx.fromInt(30)]);
+    expect(lines[1].current).toBeNull();
+  });
+
+  // F4 Task 6, pair (a): the rally point is hashed. Two runs identical but for (14, 30) / (15, 30),
+  // stopped at tick 600 (before the first delivery at 700, so no unit has walked to either point
+  // and the point is the whole difference: a longer run differs through the squad's path).
+  it('the economy hash covers the rally point', () => {
+    const a = economyReplay(ECONOMY_SEED, false, ECONOMY_POP_CAP, 'direct', 14, 600);
+    const b = economyReplay(ECONOMY_SEED, false, ECONOMY_POP_CAP, 'direct', 15, 600);
+    expect(a.rt.economyHash()).not.toBe(b.rt.economyHash());
+  });
+
+  // F4 Task 6, pair (b): a line's side is hashed. A camp of side 0 and a camp of side 1, each
+  // with one item in progress (population 0, so the sides' population words agree), are the same
+  // words in the same order but for the side.
+  it('the economy hash covers the side of a line', () => {
+    const lineHash = (camp: typeof ECO_CAMP | typeof ECO_CAMP_S1, side: 0 | 1): number => {
+      const sim = new Sim({ seed: ECONOMY_SEED, width: 16, height: 16, capacity: 8 });
+      const squad = sim.addUnitType(ECO_SQUAD);
+      sim.addStructureType(camp);
+      const rt = new MissionRuntime(
+        sim,
+        {
+          id: 'line_side',
+          map: { file: 'beit_sahwan_outskirts' },
+          ledger: { requires: [], produces: [] },
+          structures: [{ type: camp.id, at: [6, 6], size: [2, 2] }],
+          objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
+          starting_force: [{ unit: 'inf_squad', count: 1, at: [2, 2] }],
+          enemy: { faction: 'ashwar', garrison: [] },
+        },
+        { typeIdOf: () => squad, markers: {}, zones: {} },
+      );
+      rt.start();
+      // Side 1 cannot buy until N3, so the item goes onto the line directly.
+      const line = rt['lines'][side][0];
+      expect(enqueue(line, { unit: 'inf_squad', logistics: 100, intel: 0, population: 0, buildTicks: 300 })).toBe(true);
+      expect(line.current?.unit).toBe('inf_squad');
+      return rt.economyHash();
+    };
+    expect(lineHash(ECO_CAMP_S1, 1)).not.toBe(lineHash(ECO_CAMP, 0));
   });
 
   // F3 Task 4: the pin is over a cap that BINDS. Without this, a fixture whose cap

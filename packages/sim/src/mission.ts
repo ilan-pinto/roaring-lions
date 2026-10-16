@@ -1077,9 +1077,8 @@ export class MissionRuntime {
    *  Read-only, and integer-only on purpose: the purse is an exact integer
    *  accumulator (1/2400ths), and only side 0's floored whole logistics is hashed,
    *  so every word folded in is an int32.
-   *  The build items (R-F4-8's interim fold) are side 0's line items in flattened line
-   *  order, current then queued, each as its unit id's characters, then
-   *  `startTick = readyTick - buildTicks` and its ready tick.
+   *  The production lines (F4 Task 6) follow the intel, in line order, side 0's then side 1's:
+   *  see `foldLines`.
    *  Then (F1 Task 3, F-R3) the settled first identifications: their count, then
    *  their entity ids ascending. Last (F3 Task 4): both sides' population and
    *  both caps, null as -1. */
@@ -1087,10 +1086,8 @@ export class MissionRuntime {
     let h = HASH_SEED;
     h = hashWord(h, this.logisticsOf(0));
     h = hashWord(h, this.intelValue | 0);
-    // R-F4-8 (interim until F4 Task 6): side 0's items fold exactly as the flat build queue
-    // did -- the count, then per item (current, then queued, line by line) its unit's
-    // characters, `startTick = readyTick - buildTicks` and `readyTick = now + ticks ahead + own`.
-    h = this.foldSideZeroItems(h);
+    // F4 Task 6 (GH-183, G3 Q3): the production lines replace the interim R-F4-8 fold, in place.
+    h = this.foldLines(h);
     // F1 Task 3 (F-R3): the settled first identifications, size then ids ascending.
     h = hashWord(h, this.paidIdentified.size);
     const settled = [...this.paidIdentified].sort((a, b) => a - b);
@@ -1752,33 +1749,30 @@ export class MissionRuntime {
     });
   }
 
-  /** R-F4-8: side 0's items as the flat queue folded them (see `economyHash`). No allocation. */
-  private foldSideZeroItems(h0: number): number {
+  /** F4 Task 6: every production line, side 0's then side 1's, in line order. Per line: its side,
+   *  its anchor (-1 = `player_start`), the item in progress (its unit's characters, or one 0
+   *  word), `ticksLeft`, the queue (count, then per item its unit's characters and its logistics
+   *  price) and the rally point (`x`, `y`, or -1, -1). A dead camp's line is folded too: the
+   *  items it still holds are state. No allocation. */
+  private foldLines(h0: number): number {
     let h = h0;
-    const now = this.sim.tickCount;
-    let n = 0;
-    for (const l of this.lines[0]) {
-      if (!this.lineAlive(l) || l.current === null) continue;
-      n += 1 + l.queue.length;
-    }
-    h = hashWord(h, n);
-    for (const l of this.lines[0]) {
-      if (!this.lineAlive(l) || l.current === null) continue;
-      let ready = now + l.ticksLeft;
-      h = this.foldItem(h, l.current, ready);
-      for (const q of l.queue) {
-        ready += q.buildTicks;
-        h = this.foldItem(h, q, ready);
+    for (const side of [0, 1] as const) {
+      for (const l of this.lines[side]) {
+        h = hashWord(h, l.side);
+        h = hashWord(h, l.anchor);
+        if (l.current === null) h = hashWord(h, 0);
+        else for (let i = 0; i < l.current.unit.length; i++) h = hashWord(h, l.current.unit.charCodeAt(i));
+        h = hashWord(h, l.ticksLeft);
+        h = hashWord(h, l.queue.length);
+        for (const q of l.queue) {
+          for (let i = 0; i < q.unit.length; i++) h = hashWord(h, q.unit.charCodeAt(i));
+          h = hashWord(h, q.logistics);
+        }
+        h = hashWord(h, l.rally === null ? -1 : l.rally.x);
+        h = hashWord(h, l.rally === null ? -1 : l.rally.y);
       }
     }
     return h;
-  }
-
-  private foldItem(h0: number, item: LineItem, readyTick: number): number {
-    let h = h0;
-    for (let i = 0; i < item.unit.length; i++) h = hashWord(h, item.unit.charCodeAt(i));
-    h = hashWord(h, (readyTick - item.buildTicks) | 0);
-    return hashWord(h, readyTick | 0);
   }
 
   objectiveStatus(id: string): ObjectiveStatus {
