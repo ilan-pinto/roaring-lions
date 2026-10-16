@@ -38,6 +38,9 @@ interface Opts {
   triggers?: MissionJson['triggers'];
   /** True = no `ctx.economy`: the sources are the mission's own (side 1: `enemy.production`). */
   noEconomy?: boolean;
+  /** F4 Task 9 fix: the mission's `resources` block (income zones) and the zone rectangles. */
+  resources?: MissionJson['resources'];
+  zones?: Record<string, readonly number[]>;
 }
 
 /** A 40 x 12 map; `n2_squad` costs 300 and builds in 2 s = 40 ticks, population 1, for either side. */
@@ -60,6 +63,7 @@ function world(o: Opts = {}) {
     starting_force: [{ unit: 'n2_squad', count: 1, at: [3, 8] }],
     ...(o.enemy !== undefined ? { enemy: o.enemy } : {}),
     ...(o.triggers !== undefined ? { triggers: o.triggers } : {}),
+    ...(o.resources !== undefined ? { resources: o.resources } : {}),
     structures: [
       ...camps.map(([x, y]) => ({ type: 'camp', at: [x, y], size: [2, 2] })),
       ...campsS1.map(([x, y]) => ({ type: 'camp_s1', at: [x, y], size: [2, 2] })),
@@ -67,7 +71,7 @@ function world(o: Opts = {}) {
     ],
   };
   const rt = new MissionRuntime(sim, mission, {
-    typeIdOf: () => t, markers: o.markers ?? {}, zones: {},
+    typeIdOf: () => t, markers: o.markers ?? {}, zones: o.zones ?? {},
     ...(o.noEconomy === true ? {} : { economy: { logisticsStart: o.start ?? [1200, 1200], logisticsRatePerMin: [0, 0] as [number, number] } }),
     ...(o.popCaps !== undefined ? { popCaps: o.popCaps } : {}),
     unitInfo: (u, side) => {
@@ -626,6 +630,37 @@ describe('the enemy buys through the same line (F4 Task 9, D8)', () => {
     expect(c.rt.logisticsOf(1)).toBe(5);
     c.step(1200);
     expect(c.rt.logisticsOf(1)).toBe(5);
+  });
+
+  it("LD6 ask 7: a zone held by a side-1 unit pays side 1's accumulator, on top of the authored base", () => {
+    const run = (unit: boolean) => {
+      const w = world({
+        ...S1, zones: { ridge: [20, 8, 4, 3] },
+        resources: { logistics_start: 0, logistics_rate_per_min: 0, income_zones: [{ zone: 'ridge', rate_per_min: 45 }] },
+        enemy: prod({ menu: ['n2_dear'], logistics_start: 640, logistics_rate_per_min: 60 }),
+      });
+      if (unit) w.sim.spawn(w.t, 1, fx.from(21), fx.from(9));
+      w.step(1200);
+      return w;
+    };
+    const held = run(true);
+    expect(held.rt.logisticsOf(1)).toBe(640 + 60 + 45);
+    expect(held.built()).toHaveLength(0);
+    expect(held.rt.logisticsOf(0)).toBe(0);
+    expect(run(false).rt.logisticsOf(1)).toBe(640 + 60);
+  });
+
+  it('economyHash folds the side-1 round-robin index: two runtimes differing only in it differ', () => {
+    // Same purse, population, empty lines, one n2_squad built each; only the menu index bought last
+    // (0 against 1) differs.
+    const run = (menu: string[]) => {
+      const w = world({ ...S1, enemy: prod({ menu, logistics_start: 300 }) });
+      w.step(60);
+      expect(w.built()).toHaveLength(1);
+      return w.rt.economyHash();
+    };
+    expect(run(['n2_squad', 'n2_dear'])).not.toBe(run(['n2_dear', 'n2_squad']));
+    expect(run(['n2_squad', 'n2_dear'])).toBe(run(['n2_squad', 'n2_dear']));
   });
 
   it('buys one unit at a time through requestBuild(unit, line, 1), and every purse write is that path', () => {

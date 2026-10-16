@@ -829,10 +829,14 @@ export class MissionRuntime {
    *  Built in `start()`; side 0 with no camp gets one `player_start` line (D2). */
   private readonly lines: [ProductionLine[], ProductionLine[]] = [[], []];
   /** F4 Task 9 (D8): side 1's menu as priced line items (built once at `start()`), and per side-1
-   *  line the menu index it bought last. Derived from the authored menu and the lines' own
-   *  hashed state; not hashed itself. Empty when the mission has no `enemy.production`. */
+   *  line the menu index it bought last. `enemyLast` is state nothing else records (a finished
+   *  item leaves no trace of which index was bought, and a refused ask moves it too), so
+   *  `economyHash` folds it, only when the menu is non-empty. Empty when the mission has no
+   *  `enemy.production`. */
   private enemyMenu: LineItem[] = [];
   private readonly enemyLast: number[] = [];
+  /** The cheapest menu item's logistics: below it `stepEnemyBuy` has nothing to ask. */
+  private enemyMinCost = 0;
   /** Scratch for `firstRefusal`: did the population check speak? Not state; never hashed. */
   private refusedByPopulation = false;
   private readonly identified = new Set<number>();
@@ -1152,6 +1156,9 @@ export class MissionRuntime {
       h = hashWord(h, cutCode(z.cut));
     }
     h = hashWord(h, this.convoy === null ? -1 : cutCode(this.convoy.cut));
+    // F4 Task 9 fix (review): the side-1 buyer's round-robin index per line. Only with a menu, so
+    // every mission without `enemy.production` (and every pinned fixture) adds nothing.
+    if (this.enemyMenu.length > 0) for (let k = 0; k < this.enemyLast.length; k++) h = hashWord(h, this.enemyLast[k]);
     return h >>> 0;
   }
 
@@ -2581,6 +2588,9 @@ export class MissionRuntime {
         buildTicks: info.buildTimeS * TICKS_PER_SECOND,
       });
     }
+    let minCost = this.enemyMenu.length > 0 ? this.enemyMenu[0].logistics : 0;
+    for (const it of this.enemyMenu) if (it.logistics < minCost) minCost = it.logistics;
+    this.enemyMinCost = minCost;
     for (let k = 0; k < this.lines[1].length; k++) {
       this.enemyLast.push(-1);
       if (prod.rally !== undefined) {
@@ -2601,6 +2611,7 @@ export class MissionRuntime {
   private stepEnemyBuy(): void {
     const menu = this.enemyMenu;
     if (menu.length === 0) return;
+    if (this.logisticsOf(1) < this.enemyMinCost) return;
     const lines = this.lines[1];
     const cap = this.popCap(1);
     for (let k = 0; k < lines.length; k++) {

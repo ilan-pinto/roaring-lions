@@ -140,9 +140,15 @@ describe('spendDown (F4 Task 8, D8)', () => {
     expect(spendDown(MENU, -1, 234, null, true)).toBeNull();
   });
   it('population room: 0 buys nothing, 1 skips the 2-pop item', () => {
-    expect(spendDown(MENU, -1, 700, 0, true)).toBeNull();
+    expect(spendDown(MENU, -1, 700, 0, true)).toBeNull(); // every item here has population > 0
     expect(spendDown(MENU, -1, 700, 1, true)).toBe(1);
     expect(spendDown(MENU, -1, 700, 2, true)).toBe(0);
+  });
+  it('C-R7: a full cap still buys a population-0 item, and skips the others', () => {
+    const free: LineItem[] = [...MENU, { unit: 'z', logistics: 100, intel: 0, population: 0, buildTicks: 40 }];
+    expect(spendDown(free, -1, 700, 0, true)).toBe(2);
+    expect(spendDown(free, -1, 700, -1, true)).toBe(2);
+    expect(spendDown(free, -1, 50, 0, true)).toBeNull();
   });
   it('the property: spent down until the remainder is below the cheapest item', () => {
     const purses = Array.from({ length: 50 }, (_, k) => k * 41 - (k % 3)).map((p) => Math.max(0, Math.min(2000, p)));
