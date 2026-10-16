@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import Ajv2020 from 'ajv/dist/2020.js';
 import { describe, expect, it } from 'vitest';
 import { MAX_PRODUCTION_LINES as SIM_MAX } from '@lions/sim';
-import { MAX_PRODUCTION_LINES, productionFailures } from '../validate_production.mjs';
+import { MAX_PRODUCTION_LINES, productionFailures, productionRuleFailures } from '../validate_production.mjs';
 
 const catalogue = {
   types: {
@@ -21,7 +21,7 @@ const enemyUnits = new Map<string, unknown>([
 ]);
 const camp1 = { type: 'camp', at: [0, 0], side: 1 };
 const run = (m: Record<string, unknown>, map = mapWith()) =>
-  productionFailures({ id: 'fx_m', map: { file: 'm' }, ...m }, map, catalogue, enemyUnits, 'fx.json');
+  productionRuleFailures({ id: 'fx_m', map: { file: 'm' }, ...m }, map, catalogue, enemyUnits, 'fx.json');
 
 describe('productionFailures on fixtures', () => {
   it('passes a mission with neither field', () => {
@@ -74,6 +74,16 @@ describe('productionFailures on fixtures', () => {
     // Side 1 counts its own bound.
     const six = Array.from({ length: 5 }, (_, i) => ({ type: 'camp', at: [i * 3, 0], side: 1 }));
     expect(run({ structures: six })[0]).toContain('side 1');
+  });
+  it('refuses any enemy.production while D7 stands, naming D7 and R-F4-5', () => {
+    const m = { id: 'fx_m', map: { file: 'm' }, structures: [camp1], enemy: { production: { menu: ['sarim_rifles'], rally: 'rally_a' } } };
+    expect(productionRuleFailures(m, mapWith(), catalogue, enemyUnits, 'fx.json')).toEqual([]);
+    const out = productionFailures(m, mapWith(), catalogue, enemyUnits, 'fx.json');
+    expect(out).toHaveLength(1);
+    expect(out[0]).toContain('D7');
+    expect(out[0]).toContain('R-F4-5');
+    expect(out[0]).toContain('answers KDF only');
+    expect(productionFailures({ id: 'fx_m', map: { file: 'm' } }, mapWith(), catalogue, enemyUnits, 'fx.json')).toEqual([]);
   });
   it('pins the bound to the sim\'s', () => {
     expect(MAX_PRODUCTION_LINES).toBe(SIM_MAX);

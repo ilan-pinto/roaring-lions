@@ -1,6 +1,6 @@
 // F4 (GH-183) Task 7: the cross-checks for `structures[].side` and `enemy.production`.
 //
-// Five rules, each refusing BY NAME (mission id plus the offending value):
+// Five rules (plus the D7 refusal of any enemy.production, productionFailures), each refusing BY NAME (mission id plus the offending value):
 //   - a menu unit that is not an enemy unit (data/units/enemy/: no mirrored tech trees, GH-109);
 //   - a menu unit that costs intel (LD6 ask 2: side 1 has no intel purse);
 //   - a `rally` the mission's MAP does not declare as a marker;
@@ -55,13 +55,16 @@ function gridProduction(map, catalogue) {
 }
 
 /**
+ * The five per-rule cross-checks, WITHOUT the D7 refusal below. Kept separate so each rule stays
+ * testable on an in-memory mission that carries an `enemy.production`.
+ *
  * @param {unknown} mission    a parsed mission
  * @param {unknown} map        the parsed map JSON the mission plays on
  * @param {unknown} catalogue  parsed data/structures.json
  * @param {ReadonlyMap<string, unknown>} enemyUnits  unit id -> unit JSON, from data/units/enemy/ only
  * @param {string} file        for messages
  */
-export function productionFailures(mission, map, catalogue, enemyUnits, file) {
+export function productionRuleFailures(mission, map, catalogue, enemyUnits, file) {
   const out = [];
   const id = mission?.id ?? file;
   const types = catalogue?.types ?? {};
@@ -100,6 +103,24 @@ export function productionFailures(mission, map, catalogue, enemyUnits, file) {
   }
   if (production.rally !== undefined && !(production.rally in (map?.markers ?? {}))) {
     out.push(`${file}: ${id} enemy.production rally "${production.rally}" is not a marker on map "${mission?.map?.file}"`);
+  }
+  return out;
+}
+
+/**
+ * Everything `validate:data` runs: the five rules plus D7 / R-F4-5. `buildEnemyMenu` throws at
+ * start() on any mission that carries `enemy.production`, because the shipped unitInfo (the app's,
+ * and the playtest and harness lambdas) answers KDF only. The schema and the five rules accept it,
+ * so without this refusal an authored `enemy.production` validates and then crashes the mission.
+ * Remove this when N3's loader or an enemy-roster lookup lets unitInfo answer side 1.
+ */
+export function productionFailures(mission, map, catalogue, enemyUnits, file) {
+  const out = productionRuleFailures(mission, map, catalogue, enemyUnits, file);
+  if (mission?.enemy?.production !== undefined) {
+    const id = mission?.id ?? file;
+    out.push(
+      `${file}: ${id} carries enemy.production, refused while D7 stands (R-F4-5): the shipped unitInfo answers KDF only; side 1 cannot build until N3's loader or an enemy-roster lookup`,
+    );
   }
   return out;
 }
