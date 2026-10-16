@@ -179,11 +179,14 @@ describe('the type register: theme.css', () => {
       '.rl-feedback__hint',
       '.rl-feedback__ref',
       '.rl-rate__n',
-      // Play with a friend (N1b): the room code, an identifier read aloud,
-      // and the small text controls in the Saves name field's own face
+      // Play with a friend (N1b): the room code, an identifier read aloud
       '.rl-versus__code',
-      '.rl-versus__field input[type=\'text\']',
-      '.rl-versus__field select',
+      // the face-off lobby (2026-10-16): the code entry's six drawn cells, the
+      // room code's big cells, and the room's link -- identifiers, read
+      // character by character. The callsign and the pickers left mono.
+      '.rl-versus__code-cell',
+      '.rl-versus__code-char',
+      '.rl-versus__link',
       // the advisor's shell command (N4a): code to paste, read character by character
       '.rl-versus__advisor-command',
       ':root',

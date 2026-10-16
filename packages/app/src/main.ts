@@ -1272,6 +1272,10 @@ async function main(): Promise<void> {
     // The ticket this tab stored for the room is what is traded (decision D1).
     advisorTicket: (code, scope) =>
       inviteAdvisor(code, scope, { fetch: window.fetch.bind(window), origin: location.origin, session: safeStorageLike(() => window.sessionStorage) }),
+    // The menu's still plate behind both screens (the face-off, 2026-10-16):
+    // the scene host's own poster, never a second live host.
+    plateUrl: `${BASE}${menuDiorama.plate}`,
+    saveData: prefersSaveData,
   };
 
   // --- the screens ---------------------------------------------------------

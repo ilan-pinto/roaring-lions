@@ -1,9 +1,20 @@
 // packages/app/src/ui/versus.ts
 /**
  * Play with a friend (N1b task 6): `/versus`, where a player picks a callsign
- * and either hosts a room on a map or joins one by its code, and
- * `/versus/:code`, the room's lobby -- the code shown large, a link to copy,
- * the two seats, the map, Ready, and Leave.
+ * and either hosts a room or joins one by its code, and `/versus/:code`, the
+ * room's lobby -- the code shown large, a link to copy, the two seats, the
+ * map, Ready, and Leave.
+ *
+ * Drawn as a FACE-OFF (the lead's direction C with A's map card, 2026-10-16):
+ * the host picks a side first (KDF, Sarim or Mirror, one radio group), and the
+ * two sides stand as cards -- yours, VS, your friend's -- tinted by the team
+ * colours (`--side-kdf`/`--side-sarim`, which follow the colour-vision
+ * setting). The side narrows the ground: on a faction pick, the mirror-only
+ * maps grey out with the reason. Then the ground (a map card: its picture with
+ * both starts, its line, "Measured even" and its pairing), the brigade
+ * switch, and Open a room. In the lobby the room code stands in your friend's
+ * empty card, where they will stand, announced once. The menu's still plate
+ * sits behind both screens (never a live scene host).
  *
  * One socket from the host's click to the battlefield. `/versus` opens the
  * room (`deps.open`, which is `openRoom` in `net/connect.ts`: created or
@@ -28,7 +39,7 @@
  * `NetChat`, which keeps to that too).
  */
 import { maps } from '@lions/data';
-import { ADVISOR_SCOPES, FACTION_MATCHUP_MAPS, MATCHUPS, MAX_CALLSIGN_CHARS, callsignOrDefault, cleanCallsign, matchupField, versusMapAllowed, type AdvisorScope, type Faction, type LobbyKit, type Matchup, type Seat, type SeatState, type WsTransport } from '@lions/net';
+import { ADVISOR_SCOPES, MAX_CALLSIGN_CHARS, callsignOrDefault, cleanCallsign, versusMapAllowed, type AdvisorScope, type Faction, type LobbyKit, type Matchup, type Seat, type SeatState, type WsTransport } from '@lions/net';
 import { t } from '../i18n/t';
 import { RoomRefused, RoomStarted, type OpenedRoom, type RoomRequest } from '../net/connect';
 import { handOver } from '../net/handoff';
@@ -40,8 +51,9 @@ import { markConfirm } from './confirm-cue';
 import { footBack, screenFoot } from './foot';
 import { stagger } from './motion';
 import { NetChat } from './net-chat';
-import { panel } from './panel';
 import { symbolLabel } from './symbol';
+import { factionArt, factionBlurb, factionName, friendSide, hostSide, matchupLabel } from './versus-faction';
+import { mapCard, mapPicture, pairsBoth, splitMapLabel } from './versus-ground';
 
 /** The Worker's room-code alphabet (`packages/worker/src/match/code.ts`, no
  *  0/O/1/I). The app cannot import the Worker, so this is a copy, and
@@ -52,11 +64,10 @@ export const CODE_LENGTH = 6;
 export const CALLSIGN_MAX = MAX_CALLSIGN_CHARS;
 /** The map a host is offered first, when it ships. */
 const DEFAULT_MAP = 'tel_marum';
-/** The host's side picker, in the order it lists them: the mirror first, as
- *  every room was before the matchup existed. */
-const MATCHUP_ORDER: readonly Matchup[] = MATCHUPS;
-/** The two seats, in the order their cards are drawn. */
-const SEAT_ORDER: readonly Seat[] = [0, 1];
+/** The host's side picker, in the order the segmented control lists them
+ *  (ruling 2026-10-16): the two factions, then the mirror. The mirror is still
+ *  the default pick. */
+const SIDE_ORDER: readonly Matchup[] = ['kdf', 'sarim', 'mirror'];
 /** How long a room opened on `/versus` waits for its lobby to take it, like
  *  `handoff.ts`'s `HANDOFF_EXPIRE_MS`: then it is closed. */
 export const PENDING_LOBBY_EXPIRE_MS = 10_000;
@@ -95,6 +106,11 @@ export interface VersusDeps {
   /** Trades this tab's seat ticket for an advisor ticket (`inviteAdvisor`,
    *  `net/connect.ts`). Rejects with an `AdvisorRefused` when the room says no. */
   advisorTicket(code: string, scope: AdvisorScope): Promise<string>;
+  /** The menu's still plate (`${BASE}${menuDiorama.plate}`), drawn behind
+   *  both screens; absent, the screens draw on the plain ground. */
+  plateUrl?: string;
+  /** The browser asked to spend less data: the plate is not fetched. */
+  saveData?: () => boolean;
 }
 
 /** Where the lobby tells a player to save the copied advisor ticket: a private
@@ -220,13 +236,6 @@ function adopt(o: OpenedRoom, deps: VersusDeps): Room {
     },
   });
   return room;
-}
-
-function heading(body: HTMLElement, text: string): void {
-  const h = document.createElement('h3');
-  h.className = 'rl-versus__section';
-  h.textContent = text;
-  body.appendChild(h);
 }
 
 function messageLine(className: string): HTMLParagraphElement {
@@ -384,133 +393,366 @@ function advisorInvite(room: Room, deps: VersusDeps, alive: () => boolean): HTML
   return el;
 }
 
-function frame(title: string): { wrap: HTMLElement; body: HTMLElement; footStart: HTMLElement } {
-  const wrap = document.createElement('div');
-  wrap.className = 'rl-menu rl-menu--versus';
-  const p = panel({ rank: 'inspect', title });
-  wrap.appendChild(p.el);
-  // The one footer row (`foot.ts`, GH-498), sticky like Credits and Saves.
-  const foot = screenFoot({ sticky: true });
-  p.el.appendChild(foot.el);
-  return { wrap, body: p.body, footStart: foot.start };
+let uid = 0;
+/** A document-unique id, so `aria-describedby`/`aria-labelledby` resolve even
+ *  when a screen is mounted beside another (a test, a soft navigation). */
+const nextId = (what: string): string => `rl-versus-${what}-${++uid}`;
+
+/** Text a screen reader reads and the eye does not need twice. */
+function srOnly(text: string, id?: string): HTMLSpanElement {
+  const s = document.createElement('span');
+  s.className = 'rl-versus__sr';
+  s.textContent = text;
+  if (id !== undefined) s.id = id;
+  return s;
 }
 
-/** `/versus`: a callsign, then host a room on a map, or join one by its code. */
+/** The one commit on a screen, in a menu tile's face (VR-20's stamp). */
+function stamp(label: string, className: string): HTMLButtonElement {
+  const b = button(label, `rl-versus__stamp ${className}`);
+  markConfirm(b);
+  return b;
+}
+
+/**
+ * Both screens' frame (the face-off, 2026-10-16): a full screen like the menu,
+ * so not a `panel()` (a screen's rank is the screen) -- the menu's still plate
+ * behind it, the hero title, a body, the one footer row, and a polite live
+ * region for what changes without the player's hand (the room opening).
+ */
+function frame(deps: VersusDeps, title: string): {
+  wrap: HTMLElement;
+  headEnd: HTMLElement;
+  body: HTMLElement;
+  footStart: HTMLElement;
+  live: HTMLElement;
+} {
+  const wrap = document.createElement('div');
+  wrap.className = 'rl-versus';
+  // The menu's own plate (the scene host's held frame), not a live host: no
+  // second GPU context, nothing that moves. Save-data skips the 421 KB fetch.
+  if (deps.plateUrl !== undefined && deps.plateUrl !== '' && deps.saveData?.() !== true) {
+    const back = document.createElement('div');
+    back.className = 'rl-versus__backdrop';
+    back.setAttribute('aria-hidden', 'true');
+    const img = document.createElement('img');
+    img.className = 'rl-versus__backdrop-img';
+    img.alt = '';
+    img.src = deps.plateUrl;
+    // A plate that does not load is removed, never drawn broken.
+    img.addEventListener('error', () => back.remove(), { once: true });
+    back.appendChild(img);
+    wrap.appendChild(back);
+  }
+  const main = document.createElement('section');
+  main.className = 'rl-versus__frame';
+  const head = document.createElement('header');
+  head.className = 'rl-versus__head';
+  const h = document.createElement('h2');
+  h.className = 'rl-versus__title';
+  h.id = nextId('title');
+  h.textContent = title;
+  main.setAttribute('aria-labelledby', h.id);
+  const headEnd = document.createElement('div');
+  headEnd.className = 'rl-versus__head-end';
+  head.append(h, headEnd);
+  const body = document.createElement('div');
+  body.className = 'rl-versus__body';
+  const foot = screenFoot();
+  const live = messageLine('rl-versus__live');
+  main.append(head, body, foot.el, live);
+  wrap.appendChild(main);
+  return { wrap, headEnd, body, footStart: foot.start, live };
+}
+
+/** The face-off's VS, decoration between the two cards. */
+function versusMark(): HTMLElement {
+  const vs = document.createElement('span');
+  vs.className = 'rl-versus__vs';
+  vs.setAttribute('aria-hidden', 'true');
+  vs.textContent = t('versus.lobby.vs');
+  return vs;
+}
+
+/** `/versus`: pick a side, then the ground, open a room -- or join one by its code. */
 export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
   let disposed = false;
   const leaving = new AbortController();
-  const { wrap, body, footStart } = frame(t('versus.title'));
+  const { wrap, headEnd, body, footStart } = frame(deps, t('versus.title'));
 
   const callsign = callsignField(deps);
-  body.appendChild(callsign.el);
+  headEnd.appendChild(callsign.el);
 
-  // --- host ----------------------------------------------------------------
-  heading(body, t('versus.host.title'));
-  const mapField = document.createElement('label');
-  mapField.className = 'rl-versus__field';
-  const mapName = document.createElement('span');
-  mapName.className = 'rl-versus__label';
-  mapName.textContent = t('versus.host.map');
-  const select = document.createElement('select');
-  select.className = 'rl-versus__map';
-  for (const m of deps.maps) {
-    const o = document.createElement('option');
-    o.value = m.id;
-    o.textContent = m.label;
-    select.appendChild(o);
-  }
-  if (deps.maps.some((m) => m.id === DEFAULT_MAP)) select.value = DEFAULT_MAP;
-  mapField.append(mapName, select);
-  body.appendChild(mapField);
-  // The host's side (2026-10-14): KDF or Sarim, the guest getting the other,
-  // or the mirror every room was before.
-  const sideField = document.createElement('label');
-  sideField.className = 'rl-versus__field';
-  const sideName = document.createElement('span');
-  sideName.className = 'rl-versus__label';
-  sideName.textContent = t('versus.host.side');
-  const side = document.createElement('select');
-  side.className = 'rl-versus__faction';
-  for (const m of MATCHUP_ORDER) {
-    const o = document.createElement('option');
-    o.value = m;
-    o.textContent = t('versus.host.side.option', { m });
-    side.appendChild(o);
-  }
-  side.value = 'mirror';
-  sideField.append(sideName, side);
-  body.appendChild(sideField);
+  /** What the host has picked so far. The mirror first, as every room was
+   *  before the matchup existed. */
+  let side: Matchup = 'mirror';
+  let map = deps.maps.some((m) => m.id === DEFAULT_MAP) ? DEFAULT_MAP : (deps.maps[0]?.id ?? '');
+  let kit = false;
   // KDF vs Sarim plays only on `FACTION_MATCHUP_MAPS` (the lead, 2026-10-14;
-  // the room refuses it anywhere else): picking a side narrows the map list to
-  // the maps it plays on, and the note says why the map moved. The mirror opens
-  // every map again.
+  // the room refuses it anywhere else). A build that ships none of them
+  // offers the mirror alone.
+  const offered = deps.maps.filter((m) => pairsBoth(m.id));
+
+  // --- the side: a segmented radio group, picked FIRST (ruling 2026-10-16) --
+  const sides = document.createElement('fieldset');
+  sides.className = 'rl-versus__sides';
+  const sidesLegend = document.createElement('legend');
+  sidesLegend.className = 'rl-versus__label';
+  sidesLegend.textContent = t('versus.lobby.side.pick');
+  sides.appendChild(sidesLegend);
+  const sideName = nextId('side');
+  const sideReasonId = nextId('side-reason');
+  const sideRadios = new Map<Matchup, HTMLInputElement>();
+  for (const m of SIDE_ORDER) {
+    const label = document.createElement('label');
+    label.className = 'rl-versus__side';
+    label.dataset.side = m;
+    const radio = document.createElement('input');
+    radio.type = 'radio';
+    radio.className = 'rl-versus__side-radio';
+    radio.name = sideName;
+    radio.value = m;
+    radio.checked = m === side;
+    radio.addEventListener('change', () => {
+      if (!radio.checked) return;
+      side = m;
+      syncSide();
+    });
+    const name = document.createElement('span');
+    name.className = 'rl-versus__side-name';
+    name.textContent = matchupLabel(m);
+    label.append(radio, name);
+    sides.appendChild(label);
+    sideRadios.set(m, radio);
+  }
+  const sideReason = document.createElement('p');
+  sideReason.className = 'rl-versus__side-reason';
+  sideReason.id = sideReasonId;
+  sideReason.textContent = t('versus.lobby.side.none');
+  sideReason.hidden = offered.length > 0;
+  sides.appendChild(sideReason);
+  for (const [m, radio] of sideRadios) {
+    if (m === 'mirror' || offered.length > 0) continue;
+    radio.disabled = true;
+    radio.setAttribute('aria-describedby', sideReasonId);
+    (radio.closest('label') as HTMLElement).dataset.off = '1';
+  }
+  body.appendChild(sides);
+
+  // --- the face-off: your card, VS, your friend's ---------------------------
+  const faceoff = document.createElement('div');
+  faceoff.className = 'rl-versus__faceoff';
+  const youCard = document.createElement('div');
+  youCard.className = 'rl-versus__fcard';
+  youCard.dataset.who = 'you';
+  const friendCard = document.createElement('div');
+  friendCard.className = 'rl-versus__fcard';
+  friendCard.dataset.who = 'friend';
+  faceoff.append(youCard, versusMark(), friendCard);
+  body.appendChild(faceoff);
+  const youName = document.createElement('span');
+  youName.className = 'rl-versus__fcard-who';
+  const paintCard = (card: HTMLElement, f: Faction, who: HTMLElement): void => {
+    if (card.dataset.faction === f && card.firstChild === who) return;
+    card.dataset.faction = f;
+    const name = document.createElement('span');
+    name.className = 'rl-versus__fcard-name';
+    name.textContent = factionName(f);
+    const blurb = document.createElement('span');
+    blurb.className = 'rl-versus__fcard-blurb';
+    blurb.textContent = factionBlurb(f);
+    card.replaceChildren(who, factionArt(f, 'rl-versus__art--big'), name, blurb);
+  };
+  const friendWho = document.createElement('span');
+  friendWho.className = 'rl-versus__fcard-who';
+  friendWho.textContent = t('versus.lobby.friend');
+  const nameYou = (): void => {
+    youName.textContent = callsignOrDefault(callsign.input.value);
+  };
+  callsign.input.addEventListener('input', nameYou);
+  nameYou();
+
+  // --- the ground: the map card, and the maps as radio tiles ----------------
+  const ground = document.createElement('div');
+  ground.className = 'rl-versus__ground';
+  const cardSlot = document.createElement('div');
+  cardSlot.className = 'rl-versus__mapcard-slot';
+  const mapsSet = document.createElement('fieldset');
+  mapsSet.className = 'rl-versus__maps';
+  const mapsLegend = document.createElement('legend');
+  mapsLegend.className = 'rl-versus__label';
+  mapsLegend.textContent = t('versus.lobby.ground.pick');
+  mapsSet.appendChild(mapsLegend);
+  const mapName = nextId('map');
+  const tiles: { id: string; radio: HTMLInputElement; label: HTMLLabelElement; sub: HTMLElement }[] = [];
+  for (const m of deps.maps) {
+    const label = document.createElement('label');
+    label.className = 'rl-versus__tile';
+    const radio = document.createElement('input');
+    radio.type = 'radio';
+    radio.className = 'rl-versus__map-radio';
+    radio.name = mapName;
+    radio.value = m.id;
+    radio.checked = m.id === map;
+    radio.addEventListener('change', () => {
+      if (!radio.checked) return;
+      map = m.id;
+      paintGround();
+    });
+    const text = document.createElement('span');
+    text.className = 'rl-versus__tile-text';
+    const name = document.createElement('span');
+    name.className = 'rl-versus__tile-name';
+    name.id = nextId('map-name');
+    name.textContent = splitMapLabel(m.label).name;
+    const sub = document.createElement('span');
+    sub.className = 'rl-versus__tile-sub';
+    sub.id = nextId('map-sub');
+    radio.setAttribute('aria-labelledby', name.id);
+    radio.setAttribute('aria-describedby', sub.id);
+    text.append(name, sub);
+    label.append(radio, mapPicture(m.id, 'rl-versus__pic--thumb', null), text);
+    mapsSet.appendChild(label);
+    tiles.push({ id: m.id, radio, label, sub });
+  }
+  // Said under the tiles while a side other than the mirror narrows them.
   const sideNote = document.createElement('p');
   sideNote.className = 'rl-versus__side-note';
   sideNote.textContent = t('versus.host.side.note');
-  body.appendChild(sideNote);
-  const offered = deps.maps.filter((m) => FACTION_MATCHUP_MAPS.includes(m.id));
-  // A build that ships none of those maps offers the mirror alone.
-  for (const o of side.options) o.disabled = o.value !== 'mirror' && offered.length === 0;
-  const syncSide = (): void => {
-    const narrowed = matchupField(side.value) !== 'mirror';
-    for (const o of select.options) o.disabled = narrowed && !FACTION_MATCHUP_MAPS.includes(o.value);
-    if (narrowed && !FACTION_MATCHUP_MAPS.includes(select.value) && offered.length > 0) select.value = offered[0].id;
-    sideNote.hidden = !narrowed;
+  mapsSet.appendChild(sideNote);
+  ground.append(cardSlot, mapsSet);
+  body.appendChild(ground);
+  const paintGround = (): void => {
+    const label = deps.maps.find((m) => m.id === map)?.label;
+    cardSlot.replaceChildren(...(label === undefined ? [] : [mapCard(map, label, 0)]));
   };
-  side.addEventListener('change', syncSide);
-  syncSide();
-  // Bring your brigade (per-seat kit): HOST only, off by default, and labelled
-  // friends-only. The room cannot check a claim against an account (no server
-  // ledger yet), so the note says so; the joiner has no say in the rule.
-  const kitField = document.createElement('label');
-  kitField.className = 'rl-versus__field rl-versus__kit';
-  const kitBox = document.createElement('input');
-  kitBox.type = 'checkbox';
-  kitBox.className = 'rl-versus__kit-toggle';
-  kitBox.checked = false;
-  const kitName = document.createElement('span');
-  kitName.textContent = t('versus.host.kit');
-  kitField.append(kitBox, kitName);
-  body.appendChild(kitField);
-  const kitNote = document.createElement('p');
-  kitNote.className = 'rl-versus__kit-note';
-  kitNote.textContent = t('versus.host.kit.note');
-  body.appendChild(kitNote);
-  const openBtn = button(t('versus.host.open'), 'rl-versus__open');
-  markConfirm(openBtn);
-  body.appendChild(openBtn);
 
-  // --- join ----------------------------------------------------------------
-  heading(body, t('versus.join.title'));
-  const codeField = document.createElement('label');
-  codeField.className = 'rl-versus__field';
-  const codeName = document.createElement('span');
-  codeName.className = 'rl-versus__label';
-  codeName.textContent = t('versus.join.code');
+  // --- bring your brigade: a switch, and its one-line hint ------------------
+  // HOST only, off by default, friends-only: the room cannot check a claim
+  // against an account (no server ledger yet), and the joiner has no say.
+  const act = document.createElement('div');
+  act.className = 'rl-versus__act';
+  const kitRow = document.createElement('div');
+  kitRow.className = 'rl-versus__kit';
+  const kitSwitch = document.createElement('button');
+  kitSwitch.type = 'button';
+  kitSwitch.className = 'rl-versus__kit-toggle';
+  kitSwitch.setAttribute('role', 'switch');
+  const knob = document.createElement('span');
+  knob.className = 'rl-versus__knob';
+  knob.setAttribute('aria-hidden', 'true');
+  const kitName = document.createElement('span');
+  kitName.className = 'rl-versus__kit-label';
+  kitName.textContent = t('versus.host.kit');
+  kitSwitch.append(knob, kitName);
+  const kitHint = document.createElement('span');
+  kitHint.className = 'rl-versus__kit-hint';
+  kitHint.id = nextId('kit-hint');
+  kitSwitch.setAttribute('aria-describedby', kitHint.id);
+  const paintKit = (): void => {
+    kitSwitch.setAttribute('aria-checked', String(kit));
+    kitHint.textContent = t('versus.lobby.kit.hint', { on: String(kit) });
+  };
+  kitSwitch.addEventListener('click', () => {
+    kit = !kit;
+    paintKit();
+  });
+  paintKit();
+  kitRow.append(kitSwitch, kitHint);
+  const openBtn = stamp(t('versus.host.open'), 'rl-versus__open');
+  act.append(kitRow, openBtn);
+  body.appendChild(act);
+
+  /** A side narrows the ground: a mirror-only map greys out with its reason,
+   *  and a pick on one moves to the first map the pairing plays. */
+  function syncSide(): void {
+    const narrowed = side !== 'mirror';
+    if (narrowed && !pairsBoth(map) && offered.length > 0) map = offered[0]!.id;
+    for (const tile of tiles) {
+      const off = narrowed && !pairsBoth(tile.id);
+      tile.radio.disabled = off;
+      tile.radio.checked = tile.id === map;
+      if (off) tile.label.dataset.off = '1';
+      else delete tile.label.dataset.off;
+      tile.sub.textContent = off ? t('versus.lobby.map.offReason') : t('versus.lobby.map.pairing', { both: String(pairsBoth(tile.id)) });
+    }
+    sideNote.hidden = !narrowed;
+    paintCard(youCard, hostSide(side), youName);
+    paintCard(friendCard, friendSide(side), friendWho);
+    paintGround();
+  }
+  syncSide();
+
+  // --- join: one bar, six drawn cells over one real input --------------------
+  const joinBar = document.createElement('section');
+  joinBar.className = 'rl-versus__join-bar';
+  const joinLead = document.createElement('h3');
+  joinLead.className = 'rl-versus__join-lead';
+  joinLead.id = nextId('join');
+  joinLead.textContent = t('versus.lobby.join.lead');
+  joinBar.setAttribute('aria-labelledby', joinLead.id);
+  const entry = document.createElement('label');
+  entry.className = 'rl-versus__code-entry';
+  const field = document.createElement('span');
+  field.className = 'rl-versus__code-field';
+  const cells = document.createElement('span');
+  cells.className = 'rl-versus__code-cells';
+  cells.setAttribute('aria-hidden', 'true');
+  const cellEls: HTMLElement[] = [];
+  for (let i = 0; i < CODE_LENGTH; i++) {
+    const c = document.createElement('span');
+    c.className = 'rl-versus__code-cell';
+    cells.appendChild(c);
+    cellEls.push(c);
+  }
   const code = document.createElement('input');
   code.type = 'text';
   code.className = 'rl-versus__code-input';
   code.autocomplete = 'off';
   code.spellcheck = false;
+  code.maxLength = CODE_LENGTH;
   code.setAttribute('autocapitalize', 'characters');
-  codeField.append(codeName, code);
-  body.appendChild(codeField);
+  const codeHintId = nextId('code-hint');
+  code.setAttribute('aria-describedby', codeHintId);
+  field.append(cells, code);
+  entry.append(srOnly(t('versus.join.code')), field, srOnly(t('versus.lobby.join.hint'), codeHintId));
   const goBtn = button(t('versus.join.go'), 'rl-versus__join');
-  body.appendChild(goBtn);
-
+  const row = document.createElement('div');
+  row.className = 'rl-versus__join-row';
+  row.append(entry, goBtn);
+  // The error line is RESERVED (ruling 2026-10-16): always in the layout, one
+  // line tall, so an error does not push the screen down.
   const msg = messageLine('rl-versus__msg');
-  body.appendChild(msg);
+  joinBar.append(joinLead, row, msg);
+  body.appendChild(joinBar);
 
   let busy = false;
   const sync = (): void => {
     openBtn.disabled = busy || deps.maps.length === 0;
     goBtn.disabled = busy || code.value.length !== CODE_LENGTH;
+    cellEls.forEach((c, i) => {
+      c.textContent = code.value[i] ?? '';
+      if (i === code.value.length) c.dataset.next = '1';
+      else delete c.dataset.next;
+    });
   };
-  const start = (req: RoomRequest): void => {
+  const sayError = (text: string): void => {
+    msg.textContent = text;
+    if (text === '') {
+      delete msg.dataset.tone;
+      code.removeAttribute('aria-invalid');
+      delete field.dataset.bad;
+    } else {
+      msg.dataset.tone = 'bad';
+      code.setAttribute('aria-invalid', 'true');
+      field.dataset.bad = '1';
+    }
+  };
+  const start = (req: RoomRequest, fromJoin: boolean): void => {
     if (busy) return;
     busy = true;
     sync();
-    msg.textContent = '';
+    sayError('');
     deps.open(req, leaving.signal).then(
       (o) => {
         // Left while the room opened: nobody will take it, so it is closed here.
@@ -522,19 +764,21 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
         if (disposed || startedElsewhere(err, deps)) return;
         busy = false;
         sync();
-        msg.textContent = errorLine(err);
+        if (fromJoin) sayError(errorLine(err));
+        else msg.textContent = errorLine(err);
       },
     );
   };
-  openBtn.addEventListener('click', () => start({ kind: 'create', map: select.value, matchup: matchupField(side.value), kit: kitBox.checked ? 'brigade' : 'matched', callsign: callsignOrDefault(callsign.input.value) }));
+  openBtn.addEventListener('click', () => start({ kind: 'create', map, matchup: side, kit: kit ? 'brigade' : 'matched', callsign: callsignOrDefault(callsign.input.value) }, false));
   const join = (): void => {
     if (code.value.length !== CODE_LENGTH) return;
-    start({ kind: 'join', code: code.value, callsign: callsignOrDefault(callsign.input.value) });
+    start({ kind: 'join', code: code.value, callsign: callsignOrDefault(callsign.input.value) }, true);
   };
   goBtn.addEventListener('click', join);
   code.addEventListener('input', () => {
     const v = filterCode(code.value);
     if (v !== code.value) code.value = v;
+    if (msg.textContent !== '') sayError('');
     sync();
   });
   code.addEventListener('keydown', (ev) => {
@@ -544,13 +788,29 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
 
   footStart.appendChild(footBack(t('nav.backToMenu'), routes.menu()));
 
-  stagger(wrap);
+  stagger(body);
   stage.appendChild(wrap);
   return () => {
     disposed = true;
     leaving.abort();
     wrap.remove();
   };
+}
+
+/** The room's code as the big cells: one cell a character, spelled for a
+ *  screen reader (a six-letter run read as a word is no use to a friend). */
+function codeCells(code: string): HTMLElement {
+  const big = document.createElement('div');
+  big.className = 'rl-versus__code';
+  big.setAttribute('role', 'img');
+  big.setAttribute('aria-label', [...code].join(' '));
+  for (const ch of code) {
+    const c = document.createElement('span');
+    c.className = 'rl-versus__code-char';
+    c.textContent = ch;
+    big.appendChild(c);
+  }
+  return big;
 }
 
 /** `/versus/:code`: the room's lobby, or -- by a direct link -- a callsign and Join first. */
@@ -560,7 +820,13 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
   let room: Room | null = takePending(code);
   let leaveDialog: ConfirmHandle | null = null;
 
-  const { wrap, body, footStart } = frame(t('versus.room.title', { code }));
+  const { wrap, headEnd, body, footStart, live } = frame(deps, t('versus.title'));
+  /** What takes the focus once the screen is in the document (Copy link, when
+   *  the room opens with the code in the friend's card). */
+  const focusOnMount: { el: HTMLElement | null } = { el: null };
+  const roomName = document.createElement('span');
+  roomName.className = 'rl-versus__room-name';
+  roomName.textContent = t('versus.room.title', { code });
 
   const leaveNow = (): void => {
     if (room === null || room.phase !== 'lobby') return;
@@ -588,12 +854,17 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
 
   const lobby = (r: Room): void => {
     body.replaceChildren();
+    // The code, built once and MOVED between repaints: into the friend's empty
+    // card while the room waits for them (where the friend will stand), and
+    // up beside the title once they are in.
+    const codeBlock = document.createElement('div');
+    codeBlock.className = 'rl-versus__room';
+    const tag = document.createElement('span');
+    tag.className = 'rl-versus__room-tag';
+    tag.textContent = t('versus.lobby.room.open');
     const share = document.createElement('p');
     share.className = 'rl-versus__share';
     share.textContent = t('versus.room.share');
-    const big = document.createElement('div');
-    big.className = 'rl-versus__code';
-    big.textContent = r.code;
     const copyRow = document.createElement('div');
     copyRow.className = 'rl-versus__copy-row';
     const copyBtn = button(t('versus.room.copy'), 'rl-versus__copy');
@@ -604,17 +875,20 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
       });
     });
     copyRow.append(copyBtn, copied);
+    const link = document.createElement('code');
+    link.className = 'rl-versus__link';
+    link.textContent = deps.linkFor(r.code);
+    codeBlock.append(tag, share, codeCells(r.code), copyRow, link);
 
     const seats = document.createElement('div');
-    seats.className = 'rl-versus__seats';
-    const mapLine = document.createElement('p');
-    mapLine.className = 'rl-versus__room-map';
-    const mapName = document.createElement('span');
-    mapName.className = 'rl-versus__label';
-    mapName.textContent = t('versus.host.map');
-    const mapValue = document.createElement('span');
-    mapValue.className = 'rl-versus__map-name';
-    mapLine.append(mapName, mapValue);
+    seats.className = 'rl-versus__seats rl-versus__faceoff';
+    // The ground and the rule, under the cards.
+    const lower = document.createElement('div');
+    lower.className = 'rl-versus__room-lower';
+    const mapSlot = document.createElement('div');
+    mapSlot.className = 'rl-versus__room-map';
+    const side = document.createElement('div');
+    side.className = 'rl-versus__room-side';
     // The room's kit rule, the same line for both seats.
     const kitLine = document.createElement('p');
     kitLine.className = 'rl-versus__room-kit';
@@ -625,8 +899,7 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
     kitValue.className = 'rl-versus__kit-name';
     kitLine.append(kitLabel, kitValue);
     const status = messageLine('rl-versus__status');
-    const ready = button(t('versus.room.ready'), 'rl-versus__ready');
-    markConfirm(ready);
+    const ready = stamp(t('versus.room.ready'), 'rl-versus__ready');
     ready.setAttribute('aria-pressed', 'false');
     let readySent = false;
     ready.addEventListener('click', () => {
@@ -635,6 +908,8 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
       r.transport.ready();
       paint();
     });
+    side.append(kitLine, ready, status);
+    lower.append(mapSlot, side);
     // The lobby chat (N1b task 9, R-B10): docked, so its input is always there.
     const chat = document.createElement('div');
     chat.className = 'rl-versus__chat';
@@ -651,14 +926,30 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
 
     const card = (n: Seat): HTMLElement => {
       const el = document.createElement('div');
-      el.className = 'rl-versus__seat';
+      el.className = 'rl-versus__seat rl-versus__fcard';
+      el.dataset.seat = String(n);
+      el.dataset.who = n === r.seat ? 'you' : 'friend';
+      // The force this seat commands: KDF or Sarim, which is also its tint.
+      el.dataset.faction = r.factions[n];
       const s = r.seats.find((x) => x.seat === n);
+      const who = document.createElement('span');
+      who.className = 'rl-versus__fcard-who';
+      const force = document.createElement('span');
+      force.className = 'rl-versus__force rl-versus__fcard-name';
+      force.dataset.faction = r.factions[n];
+      force.textContent = factionName(r.factions[n]);
       const state = document.createElement('span');
       state.className = 'rl-versus__state';
       if (s === undefined) {
         el.dataset.empty = '1';
+        who.textContent = t('versus.lobby.friend');
         state.textContent = t('versus.room.waiting');
-        el.appendChild(state);
+        if (r.phase === 'lobby') {
+          el.dataset.room = '1';
+          el.append(who, codeBlock, force, state);
+        } else {
+          el.append(who, factionArt(r.factions[n], 'rl-versus__art--big'), force, state);
+        }
         return el;
       }
       const dot = document.createElement('span');
@@ -668,19 +959,14 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
       const name = document.createElement('span');
       name.className = 'rl-versus__name';
       name.textContent = s.callsign;
-      // The force this seat commands: KDF or Sarim.
-      const force = document.createElement('span');
-      force.className = 'rl-versus__force';
-      force.dataset.faction = r.factions[n];
-      force.textContent = t('versus.faction', { f: r.factions[n] });
-      el.append(dot, name, force);
+      who.append(dot, name);
       if (n === r.seat) {
-        el.dataset.you = '1';
         const you = document.createElement('span');
         you.className = 'rl-versus__you';
         you.textContent = t('versus.room.you');
-        el.appendChild(you);
+        who.appendChild(you);
       }
+      el.append(who, factionArt(r.factions[n], 'rl-versus__art--big'), force);
       if (s.ready) el.dataset.ready = '1';
       state.textContent = t(s.ready ? 'versus.room.ready' : 'versus.room.notReady');
       el.appendChild(state);
@@ -698,20 +984,43 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
       return el;
     };
 
+    let paintedMap: string | null = null;
     const paint = (): void => {
-      seats.replaceChildren(...SEAT_ORDER.map(card));
-      mapValue.textContent = deps.maps.find((m) => m.id === r.map)?.label ?? r.map;
+      // Your card first, your friend's across from it, whichever seat you hold.
+      const mine = r.seat;
+      const theirs: Seat = mine === 0 ? 1 : 0;
+      seats.replaceChildren(card(mine), versusMark(), card(theirs));
+      // The code is beside the title unless it is in the friend's card.
+      if (!seats.contains(codeBlock)) {
+        codeBlock.dataset.place = 'head';
+        headEnd.replaceChildren(codeBlock);
+      } else {
+        codeBlock.dataset.place = 'card';
+        headEnd.replaceChildren(roomName);
+      }
+      if (paintedMap !== r.map) {
+        paintedMap = r.map;
+        const label = deps.maps.find((m) => m.id === r.map)?.label ?? r.map;
+        mapSlot.replaceChildren(mapCard(r.map, label, r.seat, 'rl-versus__mapcard--room'));
+      }
       kitLine.dataset.kit = r.kit;
       kitValue.textContent = t('versus.room.kit.value', { kit: r.kit });
-      const mine = r.seats.find((x) => x.seat === r.seat);
-      const pressed = readySent || mine?.ready === true;
+      const me = r.seats.find((x) => x.seat === r.seat);
+      const pressed = readySent || me?.ready === true;
       ready.setAttribute('aria-pressed', pressed ? 'true' : 'false');
       ready.disabled = pressed || r.phase !== 'lobby';
       status.textContent = r.error !== null ? t(r.error) : r.phase === 'ended' ? t('versus.room.ended') : '';
     };
     r.repaint = paint;
-    body.append(share, big, copyRow, seats, mapLine, kitLine, status, ready, chat);
+    body.append(seats, lower, chat);
     paint();
+    // The room is open and the friend's seat holds its code: say so once, and
+    // put the player on the control that sends it.
+    if (seats.contains(codeBlock)) {
+      live.textContent = t('versus.lobby.room.announce', { code: r.code });
+      focusOnMount.el = copyBtn;
+      if (wrap.isConnected) copyBtn.focus({ preventScroll: true });
+    }
 
     // The way back is Leave, confirmed: it closes the room for both seats.
     const leave = document.createElement('button');
@@ -725,9 +1034,14 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
 
   /** A direct link: no room parked for this code, so a callsign and Join first. */
   const prompt = (): void => {
+    headEnd.replaceChildren(roomName);
+    const box = document.createElement('div');
+    box.className = 'rl-versus__prompt';
+    const lead = document.createElement('p');
+    lead.className = 'rl-versus__prompt-lead';
+    lead.textContent = t('versus.lobby.prompt', { code });
     const callsign = callsignField(deps);
-    const go = button(t('versus.join.go'), 'rl-versus__join');
-    markConfirm(go);
+    const go = stamp(t('versus.join.go'), 'rl-versus__join');
     const msg = messageLine('rl-versus__msg');
     let busy = false;
     go.addEventListener('click', () => {
@@ -745,11 +1059,13 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
           if (disposed || startedElsewhere(err, deps)) return;
           busy = false;
           go.disabled = false;
+          msg.dataset.tone = 'bad';
           msg.textContent = errorLine(err);
         },
       );
     });
-    body.append(callsign.el, go, msg);
+    box.append(lead, callsign.el, go, msg);
+    body.appendChild(box);
     footStart.appendChild(footBack(t('versus.title'), routes.versus()));
   };
 
@@ -766,8 +1082,9 @@ export function showVersusRoom(stage: HTMLElement, code: string, deps: VersusDep
   };
   window.addEventListener('keydown', onKey);
 
-  stagger(wrap);
+  stagger(body);
   stage.appendChild(wrap);
+  focusOnMount.el?.focus({ preventScroll: true });
   return () => {
     disposed = true;
     leaving.abort();
