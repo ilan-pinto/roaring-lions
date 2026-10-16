@@ -13,7 +13,7 @@
     "suppression_resistance": 0.75,
     "can_embark": false
   },
-  "mobility": { "speed_tiles_s": 0.6, "turn_rate_deg_s": 45, "wheeled": true },
+  "mobility": { "speed_tiles_s": 0.6, "turn_rate_deg_s": 45, "wheeled": true, "footprint": { "half_length_tiles": 1.14, "half_width_tiles": 0.73 } },
   "sensors": { "optics": 0.8, "sight_tiles": 7, "signature": 1.15, "firing_signature_mult": 1.0 },
   "abilities": ["demolish"],
   "demolition_time_s": 2.0,

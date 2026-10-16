@@ -33,6 +33,7 @@
   "mobility": {
     "speed_tiles_s": 1.1,
     "turn_rate_deg_s": 60,
+    "footprint": { "half_length_tiles": 0.87, "half_width_tiles": 0.48, "centre_along_tiles": -0.18 },
     "can_crush": true
   },
   "sensors": {

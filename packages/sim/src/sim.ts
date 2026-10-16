@@ -205,6 +205,9 @@ export interface UnitTypeJson {
      *  `!FOOT_ROLES.has(role)` — see UnitType.wheeled for why role alone is
      *  not enough and this field has to exist. */
     wheeled?: boolean;
+    /** Vehicle spacing (GH-421, V-R1): the hull as a capsule, in tiles. Present on exactly the
+     *  vehicles that separate; absent, the unit is neither pushed nor pushes. */
+    footprint?: { half_length_tiles: number; half_width_tiles: number; centre_along_tiles?: number };
     /** Fires only from a halt: gets down before its first shot and up again
      *  before it moves on. Absent means derived -- every armed foot unit that
      *  is not a kamikaze. See UnitType.haltsToFire. */
@@ -428,6 +431,15 @@ export interface UnitType {
    */
   wheeled: boolean;
   /**
+   * Vehicle spacing (GH-421, V-R1): the hull as a capsule, Q16.16 tiles, all 0 when the type
+   * declares no `mobility.footprint`. A unit separates if and only if `sepHalfWid > 0` and it is
+   * not air. `sepBound = sepHalfLen + |sepCentre|` is the broad-phase radius.
+   */
+  sepHalfLen: Fx;
+  sepHalfWid: Fx;
+  sepCentre: Fx;
+  sepBound: Fx;
+  /**
    * Fires only from a halt, kneeling (spec 2026-10-05-infantry-halt-to-fire).
    *
    * A unit with this set never fires while its feet move: it stops, spends
@@ -588,6 +600,10 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
   const turnPerTick = fx.mul(fx.div(fx.from(turnDeg), fx.fromInt(360)), DT);
   const abilities = json.abilities ?? [];
   const isAir = json.mobility.domain === 'air';
+  const foot = json.mobility.footprint;
+  const sepHalfLen = foot ? fx.from(foot.half_length_tiles) : 0;
+  const sepHalfWid = foot ? fx.from(foot.half_width_tiles) : 0;
+  const sepCentre = foot ? fx.from(foot.centre_along_tiles ?? 0) : 0;
   const wheeled = json.mobility.wheeled ?? !FOOT_ROLES.has(json.role ?? '');
   const isKamikaze = abilities.includes('kamikaze');
   const armed = (json.weapons ?? []).length > 0;
@@ -609,6 +625,10 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
     isKamikaze,
     isAir,
     wheeled,
+    sepHalfLen,
+    sepHalfWid,
+    sepCentre,
+    sepBound: fx.add(sepHalfLen, sepCentre < 0 ? -sepCentre : sepCentre),
     // A kamikaze is excluded because its sprint IS the attack (charge_squad,
     // the drones): there is no aimed shot to kneel for. Unarmed is excluded
     // because there is nothing to fire.

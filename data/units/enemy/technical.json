@@ -21,7 +21,8 @@
   },
   "mobility": {
     "speed_tiles_s": 2.6,
-    "turn_rate_deg_s": 120
+    "turn_rate_deg_s": 120,
+    "footprint": { "half_length_tiles": 0.83, "half_width_tiles": 0.3 }
   },
   "sensors": {
     "optics": 1.0,
