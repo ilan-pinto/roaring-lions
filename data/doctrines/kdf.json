@@ -12,7 +12,8 @@
     "jeep_shoded",
     "recon_drone",
     "dozer_d9",
-    "heli_peten"
+    "heli_peten",
+    "yahalom_squad"
   ],
   "budget": {
     "logistics_start": 3000,
