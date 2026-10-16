@@ -361,6 +361,14 @@ export interface MissionContext {
    *  convoys take the road where one joins their ends (D5). Absent = the map has no roads, and
    *  every convoy takes the wheeled flow route. */
   roadMask?: Uint8Array;
+  /** Each side's start purse and base income, in WHOLE logistics (the unit of `cost.logistics`
+   *  and `resources.logistics_start`); the sim scales by PURSE_UNITS (F4, R-F4-2). A
+   *  construction constant, not hashed (the purse it feeds is). Absent = today's sources: side 0
+   *  from `resources`, side 1 nothing. A start above `MAX_PURSE_START` throws at construction. */
+  economy?: {
+    logisticsStart: readonly [number, number];
+    logisticsRatePerMin: readonly [number, number];
+  };
 }
 
 /**
@@ -555,6 +563,8 @@ const SUPPORTED = new Set([
 
 /** Purse units per whole logistics: 1/2400ths (see `MissionRuntime.purse`). */
 const PURSE_UNITS = 2400;
+/** The largest whole-logistics start an Int32 purse in 1/2400ths holds: floor(2^31 - 1 over 2400). */
+const MAX_PURSE_START = 894784;
 /** Ticks a minute, for the per-minute display reads (A4). */
 const TICKS_PER_MINUTE = 60 * TICKS_PER_SECOND;
 
@@ -880,7 +890,16 @@ export class MissionRuntime {
     // What recon marked last mission. A tag in here spawns pre-revealed and gives up
     // its ambush; everything else spawns exactly as authored.
     this.marked = new Set(ctx.ledger?.['intel.marked_positions'] ?? []);
-    this.purse[0] = (mission.resources?.logistics_start ?? 0) * PURSE_UNITS;
+    const eco = ctx.economy;
+    for (const side of [0, 1] as const) {
+      const start = eco !== undefined ? eco.logisticsStart[side] : side === 0 ? (mission.resources?.logistics_start ?? 0) : 0;
+      if (start > MAX_PURSE_START) {
+        throw new Error(
+          `mission ${mission.id}: economy.logisticsStart[${side}] ${start} is above ${MAX_PURSE_START}, the largest start an Int32 purse in 1/2400ths holds`,
+        );
+      }
+      this.purse[side] = start * PURSE_UNITS;
+    }
     this.intelValue = mission.resources?.intel_start ?? 0;
     this.spawnRise = new Int16Array(sim.capacity).fill(-2);
 
@@ -1018,7 +1037,7 @@ export class MissionRuntime {
    */
   get incomePerMin(): Readonly<{ base: number; zones: number; halvedBy: CutCause }> {
     const read = this.incomeRead;
-    read.base = (this.baseUnitsPerTick() * TICKS_PER_MINUTE) / PURSE_UNITS;
+    read.base = (this.baseUnitsPerTick(0) * TICKS_PER_MINUTE) / PURSE_UNITS;
     let zones = 0;
     const list = this.incomeZoneList;
     for (let k = 0; k < list.length; k++) if (list[k].holder === 0) zones += list[k].unitsPerTick;
@@ -1027,11 +1046,15 @@ export class MissionRuntime {
     return read;
   }
 
-  /** Purse units a tick the base rate pays side 0: 2 * rate, rate while the convoy is cut. */
-  private baseUnitsPerTick(): number {
-    const rate = this.mission.resources?.logistics_rate_per_min ?? 0;
+  /** Purse units a tick the base rate pays `side`: 2 * rate, rate while side 0's live convoy is
+   *  cut (C-R17: the halving is side 0's only). Rate source: `ctx.economy`, else side 0's
+   *  `resources` and 0 for side 1. */
+  private baseUnitsPerTick(side: 0 | 1): number {
+    const eco = this.ctx.economy;
+    const rate =
+      eco !== undefined ? eco.logisticsRatePerMin[side] : side === 0 ? (this.mission.resources?.logistics_rate_per_min ?? 0) : 0;
     if (rate <= 0) return 0;
-    return this.convoy !== null && this.convoy.cut !== null ? rate : 2 * rate;
+    return side === 0 && this.convoy !== null && this.convoy.cut !== null ? rate : 2 * rate;
   }
 
   get intel(): number {
@@ -1914,9 +1937,12 @@ export class MissionRuntime {
     if (recheck && (zones.length > 0 || this.convoy !== null)) this.recheckCorridors(tick, out);
     this.corridorsDirty = false;
 
-    const base = this.baseUnitsPerTick();
-    this.purse[0] += base;
-    this.earnedUnits[0] += base;
+    const base0 = this.baseUnitsPerTick(0);
+    this.purse[0] += base0;
+    this.earnedUnits[0] += base0;
+    const base1 = this.baseUnitsPerTick(1);
+    this.purse[1] += base1;
+    this.earnedUnits[1] += base1;
     for (let k = 0; k < zones.length; k++) {
       const z = zones[k];
       if (z.holder < 0) continue;

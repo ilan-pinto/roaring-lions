@@ -5396,6 +5396,8 @@ describe('held-ground income and corridors (F2 Task 7)', () => {
     enemy?: PlacementJson[];
     roadMask?: Uint8Array;
     tunnels?: TunnelRouteJson[];
+    start?: number;
+    economy?: { logisticsStart: readonly [number, number]; logisticsRatePerMin: readonly [number, number] };
   }
   function incomeWorld(o: IncomeOpts, prep?: (sim: Sim) => void): World {
     return makeWorld(
@@ -5404,7 +5406,7 @@ describe('held-ground income and corridors (F2 Task 7)', () => {
         starting_force: o.force ?? [],
         enemy: { garrison: o.enemy ?? [] },
         resources: {
-          logistics_start: 0,
+          logistics_start: o.start ?? 0,
           logistics_rate_per_min: o.base ?? 0,
           ...(o.zones !== undefined ? { income_zones: o.zones } : {}),
           ...(o.corridor !== undefined ? { supply_corridor: o.corridor } : {}),
@@ -5417,6 +5419,7 @@ describe('held-ground income and corridors (F2 Task 7)', () => {
         markers: MARKERS,
         ...(o.roadMask !== undefined ? { roadMask: o.roadMask } : {}),
         ...(o.tunnels !== undefined ? { tunnels: o.tunnels } : {}),
+        ...(o.economy !== undefined ? { economy: o.economy } : {}),
       },
       (sim) => {
         for (const t of o.tunnels ?? []) sim.addTunnel(t);
@@ -5535,6 +5538,52 @@ describe('held-ground income and corridors (F2 Task 7)', () => {
     const onRoad = incomeWorld({ base: 120, entry: 'entry', force: [mine(24, 2)], enemy: [theirs(5, 10)], roadMask: road });
     onRoad.step(1200);
     expect(onRoad.runtime.logistics).toBe(120);
+  });
+
+  describe('ctx.economy: the per-side start purse and base rate (F4 Task 2b)', () => {
+    const purses = (w: World) => [w.runtime.logisticsOf(0), w.runtime.logisticsOf(1)];
+
+    it('seeds both purses and pays both base rates', () => {
+      const w = incomeWorld({ economy: { logisticsStart: [400, 640], logisticsRatePerMin: [120, 60] } });
+      expect(purses(w)).toEqual([400, 640]);
+      w.step(1200);
+      expect(purses(w)).toEqual([520, 700]);
+    });
+
+    it('absent: side 0 from resources, side 1 nothing (today)', () => {
+      const w = incomeWorld({ start: 400, base: 120 });
+      w.step(1200);
+      expect(purses(w)).toEqual([520, 0]);
+    });
+
+    it('the context wins over the mission resources block', () => {
+      const w = incomeWorld({ start: 50, base: 7, economy: { logisticsStart: [400, 0], logisticsRatePerMin: [0, 0] } });
+      expect(w.runtime.logisticsOf(0)).toBe(400);
+      w.step(1200);
+      expect(purses(w)).toEqual([400, 0]);
+    });
+
+    it("a cut convoy halves side 0's base and never side 1's", () => {
+      const w = incomeWorld({
+        corridor: true,
+        entry: 'entry',
+        force: [mine(24, 2)],
+        enemy: [theirs(3, 10)],
+        economy: { logisticsStart: [0, 0], logisticsRatePerMin: [120, 60] },
+      });
+      w.step(1200);
+      expect(w.runtime.convoyRoute?.cut).toBe('interdicted');
+      expect(purses(w)).toEqual([60, 60]);
+      expect(w.runtime.incomePerMin.base).toBe(60);
+    });
+
+    it('a start above the Int32 purse ceiling throws at construction; the ceiling itself constructs', () => {
+      expect(() => incomeWorld({ economy: { logisticsStart: [0, 894785], logisticsRatePerMin: [0, 0] } })).toThrow(
+        'economy.logisticsStart[1] 894785 is above 894784, the largest start an Int32 purse in 1/2400ths holds',
+      );
+      const ok = incomeWorld({ economy: { logisticsStart: [0, 894784], logisticsRatePerMin: [0, 0] } });
+      expect(ok.runtime.logisticsOf(1)).toBe(894784);
+    });
   });
 
   it('a cut convoy halves the base and never a zone', () => {
