@@ -1044,7 +1044,11 @@ const ECONOMY_TICKS = 2400; // two minutes
 // re-pinned 2026-10-15, F2 Task 7: held-ground income and corridors (G3 Q2, lead 4 Oct);
 // economyHash() appends side 1's floored purse, each income zone's state and cut code and
 // the convoy's cut code, and the fixture gained two zones and a convoy route; was 3794140228.
-const ECONOMY_PIN = 275731552;
+// re-pinned 2026-10-16, F4 Task 6: serial production lines per camp, the contested pause and
+// rally points (G3 Q3, lead 4 Oct); economyHash() folds every line (side, anchor, current,
+// ticksLeft, queue, rally) in place of the interim R-F4-8 fold, and the fixture gained a second
+// camp, a rally point, a cancel and a 10 s contest; was 275731552.
+const ECONOMY_PIN = 904873885;
 const ECONOMY_EXTRA_BUILD_TICK = 1000;
 // F3 Task 4 (GH-183): side 0's cap, and the one build it refuses. The force is the
 // drone (population 0) and one squad (1); the builds at 400 and 800 bring it to 3,
@@ -1494,8 +1498,10 @@ describe('economy replay (2400 ticks of MissionRuntime on a flat map)', () => {
   // RUNTIME_DIGEST_PIN: born 2026-10-15 in a5c0deab (N2 Task 6), read from the first run. Move it deliberately, in the
   // commit that moves runtime state, and say why; economyHash() is its first word, so
   // every ECONOMY_PIN move moves it too -- name both in that commit.
-  const RUNTIME_DIGEST_PIN = 2984314042;
-  const RUNTIME_DIGEST_PIN_RELIEF = 3060732596;
+  // re-pinned 2026-10-16, F4 Task 6: digest() folds economyHash() first, so both move with it;
+  // were 2984314042 and 3060732596.
+  const RUNTIME_DIGEST_PIN = 2037118941;
+  const RUNTIME_DIGEST_PIN_RELIEF = 1884258391;
   it('the economy replay pins its runtime digest', () => {
     expect(economyReplay(ECONOMY_SEED).rt.digest()).toBe(RUNTIME_DIGEST_PIN);
   });
@@ -1649,7 +1655,9 @@ const RELIEF_ECO_REFUSED_BUILD_TICK = 100;
 // re-pinned 2026-10-15, F2 Task 7: held-ground income and corridors (G3 Q2, lead 4 Oct);
 // the same fold, and the relief fixture gained two zones, a convoy route and the militia
 // that cuts it; was 2682592505.
-const ECONOMY_PIN_RELIEF = 145368021;
+// re-pinned 2026-10-16, F4 Task 6: the same line fold (the fixture's one `player_start` line folds
+// empty; the fixture is unchanged); was 145368021.
+const ECONOMY_PIN_RELIEF = 2771311510;
 
 const RELIEF_ECO_MISSION: MissionJson = {
   id: 'economy_replay_relief',
