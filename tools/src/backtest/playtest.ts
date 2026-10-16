@@ -1653,7 +1653,16 @@ const deirAmun2Plan: Plan = (sim, rt, ids, at) => {
   // beside the `pump_gate` marker (15,32) and 6.5 tiles from the camp exit (20.5,34.5). Every squad
   // bought below leaves the camp on a no-sweep attack-move to the gate and fights there. The camp's
   // 6-tile radius covers `pump_gate`, so the line pauses during that fight (D1, ruled 6 Oct).
-  at(0, () => void rt.setRally(0, fx.from(15), fx.from(31)));
+  // Measured against the no-rally plan (30 seeds): headroom 445 -> 446 s, banking 939/171 -> 938/170,
+  // side-1 end population 7 -> 8; VICTORY 30/30 either way.
+  // A refused rally must fail loudly: setRally answers false for a blocked or off-map tile, and a
+  // plan that silently ran without it would be measuring the no-rally figures.
+  at(0, () => {
+    if (!rt.setRally(0, fx.from(15), fx.from(31))) {
+      console.error('deir_amun_2_foothold: FAILED -- setRally(0, 15, 31) was refused; the plan\'s camp rally is not set');
+      process.exitCode = 1;
+    }
+  });
 
   // Spend logistics as it lands, once the camp is producing.
   for (let when = 60; when <= 420; when += 40) {
