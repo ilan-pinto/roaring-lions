@@ -210,6 +210,18 @@
   --order-obscurant: var(--rl-limestone-0);
   --order-transport: var(--rl-vfx-tracer);
   --friendly: var(--rl-team-kedem);
+  /* The two sides of a friend match (ui/versus.ts's face-off), by RELATION,
+     as the match draws them: `ThreeRenderer` paints each player's own force in
+     team.kedem and the other in team.hostile whatever the faction
+     (render/src/relation.ts's colorSlot), so YOUR card wears the own colour
+     and your friend's the hostile one -- a Sarim host's card is blue here as
+     in the match, and a mirror shows two colours (fix round 1, 2026-10-16).
+     Through the same --rl-team-* entries, so the colour-vision blocks below
+     re-point them with the rest, and each is what @lions/data's
+     paletteTeamColors(variant) resolves (versus.test.ts holds the pair). A
+     tint, never text on its own: the faction is in the name and portrait. */
+  --side-you: var(--rl-team-kedem);
+  --side-friend: var(--rl-team-hostile);
   /* The INTERACTIVE colour, and nothing else (VR-31): hover, the focus ring,
      the selected register below. It shares dust.0 with --commend (credits,
      stars) and --mark-1 (the brand chevron), each declared on its own line
@@ -391,14 +403,16 @@
 
 /* --- colour-vision variants (Task 12) --------------------------------
  * `applySettings` (settings.ts) writes `data-cvd` on the root from
- * `accessibility.colorVision`, immediately -- these four tokens are the ONLY
- * runtime-reactive part of a variant, because they feed the same --friendly
- * /--bad/--warn/--bad-text chain every static HUD rule already reads. The
+ * `accessibility.colorVision`, immediately -- the six tokens each block
+ * re-points (--friendly/--bad/--warn/--bad-text, and the friend match's two
+ * side tints, --side-you/--side-friend) are the ONLY runtime-reactive part of
+ * a variant, because they feed the chain every static HUD rule (and the
+ * versus face-off) already reads. The
  * map and the minimap are the other half of the feature and do NOT react
  * live: `main.ts` reads `paletteTeamColors()` once, at battlefield
  * construction, so a variant switched mid-mission paints the canvas from the
  * next mission on (the settings hint says so). Each block re-points exactly
- * the four tokens the plain team mappings above set from `--rl-team-*`, at
+ * the six tokens the plain team mappings above set from `--rl-team-*`, at
  * `--rl-team-<variant>-*` instead -- gated by tools/src/cvd.test.ts (every
  * pair stays apart by CIE76 ΔE ≥ 25 under simulation of its own deficiency)
  * and tools/src/bad-text-contrast.test.ts (hostile_text ≥ 4.5:1 per
@@ -408,18 +422,24 @@
   --bad: var(--rl-team-deuteranopia-hostile);
   --warn: var(--rl-team-deuteranopia-neutral);
   --bad-text: var(--rl-team-deuteranopia-hostile-text);
+  --side-you: var(--rl-team-deuteranopia-kedem);
+  --side-friend: var(--rl-team-deuteranopia-hostile);
 }
 :root[data-cvd='protanopia'] {
   --friendly: var(--rl-team-protanopia-kedem);
   --bad: var(--rl-team-protanopia-hostile);
   --warn: var(--rl-team-protanopia-neutral);
   --bad-text: var(--rl-team-protanopia-hostile-text);
+  --side-you: var(--rl-team-protanopia-kedem);
+  --side-friend: var(--rl-team-protanopia-hostile);
 }
 :root[data-cvd='tritanopia'] {
   --friendly: var(--rl-team-tritanopia-kedem);
   --bad: var(--rl-team-tritanopia-hostile);
   --warn: var(--rl-team-tritanopia-neutral);
   --bad-text: var(--rl-team-tritanopia-hostile-text);
+  --side-you: var(--rl-team-tritanopia-kedem);
+  --side-friend: var(--rl-team-tritanopia-hostile);
 }
 
 /* Breakpoint widths stay in raw viewport px, not rem: they SET --ui-scale
@@ -7332,88 +7352,702 @@ button.rl-menu__item[data-kind='aside'] {
 }
 
 /* ---------------------------------------------------------------------- */
-/* Play with a friend (ui/versus.ts)                                      */
+/* Play with a friend (ui/versus.ts): the face-off (ruling 2026-10-16)    */
 /* ---------------------------------------------------------------------- */
 
-/* A `.rl-menu` column like Saves: the forms and the seat cards read as a
-   list, so left-aligned. */
-.rl-menu--versus .rl-panel {
-  text-align: left;
-}
-.rl-versus__section {
-  margin: var(--s4) 0 var(--s2);
-  font-family: var(--font-display);
-  font-size: var(--t-m);
-  letter-spacing: var(--track-title);
+/* A full screen like the menu, not a panel: the menu's still plate behind a
+   scrim, one frame in front. The frame scrolls inside the screen on a short
+   window; the plate never moves. */
+.rl-versus {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow-y: auto;
+  padding: var(--s4) 0;
+  font-family: var(--font-body);
   color: var(--ink);
+}
+.rl-versus__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+}
+.rl-versus__backdrop-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.rl-versus__backdrop::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, color-mix(in srgb, var(--scrim) 55%, transparent) 0%, color-mix(in srgb, var(--scrim) 82%, transparent) 75%);
+}
+.rl-versus__frame {
+  position: relative;
+  z-index: 1;
+  box-sizing: border-box;
+  width: min(64rem, 94vw);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  padding: var(--s5) var(--s6) var(--s4);
+  text-align: left;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-frame); /* px-ok */
+}
+.rl-versus__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  min-width: 0;
+}
+/* Read by a screen reader, not drawn. */
+.rl-versus__live,
+.rl-versus__sr {
+  position: absolute;
+  width: 1px; /* px-ok */
+  height: 1px; /* px-ok */
+  margin: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* --- the head: the menu's hero title, the callsign or the room ----------- */
+.rl-versus__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--s4);
+  padding-bottom: var(--s3);
+  border-bottom: 1px solid var(--panel-rule); /* px-ok */
+}
+.rl-versus__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--t-hero);
+  font-weight: 800;
+  line-height: 0.95;
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.rl-versus__head-end {
+  display: flex;
+  align-items: flex-end;
+  min-width: 0;
+}
+.rl-versus__label {
+  display: block;
+  padding: 0;
+  margin-bottom: var(--s1);
+  font-family: var(--font-display);
+  font-size: var(--t-xs);
+  font-weight: 600;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink-dim);
 }
 .rl-versus__field {
   display: flex;
-  align-items: center;
-  gap: var(--s2);
-  margin: var(--s2) 0;
+  flex-direction: column;
+  min-width: 12rem;
 }
-.rl-versus__label {
-  flex: none;
-  min-width: 8rem;
-  font-family: var(--font-body);
-  font-size: var(--t-s);
-  color: var(--ink-mute);
-}
-/* The same frame-and-mono face as the Saves name field. */
-.rl-versus__field input[type='text'],
-.rl-versus__field select {
-  flex: 1;
-  min-width: 0;
-  background: var(--panel-bg-solid);
-  color: var(--ink);
-  border: 1px solid var(--panel-frame); /* px-ok */
-  font-family: var(--font-mono);
-  font-size: var(--t-s);
+/* The callsign, in the face the cards print it in (no more mono). */
+.rl-versus__callsign {
+  box-sizing: border-box;
+  width: 100%;
   padding: var(--s1) var(--s2);
+  font-family: var(--font-display);
+  font-size: var(--t-l);
+  font-weight: 600;
+  letter-spacing: var(--track-title);
+  color: var(--ink);
+  background: var(--well);
+  border: 1px solid var(--panel-frame); /* px-ok */
 }
-.rl-versus__code-input {
+.rl-versus__room-name {
+  font-family: var(--font-display);
+  font-size: var(--t-l);
+  font-weight: 600;
+  letter-spacing: var(--track-title);
   text-transform: uppercase;
-  letter-spacing: 0.2em;
+  color: var(--ink-dim);
 }
-.rl-versus__msg,
-.rl-versus__status {
-  min-height: 1.2em;
-  font-family: var(--font-body);
-  font-size: var(--t-s);
-  color: var(--bad-text);
+
+/* --- pick your side: the segmented radio group ---------------------------- */
+fieldset.rl-versus__sides,
+fieldset.rl-versus__maps {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
 }
-/* KDF vs Sarim plays on a few maps only (2026-10-14): said under the side picker
-   while a side other than the mirror narrows the map list. */
+.rl-versus__sides {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: var(--s1);
+}
+.rl-versus__sides > .rl-versus__label {
+  float: left;
+  margin: 0 var(--s2) 0 0;
+}
+/* A card or a segment is a label around a real radio, so arrows, Space and
+   "2 of 3" come from the browser. The radio draws nothing of its own
+   (`appearance: none`) and covers its card, so the sheet's ONE focus ring
+   (VR-28) lands around the whole card with no rule of ours. */
+.rl-versus__side-radio,
+.rl-versus__map-radio {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  appearance: none;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.rl-versus__side-radio:disabled,
+.rl-versus__map-radio:disabled {
+  opacity: var(--disabled-opacity);
+  cursor: not-allowed;
+}
+.rl-versus__side,
+.rl-versus__tile {
+  position: relative;
+  cursor: pointer;
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  border: 1px solid var(--panel-frame); /* px-ok */
+  transition: border-color var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease);
+}
+.rl-versus__side {
+  padding: var(--s1) var(--s4);
+  border-bottom-width: 3px; /* px-ok */
+}
+.rl-versus__side-name {
+  font-family: var(--font-display);
+  font-size: var(--t-m);
+  font-weight: 700;
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+}
+.rl-versus__side:hover,
+.rl-versus__tile:hover {
+  border-color: var(--accent);
+}
+.rl-versus__side:has(.rl-versus__side-radio:checked),
+.rl-versus__tile:has(.rl-versus__map-radio:checked) {
+  border-color: var(--selected);
+  background: var(--selected-fill);
+}
+/* The segments are not faction-coloured (a side is a relation in the match,
+   not a colour): the one you picked wears YOUR colour along its foot. */
+.rl-versus__side:has(.rl-versus__side-radio:checked) {
+  border-bottom-color: var(--side-you);
+}
+.rl-versus__side[data-off='1'],
+.rl-versus__tile[data-off='1'] {
+  opacity: var(--disabled-opacity);
+  cursor: not-allowed;
+}
+.rl-versus__side[data-off='1']:hover,
+.rl-versus__tile[data-off='1']:hover {
+  border-color: var(--panel-frame);
+}
+.rl-versus__side-reason,
 .rl-versus__side-note {
-  font-family: var(--font-body);
+  flex-basis: 100%;
+  margin: 0;
   font-size: var(--t-s);
+  text-align: center;
   color: var(--ink-mute);
 }
+.rl-versus__side-note { text-align: left; grid-column: 1 / -1; }
+.rl-versus__side-reason[hidden],
 .rl-versus__side-note[hidden] {
   display: none;
 }
-/* Bring your brigade (per-seat kit): the host's toggle, its friends-only
-   note, and the room's kit line. */
-.rl-versus__kit input[type='checkbox'] {
-  accent-color: var(--good);
+
+/* --- the face-off: your card, VS, your friend's ---------------------------- */
+.rl-versus__faceoff {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: stretch;
+  gap: var(--s4);
 }
-.rl-versus__kit-note {
+/* A card's tint is WHO it is, not its faction (--side-you, --side-friend: the
+   own and hostile team colours, as the match draws them, re-pointed by the
+   colour-vision blocks with them). */
+.rl-versus__fcard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--s1);
+  min-width: 0;
+  min-height: 12.5rem;
+  padding: var(--s3) var(--s4);
+  text-align: center;
+  border: 1px solid var(--panel-frame); /* px-ok */
+  border-bottom-width: 5px; /* px-ok */
+  background: var(--panel-bg-solid);
+}
+.rl-versus__fcard[data-who='you'] {
+  border-bottom-color: var(--side-you);
+  background: linear-gradient(to top, color-mix(in srgb, var(--side-you) 22%, transparent), transparent 70%), var(--panel-bg-solid);
+}
+.rl-versus__fcard[data-who='friend'] {
+  border-bottom-color: var(--side-friend);
+  background: linear-gradient(to top, color-mix(in srgb, var(--side-friend) 22%, transparent), transparent 70%), var(--panel-bg-solid);
+}
+.rl-versus__fcard[data-empty='1'] {
+  border-style: dashed;
+  border-bottom-style: solid;
+}
+.rl-versus__fcard[data-room='1'] {
+  justify-content: center;
+}
+.rl-versus__fcard[data-room='1'] .rl-versus__fcard-name {
+  margin-top: var(--s2);
+}
+.rl-versus__fcard-who {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  align-self: stretch;
+  min-width: 0;
+  font-family: var(--font-display);
+  font-size: var(--t-xs);
+  font-weight: 700;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  text-align: left;
+  color: var(--ink-dim);
+  overflow-wrap: anywhere;
+}
+.rl-versus__fcard[data-who='you'] .rl-versus__fcard-who { color: var(--title-accent); }
+.rl-versus__art {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.rl-versus__art--big {
+  width: 100%;
+  height: 7.5rem;
+}
+.rl-versus__art-img {
+  height: 100%;
+  width: auto;
+  object-fit: contain;
+}
+.rl-versus__art-img[data-n='1'] { margin-left: -1.5rem; }
+/* Your friend's figures face yours. */
+.rl-versus__fcard[data-who='friend'] .rl-versus__art--big { transform: scaleX(-1); }
+.rl-versus__fcard-name {
+  font-family: var(--font-display);
+  font-size: var(--t-xl);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.rl-versus__fcard-blurb {
+  font-size: var(--t-body);
+  color: var(--ink-mute);
+}
+.rl-versus__vs {
+  align-self: center;
+  font-family: var(--font-display);
+  font-size: var(--t-hero);
+  font-weight: 800;
+  text-transform: uppercase;
+  color: var(--title-accent);
+}
+
+/* --- the ground: the map card and the tiles -------------------------------- */
+.rl-versus__ground {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: var(--s4);
+  align-items: start;
+}
+.rl-versus__maps {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s2);
+}
+.rl-versus__maps > .rl-versus__label { grid-column: 1 / -1; }
+.rl-versus__tile {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  min-width: 0;
+  padding: var(--s2);
+}
+.rl-versus__tile-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.rl-versus__tile-name {
+  font-family: var(--font-display);
+  font-size: var(--t-m);
+  font-weight: 600;
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+.rl-versus__tile-sub {
+  font-size: var(--t-s);
+  color: var(--ink-mute);
+}
+.rl-versus__pic {
+  position: relative;
+  flex: none;
+  display: block;
+  border: 1px solid var(--panel-frame); /* px-ok */
+  background: var(--well);
+}
+.rl-versus__pic-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+}
+.rl-versus__pic--thumb { width: 2.75rem; height: 2.75rem; }
+.rl-versus__pic--big { width: 9rem; height: 9rem; }
+/* The two starts: yours in the decorative accent, your friend's in ink. */
+.rl-versus__start {
+  position: absolute;
+  width: 0.9rem;
+  height: 0.9rem;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  border: 2px solid var(--mark-edge); /* px-ok */
+}
+.rl-versus__start[data-who='you'] { background: var(--title-accent); }
+.rl-versus__start[data-who='friend'] { background: var(--ink); }
+.rl-versus__mapcard {
+  display: flex;
+  gap: var(--s4);
+  align-items: flex-start;
+  min-width: 0;
+}
+.rl-versus__mapcard-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1h);
+  min-width: 0;
+}
+.rl-versus__mapcard-name {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--t-xl);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+}
+.rl-versus__mapcard-sub {
+  font-family: var(--font-display);
+  font-size: var(--t-m);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--title-accent);
+}
+.rl-versus__mapcard-desc {
+  margin: 0;
+  font-size: var(--t-body);
+  color: var(--ink-mute);
+}
+.rl-versus__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1);
+}
+.rl-versus__chip {
+  padding: var(--s0) var(--s2);
+  font-family: var(--font-display);
+  font-size: var(--t-xs);
+  font-weight: 600;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink);
+  border: 1px solid var(--panel-frame); /* px-ok */
+}
+.rl-versus__chip[data-kind='fair'] {
+  color: var(--good);
+  border-color: color-mix(in srgb, var(--good) 60%, transparent);
+  background: color-mix(in srgb, var(--good) 12%, transparent);
+}
+.rl-versus__chip[data-kind='quiet'] { color: var(--ink-dim); }
+.rl-versus__startkey {
+  display: flex;
+  gap: var(--s3);
+  font-size: var(--t-s);
+  color: var(--ink-mute);
+}
+.rl-versus__startkey-item::before {
+  content: '';
+  display: inline-block;
+  width: 0.6rem;
+  height: 0.6rem;
+  margin-right: var(--s1);
+  vertical-align: middle;
+  border-radius: 50%;
+  border: 1px solid var(--mark-edge); /* px-ok */
+}
+.rl-versus__startkey-item[data-who='you']::before { background: var(--title-accent); }
+.rl-versus__startkey-item[data-who='friend']::before { background: var(--ink); }
+
+/* --- bring your brigade, and the one commit -------------------------------- */
+.rl-versus__act {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s4);
+}
+.rl-versus__kit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  min-width: 0;
+}
+/* A real role="switch": the knob is drawn, the label is its name, and the
+   hint under it is its description. */
+.rl-versus__kit-toggle {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: var(--s2);
+  padding: 0;
+  font-family: var(--font-body);
+  font-size: var(--t-body);
+  font-weight: 600;
+  color: var(--ink);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.rl-versus__knob {
+  position: relative;
+  flex: none;
+  width: 2.25rem;
+  height: 1.25rem;
+  background: var(--well);
+  border: 1px solid var(--panel-frame); /* px-ok */
+  transition: background-color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+}
+.rl-versus__knob::after {
+  content: '';
+  position: absolute;
+  top: var(--s0);
+  left: var(--s0);
+  width: 0.875rem;
+  height: 0.875rem;
+  background: var(--ink-mute);
+  transition: transform var(--dur-fast) var(--ease);
+}
+.rl-versus__kit-toggle[aria-checked='true'] .rl-versus__knob {
+  background: var(--selected-fill);
+  border-color: var(--selected);
+}
+.rl-versus__kit-toggle[aria-checked='true'] .rl-versus__knob::after {
+  transform: translateX(1rem);
+  background: var(--selected);
+}
+.rl-versus__kit-hint {
+  font-size: var(--t-s);
+  color: var(--ink-mute);
+}
+/* The stamp: a menu tile's face in the primary fill (VR-20). */
+.rl-versus__stamp {
+  padding: var(--s2) var(--s4);
+  font-family: var(--font-display);
+  font-size: var(--t-l);
+  font-weight: 700;
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+  color: var(--good);
+  background: color-mix(in srgb, var(--good) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--good) 45%, transparent);
+}
+
+/* --- join: one bar, six drawn cells over one real input --------------------- */
+.rl-versus__join-bar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: var(--s4);
+  padding: var(--s3) var(--s4) var(--s1);
+  background: var(--well);
+  border: 1px solid var(--panel-frame); /* px-ok */
+}
+.rl-versus__join-lead {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--t-m);
+  font-weight: 600;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.rl-versus__join-row {
+  display: flex;
+  align-items: stretch;
+  gap: var(--s2);
+}
+.rl-versus__code-field {
+  position: relative;
+  display: inline-block;
+}
+.rl-versus__code-cells {
+  display: flex;
+  gap: var(--s1);
+}
+.rl-versus__code-cell {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2.4rem;
+  font: 600 var(--t-l) var(--font-mono);
+  color: var(--ink);
+  background: var(--panel-bg-solid);
+  border: 1px solid var(--panel-frame); /* px-ok */
+}
+.rl-versus__code-field:focus-within .rl-versus__code-cell[data-next='1'] {
+  border-color: var(--accent);
+}
+.rl-versus__code-field[data-bad='1'] .rl-versus__code-cell {
+  border-color: var(--bad);
+}
+/* The one real input, drawn over the cells with nothing of its own showing:
+   it takes the focus (and so the sheet's one ring, around all six cells),
+   the typing, paste and the screen reader. */
+.rl-versus__code-input {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  appearance: none;
+  font-size: var(--t-l);
+  color: transparent;
+  caret-color: transparent;
+  background: none;
+  border: 0;
+  cursor: text;
+}
+.rl-versus__code-input::selection {
+  background: none;
+}
+.rl-versus__join-row .rl-versus__join {
+  padding: 0 var(--s4);
+  font-family: var(--font-display);
+  font-size: var(--t-m);
+  font-weight: 700;
+  letter-spacing: var(--track-title);
+  text-transform: uppercase;
+}
+/* The error line is RESERVED (ruling 2026-10-16): one line tall whether or
+   not it says anything, so an error does not shove the screen down. Open a
+   room keeps its own, beside the stamp, so a failed open never reads as a
+   join error under the code cells (fix round 1). */
+.rl-versus__open-msg {
+  min-height: calc(var(--lh-body) * 1em);
+  margin: 0;
+  line-height: var(--lh-body);
   font-family: var(--font-body);
   font-size: var(--t-s);
   color: var(--ink-mute);
+  text-align: right;
+}
+.rl-versus__open-col {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--s1);
+}
+.rl-versus__msg {
+  grid-column: 1 / -1;
+  min-height: calc(var(--lh-body) * 1em);
+  margin: 0;
+  line-height: var(--lh-body);
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  color: var(--ink-mute);
+}
+.rl-versus__msg[data-tone='bad'],
+.rl-versus__open-msg[data-tone='bad'],
+.rl-versus__status {
+  color: var(--bad-text);
+}
+.rl-versus__status {
+  min-height: 1.2em;
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+}
+
+/* --- the room (/versus/:code): the code where your friend will stand ------- */
+.rl-versus__room {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s2);
+}
+.rl-versus__room[data-place='head'] {
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--s2) var(--s3);
+}
+.rl-versus__room[data-place='head'] .rl-versus__share,
+.rl-versus__room[data-place='head'] .rl-versus__link {
+  display: none;
+}
+.rl-versus__room-tag {
+  font-family: var(--font-display);
+  font-size: var(--t-xs);
+  font-weight: 700;
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--good);
 }
 .rl-versus__share {
-  font-family: var(--font-body);
-  font-size: var(--t-s);
+  margin: 0;
+  font-size: var(--t-body);
   color: var(--ink-mute);
 }
-/* The code is what a player reads aloud to a friend: large, fixed-width. */
+/* The code is what a player reads aloud to a friend: big cells, fixed width. */
 .rl-versus__code {
-  margin: var(--s2) 0;
-  font: 600 var(--t-xl) var(--font-mono);
-  letter-spacing: 0.3em;
+  display: flex;
+  gap: var(--s1);
+}
+.rl-versus__code-char {
+  display: grid;
+  place-items: center;
+  width: 3rem;
+  height: 3.75rem;
+  font: 600 var(--t-hero) var(--font-mono);
   color: var(--ink);
+  background: var(--well);
+  border: 1px solid var(--panel-frame); /* px-ok */
+}
+.rl-versus__room[data-place='head'] .rl-versus__code-char {
+  width: 1.75rem;
+  height: 2.25rem;
+  font-size: var(--t-l);
 }
 .rl-versus__copy-row {
   display: flex;
@@ -7422,44 +8056,87 @@ button.rl-menu__item[data-kind='aside'] {
 }
 .rl-versus__copied {
   min-height: 1.2em;
+  margin: 0;
   font-family: var(--font-body);
   font-size: var(--t-s);
   color: var(--ink-mute);
 }
-.rl-versus__seats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
-  gap: var(--s2);
-  margin: var(--s3) 0;
-}
-.rl-versus__seat {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--s2);
-  padding: var(--s2) var(--s3);
-  border: 1px solid var(--panel-frame); /* px-ok */
-  background: var(--panel-bg-solid);
-  min-width: 0;
-}
-.rl-versus__seat[data-empty='1'] {
-  border-style: dashed;
+.rl-versus__link {
+  font: var(--t-s) var(--font-mono);
+  color: var(--ink-dim);
+  overflow-wrap: anywhere;
+  user-select: all;
 }
 .rl-versus__name {
   font-family: var(--font-display);
   font-size: var(--t-m);
+  font-weight: 700;
   color: var(--ink);
   overflow-wrap: anywhere;
 }
+.rl-versus__fcard[data-who='you'] .rl-versus__name { color: var(--title-accent); }
 .rl-versus__you,
 .rl-versus__state {
   font-family: var(--font-body);
   font-size: var(--t-s);
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--ink-mute);
 }
 .rl-versus__seat[data-ready='1'] .rl-versus__state {
   color: var(--good);
 }
+.rl-versus__dot {
+  flex: none;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: var(--ink-mute);
+}
+.rl-versus__dot[data-connected='1'] {
+  background: var(--good);
+}
+.rl-versus__room-lower {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--s4);
+}
+.rl-versus__mapcard--room .rl-versus__pic--big { width: 7rem; height: 7rem; }
+.rl-versus__mapcard--room .rl-versus__mapcard-name { font-size: var(--t-l); }
+.rl-versus__room-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--s2);
+}
+.rl-versus__room-kit {
+  display: flex;
+  gap: var(--s2);
+  margin: 0;
+  font-size: var(--t-s);
+}
+.rl-versus__room-kit .rl-versus__label { margin: 0; }
+.rl-versus__kit-name {
+  color: var(--ink);
+}
+.rl-versus__chat:empty {
+  display: none;
+}
+/* A direct link: a callsign and Join first. */
+.rl-versus__prompt {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s3);
+}
+.rl-versus__prompt-lead {
+  margin: 0;
+  font-size: var(--t-body);
+  color: var(--ink-mute);
+}
+.rl-versus__prompt .rl-versus__msg { grid-column: auto; }
 /* The advisor (N4a, decision D1): a badge on the seat card both players see,
    and the invite control on the viewer's own card. */
 .rl-versus__advisor-badge {
@@ -7470,13 +8147,15 @@ button.rl-menu__item[data-kind='aside'] {
   padding: 0 var(--s2);
 }
 .rl-versus__advisor-invite {
-  flex-basis: 100%;
+  align-self: stretch;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: var(--s2);
   min-width: 0;
+  margin-top: var(--s2);
   padding-top: var(--s2);
+  text-align: left;
   border-top: 1px solid var(--panel-frame); /* px-ok */
 }
 .rl-versus__advisor-scope {
@@ -7528,29 +8207,38 @@ button.rl-menu__item[data-kind='aside'] {
   overflow-wrap: anywhere;
   user-select: all;
 }
-.rl-versus__dot {
-  flex: none;
-  width: 0.6rem;
-  height: 0.6rem;
-  border-radius: 50%;
-  background: var(--ink-mute);
+
+/* Narrow: the cards stack, the ground stacks, the join bar wraps. */
+@media (max-width: 47.5rem) {
+  .rl-versus__faceoff,
+  .rl-versus__ground {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .rl-versus__join-bar {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: var(--s2);
+  }
+  .rl-versus__act,
+  .rl-versus__room-lower {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .rl-versus__open-col { align-items: stretch; }
+  .rl-versus__open-msg { text-align: left; }
 }
-.rl-versus__dot[data-connected='1'] {
-  background: var(--good);
+
+/* Reduced motion: the colour and knob transitions stop (the entrance
+   stagger already honours the preference on its own). */
+@media (prefers-reduced-motion: reduce) {
+  .rl-versus__side,
+  .rl-versus__tile,
+  .rl-versus__knob,
+  .rl-versus__knob::after { transition: none; }
 }
-.rl-versus__room-map,
-.rl-versus__room-kit {
-  display: flex;
-  gap: var(--s2);
-  font-size: var(--t-s);
-}
-.rl-versus__map-name,
-.rl-versus__kit-name {
-  color: var(--ink);
-}
-.rl-versus__chat:empty {
-  display: none;
-}
+:root[data-motion='reduce'] .rl-versus__side,
+:root[data-motion='reduce'] .rl-versus__tile,
+:root[data-motion='reduce'] .rl-versus__knob,
+:root[data-motion='reduce'] .rl-versus__knob::after { transition: none; }
 
 /* Chat (ui/net-chat.ts, N1b task 9): the lobby's docked log and input, and
    the match's input that Enter opens (its lines go to the HUD feed). Every
