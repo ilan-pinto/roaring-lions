@@ -19,10 +19,11 @@ describe('the normal arm is the room', () => {
   it("reproduces the mirror pins' worlds (seed 20260727, 200 idle ticks), with no breach in them", () => {
     // LITERALS, from versus-force.test.ts and match-world.test.ts: the helper world
     // (no tunnels) and the room's world (buildMatchWorld) for each pin map.
-    expect(pinWindow('beit_sahwan_outskirts', 'helper').hash).toBe(580559085);
-    expect(pinWindow('beit_sahwan_outskirts', 'room').hash).toBe(3043363756);
-    expect(pinWindow('tel_marum', 'helper').hash).toBe(1260439781);
-    expect(pinWindow('tel_marum', 'room').hash).toBe(1260439781);
+    // 2026-10-16: sepStall column (GH-421, V-D10) joins the hash, no behaviour moved. Was 580559085 / 3043363756 / 1260439781 / 1260439781.
+    expect(pinWindow('beit_sahwan_outskirts', 'helper').hash).toBe(1757246701);
+    expect(pinWindow('beit_sahwan_outskirts', 'room').hash).toBe(2723429292);
+    expect(pinWindow('tel_marum', 'helper').hash).toBe(2485550309);
+    expect(pinWindow('tel_marum', 'room').hash).toBe(2485550309);
     for (const map of ['beit_sahwan_outskirts', 'tel_marum'] as const) {
       for (const how of ['helper', 'room'] as const) expect(pinWindow(map, how).activity.ticks).toEqual([0, 0]);
     }

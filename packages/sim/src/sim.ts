@@ -1066,6 +1066,8 @@ export class Sim {
   private readonly garrisonGoal: Int32Array;
   /** 1 when the unit actually changed position this tick. */
   private readonly displaced: Uint8Array;
+  /** Vehicle spacing's stall counter (GH-421, V-D10). Hashed; nothing writes it yet. */
+  private readonly sepStall: Uint8Array;
   /** Set for the tick when stepCombat turned a body-aimed hull onto what it is
    *  shooting at, so stepMovement does not simply steer it back. Scratch,
    *  cleared at the top of every stepCombat.
@@ -1300,6 +1302,8 @@ export class Sim {
     readonly focusTarget: Int32Array;
     /** Ticks without a firing solution on the focus. */
     readonly focusLost: Uint16Array;
+    /** Vehicle spacing's stall counter (GH-421). */
+    readonly sepStall: Uint8Array;
   };
 
   /** Read-only structure view for the renderer and HUD. */
@@ -1406,6 +1410,7 @@ export class Sim {
     this.garrisonedIn = new Int32Array(n).fill(-1);
     this.garrisonGoal = new Int32Array(n).fill(-1);
     this.displaced = new Uint8Array(n);
+    this.sepStall = new Uint8Array(n);
     this.aimTurned = new Uint8Array(n);
     this.aimDesired = new Int32Array(n);
     this.aimFrom = new Int32Array(n);
@@ -1509,6 +1514,7 @@ export class Sim {
       braceTicks: this.braceTicks,
       focusTarget: this.focusTarget,
       focusLost: this.focusLost,
+      sepStall: this.sepStall,
     };
     this.structures = {
       alive: this.stAlive,
@@ -6703,6 +6709,7 @@ export class Sim {
     h = hashArray(h, this.braceClock);
     h = hashArray(h, this.focusTarget);
     h = hashArray(h, this.focusLost);
+    h = hashArray(h, this.sepStall);
     return h >>> 0;
   }
 }

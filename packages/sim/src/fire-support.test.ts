@@ -63,7 +63,9 @@ describe('an air strike is unchanged', () => {
   const LANDS = { tick: 60, x: 1602044, y: 1081948 };
   const NEAR_HP = 1927857600; // 583.2 hp lost
   const FAR_HP = 1937666400; // 433.5 hp lost, 0.5 tile further out
-  const HASH = 2460528690;
+  // 2026-10-16: vehicle spacing's stall column, `sepStall` (GH-421, V-D10), joins the hash. No
+  // behaviour moved: with its hashArray line removed this world reproduces the old value. Was 2460528690.
+  const HASH = 2954109106;
 
   for (const [label, profile] of [
     ['absent', undefined],

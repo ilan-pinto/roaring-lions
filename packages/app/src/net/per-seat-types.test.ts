@@ -164,7 +164,8 @@ describe('per-seat unit types with no sim code (N2-P5, ruling L2)', () => {
     // Control: the test's spawner with side 1 on side 0's types reproduces
     // versus-force.test.ts's pinned mirror hash, so what follows differs from
     // the mirror ONLY by side 1's registrations.
-    expect(run('beit_sahwan_outskirts', 200, 'base').sim.hash()).toBe(580559085);
+    // 2026-10-16: sepStall column (GH-421, V-D10) joins the hash, no behaviour moved. Was 580559085.
+    expect(run('beit_sahwan_outskirts', 200, 'base').sim.hash()).toBe(1757246701);
   });
 
   it("side 1's KDF units carry the patched HP and weapon; side 0's carry the base", () => {

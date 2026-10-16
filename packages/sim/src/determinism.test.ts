@@ -494,7 +494,11 @@ describe('determinism (1000-tick replay)', () => {
     // ruling G1, garrison overhaul Task 4). This replay's shed holder fires
     // from the window. With eyePoint returning the centroid it reads
     // 4215479769 exactly. Was 4215479769.
-    expect(a.hash()).toBe(935671699);
+    //
+    // 2026-10-16: vehicle spacing's stall column, `sepStall` (GH-421, V-D10), joins the hash.
+    // No behaviour moved: with its hashArray line removed this replay reproduces the old
+    // value exactly. Was 935671699.
+    expect(a.hash()).toBe(2823212435);
   });
 
   it('the replay actually exercises halt to fire', () => {
@@ -863,14 +867,20 @@ describe('determinism over relief (900-tick replay round a hill)', () => {
     // focusTarget and focusLost, join the hash. No behaviour moved: with their
     // hashArray lines removed, all three replays (flat, relief, orders)
     // reproduce the old value exactly. Was 373999871.
-    expect(relief(RELIEF_SEED, RELIEF_TICKS, true).sim.hash()).toBe(2842924511);
+    //
+    // 2026-10-16: vehicle spacing's stall column, `sepStall` (GH-421, V-D10), joins the hash.
+    // No behaviour moved: with its hashArray line removed this replay reproduces the old
+    // value exactly. Was 2842924511.
+    expect(relief(RELIEF_SEED, RELIEF_TICKS, true).sim.hash()).toBe(1056436575);
   });
 
   it("N2: the explicit single-player table is today's rule on all three golden replays", () => {
+    // 2026-10-16: the three literals below moved with the three pins above (sepStall column, GH-421);
+    // was 935671699 / 2842924511 / 3272041047.
     // LITERALS, as the pins above: an oracle that imports its expectation cannot fail.
-    expect(run(0x1310_0001, 1000, false, undefined, undefined, [true, false]).hash()).toBe(935671699);
-    expect(relief(RELIEF_SEED, RELIEF_TICKS, true, [true, false]).sim.hash()).toBe(2842924511);
-    expect(orders(ORDERS_SEED, [true, false]).sim.hash()).toBe(3272041047);
+    expect(run(0x1310_0001, 1000, false, undefined, undefined, [true, false]).hash()).toBe(2823212435);
+    expect(relief(RELIEF_SEED, RELIEF_TICKS, true, [true, false]).sim.hash()).toBe(1056436575);
+    expect(orders(ORDERS_SEED, [true, false]).sim.hash()).toBe(3854378519);
   });
 
   it('the relief changes the route, not merely the hash', () => {
@@ -990,7 +1000,11 @@ describe('determinism of an order once it is done (900-tick replay)', () => {
     // focusTarget and focusLost, join the hash. No behaviour moved: with their
     // hashArray lines removed, all three replays (flat, relief, orders)
     // reproduce the old value exactly. Was 1736634855.
-    expect(orders(ORDERS_SEED).sim.hash()).toBe(3272041047);
+    //
+    // 2026-10-16: vehicle spacing's stall column, `sepStall` (GH-421, V-D10), joins the hash.
+    // No behaviour moved: with its hashArray line removed this replay reproduces the old
+    // value exactly. Was 3272041047.
+    expect(orders(ORDERS_SEED).sim.hash()).toBe(3854378519);
   });
 });
 
