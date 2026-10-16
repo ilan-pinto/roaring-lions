@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { advance, cancel, enqueue, lineContested, type LineItem, type ProductionLine } from './production';
+import { advance, cancel, enqueue, lineContested, spendDown, type LineItem, type ProductionLine } from './production';
 import { fx } from './fixed';
 import { MAX_LINE_QUEUE } from './tuning';
 
@@ -119,5 +119,48 @@ describe('lineContested on a literal HoldView (F4 Task 4)', () => {
     expect(lineContested(view(1, -1, true), 0, 0, 0)).toBe(false);
     expect(lineContested(view(1, -1, false, 0), 0, 0, 0)).toBe(false);
     expect(lineContested(view(1, -1, false, 2), 0, 0, 1)).toBe(false);
+  });
+});
+
+describe('spendDown (F4 Task 8, D8)', () => {
+  const MENU: LineItem[] = [
+    { unit: 'a', logistics: 340, intel: 0, population: 2, buildTicks: 40 },
+    { unit: 'b', logistics: 235, intel: 0, population: 1, buildTicks: 40 },
+  ];
+  it('round-robins: item 0 first, then item 1', () => {
+    expect(spendDown(MENU, -1, 700, null, true)).toBe(0);
+    expect(spendDown(MENU, 0, 700, null, true)).toBe(1);
+    expect(spendDown(MENU, 1, 700, null, true)).toBe(0);
+  });
+  it('a busy line buys nothing at any purse', () => {
+    expect(spendDown(MENU, -1, 100000, null, false)).toBeNull();
+  });
+  it('never waits to save up: 340 is skipped for 235 at purse 300', () => {
+    expect(spendDown(MENU, -1, 300, null, true)).toBe(1);
+    expect(spendDown(MENU, -1, 234, null, true)).toBeNull();
+  });
+  it('population room: 0 buys nothing, 1 skips the 2-pop item', () => {
+    expect(spendDown(MENU, -1, 700, 0, true)).toBeNull();
+    expect(spendDown(MENU, -1, 700, 1, true)).toBe(1);
+    expect(spendDown(MENU, -1, 700, 2, true)).toBe(0);
+  });
+  it('the property: spent down until the remainder is below the cheapest item', () => {
+    const purses = Array.from({ length: 50 }, (_, k) => k * 41 - (k % 3)).map((p) => Math.max(0, Math.min(2000, p)));
+    expect(purses[49]).toBe(2000);
+    const menu: LineItem[] = [
+      { unit: 'a', logistics: 340, intel: 0, population: 1, buildTicks: 40 },
+      { unit: 'b', logistics: 235, intel: 0, population: 1, buildTicks: 40 },
+      { unit: 'c', logistics: 90, intel: 0, population: 1, buildTicks: 40 },
+    ];
+    for (const start of purses) {
+      let purse = start;
+      let last = -1;
+      for (let i = spendDown(menu, last, purse, null, true); i !== null; i = spendDown(menu, last, purse, null, true)) {
+        purse -= menu[i].logistics;
+        last = i;
+        expect(purse).toBeGreaterThanOrEqual(0);
+      }
+      expect(purse).toBeLessThan(90);
+    }
   });
 });

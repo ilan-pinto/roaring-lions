@@ -97,3 +97,30 @@ export function lineContested(view: HoldView, x: Fx, y: Fx, side: 0 | 1): boolea
   }
   return false;
 }
+
+/**
+ * D8, the enemy's spend-down rule. Round-robin through `menu` from the item after `last`
+ * (-1 at the start), returning the first index the purse covers and the population room
+ * admits, or null: it never waits to save up for a dearer item. `purse` is whole logistics
+ * (`logisticsOf(1)`; exact for integer costs, S-2). `popRoom` is the cap minus the side's
+ * population, or null when uncapped. A busy line buys nothing.
+ */
+export function spendDown(
+  menu: readonly LineItem[],
+  last: number,
+  purse: number,
+  popRoom: number | null,
+  lineIdle: boolean
+): number | null {
+  const n = menu.length;
+  if (!lineIdle || n === 0) return null;
+  if (popRoom !== null && popRoom <= 0) return null;
+  for (let k = 1; k <= n; k++) {
+    const i = (last + k + n) % n;
+    const it = menu[i];
+    if (it.logistics > purse) continue;
+    if (popRoom !== null && it.population > popRoom) continue;
+    return i;
+  }
+  return null;
+}
