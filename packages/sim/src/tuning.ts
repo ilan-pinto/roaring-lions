@@ -472,3 +472,8 @@ export const CORRIDOR_RECHECK_TICKS = 20; // 1 s at 20 Hz
  *  10 tiles, the largest `tiles` any shipped mission authors. */
 export const AMBUSH_RADIUS_DEFAULT = 196608;
 export const AMBUSH_RADIUS_MAX = 655360;
+
+/** Production lines one side may stand (F4, R-F4-4): `validate:data` and `start()` refuse more. */
+export const MAX_PRODUCTION_LINES = 4;
+/** Items waiting on one production line, not counting the one in progress (F4, R-F4-4). */
+export const MAX_LINE_QUEUE = 16;

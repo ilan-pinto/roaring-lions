@@ -98,3 +98,6 @@ export { KNEEL_DROP_TICKS, KNEEL_RISE_TICKS } from './tuning';
 export { AMBUSH_RADIUS_DEFAULT, AMBUSH_RADIUS_MAX } from './tuning';
 // The fire-support profile table (F1 Task 6): `callStrike.profile` indexes it.
 export { FIRE_SUPPORT, FS_AIR_STRIKE, FS_MORTAR_BARRAGE, FS_SMOKE_SCREEN, type FireSupportProfile } from './tuning';
+// The production line state machine (F4 Task 2) and its two bounds (R-F4-4).
+export { advance, enqueue, cancel, type LineItem, type ProductionLine } from './production';
+export { MAX_PRODUCTION_LINES, MAX_LINE_QUEUE } from './tuning';
