@@ -228,6 +228,15 @@ describe('production lines in the runtime (F4 Task 3)', () => {
     expect(w.rt.logisticsOf(1)).toBe(1200);
   });
 
+  it('a side-1 camp that dies refuses with the one side-1 string, never "destroyed"', () => {
+    const w = world({ campsS1: [[30, 5]] });
+    w.step(10);
+    w.sim.debugDestroyStructure(w.campIdx[w.campIdx.length - 1]);
+    w.step(2);
+    expect(w.rt.buildBlockedReason('n2_squad', 1)).toBe('no field camp — production needs one standing');
+    expect(w.rt.canBuild('n2_squad', undefined, 1)).toBe(false);
+  });
+
   it('a side-1 item that costs intel is refused: intel is side 0\'s', () => {
     const w = world({ campsS1: [[30, 5]] });
     expect(w.rt.requestBuild('n2_intel', undefined, 1)).toBe(false);

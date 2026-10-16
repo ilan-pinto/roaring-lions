@@ -1255,10 +1255,11 @@ export class MissionRuntime {
     // `c` tile) or, for side 0 with no camp at all, `player_start`. The clause reads the LINES,
     // not the mission JSON, so it agrees with `requestBuild` (which needs a living line):
     // a side with no living line is refused, "destroyed" if it ever had a camp line, else
-    // "no field camp". Side 1 never falls back to `player_start` (LD6 ask 3).
+    // "no field camp". Side 1 never falls back to `player_start` (LD6 ask 3), and keeps ONE
+    // string whether it never had a camp or its camp died (task-3 brief).
     if (this.shortestLine(side) === null) {
       const lines = this.lines[side];
-      for (let i = 0; i < lines.length; i++) {
+      for (let i = 0; side === 0 && i < lines.length; i++) {
         if (lines[i].anchor >= 0) return 'field camp destroyed — no production';
       }
       return 'no field camp — production needs one standing';
