@@ -732,7 +732,7 @@ export type Command =
   /** N2: one call from F1's fire-support menu, priced as `build` is. */
   | { kind: 'support'; side: number; support: SupportKind; x: Fx; y: Fx };
 
-/** The two commands the sim sets aside for the MissionRuntime to price (N2):
+/** The five commands the sim sets aside for the MissionRuntime to price and run (N2, F4):
  *  `queueCommand` never hands them to `applyCommands`. */
 export type RuntimeCommand = Extract<Command, { kind: 'build' | 'support' | 'cancelBuild' | 'setRally' | 'clearRally' }>;
 /** `takeRuntimeCommands`' answer when nothing is set aside: shared, frozen, no allocation. */
@@ -1993,7 +1993,8 @@ export class Sim {
   }
 
   queueCommand(cmd: Command): void {
-    // N2: the two runtime-priced kinds go to their own list; the sim never runs them.
+    // N2/F4: the five runtime-run kinds (build, support, cancelBuild, setRally, clearRally) go to
+    // their own list; the sim never runs them.
     switch (cmd.kind) {
       case 'build': case 'support': case 'cancelBuild': case 'setRally': case 'clearRally':
         this.runtimeQueue.push(cmd);
@@ -2848,9 +2849,9 @@ export class Sim {
           this.haltUnit(id);
         }
       } else {
-        // Exhaustive over what `commandQueue` can hold: `build` and `support`
+        // Exhaustive over what `commandQueue` can hold: the five RuntimeCommand kinds
         // are excluded from its type (`queueCommand` sets them aside for the
-        // runtime, N2), so they need no branch here and a new sim kind still
+        // runtime, N2/F4), so they need no branch here and a new sim kind still
         // fails to compile until it gets one.
         const unhandled: never = cmd;
         void unhandled;

@@ -1047,7 +1047,7 @@ const ECONOMY_TICKS = 2400; // two minutes
 // re-pinned 2026-10-16, F4 Task 6: serial production lines per camp, the contested pause and
 // rally points (G3 Q3, lead 4 Oct); economyHash() folds every line (side, anchor, current,
 // ticksLeft, queue, rally) in place of the interim R-F4-8 fold, and the fixture gained a second
-// camp, a rally point, a cancel and a 10 s contest; was 275731552.
+// camp, a rally point, a cancel and a raider contest (about 200 contested ticks); was 275731552.
 const ECONOMY_PIN = 904873885;
 const ECONOMY_EXTRA_BUILD_TICK = 1000;
 // F3 Task 4 (GH-183): side 0's cap, and the one build it refuses. The force is the
@@ -1063,8 +1063,8 @@ const ECONOMY_REFUSED_BUILD_TICK = 1200;
 // pinned hash carries a non-empty queue and not just a purse.
 const ECONOMY_LATE_BUILD_TICK = 2300;
 // F4 Task 6 (GH-183, G3 Q3): the second camp's line (line 1) builds one truck at 1500, a raider
-// contests the camp's door from RAIDER_IN to RAIDER_OUT (10 s, so the line freezes for 200
-// ticks), and the truck is cancelled at 1800 still in progress (a refund of its 100). Line 0
+// contests the camp's door from RAIDER_IN to RAIDER_OUT (ticks 1510 to 1750; it needs time to
+// walk in, so the line freezes for about 200 contested ticks), and the truck is cancelled at 1800 still in progress (a refund of its 100). Line 0
 // carries a rally point at (14, 30) from tick 100: the first squad (ready 700) walks to it.
 const ECONOMY_LINE_TRUCK_TICK = 1500;
 const ECONOMY_RAIDER_IN_TICK = 1510;
@@ -1188,7 +1188,7 @@ const ECO_MISSION: MissionJson = {
       { unit: 'militia_cell', count: 1, at: [20, 22], group: 'north', stance: { kind: 'hold_position' } },
       { unit: 'militia_cell', count: 1, at: [20, 26], group: 'south', stance: { kind: 'hold_position' } },
       // F4 Task 6: the raider. Last, so the others keep their entity ids. It walks to the second
-      // camp's door for ECONOMY_CONTEST_TICKS and is then removed (debugKill), which keeps the
+      // camp's door from ECONOMY_RAIDER_IN_TICK until ECONOMY_RAIDER_OUT_TICK and is then removed (debugKill), which keeps the
       // secondary `clear` completable by the force alone.
       { unit: 'militia_cell', count: 1, at: [9, 41], group: 'raider', stance: { kind: 'hold_position' } },
     ],
@@ -1447,7 +1447,8 @@ describe('economy replay (2400 ticks of MissionRuntime on a flat map)', () => {
         { typeIdOf: () => squad, markers: {}, zones: {} },
       );
       rt.start();
-      // Side 1 cannot buy until N3, so the item goes onto the line directly.
+      // The item goes onto the line directly, not through the side-1 buyer (Task 9), so the two
+      // hashes differ in the side word alone.
       const line = rt['lines'][side][0];
       expect(enqueue(line, { unit: 'inf_squad', logistics: 100, intel: 0, population: 0, buildTicks: 300 })).toBe(true);
       expect(line.current?.unit).toBe('inf_squad');

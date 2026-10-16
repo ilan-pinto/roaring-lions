@@ -205,6 +205,8 @@ describe('production lines in the runtime (F4 Task 3)', () => {
     expect(w.rt.canBuild('n2_squad', 0)).toBe(false);
     expect(w.rt.cancelBuild(0, -1)).toBe(false);
     expect(w.rt.setRally(0, fx.from(20), fx.from(5))).toBe(false);
+    expect(w.rt.canSetRally(0, fx.from(20), fx.from(5))).toBe(false);
+    expect(w.rt.clearRally(0)).toBe(false);
     expect(w.rt.requestBuild('n2_squad')).toBe(true);
     expect(w.rt.productionLines(0)[1].queued).toBe(1);
     w.step(100);
@@ -576,6 +578,32 @@ describe('the rally point (F4 Task 5)', () => {
     const spy = vi.spyOn(w.sim, 'queueCommand');
     buildOne(w);
     expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe('structures[].side is a number in the type and 0 or 1 at the wiring (F4 final review)', () => {
+  it('start() throws a wiring error for a side the schema enum would refuse', () => {
+    const sim = new Sim({ seed: 11, width: 40, height: 12, capacity: 64 });
+    const t = sim.addUnitType(SQUAD);
+    sim.addStructureType(CAMP);
+    const mission: MissionJson = {
+      id: 'f4_side', map: { file: 'none', player_start: [3, 5] },
+      ledger: { requires: [], produces: [] },
+      objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
+      starting_force: [{ unit: 'n2_squad', count: 1, at: [3, 8] }],
+      structures: [{ type: 'camp', at: [10, 3], size: [2, 2], side: 2 }],
+    };
+    const rt = new MissionRuntime(sim, mission, { typeIdOf: () => t, markers: {}, zones: {} });
+    expect(() => rt.start()).toThrow(/side 2, expected 0 or 1/);
+  });
+});
+
+describe('clearRally on a line with no rally (F4 final review)', () => {
+  it('answers true for a living line and leaves the rally null', () => {
+    const w = world();
+    expect(w.rt.productionLines(0)[0].rally).toBeNull();
+    expect(w.rt.clearRally(0)).toBe(true);
+    expect(w.rt.productionLines(0)[0].rally).toBeNull();
   });
 });
 

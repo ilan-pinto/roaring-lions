@@ -260,7 +260,7 @@ export interface MissionJson {
   objectives: readonly ObjectiveJson[];
   starting_force?: readonly PlacementJson[];
   /** Buildings this mission raises on top of its map's own. See the schema. */
-  structures?: readonly { type: string; at: readonly number[]; size?: readonly number[]; side?: 0 | 1 }[];
+  structures?: readonly { type: string; at: readonly number[]; size?: readonly number[]; side?: number }[];
   resources?: {
     logistics_start?: number;
     intel_start?: number;
@@ -1100,7 +1100,7 @@ export class MissionRuntime {
   }
 
   /** A 32-bit hash over every piece of runtime economy state: the floored purse
-   *  (logistics, intel), the build queue, and, from F2/F4 on, the zone owners and
+   *  (logistics, intel), the production lines, and, from F2/F4 on, the zone owners and
    *  production lines. Uses the sim's own hashWord, so the two hashes compose.
    *
    *  Read-only, and integer-only on purpose: the purse is an exact integer
@@ -1163,7 +1163,8 @@ export class MissionRuntime {
   }
 
   /** The network hash of everything the runtime decides that the sim does not
-   *  hold (spec §7.1): `economyHash()` first -- the purse, the build queue, the
+   *  hold (spec §7.1): `economyHash()` first -- the purse, the production lines and rally
+   *  points, the side-1 buyer's index, the
    *  settled identifications, high ground, population and caps, F2's zones and
    *  corridors -- then, in this order: each objective in authored order (status
    *  code, holdTicks, paused code); each trigger's fired latch; each wave's
@@ -1193,7 +1194,9 @@ export class MissionRuntime {
    *    drained within the step;
    *  - `onLoan` and `razeExempt` are fixed at `start()`;
    *  - the rear, zone-route, convoy-route and vent caches are derived from map
-   *    data.
+   *    data;
+   *  - `enemyMenu` and `enemyMinCost` are fixed at `start()`, `ctx.economy` is a
+   *    construction constant, and `refusedByPopulation` is scratch.
    *  N3 adds folds for whatever its versus rules read. */
   digest(): number {
     let h = hashWord(HASH_SEED, this.economyHash() | 0);
@@ -1509,16 +1512,16 @@ export class MissionRuntime {
   }
 
   /**
-   * Run the `build` and `support` commands the sim set aside (N2), in queue
-   * order, through `requestBuild` and `requestSupport` exactly as a direct call
-   * would. Call BEFORE `sim.tick()`: anything still set aside when the tick
+   * Run the commands the sim set aside (N2, F4: build, support, cancelBuild,
+   * setRally, clearRally), in queue order, through `requestBuild`,
+   * `requestSupport` and the line methods exactly as a direct call would. Call BEFORE `sim.tick()`: anything still set aside when the tick
    * starts is discarded (R-3). A command for a side other than 0 is refused
-   * (C-R3: every spend is side 0's until N3/F4). Returns how many were accepted.
+   * (C-R3: every spend is side 0's until N3). Returns how many were accepted.
    */
   applyQueued(): number {
     let accepted = 0;
     for (const c of this.sim.takeRuntimeCommands()) {
-      if (c.side !== 0) continue; // C-R3: only side 0 spends until N3/F4
+      if (c.side !== 0) continue; // C-R3: only side 0 spends until N3
       let ok: boolean;
       switch (c.kind) {
         case 'build': ok = this.requestBuild(c.unit, c.line); break;
@@ -1785,18 +1788,21 @@ export class MissionRuntime {
    *  its anchor (-1 = `player_start`), the item in progress (its unit's characters, or one 0
    *  word), `ticksLeft`, the queue (count, then per item its unit's characters and its logistics
    *  price) and the rally point (`x`, `y`, or -1, -1). A dead camp's line is folded too: the
-   *  items it still holds are state. No allocation. */
+   *  items it still holds are state. No allocation: indexed loops only. */
   private foldLines(h0: number): number {
     let h = h0;
-    for (const side of [0, 1] as const) {
-      for (const l of this.lines[side]) {
+    for (let side = 0; side < 2; side++) {
+      const lines = this.lines[side];
+      for (let li = 0; li < lines.length; li++) {
+        const l = lines[li];
         h = hashWord(h, l.side);
         h = hashWord(h, l.anchor);
         if (l.current === null) h = hashWord(h, 0);
         else for (let i = 0; i < l.current.unit.length; i++) h = hashWord(h, l.current.unit.charCodeAt(i));
         h = hashWord(h, l.ticksLeft);
         h = hashWord(h, l.queue.length);
-        for (const q of l.queue) {
+        for (let qi = 0; qi < l.queue.length; qi++) {
+          const q = l.queue[qi];
           for (let i = 0; i < q.unit.length; i++) h = hashWord(h, q.unit.charCodeAt(i));
           h = hashWord(h, q.logistics);
         }
@@ -2662,6 +2668,12 @@ export class MissionRuntime {
       }
       const [w, h] = spec.size ?? [2, 2];
       const [ox, oy] = spec.at;  // length pinned to 2 by mission.schema.json
+      // `side` is a plain number in the JSON type (a literal union breaks JSON-module call
+      // sites); the schema enum is the authority, narrowed here to the only two sides.
+      if (spec.side !== undefined && spec.side !== 0 && spec.side !== 1) {
+        throw new Error(`mission ${this.mission.id}: ${spec.type} has side ${spec.side}, expected 0 or 1`);
+      }
+      const side: 0 | 1 | undefined = spec.side;
       const tiles: number[] = [];
       for (let y = oy; y < oy + h; y++) {
         for (let x = ox; x < ox + w; x++) {
@@ -2689,11 +2701,11 @@ export class MissionRuntime {
       if (this.sim.structureTypes[ti].perTile) {
         for (const t of tiles) {
           const id = this.sim.addStructure(ti, [t]);
-          if (spec.side !== undefined) this.sim.setStructureProducesFor(id, spec.side);
+          if (side !== undefined) this.sim.setStructureProducesFor(id, side);
         }
       } else {
         const id = this.sim.addStructure(ti, tiles);
-        if (spec.side !== undefined) this.sim.setStructureProducesFor(id, spec.side);
+        if (side !== undefined) this.sim.setStructureProducesFor(id, side);
       }
     }
   }
