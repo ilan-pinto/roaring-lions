@@ -23,7 +23,7 @@ the lead-delegated window of 15-16 Oct, and stand until the lead overrules them.
 | D4 | A camp that dies loses its line: the item in progress is lost, queued items are refunded, the rally goes. "field camp destroyed" stands once the side's last camp is gone. The line keeps its index | the whole queue is refunded; or the queue moves to another camp | taken default |
 | D5 | The rally order is a no-sweep `attackMove`. A rally on a blocked tile is refused, never snapped. Per line; survives until cleared or the camp dies; none = the unit stays at the exit | a plain move; snap to the nearest open tile | **Lead-ruled** (2026-10-11) |
 | D6 | A build goes to the line the caller names (an index into `productionLines(side)`); none named = that side's line with the fewest items, ties to the lowest index. Index order is structure order and stable | always line 0; or first idle line | taken default |
-| D7 | No shipped campaign mission gives side 1 a camp in Stage 4; the enemy half is proved on fixtures and a harness probe (§4) | author one enemy camp (a data change, held for the lead) | taken default |
+| D7 | No shipped campaign mission gives side 1 a camp in Stage 4; the enemy half is proved on fixtures and a harness probe (§4) | author one enemy camp AND make the app/playtest unitInfo answer side 1 (code + data, held for the lead); `validate:data` refuses `enemy.production` on a shipped mission meanwhile | taken default |
 | D8 | Spend-down: whenever side 1's line is idle and its purse covers the cheapest menu item that fits its population room, it buys the next affordable item in menu order (round-robin from the last bought). Never banks for a dearer item. No `rng` | buy the dearest affordable; or bank for the best item | taken default |
 
 | # | Controller/coordinator ruling | Cost if overruled |
@@ -108,14 +108,17 @@ In a 7-minute (420 s) mission that is the column "max per line in 420 s" (an upp
 | `manpad_team` | Sarim | 18 | 210 | 23 |
 | `rocket_battery` | Sarim | 40 | 201 | 10 |
 | `recoilless_team` | Sarim | 16 | 205 | 26 |
+| `loiter_drone` | Sarim | 9 | 292 | 46 |
 | `gun_truck` | Rif (not Sarim) | 13 | 324 | 32 |
 
-(Other enemy-roster units carry a build time as well, from `moto_rpg` 7 s to `loiter_drone` 9 s; only the Sarim menu units
-N3 sells are tabled.)
+(The other enemy-roster units carry a build time as well, from `charge_squad` 6 s to `digger_crew` and `mortar_crew` 15 s
+(`moto_rpg` 7, `militia_cell` and `technical` 10, `paramotor` 11, `rpg_team` 12), and are not tabled. Tabled are the five
+Sarim menu units N3 sells, the Sarim `loiter_drone`, and the Rif `gun_truck`. Every figure above was re-read from
+`cost.build_time_s` in `data/units/**/*.json`.)
 
 **Flags.**
-- **Instant-feeling (<= 14 s): `recon_drone` 12, `jeep_shoded` 12, `attack_drone` 14**, and on the Sarim side `gun_truck` 13
-  if it joins a menu. At these times the line is not a pacing device: the purse alone limits the player (a drone is 210 logistics). That is intended for drones (they carry population 0
+- **Instant-feeling (<= 14 s): `recon_drone` 12, `jeep_shoded` 12, `attack_drone` 14**, and on the enemy side
+  `loiter_drone` 9 (Sarim) and `gun_truck` 13 (Rif) if either joins a menu. At these times the line is not a pacing device: the purse alone limits the player (a drone is 210 logistics). That is intended for drones (they carry population 0
   and a mission's recon plan uses them), but it means "the dock is a queue" is felt on infantry and up, not on the
   drone-class.
 - **Heavy (>= 42 s): `heli_peten` 42, `mbt_lavi` 45, `heli_peten_gunship` 50.** A single `mbt_lavi` is 45 s of a 300-420 s

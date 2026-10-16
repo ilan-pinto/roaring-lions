@@ -623,7 +623,7 @@ line. The "Built" column below names the commit that made each row true.
 | `humanHeld[side]` | mission.ts | triggers, waves and the commander skip a human-held side. The table arrives from `seatRules` in `@lions/net` (N2-P4); the sim never reads a config | The table and `Sim.isHumanHeld` are built (`963d6613`); `seatRules` feeds them (`3689dd9f`). **"Triggers, waves and the commander skip a human-held side" is N3's** (D1, ruled 16 Oct) |
 | `Sim.seatOf(entity)` read; issuer-aware `queueCommand(cmd, seat)` later | sim.ts | the ownership check moves from the net layer into the sim when Stage 4's lane C slot opens | **N3 or later** (D4, ruled 16 Oct): ownership stays in `@lions/net` (`validateCommand`), which N2 extended for the three kinds (`7bd5d7c8`, `fe9a42d7`) |
 
-**F4 (LD6) as built (16 Oct 2026, branch `feat/gf4-camp-production`, base `8c18f590`; GH-183, closes GH-136).** All ten asks landed, in these commits (the table is in `docs/superpowers/plans/2026-10-16-net-n3-prep.md` §5):
+**F4 (LD6) as built (16 Oct 2026, branch `feat/gf4-camp-production`, base `8c18f590`; GH-183, closes GH-136).** All ten asks landed, in these commits (this table is the single home of the ask-to-commit mapping; the asks themselves are specified in `docs/superpowers/plans/2026-10-16-net-n3-prep.md` §5, which points back here):
 
 | ask | landed in |
 |---|---|
