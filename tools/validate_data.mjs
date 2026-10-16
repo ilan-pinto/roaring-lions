@@ -30,6 +30,7 @@ import { videoFailures } from './validate_video.mjs';
 import { timeLimitFailures } from './validate_time_limit.mjs';
 import { popCapFailures } from './validate_pop_cap.mjs';
 import { incomeFailures } from './validate_income.mjs';
+import { productionFailures } from './validate_production.mjs';
 import { doctrineFailures } from './validate_doctrine.mjs';
 import { garrisonStanceFailures, garrisonWeaponFailures } from './validate_garrison.mjs';
 import {
@@ -268,8 +269,10 @@ const garrisonableSymbols = new Set(
   }
   const unitIds = new Set();
   const unitsById = new Map();
+  const enemyUnitsById = new Map(); // data/units/enemy/ only (F4 Task 7: no mirrored tech trees)
   for (const file of jsonFilesIn(join(ROOT, 'data/units'))) {
     const u = loadJson(file);
+    if (u?.id && rel(file).startsWith('data/units/enemy/')) enemyUnitsById.set(u.id, u);
     if (u?.id) {
       unitIds.add(u.id);
       unitsById.set(u.id, u);
@@ -966,6 +969,8 @@ const garrisonableSymbols = new Set(
     failures.push(...popCapFailures(mi, rel(file)));
     // F2 (GH-183): income zones and the convoy entry resolve against this mission's map.
     failures.push(...incomeFailures(mi, map, rel(file)));
+    // F4 (GH-183): the enemy camp, its menu and the per-side production bound.
+    failures.push(...productionFailures(mi, map, structureCatalogue, enemyUnitsById, rel(file)));
     // B2: a garrison stance on a unit without the ability is silently refused at runtime.
     failures.push(...garrisonStanceFailures(mi, unitsById, rel(file)));
   }

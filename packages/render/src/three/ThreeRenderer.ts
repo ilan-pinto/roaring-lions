@@ -5874,8 +5874,7 @@ export class ThreeRenderer implements Renderer {
   /** Whether structure `s` is the viewer's own: held by its side, or one its
    *  side produces from (VR-03: the player's own never fills enemy red). */
   private structureIsOwn(s: number, holder: number = this.structureHolder(s)): boolean {
-    const stype = this.sim.structureTypes[this.sim.structures.typeIdx[s]];
-    return (this.sim.structures.occupants[s] > 0 && isOwnSide(holder, this.viewer)) || isOwnSide(stype.producesFor, this.viewer);
+    return (this.sim.structures.occupants[s] > 0 && isOwnSide(holder, this.viewer)) || isOwnSide(this.sim.structureProducesFor(s), this.viewer);
   }
 
   /**

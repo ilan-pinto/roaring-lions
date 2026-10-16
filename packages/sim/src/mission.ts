@@ -260,7 +260,7 @@ export interface MissionJson {
   objectives: readonly ObjectiveJson[];
   starting_force?: readonly PlacementJson[];
   /** Buildings this mission raises on top of its map's own. See the schema. */
-  structures?: readonly { type: string; at: readonly number[]; size?: readonly number[] }[];
+  structures?: readonly { type: string; at: readonly number[]; size?: readonly number[]; side?: 0 | 1 }[];
   resources?: {
     logistics_start?: number;
     intel_start?: number;
@@ -291,6 +291,15 @@ export interface MissionJson {
   };
   enemy?: {
     faction?: string;
+    /** F4 Task 7: the enemy's camp menu and purse. Task 9 makes side 1 buy from it; the sim
+     *  does not read it yet. `group` (R-F4-7) is given to every built unit. */
+    production?: {
+      menu: readonly string[];
+      logistics_start?: number;
+      logistics_rate_per_min?: number;
+      rally?: string;
+      group?: string;
+    };
     garrison?: readonly PlacementJson[];
     waves?: readonly {
       at_seconds: number;
@@ -1200,7 +1209,7 @@ export class MissionRuntime {
   private productionAnchor(side: number): number {
     for (let s = 0; s < this.sim.structureCount; s++) {
       if (this.sim.structures.alive[s] === 0) continue;
-      if (this.sim.structureTypes[this.sim.structures.typeIdx[s]].producesFor === side) return s;
+      if (this.sim.structureProducesFor(s) === side) return s;
     }
     return -1;
   }
@@ -2535,7 +2544,7 @@ export class MissionRuntime {
    */
   private buildLines(): void {
     for (let s = 0; s < this.sim.structureCount; s++) {
-      const side = this.sim.structureTypes[this.sim.structures.typeIdx[s]].producesFor;
+      const side = this.sim.structureProducesFor(s);
       if (side !== 0 && side !== 1) continue;
       this.lines[side].push({ side, anchor: s, queue: [], current: null, ticksLeft: 0, rally: null });
     }
@@ -2590,9 +2599,13 @@ export class MissionRuntime {
       // 2026-09-06 this path raised one footprint-sized structure whatever the
       // type, and a 6x1 fence came up as a single panel on a six-tile pad.
       if (this.sim.structureTypes[ti].perTile) {
-        for (const t of tiles) this.sim.addStructure(ti, [t]);
+        for (const t of tiles) {
+          const id = this.sim.addStructure(ti, [t]);
+          if (spec.side !== undefined) this.sim.setStructureProducesFor(id, spec.side);
+        }
       } else {
-        this.sim.addStructure(ti, tiles);
+        const id = this.sim.addStructure(ti, tiles);
+        if (spec.side !== undefined) this.sim.setStructureProducesFor(id, spec.side);
       }
     }
   }

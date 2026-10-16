@@ -26,6 +26,8 @@ interface Opts {
   /** Camps raised on the sim before the runtime exists, as a map-grid `c` tile would be. */
   gridCamps?: readonly (readonly [number, number])[];
   campsS1?: readonly (readonly [number, number])[];
+  /** F4 Task 7: `camp` (a TYPE that produces for side 0) placed with `side: 1`. */
+  sided?: readonly (readonly [number, number])[];
   playerStart?: boolean;
   start?: readonly [number, number];
   popCaps?: readonly [number | null, number | null];
@@ -53,6 +55,7 @@ function world(o: Opts = {}) {
     structures: [
       ...camps.map(([x, y]) => ({ type: 'camp', at: [x, y], size: [2, 2] })),
       ...campsS1.map(([x, y]) => ({ type: 'camp_s1', at: [x, y], size: [2, 2] })),
+      ...(o.sided ?? []).map(([x, y]) => ({ type: 'camp', at: [x, y], size: [2, 2], side: 1 as const })),
     ],
   };
   const rt = new MissionRuntime(sim, mission, {
@@ -559,5 +562,38 @@ describe('the rally point (F4 Task 5)', () => {
     const spy = vi.spyOn(w.sim, 'queueCommand');
     buildOne(w);
     expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe('structures[].side overrides the type (F4 Task 7, R-F4-9)', () => {
+  it('lines: a `camp` placed with side 1 is a side-1 line, and side 0 keeps only its player_start line', () => {
+    const w = world({ camps: [], sided: [[30, 5]] });
+    expect(w.rt.productionLines(1)).toHaveLength(1);
+    expect(w.rt.productionLines(0)).toHaveLength(1);
+    expect(w.rt.productionLines(0)[0].anchor).toBe(-1);
+    expect(w.rt.productionLines(1)[0].anchor).toBe(0);
+    expect(w.sim.structureProducesFor(0)).toBe(1);
+  });
+
+  it('the camp clause: side 1 can build, and side 0 reads as in a mission with no camp at all', () => {
+    const w = world({ camps: [], sided: [[30, 5]] });
+    const none = world({ camps: [] });
+    expect(w.rt.buildBlockedReason('n2_squad', 1)).toBeNull();
+    expect(none.rt.buildBlockedReason('n2_squad', 1)).toBe('no field camp — production needs one standing');
+    expect(w.rt.buildBlockedReason('n2_squad')).toBe(none.rt.buildBlockedReason('n2_squad'));
+    // The override camp is not side 0's: with no player_start its death must not matter to side 0.
+    const bare = world({ camps: [], sided: [[30, 5]], playerStart: false });
+    expect(bare.rt.productionLines(0)).toHaveLength(0);
+    expect(bare.rt.buildBlockedReason('n2_squad', 1)).toBeNull();
+  });
+
+  it("productionAnchor: side 1's deploy point is the override camp's exit", () => {
+    const w = world({ camps: [], sided: [[30, 5]] });
+    w.step(10);
+    expect(w.rt.requestBuild('n2_squad', undefined, 1)).toBe(true);
+    const before = w.sim.entityCount;
+    w.step(60);
+    const e = w.sim.structureExit(0);
+    expect(dist(pos(w, before), [fx.toNumber(e[0]), fx.toNumber(e[1])])).toBeLessThan(1.5);
   });
 });

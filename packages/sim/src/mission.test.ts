@@ -5398,6 +5398,7 @@ describe('held-ground income and corridors (F2 Task 7)', () => {
     tunnels?: TunnelRouteJson[];
     start?: number;
     economy?: { logisticsStart: readonly [number, number]; logisticsRatePerMin: readonly [number, number] };
+    structures?: MissionJson['structures'];
   }
   function incomeWorld(o: IncomeOpts, prep?: (sim: Sim) => void): World {
     return makeWorld(
@@ -5405,6 +5406,7 @@ describe('held-ground income and corridors (F2 Task 7)', () => {
         map: { file: 'none', player_start: [26, 2] },
         starting_force: o.force ?? [],
         enemy: { garrison: o.enemy ?? [] },
+        ...(o.structures !== undefined ? { structures: o.structures } : {}),
         resources: {
           logistics_start: o.start ?? 0,
           logistics_rate_per_min: o.base ?? 0,
@@ -5618,6 +5620,44 @@ describe('held-ground income and corridors (F2 Task 7)', () => {
     expect(mission.filter((e) => e.kind === 'zoneHolder')).toEqual([
       { kind: 'zoneHolder', tick: 1, zone: 'east', holder: 1, contested: false },
     ]);
+  });
+
+  // F4 Task 7 (R-F4-9, F-4): a structure placed with `side: 1` is side 1's production anchor,
+  // so syncRear(1) takes its exit as side 1's rear and a zone side 1 holds gets a route.
+  it("a camp placed with side 1 is side 1's rear: its held zone gets a route from the camp's exit", () => {
+    const camp = (sim: Sim) => { sim.addStructureType({ id: 'plain_hut', hp_per_tile: 300 }); };
+    const w = incomeWorld(
+      {
+        zones: [{ zone: 'east', rate_per_min: 60 }],
+        force: [mine(25, 10)],
+        enemy: [theirs(21, 9)],
+        structures: [{ type: 'plain_hut', at: [4, 9], size: [2, 2], side: 1 }],
+      },
+      camp,
+    );
+    w.step(1200);
+    const east = zoneOf(w, 'east');
+    expect(east.holder).toBe(1);
+    expect(east.route).not.toBeNull();
+    const last = east.route?.[(east.route?.length ?? 1) - 1] ?? -1;
+    const [rx, ry] = [last % 28, Math.floor(last / 28)];
+    const [ex, ey] = w.sim.structureExit(0);
+    expect(Math.abs(rx - (ex >> 16))).toBeLessThanOrEqual(1);
+    expect(Math.abs(ry - (ey >> 16))).toBeLessThanOrEqual(1);
+    expect(w.runtime.productionLines(1)).toHaveLength(1);
+    // The control: the same hut without the override is no one's rear.
+    const none = incomeWorld(
+      {
+        zones: [{ zone: 'east', rate_per_min: 60 }],
+        force: [mine(25, 10)],
+        enemy: [theirs(21, 9)],
+        structures: [{ type: 'plain_hut', at: [4, 9], size: [2, 2] }],
+      },
+      camp,
+    );
+    none.step(1200);
+    expect(zoneOf(none, 'east').route).toBeNull();
+    expect(none.runtime.productionLines(1)).toHaveLength(0);
   });
 
   it('routes and cuts are rechecked every CORRIDOR_RECHECK_TICKS, not every tick', () => {

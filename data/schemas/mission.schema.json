@@ -503,6 +503,41 @@
         "doctrine_profile": {
           "type": "string"
         },
+        "production": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "menu"
+          ],
+          "description": "The enemy camp's menu and purse (F4, LD6). Needs a side-1 camp in `structures`. validate:data refuses a menu unit that is not in data/units/enemy/ or that costs intel.",
+          "properties": {
+            "logistics_start": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 894784
+            },
+            "logistics_rate_per_min": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "menu": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string"
+              },
+              "description": "Unit ids side 1 may build."
+            },
+            "rally": {
+              "type": "string",
+              "description": "Map marker built units walk to."
+            },
+            "group": {
+              "type": "string",
+              "description": "Group given to built units, so a trigger's commit can send them on (R-F4-7)."
+            }
+          }
+        },
         "garrison": {
           "type": "array",
           "description": "Defenders emplaced at mission start, with the GDD §6 behaviour vocabulary: one stance per unit, declarative, never scripted.",
@@ -724,6 +759,14 @@
             "minItems": 2,
             "maxItems": 2,
             "description": "Footprint in tiles, default [2,2]."
+          },
+          "side": {
+            "type": "integer",
+            "enum": [
+              0,
+              1
+            ],
+            "description": "Overrides the structure type's produces_for for this placement. A camp placed for side 1 is the enemy's production site."
           }
         }
       }

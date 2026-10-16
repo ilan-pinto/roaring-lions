@@ -1146,6 +1146,8 @@ export class Sim {
   private readonly stHp: Int32Array;
   private readonly stMaxHp: Int32Array;
   private readonly stTypeIdx: Uint16Array;
+  /** Per-placement `produces_for` (F4 Task 7). Setup-only; NOT in hash(). */
+  private readonly stProducesFor: Int8Array;
   private readonly stOccupants: Uint8Array;
   private readonly stCx: Int32Array;
   private readonly stCy: Int32Array;
@@ -1414,6 +1416,7 @@ export class Sim {
     this.stHp = new Int32Array(sc);
     this.stMaxHp = new Int32Array(sc);
     this.stTypeIdx = new Uint16Array(sc);
+    this.stProducesFor = new Int8Array(sc).fill(-1);
     this.stOccupants = new Uint8Array(sc);
     this.stCx = new Int32Array(sc);
     this.stCy = new Int32Array(sc);
@@ -1636,6 +1639,7 @@ export class Sim {
     this.stTiles[id] = [...tiles];
     this.stAlive[id] = 1;
     this.stTypeIdx[id] = typeIdx;
+    this.stProducesFor[id] = type.producesFor;
     this.stMaxHp[id] = fx.mul(type.hpPerTile, fx.fromInt(tiles.length));
     this.stHp[id] = this.stMaxHp[id];
     this.stOccupants[id] = 0;
@@ -1648,6 +1652,23 @@ export class Sim {
     this.stMaxY[id] = maxY;
     this.recomputeFields();
     return id;
+  }
+
+  /**
+   * Override which side structure `s` produces for (a mission placement's `side`, F4 Task 7).
+   * Setup-only: written when the mission raises its structures, before the first tick, and
+   * left out of hash(); Task 6's economyHash folds every line's side, so a client built with
+   * a different override diverges there.
+   */
+  setStructureProducesFor(s: number, side: 0 | 1): void {
+    if (s < 0 || s >= this.structureCount_) throw new Error(`no structure ${s}`);
+    if (this.tickCount > 0) throw new Error('setStructureProducesFor is setup-only (before the first tick)');
+    this.stProducesFor[s] = side;
+  }
+
+  /** The side structure `s` produces for: the placement's override, else its type's `producesFor` (-1 = none). */
+  structureProducesFor(s: number): number {
+    return this.stProducesFor[s];
   }
 
   get tunnelCount(): number {
@@ -5596,7 +5617,7 @@ export class Sim {
           // (2026-09-06). The scripted plan never saw it because it orders
           // the squad away at tick 20. Levelling your own camp is an order,
           // like cutting your own wire.
-          if (this.structureTypes[this.stTypeIdx[s]].producesFor === this.side[i]) continue;
+          if (this.stProducesFor[s] === this.side[i]) continue;
           if (this.stOccupants[s] > 0 && this.friendlyInside(s, this.side[i])) continue;
           const d = this.structDistSq(s, this.posX[i], this.posY[i]);
           if (d <= bestD) {
