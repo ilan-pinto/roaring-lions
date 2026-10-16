@@ -2,7 +2,8 @@
 // an integer tick clock, no rng, no allocation on the idle path. The runtime owns purse,
 // population and the contest test; this module owns only the queue and the clock.
 import type { Fx } from './fixed';
-import { MAX_LINE_QUEUE } from './tuning';
+import type { HoldView } from './income';
+import { CONTEST_RADIUS_SQ, MAX_LINE_QUEUE } from './tuning';
 
 export interface LineItem {
   unit: string;
@@ -76,4 +77,23 @@ export function cancel(line: ProductionLine, i: number): LineItem | null {
   }
   if (i < 0 || i >= line.queue.length) return null;
   return line.queue.splice(i, 1)[0] ?? null;
+}
+
+/**
+ * D1, LD6 ask 9. A line is contested when a living, surface (tunnelIn < 0), ground (!isAir)
+ * unit of side `1 - side` stands within CONTEST_RADIUS_SQ of (x, y), compared on `>> 8` deltas
+ * as the hold rule does. Civilians (side 2) contest nothing. No allocation.
+ */
+export function lineContested(view: HoldView, x: Fx, y: Fx, side: 0 | 1): boolean {
+  const foe = 1 - side;
+  const n = view.entityCount;
+  for (let e = 0; e < n; e++) {
+    if (view.alive[e] === 0 || view.side[e] !== foe) continue;
+    if (view.tunnelIn[e] >= 0) continue;
+    if (view.isAir(e)) continue;
+    const dx = ((view.posX[e] - x) >> 8) | 0;
+    const dy = ((view.posY[e] - y) >> 8) | 0;
+    if (dx * dx + dy * dy <= CONTEST_RADIUS_SQ) return true;
+  }
+  return false;
 }

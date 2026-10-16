@@ -26,7 +26,7 @@ import { fx, HALF, type Fx } from './fixed';
 import { HASH_SEED, hashWord } from './hash';
 import { starsFor, betterResult, type Stars, type MissionResult } from './grade';
 import { TICKS_PER_SECOND, type Sim, type SimEvent } from './sim';
-import { advance, cancel, enqueue, type LineItem, type ProductionLine } from './production';
+import { advance, cancel, enqueue, lineContested, type LineItem, type ProductionLine } from './production';
 import { highGroundRises } from './intel-earn';
 import {
   AMBUSH_RADIUS_DEFAULT,
@@ -1213,6 +1213,23 @@ export class MissionRuntime {
     return line.anchor < 0 || this.sim.structures.alive[line.anchor] === 1;
   }
 
+  /** D1: a side `1 - line.side` ground unit on the surface within the contest radius of the exit. */
+  private lineIsContested(line: ProductionLine): boolean {
+    let ex: Fx;
+    let ey: Fx;
+    if (line.anchor >= 0) {
+      const e = this.sim.structureExit(line.anchor);
+      ex = e[0];
+      ey = e[1];
+    } else {
+      const ps = this.mission.map.player_start;
+      if (ps === undefined || ps.length < 2) return false;
+      ex = fx.from(ps[0]);
+      ey = fx.from(ps[1]);
+    }
+    return lineContested(this.holdView, ex, ey, line.side);
+  }
+
   /** The living line `line` of `side`, or null: out of range, not an integer, or its camp is dead. */
   private livingLine(side: 0 | 1, line: number | undefined): ProductionLine | null {
     if (line === undefined || !Number.isInteger(line) || line < 0) return null;
@@ -1665,7 +1682,7 @@ export class MissionRuntime {
   /**
    * LD6 ask 6: index order is structure index order, stable for the mission, and is the `line`
    * every command carries. A dead camp's line keeps its index and reads `current: null,
-   * queued: 0`. `contested` is Task 4's; `rally` is Task 5's.
+   * queued: 0`. `contested` is true while a line's item is frozen (D1).
    */
   productionLines(side: 0 | 1): {
     anchor: number;
@@ -1693,7 +1710,7 @@ export class MissionRuntime {
         queued: alive ? l.queue.length : 0,
         current: cur === null ? null : cur.unit,
         progress: cur === null || bt <= 0 ? 0 : (((bt - l.ticksLeft) * 1000) / bt) | 0,
-        contested: false,
+        contested: alive && l.current !== null && this.lineIsContested(l),
         rally: alive && l.rally !== null ? [l.rally.x, l.rally.y] : null,
       };
     });
@@ -2067,7 +2084,7 @@ export class MissionRuntime {
           line.rally = null;
           continue;
         }
-        const done = advance(line, false);
+        const done = advance(line, line.current !== null && this.lineIsContested(line));
         if (done === null) continue;
         // `origin` is the same channel a carrier's passengers use. With no camp (side 0's
         // `player_start` line) it is undefined and the placement falls through, unchanged.

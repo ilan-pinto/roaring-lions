@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { advance, cancel, enqueue, type LineItem, type ProductionLine } from './production';
+import { advance, cancel, enqueue, lineContested, type LineItem, type ProductionLine } from './production';
+import { fx } from './fixed';
 import { MAX_LINE_QUEUE } from './tuning';
 
 const item = (unit = 'a'): LineItem => ({ unit, logistics: 300, intel: 0, population: 1, buildTicks: 40 });
@@ -104,5 +105,19 @@ describe('production line (F4 Task 2)', () => {
     expect(l.current?.unit).toBe('a');
     expect(l.ticksLeft).toBe(40);
     expect(l.queue).toHaveLength(0);
+  });
+});
+
+describe('lineContested on a literal HoldView (F4 Task 4)', () => {
+  it('radius edge, tunnel, air, own side and civilians', () => {
+    const view = (px: number, tun = -1, air = false, side = 1) => ({
+      entityCount: 1, alive: [1], side: [side], posX: [fx.from(px)], posY: [0], tunnelIn: [tun], isAir: () => air,
+    });
+    expect(lineContested(view(6), 0, 0, 0)).toBe(true);
+    expect(lineContested(view(6.5), 0, 0, 0)).toBe(false);
+    expect(lineContested(view(1, 0), 0, 0, 0)).toBe(false);
+    expect(lineContested(view(1, -1, true), 0, 0, 0)).toBe(false);
+    expect(lineContested(view(1, -1, false, 0), 0, 0, 0)).toBe(false);
+    expect(lineContested(view(1, -1, false, 2), 0, 0, 1)).toBe(false);
   });
 });

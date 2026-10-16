@@ -11,6 +11,12 @@ const SQUAD: UnitTypeJson = {
   mobility: { speed_tiles_s: 1 }, sensors: { optics: 1, sight_tiles: 8, signature: 0.6 },
   weapons: [{ id: 'rifles', type: 'small_arms', range_tiles: 7, effective_range_tiles: 5.5, accuracy: 0.6, penetration: 8, damage: 1, suppression: 0, rof_per_min: 300 }],
 };
+const DRONE: UnitTypeJson = {
+  id: 'n4_drone', role: 'recon',
+  hull: { hp: 100, armor: { front: 1, side: 1, rear: 1 } },
+  mobility: { speed_tiles_s: 3, domain: 'air' }, sensors: { optics: 1, sight_tiles: 8, signature: 0.6 },
+  weapons: [],
+};
 const CAMP = { id: 'camp', name: 'Field Camp', hp_per_tile: 300, garrison_slots: 3, rubble_cover: 2, produces_for: 0 };
 const CAMP_S1 = { id: 'camp_s1', name: 'Enemy Camp', hp_per_tile: 300, garrison_slots: 3, rubble_cover: 2, produces_for: 1 };
 
@@ -29,6 +35,7 @@ interface Opts {
 function world(o: Opts = {}) {
   const sim = new Sim({ seed: 11, width: 40, height: 12, capacity: 64 });
   const t = sim.addUnitType(SQUAD);
+  const drone = sim.addUnitType(DRONE);
   sim.addStructureType(CAMP);
   sim.addStructureType(CAMP_S1);
   for (const [gx, gy] of o.gridCamps ?? []) {
@@ -65,7 +72,7 @@ function world(o: Opts = {}) {
   const builtTicks = () => built().map((e) => e.tick);
   const campIdx: number[] = [];
   for (let i = 0; i < sim.structureCount; i++) campIdx.push(i);
-  return { sim, rt, step, events, built, builtTicks, asked, campIdx };
+  return { sim, rt, step, events, built, builtTicks, asked, campIdx, t, drone };
 }
 
 const pos = (w: ReturnType<typeof world>, id: number): [number, number] =>
@@ -337,5 +344,79 @@ describe('production lines in the runtime (F4 Task 3)', () => {
     expect(w.rt.productionOf(1)).toEqual([{ unit: 'n2_squad', doneTicks: 0, totalTicks: 40, ticksLeft: 40 }]);
     w.step(15);
     expect(w.rt.productionLines(0)[0]).toMatchObject({ current: 'n2_squad', queued: 1, progress: 375 });
+  });
+});
+
+/** A unit of `side` standing `d` tiles east of line `k`'s exit (side 0's lines). */
+function foeAt(w: ReturnType<typeof world>, type: number, side: number, d: number, k = 0, lineSide: 0 | 1 = 0): number {
+  const e = w.rt.productionLines(lineSide)[k].exit;
+  return w.sim.spawn(type, side, e[0] + fx.from(d), e[1]);
+}
+
+describe('no production while the camp is contested (F4 Task 4)', () => {
+  const run = (d: number, mutate?: (w: ReturnType<typeof world>, id: number) => void, side = 1): number[] => {
+    const w = world();
+    const id = foeAt(w, side === 3 ? w.drone : w.t, side === 3 ? 1 : side, d);
+    mutate?.(w, id);
+    w.step(10);
+    w.rt.requestBuild('n2_squad');
+    w.step(60);
+    return w.builtTicks();
+  };
+
+  it('a side-1 squad 5 tiles from the exit freezes the line; at 7 tiles it does not', () => {
+    expect(run(5)).toEqual([]);
+    expect(run(7)).toEqual([50]);
+  });
+
+  it('a buried squad (tunnelIn 0) contests nothing; tunnelIn -1 does', () => {
+    expect(run(5, (w, id) => { w.sim.state.tunnelIn[id] = 0; })).toEqual([50]);
+    expect(run(5, (w, id) => { w.sim.state.tunnelIn[id] = -1; })).toEqual([]);
+  });
+
+  it('a side-1 drone over the exit does not contest', () => {
+    expect(run(0, undefined, 3)).toEqual([50]);
+  });
+
+  it('Review Focus 5 / ask 9: the mirror -- a side-1 line is contested by side 0, not by side 1 or a civilian', () => {
+    const go = (foeSide: number): number[] => {
+      const w = world({ camps: [], campsS1: [[10, 3]] });
+      foeAt(w, w.t, foeSide, 5, 0, 1);
+      w.step(10);
+      expect(w.rt.requestBuild('n2_squad', 0, 1)).toBe(true);
+      w.step(60);
+      return w.builtTicks();
+    };
+    expect(go(1)).toEqual([50]);
+    expect(go(0)).toEqual([]);
+    expect(go(2)).toEqual([50]);
+    // and a side-0 line is not contested by a civilian either
+    expect(run(5, undefined, 2)).toEqual([50]);
+  });
+
+  it('a line frozen for 300 ticks finishes 300 ticks late, `built` carries the real tick, and `contested` reads true on exactly those ticks', () => {
+    const w = world();
+    const id = foeAt(w, w.t, 1, 5);
+    w.step(10);
+    w.rt.requestBuild('n2_squad');
+    const flags: boolean[] = [];
+    for (let i = 0; i < 300; i++) { w.step(1); flags.push(w.rt.productionLines(0)[0].contested); }
+    expect(flags.every((f) => f)).toBe(true);
+    expect(w.built()).toEqual([]);
+    w.sim.debugKill(id);
+    w.step(1);
+    expect(w.rt.productionLines(0)[0].contested).toBe(false);
+    w.step(60);
+    expect(w.builtTicks()).toEqual([350]);
+  });
+
+  it('D2: the player_start line is contested by the same rule', () => {
+    const w = world({ camps: [] });
+    w.sim.spawn(w.t, 1, fx.from(8), fx.from(5));
+    w.step(10);
+    expect(w.rt.requestBuild('n2_squad')).toBe(true);
+    w.step(60);
+    expect(w.builtTicks()).toEqual([]);
+    expect(w.rt.productionLines(0)[0].contested).toBe(true);
   });
 });
