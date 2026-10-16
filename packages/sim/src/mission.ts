@@ -26,6 +26,7 @@ import { fx, HALF, type Fx } from './fixed';
 import { HASH_SEED, hashWord } from './hash';
 import { starsFor, betterResult, type Stars, type MissionResult } from './grade';
 import { TICKS_PER_SECOND, type Sim, type SimEvent } from './sim';
+import { advance, cancel, enqueue, type LineItem, type ProductionLine } from './production';
 import { highGroundRises } from './intel-earn';
 import {
   AMBUSH_RADIUS_DEFAULT,
@@ -39,6 +40,8 @@ import {
   INTEL_PER_IDENTIFIED,
   INTEL_PER_OBJECTIVE,
   INTEL_PER_RISE,
+  MAX_LINE_QUEUE,
+  MAX_PRODUCTION_LINES,
 } from './tuning';
 import type { TunnelRouteJson } from './tunnels';
 import { unlockReason, type UnlockGate } from './unlock';
@@ -336,7 +339,10 @@ export interface MissionContext {
   /** Production catalogue: cost and build time per unit id, null if the
    *  unit cannot be built in the field. */
   unitInfo?: (
-    unitId: string
+    unitId: string,
+    /** The side asking (R-F4-5). A one-parameter lookup that answers the KDF menu only
+     *  still type-checks, and then side 1 is refused "not available in the field". */
+    side: 0 | 1
   ) => {
     logistics: number;
     intel?: number;
@@ -445,7 +451,7 @@ export type MissionEvent =
   | { kind: 'trigger'; tick: number; id: string }
   | { kind: 'wave'; tick: number; count: number }
   | { kind: 'roe'; tick: number; penalty: number; reason: string; score: number }
-  | { kind: 'built'; tick: number; unit: string }
+  | { kind: 'built'; tick: number; unit: string; side: 0 | 1 }
   /**
    * One civilian got out: reached the evacuation zone and was counted.
    *
@@ -807,7 +813,10 @@ export class MissionRuntime {
     halvedBy: null,
   };
   private intelValue = 0;
-  private readonly buildQueue: { unit: string; startTick: number; readyTick: number }[] = [];
+  /** The production lines, one per camp per side, in structure index order (D6, LD6 ask 6).
+   *  A dead camp's line keeps its index for the mission: indices commands carry never shift.
+   *  Built in `start()`; side 0 with no camp gets one `player_start` line (D2). */
+  private readonly lines: [ProductionLine[], ProductionLine[]] = [[], []];
   /** Scratch for `firstRefusal`: did the population check speak? Not state; never hashed. */
   private refusedByPopulation = false;
   private readonly identified = new Set<number>();
@@ -1077,12 +1086,10 @@ export class MissionRuntime {
     let h = HASH_SEED;
     h = hashWord(h, this.logisticsOf(0));
     h = hashWord(h, this.intelValue | 0);
-    h = hashWord(h, this.buildQueue.length);
-    for (const b of this.buildQueue) {
-      for (let i = 0; i < b.unit.length; i++) h = hashWord(h, b.unit.charCodeAt(i));
-      h = hashWord(h, b.startTick | 0);
-      h = hashWord(h, b.readyTick | 0);
-    }
+    // R-F4-8 (interim until F4 Task 6): side 0's items fold exactly as the flat build queue
+    // did -- the count, then per item (current, then queued, line by line) its unit's
+    // characters, `startTick = readyTick - buildTicks` and `readyTick = now + ticks ahead + own`.
+    h = this.foldSideZeroItems(h);
     // F1 Task 3 (F-R3): the settled first identifications, size then ids ascending.
     h = hashWord(h, this.paidIdentified.size);
     const settled = [...this.paidIdentified].sort((a, b) => a - b);
@@ -1200,51 +1207,92 @@ export class MissionRuntime {
     return -1;
   }
 
+  /** True while a line's camp stands (a `player_start` line, anchor -1, never falls). */
+  private lineAlive(line: ProductionLine): boolean {
+    return line.anchor < 0 || this.sim.structures.alive[line.anchor] === 1;
+  }
+
+  /** The living line `line` of `side`, or null: out of range, not an integer, or its camp is dead. */
+  private livingLine(side: 0 | 1, line: number | undefined): ProductionLine | null {
+    if (line === undefined || !Number.isInteger(line) || line < 0) return null;
+    const l = this.lines[side][line];
+    return l !== undefined && this.lineAlive(l) ? l : null;
+  }
+
+  /** The living line of `side` holding the fewest items (current counts), ties to the lowest index (D6). */
+  private shortestLine(side: 0 | 1): ProductionLine | null {
+    let best: ProductionLine | null = null;
+    let bestN = 0;
+    for (const l of this.lines[side]) {
+      if (!this.lineAlive(l)) continue;
+      const n = l.queue.length + (l.current === null ? 0 : 1);
+      if (best === null || n < bestN) {
+        best = l;
+        bestN = n;
+      }
+    }
+    return best;
+  }
+
   /**
    * Why a build is refused, or null. The ONE walk of the checks, in their order:
-   * no catalogue entry, the unlock gate, the camp, then the population cap.
-   * `buildBlockedReason` and `popCapped` both read it, so the order they report
-   * cannot drift. `refusedByPopulation` is set to whether the cap was the check
-   * that spoke; a field rather than a returned pair so a per-frame dock query
+   * no catalogue entry, the unlock gate, intel (side 1 has none), the camp, the population
+   * cap, and last the queue bound (R-F4-4). `buildBlockedReason` and `popCapped` both read it,
+   * so the order they report cannot drift. `refusedByPopulation` is set to whether the cap was
+   * the check that spoke; a field rather than a returned pair so a per-frame dock query
    * allocates nothing.
    */
-  private firstRefusal(unitId: string): string | null {
+  private firstRefusal(unitId: string, side: 0 | 1, line?: number): string | null {
     this.refusedByPopulation = false;
-    const info = this.ctx.unitInfo?.(unitId);
+    const info = this.ctx.unitInfo?.(unitId, side);
     if (!info) return 'not available in the field';
     const unlock = unlockReason(info.unlock as UnlockGate | undefined, this.ctx.ledger);
     if (unlock !== null) return unlock;
-    // Where would it deploy? A camp if the mission placed one, else the map's
-    // `player_start` — the fallback that keeps every mission authored before
-    // camps existed producing exactly as it did. Only a mission that HAS a
-    // camp can lose production by losing it; a mission with neither was never
-    // able to build in the first place.
+    // LD6 ask 2: intel is side 0's, so a side-1 item that costs any is not on its menu.
+    if (side === 1 && (info.intel ?? 0) > 0) return 'not available in the field';
+    // Where would it deploy? A camp if the mission placed one, else side 0's `player_start` --
+    // the fallback that keeps every mission authored before camps existed producing exactly
+    // as it did. Only a mission that HAS a camp can lose production by losing it.
     //
-    // No camp standing. Whether that BLOCKS production depends on whether this
-    // mission ever had one -- asked of the mission JSON, not the live sim.
-    // Reading it off the sim instead would make `player_start` a silent
-    // fallback the moment the camp fell, which is precisely the coupling this
-    // feature exists to create: a mission that fields a camp loses production
-    // with it, and a mission that never fielded one is untouched.
-    if (this.productionAnchor(0) < 0) {
+    // No camp standing. Whether that BLOCKS production depends on whether this mission ever
+    // had one -- asked of the mission JSON, not the live sim. Reading it off the sim instead
+    // would make `player_start` a silent fallback the moment the camp fell. Side 1 never
+    // falls back to `player_start` (LD6 ask 3).
+    if (this.productionAnchor(side) < 0) {
+      if (side === 1) return 'no field camp — production needs one standing';
       if (this.declaresProduction(0)) return 'field camp destroyed — no production';
       if (!this.mission.map.player_start) return 'no field camp — production needs one standing';
     }
-    // Last, so the gate and the camp speak first. A unit that takes no population
-    // (a drone) is never refused here, even by a side already over its cap (D3).
-    const cap = this.popCap(0);
+    // So the gate and the camp speak first. A unit that takes no population (a drone) is never
+    // refused here, even by a side already over its cap (D3).
+    const cap = this.popCap(side);
     if (cap !== null && info.population > 0) {
-      const used = this.population(0);
+      const used = this.population(side);
       if (used + info.population > cap) {
         this.refusedByPopulation = true;
         return `population cap reached (${used}/${cap})`;
       }
     }
+    // Last (R-F4-4): a line holds one in progress and MAX_LINE_QUEUE waiting. Named: that line;
+    // unnamed: every living line of the side.
+    const named = this.livingLine(side, line);
+    if (line !== undefined) {
+      if (named !== null && named.queue.length >= MAX_LINE_QUEUE) return `production queue full (${MAX_LINE_QUEUE})`;
+    } else {
+      let any = false;
+      let room = false;
+      for (const l of this.lines[side]) {
+        if (!this.lineAlive(l)) continue;
+        any = true;
+        if (l.queue.length < MAX_LINE_QUEUE) room = true;
+      }
+      if (any && !room) return `production queue full (${MAX_LINE_QUEUE})`;
+    }
     return null;
   }
 
-  buildBlockedReason(unitId: string): string | null {
-    return this.firstRefusal(unitId);
+  buildBlockedReason(unitId: string, side: 0 | 1 = 0): string | null {
+    return this.firstRefusal(unitId, side);
   }
 
   /**
@@ -1253,8 +1301,8 @@ export class MissionRuntime {
    * (that reason speaks first), so a dock can tell "full" from "locked". No observable state change
    * (writes only an unhashed scratch flag).
    */
-  popCapped(unitId: string): boolean {
-    return this.firstRefusal(unitId) !== null && this.refusedByPopulation;
+  popCapped(unitId: string, side: 0 | 1 = 0): boolean {
+    return this.firstRefusal(unitId, side) !== null && this.refusedByPopulation;
   }
 
   /** What a side's population cap is, or null when uncapped. `ctx.popCaps` overrides
@@ -1276,8 +1324,8 @@ export class MissionRuntime {
   /**
    * What a side takes of its cap: every living unit whose sim side is `side`, however it
    * got there and whatever it is doing (D1: garrisoned, carried and buried all count; a
-   * civilian is side 2 and counts for nobody), plus, for side 0, the builds queued but
-   * not yet spawned (D2, the queue has no side). A queued entry leaves `buildQueue` in
+   * civilian is side 2 and counts for nobody), plus the items on that side's living lines,
+   * in progress or waiting (D2, one reservation pool per side). An item leaves its line in
    * the same `step` that spawns its unit, so it is counted once on every tick: as a
    * reservation, then as a body. One pass over the ids; no allocation.
    */
@@ -1287,18 +1335,18 @@ export class MissionRuntime {
     for (let i = 0; i < this.sim.entityCount; i++) {
       if (st.alive[i] === 1 && st.side[i] === side) used += this.sim.unitTypes[st.typeIdx[i]].population;
     }
-    if (side === 0) {
-      for (let k = 0; k < this.buildQueue.length; k++) {
-        used += this.ctx.unitInfo?.(this.buildQueue[k].unit)?.population ?? 0;
-      }
+    for (const l of this.lines[side]) {
+      if (!this.lineAlive(l)) continue;
+      if (l.current !== null) used += l.current.population;
+      for (let k = 0; k < l.queue.length; k++) used += l.queue[k].population;
     }
     return used;
   }
 
-  /** Side 0's population for the HUD; null when uncapped (the HUD hides). */
-  populationView(): { used: number; cap: number } | null {
-    const cap = this.popCap(0);
-    return cap === null ? null : { used: this.population(0), cap };
+  /** A side's population for the HUD; null when uncapped (the HUD hides). */
+  populationView(side: 0 | 1 = 0): { used: number; cap: number } | null {
+    const cap = this.popCap(side);
+    return cap === null ? null : { used: this.population(side), cap };
   }
 
   /** Does this mission field a production structure at all, alive or dead? */
@@ -1403,17 +1451,21 @@ export class MissionRuntime {
   }
 
   /**
-   * True when `requestBuild(unitId)` would accept now (N2, D3). No state change
-   * beyond `buildBlockedReason`'s own unhashed scratch flag. `requestBuild` asks
-   * this same predicate first, so the click-time pre-check and the outcome
-   * cannot drift.
+   * True when `requestBuild(unitId, line, side)` would accept now (N2, D3). No state change
+   * beyond `buildBlockedReason`'s own unhashed scratch flag. `requestBuild` asks this same
+   * predicate first, so the click-time pre-check and the outcome cannot drift.
    */
-  canBuild(unitId: string): boolean {
+  canBuild(unitId: string, line?: number, side: 0 | 1 = 0): boolean {
     if (this.ended) return false;
-    const info = this.ctx.unitInfo?.(unitId);
+    const info = this.ctx.unitInfo?.(unitId, side);
     if (!info) return false;
-    if (this.buildBlockedReason(unitId) !== null) return false;
-    return this.purse[0] >= info.logistics * PURSE_UNITS && this.intelValue >= (info.intel ?? 0);
+    // A line the caller names must exist and have its camp standing.
+    if (line !== undefined && this.livingLine(side, line) === null) return false;
+    if (this.firstRefusal(unitId, side, line) !== null) return false;
+    return (
+      this.purse[side] >= info.logistics * PURSE_UNITS &&
+      (side === 1 || this.intelValue >= (info.intel ?? 0))
+    );
   }
 
   /**
@@ -1432,19 +1484,45 @@ export class MissionRuntime {
     return accepted;
   }
 
-  requestBuild(unitId: string): boolean {
-    if (!this.canBuild(unitId)) return false;
-    const info = this.ctx.unitInfo?.(unitId);
+  /** D6 / LD6 ask 1. `line` indexes `productionLines(side)`; omitted = that side's shortest queue. */
+  requestBuild(unitId: string, line?: number, side: 0 | 1 = 0): boolean {
+    if (!this.canBuild(unitId, line, side)) return false;
+    const info = this.ctx.unitInfo?.(unitId, side);
     if (!info) return false; // canBuild refused this already; narrows the type without an assertion
-    const cost = info.logistics * PURSE_UNITS;
-    this.purse[0] -= cost;
-    this.intelValue -= info.intel ?? 0;
-    this.buildQueue.push({
+    const target = line === undefined ? this.shortestLine(side) : this.livingLine(side, line);
+    if (target === null) return false; // likewise: canBuild saw a living line
+    const item: LineItem = {
       unit: unitId,
-      startTick: this.sim.tickCount,
-      readyTick: this.sim.tickCount + info.buildTimeS * TICKS_PER_SECOND,
-    });
+      logistics: info.logistics,
+      intel: info.intel ?? 0,
+      population: info.population,
+      buildTicks: info.buildTimeS * TICKS_PER_SECOND,
+    };
+    if (!enqueue(target, item)) return false; // the queue bound was checked by firstRefusal
+    this.spend(side, item);
     return true;
+  }
+
+  /** D3, LD6 ask 4. index -1 = the item in progress. Refunds `purse[side]` (and intel, side 0). */
+  cancelBuild(line: number, index: number, side: 0 | 1 = 0): boolean {
+    if (this.ended) return false;
+    const l = this.livingLine(side, line);
+    if (l === null) return false;
+    const item = cancel(l, index);
+    if (item === null) return false;
+    this.refund(side, item);
+    return true;
+  }
+
+  private spend(side: 0 | 1, item: LineItem): void {
+    this.purse[side] -= item.logistics * PURSE_UNITS;
+    if (side === 0) this.intelValue -= item.intel;
+  }
+
+  /** The exact inverse of `spend`. */
+  private refund(side: 0 | 1, item: LineItem): void {
+    this.purse[side] += item.logistics * PURSE_UNITS;
+    if (side === 0) this.intelValue += item.intel;
   }
 
   /**
@@ -1561,17 +1639,99 @@ export class MissionRuntime {
     return this.contributed.size;
   }
 
-  /** In-flight production for the HUD, in whole ticks — the presentation
-   *  layer turns these into a bar and a countdown (no floats in the sim). */
+  /** In-flight production for the HUD, in whole ticks -- side 0's items (`productionOf(0)`). */
   get production(): { unit: string; doneTicks: number; totalTicks: number; ticksLeft: number }[] {
-    const tick = this.sim.tickCount;
-    return this.buildQueue.map((b) => {
-      const totalTicks = b.readyTick - b.startTick;
-      const rawDone = tick - b.startTick;
-      const doneTicks = rawDone < 0 ? 0 : rawDone > totalTicks ? totalTicks : rawDone;
-      const rawLeft = b.readyTick - tick;
-      return { unit: b.unit, doneTicks, totalTicks, ticksLeft: rawLeft < 0 ? 0 : rawLeft };
+    return this.productionOf(0);
+  }
+
+  /**
+   * R-F4-3. A side's items flattened per line in line order (current, then queued), dead camps'
+   * lines skipped. A queued item reads doneTicks 0, totalTicks = its buildTicks and ticksLeft =
+   * the ticks ahead of it plus its own. Whole ticks; the presentation layer makes the bar.
+   */
+  productionOf(side: 0 | 1): { unit: string; doneTicks: number; totalTicks: number; ticksLeft: number }[] {
+    const out: { unit: string; doneTicks: number; totalTicks: number; ticksLeft: number }[] = [];
+    for (const l of this.lines[side]) {
+      if (!this.lineAlive(l) || l.current === null) continue;
+      let ahead = l.ticksLeft;
+      out.push({
+        unit: l.current.unit,
+        doneTicks: l.current.buildTicks - l.ticksLeft,
+        totalTicks: l.current.buildTicks,
+        ticksLeft: ahead,
+      });
+      for (const q of l.queue) {
+        ahead += q.buildTicks;
+        out.push({ unit: q.unit, doneTicks: 0, totalTicks: q.buildTicks, ticksLeft: ahead });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * LD6 ask 6: index order is structure index order, stable for the mission, and is the `line`
+   * every command carries. A dead camp's line keeps its index and reads `current: null,
+   * queued: 0`. `contested` is Task 4's; `rally` is Task 5's.
+   */
+  productionLines(side: 0 | 1): {
+    anchor: number;
+    exit: [Fx, Fx];
+    queued: number;
+    current: string | null;
+    progress: number;
+    contested: boolean;
+    rally: [Fx, Fx] | null;
+  }[] {
+    return this.lines[side].map((l) => {
+      const alive = this.lineAlive(l);
+      let exit: [Fx, Fx];
+      if (l.anchor >= 0) {
+        exit = this.sim.structureExit(l.anchor);
+      } else {
+        const ps = this.mission.map.player_start;
+        exit = ps !== undefined && ps.length >= 2 ? [fx.from(ps[0]), fx.from(ps[1])] : [0, 0];
+      }
+      const cur = alive ? l.current : null;
+      const bt = cur === null ? 0 : cur.buildTicks;
+      return {
+        anchor: l.anchor,
+        exit,
+        queued: alive ? l.queue.length : 0,
+        current: cur === null ? null : cur.unit,
+        progress: cur === null || bt <= 0 ? 0 : (((bt - l.ticksLeft) * 1000) / bt) | 0,
+        contested: false,
+        rally: alive && l.rally !== null ? [l.rally.x, l.rally.y] : null,
+      };
     });
+  }
+
+  /** R-F4-8: side 0's items as the flat queue folded them (see `economyHash`). No allocation. */
+  private foldSideZeroItems(h0: number): number {
+    let h = h0;
+    const now = this.sim.tickCount;
+    let n = 0;
+    for (const l of this.lines[0]) {
+      if (!this.lineAlive(l) || l.current === null) continue;
+      n += 1 + l.queue.length;
+    }
+    h = hashWord(h, n);
+    for (const l of this.lines[0]) {
+      if (!this.lineAlive(l) || l.current === null) continue;
+      let ready = now + l.ticksLeft;
+      h = this.foldItem(h, l.current, ready);
+      for (const q of l.queue) {
+        ready += q.buildTicks;
+        h = this.foldItem(h, q, ready);
+      }
+    }
+    return h;
+  }
+
+  private foldItem(h0: number, item: LineItem, readyTick: number): number {
+    let h = h0;
+    for (let i = 0; i < item.unit.length; i++) h = hashWord(h, item.unit.charCodeAt(i));
+    h = hashWord(h, (readyTick - item.buildTicks) | 0);
+    return hashWord(h, readyTick | 0);
   }
 
   objectiveStatus(id: string): ObjectiveStatus {
@@ -1660,6 +1820,7 @@ export class MissionRuntime {
     // Mission-placed buildings go up BEFORE any force spawns, so a placement
     // can never land inside one.
     this.raiseMissionStructures();
+    this.buildLines();
     // High ground (D4): read once, from the map with the mission's own buildings
     // standing. A flat map has no rise and the per-tick pass never runs. The
     // table is built ONCE, here: a structure that collapses later is deliberately
@@ -1870,21 +2031,7 @@ export class MissionRuntime {
     // it is earned by doing, at the two places that pay it -- the first identification
     // of an enemy (the contact digest above) and an objective's completion
     // (`payObjective`).
-    for (let i = this.buildQueue.length - 1; i >= 0; i--) {
-      const b = this.buildQueue[i];
-      if (tick < b.readyTick) continue;
-      this.buildQueue.splice(i, 1);
-      // Deploy beside the camp that built it. `origin` is the same channel a
-      // carrier's passengers use. With no camp this is undefined and the
-      // placement falls through to `player_start`, unchanged.
-      const anchor = this.productionAnchor(0);
-      this.spawnPlacement(
-        { unit: b.unit, count: 1 },
-        0,
-        anchor >= 0 ? this.sim.structureExit(anchor) : undefined
-      );
-      out.push({ kind: 'built', tick, unit: b.unit });
-    }
+    this.stepProduction(tick, out);
 
     this.stepRoe(simEvents, tick, out);
     this.stepCivilians();
@@ -1905,6 +2052,40 @@ export class MissionRuntime {
   }
 
   // ------------------------------------------------------------- held ground
+
+  /**
+   * F4: per line, side 0's lines then side 1's. A dead camp loses its line first (D4: the item
+   * in progress is lost with the refund, queued items refunded, the rally goes with it), read
+   * before the advance so a camp that dies on its item's finishing tick delivers nothing. Then
+   * one tick of the line (Task 4 supplies the contest flag) and a finished item spawns at the
+   * line's exit, beside the camp that built it, with `built` carrying the line's side.
+   */
+  private stepProduction(tick: number, out: MissionEvent[]): void {
+    for (let side = 0; side < 2; side++) {
+      const lines = this.lines[side as 0 | 1];
+      for (let k = 0; k < lines.length; k++) {
+        const line = lines[k];
+        if (!this.lineAlive(line)) {
+          if (line.current !== null) {
+            cancel(line, -1); // D4: the item in progress is lost, not refunded
+            for (let it = cancel(line, -1); it !== null; it = cancel(line, -1)) this.refund(line.side, it);
+          }
+          line.rally = null;
+          continue;
+        }
+        const done = advance(line, false);
+        if (done === null) continue;
+        // `origin` is the same channel a carrier's passengers use. With no camp (side 0's
+        // `player_start` line) it is undefined and the placement falls through, unchanged.
+        this.spawnPlacement(
+          { unit: done.unit, count: 1 },
+          line.side,
+          line.anchor >= 0 ? this.sim.structureExit(line.anchor) : undefined
+        );
+        out.push({ kind: 'built', tick, unit: done.unit, side: line.side });
+      }
+    }
+  }
 
   /**
    * F2 Task 7. Zone states every tick, in one pass over the units (`zoneStates`, F2 Task 11);
@@ -2298,6 +2479,29 @@ export class MissionRuntime {
           );
         }
       }
+    }
+  }
+
+  /**
+   * One production line per standing production structure of each side, in structure index
+   * order (map and mission structures alike); a side-0 mission with none gets one `player_start`
+   * line (D2). A side with more than MAX_PRODUCTION_LINES is a wiring fault and throws.
+   */
+  private buildLines(): void {
+    for (let s = 0; s < this.sim.structureCount; s++) {
+      const side = this.sim.structureTypes[this.sim.structures.typeIdx[s]].producesFor;
+      if (side !== 0 && side !== 1) continue;
+      this.lines[side].push({ side, anchor: s, queue: [], current: null, ticksLeft: 0, rally: null });
+    }
+    for (const side of [0, 1] as const) {
+      if (this.lines[side].length > MAX_PRODUCTION_LINES) {
+        throw new Error(
+          `mission ${this.mission.id}: ${this.lines[side].length} production structures for side ${side}, at most ${MAX_PRODUCTION_LINES}`
+        );
+      }
+    }
+    if (this.lines[0].length === 0 && this.mission.map.player_start !== undefined) {
+      this.lines[0].push({ side: 0, anchor: -1, queue: [], current: null, ticksLeft: 0, rally: null });
     }
   }
 

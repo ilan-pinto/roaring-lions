@@ -339,7 +339,8 @@ export function alertsForTick(
         marks: entries.map((m) => m.at),
         count: e.count,
       });
-    } else if (e.kind === 'built') {
+    } else if (e.kind === 'built' && isOwnSide(e.side, viewer)) {
+      // R-F4-1: `built` carries the side; an enemy purchase raises no arrival.
       const at = world.arrivedAt(e.unit);
       // VR-37: minor and info, like the scripted reinforcement below. Both are
       // OUR units arriving, both are silent (the dock and the announcer carry

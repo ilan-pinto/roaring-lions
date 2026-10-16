@@ -30,7 +30,7 @@
  * feed has carried every loss all along. The window is a clock read on the
  * next call, never a timer: the runtime asks every mission tick.
  */
-import type { AnnouncementDef, AnnouncementManifest, VoicePriority } from '@lions/render';
+import { isOwnSide, type AnnouncementDef, type AnnouncementManifest, type VoicePriority } from '@lions/render';
 import type { MissionEvent } from '@lions/sim';
 import type { VoiceCue } from './director';
 
@@ -124,7 +124,12 @@ export interface AnnounceCue extends VoiceCue {
 
 /** Mission events -> announcer inputs. Losses coalesce into ONE input with a
  *  count, so a squad wipe is one call, not three. */
-export function announceInputsOf(events: readonly MissionEvent[], labelOf: (objectiveId: string) => string): AnnounceInput[] {
+export function announceInputsOf(
+  events: readonly MissionEvent[],
+  labelOf: (objectiveId: string) => string,
+  /** Whose purchases are "reinforcements" (R-F4-1). Seat 0 until N3 threads the viewer in. */
+  viewer = 0
+): AnnounceInput[] {
   const out: AnnounceInput[] = [];
   let lost = 0;
   for (const e of events) {
@@ -135,7 +140,7 @@ export function announceInputsOf(events: readonly MissionEvent[], labelOf: (obje
     } else if (e.kind === 'unitLost') lost += 1;
     else if (e.kind === 'wave') out.push({ event: 'wave' });
     else if (e.kind === 'roe') out.push({ event: 'roe' });
-    else if (e.kind === 'built') out.push({ event: 'reinforcements' });
+    else if (e.kind === 'built' && isOwnSide(e.side, viewer)) out.push({ event: 'reinforcements' });
   }
   if (lost > 0) out.push({ event: 'unit_lost', params: { n: lost } });
   return out;
