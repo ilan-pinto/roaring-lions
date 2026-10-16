@@ -6448,33 +6448,36 @@ export class Sim {
       }
       this.posX[i] = nx;
       this.posY[i] = ny;
-      if (arrived && nx === this.goalX[i] && ny === this.goalY[i]) {
-        const queued = this.wpCount[i];
-        if (queued > 0) {
-          // Next leg: shift the queue down and carry straight on.
-          const base = i * MAX_WAYPOINTS;
-          this.goalX[i] = this.wpX[base];
-          this.goalY[i] = this.wpY[base];
-          this.attackMove[i] = this.wpAttack[base];
-          this.sweepOrder[i] = this.wpSweep[base];
-          for (let k = 0; k < queued - 1; k++) {
-            this.wpX[base + k] = this.wpX[base + k + 1];
-            this.wpY[base + k] = this.wpY[base + k + 1];
-            this.wpAttack[base + k] = this.wpAttack[base + k + 1];
-            this.wpSweep[base + k] = this.wpSweep[base + k + 1];
-          }
-          this.wpCount[i] = queued - 1;
-          this.fieldRef[i] = this.fieldFor(
-            fx.toInt(this.goalX[i]),
-            fx.toInt(this.goalY[i]),
-            this.domainOf(i)
-          );
-          this.engaging[i] = 0;
-        } else {
-          this.moving[i] = 0;
-          this.fieldRef[i] = -1;
-        }
+      if (arrived && nx === this.goalX[i] && ny === this.goalY[i]) this.finishLeg(i);
+    }
+  }
+
+  /** The end of a leg: shift to the next queued waypoint, or stop. */
+  private finishLeg(i: number): void {
+    const queued = this.wpCount[i];
+    if (queued > 0) {
+      // Next leg: shift the queue down and carry straight on.
+      const base = i * MAX_WAYPOINTS;
+      this.goalX[i] = this.wpX[base];
+      this.goalY[i] = this.wpY[base];
+      this.attackMove[i] = this.wpAttack[base];
+      this.sweepOrder[i] = this.wpSweep[base];
+      for (let k = 0; k < queued - 1; k++) {
+        this.wpX[base + k] = this.wpX[base + k + 1];
+        this.wpY[base + k] = this.wpY[base + k + 1];
+        this.wpAttack[base + k] = this.wpAttack[base + k + 1];
+        this.wpSweep[base + k] = this.wpSweep[base + k + 1];
       }
+      this.wpCount[i] = queued - 1;
+      this.fieldRef[i] = this.fieldFor(
+        fx.toInt(this.goalX[i]),
+        fx.toInt(this.goalY[i]),
+        this.domainOf(i)
+      );
+      this.engaging[i] = 0;
+    } else {
+      this.moving[i] = 0;
+      this.fieldRef[i] = -1;
     }
   }
 
