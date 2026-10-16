@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { maps, paletteTeamColors } from '@lions/data';
 import { VERSUS_FAIR_MAPS, type MatchConfig, type SeatState, type WsTransport, type WsTransportHooks } from '@lions/net';
@@ -84,6 +84,12 @@ async function hostedRoom(over: Partial<VersusDeps> = {}) {
   const dispose = room(stage, 'ABCDEF', d);
   return { fake, transport, d, stage, dispose };
 }
+
+// jsdom has no 2D canvas: the map pictures paint nothing (the painter's own
+// null path), without jsdom's "not implemented" line per picture.
+beforeAll(() => {
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+});
 
 afterEach(() => {
   for (const leave of mounted.splice(0)) leave();
