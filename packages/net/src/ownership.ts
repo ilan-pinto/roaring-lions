@@ -56,8 +56,10 @@ export function validateCommand(cmd: Command, seat: Seat, world: SeatWorld): boo
       return !world.versus && own(cmd.caller) && onMap(cmd.x, cmd.y);
     case 'reveal':
       return !world.versus && cmd.side === side && onMap(cmd.x, cmd.y);
-    case 'build':
+    case 'build': case 'cancelBuild': case 'clearRally':
       return !world.versus && cmd.side === side;
+    case 'setRally':
+      return !world.versus && cmd.side === side && onMap(cmd.x, cmd.y);
     case 'support':
       return !world.versus && cmd.side === side && onMap(cmd.x, cmd.y);
   }

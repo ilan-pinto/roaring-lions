@@ -722,13 +722,19 @@ export type Command =
   | { kind: 'attack'; ids: number[]; target: number }
   /** N2: buy a unit. The MissionRuntime prices and queues it; the sim never
    *  executes it (R-3). Side 0 only until N3 (C-R3). */
-  | { kind: 'build'; side: number; unit: string }
+  | { kind: 'build'; side: number; unit: string; line?: number }
+  /** F4: cancel `index` on production line `line` (-1 = the item in progress). Runtime-priced. */
+  | { kind: 'cancelBuild'; side: number; line: number; index: number }
+  /** F4: set a line's rally point. Runtime-resolved (blocked tiles are the runtime's refusal). */
+  | { kind: 'setRally'; side: number; line: number; x: Fx; y: Fx }
+  /** F4: clear a line's rally point. */
+  | { kind: 'clearRally'; side: number; line: number }
   /** N2: one call from F1's fire-support menu, priced as `build` is. */
   | { kind: 'support'; side: number; support: SupportKind; x: Fx; y: Fx };
 
 /** The two commands the sim sets aside for the MissionRuntime to price (N2):
  *  `queueCommand` never hands them to `applyCommands`. */
-export type RuntimeCommand = Extract<Command, { kind: 'build' | 'support' }>;
+export type RuntimeCommand = Extract<Command, { kind: 'build' | 'support' | 'cancelBuild' | 'setRally' | 'clearRally' }>;
 /** `takeRuntimeCommands`' answer when nothing is set aside: shared, frozen, no allocation. */
 const NO_RUNTIME_COMMANDS: readonly RuntimeCommand[] = Object.freeze([]);
 
@@ -1967,8 +1973,13 @@ export class Sim {
 
   queueCommand(cmd: Command): void {
     // N2: the two runtime-priced kinds go to their own list; the sim never runs them.
-    if (cmd.kind === 'build' || cmd.kind === 'support') this.runtimeQueue.push(cmd);
-    else this.commandQueue.push(cmd);
+    switch (cmd.kind) {
+      case 'build': case 'support': case 'cancelBuild': case 'setRally': case 'clearRally':
+        this.runtimeQueue.push(cmd);
+        return;
+      default:
+        this.commandQueue.push(cmd);
+    }
   }
 
   /** The runtime-priced commands queued since the last take, in queue order;

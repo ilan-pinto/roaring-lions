@@ -90,6 +90,9 @@ describe('order in command scope (case 2)', () => {
     expect(body(await call(ctx, 'order', { verb: 'setStance', ids: [own] })).error).toBe('unknown verb');
     expect(body(await call(ctx, 'order', { verb: 'build', ids: [own] })).error).toBe('unknown verb');
     expect(body(await call(ctx, 'order', { verb: 'support', ids: [own] })).error).toBe('unknown verb');
+    for (const verb of ['cancelBuild', 'setRally', 'clearRally']) {
+      expect(body(await call(ctx, 'order', { verb, ids: [own] })).error, verb).toBe('unknown verb');
+    }
     const off = await call(ctx, 'order', { verb: 'move', ids: [own], x: 999, y: 3 });
     expect(body(off).error).toBe('off the map');
     const taken = await call(ctx, 'order', { verb: 'move', ids: [own], x: 12, y: 14 });

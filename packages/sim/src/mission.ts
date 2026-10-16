@@ -1490,7 +1490,16 @@ export class MissionRuntime {
     let accepted = 0;
     for (const c of this.sim.takeRuntimeCommands()) {
       if (c.side !== 0) continue; // C-R3: only side 0 spends until N3/F4
-      if (c.kind === 'build' ? this.requestBuild(c.unit) : this.requestSupport(c.support, c.x, c.y)) accepted++;
+      let ok: boolean;
+      switch (c.kind) {
+        case 'build': ok = this.requestBuild(c.unit, c.line); break;
+        case 'cancelBuild': ok = this.cancelBuild(c.line, c.index); break;
+        case 'setRally': ok = this.setRally(c.line, c.x, c.y); break;
+        case 'clearRally': ok = this.clearRally(c.line); break;
+        case 'support': ok = this.requestSupport(c.support, c.x, c.y); break;
+        default: { const unreachable: never = c; return unreachable; }
+      }
+      if (ok) accepted++;
     }
     return accepted;
   }

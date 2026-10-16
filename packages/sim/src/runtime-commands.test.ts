@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { fx } from './fixed';
 import { Sim, type UnitTypeJson } from './sim';
 import { MissionRuntime, type MissionJson } from './mission';
@@ -107,5 +107,92 @@ describe('build and support as commands (N2)', () => {
     spy.sim.debugKill(0); // the only side-0 unit: no surface caller left
     expect([spy.rt.canSupport('air_strike'), spy.rt.requestSupport('air_strike', fx.from(30), fx.from(5))]).toEqual([false, false]);
     expect(spy.rt.canSupport('drone_sweep')).toBe(true); // a sweep names no caller
+  });
+});
+
+describe('the line verbs as commands (F4 Task 5b)', () => {
+  const X = fx.from(20.5);
+  const Y = fx.from(5.5);
+  const CANCEL = { kind: 'cancelBuild', side: 0, line: 0, index: -1 } as const;
+  const RALLY = { kind: 'setRally', side: 0, line: 0, x: X, y: Y } as const;
+
+  it('takeRuntimeCommands returns all four in queue order, then empty; a tick that leaves them discards them (R-3)', () => {
+    const sim = new Sim({ seed: 1, width: 8, height: 8, capacity: 4 });
+    const all = [{ kind: 'build', side: 0, unit: 'inf_squad', line: 0 }, CANCEL, RALLY, { kind: 'clearRally', side: 0, line: 0 }] as const;
+    for (const c of all) sim.queueCommand(c);
+    expect(sim.takeRuntimeCommands()).toEqual(all);
+    expect(sim.takeRuntimeCommands()).toEqual([]);
+    for (const c of all) sim.queueCommand(c);
+    sim.tick();
+    const twin = new Sim({ seed: 1, width: 8, height: 8, capacity: 4 });
+    twin.tick();
+    expect(sim.takeRuntimeCommands()).toEqual([]);
+    expect(sim.hash()).toBe(twin.hash());
+  });
+  it('build then cancel in one frame: both accepted, line empty, purse whole (Review Focus 1)', () => {
+    const w = world(600, 0);
+    w.sim.queueCommand(BUILD);
+    w.sim.queueCommand(CANCEL);
+    expect(w.rt.applyQueued()).toBe(2);
+    expect(w.rt.production).toEqual([]);
+    expect(w.rt.logistics).toBe(600);
+  });
+  it('cancel then build: the cancel finds nothing, the build queues', () => {
+    const w = world(600, 0);
+    w.sim.queueCommand(CANCEL);
+    w.sim.queueCommand(BUILD);
+    expect(w.rt.applyQueued()).toBe(1);
+    expect(w.rt.production.length).toBe(1);
+    expect(w.rt.logistics).toBe(300);
+  });
+  it('a build naming line 1 on a one-line mission is refused and spends nothing', () => {
+    const w = world(600, 0);
+    w.sim.queueCommand({ ...BUILD, line: 1 });
+    expect(w.rt.applyQueued()).toBe(0);
+    expect([w.rt.logistics, w.rt.production.length]).toEqual([600, 0]);
+  });
+  it('setRally by command equals the direct call, and one set on the tick an item finishes sends that item there (Review Focus 4)', () => {
+    const a = world(600, 0);
+    const b = world(600, 0);
+    expect(a.rt.setRally(0, X, Y)).toBe(true);
+    b.sim.queueCommand(RALLY);
+    expect(b.rt.applyQueued()).toBe(1);
+    expect(b.rt.productionLines(0)[0].rally).toEqual(a.rt.productionLines(0)[0].rally);
+
+    const c = world(600, 0);
+    c.step(10);
+    expect(c.rt.requestBuild('n2_squad')).toBe(true);
+    c.step(39); // the item finishes on the next tick
+    c.sim.queueCommand(RALLY);
+    expect(c.rt.applyQueued()).toBe(1);
+    const spy = vi.spyOn(c.sim, 'queueCommand');
+    const before = c.sim.entityCount;
+    c.step(1);
+    expect(c.sim.entityCount).toBe(before + 1);
+    expect(spy).toHaveBeenCalledWith({ kind: 'attackMove', ids: [before], x: X, y: Y });
+  });
+  it('clearRally by command clears the point', () => {
+    const w = world(600, 0);
+    w.rt.setRally(0, X, Y);
+    w.sim.queueCommand({ kind: 'clearRally', side: 0, line: 0 });
+    expect(w.rt.applyQueued()).toBe(1);
+    expect(w.rt.productionLines(0)[0].rally).toBeNull();
+  });
+  it('side-1 cancelBuild and setRally are skipped (N2 skip)', () => {
+    const w = world(600, 0);
+    w.sim.queueCommand({ ...CANCEL, side: 1 });
+    w.sim.queueCommand({ ...RALLY, side: 1 });
+    w.sim.queueCommand({ kind: 'clearRally', side: 1, line: 0 });
+    expect(w.rt.applyQueued()).toBe(0);
+    expect(w.rt.logisticsOf(1)).toBe(0);
+    expect(w.rt.productionLines(1)).toEqual([]);
+    expect(w.rt.productionLines(0)[0].rally).toBeNull();
+  });
+  it('a side-1 cancelBuild never reaches side 0 (applyQueued would otherwise cancel line 0 for side 0)', () => {
+    const w = world(600, 0);
+    expect(w.rt.requestBuild('n2_squad')).toBe(true);
+    w.sim.queueCommand({ ...CANCEL, side: 1 });
+    expect(w.rt.applyQueued()).toBe(0);
+    expect([w.rt.production.length, w.rt.logistics]).toEqual([1, 300]);
   });
 });

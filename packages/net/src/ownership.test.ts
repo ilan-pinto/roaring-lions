@@ -129,3 +129,25 @@ describe('validateCommand: build and support (N2)', () => {
     }
   });
 });
+
+describe('validateCommand: the line verbs (F4 Task 5b)', () => {
+  const mk = (side: number): Command[] => [
+    { kind: 'cancelBuild', side, line: 0, index: -1 },
+    { kind: 'setRally', side, line: 0, x: 2 * F, y: 3 * F },
+    { kind: 'clearRally', side, line: 0 },
+  ];
+  it('single-player: side 0 passes, side 1 drops; a rally off the map drops', () => {
+    for (const c of mk(0)) expect(validateCommand(c, 0, world), c.kind).toBe(true);
+    for (const c of mk(1)) expect(validateCommand(c, 0, world), c.kind).toBe(false);
+    expect(validateCommand({ kind: 'setRally', side: 0, line: 0, x: 48 * F, y: 3 * F }, 0, world)).toBe(false);
+    expect(validateCommand({ kind: 'setRally', side: 0, line: 0, x: 2 * F, y: -1 }, 0, world)).toBe(false);
+  });
+  it('versus: all three drop for every side', () => {
+    const versus = { ...world, versus: true };
+    for (const seat of [0, 1] as const) {
+      for (const side of [0, 1]) {
+        for (const c of mk(side)) expect(validateCommand(c, seat, versus), c.kind).toBe(false);
+      }
+    }
+  });
+});

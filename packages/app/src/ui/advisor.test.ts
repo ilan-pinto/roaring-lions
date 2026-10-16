@@ -258,5 +258,10 @@ describe('describeCommand', () => {
     expect(describeCommand({ kind: 'attack', ids: [1], target: 9 })).toBe('Fire on an enemy with 1 unit');
     expect(describeCommand({ kind: 'build', side: 0, unit: 'inf_squad' })).toBe('Build inf_squad');
     expect(describeCommand({ kind: 'support', side: 0, support: 'drone_sweep', x: 2 * ONE, y: 3 * ONE })).toBe('Call drone_sweep on (2, 3)');
+    expect(describeCommand({ kind: 'build', side: 0, unit: 'inf_squad', line: 1 })).toBe('Build inf_squad');
+    expect(describeCommand({ kind: 'cancelBuild', side: 0, line: 0, index: -1 })).toBe('Cancel the item in progress on line 0');
+    expect(describeCommand({ kind: 'cancelBuild', side: 0, line: 0, index: 2 })).toBe('Cancel line 0, item 2');
+    expect(describeCommand({ kind: 'setRally', side: 0, line: 0, x: 2 * ONE, y: 3 * ONE })).toBe('Rally line 0 at (2, 3)');
+    expect(describeCommand({ kind: 'clearRally', side: 0, line: 0 })).toBe('Clear rally on line 0');
   });
 });
