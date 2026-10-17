@@ -980,13 +980,19 @@ export const REPAINT_SCRIPT = `(async () => {
  *  as a layer that quietly appears to draw nothing -- the distinction that
  *  makes a typo here impossible to mistake for a measurement.
  *
+ *  `crown` alone also redraws the minimap (`__lions.redrawMinimap`): a crown
+ *  summit is outside both frames it is gated on (`relief`, `aftermath`), and
+ *  shows only in the minimap's ground photograph, which the toggle's terrain
+ *  rebuild drops but the frozen frame loop never redraws. Only for `crown`,
+ *  so no other layer's reading or floor can move.
+ *
  *  Returns the object count `setDebugLayerVisible` reports, for the log line
  *  only. The gate's verdict comes from the two SCREENSHOTS. */
 export function layerToggleScript(layer: string, visible: boolean): string {
   return `(async () => {
   const objects = window.__lions.renderer.setDebugLayerVisible(${JSON.stringify(layer)}, ${visible});
   window.__lions.renderer.frame(1, 0);
-  return JSON.stringify({ layer: ${JSON.stringify(layer)}, visible: ${visible}, objects, tick: window.__lions.sim.tickCount });
+${layer === 'crown' ? '  window.__lions.redrawMinimap();\n' : ''}  return JSON.stringify({ layer: ${JSON.stringify(layer)}, visible: ${visible}, objects, tick: window.__lions.sim.tickCount });
 })()`;
 }
 

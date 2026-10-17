@@ -58,10 +58,10 @@ describe('the aftermath scenario frames the showcase it exists for', () => {
     expect(unknownParams(url.searchParams)).toEqual([]);
   });
 
-  it('is gated and carries decals, roads, macro and scatter (D4), props (ground plan 2), and the relief-read pair', () => {
+  it('is gated and carries decals, roads, macro and scatter (D4), props (ground plan 2), the relief-read pair and the crown', () => {
     expect(SCENARIOS).toContain(AFTERMATH_SCENARIO);
     const spec = BASELINES.aftermath;
     expect(isGated(spec)).toBe(true);
-    expect((spec.layerChecks ?? []).map((c) => c.layer).sort()).toEqual(['decals', 'height-contours', 'macro', 'props', 'roads', 'scatter', 'slope-light']);
+    expect((spec.layerChecks ?? []).map((c) => c.layer).sort()).toEqual(['crown', 'decals', 'height-contours', 'macro', 'props', 'roads', 'scatter', 'slope-light']);
   });
 });
