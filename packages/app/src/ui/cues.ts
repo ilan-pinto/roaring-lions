@@ -79,6 +79,7 @@ export const MISSION_EVENT_SOUND: Readonly<Record<MissionEvent['kind'], EventSou
   say: { silent: 'the story voice owns the commander bar; a cue under it would talk over it' },
   zoneHolder: { cues: [ALERT_CUE.minor, ALERT_CUE.important] },
   corridor: { cues: [ALERT_CUE.minor, ALERT_CUE.important] },
+  works: { silent: 'field works (#277) are the feed\'s line; the dock group and the works card carry the state until Task 11 gives them a cue' },
 };
 
 /**

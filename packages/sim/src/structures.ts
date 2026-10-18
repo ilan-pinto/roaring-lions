@@ -131,6 +131,8 @@ export interface StructureBuildable {
   costLogistics: number;
   costIntel: number;
   buildStep: Fx;
+  /** The authored `unlock` gate, opaque: only the runtime reads it (Task 5). */
+  unlock: unknown;
   fw: number;
   fh: number;
 }
@@ -151,6 +153,7 @@ function buildableFromJson(json: StructureTypeJson, ticksPerSecond: number): Str
   return {
     costLogistics: b.cost.logistics,
     costIntel: b.cost.intel ?? 0,
+    unlock: b.unlock,
     // The tree's integer-divide idiom: the dividend is made exactly divisible
     // first, so no fraction is ever produced (`fixed.ts`).
     buildStep: (ONE - (ONE % ticks)) / ticks,

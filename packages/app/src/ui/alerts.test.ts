@@ -415,6 +415,7 @@ describe('alertsForTick agrees with MISSION_EVENT_SOUND, kind by kind', () => {
     missionEnd: ev<'missionEnd'>({ kind: 'missionEnd', tick: 0, result: 'victory', roeRating: 100, survivors: [], ledger: {} as never }),
     zoneHolder: ev<'zoneHolder'>({ kind: 'zoneHolder', tick: 0, zone: 'staging', holder: 0, contested: false }),
     corridor: ev<'corridor'>({ kind: 'corridor', tick: 0, zone: null, cut: 'interdicted' }),
+    works: ev<'works'>({ kind: 'works', tick: 0, phase: 'complete', typeId: 'kdf_outpost', site: 0, builder: -1, refund: 0 }),
   };
   it.each(MISSION_EVENT_KINDS.filter((k) => k !== 'missionEnd'))('%s', (kind) => {
     const cues = alertsForTick(initAlertState(), [], [sample[kind]], world, 40)
