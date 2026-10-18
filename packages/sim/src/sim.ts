@@ -1389,6 +1389,8 @@ export class Sim {
   /** Goal key of each field, so eviction can drop it from `fieldByGoal`. */
   private readonly fieldGoalKey: number[] = [];
   private readonly fieldDomain: number[] = [];
+  /** recomputeFields scratch: which fields a living unit follows. Unhashed. */
+  private fieldLive = new Uint8Array(0);
 
   /** 1 = a person holds that side; index 2 (civilians) stays 0. */
   private readonly humanHeldBySide = new Uint8Array(3);
@@ -1655,15 +1657,42 @@ export class Sim {
     if (this.hasBoulders) this.blockedVehicleMask[t] = this.blocked[t] | this.boulder[t];
   }
 
-  /** Terrain changed (building raised or levelled): every cached flow field
-   *  is stale. Flow fields are shared per destination, so this is cheap
-   *  compared to the per-unit repathing it replaces. */
+  /** Terrain changed (building raised, removed or levelled): every cached flow
+   *  field is stale. Flow fields are shared per destination, so this is cheap
+   *  compared to the per-unit repathing it replaces.
+   *
+   *  LAZY (#277 Task 3). With the pool full on a 48x48 map this loop was
+   *  measured at 24 ms a call (`pnpm perf:recompute`, docs/PERFORMANCE.md),
+   *  against a 50 ms tick, and a stake or a cancel pays it. So only the fields
+   *  a LIVING unit still follows are recomputed now. The rest are dropped from
+   *  `fieldByGoal`, so the next `fieldFor` for that goal computes a fresh one,
+   *  and their slots stay in the pool, unreferenced, for eviction to reuse. Nothing reads a
+   *  field through any path but `fieldRef` or `fieldFor`, so a dropped field is
+   *  unobservable: the same bytes a full recompute would have left, computed
+   *  later or never. */
   private recomputeFields(): void {
+    const n = this.fields.length;
+    if (n === 0) return;
+    if (this.fieldLive.length < n) this.fieldLive = new Uint8Array(n);
+    const live = this.fieldLive;
+    live.fill(0, 0, n);
+    for (let i = 0; i < this.count; i++) {
+      if (this.alive[i] === 0) continue;
+      const f = this.fieldRef[i];
+      if (f >= 0) live[f] = 1;
+    }
     for (let d = 0; d < DOMAIN_COUNT; d++) {
       const mask = this.maskFor(d);
-      for (const [goal, idx] of this.fieldByGoal[d]) {
-        const gx = goal % this.width;
-        this.fields[idx].compute(mask, this.elevation, gx, (goal - gx) / this.width);
+      const byGoal = this.fieldByGoal[d];
+      for (const [goal, idx] of byGoal) {
+        if (live[idx] === 1) {
+          const gx = goal % this.width;
+          this.fields[idx].compute(mask, this.elevation, gx, (goal - gx) / this.width);
+        } else {
+          // Deleting the entry being visited is defined for a Map.
+          byGoal.delete(goal);
+          this.fieldGoalKey[idx] = -1;
+        }
       }
     }
   }
@@ -1755,6 +1784,37 @@ export class Sim {
     this.stMaxY[id] = maxY;
     this.recomputeFields();
     return id;
+  }
+
+  /**
+   * Take a structure away as if it had never been raised (a cancelled stake,
+   * #277 Task 3). Unlike `destroyStructure` it leaves no rubble (`cover` is
+   * untouched), throws no collapse shock, pushes no `structureDestroyed`
+   * event and kills no garrison: nobody can be inside an unfinished building,
+   * so it throws if `stOccupants[s] > 0` rather than killing anyone.
+   *
+   * Writes only what hash() already folds (`stAlive`, `stHp`, `blocked`), so it
+   * adds no unhashed state. `stProgress` and `stOwner` are left as written: a
+   * dead row is skipped by every reader, and the hash keeps the row's history.
+   * A unit still heading for it as a garrison goal is released, as in collapse.
+   * One `recomputeFields`, after every tile is open.
+   */
+  removeStructure(s: number): void {
+    if (s < 0 || s >= this.structureCount_) throw new Error(`no structure ${s}`);
+    if (this.stAlive[s] === 0) return;
+    if (this.stOccupants[s] > 0) throw new Error(`structure ${s} has occupants`);
+    this.stAlive[s] = 0;
+    this.stHp[s] = 0;
+    for (const t of this.stTiles[s]) {
+      this.blocked[t] = 0;
+      // A boulder under the same tile does not stop being a boulder.
+      this.syncVehicleTile(t);
+      this.structureOfTile[t] = -1;
+    }
+    for (let i = 0; i < this.count; i++) {
+      if (this.garrisonGoal[i] === s) this.garrisonGoal[i] = -1;
+    }
+    this.recomputeFields();
   }
 
   /**
@@ -2266,6 +2326,7 @@ export class Sim {
       idx = this.fields.length;
       this.fields.push(new FlowField(this.width, this.height));
     } else {
+      // A slot dropped by recomputeFields holds key -1: nothing in the map to remove.
       this.fieldByGoal[this.fieldDomain[idx]].delete(this.fieldGoalKey[idx]);
     }
     this.fields[idx].compute(this.maskFor(d), this.elevation, gx, gy);
