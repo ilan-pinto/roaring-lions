@@ -219,7 +219,7 @@ describe('zoneAt, zoneHolder and supplyCutAt (F2)', () => {
   // midpoint for any line with a route, cut or not.
   it('gaining a zone whose line is open raises no cut, and the later real cut is announced', () => {
     const line = { zone: 'a', holder: 0, cut: null as string | null, route: [at(1, 1), at(2, 1), at(3, 1), at(4, 1)], cutSpan: null as [number, number] | null };
-    const live = { incomeZones: [line], convoyRoute: null } as unknown as MissionRuntime;
+    const live = { incomeZones: [line], convoyRoute: null, productionLines: () => [] } as unknown as MissionRuntime;
     const w = world(live);
     const keys = (a: readonly Alert[]) => a.map((x) => x.line?.key);
     const gained = alertsForTick(initAlertState(), [], [{ kind: 'zoneHolder', tick: 0, zone: 'a', holder: 0, contested: false }], w, 40);

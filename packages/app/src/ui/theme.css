@@ -3453,6 +3453,189 @@ body[data-outcome-beat] .rl-aar {
   gap: var(--s1);
 }
 
+/* --- F4: one row per camp (WP-S-F GH-184, the lead's direction B) ----------
+   Stacked between the header and the grid, and HELD TO THE GRID'S WIDTH: the
+   block contributes no width of its own (`width: 0` with `min-width: 100%`),
+   so the dock is exactly as wide as its grid whatever a row says, and a row
+   that runs long clips its queue chips rather than pushing the dock into the
+   battlefield (the mock measured 316 -> 468 px without this). A mission with
+   one idle camp and no rally never shows the block (`linesShown`), so its
+   dock is today's to the pixel. */
+.rl-dock__lines {
+  width: 0;
+  min-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+.rl-dock__lines[hidden],
+.rl-line[hidden],
+.rl-line [hidden] {
+  display: none;
+}
+.rl-dock__hint {
+  font-size: var(--t-xs);
+  color: var(--ink-dim);
+  text-shadow: var(--halo);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rl-line {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  min-height: 2.25rem;
+  padding: 0 var(--s1);
+  box-sizing: border-box;
+  background: var(--panel-bg);
+  font-family: var(--font-body);
+  font-size: var(--t-xs);
+  color: var(--ink);
+  pointer-events: auto;
+}
+/* The pin is the row's face: a button under everything else in the row, so a
+   click on the label, the state word or the gap pins the camp, and the row's
+   frame is the button's own border (the pick-one register, VR-26). */
+.rl-line__pin {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--panel-frame);
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease);
+}
+.rl-line__pin:hover,
+.rl-line__pin:focus-visible {
+  border-color: var(--accent);
+}
+.rl-line__pin[aria-pressed='true'] {
+  border-color: var(--selected);
+  background: var(--selected-fill);
+}
+/* Words the pin sits under: they pass the click through to it. */
+.rl-line__camp,
+.rl-line__state {
+  position: relative;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.rl-line__camp {
+  margin: 0;
+  flex: none;
+}
+.rl-line__state {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.rl-line__queue {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  overflow: hidden;
+}
+.rl-line__more {
+  flex: none;
+  color: var(--ink-dim);
+}
+/* The item in progress and the queued chips: each one is its own cancel
+   (`aria-label` "Cancel Rifle Squad, refunds 292 logistics"). Hover or focus
+   draws the cancel cross over the art, in two strokes of --bad, no glyph. */
+.rl-line__item,
+.rl-line__chip {
+  position: relative;
+  flex: none;
+  box-sizing: border-box;
+  padding: 0;
+  background: var(--tile-bg);
+  border: 1px solid var(--panel-frame);
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease);
+}
+.rl-line__item {
+  width: 2rem;
+  height: 2rem;
+}
+.rl-line__chip {
+  width: 1.375rem;
+  height: 1.375rem;
+}
+.rl-line__item:hover,
+.rl-line__item:focus-visible,
+.rl-line__chip:hover,
+.rl-line__chip:focus-visible {
+  border-color: var(--bad);
+}
+.rl-line__item:hover::after,
+.rl-line__item:focus-visible::after,
+.rl-line__chip:hover::after,
+.rl-line__chip:focus-visible::after {
+  content: '';
+  position: absolute;
+  inset: 20%;
+  background:
+    linear-gradient(45deg, transparent 44%, var(--bad) 44%, var(--bad) 56%, transparent 56%),
+    linear-gradient(-45deg, transparent 44%, var(--bad) 44%, var(--bad) 56%, transparent 56%);
+}
+.rl-line__art {
+  position: absolute;
+  inset: 1px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-dim);
+  background-size: contain;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+.rl-line__left {
+  position: absolute;
+  left: 2px;
+  top: 0;
+  font-size: var(--t-xs);
+  color: var(--live);
+  text-shadow: var(--halo);
+}
+.rl-line__bar {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--live);
+  transition: width var(--dur) var(--ease-steady);
+}
+/* Paused by an enemy at the camp exit: the clock and the bar in --warn, the
+   art dimmed -- and the row's state word carries the glyph and "paused", so
+   this is never colour alone. Cancel stays live. */
+.rl-line__item[data-paused='1'] .rl-line__art {
+  opacity: var(--disabled-opacity);
+}
+.rl-line__item[data-paused='1'] .rl-line__left {
+  color: var(--warn);
+}
+.rl-line__item[data-paused='1'] .rl-line__bar {
+  background: var(--warn);
+}
+.rl-line__rally,
+.rl-line__clear {
+  position: relative;
+  flex: none;
+  font-size: var(--t-xs);
+  padding: var(--s0) var(--s1);
+  white-space: nowrap;
+}
+.rl-line__rally {
+  margin-left: auto;
+}
+
 /* --- one tile --------------------------------------------------------- */
 
 .rl-tile {

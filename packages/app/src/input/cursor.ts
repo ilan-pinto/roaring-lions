@@ -68,6 +68,10 @@ export interface CursorHints {
    *  intent's own ids, never from the whole selection -- a pinned unit
    *  inside a demolish or garrison group is not this cursor's business. */
   pinned?: boolean;
+  /** F4: Set rally is armed on a camp's row, and whether the runtime would
+   *  take a rally at the point under the pointer (`canSetRally`): `ok` draws
+   *  the move sight, `refused` the blocked cursor. Absent: not armed. */
+  armedRally?: 'ok' | 'refused';
 }
 
 /** Names that describe the target or the mode, never the actor: nothing
@@ -286,6 +290,12 @@ export function cursorFor(res: Resolution, hints: CursorHints): CursorName {
   // The cursor names the call itself (Q3): sweep and strike draw different
   // sights, and res.armed already carries which one it is.
   if (res.armed) return ARMED_CURSOR[res.armed];
+  // F4: an armed rally owns the click the same way (arming one disarms
+  // support and orders, so at most one of these is ever set). The point is
+  // ground for the camp's new units to walk to: the move sight where the
+  // runtime would take it, blocked where it would refuse -- a building, a
+  // rock wall, off the map.
+  if (hints.armedRally !== undefined) return hints.armedRally === 'ok' ? 'move' : 'blocked';
   // An armed smoke order is the same argument one rung down (Q2): the next
   // click lays a screen whatever is under the pointer. Below armed support,
   // because only one of the two can spend the click and a support call is

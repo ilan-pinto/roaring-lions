@@ -10,7 +10,7 @@
 // one frame of a live mission is invisible; the same wrongness in a pure
 // function is one assertion.
 
-import { TICKS_PER_SECOND, conductAtLeast, isBoughtOnly, starsEarned, type LedgerData, type UnlockGate } from '@lions/sim';
+import { TICKS_PER_SECOND, fx, conductAtLeast, isBoughtOnly, starsEarned, type LedgerData, type UnlockGate } from '@lions/sim';
 import type { KitLevel } from '@lions/data';
 import { gateSentence } from '../gate-sentence';
 import { t } from '../i18n/t';
@@ -300,4 +300,134 @@ function capSentence(unit: DockUnit, view: DockView, named: boolean): string {
       : t('dock.cap.needTitle', { used: pop.used, cap: pop.cap, need });
   }
   return t('dock.cap.full', { used: pop.used, cap: pop.cap });
+}
+
+// ---------------------------------------------------------------------------
+// F4: one row per camp (WP-S-F GH-184 Lane A, the lead's direction B, 18 Oct).
+//
+// The runtime builds on several production lines -- one per standing camp --
+// and reports each through `productionLines(side)`. The dock draws a row per
+// line ABOVE the grid, and only when there is something to say: a mission with
+// one camp whose line is idle and has no rally draws exactly today's dock
+// (`linesShown`). Nothing here decides who builds where: an unpinned dock sends
+// `build` with no `line`, which is the runtime's own "shortest queue" rule, and
+// a pinned one names the line (`buildLine`).
+// ---------------------------------------------------------------------------
+
+/** One line as `MissionRuntime.productionLines(0)` reports it -- the fields the
+ *  dock reads, kept structural so a test hands in a literal. Points are Q16.16. */
+export interface LineSnapshot {
+  readonly exit: readonly [number, number];
+  readonly current: string | null;
+  /** The queued unit ids, in order, the item in progress excluded. */
+  readonly items: readonly string[];
+  /** The item in progress, 0-1000. */
+  readonly progress: number;
+  /** The item in progress's remaining ticks (0 with none). */
+  readonly ticksLeft: number;
+  readonly contested: boolean;
+  readonly rally: readonly [number, number] | null;
+  /** False once the line's camp has fallen; the row stays, refused. */
+  readonly alive: boolean;
+}
+
+/** How many queued chips a row draws before folding the rest into `+n`. Three
+ *  keeps a row inside the grid's width with the camp label, the item in
+ *  progress, the state word and the rally button beside them. */
+export const LINE_QUEUE_CHIPS = 3;
+
+export type LineState = 'idle' | 'building' | 'paused' | 'lost';
+
+/** One camp's row, worded. */
+export interface LineView {
+  readonly index: number;
+  readonly state: LineState;
+  /** The item in progress, or null. `secs` is the whole-second countdown. */
+  readonly current: { readonly unit: string; readonly percent: number; readonly secs: number } | null;
+  /** The first `LINE_QUEUE_CHIPS` queued items, with their index into the queue
+   *  (what `cancelBuild` takes). */
+  readonly chips: readonly { readonly unit: string; readonly index: number }[];
+  /** Queued items past the chips. */
+  readonly more: number;
+  readonly hasRally: boolean;
+}
+
+/**
+ * Whether the dock draws its rows at all. More than one line always does (the
+ * player needs to see which camps exist to pin one). A single line does only
+ * once it has something to show -- an item, a queue or a rally -- so a mission
+ * with one idle camp keeps today's dock to the pixel (the golden captures and
+ * every mission shipped before a second camp).
+ */
+export function linesShown(lines: readonly LineSnapshot[]): boolean {
+  if (lines.length > 1) return true;
+  const l = lines[0];
+  return l !== undefined && (l.current !== null || l.items.length > 0 || l.rally !== null);
+}
+
+export function lineView(l: LineSnapshot, index: number): LineView {
+  const state: LineState = !l.alive ? 'lost' : l.current === null ? 'idle' : l.contested ? 'paused' : 'building';
+  const current =
+    l.current === null
+      ? null
+      : { unit: l.current, percent: l.progress / 10, secs: Math.ceil(l.ticksLeft / TICKS_PER_SECOND) };
+  const chips = l.items.slice(0, LINE_QUEUE_CHIPS).map((unit, i) => ({ unit, index: i }));
+  return { index, state, current, chips, more: Math.max(0, l.items.length - LINE_QUEUE_CHIPS), hasRally: l.rally !== null };
+}
+
+/**
+ * The `line` a tile click sends: the pinned row's, or undefined for the
+ * runtime's shortest queue. A pin on a line that has since fallen, or that no
+ * longer exists, is dropped rather than sent: the runtime would refuse a build
+ * naming a dead line, and the player asked for "build", not for "build there or
+ * nowhere".
+ */
+export function buildLine(pinned: number | null, lines: readonly LineSnapshot[]): number | undefined {
+  if (pinned === null) return undefined;
+  return lines[pinned]?.alive === true ? pinned : undefined;
+}
+
+/** What makes one line's rally show in the world (the lead's R3 ruling): its row
+ *  pinned, hovered or focused, Set rally armed for it, or the few seconds after
+ *  its rally was set (`flashUntil`, frame-clock ms). */
+export interface RallyFocus {
+  readonly pinned: number | null;
+  readonly hovered: number | null;
+  readonly focused: number | null;
+  readonly armed: number | null;
+  readonly flashUntil: ReadonlyMap<number, number>;
+}
+
+/** How long a newly set rally stays drawn, in ms -- the refuge ping's span. */
+export const RALLY_FLASH_MS = 3000;
+
+/** A rally as the renderer's `rallyMarks` seam takes it: from the camp exit to
+ *  the point, in tiles. */
+export interface RallyMark {
+  readonly from: { readonly x: number; readonly y: number };
+  readonly to: { readonly x: number; readonly y: number };
+}
+
+/**
+ * The rally marks to draw this frame: on demand only, never standing. A line
+ * with no rally draws nothing, armed or not -- there is no point to mark yet,
+ * and the move cursor is the armed state's own picture.
+ */
+export function rallyMarks(lines: readonly LineSnapshot[], focus: RallyFocus, nowMs: number): RallyMark[] {
+  const out: RallyMark[] = [];
+  lines.forEach((l, i) => {
+    if (l.rally === null || !l.alive) return;
+    const shown =
+      focus.pinned === i ||
+      focus.hovered === i ||
+      focus.focused === i ||
+      focus.armed === i ||
+      nowMs < (focus.flashUntil.get(i) ?? -Infinity);
+    if (!shown) return;
+    out.push({
+      from: { x: fx.toNumber(l.exit[0]), y: fx.toNumber(l.exit[1]) },
+      to: { x: fx.toNumber(l.rally[0]), y: fx.toNumber(l.rally[1]) },
+    });
+  });
+  return out;
 }

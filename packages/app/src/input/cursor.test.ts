@@ -559,3 +559,18 @@ describe('the armed cursor of each support kind (S-F)', () => {
     expect(ANIMATED_CURSORS.smokeScreen).toEqual(ANIMATED_CURSORS.smoke);
   });
 });
+
+describe('the armed Set rally cursor (F4)', () => {
+  const empty: Resolution = { intents: [], roe: 'free', marker: false };
+  it('is the move sight where the runtime takes a rally, blocked where it refuses', () => {
+    expect(cursorFor(empty, { ...NONE, armedRally: 'ok' })).toBe('move');
+    expect(cursorFor(empty, { ...NONE, armedRally: 'refused' })).toBe('blocked');
+  });
+  it('outranks what is under the pointer: an enemy, a costly house, armed smoke', () => {
+    expect(cursorFor(moving({ roe: 'costly' }), { hostile: true, blocked: false, armedSmoke: true, armedRally: 'ok' })).toBe('move');
+    expect(cursorFor(moving({ roe: 'protected' }), { hostile: true, blocked: false, armedRally: 'refused' })).toBe('blocked');
+  });
+  it('an armed support call still outranks it', () => {
+    expect(cursorFor({ ...empty, armed: 'air_strike' }, { ...NONE, armedRally: 'ok' })).toBe('strike');
+  });
+});
