@@ -190,6 +190,35 @@ describe('the rally controls', () => {
     expect(r.sent).toEqual([]);
   });
 
+  it('names its camp to a screen reader and reports armed as pressed', () => {
+    const r = rig([line(), line()]);
+    const btn = r.rows()[1].querySelector<HTMLButtonElement>('.rl-line__rally') as HTMLButtonElement;
+    expect(btn.getAttribute('aria-label')).toBe('Set rally for Camp 2');
+    expect(r.rows()[1].querySelector('.rl-line__clear')?.getAttribute('aria-label')).toBe('Clear rally for Camp 2');
+    btn.click();
+    expect(btn.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('disarms when its camp falls, and says so to the input layer', () => {
+    const r = rig([line(), line()]);
+    (r.rows()[0].querySelector('.rl-line__rally') as HTMLButtonElement).click();
+    r.state.lines = [line({ alive: false }), line()];
+    r.dock.refresh();
+    expect(r.rallyArms).toEqual([0, null]);
+    expect(r.dock.rallyArmed).toBeNull();
+  });
+
+  it('a row holding focus draws its rally; focus elsewhere does not', () => {
+    const r = rig([line({ current: 'inf_squad', rally: [6 * FX, 28 * FX] }), line()]);
+    const item = r.rows()[0].querySelector('.rl-line__item') as HTMLButtonElement;
+    item.focus();
+    expect(r.dock.rallyMarks(0)).toHaveLength(1);
+    // A repaint hides the focused item; focus is read from the DOM each frame,
+    // so a hidden row or focus moved away cannot leave the mark standing.
+    r.rows()[0].hidden = true;
+    expect(r.dock.rallyMarks(0)).toBeNull();
+  });
+
   it('Clear rally shows only with a rally, and sends clearRally for its line', () => {
     const r = rig([line(), line({ rally: [20 * FX, 23 * FX] })]);
     const clear0 = r.rows()[0].querySelector<HTMLButtonElement>('.rl-line__clear') as HTMLButtonElement;

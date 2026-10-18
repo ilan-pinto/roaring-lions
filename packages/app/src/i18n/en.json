@@ -1109,6 +1109,8 @@
   "dock.rally.set": "Set rally",
   "dock.rally.clear": "Clear rally",
   "dock.rally.clearShort": "Clear",
+  "dock.rally.setFor": "Set rally for {camp}",
+  "dock.rally.clearFor": "Clear rally for {camp}",
   "dock.rally.on": "Rally set: new units move to the marked point.",
   "dock.rally.none": "No rally: units wait at the camp.",
   "dock.cancel.tip": "Cancel {name}, refunds {n} logistics",

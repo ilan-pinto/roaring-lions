@@ -227,7 +227,6 @@ export class ReinforcementDock {
    *  queue, which is the default (the lead's ruling). */
   private pinned: number | null = null;
   private hovered: number | null = null;
-  private focused: number | null = null;
   private armedRally: number | null = null;
   /** Frame-clock ms until which a newly set rally stays drawn, per line. */
   private readonly rallyFlash = new Map<number, number>();
@@ -771,7 +770,6 @@ export class ReinforcementDock {
     clear.type = 'button';
     clear.className = 'rl-btn rl-line__clear';
     clear.textContent = t('dock.rally.clearShort');
-    clear.setAttribute('aria-label', t('dock.rally.clear'));
     clear.addEventListener('click', () => {
       if (this.lines[index]?.rally == null) return;
       this.opts.dispatch({ kind: 'clearRally', side: 0, line: index });
@@ -789,12 +787,6 @@ export class ReinforcementDock {
     });
     root.addEventListener('pointerleave', () => {
       if (this.hovered === index) this.hovered = null;
-    });
-    root.addEventListener('focusin', () => {
-      this.focused = index;
-    });
-    root.addEventListener('focusout', () => {
-      if (this.focused === index) this.focused = null;
     });
     this.tipDisposers.push(bindTip(pin, () => this.rowTip(index), { host: this.el, clear: this.el }));
 
@@ -882,7 +874,10 @@ export class ReinforcementDock {
   setRallyArmed(line: number | null): void {
     const changed = this.armedRally !== line;
     this.armedRally = line;
-    for (const row of this.rows) row.rally.dataset.armed = row.index === line ? '1' : '0';
+    for (const row of this.rows) {
+      row.rally.dataset.armed = row.index === line ? '1' : '0';
+      row.rally.setAttribute('aria-pressed', row.index === line ? 'true' : 'false');
+    }
     if (changed) this.opts.onArmRally?.(line);
   }
 
@@ -899,9 +894,14 @@ export class ReinforcementDock {
    *  seam -- or null when there are none, so the seam stays null by default. */
   rallyMarks(nowMs: number): RallyMark[] | null {
     if (this.lines.length === 0) return null;
+    // Focus is READ, not tracked: a focused chip that a repaint hides fires no
+    // reliable `focusout`, and a tracked index would then draw that rally
+    // for ever (review finding 1).
+    const active = typeof document === 'undefined' ? null : document.activeElement;
+    const focusedRow = active === null ? undefined : this.rows.find((r) => !r.root.hidden && r.root.contains(active));
     const marks = rallyMarksFor(
       this.lines,
-      { pinned: this.pinned, hovered: this.hovered, focused: this.focused, armed: this.armedRally, flashUntil: this.rallyFlash },
+      { pinned: this.pinned, hovered: this.hovered, focused: focusedRow?.index ?? null, armed: this.armedRally, flashUntil: this.rallyFlash },
       nowMs
     );
     return marks.length === 0 ? null : marks;
@@ -917,7 +917,9 @@ export class ReinforcementDock {
     this.lines = lines;
     const shown = linesShown(lines);
     this.linesEl.hidden = !shown;
+    if (this.armedRally !== null && lines[this.armedRally]?.alive !== true) this.setRallyArmed(null);
     if (!shown) {
+      this.hovered = null;
       // Pinning one camp of one, then the queue running dry, must not leave a
       // pin the player cannot see sending every build to that line.
       this.pinned = null;
@@ -926,7 +928,6 @@ export class ReinforcementDock {
     while (this.rows.length < lines.length) this.rows.push(this.buildRow(this.rows.length));
     // A pin on a fallen camp is dropped (and `buildLine` would ignore it anyway).
     if (this.pinned !== null && lines[this.pinned]?.alive !== true) this.pinned = null;
-    if (this.armedRally !== null && lines[this.armedRally]?.alive !== true) this.setRallyArmed(null);
     for (const row of this.rows) {
       const line = lines[row.index];
       row.root.hidden = line === undefined;
@@ -973,6 +974,9 @@ export class ReinforcementDock {
 
       row.rally.disabled = !line.alive;
       row.rally.dataset.armed = this.armedRally === row.index ? '1' : '0';
+      row.rally.setAttribute('aria-pressed', this.armedRally === row.index ? 'true' : 'false');
+      row.rally.setAttribute('aria-label', t('dock.rally.setFor', { camp: this.campName(row.index) }));
+      row.clear.setAttribute('aria-label', t('dock.rally.clearFor', { camp: this.campName(row.index) }));
       row.clear.hidden = line.rally === null;
     }
     this.hintEl.textContent =
