@@ -51,6 +51,9 @@ export interface StructureTypeJson {
     footprint?: readonly number[];
     unlock?: unknown;
   };
+  /** Field works (#277, spec §3): what a COMPLETE structure owned by side 0 or 1 does to its
+   *  own side's units. Absent = nothing (every shipped type today). */
+  aura?: StructureAuraJson;
   /** Chest-high: blocks movement and shields whoever is hugging it, but you
    *  shoot over it rather than at it. A compound built from sight-blocking
    *  masonry is a blind box -- its garrison cannot fire out, so the wall
@@ -73,6 +76,52 @@ export interface StructureTypeJson {
    *  whose entire ring unblocks the instant it dies, so breaching one panel
    *  would delete the whole compound. */
   per_tile?: boolean;
+}
+
+/** One `aura.area` effect (spec §3): who it touches and what it gives them. `affects` is
+ *  'foot' | 'vehicle' | 'any', typed as a plain string because literal unions break
+ *  JSON-module call sites. */
+export interface AreaEffectJson {
+  radius: number;
+  affects: string;
+  heal_per_s?: number;
+  heal_cap?: number;
+  repair_per_s?: number;
+  repair_components_s?: number;
+  accuracy_mult?: number;
+}
+
+/** The `aura` block. No `supp_cover`: #606 shipped `garrison_cover` instead (pre-flight). */
+export interface StructureAuraJson {
+  area?: AreaEffectJson[];
+  /** Bonuses for whoever is garrisoned inside. `range_bonus` (tiles, direct fire only) is ON
+   *  TOP of the global GARRISON_RANGE_BONUS; `sight_bonus` (tiles) adds to sight from the window. */
+  garrison?: { range_bonus?: number; sight_bonus?: number };
+}
+
+/** `affects` codes. Air is excluded from every scope (nothing lands). */
+export const AFFECTS_FOOT = 0;
+export const AFFECTS_VEHICLE = 1;
+export const AFFECTS_ANY = 2;
+
+/** A parsed area effect, every value Q16.16 or ticks, fixed at load. Zero (or ONE for
+ *  `accMult`) means the field is absent. */
+export interface AreaEffect {
+  radiusSq: Fx;
+  affects: number;
+  /** Fraction of max HP restored a tick: (heal_per_s ?? repair_per_s) / ticks per second. */
+  healRate: Fx;
+  /** HP fraction healing stops at: heal_cap, default ONE when a rate is authored, else 0. */
+  healCap: Fx;
+  /** Covered, undamaged ticks that clear component kills; 0 = none. */
+  compTicks: number;
+  accMult: Fx;
+}
+
+export interface StructureAura {
+  area: AreaEffect[];
+  rangeBonus: Fx;
+  sightBonus: Fx;
 }
 
 export interface StructureType {
@@ -117,6 +166,8 @@ export interface StructureType {
   garrisonCover: number;
   /** See StructureTypeJson.floors. */
   floors: number;
+  /** Field works: the parsed `aura`, null when the type has none. */
+  aura: StructureAura | null;
   /** A linear run whose tiles are each their own structure -- walls, fences.
    *  See StructureTypeJson.per_tile. */
   perTile: boolean;
@@ -162,6 +213,46 @@ function buildableFromJson(json: StructureTypeJson, ticksPerSecond: number): Str
   };
 }
 
+/**
+ * Parse an `aura` block. Every authored float crosses into fixed point once, here, through
+ * `fx.from` (invariant 2). A per-second rate becomes a per-tick one by ROUNDED integer
+ * division of the fixed value, so no float arithmetic is done on the data: 0.010/s is
+ * fx.from 655, (655 + 10) / 20 = 33 raw; 0.0075/s is 492, (492 + 10) / 20 = 25 raw.
+ * (Truncating, `fx.div`, would give 32 for the medic.)
+ */
+function auraFromJson(json: StructureTypeJson, ticksPerSecond: number): StructureAura | null {
+  const a = json.aura;
+  if (a === undefined) return null;
+  const area: AreaEffect[] = [];
+  for (const e of a.area ?? []) {
+    const affects =
+      e.affects === 'foot' ? AFFECTS_FOOT : e.affects === 'vehicle' ? AFFECTS_VEHICLE : e.affects === 'any' ? AFFECTS_ANY : -1;
+    if (affects < 0) throw new Error(`structure type ${json.id}: aura affects "${e.affects}", expected foot, vehicle or any`);
+    const r = fx.from(e.radius);
+    if (r <= 0) throw new Error(`structure type ${json.id}: aura radius must be > 0`);
+    const perS = e.heal_per_s ?? e.repair_per_s;
+    const healRate = perS === undefined ? 0 : ((fx.from(perS) + (ticksPerSecond >> 1)) / ticksPerSecond) | 0;
+    const healCap = perS === undefined ? 0 : e.heal_cap === undefined ? ONE : fx.from(e.heal_cap);
+    const compTicks =
+      e.repair_components_s === undefined
+        ? 0
+        : fx.toInt(fx.mul(fx.from(e.repair_components_s), fx.fromInt(ticksPerSecond)));
+    area.push({
+      radiusSq: fx.mul(r, r),
+      affects,
+      healRate,
+      healCap,
+      compTicks,
+      accMult: e.accuracy_mult === undefined ? ONE : fx.from(e.accuracy_mult),
+    });
+  }
+  return {
+    area,
+    rangeBonus: fx.from(a.garrison?.range_bonus ?? 0),
+    sightBonus: fx.from(a.garrison?.sight_bonus ?? 0),
+  };
+}
+
 export function structureTypeFromJson(json: StructureTypeJson, ticksPerSecond: number): StructureType {
   if (json.owner !== undefined && json.owner !== -1 && json.owner !== 0 && json.owner !== 1) {
     throw new Error(`structure type ${json.id}: owner ${json.owner}, expected -1, 0 or 1`);
@@ -183,6 +274,7 @@ export function structureTypeFromJson(json: StructureTypeJson, ticksPerSecond: n
     standingCover: json.standing_cover ?? 2,
     garrisonCover: json.garrison_cover ?? 3,
     floors: json.floors ?? 1,
+    aura: auraFromJson(json, ticksPerSecond),
     ...(json.wall_tone !== undefined ? { wallTone: json.wall_tone } : {}),
     ...(json.wall_self_lit !== undefined ? { wallSelfLit: json.wall_self_lit } : {}),
   };

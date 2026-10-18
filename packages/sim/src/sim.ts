@@ -28,6 +28,9 @@ import {
   BREACH_RANGE_SQ,
   BREACH_TILES,
   BREACH_DETOUR_SLACK,
+  AFFECTS_FOOT,
+  AFFECTS_VEHICLE,
+  type StructureAura,
   type StructureType,
   type StructureTypeJson,
 } from './structures';
@@ -130,6 +133,7 @@ import {
   REGEN_DELAY_TICKS,
   REGEN_FRAC,
   REGEN_CAP,
+  AURA_CADENCE_TICKS,
   AMBUSH_RADIUS_DEFAULT,
   MAX_SITES,
   BUILD_RANGE_SQ,
@@ -2779,6 +2783,8 @@ export class Sim {
     this.stepTransport();
     this.stepFields();
     this.stepGarrison();
+    // Field works: before upkeep, which reads the aura arrays every tick.
+    this.stepAuras();
     this.stepDemolition();
     this.stepUpkeep();
     // After upkeep rather than beside stepDemolition: the pin flag latches
@@ -3662,19 +3668,60 @@ export class Sim {
     return s < 0 ? 0 : this.structureTypes[this.stTypeIdx[s]].floors - 1;
   }
 
-  /** `w`'s maximum range squared for unit `i`: longer from inside (ruling 4). */
+  /** Field works: the live `aura` of the structure unit `i` is garrisoned in, or null. Live
+   *  means complete (`stProgress === ONE`; a garrisoned unit's structure is alive) and owned
+   *  by the occupant's own side, the area scope's owner rule: an enemy who walks into a
+   *  captured outpost gets the building's window, not its owner's fittings. */
+  private garrisonAura(i: number): StructureAura | null {
+    const s = this.garrisonedIn[i];
+    if (s < 0) return null;
+    const a = this.structureTypes[this.stTypeIdx[s]].aura;
+    if (a === null || this.stProgress[s] !== ONE) return null;
+    const owner = this.stOwner[s];
+    if ((owner !== 0 && owner !== 1) || owner !== this.side[i]) return null;
+    return a;
+  }
+
+  /** Field works: the `aura.garrison.range_bonus` unit `i`'s weapon `w` adds ON TOP of
+   *  GARRISON_RANGE_BONUS. Direct fire only: an INDIRECT_MASK weapon gets none (spec §3). */
+  private auraRangeBonus(i: number, w: WeaponStats): Fx {
+    if ((INDIRECT_MASK & (1 << w.cls)) !== 0) return 0;
+    const a = this.garrisonAura(i);
+    return a === null ? 0 : a.rangeBonus;
+  }
+
+  /** `w`'s maximum range squared for unit `i`: longer from inside (ruling 4),
+   *  longer again by a field work's range bonus. */
   private reachSq(i: number, w: WeaponStats): Fx {
-    return this.garrisonedIn[i] >= 0 ? w.garrisonRangeSq : w.rangeSq;
+    if (this.garrisonedIn[i] < 0) return w.rangeSq;
+    const b = this.auraRangeBonus(i, w);
+    if (b === 0) return w.garrisonRangeSq;
+    const r = fx.add(fx.add(w.range, GARRISON_RANGE_BONUS), b);
+    return fx.mul(r, r);
   }
 
   /** `w`'s effective range squared for unit `i`. */
   private effSq(i: number, w: WeaponStats): Fx {
-    return this.garrisonedIn[i] >= 0 ? w.garrisonEffRangeSq : w.effectiveRangeSq;
+    if (this.garrisonedIn[i] < 0) return w.effectiveRangeSq;
+    const b = this.auraRangeBonus(i, w);
+    if (b === 0) return w.garrisonEffRangeSq;
+    const r = fx.add(w.garrisonEffRange, b);
+    return fx.mul(r, r);
   }
 
   /** `w`'s effective range for unit `i`, the hit-falloff scale. */
   private effRange(i: number, w: WeaponStats): Fx {
-    return this.garrisonedIn[i] >= 0 ? w.garrisonEffRange : w.effectiveRange;
+    if (this.garrisonedIn[i] < 0) return w.effectiveRange;
+    return fx.add(w.garrisonEffRange, this.auraRangeBonus(i, w));
+  }
+
+  /** Unit `i`'s sight squared: its type's, plus a field work's `sight_bonus` from inside. */
+  private sightSqOf(i: number): Fx {
+    const t = this.unitTypes[this.typeIdx[i]];
+    const a = this.garrisonAura(i);
+    if (a === null || a.sightBonus === 0) return t.sightSq;
+    const r = fx.add(t.sight, a.sightBonus);
+    return fx.mul(r, r);
   }
 
   /** Smoke density on a tile, for tests and presentation. */
@@ -3821,7 +3868,7 @@ export class Sim {
     const ty = this.eyeY;
     const dSq = distSqFx(fx.sub(tx, ox), fx.sub(ty, oy));
     none.distSq = dSq;
-    if (dSq > oType.sightSq) return none;
+    if (dSq > this.sightSqOf(obs)) return none;
     const cov = this.losRay(ox >> 16, oy >> 16, tx >> 16, ty >> 16, this.eyeLift(obs), this.eyeLift(tgt));
     if (cov < 0) return none;
 
@@ -4272,7 +4319,7 @@ export class Sim {
       for (let obs = 0; obs < this.count && !seen; obs++) {
         if (this.alive[obs] === 0 || this.side[obs] !== other) continue;
         if (this.tunnelIn[obs] >= 0) continue;
-        const sightSq = this.unitTypes[this.typeIdx[obs]].sightSq;
+        const sightSq = this.sightSqOf(obs);
         this.eyePoint(obs, this.stCx[s], this.stCy[s]);
         const ox = this.eyeX;
         const oy = this.eyeY;
@@ -5249,10 +5296,11 @@ export class Sim {
 
     // GDD 5.2 — every factor is on the event for the overlay. Veterans shoot
     // straighter: the ledger's carry-over must be worth protecting.
-    const accuracy = fx.min(
-      fx.mul(w.accuracy, fx.add(ONE, this.veterancy[shooter] * VET_ACC_BONUS)),
-      ONE
-    );
+    // A field work's accuracy_mult (spec §3) joins veterancy: 1.06 is one level up.
+    let acc = fx.mul(w.accuracy, fx.add(ONE, this.veterancy[shooter] * VET_ACC_BONUS));
+    const auraAcc = this.auraAccMult[shooter];
+    if (auraAcc !== ONE) acc = fx.mul(acc, auraAcc);
+    const accuracy = fx.min(acc, ONE);
     const ratio = fx.div(dist, this.effRange(shooter, w));
     const rangeFalloff = fx.expNeg(fx.mul(FALLOFF_SCALE[w.cls], fx.mul(ratio, ratio)));
     // Cover is the target's own tile, or the parapet he is fighting from
@@ -7254,6 +7302,55 @@ export class Sim {
     }
   }
 
+  /**
+   * Field works (#277, spec §3): refresh every unit's aura modifiers every
+   * AURA_CADENCE_TICKS. Clears rate, cap, component threshold and accuracy, then for each
+   * COMPLETE structure owned by side 0 or 1 with area effects, gives every unit of the
+   * OWNER's side within an effect's radius of the centroid -- alive, on the surface, not
+   * garrisoned, not carried, not air, in the effect's domain -- the MAX of rate, cap and
+   * accuracy over covering effects and the MIN non-zero component threshold: overlapping
+   * stations do not stack, and the answer is order-free. `auraRepairTicks` is stepUpkeep's
+   * counter and is not touched here. Returns at once unless `fwLive` (D1); allocates nothing.
+   */
+  private stepAuras(): void {
+    if (!this.fwLive) return;
+    if (this.tickCount % AURA_CADENCE_TICKS !== 0) return;
+    const n = this.count;
+    for (let i = 0; i < n; i++) {
+      this.auraHealRate[i] = 0;
+      this.auraHealCap[i] = 0;
+      this.auraCompAt[i] = 0;
+      this.auraAccMult[i] = ONE;
+    }
+    for (let s = 0; s < this.structureCount_; s++) {
+      if (this.stAlive[s] === 0 || this.stProgress[s] !== ONE) continue;
+      const owner = this.stOwner[s];
+      if (owner !== 0 && owner !== 1) continue;
+      const aura = this.structureTypes[this.stTypeIdx[s]].aura;
+      if (aura === null) continue;
+      const area = aura.area;
+      const cx = this.stCx[s];
+      const cy = this.stCy[s];
+      for (let k = 0; k < area.length; k++) {
+        const e = area[k];
+        for (let i = 0; i < n; i++) {
+          if (this.alive[i] === 0 || this.side[i] !== owner) continue;
+          if (this.garrisonedIn[i] >= 0 || this.carriedBy[i] >= 0 || this.tunnelIn[i] >= 0) continue;
+          const t = this.unitTypes[this.typeIdx[i]];
+          if (t.isAir) continue;
+          if (e.affects === AFFECTS_FOOT && t.moveDomain !== DOMAIN_FOOT) continue;
+          if (e.affects === AFFECTS_VEHICLE && t.moveDomain !== DOMAIN_VEHICLE) continue;
+          if (distSqFx(fx.sub(this.posX[i], cx), fx.sub(this.posY[i], cy)) > e.radiusSq) continue;
+          if (e.healRate > this.auraHealRate[i]) this.auraHealRate[i] = e.healRate;
+          if (e.healCap > this.auraHealCap[i]) this.auraHealCap[i] = e.healCap;
+          if (e.accMult > this.auraAccMult[i]) this.auraAccMult[i] = e.accMult;
+          const c = e.compTicks;
+          if (c > 0 && (this.auraCompAt[i] === 0 || c < this.auraCompAt[i])) this.auraCompAt[i] = c;
+        }
+      }
+    }
+  }
+
   private stepUpkeep(): void {
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0) continue;
@@ -7292,12 +7389,26 @@ export class Sim {
       }
       // Field recovery: left alone for a while, crews patch up and wounded
       // walk again — but only to a ceiling. Serious damage needs M2 repair.
+      // A field work's heal or repair (stepAuras) raises the rate and the ceiling, each the
+      // larger of the two, after the same delay: one rule for "under fire".
       if (this.tickCount - this.lastDamagedTick[i] >= REGEN_DELAY_TICKS) {
         const type = this.unitTypes[this.typeIdx[i]];
-        const cap = fx.mul(type.hp, REGEN_CAP);
+        const auraCap = this.auraHealCap[i];
+        const auraRate = this.auraHealRate[i];
+        const cap = fx.mul(type.hp, auraCap > REGEN_CAP ? auraCap : REGEN_CAP);
         if (this.hp[i] < cap) {
-          this.hp[i] = fx.min(fx.add(this.hp[i], fx.mul(type.hp, REGEN_FRAC)), cap);
+          this.hp[i] = fx.min(fx.add(this.hp[i], fx.mul(type.hp, auraRate > REGEN_FRAC ? auraRate : REGEN_FRAC)), cap);
         }
+      }
+      // Component repair: continuous covered, undamaged ticks; a hit or leaving cover restarts it.
+      const compAt = this.auraCompAt[i];
+      if (compAt > 0 && this.lastDamagedTick[i] !== this.tickCount) {
+        if (++this.auraRepairTicks[i] >= compAt) {
+          this.mobilityKilled[i] = 0;
+          this.firepowerKilled[i] = 0;
+        }
+      } else if (this.auraRepairTicks[i] !== 0) {
+        this.auraRepairTicks[i] = 0;
       }
       // Weapon cooldowns.
       if (this.cooldown[i * 2] > 0) this.cooldown[i * 2]--;

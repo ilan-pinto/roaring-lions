@@ -270,9 +270,11 @@ export interface MissionJson {
      *  `side` (D2): reusing `side` would make every side-1 camp an owned, targetable building. */
     owner?: number;
   }[];
-  /** Field works (#277): the structure types the player may raise this mission, type id -> the
-   *  most that may stand or be going up at once (a listed type defaults to 1 in the schema, max 2).
-   *  Absent = none: every request is `not_listed`. */
+  /** Field works (#277): the structure types the player may raise this mission, type id -> how
+   *  many may be raised in TOTAL this mission (a listed type defaults to 1 in the schema, max 2).
+   *  A per-mission total, not a standing cap: a destroyed work does not return its count (a
+   *  cancelled or refused request does, with its refund). Absent = none: every request is
+   *  `not_listed`. */
   field_works?: Record<string, number>;
   resources?: {
     logistics_start?: number;
