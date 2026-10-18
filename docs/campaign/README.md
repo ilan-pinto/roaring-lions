@@ -53,8 +53,8 @@ in step with it.
   *identifications*, not minutes. 18 of 27 shipped missions declare a
   `resources` block. Unit availability is gated by campaign ROE rating, completed
   missions and earned stars, not by tiers.
-- **Held-ground income is in the schema and in no mission yet** (F2, GH-183; the lead decides
-  the missions). `resources.income_zones` is a list of `{ zone, rate_per_min }` (a zone of the
+- **Held-ground income is in the schema and in four missions** (F2, GH-183; the lead approved the
+  table on 15 Oct: `docs/campaign/economy/income-numbers.md`). `resources.income_zones` is a list of `{ zone, rate_per_min }` (a zone of the
   mission's own map, an integer rate of at least 1, no zone twice); `resources.supply_entry` is
   a marker of the map, where the supply convoy enters. A zone pays its rate, on top of
   `logistics_rate_per_min`, to the side that holds it (a living surface ground unit of that
@@ -65,16 +65,17 @@ in step with it.
   entry to the player's rear (the camp's exit, else `player_start`) is cut. `validate:data`
   (`tools/validate_income.mjs`) refuses, by mission id: a zone the map does not declare, the
   same zone twice, `supply_corridor: true` with no `supply_entry`, and an entry the map does
-  not declare. **The pending exemption:** `umm_zeitoun_2_buildup` and `umm_zeitoun_4_clearance`
-  set `supply_corridor` and name no entry (their `supply_entry` marker, (24,47), is already on
-  their maps), so `CORRIDOR_ENTRY_EXEMPT` excuses exactly those two; the lead's data commit
-  deletes it, and a demotion test fails once either mission names its entry. **Choose an
+  not declare. `umm_zeitoun_2_buildup` and `umm_zeitoun_4_clearance` set `supply_corridor` and name
+  `supply_entry` (UZ II at the west rim (3,31), UZ IV at (24,47)); the pending exemption that excused
+  them is deleted. `tools/src/income_census.test.ts` holds every authored zone and convoy to a wheeled
+  route at t=0 (`horn_west` on UZ III must not be authored as a zone without opening its boulders).
+  **Choose an
   income zone for ground both sides want**: the plan crosses it and the enemy also marches
   on it. A zone that holds the starting force pays a passive player by construction, and
   `pnpm playtest` holds side 0's zone income in the four no-orders controls at 0
   (`ZONE_PASSIVE_INCOME`); pick rates by the 40%-of-the-phase-anchor rule in
-  `docs/campaign/economy/income-numbers.md`, where the proposed table for Umm Zeitoun II and
-  IV, Deir Amun II and Wadi Halam II (and its measurement over 30 seeds) waits for the lead.
+  `docs/campaign/economy/income-numbers.md`, where the approved table for Umm Zeitoun II and
+  IV, Deir Amun II and Wadi Halam II (and its measurement over 30 seeds) is the shipped one.
 - **The player force is placed, not built.** `starting_force` plus ledger
   survivors (`from_ledger`), plus authored `reinforce` triggers and waves.
   The issued force is the brigade's to lend. A placement may field a unit whose
@@ -91,6 +92,7 @@ in step with it.
   produces them, and nothing in mission JSON can reference the balance. Credits
   also buy a unit's upgrade tiers, which the sim sees only as a patched type,
   never as a tier a mission could gate on.
+- **Production is a line per camp, and the enemy can buy (F4, GH-183).** `structures[].side` (`0 | 1`) overrides a structure type's `produces_for`, so a `camp` placed with `side: 1` is the enemy's; at most 4 production structures a side (`validate:data`). `enemy.production` is `{ menu, logistics_start, logistics_rate_per_min, rally, group }`: `menu` is Sarim/enemy unit ids, `logistics_start` is capped at 894784, `rally` a marker, and **`group`** is the name given to every unit it buys so a trigger can `commit` it. It needs a side-1 camp; the enemy spends down (buys the next affordable menu item whenever its line is idle, never banking). **D7: no campaign mission authors an enemy camp in Stage 4, and `validate:data` refuses `enemy.production` on any shipped mission while D7 stands**: the shipped `unitInfo` (app, playtest, harness) answers KDF only, so side 1 cannot build until N3's loader or an enemy-roster lookup (R-F4-5); `buildEnemyMenu` would throw at `start()`. The mechanism is proved on fixtures and a report-only probe (Tel Marum III with a camp at (27,7): 2 units bought, plan 29/30 against 30/30 without). Numbers and the D-list: `docs/campaign/economy/production-numbers.md`.
 - **The enemy is stances, one-shot triggers and waves.** One stance per placement
   (`hold_position | ambush(tiles) | patrol | garrison`), four trigger conditions ×
   five actions, waves on a clock or on an objective completing. That is the whole

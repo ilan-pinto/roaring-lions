@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "Deterministic lockstep core: protocol, match config, frames, the clock, ownership and the transport seam. Runs in the browser, in Node and in the Worker. Imports @lions/sim types, plus the FIRE_SUPPORT table's length (protocol.ts).",
+  "description": "Deterministic lockstep core: protocol, match config, frames, the clock, ownership and the transport seam. Runs in the browser, in Node and in the Worker. Imports @lions/sim types, plus five values from it: the FIRE_SUPPORT table's length, FIRE_SUPPORT_KINDS, AMBUSH_RADIUS_MAX, MAX_PRODUCTION_LINES and MAX_LINE_QUEUE (protocol.ts). The Worker's bundle pulls all five through @lions/sim's index, as it already did FIRE_SUPPORT.",
   "exports": { ".": "./src/index.ts" },
   "dependencies": { "@lions/sim": "workspace:*" }
 }

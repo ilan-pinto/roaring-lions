@@ -27,7 +27,9 @@ function sliceFrom(band: string, index: number): readonly string[] {
 }
 
 const DECOR_ROLE_PALETTE: Record<DecorMeshRole, readonly string[]> = {
-  // Living green, distinct from the olive a KDF uniform uses.
+  // The UNTINTED foliage lift is olive.1, the same key a KDF uniform lifts to;
+  // every theme overrides it with `scrub.1` through `decorColors` (VR-05), so
+  // a unit in a grove is not olive on olive.
   // OLIVE, not scrub. The procedural canopy this replaced shaded its leaves
   // through `terrain-themes.ts`'s `leafDark`/`leafMid`/`leafLit` = olive.2/1/0
   // -- a muted grey-green with three steps. `scrub` is a bright, saturated

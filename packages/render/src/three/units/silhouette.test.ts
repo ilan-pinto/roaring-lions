@@ -551,7 +551,7 @@ describe('the silhouette colour', () => {
     // Break to confirm red: return the same key for every side.
     expect(silhouetteColorKey(0, 0)).toBe('team.kedem');
     expect(silhouetteColorKey(1, 0)).toBe('team.hostile');
-    expect(silhouetteColorKey(2, 0)).toBe('team.neutral');
+    expect(silhouetteColorKey(2, 0)).toBe('limestone.0'); // VR-04: pale, not the warning yellow
     // Any side the sim grows later is hostile-coloured, never uncoloured.
     expect(silhouetteColorKey(7, 0)).toBe('team.hostile');
   });
@@ -562,7 +562,7 @@ describe('the silhouette colour', () => {
     // confirm red: make `silhouetteSideIndex` ignore its `viewer`.
     expect(silhouetteColorKey(1, 1)).toBe('team.kedem');
     expect(silhouetteColorKey(0, 1)).toBe('team.hostile');
-    expect(silhouetteColorKey(2, 1)).toBe('team.neutral');
+    expect(silhouetteColorKey(2, 1)).toBe('limestone.0');
     expect(silhouetteSideIndex(1, 1)).toBe(0);
     expect(silhouetteSideIndex(0, 1)).toBe(1);
   });
@@ -575,9 +575,10 @@ describe('the silhouette colour', () => {
     const teamColors = paletteJson.reserved.team.colors as Record<string, string>;
     for (const side of [0, 1, 2, 7]) {
       const key = silhouetteColorKey(side, 0);
-      const name = key.slice('team.'.length);
-      expect(teamColors[name]).toBeDefined();
-      expect(silhouetteFallbackHex(side, 0).toUpperCase()).toBe(teamColors[name].toUpperCase());
+      // A team key reads reserved.team; the civilian's `limestone.0` is a ramp entry (VR-04).
+      const expected = key.startsWith('team.') ? teamColors[key.slice('team.'.length)] : paletteJson.ramps.limestone.colors[0];
+      expect(expected).toBeDefined();
+      expect(silhouetteFallbackHex(side, 0).toUpperCase()).toBe(expected.toUpperCase());
     }
     expect(Object.keys(SILHOUETTE_COLOR_KEY_BY_SIDE)).toEqual(Object.keys(SILHOUETTE_FALLBACK_HEX_BY_SIDE));
   });

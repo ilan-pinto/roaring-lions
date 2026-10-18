@@ -1,10 +1,16 @@
 # Held-ground income: the zones and the rates (F2 Task 2, G-NUM)
 
-> **PROPOSED — awaiting the lead (F2 C-R1: every data/missions edit is the lead's).** Nothing here
-> is shipped. No mission JSON and no map JSON changed: every number below was measured with the
+> **APPROVED by the lead (15 Oct 2026) and shipped in F2 Task 8.** The table under "The proposal"
+> is the shipped `resources.income_zones` of the four D7 missions, verbatim, and the UZ II convoy
+> entry is the west rim (3,31) (`data/maps/umm_zeitoun_2.json`, marker `supply_entry`; pinned in
+> `tools/src/umm_zeitoun_ground.test.ts`, which records that the 15 Oct ruling superseded the 6 Oct
+> argmin rule on UZ II). **Ruling C-R23: `umm_zeitoun_4` keeps (24,47)**: the measured candidate the
+> lead approved was UZ II's west rim, and on UZ IV no flank entry was ever cut. Below this block the
+> text is the proposal as it was measured, before the answer: every number was measured with the
 > zones authored IN MEMORY on the parsed mission, through the real `MissionRuntime` (Task 7) and
-> the real `pnpm playtest` ladder, plan sweep and passive sweep. The lead's answer on #183, and its
-> date, go here: **not yet answered.**
+> the real `pnpm playtest` ladder, plan sweep and passive sweep, and the shipped data reproduces
+> them (UZ II passive convoy cut 30/30, base earned 580 [524-605]). `tools/src/income_census.test.ts`
+> now holds every authored zone and convoy to a wheeled route at t=0.
 
 **Date:** 2026-10-15. **Scope:** GH-183 F2, plan `docs/superpowers/plans/2026-10-04-gf2-held-ground-income.md`,
 Task 2 (rulings C-R1, C-R2: Task 2 runs after Task 7 and is measured on the runtime). **Base:**

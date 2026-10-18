@@ -91,7 +91,11 @@
   ],
   "resources": {
     "logistics_start": 400,
-    "logistics_rate_per_min": 120
+    "logistics_rate_per_min": 120,
+    "income_zones": [
+      { "zone": "pasture", "rate_per_min": 32 },
+      { "zone": "ford_watch", "rate_per_min": 16 }
+    ]
   },
   "objectives": [
     {
@@ -101,7 +105,7 @@
       "target": "pasture",
       "seconds": 300,
       "text": "Hold the pasture for five minutes",
-      "say": { "speaker": "net", "text": "Five minutes of pasture, uncontested. The crossing is laid and the corridor is open behind you." }
+      "say": { "speaker": "net", "text": "Five minutes of pasture, uncontested. The crossing is laid behind you." }
     },
     {
       "id": "keep_ford",

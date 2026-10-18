@@ -4,7 +4,9 @@
 // JSON. The app owns the real-time loop: the sim ticks at a fixed 20 Hz from
 // an accumulator; the renderer interpolates between ticks (invariant 1).
 
-import { objectiveZonesFor } from './objective-zones';
+import { activeObjectiveZoneNames, incomeZonesFor, objectiveZonesFor } from './objective-zones';
+import { incomeViewOf, type IncomeView } from './ui/income-view';
+import { SupplyRouteDisplay } from './ui/supply-route-display';
 import { activeRefuge, evacuationTargets, refugePoint, withEvacuationProgress } from './evacuation';
 import { unitsJustOutside, withOutsideCounts } from './hold-outside';
 import {
@@ -83,7 +85,7 @@ import {
 import './ui/theme.css';
 import { Hud, type HudCommanderInfo, type MissionView, type OrderHandlers, type Tone } from './ui/hud';
 import { hintFor, loadSeen, markSeen } from './ui/hint-model';
-import { createShownTimer, loadHintsSeen, markHintSeen, owedRule, type HintContext } from './ui/hint-rules';
+import { createShownTimer, incomeHeld, loadHintsSeen, markHintSeen, owedRule, type HintContext } from './ui/hint-rules';
 import { portraitIds, unitIcon, unitPlate } from './ui/portrait';
 import { trackCloseup } from './ui/garage-closeup';
 import { Minimap, MINIMAP_SIZE, flipRows } from './ui/minimap';
@@ -155,7 +157,9 @@ import { buyUnlock, buyUpgrade } from './brigade-account';
 import { payVictory } from './campaign-pay';
 import { tierLine } from './ui/grade-copy';
 import { clocklessObjectives, speakerPlate, speakerPortrait, withoutHiddenClocks } from './ui/hud-model';
-import { briefingBeats, broughtFor, showDownloadProgress, showLoading, type FieldOrder } from './ui/loading';
+import { briefingBeats, briefingHoldsDeployment, broughtFor, showDownloadProgress, showLoading, type FieldOrder } from './ui/loading';
+import { INTRO_MS, foldGeometry, introCamera, introPlan, introStartPose, introToward, type IntroCamera } from './ui/mission-intro';
+import { runMissionIntro, type IntroRun } from './ui/mission-intro-run';
 import { briefingGlance, objectiveClock } from './ui/briefing-glance';
 import { groundMarks } from './ui/ground-marks';
 import { briefingSections, pickBriefingImage } from './ui/briefing-sections';
@@ -189,6 +193,7 @@ import {
   haltTargets,
   resolvePointer,
   resolveKeyVerb,
+  type CommandSink,
   type OrderSink,
   type PlayerIntent,
   type IntentWorld,
@@ -248,7 +253,7 @@ import { bindLiveTeamColors } from './live-team-colors';
 import { garageColors, garageGroundTexture, garageModelSource } from './garage-model-source';
 import { standMapStructures } from './map-sim';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
-import { PAUSES_PER_SEAT, WsTransport, validateCommand, type Seat, type TransportStatus } from '@lions/net';
+import { PAUSES_PER_SEAT, WsTransport, seatRules, validateCommand, type Seat, type TransportStatus } from '@lions/net';
 import { JoinNeedsConfirmation, connectMatch, inviteAdvisor, openRoom, type Connected } from './net/connect';
 import { desyncReportDraft, withoutReplay } from './net/desync-report';
 import { blockedOrderNotes, escapeOpensPause, hudExit, matchLeaveCopy, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderCopy, surrenderOffered } from './net/room-pause';
@@ -1268,6 +1273,10 @@ async function main(): Promise<void> {
     // The ticket this tab stored for the room is what is traded (decision D1).
     advisorTicket: (code, scope) =>
       inviteAdvisor(code, scope, { fetch: window.fetch.bind(window), origin: location.origin, session: safeStorageLike(() => window.sessionStorage) }),
+    // The menu's still plate behind both screens (the face-off, 2026-10-16):
+    // the scene host's own poster, never a second live host.
+    plateUrl: `${BASE}${menuDiorama.plate}`,
+    saveData: prefersSaveData,
   };
 
   // --- the screens ---------------------------------------------------------
@@ -1834,7 +1843,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // many stand at once. First Light puts 104 attackers, 7 defenders and 11
   // civilians through it before the player buys anything, and running out is a
   // thrown error mid-mission, not a graceful cap.
-  const sim = versusWorld?.sim ?? new Sim({ seed: netConfig?.seed ?? SIM_SEED, width: map.width, height: map.height, capacity: 256 });
+  const sim = versusWorld?.sim ?? new Sim({ seed: netConfig?.seed ?? SIM_SEED, width: map.width, height: map.height, capacity: 256, humanHeld: seatRules(netConfig).humanHeld });
   /** What the ownership check asks of the live sim: single-player is seat 0
    *  on side 0 (R10), so the check runs on one code path, room or none. */
   const seatWorld = seatWorldFor(netConfig, sim);
@@ -1961,6 +1970,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // ticks between two looks.
   let stall = stallStart(0);
   let stallActive = false;
+  /** S-F F2: held-ground income as presentation data, taken ONCE per 5-tick HUD
+   *  beat (the zone write below) and read by the minimap, the strip, its tip, the
+   *  world zones and the world route. NOT by the alerts: they read the runtime
+   *  at alert time, every tick, since this may be a beat stale. Null for a mission with no income
+   *  zones and no convoy -- every shipped mission today. */
+  let income: IncomeView | null = null;
   let missionFailure: string | null = null;
   /** No refuge, no flight: `CivilianFlight.step` is never run without one. */
   const civWatch = refugeAt
@@ -2562,8 +2577,25 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // than leaving the mount hanging. Anything else that comes out of here is a
   // genuine boot failure and is rethrown untouched -- after the teardown, so a
   // failed boot does not strand a renderer either.
+  //
+  // H3: a mission with a briefing keeps the screen through `done()`, so the
+  // briefing -> battlefield transition can fold it away over the first world
+  // frames (`ui/mission-intro.ts`). Nobody else gets one, and for them this
+  // is today's cut exactly: a sandbox (an instrument, and every gated golden
+  // scenario), a network room (its frames are the clock, R33, and nothing may
+  // hold them), a mission a tutorial teaches (its steps start on the first
+  // frame; ruling: no camera ease, so no intro at all), and a mission whose
+  // screen did not hold (no briefing). Decided here, before the await,
+  // because `keep` is what the deploy click obeys.
+  const introPlanned = introPlan({
+    hasBriefing: briefingHoldsDeployment(mission?.briefing),
+    sandbox: mission === undefined,
+    room: inRoom || netConfig !== null,
+    tutorial: Object.values(tutorials as Record<string, { mission: string } | undefined>).some((tt) => tt?.mission === missionId),
+    reduced: prefersReducedMotion(),
+  });
   try {
-    await loading.done();
+    await loading.done({ keep: introPlanned !== null });
   } catch (err) {
     teardown();
     throw err;
@@ -2700,7 +2732,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   afterFirstFrame.push(() => {
     for (const id of meshPlan.buildings) wreckMeshLoader(id);
   });
-  if (afterFirstFrame.length > 0) {
+  /** H3: with an intro, the batch starts when the intro ENDS instead (the
+   *  mock measured it landing inside the fold as a 287 ms stall), from
+   *  `endIntro` below; once either way, and never into a disposed boot. */
+  let deferredArtStarted = false;
+  const startDeferredArt = (): void => {
+    if (disposed || deferredArtStarted) return;
+    deferredArtStarted = true;
+    for (const start of afterFirstFrame) start();
+  };
+  if (afterFirstFrame.length > 0 && introPlanned === null) {
     // Guarded at BOTH hops, and neither is the frame loop. These two callbacks
     // are scheduled on their own, are not the `rafId` the disposer cancels, and
     // fire whether or not the battlefield is still there -- so a player who
@@ -2710,7 +2751,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       if (disposed) return;
       requestAnimationFrame(() => {
         if (disposed) return;
-        for (const start of afterFirstFrame) start();
+        startDeferredArt();
       });
     });
   }
@@ -2749,6 +2790,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           // how the two drift.
           logistics: mission.resources ? runtime.logistics : undefined,
           logisticsRate: mission.resources?.logistics_rate_per_min,
+          income,
           intel: mission.resources ? runtime.intel : undefined,
           intelLastEarn: intelMoments?.lastEarn(sim.tickCount) ?? undefined,
           // The story voice's closing line (GDD §11) -- read straight off the
@@ -2769,6 +2811,36 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // time eases down and the camera eases to the deciding ground
   // (`ui/outcome-beat.ts`). Cleared when the moment hands over.
   let beat: { t0: number; reduced: boolean; from: BeatCamera; focus: { x: number; y: number } | null } | null = null;
+  /** H3: the briefing -> battlefield transition while it runs (started after
+   *  the first world frame, below); null before, after, and for every boot
+   *  that has none. While set it HOLDS the tick accumulator, like `beat`. */
+  let intro: IntroRun | null = null;
+  /** Where the intro's camera starts and lands; null when it does not move. */
+  let introCam: { start: IntroCamera; end: IntroCamera } | null = null;
+  /**
+   * End the intro, once, synchronously: the DOM end state (screen gone, panes
+   * shown, the reveal run if it had not), the camera at its landing pose, the
+   * clock released with no backlog, and the deferred art batch started.
+   * Called by the frame loop when the hold runs out, by a skip input, and by
+   * `__lions.step`/`goto`/`sel` before they do anything -- never by a timer,
+   * so the golden gate's frozen loop cannot have its framing overwritten.
+   */
+  const endIntro = (): void => {
+    const run = intro;
+    if (run === null) return;
+    intro = null;
+    run.finish();
+    if (introCam !== null) {
+      renderer.camera.x = introCam.end.x;
+      renderer.camera.y = introCam.end.y;
+      renderer.camera.zoom = introCam.end.zoom;
+      introCam = null;
+    }
+    // The clock starts now: nothing the hold kept is replayed.
+    clock.acc = 0;
+    clock.last = performance.now();
+    startDeferredArt();
+  };
   // BattleAudio keeps `muted` private and reports the new state from
   // `toggle()`, so the strip's chip reads this mirror rather than the mixer.
   // Seeded from the mixer rather than `false`: the mute is remembered across
@@ -3035,6 +3107,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     const ctx: HintContext = {
       missionId: mission.id,
       hasResources: mission.resources !== undefined,
+      incomeHeld: incomeHeld(income),
       selectedCount: sel.length,
       selectedTypes: () => new Set(sel.map((i) => sim.unitTypes[sim.state.typeIdx[i]].id)),
       forceSize: () => {
@@ -3093,6 +3166,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     onStripRendered: () => intelMoments?.sealEarn(),
     hoverStructure: () => renderer.hoverStructure,
     hoverEntity: () => renderer.hoverEntity,
+    // F2 follow-up: the logistics tip names each income zone by its bearing from the map's centre.
+    project: (x, y) => renderer.worldToScreen(x, y),
     hoverFriendly: () => renderer.rangeRingPreview ?? -1,
     isVisible: (wx, wy) => renderer.isVisible(wx, wy),
     hoverCursor: () => hoverCursorName,
@@ -3234,6 +3309,17 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       )
     : null;
   if (room !== null && blockedNotes !== null) room.setHooks({ onCmdRefused: () => blockedNotes.refused() });
+  /** Where a dock purchase and an armed support call go (N2 Task 5, D3, lead
+   *  16 Oct: "check, then send"): the TRANSPORT, like every other order, built
+   *  the way `dispatch` below builds its own. In single-player `room` is null
+   *  and the `LocalTransport` hands the command to the next frame; the sim sets
+   *  `build`/`support` aside and `runTick` runs them through
+   *  `runtime.applyQueued()` before `sim.tick()`. In a paused room the command
+   *  is dropped with the pause notice, as every other order is. Declared up
+   *  here, not beside `dispatch`, because the dock is built before it. */
+  const cmdSink: CommandSink = room === null
+    ? transport
+    : roomOrderSink(() => room.status(), transport, () => { blockedNotes?.blocked(); });
   /** The advisor's panel and proposal strip (N4a task 10), a versus room only.
    *  Mounted hidden and shown while the room says an advisor sits beside THIS
    *  seat (`onAdvisors`, installed with the scoreboard below, which hears
@@ -3599,6 +3685,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // A thunk: objectives complete and drop off mid-mission, and a sandbox
     // has none at all.
     objectives: () => runtime?.objectiveList ?? [],
+    // S-F F2 Z-B: held income ground, from the HUD beat's one view.
+    income: () => income,
     // GH-279: the refuge, only while an evacuation is still being scored.
     refuge: () => (runtime ? activeRefuge(runtime.objectiveList, evacTargets, refugeAt) : null),
     // The map's own lit ground, photographed by the renderer (Task 15).
@@ -3743,7 +3831,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const engineChoice = enginesOf(mission, params);
   if (engineChoice.warning) console.warn(`[lions] ${engineChoice.warning}`);
   audio.startEngines(engineChoice.value);
-  if (mission) {
+  // The REVEAL (H3): the start cue, Shai's line and the title card, one
+  // moment. With an intro it runs when the card lands in the commander bar
+  // (`INTRO_MS.land`; reduced motion, when the fade ends), not over a
+  // briefing that is still leaving; without one, here, as it always did.
+  // Once only: a skip that lands the card early runs it, and the landing
+  // timer it cancelled does not run it again.
+  let revealed = false;
+  const reveal = (): void => {
+    if (revealed || !mission) return;
+    revealed = true;
     audio.playCue(CRITICAL_CUES.missionStart);
     // AU-5: no bark while the start cue and the title card own the moment.
     voice.hush('start');
@@ -3753,7 +3850,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // `dispatch` is the story voice (GDD §11); absent, this card behaves
     // exactly as it always has (`titleCard`'s own contract).
     hud.announce(mission.name ?? mission.id, t('main.announce.primaryObjectives', { n: primaries }), mission.dispatch);
-  }
+  };
+  if (introPlanned === null) reveal();
 
   const start = mission?.map.player_start;
   if (start) {
@@ -3764,6 +3862,21 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     const [cx, cy] = campOf(anchors, me);
     renderer.camera.x = cx;
     renderer.camera.y = cy;
+  }
+  // H3: the camera lands where it stands now, and starts wider: zoom x0.6, a
+  // third of the way toward the first primary objective's zone, clamped to
+  // the map for the view at THAT zoom (`clampCamera`, keepOnMap's own
+  // arithmetic), so an edge start does not open on void. Set now, so the
+  // first world frame under the leaving briefing is already the start pose.
+  if (introPlanned !== null && introPlanned.cameraMs > 0) {
+    const end: IntroCamera = { x: renderer.camera.x, y: renderer.camera.y, zoom: renderer.camera.zoom };
+    const from = introStartPose(end, introToward(mission?.objectives ?? [], map.zones, sim), (c) =>
+      clampCamera(c, sim, { width: renderer.width, height: renderer.height })
+    );
+    introCam = { start: from, end };
+    renderer.camera.x = from.x;
+    renderer.camera.y = from.y;
+    renderer.camera.zoom = from.zoom;
   }
 
   // Reinforcements and fire support: the dock, bottom left (GH-153 slice 3).
@@ -3875,6 +3988,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // the one state with no number to show.
       credits: ledgerStore.available ? ledgerStore.readAccount().balance : undefined,
       note: (html, tone) => hud.note(html, tone),
+      // N2 D3: an accepted purchase is a `build` command down the frame path.
+      dispatch: (cmd) => cmdSink.queueCommand(cmd),
       onDeny: () => audio.playCue(CRITICAL_CUES.uiDeny),
       // Read at hover time, so a rebind in Settings shows on the next tooltip.
       hotkeyLabel: (kind) => keyLabel(bindings[SUPPORT[kind].action]),
@@ -4193,7 +4308,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // F-Q10: the click aims through `pointerPoint`, so a wall pixel is the
         // building; `out.x/y` is the one point the dispatch, the marker and
         // the announcer all use.
-        const out = callSupport(runtime, call, pointerView, sim, p.x, p.y);
+        // N2 D3: `callSupport` pre-checks with `canSupport` and sends a
+        // `support` command to `cmdSink`; the spend lands in `runTick`'s
+        // `applyQueued`, before `intelMoments.beforeTick`, so the sweep's
+        // board snapshot sees the same before/after as when the click spent.
+        const out = callSupport(runtime, cmdSink, call, pointerView, sim, p.x, p.y);
         dispatch({ kind: 'support', call, x: out.x, y: out.y, accepted: out.ok });
         if (out.ok && intelMoments) {
           // GH-113: "inbound -- 3 s" / "on the way", one announcer line and a
@@ -4317,6 +4436,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  minor one while nothing heavier has happened (`nextJump`, WP-P5). A
    *  plain local: presentation state read by exactly one keydown case. */
   let jumpTarget: JumpTarget | null = null;
+  /** S-F F2 C3: when the world draws side 0's supply routes -- while the
+   *  strip's logistics figure is held, or for `ROUTE_JUMP_SHOW_MS` after a
+   *  jump lands on a supply alert, on the frame clock -- written every frame
+   *  in the loop below. Presentation only; nothing the sim reads. */
+  const supplyRouteDisplay = new SupplyRouteDisplay();
+  onDispose(() => {
+    renderer.supplyRoutes = null;
+  });
 
   canvas.addEventListener('contextmenu', (ev) => {
     ev.preventDefault();
@@ -4584,6 +4711,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           renderer.camera.x = jumpTarget.at.x;
           renderer.camera.y = jumpTarget.at.y;
           keepOnMap();
+          // S-F F2 C3: landing on a supply alert shows the line it is about.
+          if (jumpTarget.kind === 'supply') supplyRouteDisplay.jumpLanded(performance.now());
         } else {
           // Not padding. A key that does nothing and says nothing is
           // indistinguishable from a key that is broken -- the lesson the
@@ -4863,12 +4992,19 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // The tier styles the line (WP-P5, C3) and ranks the jump key.
       if (a.line) hud.note(...alertNotice(a.line), { tier: a.tier });
       if (a.marks.length > 0) minimap.flash(a.marks, performance.now(), { tier: a.tier, tone: a.tone });
-      jumpTarget = nextJump(jumpTarget, a.tier, a.at);
+      jumpTarget = nextJump(jumpTarget, a.tier, a.at, a.kind);
     }
   };
 
   // --- fixed-tick loop with render interpolation ---------------------------
   const runTick = (): void => {
+    // N2 Task 5 (D3): the dock's `build` and the armed click's `support`
+    // commands, set aside by the sim, are priced and spent here, FIRST --
+    // before `intelMoments.beforeTick` and before `sim.tick()`, which discards
+    // anything still set aside (R-3). A sweep's `reveal` and a strike's
+    // `callStrike` therefore enter the sim queue after this frame's other
+    // orders: they run last in their tick, deterministically.
+    const ranQueued = runtime && mission ? runtime.applyQueued() : 0;
     intelMoments?.beforeTick(sim);
     const events = sim.tick();
     tickQuiet = catchUpQuiet.next();
@@ -5474,7 +5610,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // be delegated rather than bound per chip.
     groupsBar.refresh();
     overlay.onTick(events);
-    if (production && sim.tickCount % 5 === 0) production.refresh();
+    // A tick that ran a purchase repaints the dock at once, so its bar starts
+    // on the tick the build did rather than at the next 4 Hz beat (N2 D3: the
+    // click's own `refresh()` runs before the spend has landed).
+    if (production && (sim.tickCount % 5 === 0 || ranQueued > 0)) production.refresh();
     // Task 6: the same 4 Hz cadence `production.refresh()` above already uses
     // (Hud.onTick's own throttle, `tickN % 5`, is private -- this mirrors it
     // rather than reaching for it), and ONLY while the tracker is open: a
@@ -5553,7 +5692,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       renderer.objectiveZone = rect ?? null;
       renderer.objectiveZoneState =
         timed?.paused === 'contested' ? 'contested' : timed?.paused === 'unheld' ? 'unheld' : 'held';
-      renderer.objectiveZones = objectiveZonesFor(runtime.objectiveList, map.zones);
+      income = incomeViewOf(runtime);
+      renderer.objectiveZones = [
+        ...objectiveZonesFor(runtime.objectiveList, map.zones),
+        ...incomeZonesFor(income, activeObjectiveZoneNames(runtime.objectiveList)),
+      ];
     }
     if (tut && tut.index !== telemetryTutIndex) {
       telemetryTutIndex = tut.index;
@@ -5572,6 +5715,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     seatWorld,
     runTick,
     config: netConfig,
+    // N2: folds 0 in every room until N3 starts a runtime there (L1);
+    // single-player is never asked.
+    runtimeDigest: () => runtime?.digest() ?? 0,
     // L4: this client's OWN content digest, folded into every hash it
     // reports. Taken here at boot in a room, so its ~50 ms cold computation
     // is not a hitch on tick 19; single-player hashes nothing and never pays it.
@@ -5685,6 +5831,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       ...(netSeat === null
         ? {
             step: (n: number) => {
+              // H3: a tool never sees a half transition, and `step(n)` is
+              // still n ticks from the end state.
+              endIntro();
               stepFrames(n);
               renderer.frame(1, lastFrameMs);
               return sim.tickCount;
@@ -5707,6 +5856,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
        *  corner of a 48×48 map to look at one ridge is most of the cost of
        *  checking anything visual. */
       goto: (where: string | number, y?: number) => {
+        // H3: first, so the intro's landing pose cannot overwrite this one.
+        endIntro();
         if (typeof where === 'number') {
           renderer.camera.x = where;
           renderer.camera.y = y ?? where;
@@ -5728,6 +5879,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       /** Set the selection, so a specific unit can be put under the pointer
        *  without hunting for it. Ids come from `sim`, or from `units()` below. */
       sel: (ids: number[]) => {
+        endIntro();
         renderer.selection = ids.filter((i) => sim.state.alive[i] === 1);
         return renderer.selection;
       },
@@ -6002,6 +6154,45 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // (fed in below) is unit-tested without a browser. `paused` is READ here,
   // never written -- `pause`/`resume` above are the only writers.
   const clock: Clock = { acc: 0, last: performance.now() };
+
+  // H3: the transition starts on the first painted world frame (the one
+  // drawn just above), so the briefing never leaves onto an unpainted
+  // canvas. After `clock` exists, because ending it resets the clock. Its
+  // disposer is registered here, where it is created: leaving mid-intro
+  // (the pause menu is unreachable -- Escape is a skip -- but a router
+  // navigation is not) cancels its timers and listeners and takes its
+  // classes back off `body`; `loading.dispose()` removes the screen.
+  if (introPlanned !== null) {
+    const plan = introPlanned;
+    const run = runMissionIntro({
+      plan,
+      screen: loading,
+      body: document.body,
+      keep: [stage],
+      foldTo: (box) => {
+        const cmd = hud.commanderRect();
+        return cmd ? foldGeometry(box, cmd) : null;
+      },
+      onLand: () => {
+        reveal();
+        hud.landCommander(INTRO_MS.pulse);
+      },
+      // One input skips the transition AND the title card (ruling 6). The
+      // skip lands the card first (`finish` runs the reveal if it had not),
+      // so the start cue and Shai's line still sound, then the card is
+      // dismissed through its own 250 ms fade -- the input that would have
+      // dismissed it was consumed before the card's listeners saw it.
+      onSkip: () => {
+        endIntro();
+        hud.dismissTitle();
+      },
+    });
+    intro = run;
+    onDispose(() => {
+      run.dispose();
+      if (intro === run) intro = null;
+    });
+  }
   /** When the last tick ran (a room's interpolation clock; see `alpha` below). */
   let lastTickAt = clock.last;
   // The app owns the frame loop, not the renderer.
@@ -6046,7 +6237,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // ticked by it.
     const now = performance.now();
     const pose = beat ? beatPose(now - beat.t0, beat.reduced) : null;
-    const { ticks, frameMs } = advanceClock(clock, now, gameSpeed, paused || beat !== null, MS_PER_TICK);
+    // H3: the intro holds it too, until the camera lands (ruling 2).
+    const { ticks, frameMs } = advanceClock(clock, now, gameSpeed, paused || beat !== null || intro !== null, MS_PER_TICK);
     lastFrameMs = frameMs;
     // Single-player runs what the accumulator owes, exactly as before; a room
     // runs what the room has released, up to `roomTickCap` (R33, R-B7, I-1):
@@ -6147,6 +6339,20 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         if (g.done) zoomGlide = null;
       }
     }
+    // H3: the intro owns the camera while it eases -- written HERE, in the
+    // frame loop, and nowhere else but `endIntro` -- and ends itself when
+    // the hold runs out, which writes the landing pose once.
+    if (intro !== null && introPlanned !== null) {
+      zoomGlide = null;
+      const elapsed = now - intro.t0;
+      const c = introCam ? introCamera(elapsed, introPlanned, introCam.start, introCam.end) : null;
+      if (c !== null) {
+        renderer.camera.x = c.x;
+        renderer.camera.y = c.y;
+        renderer.camera.zoom = c.zoom;
+      }
+      if (elapsed >= introPlanned.holdMs) endIntro();
+    }
     if (beat && pose && beat.focus) {
       const c = beatCamera(beat.from, beat.focus, pose.camera);
       renderer.camera.x = c.x;
@@ -6163,6 +6369,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       const kept = pruneHiddenHostiles(renderer.selection, seatSight);
       if (kept !== renderer.selection) renderer.selection = kept;
     }
+    // S-F F2 C3: the world supply route, on demand, from the HUD beat's one
+    // view. Hover and focus alike (`Hud.logisticsHeld`); a confirm dialog or
+    // the pause menu clears it. Timed on the frame clock, never sim ticks.
+    renderer.supplyRoutes = supplyRouteDisplay.routes({
+      view: income,
+      logisticsHeld: hud.logisticsHeld,
+      modalOpen: isDialogOpen() || pauseHandle !== null,
+      nowMs: performance.now(),
+    });
     renderer.frame(alpha, lastFrameMs * (pose?.timeScale ?? 1));
 
     updateHover();

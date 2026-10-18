@@ -219,15 +219,29 @@ describe('a boulder field authored as `b`', () => {
 // for `canEmbark`, and it contains `artillery` -- but `rocket_battery` is a
 // Grad on a 6x6 truck and declares role "artillery" too. Reusing FOOT_ROLES
 // would drive a rocket truck through a boulder field that stops a jeep. The
-// first pin below holds the rocket battery on the vehicle side of that
-// conflation; the rest hold the foot side, since the default fails the other
-// way too: `manpad_team` (GH-247) is a foot team whose role sits outside the
-// set, so it needs `wheeled: false` authored. All are pinned against the
-// shipped JSON.
+// first two pins hold the rocket battery and the D9 (GH-598, the same trap in
+// `engineer`) on the vehicle side of that conflation; the rest hold the foot
+// side, since the default fails the other way too: `manpad_team` (GH-247) is a
+// foot team whose role sits outside the set, so it needs `wheeled: false`
+// authored. All are pinned against the shipped JSON.
 describe('what counts as a vehicle', () => {
   it('calls the rocket battery wheeled despite its artillery role', () => {
     expect(units.rocket_battery.role).toBe('artillery');
     expect(unitTypeFromJson(units.rocket_battery as UnitTypeJson).wheeled).toBe(true);
+  });
+
+  it('calls the D9 a vehicle despite its engineer role (GH-598)', () => {
+    // `engineer` is in FOOT_ROLES because three of its four carriers are men
+    // on foot (`demo_squad`, `yahalom_squad`, `digger_crew`). The fourth is a
+    // tracked bulldozer: by the role default it crossed boulder fields and
+    // ditches that stop a jeep, and formed up in the infantry grid. Its JSON
+    // says `wheeled: true`; the demo squad, the same role, stays on foot.
+    expect(units.dozer_d9.role).toBe('engineer');
+    const d9 = unitTypeFromJson(units.dozer_d9 as UnitTypeJson);
+    expect(d9.wheeled).toBe(true);
+    expect(d9.moveDomain).not.toBe(0);
+    expect(units.demo_squad.role).toBe('engineer');
+    expect(unitTypeFromJson(units.demo_squad as UnitTypeJson).wheeled).toBe(false);
   });
 
   it('and the mortar team, the same role, not', () => {

@@ -21,6 +21,7 @@
 // has always made, now made from inside the sim package where it belongs.
 
 import { fx, type Fx } from './fixed';
+import { hashWord } from './hash';
 import type { Sim } from './sim';
 
 /** Civilians break for the refuge above this suppression (0.3). */
@@ -81,6 +82,41 @@ export class CivilianFlight {
   /** Whether this civilian has already broken for the refuge. */
   hasFled(id: number): boolean {
     return this.fledSet.has(id);
+  }
+
+  /** Sort scratch for `digestInto`, grown on demand and kept, so a steady
+   *  state allocates nothing per call. */
+  private scratch = new Int32Array(8);
+
+  /** Folds both latches into `h` (N2 Task 6, `MissionRuntime.digest`): fled,
+   *  then evacuated, each as its size then its ids ascending. A Set iterates in
+   *  insertion order, which is the order the rule met them, so the ids are
+   *  sorted here rather than trusted. */
+  digestInto(h: number): number {
+    h = this.foldSet(h, this.fledSet);
+    return this.foldSet(h, this.evacuatedSet);
+  }
+
+  private foldSet(h: number, set: ReadonlySet<number>): number {
+    const n = set.size;
+    if (this.scratch.length < n) {
+      const grown = this.scratch.length * 2;
+      this.scratch = new Int32Array(grown > n ? grown : n);
+    }
+    const a = this.scratch;
+    let k = 0;
+    for (const id of set) {
+      // Insertion sort: the sets hold a mission's civilians, a handful to a few dozen.
+      let j = k++;
+      while (j > 0 && a[j - 1] > id) {
+        a[j] = a[j - 1];
+        j--;
+      }
+      a[j] = id;
+    }
+    h = hashWord(h, n);
+    for (let i = 0; i < n; i++) h = hashWord(h, a[i]);
+    return h;
   }
 
   /**

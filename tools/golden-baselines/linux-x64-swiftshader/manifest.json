@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "05492a636807a30a9559f1442f4707704e7962a0",
-  "blessedAt": "2026-10-15T06:20:03.922Z",
-  "reason": "Relief reads (#620): slope light gain 2 + median-relative height contours move relief (tel_marum) and aftermath (qarn_hadid) only; lead approved merge 2026-10-15.",
+  "commit": "8267f7a83a0c6ee7aeb4449ab96e997f1a4433cc",
+  "blessedAt": "2026-10-15T21:00:20.959Z",
+  "reason": "VR-05 (#683): foliage to scrub.1 on arid and highland themes (green unchanged, lead ruling 15 Oct); moves every gated frame, all layer checks pass.",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -20,7 +20,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "52a1963f70d1b9446368b0b31352811f573185c417b7e369f685d1d0188c5c48"
+      "sha256": "0326653c9cf462867e265461c4f8943ece7da13dcf42a9b126b476ca0d14710d"
     },
     "open-ground": {
       "tick": 60,
@@ -39,7 +39,7 @@
         "w": 450,
         "h": 400
       },
-      "sha256": "cb1127c714307c2272230620cb50df39da1544c9c3147d65a8af1df1917730cd"
+      "sha256": "b304ff1d012a5f21df66499b3e86d5403b5a9f9fec1e2031da548cec0fb3c27f"
     },
     "vehicle": {
       "tick": 140,
@@ -53,7 +53,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "c5c6f5409ef2a8d6365443d4f88622487676f94db1b98d7da14847aa8083c61d"
+      "sha256": "025d98b56579fa8a3b7f4364f34e72fb8b3a259a26ccf0bfa39fcbb0962b4cc3"
     },
     "kitted": {
       "tick": 140,
@@ -67,7 +67,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "b13b479e509d0262960d42d937c7376799983368729e7a7aaa7d3cfd03e06419"
+      "sha256": "63e039334106297c2c1f125cf9accda4b38c7973e3885fc8ff12d9897909c4ce"
     },
     "relief": {
       "tick": 500,
@@ -81,7 +81,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "5d9630456de8827bd2cf6228722e6003f53d8561d0de11603940d993790e0b04"
+      "sha256": "efbbc217fa5b361addf4a2de7b2d830d662652c441c21c2fdeaa8d288adb6921"
     },
     "aftermath": {
       "tick": 300,
@@ -95,7 +95,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "59ec186ce1d8cb9c4a0a7c640ab076aefeea298078cf77083b57adf5ff8917c4"
+      "sha256": "98a2e86a9ecb34214164aa6ba5780d935a9d1117e274850249a5ad8b1112203a"
     }
   }
 }

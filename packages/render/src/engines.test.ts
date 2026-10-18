@@ -54,16 +54,19 @@ describe('engine family (tracked / wheeled / rotor / silent)', () => {
     }
   });
 
-  it('the D9 is tracked although its flags say foot (role engineer): by_type names it', () => {
+  it('the D9 is tracked, not wheeled, although its flag says wheels-or-tracks: by_type names it', () => {
+    // GH-598: the D9's JSON says `wheeled: true` (it was foot by its `engineer`
+    // role until then), and `wheeled` means wheels OR tracks.
     const d9 = shippedUnits().find((u) => u.id === 'dozer_d9');
     expect(d9).toBeDefined();
     if (!d9) return;
-    expect(unitTypeFromJson(d9).wheeled).toBe(false);
+    expect(unitTypeFromJson(d9).wheeled).toBe(true);
     expect(families.get('dozer_d9')).toBe('tracked');
-    // Falsification: without its by_type line the D9 is silent.
+    // Falsification: without its by_type line the D9 falls to the flag default,
+    // and plays the wheeled loop.
     const byType = Object.fromEntries(Object.entries(SPEC?.by_type ?? {}).filter(([id]) => id !== 'dozer_d9'));
     const without: EngineSpec = { ...SPEC, by_type: byType };
-    expect(engineFamilyOf(without, unitTypeFromJson(d9))).toBeNull();
+    expect(engineFamilyOf(without, unitTypeFromJson(d9))).toBe('wheeled');
   });
 
   it('the wheeled APCs (Eitan 8x8, Kipod 6x6), the scout car, the jeep and the trucks are wheeled', () => {

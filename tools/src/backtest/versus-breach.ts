@@ -46,6 +46,7 @@
 //
 //   pnpm versus:breach                       every fair map, the room's pairings, 48 seeds
 //   pnpm versus:breach -- --maps=wadi_tarfan --seeds=12
+//   pnpm versus:breach -- --rules=room       the room's seat table ([true, true]); default single
 //
 // THE CONTROLS (versus-breach.test.ts), each seen red under a one-line mutation:
 //   B1 isBreach(): drop `garrisonSlots === 0` (count `curStructure` on any
@@ -201,12 +202,13 @@ export interface CampGame {
 export interface CampOptions {
   capTicks?: number;
   breach?: BreachFn;
+  humanHeld?: readonly [boolean, boolean];
 }
 
 /** One game in one arm: the versus probe's play, ordered and read by camp. */
 export function playCamps(mapId: MapId, factionsByCamp: readonly [Faction, Faction], seed: number, arm: Arm, opts: CampOptions = {}): CampGame {
   const capTicks = opts.capTicks ?? CAP_TICKS_DEFAULT;
-  const { sim, typeOf, map } = world(mapId, seed);
+  const { sim, typeOf, map } = world(mapId, seed, opts.humanHeld);
   const camps = spawnCamps(sim, typeOf, sandboxAnchors(map), factionsByCamp, arm);
   const sideOf = sidesOf(arm);
   const counter = new Counter(sim, opts.breach);
@@ -397,6 +399,10 @@ export function main(args: readonly string[] = process.argv.slice(2)): number {
   const seeds = Number(flag(args, 'seeds') ?? SEEDS_DEFAULT);
   if (!Number.isInteger(seeds) || seeds < 1) throw new Error('--seeds must be a whole number of at least 1');
 
+  const rules = flag(args, 'rules') ?? 'single';
+  if (rules !== 'single' && rules !== 'room') throw new Error('--rules must be single or room');
+  const humanHeld: readonly [boolean, boolean] | undefined = rules === 'room' ? [true, true] : undefined;
+
   // The controls first.
   const failures: string[] = [];
   const g = garrisonControl();
@@ -408,7 +414,7 @@ export function main(args: readonly string[] = process.argv.slice(2)): number {
     for (const f of failures) console.error(`  ${f}`);
     return 2;
   }
-  console.log(`breach probe (report-only): ${seeds} seeds per cell, the versus probe's play, cap ${CAP_TICKS_DEFAULT / TICKS_PER_SECOND} s`);
+  console.log(`breach probe (report-only): seat table ${rules === 'room' ? '[true, true] (--rules=room)' : '[true, false] (--rules=single)'}, ${seeds} seeds per cell, the versus probe's play, cap ${CAP_TICKS_DEFAULT / TICKS_PER_SECOND} s`);
   console.log(`garrison control: side 0 shelled a held building for ${g.structureFire[0]} unit-ticks and read 0 breach ticks; side 1 read ${g.ticks[1]} -- passed`);
 
   console.log('\nThe mirror pins\' first 200 ticks (seed 20260727, no orders):');
@@ -431,8 +437,8 @@ export function main(args: readonly string[] = process.argv.slice(2)): number {
       let withBreach = 0;
       const firsts: number[] = [];
       for (let n = 0; n < seeds; n++) {
-        const nrm = playCamps(id, fac, seedOf(n), 'normal');
-        const swp = playCamps(id, fac, seedOf(n), 'swapped');
+        const nrm = playCamps(id, fac, seedOf(n), 'normal', { humanHeld });
+        const swp = playCamps(id, fac, seedOf(n), 'swapped', { humanHeld });
         pairs.push([nrm, swp]);
         addActivity(sum, nrm.activity);
         addActivity(sumS, swp.activity);

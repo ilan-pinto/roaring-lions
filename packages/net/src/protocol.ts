@@ -3,7 +3,7 @@
  * the ONLY way bytes become one. Spec §3.2.3. The room never learns a
  * position: the only battle facts here are `Command`s and hashes.
  */
-import { FIRE_SUPPORT, type Command } from '@lions/sim';
+import { AMBUSH_RADIUS_MAX, FIRE_SUPPORT, FIRE_SUPPORT_KINDS, MAX_LINE_QUEUE, MAX_PRODUCTION_LINES, type Command } from '@lions/sim';
 import { isFactionPair, validateConfig, type Faction, type MatchConfig, type Seat } from './config';
 import type { Frame, Stamped } from './frames';
 import { ADVISOR_SCOPES, cleanAdvisorMsg, type AdvisorMsg, type AdvisorScope } from './advisor';
@@ -32,7 +32,8 @@ export const FORFEIT_MS = 60_000;
 
 /** `Command['kind']` as a value, so a wire command can be checked at runtime. */
 export const COMMAND_KINDS = [
-  'move', 'attackMove', 'halt', 'garrison', 'load', 'unload', 'reveal', 'callStrike', 'smoke', 'demolish', 'chargeTunnel', 'attack',
+  'move', 'attackMove', 'halt', 'setStance', 'garrison', 'load', 'unload', 'reveal', 'callStrike', 'smoke', 'demolish', 'chargeTunnel', 'attack',
+  'build', 'support', 'cancelBuild', 'setRally', 'clearRally',
 ] as const satisfies readonly Command['kind'][];
 
 /** The other half of the pin (N2 prerequisite P1): `satisfies` above catches a
@@ -132,6 +133,14 @@ function cleanIds(v: unknown): number[] | null {
   return out.length <= MAX_CMD_IDS ? out : null;
 }
 const optBool = (v: unknown): boolean => v === undefined || typeof v === 'boolean';
+/** A unit id on the wire (N2 `build`). The same pattern as `@lions/data`'s
+ *  `UNIT_ID_PATTERN`, which `@lions/net` cannot import; `tools/src/unit-id-pattern.test.ts`
+ *  pins the two together against every shipped unit id. */
+const UNIT_ID = /^[a-z0-9_]{1,32}$/;
+/** A production line index on the wire: 0 <= line < MAX_PRODUCTION_LINES (F4). */
+const isLine = (v: unknown): v is number => isInt(v) && v >= 0 && v < MAX_PRODUCTION_LINES;
+const isSupportKind = (v: unknown): v is (typeof FIRE_SUPPORT_KINDS)[number] =>
+  isStr(v) && (FIRE_SUPPORT_KINDS as readonly string[]).includes(v);
 
 /**
  * A wire command REBUILT from the fields its kind declares, each with the
@@ -186,6 +195,30 @@ export function cleanCommand(v: unknown): Command | null {
         : null;
     case 'smoke':
       return ids === null || !isInt(c.x) || !isInt(c.y) ? null : { kind, ids, x: c.x, y: c.y };
+    case 'setStance': {
+      if (ids === null || (c.stance !== 'hold' && c.stance !== 'ambush')) return null;
+      if (c.stance === 'hold') return c.radius === undefined ? { kind, ids, stance: 'hold' } : null;
+      if (c.radius === undefined) return { kind, ids, stance: 'ambush' };
+      return isInt(c.radius) && c.radius > 0 && c.radius <= AMBUSH_RADIUS_MAX ? { kind, ids, stance: 'ambush', radius: c.radius } : null;
+    }
+    case 'build':
+      if (!isInt(c.side) || !isStr(c.unit) || !UNIT_ID.test(c.unit)) return null;
+      if (c.line === undefined) return { kind, side: c.side, unit: c.unit };
+      return isLine(c.line) ? { kind, side: c.side, unit: c.unit, line: c.line } : null;
+    case 'cancelBuild':
+      return isInt(c.side) && isLine(c.line) && isInt(c.index) && c.index >= -1 && c.index < MAX_LINE_QUEUE
+        ? { kind, side: c.side, line: c.line, index: c.index }
+        : null;
+    case 'setRally':
+      return isInt(c.side) && isLine(c.line) && isInt(c.x) && isInt(c.y)
+        ? { kind, side: c.side, line: c.line, x: c.x, y: c.y }
+        : null;
+    case 'clearRally':
+      return isInt(c.side) && isLine(c.line) ? { kind, side: c.side, line: c.line } : null;
+    case 'support':
+      return isInt(c.side) && isSupportKind(c.support) && isInt(c.x) && isInt(c.y)
+        ? { kind, side: c.side, support: c.support, x: c.x, y: c.y }
+        : null;
     default: {
       const unreachable: never = kind;
       return unreachable;

@@ -398,6 +398,14 @@ describe('hover.projection', () => {
   });
 });
 
+describe('a `built` await (R-F4-1)', () => {
+  const p = { kind: 'mission', event: 'built' } as PredicateJson;
+  it('is satisfied by our own purchase and not by the enemy\'s', () => {
+    expect(matches(p, { kind: 'mission', event: { kind: 'built', tick: 1, unit: 'inf_squad', side: 0 } }, 0, 0)).toBe(true);
+    expect(matches(p, { kind: 'mission', event: { kind: 'built', tick: 1, unit: 'sarim_rifles', side: 1 } }, 0, 0)).toBe(false);
+  });
+});
+
 describe('mission.id', () => {
   it('matches a trigger or objective by its authored id', () => {
     const p = { kind: 'mission', event: 'trigger', id: 'enter_ground' } as PredicateJson;

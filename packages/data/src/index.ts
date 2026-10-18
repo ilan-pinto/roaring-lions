@@ -343,6 +343,7 @@ export interface FirstUseHintRule {
   carrier_empty_seat?: true;
   enemy_pinned?: true;
   resources?: true;
+  income_held?: true;
 }
 
 /** The one-line hints for lessons the tutorial no longer teaches (GH-345
@@ -504,6 +505,19 @@ export function paletteColor(key: string): string {
  *  through: a widened caller would be a type error at that call site. */
 export type ColorVisionVariant = 'default' | 'deuteranopia' | 'protanopia' | 'tritanopia';
 
+/**
+ * The palette key civilians draw in -- the third slot of `paletteTeamColors`
+ * and the silhouette's side-2 key -- the SAME pale `limestone.0` in every
+ * colour-vision variant (VR-04, option 1). Civilians used to share
+ * `team.neutral` with every warning (HP mid, an unheld zone, halt, the `--warn`
+ * feed); that yellow keeps meaning caution and nothing else now. A plain ramp
+ * key, deliberately NOT a `reserved.team` entry: that would make `limestone.0`
+ * a reserved colour and the static-art gates would reject it. The renderer
+ * (`silhouette.ts`) cannot import this package and restates the key; a test
+ * in `tools/src/civilian_colour.test.ts` pins the two together.
+ */
+export const CIVILIAN_COLOR_KEY = 'limestone.0';
+
 /** The four `reserved.team` colours (`kedem`/`hostile`/`hostile_text`/
  *  `neutral`) for one variant -- `'default'` is the plain `colors` entry,
  *  every other variant its matching `variants` entry. The one place either
@@ -524,8 +538,12 @@ function teamColorsFor(variant: ColorVisionVariant): Record<string, string> {
 }
 
 /**
- * The three team colours -- kedem, hostile, neutral -- for a colour-vision
- * variant. `'default'` reads `reserved.team.colors`, the plain palette; any
+ * The three team colours -- kedem, hostile, civilian -- for a colour-vision
+ * variant. Slot 2 is `CIVILIAN_COLOR_KEY` in every variant (VR-04); the
+ * variant's own `neutral` is the WARNING yellow, reached by key through
+ * `variantAwareResolver('team.neutral')`, not through this tuple.
+ *
+ * `'default'` reads `reserved.team.colors`, the plain palette; any
  * other variant reads the matching entry of `reserved.team.variants`
  * (`tools/src/cvd.ts`'s gate is what keeps every one of those pairs apart
  * under simulated deficiency). Read once at construction, the same as the
@@ -533,9 +551,9 @@ function teamColorsFor(variant: ColorVisionVariant): Record<string, string> {
  * `RendererOptions` and the minimap, not on every settings change, so a
  * variant switched mid-mission takes effect from the next one.
  */
-export function paletteTeamColors(variant: ColorVisionVariant): [kedem: string, hostile: string, neutral: string] {
+export function paletteTeamColors(variant: ColorVisionVariant): [kedem: string, hostile: string, civilian: string] {
   const c = teamColorsFor(variant);
-  return [c.kedem, c.hostile, c.neutral];
+  return [c.kedem, c.hostile, paletteColor(CIVILIAN_COLOR_KEY)];
 }
 
 /**

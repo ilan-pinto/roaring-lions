@@ -2,11 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status: written 15 Oct, NOT to be built until F2's sim half lands on `main`** (Lane C,
-`feat/gf2-held-ground`, plan `docs/superpowers/plans/2026-10-04-gf2-held-ground-income.md`; at the time
-of writing it stands at Task 4 of 10). Every runtime name below marked **(verify at F2 merge)** is the
-F2 plan's own name, not yet on any branch; the first step of Task 1 is to re-read them on `main` and
-correct this plan in place before any code is written.
+**Status: written 15 Oct; re-verified against F2 as merged (#666, `f0c2a52c`) on 15 Oct (Task 1 Step 0).**
+F2 merged with all four asks (A1–A4) in place, so their fallbacks are gone. The surface table below names
+the real code, and Tasks 1–6 use the real names.
 
 **Goal:** The player sees which ground pays, what the purse earns a minute and why it is halved, and
 where a supply line runs and where it is cut — the lead's approved design (15 Oct): **Z-B** for held
@@ -28,37 +26,32 @@ implementation would need"; `questions.md`; `sheet.png`); the F2 controller's le
 `/Users/ilpinto/dev/roaring-lions-ep/_coord/s4-f2-progress.md` (C-R1: F2 ships **no** mission with a zone;
 C-R10: the two new event kinds arrive with `silent` cue rows that this plan flips).
 
-## The F2 runtime surface this plan consumes (verify at F2 merge)
+## The F2 runtime surface this plan consumes (verified on `main` at #666)
 
-| what | F2 plan name | status on 15 Oct |
-|---|---|---|
-| who holds a zone | `Holder = 0 \| 1 \| -1`, `zoneHolder(view, rect)` (`packages/sim/src/income.ts`) | **landed** on `feat/gf2-held-ground` (662a08af). `-1` means empty OR contested |
-| per-zone state | `interface ZoneIncome { zone; rect; ratePerMin; holder; cut: CutCause; route: Int32Array \| null }` | Task 7, **private** in the plan |
-| why a line is cut | `type CutCause = 'unreachable' \| 'interdicted' \| 'vent' \| null` (`corridor.ts`) | Task 6 |
-| the rate | `get incomePerMin(): { base: number; zones: number; halvedBy: CutCause \| null }` | Task 7 |
-| events | `{ kind: 'zoneHolder'; tick; zone; holder: Holder }`, `{ kind: 'corridor'; tick; zone: string \| null; cut: CutCause }` (`zone` null = the convoy) | Task 7, with `silent` rows in `ui/cues.ts` (C-R10) |
-| the purse | `logistics` (side 0, floored) and `logisticsOf(side)` | **landed** (Task 1, df48a80c) |
-| zones on the map | `income_zones` in the mission JSON, `supply_entry` marker | schema landed (Task 3); **no shipped mission authors a zone** (C-R1) |
+All of it is on `MissionRuntime` (`packages/sim/src/mission.ts`). The types are exported from `@lions/sim`.
 
-**Four asks of Lane C** (raise on the F2 PR before it merges; each has a fallback so this plan does not
-block on it):
+| what | real name on `main` |
+|---|---|
+| who stands in a zone | `type ZoneState = 0 \| 1 \| -1 \| -2`, with `ZONE_EMPTY` (-1) and `ZONE_CONTESTED` (-2), from `income.ts`. `type Holder = 0 \| 1 \| -1` is the state with contested folded into nobody. |
+| per-zone state (A1, A2, A3, A4) | `get incomeZones(): readonly Readonly<ZoneIncome>[]`, in authored order. Each `ZoneIncome` is `{ zone; rect; ratePerMin; state: ZoneState; holder: Holder; cut: CutCause; route: ArrayLike<number> \| null; cutSpan: readonly [number, number] \| null; paysPerMin }`. `route` and `cutSpan` are REUSED STORAGE and must be copied to keep. `route` runs from the zone to its HOLDER's rear (either side). `paysPerMin` is what the zone pays its holder: half while cut, 0 when empty or contested. |
+| the convoy (A2) | `get convoyRoute(): Readonly<ConvoyRoute> \| null`, as `{ route; cut; cutSpan }`. Null unless `resources.supply_corridor` is true and `resources.supply_entry` is set. Reused storage. |
+| why a line is cut | `type CutCause = 'unreachable' \| 'interdicted' \| 'vent' \| null` (`corridor.ts`). |
+| the rate (A4) | `get incomePerMin(): Readonly<{ base; zones; halvedBy: CutCause }>`. `base` is already halved while the convoy is cut. `zones` is side 0's held zones, each already halved by its own cut. `halvedBy` is the CONVOY's cut only; a zone's own cut is on its `ZoneIncome`. The object is refilled on every read. |
+| events | `{ kind: 'zoneHolder'; tick; zone; holder: Holder; contested: boolean }`, sent on change only. `{ kind: 'corridor'; tick; zone: string \| null; cut: CutCause }`, where `zone` null is the convoy. When a zone loses its holder, its cut clears with NO `corridor` event (C-R19), so a consumer must drop it on `zoneHolder`. Both have `silent` rows in `ui/cues.ts`. |
+| the purse | `logistics` (side 0, floored) and `logisticsOf(side)`. |
+| zones in the mission | `mission.resources.income_zones: { zone; rate_per_min }[]` names zones in `map.zones`. `mission.resources.supply_corridor` / `supply_entry` (a marker). **No shipped mission authors a zone yet.** Task 8 (Lane C, a separate PR) adds them to UZ II/IV, DA II and WH II. |
 
-- **A1. Contested vs empty.** `Holder -1` conflates them, and P2-1 draws them differently (`contested`
-  vs `unheld`). Ask: a public per-zone state `'held0' | 'held1' | 'contested' | 'empty'` (or a
-  `contested: boolean` beside `holder`). *Fallback:* none in `app` — re-deriving D3 from unit positions
-  is a second copy of a game rule. Without A1, `-1` draws `unheld` and the `contested` state and its
-  alert are dropped from Tasks 2 and 4 (record it).
-- **A2. A public read of the zones and routes.** `ZoneIncome[]` is private in the plan. Ask:
-  `get incomeZones(): readonly Readonly<ZoneIncome>[]` and `get convoyRoute(): { route: Int32Array |
-  null; cut: CutCause } | null` (side 0's view; read-only; nothing hashed). *Fallback:* the minimap and
-  world routes cannot be drawn; Tasks 3 and 6 ship without routes and say so.
-- **A3. Where a line is cut.** C3 dashes only the cut STRETCH and P2-4's alert jumps to "the first cut
-  tile"; `corridorCut` returns a cause only. Ask: per route, the route indices that are cut
-  (`cutSpan: readonly [first, last] | null`, indices into `route`). *Fallback:* the whole route dashes
-  `--warn` (the mock's C1 look) and the jump goes to the route's midpoint.
-- **A4. The rate's parts.** The tip's breakdown (Z-B) wants base, each zone's contribution and the
-  halving per zone. `incomePerMin` has the totals only; `incomeZones[].ratePerMin` + `holder` + `cut`
-  give the parts if A2 lands. *Fallback:* the tip shows the totals and the one `halvedBy` cause.
+**The four asks of Lane C all LANDED in #666:**
+- A1, contested vs empty: `ZoneState` −2, plus the event's `contested`.
+- A2, public zones and routes: `incomeZones` and `convoyRoute`.
+- A3, where a line is cut: `cutSpan`.
+- A4, the rate's parts: `paysPerMin` and `incomePerMin`.
+
+None of the fallbacks applies. The `contested` state and its alert ship; the routes ship; only the cut STRETCH is dashed; the tip breaks the rate down per zone.
+
+**Two readings this plan fixes at Step 0** (each also recorded as a ruling in the ledger):
+- **Whose lines are drawn.** Only side 0's: the convoy, and the routes of zones whose `holder` is 0. A zone the enemy holds has a `route` to the ENEMY's rear and a `cut` on the enemy's line. Neither is the player's supply, so neither is drawn, alerted or counted.
+- **What `halved` means for the `½`.** True when the convoy is cut (`halvedBy !== null`) OR any zone side 0 holds is cut. The tip names each cause where it applies: the convoy line from `halvedBy`, each zone line from its own `cut`.
 
 ## Global Constraints
 
@@ -109,36 +102,42 @@ block on it):
 (+ `income-view.test.ts`).
 
 ```ts
-// income-view.ts (names on the runtime side are verify-at-F2-merge)
+// income-view.ts (runtime names verified at #666)
+import type { ConvoyRoute, CutCause, ZoneIncome } from '@lions/sim';
 export type IncomeZoneState = 'held' | 'unheld' | 'contested';
 export interface IncomeZoneView {
-  id: string;                                   // the zone's key in income_zones
+  id: string;                                   // ZoneIncome.zone
   rect: readonly [number, number, number, number];
-  ratePerMin: number;                           // as authored
-  paysPerMin: number;                           // 0 unless side 0 holds it; halved when cut
-  state: IncomeZoneState;                       // P2-1 mapping (A1)
-  cut: CutCause;
-  route: ArrayLike<number> | null;              // tile indices
-  cutSpan: readonly [number, number] | null;    // A3, else null
+  ratePerMin: number;                           // ZoneIncome.ratePerMin
+  paysPerMin: number;                           // ZoneIncome.paysPerMin when holder is 0, else 0
+  state: IncomeZoneState;                       // state 0 -> held; 1 or ZONE_EMPTY -> unheld; ZONE_CONTESTED -> contested
+  cut: CutCause;                                // only when holder is 0, else null (not our line)
+  route: readonly number[] | null;              // a COPY of ZoneIncome.route, only when holder is 0
+  cutSpan: readonly [number, number] | null;    // a COPY, only when holder is 0
 }
 export interface IncomeView {
-  base: number; zones: number; total: number;   // per minute
-  halved: boolean; halvedBy: CutCause | null;
+  base: number; zones: number; total: number;   // copied from incomePerMin; total = base + zones
+  halved: boolean;                              // convoy cut OR any side-0-held zone cut
+  halvedBy: CutCause;                           // incomePerMin.halvedBy (the convoy's cut)
   zoneViews: readonly IncomeZoneView[];
-  convoy: { route: ArrayLike<number> | null; cut: CutCause; cutSpan: readonly [number, number] | null } | null;
+  convoy: { route: readonly number[] | null; cut: CutCause; cutSpan: readonly [number, number] | null } | null; // copies
 }
-/** Null when the mission has neither income zones nor a supply corridor (Review Focus 1). */
+export interface IncomeRuntime {
+  readonly incomeZones: readonly Readonly<ZoneIncome>[];
+  readonly convoyRoute: Readonly<ConvoyRoute> | null;
+  readonly incomePerMin: Readonly<{ base: number; zones: number; halvedBy: CutCause }>;
+}
+/** Null when the mission has no income zones and no convoy (Review Focus 1). */
 export function incomeViewOf(rt: IncomeRuntime): IncomeView | null;
 ```
 
-- [ ] **Step 0: Re-verify on `main`.** Read F2's merged `mission.ts`/`income.ts`/`corridor.ts` and its
-  PR. Replace every "(verify at F2 merge)" name in this plan with the real one; record which of A1–A4
-  landed and strike the fallbacks that no longer apply. Commit the corrected plan alone.
+- [x] **Step 0: Re-verify on `main`.** Done by the controller on 15 Oct against #666, and committed alone.
 - [ ] **Step 1: failing tests** with a literal fake runtime: no zones and no corridor → null; a held,
   uncut zone pays its rate; a cut held zone pays half and `halved` is true with its cause; a side-1-held
-  zone pays 0 and reads `unheld`; contested reads `contested` (only with A1); totals equal the runtime's
-  `incomePerMin` (no recomputation: the view copies, it does not derive).
-- [ ] **Steps 2–6:** run red, implement, gates (`pnpm lint && pnpm typecheck && pnpm test`), see red by a
+  zone pays 0, reads `unheld` and carries no route or cut; contested reads `contested`; totals equal the
+  runtime's `incomePerMin` (no recomputation: the view copies, it does not derive); a route mutated in
+  place on the runtime after the read leaves the view unchanged (it copied).
+- [ ] **Steps 1–5:** run red, implement, gates (`pnpm lint && pnpm typecheck && pnpm test`), see red by a
   mutation, commit `app: the F2 income read model (S-F)`.
 
 ### Task 2: held zones in the world and on the minimap (Z-B)
@@ -192,8 +191,12 @@ two rows from `silent` to `ALERT_CUE.minor`/`important` — P2-5), `packages/app
 (`alert.zone.gained/contested/lost`, `alert.supply.cut/open`, in the `alert.*` shape
 `<b>…</b> — …{where, select, yes { · {place}} other {}}`), tests (`alerts.test.ts`, `cues.test.ts`).
 
-- Tiers/tones per Global Constraints; the cut alert's `at` is the first cut tile (A3) or the route
-  midpoint; Space jumps there and, for `ROUTE_JUMP_SHOW_MS`, shows the world route (Task 6).
+- Tiers/tones per Global Constraints. **Only side 0's transitions alert:** gained is `holder` 0. Contested
+  is `contested: true` on a zone side 0 held. Lost is side 0's zone going to `holder` 1, or to −1 without
+  `contested`. The previous holder per zone lives in the alert state, since the event carries only the new
+  one. An enemy gaining ground side 0 never held is silent. A `corridor` event alerts only for the convoy
+  (`zone` null) or a zone side 0 holds (read through `AlertWorld`). A `zoneHolder` event clears that zone's
+  remembered cut (C-R19). The cut alert's `at` is `route[cutSpan[0]]`, the first cut tile; Space jumps there and, for `ROUTE_JUMP_SHOW_MS`, shows the world route (Task 6).
 - [ ] Tests: one alert per event with its tier/tone/place; a flicker (gained, lost, gained inside 8 s)
   merges per the feed rule and raises at most one cue a tick (Review Focus 2); the `zone: null` corridor
   event words the convoy; the cue rows are no longer silent and `cues.test.ts` still requires a reason

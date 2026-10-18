@@ -25,7 +25,7 @@ export interface AlertWorldDeps {
    *  `main.ts` assigns its runtime after the adapter is built. */
   runtime: () => MissionRuntime | null;
   mission: MissionJson | null;
-  map: Pick<MinimapMap, 'zones' | 'markers'>;
+  map: Pick<MinimapMap, 'zones' | 'markers' | 'width'>;
   /** Display names by unit type id (`@lions/data`'s `units`). */
   units: Readonly<Record<string, { name?: string } | undefined>>;
   /** Where a tile point lies from the camera, right now (`main.ts` asks the
@@ -92,6 +92,27 @@ export function alertWorldFor(d: AlertWorldDeps): AlertWorld {
       return null;
     },
     viewer: d.viewer,
+    zoneAt: (zone) => {
+      const z = map.zones[zone];
+      return z ? { x: z[0] + z[2] / 2, y: z[1] + z[3] / 2 } : null;
+    },
+    zoneHolder: (zone) => d.runtime()?.incomeZones.find((z) => z.zone === zone)?.holder ?? -1,
+    supplyCutAt: (zone) => {
+      const rt = d.runtime();
+      // Reused storage in the runtime: read it now, keep nothing.
+      const line = zone === null ? rt?.convoyRoute : rt?.incomeZones.find((z) => z.zone === zone);
+      const route = line?.route;
+      if (!line || !route || route.length === 0 || map.width <= 0) return null;
+      const span = line.cutSpan;
+      const i = span !== null ? route[span[0]] : route[Math.floor(route.length / 2)];
+      if (i === undefined) return null;
+      return { x: (i % map.width) + 0.5, y: Math.floor(i / map.width) + 0.5 };
+    },
+    supplyCut: (zone) => {
+      const rt = d.runtime();
+      const line = zone === null ? rt?.convoyRoute : rt?.incomeZones.find((z) => z.zone === zone);
+      return line?.cut ?? null;
+    },
     reinforcement: (triggerId) => {
       const r = reinforceTrigger<{ marker?: string; at?: readonly number[] }>(d.mission ?? undefined, triggerId);
       if (r === null) return null;

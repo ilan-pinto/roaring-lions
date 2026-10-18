@@ -26,7 +26,7 @@ export interface MissionTelemetry {
   end(viaPagehide?: boolean): void;
   /** Called from `intentListeners` after `applyIntent`: counts, never acts. */
   onIntent(i: PlayerIntent): void;
-  /** Called by the dock after an ACCEPTED `requestBuild`. */
+  /** Called by the dock when its click-time `canBuild` pre-check passes (N2, D3). Two buys in one frame that the purse covers once are both counted (D3's known gap). */
   onBought(unitId: string): void;
 }
 

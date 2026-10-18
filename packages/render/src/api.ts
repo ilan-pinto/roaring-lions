@@ -177,9 +177,22 @@ export interface AimFootprint {
   readonly scatter?: number;
 }
 
+/**
+ * One of side 0's supply routes for the world (S-F F2 C3): the convoy's, or a
+ * held income zone's. `tiles` are tile indices `y * width + x` in order, from
+ * the zone (or the entry) to the rear; `cutSpan` is the cut stretch as an
+ * inclusive `[first, last]` pair of indices INTO `tiles`, or null when the
+ * line is open. The app copies both out of the runtime's reused storage
+ * (`ui/income-view.ts`), so a backend may keep the arrays it is handed.
+ */
+export interface SupplyRouteView {
+  readonly tiles: ArrayLike<number>;
+  readonly cutSpan: readonly [number, number] | null;
+}
+
 export interface RendererOptions {
   background: string;
-  /** Team marker colours by side index (0 player, 1 hostile, 2 neutral). */
+  /** Team marker colours by side index (0 player, 1 hostile, 2 civilian). */
   teamColors: [string, string, string];
   /** The sim side the person at this screen commands (network design §5.1).
    *  Absent means 0, which is single-player and every campaign mission. */
@@ -644,6 +657,17 @@ export interface Renderer {
    *
    *  S-F Task 1: the rings are per kind -- see `AimFootprint`. */
   aimFootprint?: AimFootprint | null;
+  /** S-F F2 C3: side 0's supply routes, drawn in the world as a thin
+   *  ground-draped `--info` ribbon whose cut stretch alone is dashed
+   *  `--warn`. ON DEMAND, never a standing mark: the app writes the routes
+   *  only while the strip's logistics figure is hovered or keyboard-focused,
+   *  or for a moment after a Space jump lands on a supply alert, and `null`
+   *  the rest of the time (and on teardown). The minimap draws every route
+   *  always; this is the world's look at them. A backend keeps the array it
+   *  is handed until the next write, and a new array replaces the drawn
+   *  geometry whole. Optional on the seam like `aimFootprint`; absent or
+   *  `null` draws nothing. */
+  supplyRoutes?: readonly SupplyRouteView[] | null;
   objectiveZone: readonly number[] | null;
   objectiveZoneState: 'held' | 'unheld' | 'contested';
   /** Every active objective that is about a piece of ground, not only the

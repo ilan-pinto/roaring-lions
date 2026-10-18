@@ -394,6 +394,19 @@ export const FIRE_SUPPORT: readonly FireSupportProfile[] = [
   },
 ];
 
+/** The fire-support menu (F1, GH-183): four calls, one entry point. Here rather
+ *  than in `mission.ts` (N2, R-4) so `sim.ts` can name the kinds on its
+ *  `support` command without importing the runtime; `mission.ts` re-exports both.
+ *  Declared AFTER `FIRE_SUPPORT`: `ui/support-kinds.test.ts` finds that table
+ *  as the first `export const FIRE_SUPPORT` in this file's text. */
+export type SupportKind = 'smoke_screen' | 'mortar_barrage' | 'drone_sweep' | 'air_strike';
+export const FIRE_SUPPORT_KINDS: readonly SupportKind[] = [
+  'smoke_screen',
+  'mortar_barrage',
+  'drone_sweep',
+  'air_strike',
+];
+
 // --- intel earned by doing (F1; GDD §3) --------------------------------------
 /** Intel for the first identification of an enemy by a real observer (once per
  *  enemy per mission, D3). Whole intel points, not Q16.16. The 8/40/30 row is the
@@ -453,3 +466,14 @@ export const CORRIDOR_VENT_SQ = 589824; // 9 tile^2 = 3 tiles
 /** How often the mission runtime recomputes every supply route and what cuts it (F2, D4/D5),
  *  in ticks: once a second. A structure's death and a zone's change of holder recheck at once. */
 export const CORRIDOR_RECHECK_TICKS = 20; // 1 s at 20 Hz
+
+/** N2 (R-1): the ambush radius `setStance{ambush}` uses when it names none --
+ *  3 tiles, mission JSON's own default (Q16.16) -- and the most the wire accepts,
+ *  10 tiles, the largest `tiles` any shipped mission authors. */
+export const AMBUSH_RADIUS_DEFAULT = 196608;
+export const AMBUSH_RADIUS_MAX = 655360;
+
+/** Production lines one side may stand (F4, R-F4-4): `validate:data` and `start()` refuse more. */
+export const MAX_PRODUCTION_LINES = 4;
+/** Items waiting on one production line, not counting the one in progress (F4, R-F4-4). */
+export const MAX_LINE_QUEUE = 16;

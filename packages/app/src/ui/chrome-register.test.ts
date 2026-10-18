@@ -98,6 +98,11 @@ describe('the chrome register: theme.css', () => {
       '.rl-aar__nav .rl-aar__primary',
       // F3 Task 8: the "On loan" stamp
       '.rl-loan',
+      // the friend match's stamps (Open a room, Ready, Join by link), the
+      // face-off's side segments and the join bar's Join
+      '.rl-versus__stamp',
+      '.rl-versus__side-name',
+      '.rl-versus__join-row .rl-versus__join',
     ];
 
     it('sets every tile, tab and stamp in the display face, in capitals', () => {
