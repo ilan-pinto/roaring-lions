@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "16a5ea78db49ffe764773589e62e6303fc6223f4",
-  "blessedAt": "2026-10-18T11:26:33.642Z",
-  "reason": "concrete strongpoint mesh fills its 3x3 plot (#672, D2 finding 5)",
+  "commit": "150a6f4a606110b8d575b12f2f4043e78b301208",
+  "blessedAt": "2026-10-18T13:04:00.668Z",
+  "reason": "Lavi and officer_armour rescaled x1.18 to fleet length (#699, D2 finding 1, lead ruling 15 Oct)",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -39,7 +39,7 @@
         "w": 450,
         "h": 400
       },
-      "sha256": "b304ff1d012a5f21df66499b3e86d5403b5a9f9fec1e2031da548cec0fb3c27f"
+      "sha256": "6b60e145034d16f28b71ebebdce8011c13d9bbe274fbb8fb1a8570af1d173c06"
     },
     "vehicle": {
       "tick": 140,
@@ -53,7 +53,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "025d98b56579fa8a3b7f4364f34e72fb8b3a259a26ccf0bfa39fcbb0962b4cc3"
+      "sha256": "ba010d5b0152e2911c005fa0e91c5247db3bdeb1ba8fed06b5f844a587c80ac0"
     },
     "kitted": {
       "tick": 140,
@@ -67,7 +67,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "63e039334106297c2c1f125cf9accda4b38c7973e3885fc8ff12d9897909c4ce"
+      "sha256": "030681144535c0079371db1f757c5a185433857e33ab0558cc546bb6f71bdbcc"
     },
     "relief": {
       "tick": 500,
