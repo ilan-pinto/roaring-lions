@@ -45,7 +45,7 @@ Every cited symbol still exists. The line numbers have drifted by 100-250 lines,
 | formation membership `2337/2417/2449` | 2454-2455 | |
 | `mission.ts` dismount `2797` | `mission.ts:3286` | queues `{ kind: 'unload', ids }`, filtered to alive and not `tunnelIn` |
 | `loading.ts:134` | `packages/app/src/ui/loading.ts:~127-132` | A **comment** that `starting_force` cannot carry passengers. App file, no sim change. |
-| `eyeLift` "uses 0 for air, `sim.ts:2844`" | `eyeLift` 2956 | Returns garrison floors minus 1. It is 0 for an unbuilt-in unit, so G7 holds. |
+| `eyeLift` "uses 0 for air, `sim.ts:2844`" | `eyeLift` 2956 | Returns garrison `floors - 1`, 0 for anything not garrisoned (every air unit), so G7 holds. |
 | `hashArray` "folds zeros too, `~6455`" | comment at ~6573 | Confirmed: **every new array moves every hash pin**, active or not. |
 | `destroy` bail-out loop | `sim.ts:5857` | `disembark(i, true)` for each passenger. R5 hooks here. |
 | "golden hash" (singular) | **three** golden replays plus six more pins | See P3. |
