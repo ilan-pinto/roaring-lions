@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { FIRE_SUPPORT_KINDS } from '@lions/sim';
 import en from '../i18n/en.json';
+import { symbolBody } from './symbol';
 import {
   FS_AIR_STRIKE,
   FS_MORTAR_BARRAGE,
@@ -111,5 +112,28 @@ describe('footprints', () => {
     expect(lastRoundTicks('air_strike')).toBe(60);
     expect(lastRoundTicks('mortar_barrage')).toBe(120 + 5 * 36);
     expect(lastRoundTicks('smoke_screen')).toBe(80 + 2 * 40);
+  });
+});
+
+// S-F Task 2: the four tiles draw four marks. The barrage and the smoke
+// screen borrowed the strike's and the smoke order's until the support-marks
+// mock (barrage B "Bursts", smoke screen A "Rounds to screen").
+describe('the tile marks', () => {
+  it('points each call at its own mark, which is also its cursor\'s id', () => {
+    expect(Object.fromEntries(SUPPORT_KINDS.map((k) => [k, SUPPORT[k].mark]))).toEqual({
+      smoke_screen: 'smokeScreen',
+      mortar_barrage: 'barrage',
+      drone_sweep: 'sweep',
+      air_strike: 'strike',
+    });
+    for (const k of SUPPORT_KINDS) expect(SUPPORT[k].mark, k).toBe(SUPPORT[k].cursor);
+  });
+
+  it('gives no two tiles one glyph, and none the unit smoke order\'s', () => {
+    const marks = SUPPORT_KINDS.map((k) => SUPPORT[k].mark);
+    expect(new Set(marks).size).toBe(4);
+    expect(marks).not.toContain('smoke');
+    // Four drawings, not four names for fewer: each id's static mark differs.
+    expect(new Set(marks.map((m) => symbolBody(m))).size).toBe(4);
   });
 });

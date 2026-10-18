@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "8267f7a83a0c6ee7aeb4449ab96e997f1a4433cc",
-  "blessedAt": "2026-10-15T21:00:20.959Z",
-  "reason": "VR-05 (#683): foliage to scrub.1 on arid and highland themes (green unchanged, lead ruling 15 Oct); moves every gated frame, all layer checks pass.",
+  "commit": "150a6f4a606110b8d575b12f2f4043e78b301208",
+  "blessedAt": "2026-10-18T13:04:00.668Z",
+  "reason": "Lavi and officer_armour rescaled x1.18 to fleet length (#699, D2 finding 1, lead ruling 15 Oct)",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -39,7 +39,7 @@
         "w": 450,
         "h": 400
       },
-      "sha256": "b304ff1d012a5f21df66499b3e86d5403b5a9f9fec1e2031da548cec0fb3c27f"
+      "sha256": "6b60e145034d16f28b71ebebdce8011c13d9bbe274fbb8fb1a8570af1d173c06"
     },
     "vehicle": {
       "tick": 140,
@@ -53,7 +53,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "025d98b56579fa8a3b7f4364f34e72fb8b3a259a26ccf0bfa39fcbb0962b4cc3"
+      "sha256": "ba010d5b0152e2911c005fa0e91c5247db3bdeb1ba8fed06b5f844a587c80ac0"
     },
     "kitted": {
       "tick": 140,
@@ -67,7 +67,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "63e039334106297c2c1f125cf9accda4b38c7973e3885fc8ff12d9897909c4ce"
+      "sha256": "030681144535c0079371db1f757c5a185433857e33ab0558cc546bb6f71bdbcc"
     },
     "relief": {
       "tick": 500,
@@ -81,7 +81,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "efbbc217fa5b361addf4a2de7b2d830d662652c441c21c2fdeaa8d288adb6921"
+      "sha256": "0e3594e12e47c722144eef59ba616f3022373ab9c0ab81b843afb20880ada43e"
     },
     "aftermath": {
       "tick": 300,
@@ -95,7 +95,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "98a2e86a9ecb34214164aa6ba5780d935a9d1117e274850249a5ad8b1112203a"
+      "sha256": "c8e569be949ab5398899d6de9be7b14ba7ff1f3ba599226c4b4f914fb9e8fe23"
     }
   }
 }

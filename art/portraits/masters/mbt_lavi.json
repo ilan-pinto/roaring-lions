@@ -1,7 +1,8 @@
 {
   "unit": "mbt_lavi",
+  "variant": "team",
   "source": "assets/meshes/vehicles/mbt_lavi.glb",
-  "source_sha256": "7d15a28005d45a52ed7db3b5fe8ebaef30c2481533fed535f9218f4e224f4afc",
+  "source_sha256": "41e1ae94acaf21d5cf7e9619a34434d4e03a365d3353815d015baffd8ca6e6a9",
   "yaw_deg": -125.0,
   "elevation_deg": 18.0,
   "fov_deg": 30.0,

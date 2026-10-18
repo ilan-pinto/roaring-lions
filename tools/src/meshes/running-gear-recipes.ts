@@ -23,6 +23,8 @@
  * side.
  */
 
+import { rescaleOf } from './rescale-contract';
+
 /** One spinning wheel. */
 export interface WheelSeed {
   readonly side: 'r' | 'l';
@@ -88,6 +90,8 @@ const both = (seeds: readonly Omit<WheelSeed, 'side'>[]): WheelSeed[] => [
   ...seeds.map((s) => ({ ...s, side: 'l' as const })),
 ];
 
+// The Lavi's seeds are in the 6.32 m frame they were measured in, before the
+// x1.18 rescale (`scaleTrackSeed` carries them over in the table below).
 const LAVI_STATIONS: readonly DiscSeed[] = [
   ...[-2.4, -1.73, -1.14, -0.62, -0.08, 0.5, 1.17].map((x) => ({ side: 'r' as const, x, y: 0.34, r: 0.24 })),
   ...[-2.32, -1.58, -1.14, -0.6, -0.1, 0.5, 1.03].map((x) => ({ side: 'l' as const, x, y: 0.34, r: 0.24 })),
@@ -101,6 +105,25 @@ const LAVI_TRACK: TrackSeed = {
   minComponentTris: 200,
   excludeDiscs: LAVI_STATIONS,
 };
+
+/**
+ * A track seed measured in one frame, carried into a frame `f` times larger:
+ * every length scales (slab, cut height, band, the excluded discs), the
+ * component count does not. The Lavi's numbers were measured on the 6.32 m
+ * export and stay as measured; the shipped file is x`LAVI_RESCALE`
+ * (`rescale-contract.ts`), and the running-gear pass runs AFTER the rescale.
+ */
+export function scaleTrackSeed(seed: TrackSeed, f: number): TrackSeed {
+  return {
+    ...seed,
+    zIn: seed.zIn * f,
+    zOut: seed.zOut * f,
+    loopMaxY: seed.loopMaxY * f,
+    band: seed.band * f,
+    ...(seed.loopMaxX === undefined ? {} : { loopMaxX: seed.loopMaxX * f }),
+    excludeDiscs: seed.excludeDiscs.map((d) => ({ ...d, x: d.x * f, y: d.y * f, r: d.r * f })),
+  };
+}
 
 const D9_WHEELS_X: readonly [number, number][] = [
   [-2.89, 0.645],
@@ -202,8 +225,8 @@ export const RUNNING_GEAR_RECIPES: Readonly<Record<string, RunningGearRecipe>> =
     ],
     track: { zIn: 1.08, zOut: 2.08, loopMaxY: 1.13, band: 0.08, minComponentTris: 200, excludeDiscs: [] },
   },
-  mbt_lavi: { cut: 1, wheels: [], track: LAVI_TRACK },
-  officer_armour: { cut: 1, wheels: [], track: LAVI_TRACK },
+  mbt_lavi: { cut: 1, wheels: [], track: scaleTrackSeed(LAVI_TRACK, rescaleOf('mbt_lavi')) },
+  officer_armour: { cut: 1, wheels: [], track: scaleTrackSeed(LAVI_TRACK, rescaleOf('officer_armour')) },
   dozer_d9: {
     cut: 1,
     wheels: [],
