@@ -19,6 +19,8 @@
  */
 
 /** +1 is +Z, the hull's physical right; -1 the left. */
+import { rescaleOf } from './rescale-contract';
+
 export type Side = 1 | -1;
 
 /**
@@ -178,7 +180,8 @@ export const DAMAGE_CAP_DRACO_BYTES = 65536;
 export const DAMAGE_CAP_RAW_BYTES = 524288;
 
 /**
- * The Lavi's three, measured 2026-10-14 off `mbt_lavi.glb`:
+ * The Lavi's three, measured 2026-10-14 off `mbt_lavi.glb` -- in the 6.32 m
+ * frame, before the x1.18 rescale (`scaleDamageOps` carries them over):
  *
  *   - track: the tagged lower run is x -2.73..1.46 at |z| 1.02-1.19, y 0-0.37
  *     (ramps at both ends);
@@ -219,6 +222,29 @@ const LAVI: readonly DamageOp[] = [
   },
   { verb: 'breakBarrel', mesh: 'turret_metal', breakX: 1.55, droopDeg: 28, axisRadius: 0.2 },
 ];
+
+/**
+ * Ops measured in one frame, carried into a frame `f` times larger: every
+ * length scales, angles, normals, seeds and flags do not. The Lavi's three
+ * were measured on the 6.32 m export and stay as measured; the shipped file is
+ * x`LAVI_RESCALE` (`rescale-contract.ts`), and the damage pass runs after it.
+ * Only the verbs the Lavi uses are handled: a fourth must say what its lengths
+ * are before it can be scaled.
+ */
+export function scaleDamageOps(ops: readonly DamageOp[], f: number): readonly DamageOp[] {
+  return ops.map((op): DamageOp => {
+    switch (op.verb) {
+      case 'throwTrack':
+        return { ...op, slide: op.slide * f, out0: op.out0 * f, out1: op.out1 * f, wave: op.wave * f, lowY: op.lowY * f };
+      case 'peelPlate':
+        return { ...op, x0: op.x0 * f, x1: op.x1 * f, y0: op.y0 * f, y1: op.y1 * f, zMin: op.zMin * f, jag: op.jag * f };
+      case 'breakBarrel':
+        return { ...op, breakX: op.breakX * f, axisRadius: op.axisRadius * f };
+      default:
+        throw new Error(`scaleDamageOps: no length list for verb "${op.verb}"`);
+    }
+  });
+}
 
 /**
  * The Namer and the D9: a thrown track and nothing else, because the cap
@@ -264,12 +290,12 @@ const ROTOR: DamageOp = {
 };
 
 export const DAMAGE_RECIPES: Readonly<Record<string, readonly DamageOp[]>> = {
-  mbt_lavi: LAVI,
+  mbt_lavi: scaleDamageOps(LAVI, rescaleOf('mbt_lavi')),
   // GH-298: the command Lavi is the shipped Lavi plus a cupola, a mast and
   // whips joined into its turret nodes (`export_officer_armour.py`, which
   // drops every WRECK_ object on import), so it takes the Lavi's own damage.
   // Its turret_metal has nothing forward of x 1.55 but the same gun tube.
-  officer_armour: LAVI,
+  officer_armour: scaleDamageOps(LAVI, rescaleOf('officer_armour')),
   ifv_namer: NAMER,
   dozer_d9: D9,
   apc_eitan: [lostRearTyre(3)],

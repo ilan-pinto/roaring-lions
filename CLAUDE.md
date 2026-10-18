@@ -1799,6 +1799,17 @@ for vehicles.
     scenario moves a vehicle. The Lavi's track barely shows from the game
     camera (0-4 px of A/B at zoom 1): its rubber is a slice under the hull
     skirt.
+- **The Lavi (and `officer_armour`) is rescaled x1.18 AFTER its Blender export**
+  (the lead, 2026-10-15; `tools/src/meshes/rescale-contract.ts`): it was cut to
+  the retired Tiger sprite's 6.32 m, the fleet is ~7.1-7.3 m, and it ships at
+  7.46 m overall. Every Lavi literal (kit builders, the command Lavi's mast,
+  the running-gear and damage recipes) stays in the 6.32 m frame it was
+  measured in: the Blender scripts divide an imported rescaled GLB back
+  (`tools/vehicles/rescale.py`), and the TS recipes multiply by `rescaleOf`.
+  Pipeline: export -> `pnpm rescale:meshes -- --id=<id>` (and `--kit=mbt_lavi`
+  for a kit export) -> running-gear -> kit -> wreck -> damage -> encode. The
+  pass marks `extras.rl_rescale` and refuses a marked file; the kit pass
+  refuses a source whose mark differs from its vehicle's.
 - **A mesh VEHICLE wears its bought kit since plan 3 (GH-238, 2026-10-07), in
   the garage and on the field.** Spec `2026-10-06-kitted-vehicles.md`, contract
   v5 (vehicles) in `2026-08-28-mesh-unit-contract.md`. Each of the eight KDF

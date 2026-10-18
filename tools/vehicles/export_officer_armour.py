@@ -4,8 +4,9 @@ from the SHIPPED `mbt_lavi.glb`, at 0 credits.
     /Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup \
         --python tools/vehicles/export_officer_armour.py
 
-Writes `art/meshes/vehicles/officer_armour.glb`. Then, in order:
-`pnpm running-gear:meshes -- --id=officer_armour` (the Lavi's tracks, contract
+Writes `art/meshes/vehicles/officer_armour.glb` in the Lavi's 6.32 m export
+frame. Then, in order: `pnpm rescale:meshes -- --id=officer_armour` (x1.18,
+2026-10-15), `pnpm running-gear:meshes -- --id=officer_armour` (the Lavi's tracks, contract
 v7), `pnpm wreck:meshes -- --id=officer_armour`, `pnpm encode:meshes`,
 `pnpm validate:meshes`.
 
@@ -62,6 +63,7 @@ sys.path.insert(0, TOOLS)
 
 import kit as vehicle_kit  # noqa: E402 -- ROLES, the closed vehicle role vocabulary
 import textured as vehicle_textured  # noqa: E402
+import rescale as vehicle_rescale  # noqa: E402
 
 REPO = os.path.dirname(TOOLS)
 SRC = os.path.join(REPO, "art", "meshes", "vehicles", "mbt_lavi.glb")
@@ -215,6 +217,11 @@ def _join_into(host, parts):
 def export():
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.import_scene.gltf(filepath=SRC, import_scene_extras=True)
+    # The shipped Lavi is rescaled x1.18 after export (`rescale-contract.ts`):
+    # divide it back so the placements above (measured on the 6.32 m Lavi)
+    # land where they did. The output then takes
+    # `pnpm rescale:meshes -- --id=officer_armour` before running-gear.
+    vehicle_rescale.unscale_imported(log)
     # The Lavi's upgrade kit (`kit_*`, contract v5): the command Lavi is a unit
     # of its own and must not inherit every kit part of every tier.
     kit = [o for o in bpy.data.objects if o.name.startswith("kit_")]
