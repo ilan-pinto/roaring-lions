@@ -315,4 +315,10 @@ export const DAMAGE_RECIPES: Readonly<Record<string, readonly DamageOp[]>> = {
   ],
   heli_peten: [ROTOR],
   heli_peten_gunship: [ROTOR],
+  // GH-698 (held): the Yanshuf's `rotor_metal` is a four-blade disc 4.32 m
+  // across about a hub at mesh-space (0.60, 1.55, 0.00), hub blob ~0.43 m
+  // (tools/vehicles/export_meshy_yanshuf.py's own census: 4 blades, 15 of 72
+  // five-degree sectors), so the Peten's op reads it as four clusters about
+  // 90 degrees apart with empty sectors between. Same droop, snap and lie.
+  heli_yanshuf: [ROTOR],
 };

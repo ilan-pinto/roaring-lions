@@ -98,6 +98,12 @@ export const WRECK_RECIPES: Readonly<Record<string, WreckRecipe>> = {
   // engineering hull carrying a kit RWS under `turret_pivot`
   // (tools/vehicles/export_meshy_tzav.py), so it wrecks like the Namer.
   demo_tzav: { hull: 'tracked', turretPivot: 'turret_pivot' },
+  // GH-698 (2026-10-18), HELD until Lane C lands the land/lift sim work and
+  // the unit JSON: the UH-60 Yanshuf transport is a Meshy text-to-3D remesh
+  // cut into hull_hull + rotor_metal under the Peten's rotor_tilt ->
+  // rotor_pivot graph (tools/vehicles/export_meshy_yanshuf.py), so it wrecks
+  // exactly as the Peten does: on its side, blades bent.
+  heli_yanshuf: { hull: 'air', rotorPivot: 'rotor_pivot' },
 };
 
 /**
