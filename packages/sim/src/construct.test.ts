@@ -164,7 +164,7 @@ describe('construct: staking (Q4)', () => {
     const b = sim.spawn(eng, 0, at(0.5), at(4.5)); // 4 tiles west of the pad
     sim.queueCommand({ kind: 'construct', ids: [b], structType: medic, x: 4, y: 4 });
     const first = run(sim, 1);
-    expect(first.some((e) => e.kind === 'constructQueued' && e.site === 0 && e.builder === b)).toBe(true);
+    expect(first.some((e) => e.kind === 'constructQueued' && e.site === 0 && e.builder === b && !e.joined)).toBe(true);
     for (const t of FOOT_44) expect(sim.blocked[t]).toBe(0);
     let staked: Extract<SimEvent, { kind: 'constructStaked' }> | undefined;
     for (let i = 0; i < 200 && staked === undefined; i++) {
@@ -209,16 +209,47 @@ describe('construct: staking (Q4)', () => {
     }
   });
 
-  it('a friendly non-builder on the pad is put out at the exit tile', () => {
+  it('a friendly non-builder on the pad is put out on the nearest open edge tile', () => {
     const { sim, medic, eng, rifle } = world();
     const b = sim.spawn(eng, 0, at(3.5), at(4.5));
     const friend = sim.spawn(rifle, 0, at(5.5), at(5.5));
     sim.queueCommand({ kind: 'construct', ids: [b], structType: medic, x: 4, y: 4 });
     const ev = run(sim, 1);
     expect(ev.some((e) => e.kind === 'constructStaked')).toBe(true);
-    // exitTile scans the ring row-major from (minX-1, minY-1) = (3, 3): open, so (3.5, 3.5).
-    expect(sim.state.posX[friend]).toBe(at(3.5));
-    expect(sim.state.posY[friend]).toBe(at(3.5));
+    // Edge tiles of (4..5, 4..5) nearest (5.5, 5.5): (6,5) and (5,6), each one
+    // tile off; row-major scan meets (6,5) first (row 5 before row 6).
+    expect(sim.state.posX[friend]).toBe(at(6.5));
+    expect(sim.state.posY[friend]).toBe(at(5.5));
+  });
+
+  it('a vehicle on the pad is put out on ground a vehicle can stand on, never on a boulder', () => {
+    const { sim, medic, eng, dozer } = world();
+    // Boulders on the ring's north row and west column: (3..5, 3) and (3, 4..5).
+    for (const x of [3, 4, 5]) sim.setBoulder(x, 3, true);
+    for (const y of [4, 5]) sim.setBoulder(3, y, true);
+    const b = sim.spawn(eng, 0, at(4.5), at(6.5)); // south edge, on foot
+    const truck = sim.spawn(dozer, 0, at(4.5), at(4.5)); // wheeled, on the pad, not a builder
+    sim.queueCommand({ kind: 'construct', ids: [b], structType: medic, x: 4, y: 4 });
+    const ev = run(sim, 1);
+    expect(ev.some((e) => e.kind === 'constructStaked')).toBe(true);
+    // Open vehicle edge tiles: east (6,4),(6,5) and south (4,6),(5,6). Nearest
+    // (4.5, 4.5): (4,6) at 2 tiles, (6,4) at 2 tiles; row-major meets (6,4) first.
+    expect(sim.state.posX[truck]).toBe(at(6.5));
+    expect(sim.state.posY[truck]).toBe(at(4.5));
+    expect(sim.blockedVehicle[4 * W + 6]).toBe(0);
+  });
+
+  it('a D9 builder standing on its own pad is put out off the boulders too', () => {
+    const { sim, medic, dozer } = world();
+    for (const x of [3, 4, 5, 6]) sim.setBoulder(x, 3, true);
+    for (const y of [4, 5, 6]) sim.setBoulder(3, y, true);
+    const d = sim.spawn(dozer, 0, at(4.5), at(4.5));
+    sim.queueCommand({ kind: 'construct', ids: [d], structType: medic, x: 4, y: 4 });
+    run(sim, 2);
+    const tx = sim.state.posX[d] >> 16;
+    const ty = sim.state.posY[d] >> 16;
+    expect(sim.blockedVehicle[ty * W + tx]).toBe(0);
+    expect(tx >= 4 && tx <= 5 && ty >= 4 && ty <= 5).toBe(false);
   });
 
   it('any later order takes a builder off its site: no stake', () => {
@@ -232,6 +263,18 @@ describe('construct: staking (Q4)', () => {
     expect(sim.state.buildSite[b]).toBe(-1);
     expect(ev.some((e) => e.kind === 'constructStaked')).toBe(false);
     expect(sim.works.alive[0]).toBe(1); // the site waits, unstaked
+  });
+
+  it('a REFUSED construct takes its builder off the site it was on, too', () => {
+    const { sim, medic, eng } = world();
+    const b = sim.spawn(eng, 0, at(0.5), at(11.5));
+    sim.queueCommand({ kind: 'construct', ids: [b], structType: medic, x: 4, y: 4 });
+    run(sim, 1);
+    expect(sim.state.buildSite[b]).toBe(0);
+    sim.queueCommand({ kind: 'construct', ids: [b], structType: medic, x: 11, y: 4 }); // off_map
+    const ev = run(sim, 1);
+    expect(ev.some((e) => e.kind === 'constructRefused' && e.reason === 'off_map')).toBe(true);
+    expect(sim.state.buildSite[b]).toBe(-1);
   });
 });
 
@@ -361,7 +404,7 @@ describe('construct: progress, by hand arithmetic', () => {
     sim.queueCommand({ kind: 'construct', ids: [b], structType: medic, x: 4, y: 4 });
     const out = buildOut(sim, [b]);
     // The same site, joined: no second row. 403 - 100 = 303 more ticks.
-    expect(out.events.some((e) => e.kind === 'constructQueued' && e.site === 0 && e.builder === b)).toBe(true);
+    expect(out.events.some((e) => e.kind === 'constructQueued' && e.site === 0 && e.builder === b && e.joined)).toBe(true);
     expect(out.events.some((e) => e.kind === 'constructRefused')).toBe(false);
     expect(out.ticks[0]).toBe(303);
     expect(sim.structures.progress[s]).toBe(ONE);

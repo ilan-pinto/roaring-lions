@@ -841,9 +841,10 @@ export type SimEvent =
   | { kind: 'pinned'; tick: number; entity: number }
   | { kind: 'unpinned'; tick: number; entity: number }
   | { kind: 'destroyed'; tick: number; entity: number; by: number }
-  /** Field works (#277): a `construct` was accepted (or joined a live site). `builder` is the
-   *  lowest qualifying id the command named. */
-  | { kind: 'constructQueued'; tick: number; site: number; structType: number; x: number; y: number; builder: number }
+  /** Field works (#277): a `construct` was accepted. `builder` is the lowest qualifying id the
+   *  command named. `joined`: it named a live site's type and origin and joined that site rather
+   *  than opening one (nothing new to pay for). */
+  | { kind: 'constructQueued'; tick: number; site: number; structType: number; x: number; y: number; builder: number; joined: boolean }
   /** Field works: a `construct` the sim would not take. `no_builder`: no id named was a living,
    *  surface `construct` unit that could take the order. The runtime refunds on this. */
   | { kind: 'constructRefused'; tick: number; structType: number; x: number; y: number; reason: PlacementRefusal | 'no_site_slot' | 'no_builder' }
@@ -2079,6 +2080,7 @@ export class Sim {
     const side = this.side[lead];
     // The same type at the same origin for the same side is that site: join it.
     let site = -1;
+    let joined = true;
     for (let k = 0; k < MAX_SITES; k++) {
       if (this.siteAlive[k] === 1 && this.siteType[k] === structType && this.siteX[k] === x && this.siteY[k] === y && this.siteSide[k] === side) {
         site = k;
@@ -2086,6 +2088,7 @@ export class Sim {
       }
     }
     if (site < 0) {
+      joined = false;
       const reason = this.placementReason(structType, x, y, side);
       if (reason !== null) {
         this.pendingEvents.push({ kind: 'constructRefused', tick: this.tickCount, structType, x, y, reason });
@@ -2110,7 +2113,7 @@ export class Sim {
       // D1: the site table holds state now, so the FW block folds from here on.
       this.fwLive = true;
     }
-    this.pendingEvents.push({ kind: 'constructQueued', tick: this.tickCount, site, structType, x, y, builder: lead });
+    this.pendingEvents.push({ kind: 'constructQueued', tick: this.tickCount, site, structType, x, y, builder: lead, joined });
     for (const id of ids) {
       if (this.side[id] === side && this.canTakeConstruct(id)) this.assignBuilder(id, site);
     }
@@ -2253,8 +2256,8 @@ export class Sim {
    * Stake `site` if its first builder has arrived: a builder on it, alive, on
    * the surface and within BUILD_RANGE_SQ of a footprint tile centre (moving
    * or not). It waits while any enemy or civilian stands on the footprint;
-   * every friendly there, builders included, is put out at the structure's
-   * exitTile once it stands. Returns the structure, or -1 not staked yet.
+   * every friendly there, builders included, is put out beside it, on ground
+   * its own domain can stand on, once it stands. Returns the structure, or -1 not staked yet.
    */
   private tryStake(site: number, fw: number, fh: number): number {
     let arrived = false;
@@ -2273,16 +2276,23 @@ export class Sim {
     for (let y = this.siteY[site]; y < this.siteY[site] + fh; y++) {
       for (let x = this.siteX[site]; x < this.siteX[site] + fw; x++) tiles.push(y * w + x);
     }
-    // Friendlies on the pad are put out AFTER addStructure, because exitTile
-    // reads the blocked mask the structure writes.
+    // Friendlies on the pad are put out AFTER addStructure, so the footprint
+    // is already blocked in the masks they are placed against.
     const s = this.addStructure(this.siteType[site], tiles, { owner: side, progress: 0 });
     this.stHp[s] = fx.mul(this.stMaxHp[s], STAKE_HP_FRAC);
     this.siteStructure[site] = s;
+    // Each in ITS OWN domain's mask: exitTile reads the foot mask alone, and
+    // would put a vehicle down on a boulder or ditch tile it can never leave.
+    // The approach rule (nearest open edge tile, else the nearest open tile)
+    // and never back inside the footprint: an enclosed pocket passes the seal
+    // check, and a unit there must still come out.
     for (let i = 0; i < this.count; i++) {
       if (!this.onPad(i, site, fw, fh)) continue;
-      const [ex, ey] = this.exitTile(s);
-      this.posX[i] = ex;
-      this.posY[i] = ey;
+      const mask = this.maskFor(this.domainOf(i));
+      this.siteApproachTile(site, i, mask);
+      if (mask[this.snapY * w + this.snapX] !== 0) continue; // no open tile on the whole map
+      this.posX[i] = fx.add(fx.fromInt(this.snapX), HALF);
+      this.posY[i] = fx.add(fx.fromInt(this.snapY), HALF);
     }
     this.pendingEvents.push({ kind: 'constructStaked', tick: this.tickCount, site, structure: s });
     return s;
@@ -3032,11 +3042,13 @@ export class Sim {
         // leg running: an order that does not move the unit itself (smoke,
         // unload, any refusal) would otherwise walk it onto the enemy with its
         // fire held, and an APPENDED move would queue behind the chase.
-        // Field works: any order that names a builder takes it off its site,
-        // `construct` excepted (it assigns the site below). Same rule as the
-        // focus: every id named, refused or not. The flag guard keeps a world
-        // with no field works from touching the column at all (D1).
-        if (this.fwLive && cmd.kind !== 'construct') {
+        // Field works: any order that names a builder takes it off its site --
+        // `construct` included: its branch below puts back on a site only the
+        // ids it accepts, so a refused construct leaves its ids on no site.
+        // Same rule as the focus: every id named, refused or not. The flag
+        // guard keeps a world with no field works from touching the column at
+        // all (D1).
+        if (this.fwLive) {
           for (const id of cmd.ids) this.buildSite[id] = -1;
         }
         if (cmd.kind !== 'attack') {
