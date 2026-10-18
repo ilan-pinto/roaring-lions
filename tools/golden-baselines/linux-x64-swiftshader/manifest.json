@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "8267f7a83a0c6ee7aeb4449ab96e997f1a4433cc",
-  "blessedAt": "2026-10-15T21:00:20.959Z",
-  "reason": "VR-05 (#683): foliage to scrub.1 on arid and highland themes (green unchanged, lead ruling 15 Oct); moves every gated frame, all layer checks pass.",
+  "commit": "16a5ea78db49ffe764773589e62e6303fc6223f4",
+  "blessedAt": "2026-10-18T11:26:33.642Z",
+  "reason": "concrete strongpoint mesh fills its 3x3 plot (#672, D2 finding 5)",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -81,7 +81,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "efbbc217fa5b361addf4a2de7b2d830d662652c441c21c2fdeaa8d288adb6921"
+      "sha256": "0e3594e12e47c722144eef59ba616f3022373ab9c0ab81b843afb20880ada43e"
     },
     "aftermath": {
       "tick": 300,
@@ -95,7 +95,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "98a2e86a9ecb34214164aa6ba5780d935a9d1117e274850249a5ad8b1112203a"
+      "sha256": "c8e569be949ab5398899d6de9be7b14ba7ff1f3ba599226c4b4f914fb9e8fe23"
     }
   }
 }
