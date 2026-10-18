@@ -56,6 +56,10 @@ describe('the order sight (G1 r5, approved 2026-09-28)', () => {
     expect(ORDER_SIGHT.unload).toMatchObject({ family: 'transport', main: 'vfx.tracer', accent: 'limestone.1' });
     expect(ORDER_SIGHT.sweep).toMatchObject({ family: 'manoeuvre', main: 'vfx.tracer', accent: 'water.0' });
     expect(ORDER_SIGHT.strike).toMatchObject({ family: 'offensive', main: 'team.hostile_text', accent: 'vfx.fire' });
+    // S-F (the support-marks mock): the barrage's accent is ember, not the
+    // strike's fire (Q5); the smoke screen keeps the smoke order's keys.
+    expect(ORDER_SIGHT.barrage).toMatchObject({ family: 'offensive', main: 'team.hostile_text', accent: 'vfx.ember' });
+    expect(ORDER_SIGHT.smokeScreen).toMatchObject({ family: 'obscurant', main: 'limestone.0', accent: 'gunmetal.1' });
     expect(SIGHT_KEYS).toEqual({ aim: 'gunmetal.0', halo: 'shadow.0', hot: 'vfx.white_hot' });
   });
 
@@ -68,13 +72,15 @@ describe('the order sight (G1 r5, approved 2026-09-28)', () => {
     expect(ORDER_SIGHT.unload.periodMs).toBe(1100);
     expect(ORDER_SIGHT.sweep.periodMs).toBe(1800);
     expect(ORDER_SIGHT.strike.periodMs).toBe(1600);
+    expect(ORDER_SIGHT.barrage.periodMs).toBe(1500);
+    expect(ORDER_SIGHT.smokeScreen.periodMs).toBe(1800);
   });
 
-  it('uses 4-6 frames, and 6 for halt and strike', () => {
+  it('uses 4-6 frames, and 6 for halt, strike, the barrage and the smoke screen', () => {
+    const six: readonly SightOrderId[] = ['halt', 'strike', 'barrage', 'smokeScreen'];
     for (const id of IDS) expect(ORDER_SIGHT[id].phases.length).toBeGreaterThanOrEqual(4);
-    expect(ORDER_SIGHT.halt.phases).toHaveLength(6);
-    expect(ORDER_SIGHT.strike.phases).toHaveLength(6);
-    for (const id of IDS) if (id !== 'halt' && id !== 'strike') expect(ORDER_SIGHT[id].phases).toHaveLength(4);
+    for (const id of six) expect(ORDER_SIGHT[id].phases, id).toHaveLength(6);
+    for (const id of IDS) if (!six.includes(id)) expect(ORDER_SIGHT[id].phases, id).toHaveLength(4);
   });
 
   it('the aim keeps its colour and only the inner mil marks take the family colour', () => {
@@ -156,5 +162,78 @@ describe('the move cursor wears the ground colour of its route (VR-33)', () => {
 
   it("every sight is drawn in its family's entry", () => {
     for (const id of IDS) expect({ id, key: ORDER_SIGHT[id].main }).toEqual({ id, key: ORDER_FAMILY_COLOR_KEY[ORDER_SIGHT[id].family] });
+  });
+});
+
+/**
+ * S-F Task 2: the two support calls' sights (the support-marks mock, approved
+ * 15 Oct: barrage B "Bursts", smoke screen A "Rounds to screen"). Frame 0 is
+ * the rest pose, the reduced-motion frame and the HUD mark, so what it draws
+ * is checked against the mock's geometry as LITERALS, never against the
+ * module's own constants.
+ */
+describe('the support-call sights (S-F)', () => {
+  const rest = (id: SightOrderId): string => surroundBody(id, ORDER_SIGHT[id].phases[0], PAINT);
+  const paths = (markup: string): { d: string; fill: string; op: string | null }[] =>
+    [...markup.matchAll(/<path d="([^"]+)" fill="([^"]+)"(?: opacity="([^"]+)")?\/>/g)].map((m) => ({
+      d: m[1],
+      fill: m[2],
+      op: m[3] ?? null,
+    }));
+
+  it('the barrage rests with all three bursts up at full size, and no crater left', () => {
+    const ps = paths(rest('barrage'));
+    expect(ps).toHaveLength(3);
+    for (const [k, x] of [4.6, 12, 19.4].entries()) {
+      const pts = [...ps[k].d.matchAll(/(-?[\d.]+) (-?[\d.]+)/g)].map((m) => [Number(m[1]), Number(m[2])]);
+      // an eight-point star: sixteen vertices, the top tip at y 0.5 and the
+      // bottom at 9.5 (outer radius 4.5 about y 5), the side tips 4.5 out
+      expect({ k, n: pts.length }).toEqual({ k, n: 16 });
+      expect(pts[0]).toEqual([x, 0.5]);
+      expect(pts[8]).toEqual([x, 9.5]);
+      expect(pts[4][0]).toBeCloseTo(x + 4.5, 2);
+      expect(ps[k].op).toBeNull();
+    }
+    expect(rest('barrage')).not.toMatch(/ a/); // a crater is an arc circle
+  });
+
+  it('the smoke screen rests with each round drawn above its full puff (Q6)', () => {
+    const ps = paths(rest('smokeScreen'));
+    expect(ps).toEqual(
+      [
+        [1.5, 4.6],
+        [8.9, 12],
+        [16.3, 19.4],
+      ].flatMap(([left, x]) => [
+        { d: `M${left} 7.2 a3.1 3.1 0 1 0 6.2 0 a3.1 3.1 0 1 0 -6.2 0 Z`, fill: '#main', op: null },
+        { d: `M${x} 3.2 L${Math.round((x + 1.9) * 100) / 100} 1.11 L${Math.round((x - 1.9) * 100) / 100} 1.11 Z`, fill: '#acc', op: null },
+      ])
+    );
+  });
+
+  it('the smoke screen lays no trace line: that silhouette stays the smoke order\'s', () => {
+    // The widest single shape in a surround, in 24-box units: a polygon's
+    // vertex span, a circle's diameter (`M.. a r r ...`). A trace line is a
+    // band across the box; the screen's widest shape is a puff, 6.2 wide.
+    const widest = (markup: string): number =>
+      Math.max(
+        ...[...markup.matchAll(/d="([^"]+)"/g)].map(([, d]) => {
+          const arc = /a(-?[\d.]+) /.exec(d);
+          if (arc) return 2 * Number(arc[1]);
+          const xs = [...d.matchAll(/[ML](-?[\d.]+) /g)].map((m) => Number(m[1]));
+          return Math.max(...xs) - Math.min(...xs);
+        })
+      );
+    // the instrument sees the smoke order's own trace line (x 1 to 23)
+    expect(widest(surroundBody('smoke', ORDER_SIGHT.smoke.phases[0], PAINT))).toBeGreaterThanOrEqual(22);
+    for (const t of ORDER_SIGHT.smokeScreen.phases) {
+      expect({ t, widest: widest(surroundBody('smokeScreen', t, PAINT)) <= 6.2 }).toEqual({ t, widest: true });
+    }
+  });
+
+  it('the barrage beats white-hot then in its ember accent within one cycle', () => {
+    const all = ORDER_SIGHT.barrage.phases.map((_, f) => sightFrame('barrage', f, PAINT)).join('');
+    expect(all).toContain('#hot');
+    expect(all).toContain('#acc');
   });
 });

@@ -2,14 +2,16 @@ import { describe, expect, it } from 'vitest';
 import * as symbolModule from './symbol';
 import { SYMBOL_IDS, DINGBAT_IDS, symbolLabel, symbolSvg, symbolBody, VIEWBOX, W, type SymbolId } from './symbol';
 
-const ORDER_IDS = ['move', 'attackMove', 'halt', 'smoke', 'load', 'unload', 'sweep', 'strike'] as const;
+const ORDER_IDS = ['move', 'attackMove', 'halt', 'smoke', 'load', 'unload', 'sweep', 'strike', 'barrage', 'smokeScreen'] as const;
 const isOrder = (id: SymbolId): boolean => (ORDER_IDS as readonly string[]).includes(id);
 const viewBoxOf = (svg: string): number[] => (/viewBox="([^"]+)"/.exec(svg)?.[1] ?? '').split(' ').map(Number);
 
 describe('the symbol family (G1 r2 roles, r5 orders, r2 utility marks, the pinned status mark, GH-261)', () => {
-  it('is thirty-five distinct ids: seven roles, eight orders, four utility marks, three status marks, thirteen GH-261 marks', () => {
-    expect(SYMBOL_IDS).toHaveLength(35);
-    expect(new Set(SYMBOL_IDS).size).toBe(35);
+  it('is thirty-seven distinct ids: seven roles, ten orders (S-F: barrage, smokeScreen), four utility marks, three status marks, thirteen GH-261 marks', () => {
+    expect(SYMBOL_IDS).toHaveLength(37);
+    expect(new Set(SYMBOL_IDS).size).toBe(37);
+    expect(SYMBOL_IDS).toContain('barrage');
+    expect(SYMBOL_IDS).toContain('smokeScreen');
     expect(SYMBOL_IDS).toContain('immobilised');
     expect(SYMBOL_IDS).toContain('gunOut');
     expect(SYMBOL_IDS).toContain('pinned');
