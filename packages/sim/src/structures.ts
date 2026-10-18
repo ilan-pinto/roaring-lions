@@ -6,7 +6,7 @@
 // by what the round is actually good for. A rifle bullet does essentially
 // nothing to a wall; a mortar shell does a great deal.
 
-import { fx, type Fx } from './fixed';
+import { fx, ONE, type Fx } from './fixed';
 
 export interface StructureTypeJson {
   id: string;
@@ -41,6 +41,16 @@ export interface StructureTypeJson {
    *  a TARGET to the other side once that side has seen it (`Sim.stKnown`), whatever it builds.
    *  A plain number, not a literal union: literal unions break JSON-module call sites. */
   owner?: number;
+  /** Field works (#277): a type the player can raise in a mission (spec §4). Absent = not
+   *  buildable. `cost` mirrors a unit's cost shape; `footprint` is [width, height] in tiles,
+   *  default [2, 2]; `unlock` is the unit schema's gate shape, read by the runtime (Task 5),
+   *  never by the sim. */
+  buildable?: {
+    cost: { logistics: number; intel?: number };
+    build_time_s: number;
+    footprint?: readonly number[];
+    unlock?: unknown;
+  };
   /** Chest-high: blocks movement and shields whoever is hugging it, but you
    *  shoot over it rather than at it. A compound built from sight-blocking
    *  masonry is a blind box -- its garrison cannot fire out, so the wall
@@ -84,6 +94,11 @@ export interface StructureType {
   producesFor: number;
   /** Field works (#277): the default owner, -1 neutral. See StructureTypeJson.owner. */
   owner: number;
+  /** Field works (#277): how this type is raised, or null when it cannot be. `buildStep` is the
+   *  Q16.16 progress one builder at rate ONE adds per tick: ONE / (build_time_s x ticks per
+   *  second), integer division, so a 20 s type is 65536 / 400 = 163 (truncated from 163.84).
+   *  `fw` x `fh` is the footprint, origin at the site's (x, y), the top-left tile. */
+  buildable: StructureBuildable | null;
   id: string;
   /** Display name for the HUD. */
   name: string;
@@ -111,7 +126,40 @@ export interface StructureType {
   wallSelfLit?: number;
 }
 
-export function structureTypeFromJson(json: StructureTypeJson): StructureType {
+/** See StructureType.buildable. */
+export interface StructureBuildable {
+  costLogistics: number;
+  costIntel: number;
+  buildStep: Fx;
+  fw: number;
+  fh: number;
+}
+
+/** Parse a `buildable` block. `ticksPerSecond` is passed in by the Sim (its
+ *  TICKS_PER_SECOND) so the clock has one source and this module imports nothing. */
+function buildableFromJson(json: StructureTypeJson, ticksPerSecond: number): StructureBuildable | null {
+  const b = json.buildable;
+  if (b === undefined) return null;
+  // Seconds cross into fixed point once, here (invariant 2), exactly as a
+  // unit's demolition_time_s does; everything after is integer.
+  const ticks = fx.toInt(fx.mul(fx.from(b.build_time_s), fx.fromInt(ticksPerSecond)));
+  if (ticks < 1) throw new Error(`structure type ${json.id}: build_time_s ${b.build_time_s} is under one tick`);
+  const fp = b.footprint ?? [2, 2];
+  const fw = fp[0] ?? 2;
+  const fh = fp[1] ?? 2;
+  if (fp.length !== 2 || fw < 1 || fh < 1) throw new Error(`structure type ${json.id}: footprint must be [w, h], each >= 1`);
+  return {
+    costLogistics: b.cost.logistics,
+    costIntel: b.cost.intel ?? 0,
+    // The tree's integer-divide idiom: the dividend is made exactly divisible
+    // first, so no fraction is ever produced (`fixed.ts`).
+    buildStep: (ONE - (ONE % ticks)) / ticks,
+    fw,
+    fh,
+  };
+}
+
+export function structureTypeFromJson(json: StructureTypeJson, ticksPerSecond: number): StructureType {
   if (json.owner !== undefined && json.owner !== -1 && json.owner !== 0 && json.owner !== 1) {
     throw new Error(`structure type ${json.id}: owner ${json.owner}, expected -1, 0 or 1`);
   }
@@ -126,6 +174,7 @@ export function structureTypeFromJson(json: StructureTypeJson): StructureType {
     roePenalty: json.roe_penalty ?? 0,
     producesFor: json.produces_for ?? -1,
     owner: json.owner ?? -1,
+    buildable: buildableFromJson(json, ticksPerSecond),
     perTile: json.per_tile ?? false,
     lowProfile: json.low_profile ?? false,
     standingCover: json.standing_cover ?? 2,

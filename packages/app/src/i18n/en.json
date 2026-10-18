@@ -305,6 +305,8 @@
   "net.advisor.cmd.setRally": "Rally line {line} at ({x}, {y})",
   "net.advisor.cmd.clearRally": "Clear rally on line {line}",
   "net.advisor.cmd.support": "Call {support} on ({x}, {y})",
+  "net.advisor.cmd.construct": "Build field works at ({x}, {y}) with {n, plural, one {# unit} other {# units}}",
+  "net.advisor.cmd.cancelConstruct": "Cancel a field works site",
   "versus.room.leave": "Leave",
   "versus.room.leave.confirm.title": "Leave the room?",
   "versus.room.leave.confirm.body": "The room closes for both of you.",

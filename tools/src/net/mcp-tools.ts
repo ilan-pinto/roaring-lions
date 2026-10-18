@@ -53,7 +53,9 @@ export interface ToolDef {
 // setStance, build, support, cancelBuild, setRally and clearRally are excluded from ORDER_VERBS; a model verb is an N3/N4 follow-up.
 export const ORDER_VERBS = COMMAND_KINDS.filter(
   (k) => k !== 'reveal' && k !== 'callStrike' && k !== 'setStance' && k !== 'build' && k !== 'support' &&
-    k !== 'cancelBuild' && k !== 'setRally' && k !== 'clearRally',
+    k !== 'cancelBuild' && k !== 'setRally' && k !== 'clearRally' &&
+    // Field works (#277) is not on the wire yet (`cleanCommand` refuses both).
+    k !== 'construct' && k !== 'cancelConstruct',
 );
 type Verb = (typeof ORDER_VERBS)[number];
 export const WAIT_MAX_TICKS = 200;

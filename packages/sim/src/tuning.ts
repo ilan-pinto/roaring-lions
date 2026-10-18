@@ -483,3 +483,15 @@ export const MAX_SITES = 8;
 /** Field works (#277, N13): auras refresh every this many ticks, `tickCount % AURA_CADENCE_TICKS`
  *  -- twice a second at 20 Hz. Read by Task 6's `stepAuras`. */
 export const AURA_CADENCE_TICKS = 10; // 0.5 s
+/** Field works (#277, Task 4): how close a builder must stand to a footprint tile centre to
+ *  stake the site and to add progress. Squared tiles, Q16.16 -- the demolition reach
+ *  (`DEMO_RANGE_SQ`, structures.ts), written out because this module imports nothing. */
+export const BUILD_RANGE_SQ = 262144; // 4.0 tile^2 = 2 tiles
+/** Field works: builders that add progress to one site in one tick, lowest id first. */
+export const MAX_BUILDERS = 2;
+/** Field works: a staked site's HP, as a fraction of its maximum. */
+export const STAKE_HP_FRAC = 6554; // 0.1
+/** Field works: the HP a site gains over the whole build, as a fraction of its maximum,
+ *  `ONE - STAKE_HP_FRAC`: added in proportion to progress, so a site never damaged ends at
+ *  (very nearly) full. */
+export const BUILD_HP_FRAC = 58982; // 0.9

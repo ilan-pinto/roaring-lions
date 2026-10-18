@@ -527,9 +527,20 @@ describe('field works: owned structures are seen once and then shot', () => {
     expect(ev.some((e) => e.kind === 'fire')).toBe(false);
   });
 
-  it('a unit target outranks the building: the building is the fallback slot only', () => {
+  it('a unit target outranks the building: an enemy that appears takes the gun off a building it already holds', () => {
+    // The building is selected FIRST, with nothing else on the map; then an
+    // enemy appears and is identified. stepCombat's structure branch is gated
+    // on `curTarget < 0`, so the gun must leave the building for the man. With
+    // that gate removed, the owned building (a target in its own right since
+    // Task 2) would keep the slot it already had.
     const { sim, s, spot, gun } = fw('op');
     sim.teleport(spot, fx.from(11.5), fx.from(6.5));
+    let held = false;
+    for (let i = 0; i < 20 && !held; i++) {
+      sim.tick();
+      held = sim.state.curStructure[gun] === s;
+    }
+    expect(held).toBe(true);
     // An enemy at (12.5, 10.5): 5 tiles from the spotter (identified), 5 from the gun.
     const foe = sim.spawn(sim.addUnitType(SPOTTER), 1, fx.from(12.5), fx.from(10.5));
     let checked = 0;
@@ -540,7 +551,6 @@ describe('field works: owned structures are seen once and then shot', () => {
         checked++;
       }
     }
-    expect(sim.structureKnownTo(0, s)).toBe(true);
     expect(checked).toBeGreaterThan(0);
   });
 

@@ -132,6 +132,10 @@ import {
   REGEN_CAP,
   AMBUSH_RADIUS_DEFAULT,
   MAX_SITES,
+  BUILD_RANGE_SQ,
+  MAX_BUILDERS,
+  STAKE_HP_FRAC,
+  BUILD_HP_FRAC,
   type SupportKind,
 } from './tuning';
 
@@ -175,6 +179,9 @@ export interface UnitTypeJson {
   demolition_method?: string;
   /** Seconds of held station to set a tunnel collapse charge. Absent = CHARGE_SECONDS. */
   tunnel_charge_time_s?: number;
+  /** Field works (#277): construction speed for a `construct` unit, a multiple of the
+   *  type's build time. Absent = 1 (the D9 authors 1.5). */
+  construct_rate?: number;
   /** Authored cost, mirroring data/schemas/unit.schema.json. Only `population` is
    *  read by the sim (UnitType.population); the rest are the app's and the balance
    *  tool's. The other keys are declared, not just `population`, because TypeScript's
@@ -475,6 +482,10 @@ export interface UnitType {
   canMarkTunnel: boolean;
   /** Carries smoke: the counterplay to prepared fire. */
   canSmoke: boolean;
+  /** Field works (#277): can raise a field work (`abilities` 'construct'). */
+  canConstruct: boolean;
+  /** Field works: progress multiplier, Q16.16 (`construct_rate`, default ONE). */
+  constructRate: Fx;
   hp: Fx;
   armorFront: Fx;
   armorSide: Fx;
@@ -623,6 +634,8 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
     canMarkTarget: abilities.includes('mark_target'),
     canMarkTunnel: abilities.includes('mark_tunnel'),
     canSmoke: abilities.includes('smoke'),
+    canConstruct: abilities.includes('construct'),
+    constructRate: fx.from(json.construct_rate ?? 1),
     hp: fx.from(json.hull.hp),
     armorFront,
     armorSide,
@@ -731,7 +744,21 @@ export type Command =
   /** F4: clear a line's rally point. */
   | { kind: 'clearRally'; side: number; line: number }
   /** N2: one call from F1's fire-support menu, priced as `build` is. */
-  | { kind: 'support'; side: number; support: SupportKind; x: Fx; y: Fx };
+  | { kind: 'support'; side: number; support: SupportKind; x: Fx; y: Fx }
+  /**
+   * Field works (#277): raise a `buildable` structure type with its footprint's top-left tile at
+   * integer tile (x, y). The site belongs to the builders' side (the first qualifying id's; ids
+   * of another side are ignored). The sim re-checks `placementReason` here and answers with
+   * `constructQueued` or `constructRefused`. Naming the type and origin of a live site of the
+   * same side JOINS it instead (a second engineer resuming a staked site), with no new row.
+   */
+  | { kind: 'construct'; ids: number[]; structType: number; x: number; y: number }
+  /** Field works: take a site down. Unstaked, the row is freed; staked, the structure is
+   *  removed (`removeStructure`); a completed site is no longer a site, so it is ignored. */
+  | { kind: 'cancelConstruct'; site: number };
+
+/** Why a field-works footprint is refused (`Sim.placementReason`), the first failing rule. */
+export type PlacementRefusal = 'off_map' | 'blocked' | 'no_footing' | 'not_level' | 'overlap' | 'seals_passage';
 
 /** The five commands the sim sets aside for the MissionRuntime to price and run (N2, F4):
  *  `queueCommand` never hands them to `applyCommands`. */
@@ -814,6 +841,19 @@ export type SimEvent =
   | { kind: 'pinned'; tick: number; entity: number }
   | { kind: 'unpinned'; tick: number; entity: number }
   | { kind: 'destroyed'; tick: number; entity: number; by: number }
+  /** Field works (#277): a `construct` was accepted (or joined a live site). `builder` is the
+   *  lowest qualifying id the command named. */
+  | { kind: 'constructQueued'; tick: number; site: number; structType: number; x: number; y: number; builder: number }
+  /** Field works: a `construct` the sim would not take. `no_builder`: no id named was a living,
+   *  surface `construct` unit that could take the order. The runtime refunds on this. */
+  | { kind: 'constructRefused'; tick: number; structType: number; x: number; y: number; reason: PlacementRefusal | 'no_site_slot' | 'no_builder' }
+  /** Field works: the first builder arrived and the footprint is now a structure, at progress 0. */
+  | { kind: 'constructStaked'; tick: number; site: number; structure: number }
+  /** Field works: progress reached ONE; the site row is free again. */
+  | { kind: 'structureComplete'; tick: number; site: number; structure: number }
+  /** Field works: a site was cancelled. `structure` -1 when it was never staked; `progress` is
+   *  what had been built (0 unstaked), for the runtime's refund. */
+  | { kind: 'constructCancelled'; tick: number; site: number; structure: number; progress: Fx }
   /**
    * A mission `remove` trigger took this entity off the board — the enemy's
    * act, never the player's, and never a death. Emitted by `removeFromPlay`,
@@ -834,6 +874,7 @@ export const SIM_EVENT_KINDS = [
   'strike', 'smokeLaid', 'revealed', 'structureHit', 'structureDestroyed', 'garrison',
   'transport', 'ventOpened', 'tunnelContact', 'surfaced', 'submerged', 'tunnelCollapsed', 'routed', 'rallied', 'pinned', 'unpinned', 'destroyed',
   'removed',
+  'constructQueued', 'constructRefused', 'constructStaked', 'structureComplete', 'constructCancelled',
 ] as const satisfies readonly SimEvent['kind'][];
 
 /** Compile-time proof the list above covers the whole union.
@@ -1186,6 +1227,15 @@ export class Sim {
    *  while it is set. Never cleared: once live, always folded. Not itself
    *  hashed -- it is a function of what the block holds. */
   private fwLive = false;
+  /** Field works: the tick each unit last added construction progress, -1 never. Scratch for
+   *  `isConstructing` (the render's `work` clip); never read by the sim, never hashed. */
+  private readonly constructedAt: Int32Array;
+  /** Field works: `placementReason`'s seal flood. A BFS queue and a per-cell visit stamp
+   *  (a cell is visited when it equals `sealGen`), preallocated so the flood allocates
+   *  nothing. Scratch, never hashed. */
+  private readonly sealQueue: Int32Array;
+  private readonly sealStamp: Int32Array;
+  private sealGen = 0;
   private readonly stCx: Int32Array;
   private readonly stCy: Int32Array;
   private readonly stMinX: Int32Array;
@@ -1496,6 +1546,9 @@ export class Sim {
     this.auraCompAt = new Int32Array(n);
     this.auraRepairTicks = new Int32Array(n);
     this.auraAccMult = new Int32Array(n).fill(ONE);
+    this.constructedAt = new Int32Array(n).fill(-1);
+    this.sealQueue = new Int32Array(tiles);
+    this.sealStamp = new Int32Array(tiles);
     this.stCx = new Int32Array(sc);
     this.stCy = new Int32Array(sc);
     this.stMinX = new Int32Array(sc);
@@ -1727,7 +1780,7 @@ export class Sim {
   }
 
   addStructureType(json: StructureTypeJson): number {
-    this.structureTypes.push(structureTypeFromJson(json));
+    this.structureTypes.push(structureTypeFromJson(json, TICKS_PER_SECOND));
     return this.structureTypes.length - 1;
   }
 
@@ -1855,6 +1908,433 @@ export class Sim {
   /** Field works: true once the FW state block is folded into hash() (D1). Read-only. */
   get fieldWorksLive(): boolean {
     return this.fwLive;
+  }
+
+  // ------------------------------------------------------------- field works
+  // Construction (#277 Task 4, spec §1). A `construct` command writes a site
+  // row; the first builder to arrive STAKES it (Q4: the footprint blocks only
+  // then, as a structure at progress 0); up to MAX_BUILDERS builders, lowest id
+  // first, add progress each tick; at ONE it is complete and the row is free.
+  // No random numbers anywhere in it: every choice goes by lowest id or by a
+  // fixed scan order (invariant 3).
+
+  /**
+   * Why a `structType` footprint with its top-left tile at (tx, ty) cannot be
+   * raised, or null when it can. Pure: it writes nothing but its own scratch.
+   * The first failing rule, in the spec's order:
+   * 1. inside the map ('off_map'); no tile blocked -- building, ridge, wall
+   *    ('blocked'); no tile a boulder field or ditch ('no_footing');
+   * 2. every tile on one elevation level ('not_level', Q6);
+   * 3. no tile under a live structure or a PENDING site ('overlap');
+   * 4. no seal: the footprint must not split the open ground ('seals_passage', Q5).
+   * Roads, groves and knolls are open ground and allowed; a tunnel is not a
+   * rule (refusing over an unidentified route would leak it). `side` is in the
+   * signature for the runtime and the app; no rule reads it, because a site
+   * blocks the ground for everyone whoever owns it.
+   */
+  placementReason(structType: number, tx: number, ty: number, side: number): PlacementRefusal | null {
+    void side;
+    const type = this.structureTypes[structType];
+    if (type === undefined || type.buildable === null) throw new Error(`structure type ${structType} is not buildable`);
+    const b = type.buildable;
+    const w = this.width;
+    if (tx < 0 || ty < 0 || tx + b.fw > w || ty + b.fh > this.height) return 'off_map';
+    for (let y = ty; y < ty + b.fh; y++) {
+      for (let x = tx; x < tx + b.fw; x++) if (this.blocked[y * w + x] !== 0) return 'blocked';
+    }
+    for (let y = ty; y < ty + b.fh; y++) {
+      for (let x = tx; x < tx + b.fw; x++) if (this.boulder[y * w + x] !== 0) return 'no_footing';
+    }
+    const level = this.elevation[ty * w + tx];
+    for (let y = ty; y < ty + b.fh; y++) {
+      for (let x = tx; x < tx + b.fw; x++) if (this.elevation[y * w + x] !== level) return 'not_level';
+    }
+    for (let y = ty; y < ty + b.fh; y++) {
+      for (let x = tx; x < tx + b.fw; x++) {
+        const s = this.structureOfTile[y * w + x];
+        if (s >= 0 && this.stAlive[s] === 1) return 'overlap';
+        if (this.pendingSiteAt(x, y) >= 0) return 'overlap';
+      }
+    }
+    if (this.footprintSeals(tx, ty, b.fw, b.fh)) return 'seals_passage';
+    return null;
+  }
+
+  /** True when `id` added construction progress on the last tick: the
+   *  render's `work` clip. A read of unhashed scratch (invariant 4). */
+  isConstructing(id: number): boolean {
+    const t = this.constructedAt[id];
+    return t >= 0 && t === this.tickCount - 1;
+  }
+
+  /** The live, NOT yet staked site whose footprint holds tile (x, y), or -1.
+   *  A staked site is a structure, already in `blocked` and `structureOfTile`. */
+  private pendingSiteAt(x: number, y: number): number {
+    for (let k = 0; k < MAX_SITES; k++) {
+      if (this.siteAlive[k] === 0 || this.siteStructure[k] >= 0) continue;
+      const b = this.structureTypes[this.siteType[k]].buildable;
+      if (b === null) continue;
+      const sx = this.siteX[k];
+      const sy = this.siteY[k];
+      if (x >= sx && x < sx + b.fw && y >= sy && y < sy + b.fh) return k;
+    }
+    return -1;
+  }
+
+  /**
+   * Rule 4, the seal (Q5). The foot mask's open ground, with every pending
+   * site counted as blocked, and the candidate footprint added: flood from one
+   * open 4-neighbour of the footprint and refuse if any other open 4-neighbour
+   * goes unreached. That is the plan's two-labelling test in one flood: the
+   * footprint is open ground and 4-connected in itself, so before it is added
+   * every open 4-neighbour of it is in ONE component, and the footprint splits
+   * that component exactly when the flood cannot reach them all around it.
+   * Allocates nothing: `sealQueue` and the generation-stamped `sealStamp` are
+   * preallocated scratch, never hashed.
+   */
+  private footprintSeals(tx: number, ty: number, fw: number, fh: number): boolean {
+    const w = this.width;
+    const h = this.height;
+    if (this.sealGen >= 0x7fffffff) {
+      this.sealStamp.fill(0);
+      this.sealGen = 0;
+    }
+    const gen = ++this.sealGen;
+    const stamp = this.sealStamp;
+    const queue = this.sealQueue;
+    // Count the open 4-neighbours (no corners: a footprint cannot be passed
+    // diagonally through its corner on a 4-connected flood).
+    let need = 0;
+    let start = -1;
+    for (let y = ty - 1; y <= ty + fh; y++) {
+      if (y < 0 || y >= h) continue;
+      for (let x = tx - 1; x <= tx + fw; x++) {
+        if (x < 0 || x >= w) continue;
+        if (!this.isFootprintNeighbour(x, y, tx, ty, fw, fh)) continue;
+        if (!this.sealOpen(x, y, tx, ty, fw, fh)) continue;
+        need++;
+        if (start < 0) start = y * w + x;
+      }
+    }
+    if (need <= 1) return false;
+    let head = 0;
+    let tail = 0;
+    queue[tail++] = start;
+    stamp[start] = gen;
+    let reached = 0;
+    while (head < tail) {
+      const c = queue[head++];
+      const cx = c % w;
+      const cy = (c - cx) / w;
+      if (this.isFootprintNeighbour(cx, cy, tx, ty, fw, fh)) {
+        reached++;
+        if (reached === need) return false;
+      }
+      for (let dir = 0; dir < 4; dir++) {
+        const nx = dir === 0 ? cx + 1 : dir === 1 ? cx - 1 : cx;
+        const ny = dir === 2 ? cy + 1 : dir === 3 ? cy - 1 : cy;
+        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+        const nc = ny * w + nx;
+        if (stamp[nc] === gen) continue;
+        if (!this.sealOpen(nx, ny, tx, ty, fw, fh)) continue;
+        stamp[nc] = gen;
+        queue[tail++] = nc;
+      }
+    }
+    return true;
+  }
+
+  /** Tile (x, y) shares an edge with the footprint and is not in it. */
+  private isFootprintNeighbour(x: number, y: number, tx: number, ty: number, fw: number, fh: number): boolean {
+    const inX = x >= tx && x < tx + fw;
+    const inY = y >= ty && y < ty + fh;
+    return (inX && (y === ty - 1 || y === ty + fh)) || (inY && (x === tx - 1 || x === tx + fw));
+  }
+
+  /** Open for the seal flood: foot-passable, not in the candidate footprint,
+   *  not under a pending site. */
+  private sealOpen(x: number, y: number, tx: number, ty: number, fw: number, fh: number): boolean {
+    if (this.blocked[y * this.width + x] !== 0) return false;
+    if (x >= tx && x < tx + fw && y >= ty && y < ty + fh) return false;
+    return this.pendingSiteAt(x, y) < 0;
+  }
+
+  /** A `construct` command (see the Command doc). */
+  private applyConstruct(ids: readonly number[], structType: number, x: number, y: number): void {
+    const type = this.structureTypes[structType];
+    // A malformed command (no such type, or one that cannot be built) is not
+    // a placement refusal and has nothing to refund: the runtime never sends it.
+    if (type === undefined || type.buildable === null) return;
+    // The site is the side of the LOWEST qualifying id; ids of another side
+    // are ignored (an order is single-side by construction anyway).
+    let lead = -1;
+    for (const id of ids) {
+      if (!this.canTakeConstruct(id)) continue;
+      if (lead < 0 || id < lead) lead = id;
+    }
+    if (lead < 0) {
+      this.pendingEvents.push({ kind: 'constructRefused', tick: this.tickCount, structType, x, y, reason: 'no_builder' });
+      return;
+    }
+    const side = this.side[lead];
+    // The same type at the same origin for the same side is that site: join it.
+    let site = -1;
+    for (let k = 0; k < MAX_SITES; k++) {
+      if (this.siteAlive[k] === 1 && this.siteType[k] === structType && this.siteX[k] === x && this.siteY[k] === y && this.siteSide[k] === side) {
+        site = k;
+        break;
+      }
+    }
+    if (site < 0) {
+      const reason = this.placementReason(structType, x, y, side);
+      if (reason !== null) {
+        this.pendingEvents.push({ kind: 'constructRefused', tick: this.tickCount, structType, x, y, reason });
+        return;
+      }
+      for (let k = 0; k < MAX_SITES; k++) {
+        if (this.siteAlive[k] === 0) {
+          site = k;
+          break;
+        }
+      }
+      if (site < 0) {
+        this.pendingEvents.push({ kind: 'constructRefused', tick: this.tickCount, structType, x, y, reason: 'no_site_slot' });
+        return;
+      }
+      this.siteAlive[site] = 1;
+      this.siteType[site] = structType;
+      this.siteX[site] = x;
+      this.siteY[site] = y;
+      this.siteSide[site] = side;
+      this.siteStructure[site] = -1;
+      // D1: the site table holds state now, so the FW block folds from here on.
+      this.fwLive = true;
+    }
+    this.pendingEvents.push({ kind: 'constructQueued', tick: this.tickCount, site, structType, x, y, builder: lead });
+    for (const id of ids) {
+      if (this.side[id] === side && this.canTakeConstruct(id)) this.assignBuilder(id, site);
+    }
+  }
+
+  /** A unit that can be handed a `construct` order: alive, listening, a
+   *  `construct` unit of a combatant side, not riding (buried ids never get
+   *  here: applyCommands' containment filter). */
+  private canTakeConstruct(id: number): boolean {
+    if (id < 0 || id >= this.count) return false;
+    if (this.alive[id] === 0 || this.routed[id] === 1 || this.carriedBy[id] >= 0) return false;
+    if (this.side[id] > 1) return false;
+    return this.unitTypes[this.typeIdx[id]].canConstruct;
+  }
+
+  /** Put `id` on `site` and walk it to the nearest open tile 4-adjacent to the
+   *  footprint. What every order clears, as `demolish` does. */
+  private assignBuilder(id: number, site: number): void {
+    if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
+    this.buildSite[id] = site;
+    this.wpCount[id] = 0;
+    this.boardGoal[id] = -1;
+    this.garrisonGoal[id] = -1;
+    this.demolishOrder[id] = -1;
+    this.chargeOrder[id] = -1;
+    this.chargeTicks[id] = 0;
+    const d = this.domainOf(id);
+    this.siteApproachTile(site, id, this.maskFor(d));
+    const ax = this.snapX;
+    const ay = this.snapY;
+    this.goalX[id] = fx.add(fx.fromInt(ax), HALF);
+    this.goalY[id] = fx.add(fx.fromInt(ay), HALF);
+    this.fieldRef[id] = this.fieldFor(ax, ay, d);
+    this.moving[id] = 1;
+    this.attackMove[id] = 0;
+    this.sweepOrder[id] = 0;
+    this.engaging[id] = 0;
+    this.stance[id] = 0;
+  }
+
+  /** Into `snapX`/`snapY`: the open (in `mask`) tile sharing an edge with the
+   *  site's footprint nearest to `id`, ties by row-major scan order; failing
+   *  that, the nearest open tile to the footprint's origin. */
+  private siteApproachTile(site: number, id: number, mask: Uint8Array): void {
+    const b = this.structureTypes[this.siteType[site]].buildable;
+    const tx = this.siteX[site];
+    const ty = this.siteY[site];
+    if (b === null) {
+      this.snapOpenTile(tx, ty, mask);
+      return;
+    }
+    const w = this.width;
+    let best = -1;
+    let bestD = 0;
+    for (let y = ty - 1; y <= ty + b.fh; y++) {
+      if (y < 0 || y >= this.height) continue;
+      for (let x = tx - 1; x <= tx + b.fw; x++) {
+        if (x < 0 || x >= w) continue;
+        if (!this.isFootprintNeighbour(x, y, tx, ty, b.fw, b.fh)) continue;
+        if (mask[y * w + x] !== 0) continue;
+        const d = distSqFx(fx.sub(fx.add(fx.fromInt(x), HALF), this.posX[id]), fx.sub(fx.add(fx.fromInt(y), HALF), this.posY[id]));
+        if (best < 0 || d < bestD) {
+          best = y * w + x;
+          bestD = d;
+        }
+      }
+    }
+    if (best < 0) {
+      this.snapOpenTile(tx, ty, mask);
+      return;
+    }
+    this.snapX = best % w;
+    this.snapY = (best - this.snapX) / w;
+  }
+
+  /** A `cancelConstruct` command. */
+  private applyCancelConstruct(site: number): void {
+    if (site < 0 || site >= MAX_SITES || this.siteAlive[site] === 0) return;
+    const s = this.siteStructure[site];
+    if (s < 0) {
+      this.freeSite(site);
+      this.pendingEvents.push({ kind: 'constructCancelled', tick: this.tickCount, site, structure: -1, progress: 0 });
+      return;
+    }
+    // Fell this tick before stepConstruction freed it: a wreck, not a cancel.
+    if (this.stAlive[s] === 0) {
+      this.freeSite(site);
+      return;
+    }
+    // Complete: no longer a site (completion frees the row, so this is a guard).
+    if (this.stProgress[s] >= ONE) return;
+    const progress = this.stProgress[s];
+    this.removeStructure(s);
+    this.freeSite(site);
+    this.pendingEvents.push({ kind: 'constructCancelled', tick: this.tickCount, site, structure: s, progress });
+  }
+
+  /** Free a site row and take every builder off it, so a later site in the
+   *  same row inherits nobody. */
+  private freeSite(site: number): void {
+    this.siteAlive[site] = 0;
+    this.siteStructure[site] = -1;
+    for (let i = 0; i < this.count; i++) {
+      if (this.buildSite[i] === site) this.buildSite[i] = -1;
+    }
+  }
+
+  /** Squared distance, Q16.16 tiles, from a point to the nearest footprint
+   *  tile centre of a site (staked or not). */
+  private siteDistSq(site: number, fw: number, fh: number, px: Fx, py: Fx): Fx {
+    let best = 0x7fffffff;
+    const tx = this.siteX[site];
+    const ty = this.siteY[site];
+    for (let y = ty; y < ty + fh; y++) {
+      for (let x = tx; x < tx + fw; x++) {
+        const d = distSqFx(fx.sub(fx.add(fx.fromInt(x), HALF), px), fx.sub(fx.add(fx.fromInt(y), HALF), py));
+        if (d < best) best = d;
+      }
+    }
+    return best;
+  }
+
+  /** On the surface: not inside a building, a vehicle or the ground. */
+  private onSurface(i: number): boolean {
+    return this.garrisonedIn[i] < 0 && this.carriedBy[i] < 0 && this.tunnelIn[i] < 0;
+  }
+
+  /** A living surface ground unit standing on the site's footprint. */
+  private onPad(i: number, site: number, fw: number, fh: number): boolean {
+    if (this.alive[i] === 0 || !this.onSurface(i)) return false;
+    if (this.unitTypes[this.typeIdx[i]].isAir) return false; // flies over it
+    const x = this.posX[i] >> 16;
+    const y = this.posY[i] >> 16;
+    const sx = this.siteX[site];
+    const sy = this.siteY[site];
+    return x >= sx && x < sx + fw && y >= sy && y < sy + fh;
+  }
+
+  /**
+   * Stake `site` if its first builder has arrived: a builder on it, alive, on
+   * the surface and within BUILD_RANGE_SQ of a footprint tile centre (moving
+   * or not). It waits while any enemy or civilian stands on the footprint;
+   * every friendly there, builders included, is put out at the structure's
+   * exitTile once it stands. Returns the structure, or -1 not staked yet.
+   */
+  private tryStake(site: number, fw: number, fh: number): number {
+    let arrived = false;
+    for (let i = 0; i < this.count && !arrived; i++) {
+      if (this.buildSite[i] !== site || this.alive[i] === 0 || !this.onSurface(i)) continue;
+      if (this.siteDistSq(site, fw, fh, this.posX[i], this.posY[i]) <= BUILD_RANGE_SQ) arrived = true;
+    }
+    if (!arrived) return -1;
+    const side = this.siteSide[site];
+    for (let i = 0; i < this.count; i++) {
+      if (this.onPad(i, site, fw, fh) && this.side[i] !== side) return -1;
+    }
+    // An event, not a tick: the footprint list is allocated once per stake.
+    const tiles: number[] = [];
+    const w = this.width;
+    for (let y = this.siteY[site]; y < this.siteY[site] + fh; y++) {
+      for (let x = this.siteX[site]; x < this.siteX[site] + fw; x++) tiles.push(y * w + x);
+    }
+    // Friendlies on the pad are put out AFTER addStructure, because exitTile
+    // reads the blocked mask the structure writes.
+    const s = this.addStructure(this.siteType[site], tiles, { owner: side, progress: 0 });
+    this.stHp[s] = fx.mul(this.stMaxHp[s], STAKE_HP_FRAC);
+    this.siteStructure[site] = s;
+    for (let i = 0; i < this.count; i++) {
+      if (!this.onPad(i, site, fw, fh)) continue;
+      const [ex, ey] = this.exitTile(s);
+      this.posX[i] = ex;
+      this.posY[i] = ey;
+    }
+    this.pendingEvents.push({ kind: 'constructStaked', tick: this.tickCount, site, structure: s });
+    return s;
+  }
+
+  /**
+   * Field works, once per tick, last (after stepTunnelCharge). For each live
+   * site: free it if its structure fell (a wreck: destroyStructure has already
+   * done the rubble, the shock and the event); stake it if unstaked; then up to
+   * MAX_BUILDERS of its builders, lowest id first -- alive, on the surface, in
+   * range, not moving, not pinned -- each add `buildStep x constructRate`. HP
+   * rises by `maxHp x BUILD_HP_FRAC x` the progress added, capped at max. At
+   * ONE: clamp, `structureComplete`, free the row. A world with no field works
+   * returns at once (and allocates nothing either way).
+   */
+  private stepConstruction(): void {
+    if (!this.fwLive) return;
+    for (let k = 0; k < MAX_SITES; k++) {
+      if (this.siteAlive[k] === 0) continue;
+      let s = this.siteStructure[k];
+      if (s >= 0 && this.stAlive[s] === 0) {
+        this.freeSite(k);
+        continue;
+      }
+      const b = this.structureTypes[this.siteType[k]].buildable;
+      if (b === null) continue;
+      if (s < 0) {
+        s = this.tryStake(k, b.fw, b.fh);
+        if (s < 0) continue;
+      }
+      let delta = 0;
+      let builders = 0;
+      for (let i = 0; i < this.count && builders < MAX_BUILDERS; i++) {
+        if (this.buildSite[i] !== k || this.alive[i] === 0) continue;
+        if (this.moving[i] === 1 || this.pinned[i] === 1 || !this.onSurface(i)) continue;
+        if (this.siteDistSq(k, b.fw, b.fh, this.posX[i], this.posY[i]) > BUILD_RANGE_SQ) continue;
+        delta += fx.mul(b.buildStep, this.unitTypes[this.typeIdx[i]].constructRate);
+        this.constructedAt[i] = this.tickCount;
+        builders++;
+      }
+      if (delta === 0) continue;
+      const before = this.stProgress[s];
+      const after = before + delta >= ONE ? ONE : before + delta;
+      this.stProgress[s] = after;
+      const maxHp = this.stMaxHp[s];
+      const hp = this.stHp[s] + fx.mul(fx.mul(maxHp, BUILD_HP_FRAC), after - before);
+      this.stHp[s] = hp > maxHp ? maxHp : hp;
+      if (after === ONE) {
+        this.pendingEvents.push({ kind: 'structureComplete', tick: this.tickCount, site: k, structure: s });
+        this.freeSite(k);
+      }
+    }
   }
 
   get tunnelCount(): number {
@@ -2152,6 +2632,7 @@ export class Sim {
     this.braceTicks[id] = 0;
     this.braceClock[id] = 0;
     this.buildSite[id] = -1;
+    this.constructedAt[id] = -1;
     this.auraHealRate[id] = 0;
     this.auraHealCap[id] = 0;
     this.auraCompAt[id] = 0;
@@ -2295,6 +2776,10 @@ export class Sim {
     // pinned — one slot earlier in the order and the interruption lands a
     // tick late, which is the difference the pinned test measures.
     this.stepTunnelCharge();
+    // Last, so a site's builder reads this tick's `moving` and `pinned`, and a
+    // site whose structure fell anywhere in this tick is freed before the next
+    // tick's commands can name it.
+    this.stepConstruction();
     this.tickCount++;
     const out = this.pendingEvents;
     this.pendingEvents = [];
@@ -2547,6 +3032,13 @@ export class Sim {
         // leg running: an order that does not move the unit itself (smoke,
         // unload, any refusal) would otherwise walk it onto the enemy with its
         // fire held, and an APPENDED move would queue behind the chase.
+        // Field works: any order that names a builder takes it off its site,
+        // `construct` excepted (it assigns the site below). Same rule as the
+        // focus: every id named, refused or not. The flag guard keeps a world
+        // with no field works from touching the column at all (D1).
+        if (this.fwLive && cmd.kind !== 'construct') {
+          for (const id of cmd.ids) this.buildSite[id] = -1;
+        }
         if (cmd.kind !== 'attack') {
           for (const id of cmd.ids) {
             if (this.focusTarget[id] >= 0) {
@@ -2927,6 +3419,9 @@ export class Sim {
       } else if (cmd.kind === 'garrison') {
         const s = cmd.structure;
         if (s < 0 || s >= this.structureCount_ || this.stAlive[s] === 0) continue;
+        // Field works: nobody moves into a building that is still going up
+        // (and `removeStructure` relies on it: an unfinished one is empty).
+        if (this.stProgress[s] < ONE) continue;
         // Walk to the doorway; stepGarrison lets them in when they arrive
         // and there is room. Overflow simply waits outside.
         const [gx, gy] = [this.stCx[s], this.stCy[s]];
@@ -3028,6 +3523,10 @@ export class Sim {
           this.engaging[id] = 0;
           this.stance[id] = 0; // any order overrides a held stance
         }
+      } else if (cmd.kind === 'construct') {
+        this.applyConstruct(cmd.ids, cmd.structType, cmd.x, cmd.y);
+      } else if (cmd.kind === 'cancelConstruct') {
+        this.applyCancelConstruct(cmd.site);
       } else if (cmd.kind === 'setStance') {
         // Not a plain halt: it must skip garrisoned and carried ids, which halt would pull out of their post.
         for (const id of cmd.ids) {
@@ -3537,7 +4036,13 @@ export class Sim {
       if (r < 0 || this.tnAlive[r] === 0 || this.tnVentOpen[r] === 0) continue;
       const type = this.unitTypes[this.typeIdx[i]];
       if (type.weapons.length === 0) continue;
-      const [vx, vy] = this.ventPos(r);
+      let [vx, vy] = this.ventPos(r);
+      // Field works (Q7): a vent may sit under a standing structure (a work
+      // raised over an unidentified route; refusing that footprint would leak
+      // the route). The fighters come up beside it, at its exitTile, never
+      // inside it -- and judge their shot from where they will stand.
+      const vs = this.structureOfTile[(vy >> 16) * this.width + (vx >> 16)];
+      if (vs >= 0 && this.stAlive[vs] === 1) [vx, vy] = this.exitTile(vs);
       if (!this.hasTargetFrom(i, vx, vy)) continue;
 
       this.tunnelIn[i] = -1;
