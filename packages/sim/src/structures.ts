@@ -35,6 +35,12 @@ export interface StructureTypeJson {
   /** Which side this structure builds units for, if any. See `producesFor`
    *  on `StructureType` below for the whole account. */
   produces_for?: number;
+  /** Field works (#277): the default OWNER of a structure of this type, -1 neutral (the seven
+   *  civilian types, and every shipped type today), 0 or 1 a side. Overridable per mission
+   *  placement (`structures[].owner`). Distinct from `produces_for`: an owned structure is
+   *  a TARGET to the other side once that side has seen it (`Sim.stKnown`), whatever it builds.
+   *  A plain number, not a literal union: literal unions break JSON-module call sites. */
+  owner?: number;
   /** Chest-high: blocks movement and shields whoever is hugging it, but you
    *  shoot over it rather than at it. A compound built from sight-blocking
    *  masonry is a blind box -- its garrison cannot fire out, so the wall
@@ -63,7 +69,8 @@ export interface StructureType {
   /**
    * Which side this structure builds units for, or -1 for none.
    *
-   * ONLY production structures carry an owner. The seven civilian types are
+   * ONLY production structures carry a production side (field works' `owner`,
+   * below, is the separate question of whose building it is). The seven civilian types are
    * neutral terrain -- HP, garrison slots and an ROE penalty, but no faction --
    * because nothing needed one until the camp did, and giving all of them a
    * side would have been a much larger change for no present gain.
@@ -75,6 +82,8 @@ export interface StructureType {
    * keeps every mission authored before this feature working untouched.
    */
   producesFor: number;
+  /** Field works (#277): the default owner, -1 neutral. See StructureTypeJson.owner. */
+  owner: number;
   id: string;
   /** Display name for the HUD. */
   name: string;
@@ -103,6 +112,9 @@ export interface StructureType {
 }
 
 export function structureTypeFromJson(json: StructureTypeJson): StructureType {
+  if (json.owner !== undefined && json.owner !== -1 && json.owner !== 0 && json.owner !== 1) {
+    throw new Error(`structure type ${json.id}: owner ${json.owner}, expected -1, 0 or 1`);
+  }
   return {
     id: json.id,
     name: json.name ?? json.id,
@@ -113,6 +125,7 @@ export function structureTypeFromJson(json: StructureTypeJson): StructureType {
     color: json.color ?? 'limestone.4',
     roePenalty: json.roe_penalty ?? 0,
     producesFor: json.produces_for ?? -1,
+    owner: json.owner ?? -1,
     perTile: json.per_tile ?? false,
     lowProfile: json.low_profile ?? false,
     standingCover: json.standing_cover ?? 2,

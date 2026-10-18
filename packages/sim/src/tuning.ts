@@ -477,3 +477,9 @@ export const AMBUSH_RADIUS_MAX = 655360;
 export const MAX_PRODUCTION_LINES = 4;
 /** Items waiting on one production line, not counting the one in progress (F4, R-F4-4). */
 export const MAX_LINE_QUEUE = 16;
+
+/** Field works (#277): construction sites one sim holds at once (Task 4 writes the table). */
+export const MAX_SITES = 8;
+/** Field works (#277, N13): auras refresh every this many ticks, `tickCount % AURA_CADENCE_TICKS`
+ *  -- twice a second at 20 Hz. Read by Task 6's `stepAuras`. */
+export const AURA_CADENCE_TICKS = 10; // 0.5 s

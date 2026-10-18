@@ -131,6 +131,7 @@ import {
   REGEN_FRAC,
   REGEN_CAP,
   AMBUSH_RADIUS_DEFAULT,
+  MAX_SITES,
   type SupportKind,
 } from './tuning';
 
@@ -1149,6 +1150,42 @@ export class Sim {
   /** Per-placement `produces_for` (F4 Task 7). Setup-only; NOT in hash(). */
   private readonly stProducesFor: Int8Array;
   private readonly stOccupants: Uint8Array;
+  // --- field works (#277) state block. Every array is declared and hashed
+  // here (Task 2) even where a later task is its only writer; see hash() for
+  // why the block folds only once `fwLive` is set (D1).
+  /** Owner of each structure, -1 neutral. The placement's `owner`, else the
+   *  type's. Hashed (FW block). */
+  private readonly stOwner: Int8Array;
+  /** Per-side identification latch, `[side * MAX_STRUCTURES + s]`: set the
+   *  first tick a unit of `side` has a sight line to a footprint tile of an
+   *  OWNED structure of the other side, inside its sight, and never cleared --
+   *  buildings do not move, so a latch, not a ladder. Hashed (FW block). */
+  private readonly stKnown: Uint8Array;
+  /** Construction progress, Q16.16: ONE for every raised (complete) structure,
+   *  below ONE only for a field-works site under construction (Task 4).
+   *  Hashed (FW block). */
+  private readonly stProgress: Int32Array;
+  /** The construction-site table (Task 4 writes it). Hashed (FW block). */
+  private readonly siteAlive: Uint8Array;
+  private readonly siteType: Int16Array;
+  private readonly siteX: Int32Array;
+  private readonly siteY: Int32Array;
+  private readonly siteSide: Int8Array;
+  private readonly siteStructure: Int32Array;
+  /** Per unit: the site this unit is building, -1 none (Task 4). Hashed. */
+  private readonly buildSite: Int8Array;
+  /** Per unit aura modifiers, refreshed every AURA_CADENCE_TICKS (Task 6).
+   *  Hashed. `auraAccMult` is a Q16.16 multiplier, ONE = no effect. */
+  private readonly auraHealRate: Int32Array;
+  private readonly auraHealCap: Int32Array;
+  private readonly auraCompAt: Int32Array;
+  private readonly auraRepairTicks: Int32Array;
+  private readonly auraAccMult: Int32Array;
+  /** D1: true once anything field works has state (an owned structure, a
+   *  structure below full progress, a site). hash() folds the FW block only
+   *  while it is set. Never cleared: once live, always folded. Not itself
+   *  hashed -- it is a function of what the block holds. */
+  private fwLive = false;
   private readonly stCx: Int32Array;
   private readonly stCy: Int32Array;
   private readonly stMinX: Int32Array;
@@ -1280,6 +1317,14 @@ export class Sim {
     readonly focusTarget: Int32Array;
     /** Ticks without a firing solution on the focus. */
     readonly focusLost: Uint16Array;
+    /** Field works (#277): the site this unit builds, -1 none. */
+    readonly buildSite: Int8Array;
+    /** Field works: aura modifiers (Task 6). `auraAccMult` ONE = none. */
+    readonly auraHealRate: Int32Array;
+    readonly auraHealCap: Int32Array;
+    readonly auraCompAt: Int32Array;
+    readonly auraRepairTicks: Int32Array;
+    readonly auraAccMult: Int32Array;
   };
 
   /** Read-only structure view for the renderer and HUD. */
@@ -1295,6 +1340,22 @@ export class Sim {
     readonly minY: Int32Array;
     readonly maxX: Int32Array;
     readonly maxY: Int32Array;
+    /** Field works (#277): owner, -1 neutral. */
+    readonly owner: Int8Array;
+    /** Field works: the per-side identification latch, `[side * 256 + s]`. */
+    readonly known: Uint8Array;
+    /** Field works: construction progress, ONE when complete. */
+    readonly progress: Int32Array;
+  };
+
+  /** Read-only view of the field-works construction-site table (#277). */
+  readonly works: {
+    readonly alive: Uint8Array;
+    readonly type: Int16Array;
+    readonly x: Int32Array;
+    readonly y: Int32Array;
+    readonly side: Int8Array;
+    readonly structure: Int32Array;
   };
 
   private readonly seed: number;
@@ -1418,6 +1479,21 @@ export class Sim {
     this.stTypeIdx = new Uint16Array(sc);
     this.stProducesFor = new Int8Array(sc).fill(-1);
     this.stOccupants = new Uint8Array(sc);
+    this.stOwner = new Int8Array(sc).fill(-1);
+    this.stKnown = new Uint8Array(2 * sc);
+    this.stProgress = new Int32Array(sc);
+    this.siteAlive = new Uint8Array(MAX_SITES);
+    this.siteType = new Int16Array(MAX_SITES);
+    this.siteX = new Int32Array(MAX_SITES);
+    this.siteY = new Int32Array(MAX_SITES);
+    this.siteSide = new Int8Array(MAX_SITES);
+    this.siteStructure = new Int32Array(MAX_SITES).fill(-1);
+    this.buildSite = new Int8Array(n).fill(-1);
+    this.auraHealRate = new Int32Array(n);
+    this.auraHealCap = new Int32Array(n);
+    this.auraCompAt = new Int32Array(n);
+    this.auraRepairTicks = new Int32Array(n);
+    this.auraAccMult = new Int32Array(n).fill(ONE);
     this.stCx = new Int32Array(sc);
     this.stCy = new Int32Array(sc);
     this.stMinX = new Int32Array(sc);
@@ -1489,6 +1565,12 @@ export class Sim {
       braceTicks: this.braceTicks,
       focusTarget: this.focusTarget,
       focusLost: this.focusLost,
+      buildSite: this.buildSite,
+      auraHealRate: this.auraHealRate,
+      auraHealCap: this.auraHealCap,
+      auraCompAt: this.auraCompAt,
+      auraRepairTicks: this.auraRepairTicks,
+      auraAccMult: this.auraAccMult,
     };
     this.structures = {
       alive: this.stAlive,
@@ -1502,6 +1584,17 @@ export class Sim {
       minY: this.stMinY,
       maxX: this.stMaxX,
       maxY: this.stMaxY,
+      owner: this.stOwner,
+      known: this.stKnown,
+      progress: this.stProgress,
+    };
+    this.works = {
+      alive: this.siteAlive,
+      type: this.siteType,
+      x: this.siteX,
+      y: this.siteY,
+      side: this.siteSide,
+      structure: this.siteStructure,
     };
   }
 
@@ -1609,8 +1702,12 @@ export class Sim {
     return this.structureTypes.length - 1;
   }
 
-  /** Raise a building over `tiles` (tile indices). Blocks until it falls. */
-  addStructure(typeIdx: number, tiles: readonly number[]): number {
+  /** Raise a building over `tiles` (tile indices). Blocks until it falls.
+   *  `opts.owner` overrides the type's owner (-1 neutral, 0, 1); `opts.progress`
+   *  is construction progress, ONE (complete) by default. Either one that
+   *  makes the structure field-works state (an owner, or progress below ONE)
+   *  sets `fwLive` (D1, see hash()). */
+  addStructure(typeIdx: number, tiles: readonly number[], opts?: { owner?: number; progress?: Fx }): number {
     if (this.structureCount_ >= MAX_STRUCTURES) throw new Error('too many structures');
     const type = this.structureTypes[typeIdx];
     if (type === undefined) throw new Error(`no structure type ${typeIdx}`);
@@ -1640,6 +1737,12 @@ export class Sim {
     this.stAlive[id] = 1;
     this.stTypeIdx[id] = typeIdx;
     this.stProducesFor[id] = type.producesFor;
+    const owner = opts?.owner ?? type.owner;
+    if (owner !== -1 && owner !== 0 && owner !== 1) throw new Error(`structure owner ${owner}, expected -1, 0 or 1`);
+    const progress = opts?.progress ?? ONE;
+    this.stOwner[id] = owner;
+    this.stProgress[id] = progress;
+    if (owner !== -1 || progress !== ONE) this.fwLive = true;
     this.stMaxHp[id] = fx.mul(type.hpPerTile, fx.fromInt(tiles.length));
     this.stHp[id] = this.stMaxHp[id];
     this.stOccupants[id] = 0;
@@ -1669,6 +1772,29 @@ export class Sim {
   /** The side structure `s` produces for: the placement's override, else its type's `producesFor` (-1 = none). */
   structureProducesFor(s: number): number {
     return this.stProducesFor[s];
+  }
+
+  /**
+   * Field works (#277): set who owns structure `s` (-1 neutral, 0, 1). Setup-only, like
+   * `setStructureProducesFor`. Unlike that column, the owner IS hashed (FW block): it decides
+   * what the other side may shoot. An owner other than -1 sets `fwLive` (D1).
+   */
+  setStructureOwner(s: number, owner: number): void {
+    if (s < 0 || s >= this.structureCount_) throw new Error(`no structure ${s}`);
+    if (this.tickCount > 0) throw new Error('setStructureOwner is setup-only (before the first tick)');
+    if (owner !== -1 && owner !== 0 && owner !== 1) throw new Error(`structure owner ${owner}, expected -1, 0 or 1`);
+    this.stOwner[s] = owner;
+    if (owner !== -1) this.fwLive = true;
+  }
+
+  /** Field works: true once `side` has seen owned structure `s` (the latch). */
+  structureKnownTo(side: number, s: number): boolean {
+    return this.stKnown[side * MAX_STRUCTURES + s] === 1;
+  }
+
+  /** Field works: true once the FW state block is folded into hash() (D1). Read-only. */
+  get fieldWorksLive(): boolean {
+    return this.fwLive;
   }
 
   get tunnelCount(): number {
@@ -1965,6 +2091,12 @@ export class Sim {
     this.brace[id] = BRACE_NONE;
     this.braceTicks[id] = 0;
     this.braceClock[id] = 0;
+    this.buildSite[id] = -1;
+    this.auraHealRate[id] = 0;
+    this.auraHealCap[id] = 0;
+    this.auraCompAt[id] = 0;
+    this.auraRepairTicks[id] = 0;
+    this.auraAccMult[id] = ONE;
     this.apsAmmo[id] = type.apsMagazine;
     this.pendingEvents.push({ kind: 'spawn', tick: this.tickCount, entity: id, typeId: type.id, side });
     return id;
@@ -3529,6 +3661,57 @@ export class Sim {
         }
       }
     }
+    if (this.fwLive) this.latchOwnedStructures();
+  }
+
+  /**
+   * Field works (#277): the owned-structure identification latch. For every
+   * living OWNED structure (owner 0 or 1) the other side has not yet seen, set
+   * `stKnown[other * MAX_STRUCTURES + s]` the first tick a living unit of that
+   * side has a sight line to one of its footprint tiles inside its own sight.
+   * Neutral structures (-1) never latch, and a set latch is never cleared.
+   *
+   * The sight test is detectionPair's: the observer at its window (`eyePoint`,
+   * lifted by its floors, `eyeLift`), squared distance to the tile centre
+   * against `sightSq`, and `losRay` with the structure at the ray's END, which
+   * losRay treats as transparent, so the building's own tiles never hide it.
+   * No probability roll: a building is not a man in cover -- seen is seen.
+   * Observers are filtered as stepDetection's are (alive, side 0/1, not
+   * underground). Runs only while `fwLive` (an owned structure implies it), so
+   * a world with no owned structure pays nothing; allocates nothing.
+   */
+  private latchOwnedStructures(): void {
+    const w = this.width;
+    for (let s = 0; s < this.structureCount_; s++) {
+      if (this.stAlive[s] === 0) continue;
+      const owner = this.stOwner[s];
+      if (owner !== 0 && owner !== 1) continue;
+      const other = 1 - owner;
+      const k = other * MAX_STRUCTURES + s;
+      if (this.stKnown[k] !== 0) continue;
+      const tiles = this.stTiles[s];
+      let seen = false;
+      for (let obs = 0; obs < this.count && !seen; obs++) {
+        if (this.alive[obs] === 0 || this.side[obs] !== other) continue;
+        if (this.tunnelIn[obs] >= 0) continue;
+        const sightSq = this.unitTypes[this.typeIdx[obs]].sightSq;
+        this.eyePoint(obs, this.stCx[s], this.stCy[s]);
+        const ox = this.eyeX;
+        const oy = this.eyeY;
+        const lift = this.eyeLift(obs);
+        for (let j = 0; j < tiles.length; j++) {
+          const t = tiles[j];
+          const tx = t % w;
+          const ty = (t - tx) / w;
+          const dSq = distSqFx(fx.sub(fx.add(fx.fromInt(tx), HALF), ox), fx.sub(fx.add(fx.fromInt(ty), HALF), oy));
+          if (dSq > sightSq) continue;
+          if (this.losRay(ox >> 16, oy >> 16, tx, ty, lift, 0) < 0) continue;
+          seen = true;
+          break;
+        }
+      }
+      if (seen) this.stKnown[k] = 1;
+    }
   }
 
   /** Best observation any unit of `side` has on route `r` this tick: the
@@ -3838,11 +4021,21 @@ export class Sim {
     let best = -1;
     let bestDistSq = 0x7fffffff;
     for (let s = 0; s < this.structureCount_; s++) {
-      if (this.stAlive[s] === 0 || this.stOccupants[s] === 0) continue;
+      if (this.stAlive[s] === 0) continue;
+      // Field works (#277): a structure the ENEMY owns is a target in its own
+      // right, empty or not -- but only once this side has seen it (the
+      // `stKnown` latch), so an unseen outpost stays hidden through recon.
+      // Neutral (-1) structures never qualify: an empty house is still never
+      // shot. An unowned or unlatched building falls through to the old rule.
+      const owner = this.stOwner[s];
+      const ownedHostile =
+        (owner === 0 || owner === 1) && owner !== sSide && sSide <= 1 &&
+        this.stKnown[sSide * MAX_STRUCTURES + s] !== 0;
+      if (!ownedHostile && this.stOccupants[s] === 0) continue;
       // Protected sites are never engaged on a gunner's initiative.
       if (this.structureTypes[this.stTypeIdx[s]].roePenalty >= PROTECTED_ROE) continue;
-      let hostileInside = false;
-      for (let t = 0; t < this.count; t++) {
+      let hostileInside = ownedHostile;
+      for (let t = 0; t < this.count && !hostileInside; t++) {
         if (this.alive[t] === 0 || this.garrisonedIn[t] !== s) continue;
         if (this.side[t] === sSide || this.side[t] > 1) continue;
         if (this.contact[sSide * cap + t] >= IDENTIFIED_AT) {
@@ -6652,6 +6845,36 @@ export class Sim {
     h = hashArray(h, this.stAlive);
     h = hashArray(h, this.stHp);
     h = hashArray(h, this.stOccupants);
+    // Field works (#277), D1: the FW state block is folded only once `fwLive`
+    // is set, and NOTHING at all is folded before that -- no marker, no length
+    // word. hashArray folds by XOR-then-multiply, so even an all-default array
+    // moves the digest; folding the block unconditionally would move every
+    // golden, versus and net pin for worlds that use no field works. House
+    // precedent: `economyHash`'s rise loop, a loop with no length word so a
+    // flat map adds nothing. Every FW writer sets `fwLive` (an owned or
+    // under-construction `addStructure`, `setStructureOwner`, and site creation
+    // from Task 4), so a world whose block holds anything other than its
+    // defaults always folds it: the canary still sees every FW divergence.
+    // The marker word keeps "block folded" distinct from any accident of the
+    // arrays' contents lining up with what follows.
+    if (this.fwLive) {
+      h = hashWord(h, 0x46570277); // 'FW' #277
+      h = hashArray(h, this.stOwner);
+      h = hashArray(h, this.stKnown);
+      h = hashArray(h, this.stProgress);
+      h = hashArray(h, this.siteAlive);
+      h = hashArray(h, this.siteType);
+      h = hashArray(h, this.siteX);
+      h = hashArray(h, this.siteY);
+      h = hashArray(h, this.siteSide);
+      h = hashArray(h, this.siteStructure);
+      h = hashArray(h, this.buildSite);
+      h = hashArray(h, this.auraHealRate);
+      h = hashArray(h, this.auraHealCap);
+      h = hashArray(h, this.auraCompAt);
+      h = hashArray(h, this.auraRepairTicks);
+      h = hashArray(h, this.auraAccMult);
+    }
     // Tunnel columns — every mutable one, matching how the demolition and
     // contact state above is folded in. The contact pair matters most: it
     // gates the charge clock, and under live-gated visibility it moves every

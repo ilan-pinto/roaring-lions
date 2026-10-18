@@ -260,7 +260,16 @@ export interface MissionJson {
   objectives: readonly ObjectiveJson[];
   starting_force?: readonly PlacementJson[];
   /** Buildings this mission raises on top of its map's own. See the schema. */
-  structures?: readonly { type: string; at: readonly number[]; size?: readonly number[]; side?: number }[];
+  structures?: readonly {
+    type: string;
+    at: readonly number[];
+    size?: readonly number[];
+    /** F4: overrides the type's `produces_for`, 0 or 1. */
+    side?: number;
+    /** Field works (#277): overrides the type's `owner`, -1 neutral, 0 or 1. Distinct from
+     *  `side` (D2): reusing `side` would make every side-1 camp an owned, targetable building. */
+    owner?: number;
+  }[];
   resources?: {
     logistics_start?: number;
     intel_start?: number;
@@ -2674,6 +2683,12 @@ export class MissionRuntime {
         throw new Error(`mission ${this.mission.id}: ${spec.type} has side ${spec.side}, expected 0 or 1`);
       }
       const side: 0 | 1 | undefined = spec.side;
+      // Field works (#277, D2): the owner, the placement's over the type's. Same narrowing as
+      // `side`; absent, addStructure takes the type's own default.
+      if (spec.owner !== undefined && spec.owner !== -1 && spec.owner !== 0 && spec.owner !== 1) {
+        throw new Error(`mission ${this.mission.id}: ${spec.type} has owner ${spec.owner}, expected -1, 0 or 1`);
+      }
+      const opts = spec.owner !== undefined ? { owner: spec.owner } : undefined;
       const tiles: number[] = [];
       for (let y = oy; y < oy + h; y++) {
         for (let x = ox; x < ox + w; x++) {
@@ -2700,11 +2715,11 @@ export class MissionRuntime {
       // type, and a 6x1 fence came up as a single panel on a six-tile pad.
       if (this.sim.structureTypes[ti].perTile) {
         for (const t of tiles) {
-          const id = this.sim.addStructure(ti, [t]);
+          const id = this.sim.addStructure(ti, [t], opts);
           if (side !== undefined) this.sim.setStructureProducesFor(id, side);
         }
       } else {
-        const id = this.sim.addStructure(ti, tiles);
+        const id = this.sim.addStructure(ti, tiles, opts);
         if (side !== undefined) this.sim.setStructureProducesFor(id, side);
       }
     }

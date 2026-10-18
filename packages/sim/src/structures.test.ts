@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
+import { MissionRuntime, type MissionJson } from './mission';
 import { Sim, TICKS_PER_SECOND, type SimEvent, type UnitTypeJson } from './sim';
 import { COVER_HIT } from './tuning';
 
@@ -428,5 +429,191 @@ describe('an attack-mover closes on a garrisoned building', () => {
     expect(fx.toNumber(sim.state.posX[tank])).toBeCloseTo(before, 2);
     // And it stopped short of the destination it was ordered to.
     expect(fx.toNumber(sim.state.posX[tank])).toBeLessThan(12.0);
+  });
+});
+
+// Field works (#277), Task 2: structure owners, the per-side identification
+// latch, and owned structures as targets. Geometry by hand: a 32x16 map, the
+// owned building a 2x2 at x20-21, y6-7, so its nearest tile centre from a
+// unit on row 6 at x+0.5 is (20.5, 6.5).
+describe('field works: owned structures are seen once and then shot', () => {
+  const OP = { id: 'fw_op', name: 'Outpost', hp_per_tile: 300, owner: 1 };
+  const SHRINE = { id: 'fw_shrine', name: 'Shrine', hp_per_tile: 300, owner: 1, roe_penalty: 20 };
+  const RIDGE = { id: 'fw_ridge', name: 'Ridge wall', hp_per_tile: 5000 };
+
+  /** Unarmed eyes: sight 10, so it sees the building from x <= 10.5 tiles off. */
+  const SPOTTER: UnitTypeJson = {
+    id: 'fw_spotter', role: 'recon',
+    hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 } },
+    mobility: { speed_tiles_s: 1 },
+    sensors: { optics: 1, sight_tiles: 10, signature: 0.6 },
+    weapons: [],
+  };
+  /** A gun that out-ranges its own eyes: HE to 12 tiles, sight 3. Whatever it
+   *  shoots at 11 tiles, it did not see for itself. */
+  const BLIND_GUN: UnitTypeJson = {
+    id: 'fw_gun', role: 'mbt',
+    hull: { hp: 3000, armor: { front: 700, side: 300, rear: 150 } },
+    mobility: { speed_tiles_s: 1 },
+    sensors: { optics: 1, sight_tiles: 3, signature: 1 },
+    weapons: [
+      { id: 'he', type: 'he', range_tiles: 12, effective_range_tiles: 10, accuracy: 0.8, penetration: 60, damage: 300, splash_tiles: 1.5, suppression: 60, rof_per_min: 12, can_target: ['ground', 'structure'] },
+    ],
+  };
+
+  function fw(kind: 'op' | 'shrine' | 'house'): { sim: Sim; s: number; spot: number; gun: number } {
+    const sim = new Sim({ seed: 0x277, width: 32, height: 16, capacity: 16 });
+    const types = [sim.addStructureType(OP), sim.addStructureType(SHRINE), sim.addStructureType(HOUSE)];
+    const ti = types[kind === 'op' ? 0 : kind === 'shrine' ? 1 : 2];
+    const s = rect(sim, ti, 20, 6, 2, 2);
+    // A neutral house is not FW state; give that world an owned building far
+    // out of everyone's reach so the latch pass and the FW branch are live.
+    if (kind === 'house') rect(sim, types[0], 29, 13, 2, 2);
+    const spot = sim.spawn(sim.addUnitType(SPOTTER), 0, fx.from(2.5), fx.from(6.5));
+    // (9.5, 6.5) to (20.5, 6.5): 11 tiles, inside 12 of range, outside 3 of sight.
+    const gun = sim.spawn(sim.addUnitType(BLIND_GUN), 0, fx.from(9.5), fx.from(6.5));
+    return { sim, s, spot, gun };
+  }
+
+  it('a side-1 building is unknown to side 0 until a side-0 eye has it inside sight, then stays known', () => {
+    const { sim, s, spot } = fw('op');
+    expect(sim.structures.owner[s]).toBe(1);
+    run(sim, 5); // spotter 18 tiles off, gun 11 off with sight 3
+    expect(sim.structureKnownTo(0, s)).toBe(false);
+    sim.teleport(spot, fx.from(11.5), fx.from(6.5)); // 9 tiles: inside sight 10
+    run(sim, 1);
+    expect(sim.structureKnownTo(0, s)).toBe(true);
+    sim.teleport(spot, fx.from(2.5), fx.from(6.5)); // back out of sight
+    run(sim, 40);
+    expect(sim.structureKnownTo(0, s)).toBe(true); // a latch, not a ladder
+    // Its own side never "finds" it.
+    expect(sim.structureKnownTo(1, s)).toBe(false);
+  });
+
+  it('inside sight is not enough: a wall across the sight line keeps it unknown', () => {
+    const { sim, s, spot } = fw('op');
+    const ridge = sim.addStructureType(RIDGE);
+    rect(sim, ridge, 15, 0, 2, 16); // x15-16, the whole height of the map
+    sim.teleport(spot, fx.from(11.5), fx.from(6.5));
+    run(sim, 10);
+    expect(sim.structureKnownTo(0, s)).toBe(false);
+  });
+
+  it('a neutral building never latches, for either side', () => {
+    const { sim, s, spot } = fw('house');
+    expect(sim.fieldWorksLive).toBe(true);
+    sim.teleport(spot, fx.from(18.5), fx.from(6.5)); // two tiles off
+    run(sim, 10);
+    expect(sim.structures.known[s]).toBe(0);
+    expect(sim.structures.known[256 + s]).toBe(0);
+  });
+
+  it('takes a seen side-1 building in the fallback slot, empty as it is', () => {
+    const { sim, s, spot, gun } = fw('op');
+    sim.teleport(spot, fx.from(11.5), fx.from(6.5)); // the spotter finds it for the gun
+    const ev = run(sim, 200); // HE fires every 5 s; 10 s holds two
+    expect(sim.structureKnownTo(0, s)).toBe(true);
+    expect(sim.state.curStructure[gun]).toBe(s);
+    // At 11 tiles the round mostly misses (pHit ~0.28), so the witness is the
+    // shot at the building, not a hit on it.
+    expect(ev.some((e) => e.kind === 'fire' && e.shooter === gun && e.structure === s)).toBe(true);
+  });
+
+  it('does not take it without the latch', () => {
+    const { sim, s, gun } = fw('op'); // spotter stays 18 tiles off
+    const ev = run(sim, 200);
+    expect(sim.structureKnownTo(0, s)).toBe(false);
+    expect(sim.state.curStructure[gun]).toBe(-1);
+    expect(ev.some((e) => e.kind === 'fire')).toBe(false);
+  });
+
+  it('a unit target outranks the building: the building is the fallback slot only', () => {
+    const { sim, s, spot, gun } = fw('op');
+    sim.teleport(spot, fx.from(11.5), fx.from(6.5));
+    // An enemy at (12.5, 10.5): 5 tiles from the spotter (identified), 5 from the gun.
+    const foe = sim.spawn(sim.addUnitType(SPOTTER), 1, fx.from(12.5), fx.from(10.5));
+    let checked = 0;
+    for (let i = 0; i < 100; i++) {
+      sim.tick();
+      if (sim.state.alive[foe] === 1 && sim.state.curTarget[gun] === foe) {
+        expect(sim.state.curStructure[gun]).toBe(-1);
+        checked++;
+      }
+    }
+    expect(sim.structureKnownTo(0, s)).toBe(true);
+    expect(checked).toBeGreaterThan(0);
+  });
+
+  it('does not take a PROTECTED_ROE side-1 building, seen or not', () => {
+    const { sim, s, spot, gun } = fw('shrine');
+    sim.teleport(spot, fx.from(11.5), fx.from(6.5));
+    const ev = run(sim, 200);
+    expect(sim.structureKnownTo(0, s)).toBe(true);
+    expect(sim.state.curStructure[gun]).toBe(-1);
+    expect(ev.some((e) => e.kind === 'fire')).toBe(false);
+  });
+
+  it("never takes a building its own side owns, even with that side's latch byte forced", () => {
+    // The latch only ever sets for the OTHER side, so this byte is unreachable
+    // in play; forcing it through the view is the one input that can tell
+    // whether selectStructureTarget checks the owner against the shooter.
+    const { sim, s, gun } = fw('op');
+    sim.setStructureOwner(s, 0);
+    sim.structures.known[s] = 1; // side 0's byte for structure s
+    const ev = run(sim, 200);
+    expect(sim.state.curStructure[gun]).toBe(-1);
+    expect(ev.some((e) => e.kind === 'fire')).toBe(false);
+  });
+
+  it('still never shoots an empty neutral house', () => {
+    const { sim, s, spot, gun } = fw('house');
+    expect(sim.structures.owner[s]).toBe(-1);
+    sim.teleport(spot, fx.from(11.5), fx.from(6.5));
+    const ev = run(sim, 200);
+    expect(sim.state.curStructure[gun]).toBe(-1);
+    expect(ev.some((e) => e.kind === 'fire')).toBe(false);
+  });
+});
+
+describe('field works: a mission placement owns its structure', () => {
+  const OP = { id: 'fw_op', name: 'Outpost', hp_per_tile: 300, owner: 1 };
+
+  function start(structures: MissionJson['structures']): Sim {
+    const sim = new Sim({ seed: 3, width: 32, height: 16, capacity: 16 });
+    const t = sim.addUnitType(RIFLES);
+    sim.addStructureType(HOUSE);
+    sim.addStructureType(OP);
+    const mission: MissionJson = {
+      id: 'fw_owner', map: { file: 'none', player_start: [2, 2] },
+      ledger: { requires: [], produces: [] },
+      objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
+      starting_force: [{ unit: 's_inf', count: 1, at: [2, 12] }],
+      ...(structures !== undefined ? { structures } : {}),
+    };
+    new MissionRuntime(sim, mission, { typeIdOf: () => t, markers: {}, zones: {} }).start();
+    return sim;
+  }
+
+  it("raises `owner` over the type's default, and takes the default without one", () => {
+    const sim = start([
+      { type: 'house', at: [4, 4], size: [2, 2], owner: 1 },
+      { type: 'house', at: [8, 4], size: [2, 2] },
+      { type: 'fw_op', at: [12, 4], size: [2, 2] },
+      { type: 'fw_op', at: [16, 4], size: [2, 2], owner: -1 },
+      { type: 'fw_op', at: [20, 4], size: [2, 2], owner: 0 },
+    ]);
+    expect([0, 1, 2, 3, 4].map((s) => sim.structures.owner[s])).toEqual([1, -1, 1, -1, 0]);
+    // `side` stays F4's produces_for and is untouched by `owner` (D2).
+    expect(sim.structureProducesFor(0)).toBe(-1);
+    expect(sim.fieldWorksLive).toBe(true);
+  });
+
+  it('a mission with only neutral placements is not FW-live', () => {
+    const sim = start([{ type: 'house', at: [4, 4], size: [2, 2] }]);
+    expect(sim.fieldWorksLive).toBe(false);
+  });
+
+  it('refuses an owner the schema enum would refuse', () => {
+    expect(() => start([{ type: 'house', at: [4, 4], size: [2, 2], owner: 2 }])).toThrow(/owner 2, expected -1, 0 or 1/);
   });
 });

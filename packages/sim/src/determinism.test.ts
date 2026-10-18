@@ -1844,3 +1844,103 @@ describe('economy replay over relief (2400 ticks of MissionRuntime on tel_marum)
     expect(reliefEconomyReplay(RELIEF_ECO_SEED).rt.economyHash()).toBe(ECONOMY_PIN_RELIEF);
   });
 });
+
+// Field works (#277), Task 2: the FW state block. D1 (pre-flight): hash()
+// folds the block only once `fwLive` is set, so no existing pin moved when the
+// fourteen arrays arrived -- every golden, versus and net replay raises only
+// neutral, complete structures. These tests therefore run on an FW-LIVE sim
+// (one owned structure raised), and flip one element of each array through
+// its read-only view: a hash that skipped the array would not notice.
+describe('field works state block (D1)', () => {
+  const OWNED = { id: 'fw_op', hp_per_tile: 300, owner: 1 };
+  const NEUTRAL = { id: 'fw_house', hp_per_tile: 260, garrison_slots: 2 };
+
+  function fwWorld(owned: boolean): { sim: Sim; s: number } {
+    const sim = new Sim({ seed: 0x277, width: 24, height: 12, capacity: 8 });
+    const t = sim.addUnitType(RIFLES);
+    const ti = sim.addStructureType(owned ? OWNED : NEUTRAL);
+    const s = sim.addStructure(ti, [5 * 24 + 16, 5 * 24 + 17]);
+    sim.spawn(t, 0, fx.fromInt(3), fx.fromInt(3));
+    for (let i = 0; i < 5; i++) sim.tick();
+    return { sim, s };
+  }
+
+  type Flip = (sim: Sim, s: number) => void;
+  const flips: readonly (readonly [string, Flip])[] = [
+    ['stOwner', (sim, s) => { sim.structures.owner[s] = 0; }],
+    ['stKnown', (sim, s) => { sim.structures.known[s] ^= 1; }],
+    ['stProgress', (sim, s) => { sim.structures.progress[s] -= 1; }],
+    ['siteAlive', (sim) => { sim.works.alive[0] ^= 1; }],
+    ['siteType', (sim) => { sim.works.type[0] += 1; }],
+    ['siteX', (sim) => { sim.works.x[0] += 1; }],
+    ['siteY', (sim) => { sim.works.y[0] += 1; }],
+    ['siteSide', (sim) => { sim.works.side[0] += 1; }],
+    ['siteStructure', (sim) => { sim.works.structure[0] += 1; }],
+    ['buildSite', (sim) => { sim.state.buildSite[0] += 1; }],
+    ['auraHealRate', (sim) => { sim.state.auraHealRate[0] += 1; }],
+    ['auraHealCap', (sim) => { sim.state.auraHealCap[0] += 1; }],
+    ['auraCompAt', (sim) => { sim.state.auraCompAt[0] += 1; }],
+    ['auraRepairTicks', (sim) => { sim.state.auraRepairTicks[0] += 1; }],
+    ['auraAccMult', (sim) => { sim.state.auraAccMult[0] -= 1; }],
+  ];
+
+  for (const [name, flip] of flips) {
+    it(`hash covers ${name}`, () => {
+      const { sim, s } = fwWorld(true);
+      expect(sim.fieldWorksLive).toBe(true);
+      const before = sim.hash();
+      flip(sim, s);
+      expect(sim.hash()).not.toBe(before);
+    });
+  }
+
+  it('a world with only neutral, complete structures is not FW-live, and folds no FW word', () => {
+    const { sim, s } = fwWorld(false);
+    expect(sim.fieldWorksLive).toBe(false);
+    const before = sim.hash();
+    // Touch every array in the block: none of it is folded, so nothing moves.
+    for (const [, flip] of flips) flip(sim, s);
+    expect(sim.hash()).toBe(before);
+  });
+
+  it('spawn initialises the per-unit FW columns: buildSite -1, aura 0, accuracy multiplier ONE', () => {
+    const { sim } = fwWorld(true);
+    expect(sim.state.buildSite[0]).toBe(-1);
+    expect(sim.state.auraHealRate[0]).toBe(0);
+    expect(sim.state.auraHealCap[0]).toBe(0);
+    expect(sim.state.auraCompAt[0]).toBe(0);
+    expect(sim.state.auraRepairTicks[0]).toBe(0);
+    expect(sim.state.auraAccMult[0]).toBe(65536); // ONE
+    expect(sim.works.structure[0]).toBe(-1);
+  });
+
+  it('every raised structure has progress ONE', () => {
+    const { sim, s } = fwWorld(false);
+    expect(sim.structures.progress[s]).toBe(65536);
+    expect(sim.structures.owner[s]).toBe(-1);
+  });
+
+  it('each FW writer sets fwLive: an owned addStructure, a sub-ONE progress, setStructureOwner', () => {
+    const mk = (): { sim: Sim; ti: number } => {
+      const sim = new Sim({ seed: 1, width: 24, height: 12, capacity: 4 });
+      return { sim, ti: sim.addStructureType(NEUTRAL) };
+    };
+    const a = mk();
+    a.sim.addStructure(a.ti, [30]);
+    expect(a.sim.fieldWorksLive).toBe(false);
+    a.sim.addStructure(a.ti, [40], { owner: 0 });
+    expect(a.sim.fieldWorksLive).toBe(true);
+
+    const b = mk();
+    b.sim.addStructure(b.ti, [30], { progress: 65535 });
+    expect(b.sim.fieldWorksLive).toBe(true);
+
+    const c = mk();
+    const cs = c.sim.addStructure(c.ti, [30]);
+    c.sim.setStructureOwner(cs, -1);
+    expect(c.sim.fieldWorksLive).toBe(false);
+    c.sim.setStructureOwner(cs, 1);
+    expect(c.sim.fieldWorksLive).toBe(true);
+    expect(c.sim.structures.owner[cs]).toBe(1);
+  });
+});
