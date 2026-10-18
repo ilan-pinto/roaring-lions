@@ -789,7 +789,18 @@ export type ComponentResult =
  *  All numeric payloads are raw Q16.16 — the render side converts. */
 export type SimEvent =
   | { kind: 'spawn'; tick: number; entity: number; typeId: string; side: number }
-  | { kind: 'contact'; tick: number; side: number; target: number; level: ContactLevel; confidence: Fx; observer: number }
+  | {
+      kind: 'contact';
+      tick: number;
+      side: number;
+      target: number;
+      level: ContactLevel;
+      confidence: Fx;
+      observer: number;
+      /** Field works (#277 Task 7): the sensor structure that saw it, present only when the
+       *  observation was structure-sourced, in which case `observer` is -1. */
+      observerStructure?: number;
+    }
   | {
       kind: 'fire';
       tick: number;
@@ -836,7 +847,16 @@ export type SimEvent =
   | { kind: 'garrison'; tick: number; entity: number; structure: number; entered: boolean }
   | { kind: 'transport'; tick: number; entity: number; carrier: number; loaded: boolean }
   | { kind: 'ventOpened'; tick: number; tunnel: number }
-  | { kind: 'tunnelContact'; tick: number; side: number; tunnel: number; level: ContactLevel; observer: number }
+  | {
+      kind: 'tunnelContact';
+      tick: number;
+      side: number;
+      tunnel: number;
+      level: ContactLevel;
+      observer: number;
+      /** Field works (#277 Task 7): the sensor structure, when structure-sourced (`observer` -1). */
+      observerStructure?: number;
+    }
   | { kind: 'surfaced'; tick: number; entity: number; tunnel: number }
   | { kind: 'submerged'; tick: number; entity: number; tunnel: number }
   | { kind: 'tunnelCollapsed'; tick: number; tunnel: number; by: number }
@@ -1232,6 +1252,12 @@ export class Sim {
    *  while it is set. Never cleared: once live, always folded. Not itself
    *  hashed -- it is a function of what the block holds. */
   private fwLive = false;
+  /** Field works (#277 Task 7): per sensor structure, bit `r` set when any tile of route `r`
+   *  lies within the type's `tunnel_radius` of the centroid. Geometry only (footprints and
+   *  route tiles never change), so it is filled when the structure is raised and when a route
+   *  is registered, and the route loop checks completion and owner each tick. Derived from
+   *  immutable state; NOT hashed. */
+  private readonly stRouteMask: Uint16Array;
   /** Field works: the tick each unit last added construction progress, -1 never. Scratch for
    *  `isConstructing` (the render's `work` clip); never read by the sim, never hashed. */
   private readonly constructedAt: Int32Array;
@@ -1270,6 +1296,17 @@ export class Sim {
    *  never hashed -- it is a label on an event, not state. -1 = nobody this tick. */
   private readonly bestObserver: Int32Array;
   private readonly bestObserverP: Int32Array;
+  /** Field works (#277 Task 7): per (side, target) this tick, the sensor structure that won
+   *  `bestObserver` (which is then -1), else -1. Scratch, reset only while `fwLive`, never
+   *  hashed -- an event label like `bestObserver`. */
+  private readonly bestObserverStructure: Int16Array;
+  /** `detectionFrom`'s outputs, so the sensor loop allocates nothing. Scratch, read straight
+   *  after the call that wrote them; never hashed, never read across ticks. */
+  private detP: Fx = 0;
+  private detStrength: Fx = 0;
+  private detSig: Fx = 0;
+  private detOccl: Fx = ONE;
+  private detDistSq: Fx = 0;
   /** Per (side, target): where that enemy was last actually observed, and
    *  whether that memory is still worth walking to. Troops do not forget a
    *  position the moment they lose sight of it. */
@@ -1539,6 +1576,7 @@ export class Sim {
     this.stOwner = new Int8Array(sc).fill(-1);
     this.stKnown = new Uint8Array(2 * sc);
     this.stProgress = new Int32Array(sc);
+    this.stRouteMask = new Uint16Array(sc);
     this.siteAlive = new Uint8Array(MAX_SITES);
     this.siteType = new Int16Array(MAX_SITES);
     this.siteX = new Int32Array(MAX_SITES);
@@ -1574,6 +1612,7 @@ export class Sim {
     this.seenThisTick = new Uint8Array(2 * n);
     this.bestObserver = new Int32Array(2 * n);
     this.bestObserverP = new Int32Array(2 * n);
+    this.bestObserverStructure = new Int16Array(2 * n).fill(-1);
     this.lastSeenX = new Int32Array(2 * n);
     this.lastSeenY = new Int32Array(2 * n);
     this.lastSeenValid = new Uint8Array(2 * n);
@@ -1840,8 +1879,30 @@ export class Sim {
     this.stMinY[id] = minY;
     this.stMaxX[id] = maxX;
     this.stMaxY[id] = maxY;
+    const sensor = type.aura === null ? null : type.aura.sensor;
+    if (sensor !== null && sensor.tunnelRadiusSq > 0) {
+      let mask = 0;
+      for (let r = 0; r < this.tunnelCount_; r++) {
+        if (this.routeWithin(id, r, sensor.tunnelRadiusSq)) mask |= 1 << r;
+      }
+      this.stRouteMask[id] = mask;
+    }
     this.recomputeFields();
     return id;
+  }
+
+  /** Field works: does any tile of route `r` lie within `radiusSq` of structure `s`'s
+   *  centroid (tile centres, as route spotting measures)? No LOS: a sensor, not an eye.
+   *  Load-time only (addStructure, addTunnel). */
+  private routeWithin(s: number, r: number, radiusSq: Fx): boolean {
+    const w = this.width;
+    for (const t of this.tnTiles[r]) {
+      const tx = t % w;
+      const ty = (t - tx) / w;
+      const dSq = distSqFx(fx.sub(fx.add(fx.fromInt(tx), HALF), this.stCx[s]), fx.sub(fx.add(fx.fromInt(ty), HALF), this.stCy[s]));
+      if (dSq <= radiusSq) return true;
+    }
+    return false;
   }
 
   /**
@@ -2393,6 +2454,12 @@ export class Sim {
       }
     }
     this.tnTiles.push(tiles);
+    // A sensor structure raised before this route: add the route's bit to its mask.
+    for (let st = 0; st < this.structureCount_; st++) {
+      const a = this.structureTypes[this.stTypeIdx[st]].aura;
+      if (a === null || a.sensor === null || a.sensor.tunnelRadiusSq <= 0) continue;
+      if (this.routeWithin(st, id, a.sensor.tunnelRadiusSq)) this.stRouteMask[st] |= 1 << id;
+    }
     return id;
   }
 
@@ -3846,31 +3913,47 @@ export class Sim {
   }
 
   private detectionPair(obs: number, tgt: number): DetectionDebug {
-    const none: DetectionDebug = {
-      visible: false,
-      p: 0,
-      strength: 0,
-      signature: 0,
-      occlusion: ONE,
-      distSq: 0,
-      confidence: this.contact[this.side[obs] * this.capacity + tgt],
-    };
     const oType = this.unitTypes[this.typeIdx[obs]];
-    const tType = this.unitTypes[this.typeIdx[tgt]];
-    // Both ends at their windows (G1, B6): a garrisoned observer looks out of
-    // the tile nearest the target, and a garrisoned target is seen at the tile
-    // nearest the observer's own eye.
+    const oSide = this.side[obs];
+    // The observer at its window (G1, B6): a garrisoned observer looks out of
+    // the tile nearest the target. detectionFrom puts the target at ITS window.
     this.eyePoint(obs, this.posX[tgt], this.posY[tgt]);
-    const ox = this.eyeX;
-    const oy = this.eyeY;
+    const visible = this.detectionFrom(this.eyeX, this.eyeY, this.sightSqOf(obs), oType.optics, this.eyeLift(obs), tgt);
+    const confidence = this.contact[oSide * this.capacity + tgt];
+    if (!visible) {
+      return { visible: false, p: 0, strength: 0, signature: 0, occlusion: ONE, distSq: this.detDistSq, confidence };
+    }
+    return {
+      visible: true,
+      p: this.detP,
+      strength: this.detStrength,
+      signature: this.detSig,
+      occlusion: this.detOccl,
+      distSq: this.detDistSq,
+      confidence,
+    };
+  }
+
+  /**
+   * One observation from an eye at (ox, oy) -- a unit's window, or a sensor structure's
+   * centroid (field works, Task 7) -- of `tgt`. Returns whether the target
+   * is visible; the roll's numbers land in the `det*` scratch fields (`detDistSq` always), so
+   * the call allocates nothing. `lift` raises the observer's eye by whole elevation levels
+   * (`eyeLift` for a unit; 0 for a structure, whose eye stands at ground level as route
+   * spotting's does). Signature x strength x p, shared by unit detection, sensor structures
+   * and the debug overlay.
+   */
+  private detectionFrom(ox: Fx, oy: Fx, sightSq: Fx, optics: Fx, lift: number, tgt: number): boolean {
+    const tType = this.unitTypes[this.typeIdx[tgt]];
+    // A garrisoned target is seen at the tile nearest the observer's own eye.
     this.eyePoint(tgt, ox, oy);
     const tx = this.eyeX;
     const ty = this.eyeY;
     const dSq = distSqFx(fx.sub(tx, ox), fx.sub(ty, oy));
-    none.distSq = dSq;
-    if (dSq > this.sightSqOf(obs)) return none;
-    const cov = this.losRay(ox >> 16, oy >> 16, tx >> 16, ty >> 16, this.eyeLift(obs), this.eyeLift(tgt));
-    if (cov < 0) return none;
+    this.detDistSq = dSq;
+    if (dSq > sightSq) return false;
+    const cov = this.losRay(ox >> 16, oy >> 16, tx >> 16, ty >> 16, lift, this.eyeLift(tgt));
+    if (cov < 0) return false;
 
     let sig = tType.signature;
     if (this.stance[tgt] === 1) sig = fx.mul(sig, AMBUSH_SIG);
@@ -3889,17 +3972,12 @@ export class Sim {
 
     const occl = fx.add(ONE, cov * OCCL_PER_COVER);
     const denom = fx.mul(fx.max(dSq, MIN_DETECT_DIST_SQ), occl);
-    const strength = fx.div(fx.mul(oType.optics, sig), denom);
-    const p = fx.sub(ONE, fx.expNeg(fx.mul(K_DETECT, fx.mul(strength, DT))));
-    return {
-      visible: true,
-      p,
-      strength,
-      signature: sig,
-      occlusion: occl,
-      distSq: dSq,
-      confidence: this.contact[this.side[obs] * this.capacity + tgt],
-    };
+    const strength = fx.div(fx.mul(optics, sig), denom);
+    this.detP = fx.sub(ONE, fx.expNeg(fx.mul(K_DETECT, fx.mul(strength, DT))));
+    this.detStrength = strength;
+    this.detSig = sig;
+    this.detOccl = occl;
+    return true;
   }
 
   /** Contact state of `target` as known to `side`: 0 unknown, 1 suspected,
@@ -4195,6 +4273,7 @@ export class Sim {
         this.contact[k] = fx.add(c, fx.mul(fx.sub(ONE, c), d.p));
       }
     }
+    if (this.fwLive) this.sensorObservations();
     // Decay unobserved contacts; emit state transitions.
     for (let s = 0; s < 2; s++) {
       for (let tgt = 0; tgt < this.count; tgt++) {
@@ -4206,14 +4285,25 @@ export class Sim {
         const st = this.contactState[k];
         if (st < 2 && c >= IDENTIFIED_AT) {
           this.contactState[k] = 2;
-          this.pendingEvents.push({ kind: 'contact', tick: this.tickCount, side: s, target: tgt, level: 'identified', confidence: c, observer: this.bestObserver[k] });
+          this.pushContact(s, tgt, 'identified', c, k);
         } else if (st < 1 && c >= SUSPECTED_AT) {
           this.contactState[k] = 1;
-          this.pendingEvents.push({ kind: 'contact', tick: this.tickCount, side: s, target: tgt, level: 'suspected', confidence: c, observer: this.bestObserver[k] });
+          this.pushContact(s, tgt, 'suspected', c, k);
         } else if (st > 0 && c < LOST_AT) {
           this.contactState[k] = 0;
-          this.pendingEvents.push({ kind: 'contact', tick: this.tickCount, side: s, target: tgt, level: 'lost', confidence: c, observer: this.bestObserver[k] });
+          this.pushContact(s, tgt, 'lost', c, k);
         }
+      }
+    }
+    // Field works: the routes each side's complete sensor structures hold this
+    // tick, one OR per structure (stRouteMask is cached geometry). 0 unless fwLive.
+    let sensed0 = 0;
+    let sensed1 = 0;
+    if (this.fwLive && this.tunnelCount_ > 0) {
+      for (let st = 0; st < this.structureCount_; st++) {
+        const owner = this.sensorOwner(st);
+        if (owner === 0) sensed0 |= this.stRouteMask[st];
+        else if (owner === 1) sensed1 |= this.stRouteMask[st];
       }
     }
     // A route is found through the spoil it leaves, not by seeing the tunnel.
@@ -4224,6 +4314,13 @@ export class Sim {
       if (this.tnAlive[r] === 0) continue;
       for (let s = 0; s < 2; s++) {
         const k = s * MAX_TUNNELS + r;
+        // A sensor structure holds the route identified while it stands --
+        // held, not latched: once it falls the bit is gone and the contact
+        // decays down the ladder below, as a departed mark_tunnel carrier's does.
+        if ((((s === 0 ? sensed0 : sensed1) >> r) & 1) !== 0) {
+          this.identifyTunnelTo(s, r, -1, this.tnContactState[k] !== 2 ? this.sensorHoldingRoute(s, r) : -1);
+          continue;
+        }
         // `mark_tunnel` senses the ROUTE, not its spoil: a trained eye with a
         // clear sight line to any tile the route runs under hands its side
         // the route identified outright — no dwell, no spoil, no tuning
@@ -4475,12 +4572,89 @@ export class Sim {
    *  Held, not latched: stepDetection re-calls this every tick some carrier
    *  keeps the route in sight, and once nothing does, the contact decays
    *  back down the ladder like any other — visibility is live. */
-  identifyTunnelTo(side: number, r: number, observer = -1): void {
+  identifyTunnelTo(side: number, r: number, observer = -1, observerStructure = -1): void {
     const k = side * MAX_TUNNELS + r;
     this.tnContact[k] = ONE;
     if (this.tnContactState[k] !== 2) {
       this.tnContactState[k] = 2;
-      this.pendingEvents.push({ kind: 'tunnelContact', tick: this.tickCount, side, tunnel: r, level: 'identified', observer });
+      if (observerStructure >= 0) {
+        this.pendingEvents.push({ kind: 'tunnelContact', tick: this.tickCount, side, tunnel: r, level: 'identified', observer, observerStructure });
+      } else {
+        this.pendingEvents.push({ kind: 'tunnelContact', tick: this.tickCount, side, tunnel: r, level: 'identified', observer });
+      }
+    }
+  }
+
+  /** Field works: the side a structure observes for as a sensor this tick -- its owner (0/1)
+   *  when it is alive, complete and has an `aura.sensor` -- else -1. */
+  private sensorOwner(st: number): number {
+    if (this.stAlive[st] === 0 || this.stProgress[st] !== ONE) return -1;
+    const owner = this.stOwner[st];
+    if (owner !== 0 && owner !== 1) return -1;
+    const a = this.structureTypes[this.stTypeIdx[st]].aura;
+    return a === null || a.sensor === null ? -1 : owner;
+  }
+
+  /** The lowest-id live sensor structure of `side` holding route `r`, -1 none. Only asked on
+   *  the tick a route turns identified, for the event's label. */
+  private sensorHoldingRoute(side: number, r: number): number {
+    for (let st = 0; st < this.structureCount_; st++) {
+      if (this.sensorOwner(st) === side && ((this.stRouteMask[st] >> r) & 1) !== 0) return st;
+    }
+    return -1;
+  }
+
+  /** Push a unit-contact transition. The structure label rides only on a structure-sourced
+   *  observation (`bestObserver` -1 with a winning sensor), so every unit-sourced event keeps
+   *  its exact shape. */
+  private pushContact(side: number, target: number, level: ContactLevel, c: Fx, k: number): void {
+    const observer = this.bestObserver[k];
+    const st = observer === -1 && this.fwLive ? this.bestObserverStructure[k] : -1;
+    if (st >= 0) {
+      this.pendingEvents.push({ kind: 'contact', tick: this.tickCount, side, target, level, confidence: c, observer, observerStructure: st });
+    } else {
+      this.pendingEvents.push({ kind: 'contact', tick: this.tickCount, side, target, level, confidence: c, observer });
+    }
+  }
+
+  /**
+   * Field works (#277 Task 7): every complete, owned sensor structure observes as an eye of
+   * its owner's side, feeding the same contact arrays the unit loop does (spec §3, "Intel
+   * centre"). The eye is the centroid at ground level -- route spotting's rule -- with the
+   * type's sight and optics, through `detectionFrom`, the unit path's own roll. A structure
+   * that wins a (side, target) pair sets `bestObserver` to -1 and labels the pair in
+   * `bestObserverStructure`. Targets are filtered exactly as the unit loop's (alive, other
+   * side, not underground). Called only while `fwLive`; allocates nothing.
+   */
+  private sensorObservations(): void {
+    const cap = this.capacity;
+    this.bestObserverStructure.fill(-1);
+    for (let st = 0; st < this.structureCount_; st++) {
+      const owner = this.sensorOwner(st);
+      if (owner < 0) continue;
+      const a = this.structureTypes[this.stTypeIdx[st]].aura;
+      const sensor = a === null ? null : a.sensor;
+      if (sensor === null) continue;
+      const ox = this.stCx[st];
+      const oy = this.stCy[st];
+      for (let tgt = 0; tgt < this.count; tgt++) {
+        if (this.alive[tgt] === 0 || this.side[tgt] === owner) continue;
+        if (this.tunnelIn[tgt] >= 0) continue;
+        if (!this.detectionFrom(ox, oy, sensor.sightSq, sensor.optics, 0, tgt)) continue;
+        const k = owner * cap + tgt;
+        this.seenThisTick[k] = 1;
+        const p = this.detP;
+        if (p > this.bestObserverP[k]) {
+          this.bestObserverP[k] = p;
+          this.bestObserver[k] = -1;
+          this.bestObserverStructure[k] = st;
+        }
+        this.lastSeenX[k] = this.posX[tgt];
+        this.lastSeenY[k] = this.posY[tgt];
+        this.lastSeenValid[k] = 1;
+        const c = this.contact[k];
+        this.contact[k] = fx.add(c, fx.mul(fx.sub(ONE, c), p));
+      }
     }
   }
 

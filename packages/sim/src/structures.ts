@@ -97,6 +97,10 @@ export interface StructureAuraJson {
   /** Bonuses for whoever is garrisoned inside. `range_bonus` (tiles, direct fire only) is ON
    *  TOP of the global GARRISON_RANGE_BONUS; `sight_bonus` (tiles) adds to sight from the window. */
   garrison?: { range_bonus?: number; sight_bonus?: number };
+  /** The structure itself as an eye of its owner's side (Task 7): `sight` and `optics` as a
+   *  unit's, and `tunnel_radius` (tiles, 0/absent = none) inside which any tile of a route
+   *  identifies it to the owner, with NO line-of-sight test. */
+  sensor?: { sight: number; optics: number; tunnel_radius?: number };
 }
 
 /** `affects` codes. Air is excluded from every scope (nothing lands). */
@@ -118,10 +122,20 @@ export interface AreaEffect {
   accMult: Fx;
 }
 
+/** A parsed `aura.sensor`, Q16.16, fixed at load. */
+export interface StructureSensor {
+  sight: Fx;
+  sightSq: Fx;
+  optics: Fx;
+  /** Squared tunnel radius; 0 = the sensor reads no routes. */
+  tunnelRadiusSq: Fx;
+}
+
 export interface StructureAura {
   area: AreaEffect[];
   rangeBonus: Fx;
   sightBonus: Fx;
+  sensor: StructureSensor | null;
 }
 
 export interface StructureType {
@@ -246,10 +260,21 @@ function auraFromJson(json: StructureTypeJson, ticksPerSecond: number): Structur
       accMult: e.accuracy_mult === undefined ? ONE : fx.from(e.accuracy_mult),
     });
   }
+  let sensor: StructureSensor | null = null;
+  if (a.sensor !== undefined) {
+    const sight = fx.from(a.sensor.sight);
+    if (sight <= 0) throw new Error(`structure type ${json.id}: aura sensor sight must be > 0`);
+    const optics = fx.from(a.sensor.optics);
+    if (optics <= 0) throw new Error(`structure type ${json.id}: aura sensor optics must be > 0`);
+    const tr = fx.from(a.sensor.tunnel_radius ?? 0);
+    if (tr < 0) throw new Error(`structure type ${json.id}: aura sensor tunnel_radius must be >= 0`);
+    sensor = { sight, sightSq: fx.mul(sight, sight), optics, tunnelRadiusSq: fx.mul(tr, tr) };
+  }
   return {
     area,
     rangeBonus: fx.from(a.garrison?.range_bonus ?? 0),
     sightBonus: fx.from(a.garrison?.sight_bonus ?? 0),
+    sensor,
   };
 }
 
