@@ -283,6 +283,11 @@
         }
       }
     },
+    "field_works": {
+      "type": "object",
+      "description": "Field works (#277): structure type id -> how many of it the player may raise this mission, a per-mission total (schema max 2; 8 sites = 4 types x 2). Each key must be a `buildable` type and the mission must field a `construct` carrier (validate_works.mjs). Absent = none.",
+      "additionalProperties": { "type": "integer", "minimum": 0, "maximum": 2 }
+    },
     "resources": {
       "type": "object",
       "additionalProperties": false,
@@ -767,6 +772,11 @@
               1
             ],
             "description": "Overrides the structure type's produces_for for this placement. A camp placed for side 1 is the enemy's production site."
+          },
+          "owner": {
+            "type": "integer",
+            "enum": [-1, 0, 1],
+            "description": "Field works (#277): overrides the structure type's owner for this placement (-1 neutral, 0 or 1 a side). Not `side`, which is produces_for."
           }
         }
       }

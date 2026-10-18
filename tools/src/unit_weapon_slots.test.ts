@@ -17,8 +17,11 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SCHEMA = JSON.parse(readFileSync(join(ROOT, 'data', 'schemas', 'unit.schema.json'), 'utf8')) as object;
 const Ajv2020 = (AjvModule as unknown as { default?: typeof AjvModule }).default ?? AjvModule;
 const ajv = new (Ajv2020 as unknown as new (o: object) => {
+  addSchema: (s: object) => unknown;
   compile: (s: object) => (d: unknown) => boolean;
 })({ allErrors: true, strict: false });
+// unit.schema.json refers to the shared unlock def by relative $ref (common.schema.json).
+ajv.addSchema(JSON.parse(readFileSync(join(ROOT, 'data', 'schemas', 'common.schema.json'), 'utf8')) as object);
 const validateUnit = ajv.compile(SCHEMA);
 
 interface UnitJson {

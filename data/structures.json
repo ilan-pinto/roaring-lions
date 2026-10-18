@@ -207,6 +207,219 @@
       "per_tile": true,
       "low_profile": true,
       "standing_cover": 2
+    },
+    "kdf_medic_station": {
+      "id": "kdf_medic_station",
+      "name": "Medic Station",
+      "symbol": "M",
+      "hp_per_tile": 200,
+      "garrison_slots": 0,
+      "rubble_cover": 1,
+      "height_px": 12,
+      "color": "olive.1",
+      "roe_penalty": 0,
+      "owner": 0,
+      "buildable": {
+        "cost": {
+          "logistics": 250
+        },
+        "build_time_s": 20,
+        "footprint": [
+          2,
+          2
+        ]
+      },
+      "aura": {
+        "area": [
+          {
+            "radius": 4,
+            "affects": "foot",
+            "heal_per_s": 0.01,
+            "heal_cap": 1.0
+          }
+        ]
+      }
+    },
+    "kdf_outpost": {
+      "id": "kdf_outpost",
+      "name": "Outpost",
+      "symbol": "O",
+      "hp_per_tile": 400,
+      "garrison_slots": 3,
+      "garrison_cover": 3,
+      "rubble_cover": 2,
+      "height_px": 18,
+      "color": "olive.1",
+      "roe_penalty": 0,
+      "owner": 0,
+      "buildable": {
+        "cost": {
+          "logistics": 350
+        },
+        "build_time_s": 30,
+        "footprint": [
+          2,
+          2
+        ]
+      },
+      "aura": {
+        "garrison": {
+          "range_bonus": 0,
+          "sight_bonus": 2
+        }
+      }
+    },
+    "kdf_intel_centre": {
+      "id": "kdf_intel_centre",
+      "name": "Intel Centre",
+      "symbol": "I",
+      "hp_per_tile": 250,
+      "garrison_slots": 0,
+      "rubble_cover": 1,
+      "height_px": 16,
+      "color": "olive.1",
+      "roe_penalty": 0,
+      "owner": 0,
+      "buildable": {
+        "cost": {
+          "logistics": 400
+        },
+        "build_time_s": 40,
+        "footprint": [
+          2,
+          2
+        ]
+      },
+      "aura": {
+        "sensor": {
+          "sight": 10,
+          "optics": 1.0,
+          "tunnel_radius": 10
+        }
+      }
+    },
+    "kdf_workshop": {
+      "id": "kdf_workshop",
+      "name": "Workshop",
+      "symbol": "W",
+      "hp_per_tile": 300,
+      "garrison_slots": 0,
+      "rubble_cover": 1,
+      "height_px": 14,
+      "color": "olive.1",
+      "roe_penalty": 0,
+      "owner": 0,
+      "buildable": {
+        "cost": {
+          "logistics": 300
+        },
+        "build_time_s": 30,
+        "footprint": [
+          2,
+          2
+        ]
+      },
+      "aura": {
+        "area": [
+          {
+            "radius": 4,
+            "affects": "vehicle",
+            "repair_per_s": 0.01,
+            "repair_components_s": 30
+          },
+          {
+            "radius": 4,
+            "affects": "any",
+            "accuracy_mult": 1.06
+          }
+        ]
+      }
+    },
+    "militia_field_clinic": {
+      "id": "militia_field_clinic",
+      "name": "Field Clinic",
+      "symbol": "C",
+      "hp_per_tile": 200,
+      "garrison_slots": 0,
+      "rubble_cover": 1,
+      "height_px": 12,
+      "color": "dust.2",
+      "roe_penalty": 6,
+      "owner": 1,
+      "aura": {
+        "area": [
+          {
+            "radius": 3,
+            "affects": "foot",
+            "heal_per_s": 0.0075,
+            "heal_cap": 1.0
+          }
+        ]
+      }
+    },
+    "militia_firing_position": {
+      "id": "militia_firing_position",
+      "name": "Firing Position",
+      "symbol": "F",
+      "hp_per_tile": 300,
+      "garrison_slots": 3,
+      "garrison_cover": 3,
+      "rubble_cover": 2,
+      "height_px": 14,
+      "color": "dust.2",
+      "roe_penalty": 0,
+      "owner": 1,
+      "aura": {
+        "garrison": {
+          "range_bonus": 0,
+          "sight_bonus": 1
+        }
+      }
+    },
+    "militia_observation_post": {
+      "id": "militia_observation_post",
+      "name": "Observation Post",
+      "symbol": "P",
+      "hp_per_tile": 300,
+      "garrison_slots": 0,
+      "rubble_cover": 1,
+      "height_px": 16,
+      "color": "dust.2",
+      "roe_penalty": 0,
+      "owner": 1,
+      "aura": {
+        "sensor": {
+          "sight": 9,
+          "optics": 1.2
+        }
+      }
+    },
+    "militia_weapons_workshop": {
+      "id": "militia_weapons_workshop",
+      "name": "Weapons Workshop",
+      "symbol": "X",
+      "hp_per_tile": 300,
+      "garrison_slots": 0,
+      "rubble_cover": 1,
+      "height_px": 14,
+      "color": "dust.2",
+      "roe_penalty": 0,
+      "owner": 1,
+      "aura": {
+        "area": [
+          {
+            "radius": 4,
+            "affects": "vehicle",
+            "repair_per_s": 0.0075,
+            "repair_components_s": 45
+          },
+          {
+            "radius": 4,
+            "affects": "any",
+            "accuracy_mult": 1.06
+          }
+        ]
+      }
     }
   }
 }

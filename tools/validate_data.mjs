@@ -34,6 +34,13 @@ import { productionFailures } from './validate_production.mjs';
 import { doctrineFailures } from './validate_doctrine.mjs';
 import { garrisonStanceFailures, garrisonWeaponFailures } from './validate_garrison.mjs';
 import {
+  buildableOwnerFailures,
+  fieldWorksCarrierReport,
+  fieldWorksKeyFailures,
+  tunnelSensorFailures,
+  worksSymbolFailures,
+} from './validate_works.mjs';
+import {
   commanderRankFailures,
   narrativeTextFailures,
   overlayFailures,
@@ -106,6 +113,7 @@ function tierRegressions(prev, curr) {
 const ajv = new Ajv2020({ allErrors: true, strict: false });
 
 const failures = [];
+const warnings = [];
 
 function loadJson(path) {
   try {
@@ -160,6 +168,8 @@ function validateFile(file, validate, schemaName) {
 }
 
 // --- schema validation ------------------------------------------------------
+// Shared $defs (unlock) live in common.schema.json; unit and structure refer to it by relative $ref.
+ajv.addSchema(JSON.parse(readFileSync(join(ROOT, 'data/schemas/common.schema.json'), 'utf8')));
 const schemas = {
   unit: loadJson(join(ROOT, 'data/schemas/unit.schema.json')),
   mission: loadJson(join(ROOT, 'data/schemas/mission.schema.json')),
@@ -973,6 +983,14 @@ const garrisonableSymbols = new Set(
     failures.push(...productionFailures(mi, map, structureCatalogue, enemyUnitsById, rel(file)));
     // B2: a garrison stance on a unit without the ability is silently refused at runtime.
     failures.push(...garrisonStanceFailures(mi, unitsById, rel(file)));
+    // Field works (#277 Task 8): rules 2-4.
+    failures.push(...fieldWorksKeyFailures(mi, structureCatalogue, rel(file)));
+    {
+      const report = fieldWorksCarrierReport(mi, unitsById, rel(file));
+      failures.push(...report.failures);
+      warnings.push(...report.warnings);
+    }
+    failures.push(...tunnelSensorFailures(mi, structureCatalogue, rel(file)));
   }
 }
 
@@ -1292,6 +1310,17 @@ for (const [sym, id] of structureSymbols) {
   }
 }
 
+// Field works (#277 Task 8): rule 1 (buildable needs owner 0) and rule 5 (a work's symbol is
+// neither terrain nor drawn into any shipped map).
+failures.push(...buildableOwnerFailures(structureCatalogue, 'data/structures.json'));
+failures.push(
+  ...worksSymbolFailures(
+    structureCatalogue,
+    jsonFilesIn(join(ROOT, 'data/maps')).map((file) => ({ file: rel(file), rows: loadJson(file)?.rows ?? [] })),
+    TERRAIN_SYMBOLS
+  )
+);
+
 for (const file of jsonFilesIn(join(ROOT, 'data/maps'))) {
   const m = loadJson(file);
   if (!m) continue;
@@ -1445,6 +1474,7 @@ if (palette && structureCatalogue) {
 }
 
 // --- verdict ----------------------------------------------------------------
+for (const w of warnings) console.warn(`  warning: ${w}`);
 if (failures.length > 0) {
   console.error(`\nDATA GATE FAILED — ${failures.length} issue(s):\n`);
   for (const f of failures) console.error(`  - ${f}`);

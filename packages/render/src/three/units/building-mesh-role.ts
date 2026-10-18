@@ -185,6 +185,17 @@ const WALL_SURFACE: Record<string, WallSurface> = {
   t_wall: 'panel',
   sandbag_wall: 'flat',
   sandbag_post: 'flat',
+  // Field works (#277 Task 8): the eight types land in data before their art
+  // (Tasks 12-13). All 'flat' -- tents, containers, sandbags and HESCO, none a
+  // laid course; revisit per type when the meshes land.
+  kdf_medic_station: 'flat',
+  kdf_outpost: 'flat',
+  kdf_intel_centre: 'flat',
+  kdf_workshop: 'flat',
+  militia_field_clinic: 'flat',
+  militia_firing_position: 'flat',
+  militia_observation_post: 'flat',
+  militia_weapons_workshop: 'flat',
 };
 
 /** The `WallSurface` for a `data/structures.json` type id. Throws for an
