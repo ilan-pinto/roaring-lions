@@ -1216,3 +1216,32 @@ A single low-poly game-ready long-range sniper rifle on its folding bipod with a
 ```
 
 795 characters.
+
+## 27. `heli_yanshuf` — UH-60 Yanshuf (KDF, air-assault transport, GH-698)
+
+Sent 2026-10-18 on the lead's go (ruling at the top of the Black Hawk spec: up to 55
+credits, one textured base model plus at most one preview re-roll; the preview's
+silhouette to be checked against `heli_peten` before the refine is paid for).
+
+| item | number | source |
+|---|---|---|
+| class | textured vehicle, **35** credits: preview 20 + refine 2k 10 + remesh 5; **no re-roll was needed**, 20 of the 55 unspent | ledger `heli_yanshuf`, 2026-10-18 |
+| preview `--polycount` / remesh | **40,000** both (the Peten ships 41,031; the lead's rule is maximum detail, simplified only to a measured budget, and the one budget here -- the damage copy's 64 KiB Draco cap -- holds at 7,202 rotor tris) | `art/meshy/heli-yanshuf-20261018-01a14f1{2,9}/task.json` |
+| drawn size | **5.3 m** declared, longest axis: the Peten's shipped 4.769 m x the real UH-60/AH-64 overall-length ratio 1.114 | `export_meshy_yanshuf.py` docstring |
+| nearest neighbour | `heli_peten`. Separated by the deep cabin and open doors, the thin four-blade disc against the Peten's broad five, the stabilator, no stub wings or stores. **Preview IoU 0.481** at 64 px through `render_mesh_gate.py`'s own rig (limit 0.88), measured before the refine; the shipped GLB's numbers are in `docs/ASSET_PROVENANCE.md` | `tools/validate_assets.py` `silhouette`/`iou` |
+| pivots | `rotor_tilt` -> `rotor_pivot` (`rl_pivot = "rotor"`) -> `rotor_metal`, the Peten's graph; the disc read 0.06 degrees of tilt. Tail rotor static | `mesh-vehicle.ts` |
+| roles | `hull_hull`, `rotor_metal`, both on the remesh's one bake (`TEXTURED_VEHICLE_TYPES`) | |
+| bake | hue 73.8 / sat 0.345 / val 0.288 in the paint band, beside the fleet olive's 70.2 / 0.427 / 0.361: no band shift. The refine painted a pale star and stripe on each flank regardless of the prompt; `scrub_white` (the D9's rule, 0.55 linear) painted 0.284% of the texels over, and a lighter grey star survives on the right flank | `export_meshy_yanshuf.py` |
+| held | `HELD_MESH_FILES`; no unit JSON, no catalogue entry, not in `sandbox-force.ts`, until Lane C lands the land/lift sim (#698) | the brief |
+
+```
+A single low-poly game-ready utility transport helicopter, a machine of a fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and military. At rest, level. A deep boxy troop cabin behind a wide two-seat cockpit, both sliding cabin doors open with a pintle-mounted machine gun in each doorway, a four-blade main rotor, a long slender tail boom with a canted tail rotor and a horizontal stabilator, fixed main wheels and a tailwheel; no stub wings, no pylons, no missiles, no external fuel tanks. Real-world scale, 19.8 metres long. Olive paint, gunmetal rotors and guns, dark glazing. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.
+```
+
+779 characters. `--negative "stub wings, weapon pylons, missiles, rocket pods, external
+fuel tanks, tandem cockpit, chin gun, landing skids, coaxial rotors, twin tail booms,
+people, text, insignia"`. What the draft in the spec's section 6 lost on the way to this:
+the real designation and "desert-sand" paint (the KDF machine line is olive, and the
+template never names a real type), "gunners" (a figure in a doorway is noise at 25 px and
+the preview seated two anyway), and "readable silhouette from a high three-quarter
+view" (an adjective, not a feature; the lever is the cabin-and-doors signature).
