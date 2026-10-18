@@ -3,7 +3,8 @@
     /Applications/Blender.app/Contents/MacOS/Blender --background \
         --python tools/vehicles/export_meshy_tank.py
 
-Writes `art/meshes/vehicles/mbt_lavi.glb`.
+Writes `art/meshes/vehicles/mbt_lavi.glb` at the 6.32 m EXPORT frame; then
+`pnpm rescale:meshes -- --id=mbt_lavi` (x1.18, 2026-10-15) before running-gear.
 
 SOURCE: art/blend/KDF/tank/Meshy_AI_A_3D_low_poly_futuris_0829201559_texture.blend
 -- AI-generated (Meshy), single mesh object `mesh_node`, 3,906 verts, one
@@ -107,7 +108,6 @@ geometric signal (no open-gap, no cylinder-ring pattern, no disjoint
 component) to cut along -- see the report for what was checked and why it
 was not enough to act on.
 """
-import json
 import os
 import sys
 
@@ -156,11 +156,15 @@ def _resolve(path):
             return alt
     raise SystemExit(f"source not found: {path} (also tried {SRC_FALLBACK_ROOTS})")
 
-#: mbt_lavi's own declared real-world size -- read from the sprite sheet it
-#: currently ships with (TNK_HULL), the only place this unit's size is
-#: written down (data/units/kdf/mbt_lavi.json carries no metres field). Per
-#: coordinator direction: this is mbt_lavi's own number, not a picked one.
-TNK_HULL_MANIFEST = os.path.join(REPO, "assets", "sprites", "TNK_HULL", "manifest.json")
+#: mbt_lavi's EXPORT extent, metres: the 6.32 m this script used to read from
+#: the TNK_HULL sprite manifest (`realMetres`, deleted with the sheets in
+#: WP-A3.3 at 5a08b70f) -- the retired WW2 Tiger's hull, not a Lavi's. Kept as
+#: the export frame because every downstream literal (kit_vehicles.py, the
+#: command Lavi, the running-gear and damage recipes) was measured in it. The
+#: SHIPPED size is this x1.18 (the lead's ruling, 2026-10-15, 7.46 m overall),
+#: applied after export by `pnpm rescale:meshes -- --id=mbt_lavi`
+#: (tools/src/meshes/rescale-contract.ts).
+EXPORT_REAL_METRES = 6.32
 
 #: The role every mesh in this export gets. A single-material source has no
 #: basis to split `hull`/`plate`/`rubber`/`metal`/`glass`/`recess` from --
@@ -379,10 +383,6 @@ def _extent_of(ob):
     return max(max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs))
 
 
-def _read_real_metres():
-    with open(TNK_HULL_MANIFEST) as fh:
-        manifest = json.load(fh)
-    return manifest["realMetres"]
 
 
 def _turret_pivot(turret_obj):
@@ -421,11 +421,11 @@ def export():
         raise SystemExit(f"mesh_node carries {len(src_obj.modifiers)} modifier(s) -- apply before cutting")
 
     extent_model = _extent_of(src_obj)
-    real_metres = _read_real_metres()
+    real_metres = EXPORT_REAL_METRES
     mpu = metres_per_unit(extent_model, real_metres)
     print(
         f"[mbt_lavi] extent {extent_model:.4f} model units -> {real_metres:.3f} m declared "
-        f"({mpu:.5f} m/unit, real_metres from {TNK_HULL_MANIFEST})"
+        f"({mpu:.5f} m/unit; then pnpm rescale:meshes -- --id=mbt_lavi)"
     )
 
     # Duplicate into two objects, then cut each down to its half.

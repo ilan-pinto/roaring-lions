@@ -182,7 +182,8 @@ describe('fix round 1: the ellipse is centred on the hull, and holds its corners
     }
   });
 
-  it("the Lavi's ring centre sits 0.18 tile behind its origin, where its hull box is", () => {
-    expect(ELLIPSE_BY_TYPE.mbt_lavi.offsetAlong).toBe(-0.18);
+  // 0.18 until the x1.18 rescale (lead, 2026-10-15) moved the hull box's centre with it.
+  it("the Lavi's ring centre sits 0.22 tile behind its origin, where its hull box is", () => {
+    expect(ELLIPSE_BY_TYPE.mbt_lavi.offsetAlong).toBe(-0.22);
   });
 });

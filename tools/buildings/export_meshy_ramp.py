@@ -158,6 +158,10 @@ class RampSpec:
     #: negative prompt named terracotta; the bible's answer to a wrong bake
     #: is Blender, not a re-roll.
     roof_shift: dict = None
+    #: The ledger NAME of the remesh to import, when it is not `unit_id`
+    #: (the 15 Oct strongpoint was generated as `concrete_strongpoint` beside
+    #: the 30 Sep tower's own `concrete` entries, which stay on record).
+    source: str = None
     #: GH-66 HESCO: pinch the run at these x positions (metres, after the
     #: scale) so the cells read as cells -- a gabion line is three bulging
     #: bags of earth tied at the seams, and the remesh smoothed it into one
@@ -192,9 +196,19 @@ def _credit(what):
 
 
 SPECS = {
-    "concrete": RampSpec("concrete", _credit("Concrete structure (standing + destroyed)"),
-                         size_axis="z", size_m=9.0, glass=True, face=True,
-                         colour_balance=(1.10, 1.00, 0.86)),
+    # The strongpoint (D2 seam audit finding 5, 15 Oct; the lead's pick of
+    # preview 01a14049): a one-storey block filling its plot with a slim
+    # roof tower, replacing the 30 Sep tower that drew 24% of a 3x3 plot.
+    # Scaled on PLAN to the prompt's 8.5 m block.
+    "concrete": RampSpec("concrete", _credit("Concrete strongpoint (standing + destroyed)"),
+                         size_axis="plan", size_m=8.5, glass=True, face=True,
+                         source="concrete_strongpoint",
+                         # The 8k refine painted the "warm sand-toned" concrete
+                         # ochre: bake saturation 0.377 against the house's
+                         # 0.147 and the warehouse's 0.148. Desaturated toward
+                         # the set, the hue kept (the sandbags' seam, D2 finding 3).
+                         image_shift={"sat_min": 0.0, "hue_lo": 0.0, "hue_hi": 70.0,
+                                      "hue_shift": 0.0, "sat_mul": 0.42, "val_mul": 0.95}),
     # The shanty v2 (A3.2 phase 2, 2026-10-11): the first preview came back
     # with a hipped red clay-tile roof where the prompt asked for a
     # single-pitch corrugated lean-to, and shipped as such (#314); the lead
@@ -565,7 +579,7 @@ def _tris(objs):
 
 def export(unit_id, probe=False):
     spec = SPECS[unit_id]
-    src, task_id = _remesh_source(unit_id)
+    src, task_id = _remesh_source(SPECS[unit_id].source or unit_id)
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.import_scene.gltf(filepath=src)
     meshes = [o for o in bpy.data.objects if o.type == "MESH"]
