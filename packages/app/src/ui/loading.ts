@@ -32,6 +32,7 @@ import { forceBar, type AttachedUnit, type ForceBar } from './force-bar';
 import { briefingVideo as makeBriefingVideo } from './briefing-video';
 import { backdropPlan } from './cinematics-model';
 import { prefersReducedMotion, prefersSaveData } from './motion';
+import type { FoldGeometry } from './mission-intro';
 
 /**
  * Does this screen wait for the player before handing over the field?
@@ -374,8 +375,24 @@ export interface LoadingScreen {
    * Hand the field to the game. Resolves at once when there is no briefing to
    * read; otherwise waits for the player to deploy, so the orders they were
    * given are not swept off screen the instant the last sheet lands.
+   * `keep` (H3) leaves the screen up after a deploy for `leave`/`remove`
+   * below; a screen that never held (no briefing) is removed regardless.
    */
-  done(): Promise<void>;
+  done(opts?: { keep?: boolean }): Promise<void>;
+  /**
+   * H3: with `keep`, a deploy resolves `done()` and leaves the screen up, so
+   * the briefing -> battlefield transition (`mission-intro-run.ts`) can take
+   * it down over the first world frames. `leave` starts that: `fold` folds the
+   * box onto the commander bar (`foldGeometry`; null folds nothing and only
+   * fades the card) while the backdrop fades; `fade` is reduced motion's
+   * 200 ms opacity fade of the whole screen. The animations are theme.css's,
+   * keyed on `data-intro`. A no-op once the screen is gone.
+   */
+  leave(mode: { kind: 'fold'; geometry: FoldGeometry | null } | { kind: 'fade' }): void;
+  /** The box's viewport rect, for `foldGeometry`; null once removed. */
+  boxRect(): DOMRect | null;
+  /** Take a kept screen off the stage. Idempotent; `dispose()` does it too. */
+  remove(): void;
   /**
    * Take the screen down without starting the mission, from outside.
    *
@@ -489,6 +506,31 @@ export function showDownloadProgress(host: HTMLElement, title: string): Download
       wrap.remove();
     },
   };
+}
+
+/**
+ * Run `fn` once the frame now being built has been painted: a task queued
+ * from inside an animation-frame callback runs after that frame's paint.
+ * Where there is no `requestAnimationFrame` (a test environment without a
+ * visual), a plain task.
+ */
+export function afterPaint(fn: () => void): void {
+  if (typeof window.requestAnimationFrame !== 'function') {
+    window.setTimeout(fn, 0);
+    return;
+  }
+  window.requestAnimationFrame(() => window.setTimeout(fn, 0));
+}
+
+/** The Deploy stamp, answered: its label says so and it takes no second
+ *  press. `aria-disabled` rather than `disabled`, so focus stays on it and
+ *  the `:disabled` look (the "may not deploy short" state) is not borrowed
+ *  for a different meaning. */
+function showPressed(deploy: HTMLButtonElement): void {
+  deploy.dataset.state = 'deploying';
+  deploy.setAttribute('aria-disabled', 'true');
+  deploy.setAttribute('aria-busy', 'true');
+  deploy.textContent = t('loading.deploy.pressed');
 }
 
 export function showLoading(
@@ -797,7 +839,12 @@ export function showLoading(
   deploy.addEventListener('click', () => {
     if (disposed) return;
     if (settleDeploy) settleDeploy();
-    else deployQueued = true;
+    else {
+      // Kept for `done()` (PA-27), and shown as answered now: the art gate
+      // may take seconds yet, and an unchanged stamp reads as a lost click.
+      deployQueued = true;
+      showPressed(deploy);
+    }
   });
 
   // The back edge Escape now uses (see `onBack`'s own doc comment above).
@@ -1062,7 +1109,29 @@ export function showLoading(
       wrap.remove();
       reject?.(new DOMException('loading screen disposed', 'AbortError'));
     },
-    done(): Promise<void> {
+    leave(mode): void {
+      if (wrap.parentNode === null) return;
+      if (mode.kind === 'fade') {
+        wrap.dataset.intro = 'fade';
+        return;
+      }
+      const g = mode.geometry;
+      if (g) {
+        box.style.setProperty('--fold-dx', `${g.dx}px`);
+        box.style.setProperty('--fold-dy', `${g.dy}px`);
+        box.style.setProperty('--fold-scale', String(g.scale));
+        box.style.setProperty('--fold-clip', `${g.clipBottomPx}px`);
+      }
+      wrap.dataset.intro = 'fold';
+    },
+    boxRect(): DOMRect | null {
+      return wrap.parentNode !== null ? box.getBoundingClientRect() : null;
+    },
+    remove(): void {
+      wrap.remove();
+    },
+    done(opts?: { keep?: boolean }): Promise<void> {
+      const keep = opts?.keep === true;
       if (disposed) {
         return Promise.reject(new DOMException('loading screen disposed', 'AbortError'));
       }
@@ -1089,22 +1158,29 @@ export function showLoading(
       // as any other key a long briefing is scrolled with.
       return new Promise<void>((resolve, reject) => {
         let gone = false;
-        const cleanup = (): void => {
+        /** Deploy was answered: the pressed state is up and the resolve is
+         *  waiting on its paint. */
+        let pressed = false;
+        /** `keep` (H3): the deploy path leaves the screen up for the
+         *  transition; every other path (back, dispose) still removes it. */
+        const cleanup = (removeScreen = true): void => {
           if (gone) return;
           gone = true;
           window.removeEventListener('keydown', onKey);
-          wrap.remove();
+          if (removeScreen) wrap.remove();
         };
         // Published so `dispose()` can tear this down from outside and unpark
         // whoever is awaiting it. Cleared on every path that settles the
         // promise, so a later `dispose()` cannot reject a resolved one.
-        pendingCleanup = cleanup;
+        pendingCleanup = () => cleanup();
         pendingReject = reject;
         // The one path out that does NOT start the mission -- shared by
         // Escape and the back link (fix round 1), so both tear the screen
         // down the same way rather than the link bypassing `cleanup()`.
         const goBack = (): void => {
-          if (!onBack) return;
+          // Pressed: the mission is starting, and a back edge now would tear
+          // the screen down under a resolve that is one frame away.
+          if (!onBack || pressed) return;
           cleanup();
           onBack();
         };
@@ -1114,14 +1190,31 @@ export function showLoading(
           goBack();
         };
         settleDeploy = (): void => {
-          cleanup();
-          // Settled: a later `dispose()` (the ordinary battlefield teardown,
-          // minutes into the mission) must not reject a promise the player
-          // already answered. Rejecting a settled promise is a no-op in JS, so
-          // this is for the reader rather than the runtime.
-          pendingCleanup = null;
-          pendingReject = null;
-          resolve();
+          // H3 (polish plan): whoever awaits `done()` starts the mission
+          // synchronously -- the runtime, the HUD, the minimap, the dock and
+          // the first world frame -- and nothing paints until it returns:
+          // 450-520 ms measured on an M3 Pro at 1400x900 (`tel_marum_2_foothold`),
+          // the briefing frozen under a button that showed no sign of the
+          // click. So the press is drawn FIRST, and the promise resolves only
+          // once that frame has painted. The screen stays up meanwhile, which
+          // is what keeps it, and not a blank stage, on screen through the
+          // synchronous start.
+          if (pressed) return;
+          pressed = true;
+          showPressed(deploy);
+          afterPaint(() => {
+            // A `dispose()` in the frame we waited for has already removed
+            // the screen and REJECTED the promise; `cleanup()` is then a
+            // no-op and `resolve()` cannot settle it again, so no guard here.
+            cleanup(!keep);
+            // Settled: a later `dispose()` (the ordinary battlefield teardown,
+            // minutes into the mission) must not reject a promise the player
+            // already answered. Rejecting a settled promise is a no-op in JS, so
+            // this is for the reader rather than the runtime.
+            pendingCleanup = null;
+            pendingReject = null;
+            resolve();
+          });
         };
         // `goBack` deliberately does NOT clear these: it tears the screen down
         // without settling the promise, so whoever is awaiting `done()` is

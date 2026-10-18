@@ -178,6 +178,10 @@ describe('the cue (GH-110)', () => {
 
 describe('announceInputsOf', () => {
   const ev = (e: Partial<MissionEvent> & { kind: MissionEvent['kind'] }): MissionEvent => ({ tick: 1, ...e }) as MissionEvent;
+  it('an enemy purchase (`built` side 1) announces no reinforcements (R-F4-1)', () => {
+    expect(announceInputsOf([ev({ kind: 'built', unit: 'sarim_rifles', side: 1 })], (id) => id)).toEqual([]);
+    expect(announceInputsOf([ev({ kind: 'built', unit: 'inf_squad', side: 0 })], (id) => id)).toEqual([{ event: 'reinforcements' }]);
+  });
   it('maps objective status, wave and built, labelling objectives', () => {
     const out = announceInputsOf(
       [
@@ -185,7 +189,7 @@ describe('announceInputsOf', () => {
         ev({ kind: 'objective', id: 'o2', status: 'failed' }),
         ev({ kind: 'objective', id: 'o3', status: 'active' }),
         ev({ kind: 'wave', count: 4 }),
-        ev({ kind: 'built', unit: 'x' }),
+        ev({ kind: 'built', unit: 'x', side: 0 }),
       ],
       (id) => `L-${id}`
     );

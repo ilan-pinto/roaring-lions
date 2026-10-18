@@ -1,0 +1,46 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready wide low bunker, vernacular construction of a fictional arid river-basin region: the whole model is ONE square one-storey flat-roofed block, 8.5 x 8.5 m and only 3.8 m tall, thick walls, low parapet, horizontal firing slits, a heavy steel door on the front face, a low sandbag wall at the front. A small narrow lookout tower, 2.5 m wide, 8.5 m tall, grows from the roof at the back corner, fully merged, no gap, under a tenth of the footprint. Rooftop water tank on steel legs, vents, rebar stubs. Warm sun-bleached sand-toned concrete, board-form marks, dust streaks; gunmetal steel. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "negative_prompt": "tall tower, multi-storey building, skyscraper, two separate buildings, detached blocks, gap between blocks, ground plane, base slab, plinth, terrain, diorama, rectangular elongated footprint, cold grey raw concrete, text, lettering, flags, insignia, logos, people, vehicles, trees, baked shadows",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a1404e-4526-749b-b39d-b3cbf8815851",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 2823781026,
+    "prompt": "A single low-poly game-ready wide low bunker, vernacular construction of a fictional arid river-basin region: the whole model is ONE square one-storey flat-roofed block, 8.5 x 8.5 m and only 3.8 m tall, thick walls, low parapet, horizontal firing slits, a heavy steel door on the front face, a low sandbag wall at the front. A small narrow lookout tower, 2.5 m wide, 8.5 m tall, grows from the roof at the back corner, fully merged, no gap, under a tenth of the footprint. Rooftop water tank on steel legs, vents, rebar stubs. Warm sun-bleached sand-toned concrete, board-form marks, dust streaks; gunmetal steel. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1792080236163,
+    "progress": 100,
+    "started_at": 1792080236168,
+    "finished_at": 1792080359913,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a1404e-4526-749b-b39d-b3cbf8815851/output/model.glb?Expires=4945622400&Signature=mWqiEXU5SsmDlVJE7S0qOEuiqtJuRbT5JWexBLad31xMETWm3WouMjQToebgo1H~Seu3CfH7VhNpOGGglF~bk9xPYR~Mir2yFptMxlYHmZczqoUnIRlGlOPeTuBiL1X6XNI77mJa2iNW-eIM6EiWyCAteGXKv9Vasb-6U9aeg9IQ7eI0UuC9uDmyGrXEyPIQxlHGLaiAv5n6CrjsaRTRLcHJsZ~trp5ErmiL-REftKYlhAe9f10Cukj3zdwC2LzT-ZJmi-tmVUJf6t41pOYK5diSJQLI6EeqYSev50O~N566EtFm4hjp~U2C7hDLIgW8KDxX33gOMzibGXW1kQcPFg__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a1404e-4526-749b-b39d-b3cbf8815851/output/preview.png?Expires=4945622400&Signature=VFGG1kOfHmzhvzaDHAFsZ39m3pijjsxpmwqqYDXsadYnTIlDBpRVXqzEnZQ1arfQngdEX7ANxVqkPxr51TlgAgn2kNFt9~Y~N0mUraw1e0H0iYCiLK1nOjQTfjkHohv~XhW~iXxYVbGeTKj3FmsDnPGnID6kJ55-KWsqDugnKoh8rDwTuzTQsljgXckXOD8DO6p45PZIIVipbkn8aVeS7UTgg8bucBaX5gPgI8uIVnGZsSaUt0tbosDmc1YjNPNTA-Th~lrlKdtNZz5GQTGfR2Ncv00AowBpsVENwpFITHG~raySBokxz7AcuG5xeiWf7Tmo2VXIomFmzucrOTaTiQ__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1792080236163,
+    "started_at": 1792080236168,
+    "finished_at": 1792080359913
+  },
+  "usd_estimated": 0.4
+}

@@ -33,6 +33,8 @@ import type { ResolvedCommander } from '../campaign';
 import type { RosterEntry } from '../ledger-store';
 import type { HintLine } from './hint-model';
 import type { AlertTier } from './alerts';
+import { bearingBetween } from './alert-place';
+import { placePhrase } from './mission-notice';
 import { FeedModel } from './feed-model';
 import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
@@ -260,6 +262,9 @@ function stripFocusSelector(el: Element): string | null {
  */
 export type OrderHandlers = Record<OrderId, () => void>;
 
+/** A zone this close to the map's centre (tiles) reads "centre", not a bearing. */
+const ZONE_CENTRE_TILES = 2;
+
 export interface HudDeps {
   sim: Sim;
   getSelection: () => number[];
@@ -270,6 +275,11 @@ export interface HudDeps {
   onStripRendered?: () => void;
   hoverStructure: () => number;
   hoverEntity: () => number;
+  /** The renderer's projection of a map point to the screen
+   *  (`renderer.worldToScreen`). The logistics tip names each income zone by
+   *  its bearing from the MAP's centre, read from two projected points, which
+   *  no pan or zoom changes. Optional: absent, the zone lines carry no place. */
+  project?: (x: number, y: number) => { x: number; y: number };
   /** The cursor the pointer shows right now, bare (`input/cursor.ts`'s
    *  `CursorName`). The fire panel reads it to say what a right-click on its
    *  target does (PA-08), so the panel and the cursor are one decision.
@@ -343,14 +353,16 @@ export interface HudDeps {
    *  account behind it. Tiers are type-wide and fixed for the mission (brigade
    *  D3), so `main.ts` reads them once at boot -- the account can change
    *  between missions, and the card must show what the sim actually applied.
-   *  Only ever asked about side 0; absent in tests that do not exercise it. */
+   *  Only ever asked about the VIEWER's own units (`deps.viewer`), so in a
+   *  versus room it is that side's kit (`net/room-kit.ts`): side 1's kitted
+   *  types share side 0's ids. Absent in tests that do not exercise it. */
   kitOf?: (typeId: string) => KitSummary | null;
   /** Pass C2/C4 (D3): ticks this unit has been pinned without breaking,
    *  from the sim's own `pinned` event (`ui/pinned-since.ts`), or null. */
   pinnedTicks?: (id: number) => number | null;
   /** The kit level every HUD icon carries (plan 2b): main.ts's one read of
-   *  upgradePrepass.unitKit. Asked only about side 0; absent reads as 0
-   *  everywhere. */
+   *  upgradePrepass.unitKit. Asked only about the viewer's own units (the
+   *  viewer's side's table in a versus room); absent reads as 0 everywhere. */
   kitLevelOf?: (typeId: string) => KitLevel;
   /** Narrow the selection to one chip's sub-group. */
   setSelection?: (ids: number[]) => void;
@@ -436,6 +448,9 @@ export interface HudDeps {
 
 export class Hud {
   private readonly strip: HTMLDivElement;
+  /** S-F F2 C3: the logistics figure under the pointer / holding focus. */
+  private logisticsHover = false;
+  private logisticsFocus = false;
   private readonly stripBody: HTMLDivElement;
   private readonly stripInfo: HTMLDivElement;
   private readonly speedChips: { el: HTMLButtonElement; speed: number }[] = [];
@@ -532,6 +547,8 @@ export class Hud {
   private beats: string[] = [];
   private beatIdx = 0;
   private beatTimer = 0;
+  /** H3: the commander bar's landing pulse (`landCommander`). */
+  private landTimer = 0;
   /** A `say` line (GDD §11) currently overriding the bar's own beat display
    *  -- see `say()`. Cleared by paging (`pageCommander`) or replaced by the
    *  next line; never by a timer, so a radio transmission does not vanish
@@ -684,6 +701,40 @@ export class Hud {
     );
     this.tipDisposers.push(stripTip.dispose);
     this.refreshStripTip = stripTip.refresh;
+
+    // S-F F2 C3: the logistics figure HELD -- hovered or keyboard-focused,
+    // the two alike (Review Focus 4) -- is what shows the world supply route
+    // (`main.ts` reads `logisticsHeld` every frame). Delegated on the strip
+    // for the tip's reason: the figure is rewritten at 4 Hz. Hover and focus
+    // are tracked apart, so the pointer leaving a focused figure does not
+    // drop it; each is the answer to "is the event's node inside the figure",
+    // on enter from its target and on leave from where it went.
+    const inLogistics = (n: EventTarget | null): boolean =>
+      n instanceof Element && this.strip.contains(n) && n.closest('[data-tip="logistics"]') !== null;
+    const onOver = (ev: Event): void => {
+      this.logisticsHover = inLogistics(ev.target);
+    };
+    const onOut = (ev: Event): void => {
+      this.logisticsHover = inLogistics((ev as MouseEvent).relatedTarget);
+    };
+    const onFocusIn = (ev: Event): void => {
+      this.logisticsFocus = inLogistics(ev.target);
+    };
+    const onFocusOut = (ev: Event): void => {
+      this.logisticsFocus = inLogistics((ev as FocusEvent).relatedTarget);
+    };
+    this.strip.addEventListener('mouseover', onOver);
+    this.strip.addEventListener('mouseout', onOut);
+    this.strip.addEventListener('focusin', onFocusIn);
+    this.strip.addEventListener('focusout', onFocusOut);
+    this.tipDisposers.push(() => {
+      this.strip.removeEventListener('mouseover', onOver);
+      this.strip.removeEventListener('mouseout', onOut);
+      this.strip.removeEventListener('focusin', onFocusIn);
+      this.strip.removeEventListener('focusout', onFocusOut);
+      this.logisticsHover = false;
+      this.logisticsFocus = false;
+    });
 
     // Speed. Rendered even where the frame loop has not wired it, because a
     // strip that grows a control the moment a dependency appears is a strip
@@ -994,6 +1045,16 @@ export class Hud {
   }
 
   /**
+   * S-F F2 C3: the strip's logistics figure is hovered or keyboard-focused
+   * (the two alike), and is on the strip at all. What shows side 0's supply
+   * routes in the world; `main.ts` reads it every frame.
+   */
+  get logisticsHeld(): boolean {
+    if (!this.logisticsHover && !this.logisticsFocus) return false;
+    return this.strip.querySelector('[data-tip="logistics"]') !== null;
+  }
+
+  /**
    * Take the HUD off the host.
    *
    * The HUD mounts on `document.body` in `main.ts`, not on the stage the
@@ -1030,6 +1091,7 @@ export class Hud {
     for (const row of this.feedRows.values()) window.clearTimeout(row.timer);
     this.feedRows.clear();
     window.clearTimeout(this.beatTimer);
+    window.clearTimeout(this.landTimer);
     // `dismiss()` releases the card's two window listeners and its timer, then
     // fades it over 250 ms before removing the node -- so the element is still
     // on the host when this returns. Teardown has to be synchronous (the
@@ -1073,6 +1135,32 @@ export class Hud {
     // released rather than left running against a node about to be covered.
     this.title?.dismiss();
     this.title = titleCard(this.host, name, subtitle, dispatch);
+  }
+
+  /**
+   * H3: take the title card down now, the way a click on it would (its own
+   * 250 ms fade). The intro's skip input is consumed before the card's own
+   * window listeners can see it, so the skip dismisses the card through
+   * here. A no-op with no card up.
+   */
+  dismissTitle(): void {
+    this.title?.dismiss();
+  }
+
+  /** H3: where the briefing card folds to -- the commander bar's viewport
+   *  rect, or null when the bar is not drawn (no orders, or disclosure has
+   *  it hidden), where the card only fades. */
+  commanderRect(): DOMRect | null {
+    if (this.cmd.style.display === 'none' || this.cmd.hasAttribute('data-hud-hidden')) return null;
+    const r = this.cmd.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 ? r : null;
+  }
+
+  /** H3: the card has landed -- one `--band-mission` outline pulse on the
+   *  bar, so the eye follows the orders to where they now live. */
+  landCommander(ms: number): void {
+    window.clearTimeout(this.landTimer);
+    this.landTimer = flash(this.cmd, 'rl-cmd--landed', ms);
   }
 
   /**
@@ -1633,9 +1721,14 @@ export class Hud {
 
     const info: string[] = [];
     if (m?.logistics !== undefined && this.shown('logistics')) {
+      // S-F F2: with held-ground income the figure is base + zones, and a `½`
+      // in --warn follows while anything is halved (the cause lives in the tip).
+      const inc = m.income ?? null;
+      const rateN = inc !== null ? inc.total : m.logisticsRate;
       const rate =
-        m.logisticsRate !== undefined && m.logisticsRate > 0
-          ? ` <span class="rl-dim">${t('hud.strip.rate', { n: m.logisticsRate })}</span>`
+        rateN !== undefined && rateN > 0
+          ? ` <span class="rl-dim">${t('hud.strip.rate', { n: rateN })}</span>` +
+            (inc !== null && inc.halved ? `<span class="rl-warn">${t('hud.strip.rate.halved')}</span>` : '')
           : '';
       // GH-229 fix round 2, the minimal slice of GH-77: the icon alone named
       // nothing to a player who had not memorised it, and the dock's own
@@ -1778,6 +1871,60 @@ export class Hud {
     }
   }
 
+  /** The logistics tip. With no income view it is today's sentence, unchanged;
+   *  with one, the sentence (minus the mission-adds clause the breakdown now
+   *  says) is followed by the convoy line, then one line per zone side 0 holds
+   *  or is contesting, each cut's cause in --warn. Empty and enemy-held zones
+   *  say nothing. */
+  private logisticsTipHtml(): string {
+    const m = this.deps.getMission();
+    const inc = m?.income ?? null;
+    if (inc === null) return t('hud.strip.logistics.tip', { rate: m?.logisticsRate ?? 0 });
+    const rows: string[] = [t('hud.strip.logistics.tip', { rate: 0 })];
+    const line = (cls: string, text: string): void => {
+      rows.push(`<div class="rl-tip__blurb ${cls}">${escapeHtml(text)}</div>`);
+    };
+    if (inc.base > 0 || inc.halvedBy !== null) {
+      line('rl-info', t('hud.strip.logistics.convoy', { n: inc.base }));
+      if (inc.halvedBy !== null) line('rl-warn', t(`hud.strip.logistics.cut.${inc.halvedBy}`));
+    }
+    // A zone is named by where it LIES ON THE MAP, never by its authoring id
+    // (no player language) and never relative to the camera (two zones in
+    // view would both read "in view"): its screen-frame bearing from the
+    // map's centre, from two projected points. No `project` dep leaves the
+    // line unplaced.
+    const project = this.deps.project;
+    const cx = this.deps.sim.width / 2;
+    const cy = this.deps.sim.height / 2;
+    const phrases = inc.zoneViews.map((z): string => {
+      if (!project || (z.state !== 'held' && z.state !== 'contested')) return '';
+      const zx = z.rect[0] + z.rect[2] / 2;
+      const zy = z.rect[1] + z.rect[3] / 2;
+      if (Math.hypot(zx - cx, zy - cy) <= ZONE_CENTRE_TILES) return t('hud.strip.logistics.centre');
+      const from = project(cx, cy);
+      const to = project(zx, zy);
+      if (![from.x, from.y, to.x, to.y].every(Number.isFinite)) return '';
+      return placePhrase([bearingBetween(to, from)]);
+    });
+    const shown = inc.zoneViews.map((z, i) => (z.state === 'held' || z.state === 'contested' ? phrases[i] : ''));
+    const where = (i: number): { where: string; place: string } => {
+      const ph = shown[i];
+      if (ph === '') return { where: 'no', place: '' };
+      const sharing = shown.reduce((n, x) => (x === ph ? n + 1 : n), 0);
+      const nth = shown.slice(0, i + 1).reduce((n, x) => (x === ph ? n + 1 : n), 0);
+      return { where: 'yes', place: sharing > 1 ? `${ph} ${nth}` : ph };
+    };
+    inc.zoneViews.forEach((z, i) => {
+      if (z.state === 'held') {
+        line('rl-info', t('hud.strip.logistics.held', { n: z.paysPerMin, ...where(i) }));
+        if (z.cut !== null) line('rl-warn', t(`hud.strip.logistics.cut.${z.cut}`));
+      } else if (z.state === 'contested') {
+        line('rl-warn', t('hud.strip.logistics.contested', where(i)));
+      }
+    });
+    return rows.join('');
+  }
+
   /**
    * The strip's five field tooltips, keyed by the `data-tip` the hovered
    * span carries -- Conduct first, the one §6 names, since the ROE numeral
@@ -1792,7 +1939,7 @@ export class Hud {
       case 'conduct':
         return this.invoiceHtml() ?? conductDefinition();
       case 'logistics':
-        return t('hud.strip.logistics.tip', { rate: this.deps.getMission()?.logisticsRate ?? 0 });
+        return this.logisticsTipHtml();
       case 'intel':
         return t('hud.strip.intel.tip');
       case 'pinned':

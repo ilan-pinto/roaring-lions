@@ -29,10 +29,11 @@ import { emptyAccount, startCampaign, type BrigadeAccount } from '../../../packa
 import { parseWorld } from '../../../packages/app/src/campaign';
 import { payVictory } from '../../../packages/app/src/campaign-pay';
 import { stagedUnit } from './e5-probes';
-import { run, type Plan, missionStars, missionCredits, missionMinutes, missionRoe, missionRosterOut, missionPopulation, maxTierProbes } from './playtest-run';
+import { run, runLog, type Plan, missionStars, missionCredits, missionMinutes, missionRoe, missionRosterOut, missionPopulation, maxTierProbes } from './playtest-run';
 import { censusViolations, populationLine } from './population-census';
 import { passiveAcrossSeeds, drainPassiveSweeps, controlIntel, SWEEP_SEEDS } from './passive-sweep';
 import { reportIntel, seedsNotSpent } from './intel-gate';
+import { bankedOver, bankingLine } from './banking';
 import { Picture, living } from './player-picture';
 import { PLAN_CHILD, startPlanSweep, drainPlanSweeps, reportToParent, type GateRecord } from './plan-sweep';
 
@@ -1647,6 +1648,21 @@ const deirAmun2Plan: Plan = (sim, rt, ids, at) => {
   at(0, () => sim.queueCommand({ kind: 'move', ids: at_team, ...M(14, 30) }));
   at(0, () => sim.queueCommand({ kind: 'move', ids: mortar, ...M(24, 40) }));
   at(0, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(15, 31) }));
+
+  // F4 Task 10 (Step 2): the camp's rally point is the pump gate the hold force takes, `M(15, 31)`,
+  // beside the `pump_gate` marker (15,32) and 6.5 tiles from the camp exit (20.5,34.5). Every squad
+  // bought below leaves the camp on a no-sweep attack-move to the gate and fights there. The camp's
+  // 6-tile radius covers `pump_gate`, so the line pauses during that fight (D1, ruled 6 Oct).
+  // Measured against the no-rally plan (30 seeds): headroom 445 -> 446 s, banking 939/171 -> 938/170,
+  // side-1 end population 7 -> 8; VICTORY 30/30 either way.
+  // A refused rally must fail loudly: setRally answers false for a blocked or off-map tile, and a
+  // plan that silently ran without it would be measuring the no-rally figures.
+  at(0, () => {
+    if (!rt.setRally(0, fx.from(15), fx.from(31))) {
+      console.error('deir_amun_2_foothold: FAILED -- setRally(0, 15, 31) was refused; the plan\'s camp rally is not set');
+      process.exitCode = 1;
+    }
+  });
 
   // Spend logistics as it lands, once the camp is producing.
   for (let when = 60; when <= 420; when += 40) {
@@ -3631,7 +3647,15 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // - Qarn Hadid III 235 -> 216: ROE 100 -> 91, roster out 23 -> 22, find_the_grove_post left open;
 // - Umm Zeitoun IV 245 -> 265: the plan drives in on the warehouse once no AT gun is seen, roster out 31 -> 33.
 // Every plan, control and gate holds on 30 seeds; no star moved.
-const LADDER_CREDITS = 5940;
+// 2026-10-15, GH-598: the D9 is a vehicle (`mobility.wheeled: true`; its `engineer` role had made it
+// foot). 5940 -> 5930, -10, read off the printed per-mission credits:
+// - Wadi Halam V 210 -> 200: roster out 18 -> 17. Not a route: the dozer's track is identical to
+//   t=80 s (nothing on its road is a boulder). The plan's hold re-anchor at 85 s is the first group
+//   order to include the D9, and a group order slots it in the vehicle front rank now, not the
+//   infantry grid behind; every slot behind it moves, and a demo_squad dies at the gate (32.5,14.5)
+//   at 232 s where it lived before. Still VICTORY, ROE 100, ★★, 30/30 seeds (slowest 5.4 -> 5.5 min).
+// No other mission fields a D9 and no plan builds one; no star or gate moved.
+const LADDER_CREDITS = 5930;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
@@ -3869,5 +3893,94 @@ const INTEL_WINNERS_ONE_SWEEP = 35;
   if (r.sweepers !== INTEL_WINNERS_ONE_SWEEP) {
     console.error(`intel: FAILED — ${r.sweepers} of ${r.winners} winning plans earn a sweep, expected ${INTEL_WINNERS_ONE_SWEEP}`);
     process.exitCode = 1;
+  }
+}
+
+// --- F2 Task 9: the banking report, as a gate ------------------------------------------------------
+//
+// For every economy mission (a `resources` block), what the winning plan and the no-orders control did
+// with their logistics: earned (base and zones), spent, and what was left in the purse (`banking.ts`).
+// Read off the real runtime at each run's last tick, on the 424242 ledger seed as `LADDER_CREDITS` is
+// (the control's first seed runs inline, in this process; its swept seeds do not print). The lines are
+// appended after everything else, so no earlier line moves. Two pins, in the `LADDER_CREDITS` idiom
+// (`!==`, `console.error`, `process.exitCode = 1`):
+//
+// BANKING_OVER_30_WINNERS: winning plans that end holding MORE than 30% of everything they had to
+// spend (`logistics_start` + earned): 15 of 18 on 424242. It is what the branch prints, not the 16 of 18
+// read at 751b6742, before GH-382 and #402. A plan that banks most of its purse has nothing to buy, which is
+// the problem F4 gives a reason to solve; F2 measures it and does not touch it, so no plan gains an
+// order here. The four D7 missions have authored their income zones since the lead approved them on
+// 15 Oct (ruling C-R1).
+const BANKING_OVER_30_WINNERS = 15;
+// ZONE_PASSIVE_INCOME: income from ZONES earned by the no-orders controls of the four D7 missions
+// (umm_zeitoun_2_buildup, umm_zeitoun_4_clearance, deir_amun_2_foothold, wadi_halam_2_laager), side 0,
+// whole logistics. It is 0 by rule: a force that never moves holds only the ground it was placed on,
+// and no starting force may pay for standing still. The four D7 missions author their zones (lead-
+// approved 15 Oct, ruling C-R1), and it is 0 because no authored zone covers a starting placement (a
+// `staging` zone that paid would make this positive, and none is authored). A 0 is only evidence if the four controls were RUN: a control
+// renamed or dropped contributes nothing and would read 0 silently, so the gate also requires all four
+// found, prints "D7 controls found 4/4", and fails naming any that is missing (F2 Task 11).
+const ZONE_PASSIVE_INCOME = 0;
+{
+  const D7 = ['umm_zeitoun_2_buildup', 'umm_zeitoun_4_clearance', 'deir_amun_2_foothold', 'wadi_halam_2_laager'];
+  let over30 = 0;
+  let winners = 0;
+  for (const r of runLog) {
+    if (r.banking === undefined || r.expect !== 'victory' || r.label !== r.id) continue;
+    winners++;
+    console.log(bankingLine(r.id, 'plan', r.banking));
+    if (bankedOver(r.banking, 30)) over30++;
+  }
+  let zonePassive = 0;
+  let controls = 0;
+  const d7Found = new Set<string>();
+  for (const c of controlIntel()) {
+    const r = runLog.find((x) => x.id === c.id && x.label === c.label);
+    if (r?.banking === undefined) continue;
+    controls++;
+    console.log(bankingLine(c.id, 'passive control', r.banking));
+    if (D7.includes(c.id)) {
+      zonePassive += r.banking.zoneEarned;
+      d7Found.add(c.id);
+    }
+  }
+  console.log(
+    `banking: ${over30} of ${winners} winning plans bank over 30% (${controls} passive controls reported); ` +
+      `zone income earned by the four D7 passive controls ${zonePassive}`
+  );
+  if (over30 !== BANKING_OVER_30_WINNERS) {
+    console.error(`banking: FAILED — ${over30} of ${winners} winning plans bank over 30%, expected ${BANKING_OVER_30_WINNERS}`);
+    process.exitCode = 1;
+  }
+  console.log(`banking: D7 controls found ${d7Found.size}/${D7.length}`);
+  const d7Missing = D7.filter((id) => !d7Found.has(id));
+  if (d7Missing.length > 0) {
+    console.error(`banking: FAILED — no passive control ran for ${d7Missing.join(', ')}: ZONE_PASSIVE_INCOME read nothing there`);
+    process.exitCode = 1;
+  }
+  if (zonePassive !== ZONE_PASSIVE_INCOME) {
+    console.error(`banking: FAILED — the D7 passive controls earned ${zonePassive} from zones, expected ${ZONE_PASSIVE_INCOME}`);
+    process.exitCode = 1;
+  }
+}
+
+const BUILDING_PLANS = ['beit_sahwan_2_foothold', 'deir_amun_2_foothold', 'wadi_halam_2_laager', 'wadi_halam_4_village', 'umm_zeitoun_3_clearance'];
+// --- F4 Task 10: the largest queue each building plan reached (R-F4-4), report only ------------------
+//
+// Side 0's production lines, in-progress item plus waiting items summed over lines, sampled every tick
+// (`playtest-run.ts`) and maximised over all 30 plan-sweep seeds: the 424242 run alone would miss a plan
+// (umm_zeitoun_3_clearance) that wins before its first build on that seed. Expected <= 2: the plans
+// pace their buys by the clock, and `MAX_LINE_QUEUE` (16) is headroom, not a fitted number. Appended
+// last so no earlier line moves; gates nothing. A plan that never queued on any seed prints 0.
+{
+  const largest = new Map<string, number>();
+  for (const runs of planRunsBySeed.values()) {
+    for (const r of runs) {
+      if (r.expect !== 'victory' || r.label !== r.id || r.banking === undefined) continue;
+      largest.set(r.id, Math.max(largest.get(r.id) ?? 0, r.maxQueue));
+    }
+  }
+  for (const [id, q] of largest) {
+    if (q > 0 || BUILDING_PLANS.includes(id)) console.log(`largest queue ${id}: ${q} (max over ${SWEEP_SEEDS.length} seeds, report only)`);
   }
 }

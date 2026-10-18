@@ -105,6 +105,10 @@ export function scarredMaterial(base: THREE.Material, band: number): THREE.MeshS
   const scarred = std.clone();
   const target = new THREE.Color(std.map ? CHARRED_TINT_HEX : liftTone(CHARRED_RAMP));
   scarred.color.lerp(target, mix);
+  // A self-lit wall (`mesh-building.ts`, `applySelfLit`) glows at a fraction
+  // of its OWN albedo, so a scarred clone's term follows the scarred colour;
+  // copied unchanged it would glow at the clean tone over a charred face.
+  if (typeof std.userData.rlSelfLit === 'number') scarred.emissive.copy(scarred.color);
   scarred.roughness = std.roughness + (1 - std.roughness) * mix;
   scarred.needsUpdate = true;
   return scarred;

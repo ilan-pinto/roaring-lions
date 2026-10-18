@@ -130,6 +130,8 @@ import {
   REGEN_DELAY_TICKS,
   REGEN_FRAC,
   REGEN_CAP,
+  AMBUSH_RADIUS_DEFAULT,
+  type SupportKind,
 } from './tuning';
 
 export const TICKS_PER_SECOND = 20;
@@ -418,9 +420,11 @@ export interface UnitType {
    * which is four men and a tube, does. Deriving this from the role would
    * drive a rocket truck through terrain that stops a jeep. The default is
    * `!FOOT_ROLES.has(role)`, and only a unit the default gets wrong says so
-   * in JSON. Two do, one each way: `rocket_battery` (`wheeled: true`), and
-   * `manpad_team` (`wheeled: false`, GH-247) -- two men and a launcher, whose
-   * role `aa` cannot join FOOT_ROLES because `gun_truck` declares it too.
+   * in JSON. Three do: `rocket_battery` (`wheeled: true`); `dozer_d9`
+   * (`wheeled: true`, GH-598) -- a tracked bulldozer whose role `engineer` is
+   * shared with three foot teams; and `manpad_team` (`wheeled: false`,
+   * GH-247) -- two men and a launcher, whose role `aa` cannot join FOOT_ROLES
+   * because `gun_truck` declares it too.
    */
   wheeled: boolean;
   /**
@@ -674,6 +678,13 @@ export type Command =
    *  who sent it: the sim does not know which side is "the player". */
   | { kind: 'attackMove'; ids: number[]; x: Fx; y: Fx; append?: boolean; exact?: boolean; sweep?: boolean }
   | { kind: 'halt'; ids: number[] }
+  /** N2 (L3, D2). `hold`: halt's own writes on a free unit -- the walk ends, an
+   *  ambush is dropped, the unit stands and fires on what comes; a garrisoned or
+   *  carried unit is left as it is (the building or the vehicle is its hold).
+   *  `ambush`: the same halt, then `setAmbush(id, radius ?? AMBUSH_RADIUS_DEFAULT)`.
+   *  Both skip a dead, routed, garrisoned or carried id; a buried one never gets
+   *  here (the containment filter). `patrol` is N3's. */
+  | { kind: 'setStance'; ids: number[]; stance: 'hold' | 'ambush'; radius?: Fx }
   | { kind: 'garrison'; ids: number[]; structure: number }
   /** Climb aboard a vehicle with seats. */
   | { kind: 'load'; ids: number[]; carrier: number }
@@ -708,7 +719,24 @@ export type Command =
    * target's facing, so that judgement is the app's to show and the combat
    * step's to apply. A refused id is a no-op.
    */
-  | { kind: 'attack'; ids: number[]; target: number };
+  | { kind: 'attack'; ids: number[]; target: number }
+  /** N2: buy a unit. The MissionRuntime prices and queues it; the sim never
+   *  executes it (R-3). Side 0 only until N3 (C-R3). */
+  | { kind: 'build'; side: number; unit: string; line?: number }
+  /** F4: cancel `index` on production line `line` (-1 = the item in progress). Runtime-priced. */
+  | { kind: 'cancelBuild'; side: number; line: number; index: number }
+  /** F4: set a line's rally point. Runtime-resolved (blocked tiles are the runtime's refusal). */
+  | { kind: 'setRally'; side: number; line: number; x: Fx; y: Fx }
+  /** F4: clear a line's rally point. */
+  | { kind: 'clearRally'; side: number; line: number }
+  /** N2: one call from F1's fire-support menu, priced as `build` is. */
+  | { kind: 'support'; side: number; support: SupportKind; x: Fx; y: Fx };
+
+/** The five commands the sim sets aside for the MissionRuntime to price and run (N2, F4):
+ *  `queueCommand` never hands them to `applyCommands`. */
+export type RuntimeCommand = Extract<Command, { kind: 'build' | 'support' | 'cancelBuild' | 'setRally' | 'clearRally' }>;
+/** `takeRuntimeCommands`' answer when nothing is set aside: shared, frozen, no allocation. */
+const NO_RUNTIME_COMMANDS: readonly RuntimeCommand[] = Object.freeze([]);
 
 /** The same command aimed at fewer units. A generic copy rather than an
  *  in-place splice, because the queued object belongs to the sender. */
@@ -823,6 +851,11 @@ export interface SimConfig {
   width: number;
   height: number;
   capacity: number;
+  /** N2 (L1): which combatant side a person holds, by side index 0 and 1.
+   *  From `seatRules(config).humanHeld` (`@lions/net`); the sim never reads a
+   *  config. Absent: `[true, false]`, single-player's rule. Side 2 (civilians)
+   *  is never human-held. Not hashed (R-2). */
+  humanHeld?: readonly [boolean, boolean];
 }
 
 /** Read-only detection factors for one observer→target pair (debug overlay). */
@@ -1113,6 +1146,8 @@ export class Sim {
   private readonly stHp: Int32Array;
   private readonly stMaxHp: Int32Array;
   private readonly stTypeIdx: Uint16Array;
+  /** Per-placement `produces_for` (F4 Task 7). Setup-only; NOT in hash(). */
+  private readonly stProducesFor: Int8Array;
   private readonly stOccupants: Uint8Array;
   private readonly stCx: Int32Array;
   private readonly stCy: Int32Array;
@@ -1263,7 +1298,14 @@ export class Sim {
   };
 
   private readonly seed: number;
-  private commandQueue: Command[] = [];
+  /** What `applyCommands` executes. Typed without the two runtime kinds, so its
+   *  branch chain's exhaustive `never` end stays sound without a branch for
+   *  them: they cannot reach it (`queueCommand` sets them aside). */
+  private commandQueue: Exclude<Command, RuntimeCommand>[] = [];
+  /** `build`/`support`, set aside for the MissionRuntime (`takeRuntimeCommands`).
+   *  Never executed by the sim, never hashed, and emptied at the start of every
+   *  `applyCommands` (R-3). */
+  private runtimeQueue: RuntimeCommand[] = [];
   private pendingEvents: SimEvent[] = [];
   private readonly fields: FlowField[] = [];
   /**
@@ -1287,7 +1329,16 @@ export class Sim {
   private readonly fieldGoalKey: number[] = [];
   private readonly fieldDomain: number[] = [];
 
+  /** 1 = a person holds that side; index 2 (civilians) stays 0. */
+  private readonly humanHeldBySide = new Uint8Array(3);
+
   constructor(config: SimConfig) {
+    const held = config.humanHeld ?? [true, false];
+    if (held.length !== 2 || typeof held[0] !== 'boolean' || typeof held[1] !== 'boolean') {
+      throw new Error('Sim: humanHeld must be two booleans, one per combatant side');
+    }
+    this.humanHeldBySide[0] = held[0] ? 1 : 0;
+    this.humanHeldBySide[1] = held[1] ? 1 : 0;
     this.width = config.width;
     this.height = config.height;
     this.capacity = config.capacity;
@@ -1365,6 +1416,7 @@ export class Sim {
     this.stHp = new Int32Array(sc);
     this.stMaxHp = new Int32Array(sc);
     this.stTypeIdx = new Uint16Array(sc);
+    this.stProducesFor = new Int8Array(sc).fill(-1);
     this.stOccupants = new Uint8Array(sc);
     this.stCx = new Int32Array(sc);
     this.stCy = new Int32Array(sc);
@@ -1587,6 +1639,7 @@ export class Sim {
     this.stTiles[id] = [...tiles];
     this.stAlive[id] = 1;
     this.stTypeIdx[id] = typeIdx;
+    this.stProducesFor[id] = type.producesFor;
     this.stMaxHp[id] = fx.mul(type.hpPerTile, fx.fromInt(tiles.length));
     this.stHp[id] = this.stMaxHp[id];
     this.stOccupants[id] = 0;
@@ -1599,6 +1652,23 @@ export class Sim {
     this.stMaxY[id] = maxY;
     this.recomputeFields();
     return id;
+  }
+
+  /**
+   * Override which side structure `s` produces for (a mission placement's `side`, F4 Task 7).
+   * Setup-only: written when the mission raises its structures, before the first tick, and
+   * left out of hash(); Task 6's economyHash folds every line's side, so a client built with
+   * a different override diverges there.
+   */
+  setStructureProducesFor(s: number, side: 0 | 1): void {
+    if (s < 0 || s >= this.structureCount_) throw new Error(`no structure ${s}`);
+    if (this.tickCount > 0) throw new Error('setStructureProducesFor is setup-only (before the first tick)');
+    this.stProducesFor[s] = side;
+  }
+
+  /** The side structure `s` produces for: the placement's override, else its type's `producesFor` (-1 = none). */
+  structureProducesFor(s: number): number {
+    return this.stProducesFor[s];
   }
 
   get tunnelCount(): number {
@@ -1923,7 +1993,30 @@ export class Sim {
   }
 
   queueCommand(cmd: Command): void {
-    this.commandQueue.push(cmd);
+    // N2/F4: the five runtime-run kinds (build, support, cancelBuild, setRally, clearRally) go to
+    // their own list; the sim never runs them.
+    switch (cmd.kind) {
+      case 'build': case 'support': case 'cancelBuild': case 'setRally': case 'clearRally':
+        this.runtimeQueue.push(cmd);
+        return;
+      default:
+        this.commandQueue.push(cmd);
+    }
+  }
+
+  /** The runtime-priced commands queued since the last take, in queue order;
+   *  empties the list. Shared empty array when none (no allocation). */
+  takeRuntimeCommands(): readonly RuntimeCommand[] {
+    if (this.runtimeQueue.length === 0) return NO_RUNTIME_COMMANDS;
+    const out = this.runtimeQueue;
+    this.runtimeQueue = [];
+    return out;
+  }
+
+  /** The ambush radius squared when the unit is in ambush, else 0. Read-only
+   *  and unhashed (N2). */
+  ambushRadiusSqOf(id: number): Fx {
+    return this.stance[id] === 1 ? this.ambushRadiusSq[id] : 0;
   }
 
   /** Put a unit in ambush: hold fire and minimum signature until a target
@@ -2189,7 +2282,33 @@ export class Sim {
     return reserved;
   }
 
+  /** What `halt` writes for one unit, after it has left any building. */
+  private haltUnit(id: number): void {
+    this.garrisonGoal[id] = -1;
+    // And a boarding order: stepTransport re-sets `moving` every tick
+    // to chase the carrier while `boardGoal` is latched, so a rider
+    // halted on its way to a vehicle walked on to it -- measured 15.9
+    // tiles in 10 s (orders-obeyed.test.ts). `demolishOrder` and
+    // `chargeOrder` are left alone on purpose: their steps only ever
+    // STOP a unit in range, never start one, so a halt already holds
+    // them (pinned beside the boarding test).
+    this.boardGoal[id] = -1;
+    this.wpCount[id] = 0;
+    this.moving[id] = 0;
+    this.fieldRef[id] = -1;
+    // A halted unit stays halted (the lead's ruling, 2026-10-11). The
+    // attack-move latch has to go with `moving`: left set, stepSweep
+    // read an idle attack-mover with a remembered contact and walked it
+    // off again on the very next tick -- measured 9 / 11 / 28 tiles
+    // away 10 s after a halt for inf_squad / mbt_lavi / jeep_shoded.
+    this.attackMove[id] = 0;
+    this.sweepOrder[id] = 0;
+    this.engaging[id] = 0;
+    this.stance[id] = 0;
+  }
+
   private applyCommands(): void {
+    if (this.runtimeQueue.length !== 0) this.runtimeQueue = []; // R-3: no runtime took them
     const q = this.commandQueue;
     for (let c = 0; c < q.length; c++) {
       let cmd = q[c];
@@ -2716,31 +2835,26 @@ export class Sim {
           this.engaging[id] = 0;
           this.stance[id] = 0; // any order overrides a held stance
         }
-      } else {
+      } else if (cmd.kind === 'setStance') {
+        // Not a plain halt: it must skip garrisoned and carried ids, which halt would pull out of their post.
+        for (const id of cmd.ids) {
+          if (this.alive[id] === 0 || this.routed[id] === 1) continue;
+          if (this.garrisonedIn[id] >= 0 || this.carriedBy[id] >= 0) continue; // the building or the vehicle is the hold (D2)
+          this.haltUnit(id);
+          if (cmd.stance === 'ambush') this.setAmbush(id, cmd.radius ?? AMBUSH_RADIUS_DEFAULT);
+        }
+      } else if (cmd.kind === 'halt') {
         for (const id of cmd.ids) {
           if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
-          this.garrisonGoal[id] = -1;
-          // And a boarding order: stepTransport re-sets `moving` every tick
-          // to chase the carrier while `boardGoal` is latched, so a rider
-          // halted on its way to a vehicle walked on to it -- measured 15.9
-          // tiles in 10 s (orders-obeyed.test.ts). `demolishOrder` and
-          // `chargeOrder` are left alone on purpose: their steps only ever
-          // STOP a unit in range, never start one, so a halt already holds
-          // them (pinned beside the boarding test).
-          this.boardGoal[id] = -1;
-          this.wpCount[id] = 0;
-          this.moving[id] = 0;
-          this.fieldRef[id] = -1;
-          // A halted unit stays halted (the lead's ruling, 2026-10-11). The
-          // attack-move latch has to go with `moving`: left set, stepSweep
-          // read an idle attack-mover with a remembered contact and walked it
-          // off again on the very next tick -- measured 9 / 11 / 28 tiles
-          // away 10 s after a halt for inf_squad / mbt_lavi / jeep_shoded.
-          this.attackMove[id] = 0;
-          this.sweepOrder[id] = 0;
-          this.engaging[id] = 0;
-          this.stance[id] = 0;
+          this.haltUnit(id);
         }
+      } else {
+        // Exhaustive over what `commandQueue` can hold: the five RuntimeCommand kinds
+        // are excluded from its type (`queueCommand` sets them aside for the
+        // runtime, N2/F4), so they need no branch here and a new sim kind still
+        // fails to compile until it gets one.
+        const unhandled: never = cmd;
+        void unhandled;
       }
     }
     this.commandQueue = [];
@@ -3753,6 +3867,12 @@ export class Sim {
     return best;
   }
 
+  /** True when a person holds `side` (the seat table). Side 2, and any number
+   *  outside 0..2, is false. */
+  isHumanHeld(side: number): boolean {
+    return side >= 0 && side <= 2 && this.humanHeldBySide[side] === 1;
+  }
+
   /**
    * The wall in the way, or -1.
    *
@@ -3780,12 +3900,14 @@ export class Sim {
    * cut while a gate twenty feet away still gets used.
    */
   private selectBreachTarget(i: number): number {
-    // The player never cuts a wall by accident. The conditions below already
-    // spare a garrison holding its own compound, but a unit ordered out through
-    // a gate on the far side satisfies every one of them against its own wire,
-    // and there is no notion of who owns a structure to appeal to. Breaching on
-    // our side is a decision, and there is a `demolish` order to make it with.
-    if (this.side[i] === 0) return -1;
+    // A side a person holds never cuts a wall by accident (single-player holds
+    // side 0 only, today's rule; a versus room holds both, N2 spec §2.2). The
+    // conditions below already spare a garrison holding its own compound, but a
+    // unit ordered out through a gate on the far side satisfies every one of
+    // them against its own wire, and there is no notion of who owns a structure
+    // to appeal to. Breaching on our side is a decision, and there is a
+    // `demolish` order to make it with.
+    if (this.humanHeldBySide[this.side[i]] === 1) return -1;
     const w = this.width;
     const ux = this.posX[i] >> 16;
     const uy = this.posY[i] >> 16;
@@ -5496,7 +5618,7 @@ export class Sim {
           // (2026-09-06). The scripted plan never saw it because it orders
           // the squad away at tick 20. Levelling your own camp is an order,
           // like cutting your own wire.
-          if (this.structureTypes[this.stTypeIdx[s]].producesFor === this.side[i]) continue;
+          if (this.stProducesFor[s] === this.side[i]) continue;
           if (this.stOccupants[s] > 0 && this.friendlyInside(s, this.side[i])) continue;
           const d = this.structDistSq(s, this.posX[i], this.posY[i]);
           if (d <= bestD) {

@@ -3,7 +3,7 @@
  * the ONLY way bytes become one. Spec §3.2.3. The room never learns a
  * position: the only battle facts here are `Command`s and hashes.
  */
-import { FIRE_SUPPORT, type Command } from '@lions/sim';
+import { AMBUSH_RADIUS_MAX, FIRE_SUPPORT, FIRE_SUPPORT_KINDS, MAX_LINE_QUEUE, MAX_PRODUCTION_LINES, type Command } from '@lions/sim';
 import { isFactionPair, validateConfig, type Faction, type MatchConfig, type Seat } from './config';
 import type { Frame, Stamped } from './frames';
 import { ADVISOR_SCOPES, cleanAdvisorMsg, type AdvisorMsg, type AdvisorScope } from './advisor';
@@ -32,7 +32,8 @@ export const FORFEIT_MS = 60_000;
 
 /** `Command['kind']` as a value, so a wire command can be checked at runtime. */
 export const COMMAND_KINDS = [
-  'move', 'attackMove', 'halt', 'garrison', 'load', 'unload', 'reveal', 'callStrike', 'smoke', 'demolish', 'chargeTunnel', 'attack',
+  'move', 'attackMove', 'halt', 'setStance', 'garrison', 'load', 'unload', 'reveal', 'callStrike', 'smoke', 'demolish', 'chargeTunnel', 'attack',
+  'build', 'support', 'cancelBuild', 'setRally', 'clearRally',
 ] as const satisfies readonly Command['kind'][];
 
 /** The other half of the pin (N2 prerequisite P1): `satisfies` above catches a
@@ -67,6 +68,9 @@ export type ClientMsg =
 export const ERROR_CODES = ['bad_message', 'bad_ticket', 'build_mismatch', 'full', 'not_running', 'origin'] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
+/** A room's kit rule, as the lobby names it (`SeatConfig['kit']`). */
+export type LobbyKit = 'matched' | 'brigade';
+
 /** `round`: a paced room is waiting for a bot seat's `done` (N4a). */
 export type StallReason = 'behind' | 'gone' | 'round';
 /** Why a room ended. `over`: it closed itself `OVER_CLOSE_MS` after the result both seats reached (L-1).
@@ -76,8 +80,10 @@ export type EndedReason = (typeof ENDED_REASONS)[number];
 
 export type ServerMsg =
   /** `factions`, by seat: what the host picked (KDF vs Sarim, or the mirror).
-   *  Absent from a room made before it existed, which is the mirror. */
-  | { t: 'lobby'; config: MatchConfig | null; seats: SeatState[]; you: Seat; map: string; factions?: [Faction, Faction] }
+   *  Absent from a room made before it existed, which is the mirror.
+   *  `kit`: the room's kit rule (per-seat kit); the room names it only when it
+   *  is `brigade`, so absent is `matched`, which every older room was. */
+  | { t: 'lobby'; config: MatchConfig | null; seats: SeatState[]; you: Seat; map: string; factions?: [Faction, Faction]; kit?: LobbyKit }
   | { t: 'start'; config: MatchConfig }
   | { t: 'frame'; tick: number; cmds: Stamped[] }
   | { t: 'stall'; reason: StallReason; seat: Seat }
@@ -127,6 +133,14 @@ function cleanIds(v: unknown): number[] | null {
   return out.length <= MAX_CMD_IDS ? out : null;
 }
 const optBool = (v: unknown): boolean => v === undefined || typeof v === 'boolean';
+/** A unit id on the wire (N2 `build`). The same pattern as `@lions/data`'s
+ *  `UNIT_ID_PATTERN`, which `@lions/net` cannot import; `tools/src/unit-id-pattern.test.ts`
+ *  pins the two together against every shipped unit id. */
+const UNIT_ID = /^[a-z0-9_]{1,32}$/;
+/** A production line index on the wire: 0 <= line < MAX_PRODUCTION_LINES (F4). */
+const isLine = (v: unknown): v is number => isInt(v) && v >= 0 && v < MAX_PRODUCTION_LINES;
+const isSupportKind = (v: unknown): v is (typeof FIRE_SUPPORT_KINDS)[number] =>
+  isStr(v) && (FIRE_SUPPORT_KINDS as readonly string[]).includes(v);
 
 /**
  * A wire command REBUILT from the fields its kind declares, each with the
@@ -181,6 +195,30 @@ export function cleanCommand(v: unknown): Command | null {
         : null;
     case 'smoke':
       return ids === null || !isInt(c.x) || !isInt(c.y) ? null : { kind, ids, x: c.x, y: c.y };
+    case 'setStance': {
+      if (ids === null || (c.stance !== 'hold' && c.stance !== 'ambush')) return null;
+      if (c.stance === 'hold') return c.radius === undefined ? { kind, ids, stance: 'hold' } : null;
+      if (c.radius === undefined) return { kind, ids, stance: 'ambush' };
+      return isInt(c.radius) && c.radius > 0 && c.radius <= AMBUSH_RADIUS_MAX ? { kind, ids, stance: 'ambush', radius: c.radius } : null;
+    }
+    case 'build':
+      if (!isInt(c.side) || !isStr(c.unit) || !UNIT_ID.test(c.unit)) return null;
+      if (c.line === undefined) return { kind, side: c.side, unit: c.unit };
+      return isLine(c.line) ? { kind, side: c.side, unit: c.unit, line: c.line } : null;
+    case 'cancelBuild':
+      return isInt(c.side) && isLine(c.line) && isInt(c.index) && c.index >= -1 && c.index < MAX_LINE_QUEUE
+        ? { kind, side: c.side, line: c.line, index: c.index }
+        : null;
+    case 'setRally':
+      return isInt(c.side) && isLine(c.line) && isInt(c.x) && isInt(c.y)
+        ? { kind, side: c.side, line: c.line, x: c.x, y: c.y }
+        : null;
+    case 'clearRally':
+      return isInt(c.side) && isLine(c.line) ? { kind, side: c.side, line: c.line } : null;
+    case 'support':
+      return isInt(c.side) && isSupportKind(c.support) && isInt(c.x) && isInt(c.y)
+        ? { kind, side: c.side, support: c.support, x: c.x, y: c.y }
+        : null;
     default: {
       const unreachable: never = kind;
       return unreachable;
@@ -274,8 +312,9 @@ export function parseServerMsg(raw: string): ServerMsg | null {
       const c = m.config === null || m.config === undefined ? null : validateConfig(m.config);
       if (c === null && m.config !== null && m.config !== undefined) return null;
       if (m.factions !== undefined && !isFactionPair(m.factions)) return null;
+      if (m.kit !== undefined && m.kit !== 'matched' && m.kit !== 'brigade') return null;
       return Array.isArray(m.seats) && m.seats.every(isSeatState) && isSeat(m.you) && isStr(m.map)
-        ? { t: 'lobby', config: c, seats: m.seats, you: m.you, map: m.map, ...(m.factions !== undefined ? { factions: m.factions } : {}) } : null;
+        ? { t: 'lobby', config: c, seats: m.seats, you: m.you, map: m.map, ...(m.factions !== undefined ? { factions: m.factions } : {}), ...(m.kit !== undefined ? { kit: m.kit } : {}) } : null;
     }
     case 'start': { const c = validateConfig(m.config); return c ? { t: 'start', config: c } : null; }
     case 'frame': return isInt(m.tick) && Array.isArray(m.cmds) && m.cmds.every(isStamped) ? { t: 'frame', tick: m.tick, cmds: m.cmds } : null;

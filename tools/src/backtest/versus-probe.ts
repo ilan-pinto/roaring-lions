@@ -94,9 +94,9 @@ export interface PlayOptions {
   cutSide?: 0 | 1;
 }
 
-export function world(mapId: MapId, seed: number) {
+export function world(mapId: MapId, seed: number, humanHeld?: readonly [boolean, boolean]) {
   const map = parseMap(maps[mapId]);
-  const sim = new Sim({ seed, width: map.width, height: map.height, capacity: 256 });
+  const sim = new Sim({ seed, width: map.width, height: map.height, capacity: 256, ...(humanHeld ? { humanHeld } : {}) });
   applyTerrain(map, sim);
   standMapStructures(sim, map);
   const typeOf = new Map<string, number>();

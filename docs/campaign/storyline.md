@@ -174,7 +174,7 @@ company at First Light. Fix is §7 G2.
 |---|---|---|
 | "here is the picture" | `locate` — completes when units carrying `target` are identified, or on `count` identifications | `packages/sim/src/mission.ts` `SUPPORTED`; 10 shipped |
 | "here is what we carried out of last time" | `intel.marked_positions`. A tagged garrison recon identified **spawns pre-identified and forfeits its ambush** | produced by `beit_sahwan_1_recon`, `_4_subterranean`, `tel_marum_1_recon`, `wadi_halam_1_fords`, `_3_counterraid`; required by `beit_sahwan_3_clearance`, `_4_subterranean`, `tel_marum_2_foothold`, `wadi_halam_3_counterraid` |
-| "this is what certainty costs" | the Intel resource — sweep 150, precision strike 250 | **barely exists.** One shipped mission declares any (`beit_sahwan_breach`, `intel_start: 60`); none declares a rate *(Superseded by F1, 2026-10-15: intel is earned by doing — 10 per enemy first identified by a real observer, 30 per objective completed, 30 per high-ground rise held 10 s — with no per-minute term; there is no `intel_rate_per_min` field and none will be added; it is spent on four calls, smoke screen 60, mortar barrage 120, drone sweep 150, air strike 250; numbers provisional pending the lead; see docs/GDD.md §3.)* |
+| "this is what certainty costs" | the Intel resource — sweep 150, precision strike 250 | **barely exists.** One shipped mission declares any (`beit_sahwan_breach`, `intel_start: 60`); none declares a rate *(Superseded by F1, 2026-10-15: intel is earned by doing — 8 per enemy first identified by a real observer, 40 per objective completed, 30 per high-ground rise held 10 s — with no per-minute term; there is no `intel_rate_per_min` field and none will be added; it is spent on four calls, smoke screen 100, mortar barrage 120, drone sweep 150, air strike 250; numbers ruled by the lead on 15 Oct (8/40/30, smoke 100); see docs/GDD.md §3.)* |
 
 That last row shapes what `narrative-designer` can write: **Idit's voice cannot
 lean on the Intel economy, because the campaign does not have one.** Her
@@ -183,14 +183,14 @@ logistics on screen needs an `intel_rate_per_min` in some missions first —
 `mission-author` work, not writing (§7 G10).
 
 > **Superseded by F1, 2026-10-15.** Intel now exists and is earned by doing:
-> 10 per enemy first identified by a real observer, 30 per objective completed,
+> 8 per enemy first identified by a real observer, 40 per objective completed,
 > 30 per high-ground rise held 10 s. There is no per-minute term, no
 > `intel_rate_per_min` field and none will be added (the lead's ruling: a trickle
-> by another name). It is spent on four calls: smoke screen 60, mortar barrage
+> by another name). It is spent on four calls: smoke screen 100, mortar barrage
 > 120, drone sweep 150, air strike 250. The narrative intent stands and gets
 > easier: Idit's voice can lean on what the player earns by doing, and "this is
 > what certainty costs" is a price the player pays out of what they earned.
-> Numbers are provisional pending the lead; see docs/GDD.md §3.
+> Numbers ruled by the lead on 15 Oct (8/40/30, smoke 100); see docs/GDD.md §3.
 
 ### 2.3 The three villains
 

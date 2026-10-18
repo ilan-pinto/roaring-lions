@@ -328,9 +328,13 @@ export const SILHOUETTE_STENCIL_REF = 1;
  * Team-colour palette keys, indexed by `silhouetteSideIndex` -- NOT by raw
  * `side`. The silhouette's job is "whose unit is that", so it borrows the
  * three colours that already answer exactly that question everywhere else
- * in this game (`data/palette.json`'s `reserved.team.colors`).
+ * in this game (`data/palette.json`'s `reserved.team.colors`) -- except the
+ * civilian, which is `limestone.0` in every colour-vision variant (VR-04: it is
+ * `@lions/data`'s `CIVILIAN_COLOR_KEY`, restated because render cannot import
+ * data; `tools/src/civilian_colour.test.ts` pins the two). `team.neutral` is
+ * the warning yellow now and a civilian is no longer drawn in it.
  */
-export const SILHOUETTE_COLOR_KEY_BY_SIDE = ['team.kedem', 'team.hostile', 'team.neutral'] as const;
+export const SILHOUETTE_COLOR_KEY_BY_SIDE = ['team.kedem', 'team.hostile', 'limestone.0'] as const;
 
 /**
  * The literal each key above resolves to in `data/palette.json`, for the
@@ -340,7 +344,7 @@ export const SILHOUETTE_COLOR_KEY_BY_SIDE = ['team.kedem', 'team.hostile', 'team
  * palette key's name; `silhouette.test.ts` reads `data/palette.json` and
  * asserts these three against it rather than trusting this comment.
  */
-export const SILHOUETTE_FALLBACK_HEX_BY_SIDE = [paletteHex('team.kedem'), paletteHex('team.hostile'), paletteHex('team.neutral')] as const;
+export const SILHOUETTE_FALLBACK_HEX_BY_SIDE = [paletteHex('team.kedem'), paletteHex('team.hostile'), paletteHex('limestone.0')] as const;
 
 /**
  * `side` -> colour slot, for the person looking (`viewer`, the sim side they

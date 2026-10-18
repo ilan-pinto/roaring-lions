@@ -347,6 +347,16 @@ describe('cover 3, the first authored anywhere in the game', () => {
   const SHOOTER: Pt = [24, 10];
   const SEEDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
   const mean = (v: number[]): number => v.reduce((a, b) => a + b, 0) / v.length;
+  // Twenty (alive) and forty (ladder) 90 s duels: CPU-bound sim runs, and the
+  // ten seeds are the claim (one seed read cover 2 as safer than 3), so they
+  // are not cut. Measured single-file, Apple M3 Pro, 2026-10-15, five runs
+  // with the load average at 13-86 on 12 cores (two of them on the efficiency
+  // cores alone): the ladder 1.11-2.38 s, the alive test 0.61-1.23 s. Under a
+  // full parallel `pnpm test` the ladder crossed vitest's 5 s default (timed
+  // out at 6.0 s); that crossing came from the full run, not a single-file
+  // one. The margin is for contention only: needing it on a quiet machine
+  // would be a regression.
+  const DUELS_TIMEOUT_MS = 30_000;
 
   it('keeps a squad alive where open ground kills it', () => {
     // Ten seeds, not one: a single duel's outcome is a per-entity RNG stream,
@@ -362,7 +372,7 @@ describe('cover 3, the first authored anywhere in the game', () => {
     // On the terrace the mean loss fell 19.8 -> 1.8 hp in the same change.
     expect(inOpen.filter((v) => v >= 400).length).toBeGreaterThanOrEqual(7);
     expect(onTerrace.filter((v) => v >= 400).length).toBe(0);
-  });
+  }, DUELS_TIMEOUT_MS);
 
   it('is a ladder, and its big step is 0 -> 1, not 2 -> 3', () => {
     // Honest, and worth knowing before authoring a `3`: COVER_HIT goes
@@ -376,5 +386,5 @@ describe('cover 3, the first authored anywhere in the game', () => {
     expect(open).toBeGreaterThan(light * 2);
     expect(light).toBeGreaterThan(heavy);
     expect(Math.abs(heavy - garrison)).toBeLessThan(open * 0.1);
-  });
+  }, DUELS_TIMEOUT_MS);
 });

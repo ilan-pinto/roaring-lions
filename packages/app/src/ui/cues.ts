@@ -77,6 +77,8 @@ export const MISSION_EVENT_SOUND: Readonly<Record<MissionEvent['kind'], EventSou
   evacuated: { silent: 'a rescue is counted on the HUD; a cue per civilian reaching the refuge would nag' },
   intelEarned: { silent: 'the feed carries each earn and the strip shows the last; a chime per identification would nag' },
   say: { silent: 'the story voice owns the commander bar; a cue under it would talk over it' },
+  zoneHolder: { cues: [ALERT_CUE.minor, ALERT_CUE.important] },
+  corridor: { cues: [ALERT_CUE.minor, ALERT_CUE.important] },
 };
 
 /**

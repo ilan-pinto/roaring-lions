@@ -90,7 +90,7 @@ export interface AlertLine {
 }
 
 export interface Alert {
-  kind: 'unitLost' | 'kill' | 'underFire' | 'objective' | 'wave' | 'arrival' | 'pinned' | 'ambush' | 'removed' | 'roe' | 'broken' | 'damaged' | 'tunnel';
+  kind: 'unitLost' | 'kill' | 'underFire' | 'objective' | 'wave' | 'arrival' | 'pinned' | 'ambush' | 'removed' | 'roe' | 'broken' | 'damaged' | 'tunnel' | 'zone' | 'supply';
   tier: AlertTier;
   /** Good or bad, as the minimap ring wears it (VR-36): the line's own tone
    *  where there is a line, and for a lineless alert the tone its line would
@@ -157,6 +157,21 @@ export interface AlertWorld {
   /** The side the player commands (network design §5.1), 0 in single-player:
    *  "ours" and "the enemy" in every line below are relative to it. */
   readonly viewer: number;
+  /** F2 P2-4: the centre of a named map zone, in tiles, or null. */
+  zoneAt(zone: string): { x: number; y: number } | null;
+  /** F2 P2-4: who holds an income zone right now (-1 when nobody, or when the
+   *  mission has no such zone). Read at alert time: the runtime's zone list is
+   *  reused storage and nothing here keeps it. */
+  zoneHolder(zone: string): number;
+  /** F2 P2-4: the first cut tile of a supply line -- `route[cutSpan[0]]` --
+   *  or the route's midpoint when the span is unknown; `zone` null is the
+   *  convoy. Null when there is no route (so no place). It answers for an
+   *  OPEN line too -- it places, it does not judge; `supplyCut` judges. */
+  supplyCutAt(zone: string | null): { x: number; y: number } | null;
+  /** F2 P2-4: why the live supply line is cut right now (the runtime's own
+   *  `CutCause`), or null while it is open or absent; `zone` null is the
+   *  convoy. Read at alert time, like `zoneHolder`. */
+  supplyCut(zone: string | null): string | null;
 }
 
 /** What has to survive between ticks. Read-only on the way in and
@@ -172,6 +187,16 @@ export interface AlertState {
   readonly lastPinned: number;
   /** GH-471: tunnel routes whose discovery has been announced this mission. */
   readonly tunnelsAnnounced: ReadonlySet<number>;
+  /** F2 P2-4: the viewer's income zones by name -- `own` while held,
+   *  `contested` while held and fought over. A zone absent here is not ours;
+   *  the event carries only the NEW holder, so the old one lives here. */
+  readonly zones: ReadonlyMap<string, 'own' | 'contested'>;
+  /** F2 P2-4: supply lines remembered as cut, by zone name (`''` is the
+   *  convoy). A line lost with its holder clears silently (C-R19), so the
+   *  zone's `zoneHolder` event drops its entry. */
+  readonly cuts: ReadonlyMap<string, string>;
+  /** F2 P2-4: the tick each zone last RAISED a cue, for `ZONE_COOLDOWN_TICKS`. */
+  readonly zoneCued: ReadonlyMap<string, number>;
 }
 
 /**
@@ -189,13 +214,21 @@ export interface AlertState {
 export const UNDER_FIRE_COOLDOWN_TICKS = 100;
 
 export function initAlertState(): AlertState {
-  return { lastUnderFire: new Map(), wavesSeen: new Set(), lastPinned: -Infinity, tunnelsAnnounced: new Set() };
+  return { lastUnderFire: new Map(), wavesSeen: new Set(), lastPinned: -Infinity, tunnelsAnnounced: new Set(), zones: new Map(), cuts: new Map(), zoneCued: new Map() };
 }
 
 /** A man pinned sounds the minor cue at most once in four seconds, whoever
  *  he is (the audio plan's "first in 4 s"): a pinned squad pins in a ripple,
  *  and the feed's own pinned line (GH-262) already names each one. */
 export const PINNED_COOLDOWN_TICKS = 80;
+
+/** Ten seconds at 20 Hz. A zone on the edge of a fight flips holder every few
+ *  ticks, and each flip would otherwise chime, flash the minimap and re-arm
+ *  the jump key. Inside this window of a zone's last CUED alert, a further
+ *  transition keeps its feed line (the feed merges it) but takes no cue, no
+ *  flash and no jump target. Longer than the feed's 8 s merge window, so a
+ *  flicker is one chime per merged line; a real change after it cues again. */
+export const ZONE_COOLDOWN_TICKS = 200;
 
 /**
  * Which authored wave a `wave` event is. The event carries only its tick and
@@ -228,6 +261,30 @@ export function alertsForTick(
   const alerts: Alert[] = [];
   const { viewer } = world;
   let wavesSeen = state.wavesSeen;
+  let zones: ReadonlyMap<string, 'own' | 'contested'> = state.zones;
+  let cuts: ReadonlyMap<string, string> = state.cuts;
+  let zoneCued: ReadonlyMap<string, number> = state.zoneCued;
+  /** Copy-on-write edits of the two maps above. */
+  const editZones = (f: (m: Map<string, 'own' | 'contested'>) => void): void => {
+    const m = new Map(zones);
+    f(m);
+    zones = m;
+  };
+  const editCuts = (f: (m: Map<string, string>) => void): void => {
+    const m = new Map(cuts);
+    f(m);
+    cuts = m;
+  };
+  /** Whether a zone may cue now; stamps the tick when it may. */
+  const zoneMayCue = (zone: string): boolean => {
+    if (tick - (zoneCued.get(zone) ?? -Infinity) < ZONE_COOLDOWN_TICKS) return false;
+    const m = new Map(zoneCued);
+    m.set(zone, tick);
+    zoneCued = m;
+    return true;
+  };
+  /** F2 P2-4: held-ground and supply-line alerts, in event order. */
+  const ground: Alert[] = [];
 
   // --- the mission half: what was lost, what moved, what arrived -----------
   const lostByType = new Map<string, number[]>();
@@ -282,7 +339,8 @@ export function alertsForTick(
         marks: entries.map((m) => m.at),
         count: e.count,
       });
-    } else if (e.kind === 'built') {
+    } else if (e.kind === 'built' && isOwnSide(e.side, viewer)) {
+      // R-F4-1: `built` carries the side; an enemy purchase raises no arrival.
       const at = world.arrivedAt(e.unit);
       // VR-37: minor and info, like the scripted reinforcement below. Both are
       // OUR units arriving, both are silent (the dock and the announcer carry
@@ -320,6 +378,106 @@ export function alertsForTick(
     } else if (e.kind === 'roe') {
       // A Conduct penalty (A9): the game's own mechanic, silent until now.
       quiet.push(soundOnly('roe', 'important', 'bad', null));
+    } else if (e.kind === 'zoneHolder') {
+      // The line is gone with its holder (C-R19): no `corridor` event says so.
+      if (cuts.has(e.zone)) {
+        editCuts((m) => m.delete(e.zone));
+      }
+      const prev = zones.get(e.zone);
+      const centre = world.zoneAt(e.zone);
+      const place = centre === null ? [] : [world.placeOf(centre.x, centre.y)];
+      const say = (key: string, tier: AlertTier, tone: Tone): void => {
+        const loud = zoneMayCue(e.zone);
+        ground.push({
+          kind: 'zone',
+          tier,
+          tone,
+          line: { key, params: {}, tone, place },
+          cue: loud ? ALERT_CUE[tier] : null,
+          at: loud ? centre : null,
+          marks: loud && centre !== null ? [centre] : [],
+          count: 1,
+        });
+      };
+      const cutAlert = (): void => {
+        // A takeover can land on a line already cut with no `corridor` event:
+        // read the world, remember it, and say so. Only a line that IS cut:
+        // `supplyCutAt` places an open line as readily as a cut one.
+        const cause = world.supplyCut(e.zone);
+        if (cause === null) return;
+        const cutAt = world.supplyCutAt(e.zone);
+        if (cutAt === null) return;
+        editCuts((m) => m.set(e.zone, cause));
+        const loud = zoneMayCue(e.zone + '/cut');
+        ground.push({
+          kind: 'supply',
+          tier: 'important',
+          tone: 'warn',
+          line: { key: 'alert.supply.cut', params: { what: 'zone' }, tone: 'warn', place: [world.placeOf(cutAt.x, cutAt.y)] },
+          cue: loud ? ALERT_CUE.important : null,
+          at: loud ? cutAt : null,
+          marks: loud ? [cutAt] : [],
+          count: 1,
+        });
+      };
+      let next: 'own' | 'contested' | undefined;
+      if (e.contested) {
+        // Contested ground we never held is the enemy's business, not news.
+        next = prev === undefined ? undefined : 'contested';
+        if (prev === 'own') say('alert.zone.contested', 'minor', 'warn');
+      } else if (isOwnSide(e.holder, viewer)) {
+        next = 'own';
+        if (prev !== 'own') {
+          say('alert.zone.gained', 'minor', 'good');
+          cutAlert();
+        }
+      } else {
+        next = undefined;
+        if (prev !== undefined) say('alert.zone.lost', 'important', 'warn');
+      }
+      if (next !== prev) {
+        editZones((m) => (next === undefined ? m.delete(e.zone) : m.set(e.zone, next)));
+      }
+    } else if (e.kind === 'corridor') {
+      const name = e.zone ?? '';
+      const remembered = cuts.get(name);
+      // Only the viewer's lines: the convoy, or a zone the viewer holds.
+      if (e.zone !== null && !isOwnSide(world.zoneHolder(e.zone), viewer)) {
+        if (remembered !== undefined) editCuts((m) => m.delete(name));
+        continue;
+      }
+      const at = world.supplyCutAt(e.zone);
+      const place = at === null ? [] : [world.placeOf(at.x, at.y)];
+      const what = e.zone === null ? 'convoy' : 'zone';
+      if (e.cut !== null) {
+        // A cut that only changes cause (interdicted -> vent -> unreachable)
+        // is the same news: store the new cause, say nothing.
+        const already = remembered !== undefined;
+        editCuts((m) => m.set(name, e.cut as string));
+        if (already) continue;
+        ground.push({
+          kind: 'supply',
+          tier: 'important',
+          tone: 'warn',
+          line: { key: 'alert.supply.cut', params: { what }, tone: 'warn', place },
+          cue: ALERT_CUE.important,
+          at,
+          marks: at === null ? [] : [at],
+          count: 1,
+        });
+      } else if (remembered !== undefined) {
+        editCuts((m) => m.delete(name));
+        ground.push({
+          kind: 'supply',
+          tier: 'minor',
+          tone: 'good',
+          line: { key: 'alert.supply.open', params: { what }, tone: 'good', place },
+          cue: ALERT_CUE.minor,
+          at,
+          marks: at === null ? [] : [at],
+          count: 1,
+        });
+      }
     } else if (e.kind === 'trigger') {
       const r = world.reinforcement(e.id);
       if (r === null) continue;
@@ -442,9 +600,10 @@ export function alertsForTick(
   const pinnedSounds = pinnedAt !== null && tick - state.lastPinned >= PINNED_COOLDOWN_TICKS;
   const lastPinned = pinnedSounds ? tick : state.lastPinned;
   const nextState: AlertState =
-    lastUnderFire === state.lastUnderFire && wavesSeen === state.wavesSeen && lastPinned === state.lastPinned && tunnelsAnnounced === state.tunnelsAnnounced
+    lastUnderFire === state.lastUnderFire && wavesSeen === state.wavesSeen && lastPinned === state.lastPinned && tunnelsAnnounced === state.tunnelsAnnounced &&
+    zones === state.zones && cuts === state.cuts && zoneCued === state.zoneCued
       ? state
-      : { lastUnderFire, wavesSeen, lastPinned, tunnelsAnnounced };
+      : { lastUnderFire, wavesSeen, lastPinned, tunnelsAnnounced, zones, cuts, zoneCued };
 
   // --- emit, loudest first ------------------------------------------------
   for (const [typeId, entities] of lostByType) {
@@ -484,6 +643,7 @@ export function alertsForTick(
     });
   }
   alerts.push(...arrivals);
+  alerts.push(...ground);
   // PA-19: an enemy kill, one line per type per tick like a loss. Good news,
   // so it is silent -- the blast and the round already sound -- and points
   // the jump key nowhere: Space goes to trouble, never to a wreck of theirs.
@@ -632,10 +792,18 @@ export function missionEventTier(e: MissionEvent): AlertTier | null {
 export interface JumpTarget {
   at: { x: number; y: number };
   tier: AlertTier;
+  /** The alert's kind, when the caller had one (S-F F2 C3: a jump that lands
+   *  on a `supply` alert shows the world supply route for a moment). */
+  kind?: Alert['kind'];
 }
 
-export function nextJump(current: JumpTarget | null, tier: AlertTier, at: { x: number; y: number } | null): JumpTarget | null {
+export function nextJump(
+  current: JumpTarget | null,
+  tier: AlertTier,
+  at: { x: number; y: number } | null,
+  kind?: Alert['kind']
+): JumpTarget | null {
   if (at === null) return current;
-  if (tier !== 'minor' || current === null || current.tier === 'minor') return { at, tier };
+  if (tier !== 'minor' || current === null || current.tier === 'minor') return { at, tier, kind };
   return current;
 }

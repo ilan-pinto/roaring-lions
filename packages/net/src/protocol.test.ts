@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { endingLoser, parseClientMsg, parseServerMsg, FORFEIT_MS, MAX_MESSAGE_BYTES, MAX_CMD_IDS, OVER_CLOSE_MS } from './protocol';
+import { cleanCommand, endingLoser, parseClientMsg, parseServerMsg, FORFEIT_MS, MAX_MESSAGE_BYTES, MAX_CMD_IDS, OVER_CLOSE_MS } from './protocol';
 import type { MatchConfig } from './config';
 
 const CFG: MatchConfig = {
@@ -151,6 +151,14 @@ describe('N1b messages', () => {
     expect(parseServerMsg(JSON.stringify({ t: 'ended', reason: 'surrender', seat: 1 }))).toEqual({ t: 'ended', reason: 'surrender', seat: 1 });
     expect(parseServerMsg(JSON.stringify({ t: 'ended', reason: 'boredom' }))).toBeNull();
   });
+  it('a lobby carries the room\'s kit rule when it is brigade, and refuses a rule that is neither (per-seat kit)', () => {
+    const lobby = { t: 'lobby', config: null, seats: [], you: 1, map: 'tel_marum', factions: ['kdf', 'kdf'], kit: 'brigade' };
+    expect(parseServerMsg(JSON.stringify(lobby))).toEqual(lobby);
+    expect(parseServerMsg(JSON.stringify({ ...lobby, kit: 'matched' }))).toEqual({ ...lobby, kit: 'matched' });
+    expect(parseServerMsg(JSON.stringify({ ...lobby, kit: 'everything' }))).toBeNull();
+    const older = { t: 'lobby', config: null, seats: [], you: 1, map: 'tel_marum', factions: ['kdf', 'kdf'] };
+    expect(parseServerMsg(JSON.stringify(older))).toEqual(older);
+  });
   it('a lobby carries the factions by seat when it has them, and refuses a malformed pair (2026-10-14)', () => {
     const lobby = { t: 'lobby', config: null, seats: [], you: 1, map: 'tel_marum', factions: ['sarim', 'kdf'] };
     expect(parseServerMsg(JSON.stringify(lobby))).toEqual(lobby);
@@ -249,5 +257,81 @@ describe('N4a: advisor, done, advisors and the round stall', () => {
   it('a stall with reason round parses; an unknown reason does not', () => {
     expect(parseServerMsg(JSON.stringify({ t: 'stall', reason: 'round', seat: 1 }))).toEqual({ t: 'stall', reason: 'round', seat: 1 });
     expect(parseServerMsg(JSON.stringify({ t: 'stall', reason: 'later', seat: 1 }))).toBeNull();
+  });
+});
+
+describe('cleanCommand: setStance', () => {
+  it('setStance: hold takes no radius; ambush takes an optional integer radius in (0, 10 tiles]', () => {
+    expect(cleanCommand({ kind: 'setStance', ids: [1], stance: 'hold' })).toEqual({ kind: 'setStance', ids: [1], stance: 'hold' });
+    expect(cleanCommand({ kind: 'setStance', ids: [1], stance: 'ambush' })).toEqual({ kind: 'setStance', ids: [1], stance: 'ambush' });
+    expect(cleanCommand({ kind: 'setStance', ids: [1], stance: 'ambush', radius: 196608 })).toEqual({ kind: 'setStance', ids: [1], stance: 'ambush', radius: 196608 });
+    const bad: unknown[] = [
+      { kind: 'setStance', ids: [1], stance: 'patrol' },
+      { kind: 'setStance', ids: [1], stance: 'hold', radius: 196608 },
+      { kind: 'setStance', ids: [1], stance: 'ambush', radius: 0 },
+      { kind: 'setStance', ids: [1], stance: 'ambush', radius: -65536 },
+      { kind: 'setStance', ids: [1], stance: 'ambush', radius: 655361 },
+      { kind: 'setStance', ids: [1], stance: 'ambush', radius: 3.5 },
+      { kind: 'setStance', stance: 'hold' },
+    ];
+    for (const b of bad) expect(cleanCommand(b), JSON.stringify(b)).toBeNull();
+    // An unknown key is stripped, not carried (the #566 rule this function exists for).
+    expect(cleanCommand({ kind: 'setStance', ids: [1], stance: 'ambush', pad: 'x'.repeat(4000) })).toEqual({ kind: 'setStance', ids: [1], stance: 'ambush' });
+  });
+});
+
+describe('cleanCommand: build and support (N2)', () => {
+  it('rebuilds both shapes from their declared fields, and refuses a bad unit id, kind, point or side', () => {
+    expect(cleanCommand({ kind: 'build', side: 0, unit: 'inf_squad' })).toEqual({ kind: 'build', side: 0, unit: 'inf_squad' });
+    expect(cleanCommand({ kind: 'support', side: 0, support: 'drone_sweep', x: 131072, y: 196608 }))
+      .toEqual({ kind: 'support', side: 0, support: 'drone_sweep', x: 131072, y: 196608 });
+    const bad: unknown[] = [
+      { kind: 'build', side: 0, unit: 'Inf Squad' },
+      { kind: 'build', side: 0, unit: 'x'.repeat(33) },
+      { kind: 'build', side: 0, unit: 3 },
+      { kind: 'build', unit: 'inf_squad' },
+      { kind: 'build', side: 0.5, unit: 'inf_squad' },
+      { kind: 'support', side: 0, support: 'nuke', x: 0, y: 0 },
+      { kind: 'support', side: 0, support: 'air_strike', x: 1.5, y: 0 },
+      { kind: 'support', side: 0, support: 'air_strike', x: 0, y: 2.5 },
+      { kind: 'support', support: 'air_strike', x: 0, y: 0 },
+    ];
+    for (const b of bad) expect(cleanCommand(b), JSON.stringify(b)).toBeNull();
+    // An unknown key is stripped, not carried (#566).
+    expect(cleanCommand({ kind: 'build', side: 0, unit: 'inf_squad', pad: 'x'.repeat(4000) })).toEqual({ kind: 'build', side: 0, unit: 'inf_squad' });
+    expect(cleanCommand({ kind: 'support', side: 0, support: 'smoke_screen', x: 1, y: 2, pad: 'x'.repeat(4000) }))
+      .toEqual({ kind: 'support', side: 0, support: 'smoke_screen', x: 1, y: 2 });
+  });
+});
+
+describe('cleanCommand: the line verbs (F4 Task 5b)', () => {
+  it('rebuilds the clean shapes and strips unknown keys', () => {
+    const pad = 'x'.repeat(4000);
+    const ok: [Record<string, unknown>, Record<string, unknown>][] = [
+      [{ kind: 'build', side: 0, unit: 'inf_squad', line: 0 }, { kind: 'build', side: 0, unit: 'inf_squad', line: 0 }],
+      [{ kind: 'cancelBuild', side: 0, line: 3, index: -1 }, { kind: 'cancelBuild', side: 0, line: 3, index: -1 }],
+      [{ kind: 'cancelBuild', side: 0, line: 0, index: 15 }, { kind: 'cancelBuild', side: 0, line: 0, index: 15 }],
+      [{ kind: 'setRally', side: 0, line: 1, x: 5, y: 6 }, { kind: 'setRally', side: 0, line: 1, x: 5, y: 6 }],
+      [{ kind: 'clearRally', side: 0, line: 2 }, { kind: 'clearRally', side: 0, line: 2 }],
+    ];
+    for (const [raw, clean] of ok) {
+      expect(cleanCommand(raw), JSON.stringify(raw)).toEqual(clean);
+      expect(cleanCommand({ ...raw, pad }), JSON.stringify(raw)).toEqual(clean);
+    }
+  });
+  it('refuses a line or index out of range, a non-integer, a string and a missing line', () => {
+    const bad: unknown[] = [
+      { kind: 'build', side: 0, unit: 'inf_squad', line: -1 },
+      { kind: 'build', side: 0, unit: 'inf_squad', line: 4 },
+      { kind: 'build', side: 0, unit: 'inf_squad', line: 1.5 },
+      { kind: 'build', side: 0, unit: 'inf_squad', line: '0' },
+      { kind: 'cancelBuild', side: 0, line: 0, index: -2 },
+      { kind: 'cancelBuild', side: 0, line: 0, index: 16 },
+      { kind: 'cancelBuild', side: 0, index: 0 },
+      { kind: 'setRally', side: 0, line: 0, x: 1.5, y: 2 },
+      { kind: 'setRally', side: 0, x: 1, y: 2 },
+      { kind: 'clearRally', side: 0 },
+    ];
+    for (const b of bad) expect(cleanCommand(b), JSON.stringify(b)).toBeNull();
   });
 });

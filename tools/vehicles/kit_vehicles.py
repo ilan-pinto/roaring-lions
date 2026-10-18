@@ -81,20 +81,23 @@ BLOCKOUT_SPLIT = {
 #: Deliberate departures from the mock, per NODE and axis, each with the
 #: measurement that forced it. The exporter prints every one on every run and
 #: skips only that axis of that node's comparison.
+K5_READ = ("; K5 read (2026-10-15, the coordinator's ruling in the lead's window, option A): enlarged again, "
+           "camera-facing, inside the airframe's 0.28 scale, so the kit reads at zoom 1")
 LEFTOVERS = ("; GH-238 leftovers (2026-10-12): enlarged so the Peten's kit reads at zoom 1 (it moved 255 px "
              "of a 796 px airframe at L3), ~0.28 -> ~0.4 of real kit")
 
 DEVIATIONS = {
     "heli_peten": {
         ("sensors", 1, "hull_glass"): (
-            "xz",
+            "xyz",
             "the mock's drum (x 1.84-2.12, z 0.28-0.56) stood half inside the nose (hull x to 2.04 at z "
             "0.40-0.45) and round the shipped nose sensor (hull_metal x 1.95-2.01, to z 0.40) and the gun "
-            "barrel: it hangs in front of the nose tip on a yoke, x 2.06-2.42" + LEFTOVERS),
+            "barrel: it hangs in front of the nose tip on a yoke, x 2.06-2.54, dia 0.48" + LEFTOVERS + K5_READ),
         ("sensors", 2, "hull_hull"): (
             "yz",
             "the mock's sensor pods (|y| 0.46, x 0.12-0.48) were inside the stub-wing roots (the side stands "
-            "out to |y| 0.72 there): they lie along the aft fuselage's flanks, |y| 0.23, x -0.45..-0.09" + LEFTOVERS),
+            "out to |y| 0.72 there): they lie along the aft fuselage's flanks, |y| 0.23, x -0.45..-0.09; heads "
+            "0.20 m and pods r 0.09" + LEFTOVERS + K5_READ),
         ("firepower", 1, "hull_metal"): (
             "x",
             "the chin gun's barrel runs x 1.83-2.10 with the shipped nose sensor standing on it at x "
@@ -117,9 +120,10 @@ DEVIATIONS = {
             "z 0.74 (|y| 0.33-0.35 over x 0.14-0.69) and would never be seen; seated on the real "
             "side, the part widens by 0.27 m" + LEFTOVERS),
         ("armour", 2, "hull_hull"): (
-            "z",
+            "xz",
             "the mock's engine-bay panels stood 6-7 cm above the nacelles; seated 4 mm proud they "
-            "sit 0.067 m lower (tolerance 0.055)"),
+            "sit 0.067 m lower (tolerance 0.055); the IR boxes 0.70 x 0.24 x 0.20 (were 0.55 x 0.18 x 0.16)"
+            + K5_READ),
         ("armour", 3, "hull_hull"): (
             "xyz",
             "the mock's floor plate hung 8.5 cm under the belly; seated against it the part's "
@@ -128,7 +132,8 @@ DEVIATIONS = {
             "yz",
             "the mock's roof sensor fairing (z 1.08-1.18) is INSIDE the rotor disc (z 1.04-1.29, "
             "0.8 m from the hub): the spinning blades would cut through it. It sits on the engine "
-            "hump instead, under the disc" + LEFTOVERS),
+            "hump instead, under the disc; the boom ball r 0.175, the most it takes under the disc"
+            + LEFTOVERS + K5_READ),
     },
     "dozer_d9": {
         ("armour", 2, "hull_hull"): (
@@ -191,6 +196,13 @@ DEVIATIONS = {
             "that plate's top edge -- drops 0.085 m"),
     },
     "apc_kipod": {
+        ("firepower", 1, "turret_metal"): (
+            "xyz",
+            "15 Oct: the Kipod carries the Eitan's station at 1.0, and the mock's sight on the station top "
+            "at y -0.24 stands over nothing on the Meshy station (it floated). As the Eitan's: it hangs "
+            "outboard of the F3 cowl's left cheek (outer face y 0.50) at y 0.63, below the station top, "
+            "forward at x -0.945 so the F2 box hangs beside it aft, its arm over the cheek into the "
+            "station top"),
         ("firepower", 3, "turret_metal"): (
             "z",
             "unit polish (14 Oct): as the Eitan's -- the cowl grows from its 3.465 foot until its port holds "
@@ -288,6 +300,23 @@ DEVIATIONS = {
 #: the shipped triangles the shipped vehicle itself cuts at another heading.
 #: The exporter prints each one on every run and refuses one that no longer
 #: excuses anything, or that lists a heading that excuses nothing.
+#: Named departures from the exporter's TONE rules (`export_vehicle_kit.
+#: choose_tones`), per vehicle and tone: {vid: {tone: (hex, reason)}}. The
+#: exporter pins that tone to the texels of exactly this colour OFF every
+#: island -- a patch `tools/vehicles/patch_metal_glb.py --hex=<hex>` paints --
+#: prints the reason as a DEVIATION, and refuses when the bake carries no such
+#: patch. Peten-only: every other vehicle keeps the plan's rules.
+TONE_DEVIATIONS = {
+    "heli_peten": {
+        "metal": ("#C3C7C4",
+                  "K5 read (2026-10-15, the coordinator's ruling in the lead's window): the Peten's kit did not "
+                  "read at zoom 1. Its bake has no metal and no light flat texel (gunmetal.0 found 0.11 linear, "
+                  "the fourth rule's own), so sensors and firepower drew 1.9x the paint they sit on; on a "
+                  "gunmetal.0 patch they draw ~4.6x, the lit parts reading pale against the dark airframe. A "
+                  "new contrast, not a new size: kit px at zoom 1 barely moves for it"),
+    },
+}
+
 CLASH_EXEMPTIONS = {
     "mbt_lavi": {
         ("kit_armour_1_turret_hull", "hull_hull", "a1_cheek"): (
@@ -1177,8 +1206,11 @@ def parts_apc_kipod(H):
     # turns stands above 3.465. The barrel is a 12 cm square bar (y -0.066..
     # 0.054, z 3.655-3.775) out of its front face.
     # Unit polish (14 Oct): the bar measured and the cowl grown round it, as
-    # on the Eitan.
-    COWL_X = -1.10
+    # on the Eitan. Since 15 Oct the Kipod carries the Eitan's own station at
+    # 1.0 (it was 0.76, and read as a lighter class beside the Eitan), so the
+    # cowl stands where the Eitan's does against its pivot: centre 0.08 m
+    # ahead of it (-1.244 + 0.08), the box 0.35 m aft of the cowl's centre.
+    COWL_X = -1.165
     BAR = _section(H, COWL_X + 1.05 / 2)
     COWL_Z0 = 3.465
     COWL_H = max(0.44, BAR[3] + 0.02 + 0.05 - COWL_Z0)
@@ -1248,11 +1280,17 @@ def parts_apc_kipod(H):
                           bolts=0)
 
     def f1():
-        c = Vector((-1.25, -0.24, thi.z + 0.12 - 0.003))
+        # As the Eitan's, now that the station is the Eitan's at 1.0: the
+        # sight hangs outboard of the F3 cowl's left cheek, 0.22 ahead of the
+        # cowl's centre, on a bent arm over the cheek into the station top.
+        # (At 0.76 it stood on the station's top at y -0.24, where the Meshy
+        # station has nothing under it: it floated.)
+        c = Vector((COWL_X + 0.22, CHEEK_OUT + 0.012 + 0.12, thi.z - 0.13))
         out = kp.sight_box("f1_th", c, (0.32, 0.24, 0.24), (0.16, 0.07), window_centre=(0.0, 0.02),
                            visor=(0.07, 0.26, 0.025), visor_drop=0.085)
-        for i, yy in enumerate((c.y - 0.08, c.y + 0.08)):
-            out.append(kp.hex_bolt(f"f1_b{i}", (c.x - 0.10, yy, c.z + 0.12), (0, 0, 1), across=0.022, height=0.008))
+        za = COWL_TOP + 0.04
+        out += kp.bent_arm("f1_arm", [(c.x, c.y - 0.10, c.z + 0.10), (c.x, c.y - 0.10, za), (c.x, 0.26, za),
+                                      (c.x, 0.26, thi.z - 0.012)], w=0.03)
         return out
 
     def f2():
@@ -1264,11 +1302,11 @@ def parts_apc_kipod(H):
         # the box hangs outboard of the cowl's left cheek, its foot over the
         # ring; the chute arches over the cheek into the station top
         size = (0.50, 0.24, 0.34)
-        bc = Vector((-1.45, CHEEK_OUT + 0.012 + size[1] / 2, COWL_Z0 + 0.005 + size[2] / 2))
+        bc = Vector((COWL_X - 0.35, CHEEK_OUT + 0.012 + size[1] / 2, COWL_Z0 + 0.005 + size[2] / 2))
         out += kp.ammo_box("f2_box", size, kp.place(bc), lid_h=0.04, handle=False)
         za = COWL_TOP + 0.05
         out += kp.feed_chute("f2_chute", [(bc.x + 0.12, bc.y - 0.06, bc.z + 0.15), (bc.x + 0.12, bc.y - 0.06, za),
-                                          (bc.x + 0.12, 0.20, za), (bc.x + 0.12, 0.16, thi.z - 0.02)], w=0.08)
+                                          (bc.x + 0.12, 0.26, za), (bc.x + 0.12, 0.22, thi.z - 0.02)], w=0.08)
         return out
 
     def f3():
@@ -1282,7 +1320,7 @@ def parts_apc_kipod(H):
         ("sensors", 1, "hull_hull", "commander's sight head", s1),
         ("sensors", 2, "hull_hull", "ground-surveillance radar on a roof pedestal", s2),
         ("sensors", 3, "hull_hull", "telescopic mast with an EO drum", s3),
-        ("firepower", 1, "turret_metal", "thermal sight block on the RWS", f1),
+        ("firepower", 1, "turret_metal", "thermal sight block outboard of the RWS", f1),
         ("firepower", 2, "turret_metal", "heat shroud + ammunition box with feed chute", f2),
         ("firepower", 3, "turret_metal", "armoured cowl round the weapon station", f3),
     ]
@@ -1765,7 +1803,9 @@ def parts_heli_peten(H):
 
     def a2():
         out = []
-        size = (0.55, 0.18, 0.16)
+        # K5 read (2026-10-15): 0.55 x 0.18 x 0.16 -> 0.70 x 0.24 x 0.20, the
+        # engine bay's top being what the game camera sees of the airframe
+        size = (0.70, 0.24, 0.20)
         for tag, s in (("L", 1), ("R", -1)):
             M = kp.place((-0.30, s * 0.35, 0.95), ry=-10)
             d, _g = _seat_shift(hull, M, size, (0, 0, -1))
@@ -1812,8 +1852,10 @@ def parts_heli_peten(H):
     # round the shipped nose sensor and the barrel
     # Leftovers: dia 0.36 (was 0.28), so its centre moves 4 cm forward (clear
     # of the nose tip) and 4 cm up (clear of the F1 shroud's top, z 0.2685).
-    S1_C = Vector((2.24, 0.0, 0.47))
-    S1_R = 0.18
+    # K5 read (2026-10-15): dia 0.48 (was 0.36), 6 cm further forward and 7 cm
+    # up again -- at 0.50 it met the F1 shroud's top (4 tri pairs).
+    S1_C = Vector((2.30, 0.0, 0.54))
+    S1_R = 0.24
 
     def s1():
         c = S1_C
@@ -1821,7 +1863,7 @@ def parts_heli_peten(H):
         prof = [(-0.15, r - 0.01), (-0.14, r), (0.14, r), (0.15, r - 0.01)]
         out = [kp.lathe("s1_tads", [(t + 0.15, rr) for t, rr in prof], c - Vector((0, 0.15, 0)), (0, 1, 0), sides=12,
                         tones=["metal"] * 3)]
-        out.append(kp.chamfered_box("s1_win", (0.03, 0.22, 0.15), kp.place((c.x + r - 0.01, c.y, c.z)), tone="dark",
+        out.append(kp.chamfered_box("s1_win", (0.03, 0.22 * r / 0.18, 0.15 * r / 0.18), kp.place((c.x + r - 0.01, c.y, c.z)), tone="dark",
                                     chamfer=0.006))
         # its yoke: a bracket from the drum's back into the nose
         a0 = c + Vector((-(r - 0.02), 0.0, 0.05))
@@ -1843,28 +1885,38 @@ def parts_heli_peten(H):
                 z = H.top(x, y, 0.6, hull) + 0.07 - 0.004
             look = Vector((math.copysign(1, x), math.copysign(0.8, y), 0)).normalized()
             M = kp.frame((x, y, z), look)
+            # K5 read (2026-10-15): 0.14 -> 0.20 m heads; the two on the
+            # fuselage stand 7 cm higher, or the turned head's corner meets
+            # the fuselage top (3 tri pairs at (1.30, -0.20))
+            hs = 0.20
             if x < 0:
                 # the boom's top is round: the housing's foot follows it
-                out += kp.conform_plate(f"s2_maw{i}", (0.14, 0.14, 0.14), M @ kp.place((0, 0, 0.0)), steel,
+                out += kp.conform_plate(f"s2_maw{i}", (hs, hs, hs), M @ kp.place((0, 0, 0.0)), steel,
                                         nu=2, nv=2, tone="metal")
             else:
-                out.append(kp.chamfered_box(f"s2_maw{i}", (0.14, 0.14, 0.14), M, tone="metal", drop=((0, 0, -1),)))
+                out.append(kp.chamfered_box(f"s2_maw{i}", (hs, hs, hs), M @ kp.place((0, 0, (hs - 0.14) / 2 + 0.04)),
+                                            tone="metal", drop=((0, 0, -1),)))
             out.append(kp.plain_box(f"s2_lens{i}", (0.012, 0.08, 0.07), M @ kp.place((0.074, 0.0, 0.007)), tone="dark",
                                     drop=((-1, 0, 0),)))
         # the two pods lie along the aft fuselage's flanks (|y| 0.18 at z
         # 0.47, x -0.45..-0.09): the mock's (|y| 0.46, x 0.12-0.48) were
         # inside the stub-wing roots
         for tag, s in (("L", 1), ("R", -1)):
-            yy = s * (max(H.side(x, 0.47, s, 0.18) for x in (-0.45, -0.33, -0.21, -0.09)) + 0.065)
-            out.append(kp.tube(f"s2_ew{tag}", (-0.45, yy, 0.47), (-0.09, yy, 0.47), 0.06, sides=6))
+            pr = 0.09                                  # K5 read: r 0.06 -> 0.09
+            yy = s * (max(H.side(x, 0.47, s, 0.18) for x in (-0.45, -0.33, -0.21, -0.09)) + pr + 0.005)
+            out.append(kp.tube(f"s2_ew{tag}", (-0.45, yy, 0.47), (-0.09, yy, 0.47), pr, sides=6))
         return out
 
     def s3():
         # leftovers: r 0.15 (was 0.12), its centre 2 cm lower so its top stays
         # under the rotor disc
-        out = kp.sensor_ball("s3_ball", (-1.05, 0.0, 0.86), 0.15, segments=10, rings=6, yoke=True)
+        # K5 read (2026-10-15): r 0.175 is the most this ball can take -- at
+        # 0.20 it buries in the engine hump (95 tri pairs) or, lifted clear,
+        # its top enters the rotor disc (blades from 1.04 m)
+        br, bz = 0.175, 0.85
+        out = kp.sensor_ball("s3_ball", (-1.05, 0.0, bz), br, segments=10, rings=6, yoke=True)
         g = H.top(-1.05, 0.0, 0.7, hull)
-        out.append(kp.tube("s3_post", (-1.05, 0.0, 0.86 - 0.15 * 0.9), (-1.05, 0.0, g - 0.01), 0.03, sides=8,
+        out.append(kp.tube("s3_post", (-1.05, 0.0, bz - br * 0.9), (-1.05, 0.0, g - 0.01), 0.03, sides=8,
                            cap0=False, cap1=False, ground=True))
         # the fairing sits ON the engine hump, under the rotor disc; its back
         # follows the hump

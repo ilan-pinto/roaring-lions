@@ -116,7 +116,7 @@
 import { firePointOnMap } from './units/fire-points';
 import * as THREE from 'three';
 import { fx, WEAPON_CLASS, type Fx, type MissionEvent, type Sim, type SimEvent } from '@lions/sim';
-import type { AimFootprint, ObjectiveZoneView, Renderer, RendererOptions, TerrainTones } from '../api'; // both, after Step 2
+import type { AimFootprint, ObjectiveZoneView, Renderer, RendererOptions, SupplyRouteView, TerrainTones } from '../api'; // both, after Step 2
 import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, type Camera } from '../project';
 import { QUALITY_PRESETS } from '../quality';
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec, type ParticleSpec } from '../vfx';
@@ -435,6 +435,7 @@ import { fireVisible } from './fire-visible';
 import { arcHiddenUntil, hostileEffectVisible, structureBarVisible } from './versus-fog';
 import { isBurstOnlyEvent } from './quiet';
 import { ZoneBandBatch } from './units/zone-band';
+import { SupplyRouteMesh, SUPPLY_ROUTE_CUT_COLOR_KEY, SUPPLY_ROUTE_OPEN_COLOR_KEY } from './supply-route';
 import { ProxyBoxBatch, proxyBoxDims, type ProxyBoxEntry } from './units/proxy-box';
 import {
   SILHOUETTE_COLOR_KEY_BY_SIDE,
@@ -487,8 +488,10 @@ import {
   type VehicleMeshEntity,
 } from './units/mesh-vehicle';
 import { kitLodIsFar, setKitDrawRange, setKitLod } from './units/vehicle-kit';
+import { SIDE_1_TEMPLATE_SUFFIX, templateKey, templateKitTiers } from './units/kit-template-key';
 import {
   loadBuildingMeshTemplate,
+  wallTreatmentOf,
   instantiateBuildingMesh,
   disposeBuildingMeshTemplate,
   buildingSettleScale,
@@ -986,6 +989,15 @@ export class ThreeRenderer implements Renderer {
    *  ring(s), per kind (`aimRingSpecs`), drawn in the overlay pass beside the
    *  refuge ring; `null` draws nothing. */
   aimFootprint: AimFootprint | null = null;
+  /** S-F F2 C3: see `Renderer.supplyRoutes`. Held by `supplyRoute`, which
+   *  rebuilds its one merged geometry on the next overlay pass when a NEW
+   *  array arrives (the same array again is a no-op) and disposes the old. */
+  get supplyRoutes(): readonly SupplyRouteView[] | null {
+    return this.supplyRoute.current;
+  }
+  set supplyRoutes(routes: readonly SupplyRouteView[] | null | undefined) {
+    this.supplyRoute.set(routes ?? null);
+  }
   objectiveZone: readonly number[] | null = null;
   objectiveZones?: readonly ObjectiveZoneView[];
   objectiveZoneState: 'held' | 'unheld' | 'contested' = 'held';
@@ -2030,6 +2042,11 @@ export class ThreeRenderer implements Renderer {
    * `updateMeshUnits`' loop to guess which shape each entry needs.
    */
   private readonly vehicleMeshTemplates = new Map<string, VehicleMeshTemplate>();
+  /** Per-seat kit (Task 6): each (side, type id)'s template key, memoised
+   *  by `vehicleTemplateKey` so a frame never re-compares the two tier
+   *  tables. Indexed by side; empty, and never read, without
+   *  `unitKitTiersBySide`. */
+  private readonly templateKeysBySide: Map<string, string>[] = [];
   /** Unit type id -> the world-space extents of its LIVING vehicle body
    *  (`x`/`y`/`z` = width/height/depth in tiles), measured off the loaded
    *  template in `loadVehicleMesh` -- the exact counterpart of
@@ -2268,6 +2285,9 @@ export class ThreeRenderer implements Renderer {
    *  fighting `endFrame`, which owns the mesh's own `visible`. */
   private readonly zoneBand = new ZoneBandBatch();
   private readonly zoneBandGroup = new THREE.Group();
+  /** S-F F2 C3: the world supply route (`supply-route.ts`), band 0.2, on
+   *  demand. Its group holds a mesh only while routes are drawn. */
+  private readonly supplyRoute = new SupplyRouteMesh();
   /** GH-279: the refuge ring's one slot (`pingRefuge`). Aged in `frame()`
    *  from the frame clock, drawn in `updateOverlays`. */
   private readonly refugePing = new GroundPing();
@@ -2785,6 +2805,7 @@ export class ThreeRenderer implements Renderer {
     this.zoneBandGroup.name = 'zone-band-layer';
     this.zoneBandGroup.add(this.zoneBand.mesh);
     this.scene.add(this.zoneBandGroup);
+    this.scene.add(this.supplyRoute.group);
     // The ground beyond the map (`./terrain/skirt.ts`), added once here and
     // never rebuilt -- it depends on the map's DIMENSIONS and on nothing
     // `rebuildTerrain` can change. It draws in the world band under the
@@ -3245,6 +3266,7 @@ export class ThreeRenderer implements Renderer {
     this.overlayBatch.dispose();
     this.garrisonBanners.dispose();
     this.zoneBand.dispose();
+    this.supplyRoute.dispose();
     this.numeralBatch.dispose();
     this.chevronBatch.dispose();
     // Task 10, and the one ownership rule the post chain states outright:
@@ -3796,6 +3818,11 @@ export class ThreeRenderer implements Renderer {
         // GH-471: a FLAG, `missiles`' shape -- `TunnelXray.update` rewrites
         // the figures' and the beam's `visible` every frame. Returns 4.
         return this.tunnelXray.setDebugHidden(!visible);
+      case 'supply-route':
+        // S-F F2 C3: the GROUP, never the mesh: `sync` adds and removes the
+        // mesh, and nothing per-frame writes the group's own `visible`.
+        // Returns 1.
+        return setObjectsVisible(visible, this.supplyRoute.group);
       case 'garrison-banner':
         // A FLAG, `missiles`' shape: `GarrisonBannerBatch.update` writes the
         // mesh's `visible` every frame. Returns 1, the one mesh.
@@ -4707,7 +4734,7 @@ export class ThreeRenderer implements Renderer {
           const scorchR = scorchRadiusTiles(killPower);
           this.stampGroundDecal(this.persistentStamp('scorch', dx, dy, scorchR));
           this.stampGroundDecal(this.persistentStamp('oil', dx, dy, OIL_RADIUS_TILES));
-          if (burst) this.beginVehicleCollapseShroud(deadType.id, dx, dy, worldY);
+          if (burst) this.beginVehicleCollapseShroud(this.vehicleTemplateKey(deadType.id, st.side[e.entity]), dx, dy, worldY);
           // GH-85: and the hull goes on smouldering after the column clears.
           this.beginWreckSmoulder(e.entity, dx, dy, e.tick);
         }
@@ -4966,7 +4993,7 @@ export class ThreeRenderer implements Renderer {
     // -- WHOSE duration decided by which asset is actually drawing this
     // unit. See `fireLatchSeconds` for why that distinction is the whole of
     // GH-148.
-    const latch = this.fireLatchSeconds(type.id);
+    const latch = this.fireLatchSeconds(type.id, st.side[e.shooter]);
     if (latch !== null) this.firingTimer[e.shooter] = latch;
     // The kick (motion pass): one figure per shot, in turn from a per-unit
     // start, landing 0-120 ms after the shot -- a squad does not recoil on
@@ -5310,7 +5337,7 @@ export class ThreeRenderer implements Renderer {
    * `mortar_crew` today), where `applyMeshClip` resolves the pose to `idle`
    * regardless and the latch value is unobservable.
    */
-  private fireLatchSeconds(unitTypeId: string): number | null {
+  private fireLatchSeconds(unitTypeId: string, side: number): number | null {
     // Variant 0 stands for the whole type. The latch is a per-TYPE duration
     // (`firingTimer` is keyed by entity but sized once, here, from the type),
     // and the only multi-variant type is `civilians`, whose four figures
@@ -5321,7 +5348,7 @@ export class ThreeRenderer implements Renderer {
     // a reason to disagree, which is why this is a comment and not machinery.
     const meshFire =
       this.meshUnitTemplates.get(unitTypeId)?.[0]?.clips.get('fire') ??
-      this.vehicleMeshTemplates.get(unitTypeId)?.clips.get('fire');
+      this.vehicleMeshTemplates.get(this.vehicleTemplateKey(unitTypeId, side))?.clips.get('fire');
     // A zero-length clip is degenerate art, not a request for a zero latch
     // (which would mean "never firing"): treat it like an absent one and
     // fall through, the same leniency `fps > 0` already gives the sprite.
@@ -5847,8 +5874,7 @@ export class ThreeRenderer implements Renderer {
   /** Whether structure `s` is the viewer's own: held by its side, or one its
    *  side produces from (VR-03: the player's own never fills enemy red). */
   private structureIsOwn(s: number, holder: number = this.structureHolder(s)): boolean {
-    const stype = this.sim.structureTypes[this.sim.structures.typeIdx[s]];
-    return (this.sim.structures.occupants[s] > 0 && isOwnSide(holder, this.viewer)) || isOwnSide(stype.producesFor, this.viewer);
+    return (this.sim.structures.occupants[s] > 0 && isOwnSide(holder, this.viewer)) || isOwnSide(this.sim.structureProducesFor(s), this.viewer);
   }
 
   /**
@@ -5951,6 +5977,9 @@ export class ThreeRenderer implements Renderer {
       this.sim.width,
       this.sim.height
     );
+    // S-F F2 C3: the route is draped on the drawn surface, so a new surface
+    // (a collapse turning a pad into hillside) re-drapes it next overlay pass.
+    this.supplyRoute.invalidate();
     // The selection ring's cached grids were conformed to the old ground.
     this.selectionRing.invalidate();
   }
@@ -6107,10 +6136,104 @@ export class ThreeRenderer implements Renderer {
     opts: { cold?: boolean } = {}
   ): Promise<void> {
     const allowTextured = TEXTURED_VEHICLE_TYPES.has(unitTypeId);
+    const bySide = this.opts.unitKitTiersBySide;
     // The type's bought kit (GH-238), fixed for the mission: merged into the
     // template's host geometry here, once, for every clone it ever makes.
-    const kitTiers = this.opts.unitKitTiers?.[unitTypeId];
-    const template = await loadVehicleMeshTemplate(glbUrl, unitTypeId, allowTextured, kitTiers, opts.cold === true).catch((err: unknown) => {
+    // Side 0's (`unitKitTiers` with no `bySide`, so single-player builds
+    // exactly the one template it always built).
+    const template = await this.buildVehicleTemplate(
+      unitTypeId,
+      glbUrl,
+      allowTextured,
+      templateKitTiers(unitTypeId, 0, this.opts.unitKitTiers, bySide),
+      opts.cold === true
+    );
+    // Per-seat kit (Task 6): a second template only for an id whose side-1
+    // tiers differ from side 0's (`templateKey`). Built before either is
+    // filed, so a failure leaves the type with neither -- it draws the
+    // failed-mesh proxy box on both sides rather than a kit on one only.
+    const side1Key = templateKey(unitTypeId, 1, bySide);
+    let side1: VehicleMeshTemplate | null = null;
+    if (side1Key !== unitTypeId) {
+      try {
+        side1 = await this.buildVehicleTemplate(
+          unitTypeId,
+          glbUrl,
+          allowTextured,
+          templateKitTiers(unitTypeId, 1, this.opts.unitKitTiers, bySide),
+          opts.cold === true
+        );
+      } catch (err) {
+        disposeVehicleMeshTemplate(template);
+        throw err;
+      }
+    }
+
+    const staleSide1Key = `${unitTypeId}${SIDE_1_TEMPLATE_SUFFIX}`;
+    const previous = this.vehicleMeshTemplates.get(unitTypeId);
+    const previousSide1 = this.vehicleMeshTemplates.get(staleSide1Key);
+    if (previous || previousSide1) {
+      for (const [id, entity] of this.vehicleMeshEntities) {
+        if (entity.typeId !== unitTypeId) continue;
+        this.scene.remove(entity.root);
+        // Its actions point at the OUTGOING template's clips, so the mixer
+        // has to go with the clone -- a reload rebuilds both.
+        disposeVehicleMeshEntity(entity);
+        this.vehicleMeshEntities.delete(id);
+      }
+      for (const [key, outgoing] of [
+        [unitTypeId, previous],
+        [staleSide1Key, previousSide1],
+      ] as const) {
+        if (!outgoing) continue;
+        disposeVehicleMeshTemplate(outgoing);
+        // Its scars were cut from the outgoing template's materials.
+        this.vehicleScars.get(key)?.dispose();
+        this.vehicleScars.delete(key);
+      }
+      // A reload whose kits now agree files no side-1 template: drop the old
+      // one. (Side 0's key is overwritten below, in place, as it always was.)
+      if (previousSide1 && side1 === null) {
+        this.vehicleMeshTemplates.delete(staleSide1Key);
+        this.vehicleMeshBounds.delete(staleSide1Key);
+      }
+    }
+    const filed: [string, VehicleMeshTemplate][] = [[unitTypeId, template]];
+    if (side1) filed.push([side1Key, side1]);
+    if (filed.some(([, t]) => hasColdTextures(t.root))) this.coldUnitTypes.add(unitTypeId);
+    else this.coldUnitTypes.delete(unitTypeId);
+    for (const [key, t] of filed) {
+      this.vehicleMeshTemplates.set(key, t);
+      if (this.kitDebugHidden) setKitDrawRange(t.geometries, true);
+      // Born at the level the camera is on now; `updateKitLod` only acts on a
+      // change. (A template disposed while far frees its current index; the
+      // near one, if ever uploaded, goes with the context at `dispose`.)
+      if (this.kitLodFar === true) setKitLod(t.geometries, true);
+      // Measured here, from the template just built, exactly as
+      // `loadBuildingMesh` measures its own -- recomputed on every reload and
+      // never carried on the template, so a re-export cannot leave a stale
+      // size behind for `beginVehicleCollapseShroud` to size a cloud from.
+      // `vehicleShroudBounds` excludes the `death_root` subtree (R-O): the
+      // wreck recipe displaces those parts OUTWARD, so measuring the whole
+      // clone would size the shroud from scattered debris. Per template key:
+      // a side-1 kit's own hull is the one its conform and shroud measure.
+      this.vehicleMeshBounds.set(key, vehicleShroudBounds(t.root));
+    }
+  }
+
+  /**
+   * One vehicle template wearing `kitTiers`: loaded, refused by name when its
+   * GLB carries no `wreck` clip, and texture-capped -- `loadVehicleMesh`'s
+   * build half, run once per template key.
+   */
+  private async buildVehicleTemplate(
+    unitTypeId: string,
+    glbUrl: string,
+    allowTextured: boolean,
+    kitTiers: Readonly<Record<string, number>> | undefined,
+    cold: boolean
+  ): Promise<VehicleMeshTemplate> {
+    const template = await loadVehicleMeshTemplate(glbUrl, unitTypeId, allowTextured, kitTiers, cold).catch((err: unknown) => {
       this.noteMeshFailure(unitTypeId, glbUrl, err);
       throw err;
     });
@@ -6130,39 +6253,8 @@ export class ThreeRenderer implements Renderer {
       this.noteMeshFailure(unitTypeId, glbUrl, err);
       throw err;
     }
-
     if (this.opts.maxTextureSize !== undefined) await capTextureSize(template.root, this.opts.maxTextureSize);
-    const previous = this.vehicleMeshTemplates.get(unitTypeId);
-    if (previous) {
-      for (const [id, entity] of this.vehicleMeshEntities) {
-        if (entity.typeId !== unitTypeId) continue;
-        this.scene.remove(entity.root);
-        // Its actions point at the OUTGOING template's clips, so the mixer
-        // has to go with the clone -- a reload rebuilds both.
-        disposeVehicleMeshEntity(entity);
-        this.vehicleMeshEntities.delete(id);
-      }
-      disposeVehicleMeshTemplate(previous);
-      // Its scars were cut from the outgoing template's materials.
-      this.vehicleScars.get(unitTypeId)?.dispose();
-      this.vehicleScars.delete(unitTypeId);
-    }
-    this.vehicleMeshTemplates.set(unitTypeId, template);
-    if (hasColdTextures(template.root)) this.coldUnitTypes.add(unitTypeId);
-    else this.coldUnitTypes.delete(unitTypeId);
-    if (this.kitDebugHidden) setKitDrawRange(template.geometries, true);
-    // Born at the level the camera is on now; `updateKitLod` only acts on a
-    // change. (A template disposed while far frees its current index; the
-    // near one, if ever uploaded, goes with the context at `dispose`.)
-    if (this.kitLodFar === true) setKitLod(template.geometries, true);
-    // Measured here, from the template just built, exactly as
-    // `loadBuildingMesh` measures its own -- recomputed on every reload and
-    // never carried on the template, so a re-export cannot leave a stale
-    // size behind for `beginVehicleCollapseShroud` to size a cloud from.
-    // `vehicleShroudBounds` excludes the `death_root` subtree (R-O): the
-    // wreck recipe displaces those parts OUTWARD, so measuring the whole
-    // clone would size the shroud from scattered debris.
-    this.vehicleMeshBounds.set(unitTypeId, vehicleShroudBounds(template.root));
+    return template;
   }
 
   /**
@@ -6189,7 +6281,10 @@ export class ThreeRenderer implements Renderer {
     }
     const roots = [
       ...(this.meshUnitTemplates.get(unitTypeId) ?? []).map((t) => t.root),
-      ...[this.vehicleMeshTemplates.get(unitTypeId)?.root].filter((r): r is THREE.Object3D => r !== undefined),
+      ...[
+        this.vehicleMeshTemplates.get(unitTypeId)?.root,
+        this.vehicleMeshTemplates.get(`${unitTypeId}${SIDE_1_TEMPLATE_SUFFIX}`)?.root,
+      ].filter((r): r is THREE.Object3D => r !== undefined),
     ];
     void Promise.all(roots.map((r) => warmColdTextures(r, this.imageDecoder))).then(
       () => {
@@ -6200,10 +6295,21 @@ export class ThreeRenderer implements Renderer {
         this.warmingTemplates.delete(key);
         if (this.disposed) return;
         // A template that cannot be decoded is a mesh that failed: drop it,
-        // and the type draws the failed-mesh proxy box like any other.
+        // and the type draws the failed-mesh proxy box like any other. What is
+        // dropped is disposed with it, as teardown and a reload do: a cold
+        // type is never instantiated (`updateMeshUnits`/`updateVehicleMeshes`
+        // skip it), so no clone shares these buffers and textures, and each
+        // side's template owns its own (a side-1 kit is a separate load).
         this.coldUnitTypes.delete(unitTypeId);
+        const droppedUnits = this.meshUnitTemplates.get(unitTypeId);
         this.meshUnitTemplates.delete(unitTypeId);
-        this.vehicleMeshTemplates.delete(unitTypeId);
+        if (droppedUnits) for (const template of droppedUnits) disposeMeshUnitTemplate(template);
+        for (const key of [unitTypeId, `${unitTypeId}${SIDE_1_TEMPLATE_SUFFIX}`]) {
+          const droppedVehicle = this.vehicleMeshTemplates.get(key);
+          if (!droppedVehicle) continue;
+          this.vehicleMeshTemplates.delete(key);
+          disposeVehicleMeshTemplate(droppedVehicle);
+        }
         this.noteMeshFailure(unitTypeId, '(texture decode)', err);
       }
     );
@@ -6277,7 +6383,7 @@ export class ThreeRenderer implements Renderer {
       if (st.alive[i] === 0) continue;
       const type = this.sim.unitTypes[st.typeIdx[i]];
       if (!this.meshFailures.has(type.id)) continue;
-      if (this.meshUnitTemplates.has(type.id) || this.vehicleMeshTemplates.has(type.id)) continue;
+      if (this.meshUnitTemplates.has(type.id) || this.vehicleMeshTemplates.has(this.vehicleTemplateKey(type.id, st.side[i]))) continue;
       const x = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
       const z = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
       if (this.unitsDebugHidden || !unitIsObserved(st.side[i], this.viewer, x, z, this.fogVisibleAt)) continue;
@@ -6408,7 +6514,9 @@ export class ThreeRenderer implements Renderer {
       idleUrl,
       wallColorKey,
       wallSurface,
-      allowTextured
+      allowTextured,
+      false,
+      wallTreatmentOf(structureType)
     );
     if (this.opts.maxTextureSize !== undefined) await capTextureSize(idleTemplate.root, this.opts.maxTextureSize);
     const previousIdle = this.buildingMeshIdleTemplates.get(structureId);
@@ -6502,7 +6610,9 @@ export class ThreeRenderer implements Renderer {
       TEXTURED_BUILDING_TYPES.has(structureId),
       // GH-469: a wreck is drawn only when one of these collapses, so its
       // textures stay encoded until the type is first hit (`warmWreck`).
-      true
+      true,
+      // The same concrete standing and fallen (#643).
+      wallTreatmentOf(structureType)
     );
     const previousWreck = this.buildingMeshWreckTemplates.get(structureId);
     if (previousWreck) {
@@ -7586,7 +7696,10 @@ export class ThreeRenderer implements Renderer {
     for (let i = 0; i < n; i++) {
       if (st.alive[i] === 0) continue;
       const type = this.sim.unitTypes[st.typeIdx[i]];
-      const template = this.vehicleMeshTemplates.get(type.id);
+      // Per-seat kit (Task 6): a versus side-1 hull whose kit differs from
+      // side 0's draws its own template; everything else draws `type.id`'s.
+      const key = this.vehicleTemplateKey(type.id, st.side[i]);
+      const template = this.vehicleMeshTemplates.get(key);
       if (!template) continue;
       // GH-469: see `updateMeshUnits` -- a cold template is never drawn.
       if (this.coldUnitTypes.has(type.id) && !this.vehicleMeshEntities.has(i)) {
@@ -7596,7 +7709,7 @@ export class ThreeRenderer implements Renderer {
 
       let entity = this.vehicleMeshEntities.get(i);
       if (!entity) {
-        entity = instantiateVehicleMesh(template, type.id);
+        entity = instantiateVehicleMesh(template, type.id, key);
         resetRunningGear(this.runningGear, i);
         // Same attach-once contract as `updateMeshUnits` above -- and here
         // the turret comes along for free, because a vehicle's turret
@@ -7767,7 +7880,7 @@ export class ThreeRenderer implements Renderer {
       // its own clone rather than on a template material the bind replaced.
       if (vehicleTakesDamageStates(type.isAir, template.hasRotorPivot)) {
         const band = vehicleDamageBand(st.hp[i], type.hp);
-        if (band !== vehicleDrawnBand(entity)) applyVehicleDamageBand(entity, band, this.vehicleScarsFor(type.id));
+        if (band !== vehicleDrawnBand(entity)) applyVehicleDamageBand(entity, band, this.vehicleScarsFor(entity.templateKey));
       }
 
       // The hull's own height: the ground under its drawn centre, sampled
@@ -7780,7 +7893,7 @@ export class ThreeRenderer implements Renderer {
 
       // The terrain half, ground vehicles only, at the DRAWN centre (the hull
       // stands on the ground it is drawn over) -- `vehicleConformAt`.
-      const conform = this.vehicleConformAt(type.id, type.isAir, drawX, drawY, centreGroundY, facingNorm);
+      const conform = this.vehicleConformAt(entity.templateKey, type.isAir, drawX, drawY, centreGroundY, facingNorm);
       if (conform !== null) {
         pitch += conform.pitchRad;
         roll += conform.rollRad;
@@ -7945,7 +8058,7 @@ export class ThreeRenderer implements Renderer {
     for (const [id, entity] of this.vehicleMeshEntities) {
       if (id < n && st.alive[id] !== 0) continue;
       this.vehicleMeshEntities.delete(id);
-      const deadTemplate = this.vehicleMeshTemplates.get(entity.typeId);
+      const deadTemplate = this.vehicleMeshTemplates.get(entity.templateKey);
       // GH-85: a drone whose own warhead went off (`this.detonated`) takes
       // the immediate removal too -- a munition that detonated is not a hull
       // that burnt out, and leaves no wreck.
@@ -7962,7 +8075,7 @@ export class ThreeRenderer implements Renderer {
         // possibly clean: re-draw its last living band so the fade starts
         // from the scar the player was looking at (GH-31).
         if (vehicleScarMixForBand(vehicleDrawnBand(entity)) > 0) {
-          applyVehicleDamageBand(entity, vehicleDrawnBand(entity), this.vehicleScarsFor(entity.typeId));
+          applyVehicleDamageBand(entity, vehicleDrawnBand(entity), this.vehicleScarsFor(entity.templateKey));
         }
         // The wreck's pose, BEFORE `beginVehicleDeath` latches `baseWorldY`
         // off it -- see `poseVehicleWreck`.
@@ -8005,14 +8118,15 @@ export class ThreeRenderer implements Renderer {
    * call -- read it before calling again.
    */
   private vehicleConformAt(
-    typeId: string,
+    /** A template key (`vehicleTemplateKey`): the bounds are the kitted hull's. */
+    templateKey: string,
     isAir: boolean,
     x: number,
     y: number,
     centreGroundY: number,
     facingNorm: number
   ): HullConform | null {
-    const bounds = isAir ? undefined : this.vehicleMeshBounds.get(typeId);
+    const bounds = isAir ? undefined : this.vehicleMeshBounds.get(templateKey);
     if (bounds === undefined || !(bounds.x > 0 && bounds.z > 0)) return null;
     const input = this.hullConformInput;
     input.elevation = this.retained.elevation;
@@ -8060,7 +8174,7 @@ export class ThreeRenderer implements Renderer {
     const airLift = type.isAir ? AIR_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL : 0;
     let pitch = 0;
     let roll = 0;
-    const conform = this.vehicleConformAt(type.id, type.isAir, x, y, centreGroundY, facingNorm);
+    const conform = this.vehicleConformAt(entity.templateKey, type.isAir, x, y, centreGroundY, facingNorm);
     if (conform !== null) {
       pitch = conform.pitchRad;
       roll = conform.rollRad;
@@ -8218,6 +8332,62 @@ export class ThreeRenderer implements Renderer {
     updateMeshWrecks(this.meshWrecks, (x, y) => this.isExplored(x, y));
   }
 
+  /** Tile (`y * width + x`) -> the structure authored on it, dead or alive;
+   *  rebuilt by `perTileLayout` when `sim.structureCount` changes. */
+  private perTileLayoutOf: Int32Array | null = null;
+  private perTileLayoutCount = -1;
+
+  /** The authored layout: every structure the sim ever created, alive or not
+   *  (`sim.structures` keeps its footprint and type after it falls). Built
+   *  lazily and again only when a structure is added (a mid-mission build),
+   *  so `perTileYaw` allocates nothing per call. A tile a later structure
+   *  re-used keeps the LIVING one, else the newest. */
+  private perTileLayout(): Int32Array {
+    const count = this.sim.structureCount;
+    if (this.perTileLayoutOf !== null && this.perTileLayoutCount === count) return this.perTileLayoutOf;
+    // Per-tile structures are single-tile: keyed on minX/minY alone.
+    const st = this.sim.structures;
+    const w = this.sim.width;
+    const of = this.perTileLayoutOf !== null && this.perTileLayoutOf.length === w * this.sim.height
+      ? this.perTileLayoutOf.fill(-1)
+      : new Int32Array(w * this.sim.height).fill(-1);
+    for (let s = 0; s < count; s++) {
+      const t = st.minY[s] * w + st.minX[s];
+      const prev = of[t];
+      if (prev < 0 || st.alive[s] === 1 || st.alive[prev] === 0) of[t] = s;
+    }
+    this.perTileLayoutOf = of;
+    this.perTileLayoutCount = count;
+    return of;
+  }
+
+  /** A per-tile structure turns to read along its run -- see
+   *  `units/run-direction.ts` -- unless its type keeps its authored facing
+   *  (`PER_TILE_FACING`, the sandbag post). The run is read from the AUTHORED
+   *  layout (`perTileLayout`: every structure the sim holds, dead or alive),
+   *  not from the neighbours still standing, so a wreck faces along its run
+   *  even when it is the last tile of the run to fall (`sim.structureAt`
+   *  answers only for a living structure and would leave it isolated, yaw 0).
+   *  The standing mesh and its wreck both come through here, so a post's
+   *  wreck keeps the post's authored facing. Called when a mesh or wreck is
+   *  created, not per frame. */
+  private perTileYaw(s: number): number {
+    const st = this.sim.structures;
+    const x = st.minX[s];
+    const y = st.minY[s];
+    const typeIdx = st.typeIdx[s];
+    const layout = this.perTileLayout();
+    const w = this.sim.width;
+    const h = this.sim.height;
+    return perTileYawFor(this.sim.structureTypes[typeIdx].id, (dx, dy) => {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= w || ny >= h) return false;
+      const n = layout[ny * w + nx];
+      return n >= 0 && n !== s && st.typeIdx[n] === typeIdx;
+    });
+  }
+
   /**
    * Building meshes: called separately from `frame()`, alongside
    * `updateStructures`. Unlike every unit path above, a building mesh clone
@@ -8246,24 +8416,6 @@ export class ThreeRenderer implements Renderer {
    * present skips straight past this block and leaves whatever scale the
    * settle step last wrote alone.
    */
-  /** A per-tile structure turns to read along its run -- see
-   *  `units/run-direction.ts` -- unless its type keeps its authored facing
-   *  (`PER_TILE_FACING`, the sandbag post). Neighbours are read through
-   *  `sim.structureAt`, which answers only for a LIVING structure: a wreck
-   *  reads its run off the tiles still standing when it falls. The standing
-   *  mesh and its wreck both come through here, so a post's wreck keeps the
-   *  post's authored facing. */
-  private perTileYaw(s: number): number {
-    const st = this.sim.structures;
-    const x = st.minX[s];
-    const y = st.minY[s];
-    const typeIdx = st.typeIdx[s];
-    return perTileYawFor(this.sim.structureTypes[typeIdx].id, (dx, dy) => {
-      const n = this.sim.structureAt(x + dx, y + dy);
-      return n >= 0 && n !== s && st.typeIdx[n] === typeIdx;
-    });
-  }
-
   /** The fit (`units/building-fit.ts`) for structure `s`'s mesh:
    *  `opts.buildingFit`, absent being `DEFAULT_BUILDING_FIT` (`stretch`,
    *  lead ruling 7 Oct); unit scale under `off` and until the type's
@@ -8422,14 +8574,39 @@ export class ThreeRenderer implements Renderer {
     }
   }
 
-  /** GH-31: the scar memo for one vehicle type, minted on first use. */
-  private vehicleScarsFor(typeId: string): VehicleScarMaterials {
-    let scars = this.vehicleScars.get(typeId);
+  /** GH-31: the scar memo for one vehicle TEMPLATE (`vehicleTemplateKey`:
+   *  the type id, or a side-1 kit's own key), minted on first use. Keyed by
+   *  template because its scars are cut from that template's materials. */
+  private vehicleScarsFor(templateKey: string): VehicleScarMaterials {
+    let scars = this.vehicleScars.get(templateKey);
     if (!scars) {
       scars = new VehicleScarMaterials();
-      this.vehicleScars.set(typeId, scars);
+      this.vehicleScars.set(templateKey, scars);
     }
     return scars;
+  }
+
+  /**
+   * Per-seat kit (Task 6): the key of the vehicle template a unit of
+   * `typeId` on `side` draws from (`units/kit-template-key.ts`). Without
+   * `unitKitTiersBySide` -- single-player, a mission, the sandbox -- it is
+   * `typeId` for every side, at the cost of one compare, so that path reads
+   * exactly the map entries it always read.
+   */
+  private vehicleTemplateKey(typeId: string, side: number): string {
+    const bySide = this.opts.unitKitTiersBySide;
+    if (bySide === undefined) return typeId;
+    let memo: Map<string, string> | undefined = this.templateKeysBySide[side];
+    if (memo === undefined) {
+      memo = new Map();
+      this.templateKeysBySide[side] = memo;
+    }
+    let key = memo.get(typeId);
+    if (key === undefined) {
+      key = templateKey(typeId, side, bySide);
+      memo.set(typeId, key);
+    }
+    return key;
   }
 
   /**
@@ -10335,6 +10512,15 @@ export class ThreeRenderer implements Renderer {
       this.overlayBatch.triangle(hAnchor, [[-2, -5], [4, 0], [-2, 5]], color, pulse);
     }
 
+    // S-F F2 C3: the supply route, rebuilt only when the app handed over a
+    // new set (or the ground under it changed); its colours every frame, so
+    // a colour-vision switch reaches a route already drawn.
+    this.supplyRoute.setColors(
+      this.overlayColor(SUPPLY_ROUTE_OPEN_COLOR_KEY),
+      this.overlayColor(SUPPLY_ROUTE_CUT_COLOR_KEY)
+    );
+    this.supplyRoute.sync(width, (x, y) => groundWorldY(elevation, width, height, x, y));
+
     this.overlayBatch.endFrame();
     this.zoneBand.endFrame();
     this.numeralBatch.endFrame();
@@ -10797,8 +10983,8 @@ export class ThreeRenderer implements Renderer {
    * `CollapseShroudManager.spawn` would refuse a zero-sized one anyway. The
    * rest of the blast still fires; only the cover it was covering is absent.
    */
-  private beginVehicleCollapseShroud(typeId: string, x: number, y: number, worldY: number): void {
-    const bounds = this.vehicleMeshBounds.get(typeId);
+  private beginVehicleCollapseShroud(templateKey: string, x: number, y: number, worldY: number): void {
+    const bounds = this.vehicleMeshBounds.get(templateKey);
     if (!bounds) return;
     // `x`/`y` (the death tile) as the scatter seed rather than the entity id:
     // stable across a replay, never a clock, never sim state that could feed

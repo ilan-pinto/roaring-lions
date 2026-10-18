@@ -989,7 +989,8 @@ describe('colour-vision variants -- team.* follows the setting (Q9)', () => {
         const key = `team.${name}`;
         expect({ variant, key, hex: resolveKey(raw, variant, key) }).toEqual({ variant, key, hex: lions(key) });
       }
-      expect({ variant, three: ['kedem', 'hostile', 'neutral'].map((n) => resolveKey(raw, variant, `team.${n}`)) })
+      // Slot 2 of the tuple is the civilian's `limestone.0` in every variant (VR-04); `team.neutral` is the warning.
+      expect({ variant, three: [resolveKey(raw, variant, 'team.kedem'), resolveKey(raw, variant, 'team.hostile'), resolveKey(raw, variant, 'limestone.0')] })
         .toEqual({ variant, three: paletteTeamColors(variant as ColorVisionVariant) });
     }
   });

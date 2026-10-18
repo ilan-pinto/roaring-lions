@@ -17,7 +17,7 @@
 // action is a callback `main.ts` supplied — see the note on `onArm` for why
 // that indirection is load-bearing and not ceremony.
 
-import type { LedgerData } from '@lions/sim';
+import type { Command, LedgerData } from '@lions/sim';
 import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
 import { escapeHtml } from './escape-html';
@@ -42,7 +42,10 @@ export interface ProductionRuntime extends DockView {
   readonly intel: number;
   /** MissionRuntime's own method: what one call costs in intel. */
   supportCost(kind: SupportKind): number;
-  requestBuild(unitId: string): boolean;
+  /** MissionRuntime's click-time pre-check: would `requestBuild` accept now?
+   *  (N2, D3.) The dock never spends: an accepted purchase is a `build`
+   *  command, which the runtime re-checks and spends before the next tick. */
+  canBuild(unitId: string): boolean;
 }
 
 export interface ProductionOptions {
@@ -51,9 +54,13 @@ export interface ProductionOptions {
   note(html: string, tone?: Tone): void;
   /** Arming is owned by the input layer — it decides what the next click means. */
   onArm(kind: SupportKind | null): void;
+  /** Where an accepted purchase goes: the order sink, so it travels the frame path (N2). */
+  dispatch(cmd: Command): void;
   /** Telemetry's count of bought units; never reaches the sim. Called exactly
-   *  once per click that the runtime actually accepted -- never for a locked
-   *  tile (no `requestBuild` call at all) and never for one it refused. */
+   *  once per click the runtime's pre-check (`canBuild`) accepted -- never for
+   *  a locked tile and never for one it refused. Two clicks in one frame that
+   *  the purse covers once are both counted: the pre-check cannot see the
+   *  first, unspent (D3's known gap). */
   onBought?: (unitId: string) => void;
   /** The campaign ledger, for `tileState`'s `gateSentence` recompute. Absent
    *  reads as an empty ledger -- every gate still closed, none open early. */
@@ -348,7 +355,11 @@ export class ReinforcementDock {
         this.opts.onDeny?.();
         return;
       }
-      if (this.opts.runtime.requestBuild(unit.id)) {
+      // N2, D3 (lead, 16 Oct: "check, then send"): a read-only pre-check, then
+      // a `build` command down the frame path. The runtime re-checks and
+      // spends before the next tick (`applyQueued`).
+      if (this.opts.runtime.canBuild(unit.id)) {
+        this.opts.dispatch({ kind: 'build', side: 0, unit: unit.id });
         this.bought.add(unit.id);
         this.opts.onBought?.(unit.id);
         this.opts.note(t('dock.note.building', { name }), 'info');
@@ -357,7 +368,9 @@ export class ReinforcementDock {
         this.opts.onDeny?.();
       }
       el.blur(); // keep the keyboard on the battlefield
-      this.refresh(); // the bar starts now, not at the next 4 Hz beat
+      // Repaints the tile now; the new bar itself lands on the next tick, when
+      // the command has run (`main.ts` refreshes the dock on a tick that ran one).
+      this.refresh();
     });
     // `clear: this.el` -- GH-229: vertical placement clears the whole dock,
     // not just this tile's own row, so a tip opened on row 2+ cannot land on

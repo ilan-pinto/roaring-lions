@@ -9,8 +9,14 @@
  * (`supportAim`), so the two cannot disagree.
  *
  * No DOM. `Sim` is read, never written; the runtime owns the spend.
+ *
+ * N2, D3 (lead, 16 Oct: "check, then send"): the click does not spend. It asks
+ * the runtime's read-only `canSupport`, and an accepted call goes to the order
+ * sink as a `support` command; the runtime re-checks and spends when it runs
+ * it, before the next tick (`applyQueued`). The two share one predicate, so
+ * they disagree only when two purchases in one frame compete for one purse.
  */
-import { fx, type Sim, type SupportKind } from '@lions/sim';
+import { fx, type Command, type Sim, type SupportKind } from '@lions/sim';
 import { pointerPoint, type PointerView } from './pointer';
 import type { AimFootprint } from '@lions/render';
 import { footprintTiles, ROUNDS } from '../ui/support-kinds';
@@ -19,7 +25,8 @@ import { footprintTiles, ROUNDS } from '../ui/support-kinds';
 export interface SupportRuntime {
   readonly intel: number;
   supportCost(kind: SupportKind): number;
-  requestSupport(kind: SupportKind, x: number, y: number): boolean; // Fx args
+  /** MissionRuntime's click-time pre-check: would `requestSupport` accept now? */
+  canSupport(kind: SupportKind): boolean;
 }
 
 export type SupportOutcome =
@@ -33,13 +40,15 @@ export function supportAim(view: PointerView, sim: Sim, px: number, py: number):
 }
 
 /**
- * Make the call. A refusal says why, decided AFTER it and read-only: the
- * runtime refuses for exactly two reasons the player can act on -- too little
- * intel, or (for the three that fire) no living surface caller -- so intel in
- * hand means the caller.
+ * Make the call: pre-check, then send a `support` command to `sink` (N2, D3).
+ * A refusal sends nothing and says why, read-only: the runtime refuses for
+ * exactly two reasons the player can act on -- too little intel, or (for the
+ * three that fire) no living surface caller -- so intel in hand means the
+ * caller.
  */
 export function callSupport(
   rt: SupportRuntime,
+  sink: { queueCommand(cmd: Command): void },
   kind: SupportKind,
   view: PointerView,
   sim: Sim,
@@ -47,7 +56,10 @@ export function callSupport(
   py: number
 ): SupportOutcome {
   const { x, y } = supportAim(view, sim, px, py);
-  if (rt.requestSupport(kind, fx.from(x), fx.from(y))) return { ok: true, kind, x, y };
+  if (rt.canSupport(kind)) {
+    sink.queueCommand({ kind: 'support', side: 0, support: kind, x: fx.from(x), y: fx.from(y) });
+    return { ok: true, kind, x, y };
+  }
   return { ok: false, kind, x, y, why: rt.intel < rt.supportCost(kind) ? 'intel' : 'caller' };
 }
 

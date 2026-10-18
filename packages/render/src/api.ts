@@ -22,6 +22,8 @@ import type { RenderQuality } from './quality';
 import type { LightOverride, TimeOfDay } from './three/time-of-day';
 // Three-free too (`three/units/building-fit.ts` imports nothing).
 import type { BuildingFit } from './three/units/building-fit';
+// Three-free too (`three/units/kit-template-key.ts` imports nothing).
+import type { KitTiers, KitTiersBySide } from './three/units/kit-template-key';
 
 export type { LightOverride, TimeOfDay } from './three/time-of-day';
 export type { BuildingFit } from './three/units/building-fit';
@@ -175,9 +177,22 @@ export interface AimFootprint {
   readonly scatter?: number;
 }
 
+/**
+ * One of side 0's supply routes for the world (S-F F2 C3): the convoy's, or a
+ * held income zone's. `tiles` are tile indices `y * width + x` in order, from
+ * the zone (or the entry) to the rear; `cutSpan` is the cut stretch as an
+ * inclusive `[first, last]` pair of indices INTO `tiles`, or null when the
+ * line is open. The app copies both out of the runtime's reused storage
+ * (`ui/income-view.ts`), so a backend may keep the arrays it is handed.
+ */
+export interface SupplyRouteView {
+  readonly tiles: ArrayLike<number>;
+  readonly cutSpan: readonly [number, number] | null;
+}
+
 export interface RendererOptions {
   background: string;
-  /** Team marker colours by side index (0 player, 1 hostile, 2 neutral). */
+  /** Team marker colours by side index (0 player, 1 hostile, 2 civilian). */
   teamColors: [string, string, string];
   /** The sim side the person at this screen commands (network design §5.1).
    *  Absent means 0, which is single-player and every campaign mission. */
@@ -375,8 +390,23 @@ export interface RendererOptions {
    * on the field. The app fills it from `upgradePrepass`, the same per-type
    * tiers the sim's unit types were patched with. Three-only:
    * `PixiRenderer` has no mesh path and ignores it, like `shellColors`.
+   *
+   * Side 0's table. With no `unitKitTiersBySide` (single-player, a mission,
+   * the sandbox) every side reads it and every type has ONE template, as it
+   * always has.
    */
-  unitKitTiers?: Readonly<Record<string, Readonly<Record<string, number>>>>;
+  unitKitTiers?: KitTiers;
+  /**
+   * A versus room's two seats' tiers, side 0's then side 1's, from the room's
+   * world (per-seat kit plan, Task 6; `app/net/room-kit.ts`). Given, it wins
+   * over `unitKitTiers` for both sides, and a type whose side-1 tiers differ
+   * from side 0's gets a second template, keyed `${id}#s1`
+   * (`three/units/kit-template-key.ts`'s `templateKey`), so each side's hull
+   * wears the kit its own sim type runs. A type whose two tiers agree --
+   * every type in a matched room -- shares one template and loads nothing
+   * new.
+   */
+  unitKitTiersBySide?: KitTiersBySide;
 }
 
 /** One outlined objective zone: its rect in tiles and how it is going. */
@@ -627,6 +657,17 @@ export interface Renderer {
    *
    *  S-F Task 1: the rings are per kind -- see `AimFootprint`. */
   aimFootprint?: AimFootprint | null;
+  /** S-F F2 C3: side 0's supply routes, drawn in the world as a thin
+   *  ground-draped `--info` ribbon whose cut stretch alone is dashed
+   *  `--warn`. ON DEMAND, never a standing mark: the app writes the routes
+   *  only while the strip's logistics figure is hovered or keyboard-focused,
+   *  or for a moment after a Space jump lands on a supply alert, and `null`
+   *  the rest of the time (and on teardown). The minimap draws every route
+   *  always; this is the world's look at them. A backend keeps the array it
+   *  is handed until the next write, and a new array replaces the drawn
+   *  geometry whole. Optional on the seam like `aimFootprint`; absent or
+   *  `null` draws nothing. */
+  supplyRoutes?: readonly SupplyRouteView[] | null;
   objectiveZone: readonly number[] | null;
   objectiveZoneState: 'held' | 'unheld' | 'contested';
   /** Every active objective that is about a piece of ground, not only the

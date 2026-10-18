@@ -21,6 +21,7 @@ import { Sim, fx, type HitProjection, type UnitTypeJson } from '@lions/sim';
 import { EARN_PULSE_MS, Hud as HudClass, type HudCommanderInfo, type HudDeps, type MissionView } from './hud';
 import type { KitSummary } from './kit-sign';
 import { textToneClass } from './hud-model';
+import type { IncomeView, IncomeZoneView } from './income-view';
 import { alertNotice } from './mission-notice';
 import { closeTip } from './tooltip';
 import type { CursorName } from '../input/cursor';
@@ -583,6 +584,232 @@ describe('top strip', () => {
         keys.some((k) => el.hasAttribute(k)),
         `${el.className} is focusable without a focus key`
       ).toBe(true);
+    }
+  });
+});
+
+// S-F F2 C3 (Review Focus 4): the world supply route shows while the logistics figure is
+// hovered OR keyboard-focused, the two alike, and goes on mouseleave / blur. `main.ts` reads
+// `logisticsHeld` every frame.
+describe('top strip: the logistics figure held, for the world supply route (S-F F2 C3)', () => {
+  const logi = (r: Rig): HTMLElement => r.host.querySelector<HTMLElement>('[data-tip="logistics"]')!;
+  const m = () => mission({ logistics: 410, logisticsRate: 120 });
+
+  it('is not held until the figure is hovered, and hover holds it', () => {
+    const r = rig(m());
+    expect(r.hud.logisticsHeld).toBe(false);
+    logi(r).dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    expect(r.hud.logisticsHeld).toBe(true);
+    // The pointer leaves the strip for the battlefield.
+    logi(r).dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body }));
+    expect(r.hud.logisticsHeld).toBe(false);
+    r.hud.destroy();
+  });
+
+  it('holds over a child of the figure (its glyph, its number), and lets go on another field', () => {
+    const r = rig(mission({ logistics: 410, logisticsRate: 120, intel: 40 }));
+    const b = logi(r).querySelector('b')!;
+    b.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    expect(r.hud.logisticsHeld).toBe(true);
+    b.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: logi(r) }));
+    expect(r.hud.logisticsHeld).toBe(true);
+    const intel = r.host.querySelector<HTMLElement>('[data-tip="intel"]')!;
+    logi(r).dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: intel }));
+    intel.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    expect(r.hud.logisticsHeld).toBe(false);
+    r.hud.destroy();
+  });
+
+  it('keyboard focus holds it exactly as hover does, and blur lets go', () => {
+    const r = rig(m());
+    logi(r).focus();
+    expect(document.activeElement).toBe(logi(r));
+    expect(r.hud.logisticsHeld).toBe(true);
+    logi(r).blur();
+    expect(r.hud.logisticsHeld).toBe(false);
+    r.hud.destroy();
+  });
+
+  it('focus and hover are separate: the pointer leaving does not drop a focused figure', () => {
+    const r = rig(m());
+    logi(r).focus();
+    logi(r).dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    logi(r).dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body }));
+    expect(r.hud.logisticsHeld).toBe(true);
+    r.hud.destroy();
+  });
+
+  it('stays held across the 4 Hz rebuild that replaces the figure under a still pointer', () => {
+    const mm = m();
+    const r = rig(mm);
+    logi(r).dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    const before = logi(r);
+    mm.logistics = 450;
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(logi(r)).not.toBe(before);
+    expect(r.hud.logisticsHeld).toBe(true);
+    r.hud.destroy();
+  });
+
+  it('is not held when the strip carries no logistics figure at all', () => {
+    const mm = m();
+    const r = rig(mm);
+    logi(r).dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    mm.logistics = undefined;
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(r.host.querySelector('[data-tip="logistics"]')).toBeNull();
+    expect(r.hud.logisticsHeld).toBe(false);
+    r.hud.destroy();
+  });
+});
+
+describe('top strip: held-ground income (S-F F2, P2-8)', () => {
+  const zone = (over: Partial<IncomeZoneView>): IncomeZoneView => ({
+    id: 'hamlet', rect: [0, 0, 1, 1], ratePerMin: 20, paysPerMin: 20, state: 'held', cut: null,
+    route: null, cutSpan: null, ...over,
+  });
+  const income = (over: Partial<IncomeView> = {}): IncomeView => ({
+    base: 100, zones: 20, total: 120, halved: false, halvedBy: null, zoneViews: [zone({})], convoy: null, ...over,
+  });
+  const logi = (r: Rig): HTMLElement => r.host.querySelector<HTMLElement>('[data-tip="logistics"]')!;
+  const tipOf = (r: Rig): string => {
+    logi(r).dispatchEvent(new Event('mouseover', { bubbles: true }));
+    return r.host.querySelector<HTMLElement>('.rl-tip')!.innerHTML;
+  };
+
+  it('with no income the strip span and the tip are byte-identical to the old output', () => {
+    for (const inc of [undefined, null]) {
+      const r = rig(mission({ logistics: 410, logisticsRate: 120, intel: 40, income: inc }));
+      expect(logi(r).innerHTML).toBe(
+        `<svg` + logi(r).innerHTML.slice(4, logi(r).innerHTML.indexOf('</svg>')) +
+          `</svg> <b>410</b> <span class="rl-dim">logistics</span> <span class="rl-dim">+120/min</span>`
+      );
+      expect(tipOf(r)).toBe(t('hud.strip.logistics.tip', { rate: 120 }));
+      closeTip();
+    }
+  });
+
+  it('reads base + zones, and a fractional total keeps its .5', () => {
+    const r = rig(mission({ logistics: 410, logisticsRate: 999, income: income({ total: 127.5 }) }));
+    expect(r.strip()).toContain('410 logistics +127.5/min');
+    expect(r.strip()).not.toContain('999');
+    expect(logi(r).querySelector('.rl-warn')).toBeNull();
+  });
+
+  it('adds a .rl-warn half mark while anything is halved, and names the cause in the tip', () => {
+    const r = rig(
+      mission({
+        logistics: 410,
+        income: income({
+          total: 60, halved: true, halvedBy: 'interdicted',
+          zoneViews: [zone({ paysPerMin: 10, cut: 'vent' })],
+        }),
+      })
+    );
+    const mark = logi(r).querySelector('.rl-warn')!;
+    expect(mark.textContent).toBe('½');
+    expect(r.strip()).toContain('+60/min½');
+    const tip = tipOf(r);
+    expect(tip).toContain('Convoy 100/min');
+    expect(tip).toContain('supply line cut: enemy on the road');
+    expect(tip).toContain('Held ground +10/min');
+    expect(tip).toContain('supply line cut: a tunnel vent beside the road');
+  });
+
+  it('says "pays nothing, enemy inside" for a contested zone and nothing for empty or enemy-held', () => {
+    const r = rig(
+      mission({
+        logistics: 410,
+        income: income({
+          total: 100,
+          zoneViews: [zone({ id: 'a', state: 'contested', paysPerMin: 0 }), zone({ id: 'b', state: 'unheld', paysPerMin: 0 })],
+        }),
+      })
+    );
+    const tip = tipOf(r);
+    expect(tip).toContain('Contested ground: pays nothing, enemy inside');
+    expect(tip).not.toContain('Held ground');
+    expect(tip.match(/pays nothing/g)).toHaveLength(1);
+  });
+
+  // A dimetric projection, as the renderer draws the map: up the screen is north.
+  // `pan`/`zoom` stand for the camera; the zone lines must not depend on them.
+  const dimetric = (pan = { x: 0, y: 0 }, zoom = 1) => (x: number, y: number) => ({
+    x: ((x - y) * 32) * zoom + pan.x,
+    y: ((x + y) * 16) * zoom + pan.y,
+  });
+  const zoneLines = (zs: IncomeZoneView[], project: (x: number, y: number) => { x: number; y: number } = dimetric()): string[] => {
+    const r = rig(mission({ logistics: 410, income: income({ zoneViews: zs }) }), { project });
+    const d = new DOMParser().parseFromString(tipOf(r), 'text/html');
+    closeTip();
+    return [...d.querySelectorAll('.rl-tip__blurb')].map((e) => e.textContent ?? '').filter((x) => /Held ground|pays nothing/.test(x));
+  };
+  // The test sim is 8x8, so its centre is (4,4); (1,1) lies north of it on screen, (7,7) south.
+  const north = (state: 'held' | 'contested'): IncomeZoneView =>
+    zone({ id: 'hamlet', state, rect: [0, 0, 2, 2], paysPerMin: state === 'held' ? 20 : 0 });
+  const south = (state: 'held' | 'contested'): IncomeZoneView =>
+    zone({ id: 'staging', state, rect: [6, 6, 2, 2], paysPerMin: state === 'held' ? 20 : 0 });
+
+  it('names each zone by where it lies on the map, so two contested or two held zones read apart', () => {
+    for (const state of ['contested', 'held'] as const) {
+      const out = zoneLines([north(state), south(state)]);
+      expect(out).toHaveLength(2);
+      expect(out[0]).not.toBe(out[1]);
+      expect(out[0]).toContain(t('alert.place.n'));
+      expect(out[1]).toContain(t('alert.place.s'));
+      expect(out.join('')).not.toMatch(/hamlet|staging|in view/);
+    }
+  });
+
+  it('keeps the phrase when the camera pans or zooms', () => {
+    const base = zoneLines([north('held'), south('held')]);
+    for (const [pan, zoom] of [[{ x: 900, y: -400 }, 1], [{ x: 0, y: 0 }, 2.5], [{ x: -300, y: 700 }, 0.35]] as const) {
+      expect(zoneLines([north('held'), south('held')], dimetric(pan, zoom))).toEqual(base);
+    }
+  });
+
+  it('reads "centre" for a zone beside the map centre', () => {
+    const out = zoneLines([zone({ state: 'held', rect: [3, 3, 2, 2] })]);
+    expect(out[0]).toContain(t('hud.strip.logistics.centre'));
+  });
+
+  it('numbers zones that share a place, in authored order', () => {
+    const a = zone({ id: 'a', state: 'held', rect: [0, 0, 2, 2] });
+    const b = zone({ id: 'b', state: 'contested', rect: [0, 0, 1, 1], paysPerMin: 0 });
+    const out = zoneLines([a, b, south('held')]);
+    expect(out).toHaveLength(3);
+    expect(out[0]).toContain(`${t('alert.place.n')} 1`);
+    expect(out[1]).toContain(`${t('alert.place.n')} 2`);
+    expect(out[2]).not.toMatch(/south 1|south 2/);
+    expect(new Set(out).size).toBe(3);
+  });
+
+  it('falls back to the line without a place when the HUD cannot place a zone', () => {
+    const r = rig(mission({ logistics: 410, income: income({ zoneViews: [zone({ state: 'contested', paysPerMin: 0 })] }) }));
+    const tip = tipOf(r);
+    expect(tip).toContain('pays nothing');
+    expect(tip).not.toContain('· ');
+  });
+
+  it('shows no unbracketed word under the pseudo-locale', () => {
+    setCatalogue('pseudo', en, pseudo);
+    try {
+      const r = rig(
+        mission({
+          logistics: 410,
+          income: income({
+            halved: true, halvedBy: 'unreachable',
+            zoneViews: [zone({ cut: 'vent' }), zone({ id: 'c', state: 'contested', paysPerMin: 0 })],
+          }),
+        })
+      );
+      const text = new DOMParser().parseFromString(tipOf(r), 'text/html').body.textContent ?? '';
+      const lines = text.match(/⟦[^⟧]*⟧/g) ?? [];
+      expect(lines).toHaveLength(6);
+      expect(text.replace(/⟦[^⟧]*⟧/g, '')).toBe('');
+      expect(text).not.toMatch(/\b(Convoy|Held ground|Contested ground|supply line|pays nothing)\b/);
+    } finally {
+      setCatalogue('en', en);
     }
   });
 });
@@ -2098,6 +2325,59 @@ describe('destroy', () => {
       commander: TEST_COMMANDER,
     });
 
+  // H3: the briefing card folds onto the commander bar, and a skip of the
+  // transition dismisses the title card through the HUD.
+  it('dismissTitle() takes the card down through its own fade', () => {
+    vi.useFakeTimers();
+    try {
+      const hud = bodyHud();
+      hud.announce('Beit Sahwan II', '2 primary objective(s)', 'Move out.');
+      const card = document.body.querySelector('.rl-titlecard');
+      hud.dismissTitle();
+      expect(card?.classList.contains('rl-leave')).toBe(true);
+      vi.advanceTimersByTime(250);
+      expect(document.body.querySelector('.rl-titlecard')).toBeNull();
+      hud.dismissTitle();
+      hud.destroy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('commanderRect() is null while the bar is not drawn, the rect once it is', () => {
+    const hud = bodyHud();
+    hud.brief([]);
+    expect(hud.commanderRect()).toBeNull();
+    hud.brief(['Move out.']);
+    const cmd = document.body.querySelector<HTMLElement>('.rl-cmd');
+    expect(cmd).not.toBeNull();
+    if (!cmd) return;
+    // jsdom lays nothing out: an empty rect is "not drawn" too.
+    expect(hud.commanderRect()).toBeNull();
+    cmd.getBoundingClientRect = () => new DOMRect(8, 56, 520, 96);
+    expect(hud.commanderRect()).toEqual(new DOMRect(8, 56, 520, 96));
+    cmd.setAttribute('data-hud-hidden', '');
+    expect(hud.commanderRect()).toBeNull();
+    hud.destroy();
+  });
+
+  it('landCommander() pulses the bar once, and destroy() clears the pulse timer', () => {
+    vi.useFakeTimers();
+    try {
+      const hud = bodyHud();
+      hud.landCommander(700);
+      const cmd = document.body.querySelector<HTMLElement>('.rl-cmd');
+      expect(cmd?.classList.contains('rl-cmd--landed')).toBe(true);
+      vi.advanceTimersByTime(700);
+      expect(cmd?.classList.contains('rl-cmd--landed')).toBe(false);
+      hud.landCommander(700);
+      hud.destroy();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('removes everything it put on the body, and can be called twice', () => {
     const before = document.body.children.length;
     const hud = bodyHud();
@@ -2852,6 +3132,22 @@ describe('the single-unit card — kit (WP-S3g §3.4, D2)', () => {
     const world = makeForce();
     const enemy = world.sim.spawn(world.sim.state.typeIdx[world.namer], 1, fx.from(6), fx.from(6));
     const r = clusterRig(() => [enemy], { kitOf: () => summary() }, world);
+    expect(r.host.querySelector('.rl-card .rl-kit-pips')).toBeNull();
+    expect(r.host.querySelector('.rl-card__hp')?.textContent).not.toContain('kit');
+  });
+
+  it('a seat on side 1 reads its own kit for its own unit, and none for side 0\'s of the same id', () => {
+    // Per-seat kit (Task 5): in a versus room side 1's kitted type shares side
+    // 0's id, so `kitOf` (the viewer's side's table) must be asked only about
+    // an OWN unit -- asked about side 0's namer it would mark side 0 with side
+    // 1's kit.
+    const world = makeForce();
+    world.sim.state.side[world.namer] = 1;
+    const own = clusterRig(() => [world.namer], { viewer: 1, kitOf: () => summary() }, world);
+    expect(own.host.querySelector('.rl-card .rl-kit-pips')).not.toBeNull();
+    expect(own.host.querySelector('.rl-card__hp')?.textContent).toMatch(/ · \+750 kit$/);
+    const foe = makeForce();
+    const r = clusterRig(() => [foe.namer], { viewer: 1, kitOf: () => summary() }, foe);
     expect(r.host.querySelector('.rl-card .rl-kit-pips')).toBeNull();
     expect(r.host.querySelector('.rl-card__hp')?.textContent).not.toContain('kit');
   });
