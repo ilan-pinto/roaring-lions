@@ -14,6 +14,8 @@ import { applyKitGraft } from './kit-pass';
 import { applyRescale } from './rescale-pass';
 import { LAVI_RESCALE, RESCALE_FACTORS, rescaleMark } from './rescale-contract';
 import { RG_TRACK_ATTR } from './running-gear-contract';
+import { DAMAGE_RECIPES, scaleDamageOps, type DamageOp } from './damage-recipes';
+import { RUNNING_GEAR_RECIPES, scaleTrackSeed } from './running-gear-recipes';
 
 const REPO = fileURLToPath(new URL('../../../', import.meta.url));
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS);
@@ -42,8 +44,16 @@ function fixture(): Document {
   const c = doc.createNode('c').setMesh(doc.createMesh('m2').addPrimitive(doc.createPrimitive().setAttribute('POSITION', pos)));
   a.addChild(c);
   doc.createScene('s').addChild(a).addChild(b).setExtras({
-    rl_running_gear: { version: 1, wheels: [], tracks: [{ side: 'r', loopLength: 10, pitch: 0.25, gauge: 1 }] },
+    rl_running_gear: {
+      version: 1,
+      wheels: [{ side: 'r', index: 0, centre: [1, 0.5, 1], radius: 0.5, cutRadius: 0.6, steer: false, maxSteerRad: 0 }],
+      tracks: [{ side: 'r', loopLength: 10, pitch: 0.25, gauge: 1 }],
+    },
   });
+  const times = doc.createAccessor('t').setType('SCALAR').setBuffer(buf).setArray(new Float32Array([0, 1]));
+  const moves = doc.createAccessor('mv').setType('VEC3').setBuffer(buf).setArray(new Float32Array([0, 0, 0, 1, 1, 1]));
+  const sampler = doc.createAnimationSampler().setInput(times).setOutput(moves);
+  doc.createAnimation('slide').addSampler(sampler).addChannel(doc.createAnimationChannel().setTargetNode(b).setTargetPath('translation').setSampler(sampler));
   return doc;
 }
 
@@ -60,8 +70,10 @@ describe('applyRescale', () => {
       [0, 2, 0],
       [0, 0, 0],
     ]);
-    const extras = root.listScenes()[0].getExtras() as { rl_running_gear: { tracks: object[] }; rl_rescale: unknown };
+    const extras = root.listScenes()[0].getExtras() as { rl_running_gear: { tracks: object[]; wheels: object[] }; rl_rescale: unknown };
     expect(extras.rl_running_gear.tracks[0]).toMatchObject({ loopLength: 20, pitch: 0.5, gauge: 2 });
+    expect(extras.rl_running_gear.wheels[0]).toMatchObject({ centre: [2, 1, 2], radius: 1, cutRadius: 1.2, maxSteerRad: 0 });
+    expect([...root.listAnimations()[0].listSamplers()[0].getOutput()!.getArray()!]).toEqual([0, 0, 0, 2, 2, 2]);
     expect(extras.rl_rescale).toEqual({ factor: 2 });
     expect(rescaleMark(doc)).toBe(2);
   });
@@ -119,5 +131,36 @@ describe('the shipped files carry their rescale', () => {
       }
     }
     expect(hi - lo).toBeCloseTo(6.32 * 1.18, 2);
+  });
+});
+
+/** Every numeric field of an op or seed that is NOT a length, by name: any
+ *  other number must scale, so a length field added later and forgotten in
+ *  the scaler goes red here instead of passing through unscaled. */
+const NOT_LENGTH = new Set(['side', 'normalMin', 'angleDeg', 'droopDeg', 'seed', 'minComponentTris']);
+
+function expectScaled(base: Record<string, unknown>, scaled: Record<string, unknown>, f: number, where: string): void {
+  for (const [k, v] of Object.entries(base)) {
+    if (typeof v === 'number') {
+      expect(scaled[k], `${where}.${k}`).toBeCloseTo(NOT_LENGTH.has(k) ? v : v * f, 9);
+    } else if (Array.isArray(v)) {
+      v.forEach((d, i) => expectScaled(d as Record<string, unknown>, (scaled[k] as Record<string, unknown>[])[i], f, `${where}.${k}[${i}]`));
+    }
+  }
+}
+
+describe('the recipe scalers', () => {
+  it('scaleDamageOps scales every length of every Lavi op and nothing else', () => {
+    const base = scaleDamageOps(DAMAGE_RECIPES.mbt_lavi!, 1 / LAVI_RESCALE);
+    const again = scaleDamageOps(base, 3);
+    base.forEach((op, i) => expectScaled(op as unknown as Record<string, unknown>, again[i] as unknown as Record<string, unknown>, 3, op.verb));
+  });
+  it('scaleDamageOps refuses a verb it has no length list for', () => {
+    const op = { verb: 'blowOut', mesh: 'hull_glass', keep: 0.2 } as DamageOp;
+    expect(() => scaleDamageOps([op], 2)).toThrow(/no length list/);
+  });
+  it('scaleTrackSeed scales every length of the Lavi seed and its discs', () => {
+    const seed = RUNNING_GEAR_RECIPES.mbt_lavi.track!;
+    expectScaled(seed as unknown as Record<string, unknown>, scaleTrackSeed(seed, 3) as unknown as Record<string, unknown>, 3, 'track');
   });
 });
