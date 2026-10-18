@@ -330,9 +330,9 @@
       "unit": "mbt_lavi",
       "track": "armour",
       "subject": "kit",
-      "yawDeg": 90,
+      "yawDeg": 180,
       "elevationDeg": 18,
-      "distance": 2.929
+      "distance": 3.516
     },
     "mbt_lavi_firepower": {
       "file": "mbt_lavi_firepower.jpg",
@@ -341,7 +341,7 @@
       "subject": "kit",
       "yawDeg": 90,
       "elevationDeg": 18,
-      "distance": 1.774
+      "distance": 2.093
     },
     "mbt_lavi_sensors": {
       "file": "mbt_lavi_sensors.jpg",
@@ -350,7 +350,7 @@
       "subject": "kit",
       "yawDeg": 180,
       "elevationDeg": 18,
-      "distance": 2.573
+      "distance": 3.034
     },
     "mortar_team_armour": {
       "file": "mortar_team_armour.jpg",

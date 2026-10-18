@@ -24,6 +24,7 @@
     "wreck:meshes": "tsx src/meshes/wreck-pass.ts",
     "damage:meshes": "tsx src/meshes/damage-pass.ts",
     "kit:meshes": "tsx src/meshes/kit-pass.ts",
+    "rescale:meshes": "tsx src/meshes/rescale-pass.ts",
     "running-gear:meshes": "tsx src/meshes/running-gear-pass.ts",
     "ui:shots": "tsx src/ui-review/shoot.ts",
     "ui:routes": "tsx src/ui-review/routes-check.ts",

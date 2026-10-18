@@ -63,6 +63,7 @@ import kit_blockout as kb  # noqa: E402 -- read-only: Hull, barrel, the blockout
 import kit_clash as kc  # noqa: E402
 import kit_parts as kp  # noqa: E402
 import kit_vehicles as kv  # noqa: E402
+import rescale  # noqa: E402 -- the Lavi's post-export rescale, divided back out on import
 
 OUT_DIR = os.path.join(REPO, "art", "parts", "kit")
 
@@ -100,6 +101,10 @@ def load_vehicle(vid):
     bpy.ops.wm.read_factory_settings(use_empty=True)
     path = os.path.join(REPO, "art", "meshes", "vehicles", f"{vid}.glb")
     bpy.ops.import_scene.gltf(filepath=path, import_scene_extras=True)
+    # A rescaled vehicle (the Lavi, x1.18) back in the frame kit_vehicles.py's
+    # literals were measured in; the written kit goes through
+    # `pnpm rescale:meshes -- --kit=<id>` after this export.
+    rescale.unscale_imported()
     for o in list(bpy.data.objects):
         if o.name == "death_root" or o.name.startswith("WRECK_") or o.name.startswith("kit_"):
             bpy.data.objects.remove(o, do_unlink=True)
