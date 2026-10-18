@@ -116,7 +116,7 @@
 import { firePointOnMap } from './units/fire-points';
 import * as THREE from 'three';
 import { fx, WEAPON_CLASS, type Fx, type MissionEvent, type Sim, type SimEvent } from '@lions/sim';
-import type { AimFootprint, ObjectiveZoneView, Renderer, RendererOptions, SupplyRouteView, TerrainTones } from '../api'; // both, after Step 2
+import type { AimFootprint, ObjectiveZoneView, RallyMarkView, Renderer, RendererOptions, SupplyRouteView, TerrainTones } from '../api'; // both, after Step 2
 import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, type Camera } from '../project';
 import { QUALITY_PRESETS } from '../quality';
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec, type ParticleSpec } from '../vfx';
@@ -998,6 +998,9 @@ export class ThreeRenderer implements Renderer {
   set supplyRoutes(routes: readonly SupplyRouteView[] | null | undefined) {
     this.supplyRoute.set(routes ?? null);
   }
+  /** F4 (R3): see `Renderer.rallyMarks`. Drawn in the overlay pass beside
+   *  the order markers, in their look, held at full strength while set. */
+  rallyMarks: readonly RallyMarkView[] | null = null;
   objectiveZone: readonly number[] | null = null;
   objectiveZones?: readonly ObjectiveZoneView[];
   objectiveZoneState: 'held' | 'unheld' | 'contested' = 'held';
@@ -10365,6 +10368,28 @@ export class ThreeRenderer implements Renderer {
         this.overlayBatch.rect(manchor, -1, -s / 2, 1, -2, markerColor, a);
         this.overlayBatch.rect(manchor, -1, 2, 1, s / 2, markerColor, a);
         this.overlayBatch.ellipseRing(manchor, s + 4, (s + 4) / 2, 1.5, markerColor, a * 0.6);
+      }
+    }
+
+    // F4 rally points (the lead's R3, 18 Oct): the move order's own look,
+    // held rather than timed -- a solid route stroke from the camp exit and
+    // the order marker at full size at the point. No band of its own and no
+    // new art: the same `ORDER_GROUND_COLOR_KEY`, stroke width and marker
+    // geometry as the route and marker passes above. On demand only; the app
+    // writes `null` the rest of the time.
+    const rallies = this.rallyMarks;
+    if (rallies !== null && rallies.length > 0) {
+      const rallyColor = this.overlayColor(ORDER_GROUND_COLOR_KEY);
+      const rs = orderMarkerSize(1);
+      for (const r of rallies) {
+        const p0: [number, number, number] = [r.from.x, groundWorldY(elevation, width, height, r.from.x, r.from.y), r.from.y];
+        const p1: [number, number, number] = [r.to.x, groundWorldY(elevation, width, height, r.to.x, r.to.y), r.to.y];
+        this.overlayBatch.lineWorld(p0, p1, ROUTE_LINE_WIDTH_PX, rallyColor, ROUTE_LINE_ALPHA);
+        this.overlayBatch.rect(p1, -rs, -1, -4, 1, rallyColor, 1);
+        this.overlayBatch.rect(p1, 4, -1, rs, 1, rallyColor, 1);
+        this.overlayBatch.rect(p1, -1, -rs / 2, 1, -2, rallyColor, 1);
+        this.overlayBatch.rect(p1, -1, 2, 1, rs / 2, rallyColor, 1);
+        this.overlayBatch.ellipseRing(p1, rs + 4, (rs + 4) / 2, 1.5, rallyColor, 0.6);
       }
     }
 

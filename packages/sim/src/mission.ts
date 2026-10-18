@@ -1751,6 +1751,13 @@ export class MissionRuntime {
    * LD6 ask 6: index order is structure index order, stable for the mission, and is the `line`
    * every command carries. A dead camp's line keeps its index and reads `current: null,
    * queued: 0`. `contested` is true while a line's item is frozen (D1).
+   *
+   * F4 shell (Lane C ask, read-only, NOT hashed -- `foldLines` reads the lines
+   * themselves, never this view): `alive` is whether the line's camp stands,
+   * `items` the queued unit ids in order (the item in progress excluded; it
+   * is `current`), and `ticksLeft` the in-progress item's remaining ticks (0
+   * with none). The dock draws each camp's row from these rather than
+   * recovering them from `productionOf`'s flattening order.
    */
   productionLines(side: 0 | 1): {
     anchor: number;
@@ -1760,6 +1767,9 @@ export class MissionRuntime {
     progress: number;
     contested: boolean;
     rally: [Fx, Fx] | null;
+    alive: boolean;
+    items: string[];
+    ticksLeft: number;
   }[] {
     return this.lines[side].map((l) => {
       const alive = this.lineAlive(l);
@@ -1780,6 +1790,9 @@ export class MissionRuntime {
         progress: cur === null || bt <= 0 ? 0 : (((bt - l.ticksLeft) * 1000) / bt) | 0,
         contested: alive && l.current !== null && this.lineIsContested(l),
         rally: alive && l.rally !== null ? [l.rally.x, l.rally.y] : null,
+        alive,
+        items: alive ? l.queue.map((q) => q.unit) : [],
+        ticksLeft: cur === null ? 0 : l.ticksLeft,
       };
     });
   }

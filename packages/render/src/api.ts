@@ -190,6 +190,18 @@ export interface SupplyRouteView {
   readonly cutSpan: readonly [number, number] | null;
 }
 
+/**
+ * One camp's rally point for the world (F4, the lead's R3 ruling, 18 Oct): a
+ * solid line from the camp exit (`from`) to the point (`to`), in tiles, with
+ * the order marker standing at the point -- the move order's own look, held
+ * rather than timed. The app writes these only on demand (a row pinned,
+ * hovered or focused, Set rally armed, or a few seconds after a rally is set).
+ */
+export interface RallyMarkView {
+  readonly from: { readonly x: number; readonly y: number };
+  readonly to: { readonly x: number; readonly y: number };
+}
+
 export interface RendererOptions {
   background: string;
   /** Team marker colours by side index (0 player, 1 hostile, 2 civilian). */
@@ -668,6 +680,14 @@ export interface Renderer {
    *  geometry whole. Optional on the seam like `aimFootprint`; absent or
    *  `null` draws nothing. */
   supplyRoutes?: readonly SupplyRouteView[] | null;
+  /** F4 (R3): the camps' rally points to draw this frame, in the overlay
+   *  tier's route-and-marker pass -- no band of its own, no new art. ON
+   *  DEMAND, like `supplyRoutes`: the app writes the marks only while a camp's
+   *  row is pinned, hovered or focused, while Set rally is armed, and for a
+   *  few seconds after a rally is set; `null` the rest of the time and on
+   *  teardown. Optional on the seam; absent or `null` draws nothing, so no
+   *  golden capture can photograph one. */
+  rallyMarks?: readonly RallyMarkView[] | null;
   objectiveZone: readonly number[] | null;
   objectiveZoneState: 'held' | 'unheld' | 'contested';
   /** Every active objective that is about a piece of ground, not only the

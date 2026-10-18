@@ -16,7 +16,7 @@
  * beat 7, which took two clicks). It resolves to the house.
  */
 import { describe, expect, it } from 'vitest';
-import { Sim, fx } from '@lions/sim';
+import { Sim, fx, type Command } from '@lions/sim';
 import { applyTerrain, maps, parseMap, units } from '@lions/data';
 import {
   WORLD_Y_PER_LIFT_PIXEL,
@@ -32,6 +32,7 @@ import type { Camera, Viewport } from '@lions/render/project';
 import { pickUnitAtScreen } from '../../../render/src/three/units/pick';
 import { standMapStructures } from '../map-sim';
 import { ORDER_PICK_RADIUS_TILES, cursorAt, pointerPoint, simIntentWorld, type PointerView } from './pointer';
+import { callRally } from './rally-call';
 
 const VP: Viewport = { width: 1440, height: 900 };
 const CENTRE = { x: VP.width / 2, y: VP.height / 2 };
@@ -530,5 +531,55 @@ describe('N1a: the enemy under the pointer is the viewer\'s enemy', () => {
     const cam: Camera = { x: 11.5, y: 24.5, zoom: 1 };
     expect(pointerPoint(viewOf(sim, cam, 1), sim, CENTRE.x, CENTRE.y).hostile).toBe(theirs);
     expect(pointerPoint(viewOf(sim, cam, 0), sim, CENTRE.x, CENTRE.y).hostile).toBe(-1);
+  });
+});
+
+describe('F4: the armed Set rally cursor and click', () => {
+  // The runtime's own rule (`canSetRally`): an on-map tile the sim's blocked
+  // mask leaves open. A building's tiles are blocked.
+  const open = (sim: Sim) => (x: number, y: number): boolean => {
+    const tx = Math.floor(x);
+    const ty = Math.floor(y);
+    return tx >= 0 && ty >= 0 && tx < sim.width && ty < sim.height && sim.blocked[ty * sim.width + tx] === 0;
+  };
+  const rt = (sim: Sim) => ({ canSetRally: (_l: number, x: number, y: number) => open(sim)(fx.toNumber(x), fx.toNumber(y)) });
+
+  it('open ground reads the move sight with no role badge, a selection or not -- nobody selected is going', () => {
+    const { sim, spawn } = world();
+    const squad = spawn('inf_squad', 0, 11.5, 24.5);
+    const cam: Camera = { x: 14.5, y: 24.5, zoom: 1 };
+    const view = viewOf(sim, cam);
+    const p = pointerPoint(view, sim, CENTRE.x, CENTRE.y);
+    const c = cursorAt(sim, simIntentWorld(sim, () => false), p, { ids: [squad], armed: null, confirm: false, armedSmoke: false, rallyAt: open(sim) });
+    expect(c.name).toBe('move');
+    expect(c.key).toBe('move');
+    // The same point unarmed is the squad's own badged move: the rally is what changed it.
+    const plain = cursorAt(sim, simIntentWorld(sim, () => false), p, { ids: [squad], armed: null, confirm: false, armedSmoke: false });
+    expect(plain.key).toBe('move-soft');
+  });
+
+  it('the house wall reads blocked, and the click there sends nothing; open ground sends one setRally', () => {
+    const { sim, house } = world();
+    const cam: Camera = { x: 25, y: 16, zoom: 1 };
+    const view = viewOf(sim, cam);
+    const px = wallPixel(sim, house, cam, 0.8);
+    const p = pointerPoint(view, sim, px.x, px.y);
+    const c = cursorAt(sim, simIntentWorld(sim, () => false), p, { ids: [], armed: null, confirm: false, armedSmoke: false, rallyAt: open(sim) });
+    expect(c.name).toBe('blocked');
+    const sent: Command[] = [];
+    const sink = { queueCommand: (cmd: Command) => void sent.push(cmd) };
+    expect(callRally(rt(sim), sink, 1, view, sim, px.x, px.y).ok).toBe(false);
+    expect(sent).toEqual([]);
+    const g = callRally(rt(sim), sink, 1, viewOf(sim, { x: 14.5, y: 24.5, zoom: 1 }), sim, CENTRE.x, CENTRE.y);
+    expect(g.ok).toBe(true);
+    expect(sent).toEqual([{ kind: 'setRally', side: 0, line: 1, x: fx.from(g.x), y: fx.from(g.y) }]);
+  });
+
+  it('an armed support call outranks a stale rally hint (only one can own the click)', () => {
+    const { sim } = world();
+    const view = viewOf(sim, { x: 14.5, y: 24.5, zoom: 1 });
+    const p = pointerPoint(view, sim, CENTRE.x, CENTRE.y);
+    const c = cursorAt(sim, simIntentWorld(sim, () => false), p, { ids: [], armed: 'air_strike', confirm: false, armedSmoke: false, rallyAt: () => false });
+    expect(c.name).toBe('strike');
   });
 });
