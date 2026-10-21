@@ -1035,6 +1035,17 @@ describe('a mobility-killed air carrier makes a forced landing (fix/air-pathing)
     expect(aboard(sim, heli)).toBe(0);
   });
 
+  it('a boulder field is foot-open: it comes down on it, not off it', () => {
+    // The lead's rule is foot-open, not the vehicle LZ rule (lzFor): a rotor
+    // that is falling does not get to choose.
+    const { sim, heli } = loadedHeli(10.5, 10.5, 1);
+    for (let y = 8; y <= 12; y++) for (let x = 8; x <= 12; x++) sim.setBoulder(x, y, true);
+    sim.state.mobilityKilled[heli] = 1;
+    run(sim, AIR_LAND_TICKS + 1);
+    expect(sim.state.airState[heli]).toBe(AIR_LANDED);
+    expect(tileOf(sim, heli)).toEqual([10, 10]);
+  });
+
   it('stays down while the kill stands: a move does not lift it', () => {
     const { sim, heli } = loadedHeli(10.5, 10.5, 1);
     sim.state.mobilityKilled[heli] = 1;

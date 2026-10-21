@@ -6728,7 +6728,8 @@ export class Sim {
    * component roll's `mobility_kill` or `combat_ineffective`) starts LANDING
    * at once -- where it is when its tile is foot-open, else on the centre of
    * the nearest foot-open tile (a rifleman's ground, not the vehicle LZ rule:
-   * it is coming down, not choosing where). Its want is kept, so a queued
+   * it is coming down, not choosing where; a boulder field will do). Its want
+   * is kept (an AIRBORNE carrier never holds DEPART), so a queued
    * `unload` empties it on landing like any other; otherwise the riders stay
    * aboard and an `unload` order lets them out (LANDED unloads at once). On a
    * map with no foot-open tile at all it keeps hovering. No rng, no allocation.
@@ -6754,7 +6755,6 @@ export class Sim {
     this.moving[car] = 0;
     this.wpCount[car] = 0;
     this.fieldRef[car] = -1;
-    if (this.airWant[car] === AIR_WANT_DEPART) this.airWant[car] = AIR_WANT_NONE;
   }
 
   /**
