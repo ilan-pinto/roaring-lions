@@ -66,6 +66,8 @@ import {
   AURA_RING_EDGE_STYLE,
   AURA_TUNNEL_RING_STYLE,
   AURA_TUNNEL_RING_OFFSET_PX,
+  PAD_ALPHA,
+  PAD_INVALID_ALPHA,
   AURA_RING_COLOR_KEY,
   AURA_TUNNEL_RING_COLOR_KEY,
   PAD_INVALID_COLOR_KEY,
@@ -745,6 +747,13 @@ describe('Field works: pad grid, aura rings (#277 Task 9)', () => {
     expect(calls[1].u).toBe(upR + 4);
     expect(AURA_TUNNEL_RING_OFFSET_PX).toBe(4);
     expect(AURA_TUNNEL_RING_STYLE.dashPx).toBeLessThan(AURA_RING_STYLE.dashPx);
+  });
+
+  it('pins the ring styles and the pad alphas by literal', () => {
+    expect(AURA_RING_STYLE).toEqual({ widthPx: 2, dashPx: 7, gapPx: 5 });
+    expect(AURA_TUNNEL_RING_STYLE).toEqual({ widthPx: 2, dashPx: 2, gapPx: 4 });
+    expect(PAD_ALPHA).toBe(0.38);
+    expect(PAD_INVALID_ALPHA).toBe(0.6);
   });
 
   it('every fallback hex is the literal data/palette.json entry', () => {
