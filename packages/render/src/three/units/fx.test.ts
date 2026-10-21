@@ -47,6 +47,7 @@ import {
   SHELL_WIDTH_PX,
   SHELL_TAIL_ALPHA,
   ShellBatch,
+  createTracerMaterial,
   shellSegmentQuad,
   liftedSegmentQuad,
   liftedSegmentQuadInto,
@@ -739,6 +740,36 @@ describe('shellSegmentQuad', () => {
       Math.hypot(isoX(p[i], p[i + 2]) - isoX(p[j], p[j + 2]), isoY(p[i], p[i + 2]) - isoY(p[j], p[j + 2]));
     expect(width(0, 3)).toBeCloseTo(SHELL_WIDTH_PX * 0.25, 4);
     expect(width(9, 6)).toBeCloseTo(SHELL_WIDTH_PX, 4);
+  });
+});
+
+describe('HDR on the tracer / shell materials', () => {
+  it('the tracer material carries a uHdr uniform, 1 by default', () => {
+    const m = createTracerMaterial();
+    expect(m.uniforms.uHdr.value).toBe(1);
+    expect(m.fragmentShader).toContain('uHdr');
+  });
+
+  it('a ShellBatch writes bolt 4 for the depth-tested batch and arc 3.5 for the other', () => {
+    const bolt = new ShellBatch(4, { depthTest: true });
+    const arc = new ShellBatch(4);
+    expect((bolt.mesh.material as THREE.ShaderMaterial).uniforms.uHdr.value).toBe(4);
+    expect((arc.mesh.material as THREE.ShaderMaterial).uniforms.uHdr.value).toBe(3.5);
+  });
+
+  it('a rifle streak instance colour is 0.45x, an mg streak 0.6x, of a bolt-kind colour', () => {
+    const buf = (): TracerInstanceBuffers => ({
+      positions: new Float32Array(SHELL_TRAIL_SEGMENTS * 4 * 3),
+      colors: new Float32Array(SHELL_TRAIL_SEGMENTS * 4 * 3),
+      alphas: new Float32Array(SHELL_TRAIL_SEGMENTS * 4),
+    });
+    const red = (kind: 'bolt' | 'rifle' | 'mg') => {
+      const out = buf();
+      writeShellInstances([{ ...spawnShell(0, 0, 7, 0, 0, kind), t: 0.05 }], ['#FF8040', '#00FF00'], null, 0, 0, out, 0);
+      return out.colors[0];
+    };
+    expect(red('rifle') / red('bolt')).toBeCloseTo(0.45, 5);
+    expect(red('mg') / red('bolt')).toBeCloseTo(0.6, 5);
   });
 });
 

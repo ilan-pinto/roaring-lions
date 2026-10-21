@@ -13,14 +13,17 @@
  * `units/fx.ts`'s own "hotCore" doc comment (`createParticleMaterial`) is
  * the precedent this whole file leans on: real `THREE.AdditiveBlending`
  * (`ONE, ONE`) was tried for a bright muzzle core and REJECTED, because the
- * GPU blend stage runs after the fragment shader and sums two on-palette
- * colours into a third the palette does not name (`#FFFFFF` has zero hits
- * in `data/palette.json`). The fix that shipped there pins every hotCore
- * fragment's alpha to 1 -- an opaque overwrite, not a sum -- which keeps
- * every fragment on-palette but has a real, acknowledged ceiling: "no
+ * GPU blend stage runs after the fragment shader and sums two colours
+ * into a third nothing authored (`#FFFFFF` has zero hits in
+ * `data/palette.json`). The fix that shipped there pins every hotCore
+ * fragment's alpha to 1 -- an opaque overwrite, not a sum. That had a
+ * real ceiling at the time ("no
  * arrangement of hotCore particles can look brighter than vfx.white_hot
  * itself... a cluster of overlapping particles reads as a solid patch...
- * not a blown-out white beyond it" AND, separately, a shape ceiling: small
+ * not a blown-out white beyond it") -- a brightness ceiling the HDR gain
+ * now lifts (`./hdr-gains.ts`: the authored colour is still a palette key,
+ * its brightness may exceed 1; Phase 0 retired the per-pixel palette rule,
+ * PM ruling D9, reversible) -- AND, separately, a shape ceiling: small
  * discs read as small discs, however many of them overlap. `fire_apfsds`
  * turning its `soft_dot` sizes down to `size_px: [8, 14]` so the gradient
  * "emerges from spatial arrangement instead" is exactly this second limit
@@ -108,6 +111,7 @@
  * `muzzleFlashPowerScale`, `muzzleFlashEnvelope`, `MUZZLE_FLASH_BASE_SCALE`.
  */
 import * as THREE from 'three';
+import { muzzleGain } from './hdr-gains';
 import { gltfLoader } from './gltf-loader';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { meshYawFromFacing } from './mesh-anim';
@@ -414,6 +418,8 @@ export class MuzzleFlashManager {
   setColors(resolve: (key: string) => string): void {
     for (const role of MUZZLE_FLASH_ROLES) {
       const color = new THREE.Color(resolve(muzzleFlashPaletteKey(role)));
+      // HDR gain on the palette colour (hdr-gains.ts, D2/D9).
+      color.multiplyScalar(muzzleGain(role));
       (this.materials[role].uniforms.uColor.value as THREE.Color).copy(color);
     }
   }

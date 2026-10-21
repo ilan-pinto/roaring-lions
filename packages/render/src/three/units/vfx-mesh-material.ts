@@ -20,10 +20,13 @@
  * `blending: THREE.NormalBlending` with alpha pinned to 1.0 in the
  * fragment shader (never real `AdditiveBlending`) is the recipe
  * `units/fx.ts`'s `createParticleMaterial` already proved keeps every
- * fragment on-palette -- the GPU's real additive blend stage runs AFTER the
- * fragment shader and sums two on-palette colours into a third the palette
- * does not name; see that function's own doc comment for the full argument
- * against summing blend modes. `depthTest: false` / `depthWrite: false`
+ * fragment a single flat colour (a palette key times an HDR gain, see
+ * `./hdr-gains.ts`) -- the GPU's real additive blend stage runs AFTER the
+ * fragment shader and sums two such colours into a third nothing authored;
+ * see that function's own doc comment for the argument against summing
+ * blend modes. The authored colour is a palette key; its brightness may
+ * exceed 1 as an HDR gain (Phase 0 retired the per-pixel palette rule; PM
+ * ruling D9, reversible), which is what the bloom threshold keys on. `depthTest: false` / `depthWrite: false`
  * matches the `above_units`, additive-tier particle layer this recipe's
  * callers each supersede -- an unconditional pass, never hidden behind a
  * unit or terrain, exactly the guarantee `FX_RENDER_ORDER_ABOVE_ADDITIVE`'s
@@ -46,8 +49,9 @@ export function createVfxMeshMaterial(): THREE.ShaderMaterial {
       uniform vec3 uColor;
       void main() {
         // Opaque overwrite, not a sum -- every fragment this material ever
-        // writes is EXACTLY uColor, on-palette by construction. See this
-        // file's own top comment for the full argument against real
+        // writes is exactly uColor: one palette key times its HDR gain
+        // (setColors multiplies it in; brightness may exceed 1, D9). See
+        // this file's own top comment for the argument against real
         // additive blending.
         gl_FragColor = vec4(uColor, 1.0);
       }
