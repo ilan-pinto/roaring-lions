@@ -2,7 +2,7 @@
  * `pnpm perf:bloom-census` -- the threshold census behind the selective HDR
  * bloom (Defilade Task 4; `packages/render/src/three/bloom.ts`, rulings D1/D8).
  *
- *   pnpm perf:bloom-census [-- --only=<map>[,<map>]] [--quality=medium[,high]]
+ *   pnpm perf:bloom-census [-- --only=<map>[,<map>]] [--quality=medium[,high]] [--aftermath=on|off|only]
  *                             [--threshold=0.9] [--stride=5] [--port=<n>] [--gpu=metal|swiftshader]
  *
  * WHAT IT HOLDS. The bloom thresholds a SCENE-REFERRED linear luminance of
@@ -37,6 +37,30 @@
  * red (it does: exit 1). Exit 2 is a harness failure
  * (no renderer, no read), never a verdict.
  *
+ * THE AFTERMATH READ (Defilade Task 7). The per-map views are quiet by
+ * construction -- tick 0, nothing fired -- and so they cannot see the one
+ * gated frame whose whole subject is what a battle LEAVES: the `aftermath`
+ * golden scenario (`AFTERMATH_SCENARIO`, `capture-protocol.ts`, imported here
+ * and never copied), every decal kind stamped on `qarn_hadid`'s road, relief
+ * and flat showcase sites. A pale crater lip is an albedo RATIO above 1
+ * multiplied onto the lit ground (`decal-pool.ts`), the one quiet-frame
+ * pixel class that is designed to brighten, so it is the place a quiet pixel
+ * could reach the bloom's 1.0. This read boots that scenario through the gate's
+ * OWN `capture()` (boot freeze, settle, step to tick 300, the gate's viewport)
+ * and reads the pre-bloom buffer twice: with the scenario's own fog (the frame
+ * the gate photographs) and with fog revealed (stricter, as above). Three
+ * conditions: `medium` and `high` at DPR 1, and `high` at DPR 2 -- the
+ * shipping default on a Retina display, where the decals are sampled at twice
+ * the density. Same ceiling, same exit code. `--aftermath=only` runs it
+ * alone; `--aftermath=off` skips it. A third read hides the pooled flash
+ * lights and is printed for ATTRIBUTION only (it never votes): first run,
+ * 2026-10-21, the gated frame read max 3.0 at DPR 1 and 3.26 at DPR 2 -- seven
+ * small-arms muzzle-flash lights stacked on one point at (24.3, 32.5), the
+ * sandbox force firing at tick 300, lighting the ground in the frame's
+ * top-left corner -- and 0.69 with them hidden, so no decal and no pale lip
+ * is near the limit. That is a finding for the lead, not a reason to move the
+ * ceiling or the frame.
+ *
  * Conditions: Playwright Chromium, Metal by default on macOS
  * (`ui-review/gpu.ts`), 1440x900 at DPR 1, music off
  * (`musicOffInitScript`), its own dev server on `--port` (default 5186,
@@ -46,7 +70,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
-import { devServerStopper, ensureDevServer, readUnmaskedRenderer } from '../golden-diff/browser';
+import { capture, devServerStopper, ensureDevServer, readUnmaskedRenderer } from '../golden-diff/browser';
+import { AFTERMATH_SCENARIO, CAPTURE_VIEWPORT, captureScript, threeUrl } from '../golden-diff/capture-protocol';
 import { musicOffInitScript } from '../ui-review/music-off';
 import { gpuLaunchArgs, resolveGpuBackend } from '../ui-review/gpu';
 import { claimPort } from '../ui-review/port';
@@ -83,6 +108,92 @@ interface ViewReading {
 const QUALITIES = ['low', 'medium', 'high'] as const;
 type Quality = (typeof QUALITIES)[number];
 
+/** The aftermath read's conditions: the brightest bloom-on preset, the gated
+ *  preset, and the gated preset at Retina density. */
+const AFTERMATH_CONDITIONS: readonly { quality: Quality; dpr: number }[] = [
+  { quality: 'medium', dpr: 1 },
+  { quality: 'high', dpr: 1 },
+  { quality: 'high', dpr: 2 },
+];
+
+type Census = {
+  samples: number;
+  p50: number;
+  p99: number;
+  max: number;
+  fracOverThreshold: number;
+  width: number;
+  height: number;
+};
+
+/**
+ * Boots `AFTERMATH_SCENARIO` through the gate's own `capture()` -- the boot
+ * freeze, the settle at `BOOT_SETTLE_TICK`, the step to its `targetTick`, its
+ * camera and zoom, at `CAPTURE_VIEWPORT` -- and reads the pre-bloom buffer
+ * with the scenario's own fog and then with fog revealed.
+ */
+async function aftermathReads(
+  browser: import('playwright').Browser,
+  port: number,
+  stride: number,
+  quality: Quality,
+  dpr: number
+): Promise<{ tick: number; reads: { fog: string; census: Census }[] }> {
+  const page = await browser.newPage({ viewport: { ...CAPTURE_VIEWPORT }, deviceScaleFactor: dpr });
+  try {
+    await page.addInitScript(musicOffInitScript({}, { quality }));
+    await page.addInitScript('window.__name = (f) => f;');
+    const dir = path.join(REPO_ROOT, '.superpowers', 'art-captures', 'bloom-census');
+    fs.mkdirSync(dir, { recursive: true });
+    const shot = path.join(dir, `aftermath-${quality}-dpr${dpr}.png`);
+    const result = await capture(page, threeUrl(port, AFTERMATH_SCENARIO), captureScript(AFTERMATH_SCENARIO), shot, `bloom-census aftermath ${quality} dpr${dpr}`);
+    if (result.tick !== AFTERMATH_SCENARIO.targetTick) {
+      throw new Error(`aftermath captured at tick ${result.tick}, not ${AFTERMATH_SCENARIO.targetTick}`);
+    }
+    const reads = (await page.evaluate(
+      ({ s }) => {
+        const r = (
+          window as unknown as {
+            __lions: {
+              renderer: {
+                frame(alpha: number, dtMs: number): void;
+                setDebugLayerVisible(name: string, visible: boolean): number;
+                debugPreBloomLuminance?(stride: number): unknown;
+              };
+            };
+          }
+        ).__lions.renderer;
+        if (typeof r.debugPreBloomLuminance !== 'function') throw new Error('renderer has no debugPreBloomLuminance');
+        const out: { fog: string; census: unknown }[] = [];
+        // Zero elapsed time throughout: the gate's own repaint, so the frame
+        // read is the frame the gate photographs.
+        r.frame(1, 0);
+        out.push({ fog: 'gate', census: r.debugPreBloomLuminance(s) });
+        r.setDebugLayerVisible('fog', false);
+        r.frame(1, 0);
+        out.push({ fog: 'revealed', census: r.debugPreBloomLuminance(s) });
+        r.setDebugLayerVisible('fog', true);
+        // ATTRIBUTION, not a verdict: the same frame with the pooled flash
+        // lights hidden. Printed so a red aftermath line says whether the hot
+        // pixel is a DECAL (it survives this) or a live light falling on
+        // ground at the frame's edge (it does not). Never consulted by the
+        // exit code -- the frame the gate photographs is the one judged.
+        r.setDebugLayerVisible('blast-light', false);
+        r.frame(1, 0);
+        out.push({ fog: 'gate, flash lights hidden (attribution only)', census: r.debugPreBloomLuminance(s) });
+        r.setDebugLayerVisible('blast-light', true);
+        r.frame(1, 0);
+        return out;
+      },
+      { s: stride }
+    )) as { fog: string; census: Census | null }[];
+    for (const x of reads) if (x.census === null) throw new Error(`debugPreBloomLuminance returned null (${x.fog})`);
+    return { tick: result.tick, reads: reads as { fog: string; census: Census }[] };
+  } finally {
+    await page.close();
+  }
+}
+
 async function main(): Promise<number> {
   const threshold = Number(arg('threshold', String(QUIET_CEILING)));
   if (!Number.isFinite(threshold) || threshold <= 0) throw new Error('--threshold must be a positive number');
@@ -105,6 +216,8 @@ async function main(): Promise<number> {
         .filter((m) => m.length > 0)
     : allMaps;
   for (const m of maps) if (!allMaps.includes(m)) throw new Error(`--only=${m} names no map in data/maps/`);
+  const aftermath = arg('aftermath', 'on');
+  if (!['on', 'off', 'only'].includes(aftermath)) throw new Error('--aftermath must be on, off or only');
   const backend = resolveGpuBackend(process.argv.slice(2), process.platform);
 
   const port = await claimPort('bloom-census', 'BLOOM_CENSUS_PORT', DEFAULT_PORT);
@@ -119,7 +232,7 @@ async function main(): Promise<number> {
     const gl = await readUnmaskedRenderer(browser);
     console.log(`[bloom-census] gpu=${gl} maps=${maps.length} quality=${qualities.join(',')} stride=${stride} ceiling=${threshold}`);
     console.log('map | quality | view (x,y,zoom) | samples | p50 | p99 | max | frac>1.0');
-    for (const quality of qualities) {
+    for (const quality of aftermath === 'only' ? [] : qualities) {
       for (const map of maps) {
         const page = await browser.newPage({
           viewport: { width: 1440, height: 900 },
@@ -264,6 +377,27 @@ async function main(): Promise<number> {
         }
       }
     }
+    if (aftermath !== 'off') {
+      const a = AFTERMATH_SCENARIO;
+      console.log(
+        `aftermath | ${a.sandboxMap}&${(a.sandboxFlags ?? []).join('&')} @ (${a.cameraTile?.join(',')}) zoom ${a.zoom} tick ${a.targetTick}, ${CAPTURE_VIEWPORT.width}x${CAPTURE_VIEWPORT.height}`
+      );
+      for (const { quality, dpr } of AFTERMATH_CONDITIONS) {
+        try {
+          const { reads } = await aftermathReads(browser, port, stride, quality, dpr);
+          for (const { fog, census: v } of reads) {
+            const line = `aftermath | ${quality} | dpr ${dpr} | fog ${fog} | ${v.width}x${v.height} | ${v.samples} | ${v.p50.toFixed(4)} | ${v.p99.toFixed(4)} | ${v.max.toFixed(4)} | ${v.fracOverThreshold.toFixed(6)}`;
+            console.log(line);
+            if (fog.includes('attribution')) continue;
+            if (!(v.max <= threshold)) failures.push(`aftermath ${quality} dpr${dpr} fog-${fog}: max ${v.max.toFixed(4)} > ${threshold}`);
+            if (v.samples === 0) harnessErrors.push(`aftermath ${quality} dpr${dpr} fog-${fog}: read 0 samples`);
+          }
+        } catch (err) {
+          harnessErrors.push(`aftermath ${quality} dpr${dpr}: ${err instanceof Error ? err.message : String(err)}`);
+          console.log(`aftermath | ${quality} | dpr ${dpr} | HARNESS ERROR: ${harnessErrors[harnessErrors.length - 1]}`);
+        }
+      }
+    }
   } finally {
     await browser.close();
     stop();
@@ -276,7 +410,10 @@ async function main(): Promise<number> {
     console.error(`[bloom-census] FAIL: ${failures.length} view(s) have a quiet pixel above ${threshold}:\n  ${failures.join('\n  ')}`);
     return 1;
   }
-  console.log(`[bloom-census] PASS: every quiet pixel on ${maps.length} map(s) is at or under ${threshold}`);
+  console.log(
+    `[bloom-census] PASS: every quiet pixel on ${aftermath === 'only' ? 0 : maps.length} map(s)` +
+      `${aftermath === 'off' ? '' : ' and in the aftermath frame'} is at or under ${threshold}`
+  );
   return 0;
 }
 

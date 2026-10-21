@@ -454,3 +454,39 @@ describe('an unsteady settle refuses every step(1) subject', () => {
     expect(src).toMatch(/if \(refusal !== null\) \{\s*console\.error\(` {2}\$\{refusal\}`\);\s*notes\.push\(refusal\);\s*skipped\.push\(key\);\s*await page\.close\(\);\s*continue;/);
   });
 });
+
+// Defilade T4 (GH-705): bloom and the flipbook are blast layers now.
+describe('the Defilade T4 layers and subjects', () => {
+  it('floors bloom and flipbook beside the light and the mark', () => {
+    expect(Object.keys(LAYER_FLOORS)).toEqual(expect.arrayContaining(['decals', 'blast-light', 'bloom', 'flipbook']));
+  });
+
+  it('witnesses each new layer with a kill, an impact and a muzzle shot', () => {
+    // D6 puts the flipbook on all three events and D2 makes all three bloom,
+    // so a layer judged by kills alone could lose the muzzle half silently.
+    for (const layer of ['bloom', 'flipbook']) {
+      const modes = new Set(BLAST_SUBJECTS.filter((s) => subjectVotesOn(s, layer)).map((s) => s.mode));
+      for (const mode of ['kill', 'impact', 'fire']) expect(modes, `${layer} has a voting ${mode}`).toContain(mode);
+    }
+  });
+
+  it('carries the five mock framings, with the fire mode', () => {
+    const ids = BLAST_SUBJECTS.map((s) => s.id);
+    for (const id of ['lavi_fire', 'lavi_fire_z1', 'mortar_z1', 'mortar_dusk', 'lavi_dusk']) expect(ids).toContain(id);
+    const fire = BLAST_SUBJECTS.filter((s) => s.mode === 'fire');
+    expect(fire.length).toBeGreaterThanOrEqual(1);
+    for (const s of fire) expect(s.shooterId, `subject "${s.id}"`).toBeDefined();
+  });
+
+  it('lets mbt_lavi_z1 vote on decals now the vehicle-kill shroud is gone (D5)', () => {
+    const z1 = BLAST_SUBJECTS.find((s) => s.id === 'mbt_lavi_z1');
+    expect(z1).toBeDefined();
+    expect(subjectVotesOn(z1 ?? { toggles: false }, 'decals')).toBe(true);
+  });
+
+  it('photographs the bloom while the flash is still over the threshold', () => {
+    // The muzzle core lives ~90 ms and a kill's fireball core under 450 ms;
+    // a rung past both would read the bloom of smoke, which is below 1.0.
+    expect(LAYER_FLOORS.bloom.toggleAtMs).toBeLessThanOrEqual(LAYER_FLOORS['blast-light'].toggleAtMs);
+  });
+});
