@@ -1357,6 +1357,24 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
           'bit-identical on 3 fresh-page runs of tools/src/perf/relief-read-signal.ts. Floor a third ' +
           'of it. Falsified: with the shader term removed the toggle reads 0 px / 0.0000.',
       },
+      {
+        // LAST on purpose: restoring it re-photographs the minimap's ground,
+        // which also refreshes the transient glows that photograph carries,
+        // and a check after it would read those too.
+        layer: 'crown',
+        region: { x: 1268, y: 758, w: 38, h: 28 },
+        // 80 px is under SUB_THRESHOLD_PX: the magnitude floor carries it.
+        minDiffPixels: 0,
+        minMeanAbsChannelDelta: 1.4779,
+        rationale:
+          'Crown summits (render/crown-summit; terrain/crown.ts): the crown at (24,20.5) is outside this ' +
+          '3D frame and shows only in the minimap, so the check is scoped to its minimap box. Hiding the ' +
+          'layer (today\'s terraced pad) moves 80 px / 4.4339 there, bit-identical on 3 fresh-page runs of ' +
+          'tools/src/perf/relief-read-signal.ts --layers=crown (the gate\'s own capture, repaint control ' +
+          '0 px / 0.0000). Floor a third of it. A plain re-photograph of the ground with no toggle moves ' +
+          '7 px / 0.041 in this box, far under the floor. Falsified: with no crown built the toggle reads ' +
+          '0 px / 0.0410 (that re-photograph alone), under the floor.',
+      },
     ],
     rationale:
       'whole frame, tel_marum boulder corridor @ tile (10,15) zoom 2, tick 500 -- the T1-C boulder ' +
@@ -1528,6 +1546,24 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
           'driving the contour and height-tint amplitudes to 0 moves 3 px / 0.3962 here, ' +
           'bit-identical on 3 fresh-page runs of tools/src/perf/relief-read-signal.ts. Floor a third ' +
           'of it. Falsified: with the shader term removed the toggle reads 0 px / 0.0000.',
+      },
+      {
+        // LAST on purpose: restoring it re-photographs the minimap's ground,
+        // which also refreshes the transient glows that photograph carries,
+        // and a check after it would read those too.
+        layer: 'crown',
+        region: { x: 1212, y: 692, w: 40, h: 52 },
+        // 61 px is under SUB_THRESHOLD_PX: the magnitude floor carries it.
+        minDiffPixels: 0,
+        minMeanAbsChannelDelta: 0.7204,
+        rationale:
+          'Crown summits (render/crown-summit; terrain/crown.ts): the crown at (11,8) is outside this ' +
+          '3D frame and shows only in the minimap, so the check is scoped to its minimap box. Hiding the ' +
+          'layer (today\'s terraced pad) moves 61 px / 2.1612 there, bit-identical on 3 fresh-page runs of ' +
+          'tools/src/perf/relief-read-signal.ts --layers=crown (the gate\'s own capture, repaint control ' +
+          '0 px / 0.0000). Floor a third of it. A plain re-photograph of the ground with no toggle moves ' +
+          '1 px / 0.001 in this box, far under the floor. Falsified: with no crown built the toggle reads ' +
+          '0 px / 0.0011 (that re-photograph alone), under the floor.',
       },
     ],
     rationale:

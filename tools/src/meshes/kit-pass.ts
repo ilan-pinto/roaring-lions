@@ -9,7 +9,8 @@
  * contract the result keeps is `docs/superpowers/specs/2026-08-28-mesh-unit-
  * contract.md`, "v5 (vehicles)". Pipeline order for a vehicle:
  * `export_vehicle_kit.py` (Blender) -> `pnpm kit:meshes` -> `pnpm wreck:meshes`
- * -> `pnpm encode:meshes`.
+ * -> `pnpm encode:meshes` (for a vehicle in `RESCALE_FACTORS`, the kit export
+ * takes `pnpm rescale:meshes -- --kit=<id>` first: `rescale-contract.ts`).
  *
  * The SOURCE is `art/parts/kit/<id>.glb`, written by the Blender exporter: one
  * node per (track, tier, host) named `kit_<track>_<tier>_<host>`, at the scene
@@ -62,6 +63,7 @@ import {
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { RG_TRACK_ATTR, RG_WHEEL_ATTR } from './running-gear-contract';
 import { zeroFillRunningGear } from './running-gear-pass';
+import { rescaleMark } from './rescale-contract';
 import { KIT_LODS, KIT_MAX_TIER, KIT_TRACK_PATTERN, KIT_VEHICLES, isKitName, kitNodeName, type KitLod } from './kit-contract';
 
 const REPO = fileURLToPath(new URL('../../../', import.meta.url));
@@ -501,6 +503,16 @@ export function applyKitGraft(
 ): KitGraftReport {
   const scene = source.getRoot().listScenes()[0];
   if (!scene) throw new Error(`${vehicleId}: the kit source has no scene`);
+  // A kit source and its vehicle must be in the same frame: a Lavi rescaled
+  // x1.18 with an unscaled kit would graft every part 18% short of its seat.
+  const targetScale = rescaleMark(target);
+  const sourceScale = rescaleMark(source);
+  if (targetScale !== sourceScale) {
+    throw new Error(
+      `${vehicleId}: the vehicle is rescaled x${targetScale} and its kit source x${sourceScale} -- ` +
+        `run \`pnpm rescale:meshes -- --kit=${vehicleId}\` on a fresh kit export (rescale-contract.ts)`
+    );
+  }
 
   const parts: SourcePart[] = [];
   for (const top of scene.listChildren()) {

@@ -10,7 +10,7 @@
 // there is all it takes for the palette gate to become a rule with an
 // exception.
 //
-// `default` (one of the fifteen names) deliberately gets no rule -- it is
+// `default` (one of the `CursorName` values) deliberately gets no rule -- it is
 // the OS arrow. Shipping an empty SVG for it would HIDE the arrow rather than
 // fall through to it.
 //
@@ -20,16 +20,17 @@
 // ---------------------------------------------------------------------------
 // THE ORDER SIGHTS: G1's approved sheet (round 4's shapes and motion, round
 // 5's family colours, the lead, 2026-09-28). `move`, `advance`, `sweep`,
-// `strike` and `smoke` draw the chevron stadia aim with that order's APP-6
-// tactical graphic animated around it (`src/ui/order-sight.ts`, the one
-// drawn source the HUD's static order marks come from too). Each is drawn on
-// the sheet's 24-unit box and scaled onto the 32 px cursor canvas, so the
-// aim's hotspot (12, 12) lands on the same pixel the housing's centre does.
-// Every sight frame carries a dark `shadow.0` halo BAKED IN AS GEOMETRY --
-// each ink path re-emitted beneath the ink with a round-joined stroke --
-// because a CSS cursor image takes no `filter` (r4's drop-shadow does not
-// survive into `cursor: url()`). `load`, `unload` and `halt` are drawn too
-// but earn no rule: see UNWIRED_BODIES.
+// `strike` and `smoke` -- and S-F's two support calls, `barrage` and
+// `smokeScreen` (the support-marks mock, approved 15 Oct) -- draw the
+// chevron stadia aim with that order's tactical graphic animated around it
+// (`src/ui/order-sight.ts`, the one drawn source the HUD's static order
+// marks come from too). Each is drawn on the sheet's 24-unit box and scaled
+// onto the 32 px cursor canvas, so the aim's hotspot (12, 12) lands on the
+// same pixel the housing's centre does. Every sight frame carries a dark
+// `shadow.0` halo BAKED IN AS GEOMETRY -- each ink path re-emitted beneath
+// the ink with a round-joined stroke -- because a CSS cursor image takes no
+// `filter` (r4's drop-shadow does not survive into `cursor: url()`). `load`,
+// `unload` and `halt` are drawn too but earn no rule: see UNWIRED_BODIES.
 //
 // ---------------------------------------------------------------------------
 // THE HOUSING: "Tiberian heavy housing", chosen by the project lead from four
@@ -63,7 +64,8 @@
 // sheet's APP-6 role mark (`src/ui/symbol.ts`), never a second drawing.
 //
 // ---------------------------------------------------------------------------
-// Seven names (`ANIMATED_CURSORS` in cursor.ts) additionally animate: each
+// Nine drawn names (`ANIMATED_CURSORS` in cursor.ts; `moveOnly` and `attack`
+// animate too, as the rules they alias) additionally animate: each
 // draws up to `frames` distinct SVGs instead of one, emitted as extra rules
 // keyed on a second attribute, `data-cursor-frame`, that main.ts's frame
 // driver cycles on a plain JS timer -- see ANIMATED_CURSORS's own comment for
@@ -115,9 +117,10 @@ interface Palette {
   reserved: Record<string, PaletteBand>;
 }
 
-// The eleven drawn bare cursors (sixteen names in CursorName, minus
+// The thirteen drawn bare cursors (nineteen names in CursorName, minus
 // 'default', 'mount', 'dismount' and 'charge' -- see BareCursorName and
-// BADGED_VERBS below for why those never get a rule of their own) all share
+// BADGED_VERBS below for why those never get a rule of their own -- and the
+// two CURSOR_ALIAS names, which answer to another key's rule) all share
 // one hotspot: dead centre, at half the canvas size on each axis. Nothing is
 // ever drawn there -- the housing's hotspot sits in the open middle of the
 // frame, and the sight's is the gap between the aim's mil marks and the tip
@@ -547,6 +550,11 @@ const BARE_NAMES: readonly BareCursorName[] = [
   'sweep',
   'strike',
   'smoke',
+  // S-F: the two armed calls with sights of their own (no longer aliases of
+  // `strike` and `smoke`). Armed support fires with an empty selection, so
+  // neither is ever badged (UNBADGED_NAMES).
+  'barrage',
+  'smokeScreen',
   'blocked',
   'costly',
   'protected',
@@ -688,7 +696,7 @@ function badgeColourFor(name: CursorName, c: CursorColors, o: BodyOpts = {}): st
 }
 
 /** The whole cursor image for one key at one frame under one variant: a
- *  sight for the five `SIGHT_OF` names, the housing (plus its plate badge)
+ *  sight for the seven `SIGHT_OF` names, the housing (plus its plate badge)
  *  for the rest. */
 function imageFor(name: CursorName, badge: RoleBucket | null, frame: number, palette: Palette, variant: string): string {
   const sight = SIGHT_OF[name];
@@ -734,7 +742,7 @@ export const SIGHT_HOTSPOT = {
   y: (HOTSPOT.y * SIZE) / SIGHT_BOX,
 } as const;
 
-/** The hotspot for one cursor key: the sight's for the five `SIGHT_OF`
+/** The hotspot for one cursor key: the sight's for the seven `SIGHT_OF`
  *  names (bare or badged), the housing's dead centre for the rest. */
 function hotspotFor(key: string): { x: number; y: number } {
   const name = key.split('-')[0] as CursorName;

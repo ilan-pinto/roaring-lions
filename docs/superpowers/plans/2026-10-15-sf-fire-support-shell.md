@@ -44,6 +44,7 @@ a look and tells a called smoke round from a carrier's. `packages/sim` is not ed
 - Support calls take no unit voice ack. New announcer ids ship caption-only (`"audio": ""`).
 - No new cursor or symbol art: the barrage reuses the strike sight and the smoke screen the smoke sight
   (the `CURSOR_ALIAS` precedent, "reuse, not draw"). New marks are a mock-first follow-up for the lead.
+  *Superseded by the S-F support-marks plan (2026-10-15): the barrage and the smoke screen draw marks and cursors of their own.*
 - Tile words must never collide with the unit order "smoke" (`f`): the smoke screen's tile word is
   "screen".
 - Telemetry: a new verb is added to `data/schemas/telemetry_event.schema.json`'s `orderVerb` enum and

@@ -113,6 +113,15 @@ export function alertWorldFor(d: AlertWorldDeps): AlertWorld {
       const line = zone === null ? rt?.convoyRoute : rt?.incomeZones.find((z) => z.zone === zone);
       return line?.cut ?? null;
     },
+    // F4: the viewer's lines, read now (the runtime builds the list fresh).
+    productionLines: () => {
+      const rt = d.runtime();
+      if (rt === null || (d.viewer !== 0 && d.viewer !== 1)) return [];
+      return rt.productionLines(d.viewer).map((l) => ({
+        contested: l.contested,
+        exit: { x: fx.toNumber(l.exit[0]), y: fx.toNumber(l.exit[1]) },
+      }));
+    },
     reinforcement: (triggerId) => {
       const r = reinforceTrigger<{ marker?: string; at?: readonly number[] }>(d.mission ?? undefined, triggerId);
       if (r === null) return null;

@@ -174,6 +174,10 @@ export interface CursorContext {
    *  cursor reads `resolveMoveOrder`, not the attack-move resolver. Optional
    *  so the other callers compile and read unchanged. */
   readonly armedMove?: boolean;
+  /** F4: Set rally is armed -- would a rally stand at this tile point? Null or
+   *  absent when no rally is armed. Read at `p` (the `pointerPoint` rule), the
+   *  point the click would send. */
+  readonly rallyAt?: ((x: number, y: number) => boolean) | null;
 }
 
 export interface CursorRead {
@@ -192,10 +196,14 @@ export interface CursorRead {
  */
 export function cursorAt(sim: Sim, world: IntentWorld, p: PointerPoint, ctx: CursorContext): CursorRead {
   const armedMove = ctx.armedMove === true && ctx.armed === null;
+  // F4: an armed rally is nobody's order -- the selection does not move, so it
+  // is resolved with no ids and wears no role badge.
+  const rallyAt = ctx.armed === null ? (ctx.rallyAt ?? null) : null;
+  const ids = rallyAt !== null ? [] : ctx.ids;
   const res = armedMove
-    ? resolveMoveOrder(world, { ids: ctx.ids, x: p.x, y: p.y, append: false })
+    ? resolveMoveOrder(world, { ids, x: p.x, y: p.y, append: false })
     : resolvePointer(world, {
-        ids: ctx.ids,
+        ids,
         x: p.x,
         y: p.y,
         append: false,
@@ -220,6 +228,7 @@ export function cursorAt(sim: Sim, world: IntentWorld, p: PointerPoint, ctx: Cur
     armedSmoke: ctx.armedSmoke,
     armedMove,
     pinned: wholeOrderPinned(sim.state, orderIds),
+    ...(rallyAt !== null ? { armedRally: rallyAt(p.x, p.y) ? ('ok' as const) : ('refused' as const) } : {}),
   };
   const name = cursorFor(res, hints);
   const key = cursorKey(

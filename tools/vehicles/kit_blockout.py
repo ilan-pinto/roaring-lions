@@ -57,7 +57,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 TOOLS = os.path.dirname(HERE)
 REPO = os.path.dirname(TOOLS)
 sys.path.insert(0, TOOLS)
+sys.path.insert(0, HERE)
 from dimetric import ELEVATION, UNITS_PER_TILE, palette_linear  # noqa: E402
+import rescale  # noqa: E402 -- the Lavi's post-export rescale, divided back out on import
 
 TILE_W = 64
 PX_PER_M = {z: TILE_W * math.sqrt(2) / 2 * z / UNITS_PER_TILE for z in (1.0, 2.5)}
@@ -596,6 +598,7 @@ def load_vehicle(vid):
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.import_scene.gltf(filepath=os.path.join(REPO, "art", "meshes", "vehicles", f"{vid}.glb"),
                               import_scene_extras=True)
+    rescale.unscale_imported()  # the mock's numbers are in the export's own frame
     for o in list(bpy.data.objects):
         # `kit_*`: shipped kit parts (contract v5) -- the blockout builds its
         # own, and measuring on top of the real ones would count them twice.

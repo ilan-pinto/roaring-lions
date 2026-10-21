@@ -451,6 +451,74 @@ interface DecorContext {
   readonly density: number;
   readonly sandKeep: number;
   readonly extra: OpenScatter | undefined;
+  /** Tiles within `CROWN_SEAT_TILES` of a crown summit, or null for none. */
+  readonly crownNear: Uint8Array | null;
+}
+
+/** How far from a crown summit (`crown.ts`) a rock, slab or boulder is SEATED
+ *  on the slope: the tell the crown stands on. 4 tiles takes in Milh Flats'
+ *  boulder rings (2-4 tiles out) and the dome's own reach onto the ground
+ *  around it (Catmull-Rom's support, 2). Further out nothing moves. */
+export const CROWN_SEAT_TILES = 4;
+/** A seated object never sinks by more than this fraction of its own height.
+ *  Measured, not chosen: the first cut sank to the lowest ground under the
+ *  whole footprint with a half-height cap, and on Milh Flats the ring boulders
+ *  read a size smaller and the knoll's small rocks vanished into the tell. */
+export const CROWN_SEAT_MAX_SINK = 0.2;
+/** CONTACT radius and height in tiles at scale 1, per seated family. The
+ *  height is the family's GLB height (`art/meshes/decor/<family>_<n>.glb`,
+ *  largest variant, POSITION bounds); the contact radius is half its
+ *  horizontal half-extent, because these meshes are rounded and stand on the
+ *  middle of their base -- a slab, a long thin plate, on a quarter of its
+ *  1.5-tile length. */
+export const CROWN_SEAT_FOOTPRINT: Readonly<Record<'boulder' | 'rock' | 'slab', { radius: number; height: number }>> = {
+  boulder: { radius: 0.6, height: 2.3 },
+  rock: { radius: 0.19, height: 0.32 },
+  slab: { radius: 0.37, height: 0.27 },
+};
+
+function crownNearMask(input: TerrainInput): Uint8Array | null {
+  const crown = input.crown;
+  if (!crown) return null;
+  const { width, height } = input;
+  const near = new Uint8Array(width * height);
+  let any = false;
+  for (let t = 0; t < crown.length; t++) {
+    if (!crown[t]) continue;
+    any = true;
+    const cx = t % width;
+    const cy = (t - cx) / width;
+    for (let dy = -CROWN_SEAT_TILES; dy <= CROWN_SEAT_TILES; dy++) {
+      for (let dx = -CROWN_SEAT_TILES; dx <= CROWN_SEAT_TILES; dx++) {
+        const x = cx + dx;
+        const y = cy + dy;
+        if (x >= 0 && y >= 0 && x < width && y < height) near[y * width + x] = 1;
+      }
+    }
+  }
+  return any ? near : null;
+}
+
+/**
+ * The height a rock, slab or boulder is placed at. Everywhere but the tell of
+ * a crown summit, the drawn ground under its centre -- unchanged. On that
+ * tell, seated on the slope: sunk to the LOWEST ground under its footprint
+ * (centre plus eight points on its radius), so the downhill side does not
+ * hang clear of the ground, but never by more than `CROWN_SEAT_MAX_SINK` of
+ * its own height.
+ */
+function seatedY(c: DecorContext, family: DecorFamily, tx: number, ty: number, px: number, pz: number, scale: number): number {
+  const centre = surfaceWorldY(c.surface, px, pz);
+  if (!c.crownNear || !c.crownNear[ty * c.input.width + tx]) return centre;
+  if (family !== 'boulder' && family !== 'rock' && family !== 'slab') return centre;
+  const { radius, height } = CROWN_SEAT_FOOTPRINT[family];
+  const r = radius * scale;
+  let low = centre;
+  for (let k = 0; k < 8; k++) {
+    const a = (k * Math.PI) / 4;
+    low = Math.min(low, surfaceWorldY(c.surface, px + Math.cos(a) * r, pz + Math.sin(a) * r));
+  }
+  return Math.max(low, centre - CROWN_SEAT_MAX_SINK * height * scale);
 }
 
 function decorContext(input: TerrainInput, density: number, surface: TerrainSurface): DecorContext {
@@ -475,6 +543,7 @@ function decorContext(input: TerrainInput, density: number, surface: TerrainSurf
     // tuft, so every theme before GH-322 places exactly what it placed.
     sandKeep: extra ? extra.sandKeep : 1,
     extra,
+    crownNear: crownNearMask(input),
   };
 }
 
@@ -691,7 +760,7 @@ function emitTerrainDecor(c: DecorContext, x: number, y: number, out: DecorPlace
     // two-level rise CLAUDE.md's map section describes for every
     // blocking tile. A ridge is a TERRACE (`surface.ts`), so a slab
     // still lands on the ridge's own flat drawn top, to the bit.
-    y: surfaceWorldY(surface, x + 0.5 + jx * 0.6, y + 0.5 + jy * 0.6),
+    y: seatedY(c, family, x, y, x + 0.5 + jx * 0.6, y + 0.5 + jy * 0.6, scale),
     yawTurns: tileHash(x + 617, y + 29),
     scale,
   });

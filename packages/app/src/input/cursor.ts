@@ -68,6 +68,10 @@ export interface CursorHints {
    *  intent's own ids, never from the whole selection -- a pinned unit
    *  inside a demolish or garrison group is not this cursor's business. */
   pinned?: boolean;
+  /** F4: Set rally is armed on a camp's row, and whether the runtime would
+   *  take a rally at the point under the pointer (`canSetRally`): `ok` draws
+   *  the move sight, `refused` the blocked cursor. Absent: not armed. */
+  armedRally?: 'ok' | 'refused';
 }
 
 /** Names that describe the target or the mode, never the actor: nothing
@@ -101,7 +105,7 @@ export const UNBADGED_NAMES: ReadonlySet<CursorName> = new Set<UnbadgedName>([
   'protected',
   'sweep',
   'strike',
-  // The other two armed calls (S-F): drawn by the strike and smoke sights.
+  // The other two armed calls (S-F), each with a sight of its own.
   'barrage',
   'smokeScreen',
   // Describes the units' state, not who is acting: a whole order pinned
@@ -116,11 +120,14 @@ export interface CursorAnimation {
   intervalMs: number;
 }
 
-/** Which approved G1 order sight each wired cursor name draws (Q2). `advance`
+/** Which approved order sight each wired cursor name draws (Q2). `advance`
  *  is the attackMove sight -- a plain order over a hostile is an attack-move
- *  -- and the other four share their order's own id. `attack` (GH-420) is not a
+ *  -- and the other six share their order's own id: G1's move, sweep, strike
+ *  and smoke, and S-F's `barrage` and `smokeScreen` (the support-marks mock,
+ *  approved 15 Oct; until then the two calls borrowed the strike's and the
+ *  smoke order's sights as `CURSOR_ALIAS` names). `attack` (GH-420) is not a
  *  key of its own here: like `moveOnly` it is a `CURSOR_ALIAS` and is drawn by
- *  `advance`'s rule, so the plugin's sight table stays the five drawn sights. `load`, `unload` and
+ *  `advance`'s rule, so the plugin's sight table stays the seven drawn sights. `load`, `unload` and
  *  `halt` are drawn by the plugin but reach no cursor name: halt is instant,
  *  and load/unload come only from the keyboard path, whose result never
  *  reaches the hover ticker. */
@@ -130,6 +137,8 @@ const SIGHT_OF: Readonly<Partial<Record<CursorName, SightOrderId>>> = {
   sweep: 'sweep',
   strike: 'strike',
   smoke: 'smoke',
+  barrage: 'barrage',
+  smokeScreen: 'smokeScreen',
 };
 
 /** One sight's animation, read straight off `ORDER_SIGHT`: as many frames as
@@ -155,6 +164,8 @@ const anim = (id: SightOrderId): CursorAnimation => ({
  *  `advance` (the attackMove sight), `sweep`, `strike` and `smoke` -- all
  *  animate, at the frame counts and periods `ORDER_SIGHT` carries, and this
  *  table is DERIVED from it rather than restating a number that could drift.
+ *  S-F's two calls with sights of their own, `barrage` and `smokeScreen`,
+ *  joined them on the same terms (the support-marks mock, approved).
  *
  *  That reverses two things this comment used to say, and the reversal is
  *  recorded rather than silently dropped. It said a cursor animates only
@@ -214,8 +225,8 @@ export const ANIMATED_CURSORS: Readonly<Partial<Record<CursorName, CursorAnimati
   attack: anim('attackMove'),
   sweep: anim('sweep'),
   strike: anim('strike'),
-  barrage: anim('strike'),
-  smokeScreen: anim('smoke'),
+  barrage: anim('barrage'),
+  smokeScreen: anim('smokeScreen'),
   smoke: anim('smoke'),
   charge: { frames: 4, intervalMs: 200 },
   demolish: { frames: 4, intervalMs: 300 },
@@ -229,13 +240,9 @@ export const ANIMATED_CURSORS: Readonly<Partial<Record<CursorName, CursorAnimati
  *  (`attack-soft` is `advance-soft`'s image), and reads its own key so a
  *  targeted order is told from an attack-move to the tile. The plugin answers
  *  both keys with one rule (`vite-plugin-cursors.ts`). */
-export const CURSOR_ALIAS: Readonly<{ moveOnly: 'move'; attack: 'advance'; barrage: 'strike'; smokeScreen: 'smoke' }> = {
+export const CURSOR_ALIAS: Readonly<{ moveOnly: 'move'; attack: 'advance' }> = {
   moveOnly: 'move',
   attack: 'advance',
-  // S-F: the barrage and the smoke screen are armed calls with no sight of
-  // their own -- the strike's and the smoke order's, under their own keys.
-  barrage: 'strike',
-  smokeScreen: 'smoke',
 };
 
 export { SIGHT_OF };
@@ -286,6 +293,12 @@ export function cursorFor(res: Resolution, hints: CursorHints): CursorName {
   // The cursor names the call itself (Q3): sweep and strike draw different
   // sights, and res.armed already carries which one it is.
   if (res.armed) return ARMED_CURSOR[res.armed];
+  // F4: an armed rally owns the click the same way (arming one disarms
+  // support and orders, so at most one of these is ever set). The point is
+  // ground for the camp's new units to walk to: the move sight where the
+  // runtime would take it, blocked where it would refuse -- a building, a
+  // rock wall, off the map.
+  if (hints.armedRally !== undefined) return hints.armedRally === 'ok' ? 'move' : 'blocked';
   // An armed smoke order is the same argument one rung down (Q2): the next
   // click lays a screen whatever is under the pointer. Below armed support,
   // because only one of the two can spend the click and a support call is

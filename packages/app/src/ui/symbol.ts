@@ -13,7 +13,7 @@
 // has no APP-6 original to borrow angles from.
 import type { RoleBucket } from './role.ts';
 import { escapeHtml } from './escape-html.ts';
-import { ORDER_MARK_BOUNDS, orderMarkBody, type SightOrderId } from './order-sight.ts';
+import { ORDER_MARK_BOUNDS, orderMarkBody, starPoints, type SightOrderId } from './order-sight.ts';
 
 export const VIEWBOX = '0 0 24 24';
 export const W = 2.5;
@@ -306,15 +306,10 @@ const FRAMED_TICK = path(
     ]),
   true
 );
-/** An n-point star, alternating outer and inner radius, first point up. */
+/** An n-point star, alternating outer and inner radius, first point up
+ *  (`starPoints`, shared with the barrage's bursts in order-sight.ts). */
 function starMark(cx: number, cy: number, ro: number, ri: number, n: number): string {
-  const pts: P[] = [];
-  for (let i = 0; i < n * 2; i++) {
-    const a = (Math.PI * i) / n - Math.PI / 2;
-    const rr = i % 2 ? ri : ro;
-    pts.push([cx + rr * Math.cos(a), cy + rr * Math.sin(a)]);
-  }
-  return fill(pts);
+  return fill(starPoints(cx, cy, ro, ri, n));
 }
 /** The axis-of-advance arrow (shaft + solid head) the line of departure crosses. */
 const ADVANCE_ARROW = bar([2, 12], [16, 12]) + fill([
@@ -348,7 +343,18 @@ export type StatusId = 'pinned' | 'immobilised' | 'gunOut';
 export type SymbolId = RoleBucket | SightOrderId | UtilityId | StatusId;
 
 const ROLE_IDS: readonly RoleBucket[] = ['kamikaze', 'drone', 'gunship', 'sniper', 'transport', 'soft', 'armour'];
-const ORDER_IDS: readonly SightOrderId[] = ['move', 'attackMove', 'halt', 'smoke', 'load', 'unload', 'sweep', 'strike'];
+const ORDER_IDS: readonly SightOrderId[] = [
+  'move',
+  'attackMove',
+  'halt',
+  'smoke',
+  'load',
+  'unload',
+  'sweep',
+  'strike',
+  'barrage',
+  'smokeScreen',
+];
 export const DINGBAT_IDS: readonly DingbatId[] = [
   'pause',
   'pagePrev',
@@ -367,10 +373,11 @@ export const DINGBAT_IDS: readonly DingbatId[] = [
 const UTILITY_IDS: readonly UtilityId[] = ['logistics', 'intel', 'rotateCcw', 'rotateCw', ...DINGBAT_IDS];
 const STATUS_IDS: readonly StatusId[] = ['pinned', 'immobilised', 'gunOut'];
 
-/** Seven roles, eight orders, four utility marks, three status marks: the
+/** Seven roles, ten orders, four utility marks, three status marks: the
  *  twenty the sheet G1 approved (round 2's roles and utility marks, round 5's
  *  orders) plus the pinned mark the lead picked at G-PIN and the two damage
- *  marks of pass C2/C4 -- and the thirteen GH-261 marks, thirty-five in all. */
+ *  marks of pass C2/C4 -- and the thirteen GH-261 marks, and S-F's two
+ *  support-call marks (`barrage`, `smokeScreen`), thirty-seven in all. */
 export const SYMBOL_IDS: readonly SymbolId[] = [...ROLE_IDS, ...ORDER_IDS, ...UTILITY_IDS, ...STATUS_IDS];
 
 interface RoleGlyph {

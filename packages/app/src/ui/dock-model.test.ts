@@ -7,13 +7,20 @@
 import { describe, expect, it } from 'vitest';
 import { units } from '@lions/data';
 import {
+  LINE_QUEUE_CHIPS,
   MAX_TAGS,
+  RALLY_FLASH_MS,
+  buildLine,
+  lineView,
+  linesShown,
+  rallyMarks,
   doctrineTags,
   lockLabel,
   queueFor,
   tileState,
   type DockUnit,
   type DockView,
+  type LineSnapshot,
 } from './dock-model';
 
 function unit(over: Partial<DockUnit> = {}): DockUnit {
@@ -317,5 +324,92 @@ describe('tileState', () => {
       })
     );
     expect(asked).toEqual(['recon_drone']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F4: one row per camp (direction B, the lead's ruling 18 Oct).
+// ---------------------------------------------------------------------------
+
+const FX = 65536;
+function line(over: Partial<LineSnapshot> = {}): LineSnapshot {
+  return { exit: [10 * FX, 4 * FX], current: null, items: [], progress: 0, ticksLeft: 0, contested: false, rally: null, alive: true, ...over };
+}
+
+describe('linesShown', () => {
+  it('hides the rows for one idle camp with no rally -- today\'s dock, to the pixel', () => {
+    expect(linesShown([line()])).toBe(false);
+    expect(linesShown([])).toBe(false);
+  });
+  it('shows them for one camp with an item, a queue or a rally', () => {
+    expect(linesShown([line({ current: 'inf_squad' })])).toBe(true);
+    expect(linesShown([line({ items: ['inf_squad'] })])).toBe(true);
+    expect(linesShown([line({ rally: [3 * FX, 3 * FX] })])).toBe(true);
+  });
+  it('always shows them for two camps, idle or not', () => {
+    expect(linesShown([line(), line()])).toBe(true);
+  });
+});
+
+describe('lineView', () => {
+  it('words a building line: countdown in whole seconds, percent from the 0-1000 progress', () => {
+    const v = lineView(line({ current: 'inf_squad', progress: 375, ticksLeft: 25 }), 1);
+    expect(v).toMatchObject({ index: 1, state: 'building', current: { unit: 'inf_squad', percent: 37.5, secs: 2 } });
+  });
+  it('a contested line with an item is paused; a contested idle line is idle', () => {
+    expect(lineView(line({ current: 'inf_squad', contested: true }), 0).state).toBe('paused');
+    expect(lineView(line({ contested: true }), 0).state).toBe('idle');
+  });
+  it('a fallen camp is lost, whatever it held', () => {
+    expect(lineView(line({ alive: false }), 0).state).toBe('lost');
+  });
+  it('draws the first chips with their queue index and folds the rest into a count', () => {
+    const items = ['a', 'b', 'c', 'd', 'e'];
+    const v = lineView(line({ current: 'x', items }), 0);
+    expect(v.chips).toEqual(items.slice(0, LINE_QUEUE_CHIPS).map((unit, index) => ({ unit, index })));
+    expect(v.more).toBe(items.length - LINE_QUEUE_CHIPS);
+    expect(lineView(line({ items: ['a'] }), 0).more).toBe(0);
+  });
+  it('reports a rally', () => {
+    expect(lineView(line({ rally: [1, 1] }), 0).hasRally).toBe(true);
+    expect(lineView(line(), 0).hasRally).toBe(false);
+  });
+});
+
+describe('buildLine', () => {
+  it('omits the line when nothing is pinned -- the runtime\'s shortest queue', () => {
+    expect(buildLine(null, [line(), line()])).toBeUndefined();
+  });
+  it('names the pinned line', () => {
+    expect(buildLine(1, [line(), line()])).toBe(1);
+    expect(buildLine(0, [line(), line()])).toBe(0);
+  });
+  it('drops a pin on a fallen camp or a line that does not exist', () => {
+    expect(buildLine(1, [line(), line({ alive: false })])).toBeUndefined();
+    expect(buildLine(3, [line(), line()])).toBeUndefined();
+  });
+});
+
+describe('rallyMarks (R3, on demand only)', () => {
+  const lines = [line({ rally: [6 * FX, 28 * FX] }), line({ exit: [16 * FX, 18 * FX], rally: [20 * FX, 23 * FX] }), line()];
+  const none = { pinned: null, hovered: null, focused: null, armed: null, flashUntil: new Map<number, number>() };
+  it('draws nothing with no focus -- never a standing mark', () => {
+    expect(rallyMarks(lines, none, 0)).toEqual([]);
+  });
+  it('draws a line\'s rally, exit to point in tiles, while its row is pinned, hovered, focused or armed', () => {
+    const want = [{ from: { x: 16, y: 18 }, to: { x: 20, y: 23 } }];
+    expect(rallyMarks(lines, { ...none, pinned: 1 }, 0)).toEqual(want);
+    expect(rallyMarks(lines, { ...none, hovered: 1 }, 0)).toEqual(want);
+    expect(rallyMarks(lines, { ...none, focused: 1 }, 0)).toEqual(want);
+    expect(rallyMarks(lines, { ...none, armed: 1 }, 0)).toEqual(want);
+  });
+  it('draws a rally for a few seconds after it is set, and not after', () => {
+    const flashUntil = new Map([[0, 1000 + RALLY_FLASH_MS]]);
+    expect(rallyMarks(lines, { ...none, flashUntil }, 1000)).toHaveLength(1);
+    expect(rallyMarks(lines, { ...none, flashUntil }, 1000 + RALLY_FLASH_MS)).toEqual([]);
+  });
+  it('draws nothing for a focused line with no rally, or a fallen camp', () => {
+    expect(rallyMarks(lines, { ...none, pinned: 2 }, 0)).toEqual([]);
+    expect(rallyMarks([line({ rally: [1, 1], alive: false })], { ...none, pinned: 0 }, 0)).toEqual([]);
   });
 });
