@@ -60,7 +60,7 @@
 import * as THREE from 'three';
 import { COLLAPSE_FLASH_RENDER_ORDER, SMOKE_RENDER_ORDER } from './render-order';
 import { HDR_GAINS } from './hdr-gains';
-import type { FlipbookLayerSpec } from '../../vfx/emitters';
+import type { FlipbookLayerSpec, ParticleSpec } from '../../vfx/emitters';
 
 export const FLIPBOOK_CAPACITY = 2048;
 export const FLIP_FIRE = 0;
@@ -261,6 +261,18 @@ export interface FlipbookSpawn {
  *  (`GRID - 1 - row`) assumes the image's top row lands at v = 1, so `flipY`
  *  is set here rather than inherited from whichever loader made the texture
  *  (`ImageBitmapLoader`'s bitmaps ignore it). */
+/**
+ * The particle layers an emitter's `flipbook` recipe supersedes on three (D6):
+ * the fireball mesh (`mesh_burst`), the smoke column (`mesh_plume`) and the flat
+ * `smoke_puff` discs. Everything else -- shards, sparks, the muzzle's own
+ * flash and ring -- still spawns beside the recipe. The renderer skips these
+ * only while it actually spawns the recipe (atlases in); otherwise they are
+ * the fallback the schema keeps them declared for.
+ */
+export function flipbookSupersedes(layer: Pick<ParticleSpec, 'mesh_burst' | 'mesh_plume' | 'sprite'>): boolean {
+  return layer.mesh_burst === true || layer.mesh_plume === true || layer.sprite === 'smoke_puff';
+}
+
 export function prepareFlipbookAtlas(tex: THREE.Texture): THREE.Texture {
   tex.colorSpace = THREE.NoColorSpace;
   tex.flipY = true;
@@ -541,7 +553,7 @@ export class FlipbookFx {
     let n = 0;
     for (const L of layers) {
       const type = FLIP_TYPE[L.type];
-      if (type === undefined) continue;
+      if (type === undefined) throw new Error(`flipbook: unknown layer type "${String(L.type)}"`);
       const off = L.offset ?? {};
       const v = L.velocity;
       const y0 = (L.at_ground ? groundH : h) + (off.up ?? 0);

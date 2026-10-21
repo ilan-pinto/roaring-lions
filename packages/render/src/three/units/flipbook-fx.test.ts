@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync, readdirSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import * as THREE from 'three';
 import {
   FlipbookFx,
@@ -7,6 +10,7 @@ import {
   FLIP_DIRT,
   FLIP_FIRE,
   FLIP_SMOKE,
+  flipbookSupersedes,
   prepareFlipbookAtlas,
 } from './flipbook-fx';
 import { COLLAPSE_FLASH_RENDER_ORDER, SMOKE_RENDER_ORDER } from './render-order';
@@ -363,3 +367,60 @@ describe('FlipbookFx recipes from data/vfx (Task 5)', () => {
   });
 });
 
+
+// ---------------------------------------------------------------------------
+// Task 6 (Task 5 review minors): the interpreter fails loudly, the fireball
+// rule `spawnRecipe` relies on holds for every shipped recipe, and the layers
+// the renderer skips are exactly the three D6 names.
+// ---------------------------------------------------------------------------
+
+const VFX_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../../data/vfx');
+
+describe('flipbook recipes, as shipped', () => {
+  // Read at test time, not imported: a NEW emitter with a recipe is checked
+  // without anyone remembering to add it here.
+  const recipes = readdirSync(VFX_DIR)
+    .filter((f) => f.endsWith('.json'))
+    .map((f) => ({ file: f, em: JSON.parse(readFileSync(path.join(VFX_DIR, f), 'utf8')) as { flipbook?: FlipbookLayerSpec[] } }))
+    .filter((r) => r.em.flipbook !== undefined);
+
+  it('finds the five shipped recipes', () => {
+    expect(recipes.map((r) => r.file).sort()).toEqual([
+      'catastrophic_kill.json', 'fire_apfsds.json', 'fire_heat.json', 'missile_impact.json', 'shell_impact.json',
+    ]);
+  });
+
+  // `spawnRecipe` reads the fireball scale off layer 0 (`base + per_power *
+  // power`) and multiplies every `scale_from: 'fireball'` layer by it, so
+  // layer 0 must BE a fixed-size fire layer: no `rand` (the fireball would
+  // be one random draw, not a size) and no `scale_from` (it would scale by
+  // itself).
+  it('every recipe opens on a fire layer with no rand and no scale_from', () => {
+    for (const { file, em } of recipes) {
+      const first = em.flipbook?.[0];
+      expect(first?.type, file).toBe('fire');
+      expect(first?.scale.rand, file).toBeUndefined();
+      expect(first?.scale_from, file).toBeUndefined();
+    }
+  });
+});
+
+describe('spawnRecipe on a malformed recipe', () => {
+  it('throws naming an unknown layer type rather than dropping the layer', () => {
+    const fb = new FlipbookFx();
+    const bad = [{ type: 'plasma', count: 1, delay_ms: [0, 0], duration_ms: [100, 100], scale: { base: 1 }, velocity: { radial: [0, 0], up: [0, 0] } }] as unknown as FlipbookLayerSpec[];
+    expect(() => fb.spawnRecipe(bad, 0, 0, 0, 1)).toThrow(/unknown layer type "plasma"/);
+    fb.dispose();
+  });
+});
+
+describe('flipbookSupersedes', () => {
+  it('names the fireball mesh, the column and the smoke discs, and nothing else', () => {
+    expect(flipbookSupersedes({ mesh_burst: true })).toBe(true);
+    expect(flipbookSupersedes({ mesh_plume: true, sprite: 'smoke_puff' })).toBe(true);
+    expect(flipbookSupersedes({ sprite: 'smoke_puff' })).toBe(true);
+    expect(flipbookSupersedes({ sprite: 'shard' })).toBe(false);
+    expect(flipbookSupersedes({ sprite: 'soft_dot' })).toBe(false);
+    expect(flipbookSupersedes({ sprite: 'ring' })).toBe(false);
+  });
+});

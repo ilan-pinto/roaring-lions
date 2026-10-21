@@ -120,6 +120,7 @@ import type { AimFootprint, ObjectiveZoneView, RallyMarkView, Renderer, Renderer
 import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, type Camera } from '../project';
 import { QUALITY_PRESETS } from '../quality';
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec, type ParticleSpec } from '../vfx';
+import type { FlipbookLayerSpec } from '../vfx/emitters';
 import { SIM_HZ } from '../anim';
 import { colorSlot, isHostileSide, isOwnSide } from '../relation';
 import { resolveClip, cadenceScale, type UnitAnimInput } from '../clip';
@@ -545,7 +546,7 @@ import { tileHash } from '../tile-hash';
 import { computeFog, isFogVisible, type FogInput } from './fog';
 import { ShroudTexture } from './shroud-texture';
 import { hazeRadiance, hazeReferenceLevel } from './haze';
-import { FlipbookFx } from './units/flipbook-fx';
+import { FlipbookFx, flipbookSupersedes } from './units/flipbook-fx';
 import { FogOfWarPass } from './fog-pass';
 import { SmokeMesh } from './smoke-mesh';
 import { perTileYawFor } from './units/run-direction';
@@ -1512,14 +1513,18 @@ export class ThreeRenderer implements Renderer {
    *  shroud (`data/vfx/collapse_flash.json`). Loaded and coloured alongside
    *  `explosionBursts`, from the one parsed template. PA-19: a vehicle kill's
    *  fireball draws here too, for the same reason -- it has a shroud of its
-   *  own (`beginVehicleCollapseShroud`). */
+   *  own (`beginVehicleCollapseShroud`). Since Defilade T4 that is the
+   *  FALLBACK kill only, before the flipbook's atlases land (D5). */
   private readonly collapseFlashBursts = new ExplosionBurstManager(EXPLOSION_BURST_CAPACITY, COLLAPSE_FLASH_RENDER_ORDER);
   /** Defilade T4 (GH-705): the instanced, GPU-aged flipbook billows --
    *  fireballs, dirt and smoke (`units/flipbook-fx.ts`'s own top comment).
    *  Two meshes over one geometry, added to the scene once in the
    *  constructor, stepped on the frame clock beside the bursts, atlases
    *  fetched in `init()`. Hidden while nothing is live, so idle costs 0 draw
-   *  calls. Task 4 builds and steps it; the spawn paths are Task 6's. */
+   *  calls. An emitter that declares a `flipbook` recipe spawns it through
+   *  `flipbookRecipeOf` (D6): the shell landing, the missile impact, the
+   *  vehicle kill (D5, replacing its fireball, column AND shroud) and the
+   *  `fire_apfsds`/`fire_heat` muzzle. */
   private readonly flipbook = new FlipbookFx();
   /** Scratch for the sun's screen-space direction (`frame()`). */
   private readonly flipbookRight = new THREE.Vector3();
@@ -4763,14 +4768,25 @@ export class ThreeRenderer implements Renderer {
           // wall-clock one-shots; the scorch, the oil and the smoulder below
           // are dated off the sim clock and stay.
           const burst = !this.quiet;
-          if (burst && this.collapseFlashBursts.ready) {
+          const blast = this.emitterLibrary.byName(BLAST_EMITTER_ID);
+          // Defilade T4 (D5/D6): with the atlases in, `catastrophic_kill`'s
+          // flipbook recipe IS the kill's fire and smoke -- its fireball, its
+          // soot column and its dust ring replace the pooled burst, the
+          // smoke-plume column and the tan collapse shroud below. Until the
+          // atlases land (or for an emitter set with no recipe) the old three
+          // stand in, so a kill never draws nothing.
+          const killRecipe = this.flipbookRecipeOf(blast);
+          if (burst && killRecipe) {
+            this.flipbook.spawnRecipe(killRecipe, dx, worldY, dy, killPower);
+          }
+          if (burst && !killRecipe && this.collapseFlashBursts.ready) {
             this.collapseFlashBursts.spawn(dx, worldY, dy, killYawTurns, killPower, EXPLOSION_BURST_DEFAULT_DURATION_MS);
           }
           // The smoke aftermath follows the same hard-target kill -- a
           // burning hull is exactly what a rising column is FOR. Checked
           // live (this task's report) that pairing the two here reads the
           // same way it does for a building collapse, not merely assumed.
-          if (burst && this.smokePlumes.ready) {
+          if (burst && !killRecipe && this.smokePlumes.ready) {
             // R-I: the blast window, not the default one. A burning hull is
             // the one thing on this map that is still smoking twenty seconds
             // later, and `SMOKE_PLUME_DEFAULT_DURATION_MS` (4 s) is sized for
@@ -4798,7 +4814,6 @@ export class ThreeRenderer implements Renderer {
           // declared its block (`blast-spec.ts`'s own null/zero rule), so an
           // un-`useEmitters`'d renderer spawns nothing rather than a
           // light/shake/freeze built from defaults nobody authored.
-          const blast = this.emitterLibrary.byName(BLAST_EMITTER_ID);
           const blastLight = blastLightSpec(blast, killPower);
           if (burst && blastLight) {
             this.flashLights.spawn(
@@ -4818,7 +4833,7 @@ export class ThreeRenderer implements Renderer {
           const scorchR = scorchRadiusTiles(killPower);
           this.stampGroundDecal(this.persistentStamp('scorch', dx, dy, scorchR));
           this.stampGroundDecal(this.persistentStamp('oil', dx, dy, OIL_RADIUS_TILES));
-          if (burst) this.beginVehicleCollapseShroud(this.vehicleTemplateKey(deadType.id, st.side[e.entity]), dx, dy, worldY);
+          if (burst && !killRecipe) this.beginVehicleCollapseShroud(this.vehicleTemplateKey(deadType.id, st.side[e.entity]), dx, dy, worldY);
           // GH-85: and the hull goes on smouldering after the column clears.
           this.beginWreckSmoulder(e.entity, dx, dy, e.tick);
         }
@@ -5317,6 +5332,17 @@ export class ThreeRenderer implements Renderer {
       this.recoilPower[e.shooter] = power;
     }
 
+    // Defilade T4: a main gun's muzzle billows -- a fire puff along the bore,
+    // a short grey puff and a ground blast ring -- from its emitter's own
+    // `flipbook` recipe, ON TOP of the authored particles below (D6 replaces
+    // nothing at the muzzle). Only `fire_apfsds` and `fire_heat` carry one;
+    // `he` has no fire emitter (`fireEmitterFor` answers null, so it takes the
+    // flat fallback below) and therefore no recipe.
+    const muzzleRecipe = this.flipbookRecipeOf(emitter);
+    if (muzzleShown && !this.quiet && muzzleRecipe) {
+      const gh = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, mzX, mzY);
+      this.flipbook.spawnRecipe(muzzleRecipe, mzX, mzZ, mzY, power, facingRad, gh);
+    }
     if (muzzleShown && emitter && this.particleSystem) {
       const dirTurns = facingRad / (Math.PI * 2);
       const prio = emitter.budget_priority ?? 5;
@@ -5533,7 +5559,18 @@ export class ThreeRenderer implements Renderer {
     const em = this.emitterLibrary.byName(id);
     if (!em) return false;
     const prio = em.budget_priority ?? 1;
+    // Defilade T4 (D6): an emitter with a `flipbook` recipe (today
+    // `shell_impact`) hands its fireball, column and smoke discs to the
+    // flipbook once the atlases are in; the shards stay. One with none --
+    // `structure_collapse`, `tunnel_collapse`, `demolition_blast` -- runs the
+    // loop below exactly as before.
+    const recipe = this.flipbookRecipeOf(em);
+    if (recipe && !this.quiet) {
+      const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, bx, by);
+      this.flipbook.spawnRecipe(recipe, bx, worldY, by, power);
+    }
     for (const layer of em.particles) {
+      if (recipe && flipbookSupersedes(layer)) continue;
       // A layer marked mesh_burst is superseded by the pooled, modelled
       // explosion-burst mesh once one has loaded (`ExplosionBurstManager
       // .ready`, set only on the mesh path -- the default on `three`, and
@@ -5558,6 +5595,17 @@ export class ThreeRenderer implements Renderer {
       this.particleSystem.spawn(layer, bx, by, 0.25, 1, prio, fxLayer);
     }
     return true;
+  }
+
+  /**
+   * Defilade T4: the emitter's `flipbook` recipe when the flipbook can draw
+   * it (both atlases bound), else null -- and null is the caller's cue to run
+   * the pre-flipbook path, so an atlas still in flight (or one that failed)
+   * never leaves an event drawing nothing.
+   */
+  private flipbookRecipeOf(em: EmitterSpec | null | undefined): readonly FlipbookLayerSpec[] | null {
+    const recipe = em?.flipbook;
+    return recipe && recipe.length > 0 && this.flipbook.ready ? recipe : null;
   }
 
   /**
@@ -9199,7 +9247,9 @@ export class ThreeRenderer implements Renderer {
    * (`data/vfx/shell_impact.json`) is an ordinary authored emitter whose hot
    * layer carries `mesh_burst`, so it gets the same pooled fireball mesh a
    * building collapse does and the same authored-particle fallback when that
-   * mesh has not loaded. The only thing this adds over calling it directly
+   * mesh has not loaded. Since Defilade T4 its `flipbook` recipe supersedes
+   * that fireball, its column and its smoke discs once the atlases are in
+   * (`spawnCollapseFx`, D6); the shards, light, shake, freeze and decals stay. The only thing this adds over calling it directly
    * is the size and the yaw: `SHELL_PROFILES[kind].impactPower` (a mortar
    * bomb is a third of a collapsing house, a Grad rocket nearer a half), and
    * a per-impact `tileHash` so twenty rounds on the same grid square do not
@@ -9271,9 +9321,16 @@ export class ThreeRenderer implements Renderer {
   private spawnMissileImpactFx(l: Pick<MissileLanding, 'x' | 'y' | 'headingTurns' | 'power' | 'scale' | 'miss'>): void {
     const em = this.emitterLibrary.byName(MISSILE_IMPACT_EMITTER_ID);
     const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, l.x, l.y);
+    // Defilade T4 (D6): `missile_impact`'s flipbook recipe replaces its
+    // fireball and smoke once the atlases are in; the spall shards stay.
+    const recipe = this.flipbookRecipeOf(em);
+    if (recipe && !this.quiet) {
+      this.flipbook.spawnRecipe(recipe, l.x, worldY, l.y, l.power, l.headingTurns * Math.PI * 2);
+    }
     if (em && this.particleSystem) {
       const prio = em.budget_priority ?? 7;
       for (const layer of em.particles) {
+        if (recipe && flipbookSupersedes(layer)) continue;
         if (layer.mesh_burst && this.explosionBursts.ready) {
           this.explosionBursts.spawn(l.x, worldY, l.y, tileHash(Math.floor(l.x), Math.floor(l.y)), l.power, EXPLOSION_BURST_DEFAULT_DURATION_MS);
           continue;
