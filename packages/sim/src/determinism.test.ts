@@ -494,7 +494,16 @@ describe('determinism (1000-tick replay)', () => {
     // ruling G1, garrison overhaul Task 4). This replay's shed holder fires
     // from the window. With eyePoint returning the centroid it reads
     // 4215479769 exactly. Was 4215479769.
-    expect(a.hash()).toBe(935671699);
+    //
+    // 2026-10-21: `demolish` and `garrison` approach a building from the open
+    // tile cheapest for the ORDERED unit to reach, not the first one a
+    // row-major scan meets (Qarn Hadid II's revetment was approached from its
+    // far face, through the other gate). The shed's holder at (33,30) and the
+    // sapper at (32,33) both used to be sent round to (36,30), its east side;
+    // now each takes the ring-1 tile cheapest from where it stands (the south
+    // face, the near one). With fieldToward
+    // back on the plain snap it reads 935671699 exactly. Was 935671699.
+    expect(a.hash()).toBe(3719067886);
   });
 
   it('the replay actually exercises halt to fire', () => {
@@ -868,7 +877,7 @@ describe('determinism over relief (900-tick replay round a hill)', () => {
 
   it("N2: the explicit single-player table is today's rule on all three golden replays", () => {
     // LITERALS, as the pins above: an oracle that imports its expectation cannot fail.
-    expect(run(0x1310_0001, 1000, false, undefined, undefined, [true, false]).hash()).toBe(935671699);
+    expect(run(0x1310_0001, 1000, false, undefined, undefined, [true, false]).hash()).toBe(3719067886);
     expect(relief(RELIEF_SEED, RELIEF_TICKS, true, [true, false]).sim.hash()).toBe(2842924511);
     expect(orders(ORDERS_SEED, [true, false]).sim.hash()).toBe(3272041047);
   });
