@@ -3668,7 +3668,13 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 //   infantry grid behind; every slot behind it moves, and a demo_squad dies at the gate (32.5,14.5)
 //   at 232 s where it lived before. Still VICTORY, ROE 100, ★★, 30/30 seeds (slowest 5.4 -> 5.5 min).
 // No other mission fields a D9 and no plan builds one; no star or gate moved.
-const LADDER_CREDITS = 5930;
+// 2026-10-21, fix/air-pathing: aircraft fly an all-open field, not the foot one. 5930 -> 5920, -10:
+// - Khan Rafid I 310 -> 300: roster out 5, one fewer survivor. Its drone is spent on the alley flyby
+//   by design (shot down ~30.6 s, see the plan's note); flown straight it now dies before the 0.5 min
+//   victory instead of just after it. Still VICTORY, ROE 100, 3 stars, 30/30 seeds.
+// The two plans whose drones the straight line put over a post (Umm Zeitoun III and IV) were
+// re-routed instead (their own notes); with that, no star, outcome or seed moved.
+const LADDER_CREDITS = 5920;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
