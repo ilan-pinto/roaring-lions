@@ -34,6 +34,29 @@ describe('air-assault probe: arm C, the cold landing zone', () => {
   }, RUN_TIMEOUT_MS);
 });
 
+describe('air-assault probe: a hostile case, the kill attribution', () => {
+  it('Tel Marum arm E (ZU-23 at standoff), seed 0: shot down AIRBORNE with six aboard, all six lost with it', () => {
+    const r = run('tel_marum', 'E', SEED);
+    expect(r.yanshufLost).toBe(true);
+    expect(r.yanshufKillState).toBe(0); // AIR_AIRBORNE, as a literal
+    expect(r.yanshufKillAboard).toBe(6);
+    expect(r.squadsLostAboard).toBe(6);
+    expect(r.squadsLost).toBe(6);
+    expect(r.arrivedS).toBeNull();
+  }, RUN_TIMEOUT_MS);
+
+  // The airborne case alone cannot see a mutant that hardcodes AIRBORNE (it is 0): this one can.
+  it('Tel Marum arm D (MANPAD at standoff), seed 0: killed while LANDING with six aboard, who bail out and arrive', () => {
+    const r = run('tel_marum', 'D', SEED);
+    expect(r.yanshufLost).toBe(true);
+    expect(r.yanshufKillState).toBe(1); // AIR_LANDING, as a literal
+    expect(r.yanshufKillAboard).toBe(6);
+    expect(r.squadsLostAboard).toBe(0);
+    expect(r.squadsLost).toBe(0);
+    expect(r.arrivedS).not.toBeNull();
+  }, RUN_TIMEOUT_MS);
+});
+
 describe('air-assault probe: one world for every arm', () => {
   it('spawns the same ids in every arm, and a debugKilled unit keeps its id and is dead from t=0', () => {
     // Squads 0-5, Kipod 6, Yanshuf 7, Peten 8, MANPAD 9, gun truck 10.

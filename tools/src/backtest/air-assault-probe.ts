@@ -63,8 +63,8 @@
 // least half the seeds; a cold LZ (C) beats the Kipod (B) by at least 2x on median time.
 //
 // The land/lift times (AIR_LAND_TICKS 40, AIR_LIFT_TICKS 20) are imported consts in tuning.ts
-// and the probe cannot override them without a sim change, so it does not try: it reports the
-// exposure they buy instead (hp and kills per state in D-G) and reads whether they decide the
+// and the probe cannot override them without a sim change, so it does not try. 40/20 was NOT
+// measured against any other value: what it prints is the exposure the shipped values buy (hp and kills per state in D-G) and reads whether they decide the
 // outcome. Note what the sim's rule implies before reading it: LANDING and LANDED make the
 // Yanshuf a GROUND target, so an air-only MANPAD cannot engage it there -- the landing window
 // shields it from the MANPAD and opens it to the ZU-23's ground fire and to rifles.
@@ -107,6 +107,8 @@ export const ARM_SPECS: Record<Arm, ArmSpec> = {
 type Tile = readonly [number, number];
 interface Layout {
   why: string;
+  /** A reading note printed under the map's table, or ''. */
+  note: string;
   objective: Tile;
   squads: readonly Tile[];
   kipod: Tile;
@@ -131,6 +133,7 @@ export const LAYOUTS: Record<ProbeMap, Layout> = {
   // line crosses the wall: ~43 tiles. AA on the open north plain (level 1), east of the LZ.
   tel_marum: {
     why: 'start_line (24,44) -> sarim_west (8,4), across the ridge; foot by the boulder corridor, armour by the wide saddle',
+    note: '',
     objective: [8, 4],
     squads: [[22, 44], [23, 44], [24, 44], [25, 44], [26, 44], [24, 45]],
     kipod: [24, 42],
@@ -146,6 +149,8 @@ export const LAYOUTS: Record<ProbeMap, Layout> = {
   // AA on the open ground either side of the junction, with a clear view of it.
   qarn_hadid: {
     why: 'kdf_start (24,39) -> north_junction (24,12), across the rock wall; foot and armour by the shoulder gate',
+    note: "E: the squads lost here die AFTER arrival -- they stand idle on the objective, 8.2 tiles from the gun truck at (16,14), " +
+      "outside their own 8-tile rifles, and the probe gives no order after arrival. They are the ZU's reach, not the landing's cost.",
     objective: [24, 12],
     squads: [[22, 40], [23, 40], [24, 40], [25, 40], [26, 40], [24, 41]],
     kipod: [24, 37],
@@ -431,9 +436,10 @@ function armLine(arm: Arm, runs: Run[], tag = ''): string {
 }
 
 const HEADER =
-  'arm                         arrived  med s  min s  max s  sq lost (aboard)  Y lost  kills A/LNG/LDD/LFT  ticks LNG/LDD/LFT  hp lost A/LNG/LDD/LFT (mean)  seen';
+  'arm                         arrived  med s  min s  max s  sq lost/N (aboard)  Y lost  kills A/LNG/LDD/LFT  ticks LNG/LDD/LFT  hp lost A/LNG/LDD/LFT (mean)  seen';
 const HEADER_NOTE =
-  '   (sq lost: squads dead by the end of the run; aboard: of those, inside a Yanshuf shot down airborne.\n' +
+  '   (sq lost/N: squads dead by the end of the run, TOTAL over the N seeds (60 = all six in all ten);\n' +
+  '    aboard: of those, inside a Yanshuf shot down airborne. Runs end 30 s after arrival.\n' +
   '    Y lost: runs the Yanshuf died, any phase incl. the flight home; kills/hp by airState at that tick.)';
 
 export interface MapReport { lines: string[]; byArm: Record<Arm, ArmSummary>; close: Partial<Record<Arm, ArmSummary>>; ratio: number | null; hotPass: boolean; coldPass: boolean }
@@ -469,6 +475,7 @@ export function report(mapId: ProbeMap, seeds: number[]): MapReport {
   lines.push(`    BAR hot LZ (F, standoff) kills the Yanshuf in >= half the seeds: ${hot}/${seeds.length} -> ${hotPass ? 'PASS' : 'MISS'}` +
     `   (close placement: ${close.F?.yanshufLost ?? 0}/${seeds.length})`);
   lines.push(`    BAR cold LZ (C) beats the Kipod (B) by >= 2x on time: ${ratio === null ? 'n/a' : ratio.toFixed(2) + 'x'} -> ${coldPass ? 'PASS' : 'MISS'}`);
+  if (L.note) lines.push(`    NOTE ${L.note}`);
   // Land/lift exposure over every hostile run, both placements.
   const hostile = [...(['D', 'E', 'F', 'G'] as const).flatMap((a) => byArm[a].runs), ...(['D', 'E', 'F', 'G'] as const).flatMap((a) => close[a]?.runs ?? [])];
   const kills = [0, 1, 2, 3].map((k) => hostile.filter((r) => r.yanshufLost && r.yanshufKillState === k).length);
@@ -477,7 +484,11 @@ export function report(mapId: ProbeMap, seeds: number[]): MapReport {
   const per = (k: number) => (tks[k] === 0 ? 0 : (dmg[k] / tks[k]) * TICKS_PER_SECOND);
   const stranded = hostile.filter((r) => r.stranded).length;
   if (stranded > 0) lines.push(`    STRANDED: ${stranded} hostile run(s) ended with the Yanshuf mobility-killed in the air, riders aboard: its queued \`unload\` never completes (a hull that cannot move never reaches its LZ, so it never lands)`);
-  lines.push(`    land/lift exposure over ${hostile.length} hostile runs: Yanshuf kills AIR ${kills[0]} / LANDING ${kills[1]} / LANDED ${kills[2]} / LIFTING ${kills[3]}; ` +
+  const lost = hostile.filter((r) => r.yanshufLost);
+  const approach = lost.filter((r) => r.yanshufKillAboard > 0).length;
+  lines.push(`    Yanshuf kills over ${hostile.length} hostile runs: ${lost.length} -- ${approach} on the approach/landing (riders aboard), ` +
+    `${lost.length - approach} on the flight home (empty)`);
+  lines.push(`    land/lift exposure (shipped ${AIR_LAND_TICKS}/${AIR_LIFT_TICKS} only; no other value measured): Yanshuf kills AIR ${kills[0]} / LANDING ${kills[1]} / LANDED ${kills[2]} / LIFTING ${kills[3]}; ` +
     `hp lost ${dmg.map((d) => d.toFixed(0)).join(' / ')}; hp/s in state ${[0, 1, 2, 3].map((k) => per(k).toFixed(0)).join(' / ')}`);
   return { lines, byArm, close, ratio, hotPass, coldPass };
 }
