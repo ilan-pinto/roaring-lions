@@ -10200,6 +10200,10 @@ export class ThreeRenderer implements Renderer {
           const lvl = this.sim.contactLevel(this.viewer, i);
           bodyAlpha = lvl === 2 ? 1 : lvl === 1 ? 0.65 : 0.35;
         }
+        // GH-698: an air carrier's lift shadow fades with its own descent
+        // (`airLiftFrac`), so a landed Yanshuf is not drawn over a gap shadow.
+        // Every other air unit reads exactly 1, as before.
+        if (type.isAirCarrier) bodyAlpha *= airLiftFrac(this.sim.state.airState[i], this.sim.state.airTimer[i], alpha);
         const shadowR = r * 0.7 + 2;
         this.overlayBatch.ellipseFan(
           billboardPoint(anchor, 0, -3),
