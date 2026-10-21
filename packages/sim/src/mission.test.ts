@@ -143,6 +143,17 @@ const HOLDER: UnitTypeJson = {
   hull: { hp: 20000, armor: { front: 10, side: 10, rear: 10 } },
 };
 
+/** An air carrier (GH-698 Task 6): isAir with seats. Appended last to the world's
+ *  type list so no existing type index moves. */
+const HELI: UnitTypeJson = {
+  id: 'm_heli',
+  role: 'apc',
+  hull: { hp: 900, armor: { front: 4, side: 4, rear: 4 }, transport_slots: 6 },
+  mobility: { speed_tiles_s: 3.2, domain: 'air' },
+  sensors: { optics: 1.0, sight_tiles: 10, signature: 1 },
+  weapons: [],
+};
+
 /** Every slot the sim could have spawned into. `Sim.count` is private, and the
  *  alive filter each caller applies covers the unspawned tail. */
 function allIds(sim: Sim): number[] {
@@ -164,7 +175,7 @@ function makeWorld(
 ): World {
   const sim = new Sim({ seed: 7, width: 28, height: 12, capacity: 32 });
   const ids = new Map<string, number>();
-  for (const t of [SQUAD, AMBUSHER, RUNNER, TANK, DRONE, CIVILIANS, CARRIER, RIDER, FOOT_PATROL, FOOT_SCOUT, FOOT_GARRISON, HG_AIR, HOLDER])
+  for (const t of [SQUAD, AMBUSHER, RUNNER, TANK, DRONE, CIVILIANS, CARRIER, RIDER, FOOT_PATROL, FOOT_SCOUT, FOOT_GARRISON, HG_AIR, HOLDER, HELI])
     ids.set(t.id, sim.addUnitType(t));
   prep?.(sim);
   const runtime = new MissionRuntime(sim, mission, {
@@ -3445,6 +3456,63 @@ describe('mounted delivery', () => {
     // shows up in playtesting. validate:data is meant to catch this first; this is
     // the backstop proving it has to.
     expect(() => makeWorld(delivery(true))).toThrow(/seat/i);
+  });
+});
+
+// GH-698 Task 6 (R8): the same trigger on an air carrier. No mission.ts change:
+// the runtime queues `unload`, and the sim lands the carrier before it opens.
+describe('mounted delivery by air', () => {
+  const airDelivery = (): MissionJson =>
+    baseMission({
+      enemy: {
+        garrison: [
+          {
+            unit: 'm_heli',
+            count: 1,
+            at: [14.5, 6.5],
+            group: 'lift',
+            passengers: [{ unit: 'm_rider', count: 3 }],
+          },
+        ],
+      },
+      triggers: [{ id: 'drop', on: { kind: 'timer_s', value: 4 }, do: { kind: 'dismount', group: 'lift' } }],
+    });
+  const heliOf = (sim: Sim): number =>
+    allIds(sim).find((i) => sim.state.alive[i] === 1 && sim.passengerCount(i) > 0) as number;
+
+  it('lands the airborne carrier first, then everyone is out', () => {
+    const { sim, step } = makeWorld(airDelivery());
+    const heli = heliOf(sim);
+    expect(sim.passengerCount(heli)).toBe(3);
+    expect(sim.state.airState[heli]).toBe(0); // AIR_AIRBORNE
+    // timer_s 4 fires at tick 80; the unload then lands the carrier (AIR_LAND_TICKS
+    // 40 after it arrives, which is at once: it is already over its own tile).
+    let landedAt = -1;
+    let outAt = -1;
+    for (let t = 1; t <= 200; t++) {
+      step(1);
+      if (landedAt < 0 && sim.state.airState[heli] === 2) landedAt = t; // AIR_LANDED
+      if (outAt < 0 && sim.passengerCount(heli) === 0) outAt = t;
+      if (landedAt < 0) expect(sim.passengerCount(heli)).toBe(3); // nobody out while in the air
+    }
+    expect(landedAt).toBeGreaterThan(80 + 40); // trigger tick + a whole landing
+    expect(outAt).toBe(landedAt); // all out in the tick it is LANDED
+    const out = allIds(sim).filter(
+      (i) => sim.state.alive[i] === 1 && sim.state.carriedBy[i] === -1 && i !== heli,
+    );
+    expect(out.length).toBe(3);
+  });
+
+  it('a buried carrier is still skipped by the runtime filter', () => {
+    const { sim, step } = makeWorld(airDelivery(), undefined, (s) => {
+      s.addTunnel({ id: 'tn_air6', points: [[2, 2], [8, 2]], dig_tiles_per_s: 1 });
+    });
+    const heli = heliOf(sim);
+    // Bury it: tunnelIn >= 0 is what the runtime filter (and the sim) read. Nobody
+    // dismounts into solid earth, and the carrier never starts to land.
+    sim.putInTunnel(heli, 0);
+    step(6 * TICKS_PER_SECOND);
+    expect(sim.state.airState[heli]).toBe(0);
   });
 });
 
