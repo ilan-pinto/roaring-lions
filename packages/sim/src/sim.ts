@@ -2952,8 +2952,65 @@ export class Sim {
    *  their goal is a structure centroid, always inside its own footprint. */
   private fieldToward(id: number, tx: number, ty: number): number {
     const d = this.domainOf(id);
-    const [fgx, fgy] = this.nearestOpenTile(tx, ty, this.maskFor(d));
-    return this.fieldFor(fgx, fgy, d);
+    const mask = this.maskFor(d);
+    if (!this.snapReachableTile(id, tx, ty, mask)) this.snapOpenTile(tx, ty, mask);
+    return this.fieldFor(this.snapX, this.snapY, d);
+  }
+
+  /** Scratch field for `snapReachableTile`: cost from every tile to ONE unit.
+   *  Never a pooled field, never hashed, recomputed per call. */
+  private approachField: FlowField | null = null;
+
+  /**
+   * `snapOpenTile`, but the open tile is picked by what it costs THIS unit to
+   * walk there, not by scan order. The nearest ring that holds any tile the
+   * unit can reach wins, and within it the cheapest; ties keep row-major
+   * order. Without it a structure that plugs a cutting (Qarn Hadid II's
+   * revetment) is approached from whichever face the scan meets first -- the
+   * far one -- and the engineers walk the whole map round to reach it.
+   * Returns false when the unit can reach no open tile at all (or either end
+   * is off the map); the caller then falls back to the plain snap.
+   */
+  private snapReachableTile(id: number, gx: number, gy: number, mask: Uint8Array): boolean {
+    const w = this.width;
+    const h = this.height;
+    if (gx < 0 || gy < 0 || gx >= w || gy >= h) return false;
+    this.snapOpenTile(fx.toInt(this.posX[id]), fx.toInt(this.posY[id]), mask);
+    const ux = this.snapX;
+    const uy = this.snapY;
+    if (ux < 0 || uy < 0 || ux >= w || uy >= h || mask[uy * w + ux] !== 0) return false;
+    if (this.approachField === null) this.approachField = new FlowField(w, h);
+    const field = this.approachField;
+    field.compute(mask, this.elevation, ux, uy);
+    const maxR = w > h ? w : h;
+    for (let r = 0; r <= maxR; r++) {
+      let best = -1;
+      let bestCost = 0x7fffffff;
+      const x0 = gx - r < 0 ? 0 : gx - r;
+      const x1 = gx + r >= w ? w - 1 : gx + r;
+      const y0 = gy - r < 0 ? 0 : gy - r;
+      const y1 = gy + r >= h ? h - 1 : gy + r;
+      for (let y = y0; y <= y1; y++) {
+        for (let x = x0; x <= x1; x++) {
+          const ddx = x - gx < 0 ? gx - x : x - gx;
+          const ddy = y - gy < 0 ? gy - y : y - gy;
+          if ((ddx > ddy ? ddx : ddy) !== r) continue;
+          const tile = y * w + x;
+          if (mask[tile] !== 0) continue;
+          const c = field.costAt(tile);
+          if (c < bestCost) {
+            bestCost = c;
+            best = tile;
+          }
+        }
+      }
+      if (best >= 0) {
+        this.snapX = best % w;
+        this.snapY = (best - this.snapX) / w;
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
