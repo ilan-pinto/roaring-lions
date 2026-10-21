@@ -99,6 +99,18 @@
  * Each view also prints `programs` (`renderer.info.programs.length`), and
  * the run prints `os.loadavg()` at start and end: a number taken on a
  * loaded machine is a different number, and says so beside itself.
+ *
+ * ## The render-pass cliff (measured 2026-10-21, `docs/PERFORMANCE.md`)
+ *
+ * On ANGLE/Metal this back-to-back loop has a cliff: once a frame switches
+ * between 13 or more distinct render targets, it reads about 3x its work
+ * after ~30 frames (`medium`, 9 switches: 3 ms; the same frame plus four
+ * colour-only clears of four TINY targets: 9.5 ms; clears of one target, or
+ * binds with no clear, do not trigger it). `high` is past the cliff on
+ * `main` already (13 switches), `medium` and `low` are not, and bloom adds
+ * 13. The app's own 60 Hz loop does not show it. So compare two trees or
+ * two presets only on the same side of the cliff, or the delta is the
+ * cliff, not the change.
  */
 import { chromium } from 'playwright';
 import os from 'node:os';
