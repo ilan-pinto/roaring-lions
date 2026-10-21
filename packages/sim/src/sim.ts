@@ -2624,6 +2624,11 @@ export class Sim {
     return this.passengers[id];
   }
 
+  /** The carrier a unit is walking to board, or -1. Read-only (GH-698 Task 5). */
+  boardGoalOf(id: number): number {
+    return this.boardGoal[id];
+  }
+
   /** How many path points a unit still has queued. */
   waypointCount(id: number): number {
     return this.wpCount[id];
@@ -7198,10 +7203,23 @@ export class Sim {
   }
 
   private destroy(target: number, by: number): void {
-    // Anyone riding in it comes out now, hurt and shaken.
+    // Anyone riding in it comes out now, hurt and shaken -- unless it is an
+    // air carrier shot down in the air (GH-698 R5): AIRBORNE or LIFTING, which
+    // is exactly `isAirborne` for an air type (Q-C). Then everyone aboard dies
+    // with it, each through this same path, so the kill, ROE and veterancy
+    // credit go to `by` as for any other death. LANDING and LANDED (a ground
+    // target) and every ground carrier bail out as before.
     if (this.passengers[target] > 0) {
+      const takesAll = this.unitTypes[this.typeIdx[target]].isAirCarrier && this.isAirborne(target);
       for (let i = 0; i < this.count; i++) {
-        if (this.carriedBy[i] === target && this.alive[i] === 1) this.disembark(i, true);
+        if (this.carriedBy[i] !== target || this.alive[i] !== 1) continue;
+        if (takesAll) {
+          this.carriedBy[i] = -1;
+          this.passengers[target]--;
+          this.destroy(i, by);
+        } else {
+          this.disembark(i, true);
+        }
       }
     }
     this.alive[target] = 0;

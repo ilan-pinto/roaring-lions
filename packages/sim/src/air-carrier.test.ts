@@ -732,3 +732,160 @@ describe('landed means ground (GH-698 Task 4)', () => {
     }
   });
 });
+
+// ------------------------------------------------------------------ Task 5
+// GH-698 Task 5 (R5, item 8): an air carrier shot down while AIRBORNE or
+// LIFTING takes everyone aboard with it, each death credited to the killer
+// through the ordinary destroy path. LANDING and LANDED (Q-C: a ground target)
+// and every ground carrier bail out as before: 0.4 of max hp lost, shaken.
+
+/** Every living id riding `car`, and every id whose carriedBy names `car` at all. */
+function ridersOf(sim: Sim, car: number): number {
+  let n = 0;
+  for (let i = 0; i < sim.entityCount; i++) if (sim.state.carriedBy[i] === car) n++;
+  return n;
+}
+
+// RIFLES hp 400 = raw 26214400. Bail-out damage fx.mul(26214400, 26214) =
+// 26214400 * 26214 >> 16 = 10485600; 26214400 - 10485600 = 15728800 (0.6 of
+// max hp, plus 0.4's own rounding: 240 * 65536 = 15728640, 160 raw short).
+const BAILED_HP = 15728800;
+
+describe('shot down in the air takes everyone (GH-698 Task 5)', () => {
+  it('airborne kill takes all six: seven dead, no seat counted, no carriedBy left set', () => {
+    const { sim, heli, squads } = loadedHeli(20.5, 20.5, 6);
+    expect(sim.state.airState[heli]).toBe(AIR_AIRBORNE);
+    sim.debugKill(heli);
+    let dead = 0;
+    for (const id of [heli, ...squads]) if (sim.state.alive[id] === 0) dead++;
+    expect(dead).toBe(7);
+    expect(sim.passengerCount(heli)).toBe(0);
+    expect(ridersOf(sim, heli)).toBe(0);
+    for (const s of squads) expect(sim.state.hp[s]).toBe(0);
+  });
+
+  it('kill credit: a gun that downs an airborne heli is credited with the heli plus six', () => {
+    // Side 1 heli, six side 1 squads aboard; a side 0 ground-and-air gun 4 tiles off.
+    const sim = new Sim({ seed: 0x6980_0005, width: 40, height: 20, capacity: 16 });
+    const inf = sim.addUnitType(RIFLES);
+    const heli = sim.spawn(sim.addUnitType(HELI), 1, at(20.5), at(10.5));
+    for (let k = 0; k < 6; k++) expect(sim.embarkAtSpawn(heli, sim.spawn(inf, 1, at(20.5), at(10.5)))).toBe(true);
+    const zu = put(sim, ZU, 16.5, 10.5);
+    let credited = 0;
+    for (let t = 0; t < 2000 && sim.state.alive[heli] === 1; t++) {
+      sim.identifyTo(0, heli);
+      for (const e of sim.tick()) if (e.kind === 'destroyed' && e.by === zu) credited++;
+    }
+    expect(sim.state.alive[heli]).toBe(0);
+    expect(credited).toBe(7); // 1 heli + 6 squads
+  });
+
+  it('landed kill bails out: six alive at 0.6 hp on foot-open tiles, nobody aboard', () => {
+    const { sim, heli, squads } = loadedHeli(20.5, 20.5, 6);
+    // Bail-out spot is hull + half a tile = (21.0, 21.0), tile (21,21): make it a wall.
+    sim.setBlocked(21, 21, true);
+    sim.state.airState[heli] = AIR_LANDED;
+    sim.debugKill(heli);
+    expect(sim.state.alive[heli]).toBe(0);
+    expect(sim.passengerCount(heli)).toBe(0);
+    for (const s of squads) {
+      expect(sim.state.alive[s]).toBe(1);
+      expect(sim.state.carriedBy[s]).toBe(-1);
+      expect(sim.state.hp[s]).toBe(BAILED_HP);
+      const [tx, ty] = tileOf(sim, s);
+      expect(sim.blocked[ty * 40 + tx]).toBe(0);
+    }
+  });
+
+  it('LANDING bails out (R5, Q-C); LIFTING kills', () => {
+    const landing = loadedHeli(20.5, 20.5, 6);
+    landing.sim.state.airState[landing.heli] = AIR_LANDING;
+    landing.sim.debugKill(landing.heli);
+    expect(landing.squads.map((s) => landing.sim.state.alive[s])).toEqual([1, 1, 1, 1, 1, 1]);
+    expect(landing.squads.map((s) => landing.sim.state.hp[s])).toEqual(Array(6).fill(BAILED_HP));
+
+    const lifting = loadedHeli(20.5, 20.5, 6);
+    lifting.sim.state.airState[lifting.heli] = AIR_LIFTING;
+    lifting.sim.debugKill(lifting.heli);
+    expect(lifting.squads.map((s) => lifting.sim.state.alive[s])).toEqual([0, 0, 0, 0, 0, 0]);
+    expect(ridersOf(lifting.sim, lifting.heli)).toBe(0);
+  });
+
+  it('a ground carrier bails out in every airState value', () => {
+    for (const st of [AIR_AIRBORNE, AIR_LANDING, AIR_LANDED, AIR_LIFTING]) {
+      const sim = new Sim({ seed: 0x6980_0006, width: 40, height: 40, capacity: 8 });
+      sim.addUnitType(HELI); // the fold and the air path are live in this world
+      const inf = sim.addUnitType(RIFLES);
+      const jeep = sim.spawn(sim.addUnitType(JEEP), 0, at(10.5), at(10.5));
+      const a = sim.spawn(inf, 0, at(10.5), at(10.5));
+      const b = sim.spawn(inf, 0, at(10.5), at(10.5));
+      expect(sim.embarkAtSpawn(jeep, a)).toBe(true);
+      expect(sim.embarkAtSpawn(jeep, b)).toBe(true);
+      sim.state.airState[jeep] = st;
+      sim.debugKill(jeep);
+      for (const s of [a, b]) {
+        expect(sim.state.alive[s]).toBe(1);
+        expect(sim.state.carriedBy[s]).toBe(-1);
+        expect(sim.state.hp[s]).toBe(BAILED_HP);
+      }
+    }
+  });
+
+  it('Review Focus 5: a rider still walking to the carrier lives, and drops its boardGoal', () => {
+    // Load from 10 tiles: the heli flies at 0.16 tile/tick to the squad's tile
+    // (63 ticks, see the literal timeline); at tick 10 it is AIRBORNE and the
+    // squad is walking to the LZ, not seated.
+    const { sim, heli, inf } = heliWorld(10.5, 10.5);
+    const sq = sim.spawn(inf, 0, at(20.5), at(10.5));
+    const aboardOne = sim.spawn(inf, 0, at(10.5), at(10.5));
+    expect(sim.embarkAtSpawn(heli, aboardOne)).toBe(true);
+    sim.queueCommand({ kind: 'load', ids: [sq], carrier: heli });
+    run(sim, 10);
+    expect(sim.state.airState[heli]).toBe(AIR_AIRBORNE);
+    expect(sim.boardGoalOf(sq)).toBe(heli);
+    expect(sim.state.carriedBy[sq]).toBe(-1);
+    sim.debugKill(heli);
+    expect(sim.state.alive[aboardOne]).toBe(0);
+    expect(sim.state.alive[sq]).toBe(1);
+    expect(sim.state.hp[sq]).toBe(fx.fromInt(400));
+    sim.tick();
+    expect(sim.boardGoalOf(sq)).toBe(-1);
+    expect(sim.state.alive[sq]).toBe(1);
+  });
+
+  it('Review Focus 4: removeFromPlay of a loaded landed heli sets the riders down on the next tick', () => {
+    // removeFromPlay is not combat: it calls no destroy and touches no rider.
+    // stepTransport's dead-carrier branch (alive[car] === 0) puts each one
+    // down, shaken, on the next tick -- the same as for a ground carrier --
+    // and the R5 rule never applies, because nothing was shot down.
+    for (const st of [AIR_LANDED, AIR_AIRBORNE]) {
+      const { sim, heli, squads } = loadedHeli(20.5, 20.5, 6);
+      sim.state.airState[heli] = st;
+      sim.removeFromPlay(heli);
+      expect(sim.state.alive[heli]).toBe(0);
+      expect(ridersOf(sim, heli)).toBe(6); // the same tick: not yet touched
+      sim.tick();
+      expect(ridersOf(sim, heli)).toBe(0);
+      expect(sim.passengerCount(heli)).toBe(0);
+      for (const s of squads) {
+        expect(sim.state.alive[s]).toBe(1);
+        expect(sim.state.hp[s]).toBe(BAILED_HP);
+      }
+    }
+  });
+
+  it('Review Focus 4: a ground carrier entering a tunnel still unloads everyone (unloadAll)', () => {
+    const sim = new Sim({ seed: 0x6980_0007, width: 16, height: 16, capacity: 8 });
+    sim.addUnitType(HELI);
+    const route = sim.addTunnel({ id: 'tn_t5', points: [[2, 2], [8, 2]], dig_tiles_per_s: 1 });
+    const inf = sim.addUnitType(RIFLES);
+    const jeep = sim.spawn(sim.addUnitType(JEEP), 0, at(5.5), at(5.5));
+    const a = sim.spawn(inf, 0, at(5.5), at(5.5));
+    expect(sim.embarkAtSpawn(jeep, a)).toBe(true);
+    sim.putInTunnel(jeep, route);
+    expect(sim.state.carriedBy[a]).toBe(-1);
+    expect(sim.passengerCount(jeep)).toBe(0);
+    expect(sim.state.alive[a]).toBe(1);
+    expect(sim.state.hp[a]).toBe(fx.fromInt(400)); // unloaded, not bailed out
+  });
+});
