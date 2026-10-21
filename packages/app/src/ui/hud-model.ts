@@ -9,10 +9,10 @@
 //
 // So: one function per fact, called from every place that draws it.
 //
-// The only sim import here is TICKS_PER_SECOND — a constant, not state
+// The only sim imports here are constants (TICKS_PER_SECOND, the AIR_* flight states), not state
 // (invariant 4: the HUD renders what the sim reports and mutates nothing).
 
-import { TICKS_PER_SECOND } from '@lions/sim';
+import { AIR_LANDED, AIR_LANDING, AIR_LIFTING, TICKS_PER_SECOND } from '@lions/sim';
 import { isOwnSide } from '@lions/render';
 import { t } from '../i18n/t';
 import { symbolSvg } from './symbol';
@@ -487,4 +487,27 @@ export function speakerPortrait(
  *  second is unhurried adult reading; the floor covers a one-word beat. */
 export function beatDwellMs(text: string): number {
   return Math.max(6000, Math.round((text.length / 13) * 1000));
+}
+
+/** GH-698: the unit card's flight line for an air carrier, as a catalogue key.
+ *  The sim's own four states (tuning.ts); anything else reads as airborne,
+ *  which is the spawn default. */
+export type FlightKey = 'hud.card.air.airborne' | 'hud.card.air.landing' | 'hud.card.air.landed' | 'hud.card.air.lifting';
+export function flightKey(airState: number): FlightKey {
+  if (airState === AIR_LANDING) return 'hud.card.air.landing';
+  if (airState === AIR_LANDED) return 'hud.card.air.landed';
+  if (airState === AIR_LIFTING) return 'hud.card.air.lifting';
+  return 'hud.card.air.airborne';
+}
+
+/** GH-698: the living units riding in `carrier`, in entity order -- the card's
+ *  rider chips. A read of `carriedBy`, nothing more. */
+export function ridersOf(
+  st: { readonly carriedBy: ArrayLike<number>; readonly alive: ArrayLike<number> },
+  count: number,
+  carrier: number
+): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < count; i++) if (st.alive[i] === 1 && st.carriedBy[i] === carrier) out.push(i);
+  return out;
 }

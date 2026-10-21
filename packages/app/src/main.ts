@@ -2907,6 +2907,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       canEmbark: (i) => sim.unitTypes[sim.state.typeIdx[i]].canEmbark,
       canSmoke: (i) => sim.unitTypes[sim.state.typeIdx[i]].canSmoke,
       passengerCount: (i) => sim.passengerCount(i),
+      isAirCarrier: (i) => sim.unitTypes[sim.state.typeIdx[i]].isAirCarrier,
     });
     for (const intent of res.intents) dispatch(intent);
     if (res.note) hud.note(res.note.text, res.note.tone);

@@ -103,6 +103,9 @@ export {
 // Halt-to-fire clip timing for the renderer (spec 2026-10-05-infantry-halt-to-fire §5).
 export { KNEEL_DROP_TICKS, KNEEL_RISE_TICKS } from './tuning';
 export { AMBUSH_RADIUS_DEFAULT, AMBUSH_RADIUS_MAX } from './tuning';
+// GH-698: the air carrier's flight states and their two clocks, for the HUD's flight line and
+// the renderer's landed descent. Read-only constants; the machine itself is the sim's.
+export { AIR_AIRBORNE, AIR_LANDING, AIR_LANDED, AIR_LIFTING, AIR_LAND_TICKS, AIR_LIFT_TICKS } from './tuning';
 // The fire-support profile table (F1 Task 6): `callStrike.profile` indexes it.
 export { FIRE_SUPPORT, FS_AIR_STRIKE, FS_MORTAR_BARRAGE, FS_SMOKE_SCREEN, type FireSupportProfile } from './tuning';
 // The production line types, the contest test and the two bounds (R-F4-4). The state machine
