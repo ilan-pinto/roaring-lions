@@ -35,10 +35,11 @@
  * below uses the IDENTICAL "opaque overwrite" recipe `createParticleMaterial`
  * already proved safe (`NormalBlending`, alpha pinned to 1.0, so
  * `SRC_ALPHA, ONE_MINUS_SRC_ALPHA` degenerates to `dst = src` and every
- * fragment is EXACTLY one resolved `reserved.vfx` entry) -- nothing here
- * reaches for real additive blending at all, so the whole "sums to an
- * off-palette colour" failure mode this module could have reintroduced
- * simply does not arise. What is new is not the blend recipe, it is that
+ * fragment is one flat resolved `reserved.vfx` entry times its HDR gain,
+ * `./hdr-gains.ts`, D9) -- nothing here reaches for real additive blending
+ * at all, so the blend-stage sum of two flat colours into a third nothing
+ * authored, which this module could have reintroduced, simply does not
+ * arise. What is new is not the blend recipe, it is that
  * three DIFFERENT flat colours now sit next to each other in one coherent
  * silhouette instead of one colour repeated across many small discs.
  *

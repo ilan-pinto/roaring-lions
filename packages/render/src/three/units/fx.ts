@@ -1184,7 +1184,7 @@ export function writeShellInstances(
  *    read out of the ramp." This material has no ramp (it writes a literal
  *    resolved palette hex straight to
  *    `gl_FragColor`), but the SAME property -- every fragment this material
- *    ever writes is one of the 65 -- held for it too, by a different
+ *    ever writes is one of the 65 -- held for it too (before the HDR gain, D9), by a different
  *    mechanism (a hardcoded, already-palette-resolved `vColor`), until
  *    `AdditiveBlending` broke it: the GPU blend stage runs AFTER the
  *    fragment shader, summing whatever the shader wrote with whatever is
@@ -1297,10 +1297,8 @@ export function createParticleMaterial(depthTest: boolean, hotCore: boolean): TH
         float d = length(vLocal);
         float feather = 1.0 - smoothstep(${SOFT_PARTICLE_CORE.toFixed(2)}, 1.0, d);
         float a = ${hotCore ? '1.0' : 'vAlpha'} * mix(1.0, feather, vSoft);
-        // hotCore: alpha is pinned to 1.0, not read off vAlpha -- see this
-        // function's own doc comment, "The fix actually shipped keeps
-        // NormalBlending...", for why an opaque overwrite is what keeps
-        // every hotCore fragment a flat palette colour times the sparks gain. No shipped
+        // hotCore: alpha pinned to 1.0 (an opaque overwrite; see this
+        // function's doc comment) and colour times the sparks gain. No shipped
         // emitter marks a smoke_puff layer additive, so the mix above
         // is a no-op on that material in practice; it is written anyway
         // rather than compiled out, so a future emitter that does both gets

@@ -48,6 +48,7 @@ import {
   SHELL_TAIL_ALPHA,
   ShellBatch,
   createTracerMaterial,
+  createParticleMaterial,
   shellSegmentQuad,
   liftedSegmentQuad,
   liftedSegmentQuadInto,
@@ -744,6 +745,11 @@ describe('shellSegmentQuad', () => {
 });
 
 describe('HDR on the tracer / shell materials', () => {
+  it('the hotCore particle fragment shader carries the sparks gain (4.00), the other 1.0', () => {
+    expect(createParticleMaterial(true, true).fragmentShader).toContain('vColor * 4.00');
+    expect(createParticleMaterial(true, false).fragmentShader).toContain('vColor * 1.0');
+  });
+
   it('the tracer material carries a uHdr uniform, 1 by default', () => {
     const m = createTracerMaterial();
     expect(m.uniforms.uHdr.value).toBe(1);
