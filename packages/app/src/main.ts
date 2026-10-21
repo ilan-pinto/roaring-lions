@@ -180,7 +180,7 @@ import { watchNoGpu } from './ui/no-gpu';
 import { bootFailureCard, bootFailureKind, guardBoot, mountErrorCard, mountInterrupted, watchContextLoss } from './ui/boot-failure';
 import { webgl2Available } from './ui/webgl-probe';
 import { alertNotice, evacuatedNotice, placePhrase, reinforceTrigger, removedNotice, ledgerSavedNotice, triggerLabel, unknownSandboxMapNotice } from './ui/mission-notice';
-import { ReinforcementDock } from './ui/production';
+import { ReinforcementDock, isWorksKind } from './ui/production';
 import { IntelMoments, READY_FLASH_MS, type IntelOutput } from './ui/intel-moments';
 import { barrageLine, breakdownLine, strikeLine } from './ui/intel-copy';
 import { SUPPORT, SUPPORT_KINDS, type SupportKind } from './ui/support-kinds';
@@ -4008,7 +4008,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         };
       },
       onArm: (kind) => {
-        armedSupport = kind;
+        // Task 11 owns arming a works kind; until it lands the slot stays a fire call.
+        armedSupport = isWorksKind(kind) ? null : kind;
         // The other half of the mutual exclusion in `orders.attackMove`: only
         // one armed mode can own the next click, and the one just asked for
         // wins.

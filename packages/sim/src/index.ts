@@ -25,7 +25,11 @@ export {
   type ZoneIncome,
   type ConvoyRoute,
   type DefeatCause,
+  type WorksOffer,
+  type WorksRefusal,
 } from './mission';
+export type { PlacementRefusal } from './sim';
+export type { StructureType } from './structures';
 // The civilian flight rule, shared by `MissionRuntime` and the `&civ` sandbox.
 // Exported because a sandbox has no mission and therefore no runtime, and the
 // alternative to sharing it was a second copy of a game rule in `packages/app`.

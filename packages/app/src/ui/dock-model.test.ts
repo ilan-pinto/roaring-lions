@@ -18,6 +18,7 @@ import {
   lockLabel,
   queueFor,
   tileState,
+  worksTileState,
   type DockUnit,
   type DockView,
   type LineSnapshot,
@@ -411,5 +412,22 @@ describe('rallyMarks (R3, on demand only)', () => {
   it('draws nothing for a focused line with no rally, or a fallen camp', () => {
     expect(rallyMarks(lines, { ...none, pinned: 2 }, 0)).toEqual([]);
     expect(rallyMarks([line({ rally: [1, 1], alive: false })], { ...none, pinned: 0 }, 0)).toEqual([]);
+  });
+});
+
+describe('worksTileState (#277)', () => {
+  const offer = { typeId: 'kdf_medic_station', name: 'Medic Station', max: 2, left: 1, logistics: 250, intel: 0 };
+  it('maps each reason to its state and carries the counts', () => {
+    const cases: [Parameters<typeof worksTileState>[1], string][] = [
+      [null, 'ready'],
+      ['locked', 'locked'],
+      ['unaffordable', 'unaffordable'],
+      ['none_left', 'none_left'],
+      ['needs_engineers', 'needs_engineers'],
+      ['not_listed', 'locked'],
+    ];
+    for (const [reason, state] of cases) {
+      expect(worksTileState(offer, reason)).toEqual({ typeId: 'kdf_medic_station', state, left: 1, max: 2, logistics: 250 });
+    }
   });
 });

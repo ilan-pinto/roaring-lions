@@ -17,10 +17,11 @@
 // action is a callback `main.ts` supplied — see the note on `onArm` for why
 // that indirection is load-bearing and not ceremony.
 
-import type { Command, Fx, LedgerData } from '@lions/sim';
+import type { Command, Fx, LedgerData, WorksOffer, WorksRefusal } from '@lions/sim';
 import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
 import { escapeHtml } from './escape-html';
+import { worksMarkSvg } from './mark';
 import { roleBadgeSvg } from './role';
 import { symbolSvg } from './symbol';
 import { bindTip } from './tooltip';
@@ -32,6 +33,8 @@ import {
   rallyMarks as rallyMarksFor,
   RALLY_FLASH_MS,
   tileState,
+  worksTileState,
+  type WorksTileState,
   type DockUnit,
   type DockView,
   type LineSnapshot,
@@ -40,9 +43,26 @@ import {
 } from './dock-model';
 import { kitIconSignHtml, kitLevelLabel } from './kit-sign';
 import type { Tone } from './hud';
-import { SUPPORT, SUPPORT_KINDS, type SupportKind } from './support-kinds';
+import { SUPPORT, SUPPORT_KINDS, type SupportKind as FireSupportKind } from './support-kinds';
 
-export type { SupportKind };
+/** A field work armed from the dock (GH-277): the structure type's id. */
+export type WorksKind = { readonly works: string };
+
+/** What the dock can arm: one of the four fire-support calls, or a field work. */
+export type SupportKind = FireSupportKind | WorksKind;
+
+export function isWorksKind(k: SupportKind | null): k is WorksKind {
+  return k !== null && typeof k === 'object';
+}
+
+/** Two arms are the same arm. A works kind is an object, so `===` is false for
+ *  two `{ works: 'a' }` built apart; every comparison of support kinds goes
+ *  through here. */
+export function sameSupport(a: SupportKind | null, b: SupportKind | null): boolean {
+  if (a === null || b === null) return a === b;
+  if (isWorksKind(a) || isWorksKind(b)) return isWorksKind(a) && isWorksKind(b) && a.works === b.works;
+  return a === b;
+}
 
 /** What a tile needs to draw one buildable type. `DockUnit` is the shape;
  *  re-exported under the name `main.ts` and the ticket already use. */
@@ -54,7 +74,7 @@ export type BuildableUnit = DockUnit;
 export interface ProductionRuntime extends DockView {
   readonly intel: number;
   /** MissionRuntime's own method: what one call costs in intel. */
-  supportCost(kind: SupportKind): number;
+  supportCost(kind: FireSupportKind): number;
   /** MissionRuntime's click-time pre-check: would `requestBuild` accept now?
    *  (N2, D3.) The dock never spends: an accepted purchase is a `build`
    *  command, which the runtime re-checks and spends before the next tick. */
@@ -66,6 +86,11 @@ export interface ProductionRuntime extends DockView {
   /** F4: would `setRally(line, x, y)` accept now? Read-only; the armed
    *  cursor and the click's pre-check share it. */
   canSetRally?(line: number, x: Fx, y: Fx): boolean;
+  /** Field works (GH-277): the "Field works" group's rows. Absent or empty: no
+   *  group, and the dock's DOM is the one a mission without `field_works` has. */
+  worksOffers?(): readonly WorksOffer[];
+  /** Why a type cannot be raised now (no tile: the dock tile's own state). */
+  constructReason?(typeId: string): WorksRefusal | null;
 }
 
 export interface ProductionOptions {
@@ -117,7 +142,7 @@ export interface ProductionOptions {
    * worded by the caller through `t()`. No clock: intel is earned by doing
    * (F1), so there is no rate to read a time off. Absent: the tile only dims.
    */
-  supportCharge?: (kind: SupportKind) => { fraction: number; title: string };
+  supportCharge?: (kind: FireSupportKind) => { fraction: number; title: string };
   /** Plays the deny cue on every click the dock refuses: a support call the
    *  intel cannot pay for (click or `press`), and a unit tile that is locked,
    *  capped by population, or one the runtime declines to build -- one deny
@@ -126,7 +151,7 @@ export interface ProductionOptions {
   onDeny?: () => void;
   /** The bound key's label for a call, for the tooltip's last line (Task 3
    *  wires it). Absent prints nothing. */
-  hotkeyLabel?: (kind: SupportKind) => string | undefined;
+  hotkeyLabel?: (kind: FireSupportKind) => string | undefined;
   /** F4: Set rally is armed for `line`, or nothing is (`null`). Owned by the
    *  input layer like `onArm`: it decides what the next click on the map
    *  means, and arming a rally disarms a support call or an order. */
@@ -186,17 +211,27 @@ const CHIP_BADGE = 14;
 
 interface SupportTile {
   el: HTMLButtonElement;
-  kind: SupportKind;
+  kind: FireSupportKind;
   cost: number;
   bar: HTMLElement;
   /** Frame-clock ms until which the border says "ready" (GH-113). */
   flashUntil: number;
 }
 
+/** One "Field works" tile (GH-277). */
+interface WorksTile {
+  el: HTMLButtonElement;
+  offer: WorksOffer;
+  left: HTMLElement;
+  lock: HTMLElement;
+  state: WorksTileState['state'];
+}
+
 export class ReinforcementDock {
   private readonly el: HTMLDivElement;
   private readonly unitTiles: UnitTile[] = [];
   private readonly supportTiles: SupportTile[] = [];
+  private readonly worksTiles: WorksTile[] = [];
   /** Types the player has bought this mission -- the deploying chip shows
    *  only for one of these, never for a tile nobody has touched. */
   private readonly bought = new Set<string>();
@@ -289,6 +324,15 @@ export class ReinforcementDock {
     for (const unit of opts.units) grid.appendChild(this.buildUnitTile(unit));
     for (const kind of SUPPORT_KINDS) {
       grid.appendChild(this.buildSupportTile(kind, opts.runtime.supportCost(kind)));
+    }
+    // Field works (GH-277): a third group, only when the mission lists any.
+    const offers = opts.runtime.worksOffers?.() ?? [];
+    if (offers.length > 0) {
+      const heading = document.createElement('div');
+      heading.className = 'rl-dock__group';
+      heading.textContent = t('dock.works.label');
+      grid.appendChild(heading);
+      for (const offer of offers) grid.appendChild(this.buildWorksTile(offer));
     }
 
     // F4: the camps' rows sit between the header and the grid, held to the
@@ -455,7 +499,7 @@ export class ReinforcementDock {
     return el;
   }
 
-  private buildSupportTile(kind: SupportKind, cost: number): HTMLButtonElement {
+  private buildSupportTile(kind: FireSupportKind, cost: number): HTMLButtonElement {
     const spec = SUPPORT[kind];
     const el = document.createElement('button');
     el.type = 'button';
@@ -484,9 +528,49 @@ export class ReinforcementDock {
     return el;
   }
 
+  private buildWorksTile(offer: WorksOffer): HTMLButtonElement {
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.className = 'rl-tile rl-tile--works';
+    el.dataset.works = offer.typeId;
+    el.dataset.armed = '0';
+    el.dataset.state = 'ready';
+    const glyph = document.createElement('span');
+    glyph.className = 'rl-tile__glyph';
+    glyph.innerHTML = worksMarkSvg(offer.typeId, SUPPORT_GLYPH_PX);
+    const cost = document.createElement('span');
+    cost.className = 'rl-tile__cost';
+    cost.innerHTML = LOGISTICS_MARK;
+    cost.append(` ${offer.logistics}`);
+    const left = document.createElement('span');
+    left.className = 'rl-tile__worksleft';
+    const lock = document.createElement('span');
+    lock.className = 'rl-tile__lock';
+    el.append(glyph, cost, left, lock);
+    el.addEventListener('click', () => {
+      this.press({ works: offer.typeId });
+      el.blur();
+    });
+    this.tipDisposers.push(bindTip(el, () => this.worksTipHtml(offer), { host: this.el, clear: this.el }));
+    this.worksTiles.push({ el, offer, left, lock, state: 'ready' });
+    return el;
+  }
+
+  private worksTipHtml(offer: WorksOffer): string {
+    const blurbKey = `works.${offer.typeId}.blurb`;
+    return (
+      `<div class="rl-tip__head">` +
+      `<span class="rl-tip__name">${escapeHtml(offer.name)}</span>` +
+      `<span class="rl-tip__cost">${escapeHtml(t('dock.works.tip.cost', { n: offer.logistics }))}</span>` +
+      `</div>` +
+      `<div class="rl-tip__blurb">${escapeHtml(t(blurbKey))}</div>`
+    );
+  }
+
   /** The tile's click, callable from a hotkey: arms or disarms `kind`, or
    *  denies with a note and the cue when intel is short. Returns true if armed. */
   press(kind: SupportKind): boolean {
+    if (isWorksKind(kind)) return this.pressWorks(kind);
     const spec = SUPPORT[kind];
     const tile = this.supportTiles.find((x) => x.kind === kind);
     if (tile === undefined || this.opts.runtime.intel < tile.cost) {
@@ -494,12 +578,34 @@ export class ReinforcementDock {
       this.opts.onDeny?.();
       return false;
     }
-    this.setArmed(this.armed === kind ? null : kind);
+    this.setArmed(sameSupport(this.armed, kind) ? null : kind);
     this.opts.note(
       this.armed ? t('dock.note.armed', { name: t(spec.name) }) : t('dock.note.cancelled'),
       'info'
     );
-    return this.armed === kind;
+    return sameSupport(this.armed, kind);
+  }
+
+  private pressWorks(kind: WorksKind): boolean {
+    const tile = this.worksTiles.find((x) => x.offer.typeId === kind.works);
+    if (tile === undefined) return false;
+    const name = escapeHtml(tile.offer.name);
+    const state = worksTileState(tile.offer, this.opts.runtime.constructReason?.(kind.works) ?? null);
+    if (state.state !== 'ready') {
+      const reason: Record<WorksTileState['state'], string> = {
+        ready: '',
+        locked: t('dock.lock.locked'),
+        unaffordable: t('works.refuse.unaffordable'),
+        none_left: t('works.refuse.none_left'),
+        needs_engineers: t('works.refuse.needs_engineers'),
+      };
+      this.opts.note(t('dock.note.locked', { name, reason: escapeHtml(reason[state.state]) }), 'warn');
+      this.opts.onDeny?.();
+      return false;
+    }
+    this.setArmed(sameSupport(this.armed, kind) ? null : kind);
+    this.opts.note(this.armed ? t('dock.note.worksArmed', { name }) : t('dock.note.cancelled'), 'info');
+    return sameSupport(this.armed, kind);
   }
 
   // ------------------------------------------------------------------
@@ -539,7 +645,7 @@ export class ReinforcementDock {
     );
   }
 
-  private supportTipHtml(kind: SupportKind, cost: number): string {
+  private supportTipHtml(kind: FireSupportKind, cost: number): string {
     const spec = SUPPORT[kind];
     const key = this.opts.hotkeyLabel?.(kind);
     const hotkey = key === undefined || key === '' ? '' : `<div class="rl-tip__tags">${escapeHtml(t('dock.tip.hotkey', { key }))}</div>`;
@@ -560,7 +666,7 @@ export class ReinforcementDock {
   /** GH-113: a call just became affordable -- the border says so for
    *  `ms`. Cleared by `refresh()` on its own cadence, so there is no timer
    *  to dispose. */
-  flashReady(kind: SupportKind, nowMs: number, ms: number): void {
+  flashReady(kind: FireSupportKind, nowMs: number, ms: number): void {
     for (const tile of this.supportTiles) {
       if (tile.kind !== kind) continue;
       tile.flashUntil = nowMs + ms;
@@ -572,7 +678,10 @@ export class ReinforcementDock {
   setArmed(kind: SupportKind | null): void {
     this.armed = kind;
     for (const { el, kind: k } of this.supportTiles) {
-      el.dataset.armed = this.armed === k ? '1' : '0';
+      el.dataset.armed = sameSupport(this.armed, k) ? '1' : '0';
+    }
+    for (const { el, offer } of this.worksTiles) {
+      el.dataset.armed = sameSupport(this.armed, { works: offer.typeId }) ? '1' : '0';
     }
     this.opts.onArm(kind);
   }
@@ -654,6 +763,27 @@ export class ReinforcementDock {
       tile.bar.style.width = charge === undefined || !poor ? '0' : `${(charge.fraction * 100).toFixed(1)}%`;
       if (charge !== undefined) tile.el.setAttribute('aria-label', charge.title);
       tile.el.dataset.readyFlash = now < tile.flashUntil ? '1' : '0';
+    }
+    this.paintWorks();
+  }
+
+  /** Field works: each tile's state, its `left/max` and its lock word. */
+  private paintWorks(): void {
+    for (const tile of this.worksTiles) {
+      const st = worksTileState(tile.offer, this.opts.runtime.constructReason?.(tile.offer.typeId) ?? null);
+      tile.state = st.state;
+      tile.el.dataset.state = st.state;
+      tile.left.textContent = t('dock.works.left', { left: st.left, max: st.max });
+      const word =
+        st.state === 'locked'
+          ? t('dock.lock.locked')
+          : st.state === 'needs_engineers'
+            ? t('dock.lock.engineers')
+            : st.state === 'none_left'
+              ? t('dock.lock.noneLeft')
+              : '';
+      tile.lock.textContent = word;
+      tile.el.setAttribute('aria-label', word === '' ? tile.offer.name : `${tile.offer.name} — ${word}`);
     }
   }
 

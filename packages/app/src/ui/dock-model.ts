@@ -10,7 +10,7 @@
 // one frame of a live mission is invisible; the same wrongness in a pure
 // function is one assertion.
 
-import { TICKS_PER_SECOND, fx, conductAtLeast, isBoughtOnly, starsEarned, type LedgerData, type UnlockGate } from '@lions/sim';
+import { TICKS_PER_SECOND, fx, conductAtLeast, isBoughtOnly, starsEarned, type LedgerData, type UnlockGate, type WorksOffer, type WorksRefusal } from '@lions/sim';
 import type { KitLevel } from '@lions/data';
 import { gateSentence } from '../gate-sentence';
 import { t } from '../i18n/t';
@@ -430,4 +430,49 @@ export function rallyMarks(lines: readonly LineSnapshot[], focus: RallyFocus, no
     });
   });
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Field works (GH-277): the dock's third group.
+// ---------------------------------------------------------------------------
+
+/** What one "Field works" tile shows. `ready` is the only state a click arms. */
+export interface WorksTileState {
+  typeId: string;
+  state: 'ready' | 'locked' | 'unaffordable' | 'none_left' | 'needs_engineers';
+  left: number;
+  max: number;
+  logistics: number;
+}
+
+/**
+ * The tile's state from the runtime's own answer. `reason` is
+ * `constructReason(typeId)` with no tile, so it is one of the dock-level
+ * refusals or null; a placement refusal (which that call never returns) and
+ * `not_listed` read as the tile being unavailable, never as a crash.
+ */
+export function worksTileState(offer: WorksOffer, reason: WorksRefusal | null): WorksTileState {
+  let state: WorksTileState['state'];
+  switch (reason) {
+    case null:
+      state = 'ready';
+      break;
+    case 'unaffordable':
+      state = 'unaffordable';
+      break;
+    case 'none_left':
+      state = 'none_left';
+      break;
+    case 'needs_engineers':
+      state = 'needs_engineers';
+      break;
+    case 'locked':
+    case 'not_listed':
+      state = 'locked';
+      break;
+    default:
+      // A placement refusal needs a tile, which the dock never asks about.
+      state = 'ready';
+  }
+  return { typeId: offer.typeId, state, left: offer.left, max: offer.max, logistics: offer.logistics };
 }
