@@ -154,6 +154,17 @@
  *               can see it, which is why it does not get a check on every
  *               gated scenario.
  *
+ * `bloom`, ADDED FOR DEFILADE TASK 4 (`./bloom.ts`): the selective HDR
+ * bloom pass, toggled by its own `enabled` -- `vignette`'s shape exactly,
+ * and it holds across the repaint for the same reason (the chain is rebuilt
+ * only from `init()`/`dispose()`; the census's `withPreBloomBuffer` restores
+ * whatever it found). Absent on `low` (`RenderQuality.bloom` `'off'` builds
+ * no pass), where it toggles 0 objects. On a QUIET frame it moves nothing at
+ * all -- nothing in one crosses the 1.0 threshold, which is what the census
+ * (`tools/src/perf/bloom-census.ts`) holds -- so its witness has to be a
+ * frame with an HDR effect in it (`blast:capture`), never a gated golden
+ * scenario.
+ *
  * `overlays`, ADDED FOR TASK 10'S KEY-ART PLATE (not the visual gate -- the
  * Phase 0 capture tool that added it was its only caller, and retired with
  * the key-art plate it drew (scene-host plan Task 7); no capture tool calls
@@ -342,6 +353,7 @@ export const DEBUG_LAYERS = [
   'buildings',
   'units',
   'vignette',
+  'bloom',
   'skirt',
   'overlays',
   'fog',

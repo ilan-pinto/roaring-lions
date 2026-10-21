@@ -16,6 +16,7 @@
     "perf:load": "tsx src/perf/load-profile.ts",
     "perf:memory": "tsx src/perf/memory.ts",
     "perf:lowend": "tsx src/perf/low-end.ts",
+    "perf:bloom-census": "tsx src/perf/bloom-census.ts",
     "ground:capture": "tsx src/perf/ground-captures.ts",
     "golden-diff": "tsx src/golden-diff/diff.ts",
     "golden-baseline": "tsx src/ci/three-baseline-gate.ts",

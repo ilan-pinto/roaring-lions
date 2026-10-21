@@ -175,6 +175,7 @@ import { disposeAndReleaseContext, noteSharedTextures } from './context-release'
 import { freezeSceneRoot, freezeStatic } from './static-matrix';
 import { AO_RESOLUTION_SCALE, createAoPass, createPostChain, PIXEL_RATIO_CAP, type PostChain } from './post-chain';
 import { VignettePass } from './vignette-pass';
+import { bloomPassFor, luminanceCensus, type LuminanceCensus, type QuarterBloomPass } from './bloom';
 import type { Pass } from 'three/addons/postprocessing/Pass.js';
 // The ONE piece of the post chain `captureGroundAlbedo` needs -- see that
 // method for why a render target cannot simply be read back raw.
@@ -2396,6 +2397,18 @@ export class ThreeRenderer implements Renderer {
    */
   private vignettePass: VignettePass | null = null;
   /**
+   * Defilade Task 4: the selective HDR bloom (`./bloom.ts`), after AO and
+   * before `OutputPass`. Built in `init()` only when `quality.bloom` asks
+   * (`high` and `medium`, at a quarter of the drawing buffer; `low` never
+   * builds one), held for the same two reasons `aoPass` is -- the chain does
+   * not own it, and the `ThreeRenderer*.test.ts` fakes never reach `init()`.
+   * The composer resizes it with every other pass (`fitToHost` ->
+   * `post.setSize`), and `QuarterBloomPass.setSize` keeps it at a quarter.
+   * Typed as the concrete class because `setDebugLayerVisible('bloom', ...)`
+   * flips its `enabled`, `vignette`'s shape.
+   */
+  private bloomPass: QuarterBloomPass | null = null;
+  /**
    * The ground beyond the map (`./terrain/skirt.ts`). Built and added in the
    * CONSTRUCTOR, unlike every other terrain mesh in this class: it is a
    * function of `sim.width`/`sim.height` alone, so a `rebuildTerrain` -- a
@@ -2942,6 +2955,13 @@ export class ThreeRenderer implements Renderer {
       this.aoPass = createAoPass(this.scene, this.viewCamera, this.cssWidth, this.cssHeight, AO_RESOLUTION_SCALE);
       this.post.setAoPass(this.aoPass);
     }
+    // Defilade Task 4: bloom, after AO and before OutputPass (see
+    // `post-chain.ts`'s header for why both neighbours matter). Gated
+    // through `bloomPassFor`, the same call the chain-order test makes, so
+    // `low` never builds the pass or its eleven targets. Ownership is
+    // `setFogPass`'s again: `dispose()` below frees it.
+    this.bloomPass = bloomPassFor(quality, this.cssWidth, this.cssHeight, this.renderer.getPixelRatio());
+    if (this.bloomPass) this.post.setBloomPass(this.bloomPass);
     // Shell upgrade Phase 0: the corner vignette, AFTER `OutputPass` and
     // BEFORE SMAA -- the only pass here that runs on display-referred
     // colour. See `vignette-pass.ts` for why that slot is the only one that
@@ -3301,6 +3321,11 @@ export class ThreeRenderer implements Renderer {
     this.post?.setVignettePass(null);
     this.vignettePass?.dispose();
     this.vignettePass = null;
+    // Defilade Task 4, the same rule and order: out of the chain, then
+    // freed -- the bright target, ten blur mips and nine materials.
+    this.post?.setBloomPass(null);
+    this.bloomPass?.dispose();
+    this.bloomPass = null;
     // The skirt's geometry and material -- added once in the constructor, so
     // no `scene.remove`, exactly like `smokeMesh`/`trailMesh` below.
     disposeSkirt(this.skirtMesh);
@@ -3652,6 +3677,17 @@ export class ThreeRenderer implements Renderer {
           if (this.vignettePass) this.vignettePass.enabled = visible;
           return this.vignettePass === null || was === visible ? 0 : 1;
         }
+      case 'bloom': {
+        // Defilade Task 4: `vignette`'s shape exactly -- the pass's own
+        // `enabled`, which no per-frame path re-asserts (the chain is rebuilt
+        // only by the `set*Pass` calls in `init()`/`dispose()`, and
+        // `withPreBloomBuffer` restores what it found), so the toggle holds
+        // across the gate's zero-time repaint. 0 with no pass (`low`, or
+        // `init()` never ran) and when it was already in that state.
+        const was = this.bloomPass?.enabled ?? false;
+        if (this.bloomPass) this.bloomPass.enabled = visible;
+        return this.bloomPass === null || was === visible ? 0 : 1;
+      }
       case 'skirt':
         // An ordinary `visible` flag: the skirt is added once in the
         // constructor and no per-frame path touches it (grep `skirtMesh` --
@@ -3917,6 +3953,26 @@ export class ThreeRenderer implements Renderer {
     this.groundPhoto = this.photographGround(size);
     this.groundPhotoPx = this.groundPhoto === null ? 0 : size;
     return this.groundPhoto;
+  }
+
+  /**
+   * DEBUG ONLY, three-only and deliberately not on `Renderer` (`../api.ts`):
+   * the bloom census's read (`tools/src/perf/bloom-census.ts`). Renders the
+   * chain up to the bloom slot -- RenderPass, fog, AO -- into the composer's
+   * own HalfFloat buffer (`PostChain.withPreBloomBuffer`), reads it back
+   * through `readRenderTargetPixels` (never the canvas:
+   * `preserveDrawingBuffer` stays off), and returns the luminance census of
+   * every `stride`-th pixel: exactly the scene-referred values the bloom's
+   * high-pass thresholds. Built whether or not this preset has a bloom pass,
+   * so `low` can be censused too. Nothing per-frame calls it.
+   */
+  debugPreBloomLuminance(stride = 5): (LuminanceCensus & { width: number; height: number }) | null {
+    if (this.disposed || this.post === null) return null;
+    return this.post.withPreBloomBuffer((target) => {
+      const data = new Uint16Array(target.width * target.height * 4);
+      this.renderer.readRenderTargetPixels(target, 0, 0, target.width, target.height, data);
+      return { ...luminanceCensus(data, stride), width: target.width, height: target.height };
+    });
   }
 
   /**
