@@ -132,6 +132,27 @@ type Census = {
  * camera and zoom, at `CAPTURE_VIEWPORT` -- and reads the pre-bloom buffer
  * with the scenario's own fog and then with fog revealed.
  */
+/**
+ * The failure line for an aftermath view over the ceiling. It NAMES THE
+ * CAUSE, because the lead chooses the remedy from it: when the same frame
+ * with the pooled flash lights hidden is back under the ceiling, the hot
+ * pixels are live muzzle-flash light on the ground -- the sandbox force
+ * firing near the frame -- and not a decal. The verdict is still the lit
+ * frame's: this only explains it.
+ */
+function aftermathFailure(view: string, litMax: number, unlitMax: number | undefined, ceiling: number): string {
+  const head = `aftermath ${view}: max ${litMax.toFixed(4)} > ${ceiling}`;
+  if (unlitMax === undefined) return head;
+  if (unlitMax <= ceiling) {
+    return (
+      `${head} -- CAUSE: pooled flash lights (muzzle flashes of the sandbox force firing near the frame), ` +
+      `not a decal: max ${unlitMax.toFixed(4)} with them hidden, under ${ceiling}. The lead decides: keep the ` +
+      `fire out of the frame's light range (fix the scenario), or an accepted, self-cleaning exemption.`
+    );
+  }
+  return `${head} -- still ${unlitMax.toFixed(4)} with the flash lights hidden: a DECAL or another quiet pixel is over the ceiling`;
+}
+
 async function aftermathReads(
   browser: import('playwright').Browser,
   port: number,
@@ -385,11 +406,12 @@ async function main(): Promise<number> {
       for (const { quality, dpr } of AFTERMATH_CONDITIONS) {
         try {
           const { reads } = await aftermathReads(browser, port, stride, quality, dpr);
+          const unlit = reads.find((x) => x.fog.includes('attribution'))?.census;
           for (const { fog, census: v } of reads) {
             const line = `aftermath | ${quality} | dpr ${dpr} | fog ${fog} | ${v.width}x${v.height} | ${v.samples} | ${v.p50.toFixed(4)} | ${v.p99.toFixed(4)} | ${v.max.toFixed(4)} | ${v.fracOverThreshold.toFixed(6)}`;
             console.log(line);
             if (fog.includes('attribution')) continue;
-            if (!(v.max <= threshold)) failures.push(`aftermath ${quality} dpr${dpr} fog-${fog}: max ${v.max.toFixed(4)} > ${threshold}`);
+            if (!(v.max <= threshold)) failures.push(aftermathFailure(`${quality} dpr${dpr} fog-${fog}`, v.max, unlit?.max, threshold));
             if (v.samples === 0) harnessErrors.push(`aftermath ${quality} dpr${dpr} fog-${fog}: read 0 samples`);
           }
         } catch (err) {

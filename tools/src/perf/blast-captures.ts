@@ -305,6 +305,16 @@ export interface BlastSubject {
    * 500 -- at the layer's own 200 ms rung it has already gone out.
    */
   readonly toggleAtMs?: Readonly<Partial<Record<string, number>>>;
+  /** The tile the camera centres on, when it is not the blast tile. A `fire`
+   *  subject's effect is at the MUZZLE, `standoffTiles` west of the tile its
+   *  target stands on, and a crop centred on the target put the shooter
+   *  half out of frame. */
+  readonly cameraAt?: readonly [number, number];
+}
+
+/** Where a subject's camera is centred: `cameraAt`, else the blast tile. */
+export function cameraTileOf(s: Pick<BlastSubject, 'x' | 'y' | 'cameraAt'>): [number, number] {
+  return s.cameraAt === undefined ? [s.x, s.y] : [s.cameraAt[0], s.cameraAt[1]];
 }
 
 /**
@@ -375,7 +385,8 @@ export const BLAST_SUBJECTS: readonly BlastSubject[] = [
       'on a fourth (load 11.4, 2026-10-21) -- a coin toss, not a witness. At 600 it reads 0 px / ' +
       '0.0000 on all three calibration runs, which makes it the set\'s one NEGATIVE bloom witness: ' +
       'a cooling fireball and its smoke must not bloom, and if they start to, this abstention ' +
-      'clears its floor and fails the run',
+      'clears its floor and fails the run. Run red once: the flipbook smoke colour x6 read 1679 px / ' +
+      '2.1592 here and failed the run (fix round 1)',
   },
   {
     id: 'mortar_team',
@@ -501,7 +512,6 @@ export const BLAST_SUBJECTS: readonly BlastSubject[] = [
     handTick: true,
     probe: true,
     ladderMs: JOLT_LADDER_MS,
-    toggleAtMs: { flipbook: 2000 },
     why:
       "polish VR-22: a building collapse, the top of the event ladder. `beit_sahwan_outskirts`' " +
       'south-east house at x 36-39, y 30-32 -- twelve tiles, so `explosionBurstPowerFromFootprint` ' +
@@ -522,10 +532,12 @@ export const BLAST_SUBJECTS: readonly BlastSubject[] = [
       'the kill on the same framing rose to 10052-10242 px / 4.61-4.66: hiding the light now also ' +
       'removes the bloom it feeds, and the burst blooms on its own. ' +
       'ABSTAINS from `flipbook`: `structure_collapse` carries no recipe (D6 leaves collapses on the ' +
-      'shroud), and at 2000 ms it reads 0 px / 0.0000 on three runs. Its rung is 2000 and not the ' +
-      "layer's 600 because at 600 the toggles-only A/B read 3732 px / 1.4067 on four runs while a " +
-      'full ladder run read 0 px / 0.0000 there: the building, not the flipbook, differed between ' +
-      'the two photographs (cause not established; the full run waits longer before that rung)',
+      "shroud), and at the layer's 600 ms rung it reads 0 px / 0.0000 on three runs. It read 3732 px / " +
+      '1.4067 there on four earlier `--toggles-only` runs with `FlipbookFx.written` 0 -- nothing had ' +
+      'spawned. That was the HOUSE: the first zero-time repaint after the pumped ladder drew it ' +
+      'differently from every later one (a repaint control read the same 3732 / 1.4067 with no ' +
+      'layer hidden), something in it arriving on the wall clock. `runLayerToggles` now waits for a ' +
+      'still scene before the reference photograph (fix round 1)',
     abstains: ['decals', 'flipbook'],
   },
   // ---------------------------------------------------------------------
@@ -679,30 +691,38 @@ export const BLAST_SUBJECTS: readonly BlastSubject[] = [
   // ---------------------------------------------------------------------
   {
     id: 'lavi_fire',
-    typeId: 'dozer_d9',
+    typeId: 'mbt_lavi',
     shooterId: 'mbt_lavi',
     mode: 'fire',
     x: 20,
     y: 4,
-    standoffTiles: 3,
+    standoffTiles: 4,
+    cameraAt: [17.5, 4],
     isolate: true,
     ladderMs: [0, 50, 100, 200, 400, 800, 1600, 2000],
-    toggleAtMs: { bloom: 50, flipbook: 50 },
+    toggleAtMs: { bloom: 50, flipbook: 400, 'blast-light': 50 },
+    abstains: ['decals'],
     why:
-      "a Lavi main-gun shot (`gun_120`, `fire_apfsds`): the muzzle flash at HDR gain 10, its bloom, and " +
-      'the muzzle flipbook (D6 adds it on top of the authored particles), from the frame the round goes ' +
-      "off. **The round kills the D9 on the same tick** (it is in sim range at 3 tiles), so from rung " +
-      'zero this is a muzzle shot AND a vehicle kill, and the kill\'s 70 ms hit-stop holds the frame ' +
-      "clock: at 0 and 50 ms every pooled light is at age 0, where `sin(progress * PI)` is 0, and the " +
-      '`blast-light` A/B read 0 px / 0.0000 there on four runs. So `bloom` and `flipbook` are taken at ' +
-      "50 ms (the muzzle core, the bolt's impact and the kill's first flipbook frame; 53675-54227 px / " +
-      '28.57-28.67 and 53776-53893 px / 32.39-32.42 on three runs) and `blast-light` at the layer\'s ' +
-      '200 (81257-82869 px / 26.23-26.89, the kill light: the 170 ms muzzle light has gone out by then). ' +
-      'VOTES on `decals` too: the kill stamps its scorch, 3275 px / 1.1299 at 2000 ms on three runs',
+      "a Lavi main-gun shot (`gun_120`, `fire_apfsds`) and NOTHING ELSE: the muzzle flash, its pooled " +
+      'light and bloom, the muzzle flipbook (D6 adds it on top of the authored particles) and the bolt. ' +
+      "The target is a second Lavi, DISARMED (`debugDisableFirepower`) so it never answers, at 4 tiles, " +
+      'where the first round does not kill it (the trigger line prints `target survived`; at 3 tiles, ' +
+      'and against the D9 the mock used, the same shot killed its target on the fire tick, and the ' +
+      "frame was a vehicle kill with a muzzle in it -- fix round 1). The camera is centred on the " +
+      'muzzle (`cameraAt`), not the target. Rungs: `bloom` and `blast-light` at 50 ms (the 170 ms ' +
+      'muzzle light near its peak; 52729-53221 px / 26.61-26.65 and 136875-137160 / 40.92-41.07 on ' +
+      "three runs), `flipbook` at 400 (the muzzle smoke grown out of the light's glare; 6543-6637 / " +
+      '2.4851-2.4985, the set\'s smallest flipbook witness, and 0 px / 0.0000 with `fire_apfsds`\'s ' +
+      'recipe deleted). ABSTAINS from `decals`: a surviving target stamps no mark, 0 px / 0.0000 at ' +
+      "2000 ms on three runs. NOT witnessed here: the muzzle-flash MESH's HDR gains (`hdr-gains.ts` " +
+      'muzzleCore/Mid/Outer). Set all three to 1 and `bloom` reads 54125 px / 26.7251, unchanged, and ' +
+      "the frame's pre-bloom max is 6.53 either way: what blooms is the light on the ground, and only " +
+      'the outer zone reaches the screen at all (outer gain 20 raised the over-1.0 fraction 0.0122 -> ' +
+      '0.0135 with the max unmoved), which says the core and mid shells are hidden inside it',
   },
   {
     id: 'lavi_fire_z1',
-    typeId: 'dozer_d9',
+    typeId: 'mbt_lavi',
     shooterId: 'mbt_lavi',
     mode: 'fire',
     x: 20,
@@ -976,59 +996,67 @@ export const LAYER_FLOORS = {
       '21.69-22.11, `shake_probe` 34328-36487 / 9.96-10.97, `mbt_lavi_z1` 10052-10242 / 4.61-4.66, ' +
       '`kamikaze_soft` 100528-101733 / 29.22-29.54, `kamikaze_armour` 58791-58918 / 18.55-18.58, ' +
       '`lavi_fire` 81257-82869 / 26.23-26.89, and the smallest, `collapse_house`, 9010 / 3.5148 on ' +
-      'all three. The pixel floor is RAISED to a third of that (3004 -> 3010); the magnitude floor ' +
-      'stays at 1.75, because a third of 3.5148 is 1.17 and a floor is never lowered to fit.',
+      'all three; `lavi_fire` (the muzzle light alone since fix round 1, at 50 ms) 136875-137160 / ' +
+      '40.92-41.07. The pixel floor is a third of 9010 (3003.3), rounded up to 3010, from the 1750 it ' +
+      'was. The magnitude floor is NOT re-derived: a third of 3.5148 is 1.17, and it stays at the ' +
+      'previous 1.75 -- a DELIBERATE DEVIATION from the one-third rule, toward strictness, not a rule ' +
+      'of its own. It is 2x under the smallest reading, which is bit-identical over three runs.',
   },
   bloom: {
     // Defilade T4 (D1/D8): the quarter-resolution HDR bloom, `bloomPass.enabled`
     // (`setDebugLayerVisible('bloom')`, which no per-frame path re-asserts).
-    minDiffPixels: 1050,
-    minMeanAbsChannelDelta: 1.7,
-    measured: { minDiffPixels: 3130, minMeanAbsChannelDelta: 5.0458, runs: 3 },
+    minDiffPixels: 1110,
+    minMeanAbsChannelDelta: 1.71,
+    measured: { minDiffPixels: 3311, minMeanAbsChannelDelta: 5.1259, runs: 3 },
     toggleAtMs: 200,
     rationale:
       'Calibrated 2026-10-21. ' + '3 runs on darwin-arm64, ANGLE/Metal (Apple M3 Pro), 1400x900 at deviceScaleFactor 1, the 600x400 ' +
-      'ladder crop, `--toggles-only`, 2026-10-21, one browser, music off; load averages 9.51 / 10.78 / ' +
-      '10.26 at the start of each run (other sessions on the machine). ' +
-      'At the 200 ms rung: `mbt_lavi` 19174-19353 px / 13.35-13.39, `scorch_qarn_shoulder` ' +
-      '48072-50654 / 19.64-20.00, `scorch_tel_ridge` 74660-77593 / 22.25-23.11, `blast_in_firefight` ' +
-      '59301-60205 / 23.29-24.77, `mbt_lavi_z1` 3130-4033 / 5.0458-5.4218, `collapse_house` 45308 / ' +
+      'ladder crop, `--toggles-only`, 2026-10-21 (fix round 1), one browser, music off; load averages ' +
+      '5.13 / 17.07 / 14.52 at the start of each run (other sessions on the machine). ' +
+      'At the 200 ms rung: `mbt_lavi` 19148-19396 px / 13.34-13.36, `scorch_qarn_shoulder` ' +
+      '47532-49195 / 19.50-19.76, `scorch_tel_ridge` 73013-76605 / 22.13-23.19, `blast_in_firefight` ' +
+      '60013-60383 / 24.52-25.90, `mbt_lavi_z1` 3311-4043 / 5.1259-5.4759, `collapse_house` 45308 / ' +
       '17.0471 (bit-identical). At their own earlier rungs (`BlastSubject.toggleAtMs`), because a ' +
       'core above the threshold is short-lived: `mortar_team` and `shake_probe` at 0 ms, the landing ' +
-      'frame (21116-21118 / 11.2846-11.2849 and 22050-22052 / 11.3530-11.3535; at 200 ms they read ' +
-      '482-8354 / 1.03-6.71 over four runs, a swing no floor separates from zero); `kamikaze_soft` ' +
-      'and `kamikaze_armour` at 50 ms (26216-26253 / 15.83-15.86 and 28784-28814 / 15.26-15.28; 0 px ' +
-      'at 200, `missile_impact` has cooled); `lavi_fire` at 50 ms (53675-54227 / 28.57-28.67). The ' +
-      'floor is a third of the smallest of each column, both `mbt_lavi_z1` (the kill at zoom 1, ' +
-      'where the fireball is a sixth of its 2.5 size), rounded up. `apc_eitan` ABSTAINS (see that ' +
-      'subject). Falsified: `BLOOM_STRENGTH` 0 drove all eleven voters to 0 px / 0.0000, red.',
+      'frame (21117-21118 / 11.2842-11.2850 and 22048-22052 / 11.3529-11.3535). At 200 ms, over the ' +
+      'first four runs, `mortar_team` read 1257-8354 px / 4.66-6.71 and `shake_probe` 41-482 px / ' +
+      '1.03-1.47 -- a core crossing the threshold on the rung, which no floor separates from zero. ' +
+      '`kamikaze_soft` and `kamikaze_armour` at 50 ms (26225-26252 / 15.85-15.87 and 28786-28835 / ' +
+      '15.28-15.31; 0 px at 200, `missile_impact` has cooled); `lavi_fire` at 50 ms (52729-53221 / ' +
+      '26.61-26.65). The floor is a third of the smallest of each column, both `mbt_lavi_z1` (the ' +
+      'kill at zoom 1, where the fireball is a sixth of its 2.5 size), rounded up. `apc_eitan` ' +
+      'ABSTAINS (see that subject). Falsified: `BLOOM_STRENGTH` 0 drove every voter to 0 px / 0.0000 ' +
+      '(the first calibration set, floor 1050 / 1.7), red. The jitter at a nominal 200 ms rung is a ' +
+      'rung landing on the edge of an effect\'s above-threshold life, which moves with load; why the ' +
+      "frame-clock age at a rung varies run to run is not established (follow-up).",
   },
   flipbook: {
     // Defilade T4 (D6/D7): the fire and smoke flipbook billows that replaced
     // the fireball mesh, the smoke column and the smoke discs on shell
     // impacts, vehicle kills and missile impacts, plus the muzzle recipes.
     // A FLAG (`FlipbookFx.setDebugHidden`), `missiles`' shape.
-    minDiffPixels: 2550,
-    minMeanAbsChannelDelta: 0.99,
-    measured: { minDiffPixels: 7639, minMeanAbsChannelDelta: 2.9417, runs: 3 },
+    minDiffPixels: 2190,
+    minMeanAbsChannelDelta: 0.83,
+    measured: { minDiffPixels: 6543, minMeanAbsChannelDelta: 2.4851, runs: 3 },
     toggleAtMs: 600,
     rationale:
       'Calibrated 2026-10-21. ' + '3 runs on darwin-arm64, ANGLE/Metal (Apple M3 Pro), 1400x900 at deviceScaleFactor 1, the 600x400 ' +
-      'ladder crop, `--toggles-only`, 2026-10-21, one browser, music off; load averages 9.51 / 10.78 / ' +
-      '10.26 at the start of each run (other sessions on the machine). ' +
-      'At the 600 ms rung -- past the fireball, inside the dust and soot: `mbt_lavi` 65175-65427 px / ' +
-      '19.60-19.67, `apc_eitan` 44165-48602 / 12.28-14.96, `mortar_team` 7639 / 2.9417 (bit-identical, ' +
-      'the smallest), `scorch_qarn_shoulder` 34058-36949 / 7.66-8.37, `scorch_tel_ridge` 67279-68610 / ' +
-      '17.01-17.47, `blast_in_firefight` 64903-66716 / 18.50-19.01, `shake_probe` 10086 / 3.1347, ' +
-      '`mbt_lavi_z1` 10310-10347 / 3.14-3.15. At their own rungs: `kamikaze_soft` and ' +
-      '`kamikaze_armour` at 400 ms (27260 / 12.7836 and 20120 / 7.3232, bit-identical; at 1000 the ' +
-      'armour read 1199 / 0.3403, its smoke thinning), `lavi_fire` at 50 ms (53776-53893 / ' +
-      '32.39-32.42). The floor is a third of `mortar_team`, rounded up -- the mortar is the weakest ' +
-      'billow (impactPower 0.3) and the one a muzzle-sized regression would hide in. ' +
-      '`collapse_house` ABSTAINS (no recipe). Falsified: an early return in `FlipbookFx.spawnRecipe` ' +
-      'drove ten of the eleven voters to 0 px / 0.0000 and `scorch_qarn_shoulder` to 20 / 0.0198, ' +
-      'all red (and took `mortar_team`\'s and `shake_probe`\'s bloom to 0 with them: their landing ' +
-      'core IS the flipbook fireball).',
+      'ladder crop, `--toggles-only`, 2026-10-21 (fix round 1), one browser, music off; load averages ' +
+      '5.13 / 17.07 / 14.52 at the start of each run (other sessions on the machine). ' +
+      'At the 600 ms rung -- past the fireball, inside the dust and soot: `mbt_lavi` 64935-65341 px / ' +
+      '19.58-19.65, `apc_eitan` 48549-48682 / 14.94-15.04, `mortar_team` 7639 / 2.9417 (bit-identical), ' +
+      '`scorch_tel_ridge` 66687-68627 / 16.67-18.23, `blast_in_firefight` 64120-68099 / 18.86-19.74, ' +
+      '`shake_probe` 10086 / 3.1347, `mbt_lavi_z1` 10330-10347 / 3.13-3.15; `scorch_qarn_shoulder` ' +
+      '34058-36949 / 7.66-8.37 on the earlier set (on this one its scene never held still, see ' +
+      '`runLayerToggles`). At their own rungs: `kamikaze_soft` and `kamikaze_armour` at 400 ms (27260 ' +
+      '/ 12.7836 and 20120 / 7.3232, bit-identical; at 1000 the armour read 1199 / 0.3403), and ' +
+      '`lavi_fire` at 400 ms (6543-6637 / 2.4851-2.4985, the smallest: the MUZZLE recipe alone, ' +
+      'since fix round 1). The floor is a third of `lavi_fire`, rounded up. `collapse_house` ' +
+      'ABSTAINS (no recipe). Falsified: deleting only `fire_apfsds.json`\'s `flipbook` array drove ' +
+      '`lavi_fire` to 0 px / 0.0000, red; an early return in `FlipbookFx.spawnRecipe` drove ten of ' +
+      'eleven voters to 0 px / 0.0000 and `scorch_qarn_shoulder` to 20 / 0.0198, all red (and took ' +
+      "`mortar_team`'s and `shake_probe`'s bloom to 0 with them: their landing core IS the flipbook " +
+      'fireball).',
   },
 } satisfies Record<string, LayerFloor>;
 
@@ -1175,6 +1203,10 @@ export function toggleRungFor(layer: string, ladder: readonly number[], subject?
  *  (`unknownDebugLayerMessage`), so a typo can never read as a layer that
  *  draws nothing; and since Task 8 a zero is a FAILURE rather than a note. */
 const LAYERS: readonly string[] = Object.keys(LAYER_FLOORS);
+/** How many times, and how far apart, `runLayerToggles` repaints at zero
+ *  elapsed time waiting for two photographs of a rung to agree. */
+const STILL_ATTEMPTS = 8;
+const STILL_WAIT_MS = 250;
 /** The map the three comparison subjects parade on. */
 const DEFAULT_MAP = 'beit_sahwan_outskirts';
 /** The window the per-frame probe records, for a subject that asks for one.
@@ -1409,6 +1441,7 @@ interface LionsWindow {
       spawn(typeIdx: number, side: number, x: number, y: number): number;
       tick(): unknown[];
       debugKill(id: number): void;
+      debugDisableFirepower(id: number): void;
       removeFromPlay(id: number): void;
       structureAt(x: number, y: number): number;
       debugDestroyStructure(id: number): void;
@@ -2216,6 +2249,10 @@ async function triggerTriggerFx(page: import('playwright').Page, p: Placed, note
         const hostileId = row.typeId ?? row.id;
         const hostile = L.sim.spawn(L.sim.unitTypes.findIndex((t) => t.id === hostileId), 1, row.x * fixed, row.y * fixed);
         target = hostile;
+        // `fire` photographs the MUZZLE alone: its target is a hull the shot
+        // does not kill, disarmed so it never answers -- no kill blast, no
+        // hit-stop, no return fire in the frame (Task 7 fix round 1).
+        if (row.mode === 'fire') L.sim.debugDisableFirepower(hostile);
       } else if (row.mode === 'aps') {
         const launcherId = row.shooterId;
         const hostile = L.sim.spawn(L.sim.unitTypes.findIndex((t) => t.id === launcherId), 1, (row.x + (row.standoffTiles ?? 9)) * fixed, row.y * fixed);
@@ -2247,7 +2284,7 @@ async function triggerTriggerFx(page: import('playwright').Page, p: Placed, note
           // Defilade T4: the frame the shooter's gun goes off.
           const shot = events.find((e) => e.kind === 'fire' && e.shooter === shooter);
           if (shot) {
-            found = `fire ${shot.weaponId} on tick ${shot.tick}`;
+            found = `fire ${shot.weaponId} on tick ${shot.tick}, target ${L.sim.state.alive[target] === 1 ? 'survived' : 'KILLED'}`;
             break;
           }
         } else if (row.mode === 'strike') {
@@ -2499,13 +2536,13 @@ async function shoot(
     cells.push(cell);
   };
   if (ms === 0) {
-    const est = await frameAt(page, subject.x, subject.y, ESTABLISH_ZOOM);
+    const est = await frameAt(page, ...cameraTileOf(subject), ESTABLISH_ZOOM);
     const file = `${subject.id}-${subject.mode}-establish-${label}-z${ESTABLISH_ZOOM}.png`;
     await page.screenshot({ path: path.join(out, file) });
     push(ESTABLISH_ZOOM, file, est.tick);
     console.log(`  saved ${file}`);
   }
-  const state = await frameAt(page, subject.x, subject.y, subject.ladderZoom ?? LADDER_ZOOM);
+  const state = await frameAt(page, ...cameraTileOf(subject), subject.ladderZoom ?? LADDER_ZOOM);
   const rect: Rect = {
     x: Math.min(Math.max(0, state.screenX - CLOSE_CROP.width / 2), VIEWPORT.width - CLOSE_CROP.width),
     y: Math.min(
@@ -2529,7 +2566,7 @@ async function shoot(
  *  A/B runs. Zero elapsed time, so it moves no clock -- the frame the toggles
  *  are taken on is the same frame either way. */
 async function frameCrop(page: import('playwright').Page, subject: BlastSubject): Promise<Rect> {
-  const state = await frameAt(page, subject.x, subject.y, subject.ladderZoom ?? LADDER_ZOOM);
+  const state = await frameAt(page, ...cameraTileOf(subject), subject.ladderZoom ?? LADDER_ZOOM);
   return {
     x: Math.min(Math.max(0, state.screenX - CLOSE_CROP.width / 2), VIEWPORT.width - CLOSE_CROP.width),
     y: Math.min(
@@ -2578,9 +2615,59 @@ async function runLayerToggles(
   // different rungs and one `-shown-` file would be overwritten by the second.
   const tag = layers.join('+');
   const shown = path.join(dir, `${subject.id}-${tag}-shown-${label}.png`);
+  // The reference photograph is taken only once the scene holds STILL under
+  // a zero-time repaint: repaint and photograph until two consecutive
+  // photographs agree (Task 7 fix round 1), and the last comparison is this
+  // rung's CONTROL. Measured on `collapse_house` at 600 ms in
+  // `--toggles-only`: a photograph taken straight after the pumped ladder
+  // drew the collapsing house differently from every later repaint (3732 px
+  // / 1.4067, the same on four runs, and a second immediate repaint did not
+  // settle it), because something in the house arrives on the WALL clock --
+  // the `flipbook` A/B, over a frame where `FlipbookFx.written` was 0, was
+  // measuring the house. A zero-time repaint advances no FX clock, so waiting
+  // between repaints costs the rung nothing. The gate's own repaint control
+  // (`three-baseline-gate.ts`) exists for the same reason.
   await page.evaluate(api.REPAINT_SCRIPT);
   await page.screenshot({ path: shown, clip });
-  for (const layer of layers) {
+  const control = path.join(dir, `${subject.id}-${tag}-control-${label}.png`);
+  let drift = { diffPixels: 0, meanAbsChannelDelta: 0 };
+  for (let attempt = 1; attempt <= STILL_ATTEMPTS; attempt++) {
+    await page.waitForTimeout(STILL_WAIT_MS);
+    await page.evaluate(api.REPAINT_SCRIPT);
+    await page.screenshot({ path: control, clip });
+    drift = api.computeDiff(shown, control, { outDir: dir, diffFileName: `${subject.id}-${tag}-control-diff.png` });
+    if (drift.diffPixels === 0 && drift.meanAbsChannelDelta === 0) break;
+    console.log(`  ${subject.id} [${tag}]: repaint ${attempt} moved ${drift.diffPixels} px / ${drift.meanAbsChannelDelta.toFixed(4)}; waiting for a still scene`);
+    fs.copyFileSync(control, shown);
+  }
+  // A scene that never holds perfectly still is judged by what its drift
+  // could FAKE: a reading is refused for a layer whose floor the drift alone
+  // would clear (a voter could pass on drift, an abstainer fail on it). A
+  // drift under every floor is reported and the A/B runs. Measured: on
+  // `scorch_qarn_shoulder` at 600 ms the frame never stops moving -- 0-17 px
+  // / 0.0049-0.0188 between consecutive zero-time repaints, three runs --
+  // against a flipbook reading of 34000+ px and floors of 2000+ px.
+  const contaminated = new Set(layers.filter((l) => layerVerdict(l, drift).ok));
+  if (drift.diffPixels > 0 || drift.meanAbsChannelDelta > 0) {
+    console.log(
+      `  ${subject.id} [${tag}]: scene still moving ${drift.diffPixels} px / ${drift.meanAbsChannelDelta.toFixed(4)} ` +
+        `between repaints; ${contaminated.size > 0 ? `clears the floor of ${[...contaminated].join(', ')} by itself` : 'under every floor'}`
+    );
+  }
+  for (const layer of contaminated) {
+    readings.push({
+      subject: subject.id,
+      layer,
+      available: true,
+      diffPixels: drift.diffPixels,
+      meanAbsChannelDelta: drift.meanAbsChannelDelta,
+      over: false,
+      voted: subjectVotesOn(subject, layer),
+      ok: false,
+      note: `repaint control moved ${drift.diffPixels} px / ${drift.meanAbsChannelDelta.toFixed(4)}, enough to clear this floor by itself: not a measurement`,
+    });
+  }
+  for (const layer of layers.filter((l) => !contaminated.has(l))) {
     const hidden = path.join(dir, `${subject.id}-${layer}-hidden-${label}.png`);
     try {
       await page.evaluate(api.layerToggleScript(layer, false));

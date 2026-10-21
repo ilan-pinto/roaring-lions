@@ -8,6 +8,7 @@ import {
   LAYER_FLOORS,
   SAMPLE_MS,
   SHORT_LADDER_MS,
+  cameraTileOf,
   floorLine,
   layerVerdict,
   readingAccepted,
@@ -488,5 +489,20 @@ describe('the Defilade T4 layers and subjects', () => {
     // The muzzle core lives ~90 ms and a kill's fireball core under 450 ms;
     // a rung past both would read the bloom of smoke, which is below 1.0.
     expect(LAYER_FLOORS.bloom.toggleAtMs).toBeLessThanOrEqual(LAYER_FLOORS['blast-light'].toggleAtMs);
+  });
+});
+
+describe('the muzzle witness (fix round 1)', () => {
+  it('frames the muzzle, not the target, on every fire subject that votes', () => {
+    // A crop centred on the target put the shooter half out of frame.
+    for (const s of BLAST_SUBJECTS.filter((x) => x.mode === 'fire' && x.toggles !== false)) {
+      const [cx] = cameraTileOf(s);
+      expect(cx, `subject "${s.id}"`).toBeLessThan(s.x);
+      expect(cx, `subject "${s.id}"`).toBeGreaterThanOrEqual(s.x - (s.standoffTiles ?? 0));
+    }
+  });
+  it('centres on the blast tile when no camera tile is given', () => {
+    expect(cameraTileOf({ x: 6, y: 3 })).toEqual([6, 3]);
+    expect(cameraTileOf({ x: 6, y: 3, cameraAt: [4, 3] })).toEqual([4, 3]);
   });
 });
