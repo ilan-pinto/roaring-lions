@@ -140,10 +140,23 @@ import {
   MAX_BUILDERS,
   STAKE_HP_FRAC,
   BUILD_HP_FRAC,
+  AIR_AIRBORNE,
   AIR_LANDING,
   AIR_LANDED,
+  AIR_LIFTING,
+  AIR_LAND_TICKS,
+  AIR_LIFT_TICKS,
+  AIR_WANT_NONE,
+  AIR_WANT_LOAD,
+  AIR_WANT_UNLOAD,
+  AIR_WANT_DEPART,
   type SupportKind,
 } from './tuning';
+
+/** GH-698: unloadAir's spread, the LZ and its 8 neighbours in (distance, tile
+ *  index) order: the centre, the four edge neighbours, the four corners. */
+const AIR_SPREAD_DX = [0, 0, -1, 1, 0, -1, 1, -1, 1] as const;
+const AIR_SPREAD_DY = [0, -1, 0, 0, 1, -1, -1, 1, 1] as const;
 
 export const TICKS_PER_SECOND = 20;
 /** Tick length in Q16.16 seconds (65536 / 20, rounded). Time IS the tick
@@ -2899,6 +2912,10 @@ export class Sim {
     // ends here hands the unit back before the sweep looks at it.
     this.stepFocus();
     this.stepSweep();
+    // GH-698: immediately before movement, so a `moving = 0` written for a
+    // landing, landed or lifting carrier holds against every setter above
+    // (orders, stepFocus, stepSweep) for this tick's step.
+    this.stepAirCarriers();
     this.stepMovement();
     this.stepTransport();
     this.stepFields();
@@ -3331,6 +3348,15 @@ export class Sim {
         for (const id of cmd.ids) {
           if (this.alive[id] === 0 || this.routed[id] === 1) continue; // broken troops aren't listening
           const utype = this.unitTypes[this.typeIdx[id]];
+          // GH-698: a move cancels an air carrier's land plan -- except while
+          // LANDING, which ignores it (stepAirCarriers zeroes `moving` every
+          // tick of the landing, and the plan it is landing for stands). Before
+          // the append fast-path: an appended leg behind a land order would
+          // otherwise land the carrier on the waypoint, wherever that is.
+          if (utype.isAirCarrier && this.airState[id] !== AIR_LANDING) {
+            const want = this.airWant[id];
+            if (want === AIR_WANT_LOAD || want === AIR_WANT_UNLOAD) this.airWant[id] = AIR_WANT_NONE;
+          }
           const slot = exact ? undefined : slots.get(id);
           // A passenger is not going anywhere on its own feet either way: on
           // the formation path it claimed no slot, and on the exact path it
@@ -3495,8 +3521,21 @@ export class Sim {
         // the walk order must die here, not at the kerb.)
         if (this.tunnelIn[car] >= 0) continue;
         // Walk to the vehicle; stepTransport puts them aboard on arrival.
-        const gx = this.posX[car];
-        const gy = this.posY[car];
+        let gx = this.posX[car];
+        let gy = this.posY[car];
+        // GH-698 R3: an air carrier lands to load. Riders walk to the LZ, not
+        // to the hull, and board once it is LANDED (canSeat).
+        // Refused (no rider, or no vehicle-open tile anywhere): the whole
+        // `load` is dropped and nobody walks. In flight the LZ is the goal
+        // orderLand just wrote; LANDING or LANDED, the hull is on its LZ.
+        if (this.unitTypes[this.typeIdx[car]].isAirCarrier) {
+          if (!this.airLoadOrder(car, cmd.ids)) continue;
+          const st = this.airState[car];
+          if (st === AIR_AIRBORNE || st === AIR_LIFTING) {
+            gx = this.goalX[car];
+            gy = this.goalY[car];
+          }
+        }
         for (const id of cmd.ids) {
           if (this.alive[id] === 0 || this.routed[id] === 1 || id === car) continue;
           // Only dismounted elements ride. This also covers vehicle stacking,
@@ -3515,7 +3554,12 @@ export class Sim {
           this.stance[id] = 0;
         }
       } else if (cmd.kind === 'unload') {
-        for (const id of cmd.ids) this.unloadAll(id);
+        for (const id of cmd.ids) {
+          // GH-698 R4: an air carrier lands, then unloads. A ground carrier
+          // keeps unloadAll, the immediate everyone-out.
+          if (id >= 0 && id < this.count && this.unitTypes[this.typeIdx[id]].isAirCarrier) this.airUnloadOrder(id);
+          else this.unloadAll(id);
+        }
       } else if (cmd.kind === 'demolish') {
         const s = cmd.structure;
         if (s < 0 || s >= this.structureCount_ || this.stAlive[s] === 0) continue;
@@ -3671,12 +3715,14 @@ export class Sim {
           if (this.alive[id] === 0 || this.routed[id] === 1) continue;
           if (this.garrisonedIn[id] >= 0 || this.carriedBy[id] >= 0) continue; // the building or the vehicle is the hold (D2)
           this.haltUnit(id);
+          this.haltAir(id);
           if (cmd.stance === 'ambush') this.setAmbush(id, cmd.radius ?? AMBUSH_RADIUS_DEFAULT);
         }
       } else if (cmd.kind === 'halt') {
         for (const id of cmd.ids) {
           if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
           this.haltUnit(id);
+          this.haltAir(id);
         }
       } else {
         // Exhaustive over what `commandQueue` can hold: the five RuntimeCommand kinds
@@ -6405,7 +6451,7 @@ export class Sim {
    * distance is the caller's business, because boarding checks it and a mission
    * that authored a passenger aboard has no distance to check.
    */
-  private canSeat(car: number, id: number): boolean {
+  private canSeat(car: number, id: number, atSpawn = false): boolean {
     if (car < 0 || car >= this.count || this.alive[car] === 0) return false;
     const slots = this.unitTypes[this.typeIdx[car]].transportSlots;
     if (slots === 0 || this.passengers[car] >= slots) return false;
@@ -6417,7 +6463,13 @@ export class Sim {
     // and a buried hull is not a place a surface unit can climb into. The
     // deepest gate — embarkAtSpawn and boarding both pass through here.
     if (this.tunnelIn[id] >= 0 || this.tunnelIn[car] >= 0) return false;
-    return this.carriedBy[id] < 0;
+    if (this.carriedBy[id] >= 0) return false;
+    // GH-698 R3: an air carrier seats nobody until it is LANDED. Tested last,
+    // so a ground carrier answers exactly as before. A mission's authored
+    // passengers (embarkAtSpawn) are the one exception: R8, the carrier
+    // spawns airborne and loaded.
+    if (atSpawn || !this.unitTypes[this.typeIdx[car]].isAirCarrier) return true;
+    return this.airState[car] === AIR_LANDED;
   }
 
   /** Put `id` in a seat. Extracted so boarding and authored-aboard share it. */
@@ -6447,7 +6499,7 @@ export class Sim {
    * pickup, which `carriers.test.ts` already asserts cannot happen by command.
    */
   embarkAtSpawn(car: number, id: number): boolean {
-    if (!this.canSeat(car, id)) return false;
+    if (!this.canSeat(car, id, true)) return false;
     if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
     this.seat(car, id);
     // Snap onto the hull, so a passenger never renders beside a vehicle it is
@@ -6457,6 +6509,217 @@ export class Sim {
     this.facing[id] = this.facing[car];
     return true;
   }
+
+  // ------------------------------------------------------------ air carriers
+  // GH-698 R1-R4. An air carrier (isAir with seats) lands to load and lands to
+  // unload: AIRBORNE -> LANDING (AIR_LAND_TICKS) -> LANDED -> LIFTING
+  // (AIR_LIFT_TICKS) -> AIRBORNE, and it does not move outside AIRBORNE.
+  // `airWant` is what it was last asked to land for. No rng anywhere: every
+  // choice is a fixed scan order (invariant 3). Nothing here runs, and nothing
+  // here is reachable, in a world with no air carrier type (`airLive`).
+
+  /**
+   * One tick of the machine, for every air carrier. Called immediately before
+   * stepMovement, so the `moving = 0` it writes outside AIRBORNE wins over every
+   * setter earlier in the tick (orders, stepFocus, stepSweep).
+   */
+  private stepAirCarriers(): void {
+    if (!this.airLive) return;
+    for (let i = 0; i < this.count; i++) {
+      if (this.alive[i] === 0 || !this.unitTypes[this.typeIdx[i]].isAirCarrier) continue;
+      let st = this.airState[i];
+      if (st === AIR_AIRBORNE) {
+        const want = this.airWant[i];
+        if (want !== AIR_WANT_LOAD && want !== AIR_WANT_UNLOAD) continue;
+        if (this.moving[i] !== 0) continue; // still flying to the LZ
+        const dx = fx.sub(this.posX[i], this.goalX[i]);
+        const dy = fx.sub(this.posY[i], this.goalY[i]);
+        if (dx > HALF || dx < -HALF || dy > HALF || dy < -HALF) continue; // stopped short: hovers
+        this.airState[i] = AIR_LANDING;
+        this.airTimer[i] = AIR_LAND_TICKS;
+        this.wpCount[i] = 0;
+        this.fieldRef[i] = -1;
+        continue;
+      }
+      if (st === AIR_LANDING) {
+        this.moving[i] = 0; // a move while landing is ignored
+        const t = this.airTimer[i] - 1;
+        this.airTimer[i] = t;
+        if (t > 0) continue;
+        this.airState[i] = AIR_LANDED;
+        st = AIR_LANDED; // and the LANDED rules, this same tick
+      }
+      if (st === AIR_LANDED) {
+        if (this.airWant[i] === AIR_WANT_UNLOAD) {
+          this.unloadAir(i);
+          this.airWant[i] = AIR_WANT_NONE; // it stays landed
+        }
+        if (this.moving[i] === 1) {
+          if (this.airWant[i] === AIR_WANT_LOAD) {
+            // Landed to load: only an order (which clears the want) lifts it,
+            // never an autonomous chase.
+            this.moving[i] = 0;
+          } else {
+            this.airState[i] = AIR_LIFTING;
+            this.airTimer[i] = AIR_LIFT_TICKS;
+            this.airWant[i] = AIR_WANT_DEPART;
+            this.moving[i] = 0; // goal and waypoints are kept for the lift's end
+          }
+        }
+        continue;
+      }
+      // AIR_LIFTING
+      this.moving[i] = 0;
+      const t = this.airTimer[i] - 1;
+      this.airTimer[i] = t;
+      if (t > 0) continue;
+      this.airState[i] = AIR_AIRBORNE;
+      const want = this.airWant[i];
+      if (want === AIR_WANT_UNLOAD) {
+        // An `unload` while lifting: taken up now, at the LZ nearest where it is.
+        if (this.passengers[i] > 0 && this.orderLand(i, AIR_WANT_UNLOAD, this.posX[i], this.posY[i])) continue;
+        this.airWant[i] = AIR_WANT_NONE;
+      } else if (want !== AIR_WANT_LOAD) {
+        this.airWant[i] = AIR_WANT_NONE;
+      }
+      // A `load` while lifting keeps its plan: orderLand already set the LZ goal.
+      this.moving[i] = 1;
+    }
+  }
+
+  /**
+   * R2: into `snapX`/`snapY`, the open tile nearest (x, y) on the VEHICLE mask --
+   * a rotor does not set down on a building, a ridge, a boulder field or a
+   * ditch, though a rifleman can stand on a boulder. False when the map has no
+   * such tile at all; snapX/snapY are then meaningless.
+   */
+  private lzFor(x: Fx, y: Fx): boolean {
+    const w = this.width;
+    const h = this.height;
+    let tx = fx.toInt(x);
+    let ty = fx.toInt(y);
+    tx = tx < 0 ? 0 : tx >= w ? w - 1 : tx;
+    ty = ty < 0 ? 0 : ty >= h ? h - 1 : ty;
+    const mask = this.maskFor(DOMAIN_VEHICLE);
+    this.snapOpenTile(tx, ty, mask);
+    return mask[this.snapY * w + this.snapX] === 0;
+  }
+
+  /**
+   * Send air carrier `car` to land at the LZ nearest (x, y), for `want`. The
+   * flight is the move order's own air leg: goal, foot-domain field, `moving`.
+   * False, with no state touched, when there is no LZ.
+   */
+  private orderLand(car: number, want: number, x: Fx, y: Fx): boolean {
+    if (!this.lzFor(x, y)) return false;
+    const lx = this.snapX;
+    const ly = this.snapY;
+    this.goalX[car] = fx.add(fx.fromInt(lx), HALF);
+    this.goalY[car] = fx.add(fx.fromInt(ly), HALF);
+    this.wpCount[car] = 0;
+    this.fieldRef[car] = this.fieldFor(lx, ly, DOMAIN_FOOT);
+    this.moving[car] = 1;
+    this.attackMove[car] = 0;
+    this.sweepOrder[car] = 0;
+    this.engaging[car] = 0;
+    this.stance[car] = 0;
+    this.focusTarget[car] = -1;
+    this.focusLost[car] = 0;
+    this.airWant[car] = want;
+    return true;
+  }
+
+  /**
+   * R3, the carrier's half of a `load`. In flight (or lifting) it is ordered to
+   * the LZ nearest the eligible riders' centroid (tile ints, id order, the
+   * formation's integer mean). LANDING or LANDED it stays on the LZ it has and
+   * waits to load there. False -- the whole `load` refused -- with no eligible
+   * rider or no LZ.
+   */
+  private airLoadOrder(car: number, ids: readonly number[]): boolean {
+    let n = 0;
+    let sx = 0;
+    let sy = 0;
+    for (let k = 0; k < ids.length; k++) {
+      const id = ids[k];
+      if (this.alive[id] === 0 || this.routed[id] === 1 || id === car) continue;
+      if (!this.unitTypes[this.typeIdx[id]].canEmbark || this.carriedBy[id] >= 0) continue;
+      sx += fx.toInt(this.posX[id]);
+      sy += fx.toInt(this.posY[id]);
+      n++;
+    }
+    if (n === 0) return false;
+    const st = this.airState[car];
+    if (st === AIR_LANDING || st === AIR_LANDED) {
+      if (this.airWant[car] !== AIR_WANT_UNLOAD) this.airWant[car] = AIR_WANT_LOAD;
+      return true;
+    }
+    const cx = (sx - (sx % n)) / n;
+    const cy = (sy - (sy % n)) / n;
+    return this.orderLand(car, AIR_WANT_LOAD, fx.add(fx.fromInt(cx), HALF), fx.add(fx.fromInt(cy), HALF));
+  }
+
+  /** R4, `unload` on an air carrier: land, then everyone out. Empty: a no-op. */
+  private airUnloadOrder(car: number): void {
+    if (this.alive[car] === 0 || this.passengers[car] === 0) return;
+    const st = this.airState[car];
+    if (st === AIR_LANDED) this.unloadAir(car);
+    else if (st === AIR_AIRBORNE) this.orderLand(car, AIR_WANT_UNLOAD, this.posX[car], this.posY[car]);
+    else this.airWant[car] = AIR_WANT_UNLOAD; // LANDING: on landing; LIFTING: after the lift
+  }
+
+  /** `halt` (and a stance, which halts) on an air carrier, after haltUnit.
+   *  Airborne, the land plan is cancelled and it hovers. Lifting, it hovers
+   *  where it lifted. Landing completes; landed stays. */
+  private haltAir(id: number): void {
+    if (!this.unitTypes[this.typeIdx[id]].isAirCarrier) return;
+    const st = this.airState[id];
+    if (st === AIR_AIRBORNE) {
+      this.airWant[id] = AIR_WANT_NONE;
+    } else if (st === AIR_LIFTING) {
+      this.goalX[id] = this.posX[id];
+      this.goalY[id] = this.posY[id];
+      this.airWant[id] = AIR_WANT_DEPART;
+    }
+  }
+
+  /**
+   * Landed unload: everyone out at once. Passenger k (id order) stands on the
+   * k-th foot-open tile of the LZ and its 8 neighbours, taken by (distance,
+   * tile index) -- AIR_SPREAD_DX/DY's order -- wrapping when there are more
+   * passengers than tiles. Scratch `spreadTiles`, no allocation.
+   */
+  private unloadAir(car: number): void {
+    if (this.passengers[car] === 0) return;
+    const w = this.width;
+    const h = this.height;
+    const lx = fx.toInt(this.posX[car]);
+    const ly = fx.toInt(this.posY[car]);
+    let n = 0;
+    for (let k = 0; k < 9; k++) {
+      const x = lx + AIR_SPREAD_DX[k];
+      const y = ly + AIR_SPREAD_DY[k];
+      if (x < 0 || y < 0 || x >= w || y >= h) continue;
+      const t = y * w + x;
+      if (this.blocked[t] !== 0) continue;
+      this.spreadTiles[n++] = t;
+    }
+    let k = 0;
+    for (let i = 0; i < this.count; i++) {
+      if (this.carriedBy[i] !== car) continue;
+      this.disembark(i, false);
+      if (n > 0) {
+        const t = this.spreadTiles[k % n];
+        const tx = t % w;
+        this.posX[i] = fx.add(fx.fromInt(tx), HALF);
+        this.posY[i] = fx.add(fx.fromInt((t - tx) / w), HALF);
+      }
+      k++;
+    }
+  }
+
+  /** unloadAir's scratch: the open spread tiles. Never hashed. */
+  private readonly spreadTiles = new Int32Array(9);
 
   /**
    * A loitering munition has one shot and is the shot: it closes on whatever
