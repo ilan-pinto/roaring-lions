@@ -1088,7 +1088,29 @@ yours; each one records what the next phase inherits.
   gate's own capture, 3 runs, bit-identical); with the shader terms removed both read 0 px /
   0.0000. **The frame cost is NOT measured on a quiet machine**: +0 draw calls, +0 programs, +0
   textures, ALU per ground fragment only; every timing taken so far was swamped by load. A valley
-  AO boost (no visible effect) was rejected, and a tell-crown summit is held for an art pass.
+  AO boost (no visible effect) was rejected; the tell-crown summit landed after it (next bullet).
+- **A tell's `^` crown draws as a smooth ROCK summit, lifted 2 levels, presentation-only**
+  (`terrain/crown.ts`). A crown is a 4-connected `^` cluster of at most 12 tiles that is a SUMMIT:
+  every 8-neighbour open in the SIM's mask (another ridge, any building, a low-profile wall all
+  disqualify) and at or below the cluster's lowest level -- 20 of the 61 small clusters on the
+  shipped maps (`packages/app/src/crown-summit.test.ts`, against an independent count); the rest
+  are ridge fragments, escarpment bits, wadi rocks and fortified hilltops, and stay terraces. The
+  lift goes to a renderer-side copy of the levels and the crown leaves the DRAW mask only; the sim's
+  elevation, `blocked` and sight never change. **2 is the sim's `BLOCK_RISE`, and that is the
+  point**: mirrored over every crown-crossing ray (and checked ray for ray against the real
+  `losRay`), today's flat pad looks open on 74-81 % of rays the sim blocks, lift 2 on none, and
+  lift 3 makes 10.6 % of Tel Marum's rays look hidden while the sim sees through them. The pin is
+  `CROWN_LIFT_LEVELS === BLOCK_RISE`. It reads as rock because `tileSurface`/`groundTone`/
+  `buildScatter` key rock on the `^` symbol rather than the mask (#635); in the control map a crown
+  is rock that BLENDS (a 1-tile `CROWN_SKIRT_TILES` fade) where a terraced ridge stops hard with a
+  0.5-tile apron. Rocks, slabs and boulders within 4 tiles of a crown are SEATED on the slope
+  (`decor-place.ts` `seatedY`: sunk to the lowest ground under a contact radius, at most a fifth
+  of their own height -- the first cut buried slabs whole). **Gate witness: the minimap.** Neither
+  gated crown (`relief`'s at (24,20.5), `aftermath`'s at (11,8)) is in its 3D frame, so the `crown`
+  debug layer is checked in the crown's MINIMAP box, LAST in each scenario's list, through
+  `__lions.redrawMinimap` (`Minimap.redrawGround`: a fresh ground photograph with every dot,
+  marker and flash replayed from the last draw -- a plain redraw also walks the units to the
+  capture tick, and the ground photograph itself carries transient glows a stale one does not).
 - **`day` is the light preset, not a table lookup, and it is byte-identical to what shipped before
   this plan** (spec §3.6, R-12; `time-of-day.ts`). `LightPreset` (`dawn`/`day`/`dusk`, each with
   its own sun direction, intensities, `hazeFar` and an optional sky-tint `hazeKey`) reproduces

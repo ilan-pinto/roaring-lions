@@ -5957,6 +5957,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
        *  never match, behind a fully green suite. */
       cursorKey: () => canvas.dataset.cursor ?? '(unset)',
 
+      /** Redraw the minimap's GROUND now, off its own 4 Hz tick, everything
+       *  else as its last draw had it (`Minimap.redrawGround`). The visual
+       *  gate's `crown` toggle needs it: the frame loop is frozen there, so a
+       *  terrain rebuild would otherwise never reach the minimap's photograph
+       *  -- the one place `relief` and `aftermath` show a crown summit. */
+      redrawMinimap: () => minimap.redrawGround(),
+
       /** Put the pointer somewhere and run the REAL hover read, returning the
        *  cursor key it produced.
        *
