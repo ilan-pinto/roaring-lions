@@ -140,6 +140,8 @@ import {
   MAX_BUILDERS,
   STAKE_HP_FRAC,
   BUILD_HP_FRAC,
+  AIR_LANDING,
+  AIR_LANDED,
   type SupportKind,
 } from './tuning';
 
@@ -471,6 +473,9 @@ export interface UnitType {
   population: number;
   /** Seats for infantry. */
   transportSlots: number;
+  /** GH-698: an air type with seats (`isAir && transportSlots > 0`). The first one
+   *  registered turns on the air block's hash fold (`airLive`, see hash()). */
+  isAirCarrier: boolean;
   /** Dismounted element: can ride inside a transport. */
   canEmbark: boolean;
   /** Trained observer (the `mark_target` ability). Since F1 nothing in the sim
@@ -634,6 +639,7 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
     moveDomain: !isAir && wheeled ? DOMAIN_VEHICLE : DOMAIN_FOOT,
     population,
     transportSlots: json.hull.transport_slots ?? 0,
+    isAirCarrier: isAir && (json.hull.transport_slots ?? 0) > 0,
     canEmbark: json.hull.can_embark ?? FOOT_ROLES.has(json.role ?? ''),
     canMarkTarget: abilities.includes('mark_target'),
     canMarkTunnel: abilities.includes('mark_tunnel'),
@@ -1099,6 +1105,17 @@ export class Sim {
    *  the focus is held. Hashed, and added with the column above so the focus
    *  behaviour that follows is hash-neutral. */
   private readonly focusLost: Uint16Array;
+  /** GH-698: air carrier flight state, AIR_AIRBORNE..AIR_LIFTING (tuning.ts); 0 for
+   *  every non-carrier. Folded into hash() only once `airLive` is set. */
+  private readonly airState: Uint8Array;
+  /** GH-698: ticks left in AIR_LANDING / AIR_LIFTING. Hashed with `airState`. */
+  private readonly airTimer: Uint16Array;
+  /** GH-698: what an air carrier lands for, AIR_WANT_* (tuning.ts). Hashed with `airState`. */
+  private readonly airWant: Uint8Array;
+  /** GH-698, Q-A (deferred fold, lead 21 Oct): true once `addUnitType` registers an air
+   *  carrier type. hash() folds the air block only while set, so no world without one
+   *  moves any pin. Same shape as field works' `fwLive` (D1). */
+  private airLive = false;
   /** Structure this unit is currently engaging, -1 when none. */
   private readonly curStructure: Int32Array;
   private readonly mobilityKilled: Uint8Array;
@@ -1409,6 +1426,12 @@ export class Sim {
     readonly focusTarget: Int32Array;
     /** Ticks without a firing solution on the focus. */
     readonly focusLost: Uint16Array;
+    /** GH-698: air carrier flight state, AIR_* (tuning.ts). Render and app read this. */
+    readonly airState: Uint8Array;
+    /** GH-698: ticks left in a land or lift. */
+    readonly airTimer: Uint16Array;
+    /** GH-698: AIR_WANT_* intent. */
+    readonly airWant: Uint8Array;
     /** Field works (#277): the site this unit builds, -1 none. */
     readonly buildSite: Int8Array;
     /** Field works: aura modifiers (Task 6). `auraAccMult` ONE = none. */
@@ -1532,6 +1555,9 @@ export class Sim {
     this.curTarget = new Int32Array(n).fill(-1);
     this.focusTarget = new Int32Array(n).fill(-1);
     this.focusLost = new Uint16Array(n);
+    this.airState = new Uint8Array(n);
+    this.airTimer = new Uint16Array(n);
+    this.airWant = new Uint8Array(n);
     this.curStructure = new Int32Array(n).fill(-1);
     this.mobilityKilled = new Uint8Array(n);
     this.firepowerKilled = new Uint8Array(n);
@@ -1664,6 +1690,9 @@ export class Sim {
       braceTicks: this.braceTicks,
       focusTarget: this.focusTarget,
       focusLost: this.focusLost,
+      airState: this.airState,
+      airTimer: this.airTimer,
+      airWant: this.airWant,
       buildSite: this.buildSite,
       auraHealRate: this.auraHealRate,
       auraHealCap: this.auraHealCap,
@@ -1702,7 +1731,10 @@ export class Sim {
   }
 
   addUnitType(json: UnitTypeJson): number {
-    this.unitTypes.push(unitTypeFromJson(json));
+    const type = unitTypeFromJson(json);
+    // GH-698, Q-A: the first air carrier type turns the air block's hash fold on.
+    if (type.isAirCarrier) this.airLive = true;
+    this.unitTypes.push(type);
     return this.unitTypes.length - 1;
   }
 
@@ -1969,6 +2001,24 @@ export class Sim {
   /** Field works: true once `side` has seen owned structure `s` (the latch). */
   structureKnownTo(side: number, s: number): boolean {
     return this.stKnown[side * MAX_STRUCTURES + s] === 1;
+  }
+
+  /** GH-698: true once an air carrier type is registered and the air block is folded
+   *  into hash() (Q-A). Read-only. */
+  get airCarrierLive(): boolean {
+    return this.airLive;
+  }
+
+  /**
+   * GH-698, Q-C (lead 21 Oct): is unit `t` an AIR target right now? An air type is,
+   * except while LANDING or LANDED -- a carrier settling onto an LZ is a ground target.
+   * LIFTING stays air. A ground type never is, whatever its (unused) air column holds.
+   * The one place the rule lives; nothing in the sim reads it yet (Task 4).
+   */
+  isAirborne(t: number): boolean {
+    if (!this.unitTypes[this.typeIdx[t]].isAir) return false;
+    const s = this.airState[t];
+    return s !== AIR_LANDING && s !== AIR_LANDED;
   }
 
   /** Field works: true once the FW state block is folded into hash() (D1). Read-only. */
@@ -2719,6 +2769,9 @@ export class Sim {
     this.auraCompAt[id] = 0;
     this.auraRepairTicks[id] = 0;
     this.auraAccMult[id] = ONE;
+    this.airState[id] = 0; // AIR_AIRBORNE
+    this.airTimer[id] = 0;
+    this.airWant[id] = 0; // AIR_WANT_NONE
     this.apsAmmo[id] = type.apsMagazine;
     this.pendingEvents.push({ kind: 'spawn', tick: this.tickCount, entity: id, typeId: type.id, side });
     return id;
@@ -7749,6 +7802,18 @@ export class Sim {
       h = hashArray(h, this.auraCompAt);
       h = hashArray(h, this.auraRepairTicks);
       h = hashArray(h, this.auraAccMult);
+    }
+    // Air carriers (GH-698), Q-A (lead 21 Oct): the deferred fold, field works' D1
+    // shape. The block is folded only once `addUnitType` has registered an air
+    // carrier type, and nothing at all (no marker, no length word) before that, so
+    // no golden, versus, net, economy or runtime-digest pin moved. Only an air
+    // carrier ever leaves these columns at their spawn defaults, and it cannot
+    // exist without its type, so the canary still sees every air divergence.
+    if (this.airLive) {
+      h = hashWord(h, 0x41490698); // 'AI' GH-698
+      h = hashArray(h, this.airState);
+      h = hashArray(h, this.airTimer);
+      h = hashArray(h, this.airWant);
     }
     // Tunnel columns — every mutable one, matching how the demolition and
     // contact state above is folded in. The contact pair matters most: it

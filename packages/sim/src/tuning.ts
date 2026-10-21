@@ -495,3 +495,20 @@ export const STAKE_HP_FRAC = 6554; // 0.1
  *  `ONE - STAKE_HP_FRAC`: added in proportion to progress, so a site never damaged ends at
  *  (very nearly) full. */
 export const BUILD_HP_FRAC = 58982; // 0.9
+
+/** Air carriers (GH-698): ticks an air carrier spends settling onto an LZ, AIRBORNE -> LANDED
+ *  through AIR_LANDING. Integer ticks at 20 Hz. Proposal (Q4), provisional until the probe reads. */
+export const AIR_LAND_TICKS = 40; // 2 s
+/** Air carriers: ticks from LANDED back to AIRBORNE through AIR_LIFTING. */
+export const AIR_LIFT_TICKS = 20; // 1 s
+/** Air carrier flight state (`airState`). AIRBORNE is the spawn default; only LANDING and LANDED
+ *  are ground targets (Q-C, 21 Oct). */
+export const AIR_AIRBORNE = 0;
+export const AIR_LANDING = 1;
+export const AIR_LANDED = 2;
+export const AIR_LIFTING = 3;
+/** Air carrier intent (`airWant`): why it is landing or what it does once landed. */
+export const AIR_WANT_NONE = 0;
+export const AIR_WANT_LOAD = 1;
+export const AIR_WANT_UNLOAD = 2;
+export const AIR_WANT_DEPART = 3;
