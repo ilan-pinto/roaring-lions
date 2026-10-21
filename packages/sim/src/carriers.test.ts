@@ -337,3 +337,100 @@ describe('embarkAtSpawn', () => {
     expect(build(false)).toBe(build(false));
   });
 });
+
+// GH-698 Task 6 (R8, item 11): the replay pins for air carriers.
+//
+// Ground carriers stay bit-identical. hash() cannot witness that (Task 2 may fold
+// air columns once a heli is registered), so the existing jeep scenario is digested
+// over the NON-AIR columns only: posX, posY, hp, alive, carriedBy and the seat count.
+// The literal below was captured on the P2 base commit 41b2c731, before any air
+// carrier code existed, and must not change at any task.
+function groundDigest(sim: Sim, h: number): number {
+  const fold = (v: number): void => {
+    h = Math.imul(h ^ (v | 0), 16777619) >>> 0;
+  };
+  for (let i = 0; i < sim.entityCount; i++) {
+    fold(sim.state.posX[i]);
+    fold(sim.state.posY[i]);
+    fold(sim.state.hp[i]);
+    fold(sim.state.alive[i]);
+    fold(sim.state.carriedBy[i]);
+    fold(sim.passengerCount(i));
+  }
+  return h;
+}
+
+describe('ground carrier is bit-identical (GH-698 Task 6)', () => {
+  it('the jeep scenario digests to the base commit literal over non-air columns', () => {
+    const { sim, jeep, inf, drone, tank } = world();
+    const car = sim.spawn(jeep, 0, fx.from(6.5), fx.from(10.5));
+    const squad = sim.spawn(inf, 0, fx.from(5.5), fx.from(10.5));
+    sim.spawn(drone, 0, fx.from(4.5), fx.from(6.5));
+    sim.spawn(tank, 1, fx.from(30.5), fx.from(10.5));
+    sim.queueCommand({ kind: 'load', ids: [squad], carrier: car });
+    sim.queueCommand({ kind: 'attackMove', ids: [car], x: fx.from(28.5), y: fx.from(10.5) });
+    let h = 2166136261;
+    for (let k = 0; k < 18; k++) {
+      run(sim, 50);
+      h = groundDigest(sim, h); // sampled every 50 ticks, 900 in all
+    }
+    expect(h).toBe(1417887594);
+  });
+});
+
+const AIR_RIFLES: UnitTypeJson = { ...RIFLES, id: 'c_air_inf', weapons: [] };
+
+const HELI: UnitTypeJson = {
+  id: 'c_heli',
+  name: 'Yanshuf',
+  role: 'apc',
+  hull: { hp: 900, armor: { front: 4, side: 4, rear: 4 }, transport_slots: 6 },
+  mobility: { speed_tiles_s: 3.2, domain: 'air' },
+  sensors: { optics: 1, sight_tiles: 10, signature: 1 },
+  weapons: [],
+};
+
+const MANPAD: UnitTypeJson = {
+  id: 'c_manpad',
+  name: 'MANPAD team',
+  role: 'infantry',
+  hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 } },
+  mobility: { speed_tiles_s: 0.9 },
+  sensors: { optics: 1, sight_tiles: 12, signature: 0.6 },
+  weapons: [
+    { id: 'manpad', type: 'hmg', range_tiles: 8, effective_range_tiles: 6, accuracy: 0.6, penetration: 60, damage: 40, suppression: 20, rof_per_min: 120, can_target: ['air'] },
+  ],
+};
+
+describe('carrier replay, air (GH-698 Task 6)', () => {
+  const build = (): number => {
+    const sim = new Sim({ seed: 0x6980_0006, width: 40, height: 20, capacity: 32 });
+    const heliT = sim.addUnitType(HELI);
+    const infT = sim.addUnitType(AIR_RIFLES);
+    const manpadT = sim.addUnitType(MANPAD);
+    const tankT = sim.addUnitType(TANK);
+    const heli = sim.spawn(heliT, 0, fx.from(6.5), fx.from(10.5));
+    const squads: number[] = [];
+    for (let k = 0; k < 6; k++) squads.push(sim.spawn(infT, 0, fx.from(5.5 + (k % 3)), fx.from(8.5 + 2 * Math.floor(k / 3))));
+    sim.spawn(manpadT, 1, fx.from(30.5), fx.from(8.5));
+    sim.spawn(tankT, 1, fx.from(33.5), fx.from(14.5));
+    sim.queueCommand({ kind: 'load', ids: squads, carrier: heli });
+    run(sim, 300);
+    sim.queueCommand({ kind: 'attackMove', ids: [heli], x: fx.from(26.5), y: fx.from(10.5) });
+    run(sim, 400);
+    sim.queueCommand({ kind: 'unload', ids: [heli] });
+    run(sim, 300);
+    return sim.hash();
+  };
+
+  it('is deterministic: two builds hash the same', () => {
+    expect(build()).toBe(build());
+  });
+
+  it('is pinned (GH-698, 2026-10-21): load, attackMove, unload with a MANPAD and a tank', () => {
+    // A new test-local literal, captured from the first run of this scenario. It is
+    // not one of the shipped pins. Any change to the air carrier machine, a tuning
+    // constant, or an rng draw moves it.
+    expect(build()).toBe(8862049);
+  });
+});

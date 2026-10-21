@@ -889,3 +889,64 @@ describe('shot down in the air takes everyone (GH-698 Task 5)', () => {
     expect(sim.state.hp[a]).toBe(fx.fromInt(400)); // unloaded, not bailed out
   });
 });
+
+// ------------------------------------------------------------------ Task 6
+// GH-698 Task 6 (R8): the mission's authored-aboard path onto an airborne air
+// carrier. embarkAtSpawn is the one caller allowed to seat a passenger while the
+// carrier is in the air.
+
+const TANK6: UnitTypeJson = {
+  id: 'ac_t6_tank',
+  name: 'Tank',
+  role: 'mbt',
+  hull: { hp: 3000, armor: { front: 700, side: 300, rear: 150 } },
+  mobility: { speed_tiles_s: 1.1 },
+  sensors: { optics: 1, sight_tiles: 12, signature: 1 },
+  weapons: [],
+};
+
+describe('embarkAtSpawn onto an air carrier (GH-698 Task 6, R8)', () => {
+  it('seats onto an AIRBORNE carrier and rides with the hull', () => {
+    const { sim, heli, inf } = heliWorld(10.5, 10.5);
+    expect(sim.state.airState[heli]).toBe(AIR_AIRBORNE);
+    const sq = sim.spawn(inf, 0, at(3.5), at(3.5));
+    expect(sim.embarkAtSpawn(heli, sq)).toBe(true);
+    expect(sim.state.carriedBy[sq]).toBe(heli);
+    expect(sim.passengerCount(heli)).toBe(1);
+    expect(sim.state.airState[heli]).toBe(AIR_AIRBORNE); // seating did not land it
+    // Snapped onto the hull at once ...
+    expect(sim.state.posX[sq]).toBe(at(10.5));
+    expect(sim.state.posY[sq]).toBe(at(10.5));
+    // ... and carried with it when it flies (10.5 -> 30.5: 20 tiles at 0.16/tick).
+    sim.queueCommand({ kind: 'move', ids: [heli], x: at(30.5), y: at(10.5) });
+    run(sim, 40);
+    expect(sim.state.posX[heli]).toBeGreaterThan(at(14));
+    expect(sim.state.posX[sq]).toBe(sim.state.posX[heli]);
+    expect(sim.state.posY[sq]).toBe(sim.state.posY[heli]);
+    expect(sim.state.carriedBy[sq]).toBe(heli);
+    expect(sim.state.airState[heli]).toBe(AIR_AIRBORNE);
+  });
+
+  it('refused past six seats: the seventh is false and stays on the ground', () => {
+    const { sim, heli, inf } = heliWorld(10.5, 10.5);
+    const results: boolean[] = [];
+    const ids: number[] = [];
+    for (let k = 0; k < 7; k++) {
+      const s = sim.spawn(inf, 0, at(5.5), at(5.5));
+      ids.push(s);
+      results.push(sim.embarkAtSpawn(heli, s));
+    }
+    expect(results).toEqual([true, true, true, true, true, true, false]);
+    expect(sim.passengerCount(heli)).toBe(6);
+    expect(sim.state.carriedBy[ids[6]]).toBe(-1);
+    expect(sim.state.posX[ids[6]]).toBe(at(5.5));
+  });
+
+  it('still refuses a tank, airborne or not', () => {
+    const { sim, heli } = heliWorld(10.5, 10.5);
+    const tank = sim.spawn(sim.addUnitType(TANK6), 0, at(10.5), at(10.5));
+    expect(sim.embarkAtSpawn(heli, tank)).toBe(false);
+    expect(sim.passengerCount(heli)).toBe(0);
+    expect(sim.state.carriedBy[tank]).toBe(-1);
+  });
+});
