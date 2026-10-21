@@ -1266,7 +1266,8 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
     // Pass C2/C4 (7 Oct): + 30, every visible, readable head of the new
     // `pinned` clip on seventeen files (35 visible figures, five of them
     // thrown away for a short lever below).
-    expect(rows).toHaveLength(251); // B7: 21 GLBs, every one with a face mesh now
+    // Field Works Task 12.4 (21 Oct): + 2, demo_squad's two men over its new `work`.
+    expect(rows).toHaveLength(253); // B7: 21 GLBs, every one with a face mesh now
     // WHICH files, by name -- not `not.toContain('sniper_team.glb')`, which
     // could never fail: an un-exempted `sniper_team` makes `measureFacing`
     // THROW rather than produce a row, so the absence it asserts is

@@ -15,6 +15,7 @@ import {
   SANDBOX_KDF,
   SANDBOX_KIT_LEVELS,
   SANDBOX_SUR,
+  SANDBOX_WORKS_KDF,
   SANDBOX_TUNNEL_KDF,
   bootTiers,
   sandboxKitTiers,
@@ -22,7 +23,7 @@ import {
 } from './sandbox-force';
 import { RIGGED_UNIT_MESHES } from './mesh-catalogue';
 
-const NONE = { tunnel: false, sur: false, civ: false };
+const NONE = { tunnel: false, sur: false, civ: false, works: false };
 
 describe('sandboxUnitTypes', () => {
   it('names every type the base tables place, with no flags at all', () => {
@@ -38,16 +39,25 @@ describe('sandboxUnitTypes', () => {
 
   it('reads the same arrays the spawner iterates, for every flag', () => {
     // The one property that makes a fifth hand-kept list unnecessary.
-    const all = sandboxUnitTypes({ tunnel: true, sur: true, civ: true });
+    const all = sandboxUnitTypes({ tunnel: true, sur: true, civ: true, works: true });
     for (const [id] of [
       ...SANDBOX_KDF,
       ...SANDBOX_ENEMY,
       ...SANDBOX_TUNNEL_KDF,
       ...SANDBOX_SUR,
       ...SANDBOX_CIV,
+      ...SANDBOX_WORKS_KDF,
     ]) {
       expect(all.has(id)).toBe(true);
     }
+  });
+});
+
+describe('&works', () => {
+  it('fields one demo_squad, and only for the flag', () => {
+    expect(sandboxUnitTypes(NONE).has('demo_squad')).toBe(false);
+    expect(sandboxUnitTypes({ ...NONE, works: true }).has('demo_squad')).toBe(true);
+    expect(SANDBOX_WORKS_KDF.map(([id]) => id)).toEqual(['demo_squad']);
   });
 });
 

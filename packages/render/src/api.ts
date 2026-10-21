@@ -178,6 +178,27 @@ export interface AimFootprint {
 }
 
 /**
+ * Field works (#277): the footprint pad under an armed works key, in tiles,
+ * top-left anchored. `valid` false tints it `team.hostile` at hover strength.
+ */
+export interface PlacementPreview {
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+  readonly valid: boolean;
+}
+
+/** Field works (#277): one aura ring, centre and radius in tiles. `dotted` is
+ *  the intel centre's tunnel ring. */
+export interface AuraRingView {
+  readonly cx: number;
+  readonly cy: number;
+  readonly radius: number;
+  readonly style: 'dashed' | 'dotted';
+}
+
+/**
  * One of side 0's supply routes for the world (S-F F2 C3): the convoy's, or a
  * held income zone's. `tiles` are tile indices `y * width + x` in order, from
  * the zone (or the entry) to the rear; `cutSpan` is the cut stretch as an
@@ -188,6 +209,18 @@ export interface AimFootprint {
 export interface SupplyRouteView {
   readonly tiles: ArrayLike<number>;
   readonly cutSpan: readonly [number, number] | null;
+}
+
+/**
+ * One camp's rally point for the world (F4, the lead's R3 ruling, 18 Oct): a
+ * solid line from the camp exit (`from`) to the point (`to`), in tiles, with
+ * the order marker standing at the point -- the move order's own look, held
+ * rather than timed. The app writes these only on demand (a row pinned,
+ * hovered or focused, Set rally armed, or a few seconds after a rally is set).
+ */
+export interface RallyMarkView {
+  readonly from: { readonly x: number; readonly y: number };
+  readonly to: { readonly x: number; readonly y: number };
 }
 
 export interface RendererOptions {
@@ -657,6 +690,13 @@ export interface Renderer {
    *
    *  S-F Task 1: the rings are per kind -- see `AimFootprint`. */
   aimFootprint?: AimFootprint | null;
+  /** Field works (#277 Task 9): the footprint pad under an armed works key. An
+   *  ORDER PREVIEW like `aimFootprint`: written while armed, `null` otherwise.
+   *  Optional on the seam; absent or `null` draws nothing. */
+  placementPreview?: PlacementPreview | null;
+  /** Field works: the aura rings to draw (armed, or a hovered / selected own
+   *  works structure). Dashed, no fill. Absent or empty draws nothing. */
+  auraRingPreview?: readonly AuraRingView[];
   /** S-F F2 C3: side 0's supply routes, drawn in the world as a thin
    *  ground-draped `--info` ribbon whose cut stretch alone is dashed
    *  `--warn`. ON DEMAND, never a standing mark: the app writes the routes
@@ -668,6 +708,14 @@ export interface Renderer {
    *  geometry whole. Optional on the seam like `aimFootprint`; absent or
    *  `null` draws nothing. */
   supplyRoutes?: readonly SupplyRouteView[] | null;
+  /** F4 (R3): the camps' rally points to draw this frame, in the overlay
+   *  tier's route-and-marker pass -- no band of its own, no new art. ON
+   *  DEMAND, like `supplyRoutes`: the app writes the marks only while a camp's
+   *  row is pinned, hovered or focused, while Set rally is armed, and for a
+   *  few seconds after a rally is set; `null` the rest of the time and on
+   *  teardown. Optional on the seam; absent or `null` draws nothing, so no
+   *  golden capture can photograph one. */
+  rallyMarks?: readonly RallyMarkView[] | null;
   objectiveZone: readonly number[] | null;
   objectiveZoneState: 'held' | 'unheld' | 'contested';
   /** Every active objective that is about a piece of ground, not only the

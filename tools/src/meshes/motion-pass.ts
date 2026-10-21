@@ -16,6 +16,8 @@
  *             kneeler raised, a prop seated, a wheel held up on its axle
  *             (`motion/ground.ts`). Before the kneel, which builds from
  *             the grounded idle.
+ *   work      `work` for a team with `work` figures, from `kneel`
+ *             (`motion/work.ts`); idempotent, `--step=work`.
  *   pinned    the pinned huddle, `pinned`, for every team that carries
  *             the corpse pair `down`/`wreck` (`motion/pinned.ts`), built
  *             last, from `kneel` or `idle`. The one step that is
@@ -37,6 +39,7 @@ import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { applyHold } from './motion/apply-hold';
 import { applyKneel } from './motion/kneel';
 import { applyPinned, needsPinned } from './motion/pinned';
+import { applyWork } from './motion/work';
 import { applyCarry } from './motion/carry';
 import { applyGround } from './motion/ground';
 import { applyFormation } from './motion/formation';
@@ -75,6 +78,7 @@ export function runMotionPass(doc: Document, id: string, spec: MotionTeam, base:
   if (spec.crewFire) lines.push(...applyCrewFire(doc, id));
   if (spec.kneel) lines.push(...applyKneel(doc, id, spec, holds[0]?.ctx ?? []));
   if (needsPinned(doc)) lines.push(...applyPinned(doc, id));
+  if (spec.work) lines.push(...applyWork(doc, id, spec.work));
   if (spec.crewFire && needsPinned(doc)) lines.push(...applyCrewPinned(doc, id));
   // Re-read: a step may have written its own extras (`crew-fire.ts`'s
   // `rl_fire`, `pinned.ts`'s `rl_pinned`), and the copy taken at the top
@@ -101,7 +105,7 @@ async function main(): Promise<void> {
   const baseLabel = args.find((a) => a.startsWith('--base='))?.slice(7);
   // --step=pinned: only the pinned huddle, on files already through the pass.
   const step = args.find((a) => a.startsWith('--step='))?.slice(7);
-  if (step !== undefined && step !== 'pinned') throw new Error(`motion: unknown --step=${step} (only "pinned")`);
+  if (step !== undefined && step !== 'pinned' && step !== 'work') throw new Error(`motion: unknown --step=${step} (only "pinned" or "work")`);
   const ids = only ? only.split(',') : Object.keys(MOTION_TEAMS);
   const io = new NodeIO().registerExtensions(ALL_EXTENSIONS);
   for (const id of ids) {
@@ -115,6 +119,15 @@ async function main(): Promise<void> {
         ? execFileSync('/usr/bin/git', ['-C', REPO, 'show', `${from}:${rel}`], { maxBuffer: 1 << 28 })
         : readFileSync(file);
     const doc = await io.readBinary(new Uint8Array(bytes));
+    if (step === 'work') {
+      if (!spec.work) {
+        console.log(`MOTION ${id}: no work figures, no work clip`);
+        continue;
+      }
+      writeFileSync(outFile ?? file, await io.writeBinary((applyWork(doc, id, spec.work), doc)));
+      console.log(`MOTION ${id}`);
+      continue;
+    }
     if (step === 'pinned' && !needsPinned(doc)) {
       console.log(`MOTION ${id}: no down/wreck pair, no pinned clip`);
       continue;

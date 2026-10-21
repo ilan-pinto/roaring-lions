@@ -57,3 +57,32 @@ export function wordmark(version: string): string {
     `</div>`
   );
 }
+
+/**
+ * Field works (GH-277): the dock tile's glyph for each buildable type, one
+ * `currentColor` SVG on a 16-unit box so the tile's own state colour (ready,
+ * dim, armed) paints it. Strokes only, no fill colour, no literal. A type with
+ * no drawing here (the militia works are never in the dock) reads as the
+ * outpost's, so a tile is never blank.
+ */
+const WORKS_MARK_BODY: Readonly<Record<string, string>> = {
+  // A cross in a ring: aid.
+  kdf_medic_station: '<circle cx="8" cy="8" r="6.5"/><path d="M8 4.5v7M4.5 8h7"/>',
+  // A sandbag parapet over a doorway: a position held.
+  kdf_outpost: '<path d="M2 13.5h12M3 13.5v-4h10v4M5 9.5v-3h6v3M7 6.5V4h2v2.5"/>',
+  // A mast with a signal arc each side: a sensor.
+  kdf_intel_centre: '<path d="M8 14V6"/><circle cx="8" cy="5" r="1.5"/><path d="M4.5 3a5 5 0 0 0 0 4M11.5 3a5 5 0 0 1 0 4M2.5 1.5a8 8 0 0 0 0 7M13.5 1.5a8 8 0 0 1 0 7"/>',
+  // A spanner: repair.
+  kdf_workshop: '<path d="M10.5 2.2a3.3 3.3 0 0 0-3.4 4.4L2.4 11.3a1.4 1.4 0 0 0 2 2l4.7-4.7a3.3 3.3 0 0 0 4.4-3.4l-2 2-1.6-.4-.4-1.6z"/>',
+};
+
+export function worksMarkSvg(typeId: string, px: number): string {
+  const body = WORKS_MARK_BODY[typeId] ?? WORKS_MARK_BODY['kdf_outpost'];
+  return (
+    `<svg width="${px}" height="${px}" viewBox="0 0 16 16" fill="none" stroke="currentColor" ` +
+    `stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${body}</svg>`
+  );
+}
+
+/** The ids that have a drawing of their own, for the test that holds all four. */
+export const WORKS_MARK_IDS: readonly string[] = Object.keys(WORKS_MARK_BODY);

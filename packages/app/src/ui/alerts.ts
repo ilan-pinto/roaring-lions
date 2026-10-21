@@ -90,7 +90,7 @@ export interface AlertLine {
 }
 
 export interface Alert {
-  kind: 'unitLost' | 'kill' | 'underFire' | 'objective' | 'wave' | 'arrival' | 'pinned' | 'ambush' | 'removed' | 'roe' | 'broken' | 'damaged' | 'tunnel' | 'zone' | 'supply';
+  kind: 'unitLost' | 'kill' | 'underFire' | 'objective' | 'wave' | 'arrival' | 'pinned' | 'ambush' | 'removed' | 'roe' | 'broken' | 'damaged' | 'tunnel' | 'zone' | 'supply' | 'production';
   tier: AlertTier;
   /** Good or bad, as the minimap ring wears it (VR-36): the line's own tone
    *  where there is a line, and for a lineless alert the tone its line would
@@ -172,6 +172,12 @@ export interface AlertWorld {
    *  `CutCause`), or null while it is open or absent; `zone` null is the
    *  convoy. Read at alert time, like `zoneHolder`. */
   supplyCut(zone: string | null): string | null;
+  /** F4: the viewer's production lines, in line order -- whether each is
+   *  paused by an enemy near its camp exit (`productionLines(side)[i]
+   *  .contested`) and where that exit is, in tiles. Read at alert time; the
+   *  pause is a FIELD, not an event, so the alert is this model's edge of it.
+   *  Optional: a sandbox, a fixture or a mission without camps supplies none. */
+  productionLines?(): readonly { readonly contested: boolean; readonly exit: { readonly x: number; readonly y: number } }[];
 }
 
 /** What has to survive between ticks. Read-only on the way in and
@@ -197,6 +203,12 @@ export interface AlertState {
   readonly cuts: ReadonlyMap<string, string>;
   /** F2 P2-4: the tick each zone last RAISED a cue, for `ZONE_COOLDOWN_TICKS`. */
   readonly zoneCued: ReadonlyMap<string, number>;
+  /** F4: each production line's `contested` as last read, by line index --
+   *  the false -> true edge is the paused alert. */
+  readonly linesPaused: readonly boolean[];
+  /** F4: the tick each line last raised its paused alert, for
+   *  `PRODUCTION_PAUSED_COOLDOWN_TICKS`. */
+  readonly lineCued: ReadonlyMap<number, number>;
 }
 
 /**
@@ -214,7 +226,7 @@ export interface AlertState {
 export const UNDER_FIRE_COOLDOWN_TICKS = 100;
 
 export function initAlertState(): AlertState {
-  return { lastUnderFire: new Map(), wavesSeen: new Set(), lastPinned: -Infinity, tunnelsAnnounced: new Set(), zones: new Map(), cuts: new Map(), zoneCued: new Map() };
+  return { lastUnderFire: new Map(), wavesSeen: new Set(), lastPinned: -Infinity, tunnelsAnnounced: new Set(), zones: new Map(), cuts: new Map(), zoneCued: new Map(), linesPaused: [], lineCued: new Map() };
 }
 
 /** A man pinned sounds the minor cue at most once in four seconds, whoever
@@ -229,6 +241,13 @@ export const PINNED_COOLDOWN_TICKS = 80;
  *  flash and no jump target. Longer than the feed's 8 s merge window, so a
  *  flicker is one chime per merged line; a real change after it cues again. */
 export const ZONE_COOLDOWN_TICKS = 200;
+
+/** Ten seconds at 20 Hz. A camp on the edge of a fight pauses and resumes as an
+ *  enemy steps in and out of the six-tile radius round its exit; one line a
+ *  pause, not one a step. Inside this window of a line's last paused alert, a
+ *  fresh pause of the same line says nothing -- the row's own glyph and word
+ *  still say it, on the dock. There is no resume alert at all (the row clears). */
+export const PRODUCTION_PAUSED_COOLDOWN_TICKS = 200;
 
 /**
  * Which authored wave a `wave` event is. The event carries only its tick and
@@ -599,11 +618,40 @@ export function alertsForTick(
   }
   const pinnedSounds = pinnedAt !== null && tick - state.lastPinned >= PINNED_COOLDOWN_TICKS;
   const lastPinned = pinnedSounds ? tick : state.lastPinned;
+
+  // F4: a camp's line paused by an enemy near its exit. Not an event -- the
+  // runtime reports `contested` as a field -- so the alert is this model's
+  // false -> true edge of it, one line per line per cooldown, at the exit (so
+  // the minimap flashes there, as any alert does). No resume alert.
+  const paused: Alert[] = [];
+  let linesPaused = state.linesPaused;
+  let lineCued = state.lineCued;
+  const lines = world.productionLines?.() ?? [];
+  const nowPaused = lines.map((l) => l.contested);
+  if (nowPaused.length !== linesPaused.length || nowPaused.some((p, i) => p !== linesPaused[i])) {
+    lines.forEach((l, i) => {
+      if (!l.contested || linesPaused[i] === true) return;
+      if (tick - (lineCued.get(i) ?? -Infinity) < PRODUCTION_PAUSED_COOLDOWN_TICKS) return;
+      lineCued = new Map(lineCued).set(i, tick);
+      paused.push({
+        kind: 'production',
+        tier: 'important',
+        tone: 'warn',
+        line: { key: 'alert.productionPaused', params: { n: i + 1 }, tone: 'warn', place: [world.placeOf(l.exit.x, l.exit.y)] },
+        cue: ALERT_CUE.important,
+        at: { x: l.exit.x, y: l.exit.y },
+        marks: [{ x: l.exit.x, y: l.exit.y }],
+        count: 1,
+      });
+    });
+    linesPaused = nowPaused;
+  }
+
   const nextState: AlertState =
     lastUnderFire === state.lastUnderFire && wavesSeen === state.wavesSeen && lastPinned === state.lastPinned && tunnelsAnnounced === state.tunnelsAnnounced &&
-    zones === state.zones && cuts === state.cuts && zoneCued === state.zoneCued
+    zones === state.zones && cuts === state.cuts && zoneCued === state.zoneCued && linesPaused === state.linesPaused && lineCued === state.lineCued
       ? state
-      : { lastUnderFire, wavesSeen, lastPinned, tunnelsAnnounced, zones, cuts, zoneCued };
+      : { lastUnderFire, wavesSeen, lastPinned, tunnelsAnnounced, zones, cuts, zoneCued, linesPaused, lineCued };
 
   // --- emit, loudest first ------------------------------------------------
   for (const [typeId, entities] of lostByType) {
@@ -644,6 +692,7 @@ export function alertsForTick(
   }
   alerts.push(...arrivals);
   alerts.push(...ground);
+  alerts.push(...paused);
   // PA-19: an enemy kill, one line per type per tick like a loss. Good news,
   // so it is silent -- the blast and the round already sound -- and points
   // the jump key nowhere: Space goes to trouble, never to a wreck of theirs.

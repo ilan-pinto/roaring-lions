@@ -574,6 +574,8 @@ export type MissionEvent =
       site: number;
       builder: number;
       refund: number;
+      /** Why a `refused` was refused (the sim's own answer), else absent. */
+      reason?: PlacementRefusal | 'no_site_slot' | 'no_builder';
     }
   | {
       kind: 'missionEnd';
@@ -613,6 +615,12 @@ export interface WorksOffer {
   left: number;
   logistics: number;
   intel: number;
+}
+
+/** Whole units given back for the unbuilt part of a field work: `(cost x (ONE - progress)) >> 16`,
+ *  truncated. The one rule the cancel refund and the cancel button's "refund N" both read. */
+export function worksRefund(cost: number, progress: number): number {
+  return (cost * (ONE - progress)) >> 16;
 }
 
 /** What the runtime holds for a field work: the offer, the structure type index it resolved to. */
@@ -1782,8 +1790,8 @@ export class MissionRuntime {
    * the type and origin of a live site of its own joins it: no count, no price, no placement
    * (that site's own footprint would read `overlap`).
    */
-  constructReason(typeId: string, tx?: number, ty?: number): WorksRefusal | null {
-    return this.worksReason(typeId, tx, ty, undefined);
+  constructReason(typeId: string, tx?: number, ty?: number, builders?: readonly number[]): WorksRefusal | null {
+    return this.worksReason(typeId, tx, ty, builders);
   }
 
   private worksReason(typeId: string, tx: number | undefined, ty: number | undefined, passed: readonly number[] | undefined): WorksRefusal | null {
@@ -1825,6 +1833,46 @@ export class MissionRuntime {
     }
     this.sim.queueCommand({ kind: 'construct', ids, structType: entry.structType, x: tx, y: ty });
     return true;
+  }
+
+  /** The player's live site that has NOT been staked yet (no structure row) and whose footprint
+   *  covers tile (tx, ty): its site row, type name and what it cost. Null if none. Read-only; the
+   *  app uses it so an unstaked site can be selected and cancelled. */
+  unstakedWorksAt(tx: number, ty: number): { site: number; name: string; logistics: number } | null {
+    for (const [site, c] of this.worksSites) {
+      const b = this.sim.structureTypes[c.structType].buildable;
+      if (b === null || tx < c.x || ty < c.y || tx >= c.x + b.fw || ty >= c.y + b.fh) continue;
+      const u = this.unstakedWorksAtSite(site);
+      if (u !== null) return u;
+    }
+    return null;
+  }
+
+  /** The same record by site row; null once the site is staked, gone, or not the player's. */
+  unstakedWorksAtSite(site: number): { site: number; name: string; logistics: number } | null {
+    const w = this.sim.works;
+    const c = this.worksSites.get(site);
+    if (c === undefined || w.alive[site] === 0 || w.side[site] !== 0 || w.structure[site] >= 0) return null;
+    const entry = this.worksEntry(c.typeId);
+    return { site, name: entry === null ? c.typeId : entry.offer.name, logistics: c.logistics };
+  }
+
+  /** What the runtime knows of a field work the player raised, by its structure row: its type,
+   *  its site row (what `requestCancelWorks` takes), whether it is complete, and what it cost
+   *  (0 once complete: nothing is refundable then). Null for any other structure. Read-only. */
+  worksAt(structure: number): { typeId: string; name: string; site: number; done: boolean; logistics: number; intel: number } | null {
+    const w = this.worksStructures.get(structure);
+    if (w === undefined) return null;
+    const charge = w.done ? undefined : this.worksSites.get(w.site);
+    const entry = this.worksEntry(w.typeId);
+    return {
+      typeId: w.typeId,
+      name: entry === null ? w.typeId : entry.offer.name,
+      site: w.site,
+      done: w.done,
+      logistics: charge === undefined ? 0 : charge.logistics,
+      intel: charge === undefined ? 0 : charge.intel,
+    };
   }
 
   /** Take one of the player's own sites down; the refund and the count come back when the sim
@@ -1879,7 +1927,7 @@ export class MissionRuntime {
         const typeId = this.sim.structureTypes[e.structType].id;
         const charge = this.takePending(e.structType, e.x, e.y);
         if (charge !== null) this.returnWorks(charge, charge.logistics, charge.intel, true);
-        out.push({ kind: 'works', tick, phase: 'refused', typeId, site: -1, builder: -1, refund: charge === null ? 0 : charge.logistics });
+        out.push({ kind: 'works', tick, phase: 'refused', typeId, site: -1, builder: -1, refund: charge === null ? 0 : charge.logistics, reason: e.reason });
       } else if (e.kind === 'constructStaked') {
         const c = this.worksSites.get(e.site);
         if (c !== undefined) this.worksStructures.set(e.structure, { typeId: c.typeId, site: e.site, done: false });
@@ -1896,9 +1944,8 @@ export class MissionRuntime {
         this.worksSites.delete(e.site);
         if (e.structure >= 0) this.worksStructures.delete(e.structure);
         // Whole units back for what is left unbuilt, truncated: (cost x (ONE - progress)) >> 16.
-        const left = ONE - e.progress;
-        const logistics = (c.logistics * left) >> 16;
-        const intel = (c.intel * left) >> 16;
+        const logistics = worksRefund(c.logistics, e.progress);
+        const intel = worksRefund(c.intel, e.progress);
         this.returnWorks(c, logistics, intel, true);
         out.push({ kind: 'works', tick, phase: 'cancelled', typeId: c.typeId, site: e.site, builder: -1, refund: logistics });
       } else if (e.kind === 'structureDestroyed') {
@@ -2059,6 +2106,13 @@ export class MissionRuntime {
    * LD6 ask 6: index order is structure index order, stable for the mission, and is the `line`
    * every command carries. A dead camp's line keeps its index and reads `current: null,
    * queued: 0`. `contested` is true while a line's item is frozen (D1).
+   *
+   * F4 shell (Lane C ask, read-only, NOT hashed -- `foldLines` reads the lines
+   * themselves, never this view): `alive` is whether the line's camp stands,
+   * `items` the queued unit ids in order (the item in progress excluded; it
+   * is `current`), and `ticksLeft` the in-progress item's remaining ticks (0
+   * with none). The dock draws each camp's row from these rather than
+   * recovering them from `productionOf`'s flattening order.
    */
   productionLines(side: 0 | 1): {
     anchor: number;
@@ -2068,6 +2122,9 @@ export class MissionRuntime {
     progress: number;
     contested: boolean;
     rally: [Fx, Fx] | null;
+    alive: boolean;
+    items: string[];
+    ticksLeft: number;
   }[] {
     return this.lines[side].map((l) => {
       const alive = this.lineAlive(l);
@@ -2088,6 +2145,9 @@ export class MissionRuntime {
         progress: cur === null || bt <= 0 ? 0 : (((bt - l.ticksLeft) * 1000) / bt) | 0,
         contested: alive && l.current !== null && this.lineIsContested(l),
         rally: alive && l.rally !== null ? [l.rally.x, l.rally.y] : null,
+        alive,
+        items: alive ? l.queue.map((q) => q.unit) : [],
+        ticksLeft: cur === null ? 0 : l.ticksLeft,
       };
     });
   }

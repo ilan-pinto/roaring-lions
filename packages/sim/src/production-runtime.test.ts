@@ -198,8 +198,9 @@ describe('production lines in the runtime (F4 Task 3)', () => {
     w.step(1);
     const lines = w.rt.productionLines(0);
     expect(lines).toHaveLength(2);
-    expect(lines[0]).toMatchObject({ current: null, queued: 0 });
+    expect(lines[0]).toMatchObject({ current: null, queued: 0, alive: false, items: [], ticksLeft: 0 });
     expect(lines[1].current).toBe('n2_squad');
+    expect(lines[1].alive).toBe(true);
     // The verbs naming the dead line refuse; an unnamed build skips it.
     expect(w.rt.requestBuild('n2_squad', 0)).toBe(false);
     expect(w.rt.canBuild('n2_squad', 0)).toBe(false);
@@ -365,6 +366,22 @@ describe('production lines in the runtime (F4 Task 3)', () => {
     expect(w.rt.productionOf(1)).toEqual([{ unit: 'n2_squad', doneTicks: 0, totalTicks: 40, ticksLeft: 40 }]);
     w.step(15);
     expect(w.rt.productionLines(0)[0]).toMatchObject({ current: 'n2_squad', queued: 1, progress: 375 });
+  });
+
+  it('a line names its queue as unit ids and its item\'s ticks left (F4 shell, Lane C ask)', () => {
+    const w = world();
+    w.step(10);
+    expect(w.rt.productionLines(0)[0]).toMatchObject({ alive: true, current: null, items: [], ticksLeft: 0 });
+    w.rt.requestBuild('n2_squad');
+    w.rt.requestBuild('n2_cheap');
+    w.rt.requestBuild('n2_squad');
+    w.step(15);
+    // The item in progress is `current`, never in `items`; the queue keeps its order.
+    expect(w.rt.productionLines(0)[0]).toMatchObject({ current: 'n2_squad', items: ['n2_cheap', 'n2_squad'], queued: 2, ticksLeft: 25 });
+    // The same ticks `productionOf` reports for that item, by another road.
+    expect(w.rt.productionOf(0)[0].ticksLeft).toBe(25);
+    expect(w.rt.cancelBuild(0, 0)).toBe(true);
+    expect(w.rt.productionLines(0)[0].items).toEqual(['n2_squad']);
   });
 });
 

@@ -6986,6 +6986,11 @@ export class Sim {
           // the squad away at tick 20. Levelling your own camp is an order,
           // like cutting your own wire.
           if (this.stProducesFor[s] === this.side[i]) continue;
+          // Nor a field work the side owns (#277): a `demo_squad` is both the engineer who
+          // raises one and a demolisher, and standing beside its own site to build it would
+          // otherwise bring the site down 100 ticks after staking. Razing your own works is an
+          // order. An enemy's works (owner 1 against side 0) is fair game, as any building is.
+          if (this.stOwner[s] === this.side[i]) continue;
           if (this.stOccupants[s] > 0 && this.friendlyInside(s, this.side[i])) continue;
           const d = this.structDistSq(s, this.posX[i], this.posY[i]);
           if (d <= bestD) {

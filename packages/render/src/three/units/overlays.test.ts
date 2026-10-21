@@ -60,6 +60,20 @@ import {
   STRIPE_COLOR_KEY,
   REFUGE_RING_COLOR_KEY,
   REFUGE_RING_FALLBACK_COLOR,
+  padGridLines,
+  drawAuraRing,
+  AURA_RING_STYLE,
+  AURA_RING_EDGE_STYLE,
+  AURA_TUNNEL_RING_STYLE,
+  AURA_TUNNEL_RING_OFFSET_PX,
+  PAD_ALPHA,
+  PAD_INVALID_ALPHA,
+  AURA_RING_COLOR_KEY,
+  AURA_TUNNEL_RING_COLOR_KEY,
+  PAD_INVALID_COLOR_KEY,
+  AURA_RING_FALLBACK_COLOR,
+  AURA_TUNNEL_RING_FALLBACK_COLOR,
+  PAD_INVALID_FALLBACK_COLOR,
   REFUGE_RING_EDGE_COLOR_KEY,
   REFUGE_RING_EDGE_FALLBACK_COLOR,
   REFUGE_RING_STYLE,
@@ -679,5 +693,80 @@ describe('the selected ring has one colour (VR-34)', () => {
     const block = tr.slice(at, tr.indexOf('}', at));
     const fallback = /ellipseRing\(ringCenter,[^;]*\);/.exec(block)?.[0] ?? '';
     expect(fallback).toMatch(/,\s*ringHex,\s*1\);$/);
+  });
+});
+
+describe('Field works: pad grid, aura rings (#277 Task 9)', () => {
+  it('padGridLines: a 2x2 at (0,0) is 6 lines with the right ends; a 1x1 is 4', () => {
+    const g = padGridLines(0, 0, 2, 2);
+    expect(g).toHaveLength(6);
+    expect(g).toContainEqual([[0, 0, 0], [0, 0, 2]]);
+    expect(g).toContainEqual([[2, 0, 0], [2, 0, 2]]);
+    expect(g).toContainEqual([[0, 0, 1], [2, 0, 1]]);
+    expect(padGridLines(3, 4, 1, 1)).toEqual([
+      [[3, 0, 4], [3, 0, 5]],
+      [[4, 0, 4], [4, 0, 5]],
+      [[3, 0, 4], [4, 0, 4]],
+      [[3, 0, 5], [4, 0, 5]],
+    ]);
+  });
+
+  const colors = { edge: '#111111', dashed: '#222222', dotted: '#333333' };
+  function spy() {
+    const calls: { r: number; u: number; style: unknown; color: string }[] = [];
+    return {
+      calls,
+      batch: {
+        dashedEllipseRing: (_a: unknown, r: number, u: number, style: unknown, color: string) => {
+          calls.push({ r, u, style, color });
+        },
+      },
+    };
+  }
+
+  it('a dashed ring is one halo then one dash, in the dashed styles, at the plain radius', () => {
+    const { calls, batch } = spy();
+    drawAuraRing(batch, [0, 0, 0], { radius: 4, style: 'dashed' }, 64, 32, colors);
+    const { rightR, upR } = tileRadiusToEllipsePx(4, 64, 32);
+    expect(calls).toHaveLength(2);
+    expect(calls[0].style).toBe(AURA_RING_EDGE_STYLE);
+    expect(calls[1].style).toBe(AURA_RING_STYLE);
+    expect(calls[1].color).toBe('#222222');
+    expect(calls[1].r).toBe(rightR);
+    expect(calls[1].u).toBe(upR);
+  });
+
+  it('a dotted ring uses the dotted styles and sits exactly 4 px outside the same radius', () => {
+    const { calls, batch } = spy();
+    drawAuraRing(batch, [0, 0, 0], { radius: 10, style: 'dotted' }, 64, 32, colors);
+    const { rightR, upR } = tileRadiusToEllipsePx(10, 64, 32);
+    expect(calls).toHaveLength(2);
+    expect(calls[1].style).toBe(AURA_TUNNEL_RING_STYLE);
+    expect(calls[1].color).toBe('#333333');
+    expect(calls[1].r).toBe(rightR + 4);
+    expect(calls[1].u).toBe(upR + 4);
+    expect(AURA_TUNNEL_RING_OFFSET_PX).toBe(4);
+    expect(AURA_TUNNEL_RING_STYLE.dashPx).toBeLessThan(AURA_RING_STYLE.dashPx);
+  });
+
+  it('pins the ring styles and the pad alphas by literal', () => {
+    expect(AURA_RING_STYLE).toEqual({ widthPx: 2, dashPx: 7, gapPx: 5 });
+    expect(AURA_TUNNEL_RING_STYLE).toEqual({ widthPx: 2, dashPx: 2, gapPx: 4 });
+    expect(PAD_ALPHA).toBe(0.38);
+    expect(PAD_INVALID_ALPHA).toBe(0.6);
+  });
+
+  it('every fallback hex is the literal data/palette.json entry', () => {
+    expect(AURA_RING_COLOR_KEY).toBe('team.kedem');
+    expect(AURA_TUNNEL_RING_COLOR_KEY).toBe('dust.6');
+    expect(PAD_INVALID_COLOR_KEY).toBe('team.hostile');
+    expect(AURA_RING_FALLBACK_COLOR).toBe('#2F6FD9');
+    expect(AURA_TUNNEL_RING_FALLBACK_COLOR).toBe('#6B4F29');
+    expect(PAD_INVALID_FALLBACK_COLOR).toBe('#D93A2B');
+    const reserved = paletteJson.reserved as unknown as Record<string, { colors: Record<string, string> }>;
+    const ramps = paletteJson.ramps as Record<string, { colors: string[] }>;
+    expect(reserved.team.colors.kedem).toBe('#2F6FD9');
+    expect(reserved.team.colors.hostile).toBe('#D93A2B');
+    expect(ramps.dust.colors[6]).toBe('#6B4F29');
   });
 });
