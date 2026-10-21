@@ -19,7 +19,8 @@
  *              core glow (`missile-fx.ts`) draws through that same hotCore
  *              material, so it gets this 4 -- the same number as burstMid;
  *              no separate role was added.
- *  - fireball  reserved for the flipbook fire (a later Task 4 step).
+ *  - fireball  `flipbook-fx.ts`'s `uFireGain`: the fire type's hot phase
+ *              (white_hot/fire for its first ~16% of life).
  *
  * Known pre-existing HDR source NOT in this table: the tunnel x-ray
  * discovery beat is already above 1.0 on main and is accepted to glow.

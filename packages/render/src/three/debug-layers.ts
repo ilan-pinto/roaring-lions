@@ -267,6 +267,16 @@
  *                 for the same reason: no gated scenario has a missile in
  *                 flight. `tools/src/perf/atgm-captures.ts` is where it is exercised.
  *
+ * ONE MORE FOR DEFILADE T4 (GH-705), the `missiles` rule again:
+ * - `flipbook`    the instanced flipbook billows (`units/flipbook-fx.ts`):
+ *                 fireballs, dirt and smoke, two meshes over one geometry.
+ *                 A FLAG (`FlipbookFx.setDebugHidden`), not a `visible`
+ *                 write, because the live window re-derives both meshes'
+ *                 `visible` on every `step` and every spawn -- that is how
+ *                 an idle flipbook costs no draw call. Returns 2. No
+ *                 `layerChecks` entry: no gated scenario has a blast in it
+ *                 (`blast-light`'s reason); its witness is a frame with one.
+ *
  * ONE MORE FOR GH-471, the `missiles` rule again:
  * - `tunnel-xray` the x-ray of an identified tunnel (`../tunnel-xray.ts`):
  *                 bore and shafts, surface collars, the figures inside and
@@ -361,6 +371,7 @@ export const DEBUG_LAYERS = [
   'decals',
   'blast-light',
   'missiles',
+  'flipbook',
   'kit',
   'tunnel-xray',
   'running-gear',

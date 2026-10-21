@@ -545,6 +545,7 @@ import { tileHash } from '../tile-hash';
 import { computeFog, isFogVisible, type FogInput } from './fog';
 import { ShroudTexture } from './shroud-texture';
 import { hazeRadiance, hazeReferenceLevel } from './haze';
+import { FlipbookFx } from './units/flipbook-fx';
 import { FogOfWarPass } from './fog-pass';
 import { SmokeMesh } from './smoke-mesh';
 import { perTileYawFor } from './units/run-direction';
@@ -1513,6 +1514,17 @@ export class ThreeRenderer implements Renderer {
    *  fireball draws here too, for the same reason -- it has a shroud of its
    *  own (`beginVehicleCollapseShroud`). */
   private readonly collapseFlashBursts = new ExplosionBurstManager(EXPLOSION_BURST_CAPACITY, COLLAPSE_FLASH_RENDER_ORDER);
+  /** Defilade T4 (GH-705): the instanced, GPU-aged flipbook billows --
+   *  fireballs, dirt and smoke (`units/flipbook-fx.ts`'s own top comment).
+   *  Two meshes over one geometry, added to the scene once in the
+   *  constructor, stepped on the frame clock beside the bursts, atlases
+   *  fetched in `init()`. Hidden while nothing is live, so idle costs 0 draw
+   *  calls. Task 4 builds and steps it; the spawn paths are Task 6's. */
+  private readonly flipbook = new FlipbookFx();
+  /** Scratch for the sun's screen-space direction (`frame()`). */
+  private readonly flipbookRight = new THREE.Vector3();
+  private readonly flipbookUp = new THREE.Vector3();
+  private readonly flipbookSun = new THREE.Vector2();
   /** Owns the pooled, modelled smoke-plume mesh
    *  (`art/meshes/vfx/smoke_plume.glb`) -- `units/smoke-plume.ts`'s own top
    *  comment has the full account, including why its zones split along the
@@ -2767,7 +2779,8 @@ export class ThreeRenderer implements Renderer {
       this.tracerBatch.mesh,
       this.shellBatch.mesh,
       this.boltBatch.mesh,
-      ...this.missileFx.meshes
+      ...this.missileFx.meshes,
+      ...this.flipbook.meshes
     );
     // The scene's own light, sized to this map: one sun with a map-wide
     // shadow box, one hemisphere bounce, and the sun's target (a
@@ -2898,6 +2911,11 @@ export class ThreeRenderer implements Renderer {
   async init(host: HTMLElement): Promise<void> {
     this.host = host;
     this.loadGroundTexture();
+    // Defilade T4: the flipbook atlases. Fail-soft and unawaited -- until
+    // both land the flipbook draws nothing (no fallback billow).
+    if (this.opts.flipbookFireUrl && this.opts.flipbookSmokeUrl) {
+      void this.flipbook.load(this.opts.flipbookFireUrl, this.opts.flipbookSmokeUrl);
+    }
     // Everything in this method that needs a live GL context lives here
     // rather than in the constructor, which the nine `ThreeRenderer*.test.ts`
     // fakes exercise with a renderer stub that has four members.
@@ -3266,6 +3284,7 @@ export class ThreeRenderer implements Renderer {
     this.muzzleFlashes.dispose();
     this.explosionBursts.dispose();
     this.collapseFlashBursts.dispose();
+    this.flipbook.dispose();
     this.smokePlumes.dispose();
     this.collapseShrouds.dispose();
     // Same "added once in the constructor, no scene.remove needed" shape as
@@ -3847,6 +3866,12 @@ export class ThreeRenderer implements Renderer {
         for (const entity of this.vehicleMeshEntities.values()) if (runningGearBinding(entity)) n++;
         return n;
       }
+      case 'flipbook':
+        // Defilade T4: a FLAG, `missiles`' shape -- the flipbook's live
+        // window rewrites both meshes' `visible` on every `step` and spawn,
+        // so a plain write would be undone by the gate's own repaint.
+        // Returns 2, the meshes it hides.
+        return this.flipbook.setDebugHidden(!visible);
       case 'missiles':
         // P-5: a FLAG, `blast-light`'s shape -- `MissileFx.step` rewrites all
         // three meshes' `visible` every frame (`count > 0 && !debugHidden`),
@@ -6085,6 +6110,9 @@ export class ThreeRenderer implements Renderer {
     // Identical two-phase-construction safety, for the explosion-burst mesh.
     this.explosionBursts.setColors(resolve);
     this.collapseFlashBursts.setColors(resolve);
+    // The flipbook's seven palette keys, linear through `THREE.Color`'s own
+    // sRGB decode -- the same path `explosionBursts.setColors` takes.
+    this.flipbook.setColors((key) => new THREE.Color(resolve(key)));
     // Identical two-phase-construction safety, for the smoke-plume mesh.
     this.smokePlumes.setColors(resolve);
     // Identical two-phase-construction safety, for the collapse shroud --
@@ -9074,6 +9102,22 @@ export class ThreeRenderer implements Renderer {
     // Identical presentation-only ageing, for the explosion-burst mesh.
     this.explosionBursts.step(dtMs);
     this.collapseFlashBursts.step(dtMs);
+    // The flipbook ages on the same frame clock (hit-stop freezes `dtMs`), and
+    // shades its billows toward the sun as the camera sees it: the sun's
+    // direction on the camera's right/up axes. A few multiplies a frame.
+    this.flipbook.step(dtMs);
+    {
+      const m = this.viewCamera.matrixWorld.elements;
+      this.flipbookRight.set(m[0], m[1], m[2]).normalize();
+      this.flipbookUp.set(m[4], m[5], m[6]).normalize();
+      const d = this.resolvedLights.direction;
+      this.flipbookSun.set(this.flipbookRight.dot(d), this.flipbookUp.dot(d));
+      if (this.flipbookSun.lengthSq() > 1e-6) this.flipbookSun.normalize();
+      this.flipbook.setLighting(
+        hazeRadiance(this.resolvedLights.sunIntensity, this.resolvedLights.direction.y, this.resolvedLights.hemiIntensity),
+        this.flipbookSun
+      );
+    }
     // Identical presentation-only ageing, for the smoke-plume mesh.
     this.smokePlumes.step(dtMs);
     // Identical presentation-only ageing, for the collapse shroud.

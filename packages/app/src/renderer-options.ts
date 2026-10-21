@@ -106,6 +106,10 @@ export function rendererOptionsFor(map: ParsedMap, s: RendererSettings, base: st
     scrubTextureUrl: `${base}textures/rough_scrub_tile.jpg`,
     groveTextureUrl: `${base}textures/orchard_floor_tile.jpg`,
     knollTextureUrl: `${base}textures/knoll_scree_tile.jpg`,
+    // Defilade T4: the fire and smoke flipbook atlases (data, not colour --
+    // the renderer loads them `NoColorSpace`).
+    flipbookFireUrl: `${base}textures/vfx/flipbook_fire.png`,
+    flipbookSmokeUrl: `${base}textures/vfx/flipbook_smoke.png`,
     // Where the Draco decoder is fetched from. Self-hosted in `assets/draco/`
     // like the fonts, never a CDN. Every shipped GLB is Draco-compressed
     // (level load time, step 4), so a mesh renderer without this loads no
