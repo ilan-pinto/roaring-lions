@@ -115,8 +115,8 @@
  */
 import { firePointOnMap } from './units/fire-points';
 import * as THREE from 'three';
-import { fx, WEAPON_CLASS, type Fx, type MissionEvent, type Sim, type SimEvent } from '@lions/sim';
-import type { AimFootprint, ObjectiveZoneView, RallyMarkView, Renderer, RendererOptions, SupplyRouteView, TerrainTones } from '../api'; // both, after Step 2
+import { fx, ONE, WEAPON_CLASS, type Fx, type MissionEvent, type Sim, type SimEvent } from '@lions/sim';
+import type { AimFootprint, AuraRingView, ObjectiveZoneView, PlacementPreview, RallyMarkView, Renderer, RendererOptions, SupplyRouteView, TerrainTones } from '../api'; // both, after Step 2
 import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, type Camera } from '../project';
 import { QUALITY_PRESETS } from '../quality';
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec, type ParticleSpec } from '../vfx';
@@ -606,6 +606,17 @@ import {
   cachedHexToLinear,
   hpBarVisible,
   REFUGE_RING_TILES,
+  AURA_RING_COLOR_KEY,
+  AURA_RING_FALLBACK_COLOR,
+  AURA_TUNNEL_RING_COLOR_KEY,
+  AURA_TUNNEL_RING_FALLBACK_COLOR,
+  PAD_INVALID_COLOR_KEY,
+  PAD_INVALID_FALLBACK_COLOR,
+  PAD_ALPHA,
+  PAD_INVALID_ALPHA,
+  PAD_LINE_WIDTH_PX,
+  padGridLines,
+  drawAuraRing,
   REFUGE_RING_COLOR_KEY,
   REFUGE_RING_FALLBACK_COLOR,
   REFUGE_RING_EDGE_COLOR_KEY,
@@ -989,6 +1000,11 @@ export class ThreeRenderer implements Renderer {
    *  ring(s), per kind (`aimRingSpecs`), drawn in the overlay pass beside the
    *  refuge ring; `null` draws nothing. */
   aimFootprint: AimFootprint | null = null;
+  /** Field works (#277 Task 9): see `Renderer.placementPreview`. Nothing in a
+   *  capture sets it, so no golden frame draws it. */
+  placementPreview: PlacementPreview | null = null;
+  /** Field works: see `Renderer.auraRingPreview`. */
+  auraRingPreview: readonly AuraRingView[] = [];
   /** S-F F2 C3: see `Renderer.supplyRoutes`. Held by `supplyRoute`, which
    *  rebuilds its one merged geometry on the next overlay pass when a NEW
    *  array arrives (the same array again is a no-op) and disposes the old. */
@@ -4432,9 +4448,40 @@ export class ThreeRenderer implements Renderer {
       blocked: this.sim.blocked,
       isLowProfile: (x, y) => this.isLowProfileTile(x, y),
       viewerSide: this.viewer,
+      extraObservers: this.worksObservers(),
     };
     this.fog = computeFog(this.fog, input);
     this.shroudDirty = true;
+  }
+
+  /**
+   * Field works (#277): the fixed eyes that are not entities. A complete
+   * sensor structure the viewer owns sees from its centroid at its sensor
+   * sight; a viewer's garrisoned unit in a structure type whose aura carries a
+   * garrison sight bonus sees from the centroid at its own sight plus the
+   * bonus. Read-only; undefined (today's input exactly) when there are none.
+   */
+  private worksObservers(): { x: number; y: number; sight: number }[] | undefined {
+    const sim = this.sim;
+    const st = sim.structures;
+    let out: { x: number; y: number; sight: number }[] | undefined;
+    for (let s = 0; s < sim.structureCount; s++) {
+      if (st.alive[s] === 0 || st.owner[s] !== this.viewer) continue;
+      const aura = sim.structureTypes[st.typeIdx[s]].aura;
+      if (aura === null) continue;
+      const cx = fx.toNumber(st.cx[s]);
+      const cy = fx.toNumber(st.cy[s]);
+      if (aura.sensor !== null && st.progress[s] >= ONE) (out ??= []).push({ x: cx, y: cy, sight: fx.toNumber(aura.sensor.sight) });
+      if (aura.sightBonus > 0) {
+        const bonus = fx.toNumber(aura.sightBonus);
+        const g = sim.state;
+        for (let i = 0; i < sim.entityCount; i++) {
+          if (g.alive[i] === 0 || g.side[i] !== this.viewer || g.garrisonedIn[i] !== s) continue;
+          (out ??= []).push({ x: cx, y: cy, sight: this.sightByType[g.typeIdx[i]] + bonus });
+        }
+      }
+    }
+    return out;
   }
 
   /** A chest-high wall casts no fog shadow, because the sim lets sight and
@@ -10500,6 +10547,33 @@ export class ThreeRenderer implements Renderer {
         const tone = this.overlayColor(ring.colorKey);
         this.overlayBatch.dashedEllipseRing(aanchor, rightR, upR, haloStyleOf(ring.style), edge, REFUGE_RING_EDGE_ALPHA);
         this.overlayBatch.dashedEllipseRing(aanchor, rightR, upR, ring.style, tone, 1);
+      }
+    }
+
+    // Field works (#277 Task 9, spec §6 treatment B): the footprint pad (the
+    // tile grid, flat, no fill), then the aura rings (dashed, no fill), after
+    // the refuge and strike rings. Preview-only: nothing arms in a capture.
+    const pad = this.placementPreview;
+    if (pad) {
+      const padColor = pad.valid
+        ? this.overlayColor(AURA_RING_COLOR_KEY, AURA_RING_FALLBACK_COLOR)
+        : this.overlayColor(PAD_INVALID_COLOR_KEY, PAD_INVALID_FALLBACK_COLOR);
+      const padAlpha = pad.valid ? PAD_ALPHA : PAD_INVALID_ALPHA;
+      for (const [a, b] of padGridLines(pad.x, pad.y, pad.w, pad.h)) {
+        const p0: [number, number, number] = [a[0], groundWorldY(elevation, width, height, a[0], a[2]), a[2]];
+        const p1: [number, number, number] = [b[0], groundWorldY(elevation, width, height, b[0], b[2]), b[2]];
+        this.overlayBatch.lineWorld(p0, p1, PAD_LINE_WIDTH_PX, padColor, padAlpha);
+      }
+    }
+    if (this.auraRingPreview.length > 0) {
+      const colors = {
+        edge: this.overlayColor(REFUGE_RING_EDGE_COLOR_KEY, REFUGE_RING_EDGE_FALLBACK_COLOR),
+        dashed: this.overlayColor(AURA_RING_COLOR_KEY, AURA_RING_FALLBACK_COLOR),
+        dotted: this.overlayColor(AURA_TUNNEL_RING_COLOR_KEY, AURA_TUNNEL_RING_FALLBACK_COLOR),
+      };
+      for (const ring of this.auraRingPreview) {
+        const groundYr = groundWorldY(elevation, width, height, ring.cx, ring.cy);
+        drawAuraRing(this.overlayBatch, [ring.cx, groundYr, ring.cy], ring, TILE_W, TILE_H, colors);
       }
     }
 
