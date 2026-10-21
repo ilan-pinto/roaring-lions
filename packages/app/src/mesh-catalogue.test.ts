@@ -155,6 +155,26 @@ describe('mesh catalogue: every shipped GLB is accounted for', () => {
     expect(Object.keys(BUILDING_MESHES).filter((k) => !known.has(k))).toEqual([]);
   });
 
+  it('wires the eight GH-277 field works, and a construction state on the four KDF ones only', () => {
+    // Literals, not derived from the table under test.
+    const kdf = ['kdf_medic_station', 'kdf_outpost', 'kdf_intel_centre', 'kdf_workshop'];
+    const militia = ['militia_field_clinic', 'militia_firing_position', 'militia_observation_post', 'militia_weapons_workshop'];
+    for (const id of kdf) {
+      expect(BUILDING_MESHES[id]).toEqual({
+        idle: `buildings/${id}.glb`,
+        wreck: `buildings/${id}_wreck.glb`,
+        construction: `buildings/${id}_construction.glb`,
+      });
+      expect(existsSync(path.join(MESH_ROOT, `buildings/${id}_construction.glb`))).toBe(true);
+      expect(claimedMeshFiles().has(`buildings/${id}_construction.glb`)).toBe(true);
+    }
+    for (const id of militia) {
+      expect(BUILDING_MESHES[id]).toEqual({ idle: `buildings/${id}.glb`, wreck: `buildings/${id}_wreck.glb` });
+    }
+    // None of the twenty is still held.
+    expect(Object.keys(HELD_MESH_FILES).filter((f) => /buildings\/(kdf|militia)_/.test(f))).toEqual([]);
+  });
+
   it('does not draw one unit type through both mesh paths', () => {
     // `loadMeshUnit` and `loadVehicleMesh` file into separate maps and
     // `updateMeshUnits`/`updateVehicleMeshes` are separate loops -- a type in
@@ -351,6 +371,16 @@ describe('meshPlanFor', () => {
   it('stands the buildings the map stands, plus the ones a mission places', () => {
     expect([...meshPlanFor(map, new Set()).buildings].sort()).toEqual(['apartment', 'clinic', 'hall', 'house', 'shanty']);
     expect(meshPlanFor(map, new Set(), ['camp']).buildings.has('camp')).toBe(true);
+  });
+
+  it('a field work named by the mission is planned with its construction GLB (not on any tile)', () => {
+    const plan = meshPlanFor(map, new Set(), ['kdf_medic_station', 'kdf_intel_centre']);
+    expect([...plan.buildings].sort()).toEqual(
+      ['apartment', 'clinic', 'hall', 'house', 'kdf_intel_centre', 'kdf_medic_station', 'shanty']
+    );
+    const built = meshManifestFor(plan).buildings;
+    expect(built.find((b) => b.id === 'kdf_medic_station')?.construction).toMatch(/kdf_medic_station_construction\.glb$/);
+    expect(built.find((b) => b.id === 'house')?.construction).toBeUndefined();
   });
 
   it('takes its decor from decorFamiliesFor, never from a second rule', () => {

@@ -62,6 +62,9 @@ export function validateCommand(cmd: Command, seat: Seat, world: SeatWorld): boo
       return !world.versus && cmd.side === side && onMap(cmd.x, cmd.y);
     case 'support':
       return !world.versus && cmd.side === side && onMap(cmd.x, cmd.y);
+    case 'construct': case 'cancelConstruct':
+      // Field works (#277) is not on the wire yet (`cleanCommand` refuses it).
+      return false;
   }
 }
 

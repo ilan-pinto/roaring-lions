@@ -55,6 +55,15 @@ describe('readFlags', () => {
     expect(readFlags(new URLSearchParams('?sandbox=qarn_hadid')).decals).toBe(false);
   });
 
+  it('lists &works in the one table all four callers read', () => {
+    expect(SANDBOX_FLAGS.map((f) => f.name)).toContain('works');
+    expect(readFlags(new URLSearchParams('?sandbox=beit_sahwan_outskirts&works')).works).toBe(true);
+    expect(readFlags(new URLSearchParams('?sandbox=beit_sahwan_outskirts')).works).toBe(false);
+    expect(unknownParams(new URLSearchParams('?sandbox=beit_sahwan_outskirts&works'))).toEqual([]);
+    expect(sandboxUrl('beit_sahwan_outskirts', { works: true })).toBe('?sandbox=beit_sahwan_outskirts&works');
+    expect(sandboxHelp({ mapId: 'beit_sahwan_outskirts', mapIds: [], on: [] })).toContain('&works');
+  });
+
   it('reads &kit, off by default, and does not warn about it', () => {
     expect(readFlags(new URLSearchParams('?sandbox=beit_sahwan_outskirts&kit')).kit).toBe(true);
     expect(readFlags(new URLSearchParams('?sandbox=beit_sahwan_outskirts')).kit).toBe(false);

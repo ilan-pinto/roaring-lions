@@ -13,7 +13,7 @@ export function hashWord(h: number, w: number): number {
 
 export function hashArray(
   h0: number,
-  arr: Uint8Array | Uint16Array | Int32Array | Uint32Array
+  arr: Uint8Array | Int8Array | Uint16Array | Int16Array | Int32Array | Uint32Array
 ): number {
   let h = h0;
   for (let i = 0; i < arr.length; i++) h = hashWord(h, arr[i] | 0);

@@ -153,6 +153,9 @@ export function isAoOccluder(object: THREE.Object3D): boolean {
   if (!(object instanceof THREE.Mesh)) return true;
   if (!object.geometry.getAttribute('normal')) return false;
   const materials: THREE.Material[] = Array.isArray(object.material) ? object.material : [object.material];
+  // A part-built construction clone is cut by a per-material clip plane, which the AO
+  // pre-pass's MeshNormalMaterial override ignores: it would cast AO from its full height.
+  if (materials.some((material) => (material.clippingPlanes?.length ?? 0) > 0)) return false;
   return materials.every((material) => !material.transparent && material.depthWrite);
 }
 

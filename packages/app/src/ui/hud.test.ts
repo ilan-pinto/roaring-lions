@@ -3969,3 +3969,66 @@ describe('held building count (lead ruling 2026-10-14: the badge left the world)
     expect(hud.heldTarget).toBe(w.own);
   });
 });
+
+describe('field works on the card (GH-277)', () => {
+  // REGEN_FRAC is 16; the oracles below are literals.
+  it('the medic chip shows only for an own foot unit healed above field regen while hurt', () => {
+    let sel: number[] = [];
+    const r2 = rig(null, { getSelection: () => sel });
+    sel = [r2.ids[0]];
+    const card = (): string => r2.host.querySelector('.rl-cluster')!.textContent ?? '';
+    const id2 = r2.ids[0];
+    const max2 = r2.sim.unitTypes[r2.sim.state.typeIdx[id2]].hp;
+    r2.sim.state.hp[id2] = max2 - fx.from(2);
+    r2.sim.state.auraHealRate[id2] = 100;
+    for (let i = 0; i < 5; i++) r2.tick();
+    expect(card()).toContain('Medic: healing');
+    // Field regen alone (== REGEN_FRAC) must not light it.
+    r2.sim.state.auraHealRate[id2] = 16;
+    for (let i = 0; i < 5; i++) r2.tick();
+    expect(card()).not.toContain('Medic: healing');
+    // Healed above the floor but at full health: nothing to heal.
+    r2.sim.state.auraHealRate[id2] = 100;
+    r2.sim.state.hp[id2] = max2;
+    for (let i = 0; i < 5; i++) r2.tick();
+    expect(card()).not.toContain('Medic: healing');
+  });
+
+  it('the works card names the work, its progress and the refund, escapes the name, and cancels', () => {
+    const cancelled: number[] = [];
+    const r = rig(null, {
+      selectedWorks: () => 7,
+      worksCardOf: () => ({ name: '<i>Clinic</i>', percent: 40, refund: 180 }),
+      onCancelWorks: (s) => cancelled.push(s),
+    });
+    const cluster = r.host.querySelector<HTMLElement>('.rl-cluster')!;
+    expect(cluster.style.display).toBe('');
+    expect(cluster.textContent).toContain('Cancel works (refund 180)');
+    expect(cluster.textContent).toContain('40% built');
+    expect(cluster.innerHTML).not.toContain('<i>Clinic</i>');
+    cluster.querySelector<HTMLButtonElement>('[data-works-cancel]')!.click();
+    expect(cancelled).toEqual([7]);
+  });
+
+  it('the works card keeps the SAME Cancel button node while progress changes', () => {
+    let percent = 40;
+    const r = rig(null, {
+      selectedWorks: () => 7,
+      worksCardOf: () => ({ name: 'Clinic', percent, refund: percent * 4 }),
+      onCancelWorks: () => {},
+    });
+    const cluster = r.host.querySelector<HTMLElement>('.rl-cluster')!;
+    const btn = cluster.querySelector('[data-works-cancel]')!;
+    percent = 65;
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(cluster.querySelector('[data-works-cancel]')).toBe(btn);
+    expect(cluster.textContent).toContain('65% built');
+    expect(cluster.textContent).toContain('refund 260');
+    expect(cluster.querySelector<HTMLElement>('.rl-track > i')!.style.width).toBe('65%');
+  });
+
+  it('a complete works has no card: the cluster stays hidden', () => {
+    const r = rig(null, { selectedWorks: () => 7, worksCardOf: () => null });
+    expect(r.host.querySelector<HTMLElement>('.rl-cluster')!.style.display).toBe('none');
+  });
+});

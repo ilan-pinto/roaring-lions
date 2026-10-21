@@ -335,3 +335,10 @@ describe('cleanCommand: the line verbs (F4 Task 5b)', () => {
     for (const b of bad) expect(cleanCommand(b), JSON.stringify(b)).toBeNull();
   });
 });
+
+describe('cleanCommand: field works is not on the wire yet (#277)', () => {
+  it('refuses construct and cancelConstruct, well-formed as they are', () => {
+    expect(cleanCommand({ kind: 'construct', ids: [1], structType: 0, x: 4, y: 4 })).toBeNull();
+    expect(cleanCommand({ kind: 'cancelConstruct', site: 0 })).toBeNull();
+  });
+});

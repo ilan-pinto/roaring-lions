@@ -57,6 +57,7 @@ import { VoiceCaption } from './voice-caption';
 import { weaponName } from './weapon-name';
 import { patchChildren } from './dom-patch';
 import { heldHoverTarget, heldReadout, type HeldReadout } from './held-readout';
+import { auraChipKey, type WorksCardModel } from './works-model';
 import {
   beatDwellMs,
   conductDefinition,
@@ -275,6 +276,13 @@ export interface HudDeps {
   onStripRendered?: () => void;
   hoverStructure: () => number;
   hoverEntity: () => number;
+  /** Field works (GH-277): the structure row of the own works the player has selected, -1
+   *  none, or `-2 - site` for an unstaked site (`siteSelection`). With no unit selected and a card to show, the cluster draws the works card. */
+  selectedWorks?: () => number;
+  /** The card for that structure, or null for a complete works (rings only, no cancel). */
+  worksCardOf?: (s: number) => WorksCardModel | null;
+  /** The card's "Cancel works" button. */
+  onCancelWorks?: (s: number) => void;
   /** The renderer's projection of a map point to the screen
    *  (`renderer.worldToScreen`). The logistics tip names each income zone by
    *  its bearing from the MAP's centre, read from two projected points, which
@@ -472,7 +480,9 @@ export class Hud {
   /** What the cluster's children currently are, so `renderCard` knows whether
    *  it may PATCH them in place (card over card) or must assign `innerHTML`
    *  (anything else: first render, after chips, after an empty selection). */
-  private clusterShows: 'card' | 'chips' | null = null;
+  private clusterShows: 'card' | 'chips' | 'works' | null = null;
+  /** The works card's identity (site + name); the beat patches numbers in place while it holds. */
+  private worksCardKey = '';
   /** The unit id the cluster's card was last drawn for. A card is patched only
    *  for the SAME unit: a different unit gets a fresh `innerHTML`, so the hp
    *  fill (which eases its width) does not slide from one unit's health to
@@ -525,6 +535,9 @@ export class Hud {
   /** The held tag (lead ruling 2026-10-14): "House · 2 / 4 inside" beside a
    *  hovered held building, placed from the frame loop like the fire panel. */
   private readonly held: HTMLDivElement;
+  /** The placement tooltip beside the cursor while a field work is armed (GH-277): the
+   *  refusal, and for an intel centre the ring legend. Plain text lines; hidden otherwise. */
+  private readonly worksTip: HTMLDivElement;
   /** The structure the held tag is showing, -1 when it is hidden. */
   private heldShownFor = -1;
   private engagingShownFor = -1;
@@ -888,6 +901,11 @@ export class Hud {
     // chip narrows the selection to that sub-group, which is what makes the
     // focus frame worth having: Tab picks, the click commits.
     this.cluster.addEventListener('click', (ev) => {
+      const cancel = (ev.target as HTMLElement | null)?.closest<HTMLElement>('[data-works-cancel]');
+      if (cancel) {
+        this.deps.onCancelWorks?.(Number(cancel.dataset.worksCancel));
+        return;
+      }
       const chip = (ev.target as HTMLElement | null)?.closest<HTMLElement>('.rl-chip');
       const typeId = chip?.dataset.type;
       if (typeId === undefined) return;
@@ -944,6 +962,10 @@ export class Hud {
     this.held = document.createElement('div');
     this.held.className = 'rl-held';
     this.held.style.display = 'none';
+
+    this.worksTip = document.createElement('div');
+    this.worksTip.className = 'rl-works-tip';
+    this.worksTip.style.display = 'none';
 
     // --- commander ---------------------------------------------------------
     this.cmd = document.createElement('div');
@@ -1040,7 +1062,7 @@ export class Hud {
     // The six panes this HUD owns on the host. Recorded as they are appended
     // -- `destroy()` walks `roots`, so a seventh pane added here is torn down
     // by construction rather than by remembering to name it twice.
-    this.roots.push(this.strip, this.cmd, this.clock, this.sel, this.fire, this.held, this.banner, this.invoice);
+    this.roots.push(this.strip, this.cmd, this.clock, this.sel, this.fire, this.held, this.worksTip, this.banner, this.invoice);
     host.append(...this.roots);
   }
 
@@ -1331,6 +1353,31 @@ export class Hud {
   placeHeld(x: number, y: number): void {
     this.held.style.left = `${Math.round(x - HELD_OFFSET.x)}px`;
     this.held.style.top = `${Math.round(y + HELD_OFFSET.y)}px`;
+  }
+
+  /** Field works placement tooltip (GH-277): `lines` are plain text, `bad` marks a refusal;
+   *  null hides it. Placed beside the cursor, per frame, like `placeFire`. */
+  showWorksTip(lines: readonly { text: string; bad: boolean }[] | null, x: number, y: number): void {
+    if (lines === null || lines.length === 0) {
+      this.worksTip.style.display = 'none';
+      return;
+    }
+    if (this.worksTip.childElementCount !== lines.length || [...this.worksTip.children].some((c, i) => c.textContent !== lines[i].text)) {
+      this.worksTip.replaceChildren(
+        ...lines.map((l) => {
+          const d = document.createElement('div');
+          d.textContent = l.text;
+          if (l.bad) d.className = 'rl-bad-text';
+          return d;
+        })
+      );
+    }
+    this.worksTip.style.display = '';
+    // Beside the cursor, flipped to its left near the right edge so the line is never cut off.
+    const w = this.worksTip.offsetWidth;
+    const left = x + 16 + w > window.innerWidth ? x - 16 - w : x + 16;
+    this.worksTip.style.left = `${Math.max(0, Math.round(left))}px`;
+    this.worksTip.style.top = `${Math.round(y + 18)}px`;
   }
 
   /** What the viewer may know about structure `s` (`held-readout.ts`). */
@@ -2252,10 +2299,33 @@ export class Hud {
     this.engagingShownFor = -1;
     if (sel.length === 0) {
       this.orderBar.style.display = 'none';
-      this.cluster.style.display = 'none';
       this.chipTypes = [];
-      this.clusterShows = null;
       this.clusterCardUnit = -1;
+      // Field works: a selected own works under construction gets its card here.
+      const ws = this.deps.selectedWorks?.() ?? -1;
+      const card = ws !== -1 ? (this.deps.worksCardOf?.(ws) ?? null) : null;
+      if (card !== null) {
+        // Built once per works+name; the 4 Hz beat patches the numbers in place so the
+        // Cancel button node survives between mousedown and mouseup.
+        const key = `${ws}|${card.name}`;
+        if (this.clusterShows !== 'works' || key !== this.worksCardKey || this.cluster.querySelector('[data-works-cancel]') === null) {
+          this.cluster.innerHTML = this.worksCardMarkup(ws, card);
+          this.worksCardKey = key;
+        } else {
+          const pct = this.cluster.querySelector('.rl-card__hp');
+          if (pct) pct.textContent = t('hud.works.progress', { n: card.percent });
+          const fill = this.cluster.querySelector<HTMLElement>('.rl-track > i');
+          if (fill) fill.style.width = `${card.percent}%`;
+          const btn = this.cluster.querySelector('[data-works-cancel]');
+          if (btn) btn.textContent = t('hud.works.cancel', { n: card.refund });
+        }
+        this.cluster.style.display = '';
+        this.clusterShows = 'works';
+        return;
+      }
+      this.cluster.style.display = 'none';
+      this.clusterShows = null;
+      this.worksCardKey = '';
       return;
     }
     const wasHidden = this.cluster.style.display === 'none';
@@ -2572,6 +2642,19 @@ export class Hud {
   // Single unit: the wide card.
   // ------------------------------------------------------------------
 
+  /** The works card (GH-277): name, progress, and the one button. Built from the model's
+   *  numbers; the name is data and goes through `escapeHtml`. */
+  private worksCardMarkup(s: number, card: WorksCardModel): string {
+    return (
+      `<div class="rl-card rl-card--works"><div class="rl-card__body">` +
+      `<div class="rl-card__top"><span class="rl-card__name">${escapeHtml(card.name)}</span>` +
+      `<span class="rl-card__hp rl-dim">${t('hud.works.progress', { n: card.percent })}</span></div>` +
+      `<div class="rl-track"><i class="rl-fill-good" style="width:${card.percent}%"></i></div>` +
+      `<button type="button" class="rl-btn rl-btn--danger" data-works-cancel="${s}">${t('hud.works.cancel', { n: card.refund })}</button>` +
+      `</div></div>`
+    );
+  }
+
   private cardHtml(id: number): string {
     const sim = this.deps.sim;
     const st = sim.state;
@@ -2663,6 +2746,19 @@ export class Hud {
       if (held) flags.push(t('hud.held.inside', { n: held.n, cap: held.cap }));
     }
     if (st.moving[id] === 1 && band !== 'broken') flags.push(t('hud.card.moving'));
+    // Field works (GH-277): what a medic station or workshop is doing for this unit, on the
+    // card and never in the world. Own units only; the rate must clear field regen.
+    const auraChip = own
+      ? auraChipKey({
+          domain: type.moveDomain,
+          healRate: st.auraHealRate[id],
+          hp: st.hp[id],
+          maxHp: type.hp,
+          compAt: st.auraCompAt[id],
+          componentKilled: st.mobilityKilled[id] === 1 || st.firepowerKilled[id] === 1,
+        })
+      : null;
+    if (auraChip !== null) flags.push(`<span class="rl-good">${t(auraChip)}</span>`);
     if (type.hasAps) flags.push(`<span class="rl-info">${t('selection.chip.aps', { ammo: st.apsAmmo[id], magazine: type.apsMagazine })}</span>`);
     const wp = sim.waypointCount(id);
     if (wp > 0) flags.push(t('hud.card.waypoints', { n: wp }));

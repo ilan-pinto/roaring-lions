@@ -34,6 +34,7 @@ export const FORFEIT_MS = 60_000;
 export const COMMAND_KINDS = [
   'move', 'attackMove', 'halt', 'setStance', 'garrison', 'load', 'unload', 'reveal', 'callStrike', 'smoke', 'demolish', 'chargeTunnel', 'attack',
   'build', 'support', 'cancelBuild', 'setRally', 'clearRally',
+  'construct', 'cancelConstruct',
 ] as const satisfies readonly Command['kind'][];
 
 /** The other half of the pin (N2 prerequisite P1): `satisfies` above catches a
@@ -219,6 +220,13 @@ export function cleanCommand(v: unknown): Command | null {
       return isInt(c.side) && isSupportKind(c.support) && isInt(c.x) && isInt(c.y)
         ? { kind, side: c.side, support: c.support, x: c.x, y: c.y }
         : null;
+    case 'construct':
+    case 'cancelConstruct':
+      // Field works (#277) is not networked yet: the order is priced by the
+      // mission runtime (Task 5), a versus room runs none, and nothing
+      // validates a site's owner on the wire. Refused here, so it vanishes
+      // the same way on both machines, until a task carries it.
+      return null;
     default: {
       const unreachable: never = kind;
       return unreachable;

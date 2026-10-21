@@ -263,3 +263,21 @@ describe('computeFog viewerSide', () => {
     expect(f1[17]).toBe(2);
   });
 });
+
+describe('computeFog: extraObservers (Field Works, #277)', () => {
+  // Mutation: ignore `extraObservers` in computeFog and the first test goes red.
+  it('an extra observer at sight 10 reveals a tile centre 9.9 away and not one 10.1 away', () => {
+    const at = (x: number): Uint8Array =>
+      computeFog(emptyFog(), oneUnitInput(0, 0, 0.1, { entityCount: 0, extraObservers: [{ x, y: 10.5, sight: 10 }] }));
+    // Tile 19's centre is x = 19.5.
+    expect(at(9.6)[10 * W + 19]).toBe(2); // 9.9 away
+    expect(at(9.4)[10 * W + 19]).toBe(0); // 10.1 away
+  });
+
+  it('without observers the result is byte-equal to the same input with an empty list', () => {
+    const base = oneUnitInput(5, 5, 4);
+    const a = computeFog(emptyFog(), base);
+    const b = computeFog(emptyFog(), { ...base, extraObservers: [] });
+    expect(Array.from(b)).toEqual(Array.from(a));
+  });
+});

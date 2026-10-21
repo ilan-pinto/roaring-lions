@@ -26,8 +26,11 @@ const STAGED = join(ROOT, 'docs', 'campaign', 'special_units', 'e5');
 
 const Ajv2020 = (AjvModule as unknown as { default?: typeof AjvModule }).default ?? AjvModule;
 const ajv = new (Ajv2020 as unknown as new (o: object) => {
+  addSchema: (s: object) => unknown;
   compile: (s: object) => ((d: unknown) => boolean) & { errors?: unknown };
 })({ allErrors: true, strict: false });
+// unit.schema.json refers to the shared unlock def by relative $ref (common.schema.json).
+ajv.addSchema(JSON.parse(readFileSync(join(ROOT, 'data', 'schemas', 'common.schema.json'), 'utf8')) as object);
 const validate = ajv.compile(
   JSON.parse(readFileSync(join(ROOT, 'data', 'schemas', 'unit.schema.json'), 'utf8')) as object,
 );

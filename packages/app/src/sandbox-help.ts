@@ -16,7 +16,7 @@
  * Pure: a URLSearchParams and some ids in, strings out. No DOM, no console.
  */
 
-export type SandboxFlagName = 'roe' | 'tunnel' | 'sur' | 'civ' | 'ditch' | 'decals' | 'kit';
+export type SandboxFlagName = 'roe' | 'tunnel' | 'sur' | 'civ' | 'ditch' | 'decals' | 'kit' | 'works';
 
 export interface UrlParam {
   name: string;
@@ -65,6 +65,12 @@ export const SANDBOX_FLAGS: readonly SandboxFlag[] = [
     blurb:
       'the sandbox force pre-kitted, level 1–3 by type -- the kit sign on the unit icons and the HUD card to walk',
     labelKey: 'freePlay.option.kit',
+  },
+  {
+    name: 'works',
+    blurb:
+      'Field works: every buildable KDF type on offer twice, logistics to pay for them, and one demolition squad to raise them',
+    labelKey: 'freePlay.option.works',
   },
 ];
 

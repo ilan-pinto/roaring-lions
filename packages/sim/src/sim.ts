@@ -28,6 +28,9 @@ import {
   BREACH_RANGE_SQ,
   BREACH_TILES,
   BREACH_DETOUR_SLACK,
+  AFFECTS_FOOT,
+  AFFECTS_VEHICLE,
+  type StructureAura,
   type StructureType,
   type StructureTypeJson,
 } from './structures';
@@ -130,7 +133,13 @@ import {
   REGEN_DELAY_TICKS,
   REGEN_FRAC,
   REGEN_CAP,
+  AURA_CADENCE_TICKS,
   AMBUSH_RADIUS_DEFAULT,
+  MAX_SITES,
+  BUILD_RANGE_SQ,
+  MAX_BUILDERS,
+  STAKE_HP_FRAC,
+  BUILD_HP_FRAC,
   type SupportKind,
 } from './tuning';
 
@@ -174,6 +183,9 @@ export interface UnitTypeJson {
   demolition_method?: string;
   /** Seconds of held station to set a tunnel collapse charge. Absent = CHARGE_SECONDS. */
   tunnel_charge_time_s?: number;
+  /** Field works (#277): construction speed for a `construct` unit, a multiple of the
+   *  type's build time. Absent = 1 (the D9 authors 1.5). */
+  construct_rate?: number;
   /** Authored cost, mirroring data/schemas/unit.schema.json. Only `population` is
    *  read by the sim (UnitType.population); the rest are the app's and the balance
    *  tool's. The other keys are declared, not just `population`, because TypeScript's
@@ -474,6 +486,10 @@ export interface UnitType {
   canMarkTunnel: boolean;
   /** Carries smoke: the counterplay to prepared fire. */
   canSmoke: boolean;
+  /** Field works (#277): can raise a field work (`abilities` 'construct'). */
+  canConstruct: boolean;
+  /** Field works: progress multiplier, Q16.16 (`construct_rate`, default ONE). */
+  constructRate: Fx;
   hp: Fx;
   armorFront: Fx;
   armorSide: Fx;
@@ -622,6 +638,8 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
     canMarkTarget: abilities.includes('mark_target'),
     canMarkTunnel: abilities.includes('mark_tunnel'),
     canSmoke: abilities.includes('smoke'),
+    canConstruct: abilities.includes('construct'),
+    constructRate: fx.from(json.construct_rate ?? 1),
     hp: fx.from(json.hull.hp),
     armorFront,
     armorSide,
@@ -730,7 +748,21 @@ export type Command =
   /** F4: clear a line's rally point. */
   | { kind: 'clearRally'; side: number; line: number }
   /** N2: one call from F1's fire-support menu, priced as `build` is. */
-  | { kind: 'support'; side: number; support: SupportKind; x: Fx; y: Fx };
+  | { kind: 'support'; side: number; support: SupportKind; x: Fx; y: Fx }
+  /**
+   * Field works (#277): raise a `buildable` structure type with its footprint's top-left tile at
+   * integer tile (x, y). The site belongs to the builders' side (the first qualifying id's; ids
+   * of another side are ignored). The sim re-checks `placementReason` here and answers with
+   * `constructQueued` or `constructRefused`. Naming the type and origin of a live site of the
+   * same side JOINS it instead (a second engineer resuming a staked site), with no new row.
+   */
+  | { kind: 'construct'; ids: number[]; structType: number; x: number; y: number }
+  /** Field works: take a site down. Unstaked, the row is freed; staked, the structure is
+   *  removed (`removeStructure`); a completed site is no longer a site, so it is ignored. */
+  | { kind: 'cancelConstruct'; site: number };
+
+/** Why a field-works footprint is refused (`Sim.placementReason`), the first failing rule. */
+export type PlacementRefusal = 'off_map' | 'blocked' | 'no_footing' | 'not_level' | 'overlap' | 'seals_passage';
 
 /** The five commands the sim sets aside for the MissionRuntime to price and run (N2, F4):
  *  `queueCommand` never hands them to `applyCommands`. */
@@ -757,7 +789,18 @@ export type ComponentResult =
  *  All numeric payloads are raw Q16.16 — the render side converts. */
 export type SimEvent =
   | { kind: 'spawn'; tick: number; entity: number; typeId: string; side: number }
-  | { kind: 'contact'; tick: number; side: number; target: number; level: ContactLevel; confidence: Fx; observer: number }
+  | {
+      kind: 'contact';
+      tick: number;
+      side: number;
+      target: number;
+      level: ContactLevel;
+      confidence: Fx;
+      observer: number;
+      /** Field works (#277 Task 7): the sensor structure that saw it, present only when the
+       *  observation was structure-sourced, in which case `observer` is -1. */
+      observerStructure?: number;
+    }
   | {
       kind: 'fire';
       tick: number;
@@ -804,7 +847,16 @@ export type SimEvent =
   | { kind: 'garrison'; tick: number; entity: number; structure: number; entered: boolean }
   | { kind: 'transport'; tick: number; entity: number; carrier: number; loaded: boolean }
   | { kind: 'ventOpened'; tick: number; tunnel: number }
-  | { kind: 'tunnelContact'; tick: number; side: number; tunnel: number; level: ContactLevel; observer: number }
+  | {
+      kind: 'tunnelContact';
+      tick: number;
+      side: number;
+      tunnel: number;
+      level: ContactLevel;
+      observer: number;
+      /** Field works (#277 Task 7): the sensor structure, when structure-sourced (`observer` -1). */
+      observerStructure?: number;
+    }
   | { kind: 'surfaced'; tick: number; entity: number; tunnel: number }
   | { kind: 'submerged'; tick: number; entity: number; tunnel: number }
   | { kind: 'tunnelCollapsed'; tick: number; tunnel: number; by: number }
@@ -813,6 +865,20 @@ export type SimEvent =
   | { kind: 'pinned'; tick: number; entity: number }
   | { kind: 'unpinned'; tick: number; entity: number }
   | { kind: 'destroyed'; tick: number; entity: number; by: number }
+  /** Field works (#277): a `construct` was accepted. `builder` is the lowest qualifying id the
+   *  command named. `joined`: it named a live site's type and origin and joined that site rather
+   *  than opening one (nothing new to pay for). */
+  | { kind: 'constructQueued'; tick: number; site: number; structType: number; x: number; y: number; builder: number; joined: boolean }
+  /** Field works: a `construct` the sim would not take. `no_builder`: no id named was a living,
+   *  surface `construct` unit that could take the order. The runtime refunds on this. */
+  | { kind: 'constructRefused'; tick: number; structType: number; x: number; y: number; reason: PlacementRefusal | 'no_site_slot' | 'no_builder' }
+  /** Field works: the first builder arrived and the footprint is now a structure, at progress 0. */
+  | { kind: 'constructStaked'; tick: number; site: number; structure: number }
+  /** Field works: progress reached ONE; the site row is free again. */
+  | { kind: 'structureComplete'; tick: number; site: number; structure: number }
+  /** Field works: a site was cancelled. `structure` -1 when it was never staked; `progress` is
+   *  what had been built (0 unstaked), for the runtime's refund. */
+  | { kind: 'constructCancelled'; tick: number; site: number; structure: number; progress: Fx }
   /**
    * A mission `remove` trigger took this entity off the board — the enemy's
    * act, never the player's, and never a death. Emitted by `removeFromPlay`,
@@ -833,6 +899,7 @@ export const SIM_EVENT_KINDS = [
   'strike', 'smokeLaid', 'revealed', 'structureHit', 'structureDestroyed', 'garrison',
   'transport', 'ventOpened', 'tunnelContact', 'surfaced', 'submerged', 'tunnelCollapsed', 'routed', 'rallied', 'pinned', 'unpinned', 'destroyed',
   'removed',
+  'constructQueued', 'constructRefused', 'constructStaked', 'structureComplete', 'constructCancelled',
 ] as const satisfies readonly SimEvent['kind'][];
 
 /** Compile-time proof the list above covers the whole union.
@@ -1149,6 +1216,57 @@ export class Sim {
   /** Per-placement `produces_for` (F4 Task 7). Setup-only; NOT in hash(). */
   private readonly stProducesFor: Int8Array;
   private readonly stOccupants: Uint8Array;
+  // --- field works (#277) state block. Every array is declared and hashed
+  // here (Task 2) even where a later task is its only writer; see hash() for
+  // why the block folds only once `fwLive` is set (D1).
+  /** Owner of each structure, -1 neutral. The placement's `owner`, else the
+   *  type's. Hashed (FW block). */
+  private readonly stOwner: Int8Array;
+  /** Per-side identification latch, `[side * MAX_STRUCTURES + s]`: set the
+   *  first tick a unit of `side` has a sight line to a footprint tile of an
+   *  OWNED structure of the other side, inside its sight, and never cleared --
+   *  buildings do not move, so a latch, not a ladder. Hashed (FW block). */
+  private readonly stKnown: Uint8Array;
+  /** Construction progress, Q16.16: ONE for every raised (complete) structure,
+   *  below ONE only for a field-works site under construction (Task 4).
+   *  Hashed (FW block). */
+  private readonly stProgress: Int32Array;
+  /** The construction-site table (Task 4 writes it). Hashed (FW block). */
+  private readonly siteAlive: Uint8Array;
+  private readonly siteType: Int16Array;
+  private readonly siteX: Int32Array;
+  private readonly siteY: Int32Array;
+  private readonly siteSide: Int8Array;
+  private readonly siteStructure: Int32Array;
+  /** Per unit: the site this unit is building, -1 none (Task 4). Hashed. */
+  private readonly buildSite: Int8Array;
+  /** Per unit aura modifiers, refreshed every AURA_CADENCE_TICKS (Task 6).
+   *  Hashed. `auraAccMult` is a Q16.16 multiplier, ONE = no effect. */
+  private readonly auraHealRate: Int32Array;
+  private readonly auraHealCap: Int32Array;
+  private readonly auraCompAt: Int32Array;
+  private readonly auraRepairTicks: Int32Array;
+  private readonly auraAccMult: Int32Array;
+  /** D1: true once anything field works has state (an owned structure, a
+   *  structure below full progress, a site). hash() folds the FW block only
+   *  while it is set. Never cleared: once live, always folded. Not itself
+   *  hashed -- it is a function of what the block holds. */
+  private fwLive = false;
+  /** Field works (#277 Task 7): per sensor structure, bit `r` set when any tile of route `r`
+   *  lies within the type's `tunnel_radius` of the centroid. Geometry only (footprints and
+   *  route tiles never change), so it is filled when the structure is raised and when a route
+   *  is registered, and the route loop checks completion and owner each tick. Derived from
+   *  immutable state; NOT hashed. */
+  private readonly stRouteMask: Uint16Array;
+  /** Field works: the tick each unit last added construction progress, -1 never. Scratch for
+   *  `isConstructing` (the render's `work` clip); never read by the sim, never hashed. */
+  private readonly constructedAt: Int32Array;
+  /** Field works: `placementReason`'s seal flood. A BFS queue and a per-cell visit stamp
+   *  (a cell is visited when it equals `sealGen`), preallocated so the flood allocates
+   *  nothing. Scratch, never hashed. */
+  private readonly sealQueue: Int32Array;
+  private readonly sealStamp: Int32Array;
+  private sealGen = 0;
   private readonly stCx: Int32Array;
   private readonly stCy: Int32Array;
   private readonly stMinX: Int32Array;
@@ -1178,6 +1296,17 @@ export class Sim {
    *  never hashed -- it is a label on an event, not state. -1 = nobody this tick. */
   private readonly bestObserver: Int32Array;
   private readonly bestObserverP: Int32Array;
+  /** Field works (#277 Task 7): per (side, target) this tick, the sensor structure that won
+   *  `bestObserver` (which is then -1), else -1. Scratch, reset only while `fwLive`, never
+   *  hashed -- an event label like `bestObserver`. */
+  private readonly bestObserverStructure: Int16Array;
+  /** `detectionFrom`'s outputs, so the sensor loop allocates nothing. Scratch, read straight
+   *  after the call that wrote them; never hashed, never read across ticks. */
+  private detP: Fx = 0;
+  private detStrength: Fx = 0;
+  private detSig: Fx = 0;
+  private detOccl: Fx = ONE;
+  private detDistSq: Fx = 0;
   /** Per (side, target): where that enemy was last actually observed, and
    *  whether that memory is still worth walking to. Troops do not forget a
    *  position the moment they lose sight of it. */
@@ -1280,6 +1409,14 @@ export class Sim {
     readonly focusTarget: Int32Array;
     /** Ticks without a firing solution on the focus. */
     readonly focusLost: Uint16Array;
+    /** Field works (#277): the site this unit builds, -1 none. */
+    readonly buildSite: Int8Array;
+    /** Field works: aura modifiers (Task 6). `auraAccMult` ONE = none. */
+    readonly auraHealRate: Int32Array;
+    readonly auraHealCap: Int32Array;
+    readonly auraCompAt: Int32Array;
+    readonly auraRepairTicks: Int32Array;
+    readonly auraAccMult: Int32Array;
   };
 
   /** Read-only structure view for the renderer and HUD. */
@@ -1295,6 +1432,22 @@ export class Sim {
     readonly minY: Int32Array;
     readonly maxX: Int32Array;
     readonly maxY: Int32Array;
+    /** Field works (#277): owner, -1 neutral. */
+    readonly owner: Int8Array;
+    /** Field works: the per-side identification latch, `[side * 256 + s]`. */
+    readonly known: Uint8Array;
+    /** Field works: construction progress, ONE when complete. */
+    readonly progress: Int32Array;
+  };
+
+  /** Read-only view of the field-works construction-site table (#277). */
+  readonly works: {
+    readonly alive: Uint8Array;
+    readonly type: Int16Array;
+    readonly x: Int32Array;
+    readonly y: Int32Array;
+    readonly side: Int8Array;
+    readonly structure: Int32Array;
   };
 
   private readonly seed: number;
@@ -1328,6 +1481,8 @@ export class Sim {
   /** Goal key of each field, so eviction can drop it from `fieldByGoal`. */
   private readonly fieldGoalKey: number[] = [];
   private readonly fieldDomain: number[] = [];
+  /** recomputeFields scratch: which fields a living unit follows. Unhashed. */
+  private fieldLive = new Uint8Array(0);
 
   /** 1 = a person holds that side; index 2 (civilians) stays 0. */
   private readonly humanHeldBySide = new Uint8Array(3);
@@ -1418,6 +1573,25 @@ export class Sim {
     this.stTypeIdx = new Uint16Array(sc);
     this.stProducesFor = new Int8Array(sc).fill(-1);
     this.stOccupants = new Uint8Array(sc);
+    this.stOwner = new Int8Array(sc).fill(-1);
+    this.stKnown = new Uint8Array(2 * sc);
+    this.stProgress = new Int32Array(sc);
+    this.stRouteMask = new Uint16Array(sc);
+    this.siteAlive = new Uint8Array(MAX_SITES);
+    this.siteType = new Int16Array(MAX_SITES);
+    this.siteX = new Int32Array(MAX_SITES);
+    this.siteY = new Int32Array(MAX_SITES);
+    this.siteSide = new Int8Array(MAX_SITES);
+    this.siteStructure = new Int32Array(MAX_SITES).fill(-1);
+    this.buildSite = new Int8Array(n).fill(-1);
+    this.auraHealRate = new Int32Array(n);
+    this.auraHealCap = new Int32Array(n);
+    this.auraCompAt = new Int32Array(n);
+    this.auraRepairTicks = new Int32Array(n);
+    this.auraAccMult = new Int32Array(n).fill(ONE);
+    this.constructedAt = new Int32Array(n).fill(-1);
+    this.sealQueue = new Int32Array(tiles);
+    this.sealStamp = new Int32Array(tiles);
     this.stCx = new Int32Array(sc);
     this.stCy = new Int32Array(sc);
     this.stMinX = new Int32Array(sc);
@@ -1438,6 +1612,7 @@ export class Sim {
     this.seenThisTick = new Uint8Array(2 * n);
     this.bestObserver = new Int32Array(2 * n);
     this.bestObserverP = new Int32Array(2 * n);
+    this.bestObserverStructure = new Int16Array(2 * n).fill(-1);
     this.lastSeenX = new Int32Array(2 * n);
     this.lastSeenY = new Int32Array(2 * n);
     this.lastSeenValid = new Uint8Array(2 * n);
@@ -1489,6 +1664,12 @@ export class Sim {
       braceTicks: this.braceTicks,
       focusTarget: this.focusTarget,
       focusLost: this.focusLost,
+      buildSite: this.buildSite,
+      auraHealRate: this.auraHealRate,
+      auraHealCap: this.auraHealCap,
+      auraCompAt: this.auraCompAt,
+      auraRepairTicks: this.auraRepairTicks,
+      auraAccMult: this.auraAccMult,
     };
     this.structures = {
       alive: this.stAlive,
@@ -1502,6 +1683,17 @@ export class Sim {
       minY: this.stMinY,
       maxX: this.stMaxX,
       maxY: this.stMaxY,
+      owner: this.stOwner,
+      known: this.stKnown,
+      progress: this.stProgress,
+    };
+    this.works = {
+      alive: this.siteAlive,
+      type: this.siteType,
+      x: this.siteX,
+      y: this.siteY,
+      side: this.siteSide,
+      structure: this.siteStructure,
     };
   }
 
@@ -1562,15 +1754,42 @@ export class Sim {
     if (this.hasBoulders) this.blockedVehicleMask[t] = this.blocked[t] | this.boulder[t];
   }
 
-  /** Terrain changed (building raised or levelled): every cached flow field
-   *  is stale. Flow fields are shared per destination, so this is cheap
-   *  compared to the per-unit repathing it replaces. */
+  /** Terrain changed (building raised, removed or levelled): every cached flow
+   *  field is stale. Flow fields are shared per destination, so this is cheap
+   *  compared to the per-unit repathing it replaces.
+   *
+   *  LAZY (#277 Task 3). With the pool full on a 48x48 map this loop was
+   *  measured at 24 ms a call (`pnpm perf:recompute`, docs/PERFORMANCE.md),
+   *  against a 50 ms tick, and a stake or a cancel pays it. So only the fields
+   *  a LIVING unit still follows are recomputed now. The rest are dropped from
+   *  `fieldByGoal`, so the next `fieldFor` for that goal computes a fresh one,
+   *  and their slots stay in the pool, unreferenced, for eviction to reuse. Nothing reads a
+   *  field through any path but `fieldRef` or `fieldFor`, so a dropped field is
+   *  unobservable: the same bytes a full recompute would have left, computed
+   *  later or never. */
   private recomputeFields(): void {
+    const n = this.fields.length;
+    if (n === 0) return;
+    if (this.fieldLive.length < n) this.fieldLive = new Uint8Array(n);
+    const live = this.fieldLive;
+    live.fill(0, 0, n);
+    for (let i = 0; i < this.count; i++) {
+      if (this.alive[i] === 0) continue;
+      const f = this.fieldRef[i];
+      if (f >= 0) live[f] = 1;
+    }
     for (let d = 0; d < DOMAIN_COUNT; d++) {
       const mask = this.maskFor(d);
-      for (const [goal, idx] of this.fieldByGoal[d]) {
-        const gx = goal % this.width;
-        this.fields[idx].compute(mask, this.elevation, gx, (goal - gx) / this.width);
+      const byGoal = this.fieldByGoal[d];
+      for (const [goal, idx] of byGoal) {
+        if (live[idx] === 1) {
+          const gx = goal % this.width;
+          this.fields[idx].compute(mask, this.elevation, gx, (goal - gx) / this.width);
+        } else {
+          // Deleting the entry being visited is defined for a Map.
+          byGoal.delete(goal);
+          this.fieldGoalKey[idx] = -1;
+        }
       }
     }
   }
@@ -1605,12 +1824,16 @@ export class Sim {
   }
 
   addStructureType(json: StructureTypeJson): number {
-    this.structureTypes.push(structureTypeFromJson(json));
+    this.structureTypes.push(structureTypeFromJson(json, TICKS_PER_SECOND));
     return this.structureTypes.length - 1;
   }
 
-  /** Raise a building over `tiles` (tile indices). Blocks until it falls. */
-  addStructure(typeIdx: number, tiles: readonly number[]): number {
+  /** Raise a building over `tiles` (tile indices). Blocks until it falls.
+   *  `opts.owner` overrides the type's owner (-1 neutral, 0, 1); `opts.progress`
+   *  is construction progress, ONE (complete) by default. Either one that
+   *  makes the structure field-works state (an owner, or progress below ONE)
+   *  sets `fwLive` (D1, see hash()). */
+  addStructure(typeIdx: number, tiles: readonly number[], opts?: { owner?: number; progress?: Fx }): number {
     if (this.structureCount_ >= MAX_STRUCTURES) throw new Error('too many structures');
     const type = this.structureTypes[typeIdx];
     if (type === undefined) throw new Error(`no structure type ${typeIdx}`);
@@ -1640,6 +1863,12 @@ export class Sim {
     this.stAlive[id] = 1;
     this.stTypeIdx[id] = typeIdx;
     this.stProducesFor[id] = type.producesFor;
+    const owner = opts?.owner ?? type.owner;
+    if (owner !== -1 && owner !== 0 && owner !== 1) throw new Error(`structure owner ${owner}, expected -1, 0 or 1`);
+    const progress = opts?.progress ?? ONE;
+    this.stOwner[id] = owner;
+    this.stProgress[id] = progress;
+    if (owner !== -1 || progress !== ONE) this.fwLive = true;
     this.stMaxHp[id] = fx.mul(type.hpPerTile, fx.fromInt(tiles.length));
     this.stHp[id] = this.stMaxHp[id];
     this.stOccupants[id] = 0;
@@ -1650,8 +1879,61 @@ export class Sim {
     this.stMinY[id] = minY;
     this.stMaxX[id] = maxX;
     this.stMaxY[id] = maxY;
+    const sensor = type.aura === null ? null : type.aura.sensor;
+    if (sensor !== null && sensor.tunnelRadiusSq > 0) {
+      let mask = 0;
+      for (let r = 0; r < this.tunnelCount_; r++) {
+        if (this.routeWithin(id, r, sensor.tunnelRadiusSq)) mask |= 1 << r;
+      }
+      this.stRouteMask[id] = mask;
+    }
     this.recomputeFields();
     return id;
+  }
+
+  /** Field works: does any tile of route `r` lie within `radiusSq` of structure `s`'s
+   *  centroid (tile centres, as route spotting measures)? No LOS: a sensor, not an eye.
+   *  Load-time only (addStructure, addTunnel). */
+  private routeWithin(s: number, r: number, radiusSq: Fx): boolean {
+    const w = this.width;
+    for (const t of this.tnTiles[r]) {
+      const tx = t % w;
+      const ty = (t - tx) / w;
+      const dSq = distSqFx(fx.sub(fx.add(fx.fromInt(tx), HALF), this.stCx[s]), fx.sub(fx.add(fx.fromInt(ty), HALF), this.stCy[s]));
+      if (dSq <= radiusSq) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Take a structure away as if it had never been raised (a cancelled stake,
+   * #277 Task 3). Unlike `destroyStructure` it leaves no rubble (`cover` is
+   * untouched), throws no collapse shock, pushes no `structureDestroyed`
+   * event and kills no garrison: nobody can be inside an unfinished building,
+   * so it throws if `stOccupants[s] > 0` rather than killing anyone.
+   *
+   * Writes only what hash() already folds (`stAlive`, `stHp`, `blocked`), so it
+   * adds no unhashed state. `stProgress` and `stOwner` are left as written: a
+   * dead row is skipped by every reader, and the hash keeps the row's history.
+   * A unit still heading for it as a garrison goal is released, as in collapse.
+   * One `recomputeFields`, after every tile is open.
+   */
+  removeStructure(s: number): void {
+    if (s < 0 || s >= this.structureCount_) throw new Error(`no structure ${s}`);
+    if (this.stAlive[s] === 0) return;
+    if (this.stOccupants[s] > 0) throw new Error(`structure ${s} has occupants`);
+    this.stAlive[s] = 0;
+    this.stHp[s] = 0;
+    for (const t of this.stTiles[s]) {
+      this.blocked[t] = 0;
+      // A boulder under the same tile does not stop being a boulder.
+      this.syncVehicleTile(t);
+      this.structureOfTile[t] = -1;
+    }
+    for (let i = 0; i < this.count; i++) {
+      if (this.garrisonGoal[i] === s) this.garrisonGoal[i] = -1;
+    }
+    this.recomputeFields();
   }
 
   /**
@@ -1669,6 +1951,465 @@ export class Sim {
   /** The side structure `s` produces for: the placement's override, else its type's `producesFor` (-1 = none). */
   structureProducesFor(s: number): number {
     return this.stProducesFor[s];
+  }
+
+  /**
+   * Field works (#277): set who owns structure `s` (-1 neutral, 0, 1). Setup-only, like
+   * `setStructureProducesFor`. Unlike that column, the owner IS hashed (FW block): it decides
+   * what the other side may shoot. An owner other than -1 sets `fwLive` (D1).
+   */
+  setStructureOwner(s: number, owner: number): void {
+    if (s < 0 || s >= this.structureCount_) throw new Error(`no structure ${s}`);
+    if (this.tickCount > 0) throw new Error('setStructureOwner is setup-only (before the first tick)');
+    if (owner !== -1 && owner !== 0 && owner !== 1) throw new Error(`structure owner ${owner}, expected -1, 0 or 1`);
+    this.stOwner[s] = owner;
+    if (owner !== -1) this.fwLive = true;
+  }
+
+  /** Field works: true once `side` has seen owned structure `s` (the latch). */
+  structureKnownTo(side: number, s: number): boolean {
+    return this.stKnown[side * MAX_STRUCTURES + s] === 1;
+  }
+
+  /** Field works: true once the FW state block is folded into hash() (D1). Read-only. */
+  get fieldWorksLive(): boolean {
+    return this.fwLive;
+  }
+
+  // ------------------------------------------------------------- field works
+  // Construction (#277 Task 4, spec §1). A `construct` command writes a site
+  // row; the first builder to arrive STAKES it (Q4: the footprint blocks only
+  // then, as a structure at progress 0); up to MAX_BUILDERS builders, lowest id
+  // first, add progress each tick; at ONE it is complete and the row is free.
+  // No random numbers anywhere in it: every choice goes by lowest id or by a
+  // fixed scan order (invariant 3).
+
+  /**
+   * Why a `structType` footprint with its top-left tile at (tx, ty) cannot be
+   * raised, or null when it can. Pure: it writes nothing but its own scratch.
+   * The first failing rule, in the spec's order:
+   * 1. inside the map ('off_map'); no tile blocked -- building, ridge, wall
+   *    ('blocked'); no tile a boulder field or ditch ('no_footing');
+   * 2. every tile on one elevation level ('not_level', Q6);
+   * 3. no tile under a live structure or a PENDING site ('overlap');
+   * 4. no seal: the footprint must not split the open ground ('seals_passage', Q5).
+   * Roads, groves and knolls are open ground and allowed; a tunnel is not a
+   * rule (refusing over an unidentified route would leak it). `side` is in the
+   * signature for the runtime and the app; no rule reads it, because a site
+   * blocks the ground for everyone whoever owns it.
+   */
+  placementReason(structType: number, tx: number, ty: number, side: number): PlacementRefusal | null {
+    void side;
+    const type = this.structureTypes[structType];
+    if (type === undefined || type.buildable === null) throw new Error(`structure type ${structType} is not buildable`);
+    const b = type.buildable;
+    const w = this.width;
+    if (tx < 0 || ty < 0 || tx + b.fw > w || ty + b.fh > this.height) return 'off_map';
+    for (let y = ty; y < ty + b.fh; y++) {
+      for (let x = tx; x < tx + b.fw; x++) if (this.blocked[y * w + x] !== 0) return 'blocked';
+    }
+    for (let y = ty; y < ty + b.fh; y++) {
+      for (let x = tx; x < tx + b.fw; x++) if (this.boulder[y * w + x] !== 0) return 'no_footing';
+    }
+    const level = this.elevation[ty * w + tx];
+    for (let y = ty; y < ty + b.fh; y++) {
+      for (let x = tx; x < tx + b.fw; x++) if (this.elevation[y * w + x] !== level) return 'not_level';
+    }
+    for (let y = ty; y < ty + b.fh; y++) {
+      for (let x = tx; x < tx + b.fw; x++) {
+        const s = this.structureOfTile[y * w + x];
+        if (s >= 0 && this.stAlive[s] === 1) return 'overlap';
+        if (this.pendingSiteAt(x, y) >= 0) return 'overlap';
+      }
+    }
+    if (this.footprintSeals(tx, ty, b.fw, b.fh)) return 'seals_passage';
+    return null;
+  }
+
+  /** True when `id` added construction progress on the last tick: the
+   *  render's `work` clip. A read of unhashed scratch (invariant 4). */
+  isConstructing(id: number): boolean {
+    const t = this.constructedAt[id];
+    return t >= 0 && t === this.tickCount - 1;
+  }
+
+  /** The live, NOT yet staked site whose footprint holds tile (x, y), or -1.
+   *  A staked site is a structure, already in `blocked` and `structureOfTile`. */
+  private pendingSiteAt(x: number, y: number): number {
+    for (let k = 0; k < MAX_SITES; k++) {
+      if (this.siteAlive[k] === 0 || this.siteStructure[k] >= 0) continue;
+      const b = this.structureTypes[this.siteType[k]].buildable;
+      if (b === null) continue;
+      const sx = this.siteX[k];
+      const sy = this.siteY[k];
+      if (x >= sx && x < sx + b.fw && y >= sy && y < sy + b.fh) return k;
+    }
+    return -1;
+  }
+
+  /**
+   * Rule 4, the seal (Q5). The foot mask's open ground, with every pending
+   * site counted as blocked, and the candidate footprint added: flood from one
+   * open 4-neighbour of the footprint and refuse if any other open 4-neighbour
+   * goes unreached. That is the plan's two-labelling test in one flood: the
+   * footprint is open ground and 4-connected in itself, so before it is added
+   * every open 4-neighbour of it is in ONE component, and the footprint splits
+   * that component exactly when the flood cannot reach them all around it.
+   * Allocates nothing: `sealQueue` and the generation-stamped `sealStamp` are
+   * preallocated scratch, never hashed.
+   */
+  private footprintSeals(tx: number, ty: number, fw: number, fh: number): boolean {
+    const w = this.width;
+    const h = this.height;
+    if (this.sealGen >= 0x7fffffff) {
+      this.sealStamp.fill(0);
+      this.sealGen = 0;
+    }
+    const gen = ++this.sealGen;
+    const stamp = this.sealStamp;
+    const queue = this.sealQueue;
+    // Count the open 4-neighbours (no corners: a footprint cannot be passed
+    // diagonally through its corner on a 4-connected flood).
+    let need = 0;
+    let start = -1;
+    for (let y = ty - 1; y <= ty + fh; y++) {
+      if (y < 0 || y >= h) continue;
+      for (let x = tx - 1; x <= tx + fw; x++) {
+        if (x < 0 || x >= w) continue;
+        if (!this.isFootprintNeighbour(x, y, tx, ty, fw, fh)) continue;
+        if (!this.sealOpen(x, y, tx, ty, fw, fh)) continue;
+        need++;
+        if (start < 0) start = y * w + x;
+      }
+    }
+    if (need <= 1) return false;
+    let head = 0;
+    let tail = 0;
+    queue[tail++] = start;
+    stamp[start] = gen;
+    let reached = 0;
+    while (head < tail) {
+      const c = queue[head++];
+      const cx = c % w;
+      const cy = (c - cx) / w;
+      if (this.isFootprintNeighbour(cx, cy, tx, ty, fw, fh)) {
+        reached++;
+        if (reached === need) return false;
+      }
+      for (let dir = 0; dir < 4; dir++) {
+        const nx = dir === 0 ? cx + 1 : dir === 1 ? cx - 1 : cx;
+        const ny = dir === 2 ? cy + 1 : dir === 3 ? cy - 1 : cy;
+        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+        const nc = ny * w + nx;
+        if (stamp[nc] === gen) continue;
+        if (!this.sealOpen(nx, ny, tx, ty, fw, fh)) continue;
+        stamp[nc] = gen;
+        queue[tail++] = nc;
+      }
+    }
+    return true;
+  }
+
+  /** Tile (x, y) shares an edge with the footprint and is not in it. */
+  private isFootprintNeighbour(x: number, y: number, tx: number, ty: number, fw: number, fh: number): boolean {
+    const inX = x >= tx && x < tx + fw;
+    const inY = y >= ty && y < ty + fh;
+    return (inX && (y === ty - 1 || y === ty + fh)) || (inY && (x === tx - 1 || x === tx + fw));
+  }
+
+  /** Open for the seal flood: foot-passable, not in the candidate footprint,
+   *  not under a pending site. */
+  private sealOpen(x: number, y: number, tx: number, ty: number, fw: number, fh: number): boolean {
+    if (this.blocked[y * this.width + x] !== 0) return false;
+    if (x >= tx && x < tx + fw && y >= ty && y < ty + fh) return false;
+    return this.pendingSiteAt(x, y) < 0;
+  }
+
+  /** A `construct` command (see the Command doc). */
+  private applyConstruct(ids: readonly number[], structType: number, x: number, y: number): void {
+    const type = this.structureTypes[structType];
+    // A malformed command (no such type, or one that cannot be built) is not
+    // a placement refusal and has nothing to refund: the runtime never sends it.
+    if (type === undefined || type.buildable === null) return;
+    // The site is the side of the LOWEST qualifying id; ids of another side
+    // are ignored (an order is single-side by construction anyway).
+    let lead = -1;
+    for (const id of ids) {
+      if (!this.canTakeConstruct(id)) continue;
+      if (lead < 0 || id < lead) lead = id;
+    }
+    if (lead < 0) {
+      this.pendingEvents.push({ kind: 'constructRefused', tick: this.tickCount, structType, x, y, reason: 'no_builder' });
+      return;
+    }
+    const side = this.side[lead];
+    // The same type at the same origin for the same side is that site: join it.
+    let site = -1;
+    let joined = true;
+    for (let k = 0; k < MAX_SITES; k++) {
+      if (this.siteAlive[k] === 1 && this.siteType[k] === structType && this.siteX[k] === x && this.siteY[k] === y && this.siteSide[k] === side) {
+        site = k;
+        break;
+      }
+    }
+    if (site < 0) {
+      joined = false;
+      const reason = this.placementReason(structType, x, y, side);
+      if (reason !== null) {
+        this.pendingEvents.push({ kind: 'constructRefused', tick: this.tickCount, structType, x, y, reason });
+        return;
+      }
+      for (let k = 0; k < MAX_SITES; k++) {
+        if (this.siteAlive[k] === 0) {
+          site = k;
+          break;
+        }
+      }
+      if (site < 0) {
+        this.pendingEvents.push({ kind: 'constructRefused', tick: this.tickCount, structType, x, y, reason: 'no_site_slot' });
+        return;
+      }
+      this.siteAlive[site] = 1;
+      this.siteType[site] = structType;
+      this.siteX[site] = x;
+      this.siteY[site] = y;
+      this.siteSide[site] = side;
+      this.siteStructure[site] = -1;
+      // D1: the site table holds state now, so the FW block folds from here on.
+      this.fwLive = true;
+    }
+    this.pendingEvents.push({ kind: 'constructQueued', tick: this.tickCount, site, structType, x, y, builder: lead, joined });
+    for (const id of ids) {
+      if (this.side[id] === side && this.canTakeConstruct(id)) this.assignBuilder(id, site);
+    }
+  }
+
+  /** A unit that can be handed a `construct` order: alive, listening, a
+   *  `construct` unit of a combatant side, not riding (buried ids never get
+   *  here: applyCommands' containment filter). */
+  private canTakeConstruct(id: number): boolean {
+    if (id < 0 || id >= this.count) return false;
+    if (this.alive[id] === 0 || this.routed[id] === 1 || this.carriedBy[id] >= 0) return false;
+    if (this.side[id] > 1) return false;
+    return this.unitTypes[this.typeIdx[id]].canConstruct;
+  }
+
+  /** Put `id` on `site` and walk it to the nearest open tile 4-adjacent to the
+   *  footprint. What every order clears, as `demolish` does. */
+  private assignBuilder(id: number, site: number): void {
+    if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
+    this.buildSite[id] = site;
+    this.wpCount[id] = 0;
+    this.boardGoal[id] = -1;
+    this.garrisonGoal[id] = -1;
+    this.demolishOrder[id] = -1;
+    this.chargeOrder[id] = -1;
+    this.chargeTicks[id] = 0;
+    const d = this.domainOf(id);
+    this.siteApproachTile(site, id, this.maskFor(d));
+    const ax = this.snapX;
+    const ay = this.snapY;
+    this.goalX[id] = fx.add(fx.fromInt(ax), HALF);
+    this.goalY[id] = fx.add(fx.fromInt(ay), HALF);
+    this.fieldRef[id] = this.fieldFor(ax, ay, d);
+    this.moving[id] = 1;
+    this.attackMove[id] = 0;
+    this.sweepOrder[id] = 0;
+    this.engaging[id] = 0;
+    this.stance[id] = 0;
+  }
+
+  /** Into `snapX`/`snapY`: the open (in `mask`) tile sharing an edge with the
+   *  site's footprint nearest to `id`, ties by row-major scan order; failing
+   *  that, the nearest open tile to the footprint's origin. */
+  private siteApproachTile(site: number, id: number, mask: Uint8Array): void {
+    const b = this.structureTypes[this.siteType[site]].buildable;
+    const tx = this.siteX[site];
+    const ty = this.siteY[site];
+    if (b === null) {
+      this.snapOpenTile(tx, ty, mask);
+      return;
+    }
+    const w = this.width;
+    let best = -1;
+    let bestD = 0;
+    for (let y = ty - 1; y <= ty + b.fh; y++) {
+      if (y < 0 || y >= this.height) continue;
+      for (let x = tx - 1; x <= tx + b.fw; x++) {
+        if (x < 0 || x >= w) continue;
+        if (!this.isFootprintNeighbour(x, y, tx, ty, b.fw, b.fh)) continue;
+        if (mask[y * w + x] !== 0) continue;
+        const d = distSqFx(fx.sub(fx.add(fx.fromInt(x), HALF), this.posX[id]), fx.sub(fx.add(fx.fromInt(y), HALF), this.posY[id]));
+        if (best < 0 || d < bestD) {
+          best = y * w + x;
+          bestD = d;
+        }
+      }
+    }
+    if (best < 0) {
+      this.snapOpenTile(tx, ty, mask);
+      return;
+    }
+    this.snapX = best % w;
+    this.snapY = (best - this.snapX) / w;
+  }
+
+  /** A `cancelConstruct` command. */
+  private applyCancelConstruct(site: number): void {
+    if (site < 0 || site >= MAX_SITES || this.siteAlive[site] === 0) return;
+    const s = this.siteStructure[site];
+    if (s < 0) {
+      this.freeSite(site);
+      this.pendingEvents.push({ kind: 'constructCancelled', tick: this.tickCount, site, structure: -1, progress: 0 });
+      return;
+    }
+    // Fell this tick before stepConstruction freed it: a wreck, not a cancel.
+    if (this.stAlive[s] === 0) {
+      this.freeSite(site);
+      return;
+    }
+    // Complete: no longer a site (completion frees the row, so this is a guard).
+    if (this.stProgress[s] >= ONE) return;
+    const progress = this.stProgress[s];
+    this.removeStructure(s);
+    this.freeSite(site);
+    this.pendingEvents.push({ kind: 'constructCancelled', tick: this.tickCount, site, structure: s, progress });
+  }
+
+  /** Free a site row and take every builder off it, so a later site in the
+   *  same row inherits nobody. */
+  private freeSite(site: number): void {
+    this.siteAlive[site] = 0;
+    this.siteStructure[site] = -1;
+    for (let i = 0; i < this.count; i++) {
+      if (this.buildSite[i] === site) this.buildSite[i] = -1;
+    }
+  }
+
+  /** Squared distance, Q16.16 tiles, from a point to the nearest footprint
+   *  tile centre of a site (staked or not). */
+  private siteDistSq(site: number, fw: number, fh: number, px: Fx, py: Fx): Fx {
+    let best = 0x7fffffff;
+    const tx = this.siteX[site];
+    const ty = this.siteY[site];
+    for (let y = ty; y < ty + fh; y++) {
+      for (let x = tx; x < tx + fw; x++) {
+        const d = distSqFx(fx.sub(fx.add(fx.fromInt(x), HALF), px), fx.sub(fx.add(fx.fromInt(y), HALF), py));
+        if (d < best) best = d;
+      }
+    }
+    return best;
+  }
+
+  /** On the surface: not inside a building, a vehicle or the ground. */
+  private onSurface(i: number): boolean {
+    return this.garrisonedIn[i] < 0 && this.carriedBy[i] < 0 && this.tunnelIn[i] < 0;
+  }
+
+  /** A living surface ground unit standing on the site's footprint. */
+  private onPad(i: number, site: number, fw: number, fh: number): boolean {
+    if (this.alive[i] === 0 || !this.onSurface(i)) return false;
+    if (this.unitTypes[this.typeIdx[i]].isAir) return false; // flies over it
+    const x = this.posX[i] >> 16;
+    const y = this.posY[i] >> 16;
+    const sx = this.siteX[site];
+    const sy = this.siteY[site];
+    return x >= sx && x < sx + fw && y >= sy && y < sy + fh;
+  }
+
+  /**
+   * Stake `site` if its first builder has arrived: a builder on it, alive, on
+   * the surface and within BUILD_RANGE_SQ of a footprint tile centre (moving
+   * or not). It waits while any enemy or civilian stands on the footprint;
+   * every friendly there, builders included, is put out beside it, on ground
+   * its own domain can stand on, once it stands. Returns the structure, or -1 not staked yet.
+   */
+  private tryStake(site: number, fw: number, fh: number): number {
+    let arrived = false;
+    for (let i = 0; i < this.count && !arrived; i++) {
+      if (this.buildSite[i] !== site || this.alive[i] === 0 || !this.onSurface(i)) continue;
+      if (this.siteDistSq(site, fw, fh, this.posX[i], this.posY[i]) <= BUILD_RANGE_SQ) arrived = true;
+    }
+    if (!arrived) return -1;
+    const side = this.siteSide[site];
+    for (let i = 0; i < this.count; i++) {
+      if (this.onPad(i, site, fw, fh) && this.side[i] !== side) return -1;
+    }
+    // An event, not a tick: the footprint list is allocated once per stake.
+    const tiles: number[] = [];
+    const w = this.width;
+    for (let y = this.siteY[site]; y < this.siteY[site] + fh; y++) {
+      for (let x = this.siteX[site]; x < this.siteX[site] + fw; x++) tiles.push(y * w + x);
+    }
+    // Friendlies on the pad are put out AFTER addStructure, so the footprint
+    // is already blocked in the masks they are placed against.
+    const s = this.addStructure(this.siteType[site], tiles, { owner: side, progress: 0 });
+    this.stHp[s] = fx.mul(this.stMaxHp[s], STAKE_HP_FRAC);
+    this.siteStructure[site] = s;
+    // Each in ITS OWN domain's mask: exitTile reads the foot mask alone, and
+    // would put a vehicle down on a boulder or ditch tile it can never leave.
+    // The approach rule (nearest open edge tile, else the nearest open tile)
+    // and never back inside the footprint: an enclosed pocket passes the seal
+    // check, and a unit there must still come out.
+    for (let i = 0; i < this.count; i++) {
+      if (!this.onPad(i, site, fw, fh)) continue;
+      const mask = this.maskFor(this.domainOf(i));
+      this.siteApproachTile(site, i, mask);
+      if (mask[this.snapY * w + this.snapX] !== 0) continue; // no open tile on the whole map
+      this.posX[i] = fx.add(fx.fromInt(this.snapX), HALF);
+      this.posY[i] = fx.add(fx.fromInt(this.snapY), HALF);
+    }
+    this.pendingEvents.push({ kind: 'constructStaked', tick: this.tickCount, site, structure: s });
+    return s;
+  }
+
+  /**
+   * Field works, once per tick, last (after stepTunnelCharge). For each live
+   * site: free it if its structure fell (a wreck: destroyStructure has already
+   * done the rubble, the shock and the event); stake it if unstaked; then up to
+   * MAX_BUILDERS of its builders, lowest id first -- alive, on the surface, in
+   * range, not moving, not pinned -- each add `buildStep x constructRate`. HP
+   * rises by `maxHp x BUILD_HP_FRAC x` the progress added, capped at max. At
+   * ONE: clamp, `structureComplete`, free the row. A world with no field works
+   * returns at once (and allocates nothing either way).
+   */
+  private stepConstruction(): void {
+    if (!this.fwLive) return;
+    for (let k = 0; k < MAX_SITES; k++) {
+      if (this.siteAlive[k] === 0) continue;
+      let s = this.siteStructure[k];
+      if (s >= 0 && this.stAlive[s] === 0) {
+        this.freeSite(k);
+        continue;
+      }
+      const b = this.structureTypes[this.siteType[k]].buildable;
+      if (b === null) continue;
+      if (s < 0) {
+        s = this.tryStake(k, b.fw, b.fh);
+        if (s < 0) continue;
+      }
+      let delta = 0;
+      let builders = 0;
+      for (let i = 0; i < this.count && builders < MAX_BUILDERS; i++) {
+        if (this.buildSite[i] !== k || this.alive[i] === 0) continue;
+        if (this.moving[i] === 1 || this.pinned[i] === 1 || !this.onSurface(i)) continue;
+        if (this.siteDistSq(k, b.fw, b.fh, this.posX[i], this.posY[i]) > BUILD_RANGE_SQ) continue;
+        delta += fx.mul(b.buildStep, this.unitTypes[this.typeIdx[i]].constructRate);
+        this.constructedAt[i] = this.tickCount;
+        builders++;
+      }
+      if (delta === 0) continue;
+      const before = this.stProgress[s];
+      const after = before + delta >= ONE ? ONE : before + delta;
+      this.stProgress[s] = after;
+      const maxHp = this.stMaxHp[s];
+      const hp = this.stHp[s] + fx.mul(fx.mul(maxHp, BUILD_HP_FRAC), after - before);
+      this.stHp[s] = hp > maxHp ? maxHp : hp;
+      if (after === ONE) {
+        this.pendingEvents.push({ kind: 'structureComplete', tick: this.tickCount, site: k, structure: s });
+        this.freeSite(k);
+      }
+    }
   }
 
   get tunnelCount(): number {
@@ -1713,6 +2454,12 @@ export class Sim {
       }
     }
     this.tnTiles.push(tiles);
+    // A sensor structure raised before this route: add the route's bit to its mask.
+    for (let st = 0; st < this.structureCount_; st++) {
+      const a = this.structureTypes[this.stTypeIdx[st]].aura;
+      if (a === null || a.sensor === null || a.sensor.tunnelRadiusSq <= 0) continue;
+      if (this.routeWithin(st, id, a.sensor.tunnelRadiusSq)) this.stRouteMask[st] |= 1 << id;
+    }
     return id;
   }
 
@@ -1965,6 +2712,13 @@ export class Sim {
     this.brace[id] = BRACE_NONE;
     this.braceTicks[id] = 0;
     this.braceClock[id] = 0;
+    this.buildSite[id] = -1;
+    this.constructedAt[id] = -1;
+    this.auraHealRate[id] = 0;
+    this.auraHealCap[id] = 0;
+    this.auraCompAt[id] = 0;
+    this.auraRepairTicks[id] = 0;
+    this.auraAccMult[id] = ONE;
     this.apsAmmo[id] = type.apsMagazine;
     this.pendingEvents.push({ kind: 'spawn', tick: this.tickCount, entity: id, typeId: type.id, side });
     return id;
@@ -2096,6 +2850,8 @@ export class Sim {
     this.stepTransport();
     this.stepFields();
     this.stepGarrison();
+    // Field works: before upkeep, which reads the aura arrays every tick.
+    this.stepAuras();
     this.stepDemolition();
     this.stepUpkeep();
     // After upkeep rather than beside stepDemolition: the pin flag latches
@@ -2103,6 +2859,10 @@ export class Sim {
     // pinned — one slot earlier in the order and the interruption lands a
     // tick late, which is the difference the pinned test measures.
     this.stepTunnelCharge();
+    // Last, so a site's builder reads this tick's `moving` and `pinned`, and a
+    // site whose structure fell anywhere in this tick is freed before the next
+    // tick's commands can name it.
+    this.stepConstruction();
     this.tickCount++;
     const out = this.pendingEvents;
     this.pendingEvents = [];
@@ -2134,6 +2894,7 @@ export class Sim {
       idx = this.fields.length;
       this.fields.push(new FlowField(this.width, this.height));
     } else {
+      // A slot dropped by recomputeFields holds key -1: nothing in the map to remove.
       this.fieldByGoal[this.fieldDomain[idx]].delete(this.fieldGoalKey[idx]);
     }
     this.fields[idx].compute(this.maskFor(d), this.elevation, gx, gy);
@@ -2354,6 +3115,15 @@ export class Sim {
         // leg running: an order that does not move the unit itself (smoke,
         // unload, any refusal) would otherwise walk it onto the enemy with its
         // fire held, and an APPENDED move would queue behind the chase.
+        // Field works: any order that names a builder takes it off its site --
+        // `construct` included: its branch below puts back on a site only the
+        // ids it accepts, so a refused construct leaves its ids on no site.
+        // Same rule as the focus: every id named, refused or not. The flag
+        // guard keeps a world with no field works from touching the column at
+        // all (D1).
+        if (this.fwLive) {
+          for (const id of cmd.ids) this.buildSite[id] = -1;
+        }
         if (cmd.kind !== 'attack') {
           for (const id of cmd.ids) {
             if (this.focusTarget[id] >= 0) {
@@ -2734,6 +3504,9 @@ export class Sim {
       } else if (cmd.kind === 'garrison') {
         const s = cmd.structure;
         if (s < 0 || s >= this.structureCount_ || this.stAlive[s] === 0) continue;
+        // Field works: nobody moves into a building that is still going up
+        // (and `removeStructure` relies on it: an unfinished one is empty).
+        if (this.stProgress[s] < ONE) continue;
         // Walk to the doorway; stepGarrison lets them in when they arrive
         // and there is room. Overflow simply waits outside.
         const [gx, gy] = [this.stCx[s], this.stCy[s]];
@@ -2835,6 +3608,10 @@ export class Sim {
           this.engaging[id] = 0;
           this.stance[id] = 0; // any order overrides a held stance
         }
+      } else if (cmd.kind === 'construct') {
+        this.applyConstruct(cmd.ids, cmd.structType, cmd.x, cmd.y);
+      } else if (cmd.kind === 'cancelConstruct') {
+        this.applyCancelConstruct(cmd.site);
       } else if (cmd.kind === 'setStance') {
         // Not a plain halt: it must skip garrisoned and carried ids, which halt would pull out of their post.
         for (const id of cmd.ids) {
@@ -2958,19 +3735,60 @@ export class Sim {
     return s < 0 ? 0 : this.structureTypes[this.stTypeIdx[s]].floors - 1;
   }
 
-  /** `w`'s maximum range squared for unit `i`: longer from inside (ruling 4). */
+  /** Field works: the live `aura` of the structure unit `i` is garrisoned in, or null. Live
+   *  means complete (`stProgress === ONE`; a garrisoned unit's structure is alive) and owned
+   *  by the occupant's own side, the area scope's owner rule: an enemy who walks into a
+   *  captured outpost gets the building's window, not its owner's fittings. */
+  private garrisonAura(i: number): StructureAura | null {
+    const s = this.garrisonedIn[i];
+    if (s < 0) return null;
+    const a = this.structureTypes[this.stTypeIdx[s]].aura;
+    if (a === null || this.stProgress[s] !== ONE) return null;
+    const owner = this.stOwner[s];
+    if ((owner !== 0 && owner !== 1) || owner !== this.side[i]) return null;
+    return a;
+  }
+
+  /** Field works: the `aura.garrison.range_bonus` unit `i`'s weapon `w` adds ON TOP of
+   *  GARRISON_RANGE_BONUS. Direct fire only: an INDIRECT_MASK weapon gets none (spec §3). */
+  private auraRangeBonus(i: number, w: WeaponStats): Fx {
+    if ((INDIRECT_MASK & (1 << w.cls)) !== 0) return 0;
+    const a = this.garrisonAura(i);
+    return a === null ? 0 : a.rangeBonus;
+  }
+
+  /** `w`'s maximum range squared for unit `i`: longer from inside (ruling 4),
+   *  longer again by a field work's range bonus. */
   private reachSq(i: number, w: WeaponStats): Fx {
-    return this.garrisonedIn[i] >= 0 ? w.garrisonRangeSq : w.rangeSq;
+    if (this.garrisonedIn[i] < 0) return w.rangeSq;
+    const b = this.auraRangeBonus(i, w);
+    if (b === 0) return w.garrisonRangeSq;
+    const r = fx.add(fx.add(w.range, GARRISON_RANGE_BONUS), b);
+    return fx.mul(r, r);
   }
 
   /** `w`'s effective range squared for unit `i`. */
   private effSq(i: number, w: WeaponStats): Fx {
-    return this.garrisonedIn[i] >= 0 ? w.garrisonEffRangeSq : w.effectiveRangeSq;
+    if (this.garrisonedIn[i] < 0) return w.effectiveRangeSq;
+    const b = this.auraRangeBonus(i, w);
+    if (b === 0) return w.garrisonEffRangeSq;
+    const r = fx.add(w.garrisonEffRange, b);
+    return fx.mul(r, r);
   }
 
   /** `w`'s effective range for unit `i`, the hit-falloff scale. */
   private effRange(i: number, w: WeaponStats): Fx {
-    return this.garrisonedIn[i] >= 0 ? w.garrisonEffRange : w.effectiveRange;
+    if (this.garrisonedIn[i] < 0) return w.effectiveRange;
+    return fx.add(w.garrisonEffRange, this.auraRangeBonus(i, w));
+  }
+
+  /** Unit `i`'s sight squared: its type's, plus a field work's `sight_bonus` from inside. */
+  private sightSqOf(i: number): Fx {
+    const t = this.unitTypes[this.typeIdx[i]];
+    const a = this.garrisonAura(i);
+    if (a === null || a.sightBonus === 0) return t.sightSq;
+    const r = fx.add(t.sight, a.sightBonus);
+    return fx.mul(r, r);
   }
 
   /** Smoke density on a tile, for tests and presentation. */
@@ -3095,31 +3913,47 @@ export class Sim {
   }
 
   private detectionPair(obs: number, tgt: number): DetectionDebug {
-    const none: DetectionDebug = {
-      visible: false,
-      p: 0,
-      strength: 0,
-      signature: 0,
-      occlusion: ONE,
-      distSq: 0,
-      confidence: this.contact[this.side[obs] * this.capacity + tgt],
-    };
     const oType = this.unitTypes[this.typeIdx[obs]];
-    const tType = this.unitTypes[this.typeIdx[tgt]];
-    // Both ends at their windows (G1, B6): a garrisoned observer looks out of
-    // the tile nearest the target, and a garrisoned target is seen at the tile
-    // nearest the observer's own eye.
+    const oSide = this.side[obs];
+    // The observer at its window (G1, B6): a garrisoned observer looks out of
+    // the tile nearest the target. detectionFrom puts the target at ITS window.
     this.eyePoint(obs, this.posX[tgt], this.posY[tgt]);
-    const ox = this.eyeX;
-    const oy = this.eyeY;
+    const visible = this.detectionFrom(this.eyeX, this.eyeY, this.sightSqOf(obs), oType.optics, this.eyeLift(obs), tgt);
+    const confidence = this.contact[oSide * this.capacity + tgt];
+    if (!visible) {
+      return { visible: false, p: 0, strength: 0, signature: 0, occlusion: ONE, distSq: this.detDistSq, confidence };
+    }
+    return {
+      visible: true,
+      p: this.detP,
+      strength: this.detStrength,
+      signature: this.detSig,
+      occlusion: this.detOccl,
+      distSq: this.detDistSq,
+      confidence,
+    };
+  }
+
+  /**
+   * One observation from an eye at (ox, oy) -- a unit's window, or a sensor structure's
+   * centroid (field works, Task 7) -- of `tgt`. Returns whether the target
+   * is visible; the roll's numbers land in the `det*` scratch fields (`detDistSq` always), so
+   * the call allocates nothing. `lift` raises the observer's eye by whole elevation levels
+   * (`eyeLift` for a unit; 0 for a structure, whose eye stands at ground level as route
+   * spotting's does). Signature x strength x p, shared by unit detection, sensor structures
+   * and the debug overlay.
+   */
+  private detectionFrom(ox: Fx, oy: Fx, sightSq: Fx, optics: Fx, lift: number, tgt: number): boolean {
+    const tType = this.unitTypes[this.typeIdx[tgt]];
+    // A garrisoned target is seen at the tile nearest the observer's own eye.
     this.eyePoint(tgt, ox, oy);
     const tx = this.eyeX;
     const ty = this.eyeY;
     const dSq = distSqFx(fx.sub(tx, ox), fx.sub(ty, oy));
-    none.distSq = dSq;
-    if (dSq > oType.sightSq) return none;
-    const cov = this.losRay(ox >> 16, oy >> 16, tx >> 16, ty >> 16, this.eyeLift(obs), this.eyeLift(tgt));
-    if (cov < 0) return none;
+    this.detDistSq = dSq;
+    if (dSq > sightSq) return false;
+    const cov = this.losRay(ox >> 16, oy >> 16, tx >> 16, ty >> 16, lift, this.eyeLift(tgt));
+    if (cov < 0) return false;
 
     let sig = tType.signature;
     if (this.stance[tgt] === 1) sig = fx.mul(sig, AMBUSH_SIG);
@@ -3138,17 +3972,12 @@ export class Sim {
 
     const occl = fx.add(ONE, cov * OCCL_PER_COVER);
     const denom = fx.mul(fx.max(dSq, MIN_DETECT_DIST_SQ), occl);
-    const strength = fx.div(fx.mul(oType.optics, sig), denom);
-    const p = fx.sub(ONE, fx.expNeg(fx.mul(K_DETECT, fx.mul(strength, DT))));
-    return {
-      visible: true,
-      p,
-      strength,
-      signature: sig,
-      occlusion: occl,
-      distSq: dSq,
-      confidence: this.contact[this.side[obs] * this.capacity + tgt],
-    };
+    const strength = fx.div(fx.mul(optics, sig), denom);
+    this.detP = fx.sub(ONE, fx.expNeg(fx.mul(K_DETECT, fx.mul(strength, DT))));
+    this.detStrength = strength;
+    this.detSig = sig;
+    this.detOccl = occl;
+    return true;
   }
 
   /** Contact state of `target` as known to `side`: 0 unknown, 1 suspected,
@@ -3344,7 +4173,13 @@ export class Sim {
       if (r < 0 || this.tnAlive[r] === 0 || this.tnVentOpen[r] === 0) continue;
       const type = this.unitTypes[this.typeIdx[i]];
       if (type.weapons.length === 0) continue;
-      const [vx, vy] = this.ventPos(r);
+      let [vx, vy] = this.ventPos(r);
+      // Field works (Q7): a vent may sit under a standing structure (a work
+      // raised over an unidentified route; refusing that footprint would leak
+      // the route). The fighters come up beside it, at its exitTile, never
+      // inside it -- and judge their shot from where they will stand.
+      const vs = this.structureOfTile[(vy >> 16) * this.width + (vx >> 16)];
+      if (vs >= 0 && this.stAlive[vs] === 1) [vx, vy] = this.exitTile(vs);
       if (!this.hasTargetFrom(i, vx, vy)) continue;
 
       this.tunnelIn[i] = -1;
@@ -3438,6 +4273,7 @@ export class Sim {
         this.contact[k] = fx.add(c, fx.mul(fx.sub(ONE, c), d.p));
       }
     }
+    if (this.fwLive) this.sensorObservations();
     // Decay unobserved contacts; emit state transitions.
     for (let s = 0; s < 2; s++) {
       for (let tgt = 0; tgt < this.count; tgt++) {
@@ -3449,14 +4285,25 @@ export class Sim {
         const st = this.contactState[k];
         if (st < 2 && c >= IDENTIFIED_AT) {
           this.contactState[k] = 2;
-          this.pendingEvents.push({ kind: 'contact', tick: this.tickCount, side: s, target: tgt, level: 'identified', confidence: c, observer: this.bestObserver[k] });
+          this.pushContact(s, tgt, 'identified', c, k);
         } else if (st < 1 && c >= SUSPECTED_AT) {
           this.contactState[k] = 1;
-          this.pendingEvents.push({ kind: 'contact', tick: this.tickCount, side: s, target: tgt, level: 'suspected', confidence: c, observer: this.bestObserver[k] });
+          this.pushContact(s, tgt, 'suspected', c, k);
         } else if (st > 0 && c < LOST_AT) {
           this.contactState[k] = 0;
-          this.pendingEvents.push({ kind: 'contact', tick: this.tickCount, side: s, target: tgt, level: 'lost', confidence: c, observer: this.bestObserver[k] });
+          this.pushContact(s, tgt, 'lost', c, k);
         }
+      }
+    }
+    // Field works: the routes each side's complete sensor structures hold this
+    // tick, one OR per structure (stRouteMask is cached geometry). 0 unless fwLive.
+    let sensed0 = 0;
+    let sensed1 = 0;
+    if (this.fwLive && this.tunnelCount_ > 0) {
+      for (let st = 0; st < this.structureCount_; st++) {
+        const owner = this.sensorOwner(st);
+        if (owner === 0) sensed0 |= this.stRouteMask[st];
+        else if (owner === 1) sensed1 |= this.stRouteMask[st];
       }
     }
     // A route is found through the spoil it leaves, not by seeing the tunnel.
@@ -3467,6 +4314,13 @@ export class Sim {
       if (this.tnAlive[r] === 0) continue;
       for (let s = 0; s < 2; s++) {
         const k = s * MAX_TUNNELS + r;
+        // A sensor structure holds the route identified while it stands --
+        // held, not latched: once it falls the bit is gone and the contact
+        // decays down the ladder below, as a departed mark_tunnel carrier's does.
+        if ((((s === 0 ? sensed0 : sensed1) >> r) & 1) !== 0) {
+          this.identifyTunnelTo(s, r, -1, this.tnContactState[k] !== 2 ? this.sensorHoldingRoute(s, r) : -1);
+          continue;
+        }
         // `mark_tunnel` senses the ROUTE, not its spoil: a trained eye with a
         // clear sight line to any tile the route runs under hands its side
         // the route identified outright — no dwell, no spoil, no tuning
@@ -3528,6 +4382,57 @@ export class Sim {
           this.pendingEvents.push({ kind: 'tunnelContact', tick: this.tickCount, side: s, tunnel: r, level: 'lost', observer: -1 });
         }
       }
+    }
+    if (this.fwLive) this.latchOwnedStructures();
+  }
+
+  /**
+   * Field works (#277): the owned-structure identification latch. For every
+   * living OWNED structure (owner 0 or 1) the other side has not yet seen, set
+   * `stKnown[other * MAX_STRUCTURES + s]` the first tick a living unit of that
+   * side has a sight line to one of its footprint tiles inside its own sight.
+   * Neutral structures (-1) never latch, and a set latch is never cleared.
+   *
+   * The sight test is detectionPair's: the observer at its window (`eyePoint`,
+   * lifted by its floors, `eyeLift`), squared distance to the tile centre
+   * against `sightSq`, and `losRay` with the structure at the ray's END, which
+   * losRay treats as transparent, so the building's own tiles never hide it.
+   * No probability roll: a building is not a man in cover -- seen is seen.
+   * Observers are filtered as stepDetection's are (alive, side 0/1, not
+   * underground). Runs only while `fwLive` (an owned structure implies it), so
+   * a world with no owned structure pays nothing; allocates nothing.
+   */
+  private latchOwnedStructures(): void {
+    const w = this.width;
+    for (let s = 0; s < this.structureCount_; s++) {
+      if (this.stAlive[s] === 0) continue;
+      const owner = this.stOwner[s];
+      if (owner !== 0 && owner !== 1) continue;
+      const other = 1 - owner;
+      const k = other * MAX_STRUCTURES + s;
+      if (this.stKnown[k] !== 0) continue;
+      const tiles = this.stTiles[s];
+      let seen = false;
+      for (let obs = 0; obs < this.count && !seen; obs++) {
+        if (this.alive[obs] === 0 || this.side[obs] !== other) continue;
+        if (this.tunnelIn[obs] >= 0) continue;
+        const sightSq = this.sightSqOf(obs);
+        this.eyePoint(obs, this.stCx[s], this.stCy[s]);
+        const ox = this.eyeX;
+        const oy = this.eyeY;
+        const lift = this.eyeLift(obs);
+        for (let j = 0; j < tiles.length; j++) {
+          const t = tiles[j];
+          const tx = t % w;
+          const ty = (t - tx) / w;
+          const dSq = distSqFx(fx.sub(fx.add(fx.fromInt(tx), HALF), ox), fx.sub(fx.add(fx.fromInt(ty), HALF), oy));
+          if (dSq > sightSq) continue;
+          if (this.losRay(ox >> 16, oy >> 16, tx, ty, lift, 0) < 0) continue;
+          seen = true;
+          break;
+        }
+      }
+      if (seen) this.stKnown[k] = 1;
     }
   }
 
@@ -3667,12 +4572,89 @@ export class Sim {
    *  Held, not latched: stepDetection re-calls this every tick some carrier
    *  keeps the route in sight, and once nothing does, the contact decays
    *  back down the ladder like any other — visibility is live. */
-  identifyTunnelTo(side: number, r: number, observer = -1): void {
+  identifyTunnelTo(side: number, r: number, observer = -1, observerStructure = -1): void {
     const k = side * MAX_TUNNELS + r;
     this.tnContact[k] = ONE;
     if (this.tnContactState[k] !== 2) {
       this.tnContactState[k] = 2;
-      this.pendingEvents.push({ kind: 'tunnelContact', tick: this.tickCount, side, tunnel: r, level: 'identified', observer });
+      if (observerStructure >= 0) {
+        this.pendingEvents.push({ kind: 'tunnelContact', tick: this.tickCount, side, tunnel: r, level: 'identified', observer, observerStructure });
+      } else {
+        this.pendingEvents.push({ kind: 'tunnelContact', tick: this.tickCount, side, tunnel: r, level: 'identified', observer });
+      }
+    }
+  }
+
+  /** Field works: the side a structure observes for as a sensor this tick -- its owner (0/1)
+   *  when it is alive, complete and has an `aura.sensor` -- else -1. */
+  private sensorOwner(st: number): number {
+    if (this.stAlive[st] === 0 || this.stProgress[st] !== ONE) return -1;
+    const owner = this.stOwner[st];
+    if (owner !== 0 && owner !== 1) return -1;
+    const a = this.structureTypes[this.stTypeIdx[st]].aura;
+    return a === null || a.sensor === null ? -1 : owner;
+  }
+
+  /** The lowest-id live sensor structure of `side` holding route `r`, -1 none. Only asked on
+   *  the tick a route turns identified, for the event's label. */
+  private sensorHoldingRoute(side: number, r: number): number {
+    for (let st = 0; st < this.structureCount_; st++) {
+      if (this.sensorOwner(st) === side && ((this.stRouteMask[st] >> r) & 1) !== 0) return st;
+    }
+    return -1;
+  }
+
+  /** Push a unit-contact transition. The structure label rides only on a structure-sourced
+   *  observation (`bestObserver` -1 with a winning sensor), so every unit-sourced event keeps
+   *  its exact shape. */
+  private pushContact(side: number, target: number, level: ContactLevel, c: Fx, k: number): void {
+    const observer = this.bestObserver[k];
+    const st = observer === -1 && this.fwLive ? this.bestObserverStructure[k] : -1;
+    if (st >= 0) {
+      this.pendingEvents.push({ kind: 'contact', tick: this.tickCount, side, target, level, confidence: c, observer, observerStructure: st });
+    } else {
+      this.pendingEvents.push({ kind: 'contact', tick: this.tickCount, side, target, level, confidence: c, observer });
+    }
+  }
+
+  /**
+   * Field works (#277 Task 7): every complete, owned sensor structure observes as an eye of
+   * its owner's side, feeding the same contact arrays the unit loop does (spec §3, "Intel
+   * centre"). The eye is the centroid at ground level -- route spotting's rule -- with the
+   * type's sight and optics, through `detectionFrom`, the unit path's own roll. A structure
+   * that wins a (side, target) pair sets `bestObserver` to -1 and labels the pair in
+   * `bestObserverStructure`. Targets are filtered exactly as the unit loop's (alive, other
+   * side, not underground). Called only while `fwLive`; allocates nothing.
+   */
+  private sensorObservations(): void {
+    const cap = this.capacity;
+    this.bestObserverStructure.fill(-1);
+    for (let st = 0; st < this.structureCount_; st++) {
+      const owner = this.sensorOwner(st);
+      if (owner < 0) continue;
+      const a = this.structureTypes[this.stTypeIdx[st]].aura;
+      const sensor = a === null ? null : a.sensor;
+      if (sensor === null) continue;
+      const ox = this.stCx[st];
+      const oy = this.stCy[st];
+      for (let tgt = 0; tgt < this.count; tgt++) {
+        if (this.alive[tgt] === 0 || this.side[tgt] === owner) continue;
+        if (this.tunnelIn[tgt] >= 0) continue;
+        if (!this.detectionFrom(ox, oy, sensor.sightSq, sensor.optics, 0, tgt)) continue;
+        const k = owner * cap + tgt;
+        this.seenThisTick[k] = 1;
+        const p = this.detP;
+        if (p > this.bestObserverP[k]) {
+          this.bestObserverP[k] = p;
+          this.bestObserver[k] = -1;
+          this.bestObserverStructure[k] = st;
+        }
+        this.lastSeenX[k] = this.posX[tgt];
+        this.lastSeenY[k] = this.posY[tgt];
+        this.lastSeenValid[k] = 1;
+        const c = this.contact[k];
+        this.contact[k] = fx.add(c, fx.mul(fx.sub(ONE, c), p));
+      }
     }
   }
 
@@ -3838,11 +4820,21 @@ export class Sim {
     let best = -1;
     let bestDistSq = 0x7fffffff;
     for (let s = 0; s < this.structureCount_; s++) {
-      if (this.stAlive[s] === 0 || this.stOccupants[s] === 0) continue;
+      if (this.stAlive[s] === 0) continue;
+      // Field works (#277): a structure the ENEMY owns is a target in its own
+      // right, empty or not -- but only once this side has seen it (the
+      // `stKnown` latch), so an unseen outpost stays hidden through recon.
+      // Neutral (-1) structures never qualify: an empty house is still never
+      // shot. An unowned or unlatched building falls through to the old rule.
+      const owner = this.stOwner[s];
+      const ownedHostile =
+        (owner === 0 || owner === 1) && owner !== sSide && sSide <= 1 &&
+        this.stKnown[sSide * MAX_STRUCTURES + s] !== 0;
+      if (!ownedHostile && this.stOccupants[s] === 0) continue;
       // Protected sites are never engaged on a gunner's initiative.
       if (this.structureTypes[this.stTypeIdx[s]].roePenalty >= PROTECTED_ROE) continue;
-      let hostileInside = false;
-      for (let t = 0; t < this.count; t++) {
+      let hostileInside = ownedHostile;
+      for (let t = 0; t < this.count && !hostileInside; t++) {
         if (this.alive[t] === 0 || this.garrisonedIn[t] !== s) continue;
         if (this.side[t] === sSide || this.side[t] > 1) continue;
         if (this.contact[sSide * cap + t] >= IDENTIFIED_AT) {
@@ -4478,10 +5470,11 @@ export class Sim {
 
     // GDD 5.2 — every factor is on the event for the overlay. Veterans shoot
     // straighter: the ledger's carry-over must be worth protecting.
-    const accuracy = fx.min(
-      fx.mul(w.accuracy, fx.add(ONE, this.veterancy[shooter] * VET_ACC_BONUS)),
-      ONE
-    );
+    // A field work's accuracy_mult (spec §3) joins veterancy: 1.06 is one level up.
+    let acc = fx.mul(w.accuracy, fx.add(ONE, this.veterancy[shooter] * VET_ACC_BONUS));
+    const auraAcc = this.auraAccMult[shooter];
+    if (auraAcc !== ONE) acc = fx.mul(acc, auraAcc);
+    const accuracy = fx.min(acc, ONE);
     const ratio = fx.div(dist, this.effRange(shooter, w));
     const rangeFalloff = fx.expNeg(fx.mul(FALLOFF_SCALE[w.cls], fx.mul(ratio, ratio)));
     // Cover is the target's own tile, or the parapet he is fighting from
@@ -5619,6 +6612,11 @@ export class Sim {
           // the squad away at tick 20. Levelling your own camp is an order,
           // like cutting your own wire.
           if (this.stProducesFor[s] === this.side[i]) continue;
+          // Nor a field work the side owns (#277): a `demo_squad` is both the engineer who
+          // raises one and a demolisher, and standing beside its own site to build it would
+          // otherwise bring the site down 100 ticks after staking. Razing your own works is an
+          // order. An enemy's works (owner 1 against side 0) is fair game, as any building is.
+          if (this.stOwner[s] === this.side[i]) continue;
           if (this.stOccupants[s] > 0 && this.friendlyInside(s, this.side[i])) continue;
           const d = this.structDistSq(s, this.posX[i], this.posY[i]);
           if (d <= bestD) {
@@ -6483,6 +7481,55 @@ export class Sim {
     }
   }
 
+  /**
+   * Field works (#277, spec §3): refresh every unit's aura modifiers every
+   * AURA_CADENCE_TICKS. Clears rate, cap, component threshold and accuracy, then for each
+   * COMPLETE structure owned by side 0 or 1 with area effects, gives every unit of the
+   * OWNER's side within an effect's radius of the centroid -- alive, on the surface, not
+   * garrisoned, not carried, not air, in the effect's domain -- the MAX of rate, cap and
+   * accuracy over covering effects and the MIN non-zero component threshold: overlapping
+   * stations do not stack, and the answer is order-free. `auraRepairTicks` is stepUpkeep's
+   * counter and is not touched here. Returns at once unless `fwLive` (D1); allocates nothing.
+   */
+  private stepAuras(): void {
+    if (!this.fwLive) return;
+    if (this.tickCount % AURA_CADENCE_TICKS !== 0) return;
+    const n = this.count;
+    for (let i = 0; i < n; i++) {
+      this.auraHealRate[i] = 0;
+      this.auraHealCap[i] = 0;
+      this.auraCompAt[i] = 0;
+      this.auraAccMult[i] = ONE;
+    }
+    for (let s = 0; s < this.structureCount_; s++) {
+      if (this.stAlive[s] === 0 || this.stProgress[s] !== ONE) continue;
+      const owner = this.stOwner[s];
+      if (owner !== 0 && owner !== 1) continue;
+      const aura = this.structureTypes[this.stTypeIdx[s]].aura;
+      if (aura === null) continue;
+      const area = aura.area;
+      const cx = this.stCx[s];
+      const cy = this.stCy[s];
+      for (let k = 0; k < area.length; k++) {
+        const e = area[k];
+        for (let i = 0; i < n; i++) {
+          if (this.alive[i] === 0 || this.side[i] !== owner) continue;
+          if (this.garrisonedIn[i] >= 0 || this.carriedBy[i] >= 0 || this.tunnelIn[i] >= 0) continue;
+          const t = this.unitTypes[this.typeIdx[i]];
+          if (t.isAir) continue;
+          if (e.affects === AFFECTS_FOOT && t.moveDomain !== DOMAIN_FOOT) continue;
+          if (e.affects === AFFECTS_VEHICLE && t.moveDomain !== DOMAIN_VEHICLE) continue;
+          if (distSqFx(fx.sub(this.posX[i], cx), fx.sub(this.posY[i], cy)) > e.radiusSq) continue;
+          if (e.healRate > this.auraHealRate[i]) this.auraHealRate[i] = e.healRate;
+          if (e.healCap > this.auraHealCap[i]) this.auraHealCap[i] = e.healCap;
+          if (e.accMult > this.auraAccMult[i]) this.auraAccMult[i] = e.accMult;
+          const c = e.compTicks;
+          if (c > 0 && (this.auraCompAt[i] === 0 || c < this.auraCompAt[i])) this.auraCompAt[i] = c;
+        }
+      }
+    }
+  }
+
   private stepUpkeep(): void {
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0) continue;
@@ -6521,12 +7568,26 @@ export class Sim {
       }
       // Field recovery: left alone for a while, crews patch up and wounded
       // walk again — but only to a ceiling. Serious damage needs M2 repair.
+      // A field work's heal or repair (stepAuras) raises the rate and the ceiling, each the
+      // larger of the two, after the same delay: one rule for "under fire".
       if (this.tickCount - this.lastDamagedTick[i] >= REGEN_DELAY_TICKS) {
         const type = this.unitTypes[this.typeIdx[i]];
-        const cap = fx.mul(type.hp, REGEN_CAP);
+        const auraCap = this.auraHealCap[i];
+        const auraRate = this.auraHealRate[i];
+        const cap = fx.mul(type.hp, auraCap > REGEN_CAP ? auraCap : REGEN_CAP);
         if (this.hp[i] < cap) {
-          this.hp[i] = fx.min(fx.add(this.hp[i], fx.mul(type.hp, REGEN_FRAC)), cap);
+          this.hp[i] = fx.min(fx.add(this.hp[i], fx.mul(type.hp, auraRate > REGEN_FRAC ? auraRate : REGEN_FRAC)), cap);
         }
+      }
+      // Component repair: continuous covered, undamaged ticks; a hit or leaving cover restarts it.
+      const compAt = this.auraCompAt[i];
+      if (compAt > 0 && this.lastDamagedTick[i] !== this.tickCount) {
+        if (++this.auraRepairTicks[i] >= compAt) {
+          this.mobilityKilled[i] = 0;
+          this.firepowerKilled[i] = 0;
+        }
+      } else if (this.auraRepairTicks[i] !== 0) {
+        this.auraRepairTicks[i] = 0;
       }
       // Weapon cooldowns.
       if (this.cooldown[i * 2] > 0) this.cooldown[i * 2]--;
@@ -6652,6 +7713,36 @@ export class Sim {
     h = hashArray(h, this.stAlive);
     h = hashArray(h, this.stHp);
     h = hashArray(h, this.stOccupants);
+    // Field works (#277), D1: the FW state block is folded only once `fwLive`
+    // is set, and NOTHING at all is folded before that -- no marker, no length
+    // word. hashArray folds by XOR-then-multiply, so even an all-default array
+    // moves the digest; folding the block unconditionally would move every
+    // golden, versus and net pin for worlds that use no field works. House
+    // precedent: `economyHash`'s rise loop, a loop with no length word so a
+    // flat map adds nothing. Every FW writer sets `fwLive` (an owned or
+    // under-construction `addStructure`, `setStructureOwner`, and site creation
+    // from Task 4), so a world whose block holds anything other than its
+    // defaults always folds it: the canary still sees every FW divergence.
+    // The marker word keeps "block folded" distinct from any accident of the
+    // arrays' contents lining up with what follows.
+    if (this.fwLive) {
+      h = hashWord(h, 0x46570277); // 'FW' #277
+      h = hashArray(h, this.stOwner);
+      h = hashArray(h, this.stKnown);
+      h = hashArray(h, this.stProgress);
+      h = hashArray(h, this.siteAlive);
+      h = hashArray(h, this.siteType);
+      h = hashArray(h, this.siteX);
+      h = hashArray(h, this.siteY);
+      h = hashArray(h, this.siteSide);
+      h = hashArray(h, this.siteStructure);
+      h = hashArray(h, this.buildSite);
+      h = hashArray(h, this.auraHealRate);
+      h = hashArray(h, this.auraHealCap);
+      h = hashArray(h, this.auraCompAt);
+      h = hashArray(h, this.auraRepairTicks);
+      h = hashArray(h, this.auraAccMult);
+    }
     // Tunnel columns — every mutable one, matching how the demolition and
     // contact state above is folded in. The contact pair matters most: it
     // gates the charge clock, and under live-gated visibility it moves every

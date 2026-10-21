@@ -115,8 +115,8 @@
  */
 import { firePointOnMap } from './units/fire-points';
 import * as THREE from 'three';
-import { fx, WEAPON_CLASS, type Fx, type MissionEvent, type Sim, type SimEvent } from '@lions/sim';
-import type { AimFootprint, ObjectiveZoneView, RallyMarkView, Renderer, RendererOptions, SupplyRouteView, TerrainTones } from '../api'; // both, after Step 2
+import { fx, ONE, WEAPON_CLASS, type Fx, type MissionEvent, type Sim, type SimEvent } from '@lions/sim';
+import type { AimFootprint, AuraRingView, ObjectiveZoneView, PlacementPreview, RallyMarkView, Renderer, RendererOptions, SupplyRouteView, TerrainTones } from '../api'; // both, after Step 2
 import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, type Camera } from '../project';
 import { QUALITY_PRESETS } from '../quality';
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec, type ParticleSpec } from '../vfx';
@@ -489,6 +489,13 @@ import {
 } from './units/mesh-vehicle';
 import { kitLodIsFar, setKitDrawRange, setKitLod } from './units/vehicle-kit';
 import { SIDE_1_TEMPLATE_SUFFIX, templateKey, templateKitTiers } from './units/kit-template-key';
+import { collectWorksObservers } from './works-observers';
+import {
+  attachConstructionClip,
+  constructionClipY,
+  disposeConstructionClip,
+  type ConstructionClip,
+} from './units/construction-clip';
 import {
   loadBuildingMeshTemplate,
   wallTreatmentOf,
@@ -607,6 +614,17 @@ import {
   cachedHexToLinear,
   hpBarVisible,
   REFUGE_RING_TILES,
+  AURA_RING_COLOR_KEY,
+  AURA_RING_FALLBACK_COLOR,
+  AURA_TUNNEL_RING_COLOR_KEY,
+  AURA_TUNNEL_RING_FALLBACK_COLOR,
+  PAD_INVALID_COLOR_KEY,
+  PAD_INVALID_FALLBACK_COLOR,
+  PAD_ALPHA,
+  PAD_INVALID_ALPHA,
+  PAD_LINE_WIDTH_PX,
+  padGridLines,
+  drawAuraRing,
   REFUGE_RING_COLOR_KEY,
   REFUGE_RING_FALLBACK_COLOR,
   REFUGE_RING_EDGE_COLOR_KEY,
@@ -990,6 +1008,11 @@ export class ThreeRenderer implements Renderer {
    *  ring(s), per kind (`aimRingSpecs`), drawn in the overlay pass beside the
    *  refuge ring; `null` draws nothing. */
   aimFootprint: AimFootprint | null = null;
+  /** Field works (#277 Task 9): see `Renderer.placementPreview`. Nothing in a
+   *  capture sets it, so no golden frame draws it. */
+  placementPreview: PlacementPreview | null = null;
+  /** Field works: see `Renderer.auraRingPreview`. */
+  auraRingPreview: readonly AuraRingView[] = [];
   /** S-F F2 C3: see `Renderer.supplyRoutes`. Held by `supplyRoute`, which
    *  rebuilds its one merged geometry on the next overlay pass when a NEW
    *  array arrives (the same array again is a no-op) and disposes the old. */
@@ -2088,6 +2111,19 @@ export class ThreeRenderer implements Renderer {
   /** The WRECK sibling -- absent for a type whose `loadBuildingMesh` call
    *  carried no wreck URL. */
   private readonly buildingMeshWreckTemplates = new Map<string, BuildingMeshTemplate>();
+  /** Field works (#277 Task 13): the CONSTRUCTION template of the four KDF
+   *  works, and its measured height (world units, MESH_SCALE applied, before
+   *  the per-instance fit) -- the clip plane rises over it. */
+  private readonly buildingMeshConstructionTemplates = new Map<string, BuildingMeshTemplate>();
+  private readonly buildingConstructionHeight = new Map<string, number>();
+  /** One entry per UNFINISHED structure (progress < ONE) of a type with a
+   *  construction template, by structure index: the clone, and the clip plane
+   *  and private material clones that go with it. Bounded by the sim's
+   *  `MAX_SITES`. Removed on completion, cancel, death and dispose. */
+  private readonly buildingConstruction = new Map<
+    number,
+    { readonly root: THREE.Object3D; readonly clip: ConstructionClip; readonly heightWorld: number; readonly groundY: number }
+  >();
   /** GH-469: unit types / wreck types whose template textures are still
    *  ENCODED (`coldGltfLoader`). Never drawn while listed; see `warmUnitMesh`. */
   private readonly coldUnitTypes = new Set<string>();
@@ -2717,6 +2753,9 @@ export class ThreeRenderer implements Renderer {
     // no SMAA to fall back on.
     this.renderer = new THREE.WebGLRenderer({ antialias: true, stencil: true });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    // A field work under construction is cut by a per-material clip plane
+    // (`units/construction-clip.ts`); local planes are ignored without this.
+    this.renderer.localClippingEnabled = true;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.0;
     this.renderer.setClearColor(new THREE.Color(this.opts.background));
@@ -3211,6 +3250,11 @@ export class ThreeRenderer implements Renderer {
     // each template's shared geometry/material released exactly once.
     for (const root of this.buildingMeshIdleEntities.values()) this.scene.remove(root);
     this.buildingMeshIdleEntities.clear();
+    for (const site of this.buildingConstruction.values()) {
+      this.scene.remove(site.root);
+      disposeConstructionClip(site.clip);
+    }
+    this.buildingConstruction.clear();
     for (const root of this.buildingMeshWreckEntities.values()) this.scene.remove(root);
     this.buildingMeshWreckEntities.clear();
     // GH #143 follow-up: bookkeeping only (no owned geometry/material of its
@@ -3232,6 +3276,8 @@ export class ThreeRenderer implements Renderer {
     this.buildingMeshIdleTemplates.clear();
     for (const template of this.buildingMeshWreckTemplates.values()) disposeBuildingMeshTemplate(template);
     this.buildingMeshWreckTemplates.clear();
+    for (const template of this.buildingMeshConstructionTemplates.values()) disposeBuildingMeshTemplate(template);
+    this.buildingMeshConstructionTemplates.clear();
     this.particleInstancerBelow.dispose();
     this.particleInstancerAbove.dispose();
     this.particleInstancerBelowAdditive.dispose();
@@ -4451,9 +4497,47 @@ export class ThreeRenderer implements Renderer {
       blocked: this.sim.blocked,
       isLowProfile: (x, y) => this.isLowProfileTile(x, y),
       viewerSide: this.viewer,
+      extraObservers: this.worksObservers(),
     };
     this.fog = computeFog(this.fog, input);
     this.shroudDirty = true;
+  }
+
+  /**
+   * Field works (#277): the fixed eyes that are not entities -- the rules
+   * live in `works-observers.ts` (complete sensors; garrison sight bonus only
+   * from a COMPLETE structure, as the sim's `garrisonAura`). Accepted: these
+   * reveal with LOS in fog while the sim's sensor detection has none.
+   * Read-only; undefined (today's input exactly) when there are none.
+   */
+  private worksObservers(): { x: number; y: number; sight: number }[] | undefined {
+    const sim = this.sim;
+    const st = sim.structures;
+    const g = sim.state;
+    const garrisoned: { structure: number; sight: number }[] = [];
+    for (let i = 0; i < sim.entityCount; i++) {
+      if (g.alive[i] === 0 || g.side[i] !== this.viewer || g.garrisonedIn[i] < 0) continue;
+      garrisoned.push({ structure: g.garrisonedIn[i], sight: this.sightByType[g.typeIdx[i]] });
+    }
+    return collectWorksObservers({
+      viewer: this.viewer,
+      structureCount: sim.structureCount,
+      alive: st.alive,
+      owner: st.owner,
+      progress: st.progress,
+      complete: ONE,
+      cx: (s) => fx.toNumber(st.cx[s]),
+      cy: (s) => fx.toNumber(st.cy[s]),
+      auraOf: (s) => {
+        const aura = sim.structureTypes[st.typeIdx[s]].aura;
+        if (aura === null) return null;
+        return {
+          sensorSight: aura.sensor !== null ? fx.toNumber(aura.sensor.sight) : null,
+          sightBonus: fx.toNumber(aura.sightBonus),
+        };
+      },
+      garrisoned,
+    });
   }
 
   /** A chest-high wall casts no fog shadow, because the sim lets sight and
@@ -6554,7 +6638,15 @@ export class ThreeRenderer implements Renderer {
    * must stop drawing this type's procedural box the instant its mesh art
    * is available.
    */
-  async loadBuildingMesh(structureId: string, idleUrl: string, wreckUrl: string | null): Promise<void> {
+  async loadBuildingMesh(
+    structureId: string,
+    idleUrl: string,
+    wreckUrl: string | null,
+    /** Field works (#277 Task 13): the `_construction` GLB of a buildable
+     *  work; absent for every other type (which draws its standing mesh
+     *  from the first frame). */
+    constructionUrl?: string
+  ): Promise<void> {
     const structureType = this.sim.structureTypes.find((t) => t.id === structureId);
     if (!structureType) {
       throw new Error(`loadBuildingMesh: unknown structure type "${structureId}"`);
@@ -6622,8 +6714,47 @@ export class ThreeRenderer implements Renderer {
       this.bannerSpots.set(structureId, bannerSpotFor(idleTemplate.root, sunDirectionFor(this.lightPreset)));
     }
 
+    if (constructionUrl) await this.loadBuildingConstructionMesh(structureId, constructionUrl);
     if (wreckUrl) await this.loadBuildingWreckMesh(structureId, wreckUrl);
 
+    this.terrainDirty = true;
+  }
+
+  /**
+   * One building type's CONSTRUCTION template (#277 Task 13): a palette GLB,
+   * the standing building's lower 45 % plus a scaffold kit, drawn clipped by
+   * `progress x height` while the structure is unfinished. Re-entrant: a
+   * reload tears down that type's live sites and disposes the old template.
+   */
+  async loadBuildingConstructionMesh(structureId: string, constructionUrl: string): Promise<void> {
+    const structureType = this.sim.structureTypes.find((t) => t.id === structureId);
+    if (!structureType) {
+      throw new Error(`loadBuildingConstructionMesh: unknown structure type "${structureId}"`);
+    }
+    const template = await loadBuildingMeshTemplate(
+      constructionUrl,
+      structureType.color,
+      wallSurfaceForBuilding(structureId),
+      false,
+      false,
+      wallTreatmentOf(structureType)
+    );
+    const previous = this.buildingMeshConstructionTemplates.get(structureId);
+    if (previous) {
+      const st = this.sim.structures;
+      for (const [s, site] of this.buildingConstruction) {
+        if (this.sim.structureTypes[st.typeIdx[s]].id !== structureId) continue;
+        this.scene.remove(site.root);
+        disposeConstructionClip(site.clip);
+        this.buildingConstruction.delete(s);
+      }
+      disposeBuildingMeshTemplate(previous);
+    }
+    this.buildingMeshConstructionTemplates.set(structureId, template);
+    this.buildingConstructionHeight.set(
+      structureId,
+      new THREE.Box3().setFromObject(template.root).getSize(new THREE.Vector3()).y
+    );
     this.terrainDirty = true;
   }
 
@@ -7435,7 +7566,9 @@ export class ThreeRenderer implements Renderer {
         pinned: st.pinned[i],
         speed: this.entitySpeed[i],
         firing: this.firingTimer[i] > 0,
-        working: this.sim.tunnelChargeProgress(i) > 0,
+        // A tunnel charge OR a field-works build (#277 Task 13): the builder
+        // plays `work` (`demo_squad` carries the clip) while it stakes a site.
+        working: this.sim.tunnelChargeProgress(i) > 0 || this.sim.isConstructing(i),
       };
       // SIM time, not frame time (GH-391): a frozen gate frame then holds the
       // pose sim time says, whatever frames were drawn on the way.
@@ -8525,6 +8658,29 @@ export class ThreeRenderer implements Renderer {
       if (!idleTemplate) continue; // this structure type has no mesh loaded
 
       const alive = st.alive[s] === 1;
+      // Field works (#277 Task 13): an UNFINISHED structure of a type with a
+      // construction mesh draws that mesh under a clip plane at
+      // `progress x height`, and no standing clone; at ONE the site goes and
+      // the standing mesh takes over (the branch below, same frame).
+      const constructionTemplate = this.buildingMeshConstructionTemplates.get(type.id);
+      const unfinished = constructionTemplate !== undefined && st.progress[s] < ONE;
+      if (alive && unfinished) {
+        this.stepConstructionSite(s, constructionTemplate, type.id, elevation);
+        continue;
+      }
+      const site = this.buildingConstruction.get(s);
+      if (site && !(this.buildingMeshSwapHold.has(s) && !alive)) {
+        // Completed, cancelled, or destroyed (once its dust has covered it).
+        this.scene.remove(site.root);
+        disposeConstructionClip(site.clip);
+        this.buildingConstruction.delete(s);
+      }
+      // By design an unfinished site leaves no wreck: there is no finished building
+      // to wreck (completed works take the normal wreck path below).
+      // A dead site that never finished has no standing building to collapse
+      // and no wreck of one: a cancelled stake leaves nothing (the sim pushes
+      // no event), a destroyed one leaves its rubble decal and dust.
+      if (!alive && constructionTemplate !== undefined && st.progress[s] < ONE) continue;
       if (alive) {
         if (!this.buildingMeshIdleEntities.has(s)) {
           const root = instantiateBuildingMesh(idleTemplate);
@@ -8615,6 +8771,34 @@ export class ThreeRenderer implements Renderer {
         this.scene.add(root);
       }
     }
+  }
+
+  /** Stands up (once) and re-cuts (every frame) one unfinished work's
+   *  construction clone. The plane is the only thing that changes. */
+  private stepConstructionSite(
+    s: number,
+    template: BuildingMeshTemplate,
+    typeId: string,
+    elevation: ThreeRenderer['retained']['elevation']
+  ): void {
+    const st = this.sim.structures;
+    let site = this.buildingConstruction.get(s);
+    const fit = this.buildingFitFor(s);
+    const heightWorld = (this.buildingConstructionHeight.get(typeId) ?? 0) * fit.sy;
+    if (!site) {
+      const root = instantiateBuildingMesh(template);
+      const { fx: cx, fy: cy } = footprintCentre(this.sim, s);
+      const groundY = groundWorldY(elevation, this.sim.width, this.sim.height, cx, cy);
+      root.position.set(cx, groundY, cy);
+      root.scale.multiply(new THREE.Vector3(fit.sx, fit.sy, fit.sz));
+      const clip = attachConstructionClip(root, groundY);
+      this.scene.add(freezeStatic(root));
+      site = { root, clip, heightWorld, groundY };
+      this.buildingConstruction.set(s, site);
+    }
+    const y = constructionClipY(fx.toNumber(st.progress[s]), heightWorld, site.groundY);
+    // `unfinished` guarantees progress < 1, so y is non-null.
+    if (y !== null) site.clip.plane.constant = y;
   }
 
   /**
@@ -10560,6 +10744,33 @@ export class ThreeRenderer implements Renderer {
         const tone = this.overlayColor(ring.colorKey);
         this.overlayBatch.dashedEllipseRing(aanchor, rightR, upR, haloStyleOf(ring.style), edge, REFUGE_RING_EDGE_ALPHA);
         this.overlayBatch.dashedEllipseRing(aanchor, rightR, upR, ring.style, tone, 1);
+      }
+    }
+
+    // Field works (#277 Task 9, spec §6 treatment B): the footprint pad (the
+    // tile grid, flat, no fill), then the aura rings (dashed, no fill), after
+    // the refuge and strike rings. Preview-only: nothing arms in a capture.
+    const pad = this.placementPreview;
+    if (pad) {
+      const padColor = pad.valid
+        ? this.overlayColor(AURA_RING_COLOR_KEY, AURA_RING_FALLBACK_COLOR)
+        : this.overlayColor(PAD_INVALID_COLOR_KEY, PAD_INVALID_FALLBACK_COLOR);
+      const padAlpha = pad.valid ? PAD_ALPHA : PAD_INVALID_ALPHA;
+      for (const [a, b] of padGridLines(pad.x, pad.y, pad.w, pad.h)) {
+        const p0: [number, number, number] = [a[0], groundWorldY(elevation, width, height, a[0], a[2]), a[2]];
+        const p1: [number, number, number] = [b[0], groundWorldY(elevation, width, height, b[0], b[2]), b[2]];
+        this.overlayBatch.lineWorld(p0, p1, PAD_LINE_WIDTH_PX, padColor, padAlpha);
+      }
+    }
+    if (this.auraRingPreview.length > 0) {
+      const colors = {
+        edge: this.overlayColor(REFUGE_RING_EDGE_COLOR_KEY, REFUGE_RING_EDGE_FALLBACK_COLOR),
+        dashed: this.overlayColor(AURA_RING_COLOR_KEY, AURA_RING_FALLBACK_COLOR),
+        dotted: this.overlayColor(AURA_TUNNEL_RING_COLOR_KEY, AURA_TUNNEL_RING_FALLBACK_COLOR),
+      };
+      for (const ring of this.auraRingPreview) {
+        const groundYr = groundWorldY(elevation, width, height, ring.cx, ring.cy);
+        drawAuraRing(this.overlayBatch, [ring.cx, groundYr, ring.cy], ring, TILE_W, TILE_H, colors);
       }
     }
 

@@ -32,7 +32,8 @@
     "demolish",
     "breach",
     "garrison",
-    "smoke"
+    "smoke",
+    "construct"
   ],
   "weapons": [
     {

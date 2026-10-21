@@ -54,6 +54,8 @@ export interface MotionTeam {
    *  moveFire. Every rigged team (ground-debt, 6 Oct; the nine #414 grounded
    *  and the thirteen it recorded as debt), gated in `mesh_gait.test.ts`. */
   readonly ground: boolean;
+  /** Figures that PUMP in the `work` clip (`motion/work.ts`), built from `kneel`. */
+  readonly work?: readonly string[];
   /** 'replant' (the default) re-solves the legs onto planted footpaths
    *  (`replant.ts`); 'warp' scales a captured run's own stance instead
    *  (`stride.ts`), kept for a rig the replant cannot drive. */
@@ -107,6 +109,7 @@ export const MOTION_TEAMS: Record<string, MotionTeam> = {
   demo_squad: {
     figures: [{ prefix: 'demo_b', weapon: 'rifle', kneels: true }, { prefix: 'demo_a', kneels: true }],
     hold: true, kneel: true, formation: false, stride: true, ground: true, speedTiles: 0.85,
+    work: ['demo_a'],
   },
   mortar_team: {
     figures: [{ prefix: 'mtr_no3', weapon: 'rifle' }],

@@ -86,31 +86,7 @@
         }
       }
     },
-    "unlock": {
-      "type": "object",
-      "description": "Progression gate. roe_rating_min is the mechanism that makes restraint pay off.",
-      "additionalProperties": false,
-      "properties": {
-        "roe_rating_min": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 100
-        },
-        "after_mission": {
-          "type": "string"
-        },
-        "stars_min": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "Opens when the campaign's earned stars (the sum of best-of stars over campaign.mission_results, spec 2026-09-10 §4.6) reach this. The three star-gated units carry 12, 30 and 44, fitted to the measured optimal ladder (docs/campaign/special_units/design.md §2)."
-        },
-        "price": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "Credits that open this unit from the brigade screen without its earned gates (spec 2026-09-15 §4.4). A unit whose unlock carries ONLY a price is bought-only. Never `bought`: that is resolved by the app from the brigade account and cannot be authored."
-        }
-      }
-    },
+    "unlock": { "$ref": "common.schema.json#/$defs/unlock" },
     "upgrades": {
       "type": "object",
       "description": "Upgrade tracks (spec 2026-09-15 §4.3). Each tier's patch is the cumulative DELTA over base on the closed whitelist; tiers are monotone. Bought per track from the brigade account; applied by @lions/data's applyUpgrades before the sim registers the type. KDF units only.",
@@ -489,7 +465,8 @@
           "demolish",
           "kamikaze",
           "dig_tunnel",
-          "tunnel_charge"
+          "tunnel_charge",
+          "construct"
         ]
       }
     },
@@ -510,6 +487,13 @@
       "minimum": 0.5,
       "default": 8.0,
       "description": "Seconds a `tunnel_charge` unit must hold station to set a tunnel collapse charge. Absent means 8.0. Longer than a building demolition: the team digs down to the void first."
+    },
+    "construct_rate": {
+      "type": "number",
+      "minimum": 0.5,
+      "maximum": 2,
+      "default": 1,
+      "description": "Field works (#277): how fast a `construct` unit raises a field work, as a multiple of the type's build time. Absent means 1; the D9 authors 1.5. Two builders add."
     },
     "art": {
       "type": "object",
