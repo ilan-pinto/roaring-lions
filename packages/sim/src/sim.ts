@@ -6653,6 +6653,12 @@ export class Sim {
       if (this.alive[i] === 0 || !this.unitTypes[this.typeIdx[i]].isAirCarrier) continue;
       let st = this.airState[i];
       if (st === AIR_AIRBORNE) {
+        // A hull that cannot move never reaches an LZ, so it would hover for
+        // good with its riders shut in (4 of 160 probe runs): it comes down.
+        if (this.mobilityKilled[i] === 1) {
+          this.forcedLanding(i);
+          continue;
+        }
         const want = this.airWant[i];
         if (want !== AIR_WANT_LOAD && want !== AIR_WANT_UNLOAD) continue;
         if (this.moving[i] !== 0) continue; // still flying to the LZ
@@ -6683,7 +6689,8 @@ export class Sim {
           this.airWant[i] = AIR_WANT_NONE; // it stays landed
         }
         if (this.moving[i] === 1) {
-          if (this.airWant[i] === AIR_WANT_LOAD) {
+          if (this.airWant[i] === AIR_WANT_LOAD || this.mobilityKilled[i] === 1) {
+            // A mobility-killed hull stays down until the kill is repaired.
             // Landed to load: only an order (which clears the want) lifts it,
             // never an autonomous chase.
             this.moving[i] = 0;
@@ -6713,6 +6720,41 @@ export class Sim {
       // A `load` while lifting keeps its plan: orderLand already set the LZ goal.
       this.moving[i] = 1;
     }
+  }
+
+  /**
+   * Forced landing (fix/air-pathing, lead ruling 21 Oct 2026): an AIRBORNE
+   * carrier whose mobility is knocked out (`mobilityKilled`, from the
+   * component roll's `mobility_kill` or `combat_ineffective`) starts LANDING
+   * at once -- where it is when its tile is foot-open, else on the centre of
+   * the nearest foot-open tile (a rifleman's ground, not the vehicle LZ rule:
+   * it is coming down, not choosing where). Its want is kept, so a queued
+   * `unload` empties it on landing like any other; otherwise the riders stay
+   * aboard and an `unload` order lets them out (LANDED unloads at once). On a
+   * map with no foot-open tile at all it keeps hovering. No rng, no allocation.
+   */
+  private forcedLanding(car: number): void {
+    const w = this.width;
+    const h = this.height;
+    let tx = fx.toInt(this.posX[car]);
+    let ty = fx.toInt(this.posY[car]);
+    tx = tx < 0 ? 0 : tx >= w ? w - 1 : tx;
+    ty = ty < 0 ? 0 : ty >= h ? h - 1 : ty;
+    const mask = this.blocked;
+    if (mask[ty * w + tx] !== 0) {
+      this.snapOpenTile(tx, ty, mask);
+      if (mask[this.snapY * w + this.snapX] !== 0) return; // nowhere to come down
+      this.posX[car] = fx.add(fx.fromInt(this.snapX), HALF);
+      this.posY[car] = fx.add(fx.fromInt(this.snapY), HALF);
+    }
+    this.airState[car] = AIR_LANDING;
+    this.airTimer[car] = AIR_LAND_TICKS;
+    this.goalX[car] = this.posX[car];
+    this.goalY[car] = this.posY[car];
+    this.moving[car] = 0;
+    this.wpCount[car] = 0;
+    this.fieldRef[car] = -1;
+    if (this.airWant[car] === AIR_WANT_DEPART) this.airWant[car] = AIR_WANT_NONE;
   }
 
   /**

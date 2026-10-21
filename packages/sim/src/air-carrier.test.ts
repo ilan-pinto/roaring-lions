@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
 import { Sim, type UnitTypeJson } from './sim';
-import { AIR_AIRBORNE, AIR_LANDING, AIR_LANDED, AIR_LIFTING } from './tuning';
+import { AIR_AIRBORNE, AIR_LANDING, AIR_LANDED, AIR_LAND_TICKS, AIR_LIFT_TICKS, AIR_LIFTING } from './tuning';
 
 // GH-698 Task 2: the air carrier state block. Three per-unit columns
 // (airState, airTimer, airWant), folded into hash() only once an air carrier
@@ -978,5 +978,70 @@ describe('embarkAtSpawn onto an air carrier (GH-698 Task 6, R8)', () => {
     expect(sim.embarkAtSpawn(heli, tank)).toBe(false);
     expect(sim.passengerCount(heli)).toBe(0);
     expect(sim.state.carriedBy[tank]).toBe(-1);
+  });
+});
+
+/**
+ * fix/air-pathing, part 2 (lead ruling, 21 Oct 2026): an air carrier
+ * mobility-killed in the air (`mobilityKilled` -- the component roll's
+ * `mobility_kill` or `combat_ineffective`) used to hover for good. stepMovement
+ * skips a mobility-killed hull, so it never reached any LZ, never landed, and
+ * its riders could never get out (4 of 160 probe runs). It now makes a forced
+ * landing: where it is when that tile is foot-open, else on the nearest
+ * foot-open tile, then lands as usual, and stays down while the kill stands.
+ */
+describe('a mobility-killed air carrier makes a forced landing (fix/air-pathing)', () => {
+  it('lands where it is and its riders can unload', () => {
+    const { sim, heli, squads } = loadedHeli(10.5, 10.5, 3);
+    sim.queueCommand({ kind: 'move', ids: [heli], x: at(30.5), y: at(10.5) });
+    run(sim, 20);
+    const x = sim.state.posX[heli];
+    sim.state.mobilityKilled[heli] = 1;
+    run(sim, 1);
+    expect(sim.state.airState[heli]).toBe(AIR_LANDING);
+    expect(sim.state.posX[heli]).toBe(x); // where it is: no snap on open ground
+    run(sim, AIR_LAND_TICKS);
+    expect(sim.state.airState[heli]).toBe(AIR_LANDED);
+    expect(aboard(sim, heli)).toBe(3);
+    sim.queueCommand({ kind: 'unload', ids: [heli] });
+    run(sim, 1);
+    expect(aboard(sim, heli)).toBe(0);
+    for (const s of squads) expect(sim.state.alive[s]).toBe(1);
+  });
+
+  it('an unload already queued completes on the forced landing', () => {
+    // The probe's stranded case: `unload` is queued, the hull is killed before it lands.
+    const { sim, heli } = loadedHeli(10.5, 10.5, 2);
+    sim.queueCommand({ kind: 'move', ids: [heli], x: at(30.5), y: at(10.5) });
+    run(sim, 20);
+    sim.queueCommand({ kind: 'unload', ids: [heli] });
+    sim.state.mobilityKilled[heli] = 1;
+    run(sim, AIR_LAND_TICKS + 2);
+    expect(sim.state.airState[heli]).toBe(AIR_LANDED);
+    expect(aboard(sim, heli)).toBe(0);
+  });
+
+  it('over a building it comes down on the nearest foot-open tile', () => {
+    const { sim, heli } = loadedHeli(10.5, 10.5, 1);
+    for (let y = 9; y <= 11; y++) for (let x = 9; x <= 11; x++) sim.setBlocked(x, y, true);
+    sim.state.mobilityKilled[heli] = 1;
+    run(sim, AIR_LAND_TICKS + 1);
+    expect(sim.state.airState[heli]).toBe(AIR_LANDED);
+    const [tx, ty] = tileOf(sim, heli);
+    expect(sim.blocked[ty * 40 + tx]).toBe(0);
+    expect(Math.max(Math.abs(tx - 10), Math.abs(ty - 10))).toBe(2);
+    sim.queueCommand({ kind: 'unload', ids: [heli] });
+    run(sim, 1);
+    expect(aboard(sim, heli)).toBe(0);
+  });
+
+  it('stays down while the kill stands: a move does not lift it', () => {
+    const { sim, heli } = loadedHeli(10.5, 10.5, 1);
+    sim.state.mobilityKilled[heli] = 1;
+    run(sim, AIR_LAND_TICKS + 1);
+    expect(sim.state.airState[heli]).toBe(AIR_LANDED);
+    sim.queueCommand({ kind: 'move', ids: [heli], x: at(30.5), y: at(10.5) });
+    run(sim, AIR_LIFT_TICKS + 5);
+    expect(sim.state.airState[heli]).toBe(AIR_LANDED);
   });
 });
