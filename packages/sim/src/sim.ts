@@ -6269,8 +6269,20 @@ export class Sim {
     this.carriedBy[id] = -1;
     if (this.passengers[car] > 0) this.passengers[car]--;
     // Step clear of the hull so they do not stack on it.
-    this.posX[id] = this.clampX(fx.add(this.posX[car], HALF));
-    this.posY[id] = this.clampY(fx.add(this.posY[car], HALF));
+    let px = this.clampX(fx.add(this.posX[car], HALF));
+    let py = this.clampY(fx.add(this.posY[car], HALF));
+    // GH-698 item 7: that spot can be a wall. Only then stand on the nearest
+    // foot-open tile centre (the foot mask: a boulder is fine); an open
+    // landing is bit-identical to before.
+    const tx = fx.toInt(px);
+    const ty = fx.toInt(py);
+    if (tx < 0 || ty < 0 || tx >= this.width || ty >= this.height || this.blocked[ty * this.width + tx] !== 0) {
+      this.snapOpenTile(tx, ty, this.blocked);
+      px = fx.add(fx.fromInt(this.snapX), HALF);
+      py = fx.add(fx.fromInt(this.snapY), HALF);
+    }
+    this.posX[id] = px;
+    this.posY[id] = py;
     this.moving[id] = 0;
     this.fieldRef[id] = -1;
     if (shaken) {
