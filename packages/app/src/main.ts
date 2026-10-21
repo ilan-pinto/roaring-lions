@@ -201,6 +201,7 @@ import {
 import { ANIMATED_CURSORS, type CursorName } from './input/cursor';
 import { cursorAt, pointerPoint, simIntentWorld, type PointerView } from './input/pointer';
 import { aimFootprint, callSupport, supportAim } from './input/support-call';
+import { callRally, canRally } from './input/rally-call';
 import { cursorAnimDriver } from './input/cursor-anim';
 import { prefersReducedMotion, prefersSaveData } from './ui/motion';
 import { firstLaunchIntro, introAvailable, replayIntro } from './ui/intro';
@@ -2920,6 +2921,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       armedSupport = null;
       production?.setArmed(null);
     }
+    // F4: and an armed Set rally (the dock's `onArmRally` nulls `armedRally`).
+    if (armedOrder !== null) production?.setRallyArmed(null);
   };
   const orders: OrderHandlers = {
     attackMove: () => armOrder('attackMove'),
@@ -3883,6 +3886,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   let production: ReinforcementDock | null = null;
   /** Armed fire-support purchase awaiting a target, if any. */
   let armedSupport: SupportKind | null = null;
+  /** F4: the camp line whose Set rally is armed, awaiting a ground click. */
+  let armedRally: number | null = null;
   // GH-113: the intel calls' presentation -- the charge clock, the ready and
   // call announcements, the readouts. Read-only over the sim (invariant 4);
   // its outputs go to the HUD's own note(), the minimap's own flash() and the
@@ -4007,7 +4012,19 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // The other half of the mutual exclusion in `orders.attackMove`: only
         // one armed mode can own the next click, and the one just asked for
         // wins.
-        if (kind !== null) armedOrder = null;
+        if (kind !== null) {
+          armedOrder = null;
+          production?.setRallyArmed(null);
+        }
+      },
+      // F4: Set rally on a camp's row. The same mutual exclusion: arming a
+      // rally disarms a support call and an order.
+      onArmRally: (line) => {
+        armedRally = line;
+        if (line !== null) {
+          armedOrder = null;
+          production?.setArmed(null);
+        }
       },
     });
   }
@@ -4016,7 +4033,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // card is `beit_sahwan_breach`, one of the nineteen missions that field a
   // dock; a walk that only ever left the two recon missions could not have
   // seen this one, and did not.
-  onDispose(() => production?.destroy());
+  onDispose(() => {
+    production?.destroy();
+    renderer.rallyMarks = null;
+  });
 
   // --- input ---------------------------------------------------------------
   const canvas = renderer.canvas;
@@ -4289,6 +4309,25 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     const p = canvasXY(ev);
     const moved = Math.hypot(p.x - dragStart.x, p.y - dragStart.y);
     if (moved < 6) {
+      // F4: an armed Set rally spends this click: a rally where the runtime
+      // takes one (disarm, the mark for a few seconds, no cue), the deny cue
+      // and a note where it refuses -- and it stays armed, so the player tries
+      // again rather than starting over. Before support: arming one disarms
+      // the other, so at most one is ever set.
+      if (armedRally !== null && runtime) {
+        const line = armedRally;
+        const out = callRally(runtime, cmdSink, line, pointerView, sim, p.x, p.y);
+        if (out.ok) {
+          production?.setRallyArmed(null);
+          production?.flashRally(line, performance.now());
+        } else {
+          hud.note(t('dock.note.rallyRefused'), 'mute');
+          audio.playCue(CRITICAL_CUES.uiDeny);
+        }
+        dragStart = null;
+        dragBox.style.display = 'none';
+        return;
+      }
       const w = renderer.screenToWorld(p.x, p.y);
       // Ask the resolver what this click means, rather than reading
       // armedSupport directly — the same question slice 2's cursor will ask.
@@ -4451,6 +4490,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // PA-14: the point the hover cursor read, so a click on a building's
     // upper wall orders onto the building, not the ground hidden behind it.
     const w = pointerPoint(pointerView, sim, ev.clientX - rect.left, ev.clientY - rect.top);
+    // F4: a right-click while Set rally is armed disarms it and orders
+    // nothing -- the rally is the camp's, and the click was meant for it.
+    if (armedRally !== null) {
+      production?.setRallyArmed(null);
+      hud.note(t('dock.note.rallyCancelled'), 'info');
+      return;
+    }
     // `issueOrder` rather than a resolve-and-dispatch written out here: since
     // Task 10 the minimap issues the same order from the same function, and
     // this call and that one are the whole of it.
@@ -4798,7 +4844,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // one place this priority is decided; it hands the tracker Escape
         // first, exclusively, so there is exactly one thing a bare Escape
         // does at a time.
-        const target = escapeTarget(objectivesOpen, isDialogOpen(), anyArmed(armedOrder, armedSupport));
+        const target = escapeTarget(objectivesOpen, isDialogOpen(), anyArmed(armedOrder, armedSupport, armedRally));
         if (target === 'closeTracker') {
           closeObjectives();
           break;
@@ -4822,6 +4868,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         if (target === 'disarm') {
           armedOrder = null;
           production?.setArmed(null);
+          production?.setRallyArmed(null);
           break;
         }
         // Fix round 1: this listener is the OLDEST bubble listener on
@@ -6052,6 +6099,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     armedSupport,
     armedSupport ? supportAim(pointerView, sim, lastCursor.x, lastCursor.y) : null
   );
+  // F4 (R3): the camps' rally points, on demand only -- a row pinned, hovered
+  // or focused, Set rally armed, or a few seconds after one is set. Null the
+  // rest of the time, so no captured frame carries one.
+  renderer.rallyMarks = production?.rallyMarks(performance.now()) ?? null;
 
   // Teach the hover, but only on a real change: `updateHover` runs every
   // frame, and an unchanged hover is not a new thing the player did.
@@ -6105,6 +6156,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     confirm: altHeld,
     armedSmoke: armedOrder === 'smoke',
     armedMove: armedOrder === 'move',
+    // F4: the armed rally's cursor reads the runtime's own `canSetRally` at
+    // the point the click would send (`callRally`'s `pointerPoint`).
+    rallyAt: armedRally !== null && runtime ? (x, y) => canRally(runtime, armedRally ?? -1, x, y) : null,
   });
   hoverCursorName = name;
   // Guard the write: a dataset attribute set every frame forces needless

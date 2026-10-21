@@ -185,7 +185,7 @@ describe('the Move key', () => {
     expect(rebind(b, 'move', 'm')).toMatchObject({ ok: false, takenBy: 'mute' });
   });
   it('an armed Move is something Escape disarms, before it opens the pause menu', () => {
-    expect(anyArmed('move', null)).toBe(true);
-    expect(escapeTarget(false, false, anyArmed('move', null))).toBe('disarm');
+    expect(anyArmed('move', null, null)).toBe(true);
+    expect(escapeTarget(false, false, anyArmed('move', null, null))).toBe('disarm');
   });
 });

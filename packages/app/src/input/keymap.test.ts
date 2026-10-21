@@ -301,19 +301,23 @@ describe('keymap', () => {
 
   describe('anyArmed', () => {
     it('is true while an attack-move order is armed', () => {
-      expect(anyArmed('attackMove', null)).toBe(true);
+      expect(anyArmed('attackMove', null, null)).toBe(true);
     });
     it('is true while a smoke order is armed', () => {
-      expect(anyArmed('smoke', null)).toBe(true);
+      expect(anyArmed('smoke', null, null)).toBe(true);
     });
     it('is true while a sweep call is armed', () => {
-      expect(anyArmed(null, 'drone_sweep')).toBe(true);
+      expect(anyArmed(null, 'drone_sweep', null)).toBe(true);
     });
     it('is true while a strike call is armed', () => {
-      expect(anyArmed(null, 'air_strike')).toBe(true);
+      expect(anyArmed(null, 'air_strike', null)).toBe(true);
     });
     it('is false when nothing is armed', () => {
-      expect(anyArmed(null, null)).toBe(false);
+      expect(anyArmed(null, null, null)).toBe(false);
+    });
+    it('is true while Set rally is armed for any camp (F4) -- line 0 included', () => {
+      expect(anyArmed(null, null, 0)).toBe(true);
+      expect(anyArmed(null, null, 2)).toBe(true);
     });
   });
 });
