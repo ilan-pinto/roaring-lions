@@ -442,6 +442,8 @@ describe('FLIPBOOK_FIT reaches the shader', () => {
         FLIPBOOK_FIT.smoke.zoom, FLIPBOOK_FIT.smoke.gain, FLIPBOOK_FIT.smoke.k0, FLIPBOOK_FIT.smoke.k1,
       ]);
       expect(u.uQuadScale.value).toBe(1);
+      expect((u.uFireNoise.value as THREE.Vector3).toArray()).toEqual([FLIPBOOK_FIT.fire.freq, FLIPBOOK_FIT.fire.disp, FLIPBOOK_FIT.fire.amp]);
+      expect((u.uSmokeNoise.value as THREE.Vector3).toArray()).toEqual([FLIPBOOK_FIT.smoke.freq, FLIPBOOK_FIT.smoke.disp, FLIPBOOK_FIT.smoke.amp]);
     }
     fx.dispose();
   });
@@ -449,9 +451,11 @@ describe('FLIPBOOK_FIT reaches the shader', () => {
   it('samples the zoomed window of the mature frames and remaps density as the mock does', () => {
     const fx = new FlipbookFx();
     const frag = fx.mesh.material.fragmentShader.replace(/\s+/g, ' ');
-    expect(frag).toContain('vec2 local = a * (0.5 * fit.x) + 0.5;');
+    expect(frag).toContain('vec2 local = a * (1.0 + (b - 0.5) * nz.y) * (0.5 * fit.x) + 0.5;');
+    expect(frag).toContain('vec2 q = a * nz.x + vSeed * 31.0 + vec2(0.0, -vAge * 0.45);');
+    expect(frag).toContain('float b = (fbm(q) * 0.7 + fbm(q * 2.3 + 5.1) * 0.3) / 0.9375;');
     expect(frag).toContain('float f = fit.z + tc * (fit.w - fit.z);');
-    expect(frag).toContain('float density = clamp(fit.y * s.r - 0.99 * tc * tc, 0.0, 1.0);');
+    expect(frag).toContain('float density = clamp(fit.y * s.r * (1.0 + (b - 0.5) * nz.z) - 0.99 * tc * tc, 0.0, 1.0);');
     expect(frag).toContain('float core = max(smoothstep(0.25, 0.95, density), s.a);');
     fx.dispose();
   });

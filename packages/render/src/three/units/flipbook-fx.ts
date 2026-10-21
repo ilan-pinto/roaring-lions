@@ -87,10 +87,25 @@ export const FLIPBOOK_GRID = 8;
  * (top comment): `zoom` is the frame half-width a quad half-width samples,
  * `gain` the density remap, `k0`..`k1` the frames swept over life. Dirt reads
  * the smoke atlas and its fit, as the mock's dirt shares smoke's billow.
+ *
+ * `freq`, `disp` and `amp` (fix round 2) break the rim up with the mock's
+ * own billow -- `fbm(q) * 0.7 + fbm(q * 2.3 + 5.1) * 0.3`, its sin-hash
+ * value noise, 4 octaves each, at the mock's frequency (2.6 fire, 1.7
+ * smoke), drifting up at its 0.45/s. The 2.3x term is the grain: with the
+ * first fbm alone the rim was ragged in outline but still a clean, thin
+ * dark line (the soot band, 0.13 quad half-widths wide against the mock's
+ * 0.20, and smooth along its length). The atlas is
+ * radially smooth, so without it every billow's rim (where its core falls
+ * and the soot `cool` term takes over) drew as a clean circle: nested
+ * contour rings where billows overlap. `disp` scales the sample radius by
+ * `1 + (b - 0.5) * disp` (the mock's own edge displacement, 1.1 fire and
+ * 0.7 smoke), `amp` modulates density by `1 + (b - 0.5) * amp`, about the
+ * mock's `(0.55 + billow)` swing. Fitted on the rim's raggedness (std of the
+ * d = 0.5 contour radius over 72 angles) against the mock's.
  */
 export const FLIPBOOK_FIT = Object.freeze({
-  fire: Object.freeze({ zoom: 0.675, gain: 1.5, k0: 12, k1: 28 }),
-  smoke: Object.freeze({ zoom: 0.625, gain: 2.2, k0: 10, k1: 20 }),
+  fire: Object.freeze({ zoom: 0.675, gain: 1.5, k0: 12, k1: 28, freq: 2.6, disp: 1.1, amp: 1.0 }),
+  smoke: Object.freeze({ zoom: 0.625, gain: 2.2, k0: 10, k1: 20, freq: 1.7, disp: 0.7, amp: 1.0 }),
 });
 /** Smoke alpha (D3, 1x). */
 export const FLIPBOOK_SMOKE_ALPHA = 0.85;
@@ -117,6 +132,7 @@ const VERT = /* glsl */ `
   varying float vT;
   varying float vType;
   varying float vSeed;
+  varying float vAge;
   void main() {
     float ageMs = uTime - aParams.x;
     float t = ageMs / aParams.y;
@@ -148,6 +164,7 @@ const VERT = /* glsl */ `
     vT = t;
     vType = type;
     vSeed = aSeed;
+    vAge = age;
     vTint = aTint;
     gl_Position = projectionMatrix * viewMatrix * vec4(world, 1.0);
   }
@@ -169,6 +186,9 @@ const FRAG = /* glsl */ `
   uniform vec2 uSun;
   uniform vec4 uFireFit;  // zoom, gain, k0, k1
   uniform vec4 uSmokeFit;
+  uniform vec3 uFireNoise;  // freq, disp, amp
+  uniform vec3 uSmokeNoise;
+  varying float vAge;
   varying vec2 vUv;
   varying float vT;
   varying float vType;
@@ -187,6 +207,20 @@ const FRAG = /* glsl */ `
     return texture2D(atlas, uv);
   }
 
+  // The mock's billow noise, verbatim (sin-hash value noise, 4 octaves).
+  float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+  float vnoise(vec2 p) {
+    vec2 i = floor(p); vec2 f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
+               mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+  }
+  float fbm(vec2 p) {
+    float v = 0.0; float amp = 0.5;
+    for (int k = 0; k < 4; k++) { v += amp * vnoise(p); p = p * 2.03 + 11.7; amp *= 0.5; }
+    return v;
+  }
+
   void main() {
     // The circle of radius 1 (in frame half-widths) survives any rotation
     // inside its own frame, so a rotated corner never samples a neighbour.
@@ -197,7 +231,11 @@ const FRAG = /* glsl */ `
     // Per-instance rotation about the frame's centre.
     vec2 a = vec2(cs * vUv.x - sn * vUv.y, sn * vUv.x + cs * vUv.y);
     vec4 fit = vType < 0.5 ? uFireFit : uSmokeFit;
-    vec2 local = a * (0.5 * fit.x) + 0.5;
+    vec3 nz = vType < 0.5 ? uFireNoise : uSmokeNoise;
+    // b in 0..1 (fbm's 4 octaves sum to at most 0.9375).
+    vec2 q = a * nz.x + vSeed * 31.0 + vec2(0.0, -vAge * 0.45);
+    float b = (fbm(q) * 0.7 + fbm(q * 2.3 + 5.1) * 0.3) / 0.9375;
+    vec2 local = a * (1.0 + (b - 0.5) * nz.y) * (0.5 * fit.x) + 0.5;
     float tc = clamp(vT, 0.0, 1.0);
     float f = fit.z + tc * (fit.w - fit.z);
     float k0 = floor(f);
@@ -210,7 +248,7 @@ const FRAG = /* glsl */ `
       s = mix(frameSample(uSmokeAtlas, k0, local), frameSample(uSmokeAtlas, k1, local), w);
     }
     // The mock's density: its own *1.8 gain and 0.55 t^2 erosion.
-    float density = clamp(fit.y * s.r - 0.99 * tc * tc, 0.0, 1.0);
+    float density = clamp(fit.y * s.r * (1.0 + (b - 0.5) * nz.z) - 0.99 * tc * tc, 0.0, 1.0);
     if (density < 0.01) discard;
     // The baked gradient is in the atlas frame; the screen sees the frame
     // rotated by ang, so the screen-space gradient is its inverse rotation,
@@ -301,6 +339,9 @@ export interface FlipbookSpawn {
 function fitVec(f: { zoom: number; gain: number; k0: number; k1: number }): THREE.Vector4 {
   return new THREE.Vector4(f.zoom, f.gain, f.k0, f.k1);
 }
+function noiseVec(f: { freq: number; disp: number; amp: number }): THREE.Vector3 {
+  return new THREE.Vector3(f.freq, f.disp, f.amp);
+}
 
 export function flipbookSupersedes(layer: Pick<ParticleSpec, 'mesh_burst' | 'mesh_plume' | 'sprite'>): boolean {
   return layer.mesh_burst === true || layer.mesh_plume === true || layer.sprite === 'smoke_puff';
@@ -375,6 +416,8 @@ export class FlipbookFx {
       uQuadScale: { value: 1 },
       uFireFit: { value: fitVec(FLIPBOOK_FIT.fire) },
       uSmokeFit: { value: fitVec(FLIPBOOK_FIT.smoke) },
+      uFireNoise: { value: noiseVec(FLIPBOOK_FIT.fire) },
+      uSmokeNoise: { value: noiseVec(FLIPBOOK_FIT.smoke) },
       uFireAtlas: { value: null },
       uSmokeAtlas: { value: null },
       uHot: { value: new THREE.Color(1, 1, 1) },

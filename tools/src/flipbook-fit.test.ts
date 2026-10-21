@@ -81,17 +81,50 @@ function loadR(name: string): { at(k: number, x: number, y: number): number } {
 }
 
 /** The shipping FRAG's density at quad uv, as `FLIPBOOK_FIT` reads the atlas. */
-function buildDensity(atlas: ReturnType<typeof loadR>, fit: typeof FLIPBOOK_FIT.fire, u: number, v: number, t: number, seed: number): number {
+function buildDensity(atlas: ReturnType<typeof loadR>, fit: { zoom: number; gain: number; k0: number; k1: number; freq: number; disp: number; amp: number }, u: number, v: number, t: number, seed: number): number {
   const ang = seed * 6.2831853;
   const cs = Math.cos(ang), sn = Math.sin(ang);
   const ax = cs * u - sn * v, ay = sn * u + cs * v;
+  // Fix round 2: the mock's billow noise breaks the rim (radius) and the
+  // density up; the same age the oracle drifts its noise by.
+  const qx = ax * fit.freq + seed * 31, qy = ay * fit.freq + seed * 31 - t * 0.7 * 0.45;
+  const b = (fbm(qx, qy) * 0.7 + fbm(qx * 2.3 + 5.1, qy * 2.3 + 5.1) * 0.3) / 0.9375;
+  const sc = 1 + (b - 0.5) * fit.disp;
   // local in [0,1], v up; frame rows run down from the top.
-  const lx = ax * 0.5 * fit.zoom + 0.5, ly = ay * 0.5 * fit.zoom + 0.5;
+  const lx = ax * sc * 0.5 * fit.zoom + 0.5, ly = ay * sc * 0.5 * fit.zoom + 0.5;
   const f = fit.k0 + t * (fit.k1 - fit.k0);
   const k0 = Math.floor(f), k1 = Math.min(k0 + 1, 63), w = f - k0;
   const R = atlas.at(k0, lx * FRAME, (1 - ly) * FRAME) * (1 - w) + atlas.at(k1, lx * FRAME, (1 - ly) * FRAME) * w;
-  const d = clamp01(fit.gain * R - 0.99 * t * t);
+  const d = clamp01(fit.gain * R * (1 + (b - 0.5) * fit.amp) - 0.99 * t * t);
   return d < 0.01 ? 0 : d;
+}
+
+/**
+ * How ragged a billow's rim is: over 72 angular bins, the outermost radius
+ * at which density reaches 0.5, and the std of that radius round the
+ * circle, averaged over seeds. A radially smooth billow (fix round 1) reads
+ * about half the mock's, and is what drew clean contour rings.
+ */
+function raggedness(fn: (u: number, v: number, seed: number) => number): number {
+  const BINS = 72;
+  let total = 0;
+  const seeds = 8;
+  for (let si = 0; si < seeds; si++) {
+    const seed = 0.05 + (0.9 * si) / (seeds - 1);
+    const outer = new Float64Array(BINS);
+    for (let j = 0; j < N; j++) {
+      for (let i = 0; i < N; i++) {
+        const u = ((i + 0.5) / N) * 2 - 1, v = ((j + 0.5) / N) * 2 - 1;
+        const r = Math.hypot(u, v);
+        if (r > 1 || fn(u, v, seed) < 0.5) continue;
+        const bin = Math.min(BINS - 1, Math.floor(((Math.atan2(v, u) + Math.PI) / (2 * Math.PI)) * BINS));
+        if (r > outer[bin]) outer[bin] = r;
+      }
+    }
+    const mean = outer.reduce((a, x) => a + x, 0) / BINS;
+    total += Math.sqrt(outer.reduce((a, x) => a + (x - mean) ** 2, 0) / BINS);
+  }
+  return total / seeds;
 }
 
 function meanOverDisc(fn: (u: number, v: number, seed: number) => number): number {
@@ -120,6 +153,14 @@ describe('the flipbook billow covers what the mock covers', () => {
         expect(mock).toBeGreaterThan(0.3);
         expect(build / mock).toBeGreaterThan(0.85);
         expect(build / mock).toBeLessThan(1.15);
+      });
+    }
+    for (const t of [0.1, 0.3]) {
+      it(`${type} at t=${t}: the rim is as ragged as the mock's (no clean contour circle)`, () => {
+        const mock = raggedness((u, v, seed) => mockDensity(u, v, t, seed, fire));
+        const build = raggedness((u, v, seed) => buildDensity(atlas, FLIPBOOK_FIT[type], u, v, t, seed));
+        expect(build / mock).toBeGreaterThan(0.75);
+        expect(build / mock).toBeLessThan(1.5);
       });
     }
   }
