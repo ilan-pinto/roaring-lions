@@ -311,6 +311,7 @@ import { prepareTexturedMap } from './world-materials';
 import { dirtyForStructureHit, dirtyForStructureDestroyed } from './terrain/dirty';
 import { isGrindingHit } from '../grind';
 import { AIR_LIFT_PX } from './units/frame-state';
+import { airLiftFrac } from './units/air-lift';
 import {
   pickUnit as pickUnitPure,
   pickUnitAtScreen as pickUnitAtScreenPure,
@@ -4699,7 +4700,7 @@ export class ThreeRenderer implements Renderer {
         if (o >= 0 && o < this.snapshottedCount) {
           const x = this.curX[o];
           const y = this.curY[o];
-          const lift = this.sim.unitTypes[st.typeIdx[o]].isAir ? AIR_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL : 0.35;
+          const lift = this.sim.unitTypes[st.typeIdx[o]].isAir ? this.airLiftY(o, 1) : 0.35;
           finder = { x, y, liftY: groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, y) + lift };
         }
         this.tunnelXray.discover(e.tunnel, presentationSimMs(e.tick, 1) / 1000, finder);
@@ -6520,6 +6521,20 @@ export class ThreeRenderer implements Renderer {
    * every frame after the two mesh loops; costs one map lookup when nothing
    * has failed.
    */
+  /**
+   * The world-Y height an `isAir` unit flies at: `AIR_LIFT_PX` for every air
+   * type, scaled by `airLiftFrac` for an AIR CARRIER alone (GH-698), so a
+   * Yanshuf is drawn settling onto its LZ while it lands, on the ground while it
+   * loads or unloads, and climbing while it lifts. Every other air unit gets the
+   * same product it always did, bit for bit. Callers check `isAir` first.
+   */
+  private airLiftY(i: number, alpha: number): number {
+    const lift = AIR_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL;
+    const st = this.sim.state;
+    if (!this.sim.unitTypes[st.typeIdx[i]].isAirCarrier) return lift;
+    return lift * airLiftFrac(st.airState[i], st.airTimer[i], alpha);
+  }
+
   private updateProxyBoxes(alpha: number): void {
     if (this.meshFailures.size === 0) return;
     const st = this.sim.state;
@@ -6535,7 +6550,7 @@ export class ThreeRenderer implements Renderer {
       const z = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
       if (this.unitsDebugHidden || !unitIsObserved(st.side[i], this.viewer, x, z, this.fogVisibleAt)) continue;
       const cls = RING_CLASS_OVERRIDE[type.id] ?? ringClassOf(type);
-      const lift = type.isAir ? AIR_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL : 0;
+      const lift = type.isAir ? this.airLiftY(i, alpha) : 0;
       const facing = fx.toNumber(st.facing[i]);
       const dims = proxyBoxDims(type.id, cls);
       // Centred on the hull, not the origin: game facing `f` points along
@@ -7962,7 +7977,8 @@ export class ThreeRenderer implements Renderer {
       // ellipse needs no change to match: `updateOverlays` computes it from
       // `groundWorldY` directly, independent of mesh-vs-billboard body
       // representation, so it already draws under a mesh-drawn air unit.
-      const airLift = type.isAir ? AIR_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL : 0;
+      // GH-698: an air carrier is drawn down onto its LZ while it lands (`airLiftY`).
+      const airLift = type.isAir ? this.airLiftY(i, alpha) : 0;
       const facingNorm = fx.toNumber(st.facing[i]);
 
       // Hull recoil: a genuine world-space shove opposite the bearing the
@@ -8367,7 +8383,7 @@ export class ThreeRenderer implements Renderer {
     const y = this.curY[id];
     const facingNorm = fx.toNumber(st.facing[id]);
     const centreGroundY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, y);
-    const airLift = type.isAir ? AIR_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL : 0;
+    const airLift = type.isAir ? this.airLiftY(id, 1) : 0;
     let pitch = 0;
     let roll = 0;
     const conform = this.vehicleConformAt(entity.templateKey, type.isAir, x, y, centreGroundY, facingNorm);
@@ -9172,7 +9188,7 @@ export class ThreeRenderer implements Renderer {
       const wx = drawn ? drawn.x : this.curX[i];
       const wy = drawn ? drawn.z : this.curY[i];
       const groundY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, wx, wy);
-      const height = drawn ? drawn.y - groundY : AIR_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL;
+      const height = drawn ? drawn.y - groundY : this.airLiftY(i, 1);
       const strength = rotorWashStrength(height, this.entitySpeed[i]);
       if (strength < ROTOR_WASH_MIN_STRENGTH) {
         // No backlog for a stretch spent too high or too fast to throw dust.
