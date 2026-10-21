@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
-import { Sim, TICKS_PER_SECOND, type UnitTypeJson } from './sim';
+import { Sim, type UnitTypeJson } from './sim';
 
 // GH-698 item 7: a passenger set down at a vehicle stands on foot-open ground.
 // Old rule: (car + 0.5, car + 0.5) clamped to the map. Kept bit-for-bit when
@@ -69,17 +69,42 @@ describe('disembark landing', () => {
     expect(sim.state.posY[squad]).toBe(393216);
   });
 
-  it('lands in-map at the last column', () => {
+  it('snaps in-map when the clamped last-column tile is a wall', () => {
+    // The clamp (clampX) keeps the landing on tile 19, so the off-map half of
+    // the guard in disembark is unreachable from here; what this covers is the
+    // snap from the edge column.
     const { sim, jeep, inf } = world();
-    sim.setBlocked(19, 10, true); // the clamped landing (19.5,10.5+0.5) is tile (19,11)
-    sim.setBlocked(19, 11, true);
+    sim.setBlocked(19, 10, true);
+    sim.setBlocked(19, 11, true); // the clamped landing is tile (19,11)
     const { car, squad } = ride(sim, jeep, inf, 19.5, 10.5);
     sim.queueCommand({ kind: 'unload', ids: [car] });
     sim.tick();
+    // Ring 1 around (19,11) scans y 10..12, x 18..20 row-major: (18,10) first.
+    expect(tileOf(sim, squad)).toEqual([18, 10]);
+  });
+
+  it('snap uses x for x and y for y (asymmetric landing)', () => {
+    const { sim, jeep, inf } = world();
+    sim.setBlocked(11, 6, true); // landing of a jeep at (10.5,5.5) is tile (11,6)
+    const { car, squad } = ride(sim, jeep, inf, 10.5, 5.5);
+    sim.queueCommand({ kind: 'unload', ids: [car] });
+    sim.tick();
+    // Ring 1 around (11,6): y 5..7, x 10..12 row-major: (10,5) is first open.
+    expect(tileOf(sim, squad)).toEqual([10, 5]);
+  });
+
+  it('puts a wheeled rider on a vehicle-passable tile, not a boulder', () => {
+    const sim = new Sim({ seed: 3, width: 20, height: 20, capacity: 16 });
+    const wheeled = sim.addUnitType({ ...RIFLES, id: 'd_wheeled', mobility: { speed_tiles_s: 0.9, wheeled: true } });
+    const jeep = sim.addUnitType(JEEP);
+    sim.setBoulder(6, 6, true);
+    const { car, squad } = ride(sim, jeep, wheeled, 5.5, 5.5);
+    sim.queueCommand({ kind: 'unload', ids: [car] });
+    sim.tick();
     const [tx, ty] = tileOf(sim, squad);
-    expect(tx).toBeGreaterThanOrEqual(0);
-    expect(tx).toBeLessThan(20);
+    expect(sim.boulder[ty * 20 + tx]).toBe(0);
     expect(sim.blocked[ty * 20 + tx]).toBe(0);
+    expect([tx, ty]).toEqual([5, 5]);
   });
 
   it('puts a bailed-out squad on open ground, still shaken', () => {
@@ -94,7 +119,6 @@ describe('disembark landing', () => {
     expect(sim.state.hp[squad]).toBeLessThan(fx.from(241));
     expect(sim.state.hp[squad]).toBeGreaterThan(fx.from(239));
     expect(sim.state.suppression[squad]).toBeGreaterThan(0);
-    expect(TICKS_PER_SECOND).toBe(20);
   });
 
   it('treats a boulder as foot-open', () => {

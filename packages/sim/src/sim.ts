@@ -6391,12 +6391,14 @@ export class Sim {
     let px = this.clampX(fx.add(this.posX[car], HALF));
     let py = this.clampY(fx.add(this.posY[car], HALF));
     // GH-698 item 7: that spot can be a wall. Only then stand on the nearest
-    // foot-open tile centre (the foot mask: a boulder is fine); an open
-    // landing is bit-identical to before.
+    // open tile centre of the RIDER's own domain (foot: a boulder is fine;
+    // a wheeled rider needs a vehicle-passable tile); an open landing is
+    // bit-identical to before.
+    const mask = this.maskFor(this.domainOf(id));
     const tx = fx.toInt(px);
     const ty = fx.toInt(py);
-    if (tx < 0 || ty < 0 || tx >= this.width || ty >= this.height || this.blocked[ty * this.width + tx] !== 0) {
-      this.snapOpenTile(tx, ty, this.blocked);
+    if (tx < 0 || ty < 0 || tx >= this.width || ty >= this.height || mask[ty * this.width + tx] !== 0) {
+      this.snapOpenTile(tx, ty, mask);
       px = fx.add(fx.fromInt(this.snapX), HALF);
       py = fx.add(fx.fromInt(this.snapY), HALF);
     }
@@ -6733,17 +6735,24 @@ export class Sim {
     const lx = fx.toInt(this.posX[car]);
     const ly = fx.toInt(this.posY[car]);
     let n = 0;
-    for (let k = 0; k < 9; k++) {
-      const x = lx + AIR_SPREAD_DX[k];
-      const y = ly + AIR_SPREAD_DY[k];
-      if (x < 0 || y < 0 || x >= w || y >= h) continue;
-      const t = y * w + x;
-      if (this.blocked[t] !== 0) continue;
-      this.spreadTiles[n++] = t;
-    }
+    let spreadMask: Uint8Array | null = null;
     let k = 0;
     for (let i = 0; i < this.count; i++) {
       if (this.carriedBy[i] !== car) continue;
+      // The spread is per rider domain: a wheeled rider skips boulder tiles.
+      const mask = this.maskFor(this.domainOf(i));
+      if (mask !== spreadMask) {
+        spreadMask = mask;
+        n = 0;
+        for (let j = 0; j < 9; j++) {
+          const x = lx + AIR_SPREAD_DX[j];
+          const y = ly + AIR_SPREAD_DY[j];
+          if (x < 0 || y < 0 || x >= w || y >= h) continue;
+          const t = y * w + x;
+          if (mask[t] !== 0) continue;
+          this.spreadTiles[n++] = t;
+        }
+      }
       this.disembark(i, false);
       if (n > 0) {
         const t = this.spreadTiles[k % n];

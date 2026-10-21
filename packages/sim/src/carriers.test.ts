@@ -378,6 +378,34 @@ describe('ground carrier is bit-identical (GH-698 Task 6)', () => {
   });
 });
 
+describe('ground disembark is bit-identical (GH-698 review T6)', () => {
+  it('unload and bail-out landings digest to a pinned literal', () => {
+    const { sim, jeep, inf } = world();
+    const carA = sim.spawn(jeep, 0, fx.from(6.5), fx.from(4.5));
+    const carB = sim.spawn(jeep, 0, fx.from(6.5), fx.from(14.5));
+    const a = sim.spawn(inf, 0, fx.from(5.5), fx.from(4.5));
+    const b = sim.spawn(inf, 0, fx.from(5.5), fx.from(14.5));
+    sim.queueCommand({ kind: 'load', ids: [a], carrier: carA });
+    sim.queueCommand({ kind: 'load', ids: [b], carrier: carB });
+    run(sim, 100);
+    expect(sim.state.carriedBy[a]).toBe(carA);
+    expect(sim.state.carriedBy[b]).toBe(carB);
+    sim.queueCommand({ kind: 'move', ids: [carA, carB], x: fx.from(20.5), y: fx.from(9.5) });
+    run(sim, 150);
+    let h = 2166136261;
+    sim.queueCommand({ kind: 'unload', ids: [carA] });
+    run(sim, 2);
+    h = groundDigest(sim, h);
+    sim.debugKill(carB); // bail-out: disembark(shaken)
+    h = groundDigest(sim, h);
+    run(sim, 40);
+    h = groundDigest(sim, h);
+    expect(sim.state.carriedBy[a]).toBe(-1);
+    expect(sim.state.carriedBy[b]).toBe(-1);
+    expect(h).toBe(859034492);
+  });
+});
+
 const AIR_RIFLES: UnitTypeJson = { ...RIFLES, id: 'c_air_inf', weapons: [] };
 
 const HELI: UnitTypeJson = {
