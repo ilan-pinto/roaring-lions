@@ -41,20 +41,26 @@
  * reach it. Each quad is lifted by 0.32 of its size so a puff stands ON the
  * ground rather than cutting into it (D10: soft ground intersection deferred).
  *
- * IDLE COSTS 0 DRAW CALLS. `liveUntilMs` is the latest expiry ever spawned;
- * once the clock passes it both meshes go `visible = false`, and a spawn makes
- * them visible again. `visible` is DERIVED -- atlases in, not debug-hidden,
+ * IDLE COSTS 0 DRAW CALLS, PER PASS. Each mesh keeps the latest expiry ever
+ * spawned of its own types (`fireLiveUntilMs`, `smokeLiveUntilMs`); once the
+ * clock passes it that mesh goes `visible = false`, and a spawn of its types
+ * makes it visible again -- so a kill's fire mesh stops drawing when its last
+ * cook-off is out, while the soot column's mesh draws on. `visible` is DERIVED -- atlases in, not debug-hidden,
  * something live -- in one place (`syncVisible`), so the `flipbook` debug
  * layer is a flag that derivation consults rather than a `visible` write the
  * next `step` would re-assert (the `unitsDebugHidden` lesson,
  * `../debug-layers.ts`).
  *
- * Numbers in the three recipes are the mock's (`mock/defilade-t4` @
- * `1bd2814b`) verbatim at D3/D4 = 1x; Task 5 moves them to JSON.
+ * RECIPES ARE DATA (Task 5): an emitter's `flipbook` array in
+ * `data/vfx/*.json` (`shell_impact`, `missile_impact`, `catastrophic_kill`,
+ * `fire_apfsds`, `fire_heat`), interpreted by `spawnRecipe`. Their numbers
+ * are the mock's (`mock/defilade-t4` @ `1bd2814b`) verbatim at D3/D4 = 1x,
+ * pinned by `flipbook-fx.test.ts` against a literal transcription of it.
  */
 import * as THREE from 'three';
 import { COLLAPSE_FLASH_RENDER_ORDER, SMOKE_RENDER_ORDER } from './render-order';
 import { HDR_GAINS } from './hdr-gains';
+import type { FlipbookLayerSpec } from '../../vfx/emitters';
 
 export const FLIPBOOK_CAPACITY = 2048;
 export const FLIP_FIRE = 0;
@@ -68,6 +74,12 @@ export const ATLAS_FIT = 0.85;
 export const FLIPBOOK_SMOKE_ALPHA = 0.85;
 /** The xorshift32 state a fresh `FlipbookFx` starts from. */
 export const FLIPBOOK_RNG_SEED = 0x9e3779b9;
+
+const FLIP_TYPE: Readonly<Record<FlipbookLayerSpec['type'], number>> = Object.freeze({
+  fire: FLIP_FIRE,
+  smoke: FLIP_SMOKE,
+  dirt: FLIP_DIRT,
+});
 
 const VERT = /* glsl */ `
   attribute vec3 aOrigin;
@@ -244,9 +256,14 @@ export interface FlipbookSpawn {
   tint?: number;
 }
 
-/** Prepares an atlas as DATA: no colour decode, no premultiply, clamped, mipmapped. */
+/** Prepares an atlas as DATA: no colour decode, no premultiply, clamped,
+ *  mipmapped, and flipped on upload -- the fragment shader's row inversion
+ *  (`GRID - 1 - row`) assumes the image's top row lands at v = 1, so `flipY`
+ *  is set here rather than inherited from whichever loader made the texture
+ *  (`ImageBitmapLoader`'s bitmaps ignore it). */
 export function prepareFlipbookAtlas(tex: THREE.Texture): THREE.Texture {
   tex.colorSpace = THREE.NoColorSpace;
+  tex.flipY = true;
   tex.premultiplyAlpha = false;
   tex.wrapS = THREE.ClampToEdgeWrapping;
   tex.wrapT = THREE.ClampToEdgeWrapping;
@@ -272,8 +289,12 @@ export class FlipbookFx {
   private head = 0;
   private written = 0;
   private timeMs = 0;
-  /** The latest `start + duration` ever spawned: the live window's end. */
-  private liveUntilMs = -Infinity;
+  /** The latest `start + duration` ever spawned, PER PASS: fire for
+   *  `fireMesh`, smoke and dirt for `mesh`. Each mesh's live window ends on
+   *  its own, so a kill's fire mesh stops drawing once its last fireball is
+   *  out even while the 9 s column lives on. */
+  private fireLiveUntilMs = -Infinity;
+  private smokeLiveUntilMs = -Infinity;
   private rngState = FLIPBOOK_RNG_SEED;
   private readonly capacity: number;
   private debugHidden = false;
@@ -455,9 +476,9 @@ export class FlipbookFx {
   }
 
   private syncVisible(): void {
-    const on = this.atlases !== null && !this.debugHidden && this.timeMs <= this.liveUntilMs;
-    this.mesh.visible = on;
-    this.fireMesh.visible = on;
+    const can = this.atlases !== null && !this.debugHidden;
+    this.mesh.visible = can && this.timeMs <= this.smokeLiveUntilMs;
+    this.fireMesh.visible = can && this.timeMs <= this.fireLiveUntilMs;
   }
 
   private rand(): number {
@@ -493,65 +514,63 @@ export class FlipbookFx {
       attr.needsUpdate = true;
     }
     this.mesh.geometry.instanceCount = Math.min(this.written, this.capacity);
-    if (start + durMs > this.liveUntilMs) this.liveUntilMs = start + durMs;
+    const end = start + durMs;
+    if (type === FLIP_FIRE) {
+      if (end > this.fireLiveUntilMs) this.fireLiveUntilMs = end;
+    } else if (end > this.smokeLiveUntilMs) this.smokeLiveUntilMs = end;
     this.syncVisible();
   }
 
-  /** A shell landing (mortar 0.3, Grad 0.45): fireball, a dirt fountain, lingering dusty smoke. 22 instances. */
-  spawnShellImpact(x: number, h: number, z: number, power: number): void {
-    const fs = 0.8 + 1.4 * power;
-    this.push(x, h, z, 0, 0.3, 0, 0, 700, fs, FLIP_FIRE);
-    for (let k = 0; k < 3; k++) {
-      const a = this.rand() * Math.PI * 2;
-      this.push(x, h, z, Math.cos(a) * 1.4, 0.6 + this.rand(), Math.sin(a) * 1.4, 20 * k, 600 + 200 * this.rand(), fs * 0.6, FLIP_FIRE);
-    }
-    for (let k = 0; k < 12; k++) {
-      const a = this.rand() * Math.PI * 2;
-      const sp = 0.2 + this.rand() * 0.6;
-      this.push(x, h, z, Math.cos(a) * sp, 2.4 + this.rand() * 2.0, Math.sin(a) * sp, 10 * k, 800 + 400 * this.rand(), 0.25 + 0.22 * this.rand(), FLIP_DIRT);
-    }
-    for (let k = 0; k < 6; k++) {
-      const a = this.rand() * Math.PI * 2;
-      this.push(x, h, z, Math.cos(a) * 0.6, 0.3 + this.rand() * 0.3, Math.sin(a) * 0.6, 150 + 80 * k, 3500 + 1500 * this.rand(), 0.7 + 0.4 * this.rand(), FLIP_SMOKE, 0.4);
-    }
-  }
-
-  /** A vehicle kill (power ~0.5-1): a big fireball, a dust ring, cook-offs, then a black column. 36 instances. */
-  spawnVehicleKill(x: number, h: number, z: number, power: number): void {
-    const fs = 0.9 + 0.9 * power;
-    this.push(x, h + 0.2, z, 0, 0.6, 0, 0, 1300, fs, FLIP_FIRE);
-    for (let k = 0; k < 6; k++) {
-      const a = (k / 6) * Math.PI * 2 + this.rand();
-      this.push(x, h + 0.2, z, Math.cos(a) * 2.2, 0.9 + this.rand() * 1.4, Math.sin(a) * 2.2, 15 * k, 1000 + 400 * this.rand(), fs * 0.65, FLIP_FIRE);
-    }
-    // A ground ring of thrown dust where the hull sat (replaces the tan shroud, D5).
-    for (let k = 0; k < 10; k++) {
-      const a = (k / 10) * Math.PI * 2;
-      this.push(x, h, z, Math.cos(a) * 2.6, 0.4, Math.sin(a) * 2.6, 0, 1600 + 400 * this.rand(), 0.6 + 0.3 * power, FLIP_SMOKE, 0.9);
-    }
-    // Secondary cook-off pops.
-    for (let k = 0; k < 3; k++) {
-      this.push(x + (this.rand() - 0.5) * 0.6, h + 0.4, z + (this.rand() - 0.5) * 0.6, 0, 1.2, 0, 500 + 550 * k, 700, fs * 0.45, FLIP_FIRE);
-    }
-    for (let k = 0; k < 16; k++) {
-      const a = this.rand() * Math.PI * 2;
-      this.push(x, h + 0.3, z, Math.cos(a) * 0.35, 0.7 + this.rand() * 0.5, Math.sin(a) * 0.35, 200 + 260 * k, 6500 + 2500 * this.rand(), 0.9 + 0.6 * this.rand() + 0.4 * power, FLIP_SMOKE);
-    }
-  }
-
-  /** A main gun's muzzle: a short flash along the bore, dark-grey puffs and a ground blast ring. 10 instances. */
-  spawnMuzzle(x: number, h: number, z: number, dirRad: number, groundH: number, power: number): void {
+  /**
+   * Spawns a recipe authored as an emitter's `flipbook` array
+   * (`vfx_emitter.schema.json`'s `flipbook_layer`), at origin (x, h, z) in
+   * world units, at `power`, with the bore along `dirRad` (x = cos, z = sin)
+   * and the ground at `groundH` for an `at_ground` layer. The numbers live in
+   * `data/vfx/*.json`; this is the one interpreter. Returns the instance count.
+   */
+  spawnRecipe(
+    layers: readonly FlipbookLayerSpec[],
+    x: number, h: number, z: number, power: number,
+    dirRad = 0, groundH = h
+  ): number {
     const dx = Math.cos(dirRad);
     const dz = Math.sin(dirRad);
-    this.push(x + dx * 0.15, h - 0.25, z + dz * 0.15, dx * 3, 0, dz * 3, 0, 140, 0.6, FLIP_FIRE);
-    for (let k = 0; k < 3; k++) {
-      const sp = 2.5 + 2 * this.rand();
-      this.push(x + dx * 0.2 * k, h, z + dz * 0.2 * k, dx * sp, 0.3, dz * sp, 10 * k, 1400, 0.35 + 0.15 * k * power, FLIP_SMOKE);
+    const between = (r: readonly [number, number]): number => (r[0] === r[1] ? r[0] : r[0] + (r[1] - r[0]) * this.rand());
+    const first = layers[0];
+    const fireball = first ? first.scale.base + (first.scale.per_power ?? 0) * power : 0;
+    let n = 0;
+    for (const L of layers) {
+      const type = FLIP_TYPE[L.type];
+      if (type === undefined) continue;
+      const off = L.offset ?? {};
+      const v = L.velocity;
+      const y0 = (L.at_ground ? groundH : h) + (off.up ?? 0);
+      for (let k = 0; k < L.count; k++) {
+        const a = v.ring
+          ? (k / L.count) * Math.PI * 2 + (v.ring_jitter_rad ? this.rand() * v.ring_jitter_rad : 0)
+          : this.rand() * Math.PI * 2;
+        const radial = between(v.radial);
+        const along = v.along_bore ? between(v.along_bore) : 0;
+        const up = between(v.up);
+        const bore = (off.along_bore ?? 0) + (off.along_bore_per_index ?? 0) * k;
+        let px = x + dx * bore;
+        let pz = z + dz * bore;
+        if (off.scatter) {
+          px += (this.rand() - 0.5) * off.scatter;
+          pz += (this.rand() - 0.5) * off.scatter;
+        }
+        const s = L.scale;
+        let scale = s.base + (s.per_power ?? 0) * power + (s.per_index_power ?? 0) * k * power + (s.rand ? s.rand * this.rand() : 0);
+        if (L.scale_from === 'fireball') scale *= fireball;
+        this.push(
+          px, y0, pz,
+          Math.cos(a) * radial + dx * along, up, Math.sin(a) * radial + dz * along,
+          L.delay_ms[0] + L.delay_ms[1] * k, between(L.duration_ms), scale, type, L.tint ?? 0
+        );
+        n++;
+      }
     }
-    for (let k = 0; k < 6; k++) {
-      const a = this.rand() * Math.PI * 2;
-      this.push(x - dx * 0.6, groundH, z - dz * 0.6, Math.cos(a) * 1.4 + dx * 1.2, 0.5, Math.sin(a) * 1.4 + dz * 1.2, 0, 900, 0.35 * power + 0.25, FLIP_DIRT);
-    }
+    return n;
   }
 
   dispose(): void {

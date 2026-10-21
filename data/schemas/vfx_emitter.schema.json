@@ -135,6 +135,14 @@
         ]
       }
     },
+    "flipbook": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Three only (Defilade T4): an instanced, GPU-aged billboard recipe drawn by `FlipbookFx.spawnRecipe` (`packages/render/src/three/units/flipbook-fx.ts`), sampling the baked fire and smoke atlases. When an emitter declares one, it supersedes that emitter's `mesh_burst` and `mesh_plume` layers and its `smoke_puff` layers on shell impacts, vehicle kills, missile impacts and main-gun muzzles (D6); shards, lights, shake and hit-stop are untouched. Layer 0's `base + per_power * power` is the recipe's FIREBALL scale, which a later layer may scale from (`scale_from`). Presentation only: randomness comes from the flipbook's own presentation PRNG, never the sim.",
+      "items": {
+        "$ref": "#/$defs/flipbook_layer"
+      }
+    },
     "particles": {
       "type": "array",
       "minItems": 1,
@@ -178,7 +186,8 @@
             "spark",
             "shard",
             "ring"
-          ]
+          ],
+          "description": "A `smoke_puff` layer is superseded by `flipbook` on three when the emitter declares one (Defilade T4, D6); it stays declared as the fallback."
         },
         "count": {
           "$ref": "#/$defs/range"
@@ -270,12 +279,156 @@
         "mesh_burst": {
           "type": "boolean",
           "default": false,
-          "description": "Three.js backend only, and only once art/meshes/vfx/explosion_burst.glb has loaded (the &mesh flag): this layer is superseded by a pooled, modelled explosion-fireball mesh instead of being spawned as a particle. Falls back to the authored particle exactly as declared when the mesh has not loaded (mesh flag off, still loading, or the Pixi backend, which never reads this field). The mesh_flash sibling field, for a structure_collapse/tunnel_collapse-triggered hot core rather than a weapon_fire one -- see packages/render/src/three/units/explosion-burst.ts's own top comment for why this attaches to structure_collapse specifically."
+          "description": "Three.js backend only, and only once art/meshes/vfx/explosion_burst.glb has loaded (the &mesh flag): this layer is superseded by a pooled, modelled explosion-fireball mesh instead of being spawned as a particle. Falls back to the authored particle exactly as declared when the mesh has not loaded (mesh flag off, still loading, or the Pixi backend, which never reads this field). The mesh_flash sibling field, for a structure_collapse/tunnel_collapse-triggered hot core rather than a weapon_fire one -- see packages/render/src/three/units/explosion-burst.ts's own top comment for why this attaches to structure_collapse specifically. Superseded by `flipbook` on three when the emitter declares one (Defilade T4, D6); the layer stays declared as the fallback."
         },
         "mesh_plume": {
           "type": "boolean",
           "default": false,
-          "description": "Three.js backend only, and only once art/meshes/vfx/smoke_plume.glb has loaded (the &mesh flag): this layer is superseded by a pooled, modelled rising smoke column instead of being spawned as a particle. Falls back to the authored particle exactly as declared when the mesh has not loaded (mesh flag off, still loading, or the Pixi backend, which never reads this field). The mesh_burst sibling field, for the multi-second smoke aftermath of a structure_collapse (or a hard-target unit death) rather than the sub-second fireball itself -- see packages/render/src/three/units/smoke-plume.ts's own top comment."
+          "description": "Three.js backend only, and only once art/meshes/vfx/smoke_plume.glb has loaded (the &mesh flag): this layer is superseded by a pooled, modelled rising smoke column instead of being spawned as a particle. Falls back to the authored particle exactly as declared when the mesh has not loaded (mesh flag off, still loading, or the Pixi backend, which never reads this field). The mesh_burst sibling field, for the multi-second smoke aftermath of a structure_collapse (or a hard-target unit death) rather than the sub-second fireball itself -- see packages/render/src/three/units/smoke-plume.ts's own top comment. Superseded by `flipbook` on three when the emitter declares one (Defilade T4, D6); the layer stays declared as the fallback."
+        }
+      }
+    },
+    "flipbook_layer": {
+      "type": "object",
+      "description": "One layer of a flipbook recipe: `count` instances of one billow type. `k` below is the instance index within the layer (0-based) and `power` the event's power; every [min, max] is sampled from the presentation PRNG (a range with min = max draws nothing).",
+      "required": [
+        "type",
+        "count",
+        "delay_ms",
+        "duration_ms",
+        "scale",
+        "velocity"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "fire",
+            "smoke",
+            "dirt"
+          ],
+          "description": "fire: HDR fireball cooling to soot (drawn over the hull, not depth-tested). smoke: lit soot or dust, drifting. dirt: a ballistic kick-up in the ground's dust tones."
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "delay_ms": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": 0
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "[base, per_index]: instance k starts base + per_index * k ms after the event. Not a range."
+        },
+        "duration_ms": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "[min, max] life, ms."
+        },
+        "scale": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "base"
+          ],
+          "description": "Billow size in world units: base + per_power * power + per_index_power * k * power + rand * U(0, 1), times the recipe's fireball scale when `scale_from` is `fireball`.",
+          "properties": {
+            "base": {
+              "type": "number"
+            },
+            "per_power": {
+              "type": "number"
+            },
+            "per_index_power": {
+              "type": "number"
+            },
+            "rand": {
+              "type": "number",
+              "minimum": 0
+            }
+          }
+        },
+        "scale_from": {
+          "type": "string",
+          "enum": [
+            "fireball"
+          ],
+          "description": "Multiply `scale` by layer 0's base + per_power * power."
+        },
+        "velocity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "radial",
+            "up"
+          ],
+          "description": "Initial velocity, world units per second.",
+          "properties": {
+            "radial": {
+              "$ref": "#/$defs/range",
+              "description": "Horizontal speed away from the origin, at a random heading -- or, with `ring`, at heading 2 pi k / count."
+            },
+            "up": {
+              "$ref": "#/$defs/range",
+              "description": "Vertical speed."
+            },
+            "along_bore": {
+              "$ref": "#/$defs/range",
+              "description": "Speed along the caller's bore direction, added to the radial part (muzzles)."
+            },
+            "ring": {
+              "type": "boolean",
+              "description": "Space the headings evenly around a ring instead of at random."
+            },
+            "ring_jitter_rad": {
+              "type": "number",
+              "minimum": 0,
+              "description": "With `ring`: add U(0, this) radians to each heading."
+            }
+          }
+        },
+        "offset": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Where the instance starts, relative to the event's origin.",
+          "properties": {
+            "up": {
+              "type": "number"
+            },
+            "along_bore": {
+              "type": "number",
+              "description": "Along the bore, + forward (a muzzle's ground blast sits behind it: negative)."
+            },
+            "along_bore_per_index": {
+              "type": "number",
+              "description": "Added per instance index k, along the bore."
+            },
+            "scatter": {
+              "type": "number",
+              "minimum": 0,
+              "description": "A square of this side centred on the origin: x and z each get U(-scatter/2, scatter/2)."
+            }
+          }
+        },
+        "tint": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "smoke only: 0 soot, 1 dust."
+        },
+        "at_ground": {
+          "type": "boolean",
+          "description": "Start at the caller's ground height rather than the event's origin height."
         }
       }
     }
