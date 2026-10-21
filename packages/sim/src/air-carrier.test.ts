@@ -558,3 +558,177 @@ describe('air carriers land to load and unload (GH-698 Task 3)', () => {
     expect(aboard(subject.sim, subject.heli)).toBe(2);
   });
 });
+
+// GH-698 Task 4 (R6, item 9): landed means ground. The five TARGETING readers
+// ask `isAirborne`, not the type's `isAir`: a LANDING or LANDED carrier is a
+// ground target (Q-C), so a ground-only weapon can engage it and an air-only
+// one cannot. Movement, formation and the rest keep the type test.
+
+const WEAPON = {
+  range_tiles: 8,
+  effective_range_tiles: 6,
+  accuracy: 0.9,
+  penetration: 8,
+  damage: 50,
+  suppression: 0,
+  rof_per_min: 120,
+};
+
+/** A transport heli built to be hurt by an RPG (pen 60) and not by a rifle (pen 8): armour 32 all round. */
+const ARMOURED_HELO: UnitTypeJson = {
+  ...HELO,
+  id: 'ac_t4_helo',
+  hull: { hp: 900, armor: { front: 32, side: 32, rear: 32 }, transport_slots: 6 },
+};
+
+const shooter = (id: string, weapon: Record<string, unknown>, extra: Partial<UnitTypeJson> = {}): UnitTypeJson => ({
+  id,
+  role: 'infantry',
+  hull: { hp: 30000, armor: { front: 10, side: 10, rear: 10 } },
+  mobility: { speed_tiles_s: 1 },
+  sensors: { optics: 1, sight_tiles: 12, signature: 0.6 },
+  weapons: [{ id: `${id}_w`, type: 'small_arms', ...WEAPON, ...weapon }],
+  ...extra,
+});
+
+const MANPAD = shooter('t4_manpad', { type: 'hmg', can_target: ['air'], penetration: 60 });
+const RPG = shooter('t4_rpg', { type: 'rpg', can_target: ['ground'], penetration: 60, damage: 100 });
+const ZU = shooter('t4_zu', { type: 'autocannon', can_target: ['ground', 'air'], penetration: 60 });
+const RIFLE = shooter('t4_rifle', { can_target: ['ground'] });
+
+const MUNITION: UnitTypeJson = {
+  id: 't4_munition',
+  role: 'drone',
+  hull: { hp: 90, armor: { front: 0, side: 0, rear: 0 } },
+  mobility: { speed_tiles_s: 2.8, domain: 'air' },
+  sensors: { optics: 1, sight_tiles: 13, signature: 0.3 },
+  abilities: ['kamikaze'],
+  weapons: [
+    {
+      id: 'warhead',
+      type: 'heat',
+      range_tiles: 1.2,
+      effective_range_tiles: 1.2,
+      accuracy: 0.9,
+      penetration: 480,
+      damage: 520,
+      splash_tiles: 1.2,
+      suppression: 70,
+      rof_per_min: 6,
+      can_target: ['ground', 'structure'],
+    },
+  ],
+};
+
+/** Side 1's heli at (20.5, 10.5) in the given air state, identified to side 0. */
+function t4World(state: number): { sim: Sim; helo: number } {
+  const sim = new Sim({ seed: 0x6980_0004, width: 40, height: 20, capacity: 16 });
+  const helo = sim.spawn(sim.addUnitType(ARMOURED_HELO), 1, fx.from(20.5), fx.from(10.5));
+  sim.state.airState[helo] = state;
+  sim.identifyTo(0, helo);
+  return { sim, helo };
+}
+
+function put(sim: Sim, json: UnitTypeJson, x: number, y: number): number {
+  return sim.spawn(sim.addUnitType(json), 0, fx.from(x), fx.from(y));
+}
+
+describe('landed means ground (GH-698 Task 4)', () => {
+  it('Q-C: AIR_LANDING and AIR_LIFTING and AIRBORNE: LANDING is ground, the others are air', () => {
+    // The question the plan's literal R6 and the lead's Q-C answer differently.
+    for (const [s, want] of [[AIR_AIRBORNE, true], [AIR_LIFTING, true], [AIR_LANDING, false], [AIR_LANDED, false]] as const) {
+      const { sim, helo } = t4World(s);
+      expect(sim.isAirborne(helo)).toBe(want);
+    }
+  });
+
+  it('a MANPAD cannot hurt a landed or landing heli, and can an airborne one', () => {
+    for (const [s, want] of [[AIR_AIRBORNE, true], [AIR_LIFTING, true], [AIR_LANDING, false], [AIR_LANDED, false]] as const) {
+      const { sim, helo } = t4World(s);
+      const m = put(sim, MANPAD, 16.5, 10.5);
+      expect(sim.focusHurts(m, helo)).toBe(want);
+    }
+  });
+
+  it('an RPG hurts a landed or landing heli, and not an airborne one', () => {
+    for (const [s, want] of [[AIR_AIRBORNE, false], [AIR_LIFTING, false], [AIR_LANDING, true], [AIR_LANDED, true]] as const) {
+      const { sim, helo } = t4World(s);
+      const r = put(sim, RPG, 16.5, 10.5);
+      expect(sim.focusHurts(r, helo)).toBe(want);
+    }
+  });
+
+  it('a ground-and-air gun hurts it in every state', () => {
+    for (const s of [AIR_AIRBORNE, AIR_LIFTING, AIR_LANDING, AIR_LANDED]) {
+      const { sim, helo } = t4World(s);
+      expect(sim.focusHurts(put(sim, ZU, 16.5, 10.5), helo)).toBe(true);
+    }
+  });
+
+  it('rifles do not hurt it (spec section 3 armour: pen 8 against 32)', () => {
+    const { sim, helo } = t4World(AIR_LANDED);
+    expect(sim.focusHurts(put(sim, RIFLE, 16.5, 10.5), helo)).toBe(false);
+  });
+
+  it('engageable: an RPG in range wears a landed heli down; the same RPG at an airborne one does nothing', () => {
+    const landed = t4World(AIR_LANDED);
+    put(landed.sim, RPG, 16.5, 10.5);
+    const aloft = t4World(AIR_AIRBORNE);
+    put(aloft.sim, RPG, 16.5, 10.5);
+    for (let i = 0; i < 200; i++) {
+      landed.sim.tick();
+      aloft.sim.tick();
+    }
+    expect(landed.sim.state.hp[landed.helo]).toBeLessThan(fx.fromInt(900));
+    expect(aloft.sim.state.hp[aloft.helo]).toBe(fx.fromInt(900));
+  });
+
+  it('couldEngage: an attack-moving MANPAD does not chase a landed heli, an RPG does', () => {
+    const run = (json: UnitTypeJson): number => {
+      const { sim, helo } = t4World(AIR_LANDED);
+      const id = put(sim, json, 5.5, 10.5);
+      sim.queueCommand({ kind: 'attackMove', ids: [id], x: fx.from(5.5), y: fx.from(10.5), sweep: true });
+      for (let i = 0; i < 100; i++) {
+        sim.tick();
+        sim.identifyTo(0, helo);
+      }
+      return fx.toInt(sim.state.posX[id]);
+    };
+    expect(run(MANPAD)).toBe(5);
+    expect(run(RPG)).toBeGreaterThan(5);
+  });
+
+  it('focusInReach: an RPG ordered onto a landed heli closes to its range and holds', () => {
+    const { sim, helo } = t4World(AIR_LANDED);
+    const r = put(sim, RPG, 5.5, 10.5);
+    sim.queueCommand({ kind: 'attack', ids: [r], target: helo });
+    for (let i = 0; i < 400; i++) sim.tick();
+    // Effective range 6: it stops 6 tiles (plus the half-tile slack) short of x=20.5, never on top of it.
+    expect(sim.state.moving[r]).toBe(0);
+    expect(fx.toNumber(sim.state.posX[r])).toBeGreaterThan(12);
+    expect(fx.toNumber(sim.state.posX[r])).toBeLessThan(15.6);
+  });
+
+  it('stepKamikaze: a loitering munition dives at a landed heli and spares an airborne one', () => {
+    const strike = (state: number): number => {
+      const { sim, helo } = t4World(state);
+      put(sim, MUNITION, 10.5, 10.5);
+      for (let i = 0; i < 300; i++) sim.tick();
+      return sim.state.hp[helo];
+    };
+    expect(strike(AIR_LANDED)).toBeLessThan(fx.fromInt(900));
+    expect(strike(AIR_AIRBORNE)).toBe(fx.fromInt(900));
+  });
+
+  it('a non-air unit is unaffected by every airState value', () => {
+    for (const s of [0, 1, 2, 3]) {
+      const sim = new Sim({ seed: 3, width: 20, height: 20, capacity: 8 });
+      const foe = sim.spawn(sim.addUnitType(RIFLES), 1, fx.from(10.5), fx.from(10.5));
+      sim.state.airState[foe] = s;
+      const rpg = put(sim, RPG, 6.5, 10.5);
+      const aa = put(sim, MANPAD, 6.5, 11.5);
+      expect(sim.focusHurts(rpg, foe)).toBe(true);
+      expect(sim.focusHurts(aa, foe)).toBe(false);
+    }
+  });
+});

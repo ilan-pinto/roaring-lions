@@ -2026,7 +2026,7 @@ export class Sim {
    * GH-698, Q-C (lead 21 Oct): is unit `t` an AIR target right now? An air type is,
    * except while LANDING or LANDED -- a carrier settling onto an LZ is a ground target.
    * LIFTING stays air. A ground type never is, whatever its (unused) air column holds.
-   * The one place the rule lives; nothing in the sim reads it yet (Task 4).
+   * The one place the rule lives; the five targeting readers (engageable, stepKamikaze, focusInReach, focusHurts, couldEngage) ask it.
    */
   isAirborne(t: number): boolean {
     if (!this.unitTypes[this.typeIdx[t]].isAir) return false;
@@ -4850,7 +4850,7 @@ export class Sim {
     // never hit. Filtered here rather than at the hit roll so the shooter
     // keeps looking and engages something it *can* hurt, instead of locking
     // on to an aircraft and firing into the sky for the rest of the fight.
-    if (this.unitTypes[this.typeIdx[t]].isAir ? !w.canTargetAir : !w.canTargetGround) return false;
+    if (this.isAirborne(t) ? !w.canTargetAir : !w.canTargetGround) return false;
     // From the window, for a man inside (G1).
     this.eyePoint(shooter, this.posX[t], this.posY[t]);
     const px = this.eyeX;
@@ -6777,7 +6777,7 @@ export class Sim {
         // A munition picks its own target, so the can_target rule has to be
         // applied here too -- selectTarget is never consulted on this path. A
         // ground-attack warhead chasing an aircraft would fly at it forever.
-        if (this.unitTypes[this.typeIdx[t]].isAir ? !w.canTargetAir : !w.canTargetGround) continue;
+        if (this.isAirborne(t) ? !w.canTargetAir : !w.canTargetGround) continue;
         const d = distSqFx(fx.sub(this.posX[t], this.posX[i]), fx.sub(this.posY[t], this.posY[i]));
         if (d <= bestD) {
           bestD = d;
@@ -7405,7 +7405,7 @@ export class Sim {
     if (weapons.length === 0) return true; // nothing to close with (canFocus refuses these)
     const px = this.posX[i];
     const py = this.posY[i];
-    const air = this.unitTypes[this.typeIdx[t]].isAir;
+    const air = this.isAirborne(t);
     const dSq = distSqFx(fx.sub(this.posX[t], px), fx.sub(this.posY[t], py));
     const stopped = this.moving[i] === 0;
     let anyCan = false;
@@ -7619,7 +7619,7 @@ export class Sim {
    */
   focusHurts(shooter: number, target: number): boolean {
     if (shooter < 0 || shooter >= this.count || target < 0 || target >= this.count) return false;
-    const air = this.unitTypes[this.typeIdx[target]].isAir;
+    const air = this.isAirborne(target);
     const weapons = this.unitTypes[this.typeIdx[shooter]].weapons;
     this.eyePoint(shooter, this.posX[target], this.posY[target]);
     const px = this.eyeX;
@@ -7640,7 +7640,7 @@ export class Sim {
    *  garrisoned unit. */
   private couldEngage(i: number, t: number): boolean {
     if (this.garrisonedIn[t] >= 0 || this.carriedBy[t] >= 0 || this.tunnelIn[t] >= 0) return false;
-    const air = this.unitTypes[this.typeIdx[t]].isAir;
+    const air = this.isAirborne(t);
     const weapons = this.unitTypes[this.typeIdx[i]].weapons;
     for (let s = 0; s < weapons.length && s < 2; s++) {
       if (this.garrisonedIn[i] >= 0 && !weapons[s].firesFromBuilding) continue;
