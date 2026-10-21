@@ -124,6 +124,77 @@ describe('every mission names a map it owns, and every marker stands on passable
   });
 });
 
+// F2 (GH-183), the convoy's door. Two rules, one per map.
+//
+// UZ IV (and the lead's 6 Oct rule): `supply_entry` is the map-edge tile nearest the player's
+// start along the shortest passable path, priced through the VEHICLE mask (a convoy is trucks:
+// blocked | boulder) by the real FlowField, uphill term included. Ties go to the lowest cost,
+// then the lowest y, then the lowest x. Both maps start at (24,45) and both resolve to (24,47),
+// two orthogonal steps (cost 20) down the road's south end. UZ IV keeps that derivation
+// (Ruling C-R23: no flank entry was ever cut on UZ IV), recomputed from the shipped map AND
+// pinned as a literal, so a re-draw that moves the answer is seen from either side.
+//
+// UZ II: the lead's 15 Oct ruling SUPERSEDED the 6 Oct rule on this map. The convoy comes in by
+// the west rim, (3,31), the measured candidate in docs/campaign/economy/income-numbers.md: the
+// door is no longer the two-tile hop behind the start, so a supply line can actually be cut
+// before it reaches the camp. The old argmin does not name it (it names (24,47)); the pin is
+// the lead's literal, with the assertions that make it a door a truck can use.
+describe('the supply entry', () => {
+  it('UZ IV: the marker is the argmin, a literal (24,47) at cost 20, off every blocked and boulder tile', () => {
+    const id = 'umm_zeitoun_4';
+    const m = J(id);
+    const { sim, map } = world(m);
+    const start = m.markers!.kdf_start;
+    expect(start).toEqual([24, 45]);
+    const field = new FlowField(map.width, map.height);
+    field.compute(sim.blockedVehicle, sim.elevation, start[0], start[1]);
+    const edge: { cost: number; x: number; y: number }[] = [];
+    for (let y = 0; y < map.height; y++)
+      for (let x = 0; x < map.width; x++) {
+        if (x !== 0 && y !== 0 && x !== map.width - 1 && y !== map.height - 1) continue;
+        const cost = field.costAt(y * map.width + x);
+        if (sim.blockedVehicle[y * map.width + x] === 0 && cost < 0x7fffffff) edge.push({ cost, x, y });
+      }
+    expect(edge.length).toBeGreaterThan(0);
+    edge.sort((a, b) => a.cost - b.cost || a.y - b.y || a.x - b.x);
+    const best = edge[0];
+    expect(m.markers!.supply_entry).toEqual([best.x, best.y]);
+    expect([best.x, best.y, best.cost]).toEqual([24, 47, 20]);
+    const at = m.markers!.supply_entry[1] * map.width + m.markers!.supply_entry[0];
+    expect(sim.blocked[at], `${id} supply_entry on a wall`).toBe(0);
+    expect(map.boulder[at], `${id} supply_entry on a boulder`).toBe(0);
+    expect(sim.blockedVehicle[at], `${id} supply_entry off the vehicle mask`).toBe(0);
+  });
+
+  describe('UZ II: the west rim, the lead\'s literal (3,31)', () => {
+    const m = J('umm_zeitoun_2');
+    const entry = m.markers!.supply_entry;
+    // The rear a convoy drives to: the camp's exit, here the start line (24,45) beside it.
+    const rear = m.markers!.kdf_start;
+    it('the marker is the literal (3,31), not the 6 Oct argmin (24,47)', () => {
+      expect(entry).toEqual([3, 31]);
+      expect(entry).not.toEqual([24, 47]);
+    });
+    it('it is unblocked, not a boulder, and open to vehicles', () => {
+      const { sim, map } = world(m);
+      const at = entry[1] * map.width + entry[0];
+      expect(sim.blocked[at], 'supply_entry on a wall').toBe(0);
+      expect(map.boulder[at], 'supply_entry on a boulder').toBe(0);
+      expect(sim.blockedVehicle[at], 'supply_entry off the vehicle mask').toBe(0);
+    });
+    it('a wheeled route exists from it to the rear (the real FlowField over the vehicle mask and elevation)', () => {
+      const { sim, map } = world(m);
+      const field = new FlowField(map.width, map.height);
+      field.compute(sim.blockedVehicle, sim.elevation, rear[0], rear[1]);
+      expect(field.costAt(entry[1] * map.width + entry[0])).toBeLessThan(0x7fffffff);
+      expect(route(m, 'vehicle', entry as Pt, rear as Pt)).not.toBeNull();
+    });
+    it('control: the door is 22 steps from the rear, not the two-tile hop of the 6 Oct door', () => {
+      expect(route(m, 'vehicle', entry as Pt, rear as Pt)).toBe(22);
+    });
+  });
+});
+
 describe('II: the south rim', () => {
   const m = J('umm_zeitoun_2');
   const rc = mk(m, 'rim_crest');

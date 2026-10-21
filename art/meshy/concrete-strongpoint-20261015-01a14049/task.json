@@ -1,0 +1,46 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready one-storey concrete strongpoint, vernacular construction of a fictional arid river-basin region: one wide heavy square flat-roofed block, thick walls, low parapet, horizontal firing slits, a heavy steel door on the front face, a low sandbag wall along part of the front; a narrow square lookout tower fused into its back corner, slit windows, overhanging roof slab; rooftop water tank on steel legs, vents, rebar stubs. Scale: block 8.5 x 8.5 m square, 3.8 m tall; tower 2.5 m square, 8.5 m tall. Warm sun-bleached sand-toned concrete, board-form marks, chips, dust streaks; gunmetal steel. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "negative_prompt": "tall tower, multi-storey building, skyscraper, two separate buildings, detached blocks, gap between blocks, ground plane, base slab, plinth, terrain, diorama, rectangular elongated footprint, cold grey raw concrete, text, lettering, flags, insignia, logos, people, vehicles, trees, baked shadows",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a14049-9dab-75ef-a553-ef6bafcc6b36",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 3370639775,
+    "prompt": "A single low-poly game-ready one-storey concrete strongpoint, vernacular construction of a fictional arid river-basin region: one wide heavy square flat-roofed block, thick walls, low parapet, horizontal firing slits, a heavy steel door on the front face, a low sandbag wall along part of the front; a narrow square lookout tower fused into its back corner, slit windows, overhanging roof slab; rooftop water tank on steel legs, vents, rebar stubs. Scale: block 8.5 x 8.5 m square, 3.8 m tall; tower 2.5 m square, 8.5 m tall. Warm sun-bleached sand-toned concrete, board-form marks, chips, dust streaks; gunmetal steel. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1792079930942,
+    "progress": 100,
+    "started_at": 1792079930951,
+    "finished_at": 1792080130132,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a14049-9dab-75ef-a553-ef6bafcc6b36/output/model.glb?Expires=4945622400&Signature=XVGD3epGpTXsQfvypXnLBcjMUrcq-6qxg~u5Vj2KrQP3XLvPRwYimx~GYzKlqFDvHJNjm~8nFB3jPomdJHe83AaE92lbaS6U4U9ZXgsXNPaH-3yH-AJtojg4t5x8oI7ZZNQNrKGf7WjOgyo18w2Y97E~dl8q-EVm40yUEb1Xs5ZyQcNLLFjITbWRgh2g3HrT2g611WY0DhLDkcCPljzfbhGEWEUYDhlbebxEsPdSqQKPKYLs-UsKBLsdFlAm7HkFb13Mm9nh7OMjN11AoN-4fzO95jOu1ueMlGoGDKIWUAbQK9G9-dHJgx9MwvmqnoL7XJqC~B024qBmwFwYsXKC2w__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a14049-9dab-75ef-a553-ef6bafcc6b36/output/preview.png?Expires=4945622400&Signature=cBiGYxRzZCGhU3OZ6u2n2CYBriAI6pIMIx6wJBXIErrZKKOKZqb3JvbrqWxKtLYtgQNQ1lTtTgFw8-tDFm0Vuf8U9aOdslbij69VzKQRa74zlnLLBR~g0r2uKvyD5R~8~PtGwNGFORTyxtFMwxbZ7nNn0ktdyrLB5cpXvs2aTEtwvXpUQ7nBimfn2MwbGtIY~vHifB8PkD5jfgGNAv9TtFwIiZ9Q2iCevBBXpT5wSvqgUy~b4euO4MNNFNz5aHGKEkownmigecDq6u0Nbd6KFDKHTDGLCaprzO7fuDQDWvjd7OT0PM4gR9OUt3izZk2HBFVUdinGpJQaKaweYi651w__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1792079930942,
+    "started_at": 1792079930951,
+    "finished_at": 1792080130132
+  },
+  "usd_estimated": 0.4
+}

@@ -52,6 +52,15 @@ describe('the counter', () => {
   });
 });
 
+describe('the room table', () => {
+  it("N2: under the room's table ([true, true]) neither side breaches on milh_flats, in either arm", { timeout: FULL_GAMES_TIMEOUT_MS }, () => {
+    for (const n of [0, 2]) for (const arm of ['normal', 'swapped'] as const) {
+      const g = playCamps('milh_flats', ['kdf', 'kdf'], seedOf(n), arm, { humanHeld: [true, true] });
+      expect(g.activity.ticks).toEqual([0, 0]);
+    }
+  });
+});
+
 describe('the swap', () => {
   it("normal arm IS the shipped versusSpawns, for every pairing the probe plays on every fair map", () => {
     let pairings = 0;

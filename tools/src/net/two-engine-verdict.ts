@@ -123,16 +123,36 @@ export function annotationText(s: string): string {
   return s.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
 }
 
+/**
+ * `required` names engines this runner is expected to boot (the tool's
+ * `--require=`): for one of those, "could not launch / no WebGL2" is no longer
+ * an environment finding but a FAILURE (exit 2), because the runner was set up
+ * to provide it and a check that silently loses an engine judges less than it
+ * says. An engine named in `required` that is missing from `outcomes`
+ * altogether fails the same way. Engines not named keep R39's exit 3.
+ */
 export function decide(
   outcomes: Readonly<Record<string, EngineOutcome>>, targetTick: number, firstOrderTick: number, nodeContentDigest: number,
+  required: readonly string[] = [],
 ): Decision {
   const lines: Decision['lines'] = [];
   const results: Record<string, EngineReading> = {};
   const unbootable: string[] = [];
   const broken: string[] = [];
+  /** Required engines with no reading because they could not boot (or were never tried). */
+  const missing: string[] = [];
+  for (const name of required) {
+    if (!(name in outcomes)) {
+      missing.push(name);
+      lines.push({ level: 'error', text: `FAIL (no reading): ${name} is required on this runner and was never tried.` });
+    }
+  }
   for (const [name, o] of Object.entries(outcomes)) {
     if (o.kind === 'reading') results[name] = o.reading;
-    else if (o.kind === 'unbootable') {
+    else if (o.kind === 'unbootable' && required.includes(name)) {
+      missing.push(name);
+      lines.push({ level: 'error', text: `FAIL (no reading): ${name} is required on this runner and could not boot: ${o.reason}` });
+    } else if (o.kind === 'unbootable') {
       unbootable.push(name);
       lines.push({
         level: 'log',
@@ -152,8 +172,9 @@ export function decide(
     if (!v.ok) return { exit: 1, lines: [...lines, { level: 'error', text: v.message }] };
     lines.push({ level: 'log', text: `${v.message} (${Object.keys(results).join(', ')})` });
   }
-  if (broken.length > 0) {
-    lines.push({ level: 'error', text: `FAIL: ${broken.join(', ')} started and did not produce a reading.` });
+  if (broken.length > 0 || missing.length > 0) {
+    if (broken.length > 0) lines.push({ level: 'error', text: `FAIL: ${broken.join(', ')} started and did not produce a reading.` });
+    if (missing.length > 0) lines.push({ level: 'error', text: `FAIL: ${missing.join(', ')} required on this runner and produced no reading.` });
     return { exit: 2, lines };
   }
   if (unbootable.length > 0) {
@@ -173,4 +194,36 @@ export function decide(
     return { exit: 1, lines: [...lines, { level: 'error', text: verdict(results, targetTick, firstOrderTick, nodeContentDigest).message }] };
   }
   return { exit: 0, lines };
+}
+
+/** The engines the tool knows, in the order it tries them. */
+export const ENGINES = ['chromium', 'firefox', 'webkit'] as const;
+
+export interface EngineArgs {
+  /** `--require=a,b`: engines whose failure to boot is exit 2, not exit 3. */
+  require: string[];
+  /**
+   * `--firefox-headed`: launch Firefox with a window. Firefox on a GPU-less
+   * Linux runner with no X display creates no WebGL2 context at all, whatever
+   * its prefs (measured 15 Oct 2026 in `mcr.microsoft.com/playwright:v1.64.0-noble`:
+   * `null` with and without `webgl.force-enabled`). Under `xvfb-run` it gets
+   * `llvmpipe` -- headed in that image and on CI, and headless too on CI: the
+   * display is what matters. CI runs the tool under `xvfb-run` with this flag.
+   */
+  firefoxHeaded: boolean;
+}
+
+/** Reads the tool's own flags; `--port` and anything else belong to others. Throws on an unknown engine name. */
+export function parseEngineArgs(argv: readonly string[]): EngineArgs {
+  const out: EngineArgs = { require: [], firefoxHeaded: false };
+  for (const a of argv) {
+    if (a === '--firefox-headed') out.firefoxHeaded = true;
+    else if (a.startsWith('--require=')) {
+      const names = a.slice('--require='.length).split(',').map((n) => n.trim()).filter((n) => n !== '');
+      const unknown = names.filter((n) => !(ENGINES as readonly string[]).includes(n));
+      if (unknown.length > 0) throw new Error(`--require: unknown engine(s) ${unknown.join(', ')} (known: ${ENGINES.join(', ')})`);
+      out.require.push(...names);
+    }
+  }
+  return out;
 }

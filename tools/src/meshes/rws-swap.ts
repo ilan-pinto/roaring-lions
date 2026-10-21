@@ -5,6 +5,7 @@
  *
  *     python3 tools/vehicles/rws_atlas.py <atlas_dir>
  *     pnpm --filter @lions/tools exec tsx src/meshes/rws-swap.ts -- --atlas=<atlas_dir> [--id=apc_eitan,...]
+ *     pnpm --filter @lions/tools exec tsx src/meshes/rws-swap.ts -- --rescale --id=apc_kipod
  *
  * Then the kit pipeline re-fits the firepower track to the new station:
  * `export_vehicle_kit.py` -> `pnpm kit:meshes` -> `pnpm wreck:meshes` ->
@@ -32,6 +33,18 @@
  *    the texels it did.
  *
  * Idempotent: it refuses a file whose `turret_metal` already has uvs.
+ *
+ * ## `--rescale`: changing a host's declared scale after the swap
+ *
+ * A swapped file cannot be swapped again (its hull uvs are already in the
+ * widened atlas), so a new `HOST_SCALE` reaches it through `--rescale`
+ * instead: the station's two meshes are re-placed from the part at the new
+ * factor and nothing else is touched -- no uv, no image, no other node. It
+ * first proves the station on disk IS the part at some old factor (one
+ * least-squares factor about the pivot, every vertex within 0.1 mm of it,
+ * same vertex count), so it can never rescale a station that a later pass or
+ * a hand edit has reshaped. Then the kit, wreck, damage and encode passes run
+ * again, as after a swap. (Kipod 0.76 -> 1.0, 2026-10-15.)
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -42,12 +55,16 @@ import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 const REPO = fileURLToPath(new URL('../../..', import.meta.url));
 
 /** The proposal's declared per-host factors against the part's 1.7 m .50
- *  station: the Eitan carries the .50 itself; the Kipod a 7.62 station
- *  (~1.3 m); the Shachaf a light MG station (~1.2 m); the Namer the same
- *  cradle at 1.15 with its barrel lengthened to 30 mm in Blender. */
+ *  station: the Eitan carries the .50 itself; the Shachaf a light MG station
+ *  (~1.2 m); the Namer the same cradle at 1.15 with its barrel lengthened to
+ *  30 mm in Blender. The Kipod shipped at 0.76 (a 7.62 station, ~1.3 m) and
+ *  read as a lighter class than the Eitan's beside it, on a bigger hull and a
+ *  raised cupola: it carries the Eitan's own station at 1.0 since 2026-10-15,
+ *  which is also the size its old kit box was (the same 1.85 m as the
+ *  Eitan's). */
 export const HOST_SCALE: Readonly<Record<string, { scale: number; part: 'rws_50' | 'rws_30' }>> = {
   apc_eitan: { scale: 1.0, part: 'rws_50' },
-  apc_kipod: { scale: 0.76, part: 'rws_50' },
+  apc_kipod: { scale: 1.0, part: 'rws_50' },
   scout_shachaf: { scale: 0.7, part: 'rws_50' },
   ifv_namer: { scale: 1.15, part: 'rws_30' },
 };
@@ -165,12 +182,59 @@ export async function swap(io: NodeIO, id: string, atlasDir: string): Promise<st
   return `RWS ${id}: ${spec.part} x${k} at the pivot (${pw.map((x) => x.toFixed(3)).join(', ')}), ${tris} tris; ${done.size} uv set(s) into the ${ATLAS_PX} atlas`;
 }
 
+/** The tolerance `rescale` proves the on-disk station against, in metres. */
+export const RESCALE_FIT_M = 1e-4;
+
+export async function rescale(io: NodeIO, id: string): Promise<string> {
+  const spec = HOST_SCALE[id];
+  if (!spec) throw new Error(`rws-swap: no host ${id}`);
+  const file = path.join(REPO, 'art', 'meshes', 'vehicles', `${id}.glb`);
+  const doc = await io.read(file);
+  const byName = new Map(doc.getRoot().listNodes().map((n) => [n.getName(), n]));
+  const pivot = byName.get('turret_pivot');
+  if (!pivot) throw new Error(`rws-swap: ${id} lacks turret_pivot`);
+  const pw = pivot.getWorldTranslation();
+  const part = await readPart(io, spec.part);
+  const olds: number[] = [];
+  for (const role of ['metal', 'plate'] as const) {
+    const node = byName.get(`turret_${role}`);
+    const prims = node?.getMesh()?.listPrimitives() ?? [];
+    if (prims.length !== 1 || !prims[0].getAttribute('TEXCOORD_0')) throw new Error(`rws-swap: ${id} turret_${role} does not carry the station; swap it first`);
+    const acc = prims[0].getAttribute('POSITION')!;
+    const cur = acc.getArray() as Float32Array;
+    const m = part[role].pos;
+    if (cur.length !== m.length) throw new Error(`rws-swap: ${id} turret_${role} has ${cur.length / 3} vertices, the part ${m.length / 3}`);
+    // One factor about the pivot, least squares, then every vertex held to it.
+    let num = 0;
+    let den = 0;
+    for (let i = 0; i < m.length; i++) {
+      num += (cur[i] - pw[i % 3]) * m[i];
+      den += m[i] * m[i];
+    }
+    const kOld = num / den;
+    let worst = 0;
+    for (let i = 0; i < m.length; i++) worst = Math.max(worst, Math.abs(cur[i] - pw[i % 3] - m[i] * kOld));
+    if (worst > RESCALE_FIT_M) throw new Error(`rws-swap: ${id} turret_${role} is not the part at one factor (best ${kOld.toFixed(4)}, worst vertex off by ${(worst * 1000).toFixed(2)} mm)`);
+    const next = new Float32Array(m.length);
+    for (let i = 0; i < m.length; i++) next[i] = pw[i % 3] + m[i] * spec.scale;
+    acc.setArray(next);
+    olds.push(kOld);
+  }
+  writeFileSync(file, await io.writeBinary(doc));
+  return `RWS ${id}: rescaled ${olds.map((k) => k.toFixed(4)).join('/')} -> ${spec.scale} (${spec.part})`;
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2).filter((a) => a !== '--');
-  const atlas = args.find((a) => a.startsWith('--atlas='))?.slice(8);
-  if (!atlas) throw new Error('rws-swap: --atlas=<dir> (python3 tools/vehicles/rws_atlas.py <dir>)');
   const only = args.find((a) => a.startsWith('--id='))?.slice(5);
   const io = new NodeIO().registerExtensions(ALL_EXTENSIONS);
+  if (args.includes('--rescale')) {
+    if (!only) throw new Error('rws-swap: --rescale needs --id=<host>[,<host>]');
+    for (const id of only.split(',')) console.log(await rescale(io, id));
+    return;
+  }
+  const atlas = args.find((a) => a.startsWith('--atlas='))?.slice(8);
+  if (!atlas) throw new Error('rws-swap: --atlas=<dir> (python3 tools/vehicles/rws_atlas.py <dir>)');
   for (const id of only ? only.split(',') : Object.keys(HOST_SCALE)) console.log(await swap(io, id, atlas));
 }
 

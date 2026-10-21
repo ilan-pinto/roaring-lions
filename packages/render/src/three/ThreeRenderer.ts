@@ -116,7 +116,7 @@
 import { firePointOnMap } from './units/fire-points';
 import * as THREE from 'three';
 import { fx, WEAPON_CLASS, type Fx, type MissionEvent, type Sim, type SimEvent } from '@lions/sim';
-import type { AimFootprint, ObjectiveZoneView, Renderer, RendererOptions, TerrainTones } from '../api'; // both, after Step 2
+import type { AimFootprint, ObjectiveZoneView, RallyMarkView, Renderer, RendererOptions, SupplyRouteView, TerrainTones } from '../api'; // both, after Step 2
 import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, type Camera } from '../project';
 import { QUALITY_PRESETS } from '../quality';
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec, type ParticleSpec } from '../vfx';
@@ -435,6 +435,7 @@ import { fireVisible } from './fire-visible';
 import { arcHiddenUntil, hostileEffectVisible, structureBarVisible } from './versus-fog';
 import { isBurstOnlyEvent } from './quiet';
 import { ZoneBandBatch } from './units/zone-band';
+import { SupplyRouteMesh, SUPPLY_ROUTE_CUT_COLOR_KEY, SUPPLY_ROUTE_OPEN_COLOR_KEY } from './supply-route';
 import { ProxyBoxBatch, proxyBoxDims, type ProxyBoxEntry } from './units/proxy-box';
 import {
   SILHOUETTE_COLOR_KEY_BY_SIDE,
@@ -490,6 +491,7 @@ import { kitLodIsFar, setKitDrawRange, setKitLod } from './units/vehicle-kit';
 import { SIDE_1_TEMPLATE_SUFFIX, templateKey, templateKitTiers } from './units/kit-template-key';
 import {
   loadBuildingMeshTemplate,
+  wallTreatmentOf,
   instantiateBuildingMesh,
   disposeBuildingMeshTemplate,
   buildingSettleScale,
@@ -988,6 +990,18 @@ export class ThreeRenderer implements Renderer {
    *  ring(s), per kind (`aimRingSpecs`), drawn in the overlay pass beside the
    *  refuge ring; `null` draws nothing. */
   aimFootprint: AimFootprint | null = null;
+  /** S-F F2 C3: see `Renderer.supplyRoutes`. Held by `supplyRoute`, which
+   *  rebuilds its one merged geometry on the next overlay pass when a NEW
+   *  array arrives (the same array again is a no-op) and disposes the old. */
+  get supplyRoutes(): readonly SupplyRouteView[] | null {
+    return this.supplyRoute.current;
+  }
+  set supplyRoutes(routes: readonly SupplyRouteView[] | null | undefined) {
+    this.supplyRoute.set(routes ?? null);
+  }
+  /** F4 (R3): see `Renderer.rallyMarks`. Drawn in the overlay pass beside
+   *  the order markers, in their look, held at full strength while set. */
+  rallyMarks: readonly RallyMarkView[] | null = null;
   objectiveZone: readonly number[] | null = null;
   objectiveZones?: readonly ObjectiveZoneView[];
   objectiveZoneState: 'held' | 'unheld' | 'contested' = 'held';
@@ -2275,6 +2289,9 @@ export class ThreeRenderer implements Renderer {
    *  fighting `endFrame`, which owns the mesh's own `visible`. */
   private readonly zoneBand = new ZoneBandBatch();
   private readonly zoneBandGroup = new THREE.Group();
+  /** S-F F2 C3: the world supply route (`supply-route.ts`), band 0.2, on
+   *  demand. Its group holds a mesh only while routes are drawn. */
+  private readonly supplyRoute = new SupplyRouteMesh();
   /** GH-279: the refuge ring's one slot (`pingRefuge`). Aged in `frame()`
    *  from the frame clock, drawn in `updateOverlays`. */
   private readonly refugePing = new GroundPing();
@@ -2792,6 +2809,7 @@ export class ThreeRenderer implements Renderer {
     this.zoneBandGroup.name = 'zone-band-layer';
     this.zoneBandGroup.add(this.zoneBand.mesh);
     this.scene.add(this.zoneBandGroup);
+    this.scene.add(this.supplyRoute.group);
     // The ground beyond the map (`./terrain/skirt.ts`), added once here and
     // never rebuilt -- it depends on the map's DIMENSIONS and on nothing
     // `rebuildTerrain` can change. It draws in the world band under the
@@ -3252,6 +3270,7 @@ export class ThreeRenderer implements Renderer {
     this.overlayBatch.dispose();
     this.garrisonBanners.dispose();
     this.zoneBand.dispose();
+    this.supplyRoute.dispose();
     this.numeralBatch.dispose();
     this.chevronBatch.dispose();
     // Task 10, and the one ownership rule the post chain states outright:
@@ -3821,6 +3840,11 @@ export class ThreeRenderer implements Renderer {
         // GH-471: a FLAG, `missiles`' shape -- `TunnelXray.update` rewrites
         // the figures' and the beam's `visible` every frame. Returns 4.
         return this.tunnelXray.setDebugHidden(!visible);
+      case 'supply-route':
+        // S-F F2 C3: the GROUP, never the mesh: `sync` adds and removes the
+        // mesh, and nothing per-frame writes the group's own `visible`.
+        // Returns 1.
+        return setObjectsVisible(visible, this.supplyRoute.group);
       case 'garrison-banner':
         // A FLAG, `missiles`' shape: `GarrisonBannerBatch.update` writes the
         // mesh's `visible` every frame. Returns 1, the one mesh.
@@ -5872,8 +5896,7 @@ export class ThreeRenderer implements Renderer {
   /** Whether structure `s` is the viewer's own: held by its side, or one its
    *  side produces from (VR-03: the player's own never fills enemy red). */
   private structureIsOwn(s: number, holder: number = this.structureHolder(s)): boolean {
-    const stype = this.sim.structureTypes[this.sim.structures.typeIdx[s]];
-    return (this.sim.structures.occupants[s] > 0 && isOwnSide(holder, this.viewer)) || isOwnSide(stype.producesFor, this.viewer);
+    return (this.sim.structures.occupants[s] > 0 && isOwnSide(holder, this.viewer)) || isOwnSide(this.sim.structureProducesFor(s), this.viewer);
   }
 
   /**
@@ -6013,6 +6036,9 @@ export class ThreeRenderer implements Renderer {
       this.sim.width,
       this.sim.height
     );
+    // S-F F2 C3: the route is draped on the drawn surface, so a new surface
+    // (a collapse turning a pad into hillside) re-drapes it next overlay pass.
+    this.supplyRoute.invalidate();
     // The selection ring's cached grids were conformed to the old ground.
     this.selectionRing.invalidate();
   }
@@ -6332,11 +6358,21 @@ export class ThreeRenderer implements Renderer {
         this.warmingTemplates.delete(key);
         if (this.disposed) return;
         // A template that cannot be decoded is a mesh that failed: drop it,
-        // and the type draws the failed-mesh proxy box like any other.
+        // and the type draws the failed-mesh proxy box like any other. What is
+        // dropped is disposed with it, as teardown and a reload do: a cold
+        // type is never instantiated (`updateMeshUnits`/`updateVehicleMeshes`
+        // skip it), so no clone shares these buffers and textures, and each
+        // side's template owns its own (a side-1 kit is a separate load).
         this.coldUnitTypes.delete(unitTypeId);
+        const droppedUnits = this.meshUnitTemplates.get(unitTypeId);
         this.meshUnitTemplates.delete(unitTypeId);
-        this.vehicleMeshTemplates.delete(unitTypeId);
-        this.vehicleMeshTemplates.delete(`${unitTypeId}${SIDE_1_TEMPLATE_SUFFIX}`);
+        if (droppedUnits) for (const template of droppedUnits) disposeMeshUnitTemplate(template);
+        for (const key of [unitTypeId, `${unitTypeId}${SIDE_1_TEMPLATE_SUFFIX}`]) {
+          const droppedVehicle = this.vehicleMeshTemplates.get(key);
+          if (!droppedVehicle) continue;
+          this.vehicleMeshTemplates.delete(key);
+          disposeVehicleMeshTemplate(droppedVehicle);
+        }
         this.noteMeshFailure(unitTypeId, '(texture decode)', err);
       }
     );
@@ -6541,7 +6577,9 @@ export class ThreeRenderer implements Renderer {
       idleUrl,
       wallColorKey,
       wallSurface,
-      allowTextured
+      allowTextured,
+      false,
+      wallTreatmentOf(structureType)
     );
     if (this.opts.maxTextureSize !== undefined) await capTextureSize(idleTemplate.root, this.opts.maxTextureSize);
     const previousIdle = this.buildingMeshIdleTemplates.get(structureId);
@@ -6635,7 +6673,9 @@ export class ThreeRenderer implements Renderer {
       TEXTURED_BUILDING_TYPES.has(structureId),
       // GH-469: a wreck is drawn only when one of these collapses, so its
       // textures stay encoded until the type is first hit (`warmWreck`).
-      true
+      true,
+      // The same concrete standing and fallen (#643).
+      wallTreatmentOf(structureType)
     );
     const previousWreck = this.buildingMeshWreckTemplates.get(structureId);
     if (previousWreck) {
@@ -10391,6 +10431,28 @@ export class ThreeRenderer implements Renderer {
       }
     }
 
+    // F4 rally points (the lead's R3, 18 Oct): the move order's own look,
+    // held rather than timed -- a solid route stroke from the camp exit and
+    // the order marker at full size at the point. No band of its own and no
+    // new art: the same `ORDER_GROUND_COLOR_KEY`, stroke width and marker
+    // geometry as the route and marker passes above. On demand only; the app
+    // writes `null` the rest of the time.
+    const rallies = this.rallyMarks;
+    if (rallies !== null && rallies.length > 0) {
+      const rallyColor = this.overlayColor(ORDER_GROUND_COLOR_KEY);
+      const rs = orderMarkerSize(1);
+      for (const r of rallies) {
+        const p0: [number, number, number] = [r.from.x, groundWorldY(elevation, width, height, r.from.x, r.from.y), r.from.y];
+        const p1: [number, number, number] = [r.to.x, groundWorldY(elevation, width, height, r.to.x, r.to.y), r.to.y];
+        this.overlayBatch.lineWorld(p0, p1, ROUTE_LINE_WIDTH_PX, rallyColor, ROUTE_LINE_ALPHA);
+        this.overlayBatch.rect(p1, -rs, -1, -4, 1, rallyColor, 1);
+        this.overlayBatch.rect(p1, 4, -1, rs, 1, rallyColor, 1);
+        this.overlayBatch.rect(p1, -1, -rs / 2, 1, -2, rallyColor, 1);
+        this.overlayBatch.rect(p1, -1, 2, 1, rs / 2, rallyColor, 1);
+        this.overlayBatch.ellipseRing(p1, rs + 4, (rs + 4) / 2, 1.5, rallyColor, 0.6);
+      }
+    }
+
     // Objective zone -- renderer.ts's own comment: "the ground the mission
     // is actually about. Without this the player is told to 'hold the
     // western approach' and has to guess where that is." `objectiveZone`/
@@ -10534,6 +10596,15 @@ export class ThreeRenderer implements Renderer {
       this.overlayBatch.rect(hAnchor, -14, -1.25, -2, 1.25, color, pulse);
       this.overlayBatch.triangle(hAnchor, [[-2, -5], [4, 0], [-2, 5]], color, pulse);
     }
+
+    // S-F F2 C3: the supply route, rebuilt only when the app handed over a
+    // new set (or the ground under it changed); its colours every frame, so
+    // a colour-vision switch reaches a route already drawn.
+    this.supplyRoute.setColors(
+      this.overlayColor(SUPPLY_ROUTE_OPEN_COLOR_KEY),
+      this.overlayColor(SUPPLY_ROUTE_CUT_COLOR_KEY)
+    );
+    this.supplyRoute.sync(width, (x, y) => groundWorldY(elevation, width, height, x, y));
 
     this.overlayBatch.endFrame();
     this.zoneBand.endFrame();

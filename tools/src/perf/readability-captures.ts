@@ -38,6 +38,7 @@ import { chromium, type Page } from 'playwright';
 import { PNG } from 'pngjs';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { CIVILIAN_COLOR_KEY, paletteColor } from '@lions/data';
 import { SILENT_AUDIO, musicOffInitScript } from '../ui-review/music-off';
 import { requireAttach } from '../ui-review/port';
 
@@ -68,7 +69,7 @@ const BUILDINGS = new Set('#=acfhkmsw'.split(''));
  *  separation `tools/src/cvd.test.ts` holds the team colours to. */
 const TEAM_HEX: string[] = (() => {
   const t = JSON.parse(readFileSync(`${resolve(import.meta.dirname, '../../..')}/data/palette.json`, 'utf8')).reserved.team.colors;
-  return [t.kedem, t.hostile, t.neutral];
+  return [t.kedem, t.hostile, paletteColor(CIVILIAN_COLOR_KEY)];
 })();
 const TEAM_DE = 25;
 const SCRUB = new Set('123on'.split(''));

@@ -10,7 +10,11 @@
 //   data/maps/**     against data/schemas/map.schema.json, plus grid
 //                    dimensions and marker/zone bounds
 //   data/tutorial/** against data/schemas/tutorial.schema.json
+//   data/doctrines/** against data/schemas/doctrine.schema.json, plus the
+//                    menu and budget rules in tools/validate_doctrine.mjs
 //   tools/fixtures/units/** against the unit schema (synthetic, but must parse)
+//   data/structures.json against data/schemas/structure.schema.json, and its
+//                    `color`/`wall_tone` keys against the palette
 //   data/palette.json structural sanity (32 locked colours)
 //   every vfx palette_ref resolves to a real palette key — raw hex is how
 //   one contributor quietly breaks the contrast rule for the whole game.
@@ -25,6 +29,9 @@ import { briefingFailures } from './validate_briefing.mjs';
 import { videoFailures } from './validate_video.mjs';
 import { timeLimitFailures } from './validate_time_limit.mjs';
 import { popCapFailures } from './validate_pop_cap.mjs';
+import { incomeFailures } from './validate_income.mjs';
+import { productionFailures } from './validate_production.mjs';
+import { doctrineFailures } from './validate_doctrine.mjs';
 import { garrisonStanceFailures, garrisonWeaponFailures } from './validate_garrison.mjs';
 import {
   commanderRankFailures,
@@ -165,12 +172,18 @@ const schemas = {
   names: loadJson(join(ROOT, 'data/schemas/names.schema.json')),
   diorama: loadJson(join(ROOT, 'data/schemas/diorama.schema.json')),
   hints: loadJson(join(ROOT, 'data/schemas/first_use_hints.schema.json')),
+  // data/structures.json had a schema and nothing that read it until #643
+  // (the T-wall's `wall_tone`/`wall_self_lit`), so every field it named
+  // was a comment.
+  structure: loadJson(join(ROOT, 'data/schemas/structure.schema.json')),
+  doctrine: loadJson(join(ROOT, 'data/schemas/doctrine.schema.json')),
 };
 
 let checked = 0;
 if (
   schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tutorial &&
-  schemas.world && schemas.countries && schemas.commander && schemas.names && schemas.diorama && schemas.hints
+  schemas.world && schemas.countries && schemas.commander && schemas.names && schemas.diorama && schemas.hints &&
+  schemas.structure && schemas.doctrine
 ) {
   const validators = {
     unit: ajv.compile(schemas.unit),
@@ -184,12 +197,15 @@ if (
     names: ajv.compile(schemas.names),
     diorama: ajv.compile(schemas.diorama),
     hints: ajv.compile(schemas.hints),
+    structure: ajv.compile(schemas.structure),
+    doctrine: ajv.compile(schemas.doctrine),
   };
   checked += validateDir(join(ROOT, 'data/units'), validators.unit, 'unit.schema');
   checked += validateDir(join(ROOT, 'data/missions'), validators.mission, 'mission.schema');
   checked += validateDir(join(ROOT, 'data/vfx'), validators.vfx, 'vfx_emitter.schema');
   checked += validateDir(join(ROOT, 'data/maps'), validators.map, 'map.schema');
   checked += validateDir(join(ROOT, 'data/tutorial'), validators.tutorial, 'tutorial.schema');
+  checked += validateDir(join(ROOT, 'data/doctrines'), validators.doctrine, 'doctrine.schema');
   checked += validateDir(join(ROOT, 'tools/fixtures/units'), validators.unit, 'unit.schema');
   // data/campaign is a mixed directory: world.json is hand-authored, countries.json
   // is generated geometry, commander.json is hand-authored. Each gets its own schema.
@@ -199,6 +215,7 @@ if (
   checked += validateFile(join(ROOT, 'data/campaign/names.json'), validators.names, 'names.schema');
   checked += validateFile(join(ROOT, 'data/front/menu_diorama.json'), validators.diorama, 'diorama.schema');
   checked += validateFile(join(ROOT, 'data/hints/first_use.json'), validators.hints, 'first_use_hints.schema');
+  checked += validateFile(join(ROOT, 'data/structures.json'), validators.structure, 'structure.schema');
 } else {
   failures.push('schema files missing or unparseable — cannot validate content');
 }
@@ -252,8 +269,10 @@ const garrisonableSymbols = new Set(
   }
   const unitIds = new Set();
   const unitsById = new Map();
+  const enemyUnitsById = new Map(); // data/units/enemy/ only (F4 Task 7: no mirrored tech trees)
   for (const file of jsonFilesIn(join(ROOT, 'data/units'))) {
     const u = loadJson(file);
+    if (u?.id && rel(file).startsWith('data/units/enemy/')) enemyUnitsById.set(u.id, u);
     if (u?.id) {
       unitIds.add(u.id);
       unitsById.set(u.id, u);
@@ -948,6 +967,10 @@ const garrisonableSymbols = new Set(
     failures.push(...timeLimitFailures(mi, rel(file)));
     // F3 (GH-183): the population cap is off in the campaign (lead, G3 Q4).
     failures.push(...popCapFailures(mi, rel(file)));
+    // F2 (GH-183): income zones and the convoy entry resolve against this mission's map.
+    failures.push(...incomeFailures(mi, map, rel(file)));
+    // F4 (GH-183): the enemy camp, its menu and the per-side production bound.
+    failures.push(...productionFailures(mi, map, structureCatalogue, enemyUnitsById, rel(file)));
     // B2: a garrison stance on a unit without the ability is silently refused at runtime.
     failures.push(...garrisonStanceFailures(mi, unitsById, rel(file)));
   }
@@ -1221,6 +1244,20 @@ const garrisonableSymbols = new Set(
   }
 }
 
+// --- skirmish doctrines (N3 prep, LD2/LD3) ------------------------------------
+// A menu id is a unit of the doctrine's own side, no menu builds loiter_drone, and
+// Sarim starts with 1.6x the KDF's purse (G3 Q7). The menu-equals-VERSUS_SARIM
+// cross-check needs app code: tools/src/validate_doctrine.test.ts.
+{
+  const doctrineUnits = new Map();
+  for (const file of jsonFilesIn(join(ROOT, 'data/units'))) {
+    const u = loadJson(file);
+    if (u?.id) doctrineUnits.set(u.id, u);
+  }
+  const doctrines = jsonFilesIn(join(ROOT, 'data/doctrines')).map((file) => ({ file: rel(file), doc: loadJson(file) }));
+  failures.push(...doctrineFailures(doctrines, doctrineUnits));
+}
+
 // --- map grid + bounds checks (beyond what JSON Schema can express) ---------
 //
 // Map symbols used to be listed in map.schema.json's row pattern, which meant the
@@ -1359,6 +1396,22 @@ if (palette) {
     for (const { ref, path } of refs) {
       if (!paletteKeys.has(ref)) {
         failures.push(`${rel(file)}: ${path} references unknown palette key "${ref}"`);
+      }
+    }
+  }
+}
+
+// --- structure palette keys --------------------------------------------------
+// A structure's `color` and `wall_tone` are palette keys, and a ramp key must
+// name a step that exists: `wall_tone` is drawn EXACTLY (#643), so
+// "gunmetal.4" would be a renderer throw at mission load, not a fallback.
+if (palette && structureCatalogue) {
+  const structuresPath = join(ROOT, 'data/structures.json');
+  for (const [id, spec] of Object.entries(structureCatalogue.types ?? {})) {
+    for (const field of ['color', 'wall_tone']) {
+      const key = spec[field];
+      if (key !== undefined && !paletteKeys.has(key)) {
+        failures.push(`${rel(structuresPath)}: ${id}.${field} names unknown palette key "${key}"`);
       }
     }
   }

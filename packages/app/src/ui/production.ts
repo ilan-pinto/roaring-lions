@@ -17,14 +17,27 @@
 // action is a callback `main.ts` supplied — see the note on `onArm` for why
 // that indirection is load-bearing and not ceremony.
 
-import type { LedgerData } from '@lions/sim';
+import type { Command, Fx, LedgerData } from '@lions/sim';
 import { t } from '../i18n/t';
 import type { Disposer } from '../shell/router';
 import { escapeHtml } from './escape-html';
 import { roleBadgeSvg } from './role';
 import { symbolSvg } from './symbol';
 import { bindTip } from './tooltip';
-import { tileState, type DockUnit, type DockView } from './dock-model';
+import {
+  buildLine,
+  LINE_QUEUE_CHIPS,
+  lineView,
+  linesShown,
+  rallyMarks as rallyMarksFor,
+  RALLY_FLASH_MS,
+  tileState,
+  type DockUnit,
+  type DockView,
+  type LineSnapshot,
+  type LineView,
+  type RallyMark,
+} from './dock-model';
 import { kitIconSignHtml, kitLevelLabel } from './kit-sign';
 import type { Tone } from './hud';
 import { SUPPORT, SUPPORT_KINDS, type SupportKind } from './support-kinds';
@@ -42,7 +55,17 @@ export interface ProductionRuntime extends DockView {
   readonly intel: number;
   /** MissionRuntime's own method: what one call costs in intel. */
   supportCost(kind: SupportKind): number;
-  requestBuild(unitId: string): boolean;
+  /** MissionRuntime's click-time pre-check: would `requestBuild` accept now?
+   *  (N2, D3.) The dock never spends: an accepted purchase is a `build`
+   *  command, which the runtime re-checks and spends before the next tick. */
+  canBuild(unitId: string, line?: number): boolean;
+  /** F4: each production line of a side -- one per camp, in the order every
+   *  `line` a command carries indexes. Optional so a view that predates F4
+   *  reads as no lines (today's dock, no rows). */
+  productionLines?(side: 0 | 1): readonly (LineSnapshot & { readonly anchor: number })[];
+  /** F4: would `setRally(line, x, y)` accept now? Read-only; the armed
+   *  cursor and the click's pre-check share it. */
+  canSetRally?(line: number, x: Fx, y: Fx): boolean;
 }
 
 export interface ProductionOptions {
@@ -51,9 +74,13 @@ export interface ProductionOptions {
   note(html: string, tone?: Tone): void;
   /** Arming is owned by the input layer — it decides what the next click means. */
   onArm(kind: SupportKind | null): void;
+  /** Where an accepted purchase goes: the order sink, so it travels the frame path (N2). */
+  dispatch(cmd: Command): void;
   /** Telemetry's count of bought units; never reaches the sim. Called exactly
-   *  once per click that the runtime actually accepted -- never for a locked
-   *  tile (no `requestBuild` call at all) and never for one it refused. */
+   *  once per click the runtime's pre-check (`canBuild`) accepted -- never for
+   *  a locked tile and never for one it refused. Two clicks in one frame that
+   *  the purse covers once are both counted: the pre-check cannot see the
+   *  first, unspent (D3's known gap). */
   onBought?: (unitId: string) => void;
   /** The campaign ledger, for `tileState`'s `gateSentence` recompute. Absent
    *  reads as an empty ledger -- every gate still closed, none open early. */
@@ -100,6 +127,10 @@ export interface ProductionOptions {
   /** The bound key's label for a call, for the tooltip's last line (Task 3
    *  wires it). Absent prints nothing. */
   hotkeyLabel?: (kind: SupportKind) => string | undefined;
+  /** F4: Set rally is armed for `line`, or nothing is (`null`). Owned by the
+   *  input layer like `onArm`: it decides what the next click on the map
+   *  means, and arming a rally disarms a support call or an order. */
+  onArmRally?: (line: number | null) => void;
 }
 
 /* The fire-support calls the dock draws are `support-kinds.ts`'s
@@ -130,6 +161,28 @@ interface UnitTile {
   /** The "deploying" chip -- see `ProductionOptions.meshPending`. */
   deploying: HTMLElement;
 }
+
+/** One camp's row (F4, direction B). Built once per line and repainted. */
+interface LineRow {
+  index: number;
+  root: HTMLDivElement;
+  pin: HTMLButtonElement;
+  camp: HTMLElement;
+  current: HTMLButtonElement;
+  currentArt: HTMLElement;
+  currentLeft: HTMLElement;
+  currentBar: HTMLElement;
+  chips: HTMLButtonElement[];
+  more: HTMLElement;
+  state: HTMLElement;
+  rally: HTMLButtonElement;
+  clear: HTMLButtonElement;
+  /** What the row last drew, for the tips, the clicks and the cancel note. */
+  view: LineView | null;
+}
+
+/** The queue chips' art. 1.375rem in theme.css; this is the attribute fallback. */
+const CHIP_BADGE = 14;
 
 interface SupportTile {
   el: HTMLButtonElement;
@@ -163,6 +216,20 @@ export class ReinforcementDock {
    *  rewrites the DOM only when a number moved. */
   private readonly pop: HTMLElement;
   private popShown = '';
+  /** F4: the camps' rows, above the grid; hidden while `linesShown` is false,
+   *  which keeps a one-camp idle mission's dock exactly as it was. */
+  private readonly linesEl: HTMLDivElement;
+  private readonly hintEl: HTMLDivElement;
+  private readonly rows: LineRow[] = [];
+  /** The runtime's lines as last read (`refresh`), side 0's. */
+  private lines: readonly (LineSnapshot & { readonly anchor: number })[] = [];
+  /** The pinned row: tiles build on its line. Null = the runtime's shortest
+   *  queue, which is the default (the lead's ruling). */
+  private pinned: number | null = null;
+  private hovered: number | null = null;
+  private armedRally: number | null = null;
+  /** Frame-clock ms until which a newly set rally stays drawn, per line. */
+  private readonly rallyFlash = new Map<number, number>();
 
   constructor(
     host: HTMLElement,
@@ -224,7 +291,16 @@ export class ReinforcementDock {
       grid.appendChild(this.buildSupportTile(kind, opts.runtime.supportCost(kind)));
     }
 
-    this.el.append(head, grid);
+    // F4: the camps' rows sit between the header and the grid, held to the
+    // grid's width (theme.css: they contribute no width of their own).
+    this.linesEl = document.createElement('div');
+    this.linesEl.className = 'rl-dock__lines';
+    this.linesEl.hidden = true;
+    this.hintEl = document.createElement('div');
+    this.hintEl.className = 'rl-dock__hint';
+    this.linesEl.appendChild(this.hintEl);
+
+    this.el.append(head, this.linesEl, grid);
     host.appendChild(this.el);
     this.refresh();
   }
@@ -348,16 +424,27 @@ export class ReinforcementDock {
         this.opts.onDeny?.();
         return;
       }
-      if (this.opts.runtime.requestBuild(unit.id)) {
+      // N2, D3 (lead, 16 Oct: "check, then send"): a read-only pre-check, then
+      // a `build` command down the frame path. The runtime re-checks and
+      // spends before the next tick (`applyQueued`).
+      // F4: a pinned row names its line; otherwise `line` is omitted and the
+      // runtime picks the shortest queue (its own default, the lead's ruling).
+      const line = buildLine(this.pinned, this.lines);
+      if (this.opts.runtime.canBuild(unit.id, line)) {
+        this.opts.dispatch(
+          line === undefined ? { kind: 'build', side: 0, unit: unit.id } : { kind: 'build', side: 0, unit: unit.id, line }
+        );
         this.bought.add(unit.id);
         this.opts.onBought?.(unit.id);
-        this.opts.note(t('dock.note.building', { name }), 'info');
+        this.opts.note(t('dock.note.building', { name, ...this.deployWhere(line) }), 'info');
       } else {
         this.opts.note(t('dock.note.cannotBuild', { name }), 'mute');
         this.opts.onDeny?.();
       }
       el.blur(); // keep the keyboard on the battlefield
-      this.refresh(); // the bar starts now, not at the next 4 Hz beat
+      // Repaints the tile now; the new bar itself lands on the next tick, when
+      // the command has run (`main.ts` refreshes the dock on a tick that ran one).
+      this.refresh();
     });
     // `clear: this.el` -- GH-229: vertical placement clears the whole dock,
     // not just this tile's own row, so a tip opened on row 2+ cannot land on
@@ -495,6 +582,13 @@ export class ReinforcementDock {
    *  campaign-locked; falls back to the first tile of all when nothing is
    *  affordable, because focusing nothing would read as a dead key. */
   focusFirst(): boolean {
+    // F4: a pinned camp is where the keyboard player is building, so `B`
+    // lands on its row; unpinned, the first open tile as before.
+    const pinnedRow = this.pinned === null || this.linesEl.hidden ? undefined : this.rows[this.pinned];
+    if (pinnedRow !== undefined) {
+      pinnedRow.pin.focus();
+      return true;
+    }
     if (this.unitTiles.length === 0) return false;
     // Not named `t`: this file imports the catalogue's own `t()`.
     const open = this.unitTiles.find(
@@ -547,6 +641,7 @@ export class ReinforcementDock {
       tile.el.setAttribute('aria-label', kit === 0 ? title : `${title}, ${kitLevelLabel(kit)}`);
     }
     this.paintPopulation();
+    this.paintLines();
     const now = performance.now();
     for (const tile of this.supportTiles) {
       const poor = rt.intel < tile.cost;
@@ -560,6 +655,332 @@ export class ReinforcementDock {
       if (charge !== undefined) tile.el.setAttribute('aria-label', charge.title);
       tile.el.dataset.readyFlash = now < tile.flashUntil ? '1' : '0';
     }
+  }
+
+  // ------------------------------------------------------------------
+  // F4: the camps' rows (direction B).
+  // ------------------------------------------------------------------
+
+  /** "Camp 1", by line index. No authored name (the lead's ruling). */
+  private campName(index: number): string {
+    return t('dock.camp', { n: index + 1 });
+  }
+
+  /** Where a build just sent will deploy, as `dock.note.building`'s params. */
+  private deployWhere(line: number | undefined): { where: string; camp: string } {
+    if (line !== undefined) return { where: 'camp', camp: this.campName(line) };
+    if (this.lines.length > 1) return { where: 'shortest', camp: '' };
+    const only = this.lines[0];
+    if (only !== undefined && only.anchor >= 0) return { where: 'camp', camp: this.campName(0) };
+    return { where: 'start', camp: '' };
+  }
+
+  private unitOf(id: string): BuildableUnit | undefined {
+    return this.opts.units.find((u) => u.id === id);
+  }
+
+  /** A queued or in-progress item's art: the tile's own portrait, or its role
+   *  mark on the hatch, the same degradation the tile makes. */
+  private paintArt(el: HTMLElement, unitId: string): void {
+    // `data-art`, not `data-unit`: `[data-unit]` is the tile's own selector.
+    if (el.dataset.art === unitId) return;
+    el.dataset.art = unitId;
+    const unit = this.unitOf(unitId);
+    if (unit === undefined || unit.sprite === null) {
+      el.dataset.nosprite = '1';
+      el.style.backgroundImage = '';
+      el.innerHTML = roleBadgeSvg(unit?.bucket ?? 'soft', CHIP_BADGE);
+    } else {
+      el.dataset.nosprite = '0';
+      el.innerHTML = '';
+      el.style.backgroundImage = `url("${unit.sprite}")`;
+    }
+  }
+
+  private buildRow(index: number): LineRow {
+    const root = document.createElement('div');
+    root.className = 'rl-line';
+    root.dataset.line = String(index);
+
+    // The pin is the row's own face: a button under the whole row (theme.css),
+    // so a click anywhere that is not a chip or a rally button pins it.
+    const pin = document.createElement('button');
+    pin.type = 'button';
+    pin.className = 'rl-line__pin';
+    pin.setAttribute('aria-pressed', 'false');
+    pin.addEventListener('click', () => {
+      const line = this.lines[index];
+      if (line === undefined || !line.alive) {
+        this.opts.onDeny?.();
+        return;
+      }
+      this.pinned = this.pinned === index ? null : index;
+      this.paintLines();
+    });
+
+    const camp = document.createElement('span');
+    camp.className = 'rl-label rl-line__camp';
+
+    const current = document.createElement('button');
+    current.type = 'button';
+    current.className = 'rl-line__item';
+    const currentArt = document.createElement('span');
+    currentArt.className = 'rl-line__art';
+    const currentLeft = document.createElement('span');
+    currentLeft.className = 'rl-line__left';
+    const currentBar = document.createElement('i');
+    currentBar.className = 'rl-line__bar';
+    current.append(currentArt, currentLeft, currentBar);
+    current.addEventListener('click', () => this.cancel(index, -1));
+
+    const chips: HTMLButtonElement[] = [];
+    const chipsEl = document.createElement('span');
+    chipsEl.className = 'rl-line__queue';
+    for (let k = 0; k < LINE_QUEUE_CHIPS; k++) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'rl-line__chip';
+      const art = document.createElement('span');
+      art.className = 'rl-line__art';
+      chip.appendChild(art);
+      chip.addEventListener('click', () => this.cancel(index, k));
+      this.tipDisposers.push(bindTip(chip, () => this.cancelTip(index, k), { host: this.el }));
+      chips.push(chip);
+      chipsEl.appendChild(chip);
+    }
+    const more = document.createElement('span');
+    more.className = 'rl-line__more';
+    chipsEl.appendChild(more);
+
+    const state = document.createElement('span');
+    state.className = 'rl-line__state';
+
+    const rally = document.createElement('button');
+    rally.type = 'button';
+    rally.className = 'rl-btn rl-line__rally';
+    rally.dataset.armed = '0';
+    rally.textContent = t('dock.rally.set');
+    rally.addEventListener('click', () => {
+      this.pressRally(index);
+      rally.blur();
+    });
+    this.tipDisposers.push(bindTip(rally, () => this.rallyTip(index), { host: this.el }));
+
+    const clear = document.createElement('button');
+    clear.type = 'button';
+    clear.className = 'rl-btn rl-line__clear';
+    clear.textContent = t('dock.rally.clearShort');
+    clear.addEventListener('click', () => {
+      if (this.lines[index]?.rally == null) return;
+      this.opts.dispatch({ kind: 'clearRally', side: 0, line: index });
+      this.opts.note(t('dock.note.rallyCleared', { camp: this.campName(index) }), 'info');
+      if (this.armedRally === index) this.setRallyArmed(null);
+      clear.blur();
+    });
+    this.tipDisposers.push(bindTip(clear, () => escapeHtml(t('dock.rally.clear')), { host: this.el }));
+
+    root.append(pin, camp, current, chipsEl, state, rally, clear);
+    // What makes this line's rally show in the world (the lead's R3): the row
+    // hovered or holding focus, beside pinned and armed.
+    root.addEventListener('pointerenter', () => {
+      this.hovered = index;
+    });
+    root.addEventListener('pointerleave', () => {
+      if (this.hovered === index) this.hovered = null;
+    });
+    this.tipDisposers.push(bindTip(pin, () => this.rowTip(index), { host: this.el, clear: this.el }));
+
+    const row: LineRow = { index, root, pin, camp, current, currentArt, currentLeft, currentBar, chips, more, state, rally, clear, view: null };
+    this.linesEl.insertBefore(root, this.hintEl);
+    return row;
+  }
+
+  /** Cancel a line's item (index -1 = the one in progress) through the frame
+   *  path; the runtime refunds when it runs the command. */
+  private cancel(line: number, index: number): void {
+    const view = this.rows[line]?.view ?? null;
+    const unitId = index < 0 ? view?.current?.unit : view?.chips[index]?.unit;
+    if (unitId === undefined) return;
+    const unit = this.unitOf(unitId);
+    this.opts.dispatch({ kind: 'cancelBuild', side: 0, line, index });
+    this.opts.note(
+      t('dock.note.cancelBuild', { name: escapeHtml(unit?.name ?? unitId), n: unit?.logistics ?? 0, camp: this.campName(line) }),
+      'info'
+    );
+  }
+
+  private cancelTip(line: number, index: number): string {
+    const view = this.rows[line]?.view ?? null;
+    const unitId = index < 0 ? view?.current?.unit : view?.chips[index]?.unit;
+    if (unitId === undefined) return '';
+    const unit = this.unitOf(unitId);
+    return escapeHtml(t('dock.cancel.tip', { name: unit?.name ?? unitId, n: unit?.logistics ?? 0 }));
+  }
+
+  /** The row's whole story, for its tip and its accessible name: the state
+   *  in a sentence (the paused cause in full), the rally, and the pin. */
+  private rowSentences(index: number): string[] {
+    const line = this.lines[index];
+    const view = this.rows[index]?.view ?? null;
+    if (line === undefined || view === null) return [];
+    const camp = this.campName(index);
+    const out: string[] = [];
+    if (view.state === 'lost') {
+      out.push(t('dock.line.tipLost', { camp }));
+      return out;
+    }
+    if (view.state === 'paused') out.push(t('dock.line.tipPaused', { camp }));
+    else if (view.current !== null) {
+      const name = this.unitOf(view.current.unit)?.name ?? view.current.unit;
+      out.push(t('dock.line.tipBuilding', { camp, name, secs: view.current.secs }));
+    } else out.push(t('dock.line.tipIdle', { camp }));
+    const queued = view.chips.length + view.more;
+    if (queued > 0) out.push(t('dock.line.tipQueued', { n: queued }));
+    out.push(t(view.hasRally ? 'dock.rally.on' : 'dock.rally.none'));
+    out.push(t(this.pinned === index ? 'dock.line.tipPinned' : 'dock.line.tipPin', { camp }));
+    return out;
+  }
+
+  private rowTip(index: number): string {
+    return this.rowSentences(index)
+      .map((line, i) => `<div class="${i === 0 ? 'rl-tip__head' : 'rl-tip__blurb'}">${escapeHtml(line)}</div>`)
+      .join('');
+  }
+
+  private rallyTip(index: number): string {
+    const line = this.lines[index];
+    const words = t(line?.rally != null ? 'dock.rally.on' : 'dock.rally.none');
+    return `<div class="rl-tip__head">${escapeHtml(t('dock.rally.set'))}</div><div class="rl-tip__blurb">${escapeHtml(words)}</div>`;
+  }
+
+  /** Set rally's click: arm it for this line, or disarm it if it already is. */
+  pressRally(index: number): void {
+    const line = this.lines[index];
+    if (line === undefined || !line.alive) {
+      this.opts.onDeny?.();
+      return;
+    }
+    if (this.armedRally === index) {
+      this.setRallyArmed(null);
+      this.opts.note(t('dock.note.rallyCancelled'), 'info');
+      return;
+    }
+    this.setRallyArmed(index);
+    this.opts.note(t('dock.note.rallyArmed', { camp: this.campName(index) }), 'info');
+  }
+
+  /** The armed rally, or null. Cleared by the input layer once a point is set,
+   *  and on Escape or a right-click; arming support or an order clears it too. */
+  setRallyArmed(line: number | null): void {
+    const changed = this.armedRally !== line;
+    this.armedRally = line;
+    for (const row of this.rows) {
+      row.rally.dataset.armed = row.index === line ? '1' : '0';
+      row.rally.setAttribute('aria-pressed', row.index === line ? 'true' : 'false');
+    }
+    if (changed) this.opts.onArmRally?.(line);
+  }
+
+  get rallyArmed(): number | null {
+    return this.armedRally;
+  }
+
+  /** A rally was just set on `line`: draw it for a few seconds. */
+  flashRally(line: number, nowMs: number): void {
+    this.rallyFlash.set(line, nowMs + RALLY_FLASH_MS);
+  }
+
+  /** The rally marks to draw this frame, for the renderer's `rallyMarks`
+   *  seam -- or null when there are none, so the seam stays null by default. */
+  rallyMarks(nowMs: number): RallyMark[] | null {
+    if (this.lines.length === 0) return null;
+    // Focus is READ, not tracked: a focused chip that a repaint hides fires no
+    // reliable `focusout`, and a tracked index would then draw that rally
+    // for ever (review finding 1).
+    const active = typeof document === 'undefined' ? null : document.activeElement;
+    const focusedRow = active === null ? undefined : this.rows.find((r) => !r.root.hidden && r.root.contains(active));
+    const marks = rallyMarksFor(
+      this.lines,
+      { pinned: this.pinned, hovered: this.hovered, focused: focusedRow?.index ?? null, armed: this.armedRally, flashUntil: this.rallyFlash },
+      nowMs
+    );
+    return marks.length === 0 ? null : marks;
+  }
+
+  /** Can a rally for `line` stand at this point (Q16.16)? For the armed cursor. */
+  canRallyAt(line: number, x: Fx, y: Fx): boolean {
+    return this.opts.runtime.canSetRally?.(line, x, y) ?? false;
+  }
+
+  private paintLines(): void {
+    const lines = this.opts.runtime.productionLines?.(0) ?? [];
+    this.lines = lines;
+    const shown = linesShown(lines);
+    this.linesEl.hidden = !shown;
+    if (this.armedRally !== null && lines[this.armedRally]?.alive !== true) this.setRallyArmed(null);
+    if (!shown) {
+      this.hovered = null;
+      // Pinning one camp of one, then the queue running dry, must not leave a
+      // pin the player cannot see sending every build to that line.
+      this.pinned = null;
+      return;
+    }
+    while (this.rows.length < lines.length) this.rows.push(this.buildRow(this.rows.length));
+    // A pin on a fallen camp is dropped (and `buildLine` would ignore it anyway).
+    if (this.pinned !== null && lines[this.pinned]?.alive !== true) this.pinned = null;
+    for (const row of this.rows) {
+      const line = lines[row.index];
+      row.root.hidden = line === undefined;
+      if (line === undefined) continue;
+      const view = lineView(line, row.index);
+      row.view = view;
+      row.root.dataset.state = view.state;
+      row.camp.textContent = this.campName(row.index);
+      row.pin.setAttribute('aria-pressed', this.pinned === row.index ? 'true' : 'false');
+      row.pin.setAttribute('aria-label', this.rowSentences(row.index).join(' '));
+
+      row.current.hidden = view.current === null;
+      if (view.current !== null) {
+        this.paintArt(row.currentArt, view.current.unit);
+        row.current.dataset.paused = view.state === 'paused' ? '1' : '0';
+        row.currentLeft.textContent = `${view.current.secs}s`;
+        row.currentBar.style.width = `${view.current.percent.toFixed(1)}%`;
+        const unit = this.unitOf(view.current.unit);
+        row.current.setAttribute('aria-label', t('dock.cancel.tip', { name: unit?.name ?? view.current.unit, n: unit?.logistics ?? 0 }));
+      }
+      row.chips.forEach((chip, k) => {
+        const item = view.chips[k];
+        chip.hidden = item === undefined;
+        if (item === undefined) return;
+        this.paintArt(chip.firstElementChild as HTMLElement, item.unit);
+        const unit = this.unitOf(item.unit);
+        chip.setAttribute('aria-label', t('dock.cancel.tip', { name: unit?.name ?? item.unit, n: unit?.logistics ?? 0 }));
+      });
+      row.more.textContent = view.more > 0 ? t('dock.line.more', { n: view.more }) : '';
+      row.more.hidden = view.more === 0;
+
+      // The state word: never colour alone -- the pause carries its glyph and
+      // its word, and the cause is the row's tip.
+      if (view.state === 'paused') {
+        row.state.className = 'rl-line__state rl-warn';
+        row.state.innerHTML = `${symbolSvg('pause', 10)} ${escapeHtml(t('dock.line.paused'))}`;
+      } else if (view.state === 'idle' || view.state === 'lost') {
+        row.state.className = 'rl-line__state rl-dim';
+        row.state.textContent = t(view.state === 'idle' ? 'dock.line.idle' : 'dock.line.lost');
+      } else {
+        row.state.className = 'rl-line__state';
+        row.state.textContent = '';
+      }
+
+      row.rally.disabled = !line.alive;
+      row.rally.dataset.armed = this.armedRally === row.index ? '1' : '0';
+      row.rally.setAttribute('aria-pressed', this.armedRally === row.index ? 'true' : 'false');
+      row.rally.setAttribute('aria-label', t('dock.rally.setFor', { camp: this.campName(row.index) }));
+      row.clear.setAttribute('aria-label', t('dock.rally.clearFor', { camp: this.campName(row.index) }));
+      row.clear.hidden = line.rally === null;
+    }
+    this.hintEl.textContent =
+      this.pinned === null ? t('dock.hint.shortest') : t('dock.hint.pinned', { camp: this.campName(this.pinned) });
   }
 
   /** The header readout: `used/cap population` while the mission is capped,

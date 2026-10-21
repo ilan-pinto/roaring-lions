@@ -252,7 +252,16 @@ describe('describeCommand', () => {
   it('words each order through the catalogue', () => {
     expect(describeCommand(move([1]))).toBe('Move 1 unit to (24, 31)');
     expect(describeCommand({ kind: 'attackMove', ids: [1, 2], x: 3 * ONE, y: 4 * ONE })).toBe('Attack-move 2 units to (3, 4)');
+    expect(describeCommand({ kind: 'setStance', ids: [1, 2], stance: 'ambush' })).toBe('Set an ambush with 2 units');
+    expect(describeCommand({ kind: 'setStance', ids: [1, 2], stance: 'hold' })).toBe('Hold 2 units where they stand');
     expect(describeCommand({ kind: 'halt', ids: [1, 2] })).toBe('Halt 2 units');
     expect(describeCommand({ kind: 'attack', ids: [1], target: 9 })).toBe('Fire on an enemy with 1 unit');
+    expect(describeCommand({ kind: 'build', side: 0, unit: 'inf_squad' })).toBe('Build inf_squad');
+    expect(describeCommand({ kind: 'support', side: 0, support: 'drone_sweep', x: 2 * ONE, y: 3 * ONE })).toBe('Call drone_sweep on (2, 3)');
+    expect(describeCommand({ kind: 'build', side: 0, unit: 'inf_squad', line: 1 })).toBe('Build inf_squad');
+    expect(describeCommand({ kind: 'cancelBuild', side: 0, line: 0, index: -1 })).toBe('Cancel the item in progress on line 0');
+    expect(describeCommand({ kind: 'cancelBuild', side: 0, line: 0, index: 2 })).toBe('Cancel line 0, item 2');
+    expect(describeCommand({ kind: 'setRally', side: 0, line: 0, x: 2 * ONE, y: 3 * ONE })).toBe('Rally line 0 at (2, 3)');
+    expect(describeCommand({ kind: 'clearRally', side: 0, line: 0 })).toBe('Clear rally on line 0');
   });
 });

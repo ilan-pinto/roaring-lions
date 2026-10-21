@@ -420,6 +420,19 @@ export interface TerrainSink {
 }
 
 /**
+ * The road mask the mission runtime routes supply convoys along (F2, D5): 1 where the parsed
+ * map's decor is `DECOR.road`, 0 elsewhere, row-major, a fresh array. It reaches the sim as
+ * `MissionContext.roadMask` (the sim imports nothing, so it cannot read `decor` itself), and
+ * every caller that builds a mission runtime fills it from here, so the game and the harnesses
+ * route the same convoys (C-R4).
+ */
+export function roadMaskOf(map: ParsedMap): Uint8Array {
+  const mask = new Uint8Array(map.width * map.height);
+  for (let t = 0; t < mask.length; t++) if (map.decor[t] === DECOR.road) mask[t] = 1;
+  return mask;
+}
+
+/**
  * Hand a parsed map's mechanical layer to a sim.
  *
  * This existed three times before it existed once: main.ts, walk_world.ts and

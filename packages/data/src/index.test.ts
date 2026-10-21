@@ -50,15 +50,15 @@ describe('paletteTeamColors', () => {
     expect(paletteTeamColors('default')).toEqual([
       paletteColor('team.kedem'),
       paletteColor('team.hostile'),
-      paletteColor('team.neutral'),
+      paletteColor('limestone.0'), // VR-04: the civilian slot, not the warning yellow
     ]);
   });
 
   it('deuteranopia returns the variant triple, distinct from default', () => {
-    const [kedem, hostile, neutral] = paletteTeamColors('deuteranopia');
+    const [kedem, hostile, civilian] = paletteTeamColors('deuteranopia');
     expect(kedem).toBe('#0072B2');
     expect(hostile).toBe('#D55E00');
-    expect(neutral).toBe('#F0E442');
+    expect(civilian).toBe(paletteColor('limestone.0')); // the same pale in every variant (VR-04)
   });
 });
 

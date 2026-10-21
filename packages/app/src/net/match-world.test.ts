@@ -28,6 +28,10 @@ describe('buildMatchWorld', () => {
       expect(w.sim.hash()).toBe(pin);
     }
   });
+  it('N2: a versus world holds both seats (seatRules), so neither side auto-breaches', () => {
+    const w = buildMatchWorld(config('wadi_tarfan', ['kdf', 'kdf']));
+    expect([w.sim.isHumanHeld(0), w.sim.isHumanHeld(1), w.sim.isHumanHeld(2)]).toEqual([true, true, false]);
+  });
   it('is a function of the config alone: two builds agree, a different seed differs', () => {
     const a = buildMatchWorld(config('wadi_tarfan', ['kdf', 'sarim']));
     const b = buildMatchWorld(config('wadi_tarfan', ['kdf', 'sarim']));

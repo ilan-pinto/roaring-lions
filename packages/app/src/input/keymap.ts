@@ -285,9 +285,12 @@ export function escapeTarget(
  */
 export function anyArmed(
   armedOrder: 'attackMove' | 'move' | 'smoke' | null,
-  armedSupport: SupportKind | null
+  armedSupport: SupportKind | null,
+  armedRally: number | null
 ): boolean {
-  return armedOrder !== null || armedSupport !== null;
+  // F4: Set rally armed on a camp's row is the fourth source -- Escape
+  // disarms it like the others.
+  return armedOrder !== null || armedSupport !== null || armedRally !== null;
 }
 
 /**

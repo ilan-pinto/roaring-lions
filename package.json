@@ -1,6 +1,6 @@
 {
   "name": "roaring-lions",
-  "version": "0.125.0",
+  "version": "0.125.9",
   "private": true,
   "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
@@ -32,6 +32,7 @@
     "wreck:meshes": "pnpm --filter @lions/tools wreck:meshes",
     "damage:meshes": "pnpm --filter @lions/tools damage:meshes",
     "kit:meshes": "pnpm --filter @lions/tools kit:meshes",
+    "rescale:meshes": "pnpm --filter @lions/tools rescale:meshes",
     "running-gear:meshes": "pnpm --filter @lions/tools running-gear:meshes",
     "ui:shots": "pnpm --filter @lions/tools ui:shots",
     "ui:routes": "pnpm --filter @lions/tools ui:routes",

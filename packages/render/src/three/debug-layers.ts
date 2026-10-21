@@ -278,6 +278,15 @@
  *                 `tools/src/perf/garrison-banner-captures.ts` exercises it
  *                 against a scene that has held buildings in it.
  *
+ * ONE MORE FOR THE WORLD SUPPLY ROUTE (S-F F2 C3):
+ * - `supply-route` side 0's supply routes in the world (`../supply-route.ts`),
+ *                 one merged mesh, drawn only on demand. The GROUP, a plain
+ *                 `visible` write: `sync` adds and removes the mesh inside
+ *                 it and nothing per-frame writes the group's own flag.
+ *                 Returns 1. No `layerChecks` entry: no gated scenario has a
+ *                 supply corridor, and none shows the route, which the app
+ *                 writes only while the logistics figure is hovered.
+ *
  * ONE MORE FOR KITTED VEHICLES (GH-238, plan 3):
  * - `kit`         the bought kit merged into each mesh vehicle's host
  *                 geometry at load (`units/vehicle-kit.ts`). Host first, kit
@@ -344,6 +353,7 @@ export const DEBUG_LAYERS = [
   'tunnel-xray',
   'running-gear',
   'garrison-banner',
+  'supply-route',
   'slope-light',
   'height-contours',
   'crown',

@@ -165,9 +165,15 @@ and the contact arrays are sized `2 × capacity` (sim.ts:1256-1263). A
 KDF v KDF match registers the KDF catalogue and spawns it on side 1 for the
 second seat. The rules that hard-code "side 0 is the player" today (no
 auto-breach in `Sim.selectBreachTarget`; ROE, production anchor, fire
-support, `unitLost` in mission.ts) become seat or faction rules in N2 (§7.1).
-A versus room runs no `MissionRuntime` until N3 (L1, §11b.4), so of these
-only the breach rule acts in a match today.
+support, `unitLost` in mission.ts) become seat or faction rules (§7.1).
+**As built (N2, 16 Oct 2026):** the breach rule is the one that moved. It
+asks `Sim.isHumanHeld(side)` (`SimConfig.humanHeld`, default `[true, false]`,
+today's rule; `963d6613`, `810ca26c`), and a versus room holds both seats
+(`[true, true]`, `3689dd9f`), so neither auto-breaches. The mission.ts
+sites (`unitLost`, ROE, production anchor, fire support) are **N3's**, not
+N2's (D1, ruled 16 Oct by the lead; §7.1). A versus room runs no
+`MissionRuntime` until N3 (L1, §11b.4), so of these only the breach rule acts
+in a match today.
 
 **The breach rule, measured (N2-P6, `c5826d1c`/`6e1a3596`,
 `tools/src/backtest/versus-breach.ts`).** This line used to say the side-0
@@ -189,6 +195,15 @@ policy-dependent, and only its outcome effect is null. Nothing breaches in
 the mirror pins' first 200 ticks. **It is therefore a parity item for N2,
 not a live fairness bug**: N2 makes the rule ask the seat table, and the
 lobby needs no warning about it (N1 built none).
+
+**The parity, measured as built (N2 Task 2, `3689dd9f`;
+`tools/src/backtest/versus-breach.ts`, 12 seeds, normal arm, breach
+unit-ticks side 0 / side 1).** Base, the single-player table: `milh_flats`
+0 / 3214; `wadi_tarfan` kdf/kdf 0 / 12, kdf/sarim 0 / 1132, sarim/kdf 0 / 0.
+With `--rules=room` every cell reads 0 / 0 in both arms, and all 12 games are
+identical across the arms. The three sim pins did not move under `[true,
+true]` either: the golden replays hold no side-1 breach (Task 1, mutation
+M5), and the mirror pins' first 200 ticks hold none.
 
 ### 2.3 Map and win rule
 
@@ -527,14 +542,31 @@ tick and the report button. Both are `aria-live` lines, through `t()`.
 - `setStance{ids, stance: 'hold' | 'ambush' | 'patrol', waypoints?}` — a new
   `Command` that routes to the existing `setAmbush` and patrol machinery
   (today reachable only from mission JSON, mission.ts:1392-1398, 1558).
+  **As built (N2, `7bd5d7c8`, `d84d2df2`): `hold` and `ambush` only.** `hold`
+  is a halt on a free unit and leaves garrisoned and carried units alone
+  (D2); `ambush` takes an integer Q16.16 radius in (0, `AMBUSH_RADIUS_MAX` = 655360], up to ten
+  tiles; absent means `AMBUSH_RADIUS_DEFAULT` (196608), three tiles (R-1). `patrol` is N3's (L3).
 - `build{camp, unit}` from the doctrine's menu at the Sarim camp, through
   Stage 4 F4's production line, spending the per-match budget (G3 Q7, 1.6×,
   doctrine data). Until F4 exists, N1's mirror match has no production on
   either side.
 - Tunnels stay map-authored: diggers dig on their own, stocked fighters vent
   as today, and the player may order fighters into a mouth and out at a vent.
+  (N3 ruling LD4, 16 Oct, deferred those orders to §6.3. **The lead's 15 Oct
+  request supersedes LD4:** in versus the Sarim seat gets tunnels as its
+  asymmetric advantage, and the orders are queued as #681. That is its own
+  package straight after N3, sketched in `plans/2026-10-16-net-n3-prep.md` §6.
+  **Ruled 15 Oct (lead):**
+  - travel takes time, scaled by route length;
+  - fighters vent only on the player's order, with "stay down" as the default;
+  - `yahalom_squad` joins the versus KDF menu;
+  - `enterTunnel` is Sarim-seat only.)
 - On a human-held side no scripted trigger fires, no wave spawns and the
-  doctrine commander does not run. Civilians stay on side 2 and the ROE
+  doctrine commander does not run. **N3's, not N2's (D1, ruled 16 Oct by the
+  lead):** the meaning is the versus-rules design (a `reinforce` trigger
+  spawns on side 0 by definition, so "skip a human-held side" cannot mean
+  "skip every trigger"), and no versus runtime exists to skip anything
+  through N2. Civilians stay on side 2 and the ROE
   scoring still charges the KDF seat (Conduct is a KDF doctrine, not a
   symmetric score; the Sarim seat sees no Conduct panel).
 
@@ -542,10 +574,13 @@ tick and the report button. Both are `aria-live` lines, through `t()`.
 
 Two new `Command` members and one sim rule ("this side is human-held: skip
 triggers, waves and the commander"), all in N2/N3. Nothing else in the tick.
+**As built:** N2 shipped `setStance`, `build` and `support` and the breach
+half of the seat rule (§7.1); the trigger, wave and commander half is N3's.
 
 ### 6.3 The follow-on: the full insurgent toolkit
 
-Player-dug tunnels, IED placement, crowd-cover orders, a Sarim upgrade
+Player-dug tunnels (ordering fighters through an AUTHORED route has left this
+list: #681, see §6.1), IED placement, crowd-cover orders, a Sarim upgrade
 ladder, a Sarim fire-support menu. Each is a sim mechanic with balance behind
 it, and nothing here exists. It is its own package after N3, and §2.1's
 `Seat` and §3.2.3's protocol leave room for it (a `setStance` with more
@@ -568,15 +603,42 @@ a defect to explain, not a planned move. One pin is BORN: a runtime-digest
 pin for `MissionRuntime.digest()`. Decision memo and the non-sim
 prerequisites (P1–P7): `docs/superpowers/plans/2026-10-15-net-n2-prereqs.md`.
 
-| Change | Where | Why |
-|---|---|---|
-| `MissionRuntime.digest()` | mission.ts, composing F1's `economyHash` | the network hash must see objectives, triggers, waves, purse, Conduct, build queue, civilian latches. Wired through the `FrameStep.runtimeDigest` seam (N2-P2); non-zero in a room only from N3 |
-| Integer purse | mission.ts, `logisticsValue`/`intelValue` | they accrue in doubles; F2 Task 1, carried as N2's first task (L5), makes them integer. Hash-neutral: the golden replay builds no runtime and the economy pin hashes the floor |
-| Side-0 rules → seat rules | `Sim.selectBreachTarget` (auto-breach); mission.ts's side-0 sites (`unitLost`, `identifiedBy`, `routeFoundBy`, `contributed`, the Conduct actor, zone contest, `from_ledger`) | a side is no longer "the player"; the rule asks the seat table, whose default is today's rule. The breach rule is a parity item, not a live fairness bug (§2.2, P6) |
-| `build`, `support`, `setStance` as `Command`s | sim.ts `Command` union; mission.ts `requestBuild`, `requestSupport` | the direct runtime calls become tick-stamped input. F1 replaced the `sweep`/`strike` pair with `requestSupport(kind: SupportKind)` (`requestSweep`/`requestStrike` survive as wrappers over it), so N2 adds three kinds, not four |
-| `setStance` `hold` and `ambush` only | sim.ts (`ambush` → `Sim.setAmbush`) | the Sarim seat's verb (§6). **Ruled 15 Oct (coordinator, lead-delegated) (L3):** `patrol` needs the runtime's `stepPatrols` and moves to N3 |
-| `humanHeld[side]` | mission.ts | triggers, waves and the commander skip a human-held side. The table arrives from `seatRules` in `@lions/net` (N2-P4); the sim never reads a config |
-| `Sim.seatOf(entity)` read; issuer-aware `queueCommand(cmd, seat)` later | sim.ts | the ownership check moves from the net layer into the sim when Stage 4's lane C slot opens |
+**As built (N2, 16 Oct 2026, plan `docs/superpowers/plans/2026-10-16-net-n2-sim.md`,
+branch `feat/net-n2-sim`, base `7512c8b9`).** Tasks 1 to 6 landed; Task 8
+(the mission.ts seat sites) was not run and moved to N3 (D1). Every sim pin
+was read back unmoved (flat 935671699, relief 2842924511, orders 3272041047,
+`ECONOMY_PIN` 275731552, `ECONOMY_PIN_RELIEF` 145368021, and the mirror
+pins), and two were born with the digest (`a5c0deab`): `RUNTIME_DIGEST_PIN`
+2984314042 and `RUNTIME_DIGEST_PIN_RELIEF` 3060732596. `pnpm balance` and
+`pnpm playtest` are identical to the pre-flight baselines bar the timing
+line. The "Built" column below names the commit that made each row true.
+
+| Change | Where | Why | Built |
+|---|---|---|---|
+| `MissionRuntime.digest()` | mission.ts, composing F1's `economyHash` | the network hash must see objectives, triggers, waves, purse, Conduct, build queue, civilian latches. Wired through the `FrameStep.runtimeDigest` seam (N2-P2); non-zero in a room only from N3 | `a5c0deab`: folds `economyHash()` first, then objectives, triggers, waves, the ROE score and the civilian latches; wired at `main.ts`'s `frameStep`, 0 in every room until N3. Two pins born |
+| Integer purse | mission.ts, `logisticsValue`/`intelValue` | they accrue in doubles; F2 Task 1, carried as N2's first task (L5), makes them integer. Hash-neutral: the golden replay builds no runtime and the economy pin hashes the floor | F2 Task 1, `df48a80c` (#666, `f0c2a52c` on main), before N2 began: per side, in 1/2400ths. Intel is integer by construction (pre-flight step 4) |
+| Side-0 rules → seat rules | `Sim.selectBreachTarget` (auto-breach); mission.ts's side-0 sites (`unitLost`, `identifiedBy`, `routeFoundBy`, `contributed`, the Conduct actor, zone contest, `from_ledger`) | a side is no longer "the player"; the rule asks the seat table, whose default is today's rule. The breach rule is a parity item, not a live fairness bug (§2.2, P6) | **Breach half built** (`963d6613`, `810ca26c`; `3689dd9f`): `Sim.isHumanHeld`. **The mission.ts sites are N3's** (D1, ruled 16 Oct): no versus runtime exists to need them |
+| `build`, `support`, `setStance` as `Command`s | sim.ts `Command` union; mission.ts `requestBuild`, `requestSupport` | the direct runtime calls become tick-stamped input. F1 replaced the `sweep`/`strike` pair with `requestSupport(kind: SupportKind)` (`requestSweep`/`requestStrike` survive as wrappers over it), so N2 adds three kinds, not four | `setStance` `7bd5d7c8`, `d84d2df2`. `build` and `support` `fe9a42d7`, `fe29e6ba`: the runtime prices them (`canBuild`, `canSupport`, `applyQueued`; `Sim.takeRuntimeCommands`), the sim sets them aside, and a versus room drops both. The dock and the support click dispatch them (D3, check then send; `a5f7e6b4`) |
+| `setStance` `hold` and `ambush` only | sim.ts (`ambush` → `Sim.setAmbush`) | the Sarim seat's verb (§6). **Ruled 15 Oct (coordinator, lead-delegated) (L3):** `patrol` needs the runtime's `stepPatrols` and moves to N3 | `7bd5d7c8`, `d84d2df2`. `hold` is a halt on a free unit; garrisoned and carried units are untouched (D2). `ambush` radius an integer Q16.16 in (0, `AMBUSH_RADIUS_MAX` = 655360], up to ten tiles; absent means `AMBUSH_RADIUS_DEFAULT` (196608), three tiles (R-1) |
+| `humanHeld[side]` | mission.ts | triggers, waves and the commander skip a human-held side. The table arrives from `seatRules` in `@lions/net` (N2-P4); the sim never reads a config | The table and `Sim.isHumanHeld` are built (`963d6613`); `seatRules` feeds them (`3689dd9f`). **"Triggers, waves and the commander skip a human-held side" is N3's** (D1, ruled 16 Oct) |
+| `Sim.seatOf(entity)` read; issuer-aware `queueCommand(cmd, seat)` later | sim.ts | the ownership check moves from the net layer into the sim when Stage 4's lane C slot opens | **N3 or later** (D4, ruled 16 Oct): ownership stays in `@lions/net` (`validateCommand`), which N2 extended for the three kinds (`7bd5d7c8`, `fe9a42d7`) |
+
+**F4 (LD6) as built (16 Oct 2026, branch `feat/gf4-camp-production`, base `8c18f590`; GH-183, closes GH-136).** All ten asks landed, in these commits (this table is the single home of the ask-to-commit mapping; the asks themselves are specified in `docs/superpowers/plans/2026-10-16-net-n3-prep.md` §5, which points back here):
+
+| ask | landed in |
+|---|---|
+| 1 `requestBuild`/`canBuild` by line and side; `build.line?` | `52c472d3` (runtime), `ff742342` (`Command`, `cleanCommand`, `applyQueued`) |
+| 2 one `spend`/`refund` on `purse[side]` | `52c472d3`; `f33af5a1` (the AI spender goes through it) |
+| 3 `firstRefusal`/`popCapped`/`populationView`/`population` by side, camp clause per side | `52c472d3`, `629afef9`, `61efc0e9` |
+| 4 `cancelBuild(line, index, side)` | `52c472d3`, `ff742342` |
+| 5 `setRally`/`clearRally`/`canSetRally` | `944a9fc2`, `ff742342` |
+| 6 stable `productionLines(side)` index, `productionOf(side)` | `52c472d3` (R-F4-3) |
+| 7 `MissionContext.economy = { logisticsStart, logisticsRatePerMin }`, whole logistics, by side | `fbec6743`; `f33af5a1` (`enemy.production` as side 1's absent-context source) |
+| 8 `built.side`, app filtered to the viewer's side | `52c472d3`; `f33af5a1` (the side-1 case) |
+| 9 the contested pause per line | `14be3fe6` |
+| 10 side-1 AI production through the same path | `692851cb` (`spendDown`), `f33af5a1` |
+
+Still N3's: `applyQueued` skips `side !== 0` for all five runtime kinds and `validateCommand` drops all five in versus (N3 lifts both in one commit with its two-seat test), so side 1 is reached today only by a direct call and the AI spender; `built` carries `side` and the app filters to side 0 (`isOwnSide`; the announcer takes viewer 0, the tutorial `!== 0`), which N3 switches to `viewerSide`; no shipped mission gives side 1 a camp (D7). A dead camp's line keeps its index. `declaresProduction` was deleted (the camp clause reads the lines). The economy and digest pins moved once, `e0c39d39`: `ECONOMY_PIN` 275731552 -> 904873885, `ECONOMY_PIN_RELIEF` 145368021 -> 2771311510, `RUNTIME_DIGEST_PIN` 2984314042 -> 2037118941, `RUNTIME_DIGEST_PIN_RELIEF` 3060732596 -> 1884258391; the sim pins did not move. Numbers: `docs/campaign/economy/production-numbers.md`.
 
 **Per-seat unit types are no longer sim work. Ruled 15 Oct (coordinator,
 lead-delegated) (L2), confirmed by N2-P5 (`b375d07c`, `bf76cc77`,
@@ -787,7 +849,7 @@ green, per the working rules on every WP issue.
 |---|---|---|---|---|
 | **N0 · two-machine test** (re-scoped #190) | 12–31 Oct | new `packages/net`, `MatchRoom` DO, `MatchTransport`, tick loop; `wrangler.jsonc` bindings | two laptops in one sandbox room, both ordering the KDF force (no ownership, no sides), hashes compared every 20 ticks for ten minutes; the two-client CI test; a report with RTT, stall count, replay time | hashes equal on 10/10 ten-minute runs across two machines; report on #190 |
 | **N1 · versus, mirror** | 2–27 Nov, beside Stage 4 | app, render (`viewerSide`), worker; no sim | code and link, lobby, tickets, pause/stall/reconnect, desync report, chat and pings, `pickUnit` leak closed; **KDF v KDF on a placed-force sandbox map** | Ilan and a friend play three matches to a result; one deliberate desync reported end to end |
-| **N2 · sim seat work** | directly after F3 (L5) | sim (lane C slot) | F2 Task 1 first (integer purse), then runtime digest, seat rules (`humanHeld`, the breach rule), `build`/`support`/`setStance` (`hold`, `ambush`) as commands. A room still runs no runtime (L1); per-seat types are app/render work (L2). **Ruled 15 Oct (coordinator, lead-delegated)**; this row first read "per-seat types … golden hash moves once": under option B the sim pins are expected not to move | determinism green with the sim pins unmoved and the new runtime-digest pin born; mirror match re-played on N2 bytes with equal hashes |
+| **N2 · sim seat work** | directly after F3 (L5) | sim (lane C slot) | F2 Task 1 first (integer purse), then runtime digest, seat rules (`humanHeld`, the breach rule), `build`/`support`/`setStance` (`hold`, `ambush`) as commands. A room still runs no runtime (L1); per-seat types are app/render work (L2). **Ruled 15 Oct (coordinator, lead-delegated)**; this row first read "per-seat types … golden hash moves once": under option B the sim pins are expected not to move | determinism green with the sim pins unmoved and the new runtime-digest pin born; `tools/src/net/two-client.test.ts` shows equal hashes over the versus frame stream, the `setStance` frame included, and the mirror pins are unmoved (versus-force, match-world, per-seat-types); a live two-client replay is CI/N3's. **Met 16 Oct 2026** (branch `feat/net-n2-sim`, head `a5c0deab`; §7.1 "As built"). Not built, moved to N3 (D1): the mission.ts seat sites |
 | **N3 · the Sarim seat** | Jan–Feb 2027, with WP-G-G | sim, data, app | KDF v Sarim on the skirmish rules (zones, pop caps, doctrine production), the lobby's side pick live, `build` from the doctrine menu | G5 #169 closed 5 Feb with this spec's answers; Ilan plays five KDF v Sarim matches |
 | **N4 · AI harness and arena** | Jan–Mar 2027, in parallel from N1's protocol | net, tools, worker | `pnpm agent` (MCP, three scopes), advisor panel, `pnpm arena`, `/stats/arena` | an `assist` advisor completes a match with Ilan; a ten-seed arena run between two models reported |
 | Follow-ons | after N3/N4 | | insurgent toolkit (§6.3), sim snapshot (§3.2.6), spectators as a feature, accounts via ST5, skirmish payouts | own specs |
@@ -841,7 +903,7 @@ Defaults recorded with the recommendation; overturn any in review:
 | 16 | Chat | text, 280 characters, relay only, in version one |
 | 17 | Speed | host-set in the lobby, applied by the room; never local |
 | 18 | Unattended bot seat | the doctrine commander. **Not built yet** (WP-G-G0 has not landed); N4 ships scripted baseline bots instead (§11b, N4 plan). **Shipped in N4b** (§11c.5): `passive` and `rush`, fog-respecting, in-process only; `rush` scores 0.750 against `passive` on `tel_marum` over ten seeds, and 0.675 over the gate's twenty (p 0.019, §11c.7). A bot seat with a model attached is `pnpm agent --scope command --join` |
-| 19 | Arena scoring | win rate over the seed set with sides swapped; Conduct and tokens reported only. A versus room runs no `MissionRuntime`, so there is no Conduct to report until N3 (**Ruled 15 Oct (coordinator, lead-delegated), L1**: N2 keeps rooms runtime-free; this note first read "until N2/N3"); the arena reports the scoreboard (decision 25) in its place (§11b). **Shipped in N4b** (§11c.6, D7): (wins + ½ draws) / non-void games, overall, per seat and per faction, each seed played twice with the seats swapped; the scoreboard per game; tokens when the client prints them, never scored; a game the room desyncs or the two sims disagree on is void. Results go to local files, not D1 (D6 "not now") |
+| 19 | Arena scoring | win rate over the seed set with sides swapped; Conduct and tokens reported only. A versus room runs no `MissionRuntime`, so there is no Conduct to report until N3 (**Ruled 15 Oct (coordinator, lead-delegated), L1**: N2 keeps rooms runtime-free; this note first read "until N2/N3"); the arena reports the scoreboard (decision 25) in its place (§11b). **N2 kept the rooms runtime-free as ruled** (`a5c0deab` wires `runtime.digest()` into `frameStep`, and it folds 0 in every room until N3). **Shipped in N4b** (§11c.6, D7): (wins + ½ draws) / non-void games, overall, per seat and per faction, each seed played twice with the seats swapped; the scoreboard per game; tokens when the client prints them, never scored; a game the room desyncs or the two sims disagree on is void. Results go to local files, not D1 (D6 "not now") |
 | 20 | Skirmish payout | none in version one; earned credits for a result is a later ST/G-G question |
 | 21 | Storage | Durable Object SQLite for the room, D1 for results and desync logs; nothing in R2 |
 | 22 | Cheat posture | friends only, stated in the lobby; no authoritative sim in this design |
@@ -904,9 +966,16 @@ by this design:
   duplicate copies of up to 19 ticks when the object restarts mid-frame;
   `LockstepClock` discards them as `'duplicate'`, so no client runs one twice,
   and N1 dedupes the log on write.
-- **Headless Firefox on CI has no WebGL2**, so the three-engine check reports
-  Chromium and WebKit only; a Firefox reading needs either a software GL flag
-  or a headed runner, and until then the cross-engine claim is two engines.
+- **Headless Firefox on CI has no WebGL2**, so the three-engine check reported
+  Chromium and WebKit only, and CI passed its exit 3 on every run. **Closed
+  15 Oct 2026:** with no X display Firefox reads `null` for WebGL2 with or
+  without `webgl.force-enabled`; under `xvfb-run` it gets Mesa's llvmpipe,
+  headed or headless (measured in `mcr.microsoft.com/playwright:v1.64.0-noble`
+  and on CI, PRs #678/#679). The display is the ingredient. CI now runs
+  `xvfb-run -a pnpm net:engines -- --firefox-headed --require=chromium,firefox,webkit`:
+  Firefox is read, and an engine that stops booting is exit 2 by name rather
+  than an exit-3 warning. R39's exit 3 survives for engines not `--require`d
+  (a local run). `two-engine.test.ts` pins the CI step's flags.
 
 ## 11b. The lead's rulings of 13–14 Oct, N1 as built, and what N4 and N2 inherit (14 Oct 2026)
 
@@ -1139,7 +1208,9 @@ until all of these hold:
    kind that lands in the meantime must be in `@lions/net`'s whitelist and
    ownership check before N2 adds its three: `build`, `support` and
    `setStance` (this item first said four; F1 replaced the `sweep`/`strike`
-   pair with `requestSupport(kind: SupportKind)`). Since N2-P1 (`d407f8e3`)
+   pair with `requestSupport(kind: SupportKind)`). **Built in N2:**
+   `setStance` `7bd5d7c8`, `build` and `support` `fe9a42d7`, each with
+   `COMMAND_KINDS`, `cleanCommand` and `validateCommand` in the same commit. Since N2-P1 (`d407f8e3`)
    the whitelist is pinned both ways: `COMMAND_KINDS` is checked against
    `Command['kind']` by `MissingCommandKind` in
    `packages/net/src/protocol.ts`, so a kind missing from the list is a
@@ -1149,13 +1220,22 @@ until all of these hold:
    A versus room keeps running none through N2. N2 makes the sim seat-aware
    (the seat table, the breach rule, the side-0 sites re-keyed with today's
    rule as the default) and the runtime network-hashable
-   (`runtime.digest()`, the three commands), and the first versus runtime is
+   (`runtime.digest()`, the three commands; both built, §7.1 "As built"), and the first versus runtime is
    N3's opening task, built on the per-side state F2–F4 deliver. Its rules
    will be data, never a mission synthesised in TypeScript. The memo, the
    options and the reasons: `docs/superpowers/plans/2026-10-15-net-n2-prereqs.md`.
 
+**LD6 closure (16 Oct):** the ten F4 asks landed on `feat/gf4-camp-production`; which commit carries which, and what remains N3's (the two side-0 gates, the `viewerSide` filter), are in §7.1 "F4 (LD6) as built".
+
 **Sim surfaces N2 touches.** Locate them by symbol; line numbers are as of
 `f4b3ea2b`.
+
+**As built (N2, 16 Oct 2026).** The breach rule and the three commands are
+built; the digest is born and wired. The mission.ts seat sites below (the
+first five bullets, and the trigger/wave/commander half of `humanHeld`) are
+**not built and are N3's** (D1, ruled 16 Oct by the lead): no versus runtime
+runs until N3, so each is reachable only by a synthetic test. Commits are
+named per bullet.
 
 - **`MissionRuntime.step`, `unitLost`** (`mission.ts` ~L1071) is emitted for
   side 0 only, with `side: 0` hard-coded. It becomes per side, or per seat.
@@ -1173,15 +1253,20 @@ until all of these hold:
   `playerIds`/`enemyIds`/`civIds` are bucketed by side (~L1360).
 - **The direct runtime calls** `requestSupport(kind)` (F1; `requestSweep`
   and `requestStrike` are wrappers over it) and `requestBuild` (~L803–846 at
-  `c8123109`) become tick-stamped `Command`s (§7.1).
+  `c8123109`) become tick-stamped `Command`s (§7.1). **Built** (`fe9a42d7`, `fe29e6ba`; the app path `a5f7e6b4`).
 - **`sim.ts` `selectBreachTarget`**: "side 0 never auto-breaches" (~L3752 at
   `c8123109`; the spec's L3415 has drifted) becomes a per-seat rule. N2-P6
   measured it: a parity item with no measurable outcome effect, firing only
-  on the walled maps (§2.2).
+  on the walled maps (§2.2). **Built** (`963d6613`, `810ca26c`):
+  `Sim.isHumanHeld`.
 - **The `Command` union** (`sim.ts` ~L623 at `c8123109`) gains `build`,
   `support` and `setStance` (`hold` and `ambush` only: **Ruled 15 Oct
   (coordinator, lead-delegated), L3**; `ambush` routes to `Sim.setAmbush`,
-  and `patrol`, which needs the runtime's `stepPatrols`, moves to N3). In
+  and `patrol`, which needs the runtime's `stepPatrols`, moves to N3).
+  **Built** (`7bd5d7c8`, `fe9a42d7`); `build` and `support` are runtime
+  commands: `Sim.takeRuntimeCommands` hands them to `applyQueued`, which
+  checks them with `canBuild` and `canSupport` and prices them, and the sim
+  discards whatever is left at the tick (R-3). In
   `@lions/net`, `COMMAND_KINDS` and `cleanCommand` (whose `never` default
   makes `tsc` fail until the kind is handled) and `validateCommand` (an
   exhaustive switch) must each handle them in the same PR; N2-P1's
@@ -1193,7 +1278,8 @@ until all of these hold:
   shippedContentDigest())`. N2-P2 (`3dd5c86a`) built the runtime-digest seam,
   `FrameStep.runtimeDigest` (absent = 0, asked once per hash tick after that
   tick ran; the harness passes it through `AgentClientOptions.runtimeDigest`),
-  so N2 wires `runtime.digest()` in one line. **Ruled 15 Oct (coordinator,
+  so N2 wires `runtime.digest()` in one line (**done**, `a5c0deab`, at
+  `main.ts`'s `frameStep`). **Ruled 15 Oct (coordinator,
   lead-delegated), L4**, built in N2-P3 (`e877c8e7`): this bullet first said
   "the room's `dataDigest: 0` becomes a real digest"; instead each client
   folds its own key-sorted content digest and the room's 0 stays on the
@@ -1207,7 +1293,9 @@ until all of these hold:
   `seatRules(config)` in `packages/net/src/seat-rules.ts`: a versus room
   (human or bot seats) gives `humanHeld` `[true, true]`, and single-player
   (`null`) or a sandbox room gives `[true, false]`, today's rule. N2's sim
-  takes the table as given and never reads a config.
+  takes the table as given and never reads a config (**built**:
+  `SimConfig.humanHeld` and `Sim.isHumanHeld`, `963d6613`; every world names
+  its table, `3689dd9f`). The trigger, wave and commander skip is N3's (D1).
 - **The pins. Ruled 15 Oct (coordinator, lead-delegated), L1:** this bullet
   first said the three sim pins in `determinism.test.ts`, F1's
   `ECONOMY_PIN`, `ECONOMY_PIN_RELIEF` and the versus-force mirror pins (`versus-force.test.ts`,
@@ -1218,7 +1306,22 @@ until all of these hold:
   no breach in the mirror pins' first 200 ticks (a future versus pin on
   `wadi_tarfan` or `milh_flats` that issues orders could be moved by breach
   parity). A pin that moves is a defect to explain. One pin is born: the
-  runtime digest's.
+  runtime digest's. **As built:** none of the listed pins moved
+  (read back by Tasks 1 to 6), and `RUNTIME_DIGEST_PIN` 2984314042 and
+  `RUNTIME_DIGEST_PIN_RELIEF` 3060732596 were born in `a5c0deab`.
+
+**N3 follow-ups recorded by N2 (16 Oct 2026).**
+- The mission.ts seat sites (D1): the trigger, wave and commander skip on a
+  human-held side, and the side-0 scoring sites (`unitLost`, `identifiedBy`,
+  `routeFoundBy`, `contributed`, the Conduct actor, zone contest,
+  `from_ledger`). The design is kept as Task 8 of the N2 plan, marked N3.
+- `mcp-tools.ts`'s `ORDER_VERBS` excludes `setStance`, `build` and `support`
+  (`7bd5d7c8`, `fe9a42d7`); a model verb for each is an N3/N4 follow-up.
+- `patrol` is N3's, with the runtime's `stepPatrols`.
+- The first versus runtime's rules file is data, never TypeScript.
+- `cmdSink`'s room branch (`a5f7e6b4`) would mis-note a buy if a room with a
+  runtime is paused: the dock pre-check should consult the room status
+  (`ordersWait(room.status())`). Unreachable today: a room holds no runtime.
 
 Item 5's decision memo, the non-sim prerequisite plan and what N2 needs from Lane C: `docs/superpowers/plans/2026-10-15-net-n2-prereqs.md` (15 Oct; L1–L5 ruled 15 Oct (coordinator, lead-delegated): option B, per-seat types in app/render (P5 confirmed: no sim code), `setStance` hold and ambush only, client-computed data digest, N2 after F3 carrying F2 Task 1).
 
@@ -1271,9 +1374,10 @@ plan the difference is named.
   `wait`, `inbox` and `say` in every scope; `ping` in `advise` and `assist`;
   `order` in `assist` and `command`; `end_round` in `command`. `set_stance`,
   `build` and `fire_support` (§8.3) arrive with N2/N3's commands, and the
-  test pinning `toolsFor` makes that a deliberate change. `order` carries no
-  `sweep`, so a model cannot ask for the sweep cursor the in-process `rush`
-  uses.
+  test pinning `toolsFor` makes that a deliberate change. `order` takes an
+  optional boolean `sweep` on `attackMove` only (refused on every other verb),
+  in `command` scope only when both seats are bots, so an arena model can ask
+  for the same sweep the in-process `rush` uses (§11c.8, ruled 15 Oct).
 - **The order desk** (`order-desk.ts`, decision D4) is the bot's cadence: at
   most one flush every `DESK_FLUSH_TICKS` = 20 ticks, of at most 4 commands,
   from a queue of `DESK_MAX_QUEUE` = 12; a thirteenth `order` answers
@@ -1370,7 +1474,10 @@ with the secret supplied, which the specs use to pin that the chosen secret
 never reaches a log; the env has no D1 (a desync's D1 write fails with a logged
 error, and the desync still reaches both clients) and no rate limiters. The
 upgrade passes `handleMatch`'s Origin, code and method checks first. Alarms
-are a 250 ms poll; `close()` terminates every socket, clears every interval
+are a 250 ms poll; a room's socket messages, socket closes and alarm run on
+one chain per room, in arrival order, each to completion -- stricter than
+workerd's input gate, which serializes only across storage awaits; `fetch`,
+`acceptSocket` and the room's own clock are not on the chain (§11c.8); `close()` terminates every socket, clears every interval
 and frees the port. `MatchRoom` gained one optional constructor argument,
 `{tickMs?, seed?(code)}`, which workerd never passes: production keeps
 `TICK_MS` and its crypto seed, pinned by a characterization test. Only
@@ -1448,7 +1555,12 @@ and frees the port. `MatchRoom` gained one optional constructor argument,
   0700 temp directory with three 0600 files (the seat's `ticket`, `mcp.json`
   naming this checkout's harness in `command` scope by absolute `tsx` and
   `agent.ts`, and `prompt.md`, the standing prompt with the seat filled in),
-  removed when the child exits. The template is split by the arena with no
+  removed when the child exits, and on SIGINT/SIGTERM too: the arena's
+  handler SIGTERMs (then SIGKILLs) every external child, removes every such
+  directory, stops the players, closes the relay and exits 130/143
+  (§11c.8). `LIONS_ARENA_TMPDIR` (test-only, absolute paths only; anything
+  else is ignored with a warning) overrides where the directories are made
+  (`os.tmpdir()` by default). The template is split by the arena with no
   shell (`$VAR`, `$(...)`, `;`, `|`, `>` and globs stay literal) and fills
   `{mcp}`, `{prompt}`, `{seat}`, `{code}`; a standalone `< {prompt}` is the
   child's stdin. The child inherits the parent environment unchanged; the
@@ -1541,13 +1653,77 @@ a ten-seed arena run between two models, is the lead's to run (run protocol
 - **WP-G-G0's doctrine commander**, when it lands, replaces `rush` as the
   arena's opponent and answers decision 18 as written.
 - **A remote arena** against the Worker and `/stats/arena` wait on D6.
-- **Parked minors**, none load-bearing: the MCP `order` has no `sweep`; a
-  cap game costs an external client up to 10 s of grace; SIGINT on the arena
-  skips temp-directory cleanup (the ticket dies with the relay's in-memory
-  secret); the local relay does not serialize room events across sockets as
-  the Durable Object's input gate would (look there first if a local arena
-  ever reads a void/desync); a model's `end_round` still accepts a stale
-  mid-round `done` after a wall release (harmless).
+- **Parked minors**, none load-bearing. Three were closed in the N4b minors
+  pass (15 Oct, `fix/net-n4b-minors`); two stay parked.
+  - **Closed:** the MCP `order` had no `sweep`. It is legal for the agent
+    seat: `attackMove` is in `COMMAND_KINDS`, `cleanCommand` already carries
+    its `sweep`, and `validateCommand` checks an `attackMove` only for owned
+    ids and the map edge; the versus drop (#559 F1) is fire support,
+    `callStrike` and `reveal`, and `sweep` is a movement flag, not fire
+    support. **Ruled 15 Oct (coordinator, lead-delegated window):** the
+    human UI never sends `sweep` (the lead's 11 Oct ruling that a clicked
+    tile means that tile), so an agent able to send it would hold a
+    capability a human seat lacks. In `command` scope it is accepted only
+    when BOTH seats of the room's `MatchConfig` are `kind: 'bot'` (the arena:
+    parity with the in-process `rush`), and refused with
+    `not available against a human seat` when either is human; in `assist`
+    it is always refused (`not in this scope`), since a human would be
+    accepting a sweep the strip does not describe. Any value, `false`
+    included, counts as asking. Where it is allowed, `order` takes an
+    optional boolean `sweep` on `attackMove` only and builds it into the
+    command; on any other verb it answers `invalid` (`sweep is for
+    attackMove only`), and a non-boolean answers `invalid` (`sweep is true or
+    false`). `mcp-tools.ts` and `arena-prompt.md` carry the ruling. Pinned by
+    `mcp-tools.test.ts`: bot against bot, `sweep: true` is on the cmd seat 0
+    sent, on the frame both seats heard, and on the command both sims
+    queued, and `sweep` on `move`/`halt` is refused; with a human in either
+    seat (or both) it is refused and nothing carrying it is sent; in assist
+    it is refused even bot against bot, with no proposal sent. Red with the
+    field dropped from the built command, with the verb guard removed, with
+    the human-seat check removed, with the assist refusal removed, and with
+    the gate refusing bot against bot too.
+  - **Closed:** SIGINT/SIGTERM on the arena cleaned nothing (the signal skips
+    every `finally`, leaving the 0700 temp directory and its 0600 ticket).
+    `installSignalCleanup`, installed by the CLI entry only, now SIGTERMs
+    every external child (SIGKILL after 2 s), removes every seat's temp
+    directory (`abortExternalPlayers`, over a registry of live seats), stops
+    every running player, closes every relay, each step bounded at 5 s, and
+    exits 130 (SIGINT) or 143 (SIGTERM). The first abort also sets a one-way
+    stop latch: a seat is refused before its `mkdtemp`, and `runArena` starts
+    no further game, so nothing spawned while the cleanup awaits can outlive
+    `process.exit` (a seat's latch check, `mkdtemp`, registration and `spawn`
+    have no await between them, which is why one sweep suffices and the
+    second sweep was dropped). A SECOND signal during the cleanup exits at
+    once with the same code, cleanup unfinished: the escape hatch a second
+    Ctrl-C means. The run's own exit code never overtakes the signal's, and
+    the seat's own `finally` removes with `force`, so whichever runs second
+    finds nothing. `LIONS_ARENA_TMPDIR` is test-only and must be absolute.
+    Pinned by `arena-signal.test.ts` (the arena as a real child process in
+    its own process group, with a sleeping `cmd:` player; red with the
+    handler not installed, with `abortExternalPlayers` emptied, with the
+    SIGKILL escalation removed, and with the second signal ignored rather
+    than exiting), `arena-latch.test.ts` (red with either latch check
+    removed) and `external-player.test.ts` (red with the absolute-path check
+    removed).
+  - **Closed:** the local relay did not serialize a room's events across
+    sockets. Its socket messages, socket closes and alarm now run on ONE
+    promise chain per room, in arrival order, each to completion; it was a
+    chain per socket, so two sockets and the alarm could interleave across
+    any await. This is stricter than workerd, whose input gate serializes
+    only across storage awaits, so the relay can hide an interleaving a real
+    Durable Object allows but never produce one it forbids. `fetch`,
+    `acceptSocket` and the room's own clock are not on the chain. An alarm's
+    due time is re-read when its turn comes, not when it is queued; a handler
+    that throws is logged and the chain goes on. Pinned by
+    `local-relay.test.ts`: two sockets of one room with a 40 ms handler read
+    strict in/out alternation in arrival order (red with a gate per socket);
+    an alarm falling due mid-handler fires after it (red with the alarm off
+    the chain); an alarm the handler cleared does not fire (red without the
+    re-read); a throwing handler does not jam the next message (red without
+    the chain's `.catch`).
+  - Parked: a cap game costs an external client up to 10 s of grace.
+  - Parked: a model's `end_round` still accepts a stale mid-round `done`
+    after a wall release (harmless).
 
 ## 12. Testing and gates
 

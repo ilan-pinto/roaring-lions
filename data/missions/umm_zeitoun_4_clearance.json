@@ -52,7 +52,13 @@
     "logistics_start": 600,
     "logistics_rate_per_min": 100,
     "intel_start": 250,
-    "supply_corridor": true
+    "supply_corridor": true,
+    "supply_entry": "supply_entry",
+    "income_zones": [
+      { "zone": "stockpile", "rate_per_min": 16 },
+      { "zone": "crest_top", "rate_per_min": 8 },
+      { "zone": "hamlet", "rate_per_min": 8 }
+    ]
   },
   "objectives": [
     {

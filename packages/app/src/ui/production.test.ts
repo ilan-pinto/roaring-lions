@@ -20,6 +20,7 @@ import {
   FIRE_SUPPORT_KINDS,
   MissionRuntime,
   Sim,
+  type Command,
   type MissionJson,
   type UnitTypeJson,
 } from '@lions/sim';
@@ -35,8 +36,15 @@ interface FakeRuntime extends ProductionRuntime {
   intel: number;
   production: QueueItem[];
   blocked: Record<string, string>;
+  /** The unit ids of every `build` command the dock dispatched (N2 D3). */
   builds: string[];
+  /** Every command the dock dispatched, whole. */
+  sent: Command[];
+  /** What `canBuild` answers: the click-time pre-check. */
   buildOk: boolean;
+  /** Gone from the slice the dock reads (N2 D3). Throws, so a dock that still
+   *  calls it fails loudly instead of spending at click time. */
+  requestBuild(unitId: string): boolean;
   /** Unit ids the cap refuses, and the readout; null is an uncapped mission. */
   capped: Set<string>;
   pop: { used: number; cap: number } | null;
@@ -50,6 +58,7 @@ function fakeRuntime(over: Partial<FakeRuntime> = {}): FakeRuntime {
     production: [],
     blocked: {},
     builds: [],
+    sent: [],
     buildOk: true,
     capped: new Set<string>(),
     pop: null,
@@ -57,13 +66,21 @@ function fakeRuntime(over: Partial<FakeRuntime> = {}): FakeRuntime {
       rt.blocked[id] ?? (rt.capped.has(id) && rt.pop !== null ? `population cap reached (${rt.pop.used}/${rt.pop.cap})` : null),
     popCapped: (id) => rt.blocked[id] === undefined && rt.capped.has(id),
     populationView: () => rt.pop,
+    canBuild: () => rt.buildOk,
     requestBuild: (id) => {
-      rt.builds.push(id);
-      return rt.buildOk;
+      throw new Error(`the dock called requestBuild(${id}); it must dispatch a build command instead`);
     },
     ...over,
   };
   return rt;
+}
+
+/** The order sink a fake runtime's dock dispatches to: records each command. */
+function sinkOf(rt: FakeRuntime): (cmd: Command) => void {
+  return (cmd) => {
+    rt.sent.push(cmd);
+    if (cmd.kind === 'build') rt.builds.push(cmd.unit);
+  };
 }
 
 function dockUnit(over: Partial<DockUnit> = {}): DockUnit {
@@ -107,6 +124,7 @@ function rig(
     runtime: rt,
     note: (html, tone) => notes.push({ html, tone }),
     onArm: (kind) => arms.push(kind),
+    dispatch: sinkOf(rt),
     meshPending,
     ...extra,
   });
@@ -179,6 +197,7 @@ describe('the dock’s shape', () => {
       runtime: fakeRuntime(),
       note: () => undefined,
       onArm: () => undefined,
+      dispatch: () => undefined,
       credits: 1240,
     });
     // The label itself is untouched by the credits chip riding beside it.
@@ -209,6 +228,7 @@ describe('the dock’s shape', () => {
       runtime: fakeRuntime(),
       note: () => undefined,
       onArm: () => undefined,
+      dispatch: () => undefined,
       credits: 5,
     });
     const chip = host.querySelector<HTMLElement>('.rl-dock__credits')!;
@@ -240,6 +260,20 @@ describe('the dock’s shape', () => {
     for (const k of ['drone_sweep', 'air_strike'] as const) {
       expect(r.support(k).querySelector('svg')?.getAttribute('viewBox')).not.toBe('0 0 24 24');
     }
+  });
+
+  // S-F Task 2: the barrage and the smoke screen draw marks of their own --
+  // they borrowed the strike's ring and the smoke order's puffs until the
+  // support-marks mock. A tile falling back to either borrowed mark is red.
+  it('draws the barrage and smoke-screen tiles with their own marks, not the strike\'s or the smoke order\'s', () => {
+    const r = rig();
+    expect(r.support('mortar_barrage').querySelector('.rl-tile__glyph [data-symbol="barrage"]')).not.toBeNull();
+    expect(r.support('smoke_screen').querySelector('.rl-tile__glyph [data-symbol="smokeScreen"]')).not.toBeNull();
+    const symbols = (['smoke_screen', 'mortar_barrage', 'drone_sweep', 'air_strike'] as const).map((k) =>
+      r.support(k).querySelector('.rl-tile__glyph [data-symbol]')?.getAttribute('data-symbol')
+    );
+    expect(new Set(symbols).size).toBe(4);
+    expect(symbols).not.toContain('smoke');
   });
 
   // The list the tile progress replaces. Its absence is the acceptance
@@ -416,6 +450,59 @@ describe('what a click does', () => {
     expect(r.notes[0].html).toContain('Rifle Squad');
   });
 
+  // N2, D3 (lead, 16 Oct: "check, then send"): the click pre-checks with
+  // `canBuild` and dispatches a `build` command; the runtime spends when the
+  // command runs, before the next tick. `requestBuild` is never called here --
+  // the fake's throws.
+  it('dispatches one build command for an affordable tile, notes it and counts it', () => {
+    const bought: string[] = [];
+    let denied = 0;
+    const r = rig([dockUnit()], fakeRuntime(), undefined, {
+      onBought: (id) => bought.push(id),
+      onDeny: () => denied++,
+    });
+    r.tile('inf_squad').click();
+    expect(r.rt.sent).toEqual([{ kind: 'build', side: 0, unit: 'inf_squad' }]);
+    expect(r.notes).toHaveLength(1);
+    expect(r.notes[0]).toMatchObject({ tone: 'info' });
+    expect(r.notes[0].html).toContain('building');
+    expect(bought).toEqual(['inf_squad']);
+    expect(denied).toBe(0);
+  });
+
+  it('dispatches nothing for a tile canBuild refuses, and says so with the deny cue', () => {
+    const bought: string[] = [];
+    let denied = 0;
+    const r = rig([dockUnit()], fakeRuntime({ buildOk: false }), undefined, {
+      onBought: (id) => bought.push(id),
+      onDeny: () => denied++,
+    });
+    r.tile('inf_squad').click();
+    expect(r.rt.sent).toEqual([]);
+    expect(r.notes).toHaveLength(1);
+    expect(r.notes[0]).toMatchObject({ tone: 'mute' });
+    expect(r.notes[0].html).toContain('insufficient logistics');
+    expect(bought).toEqual([]);
+    expect(denied).toBe(1);
+  });
+
+  // Review Focus 3, the UI half (the runtime half is Task 4's): two clicks in
+  // one frame where the purse covers one. The pre-check reads the purse as it
+  // stands, and nothing has spent yet, so it says yes to BOTH and both are
+  // sent and noted "building". The runtime refuses the second when it runs it.
+  // This is D3's known gap, pinned rather than hidden.
+  it('says yes to two clicks in one frame: the pre-check cannot see the first, unspent', () => {
+    const rt = fakeRuntime();
+    const r = rig([dockUnit()], rt, undefined, { onBought: () => undefined });
+    r.tile('inf_squad').click();
+    r.tile('inf_squad').click();
+    expect(rt.sent).toEqual([
+      { kind: 'build', side: 0, unit: 'inf_squad' },
+      { kind: 'build', side: 0, unit: 'inf_squad' },
+    ]);
+    expect(r.notes.map((n) => n.tone)).toEqual(['info', 'info']);
+  });
+
   it('refuses a locked tile without asking the runtime to build it', () => {
     const r = rig([dockUnit()], fakeRuntime({ blocked: { inf_squad: 'locked' } }));
     r.tile('inf_squad').click();
@@ -485,6 +572,7 @@ describe('what a click does', () => {
       runtime: fakeRuntime({ blocked: { inf_squad: 'requires clearing wadi_halam_1_fords' } }),
       note: (html) => notes.push(html),
       onArm: () => undefined,
+      dispatch: () => undefined,
       missionName: () => 'The <i>Fords</i>',
     });
     host.querySelector<HTMLButtonElement>('[data-unit="inf_squad"]')?.click();
@@ -727,14 +815,22 @@ describe('invariant 4: the dock never touches the sim', () => {
   it('clicks every tile and issues no sim command at all', () => {
     const w = realWorld();
     const before = w.sim.entityCount;
-    const r = rig([dockUnit()], w.runtime as unknown as FakeRuntime);
+    // N2 D3: the dock's purchase goes to the ORDER SINK (in the app, the
+    // transport), never into the sim. Recorded here instead.
+    const sent: Command[] = [];
+    const r = rig([dockUnit()], w.runtime as unknown as FakeRuntime, undefined, { dispatch: (cmd) => sent.push(cmd) });
     r.tile('inf_squad').click();
     r.support('drone_sweep').click();
     r.support('air_strike').click();
     r.dock.refresh();
     expect(w.queued).toHaveLength(0);
-    // …and the build really did land in the runtime's queue, so the zero above
-    // is "went the right way", not "went nowhere".
+    expect(w.runtime.production).toEqual([]);
+    expect(sent).toEqual([{ kind: 'build', side: 0, unit: 'inf_squad' }]);
+    // …and that command, run the way the frame path runs it, really does land
+    // in the runtime's queue, so the zero above is "went the right way", not
+    // "went nowhere". `build` is set aside by the sim, not queued as an order.
+    for (const cmd of sent) w.sim.queueCommand(cmd);
+    expect(w.runtime.applyQueued()).toBe(1);
     expect(w.runtime.production.map((p) => p.unit)).toEqual(['inf_squad']);
     expect(w.sim.entityCount).toBe(before);
   });
@@ -785,6 +881,7 @@ describe('destroy', () => {
       runtime: fakeRuntime(),
       note: () => {},
       onArm: () => {},
+      dispatch: () => {},
     });
     expect(document.body.querySelector('.rl-dock')).not.toBeNull();
     dock.destroy();
@@ -819,6 +916,7 @@ describe('destroy', () => {
       runtime: fakeRuntime(),
       note: () => {},
       onArm: () => {},
+      dispatch: () => {},
     });
     const tile = document.body.querySelector<HTMLButtonElement>('[data-unit="inf_squad"]')!;
     const addSpy = vi.spyOn(window, 'addEventListener');
@@ -894,6 +992,7 @@ describe('onBought (GH-254)', () => {
     const bought: string[] = [];
     new ReinforcementDock(host, {
       units: unitList, runtime: rt, note: () => undefined, onArm: () => undefined,
+      dispatch: sinkOf(rt),
       onBought: (id) => bought.push(id),
     });
     const tile = host.querySelector<HTMLButtonElement>('[data-unit="inf_squad"]');
@@ -911,7 +1010,8 @@ describe('onBought (GH-254)', () => {
   it('does not fire when the runtime refuses the buy', () => {
     const { bought, tile, rt } = withSpy(fakeRuntime({ buildOk: false }));
     tile.click();
-    expect(rt.builds).toEqual(['inf_squad']);
+    // N2 D3: the pre-check refused it, so no command went out at all.
+    expect(rt.builds).toEqual([]);
     expect(bought).toEqual([]);
   });
 
@@ -1119,7 +1219,10 @@ describe('population in the dock', () => {
 
   // The join no fake can make: the REAL runtime's cap, its popCapped, its
   // populationView -- and the queue counting against it (D2).
-  it('against a real capped runtime: the build that fills the cap caps the next click', () => {
+  /** A real capped runtime (cap 1), with the dock's commands sent the way the
+   *  frame path sends them: into the sim, which sets `build` aside for
+   *  `applyQueued` (N2 D3). */
+  function cappedWorld(onDeny: () => void): { r: Rig; sim: Sim; runtime: MissionRuntime; sent: Command[] } {
     const sim = new Sim({ seed: 3, width: 16, height: 16, capacity: 16 });
     const typeIdx = sim.addUnitType(units.inf_squad as unknown as UnitTypeJson);
     const runtime = new MissionRuntime(
@@ -1134,18 +1237,65 @@ describe('population in the dock', () => {
       { typeIdOf: () => typeIdx, markers: {}, zones: {}, unitInfo: () => ({ logistics: 292, buildTimeS: 15, population: 1 }) }
     );
     runtime.start();
+    const sent: Command[] = [];
+    const r = rig([dockUnit({ population: 1 })], runtime as unknown as FakeRuntime, undefined, {
+      onDeny,
+      dispatch: (cmd) => {
+        sent.push(cmd);
+        sim.queueCommand(cmd);
+      },
+    });
+    return { r, sim, runtime, sent };
+  }
+
+  it('against a real capped runtime: the build that fills the cap caps the next click', () => {
     const onDeny = vi.fn();
-    const r = rig([dockUnit({ population: 1 })], runtime as unknown as FakeRuntime, undefined, { onDeny });
+    const { r, runtime, sent } = cappedWorld(onDeny);
     expect(readout(r).textContent).toBe('0/1 population');
     expect(r.tile('inf_squad').dataset.capped).toBe('0');
     r.tile('inf_squad').click();
     expect(onDeny).not.toHaveBeenCalled();
-    // The click's own refresh already shows the queued build counted.
+    expect(sent).toHaveLength(1);
+    // N2 D3: the click sent a command and spent nothing, so the click's own
+    // refresh still reads the pre-purchase population...
+    expect(readout(r).textContent).toBe('0/1 population');
+    // ...until the command runs, before the next tick, and `main.ts`
+    // repaints the dock on a tick that ran one.
+    expect(runtime.applyQueued()).toBe(1);
+    r.dock.refresh();
     expect(readout(r).textContent).toBe('1/1 population');
     expect(readout(r).classList.contains('rl-warn')).toBe(true);
     expect(r.tile('inf_squad').dataset.capped).toBe('1');
     r.tile('inf_squad').click();
     expect(onDeny).toHaveBeenCalledTimes(1);
+    expect(sent).toHaveLength(1);
     expect(runtime.production).toHaveLength(1);
+  });
+
+  // Review Focus 3, the UI half, against the real runtime: two clicks in ONE
+  // frame where the cap (like the purse) covers one. The pre-check cannot see
+  // the first, unspent, so it says yes to both: both are sent, both are noted
+  // "building" and neither is denied (D3's known gap, pinned, not hidden).
+  // When the commands run, the first is queued and the second refused,
+  // spending nothing; neither runs late.
+  it('against a real capped runtime: two clicks in one frame are both sent, and the runtime takes one', () => {
+    const onDeny = vi.fn();
+    const { r, sim, runtime, sent } = cappedWorld(onDeny);
+    const before = runtime.logistics;
+    r.tile('inf_squad').click();
+    r.tile('inf_squad').click();
+    expect(sent).toEqual([
+      { kind: 'build', side: 0, unit: 'inf_squad' },
+      { kind: 'build', side: 0, unit: 'inf_squad' },
+    ]);
+    expect(onDeny).not.toHaveBeenCalled();
+    expect(r.notes.map((n) => n.tone)).toEqual(['info', 'info']);
+    expect(runtime.applyQueued()).toBe(1);
+    expect(runtime.production).toHaveLength(1);
+    expect(runtime.logistics).toBe(before - 292);
+    sim.tick();
+    expect(runtime.applyQueued()).toBe(0);
+    expect(runtime.production).toHaveLength(1);
+    expect(runtime.logistics).toBe(before - 292);
   });
 });

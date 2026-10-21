@@ -12,6 +12,7 @@ const win = (id: string, label: string, r: IntelRun, expectation: RunRecord['exp
   minutes: r.endTick / 1200,
   stars: 2,
   roe: 100,
+  maxQueue: 0,
   ...r,
 });
 

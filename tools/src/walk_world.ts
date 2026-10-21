@@ -15,7 +15,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { applyTerrain, parseMap, structures as structureCatalogue } from '../../packages/data/src/index';
+import { applyTerrain, parseMap, roadMaskOf, structures as structureCatalogue } from '../../packages/data/src/index';
 import { MissionRuntime, type LedgerData } from '../../packages/sim/src/mission';
 import { Sim } from '../../packages/sim/src/sim';
 import type { TunnelRouteJson } from '../../packages/sim/src/tunnels';
@@ -114,6 +114,7 @@ export function makeWorld(
     },
     markers: map.markers as never,
     zones: map.zones as never,
+    roadMask: roadMaskOf(map),
     tunnels,
     unitInfo: (u: string) => (units[u] ?? null) as never,
     ...(opts.ledger !== undefined ? { ledger: opts.ledger } : {}),

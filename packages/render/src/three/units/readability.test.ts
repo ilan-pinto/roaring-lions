@@ -69,7 +69,8 @@ describe('HP_BAR', () => {
 
 describe('ringRadiusFor', () => {
   it('uses the type row, and the class value for a type with none', () => {
-    expect(ringRadiusFor('mbt_lavi', 'armour')).toBe(1.15);
+    // 1.15 until the Lavi's x1.18 rescale (lead, 2026-10-15).
+    expect(ringRadiusFor('mbt_lavi', 'armour')).toBe(1.35);
     expect(ringRadiusFor('no_such_unit', 'foot')).toBe(SELECTION_RING.radiusTiles.foot);
   });
   it('overrides only dozer_d9, to light', () => {
@@ -78,9 +79,11 @@ describe('ringRadiusFor', () => {
 });
 
 describe('ELLIPSE_BY_TYPE (G-MOCK: "Team colour + ellipse")', () => {
-  it('carries the mocked numbers: pad 0.30, Lavi 1.17 x 0.78 centred 0.18 behind; Namer grown to hold its corners', () => {
+  it('carries the mocked numbers: pad 0.30, Lavi 1.35 x 0.89 centred 0.22 behind; Namer grown to hold its corners', () => {
     expect(ELLIPSE_PAD_TILES).toBe(0.3);
-    expect(ELLIPSE_BY_TYPE.mbt_lavi).toEqual({ along: 1.17, across: 0.78, offsetAlong: -0.18 });
+    // The mock's Lavi was 1.17 x 0.78 centred 0.18 behind; the x1.18 rescale
+    // (lead, 2026-10-15) re-measured it by the mock's rule.
+    expect(ELLIPSE_BY_TYPE.mbt_lavi).toEqual({ along: 1.35, across: 0.89, offsetAlong: -0.22 });
     // Fix round 1: grown from the mocked 1.52 x 0.97 so its hull corners are inside.
     // B8 v2 (2026-10-02): the Namer is a new Meshy remesh (7.3 m x 4.12 m), so
     // the generator re-measured it at 1.61 x 1.05 -- the mock's rule, not its number.
@@ -112,7 +115,8 @@ describe('the ring grid and cache numbers (Task 5, fix round 1)', () => {
     expect(RING_GRID_XL).toBe(7);
     expect(RING_XL_TILES).toBe(1.23);
     const xl = Object.entries(ELLIPSE_BY_TYPE).filter(([, e]) => e.along > RING_XL_TILES).map(([id]) => id).sort();
-    expect(xl).toEqual(['apc_eitan', 'apc_kipod', 'dozer_d9', 'ifv_namer', 'rocket_battery']);
+    // The Lavi joined at its x1.18 rescale (along 1.17 -> 1.35, lead 2026-10-15).
+    expect(xl).toEqual(['apc_eitan', 'apc_kipod', 'dozer_d9', 'ifv_namer', 'mbt_lavi', 'rocket_battery']);
   });
   it('GH-346: a fourth tier, 9x9 over 1.5 tiles -- at 1x exactly the four grown ellipses', () => {
     expect(RING_GRID_XXL).toBe(9);

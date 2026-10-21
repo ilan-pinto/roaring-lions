@@ -451,7 +451,12 @@ describe('III: the massif', () => {
     // control: level the massif and he reads all of it
     const open = { ...levelled(m, [0, 0, 47, 47], 2), rows: m.rows.map((r) => r.replace(/\^/g, '.')) } as MapJson;
     expect(seenBy(48, open)).toBe(72);
-  });
+    // 216 line-of-sight walks over the whole defile, three of them at sight 48.
+    // Measured single-file, Apple M3 Pro, 2026-10-15, five runs with the load
+    // average at 13-94 on 12 cores (two on the efficiency cores alone):
+    // 0.75-1.46 s. It crossed vitest's 5 s default only under a full parallel
+    // `pnpm test`, not single-file. The margin is for contention only.
+  }, 30_000);
   it('both pockets cover the exit column and neither reads the leg below it', () => {
     const col: Pt[] = [14, 15, 16, 17, 18, 19, 20].map((y) => [33, y]);
     for (const tag of ['tm_pocket_west', 'tm_pocket_east']) {

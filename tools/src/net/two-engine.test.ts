@@ -1,7 +1,8 @@
 // `two-engine.ts` drives three real browsers and is run only by CI's `visual`
 // job; what it DECIDES is `verdict`, tested here on hand-written readings.
+import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
-import { annotationText, decide, verdict, type EngineOutcome, type EngineReading } from './two-engine-verdict';
+import { annotationText, decide, parseEngineArgs, verdict, type EngineOutcome, type EngineReading } from './two-engine-verdict';
 
 const TARGET = 600;
 const FIRST_ORDER = 10;
@@ -140,7 +141,61 @@ describe('two-engine decision (exit codes, R39)', () => {
     expect(decide({ chromium: ok(5) }, TARGET, FIRST_ORDER, CONTENT).exit).toBe(1);
   });
 
+  it('exit 2: a REQUIRED engine that could not boot is a failure, not an exit-3 warning', () => {
+    const all = ['chromium', 'firefox', 'webkit'];
+    const d = decide({ chromium: ok(5), firefox: noGl('firefox'), webkit: ok(5) }, TARGET, FIRST_ORDER, CONTENT, all);
+    expect(d.exit).toBe(2);
+    expect(texts(d.lines)).toEqual([
+      'FAIL (no reading): firefox is required on this runner and could not boot: firefox: no WebGL2 here.\n  second line',
+      'PASS: 2 engines, tick 600, hash 5, content digest -1234567 (equal to Node\'s) (chromium, webkit)',
+      'FAIL: firefox required on this runner and produced no reading.',
+    ]);
+    // The same outcomes with nothing required are R39's exit 3, unchanged.
+    expect(decide({ chromium: ok(5), firefox: noGl('firefox'), webkit: ok(5) }, TARGET, FIRST_ORDER, CONTENT).exit).toBe(3);
+  });
+
+  it('exit 2: a required engine that was never tried at all is a failure', () => {
+    const d = decide({ chromium: ok(5), webkit: ok(5) }, TARGET, FIRST_ORDER, CONTENT, ['chromium', 'firefox', 'webkit']);
+    expect(d.exit).toBe(2);
+    expect(d.lines[0]).toEqual({ level: 'error', text: 'FAIL (no reading): firefox is required on this runner and was never tried.' });
+  });
+
+  it('exit 0 with every engine required and every engine agreeing; exit 1 still outranks a missing required engine', () => {
+    const all = ['chromium', 'firefox', 'webkit'];
+    expect(decide({ chromium: ok(5), firefox: ok(5), webkit: ok(5) }, TARGET, FIRST_ORDER, CONTENT, all).exit).toBe(0);
+    expect(decide({ chromium: ok(5), firefox: noGl('firefox'), webkit: ok(6) }, TARGET, FIRST_ORDER, CONTENT, all).exit).toBe(1);
+  });
+
   it('an annotation message stays on one line', () => {
     expect(annotationText('a%b\r\nc\nd')).toBe('a%25b%0D%0Ac%0Ad');
+  });
+});
+
+describe('two-engine flags', () => {
+  it('reads --require and --firefox-headed, and leaves --port to the port helper', () => {
+    expect(parseEngineArgs(['--port=5183'])).toEqual({ require: [], firefoxHeaded: false });
+    expect(parseEngineArgs(['--port=5183', '--firefox-headed', '--require=chromium,firefox,webkit']))
+      .toEqual({ require: ['chromium', 'firefox', 'webkit'], firefoxHeaded: true });
+  });
+
+  it('refuses an engine it does not know, so a typo cannot quietly require nothing', () => {
+    expect(() => parseEngineArgs(['--require=chromium,firefx'])).toThrow(/unknown engine\(s\) firefx/);
+  });
+});
+
+describe('CI runs the check so that it can judge three engines', () => {
+  // The step must run Firefox headed under a display and require all three
+  // engines: without either, Firefox drops to an exit-3 warning on every run
+  // and the "three engines" check silently compares two (or none).
+  const ci = readFileSync(new URL('../../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+  const step = ci.split('\n').find((l) => l.includes('pnpm net:engines'));
+
+  it('runs net:engines under xvfb-run, Firefox headed, all three required, with no exit-3 pass', () => {
+    expect(step).toBeDefined();
+    expect(step).toMatch(/xvfb-run -a pnpm net:engines /);
+    expect(step).toContain('--firefox-headed');
+    const req = /--require=(\S+)/.exec(step ?? '')?.[1];
+    expect(parseEngineArgs([`--require=${req ?? ''}`]).require.sort()).toEqual(['chromium', 'firefox', 'webkit']);
+    expect(ci).not.toMatch(/"\$code" = "3"[\s\S]{0,400}net:engines|net:engines[\s\S]{0,400}"\$code" = "3"/);
   });
 });

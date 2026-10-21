@@ -638,7 +638,7 @@ export function hexSaturation(hex: string): number {
  * colour has left at its own lightness, and a pale yellow has very little.
  * That is the instrument being harsh in the right direction, not a defect in
  * it (see `hexSaturation`). It is also a colour no range ring can ever draw
- * in -- `neutral` is side 2, civilians, who carry no weapons -- and it is
+ * in -- slot 2 is the civilian colour, side 2, civilians, who carry no weapons -- and it is
  * still held to the budget on purpose, because the point of reading all
  * twelve off disk is that a variant added later is covered the day it lands.
  *

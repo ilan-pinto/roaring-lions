@@ -50,9 +50,9 @@ async function drive<T>(loop: Loop, runners: { pump(n: number): number }[], p: P
   return p;
 }
 
-/** Two seat clients, both started. */
-async function twoSeats(): Promise<{ loop: Loop; a: Joined; c: Joined; room: Awaited<ReturnType<typeof newRoom>> }> {
-  const room = await newRoom();
+/** Two seat clients, both started; both seats human unless `kinds` says otherwise. */
+async function twoSeats(kinds: { host?: 'human' | 'bot'; guest?: 'human' | 'bot' } = {}): Promise<{ loop: Loop; a: Joined; c: Joined; room: Awaited<ReturnType<typeof newRoom>> }> {
+  const room = await newRoom(kinds);
   const a = join(room.loop, await room.ticket(0), 0);
   const c = join(room.loop, await room.ticket(1), 1);
   await room.loop.flush();
@@ -87,6 +87,12 @@ describe('order in command scope (case 2)', () => {
     expect(body(refused).error).toBe('not your unit');
     const unknown = await call(ctx, 'order', { verb: 'callStrike', ids: [own] });
     expect(body(unknown).error).toBe('unknown verb');
+    expect(body(await call(ctx, 'order', { verb: 'setStance', ids: [own] })).error).toBe('unknown verb');
+    expect(body(await call(ctx, 'order', { verb: 'build', ids: [own] })).error).toBe('unknown verb');
+    expect(body(await call(ctx, 'order', { verb: 'support', ids: [own] })).error).toBe('unknown verb');
+    for (const verb of ['cancelBuild', 'setRally', 'clearRally']) {
+      expect(body(await call(ctx, 'order', { verb, ids: [own] })).error, verb).toBe('unknown verb');
+    }
     const off = await call(ctx, 'order', { verb: 'move', ids: [own], x: 999, y: 3 });
     expect(body(off).error).toBe('off the map');
     const taken = await call(ctx, 'order', { verb: 'move', ids: [own], x: 12, y: 14 });
@@ -99,6 +105,104 @@ describe('order in command scope (case 2)', () => {
     expect(orders.find((o) => o.ref === ref)).toMatchObject({ status: 'applied', verb: 'move', tile: [12, 14] });
     // Nothing the room refused: no frame carried the enemy id from seat 0.
     expect(sentBy(loop, a).filter((m) => m.t === 'cmd')).toHaveLength(1);
+  });
+});
+
+// The ruling (15 Oct, coordinator, lead-delegated): the human UI never sends
+// `sweep` (the lead's 11 Oct ruling), so an agent may send it only where no
+// human seat plays -- command scope, both seats `kind: 'bot'` (the arena,
+// parity with the in-process `rush`) -- and never in assist.
+const BOTS = { host: 'bot', guest: 'bot' } as const;
+describe('order: attackMove with sweep (N4b minors)', () => {
+  it('bot against bot: sweep: true reaches the room on the frame and both sims queue it with sweep: true', async () => {
+    const { loop, a, c } = await twoSeats(BOTS);
+    const ctx = createContext(a.client, 'command');
+    const wa = a.client.world() as MatchWorld;
+    const wc = c.client.world() as MatchWorld;
+    const own = sideIds(wa, 0)[0];
+    const queuedA = vi.spyOn(wa.sim, 'queueCommand');
+    const queuedC = vi.spyOn(wc.sim, 'queueCommand');
+    const r = await call(ctx, 'order', { verb: 'attackMove', ids: [own], x: 20, y: 20, sweep: true });
+    expect(r.ok, r.text).toBe(true);
+    await drive(loop, [a.client, c.client], call(ctx, 'wait', { ticks: 40 }));
+    // What seat 0 sent, and what the room minted into a frame for BOTH seats.
+    const sent = sentBy(loop, a).filter((m) => m.t === 'cmd');
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ cmd: { kind: 'attackMove', ids: [own], sweep: true } });
+    for (const j of [a, c]) {
+      const framed = heardBy(loop, j).flatMap((m) => (m.t === 'frame' ? m.cmds : [])).map((s) => s.cmd);
+      expect(framed).toEqual([{ kind: 'attackMove', ids: [own], x: fx.from(20.5), y: fx.from(20.5), sweep: true }]);
+    }
+    // Applied: ownership passed it, on both machines, into the sim with the flag.
+    for (const q of [queuedA, queuedC]) {
+      expect(q.mock.calls.map(([cmd]) => cmd)).toEqual([{ kind: 'attackMove', ids: [own], x: fx.from(20.5), y: fx.from(20.5), sweep: true }]);
+    }
+  });
+  it('bot against bot: sweep without it is absent from the command, and sweep: false is carried as false', async () => {
+    const { loop, a, c } = await twoSeats(BOTS);
+    const ctx = createContext(a.client, 'command');
+    const own = sideIds(a.client.world() as MatchWorld, 0)[0];
+    expect((await call(ctx, 'order', { verb: 'attackMove', ids: [own], x: 20, y: 20 })).ok).toBe(true);
+    expect((await call(ctx, 'order', { verb: 'attackMove', ids: [own], x: 21, y: 20, sweep: false })).ok).toBe(true);
+    await drive(loop, [a.client, c.client], call(ctx, 'wait', { ticks: 40 }));
+    const sent = sentBy(loop, a).filter((m) => m.t === 'cmd').map((m) => (m as { cmd: Record<string, unknown> }).cmd);
+    expect(sent).toHaveLength(2);
+    expect('sweep' in sent[0]).toBe(false);
+    expect(sent[1].sweep).toBe(false);
+  });
+  it('bot against bot: sweep on any verb but attackMove is refused, and nothing is sent', async () => {
+    const { loop, a } = await twoSeats(BOTS);
+    const ctx = createContext(a.client, 'command');
+    const own = sideIds(a.client.world() as MatchWorld, 0)[0];
+    for (const args of [
+      { verb: 'move', ids: [own], x: 12, y: 14, sweep: true },
+      { verb: 'move', ids: [own], x: 12, y: 14, sweep: false },
+      { verb: 'halt', ids: [own], sweep: true },
+    ]) {
+      const r = await call(ctx, 'order', args);
+      expect(r.ok, JSON.stringify(args)).toBe(false);
+      expect(body(r)).toEqual({ error: 'invalid', detail: 'sweep is for attackMove only' });
+    }
+    const notBool = await call(ctx, 'order', { verb: 'attackMove', ids: [own], x: 12, y: 14, sweep: 'yes' });
+    expect(body(notBool)).toEqual({ error: 'invalid', detail: 'sweep is true or false' });
+    await loop.flush();
+    expect(sentBy(loop, a).filter((m) => m.t === 'cmd')).toEqual([]);
+  });
+  for (const [label, kinds] of [['both seats human', {}], ['a bot seat against a human', { host: 'bot', guest: 'human' }], ['a human seat against a bot', { host: 'human', guest: 'bot' }]] as const) {
+    it(`command, ${label}: sweep is refused as not available against a human seat, and nothing is sent`, async () => {
+      const { loop, a } = await twoSeats(kinds);
+      const ctx = createContext(a.client, 'command');
+      const own = sideIds(a.client.world() as MatchWorld, 0)[0];
+      for (const sweep of [true, false]) {
+        const r = await call(ctx, 'order', { verb: 'attackMove', ids: [own], x: 20, y: 20, sweep });
+        expect(r.ok).toBe(false);
+        expect(body(r).error).toBe('not available against a human seat');
+      }
+      // The same order without it is taken.
+      expect((await call(ctx, 'order', { verb: 'attackMove', ids: [own], x: 20, y: 20 })).ok).toBe(true);
+      await loop.flush();
+      expect(sentBy(loop, a).filter((m) => m.t === 'cmd' && 'sweep' in (m as { cmd: object }).cmd)).toEqual([]);
+    });
+  }
+  it('assist: sweep is always refused, even with both seats bots, and no proposal is sent', async () => {
+    const room = await newRoom(BOTS);
+    const human = join(room.loop, await room.ticket(0), 0);
+    const other = join(room.loop, await room.ticket(1), 1);
+    const adv = join(room.loop, await room.advisorTicket(0, 'assist'), 0, 'advisor');
+    await room.loop.flush();
+    await Promise.all([human.client.ready, other.client.ready, adv.client.ready]);
+    const ctx = createContext(adv.client, 'assist');
+    const own = sideIds(adv.client.world() as MatchWorld, 0)[0];
+    const r = await call(ctx, 'order', { verb: 'attackMove', ids: [own], x: 20, y: 20, sweep: true });
+    expect(r.ok).toBe(false);
+    expect(body(r).error).toBe('not in this scope');
+    expect(String(body(r).detail)).toMatch(/sweep/);
+    await room.loop.flush();
+    expect(sentBy(room.loop, adv).filter((m) => m.t === 'advisor')).toEqual([]);
+  });
+  it('the schema offers sweep as a boolean', () => {
+    const order = TOOLS.find((t) => t.name === 'order');
+    expect((order?.schema.properties as Record<string, unknown>).sweep).toMatchObject({ type: 'boolean' });
   });
 });
 

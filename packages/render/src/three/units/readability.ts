@@ -22,12 +22,14 @@ export function ringClassOf(t: { isAir: boolean; wheeled: boolean; isSoft: boole
 }
 
 /**
- * Render-side class overrides, keyed by unit type id. The sim classes
- * `dozer_d9` as foot (role `engineer` is in its FOOT_ROLES, and
- * `mobility.wheeled` is not authored), so `ringClassOf` alone would give a
- * tracked 1.26-tile hull the rifleman's ring. Sim data is not ours to change
- * (it would move the pathing domain); the ring reads it as what its flags give
- * once it is a vehicle: soft-skinned, so `light`.
+ * Render-side class overrides, keyed by unit type id. Until GH-598 the sim
+ * classed `dozer_d9` as foot (role `engineer` is in its FOOT_ROLES, and
+ * `mobility.wheeled` was not authored), so `ringClassOf` alone gave a tracked
+ * 1.26-tile hull the rifleman's ring, and this override made it `light`. Its
+ * JSON says `wheeled: true` now, and with front armour 240 it is not soft, so
+ * `ringClassOf` reads `armour`; the override still holds the `light` ring it
+ * shipped with, so GH-598 moves no ring. Whether it should read `armour` is a
+ * render call, not the sim's.
  */
 export const RING_CLASS_OVERRIDE: Readonly<Record<string, RingClass>> = { dozer_d9: 'light' };
 
@@ -94,7 +96,8 @@ export const HP_BAR = { widthPx: 24, heightPx: 3, framePx: 1, frameAlpha: 1 } as
  */
 export const RADIUS_BY_TYPE: Readonly<Record<string, number>> = {
   // dozer_d9 and scout_shachaf re-measured from their A3.2 Meshy exports (GH-185, 2026-09-30).
-  mbt_lavi: 1.15, ifv_namer: 1.61, apc_eitan: 1.49, apc_kipod: 1.56, scout_shachaf: 1.01,
+  // mbt_lavi 1.15 -> 1.35 re-measured after the x1.18 rescale (lead, 2026-10-15).
+  mbt_lavi: 1.35, ifv_namer: 1.61, apc_eitan: 1.49, apc_kipod: 1.56, scout_shachaf: 1.01,
   // B7 (GH-179, 2026-10-01): re-measured from the Meshy figures that replaced the
   // supplied bipeds -- three men in kit's line read narrower than the supplied
   // rifleman, the prone sniper pair wider than the sculpt.
@@ -175,7 +178,8 @@ export interface RingEllipse {
  * measurement. A type absent here draws the circle `ringRadiusFor` gives.
  */
 export const ELLIPSE_BY_TYPE: Readonly<Record<string, RingEllipse>> = {
-  mbt_lavi: { along: 1.17, across: 0.78, offsetAlong: -0.18 },
+  // Re-measured 2026-10-18 after the Lavi's x1.18 rescale (lead's ruling, 2026-10-15).
+  mbt_lavi: { along: 1.35, across: 0.89, offsetAlong: -0.22 },
   ifv_namer: { along: 1.61, across: 1.05, offsetAlong: 0 },
   apc_eitan: { along: 1.52, across: 0.83, offsetAlong: 0 },
   jeep_shoded: { along: 1.1, across: 0.69, offsetAlong: 0 },

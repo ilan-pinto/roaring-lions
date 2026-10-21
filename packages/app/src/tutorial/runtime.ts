@@ -134,6 +134,8 @@ export function matches(
     }
     case 'mission': {
       if (input.kind !== 'mission' || input.event.kind !== pred.event) return false;
+      // R-F4-1: only our own purchases are the player's `built`.
+      if (input.event.kind === 'built' && input.event.side !== 0) return false;
       if (pred.id === undefined) return true;
       // Only `trigger` and `objective` carry an authored id; every other
       // event's id-shaped field is an entity number, which an authored

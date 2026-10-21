@@ -134,6 +134,36 @@ describe('per-unit demolition time', () => {
     expect(sim.structureAt(10, 10)).toBe(-1);
   });
 
+  // F4 Task 7 (R-F4-9): the own-camp skip reads the PLACEMENT's side, not the type's.
+  it('a camp overridden to side 1 is not levelled by side 1\'s own sapper, but is by side 0\'s', () => {
+    for (const [sapperSide, stands] of [[1, true], [0, false]] as const) {
+      const sim = new Sim({ seed: 7, width: 32, height: 32, capacity: 8 });
+      const camp = sim.addStructureType(CAMP); // the TYPE produces for 0
+      const s = sim.addStructure(camp, [10 * 32 + 10]);
+      sim.setStructureProducesFor(s, 1);
+      const t = sim.addUnitType(DOZER);
+      sim.spawn(t, sapperSide, fx.from(11.5), fx.from(10.5));
+      for (let n = 0; n < 400; n++) sim.tick();
+      expect(sim.structureAt(10, 10) >= 0, `sapper side ${sapperSide}`).toBe(stands);
+    }
+  });
+
+  it('structureProducesFor is the override, else the type, and is setup-only', () => {
+    const sim = new Sim({ seed: 7, width: 32, height: 32, capacity: 8 });
+    const camp = sim.addStructureType(CAMP);
+    const shack = sim.addStructureType(SHACK);
+    const a = sim.addStructure(camp, [10 * 32 + 10]);
+    const b = sim.addStructure(shack, [12 * 32 + 12]);
+    expect(sim.structureProducesFor(a)).toBe(0);
+    expect(sim.structureProducesFor(b)).toBe(-1);
+    sim.setStructureProducesFor(a, 1);
+    sim.setStructureProducesFor(b, 0);
+    expect(sim.structureProducesFor(a)).toBe(1);
+    expect(sim.structureProducesFor(b)).toBe(0);
+    sim.tick();
+    expect(() => sim.setStructureProducesFor(a, 0)).toThrow(/setup-only/);
+  });
+
   // Levelling your own camp is an order, like cutting your own wire.
   it('demolishes its own camp when the player designates it', () => {
     const sim = new Sim({ seed: 7, width: 32, height: 32, capacity: 8 });
