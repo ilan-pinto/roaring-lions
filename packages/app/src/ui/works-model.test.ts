@@ -3,6 +3,8 @@ import { fx, type StructureType, type WorksRefusal } from '@lions/sim';
 import {
   auraChipKey,
   refusalKey,
+  siteOfSelection,
+  siteSelection,
   worksCardModel,
   worksEventNotice,
   worksLegendKeys,
@@ -149,5 +151,17 @@ describe('works rings, legend, chips, card, feed', () => {
   it('a refusal names its reason', () => {
     const refused = { kind: 'works', tick: 1, phase: 'refused', typeId: 'x', site: -1, builder: -1, refund: 100, reason: 'overlap' } as const;
     expect(worksEventNotice(refused, 'Tent')![0]).toContain('occupied');
+  });
+});
+
+describe('the works selection encoding', () => {
+  it('a structure row and nothing are never a site; a site round-trips', () => {
+    expect(siteOfSelection(-1)).toBe(-1);
+    expect(siteOfSelection(0)).toBe(-1);
+    expect(siteOfSelection(12)).toBe(-1);
+    expect(siteSelection(0)).toBe(-2);
+    expect(siteSelection(5)).toBe(-7);
+    expect(siteOfSelection(-2)).toBe(0);
+    expect(siteOfSelection(-7)).toBe(5);
   });
 });

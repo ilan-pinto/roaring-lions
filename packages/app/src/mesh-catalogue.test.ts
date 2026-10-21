@@ -373,6 +373,16 @@ describe('meshPlanFor', () => {
     expect(meshPlanFor(map, new Set(), ['camp']).buildings.has('camp')).toBe(true);
   });
 
+  it('a field work named by the mission is planned with its construction GLB (not on any tile)', () => {
+    const plan = meshPlanFor(map, new Set(), ['kdf_medic_station', 'kdf_intel_centre']);
+    expect([...plan.buildings].sort()).toEqual(
+      ['apartment', 'clinic', 'hall', 'house', 'kdf_intel_centre', 'kdf_medic_station', 'shanty']
+    );
+    const built = meshManifestFor(plan).buildings;
+    expect(built.find((b) => b.id === 'kdf_medic_station')?.construction).toMatch(/kdf_medic_station_construction\.glb$/);
+    expect(built.find((b) => b.id === 'house')?.construction).toBeUndefined();
+  });
+
   it('takes its decor from decorFamiliesFor, never from a second rule', () => {
     expect(meshPlanFor(map, new Set()).decor).toEqual(decorFamiliesFor(map));
   });

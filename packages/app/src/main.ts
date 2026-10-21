@@ -84,8 +84,8 @@ import {
   videoManifest,
 } from '@lions/data';
 import './ui/theme.css';
-import { worksCardModel, worksEventNotice, worksLegendKeys, worksPreview, worksRings, worksShapeOf, type WorksShape } from './ui/works-model';
-import { sandboxWorksMission } from './sandbox-works';
+import { siteOfSelection, siteSelection, worksCardModel, worksEventNotice, worksLegendKeys, worksPreview, worksRings, worksShapeOf, type WorksShape } from './ui/works-model';
+import { sandboxWorksMission, worksTypeIdsFor } from './sandbox-works';
 import { Hud, type HudCommanderInfo, type MissionView, type OrderHandlers, type Tone } from './ui/hud';
 import { hintFor, loadSeen, markSeen } from './ui/hint-model';
 import { createShownTimer, incomeHeld, loadHintsSeen, markHintSeen, owedRule, type HintContext } from './ui/hint-rules';
@@ -2140,7 +2140,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // `./mesh-catalogue`'s `meshPlanFor` (Task 2 of the scene-host plan): which
   // meshes this roster and this map's own buildings actually need, so the
   // menu's own diorama can ask the same question about its own roster.
-  const meshPlan = meshPlanFor(map, meshRoster, (mission?.structures ?? []).map((s) => s.type));
+  // Field works are on no map tile and in no mission placement, so their ids join the plan by
+  // name: the mission's `field_works`, or on `&works` every offered type.
+  const worksIds = worksTypeIdsFor(
+    mission?.field_works,
+    wantWorks && !mission && versusWorld === null && !inRoom ? sim.structureTypes : null
+  );
+  const meshPlan = meshPlanFor(map, meshRoster, [...(mission?.structures ?? []).map((s) => s.type), ...worksIds]);
   // Resolved once, beside `meshPlan` and BEFORE `new ThreeRenderer` below --
   // nothing between here and the renderer's construction may throw, because
   // its teardown is not registered until the context exists.
@@ -2292,7 +2298,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // step 3 -- on `beit_sahwan_outskirts` the five wreck GLBs are 9.62
     // MiB of a 47.0 MiB level and `hall_wreck` alone is 3.77, while the
     // earliest a building can fall is minutes of play away.
-    ...meshManifest.buildings.map((m) => three.loadBuildingMesh(m.id, m.url, null)),
+    ...meshManifest.buildings.map((m) => three.loadBuildingMesh(m.id, m.url, null, m.construction)),
     // The three shared VFX meshes (`units/muzzle-flash.ts`,
     // `units/explosion-burst.ts`, `units/smoke-plume.ts`). Not keyed by
     // anything and wanted by every mission -- 0.46 MiB for the set, so
@@ -3183,11 +3189,22 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // Field works (GH-277): the card for a selected own works under construction.
     selectedWorks: () => selectedWorks,
     worksCardOf: (st) => {
+      // An unstaked site has no structure row yet: nothing is built, the whole price comes back.
+      const site = siteOfSelection(st);
+      if (site >= 0) {
+        const u = worksRt?.unstakedWorksAtSite(site) ?? null;
+        return u === null ? null : worksCardModel(u.name, 0, ONE, u.logistics);
+      }
       const w = worksRt?.worksAt(st) ?? null;
       if (w === null || w.done) return null;
       return worksCardModel(w.name, sim.structures.progress[st], ONE, w.logistics);
     },
     onCancelWorks: (st) => {
+      const site = siteOfSelection(st);
+      if (site >= 0) {
+        if (worksRt?.requestCancelWorks(site) === true) selectedWorks = -1;
+        return;
+      }
       const w = worksRt?.worksAt(st) ?? null;
       if (w !== null && worksRt?.requestCancelWorks(w.site) === true) selectedWorks = -1;
     },
@@ -3979,6 +3996,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     return announce;
   };
 
+  /** The selected units a `construct` order would take: the SAME set the placement click hands
+   *  `requestConstruct`, and what the dock and the placement preview ask `constructReason` with,
+   *  so a selected engineer that is busy still counts. Empty with none selected (the runtime's
+   *  idle-carrier fallback then answers). */
+  const ownBuilders = (): number[] =>
+    renderer.selection.filter(
+      (i) => isOwnSide(sim.state.side[i], me) && sim.state.alive[i] === 1 && sim.unitTypes[sim.state.typeIdx[i]].canConstruct
+    );
   const dockRt = runtime && mission?.resources ? runtime : sandboxWorksRt;
   if (dockRt) {
     production = new ReinforcementDock(document.body, {
@@ -4034,6 +4059,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           };
         }),
       runtime: dockRt,
+      worksBuilders: ownBuilders,
       ledger,
       missionName: (id) => (missions as Record<string, MissionJson | undefined>)[id]?.name,
       // GH-229 bug 2: the same `ledgerStore.readAccount()` seam the garage
@@ -4146,7 +4172,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     if (!worksRt) return -1;
     const at = pointerPoint(pointerView, sim, px, py);
     const st = sim.structureAt(Math.floor(at.x), Math.floor(at.y));
-    if (st < 0 || sim.structures.alive[st] === 0 || sim.structures.owner[st] !== me) return -1;
+    if (st < 0) {
+      // Nothing stands there yet: a site waiting for its builder is selectable by its footprint.
+      const site = worksRt.unstakedWorksAt(Math.floor(at.x), Math.floor(at.y));
+      return site === null ? -1 : siteSelection(site.site);
+    }
+    if (sim.structures.alive[st] === 0 || sim.structures.owner[st] !== me) return -1;
     return worksRt.worksAt(st) !== null || sim.structureTypes[sim.structures.typeIdx[st]].aura !== null ? st : -1;
   };
   /** Whether structure `st` draws rings on hover or selection: complete, with an aura, and
@@ -4163,15 +4194,32 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     hud.showWorksTip(null, 0, 0);
     worksTip = null;
   };
+  let lastBuilderKey = '';
   /** Per frame, from `updateHover`: the armed work's pad, rings and tooltip (recomputed only
    *  when the tile or type changes); otherwise the rings of a hovered or selected works. */
   const updateWorks = (hoverStruct: number, gx: number, gy: number): void => {
+    // The dock's works tiles read the selected engineers: repaint on the frame the selection
+    // changes, not at the next 4 Hz beat (and not never, with the sim paused).
+    const builderKey = ownBuilders().join(',');
+    if (builderKey !== lastBuilderKey) {
+      lastBuilderKey = builderKey;
+      production?.refresh();
+    }
     if (selectedWorks >= 0 && sim.structures.alive[selectedWorks] === 0) selectedWorks = -1;
+    // An unstaked site selected earlier: once the stake lands the selection follows it to the
+    // structure row; when the site goes (cancelled, refused) the selection goes.
+    const selSite = siteOfSelection(selectedWorks);
+    if (selSite >= 0) {
+      const sw = sim.works;
+      selectedWorks = sw.alive[selSite] === 0 ? -1 : sw.structure[selSite] >= 0 ? sw.structure[selSite] : selectedWorks;
+    }
     if (armedWorks !== null && worksRt) {
       worksRingKey = '';
       const tx = Math.floor(gx);
       const ty = Math.floor(gy);
-      const key = `${armedWorks}:${tx}:${ty}`;
+      const builders = ownBuilders();
+      // The selection is in the key: selecting or deselecting an engineer re-asks the runtime.
+      const key = `${armedWorks}:${tx}:${ty}:${builders.join(',')}`;
       if (key !== worksKey) {
         worksKey = key;
         const shape = shapeOfWorks(armedWorks);
@@ -4180,7 +4228,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           renderer.auraRingPreview = [];
           worksTip = null;
         } else {
-          const pv = worksPreview(shape, tx, ty, worksRt.constructReason(armedWorks, tx, ty));
+          const pv = worksPreview(shape, tx, ty, worksRt.constructReason(armedWorks, tx, ty, builders));
           renderer.placementPreview = pv.pad;
           renderer.auraRingPreview = pv.rings;
           worksTip = [
@@ -4527,9 +4575,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       if (armedWorks !== null && worksRt) {
         const typeId = armedWorks;
         const tile = worksTileAt(p.x, p.y);
-        const builders = renderer.selection.filter(
-          (i) => isOwnSide(sim.state.side[i], me) && sim.state.alive[i] === 1 && sim.unitTypes[sim.state.typeIdx[i]].canConstruct
-        );
+        const builders = ownBuilders();
         if (worksRt.requestConstruct(typeId, tile.x, tile.y, builders.length > 0 ? builders : undefined)) {
           // The engineers' acknowledgement is the move family's: the voice hears a move intent,
           // the sim, the replay and telemetry hear nothing but the `construct` command.
@@ -4540,7 +4586,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           renderer.addOrderMarker(tile.x + 0.5, tile.y + 0.5);
           if (!ev.shiftKey) production?.setArmed(null);
         } else {
-          const why = worksRt.constructReason(typeId, tile.x, tile.y);
+          const why = worksRt.constructReason(typeId, tile.x, tile.y, builders);
           if (why !== null) hud.note(t(`works.refuse.${why}`), 'mute');
           audio.playCue(CRITICAL_CUES.uiDeny);
         }

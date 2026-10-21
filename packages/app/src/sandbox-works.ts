@@ -35,3 +35,17 @@ export function sandboxWorksMission(
     field_works: fieldWorks,
   } as MissionJson;
 }
+
+/**
+ * The structure type ids a boot may draw as a field work, for `meshPlanFor`'s `extraStructures`:
+ * the mission's own `field_works` keys, or on a `&works` sandbox (no mission) every type the
+ * sandbox offers. A work raised mid-mission is on no map tile, so without these ids its GLB is
+ * never planned and it draws the procedural box.
+ */
+export function worksTypeIdsFor(
+  missionFieldWorks: Readonly<Record<string, number>> | undefined,
+  sandboxTypes: readonly WorksCatalogueEntry[] | null
+): string[] {
+  if (sandboxTypes !== null) return Object.keys(sandboxWorksMission(sandboxTypes, []).field_works ?? {});
+  return Object.keys(missionFieldWorks ?? {});
+}

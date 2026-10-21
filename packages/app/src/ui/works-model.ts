@@ -121,6 +121,17 @@ export interface WorksCardModel {
   refund: number;
 }
 
+/** The works selection is one number: a structure row (>= 0), nothing (-1), or an UNSTAKED site
+ *  (no structure row yet), encoded as `-2 - site` so the card can still cancel it. */
+export function siteSelection(site: number): number {
+  return -2 - site;
+}
+
+/** The site row a selection encodes, or -1 when it is a structure row or nothing. */
+export function siteOfSelection(selection: number): number {
+  return selection <= -2 ? -2 - selection : -1;
+}
+
 export function worksCardModel(name: string, progress: number, one: number, logistics: number): WorksCardModel {
   return { name, percent: Math.min(100, Math.floor((progress * 100) / one)), refund: worksRefund(logistics, progress) };
 }

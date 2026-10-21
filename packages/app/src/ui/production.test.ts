@@ -1367,6 +1367,28 @@ describe('the Field works group', () => {
     expect(worksRig().host.querySelector('[data-works="kdf_workshop"] .rl-tile__lock')?.textContent).toBe('');
   });
 
+  it('reads the selection: a selected engineer unlocks the tile, deselecting locks it again', () => {
+    let selected: number[] = [];
+    const asked: (readonly number[] | undefined)[] = [];
+    const rt = fakeRuntime({
+      worksOffers: () => OFFERS,
+      constructReason: (_id, _tx, _ty, builders) => {
+        asked.push(builders);
+        return builders !== undefined && builders.includes(7) ? null : 'needs_engineers';
+      },
+    });
+    const r = rig([dockUnit()], rt, undefined, { worksBuilders: () => selected });
+    const state = (): string | undefined => r.host.querySelector<HTMLElement>('[data-works="kdf_medic_station"]')?.dataset.state;
+    expect(state()).toBe('needs_engineers');
+    selected = [7];
+    r.dock.refresh();
+    expect(state()).toBe('ready');
+    expect(asked.at(-1)).toEqual([7]);
+    selected = [];
+    r.dock.refresh();
+    expect(state()).toBe('needs_engineers');
+  });
+
   it('a ready tile arms its kind, a second press disarms, a refused tile denies', () => {
     const r = worksRig({ kdf_workshop: 'none_left' });
     r.host.querySelector<HTMLButtonElement>('[data-works="kdf_medic_station"]')!.click();

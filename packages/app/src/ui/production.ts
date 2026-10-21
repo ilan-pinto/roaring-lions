@@ -90,13 +90,16 @@ export interface ProductionRuntime extends DockView {
    *  group, and the dock's DOM is the one a mission without `field_works` has. */
   worksOffers?(): readonly WorksOffer[];
   /** Why a type cannot be raised now (no tile: the dock tile's own state). */
-  constructReason?(typeId: string): WorksRefusal | null;
+  constructReason?(typeId: string, tx?: number, ty?: number, builders?: readonly number[]): WorksRefusal | null;
 }
 
 export interface ProductionOptions {
   units: BuildableUnit[];
   runtime: ProductionRuntime;
   note(html: string, tone?: Tone): void;
+  /** Field works: the selected units a `construct` order would take, so a selected engineer
+   *  that is busy still unlocks the tiles. Absent or empty: the runtime's idle-carrier fallback. */
+  worksBuilders?(): readonly number[];
   /** Arming is owned by the input layer — it decides what the next click means. */
   onArm(kind: SupportKind | null): void;
   /** Where an accepted purchase goes: the order sink, so it travels the frame path (N2). */
@@ -590,7 +593,7 @@ export class ReinforcementDock {
     const tile = this.worksTiles.find((x) => x.offer.typeId === kind.works);
     if (tile === undefined) return false;
     const name = escapeHtml(tile.offer.name);
-    const state = worksTileState(tile.offer, this.opts.runtime.constructReason?.(kind.works) ?? null);
+    const state = worksTileState(tile.offer, this.opts.runtime.constructReason?.(kind.works, undefined, undefined, this.opts.worksBuilders?.()) ?? null);
     if (state.state !== 'ready') {
       const reason: Record<WorksTileState['state'], string> = {
         ready: '',
@@ -770,7 +773,7 @@ export class ReinforcementDock {
   /** Field works: each tile's state, its `left/max` and its lock word. */
   private paintWorks(): void {
     for (const tile of this.worksTiles) {
-      const st = worksTileState(tile.offer, this.opts.runtime.constructReason?.(tile.offer.typeId) ?? null);
+      const st = worksTileState(tile.offer, this.opts.runtime.constructReason?.(tile.offer.typeId, undefined, undefined, this.opts.worksBuilders?.()) ?? null);
       tile.state = st.state;
       tile.el.dataset.state = st.state;
       tile.left.textContent = t('dock.works.left', { left: st.left, max: st.max });

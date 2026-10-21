@@ -1790,8 +1790,8 @@ export class MissionRuntime {
    * the type and origin of a live site of its own joins it: no count, no price, no placement
    * (that site's own footprint would read `overlap`).
    */
-  constructReason(typeId: string, tx?: number, ty?: number): WorksRefusal | null {
-    return this.worksReason(typeId, tx, ty, undefined);
+  constructReason(typeId: string, tx?: number, ty?: number, builders?: readonly number[]): WorksRefusal | null {
+    return this.worksReason(typeId, tx, ty, builders);
   }
 
   private worksReason(typeId: string, tx: number | undefined, ty: number | undefined, passed: readonly number[] | undefined): WorksRefusal | null {
@@ -1833,6 +1833,28 @@ export class MissionRuntime {
     }
     this.sim.queueCommand({ kind: 'construct', ids, structType: entry.structType, x: tx, y: ty });
     return true;
+  }
+
+  /** The player's live site that has NOT been staked yet (no structure row) and whose footprint
+   *  covers tile (tx, ty): its site row, type name and what it cost. Null if none. Read-only; the
+   *  app uses it so an unstaked site can be selected and cancelled. */
+  unstakedWorksAt(tx: number, ty: number): { site: number; name: string; logistics: number } | null {
+    for (const [site, c] of this.worksSites) {
+      const b = this.sim.structureTypes[c.structType].buildable;
+      if (b === null || tx < c.x || ty < c.y || tx >= c.x + b.fw || ty >= c.y + b.fh) continue;
+      const u = this.unstakedWorksAtSite(site);
+      if (u !== null) return u;
+    }
+    return null;
+  }
+
+  /** The same record by site row; null once the site is staked, gone, or not the player's. */
+  unstakedWorksAtSite(site: number): { site: number; name: string; logistics: number } | null {
+    const w = this.sim.works;
+    const c = this.worksSites.get(site);
+    if (c === undefined || w.alive[site] === 0 || w.side[site] !== 0 || w.structure[site] >= 0) return null;
+    const entry = this.worksEntry(c.typeId);
+    return { site, name: entry === null ? c.typeId : entry.offer.name, logistics: c.logistics };
   }
 
   /** What the runtime knows of a field work the player raised, by its structure row: its type,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sandboxWorksMission } from './sandbox-works';
+import { sandboxWorksMission, worksTypeIdsFor } from './sandbox-works';
 
 describe('sandboxWorksMission', () => {
   it('offers every buildable KDF type twice and nothing else', () => {
@@ -22,5 +22,18 @@ describe('sandboxWorksMission', () => {
     expect(m.resources?.logistics_start).toBe(5000);
     expect(m.objectives).toHaveLength(1);
     expect(m.objectives[0].seconds).toBe(86400);
+  });
+});
+
+describe('worksTypeIdsFor', () => {
+  it('a mission names its field_works keys; a sandbox names every offered type; neither otherwise', () => {
+    expect(worksTypeIdsFor({ kdf_medic_station: 1, kdf_intel_centre: 2 }, null)).toEqual(['kdf_medic_station', 'kdf_intel_centre']);
+    expect(worksTypeIdsFor(undefined, null)).toEqual([]);
+    expect(
+      worksTypeIdsFor(undefined, [
+        { id: 'kdf_outpost', buildable: {} },
+        { id: 'house', buildable: null },
+      ])
+    ).toEqual(['kdf_outpost']);
   });
 });

@@ -277,7 +277,7 @@ export interface HudDeps {
   hoverStructure: () => number;
   hoverEntity: () => number;
   /** Field works (GH-277): the structure row of the own works the player has selected, -1
-   *  none. With no unit selected and a card to show, the cluster draws the works card. */
+   *  none, or `-2 - site` for an unstaked site (`siteSelection`). With no unit selected and a card to show, the cluster draws the works card. */
   selectedWorks?: () => number;
   /** The card for that structure, or null for a complete works (rings only, no cancel). */
   worksCardOf?: (s: number) => WorksCardModel | null;
@@ -2303,7 +2303,7 @@ export class Hud {
       this.clusterCardUnit = -1;
       // Field works: a selected own works under construction gets its card here.
       const ws = this.deps.selectedWorks?.() ?? -1;
-      const card = ws >= 0 ? (this.deps.worksCardOf?.(ws) ?? null) : null;
+      const card = ws !== -1 ? (this.deps.worksCardOf?.(ws) ?? null) : null;
       if (card !== null) {
         const html = this.worksCardMarkup(ws, card);
         if (this.clusterShows !== 'works' || html !== this.worksCardHtml) {

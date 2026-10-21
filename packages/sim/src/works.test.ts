@@ -197,6 +197,50 @@ describe('the allow list', () => {
   });
 });
 
+describe('the selection counts for the dock (constructReason with builders)', () => {
+  it('a busy selected engineer keeps the type buildable; with no selection a busy or walking carrier is not idle', () => {
+    const w = build({ field_works: { w_outpost: 2 } });
+    expect(w.runtime.requestConstruct('w_outpost', 8, 5)).toBe(true);
+    w.step(1);
+    // Walking to the pad: not idle for the fallback, so the dock with no selection locks.
+    expect(w.sim.state.moving[0]).toBe(1);
+    expect(w.runtime.constructReason('w_outpost')).toBe('needs_engineers');
+    // Selected, the same walking engineer counts (the click would pass it to requestConstruct).
+    expect(w.runtime.constructReason('w_outpost', undefined, undefined, [0])).toBeNull();
+    // And once it is building, the same two answers.
+    for (let i = 0; i < 100 && !w.sim.isConstructing(0); i++) w.step(1);
+    expect(w.sim.isConstructing(0)).toBe(true);
+    expect(w.runtime.constructReason('w_outpost')).toBe('needs_engineers');
+    expect(w.runtime.constructReason('w_outpost', undefined, undefined, [0])).toBeNull();
+    // A selected rifleman is no builder: it does not unlock the dock.
+    const r = build({ field_works: { w_outpost: 1 } }, ['w_rifle']);
+    expect(r.runtime.constructReason('w_outpost', undefined, undefined, [0])).toBe('needs_engineers');
+  });
+});
+
+describe('an unstaked site can be found by its footprint', () => {
+  it('unstakedWorksAt covers the pad while the builder is still walking, then lets go at the stake', () => {
+    // The pad (16..17, 5..6) is nine tiles from the engineer, so the stake waits for it to arrive.
+    const w = build({ field_works: { w_outpost: 2 } });
+    expect(w.runtime.unstakedWorksAt(16, 5)).toBeNull();
+    expect(w.runtime.requestConstruct('w_outpost', 16, 5)).toBe(true);
+    w.step(1);
+    expect(w.sim.works.structure[0]).toBe(-1);
+    expect(w.runtime.unstakedWorksAt(17, 6)).toEqual({ site: 0, name: 'Outpost', logistics: 350 });
+    expect(w.runtime.unstakedWorksAt(18, 5)).toBeNull();
+    expect(w.runtime.unstakedWorksAt(16, 7)).toBeNull();
+    // Cancelling it by its site row refunds in full; the lookup goes with the row.
+    expect(w.runtime.requestCancelWorks(0)).toBe(true);
+    w.step(1);
+    expect(w.runtime.logisticsOf(0)).toBe(1000);
+    expect(w.runtime.unstakedWorksAt(16, 5)).toBeNull();
+    // Once the builder arrives and the stake is set it is a structure, no longer "unstaked".
+    const s = build({ field_works: { w_outpost: 1 } });
+    staked(s);
+    expect(s.runtime.unstakedWorksAt(8, 5)).toBeNull();
+  });
+});
+
 describe('who builds, when no builder is named', () => {
   it('equally near carriers: the lowest id', () => {
     // 0 engineer (7,5), 1 rifleman (7,6), 2 engineer (7,7); the pad (8..9, 5..6) has its centre

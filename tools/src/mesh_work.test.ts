@@ -64,4 +64,12 @@ describe('demo_squad work clip', () => {
     const f = w.rot.get('demo_a_forearm_R')!;
     expect(maxDeg(f.slice(0, 4), f.slice(f.length - 4))).toBeLessThan(0.5);
   });
+
+  it('keeps the full clip set and the gait stride the motion passes wrote', async () => {
+    const doc = await new NodeIO().readBinary(new Uint8Array(readFileSync(FILE)));
+    const names = doc.getRoot().listAnimations().map((x) => x.getName()).sort();
+    expect(names).toEqual(['down', 'fire', 'idle', 'kneel', 'kneelIn', 'kneelOut', 'move', 'moveFire', 'pinned', 'work', 'wreck']);
+    const gait = doc.getRoot().listScenes()[0].getExtras().rl_gait as { move: { strideM: number } };
+    expect(gait.move.strideM).toBeCloseTo(1.7977305, 6);
+  });
 });
