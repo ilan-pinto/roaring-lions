@@ -54,12 +54,13 @@
 
 import { fileURLToPath } from 'node:url';
 import { Sim } from '@lions/sim';
-import { applyTerrain, maps, parseMap, units, type MapId } from '@lions/data';
+import { applyTerrain, maps, parseMap, type MapId } from '@lions/data';
 import { VERSUS_FAIR_MAPS, type Faction } from '@lions/net';
 import { standMapStructures } from '../../../packages/app/src/map-sim';
 import { sandboxAnchors } from '../../../packages/app/src/sandbox-anchors';
 import { versusForceOf, versusSpawns, type VersusForce } from '../../../packages/app/src/net/versus-force';
 import { MATCH_CAP_TICKS, outcomeOf, unitCost, type MatchResult } from '../../../packages/app/src/net/outcome';
+import { versusRoster } from '../../../packages/app/src/net/versus-roster';
 
 /** 20 Hz, like the sim. */
 const TICKS_PER_SECOND = 20;
@@ -100,7 +101,8 @@ export function world(mapId: MapId, seed: number, humanHeld?: readonly [boolean,
   applyTerrain(map, sim);
   standMapStructures(sim, map);
   const typeOf = new Map<string, number>();
-  for (const [id, u] of Object.entries(units)) typeOf.set(id, sim.addUnitType(u as never));
+  // A room's roster, not the shipped one: `VERSUS_HELD_UNITS` stays out (GH-698).
+  for (const u of versusRoster()) typeOf.set(u.id, sim.addUnitType(u as never));
   return { sim, typeOf, map };
 }
 

@@ -89,7 +89,7 @@ export const TEXTURED_VEHICLE_TYPES: ReadonlySet<string> = new Set([
   'recon_drone',
   // GH-698 (2026-10-18): the UH-60 Yanshuf transport is a Meshy text-to-3D
   // remesh shipping its own 2k bake on hull_hull and rotor_metal
-  // (tools/vehicles/export_meshy_yanshuf.py). HELD in mesh-catalogue.ts until
-  // Lane C lands the land/lift sim work and the unit JSON.
+  // (tools/vehicles/export_meshy_yanshuf.py). Drawn since the unit landed
+  // (2026-10-21).
   'heli_yanshuf',
 ]);

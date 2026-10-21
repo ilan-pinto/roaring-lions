@@ -245,6 +245,12 @@ export const VEHICLE_UNIT_MESHES: Readonly<Record<string, string>> = {
   // (`tools/vehicles/export_meshy_apache_gunship.py`); an air unit on this path.
   heli_peten_gunship: 'vehicles/heli_peten_gunship.glb',
 
+  // GH-698 (2026-10-21): the UH-60 Yanshuf, an air carrier. Its art landed
+  // first (PR 701, held here until the land/lift sim, PR 713); a Meshy export
+  // (`tools/vehicles/export_meshy_yanshuf.py`), textured
+  // (`TEXTURED_VEHICLE_TYPES`), an air unit on this path like the Peten.
+  heli_yanshuf: 'vehicles/heli_yanshuf.glb',
+
   // WP-A3.1 batch B2 (GH-179, 2026-09-30): the first units generated through
   // `pnpm meshy` end to end (`docs/art/meshy-prompts-units.md` sections 6-7).
   // Both enemy; `gun_truck` is textured (`TEXTURED_VEHICLE_TYPES`), the drone
@@ -452,10 +458,6 @@ export const HELD_MESH_FILES: Readonly<Record<string, string>> = {
   // E5 part 2 (GH-181, 2026-10-01): the Tzav's unit JSON is staged and its
   // placed charge is E6's, so the file waits for E6 to wire it.
   'vehicles/demo_tzav.glb': 'demo_tzav (GH-181 E5 -> E6; VEHICLE_UNIT_MESHES)',
-  // GH-698 (2026-10-18): the UH-60 Yanshuf's art landed first; its unit JSON
-  // waits for Lane C's land/lift sim work (hashed airState), and lands with
-  // the catalogue entry in the same commit.
-  'vehicles/heli_yanshuf.glb': 'heli_yanshuf (GH-698 Lane C land/lift; VEHICLE_UNIT_MESHES)',
 };
 
 /**

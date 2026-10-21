@@ -12,7 +12,7 @@ import { ADVISOR_SCOPES, matchupAllowed, matchupField, versusMapAllowed, type Ad
 import { callsignField, kitField, mapField, paceField, seatKindField, seatTiersField, textField } from './room-fields';
 
 /** A size bound on the request bodies of create, join and the advisor ticket (hardening). */
-// largest legitimate body measured 1644 bytes (full brigade claim, 16 Oct); cap ≈ 2×
+// largest legitimate body measured 1698 bytes (full brigade claim, 21 Oct: + heli_yanshuf, GH-698); cap ≈ 2×
 export const MATCH_BODY_MAX_BYTES = 3584;
 const TICKET_MS = 6 * 3600 * 1000;
 const CODE_ATTEMPTS = 5;

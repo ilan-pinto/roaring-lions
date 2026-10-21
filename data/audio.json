@@ -231,7 +231,8 @@
       "ifv_namer": "tracked",
       "dozer_d9": "tracked",
       "heli_peten": "rotor",
-      "heli_peten_gunship": "rotor"
+      "heli_peten_gunship": "rotor",
+      "heli_yanshuf": "rotor"
     }
   },
   "sets": {

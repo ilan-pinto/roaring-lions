@@ -1,9 +1,10 @@
 import { Sim } from '@lions/sim';
-import { applyTerrain, maps, parseMap, units, type MapId, type ParsedMap } from '@lions/data';
+import { applyTerrain, maps, parseMap, type MapId, type ParsedMap } from '@lions/data';
 import { standMapStructures } from '../map-sim';
+import { versusRoster } from './versus-roster';
 
 /** A bare world for the net tests: the room's seed, the map's terrain and
- *  buildings, every unit type registered -- the recipe `tools/src/walk_world.ts`
+ *  buildings, every versus unit type registered (`versusRoster()`) -- the recipe `tools/src/walk_world.ts`
  *  and `bootBattlefield` share, minus the mission runtime. */
 export function buildWorld(mapId: MapId): { sim: Sim; typeOf: Map<string, number>; map: ParsedMap } {
   const map = parseMap(maps[mapId]);
@@ -11,6 +12,6 @@ export function buildWorld(mapId: MapId): { sim: Sim; typeOf: Map<string, number
   applyTerrain(map, sim);
   standMapStructures(sim, map);
   const typeOf = new Map<string, number>();
-  for (const [id, u] of Object.entries(units)) typeOf.set(id, sim.addUnitType(u as never));
+  for (const u of versusRoster()) typeOf.set(u.id, sim.addUnitType(u as never));
   return { sim, typeOf, map };
 }
