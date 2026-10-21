@@ -81,8 +81,27 @@
  * `gpu` the stricter one. To attribute cost between submission and fill you
  * want a GPU timer query (`EXT_disjoint_timer_query_webgl2`), which this
  * file does not use.
+ *
+ * ## Presets, hidden layers and the flipbook stress (Defilade T4)
+ *
+ * `--quality=high|medium|low` seeds `lions.settings` (through
+ * `musicOffInitScript`, so music stays off) before boot: the preset applies
+ * at boot only, so one run measures one preset. `--hide=<layer>[,<layer>]`
+ * hides `DEBUG_LAYERS` entries through `setDebugLayerVisible` before any
+ * view is timed -- `--hide=bloom` is the bloom off half of an A/B. A layer
+ * the tree does not know throws, BY DESIGN of that method, so a run against
+ * `main` with `--hide=bloom` fails rather than timing the wrong thing.
+ * `--stress` adds two rows at view (26,22) zoom 1.6: the same view frozen
+ * (`frame(1, 0)`, zero elapsed time), then the same after 24 Grad landings
+ * (`spawnShellLandingAt('rocket', ...)`, the body `shellHasLanded` calls)
+ * aged 250 ms of FX time (hit-stop frames do not count), frozen there. The
+ * difference between the two rows is what 24 landings cost at that age.
+ * Each view also prints `programs` (`renderer.info.programs.length`), and
+ * the run prints `os.loadavg()` at start and end: a number taken on a
+ * loaded machine is a different number, and says so beside itself.
  */
 import { chromium } from 'playwright';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { devServerStopper, ensureDevServer } from '../golden-diff/browser';
@@ -94,6 +113,13 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 const args = process.argv.slice(2);
 refuseRetiredBaseUrl(TAG, args);
 const selectAll = args.includes('--select-all');
+const stress = args.includes('--stress');
+const flag = (name: string): string | undefined => args.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
+const quality = flag('quality');
+if (quality !== undefined && !['high', 'medium', 'low'].includes(quality)) throw new Error(`--quality=${quality} is not high, medium or low`);
+const hidden = (flag('hide') ?? '').split(',').filter((s) => s.length > 0);
+const load = (): string => os.loadavg().map((n) => n.toFixed(2)).join(' ');
+console.log(`load average at start: ${load()}`);
 const [query = '?sandbox=beit_sahwan_outskirts&sur&civ', size = '1440x900'] = args.filter((a) => !a.startsWith('--'));
 const [viewportWidth, viewportHeight] = size.split('x').map(Number);
 if (!Number.isFinite(viewportWidth) || !Number.isFinite(viewportHeight)) {
@@ -116,7 +142,7 @@ const page = await browser.newPage({
   viewport: { width: viewportWidth, height: viewportHeight },
   deviceScaleFactor: 2,
 });
-await page.addInitScript(musicOffInitScript());
+await page.addInitScript(quality ? musicOffInitScript({}, { quality: quality as 'high' | 'medium' | 'low' }) : musicOffInitScript());
 await page.goto(base + '/' + query, { waitUntil: 'load' });
 await page.waitForFunction(() => !!(window as unknown as { __lions?: { renderer?: unknown } }).__lions?.renderer, null, { timeout: 60000 });
 await page.waitForTimeout(3000);
@@ -133,6 +159,17 @@ const buffer = await page.evaluate(() => {
   return `${L.renderer.canvas.width}x${L.renderer.canvas.height}`;
 });
 console.log(`drawing buffer: ${buffer} (css ${viewportWidth}x${viewportHeight})`);
+const qualityRead = await page.evaluate(() => {
+  const raw = localStorage.getItem('lions.settings');
+  return raw ? (JSON.parse(raw) as { video?: { quality?: string } }).video?.quality ?? 'none' : 'none';
+});
+console.log(`quality: ${qualityRead}${quality ? ` (asked ${quality})` : ''}`);
+for (const name of hidden) {
+  await page.evaluate((n) => {
+    (window as unknown as { __lions: { renderer: { setDebugLayerVisible(name: string, v: boolean): number } } }).__lions.renderer.setDebugLayerVisible(n, false);
+  }, name);
+}
+console.log(`hidden layers: ${hidden.length ? hidden.join(',') : 'none'}`);
 if (selectAll) {
   // Scaffolding, not the thing under test: `sel` is how a harness puts N
   // units in the selection without N clicks.
@@ -146,11 +183,24 @@ if (selectAll) {
 } else {
   console.log('selected: 0');
 }
-for (const [x, y, zoom] of VIEWS) {
-  const stats = await page.evaluate(([cx, cy, cz]) => {
+type Row = { x: number; y: number; zoom: number; dt: number; landings: number; label: string };
+const ROWS: Row[] = VIEWS.map(([x, y, zoom]) => ({ x, y, zoom, dt: 16, landings: 0, label: '' }));
+if (stress) {
+  ROWS.push({ x: 26, y: 22, zoom: 1.6, dt: 0, landings: 0, label: ' [stress control: frozen, no landings]' });
+  ROWS.push({ x: 26, y: 22, zoom: 1.6, dt: 0, landings: 24, label: ' [stress: 24 Grad landings, 250 ms in, frozen]' });
+}
+for (const row of ROWS) {
+  const { x, y, zoom } = row;
+  const stats = await page.evaluate(([cx, cy, cz, dt, landings]) => {
     const L = (window as unknown as {
       __lions: {
-        renderer: { canvas: HTMLCanvasElement; camera: { x: number; y: number; zoom: number }; frame(a: number, dt: number): void };
+        renderer: {
+          canvas: HTMLCanvasElement;
+          camera: { x: number; y: number; zoom: number };
+          frame(a: number, dt: number): void;
+          hitStop: { remainingMs: number };
+          spawnShellLandingAt(kind: string, tx: number, ty: number): void;
+        };
         step(n: number): void;
       };
     }).__lions;
@@ -160,6 +210,23 @@ for (const [x, y, zoom] of VIEWS) {
     const times: number[] = [];
     const wall: number[] = [];
     for (let i = 0; i < 30; i++) L.renderer.frame(1, 16);
+    if (landings > 0) {
+      // A 6x4 lattice at 1.5-tile spacing round the view centre, every round
+      // inside the zoom-1.6 frame. `spawnShellLandingAt` is private in
+      // TypeScript and readable from a page; it is the body every landing
+      // runs (`spawnShellImpactFx`), on main and on the branch alike.
+      for (let i = 0; i < landings; i++) {
+        L.renderer.spawnShellLandingAt('rocket', cx - 3.75 + (i % 6) * 1.5, cy - 2.25 + Math.floor(i / 6) * 1.5);
+      }
+      // Age the burst 250 ms of FX time. A frame that starts inside a
+      // hit-stop does not advance the FX clock, so it is not counted.
+      let aged = 0;
+      for (let guard = 0; aged < 250 && guard < 200; guard++) {
+        const frozen = L.renderer.hitStop.remainingMs > 0;
+        L.renderer.frame(1, 16);
+        if (!frozen) aged += 16;
+      }
+    }
 
     // Draw calls over ONE frame. `info` resets per `render()` call by
     // default, and a frame is several (the post chain), so it is summed by
@@ -169,8 +236,9 @@ for (const [x, y, zoom] of VIEWS) {
     const autoReset = info.autoReset;
     info.autoReset = false;
     info.reset();
-    L.renderer.frame(1, 16);
+    L.renderer.frame(1, dt);
     const calls = info.render.calls;
+    const programs = (info as unknown as { programs?: unknown[] }).programs?.length ?? -1;
     info.autoReset = autoReset;
 
     // The renderer's OWN canvas, by its public accessor -- not the biggest
@@ -198,7 +266,7 @@ for (const [x, y, zoom] of VIEWS) {
 
     for (let i = 0; i < 240; i++) {
       const t0 = performance.now();
-      L.renderer.frame(1, 16);
+      L.renderer.frame(1, dt);
       times.push(performance.now() - t0);
     }
     // Drain once before timing, so the first bracketed frame is not also
@@ -206,18 +274,24 @@ for (const [x, y, zoom] of VIEWS) {
     gl2.finish();
     for (let i = 0; i < 120; i++) {
       const t0 = performance.now();
-      L.renderer.frame(1, 16);
+      L.renderer.frame(1, dt);
       gl2.finish();
       wall.push(performance.now() - t0);
     }
     wall.sort((a, b) => a - b);
     times.sort((a, b) => a - b);
-    return { median: times[120], p95: times[228], wallMedian: wall[60], wallP95: wall[114], calls };
-  }, [x, y, zoom]);
+    // Live flipbook instances (branch only; `main` has no `flipbook`): the
+    // witness that the stress row drew the burst it claims to time.
+    const fb = (L.renderer as unknown as { flipbook?: { liveCount: number } }).flipbook;
+    const flipbookLive = fb ? fb.liveCount : -1;
+    return { median: times[120], p95: times[228], wallMedian: wall[60], wallP95: wall[114], calls, programs, flipbookLive };
+  }, [x, y, zoom, row.dt, row.landings]);
   console.log(
-    `view (${x},${y}) zoom ${zoom}: cpu median ${stats.median.toFixed(2)} ms, cpu p95 ${stats.p95.toFixed(2)} ms, ` +
-      `gpu median ${stats.wallMedian.toFixed(2)} ms, gpu p95 ${stats.wallP95.toFixed(2)} ms, draw calls ${stats.calls}`
+    `view (${x},${y}) zoom ${zoom}${row.label}: cpu median ${stats.median.toFixed(2)} ms, cpu p95 ${stats.p95.toFixed(2)} ms, ` +
+      `gpu median ${stats.wallMedian.toFixed(2)} ms, gpu p95 ${stats.wallP95.toFixed(2)} ms, draw calls ${stats.calls}, programs ${stats.programs}` +
+      (row.landings > 0 ? `, flipbook live ${stats.flipbookLive < 0 ? 'n/a' : stats.flipbookLive}` : '')
   );
 }
+console.log(`load average at end: ${load()}`);
 await browser.close();
 stopServer();

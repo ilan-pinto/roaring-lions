@@ -10,6 +10,7 @@ import {
   SHORT_LADDER_MS,
   cameraTileOf,
   floorLine,
+  killedTargetMustSurvive,
   layerVerdict,
   readingAccepted,
   subjectVotesOn,
@@ -477,6 +478,16 @@ describe('the Defilade T4 layers and subjects', () => {
     const fire = BLAST_SUBJECTS.filter((s) => s.mode === 'fire');
     expect(fire.length).toBeGreaterThanOrEqual(1);
     for (const s of fire) expect(s.shooterId, `subject "${s.id}"`).toBeDefined();
+  });
+
+  it('refuses lavi_fire when its round kills the target (the shot alone, Task 7 fix 1)', () => {
+    const lavi = BLAST_SUBJECTS.find((s) => s.id === 'lavi_fire');
+    expect(lavi?.targetSurvives).toBe(true);
+    const sub = lavi ?? {};
+    expect(killedTargetMustSurvive(sub, 'fire gun_120 on tick 41, target KILLED')).toBe(true);
+    expect(killedTargetMustSurvive(sub, 'fire gun_120 on tick 41, target survived')).toBe(false);
+    // A subject that does not ask for a survivor is never refused.
+    expect(killedTargetMustSurvive({}, 'fire gun_120 on tick 41, target KILLED')).toBe(false);
   });
 
   it('lets mbt_lavi_z1 vote on decals now the vehicle-kill shroud is gone (D5)', () => {

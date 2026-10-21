@@ -310,6 +310,11 @@ export interface BlastSubject {
    *  target stands on, and a crop centred on the target put the shooter
    *  half out of frame. */
   readonly cameraAt?: readonly [number, number];
+  /** A `fire` subject whose frame must be the SHOT alone: if the round kills
+   *  its target on the fire tick, the frame is a vehicle kill with a muzzle in
+   *  it, so the trigger is refused and the run fails (`lavi_fire`, Task 7
+   *  fix round 1). */
+  readonly targetSurvives?: boolean;
 }
 
 /** Where a subject's camera is centred: `cameraAt`, else the blast tile. */
@@ -698,6 +703,7 @@ export const BLAST_SUBJECTS: readonly BlastSubject[] = [
     y: 4,
     standoffTiles: 4,
     cameraAt: [17.5, 4],
+    targetSurvives: true,
     isolate: true,
     ladderMs: [0, 50, 100, 200, 400, 800, 1600, 2000],
     toggleAtMs: { bloom: 50, flipbook: 400, 'blast-light': 50 },
@@ -718,7 +724,9 @@ export const BLAST_SUBJECTS: readonly BlastSubject[] = [
       'muzzleCore/Mid/Outer). Set all three to 1 and `bloom` reads 54125 px / 26.7251, unchanged, and ' +
       "the frame's pre-bloom max is 6.53 either way: what blooms is the light on the ground, and only " +
       'the outer zone reaches the screen at all (outer gain 20 raised the over-1.0 fraction 0.0122 -> ' +
-      '0.0135 with the max unmoved), which says the core and mid shells are hidden inside it',
+      '0.0135 with the max unmoved). Why the core and mid zones do not show is NOT established: the ' +
+      'three zones are a triangle partition of one surface, drawn `depthTest: false` at one ' +
+      'renderOrder, so none can hide inside another; open for the lead (Task 8)',
   },
   {
     id: 'lavi_fire_z1',
@@ -1841,6 +1849,10 @@ async function main(): Promise<void> {
     console.error(`\n${skipped.length} group(s) skipped as unmeasurable: ${skipped.join(', ')}`);
     process.exitCode = 1;
   }
+  if (targetKilledRefusals.length > 0) {
+    console.error(`\n${targetKilledRefusals.length} subject(s) refused, their round killed a target that must survive: ${targetKilledRefusals.join(', ')}`);
+    process.exitCode = 1;
+  }
   const failed = layerReadings.filter((r) => r.ok === false);
   if (failed.length > 0) {
     console.error(
@@ -1849,6 +1861,15 @@ async function main(): Promise<void> {
     );
     process.exitCode = 1;
   }
+}
+
+/** `targetSurvives` subjects whose round killed its target (see the field). */
+const targetKilledRefusals: string[] = [];
+
+/** True when a `targetSurvives` subject's trigger line (`fire ... target
+ *  KILLED`, printed by the `fire` trigger) says its round killed the target. */
+export function killedTargetMustSurvive(s: Pick<BlastSubject, 'targetSurvives'>, found: string): boolean {
+  return s.targetSurvives === true && /\btarget KILLED\b/.test(found);
 }
 
 interface Placed {
@@ -2356,6 +2377,13 @@ async function triggerTriggerFx(page: import('playwright').Page, p: Placed, note
   );
   if (result.found === '') {
     notes.push(`${p.subject.id} (${p.subject.mode}): no event in ${result.ticks} ticks -- subject skipped`);
+    return null;
+  }
+  if (killedTargetMustSurvive(p.subject, result.found)) {
+    const line = `${p.subject.id}: ${result.found} -- the round killed its target, so this is not the shot alone; refused`;
+    console.error(`  ${line}`);
+    notes.push(line);
+    targetKilledRefusals.push(p.subject.id);
     return null;
   }
   const line = `${p.subject.id}: ${result.found} after ${result.ticks} hand ticks` +

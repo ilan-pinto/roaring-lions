@@ -110,3 +110,29 @@ describe('flipbook_fire.png', () => {
     expect(last).toBeLessThan(early);
   });
 });
+
+describe('flipbook_fire.png heat', () => {
+  // Fire's A is heat, and the shader reads its core from it (or from
+  // density, whichever is higher): a heat channel that never cools would
+  // hold the white-hot core for the whole life. Shipped bytes, 21 Oct:
+  // mean A 18.39 at frame 4, 0.00 at frame 40.
+  it('cools: frame 4 carries more mean heat (A) than frame 40', () => {
+    const { png } = load('fire');
+    const meanA = (k: number): number => mass(frameChannel(png, k, 3)) / (FRAME * FRAME);
+    expect(meanA(4)).toBeGreaterThan(meanA(40));
+  });
+});
+
+describe.each(['fire', 'smoke'])('flipbook_%s.png gradient', (name) => {
+  // G/B are the density gradient the shader lights the billow with. A bake
+  // that wrote them flat (all 128) would pass the border test above and
+  // light every puff as a flat disc, so a mature frame must carry a real
+  // gradient somewhere: max |G - 128| over frame 8 above 30. Shipped bytes,
+  // 21 Oct: 128 on G and on B in both atlases (the gradient saturates).
+  it('frame 8 carries a non-constant G gradient (max |G-128| > 30) and B gradient', () => {
+    const { png } = load(name);
+    const maxDev = (ch: number): number => frameChannel(png, 8, ch).reduce((m, v) => Math.max(m, Math.abs(v - NEUTRAL)), 0);
+    expect(maxDev(1)).toBeGreaterThan(30);
+    expect(maxDev(2)).toBeGreaterThan(30);
+  });
+});

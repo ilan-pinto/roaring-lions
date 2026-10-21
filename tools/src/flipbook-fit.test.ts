@@ -54,6 +54,12 @@ function mockDensity(u: number, v: number, t: number, seed: number, fire: boolea
   // GLSL mat2(c, -s, s, c) * v: column-major.
   const rx = c * u + s * v, ry = -s * u + c * v;
   const freq = fire ? 2.6 : 1.7;
+  // The shaders drift the noise by AGE in seconds (`vAge * 0.45`), not by
+  // life fraction. Both this oracle and `buildDensity` below map life to age
+  // as `t * 0.7`, i.e. they assume one 700 ms instance. A recipe's real
+  // durations run 0.14-9 s, so the drift at a given t differs per layer; the
+  // assumption is shared by both sides, so it shifts WHERE the noise is
+  // sampled, not the fit the test compares.
   const age = t * 0.7;
   const qx = rx * freq + seed * 31, qy = ry * freq + seed * 31 - age * 0.45;
   const billow = fbm(qx, qy) * 0.7 + fbm(qx * 2.3 + 5.1, qy * 2.3 + 5.1) * 0.3;

@@ -9249,12 +9249,13 @@ export class ThreeRenderer implements Renderer {
    * building collapse does and the same authored-particle fallback when that
    * mesh has not loaded. Since Defilade T4 its `flipbook` recipe supersedes
    * that fireball, its column and its smoke discs once the atlases are in
-   * (`spawnCollapseFx`, D6); the shards, light, shake, freeze and decals stay. The only thing this adds over calling it directly
-   * is the size and the yaw: `SHELL_PROFILES[kind].impactPower` (a mortar
-   * bomb is a third of a collapsing house, a Grad rocket nearer a half), and
-   * a per-impact `tileHash` so twenty rounds on the same grid square do not
-   * all show the identical silhouette angle -- the same presentation hash
-   * the `structureDestroyed` case already uses for its own.
+   * (`spawnCollapseFx`, D6); the shards, light, shake, freeze and decals
+   * stay. The only thing this adds over calling it directly is the size and
+   * the yaw: `SHELL_PROFILES[kind].impactPower` (a mortar bomb is a third
+   * of a collapsing house, a Grad rocket nearer a half), and a per-impact
+   * `tileHash` so twenty rounds on the same grid square do not all show the
+   * identical silhouette angle -- the same presentation hash the
+   * `structureDestroyed` case already uses for its own.
    *
    * This is deliberately NOT tied to the sim's own `impact`/`nearMiss`
    * event. Those fire when the ROUND resolves, which is a different clock

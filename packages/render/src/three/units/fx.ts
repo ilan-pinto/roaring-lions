@@ -1182,9 +1182,9 @@ export function writeShellInstances(
  *    `uRamp` -- its own doc comment said: "A shaded fragment cannot emit an
  *    off-palette colour because the only values it can write are the ones
  *    read out of the ramp." This material has no ramp (it writes a literal
- *    resolved palette hex straight to
- *    `gl_FragColor`), but the SAME property -- every fragment this material
- *    ever writes is one of the 65 -- held for it too (before the HDR gain, D9), by a different
+ *    resolved palette hex straight to `gl_FragColor`), but the SAME
+ *    property -- every fragment this material ever writes is one of the
+ *    65 -- held for it too (before the HDR gain, D9), by a different
  *    mechanism (a hardcoded, already-palette-resolved `vColor`), until
  *    `AdditiveBlending` broke it: the GPU blend stage runs AFTER the
  *    fragment shader, summing whatever the shader wrote with whatever is
@@ -1210,10 +1210,10 @@ export function writeShellInstances(
  *    overlap at partial alpha (every particle system in this file has
  *    always done this, unremarked, because no CI path screenshots a live
  *    frame and checks it) -- but that is `SRC_ALPHA, ONE_MINUS_SRC_ALPHA`
- *    interpolating BETWEEN two already-on-palette colours, bounded within
- *    their span. Additive is `ONE, ONE`, unbounded, and can produce a
- *    result brighter than either input -- a qualitatively different kind of
- *    off-palette, not the same accepted-by-precedent one.
+ *    interpolating BETWEEN two already-on-palette colours (before the HDR
+ *    gain), bounded within their span. Additive is `ONE, ONE`, unbounded,
+ *    and can produce a result brighter than either input -- a qualitatively
+ *    different kind of off-palette, not the same accepted-by-precedent one.
  *
  * The fix actually shipped keeps `NormalBlending` for every tier and
  * instead makes the `hotCore` fragment shader IGNORE its own alpha

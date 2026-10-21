@@ -44,8 +44,8 @@
  * numbers per type were fitted against the mock's fbm over 16 seeds at eight
  * life fractions (mean squared density error 0.21 -> 0.011 for fire,
  * 0.28 -> 0.004 for smoke); the fit and its readings are in the Task 6
- * report. Until both atlases are in, a spawn is
- * accepted (it ages like any other) but nothing draws: no fallback billow.
+ * report. Until both atlases are in, a spawn is accepted (it ages like any
+ * other) but nothing draws: no fallback billow.
  *
  * Authored colours are palette keys resolved to linear (`setColors`); the
  * fire phase is that colour times `HDR_GAINS.fireball` (the one gain table,
@@ -58,12 +58,12 @@
  * IDLE COSTS 0 DRAW CALLS, PER PASS. Each mesh keeps the latest expiry ever
  * spawned of its own types (`fireLiveUntilMs`, `smokeLiveUntilMs`); once the
  * clock passes it that mesh goes `visible = false`, and a spawn of its types
- * makes it visible again -- so a kill's fire mesh stops drawing when its last
- * cook-off is out, while the soot column's mesh draws on. `visible` is DERIVED -- atlases in, not debug-hidden,
- * something live -- in one place (`syncVisible`), so the `flipbook` debug
- * layer is a flag that derivation consults rather than a `visible` write the
- * next `step` would re-assert (the `unitsDebugHidden` lesson,
- * `../debug-layers.ts`).
+ * makes it visible again -- so a kill's fire mesh stops drawing when its
+ * last cook-off is out, while the soot column's mesh draws on. `visible` is
+ * DERIVED -- atlases in, not debug-hidden, something live -- in one place
+ * (`syncVisible`), so the `flipbook` debug layer is a flag that derivation
+ * consults rather than a `visible` write the next `step` would re-assert
+ * (the `unitsDebugHidden` lesson, `../debug-layers.ts`).
  *
  * RECIPES ARE DATA (Task 5): an emitter's `flipbook` array in
  * `data/vfx/*.json` (`shell_impact`, `missile_impact`, `catastrophic_kill`,
@@ -323,11 +323,14 @@ export interface FlipbookSpawn {
   tint?: number;
 }
 
-/** Prepares an atlas as DATA: no colour decode, no premultiply, clamped,
- *  mipmapped, and flipped on upload -- the fragment shader's row inversion
- *  (`GRID - 1 - row`) assumes the image's top row lands at v = 1, so `flipY`
- *  is set here rather than inherited from whichever loader made the texture
- *  (`ImageBitmapLoader`'s bitmaps ignore it). */
+/** A `FLIPBOOK_FIT` entry as the shader's two uniform vectors: the atlas fit, and the billow noise. */
+function fitVec(f: { zoom: number; gain: number; k0: number; k1: number }): THREE.Vector4 {
+  return new THREE.Vector4(f.zoom, f.gain, f.k0, f.k1);
+}
+function noiseVec(f: { freq: number; disp: number; amp: number }): THREE.Vector3 {
+  return new THREE.Vector3(f.freq, f.disp, f.amp);
+}
+
 /**
  * The particle layers an emitter's `flipbook` recipe supersedes on three (D6):
  * the fireball mesh (`mesh_burst`), the smoke column (`mesh_plume`) and the flat
@@ -336,17 +339,15 @@ export interface FlipbookSpawn {
  * only while it actually spawns the recipe (atlases in); otherwise they are
  * the fallback the schema keeps them declared for.
  */
-function fitVec(f: { zoom: number; gain: number; k0: number; k1: number }): THREE.Vector4 {
-  return new THREE.Vector4(f.zoom, f.gain, f.k0, f.k1);
-}
-function noiseVec(f: { freq: number; disp: number; amp: number }): THREE.Vector3 {
-  return new THREE.Vector3(f.freq, f.disp, f.amp);
-}
-
 export function flipbookSupersedes(layer: Pick<ParticleSpec, 'mesh_burst' | 'mesh_plume' | 'sprite'>): boolean {
   return layer.mesh_burst === true || layer.mesh_plume === true || layer.sprite === 'smoke_puff';
 }
 
+/** Prepares an atlas as DATA: no colour decode, no premultiply, clamped,
+ *  mipmapped, and flipped on upload -- the fragment shader's row inversion
+ *  (`GRID - 1 - row`) assumes the image's top row lands at v = 1, so `flipY`
+ *  is set here rather than inherited from whichever loader made the texture
+ *  (`ImageBitmapLoader`'s bitmaps ignore it). */
 export function prepareFlipbookAtlas(tex: THREE.Texture): THREE.Texture {
   tex.colorSpace = THREE.NoColorSpace;
   tex.flipY = true;
