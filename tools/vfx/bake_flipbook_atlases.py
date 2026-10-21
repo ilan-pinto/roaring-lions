@@ -31,8 +31,10 @@ Channels:
   NOTE for the loader: A is DATA, not alpha. Load with premultiplyAlpha off
   (and NoColorSpace), or a browser that premultiplies loses R/G/B where A = 0.
 
-Every frame is windowed to exactly zero over its outermost 3 px, so no frame
-bleeds into its neighbour under bilinear filtering.
+Every frame is windowed to exactly zero (R, A; G/B neutral 0.5) over its
+outermost 8 px (MARGIN_PX), so mip levels 0-3 never bleed one frame into its
+neighbour under bilinear or trilinear filtering. The billow is drawn into the
+inner FIT (0.85) of the frame so the window fades its rim rather than cuts it.
 """
 
 import argparse
@@ -135,12 +137,20 @@ def _grid():
     return x, y, z, 2.0 / DEPTH
 
 
-X, Y, Z, DZ = _grid()
-X2 = X[:, :, 0]
-Y2 = Y[:, :, 0]
-# Zero over the outermost 3 px of every frame (|coord| >= 1 - 6/128).
-_EDGE = np.maximum(np.abs(X2), np.abs(Y2))
-WINDOW = 1.0 - smoothstep(0.80, 1.0 - 6.0 / FRAME, _EDGE)
+# Empty margin per frame, in px. 8 keeps mip levels 0-3 free of bleed from
+# the neighbouring frame (8 px at level 0 is 1 px at level 3).
+MARGIN_PX = 8
+# The billow field is drawn into the inner FIT of the frame, so it sits
+# inside the window instead of being cut by it.
+FIT = 0.85
+
+_XF, _YF, Z, DZ = _grid()
+X = _XF / FIT
+Y = _YF / FIT
+# Exactly zero over the outermost MARGIN_PX of every frame: pixel centres at
+# |coord| >= 1 - 2*MARGIN_PX/FRAME, with a soft fade from 0.70 inward of that.
+_EDGE = np.maximum(np.abs(_XF[:, :, 0]), np.abs(_YF[:, :, 0]))
+WINDOW = 1.0 - smoothstep(0.70, 1.0 - 2.0 * MARGIN_PX / FRAME, _EDGE)
 
 
 def fire_grow(t):
@@ -200,6 +210,11 @@ def encode_frame(R, A):
     gy = -d_row
     G = 0.5 + 0.5 * np.clip(gx / GRAD_SCALE, -1.0, 1.0)
     B = 0.5 + 0.5 * np.clip(gy / GRAD_SCALE, -1.0, 1.0)
+    # The margin is neutral in every channel: np.gradient at its inner edge
+    # would otherwise see the first non-zero texel.
+    empty = WINDOW <= 0.0
+    G[empty] = 0.5
+    B[empty] = 0.5
     rgba = np.stack([R, G, B, A], axis=-1)
     return np.clip(np.floor(rgba * 255.0 + 0.5), 0, 255).astype(np.uint8)
 
