@@ -81,6 +81,13 @@ export interface TerrainInput {
    */
   boulder?: Uint8Array | null;
   /**
+   * Crown summits (`crown.ts`): 1 on every tile drawn as a smooth dome
+   * rather than a terrace. Read only by `decorPlacements`, which seats the
+   * rocks around a crown on its slope (`CROWN_SEAT_TILES`). Optional; absent
+   * or null means no crown, so every fixture that omits it is unchanged.
+   */
+  crown?: Uint8Array | null;
+  /**
    * Which family a grove tile draws -- `TerrainTones.groveFamily`, passed
    * through by `composeTerrain`.
    *

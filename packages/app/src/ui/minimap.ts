@@ -1137,6 +1137,23 @@ export class Minimap {
   }
 
   /**
+   * Redraw with a FRESH ground photograph and everything else exactly as the
+   * last draw had it -- the same unit dots, observed markers and clock. A
+   * debug hook (`__lions.redrawMinimap`) for the visual gate's `crown` toggle,
+   * whose frame loop is frozen: a plain redraw would also move every unit dot
+   * from the tick of the minimap's last 4 Hz draw to the capture tick, and
+   * the toggle would measure the units' walk rather than the crown. Exact
+   * while the sim is frozen, which is the only place it is called from.
+   */
+  redrawGround(): void {
+    this.draw(this.lastDrawMs, true);
+  }
+  /** What the last full draw showed, for `redrawGround`. */
+  private lastDrawMs = 0;
+  private lastDots: MinimapDot[] | null = null;
+  private lastMarkers: MinimapPoint[] | null = null;
+
+  /**
    * Mark ground the player should look at, now.
    *
    * Points rather than entities, and that is the whole design: the alert this
@@ -1369,7 +1386,7 @@ export class Minimap {
   /** `nowMs` defaults so the constructor's first paint needs no clock of its
    *  own; `onTick` passes the frame's. Wall time, never ticks -- see
    *  `FLASH_MS`. */
-  private draw(nowMs: number = performance.now()): void {
+  private draw(nowMs: number = performance.now(), replay = false): void {
     const { ctx, proj } = this;
     const s = MINIMAP_SIZE;
     // Before anything is laid down: the ground is the bottom of the stack,
@@ -1429,14 +1446,22 @@ export class Minimap {
     }
     this.drawTunnels();
     this.drawHeld();
-    for (const p of observedMarkers(this.deps.map, this.fogAt, this.seenMarkers)) {
+    const markers =
+      replay && this.lastMarkers ? this.lastMarkers : observedMarkers(this.deps.map, this.fogAt, this.seenMarkers);
+    for (const p of markers) {
       this.diamond(p, this.chrome.story);
     }
     const refuge = this.deps.refuge?.() ?? null;
     if (refuge) this.cross(refuge, this.chrome.refuge, this.chrome.refugeEdge);
 
     const viewer = this.deps.viewer ?? 0;
-    for (const d of unitDots(this.deps.sim, this.fogAt, viewer)) {
+    const dots = replay && this.lastDots ? this.lastDots : unitDots(this.deps.sim, this.fogAt, viewer);
+    if (!replay) {
+      this.lastDrawMs = nowMs;
+      this.lastDots = dots;
+      this.lastMarkers = markers;
+    }
+    for (const d of dots) {
       const at = tileToBox(proj, d.x, d.y);
       // Colour FIRST and unchanged: the shape is the second channel, not the
       // replacement for a first one that was measured to work.
@@ -1444,8 +1469,10 @@ export class Minimap {
       this.dot(at, dotShape(d.relation, d.suspected));
     }
 
-    this.drawFlashes(nowMs);
-    this.drawPings(nowMs);
+    // A replay draws only what the replayed draw could have: no flash or ping
+    // born after it (`linearFade` reads a future birth as full strength).
+    this.drawFlashes(nowMs, replay);
+    this.drawPings(nowMs, replay);
 
     this.drawViewport();
   }
@@ -1610,10 +1637,11 @@ export class Minimap {
     ctx.lineWidth = 1;
   }
 
-  private drawFlashes(nowMs: number): void {
+  private drawFlashes(nowMs: number, replay = false): void {
     const { ctx, proj } = this;
     const reduced = prefersReducedMotion();
     for (const f of this.flashes) {
+      if (replay && f.at > nowMs) continue;
       const a = linearFade(nowMs - f.at, f.style.ms);
       if (a <= 0) continue;
       const at = tileToBox(proj, f.p.x, f.p.y);
@@ -1652,9 +1680,10 @@ export class Minimap {
    * same reason the flashes are: the frame that says where the player is
    * looking is the one mark nothing may obscure.
    */
-  private drawPings(nowMs: number): void {
+  private drawPings(nowMs: number, replay = false): void {
     const { ctx, proj } = this;
     for (const p of this.pings) {
+      if (replay && p.at > nowMs) continue;
       const a = linearFade(nowMs - p.at, PING_MS);
       if (a <= 0) continue;
       const at = tileToBox(proj, p.p.x, p.p.y);
