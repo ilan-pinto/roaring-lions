@@ -417,6 +417,90 @@ describe('air carriers land to load and unload (GH-698 Task 3)', () => {
     expect(tileOf(sim, heli)).toEqual([20, 20]);
   });
 
+  it('a cancelled load releases its riders: no stale boardGoal, no uninvited boarding', () => {
+    // Load sends the squad to the LZ (30,20); the carrier is moved to (29,21)
+    // before it lands, then unloads there (lands on its own tile)
+    // -- (29.5,21.5) is sqrt 2 = 1.41 tiles from the squad
+    // waiting at (30.5,20.5), inside LOAD_RANGE (1.5 tiles).
+    const { sim, heli, inf } = heliWorld(20.5, 20.5);
+    const sq = sim.spawn(inf, 0, at(30.5), at(20.5));
+    const rider = sim.spawn(inf, 0, at(20.5), at(20.5));
+    expect(sim.embarkAtSpawn(heli, rider)).toBe(true);
+    sim.queueCommand({ kind: 'load', ids: [sq], carrier: heli });
+    run(sim, 5);
+    sim.queueCommand({ kind: 'move', ids: [heli], x: at(29.5), y: at(21.5) });
+    run(sim, 80);
+    expect(tileOf(sim, heli)).toEqual([29, 21]);
+    sim.queueCommand({ kind: 'unload', ids: [heli] });
+    run(sim, 60);
+    expect(sim.state.airState[heli]).toBe(AIR_LANDED);
+    expect(sim.state.carriedBy[rider]).toBe(-1);
+    expect(sim.state.moving[sq]).toBe(0); // released, not walking to a stale LZ
+    expect(sim.state.carriedBy[sq]).toBe(-1);
+    run(sim, 40);
+    expect(sim.state.carriedBy[sq]).toBe(-1);
+  });
+
+  it('a carrier landed to load keeps its riders until they board', () => {
+    // The squad walks 5 tiles at 0.9 tiles/s (~111 ticks); the carrier lands
+    // on its own tile first (LANDED tick 42) and waits with want LOAD.
+    const { sim, heli, inf } = heliWorld(20.5, 20.5);
+    const sq = sim.spawn(inf, 0, at(25.5), at(20.5));
+    sim.queueCommand({ kind: 'load', ids: [sq], carrier: heli });
+    run(sim, 300);
+    expect(sim.state.carriedBy[sq]).toBe(heli);
+  });
+
+  it('a move during LANDING writes nothing: the landing and its unload stand', () => {
+    const { sim, heli } = loadedHeli(20.5, 20.5, 2);
+    sim.queueCommand({ kind: 'unload', ids: [heli] });
+    run(sim, 2);
+    expect(sim.state.airState[heli]).toBe(AIR_LANDING);
+    const gx = sim.goalOf(heli);
+    sim.queueCommand({ kind: 'attackMove', ids: [heli], x: at(30.5), y: at(30.5) });
+    sim.queueCommand({ kind: 'move', ids: [heli], x: at(5.5), y: at(5.5), exact: true });
+    run(sim, 40);
+    expect(sim.goalOf(heli)).toEqual(gx);
+    expect(sim.state.airState[heli]).toBe(AIR_LANDED);
+    expect(aboard(sim, heli)).toBe(0);
+  });
+
+  it('LANDING holds the hull against stepFocus: an attack order chases nothing', () => {
+    // An enemy 9 tiles east, revealed: outside the HELI's door gun (8), so a
+    // focus would close on it (stepFocus runs before stepAirCarriers). Ordered during LANDING, the hull
+    // must not move until the landing is done.
+    const { sim, heli } = loadedHeli(20.5, 20.5, 2);
+    const foe = sim.spawn(0, 1, at(29.5), at(20.5));
+    run(sim, 20);
+    sim.queueCommand({ kind: 'unload', ids: [heli] });
+    run(sim, 2);
+    expect(sim.state.airState[heli]).toBe(AIR_LANDING);
+    const x = sim.state.posX[heli];
+    sim.queueCommand({ kind: 'reveal', side: 0, x: at(29.5), y: at(20.5) });
+    sim.tick(); // identified now (reveal), so the attack below is accepted
+    sim.queueCommand({ kind: 'attack', ids: [heli], target: foe });
+    sim.tick();
+    expect(sim.state.focusTarget[heli]).toBe(foe);
+    run(sim, 37);
+    expect(sim.state.airState[heli]).toBe(AIR_LANDING);
+    expect(sim.state.posX[heli]).toBe(x);
+  });
+
+  it('LANDING snaps the hull onto the LZ tile centre, and unloads about it', () => {
+    // Arrives at (20.5,20.5) in tick 1. Pushed to x 21.0 -- exactly HALF off the
+    // goal, so still "at the LZ" -- it must land at 20.5, and the first
+    // passenger stands on the LZ tile (20,20), not on tile 21.
+    const { sim, heli, squads } = loadedHeli(20.5, 20.5, 2);
+    sim.queueCommand({ kind: 'unload', ids: [heli] });
+    run(sim, 1);
+    sim.state.posX[heli] = at(21);
+    run(sim, 1);
+    expect(sim.state.airState[heli]).toBe(AIR_LANDING);
+    expect(sim.state.posX[heli]).toBe(at(20.5));
+    run(sim, 40);
+    expect(tileOf(sim, squads[0])).toEqual([20, 20]);
+  });
+
   it('Review Focus 1: two carriers unloading at one point put nobody on a blocked tile', () => {
     const a = loadedHeli(20.5, 20.5, 6);
     const { sim } = a;

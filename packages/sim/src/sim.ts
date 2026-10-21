@@ -3291,6 +3291,9 @@ export class Sim {
           // either — the loop below then skips it for having none.
           if (this.alive[id] === 0 || this.routed[id] === 1 || this.carriedBy[id] >= 0) continue;
           const utype = this.unitTypes[this.typeIdx[id]];
+          // GH-698: a LANDING air carrier ignores a move outright -- no slot here,
+          // nothing written below.
+          if (utype.isAirCarrier && this.airState[id] === AIR_LANDING) continue;
           const front = utype.isAir || utype.moveDomain === DOMAIN_VEHICLE;
           members.push({ id, domain: utype.isAir ? DOMAIN_FOOT : utype.moveDomain, front });
           // Where this unit will be coming FROM: its last queued point when
@@ -3349,11 +3352,13 @@ export class Sim {
           if (this.alive[id] === 0 || this.routed[id] === 1) continue; // broken troops aren't listening
           const utype = this.unitTypes[this.typeIdx[id]];
           // GH-698: a move cancels an air carrier's land plan -- except while
-          // LANDING, which ignores it (stepAirCarriers zeroes `moving` every
-          // tick of the landing, and the plan it is landing for stands). Before
-          // the append fast-path: an appended leg behind a land order would
-          // otherwise land the carrier on the waypoint, wherever that is.
-          if (utype.isAirCarrier && this.airState[id] !== AIR_LANDING) {
+          // LANDING, which ignores it before any write (a goal, field or
+          // attack-move latch left behind would let stepSweep/stepFocus lift
+          // it once landed). Before the append fast-path: an appended leg
+          // behind a land order would otherwise land the carrier on the
+          // waypoint, wherever that is.
+          if (utype.isAirCarrier) {
+            if (this.airState[id] === AIR_LANDING) continue;
             const want = this.airWant[id];
             if (want === AIR_WANT_LOAD || want === AIR_WANT_UNLOAD) this.airWant[id] = AIR_WANT_NONE;
           }
@@ -6433,6 +6438,16 @@ export class Sim {
         this.boardGoal[i] = -1;
         continue;
       }
+      // GH-698: a rider bound for an air carrier whose load plan is gone (a
+      // move lifted it, an unload or halt replaced the want) is released, so it
+      // neither waits at a stale LZ nor boards uninvited at the next landing.
+      // A carrier still landing or landed to load keeps its riders.
+      if (this.unitTypes[this.typeIdx[goal]].isAirCarrier && this.airWant[goal] !== AIR_WANT_LOAD) {
+        this.boardGoal[i] = -1;
+        this.moving[i] = 0;
+        this.fieldRef[i] = -1;
+        continue;
+      }
       if (!this.canSeat(goal, i)) continue; // no seat yet, or not eligible
       const d = distSqFx(fx.sub(this.posX[goal], this.posX[i]), fx.sub(this.posY[goal], this.posY[i]));
       if (d > LOAD_RANGE_SQ) {
@@ -6537,6 +6552,10 @@ export class Sim {
         if (dx > HALF || dx < -HALF || dy > HALF || dy < -HALF) continue; // stopped short: hovers
         this.airState[i] = AIR_LANDING;
         this.airTimer[i] = AIR_LAND_TICKS;
+        // Onto the LZ tile centre exactly (it is within HALF already), so the
+        // pin and unloadAir's spread are about the LZ itself.
+        this.posX[i] = this.goalX[i];
+        this.posY[i] = this.goalY[i];
         this.wpCount[i] = 0;
         this.fieldRef[i] = -1;
         continue;
@@ -6634,7 +6653,7 @@ export class Sim {
    * the LZ nearest the eligible riders' centroid (tile ints, id order, the
    * formation's integer mean). LANDING or LANDED it stays on the LZ it has and
    * waits to load there. False -- the whole `load` refused -- with no eligible
-   * rider or no LZ.
+   * rider, no LZ, or a landing to unload under way.
    */
   private airLoadOrder(car: number, ids: readonly number[]): boolean {
     let n = 0;
@@ -6651,7 +6670,10 @@ export class Sim {
     if (n === 0) return false;
     const st = this.airState[car];
     if (st === AIR_LANDING || st === AIR_LANDED) {
-      if (this.airWant[car] !== AIR_WANT_UNLOAD) this.airWant[car] = AIR_WANT_LOAD;
+      // Landing to unload: the load is refused (its riders would be released
+      // the moment the unload clears the want).
+      if (this.airWant[car] === AIR_WANT_UNLOAD) return false;
+      this.airWant[car] = AIR_WANT_LOAD;
       return true;
     }
     const cx = (sx - (sx % n)) / n;
