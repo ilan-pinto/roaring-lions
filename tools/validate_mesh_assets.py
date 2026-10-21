@@ -270,6 +270,10 @@ TEXTURED_VEHICLE_EXEMPT = {
     # faces carry a uv into it, so nothing in the file is palette-painted.
     "attack_drone",
     "recon_drone",
+    # GH-698 (2026-10-18): the UH-60 Yanshuf transport ships its remesh's own
+    # 2k bake on hull_hull and rotor_metal (tools/vehicles/export_meshy_yanshuf.py).
+    # Held until Lane C lands the land/lift sim work and the unit JSON.
+    "heli_yanshuf",
 }
 
 # Rigged INFANTRY teams that ship their own Meshy `base_color` bake (GH-286,

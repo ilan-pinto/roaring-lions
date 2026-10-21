@@ -443,6 +443,10 @@ export const HELD_MESH_FILES: Readonly<Record<string, string>> = {
   // E5 part 2 (GH-181, 2026-10-01): the Tzav's unit JSON is staged and its
   // placed charge is E6's, so the file waits for E6 to wire it.
   'vehicles/demo_tzav.glb': 'demo_tzav (GH-181 E5 -> E6; VEHICLE_UNIT_MESHES)',
+  // GH-698 (2026-10-18): the UH-60 Yanshuf's art landed first; its unit JSON
+  // waits for Lane C's land/lift sim work (hashed airState), and lands with
+  // the catalogue entry in the same commit.
+  'vehicles/heli_yanshuf.glb': 'heli_yanshuf (GH-698 Lane C land/lift; VEHICLE_UNIT_MESHES)',
 };
 
 /**
