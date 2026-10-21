@@ -8615,6 +8615,8 @@ export class ThreeRenderer implements Renderer {
         disposeConstructionClip(site.clip);
         this.buildingConstruction.delete(s);
       }
+      // By design an unfinished site leaves no wreck: there is no finished building
+      // to wreck (completed works take the normal wreck path below).
       // A dead site that never finished has no standing building to collapse
       // and no wreck of one: a cancelled stake leaves nothing (the sim pushes
       // no event), a destroyed one leaves its rubble decal and dust.

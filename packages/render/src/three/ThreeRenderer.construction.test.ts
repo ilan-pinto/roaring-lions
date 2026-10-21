@@ -63,6 +63,7 @@ interface Priv {
   buildingConstructionHeight: Map<string, number>;
   buildingMeshIdleEntities: Map<number, THREE.Object3D>;
   buildingConstruction: Map<number, { root: THREE.Object3D; clip: { plane: THREE.Plane; materials: THREE.Material[] } }>;
+  buildingMeshSwapHold: Map<number, number>;
   updateBuildingMeshes(): void;
 }
 
@@ -116,6 +117,20 @@ describe('ThreeRenderer construction state (#277 Task 13)', () => {
     priv.updateBuildingMeshes();
     expect(priv.buildingConstruction.size).toBe(0);
     expect(disposed).toBe(1);
+    expect(priv.buildingMeshIdleEntities.size).toBe(0);
+  });
+
+  it('a site destroyed during the swap-hold stays until the hold ends, then goes, with no wreck', () => {
+    const { sim, priv, s } = build();
+    sim.structures.progress[s] = Math.round(0.3 * ONE);
+    priv.updateBuildingMeshes();
+    priv.buildingMeshSwapHold.set(s, 500);
+    sim.removeStructure(s);
+    priv.updateBuildingMeshes();
+    expect(priv.buildingConstruction.has(s)).toBe(true);
+    priv.buildingMeshSwapHold.delete(s);
+    priv.updateBuildingMeshes();
+    expect(priv.buildingConstruction.has(s)).toBe(false);
     expect(priv.buildingMeshIdleEntities.size).toBe(0);
   });
 });

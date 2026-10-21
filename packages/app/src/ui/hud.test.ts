@@ -4010,6 +4010,23 @@ describe('field works on the card (GH-277)', () => {
     expect(cancelled).toEqual([7]);
   });
 
+  it('the works card keeps the SAME Cancel button node while progress changes', () => {
+    let percent = 40;
+    const r = rig(null, {
+      selectedWorks: () => 7,
+      worksCardOf: () => ({ name: 'Clinic', percent, refund: percent * 4 }),
+      onCancelWorks: () => {},
+    });
+    const cluster = r.host.querySelector<HTMLElement>('.rl-cluster')!;
+    const btn = cluster.querySelector('[data-works-cancel]')!;
+    percent = 65;
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(cluster.querySelector('[data-works-cancel]')).toBe(btn);
+    expect(cluster.textContent).toContain('65% built');
+    expect(cluster.textContent).toContain('refund 260');
+    expect(cluster.querySelector<HTMLElement>('.rl-track > i')!.style.width).toBe('65%');
+  });
+
   it('a complete works has no card: the cluster stays hidden', () => {
     const r = rig(null, { selectedWorks: () => 7, worksCardOf: () => null });
     expect(r.host.querySelector<HTMLElement>('.rl-cluster')!.style.display).toBe('none');

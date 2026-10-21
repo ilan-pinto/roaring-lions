@@ -481,8 +481,8 @@ export class Hud {
    *  it may PATCH them in place (card over card) or must assign `innerHTML`
    *  (anything else: first render, after chips, after an empty selection). */
   private clusterShows: 'card' | 'chips' | 'works' | null = null;
-  /** The works card's last markup, so the 4 Hz beat rewrites it only when it changed. */
-  private worksCardHtml = '';
+  /** The works card's identity (site + name); the beat patches numbers in place while it holds. */
+  private worksCardKey = '';
   /** The unit id the cluster's card was last drawn for. A card is patched only
    *  for the SAME unit: a different unit gets a fresh `innerHTML`, so the hp
    *  fill (which eases its width) does not slide from one unit's health to
@@ -2305,10 +2305,19 @@ export class Hud {
       const ws = this.deps.selectedWorks?.() ?? -1;
       const card = ws !== -1 ? (this.deps.worksCardOf?.(ws) ?? null) : null;
       if (card !== null) {
-        const html = this.worksCardMarkup(ws, card);
-        if (this.clusterShows !== 'works' || html !== this.worksCardHtml) {
-          this.cluster.innerHTML = html;
-          this.worksCardHtml = html;
+        // Built once per works+name; the 4 Hz beat patches the numbers in place so the
+        // Cancel button node survives between mousedown and mouseup.
+        const key = `${ws}|${card.name}`;
+        if (this.clusterShows !== 'works' || key !== this.worksCardKey || this.cluster.querySelector('[data-works-cancel]') === null) {
+          this.cluster.innerHTML = this.worksCardMarkup(ws, card);
+          this.worksCardKey = key;
+        } else {
+          const pct = this.cluster.querySelector('.rl-card__hp');
+          if (pct) pct.textContent = t('hud.works.progress', { n: card.percent });
+          const fill = this.cluster.querySelector<HTMLElement>('.rl-track > i');
+          if (fill) fill.style.width = `${card.percent}%`;
+          const btn = this.cluster.querySelector('[data-works-cancel]');
+          if (btn) btn.textContent = t('hud.works.cancel', { n: card.refund });
         }
         this.cluster.style.display = '';
         this.clusterShows = 'works';
@@ -2316,7 +2325,7 @@ export class Hud {
       }
       this.cluster.style.display = 'none';
       this.clusterShows = null;
-      this.worksCardHtml = '';
+      this.worksCardKey = '';
       return;
     }
     const wasHidden = this.cluster.style.display === 'none';

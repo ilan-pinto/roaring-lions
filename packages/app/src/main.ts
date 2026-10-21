@@ -4205,6 +4205,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       lastBuilderKey = builderKey;
       production?.refresh();
     }
+    // Any route that selects units (groups, minimap, Tab, chips, box) leaves the works
+    // selection behind: one rule here instead of one per route.
+    if (selectedWorks !== -1 && renderer.selection.length > 0) selectedWorks = -1;
     if (selectedWorks >= 0 && sim.structures.alive[selectedWorks] === 0) selectedWorks = -1;
     // An unstaked site selected earlier: once the stake lands the selection follows it to the
     // structure row; when the site goes (cancelled, refused) the selection goes.
@@ -4219,7 +4222,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       const ty = Math.floor(gy);
       const builders = ownBuilders();
       // The selection is in the key: selecting or deselecting an engineer re-asks the runtime.
-      const key = `${armedWorks}:${tx}:${ty}:${builders.join(',')}`;
+      // `tickCount >> 2` (5 Hz) refreshes funds, occupancy and an engineer's death without
+      // per-frame work.
+      const key = `${armedWorks}:${tx}:${ty}:${builders.join(',')}:${sim.tickCount >> 2}`;
       if (key !== worksKey) {
         worksKey = key;
         const shape = shapeOfWorks(armedWorks);
