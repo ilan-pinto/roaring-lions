@@ -694,7 +694,7 @@ yours; each one records what the next phase inherits.
   carry both retired alternatives with their measurements.
   The frame goes through `post-chain.ts`: `RenderPass → FogOfWarPass →
   WorldGTAOPass (half resolution) → bloom (quarter resolution) → OutputPass →
-  VignettePass → SMAAPass`, each bracketed pass present or not by preset. Fog of war is
+  VignettePass → SMAAPass`; AO, bloom, vignette and SMAA are present or not by preset. Fog of war is
   `shroud-texture.ts` + `fog-pass.ts` — a depth-reading post pass, not
   geometry. A muzzle flash is a pooled `PointLight` (`units/flash-light.ts`),
   not a ramp-index shift. `applyPalettePipeline`, `paletteColorNoConvert`, the
@@ -836,7 +836,7 @@ yours; each one records what the next phase inherits.
   drawing buffer per axis on `high`/`medium`, absent on `low` (D8). Only an
   effect that is told to exceed 1.0 blooms: the HDR gains live in ONE table,
   `units/hdr-gains.ts` (D2, D9), applied to palette-key colours, never a raw
-  hex. `pnpm perf:bloom-census` holds every map's quiet frame under 0.9; the
+  hex. `pnpm perf:bloom-census` holds every map's quiet frame under 0.9 (quiet frames only); the
   `bloom` debug layer flips the pass's `enabled`. The flipbook
   (`units/flipbook-fx.ts`) is one GPU-aged instanced billboard pool drawn by
   two meshes: soot and dirt at band 5, depth-tested, and fire at 5.5 with
