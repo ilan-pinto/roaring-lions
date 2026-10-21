@@ -465,10 +465,9 @@ describe('air carriers land to load and unload (GH-698 Task 3)', () => {
     expect(aboard(sim, heli)).toBe(0);
   });
 
-  it('LANDING holds the hull against stepFocus: an attack order chases nothing', () => {
+  it('LANDING holds the hull against stepFocus; an attack order during LANDING is ignored', () => {
     // An enemy 9 tiles east, revealed: outside the HELI's door gun (8), so a
-    // focus would close on it (stepFocus runs before stepAirCarriers). Ordered during LANDING, the hull
-    // must not move until the landing is done.
+    // focus would close on it (stepFocus runs before stepAirCarriers).
     const { sim, heli } = loadedHeli(20.5, 20.5, 2);
     const foe = sim.spawn(0, 1, at(29.5), at(20.5));
     run(sim, 20);
@@ -477,13 +476,44 @@ describe('air carriers land to load and unload (GH-698 Task 3)', () => {
     expect(sim.state.airState[heli]).toBe(AIR_LANDING);
     const x = sim.state.posX[heli];
     sim.queueCommand({ kind: 'reveal', side: 0, x: at(29.5), y: at(20.5) });
-    sim.tick(); // identified now (reveal), so the attack below is accepted
+    sim.tick(); // identified now (reveal), so an attack would be accepted
     sim.queueCommand({ kind: 'attack', ids: [heli], target: foe });
     sim.tick();
-    expect(sim.state.focusTarget[heli]).toBe(foe);
+    expect(sim.state.focusTarget[heli]).toBe(-1); // ignored while LANDING
+    // A focus however it got there (written straight into the column): the
+    // chase must still not move a landing hull.
+    sim.state.focusTarget[heli] = foe;
     run(sim, 37);
     expect(sim.state.airState[heli]).toBe(AIR_LANDING);
     expect(sim.state.posX[heli]).toBe(x);
+    run(sim, 1);
+    expect(sim.state.airState[heli]).toBe(AIR_LANDED);
+    expect(aboard(sim, heli)).toBe(0);
+  });
+
+  it('an attack while flying to load cancels the plan and releases the riders', () => {
+    // Load sends the HELI to the LZ (30,20) at the squad; an attack on a
+    // revealed foe north of it, while airborne, replaces the plan: the chase
+    // goal (the foe's last-seen tile, never checked as an LZ) is never landed
+    // on, and the squad is released rather than left waiting.
+    const { sim, heli, inf } = heliWorld(20.5, 20.5);
+    const sq = sim.spawn(inf, 0, at(30.5), at(20.5));
+    const foe = sim.spawn(0, 1, at(20.5), at(8.5));
+    sim.setBoulder(20, 8, true);
+    sim.queueCommand({ kind: 'load', ids: [sq], carrier: heli });
+    sim.queueCommand({ kind: 'reveal', side: 0, x: at(20.5), y: at(8.5) });
+    run(sim, 3);
+    expect(sim.state.airWant[heli]).toBe(1); // AIR_WANT_LOAD
+    sim.queueCommand({ kind: 'attack', ids: [heli], target: foe });
+    sim.tick();
+    expect(sim.state.focusTarget[heli]).toBe(foe);
+    expect(sim.state.airWant[heli]).toBe(0);
+    for (let k = 0; k < 300; k++) {
+      sim.tick();
+      expect(sim.state.airState[heli]).toBe(AIR_AIRBORNE);
+    }
+    expect(sim.state.carriedBy[sq]).toBe(-1);
+    expect(sim.state.moving[sq]).toBe(0);
   });
 
   it('LANDING snaps the hull onto the LZ tile centre, and unloads about it', () => {

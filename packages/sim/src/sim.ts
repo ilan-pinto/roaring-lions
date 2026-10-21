@@ -3692,6 +3692,16 @@ export class Sim {
         // only `cmd.ids`, so an `attack` placed after it compiles and halts.
         for (const id of cmd.ids) {
           if (!this.canFocus(id, cmd.target)) continue; // a refused id changes nothing
+          // GH-698: the move order's air prelude. A LANDING carrier ignores the
+          // order before any write; otherwise it cancels a land plan, so
+          // stepFocus's chase goal (the target's last-seen tile, never checked
+          // as an LZ) can never become a landing, and stepTransport releases the
+          // riders. LANDED, the chase lifts it as a move would.
+          if (this.unitTypes[this.typeIdx[id]].isAirCarrier) {
+            if (this.airState[id] === AIR_LANDING) continue;
+            const want = this.airWant[id];
+            if (want === AIR_WANT_LOAD || want === AIR_WANT_UNLOAD) this.airWant[id] = AIR_WANT_NONE;
+          }
           this.focusTarget[id] = cmd.target;
           this.focusLost[id] = 0;
           // What every order clears. NOT `leaveStructure`: a garrisoned
