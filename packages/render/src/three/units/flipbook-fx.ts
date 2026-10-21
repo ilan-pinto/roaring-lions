@@ -27,10 +27,24 @@
  * (`(GB*2-1)*4` per unit of frame half-width, +B up), A heat for fire. So the
  * textures load `NoColorSpace` with `premultiplyAlpha` off (a premultiply
  * would zero R/G/B wherever A is 0, which is most of smoke's rim and every
- * fire frame past t~0.45). The billow is drawn inside the inner `ATLAS_FIT`
- * (0.85) of each frame with an 8 px empty margin, so the quad is scaled by
- * 1/ATLAS_FIT to keep the mock's on-screen size and the margin keeps mips
- * 0-3 from bleeding between frames. Until both atlases are in, a spawn is
+ * fire frame past t~0.45). Each frame keeps an 8 px empty margin, so mips
+ * 0-3 never bleed between frames.
+ *
+ * MATCHED TO THE MOCK, NOT TO THE BAKE (Task 6 fix round 1). The quad is the
+ * mock's own (`uQuadScale` 1), and `FLIPBOOK_FIT` maps the atlas onto the
+ * mock's procedural density: the baked billow fills only ~0.5 of a frame's
+ * half-width (not the 0.85 the bake aims at) and bakes its OWN growth and
+ * decay over the 64 frames, which doubled the vertex shader's growth and the
+ * fragment fade -- the build drew a fire instance at 0.24 mean density inside
+ * its disc at t = 0.1 where the mock draws 0.64. So each type reads a
+ * zoomed-in (`zoom`) window of its MATURE frames only (`k0..k1` over life),
+ * remaps density by the mock's own `* 1.8` and `0.55 t^2` erosion
+ * (`d = gain * R - 0.99 t^2`), and takes fire's core as the mock does,
+ * `smoothstep(0.25, 0.95, density)` (or the baked A where higher). The four
+ * numbers per type were fitted against the mock's fbm over 16 seeds at eight
+ * life fractions (mean squared density error 0.21 -> 0.011 for fire,
+ * 0.28 -> 0.004 for smoke); the fit and its readings are in the Task 6
+ * report. Until both atlases are in, a spawn is
  * accepted (it ages like any other) but nothing draws: no fallback billow.
  *
  * Authored colours are palette keys resolved to linear (`setColors`); the
@@ -68,8 +82,16 @@ export const FLIP_SMOKE = 1;
 export const FLIP_DIRT = 2;
 /** Frames per atlas side; the atlas holds `FLIPBOOK_GRID ** 2` frames. */
 export const FLIPBOOK_GRID = 8;
-/** The fraction of a frame's half-width the baked billow is fitted to (Task 3). */
-export const ATLAS_FIT = 0.85;
+/**
+ * How each atlas is read so its billow matches the mock's procedural one
+ * (top comment): `zoom` is the frame half-width a quad half-width samples,
+ * `gain` the density remap, `k0`..`k1` the frames swept over life. Dirt reads
+ * the smoke atlas and its fit, as the mock's dirt shares smoke's billow.
+ */
+export const FLIPBOOK_FIT = Object.freeze({
+  fire: Object.freeze({ zoom: 0.675, gain: 1.5, k0: 12, k1: 28 }),
+  smoke: Object.freeze({ zoom: 0.625, gain: 2.2, k0: 10, k1: 20 }),
+});
 /** Smoke alpha (D3, 1x). */
 export const FLIPBOOK_SMOKE_ALPHA = 0.85;
 /** The xorshift32 state a fresh `FlipbookFx` starts from. */
@@ -119,8 +141,8 @@ const VERT = /* glsl */ `
     vec3 right = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
     vec3 up = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]);
     vec2 c = position.xy;
-    // The quad is the whole frame, 1/ATLAS_FIT of the billow; the lift is
-    // of the billow's own size, as in the mock.
+    // The mock's quad and lift; uQuadScale stays a uniform (1) so a
+    // capture can still resize the quad without a rebuild.
     vec3 world = p + (right * c.x + up * c.y) * size * uQuadScale + up * size * 0.32;
     vUv = c * 2.0;
     vT = t;
@@ -145,6 +167,8 @@ const FRAG = /* glsl */ `
   uniform float uLight;
   uniform float uSmokeAlpha;
   uniform vec2 uSun;
+  uniform vec4 uFireFit;  // zoom, gain, k0, k1
+  uniform vec4 uSmokeFit;
   varying vec2 vUv;
   varying float vT;
   varying float vType;
@@ -172,8 +196,10 @@ const FRAG = /* glsl */ `
     float sn = sin(ang);
     // Per-instance rotation about the frame's centre.
     vec2 a = vec2(cs * vUv.x - sn * vUv.y, sn * vUv.x + cs * vUv.y);
-    vec2 local = a * 0.5 + 0.5;
-    float f = clamp(vT, 0.0, 1.0) * LAST;
+    vec4 fit = vType < 0.5 ? uFireFit : uSmokeFit;
+    vec2 local = a * (0.5 * fit.x) + 0.5;
+    float tc = clamp(vT, 0.0, 1.0);
+    float f = fit.z + tc * (fit.w - fit.z);
     float k0 = floor(f);
     float k1 = min(k0 + 1.0, LAST);
     float w = f - k0;
@@ -183,11 +209,13 @@ const FRAG = /* glsl */ `
     } else {
       s = mix(frameSample(uSmokeAtlas, k0, local), frameSample(uSmokeAtlas, k1, local), w);
     }
-    float density = s.r;
+    // The mock's density: its own *1.8 gain and 0.55 t^2 erosion.
+    float density = clamp(fit.y * s.r - 0.99 * tc * tc, 0.0, 1.0);
     if (density < 0.01) discard;
     // The baked gradient is in the atlas frame; the screen sees the frame
-    // rotated by ang, so the screen-space gradient is its inverse rotation.
-    vec2 ga = (s.gb * 2.0 - 1.0) * 4.0;
+    // rotated by ang, so the screen-space gradient is its inverse rotation,
+    // and (chain rule) the zoom and the gain scale it.
+    vec2 ga = (s.gb * 2.0 - 1.0) * 4.0 * fit.x * fit.y;
     vec2 g = vec2(cs * ga.x + sn * ga.y, -sn * ga.x + cs * ga.y);
     // Denser toward the sun is self-shadowed; the rim facing it is lit.
     float shade = clamp(0.85 - 0.12 * dot(g, uSun) + 0.30 * dot(vUv, uSun), 0.45, 1.3);
@@ -195,7 +223,8 @@ const FRAG = /* glsl */ `
     float alpha;
     if (vType < 0.5) {
       float heat = clamp(1.0 - vT / 0.16, 0.0, 1.0);
-      float core = s.a;
+      // The mock's core (dense = hot), or the baked hot core where higher.
+      float core = max(smoothstep(0.25, 0.95, density), s.a);
       vec3 hot = mix(uFire, uHot, pow(core * heat, 4.0)) * uFireGain * (0.35 + 0.65 * core);
       vec3 ember = uEmber * (1.0 + 1.2 * core);
       vec3 fire = mix(ember, hot, heat);
@@ -269,6 +298,10 @@ export interface FlipbookSpawn {
  * only while it actually spawns the recipe (atlases in); otherwise they are
  * the fallback the schema keeps them declared for.
  */
+function fitVec(f: { zoom: number; gain: number; k0: number; k1: number }): THREE.Vector4 {
+  return new THREE.Vector4(f.zoom, f.gain, f.k0, f.k1);
+}
+
 export function flipbookSupersedes(layer: Pick<ParticleSpec, 'mesh_burst' | 'mesh_plume' | 'sprite'>): boolean {
   return layer.mesh_burst === true || layer.mesh_plume === true || layer.sprite === 'smoke_puff';
 }
@@ -339,7 +372,9 @@ export class FlipbookFx {
     const uniforms = (firePass: number): Record<string, THREE.IUniform> => ({
       uTime: { value: 0 },
       uFirePass: { value: firePass },
-      uQuadScale: { value: 1 / ATLAS_FIT },
+      uQuadScale: { value: 1 },
+      uFireFit: { value: fitVec(FLIPBOOK_FIT.fire) },
+      uSmokeFit: { value: fitVec(FLIPBOOK_FIT.smoke) },
       uFireAtlas: { value: null },
       uSmokeAtlas: { value: null },
       uHot: { value: new THREE.Color(1, 1, 1) },

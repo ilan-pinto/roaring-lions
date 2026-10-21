@@ -10,6 +10,7 @@ import {
   FLIP_DIRT,
   FLIP_FIRE,
   FLIP_SMOKE,
+  FLIPBOOK_FIT,
   flipbookSupersedes,
   prepareFlipbookAtlas,
 } from './flipbook-fx';
@@ -55,7 +56,7 @@ describe('FlipbookFx construction', () => {
     expect(fx.fireMesh.material.uniforms.uFirePass.value).toBe(1);
     expect(fx.mesh.material.uniforms.uFireGain.value).toBe(HDR_GAINS.fireball);
     expect(fx.mesh.material.uniforms.uSmokeAlpha.value).toBe(0.85);
-    expect(fx.mesh.material.uniforms.uQuadScale.value).toBeCloseTo(1 / 0.85, 10);
+    expect(fx.mesh.material.uniforms.uQuadScale.value).toBe(1);
     expect(fx.mesh.geometry.getAttribute('aParams').count).toBe(FLIPBOOK_CAPACITY);
   });
 
@@ -422,5 +423,36 @@ describe('flipbookSupersedes', () => {
     expect(flipbookSupersedes({ sprite: 'shard' })).toBe(false);
     expect(flipbookSupersedes({ sprite: 'soft_dot' })).toBe(false);
     expect(flipbookSupersedes({ sprite: 'ring' })).toBe(false);
+  });
+});
+
+// Task 6 fix round 1: the fit `tools/src/flipbook-fit.test.ts` measures against
+// the mock is the one the shader actually reads. That test mirrors the FRAG's
+// arithmetic in TypeScript; these pin the FRAG to the same arithmetic, as text,
+// and the uniforms to the constants.
+describe('FLIPBOOK_FIT reaches the shader', () => {
+  it('binds each type\'s fit as a uniform on both passes', () => {
+    const fx = new FlipbookFx();
+    for (const m of [fx.mesh, fx.fireMesh]) {
+      const u = m.material.uniforms;
+      expect((u.uFireFit.value as THREE.Vector4).toArray()).toEqual([
+        FLIPBOOK_FIT.fire.zoom, FLIPBOOK_FIT.fire.gain, FLIPBOOK_FIT.fire.k0, FLIPBOOK_FIT.fire.k1,
+      ]);
+      expect((u.uSmokeFit.value as THREE.Vector4).toArray()).toEqual([
+        FLIPBOOK_FIT.smoke.zoom, FLIPBOOK_FIT.smoke.gain, FLIPBOOK_FIT.smoke.k0, FLIPBOOK_FIT.smoke.k1,
+      ]);
+      expect(u.uQuadScale.value).toBe(1);
+    }
+    fx.dispose();
+  });
+
+  it('samples the zoomed window of the mature frames and remaps density as the mock does', () => {
+    const fx = new FlipbookFx();
+    const frag = fx.mesh.material.fragmentShader.replace(/\s+/g, ' ');
+    expect(frag).toContain('vec2 local = a * (0.5 * fit.x) + 0.5;');
+    expect(frag).toContain('float f = fit.z + tc * (fit.w - fit.z);');
+    expect(frag).toContain('float density = clamp(fit.y * s.r - 0.99 * tc * tc, 0.0, 1.0);');
+    expect(frag).toContain('float core = max(smoothstep(0.25, 0.95, density), s.a);');
+    fx.dispose();
   });
 });
