@@ -3121,6 +3121,9 @@ body[data-outcome-beat] .rl-aar {
   text-transform: uppercase;
 }
 .rl-card__why { font-size: var(--t-s); color: var(--ink-mute); }
+/* GH-698: a carrier's seats and an air carrier's flight state (hud.ts, the carry line). */
+.rl-card__carry { font-size: var(--t-s); }
+.rl-card__carry svg { vertical-align: middle; margin-right: 2px; }
 .rl-supp {
   display: flex;
   align-items: center;

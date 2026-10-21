@@ -125,6 +125,8 @@ import apcKipod from '../../../data/units/kdf/apc_kipod.json';
 // E5 bought-only special forces (GH-181): `unlock` is `{ price }` alone, credits, no star gate.
 import reconZikit from '../../../data/units/kdf/recon_zikit.json';
 import heliPetenGunship from '../../../data/units/kdf/heli_peten_gunship.json';
+// GH-698: the UH-60 Yanshuf, an air carrier (role apc, air domain). Conduct 84 / 500 credits.
+import heliYanshuf from '../../../data/units/kdf/heli_yanshuf.json';
 import militiaCell from '../../../data/units/enemy/militia_cell.json';
 import rpgTeam from '../../../data/units/enemy/rpg_team.json';
 import atgmCell from '../../../data/units/enemy/atgm_cell.json';
@@ -387,6 +389,7 @@ export const units = {
   manpad_team: manpadTeam,
   recoilless_team: recoillessTeam,
   civilians: civilians,
+  heli_yanshuf: heliYanshuf,
 } as const;
 
 export type UnitId = keyof typeof units;

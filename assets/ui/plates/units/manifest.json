@@ -176,6 +176,15 @@
         260,
         247
       ]
+    },
+    "heli_yanshuf": {
+      "file": "heli_yanshuf.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        570,
+        441
+      ]
     }
   }
 }

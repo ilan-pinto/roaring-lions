@@ -92,10 +92,10 @@ describe('no living state plays its corpse', () => {
   it('judges every drawn file that has a corpse -- a known population', () => {
     // A literal, so an empty catalogue or a path that matches nothing cannot
     // pass this file in no time: 18 rigged infantry files with a `wreck`
-    // (the civilians have none; the three officers are held) and 16
-    // vehicles, counted 7 Oct.
+    // (the civilians have none; the three officers are held) and 17
+    // vehicles: 16 counted 7 Oct, plus heli_yanshuf (GH-698, 21 Oct).
     expect(WITH_CORPSE.filter((f) => !f.startsWith('vehicles/'))).toHaveLength(18);
-    expect(WITH_CORPSE.filter((f) => f.startsWith('vehicles/'))).toHaveLength(16);
+    expect(WITH_CORPSE.filter((f) => f.startsWith('vehicles/'))).toHaveLength(17);
   });
 
   for (const file of WITH_CORPSE) {

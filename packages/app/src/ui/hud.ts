@@ -73,6 +73,8 @@ import {
   textToneClass,
   groupedPenalties,
   noShotReason,
+  flightKey,
+  ridersOf,
   type MissionView,
   type Tone,
 } from './hud-model';
@@ -2770,6 +2772,21 @@ export class Hud {
     const cornerMark: ChipMark | null =
       band === 'broken' ? 'broken' : band === 'pinned' ? 'pinned' : damage === 'immobilised' ? 'immobilised' : damage !== null ? 'gunOut' : null;
 
+    // GH-698: the carry line. An air carrier says where it is in the land-and-lift
+    // cycle; an own carrier says how full it is, in the garrison's own "n / cap"
+    // form, with each rider's role badge beside it. Its own line rather than the
+    // condition's, so a parked carrier still reads "holding position". Status on
+    // the card, never in the world.
+    const carry: string[] = [];
+    if (type.isAirCarrier) carry.push(`<span class="rl-info">${t(flightKey(st.airState[id]))}</span>`);
+    if (type.transportSlots > 0 && own) {
+      const badges = ridersOf(st, sim.entityCount, id)
+        .map((r) => roleBadgeSvg(roleBucket(sim.unitTypes[st.typeIdx[r]]), CHIP_BADGE))
+        .join('');
+      carry.push(t('hud.card.seats', { n: sim.passengerCount(id), cap: type.transportSlots }) + (badges ? ` ${badges}` : ''));
+    }
+    const carryHtml = carry.length > 0 ? `<div class="rl-card__carry">${carry.join(' · ')}</div>` : '';
+
     // Armament, so the player can tell what this unit is for.
     const arms: string[] = [];
     if (type.weapons.length > 0) {
@@ -2840,6 +2857,7 @@ export class Hud {
       `<div class="rl-card__cond">${flags.length > 0 ? flags.join(' · ') : t('hud.card.holdingPosition')}</div>` +
       (why.length > 0 ? `<div class="rl-card__why">${why.join(' · ')}</div>` : '') +
       meter +
+      carryHtml +
       this.engagingHtml(id) +
       `<div class="rl-card__cols">` +
       `<div><div class="rl-label">${t('hud.card.armamentLabel')}</div>${arms.join('')}</div>` +

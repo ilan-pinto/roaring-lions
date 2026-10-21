@@ -75,9 +75,10 @@ describe('engine family (tracked / wheeled / rotor / silent)', () => {
     }
   });
 
-  it('rotor: both Peten helicopters; every other air unit is silent', () => {
+  it('rotor: both Peten helicopters and the Yanshuf; every other air unit is silent', () => {
     expect(families.get('heli_peten')).toBe('rotor');
     expect(families.get('heli_peten_gunship')).toBe('rotor');
+    expect(families.get('heli_yanshuf')).toBe('rotor'); // GH-698
     for (const id of ['recon_drone', 'attack_drone', 'loiter_drone', 'paramotor']) expect(families.get(id), id).toBeNull();
   });
 

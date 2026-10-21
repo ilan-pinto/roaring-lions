@@ -2052,6 +2052,52 @@ describe('data-icon: telling a cropped unit icon from a sheet frame', () => {
   });
 });
 
+describe('the carrier card (GH-698)', () => {
+  function yanshufForce(): { sim: Sim; squads: number[]; at: number; namer: number } {
+    const sim = new Sim({ seed: 1, width: 16, height: 16, capacity: 16 });
+    const inf = sim.addUnitType(units.inf_squad as unknown as UnitTypeJson);
+    const heli = sim.addUnitType(units.heli_yanshuf as unknown as UnitTypeJson);
+    const squads = [sim.spawn(inf, 0, fx.from(6), fx.from(6)), sim.spawn(inf, 0, fx.from(7), fx.from(6))];
+    const yanshuf = sim.spawn(heli, 0, fx.from(6), fx.from(7));
+    return { sim, squads, at: squads[0], namer: yanshuf };
+  }
+
+  it('reads seats filled over seats, a badge per rider, and the flight state', () => {
+    const world = yanshufForce();
+    const r = clusterRig(() => [world.namer], {}, world);
+    const carry = (): string => r.host.querySelector('.rl-card__carry')?.textContent ?? '';
+    expect(carry()).toContain('airborne');
+    expect(carry()).toContain('0 / 6 aboard');
+    world.sim.queueCommand({ kind: 'load', ids: world.squads, carrier: world.namer });
+    for (let i = 0; i < 400 && world.sim.passengerCount(world.namer) < 2; i++) world.sim.tick();
+    expect(world.sim.passengerCount(world.namer)).toBe(2);
+    // The cluster redraws on its own cadence, not every tick.
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(carry()).toContain('2 / 6 aboard');
+    expect(r.host.querySelectorAll('.rl-card__carry svg').length).toBe(2);
+    const st = world.sim.state as unknown as { airState: Uint8Array };
+    for (const [s, word] of [[1, 'landing'], [2, 'on the ground'], [3, 'lifting off']] as const) {
+      st.airState[world.namer] = s;
+      for (let i = 0; i < 5; i++) r.tick();
+      expect(carry()).toContain(word);
+    }
+  });
+
+  it('gives a ground carrier seats and no flight line', () => {
+    const world = makeForce();
+    const r = clusterRig(() => [world.namer], {}, world);
+    const carry = r.host.querySelector('.rl-card__carry')?.textContent ?? '';
+    expect(carry).toContain('0 / 5 aboard');
+    expect(carry).not.toContain('airborne');
+  });
+
+  it('draws no carry line for a unit with no seats', () => {
+    const world = makeForce();
+    const r = clusterRig(() => [world.at], {}, world);
+    expect(r.host.querySelector('.rl-card__carry')).toBeNull();
+  });
+});
+
 describe('the order row', () => {
   it('offers only the orders the selection can give', () => {
     const world = makeForce();

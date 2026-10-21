@@ -27,7 +27,7 @@
  * own table -- the last describe here runs that builder end to end.
  */
 import { describe, it, expect } from 'vitest';
-import { applyUpgrades, readPath, units, type UpgradableUnit } from '@lions/data';
+import { applyUpgrades, readPath, type UpgradableUnit } from '@lions/data';
 import { fx, type Sim } from '@lions/sim';
 import { VERSUS_KDF } from './versus-force';
 import { forcesOf, unitCost } from './outcome';
@@ -39,9 +39,10 @@ import { sandboxAnchors, type SandboxAnchors } from '../sandbox-anchors';
 import { hostileFacing } from '../sandbox-facing';
 import { placeOnOpen } from '../sandbox-place';
 import { buildWorld } from './versus-world.test-helper';
+import { versusRoster } from './versus-roster';
 
 type RosterUnit = UpgradableUnit & { readonly id: string; readonly faction: string };
-const roster = Object.values(units) as unknown as RosterUnit[];
+const roster = versusRoster() as unknown as RosterUnit[];
 const kdf = roster.filter((u) => u.faction === 'kdf');
 
 /** Side 1's kit: the `armour` AND `firepower` tracks at tier 1 on every KDF

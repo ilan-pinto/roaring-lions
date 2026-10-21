@@ -554,6 +554,9 @@ export interface KeyContext {
   canEmbark(id: number): boolean;
   canSmoke(id: number): boolean;
   passengerCount(id: number): number;
+  /** GH-698: a carrier that flies (the Yanshuf). It lands to take riders aboard
+   *  and lands to unload, so the verb's note says so. Absent reads as never. */
+  isAirCarrier?(id: number): boolean;
 }
 
 /**
@@ -582,7 +585,7 @@ export function resolveKeyVerb(
       intents: [{ kind: 'mount', riders, carrier }],
       roe: free,
       marker: false,
-      note: { text: t('intent.load.mounting'), tone: 'info' },
+      note: { text: t(ctx.isAirCarrier?.(carrier) === true ? 'intent.load.airLanding' : 'intent.load.mounting'), tone: 'info' },
     };
   }
   if (verb === 'dismount') {
@@ -596,7 +599,11 @@ export function resolveKeyVerb(
       intents: [{ kind: 'dismount', carriers }],
       roe: free,
       marker: false,
-      note: { text: t('intent.dismount'), tone: 'info' },
+      // GH-698: only when every carrier unloading flies; a mixed lift reads as the plain dismount.
+      note: {
+        text: t(carriers.every((i) => ctx.isAirCarrier?.(i) === true) ? 'intent.dismount.airLanding' : 'intent.dismount'),
+        tone: 'info',
+      },
     };
   }
   const smokers = ctx.ids.filter((i) => ctx.canSmoke(i));

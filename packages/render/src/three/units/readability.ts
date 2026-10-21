@@ -139,6 +139,9 @@ export const RADIUS_BY_TYPE: Readonly<Record<string, number>> = {
   // `tools/src/perf/unit-footprints.ts` run (footprint 0.476 and 0.778 tile). recon_zikit
   // 0.55 -> 0.53 at spike-walk (6 Oct): the spotter stands beside his tripod (0.454 tile).
   recon_zikit: 0.53, heli_peten_gunship: 0.9,
+  // GH-698 (2026-10-21): the UH-60 Yanshuf, from a fresh `unit-footprints.ts` run
+  // (footprint 0.928 tile, rotor excluded like the Petens'): 1.15 x that, rounded up.
+  heli_yanshuf: 1.07,
 };
 
 /** The ring radius for a unit type: its own row, else the class value. */

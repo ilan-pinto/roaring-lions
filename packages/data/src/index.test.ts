@@ -270,10 +270,12 @@ describe('the unit voice field (WP-AU1 §3)', () => {
 
   // Role alone is wrong three times (spec §3), the trap `mobility.wheeled`
   // already records: a truck under `artillery`, a foot team under `aa` (#247
-  // tracks the same unit's sim bug), a paraglider under `support`. Nothing
-  // else may override, or the role default stops being the rule.
-  it('is declared by exactly the three units whose role would voice them wrongly', () => {
-    expect(declared()).toEqual({ manpad_team: 'infantry', paramotor: 'air', rocket_battery: 'crew' });
+  // tracks the same unit's sim bug), a paraglider under `support`. A fourth
+  // since GH-698: the UH-60 Yanshuf is an air carrier under `apc`, which would
+  // voice it as a ground crew. Nothing else may override, or the role default
+  // stops being the rule.
+  it('is declared by exactly the four units whose role would voice them wrongly', () => {
+    expect(declared()).toEqual({ heli_yanshuf: 'air', manpad_team: 'infantry', paramotor: 'air', rocket_battery: 'crew' });
   });
 
   it('the schema offers exactly the four classes, and the field stays optional', () => {

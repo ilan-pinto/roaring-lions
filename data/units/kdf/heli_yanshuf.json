@@ -1,0 +1,140 @@
+{
+  "id": "heli_yanshuf",
+  "name": "UH-60 Yanshuf",
+  "blurb": "Six squads anywhere on the map in a minute. Lose it in the air and you lose all of them.",
+  "faction": "kdf",
+  "role": "apc",
+  "voice": "air",
+  "cost": {
+    "logistics": 405,
+    "build_time_s": 40,
+    "population": 2
+  },
+  "unlock": {
+    "roe_rating_min": 84,
+    "price": 500
+  },
+  "hull": {
+    "hp": 760,
+    "armor": {
+      "front": 32,
+      "side": 20,
+      "rear": 14
+    },
+    "crew": 4,
+    "transport_slots": 6,
+    "suppression_resistance": 0.6
+  },
+  "mobility": {
+    "speed_tiles_s": 3.2,
+    "turn_rate_deg_s": 90,
+    "domain": "air"
+  },
+  "sensors": {
+    "optics": 1.1,
+    "sight_tiles": 11,
+    "thermal": true,
+    "signature": 1.4,
+    "firing_signature_mult": 3.0
+  },
+  "weapons": [
+    {
+      "id": "door_mag",
+      "type": "hmg",
+      "range_tiles": 7,
+      "effective_range_tiles": 5.5,
+      "accuracy": 0.4,
+      "penetration": 14,
+      "damage": 30,
+      "rof_per_min": 400,
+      "suppression": 50,
+      "can_target": [
+        "ground"
+      ],
+      "collateral_risk": 0.25
+    }
+  ],
+  "upgrades": {
+    "armour": {
+      "tiers": [
+        {
+          "price": 150,
+          "patch": {
+            "hull.hp": 50,
+            "hull.armor.front": 2,
+            "hull.armor.side": 1,
+            "hull.armor.rear": 1
+          }
+        },
+        {
+          "price": 225,
+          "patch": {
+            "hull.hp": 106,
+            "hull.armor.front": 4,
+            "hull.armor.side": 2,
+            "hull.armor.rear": 2
+          }
+        },
+        {
+          "price": 320,
+          "patch": {
+            "hull.hp": 176,
+            "hull.armor.front": 5,
+            "hull.armor.side": 3,
+            "hull.armor.rear": 2
+          }
+        }
+      ]
+    },
+    "sensors": {
+      "tiers": [
+        {
+          "price": 120,
+          "patch": {
+            "sensors.optics": 0.1,
+            "sensors.sight_tiles": 1
+          }
+        },
+        {
+          "price": 180,
+          "patch": {
+            "sensors.optics": 0.2,
+            "sensors.sight_tiles": 2
+          }
+        },
+        {
+          "price": 250,
+          "patch": {
+            "sensors.optics": 0.3,
+            "sensors.sight_tiles": 3
+          }
+        }
+      ]
+    },
+    "firepower": {
+      "tiers": [
+        {
+          "price": 140,
+          "patch": {
+            "weapons[0].accuracy": 0.03,
+            "weapons[0].penetration": 1
+          }
+        },
+        {
+          "price": 210,
+          "patch": {
+            "weapons[0].accuracy": 0.06,
+            "weapons[0].penetration": 2
+          }
+        },
+        {
+          "price": 300,
+          "patch": {
+            "weapons[0].accuracy": 0.1,
+            "weapons[0].penetration": 3
+          }
+        }
+      ]
+    }
+  }
+}
