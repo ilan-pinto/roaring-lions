@@ -427,6 +427,39 @@ describe('construct: progress, by hand arithmetic', () => {
   });
 });
 
+describe('construct: a demolisher beside works', () => {
+  // `demo_squad` carries both `construct` and `demolish`. The automatic branch of stepDemolition
+  // levels any building within DEMO_RANGE of a unit holding station after demolition_ticks
+  // (100 by default), so before the owner clause a squad raising its own medic station razed it
+  // 100 ticks after staking. Oracles: 100 ticks, a literal; the build takes 403.
+  const SAPPER_ENG = unit('fw_sapper', { abilities: ['construct', 'demolish'] });
+
+  it('does not raze the works it is building, and finishes them', () => {
+    const { sim, medic } = world();
+    const sapper = sim.addUnitType(SAPPER_ENG);
+    const b = sim.spawn(sapper, 0, at(3.5), at(4.5));
+    sim.queueCommand({ kind: 'construct', ids: [b], structType: medic, x: 4, y: 4 });
+    const out = buildOut(sim, [b]);
+    expect(out.completeAt).toBeGreaterThan(0);
+    expect(out.events.some((e) => e.kind === 'structureDestroyed')).toBe(false);
+    expect(sim.structureAt(4, 4)).toBeGreaterThanOrEqual(0);
+  });
+
+  it('still razes a neutral building beside it, and an enemy-owned one', () => {
+    const { sim, medic } = world();
+    const house = sim.addStructureType(HOUSE);
+    const sapper = sim.addUnitType(SAPPER_ENG);
+    sim.addStructure(house, [2 * W + 2]);
+    sim.spawn(sapper, 0, at(3.5), at(2.5));
+    const enemyWork = sim.addStructure(medic, FOOT_44);
+    sim.setStructureOwner(enemyWork, 1);
+    sim.spawn(sapper, 0, at(6.5), at(4.5));
+    run(sim, 101);
+    expect(sim.structureAt(2, 2)).toBe(-1);
+    expect(sim.structureAt(4, 4)).toBe(-1);
+  });
+});
+
 describe('construct: cancel, refusal, wreck', () => {
   it('cancels an unstaked site: the row frees, nothing was built', () => {
     const { sim, medic, eng } = world();

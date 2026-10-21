@@ -27,8 +27,11 @@ export {
   type DefeatCause,
   type WorksOffer,
   type WorksRefusal,
+  worksRefund,
 } from './mission';
 export type { PlacementRefusal } from './sim';
+export { DOMAIN_FOOT, DOMAIN_VEHICLE } from './sim';
+export { REGEN_FRAC } from './tuning';
 export type { StructureType } from './structures';
 // The civilian flight rule, shared by `MissionRuntime` and the `&civ` sandbox.
 // Exported because a sandbox has no mission and therefore no runtime, and the

@@ -3235,6 +3235,20 @@ body[data-outcome-beat] .rl-aar {
 .rl-held[data-side='hostile'] {
   border-left-color: var(--bad);
 }
+/* Field works (GH-277): the placement tooltip beside the cursor while a work is armed. */
+.rl-works-tip {
+  position: absolute;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-frame);
+  padding: var(--s1) var(--s2);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 5;
+}
+.rl-card--works {
+  width: auto;
+  min-width: 16rem;
+}
 /* GH-345: the Conduct invoice pinned open under the strip's Conduct field. */
 .rl-invoice {
   position: absolute;

@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { fx, type StructureType, type WorksRefusal } from '@lions/sim';
-import { refusalKey, worksPreview, worksShapeOf, type WorksShape } from './works-model';
+import {
+  auraChipKey,
+  refusalKey,
+  worksCardModel,
+  worksEventNotice,
+  worksLegendKeys,
+  worksPreview,
+  worksRings,
+  worksShapeOf,
+  type WorksShape,
+} from './works-model';
 
 // Oracles are literals read off data/structures.json (radius 4 medic and
 // workshop, sight 10 and tunnel radius 10 intel centre), never imported.
@@ -86,5 +96,58 @@ describe('worksMarkSvg', () => {
       expect(svg).toContain('stroke="currentColor"');
       expect(svg).not.toMatch(/#[0-9a-fA-F]{3,6}|rgb/);
     }
+  });
+});
+
+describe('works rings, legend, chips, card, feed', () => {
+  it('worksRings centres on the given point (a standing works), same set as the preview', () => {
+    expect(worksRings(INTEL, 12, 9)).toEqual([
+      { cx: 12, cy: 9, radius: 10, style: 'dashed' },
+      { cx: 12, cy: 9, radius: 10, style: 'dotted' },
+    ]);
+    expect(worksRings(OUTPOST, 12, 9)).toEqual([]);
+  });
+
+  it('the legend names sight and tunnel for the intel centre only', () => {
+    expect(worksLegendKeys(INTEL)).toEqual(['dock.works.legend.sight', 'dock.works.legend.tunnel']);
+    expect(worksLegendKeys(MEDIC)).toEqual([]);
+  });
+
+  // REGEN_FRAC is 16 (0.00024 of hp a tick): the literal, not the import.
+  it('the medic chip needs a foot unit, a heal rate ABOVE the field-regen floor, and hp below max', () => {
+    const base = { domain: 0, healRate: 100, hp: 5, maxHp: 10, compAt: 0, componentKilled: false };
+    expect(auraChipKey(base)).toBe('hud.card.chip.medic');
+    expect(auraChipKey({ ...base, healRate: 16 })).toBeNull(); // field regen alone does not light it
+    expect(auraChipKey({ ...base, healRate: 0 })).toBeNull();
+    expect(auraChipKey({ ...base, hp: 10 })).toBeNull();
+  });
+
+  it('the workshop chip is for a vehicle: healed, or a killed component in a repair area', () => {
+    const base = { domain: 1, healRate: 100, hp: 5, maxHp: 10, compAt: 0, componentKilled: false };
+    expect(auraChipKey(base)).toBe('hud.card.chip.workshop');
+    expect(auraChipKey({ ...base, healRate: 0, compAt: 600, componentKilled: true })).toBe('hud.card.chip.workshop');
+    expect(auraChipKey({ ...base, healRate: 0, compAt: 600, componentKilled: false })).toBeNull();
+    expect(auraChipKey({ ...base, domain: 0 })).toBe('hud.card.chip.medic');
+  });
+
+  it('the card refund is (cost x (ONE - progress)) >> 16, whole units', () => {
+    // 300 logistics, 25% built: 300 * 0.75 = 225.
+    expect(worksCardModel('Workshop', 16384, 65536, 300)).toEqual({ name: 'Workshop', percent: 25, refund: 225 });
+    expect(worksCardModel('Workshop', 0, 65536, 300).refund).toBe(300);
+    // 10 logistics, one third built (21845): 10 * 43691 >> 16 = 6 (truncated).
+    expect(worksCardModel('X', 21845, 65536, 10).refund).toBe(6);
+  });
+
+  it('the feed escapes a structure name', () => {
+    const started = { kind: 'works', tick: 1, phase: 'started', typeId: 'x', site: 0, builder: 3, refund: 0 } as const;
+    const [html] = worksEventNotice(started, '<b>Tent</b>')!;
+    expect(html).not.toContain('<b>Tent</b>');
+    expect(html).toContain('&lt;b&gt;Tent&lt;/b&gt;');
+    expect(html).toContain('works begun');
+  });
+
+  it('a refusal names its reason', () => {
+    const refused = { kind: 'works', tick: 1, phase: 'refused', typeId: 'x', site: -1, builder: -1, refund: 100, reason: 'overlap' } as const;
+    expect(worksEventNotice(refused, 'Tent')![0]).toContain('occupied');
   });
 });
