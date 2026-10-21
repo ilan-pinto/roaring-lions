@@ -4,8 +4,9 @@ import { standMapStructures } from '../map-sim';
 import { versusRoster } from './versus-roster';
 
 /** A bare world for the net tests: the room's seed, the map's terrain and
- *  buildings, every versus unit type registered (`versusRoster()`) -- the recipe `tools/src/walk_world.ts`
- *  and `bootBattlefield` share, minus the mission runtime. */
+ *  buildings, every versus unit type registered (`versusRoster()`, so not the
+ *  GH-698 held ids that `tools/src/walk_world.ts` and `bootBattlefield` do
+ *  register), minus the mission runtime. */
 export function buildWorld(mapId: MapId): { sim: Sim; typeOf: Map<string, number>; map: ParsedMap } {
   const map = parseMap(maps[mapId]);
   const sim = new Sim({ seed: 20260727, width: map.width, height: map.height, capacity: 256 });
