@@ -30,7 +30,7 @@ export {
   worksRefund,
 } from './mission';
 export type { PlacementRefusal } from './sim';
-export { DOMAIN_FOOT, DOMAIN_VEHICLE } from './sim';
+export { DOMAIN_AIR, DOMAIN_FOOT, DOMAIN_VEHICLE } from './sim';
 export { REGEN_FRAC } from './tuning';
 export type { StructureType } from './structures';
 // The civilian flight rule, shared by `MissionRuntime` and the `&civ` sandbox.

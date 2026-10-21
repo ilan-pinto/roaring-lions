@@ -196,3 +196,62 @@ describe('a weapon with no can_target keeps its old reach', () => {
     expect(sim.state.alive[t]).toBe(0);
   });
 });
+
+/**
+ * fix/air-pathing (lead ruling, 21 Oct 2026). An air unit used to follow the
+ * FOOT flow field, so it flew round every ridge and building that has a way
+ * round it -- the "crosses a wall" test above only passed because that wall
+ * has no gap, which leaves the foot field all-DIR_NONE and drops the drone
+ * onto the straight-line fallback. Air paths on an all-open field now.
+ */
+describe('an air unit paths over terrain, not round it', () => {
+  /** A wall down column 12 with a gap at its far end (rows 22-23). */
+  function gappedWall(seed: number): Sim {
+    const sim = new Sim({ seed, width: 24, height: 24, capacity: 8 });
+    for (let y = 0; y < 22; y++) sim.setBlocked(12, y, true);
+    return sim;
+  }
+
+  it('flies straight over a wall that has a way round it', () => {
+    const sim = gappedWall(21);
+    const a = sim.spawn(sim.addUnitType(DRONE), 0, fx.from(4.5), fx.from(4.5));
+    sim.queueCommand({ kind: 'move', ids: [a], x: fx.from(20.5), y: fx.from(4.5) });
+    // 16 tiles at 3 tiles/s is 5.3 s; round the gap it is ~50 tiles, ~17 s.
+    let maxY = 0;
+    for (let t = 0; t < 7 * TICKS_PER_SECOND; t++) {
+      sim.tick();
+      maxY = Math.max(maxY, fx.toNumber(sim.state.posY[a]));
+    }
+    expect(fx.toNumber(sim.state.posX[a])).toBeCloseTo(20.5, 1);
+    expect(sim.state.moving[a]).toBe(0);
+    expect(maxY).toBeLessThan(6);
+  });
+
+  it('a ground unit on the same order still goes round by the gap', () => {
+    const sim = gappedWall(22);
+    const g = sim.spawn(sim.addUnitType(TRUCK), 0, fx.from(4.5), fx.from(4.5));
+    sim.queueCommand({ kind: 'move', ids: [g], x: fx.from(20.5), y: fx.from(4.5) });
+    let maxY = 0;
+    for (let t = 0; t < 30 * TICKS_PER_SECOND; t++) {
+      sim.tick();
+      maxY = Math.max(maxY, fx.toNumber(sim.state.posY[g]));
+    }
+    expect(maxY).toBeGreaterThan(21);
+  });
+
+  it('a mixed order: the drone flies over, the truck drives round, one field each', () => {
+    const sim = gappedWall(23);
+    const a = sim.spawn(sim.addUnitType(DRONE), 0, fx.from(4.5), fx.from(4.5));
+    const g = sim.spawn(sim.addUnitType(TRUCK), 0, fx.from(4.5), fx.from(6.5));
+    sim.queueCommand({ kind: 'move', ids: [a, g], x: fx.from(20.5), y: fx.from(5.5) });
+    let truckMaxY = 0;
+    for (let t = 0; t < 7 * TICKS_PER_SECOND; t++) {
+      sim.tick();
+      truckMaxY = Math.max(truckMaxY, fx.toNumber(sim.state.posY[g]));
+    }
+    expect(fx.toNumber(sim.state.posX[a])).toBeGreaterThan(19);
+    expect(truckMaxY).toBeGreaterThan(21);
+    // One field per unit ordered, at most: the air field is its own key.
+    expect(sim.flowFieldCount).toBeLessThanOrEqual(2);
+  });
+});

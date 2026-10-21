@@ -270,7 +270,17 @@ const FOOT_ROLES = new Set(['infantry', 'at_team', 'artillery', 'engineer', 'sni
  */
 export const DOMAIN_FOOT = 0;
 export const DOMAIN_VEHICLE = 1;
-const DOMAIN_COUNT = 2;
+/**
+ * The domain an aircraft PATHS in (fix/air-pathing, lead ruling 21 Oct 2026):
+ * an all-open mask over flat ground, so a flow field toward any tile runs
+ * straight over ridges, buildings, boulders and ditches. It is a path domain
+ * only. Where an aircraft STANDS -- a formation slot, a snapped goal, an LZ --
+ * is still decided on the foot mask (`maskFor(DOMAIN_AIR)` is `blocked`), and
+ * `UnitType.moveDomain` stays DOMAIN_FOOT for air, so every reader of "what
+ * ground can this unit be put down on" is unchanged.
+ */
+export const DOMAIN_AIR = 2;
+const DOMAIN_COUNT = 3;
 
 /**
  * Brace states for a unit that halts to fire (`UnitType.haltsToFire`), as
@@ -477,6 +487,12 @@ export interface UnitType {
    */
   moveDomain: number;
   /**
+   * The domain this type's flow fields are computed in: DOMAIN_AIR for an
+   * aircraft, `moveDomain` for everything else. `fieldFor` reads it, through
+   * `domainOf`; nothing that snaps a goal or a slot does.
+   */
+  pathDomain: number;
+  /**
    * What this unit takes of its side's population while it lives: a non-negative
    * integer, `cost.population` in the unit JSON, absent = 1 (the schema default).
    *
@@ -650,6 +666,7 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
     // Air never pays for a vehicle field: it flies over the boulders the
     // vehicle mask exists to describe.
     moveDomain: !isAir && wheeled ? DOMAIN_VEHICLE : DOMAIN_FOOT,
+    pathDomain: isAir ? DOMAIN_AIR : wheeled ? DOMAIN_VEHICLE : DOMAIN_FOOT,
     population,
     transportSlots: json.hull.transport_slots ?? 0,
     isAirCarrier: isAir && (json.hull.transport_slots ?? 0) > 0,
@@ -1511,7 +1528,11 @@ export class Sim {
    * `fieldFor` collapses the domain there, because the two masks are the
    * same array.
    */
-  private readonly fieldByGoal: Map<number, number>[] = [new Map(), new Map()];
+  private readonly fieldByGoal: Map<number, number>[] = [new Map(), new Map(), new Map()];
+  /** DOMAIN_AIR's field inputs: an all-zero grid, used as both the blocked
+   *  mask (nothing blocks flight) and the elevation (a rotor pays no climb).
+   *  Allocated once with the map and never written. */
+  private readonly openGrid: Uint8Array;
   /** Tick each field was last handed out by `fieldFor`; the eviction key. */
   private readonly fieldLastIssued: number[] = [];
   /** Goal key of each field, so eviction can drop it from `fieldByGoal`. */
@@ -1542,6 +1563,7 @@ export class Sim {
     this.blockedVehicleMask = this.blocked;
     this.cover = new Uint8Array(tiles);
     this.elevation = new Uint8Array(tiles);
+    this.openGrid = new Uint8Array(tiles);
     this.smoke = new Uint8Array(tiles);
     this.trail = new Uint8Array(tiles);
     this.alive = new Uint8Array(n);
@@ -1824,12 +1846,15 @@ export class Sim {
       if (f >= 0) live[f] = 1;
     }
     for (let d = 0; d < DOMAIN_COUNT; d++) {
-      const mask = this.maskFor(d);
+      const mask = this.pathMaskFor(d);
+      const elev = d === DOMAIN_AIR ? this.openGrid : this.elevation;
       const byGoal = this.fieldByGoal[d];
       for (const [goal, idx] of byGoal) {
         if (live[idx] === 1) {
+          // An air field reads nothing terrain can change; it stays as it is.
+          if (d === DOMAIN_AIR) continue;
           const gx = goal % this.width;
-          this.fields[idx].compute(mask, this.elevation, gx, (goal - gx) / this.width);
+          this.fields[idx].compute(mask, elev, gx, (goal - gx) / this.width);
         } else {
           // Deleting the entry being visited is defined for a Map.
           byGoal.delete(goal);
@@ -1839,8 +1864,17 @@ export class Sim {
     }
   }
 
+  /** The mask a unit of this domain STANDS on: what goals, slots and spreads
+   *  are snapped against. DOMAIN_AIR stands on the foot mask -- an aircraft
+   *  hovers over, and lands on, ground a rifleman could walk to. */
   private maskFor(domain: number): Uint8Array {
     return domain === DOMAIN_VEHICLE ? this.blockedVehicleMask : this.blocked;
+  }
+
+  /** The mask a domain's flow fields are computed on: `maskFor`, except that
+   *  DOMAIN_AIR flies over everything. */
+  private pathMaskFor(domain: number): Uint8Array {
+    return domain === DOMAIN_AIR ? this.openGrid : this.maskFor(domain);
   }
 
   setCover(x: number, y: number, c: number): void {
@@ -2956,7 +2990,7 @@ export class Sim {
    * one already in the pool.
    */
   private fieldFor(gx: number, gy: number, domain: number): number {
-    const d = this.hasBoulders ? domain : DOMAIN_FOOT;
+    const d = domain === DOMAIN_VEHICLE && !this.hasBoulders ? DOMAIN_FOOT : domain;
     const byGoal = this.fieldByGoal[d];
     const key = gy * this.width + gx;
     const existing = byGoal.get(key);
@@ -2972,7 +3006,7 @@ export class Sim {
       // A slot dropped by recomputeFields holds key -1: nothing in the map to remove.
       this.fieldByGoal[this.fieldDomain[idx]].delete(this.fieldGoalKey[idx]);
     }
-    this.fields[idx].compute(this.maskFor(d), this.elevation, gx, gy);
+    this.fields[idx].compute(this.pathMaskFor(d), d === DOMAIN_AIR ? this.openGrid : this.elevation, gx, gy);
     this.fieldLastIssued[idx] = this.tickCount;
     this.fieldGoalKey[idx] = key;
     this.fieldDomain[idx] = d;
@@ -3017,9 +3051,10 @@ export class Sim {
     return best;
   }
 
-  /** The movement domain a living unit paths in. */
+  /** The movement domain a living unit paths in: DOMAIN_AIR for an aircraft.
+   *  `maskFor` of it is still the ground the unit stands on. */
   private domainOf(id: number): number {
-    return this.unitTypes[this.typeIdx[id]].moveDomain;
+    return this.unitTypes[this.typeIdx[id]].pathDomain;
   }
 
   /** Field toward a tile for one unit's domain, snapped to ground that domain
@@ -3452,7 +3487,7 @@ export class Sim {
               uy = gy;
               ufx = tx;
               ufy = ty;
-              ufd = DOMAIN_FOOT;
+              ufd = DOMAIN_AIR;
             } else if (utype.moveDomain === DOMAIN_VEHICLE) {
               ux = xgx;
               uy = xgy;
@@ -3464,7 +3499,7 @@ export class Sim {
               uy = sgy;
               ufx = fgx;
               ufy = fgy;
-              ufd = DOMAIN_FOOT;
+              ufd = utype.pathDomain; // DOMAIN_FOOT, or DOMAIN_AIR for an aircraft
             }
           } else {
             // A unit whose slot IS the tile under the cursor keeps the exact
@@ -3479,7 +3514,7 @@ export class Sim {
             uy = onClick ? gy : fx.add(fx.fromInt(slot[1]), HALF);
             ufx = slot[0];
             ufy = slot[1];
-            ufd = utype.isAir ? DOMAIN_FOOT : utype.moveDomain;
+            ufd = utype.pathDomain;
           }
           // Appending to a unit already under way queues the point instead of
           // overriding it: that is how a player draws a route round a block.
@@ -6700,7 +6735,7 @@ export class Sim {
 
   /**
    * Send air carrier `car` to land at the LZ nearest (x, y), for `want`. The
-   * flight is the move order's own air leg: goal, foot-domain field, `moving`.
+   * flight is the move order's own air leg: goal, air-domain field, `moving`.
    * False, with no state touched, when there is no LZ.
    */
   private orderLand(car: number, want: number, x: Fx, y: Fx): boolean {
@@ -6710,7 +6745,7 @@ export class Sim {
     this.goalX[car] = fx.add(fx.fromInt(lx), HALF);
     this.goalY[car] = fx.add(fx.fromInt(ly), HALF);
     this.wpCount[car] = 0;
-    this.fieldRef[car] = this.fieldFor(lx, ly, DOMAIN_FOOT);
+    this.fieldRef[car] = this.fieldFor(lx, ly, DOMAIN_AIR);
     this.moving[car] = 1;
     this.attackMove[car] = 0;
     this.sweepOrder[car] = 0;
