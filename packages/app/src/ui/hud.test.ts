@@ -4138,3 +4138,42 @@ describe('field works on the card (GH-277)', () => {
     expect(r.host.querySelector<HTMLElement>('.rl-cluster')!.style.display).toBe('none');
   });
 });
+
+// GH-707 P2: the wound half of the service record, and the bleed ring of a down wounded.
+describe('the unit card: wound record and bleed ring (GH-707 P2)', () => {
+  it('shows the wound counts under the record only once there are some', () => {
+    const world = makeForce();
+    const named = (extra: object) =>
+      clusterRig(
+        () => [world.namer],
+        { rosterEntryOf: (id) => (id === world.namer ? { type: 'inf_squad', veterancy: 1, name: 'Sela', missions: 3, kills: 4, ...extra } : undefined) },
+        world
+      );
+    const plain = named({}).host;
+    expect(plain.querySelectorAll('.rl-card__record')).toHaveLength(1);
+    const scarred = named({ wounded_in_action: 3, rescued: 2 }).host;
+    const lines = [...scarred.querySelectorAll('.rl-card__record')].map((n) => n.textContent);
+    expect(lines).toEqual(['3 missions · 4 kills', '3 men wounded · 2 rescued']);
+  });
+
+  it('a unit that is not down draws no ring; a down wounded draws it with the seconds left', () => {
+    const world = makeForce();
+    const squad = world.squads[0];
+    expect(clusterRig(() => [squad], {}, world).host.querySelector('.rl-bleed')).toBeNull();
+
+    const sim = world.sim;
+    const t = sim.unitTypes[sim.state.typeIdx[squad]] as { wounds: unknown };
+    t.wounds = { chance: 0, bleedTicks: 1200, typeId: 'none', inPlace: true };
+    (sim.state.woundState as Uint8Array)[squad] = 1;
+    (sim.state.bleedTicks as Int32Array)[squad] = 600;
+    const ring = clusterRig(() => [squad], {}, world).host.querySelector<HTMLElement>('.rl-bleed');
+    expect(ring?.textContent).toContain('30 s left');
+    expect(ring?.getAttribute('data-held')).toBeNull();
+    expect(ring?.querySelector<HTMLElement>('.rl-bleed__ring')?.getAttribute('style')).toContain('--bleed:50%');
+
+    (sim.state.woundState as Uint8Array)[squad] = 2;
+    const held = clusterRig(() => [squad], {}, world).host.querySelector<HTMLElement>('.rl-bleed');
+    expect(held?.getAttribute('data-held')).toBe('1');
+    expect(held?.textContent).toContain('Stabilised');
+  });
+});

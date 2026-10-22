@@ -1057,6 +1057,12 @@
           "cooldown_s": 10,
           "priority": "normal"
         },
+        "medic": {
+          "caption": "announce.medic",
+          "audio": "",
+          "cooldown_s": 8,
+          "priority": "low"
+        },
         "sweep_ready": {
           "caption": "announce.sweepReady",
           "audio": "",

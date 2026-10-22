@@ -684,7 +684,7 @@ describe('animated cursor frames', () => {
     // A silent eighth entry (or the loss of one) would otherwise only
     // surface as a visual difference nobody happened to look for.
     expect(Object.keys(ANIMATED_CURSORS).sort()).toEqual(
-      ['advance', 'attack', 'barrage', 'charge', 'demolish', 'move', 'moveOnly', 'smoke', 'smokeScreen', 'strike', 'sweep']
+      ['advance', 'attack', 'barrage', 'charge', 'demolish', 'move', 'moveOnly', 'rescue', 'smoke', 'smokeScreen', 'strike', 'sweep']
     );
   });
 
@@ -1159,6 +1159,7 @@ describe('the composer and the plugin agree on every key -- Important 2', () => 
       flies: () => false,
       canFocus: () => false,
       focusHurts: () => false,
+      canRescue: () => false,
       garrisoned: () => false,
       ...over,
     };
@@ -1233,6 +1234,15 @@ describe('the composer and the plugin agree on every key -- Important 2', () => 
           const name = cursorFor(res, hints);
           keys.add(cursorKey(name, badgeFor(res, hints, badges, name)));
         }
+      }
+    }
+    // GH-707: a wounded man under the pointer, with a medic (the even-numbered units) selected.
+    const medics = fakeWorld({ canRescue: (id: number) => id % 2 === 0 });
+    for (const ids of selections) {
+      const res = resolvePointer(medics, { ids, x: 5, y: 5, append: false, armed: null, confirm: false, wounded: 7 });
+      for (const hints of HINT_COMBOS) {
+        const name = cursorFor(res, hints);
+        keys.add(cursorKey(name, badgeFor(res, hints, badges, name)));
       }
     }
     const openGround = SCENARIOS[0].world;

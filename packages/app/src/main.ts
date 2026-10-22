@@ -20,7 +20,7 @@ import { stallHintLine, stallStart, stallStep, tickIsActive } from './ui/stall-h
 import { nameKind, type NamesJson } from './names';
 import { applyRosterCarryover } from './roster-carryover';
 import { attachedFor } from './attached-force';
-import { logDestroyed, logMissionEvent, newMissionLog, type MissionLog } from './mission-log';
+import { logDestroyed, logMissionEvent, logWoundEvacuated, newMissionLog, type MissionLog } from './mission-log';
 import { lostRecordFor, predecessorOf } from './roster-lost';
 import {
   Sim,
@@ -213,7 +213,7 @@ import { isShippedVideo } from './ui/cinematics-model';
 import { roleBucket } from './ui/role';
 import { rosterLanguages, voiceClassOf } from './voice/lines';
 import { VoiceRuntime, voicePlaceholderOn } from './voice/voice-runtime';
-import type { AnnounceInput } from './voice/announce';
+import { medicCallInputs, type AnnounceInput } from './voice/announce';
 import { roeNotice } from './ui/roe-notice';
 import {
   invoiceLines,
@@ -4639,6 +4639,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             confirm: ev.altKey,
             hostile: at.hostile,
             ...(at.hostileAt ? { hostileAt: at.hostileAt } : {}),
+            wounded: at.wounded,
+            ...(at.woundedAt ? { woundedAt: at.woundedAt } : {}),
           });
         }
         dragStart = null;
@@ -4764,6 +4766,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // The same enemy id the hover cursor and the fire panel read (R-13).
       hostile: w.hostile,
       ...(w.hostileAt ? { hostileAt: w.hostileAt } : {}),
+      wounded: w.wounded,
+      ...(w.woundedAt ? { woundedAt: w.woundedAt } : {}),
     });
   });
   // The keyboard, as data (Task 5): `resolveKey` is the one place a raw
@@ -5341,7 +5345,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             ...intelMoments.earned(missionEvents, sim.tickCount),
           ])
         : [];
-      if (!tickQuiet) voice.onMission(missionEvents, intelAnnounce);
+      // GH-707 P2: the "Medic!" call rides the same announcer, so it competes under the one
+      // priority rule and its own 8 s cooldown (voice/announce.ts). Empty without wound events.
+      if (!tickQuiet) voice.onMission(missionEvents, [...intelAnnounce, ...medicCallInputs(events, (id) => sim.state.side[id], me)]);
 
       // The alert layer (spec acceptance (a)): one classification of the tick,
       // four consequences, all in one place so a line, a cue and a mark can
@@ -5354,7 +5360,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // model, as the cooldown's own clock.
       announceAlerts(alertsForTick(alertState, events, missionEvents, alertWorld, sim.tickCount));
 
-      for (const e of events) if (e.kind === 'destroyed') logDestroyed(missionLog, sim.state.side[e.entity]);
+      for (const e of events) {
+        if (e.kind === 'destroyed') logDestroyed(missionLog, sim.state.side[e.entity]);
+        else if (e.kind === 'woundEvacuated') logWoundEvacuated(missionLog, sim.state.side[e.entity], me);
+      }
       for (const mev of missionEvents) {
         missionTelemetry?.onEvent(mev);
         logMissionEvent(missionLog, mev, {

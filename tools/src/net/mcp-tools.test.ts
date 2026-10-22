@@ -106,6 +106,20 @@ describe('order in command scope (case 2)', () => {
     // Nothing the room refused: no frame carried the enemy id from seat 0.
     expect(sentBy(loop, a).filter((m) => m.t === 'cmd')).toHaveLength(1);
   });
+
+  it('rescue (GH-707) is a verb: it needs an integer target the seat can see, and an own unit is one', async () => {
+    const { a } = await twoSeats();
+    const ctx = createContext(a.client, 'command');
+    const w = a.client.world() as MatchWorld;
+    const [own, other] = sideIds(w, 0);
+    const enemy = sideIds(w, 1)[0];
+    expect(body(await call(ctx, 'order', { verb: 'rescue', ids: [own] })).error).toBe('not a contact');
+    expect(body(await call(ctx, 'order', { verb: 'rescue', ids: [own], target: enemy })).error).toBe('not a contact');
+    expect(body(await call(ctx, 'order', { verb: 'rescue', ids: [own], target: 99999 })).error).toBe('not a contact');
+    const sent = await call(ctx, 'order', { verb: 'rescue', ids: [own], target: other });
+    expect(sent.ok).toBe(true);
+    expect((body(sent) as { status: string }).status).toBe('queued');
+  });
 });
 
 // The ruling (15 Oct, coordinator, lead-delegated): the human UI never sends

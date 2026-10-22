@@ -42,7 +42,11 @@ export type ClipName = 'idle' | 'move' | 'fire' | 'down' | 'wreck' | 'work' | 'm
   // motion:meshes` for every file that carries the corpse pair `down`/`wreck`.
   // A pinned unit, and a broken one standing still, play it -- never `down`,
   // which on 17 of 20 infantry rigs WAS the corpse.
-  | 'pinned';
+  | 'pinned'
+  // Wounded and rescue (GH-707 P2): mesh-only, feature-detected by presence
+  // (`three/units/rescue-pose.ts`). A wounded man crawls or lies; a medic
+  // treats or carries a casualty on its own stretcher.
+  | 'crawl' | 'idleWounded' | 'treat' | 'carry';
 
 export interface ClipSpec {
   /** Number of frames in this clip. */

@@ -115,7 +115,7 @@
  */
 import { firePointOnMap } from './units/fire-points';
 import * as THREE from 'three';
-import { fx, ONE, WEAPON_CLASS, type Fx, type MissionEvent, type Sim, type SimEvent } from '@lions/sim';
+import { fx, MED_CARRYING, MED_DELIVERING, ONE, WEAPON_CLASS, type Fx, type MissionEvent, type Sim, type SimEvent } from '@lions/sim';
 import type { AimFootprint, AuraRingView, ObjectiveZoneView, PlacementPreview, RallyMarkView, Renderer, RendererOptions, SupplyRouteView, TerrainTones } from '../api'; // both, after Step 2
 import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, type Camera } from '../project';
 import { QUALITY_PRESETS } from '../quality';
@@ -153,7 +153,8 @@ import {
   wrapAngle,
   type KneelHeading,
 } from './units/squad-motion';
-import { rotateBoneWorld, scrubAction, stopSquadPlayers, type SquadRig } from './units/squad-rig';
+import { concealFigures, revealFigures, rotateBoneWorld, scrubAction, setDrawnAsOne, stopSquadPlayers, type SquadRig } from './units/squad-rig';
+import { figuresShown, rescueClipFor, woundedHiddenByCarry } from './units/rescue-pose';
 import { stanceOf } from './units/stance';
 import {
   updateDimetricCamera,
@@ -5232,7 +5233,7 @@ export class ThreeRenderer implements Renderer {
     this.lastShotSimS[e.shooter] = shotS;
     const squadRig = this.meshUnitEntities.get(e.shooter)?.squad;
     if (squadRig) {
-      const armed = squadRig.figures.filter((f) => f.recoil !== null && f.spine !== null);
+      const armed = squadRig.figures.filter((f) => f.shown && f.recoil !== null && f.spine !== null);
       // A launcher team's shot always comes from its launcher, and throws
       // its backblast behind him (`data/vfx/rpg_backblast.json`, 3-4 m of
       // dust and flame).
@@ -7783,9 +7784,30 @@ export class ThreeRenderer implements Renderer {
       // `resolveMeshMotionClip` overrides `fire` to `moveFire` only when this
       // entity is actually moving AND its GLB carries the clip; every other
       // mesh gets `resolveClip`'s own answer back unchanged.
-      const desiredClip = resolveMeshMotionClip(resolveClip(anim), anim.speed > 0, entity.actions.has('moveFire'));
+      const motionClip = resolveMeshMotionClip(resolveClip(anim), anim.speed > 0, entity.actions.has('moveFire'));
+      // GH-707 P2: a wounded man's lie/crawl and a medic's treat/carry, only for those two
+      // kinds of type and only where the GLB authors the clip -- every other unit is untouched.
+      const rescueClip =
+        type.isWounded || type.rescue !== null
+          ? rescueClipFor(
+              { isWounded: type.isWounded, isMedic: type.rescue !== null, medState: st.medState[i], moving: anim.speed > 0 },
+              entity.actions
+            )
+          : null;
+      const desiredClip = rescueClip ?? motionClip;
       const squad = entity.squad ?? null;
-      if (squad?.squad && !carried) {
+      // GH-707 P2: figures a team has shed. Rejoining ones are restored BEFORE the mixer runs,
+      // hidden ones collapsed AFTER it (below); a type with figures 1 takes neither path.
+      const shownFigures =
+        squad && type.figures > 1 ? figuresShown(type.figures, st.figuresUp[i], squad.figures.length) : null;
+      if (squad && shownFigures !== null) revealFigures(squad, shownFigures);
+      // A medic with a casualty aboard draws as one rig (its `carry` clip), not as bearers walking
+      // to formation slots.
+      const bearing = type.rescue !== null && (st.medState[i] === MED_CARRYING || st.medState[i] === MED_DELIVERING);
+      if (squad?.squad) setDrawnAsOne(entity, squad, bearing);
+      // A casualty on a foot medic's stretcher (or in a vehicle) is drawn by the carrier's clip, not here.
+      if (woundedHiddenByCarry(type.isWounded, st.carriedBy[i])) entity.root.visible = false;
+      if (squad?.squad && !carried && !bearing) {
         this.updateSquad(entity, squad, template, i, { wx, wy, worldY, aimYaw, anim, desiredClip, depthTarget, heading, fromSim: reading.fromSim, dt, nowS });
       } else {
         // A team drawn as one. Its legs still face where it is going (the
@@ -7816,6 +7838,9 @@ export class ThreeRenderer implements Renderer {
         entity.mixer.update(dt);
         if (squad) this.applyFigureAdditives(entity, squad, aimYaw, nowS, true, i, dt);
       }
+      // GH-707 P2: a team that has shed men draws fewer figures (a type with figures 1 takes no
+      // new path). After the mixer, so the collapsed bone trees are the last write.
+      if (squad && shownFigures !== null) concealFigures(squad, shownFigures);
     }
 
     // Hand off entities no longer alive to the death sequence instead of

@@ -24,6 +24,7 @@ function emptyWorld(over: Partial<IntentWorld> = {}): IntentWorld {
     flies: () => false,
     canFocus: () => false,
     focusHurts: () => false,
+    canRescue: () => false,
     garrisoned: () => false,
     ...over,
   };

@@ -4286,7 +4286,7 @@ export class Sim {
         // GH-707 Task 5. Like `attack`: BEFORE the bare halt `else`, and a refused id changes
         // nothing (the generic focus release above skips this kind).
         for (const id of cmd.ids) {
-          if (!this.canRescue(id, cmd.target)) continue;
+          if (!this.rescueGate(id, cmd.target)) continue;
           if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
           this.focusTarget[id] = -1;
           this.focusLost[id] = 0;
@@ -7291,7 +7291,7 @@ export class Sim {
   }
 
   /** GH-707 Task 5: the `rescue` order's gate for one id. */
-  private canRescue(id: number, w: number): boolean {
+  private rescueGate(id: number, w: number): boolean {
     if (id < 0 || id >= this.count || this.alive[id] === 0) return false;
     if (this.unitTypes[this.typeIdx[id]].rescue === null) return false;
     if (this.routed[id] === 1 || this.carriedBy[id] >= 0 || this.tunnelIn[id] >= 0) return false;
@@ -9162,6 +9162,27 @@ export class Sim {
     const tileCover = this.cover[(ty >> 16) * this.width + (tx >> 16)];
     const parapet = this.parapetCover(tx, ty, this.posX[shooter], this.posY[shooter]);
     return parapet > tileCover ? parapet : tileCover;
+  }
+
+  /**
+   * GH-707 P2: would a `rescue` order naming this medic and this wounded be accepted now?
+   * The command's own gate, read-only (no state, no rng) -- the app's cursor and click ask it
+   * so they cannot disagree with the sim.
+   */
+  canRescue(medic: number, wounded: number): boolean {
+    return this.rescueGate(medic, wounded);
+  }
+
+  /**
+   * GH-707 P2: how fast `id` is bleeding now, in ticks of bleed per tick: 0 when he is not a DOWN
+   * wounded (a STABILISED man included), is carried or is tended, 2 while pinned, else 1.
+   * Read-only; `stepWounded` applies the same rule, but on next tick's positions, so a medic
+   * stepping into reach can make this read one tick early. For display, not for arithmetic.
+   */
+  woundBleedRate(id: number): number {
+    if (id < 0 || id >= this.count || this.alive[id] === 0 || this.woundState[id] !== WOUND_DOWN) return 0;
+    if (this.carriedBy[id] >= 0 || this.woundTended(id)) return 0;
+    return this.pinned[id] === 1 ? 2 : 1;
   }
 
   /**

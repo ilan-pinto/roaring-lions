@@ -56,9 +56,7 @@ export const ORDER_VERBS = COMMAND_KINDS.filter(
     k !== 'cancelBuild' && k !== 'setRally' && k !== 'clearRally' &&
     // Field works (GH-277): the sim's construct/cancelConstruct never travel, and
     // raiseWorks/cancelWorks are runtime-priced like build (dropped in versus).
-    k !== 'construct' && k !== 'cancelConstruct' && k !== 'raiseWorks' && k !== 'cancelWorks' &&
-    // GH-707 `rescue` is engine-only until its content lands (P2); a model verb comes with it.
-    k !== 'rescue',
+    k !== 'construct' && k !== 'cancelConstruct' && k !== 'raiseWorks' && k !== 'cancelWorks',
 );
 type Verb = (typeof ORDER_VERBS)[number];
 export const WAIT_MAX_TICKS = 200;
@@ -333,6 +331,13 @@ function buildOrder(view: SideView, a: Record<string, unknown>): Command | { err
     case 'load':
       if (!isInt(a.carrier) || !own.has(a.carrier)) return { error: 'not your unit', detail: 'carrier must be one of your units' };
       return { kind: verb, ids, carrier: a.carrier };
+    case 'rescue':
+      // GH-707: a medic is sent to a wounded man the seat can see: one of its own units or a
+      // contact in observe. Anything else answers alike, as `attack` does.
+      if (!isInt(a.target) || !(own.has(a.target) || view.contacts.some((c) => c.id === a.target))) {
+        return { error: 'not a contact', detail: 'target must be one of your units or a contact in observe' };
+      }
+      return { kind: verb, ids, target: a.target };
     case 'attack':
       // Only a target the seat can see: every other id answers alike, so the
       // answer says nothing about what stands in the fog.
@@ -362,7 +367,7 @@ function sweepRefusal(ctx: ToolContext): ToolResult | null {
 
 const order: ToolDef = {
   name: 'order',
-  description: `Order your units. verb: ${ORDER_VERBS.join(' | ')}; ids: your unit ids; x, y: a tile (move, attackMove, smoke); sweep: true (attackMove only, command scope, and only when both seats are bots) to go on, once there, hunting the enemies your side remembers instead of holding the tile; target: a contact id (attack); structure (garrison, demolish); carrier (load); tunnel (chargeTunnel); note: a line for your human (assist). command: queued on the order desk (at most 4 sent a second, 12 queued) -> { ref, status }. assist: proposed to your human, who accepts or vetoes -> { proposal, status }.`,
+  description: `Order your units. verb: ${ORDER_VERBS.join(' | ')}; ids: your unit ids; x, y: a tile (move, attackMove, smoke); sweep: true (attackMove only, command scope, and only when both seats are bots) to go on, once there, hunting the enemies your side remembers instead of holding the tile; target: a contact id (attack, rescue: a medic goes to treat and carry a wounded); structure (garrison, demolish); carrier (load); tunnel (chargeTunnel); note: a line for your human (assist). command: queued on the order desk (at most 4 sent a second, 12 queued) -> { ref, status }. assist: proposed to your human, who accepts or vetoes -> { proposal, status }.`,
   scopes: ['assist', 'command'],
   schema: {
     type: 'object',

@@ -145,6 +145,7 @@ export function orderVerbOf(i: PlayerIntent): TelemetryOrderVerb | null {
     case 'select':
     case 'group':
     case 'overlay':
+    case 'rescue': // GH-707: not one of the telemetry contract's verbs, so not counted
       return null;
   }
 }
