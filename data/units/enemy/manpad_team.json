@@ -9,7 +9,8 @@
     "hp": 320,
     "armor": { "front": 10, "side": 10, "rear": 10 },
     "crew": 2,
-    "suppression_resistance": 0.5
+    "suppression_resistance": 0.5,
+    "can_embark": true
   },
   "mobility": { "speed_tiles_s": 0.75, "wheeled": false },
   "sensors": {
