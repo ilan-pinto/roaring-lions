@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { WsTransport, type Frame, type MatchConfig, type MatchTransport, type SocketLike, type TransportStatus } from '@lions/net';
-import { sandboxAnchors } from '../sandbox-anchors';
+import { versusAnchors } from './versus-seats';
 import { runFrames, seatWorldFor } from './frame-step';
 import { versusSpawns } from './versus-force';
 import { buildWorld } from './versus-world.test-helper';
@@ -54,7 +54,7 @@ describe('outcomeOf (spec §2.3, version one)', () => {
 
   it('the real sim exposes the knocked-out flag the rule reads', () => {
     const { sim, typeOf, map } = buildWorld('beit_sahwan_outskirts');
-    const force = versusSpawns(sim, typeOf, sandboxAnchors(map));
+    const force = versusSpawns(sim, typeOf, versusAnchors(map));
     const armed = force.bySide[1].filter((id) => sim.unitTypes[sim.state.typeIdx[id]].weapons.length > 0);
     for (const id of armed) sim.debugDisableFirepower(id);
     expect(outcomeOf(sim, sim.tickCount)).toEqual({ kind: 'won', side: 0, by: 'annihilation' });
@@ -117,14 +117,14 @@ describe('stalemate and the time limit, by surviving unit value', () => {
     expect(unitCost('mbt_lavi')).toBe(906);
     expect(unitCost('no_such_unit')).toBe(0);
     const { sim, typeOf, map } = buildWorld('beit_sahwan_outskirts');
-    versusSpawns(sim, typeOf, sandboxAnchors(map));
+    versusSpawns(sim, typeOf, versusAnchors(map));
     const [a, b] = forcesOf(sim);
     expect(a).toBeGreaterThan(0);
     expect(b).toBe(a);   // the mirror match: the same force on each side
   });
   it('the real sim exposes the flag and the speed the rule reads: every unit mobility-killed is a stalemate', () => {
     const { sim, typeOf, map } = buildWorld('beit_sahwan_outskirts');
-    const force = versusSpawns(sim, typeOf, sandboxAnchors(map));
+    const force = versusSpawns(sim, typeOf, versusAnchors(map));
     expect(outcomeOf(sim, sim.tickCount)).toEqual({ kind: 'ongoing' });
     expect(force.bySide.flat().every((id) => sim.unitTypes[sim.state.typeIdx[id]].stepPerTick > 0)).toBe(true);
     // Test-only: the hit table is random, so the flag the sim sets on a `mobility_kill` is set here directly.
@@ -222,7 +222,7 @@ describe('both seats show the same result (N1b task 10)', () => {
     const cfg = { hashEveryTicks: 20, dataDigest: 0, seats: [{ side: 0 }, { side: 1 }] } as unknown as MatchConfig;
     const seat = (batch: number) => {
       const { sim, typeOf, map } = buildWorld('beit_sahwan_outskirts');
-      const force = versusSpawns(sim, typeOf, sandboxAnchors(map));
+      const force = versusSpawns(sim, typeOf, versusAnchors(map));
       // The same battle on both machines: at tick 7 side 1 loses every armed unit.
       const runTick = (): void => {
         sim.tick();
@@ -252,7 +252,7 @@ describe('both seats show the same result (N1b task 10)', () => {
     const cfg = { hashEveryTicks: 20, dataDigest: 0, seats: [{ side: 0 }, { side: 1 }] } as unknown as MatchConfig;
     const seat = (batch: number) => {
       const { sim, typeOf, map } = buildWorld('beit_sahwan_outskirts');
-      const force = versusSpawns(sim, typeOf, sandboxAnchors(map));
+      const force = versusSpawns(sim, typeOf, versusAnchors(map));
       // The same battle on both machines: at tick 7 side 1 loses its first unit, and every unit
       // left on both sides is immobilised (test-only: the flag a `mobility_kill` sets).
       const runTick = (): void => {

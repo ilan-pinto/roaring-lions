@@ -9,7 +9,7 @@ import {
   effectOf, emptyActivity, garrisonControl, pairingsOn, pinWindow, playCamps, signTestP, spawnCamps, sameGame, type CampGame,
 } from './versus-breach';
 import { play, seedOf, world } from './versus-probe';
-import { sandboxAnchors } from '../../../packages/app/src/sandbox-anchors';
+import { versusAnchors } from '../../../packages/app/src/net/versus-seats';
 import { versusSpawns } from '../../../packages/app/src/net/versus-force';
 
 // CPU-bound sim runs, several full games a test; see versus-probe.test.ts.
@@ -19,8 +19,8 @@ describe('the normal arm is the room', () => {
   it("reproduces the mirror pins' worlds (seed 20260727, 200 idle ticks), with no breach in them", () => {
     // LITERALS, from versus-force.test.ts and match-world.test.ts: the helper world
     // (no tunnels) and the room's world (buildMatchWorld) for each pin map.
-    expect(pinWindow('beit_sahwan_outskirts', 'helper').hash).toBe(580559085);
-    expect(pinWindow('beit_sahwan_outskirts', 'room').hash).toBe(3043363756);
+    expect(pinWindow('beit_sahwan_outskirts', 'helper').hash).toBe(3296182002);
+    expect(pinWindow('beit_sahwan_outskirts', 'room').hash).toBe(1108074073);
     expect(pinWindow('tel_marum', 'helper').hash).toBe(1260439781);
     expect(pinWindow('tel_marum', 'room').hash).toBe(1260439781);
     for (const map of ['beit_sahwan_outskirts', 'tel_marum'] as const) {
@@ -68,9 +68,9 @@ describe('the swap', () => {
       for (const fac of pairingsOn(map)) {
         pairings++;
         const shipped = world(map, seedOf(0));
-        const bySide = versusSpawns(shipped.sim, shipped.typeOf, sandboxAnchors(shipped.map), fac).bySide;
+        const bySide = versusSpawns(shipped.sim, shipped.typeOf, versusAnchors(shipped.map), fac).bySide;
         const mine = world(map, seedOf(0));
-        const camps = spawnCamps(mine.sim, mine.typeOf, sandboxAnchors(mine.map), fac, 'normal');
+        const camps = spawnCamps(mine.sim, mine.typeOf, versusAnchors(mine.map), fac, 'normal');
         expect(camps).toEqual(bySide);
         expect(mine.sim.entityCount).toBe(shipped.sim.entityCount);
         const read = (sim: typeof mine.sim) => Array.from({ length: sim.entityCount }, (_, i) => [
@@ -84,7 +84,7 @@ describe('the swap', () => {
   it('moves only the side labels: same tiles, same ids, camp A first', () => {
     const tiles = (arm: 'normal' | 'swapped') => {
       const { sim, typeOf, map } = world('milh_flats', seedOf(0));
-      const camps = spawnCamps(sim, typeOf, sandboxAnchors(map), ['kdf', 'sarim'], arm);
+      const camps = spawnCamps(sim, typeOf, versusAnchors(map), ['kdf', 'sarim'], arm);
       return { camps, at: camps.flat().map((i) => [sim.state.posX[i], sim.state.posY[i], sim.state.facing[i]]), side: camps.map((c) => c.map((i) => sim.state.side[i])) };
     };
     const a = tiles('normal');

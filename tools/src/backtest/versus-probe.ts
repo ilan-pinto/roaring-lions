@@ -12,7 +12,7 @@
 // or a 10-minute cap, which is decided on surviving unit value by that same
 // rule (`outcomeOf` asked at `MATCH_CAP_TICKS`) -- not a copy of it. The forces
 // are the ones a room spawns (`versusSpawns`, packages/app/src/net/versus-force.ts),
-// on the map's own sandbox anchors, in a `Sim` built the way a room builds it.
+// on the room's own seats (`versusAnchors`), in a `Sim` built the way a room builds it.
 // The seed varies the RNG streams and nothing else: 1000 + 7919 * n, so the same
 // command prints the same table.
 //
@@ -57,7 +57,7 @@ import { Sim } from '@lions/sim';
 import { applyTerrain, maps, parseMap, type MapId } from '@lions/data';
 import { VERSUS_FAIR_MAPS, type Faction } from '@lions/net';
 import { standMapStructures } from '../../../packages/app/src/map-sim';
-import { sandboxAnchors } from '../../../packages/app/src/sandbox-anchors';
+import { versusAnchors } from '../../../packages/app/src/net/versus-seats';
 import { versusForceOf, versusSpawns, type VersusForce } from '../../../packages/app/src/net/versus-force';
 import { MATCH_CAP_TICKS, outcomeOf, unitCost, type MatchResult } from '../../../packages/app/src/net/outcome';
 import { versusRoster } from '../../../packages/app/src/net/versus-roster';
@@ -139,7 +139,7 @@ function finish(o: MatchResult, ticks: number): Played {
 export function play(mapId: MapId, arrangement: Arrangement, seed: number, opts: PlayOptions = {}): Played {
   const capTicks = opts.capTicks ?? CAP_TICKS_DEFAULT;
   const { sim, typeOf, map } = world(mapId, seed);
-  const force = versusSpawns(sim, typeOf, sandboxAnchors(map), arrangement);
+  const force = versusSpawns(sim, typeOf, versusAnchors(map), arrangement);
   if (opts.cutSide !== undefined) for (const id of force.bySide[opts.cutSide].slice(1)) sim.debugKill(id);
   for (let t = 0; t < capTicks; t++) {
     if (t % ORDER_EVERY_TICKS === 0) order(sim, force);

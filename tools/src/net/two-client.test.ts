@@ -8,7 +8,7 @@ import { LockstepClock, applyFrame, canonicalOrder, matchDigest, type Frame, typ
 import { missionWorld } from '../mission-harness';
 import { buildWorld } from '../../../packages/app/src/net/versus-world.test-helper';
 import { versusSpawns } from '../../../packages/app/src/net/versus-force';
-import { sandboxAnchors } from '../../../packages/app/src/sandbox-anchors';
+import { versusAnchors } from '../../../packages/app/src/net/versus-seats';
 import { buildMatchWorld } from '../../../packages/app/src/net/match-world';
 import { runFrames, seatWorldFor, type FrameStep } from '../../../packages/app/src/net/frame-step';
 import { versusConfig } from './test-config';
@@ -125,7 +125,7 @@ describe('versus: two sides, one frame stream', () => {
   /** The mirror-match world: Task 7's bare Sim plus both forces. */
   function versusWorld() {
     const w = buildWorld(MAP);
-    const anchors = sandboxAnchors(w.map);
+    const anchors = versusAnchors(w.map);
     const { bySide } = versusSpawns(w.sim, w.typeOf, anchors);
     return { ...w, anchors, bySide };
   }

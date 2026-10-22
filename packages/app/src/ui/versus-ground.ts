@@ -9,13 +9,13 @@
  * The facts are the shared rule's, never a second list: `VERSUS_FAIR_MAPS`
  * (every map the lobby offers was measured close to even in a mirror match,
  * GH-561) and `FACTION_MATCHUP_MAPS` (where KDF meets Sarim). The starts are
- * `sandboxAnchors`: seat 0 stands on the friendly anchor, seat 1 on the
+ * `versusAnchors`: seat 0 stands on the friendly anchor, seat 1 on the
  * hostile one. The picture is the free-play picker's own painter.
  */
 import { maps, parseMap, type MapJson } from '@lions/data';
 import { FACTION_MATCHUP_MAPS, type Seat } from '@lions/net';
 import { t } from '../i18n/t';
-import { sandboxAnchors } from '../sandbox-anchors';
+import { versusAnchors } from '../net/versus-seats';
 import { terrainTonesFor } from '../terrain-themes';
 import { paintMapTerrain } from './map-preview';
 
@@ -46,7 +46,7 @@ export function mapPicture(id: string, className: string, startsFor: Seat | null
     wrap.appendChild(canvas);
   }
   if (startsFor !== null) {
-    const a = sandboxAnchors(json);
+    const a = versusAnchors(json);
     const mine = startsFor === 0 ? a.friendly : a.hostile;
     const theirs = startsFor === 0 ? a.hostile : a.friendly;
     for (const [p, who] of [[mine, 'you'], [theirs, 'friend']] as const) {

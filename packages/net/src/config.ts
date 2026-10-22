@@ -72,7 +72,11 @@ export function factionsOfMatchup(m: Matchup): [Faction, Faction] {
  *  dedicated versus maps (2026-10-14) are those: point-symmetric, with their
  *  seats named `versus_0`/`versus_1` and read by name (`sandboxAnchors`), and
  *  the probe's mirror read at 48 seeds is wadi_tarfan west 22 / east 25 /
- *  1 draw and milh_flats 24 / 24. */
+ *  1 draw and milh_flats 24 / 24.
+ *
+ *  `beit_sahwan_outskirts`' room seats are no longer the heuristic's: after
+ *  PR #721 the mirror read west 38 / east 10 there, and its measured seats
+ *  live in `VERSUS_SEATS` (packages/app/src/net/versus-seats.ts). */
 export const VERSUS_FAIR_MAPS: readonly string[] = ['beit_sahwan_outskirts', 'tel_marum', 'wadi_tarfan', 'milh_flats'];
 
 /** Whether a versus room may be hosted on `map`. */

@@ -4,7 +4,7 @@ import type { MatchConfig } from '@lions/net';
 import { versusSpawns, campOf, factionsBySide, versusForceOf, versusUnitTypes, VERSUS_KDF, VERSUS_SARIM } from './versus-force';
 import { unitCost } from './outcome';
 import { SANDBOX_KDF } from '../sandbox-force';
-import { sandboxAnchors } from '../sandbox-anchors';
+import { versusAnchors } from './versus-seats';
 import { buildWorld } from './versus-world.test-helper';
 
 describe('the versus force is the sandbox force plus a second Spike team', () => {
@@ -28,7 +28,7 @@ describe('the versus force is the sandbox force plus a second Spike team', () =>
 
   it('fields two at_team per side on a real map', () => {
     const { sim, typeOf, map } = buildWorld('beit_sahwan_outskirts');
-    const force = versusSpawns(sim, typeOf, sandboxAnchors(map));
+    const force = versusSpawns(sim, typeOf, versusAnchors(map));
     const at = typeOf.get('at_team');
     for (const side of [0, 1] as const) {
       expect(force.bySide[side].filter((id) => sim.state.typeIdx[id] === at)).toHaveLength(2);
@@ -39,7 +39,7 @@ describe('the versus force is the sandbox force plus a second Spike team', () =>
 describe('versusSpawns', () => {
   it('puts the second at_team on the exact mirrored tiles (beit_sahwan_outskirts)', () => {
     const { sim, typeOf, map } = buildWorld('beit_sahwan_outskirts');
-    const anchors = sandboxAnchors(map);
+    const anchors = versusAnchors(map);
     const force = versusSpawns(sim, typeOf, anchors);
     const k = VERSUS_KDF.length - 1;
     const [id, dx, dy] = VERSUS_KDF[k];
@@ -52,7 +52,7 @@ describe('versusSpawns', () => {
   for (const mapId of ['beit_sahwan_outskirts', 'tel_marum'] as const) {
     it(`fields the same KDF force on each side, nothing else, on open ground (${mapId})`, () => {
       const { sim, typeOf, map } = buildWorld(mapId);
-      const force = versusSpawns(sim, typeOf, sandboxAnchors(map));
+      const force = versusSpawns(sim, typeOf, versusAnchors(map));
       expect(force.bySide[0]).toHaveLength(VERSUS_KDF.length);
       expect(force.bySide[1]).toHaveLength(VERSUS_KDF.length);
       expect(sim.entityCount).toBe(2 * VERSUS_KDF.length);
@@ -66,7 +66,7 @@ describe('versusSpawns', () => {
 
     it(`side 1 is side 0's formation mirrored through its own anchor (${mapId})`, () => {
       const { sim, typeOf, map } = buildWorld(mapId);
-      const anchors = sandboxAnchors(map);
+      const anchors = versusAnchors(map);
       const force = versusSpawns(sim, typeOf, anchors);
       const tileOf = (i: number): [number, number] => [sim.state.posX[i] >> 16, sim.state.posY[i] >> 16];
       const openAt = (x: number, y: number): boolean =>
@@ -90,8 +90,8 @@ describe('versusSpawns', () => {
   it('is deterministic: two worlds spawn identical states', () => {
     const a = buildWorld('beit_sahwan_outskirts');
     const b = buildWorld('beit_sahwan_outskirts');
-    versusSpawns(a.sim, a.typeOf, sandboxAnchors(a.map));
-    versusSpawns(b.sim, b.typeOf, sandboxAnchors(b.map));
+    versusSpawns(a.sim, a.typeOf, versusAnchors(a.map));
+    versusSpawns(b.sim, b.typeOf, versusAnchors(b.map));
     expect(a.sim.hash()).toBe(b.sim.hash());
   });
 
@@ -109,11 +109,14 @@ describe('KDF vs Sarim (2026-10-14)', () => {
   it('the mirror is untouched: the same spawn, tick for tick, as before KDF vs Sarim existed', () => {
     // Pinned from the tree before this change (`versusSpawns` with no factions, 200 ticks).
     // Re-pinned 2026-10-14 for targeted fire (GH-420): two per-unit columns, focusTarget and focusLost, join the sim hash. No behaviour moved: with their hashArray lines removed, both maps reproduce the old values. Was 873892333 / 3176591845.
-    const want: Record<string, number> = { beit_sahwan_outskirts: 580559085, tel_marum: 1260439781 };
+    // Re-pinned 2026-10-22 for beit's versus seats (`versus-seats.ts`): seat 1 moved from
+    // town_center (31,22) to (40,24) after the probe read the mirror west 38 / east 10.
+    // The spawn moved and nothing else. Was 580559085 (tel_marum unmoved).
+    const want: Record<string, number> = { beit_sahwan_outskirts: 3296182002, tel_marum: 1260439781 };
     for (const mapId of ['beit_sahwan_outskirts', 'tel_marum'] as const) {
       for (const factions of [undefined, ['kdf', 'kdf'] as const]) {
         const { sim, typeOf, map } = buildWorld(mapId);
-        versusSpawns(sim, typeOf, sandboxAnchors(map), factions);
+        versusSpawns(sim, typeOf, versusAnchors(map), factions);
         for (let i = 0; i < 200; i++) sim.tick();
         expect(sim.hash()).toBe(want[mapId]);
       }
@@ -145,7 +148,7 @@ describe('KDF vs Sarim (2026-10-14)', () => {
   for (const factions of [['sarim', 'kdf'], ['kdf', 'sarim']] as const) {
     it(`each side spawns its faction's force on open ground (${factions.join(' vs ')}, tel_marum)`, () => {
       const { sim, typeOf, map } = buildWorld('tel_marum');
-      const force = versusSpawns(sim, typeOf, sandboxAnchors(map), factions);
+      const force = versusSpawns(sim, typeOf, versusAnchors(map), factions);
       for (const side of [0, 1] as const) {
         const want = versusForceOf(factions[side]).map(([id]) => id);
         expect(force.bySide[side].map((i) => sim.unitTypes[sim.state.typeIdx[i]].id)).toEqual(want);
@@ -173,8 +176,8 @@ describe('KDF vs Sarim (2026-10-14)', () => {
   it('both seats of one KDF-vs-Sarim room spawn the same world', () => {
     const a = buildWorld('tel_marum');
     const b = buildWorld('tel_marum');
-    versusSpawns(a.sim, a.typeOf, sandboxAnchors(a.map), ['sarim', 'kdf']);
-    versusSpawns(b.sim, b.typeOf, sandboxAnchors(b.map), ['sarim', 'kdf']);
+    versusSpawns(a.sim, a.typeOf, versusAnchors(a.map), ['sarim', 'kdf']);
+    versusSpawns(b.sim, b.typeOf, versusAnchors(b.map), ['sarim', 'kdf']);
     for (let i = 0; i < 100; i++) { a.sim.tick(); b.sim.tick(); }
     expect(a.sim.hash()).toBe(b.sim.hash());
   });
