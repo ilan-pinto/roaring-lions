@@ -4005,7 +4005,10 @@ const INTEL_PASSIVE_BEATS_WINNER = 0;
 // the number, and the probes add no short plan (35 of 36 against 25 of 26): the one short is
 // `beit_sahwan_2_foothold` (9 identified, one objective, 120), which cannot reach 150 below 15 an
 // identification. `intel_start` grants (Umm Zeitoun II, IV) are not earnings and are not counted.
-const INTEL_WINNERS_ONE_SWEEP = 35;
+// 2026-10-22, GH-707 P3: 35 -> 36. The one short plan, `beit_sahwan_2_foothold`, now earns 160 (was 112):
+// every enemy man who falls wounded is a new entity, and identifying him pays like any other
+// identification, so a fight that downs men pays more intel. All 36 winning runs earn a sweep.
+const INTEL_WINNERS_ONE_SWEEP = 36;
 {
   // Guards the SPEND plan on every seed: 424242 in the parent is also checked by the FAILED line in its own
   // `at()` call above; the other 29 seeds run quiet in workers and are re-verified ONLY here, for the spend
