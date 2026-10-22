@@ -1053,6 +1053,9 @@ const garrisonableSymbols = new Set(
         want.add(key);
         if (typeof catalogue[key] !== 'string' || catalogue[key].trim() === '') {
           failures.push(`${rel(file)}: step "${step.id}" has no catalogue text for "${key}" in packages/app/src/i18n/en.json`);
+        } else if (catalogue[key].length > { title: 60, teach: 240, nudge: 160 }[f]) {
+          // The caps the schema carried before the text moved out of it.
+          failures.push(`en.json "${key}" is ${catalogue[key].length} characters, over its ${{ title: 60, teach: 240, nudge: 160 }[f]} cap`);
         }
       }
     }
