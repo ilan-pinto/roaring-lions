@@ -32,9 +32,20 @@ export interface BurstCentre {
   y: number;
 }
 
-/** Bomblet crater radius, tiles (a tile is 3 m): 0.1 tile = 0.3 m, a dimple
- *  for a ~40 mm-class charge. A mortar crater is `0.15 + power` (0.45 at 0.3). */
-export const BOMBLET_CRATER_RADIUS_TILES = 0.1;
+/** Bomblet crater radius, tiles (a tile is 3 m): 0.25 tile = 0.75 m. The lead's
+ *  22 Oct ruling: bigger and darker than the 0.1 tile dimple (a faint pale ring at
+ *  game zoom), so the spread of a round reads. A mortar crater is `0.15 + power`
+ *  (0.45 at 0.3). */
+export const BOMBLET_CRATER_RADIUS_TILES = 0.25;
+
+/** The dark scorch laid with each bomblet's crater, as a mortar landing pairs
+ *  its crater and scorch (the decal blend multiplies, so the two compose in any
+ *  order): 0.4 tile, 1.6x
+ *  the crater. A scorch is solid to 0.55 r (0.22 tile) and fades to nothing at
+ *  r, so it covers the crater's pale lip (0.76-1.0 of 0.25 = 0.19-0.25 tile)
+ *  with 0.45-alpha `scorch` palette tone and the dark mark, not the pale lip,
+ *  is what reads. A mortar's own ratio is 1.95 (0.876 over 0.45). */
+export const BOMBLET_SCORCH_RADIUS_TILES = 0.4;
 
 /** Where the carrier shell opens above the ground, in lift pixels (the unit
  *  the arcs use): 30 px x 0.0255 = 0.77 world units, about 2.3 m: "a little

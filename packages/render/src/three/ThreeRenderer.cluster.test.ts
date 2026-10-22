@@ -17,7 +17,7 @@ import type { ShellModel } from './units/shells';
 import type { MissileModel } from './units/missiles';
 import type { EmitterSpec } from '../vfx/emitters';
 import { WORLD_Y_PER_LIFT_PIXEL } from '../project';
-import { BOMBLET_CRATER_RADIUS_TILES, CLUSTER_BURST_LIFT_PX } from './units/cluster-burst';
+import { BOMBLET_CRATER_RADIUS_TILES, BOMBLET_SCORCH_RADIUS_TILES, CLUSTER_BURST_LIFT_PX } from './units/cluster-burst';
 import clusterAirburst from '../../../../data/vfx/cluster_airburst.json';
 import shellImpact from '../../../../data/vfx/shell_impact.json';
 
@@ -152,8 +152,9 @@ const bomblets = (evs: SimEvent[][]): Extract<SimEvent, { kind: 'submunition' }>
 describe('a cluster round (GH-709 E3)', () => {
   // A capture (22 Oct) read "one central crater" after a burst. This pins what the
   // renderer stamps: one crater per bomblet, each at its OWN sim position, none at
-  // the centre, and twelve distinct marks in the pool's own vertex buffer.
-  it('stamps one crater per bomblet at that bomblet\'s own position, not one at the centre', () => {
+  // the centre, and twelve distinct mark sets in the pool's own vertex buffer. Since the
+  // lead's 22 Oct ruling a mark set is a 0.25 tile crater with a 0.4 tile dark scorch over it.
+  it('stamps a crater and a scorch per bomblet at that bomblet\'s own position, not at the centre', () => {
     const { sim, fireEvents, later } = run(howitzer(CLUSTER_WEAPON), 600);
     const subs = bomblets(later);
     expect(subs).toHaveLength(12);
@@ -163,23 +164,35 @@ describe('a cluster round (GH-709 E3)', () => {
     r.onEvents(fireEvents);
     for (const evs of later) r.onEvents(evs);
     const craters = stampSpy.mock.calls.map((c) => c[0]).filter((s) => s.kind === 'crater');
+    const scorches = stampSpy.mock.calls.map((c) => c[0]).filter((s) => s.kind === 'scorch');
     expect(craters).toHaveLength(12);
+    expect(scorches).toHaveLength(12);
     subs.forEach((e, k) => {
-      expect(craters[k].x).toBeCloseTo(fx.toNumber(e.x), 9);
-      expect(craters[k].z).toBeCloseTo(fx.toNumber(e.y), 9);
-      expect(craters[k].halfLength).toBe(BOMBLET_CRATER_RADIUS_TILES);
+      for (const [mark, r] of [[craters[k], BOMBLET_CRATER_RADIUS_TILES], [scorches[k], BOMBLET_SCORCH_RADIUS_TILES]] as const) {
+        expect(mark.x).toBeCloseTo(fx.toNumber(e.x), 9);
+        expect(mark.z).toBeCloseTo(fx.toNumber(e.y), 9);
+        expect(mark.halfLength).toBe(r);
+      }
     });
+    // The size and darkness choice itself (lead, 22 Oct): about a quarter tile, and a
+    // scorch over it that outsizes it, so the dark tone and not the pale lip dominates.
+    expect(BOMBLET_CRATER_RADIUS_TILES).toBe(0.25);
+    expect(BOMBLET_SCORCH_RADIUS_TILES).toBeGreaterThan(BOMBLET_CRATER_RADIUS_TILES * 1.5);
+    // Each bomblet lays exactly its pair, and nothing else in the run stamps a crater or scorch
+    // (the decal blend multiplies, so the pair's order has no visual consequence).
+    const kinds = stampSpy.mock.calls.map((c) => c[0].kind).filter((k) => k === 'crater' || k === 'scorch');
+    expect(kinds).toHaveLength(24);
     // The marks spread like the bomblets: not one point.
     const xs = craters.map((s) => s.x);
     const zs = craters.map((s) => s.z);
     expect(Math.max(...xs) - Math.min(...xs) + Math.max(...zs) - Math.min(...zs)).toBeGreaterThan(1);
     // And the pool holds twelve distinct slots: each slot's vertex centroid differs.
     const pool = (r as unknown as { decalsPersistent: { liveCount: number; mesh: { geometry: { getAttribute(n: string): { array: Float32Array } } } } }).decalsPersistent;
-    expect(pool.liveCount).toBe(12);
+    expect(pool.liveCount).toBe(24);
     const pos = pool.mesh.geometry.getAttribute('position').array;
     const perSlot = pos.length / 3 / 1024;
     const centres = new Set<string>();
-    for (let slot = 0; slot < 12; slot++) {
+    for (let slot = 0; slot < 24; slot++) {
       let sx = 0;
       let sz = 0;
       for (let v = 0; v < perSlot; v++) {
@@ -221,7 +234,7 @@ describe('a cluster round (GH-709 E3)', () => {
     r.dispose();
   });
 
-  it('twelve bomblets stamp twelve craters, and the round opens ONCE, in the air, at their centroid', () => {
+  it('twelve bomblets stamp twelve crater-and-scorch pairs, and the round opens ONCE, in the air, at their centroid', () => {
     const { sim, fireEvents, later } = run(howitzer(CLUSTER_WEAPON), 600);
     const subs = bomblets(later);
     expect(subs).toHaveLength(12);
@@ -243,7 +256,7 @@ describe('a cluster round (GH-709 E3)', () => {
       }
     }
     expect(shellsAfterBurst).toBe(0);
-    expect(p.decalsPersistent.liveCount).toBe(12);
+    expect(p.decalsPersistent.liveCount).toBe(24);
     const bursts = spy.mock.calls.filter((c) => c[0] === 'cluster_airburst');
     expect(bursts).toHaveLength(1);
     const cx = subs.reduce((a, e) => a + fx.toNumber(e.x), 0) / 12;
