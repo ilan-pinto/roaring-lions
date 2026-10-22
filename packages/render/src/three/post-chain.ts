@@ -24,8 +24,8 @@
  * `RenderPass -> [FogOfWarPass] -> OutputPass -> [VignettePass]`, with fog
  * and the vignette unaffected -- they are not part of the `quality`
  * contract at all, and stay whatever the caller slots through
- * `setFogPass`/`setVignettePass`. `medium` keeps SMAA and the bloom and
- * drops only AO.
+ * `setFogPass`/`setVignettePass`. `medium` keeps SMAA and drops AO and
+ * the bloom (lead, 22 Oct 2026, pending a GPU-timer read of its cost).
  * SMAA's construction lives in THIS file (`new SMAAPass` below), gated
  * directly on `quality.smaa`; the AO pass is built and owned by the
  * caller (`ThreeRenderer.init`, via `createAoPass`), which is why gating it

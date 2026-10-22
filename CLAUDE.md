@@ -367,8 +367,9 @@ The combat model is the product. Everything else is scaffolding around it.
   `high` / `medium` / `low`, applied at the next mission's BOOT, not live.
   `high` is pinned to the constants that existed before the preset and every
   parameter defaults to it, so the golden baselines did not move; `low` drops
-  GTAO and SMAA and halves the shadow map. Since Defilade T4 `high` and
-  `medium` also build a quarter-resolution bloom and `low` builds none (D8).
+  GTAO and SMAA and halves the shadow map. Since Defilade T4 `high`
+  also builds a quarter-resolution bloom; `medium` and `low` build none (D8; `medium` off by
+  the lead's ruling of 22 Oct pending a GPU-timer measurement).
 - **There are four team-colour sets, not one.** `reserved.team.variants` in
   `data/palette.json` carries a deuteranopia, protanopia and tritanopia variant
   beside the default, and the accessibility setting picks one.

@@ -11,7 +11,7 @@ describe('QUALITY_PRESETS', () => {
     // of the eight combinations.
     const expected: Record<'low' | 'medium' | 'high', RenderQuality> = {
       low: { ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off' },
-      medium: { ao: false, smaa: true, shadowMapSize: 2048, bloom: 'quarter' },
+      medium: { ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off' },
       high: { ao: true, smaa: true, shadowMapSize: 4096, bloom: 'quarter' },
     };
     expect(QUALITY_PRESETS).toEqual(expected);
@@ -49,11 +49,11 @@ describe('QUALITY_PRESETS', () => {
     expect(QUALITY_PRESETS.medium.smaa).toBe(true);
   });
 
-  it('bloom (ruling D8): quarter resolution on high and medium, off on low', () => {
+  it('bloom (ruling D8): quarter resolution on high only, off on medium (lead, 22 Oct, pending a GPU-timer read) and low', () => {
     // Falsify: set `low.bloom` to 'quarter' in quality.ts and this goes red
     // (as does the pinned table above).
     expect(QUALITY_PRESETS.high.bloom).toBe('quarter');
-    expect(QUALITY_PRESETS.medium.bloom).toBe('quarter');
+    expect(QUALITY_PRESETS.medium.bloom).toBe('off');
     expect(QUALITY_PRESETS.low.bloom).toBe('off');
   });
 });

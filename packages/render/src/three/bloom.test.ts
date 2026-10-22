@@ -68,14 +68,13 @@ describe('QuarterBloomPass: internal targets at a quarter of the drawing buffer'
     pass.dispose();
   });
 
-  it('bloomPassFor: high and medium build one, low builds nothing', () => {
+  it('bloomPassFor: high builds one, medium and low build nothing (lead, 22 Oct)', () => {
     const high = bloomPassFor(QUALITY_PRESETS.high, 800, 600, 1);
     const medium = bloomPassFor(QUALITY_PRESETS.medium, 800, 600, 1);
     expect(high).toBeInstanceOf(QuarterBloomPass);
-    expect(medium).toBeInstanceOf(QuarterBloomPass);
+    expect(medium).toBeNull();
     expect(bloomPassFor(QUALITY_PRESETS.low, 800, 600, 1)).toBeNull();
     high?.dispose();
-    medium?.dispose();
   });
 });
 

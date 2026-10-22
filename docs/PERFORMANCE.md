@@ -2667,9 +2667,8 @@ atlases with mips are ~10.7 MiB once uploaded).
    both already read high, is about +1.3-1.5 ms. **What the live game pays on `medium` in GPU time is
    UNMEASURED**: the 60 Hz rAF check is capped (a 10 ms GPU frame also passes) and its `frame()`
    figure is CPU submission, and spacing the harness's frames 16 ms apart still read 3.3 -> 8.9-9.4
-   ms, so the cliff may be real cost that 60 Hz headroom hides. The lead's options stand: accept
-   (`medium` stays inside 16.7 ms either way), turn bloom off on `medium`, or profile with a GPU
-   timer.
+   ms, so the cliff may be real cost that 60 Hz headroom hides. **Ruled 22 Oct 2026: bloom is OFF on `medium`** (kept on `high` at quarter resolution, off on
+   `low`) until a GPU-timer measurement confirms the medium cost.
 2. **The flipbook is cheaper than what it replaced in draw calls** (+2-3 against +6 for 24 landings) and
    costs ~1.2 ms of fill at `high` for a 432-billboard burst; nothing else in a quiet frame moves.
 3. **Open: the `aftermath` census is RED** (`pnpm perf:bloom-census --aftermath=only`, Task 7). At

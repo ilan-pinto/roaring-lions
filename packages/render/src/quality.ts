@@ -31,7 +31,9 @@ export interface RenderQuality {
    * `'quarter'` builds three's `UnrealBloomPass` with its bright-pass and
    * blur targets at a QUARTER of the drawing buffer per axis, slotted after
    * AO and before `OutputPass`; `'off'` never builds it. `low` is the
-   * "it must run" preset, so it pays nothing.
+   * "it must run" preset, so it pays nothing. `medium` is off too (lead,
+   * 22 Oct 2026) until a GPU-timer read confirms its cost: it read +7.5 ms
+   * on a loaded machine (`docs/PERFORMANCE.md`, "Defilade T4").
    *
    * Turning it on at `high` does not move a quiet frame: the threshold is a
    * scene-referred luminance of 1.0 and the census
@@ -48,6 +50,6 @@ export interface RenderQuality {
 
 export const QUALITY_PRESETS: Readonly<Record<'low' | 'medium' | 'high', RenderQuality>> = {
   low: { ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off' },
-  medium: { ao: false, smaa: true, shadowMapSize: 2048, bloom: 'quarter' },
+  medium: { ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off' },
   high: { ao: true, smaa: true, shadowMapSize: 4096, bloom: 'quarter' },
 };

@@ -445,14 +445,14 @@ describe('bloom slot (Defilade Task 4)', () => {
   // the order the renderer actually gets.
   const expected: Record<'low' | 'medium' | 'high', string[]> = {
     high: ['RenderPass', 'FogOfWarPass', 'GTAOPass', 'QuarterBloomPass', 'OutputPass', 'VignettePass', 'SMAAPass'],
-    medium: ['RenderPass', 'FogOfWarPass', 'QuarterBloomPass', 'OutputPass', 'VignettePass', 'SMAAPass'],
+    medium: ['RenderPass', 'FogOfWarPass', 'OutputPass', 'VignettePass', 'SMAAPass'],
     low: ['RenderPass', 'FogOfWarPass', 'OutputPass', 'VignettePass'],
   };
   for (const preset of ['high', 'medium', 'low'] as const) {
-    it(`${preset}: bloom after fog and AO, before OutputPass (or absent on low)`, () => {
+    it(`${preset}: bloom after fog and AO, before OutputPass (absent on medium and low)`, () => {
       // Falsify: move `if (bloomPass) composer.addPass(bloomPass)` below
-      // `composer.addPass(outputPass)` in `rebuild` and high and medium go
-      // red; set `low.bloom` to 'quarter' and low does.
+      // `composer.addPass(outputPass)` in `rebuild` and high goes
+      // red; set `medium.bloom` or `low.bloom` to 'quarter' and that preset does.
       const quality = QUALITY_PRESETS[preset];
       const chain = createPostChain(fakeRenderer(), new THREE.Scene(), new THREE.OrthographicCamera(), 800, 600, 1, quality);
       chain.setFogPass(stubPass('FogOfWarPass'));
