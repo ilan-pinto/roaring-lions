@@ -225,8 +225,30 @@ export const RUNNING_GEAR_RECIPES: Readonly<Record<string, RunningGearRecipe>> =
     ],
     track: { zIn: 1.08, zOut: 2.08, loopMaxY: 1.13, band: 0.08, minComponentTris: 200, excludeDiscs: [] },
   },
+  // GH-709 (2026-10-22): the Te'o Howitzer. Six road wheels a side, each a distinct
+  // rim on the Meshy bake like the Namer's, so they spin and the track scrolls. Measured
+  // 2026-10-22 on the shipped `hull_rubber` (right and left within 3 cm of each other):
+  // a circle fit to each wheel's rim vertices, axle y 0.38-0.43, rim radius 0.34 (the
+  // fits that read 0.42 had locked onto the track run beside the rim). The tracks are
+  // the band |z| 0.97-1.70, top run at y 1.10, the sprocket (rear) and idler (front)
+  // static as the Namer's are. The cut stays inside the track's own inner face.
+  spg_long_range: {
+    cut: 0.9,
+    wheels: both([
+      { x: 2.375, y: 0.39, r: 0.34, zIn: 1.0, zOut: 1.66 },
+      { x: 1.49, y: 0.39, r: 0.34, zIn: 1.0, zOut: 1.66 },
+      { x: 0.555, y: 0.39, r: 0.34, zIn: 1.0, zOut: 1.66 },
+      { x: -0.31, y: 0.39, r: 0.34, zIn: 1.0, zOut: 1.66 },
+      { x: -1.16, y: 0.39, r: 0.34, zIn: 1.0, zOut: 1.66 },
+      { x: -2.02, y: 0.39, r: 0.34, zIn: 1.0, zOut: 1.66 },
+    ]),
+    track: { zIn: 0.97, zOut: 1.7, loopMaxY: 1.2, band: 0.08, minComponentTris: 200, excludeDiscs: [] },
+  },
   mbt_lavi: { cut: 1, wheels: [], track: scaleTrackSeed(LAVI_TRACK, rescaleOf('mbt_lavi')) },
   officer_armour: { cut: 1, wheels: [], track: scaleTrackSeed(LAVI_TRACK, rescaleOf('officer_armour')) },
+  // GH-709: the Lavi Ambush Tank wears the Lavi's own running gear (the net
+  // stops above the track runs, so the seed is unchanged).
+  mbt_lavi_camo: { cut: 1, wheels: [], track: scaleTrackSeed(LAVI_TRACK, rescaleOf('mbt_lavi_camo')) },
   dozer_d9: {
     cut: 1,
     wheels: [],

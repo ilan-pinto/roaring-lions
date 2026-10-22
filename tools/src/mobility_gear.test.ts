@@ -47,11 +47,11 @@ describe('mobility.gear vs the running-gear recipes (#706)', () => {
       expect(`${u.id}: ${gearOf(u)}`).toBe(`${u.id}: ${want}`);
       checked.push(u.id);
     }
-    // Not vacuous: the ten ground hulls with a recipe and a unit file
+    // Not vacuous: the twelve ground hulls with a recipe and a unit file
     // (officer_armour has a recipe and no unit; it is a held mesh).
     expect(checked.sort()).toEqual([
       'apc_eitan', 'apc_kipod', 'dozer_d9', 'gun_truck', 'ifv_namer', 'jeep_shoded',
-      'mbt_lavi', 'rocket_battery', 'scout_shachaf', 'technical',
+      'mbt_lavi', 'mbt_lavi_camo', 'rocket_battery', 'scout_shachaf', 'spg_long_range', 'technical',
     ]);
   });
 

@@ -191,6 +191,13 @@
         144
       ]
     },
+    "mbt_lavi_camo": {
+      "file": "mbt_lavi_camo.png",
+      "extent": [
+        182,
+        142
+      ]
+    },
     "militia_cell": {
       "file": "militia_cell.png",
       "extent": [
@@ -337,6 +344,13 @@
           89
         ]
       }
+    },
+    "spg_long_range": {
+      "file": "spg_long_range.png",
+      "extent": [
+        182,
+        166
+      ]
     },
     "technical": {
       "file": "technical.png",
