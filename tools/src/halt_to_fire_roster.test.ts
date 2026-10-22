@@ -22,6 +22,7 @@ const HALTS_TO_FIRE = [
   'breach_team',
   'demo_squad',
   'inf_grenadier',
+  'inf_medic_squad', // GH-707 P2: the medics carry carbines and halt to fire like the rifle squad
   'inf_squad',
   'manpad_team',
   'militia_cell',

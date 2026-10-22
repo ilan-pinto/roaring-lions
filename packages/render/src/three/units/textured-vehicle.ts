@@ -95,6 +95,13 @@ export const TEXTURED_VEHICLE_TYPES: ReadonlySet<string> = new Set([
   // (tools/vehicles/export_meshy_yanshuf.py). Drawn since the unit landed
   // (2026-10-21).
   'heli_yanshuf',
+  // GH-709 (2026-10-22): the Pered armoured ambulance is ifv_namer.glb's own bake
+  // with a palette roof box on top (tools/vehicles/export_veh_ambulance.py); the
+  // box's four parts carry no material and draw through rampForVehicleRole.
+  'veh_ambulance',
+  // GH-709: the Nachlieli medevac is heli_yanshuf.glb's own bake with palette
+  // parts on top (tools/vehicles/export_air_medevac_heli.py).
+  'air_medevac_heli',
   // GH-709 (2026-10-22): the Te'o Howitzer is a Meshy text-to-3D remesh shipping
   // its own 2k bake on hull_hull, hull_rubber, turret_hull and turret_metal
   // (tools/vehicles/export_meshy_spg_long_range.py); its cap faces and rear

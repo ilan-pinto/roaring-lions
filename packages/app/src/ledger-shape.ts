@@ -70,7 +70,7 @@ function shaped(
 }
 
 const ROSTER_REQUIRED = { type: isStr, veterancy: isNum } as const;
-const ROSTER_OPTIONAL = { name: isStr, missions: isNum, kills: isNum, slot: isNum, enlisted: isStr } as const;
+const ROSTER_OPTIONAL = { name: isStr, missions: isNum, kills: isNum, slot: isNum, enlisted: isStr, wounded_in_action: isNum, rescued: isNum } as const;
 const LOST_REQUIRED = { slot: isNum, type: isStr, veterancy: isNum, missions: isNum, kills: isNum, missionId: isStr, tick: isNum } as const;
 const LOST_OPTIONAL = { name: isStr } as const;
 const RESULT_REQUIRED = { stars: isNum, roe: isNum, ticks: isNum, lost: isNum } as const;

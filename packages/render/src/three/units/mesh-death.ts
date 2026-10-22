@@ -149,6 +149,7 @@ import { groundWorldY, type ElevationSource } from '../ground-height';
 import { WORLD_Y_PER_LIFT_PIXEL } from '../../project';
 import { advanceMeshClipFades, applyMeshClip } from './mesh-clip';
 import { disposeMeshUnitEntity, type MeshUnitEntity } from './mesh-unit';
+import { reassertHiddenFigures } from './squad-rig';
 import { pickDeathClips } from './mesh-anim';
 
 /** Seconds a dying mesh unit fades before it either becomes a wreck or is
@@ -671,6 +672,7 @@ export function stepMeshDeath(d: DyingMeshUnit, dtSeconds: number, env: MeshDeat
     const action = d.wreckAction;
     advanceMeshClipFades(d.entity, dtSeconds);
     d.entity.mixer.update(dtSeconds);
+    reassertHiddenFigures(d.entity.squad);
     if (d.topple) yawCorpseRoots(d.entity, d.topple);
     // Ruling 10 (C1): `action.paused` alone flips true on the THIRD frame of
     // a blend-in, not at its end -- three.js's own `LoopOnce` +
@@ -717,6 +719,7 @@ export function stepMeshDeath(d: DyingMeshUnit, dtSeconds: number, env: MeshDeat
   if (d.phase === 'falling') {
     advanceMeshClipFades(d.entity, dtSeconds);
     d.entity.mixer.update(dtSeconds);
+    reassertHiddenFigures(d.entity.squad);
     d.t += dtSeconds;
     if (!d.fallAction || !d.fallAction.paused) return 'fading';
     // D4: the body is already lying in its final pose -- no fade, no sink.
@@ -746,6 +749,7 @@ export function stepMeshDeath(d: DyingMeshUnit, dtSeconds: number, env: MeshDeat
   d.entity.root.position.y = d.baseWorldY - meshDeathSinkPx(d.t) * WORLD_Y_PER_LIFT_PIXEL;
   advanceMeshClipFades(d.entity, dtSeconds);
   d.entity.mixer.update(dtSeconds);
+  reassertHiddenFigures(d.entity.squad);
   if (d.t < MESH_DEATH_SECONDS) return 'fading';
 
   endMeshDeathFade(d.swaps);

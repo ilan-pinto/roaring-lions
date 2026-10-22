@@ -167,6 +167,8 @@ const RUNNING_GEAR: Record<string, { wheels: number; steered: number; tracks: nu
   spg_cluster: { wheels: 12, steered: 0, tracks: 2 },
   scout_shachaf: { wheels: 4, steered: 2, tracks: 0 },
   technical: { wheels: 4, steered: 2, tracks: 0 },
+  // GH-709: the armoured ambulance is the Namer's hull and gear (the same recipe object).
+  veh_ambulance: { wheels: 12, steered: 0, tracks: 2 },
 };
 
 function runningGearOf(file: string): { wheels: { steer?: boolean }[]; tracks: unknown[] } | undefined {

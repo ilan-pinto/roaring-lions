@@ -9,6 +9,7 @@
  * wedge so it does not silhouette as inf_squad's (validate:meshes' IoU).
  */
 import type { WeaponKind } from './hold';
+import type { RescueSpec } from './rescue';
 
 export const MOTION_VERSION = 1;
 
@@ -69,6 +70,8 @@ export interface MotionTeam {
   readonly crewFire?: boolean;
   /** The unit's `mobility.speed_tiles_s` (pinned against the JSON by test). */
   readonly speedTiles: number;
+  /** A medic team's `carry` and `treat` (`motion/rescue.ts`), built after the kneel. */
+  readonly rescue?: RescueSpec;
 }
 
 const rifles = (prefixes: string[], slots?: [number, number][]): FigureSpec[] =>
@@ -141,6 +144,23 @@ export const MOTION_TEAMS: Record<string, MotionTeam> = {
       { prefix: 'at_spot', kneels: true },
     ],
     hold: true, kneel: true, formation: false, squad: true, stride: true, ground: true, speedTiles: 0.7,
+  },
+  // GH-707 P2: the Nemala Medic Team. Two bodies of one figure, each with a kit
+  // carbine (low ready, aimed, and SLUNG in `carry`/`treat`: `rescue.ts`); drawn
+  // as two separate men, who fall in as a pair for `carry`.
+  inf_medic_squad: {
+    figures: [{ prefix: 'med_a', weapon: 'rifle', kneels: true }, { prefix: 'med_b', weapon: 'rifle', kneels: true }],
+    hold: true, kneel: true, formation: false, squad: true, stride: true, ground: true, speedTiles: 0.95,
+    // The litter is 2.2 m (poles to x +-1.1, grips centred at 0.98), carried at hand height
+    // (0.98 m) between a front bearer and a rear one 1.30 m either side of it (inside the
+    // lead's +-1.35 m allowance, which `mesh_rescue.test.ts` gates).
+    rescue: {
+      litter: 'med_a_litter',
+      bearers: [{ prefix: 'med_a', x: -1.30, z: 0 }, { prefix: 'med_b', x: 1.30, z: 0 }],
+      grips: { x: 0.98, z: 0.275, y: 0.98 },
+      carryMult: 0.75,
+      treatHands: { forward: 0.36, across: 0.14, y: 0.35 },
+    },
   },
   // Stride only: the gait gate is tree-wide, so every walker is re-timed.
   charge_squad: { figures: [], hold: false, kneel: false, formation: false, stride: true, ground: true, speedTiles: 1.9 },

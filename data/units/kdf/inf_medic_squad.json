@@ -1,7 +1,7 @@
 {
   "id": "inf_medic_squad",
   "name": "Nemala Medic Team",
-  "blurb": "Heals the men on foot around it while it holds still. It cannot heal itself, and barely fights.",
+  "blurb": "Treats wounded men under fire and stretchers them out. It barely fights, and a load slows it.",
   "faction": "kdf",
   "role": "support",
   "cost": {
@@ -19,8 +19,13 @@
       "side": 10,
       "rear": 10
     },
-    "crew": 6,
-    "suppression_resistance": 0.6
+    "crew": 2,
+    "suppression_resistance": 0.6,
+    "figures": 2,
+    "transport_slots": 1,
+    "can_carry": [
+      "wounded"
+    ]
   },
   "mobility": {
     "speed_tiles_s": 0.95
@@ -51,6 +56,24 @@
   ],
   "abilities": [
     "garrison",
-    "smoke"
-  ]
+    "smoke",
+    "rescue"
+  ],
+  "rescue": {
+    "radius_tiles": 8,
+    "treat_s": 6,
+    "drag_speed_mult": 0.5,
+    "carry_speed_mult": 0.75
+  },
+  "aura": {
+    "area": [
+      {
+        "radius": 2.5,
+        "affects": "foot",
+        "heal_per_s": 0.02,
+        "heal_cap": 1.0,
+        "stationary": true
+      }
+    ]
+  }
 }

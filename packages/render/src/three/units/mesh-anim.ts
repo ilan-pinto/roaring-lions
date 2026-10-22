@@ -39,6 +39,10 @@ const CLIP_NAME_SET: { readonly [K in ClipName]: true } = {
   kneelIn: true,
   kneelOut: true,
   pinned: true,
+  crawl: true,
+  idleWounded: true,
+  treat: true,
+  carry: true,
 };
 
 /** Every `ClipName`, for iteration and validation. */

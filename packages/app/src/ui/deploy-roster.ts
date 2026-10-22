@@ -25,6 +25,9 @@ export interface DeployEntry {
   readonly name?: string;
   readonly missions: number;
   readonly kills: number;
+  /** GH-707 P2: the wound half of the service record; present only when non-zero. */
+  readonly wounded_in_action?: number;
+  readonly rescued?: number;
 }
 
 /** What deploy may show and choose from, for one mission. Null when the
@@ -108,6 +111,8 @@ export function deployRosterView(
       ...(entry.name !== undefined ? { name: entry.name } : {}),
       missions: entry.missions ?? 0,
       kills: entry.kills ?? 0,
+      ...((entry.wounded_in_action ?? 0) > 0 ? { wounded_in_action: entry.wounded_in_action } : {}),
+      ...((entry.rescued ?? 0) > 0 ? { rescued: entry.rescued } : {}),
     };
     (demand.has(entry.type) ? eligible : undrawable).push(row);
   });

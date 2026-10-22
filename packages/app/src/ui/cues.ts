@@ -71,7 +71,7 @@ export const MISSION_EVENT_SOUND: Readonly<Record<MissionEvent['kind'], EventSou
   wave: { cues: [ALERT_CUE.important] },
   removed: { cues: [ALERT_CUE.important] },
   roe: { cues: [ALERT_CUE.important] },
-  roeGain: { silent: 'a Conduct gain (GH-707) is ignored by the app until P2 gives it a feed line' },
+  roeGain: { cues: [ALERT_CUE.minor] },
   missionEnd: { cues: [OUTCOME_CUE.victory, OUTCOME_CUE.defeat] },
   trigger: { silent: 'a trigger speaks through its label in the feed; what it does (a wave, an objective) carries its own cue' },
   built: { silent: 'a reinforcement arriving is good news the dock and the feed already show; the announcer carries it' },

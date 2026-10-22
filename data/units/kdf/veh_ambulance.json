@@ -1,7 +1,7 @@
 {
   "id": "veh_ambulance",
   "name": "Pered Armoured Ambulance",
-  "blurb": "Men on foot around it heal while it stands still. Four seats under armour, and no gun at all.",
+  "blurb": "Carries four wounded under armour, and none bleeds near it. No gun at all.",
   "faction": "kdf",
   "role": "apc",
   "cost": {
@@ -22,7 +22,11 @@
     },
     "crew": 2,
     "transport_slots": 4,
-    "suppression_resistance": 0.75
+    "suppression_resistance": 0.75,
+    "can_carry": [
+      "wounded"
+    ],
+    "stabilise_radius": 1.5
   },
   "mobility": {
     "speed_tiles_s": 1.4,
@@ -37,5 +41,16 @@
   "weapons": [],
   "abilities": [
     "smoke"
-  ]
+  ],
+  "aura": {
+    "area": [
+      {
+        "radius": 3,
+        "affects": "foot",
+        "heal_per_s": 0.015,
+        "heal_cap": 1.0,
+        "stationary": true
+      }
+    ]
+  }
 }

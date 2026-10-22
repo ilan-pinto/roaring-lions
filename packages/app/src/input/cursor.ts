@@ -32,6 +32,7 @@ export type CursorName =
   | 'moveOnly'
   | 'advance'
   | 'attack'
+  | 'rescue'
   | 'blocked'
   | 'costly'
   | 'protected'
@@ -93,7 +94,8 @@ export type UnbadgedName =
   | 'strike'
   | 'barrage'
   | 'smokeScreen'
-  | 'pinned';
+  | 'pinned'
+  | 'rescue';
 
 export const UNBADGED_NAMES: ReadonlySet<CursorName> = new Set<UnbadgedName>([
   'default',
@@ -111,6 +113,8 @@ export const UNBADGED_NAMES: ReadonlySet<CursorName> = new Set<UnbadgedName>([
   // Describes the units' state, not who is acting: a whole order pinned
   // means nobody is, so a role badge would name an actor that does not move.
   'pinned',
+  // GH-707: describes the target (a wounded man), and the only actor is a medic.
+  'rescue',
 ]);
 
 /** How many frames a cursor steps through, and how long each frame holds. */
@@ -223,6 +227,7 @@ export const ANIMATED_CURSORS: Readonly<Partial<Record<CursorName, CursorAnimati
   moveOnly: anim('move'),
   advance: anim('attackMove'),
   attack: anim('attackMove'),
+  rescue: anim('attackMove'),
   sweep: anim('sweep'),
   strike: anim('strike'),
   barrage: anim('barrage'),
@@ -240,9 +245,12 @@ export const ANIMATED_CURSORS: Readonly<Partial<Record<CursorName, CursorAnimati
  *  (`attack-soft` is `advance-soft`'s image), and reads its own key so a
  *  targeted order is told from an attack-move to the tile. The plugin answers
  *  both keys with one rule (`vite-plugin-cursors.ts`). */
-export const CURSOR_ALIAS: Readonly<{ moveOnly: 'move'; attack: 'advance' }> = {
+export const CURSOR_ALIAS: Readonly<{ moveOnly: 'move'; attack: 'advance'; rescue: 'advance' }> = {
   moveOnly: 'move',
   attack: 'advance',
+  // GH-707: no rescue cursor art exists, so the order draws the `advance` sight and reads its
+  // own key. It is unbadged (UNBADGED_NAMES), so only the bare key is aliased.
+  rescue: 'advance',
 };
 
 export { SIGHT_OF };
@@ -265,6 +273,7 @@ export function winningVerb(res: Resolution, hints: CursorHints): CursorName | n
   const has = (kind: string): boolean => res.intents.some((i) => i.kind === kind);
   if (has('demolish')) return 'demolish';
   if (has('chargeTunnel')) return 'charge';
+  if (has('rescue')) return 'rescue';
   // GH-420: a targeted order names the cursor over an attack-move to the tile.
   if (has('attack')) return 'attack';
   if (has('order') && hints.hostile) return 'advance';
@@ -315,6 +324,9 @@ export function cursorFor(res: Resolution, hints: CursorHints): CursorName {
     if (res.intents.length === 0) return 'default';
     return hints.pinned === true ? 'pinned' : 'moveOnly';
   }
+  // GH-707: a rescue is the click's whole meaning (the resolver returns it alone), and what
+  // the ground under a wounded man is -- a flagged zone, a wall -- does not change it.
+  if (res.intents.some((i) => i.kind === 'rescue')) return 'rescue';
   // A protected structure gated the whole selection and the player has not
   // held Alt to override it: `intents` is empty here too, but for a second,
   // distinct reason from "nothing selected" -- this rung must come before
@@ -372,6 +384,7 @@ export function idsOf(intent: PlayerIntent): number[] {
     case 'select':
     case 'order':
     case 'attack':
+    case 'rescue':
     case 'garrison':
     case 'demolish':
     case 'chargeTunnel':
@@ -407,6 +420,8 @@ function intentVerb(intent: PlayerIntent, hints: CursorHints): CursorName | null
       return hints.hostile ? 'advance' : 'move';
     case 'attack':
       return 'attack';
+    case 'rescue':
+      return 'rescue';
     case 'garrison':
       return 'garrison';
     case 'mount':

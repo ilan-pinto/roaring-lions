@@ -22,6 +22,12 @@ const area = (id: string, i: number) => {
 const ONE = 65536;
 
 describe('the eight field works parse through structureTypeFromJson', () => {
+  it('the aid post (GH-707 P2) is a KDF 2x3 work with an aid block', () => {
+    const t = parse('kdf_aid_post');
+    expect(t.owner).toBe(0);
+    expect(t.buildable).toMatchObject({ costLogistics: 200, fw: 2, fh: 3 });
+    expect(t.hpPerTile).toBe(200 * ONE);
+  });
   it('owners: the four KDF types are side 0, the four militia types side 1', () => {
     for (const id of ['kdf_medic_station', 'kdf_outpost', 'kdf_intel_centre', 'kdf_workshop']) expect(parse(id).owner).toBe(0);
     for (const id of ['militia_field_clinic', 'militia_firing_position', 'militia_observation_post', 'militia_weapons_workshop']) {

@@ -120,14 +120,14 @@ describe('the shipped data', () => {
     const terrain = new Set(['.', '1', '2', '3', 'r', 'o', 'n', '^', 'b', 'd']);
     expect(worksSymbolFailures(catalogue, maps, terrain)).toEqual([]);
   });
-  it('the eight field works are present, and exactly the four KDF ones are buildable', () => {
+  it('the field works are present, and exactly the five KDF ones are buildable', () => {
     const ids = Object.keys(catalogue.types);
     for (const id of [
-      'kdf_medic_station', 'kdf_outpost', 'kdf_intel_centre', 'kdf_workshop',
+      'kdf_medic_station', 'kdf_outpost', 'kdf_intel_centre', 'kdf_workshop', 'kdf_aid_post',
       'militia_field_clinic', 'militia_firing_position', 'militia_observation_post', 'militia_weapons_workshop',
     ]) expect(ids).toContain(id);
     const buildable = Object.values(catalogue.types).filter((t) => t.buildable !== undefined).map((t) => t.id);
-    expect(buildable.sort()).toEqual(['kdf_intel_centre', 'kdf_medic_station', 'kdf_outpost', 'kdf_workshop']);
+    expect(buildable.sort()).toEqual(['kdf_aid_post', 'kdf_intel_centre', 'kdf_medic_station', 'kdf_outpost', 'kdf_workshop']);
   });
   it('no shipped mission lists field_works yet (L4/L5 are the lead\'s)', () => {
     const withWorks = readdirSync(join(ROOT, 'data/missions'))

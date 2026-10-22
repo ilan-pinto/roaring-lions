@@ -86,6 +86,7 @@ import { symbolBody } from './symbol';
 import type { AlertTier } from './alerts';
 import type { Tone } from './hud-model';
 import { prefersReducedMotion } from './motion';
+import { WOUND_DOWN, WOUND_STABILISED } from '@lions/sim';
 
 /**
  * The box, in CSS pixels. theme.css sizes `.rl-minimap` from the `--minimap`
@@ -777,10 +778,14 @@ export interface MinimapDot extends MinimapPoint {
   /** A hostile the player has only SUSPECTED (`sim.contactLevel` < 2), not
    *  identified -- drawn hollow, like the world's hollow diamond (VR-36). */
   suspected: boolean;
+  /** GH-707 P2: a man down (DOWN or STABILISED, or a `wounded`-role body). Present only when
+   *  true, so a world without wounds builds exactly the dots it always did. */
+  wounded?: true;
 }
 
-/** The silhouettes a unit mark can wear. `hollow` is a suspected contact. */
-export type DotShape = 'square' | 'triangle' | 'circle' | 'hollow';
+/** The silhouettes a unit mark can wear. `hollow` is a suspected contact; `wounded` is a man
+ *  down (GH-707 P2), a plus in the unit's own team colour. */
+export type DotShape = 'square' | 'triangle' | 'circle' | 'hollow' | 'wounded';
 
 /**
  * Which silhouette a relation gets.
@@ -800,7 +805,10 @@ export type DotShape = 'square' | 'triangle' | 'circle' | 'hollow';
  * squares. In single-player side 0 is `own`, side 1 `hostile` and side 2
  * `neutral`, exactly the old side-keyed table.
  */
-export function dotShape(relation: Relation, suspected = false): DotShape {
+export function dotShape(relation: Relation, suspected = false, wounded = false): DotShape {
+  // A suspected hostile stays the hollow diamond even if it is down: what the player does not
+  // yet know about a contact, a wounded mark must not give away.
+  if (wounded && !(relation === 'hostile' && suspected)) return 'wounded';
   if (relation === 'own') return 'square';
   // VR-36: what the player KNOWS about the contact, as the world says it
   // (`contactShapeOf` -> 'unknown', a hollow diamond). Hostiles only: a
@@ -835,7 +843,10 @@ export function unitDots(
     if (!unitIsObserved(st.side[i], viewer, x, y, isVisible)) continue;
     const side = st.side[i];
     const relation = relationOf(side, viewer);
-    out.push({ x, y, side, relation, suspected: relation === 'hostile' && sim.contactLevel(viewer, i) < 2 });
+    const dot: MinimapDot = { x, y, side, relation, suspected: relation === 'hostile' && sim.contactLevel(viewer, i) < 2 };
+    const w = st.woundState[i];
+    if (w === WOUND_DOWN || w === WOUND_STABILISED || sim.unitTypes[st.typeIdx[i]].isWounded) dot.wounded = true;
+    out.push(dot);
   }
   return out;
 }
@@ -991,6 +1002,10 @@ const OBJECTIVE_SQUARE = 10;
 /** The suspected contact's hollow diamond (VR-36): 8 px tall, a 1.5 px stroke
  *  on a 3.5 px keyline. */
 const SUSPECT_HALF = 4;
+/** GH-707 P2: the wounded plus's arm length, and its keyline and stroke widths. */
+const WOUNDED_HALF = 3.5;
+const WOUNDED_KEYLINE = 4;
+const WOUNDED_STROKE = 2;
 const SUSPECT_STROKE = 1.5;
 const SUSPECT_KEYLINE = 3.5;
 /** The ping's ring, same idea and deliberately a different size: it starts
@@ -1466,7 +1481,7 @@ export class Minimap {
       // Colour FIRST and unchanged: the shape is the second channel, not the
       // replacement for a first one that was measured to work.
       ctx.fillStyle = this.teamColors[colorSlot(d.side, viewer)];
-      this.dot(at, dotShape(d.relation, d.suspected));
+      this.dot(at, dotShape(d.relation, d.suspected, d.wounded === true));
     }
 
     // A replay draws only what the replayed draw could have: no flash or ping
@@ -1510,6 +1525,27 @@ export class Minimap {
         ctx.lineTo(at.x, at.y + r);
         ctx.lineTo(at.x - r, at.y);
         ctx.closePath();
+        ctx.stroke();
+      }
+      ctx.lineWidth = 1;
+      return;
+    }
+    if (shape === 'wounded') {
+      // GH-707 P2: a plus -- the refuge cross in miniature, over a dark keyline, in the unit's
+      // own team colour -- so a man down reads as a different SHAPE, not only a different tone.
+      const color = String(ctx.fillStyle);
+      const r = WOUNDED_HALF;
+      for (const [style, width] of [
+        [this.chrome.markEdge, WOUNDED_KEYLINE],
+        [color, WOUNDED_STROKE],
+      ] as const) {
+        ctx.strokeStyle = style;
+        ctx.lineWidth = width;
+        ctx.beginPath();
+        ctx.moveTo(at.x - r, at.y);
+        ctx.lineTo(at.x + r, at.y);
+        ctx.moveTo(at.x, at.y - r);
+        ctx.lineTo(at.x, at.y + r);
         ctx.stroke();
       }
       ctx.lineWidth = 1;

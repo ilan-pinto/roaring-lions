@@ -27,6 +27,8 @@ function roster(bought: ReadonlySet<string> = new Set()): BrigadeUnit[] {
         isKamikaze: false,
         transportSlots: 0,
         isSoft: false,
+        canCarry: null,
+        canEmbark: false,
         upgrades: 'upgrades' in u ? u.upgrades : undefined,
       };
     });

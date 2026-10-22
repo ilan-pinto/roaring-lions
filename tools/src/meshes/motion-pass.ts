@@ -18,6 +18,10 @@
  *             the grounded idle.
  *   work      `work` for a team with `work` figures, from `kneel`
  *             (`motion/work.ts`); idempotent, `--step=work`.
+ *   rescue    a medic team's `carry` (from `move`, re-timed to the carrying speed, both
+ *             hands on the litter's grips) and `treat` (an unarmed kneel over a
+ *             casualty), the carbine slung in both (`motion/rescue.ts`); runs after the
+ *             kneel. Only a team with a `rescue` entry.
  *   pinned    the pinned huddle, `pinned`, for every team that carries
  *             the corpse pair `down`/`wreck` (`motion/pinned.ts`), built
  *             last, from `kneel` or `idle`. The one step that is
@@ -40,6 +44,7 @@ import { applyHold } from './motion/apply-hold';
 import { applyKneel } from './motion/kneel';
 import { applyPinned, needsPinned } from './motion/pinned';
 import { applyWork } from './motion/work';
+import { applyRescue } from './motion/rescue';
 import { applyCarry } from './motion/carry';
 import { applyGround } from './motion/ground';
 import { applyFormation } from './motion/formation';
@@ -77,6 +82,7 @@ export function runMotionPass(doc: Document, id: string, spec: MotionTeam, base:
   // the ground (`mesh_gait.test.ts`'s census reads it).
   if (spec.crewFire) lines.push(...applyCrewFire(doc, id));
   if (spec.kneel) lines.push(...applyKneel(doc, id, spec, holds[0]?.ctx ?? []));
+  if (spec.rescue) lines.push(...applyRescue(doc, id, spec, holds[0]?.ctx ?? []));
   if (needsPinned(doc)) lines.push(...applyPinned(doc, id));
   if (spec.work) lines.push(...applyWork(doc, id, spec.work));
   if (spec.crewFire && needsPinned(doc)) lines.push(...applyCrewPinned(doc, id));

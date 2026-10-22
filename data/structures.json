@@ -335,6 +335,43 @@
         ]
       }
     },
+    "kdf_aid_post": {
+      "id": "kdf_aid_post",
+      "name": "Aid Post",
+      "symbol": "A",
+      "hp_per_tile": 200,
+      "garrison_slots": 0,
+      "rubble_cover": 1,
+      "height_px": 12,
+      "color": "olive.1",
+      "roe_penalty": 0,
+      "owner": 0,
+      "buildable": {
+        "cost": {
+          "logistics": 200
+        },
+        "build_time_s": 25,
+        "footprint": [
+          2,
+          3
+        ]
+      },
+      "aura": {
+        "area": [
+          {
+            "radius": 4,
+            "affects": "foot",
+            "heal_per_s": 0.01,
+            "heal_cap": 1.0
+          }
+        ]
+      },
+      "aid": {
+        "admit_radius": 1,
+        "treat_s": 20,
+        "dispatch_radius": 12
+      }
+    },
     "militia_field_clinic": {
       "id": "militia_field_clinic",
       "name": "Field Clinic",
