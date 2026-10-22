@@ -28,13 +28,15 @@ export type VersusRosterUnit = (typeof units)[keyof typeof units];
  * `inf_medic_squad` (GH-707 P2): its `rescue` block does the same to the wound hash fold
  * (the sim keys `woundLive` off a type carrying one), so it is held with the others.
  *
- * `mbt_lavi_camo` and `spg_long_range` (GH-709 Phase 2): credit-only store units, on no
+ * `mbt_lavi_camo` and `spg_long_range` (GH-709 Phase 2), and `spg_cluster` (Phase 7):
+ * credit-only store units, on no
  * doctrine menu. Registering a type a versus side can never field would move the
  * roster-count and hash pins for nothing, so they are held the same way until a versus
  * design gives a special unit a seat. `ugv_recon_dog` (Phase 8) joins them for the same
- * reason.
+ * reason. So does `at_nlos_team` (Phase 7).
  */
 export const VERSUS_HELD_UNITS: ReadonlySet<string> = new Set([
+  'at_nlos_team',
   'heli_yanshuf',
   'wounded_kdf',
   'wounded_sarim',
@@ -42,6 +44,7 @@ export const VERSUS_HELD_UNITS: ReadonlySet<string> = new Set([
   'air_medevac_heli',
   'inf_medic_squad',
   'mbt_lavi_camo',
+  'spg_cluster',
   'spg_long_range',
   'ugv_recon_dog',
 ]);

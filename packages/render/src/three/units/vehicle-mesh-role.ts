@@ -514,6 +514,14 @@ const VEHICLE_ROLE_PALETTE: Record<string, Partial<Record<VehicleMeshRole, reado
     metal: sliceFrom('gunmetal', 2, 2),
     rubber: sliceFrom('shadow', 0, 3),
   },
+  // GH-709 Phase 7: the Te'o Cluster Howitzer IS spg_long_range.glb's bake with a
+  // re-laid gun, a brake and a rack joined into its own nodes
+  // (tools/vehicles/export_spg_cluster.py), so it takes the Te'o's table verbatim.
+  spg_cluster: {
+    hull: sliceFrom('olive', 0, 4),
+    metal: sliceFrom('gunmetal', 2, 2),
+    rubber: sliceFrom('shadow', 0, 3),
+  },
 };
 
 /**

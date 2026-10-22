@@ -133,6 +133,10 @@ import mbtLaviCamo from '../../../data/units/kdf/mbt_lavi_camo.json';
 import spgLongRange from '../../../data/units/kdf/spg_long_range.json';
 // Phase 8: the Chadaf Recon Robot, a four-legged walker (role drone, ground domain, foot).
 import ugvReconDog from '../../../data/units/kdf/ugv_recon_dog.json';
+// GH-709 Phase 7: the Te'o Cluster Howitzer (E2 indirect + E3 submunitions, landed GH-733).
+import spgCluster from '../../../data/units/kdf/spg_cluster.json';
+// GH-709 Phase 7: the Zaron Missile Team.
+import atNlosTeam from '../../../data/units/kdf/at_nlos_team.json';
 // Phase 3: the Chomet Grenadier Squad.
 import infGrenadier from '../../../data/units/kdf/inf_grenadier.json';
 import militiaCell from '../../../data/units/enemy/militia_cell.json';
@@ -415,6 +419,8 @@ export const units = {
   mbt_lavi_camo: mbtLaviCamo,
   spg_long_range: spgLongRange,
   ugv_recon_dog: ugvReconDog,
+  spg_cluster: spgCluster,
+  at_nlos_team: atNlosTeam,
   inf_grenadier: infGrenadier,
 } as const;
 

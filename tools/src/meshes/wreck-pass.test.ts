@@ -584,6 +584,7 @@ describe('WRECK_RECIPES', () => {
       'recon_drone',
       'rocket_battery',
       'scout_shachaf',
+      'spg_cluster',
       'spg_long_range',
       'technical',
       'veh_ambulance',

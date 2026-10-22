@@ -287,6 +287,9 @@ TEXTURED_VEHICLE_EXEMPT = {
     # hull_rubber, turret_hull and turret_metal (tools/vehicles/export_meshy_spg_long_range.py);
     # its cap faces and rear spades are UV-pinned into that bake.
     "spg_long_range",
+    # GH-709 Phase 7: the Te'o Cluster Howitzer, the Te'o's own bake with a re-laid gun,
+    # a brake and a rack UV-pinned into it (tools/vehicles/export_spg_cluster.py).
+    "spg_cluster",
 }
 
 # Rigged INFANTRY teams that ship their own Meshy `base_color` bake (GH-286,
@@ -327,6 +330,9 @@ TEXTURED_INFANTRY_EXEMPT = {
     "inf_squad", "sarim_rifles", "mortar_team", "sniper_team", "yahalom_squad",
     # GH-707 P2 (22 Oct 2026): the Nemala Medic Team, tools/units/import_meshy_medic_team.py.
     "inf_medic_squad",
+    # GH-709 Phase 7 (2026-10-22): the Zaron Missile Team -- mortar_team's
+    # crewman bake and the Meshy launcher's, in one 2048x1024 atlas.
+    "at_nlos_team",
     # GH-709 phase 3 (22 Oct 2026): the Chomet grenadier squad, same importer.
     "inf_grenadier",
 }

@@ -23,6 +23,20 @@
         148
       ]
     },
+    "at_nlos_team": {
+      "file": "at_nlos_team.png",
+      "extent": [
+        156,
+        174
+      ],
+      "lead": {
+        "file": "lead/at_nlos_team.png",
+        "extent": [
+          92,
+          174
+        ]
+      }
+    },
     "at_team": {
       "file": "at_team.png",
       "extent": [
@@ -379,6 +393,13 @@
           89
         ]
       }
+    },
+    "spg_cluster": {
+      "file": "spg_cluster.png",
+      "extent": [
+        162,
+        182
+      ]
     },
     "spg_long_range": {
       "file": "spg_long_range.png",

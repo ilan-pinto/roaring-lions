@@ -97,6 +97,8 @@ export const VEHICLE_TRACK_KIND: Readonly<Record<string, VehicleTrackKind>> = {
   mbt_lavi_camo: 'tracked',
   // GH-709: the Te'o Howitzer's six road wheels a side and tracked loop (`gear: tracks`).
   spg_long_range: 'tracked',
+  // GH-709 Phase 7: the Te'o Cluster Howitzer, the Te'o's own running gear.
+  spg_cluster: 'tracked',
   ifv_namer: 'tracked',
   dozer_d9: 'tracked',
   // GH-707 P2: the Pered armoured ambulance runs on tracks (no `gear`, so the schema's `tracks`).

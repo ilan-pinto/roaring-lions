@@ -89,6 +89,11 @@ export const TEXTURED_INFANTRY_TYPES: ReadonlySet<string> = new Set<string>([
   // two bodies of one Meshy figure with its 1024 bake on uniform/boot/face (the casualty on
   // its litter takes a texel of it); pack, bundle, litter and carbines are palette parts.
   'inf_medic_squad',
+  // GH-709 Phase 7 (2026-10-22): the Zaron Missile Team, the KDF mortar
+  // crewman's bake three times beside the Meshy launcher's, one 2048x1024
+  // atlas (tools/units/import_meshy_crew_team.py); its kit fire-control case,
+  // cable and the leader's kit rifle take no map of their own.
+  'at_nlos_team',
   // GH-709 phase 3 (22 Oct 2026): the Chomet grenadier squad, same importer.
   'inf_grenadier',
 ]);

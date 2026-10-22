@@ -1,5 +1,6 @@
 {
   "sources": {
+    "at_nlos_team.glb": "3ba832ead623025efeb076bcb6e97c58476c5933e02d6e2fd6a92ac2da3312fd",
     "at_team.glb": "b90e2de15ff933eec38512093978ed8d237f0ed9210190eecdf9152fc980c2d4",
     "atgm_cell.glb": "eddc78e01813375e1c90900c754209e80d9d46991a169254f91dc7ba2524ac61",
     "breach_team.glb": "025273a216e023f02a0badffedd32de4751e93491e73b6797182db8c81982bb1",
@@ -143,6 +144,7 @@
     "vehicles/recon_drone.glb": "92164a0ab71e7d26e4bbb307ef1ac8cdeb8c4067be7770a3ca2d9545a79b5e3f",
     "vehicles/rocket_battery.glb": "4108a4b6a98c47eb2f194c5be47e98be48383f3b7d102eb6cfd363bce0962a77",
     "vehicles/scout_shachaf.glb": "1b40189551a64cd6085223cef7ad419c7e3eb076ea8816dc9700a284569c8d09",
+    "vehicles/spg_cluster.glb": "731ffc138f7c4272c513d2d887bd88aefd91e7e5d09ee0eeae6660b286501342",
     "vehicles/spg_long_range.glb": "b90051127ae150eed4a5299d35445023a26a963b7b74d7fd5ec8e9a6ed62e32a",
     "vehicles/technical.glb": "9c869be92855c2e40a047548f21312f46758698fb08251b3bcbf667decb9ef4e",
     "vehicles/veh_ambulance.glb": "f583c2fb87cb98037baff0fb9aee55075dd18588a0815b11b4beb4a308b05470",

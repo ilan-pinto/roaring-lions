@@ -119,6 +119,10 @@ export const WRECK_RECIPES: Readonly<Record<string, WreckRecipe>> = {
   // AND its raised gun under `turret_pivot` (tools/vehicles/export_meshy_spg_long_range.py),
   // so the wreck pass throws both, as it does the Lavi's turret and barrel.
   spg_long_range: { hull: 'tracked', turretPivot: 'turret_pivot' },
+  // GH-709 P7: the Te'o Cluster Howitzer is the Te'o's own node graph with its gun
+  // re-laid and a rack joined into hull_hull (tools/vehicles/export_spg_cluster.py),
+  // so it wrecks as the Te'o does.
+  spg_cluster: { hull: 'tracked', turretPivot: 'turret_pivot' },
 };
 
 /**

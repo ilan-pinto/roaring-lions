@@ -274,15 +274,17 @@ describe('the unit voice field (WP-AU1 §3)', () => {
   // since GH-698: the UH-60 Yanshuf is an air carrier under `apc`, which would
   // voice it as a ground crew, and a fifth since GH-709: the Nachlieli medevac is
   // the same thing (an air carrier under `apc`). A sixth since GH-709: the Te'o
-  // Howitzer is a tracked crew under `artillery`, the rocket battery's case.
+  // Howitzer is a tracked crew under `artillery`, the rocket battery's case, and a
+  // seventh since Phase 7: the Te'o Cluster Howitzer, the same hull and crew.
   // Nothing else may override, or the role default stops being the rule.
-  it('is declared by exactly the six units whose role would voice them wrongly', () => {
+  it('is declared by exactly the seven units whose role would voice them wrongly', () => {
     expect(declared()).toEqual({
       air_medevac_heli: 'air',
       heli_yanshuf: 'air',
       manpad_team: 'infantry',
       paramotor: 'air',
       rocket_battery: 'crew',
+      spg_cluster: 'crew',
       spg_long_range: 'crew',
     });
   });
