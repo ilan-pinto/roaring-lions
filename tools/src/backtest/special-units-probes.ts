@@ -16,7 +16,7 @@
 //
 // Run: `pnpm --filter @lions/tools su:probes` (exit 1 when a claim fails).
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -35,8 +35,14 @@ const WEST = 32768;
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const STAGED = join(ROOT, 'docs', 'campaign', 'special_units', 'gh709');
 
+const LANDED = join(ROOT, 'data', 'units', 'kdf');
+
+/** A GH-709 unit's JSON: the staged draft, or -- once the unit has landed with its
+ *  art and the draft is gone -- the shipped file, so a probe keeps measuring the
+ *  unit as it ships. Never both: gh709_staged.test.ts refuses a half-landed id. */
 export function stagedUnit(id: string): UnitTypeJson {
-  return JSON.parse(readFileSync(join(STAGED, `${id}.json`), 'utf8')) as UnitTypeJson;
+  const file = existsSync(join(STAGED, `${id}.json`)) ? join(STAGED, `${id}.json`) : join(LANDED, `${id}.json`);
+  return JSON.parse(readFileSync(file, 'utf8')) as UnitTypeJson;
 }
 
 function median(xs: number[]): number {

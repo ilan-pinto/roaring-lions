@@ -125,6 +125,10 @@ miss, since choosing a scenario to make the claim pass is the same as widening a
 
 ### Phase 3 (22 Oct): the grenades ignore part of the cover bonus
 
+**Landed** (22 Oct, with its art): the JSON moved to `data/units/kdf/inf_grenadier.json` unchanged, and
+the probe reads it there (`stagedUnit` falls back to the shipped file once the draft is gone). On
+`data/units` alone the cost curve reads it at -1.6% (n=36); with e5 and gh709 at -5.6% (n=45).
+
 **Ruling.** The lead ruled that the grenades IGNORE PART OF THE COVER BONUS, so "reach men behind a
 wall" holds; grenades still do not reach garrisoned men (Q7), and collateral stays 0.3 (Q10).
 

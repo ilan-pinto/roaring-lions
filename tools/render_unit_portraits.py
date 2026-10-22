@@ -89,7 +89,7 @@ ROUGHNESS = 0.85           # 6  WORLD_ROUGHNESS
 FIT_ROUNDS = 24
 
 # Figure teams live in meshes/ itself, vehicles and air in meshes/vehicles/.
-FIGURES = {"inf_squad", "at_team", "mortar_team", "sniper_team", "demo_squad",
+FIGURES = {"inf_squad", "inf_grenadier", "at_team", "mortar_team", "sniper_team", "demo_squad",
            "breach_team", "yahalom_squad", "recon_zikit",
            "atgm_cell", "manpad_team", "recoilless_team", "sarim_rifles",
            # A3.3 step 1 (4 Oct): the six enemy rigs that fell back to a
@@ -109,7 +109,7 @@ ENEMY_FIGURES = {"atgm_cell", "manpad_team", "recoilless_team", "sarim_rifles",
 NO_LEAD = {"moto_rpg", "digger_crew"}
 ROSTER = (
     # KDF (19)
-    "inf_squad,at_team,mortar_team,sniper_team,demo_squad,breach_team,yahalom_squad,recon_zikit,"
+    "inf_squad,inf_grenadier,at_team,mortar_team,sniper_team,demo_squad,breach_team,yahalom_squad,recon_zikit,"
     "mbt_lavi,ifv_namer,apc_eitan,apc_kipod,jeep_shoded,scout_shachaf,dozer_d9,"
     "heli_peten,heli_peten_gunship,attack_drone,recon_drone,"
     # Sarim (15)

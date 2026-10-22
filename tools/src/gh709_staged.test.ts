@@ -108,9 +108,13 @@ describe('GH-709: staged and landed partition the nine approved units', () => {
 });
 
 describe('GH-709 staged special units', () => {
-  it('stages the nine (none has landed yet)', () => {
-    // Update this line, not the partition above, when a unit lands with its art.
+  it('stages every approved unit that has not landed', () => {
     expect(staged.map((s) => s.json.id)).toEqual(GH709_IDS.filter((id) => !LANDED_IDS.includes(id)));
+  });
+
+  it('inf_grenadier has landed with its art (Phase 3)', () => {
+    // A literal per landed unit, so a landing that silently un-registers shows here.
+    expect(LANDED_IDS).toContain('inf_grenadier');
   });
 
   for (const { file, json } of staged) {
