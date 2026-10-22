@@ -229,6 +229,20 @@ describe('seatWorldFor', () => {
     expect([w.factionOfSeat(0), w.factionOfSeat(1)]).toEqual(['kdf', 'sarim']);
     expect([w.tunnelOwner(0), w.tunnelOwner(1), w.tunnelOwner(NaN)]).toEqual([1, -1, -1]);
   });
+  it('N3 Task 4: economy is economyRoom(config) -- off in single-player, a co-op room and a mirror; on KDF v Sarim', () => {
+    const sim = fakeSim();
+    expect(seatWorldFor(null, sim).economy).toBe(false);
+    expect(seatWorldFor(config(), sim).economy).toBe(false);
+    const mirror = config({ mode: 'versus' });
+    expect(seatWorldFor(mirror, sim).economy).toBe(false);
+    const matchup = config({ mode: 'versus' });
+    matchup.seats[1] = { ...matchup.seats[1], side: 1, faction: 'sarim' };
+    const w = seatWorldFor(matchup, sim);
+    expect([w.versus, w.economy]).toEqual([true, true]);
+    // ... so the Sarim guest's build for its own side passes, and the host's forged one drops.
+    expect(validateCommand({ kind: 'build', side: 1, unit: 'sarim_rifles' }, 1, w)).toBe(true);
+    expect(validateCommand({ kind: 'build', side: 1, unit: 'sarim_rifles' }, 0, w)).toBe(false);
+  });
   it('LD1 (N3): a Sarim HOST is seat 0 on side 1, and it alone may take its side-1 units into its side-1 route', () => {
     // The room's LD1 config: seat 0 Sarim on side 1, seat 1 KDF on side 0. Route 0 is side 1's (fakeSim).
     const sim = fakeSim();

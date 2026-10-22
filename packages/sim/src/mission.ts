@@ -1629,22 +1629,31 @@ export class MissionRuntime {
    * setRally, clearRally; field works: raiseWorks, cancelWorks), in queue order, through
    * `requestBuild`, `requestSupport`, `requestConstruct`, `requestCancelWorks` and the line
    * methods exactly as a direct call would. Call BEFORE `sim.tick()`: anything still set aside when the tick
-   * starts is discarded (R-3). A command for a side other than 0 is refused
-   * (C-R3: every spend is side 0's until N3). Returns how many were accepted.
+   * starts is discarded (R-3). A command for a side no human holds is refused
+   * (`Sim.isHumanHeld`: side 0 always; side 1 in a room both seats hold, N3 Task 4),
+   * and so is any side outside 0 and 1. The four production kinds run on the
+   * command's own side; `support`, `raiseWorks` and `cancelWorks` have no side
+   * parameter (they act for side 0), so they refuse any other side outright (LD5:
+   * fire support stays off in versus; field works are KDF's). Returns how many
+   * were accepted.
    */
   applyQueued(): number {
     let accepted = 0;
     for (const c of this.sim.takeRuntimeCommands()) {
-      if (c.side !== 0) continue; // C-R3: only side 0 spends until N3
+      if (!this.sim.isHumanHeld(c.side)) continue;
+      // Narrowed by comparison, never asserted: a side outside 0 and 1 is refused.
+      const side = c.side === 0 ? 0 : c.side === 1 ? 1 : null;
+      if (side === null) continue;
       let ok: boolean;
       switch (c.kind) {
-        case 'build': ok = this.requestBuild(c.unit, c.line); break;
-        case 'cancelBuild': ok = this.cancelBuild(c.line, c.index); break;
-        case 'setRally': ok = this.setRally(c.line, c.x, c.y); break;
-        case 'clearRally': ok = this.clearRally(c.line); break;
-        case 'support': ok = this.requestSupport(c.support, c.x, c.y); break;
-        case 'raiseWorks': ok = this.requestConstruct(c.works, c.x, c.y, c.ids.length > 0 ? c.ids : undefined); break;
-        case 'cancelWorks': ok = this.requestCancelWorks(c.site); break;
+        case 'build': ok = this.requestBuild(c.unit, c.line, side); break;
+        case 'cancelBuild': ok = this.cancelBuild(c.line, c.index, side); break;
+        case 'setRally': ok = this.setRally(c.line, c.x, c.y, side); break;
+        case 'clearRally': ok = this.clearRally(c.line, side); break;
+        // No side parameter on these three: each acts for side 0, so side 0 alone may send them.
+        case 'support': ok = side === 0 && this.requestSupport(c.support, c.x, c.y); break;
+        case 'raiseWorks': ok = side === 0 && this.requestConstruct(c.works, c.x, c.y, c.ids.length > 0 ? c.ids : undefined); break;
+        case 'cancelWorks': ok = side === 0 && this.requestCancelWorks(c.site); break;
         default: { const unreachable: never = c; return unreachable; }
       }
       if (ok) accepted++;

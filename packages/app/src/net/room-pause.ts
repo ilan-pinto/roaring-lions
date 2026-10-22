@@ -175,6 +175,19 @@ export function blockedOrderNotes(
   };
 }
 
+/** The dock's pre-check in a room (spec §11b.4 follow-up, reachable since N3
+ *  Task 4 gave a room a runtime): true while the room holds orders, after
+ *  `onBlocked` has said so -- so a buy in a paused room is neither checked,
+ *  sent, counted nor noted "building", and the player hears the pause notice
+ *  instead. The status is read per click. */
+export function dockHeld(status: () => TransportStatus, onBlocked: () => void): () => boolean {
+  return () => {
+    if (!ordersWait(status())) return false;
+    onBlocked();
+    return true;
+  };
+}
+
 /** The sink a room's intents are applied to: commands go on to the transport
  *  unless the room is paused, when each is dropped (never buffered, so nothing
  *  waits to be sent at the resume) and `onBlocked` hears of it. The status is

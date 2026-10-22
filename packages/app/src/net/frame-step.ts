@@ -9,7 +9,7 @@
  * Acks and hashes are keyed by the FRAME's tick (R32), never `sim.tickCount`:
  * the room numbers frames from 0 and knows nothing of how the sim counts.
  */
-import { applyFrame, matchDigest, type Frame, type MatchConfig, type MatchTransport, type Seat, type SeatWorld } from '@lions/net';
+import { applyFrame, economyRoom, matchDigest, type Frame, type MatchConfig, type MatchTransport, type Seat, type SeatWorld } from '@lions/net';
 import type { Command } from '@lions/sim';
 import { shippedContentDigest } from './content-digest';
 
@@ -100,6 +100,8 @@ export function seatWorldFor(
     tunnelOwner: (id: number) => (Number.isInteger(id) ? sim.tunnelOwner(id) : -1),
     // Security review 559, F1: no mission runtime prices intel in a versus room.
     versus: config?.mode === 'versus',
+    // N3 Task 4: a KDF-v-Sarim room runs a runtime, so both seats build there.
+    economy: config !== null && economyRoom(config),
     sideOfEntity: (id: number) => (Number.isInteger(id) && id >= 0 && id < sim.entityCount ? sim.state.side[id] : undefined),
   };
 }

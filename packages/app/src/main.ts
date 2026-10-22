@@ -263,7 +263,7 @@ import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
 import { PAUSES_PER_SEAT, WsTransport, seatRules, validateCommand, type Seat, type TransportStatus } from '@lions/net';
 import { JoinNeedsConfirmation, connectMatch, inviteAdvisor, openRoom, type Connected } from './net/connect';
 import { desyncReportDraft, withoutReplay } from './net/desync-report';
-import { blockedOrderNotes, escapeOpensPause, hudExit, matchLeaveCopy, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderCopy, surrenderOffered } from './net/room-pause';
+import { blockedOrderNotes, dockHeld, escapeOpensPause, hudExit, matchLeaveCopy, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderCopy, surrenderOffered } from './net/room-pause';
 import { CatchUpQuiet, roomTickCap, tickCostEma, INITIAL_TICK_COST_MS } from './net/catch-up';
 import { safeStorage as safeStorageLike } from './telemetry/identity';
 import { runFrames, seatWorldFor, type FrameStep } from './net/frame-step';
@@ -4079,6 +4079,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       note: (html, tone) => hud.note(html, tone),
       // N2 D3: an accepted purchase is a `build` command down the frame path.
       dispatch: (cmd) => cmdSink.queueCommand(cmd),
+      // N3 Task 4 (spec §11b.4 follow-up): in a paused room a buy is held before the
+      // pre-check, with the pause notice, rather than noted "building" and then dropped.
+      ...(room === null ? {} : { held: dockHeld(() => room.status(), () => { blockedNotes?.blocked(); }) }),
       onDeny: () => audio.playCue(CRITICAL_CUES.uiDeny),
       // Read at hover time, so a rebind in Settings shows on the next tooltip.
       hotkeyLabel: (kind) => keyLabel(bindings[SUPPORT[kind].action]),

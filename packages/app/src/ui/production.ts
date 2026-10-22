@@ -104,6 +104,10 @@ export interface ProductionOptions {
   onArm(kind: SupportKind | null): void;
   /** Where an accepted purchase goes: the order sink, so it travels the frame path (N2). */
   dispatch(cmd: Command): void;
+  /** A room's pause (spec §11b.4 follow-up, N3 Task 4; `dockHeld`): true when orders wait,
+   *  and the caller has already said why. A unit tile's click then checks, sends, counts and
+   *  notes nothing. Absent (single-player): never held. */
+  held?(): boolean;
   /** Telemetry's count of bought units; never reaches the sim. Called exactly
    *  once per click the runtime's pre-check (`canBuild`) accepted -- never for
    *  a locked tile and never for one it refused. Two clicks in one frame that
@@ -457,6 +461,10 @@ export class ReinforcementDock {
       // unit's own `name` (free text in `data/units/*.json`) and the lock
       // sentence (which names a MISSION, through `missionName`) are escaped
       // before `t()` puts them beside the catalogue's `<b>`.
+      if (this.opts.held?.() === true) {
+        el.blur(); // keep the keyboard on the battlefield
+        return;
+      }
       const state = tileState(unit, this.opts.runtime, this.opts.ledger, this.opts.missionName);
       const name = escapeHtml(unit.name);
       if (state.lock !== null) {

@@ -1032,7 +1032,7 @@ export type Command =
    */
   | { kind: 'rescue'; ids: number[]; target: number }
   /** N2: buy a unit. The MissionRuntime prices and queues it; the sim never
-   *  executes it (R-3). Side 0 only until N3 (C-R3). */
+   *  executes it (R-3). Any human-held side (N3 Task 4; `MissionRuntime.applyQueued`). */
   | { kind: 'build'; side: number; unit: string; line?: number }
   /** F4: cancel `index` on production line `line` (-1 = the item in progress). Runtime-priced. */
   | { kind: 'cancelBuild'; side: number; line: number; index: number }

@@ -472,6 +472,28 @@ describe('what a click does', () => {
     expect(denied).toBe(0);
   });
 
+  // N3 Task 4 (spec §11b.4 follow-up): a paused room holds the buy before the pre-check --
+  // nothing sent, counted or noted by the dock (the caller's `held` has said why).
+  it('a held click (a paused room) never reaches canBuild: nothing sent, counted, noted or denied', () => {
+    const bought: string[] = [];
+    let denied = 0;
+    let checked = 0;
+    let holding = true;
+    const rt = fakeRuntime();
+    rt.canBuild = () => { checked++; return true; };
+    const r = rig([dockUnit()], rt, undefined, {
+      onBought: (id) => bought.push(id),
+      onDeny: () => denied++,
+      held: () => holding,
+    });
+    r.tile('inf_squad').click();
+    expect([r.rt.sent, r.notes, bought, denied, checked]).toEqual([[], [], [], 0, 0]);
+    // The pause ends: the same click buys.
+    holding = false;
+    r.tile('inf_squad').click();
+    expect([r.rt.sent, bought, checked]).toEqual([[{ kind: 'build', side: 0, unit: 'inf_squad' }], ['inf_squad'], 1]);
+  });
+
   it('dispatches nothing for a tile canBuild refuses, and says so with the deny cue', () => {
     const bought: string[] = [];
     let denied = 0;
