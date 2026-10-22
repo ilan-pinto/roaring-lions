@@ -143,6 +143,9 @@ const SIGHT_OF: Readonly<Partial<Record<CursorName, SightOrderId>>> = {
   smoke: 'smoke',
   barrage: 'barrage',
   smokeScreen: 'smokeScreen',
+  // GH-707: the rescue's own sight (the Lane A mock's R-A "Plus", approved 22 Oct). It was a
+  // CURSOR_ALIAS of `advance` until then, which drew a pick-up as an attack.
+  rescue: 'rescue',
 };
 
 /** One sight's animation, read straight off `ORDER_SIGHT`: as many frames as
@@ -227,7 +230,7 @@ export const ANIMATED_CURSORS: Readonly<Partial<Record<CursorName, CursorAnimati
   moveOnly: anim('move'),
   advance: anim('attackMove'),
   attack: anim('attackMove'),
-  rescue: anim('attackMove'),
+  rescue: anim('rescue'),
   sweep: anim('sweep'),
   strike: anim('strike'),
   barrage: anim('barrage'),
@@ -245,12 +248,9 @@ export const ANIMATED_CURSORS: Readonly<Partial<Record<CursorName, CursorAnimati
  *  (`attack-soft` is `advance-soft`'s image), and reads its own key so a
  *  targeted order is told from an attack-move to the tile. The plugin answers
  *  both keys with one rule (`vite-plugin-cursors.ts`). */
-export const CURSOR_ALIAS: Readonly<{ moveOnly: 'move'; attack: 'advance'; rescue: 'advance' }> = {
+export const CURSOR_ALIAS: Readonly<{ moveOnly: 'move'; attack: 'advance' }> = {
   moveOnly: 'move',
   attack: 'advance',
-  // GH-707: no rescue cursor art exists, so the order draws the `advance` sight and reads its
-  // own key. It is unbadged (UNBADGED_NAMES), so only the bare key is aliased.
-  rescue: 'advance',
 };
 
 export { SIGHT_OF };
@@ -324,8 +324,9 @@ export function cursorFor(res: Resolution, hints: CursorHints): CursorName {
     if (res.intents.length === 0) return 'default';
     return hints.pinned === true ? 'pinned' : 'moveOnly';
   }
-  // GH-707: a rescue is the click's whole meaning (the resolver returns it alone), and what
-  // the ground under a wounded man is -- a flagged zone, a wall -- does not change it.
+  // GH-707: a rescue names the click (the rest of a mixed selection attack-moves to the
+  // casualty's tile to cover it, but the pick-up is what the click is for), and what the ground
+  // under a wounded man is -- a flagged zone, a wall -- does not change it.
   if (res.intents.some((i) => i.kind === 'rescue')) return 'rescue';
   // A protected structure gated the whole selection and the player has not
   // held Alt to override it: `intents` is empty here too, but for a second,

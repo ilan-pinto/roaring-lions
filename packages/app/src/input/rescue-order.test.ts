@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { Sim, fx, type Command, type UnitTypeJson } from '@lions/sim';
 import { INTENT_KINDS, applyIntent, resolvePointer, type IntentWorld, type PlayerIntent } from './intents';
-import { ANIMATED_CURSORS, CURSOR_ALIAS, UNBADGED_NAMES, cursorFor, cursorKey, winningVerb, type CursorHints } from './cursor';
+import { ANIMATED_CURSORS, CURSOR_ALIAS, SIGHT_OF, UNBADGED_NAMES, cursorFor, cursorKey, winningVerb, type CursorHints } from './cursor';
 import { cursorAt, pointerPoint, simIntentWorld, type PointerView } from './pointer';
 
 const HINTS: CursorHints = { hostile: false, blocked: false };
@@ -38,11 +38,29 @@ const click = (world: IntentWorld, ids: number[], extra: Record<string, unknown>
 
 describe('resolvePointer: the rescue rung', () => {
   const medicWorld = fake({ canRescue: (i) => i === 1 || i === 2 });
-  it('sends the medics, only the medics, to the wounded man', () => {
+  it('sends the medics to the wounded man, and the rest attack-move to his tile (Q4)', () => {
     const r = click(medicWorld, [1, 2, 3]);
-    expect(r.intents).toEqual([{ kind: 'rescue', ids: [1, 2], target: 9 }]);
+    expect(r.intents).toEqual([
+      { kind: 'rescue', ids: [1, 2], target: 9 },
+      { kind: 'order', verb: 'attackMove', ids: [3], x: 7.5, y: 8.5, append: false },
+    ]);
     expect(r.marker).toBe(true);
     expect(r.at).toEqual({ x: 7.5, y: 8.5 });
+  });
+  it('the casualty himself, selected, is not sent to his own tile', () => {
+    expect(click(medicWorld, [1, 9]).intents).toEqual([{ kind: 'rescue', ids: [1], target: 9 }]);
+  });
+  it('an all-medic selection sends the rescue alone', () => {
+    expect(click(medicWorld, [1, 2]).intents).toEqual([{ kind: 'rescue', ids: [1, 2], target: 9 }]);
+  });
+  it('a garrisoned unit in the rest keeps its post, silently (R-20)', () => {
+    const w = fake({ canRescue: (i) => i === 1, garrisoned: (i) => i === 4 });
+    const r = click(w, [1, 3, 4]);
+    expect(r.intents).toEqual([
+      { kind: 'rescue', ids: [1], target: 9 },
+      { kind: 'order', verb: 'attackMove', ids: [3], x: 7.5, y: 8.5, append: false },
+    ]);
+    expect(r.note).toBeUndefined();
   });
   it('is not a rescue without a medic: the click falls through to the ordinary order', () => {
     const r = click(fake(), [3, 4]);
@@ -50,7 +68,10 @@ describe('resolvePointer: the rescue rung', () => {
   });
   it('outranks the hostile rung: a wounded ENEMY under a medic is a rescue, not a focus', () => {
     const w = fake({ canRescue: (i) => i === 1, canFocus: () => true, focusHurts: () => true });
-    expect(click(w, [1, 3], { hostile: 9, hostileAt: { x: 7.5, y: 8.5 } }).intents).toEqual([{ kind: 'rescue', ids: [1], target: 9 }]);
+    expect(click(w, [1, 3], { hostile: 9, hostileAt: { x: 7.5, y: 8.5 } }).intents).toEqual([
+      { kind: 'rescue', ids: [1], target: 9 },
+      { kind: 'order', verb: 'attackMove', ids: [3], x: 7.5, y: 8.5, append: false },
+    ]);
   });
   it('a shift-click (append) keeps the queued attack-move, as the attack order does', () => {
     expect(click(medicWorld, [1], { append: true }).intents[0].kind).toBe('order');
@@ -73,15 +94,20 @@ describe('the rescue intent dispatches the rescue command', () => {
 describe('the rescue cursor', () => {
   const rescue: PlayerIntent = { kind: 'rescue', ids: [1], target: 9 };
   const res = (roe: 'free' | 'protected' = 'free') => ({ intents: [rescue], roe, marker: true });
+  it('reads rescue with the escort order beside it', () => {
+    const escort: PlayerIntent = { kind: 'order', verb: 'attackMove', ids: [3], x: 7.5, y: 8.5, append: false };
+    expect(cursorFor({ intents: [rescue, escort], roe: 'free', marker: true }, { ...HINTS, hostile: true })).toBe('rescue');
+  });
   it('reads rescue, bare, whatever the ground says', () => {
     expect(cursorFor(res(), HINTS)).toBe('rescue');
     expect(cursorFor(res('protected'), HINTS)).toBe('rescue');
     expect(cursorFor(res(), { ...HINTS, hostile: true })).toBe('rescue');
     expect(cursorKey('rescue', 'soft')).toBe('rescue');
   });
-  it('draws as advance, animated like it, and is not a badged verb', () => {
-    expect(CURSOR_ALIAS.rescue).toBe('advance');
-    expect(ANIMATED_CURSORS.rescue).toEqual(ANIMATED_CURSORS.advance);
+  it('draws its own sight (no longer an alias of advance), animated at its own period, and is not a badged verb', () => {
+    expect('rescue' in CURSOR_ALIAS).toBe(false);
+    expect(SIGHT_OF.rescue).toBe('rescue');
+    expect(ANIMATED_CURSORS.rescue).toEqual({ frames: 4, intervalMs: 325 });
     expect(UNBADGED_NAMES.has('rescue')).toBe(true);
     expect(winningVerb(res(), HINTS)).toBe('rescue');
   });
@@ -177,7 +203,10 @@ describe('end to end through the real sim adapter', () => {
     const ctx = { armed: null, confirm: false, armedSmoke: false } as const;
     const read = cursorAt(s, world, p, { ids: [medic, rifle], ...ctx });
     expect(read.key).toBe('rescue');
-    expect(read.res.intents).toEqual([{ kind: 'rescue', ids: [medic], target: w }]);
+    expect(read.res.intents).toEqual([
+      { kind: 'rescue', ids: [medic], target: w },
+      { kind: 'order', verb: 'attackMove', ids: [rifle], x: 8.5, y: 6.5, append: false },
+    ]);
     expect(cursorAt(s, world, p, { ids: [rifle], ...ctx }).key).not.toBe('rescue');
   });
 });

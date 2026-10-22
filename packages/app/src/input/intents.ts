@@ -359,14 +359,25 @@ export function resolvePointer(world: IntentWorld, ctx: PointerContext): Resolut
   // sits ABOVE the structure and ground rungs (R-12): an enemy in a doorway or
   // on a boulder tile is still shootable.
   // GH-707: a wounded man under the pointer, and a medic in the selection, is a rescue. The
-  // medics get the `rescue`; the rest of the selection is left to what it was doing (no order).
+  // medics get the `rescue`; everyone else attack-moves to the casualty's tile to cover the
+  // pick-up -- the GH-420 attack rule's `rest` (`resolveFocus`), approved for the rescue in the
+  // Lane A mock (Q4, 22 Oct). A garrisoned unit keeps its post silently (R-20). Before this the
+  // rest got no order at all and stood where they were.
   const woundedId = ctx.wounded ?? -1;
   if (woundedId >= 0 && !append) {
     const medics = ids.filter((i) => world.canRescue(i, woundedId));
     if (medics.length > 0) {
       const at = ctx.woundedAt ?? { x, y };
+      const medicSet = new Set(medics);
+      const rest = haltTargets(
+        // Not the casualty himself, when he is ours and in the selection (review M-1).
+        ids.filter((i) => !medicSet.has(i) && i !== woundedId),
+        (i) => world.garrisoned(i)
+      );
+      const intents: PlayerIntent[] = [{ kind: 'rescue', ids: medics, target: woundedId }];
+      if (rest.length > 0) intents.push({ kind: 'order', verb: 'attackMove', ids: rest, x: at.x, y: at.y, append: false });
       return {
-        intents: [{ kind: 'rescue', ids: medics, target: woundedId }],
+        intents,
         roe: roeTierAt(world, at.x, at.y),
         marker: true,
         at,

@@ -229,7 +229,7 @@ describe('cursorRules', () => {
       defaultLines(css).flatMap((l) => [...l.matchAll(/%23([0-9a-f]{6})/g)].map((m) => `#${m[1]}`))
     );
     const c = paletteColors(resolved);
-    const wired: SightOrderId[] = ['move', 'attackMove', 'sweep', 'strike', 'smoke', 'barrage', 'smokeScreen'];
+    const wired: SightOrderId[] = ['move', 'attackMove', 'sweep', 'strike', 'smoke', 'barrage', 'smokeScreen', 'rescue'];
     const expected = new Set([
       ...[c.ink, c.dim, c.bad, c.warn, c.hot, c.info].map((h) => h.toLowerCase()),
       hexOf(SIGHT_KEYS.aim),
@@ -523,8 +523,8 @@ describe('the stadia sights -- the approved G1 r5 order cursors', () => {
   /** The default sheet's image for key at frame, as the cascade draws it. */
   const drawn = (key: string, frame: number): string => decodeSvgUri(markupOf(frameLineFor(css, key, frame)));
 
-  it('wires exactly move, attack, sweep, strike and smoke (Q2), and the barrage and smoke screen (S-F)', () => {
-    expect(SIGHTS.map(([n]) => n).sort()).toEqual(['advance', 'barrage', 'move', 'smoke', 'smokeScreen', 'strike', 'sweep']);
+  it('wires exactly move, attack, sweep, strike and smoke (Q2), the barrage and smoke screen (S-F), and the rescue (GH-707)', () => {
+    expect(SIGHTS.map(([n]) => n).sort()).toEqual(['advance', 'barrage', 'move', 'rescue', 'smoke', 'smokeScreen', 'strike', 'sweep']);
   });
 
   it('draws every frame of every wired sight on the 24-box at 32 px, with the hotspot at 16 16', () => {
@@ -721,9 +721,9 @@ describe('animated cursor frames', () => {
     const keys = [...cursorImages(resolved, 'default').keys()].filter(
       (k) => ANIMATED_CURSORS[k.split('-')[0] as keyof typeof ANIMATED_CURSORS]
     );
-    // move x8, attack x8, sweep, strike, smoke, barrage, smokeScreen,
+    // move x8, attack x8, sweep, strike, smoke, barrage, smokeScreen, rescue,
     // demolish x3, charge-soft
-    expect(keys.length).toBe(8 + 8 + 5 + 3 + 1);
+    expect(keys.length).toBe(8 + 8 + 6 + 3 + 1);
     for (const key of keys) {
       const anim = ANIMATED_CURSORS[key.split('-')[0] as keyof typeof ANIMATED_CURSORS];
       if (!anim) throw new Error(key);

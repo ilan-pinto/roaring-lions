@@ -94,8 +94,9 @@ export type SightOrderId =
   | 'sweep'
   | 'strike'
   | 'barrage'
-  | 'smokeScreen';
-export type OrderFamily = 'manoeuvre' | 'offensive' | 'control' | 'obscurant' | 'transport';
+  | 'smokeScreen'
+  | 'rescue';
+export type OrderFamily = 'manoeuvre' | 'offensive' | 'control' | 'obscurant' | 'transport' | 'aid';
 
 /**
  * Each order family's own cursor colour, as a `data/palette.json` KEY -- the
@@ -114,6 +115,10 @@ export const ORDER_FAMILY_COLOR_KEY: Readonly<Record<OrderFamily, string>> = {
   control: 'team.neutral',
   obscurant: 'limestone.0',
   transport: 'vfx.tracer',
+  // GH-707 (the lead, 22 Oct, Lane A mock Q2): the rescue's own family. The cyan manoeuvre
+  // wore until VR-33, owned by no order family since, so a pick-up never reads as Move (lime),
+  // an attack (red) or Halt (yellow). Never red, and the mark is no cross emblem.
+  aid: 'vfx.interceptor',
 };
 
 export interface OrderSightSpec {
@@ -188,6 +193,9 @@ export const ORDER_SIGHT: Readonly<Record<SightOrderId, OrderSightSpec>> = {
   // only through the 2-decimal rounding; 0.75 is full by construction.
   barrage: { family: 'offensive', main: ORDER_FAMILY_COLOR_KEY.offensive, accent: 'vfx.ember', periodMs: 1500, phases: phasesFrom(0.75, 6) },
   smokeScreen: { family: 'obscurant', main: ORDER_FAMILY_COLOR_KEY.obscurant, accent: 'gunmetal.1', periodMs: 1800, phases: phasesFrom(0.75, 6) },
+  // GH-707: R-A "Plus" (the Lane A mock, approved 22 Oct). Rest 0.6: the plus full and in the
+  // family main, both hands closed on it.
+  rescue: { family: 'aid', main: ORDER_FAMILY_COLOR_KEY.aid, accent: 'vfx.white_hot', periodMs: 1300, phases: phasesFrom(0.6, 4) },
 };
 
 /** The three keys `ORDER_SIGHT` does not carry per order: the aim's own
@@ -414,6 +422,31 @@ function surroundSmokeScreen(t: number, p: SightPaint): string {
   return out;
 }
 
+/** Rescue R-A, "Plus" (the Lane A mock, approved 22 Oct): the minimap's own wounded plus
+ *  (`minimap.ts`'s `wounded` shape), drawn in from a third of its size, a white-hot beat as it
+ *  lands, then held in the family main while two short hands close on it from either side. One
+ *  sign for "a man down" on the minimap and under the pointer. */
+function surroundRescue(t: number, p: SightPaint): string {
+  const grow = ease(t / 0.22);
+  const s = 0.35 + 0.65 * grow;
+  const arm = 4.4 * s;
+  const th = W * (0.6 + 0.4 * grow);
+  const cx = 12;
+  const cy = 5;
+  const plus = poly(rect(cx - arm, cy - th / 2, cx + arm, cy + th / 2)) + ' ' + poly(rect(cx - th / 2, cy - arm, cx + th / 2, cy + arm));
+  // The fade starts at 0.8, not the mock's 0.85: with rest 0.6 the plain 1/4 table samples 0.85,
+  // and a fade from 0.85 drew it byte-identical to the rest frame.
+  const op = t < 0.8 ? 1 : 1 - ((t - 0.8) / 0.2) * 0.7;
+  const beat = t >= 0.22 && t < 0.4;
+  let out = fill(plus, op, beat ? p.accent : p.main);
+  if (t > 0.22) {
+    const gap = 8.4 - 1.6 * ease((t - 0.22) / 0.3);
+    const hh = H / 1.4;
+    out += fill(poly(rect(cx - gap - 2, cy - hh, cx - gap, cy + hh)) + ' ' + poly(rect(cx + gap, cy - hh, cx + gap + 2, cy + hh)), op * 0.9, p.main);
+  }
+  return out;
+}
+
 const SURROUND: Readonly<Record<SightOrderId, (t: number, p: SightPaint) => string>> = {
   move: surroundMove,
   attackMove: surroundAttackMove,
@@ -425,6 +458,7 @@ const SURROUND: Readonly<Record<SightOrderId, (t: number, p: SightPaint) => stri
   strike: surroundStrike,
   barrage: surroundBarrage,
   smokeScreen: surroundSmokeScreen,
+  rescue: surroundRescue,
 };
 
 export function surroundBody(id: SightOrderId, t: number, p: SightPaint): string {
@@ -478,6 +512,9 @@ export const ORDER_MARK_BOUNDS: Readonly<Record<SightOrderId, readonly [number, 
   strike: [0, 0, 24, 24],
   barrage: [0, 0.5, 24, 9.5],
   smokeScreen: [1.5, 1, 22.5, 10.5],
+  // GH-707: computed from the rest body (plus 7.6-16.4 x 0.6-9.4; hands 3.2-20.8 x 4.11-5.89),
+  // rounded outward to the quarter unit.
+  rescue: [3, 0.5, 21, 9.5],
 };
 
 // Compile-time check: every order the selection row can arm is drawn here.
