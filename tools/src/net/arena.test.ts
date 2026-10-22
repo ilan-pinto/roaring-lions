@@ -253,7 +253,7 @@ describe('pnpm arena', () => {
 const capSim: OutcomeSim = {
   entityCount: 2,
   state: { side: [0, 1], alive: [1, 1], typeIdx: [0, 1], mobilityKilled: [0, 0], firepowerKilled: [0, 0] },
-  unitTypes: [{ id: 'mbt_lavi', weapons: [{}], stepPerTick: 1 }, { id: 'inf_squad', weapons: [{}], stepPerTick: 1 }],
+  unitTypes: [{ id: 'mbt_lavi', weapons: [{}], stepPerTick: 1, isAir: false }, { id: 'inf_squad', weapons: [{}], stepPerTick: 1, isAir: false }],
 };
 function client(result: MatchResult | null, o: { tick?: number; status?: TransportStatus } = {}): SeatSnapshot {
   return { result, tick: o.tick ?? 600, sim: capSim, status: o.status ?? { kind: 'live', behind: 0 } };

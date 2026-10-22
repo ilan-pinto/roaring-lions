@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { fx } from '@lions/sim';
+import { fx, FIELD_FIX_TICKS, Sim } from '@lions/sim';
 import {
   aimPenaltyPct,
   breakSeconds,
@@ -10,6 +10,7 @@ import {
   hpWord,
   PIN_AT_Q,
   recoverySeconds,
+  repairTicksLeft,
   ROUT_AFTER_TICKS,
   SUPP_DECAY_Q,
   SUPP_K_Q,
@@ -126,5 +127,47 @@ describe('hpWord and vehicleDamage (D1)', () => {
     expect(vehicleDamage(true, false)).toBe('immobilised');
     expect(vehicleDamage(false, true)).toBe('gunOut');
     expect(vehicleDamage(true, true)).toBe('outOfAction');
+  });
+  it('slowed (GH-706) is the least of them: any kill outranks it', () => {
+    expect(vehicleDamage(false, false, true)).toBe('slowed');
+    expect(vehicleDamage(true, false, true)).toBe('immobilised');
+    expect(vehicleDamage(false, true, true)).toBe('gunOut');
+    expect(vehicleDamage(true, true, true)).toBe('outOfAction');
+  });
+});
+
+describe('repairTicksLeft (GH-706): the stuck hull\'s countdown, from the sim\'s own clock and rate', () => {
+  it('divides what is left by the rate, rounding up; null when the fix is not counting', () => {
+    expect(repairTicksLeft(0, 1, 1800)).toBe(1800); // 1:30
+    expect(repairTicksLeft(860, 1, 1800)).toBe(940); // 0:47
+    expect(repairTicksLeft(860, 2, 1800)).toBe(470); // an engineer assisting: half
+    expect(repairTicksLeft(1799, 2, 1800)).toBe(1); // 0.5 rounds up
+    expect(repairTicksLeft(500, 0, 1800)).toBeNull();
+  });
+  it('agrees with the real sim, tick for tick, alone and assisted', () => {
+    // One hull, stuck by hand (test-only: the flag a mobility_kill sets); count
+    // the ticks the sim takes to free it against what the countdown promised.
+    for (const assisted of [false, true]) {
+      const s = new Sim({ seed: 3, width: 32, height: 32, capacity: 8 });
+      const ht = s.addUnitType({
+        id: 't_hull', role: 'mbt', hull: { hp: 3000, armor: { front: 300, side: 200, rear: 100 } },
+        mobility: { speed_tiles_s: 1 }, sensors: { optics: 1, sight_tiles: 2, signature: 1 },
+      });
+      const et = s.addUnitType({
+        id: 't_eng', role: 'engineer', hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 } },
+        mobility: { speed_tiles_s: 1 }, sensors: { optics: 1, sight_tiles: 2, signature: 1 }, abilities: ['repair'],
+      });
+      const id = s.spawn(ht, 0, fx.from(10.5), fx.from(10.5));
+      if (assisted) s.spawn(et, 0, fx.from(11.5), fx.from(10.5));
+      s.state.mobilityKilled[id] = 1;
+      s.tick();
+      const promised = repairTicksLeft(s.state.fieldFixTicks[id], s.fieldFixRate(id), FIELD_FIX_TICKS);
+      let took = 0;
+      while (s.state.mobilityKilled[id] === 1 && took < 4000) {
+        s.tick();
+        took++;
+      }
+      expect(`${assisted}: ${took}`).toBe(`${assisted}: ${promised}`);
+    }
   });
 });

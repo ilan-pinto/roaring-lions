@@ -120,6 +120,20 @@ export const COMP_MOBILITY = 20;
 export const COMP_FIREPOWER = 15;
 export const COMP_BOTH = 12;
 export const COMP_CATASTROPHIC = 8;
+/** Mobility kills (#706, spec 2026-10-22-mobility-kills-design §3.3): a SLOWED
+ *  hull (`mobilityDamaged`: the first mobility hit on `gear: wheels`, or a crew
+ *  field fix) moves at this integer percent of its `stepPerTick`. 50 is the
+ *  spec's number as ruled (a wheel shot out halves the pace); no measurement
+ *  behind it. */
+export const MOB_DAMAGED_PCT = 50;
+/** Ticks of quiet (no damage taken) for a stuck ground hull's crew to fix it
+ *  to slowed: 90 s at the sim's 20 Hz (TICKS_PER_SECOND in sim.ts, pinned by
+ *  mobility.test.ts). 90 s is the lead's ruling of 22 Oct (spec §3.0 item 3). */
+export const FIELD_FIX_TICKS = 90 * 20;
+/** A `repair` unit (demo_squad, dozer_d9) standing still within this many
+ *  tiles of a stuck hull doubles its field-fix rate (45 s). 2 tiles is the
+ *  spec's number (§3.4 item 3): close enough to read as "working on it". */
+export const FIELD_FIX_ASSIST_RADIUS = 2;
 /** Overmatch shift: bonus = clamp((z - 1) * 10, 0, 30) percentage points moved
  *  from crew_shaken to catastrophic as penetration overmatch grows. */
 export const OVERMATCH_SHIFT_PER_Z = 10;

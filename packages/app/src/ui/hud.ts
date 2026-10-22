@@ -26,7 +26,7 @@
 // that the strip's inline clock and the big centred clock cannot derive the
 // same number twice, and so that "can this selection unload" is answered once.
 
-import { fx, type HitProjection, type Sim } from '@lions/sim';
+import { FIELD_FIX_TICKS, fx, type HitProjection, type Sim } from '@lions/sim';
 import type { KitLevel } from '@lions/data';
 import { isOwnSide } from '@lions/render';
 import type { ResolvedCommander } from '../campaign';
@@ -50,8 +50,8 @@ import type { HudElement } from './hud-elements';
 import type { CursorName } from '../input/cursor';
 import { ORDER_SIGHT } from './order-sight';
 import { roleBadgeSvg, roleBucket } from './role';
-import { symbolLabel, symbolSvg, type SymbolId } from './symbol';
-import { aimPenaltyPct, breakSeconds, combatBand, hpWord, recoverySeconds, suppressionMeter, SHAKEN_FROM, vehicleDamage } from './combat-state';
+import { HALF_INK_CLASS, slowedSymbolSvg, symbolLabel, symbolSvg, type SymbolId } from './symbol';
+import { aimPenaltyPct, breakSeconds, combatBand, hpWord, recoverySeconds, repairTicksLeft, suppressionMeter, SHAKEN_FROM, vehicleDamage } from './combat-state';
 import { bindDelegatedTip, bindTip } from './tooltip';
 import { VoiceCaption } from './voice-caption';
 import { weaponName } from './weapon-name';
@@ -60,6 +60,7 @@ import { heldHoverTarget, heldReadout, type HeldReadout } from './held-readout';
 import { auraChipKey, type WorksCardModel } from './works-model';
 import {
   beatDwellMs,
+  clockText,
   conductDefinition,
   countSuppressed,
   holdClock,
@@ -189,7 +190,14 @@ const PIN_MARK_CARD = 16;
  *  pass C2/C4 (D5) the corner carries whichever status mark wins the line --
  *  broken, pinned, gun out or immobilised -- in its own ink (`data-mark`,
  *  theme.css), in the slot and at the size GH-262 gave the pinned mark. */
-const MARK_SYMBOL: Readonly<Record<ChipMark, SymbolId>> = { broken: 'broken', pinned: 'pinned', gunOut: 'gunOut', immobilised: 'immobilised' };
+const MARK_SYMBOL: Readonly<Record<ChipMark, SymbolId>> = {
+  broken: 'broken',
+  pinned: 'pinned',
+  gunOut: 'gunOut',
+  immobilised: 'immobilised',
+  // GH-706: no symbol of its own -- the immobilised mark at half ink (statusMarkHtml).
+  slowed: 'immobilised',
+};
 function markLabel(mark: ChipMark): string {
   switch (mark) {
     case 'broken':
@@ -200,6 +208,8 @@ function markLabel(mark: ChipMark): string {
       return t('hud.state.gunOut');
     case 'immobilised':
       return t('hud.state.immobilised');
+    case 'slowed':
+      return t('hud.state.slowed');
   }
 }
 /** The card's suppression meter (pass C2/C4, D2): two cells -- shaken,
@@ -217,7 +227,7 @@ function suppressionMeterHtml(m: { shaken: number; suppressed: number; pin: bool
 }
 
 function statusMarkHtml(mark: ChipMark, size: number): string {
-  return `<span class="rl-pin-mark" data-mark="${mark}" role="img" aria-label="${markLabel(mark)}">${symbolSvg(MARK_SYMBOL[mark], size)}</span>`;
+  return `<span class="rl-pin-mark" data-mark="${mark}" role="img" aria-label="${markLabel(mark)}">${symbolSvg(MARK_SYMBOL[mark], size, mark === 'slowed' ? { className: HALF_INK_CLASS } : undefined)}</span>`;
 }
 
 /** The chip art with its corner marks. Unpinned, exactly `withKitSign`'s
@@ -2518,6 +2528,7 @@ export class Hud {
         suppression: fx.toNumber(st.suppression[i]),
         mobilityKilled: st.mobilityKilled[i] === 1,
         firepowerKilled: st.firepowerKilled[i] === 1,
+        slowed: st.mobilityDamaged[i] === 1,
         aboard: st.carriedBy[i] >= 0,
         own: isOwnSide(st.side[i], this.viewer),
         onLoan: this.deps.isOnLoan?.(i) === true,
@@ -2710,7 +2721,7 @@ export class Hud {
     const pinned = st.pinned[id] === 1;
     const routed = st.routed[id] === 1;
     const band = combatBand(supp, pinned, routed);
-    const damage = vehicleDamage(st.mobilityKilled[id] === 1, st.firepowerKilled[id] === 1);
+    const damage = vehicleDamage(st.mobilityKilled[id] === 1, st.firepowerKilled[id] === 1, st.mobilityDamaged[id] === 1);
     const state = (cls: string, word: string, mark?: string, tip?: 'pinned'): string =>
       `<span class="rl-card__state ${cls}"${tip ? ` data-tip="${tip}" tabindex="0"` : ''}>${mark ?? ''}${mark ? ' ' : ''}${word}</span>`;
     const flags: string[] = [];
@@ -2733,13 +2744,23 @@ export class Hud {
       flags.push(state('rl-warn', t('hud.state.shaken')));
       flags.push(`<span class="rl-dim">${t('hud.state.aim', { n: aimPenaltyPct(supp) })}</span>`);
     }
-    if (damage !== null) {
+    if (damage === 'slowed') {
+      // GH-706: running gear hit -- still moving, at half pace. The immobilised
+      // mark at half ink, the chip's own.
+      flags.push(state('rl-bad-text', t('hud.state.slowed'), slowedSymbolSvg(STRIP_GLYPH_PX)));
+      flags.push(`<span class="rl-dim">${t('hud.state.slowed.why')}</span>`);
+    } else if (damage !== null) {
       const word = damage === 'outOfAction' ? t('hud.state.outOfAction') : damage === 'gunOut' ? t('hud.state.gunOut') : t('hud.state.immobilised');
       const what =
         damage === 'outOfAction' ? t('hud.state.outOfAction.why') : damage === 'gunOut' ? t('hud.state.gunOut.why') : t('hud.state.immobilised.why');
       flags.push(state('rl-bad-text', word, symbolSvg(damage === 'immobilised' ? 'immobilised' : 'gunOut', STRIP_GLYPH_PX)));
       flags.push(`<span class="rl-dim">${what}</span>`);
     }
+    // GH-706: a stuck GROUND hull of ours counts down its crew's field fix, from
+    // the sim's hashed clock at the sim's own rate (2 while an engineer
+    // assists). `fieldFixRate` is 0 for an aircraft, so it never shows there.
+    const repairLeft = own && st.mobilityKilled[id] === 1 ? repairTicksLeft(st.fieldFixTicks[id], sim.fieldFixRate(id), FIELD_FIX_TICKS) : null;
+    if (repairLeft !== null) flags.push(`<span class="rl-info">${t('hud.state.repairing', { left: clockText(repairLeft) })}</span>`);
     if (st.garrisonedIn[id] >= 0) {
       flags.push(`<span class="rl-live">${t('hud.card.inBuilding')}</span>`);
       // How full it is (lead ruling 2026-10-14): the count the retired
@@ -2770,7 +2791,15 @@ export class Hud {
     // The art's corner (D5): the mark that wins the line -- broken, pinned,
     // then the vehicle's damage.
     const cornerMark: ChipMark | null =
-      band === 'broken' ? 'broken' : band === 'pinned' ? 'pinned' : damage === 'immobilised' ? 'immobilised' : damage !== null ? 'gunOut' : null;
+      band === 'broken'
+        ? 'broken'
+        : band === 'pinned'
+          ? 'pinned'
+          : damage === 'immobilised' || damage === 'slowed'
+            ? damage
+            : damage !== null
+              ? 'gunOut'
+              : null;
 
     // GH-698: the carry line. An air carrier says where it is in the land-and-lift
     // cycle; an own carrier says how full it is, in the garrison's own "n / cap"
