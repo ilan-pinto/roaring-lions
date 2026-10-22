@@ -30,6 +30,8 @@ function worldFor(sim: SimView): SeatWorld {
     height: sim.height,
     structureExists: (id) => Number.isInteger(id) && id >= 0 && id < sim.structureCount,
     tunnelExists: (id) => Number.isInteger(id) && id >= 0 && id < sim.tunnelCount,
+    factionOfSeat: () => 'kdf',
+    tunnelOwner: () => -1,
   };
 }
 

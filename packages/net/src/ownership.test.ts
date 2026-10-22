@@ -8,7 +8,10 @@ const world: SeatWorld = {
   width: 48,
   height: 48,
   structureExists: (id) => id === 3,
-  tunnelExists: (id) => id === 0,
+  tunnelExists: (id) => id === 0 || id === 1,
+  // Seat 1 plays Sarim; route 0 is side 1's, route 1 has no owner (a map-file route).
+  factionOfSeat: (seat) => (seat === 1 ? 'sarim' : 'kdf'),
+  tunnelOwner: (id) => (id === 0 ? 1 : -1),
   versus: false,
 };
 const F = 65536;
@@ -188,5 +191,36 @@ describe('validateCommand: field works requests (GH-277)', () => {
   it('the sim-level construct and cancelConstruct never validate, from any seat', () => {
     expect(validateCommand({ kind: 'construct', ids: [1], structType: 0, x: 4, y: 4 }, 0, world)).toBe(false);
     expect(validateCommand({ kind: 'cancelConstruct', site: 0 }, 0, world)).toBe(false);
+  });
+});
+
+describe('versus tunnels (GH-681)', () => {
+  it('enterTunnel: the Sarim seat, its own units, a route its side owns -- and nothing else', () => {
+    expect(validateCommand({ kind: 'enterTunnel', ids: [11], tunnel: 0 }, 1, world)).toBe(true);
+    // The KDF seat may not (T-R4), even naming a route it would own.
+    expect(validateCommand({ kind: 'enterTunnel', ids: [1], tunnel: 0 }, 0, world)).toBe(false);
+    expect(validateCommand({ kind: 'enterTunnel', ids: [1], tunnel: 0 }, 0, { ...world, tunnelOwner: () => 0 })).toBe(false);
+    // Another side's unit, a route nobody owns, a route that does not exist, no units.
+    expect(validateCommand({ kind: 'enterTunnel', ids: [11, 1], tunnel: 0 }, 1, world)).toBe(false);
+    expect(validateCommand({ kind: 'enterTunnel', ids: [11], tunnel: 1 }, 1, world)).toBe(false);
+    expect(validateCommand({ kind: 'enterTunnel', ids: [11], tunnel: 2 }, 1, { ...world, tunnelOwner: () => 1 })).toBe(false);
+    expect(validateCommand({ kind: 'enterTunnel', ids: [], tunnel: 0 }, 1, world)).toBe(false);
+  });
+  it('enterTunnel is a route its OWN side owns: a Sarim seat on side 0 cannot take side 1\'s', () => {
+    const sarimOnZero: SeatWorld = { ...world, factionOfSeat: () => 'sarim' };
+    expect(validateCommand({ kind: 'enterTunnel', ids: [1], tunnel: 0 }, 0, sarimOnZero)).toBe(false);
+    expect(validateCommand({ kind: 'enterTunnel', ids: [1], tunnel: 0 }, 0, { ...sarimOnZero, tunnelOwner: () => 0 })).toBe(true);
+  });
+  it('vent: the Sarim seat and its own units only', () => {
+    expect(validateCommand({ kind: 'vent', ids: [11], mode: 'raid' }, 1, world)).toBe(true);
+    expect(validateCommand({ kind: 'vent', ids: [11], mode: 'exit' }, 1, world)).toBe(true);
+    expect(validateCommand({ kind: 'vent', ids: [1], mode: 'raid' }, 0, world)).toBe(false);
+    expect(validateCommand({ kind: 'vent', ids: [1], mode: 'raid' }, 1, world)).toBe(false);
+    expect(validateCommand({ kind: 'vent', ids: [], mode: 'raid' }, 1, world)).toBe(false);
+  });
+  it('neither is a runtime-priced kind: both pass in versus as out of it', () => {
+    const vs: SeatWorld = { ...world, versus: true };
+    expect(validateCommand({ kind: 'enterTunnel', ids: [11], tunnel: 0 }, 1, vs)).toBe(true);
+    expect(validateCommand({ kind: 'vent', ids: [11], mode: 'exit' }, 1, vs)).toBe(true);
   });
 });

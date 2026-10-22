@@ -35,6 +35,7 @@ export const COMMAND_KINDS = [
   'move', 'attackMove', 'halt', 'setStance', 'garrison', 'load', 'unload', 'reveal', 'callStrike', 'smoke', 'demolish', 'chargeTunnel', 'attack', 'rescue',
   'build', 'support', 'cancelBuild', 'setRally', 'clearRally',
   'construct', 'cancelConstruct', 'raiseWorks', 'cancelWorks',
+  'enterTunnel', 'vent',
 ] as const satisfies readonly Command['kind'][];
 
 /** The other half of the pin (N2 prerequisite P1): `satisfies` above catches a
@@ -180,7 +181,12 @@ export function cleanCommand(v: unknown): Command | null {
     case 'load':
       return ids === null || !isInt(c.carrier) ? null : { kind, ids, carrier: c.carrier };
     case 'chargeTunnel':
+    case 'enterTunnel':
       return ids === null || !isInt(c.tunnel) ? null : { kind, ids, tunnel: c.tunnel };
+    case 'vent':
+      // GH-681: the mode is one of the two words, never a default -- an order
+      // that does not say whether its units come back down is refused.
+      return ids === null || (c.mode !== 'raid' && c.mode !== 'exit') ? null : { kind, ids, mode: c.mode };
     case 'attack':
     case 'rescue':
       return ids === null || !isInt(c.target) ? null : { kind, ids, target: c.target };
