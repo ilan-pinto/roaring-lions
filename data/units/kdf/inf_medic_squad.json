@@ -64,5 +64,16 @@
     "treat_s": 6,
     "drag_speed_mult": 0.5,
     "carry_speed_mult": 0.75
+  },
+  "aura": {
+    "area": [
+      {
+        "radius": 2.5,
+        "affects": "foot",
+        "heal_per_s": 0.02,
+        "heal_cap": 1.0,
+        "stationary": true
+      }
+    ]
   }
 }

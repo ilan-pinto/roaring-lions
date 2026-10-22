@@ -39,5 +39,15 @@
     "signature": 1.4,
     "firing_signature_mult": 1.0
   },
-  "weapons": []
+  "weapons": [],
+  "aura": {
+    "area": [
+      {
+        "radius": 1,
+        "affects": "passengers",
+        "heal_per_s": 0.03,
+        "heal_cap": 1.0
+      }
+    ]
+  }
 }

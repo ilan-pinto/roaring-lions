@@ -41,5 +41,16 @@
   "weapons": [],
   "abilities": [
     "smoke"
-  ]
+  ],
+  "aura": {
+    "area": [
+      {
+        "radius": 3,
+        "affects": "foot",
+        "heal_per_s": 0.015,
+        "heal_cap": 1.0,
+        "stationary": true
+      }
+    ]
+  }
 }
