@@ -275,7 +275,7 @@ import { roomFlags } from './net/room-flags';
 import { netReport } from './net/net-report';
 import { viewerSideOf } from './net/viewer';
 import { campOf, factionsBySide, versusUnitTypes } from './net/versus-force';
-import { buildMatchWorld, matchTick } from './net/match-world';
+import { buildMatchWorld, matchTick, tunnelRouteOf } from './net/match-world';
 import { roomDockMenu, roomDockRuntime, roomEconomyView } from './net/room-economy';
 import { screenKit } from './net/room-kit';
 import { shippedContentDigest } from './net/content-digest';
@@ -1908,12 +1908,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     ? sandboxFlaggedZones(mapJson, anchors)
     : [];
 
-  const tunnelRoutes: TunnelRouteJson[] = map.tunnels.map((t) => ({
-    id: t.id,
-    points: t.points,
-    dig_tiles_per_s: t.digTilesPerS,
-    pre_dug: t.preDug,
-  }));
+  const tunnelRoutes: TunnelRouteJson[] = map.tunnels.map(tunnelRouteOf);
   // A synthesised route goes on the END of the array, so every route the map
   // declared keeps its index -- the positional contract asserted below is
   // what stops a unit being buried in the wrong tunnel.

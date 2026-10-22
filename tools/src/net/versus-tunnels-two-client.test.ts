@@ -1,8 +1,8 @@
 // GH-681 T2: the Sarim seat's tunnel orders through the real lockstep path --
 // one frame stream, two clients, each its own `buildMatchWorld` on a KDF-v-Sarim
 // config, `applyFrame` through the real `seatWorldFor` -- hashed every tick.
-// The route is added by hand, owned by the Sarim side, because no versus map
-// carries one until T3 registers them from the rules file.
+// The route is the one `buildMatchWorld` registers from the rules file (T3): the Sarim
+// side's end of this config (a KDF host puts it at the hostile, north end), `tm_n_east`.
 import { describe, it, expect } from 'vitest';
 import type { Command, SimEvent } from '@lions/sim';
 import { LockstepClock, applyFrame, canonicalOrder, type Frame, type Stamped } from '@lions/net';
@@ -11,8 +11,8 @@ import { seatWorldFor } from '../../../packages/app/src/net/frame-step';
 import { versusConfig } from './test-config';
 
 const CONFIG = versusConfig('tel_marum', { factions: ['kdf', 'sarim'] });
-/** The spec's strawman north-east route (§6.3), owned by side 1 (the Sarim seat). */
-const ROUTE = { id: 'tm_n_east', points: [[30, 10], [36, 14], [36, 24]] as const, dig_tiles_per_s: 1, pre_dug: true, side: 1 };
+/** The spec's strawman north-east route (§6.3), registered by the room for the Sarim seat (side 1). */
+const ROUTE_ID = 'tm_n_east';
 const ENTER = 5;
 const VENT = 1400;
 const EXIT = 1500;
@@ -21,7 +21,11 @@ const TICKS = 1700;
 
 function world() {
   const w = buildMatchWorld(CONFIG);
-  const route = w.sim.addTunnel(ROUTE);
+  // The registered route, read back by id: the end follows the config, never a guess.
+  const route = w.map.tunnels.findIndex((t) => t.id === ROUTE_ID);
+  expect(route, 'the room registers tm_n_east').toBeGreaterThanOrEqual(0);
+  expect(w.sim.tunnelOwner(route)).toBe(1);
+  expect(w.sim.tunnelCount).toBe(2);
   // Four Sarim foot units: the route's default capacity.
   const foot = w.bySide[1].filter((id) => {
     const t = w.sim.unitTypes[w.sim.state.typeIdx[id]];
