@@ -30,6 +30,7 @@ describe('voiceClassOf (spec §3)', () => {
     ifv_namer: 'crew', inf_squad: 'infantry', jeep_shoded: 'crew', mbt_lavi: 'crew',
     mortar_team: 'infantry', recon_drone: 'air', scout_shachaf: 'crew', sniper_team: 'infantry',
     yahalom_squad: 'engineer', recon_zikit: 'infantry', heli_peten_gunship: 'air', heli_yanshuf: 'air',
+    at_nlos_team: 'infantry', // GH-709 Phase 7: role at_team, a foot team
     atgm_cell: 'infantry', charge_squad: 'infantry', digger_crew: 'engineer', gun_truck: 'crew',
     loiter_drone: 'air', manpad_team: 'infantry', militia_cell: 'infantry', mortar_crew: 'infantry',
     moto_rpg: 'crew', paramotor: 'air', recoilless_team: 'infantry', rocket_battery: 'crew',

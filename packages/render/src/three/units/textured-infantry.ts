@@ -85,4 +85,9 @@ export const TEXTURED_INFANTRY_TYPES: ReadonlySet<string> = new Set<string>([
   'mortar_team',
   'sniper_team',
   'yahalom_squad',
+  // GH-709 Phase 7 (2026-10-22): the Zaron Missile Team, the KDF mortar
+  // crewman's bake three times beside the Meshy launcher's, one 2048x1024
+  // atlas (tools/units/import_meshy_crew_team.py); its kit fire-control case,
+  // cable and the leader's kit rifle take no map of their own.
+  'at_nlos_team',
 ]);

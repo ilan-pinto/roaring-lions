@@ -183,6 +183,10 @@ export const RIGGED_UNIT_MESHES: Readonly<Record<string, RiggedMeshEntry>> = {
   // a Meshy remesh cut into rigid parts on rig.py's dog topology
   // (`tools/units/import_meshy_dog.py`). Textured, so no faction ramp reaches it.
   ugv_recon_dog: { files: ['ugv_recon_dog.glb'], faction: 'kdf' },
+  // GH-709 Phase 7 (2026-10-22): the bought-only Zaron Missile Team -- the KDF
+  // mortar crewman's Meshy body three times beside a Meshy four-cell launcher
+  // (`tools/units/nlos_launcher_part.py`, then `import_meshy_crew_team.py`).
+  at_nlos_team: { files: ['at_nlos_team.glb'], faction: 'kdf' },
 
   // WP-A3.1 batch B2 (GH-179, 2026-09-30): Meshy A-pose figures cut into
   // rig.py's parts and driven by rig.py's own clips

@@ -322,6 +322,9 @@ TEXTURED_INFANTRY_EXEMPT = {
     "manpad_team", "recoilless_team", "civilians",
     # B7: the five supplied teams replaced on the crew importer's path.
     "inf_squad", "sarim_rifles", "mortar_team", "sniper_team", "yahalom_squad",
+    # GH-709 Phase 7 (2026-10-22): the Zaron Missile Team -- mortar_team's
+    # crewman bake and the Meshy launcher's, in one 2048x1024 atlas.
+    "at_nlos_team",
 }
 
 # A unit TYPE that draws several files: this gate names a mesh by its file

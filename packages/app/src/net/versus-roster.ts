@@ -18,9 +18,10 @@ export type VersusRosterUnit = (typeof units)[keyof typeof units];
  * doctrine menu. Registering a type a versus side can never field would move the
  * roster-count and hash pins for nothing, so they are held the same way until a versus
  * design gives a special unit a seat. `ugv_recon_dog` (Phase 8) joins them for the same
- * reason.
+ * reason. So does `at_nlos_team` (Phase 7).
  */
 export const VERSUS_HELD_UNITS: ReadonlySet<string> = new Set([
+  'at_nlos_team',
   'heli_yanshuf',
   'mbt_lavi_camo',
   'spg_cluster',

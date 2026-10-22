@@ -35,6 +35,7 @@ describe('the textured infantry opt-out is a named list', () => {
   // so an entry with no bake behind it is an edit made on purpose.
   it('names exactly the teams that ship a bake', () => {
     expect([...TEXTURED_INFANTRY_TYPES].sort()).toEqual([
+      'at_nlos_team',
       'at_team',
       'atgm_cell',
       'breach_team',

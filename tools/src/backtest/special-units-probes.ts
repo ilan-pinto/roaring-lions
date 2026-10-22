@@ -2,8 +2,9 @@
 //
 // The cost curve prices hulls and guns; it cannot price what makes these units special.
 // These probes measure the claims the sim can carry TODAY, against the staged drafts in
-// docs/campaign/special_units/gh709 (never registered in @lions/data, so the probes load
-// the JSON from disk and register it with `sim.addUnitType`, as e5-probes.ts does).
+// docs/campaign/special_units/gh709 (loaded from disk and registered with `sim.addUnitType`, as
+// e5-probes.ts does) -- or, once a phase has landed a unit in data/units, its registered JSON
+// (`stagedUnit`; Phase 7 landed `at_nlos_team`).
 //
 // Measured now: unit 1 (found late), unit 2 (reach duel), unit 9 (cover), unit 10 (tunnel
 // identification, synthetic route), unit 4 (NLOS reach and precision, Phase 7, on E2) and unit 11

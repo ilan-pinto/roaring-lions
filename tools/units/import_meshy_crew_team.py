@@ -152,6 +152,7 @@ sys.path.insert(0, HERE)
 import kit  # noqa: E402
 import rig  # noqa: E402
 import teams  # noqa: E402
+import crew_builds  # noqa: E402  the per-figure builds and slung rifles (pure numpy)
 from import_meshy_kdf_team import _two_bone  # noqa: E402  PR #325's two-bone IK
 
 REPO = os.path.dirname(TOOLS)
@@ -210,6 +211,10 @@ SOURCES = {
     "mortar_team": (os.path.join(REPO, "art", "meshy", "mortar-team-*-01a0f89f", "model.glb"), 1.76),
     "sniper_team": (os.path.join(REPO, "art", "meshy", "sniper-team-*-01a0f8a1", "model.glb"), 1.78),
     "yahalom_squad": (os.path.join(REPO, "art", "meshy", "yahalom-squad-*-01a0f8ab", "model.glb"), 1.78),
+    # GH-709 Phase 7 (2026-10-22): the Zaron Missile Team reuses the KDF
+    # mortar crewman (the lead's ruling, Q1: Meshy makes only the launcher) --
+    # mortar_team's own remesh, committed with this team as its source of record.
+    "at_nlos_team": (os.path.join(REPO, "art", "meshy", "mortar-team-*-01a0f89f", "model.glb"), 1.76),
 }
 
 #: Teams whose GLB ships the remesh's own base-colour bake (PR #307's
@@ -235,7 +240,9 @@ TEXTURED = {"militia_cell", "rpg_team", "atgm_cell",
             # B7: the two B2 teams, refined on their own previews, and the
             # five replaced supplied teams.
             "manpad_team", "recoilless_team",
-            "inf_squad", "sarim_rifles", "mortar_team", "sniper_team", "yahalom_squad"}
+            "inf_squad", "sarim_rifles", "mortar_team", "sniper_team", "yahalom_squad",
+            # GH-709 Phase 7: the mortar crewman's bake, the launcher in the atlas.
+            "at_nlos_team"}
 TEXTURE_PX = 1024
 JPEG_QUALITY = 85
 
@@ -287,7 +294,9 @@ ADD_KEFFIYEH = {"manpad_team": True, "recoilless_team": False,
                 "yahalom_squad": False,
                 # B7 (2 Oct ruling): both on the militia_cell body, which came
                 # bare-headed -- kit's keffiyeh, militia's own fix.
-                "sarim_rifles": True}
+                "sarim_rifles": True,
+                # GH-709 Phase 7: the KDF mortar crewman, helmeted.
+                "at_nlos_team": False}
 
 #: The role the cranium and neck cut take. Every Sarim figure wraps a scarf
 #: there (`keffiyeh`, the module docstring's "Roles"); a KDF figure wears a
@@ -297,7 +306,9 @@ ADD_KEFFIYEH = {"manpad_team": True, "recoilless_team": False,
 HEAD_ROLE = {"breach_team": "uniform",
              # B7: the four KDF teams on this path wear helmets.
              "inf_squad": "uniform", "mortar_team": "uniform",
-             "sniper_team": "uniform", "yahalom_squad": "uniform"}
+             "sniper_team": "uniform", "yahalom_squad": "uniform",
+             # GH-709 Phase 7: mortar_team's body.
+             "at_nlos_team": "uniform"}
 HEAD_ROLE_DEFAULT = "keffiyeh"
 
 #: charge_squad only: put kit's `vest_f`/`vest_b` slabs (the `charge` role,
@@ -363,6 +374,19 @@ WEAPON_ON_SPINE = {"breach_team": dict(x_min=0.06, y=(-0.16, 0.08), z=(0.50, 0.7
 #: set to the region's own dark median, so the tape goes the carrier's
 #: black. Fractions of H, +X forward.
 LABEL_FLATTEN = {"breach_team": dict(x_min=-0.02, y=(-0.08, 0.08), z=(0.68, 0.82), lum_min=0.35)}
+#: GH-709 Phase 7: the mortar crewman's refine painted a round sleeve patch on
+#: each upper arm -- a black disc with a yellow emblem, insignia in all but
+#: name (the lead's standing rule: no flags, insignia or text). The faces in
+#: this region (fractions of H, +X forward, |y| out from the centre line) are
+#: masked on the bake; inside the mask the patch is the off-olive texels
+#: (further than `tol` from the sleeve's own olive, the median of the masked
+#: texels that read as olive cloth) CONNECTED to its yellow emblem, so the
+#: black plate carrier beside the arm is never touched. It is painted the
+#: olive, `grow` texels past its edge. Measured: the patches sit on five
+#: faces, centroids at |y| 0.10-0.22 H, z 0.73-0.78 H. Refused when no emblem
+#: is found, so a changed bake is looked at, not shipped.
+PATCH_SCRUB = {"at_nlos_team": dict(x=(-0.13, 0.05), y_abs=(0.09, 0.25), z=(0.70, 0.81), tol=0.16, grow=2,
+                                     emblem_min=400)}   # measured 1,420 px over the two emblems
 CORPSE_ROLL_BY_TEAM = {"digger_crew": 90.0,
                        # B5: the left arm across the chest (ARMS_ON_TORSO) would hold a
                        # face-down body off the ground, as the digger's forward arms did.
@@ -521,6 +545,8 @@ def _load_figure(team_id):
         _recolour_head(team_id, ob, height, *RECOLOUR[team_id])
     if team_id in LABEL_FLATTEN and team_id in TEXTURED:
         _flatten_label(team_id, ob, height, **LABEL_FLATTEN[team_id])
+    if team_id in PATCH_SCRUB and team_id in TEXTURED:
+        _scrub_patch(team_id, ob, height, **PATCH_SCRUB[team_id])
     _bisect_source(team_id, ob, height)
     return ob, height
 
@@ -729,6 +755,64 @@ def _flatten_label(team_id, ob, height, x_min, y, z, lum_min):
     img.pack()
     log(f"{team_id}: label flatten -- {int(sel.sum())} faces, mask {int(mask.sum())} px, "
         f"{int(hit.sum())} px above {lum_min} set to {tuple(round(float(c), 3) for c in fill)}")
+
+
+def _olive_like(rgb):
+    """Texels that read as olive cloth: green leads, mid-dark, not black."""
+    r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+    lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    return (g >= r) & (g > b) & (lum > 0.12) & (lum < 0.6)
+
+
+def _scrub_patch(team_id, ob, height, x, y_abs, z, tol, grow, emblem_min):
+    """See PATCH_SCRUB."""
+    img = bpy.data.images["base_color"]
+    w, h = img.size
+    me = ob.data
+    cent = _face_centroids(ob) / height
+    sel = ((cent[:, 0] > x[0]) & (cent[:, 0] < x[1]) & (np.abs(cent[:, 1]) > y_abs[0])
+           & (np.abs(cent[:, 1]) < y_abs[1]) & (cent[:, 2] > z[0]) & (cent[:, 2] < z[1]))
+    mask = _uv_mask(me, sel, w, h)
+    pix = np.empty(w * h * img.channels, dtype=np.float32)
+    img.pixels.foreach_get(pix)
+    pix = pix.reshape(h, w, img.channels)
+    rgb = pix[:, :, :3]
+    cloth = mask & _olive_like(rgb)
+    if cloth.sum() == 0:
+        raise SystemExit(f"{team_id}: patch scrub -- no olive sleeve in {int(sel.sum())} faces; the bake changed, look at it")
+    olive = np.median(rgb[cloth], axis=0)
+    offc = mask & (np.linalg.norm(rgb - olive[None, None, :], axis=2) > tol)
+    r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+    # The emblem is a PALE yellow, green close to red (median 0.79/0.73/0.40);
+    # the KDF webbing's pouches are mustard (0.64/0.50/0.19) and stay.
+    emblem = offc & (r > 0.62) & (g > 0.85 * r) & ((r + g) / 2.0 - b > 0.25)
+    if emblem.sum() < emblem_min:
+        raise SystemExit(f"{team_id}: patch scrub -- {int(emblem.sum())} px of yellow emblem in {int(sel.sum())} faces "
+                         f"(want {emblem_min}+); the bake changed, look at it")
+
+    def dilate(a):
+        m = a.copy()
+        m[1:, :] |= a[:-1, :]
+        m[:-1, :] |= a[1:, :]
+        m[:, 1:] |= a[:, :-1]
+        m[:, :-1] |= a[:, 1:]
+        return m
+
+    off = emblem
+    for _ in range(400):   # flood over the off-olive texels joined to the emblem
+        nxt = dilate(off) & offc
+        if nxt.sum() == off.sum():
+            break
+        off = nxt
+    core = int(off.sum())
+    for _ in range(grow):
+        off = dilate(off) & mask
+    rgb[off] = olive
+    img.pixels.foreach_set(pix.reshape(-1))
+    img.pack()
+    log(f"{team_id}: patch scrub -- {int(sel.sum())} faces, mask {int(mask.sum())} px, emblem {int(emblem.sum())} px, "
+        f"{core} px of patch joined to it "
+        f"(+{int(off.sum()) - core} edge) painted olive {tuple(round(float(c), 3) for c in olive)}")
 
 
 def _uv_mask(me, sel, w, h):
@@ -2456,6 +2540,18 @@ MESHY_PARTS = {
         # to the kit tube's 1.24 m and the scope takes the same factor.
         "rifle_m": 1.24,
     },
+    # GH-709 Phase 7 (2026-10-22): the Zaron Missile Team's four-cell launcher
+    # -- the Meshy remesh `01a16328`, re-posed to its 75 deg firing pitch about
+    # the cradle hinge by `tools/units/nlos_launcher_part.py`, which writes the
+    # part (`path`, hinge on the origin, team frame) and its measured points
+    # (`points`). One `weapon` mesh on `prop` with its hinge at `anchor`, the
+    # approved spec's (+0.45, 0) (`rig.NLOS_HINGE_AT`).
+    "at_nlos_team": {
+        "name": "at_nlos_team_launcher",
+        "path": os.path.join("art", "parts", "at_nlos_team", "launcher.glb"),
+        "points": os.path.join("art", "parts", "at_nlos_team", "points.json"),
+        "provenance": "nlos_launcher_part.py <- Meshy remesh 01a16328 (refine 01a16323, preview 01a16320)",
+    },
 }
 
 
@@ -2482,8 +2578,16 @@ def _part_source(name):
 
 
 def _load_part(team_id):
-    """`MESHY_PARTS[team_id]`'s part (B8): see `_load_part_file`."""
-    path, task_id = _part_source(MESHY_PARTS[team_id]["name"])
+    """`MESHY_PARTS[team_id]`'s part (B8): see `_load_part_file`. A part
+    with a `path` is a Blender-edited part on disk (its own script named in
+    `provenance`), not a raw remesh from the ledger."""
+    cfg = MESHY_PARTS[team_id]
+    if cfg.get("path"):
+        path, task_id = os.path.join(REPO, cfg["path"]), cfg["provenance"]
+        if not os.path.exists(path):
+            raise SystemExit(f"{team_id}: {path} not built -- run {cfg['provenance'].split()[0]} first")
+    else:
+        path, task_id = _part_source(cfg["name"])
     ob, img = _load_part_file(team_id, path, task_id)
     ob.name = "part_src"
     return ob, img
@@ -2866,6 +2970,9 @@ MANPAD_STRAP_HUE = (15.0, 45.0)    # degrees: the strap's orange
 MANPAD_STRAP_SAT = 0.45
 MOUNTED_FEET_DZ = 0.03           # m: the vertices this close to the lowest are the feet
 MOUNTED_CAP_BELOW = 0.03         # m under the tube's bottom: what the front cap may cut
+#: at_nlos_team: the fire-control case's open lid tops out at 0.63 m; no part
+#: of the case or its cable may stand higher.
+NLOS_FCU_TOP_M = 0.70
 ATGM_ANCHOR = (0.24, 0.0)        # kit's `rig._atgm_extras` anchor: the post's feet centre
 ATGM_SWAY_MARGIN = 0.08         # m past the first anchor clear at rest
 ATGM_ANCHOR_SLIDE = tuple(round(0.02 * k, 2) for k in range(0, 16))   # m forward of it, tried in order
@@ -3441,6 +3548,59 @@ def _rifle_frame(prefix, joints, dx, dy):
     return at, yaw
 
 
+#: A rifle slung across the back (`crew_builds.SLUNG`, "back"): its length
+#: rises this far from horizontal toward the figure's left shoulder, centred
+#: on the back between these fractions of the torso part's own height, and
+#: seated this far behind the back's furthest point (then stepped back until
+#: no sample is inside the body, at most SLING_BACK_MAX).
+SLING_PITCH_DEG = 50.0
+SLING_BAND = (0.30, 0.80)
+SLING_GAP = 0.030
+SLING_BACK_MAX = 0.10
+
+
+def _slung_rifle(bp, parts):
+    """`rig._weapon_parts`' seven-part rifle -- the same kit rifle the leader
+    holds -- lying flat across body `bp`'s back, muzzle up over his left
+    shoulder (see SLING_*). Returns its parts, uv-less, for `bp`'s spine."""
+    torso = next(o for o in parts if o.name == f"{bp}_torso")
+    body = [o for o in parts if o.name.startswith(bp + "_") and "_death" not in o.name
+            and o.get("rl_role") not in ("weapon", "metal")]
+    tc = _coords(torso)
+    z0, z1 = float(tc[:, 2].min()), float(tc[:, 2].max())
+    lo, hi = z0 + SLING_BAND[0] * (z1 - z0), z0 + SLING_BAND[1] * (z1 - z0)
+    band = tc[(tc[:, 2] > lo) & (tc[:, 2] < hi)]
+    back_x, cy, cz = float(band[:, 0].min()), float(band[:, 1].mean()), (lo + hi) / 2.0
+    rifle = rig._weapon_parts(f"{bp}_sling", (0.0, 0.0, 0.0))
+    g = Vector(rig._weapon_anchor((0.0, 0.0, 0.0), 0.0, "standing", False))
+    allc = np.vstack([_coords(o) for o in rifle])
+    mid_x = (float(allc[:, 0].min()) + float(allc[:, 0].max())) / 2.0
+    a = math.radians(SLING_PITCH_DEG)
+    # Columns: the rifle's length (+x) up and to the left, its width (+y)
+    # against the back (-X), its sights (+z) the third axis of the same hand.
+    turn = Matrix(((0.0, -1.0, 0.0, 0.0),
+                   (math.cos(a), 0.0, -math.sin(a), 0.0),
+                   (math.sin(a), 0.0, math.cos(a), 0.0),
+                   (0.0, 0.0, 0.0, 1.0)))
+    centre = Matrix.Translation((-mid_x, -g.y, -g.z))
+    back = 0.0
+    for ob in rifle:
+        _transform(ob, Matrix.Translation((back_x - SLING_GAP, cy, cz)) @ turn @ centre)
+    inside = _inside_count(rifle, body)
+    while inside and back < SLING_BACK_MAX:
+        for ob in rifle:
+            _transform(ob, Matrix.Translation((-0.01, 0.0, 0.0)))
+        back += 0.01
+        inside = _inside_count(rifle, body)
+    if inside:
+        raise SystemExit(f"{bp}: slung rifle still {inside} samples inside the body {SLING_BACK_MAX} m back")
+    rc = np.vstack([_coords(o) for o in rifle])
+    log(f"{bp}: rifle slung across the back at x {back_x - SLING_GAP - back:+.3f} (back {back_x:+.3f}), "
+        f"z {float(rc[:, 2].min()):.2f}-{float(rc[:, 2].max()):.2f}, {SLING_PITCH_DEG:.0f} deg, "
+        f"{sum(len(o.data.polygons) for o in rifle)} faces")
+    return rifle
+
+
 def _hand_rifle(prefix, joints, dx, dy):
     """The rifle at this figure's hand: the team's Meshy rifle part if it has
     one (`HAND_PARTS`), else kit's seven boxes (`_rifle_at_hand`)."""
@@ -3466,6 +3626,36 @@ def _rifle_part_at_hand(name, prefix, joints, dx, dy):
 # ---------------------------------------------------------------------------
 # teams
 # ---------------------------------------------------------------------------
+
+def _body_variant(team_id, src, height, prefix):
+    """`crew_builds.BUILDS`' build for this figure, applied to a COPY of the
+    standing source before it is cut (the lead's standing rule, 22 Oct: one
+    Meshy body three times reads as triplets). Returns (source, height, the
+    arm-axis cache to restore or None). The deformation is smooth and
+    applied to the source, so every cut part stays rigid on its one bone;
+    the arm axes `cut_figure` classifies by go through the same map."""
+    b = crew_builds.build_of(team_id, prefix)
+    if b == crew_builds.IDENTITY:
+        return src, height, None
+    ob = src.copy()
+    ob.data = src.data.copy()
+    ob.name = ob.data.name = f"figure_src_{prefix}"
+    bpy.context.collection.objects.link(ob)
+    co = _coords(ob)
+    axes = {side: tuple(ax[:3]) for side, ax in _ARM_AXES_CACHE.items()}
+    w = max(ax[3] for ax in _ARM_AXES_CACHE.values())
+    new, h2, w2, ax2 = crew_builds.deform(co, height, w, axes, b)
+    _apply_np(ob, new)
+    saved = dict(_ARM_AXES_CACHE)
+    _ARM_AXES_CACHE.clear()
+    for side, ax in ax2.items():
+        _ARM_AXES_CACHE[side] = tuple(ax) + (saved[side][3] * w2 / w,)
+    m0, m1 = crew_builds.measure(co, height, w), crew_builds.measure(new, h2, w2)
+    log(f"{prefix}: build {b.get('label')} -- " + ", ".join(
+        f"{k} {m0[k]:.3f} -> {m1[k]:.3f} m ({m1[k] / m0[k] - 1:+.1%})" for k in m0)
+        + f"; arm root |y| {w:.3f} -> {w2:.3f}; feet z {float(new[:, 2].min()):+.4f}")
+    return ob, h2, saved
+
 
 def _figure(src, height, spec, kneel):
     """Parts + bones + forced binds for one TEAM_FIGURES spec, placed at its
@@ -3588,6 +3778,9 @@ def build_team(team_id):
     if team_id != "recoilless_team":
         _HAND_EXTRA.clear()
     figures = rig.TEAM_FIGURES[team_id]
+    builds = crew_builds.check_team(team_id, figures)   # refuses twin builds and an unarmed figure
+    if builds:
+        log(f"{team_id}: builds {builds}; slung {crew_builds.SLUNG.get(team_id, {})}")
     parts, bones, forced = [], [], {}
     eyes, hands = {}, {}
     prone_heads = {}
@@ -3596,7 +3789,12 @@ def build_team(team_id):
             p, b, f, eye_z, j, head_c = _sniper_figure(src, height, spec)
             prone_heads[spec["prefix"]] = head_c
         else:
-            p, b, f, eye_z, j = _figure(src, height, spec, kneel=(spec["posture"] == "kneeling"))
+            fsrc, fh, saved = _body_variant(team_id, src, height, spec["prefix"])
+            p, b, f, eye_z, j = _figure(fsrc, fh, spec, kneel=(spec["posture"] == "kneeling"))
+            if saved is not None:
+                _ARM_AXES_CACHE.clear()
+                _ARM_AXES_CACHE.update(saved)
+                bpy.data.objects.remove(fsrc, do_unlink=True)
         parts += p
         bones += b
         forced.update(f)
@@ -3823,6 +4021,103 @@ def build_team(team_id):
                 _borrow_uv(ob, tube[0], near=_coords(tube[0]).mean(axis=0))
         forced.update({ob: "mtr_no3_forearm_R" for ob in w})
         parts += w
+    elif team_id == "at_nlos_team":
+        # GH-709 Phase 7: the Meshy launcher (`MESHY_PARTS`, re-posed to 75 deg
+        # by nlos_launcher_part.py) with its cradle hinge on `rig.NLOS_HINGE_AT`,
+        # and `rig._nlos_extras`' fire-control case and cable, all on the static
+        # `prop` bone -- packed away while the crew walk on their D6 walkers.
+        import json
+        cfg = MESHY_PARTS[team_id]
+        with open(os.path.join(REPO, cfg["points"])) as fh:
+            meta = json.load(fh)
+        hx, hy = rig.NLOS_HINGE_AT
+        launcher = part_src
+        part_src = None
+        _transform(launcher, Matrix.Translation((hx, hy, 0.0)))
+        launcher.name = launcher.data.name = "nl_launcher"
+        launcher["rl_role"] = "weapon"
+        _part_extent_log(launcher)
+
+        def team_pt(gl):
+            # points.json is glTF (x, y up, z right) about the hinge; Blender team frame back.
+            return Vector((gl[0] + hx, -gl[2] + hy, gl[1]))
+
+        pts = {k: team_pt(v) for k, v in meta["points"].items()}
+        fcu, prop_bones, f_fcu, seat = rig._nlos_extras(socket=tuple(pts["socket"]))
+        bones += prop_bones
+        # The launcher, the case and the cable must be clear of every crewman
+        # at rest (the mortar's rule; `launcher_clearance.test.ts` repeats it
+        # on the exported bytes), and the case clear of the launcher.
+        crew = [o for o in parts if "_death" not in o.name and o.get("rl_role") not in ("weapon", "metal")
+                and not any(o.name.startswith(sp["prefix"] + "_") for sp in rig._walker_specs(figures))]
+        # Nothing of the case or its cable stands above the open lid: a cable
+        # end once read the skid height from a shadowed loop variable and rose
+        # 3.08 m into the air beside the leader (seen on the portrait, no gate
+        # caught it).
+        fcu_top = max(float(_coords(o)[:, 2].max()) for o in fcu)
+        if fcu_top > NLOS_FCU_TOP_M:
+            raise SystemExit(f"at_nlos_team: the fire-control case and cable reach z {fcu_top:.2f} m, over "
+                             f"{NLOS_FCU_TOP_M} -- a part has left the case; look at it")
+        inside = _inside_count([launcher], crew)
+        inside_fcu = _inside_count(fcu, crew)
+        inside_pair = _inside_count([o for o in fcu if o.name.startswith("nl_fcu")], [launcher])
+        log(f"at_nlos_team: launcher samples inside the crew {inside}, case and cable {inside_fcu}, "
+            f"case inside the launcher {inside_pair}")
+        if inside or inside_fcu or inside_pair:
+            for sp in figures:
+                body = [o for o in crew if o.name.startswith(sp["prefix"] + "_")]
+                for ob in [launcher] + fcu:
+                    n = _inside_count([ob], body)
+                    if n:
+                        log(f"  {ob.name} inside {sp['prefix']}: {n}")
+            raise SystemExit(f"at_nlos_team: {inside}/{inside_fcu}/{inside_pair} samples inside -- move the mount, "
+                             f"do not ship it")
+        forced.update({launcher: "prop"})
+        forced.update(f_fcu)
+        parts += [launcher] + fcu
+        # The leader's carbine: kit's rifle (the B7 No.3 method). The Meshy
+        # `kdf_carbine` remesh (01a10c6f) is not on disk in any checkout or in
+        # the art backup, so the part cannot be loaded; the kit rifle borrows
+        # one uv from the launcher's bake, so `weapon` stays one material.
+        w = _hand_rifle("nl_lead", hands["nl_lead"], -0.70, -0.35)
+        for ob in w:
+            if not ob.data.materials:
+                _borrow_uv(ob, launcher, near=Vector(pts["hinge"]) + Vector((0.0, 0.0, 0.10)))
+        forced.update({ob: "nl_lead_forearm_R" for ob in w})
+        parts += w
+        # The standing rule (22 Oct): every figure armed. The gunner and the
+        # loader have their hands on the equipment, so each carries kit's
+        # rifle slung across his back on his own spine -- on the deployed
+        # kneeler and on its walker alike -- clear of his body, the launcher
+        # and the case.
+        slung = []
+        for pfx in crew_builds.SLUNG.get(team_id, {}):
+            spec = next(s for s in figures if s["prefix"] == pfx)
+            for bp in [pfx] + ([rig._walker_prefix(spec)] if spec["posture"] == "kneeling" else []):
+                r = _slung_rifle(bp, parts)
+                for ob in r:
+                    _borrow_uv(ob, launcher, near=Vector(pts["hinge"]) + Vector((0.0, 0.0, 0.10)))
+                forced.update({ob: f"{bp}_spine" for ob in r})
+                slung += r
+        clash = _inside_count([launcher] + fcu, slung) + _inside_count(slung, [launcher] + fcu)
+        if clash:
+            raise SystemExit(f"at_nlos_team: {clash} samples between the slung rifles and the launcher/case")
+        parts += slung
+
+        def gl(v):
+            return [round(float(v[0]), 4), round(float(v[2]), 4), round(float(-v[1]), 4)]
+
+        # The part GLB's own `rl_points` (glTF, about the hinge) came in on the
+        # scene with it; the team frame's copies replace it below.
+        if "rl_points" in bpy.context.scene:
+            del bpy.context.scene["rl_points"]
+        # Read by the motion pass (`crew-fire.ts`, seat "console") and the
+        # renderer (`units/fire-points.ts`): glTF metres, the team's frame.
+        bpy.context.scene["rl_crew_points"] = {"sight": gl(seat["sight"]), "grip_r": gl(seat["grip_r"]),
+                                               "grip_l": gl(seat["grip_l"])}
+        bpy.context.scene["rl_fire"] = {"muzzle": gl(pts["muzzle"]), "backblast": gl(pts["backblast"])}
+        log(f"at_nlos_team: pitch {meta['pitch_fitted_deg']} deg (fitted), rl_crew_points "
+            f"{dict(bpy.context.scene['rl_crew_points'])}, rl_fire {dict(bpy.context.scene['rl_fire'])}")
     elif team_id == "sniper_team":
         # B7: each man's prop twice -- carried on the standing walker
         # (`spine` for the slung rifle, `head` for the glasses, as

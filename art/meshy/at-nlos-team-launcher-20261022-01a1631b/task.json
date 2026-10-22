@@ -1,0 +1,46 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready four-cell guided missile launcher on a ground stand, a weapon of a fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and military. Raised steeply, nearly upright at about seventy-five degrees. A square welded frame holding four sealed round canisters in a two-by-two block, domed front caps, flat rear covers, on a low hinged cradle with four splayed folding legs and broad feet; lifting handles on the frame sides, a small armoured junction box with a cable socket. Real-world scale, canister block 1.9 metres long. Worn olive paint, gunmetal, black rubber. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "negative_prompt": "truck, trailer, vehicle, wheels, tracks, rocket pod with many small tubes, exposed missiles, pointed warheads, fins, single tube, shoulder launcher, tripod, soldiers, people, crew, text, numbers, insignia, flags, ground plane, base",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a1631b-6516-76f9-87c1-737cd1309f63",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 206413333,
+    "prompt": "A single low-poly game-ready four-cell guided missile launcher on a ground stand, a weapon of a fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and military. Raised steeply, nearly upright at about seventy-five degrees. A square welded frame holding four sealed round canisters in a two-by-two block, domed front caps, flat rear covers, on a low hinged cradle with four splayed folding legs and broad feet; lifting handles on the frame sides, a small armoured junction box with a cable socket. Real-world scale, canister block 1.9 metres long. Worn olive paint, gunmetal, black rubber. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1792664103848,
+    "progress": 100,
+    "started_at": 1792664109826,
+    "finished_at": 1792664350924,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a1631b-6516-76f9-87c1-737cd1309f63/output/model.glb?Expires=4946227200&Signature=IDYBqKTOQ9foDcrC80pW6~Q~QMEqZQ3zV6dCc6R1s6Tukxvz8wdxTnMVZTcP2uCffeSh83N49bXpvbR1nxHbDwIrg~du9lx-Ph1mSxxhTeORufCisHvWmoVPcwf8JkMBSOFwSIAI24Psg3Pir51rz4I~CY2URIbX03Z2Oe-kJ2tskNzEokR1Zyl7yQIeGwdayvmN9~lQg~FoPl~Nm4EbmA00HZFlIm~GfH2n5xcmnZKDcRNZJlsd~lNFEaVj6IlEqit8JRg9CXkK5I2qX8vVVTN0~vJOyVoLFn1kPm6zONNiSxqIBZDIxLrZPMqEJGwCrhxnWLNL84ZaaTCaHwYgHw__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a1631b-6516-76f9-87c1-737cd1309f63/output/preview.png?Expires=4946227200&Signature=ak0e88kSziIhOWV4N2MVDscPvR9dTffM1fzc750foWgyApr-sl2v-c3-fJ2cOkUm18wTLdgRUvDN1MqdC12DvLvxhCO41E0c9Dt9aid9HvXRhH0EIZM9j5-S4adlScnoS8PWj~bRdAuMQXm2xGooh12fcyU-i5e8Cm~BWc~9aG259~3vYLKVj5b1w99hbsX39UDGuBHNajZmzxdQ1Y2WmHgarBXaGDOU~UvIlDPZ7SR8vu2ZKfBul5VmtRn8fOe0YQoG0ma9EUfcXFcKCg3FvnuHZyXh6hhuVar99DfmFafvQ31tKk0-1zqaxStqd3efS~JZKrtXaJ9CZMoQSTiRUA__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1792664103848,
+    "started_at": 1792664109826,
+    "finished_at": 1792664350924
+  },
+  "usd_estimated": 0.4
+}
