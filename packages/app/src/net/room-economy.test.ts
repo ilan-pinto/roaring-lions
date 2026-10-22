@@ -64,23 +64,23 @@ describe('an economy room\'s dock is the viewer\'s side (N3 Task 6)', () => {
   const KDF_MENU = ['mbt_lavi', 'ifv_namer', 'apc_eitan', 'inf_squad', 'at_team', 'mortar_team', 'jeep_shoded', 'recon_drone', 'dozer_d9', 'heli_peten', 'yahalom_squad'];
   const SARIM_MENU = ['sarim_rifles', 'atgm_cell', 'gun_truck', 'manpad_team', 'rocket_battery', 'recoilless_team'];
 
-  it('a Sarim host (seat 0, side 1): the six Sarim menu ids in doctrine order, 4800 in the purse; build, cancelBuild and clearRally carry side 1', () => {
+  it('a Sarim host (seat 0, side 1): the six Sarim menu ids in doctrine order, 2400 in the purse; build, cancelBuild and clearRally carry side 1', () => {
     const cfg = config('wadi_tarfan', ['sarim', 'kdf']);
     const w = buildMatchWorld(cfg);
     const r = roomDock(w, cfg, 0);
     expect(r.me).toBe(1);
     expect(tileIds(r.host)).toEqual(SARIM_MENU);
     const rt = w.runtime!;
-    expect(roomEconomyView(rt, r.me, 'sarim').logistics).toBe(4800);
-    expect(doctrines.sarim.budget.logistics_start).toBe(4800);
+    expect(roomEconomyView(rt, r.me, 'sarim').logistics).toBe(2400);
+    expect(doctrines.sarim.budget.logistics_start).toBe(2400);
     r.host.querySelector<HTMLButtonElement>('.rl-tile[data-unit="atgm_cell"]')!.click();
     expect(r.sent).toEqual([{ kind: 'build', side: 1, unit: 'atgm_cell' }]);
     // And it lands where it says: on side 1's line, paid from side 1's purse; side 0 untouched.
     w.sim.queueCommand(r.sent[0]);
     matchTick(w);
     expect(rt.productionLines(1)[0].current).toBe('atgm_cell');
-    expect(rt.logisticsOf(1)).toBe(4800 - units.atgm_cell.cost.logistics);
-    expect(rt.logisticsOf(0)).toBe(3000);
+    expect(rt.logisticsOf(1)).toBe(2400 - units.atgm_cell.cost.logistics);
+    expect(rt.logisticsOf(0)).toBe(1500);
     expect(rt.productionLines(0)[0].current).toBeNull();
     // The row's own controls carry side 1 too: a rally set on side 1's line, the dock
     // repainted, then the line's cancel (the item in progress) and its rally clear.
@@ -99,13 +99,13 @@ describe('an economy room\'s dock is the viewer\'s side (N3 Task 6)', () => {
     ]);
   });
 
-  it('the KDF guest (seat 1, side 0): the KDF menu in its order, 3000, a click sends build{side:0}', () => {
+  it('the KDF guest (seat 1, side 0): the KDF menu in its order, 1500, a click sends build{side:0}', () => {
     const cfg = config('wadi_tarfan', ['sarim', 'kdf']);
     const w = buildMatchWorld(cfg);
     const r = roomDock(w, cfg, 1);
     expect(r.me).toBe(0);
     expect(tileIds(r.host)).toEqual(KDF_MENU);
-    expect(roomEconomyView(w.runtime!, r.me, 'kdf').logistics).toBe(3000);
+    expect(roomEconomyView(w.runtime!, r.me, 'kdf').logistics).toBe(1500);
     r.host.querySelector<HTMLButtonElement>('.rl-tile[data-unit="inf_squad"]')!.click();
     expect(r.sent).toEqual([{ kind: 'build', side: 0, unit: 'inf_squad' }]);
   });

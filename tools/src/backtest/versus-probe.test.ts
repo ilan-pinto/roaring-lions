@@ -231,7 +231,7 @@ describe('main', () => {
     vi.spyOn(console, 'log').mockImplementation((...a) => { out.push(a.join(' ')); });
     expect(main(['--economy', '--maps=tel_marum', '--seeds=1', '--arr=kdf/sarim'])).toBe(0);
     const text = out.join('\n');
-    expect(text).toContain('economy: buildMatchWorld + matchTick; start kdf 3000 / sarim 4800; pop cap kdf 40 / sarim 56; income as shipped');
+    expect(text).toContain('economy: buildMatchWorld + matchTick; start kdf 1500 / sarim 2400; pop cap kdf 40 / sarim 56; income as shipped');
     expect(text).toContain('built K/S');
     expect(text).toMatch(/tel_marum\s+KDF friendly\s+\d+\s+\d+\s+\d+\s+\S+\s+[\d.]+\s+[\d.]+\/[\d.]+\s+\d+\/\d+/);
   }, FULL_GAMES_TIMEOUT_MS);
@@ -260,7 +260,10 @@ describe('the economy arm (N3 Task 7)', () => {
   // Peten 1 (drone and D9 unarmed); Yahalom is on the menu and not in the force.
   // Sarim: rifles 2, Kornet 14, ZU truck 6, MANPADS 2, Grad 2; recoilless not in the force.
   const freshPlan = (arr: ['kdf', 'sarim'] | ['sarim', 'kdf'], map = 'tel_marum' as MapId) => {
-    const w = buildMatchWorld(roomConfig(map, arr, 1000));
+    // The literal sequences below were read off a 3000 / 4800 start (the doctrines' value until the
+    // lead's 1500 / 2400 of 22 Oct), so the world is built under that override: a purse change must
+    // not silently rewrite the rule's witness.
+    const w = withOverrides({ start: [3000, 4800] }, () => buildMatchWorld(roomConfig(map, arr, 1000)));
     const rt = w.runtime;
     if (rt === null) throw new Error('no runtime');
     return { w, rt, plan: (side: 0 | 1) => planRound(rt, w.sim, doctrines[w.factions[side]].menu, forceMixOf(w.factions[side]), side) };
@@ -370,8 +373,8 @@ describe('the sweep overrides (in memory only)', () => {
     expect(seen).toEqual({ purse: [1000, 1600], cap: [30, 42], rates: [20, 20, 10, 10, 10] });
     expect(doctrines.kdf).toBe(kdf);
     expect(versusRules.tel_marum).toBe(rules);
-    expect(doctrines.kdf.budget.logistics_start).toBe(3000);
+    expect(doctrines.kdf.budget.logistics_start).toBe(1500);
     expect(() => withOverrides({ start: [1, 1] }, () => { throw new Error('boom'); })).toThrow('boom');
-    expect(doctrines.sarim.budget.logistics_start).toBe(4800);
+    expect(doctrines.sarim.budget.logistics_start).toBe(2400);
   });
 });
