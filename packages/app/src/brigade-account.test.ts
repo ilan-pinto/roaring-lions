@@ -301,3 +301,100 @@ describe('brigade account: a new campaign pays again (GH-330)', () => {
     expect(migrateAccount(v2, new Set(['a', 'b', 'c'])).campaign_paid).toEqual({ a: 200, b: 100 });
   });
 });
+
+// --- coupons -----------------------------------------------------------------
+// The fixture code below is NOT a shipped code; the shipped table holds hashes only.
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { redeemCoupon, type Coupon } from './brigade-account';
+import { sha256Hex } from './sha256';
+
+const hashOf = (s: string): string => createHash('sha256').update(s).digest('hex');
+const FIXTURE: Coupon[] = [
+  { id: 'fixture_a', sha256: hashOf('Fixture-Code-A'), credits: 500 },
+  { id: 'fixture_b', sha256: hashOf('Fixture-Code-B'), credits: 70 },
+];
+const redeem = (a = emptyAccount(), code = 'Fixture-Code-A') => redeemCoupon(a, code, FIXTURE, sha256Hex, 1000);
+
+describe('coupons', () => {
+  it('matches by hash, trims, and is case-sensitive', () => {
+    const r = redeem(emptyAccount(), '  Fixture-Code-A \n');
+    expect(r.ok).toBe(true);
+    expect(redeem(emptyAccount(), 'fixture-code-a').ok).toBe(false);
+  });
+
+  it('grants the credits and records the id, as a grant the balance bound can explain', () => {
+    const r = redeem();
+    if (!r.ok) throw new Error('refused');
+    expect(r.credits).toBe(500);
+    expect(r.account.balance).toBe(500);
+    expect(r.account.earned_total).toBe(0);
+    expect(r.account.coupons).toEqual(['fixture_a']);
+    // Survives the migration that bounds balance by the grants log.
+    expect(migrateAccount(JSON.parse(JSON.stringify(r.account)))).toEqual(r.account);
+  });
+
+  it('grants once per account, and a different coupon still works', () => {
+    const first = redeem();
+    if (!first.ok) throw new Error('refused');
+    const again = redeem(first.account);
+    expect(again.ok).toBe(false);
+    if (again.ok) return;
+    expect(again.reason).toBe('used');
+    expect(again.account).toBe(first.account);
+    const other = redeem(first.account, 'Fixture-Code-B');
+    expect(other.ok && other.account.balance).toBe(570);
+  });
+
+  it('refuses an unknown or empty code and returns the account by identity', () => {
+    const a = emptyAccount();
+    for (const code of ['nope', '', '   ']) {
+      const r = redeem(a, code);
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.reason).toBe('unknown');
+        expect(r.account).toBe(a);
+      }
+    }
+  });
+
+  it('migrates a save with no coupons field to an empty list, keeps a stored one, drops junk', () => {
+    expect(migrateAccount({ balance: 5 }).coupons).toEqual([]);
+    expect(migrateAccount({ coupons: ['fixture_a', 7, null] }).coupons).toEqual(['fixture_a']);
+  });
+
+  it('a reset removes the redemptions, so the code works again', () => {
+    const s = store();
+    const first = redeem();
+    if (!first.ok) throw new Error('refused');
+    saveAccount(s, first.account);
+    expect(loadAccount(s).coupons).toEqual(['fixture_a']);
+    expect(redeem(resetAccount(s)).ok).toBe(true);
+  });
+
+  it('startCampaign (what ?fresh runs) leaves redemptions alone', () => {
+    const first = redeem();
+    if (!first.ok) throw new Error('refused');
+    const withPay = payMission(first.account, 'm1', 50, 1).account;
+    expect(startCampaign(withPay).coupons).toEqual(['fixture_a']);
+  });
+
+  it('data/coupons.json holds only well-formed hashes and no duplicate ids', () => {
+    const file = JSON.parse(readFileSync(resolve(__dirname, '../../../data/coupons.json'), 'utf8')) as { coupons: Coupon[] };
+    expect(file.coupons.length).toBeGreaterThan(0);
+    for (const c of file.coupons) {
+      expect(c.sha256).toMatch(/^[0-9a-f]{64}$/);
+      expect(c.credits).toBeGreaterThan(0);
+    }
+    expect(new Set(file.coupons.map((c) => c.id)).size).toBe(file.coupons.length);
+  });
+
+  // The shipped code is never written in the repo. With COUPON_TEST_CODE set in the
+  // environment the real table is checked against it; without, this is skipped.
+  it.skipIf(!process.env.COUPON_TEST_CODE)('the shipped table grants 10,000 for the real code', async () => {
+    const { coupons } = await import('@lions/data');
+    const r = redeemCoupon(emptyAccount(), process.env.COUPON_TEST_CODE ?? '', coupons, sha256Hex, 1);
+    expect(r.ok && r.credits).toBe(10000);
+  });
+});

@@ -289,6 +289,7 @@ function accountAt(level: number, ids: readonly string[] = VEHICLES): BrigadeAcc
     unlocks: [...VEHICLES],
     upgrades,
     grants: [{ source: 'granted', amount: 5000, at: 1 }],
+    coupons: [],
   };
 }
 
