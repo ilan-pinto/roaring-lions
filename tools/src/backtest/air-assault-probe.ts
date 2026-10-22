@@ -37,12 +37,13 @@
 // placement moves the hot-LZ result more than anything else measured here.
 //
 // TWO THINGS ABOUT THE SIM THAT SHAPE THE NUMBERS (read, not changed):
-//  - An air unit flies the FOOT flow field (`orderLand`/`move` use DOMAIN_FOOT; air only skips
-//    the terrain clip), so the Yanshuf follows the foot route round a ridge -- on Tel Marum up
-//    the boulder corridor -- rather than the straight line.
-//  - A Yanshuf mobility-killed in the air hovers for good: its `unload` sets the want and
-//    `moving`, but a hull that cannot move never reaches the LZ, so it never lands and its
-//    riders never get out. Counted as STRANDED.
+//  - An air unit flies an all-open flow field (DOMAIN_AIR, fix/air-pathing): the Yanshuf takes
+//    the straight line over ridges and buildings. Until then it flew the FOOT field, round a
+//    ridge -- on Tel Marum up the boulder corridor -- and this probe's first readings did too.
+//  - A Yanshuf mobility-killed in the air makes a forced landing (fix/air-pathing) where it is,
+//    or on the nearest foot-open tile, and its queued `unload` completes there. Before that it
+//    hovered for good with its riders shut in (4 of 160 runs). STRANDED still counts any run
+//    that ends that way, so a regression reads non-zero again.
 //
 // WHAT IS MEASURED, per run.
 //   arrival    the first tick at which every living squad stands, unmounted, within

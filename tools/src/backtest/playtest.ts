@@ -2703,7 +2703,14 @@ const ummZeitoun3Plan: Plan = (sim, rt, ids, at) => {
   // The street squad is held on the square: an attackMove runs on after whatever it is shooting at, and
   // the first version of this plan followed a retreating picket out of the north gate.
   for (let when = 30; when <= 250; when += 25) at(when, () => sim.queueCommand({ kind: 'attackMove', ids: hamletInfantry, ...M(24, 26) }));
-  at(10, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(11, 17) }));
+  // fix/air-pathing: the drone flies the straight line now, not the foot route, and straight up
+  // x=11.4 it dies at ~(11.4,21.2) at t=15 s and never reads the lantern (3 stars -> 2). Through
+  // (13,21) first it arrives at (11,17) on 84 hp of 120 (the foot route arrived on 66) and
+  // `find_adhal` completes at t~28 s as before.
+  at(10, () => {
+    sim.queueCommand({ kind: 'move', ids: drone, ...M(13, 21) });
+    sim.queueCommand({ kind: 'move', ids: drone, ...M(11, 17), append: true });
+  });
   // Re-press both flanks once the first contact clears -- attackMove halts
   // on a live fight rather than closing the last few tiles to the post
   // itself.
@@ -2844,7 +2851,13 @@ const uz4Plan: Plan = (sim, rt, ids, at) => {
     });
   // GH-382: the spur's eye covers the ramp, so a drone sent at t=1 is shot down on the way up; it
   // follows the escort in once the spur is clear.
-  at(50, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(33.5, 8.5) }));
+  // fix/air-pathing: it follows the armour's own line up x=33 (via (33,30)) rather than the straight
+  // line from its spawn, which the foot route used to give it for free; flown straight, seed 2 of the
+  // thirty-seed sweep ended in DEFEAT.
+  at(50, () => {
+    sim.queueCommand({ kind: 'move', ids: drone, ...M(33, 30) });
+    sim.queueCommand({ kind: 'move', ids: drone, ...M(33.5, 8.5), append: true });
+  });
   // GH-382: each party takes the first of its own list still standing, re-sent every 15 s, so a party
   // that dies on the shelf hands its door to the other instead of leaving it standing at the deadline.
   // Garrison overhaul (B2, task 9). Cause: the sarim_rifles in the warehouse (30,4) now really sits
@@ -3655,7 +3668,13 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 //   infantry grid behind; every slot behind it moves, and a demo_squad dies at the gate (32.5,14.5)
 //   at 232 s where it lived before. Still VICTORY, ROE 100, ★★, 30/30 seeds (slowest 5.4 -> 5.5 min).
 // No other mission fields a D9 and no plan builds one; no star or gate moved.
-const LADDER_CREDITS = 5930;
+// 2026-10-21, fix/air-pathing: aircraft fly an all-open field, not the foot one. 5930 -> 5920, -10:
+// - Khan Rafid I 310 -> 300: roster out 5, one fewer survivor. Its drone is spent on the alley flyby
+//   by design (shot down ~30.6 s, see the plan's note); flown straight it now dies before the 0.5 min
+//   victory instead of just after it. Still VICTORY, ROE 100, 3 stars, 30/30 seeds.
+// The two plans whose drones the straight line put over a post (Umm Zeitoun III and IV) were
+// re-routed instead (their own notes); with that, no star, outcome or seed moved.
+const LADDER_CREDITS = 5920;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);

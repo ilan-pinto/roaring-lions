@@ -35,8 +35,11 @@ describe('air-assault probe: arm C, the cold landing zone', () => {
 });
 
 describe('air-assault probe: a hostile case, the kill attribution', () => {
-  it('Tel Marum arm E (ZU-23 at standoff), seed 0: shot down AIRBORNE with six aboard, all six lost with it', () => {
-    const r = run('tel_marum', 'E', SEED);
+  // Seed 1, not 0 (fix/air-pathing). Since the Yanshuf flies the straight line rather than the
+  // foot route, seed 0's reaches its LZ and is killed while LANDING (state 1, riders bail out);
+  // seed 1's is still downed AIRBORNE, which is the case this witness exists for.
+  it('Tel Marum arm E (ZU-23 at standoff), seed 1: shot down AIRBORNE with six aboard, all six lost with it', () => {
+    const r = run('tel_marum', 'E', seedOf(1));
     expect(r.yanshufLost).toBe(true);
     expect(r.yanshufKillState).toBe(0); // AIR_AIRBORNE, as a literal
     expect(r.yanshufKillAboard).toBe(6);
