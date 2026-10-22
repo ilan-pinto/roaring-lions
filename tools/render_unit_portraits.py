@@ -108,9 +108,9 @@ ENEMY_FIGURES = {"atgm_cell", "manpad_team", "recoilless_team", "sarim_rifles",
 # (`dig_root` plus its second pose root `digw_root`).
 NO_LEAD = {"moto_rpg", "digger_crew"}
 ROSTER = (
-    # KDF (19)
+    # KDF (21)
     "inf_squad,at_team,mortar_team,sniper_team,demo_squad,breach_team,yahalom_squad,recon_zikit,"
-    "mbt_lavi,ifv_namer,apc_eitan,apc_kipod,jeep_shoded,scout_shachaf,dozer_d9,"
+    "mbt_lavi,mbt_lavi_camo,ifv_namer,apc_eitan,apc_kipod,jeep_shoded,scout_shachaf,dozer_d9,spg_long_range,"
     "heli_peten,heli_peten_gunship,attack_drone,recon_drone,"
     # Sarim (15)
     "sarim_rifles,atgm_cell,manpad_team,recoilless_team,rocket_battery,loiter_drone,"

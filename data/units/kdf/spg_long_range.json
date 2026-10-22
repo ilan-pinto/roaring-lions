@@ -4,6 +4,7 @@
   "blurb": "Reaches deeper than any other gun and sees none of it. Every round is billed where it lands.",
   "faction": "kdf",
   "role": "artillery",
+  "voice": "crew",
   "cost": {
     "logistics": 400,
     "build_time_s": 45,

@@ -114,7 +114,9 @@ still triggered.** That outcome cannot be changed by damage while the range stay
 the Grad cannot reach the SPG, and at 20 its 240-damage salvo (rof 2) meets 1400 hp. Swept on the
 staged JSON, range 28 kept: damage 300, 280, 260, 240, 200 and 160 all read 30/30 at every range;
 only at 120 (three or more rounds, ~90 s) does the 120 s cap start producing draws (27/30 at 28
-tiles). A Grad win needs a change to range or hp, which the ruling did not make.
+tiles). A Grad win needs a change to range or hp, which the ruling did not make. **The lead accepted
+this on 22 Oct: the Te'o beating the Grad 30/30 is by design; damage 280 and range 28 stand, and the
+probe is pinned at that result.**
 
 Cost curve at 280 (`validate_balance.py --also e5 --also gh709`): **+7.2%** (fitted 373, logistics
 400; was +6.9% at 320), max-tier pass **+10.0%** (fitted 364). Both passes green, 45 units.

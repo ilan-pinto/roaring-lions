@@ -1,0 +1,23 @@
+{
+  "unit": "spg_long_range",
+  "variant": "team",
+  "source": "assets/meshes/vehicles/spg_long_range.glb",
+  "source_sha256": "76870bdca49efaf594b4d7a17de8c0ae83b593e07e216ef0cc82434ba12938fc",
+  "yaw_deg": -125.0,
+  "elevation_deg": 18.0,
+  "fov_deg": 30.0,
+  "fill": [
+    "width",
+    0.92
+  ],
+  "ndc_box": [
+    0.04,
+    0.96,
+    0.0795,
+    0.9205
+  ],
+  "materials": {
+    "baked": 4,
+    "flat": 0
+  }
+}

@@ -71,6 +71,9 @@ export const TEXTURED_VEHICLE_TYPES: ReadonlySet<string> = new Set([
   // kit mast and cupola joined into its turret nodes
   // (tools/vehicles/export_officer_armour.py). Held art until Stage 5.
   'officer_armour',
+  // GH-709: the Lavi Ambush Tank is mbt_lavi.glb's own bake with a Blender net
+  // joined into its four live nodes (tools/vehicles/export_lavi_camo.py).
+  'mbt_lavi_camo',
   // E5 part 2 (GH-181, 2026-09-30): the Peten Gunship is heli_peten.glb
   // re-opened with stores added, every added part UV-pinned to the Peten's
   // own bake (tools/vehicles/export_meshy_apache_gunship.py), so it ships
@@ -92,4 +95,9 @@ export const TEXTURED_VEHICLE_TYPES: ReadonlySet<string> = new Set([
   // (tools/vehicles/export_meshy_yanshuf.py). Drawn since the unit landed
   // (2026-10-21).
   'heli_yanshuf',
+  // GH-709 (2026-10-22): the Te'o Howitzer is a Meshy text-to-3D remesh shipping
+  // its own 2k bake on hull_hull, hull_rubber, turret_hull and turret_metal
+  // (tools/vehicles/export_meshy_spg_long_range.py); its cap faces and rear
+  // spades are UV-pinned into that bake.
+  'spg_long_range',
 ]);

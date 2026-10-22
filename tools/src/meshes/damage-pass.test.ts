@@ -170,8 +170,14 @@ describe('damage verbs change the OUTLINE (Lavi)', () => {
   it.each([
     ['mbt_lavi', 1.45],
     ['officer_armour', 1.45],
+    // GH-709: the net hangs 0.3 m past the hull in the live file, but the thrown
+    // track's own bar is the unnetted hull's 1.45 (the same op, the same strip).
+    ['mbt_lavi_camo', 1.45],
     ['ifv_namer', 2.06],
     ['dozer_d9', 2.13],
+    // GH-709: the Te'o Howitzer's hull_hull is |z| <= 1.70 (its spades and the track
+    // band's own outer face included), a literal measured off the shipped bytes.
+    ['spg_long_range', 1.7],
   ] as const)('throwTrack (%s): hundreds of rubber vertices lie on the sand OUTSIDE the hull footprint', async (id, halfWidth) => {
     const doc = await read(id);
     const outside = groundVerts(node(doc, 'WRECK_hull_rubber')).filter(([, y, z]) => Math.abs(z) > halfWidth + 0.15 && y < 0.1);
@@ -214,6 +220,63 @@ describe('damage verbs change the OUTLINE (Lavi)', () => {
     // and nothing on it goes under the ground
     expect(Math.min(...groundVerts(node(broken, 'WRECK_turret_metal')).map((v) => v[1]))).toBeGreaterThanOrEqual(0);
   }, WRECK_PASS_TIMEOUT_MS);
+});
+
+/**
+ * The Te'o Howitzer's gun is raised to 35 degrees, so `breakBarrel` must judge
+ * its tube against the INCLINED bore. The literals are measured off the shipped
+ * `turret_metal` (2026-10-22): the tube is straight and 0.13 m in radius from
+ * x 2.4 to 4.7 (mesh space), the sleeve and rails behind it 0.3-0.5 m out.
+ */
+describe('breakBarrel on a raised gun (Te\'o Howitzer)', () => {
+  const op = () => DAMAGE_RECIPES.spg_long_range!.find((o) => o.verb === 'breakBarrel') as Extract<DamageOp, { verb: 'breakBarrel' }>;
+  const moved = async (o: DamageOp): Promise<number> => {
+    const doc = await read('spg_long_range');
+    const reports = applyDamagePass(doc, 'spg_long_range', [o]);
+    return reports.find((r) => r.verb === 'breakBarrel')!.faces;
+  };
+
+  it('the recipe declares the elevation the file was built to', () => {
+    expect(op().elevationDeg).toBe(35);
+  });
+
+  it('takes the whole tube: more than a hundred faces move', async () => {
+    expect(await moved(op())).toBeGreaterThan(100);
+  });
+
+  // Falsification, constructed and run: judged against a HORIZONTAL bore (the
+  // old behaviour, `elevationDeg` 0) the 35-degree tube leaves the radius after
+  // a metre, and the verb takes a small fraction of it.
+  it('against a level bore it would take under half as many faces', async () => {
+    const raised = await moved(op());
+    let level: number;
+    try {
+      level = await moved({ ...op(), elevationDeg: 0 });
+    } catch {
+      level = 0; // "no barrel faces" is the same finding
+    }
+    expect(level).toBeLessThan(raised / 2);
+  });
+
+  it('the broken muzzle lies lower than the live one, and nothing goes under the sand', async () => {
+    const muzzleY = (doc: Document): number => {
+      const g = groundVerts(node(doc, 'WRECK_turret_metal')).filter((_, i) => {
+        const p = node(doc, 'WRECK_turret_metal').getMesh()!.listPrimitives()[0]!.getAttribute('POSITION')!.getArray() as Float32Array;
+        return p[i * 3]! > 4.2;
+      });
+      expect(g.length).toBeGreaterThan(0);
+      return g.reduce((a, v) => a + v[1], 0) / g.length;
+    };
+    const broken = await read('spg_long_range');
+    const plain = await read('spg_long_range');
+    applyWreckPass(plain, 'spg_long_range', WRECK_RECIPES.spg_long_range!);
+    expect(muzzleY(plain) - muzzleY(broken)).toBeGreaterThan(0.4);
+    expect(Math.min(...groundVerts(node(broken, 'WRECK_turret_metal')).map((v) => v[1]))).toBeGreaterThanOrEqual(0);
+  }, WRECK_PASS_TIMEOUT_MS);
+
+  it('simplifies the rubber copy first, so its collapses run on the shipped bytes', () => {
+    expect(DAMAGE_RECIPES.spg_long_range![0]!.verb).toBe('simplify');
+  });
 });
 
 describe('damage pass, pieces', () => {

@@ -30,10 +30,14 @@ export const RESCALE_EXTRAS_KEY = 'rl_rescale';
 export const LAVI_RESCALE = 1.18;
 
 /** Every vehicle scaled after export. `officer_armour` is a re-export of the
- *  shipped Lavi (GH-298), so it carries the Lavi's factor. */
+ *  shipped Lavi (GH-298), so it carries the Lavi's factor, and so does
+ *  `mbt_lavi_camo` (GH-709). */
 export const RESCALE_FACTORS: Readonly<Record<string, number>> = {
   mbt_lavi: LAVI_RESCALE,
   officer_armour: LAVI_RESCALE,
+  // GH-709: the Lavi Ambush Tank, mbt_lavi.glb's own bake with a Blender net
+  // (tools/vehicles/export_lavi_camo.py), cut in the Lavi's 6.32 m frame.
+  mbt_lavi_camo: LAVI_RESCALE,
 };
 
 /** The factor a vehicle's recipes are authored to be multiplied by: 1 for a

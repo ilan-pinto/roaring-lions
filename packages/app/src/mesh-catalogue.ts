@@ -226,6 +226,13 @@ export const VEHICLE_UNIT_MESHES: Readonly<Record<string, string>> = {
   apc_eitan: 'vehicles/apc_eitan.glb',
   dozer_d9: 'vehicles/dozer_d9.glb',
   mbt_lavi: 'vehicles/mbt_lavi.glb',
+  // GH-709: the Lavi Ambush Tank -- mbt_lavi.glb's bake plus a Blender-authored
+  // net (`tools/vehicles/export_lavi_camo.py`), textured (`TEXTURED_VEHICLE_TYPES`).
+  mbt_lavi_camo: 'vehicles/mbt_lavi_camo.glb',
+  // GH-709: the Te'o Howitzer, a tracked 155 mm SPG -- a Meshy text-to-3D export
+  // (`tools/vehicles/export_meshy_spg_long_range.py`), textured
+  // (`TEXTURED_VEHICLE_TYPES`), its turret and raised gun under `turret_pivot`.
+  spg_long_range: 'vehicles/spg_long_range.glb',
   technical: 'vehicles/technical.glb',
   ifv_namer: 'vehicles/ifv_namer.glb',
   jeep_shoded: 'vehicles/jeep_shoded.glb',

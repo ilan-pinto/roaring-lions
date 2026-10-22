@@ -1245,3 +1245,41 @@ the real designation and "desert-sand" paint (the KDF machine line is olive, and
 template never names a real type), "gunners" (a figure in a doorway is noise at 25 px and
 the preview seated two anyway), and "readable silhouette from a high three-quarter
 view" (an adjective, not a feature; the lever is the cabin-and-doors signature).
+
+## 28. `spg_long_range` — Te'o Howitzer (KDF, tracked 155 mm SPG, special units P2, GH-709)
+
+Sent 2026-10-22 after the lead approved the art numbers in chat ("Te'o Howitzer art
+numbers: APPROVED as specced"): one textured base model, no re-roll. AI-generated (Meshy),
+disclosed per `CONTRIBUTING.md`. The task ids and credits are in `art/meshy/ledger.jsonl`.
+
+| item | number | source |
+|---|---|---|
+| class | textured vehicle, **35** credits: preview 20 + refine 2k 10 + remesh 5 | ledger `spg_long_range`: preview `01a162a9-b238-737a-9ecc-965b769b2e8d`, refine `01a162ad-12da-708a-9e88-56bb767049db`, remesh `01a162af-5c10-744a-b6a1-03b9b61b85cd` |
+| settings | `meshy-6`, `standard`, triangle topology, `--polycount` / remesh target **40,000** (arrived 39,753 faces with the bake) | `art/meshy/spg-long-range-20261022-01a162{a9,af}/task.json` |
+| drawn size | **hull 6.8 m long, declared** in `export_meshy_spg_long_range.py` (`real_metres`) and scaled to it: 3.407 m wide (hull-only length 1.731 against width 0.867 source units; the approved "~3.3 m" is within 3%), 2.571 m to the hull's top. The gun and the spades are extra: overall 8.6 m long, 4.83 m to the muzzle at 35 degrees | exporter |
+| silhouette lever | the barrel, raised from the source's 9.9 degrees to **35.0 degrees** (measured on the shipped bytes, same rule as the exporter: far-quarter against near-quarter centroid of the unique tube vertices forward of x 2.4 m; a plain PCA over the file's UV-split duplicates reads 35.8-36.2), the plain tube lengthened x2.0. Two lowered rear spades added | exporter |
+| nearest neighbour | `mbt_lavi`: **IoU 0.704** at 64 px through `render_mesh_gate.py`'s rig (limit 0.88), then `officer_armour` 0.606, `mbt_lavi_camo` 0.584, `scout_shachaf` 0.568, `dozer_d9` 0.544 (the raw preview's worst, 0.781, was `dozer_d9`). Fill 15.3%; no frame edge touched (checked by hand: the gate skips `check_framing` for a textured unit) | `validate_assets.silhouette`/`iou` |
+| roles | `hull_hull`, `hull_rubber` (the track band, tagged by `pnpm running-gear:meshes`: 6 road wheels a side spin, the tracks scroll), `turret_hull` and `turret_metal` (the gun) under `turret_pivot`, all on the remesh's one bake (`TEXTURED_VEHICLE_TYPES`) | |
+| bake | three painted markings scrubbed (the refine ignored "No text or markings"): a word on each turret flank and a white mark on the rear plate, **428 ink texels** found, 1,405 painted over after a 3-texel grow (0.0335% of the atlas), the normal and metallic-roughness maps flattened under the mask. Verified by the peak above each rectangle's median, 0.214 / 0.078 / 0.407 before, 0.009 / 0.027 / 0.060 after, and by eye on the shipped bake | exporter `_scrub_markings` |
+| triangles | **42,974** live (hull_hull 10,247, hull_rubber 27,657, turret_hull 1,651, turret_metal 3,419) | |
+| wreck | `tracked` + `turret_pivot` (the turret and the gun are thrown); damage: a thrown track and the gun broken at the sleeve and drooped to the sand, the rubber copy simplified to ratio 0.21 (64,478 Draco bytes, 98% of the cap; 350,302 raw, 67%) | `wreck-recipes.ts`, `damage-recipes.ts` |
+
+What the preview did NOT deliver, so the exporter does: the prompt asked for seven road
+wheels, a 35-degree gun with a fume extractor and a slotted muzzle brake, and two lowered
+spades; the model came back with **six** road wheels, a plain gun at 10 degrees with no
+extractor or brake, and no spades. The gun is re-posed and lengthened and the spades are
+built in Blender; the extractor and the brake were not added (no part of the silhouette
+needs them, and a hand-built brake would be a second invented part).
+
+```
+A single low-poly game-ready tracked self-propelled howitzer, a machine of a fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and military. At rest, level. A long low tracked hull, seven road wheels a side on exposed tracks, no side skirts; a large tall slab-sided box turret set toward the rear; a very long gun barrel with a fume extractor midway and a slotted muzzle brake, raised steeply at 35 degrees over the bow; two wide recoil spades lowered at the rear; rear doors, stowage racks, smoke dischargers. Real-world scale, hull 6.8 metres long. Olive paint, gunmetal, dark rubber tracks. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.
+```
+
+795 characters. `--negative "main battle tank, short barrel, horizontal barrel, side skirts, rocket
+launcher, rocket pods, missiles, wheeled truck, machine gun, rotating radar, people, crew,
+ground, base, text, insignia, flags"`. The silhouette rationale: the nearest neighbour in
+the roster is a tracked, turreted hull (`mbt_lavi`, `dozer_d9`), so the lever has to be the
+one thing none of them has -- a long gun held at a steep angle over the bow -- and the
+negative prompt names the three ways it fails (a short barrel, a horizontal one, a tank).
+`spg_cluster` (design row 11) swaps this GLB's `turret_metal` barrel node for a Blender
+variant.

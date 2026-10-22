@@ -86,6 +86,14 @@ export interface BreakBarrel {
   readonly droopDeg: number;
   /** Only faces within this distance of the barrel axis (y, z) move: the mantlet ring and anything else forward of the break stay. */
   readonly axisRadius: number;
+  /**
+   * The bore's elevation above the hull's X axis, degrees (default 0, a level
+   * gun). A howitzer's is raised: the axis is then the inclined line through
+   * the centroid of the vertices forward of `breakX`, the radius is measured
+   * from THAT line, and the droop turns about its root, so a gun at 35 degrees
+   * is not judged against a horizontal one (which would pick none of the tube).
+   */
+  readonly elevationDeg?: number;
 }
 
 /**
@@ -296,6 +304,14 @@ export const DAMAGE_RECIPES: Readonly<Record<string, readonly DamageOp[]>> = {
   // drops every WRECK_ object on import), so it takes the Lavi's own damage.
   // Its turret_metal has nothing forward of x 1.55 but the same gun tube.
   officer_armour: scaleDamageOps(LAVI, rescaleOf('officer_armour')),
+  // GH-709: the Lavi Ambush Tank: the Lavi's thrown track and drooped barrel,
+  // NOT its skirt plate. The plate op copies all of `hull_hull`, which carries
+  // the net (~8,000 more triangles), and that copy alone took the file to
+  // 657,332 raw bytes against the 524,288 cap (measured 2026-10-22).
+  mbt_lavi_camo: scaleDamageOps(
+    LAVI.filter((op) => op.verb !== 'peelPlate'),
+    rescaleOf('mbt_lavi_camo'),
+  ),
   ifv_namer: NAMER,
   dozer_d9: D9,
   apc_eitan: [lostRearTyre(3)],
@@ -347,4 +363,30 @@ export const DAMAGE_RECIPES: Readonly<Record<string, readonly DamageOp[]>> = {
   // five-degree sectors), so the Peten's op reads it as four clusters about
   // 90 degrees apart with empty sectors between. Same droop, snap and lie.
   heli_yanshuf: [ROTOR],
+  // GH-709 (2026-10-22): the Te'o Howitzer: a thrown track and its raised gun
+  // broken at the sleeve and drooped to the sand. The gun is at 35 degrees
+  // (`elevationDeg`), the tube straight from x 2.4 (mesh space, the sleeve and
+  // rails behind it stay on the mantlet); `axisRadius` 0.3 takes the tube
+  // (radius 0.13) and nothing of the rails. `droopDeg` is the angle from 35
+  // down to the sand: 60 leaves it 25 degrees below the horizontal if the
+  // ground allows, and the pass shortens it where the muzzle would go under.
+  // The rubber copy is simplified to the cap, as the rocket battery's is (R4): the
+  // track band, six road wheels, sprocket and idler are 27,657 triangles live, so an
+  // unsimplified copy is several times the 64 KiB. The ratio is the LARGEST on a
+  // 0.01 grid whose copies (rubber + the gun, 3,419 triangles of `turret_metal`)
+  // fit; the DRACO cap binds, not the raw one. Measured 2026-10-22 (Draco bytes /
+  // share of cap, raw bytes, triangles of 27,657, meshopt error relative to extent):
+  //
+  //   0.25  72,100 110% / 401,288  6,862  3.61e-3   (over)
+  //   0.22  66,399 101% / 362,965  6,020  4.02e-3   (over)
+  //   0.21  64,478  98% / 350,302  5,739  4.25e-3   <- shipped
+  //   0.20  62,478  95% / 339,167  5,501  4.38e-3
+  //   0.18  57,877  88% / 312,768  4,941  4.58e-3
+  //
+  // 4.25e-3 of the 6.8 m hull is about 3 cm; the copy is drawn charred and black.
+  spg_long_range: [
+    { verb: 'simplify', mesh: 'hull_rubber', ratio: 0.21, maxError: 0.01, flags: ['Permissive'] },
+    { verb: 'throwTrack', side: 1, slide: -1.5, out0: 0.6, out1: 1.3, wave: 0.13, lowY: 0.6 },
+    { verb: 'breakBarrel', mesh: 'turret_metal', breakX: 2.3, droopDeg: 60, axisRadius: 0.3, elevationDeg: 35 },
+  ],
 };

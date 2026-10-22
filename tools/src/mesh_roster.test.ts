@@ -160,8 +160,10 @@ const RUNNING_GEAR: Record<string, { wheels: number; steered: number; tracks: nu
   ifv_namer: { wheels: 12, steered: 0, tracks: 2 },
   jeep_shoded: { wheels: 4, steered: 2, tracks: 0 },
   mbt_lavi: { wheels: 0, steered: 0, tracks: 2 },
+  mbt_lavi_camo: { wheels: 0, steered: 0, tracks: 2 },
   officer_armour: { wheels: 0, steered: 0, tracks: 2 },
   rocket_battery: { wheels: 6, steered: 0, tracks: 0 },
+  spg_long_range: { wheels: 12, steered: 0, tracks: 2 },
   scout_shachaf: { wheels: 4, steered: 2, tracks: 0 },
   technical: { wheels: 4, steered: 2, tracks: 0 },
 };
