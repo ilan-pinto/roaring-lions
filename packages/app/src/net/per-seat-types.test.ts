@@ -154,8 +154,13 @@ function run(mapId: 'beit_sahwan_outskirts' | 'tel_marum', ticks: number, varian
 }
 
 /** What a unit's fight did to it, read per placement (side, k). */
+/** Suppression is in the fate since mobility kills (#706): with both Petens
+ *  forced down, the 90 s fight's firepower patch reaches side 0 as suppression
+ *  (units 12 and 13: 39110 vs 38861, 36672 vs 36627) and no longer as hp. */
 const fate = (r: ReturnType<typeof run>) =>
-  r.bySide.map((ids) => ids.map((i) => [r.sim.state.alive[i], r.sim.state.hp[i], r.sim.state.posX[i], r.sim.state.posY[i]]));
+  r.bySide.map((ids) =>
+    ids.map((i) => [r.sim.state.alive[i], r.sim.state.hp[i], r.sim.state.posX[i], r.sim.state.posY[i], r.sim.state.suppression[i]]),
+  );
 
 /** 90 s of the probe's play: long enough on beit for both sides to lose units. */
 const BATTLE_TICKS = 1800;
