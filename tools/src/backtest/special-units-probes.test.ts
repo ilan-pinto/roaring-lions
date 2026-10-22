@@ -266,22 +266,21 @@ describe('SU probe 11: spg_cluster, the lead\'s four claims (E3)', () => {
     t = clusterTable(stagedUnit('spg_cluster'));
   });
 
-  it('KNOWN MISS, pinned: it does not destroy half of open infantry or a technical in 90 s (3 rounds)', () => {
-    const fails = clusterClaims(t);
-    expect(fails).toHaveLength(2);
-    expect(fails[0]).toMatch(/open infantry/);
-    expect(fails[1]).toMatch(/technical/);
+  it('MET since the retune (rof 2 -> 5, the lead, 22 Oct): it destroys half of open infantry and of a technical in 90 s', () => {
+    // Was a known miss at rof 2 (0.347 / 0.248 over 3 rounds).
+    expect(clusterClaims(t)).toEqual([]);
   });
 
-  it('open infantry, technical and the unitary control sit inside their bands (22 Oct)', () => {
+  it('open infantry, technical and the unitary control sit inside their bands (re-frozen at rof 5, 22 Oct)', () => {
     const c = t.cluster;
-    near(c.infantry.hpLost, 0.347, 'infantry hp');
-    near(c.infantry.perRound, 0.116, 'infantry per round');
-    near(c.technical.hpLost, 0.248, 'technical hp');
-    near(c.technical.perRound, 0.083, 'technical per round');
-    near(t.unitary.hpLost, 0.175, 'unitary hp');
-    near(t.unitary.perRound, 0.058, 'unitary per round');
-    for (const r of [c.infantry, c.technical, c.house, c.armour, t.unitary]) near(r.rounds, 3, 'rounds');
+    near(c.infantry.hpLost, 0.82, 'infantry hp'); // Was 0.347 at rof 2.
+    near(c.infantry.perRound, 0.103, 'infantry per round'); // Was 0.116.
+    near(c.technical.hpLost, 0.709, 'technical hp'); // Was 0.248.
+    near(c.technical.perRound, 0.09, 'technical per round'); // Was 0.083.
+    near(t.unitary.hpLost, 0.43, 'unitary hp'); // Was 0.175.
+    near(t.unitary.perRound, 0.054, 'unitary per round'); // Was 0.058.
+    near(c.technical.rounds, 7.9, 'technical rounds');
+    for (const r of [c.infantry, c.house, c.armour, t.unitary]) near(r.rounds, 8, 'rounds'); // Was 3.
   });
 
   it('the cluster destroys more per round than the unitary draft: what E3 buys (about 2x)', () => {
@@ -294,24 +293,26 @@ describe('SU probe 11: spg_cluster, the lead\'s four claims (E3)', () => {
     expect(h.rounds).toBeGreaterThan(0);
     expect(h.hpLostMax).toBe(0);
     expect(h.houseLost).toBe(0);
-    near(h.peakSupp, 0.045, 'house peak suppression');
+    near(h.peakSupp, 0.059, 'house peak suppression'); // Was 0.045 at rof 2.
   });
 
   it('an armoured column loses 0 hp, and is suppressed', () => {
     const a = t.cluster.armour;
     expect(a.rounds).toBeGreaterThan(0);
     expect(a.hpLostMax).toBe(0);
-    near(a.peakSupp, 0.236, 'armour peak suppression');
+    near(a.peakSupp, 0.315, 'armour peak suppression'); // Was 0.236 at rof 2.
   });
 
-  it('Conduct near civilians: cluster >= unitary per round (measured 22 Oct: 5.60 vs 3.00, 16.80 vs 9.00 over 3 rounds), nobody dies', () => {
+  it('Conduct near civilians: cluster >= unitary per round (rof 5: 5.63 vs 3.00, 45.0 vs 24.0 over 8 rounds)', () => {
     const { cluster: c, unitary: u } = t.conduct;
     expect(c.perRound).toBeGreaterThanOrEqual(u.perRound);
-    near(c.perRound, 5.6, 'cluster per round');
+    near(c.perRound, 5.63, 'cluster per round'); // Was 5.60 at rof 2.
     near(u.perRound, 3, 'unitary per round');
-    near(c.lost, 16.8, 'cluster lost');
-    near(u.lost, 9, 'unitary lost');
-    expect(c.civDead).toBe(0);
+    near(c.lost, 45, 'cluster lost'); // Was 16.8 over 3 rounds.
+    near(u.lost, 24, 'unitary lost'); // Was 9.
+    // At rof 5 the cluster kills a civilian 2 tiles off in 2 of 10 seeds (was 0 at rof 2); the
+    // scene's civilian_casualty_penalty is 0, so Conduct above is the ordnance rule alone.
+    expect(c.civDead).toBeCloseTo(0.2, 9);
     expect(u.civDead).toBe(0);
   });
 });

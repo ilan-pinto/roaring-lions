@@ -21,7 +21,7 @@ or was written; `packages/sim`, `data/`, the determinism hash, `playtest`, `LADD
 | 5 `veh_ambulance` | | | deferred to Phase 5 (needs E1, the unit aura) |
 | 6 `air_medevac_heli` | | | deferred to Phase 5 (needs E1) |
 | 7 `inf_medic_squad` | | | deferred to Phase 5 (needs E1) |
-| 11 `spg_cluster` | 18 tiles, 90 s (3 rounds): open infantry, a technical, a garrisoned house, an armoured column; vs the unitary draft; Conduct per round near civilians | the lead's four claims; more per round than the unitary draft; Conduct per round >= unitary | **MIXED** (22 Oct, Phase 7, E3). **MET**: house men 0 hp lost and the house 0, men suppressed (peak 0.045); armour 0 hp lost; 2.0x the unitary draft per round (0.116 vs 0.058); Conduct 5.60 vs 3.00 per round. **MISSED** (the pre-registered "destroys more than half in 90 s"): open infantry 0.347, technical 0.248 |
+| 11 `spg_cluster` | 18 tiles, 90 s: open infantry, a technical, a garrisoned house, an armoured column; vs the unitary draft; Conduct per round near civilians | the lead's four claims; more per round than the unitary draft; Conduct per round >= unitary | **MET after the retune** (rof 2 -> 5, the lead, 22 Oct): open infantry 0.820, technical 0.709 in 90 s (8 rounds); house men and house 0 hp, men suppressed; armour 0 hp; 1.9x the unitary draft per round; Conduct 5.63 vs 3.00 per round. At rof 2 the 90 s claim MISSED (0.347 / 0.248), below |
 
 The phase numbers on the deferred rows are the CLI's labels for the engine concept (E1 / E2 / E3); the
 order in which the engine phases land is the spec's, not this file's.
@@ -144,7 +144,7 @@ this probe (no enemy is present).
 
 ## Probe 4 -- the NLOS missile team (unit 4, Phase 7, on E2)
 
-Design fixed before any number was seen. Staged `at_nlos_team` (`spike_nlos`: atgm, `indirect`, range
+Design fixed before any number was seen. Staged `at_nlos_team` (`zaron_missile`: atgm, `indirect`, range
 24 / effective 18, accuracy 0.8, damage 450, rof 2, min 4, collateral 0.2).
 
 **4a, reach without a sight line.** Set-up: team at x=4.5, target 20 tiles east at x=24.5 (y=12.5), a
@@ -249,6 +249,46 @@ peak suppression 0.045 ±15%. Armour: **exactly 0** hp lost, peak suppression 0.
 3.00 per round and 16.80 / 9.00 lost (±15%), cluster >= unitary, 0 civilians dead. The two misses are
 pinned as a miss (the test asserts exactly those two failures).
 
+### Retune: rof 2 -> 5 (the lead, 22 Oct)
+
+The lead ruled to raise the rate of fire until the 90 s claim passes, inside +/-18% on the cost curve.
+Swept on this probe (10 seeds, open infantry / technical hp destroyed in 90 s):
+
+| rof | infantry | technical | rounds |
+|---|---|---|---|
+| 2 | 0.347 | 0.248 | 3 |
+| 3 | 0.547 | 0.384 | 5 |
+| 4 | 0.642 | 0.439 | 6 |
+| **5** | **0.820** | **0.709** | 8 |
+| 6 | 0.878 | 0.811 | 9 |
+
+**5 is the lowest rate that passes both** (the technical needs it; rof 4 leaves it at 0.439). Re-frozen
+at rof 5:
+
+| scene | gun | hp lost (mean) | worst seed | rounds | hp lost / round | peak suppression |
+|---|---|---|---|---|---|---|
+| infantry | cluster | 0.820 | 0.963 | 8.00 | 0.103 | 0.314 |
+| technical | cluster | 0.709 | 1.000 | 7.90 | 0.090 | 0.551 |
+| house (2 of 2 garrisoned) | cluster | **0.000** | **0.000** | 8.00 | 0 | 0.059 |
+| armour (3 `mbt_lavi`) | cluster | **0.000** | **0.000** | 8.00 | 0 | 0.315 |
+| infantry | unitary (same rof) | 0.430 | 0.662 | 8.00 | 0.054 | 0.342 |
+
+| Conduct (8 rounds, 2 civilians 2 tiles off) | rounds | Conduct lost | per round | civilians dead |
+|---|---|---|---|---|
+| cluster | 8.00 | 45.00 | **5.63** | 0.20 |
+| unitary draft | 8.00 | 24.00 | **3.00** | 0.00 |
+
+- All four claims MET; the 90 s claim now passes with margin (0.820 / 0.709 against 0.5).
+- **New at rof 5: the cluster kills a civilian 2 tiles from the target in 2 of 10 seeds** (0 at rof 2).
+  The scene's `civilian_casualty_penalty` is 0, so in a mission that kill is charged on top of the
+  5.63 per round. That is the unit's design (Conduct pays for every round), but it is a real cost the
+  lead should know.
+- Cost curve at rof 5 (logistics unchanged at 400): data/units + e5 + gh709 **+5.3%** (was +8.5%),
+  max tier **+7.8%** (was +11.5%); every unit inside +/-18% in all four passes. The curve now prices
+  the gun closer to its cost, so the ability premium shrank by about 3 points.
+- Bands re-frozen at +/-15% of the rof 5 run, each moved band commented `Was <n>` in the test.
+  Falsified: rof 4 in the staged JSON turns the claim and three bands red.
+
 ## Deferred
 
 | unit | needs | why no probe now |
@@ -319,7 +359,7 @@ GH-733 left `validate_balance.py` blind to both fields. It now reads them:
 
 | run | curve | at_nlos_team | spg_cluster | tightest |
 |---|---|---|---|---|
-| data/units + e5 + gh709, before | 283.978 * power^0.481 (n=45) | +12.3% | +9.2% | attack_drone +13.7% |
+| data/units + e5 + gh709, before (rof 2) | 283.978 * power^0.481 (n=45) | +12.3% | +9.2% | attack_drone +13.7% |
 | the same, after | 283.814 * power^0.481 (n=45) | **+11.8%** | **+8.5%** | attack_drone +13.8% |
 | max tier, after | 304.471 * power^0.481 (n=45) | +11.6% | +11.5% | heli_yanshuf +15.0% |
 | data/units alone, after | 287.734 * power^0.469 (n=35) | - | - | attack_drone +16.2% (unchanged) |
