@@ -32,9 +32,11 @@ describe('the road mask reaches every mission runtime (C-R4)', () => {
     .map((p) => relative(ROOT, p))
     .sort();
 
-  it('the ten sites are the ones on the tree', () => {
+  it('the eleven sites are the ones on the tree', () => {
     expect(sites).toEqual([
       'packages/app/src/mission-start.ts',
+      // N3 Task 3: a KDF-v-Sarim room's economy runtime.
+      'packages/app/src/net/match-world.ts',
       'tools/src/backtest/enemy-production-probe.ts',
       'tools/src/backtest/fl_ladder.ts',
       'tools/src/backtest/playtest-run.ts',

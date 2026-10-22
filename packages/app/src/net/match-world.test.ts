@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { doctrines, units, versusRules } from '@lions/data';
 import { sidesOfFactions, validateConfig, type MatchConfig, type SeatConfig } from '@lions/net';
+import type { MissionEvent } from '@lions/sim';
 import { campOf } from './versus-force';
 import { viewerSideOf } from './viewer';
-import { buildMatchWorld, seatKitTiers, type MatchWorld } from './match-world';
+import { buildMatchWorld, matchTick, seatKitTiers, versusUnitInfo, type MatchWorld } from './match-world';
 
 function config(map: string, factions: ['kdf' | 'sarim', 'kdf' | 'sarim'], seed = 1234): MatchConfig {
   // The room's own rule (LD1): the side follows the faction, the end the seat.
@@ -293,4 +295,105 @@ describe("a matched room, and a brigade room with equal claims, build today's by
     const w = buildMatchWorld(brigade('tel_marum', [a, b], { seed: SEED }));
     expect(w.sim.unitTypes.length).toBe(MATCHED_TYPES);
   });
+});
+
+// N3 Task 3: a KDF-v-Sarim room boots the skirmish economy; a mirror room boots none.
+describe('the economy runtime (N3 Task 3)', () => {
+  const MATCHUP_MAPS = ['tel_marum', 'wadi_tarfan'] as const;
+  /** Every match-world step through the ONE shared tick body, collecting the runtime's events. */
+  const run = (w: MatchWorld, n: number, into: MissionEvent[] = []): MissionEvent[] => {
+    for (let i = 0; i < n; i++) into.push(...matchTick(w).mission);
+    return into;
+  };
+
+  it('a mirror room has no runtime', () => {
+    for (const map of ['beit_sahwan_outskirts', ...MATCHUP_MAPS]) {
+      expect(buildMatchWorld(config(map, ['kdf', 'kdf'])).runtime, map).toBeNull();
+    }
+  });
+
+  it('a KDF-v-Sarim room, either host: one living line per side, each at its own end\'s camp, and each side its faction\'s purse', () => {
+    for (const map of MATCHUP_MAPS) {
+      for (const factions of [['kdf', 'sarim'], ['sarim', 'kdf']] as const) {
+        const w = buildMatchWorld(config(map, [...factions]));
+        const rt = w.runtime;
+        if (rt === null) throw new Error(`${map}: no runtime`);
+        // By side, and so by faction (LD1: KDF is side 0): never the seats' order.
+        expect(rt.logisticsOf(0), `${map} ${factions.join('/')}`).toBe(doctrines.kdf.budget.logistics_start);
+        expect(rt.logisticsOf(1), `${map} ${factions.join('/')}`).toBe(doctrines.sarim.budget.logistics_start);
+        for (const side of [0, 1] as const) {
+          const lines = rt.productionLines(side);
+          expect(lines).toHaveLength(1);
+          expect(lines[0].alive).toBe(true);
+          expect(lines[0].anchor).toBeGreaterThanOrEqual(0);
+          // The camp of the end this side stands at, from the rules file.
+          const [cx, cy] = versusRules[map].ends[w.endOfSide[side]].camp.at;
+          const [ex, ey] = lines[0].exit.map((v) => v / 65536);
+          expect(Math.max(Math.abs(ex - cx), Math.abs(ey - cy)), `${map} side ${side} exit by its camp`).toBeLessThanOrEqual(4);
+        }
+      }
+    }
+  });
+
+  it('versusUnitInfo: the asking side\'s menu only, its cost from the unit JSON, no unlock and no intel', () => {
+    const info = versusUnitInfo([doctrines.kdf.menu, doctrines.sarim.menu]);
+    expect(info('mbt_lavi', 0)).toEqual({ logistics: units.mbt_lavi.cost.logistics, buildTimeS: expect.any(Number), population: expect.any(Number) });
+    expect(info('mbt_lavi', 1)).toBeNull();
+    expect(info('atgm_cell', 1)).not.toBeNull();
+    expect(info('atgm_cell', 0)).toBeNull();
+    expect(info('no_such_unit', 0)).toBeNull();
+    // A gated KDF unit (Conduct 90 in single-player) is simply buildable here: the menu is the gate.
+    const lavi = info('mbt_lavi', 0);
+    expect(lavi !== null && !('unlock' in lavi) && !('intel' in lavi)).toBe(true);
+  });
+
+  it('matchTick drains the commands the frame set aside before the tick runs', () => {
+    const w = buildMatchWorld(config('tel_marum', ['kdf', 'sarim']));
+    const rt = w.runtime;
+    if (rt === null) throw new Error('no runtime');
+    // Straight into the sim's set-aside list (the wire still drops `build` in versus).
+    w.sim.queueCommand({ kind: 'build', side: 0, unit: 'inf_squad', line: 0 });
+    matchTick(w);
+    expect(rt.productionLines(0)[0].current).toBe('inf_squad');
+    expect(rt.logisticsOf(0)).toBe(doctrines.kdf.budget.logistics_start - units.inf_squad.cost.logistics);
+  });
+
+  it('build and lose: the built KDF unit dies, the placed force lives, and the room keeps producing', () => {
+    const w = buildMatchWorld(config('tel_marum', ['kdf', 'sarim']));
+    const rt = w.runtime;
+    if (rt === null) throw new Error('no runtime');
+    const events: MissionEvent[] = [];
+    const first = w.sim.entityCount;
+    expect(rt.requestBuild('inf_squad', 0, 0)).toBe(true);
+    run(w, 1200, events);
+    const built: number[] = [];
+    for (let i = first; i < w.sim.entityCount; i++) if (w.sim.state.side[i] === 0) built.push(i);
+    expect(built.length).toBeGreaterThan(0);
+    for (const id of built) w.sim.debugKill(id);
+    run(w, 1, events);
+    // Without `checkEnd`'s guard every `playerIds` entry is dead and the runtime ends a defeat here.
+    expect(rt.result).toBe('ongoing');
+    expect(events.some((e) => e.kind === 'missionEnd')).toBe(false);
+    expect(w.bySide[0].some((id) => w.sim.state.alive[id] === 1)).toBe(true);
+    const builtBefore = events.filter((e) => e.kind === 'built').length;
+    expect(rt.requestBuild('inf_squad', 0, 0)).toBe(true);
+    run(w, 1200, events);
+    expect(events.filter((e) => e.kind === 'built').length).toBe(builtBefore + 1);
+    expect(rt.result).toBe('ongoing');
+  }, 60_000);
+
+  it('never ends: 30,000 ticks (the 25-minute cap) with no orders, and a build at tick 29,000 starts', () => {
+    const w = buildMatchWorld(config('wadi_tarfan', ['kdf', 'sarim']));
+    const rt = w.runtime;
+    if (rt === null) throw new Error('no runtime');
+    const events = run(w, 29_000);
+    expect(rt.result).toBe('ongoing');
+    expect(rt.requestBuild('inf_squad', 0, 0)).toBe(true);
+    expect(rt.requestBuild('atgm_cell', 0, 1)).toBe(true);
+    run(w, 1000, events);
+    expect(w.sim.tickCount).toBe(30_000);
+    expect(rt.result).toBe('ongoing');
+    expect(events.some((e) => e.kind === 'missionEnd')).toBe(false);
+    expect(events.filter((e) => e.kind === 'built').map((e) => (e.kind === 'built' ? e.side : -1)).sort()).toEqual([0, 1]);
+  }, 120_000);
 });

@@ -41,6 +41,7 @@ import {
   creditInputFrom,
   type MissionEvent,
   type MissionJson,
+  type SimEvent,
   type TunnelRouteJson,
 } from '@lions/sim';
 // ThreeRenderer is deliberately NOT imported here: it arrives by dynamic
@@ -270,7 +271,7 @@ import { roomFlags } from './net/room-flags';
 import { netReport } from './net/net-report';
 import { viewerSideOf } from './net/viewer';
 import { campOf, factionsBySide, versusUnitTypes } from './net/versus-force';
-import { buildMatchWorld } from './net/match-world';
+import { buildMatchWorld, matchTick } from './net/match-world';
 import { screenKit } from './net/room-kit';
 import { shippedContentDigest } from './net/content-digest';
 import { pruneHiddenHostiles, type SeatSight } from './net/hidden-selection';
@@ -5292,9 +5293,19 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // `callStrike` therefore enter the sim queue after this frame's other
     // orders: they run last in their tick, deterministically.
     // `&works`' synthetic runtime prices its `raiseWorks`/`cancelWorks` the same way.
-    const ranQueued = runtime && mission ? runtime.applyQueued() : sandboxWorksRt ? sandboxWorksRt.applyQueued() : 0;
-    intelMoments?.beforeTick(sim);
-    const events = sim.tick();
+    // A versus room ticks through `matchTick`, the body the AI harness runs too (N3 Task 3):
+    // its economy runtime, when the room has one, prices the frame's set-aside commands and
+    // steps over the tick. A room has no mission, works runtime or intel moments, so the
+    // other branch is exactly what every non-room boot ran before.
+    let ranQueued = 0;
+    let events: SimEvent[];
+    if (versusWorld !== null) {
+      events = matchTick(versusWorld).sim;
+    } else {
+      ranQueued = runtime && mission ? runtime.applyQueued() : sandboxWorksRt ? sandboxWorksRt.applyQueued() : 0;
+      intelMoments?.beforeTick(sim);
+      events = sim.tick();
+    }
     tickQuiet = catchUpQuiet.next();
     renderer.snapshot();
     // A tick far behind the live edge throws no burst, plays no sound and
@@ -6012,9 +6023,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     seatWorld,
     runTick,
     config: netConfig,
-    // N2: folds 0 in every room until N3 starts a runtime there (L1);
-    // single-player is never asked.
-    runtimeDigest: () => runtime?.digest() ?? 0,
+    // N3 Task 3: a versus room folds its economy runtime's digest (0 in a mirror
+    // room, which has none), as the AI harness does; single-player is never asked.
+    runtimeDigest: () => (versusWorld !== null ? versusWorld.runtime?.digest() ?? 0 : runtime?.digest() ?? 0),
     // L4: this client's OWN content digest, folded into every hash it
     // reports. Taken here at boot in a room, so its ~50 ms cold computation
     // is not a hitch on tick 19; single-player hashes nothing and never pays it.

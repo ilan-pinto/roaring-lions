@@ -71,6 +71,14 @@ export function sidesOfMatchup(m: Matchup): [0 | 1, 0 | 1] {
   return sidesOfFactions(factionsOfMatchup(m));
 }
 
+/** Whether a room plays on the skirmish economy (N3 Task 3, Q1): a versus room
+ *  whose two seats field different factions. Such a room builds a
+ *  `MissionRuntime` (camps, purses, doctrine menus, income zones); a mirror
+ *  room -- KDF against KDF -- keeps today's placed-force match and builds none. */
+export function economyRoom(config: Pick<MatchConfig, 'mode' | 'seats'>): boolean {
+  return config.mode === 'versus' && config.seats[0].faction !== config.seats[1].faction;
+}
+
 /** Where a seat's force spawns: the host (seat 0) on the map's `friendly`
  *  anchor, the guest on `hostile` -- by SEAT, never by side, so picking Sarim
  *  does not move the host's end (LD1, N3 Task 2). */

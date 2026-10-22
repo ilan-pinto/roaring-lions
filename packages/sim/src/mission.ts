@@ -2517,12 +2517,14 @@ export class MissionRuntime {
       // and must fire for a death with no killer at all. `destroy()` clears
       // `alive` but leaves `side` and `typeIdx` untouched (sim.ts:4833-4847),
       // so both are still readable here, one tick's-worth of statements later.
-      if (e.kind === 'destroyed' && this.sim.state.side[e.entity] === 0) {
+      // N3 Task 3: a human-held side 1 (a versus room's second seat) loses units too. The
+      // default table holds side 1 by the machine, so single-player emits side 0 alone.
+      if (e.kind === 'destroyed' && this.isPlayerLoss(e.entity)) {
         out.push({
           kind: 'unitLost',
           tick,
           entity: e.entity,
-          side: 0,
+          side: this.sim.state.side[e.entity],
           unit: this.sim.unitTypes[this.sim.state.typeIdx[e.entity]].id,
         });
       }
@@ -3971,7 +3973,19 @@ export class MissionRuntime {
     }
   }
 
+  /** Whether a dead entity was a human's (`unitLost`): side 0's, or side 1's when a human holds it. */
+  private isPlayerLoss(id: number): boolean {
+    const side = this.sim.state.side[id];
+    return side === 0 || (side === 1 && this.sim.isHumanHeld(1));
+  }
+
   private checkEnd(tick: number, out: MissionEvent[]): void {
+    // N3 Task 3 (P-9): a mission with no objectives has nothing to win, so it never ends by
+    // itself; whoever runs it decides (a versus room: `outcome.ts`). Without this, a versus
+    // runtime ended as a wipe the tick its last BUILT side-0 unit died (production spawns into
+    // `playerIds`; the placed force does not), and income and production stopped for good.
+    // Every shipped mission has at least one objective (`minItems: 1`), so none reaches this.
+    if (this.objectives.length === 0) return;
     const primaries = this.objectives.filter((o) => o.def.primary);
     const won = primaries.length > 0 && primaries.every((o) => o.status === 'complete');
     const wiped =

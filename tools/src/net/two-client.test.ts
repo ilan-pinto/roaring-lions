@@ -9,7 +9,9 @@ import { missionWorld } from '../mission-harness';
 import { buildWorld } from '../../../packages/app/src/net/versus-world.test-helper';
 import { versusSpawns } from '../../../packages/app/src/net/versus-force';
 import { versusAnchors } from '../../../packages/app/src/net/versus-seats';
-import { buildMatchWorld } from '../../../packages/app/src/net/match-world';
+import { buildMatchWorld, matchTick } from '../../../packages/app/src/net/match-world';
+import { harnessTick } from './agent-client';
+import { FogTracker } from './fog-tracker';
 import { runFrames, seatWorldFor, type FrameStep } from '../../../packages/app/src/net/frame-step';
 import { versusConfig } from './test-config';
 import { contentDigest, shippedContent, shippedContentDigest } from '../../../packages/app/src/net/content-digest';
@@ -297,5 +299,76 @@ describe('the reported match digest (runFrames)', () => {
     // and only the data digest can see the two clients are not on one build.
     expect([...b.feed.simHashes]).toEqual([...a.feed.simHashes]);
     expect(firstDisagreement(a.feed.digests, b.feed.digests)).toBe(19);
+  }, 60_000);
+});
+
+// N3 Task 3: a KDF-v-Sarim room runs an economy runtime, and both the browser's room path
+// (`main.ts`: `matchTick`, the world runtime's digest) and the AI harness (`harnessTick`) must
+// report one digest. Builds stay direct calls in Task 3: the wire still drops `build` in versus.
+describe('an economy room: two clients and the harness, one frame stream (N3 Task 3)', () => {
+  const MAP = 'tel_marum';
+  const ETICKS = 400;
+
+  class Feed implements MatchTransport {
+    readonly local = false;
+    readonly digests = new Map<number, number>();
+    private frames: Frame[];
+    constructor(frames: Frame[]) { this.frames = [...frames]; }
+    queueCommand(): void {}
+    take(max: number): Frame[] { return this.frames.splice(0, max); }
+    reportTick(tick: number, digest: number | null): void { if (digest !== null) this.digests.set(tick, digest); }
+    status(): TransportStatus { return { kind: 'live', behind: this.frames.length }; }
+    close(): void {}
+  }
+
+  /** The same stream the digest block above uses: both sides attack-move at the other's end. */
+  function frames(bySide: [number[], number[]], anchors: { readonly friendly: readonly [number, number]; readonly hostile: readonly [number, number] }): Frame[] {
+    const [hx, hy] = anchors.hostile;
+    const [fx0, fy0] = anchors.friendly;
+    return stream(new Map<number, Stamped[]>([
+      [5, [
+        { seat: 0, seq: 0, cmd: { kind: 'attackMove', ids: bySide[0], x: fx.from(hx + 0.5), y: fx.from(hy + 0.5) } },
+        { seat: 1, seq: 0, cmd: { kind: 'attackMove', ids: bySide[1], x: fx.from(fx0 + 0.5), y: fx.from(fy0 + 0.5) } },
+      ]],
+    ]), ETICKS);
+  }
+
+  /** One client. `harness` runs the AI harness's tick; otherwise the browser's room body. */
+  function client(harness: boolean) {
+    const config = versusConfig(MAP, { factions: ['kdf', 'sarim'] });
+    const w = buildMatchWorld(config);
+    if (w.runtime === null) throw new Error('a kdf room must have a runtime');
+    const rt = w.runtime;
+    const feed = new Feed(frames(w.bySide, w.anchors));
+    const body: Pick<FrameStep, 'runTick' | 'runtimeDigest'> = harness
+      ? harnessTick(w, new FogTracker(w.sim, 1))
+      : { runTick: () => { matchTick(w); }, runtimeDigest: () => rt.digest() };
+    const step: FrameStep = { transport: feed, sim: w.sim, seatWorld: seatWorldFor(config, w.sim), config, ...body };
+    // A direct build on each side between ticks (the wire is closed until Task 4).
+    expect(runFrames(step, 30).ran).toBe(30);
+    expect(rt.requestBuild('inf_squad', 0, 0)).toBe(true);
+    expect(rt.requestBuild('atgm_cell', 0, 1)).toBe(true);
+    expect(runFrames(step, ETICKS).ran).toBe(ETICKS - 30);
+    return { feed, rt };
+  }
+
+  const firstDisagreement = (a: Map<number, number>, b: Map<number, number>): number | null => {
+    for (const [tick, d] of [...a].sort(([p], [q]) => p - q)) if (b.get(tick) !== d) return tick;
+    return null;
+  };
+
+  it('two browser clients report equal digests on every hash tick, with a non-zero runtime digest', () => {
+    const a = client(false);
+    const b = client(false);
+    expect(a.feed.digests.size).toBe(ETICKS / 20);
+    expect(firstDisagreement(a.feed.digests, b.feed.digests)).toBeNull();
+    expect(a.rt.digest()).not.toBe(0);
+  }, 60_000);
+
+  it('the harness and the browser report the same digest on every hash tick', () => {
+    const browser = client(false);
+    const harness = client(true);
+    expect(firstDisagreement(browser.feed.digests, harness.feed.digests)).toBeNull();
+    expect(harness.feed.digests.size).toBe(ETICKS / 20);
   }, 60_000);
 });
