@@ -262,6 +262,17 @@ describe('vent (GH-681)', () => {
     expect(w.events.some((e) => e.kind === 'submerged')).toBe(false);
   });
 
+  it('a wounded man takes no vent order (GH-707: vent skips the containment filter)', () => {
+    const w = world({ target: false });
+    const [u] = w.sarim;
+    goBelow(w, [u]);
+    w.run(TRAVEL);
+    (w.sim.state.woundState as Uint8Array)[u] = 1; // WOUND_DOWN, written directly: no wound content here
+    w.sim.queueCommand({ kind: 'vent', ids: [u], mode: 'exit' });
+    w.run(1);
+    expect(w.sim.state.tunnelIn[u]).toBe(w.route);
+  });
+
   it('a side nobody holds is never vented by order', () => {
     const w = world({ humanHeld: [true, false], target: false });
     const [u] = w.sarim;

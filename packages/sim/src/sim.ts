@@ -5101,6 +5101,9 @@ export class Sim {
       // A seat's order: a side nobody holds (the scripted enemy) surfaces by
       // its own rule only, whatever reaches the queue.
       if (!this.isHumanHeld(this.side[id])) continue;
+      // GH-707: `vent` skips the containment filter, so it must also refuse a
+      // wounded man itself -- he takes no order (a raider shot down stays down).
+      if (this.woundState[id] !== WOUND_NONE) continue;
       const r = this.tunnelIn[id];
       // `exit` to a raider already up keeps it up for good, as any other order does.
       if (r < 0 && mode === 'exit' && this.homeTunnel[id] >= 0) {
