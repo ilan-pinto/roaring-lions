@@ -254,6 +254,10 @@ async function main(): Promise<number> {
     // N3 Task 8: the economy stream as NODE plays it, which every engine must equal.
     const nodeEconomy = economyReadingOf(runEconomyClient(economyStreamFrames()));
     const nodeLast = nodeEconomy.digests[nodeEconomy.digests.length - 1];
+    // An empty Node reading would let an engine that read nothing pass: refuse it outright.
+    if (nodeEconomy.digests.length === 0 || nodeEconomy.built.some((n) => n === 0)) {
+      throw new Error('the economy stream produced no reading in Node (no hash ticks, or a side built nothing)');
+    }
     console.log(`[${TAG}] node: economy stream: ${nodeEconomy.digests.length} hash ticks, final ${nodeLast?.[1]} at tick ${nodeLast?.[0]}, built ${JSON.stringify(nodeEconomy.built)}`);
     const d = decide(outcomes, TARGET_TICK, FIRST_ORDER_TICK, nodeContent, args.require, nodeEconomy);
     // A `::warning::` line must START the line for the runner to read it, so
