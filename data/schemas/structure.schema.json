@@ -196,6 +196,17 @@
               }
             }
           },
+          "aid": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["admit_radius", "treat_s", "dispatch_radius"],
+            "description": "GH-707: an aid post. A carried wounded unloaded within admit_radius tiles is admitted and treated for treat_s seconds; idle friendly medics within dispatch_radius tiles are sent to wounded within that radius.",
+            "properties": {
+              "admit_radius": { "type": "number", "minimum": 0, "maximum": 12 },
+              "treat_s": { "type": "number", "exclusiveMinimum": 0 },
+              "dispatch_radius": { "type": "number", "minimum": 0, "maximum": 24 }
+            }
+          },
           "construction_mesh": {
             "type": "string",
             "description": "Presentation only."

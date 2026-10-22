@@ -150,6 +150,9 @@ import {
   AIR_WANT_LOAD,
   AIR_WANT_UNLOAD,
   AIR_WANT_DEPART,
+  MAX_EVAC_POINTS,
+  WOUND_NONE,
+  MED_IDLE,
   type SupportKind,
 } from './tuning';
 
@@ -217,6 +220,14 @@ export interface UnitTypeJson {
     transport_slots?: number;
     /** Can ride inside a transport. Defaults from role — see FOOT_ROLES. */
     can_embark?: boolean;
+    /** GH-707: men in the team, mirroring the GLB's figure count. Absent = 1. */
+    figures?: number;
+    /** GH-707: a lost man may fall wounded instead of dead. Absent = never. */
+    wounds?: { wound_chance: number; bleed_s: number; type: string; in_place?: boolean };
+    /** GH-707: when present, this carrier seats ONLY these roles. */
+    can_carry?: readonly string[];
+    /** GH-707: tiles around this unit inside which a friendly wounded does not bleed. */
+    stabilise_radius?: number;
     aps?: {
       base_pk?: number;
       magazine?: number;
@@ -245,6 +256,9 @@ export interface UnitTypeJson {
     firing_signature_mult?: number;
   };
   weapons?: WeaponJson[];
+  /** GH-707: a medic (ability `rescue`): how far it looks, how long it treats, how fast it
+   *  moves dragging (one man) or carrying (a stretcher team). */
+  rescue?: { radius_tiles: number; treat_s: number; drag_speed_mult: number; carry_speed_mult: number };
 }
 
 /**
@@ -564,6 +578,37 @@ export interface UnitType {
   firingSigMult: Fx;
   thermal: boolean;
   weapons: WeaponStats[];
+  /** GH-707: men in the team (`hull.figures`, default 1). */
+  figures: number;
+  /** GH-707: `hull.wounds`, parsed; null when a lost man always dies. */
+  wounds: { chance: Fx; bleedTicks: number; typeId: string; inPlace: boolean } | null;
+  /** GH-707: unit-type index of `wounds.typeId`, -1 until resolved (lazily, at the first fall). */
+  woundedTypeIdx: number;
+  /** GH-707: role `wounded` -- a shed man. */
+  isWounded: boolean;
+  /** GH-707: `hull.can_carry`; null = the ordinary `canEmbark` seating rule. */
+  canCarry: readonly string[] | null;
+  /** GH-707: squared `hull.stabilise_radius`, Q16.16; 0 = no aura. */
+  stabiliseRadiusSq: Fx;
+  /** GH-707: the medic block, null for every non-medic. */
+  rescue: { radiusSq: Fx; treatTicks: number; dragMult: Fx; carryMult: Fx } | null;
+}
+
+/** Seconds of authored data to whole ticks, crossing into fixed point once (invariant 2). */
+function secondsToTicks(s: number): number {
+  return fx.toInt(fx.mul(fx.from(s), fx.fromInt(TICKS_PER_SECOND)));
+}
+
+/** GH-707: `hull.wounds`, validated: the schema's bounds, re-checked so a test type or a
+ *  hand-built JSON cannot slip a chance above one or a bleed under a tick past the loader. */
+function woundsFromJson(json: UnitTypeJson): UnitType['wounds'] {
+  const w = json.hull.wounds;
+  if (w === undefined) return null;
+  const chance = fx.from(w.wound_chance);
+  if (chance < 0 || chance > ONE) throw new Error(`unit ${json.id}: hull.wounds.wound_chance must be 0..1`);
+  const bleedTicks = secondsToTicks(w.bleed_s);
+  if (bleedTicks < 1) throw new Error(`unit ${json.id}: hull.wounds.bleed_s is under one tick`);
+  return { chance, bleedTicks, typeId: w.type, inPlace: w.in_place ?? false };
 }
 
 function weaponFromJson(w: WeaponJson): WeaponStats {
@@ -641,6 +686,8 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
   const wheeled = json.mobility.wheeled ?? !FOOT_ROLES.has(json.role ?? '');
   const isKamikaze = abilities.includes('kamikaze');
   const armed = (json.weapons ?? []).length > 0;
+  const stabilise = fx.from(json.hull.stabilise_radius ?? 0);
+  const stabiliseSq = fx.mul(stabilise, stabilise);
   return {
     id: json.id,
     name: json.name ?? json.id,
@@ -701,7 +748,29 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
     firingSigMult: fx.from(json.sensors.firing_signature_mult ?? 4),
     thermal: json.sensors.thermal ?? false,
     weapons: (json.weapons ?? []).map(weaponFromJson),
+    figures: figuresFromJson(json),
+    wounds: woundsFromJson(json),
+    woundedTypeIdx: -1,
+    isWounded: json.role === 'wounded',
+    canCarry: json.hull.can_carry ?? null,
+    stabiliseRadiusSq: stabiliseSq,
+    rescue:
+      json.rescue === undefined
+        ? null
+        : {
+            radiusSq: fx.mul(fx.from(json.rescue.radius_tiles), fx.from(json.rescue.radius_tiles)),
+            treatTicks: secondsToTicks(json.rescue.treat_s),
+            dragMult: fx.from(json.rescue.drag_speed_mult),
+            carryMult: fx.from(json.rescue.carry_speed_mult),
+          },
   };
+}
+
+/** GH-707: `hull.figures`, an integer 1-8, absent 1. */
+function figuresFromJson(json: UnitTypeJson): number {
+  const f = json.hull.figures ?? 1;
+  if (!Number.isInteger(f) || f < 1 || f > 8) throw new Error(`unit ${json.id}: hull.figures must be an integer 1..8, got ${f}`);
+  return f;
 }
 
 // ---------------------------------------------------------------------------
@@ -1146,6 +1215,44 @@ export class Sim {
    *  carrier type. hash() folds the air block only while set, so no world without one
    *  moves any pin. Same shape as field works' `fwLive` (D1). */
   private airLive = false;
+  // GH-707 (wounded and rescue, P1 engine). Every column below is folded into hash() only
+  // once `woundLive` is set -- the `airLive`/`fwLive` deferred fold -- so a world with no
+  // wound-related type moves no pin. Defaults are written in `spawn`.
+  /** Men still standing in the team, `type.figures` at spawn. */
+  private readonly figuresUp: Uint8Array;
+  /** Times this team has taken a man back from an aid post (`scarredShare`). */
+  private readonly scars: Uint8Array;
+  /** The squad a wounded man fell from, -1 when none (in place, or the last man). */
+  private readonly woundParent: Int32Array;
+  /** Who downed him, -1 for nobody: the `by` of his bleed-out `destroyed`. */
+  private readonly woundBy: Int32Array;
+  /** WOUND_NONE..WOUND_GONE (tuning.ts). */
+  private readonly woundState: Uint8Array;
+  /** Ticks a DOWN man has left before he bleeds out. */
+  private readonly bleedTicks: Int32Array;
+  /** Ticks of treatment left at an aid post (ADMITTED). */
+  private readonly woundTimer: Int32Array;
+  /** MED_IDLE..MED_DELIVERING (tuning.ts), a medic's automatic behaviour. */
+  private readonly medState: Uint8Array;
+  /** The wounded a medic is working on, -1 when none. */
+  private readonly medTarget: Int32Array;
+  /** Ticks of treatment a medic has left on `medTarget`. */
+  private readonly medTimer: Int32Array;
+  /** Movement multiplier, Q16.16, ONE unless the unit drags or carries a wounded. */
+  private readonly speedMul: Int32Array;
+  /** The aid structure treating an ADMITTED man, -1 otherwise. */
+  private readonly admittedAt: Int32Array;
+  /** Wounded alive per side (0, 1, 2): the MAX_WOUNDED_PER_SIDE count. */
+  private readonly woundedAlive = new Int32Array(3);
+  /** Evacuation points (D4), MAX_EVAC_POINTS rows; `evacCount` are in use. */
+  private readonly evacX = new Int32Array(MAX_EVAC_POINTS);
+  private readonly evacY = new Int32Array(MAX_EVAC_POINTS);
+  private readonly evacSide = new Int32Array(MAX_EVAC_POINTS);
+  private evacCount = 0;
+  /** GH-707: true once `addUnitType` registers a type with `wounds`, `rescue`, `can_carry` or
+   *  role `wounded`, or `addStructureType` one with `aid`. hash() folds the wound block only
+   *  while set, so no world without wound content moves any pin. */
+  private woundLive = false;
   /** Structure this unit is currently engaging, -1 when none. */
   private readonly curStructure: Int32Array;
   private readonly mobilityKilled: Uint8Array;
@@ -1462,6 +1569,19 @@ export class Sim {
     readonly airTimer: Uint16Array;
     /** GH-698: AIR_WANT_* intent. */
     readonly airWant: Uint8Array;
+    /** GH-707: the wound columns (see their declarations). Render, app and tests read them. */
+    readonly figuresUp: Uint8Array;
+    readonly scars: Uint8Array;
+    readonly woundParent: Int32Array;
+    readonly woundBy: Int32Array;
+    readonly woundState: Uint8Array;
+    readonly bleedTicks: Int32Array;
+    readonly woundTimer: Int32Array;
+    readonly medState: Uint8Array;
+    readonly medTarget: Int32Array;
+    readonly medTimer: Int32Array;
+    readonly speedMul: Int32Array;
+    readonly admittedAt: Int32Array;
     /** Field works (#277): the site this unit builds, -1 none. */
     readonly buildSite: Int8Array;
     /** Field works: aura modifiers (Task 6). `auraAccMult` ONE = none. */
@@ -1593,6 +1713,18 @@ export class Sim {
     this.airState = new Uint8Array(n);
     this.airTimer = new Uint16Array(n);
     this.airWant = new Uint8Array(n);
+    this.figuresUp = new Uint8Array(n);
+    this.scars = new Uint8Array(n);
+    this.woundParent = new Int32Array(n).fill(-1);
+    this.woundBy = new Int32Array(n).fill(-1);
+    this.woundState = new Uint8Array(n);
+    this.bleedTicks = new Int32Array(n);
+    this.woundTimer = new Int32Array(n);
+    this.medState = new Uint8Array(n);
+    this.medTarget = new Int32Array(n).fill(-1);
+    this.medTimer = new Int32Array(n);
+    this.speedMul = new Int32Array(n).fill(ONE);
+    this.admittedAt = new Int32Array(n).fill(-1);
     this.curStructure = new Int32Array(n).fill(-1);
     this.mobilityKilled = new Uint8Array(n);
     this.firepowerKilled = new Uint8Array(n);
@@ -1728,6 +1860,18 @@ export class Sim {
       airState: this.airState,
       airTimer: this.airTimer,
       airWant: this.airWant,
+      figuresUp: this.figuresUp,
+      scars: this.scars,
+      woundParent: this.woundParent,
+      woundBy: this.woundBy,
+      woundState: this.woundState,
+      bleedTicks: this.bleedTicks,
+      woundTimer: this.woundTimer,
+      medState: this.medState,
+      medTarget: this.medTarget,
+      medTimer: this.medTimer,
+      speedMul: this.speedMul,
+      admittedAt: this.admittedAt,
       buildSite: this.buildSite,
       auraHealRate: this.auraHealRate,
       auraHealCap: this.auraHealCap,
@@ -1769,6 +1913,10 @@ export class Sim {
     const type = unitTypeFromJson(json);
     // GH-698, Q-A: the first air carrier type turns the air block's hash fold on.
     if (type.isAirCarrier) this.airLive = true;
+    // GH-707: the first wound-related type turns the wound block's hash fold on.
+    if (type.wounds !== null || type.rescue !== null || type.canCarry !== null || type.isWounded) {
+      this.woundLive = true;
+    }
     this.unitTypes.push(type);
     return this.unitTypes.length - 1;
   }
@@ -1903,7 +2051,10 @@ export class Sim {
   }
 
   addStructureType(json: StructureTypeJson): number {
-    this.structureTypes.push(structureTypeFromJson(json, TICKS_PER_SECOND));
+    const type = structureTypeFromJson(json, TICKS_PER_SECOND);
+    // GH-707: an aid post turns the wound block's hash fold on.
+    if (type.aid !== null) this.woundLive = true;
+    this.structureTypes.push(type);
     return this.structureTypes.length - 1;
   }
 
@@ -2066,6 +2217,12 @@ export class Sim {
     if (!this.unitTypes[this.typeIdx[t]].isAir) return false;
     const s = this.airState[t];
     return s !== AIR_LANDING && s !== AIR_LANDED;
+  }
+
+  /** GH-707: true once a wound-related unit or structure type is registered and the wound
+   *  block is folded into hash(). Read-only. */
+  get woundsLive(): boolean {
+    return this.woundLive;
   }
 
   /** Field works: true once the FW state block is folded into hash() (D1). Read-only. */
@@ -2824,6 +2981,18 @@ export class Sim {
     this.airState[id] = 0; // AIR_AIRBORNE
     this.airTimer[id] = 0;
     this.airWant[id] = 0; // AIR_WANT_NONE
+    this.figuresUp[id] = type.figures;
+    this.scars[id] = 0;
+    this.woundParent[id] = -1;
+    this.woundBy[id] = -1;
+    this.woundState[id] = WOUND_NONE;
+    this.bleedTicks[id] = 0;
+    this.woundTimer[id] = 0;
+    this.medState[id] = MED_IDLE;
+    this.medTarget[id] = -1;
+    this.medTimer[id] = 0;
+    this.speedMul[id] = ONE;
+    this.admittedAt[id] = -1;
     this.apsAmmo[id] = type.apsMagazine;
     this.pendingEvents.push({ kind: 'spawn', tick: this.tickCount, entity: id, typeId: type.id, side });
     return id;
@@ -8275,6 +8444,30 @@ export class Sim {
       h = hashArray(h, this.airState);
       h = hashArray(h, this.airTimer);
       h = hashArray(h, this.airWant);
+    }
+    // Wounded and rescue (GH-707): the same deferred fold. Nothing (no marker, no length word)
+    // before a wound-related type is registered, so P1 and P2 move no pin; every column here
+    // can leave its spawn default only through a wound-related type, so the canary still sees
+    // every wound divergence once the block is on.
+    if (this.woundLive) {
+      h = hashWord(h, 0x57440707); // 'WD' #707
+      h = hashArray(h, this.figuresUp);
+      h = hashArray(h, this.scars);
+      h = hashArray(h, this.woundParent);
+      h = hashArray(h, this.woundBy);
+      h = hashArray(h, this.woundState);
+      h = hashArray(h, this.bleedTicks);
+      h = hashArray(h, this.woundTimer);
+      h = hashArray(h, this.medState);
+      h = hashArray(h, this.medTarget);
+      h = hashArray(h, this.medTimer);
+      h = hashArray(h, this.speedMul);
+      h = hashArray(h, this.admittedAt);
+      h = hashArray(h, this.woundedAlive);
+      h = hashArray(h, this.evacX);
+      h = hashArray(h, this.evacY);
+      h = hashArray(h, this.evacSide);
+      h = hashWord(h, this.evacCount);
     }
     // Tunnel columns — every mutable one, matching how the demolition and
     // contact state above is folded in. The contact pair matters most: it

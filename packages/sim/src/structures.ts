@@ -54,6 +54,10 @@ export interface StructureTypeJson {
   /** Field works (#277, spec §3): what a COMPLETE structure owned by side 0 or 1 does to its
    *  own side's units. Absent = nothing (every shipped type today). */
   aura?: StructureAuraJson;
+  /** GH-707: an aid post. A carried wounded unloaded within `admit_radius` tiles is admitted
+   *  and treated for `treat_s`; idle friendly medics within `dispatch_radius` tiles are sent
+   *  to wounded within that radius of the post. Absent = not an aid post (every shipped type). */
+  aid?: { admit_radius: number; treat_s: number; dispatch_radius: number };
   /** Chest-high: blocks movement and shields whoever is hugging it, but you
    *  shoot over it rather than at it. A compound built from sight-blocking
    *  masonry is a blind box -- its garrison cannot fire out, so the wall
@@ -182,6 +186,8 @@ export interface StructureType {
   floors: number;
   /** Field works: the parsed `aura`, null when the type has none. */
   aura: StructureAura | null;
+  /** GH-707: the parsed `aid` block, null when the type is not an aid post. */
+  aid: StructureAid | null;
   /** A linear run whose tiles are each their own structure -- walls, fences.
    *  See StructureTypeJson.per_tile. */
   perTile: boolean;
@@ -189,6 +195,25 @@ export interface StructureType {
   wallTone?: string;
   /** Presentation only. See StructureTypeJson.wall_self_lit. */
   wallSelfLit?: number;
+}
+
+/** GH-707: a parsed `aid` block, Q16.16 squared radii and whole ticks, fixed at load. */
+export interface StructureAid {
+  admitRadiusSq: Fx;
+  treatTicks: number;
+  dispatchRadiusSq: Fx;
+}
+
+/** Parse an `aid` block (GH-707). Authored floats cross into fixed point once, here. */
+function aidFromJson(json: StructureTypeJson, ticksPerSecond: number): StructureAid | null {
+  const a = json.aid;
+  if (a === undefined) return null;
+  const admit = fx.from(a.admit_radius);
+  const dispatch = fx.from(a.dispatch_radius);
+  if (admit < 0 || dispatch < 0) throw new Error(`structure type ${json.id}: aid radii must be >= 0`);
+  const treatTicks = fx.toInt(fx.mul(fx.from(a.treat_s), fx.fromInt(ticksPerSecond)));
+  if (treatTicks < 1) throw new Error(`structure type ${json.id}: aid treat_s ${a.treat_s} is under one tick`);
+  return { admitRadiusSq: fx.mul(admit, admit), treatTicks, dispatchRadiusSq: fx.mul(dispatch, dispatch) };
 }
 
 /** See StructureType.buildable. */
@@ -300,6 +325,7 @@ export function structureTypeFromJson(json: StructureTypeJson, ticksPerSecond: n
     garrisonCover: json.garrison_cover ?? 3,
     floors: json.floors ?? 1,
     aura: auraFromJson(json, ticksPerSecond),
+    aid: aidFromJson(json, ticksPerSecond),
     ...(json.wall_tone !== undefined ? { wallTone: json.wall_tone } : {}),
     ...(json.wall_self_lit !== undefined ? { wallSelfLit: json.wall_self_lit } : {}),
   };
