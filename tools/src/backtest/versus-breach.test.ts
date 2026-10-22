@@ -21,8 +21,9 @@ describe('the normal arm is the room', () => {
     // (no tunnels) and the room's world (buildMatchWorld) for each pin map.
     expect(pinWindow('beit_sahwan_outskirts', 'helper').hash).toBe(3296182002);
     expect(pinWindow('beit_sahwan_outskirts', 'room').hash).toBe(1108074073);
-    expect(pinWindow('tel_marum', 'helper').hash).toBe(1260439781);
-    expect(pinWindow('tel_marum', 'room').hash).toBe(1260439781);
+    // tel_marum re-pinned 2026-10-22 for its versus seat 0 at (24,46). Was 1260439781.
+    expect(pinWindow('tel_marum', 'helper').hash).toBe(1524988923);
+    expect(pinWindow('tel_marum', 'room').hash).toBe(1524988923);
     for (const map of ['beit_sahwan_outskirts', 'tel_marum'] as const) {
       for (const how of ['helper', 'room'] as const) expect(pinWindow(map, how).activity.ticks).toEqual([0, 0]);
     }

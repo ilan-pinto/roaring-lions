@@ -111,8 +111,9 @@ describe('KDF vs Sarim (2026-10-14)', () => {
     // Re-pinned 2026-10-14 for targeted fire (GH-420): two per-unit columns, focusTarget and focusLost, join the sim hash. No behaviour moved: with their hashArray lines removed, both maps reproduce the old values. Was 873892333 / 3176591845.
     // Re-pinned 2026-10-22 for beit's versus seats (`versus-seats.ts`): seat 1 moved from
     // town_center (31,22) to (40,24) after the probe read the mirror west 38 / east 10.
-    // The spawn moved and nothing else. Was 580559085 (tel_marum unmoved).
-    const want: Record<string, number> = { beit_sahwan_outskirts: 3296182002, tel_marum: 1260439781 };
+    // The spawn moved and nothing else. Was 580559085. tel_marum re-pinned the same day when
+    // its seat 0 moved from start_line (24,44) to (24,46) (the lead's ruling). Was 1260439781.
+    const want: Record<string, number> = { beit_sahwan_outskirts: 3296182002, tel_marum: 1524988923 };
     for (const mapId of ['beit_sahwan_outskirts', 'tel_marum'] as const) {
       for (const factions of [undefined, ['kdf', 'kdf'] as const]) {
         const { sim, typeOf, map } = buildWorld(mapId);
