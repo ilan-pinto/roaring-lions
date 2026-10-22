@@ -41,12 +41,13 @@
       "penetration": 30,
       "damage": 60,
       "splash_tiles": 1.2,
-      "suppression": 120,
+      "suppression": 300,
       "rof_per_min": 30,
       "can_target": [
         "ground"
       ],
-      "collateral_risk": 0.3
+      "collateral_risk": 0.3,
+      "cover_ignore": 0.75
     },
     {
       "id": "rifles",

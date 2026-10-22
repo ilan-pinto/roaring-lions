@@ -3,11 +3,13 @@
 Record of what `pnpm --filter @lions/tools su:probes` measured on **22 Oct 2026** against the nine
 staged drafts in this directory, the claims made, and the frozen bands. Design:
 `docs/superpowers/specs/2026-10-22-special-units-design.md` (§1, §3 "Probes", lead rulings).
-Pinned by `tools/src/backtest/special-units-probes.test.ts` (73 specs since Phase 7; the CLI runs in ~1.5-3 s). The probes are
+Pinned by `tools/src/backtest/special-units-probes.test.ts` (74 specs since Phases 3 and 7; the CLI runs in ~1.5-3 s). The probes are
 report-only: a claim that misses leaves the CLI at exit 1 and is a unit to retune (the lead's call),
-never a band to widen. **No staged number was edited to make a claim pass.** No engine code exists
-or was written; `packages/sim`, `data/`, the determinism hash, `playtest`, `LADDER_CREDITS`,
-`ROSTER_MAX` and the versus pins are untouched.
+never a band to widen. At Phase 1 no staged number was edited to make a claim pass and no engine code
+was written. **Phase 3 (22 Oct) retuned one unit on the lead's ruling**: the grenadier, with a new
+weapon field `cover_ignore` in the sim and the schema (probe 9, "Phase 3"); its bands were re-frozen
+from that run. The determinism hash, `playtest`, `LADDER_CREDITS`, `ROSTER_MAX` and the versus pins
+are untouched.
 
 ## Summary
 
@@ -15,7 +17,7 @@ or was written; `packages/sim`, `data/`, the determinism hash, `playtest`, `LADD
 |---|---|---|---|
 | 1 `mbt_lavi_camo` | first-identified tick vs `sarim_rifles` / `atgm_cell` / `rpg_team` at 4/6/8 tiles, ambush / moving / firing, vs `mbt_lavi` | found later than the Lavi in every claimable cell | **MET** (24 claimable cells, 24 of 24; camo is 1.6-2.0x later across them). **"Found only by firing" does NOT hold** (below) |
 | 2 `spg_long_range` | duel vs `rocket_battery`, 20-28 tiles, a `recon_drone` spotting for each side | report win rate; Q11 | **Wins 30/30 at every range 20-28 with no hp lost. Q11 TRIGGERED** (reported, not retuned) |
-| 9 `inf_grenadier` | 2 squads vs 3 `militia_cell`, open vs cover 2, vs `inf_squad` | advantage over `inf_squad` larger against cover | **MISSED** on the net-margin reading (cover2 0.052 vs open 0.548); the damage-dealt ratio goes the other way (printed, not a claim) |
+| 9 `inf_grenadier` | 2 squads vs 3 `militia_cell`, open vs cover 2, vs `inf_squad` | advantage over `inf_squad` larger against cover | **MET since Phase 3** (cover2 0.684 vs open 0.643), after the lead's ruling and the `cover_ignore` field; Phase 1 MISSED it (cover2 0.052 vs open 0.548). See "Phase 3" below |
 | 10 `ugv_recon_dog` | first tick a `pre_dug` route is identified, synthetic map | after `recon_drone`, before `yahalom_squad` | **MET**: drone 92, dog 217, yahalom 425 ticks |
 | 4 `at_nlos_team` | 4a: kills `rocket_battery` / `atgm_cell` 20 tiles off behind a 2-tile wall, a `recon_drone` spotting; control with `indirect` stripped. 4b: Conduct lost killing an `atgm_cell` in a flagged zone, vs `mortar_team` | kills most seeds, control never fires; fewer Conduct lost than `mortar_team` | **MET** (22 Oct, Phase 7, E2). 4a: 19/20 kills each, 21.4 / 21.5 s, 1.65 rounds; control 0 rounds, 0 kills. 4b: Conduct lost **0.00** (0 of 20 seeds charged) vs `mortar_team` **16.50** (20 of 20) |
 | 5 `veh_ambulance` | | | deferred to Phase 5 (needs E1, the unit aura) |
@@ -152,6 +154,93 @@ miss, since choosing a scenario to make the claim pass is the same as widening a
 
 **Bands** (±15% of the measured value): the six margins and advantages above; the damage ratio open in
 [2.4, 3.3] and cover 2 in [7.4, 10.1].
+
+### Phase 3 (22 Oct): the grenades ignore part of the cover bonus
+
+**Ruling.** The lead ruled that the grenades IGNORE PART OF THE COVER BONUS, so "reach men behind a
+wall" holds; grenades still do not reach garrisoned men (Q7), and collateral stays 0.3 (Q10).
+
+**Why splash alone could not do it.** Splash already ignored cover for DAMAGE (`splashAt` reads no
+cover table), so the Phase 1 miss was never the hit chance. Traced on one seed: on cover 2 the militia
+(signature x0.5) are identified about 2 s after they identify the KDF, their fire pins both squads
+(`PIN_AT` 0.70, a pinned unit holds fire) within three seconds, and the squads never fire again: 14
+grenades in 25 s against 130 in the open. The militia on cover 2 take 0.1375 of every suppression
+(`COVER_SUPP[2]`) and never pin. So the fight on cover is a pinning race, and the lever is the
+suppression the grenade puts on a man in cover, not its hit chance. Hit chance alone (the field read
+by `hitFactors` only, swept 0-1) moved the cover-2 advantage from 0.052 to 0.066 at most.
+
+**The field.** `weapons[i].cover_ignore`, 0-1, absent 0 (`unit.schema.json`, `WeaponStats.coverIgnore`,
+`packages/sim/src/sim.ts`). It closes that fraction of the gap between the target's TILE cover
+multiplier and the open ground's 1, in two places: the hit chance (`COVER_HIT`, parapet included) and
+the suppression this weapon's rounds put on a man in cover (`COVER_SUPP`; the hit, the near miss and
+the splash, read from the projectile's weapon through `weaponOf`, so no new projectile state). A
+garrisoned man keeps his building's `garrison_cover` (Q7), and detection (`COVER_SIG`) does not move.
+It is static weapon data: nothing new is stored per entity, no hash folds it, and no shipped weapon
+carries it, so the determinism hash, `balance`, `playtest` and every pin are unchanged (gates below).
+
+**The retune.** `gl_40`: `cover_ignore` 0.75 (new) and `suppression` 120 -> 300. Nothing else moved;
+the blurb stands. Sweep (30 seeds, advantage cover2 vs open; the claim needs cover2 > open):
+
+| `cover_ignore` | suppression | open | cover 2 | claim |
+|---|---|---|---|---|
+| 0 | 120 (Phase 1) | 0.548 | 0.052 | miss |
+| 1 | 120 | 0.548 | 0.202 | miss |
+| 0.75 | 120 | 0.548 | 0.126 | miss |
+| 0 | 300 | 0.643 | 0.082 | miss |
+| 0.5 | 300 | 0.643 | 0.256 | miss |
+| 0.75 | 240 | 0.644 | 0.306 | miss |
+| 0.75 | 270 | 0.643 | 0.597 | miss |
+| **0.75** | **300** | **0.643** | **0.684** | **MET** |
+| 0.75 | 400 | 0.642 | 0.697 | met |
+| 0.85 | 300 | 0.643 | 0.662 | met |
+| 1 | 240 | 0.644 | 0.675 | met |
+
+The response is a cliff, not a slope (0.306 at 240, 0.597 at 270, 0.684 at 300): it is the pinning
+race tipping, whoever pins first wins the fight. 300 is the lowest suppression on the 0.75 row that
+clears it; on 90 seeds (99000-99089) it still holds, cover2 0.651 vs open 0.617. Both changes are
+needed (the two controls above, pinned in the test). The margin over the claim is thin (0.041); a
+later change to suppression, pinning or detection can tip it back, and the probe test will say so.
+
+**Measured** (30 seeds, the CLI's own run):
+
+| unit | margin open | margin cover 2 | militia hp destroyed, open | cover 2 |
+|---|---|---|---|---|
+| `inf_grenadier` | 0.570 | 0.181 | 0.610 | 0.323 |
+| `inf_squad` | -0.073 | -0.503 | 0.199 | 0.006 |
+| advantage (the claim) | **0.643** | **0.684** | | |
+| damage ratio grenadier/inf_squad (not a claim) | | | 3.07x | 49.81x |
+
+The cover-2 damage ratio has a 0.006 denominator, so it is printed for completeness and swings a lot.
+
+**Re-frozen bands** (±15% of the above): the six margins and advantages; the damage ratio open in
+[2.6, 3.6] and cover 2 in [42.3, 57.3]; plus a spec that the claim MEETS, and one that each of the
+two controls MISSES.
+
+**Cost curve, both passes** (the nine staged plus e5, as above):
+
+```
+python3 tools/validate_balance.py --units data/units --also docs/campaign/special_units/e5 \
+  --also docs/campaign/special_units/gh709 --report
+fitted curve: cost = 283.811 * power^0.481  (n=45)
+inf_grenadier   1.4   320   339   -5.6%      (was -3.0%)
+balance gate passed: 45 units within +/-18%
+  ... --max-tier --upgrade-cost-factor 0.02
+fitted curve: cost = 304.466 * power^0.481  (n=45)
+inf_grenadier   1.3   320   345   -7.2%      (was -4.5%)
+balance gate passed: 45 units within +/-18%
+```
+
+The curve prices the suppression (it saturates, so 120 -> 300 costs little) but **cannot see
+`cover_ignore`**: `validate_balance.py` has no term for it. The unit sits at -5.6%, cheap on the
+curve, while the probe says it is the better squad against cover. Pricing the field in the curve is a
+choice for the lead (no shipped unit carries it, so adding a term would move nothing today).
+
+**Falsifications** (each a one-line mutation of `sim.ts`, run, watched red, restored byte-for-byte):
+the hit-chance line removed (the hit spec red); the garrison guard removed (the building spec red);
+the near-miss pass zeroed (the suppression spec red); the splash pass zeroed (two specs red); the hit
+pass in `resolveHit` zeroed (the "1 is the open ground" spec red); the 0-1 range check removed (the
+loader spec red); the absent default set to 0.1 (three specs red). And the staged `cover_ignore` set to
+0.5 in the JSON: the probe's claim, margin and ratio specs red (restored).
 
 ## Probe 10 -- the robot dog (unit 10)
 
@@ -327,9 +416,9 @@ file were restored byte-for-byte, `diff` clean):
 
 ## Notes for the lead and the landing phases
 
-- **The grenadier's blurb is provisional.** "Grenades reach men behind a wall" is the spec's splash
-  argument, and probe 9 misses its cover claim on the net-margin reading. Re-read the blurb when the
-  lead rules on the retune.
+- **The grenadier's blurb stands** (Phase 3). "Grenades reach men behind a wall" is now true in the
+  sim: `cover_ignore` 0.75 on `gl_40`, and probe 9's cover claim MEETS. "Never inside a house" is the
+  garrison rule, which the field does not touch.
 - **`ugv_recon_dog` sets `hull.can_embark: true`**, a choice beyond the spec's §1.10 field list: a
   crew-0, population-0 robot may ride a carrier like a team. Phase 8 confirms or drops it with the
   transport rules in front of it.

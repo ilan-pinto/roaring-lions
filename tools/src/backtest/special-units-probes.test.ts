@@ -7,10 +7,10 @@
 // Seeds are fixed and the sim is deterministic. The whole file runs the CLI's own seed counts
 // (the full probe set is ~1.5 s), so a band here is exactly the number the CLI prints.
 //
-// KNOWN MISS, pinned as a miss (not skipped): the grenadier's advantage over inf_squad is NOT
-// larger against cover on the net-hp-margin reading (cover2 0.052 vs open 0.548). The test
-// asserts the miss as measured; when the unit is retuned it goes red, and the bands are
-// re-frozen from a new run with the lead's ruling.
+// Probe 9 was a KNOWN MISS at Phase 1 (cover2 0.052 vs open 0.548). The lead ruled (22 Oct)
+// that the grenades ignore part of the cover bonus; Phase 3 added the `cover_ignore` weapon
+// field, retuned the staged grenadier (gl_40 cover_ignore 0.75, suppression 120 -> 300), and
+// re-froze probe 9's bands from that run (numbers.md, "Phase 3"). The claim now MEETS.
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
   clusterClaims,
@@ -164,34 +164,48 @@ describe('SU probe 9: the grenadier against cover (staged inf_grenadier)', () =>
     t = coverTable(stagedUnit('inf_grenadier'));
   });
 
-  it('KNOWN MISS: the advantage over inf_squad is not larger against cover on the margin reading', () => {
-    const fails = coverClaims(t);
-    expect(fails).toHaveLength(1);
-    expect(fails[0]).toMatch(/not larger against cover/);
+  it('MEETS: the advantage over inf_squad is larger against cover than in the open', () => {
+    expect(coverClaims(t)).toEqual([]);
   });
 
-  it('net margins sit inside their bands (+/-15%, measured 22 Oct)', () => {
-    // grenadier open 0.475, cover2 -0.451; inf_squad open -0.073, cover2 -0.503; advantage open 0.548, cover2 0.052
+  it('net margins sit inside their bands (+/-15%, re-frozen 22 Oct, Phase 3)', () => {
+    // grenadier open 0.570, cover2 0.181; inf_squad open -0.073, cover2 -0.503; advantage open 0.643, cover2 0.684
     const near = (got: number, want: number) => {
       const w = Math.abs(want) * 0.15;
       expect(got).toBeGreaterThanOrEqual(want - w);
       expect(got).toBeLessThanOrEqual(want + w);
     };
-    near(t.grenadier.open.margin, 0.475);
-    near(t.grenadier.cover2.margin, -0.451);
+    near(t.grenadier.open.margin, 0.57);
+    near(t.grenadier.cover2.margin, 0.181);
     near(t.inf_squad.open.margin, -0.073);
     near(t.inf_squad.cover2.margin, -0.503);
-    near(t.advantage.open, 0.548);
-    near(t.advantage.cover2, 0.052);
+    near(t.advantage.open, 0.643);
+    near(t.advantage.cover2, 0.684);
   });
 
-  it('on damage dealt the grenadier does multiply further against cover (printed, not a claim)', () => {
+  it('on damage dealt the grenadier multiplies further against cover (printed, not a claim)', () => {
     expect(t.dealtRatio.cover2).toBeGreaterThan(t.dealtRatio.open);
-    expect(t.dealtRatio.open).toBeGreaterThan(2.4);
-    expect(t.dealtRatio.open).toBeLessThan(3.3);
-    expect(t.dealtRatio.cover2).toBeGreaterThan(7.4);
-    expect(t.dealtRatio.cover2).toBeLessThan(10.1);
+    // open 3.07x, cover2 49.81x (inf_squad deals 0.006 of the militia's hp there: a small
+    // denominator, so this ratio moves a lot for a little).
+    expect(t.dealtRatio.open).toBeGreaterThan(2.6);
+    expect(t.dealtRatio.open).toBeLessThan(3.6);
+    expect(t.dealtRatio.cover2).toBeGreaterThan(42.3);
+    expect(t.dealtRatio.cover2).toBeLessThan(57.3);
   });
+
+  it('the field carries the claim: without cover_ignore, or at the old suppression, it misses', () => {
+    // Controls measured 22 Oct: cover_ignore removed -> cover2 0.082 vs open 0.643;
+    // suppression back at 120 -> cover2 0.126 vs open 0.548. Both changes are needed.
+    const g = stagedUnit('inf_grenadier');
+    const without = structuredClone(g);
+    delete without.weapons?.[0].cover_ignore;
+    expect(coverClaims(coverTable(without))).toHaveLength(1);
+    const oldSupp = structuredClone(g);
+    if (oldSupp.weapons) oldSupp.weapons[0].suppression = 120;
+    expect(coverClaims(coverTable(oldSupp))).toHaveLength(1);
+    // Two more full cover tables (240 fights): well under a second alone, but the whole
+    // suite runs 743 files in parallel.
+  }, 60_000);
 });
 
 describe('SU probe 10: the robot dog finds a pre_dug route (synthetic map)', () => {
