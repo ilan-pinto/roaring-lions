@@ -134,7 +134,9 @@ describe('the armed patrol cursor (Q9, Q10)', () => {
   });
   it('cursorAt resolves an armed patrol with no ids and reads the point test', () => {
     const s = new Sim({ seed: 0x9a7, width: 20, height: 20, capacity: 8 });
-    const p: PointerPoint = { ground: { x: 5.5, y: 5.5 }, x: 5.5, y: 5.5, hostile: -1, hostileAt: null, facade: -1 };
+    // Through `unknown`: main's PointerPoint also carries the GH-707 `wounded`/`woundedAt`
+    // fields, which this branch (stacked on net-n3) does not have yet; both read -1/null here.
+    const p = { ground: { x: 5.5, y: 5.5 }, x: 5.5, y: 5.5, hostile: -1, hostileAt: null, facade: -1, wounded: -1, woundedAt: null } as unknown as PointerPoint;
     const w = simIntentWorld(s, () => false);
     const ctx = { ids: [1, 2], armed: null, confirm: false, armedSmoke: false };
     expect(cursorAt(s, w, p, { ...ctx, patrolAt: () => true }).key).toBe('patrol');
