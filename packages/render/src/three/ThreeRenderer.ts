@@ -6654,17 +6654,17 @@ export class ThreeRenderer implements Renderer {
    * has failed.
    */
   /**
-   * The world-Y height an `isAir` unit flies at: `AIR_LIFT_PX` for every air
-   * type, scaled by `airLiftFrac` for an AIR CARRIER alone (GH-698), so a
-   * Yanshuf is drawn settling onto its LZ while it lands, on the ground while it
-   * loads or unloads, and climbing while it lifts. Every other air unit gets the
-   * same product it always did, bit for bit. Callers check `isAir` first.
+   * The world-Y height an `isAir` unit flies at: `AIR_LIFT_PX`, scaled by
+   * `airLiftFrac` (GH-698), so a Yanshuf is drawn settling onto its LZ while it
+   * lands, on the ground while it loads or unloads, and climbing while it lifts
+   * -- and since #706 §3.5 every air type is: a forced-landed gunship sits on
+   * the ground. `airLiftFrac` is exactly 1 while AIRBORNE and `x * 1 === x`, so
+   * an air unit that never lands gets the same product it always did, bit for
+   * bit. Callers check `isAir` first.
    */
   private airLiftY(i: number, alpha: number): number {
-    const lift = AIR_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL;
     const st = this.sim.state;
-    if (!this.sim.unitTypes[st.typeIdx[i]].isAirCarrier) return lift;
-    return lift * airLiftFrac(st.airState[i], st.airTimer[i], alpha);
+    return AIR_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL * airLiftFrac(st.airState[i], st.airTimer[i], alpha);
   }
 
   private updateProxyBoxes(alpha: number): void {
@@ -10358,10 +10358,11 @@ export class ThreeRenderer implements Renderer {
           const lvl = this.sim.contactLevel(this.viewer, i);
           bodyAlpha = lvl === 2 ? 1 : lvl === 1 ? 0.65 : 0.35;
         }
-        // GH-698: an air carrier's lift shadow fades with its own descent
-        // (`airLiftFrac`), so a landed Yanshuf is not drawn over a gap shadow.
-        // Every other air unit reads exactly 1, as before.
-        if (type.isAirCarrier) bodyAlpha *= airLiftFrac(this.sim.state.airState[i], this.sim.state.airTimer[i], alpha);
+        // GH-698: an aircraft's lift shadow fades with its own descent
+        // (`airLiftFrac`), so a landed Yanshuf -- or, since #706 §3.5, a
+        // forced-landed gunship -- is not drawn over a gap shadow. AIRBORNE
+        // reads exactly 1, so an air unit that never lands is unchanged.
+        bodyAlpha *= airLiftFrac(this.sim.state.airState[i], this.sim.state.airTimer[i], alpha);
         const shadowR = r * 0.7 + 2;
         this.overlayBatch.ellipseFan(
           billboardPoint(anchor, 0, -3),

@@ -1161,16 +1161,19 @@ export class Sim {
    *  the focus is held. Hashed, and added with the column above so the focus
    *  behaviour that follows is hash-neutral. */
   private readonly focusLost: Uint16Array;
-  /** GH-698: air carrier flight state, AIR_AIRBORNE..AIR_LIFTING (tuning.ts); 0 for
-   *  every non-carrier. Folded into hash() only once `airLive` is set. */
+  /** GH-698: air flight state, AIR_AIRBORNE..AIR_LIFTING (tuning.ts). 0 (AIRBORNE)
+   *  for every ground unit, and for every non-carrier aircraft until a mobility kill
+   *  brings it down (#706 §3.5, the forced landing). Folded into hash() only once
+   *  `airLive` is set. */
   private readonly airState: Uint8Array;
   /** GH-698: ticks left in AIR_LANDING / AIR_LIFTING. Hashed with `airState`. */
   private readonly airTimer: Uint16Array;
   /** GH-698: what an air carrier lands for, AIR_WANT_* (tuning.ts). Hashed with `airState`. */
   private readonly airWant: Uint8Array;
   /** GH-698, Q-A (deferred fold, lead 21 Oct): true once `addUnitType` registers an air
-   *  carrier type. hash() folds the air block only while set, so no world without one
-   *  moves any pin. Same shape as field works' `fwLive` (D1). */
+   *  carrier type, or (#706 §3.5) once any aircraft is mobility-killed -- the one way a
+   *  non-carrier aircraft leaves AIRBORNE. hash() folds the air block only while set,
+   *  so no world without either moves any pin. Same shape as field works' `fwLive` (D1). */
   private airLive = false;
   /** Structure this unit is currently engaging, -1 when none. */
   private readonly curStructure: Int32Array;
@@ -2096,8 +2099,8 @@ export class Sim {
     return this.stKnown[side * MAX_STRUCTURES + s] === 1;
   }
 
-  /** GH-698: true once an air carrier type is registered and the air block is folded
-   *  into hash() (Q-A). Read-only. */
+  /** GH-698: true once an air carrier type is registered, or (#706) an aircraft has
+   *  been mobility-killed, and the air block is folded into hash() (Q-A). Read-only. */
   get airCarrierLive(): boolean {
     return this.airLive;
   }
@@ -3436,9 +3439,10 @@ export class Sim {
           // either — the loop below then skips it for having none.
           if (this.alive[id] === 0 || this.routed[id] === 1 || this.carriedBy[id] >= 0) continue;
           const utype = this.unitTypes[this.typeIdx[id]];
-          // GH-698: a LANDING air carrier ignores a move outright -- no slot here,
-          // nothing written below.
-          if (utype.isAirCarrier && this.airState[id] === AIR_LANDING) continue;
+          // GH-698: a LANDING aircraft ignores a move outright -- no slot here,
+          // nothing written below. #706: any air type, since a forced landing
+          // brings a gunship down too.
+          if (utype.isAir && this.airState[id] === AIR_LANDING) continue;
           const front = utype.isAir || utype.moveDomain === DOMAIN_VEHICLE;
           members.push({ id, domain: utype.isAir ? DOMAIN_FOOT : utype.moveDomain, front });
           // Where this unit will be coming FROM: its last queued point when
@@ -3501,8 +3505,9 @@ export class Sim {
           // attack-move latch left behind would let stepSweep/stepFocus lift
           // it once landed). Before the append fast-path: an appended leg
           // behind a land order would otherwise land the carrier on the
-          // waypoint, wherever that is.
-          if (utype.isAirCarrier) {
+          // waypoint, wherever that is. #706: any air type (a non-carrier's want
+          // is always NONE, so only the LANDING rule bites).
+          if (utype.isAir) {
             if (this.airState[id] === AIR_LANDING) continue;
             const want = this.airWant[id];
             if (want === AIR_WANT_LOAD || want === AIR_WANT_UNLOAD) this.airWant[id] = AIR_WANT_NONE;
@@ -3836,8 +3841,8 @@ export class Sim {
           // order before any write; otherwise it cancels a land plan, so
           // stepFocus's chase goal (the target's last-seen tile, never checked
           // as an LZ) can never become a landing, and stepTransport releases the
-          // riders. LANDED, the chase lifts it as a move would.
-          if (this.unitTypes[this.typeIdx[id]].isAirCarrier) {
+          // riders. LANDED, the chase lifts it as a move would. #706: any air type.
+          if (this.unitTypes[this.typeIdx[id]].isAir) {
             if (this.airState[id] === AIR_LANDING) continue;
             const want = this.airWant[id];
             if (want === AIR_WANT_LOAD || want === AIR_WANT_UNLOAD) this.airWant[id] = AIR_WANT_NONE;
@@ -6185,6 +6190,9 @@ export class Sim {
         break;
       case 'mobility_kill':
         this.mobLive = true;
+        // #706 §3.5: an aircraft brought down turns the air machine (and its
+        // hash fold) on, so a world that never mobility-kills one is untouched.
+        if (tType.isAir) this.airLive = true;
         this.mobilityKilled[target] = 1;
         this.fieldFixTicks[target] = 0;
         this.moving[target] = 0;
@@ -6195,6 +6203,7 @@ export class Sim {
         break;
       case 'combat_ineffective':
         this.mobLive = true;
+        if (tType.isAir) this.airLive = true; // #706 §3.5, as mobility_kill
         this.mobilityKilled[target] = 1;
         this.fieldFixTicks[target] = 0;
         this.moving[target] = 0;
@@ -6710,17 +6719,23 @@ export class Sim {
   // (AIR_LIFT_TICKS) -> AIRBORNE, and it does not move outside AIRBORNE.
   // `airWant` is what it was last asked to land for. No rng anywhere: every
   // choice is a fixed scan order (invariant 3). Nothing here runs, and nothing
-  // here is reachable, in a world with no air carrier type (`airLive`).
+  // here is reachable, in a world with no air carrier type and no
+  // mobility-killed aircraft (`airLive`).
+  //
+  // #706 §3.5: the machine runs for EVERY air type. A non-carrier's `airWant`
+  // is always NONE (only load/unload, carrier-only, set it), so for a gunship
+  // or a drone only the forced landing and the LANDED hold ever apply; a
+  // healthy one stays AIRBORNE and is skipped on the `want` check.
 
   /**
-   * One tick of the machine, for every air carrier. Called immediately before
+   * One tick of the machine, for every aircraft. Called immediately before
    * stepMovement, so the `moving = 0` it writes outside AIRBORNE wins over every
    * setter earlier in the tick (orders, stepFocus, stepSweep).
    */
   private stepAirCarriers(): void {
     if (!this.airLive) return;
     for (let i = 0; i < this.count; i++) {
-      if (this.alive[i] === 0 || !this.unitTypes[this.typeIdx[i]].isAirCarrier) continue;
+      if (this.alive[i] === 0 || !this.unitTypes[this.typeIdx[i]].isAir) continue;
       let st = this.airState[i];
       if (st === AIR_AIRBORNE) {
         // A hull that cannot move never reaches an LZ, so it would hover for
@@ -6793,8 +6808,8 @@ export class Sim {
   }
 
   /**
-   * Forced landing (fix/air-pathing, lead ruling 21 Oct 2026): an AIRBORNE
-   * carrier whose mobility is knocked out (`mobilityKilled`, from the
+   * Forced landing (fix/air-pathing, lead ruling 21 Oct 2026; every air type
+   * since #706 §3.5): an AIRBORNE aircraft whose mobility is knocked out (`mobilityKilled`, from the
    * component roll's `mobility_kill` or `combat_ineffective`) starts LANDING
    * at once -- where it is when its tile is foot-open, else on the centre of
    * the nearest foot-open tile (a rifleman's ground, not the vehicle LZ rule:
@@ -6915,7 +6930,9 @@ export class Sim {
    *  Airborne, the land plan is cancelled and it hovers. Lifting, it hovers
    *  where it lifted. Landing completes; landed stays. */
   private haltAir(id: number): void {
-    if (!this.unitTypes[this.typeIdx[id]].isAirCarrier) return;
+    // #706: any air type -- a non-carrier lifting after a workshop cleared its
+    // forced landing hovers on a halt like a carrier does.
+    if (!this.unitTypes[this.typeIdx[id]].isAir) return;
     const st = this.airState[id];
     if (st === AIR_AIRBORNE) {
       this.airWant[id] = AIR_WANT_NONE;
@@ -8417,8 +8434,10 @@ export class Sim {
     // shape. The block is folded only once `addUnitType` has registered an air
     // carrier type, and nothing at all (no marker, no length word) before that, so
     // no golden, versus, net, economy or runtime-digest pin moved. Only an air
-    // carrier ever leaves these columns at their spawn defaults, and it cannot
-    // exist without its type, so the canary still sees every air divergence.
+    // carrier, or (#706 §3.5) a mobility-killed aircraft, ever leaves these
+    // columns at their spawn defaults; the first needs its type and the second
+    // sets the latch in rollComponent, so the canary still sees every air
+    // divergence.
     if (this.airLive) {
       h = hashWord(h, 0x41490698); // 'AI' GH-698
       h = hashArray(h, this.airState);
