@@ -5,6 +5,7 @@ import type { MissionEvent } from '@lions/sim';
 import { campOf } from './versus-force';
 import { viewerSideOf } from './viewer';
 import { buildMatchWorld, matchTick, seatKitTiers, versusUnitInfo, type MatchWorld } from './match-world';
+import { versusRoster } from './versus-roster';
 
 function config(map: string, factions: ['kdf' | 'sarim', 'kdf' | 'sarim'], seed = 1234): MatchConfig {
   // The room's own rule (LD1): the side follows the faction, the end the seat.
@@ -408,3 +409,16 @@ describe('the economy runtime (N3 Task 3)', () => {
     }
   });
 });
+
+describe('doctrine menus and the room roster (Task 3 review, M-a)', () => {
+  it('every doctrine menu id is a unit a room registers, so a build can never reach a missing type', () => {
+    const ids = new Set(versusRoster().map((u) => u.id));
+    for (const d of Object.values(doctrines)) for (const id of d.menu) expect(ids.has(id), id).toBe(true);
+  });
+  it('a held unit on a menu is answered null, not passed on', () => {
+    const held = units.mbt_lavi_camo === undefined ? null : 'mbt_lavi_camo';
+    if (held === null) return;
+    expect(versusUnitInfo([[held], []])(held, 0)).toBeNull();
+  });
+});
+

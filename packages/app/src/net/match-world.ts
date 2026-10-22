@@ -138,7 +138,9 @@ export function matchTick(w: Pick<MatchWorld, 'sim' | 'runtime'>): { sim: SimEve
  * No `unlock` -- the doctrine menu IS the gate (P-7) -- and no `intel`.
  */
 export function versusUnitInfo(menus: readonly [readonly string[], readonly string[]]): NonNullable<MissionContext['unitInfo']> {
-  const catalogue = units as Record<string, RosterUnit | undefined>;
+  // A room registers `versusRoster()` (shipped units minus VERSUS_HELD_UNITS), so a menu id
+  // outside it would pass here and throw in `typeIdOf` at the build: answer null instead.
+  const catalogue: Record<string, RosterUnit | undefined> = Object.fromEntries(versusRoster().map((u) => [u.id, u]));
   return (id, side) => {
     if (!menus[side].includes(id)) return null;
     const u = catalogue[id];

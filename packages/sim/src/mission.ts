@@ -3984,7 +3984,9 @@ export class MissionRuntime {
     // itself; whoever runs it decides (a versus room: `outcome.ts`). Without this, a versus
     // runtime ended as a wipe the tick its last BUILT side-0 unit died (production spawns into
     // `playerIds`; the placed force does not), and income and production stopped for good.
-    // Every shipped mission has at least one objective (`minItems: 1`), so none reaches this.
+    // The return skips EVERY end check, the ROE floor and `time_limit_s` too, not only the wipe:
+    // a versus mission authors neither. Every shipped mission has at least one objective
+    // (`minItems: 1`), so none reaches this.
     if (this.objectives.length === 0) return;
     const primaries = this.objectives.filter((o) => o.def.primary);
     const won = primaries.length > 0 && primaries.every((o) => o.status === 'complete');
