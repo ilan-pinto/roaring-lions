@@ -20,6 +20,7 @@
 import * as THREE from 'three';
 import {
   bombFallFraction,
+  isFirstRound,
   makeSupportAirPlan,
   profileOf,
   reanchor,
@@ -65,6 +66,21 @@ interface Flight {
   bomb: THREE.Mesh | null;
 }
 
+/** Releases a parsed scene nothing adopted: every geometry, material and map. */
+function disposeLoadedScene(scene: THREE.Object3D): void {
+  scene.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    mesh.geometry.dispose();
+    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const m of mats) {
+      const std = m as THREE.MeshStandardMaterial;
+      for (const t of [std.map, std.normalMap, std.roughnessMap, std.metalnessMap, std.emissiveMap]) t?.dispose();
+      m.dispose();
+    }
+  });
+}
+
 export class SupportAircraftManager {
   readonly group = new THREE.Group();
   private heliTemplate: VehicleMeshTemplate | null = null;
@@ -101,6 +117,7 @@ export class SupportAircraftManager {
     ]);
     if (this.disposed) {
       if (heli.status === 'fulfilled') disposeVehicleMeshTemplate(heli.value);
+      if (jet.status === 'fulfilled') disposeLoadedScene(jet.value.scene);
       return;
     }
     if (heli.status === 'fulfilled') this.heliTemplate = heli.value;
@@ -160,7 +177,7 @@ export class SupportAircraftManager {
   onStrike(profile: number, tick: number, x: number, y: number): void {
     for (const f of this.flights) {
       const p = f.plan;
-      if (p.anchored || profileOf(p.kind) !== profile) continue;
+      if (profileOf(p.kind) !== profile || !isFirstRound(p, tick)) continue;
       if (Math.hypot(x - p.ax, y - p.ay) > REANCHOR_REACH_TILES) continue;
       reanchor(p, tick);
       return;

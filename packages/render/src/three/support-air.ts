@@ -133,6 +133,22 @@ export function planSpanMs(kind: SupportAirKind): { start: number; end: number }
   return { start: over - (JET_RUN_IN_TILES / JET_SPEED_TILES_S) * 1000, end: w.first + JET_EXIT_AFTER_MS };
 }
 
+/** How far (ms) a strike may land from a plan's expected FIRST round and
+ *  still be that round: the click-to-apply gap is one tick, so two is slack. */
+export const REANCHOR_SLACK_MS = 2 * MS_PER_TICK;
+
+/**
+ * Is a `strike` on `strikeTick` this plan's FIRST round? Only that round may
+ * re-anchor it: a later round of an EARLIER call over the same ground lands
+ * nowhere near this plan's first-round time and is ignored, as is any strike
+ * for a call the sim dropped.
+ */
+export function isFirstRound(plan: SupportAirPlan, strikeTick: number): boolean {
+  if (plan.anchored) return false;
+  const expected = plan.anchorMs + impactWindowMs(plan.kind).first;
+  return Math.abs(strikeTick * MS_PER_TICK - expected) <= REANCHOR_SLACK_MS;
+}
+
 /**
  * Moves a plan's anchor so its FIRST impact sits on the tick a `strike` really
  * landed. Only once per plan, and only for the plan's own first round: later

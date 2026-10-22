@@ -186,7 +186,7 @@ async function main(): Promise<void> {
         const cmd = { kind: 'callStrike', caller: ${aim.caller}, x: ${Math.round(aim.x * 65536)}, y: ${Math.round(aim.y * 65536)} };
         if (${JSON.stringify(kind)} === 'mortar_barrage') cmd.profile = 1;
         L.sim.queueCommand(cmd);
-        L.renderer.supportCalled(${JSON.stringify(kind)}, ${aim.x}, ${aim.y}, L.sim.tickCount);
+        L.renderer.supportCalled(${JSON.stringify(kind)}, ${aim.x}, ${aim.y}, L.sim.tickCount + 1);
         return L.sim.tickCount;
       })()`)) as number;
     // One tick at a time, each with its own frame (`step(1)` paints once),
