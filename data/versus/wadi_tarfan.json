@@ -5,6 +5,16 @@
     "friendly": { "camp": { "at": [7, 7], "size": [2, 2] } },
     "hostile": { "camp": { "at": [39, 39], "size": [2, 2] } }
   },
+  "tunnels": {
+    "friendly": [
+      { "id": "wt_f_north", "points": [[12, 12], [18, 14], [24, 17]], "capacity": 4 },
+      { "id": "wt_f_west", "points": [[12, 12], [15, 19], [19, 26]], "capacity": 4 }
+    ],
+    "hostile": [
+      { "id": "wt_h_south", "points": [[35, 35], [29, 33], [23, 30]], "capacity": 4 },
+      { "id": "wt_h_east", "points": [[35, 35], [32, 28], [28, 21]], "capacity": 4 }
+    ]
+  },
   "income_zones": [
     { "zone": "centre_ford", "rate_per_min": 60 },
     { "zone": "ne_ford", "rate_per_min": 40 },

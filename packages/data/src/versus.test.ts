@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { doctrines, maps, versusMissionOf, versusRules, versusZonesOf } from './index';
+import { doctrines, maps, versusMissionOf, versusRules, versusTunnelsOf, versusZonesOf } from './index';
 
 describe('the exports', () => {
   it('doctrines are the two shipped files, keyed by faction, with the Q4 caps', () => {
@@ -48,5 +48,28 @@ describe('versusZonesOf', () => {
   it('refuses a name the map already has', () => {
     const clash = { ...versusRules.wadi_tarfan, zones: { centre_ford: [1, 2, 3, 4] } };
     expect(() => versusZonesOf(clash, mapZones)).toThrow(/centre_ford/);
+  });
+});
+
+describe('versusTunnelsOf (GH-681)', () => {
+  it('returns the end\'s routes in file order, owned by the side, pre-dug, as copies', () => {
+    const rules = versusRules.tel_marum;
+    const north = versusTunnelsOf(rules, 'hostile', 1);
+    expect(north.map((r) => r.id)).toEqual(['tm_n_west', 'tm_n_east']);
+    for (const r of north) {
+      expect(r.side).toBe(1);
+      expect(r.pre_dug).toBe(true);
+      expect(r.dig_tiles_per_s).toBe(1);
+      expect(r.capacity).toBe(4);
+    }
+    expect(north[1].points).toEqual([[30, 10], [36, 14], [36, 24]]);
+    // Copies: mutating the result leaves the shared rules alone.
+    north[1].points[0][0] = 99;
+    expect(versusTunnelsOf(rules, 'hostile', 0)[1].points[0][0]).toBe(30);
+    expect(versusTunnelsOf(rules, 'friendly', 0).map((r) => r.id)).toEqual(['tm_s_west', 'tm_s_east']);
+  });
+  it('is [] for a file with no tunnels block', () => {
+    const bare = { ...versusRules.tel_marum, tunnels: undefined };
+    expect(versusTunnelsOf(bare, 'hostile', 1)).toEqual([]);
   });
 });

@@ -10,6 +10,9 @@ import { FACTION_MATCHUP_MAPS, sidesOfFactions, validateConfig, type MatchConfig
 import { maps, parseMap } from '@lions/data';
 import {
   CAMP_REACH,
+  MAX_CAPACITY,
+  MAX_TUNNELS,
+  VENT_MIN_DIST,
   MATCHUP_MAPS,
   VERSUS_SEATS as MJS_SEATS,
   anchorsOf,
@@ -24,6 +27,7 @@ interface Rules {
   id: string;
   map: string;
   ends: Record<'friendly' | 'hostile', { camp: { at: number[]; size: number[] } }>;
+  tunnels?: Record<'friendly' | 'hostile', { id: string; points: number[][]; capacity: number }[]>;
   zones?: Record<string, number[]>;
   income_zones: { zone: string; rate_per_min: number }[];
 }
@@ -146,5 +150,103 @@ describe('versusRulesFailures, one mutation at a time', () => {
     const o = rulesFor('tel_marum');
     o[0].doc.ends.hostile.camp.at = [...o[0].doc.ends.friendly.camp.at];
     expect(failures(o).join('\n')).toContain('overlap');
+  });
+});
+
+describe('versus tunnel routes: versusRulesFailures, one mutation at a time (GH-681)', () => {
+  const route = (r: Rules) => r.tunnels!.hostile[0]; // tel_marum tm_n_west (26,10) -> (14,22)
+  it('passes the strawman routes, and the constants are the spec\'s', () => {
+    expect(failures(rulesFor('tel_marum'))).toEqual([]);
+    expect(failures(rulesFor('wadi_tarfan'))).toEqual([]);
+    expect(VENT_MIN_DIST).toBe(18);
+    expect(MAX_TUNNELS).toBe(Number(/^const MAX_TUNNELS = (\d+);/m.exec(readFileSync(join(ROOT, 'packages/sim/src/sim.ts'), 'utf8'))?.[1]));
+    expect(MAX_CAPACITY).toBe(8);
+  });
+  it('refuses a point off the map', () => {
+    for (const bad of [[48, 22], [14, -1]]) {
+      const r = rulesFor('tel_marum');
+      route(r[0].doc).points[2] = bad;
+      expect(failures(r).join('\n'), String(bad)).toContain('is off the 48x48 map');
+    }
+  });
+  it('refuses a mouth or a vent on a ridge, and a vent on a building', () => {
+    // tel_marum (4,5) is '^'; (24,3) is a building.
+    for (const [which, at] of [['mouth', [4, 5]], ['vent', [4, 5]], ['vent', [24, 3]]] as const) {
+      const r = rulesFor('tel_marum');
+      const pts = route(r[0].doc).points;
+      pts[which === 'mouth' ? 0 : pts.length - 1] = [...at];
+      expect(failures(r).filter((f) => f.includes(`${which} (${at[0]},${at[1]})`) && f.includes('not open ground')), `${which} ${at}`).toHaveLength(1);
+    }
+  });
+  it('refuses a vent under 18 tiles from the opposing anchor, and allows one beyond it', () => {
+    const r = rulesFor('tel_marum');
+    const pts = route(r[0].doc).points;
+    pts[2] = [24, 34]; // 12 tiles north of the friendly anchor (24,46), open ground
+    expect(failures(r).filter((f) => f.includes('tiles from the friendly anchor'))).toHaveLength(1);
+    pts[2] = [24, 28]; // 18 tiles: the least allowed
+    expect(failures(r).filter((f) => f.includes('tiles from the friendly anchor'))).toEqual([]);
+    // The measure is to the OPPOSING anchor: a friendly route is judged against the hostile one.
+    const f = rulesFor('tel_marum');
+    f[0].doc.tunnels!.friendly[0].points[2] = [28, 28]; // 12 from the hostile anchor (28,16)
+    expect(failures(f).filter((x) => x.includes('tiles from the hostile anchor'))).toHaveLength(1);
+  });
+  it('refuses a capacity outside 1..8', () => {
+    for (const cap of [0, 9, 2.5]) {
+      const r = rulesFor('wadi_tarfan');
+      r[0].doc.tunnels!.friendly[0].capacity = cap;
+      expect(failures(r).join('\n'), String(cap)).toContain('outside 1..8');
+    }
+  });
+  it('refuses a repeated route id, within an end and across the two', () => {
+    const a = rulesFor('wadi_tarfan');
+    a[0].doc.tunnels!.friendly[1].id = a[0].doc.tunnels!.friendly[0].id;
+    expect(failures(a).join('\n')).toContain('repeats a route id');
+    const b = rulesFor('wadi_tarfan');
+    b[0].doc.tunnels!.hostile[0].id = b[0].doc.tunnels!.friendly[0].id;
+    expect(failures(b).join('\n')).toContain('repeats a route id');
+  });
+  it('refuses an id a map route already has', () => {
+    const r = rulesFor('wadi_tarfan');
+    const m = clone(mapsById.get('wadi_tarfan') as { tunnels?: unknown[] });
+    m.tunnels = [{ id: 'wt_f_north', mouth: [1, 1], vent: [2, 2] }];
+    const out = versusRulesFailures(r, new Map(mapsById).set('wadi_tarfan', m)).filter((f) => !f.startsWith('data/versus: no rules file'));
+    expect(out.join('\n')).toContain('reuses the id of a route map');
+  });
+  it('refuses a total over MAX_TUNNELS, counting the larger end and the map\'s own routes', () => {
+    const r = rulesFor('tel_marum');
+    const proto = r[0].doc.tunnels!.hostile[0];
+    r[0].doc.tunnels!.hostile = Array.from({ length: MAX_TUNNELS }, (_, i) => ({ ...clone(proto), id: `t${i}` }));
+    expect(failures(r).filter((f) => f.includes('the sim holds'))).toEqual([]); // 16 is allowed
+    r[0].doc.tunnels!.hostile.push({ ...clone(proto), id: 't16' });
+    expect(failures(r).filter((f) => f.includes('the sim holds'))).toHaveLength(1);
+    // The map's own routes count too.
+    const m = clone(mapsById.get('tel_marum') as { tunnels?: unknown[] });
+    m.tunnels = [{ id: 'm0', mouth: [1, 1], vent: [2, 2] }];
+    r[0].doc.tunnels!.hostile.pop();
+    const out = versusRulesFailures(r, new Map(mapsById).set('tel_marum', m)).filter((f) => f.includes('the sim holds'));
+    expect(out).toHaveLength(1);
+  });
+});
+
+describe('the schema\'s tunnels block (GH-681)', () => {
+  const Ajv2020 = (AjvModule as unknown as { default?: typeof AjvModule }).default ?? AjvModule;
+  const ajv = new (Ajv2020 as unknown as new (o: object) => { compile: (s: object) => (d: unknown) => boolean })({ allErrors: true, strict: false });
+  const validate = ajv.compile(JSON.parse(readFileSync(join(ROOT, 'data/schemas/versus_rules.schema.json'), 'utf8')) as object);
+  const ok = (mut: (r: Rules) => void): boolean => {
+    const r = clone(shipped.find((x) => x.doc.map === 'tel_marum')!.doc);
+    mut(r);
+    return validate(r);
+  };
+  it('takes the shipped shape and refuses each way to leave it', () => {
+    expect(ok(() => undefined)).toBe(true);
+    expect(ok((r) => { r.tunnels!.hostile[0].capacity = 9; })).toBe(false);
+    expect(ok((r) => { r.tunnels!.hostile[0].capacity = 0; })).toBe(false);
+    expect(ok((r) => { r.tunnels!.hostile[0].points = [[1, 1]]; })).toBe(false);
+    expect(ok((r) => { r.tunnels!.hostile[0].points = Array.from({ length: 9 }, (_, i) => [i, 1]); })).toBe(false);
+    expect(ok((r) => { r.tunnels!.hostile[0].points = [[1.5, 1], [2, 2]]; })).toBe(false);
+    expect(ok((r) => { r.tunnels!.hostile[0].id = 'Bad Id'; })).toBe(false);
+    expect(ok((r) => { (r.tunnels!.hostile[0] as Record<string, unknown>).side = 1; })).toBe(false);
+    expect(ok((r) => { (r.tunnels!.hostile[0] as Record<string, unknown>).pre_dug = true; })).toBe(false);
+    expect(ok((r) => { (r.tunnels as Record<string, unknown>).middle = []; })).toBe(false);
   });
 });
