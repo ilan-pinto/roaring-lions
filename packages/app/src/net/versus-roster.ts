@@ -12,8 +12,13 @@ export type VersusRosterUnit = (typeof units)[keyof typeof units];
  * menu (`data/doctrines/*.json`) until the air-assault probe gives it a bar
  * (spec Q9). Deleting the id here registers it again and moves the versus pins,
  * in that same commit -- which is the right time for them to move.
+ *
+ * `mbt_lavi_camo` and `spg_long_range` (GH-709 Phase 2): credit-only store units, on no
+ * doctrine menu. Registering a type a versus side can never field would move the
+ * roster-count and hash pins for nothing, so they are held the same way until a versus
+ * design gives a special unit a seat.
  */
-export const VERSUS_HELD_UNITS: ReadonlySet<string> = new Set(['heli_yanshuf']);
+export const VERSUS_HELD_UNITS: ReadonlySet<string> = new Set(['heli_yanshuf', 'mbt_lavi_camo', 'spg_long_range']);
 
 /**
  * The unit types a versus room registers, in roster order: the shipped
