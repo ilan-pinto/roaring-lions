@@ -3780,7 +3780,15 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 //   victory instead of just after it. Still VICTORY, ROE 100, 3 stars, 30/30 seeds.
 // The two plans whose drones the straight line put over a post (Umm Zeitoun III and IV) were
 // re-routed instead (their own notes); with that, no star, outcome or seed moved.
-const LADDER_CREDITS = 5920;
+// 2026-10-22, GH-707 P3: every infantry unit falls wounded (hull.wounds, both sides), and five plans
+// were re-tuned for it (their own notes). 5920 -> 5842, -78, read off the printed per-mission credits:
+// Beit Sahwan I-III 180/200/275 -> 170/188/269; Wadi Halam I, II 180/190 -> 170/180; Beit Sahwan IV
+// 144 -> 190; Khan Rafid II, III 215/236 -> 212/240; Deir Amun II, III 217/245 -> 224/242; Tel Marum
+// II, III 218/245 -> 200/236; Qarn Hadid III 216 -> 189; Umm Zeitoun II, III 220/280 -> 208/265. The
+// losses are men down (a squad that loses men regenerates only its standing men's shares) and Conduct
+// spent on wounded enemies the guns kill beside their squads; Beit Sahwan IV gains its survivors.
+// Every plan wins on 30 of 30 seeds; no star, outcome or gate moved.
+const LADDER_CREDITS = 5842;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
