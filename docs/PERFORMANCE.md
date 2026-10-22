@@ -2725,3 +2725,54 @@ cost.
 The live game loop (sim ticking, HUD, a real fight): the harness calls `renderer.frame()` in a tight
 loop with the sim parked. SwiftShader (CI's rasteriser). A GPU timer that separates the bloom's own
 cost from back-pressure. Any map but `beit_sahwan_outskirts`, and DPR 1.
+
+## Wounded men and the lifetime id count (GH-707 P3, 2026-10-22)
+
+P3 puts `hull.wounds` on every infantry unit of both sides (and `in_place` on the civilians). Two
+costs follow, and both were measured rather than argued: the tick, and the ids a long mission
+spends on men who fall wounded (`spawn` never reuses a slot, so every shed man is a lifetime id
+against the `capacity: 256` the app and the playtest harness both use).
+
+### Capture conditions
+
+Apple M3 Pro, macOS, Node v25.9.0, no browser. Load average 6-15 across 12 cores during the capture
+(other sessions active), so read differences under ~10% as noise. `sim-scaling.ts` as in "Sim tick
+cost" above, `--checkpoints=150,300,600 --ticks=40 --warmup=5`, two fresh-process runs per arm. The
+wounds-off arm is `PERF_NO_WOUNDS=1`, which makes `three-units.ts`'s `buildWorld` register every
+type without `hull.wounds`/`hull.figures` (the shipped data otherwise).
+
+### Tick cost at the 300-unit target: no measurable change
+
+| arm | target | living | tick avg (run 1 / run 2) | tick p95 | stepCombat |
+|---|---|---|---|---|---|
+| wounds on  | 300 | 295 | 3.51 / 3.60 ms | 4.01 / 4.05 | 1.35 / 1.40 |
+| wounds off | 300 | 295 | 3.55 / 3.36 ms | 4.13 / 4.11 | 1.41 / 1.36 |
+| wounds on  | 600 | 538 | 9.97 / 10.16 ms | 11.10 / 11.42 | 4.15 / 4.21 |
+| wounds off | 600 | 563 | 10.97 / 10.43 ms | 12.11 / 11.80 | 4.77 / 4.61 |
+
+At 300 the two arms overlap run for run. At 600 the wounds-on arm reads LOWER, and that is not a
+saving: a checkpoint is a lifetime spawn count, and with wounds on some of those ids are wounded men
+rather than fresh squads, so fewer fighters stand (538 against 563) and the O(N^2) scans have less to
+do. The wound systems themselves (bleed, crawl, rescue) are per-wounded loops over at most
+`MAX_WOUNDED_PER_SIDE` (24) bodies a side, and nothing in this table can see them.
+
+### Lifetime ids spent on shed men
+
+`woundedDown` events counted over every winning plan of `pnpm playtest` on seed 424242 (one count
+per man down, the in-place civilians included, who spend no id), against the mission's final
+`sim.entityCount`:
+
+| mission | wounded | ids at the end |
+|---|---|---|
+| beit_sahwan_breach | 25 | 78 |
+| umm_zeitoun_4_clearance | 23 | 61 |
+| deir_amun_3_subterranean | 19 | 50 |
+| beit_sahwan_4_subterranean | 18 | 51 |
+| umm_zeitoun_3_clearance | 17 | 49 |
+| (the other 21 plans) | 0-16 | 16-56 |
+
+The worst mission spends 25 ids on wounded men and ends at 78 of 256: about a third of its ids are
+shed men, and the budget is under a third used. A 300-unit fight would spend proportionally more
+(the 600-checkpoint row above lost 25 fighters to wounded ids), so a world sized near its capacity
+should be sized with that in mind; a fall at `count === capacity` kills the man rather than
+throwing (`fallMan`), so running out costs the rescue, never the mission.
