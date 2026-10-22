@@ -37,6 +37,7 @@ const ENGINEER: UnitTypeJson = {
   mobility: { speed_tiles_s: 1 }, sensors: SENSORS, abilities: ['repair'],
 };
 const RIFLES: UnitTypeJson = { ...ENGINEER, id: 'm_rifles', role: 'infantry', abilities: [] };
+const HOUSE: StructureTypeJson = { id: 'm_house', hp_per_tile: 260, garrison_slots: 2 };
 const WORKSHOP: StructureTypeJson = {
   id: 'm_workshop', hp_per_tile: 300,
   aura: { area: [{ radius: 4, affects: 'vehicle', repair_per_s: 0.01, repair_components_s: 30 }] },
@@ -70,12 +71,19 @@ function run(sim: Sim, ticks: number): SimEvent[] {
 function roll(sim: Sim, target: number, u32: number): SimEvent[] {
   const rng = sim.rng as unknown as { nextU32(e: number): number };
   const real = rng.nextU32;
-  rng.nextU32 = () => u32;
+  let calls = 0;
+  rng.nextU32 = () => {
+    calls++;
+    return u32;
+  };
   try {
     (sim as unknown as Internals).rollComponent(target, target, ONE);
   } finally {
     rng.nextU32 = real;
   }
+  // One draw per roll on every result path (§3.1): a second draw would shift
+  // the shooter's stream for every later roll.
+  expect(calls).toBe(1);
   // rollComponent pushes onto this tick's pending list; the next tick returns it.
   return sim.tick();
 }
@@ -219,6 +227,36 @@ describe('mobility kills (#706): the crew field fix', () => {
     }
   });
 
+  // The stuck hull counts only on the surface, uncarried and ungarrisoned; the
+  // assister likewise. Written straight into the state columns (as auras.test.ts
+  // writes mobilityKilled): only the field fix's own exclusions are under test.
+  it('a carried or garrisoned stuck hull does not count; a carried or garrisoned engineer does not assist', () => {
+    // `carrier` is a living, still, `repair`-less unit standing on the engineer's
+    // own tile, so a carried body stays inside the radius and only the
+    // exclusion can stop it.
+    const cases: ((sim: Sim, hull: number, eng: number, house: number, carrier: number) => void)[] = [
+      (sim, hull, _e, _s, carrier) => { sim.state.carriedBy[hull] = carrier; },
+      (sim, hull, _e, house) => { sim.state.garrisonedIn[hull] = house; },
+      (sim, _h, eng, _s, carrier) => { sim.state.carriedBy[eng] = carrier; },
+      (sim, _h, eng, house) => { sim.state.garrisonedIn[eng] = house; },
+    ];
+    const expected = [1, 1, 21, 21]; // a hull frozen at the roll tick's 1; an engineer that never helps: 1 + 20
+    cases.forEach((apply, k) => {
+      const { sim, u, id } = stuck(); // count 1
+      const house = sim.addStructureType(HOUSE);
+      const tiles = [30 * sim.width + 40, 30 * sim.width + 41];
+      const s = sim.addStructure(house, tiles);
+      const eng = sim.spawn(u.engineer, 0, fx.from(12), fx.from(10.5));
+      const carrier = sim.spawn(u.rifles, 0, fx.from(12), fx.from(10.5));
+      // Hold the writes each tick: no rule of the sim is being asked to keep them.
+      for (let t = 0; t < 20; t++) {
+        apply(sim, id, eng, s, carrier);
+        sim.tick();
+      }
+      expect(`case ${k}: ${sim.state.fieldFixTicks[id]}`).toBe(`case ${k}: ${expected[k]}`);
+    });
+  });
+
   it('the workshop aura clears slowed too', () => {
     const { sim, u } = world();
     const ws = sim.addStructureType(WORKSHOP);
@@ -235,11 +273,11 @@ describe('mobility kills (#706): the crew field fix', () => {
 });
 
 describe('mobility kills (#706): the hash latch', () => {
-  function twins() {
+  function twins(kind: 'wheels' | 'tracks' = 'wheels') {
     const a = world();
     const b = world();
-    const ia = a.sim.spawn(a.u.wheels, 0, fx.from(10.5), fx.from(10.5));
-    const ib = b.sim.spawn(b.u.wheels, 0, fx.from(10.5), fx.from(10.5));
+    const ia = a.sim.spawn(a.u[kind], 0, fx.from(10.5), fx.from(10.5));
+    const ib = b.sim.spawn(b.u[kind], 0, fx.from(10.5), fx.from(10.5));
     run(a.sim, 5);
     run(b.sim, 5);
     return { a: a.sim, b: b.sim, ia, ib };
@@ -251,12 +289,20 @@ describe('mobility kills (#706): the hash latch', () => {
     b.state.fieldFixTicks[ib] = 7;
     expect(b.hash()).toBe(a.hash());
   });
-  it('after one, they are', () => {
-    const { a, b, ia, ib } = twins();
-    roll(a, ia, U_MOBILITY);
-    roll(b, ib, U_MOBILITY);
-    expect(b.hash()).toBe(a.hash());
-    b.state.fieldFixTicks[ib] = 7;
-    expect(b.hash()).not.toBe(a.hash());
-  });
+  // Every path that applies a result sets the latch: mobility_damaged (wheels),
+  // mobility_kill (tracks) and combat_ineffective.
+  for (const [label, kind, u32] of [
+    ['mobility_damaged', 'wheels', U_MOBILITY],
+    ['mobility_kill', 'tracks', U_MOBILITY],
+    ['combat_ineffective', 'wheels', U_COMBAT_INEFFECTIVE],
+  ] as const) {
+    it(`after one (${label}), they are`, () => {
+      const { a, b, ia, ib } = twins(kind);
+      expect(results(roll(a, ia, u32))).toEqual([label]);
+      roll(b, ib, u32);
+      expect(b.hash()).toBe(a.hash());
+      b.state.mobilityDamaged[ib] = 1 - b.state.mobilityDamaged[ib];
+      expect(b.hash()).not.toBe(a.hash());
+    });
+  }
 });
