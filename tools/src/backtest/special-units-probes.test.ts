@@ -13,12 +13,18 @@
 // re-frozen from a new run with the lead's ruling.
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
+  clusterClaims,
+  clusterTable,
   coverClaims,
   coverTable,
   DEFERRED,
   detectClaims,
   detectTable,
   duelTable,
+  nlosConductClaims,
+  nlosConductTable,
+  nlosReachClaims,
+  nlosReachTable,
   nonClaimReason,
   OBSERVERS,
   q11Note,
@@ -26,9 +32,12 @@ import {
   TANK_MODES,
   tunnelClaims,
   tunnelTable,
+  type ClusterTable,
   type CoverTable,
   type DetectTable,
   type DuelTable,
+  type NlosConductTable,
+  type NlosReachTable,
   type Observer,
   type TankMode,
 } from './special-units-probes';
@@ -191,10 +200,124 @@ describe('SU probe 10: the robot dog finds a pre_dug route (synthetic map)', () 
   });
 });
 
+/** +/-15% on a measured float; zero stays exactly zero. */
+const near = (got: number, want: number, label = ''): void => {
+  if (want === 0) {
+    expect(got, label).toBe(0);
+    return;
+  }
+  expect(got, label).toBeGreaterThanOrEqual(want * 0.85);
+  expect(got, label).toBeLessThanOrEqual(want * 1.15);
+};
+
+describe('SU probe 4a: at_nlos_team reaches a target behind a wall, a drone spotting (E2)', () => {
+  let t: NlosReachTable;
+  beforeAll(() => {
+    t = nlosReachTable(stagedUnit('at_nlos_team'));
+  });
+
+  it('kills most seeds and the flag-stripped control never fires', () => {
+    expect(nlosReachClaims(t).join('\n')).toBe('');
+  });
+
+  for (const k of ['rocket_battery', 'atgm_cell'] as const) {
+    it(`${k}: kills >= 16 of 20 (measured 19), spotted 20/20, time and rounds inside their bands (22 Oct)`, () => {
+      const n = t.nlos[k];
+      expect(n.seeds).toBe(20);
+      expect(n.kills).toBeGreaterThanOrEqual(16);
+      expect(n.spotted).toBe(20);
+      near(n.meanS ?? 0, k === 'rocket_battery' ? 21.4 : 21.5, 'seconds');
+      near(n.rounds, 1.65, 'rounds');
+    });
+    it(`${k}: the control never fires, never kills, and still sees the target (the wall stops the shot, not the spotting)`, () => {
+      const c = t.control[k];
+      expect(c.rounds).toBe(0);
+      expect(c.kills).toBe(0);
+      expect(c.spotted).toBe(20);
+    });
+  }
+});
+
+describe('SU probe 4b: Conduct lost killing an atgm_cell inside a flagged zone (E2)', () => {
+  let t: NlosConductTable;
+  beforeAll(() => {
+    t = nlosConductTable(stagedUnit('at_nlos_team'));
+  });
+
+  it('the NLOS team loses less Conduct than mortar_team and kills', () => {
+    expect(nlosConductClaims(t).join('\n')).toBe('');
+  });
+
+  it('inside the bands (measured 22 Oct: NLOS 20/20, 1.60 rounds, 0.00 lost; mortar 20/20, 4.35, 16.50)', () => {
+    expect(t.nlos.kills).toBe(20);
+    near(t.nlos.rounds, 1.6, 'nlos rounds');
+    expect(t.nlos.lost).toBe(0);
+    expect(t.nlos.seedsCharged).toBe(0);
+    expect(t.mortar.kills).toBe(20);
+    near(t.mortar.rounds, 4.35, 'mortar rounds');
+    near(t.mortar.lost, 16.5, 'mortar lost');
+    expect(t.mortar.seedsCharged).toBe(20);
+  });
+});
+
+describe('SU probe 11: spg_cluster, the lead\'s four claims (E3)', () => {
+  let t: ClusterTable;
+  beforeAll(() => {
+    t = clusterTable(stagedUnit('spg_cluster'));
+  });
+
+  it('KNOWN MISS, pinned: it does not destroy half of open infantry or a technical in 90 s (3 rounds)', () => {
+    const fails = clusterClaims(t);
+    expect(fails).toHaveLength(2);
+    expect(fails[0]).toMatch(/open infantry/);
+    expect(fails[1]).toMatch(/technical/);
+  });
+
+  it('open infantry, technical and the unitary control sit inside their bands (22 Oct)', () => {
+    const c = t.cluster;
+    near(c.infantry.hpLost, 0.347, 'infantry hp');
+    near(c.infantry.perRound, 0.116, 'infantry per round');
+    near(c.technical.hpLost, 0.248, 'technical hp');
+    near(c.technical.perRound, 0.083, 'technical per round');
+    near(t.unitary.hpLost, 0.175, 'unitary hp');
+    near(t.unitary.perRound, 0.058, 'unitary per round');
+    for (const r of [c.infantry, c.technical, c.house, c.armour, t.unitary]) near(r.rounds, 3, 'rounds');
+  });
+
+  it('the cluster destroys more per round than the unitary draft: what E3 buys (about 2x)', () => {
+    expect(t.cluster.infantry.perRound).toBeGreaterThan(t.unitary.perRound * 1.7);
+  });
+
+  it('a garrisoned house: the men lose 0 hp, the house loses 0, the men ARE suppressed (Q7 and the ruling)', () => {
+    const h = t.cluster.house;
+    expect(h.garrisoned).toBeCloseTo(2, 9);
+    expect(h.rounds).toBeGreaterThan(0);
+    expect(h.hpLostMax).toBe(0);
+    expect(h.houseLost).toBe(0);
+    near(h.peakSupp, 0.045, 'house peak suppression');
+  });
+
+  it('an armoured column loses 0 hp, and is suppressed', () => {
+    const a = t.cluster.armour;
+    expect(a.rounds).toBeGreaterThan(0);
+    expect(a.hpLostMax).toBe(0);
+    near(a.peakSupp, 0.236, 'armour peak suppression');
+  });
+
+  it('Conduct near civilians: cluster >= unitary per round (measured 22 Oct: 5.60 vs 3.00, 16.80 vs 9.00 over 3 rounds), nobody dies', () => {
+    const { cluster: c, unitary: u } = t.conduct;
+    expect(c.perRound).toBeGreaterThanOrEqual(u.perRound);
+    near(c.perRound, 5.6, 'cluster per round');
+    near(u.perRound, 3, 'unitary per round');
+    near(c.lost, 16.8, 'cluster lost');
+    near(u.lost, 9, 'unitary lost');
+    expect(c.civDead).toBe(0);
+    expect(u.civDead).toBe(0);
+  });
+});
+
 describe('SU probes: deferred units', () => {
-  it('lists exactly the five that need E1-E3', () => {
-    expect(DEFERRED.map((d) => d.unit).sort()).toEqual(
-      ['air_medevac_heli', 'at_nlos_team', 'inf_medic_squad', 'spg_cluster', 'veh_ambulance'].sort(),
-    );
+  it('lists exactly the three that need E1 (units 4 and 11 are measured now, Phase 7)', () => {
+    expect(DEFERRED.map((d) => d.unit).sort()).toEqual(['air_medevac_heli', 'inf_medic_squad', 'veh_ambulance'].sort());
   });
 });
