@@ -18,7 +18,7 @@
 
 import { t } from '../i18n/t';
 
-/** What `stepRoe` charged for. The two danger-close templates share one cause:
+/** What `stepRoe` charged for. The three danger-close templates share one cause:
  *  to a player they are the same mistake. */
 export type ConductCause = 'destroyed' | 'civilians' | 'struck' | 'strike' | 'danger_close' | 'other';
 
@@ -53,7 +53,11 @@ const DESTROYED = /^([A-Z][a-z0-9_]*) destroyed$/;
 /** Read one of `stepRoe`'s reason strings. */
 export function classifyReason(reason: string): ConductReason {
   if (reason === 'civilian casualties') return { cause: 'civilians' };
-  if (reason === 'strike called danger-close to civilians' || reason === 'heavy ordnance danger-close to civilians') {
+  if (
+    reason === 'strike called danger-close to civilians' ||
+    reason === 'heavy ordnance danger-close to civilians' ||
+    reason === 'cluster munition danger-close to civilians'
+  ) {
     return { cause: 'danger_close' };
   }
   const prot = PROTECTED.exec(reason);

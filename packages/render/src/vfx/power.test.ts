@@ -24,6 +24,8 @@ function w(penetration: number, damage: number, splash: number, suppression: num
     garrisonRangeSq: 0,
     garrisonEffRange: 0,
     garrisonEffRangeSq: 0,
+    isIndirect: false,
+    submunitions: null,
   };
 }
 

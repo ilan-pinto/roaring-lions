@@ -16,6 +16,7 @@
 export const BURST_ONLY_EVENT_KINDS: ReadonlySet<string> = new Set([
   'fire',
   'nearMiss',
+  'submunition',
   'aps',
   'impact',
   'smokeLaid',
