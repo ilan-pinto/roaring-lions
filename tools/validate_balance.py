@@ -502,6 +502,10 @@ def main():
             u = json.load(fh)
         if u.get("faction") == "civilian":
             continue
+        # GH-707: a `wounded` man is shed by a squad, never bought or built -- he has no
+        # price and no gun, so he would be a zero on both axes of the curve.
+        if u.get("role") == "wounded":
+            continue
         units.append((p, u))
 
     if len(units) < MIN_ROSTER_FOR_FIT:
