@@ -206,6 +206,7 @@ import { scorchRadiusTiles } from './scorch-decals';
 import {
   ClusterBurstGrouper,
   BOMBLET_CRATER_RADIUS_TILES,
+  BOMBLET_SCORCH_RADIUS_TILES,
   CLUSTER_BURST_LIFT_PX,
   CLUSTER_BURST_POWER,
   clusterCarrierToRetire,
@@ -4728,7 +4729,7 @@ export class ThreeRenderer implements Renderer {
         this.flinchNear(nx, ny);
       } else if (e.kind === 'submunition') {
         // E3 (GH-709): a bomblet. A small flat flash and a flinch where the
-        // sim put it, and a small crater there on the sim clock (every decal
+        // sim put it, and a crater with a dark scorch on it there, on the sim clock (every decal
         // is stamped with the tick it belongs to). `submunition` is a
         // burst-only kind, so a catch-up (`quiet`) never reaches here: the
         // same rule as a mortar bomb, whose shell is a `fire` event and is
@@ -4737,7 +4738,10 @@ export class ThreeRenderer implements Renderer {
         const by = fx.toNumber(e.y);
         this.spawnFlatFx(bx, by, this.opts.nearMissColor, 5, 10);
         this.flinchNear(bx, by);
+        // The crater first, then the dark scorch over it (a mortar landing's own
+        // pairing): two stamps a bomblet, so a 12-bomblet round spends 24 slots.
         this.stampGroundDecal(this.persistentStamp('crater', bx, by, BOMBLET_CRATER_RADIUS_TILES));
+        this.stampGroundDecal(this.persistentStamp('scorch', bx, by, BOMBLET_SCORCH_RADIUS_TILES));
         // The last bomblet of the round completes its group: the carrier
         // shell opens in the air over the centroid. The sim emits no centre.
         const centre = this.clusterBursts.push({ by: e.by, x: bx, y: by, index: e.index, count: e.count });
