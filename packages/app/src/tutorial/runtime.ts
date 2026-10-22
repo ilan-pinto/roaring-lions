@@ -39,9 +39,11 @@ export interface PredicateJson {
   /** camera only (GH-345): tiles the view's centre has moved from where it
    *  stood when the tutorial started. */
   tiles?: number;
-  /** production only (GH-184): some living line of the player's holds at
-   *  least this many items, the one building included. */
-  queued?: number;
+  /** production only (GH-184): the player has bought at least this many
+   *  units this mission -- deployed, building or waiting. A count of
+   *  purchases, not a snapshot of the line: two clicks fifteen seconds apart
+   *  are two even though the first squad has walked out before the second. */
+  bought?: number;
   /** production only: whether any living line of the player's has a rally. */
   rally?: boolean;
   /** production only: a line's contested state CHANGED while it was building
@@ -85,7 +87,7 @@ export type TutorialInput =
   | { kind: 'camera'; tilesFromStart: number }
   /** The player's production lines as the caller read them this tick
    *  (`productionInput`). `edge` is set only on the input that reports one. */
-  | { kind: 'production'; queued: number; rally: boolean; edge: ProductionEdge | null };
+  | { kind: 'production'; bought: number; rally: boolean; edge: ProductionEdge | null };
 
 export interface TutorialState {
   readonly steps: readonly StepJson[];
@@ -164,8 +166,8 @@ export function matches(
       if (pred.edge !== undefined) return input.edge === pred.edge;
       // A production predicate that names nothing would match every tick;
       // steps.test.ts refuses one in shipped data, and this refuses it here.
-      if (pred.queued === undefined && pred.rally === undefined) return false;
-      if (pred.queued !== undefined && input.queued < pred.queued) return false;
+      if (pred.bought === undefined && pred.rally === undefined) return false;
+      if (pred.bought !== undefined && input.bought < pred.bought) return false;
       if (pred.rally !== undefined && input.rally !== pred.rally) return false;
       return true;
     }
@@ -257,8 +259,11 @@ export interface TutorialLineView {
  * Turn this tick's production lines into the reducer's inputs (GH-184): one
  * state input, then one input per contested edge. `prevContested` is what the
  * caller kept from the last call (start with `[]`); the returned `contested`
- * replaces it. Pure: the caller reads the lines, this only compares -- the
- * tutorial still holds no `Sim` and can queue nothing.
+ * replaces it. `deployed` is how many of the player's purchases have already
+ * walked out (the caller counts side-0 `built` mission events), so `bought` is
+ * those plus every item still on a living line. Pure: the caller reads the
+ * lines, this only compares -- the tutorial still holds no `Sim` and can queue
+ * nothing.
  *
  * `contested` is only ever true while a line is building (the runtime's own
  * rule), so a `paused` edge is always a build stopping. A line that is lost
@@ -268,9 +273,10 @@ export interface TutorialLineView {
  */
 export function productionInputs(
   prevContested: readonly boolean[],
-  lines: readonly TutorialLineView[]
+  lines: readonly TutorialLineView[],
+  deployed = 0
 ): { inputs: TutorialInput[]; contested: boolean[] } {
-  let queued = 0;
+  let bought = deployed;
   let rally = false;
   const contested: boolean[] = [];
   const edges: ProductionEdge[] = [];
@@ -281,10 +287,10 @@ export function productionInputs(
     if (now && !was) edges.push('paused');
     if (!now && was) edges.push('resumed');
     if (!l.alive) return;
-    queued = Math.max(queued, l.queued + (l.current === null ? 0 : 1));
+    bought += l.queued + (l.current === null ? 0 : 1);
     if (l.rally !== null && l.rally !== undefined) rally = true;
   });
-  const inputs: TutorialInput[] = [{ kind: 'production', queued, rally, edge: null }];
-  for (const edge of edges) inputs.push({ kind: 'production', queued, rally, edge });
+  const inputs: TutorialInput[] = [{ kind: 'production', bought, rally, edge: null }];
+  for (const edge of edges) inputs.push({ kind: 'production', bought, rally, edge });
   return { inputs, contested };
 }

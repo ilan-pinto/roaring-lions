@@ -57,7 +57,7 @@ describe('shipped tutorial steps', () => {
           // GH-184: exactly one of the three; none would match every tick
           // (the reducer refuses it), two would be read as an AND nobody wrote.
           if (p.kind === 'production') {
-            expect([p.queued, p.rally, p.edge].filter((v) => v !== undefined), where).toHaveLength(1);
+            expect([p.bought, p.rally, p.edge].filter((v) => v !== undefined), where).toHaveLength(1);
           }
           // An id only means something on the two events that carry an
           // authored one; on any other kind it would silently match nothing.
@@ -84,7 +84,7 @@ describe('shipped tutorial steps', () => {
       any_of: ['kind', 'of'],
       hover: ['kind', 'target', 'projection'],
       camera: ['kind', 'tiles'],
-      production: ['kind', 'queued', 'rally', 'edge'],
+      production: ['kind', 'bought', 'rally', 'edge'],
     };
     for (const t of all) {
       for (const s of t.steps) {

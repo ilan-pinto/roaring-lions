@@ -4433,6 +4433,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   /** GH-184: each production line's `contested` as the tutorial last read
    *  it, so `productionInputs` can report the paused and resumed edges. */
   let tutLineContested: boolean[] = [];
+  /** GH-184: the player's purchases that have already deployed (side-0
+   *  `built`), so `productionInputs` counts purchases, not the line. */
+  let tutDeployed = 0;
   let telemetryTutIndex = -1;
   let tutPanel: TutorialPanel | null = null;
   // Companions for the hover dispatch in `updateHover`: it runs every frame,
@@ -5367,6 +5370,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           zone: (id) => map.zones[id],
         });
         if (tut) tut = advance(tut, { kind: 'mission', event: mev }, performance.now());
+        if (mev.kind === 'built' && isOwnSide(mev.side, me)) tutDeployed++;
         if (mev.kind === 'roe') deductions.push({ penalty: mev.penalty, reason: mev.reason, tick: mev.tick });
         if (mev.kind === 'evacuated') evacuatedSoFar++;
         // The memorial half of the service record (WP-G-E4). `unitLost` is already
@@ -5784,7 +5788,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // GH-184: the camp beats. The caller reads the player's lines
         // (read-only, the dock's own view); the reducer only compares.
         if (runtime) {
-          const read = productionInputs(tutLineContested, runtime.productionLines(0));
+          const read = productionInputs(tutLineContested, runtime.productionLines(0), tutDeployed);
           tutLineContested = read.contested;
           for (const input of read.inputs) tut = advance(tut, input, now);
         }

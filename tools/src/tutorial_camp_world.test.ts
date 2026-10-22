@@ -13,6 +13,13 @@
 // what each beat's text asks, and requires each beat to clear on the lesson --
 // not on clear_the_gate's 90 s patience clock. The controls each remove one
 // piece and are required to fail.
+//
+// Known and accepted (review, 22 Oct): the man by the gate pauses the camp
+// only if the second squad is still on the line when the first reaches the
+// muster. A player who sets the rally more than ~15 s after the second click
+// finds the camp idle when he appears, sees no pause, and clear_the_gate ends
+// on its 90 s clock -- the lesson is missed, nothing stalls. The same happens
+// if anyone walks into z_muster before beat 9 and spawns him early.
 import { describe, expect, it } from 'vitest';
 import { applyTerrain, maps, missions, parseMap, structures as structureCatalogue, units } from '@lions/data';
 import { tutorials } from '@lions/data';
@@ -41,6 +48,8 @@ interface World {
   contested: boolean[];
   /** Every edge the tutorial was told about, with its tick. */
   edges: { edge: string; tick: number }[];
+  /** Side-0 `built` events seen, as main.ts counts them. */
+  deployed: number;
 }
 
 function world(edit?: (m: MissionJson) => void, seed = 424242): World {
@@ -78,7 +87,7 @@ function world(edit?: (m: MissionJson) => void, seed = 424242): World {
     }
     return out;
   };
-  return { sim, rt, ids, contested: [], edges: [] };
+  return { sim, rt, ids, contested: [], edges: [], deployed: 0 };
 }
 
 function openAt(id: string, nowMs: number): TutorialState {
@@ -94,8 +103,11 @@ function step(w: World, tut: TutorialState): TutorialState {
   const evs = w.sim.tick();
   const missionEvents = w.rt.step(evs);
   const now = w.sim.tickCount * MS_PER_TICK;
-  for (const me of missionEvents) tut = advance(tut, { kind: 'mission', event: me }, now);
-  const read = productionInputs(w.contested, w.rt.productionLines(0));
+  for (const me of missionEvents) {
+    tut = advance(tut, { kind: 'mission', event: me }, now);
+    if (me.kind === 'built' && me.side === 0) w.deployed++;
+  }
+  const read = productionInputs(w.contested, w.rt.productionLines(0), w.deployed);
   w.contested = read.contested;
   for (const input of read.inputs) {
     if (input.kind === 'production' && input.edge !== null) w.edges.push({ edge: input.edge, tick: w.sim.tickCount });
@@ -150,11 +162,18 @@ const rallyAt = (w: World, x: number, y: number): void =>
 /** The three beats, walked as their text says. Returns what each took. */
 function walkCamp(
   w: World,
-  opts: { builds?: number; rally?: [number, number]; send?: boolean } = {}
+  opts: { builds?: number; secondAfterS?: number; rally?: [number, number]; send?: boolean } = {}
 ): { beat8: number | null; beat9: number | null; beat10: number | null; pausedFor: number | null } {
   let tut = openAt('call_them_up', w.sim.tickCount * MS_PER_TICK);
-  for (let n = 0; n < (opts.builds ?? 2); n++) buildSquad(w);
-  const b8 = runBeat(w, tut, 'call_them_up', 30);
+  const builds = opts.builds ?? 2;
+  // The first click now; the rest at once, or `secondAfterS` later (the slow player).
+  buildSquad(w);
+  const clickAt = w.sim.tickCount + Math.round((opts.secondAfterS ?? 0) * TICKS_PER_SECOND);
+  if (clickAt === w.sim.tickCount) for (let n = 1; n < builds; n++) buildSquad(w);
+  const b8 = runBeat(w, tut, 'call_them_up', 60, (t) => {
+    if (clickAt > 0 && w.sim.tickCount === clickAt && opts.secondAfterS) for (let n = 1; n < builds; n++) buildSquad(w);
+    return t;
+  });
   if (b8.took === null) return { beat8: null, beat9: null, beat10: null, pausedFor: null };
   tut = b8.tut;
   const [rx, ry] = opts.rally ?? [10.5, 30.5];
@@ -221,6 +240,14 @@ describe('the tutorial camp beats in the world (GH-184)', () => {
     // to fail -- even spawned 1.5 tiles from the idle second squad, the man was
     // not cleared inside five seconds -- so it would guard nothing.
     expect(r.pausedFor, 'the line never paused and resumed').not.toBeNull();
+  });
+
+  it('a slow second click, after the first squad has walked out, still clears call_them_up and the lesson goes on', () => {
+    const w = prelude();
+    const r = walkCamp(w, { secondAfterS: 20 });
+    expect(r.beat8, 'call_them_up stalled on a second click 20 s after the first').not.toBeNull();
+    expect(r.beat8 as number).toBeGreaterThanOrEqual(20);
+    expect(r.beat9).not.toBeNull();
   });
 
   it('control: one build only never clears call_them_up', () => {

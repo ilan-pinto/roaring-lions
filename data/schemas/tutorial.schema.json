@@ -95,10 +95,10 @@
           "enum": ["enemy", "structure", "any"],
           "description": "hover only: which kind of thing must be under the cursor. Default any. Cross-checked against runtime.ts's `matches`."
         },
-        "queued": {
+        "bought": {
           "type": "integer",
           "minimum": 1,
-          "description": "production only (GH-184): some living line of the player's holds at least this many items, the one building included."
+          "description": "production only (GH-184): the player has bought at least this many units this mission, deployed, building or waiting -- a count of purchases, not a snapshot of the line."
         },
         "rally": {
           "type": "boolean",
@@ -106,7 +106,7 @@
         },
         "edge": {
           "enum": ["paused", "resumed"],
-          "description": "production only: a line's contested state changed while it was building (paused: false -> true; resumed: true -> false). An edge, so an all_of of the two cannot be marked out of order. A production predicate names exactly one of queued, rally or edge (steps.test.ts)."
+          "description": "production only: a line's contested state changed while it was building (paused: false -> true; resumed: true -> false). An edge, so an all_of of the two cannot be marked out of order. A production predicate names exactly one of bought, rally or edge (steps.test.ts)."
         }
       }
     },
@@ -156,10 +156,10 @@
           "enum": ["enemy", "structure", "any"],
           "description": "hover only: which kind of thing must be under the cursor. Default any. Cross-checked against runtime.ts's `matches`."
         },
-        "queued": {
+        "bought": {
           "type": "integer",
           "minimum": 1,
-          "description": "production only (GH-184): some living line of the player's holds at least this many items, the one building included."
+          "description": "production only (GH-184): the player has bought at least this many units this mission, deployed, building or waiting -- a count of purchases, not a snapshot of the line."
         },
         "rally": {
           "type": "boolean",
@@ -167,7 +167,7 @@
         },
         "edge": {
           "enum": ["paused", "resumed"],
-          "description": "production only: a line's contested state changed while it was building (paused: false -> true; resumed: true -> false). An edge, so an all_of of the two cannot be marked out of order. A production predicate names exactly one of queued, rally or edge (steps.test.ts)."
+          "description": "production only: a line's contested state changed while it was building (paused: false -> true; resumed: true -> false). An edge, so an all_of of the two cannot be marked out of order. A production predicate names exactly one of bought, rally or edge (steps.test.ts)."
         }
       }
     },

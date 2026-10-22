@@ -440,13 +440,21 @@ describe('production (GH-184)', () => {
     rally: null,
     ...over,
   });
-  const state = (queued: number, rally = false): TutorialInput => ({ kind: 'production', queued, rally, edge: null });
+  const state = (bought: number, rally = false): TutorialInput => ({ kind: 'production', bought, rally, edge: null });
 
-  it('counts the item building with the ones waiting, on the fullest living line', () => {
-    const { inputs } = productionInputs([], [line({ current: 'inf_squad', queued: 1 }), line({ current: 'jeep_shoded' })]);
-    expect(inputs).toEqual([state(2)]);
-    expect(matches({ kind: 'production', queued: 2 }, inputs[0], 0, 0)).toBe(true);
-    expect(matches({ kind: 'production', queued: 3 }, inputs[0], 0, 0)).toBe(false);
+  it('counts every purchase: the deployed, the one building and the ones waiting, on every living line', () => {
+    const { inputs } = productionInputs([], [line({ current: 'inf_squad', queued: 1 }), line({ current: 'jeep_shoded' })], 2);
+    expect(inputs).toEqual([state(5)]);
+    expect(matches({ kind: 'production', bought: 5 }, inputs[0], 0, 0)).toBe(true);
+    expect(matches({ kind: 'production', bought: 6 }, inputs[0], 0, 0)).toBe(false);
+  });
+
+  it('two clicks fifteen seconds apart are two purchases, though the line never held both', () => {
+    // The review's stall: the first squad walked out before the second click.
+    const first = productionInputs([], [line({ current: 'inf_squad' })], 0).inputs[0];
+    const second = productionInputs([], [line({ current: 'inf_squad' })], 1).inputs[0];
+    expect(matches({ kind: 'production', bought: 2 }, first, 0, 0)).toBe(false);
+    expect(matches({ kind: 'production', bought: 2 }, second, 0, 0)).toBe(true);
   });
 
   it('ignores a lost line, its queue and its rally', () => {
