@@ -62,10 +62,10 @@ describe('versusTunnelsOf (GH-681)', () => {
       expect(r.dig_tiles_per_s).toBe(1);
       expect(r.capacity).toBe(4);
     }
-    expect(north[1].points).toEqual([[30, 10], [36, 14], [36, 24]]);
+    expect(north[1].points).toEqual([[29, 17], [33, 22], [36, 27]]);
     // Copies: mutating the result leaves the shared rules alone.
     north[1].points[0][0] = 99;
-    expect(versusTunnelsOf(rules, 'hostile', 0)[1].points[0][0]).toBe(30);
+    expect(versusTunnelsOf(rules, 'hostile', 0)[1].points[0][0]).toBe(29);
     expect(versusTunnelsOf(rules, 'friendly', 0).map((r) => r.id)).toEqual(['tm_s_west', 'tm_s_east']);
   });
   it('is [] for a file with no tunnels block', () => {

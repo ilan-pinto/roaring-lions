@@ -7,12 +7,12 @@
   },
   "tunnels": {
     "friendly": [
-      { "id": "wt_f_north", "points": [[12, 12], [18, 14], [24, 17]], "capacity": 4 },
-      { "id": "wt_f_west", "points": [[12, 12], [15, 19], [19, 26]], "capacity": 4 }
+      { "id": "wt_f_north", "points": [[13, 11], [17, 13], [22, 15]], "capacity": 4 },
+      { "id": "wt_f_west", "points": [[11, 13], [12, 17], [13, 21]], "capacity": 4 }
     ],
     "hostile": [
-      { "id": "wt_h_south", "points": [[35, 35], [29, 33], [23, 30]], "capacity": 4 },
-      { "id": "wt_h_east", "points": [[35, 35], [32, 28], [28, 21]], "capacity": 4 }
+      { "id": "wt_h_south", "points": [[34, 36], [30, 34], [25, 32]], "capacity": 4 },
+      { "id": "wt_h_east", "points": [[36, 34], [35, 30], [34, 26]], "capacity": 4 }
     ]
   },
   "income_zones": [

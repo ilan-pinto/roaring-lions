@@ -154,7 +154,7 @@ describe('versusRulesFailures, one mutation at a time', () => {
 });
 
 describe('versus tunnel routes: versusRulesFailures, one mutation at a time (GH-681)', () => {
-  const route = (r: Rules) => r.tunnels!.hostile[0]; // tel_marum tm_n_west (26,10) -> (14,22)
+  const route = (r: Rules) => r.tunnels!.hostile[0]; // tel_marum tm_n_west (22,17) -> (13,27)
   it('passes the strawman routes, and the constants are the spec\'s', () => {
     expect(failures(rulesFor('tel_marum'))).toEqual([]);
     expect(failures(rulesFor('wadi_tarfan'))).toEqual([]);
