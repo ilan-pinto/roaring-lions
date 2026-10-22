@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { maps, paletteColor, paletteTeamColors, parseMap } from '@lions/data';
 import { QUALITY_PRESETS } from '@lions/render';
@@ -73,6 +74,17 @@ describe('rendererOptionsFor', () => {
     const o = rendererOptionsFor(arid, HIGH, '/roaring-lions/');
     const urls = [o.groundTextureUrl, o.rockTextureUrl, o.scrubTextureUrl, o.groveTextureUrl, o.knollTextureUrl];
     for (const url of urls) expect(url?.startsWith('/roaring-lions/textures/'), String(url)).toBe(true);
+  });
+
+  it('serves both flipbook atlases from the deploy base, files that exist', () => {
+    const o = rendererOptionsFor(arid, HIGH, '/roaring-lions/');
+    expect(o.flipbookFireUrl).toBe('/roaring-lions/textures/vfx/flipbook_fire.png');
+    expect(o.flipbookSmokeUrl).toBe('/roaring-lions/textures/vfx/flipbook_smoke.png');
+    const assets = new URL('../../../assets/', import.meta.url);
+    for (const url of [o.flipbookFireUrl, o.flipbookSmokeUrl]) {
+      const rel = String(url).replace('/roaring-lions/', '');
+      expect(existsSync(new URL(rel, assets)), rel).toBe(true);
+    }
   });
 
   it('no longer asks for a road image', () => {

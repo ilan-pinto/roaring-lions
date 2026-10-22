@@ -51,6 +51,12 @@ updates:
       # (23886 vs 23862 indices; the 0.74 ratio no longer fits the raw cap), so
       # a bump is a re-damage + re-encode task, not a weekly update (#711).
       - dependency-name: meshoptimizer
+      # wrangler is the deploy tool: a bump changes what reaches production.
+      # 4.149.0 -> 4.151.1 failed the Cloudflare "Workers Builds" check twice
+      # (#715) while a local `wrangler deploy --dry-run` passed, and the build
+      # log is only on the Cloudflare dashboard. Bump it by hand, in its own
+      # PR, reading that build's log before merging.
+      - dependency-name: wrangler
     # The postcss override that stood in pnpm-workspace.yaml is gone: vite 8
     # requires postcss ^8.5.29 itself (#574 step 2).
 

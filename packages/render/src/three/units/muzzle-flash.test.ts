@@ -139,9 +139,15 @@ describe('MuzzleFlashManager', () => {
       .materials;
     const uColor = materials.core.uniforms.uColor.value as THREE.Color;
     const [r, g, b] = hexToLinear('#FFF6D0');
-    expect(uColor.r).toBeCloseTo(r, 6);
-    expect(uColor.g).toBeCloseTo(g, 6);
-    expect(uColor.b).toBeCloseTo(b, 6);
+    // palette colour x HDR gain (literal oracle, D2)
+    expect(uColor.r).toBeCloseTo(r * 10, 5);
+    expect(uColor.g).toBeCloseTo(g * 10, 5);
+    expect(uColor.b).toBeCloseTo(b * 10, 5);
+    const mid = materials.mid.uniforms.uColor.value as THREE.Color;
+    const outer = materials.outer.uniforms.uColor.value as THREE.Color;
+    const [mr] = hexToLinear('#FFB43C');
+    expect(mid.r).toBeCloseTo(mr * 5, 5);
+    expect(outer.r).toBeCloseTo(mr * 2.2, 5);
     mgr.dispose();
   });
 

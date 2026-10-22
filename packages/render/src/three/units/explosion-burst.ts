@@ -97,6 +97,7 @@
  * as the muzzle flash.
  */
 import * as THREE from 'three';
+import { burstGain } from './hdr-gains';
 import { gltfLoader } from './gltf-loader';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import {
@@ -358,6 +359,8 @@ export class ExplosionBurstManager {
   setColors(resolve: (key: string) => string): void {
     for (const role of EXPLOSION_BURST_ROLES) {
       const color = new THREE.Color(resolve(explosionBurstPaletteKey(role)));
+      // HDR gain on the palette colour (hdr-gains.ts, D2/D9).
+      color.multiplyScalar(burstGain(role));
       (this.materials[role].uniforms.uColor.value as THREE.Color).copy(color);
     }
   }

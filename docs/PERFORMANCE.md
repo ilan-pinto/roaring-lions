@@ -2576,3 +2576,152 @@ zones against a rear (side 1 has no camp in the bench, so its zones are never cu
 a terrain change (a structure falling) inside the measured window: that recheck pays the old cost
 once (fields, starts, rears and routes recomputed), and none of the scenarios fells one; the renderer
 (the zones' display is Lane A's, WP-S-F #184).
+
+## Defilade T4: bloom and flipbook (GH-705, 2026-10-21)
+
+What the selective HDR bloom (`three/bloom.ts`, D1/D8) and the instanced flipbook
+(`units/flipbook-fx.ts`, D6/D7) cost, main (`f3329631`) against the branch (`feat/defilade-t4` at
+`9de4f669` plus this task's harness flags; no renderer code changed in this task).
+
+### Conditions
+
+- Apple M3 Pro, ANGLE/Metal (confirmed through `WEBGL_debug_renderer_info` on every run), headless
+  Chromium, one browser at a time, music off, CSS 1440x900 at DPR 2 (drawing buffer 2880x1800).
+- `tools/src/perf/render-frame-cost.ts` on `?sandbox=beit_sahwan_outskirts&sur&civ`, two dev servers
+  started once (`--attach`): main from a detached worktree on :5182, the branch on :5181. New flags,
+  this task: `--quality=` seeds the preset before boot (read back from `lions.settings` and printed);
+  `--hide=bloom` hides the `bloom` debug layer (the pass's `enabled`, which nothing per frame
+  re-asserts); `--stress` adds two rows at (26,22) zoom 1.6: the view frozen (`frame(1, 0)`), then the
+  same after 24 Grad landings (`spawnShellLandingAt('rocket', ...)`, a 6x4 lattice at 1.5-tile spacing)
+  aged 250 ms of FX time, frozen. The branch's stress row read **432 live flipbook instances** on every
+  run; main has no flipbook.
+- 3 presets x 3 runs, interleaved main / branch / branch bloom-off per preset per round (24 runs,
+  22:31-23:12 IDT). The driver waited for the 1-minute load average to fall under 6 before each run
+  (up to 15 min). **Load at the start of each run: 4.15-5.98**, except one run (`branch-nobloom-high`
+  round 3) that started at **22.56** after the wait expired; it was re-run at load **3.04** (the
+  quiet reading is the one tabulated). A confirming medium pair ran at load 3.85 (main) and 3.36
+  (branch). Raw logs: `.superpowers/sdd/plan/task-8-perf/runs.log` (git-ignored), with the driver
+  and parser beside them.
+- `cpu` is `renderer.frame()` wall time; `gpu` brackets it with `gl.finish()` (see the harness header:
+  on this platform the two agree and cannot split submission from fill). Each cell is the range of the
+  per-run medians (240 / 120 frames each) over 3 runs.
+
+### Frame time, median ms (`gpu` column; `cpu` agrees within ~1 ms)
+
+| preset | view | main | branch | branch, bloom hidden |
+|---|---|---|---|---|
+| high | (5,22) z2.5 | 12.8-13.1 | 14.2-16.0 | 12.2-13.2 |
+| high | (22,24) z0.5 | 12.8-13.1 | 14.6-16.0 | 12.1-12.9 |
+| high | (26,22) z1.6 | 12.5-13.0 | 13.8-15.4 | 12.0-12.9 |
+| medium | (5,22) z2.5 | 2.6-3.4 | **10.4-11.0** | 2.8-3.6 |
+| medium | (22,24) z0.5 | 3.5-4.2 | **10.4-11.0** | 3.8-4.2 |
+| medium | (26,22) z1.6 | 2.8-3.6 | **10.4-11.1** | 2.7-3.0 |
+| low | (5,22) z2.5 | 2.6-3.0 | 2.3-2.9 | (no bloom on low) |
+| low | (22,24) z0.5 | 3.8-4.0 | 3.5-4.1 | |
+| low | (26,22) z1.6 | 2.6-2.9 | 2.7-3.0 | |
+
+`gpu` p95: high 13.8-15.2 (main) against **22.4-27.6** (branch) and 13.1-15.1 bloom hidden; medium
+3.6-5.8 against 13.6-16.3 and 3.7-5.9.
+
+### Draw calls and programs (identical on every run)
+
+| preset | views (5,22) / (22,24) / (26,22) | main | branch | branch, bloom hidden | programs main -> branch |
+|---|---|---|---|---|---|
+| high | calls | 310 / 497 / 365 | 323 / 510 / 378 | 310 / 497 / 365 | 51 -> 60 |
+| medium | calls | 246 / 344 / 268 | 259 / 357 / 281 | 246 / 344 / 268 | 43 -> 52 |
+| low | calls | 243 / 341 / 265 | 243 / 341 / 265 | -- | 40 -> 41 |
+
+Bloom is **+13 draw calls** where it is built (bright pass, 5 mips x 2 separable blurs, composite,
+blend) and +0 on `low`. Programs at boot: +1 on every preset, `low` included (not attributed: present
+before any effect has spawned), plus +8 on `high`/`medium`, which matches the bloom's own eight
+materials (high pass, five blur kernels, composite, blend) and stays with the pass hidden. Separately,
+on the branch only, the first stress landing compiles one more program (main's landings compile
+none).
+
+### The flipbook stress: 24 Grad landings, 250 ms in, frozen (zoom 1.6)
+
+| preset | main: control -> stress | branch: control -> stress | bloom hidden: control -> stress |
+|---|---|---|---|
+| high, gpu median | 12.6-13.0 -> 12.7-13.2 (+6 calls) | 13.8-15.7 -> 15.1-16.8 (+2-3 calls) | 11.9-12.6 -> 13.2-13.9 (+2-3 calls) |
+| medium, gpu median | 2.7-3.4 -> 2.9-3.5 (+6) | 10.5-11.0 -> 11.9-12.1 (+2) | 2.7-3.2 -> 2.8-3.1 (+2) |
+| low, gpu median | 2.2-2.9 -> 2.6-2.8 (+6) | 2.4-3.0 -> 2.3-2.5 (+2) | -- |
+
+24 landings add **2-3 draw calls** on the branch (the flipbook's two meshes, and a third on some
+runs, with and without bloom) where main's fireball meshes and puffs added 6. The burst adds about
+**+1.2 ms** at `high` (432 live billboards over a 2880x1800 buffer) and nothing measurable at `medium`/`low` with bloom hidden. With bloom on, the same burst also blooms, +1.1-1.4 ms.
+
+### Memory (`pnpm perf:memory`, its own server, Metal, 1400x900 @1x, 120 s a mission)
+
+Branch with `--gate`: **every budget met, exit 0** (load 4.00 at start). GPU ledger, main -> branch:
+menu 227.9 -> 230.2 MiB, `qarn_hadid_3_clearance` 913.3 -> 915.5, `umm_zeitoun_4_clearance`
+911.6 -> 913.8, `khan_rafid_3_clearance` 889.9 -> 902.9; JS heap + ArrayBuffers within 1 MiB on every
+row; no leak on leaving (GPU +0.0 MiB over the first menu). One run each, so the 13 MiB on
+`khan_rafid_3_clearance` is not separated from what that mission happened to spawn (the two 1024^2
+atlases with mips are ~10.7 MiB once uploaded).
+
+### Reading, and what the lead must decide
+
+1. **Bloom on `medium` reads +7.5 ms in this harness, and that reading is dominated by a
+   render-target-switch cliff** (follow-up below): the same frame without bloom crosses it with four
+   extra colour clears of tiny targets. The pass's own work, read on `high` where main and the branch
+   both already read high, is about +1.3-1.5 ms. **What the live game pays on `medium` in GPU time is
+   UNMEASURED**: the 60 Hz rAF check is capped (a 10 ms GPU frame also passes) and its `frame()`
+   figure is CPU submission, and spacing the harness's frames 16 ms apart still read 3.3 -> 8.9-9.4
+   ms, so the cliff may be real cost that 60 Hz headroom hides. **Ruled 22 Oct 2026: bloom is OFF on `medium`** (kept on `high` at quarter resolution, off on
+   `low`) until a GPU-timer measurement confirms the medium cost.
+2. **The flipbook is cheaper than what it replaced in draw calls** (+2-3 against +6 for 24 landings) and
+   costs ~1.2 ms of fill at `high` for a 432-billboard burst; nothing else in a quiet frame moves.
+3. **Open: the `aftermath` census is RED** (`pnpm perf:bloom-census --aftermath=only`, Task 7). At
+   tick 300 the sandbox force is firing, and seven small-arms muzzle-flash `PointLight`s
+   (`units/flash-light.ts`, unchanged since main) light the frame's corner: pre-bloom max **2.99-3.26
+   lit against 0.69 with the lights hidden** (`medium` DPR 1, `high` DPR 1 and 2). Decals and pale
+   lips stay under 0.9. CI's gated `aftermath` frame will probably move and need a bless. The lead's
+   two options: change the scenario so nothing fires at the capture tick, or accept a named exemption.
+   The 0.9 ceiling was not raised.
+4. **Open: the D2 muzzle-mesh HDR gains are unwitnessed.** Setting `muzzleCore/Mid/Outer` to 1 left
+   `lavi_fire`'s bloom reading unchanged (54125 px / 26.7251) and the pre-bloom max at 6.53 either way;
+   what blooms there is the muzzle light on the ground. The three zones are a triangle partition of one
+   surface, drawn `depthTest: false` at one `renderOrder`, so "hidden inside the outer shell" is not
+   the explanation. **Cause not established**; no toggle floor can witness those three gains today.
+
+### Follow-up: what the `medium` +7.5 ms is made of (bisected, 2026-10-21)
+
+Measured in one page per preset (Metal, DPR 2, the same sandbox and view (26,22) zoom 1.6), each
+variant 150 frames off then 300 on, median of the last 200, `frame(1, 16)` + `gl.finish()` back to
+back. **Load average 31-84 throughout** (another session's test run held the machine), so read the
+contrasts, not the absolute numbers; every contrast below repeated on every run, but none was taken
+on a quiet machine. Scripts: `.superpowers/sdd/plan/task-8-perf/bisect/` (git-ignored).
+
+- **The onset is delayed.** Enabling the pass on `medium` reads 3.1-3.8 ms for the first ~30 frames,
+  then 10.3-11.4 ms for as long as it stays on; off again, back to 3.0-3.7 within ~20 frames.
+- **The pass's draws are not what moves it.** Skipping all 13 of its full-screen draws but keeping its
+  `setRenderTarget` + `clear` calls: 9.6 ms. Each draw class alone (high pass, blend, blurs and
+  composite) also reads 9.1-10.1; strength 0, 10.9. Replacing `render` with a no-op: 2.8.
+- **What moves it is the number of DISTINCT render targets a frame switches between.** With the pass's
+  `render` replaced by k colour-only clears of the bloom's own tiny targets (45x29 up): k = 0-3 read
+  3.2-3.6 ms, k = 4-11 read 9.2-9.5 ms. Six clears of ONE target: 3.2. Six alternating between TWO
+  targets: 9.5. Binding without clearing (no render pass started): 3.2. `bindFramebuffer` calls a
+  frame: `medium` 9 with bloom off, 22 on; `high` 13 off, 26 on. So in this harness the step sits
+  between 12 and 13 switches a frame. That main's `high` (13) is already past it, and that this is
+  why main reads 12.5 ms on `high` against 3 on `medium`, is a **hypothesis** consistent with the
+  counts, not something measured here.
+- **What the live game pays is not settled.** Letting the app's own rAF loop run for 4 s each way,
+  both presets drew 240 frames in 4.0 s with bloom on and off, and `frame()` (CPU submission, not GPU
+  time) read 2.2-2.3 -> 2.4-2.6 ms on `medium` and 5.3-5.6 -> 5.5-5.7 on `high`. A 60 Hz cap passes
+  a 10 ms GPU frame too, so this does not show the cliff is absent. Spacing the tight loop 16 ms
+  apart did NOT remove it on `medium` (3.3 -> 8.9-9.4). Why ANGLE/Metal (or the GPU's clocking)
+  behaves this way is not established.
+- **Ruled out in the pass itself**: it is quarter size (bright 720x450, mips 720/360/180/90/45), does
+  0 `readPixels` and compiles nothing per frame (programs 52 before and after 300 frames).
+
+No code change in this round. What it changes is how to read `render-frame-cost.ts`: a frame that
+switches render targets 13+ times reads far more than its draws in that harness, so compare presets
+or trees only on the same side of the step (its header now says so). A GPU timer query (the ad hoc
+one tried here disagreed with `gl.finish` by 3x, so it was not used) is what would settle the live
+cost.
+
+### What this does not measure
+
+The live game loop (sim ticking, HUD, a real fight): the harness calls `renderer.frame()` in a tight
+loop with the sim parked. SwiftShader (CI's rasteriser). A GPU timer that separates the bloom's own
+cost from back-pressure. Any map but `beit_sahwan_outskirts`, and DPR 1.

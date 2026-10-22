@@ -1,15 +1,31 @@
 /**
  * The frame's post chain (spec §5): RenderPass -> [FogOfWarPass] -> [GTAOPass]
- * -> OutputPass -> [VignettePass] -> [SMAAPass].
+ * -> [Bloom] -> OutputPass -> [VignettePass] -> [SMAAPass].
  *
- * `GTAOPass` and `SMAAPass` are the two passes the quality preset
- * (`../quality.ts`) can remove. `high` -- `QUALITY_PRESETS.high`, the
- * default every caller got before the preset existed -- builds both, so the
- * bracketed chain above is exactly what it always was. `low` builds
- * neither: `RenderPass -> [FogOfWarPass] -> OutputPass -> [VignettePass]`,
- * with fog and the vignette unaffected -- they are not part of the
- * `quality` contract at all, and stay whatever the caller slots through
- * `setFogPass`/`setVignettePass`. `medium` keeps SMAA and drops only AO.
+ * **Bloom (Defilade Task 4, `./bloom.ts`) sits after AO and before
+ * OutputPass, and both neighbours are load-bearing** (gap audit §2). AFTER
+ * fog (and the haze inside it): fog is a post pass reading the ground depth
+ * behind an FX quad, so extracting bright pixels after it keeps a blast over
+ * unseen ground dark -- it cannot glow through the shroud and leak what the
+ * player has not seen -- and a far, hazed fireball blooms less, which is
+ * right. After AO, the textbook order for a contact-seam multiply on the
+ * opaque world. BEFORE `OutputPass`: the threshold is a scene-referred
+ * luminance (1.0), so the pass must read the linear HalfFloat buffer; after
+ * the output transform the values are display-referred and capped at 1, and
+ * no threshold could separate a flash from white sand. ACES then compresses
+ * the glow with everything else. Like AO it is built by the caller
+ * (`ThreeRenderer.init`, gated on `quality.bloom`), so `low` never builds it.
+ *
+ * `GTAOPass`, the bloom and `SMAAPass` are the three passes the quality
+ * preset (`../quality.ts`) can remove. `high` -- `QUALITY_PRESETS.high`, the
+ * default every caller got before the preset existed -- builds all three
+ * (the bloom since Defilade Task 4, which moves no quiet frame: see
+ * `./bloom.ts`). `low` builds none of them:
+ * `RenderPass -> [FogOfWarPass] -> OutputPass -> [VignettePass]`, with fog
+ * and the vignette unaffected -- they are not part of the `quality`
+ * contract at all, and stay whatever the caller slots through
+ * `setFogPass`/`setVignettePass`. `medium` keeps SMAA and drops AO and
+ * the bloom (lead, 22 Oct 2026, pending a GPU-timer read of its cost).
  * SMAA's construction lives in THIS file (`new SMAAPass` below), gated
  * directly on `quality.smaa`; the AO pass is built and owned by the
  * caller (`ThreeRenderer.init`, via `createAoPass`), which is why gating it
@@ -433,6 +449,23 @@ export interface PostChain {
   /** Ownership as for `setFogPass` above: the caller disposes what it built. */
   setAoPass(pass: Pass | null): void;
   /**
+   * The selective HDR bloom (`./bloom.ts`), slotted AFTER the AO pass and
+   * BEFORE `OutputPass` -- see this file's header for why both neighbours
+   * matter. Ownership as for `setFogPass` above: the caller disposes what it
+   * built.
+   */
+  setBloomPass(pass: Pass | null): void;
+  /**
+   * DEBUG ONLY (the bloom census, `tools/src/perf/bloom-census.ts`): render
+   * the chain up to the bloom slot -- RenderPass, fog, AO, and nothing after
+   * -- short of the screen, and hand `read` the composer buffer that holds
+   * it: the scene-referred HalfFloat picture the bloom's high-pass would
+   * threshold. Every later pass's `enabled` and the composer's
+   * `renderToScreen` are restored whatever `read` does. Costs nothing per
+   * frame: nothing calls it but a harness.
+   */
+  withPreBloomBuffer<T>(read: (target: THREE.WebGLRenderTarget) => T): T;
+  /**
    * The corner vignette (`./vignette-pass.ts`), slotted AFTER `OutputPass`
    * and BEFORE `SMAAPass` -- the only pass in this chain that runs on
    * display-referred colour, which is why it cannot join fog and AO in the
@@ -445,7 +478,7 @@ export interface PostChain {
   setVignettePass(pass: Pass | null): void;
   /** Releases the composer's targets and the four passes this module owns
    *  (RenderPass, OutputPass, SMAAPass, and the composer's own copy pass) --
-   *  never a fog, AO or vignette pass handed in from outside. */
+   *  never a fog, AO, bloom or vignette pass handed in from outside. */
   dispose(): void;
 }
 
@@ -521,12 +554,16 @@ export function createPostChain(
   let fogPass: Pass | null = null;
   let aoPass: Pass | null = null;
   let vignettePass: Pass | null = null;
+  let bloomPass: Pass | null = null;
 
   const rebuild = (): void => {
     composer.passes.length = 0;
     composer.addPass(renderPass);
     if (fogPass) composer.addPass(fogPass);
     if (aoPass) composer.addPass(aoPass);
+    // After fog and AO, before the output transform: see the header. It
+    // blends into the read buffer (`needsSwap` false) and never swaps.
+    if (bloomPass) composer.addPass(bloomPass);
     composer.addPass(outputPass);
     // Between the output transform and SMAA, and it is the only slot that
     // works: the vignette scales DISPLAY-referred colour (before ACES it
@@ -562,9 +599,29 @@ export function createPostChain(
       aoPass = pass;
       rebuild();
     },
+    setBloomPass(pass) {
+      bloomPass = pass;
+      rebuild();
+    },
     setVignettePass(pass) {
       vignettePass = pass;
       rebuild();
+    },
+    withPreBloomBuffer(read) {
+      const later = [bloomPass, outputPass, vignettePass, smaa].filter((p): p is Pass => p !== null);
+      const wasEnabled = later.map((p) => p.enabled);
+      const wasToScreen = composer.renderToScreen;
+      try {
+        for (const p of later) p.enabled = false;
+        composer.renderToScreen = false;
+        // Zero elapsed time: a repaint of the frame on screen, never a step
+        // of any clock a pass keeps.
+        composer.render(0);
+        return read(composer.readBuffer);
+      } finally {
+        later.forEach((p, i) => (p.enabled = wasEnabled[i]));
+        composer.renderToScreen = wasToScreen;
+      }
     },
     dispose() {
       composer.dispose();

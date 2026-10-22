@@ -120,6 +120,7 @@ import type { AimFootprint, AuraRingView, ObjectiveZoneView, PlacementPreview, R
 import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, type Camera } from '../project';
 import { QUALITY_PRESETS } from '../quality';
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec, type ParticleSpec } from '../vfx';
+import type { FlipbookLayerSpec } from '../vfx/emitters';
 import { SIM_HZ } from '../anim';
 import { colorSlot, isHostileSide, isOwnSide } from '../relation';
 import { resolveClip, cadenceScale, type UnitAnimInput } from '../clip';
@@ -175,6 +176,7 @@ import { disposeAndReleaseContext, noteSharedTextures } from './context-release'
 import { freezeSceneRoot, freezeStatic } from './static-matrix';
 import { AO_RESOLUTION_SCALE, createAoPass, createPostChain, PIXEL_RATIO_CAP, type PostChain } from './post-chain';
 import { VignettePass } from './vignette-pass';
+import { bloomPassFor, luminanceCensus, type LuminanceCensus, type QuarterBloomPass } from './bloom';
 import type { Pass } from 'three/addons/postprocessing/Pass.js';
 // The ONE piece of the post chain `captureGroundAlbedo` needs -- see that
 // method for why a render target cannot simply be read back raw.
@@ -552,6 +554,7 @@ import { tileHash } from '../tile-hash';
 import { computeFog, isFogVisible, type FogInput } from './fog';
 import { ShroudTexture } from './shroud-texture';
 import { hazeRadiance, hazeReferenceLevel } from './haze';
+import { FlipbookFx, flipbookSupersedes } from './units/flipbook-fx';
 import { FogOfWarPass } from './fog-pass';
 import { SmokeMesh } from './smoke-mesh';
 import { perTileYawFor } from './units/run-direction';
@@ -1535,8 +1538,23 @@ export class ThreeRenderer implements Renderer {
    *  shroud (`data/vfx/collapse_flash.json`). Loaded and coloured alongside
    *  `explosionBursts`, from the one parsed template. PA-19: a vehicle kill's
    *  fireball draws here too, for the same reason -- it has a shroud of its
-   *  own (`beginVehicleCollapseShroud`). */
+   *  own (`beginVehicleCollapseShroud`). Since Defilade T4 that is the
+   *  FALLBACK kill only, before the flipbook's atlases land (D5). */
   private readonly collapseFlashBursts = new ExplosionBurstManager(EXPLOSION_BURST_CAPACITY, COLLAPSE_FLASH_RENDER_ORDER);
+  /** Defilade T4 (GH-705): the instanced, GPU-aged flipbook billows --
+   *  fireballs, dirt and smoke (`units/flipbook-fx.ts`'s own top comment).
+   *  Two meshes over one geometry, added to the scene once in the
+   *  constructor, stepped on the frame clock beside the bursts, atlases
+   *  fetched in `init()`. Hidden while nothing is live, so idle costs 0 draw
+   *  calls. An emitter that declares a `flipbook` recipe spawns it through
+   *  `flipbookRecipeOf` (D6): the shell landing, the missile impact, the
+   *  vehicle kill (D5, replacing its fireball, column AND shroud) and the
+   *  `fire_apfsds`/`fire_heat` muzzle. */
+  private readonly flipbook = new FlipbookFx();
+  /** Scratch for the sun's screen-space direction (`frame()`). */
+  private readonly flipbookRight = new THREE.Vector3();
+  private readonly flipbookUp = new THREE.Vector3();
+  private readonly flipbookSun = new THREE.Vector2();
   /** Owns the pooled, modelled smoke-plume mesh
    *  (`art/meshes/vfx/smoke_plume.glb`) -- `units/smoke-plume.ts`'s own top
    *  comment has the full account, including why its zones split along the
@@ -2434,6 +2452,18 @@ export class ThreeRenderer implements Renderer {
    */
   private vignettePass: VignettePass | null = null;
   /**
+   * Defilade Task 4: the selective HDR bloom (`./bloom.ts`), after AO and
+   * before `OutputPass`. Built in `init()` only when `quality.bloom` asks
+   * (`high` and `medium`, at a quarter of the drawing buffer; `low` never
+   * builds one), held for the same two reasons `aoPass` is -- the chain does
+   * not own it, and the `ThreeRenderer*.test.ts` fakes never reach `init()`.
+   * The composer resizes it with every other pass (`fitToHost` ->
+   * `post.setSize`), and `QuarterBloomPass.setSize` keeps it at a quarter.
+   * Typed as the concrete class because `setDebugLayerVisible('bloom', ...)`
+   * flips its `enabled`, `vignette`'s shape.
+   */
+  private bloomPass: QuarterBloomPass | null = null;
+  /**
    * The ground beyond the map (`./terrain/skirt.ts`). Built and added in the
    * CONSTRUCTOR, unlike every other terrain mesh in this class: it is a
    * function of `sim.width`/`sim.height` alone, so a `rebuildTerrain` -- a
@@ -2795,7 +2825,8 @@ export class ThreeRenderer implements Renderer {
       this.tracerBatch.mesh,
       this.shellBatch.mesh,
       this.boltBatch.mesh,
-      ...this.missileFx.meshes
+      ...this.missileFx.meshes,
+      ...this.flipbook.meshes
     );
     // The scene's own light, sized to this map: one sun with a map-wide
     // shadow box, one hemisphere bounce, and the sun's target (a
@@ -2926,6 +2957,11 @@ export class ThreeRenderer implements Renderer {
   async init(host: HTMLElement): Promise<void> {
     this.host = host;
     this.loadGroundTexture();
+    // Defilade T4: the flipbook atlases. Fail-soft and unawaited -- until
+    // both land the flipbook draws nothing (no fallback billow).
+    if (this.opts.flipbookFireUrl && this.opts.flipbookSmokeUrl) {
+      void this.flipbook.load(this.opts.flipbookFireUrl, this.opts.flipbookSmokeUrl);
+    }
     // Everything in this method that needs a live GL context lives here
     // rather than in the constructor, which the nine `ThreeRenderer*.test.ts`
     // fakes exercise with a renderer stub that has four members.
@@ -2983,6 +3019,13 @@ export class ThreeRenderer implements Renderer {
       this.aoPass = createAoPass(this.scene, this.viewCamera, this.cssWidth, this.cssHeight, AO_RESOLUTION_SCALE);
       this.post.setAoPass(this.aoPass);
     }
+    // Defilade Task 4: bloom, after AO and before OutputPass (see
+    // `post-chain.ts`'s header for why both neighbours matter). Gated
+    // through `bloomPassFor`, the same call the chain-order test makes, so
+    // `low` never builds the pass or its eleven targets. Ownership is
+    // `setFogPass`'s again: `dispose()` below frees it.
+    this.bloomPass = bloomPassFor(quality, this.cssWidth, this.cssHeight, this.renderer.getPixelRatio());
+    if (this.bloomPass) this.post.setBloomPass(this.bloomPass);
     // Shell upgrade Phase 0: the corner vignette, AFTER `OutputPass` and
     // BEFORE SMAA -- the only pass here that runs on display-referred
     // colour. See `vignette-pass.ts` for why that slot is the only one that
@@ -3294,6 +3337,7 @@ export class ThreeRenderer implements Renderer {
     this.muzzleFlashes.dispose();
     this.explosionBursts.dispose();
     this.collapseFlashBursts.dispose();
+    this.flipbook.dispose();
     this.smokePlumes.dispose();
     this.collapseShrouds.dispose();
     // Same "added once in the constructor, no scene.remove needed" shape as
@@ -3349,6 +3393,11 @@ export class ThreeRenderer implements Renderer {
     this.post?.setVignettePass(null);
     this.vignettePass?.dispose();
     this.vignettePass = null;
+    // Defilade Task 4, the same rule and order: out of the chain, then
+    // freed -- the bright target, ten blur mips and nine materials.
+    this.post?.setBloomPass(null);
+    this.bloomPass?.dispose();
+    this.bloomPass = null;
     // The skirt's geometry and material -- added once in the constructor, so
     // no `scene.remove`, exactly like `smokeMesh`/`trailMesh` below.
     disposeSkirt(this.skirtMesh);
@@ -3700,6 +3749,17 @@ export class ThreeRenderer implements Renderer {
           if (this.vignettePass) this.vignettePass.enabled = visible;
           return this.vignettePass === null || was === visible ? 0 : 1;
         }
+      case 'bloom': {
+        // Defilade Task 4: `vignette`'s shape exactly -- the pass's own
+        // `enabled`, which no per-frame path re-asserts (the chain is rebuilt
+        // only by the `set*Pass` calls in `init()`/`dispose()`, and
+        // `withPreBloomBuffer` restores what it found), so the toggle holds
+        // across the gate's zero-time repaint. 0 with no pass (`low`, or
+        // `init()` never ran) and when it was already in that state.
+        const was = this.bloomPass?.enabled ?? false;
+        if (this.bloomPass) this.bloomPass.enabled = visible;
+        return this.bloomPass === null || was === visible ? 0 : 1;
+      }
       case 'skirt':
         // An ordinary `visible` flag: the skirt is added once in the
         // constructor and no per-frame path touches it (grep `skirtMesh` --
@@ -3877,6 +3937,12 @@ export class ThreeRenderer implements Renderer {
         for (const entity of this.vehicleMeshEntities.values()) if (runningGearBinding(entity)) n++;
         return n;
       }
+      case 'flipbook':
+        // Defilade T4: a FLAG, `missiles`' shape -- the flipbook's live
+        // window rewrites both meshes' `visible` on every `step` and spawn,
+        // so a plain write would be undone by the gate's own repaint.
+        // Returns 2, the meshes it hides.
+        return this.flipbook.setDebugHidden(!visible);
       case 'missiles':
         // P-5: a FLAG, `blast-light`'s shape -- `MissileFx.step` rewrites all
         // three meshes' `visible` every frame (`count > 0 && !debugHidden`),
@@ -3983,6 +4049,26 @@ export class ThreeRenderer implements Renderer {
     this.groundPhoto = this.photographGround(size);
     this.groundPhotoPx = this.groundPhoto === null ? 0 : size;
     return this.groundPhoto;
+  }
+
+  /**
+   * DEBUG ONLY, three-only and deliberately not on `Renderer` (`../api.ts`):
+   * the bloom census's read (`tools/src/perf/bloom-census.ts`). Renders the
+   * chain up to the bloom slot -- RenderPass, fog, AO -- into the composer's
+   * own HalfFloat buffer (`PostChain.withPreBloomBuffer`), reads it back
+   * through `readRenderTargetPixels` (never the canvas:
+   * `preserveDrawingBuffer` stays off), and returns the luminance census of
+   * every `stride`-th pixel: exactly the scene-referred values the bloom's
+   * high-pass thresholds. Built whether or not this preset has a bloom pass,
+   * so `low` can be censused too. Nothing per-frame calls it.
+   */
+  debugPreBloomLuminance(stride = 5): (LuminanceCensus & { width: number; height: number }) | null {
+    if (this.disposed || this.post === null) return null;
+    return this.post.withPreBloomBuffer((target) => {
+      const data = new Uint16Array(target.width * target.height * 4);
+      this.renderer.readRenderTargetPixels(target, 0, 0, target.width, target.height, data);
+      return { ...luminanceCensus(data, stride), width: target.width, height: target.height };
+    });
   }
 
   /**
@@ -4786,14 +4872,25 @@ export class ThreeRenderer implements Renderer {
           // wall-clock one-shots; the scorch, the oil and the smoulder below
           // are dated off the sim clock and stay.
           const burst = !this.quiet;
-          if (burst && this.collapseFlashBursts.ready) {
+          const blast = this.emitterLibrary.byName(BLAST_EMITTER_ID);
+          // Defilade T4 (D5/D6): with the atlases in, `catastrophic_kill`'s
+          // flipbook recipe IS the kill's fire and smoke -- its fireball, its
+          // soot column and its dust ring replace the pooled burst, the
+          // smoke-plume column and the tan collapse shroud below. Until the
+          // atlases land (or for an emitter set with no recipe) the old three
+          // stand in, so a kill never draws nothing.
+          const killRecipe = this.flipbookRecipeOf(blast);
+          if (burst && killRecipe) {
+            this.flipbook.spawnRecipe(killRecipe, dx, worldY, dy, killPower);
+          }
+          if (burst && !killRecipe && this.collapseFlashBursts.ready) {
             this.collapseFlashBursts.spawn(dx, worldY, dy, killYawTurns, killPower, EXPLOSION_BURST_DEFAULT_DURATION_MS);
           }
           // The smoke aftermath follows the same hard-target kill -- a
           // burning hull is exactly what a rising column is FOR. Checked
           // live (this task's report) that pairing the two here reads the
           // same way it does for a building collapse, not merely assumed.
-          if (burst && this.smokePlumes.ready) {
+          if (burst && !killRecipe && this.smokePlumes.ready) {
             // R-I: the blast window, not the default one. A burning hull is
             // the one thing on this map that is still smoking twenty seconds
             // later, and `SMOKE_PLUME_DEFAULT_DURATION_MS` (4 s) is sized for
@@ -4821,7 +4918,6 @@ export class ThreeRenderer implements Renderer {
           // declared its block (`blast-spec.ts`'s own null/zero rule), so an
           // un-`useEmitters`'d renderer spawns nothing rather than a
           // light/shake/freeze built from defaults nobody authored.
-          const blast = this.emitterLibrary.byName(BLAST_EMITTER_ID);
           const blastLight = blastLightSpec(blast, killPower);
           if (burst && blastLight) {
             this.flashLights.spawn(
@@ -4841,7 +4937,7 @@ export class ThreeRenderer implements Renderer {
           const scorchR = scorchRadiusTiles(killPower);
           this.stampGroundDecal(this.persistentStamp('scorch', dx, dy, scorchR));
           this.stampGroundDecal(this.persistentStamp('oil', dx, dy, OIL_RADIUS_TILES));
-          if (burst) this.beginVehicleCollapseShroud(this.vehicleTemplateKey(deadType.id, st.side[e.entity]), dx, dy, worldY);
+          if (burst && !killRecipe) this.beginVehicleCollapseShroud(this.vehicleTemplateKey(deadType.id, st.side[e.entity]), dx, dy, worldY);
           // GH-85: and the hull goes on smouldering after the column clears.
           this.beginWreckSmoulder(e.entity, dx, dy, e.tick);
         }
@@ -5340,6 +5436,17 @@ export class ThreeRenderer implements Renderer {
       this.recoilPower[e.shooter] = power;
     }
 
+    // Defilade T4: a main gun's muzzle billows -- a fire puff along the bore,
+    // a short grey puff and a ground blast ring -- from its emitter's own
+    // `flipbook` recipe, ON TOP of the authored particles below (D6 replaces
+    // nothing at the muzzle). Only `fire_apfsds` and `fire_heat` carry one;
+    // `he` has no fire emitter (`fireEmitterFor` answers null, so it takes the
+    // flat fallback below) and therefore no recipe.
+    const muzzleRecipe = this.flipbookRecipeOf(emitter);
+    if (muzzleShown && !this.quiet && muzzleRecipe) {
+      const gh = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, mzX, mzY);
+      this.flipbook.spawnRecipe(muzzleRecipe, mzX, mzZ, mzY, power, facingRad, gh);
+    }
     if (muzzleShown && emitter && this.particleSystem) {
       const dirTurns = facingRad / (Math.PI * 2);
       const prio = emitter.budget_priority ?? 5;
@@ -5556,7 +5663,18 @@ export class ThreeRenderer implements Renderer {
     const em = this.emitterLibrary.byName(id);
     if (!em) return false;
     const prio = em.budget_priority ?? 1;
+    // Defilade T4 (D6): an emitter with a `flipbook` recipe (today
+    // `shell_impact`) hands its fireball, column and smoke discs to the
+    // flipbook once the atlases are in; the shards stay. One with none --
+    // `structure_collapse`, `tunnel_collapse`, `demolition_blast` -- runs the
+    // loop below exactly as before.
+    const recipe = this.flipbookRecipeOf(em);
+    if (recipe && !this.quiet) {
+      const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, bx, by);
+      this.flipbook.spawnRecipe(recipe, bx, worldY, by, power);
+    }
     for (const layer of em.particles) {
+      if (recipe && flipbookSupersedes(layer)) continue;
       // A layer marked mesh_burst is superseded by the pooled, modelled
       // explosion-burst mesh once one has loaded (`ExplosionBurstManager
       // .ready`, set only on the mesh path -- the default on `three`, and
@@ -5581,6 +5699,17 @@ export class ThreeRenderer implements Renderer {
       this.particleSystem.spawn(layer, bx, by, 0.25, 1, prio, fxLayer);
     }
     return true;
+  }
+
+  /**
+   * Defilade T4: the emitter's `flipbook` recipe when the flipbook can draw
+   * it (both atlases bound), else null -- and null is the caller's cue to run
+   * the pre-flipbook path, so an atlas still in flight (or one that failed)
+   * never leaves an event drawing nothing.
+   */
+  private flipbookRecipeOf(em: EmitterSpec | null | undefined): readonly FlipbookLayerSpec[] | null {
+    const recipe = em?.flipbook;
+    return recipe && recipe.length > 0 && this.flipbook.ready ? recipe : null;
   }
 
   /**
@@ -6174,6 +6303,9 @@ export class ThreeRenderer implements Renderer {
     // Identical two-phase-construction safety, for the explosion-burst mesh.
     this.explosionBursts.setColors(resolve);
     this.collapseFlashBursts.setColors(resolve);
+    // The flipbook's seven palette keys, linear through `THREE.Color`'s own
+    // sRGB decode -- the same path `explosionBursts.setColors` takes.
+    this.flipbook.setColors((key) => new THREE.Color(resolve(key)));
     // Identical two-phase-construction safety, for the smoke-plume mesh.
     this.smokePlumes.setColors(resolve);
     // Identical two-phase-construction safety, for the collapse shroud --
@@ -9278,6 +9410,22 @@ export class ThreeRenderer implements Renderer {
     // Identical presentation-only ageing, for the explosion-burst mesh.
     this.explosionBursts.step(dtMs);
     this.collapseFlashBursts.step(dtMs);
+    // The flipbook ages on the same frame clock (hit-stop freezes `dtMs`), and
+    // shades its billows toward the sun as the camera sees it: the sun's
+    // direction on the camera's right/up axes. A few multiplies a frame.
+    this.flipbook.step(dtMs);
+    {
+      const m = this.viewCamera.matrixWorld.elements;
+      this.flipbookRight.set(m[0], m[1], m[2]).normalize();
+      this.flipbookUp.set(m[4], m[5], m[6]).normalize();
+      const d = this.resolvedLights.direction;
+      this.flipbookSun.set(this.flipbookRight.dot(d), this.flipbookUp.dot(d));
+      if (this.flipbookSun.lengthSq() > 1e-6) this.flipbookSun.normalize();
+      this.flipbook.setLighting(
+        hazeRadiance(this.resolvedLights.sunIntensity, this.resolvedLights.direction.y, this.resolvedLights.hemiIntensity),
+        this.flipbookSun
+      );
+    }
     // Identical presentation-only ageing, for the smoke-plume mesh.
     this.smokePlumes.step(dtMs);
     // Identical presentation-only ageing, for the collapse shroud.
@@ -9359,12 +9507,15 @@ export class ThreeRenderer implements Renderer {
    * (`data/vfx/shell_impact.json`) is an ordinary authored emitter whose hot
    * layer carries `mesh_burst`, so it gets the same pooled fireball mesh a
    * building collapse does and the same authored-particle fallback when that
-   * mesh has not loaded. The only thing this adds over calling it directly
-   * is the size and the yaw: `SHELL_PROFILES[kind].impactPower` (a mortar
-   * bomb is a third of a collapsing house, a Grad rocket nearer a half), and
-   * a per-impact `tileHash` so twenty rounds on the same grid square do not
-   * all show the identical silhouette angle -- the same presentation hash
-   * the `structureDestroyed` case already uses for its own.
+   * mesh has not loaded. Since Defilade T4 its `flipbook` recipe supersedes
+   * that fireball, its column and its smoke discs once the atlases are in
+   * (`spawnCollapseFx`, D6); the shards, light, shake, freeze and decals
+   * stay. The only thing this adds over calling it directly is the size and
+   * the yaw: `SHELL_PROFILES[kind].impactPower` (a mortar bomb is a third
+   * of a collapsing house, a Grad rocket nearer a half), and a per-impact
+   * `tileHash` so twenty rounds on the same grid square do not all show the
+   * identical silhouette angle -- the same presentation hash the
+   * `structureDestroyed` case already uses for its own.
    *
    * This is deliberately NOT tied to the sim's own `impact`/`nearMiss`
    * event. Those fire when the ROUND resolves, which is a different clock
@@ -9431,9 +9582,16 @@ export class ThreeRenderer implements Renderer {
   private spawnMissileImpactFx(l: Pick<MissileLanding, 'x' | 'y' | 'headingTurns' | 'power' | 'scale' | 'miss'>): void {
     const em = this.emitterLibrary.byName(MISSILE_IMPACT_EMITTER_ID);
     const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, l.x, l.y);
+    // Defilade T4 (D6): `missile_impact`'s flipbook recipe replaces its
+    // fireball and smoke once the atlases are in; the spall shards stay.
+    const recipe = this.flipbookRecipeOf(em);
+    if (recipe && !this.quiet) {
+      this.flipbook.spawnRecipe(recipe, l.x, worldY, l.y, l.power, l.headingTurns * Math.PI * 2);
+    }
     if (em && this.particleSystem) {
       const prio = em.budget_priority ?? 7;
       for (const layer of em.particles) {
+        if (recipe && flipbookSupersedes(layer)) continue;
         if (layer.mesh_burst && this.explosionBursts.ready) {
           this.explosionBursts.spawn(l.x, worldY, l.y, tileHash(Math.floor(l.x), Math.floor(l.y)), l.power, EXPLOSION_BURST_DEFAULT_DURATION_MS);
           continue;

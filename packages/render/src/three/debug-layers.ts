@@ -154,6 +154,17 @@
  *               can see it, which is why it does not get a check on every
  *               gated scenario.
  *
+ * `bloom`, ADDED FOR DEFILADE TASK 4 (`./bloom.ts`): the selective HDR
+ * bloom pass, toggled by its own `enabled` -- `vignette`'s shape exactly,
+ * and it holds across the repaint for the same reason (the chain is rebuilt
+ * only from `init()`/`dispose()`; the census's `withPreBloomBuffer` restores
+ * whatever it found). Absent on `low` (`RenderQuality.bloom` `'off'` builds
+ * no pass), where it toggles 0 objects. On a QUIET frame it moves nothing at
+ * all -- nothing in one crosses the 1.0 threshold, which is what the census
+ * (`tools/src/perf/bloom-census.ts`) holds -- so its witness has to be a
+ * frame with an HDR effect in it (`blast:capture`), never a gated golden
+ * scenario.
+ *
  * `overlays`, ADDED FOR TASK 10'S KEY-ART PLATE (not the visual gate -- the
  * Phase 0 capture tool that added it was its only caller, and retired with
  * the key-art plate it drew (scene-host plan Task 7); no capture tool calls
@@ -256,6 +267,16 @@
  *                 for the same reason: no gated scenario has a missile in
  *                 flight. `tools/src/perf/atgm-captures.ts` is where it is exercised.
  *
+ * ONE MORE FOR DEFILADE T4 (GH-705), the `missiles` rule again:
+ * - `flipbook`    the instanced flipbook billows (`units/flipbook-fx.ts`):
+ *                 fireballs, dirt and smoke, two meshes over one geometry.
+ *                 A FLAG (`FlipbookFx.setDebugHidden`), not a `visible`
+ *                 write, because the live window re-derives both meshes'
+ *                 `visible` on every `step` and every spawn -- that is how
+ *                 an idle flipbook costs no draw call. Returns 2. No
+ *                 `layerChecks` entry: no gated scenario has a blast in it
+ *                 (`blast-light`'s reason); its witness is a frame with one.
+ *
  * ONE MORE FOR GH-471, the `missiles` rule again:
  * - `tunnel-xray` the x-ray of an identified tunnel (`../tunnel-xray.ts`):
  *                 bore and shafts, surface collars, the figures inside and
@@ -342,6 +363,7 @@ export const DEBUG_LAYERS = [
   'buildings',
   'units',
   'vignette',
+  'bloom',
   'skirt',
   'overlays',
   'fog',
@@ -349,6 +371,7 @@ export const DEBUG_LAYERS = [
   'decals',
   'blast-light',
   'missiles',
+  'flipbook',
   'kit',
   'tunnel-xray',
   'running-gear',

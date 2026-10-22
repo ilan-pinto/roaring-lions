@@ -363,11 +363,13 @@ The combat model is the product. Everything else is scaffolding around it.
   it, and `blocked` when nobody can penetrate it. The sim's public `canFocus` and
   `focusHurts` are the app's only filter; do not re-derive "can it hurt that" in
   `intents.ts`.
-- **The render quality preset** (`packages/render/src/three/quality.ts`) is
+- **The render quality preset** (`packages/render/src/quality.ts`) is
   `high` / `medium` / `low`, applied at the next mission's BOOT, not live.
   `high` is pinned to the constants that existed before the preset and every
   parameter defaults to it, so the golden baselines did not move; `low` drops
-  GTAO and SMAA and halves the shadow map.
+  GTAO and SMAA and halves the shadow map. Since Defilade T4 `high`
+  also builds a quarter-resolution bloom; `medium` and `low` build none (D8; `medium` off by
+  the lead's ruling of 22 Oct pending a GPU-timer measurement).
 - **There are four team-colour sets, not one.** `reserved.team.variants` in
   `data/palette.json` carries a deuteranopia, protanopia and tritanopia variant
   beside the default, and the accessibility setting picks one.
@@ -692,7 +694,8 @@ yours; each one records what the next phase inherits.
   lead on 2026-09-15; `lighting.ts`'s header and the spec's Deviations entry 3
   carry both retired alternatives with their measurements.
   The frame goes through `post-chain.ts`: `RenderPass → FogOfWarPass →
-  WorldGTAOPass (half resolution) → OutputPass → SMAAPass`. Fog of war is
+  WorldGTAOPass (half resolution) → bloom (quarter resolution) → OutputPass →
+  VignettePass → SMAAPass`; AO, bloom, vignette and SMAA are present or not by preset. Fog of war is
   `shroud-texture.ts` + `fog-pass.ts` — a depth-reading post pass, not
   geometry. A muzzle flash is a pooled `PointLight` (`units/flash-light.ts`),
   not a ramp-index shift. `applyPalettePipeline`, `paletteColorNoConvert`, the
@@ -827,6 +830,31 @@ yours; each one records what the next phase inherits.
   mesh, material or GPU resource, and +1 draw call only while a puff lives (the
   missile sprite mesh was hidden at zero puffs; 0 more if a missile trail is
   already drawing). A mortar bomb is unpowered and leaves none.
+- **Bloom and the flipbook (Defilade T4, GH-705, 2026-10-21).** Bloom
+  (`three/bloom.ts`) is three's `UnrealBloomPass` slotted after AO and before
+  `OutputPass`, on the HalfFloat SCENE-REFERRED buffer: threshold 1.0
+  luminance, strength 0.5, radius 0.35 (D1), its targets at a quarter of the
+  drawing buffer per axis on `high`/`medium`, absent on `low` (D8). Only an
+  effect that is told to exceed 1.0 blooms: the HDR gains live in ONE table,
+  `units/hdr-gains.ts` (D2, D9), applied to palette-key colours, never a raw
+  hex. `pnpm perf:bloom-census` holds every map's quiet frame under 0.9 (quiet frames only); the
+  `bloom` debug layer flips the pass's `enabled`. The flipbook
+  (`units/flipbook-fx.ts`) is one GPU-aged instanced billboard pool drawn by
+  two meshes: soot and dirt at band 5, depth-tested, and fire at 5.5 with
+  `depthTest: false` (see `render-order.ts`). It samples two Blender-baked
+  8x8 atlases, `assets/textures/vfx/flipbook_{fire,smoke}.png` (channels are
+  DATA: R density, G/B gradient, A heat; `NoColorSpace`, no premultiply),
+  made by `tools/vfx/bake_flipbook_atlases.py` with hand-rolled noise, two runs
+  byte-identical (D7). Recipes are DATA: an emitter's `flipbook` array in
+  `data/vfx/*.json` (five today), and while it spawns it REPLACES the
+  emitter's `mesh_burst`, `mesh_plume` and `smoke_puff` layers (D6) on shell
+  and missile impacts and vehicle kills. A vehicle kill drops its tan
+  collapse shroud for the flipbook's soot column (D5); building and tunnel
+  collapses keep theirs. Until both atlases load the old layers draw, so a
+  kill never draws nothing. Witnessed by `pnpm blast:capture`'s `bloom` and
+  `flipbook` toggle floors; see `docs/PERFORMANCE.md`, "Defilade T4", for
+  cost and the two open items (the `aftermath` frame's muzzle-light bloom,
+  and the unwitnessed muzzle-mesh gains).
 - **An arcing round is `vfx.fire`/`vfx.ember`, not `vfx.tracer`** — the new
   `RendererOptions.shellColors`. A landing
   mortar bomb or Grad rocket also throws `data/vfx/shell_impact.json` through

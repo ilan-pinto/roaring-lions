@@ -358,6 +358,7 @@
  * puffs -- to one tier or the other by its declared `layer`.
  */
 import * as THREE from 'three';
+import { HDR_GAINS, streakKindGain } from './hdr-gains';
 import type { ParticleSystem } from '../../vfx';
 import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, isoX, isoY } from '../../project';
 import { screenOffsetToWorld, hexToLinear } from '../terrain/shared';
@@ -1052,7 +1053,10 @@ export function writeShellInstances(
     // GH-149: per KIND, not one constant -- a `bolt` is a thinner streak than
     // a mortar bomb. `SHELL_WIDTH_PX` remains the arcing kinds' own value.
     const widthPx = SHELL_PROFILES[s.kind].widthPx;
-    const [r, g, b] = cachedHexToLinear(tracerColors[tracerColorIndex(s.side, viewer)]);
+    const [r0, g0, b0] = cachedHexToLinear(tracerColors[tracerColorIndex(s.side, viewer)]);
+    // A rifle or mg streak glows less than a tank round (HDR_GAINS.streakKind).
+    const kindGain = streakKindGain(s.kind);
+    const r = r0 * kindGain, g = g0 * kindGain, b = b0 * kindGain;
     for (let seg = 0; seg < SHELL_TRAIL_SEGMENTS; seg++) {
       const fA = seg / SHELL_TRAIL_SEGMENTS;
       const fB = (seg + 1) / SHELL_TRAIL_SEGMENTS;
@@ -1178,9 +1182,9 @@ export function writeShellInstances(
  *    `uRamp` -- its own doc comment said: "A shaded fragment cannot emit an
  *    off-palette colour because the only values it can write are the ones
  *    read out of the ramp." This material has no ramp (it writes a literal
- *    resolved palette hex straight to
- *    `gl_FragColor`), but the SAME property -- every fragment this material
- *    ever writes is one of the 65 -- held for it too, by a different
+ *    resolved palette hex straight to `gl_FragColor`), but the SAME
+ *    property -- every fragment this material ever writes is one of the
+ *    65 -- held for it too (before the HDR gain, D9), by a different
  *    mechanism (a hardcoded, already-palette-resolved `vColor`), until
  *    `AdditiveBlending` broke it: the GPU blend stage runs AFTER the
  *    fragment shader, summing whatever the shader wrote with whatever is
@@ -1206,24 +1210,23 @@ export function writeShellInstances(
  *    overlap at partial alpha (every particle system in this file has
  *    always done this, unremarked, because no CI path screenshots a live
  *    frame and checks it) -- but that is `SRC_ALPHA, ONE_MINUS_SRC_ALPHA`
- *    interpolating BETWEEN two already-on-palette colours, bounded within
- *    their span. Additive is `ONE, ONE`, unbounded, and can produce a
- *    result brighter than either input -- a qualitatively different kind of
- *    off-palette, not the same accepted-by-precedent one.
+ *    interpolating BETWEEN two already-on-palette colours (before the HDR
+ *    gain), bounded within their span. Additive is `ONE, ONE`, unbounded,
+ *    and can produce a result brighter than either input -- a qualitatively
+ *    different kind of off-palette, not the same accepted-by-precedent one.
  *
  * The fix actually shipped keeps `NormalBlending` for every tier and
  * instead makes the `hotCore` fragment shader IGNORE its own alpha
  * attribute and always write 1.0: `gl_FragColor = vec4(vColor, 1.0)`. With
  * alpha pinned to 1, `SRC_ALPHA, ONE_MINUS_SRC_ALPHA` degenerates to `dst =
  * src` -- a flat, opaque overwrite of whatever pixel is beneath it with
- * EXACTLY the resolved `color_over_life` palette entry for that particle's
- * current age, no interpolation, no summation. Every fragment a `hotCore`
- * material writes is therefore on-palette by construction, the identical
- * strength of guarantee the retired `toonRampMaterial` gave lit geometry,
- * achieved a different way because this material has no lighting term to
- * quantize. (World geometry has no such guarantee any more -- it is lit by a
- * real sun since 2026-09-14. VFX keep theirs, which is the half of the
- * palette that was always load-bearing.)
+ * the resolved `color_over_life` palette entry for that particle's current
+ * age times `HDR_GAINS.sparks` (`./hdr-gains.ts`), no interpolation, no
+ * summation. The authored colour is a palette key; its brightness may exceed
+ * 1 as an HDR gain (Phase 0 retired the per-pixel palette rule; PM ruling
+ * D9, reversible), and that is what crosses the bloom threshold. The
+ * missile core glow draws through this same material, so it takes the same
+ * gain.
  *
  * This is a real, load-bearing behaviour change from what `additive: true`
  * suggests by name: it no longer sums brightness at all, so a cluster of
@@ -1232,9 +1235,8 @@ export function writeShellInstances(
  * to white (246, 208 of 255 on the two cooler channels) and, drawn fully
  * opaque rather than alpha-diluted toward the dust/smoke around it, reads
  * meaningfully brighter than the pre-fix pale blob, but it has a real
- * ceiling this mechanism cannot cross while staying on-palette: no
- * arrangement of `hotCore` particles can look brighter than `vfx.white_hot`
- * itself, because nothing drawn through this material is ever allowed to.
+ * ceiling the gain now lifts: before it, no arrangement of `hotCore`
+ * particles could look brighter than `vfx.white_hot` itself.
  * `data/vfx/fire_apfsds.json`'s own redesign (multiple concentric
  * `hotCore` layers -- a tight `vfx.white_hot` root, a wider
  * `vfx.white_hot`-to-`vfx.fire` flare, a `vfx.fire`-to-`vfx.ember` outer
@@ -1295,15 +1297,13 @@ export function createParticleMaterial(depthTest: boolean, hotCore: boolean): TH
         float d = length(vLocal);
         float feather = 1.0 - smoothstep(${SOFT_PARTICLE_CORE.toFixed(2)}, 1.0, d);
         float a = ${hotCore ? '1.0' : 'vAlpha'} * mix(1.0, feather, vSoft);
-        // hotCore: alpha is pinned to 1.0, not read off vAlpha -- see this
-        // function's own doc comment, "The fix actually shipped keeps
-        // NormalBlending...", for why an opaque overwrite is what keeps
-        // every hotCore fragment on-palette by construction. No shipped
+        // hotCore: alpha pinned to 1.0 (an opaque overwrite; see this
+        // function's doc comment) and colour times the sparks gain. No shipped
         // emitter marks a smoke_puff layer additive, so the mix above
         // is a no-op on that material in practice; it is written anyway
         // rather than compiled out, so a future emitter that does both gets
         // a soft hot core rather than a silently square one.
-        gl_FragColor = vec4(vColor, a);
+        gl_FragColor = vec4(vColor * ${hotCore ? HDR_GAINS.sparks.toFixed(2) : '1.0'}, a);
       }
     `,
     transparent: true,
@@ -1474,6 +1474,7 @@ export class ParticleInstancer {
  */
 export function createTracerMaterial(depthTest = true): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
+    uniforms: { uHdr: { value: 1 } },
     vertexShader: /* glsl */ `
       attribute vec3 aColor;
       attribute float aAlpha;
@@ -1486,10 +1487,11 @@ export function createTracerMaterial(depthTest = true): THREE.ShaderMaterial {
       }
     `,
     fragmentShader: /* glsl */ `
+      uniform float uHdr;
       varying vec3 vColor;
       varying float vAlpha;
       void main() {
-        gl_FragColor = vec4(vColor, vAlpha);
+        gl_FragColor = vec4(vColor * uHdr, vAlpha);
       }
     `,
     transparent: true,
@@ -1693,7 +1695,10 @@ export class ShellBatch {
     geometry.setIndex(new THREE.BufferAttribute(tracerIndexBuffer(capacity), 1));
     geometry.setDrawRange(0, 0);
 
-    this.mesh = new THREE.Mesh(geometry, createTracerMaterial(opts.depthTest ?? false));
+    const material = createTracerMaterial(opts.depthTest ?? false);
+    // A bolt (depth-tested) is the hotter streak; the arc batch is the other.
+    material.uniforms.uHdr.value = (opts.depthTest ?? false) ? HDR_GAINS.bolt : HDR_GAINS.arc;
+    this.mesh = new THREE.Mesh(geometry, material);
     this.mesh.renderOrder = opts.renderOrder ?? FX_RENDER_ORDER_ABOVE;
     this.mesh.frustumCulled = false;
   }

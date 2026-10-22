@@ -730,7 +730,7 @@ export const SMOKE_PLUME_TOP_DENSITY = 0.4;
  * The soft, translucent material every plume zone draws through -- a
  * deliberate fork of `createVfxMeshMaterial` rather than a parameter added
  * to it, because the two recipes now disagree about the one thing that
- * recipe exists to guarantee (an opaque, exactly-on-palette overwrite). See
+ * recipe exists to guarantee (an opaque overwrite of one flat palette colour times its HDR gain; smoke itself has none). See
  * `SMOKE_PLUME_DENSITY` for the measured reason.
  *
  * Three channels multiply into the fragment's alpha, and each answers a
