@@ -75,25 +75,25 @@ describe('stats queries', () => {
     ]);
   });
 
-  it('tutorial funnel: the nine beats are read off the event id and never merged with legacy rows', async () => {
+  it('tutorial funnel: the twelve beats are read off the event id and never merged with legacy rows', async () => {
     const db = await seeded();
     const env: Env = { DB: db, ASSETS: { fetch: async () => new Response('') } };
     const beats = tutorials.beit_sahwan_0.steps.map((s) => s.id);
-    expect(beats).toHaveLength(9);
+    expect(beats).toHaveLength(12);
     const events = beats.flatMap((beat, i) =>
       // Player 3 reaches every beat, player 4 only the first two.
-      [3, 4].filter((p) => p === 3 || i < 2).map((p) => base(p, T0 + 10 + i, { type: 'tutorial_step', step: i, steps: 9, prevMs: 1000, id: beat }))
+      [3, 4].filter((p) => p === 3 || i < 2).map((p) => base(p, T0 + 10 + i, { type: 'tutorial_step', step: i, steps: 12, prevMs: 1000, id: beat }))
     );
     const res = await postEach(env, events, T0);
     expect(res.status).toBe(204);
     const t = await stats.tutorialFunnel(db, all);
     const current = t.filter((r) => !r.legacy);
     expect(current.map((r) => r.id)).toEqual(beats);
-    expect(current.map((r) => r.players)).toEqual([2, 2, 1, 1, 1, 1, 1, 1, 1]);
+    expect(current.map((r) => r.players)).toEqual([2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
     // Legacy step 0 still counts its own two players, not four.
     expect(t.find((r) => r.legacy && r.step === 0)?.players).toBe(2);
     // Legacy rows sort after the current ones.
-    expect(t.findIndex((r) => r.legacy)).toBe(9);
+    expect(t.findIndex((r) => r.legacy)).toBe(12);
   });
 
   it('tutorial funnel: one index under two ids (a reordered list) stays two rows', async () => {

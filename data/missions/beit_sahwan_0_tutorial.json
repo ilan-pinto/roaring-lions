@@ -48,6 +48,23 @@
       ]
     }
   ],
+  "structures": [
+    {
+      "type": "camp",
+      "at": [
+        5,
+        24
+      ],
+      "size": [
+        2,
+        2
+      ]
+    }
+  ],
+  "resources": {
+    "logistics_start": 650,
+    "logistics_rate_per_min": 60
+  },
   "objectives": [
     {
       "id": "work_up",
@@ -259,6 +276,30 @@
             "at": [
               33.5,
               35.5
+            ],
+            "stance": {
+              "kind": "hold_position"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "digger_at_the_camp",
+      "label": "Someone digging by the camp",
+      "on": {
+        "kind": "zone_entered",
+        "zone": "z_muster"
+      },
+      "do": {
+        "kind": "spawn",
+        "units": [
+          {
+            "unit": "digger_crew",
+            "count": 1,
+            "at": [
+              2.5,
+              18.5
             ],
             "stance": {
               "kind": "hold_position"

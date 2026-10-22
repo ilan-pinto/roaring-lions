@@ -5,7 +5,7 @@
  * Both used to carry an `elapsed_s` backstop (60 s and 120 s) that cleared the
  * beat whatever the player did, and in the first-session walk both lessons
  * were missed and both beats ended on that clock: beat 6 asked for a stillness
- * an attack-moving squad could not give, and beat 9's mortar walked into its
+ * an attack-moving squad could not give, and beat 12's mortar walked into its
  * own minimum range and never fired. This walks the REAL step data through the
  * real reducer: a player who does the lesson clears the beat, and a player who
  * does nothing does not, however long they wait. The mission's own 600 s
@@ -13,7 +13,7 @@
  *
  * GH-420 T4: beat 6 teaches the right-click on an identified enemy (the
  * `attack` intent). H still clears it, so a player who halts and lets the
- * squad pick its own shot is not stranded, and beat 9 accepts the right-click
+ * squad pick its own shot is not stranded, and beat 12 accepts the right-click
  * as the order it gives the mortar.
  *
  * The world half -- that a halted or ordered squad really does fire with odds
@@ -154,7 +154,7 @@ describe('beat 6, identify then shoot (PA-12, GH-420)', () => {
   });
 });
 
-describe('beat 9, what a shot costs (PA-12)', () => {
+describe('beat 12, what a shot costs (PA-12)', () => {
   const id = 'what_a_shot_costs';
 
   it('does not end on a timer when the player does nothing', () => {

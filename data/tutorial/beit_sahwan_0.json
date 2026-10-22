@@ -121,6 +121,52 @@
       "nudge": "Select infantry and right-click the house, or move into the rocks north of the wall."
     },
     {
+      "id": "call_them_up",
+      "title": "Call them up",
+      "teach": "This is your field camp. The tiles bottom left are what it can build, and the strip shows your logistics. Click the rifle squad tile twice: you pay now, the camp builds one at a time, and each squad walks out when its bar fills.",
+      "reveal": ["dock", "logistics"],
+      "await": { "kind": "production", "queued": 2 },
+      "focus": { "kind": "marker", "marker": "camp" },
+      "nudge_after_s": 20,
+      "nudge": "Click the rifle squad tile in the bottom left, then click it again. Grey tiles are locked; the brigade earns them later."
+    },
+    {
+      "id": "rally_point",
+      "title": "Rally point",
+      "teach": "Without orders, new units wait at the camp. Click Set rally on the camp's row, then click the marked ground. Everything the camp sends out from now on goes there by itself, and fights whatever it meets on the way.",
+      "await": { "kind": "production", "rally": true },
+      "focus": { "kind": "marker", "marker": "muster" },
+      "nudge_after_s": 20,
+      "nudge": "Click Set rally beside Camp 1 in the dock, then click the marked ground. If the row has gone, the camp has finished: queue another squad and it comes back."
+    },
+    {
+      "id": "clear_the_gate",
+      "title": "Clear the gate",
+      "teach": "An enemy within six tiles of the camp's gate stops it building. Nothing is lost and nothing is refunded: the clock waits. Clear him and it starts again by itself.",
+      "await": {
+        "kind": "all_of",
+        "of": [
+          {
+            "kind": "any_of",
+            "of": [
+              { "kind": "production", "edge": "paused" },
+              { "kind": "elapsed_s", "seconds": 90 }
+            ]
+          },
+          {
+            "kind": "any_of",
+            "of": [
+              { "kind": "production", "edge": "resumed" },
+              { "kind": "elapsed_s", "seconds": 90 }
+            ]
+          }
+        ]
+      },
+      "focus": { "kind": "marker", "marker": "camp" },
+      "nudge_after_s": 25,
+      "nudge": "Someone is digging north-west of the camp. Send a squad at him; the camp's row says paused until he is gone."
+    },
+    {
       "id": "bring_them_in",
       "title": "Bring them in",
       "teach": "Two civilians are hiding south of the road. Drive the jeep to them and they climb in; then drive it to the refuge. Speed is the whole trick.",
