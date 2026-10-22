@@ -1,0 +1,75 @@
+{
+  "id": "mbt_lavi_camo",
+  "name": "Lavi Ambush Tank",
+  "blurb": "Waits under a net and is seen late. The net fouls its active protection, and a shot shows it.",
+  "faction": "kdf",
+  "role": "mbt",
+  "cost": {
+    "logistics": 960,
+    "build_time_s": 48,
+    "population": 3
+  },
+  "unlock": {
+    "price": 6000
+  },
+  "hull": {
+    "hp": 3000,
+    "armor": {
+      "front": 700,
+      "side": 300,
+      "rear": 150,
+      "top": 80
+    },
+    "crew": 4,
+    "suppression_resistance": 0.8
+  },
+  "mobility": {
+    "speed_tiles_s": 1.0,
+    "turn_rate_deg_s": 55,
+    "can_crush": true
+  },
+  "sensors": {
+    "optics": 1.2,
+    "sight_tiles": 12,
+    "thermal": true,
+    "signature": 0.55,
+    "firing_signature_mult": 6.0
+  },
+  "weapons": [
+    {
+      "id": "gun_120",
+      "type": "apfsds",
+      "range_tiles": 12,
+      "effective_range_tiles": 9.6,
+      "accuracy": 0.85,
+      "penetration": 1300,
+      "damage": 520,
+      "suppression": 40,
+      "rof_per_min": 9,
+      "can_target": [
+        "ground",
+        "structure"
+      ],
+      "collateral_risk": 0.55
+    },
+    {
+      "id": "coax_mg",
+      "type": "hmg",
+      "range_tiles": 8,
+      "effective_range_tiles": 6.4,
+      "accuracy": 0.55,
+      "penetration": 20,
+      "damage": 35,
+      "suppression": 60,
+      "rof_per_min": 420,
+      "can_target": [
+        "ground",
+        "air"
+      ],
+      "collateral_risk": 0.2
+    }
+  ],
+  "abilities": [
+    "smoke"
+  ]
+}

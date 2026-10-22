@@ -1,0 +1,56 @@
+{
+  "id": "inf_medic_squad",
+  "name": "Nemala Medic Team",
+  "blurb": "Heals the men on foot around it while it holds still. It cannot heal itself, and barely fights.",
+  "faction": "kdf",
+  "role": "support",
+  "cost": {
+    "logistics": 295,
+    "build_time_s": 18,
+    "population": 1
+  },
+  "unlock": {
+    "price": 4250
+  },
+  "hull": {
+    "hp": 360,
+    "armor": {
+      "front": 10,
+      "side": 10,
+      "rear": 10
+    },
+    "crew": 6,
+    "suppression_resistance": 0.6
+  },
+  "mobility": {
+    "speed_tiles_s": 0.95
+  },
+  "sensors": {
+    "optics": 1.0,
+    "sight_tiles": 8,
+    "signature": 0.55,
+    "firing_signature_mult": 3.0
+  },
+  "weapons": [
+    {
+      "id": "medic_carbines",
+      "type": "small_arms",
+      "range_tiles": 6,
+      "effective_range_tiles": 4.8,
+      "accuracy": 0.55,
+      "penetration": 8,
+      "damage": 14,
+      "suppression": 40,
+      "rof_per_min": 200,
+      "can_target": [
+        "ground",
+        "air"
+      ],
+      "collateral_risk": 0.08
+    }
+  ],
+  "abilities": [
+    "garrison",
+    "smoke"
+  ]
+}

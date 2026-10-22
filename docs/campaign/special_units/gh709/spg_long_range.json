@@ -1,0 +1,59 @@
+{
+  "id": "spg_long_range",
+  "name": "Te'o Howitzer",
+  "blurb": "Reaches deeper than any other gun and sees none of it. Every round is billed where it lands.",
+  "faction": "kdf",
+  "role": "artillery",
+  "cost": {
+    "logistics": 400,
+    "build_time_s": 45,
+    "population": 3
+  },
+  "unlock": {
+    "price": 6500
+  },
+  "hull": {
+    "hp": 1400,
+    "armor": {
+      "front": 60,
+      "side": 30,
+      "rear": 20,
+      "top": 15
+    },
+    "crew": 4,
+    "suppression_resistance": 0.6,
+    "can_embark": false
+  },
+  "mobility": {
+    "speed_tiles_s": 0.9,
+    "turn_rate_deg_s": 45,
+    "wheeled": true,
+    "gear": "tracks"
+  },
+  "sensors": {
+    "optics": 0.9,
+    "sight_tiles": 7,
+    "signature": 1.0,
+    "firing_signature_mult": 6.0
+  },
+  "weapons": [
+    {
+      "id": "howitzer_155",
+      "type": "mortar",
+      "range_tiles": 28,
+      "effective_range_tiles": 22,
+      "accuracy": 0.45,
+      "penetration": 60,
+      "damage": 320,
+      "splash_tiles": 2.4,
+      "suppression": 140,
+      "rof_per_min": 3,
+      "min_range_tiles": 6,
+      "can_target": [
+        "ground",
+        "structure"
+      ],
+      "collateral_risk": 0.8
+    }
+  ]
+}
