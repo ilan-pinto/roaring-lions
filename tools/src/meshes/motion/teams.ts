@@ -79,6 +79,18 @@ export const MOTION_TEAMS: Record<string, MotionTeam> = {
     figures: rifles(['f0', 'f1', 'f2'], [[-0.45, 1.05], [0.45, 0], [-0.45, -1.05]]),
     hold: true, kneel: true, formation: true, stride: true, ground: true, speedTiles: 0.9,
   },
+  // GH-709 phase 3 (22 Oct): two grenadiers and a leader. The launcher is a
+  // hand-held `rifle`-kind weapon to the hold (butt pocket, trigger and
+  // foregrip hands, right shoulder) but its shots kick like a launcher's
+  // (`recoil`), and the wedge is a little deeper than inf_squad's.
+  inf_grenadier: {
+    figures: [
+      { prefix: 'gre0', weapon: 'rifle', recoil: 'launcher', kneels: true, slot: [-0.55, 1.0] },
+      { prefix: 'gre1', weapon: 'rifle', kneels: true, slot: [0.55, 0] },
+      { prefix: 'gre2', weapon: 'rifle', recoil: 'launcher', kneels: true, slot: [-0.55, -1.0] },
+    ],
+    hold: true, kneel: true, formation: true, stride: true, ground: true, speedTiles: 0.85,
+  },
   sarim_rifles: {
     figures: rifles(['sar0', 'sar1', 'sar2'], [[-0.3, 1.15], [0.5, 0.05], [-0.6, -0.95]]),
     hold: true, kneel: true, formation: true, stride: true, ground: true, speedTiles: 0.9,

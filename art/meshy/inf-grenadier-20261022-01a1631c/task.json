@@ -1,0 +1,45 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready grenadier, a soldier of a fictional army in a plain olive-drab field uniform, black nylon plate carrier, tan suede boots, modern helmet with a plain olive cover. Standing in a relaxed A-pose, arms slightly away from the body, hands empty and open, no weapon. A bulky grenadier vest over the plate carrier: two wide bandoliers of large stubby 40 mm grenade rounds crossing the chest and running over both shoulders, and fat square pouches on both hips. Real-world scale, 1.78 metres tall. Olive drab cloth, black webbing, tan canvas, dull brass. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "a-pose",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a1631c-a103-7465-aaa9-5adcceb5a214",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 1197762488,
+    "prompt": "A single low-poly game-ready grenadier, a soldier of a fictional army in a plain olive-drab field uniform, black nylon plate carrier, tan suede boots, modern helmet with a plain olive cover. Standing in a relaxed A-pose, arms slightly away from the body, hands empty and open, no weapon. A bulky grenadier vest over the plate carrier: two wide bandoliers of large stubby 40 mm grenade rounds crossing the chest and running over both shoulders, and fat square pouches on both hips. Real-world scale, 1.78 metres tall. Olive drab cloth, black webbing, tan canvas, dull brass. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1792664184581,
+    "progress": 100,
+    "started_at": 1792664323657,
+    "finished_at": 1792664454219,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a1631c-a103-7465-aaa9-5adcceb5a214/output/model.glb?Expires=4946227200&Signature=BCr8NtazqsSzZ4bL5OSfFTapiyfwzz0K8AatbFwJEkyDxtA3eF2v8u6pD8j2-9z3xAkR0qKiWoza2XcoU4z3PJjNjczHX-X~MrNwfgArP88Y3O41zIWNEaDqO0~dAakEndz0vYsm29~-GJmr5cuKmjPmwxOObE7jo1eutYvyIuunRTIhS5ThHYr7pLvmbyFtfK189RUh8GXcmiGoDBlUiKZ7Cl9VEynx7HB6F4mMHUB72elBogpCkr2luXBq1ypL6OYttMygkVp26AO9rLYgT6peNAsfNoQYMQcMTuZEwXAC2-Tk0ubRGjdGhUGcH3JN~W2txLXlXFTUbnBZT9wzpw__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a1631c-a103-7465-aaa9-5adcceb5a214/output/preview.png?Expires=4946227200&Signature=p48LulDc1pmTnxVKfk7w8T4PGpir~JwjvS~x3RBks9tXVeUxpLpXhfKY8SpW8mHPaLGVU03hPKNhRd5yXyIZcfD4aROZV1l-AcT42LOV6dhEITG1L8bWqbYg0MT6D18mfREr8cWnjo00HsXK-1QP6JyNUokRBM33~YlUdeduMDRvftCKtKfaoa9K9ea8ISGAVPyA4DIINcf8lZqUC0Pa6uvJmjSJsVSzxMCKMgRQv606HB2F7-lRYwrWPgDv1nsqyXJHl1WKb4IZcZwMwIDINIyvLa6~C2kVItk1xVmAZh1lvzNxj1dQtB1-tJEaYPsslR96PxY3a6w8cR5NZ0azRg__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1792664184581,
+    "started_at": 1792664323657,
+    "finished_at": 1792664454219
+  },
+  "usd_estimated": 0.4
+}

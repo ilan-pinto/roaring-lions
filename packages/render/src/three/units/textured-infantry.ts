@@ -90,4 +90,6 @@ export const TEXTURED_INFANTRY_TYPES: ReadonlySet<string> = new Set<string>([
   // atlas (tools/units/import_meshy_crew_team.py); its kit fire-control case,
   // cable and the leader's kit rifle take no map of their own.
   'at_nlos_team',
+  // GH-709 phase 3 (22 Oct 2026): the Chomet grenadier squad, same importer.
+  'inf_grenadier',
 ]);

@@ -150,6 +150,7 @@ export const RADIUS_BY_TYPE: Readonly<Record<string, number>> = {
   // run (footprint 0.623 tile; 0.624 after the 22 Oct builds and slung rifles): the launcher's stand and the gunner seated behind the
   // fire-control case spread it wider than mortar_team's 0.56.
   at_nlos_team: 0.72,
+  inf_grenadier: 0.68,
 };
 
 /** The ring radius for a unit type: its own row, else the class value. */

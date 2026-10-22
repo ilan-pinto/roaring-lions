@@ -137,6 +137,8 @@ import ugvReconDog from '../../../data/units/kdf/ugv_recon_dog.json';
 import spgCluster from '../../../data/units/kdf/spg_cluster.json';
 // GH-709 Phase 7: the Zaron Missile Team.
 import atNlosTeam from '../../../data/units/kdf/at_nlos_team.json';
+// Phase 3: the Chomet Grenadier Squad.
+import infGrenadier from '../../../data/units/kdf/inf_grenadier.json';
 import militiaCell from '../../../data/units/enemy/militia_cell.json';
 import rpgTeam from '../../../data/units/enemy/rpg_team.json';
 import atgmCell from '../../../data/units/enemy/atgm_cell.json';
@@ -406,6 +408,7 @@ export const units = {
   ugv_recon_dog: ugvReconDog,
   spg_cluster: spgCluster,
   at_nlos_team: atNlosTeam,
+  inf_grenadier: infGrenadier,
 } as const;
 
 export type UnitId = keyof typeof units;

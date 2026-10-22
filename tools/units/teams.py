@@ -172,6 +172,21 @@ def inf_squad(clip, frame):
     return out
 
 
+def inf_grenadier(clip, frame):
+    """Chomet Grenadier Squad, crew 3 (GH-709 phase 3). Three upright figures
+    like inf_squad's, in a deeper wedge (the leader well forward, the two
+    grenadiers back and out) so the group does not silhouette as that line.
+    The mesh is built by import_meshy_crew_team.py, which owns the file; this
+    builder is only the kit stand-in `rig.TEAM_FIGURES` is cross-checked
+    against."""
+    p, st = _standing_posture(clip), _stride(clip, frame)
+    out = []
+    for i, (x, y) in enumerate(((-0.10, -0.86), (0.34, 0.0), (-0.10, 0.86))):
+        out += kit.figure(f"gre{i}", (x, y, 0.0), posture=p, stride=st, leader=(i == 1))
+        out += kit.rifle(f"gre{i}_w", (x, y, 0.0), posture=p, aim=(clip == "fire"))
+    return out
+
+
 def militia_cell(clip, frame):
     """Militia Cell, crew 6. Two figures in a touching pair, cloth heads. Held to
     two and kept tight so it reads lighter than the rifle squad's spread three --
@@ -714,6 +729,7 @@ TEAMS = {
     "sniper_team": (sniper_team, "kdf", "INF_SNIPER"),
     "yahalom_squad": (yahalom_squad, "kdf", "INF_YAHALOM"),
     "breach_team": (breach_team, "kdf", "INF_BREACH"),
+    "inf_grenadier": (inf_grenadier, "kdf", "INF_GRENADIER"),
     "militia_cell": (militia_cell, "enemy", "INF_MILITIA"),
     "rpg_team": (rpg_team, "enemy", "INF_RPG"),
     "atgm_cell": (atgm_cell, "enemy", "INF_ATGM"),

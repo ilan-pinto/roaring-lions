@@ -325,6 +325,8 @@ TEXTURED_INFANTRY_EXEMPT = {
     # GH-709 Phase 7 (2026-10-22): the Zaron Missile Team -- mortar_team's
     # crewman bake and the Meshy launcher's, in one 2048x1024 atlas.
     "at_nlos_team",
+    # GH-709 phase 3 (22 Oct 2026): the Chomet grenadier squad, same importer.
+    "inf_grenadier",
 }
 
 # A unit TYPE that draws several files: this gate names a mesh by its file

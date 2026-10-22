@@ -156,6 +156,20 @@
         132
       ]
     },
+    "inf_grenadier": {
+      "file": "inf_grenadier.png",
+      "extent": [
+        174,
+        138
+      ],
+      "lead": {
+        "file": "lead/inf_grenadier.png",
+        "extent": [
+          78,
+          174
+        ]
+      }
+    },
     "inf_squad": {
       "file": "inf_squad.png",
       "extent": [
