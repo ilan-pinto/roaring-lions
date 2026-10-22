@@ -5,6 +5,11 @@
   "weapon_classes": ["heat"],
   "budget_priority": 7,
   "light": { "color": "vfx.fire", "intensity": 1.0, "radius_tiles": 4.0, "decay_ms": 130 },
+  "flipbook": [
+    { "type": "fire", "count": 1, "delay_ms": [0, 0], "duration_ms": [140, 140], "scale": { "base": 0.6 }, "velocity": { "radial": [0, 0], "up": [0, 0], "along_bore": [3, 3] }, "offset": { "up": -0.25, "along_bore": 0.15 } },
+    { "type": "smoke", "count": 3, "delay_ms": [0, 10], "duration_ms": [1400, 1400], "scale": { "base": 0.35, "per_index_power": 0.15 }, "velocity": { "radial": [0, 0], "up": [0.3, 0.3], "along_bore": [2.5, 4.5] }, "offset": { "along_bore_per_index": 0.2 } },
+    { "type": "dirt", "count": 6, "delay_ms": [0, 0], "duration_ms": [900, 900], "scale": { "base": 0.25, "per_power": 0.35 }, "velocity": { "radial": [1.4, 1.4], "up": [0.5, 0.5], "along_bore": [1.2, 1.2] }, "offset": { "along_bore": -0.6 }, "at_ground": true }
+  ],
   "particles": [
     {
       "sprite": "soft_dot",

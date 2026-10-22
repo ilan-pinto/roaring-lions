@@ -325,6 +325,14 @@ export interface RendererOptions {
    */
   knollTextureUrl?: string;
   /**
+   * URLs of the two flipbook atlases (Defilade T4, `three/units/flipbook-fx.ts`)
+   * -- `assets/textures/vfx/flipbook_fire.png` and `flipbook_smoke.png`.
+   * Three-only, fetched once in `init()`, optional and fail-soft: without
+   * both, fireballs and billowing smoke simply draw nothing.
+   */
+  flipbookFireUrl?: string;
+  flipbookSmokeUrl?: string;
+  /**
    * Directory the Draco decoder is fetched from -- `${BASE}draco/`, ending in
    * a slash. Three-only, read once at construction and handed to
    * `three/units/gltf-loader.ts`.

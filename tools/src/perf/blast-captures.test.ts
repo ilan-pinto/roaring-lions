@@ -8,7 +8,9 @@ import {
   LAYER_FLOORS,
   SAMPLE_MS,
   SHORT_LADDER_MS,
+  cameraTileOf,
   floorLine,
+  killedTargetMustSurvive,
   layerVerdict,
   readingAccepted,
   subjectVotesOn,
@@ -452,5 +454,66 @@ describe('an unsteady settle refuses every step(1) subject', () => {
     expect(at).toBeLessThan(src.indexOf('L.step(1);'));
     // ...and a refusal skips the group into the run's failure list.
     expect(src).toMatch(/if \(refusal !== null\) \{\s*console\.error\(` {2}\$\{refusal\}`\);\s*notes\.push\(refusal\);\s*skipped\.push\(key\);\s*await page\.close\(\);\s*continue;/);
+  });
+});
+
+// Defilade T4 (GH-705): bloom and the flipbook are blast layers now.
+describe('the Defilade T4 layers and subjects', () => {
+  it('floors bloom and flipbook beside the light and the mark', () => {
+    expect(Object.keys(LAYER_FLOORS)).toEqual(expect.arrayContaining(['decals', 'blast-light', 'bloom', 'flipbook']));
+  });
+
+  it('witnesses each new layer with a kill, an impact and a muzzle shot', () => {
+    // D6 puts the flipbook on all three events and D2 makes all three bloom,
+    // so a layer judged by kills alone could lose the muzzle half silently.
+    for (const layer of ['bloom', 'flipbook']) {
+      const modes = new Set(BLAST_SUBJECTS.filter((s) => subjectVotesOn(s, layer)).map((s) => s.mode));
+      for (const mode of ['kill', 'impact', 'fire']) expect(modes, `${layer} has a voting ${mode}`).toContain(mode);
+    }
+  });
+
+  it('carries the five mock framings, with the fire mode', () => {
+    const ids = BLAST_SUBJECTS.map((s) => s.id);
+    for (const id of ['lavi_fire', 'lavi_fire_z1', 'mortar_z1', 'mortar_dusk', 'lavi_dusk']) expect(ids).toContain(id);
+    const fire = BLAST_SUBJECTS.filter((s) => s.mode === 'fire');
+    expect(fire.length).toBeGreaterThanOrEqual(1);
+    for (const s of fire) expect(s.shooterId, `subject "${s.id}"`).toBeDefined();
+  });
+
+  it('refuses lavi_fire when its round kills the target (the shot alone, Task 7 fix 1)', () => {
+    const lavi = BLAST_SUBJECTS.find((s) => s.id === 'lavi_fire');
+    expect(lavi?.targetSurvives).toBe(true);
+    const sub = lavi ?? {};
+    expect(killedTargetMustSurvive(sub, 'fire gun_120 on tick 41, target KILLED')).toBe(true);
+    expect(killedTargetMustSurvive(sub, 'fire gun_120 on tick 41, target survived')).toBe(false);
+    // A subject that does not ask for a survivor is never refused.
+    expect(killedTargetMustSurvive({}, 'fire gun_120 on tick 41, target KILLED')).toBe(false);
+  });
+
+  it('lets mbt_lavi_z1 vote on decals now the vehicle-kill shroud is gone (D5)', () => {
+    const z1 = BLAST_SUBJECTS.find((s) => s.id === 'mbt_lavi_z1');
+    expect(z1).toBeDefined();
+    expect(subjectVotesOn(z1 ?? { toggles: false }, 'decals')).toBe(true);
+  });
+
+  it('photographs the bloom while the flash is still over the threshold', () => {
+    // The muzzle core lives ~90 ms and a kill's fireball core under 450 ms;
+    // a rung past both would read the bloom of smoke, which is below 1.0.
+    expect(LAYER_FLOORS.bloom.toggleAtMs).toBeLessThanOrEqual(LAYER_FLOORS['blast-light'].toggleAtMs);
+  });
+});
+
+describe('the muzzle witness (fix round 1)', () => {
+  it('frames the muzzle, not the target, on every fire subject that votes', () => {
+    // A crop centred on the target put the shooter half out of frame.
+    for (const s of BLAST_SUBJECTS.filter((x) => x.mode === 'fire' && x.toggles !== false)) {
+      const [cx] = cameraTileOf(s);
+      expect(cx, `subject "${s.id}"`).toBeLessThan(s.x);
+      expect(cx, `subject "${s.id}"`).toBeGreaterThanOrEqual(s.x - (s.standoffTiles ?? 0));
+    }
+  });
+  it('centres on the blast tile when no camera tile is given', () => {
+    expect(cameraTileOf({ x: 6, y: 3 })).toEqual([6, 3]);
+    expect(cameraTileOf({ x: 6, y: 3, cameraAt: [4, 3] })).toEqual([4, 3]);
   });
 });

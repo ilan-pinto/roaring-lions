@@ -24,6 +24,8 @@ import {
 import { GTAOPass as THREE_GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import type { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { QUALITY_PRESETS } from '../quality';
+import { bloomPassFor, QuarterBloomPass } from './bloom';
+import type { Pass } from 'three/addons/postprocessing/Pass.js';
 
 /**
  * The order-sensitive digest of the 64x64 RGBA Poisson-denoise noise texture
@@ -428,5 +430,89 @@ describe('createPostChain', () => {
     chain.setSize(400, 300, 2);
     expect(chain.composer.renderTarget1.width).toBe(800);
     expect(PIXEL_RATIO_CAP).toBe(2);
+  });
+});
+
+/** A plain-object pass carrying its label in `name` (see `passName`). */
+function stubPass(name: string): Pass {
+  return { name, render() {}, setSize() {}, dispose() {}, needsSwap: true, enabled: true, clear: false, renderToScreen: false } as unknown as Pass;
+}
+
+describe('bloom slot (Defilade Task 4)', () => {
+  // The chain per preset, built the way `ThreeRenderer.init` builds it: fog
+  // and vignette always, AO behind `quality.ao`, bloom behind
+  // `bloomPassFor` -- the same gate init calls, so the order pinned here is
+  // the order the renderer actually gets.
+  const expected: Record<'low' | 'medium' | 'high', string[]> = {
+    high: ['RenderPass', 'FogOfWarPass', 'GTAOPass', 'QuarterBloomPass', 'OutputPass', 'VignettePass', 'SMAAPass'],
+    medium: ['RenderPass', 'FogOfWarPass', 'OutputPass', 'VignettePass', 'SMAAPass'],
+    low: ['RenderPass', 'FogOfWarPass', 'OutputPass', 'VignettePass'],
+  };
+  for (const preset of ['high', 'medium', 'low'] as const) {
+    it(`${preset}: bloom after fog and AO, before OutputPass (absent on medium and low)`, () => {
+      // Falsify: move `if (bloomPass) composer.addPass(bloomPass)` below
+      // `composer.addPass(outputPass)` in `rebuild` and high goes
+      // red; set `medium.bloom` or `low.bloom` to 'quarter' and that preset does.
+      const quality = QUALITY_PRESETS[preset];
+      const chain = createPostChain(fakeRenderer(), new THREE.Scene(), new THREE.OrthographicCamera(), 800, 600, 1, quality);
+      chain.setFogPass(stubPass('FogOfWarPass'));
+      if (quality.ao) chain.setAoPass(stubPass('GTAOPass'));
+      const bloom = bloomPassFor(quality, 800, 600, 1);
+      if (bloom) chain.setBloomPass(bloom);
+      chain.setVignettePass(stubPass('VignettePass'));
+      expect(chain.passNames).toEqual(expected[preset]);
+      chain.setBloomPass(null);
+      expect(chain.passNames).toEqual(expected[preset].filter((n) => n !== 'QuarterBloomPass'));
+      bloom?.dispose();
+      chain.dispose();
+    });
+  }
+
+  it('the composer sizes the bloom at a quarter of the drawing buffer, and keeps it there on resize', () => {
+    // `EffectComposer.addPass` calls `setSize(css x pr)` on every pass it
+    // takes, and `setSize` on resize: both must land at a quarter.
+    const chain = createPostChain(fakeRenderer(), new THREE.Scene(), new THREE.OrthographicCamera(), 1440, 900, 1);
+    const bloom = bloomPassFor(QUALITY_PRESETS.high, 1440, 900, 1) as QuarterBloomPass;
+    chain.setBloomPass(bloom);
+    expect([bloom.renderTargetBright.width, bloom.renderTargetBright.height]).toEqual([360, 225]);
+    chain.setSize(1000, 800, 2);
+    expect([bloom.renderTargetBright.width, bloom.renderTargetBright.height]).toEqual([500, 400]);
+    bloom.dispose();
+    chain.dispose();
+  });
+
+  it('withPreBloomBuffer renders up to the bloom slot short of the screen, then restores everything', () => {
+    // Falsify: drop the bloom pass from `later` in `withPreBloomBuffer` and
+    // the "seen" list below gains QuarterBloomPass -- the census would then
+    // read the frame AFTER the glow was added.
+    const chain = createPostChain(fakeRenderer(), new THREE.Scene(), new THREE.OrthographicCamera(), 800, 600, 1);
+    chain.setFogPass(stubPass('FogOfWarPass'));
+    chain.setAoPass(stubPass('GTAOPass'));
+    const bloom = bloomPassFor(QUALITY_PRESETS.high, 800, 600, 1) as QuarterBloomPass;
+    chain.setBloomPass(bloom);
+    chain.setVignettePass(stubPass('VignettePass'));
+    const vignette = chain.composer.passes.find((p) => (p as { name?: string }).name === 'VignettePass') as Pass;
+    vignette.enabled = false; // a debug-hidden layer must come back hidden, not forced on
+    let seen: string[] = [];
+    let toScreen: boolean | null = null;
+    chain.composer.render = () => {
+      seen = chain.composer.passes.filter((p) => p.enabled).map((p) => (p.constructor.name !== 'Object' ? p.constructor.name : (p as { name?: string }).name ?? 'Pass'));
+      toScreen = chain.composer.renderToScreen;
+    };
+    const target = chain.withPreBloomBuffer((t) => t);
+    expect(seen).toEqual(['RenderPass', 'FogOfWarPass', 'GTAOPass']);
+    expect(toScreen).toBe(false);
+    expect(target).toBe(chain.composer.readBuffer);
+    expect(chain.composer.renderToScreen).toBe(true);
+    expect(bloom.enabled).toBe(true);
+    expect(vignette.enabled).toBe(false);
+    expect(chain.composer.passes.find((p) => p.constructor.name === 'OutputPass')?.enabled).toBe(true);
+    expect(chain.composer.passes.find((p) => p.constructor.name === 'SMAAPass')?.enabled).toBe(true);
+    // Restored even when the reader throws.
+    expect(() => chain.withPreBloomBuffer(() => { throw new Error('read failed'); })).toThrow('read failed');
+    expect(bloom.enabled).toBe(true);
+    expect(chain.composer.renderToScreen).toBe(true);
+    bloom.dispose();
+    chain.dispose();
   });
 });
