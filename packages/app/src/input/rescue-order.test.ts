@@ -47,6 +47,9 @@ describe('resolvePointer: the rescue rung', () => {
     expect(r.marker).toBe(true);
     expect(r.at).toEqual({ x: 7.5, y: 8.5 });
   });
+  it('the casualty himself, selected, is not sent to his own tile', () => {
+    expect(click(medicWorld, [1, 9]).intents).toEqual([{ kind: 'rescue', ids: [1], target: 9 }]);
+  });
   it('an all-medic selection sends the rescue alone', () => {
     expect(click(medicWorld, [1, 2]).intents).toEqual([{ kind: 'rescue', ids: [1, 2], target: 9 }]);
   });

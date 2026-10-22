@@ -370,7 +370,8 @@ export function resolvePointer(world: IntentWorld, ctx: PointerContext): Resolut
       const at = ctx.woundedAt ?? { x, y };
       const medicSet = new Set(medics);
       const rest = haltTargets(
-        ids.filter((i) => !medicSet.has(i)),
+        // Not the casualty himself, when he is ours and in the selection (review M-1).
+        ids.filter((i) => !medicSet.has(i) && i !== woundedId),
         (i) => world.garrisoned(i)
       );
       const intents: PlayerIntent[] = [{ kind: 'rescue', ids: medics, target: woundedId }];
