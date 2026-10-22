@@ -4,11 +4,13 @@
 // Each test below is seen red under a one-line mutation of versus-probe.ts (the
 // header there lists them; the commit message says which was run).
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { MapId } from '@lions/data';
+import { doctrines, versusRules, type MapId } from '@lions/data';
 import { VERSUS_FAIR_MAPS } from '@lions/net';
+import { buildMatchWorld } from '../../../packages/app/src/net/match-world';
 import {
   CAP_TICKS_DEFAULT, DECIDE_EVERY_TICKS, FAIR_MAX_PERCENT, ORDER_EVERY_TICKS, SEEDS_DEFAULT,
-  candidateMaps, cellName, layoutOf, main, parseArrangements, play, reading, seedOf, selfCheck, tally, type Played, type PlayFn,
+  candidateMaps, cellName, economySelfCheck, humanHeldOf, layoutOf, main, parseArrangements, parsePair, planRound, play,
+  reading, roomConfig, seedOf, selfCheck, tally, withOverrides, type Played, type PlayFn,
 } from './versus-probe';
 
 // Every test that plays FULL games carries this instead of vitest's 5 s
@@ -207,5 +209,114 @@ describe('main', () => {
   }, FULL_GAMES_TIMEOUT_MS);
   it('refuses a map the build does not ship', () => {
     expect(() => main(['--maps=atlantis'])).toThrow(/not a shipped map/);
+  });
+  it('reads on the room\'s seat table by default, and labels the single-player table a control', () => {
+    expect(run().out).toContain('seat table: room (humanHeld [true, true]');
+    const out: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((...a) => { out.push(a.join(' ')); });
+    expect(main(['--maps=tel_marum', '--seeds=1', '--arr=kdf/kdf', '--rules=default'])).toBe(0);
+    expect(out.join('\n')).toContain('control: single-player seat table');
+    expect(() => main(['--rules=solo'])).toThrow(/--rules/);
+  }, FULL_GAMES_TIMEOUT_MS);
+  it('the economy arm refuses what it cannot play: a mirror cell, the control seat table, a map with no rules file, a sweep without --economy', () => {
+    expect(() => main(['--economy', '--arr=kdf/kdf'])).toThrow(/KDF-against-Sarim/);
+    expect(() => main(['--economy', '--rules=default'])).toThrow(/--rules=default/);
+    expect(() => main(['--economy', '--maps=milh_flats'])).toThrow(/no versus rules file/);
+    expect(() => main(['--start=3000/4800'])).toThrow(/need --economy/);
+    expect(() => parsePair('start', '3000')).toThrow(/--start/);
+    expect(parsePair('pop-cap', '40/56')).toEqual([40, 56]);
+  });
+  it('--economy prints what the economy did: units built and the final purse, by faction', () => {
+    const out: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((...a) => { out.push(a.join(' ')); });
+    expect(main(['--economy', '--maps=tel_marum', '--seeds=1', '--arr=kdf/sarim'])).toBe(0);
+    const text = out.join('\n');
+    expect(text).toContain('economy: buildMatchWorld + matchTick; start kdf 3000 / sarim 4800; pop cap kdf 40 / sarim 56; income as shipped');
+    expect(text).toContain('built K/S');
+    expect(text).toMatch(/tel_marum\s+KDF friendly\s+\d+\s+\d+\s+\d+\s+\S+\s+[\d.]+\s+[\d.]+\/[\d.]+\s+\d+\/\d+/);
+  }, FULL_GAMES_TIMEOUT_MS);
+});
+
+describe('the seat table (N3 Task 7: a room\'s, by default)', () => {
+  it('a room holds both sides; the control holds side 0 alone (the Sim\'s default)', () => {
+    expect(humanHeldOf('room', 'tel_marum', ['kdf', 'sarim'], 1000)).toEqual([true, true]);
+    expect(humanHeldOf('default', 'tel_marum', ['kdf', 'sarim'], 1000)).toBeUndefined();
+  });
+  it('play is on the room\'s table unless told otherwise: a wadi_tarfan game the two tables decide differently', () => {
+    // LITERALS, read at 0cb0ced2 (games-room.jsonl, and the default-rules run of N3 Task 2):
+    // Sarim friendly, seed 246489, KDF wins by annihilation at 4580 ticks under the room's
+    // table and at 5160 under the single-player one, whose side 1 auto-breaches walls.
+    const seed = seedOf(31);
+    expect(seed).toBe(246489);
+    expect(play('wadi_tarfan', ['sarim', 'kdf'], seed)).toEqual({ winner: 1, by: 'annihilation', ticks: 4580 });
+    expect(play('wadi_tarfan', ['sarim', 'kdf'], seed, { rules: 'default' })).toEqual({ winner: 1, by: 'annihilation', ticks: 5160 });
+  }, FULL_GAMES_TIMEOUT_MS);
+});
+
+describe('the economy arm (N3 Task 7)', () => {
+  it('the production plan walks the armed menu in doctrine order while the purse covers a unit', () => {
+    // LITERALS: a fresh KDF purse of 3000 buys Lavi 906, Namer 630, Eitan 520, squad 292,
+    // AT team 236 and mortar team 209 (2793), and the 207 left covers nothing on the menu.
+    const w = buildMatchWorld(roomConfig('tel_marum', ['kdf', 'sarim'], 1000));
+    const rt = w.runtime;
+    if (rt === null) throw new Error('no runtime');
+    const cursor = planRound(rt, doctrines.kdf.menu, 0, -1);
+    expect(rt.productionOf(0).map((p) => p.unit)).toEqual(['mbt_lavi', 'ifv_namer', 'apc_eitan', 'inf_squad', 'at_team', 'mortar_team']);
+    expect(rt.logisticsOf(0)).toBe(207);
+    // The cursor is the armed menu's index of the unit queued last (the drone is unarmed, so it is not in the cycle).
+    expect(cursor).toBe(5);
+    // A second round with nothing affordable queues nothing and keeps the cursor.
+    expect(planRound(rt, doctrines.kdf.menu, 0, cursor)).toBe(5);
+    expect(rt.productionOf(0)).toHaveLength(6);
+  });
+  it('the economy self-check passes on each map with a rules file', () => {
+    for (const map of Object.keys(versusRules)) expect(economySelfCheck(map as MapId), map).toEqual([]);
+  }, 60_000);
+  it('goes red when the plan never queues: no side fields a built unit (the no-queue mutation)', () => {
+    const noQueue: PlayFn = (m, a, s, o) => play(m, a, s, { ...o, plan: false });
+    const failed = economySelfCheck('tel_marum', noQueue);
+    expect(failed.join('\n')).toContain('at least one built unit');
+  }, FULL_GAMES_TIMEOUT_MS);
+  it('goes red when the sides are swapped', () => {
+    const swapped: PlayFn = (m, a, s, o) => {
+      const g = play(m, a, s, o);
+      return { ...g, winner: g.winner === null ? null : g.winner === 0 ? 1 : 0 };
+    };
+    expect(economySelfCheck('tel_marum', swapped).filter((f) => f.includes('should win by annihilation'))).toHaveLength(2);
+  }, FULL_GAMES_TIMEOUT_MS);
+  it('goes red when the outcome rule forgets production: a side with a camp and a purse is called beaten at once', () => {
+    const noProduction: PlayFn = (m, a, s, o) => {
+      const g = play(m, a, s, o);
+      // What the units-only rule reads on a wiped end: beaten on the first decision tick.
+      return o?.wipeSide !== undefined ? { winner: o.wipeSide === 0 ? 1 : 0, by: 'annihilation', ticks: DECIDE_EVERY_TICKS } : g;
+    };
+    expect(economySelfCheck('tel_marum', noProduction).filter((f) => f.includes('should not be beaten'))).toHaveLength(2);
+  }, FULL_GAMES_TIMEOUT_MS);
+  it('goes red when the control keeps the weak end\'s camp: it buys its way back', () => {
+    // The control destroys the cut end's camp as well; without that the weak end's purse
+    // fields a force and the strong end no longer wins by annihilation.
+    const campKept: PlayFn = (m, a, s, o) => (o?.economy === true && o.cutSide !== undefined ? play(m, a, s, { ...o, cutSide: undefined }) : play(m, a, s, o));
+    expect(economySelfCheck('tel_marum', campKept).length).toBeGreaterThanOrEqual(1);
+  }, FULL_GAMES_TIMEOUT_MS);
+});
+
+describe('the sweep overrides (in memory only)', () => {
+  it('lays start purses, population caps and an income scale over the data for one run, and puts the data back', () => {
+    const kdf = doctrines.kdf;
+    const rules = versusRules.tel_marum;
+    const seen = withOverrides({ start: [1000, 1600], popCap: [30, 42], rateScalePercent: 50 }, () => {
+      const w = buildMatchWorld(roomConfig('tel_marum', ['kdf', 'sarim'], 1000));
+      return {
+        purse: [w.runtime?.logisticsOf(0), w.runtime?.logisticsOf(1)],
+        cap: [w.runtime?.populationView(0)?.cap, w.runtime?.populationView(1)?.cap],
+        rates: versusRules.tel_marum.income_zones.map((z) => z.rate_per_min),
+      };
+    });
+    expect(seen).toEqual({ purse: [1000, 1600], cap: [30, 42], rates: [20, 20, 10, 10, 10] });
+    expect(doctrines.kdf).toBe(kdf);
+    expect(versusRules.tel_marum).toBe(rules);
+    expect(doctrines.kdf.budget.logistics_start).toBe(3000);
+    expect(() => withOverrides({ start: [1, 1] }, () => { throw new Error('boom'); })).toThrow('boom');
+    expect(doctrines.sarim.budget.logistics_start).toBe(4800);
   });
 });
