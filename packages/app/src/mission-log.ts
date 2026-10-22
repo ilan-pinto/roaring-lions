@@ -42,6 +42,9 @@ export interface MissionLog {
   objectives: LoggedObjective[];
   /** Hostile units killed, by anyone. */
   kills: number;
+  /** GH-707 P2: wounded men our side evacuated (`woundEvacuated`, judged by the evacuated man's own side).
+   *  Absent until the first one, so a world without wound content logs exactly what it did. */
+  evacuated?: number;
 }
 
 export function newMissionLog(): MissionLog {
@@ -93,4 +96,11 @@ export function logMissionEvent(
 /** One `SimEvent` `destroyed`: counts a hostile kill. */
 export function logDestroyed(log: MissionLog, side: number): void {
   if (side === 1) log.kills++;
+}
+
+/** GH-707 P2: one SimEvent `woundEvacuated`. `entitySide` is the SIDE OF THE EVACUATED MAN (spec §6:
+ *  our own men only -- an enemy or civilian we carried out is Conduct, not this line). A man admitted at an aid post and discharged as evacuated arrives as
+ *  a `woundEvacuated` of his own (carrier -1), so he is counted here once, when he leaves. */
+export function logWoundEvacuated(log: MissionLog, entitySide: number, viewer: number): void {
+  if (entitySide === viewer) log.evacuated = (log.evacuated ?? 0) + 1;
 }

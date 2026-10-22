@@ -1,0 +1,23 @@
+{
+  "unit": "wounded_sarim",
+  "variant": "team",
+  "source": "assets/meshes/wounded_sarim.glb",
+  "source_sha256": "665fa708a0b9121f4f838d29fd2575e6f042e4a49256d9ff99e94b9e5eb8fff0",
+  "yaw_deg": -125.0,
+  "elevation_deg": 12.0,
+  "fov_deg": 30.0,
+  "fill": [
+    "longer",
+    0.88
+  ],
+  "ndc_box": [
+    0.06,
+    0.94,
+    0.3798,
+    0.6202
+  ],
+  "materials": {
+    "baked": 0,
+    "flat": 6
+  }
+}

@@ -157,7 +157,7 @@ describe('mesh catalogue: every shipped GLB is accounted for', () => {
 
   it('wires the eight GH-277 field works, and a construction state on the four KDF ones only', () => {
     // Literals, not derived from the table under test.
-    const kdf = ['kdf_medic_station', 'kdf_outpost', 'kdf_intel_centre', 'kdf_workshop'];
+    const kdf = ['kdf_medic_station', 'kdf_outpost', 'kdf_intel_centre', 'kdf_workshop', 'kdf_aid_post'];
     const militia = ['militia_field_clinic', 'militia_firing_position', 'militia_observation_post', 'militia_weapons_workshop'];
     for (const id of kdf) {
       expect(BUILDING_MESHES[id]).toEqual({

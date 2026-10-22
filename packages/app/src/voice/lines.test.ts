@@ -44,6 +44,11 @@ describe('voiceClassOf (spec §3)', () => {
     // GH-709 Phase 7: the Te'o Cluster Howitzer, the Te'o's hull and crew.
     spg_cluster: 'crew',
     civilians: 'infantry', // a class, but no language: civilians never speak (languageOf)
+    // GH-709: the ambulance is a crewed hull; the medevac is an air carrier whose role is `apc`, so it
+    // carries the Yanshuf's `voice: "air"` override or it would speak as a ground crew.
+    veh_ambulance: 'crew', air_medevac_heli: 'air',
+    inf_medic_squad: 'infantry', // GH-707 P2: the Nemala Medic Team speaks as foot soldiers
+    wounded_kdf: 'infantry', wounded_sarim: 'infantry', // role wounded (GH-707 P2): a class by role; nobody orders or voices a casualty
   };
 
   it('gives every shipped unit the class spec §3 names, overrides first', () => {

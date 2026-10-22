@@ -31,6 +31,7 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { measureNodePoses, readGlb, rotationDeltaDeg, type JointPose } from './mesh_gait';
+import { GAIT_CRAWL_ONLY } from './meshes/gait-pass';
 import { RIGGED_UNIT_MESHES, VEHICLE_UNIT_MESHES } from '../../packages/app/src/mesh-catalogue';
 // Relative imports, as mesh_gait.test.ts does: `clip.ts` and `mesh-anim.ts`
 // import only types from three.js-free modules.
@@ -82,22 +83,29 @@ function clipsOf(file: string): Set<ClipName> {
   return new Set((readGlb(`${MESHES}${file}`).json.animations ?? []).map((a) => a.name as ClipName));
 }
 
+/** The wounded (GH-707 P2) are not judged by this model of living states: they have no `idle`,
+ *  `move` or `pinned` for `resolveClip` to land on, and the renderer overrides every state of a
+ *  `wounded`-role type with `rescueClipFor` (idleWounded / crawl). That a living wounded man never
+ *  draws the corpse is held in `mesh_wounded.test.ts`, against `wreck`, on the clips he does play. */
+const WOUNDED_FILES = new Set(Object.keys(GAIT_CRAWL_ONLY).flatMap((id) => RIGGED_UNIT_MESHES[id]?.files ?? []));
 const DRAWN = [
   ...Object.values(RIGGED_UNIT_MESHES).flatMap((e) => e.files),
   ...Object.values(VEHICLE_UNIT_MESHES),
-].filter((f, i, all) => all.indexOf(f) === i);
+].filter((f, i, all) => all.indexOf(f) === i && !WOUNDED_FILES.has(f));
 const WITH_CORPSE = DRAWN.filter((f) => existsSync(`${MESHES}${f}`) && clipsOf(f).has('wreck')).sort();
 
 describe('no living state plays its corpse', () => {
   it('judges every drawn file that has a corpse -- a known population', () => {
     // A literal, so an empty catalogue or a path that matches nothing cannot
-    // pass this file in no time: 20 rigged files with a `wreck` -- 18
-    // infantry plus ugv_recon_dog (GH-709 Phase 8), inf_grenadier (Phase 3) and
-    // at_nlos_team (Phase 7) -- (the civilians have none; the three officers are held) and 20
-    // vehicles: 16 counted 7 Oct, plus heli_yanshuf (GH-698, 21 Oct),
-    // mbt_lavi_camo and spg_long_range (GH-709, 22 Oct), spg_cluster (GH-709 P7).
-    expect(WITH_CORPSE.filter((f) => !f.startsWith('vehicles/'))).toHaveLength(21); // Was 20: Phase 3 and Phase 7 each added one
-    expect(WITH_CORPSE.filter((f) => f.startsWith('vehicles/'))).toHaveLength(20);
+    // pass this file in no time: 22 rigged files with a `wreck` -- 18
+    // infantry, plus inf_medic_squad (GH-707 P2, 22 Oct), ugv_recon_dog
+    // (GH-709 Phase 8), inf_grenadier (Phase 3) and at_nlos_team (Phase 7) --
+    // (the civilians have none; the three officers are held) and 22 vehicles:
+    // 16 counted 7 Oct, plus heli_yanshuf (GH-698, 21 Oct), plus the armoured
+    // ambulance and the medevac, mbt_lavi_camo and spg_long_range (GH-709, 22 Oct),
+    // and spg_cluster (GH-709 P7).
+    expect(WITH_CORPSE.filter((f) => !f.startsWith('vehicles/'))).toHaveLength(22);
+    expect(WITH_CORPSE.filter((f) => f.startsWith('vehicles/'))).toHaveLength(22);
   });
 
   for (const file of WITH_CORPSE) {

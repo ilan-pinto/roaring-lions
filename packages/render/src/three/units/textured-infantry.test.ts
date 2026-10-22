@@ -44,6 +44,7 @@ describe('the textured infantry opt-out is a named list', () => {
       'demo_squad',
       'digger_crew',
       'inf_grenadier',
+      'inf_medic_squad',
       'inf_squad',
       'manpad_team',
       'militia_cell',

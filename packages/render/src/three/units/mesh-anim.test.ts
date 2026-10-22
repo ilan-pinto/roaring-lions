@@ -28,10 +28,10 @@ import { ROUT_CADENCE } from '../../clip';
 import type { ClipName } from '../../sheet';
 
 describe('CLIP_NAMES / isMeshClipName', () => {
-  it('lists exactly the fourteen canonical clip names', () => {
-    // + kneel, kneelIn, kneelOut (the motion pass, 5 Oct); + pinned (pass C2/C4).
+  it('lists exactly the eighteen canonical clip names', () => {
+    // + kneel, kneelIn, kneelOut (the motion pass, 5 Oct); + pinned (pass C2/C4); + crawl, idleWounded, treat, carry (wounded and rescue, GH-707).
     expect(new Set(CLIP_NAMES)).toEqual(
-      new Set(['idle', 'move', 'fire', 'down', 'wreck', 'work', 'moveFire', 'wreckAlt', 'fall', 'fallAlt', 'kneel', 'kneelIn', 'kneelOut', 'pinned'])
+      new Set(['idle', 'move', 'fire', 'down', 'wreck', 'work', 'moveFire', 'wreckAlt', 'fall', 'fallAlt', 'kneel', 'kneelIn', 'kneelOut', 'pinned', 'crawl', 'idleWounded', 'treat', 'carry'])
     );
   });
 

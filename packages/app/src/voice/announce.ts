@@ -31,7 +31,7 @@
  * next call, never a timer: the runtime asks every mission tick.
  */
 import { isOwnSide, type AnnouncementDef, type AnnouncementManifest, type VoicePriority } from '@lions/render';
-import type { MissionEvent } from '@lions/sim';
+import type { MissionEvent, SimEvent } from '@lions/sim';
 import type { VoiceCue } from './director';
 
 export type AnnounceEventId =
@@ -47,6 +47,10 @@ export type AnnounceEventId =
   | 'mission_start'
   /** Polish pass F (A9): a Conduct penalty, "Check your fire." */
   | 'roe'
+  /** GH-707 P2: "Medic!" -- one of ours went down wounded. Raised by the app from the sim's
+   *  `woundedDown` (`medicCallInputs`). The manifest's 8 s cooldown is the one-per-8-s rate
+   *  limit; only the viewer's own side raises it, so that is one per side. */
+  | 'medic'
   /** GH-113: an intel call became affordable, or was called. Raised by the app
    *  (`ui/intel-moments.ts`), like `deadline`. */
   | 'sweep_ready'
@@ -145,6 +149,20 @@ export function announceInputsOf(
   }
   if (lost > 0) out.push({ event: 'unit_lost', params: { n: lost } });
   return out;
+}
+
+/**
+ * GH-707 P2: the "Medic!" radio call. A sim `woundedDown` on the viewer's own side raises it
+ * (an enemy's or a civilian's wounded never does -- that would be x-ray); a burst of men down
+ * in one tick is still ONE input, and the manifest's cooldown spaces the calls 8 s apart.
+ * `sideOf` is the sim's side of the wounded entity. Empty for a tick with no such event, so a
+ * world without wound content adds nothing.
+ */
+export function medicCallInputs(events: readonly SimEvent[], sideOf: (entity: number) => number, viewer = 0): AnnounceInput[] {
+  for (const e of events) {
+    if (e.kind === 'woundedDown' && isOwnSide(sideOf(e.entity), viewer)) return [{ event: 'medic' }];
+  }
+  return [];
 }
 
 /** AU-5: is a gathered loss count waiting to be said? The runtime asks the

@@ -21,7 +21,13 @@ import { fx } from '../../packages/sim/src/fixed';
 import { Sim, TICKS_PER_SECOND, type UnitTypeJson } from '../../packages/sim/src/sim';
 
 const all = units as Record<string, UnitTypeJson & { faction: string }>;
-const KDF = Object.values(all).filter((u) => u.faction === 'kdf').map((u) => u.id);
+// Not the role-`wounded` types (GH-707 P2): a casualty is something the sim makes and he crawls at
+// 0.12 tile/s on his own account; nobody fields him, so an order's "held where it was sent" is not
+// a question about him (measured: `wounded_kdf` drifts 10.0 tiles under the plain attack-move and
+// stays put under the sweep, being unarmed). `mesh_wounded.test.ts` is where he is judged.
+const KDF = Object.values(all)
+  .filter((u) => u.faction === 'kdf' && (u as { role?: string }).role !== 'wounded')
+  .map((u) => u.id);
 
 /** The one type allowed to leave: an `attack_drone` IS its warhead, and
  *  stepKamikaze steers it onto an identified target on its own, at any range,
@@ -82,11 +88,12 @@ describe('orders are obeyed after they are done, every KDF type', () => {
     // Measured 2026-10-11: every type but `recon_drone` left its point by
     // more than 3 tiles (4.5 to 29.7; the attack drone dies on its target).
     // The recon drone carries no weapon, so the sweep's couldEngage refuses
-    // to walk it at anything -- correct, and the stay-put expected here. The
-    // Chadaf recon robot (GH-709 Phase 8, 22 Oct) is the second: unarmed for
-    // the same reason. Was ['recon_drone'].
+    // to walk it at anything -- correct, and the stay-put expected here.
+    // GH-709 (22 Oct): the armoured ambulance and the medevac are unarmed too (`weapons: []`),
+    // so they stay put for the same reason, and so does the Chadaf recon robot
+    // (GH-709 Phase 8, 22 Oct). Was ['recon_drone'].
     const stayed = KDF.filter((type) => !(drift(type, 'sweep') > 3));
-    expect(stayed).toEqual(['recon_drone', 'ugv_recon_dog']);
+    expect(stayed).toEqual(['recon_drone', 'veh_ambulance', 'air_medevac_heli', 'ugv_recon_dog']);
   });
 
   it('the exemption is still needed', () => {

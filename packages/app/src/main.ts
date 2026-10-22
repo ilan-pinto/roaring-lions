@@ -20,7 +20,7 @@ import { stallHintLine, stallStart, stallStep, tickIsActive } from './ui/stall-h
 import { nameKind, type NamesJson } from './names';
 import { applyRosterCarryover } from './roster-carryover';
 import { attachedFor } from './attached-force';
-import { logDestroyed, logMissionEvent, newMissionLog, type MissionLog } from './mission-log';
+import { logDestroyed, logMissionEvent, logWoundEvacuated, newMissionLog, type MissionLog } from './mission-log';
 import { lostRecordFor, predecessorOf } from './roster-lost';
 import {
   Sim,
@@ -39,10 +39,12 @@ import {
   zoneContains,
   creditsFor,
   creditInputFrom,
+  unitTypeFromJson,
   type MissionEvent,
   type MissionJson,
   type SimEvent,
   type TunnelRouteJson,
+  type UnitTypeJson,
 } from '@lions/sim';
 // ThreeRenderer is deliberately NOT imported here: it arrives by dynamic
 // import below, and eslint bans a static import of `@lions/render/three` --
@@ -213,10 +215,10 @@ import { cursorAnimDriver } from './input/cursor-anim';
 import { prefersReducedMotion, prefersSaveData } from './ui/motion';
 import { firstLaunchIntro, introAvailable, replayIntro } from './ui/intro';
 import { isShippedVideo } from './ui/cinematics-model';
-import { roleBucket } from './ui/role';
+import { isMountCarrier, roleBucket } from './ui/role';
 import { rosterLanguages, voiceClassOf } from './voice/lines';
 import { VoiceRuntime, voicePlaceholderOn } from './voice/voice-runtime';
-import type { AnnounceInput } from './voice/announce';
+import { medicCallInputs, type AnnounceInput } from './voice/announce';
 import { roeNotice } from './ui/roe-notice';
 import {
   invoiceLines,
@@ -410,13 +412,18 @@ function unitFor(typeId: string): { id: string; role: string } {
  *  at all. */
 function kdfBrigadeTraits(
   u: (typeof units)[keyof typeof units]
-): { isKamikaze: boolean; transportSlots: number; isSoft: boolean } {
+): { isKamikaze: boolean; transportSlots: number; isSoft: boolean; canCarry: readonly string[] | null; canEmbark: boolean } {
   const abilities = 'abilities' in u ? (u.abilities as string[]) : [];
-  const hull = u.hull as { transport_slots?: number; armor: { front: number } };
+  const hull = u.hull as { transport_slots?: number; armor: { front: number }; can_carry?: readonly string[] };
   return {
     isKamikaze: abilities.includes('kamikaze'),
     transportSlots: hull.transport_slots ?? 0,
     isSoft: hull.armor.front < 30,
+    // GH-707 P2: `canEmbark`'s role default (`FOOT_ROLES`) is the sim's own, so it is read
+    // off `unitTypeFromJson` rather than re-derived; it is what tells the medic team's
+    // stretcher seat from the ambulance's in `roleBucket`.
+    canCarry: hull.can_carry ?? null,
+    canEmbark: unitTypeFromJson(u as unknown as UnitTypeJson).canEmbark,
   };
 }
 
@@ -1076,7 +1083,9 @@ async function main(): Promise<void> {
      *  unit (`bought`), and nothing else about the roster moves. */
     const garageUnits = (bought: ReadonlySet<string>): BrigadeUnit[] =>
       Object.values(units)
-        .filter((u) => u.faction === 'kdf')
+        // GH-707 P2: `wounded_kdf` is faction kdf and costs nothing, but it is a casualty the sim
+        // makes, not a unit anyone buys, fields or upgrades: not in the garage.
+        .filter((u) => u.faction === 'kdf' && u.role !== 'wounded')
         .map((u) => ({
           id: u.id,
           name: u.name,
@@ -2927,7 +2936,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       ids: myLiving(),
       x: w.x,
       y: w.y,
-      isCarrier: (i) => sim.unitTypes[sim.state.typeIdx[i]].transportSlots > 0,
+      // GH-707: a carrier whose seats are for the wounded alone is never a squad's mount.
+      isCarrier: (i) => isMountCarrier(sim.unitTypes[sim.state.typeIdx[i]]),
       canEmbark: (i) => sim.unitTypes[sim.state.typeIdx[i]].canEmbark,
       canSmoke: (i) => sim.unitTypes[sim.state.typeIdx[i]].canSmoke,
       passengerCount: (i) => sim.passengerCount(i),
@@ -3162,8 +3172,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       },
       carrierEmptySeat: () =>
         sel.some((i) => {
-          const slots = sim.unitTypes[sim.state.typeIdx[i]].transportSlots;
-          return slots > 0 && sim.passengerCount(i) < slots;
+          const type = sim.unitTypes[sim.state.typeIdx[i]];
+          return isMountCarrier(type) && sim.passengerCount(i) < type.transportSlots;
         }),
       enemyPinned: () => {
         for (let i = 0; i < sim.entityCount; i++) {
@@ -4058,7 +4068,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         ? []
         : roomMenu !== null
           ? roomMenu.map((id) => (units as Record<string, (typeof units)[keyof typeof units]>)[id])
-          : Object.values(units).filter((u) => u.faction === 'kdf')
+          // GH-707 P2: not the wounded -- the dock draws a tile for every unit it is handed, and a
+          // casualty is no one's to build (it would read as a free "Wounded Soldier" at 0 logistics).
+          : Object.values(units).filter((u) => u.faction === 'kdf' && u.role !== 'wounded')
       )
         .map((u) => {
           // The role bucket comes from the SIM's unit type, through the very
@@ -4693,6 +4705,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             confirm: ev.altKey,
             hostile: at.hostile,
             ...(at.hostileAt ? { hostileAt: at.hostileAt } : {}),
+            wounded: at.wounded,
+            ...(at.woundedAt ? { woundedAt: at.woundedAt } : {}),
           });
         }
         dragStart = null;
@@ -4818,6 +4832,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // The same enemy id the hover cursor and the fire panel read (R-13).
       hostile: w.hostile,
       ...(w.hostileAt ? { hostileAt: w.hostileAt } : {}),
+      wounded: w.wounded,
+      ...(w.woundedAt ? { woundedAt: w.woundedAt } : {}),
     });
   });
   // The keyboard, as data (Task 5): `resolveKey` is the one place a raw
@@ -5413,7 +5429,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             ...intelMoments.earned(missionEvents, sim.tickCount),
           ])
         : [];
-      if (!tickQuiet) voice.onMission(missionEvents, intelAnnounce);
+      // GH-707 P2: the "Medic!" call rides the same announcer, so it competes under the one
+      // priority rule and its own 8 s cooldown (voice/announce.ts). Empty without wound events.
+      if (!tickQuiet) voice.onMission(missionEvents, [...intelAnnounce, ...medicCallInputs(events, (id) => sim.state.side[id], me)]);
 
       // The alert layer (spec acceptance (a)): one classification of the tick,
       // four consequences, all in one place so a line, a cue and a mark can
@@ -5426,7 +5444,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // model, as the cooldown's own clock.
       announceAlerts(alertsForTick(alertState, events, missionEvents, alertWorld, sim.tickCount));
 
-      for (const e of events) if (e.kind === 'destroyed') logDestroyed(missionLog, sim.state.side[e.entity]);
+      for (const e of events) {
+        if (e.kind === 'destroyed') logDestroyed(missionLog, sim.state.side[e.entity]);
+        else if (e.kind === 'woundEvacuated') logWoundEvacuated(missionLog, sim.state.side[e.entity], me);
+      }
       for (const mev of missionEvents) {
         missionTelemetry?.onEvent(mev);
         logMissionEvent(missionLog, mev, {
@@ -5566,7 +5587,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // exists rather than a second one. `target_minutes` gets that same
             // treatment -- the sim never reads it either (`grade.ts`).
             const kdfUnits = Object.values(units)
-              .filter((u) => u.faction === 'kdf')
+              // GH-707 P2: not the wounded -- a casualty is never "newly unlocked".
+              .filter((u) => u.faction === 'kdf' && u.role !== 'wounded')
               .map((u) => ({
                 id: u.id,
                 name: u.name ?? u.id,

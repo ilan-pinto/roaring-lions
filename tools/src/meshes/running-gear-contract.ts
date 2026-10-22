@@ -39,11 +39,13 @@ export const RG_SPIN_VEHICLES: readonly string[] = [
   'spg_cluster',
   'spg_long_range',
   'technical',
+  // GH-709: the armoured ambulance, the Namer's hull under a medical box.
+  'veh_ambulance',
 ];
 
 /** A2: the vehicles whose tracks scroll. `officer_armour` is the command Lavi
  *  (held art, GH-298) and takes the Lavi's recipe. */
-export const RG_TRACK_VEHICLES: readonly string[] = ['dozer_d9', 'ifv_namer', 'mbt_lavi', 'officer_armour', 'mbt_lavi_camo', 'spg_long_range', 'spg_cluster'];
+export const RG_TRACK_VEHICLES: readonly string[] = ['dozer_d9', 'ifv_namer', 'mbt_lavi', 'officer_armour', 'veh_ambulance', 'mbt_lavi_camo', 'spg_long_range', 'spg_cluster'];
 
 /** A9: the vehicles whose front axle steers. */
 export const RG_STEER_VEHICLES: readonly string[] = ['gun_truck', 'jeep_shoded', 'scout_shachaf', 'technical'];

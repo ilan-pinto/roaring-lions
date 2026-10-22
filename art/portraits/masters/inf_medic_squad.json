@@ -1,0 +1,23 @@
+{
+  "unit": "inf_medic_squad",
+  "variant": "team",
+  "source": "assets/meshes/inf_medic_squad.glb",
+  "source_sha256": "36df2b1d23fa90f6027ebeb27f163c02af0c9f96c04c23583a7de6a9af6d5d51",
+  "yaw_deg": -125.0,
+  "elevation_deg": 12.0,
+  "fov_deg": 30.0,
+  "fill": [
+    "longer",
+    0.88
+  ],
+  "ndc_box": [
+    0.0802,
+    0.9198,
+    0.06,
+    0.94
+  ],
+  "materials": {
+    "baked": 3,
+    "flat": 6
+  }
+}

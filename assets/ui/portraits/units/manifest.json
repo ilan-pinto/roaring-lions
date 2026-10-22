@@ -2,6 +2,13 @@
   "version": 1,
   "size": 192,
   "portraits": {
+    "air_medevac_heli": {
+      "file": "air_medevac_heli.png",
+      "extent": [
+        182,
+        104
+      ]
+    },
     "apc_eitan": {
       "file": "apc_eitan.png",
       "extent": [
@@ -166,6 +173,20 @@
         "file": "lead/inf_grenadier.png",
         "extent": [
           78,
+          174
+        ]
+      }
+    },
+    "inf_medic_squad": {
+      "file": "inf_medic_squad.png",
+      "extent": [
+        166,
+        174
+      ],
+      "lead": {
+        "file": "lead/inf_medic_squad.png",
+        "extent": [
+          79,
           174
         ]
       }
@@ -399,6 +420,27 @@
       "extent": [
         154,
         172
+      ]
+    },
+    "veh_ambulance": {
+      "file": "veh_ambulance.png",
+      "extent": [
+        182,
+        158
+      ]
+    },
+    "wounded_kdf": {
+      "file": "wounded_kdf.png",
+      "extent": [
+        174,
+        49
+      ]
+    },
+    "wounded_sarim": {
+      "file": "wounded_sarim.png",
+      "extent": [
+        174,
+        52
       ]
     },
     "yahalom_squad": {

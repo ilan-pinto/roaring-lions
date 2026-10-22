@@ -139,6 +139,12 @@ export interface LedgerRosterEntry {
   missions?: number;
   /** Kills across the campaign. */
   kills?: number;
+  /** GH-707 P2: men of this squad who went down wounded, across the campaign. Absent = 0; written
+   *  only once non-zero, so a world without wound content carries nothing new. */
+  wounded_in_action?: number;
+  /** GH-707 P2: men of this squad who walked back in after treatment, credited to the squad they
+   *  FELL from (even if they rejoined another), and only while that squad lives. Absent = 0, likewise. */
+  rescued?: number;
 }
 export interface LedgerData {
   'roster.surviving_units'?: LedgerRosterEntry[];
@@ -956,6 +962,11 @@ export class MissionRuntime {
   /** Tags whose units were identified *this* mission, for the outgoing ledger. */
   private readonly markedThisMission = new Set<string>();
   private readonly kills = new Map<number, number>();
+  /** GH-707 P2: per squad entity, men who fell wounded / who rejoined after treatment this mission.
+   *  Service-record counts only: not hashed, read by `checkEnd` alone. */
+  private readonly woundedIn = new Map<number, number>();
+  private readonly rescuedBack = new Map<number, number>();
+  private readonly woundParentOf = new Map<number, number>();
   /** Player entities that contributed to a completed objective this mission (spec §4.8):
    *  kill credit, held a zone at a hold/capture completion, alive at a survive completion,
    *  identified a unit a locate needed, or found a route a collapse brought down. The
@@ -1294,6 +1305,8 @@ export class MissionRuntime {
    *    `markedThisMission`, `entityRoster` and `promotedValue` feed only the
    *    outgoing ledger and veterancy at the end, or show up later in folded
    *    state (a `first_contact` trigger fires);
+   *  - `woundedIn`, `rescuedBack` and `woundParentOf` (GH-707 P2) feed only the outgoing roster
+   *    entry's service-record counts;
    *  - `zoneDeductedAt` is a cooldown whose effect is the ROE score;
    *  - `patrols[].idx` acts only through the orders it queues into the sim,
    *    which `sim.hash()` covers;
@@ -2515,6 +2528,14 @@ export class MissionRuntime {
       }
       if (e.kind === 'tunnelContact' && e.level === 'identified' && e.side === 0 && e.observer >= 0) {
         this.routeFoundBy.set(e.tunnel, e.observer);
+      }
+      if (e.kind === 'woundedDown' && e.parent >= 0 && this.sim.state.side[e.parent] === 0) {
+        this.woundedIn.set(e.parent, (this.woundedIn.get(e.parent) ?? 0) + 1);
+        this.woundParentOf.set(e.entity, e.parent);
+      } else if (e.kind === 'woundRejoined') {
+        // The man's ORIGINAL squad earns the rescue, wherever he walked back in; if it is gone, nobody does.
+        const parent = this.woundParentOf.get(e.entity);
+        if (parent !== undefined && this.sim.state.alive[parent] === 1) this.rescuedBack.set(parent, (this.rescuedBack.get(parent) ?? 0) + 1);
       }
       if (e.kind === 'destroyed' && e.by >= 0) {
         this.kills.set(e.by, (this.kills.get(e.by) ?? 0) + 1);
@@ -4043,6 +4064,11 @@ export class MissionRuntime {
         kills: (origin?.kills ?? 0) + (this.kills.get(id) ?? 0),
       };
       if (origin?.name !== undefined) entry.name = origin.name;
+      // GH-707 P2: the service-record wound counts, written only once non-zero.
+      const hurt = (origin?.wounded_in_action ?? 0) + (this.woundedIn.get(id) ?? 0);
+      if (hurt > 0) entry.wounded_in_action = hurt;
+      const saved = (origin?.rescued ?? 0) + (this.rescuedBack.get(id) ?? 0);
+      if (saved > 0) entry.rescued = saved;
       // L-1 (GH-183): a loaned body goes back to the lender. It stays in `survivors` (the
       // debrief count) and in `startingHome` (credits), but never joins the brigade's roster.
       if (this.onLoan.has(id)) continue;

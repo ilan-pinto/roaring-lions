@@ -967,3 +967,39 @@ function shippedUnits(): UnitTypeJson[] {
   walk(join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'data', 'units'));
   return out;
 }
+
+describe('the public reads the app asks (GH-707 P2)', () => {
+  it('canRescue is the rescue order\'s own gate, and writes nothing', () => {
+    const wd = world();
+    const rifle = wd.put(RIFLES, 0, 5.5, 5.5);
+    const medic = wd.put(DRAGGER, 0, 2.5, 5.5);
+    const own = downOf(wd, 0, 4.5, 5.5);
+    const foe = downOf(wd, 1, 17.5, 5.5); // beyond sight 8: not known to side 0
+    wd.sim.queueCommand({ kind: 'halt', ids: [medic] });
+    wd.sim.tick();
+    const before = wd.sim.hash();
+    expect([wd.sim.canRescue(medic, own), wd.sim.canRescue(rifle, own), wd.sim.canRescue(medic, rifle), wd.sim.canRescue(medic, foe)]).toEqual([true, false, false, false]);
+    expect([wd.sim.canRescue(-1, own), wd.sim.canRescue(medic, 9999)]).toEqual([false, false]);
+    expect(wd.sim.hash()).toBe(before);
+    contact(wd.sim)[0 * CAP + foe] = 65536;
+    expect(wd.sim.canRescue(medic, foe)).toBe(true);
+  });
+
+  it('woundBleedRate: 1 down, 2 pinned, 0 when tended, carried, stabilised or not wounded', () => {
+    const wd = world();
+    const rifle = wd.put(RIFLES, 0, 15.5, 8.5);
+    const w = downOf(wd, 0, 5.5, 5.5);
+    expect(wd.sim.woundBleedRate(w)).toBe(1);
+    wd.sim.state.pinned[w] = 1;
+    expect(wd.sim.woundBleedRate(w)).toBe(2);
+    wd.sim.state.pinned[w] = 0;
+    expect([wd.sim.woundBleedRate(rifle), wd.sim.woundBleedRate(-1), wd.sim.woundBleedRate(9999)]).toEqual([0, 0, 0]);
+    const medic = wd.put(DRAGGER, 0, 5.5, 6.5); // within treat reach
+    expect(wd.sim.woundBleedRate(w)).toBe(0);
+    wd.sim.debugKill(medic);
+    expect(wd.sim.woundBleedRate(w)).toBe(1);
+    const amb = wd.put(AMBULANCE, 0, 6.5, 5.5);
+    expect(wd.sim.embarkAtSpawn(amb, w)).toBe(true);
+    expect(wd.sim.woundBleedRate(w)).toBe(0);
+  });
+});

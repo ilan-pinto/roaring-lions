@@ -74,7 +74,8 @@ describe('unit portrait coverage (GH-153)', () => {
     'charge_squad',
   ];
   /** One-figure rigs: a team portrait and deliberately NO lead variant. */
-  const ONE_FIGURE = ['moto_rpg', 'digger_crew'];
+  // GH-707 P2: the wounded pair are one man each (`w0_root`), team portrait only.
+  const ONE_FIGURE = ['moto_rpg', 'digger_crew', 'wounded_kdf', 'wounded_sarim'];
 
   const unitFiles = (dir: string): string[] =>
     fs
@@ -283,7 +284,11 @@ describe('unit plate coverage', () => {
     const kdf = fs
       .readdirSync(unitDir)
       .filter((f) => f.endsWith('.json'))
-      .map((f) => (JSON.parse(fs.readFileSync(path.join(unitDir, f), 'utf8')) as { id: string }).id);
+      .map((f) => JSON.parse(fs.readFileSync(path.join(unitDir, f), 'utf8')) as { id: string; role: string })
+      // The garage draws no casualty (GH-707 P2: `main.ts`'s `garageUnits` drops role `wounded`), so
+      // a plate -- the garage bay's picture -- is owed to every OTHER KDF unit.
+      .filter((u) => u.role !== 'wounded')
+      .map((u) => u.id);
     // Vacuity guard: an empty roster would make every loop below pass.
     expect(kdf.length).toBeGreaterThan(10);
 

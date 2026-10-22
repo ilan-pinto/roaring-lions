@@ -45,6 +45,8 @@ import { kitIconSignDecorHtml, kitIconSignHtml, kitPipsHtml, withKitSign, type K
 import { flash, leave, titleCard } from './motion';
 import { markSvg } from './mark';
 import { fireState } from './fire-state';
+import { bleedView, type BleedView } from './bleed';
+import { woundRecordText } from './service-record';
 import { invoiceClock, type InvoiceLine } from './conduct-invoice';
 import type { HudElement } from './hud-elements';
 import type { CursorName } from '../input/cursor';
@@ -222,6 +224,19 @@ function suppressionMeterHtml(m: { shaken: number; suppressed: number; pin: bool
     cell(m.shaken) +
     cell(m.suppressed) +
     `<span class="rl-supp__pin"${m.pin ? ' data-on="1"' : ''}>${symbolSvg('pinned', STRIP_GLYPH_PX)}</span>` +
+    `</div>`
+  );
+}
+
+/** GH-707 P2: the unit card's bleed ring for a down wounded -- a conic ring that empties as he
+ *  bleeds, with the seconds beside it; held (stabilised or carried) it stops and says so. */
+function bleedRingHtml(v: BleedView): string {
+  const word = v.stabilised ? t('hud.bleed.stabilised') : v.held ? t('hud.bleed.held') : t('hud.bleed.value', { s: v.seconds });
+  return (
+    `<div class="rl-bleed" role="img" aria-label="${t('hud.bleed.label')}: ${word}"${v.held ? ' data-held="1"' : ''}>` +
+    `<span class="rl-bleed__ring" style="--bleed:${(v.fraction * 100).toFixed(0)}%"></span>` +
+    `<span class="rl-label">${t('hud.bleed.label')}</span> ` +
+    `<span class="rl-bleed__text">${word}</span>` +
     `</div>`
   );
 }
@@ -2720,6 +2735,9 @@ export class Hud {
       entry && (entry.missions !== undefined || entry.kills !== undefined)
         ? `<div class="rl-card__record rl-dim">${t('hud.card.record', { missions: entry.missions ?? 0, kills: entry.kills ?? 0 })}</div>`
         : '';
+    // GH-707 P2: the wound half of the same record, only once there is one to show.
+    const woundLine = woundRecordText(entry);
+    const recordWounds = woundLine === '' ? '' : `<div class="rl-card__record rl-dim">${woundLine}</div>`;
 
     // Whose place this is (WP-G-E4, R-6): only looked up when the entry
     // actually carries a slot -- a fresh spawn's `entry?.slot` is `undefined`
@@ -2811,6 +2829,9 @@ export class Hud {
     if (wp > 0) flags.push(t('hud.card.waypoints', { n: wp }));
     // The meter (D2): shown from the first band up, never on a steady unit.
     const meter = supp >= SHAKEN_FROM || pinned || routed ? suppressionMeterHtml(suppressionMeter(supp, pinned, routed)) : '';
+    // GH-707 P2: a down wounded's remaining bleed. Null (so nothing is drawn) for every other unit.
+    const bleed = bleedView(sim, id);
+    const bleedHtml = bleed === null ? '' : bleedRingHtml(bleed);
     const hpSay = hpWord(hpPct);
     // The art's corner (D5): the mark that wins the line -- broken, pinned,
     // then the vehicle's damage.
@@ -2904,12 +2925,14 @@ export class Hud {
       `</span>` +
       `</div>` +
       record +
+      recordWounds +
       replaces +
       `<div class="rl-track"><i class="rl-fill-${hpTone(hpPct, own)}" ` +
       `style="width:${(hpPct * 100).toFixed(0)}%"></i></div>` +
       `<div class="rl-card__cond">${flags.length > 0 ? flags.join(' · ') : t('hud.card.holdingPosition')}</div>` +
       (why.length > 0 ? `<div class="rl-card__why">${why.join(' · ')}</div>` : '') +
       meter +
+      bleedHtml +
       carryHtml +
       this.engagingHtml(id) +
       `<div class="rl-card__cols">` +

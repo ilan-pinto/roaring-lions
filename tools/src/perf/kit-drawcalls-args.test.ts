@@ -39,6 +39,7 @@ describe('parseKitDrawcallArgs', () => {
       'spg_cluster',
       'spg_long_range',
       'technical',
+      'veh_ambulance',
     ]);
     expect(a.tierLevels).toEqual([0]);
     expect(a.runningGear).toBe(true);

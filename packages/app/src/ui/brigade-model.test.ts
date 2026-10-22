@@ -15,6 +15,8 @@ const UNITS: BrigadeUnit[] = [
     isKamikaze: false,
     transportSlots: 0,
     isSoft: true,
+    canCarry: null,
+    canEmbark: false,
     upgrades: { armour: { tiers: [{ price: 100, patch: { 'hull.hp': 10 } }] } },
   },
   {
@@ -24,6 +26,8 @@ const UNITS: BrigadeUnit[] = [
     isKamikaze: false,
     transportSlots: 0,
     isSoft: false,
+    canCarry: null,
+    canEmbark: false,
     upgrades: {
       armour: {
         tiers: [

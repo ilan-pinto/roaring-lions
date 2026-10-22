@@ -172,6 +172,9 @@ export function afterAction(i: AfterActionInputs): AfterAction {
   } else if (withdrew > 0) {
     well.push({ mark: String(withdrew), tone: 'good', text: t('aar.well.withdrew', { n: withdrew }) });
   }
+  // GH-707 P2: wounded men our side got out alive. Shown only when there were any.
+  const evacuated = i.log.evacuated ?? 0;
+  if (evacuated > 0) well.push({ mark: String(evacuated), tone: 'good', text: t('aar.well.evacuated', { n: evacuated }) });
   if (won && i.marked !== undefined && i.marked > 0) {
     well.push({ mark: String(i.marked), tone: 'good', text: t('aar.well.marked', { n: i.marked }) });
   }

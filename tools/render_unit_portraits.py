@@ -98,22 +98,28 @@ FIGURES = {"inf_squad", "inf_grenadier", "at_team", "mortar_team", "sniper_team"
            # vehicles/.
            "militia_cell", "rpg_team", "mortar_crew", "charge_squad",
            "moto_rpg", "digger_crew",
+           # GH-707 P2 (22 Oct): the wounded pair, one man on his front each. No `idle`:
+           # `pose_idle` falls back to `idleWounded`.
+           "wounded_kdf", "wounded_sarim",
+           # GH-707 P2 (22 Oct): the Nemala Medic Team. Two figures, so it has a `lead`
+           # portrait; its litter and casualty are scale 0 in `idle`.
+           "inf_medic_squad",
            # GH-709 Phase 8: the Chadaf recon robot is a rigged walker in
            # meshes/ itself, one figure on `dog_root`.
            "ugv_recon_dog"}
 ENEMY_FIGURES = {"atgm_cell", "manpad_team", "recoilless_team", "sarim_rifles",
                  "militia_cell", "rpg_team", "mortar_crew", "charge_squad",
-                 "moto_rpg", "digger_crew"}
+                 "moto_rpg", "digger_crew", "wounded_sarim"}
 # Figure rigs with ONE figure root: the `lead` variant would duplicate the
 # team picture (and `isolate_lead` refuses it), so they ship the team picture
 # only and the chip falls back to it, as a vehicle's does. `moto_rpg` binds
 # bike, rider and gunner to the single `m_root`; `digger_crew` is one man
 # (`dig_root` plus its second pose root `digw_root`); `ugv_recon_dog` is one
 # robot on `dog_root` (plus its `dog_death_root`).
-NO_LEAD = {"moto_rpg", "digger_crew", "ugv_recon_dog"}
+NO_LEAD = {"moto_rpg", "digger_crew", "wounded_kdf", "wounded_sarim", "ugv_recon_dog"}
 ROSTER = (
-    # KDF (23)
-    "inf_squad,inf_grenadier,at_team,mortar_team,sniper_team,demo_squad,breach_team,yahalom_squad,recon_zikit,at_nlos_team,"
+    # KDF (25)
+    "inf_squad,inf_grenadier,at_team,mortar_team,sniper_team,demo_squad,breach_team,yahalom_squad,recon_zikit,inf_medic_squad,at_nlos_team,"
     "mbt_lavi,mbt_lavi_camo,ifv_namer,apc_eitan,apc_kipod,jeep_shoded,scout_shachaf,dozer_d9,spg_long_range,spg_cluster,"
     "heli_peten,heli_peten_gunship,attack_drone,recon_drone,ugv_recon_dog,"
     # Sarim (15)
@@ -183,7 +189,9 @@ def drop_dead_geometry(unit):
 
 
 def pose_idle():
-    action = bpy.data.actions.get("idle")
+    # The wounded have no `idle`; the lying pose the game draws a still casualty in is
+    # `idleWounded` (`rescue-pose.ts`'s `woundedIdle`).
+    action = bpy.data.actions.get("idle") or bpy.data.actions.get("idleWounded")
     armatures = [o for o in bpy.context.scene.objects if o.type == "ARMATURE"]
     if action is None:
         raise SystemExit("no `idle` clip -- spec row 2 poses every unit from it")

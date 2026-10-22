@@ -934,6 +934,185 @@ def figure(prefix, at, posture="standing", yaw=0.0, headgear="helmet", stride=0.
     return parts
 
 
+# --- the casualty ------------------------------------------------------------
+
+
+def sweep(name, waypoints, sides=8, role="uniform"):
+    """A solid lofted along a 3-D path, rings PERPENDICULAR to the path.
+
+    `limb()` lofts horizontal rings, which is right for a standing leg and
+    wrong for a prone one: a limb lying along the ground would come out as a
+    stack of discs seen edge-on. Each waypoint is `(x, y, z, rw, rh)` -- the
+    half-width across the ground and the half-height above it, so a torso is
+    flat and a limb round. The frame is carried along the path (up = +z,
+    falling back to +y where the path itself points up), no wobble: a cloth
+    sleeve on the ground is smooth, and this keeps the vertex count exact.
+    """
+    pts = [tuple(w[:3]) for w in waypoints]
+    n = len(pts)
+    verts, faces = [], []
+    for i, w in enumerate(waypoints):
+        a = pts[max(i - 1, 0)]
+        b = pts[min(i + 1, n - 1)]
+        t = (b[0] - a[0], b[1] - a[1], b[2] - a[2])
+        tl = math.sqrt(sum(c * c for c in t)) or 1.0
+        t = tuple(c / tl for c in t)
+        up = (0.0, 0.0, 1.0) if abs(t[2]) < 0.9 else (0.0, 1.0, 0.0)
+        # side = up x t, then up' = t x side
+        sx = up[1] * t[2] - up[2] * t[1]
+        sy = up[2] * t[0] - up[0] * t[2]
+        sz = up[0] * t[1] - up[1] * t[0]
+        sl = math.sqrt(sx * sx + sy * sy + sz * sz) or 1.0
+        s = (sx / sl, sy / sl, sz / sl)
+        u = (t[1] * s[2] - t[2] * s[1], t[2] * s[0] - t[0] * s[2], t[0] * s[1] - t[1] * s[0])
+        rw, rh = (w[3], w[4]) if len(w) > 4 else (w[3], w[3])
+        for j in range(sides):
+            ang = 2.0 * math.pi * j / sides
+            cw, ch = rw * math.cos(ang), rh * math.sin(ang)
+            verts.append((pts[i][0] + s[0] * cw + u[0] * ch,
+                          pts[i][1] + s[1] * cw + u[1] * ch,
+                          pts[i][2] + s[2] * cw + u[2] * ch))
+    for i in range(n - 1):
+        for j in range(sides):
+            k = (j + 1) % sides
+            faces.append((i * sides + j, i * sides + k, (i + 1) * sides + k, (i + 1) * sides + j))
+    faces.append(tuple(range(sides - 1, -1, -1)))
+    faces.append(tuple(range((n - 1) * sides, n * sides)))
+    return _mesh(name, verts, faces, role)
+
+
+#: How each side's casualty lies, by `loadout`: the y of each leg at hip, knee and ankle
+#: (index 0 is the left side, -y) and of the elbow and wrist. `wounded.py` reads the same
+#: table for its bones and its arm IK, so geometry and rig cannot drift apart. The two
+#: lie differently ON PURPOSE: lying on his front in the same kit shape, a KDF and a Sarim
+#: casualty read at 0.879 silhouette IoU against each other at 64 px (limit 0.88) -- the
+#: Sarim's legs are scissored and his elbows out, the KDF's trailing and tucked.
+CASUALTY_POSE = {
+    "regular": {"legs": {"L": (-0.085, -0.095, -0.105), "R": (0.115, 0.150, 0.175)},
+                "elbow_y": 0.310, "wrist_y": 0.300},
+    "irregular": {"legs": {"L": (-0.160, -0.215, -0.265), "R": (0.070, 0.075, 0.070)},
+                  "elbow_y": 0.360, "wrist_y": 0.350},
+}
+
+
+def casualty(prefix, at=(0.0, 0.0, 0.0), headgear="helmet", loadout="regular"):
+    """One wounded man, lying on his front, head toward +x. No weapon.
+
+    The `figure(posture="prone")` death figure is one rigid tube per limb, which
+    cannot crawl: an elbow and a knee are joints, and a tube has neither. This is
+    the same man (same proportions, same headgear and loadout vocabulary, same
+    roles) built as a rig needs him, every limb in two segments with a blob where
+    they meet -- the blobs are what hide the seam when the pose changes, not
+    weights (rig.py: rigid binding only).
+
+    Part names reuse `rig.PART_BONE`'s existing suffixes on purpose (`torso`,
+    `thigh0`, `calf0`, `upperarm0`, `forearm0`, `hand0`, `helm_shell` ...), so
+    there is no new mapping to go stale; index 0 is the left side (-y), 1 the
+    right (+y), the same handedness the standing figures use.
+
+    `at` is the contact point: the figure's belly sits on z = 0.
+    `loadout="regular"` is the KDF issue (plate carrier, helmet, gloves,
+    kneepads); `"irregular"` the Sarim (bandolier, keffiyeh, bare hands).
+    """
+    x0, y0, z0 = at
+    parts = []
+    regular = loadout == "regular"
+    pose = CASUALTY_POSE[loadout]
+
+    def P(x, y, z):
+        return (x0 + x, y0 + y, z0 + z)
+
+    def SW(name, pts, sides=8, role="uniform"):
+        parts.append(sweep(f"{prefix}_{name}", [P(*w[:3]) + tuple(w[3:]) for w in pts], sides, role))
+
+    def BL(name, at_local, radius, squash=(1.0, 0.9, 0.85), role="uniform", sides=8, rings=2):
+        parts.append(blob(f"{prefix}_{name}", P(*at_local), radius, squash=squash,
+                          role=role, sides=sides, rings=rings))
+
+    def RB(name, size, at_local, chamfer=0.3, role="webbing"):
+        parts.append(rbox(f"{prefix}_{name}", size, P(*at_local), chamfer=chamfer, role=role))
+
+    # Torso and hips: flat ellipses, belly on the ground.
+    SW("torso", [(-0.02, 0.0, 0.098, 0.125, 0.098),
+                 (0.20, 0.0, 0.108, 0.140, 0.108),
+                 (0.40, 0.0, 0.122, 0.165, 0.122),
+                 (0.56, 0.0, 0.112, 0.160, 0.112),
+                 (0.64, 0.0, 0.085, 0.100, 0.085)], sides=8)
+    BL("hips", (-0.06, 0.0, 0.098), 0.125, squash=(1.1, 1.05, 0.80))
+    SW("belt", [(-0.02, 0.0, 0.106, 0.134, 0.104), (0.07, 0.0, 0.108, 0.138, 0.106)],
+       sides=8, role="webbing")
+    for i, sgn in enumerate((-1.0, 1.0)):
+        BL(f"deltoid{i}", (0.55, sgn * 0.185, 0.100), 0.066, squash=(1.0, 0.95, 0.85))
+
+    if regular:
+        # Issued kit, seen from above because he is on his front: the carrier is
+        # on his back, pouches in a row at the belt, an admin pouch between the
+        # shoulder blades.
+        RB("carrier", (0.30, 0.27, 0.05), (0.36, 0.0, 0.236), chamfer=0.26)
+        for i, py in enumerate((-0.095, 0.0, 0.095)):
+            RB(f"pouch{i}", (0.085, 0.080, 0.058 + 0.008 * i), (0.14, py, 0.205), chamfer=0.30)
+        RB("admin", (0.12, 0.16, 0.06), (0.50, 0.0, 0.230), chamfer=0.28)
+    else:
+        SW("bandolier", [(0.50, -0.130, 0.205, 0.034, 0.016),
+                         (0.30, 0.030, 0.230, 0.030, 0.016),
+                         (0.10, 0.140, 0.200, 0.026, 0.014)], sides=6, role="webbing")
+        for i, (px, py, ph) in enumerate(((0.10, -0.085, 0.056), (0.02, 0.120, 0.048))):
+            RB(f"pouch{i}", (0.085, 0.075, ph), (px, py, 0.18), chamfer=0.30)
+        parts.append(fold(f"{prefix}_shirt_hem", P(-0.02, 0.0, 0.11), (0.29, 0.28, 0.10)))
+
+    # Legs: thigh + knee blob, calf + ankle blob + boot. Splayed unevenly --
+    # a man lying hurt does not lie square.
+    for i, sgn in enumerate((-1.0, 1.0)):
+        y0l, y1l, y2l = pose["legs"]["L" if sgn < 0 else "R"]
+        SW(f"thigh{i}", [(-0.06, y0l, 0.088, 0.088, 0.082),
+                         (-0.28, (y0l + y1l) / 2, 0.080, 0.086, 0.078),
+                         (-0.50, y1l, 0.066, 0.070, 0.066)], sides=7)
+        BL(f"knee{i}", (-0.50, y1l, 0.068), 0.074, squash=(1.0, 1.0, 0.92))
+        if regular:
+            BL(f"kneepad{i}", (-0.50, y1l, 0.070), 0.074 * 1.2, squash=(0.9, 1.0, 0.88), role="webbing")
+        SW(f"calf{i}", [(-0.50, y1l, 0.066, 0.064, 0.060),
+                        (-0.70, (y1l + y2l) / 2, 0.060, 0.062, 0.058),
+                        (-0.89, y2l, 0.050, 0.044, 0.044)], sides=7)
+        BL(f"blouse{i}", (-0.89, y2l, 0.052), 0.056, squash=(1.0, 1.0, 0.90))
+        RB(f"boot{i}", (0.22, 0.105, 0.098), (-0.99, y2l, 0.056), chamfer=0.32, role="boot")
+
+    # Arms tucked in for a man on his elbows: the upper arm runs back from the
+    # shoulder, the forearm forward to the hand beside the head.
+    ey, wy = pose["elbow_y"], pose["wrist_y"]
+    for i, sgn in enumerate((-1.0, 1.0)):
+        SW(f"upperarm{i}", [(0.52, sgn * 0.190, 0.100, 0.056, 0.054),
+                            (0.41, sgn * (0.190 + ey) / 2.0, 0.086, 0.054, 0.052),
+                            (0.30, sgn * ey, 0.072, 0.050, 0.050)], sides=7)
+        BL(f"elbow{i}", (0.30, sgn * ey, 0.072), 0.058, squash=(1.0, 1.0, 0.95), sides=7)
+        SW(f"forearm{i}", [(0.30, sgn * ey, 0.066, 0.048, 0.048),
+                           (0.44, sgn * (ey + wy) / 2.0, 0.062, 0.046, 0.044),
+                           (0.58, sgn * wy, 0.058, 0.040, 0.040)], sides=7)
+        BL(f"hand{i}", (0.63, sgn * wy, 0.056), 0.043, role="skin_shadow", sides=7)
+        if regular:
+            BL(f"glove{i}", (0.63, sgn * wy, 0.056), 0.043 * 1.18, role="webbing", sides=7)
+
+    # Neck and head.
+    SW("neck", [(0.62, 0.0, 0.100, 0.052, 0.052), (0.72, 0.0, 0.112, 0.050, 0.050)],
+       sides=7, role="skin_shadow")
+    if regular:
+        SW("gaiter", [(0.64, 0.0, 0.100, 0.066, 0.066), (0.70, 0.0, 0.108, 0.066, 0.066)],
+           sides=7, role="uniform")
+    BL("face", (0.80, 0.0, 0.112), 0.098, squash=(1.05, 0.92, 0.9), role="face", sides=8)
+    if headgear == "helmet":
+        parts += tactical_helmet(f"{prefix}_helm", P(0.80, 0.0, 0.112), radius=0.106, role="uniform")
+    elif headgear == "keffiyeh":
+        # `keffiyeh()` drapes DOWN from an upright head (its mantle hangs 0.3 m
+        # below the crown), which on a man lying on his front goes through the
+        # ground. Lying, the cloth lies: a crown over the skull, the mantle laid
+        # back across the neck and one shoulder, the tail out beside the cheek.
+        parts.append(dome(f"{prefix}_kef_crown", 0.104, 0.088, P(0.80, 0.0, 0.122), segments=10, role="keffiyeh"))
+        SW("kef_mantle", [(0.76, 0.0, 0.196, 0.100, 0.020),
+                          (0.66, -0.020, 0.176, 0.125, 0.026),
+                          (0.58, -0.090, 0.168, 0.140, 0.026)], sides=8, role="keffiyeh")
+        BL("kef_tail", (0.74, 0.115, 0.050), 0.060, squash=(1.5, 0.55, 0.55), role="keffiyeh", sides=7)
+    return parts
+
+
 # --- weapons ---------------------------------------------------------------
 
 

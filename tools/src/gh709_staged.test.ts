@@ -3,9 +3,14 @@
 // Nine credit-only units, approved and priced by the lead on 22 Oct 2026
 // (docs/superpowers/specs/2026-10-22-special-units-design.md, "Lead rulings"). Each is STAGED
 // here, not in data/units/kdf, until the phase that lands its art (and engine) moves it, in one
-// commit. Phase 2 landed `mbt_lavi_camo` and `spg_long_range`, Phase 7 `at_nlos_team` and
-// `spg_cluster`, Phase 8 `ugv_recon_dog`; the other four still wait for art, and three of them
-// for E1 (the unit aura). This spec is the E5 guard (`e5_staged.test.ts`) for this set:
+// commit. Phase 2 landed `mbt_lavi_camo` and `spg_long_range`, Phase 3 `inf_grenadier`, Phase 7
+// `at_nlos_team` and `spg_cluster`, Phase 8 `ugv_recon_dog`. LANDED besides: `veh_ambulance` and
+// `air_medevac_heli` (GH-707 P2, 22 Oct), each with its GLB, its recipes and its catalogue entry;
+// both are held out of versus (`VERSUS_HELD_UNITS`) because a `can_carry` type turns the wound
+// hash fold on. `inf_medic_squad` landed after them (GH-707 P2, 22 Oct), the same way: its GLB,
+// `tools/units/import_meshy_medic_team.py`, the `rescue.ts` motion step, its catalogue entry,
+// and the same versus hold (a `rescue` block does the same to the hash). All nine have landed.
+// This spec is the E5 guard (`e5_staged.test.ts`) for this set:
 //   - the staged set is exactly the nine the lead approved -- the AA team is held until E6
 //     (GH-274) and the camouflaged rifle squad is not built, and neither may be staged;
 //   - every draft parses against the shipped unit schema (a draft that needs E1 is staged
@@ -108,10 +113,13 @@ describe('GH-709: staged and landed partition the nine approved units', () => {
 });
 
 describe('GH-709 staged special units', () => {
-  it('stages three: Phase 2 landed the Lavi Ambush Tank and the Te\'o Howitzer, Phase 3 the Chomet grenadiers, Phase 7 the Zaron Missile Team and the Te\'o Cluster Howitzer, Phase 8 the Chadaf robot', () => {
+  it('stages none: Phase 2 landed the Lavi Ambush Tank and the Te\'o Howitzer, Phase 3 the Chomet grenadiers, Phase 7 the Zaron Missile Team and the Te\'o Cluster Howitzer, Phase 8 the Chadaf robot, GH-707 P2 the ambulance, the medevac and the medic team', () => {
     // Update these lines, not the partition above, when a unit lands with its art. Named, so a
     // unit that vanished from both places cannot pass as "landed".
-    expect([...LANDED_IDS]).toEqual(['at_nlos_team', 'inf_grenadier', 'mbt_lavi_camo', 'spg_cluster', 'spg_long_range', 'ugv_recon_dog']);
+    expect([...LANDED_IDS]).toEqual([
+      'air_medevac_heli', 'at_nlos_team', 'inf_grenadier', 'inf_medic_squad', 'mbt_lavi_camo',
+      'spg_cluster', 'spg_long_range', 'ugv_recon_dog', 'veh_ambulance',
+    ]);
     expect(staged.map((s) => s.json.id)).toEqual(GH709_IDS.filter((id) => !LANDED_IDS.includes(id)));
   });
 
