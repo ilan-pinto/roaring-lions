@@ -82,6 +82,9 @@ describe('the clicks (Q7)', () => {
       { x: 15.5, y: 3.5 },
     ]);
   });
+  it('a click on the previous point\'s tile is refused: no zero-length leg', () => {
+    expect(patrolClick(draft, world(), 3.9, 3.1, false)).toEqual({ kind: 'refused' });
+  });
   it('rock refuses the click and keeps nothing', () => {
     expect(patrolClick(draft, world(), 10.5, 3.5, false)).toEqual({ kind: 'refused' });
     expect(patrolClick(draft, world(), 10.5, 3.5, true)).toEqual({ kind: 'refused' });

@@ -4182,6 +4182,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // wins.
         if (kind !== null) {
           armedOrder = null;
+          patrolDraft = null;
           production?.setRallyArmed(null);
         }
       },
@@ -4191,6 +4192,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         armedRally = line;
         if (line !== null) {
           armedOrder = null;
+          patrolDraft = null;
           production?.setArmed(null);
         }
       },
@@ -4709,7 +4711,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // (rock, a wall, off the map) keeps it armed with the deny cue, as Set rally does; a
       // Shift-click adds a point and stays armed; a plain click, or the 4th point, sends the one
       // `setStance{patrol}` and disarms.
-      if (armedOrder === 'patrol' && patrolDraft !== null) {
+      if (armedOrder === 'patrol') {
+        // No draft can only mean a bug elsewhere: put the mode down rather than let the click
+        // fall through to the generic armed branch below as an attack-move (review M-1).
+        if (patrolDraft === null) {
+          armedOrder = null;
+          dragStart = null;
+          dragBox.style.display = 'none';
+          return;
+        }
         const at = pointerPoint(pointerView, sim, p.x, p.y);
         const out = patrolClick(patrolDraft, intentWorld, at.x, at.y, ev.shiftKey);
         if (out.kind === 'refused') {

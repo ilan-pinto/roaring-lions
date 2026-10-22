@@ -119,6 +119,9 @@ export function patrolClick(
   shift: boolean
 ): PatrolClick {
   if (!patrolPointOk(world, draft.ids, x, y)) return { kind: 'refused' };
+  // A point on the same tile as the one before it would be a leg of length zero (review M-3).
+  const last = draft.points[draft.points.length - 1];
+  if (Math.floor(last.x) === Math.floor(x) && Math.floor(last.y) === Math.floor(y)) return { kind: 'refused' };
   const points = [...draft.points, { x, y }];
   if (shift && points.length < MAX_PATROL_WAYPOINTS) return { kind: 'added', draft: { ids: draft.ids, points } };
   return { kind: 'send', intent: { kind: 'patrol', ids: [...draft.ids], points } };
