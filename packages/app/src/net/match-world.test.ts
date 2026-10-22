@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { doctrines, units, versusRules } from '@lions/data';
-import { sidesOfFactions, validateConfig, type MatchConfig, type SeatConfig } from '@lions/net';
+import { matchDigest, sidesOfFactions, validateConfig, type MatchConfig, type SeatConfig } from '@lions/net';
 import type { MissionEvent } from '@lions/sim';
 import { campOf } from './versus-force';
 import { viewerSideOf } from './viewer';
@@ -396,4 +396,15 @@ describe('the economy runtime (N3 Task 3)', () => {
     expect(events.some((e) => e.kind === 'missionEnd')).toBe(false);
     expect(events.filter((e) => e.kind === 'built').map((e) => (e.kind === 'built' ? e.side : -1)).sort()).toEqual([0, 1]);
   }, 120_000);
+
+  it('VERSUS_ECONOMY_PINS (born N3 Task 3): a KDF-host room on each matchup map, 200 ticks', () => {
+    // LITERALS (CLAUDE.md). seed 20260727, KDF host, 200 ticks of `matchTick` with no orders,
+    // matchDigest(sim.hash(), runtime.digest(), 0).
+    const VERSUS_ECONOMY_PINS = [['tel_marum', -1014683486], ['wadi_tarfan', -1434364569]] as const;
+    for (const [map, pin] of VERSUS_ECONOMY_PINS) {
+      const w = buildMatchWorld(config(map, ['kdf', 'sarim'], 20260727));
+      run(w, 200);
+      expect(matchDigest(w.sim.hash(), w.runtime?.digest() ?? NaN, 0), map).toBe(pin);
+    }
+  });
 });
