@@ -316,6 +316,9 @@ export const DAMAGE_RECIPES: Readonly<Record<string, readonly DamageOp[]>> = {
     rescaleOf('mbt_lavi_camo'),
   ),
   ifv_namer: NAMER,
+  // GH-709: the ambulance's rubber is the Namer's byte for byte, so it throws
+  // the same track.
+  veh_ambulance: NAMER,
   dozer_d9: D9,
   apc_eitan: [lostRearTyre(3)],
   apc_kipod: [lostRearTyre(2)],
@@ -366,6 +369,8 @@ export const DAMAGE_RECIPES: Readonly<Record<string, readonly DamageOp[]>> = {
   // five-degree sectors), so the Peten's op reads it as four clusters about
   // 90 degrees apart with empty sectors between. Same droop, snap and lie.
   heli_yanshuf: [ROTOR],
+  // GH-709: the medevac keeps the Yanshuf's rotor, so the rotor splits as the Petens'.
+  air_medevac_heli: [ROTOR],
   // GH-709 (2026-10-22): the Te'o Howitzer: a thrown track and its raised gun
   // broken at the sleeve and drooped to the sand. The gun is at 35 degrees
   // (`elevationDeg`), the tube straight from x 2.4 (mesh space, the sleeve and

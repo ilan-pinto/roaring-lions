@@ -107,6 +107,13 @@ export interface FigureRig {
   heading: KneelHeading;
   started: boolean;
   kicks: Kick[];
+  /** What collapses this figure when a lost man is hidden (GH-707 P2): the squad
+   *  group, or in a team drawn as one every bone tree the figure owns. */
+  readonly hideNodes: readonly THREE.Object3D[];
+  /** Each hide node's scale as built, restored when the figure rejoins. */
+  readonly restScales: readonly THREE.Vector3[];
+  /** False while the figure is hidden (`concealFigures`). */
+  shown: boolean;
 }
 
 export interface SquadRig {
@@ -118,6 +125,8 @@ export interface SquadRig {
   /** The unit's stance depth, and which way it was going, over the last few
    *  frames, for the stagger. */
   readonly depthHistory: { t: number; d: number; h: KneelHeading }[];
+  /** True while a squad-mode team is drawn as ONE rig (a two-man team carrying a casualty). */
+  asOne: boolean;
 }
 
 function findBone(root: THREE.Object3D, name: string): THREE.Bone | null {
@@ -147,12 +156,21 @@ export function buildSquadRig(
     let group: THREE.Group | null = null;
     const slot = new THREE.Vector3();
     let player: ClipPlayer | null = null;
+    let hideNodes: THREE.Object3D[] = [];
+    if (!squad && rootBone && rootBone.parent) {
+      hideNodes = [...rootBone.parent.children].filter(
+        (c) =>
+          (c as THREE.Bone).isBone &&
+          (c.name.startsWith(`${s.prefix}_`) || c.name.startsWith(`${s.prefix}k_`) || c.name.startsWith(`${s.prefix}w_`))
+      );
+    }
     if (squad && rootBone && rootBone.parent) {
       slot.set(rootBone.position.x, 0, rootBone.position.z);
       const parent = rootBone.parent;
       group = new THREE.Group();
       group.name = `${s.prefix}_figure`;
       parent.add(group);
+      hideNodes = [group];
       const movers: THREE.Object3D[] = [];
       for (const c of [...parent.children]) {
         if (c === group || !(c as THREE.Bone).isBone) continue;
@@ -182,9 +200,12 @@ export function buildSquadRig(
       heading: 'down',
       started: false,
       kicks: [],
+      hideNodes,
+      restScales: hideNodes.map((n) => n.scale.clone()),
+      shown: true,
     };
   });
-  return { squad, figures, formationYaw: 0, shots: 0, started: false, depthHistory: [] };
+  return { squad, figures, formationYaw: 0, shots: 0, started: false, depthHistory: [], asOne: false };
 }
 
 const _q = new THREE.Quaternion();
@@ -218,4 +239,68 @@ export function scrubAction(action: THREE.AnimationAction | undefined, fraction:
   if (!action) return;
   action.timeScale = 0;
   action.time = Math.min(1, Math.max(0, fraction)) * action.getClip().duration;
+}
+
+/**
+ * Rejoin (GH-707 P2): figures below `count` that were hidden get their REST scale back. Call
+ * BEFORE the mixer update, so a node a clip keys is then rewritten by the mixer as usual.
+ */
+export function revealFigures(rig: SquadRig, count: number): void {
+  const keep = Math.max(1, count);
+  for (const f of rig.figures) {
+    if (f.index >= keep || f.shown) continue;
+    f.hideNodes.forEach((n, k) => n.scale.copy(f.restScales[k]));
+    f.shown = true;
+  }
+}
+
+/**
+ * Hide the figures from `count` up (GH-707 P2: a squad that has shed men draws fewer; the
+ * TOPMOST index goes first, and one figure always stays). Call AFTER the mixer update: the bone
+ * trees collapse to scale 0 so the skinned vertices vanish, and are re-asserted every call.
+ */
+export function concealFigures(rig: SquadRig, count: number): void {
+  const keep = Math.max(1, count);
+  for (const f of rig.figures) {
+    if (f.index < keep) continue;
+    f.shown = false;
+    for (const n of f.hideNodes) n.scale.setScalar(0);
+  }
+}
+
+/** Re-assert scale 0 on every hidden figure. A death clip keys `{prefix}_death_root` scale
+ *  0 -> 1, so `stepMeshDeath` calls this after each of its mixer updates. */
+export function reassertHiddenFigures(rig: SquadRig | null | undefined): void {
+  if (!rig) return;
+  for (const f of rig.figures) {
+    if (!f.shown) for (const n of f.hideNodes) n.scale.setScalar(0);
+  }
+}
+
+/**
+ * Draw a squad-mode team as ONE rig, or hand it back to its figures (a two-man team carrying a
+ * casualty plays one `carry` clip rather than sending bearers to slots). Idempotent. Going
+ * one-rig stops every figure player and puts each figure group at its rest slot; coming back
+ * stops the team-level actions so only the figure players move the bones.
+ */
+export function setDrawnAsOne(
+  entity: ClipPlayer,
+  rig: SquadRig,
+  one: boolean
+): void {
+  if (rig.asOne === one) return;
+  rig.asOne = one;
+  if (one) {
+    stopSquadPlayers(rig);
+    for (const f of rig.figures) {
+      f.group?.position.set(0, 0, 0);
+      f.group?.rotation.set(0, 0, 0);
+      f.started = false;
+    }
+    rig.started = false;
+  } else {
+    for (const a of entity.actions.values()) a.stop();
+    entity.fades.clear();
+    entity.currentClip = null;
+  }
 }

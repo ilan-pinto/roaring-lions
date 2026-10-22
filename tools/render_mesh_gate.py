@@ -323,6 +323,22 @@ VEHICLE_ROLE_PALETTES = {
     "heli_yanshuf": {
         "hull": "olive.0", "metal": "gunmetal.2",
     },
+    # GH-709 (2026-10-22): the Pered armoured ambulance. The Namer's hull and
+    # tracks ship their own bake; the four palette parts are the roof box
+    # (`hull`), the band and canvas (`plate`: the repaint is the slice's own index 0,
+    # `limestone.0`, which vehicle-mesh-role.test.ts pins; the RUNTIME lit tone is
+    # `limestone.1`, the palest a vehicle takes, as vehicle-mesh-role.ts), the rails and lamps (`metal`)
+    # and the lenses (`glass`).
+    "veh_ambulance": {
+        "hull": "olive.0", "plate": "limestone.0", "metal": "gunmetal.2",
+        "rubber": "shadow.0", "glass": "gunmetal.3", "recess": "shadow.1",
+    },
+    # GH-709 (2026-10-22): the Nachlieli medevac, the Yanshuf's bake under three
+    # palette parts: wings, tanks and panniers (`hull`), the hoist (`metal`) and
+    # the tail-boom band (`plate`: slice index 0, `limestone.0`; lit `limestone.1`).
+    "air_medevac_heli": {
+        "hull": "olive.0", "plate": "limestone.0", "metal": "gunmetal.2",
+    },
     # GH-709 (2026-10-22): the Te'o Howitzer ships its remesh's own bake on all four
     # of its meshes (`hull_hull`, `hull_rubber`, `turret_hull`, `turret_metal`), so this row
     # only names the repaint the gate makes: KDF olive hull and turret, the track band on

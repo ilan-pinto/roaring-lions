@@ -21,6 +21,7 @@ describe('trackKindFor', () => {
     expect(trackKindFor('mbt_lavi')).toBe('tracked');
     expect(trackKindFor('ifv_namer')).toBe('tracked');
     expect(trackKindFor('dozer_d9')).toBe('tracked');
+    expect(trackKindFor('veh_ambulance')).toBe('tracked');
     expect(trackKindFor('apc_eitan')).toBe('wheeled');
     expect(trackKindFor('jeep_shoded')).toBe('wheeled');
     expect(trackKindFor('technical')).toBe('wheeled');

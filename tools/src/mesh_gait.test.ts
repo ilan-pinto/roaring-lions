@@ -49,7 +49,7 @@ import {
   swingLiftFraction,
   type RootTravel,
 } from './mesh_gait';
-import { MIN_GAIT_TRAVEL_M } from './meshes/gait-pass';
+import { GAIT_CRAWL_ONLY, MIN_GAIT_TRAVEL_M } from './meshes/gait-pass';
 import { MOTION_TEAMS } from './meshes/motion/teams';
 import { RIGGED_UNIT_MESHES } from '../../packages/app/src/mesh-catalogue';
 // Task 7, and the brief spells this out: `@lions/tools` deliberately does not
@@ -329,6 +329,11 @@ export const FALL_CLIPS: ReadonlySet<string> = new Set(['fall', 'fallAlt']);
 function riggedFiles(): RiggedFile[] {
   const out: RiggedFile[] = [];
   for (const [typeId, entry] of Object.entries(RIGGED_UNIT_MESHES)) {
+    // The wounded (GH-707 P2) crawl, which is not a locomotion clip: no `move`, no `rl_gait`, no
+    // weapon, none of the living clips this file's sweeps and census read. Named, with the reason,
+    // in `GAIT_CRAWL_ONLY`, and judged by `mesh_wounded.test.ts` (ground, crawl speed, contract),
+    // which also pins that set to the role-`wounded` unit JSONs.
+    if (typeId in GAIT_CRAWL_ONLY) continue;
     const hits = ['kdf/', 'enemy/', '']
       .map((dir) => `${REPO}data/units/${dir}${typeId}.json`)
       .filter((p) => existsSync(p));
@@ -359,13 +364,14 @@ function riggedFiles(): RiggedFile[] {
       });
     }
   }
-  // 21 unit types, 24 files -- `civilians` is four variants of one type;
+  // 23 unit types, 26 files -- `civilians` is four variants of one type;
   // B2 (2026-09-30) added `manpad_team` and `recoilless_team`; E5 (2026-10-01) `recon_zikit`;
-  // GH-709 Phase 8 (2026-10-22) `ugv_recon_dog`, Phase 3 `inf_grenadier` and Phase 7 `at_nlos_team`.
+  // GH-707 P2 (22 Oct) `inf_medic_squad`; GH-709 Phase 8 (2026-10-22) `ugv_recon_dog`, the
+  // first quadruped, Phase 3 `inf_grenadier` and Phase 7 `at_nlos_team`. Was 19 and 22.
   // Numbers, not `> 0`: a catalogue that lost half its entries would still
   // clear a positive count.
-  expect(Object.keys(RIGGED_UNIT_MESHES)).toHaveLength(22); // Was 21: Phase 3 and Phase 7 each added one
-  expect(out).toHaveLength(25); // Was 24
+  expect(Object.keys(RIGGED_UNIT_MESHES).filter((id) => !(id in GAIT_CRAWL_ONLY))).toHaveLength(23);
+  expect(out).toHaveLength(26);
   return out;
 }
 
@@ -520,7 +526,7 @@ describe('mesh unit gait -- the sweep over every rigged type', () => {
     const declaring = RIGS.filter((r) => r.declared !== undefined).map((r) => r.typeId);
     const silent = RIGS.filter((r) => r.declared === undefined).map((r) => r.typeId);
     expect([...new Set(silent)].sort()).toEqual(Object.keys(GAIT_EXEMPT).sort());
-    expect(new Set(declaring).size).toBe(21); // Was 20: + ugv_recon_dog (Phase 8), inf_grenadier (Phase 3), at_nlos_team (Phase 7)
+    expect(new Set(declaring).size).toBe(22); // Was 18: + inf_medic_squad (GH-707 P2), + ugv_recon_dog (GH-709 Phase 8), + inf_grenadier (Phase 3), + at_nlos_team (Phase 7)
     for (const [type, why] of Object.entries(GAIT_EXEMPT)) {
       expect(why.length, `${type}: a reason, not a name`).toBeGreaterThan(20);
     }
@@ -535,7 +541,7 @@ describe('mesh unit gait -- the sweep over every rigged type', () => {
   });
 
   it('every gaited file declares a `move` gait, so none can be skipped by absence', () => {
-    expect(gaited).toHaveLength(24); // Was 23: + ugv_recon_dog (Phase 8), inf_grenadier (Phase 3), at_nlos_team (Phase 7)
+    expect(gaited).toHaveLength(25); // Was 21: + inf_medic_squad (GH-707 P2), + ugv_recon_dog's trot (GH-709 Phase 8), + inf_grenadier (Phase 3), + at_nlos_team (Phase 7)
     for (const rig of gaited) {
       expect(rig.declared?.has('move'), `${rig.file}: rl_gait.move`).toBe(true);
     }
@@ -701,9 +707,10 @@ describe('mesh unit gait -- the sweep over every rigged type', () => {
     // Eighteen types over twenty-one files (E5's recon_zikit included), and
     // since 2026-10-05 sixteen of them declare a `moveFire` beside `move`
     // (every armed walker; see the locomotion-pair block below): 21 + 16.
+    // GH-707 P2 (22 Oct): + inf_medic_squad, `move` and `moveFire` -- + 2.
     // GH-709 Phase 8: + 1, the unarmed robot's `move` (no `moveFire`); Phase 3 and Phase 7: + 2
-    // each, inf_grenadier's and at_nlos_team's `move` and `moveFire`. Was 40.
-    expect(checked).toBe(42);
+    // each, inf_grenadier's and at_nlos_team's `move` and `moveFire`. Was 37.
+    expect(checked).toBe(44);
   });
 });
 
@@ -720,9 +727,10 @@ describe('mesh unit gait -- a foot on the ground stays where it landed', () => {
     });
 
   it('reads every walking figure of every gaited clip', () => {
-    // Rule 1: the population first. 42 locomotion clips less the crawl's two
-    // (+ ugv_recon_dog's trot, Phase 8; + inf_grenadier's two, Phase 3; + at_nlos_team's two, Phase 7. Was 38).
-    expect(rows).toHaveLength(40);
+    // Rule 1: the population first. 44 locomotion clips less the crawl's two
+    // (was 35: + inf_medic_squad's two, GH-707 P2; + ugv_recon_dog's trot, GH-709 Phase 8;
+    // + inf_grenadier's two, Phase 3; + at_nlos_team's two, Phase 7).
+    expect(rows).toHaveLength(42);
     for (const r of rows) expect(r.figures.length, `${r.file} ${r.clip}: figures read`).toBeGreaterThan(0);
   });
 
@@ -854,6 +862,8 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   'breach_team.glb move': 518, // A3.1: see militia_cell's note
   // E5 (2026-10-01): the Meshy recon figure, boot = below 0.09 H, three men.
   'recon_zikit.glb move': 498, // spike-walk (6 Oct): the spotter walks too -- three men, 166 each
+  // GH-707 P2 (22 Oct): the Meshy medic figure, boot = below 0.09 H, two bodies (278 each).
+  'inf_medic_squad.glb move': 556,
   // GH-709 Phase 7 (2026-10-22): mortar_team's Meshy crewman three times --
   // two D6 walkers and the leader, the No.3's shape (590 there). 588 -> 590
   // on 22 Oct: the per-figure builds (`crew_builds.py`) re-cut each body, and
@@ -880,6 +890,7 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   'sarim_rifles.glb moveFire': 1078,
   'mortar_team.glb moveFire': 590,
   'yahalom_squad.glb moveFire': 508,
+  'inf_medic_squad.glb moveFire': 556, // the same legs as its `move`
   'manpad_team.glb moveFire': 711,
   'recoilless_team.glb moveFire': 518,
   'breach_team.glb moveFire': 518,
@@ -983,9 +994,10 @@ describe('mesh unit gait -- per figure, not per file', () => {
     // clips went with their bipeds; inf_squad/sarim/mortar_team are three
     // men each on rig.py's gait, and E5's recon_zikit walks three.
     // 2026-10-05: + 16 `moveFire` clips, every armed walker's.
-    // GH-709 Phase 8: + 1, ugv_recon_dog's `move`; Phase 3 and Phase 7: + 2 each, inf_grenadier's
-    // and at_nlos_team's move clips. Was 40 rows.
-    expect(rows).toHaveLength(42);
+    // GH-707 P2 (22 Oct): + inf_medic_squad's `move` and `moveFire`, two men each.
+    // GH-709 Phase 8: + 1, ugv_recon_dog's `move`; Phase 3 and Phase 7: + 2 each,
+    // inf_grenadier's and at_nlos_team's move clips. Was 37.
+    expect(rows).toHaveLength(44);
     const live = rows.flatMap((r) => r.live.map((f) => `${r.file} ${r.clip} ${f.root}`));
     // 40 visible figures over 20 clips: two each on the six original
     // `kit.py` teams and `yahalom_engineer`, three each on `meshy_soldier`
@@ -998,8 +1010,8 @@ describe('mesh unit gait -- per figure, not per file', () => {
     // B2's two crews add four: the MANPAD gunner and the spotter's walker, and
     // both recoilless walkers.
     // GH-709 Phase 8: + 1, the robot on its own `move`; Phase 3 and Phase 7: + 6 each,
-    // inf_grenadier's and at_nlos_team's three men over two clips. Was 84.
-    expect(live).toHaveLength(90); // 2026-10-05: + 36 on the sixteen `moveFire` clips
+    // inf_grenadier's and at_nlos_team's three men over two clips. Was 77.
+    expect(live).toHaveLength(94); // 2026-10-05: + 36 on the sixteen `moveFire` clips; GH-707 P2: + 4, the medics' two men over two clips
     // Both directions, the way GAIT_EXEMPT is: every named still figure must
     // be a figure that really exists and really is still, and every figure
     // that is still must be named.
@@ -1171,6 +1183,7 @@ describe('mesh unit gait -- one file’s locomotion clips against each other', (
       'charge_squad.glb',
       'demo_squad.glb',
       'inf_grenadier.glb',
+      'inf_medic_squad.glb',
       'inf_squad.glb',
       'manpad_team.glb',
       'militia_cell.glb',
@@ -1430,11 +1443,13 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
     // `pinned` clip on seventeen files (35 visible figures, five of them
     // thrown away for a short lever below).
     // Field Works Task 12.4 (21 Oct): + 2, demo_squad's two men over its new `work`.
+    // GH-707 P2 (22 Oct): + 18, inf_medic_squad's two men over its 9 headed clips.
     // GH-709 Phase 8: + 3, the robot's sensor head on `move`, `idle` and
     // `pinned` (the last two gated as a designed pan, FACING_PAN; its `down` is
     // hidden). Phase 3: + 24, inf_grenadier's three men over eight clips; Phase 7: + 12,
-    // at_nlos_team (its `fire` is exempt above). Was 280.
-    expect(rows).toHaveLength(292); // B7: 21 GLBs, every one with a face mesh now
+    // at_nlos_team (its `fire` is exempt above). Was 253.
+    // GH-707 P2 (22 Oct): + 18, inf_medic_squad's two men over its 9 headed clips.
+    expect(rows).toHaveLength(310); // B7: 21 GLBs, every one with a face mesh now
     // WHICH files, by name -- not `not.toContain('sniper_team.glb')`, which
     // could never fail: an un-exempted `sniper_team` makes `measureFacing`
     // THROW rather than produce a row, so the absence it asserts is
@@ -1453,6 +1468,7 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'demo_squad.glb',
       'digger_crew.glb',
       'inf_grenadier.glb',
+      'inf_medic_squad.glb',
       'inf_squad.glb',
       'manpad_team.glb',
       'militia_cell.glb',
@@ -1548,6 +1564,9 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'digger_crew.glb idle',
       'digger_crew.glb move',
       'digger_crew.glb pinned',
+      // GH-707 P2: both medics, hidden on `down` (the corpses show).
+      'inf_medic_squad.glb down',
+      'inf_medic_squad.glb down',
       'manpad_team.glb down',
       'manpad_team.glb down',
       'manpad_team.glb down',
@@ -1652,6 +1671,9 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'recon_zikit.glb pinned zk_rifle_head 0.0149',
       'civilians/civilian_woman.glb idle Head 0.0089',
       'civilians/civilian_woman.glb move Head 0.0073',
+      // GH-707 P2 (22 Oct): the medics' pinned heads fold over like the other rifle-holders'.
+      'inf_medic_squad.glb pinned med_a_head 0.0192',
+      'inf_medic_squad.glb pinned med_b_head 0.0229',
     ]);
   });
 
@@ -1722,6 +1744,8 @@ const WEAPON_RIGS: readonly {
   { file: 'militia_cell.glb', role: 'weapon', joint: /_weapon$/, figures: 2, clips: ['fire', 'moveFire', 'kneel'], aimDeg: 0 },
   { file: 'yahalom_squad.glb', role: 'weapon', joint: /_weapon$/, figures: 1, clips: ['fire', 'moveFire', 'kneel'], aimDeg: 0 },
   { file: 'demo_squad.glb', role: 'weapon', joint: /_weapon$/, figures: 1, clips: ['fire', 'moveFire', 'kneel'], aimDeg: 0 },
+  // GH-707 P2 (22 Oct): both medics carry the hold's kit carbine.
+  { file: 'inf_medic_squad.glb', role: 'weapon', joint: /_weapon$/, figures: 2, clips: ['fire', 'moveFire', 'kneel'], aimDeg: 0 },
   { file: 'mortar_team.glb', role: 'weapon', joint: /_weapon$/, figures: 1, clips: ['fire', 'moveFire'], aimDeg: 0 },
   // GH-709 Phase 7: the Zaron team's leader, mortar_team No.3's method -- the
   // launcher is `weapon` too but rides `prop`, so the joint names the man. In
@@ -1925,6 +1949,8 @@ const WEAPON_IDLE_ELEVATION_DEG: Readonly<Record<string, number>> = {
   'militia_cell.glb mil1_weapon': -30,
   'yahalom_squad.glb yah_b_weapon': -30,
   'demo_squad.glb demo_b_weapon': -30,
+  'inf_medic_squad.glb med_a_weapon': -30, // GH-707 P2
+  'inf_medic_squad.glb med_b_weapon': -30,
   'mortar_team.glb mtr_no3_weapon': -30,
   'at_nlos_team.glb nl_lead_weapon': -30, // GH-709 Phase 7: the No.3's method
   'rpg_team.glb rpg_load_weapon': -30,
@@ -2038,6 +2064,7 @@ describe('mesh unit weapons -- the axis measured from the weapon, not from a bon
       'at_team.glb',
       'demo_squad.glb',
       'inf_grenadier.glb',
+      'inf_medic_squad.glb', // GH-707 P2
       'inf_squad.glb',
       'manpad_team.glb',
       'militia_cell.glb',
@@ -2430,7 +2457,8 @@ describe('mesh unit walk-and-fire -- a moving shot plays a locomotion clip', () 
 
   it('covers every armed, gaited rigged type, and names the rest', () => {
     const covered = new Set(armedGaited.map((r) => r.typeId));
-    for (const typeId of Object.keys(RIGGED_UNIT_MESHES)) {
+    // The wounded (`GAIT_CRAWL_ONLY`) are unarmed and have no `move`: nothing to walk and fire.
+    for (const typeId of Object.keys(RIGGED_UNIT_MESHES).filter((id) => !(id in GAIT_CRAWL_ONLY))) {
       if (covered.has(typeId)) {
         expect(WALK_AND_FIRE_EXEMPT[typeId], `${typeId}: gated, so not exempt`).toBeUndefined();
         continue;
@@ -2449,7 +2477,8 @@ describe('mesh unit walk-and-fire -- a moving shot plays a locomotion clip', () 
       ).toBe(false);
     }
     // A literal, so a catalogue that loses half its rigs cannot pass by
-    // iterating less: seventeen armed, gaited files, one per type (GH-709: at_nlos_team).
+    // iterating less: nineteen armed, gaited files, one per type (GH-707 P2:
+    // inf_medic_squad; GH-709: inf_grenadier, at_nlos_team).
     expect(armedGaited.map((r) => r.file).sort()).toEqual([
       'at_nlos_team.glb',
       'at_team.glb',
@@ -2458,6 +2487,7 @@ describe('mesh unit walk-and-fire -- a moving shot plays a locomotion clip', () 
       'charge_squad.glb',
       'demo_squad.glb',
       'inf_grenadier.glb',
+      'inf_medic_squad.glb',
       'inf_squad.glb',
       'manpad_team.glb',
       'militia_cell.glb',
@@ -2608,9 +2638,11 @@ describe('upright in motion -- every figure walks on its feet', () => {
     // A literal, not `> 0`: the civilians (Mixamo `Hips`) and moto_rpg have
     // no `_pelvis` and read nothing, and a rename would silently drop more.
     // 73 visible move/moveFire figures across the catalogue's files, + 6
-    // officer `move` rows (two men each, no moveFire). Read 6 Oct. GH-709 Phase 3 and
-    // Phase 7: + 6 each, inf_grenadier's and at_nlos_team's three men over `move` and `moveFire`. Was 85.
-    expect(rows).toHaveLength(91);
+    // officer `move` rows (two men each, no moveFire). Read 6 Oct.
+    // GH-707 P2 (22 Oct): + 4, the medics' two men over `move` and `moveFire`.
+    // GH-709 Phase 3 and Phase 7: + 6 each, inf_grenadier's and at_nlos_team's three men
+    // over `move` and `moveFire`.
+    expect(rows).toHaveLength(95);
     for (const key of Object.keys(KNEELING_IN_MOTION)) {
       expect(rows.map((r) => r.key), `${key}: an exemption with no figure behind it`).toContain(key);
     }
@@ -2744,9 +2776,10 @@ describe('kneeling on the ground -- no kneeler below it, none floating', () => {
   it('reads every figure the motion pass kneels', () => {
     // 3 + 3 + 2 + 2 + 2 + 2 + 1 + 2 + 3: inf, sarim, militia, yahalom, rpg,
     // demo, the MANPAD gunner, the Spike team and the Zikit.
+    // GH-707 P2 (22 Oct): + 2, the medic team.
     // GH-709 phase 3 (22 Oct): + inf_grenadier's 3.
-    expect(KNEELERS).toHaveLength(23);
-    expect(TEAMS).toHaveLength(10);
+    expect(KNEELERS).toHaveLength(25);
+    expect(TEAMS).toHaveLength(11); // was 9: + inf_medic_squad (GH-707 P2), + inf_grenadier (GH-709 phase 3)
   });
 
   for (const team of TEAMS) {
@@ -2837,6 +2870,7 @@ const GROUNDED_DRAWN: Readonly<Record<string, { standing: readonly string[]; wal
   demo_squad: { standing: ['demo_a_root', 'demo_b_root', 'prop'], walking: ['demo_a_root', 'demo_b_root'] },
   manpad_team: { standing: ['mpd_fire_root', 'mpd_spot_root'], walking: ['mpd_fire_root', 'mpd_spotw_root'] },
   at_team: { standing: ['at_fire_root', 'at_spot_root'], walking: ['at_fire_root', 'at_spot_root'] },
+  inf_medic_squad: { standing: ['med_a_root', 'med_b_root'], walking: ['med_a_root', 'med_b_root'] },
   recon_zikit: {
     standing: ['prop', 'zk_radio_root', 'zk_rifle_root', 'zk_spot_root'],
     walking: ['zk_radio_root', 'zk_rifle_root', 'zk_spot_root'],
@@ -2920,9 +2954,10 @@ describe('on the ground in the living clips -- every figure and held item', () =
   it('grounds every rigged team, and spells out what each draws', () => {
     const grounded = Object.keys(MOTION_TEAMS).filter((id) => MOTION_TEAMS[id].ground).sort();
     expect(grounded).toEqual(Object.keys(GROUNDED_DRAWN).sort());
-    // The nine #414 grounded and the thirteen files it recorded as debt,
-    // ugv_recon_dog (GH-709 Phase 8), inf_grenadier (Phase 3) and at_nlos_team (Phase 7). Was 24.
-    expect(grounded).toHaveLength(25);
+    // The nine #414 grounded and the thirteen files it recorded as debt, plus
+    // inf_medic_squad (GH-707 P2), ugv_recon_dog (GH-709 Phase 8), inf_grenadier
+    // (Phase 3) and at_nlos_team (Phase 7). Was 22.
+    expect(grounded).toHaveLength(26);
     expect([...GROUNDED_FILES].sort()).toEqual(RIGS.map((r) => r.file).sort());
   });
 

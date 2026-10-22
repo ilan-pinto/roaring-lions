@@ -161,6 +161,18 @@ SUPPORTED_TEAMS = (
     # Meshy A-pose figure on the same path; it was never a kit export, so it
     # joins here for `build_clips`/`TEAM_FIGURES` and nothing else.
     "sarim_rifles",
+    # GH-707 P2, 22 Oct 2026: the wounded, one prone man each, built from
+    # `kit.casualty` and driven by `wounded.py`, which owns their bones and
+    # their four clips: down, idleWounded, crawl, wreck. Kit-owned. No
+    # parentheses in this comment: mesh_ownership.test.ts reads the tuple with
+    # a regex that stops at the first closing bracket.
+    "wounded_kdf", "wounded_sarim",
+    # GH-707 P2, 22 Oct 2026: the Nemala Medic Team, two Meshy-cut bodies with
+    # kit pack, stretcher bundle, litter and casualty, built by
+    # tools/units/import_meshy_medic_team.py, which owns the file below. No
+    # parentheses in this comment: mesh_ownership.test.ts reads the tuple with a
+    # regex that stops at the first closing bracket.
+    "inf_medic_squad",
     # GH-709 unit 10, 2026-10-22: the Chadaf recon robot, a four-legged walker.
     # The one topology here that is neither a biped nor a bike, built by
     # tools/units/import_meshy_dog.py from a Meshy remesh; see the dog section
@@ -228,6 +240,9 @@ TEAM_MESH_OWNER = {
     "manpad_team": "tools/units/import_meshy_crew_team.py",
     "recoilless_team": "tools/units/import_meshy_crew_team.py",
     "sarim_rifles": "tools/units/import_meshy_crew_team.py",   # B7 (GH-179, 2026-10-01)
+    "wounded_kdf": MESH_KIT_OWNED,      # GH-707 P2: kit.casualty + units/wounded.py
+    "wounded_sarim": MESH_KIT_OWNED,
+    "inf_medic_squad": "tools/units/import_meshy_medic_team.py",   # GH-707 P2 (22 Oct 2026)
     "ugv_recon_dog": "tools/units/import_meshy_dog.py",        # GH-709 (2026-10-22)
     "at_nlos_team": "tools/units/import_meshy_crew_team.py",   # GH-709 Phase 7 (2026-10-22)
 }
@@ -331,6 +346,14 @@ PART_BONE = {
     # it ran through his face and chest. The sprite sheet's `teams.py` still
     # draws it on his back.)
     "shield": "forearm_L",
+    # --- inf_medic_squad's worn kit (import_meshy_medic_team.py): the trauma
+    # pack and the upright folded stretcher with its two poles, on the spine,
+    # and the white helmet band on the head. The litter and the casualty on it
+    # are not here: they are force-bound to the team's own `med_a_litter` bone.
+    "pack": "spine", "packflap": "spine", "buckle0": "spine", "buckle1": "spine",
+    "bundle": "spine", "bpole0": "spine", "bpole1": "spine",
+    "bstrap0": "spine", "bstrap1": "spine", "bstrap2": "spine",
+    "helmband": "head",
     # --- weapon assembly, bound rigidly via forced_bone below, not this
     # table -- see _weapon_parts and _add_figure. Retained here only so a
     # stray unmapped "_w"-suffixed object still raises loudly rather than
@@ -1305,6 +1328,20 @@ TEAM_FIGURES = {
     # `posture="standing"` is filler to satisfy that check's assert and is
     # not used to build anything; `x`/`y` are likewise unread here (only
     # `.prefix` is).
+    # The wounded: one prone man each, built by `wounded.py` (its own bone
+    # table and clips), not by `_add_figure`. The entry is here for the figure
+    # prefix, `build_and_export`'s `figure_prefixes` and the self-check below.
+    # GH-707 P2: the medic team. Two bodies of one Meshy figure (a taller slim
+    # one, a shorter heavy one), each with a kit carbine on the hand, at the
+    # rest slots `import_meshy_medic_team.FIGURES` declares; the litter and its
+    # casualty ride the first man's own `med_a_litter` bone (scale 0 outside
+    # `carry`). `tools/src/meshes/motion/rescue.ts` authors `carry` and `treat`.
+    "inf_medic_squad": [
+        _f("med_a", 0.30, -0.40, weapon="rifle"),
+        _f("med_b", -0.30, 0.40, weapon="rifle"),
+    ],
+    "wounded_kdf": [_f("w0", 0.0, 0.0, posture="prone", animates=False)],
+    "wounded_sarim": [_f("w0", 0.0, 0.0, posture="prone", headgear="keffiyeh", loadout="irregular", animates=False)],
     "moto_rpg": [
         _f("m", 0.0, 0.0, animates=False),
         _f("rid", 0.0, 0.0, animates=False),
@@ -1338,7 +1375,9 @@ def _check_team_figures_against_teams():
         "sniper_team": "kdf", "yahalom_squad": "kdf", "digger_crew": "enemy",
         "moto_rpg": "enemy", "breach_team": "kdf", "inf_grenadier": "kdf",
         "manpad_team": "enemy", "recoilless_team": "enemy",
-        "sarim_rifles": "enemy", "at_nlos_team": "kdf",
+        "sarim_rifles": "enemy",
+        "wounded_kdf": "kdf", "wounded_sarim": "enemy",
+        "inf_medic_squad": "kdf", "at_nlos_team": "kdf",
     }
     for team_id, figures in TEAM_FIGURES.items():
         assert team_id in teams.TEAMS, f"{team_id} missing from teams.TEAMS"
@@ -1348,7 +1387,7 @@ def _check_team_figures_against_teams():
             f"{teams.TEAMS[team_id][1]!r}"
         )
         for spec in figures:
-            assert spec["posture"] in ("standing", "kneeling"), spec
+            assert spec["posture"] in ("standing", "kneeling", "prone"), spec
             assert spec["weapon"] in (None, "rifle", "launcher"), spec
     assert set(SUPPORTED_TEAMS) - NON_TEAM_TOPOLOGIES == set(TEAM_FIGURES), (
         "SUPPORTED_TEAMS/TEAM_FIGURES drifted apart")
@@ -2371,6 +2410,12 @@ def _build_team_rest_inner(team_id):
         parts += p
         bone_table += b
         forced_bone.update(f)
+    elif team_id in ("wounded_kdf", "wounded_sarim"):
+        import wounded
+        p, b, f = wounded.rest(team_id)
+        parts += p
+        bone_table += b
+        forced_bone.update(f)
     else:
         for spec in TEAM_FIGURES[team_id]:
             p, b, f = _add_figure(spec)
@@ -3066,6 +3111,10 @@ def build_moto_clips(arm_obj):
 
 
 def build_clips(arm_obj, team_id):
+    if team_id in ("wounded_kdf", "wounded_sarim"):
+        import wounded
+        wounded.build_clips(arm_obj, team_id)
+        return
     if team_id == "sniper_team":
         build_sniper_clips(arm_obj, gait_for_team(team_id))
         return
@@ -3158,7 +3207,13 @@ def build_and_export(team_id=DEFAULT_TEAM, out_path=None):
     rig_parts(parts, arm_obj, forced_bone, figure_prefixes)
     merged = join_by_role(parts)
     build_clips(arm_obj, team_id)
+    if team_id in ("wounded_kdf", "wounded_sarim"):
+        import wounded
+        wounded.crawl_probe(arm_obj, team_id)
+        wounded.set_extras(team_id)
     export_glb(arm_obj, path)
+    if team_id in ("wounded_kdf", "wounded_sarim"):
+        wounded.save_source(team_id)
     return arm_obj, merged, path
 
 

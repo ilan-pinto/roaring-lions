@@ -1,0 +1,23 @@
+{
+  "unit": "air_medevac_heli",
+  "variant": "team",
+  "source": "assets/meshes/vehicles/air_medevac_heli.glb",
+  "source_sha256": "2c1c2daaffcffe97a8ecbf3a17e15f9ebdbe0ff95168c9a07e00ef5180a025d0",
+  "yaw_deg": -125.0,
+  "elevation_deg": 18.0,
+  "fov_deg": 30.0,
+  "fill": [
+    "width",
+    0.92
+  ],
+  "ndc_box": [
+    0.04,
+    0.96,
+    0.2409,
+    0.7591
+  ],
+  "materials": {
+    "baked": 2,
+    "flat": 3
+  }
+}

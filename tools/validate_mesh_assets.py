@@ -277,6 +277,12 @@ TEXTURED_VEHICLE_EXEMPT = {
     # 2k bake on hull_hull and rotor_metal (tools/vehicles/export_meshy_yanshuf.py).
     # Held until Lane C lands the land/lift sim work and the unit JSON.
     "heli_yanshuf",
+    # GH-709 (2026-10-22): the Pered armoured ambulance, ifv_namer.glb's own bake
+    # under a palette roof box (tools/vehicles/export_veh_ambulance.py).
+    "veh_ambulance",
+    # GH-709: the Nachlieli medevac, heli_yanshuf.glb's own bake under palette parts
+    # (tools/vehicles/export_air_medevac_heli.py).
+    "air_medevac_heli",
     # GH-709 (2026-10-22): the Te'o Howitzer ships its remesh's own 2k bake on hull_hull,
     # hull_rubber, turret_hull and turret_metal (tools/vehicles/export_meshy_spg_long_range.py);
     # its cap faces and rear spades are UV-pinned into that bake.
@@ -322,6 +328,8 @@ TEXTURED_INFANTRY_EXEMPT = {
     "manpad_team", "recoilless_team", "civilians",
     # B7: the five supplied teams replaced on the crew importer's path.
     "inf_squad", "sarim_rifles", "mortar_team", "sniper_team", "yahalom_squad",
+    # GH-707 P2 (22 Oct 2026): the Nemala Medic Team, tools/units/import_meshy_medic_team.py.
+    "inf_medic_squad",
     # GH-709 Phase 7 (2026-10-22): the Zaron Missile Team -- mortar_team's
     # crewman bake and the Meshy launcher's, in one 2048x1024 atlas.
     "at_nlos_team",

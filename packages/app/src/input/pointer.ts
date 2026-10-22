@@ -18,7 +18,7 @@
  *
  * No DOM. `Sim` is read, never written.
  */
-import { fx, type Sim, type SupportKind } from '@lions/sim';
+import { WOUND_DOWN, WOUND_STABILISED, fx, type Sim, type SupportKind } from '@lions/sim';
 import { isHostileSide } from '@lions/render';
 import { resolveMoveOrder, resolvePointer, type IntentWorld, type Resolution } from './intents';
 import { badgeFor, cursorFor, cursorKey, type CursorHints, type CursorName } from './cursor';
@@ -55,6 +55,7 @@ export function simIntentWorld(sim: Sim, inFlaggedZone: (x: number, y: number) =
     // sim's refusal cannot drift (R-8). Read-only queries.
     canFocus: (i, target) => sim.canFocus(i, target),
     focusHurts: (i, target) => sim.focusHurts(i, target),
+    canRescue: (i, target) => sim.canRescue(i, target),
     // The same test H uses (`haltTargets`): a unit inside a building holds.
     garrisoned: (i) => sim.state.garrisonedIn[i] >= 0,
   };
@@ -103,6 +104,22 @@ function enemyAt(view: PointerView, sim: Sim, px: number, py: number): number {
   return view.isVisible(fx.toNumber(sim.state.posX[hit]), fx.toNumber(sim.state.posY[hit])) ? hit : -1;
 }
 
+/**
+ * The wounded entity the pixel shows, or -1 (GH-707): the unit `unitAtScreen` picks at the order
+ * radius, kept only if it is alive, down (a `wounded`-role unit, or any unit the sim holds at
+ * DOWN or STABILISED -- a civilian downed in place), not carried, and standing where `isVisible`
+ * says it is drawn. ANY side: a medic rescues the enemy's wounded too (D2).
+ */
+function woundedAtPixel(view: PointerView, sim: Sim, px: number, py: number): number {
+  const hit = view.unitAtScreen(px, py, ORDER_PICK_RADIUS_TILES);
+  if (hit < 0 || hit >= sim.entityCount) return -1;
+  const st = sim.state;
+  if (st.alive[hit] === 0 || st.carriedBy[hit] >= 0) return -1;
+  const down = st.woundState[hit] === WOUND_DOWN || st.woundState[hit] === WOUND_STABILISED;
+  if (!down && !sim.unitTypes[st.typeIdx[hit]].isWounded) return -1;
+  return view.isVisible(fx.toNumber(st.posX[hit]), fx.toNumber(st.posY[hit])) ? hit : -1;
+}
+
 /** Where an order given at this pixel goes, and what the pointer is over. */
 export interface PointerPoint {
   /** Where the pixel's ray meets the ground (`screenToWorld`). */
@@ -120,6 +137,10 @@ export interface PointerPoint {
   /** Where that enemy stands, or null. Only the hostile rung reads it, once
    *  it resolves a focus (`PointerContext.hostileAt`). */
   readonly hostileAt: { x: number; y: number } | null;
+  /** The wounded entity the pixel shows (GH-707), or -1. */
+  readonly wounded: number;
+  /** Where he lies, or null. */
+  readonly woundedAt: { x: number; y: number } | null;
   /** The building the pixel shows above its footprint, or -1 when the click
    *  is on the ground (including on a footprint the ground pick reached).
    *  Independent of `hostile`. */
@@ -147,9 +168,12 @@ export function pointerPoint(view: PointerView, sim: Sim, px: number, py: number
   const hostile = enemyAt(view, sim, px, py);
   const hostileAt =
     hostile >= 0 ? { x: fx.toNumber(sim.state.posX[hostile]), y: fx.toNumber(sim.state.posY[hostile]) } : null;
+  const wounded = woundedAtPixel(view, sim, px, py);
+  const woundedAt =
+    wounded >= 0 ? { x: fx.toNumber(sim.state.posX[wounded]), y: fx.toNumber(sim.state.posY[wounded]) } : null;
   const s = view.structureAtScreen(px, py);
   if (s < 0 || sim.structures.alive[s] !== 1 || sim.structureAt(Math.floor(ground.x), Math.floor(ground.y)) === s) {
-    return { ground, x: ground.x, y: ground.y, hostile, hostileAt, facade: -1 };
+    return { ground, x: ground.x, y: ground.y, hostile, hostileAt, wounded, woundedAt, facade: -1 };
   }
   const st = sim.structures;
   return {
@@ -158,6 +182,8 @@ export function pointerPoint(view: PointerView, sim: Sim, px: number, py: number
     y: (st.minY[s] + st.maxY[s] + 1) / 2,
     hostile,
     hostileAt,
+    wounded,
+    woundedAt,
     facade: s,
   };
 }
@@ -211,6 +237,8 @@ export function cursorAt(sim: Sim, world: IntentWorld, p: PointerPoint, ctx: Cur
         confirm: ctx.confirm,
         hostile: p.hostile,
         ...(p.hostileAt ? { hostileAt: p.hostileAt } : {}),
+        wounded: p.wounded,
+        ...(p.woundedAt ? { woundedAt: p.woundedAt } : {}),
       });
   const tx = Math.floor(p.x);
   const ty = Math.floor(p.y);

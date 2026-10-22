@@ -1,9 +1,10 @@
 {
   "id": "air_medevac_heli",
   "name": "Nachlieli Medevac",
-  "blurb": "Heals what it carries while it flies, four squads at a time. Unarmed, and it lands to load.",
+  "blurb": "Flies four wounded out of the fight. Unarmed, and it lands to load.",
   "faction": "kdf",
   "role": "apc",
+  "voice": "air",
   "cost": {
     "logistics": 330,
     "build_time_s": 40,
@@ -21,7 +22,10 @@
     },
     "crew": 4,
     "transport_slots": 4,
-    "suppression_resistance": 0.6
+    "suppression_resistance": 0.6,
+    "can_carry": [
+      "wounded"
+    ]
   },
   "mobility": {
     "speed_tiles_s": 3.0,
@@ -35,5 +39,15 @@
     "signature": 1.4,
     "firing_signature_mult": 1.0
   },
-  "weapons": []
+  "weapons": [],
+  "aura": {
+    "area": [
+      {
+        "radius": 1,
+        "affects": "passengers",
+        "heal_per_s": 0.03,
+        "heal_cap": 1.0
+      }
+    ]
+  }
 }

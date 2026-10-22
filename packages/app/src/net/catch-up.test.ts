@@ -132,7 +132,7 @@ describe('main.ts wires the quiet catch-up', () => {
     expect(body.indexOf('renderer.onEvents(events);')).toBeLessThan(body.indexOf('renderer.setQuiet?.(false);'));
   });
   it('the mission voice and the alert layer stand down too, the alert\'s state still kept', () => {
-    expect(main).toContain('if (!tickQuiet) voice.onMission(missionEvents, intelAnnounce);');
+    expect(main).toContain('if (!tickQuiet) voice.onMission(missionEvents, [...intelAnnounce, ...medicCallInputs(');
     const alerts = main.slice(main.indexOf('const announceAlerts = '), main.indexOf('// --- fixed-tick loop'));
     expect(alerts.indexOf('alertState = result.state;')).toBeLessThan(alerts.indexOf('if (tickQuiet) return;'));
     expect(alerts.indexOf('if (tickQuiet) return;')).toBeLessThan(alerts.indexOf('audio.playCue(cue)'));

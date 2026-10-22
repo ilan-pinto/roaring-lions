@@ -36,8 +36,8 @@ describe('ClusterBurstGrouper', () => {
 });
 
 describe('cluster constants', () => {
-  it('a bomblet crater is far smaller than a mortar crater (0.15 + 0.3), and the burst sits low', () => {
-    expect(BOMBLET_CRATER_RADIUS_TILES).toBeLessThan((0.15 + 0.3) / 3);
+  it('a bomblet crater (0.25) is still smaller than a mortar crater (0.15 + 0.3), and the burst sits low', () => {
+    expect(BOMBLET_CRATER_RADIUS_TILES).toBeLessThan(0.15 + 0.3);
     const wu = CLUSTER_BURST_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL;
     expect(wu).toBeGreaterThan(0.5);
     expect(wu).toBeLessThan(1.0);

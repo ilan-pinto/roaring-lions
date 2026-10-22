@@ -90,7 +90,7 @@ export interface AlertLine {
 }
 
 export interface Alert {
-  kind: 'unitLost' | 'kill' | 'underFire' | 'objective' | 'wave' | 'arrival' | 'pinned' | 'ambush' | 'removed' | 'roe' | 'broken' | 'damaged' | 'tunnel' | 'zone' | 'supply' | 'production';
+  kind: 'unitLost' | 'kill' | 'wounded' | 'conductGain' | 'underFire' | 'objective' | 'wave' | 'arrival' | 'pinned' | 'ambush' | 'removed' | 'roe' | 'broken' | 'damaged' | 'tunnel' | 'zone' | 'supply' | 'production';
   tier: AlertTier;
   /** Good or bad, as the minimap ring wears it (VR-36): the line's own tone
    *  where there is a line, and for a lineless alert the tone its line would
@@ -209,6 +209,9 @@ export interface AlertState {
   /** F4: the tick each line last raised its paused alert, for
    *  `PRODUCTION_PAUSED_COOLDOWN_TICKS`. */
   readonly lineCued: ReadonlyMap<number, number>;
+  /** GH-707 P2: the tick each squad (or, for a man downed with no squad, each wounded TYPE) last
+   *  raised a "man down" line, for `MAN_DOWN_COOLDOWN_TICKS`. */
+  readonly lastManDown: ReadonlyMap<string, number>;
 }
 
 /**
@@ -226,7 +229,22 @@ export interface AlertState {
 export const UNDER_FIRE_COOLDOWN_TICKS = 100;
 
 export function initAlertState(): AlertState {
-  return { lastUnderFire: new Map(), wavesSeen: new Set(), lastPinned: -Infinity, tunnelsAnnounced: new Set(), zones: new Map(), cuts: new Map(), zoneCued: new Map(), linesPaused: [], lineCued: new Map() };
+  return { lastUnderFire: new Map(), wavesSeen: new Set(), lastPinned: -Infinity, tunnelsAnnounced: new Set(), zones: new Map(), cuts: new Map(), zoneCued: new Map(), linesPaused: [], lineCued: new Map(), lastManDown: new Map() };
+}
+
+/** Five seconds at 20 Hz. A squad that loses several men in one burst says "man down" ONCE
+ *  (the men of one tick share a line with a count, below), and a squad still falling after
+ *  that stays quiet until the window passes -- the feed merges a repeat inside 8 s anyway, and
+ *  the radio call has its own 8 s cooldown. Keyed by the squad, so two squads under fire each
+ *  get their line. */
+export const MAN_DOWN_COOLDOWN_TICKS = 100;
+
+/** The catalogue key of a Conduct gain's feed line, by the reason the runtime gave
+ *  (`mission.ts`'s `credit` calls). An unknown reason keeps the sim's own words. */
+function conductGainKey(reason: string): string {
+  if (reason === 'enemy wounded rescued') return 'alert.conductGain.enemy';
+  if (reason === 'civilian wounded rescued') return 'alert.conductGain.civilian';
+  return 'alert.conductGain.other';
 }
 
 /** A man pinned sounds the minor cue at most once in four seconds, whoever
@@ -397,6 +415,19 @@ export function alertsForTick(
     } else if (e.kind === 'roe') {
       // A Conduct penalty (A9): the game's own mechanic, silent until now.
       quiet.push(soundOnly('roe', 'important', 'bad', null));
+    } else if (e.kind === 'roeGain') {
+      // GH-707 P2: Conduct earned by rescuing someone else's wounded. Good news, said once in
+      // the feed with the quiet tier's chime; nothing on the map to point at.
+      quiet.push({
+        kind: 'conductGain',
+        tier: 'minor',
+        tone: 'good',
+        line: { key: conductGainKey(e.reason), params: { gain: e.gain, score: e.score, reason: e.reason }, tone: 'good' },
+        cue: ALERT_CUE.minor,
+        at: null,
+        marks: [],
+        count: 1,
+      });
     } else if (e.kind === 'zoneHolder') {
       // The line is gone with its holder (C-R19): no `corridor` event says so.
       if (cuts.has(e.zone)) {
@@ -541,7 +572,21 @@ export function alertsForTick(
    *  from stuck to slowed -- quieter than a kill, and never "immobilised". */
   const slowedOwn: number[] = [];
   const fieldFixedOwn: number[] = [];
+  /** GH-707 P2: our men downed this tick, grouped by the squad they fell from. */
+  const manDown = new Map<string, { typeId: string; entities: number[] }>();
   for (const e of sim) {
+    if (e.kind === 'woundedDown') {
+      // Ours only: a wounded enemy or civilian is not the viewer's news (and naming one he has
+      // not identified would be x-ray). `parent` is -1 for a squad's last man or a man downed
+      // in place, who is then named by his own type.
+      if (!isOwnSide(world.sideOf(e.entity), viewer)) continue;
+      const typeId = world.typeOf(e.parent >= 0 ? e.parent : e.entity);
+      const key = e.parent >= 0 ? `p${e.parent}` : `t${typeId}`;
+      const group = manDown.get(key);
+      if (group) group.entities.push(e.entity);
+      else manDown.set(key, { typeId, entities: [e.entity] });
+      continue;
+    }
     if (e.kind === 'routed') {
       if (isOwnSide(world.sideOf(e.entity), viewer) && !lostEntities.has(e.entity)) brokenOwn.push(e.entity);
       continue;
@@ -659,11 +704,37 @@ export function alertsForTick(
     linesPaused = nowPaused;
   }
 
+  // GH-707 P2: one "man down" line per squad per cooldown, counting the men of this tick.
+  const downs: Alert[] = [];
+  let lastManDown = state.lastManDown;
+  for (const [key, group] of manDown) {
+    if (tick - (lastManDown.get(key) ?? -Infinity) < MAN_DOWN_COOLDOWN_TICKS) continue;
+    lastManDown = new Map(lastManDown).set(key, tick);
+    const at = world.posOf(group.entities[0]);
+    downs.push({
+      kind: 'wounded',
+      tier: 'minor',
+      tone: 'warn',
+      line: {
+        key: 'alert.manDown',
+        params: { name: world.unitName(group.typeId), n: group.entities.length },
+        tone: 'warn',
+        place: at === null ? [] : [world.placeOf(at.x, at.y)],
+      },
+      // The "Medic!" radio call (voice/announce.ts) is the sound; a chime on top would nag.
+      cue: null,
+      at,
+      marks: at === null ? [] : [at],
+      count: group.entities.length,
+    });
+  }
+
   const nextState: AlertState =
     lastUnderFire === state.lastUnderFire && wavesSeen === state.wavesSeen && lastPinned === state.lastPinned && tunnelsAnnounced === state.tunnelsAnnounced &&
-    zones === state.zones && cuts === state.cuts && zoneCued === state.zoneCued && linesPaused === state.linesPaused && lineCued === state.lineCued
+    zones === state.zones && cuts === state.cuts && zoneCued === state.zoneCued && linesPaused === state.linesPaused && lineCued === state.lineCued &&
+    lastManDown === state.lastManDown
       ? state
-      : { lastUnderFire, wavesSeen, lastPinned, tunnelsAnnounced, zones, cuts, zoneCued, linesPaused, lineCued };
+      : { lastUnderFire, wavesSeen, lastPinned, tunnelsAnnounced, zones, cuts, zoneCued, linesPaused, lineCued, lastManDown };
 
   // --- emit, loudest first ------------------------------------------------
   for (const [typeId, entities] of lostByType) {
@@ -770,6 +841,7 @@ export function alertsForTick(
       count: 1,
     });
   }
+  alerts.push(...downs);
   alerts.push(...quiet);
   if (kept.length > 0) {
     const points = kept.map((entity) => world.posOf(entity)).filter((p): p is { x: number; y: number } => p !== null);

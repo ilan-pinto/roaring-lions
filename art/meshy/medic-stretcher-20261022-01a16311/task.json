@@ -1,0 +1,46 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready military folding litter, field equipment of a fictional army in plain matte olive-drab canvas with dark gunmetal fittings, clean and military. Lying open and empty, flat and level. Two long straight carrying poles ending in short handle grips at both ends, a taut canvas bed stretched between them, a folding steel spreader bar under the bed near each end, and four short steel stirrup feet under the poles holding it a hand's width off the ground. Real-world scale, 2.2 metres long and 0.55 metres wide. Olive canvas, gunmetal steel, black rubber grips. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, crosses, emblems, text or markings of any kind.",
+    "negative_prompt": "person, patient, body, blanket, pillow, wheels, castors, trolley, gurney, hospital bed, tall legs, folded, rolled up, red cross, emblem, text",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a16311-e0e3-76a4-8b2c-82f9adb70576",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 1129502787,
+    "prompt": "A single low-poly game-ready military folding litter, field equipment of a fictional army in plain matte olive-drab canvas with dark gunmetal fittings, clean and military. Lying open and empty, flat and level. Two long straight carrying poles ending in short handle grips at both ends, a taut canvas bed stretched between them, a folding steel spreader bar under the bed near each end, and four short steel stirrup feet under the poles holding it a hand's width off the ground. Real-world scale, 2.2 metres long and 0.55 metres wide. Olive canvas, gunmetal steel, black rubber grips. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, crosses, emblems, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1792663480139,
+    "progress": 100,
+    "started_at": 1792663480150,
+    "finished_at": 1792663598140,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a16311-e0e3-76a4-8b2c-82f9adb70576/output/model.glb?Expires=4946227200&Signature=laSqrpwqXXMKx1V046TAqCvgb8RrqTxJey~JiIhkQ6cMtBKw-gErK-gbx0b9aYlExEW9M5P1V1nJFRoFpEYGFDMpujlKdqGjkixBtKokhOKPF47JTeXe1mVugG7BvOSb8LX~Z7JGJfPibx5rVDUaoikNyawncQE16fQVr1CqApxM2E8liWRgony0EiJenY7ChBGkzVJpYfmf1VYI2JG2AS1stpCcuQl6lWPHG8Ds20YrWMqdfdc~Dn1YxB4Z86UTkhyBn5r~dApNnXbz9mcadE21BufbWJCa0KgonmPaGPCptljXbJ5xgCmeg1X2Uj43aFuhmP~KoHjtLDcetcfR2Q__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a16311-e0e3-76a4-8b2c-82f9adb70576/output/preview.png?Expires=4946227200&Signature=bEmYZzn8xBihmyvsRnAnoh78MP2v6jozj2KXr7aJ3TDZA5kA0mI-6wQPiPg908sQDf7Ir2HR~rqhkrlJvDveUEs9i-KJ9LUYFFv7NX3EN-VoAzsRu4DK~jz97RbIr~ysKTmIKIkoAnw~3Est1lilXHd-WGcAdjwjSuZvdxGRseBOT1C8-IV2zK4g~z3Drpw6UcMahNgvoEOVHUcj05UsburQ9XfKMKgx7uP7ewBltrk3tDuSa5u9VqFBjvC6AYxKLgD5LT37CJsuVQ43J5hxZUeMAva~N71863Az44sJThiPC61fWuvGup2z8LcLr6sLR-4CtrIxql6XyYthq7Hu3w__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1792663480139,
+    "started_at": 1792663480150,
+    "finished_at": 1792663598140
+  },
+  "usd_estimated": 0.4
+}
