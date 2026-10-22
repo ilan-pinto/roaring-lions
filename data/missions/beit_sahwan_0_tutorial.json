@@ -3,7 +3,7 @@
   "name": "Working Up",
   "town": "beit_sahwan",
   "phase": "recon",
-  "target_minutes": 10,
+  "target_minutes": 12,
   "time_limit_s": 1440,
   "debrief": {
     "victory": {
@@ -70,7 +70,7 @@
       "id": "work_up",
       "type": "survive_until",
       "primary": true,
-      "seconds": 600,
+      "seconds": 720,
       "text": "Work through the training area"
     },
     {
