@@ -5,15 +5,15 @@
  * Both used to carry an `elapsed_s` backstop (60 s and 120 s) that cleared the
  * beat whatever the player did, and in the first-session walk both lessons
  * were missed and both beats ended on that clock: beat 6 asked for a stillness
- * an attack-moving squad could not give, and beat 9's mortar walked into its
+ * an attack-moving squad could not give, and beat 12's mortar walked into its
  * own minimum range and never fired. This walks the REAL step data through the
  * real reducer: a player who does the lesson clears the beat, and a player who
- * does nothing does not, however long they wait. The mission's own 600 s
+ * does nothing does not, however long they wait. The mission's own 720 s
  * `survive_until` is the backstop now, as it is for every other beat.
  *
  * GH-420 T4: beat 6 teaches the right-click on an identified enemy (the
  * `attack` intent). H still clears it, so a player who halts and lets the
- * squad pick its own shot is not stranded, and beat 9 accepts the right-click
+ * squad pick its own shot is not stranded, and beat 12 accepts the right-click
  * as the order it gives the mortar.
  *
  * The world half -- that a halted or ordered squad really does fire with odds
@@ -53,10 +53,10 @@ const fireAtEnemy: SimEvent = {
 };
 const conductLine: MissionEvent = { kind: 'roe', tick: 1, penalty: 5, reason: 'fire into protected structure (z_clinic)', score: 95 };
 
-/** Ten minutes of nothing but frames, four a second -- longer than the
- *  mission's own 600 s backstop. */
+/** Twelve minutes of nothing but frames, four a second -- longer than the
+ *  mission's own 720 s backstop. */
 function idle(s: TutorialState, fromMs: number): TutorialState {
-  for (let t = fromMs; t <= fromMs + 600_000; t += 250) s = advance(s, { kind: 'tick' }, t);
+  for (let t = fromMs; t <= fromMs + 720_000; t += 250) s = advance(s, { kind: 'tick' }, t);
   return s;
 }
 
@@ -154,7 +154,7 @@ describe('beat 6, identify then shoot (PA-12, GH-420)', () => {
   });
 });
 
-describe('beat 9, what a shot costs (PA-12)', () => {
+describe('beat 12, what a shot costs (PA-12)', () => {
   const id = 'what_a_shot_costs';
 
   it('does not end on a timer when the player does nothing', () => {

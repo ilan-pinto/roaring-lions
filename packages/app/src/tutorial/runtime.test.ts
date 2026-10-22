@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { FireState } from '../ui/fire-state';
-import { advance, initTutorial, matches, type PredicateJson, type StepJson, type TutorialInput } from './runtime';
+import {
+  advance,
+  initTutorial,
+  matches,
+  productionInputs,
+  type PredicateJson,
+  type StepJson,
+  type TutorialInput,
+  type TutorialLineView,
+} from './runtime';
 
 const STEPS: StepJson[] = [
   {
@@ -419,5 +428,84 @@ describe('mission.id', () => {
   it('without an id, any event of the kind still matches', () => {
     const p = { kind: 'mission', event: 'trigger' } as PredicateJson;
     expect(matches(p, { kind: 'mission', event: { kind: 'trigger', tick: 1, id: 'x' } }, 0, 0)).toBe(true);
+  });
+});
+
+describe('production (GH-184)', () => {
+  const line = (over: Partial<TutorialLineView> = {}): TutorialLineView => ({
+    alive: true,
+    current: null,
+    queued: 0,
+    contested: false,
+    rally: null,
+    ...over,
+  });
+  const state = (bought: number, rally = false): TutorialInput => ({ kind: 'production', bought, rally, edge: null });
+
+  it('counts every purchase: the deployed, the one building and the ones waiting, on every living line', () => {
+    const { inputs } = productionInputs([], [line({ current: 'inf_squad', queued: 1 }), line({ current: 'jeep_shoded' })], 2);
+    expect(inputs).toEqual([state(5)]);
+    expect(matches({ kind: 'production', bought: 5 }, inputs[0], 0, 0)).toBe(true);
+    expect(matches({ kind: 'production', bought: 6 }, inputs[0], 0, 0)).toBe(false);
+  });
+
+  it('two clicks fifteen seconds apart are two purchases, though the line never held both', () => {
+    // The review's stall: the first squad walked out before the second click.
+    const first = productionInputs([], [line({ current: 'inf_squad' })], 0).inputs[0];
+    const second = productionInputs([], [line({ current: 'inf_squad' })], 1).inputs[0];
+    expect(matches({ kind: 'production', bought: 2 }, first, 0, 0)).toBe(false);
+    expect(matches({ kind: 'production', bought: 2 }, second, 0, 0)).toBe(true);
+  });
+
+  it('ignores a lost line, its queue and its rally', () => {
+    const { inputs } = productionInputs([], [line({ alive: false, current: 'inf_squad', queued: 3, rally: [0, 0] })]);
+    expect(inputs).toEqual([state(0)]);
+  });
+
+  it('reads a rally on any living line', () => {
+    const { inputs } = productionInputs([], [line(), line({ rally: [1, 2] })]);
+    expect(matches({ kind: 'production', rally: true }, inputs[0], 0, 0)).toBe(true);
+    expect(matches({ kind: 'production', rally: true }, state(2), 0, 0)).toBe(false);
+  });
+
+  it('reports the contested edges, once each, and nothing while it holds', () => {
+    let prev: boolean[] = [];
+    const edges: (string | null)[] = [];
+    for (const contested of [false, true, true, false, false]) {
+      const read = productionInputs(prev, [line({ current: 'inf_squad', contested })]);
+      prev = read.contested;
+      for (const i of read.inputs) if (i.kind === 'production' && i.edge !== null) edges.push(i.edge);
+    }
+    expect(edges).toEqual(['paused', 'resumed']);
+  });
+
+  it('a predicate that names nothing matches nothing', () => {
+    expect(matches({ kind: 'production' }, state(5, true), 0, 0)).toBe(false);
+  });
+
+  it('an all_of of paused and resumed cannot be marked out of order', () => {
+    const steps: StepJson[] = [
+      {
+        id: 'gate',
+        title: 'Gate',
+        teach: 'Clear it.',
+        await: { kind: 'all_of', of: [{ kind: 'production', edge: 'paused' }, { kind: 'production', edge: 'resumed' }] },
+      },
+    ];
+    let s = initTutorial(steps, 0);
+    // Building, uncontested, for a while: no edge, nothing marked.
+    let prev: boolean[] = [];
+    const feed = (contested: boolean, t: number): void => {
+      const read = productionInputs(prev, [line({ current: 'inf_squad', contested })]);
+      prev = read.contested;
+      for (const i of read.inputs) s = advance(s, i, t);
+    };
+    feed(false, 1);
+    feed(false, 2);
+    expect(s.seen).toEqual([false, false]);
+    feed(true, 3);
+    expect(s.done).toBe(false);
+    feed(false, 4);
+    expect(s.done).toBe(true);
   });
 });

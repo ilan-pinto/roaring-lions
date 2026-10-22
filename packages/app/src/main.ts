@@ -301,7 +301,7 @@ import { forgetRetiredKeys } from './retired-keys';
 // by a dynamic import, so neither import below pulls three into this chunk.
 import { sceneHost } from './ui/scene-host';
 import { dioramaSceneOptions } from './front/diorama';
-import { initTutorial, advance, type TutorialState, type StepJson } from './tutorial/runtime';
+import { initTutorial, advance, productionInputs, type TutorialState, type StepJson } from './tutorial/runtime';
 import { tutorialPanel, type TutorialPanel } from './tutorial/panel';
 import { hudVisibility, type MissionHudJson, type TutorialHudJson } from './tutorial/hud-visibility';
 import type { HudElement } from './ui/hud-elements';
@@ -4428,8 +4428,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   /** The last hover the tutorial was told about, projection included: an
    *  enemy that becomes identified under a still cursor is a new fact. */
   let lastHoverProjection: FireState | null = null;
-  /** Whether tutorial beat 9 currently holds the Conduct invoice open. */
+  /** Whether the Conduct beat currently holds the invoice open. */
   let tutInvoiceOpen = false;
+  /** GH-184: each production line's `contested` as the tutorial last read
+   *  it, so `productionInputs` can report the paused and resumed edges. */
+  let tutLineContested: boolean[] = [];
+  /** GH-184: the player's purchases that have already deployed (side-0
+   *  `built`), so `productionInputs` counts purchases, not the line. */
+  let tutDeployed = 0;
   let telemetryTutIndex = -1;
   let tutPanel: TutorialPanel | null = null;
   // Companions for the hover dispatch in `updateHover`: it runs every frame,
@@ -5364,6 +5370,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           zone: (id) => map.zones[id],
         });
         if (tut) tut = advance(tut, { kind: 'mission', event: mev }, performance.now());
+        if (mev.kind === 'built' && isOwnSide(mev.side, me)) tutDeployed++;
         if (mev.kind === 'roe') deductions.push({ penalty: mev.penalty, reason: mev.reason, tick: mev.tick });
         if (mev.kind === 'evacuated') evacuatedSoFar++;
         // The memorial half of the service record (WP-G-E4). `unitLost` is already
@@ -5625,7 +5632,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // of `paused` too, and left open it would render over the end
             // screen about to be pushed.
             closeKeysOverlay();
-            // PA-11: and the Conduct invoice tutorial beat 9 left open. The
+            // PA-11: and the Conduct invoice the tutorial's last beat left open. The
             // HUD closes it on its own 4 Hz rebuild once the result is in;
             // this takes it down on the same frame the moment mounts.
             hud.setInvoiceOpen(false);
@@ -5778,9 +5785,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           },
           now
         );
+        // GH-184: the camp beats. The caller reads the player's lines
+        // (read-only, the dock's own view); the reducer only compares.
+        if (runtime) {
+          const read = productionInputs(tutLineContested, runtime.productionLines(0), tutDeployed);
+          tutLineContested = read.contested;
+          for (const input of read.inputs) tut = advance(tut, input, now);
+        }
         tut = advance(tut, { kind: 'tick' }, now);
         refreshHudShown();
-        // GH-345 beat 9: the beat that reveals Conduct opens its invoice, and
+        // GH-345, the Conduct beat (the last): the beat that reveals Conduct opens its invoice, and
         // it stays open past the last beat (the index clamps to it) until the
         // player clicks Conduct -- it is the last thing the tutorial teaches.
         // Only on a CHANGE, so a player who closes it is not overruled four

@@ -49,7 +49,7 @@ describe('the shipped limits', () => {
   // Literals, not 120 * target re-derived: this is the table the plan measured on 13 Oct
   // (docs/superpowers/plans/2026-10-13-mission-time-limit.md). Raising one is a decision.
   const EXPECTED: Record<string, number> = {
-    beit_sahwan_0_tutorial: 1200, beit_sahwan_breach: 600, beit_sahwan_1_recon: 840,
+    beit_sahwan_0_tutorial: 1440, beit_sahwan_breach: 600, beit_sahwan_1_recon: 840,
     beit_sahwan_2_foothold: 840, beit_sahwan_3_clearance: 840, beit_sahwan_4_subterranean: 720,
     wadi_halam_1_fords: 720, wadi_halam_2_laager: 840, wadi_halam_3_counterraid: 720,
     wadi_halam_4_village: 840, wadi_halam_5_depot: 840, khan_rafid_1_recon: 720,
