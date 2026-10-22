@@ -3515,6 +3515,12 @@ export class Sim {
     return this.stance[id] === STANCE_PATROL ? this.patrolIdx[id] : -1;
   }
 
+  /** How many points a patroller's beat has (2..MAX_PATROL_WAYPOINTS), 0 when it is not
+   *  patrolling. Read-only, for the unit card's "on patrol -- N points" (Lane A mock, Q13). */
+  patrolCountOf(id: number): number {
+    return this.stance[id] === STANCE_PATROL ? this.patrolCount[id] : 0;
+  }
+
   /**
    * N3 Task 9 (Q6): walk every `setStance{patrol}` beat -- the mission runtime's
    * `stepPatrols` rule, sim-native. A dead, routed, garrisoned, carried or buried

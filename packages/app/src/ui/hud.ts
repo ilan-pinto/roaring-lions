@@ -2792,7 +2792,11 @@ export class Hud {
       const held = this.heldOf(st.garrisonedIn[id]);
       if (held) flags.push(t('hud.held.inside', { n: held.n, cap: held.cap }));
     }
-    if (st.moving[id] === 1 && band !== 'broken') flags.push(t('hud.card.moving'));
+    // Lane A mock (Q13): a patroller says so, and how many points its beat has, on the card --
+    // never as a mark in the world. It stands in for "moving": walking the beat IS the moving.
+    const beat = own ? sim.patrolCountOf(id) : 0;
+    if (beat > 0 && band !== 'broken') flags.push(`<span class="rl-live">${t('hud.card.patrolling', { n: beat })}</span>`);
+    else if (st.moving[id] === 1 && band !== 'broken') flags.push(t('hud.card.moving'));
     // Field works (GH-277): what a medic station or workshop is doing for this unit, on the
     // card and never in the world. Own units only; the rate must clear field regen.
     const auraChip = own

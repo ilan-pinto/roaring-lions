@@ -142,6 +142,7 @@ export function orderVerbOf(i: PlayerIntent): TelemetryOrderVerb | null {
       return i.kind;
     case 'support':
       return i.accepted ? SUPPORT[i.call].verb : null;
+    case 'patrol': // Lane A mock: not one of the telemetry contract's verbs, so not counted
     case 'select':
     case 'group':
     case 'overlay':

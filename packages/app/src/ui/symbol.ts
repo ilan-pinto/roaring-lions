@@ -354,6 +354,7 @@ const ORDER_IDS: readonly SightOrderId[] = [
   'strike',
   'barrage',
   'smokeScreen',
+  'patrol',
 ];
 export const DINGBAT_IDS: readonly DingbatId[] = [
   'pause',

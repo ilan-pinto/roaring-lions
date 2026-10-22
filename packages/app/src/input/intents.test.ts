@@ -97,7 +97,7 @@ describe('INTENT_KINDS', () => {
     // a kind missing here becomes a step nobody can complete.
     const kinds: PlayerIntent['kind'][] = [
       'select', 'order', 'attack', 'garrison', 'demolish', 'chargeTunnel', 'mount', 'dismount',
-      'smoke', 'halt', 'group', 'overlay', 'support',
+      'smoke', 'halt', 'patrol', 'group', 'overlay', 'support',
     ];
     expect([...INTENT_KINDS].sort()).toEqual([...kinds].sort());
   });
