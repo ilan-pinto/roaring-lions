@@ -52,7 +52,7 @@ export function packBonusPercent(pack: CoinPack, base: CoinPack = COIN_PACKS[0])
 }
 
 /** What one campaign pays at most, measured: `pnpm playtest`'s optimal-play
- *  ladder pin (`LADDER_CREDITS` in tools/src/backtest/playtest.ts, 5,920 over
+ *  ladder pin (`LADDER_CREDITS` in tools/src/backtest/playtest.ts, 5,842 over
  *  the 26 missions in `world.json`), and pinned to it as text by
  *  `tools/src/campaign_credits.test.ts`, so a ladder re-pin that forgets this
  *  copy goes red. Since GH-330 a new campaign pays again, so this is a PER
@@ -65,7 +65,9 @@ export function packBonusPercent(pack: CoinPack, base: CoinPack = COIN_PACKS[0])
 // Deir Amun II -40, Khan Rafid III -24, Qarn Hadid II -20 and III -19.
 // Was 5940: GH-598 (2026-10-15), the D9 a vehicle; Wadi Halam V -10 (one fewer survivor).
 // Was 5930: fix/air-pathing (2026-10-21), aircraft fly straight; Khan Rafid I -10 (its drone dies before the win).
-export const CAMPAIGN_CREDITS = 5920;
+// Was 5920: GH-707 P3 (2026-10-22), infantry falls wounded; -78 over 15 missions, per-mission reasons
+// beside `LADDER_CREDITS`.
+export const CAMPAIGN_CREDITS = 5842;
 /** The same ladder's mission count, for a mean pay a fresh account can quote
  *  before it has been paid for anything. */
 export const LADDER_MISSIONS = 26;
