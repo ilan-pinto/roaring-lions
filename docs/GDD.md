@@ -188,6 +188,8 @@ On penetration, roll a weighted component table (weights shift with penetration 
 | Mobility + firepower | 12% | combat-ineffective, crew alive |
 | Catastrophic | 8% | destroyed, crew lost |
 
+A mobility kill depends on the running gear (`mobility.gear`, GH-706): a **wheeled** hull is first *slowed* (half speed, weapons live) and only stuck on a second mobility hit; a **tracked** hull is stuck at once, and still pivots. A stuck ground hull's crew field-fixes it to *slowed* after 90 s without taking a hit (45 s with an engineer or D9 within 2 tiles, standing still); a field-works workshop clears every state. An **aircraft** mobility-killed in the air makes a forced landing, is a ground target while down, and gets no field fix.
+
 Note that most penetrations do **not** destroy the vehicle. Recoverable losses make the battlefield legible and make casualty-averse play meaningful.
 
 ### 5.5 Suppression — the highest-value mechanic in the game
