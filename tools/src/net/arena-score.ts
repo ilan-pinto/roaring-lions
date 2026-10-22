@@ -28,8 +28,8 @@ export interface GameRecord {
    *  fallback, not a room reason). */
   by: string;
   ticks: number;
-  /** By SIDE, from the reading seat's sim at the end (seat 0's in-process, else seat 1's, else the observer's). In versus seat s plays side s
-   *  (`match-room.ts`), so index s is also seat s's line. */
+  /** By SEAT (`bySeat` in arena.ts re-indexes the by-side board through the config's sides; LD1 puts a
+   *  Sarim host on side 1), from the reading seat's sim at the end (seat 0's in-process, else seat 1's, else the observer's). */
   score: MatchScore;
   /** By seat. */
   reports: [PlayerReport, PlayerReport];

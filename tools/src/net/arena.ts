@@ -60,7 +60,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { MATCHUPS, factionsOfMatchup, matchupAllowed, versusMapAllowed, type MatchConfig, type Matchup, type TransportStatus } from '@lions/net';
 import { MATCH_CAP_TICKS, type MatchResult, type OutcomeSim } from '../../../packages/app/src/net/outcome';
-import { scoreOf } from '../../../packages/app/src/net/scoreboard';
+import { scoreOf, type MatchScore } from '../../../packages/app/src/net/scoreboard';
 import { AgentClient } from './agent-client';
 import { gateVerdict, headToHead, markdownReport, pval, tally, type GameRecord, type GateVerdict, type Tally } from './arena-score';
 import { buildId } from './build-id';
@@ -446,7 +446,7 @@ async function playGame(g: GameSpec, a: ArenaArgs, build: string, startRelay: No
     if (sim === undefined) throw new Error('the reading seat never built its world');
     return {
       seed: g.seed, map: a.map, matchup: a.matchup, players: g.names, factions,
-      outcome: verdict.outcome, by: verdict.by, ticks: referee.tick(), score: scoreOf(sim), reports,
+      outcome: verdict.outcome, by: verdict.by, ticks: referee.tick(), score: bySeat(scoreOf(sim), sides), reports,
     };
   } finally {
     // Every close is guarded: one that fails is logged and the next still runs.
@@ -619,4 +619,9 @@ if (isEntry()) {
     (r) => { if (!signals.signalled()) process.exit(r.code); },
     (err: unknown) => { process.stderr.write(`arena: ${messageOf(err)}\n`); if (!signals.signalled()) process.exit(1); },
   );
+}
+
+/** A by-SIDE board re-indexed by SEAT (LD1: a Sarim host is seat 0 on side 1). */
+export function bySeat(score: MatchScore, sides: readonly [0 | 1, 0 | 1]): MatchScore {
+  return [score[sides[0]], score[sides[1]]];
 }

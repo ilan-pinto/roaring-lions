@@ -14,7 +14,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { judge, parseArgs, refusalOf, resolvePlayer, runArena, untrusted, type SeatSnapshot } from './arena';
+import { bySeat, judge, parseArgs, refusalOf, resolvePlayer, runArena, untrusted, type SeatSnapshot } from './arena';
 import type { AgentClient } from './agent-client';
 import type { ArenaPlayer } from './players';
 import type { GameRecord } from './arena-score';
@@ -296,5 +296,15 @@ describe('untrusted', () => {
     expect(untrusted({ pace: { kind: 'paced', roundTicks: 20, roundWallMs: 120_000 }, seed: 1000, map: 'tel_marum', seats }, args, 1000)).toMatch(/pace/);
     expect(untrusted({ pace: { kind: 'paced', roundTicks: 40, roundWallMs: 120_000 }, seed: 7, map: 'tel_marum', seats }, args, 1000)).toMatch(/seed/);
     expect(untrusted({ pace: { kind: 'paced', roundTicks: 40, roundWallMs: 120_000 }, seed: 1000, map: 'tel_marum', seats }, { ...args, matchup: 'kdf' }, 1000)).toMatch(/seated/);
+  });
+});
+
+describe('bySeat (LD1)', () => {
+  // A by-side board read by seat: a Sarim host is seat 0 on side 1, so its columns are side 1's.
+  const a = { lost: 1 } as never;
+  const b = { lost: 2 } as never;
+  it('keeps a mirror board as it is, and swaps a Sarim host\'s', () => {
+    expect(bySeat([a, b], [0, 1])).toEqual([a, b]);
+    expect(bySeat([a, b], [1, 0])).toEqual([b, a]);
   });
 });
