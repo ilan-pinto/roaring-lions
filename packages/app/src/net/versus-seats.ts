@@ -19,6 +19,11 @@ import { sandboxAnchors, type SandboxAnchors } from '../sandbox-anchors';
  *   `town_center` (31,22), inside the town, and the west seat won 38 of 48
  *   (79.2%). Seat 1 on the open ground east of the town at (40,24) reads
  *   west 22 / east 26 of 48, no draws. Seat 0 is the heuristic's own `kdf_assembly`.
+ * - `tel_marum` (mirror and KDF-vs-Sarim; the lead's ruling, 22 Oct): the
+ *   heuristic's `start_line` (24,44) read Sarim 29 of 48 with Sarim on seat 0
+ *   (60.4%). Seat 0 two tiles further south at (24,46) reads the mirror
+ *   west 20 / east 28, KDF-on-seat-0 KDF 24 / Sarim 24, Sarim-on-seat-0
+ *   Sarim 22 / KDF 26. Seat 1 is the heuristic's own `overwatch_east`.
  *
  * The reading is sensitive to a tile or two (seat 1 at (38,23) reads west
  * 17 / east 6 at 24 seeds, at (43,24) 3 / 21), so a change to a map's
@@ -27,6 +32,7 @@ import { sandboxAnchors, type SandboxAnchors } from '../sandbox-anchors';
  */
 export const VERSUS_SEATS: Readonly<Record<string, SandboxAnchors>> = {
   beit_sahwan_outskirts: { friendly: [4, 23], hostile: [40, 24] },
+  tel_marum: { friendly: [24, 46], hostile: [28, 16] },
 };
 
 /** Where a versus room's two seats stand on `map`: seat 0 on `friendly`,
