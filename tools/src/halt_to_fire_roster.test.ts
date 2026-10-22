@@ -16,6 +16,7 @@ import { units } from '@lions/data';
 import { unitTypeFromJson, type UnitTypeJson } from '../../packages/sim/src/sim';
 
 const HALTS_TO_FIRE = [
+  'at_nlos_team',
   'at_team',
   'atgm_cell',
   'breach_team',

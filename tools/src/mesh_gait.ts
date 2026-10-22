@@ -2328,7 +2328,13 @@ export interface CrewOnGunReading {
   readonly instants: number;
 }
 
-export function measureCrewOnGun(path: string, clip: string, prefix: string): CrewOnGunReading {
+export function measureCrewOnGun(
+  path: string,
+  clip: string,
+  prefix: string,
+  /** The roles on `prop` the gunner works: the gun itself (`weapon`), or a fire-control case beside it (`metal`). */
+  gunRoles: readonly string[] = ['weapon']
+): CrewOnGunReading {
   const glb = readGlb(path);
   const nodes = glb.json.nodes ?? [];
   const meshes = glb.json.meshes ?? [];
@@ -2355,7 +2361,7 @@ export function measureCrewOnGun(path: string, clip: string, prefix: string): Cr
         for (let k = 1; k < 4; k++) if (pick.weights.data[i * 4 + k] > pick.weights.data[i * 4 + b]) b = k;
         const jn = names[skin.joints[pick.joints.data[i * 4 + b]]];
         let key: string | null = null;
-        if (role === 'weapon' && jn === 'prop') key = 'weapon';
+        if (gunRoles.includes(role) && jn === 'prop') key = 'weapon';
         else if (role === 'face' && jn === `${prefix}_head`) key = 'face';
         else if (role !== 'weapon' && role !== 'metal' && (jn === `${prefix}_forearm_L` || jn === `${prefix}_forearm_R`)) key = jn;
         if (!key) continue;

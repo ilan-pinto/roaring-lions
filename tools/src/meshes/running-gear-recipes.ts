@@ -133,6 +133,21 @@ const D9_WHEELS_X: readonly [number, number][] = [
   [1.37, 0.855],
 ];
 
+/** GH-709 (2026-10-22): the Te'o Howitzer's running gear, shared by `spg_long_range`
+ *  and `spg_cluster` (the cluster is a graft on the Te'o's shipped GLB). */
+const TEO_RUNNING_GEAR: RunningGearRecipe = {
+  cut: 0.9,
+  wheels: both([
+    { x: 2.375, y: 0.39, r: 0.34, zIn: 1.0, zOut: 1.66 },
+    { x: 1.49, y: 0.39, r: 0.34, zIn: 1.0, zOut: 1.66 },
+    { x: 0.555, y: 0.39, r: 0.34, zIn: 1.0, zOut: 1.66 },
+    { x: -0.31, y: 0.39, r: 0.34, zIn: 1.0, zOut: 1.66 },
+    { x: -1.16, y: 0.39, r: 0.34, zIn: 1.0, zOut: 1.66 },
+    { x: -2.02, y: 0.39, r: 0.34, zIn: 1.0, zOut: 1.66 },
+  ]),
+  track: { zIn: 0.97, zOut: 1.7, loopMaxY: 1.2, band: 0.08, minComponentTris: 200, excludeDiscs: [] },
+};
+
 export const RUNNING_GEAR_RECIPES: Readonly<Record<string, RunningGearRecipe>> = {
   apc_eitan: {
     cut: 1.03,
@@ -232,18 +247,12 @@ export const RUNNING_GEAR_RECIPES: Readonly<Record<string, RunningGearRecipe>> =
   // fits that read 0.42 had locked onto the track run beside the rim). The tracks are
   // the band |z| 0.97-1.70, top run at y 1.10, the sprocket (rear) and idler (front)
   // static as the Namer's are. The cut stays inside the track's own inner face.
-  spg_long_range: {
-    cut: 0.9,
-    wheels: both([
-      { x: 2.375, y: 0.39, r: 0.34, zIn: 1.0, zOut: 1.66 },
-      { x: 1.49, y: 0.39, r: 0.34, zIn: 1.0, zOut: 1.66 },
-      { x: 0.555, y: 0.39, r: 0.34, zIn: 1.0, zOut: 1.66 },
-      { x: -0.31, y: 0.39, r: 0.34, zIn: 1.0, zOut: 1.66 },
-      { x: -1.16, y: 0.39, r: 0.34, zIn: 1.0, zOut: 1.66 },
-      { x: -2.02, y: 0.39, r: 0.34, zIn: 1.0, zOut: 1.66 },
-    ]),
-    track: { zIn: 0.97, zOut: 1.7, loopMaxY: 1.2, band: 0.08, minComponentTris: 200, excludeDiscs: [] },
-  },
+  spg_long_range: TEO_RUNNING_GEAR,
+  // GH-709 P7: the Te'o Cluster Howitzer is the shipped Te'o's own hull with its gun
+  // re-laid, a brake and a rear-deck rack (tools/vehicles/export_spg_cluster.py):
+  // the running gear is untouched, so it takes the Te'o's recipe by reference and
+  // the two cannot drift.
+  spg_cluster: TEO_RUNNING_GEAR,
   mbt_lavi: { cut: 1, wheels: [], track: scaleTrackSeed(LAVI_TRACK, rescaleOf('mbt_lavi')) },
   officer_armour: { cut: 1, wheels: [], track: scaleTrackSeed(LAVI_TRACK, rescaleOf('officer_armour')) },
   // GH-709: the Lavi Ambush Tank wears the Lavi's own running gear (the net

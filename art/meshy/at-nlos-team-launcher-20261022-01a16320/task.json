@@ -1,0 +1,46 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready missile launcher of a fictional army. Its main body is one long slender square pack: four long straight cylindrical tubes of equal size bundled tightly two-by-two, like four long pipes strapped together, held by welded square frame bands along their length. The pack is 1.9 metres long and 0.56 metres square, over three times longer than wide. Every tube end is a flat flush disc cover, no domes. The long pack points steeply up at the sky, nearly upright, about seventy-five degrees, sitting on a small low hinged cradle with four short stubby splayed legs, below knee height, much smaller than the pack. Side lifting handles, a small armoured junction box. Matte olive drab, dark gunmetal. One object, centred, no ground, no base. No insignia, text or markings.",
+    "negative_prompt": "domes, spheres, round caps, bulbous tanks, lamps, short stubby tubes, horizontal box, tall legs, long legs, tripod, truck, vehicle, wheels, rocket pod with many small tubes, exposed missiles, pointed warheads, fins, single tube, soldiers, people, text, insignia, ground plane, base",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a16320-590e-7155-aa3b-23eb213b4f01",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 385147943,
+    "prompt": "A single low-poly game-ready missile launcher of a fictional army. Its main body is one long slender square pack: four long straight cylindrical tubes of equal size bundled tightly two-by-two, like four long pipes strapped together, held by welded square frame bands along their length. The pack is 1.9 metres long and 0.56 metres square, over three times longer than wide. Every tube end is a flat flush disc cover, no domes. The long pack points steeply up at the sky, nearly upright, about seventy-five degrees, sitting on a small low hinged cradle with four short stubby splayed legs, below knee height, much smaller than the pack. Side lifting handles, a small armoured junction box. Matte olive drab, dark gunmetal. One object, centred, no ground, no base. No insignia, text or markings.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1792664428389,
+    "progress": 100,
+    "started_at": 1792664433248,
+    "finished_at": 1792664595235,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a16320-590e-7155-aa3b-23eb213b4f01/output/model.glb?Expires=4946227200&Signature=SIIHnibI4SQDBE-9hvkA~A3fHZ05TYF7u0-~LdqXyvjnmCY9Yn6KVHjqihR0a4szDsLsa573rs68ugFP1bWhS9PYLfqrekPhs3fz6WxvDrBHc5OdPIUScFLYJYIWTO4K-4-m46X3mtFBDt9y4n33eR3KbolZbmKaYj91pZz25GAP2HYS93IATzrbMaIKxHdcDhsyOc1LpQF~J6mjcambEXFvxRhTiT8ZE41FpzXU81feE64FC7HfGhrcfmn-YDbYoA3jRkOAsiUphkHL5TiCgl~tkGjNEn9QGJRrhFYsL2VcWGVkZSxmsmFDtRUjE0YSpIUxTn7wrhDz~L~PplA-IA__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a16320-590e-7155-aa3b-23eb213b4f01/output/preview.png?Expires=4946227200&Signature=WoCAtNaA0bYp8-Kviht3xN19BC22-QV-Ag6Mf0PZjWP9VCeB8Fis~~Qz1PmGLbOAnXYL2komvbP9-KuZaJAjOp3vUPzi-6bafKjAe3IOZ5zbyScuMGesbSKlPh-cXuzNZJhcJAPCuSN0552D9HdtWlrMGHtpaDdWN2c1n39BGN~SQbo5xJUGeC-WpzgZ90ALRwx2oUCJdMx4hii13idBlsKiwg0utLevY3vmgXno6DNxtx6qY6Sc7ZOg3V9wJjpsY7ZJpiZiUCdKtvQUXaJgphNX3sKXYh3UdJeiZcji8bheQj1m92P5YHuuegLdiyZfZpl9A~Jkmr07TM7vKmI73w__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1792664428389,
+    "started_at": 1792664433248,
+    "finished_at": 1792664595235
+  },
+  "usd_estimated": 0.4
+}

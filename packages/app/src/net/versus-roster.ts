@@ -13,15 +13,18 @@ export type VersusRosterUnit = (typeof units)[keyof typeof units];
  * (spec Q9). Deleting the id here registers it again and moves the versus pins,
  * in that same commit -- which is the right time for them to move.
  *
- * `mbt_lavi_camo` and `spg_long_range` (GH-709 Phase 2): credit-only store units, on no
+ * `mbt_lavi_camo` and `spg_long_range` (GH-709 Phase 2), and `spg_cluster` (Phase 7):
+ * credit-only store units, on no
  * doctrine menu. Registering a type a versus side can never field would move the
  * roster-count and hash pins for nothing, so they are held the same way until a versus
  * design gives a special unit a seat. `ugv_recon_dog` (Phase 8) joins them for the same
- * reason.
+ * reason. So does `at_nlos_team` (Phase 7).
  */
 export const VERSUS_HELD_UNITS: ReadonlySet<string> = new Set([
+  'at_nlos_team',
   'heli_yanshuf',
   'mbt_lavi_camo',
+  'spg_cluster',
   'spg_long_range',
   'ugv_recon_dog',
 ]);

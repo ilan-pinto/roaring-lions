@@ -262,6 +262,26 @@ def mortar_team(clip, frame):
     return out
 
 
+def at_nlos_team(clip, frame):
+    """Zaron Missile Team, crew 4, three drawn (GH-709 Phase 7). A four-cell
+    canister block raised steeply on a low stand, a gunner kneeling at the
+    fire-control case and a loader kneeling beside the launcher, the team
+    leader standing behind them with a carbine. The kit stand-in of
+    `tools/units/import_meshy_crew_team.py`'s mesh build, which carries the
+    Meshy launcher (`art/parts/at_nlos_team/`); positions are rig.py's
+    `TEAM_FIGURES["at_nlos_team"]`."""
+    p, st = _standing_posture(clip), _stride(clip, frame)
+    out = []
+    if _weapon_visible(clip):
+        out += kit.launcher("nl_pack", (0.68, 0.0, 1.25), pitch=math.radians(75.0), length=1.90, radius=0.28)
+        out += [kit.box("nl_fcu", (0.36, 0.50, 0.30), (-0.30, 0.50, 0.15), "metal")]
+    out += kit.figure("nl_gun", (-0.92, 0.50, 0.0), posture=_crew_posture(clip))
+    out += kit.figure("nl_load", (0.10, -0.80, 0.0), posture=_crew_posture(clip))
+    out += kit.figure("nl_lead", (-0.70, -0.35, 0.0), posture=p, stride=st, leader=True)
+    out += kit.rifle("nl_lead_w", (-0.70, -0.35, 0.0), posture=p, aim=(clip == "fire"))
+    return out
+
+
 def mortar_crew(clip, frame):
     """Mortar Crew, crew 3. The same weapon class as mortar_team and the closest
     pair in the set, so it is held apart on the two levers that survive
@@ -705,6 +725,7 @@ TEAMS = {
     "demo_squad": (demo_squad, "kdf", "INF_DEMO"),
     "at_team": (at_team, "kdf", "INF_AT"),
     "mortar_team": (mortar_team, "kdf", "INF_MORTAR"),
+    "at_nlos_team": (at_nlos_team, "kdf", "INF_NLOS"),
     "sniper_team": (sniper_team, "kdf", "INF_SNIPER"),
     "yahalom_squad": (yahalom_squad, "kdf", "INF_YAHALOM"),
     "breach_team": (breach_team, "kdf", "INF_BREACH"),

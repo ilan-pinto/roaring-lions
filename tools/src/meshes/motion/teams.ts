@@ -166,6 +166,13 @@ export const MOTION_TEAMS: Record<string, MotionTeam> = {
   // Unit polish (14 Oct): the gunner on the gun, and a `fire` (`crew-fire.ts`).
   atgm_cell: { figures: [], hold: false, kneel: false, formation: false, stride: true, ground: true, crewFire: true, speedTiles: 0.7 },
   mortar_crew: { figures: [], hold: false, kneel: false, formation: false, stride: true, ground: true, crewFire: true, speedTiles: 0.6 },
+  // GH-709 Phase 7: the Zaron Missile Team -- mortar_team's leader with his
+  // carbine (the hold), and atgm_cell's crew-served `fire`: the gunner seated
+  // at the fire-control case (`crew-fire.ts`, seat "console").
+  at_nlos_team: {
+    figures: [{ prefix: 'nl_lead', weapon: 'rifle' }],
+    hold: true, kneel: false, formation: false, stride: true, ground: true, crewFire: true, speedTiles: 0.6,
+  },
   digger_crew: { figures: [], hold: false, kneel: false, formation: false, stride: true, ground: true, speedTiles: 0.5 },
   // Ground only (ground-debt, 6 Oct): neither was through this pass before.
   // The sniper's walk is rig.py's pendulum, kept as it is -- it gains ankles

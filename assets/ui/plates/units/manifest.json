@@ -203,6 +203,15 @@
         168,
         118
       ]
+    },
+    "at_nlos_team": {
+      "file": "at_nlos_team.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        339,
+        269
+      ]
     }
   }
 }
