@@ -2149,7 +2149,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     mission?.field_works,
     wantWorks && !mission && versusWorld === null && !inRoom ? sim.structureTypes : null
   );
-  const meshPlan = meshPlanFor(map, meshRoster, [...(mission?.structures ?? []).map((s) => s.type), ...worksIds]);
+  // An economy room's camps (N3 Task 6) are the runtime's structures: the room has no mission.
+  const meshPlan = meshPlanFor(map, meshRoster, [
+    ...(mission?.structures ?? []).map((s) => s.type),
+    ...(versusWorld?.structureTypes ?? []),
+    ...worksIds,
+  ]);
   // Resolved once, beside `meshPlan` and BEFORE `new ThreeRenderer` below --
   // nothing between here and the renderer's construction may throw, because
   // its teardown is not registered until the context exists.

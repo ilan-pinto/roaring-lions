@@ -11,6 +11,7 @@ import type { Command } from '@lions/sim';
 import { ReinforcementDock } from '../ui/production';
 import type { DockUnit } from '../ui/dock-model';
 import { buildMatchWorld, matchTick, type MatchWorld } from './match-world';
+import { meshPlanFor } from '../mesh-catalogue';
 import { roomDockMenu, roomDockRuntime, roomEconomyView, showsConduct } from './room-economy';
 import { viewerSideOf } from './viewer';
 
@@ -63,7 +64,7 @@ describe('an economy room\'s dock is the viewer\'s side (N3 Task 6)', () => {
   const KDF_MENU = ['mbt_lavi', 'ifv_namer', 'apc_eitan', 'inf_squad', 'at_team', 'mortar_team', 'jeep_shoded', 'recon_drone', 'dozer_d9', 'heli_peten', 'yahalom_squad'];
   const SARIM_MENU = ['sarim_rifles', 'atgm_cell', 'gun_truck', 'manpad_team', 'rocket_battery', 'recoilless_team'];
 
-  it('a Sarim host (seat 0, side 1): the six Sarim menu ids in doctrine order, 4800 in the purse, a click sends build{side:1}', () => {
+  it('a Sarim host (seat 0, side 1): the six Sarim menu ids in doctrine order, 4800 in the purse; build, cancelBuild and clearRally carry side 1', () => {
     const cfg = config('wadi_tarfan', ['sarim', 'kdf']);
     const w = buildMatchWorld(cfg);
     const r = roomDock(w, cfg, 0);
@@ -81,6 +82,21 @@ describe('an economy room\'s dock is the viewer\'s side (N3 Task 6)', () => {
     expect(rt.logisticsOf(1)).toBe(4800 - units.atgm_cell.cost.logistics);
     expect(rt.logisticsOf(0)).toBe(3000);
     expect(rt.productionLines(0)[0].current).toBeNull();
+    // The row's own controls carry side 1 too: a rally set on side 1's line, the dock
+    // repainted, then the line's cancel (the item in progress) and its rally clear.
+    const exit = rt.productionLines(1)[0].exit;
+    w.sim.queueCommand({ kind: 'setRally', side: 1, line: 0, x: exit[0], y: exit[1] });
+    matchTick(w);
+    expect(rt.productionLines(1)[0].rally).not.toBeNull();
+    r.dock.refresh();
+    r.sent.length = 0;
+    const row = r.host.querySelector<HTMLElement>('.rl-line')!;
+    row.querySelector<HTMLButtonElement>('.rl-line__item')!.click();
+    row.querySelector<HTMLButtonElement>('.rl-line__clear')!.click();
+    expect(r.sent).toEqual([
+      { kind: 'cancelBuild', side: 1, line: 0, index: -1 },
+      { kind: 'clearRally', side: 1, line: 0 },
+    ]);
   });
 
   it('the KDF guest (seat 1, side 0): the KDF menu in its order, 3000, a click sends build{side:0}', () => {
@@ -113,5 +129,21 @@ describe('Conduct is the KDF seat\'s, never the Sarim seat\'s (LD7)', () => {
     expect(roomEconomyView(rt, 0, 'kdf').conduct).toBe(rt.roeScore);
     expect('conduct' in roomEconomyView(rt, 1, 'sarim')).toBe(false);
     expect([showsConduct('kdf'), showsConduct('sarim')]).toEqual([true, false]);
+  });
+});
+
+describe('an economy room loads its camps\' mesh (N3 Task 6)', () => {
+  // main.ts hands `meshPlanFor` the mission's structures, and a room has no mission: the
+  // camps come from the room's own world (`MatchWorld.structureTypes`), or the camp draws
+  // as a proxy slab.
+  it('the room\'s mesh plan has the camp in a KDF-v-Sarim room, and not in a mirror room', () => {
+    for (const map of ['tel_marum', 'wadi_tarfan']) {
+      const eco = buildMatchWorld(config(map, ['sarim', 'kdf']));
+      expect(eco.structureTypes).toEqual(['camp']);
+      expect(meshPlanFor(eco.map, new Set(), [...eco.structureTypes]).buildings.has('camp')).toBe(true);
+      const mirror = buildMatchWorld(config(map, ['kdf', 'kdf']));
+      expect(mirror.structureTypes).toEqual([]);
+      expect(meshPlanFor(mirror.map, new Set(), [...mirror.structureTypes]).buildings.has('camp')).toBe(false);
+    }
   });
 });

@@ -41,6 +41,10 @@ export interface MatchWorld {
    *  plays today's placed-force match and nothing else. It never ends by
    *  itself (no objectives, `checkEnd`); `outcome.ts` decides the match. */
   runtime: MissionRuntime | null;
+  /** The structure types the economy runtime stands (its rules file's camps, through
+   *  `versusMissionOf`), so the browser loads their meshes (N3 Task 6): a room has no
+   *  mission whose `structures` the mesh plan could read. `[]` in a mirror room. */
+  structureTypes: readonly string[];
 }
 
 /**
@@ -114,8 +118,10 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
   const { bySide } = versusSpawns(sim, typeOfBySide, anchors, factions, endOfSide);
   // The runtime comes AFTER both forces, so every entity id a mirror room
   // spawned, and so every mirror byte, is what it was; a mirror builds none.
-  const runtime = economyRoom(config) ? economyRuntime(sim, config.map, map, typeOf, factions, endOfSide) : null;
-  return { sim, typeOf, typeOfBySide, kitBySide, mapJson, map, anchors, factions, endOfSide, bySide, runtime };
+  const economy = economyRoom(config) ? economyRuntime(sim, config.map, map, typeOf, factions, endOfSide) : null;
+  const runtime = economy?.runtime ?? null;
+  const structureTypes = economy?.structureTypes ?? [];
+  return { sim, typeOf, typeOfBySide, kitBySide, mapJson, map, anchors, factions, endOfSide, bySide, runtime, structureTypes };
 }
 
 /**
@@ -167,7 +173,7 @@ function economyRuntime(
   typeOf: ReadonlyMap<string, number>,
   factions: readonly [Faction, Faction],
   endOfSide: readonly [SpawnEnd, SpawnEnd],
-): MissionRuntime {
+): { runtime: MissionRuntime; structureTypes: string[] } {
   const rules = versusRules[mapId];
   if (rules === undefined) throw new Error(`buildMatchWorld: map "${mapId}" has no versus rules file`);
   const sideAt = (end: SpawnEnd): 0 | 1 => (endOfSide[0] === end ? 0 : 1);
@@ -194,7 +200,7 @@ function economyRuntime(
   };
   const runtime = new MissionRuntime(sim, mission as MissionJson, ctx);
   runtime.start();
-  return runtime;
+  return { runtime, structureTypes: [...new Set(mission.structures.map((st) => st.type))] };
 }
 
 /** Each SIDE's spawn end, from the seat that plays it: the end follows the
