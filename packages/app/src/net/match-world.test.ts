@@ -401,11 +401,13 @@ describe('the economy runtime (N3 Task 3)', () => {
   it('VERSUS_ECONOMY_PINS (born N3 Task 3): a KDF-host room on each matchup map, 200 ticks', () => {
     // LITERALS (CLAUDE.md). seed 20260727, KDF host, 200 ticks of `matchTick` with no orders,
     // matchDigest(sim.hash(), runtime.digest(), 0).
+    // Re-pinned 22 Oct for the GH-681 route re-author (the lead's ruling after T5): the Sarim end's route
+    // points and capacities changed, and route state is hashed. Was -568662276 / -274469750.
     // Re-pinned 22 Oct for GH-681 T3: the Sarim end's routes register in an economy room and route state
     // is hashed. Was -193936706 / -1815401533.
     // Re-pinned with the lead's start purses KDF 1500 / Sarim 2400 (22 Oct; db2803f0): the purse is folded by
     // runtime.digest(). Was -1014683486 / -1434364569.
-    const VERSUS_ECONOMY_PINS = [['tel_marum', -568662276], ['wadi_tarfan', -274469750]] as const;
+    const VERSUS_ECONOMY_PINS = [['tel_marum', 822414509], ['wadi_tarfan', 1021735804]] as const;
     for (const [map, pin] of VERSUS_ECONOMY_PINS) {
       const w = buildMatchWorld(config(map, ['kdf', 'sarim'], 20260727));
       run(w, 200);
