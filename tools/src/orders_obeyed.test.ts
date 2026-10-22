@@ -82,9 +82,11 @@ describe('orders are obeyed after they are done, every KDF type', () => {
     // Measured 2026-10-11: every type but `recon_drone` left its point by
     // more than 3 tiles (4.5 to 29.7; the attack drone dies on its target).
     // The recon drone carries no weapon, so the sweep's couldEngage refuses
-    // to walk it at anything -- correct, and the one stay-put expected here.
+    // to walk it at anything -- correct, and the stay-put expected here. The
+    // Chadaf recon robot (GH-709 Phase 8, 22 Oct) is the second: unarmed for
+    // the same reason. Was ['recon_drone'].
     const stayed = KDF.filter((type) => !(drift(type, 'sweep') > 3));
-    expect(stayed).toEqual(['recon_drone']);
+    expect(stayed).toEqual(['recon_drone', 'ugv_recon_dog']);
   });
 
   it('the exemption is still needed', () => {

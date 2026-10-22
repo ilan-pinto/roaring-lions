@@ -56,6 +56,7 @@ describe('the textured infantry opt-out is a named list', () => {
       'rpg_team',
       'sarim_rifles',
       'sniper_team',
+      'ugv_recon_dog',
       'yahalom_squad',
     ]);
   });

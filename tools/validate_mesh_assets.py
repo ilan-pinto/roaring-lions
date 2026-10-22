@@ -311,6 +311,8 @@ TEXTURED_INFANTRY_EXEMPT = {
     "officer_infantry", "officer_fires", "officer_engineer",
     # E5 part 2 (GH-181, 2026-09-30): tools/units/import_meshy_zikit_team.py.
     "recon_zikit",
+    # GH-709 unit 10 (2026-10-22): the Chadaf recon robot, tools/units/import_meshy_dog.py.
+    "ugv_recon_dog",
     # B7 (GH-179, 2026-10-01): the B2 teams' bakes bought on their own
     # previews, and the supplied civilians' own bakes kept
     # (tools/import_meshy_civilians.py) -- see TEXTURED_FILE_TYPE.

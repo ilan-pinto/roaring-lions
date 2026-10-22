@@ -161,6 +161,10 @@ export const MOTION_TEAMS: Record<string, MotionTeam> = {
   // planted; the bike's wheels are held out of the ground under its bob.
   sniper_team: { figures: [], hold: false, kneel: false, formation: false, stride: false, ground: true, speedTiles: 0.45 },
   moto_rpg: { figures: [], hold: false, kneel: false, formation: false, stride: false, ground: true, speedTiles: 3.4 },
+  // GH-709 unit 10 (22 Oct): the Chadaf recon robot, four legs on planted foot
+  // paths (rig.py's dog topology). Ground only, like the bike: no figure, no
+  // hold, no kneel, and no stride re-solve -- its trot is IK-planted already.
+  ugv_recon_dog: { figures: [], hold: false, kneel: false, formation: false, stride: false, ground: true, speedTiles: 1.3 },
   // The civilians (`data/units/civilians.json`, 0.8 tiles/s): captured
   // Mixamo bipeds, re-timed and re-planted on their own leg bones.
   civilian_child: { dir: 'civilians', figures: [], hold: false, kneel: false, formation: false, stride: true, ground: true, speedTiles: 0.8 },

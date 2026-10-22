@@ -142,6 +142,10 @@ export const RADIUS_BY_TYPE: Readonly<Record<string, number>> = {
   // GH-698 (2026-10-21): the UH-60 Yanshuf, from a fresh `unit-footprints.ts` run
   // (footprint 0.928 tile, rotor excluded like the Petens'): 1.15 x that, rounded up.
   heli_yanshuf: 1.07,
+  // GH-709 Phase 8 (2026-10-22): the Chadaf recon robot, from a fresh `unit-footprints.ts`
+  // run: ring class `foot` (it rides, `wheeled: false`), footprint 0.201 tile, so the class
+  // value 0.45 stands (1.15 x 0.201 = 0.23 raises nothing).
+  ugv_recon_dog: 0.45,
 };
 
 /** The ring radius for a unit type: its own row, else the class value. */

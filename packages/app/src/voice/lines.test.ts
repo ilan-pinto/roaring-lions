@@ -37,6 +37,9 @@ describe('voiceClassOf (spec §3)', () => {
     // GH-709: the Te'o Howitzer is role `artillery` (a foot role) with a tracked crew of four,
     // so it carries `voice: "crew"`, the rocket_battery override. The camo Lavi is an mbt.
     spg_long_range: 'crew', mbt_lavi_camo: 'crew',
+    // GH-709 Phase 8: the Chadaf recon robot is role `drone`, remotely operated like the
+    // recon drone, so the role default (the operator's `air` voice) is right; no override.
+    ugv_recon_dog: 'air',
     civilians: 'infantry', // a class, but no language: civilians never speak (languageOf)
   };
 

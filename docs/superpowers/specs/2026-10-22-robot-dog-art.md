@@ -311,3 +311,15 @@ first export.
 5. **Triangles.** *Recommendation: 4,000 target, 5,000 cap* on the remesh.
 6. **Clips and gait.** *Recommendation:* `idle`/`move`/`down`/`wreck`, a flying trot of about 0.40 s and about 1.56 m
    as the design target, with a new quadruped cadence band in the gate, and the sim speed (1.3) unchanged.
+
+## Amended 22 Oct: scaled 1.2x (the lead)
+
+After the first screenshots the lead ruled A1 the other way: **the dog is 1.2x the real-scale table in §3.1** (voice
+stays `air`). One named constant, `rig.DOG_SCALE = 1.2`, multiplies every length the rig and the importer derive;
+angles, the 0.40 s cycle, the 120 fps keying and the sim speed are unchanged. New sizes: body 1.14 x 0.432 x 0.264 m,
+body top 0.744 m, hip height 0.612 m (read 0.613 off the bytes), legs 0.36 + 0.36 m, foot pad 0.084 m, sensor head
+0.192 m, antenna tip 1.02 m. Tris unchanged at 4,985 (3,923 living). The planted-foot sweep grows with the legs, but
+the stride the legs describe stays tied to speed x cycle (1.56 m), so `rl_gait.move` reads 1.4960 m / 0.400 s (was
+1.4592), multiplier 1.043 (was 1.07), and the cadence reads 5.21 steps/s against a recentred band of 3.35-5.24
+(centre 4.19 at hip 0.612 m, was 4.76 and 3.81-5.95). It sits 0.6% inside the top of the band; a slower cycle is the
+lever if the lead wants it more central, and it is not pulled here.
