@@ -15,7 +15,7 @@ describe('HDR_GAINS', () => {
       arc: 3.5,
       sparks: 4,
       fireball: 2.6,
-      streakKind: { rifle: 0.45, mg: 0.6 },
+      streakKind: { rifle: 0.45, mg: 0.6, grenade: 0.06 },
     });
   });
   it('is frozen', () => {

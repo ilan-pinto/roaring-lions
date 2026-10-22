@@ -146,6 +146,7 @@ export const RADIUS_BY_TYPE: Readonly<Record<string, number>> = {
   // run: ring class `foot` (it rides, `wheeled: false`), footprint 0.201 tile, so the class
   // value 0.45 stands (1.15 x 0.201 = 0.23 raises nothing).
   ugv_recon_dog: 0.45,
+  inf_grenadier: 0.68,
 };
 
 /** The ring radius for a unit type: its own row, else the class value. */

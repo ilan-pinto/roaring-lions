@@ -20,6 +20,7 @@ const HALTS_TO_FIRE = [
   'atgm_cell',
   'breach_team',
   'demo_squad',
+  'inf_grenadier',
   'inf_squad',
   'manpad_team',
   'militia_cell',

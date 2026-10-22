@@ -188,6 +188,8 @@ describe('which death path each shipped rig takes', () => {
     inf_squad: 'falling',
     sarim_rifles: 'falling',
     yahalom_squad: 'falling',
+    // GH-709 phase 3 (22 Oct): the grenadier squad plays inf_squad's captures.
+    inf_grenadier: 'falling',
   };
 
   it.each(shippedTeams())('%s', async (team) => {

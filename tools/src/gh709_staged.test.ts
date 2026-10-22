@@ -108,10 +108,10 @@ describe('GH-709: staged and landed partition the nine approved units', () => {
 });
 
 describe('GH-709 staged special units', () => {
-  it('stages six: Phase 2 landed the Lavi Ambush Tank and the Te\'o Howitzer, Phase 8 the Chadaf robot', () => {
+  it('stages five: Phase 2 landed the Lavi Ambush Tank and the Te\'o Howitzer, Phase 3 the Chomet grenadiers, Phase 8 the Chadaf robot', () => {
     // Update these lines, not the partition above, when a unit lands with its art. Named, so a
     // unit that vanished from both places cannot pass as "landed".
-    expect([...LANDED_IDS]).toEqual(['mbt_lavi_camo', 'spg_long_range', 'ugv_recon_dog']);
+    expect([...LANDED_IDS]).toEqual(['inf_grenadier', 'mbt_lavi_camo', 'spg_long_range', 'ugv_recon_dog']);
     expect(staged.map((s) => s.json.id)).toEqual(GH709_IDS.filter((id) => !LANDED_IDS.includes(id)));
   });
 

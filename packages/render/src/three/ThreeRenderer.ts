@@ -332,6 +332,7 @@ import {
   stepShells,
   spawnShell,
   shellKindFor,
+  shellKindForWeapon,
   shellHasLanded,
   isIndirectShell,
   isBurstShell,
@@ -5182,7 +5183,7 @@ export class ThreeRenderer implements Renderer {
     // full-span tracer -- `small_arms`, `hmg`, `interceptor`, `demolition`
     // -- see `units/shells.ts`'s `shellKindFor` for the whole split and why
     // it is drawn at "one round per shot" versus "a stream".
-    const shellKind = shellKindFor(cls);
+    const shellKind = shellKindForWeapon(cls, e.weaponId);
     // A travelling round REPLACES the tracer, it does not join it. Every
     // shot has always pushed a tracer here (indirect was never excluded --
     // see `units/shells.ts`'s top comment), and that tracer is a flat ribbon
@@ -5239,7 +5240,10 @@ export class ThreeRenderer implements Renderer {
       const launchers = armed.filter((f) => f.recoil === 'launcher');
       const fromTube = launchers.length > 0 && shellKind === 'missile';
       if (fromTube && muzzleShown) this.spawnBackblast(e.shooter, Math.atan2(ty - this.curY[e.shooter], tx - this.curX[e.shooter]));
-      const pool = fromTube ? launchers : armed;
+      // A lobbed grenade (GH-709 P2) also comes from a launcher, but a 40 mm
+      // launcher throws no backblast.
+      const fromGrenadeLauncher = launchers.length > 0 && shellKind === 'grenade';
+      const pool = fromTube || fromGrenadeLauncher ? launchers : armed;
       if (pool.length > 0) {
         const shot = squadRig.shots++;
         const fig = pool[(shot + (hashEntityId(e.shooter) % pool.length)) % pool.length];

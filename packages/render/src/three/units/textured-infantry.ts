@@ -85,4 +85,6 @@ export const TEXTURED_INFANTRY_TYPES: ReadonlySet<string> = new Set<string>([
   'mortar_team',
   'sniper_team',
   'yahalom_squad',
+  // GH-709 phase 3 (22 Oct 2026): the Chomet grenadier squad, same importer.
+  'inf_grenadier',
 ]);
