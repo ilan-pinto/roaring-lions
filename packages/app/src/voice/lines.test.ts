@@ -40,6 +40,8 @@ describe('voiceClassOf (spec §3)', () => {
     // GH-709 Phase 8: the Chadaf recon robot is role `drone`, remotely operated like the
     // recon drone, so the role default (the operator's `air` voice) is right; no override.
     ugv_recon_dog: 'air',
+    // GH-709 Phase 7: the Te'o Cluster Howitzer, the Te'o's hull and crew.
+    spg_cluster: 'crew',
     civilians: 'infantry', // a class, but no language: civilians never speak (languageOf)
   };
 

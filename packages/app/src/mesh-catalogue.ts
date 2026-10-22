@@ -238,6 +238,10 @@ export const VEHICLE_UNIT_MESHES: Readonly<Record<string, string>> = {
   // (`tools/vehicles/export_meshy_spg_long_range.py`), textured
   // (`TEXTURED_VEHICLE_TYPES`), its turret and raised gun under `turret_pivot`.
   spg_long_range: 'vehicles/spg_long_range.glb',
+  // GH-709 Phase 7: the Te'o Cluster Howitzer -- spg_long_range.glb's own bake with the
+  // gun re-laid to 50 degrees, a box brake and a rear-deck rack
+  // (`tools/vehicles/export_spg_cluster.py`), textured (`TEXTURED_VEHICLE_TYPES`).
+  spg_cluster: 'vehicles/spg_cluster.glb',
   technical: 'vehicles/technical.glb',
   ifv_namer: 'vehicles/ifv_namer.glb',
   jeep_shoded: 'vehicles/jeep_shoded.glb',

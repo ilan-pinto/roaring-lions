@@ -78,6 +78,8 @@ import mbtLaviCamo from '../../../../../data/units/kdf/mbt_lavi_camo.json';
 import scoutShachaf from '../../../../../data/units/kdf/scout_shachaf.json';
 // GH-709: the Te'o Howitzer, on the `artillery` role default (no `mobility.weight` block).
 import spgLongRange from '../../../../../data/units/kdf/spg_long_range.json';
+// GH-709 Phase 7: the Te'o Cluster Howitzer, on the `artillery` role default (no `mobility.weight` block).
+import spgCluster from '../../../../../data/units/kdf/spg_cluster.json';
 import paramotor from '../../../../../data/units/enemy/paramotor.json';
 import rocketBattery from '../../../../../data/units/enemy/rocket_battery.json';
 import technical from '../../../../../data/units/enemy/technical.json';
@@ -129,6 +131,7 @@ const VEHICLE_UNIT_JSON: readonly unknown[] = [
   mbtLaviCamo,
   scoutShachaf,
   spgLongRange,
+  spgCluster,
   paramotor,
   rocketBattery,
   technical,

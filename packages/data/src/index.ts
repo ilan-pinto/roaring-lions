@@ -133,6 +133,8 @@ import mbtLaviCamo from '../../../data/units/kdf/mbt_lavi_camo.json';
 import spgLongRange from '../../../data/units/kdf/spg_long_range.json';
 // Phase 8: the Chadaf Recon Robot, a four-legged walker (role drone, ground domain, foot).
 import ugvReconDog from '../../../data/units/kdf/ugv_recon_dog.json';
+// GH-709 Phase 7: the Te'o Cluster Howitzer (E2 indirect + E3 submunitions, landed GH-733).
+import spgCluster from '../../../data/units/kdf/spg_cluster.json';
 import militiaCell from '../../../data/units/enemy/militia_cell.json';
 import rpgTeam from '../../../data/units/enemy/rpg_team.json';
 import atgmCell from '../../../data/units/enemy/atgm_cell.json';
@@ -400,6 +402,7 @@ export const units = {
   mbt_lavi_camo: mbtLaviCamo,
   spg_long_range: spgLongRange,
   ugv_recon_dog: ugvReconDog,
+  spg_cluster: spgCluster,
 } as const;
 
 export type UnitId = keyof typeof units;

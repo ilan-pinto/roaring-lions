@@ -345,6 +345,13 @@
         ]
       }
     },
+    "spg_cluster": {
+      "file": "spg_cluster.png",
+      "extent": [
+        162,
+        182
+      ]
+    },
     "spg_long_range": {
       "file": "spg_long_range.png",
       "extent": [

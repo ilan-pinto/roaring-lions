@@ -114,7 +114,7 @@ NO_LEAD = {"moto_rpg", "digger_crew", "ugv_recon_dog"}
 ROSTER = (
     # KDF (22)
     "inf_squad,at_team,mortar_team,sniper_team,demo_squad,breach_team,yahalom_squad,recon_zikit,"
-    "mbt_lavi,mbt_lavi_camo,ifv_namer,apc_eitan,apc_kipod,jeep_shoded,scout_shachaf,dozer_d9,spg_long_range,"
+    "mbt_lavi,mbt_lavi_camo,ifv_namer,apc_eitan,apc_kipod,jeep_shoded,scout_shachaf,dozer_d9,spg_long_range,spg_cluster,"
     "heli_peten,heli_peten_gunship,attack_drone,recon_drone,ugv_recon_dog,"
     # Sarim (15)
     "sarim_rifles,atgm_cell,manpad_team,recoilless_team,rocket_battery,loiter_drone,"
@@ -443,7 +443,11 @@ def fit(cam, view_back, rule):
         target = target + right * ((x0 + x1) / 2 - 0.5) * 2 * half * dist \
             + up * ((y0 + y1) / 2 - 0.5) * 2 * half * dist
         axis, frac = rule
-        extent = (x1 - x0) if axis == "width" else max(x1 - x0, y1 - y0)
+        # "width" never crops: a vehicle taller than it is wide in the frame (GH-709's
+        # spg_cluster, its gun laid at 50 degrees, read 1.086 of the frame high at
+        # width 0.92) is fitted on its height instead. Every other shipped vehicle
+        # reads at most 0.894 high at width 0.92, so none of them moves.
+        extent = (x1 - x0) if axis == "width" and (y1 - y0) <= (x1 - x0) else max(x1 - x0, y1 - y0)
         dist *= extent / frac
     cam.location = target + view_back * dist
     bpy.context.view_layer.update()

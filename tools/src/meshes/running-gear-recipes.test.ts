@@ -25,6 +25,8 @@ const DOC: Record<string, { x: number[]; y: number; r: number }> = {
   ifv_namer: { x: [2.86, 1.67, 0.56, -0.56, -1.67, -2.85], y: 0.54, r: 0.49 },
   // GH-709: measured on the shipped `hull_rubber` (circle fit to each rim).
   spg_long_range: { x: [2.375, 1.49, 0.555, -0.31, -1.16, -2.02], y: 0.39, r: 0.34 },
+  // GH-709 P7: the cluster graft keeps the Te'o's hull and running gear untouched.
+  spg_cluster: { x: [2.375, 1.49, 0.555, -0.31, -1.16, -2.02], y: 0.39, r: 0.34 },
 };
 const TOL = 0.02;
 

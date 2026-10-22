@@ -1,0 +1,23 @@
+{
+  "unit": "spg_cluster",
+  "variant": "team",
+  "source": "assets/meshes/vehicles/spg_cluster.glb",
+  "source_sha256": "fca876d73baabce5564c041e98f394155e2110d3e1eb964644fbdaf974ed3de8",
+  "yaw_deg": -125.0,
+  "elevation_deg": 18.0,
+  "fov_deg": 30.0,
+  "fill": [
+    "width",
+    0.92
+  ],
+  "ndc_box": [
+    0.0922,
+    0.9078,
+    0.04,
+    0.96
+  ],
+  "materials": {
+    "baked": 4,
+    "flat": 0
+  }
+}
