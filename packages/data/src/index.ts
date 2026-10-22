@@ -158,6 +158,7 @@ import missileImpact from '../../../data/vfx/missile_impact.json';
 import missileTrail from '../../../data/vfx/missile_trail.json';
 import rocketTrail from '../../../data/vfx/rocket_trail.json';
 import shellImpact from '../../../data/vfx/shell_impact.json';
+import clusterAirburst from '../../../data/vfx/cluster_airburst.json';
 import structureBurning from '../../../data/vfx/structure_burning.json';
 import structureCollapse from '../../../data/vfx/structure_collapse.json';
 import collapseFlash from '../../../data/vfx/collapse_flash.json';
@@ -467,6 +468,9 @@ export const vfxEmitters = [
   rocketTrail,
   missileImpact,
   shellImpact,
+  // GH-709 (E3): the carrier shell opening in the air over a cluster round,
+  // looked up by id (`CLUSTER_AIRBURST_EMITTER_ID`).
+  clusterAirburst,
   structureBurning,
   structureCollapse,
   collapseFlash,

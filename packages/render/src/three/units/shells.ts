@@ -183,6 +183,12 @@ export interface ShellModel {
    *  the bolt that carries it (`trigger-fx.ts`'s `claimStrikeBolt`). */
   shooter?: number;
   target?: number;
+  /** GH-709 (E3): the carrier of a cluster round (a weapon with
+   *  `submunitions`). It lands as no mortar bomb: no crater, scorch or
+   *  fireball at its target point. The renderer opens it in the air at the
+   *  centroid of the sim's bomblets instead (`./cluster-burst.ts`) and
+   *  removes this shell then, on the sim's clock. `shooter` is set with it. */
+  cluster?: boolean;
   /** GH-85: that outcome, once the `impact` event has latched it. The
    *  renderer throws `armor_ricochet` or `armor_penetration` on the frame
    *  this round lands. `stepShells` copies it along with every other field. */
