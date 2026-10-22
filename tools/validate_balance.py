@@ -231,6 +231,25 @@ TARGET_MIX = (
 BLAST_TYPES = {"he", "mortar", "rocket", "demolition"}
 BLAST_EFFECT = {320.0: 0.05, 60.0: 0.30, 8.0: 1.00}
 
+# Indirect fire (GH-709 E2). A weapon is indirect by class (the sim's INDIRECT_MASK,
+# packages/sim/src/sim.ts: mortar | rocket) or by the weapon flag `indirect: true`.
+# What that buys is reach without a sight line of its own: it fires on anything its
+# side has identified. The standoff term below therefore reads an indirect weapon's
+# whole `range_tiles`, where a direct weapon reads its `effective_range_tiles`.
+INDIRECT_TYPES = {"mortar", "rocket"}
+
+# Submunitions (GH-709 E3), mirrored from the sim (burstSubmunitions / splashDirect):
+# the round bursts on the target on a hit, or on its miss point otherwise, which lands
+# SCATTER_BASE + U[0, 1) tiles off the target (tuning.ts SCATTER_BASE, 0.5). Each
+# bomblet lands at radius U[0, scatter) and a uniform angle from the burst centre, and
+# hurts only a SOFT target (front armour under tuning.ts SOFT_ARMOR_LIMIT, 30 mm),
+# with linear falloff to zero at its splash radius. The parent's own damage and
+# splash are unread. Pinned against tuning.ts by tools/src/gh709_staged.test.ts.
+SUB_SCATTER_BASE = 0.5
+SUB_SOFT_ARMOR_LIMIT = 30.0
+SUB_GRID = 64  # midpoint samples on radius and angle for the bomblet integral
+SUB_GRID_OFFSET = 16  # midpoint samples on the miss offset
+
 MAX_ENGAGE_RATE = 6.0    # kills/min ceiling -- target acquisition, not ammo
 SUP_SATURATION = 3000.0  # suppression-per-min at which value saturates
 SUP_MAX_VALUE = 3.0      # suppression ceiling, expressed in kills/min equivalent
@@ -250,6 +269,60 @@ def p_pen(penetration, armor):
     return phi((penetration - armor) / sigma)
 
 
+def is_indirect(w):
+    return w.get("type") in INDIRECT_TYPES or bool(w.get("indirect"))
+
+
+def standoff_range(w):
+    if is_indirect(w):
+        return w.get("range_tiles", w.get("effective_range_tiles", 1.0))
+    return w.get("effective_range_tiles", w.get("range_tiles", 1.0))
+
+
+def bomblet_reach(scatter, splash, offset_lo, offset_hi):
+    """Per bomblet, against one target whose distance from the burst centre is
+    U[offset_lo, offset_hi] (a single point when they are equal): the chance it
+    lands inside `splash` of the target, and its expected falloff (1 - d/splash,
+    0 outside). Midpoint integration over the sim's own draws: radius U[0, scatter),
+    angle uniform."""
+    n = SUB_GRID
+    m = SUB_GRID_OFFSET
+    offsets = [offset_lo] if offset_hi <= offset_lo else [
+        offset_lo + (offset_hi - offset_lo) * (k + 0.5) / m for k in range(m)
+    ]
+    inside = 0.0
+    fall = 0.0
+    count = 0
+    for off in offsets:
+        for i in range(n):
+            r = scatter * (i + 0.5) / n
+            for j in range(n):
+                a = 2.0 * math.pi * (j + 0.5) / n
+                dx = r * math.cos(a) - off
+                dy = r * math.sin(a)
+                d = math.hypot(dx, dy)
+                count += 1
+                if d < splash:
+                    inside += 1.0
+                    fall += 1.0 - d / splash
+    return inside / count, fall / count
+
+
+def submunition_round(w):
+    """Expected (damage, suppression) one round's bomblets deliver to one soft target.
+    The parent's accuracy decides where the burst opens, as in the sim."""
+    sub = w["submunitions"]
+    acc = w.get("accuracy", 0.0)
+    scatter = sub["scatter_tiles"]
+    splash = sub["splash_tiles"]
+    p_hit, f_hit = bomblet_reach(scatter, splash, 0.0, 0.0)
+    p_miss, f_miss = bomblet_reach(scatter, splash, SUB_SCATTER_BASE, SUB_SCATTER_BASE + 1.0)
+    p = acc * p_hit + (1.0 - acc) * p_miss
+    f = acc * f_hit + (1.0 - acc) * f_miss
+    n = sub["count"]
+    return n * sub["damage"] * f, n * sub.get("suppression", 0.0) * p
+
+
 def offense_score(unit):
     total = 0.0
     for w in unit.get("weapons", []):
@@ -258,20 +331,31 @@ def offense_score(unit):
         pen = w.get("penetration", 0.0)
         sup = w.get("suppression", 0.0)
         acc = w.get("accuracy", 0.0)
-        rng = w.get("effective_range_tiles", w.get("range_tiles", 1.0))
+        rng = standoff_range(w)
         blast = w.get("type") in BLAST_TYPES
 
         kpm = 0.0
-        for armor, hp, share in TARGET_MIX:
-            pk = BLAST_EFFECT[armor] if blast else p_pen(pen, armor)
-            if pk <= 0.0:
-                continue
-            rate = rof * acc * pk * dmg / max(hp, 1.0)
-            kpm += share * min(rate, MAX_ENGAGE_RATE)
+        if w.get("submunitions"):
+            # Bomblets: soft targets only, whatever the class; the burst point already
+            # carries the parent's accuracy, so it is not applied twice.
+            round_dmg, round_sup = submunition_round(w)
+            for armor, hp, share in TARGET_MIX:
+                if armor >= SUB_SOFT_ARMOR_LIMIT:
+                    continue
+                rate = rof * round_dmg / max(hp, 1.0)
+                kpm += share * min(rate, MAX_ENGAGE_RATE)
+            spm = rof * round_sup
+        else:
+            for armor, hp, share in TARGET_MIX:
+                pk = BLAST_EFFECT[armor] if blast else p_pen(pen, armor)
+                if pk <= 0.0:
+                    continue
+                rate = rof * acc * pk * dmg / max(hp, 1.0)
+                kpm += share * min(rate, MAX_ENGAGE_RATE)
+            spm = rof * sup
 
         # Suppression saturates: you cannot suppress a unit more than fully.
         # This is what stops a high-RoF MG from out-scoring a tank gun.
-        spm = rof * sup
         kpm += SUP_MAX_VALUE * (1.0 - math.exp(-spm / SUP_SATURATION))
 
         # Standoff compounds -- engaging on your own terms is worth paying for.

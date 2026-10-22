@@ -44,15 +44,20 @@
       "effective_range_tiles": 18,
       "accuracy": 0.45,
       "penetration": 20,
-      "damage": 120,
-      "splash_tiles": 1.2,
       "suppression": 160,
       "rof_per_min": 2,
       "min_range_tiles": 6,
       "can_target": [
         "ground"
       ],
-      "collateral_risk": 0.95
+      "collateral_risk": 0.95,
+      "submunitions": {
+        "count": 12,
+        "scatter_tiles": 2.5,
+        "damage": 90,
+        "splash_tiles": 0.8,
+        "suppression": 60
+      }
     }
   ]
 }

@@ -47,7 +47,9 @@
         "ground",
         "structure"
       ],
-      "collateral_risk": 0.2
+      "collateral_risk": 0.2,
+      "indirect": true,
+      "fires_from_building": false
     }
   ],
   "abilities": [
