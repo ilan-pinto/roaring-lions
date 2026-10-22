@@ -250,7 +250,7 @@ export function q11Note(t: DuelTable): string {
 // ---------------------------------------------------------------------------
 // Probe 9: the grenadier against cover.
 //   Two KDF squads (grenadier, or inf_squad as the control) face three militia_cell,
-//   5 tiles apart, the militia one tile from each other. Cover 2 on the militia's tiles and
+//   6 tiles apart, the militia one tile from each other. Cover 2 on the militia's tiles and
 //   a one-tile ring round them, or none. No orders, 25 s. The reading is the mean net hp
 //   margin: (militia hp lost - KDF hp lost) as a fraction of one side's starting hp.
 //   advantage(cover) = margin(grenadier) - margin(inf_squad).

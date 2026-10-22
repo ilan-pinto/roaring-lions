@@ -168,3 +168,17 @@ JSON files were never touched), the probe file restored byte-for-byte afterwards
 - dog `sight_tiles` 12 -> 6: the tunnel band goes red.
 - dog speed 1.3 -> 0.3: the tunnel claim ("before yahalom_squad") and its band go red.
 - one banded number edited in the test (`atgm_cell` ambush 8t 265 -> 400): that spec goes red.
+
+## Notes for the lead and the landing phases
+
+- **The grenadier's blurb is provisional.** "Grenades reach men behind a wall" is the spec's splash
+  argument, and probe 9 misses its cover claim on the net-margin reading. Re-read the blurb when the
+  lead rules on the retune.
+- **`ugv_recon_dog` sets `hull.can_embark: true`**, a choice beyond the spec's §1.10 field list: a
+  crew-0, population-0 robot may ride a carrier like a team. Phase 8 confirms or drops it with the
+  transport rules in front of it.
+- **The camo Lavi is found later, not only by firing.** Parked in ambush it is still identified in
+  every in-sight cell, about 1.6-2.0x later than the Lavi. The spec's "is it found at all, and only by
+  firing?" is answered: yes, and no.
+- **Q11 is triggered**: `spg_long_range` wins 30/30 at every range 20-28 with no hp lost. Range is not
+  the lever (one 320-damage round equals the Grad's 320 hp); the lead decides.
