@@ -145,6 +145,8 @@ export interface ProductionWorld {
   readonly runtime: {
     productionLines(side: 0 | 1): readonly { readonly alive: boolean; readonly current: string | null; readonly items: readonly string[] }[];
     logisticsOf(side: 0 | 1): number;
+    /** True when the population cap is what refuses `unitId` for `side` (F3's own check). */
+    popCapped(unitId: string, side: 0 | 1): boolean;
   } | null;
   readonly factions: readonly ['kdf' | 'sarim', 'kdf' | 'sarim'];
 }
@@ -173,9 +175,10 @@ export function productionFor(runtime: NonNullable<ProductionWorld['runtime']>, 
       const lines = runtime.productionLines(side).filter((l) => l.alive);
       if (lines.length === 0) return false;
       if (lines.some((l) => (l.current !== null && armedType(l.current)) || l.items.some(armedType))) return true;
-      let cheapest = Infinity;
-      for (const id of menus[side]) if (armedType(id)) cheapest = Math.min(cheapest, unitCost(id));
-      return runtime.logisticsOf(side) >= cheapest;
+      // An armed menu unit the side can both afford and fit under its population cap: what
+      // `requestBuild` would actually accept (Task 5 review, minor 1).
+      const purse = runtime.logisticsOf(side);
+      return menus[side].some((id) => armedType(id) && unitCost(id) <= purse && !runtime.popCapped(id, side));
     },
   };
 }

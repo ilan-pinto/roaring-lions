@@ -25,10 +25,11 @@ function fixedSim(): OutcomeSim {
 }
 
 interface Line { alive: boolean; current: string | null; items: string[] }
-function runtime(lines1: Line[], purse1: number) {
+function runtime(lines1: Line[], purse1: number, capped = false) {
   return {
     productionLines: (side: 0 | 1): Line[] => (side === 1 ? lines1 : []),
     logisticsOf: (side: 0 | 1): number => (side === 1 ? purse1 : 0),
+    popCapped: (): boolean => capped,
   };
 }
 const camp = (over: Partial<Line> = {}): Line => ({ alive: true, current: null, items: [], ...over });
@@ -50,6 +51,11 @@ describe('the win rule counts production (N3 Task 5)', () => {
   it('a living camp and a purse that covers the cheapest armed unit: ongoing', () => {
     const p = productionFor(runtime([camp()], cheapest), [doctrines.kdf.menu, sarim]);
     expect(outcomeOf(sim(), 100, unitCost, p)).toEqual({ kind: 'ongoing' });
+  });
+
+  it('a purse that covers the cheapest armed unit, but the population cap refuses every one: lost', () => {
+    const p = productionFor(runtime([camp()], cheapest, true), [doctrines.kdf.menu, sarim]);
+    expect(outcomeOf(sim(), 100, unitCost, p)).toEqual({ kind: 'won', side: 0, by: 'annihilation' });
   });
 
   it('one logistics short with an empty queue: lost by annihilation', () => {
