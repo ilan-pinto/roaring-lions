@@ -1,0 +1,23 @@
+{
+  "unit": "ugv_recon_dog",
+  "variant": "team",
+  "source": "assets/meshes/ugv_recon_dog.glb",
+  "source_sha256": "0ab8dbc9621523726e0f4b9355b031dd1c8e893494e009439506a56d764415d5",
+  "yaw_deg": -125.0,
+  "elevation_deg": 12.0,
+  "fov_deg": 30.0,
+  "fill": [
+    "longer",
+    0.88
+  ],
+  "ndc_box": [
+    0.1128,
+    0.8872,
+    0.06,
+    0.94
+  ],
+  "materials": {
+    "baked": 4,
+    "flat": 0
+  }
+}

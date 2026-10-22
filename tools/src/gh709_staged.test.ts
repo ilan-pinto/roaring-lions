@@ -3,9 +3,9 @@
 // Nine credit-only units, approved and priced by the lead on 22 Oct 2026
 // (docs/superpowers/specs/2026-10-22-special-units-design.md, "Lead rulings"). Each is STAGED
 // here, not in data/units/kdf, until the phase that lands its art (and engine) moves it, in one
-// commit. Phase 2 landed `mbt_lavi_camo` and `spg_long_range`; the other seven still wait for
-// art, and five of them for an engine concept (E1 unit aura, E2 the `indirect` weapon flag, E3
-// submunitions). This spec is the E5 guard (`e5_staged.test.ts`) for this set:
+// commit. Phase 2 landed `mbt_lavi_camo` and `spg_long_range`, Phase 8 `ugv_recon_dog`; the
+// other six still wait for art, and five of them for an engine concept (E1 unit aura, E2 the
+// `indirect` weapon flag, E3 submunitions). This spec is the E5 guard (`e5_staged.test.ts`) for this set:
 //   - the staged set is exactly the nine the lead approved -- the AA team is held until E6
 //     (GH-274) and the camouflaged rifle squad is not built, and neither may be staged;
 //   - every draft parses against the shipped unit schema (a draft that needs E1 is staged
@@ -108,10 +108,10 @@ describe('GH-709: staged and landed partition the nine approved units', () => {
 });
 
 describe('GH-709 staged special units', () => {
-  it('stages seven: Phase 2 landed the Lavi Ambush Tank and the Te\'o Howitzer', () => {
+  it('stages six: Phase 2 landed the Lavi Ambush Tank and the Te\'o Howitzer, Phase 8 the Chadaf robot', () => {
     // Update these lines, not the partition above, when a unit lands with its art. Named, so a
     // unit that vanished from both places cannot pass as "landed".
-    expect([...LANDED_IDS]).toEqual(['mbt_lavi_camo', 'spg_long_range']);
+    expect([...LANDED_IDS]).toEqual(['mbt_lavi_camo', 'spg_long_range', 'ugv_recon_dog']);
     expect(staged.map((s) => s.json.id)).toEqual(GH709_IDS.filter((id) => !LANDED_IDS.includes(id)));
   });
 

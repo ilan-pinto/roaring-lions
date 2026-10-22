@@ -16,9 +16,15 @@ export type VersusRosterUnit = (typeof units)[keyof typeof units];
  * `mbt_lavi_camo` and `spg_long_range` (GH-709 Phase 2): credit-only store units, on no
  * doctrine menu. Registering a type a versus side can never field would move the
  * roster-count and hash pins for nothing, so they are held the same way until a versus
- * design gives a special unit a seat.
+ * design gives a special unit a seat. `ugv_recon_dog` (Phase 8) joins them for the same
+ * reason.
  */
-export const VERSUS_HELD_UNITS: ReadonlySet<string> = new Set(['heli_yanshuf', 'mbt_lavi_camo', 'spg_long_range']);
+export const VERSUS_HELD_UNITS: ReadonlySet<string> = new Set([
+  'heli_yanshuf',
+  'mbt_lavi_camo',
+  'spg_long_range',
+  'ugv_recon_dog',
+]);
 
 /**
  * The unit types a versus room registers, in roster order: the shipped

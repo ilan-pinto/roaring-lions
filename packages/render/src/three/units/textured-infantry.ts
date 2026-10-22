@@ -67,6 +67,9 @@ export const TEXTURED_INFANTRY_TYPES: ReadonlySet<string> = new Set<string>([
   // and rifle carry no map and take the faction ramp. HELD in
   // mesh-catalogue.ts until Task 9 lands its unit JSON.
   'recon_zikit',
+  // GH-709 unit 10 (22 Oct): the Chadaf recon robot, one Meshy remesh with its 2k
+  // base-colour bake on every role (tools/units/import_meshy_dog.py).
+  'ugv_recon_dog',
   // B7 (GH-179, 2026-10-01): the two B2 teams, their bake bought on the B2
   // preview itself (`pnpm meshy -- refine`) and re-remeshed; and the four
   // supplied civilian figures, which keep their own supplied bake

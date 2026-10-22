@@ -185,6 +185,15 @@
         570,
         441
       ]
+    },
+    "ugv_recon_dog": {
+      "file": "ugv_recon_dog.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        138,
+        89
+      ]
     }
   }
 }

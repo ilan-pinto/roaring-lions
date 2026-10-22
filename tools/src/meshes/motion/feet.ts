@@ -52,7 +52,11 @@ export function addFeet(doc: Document): string[] {
     }
   }
   rig = new Rig(doc);
-  const feet = rig.nodes.filter((n) => /_foot_[LR]$/.test(n.getName()));
+  // Only the ankles added above: a foot bone whose parent is a SHIN. The quadruped
+  // robot (ugv_recon_dog) ships its own `_foot_[LR]` bones, on a `_lower_` link, with
+  // keyed counter-rotations that hold each pad level; resetting those to rest turned
+  // every pad with its leg and planted feet slid 20 mm.
+  const feet = rig.nodes.filter((n) => /_foot_[LR]$/.test(n.getName()) && /_shin_[LR]$/.test(rig.parent.get(n)?.getName() ?? ''));
   for (const anim of doc.getRoot().listAnimations()) {
     const tracks = tracksOf(anim);
     for (const f of feet) {

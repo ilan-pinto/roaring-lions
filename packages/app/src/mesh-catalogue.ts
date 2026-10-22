@@ -179,6 +179,11 @@ export const RIGGED_UNIT_MESHES: Readonly<Record<string, RiggedMeshEntry>> = {
   // figure cut into rig.py's parts (`tools/units/import_meshy_zikit_team.py`).
   recon_zikit: { files: ['recon_zikit.glb'], faction: 'kdf' },
 
+  // GH-709 unit 10 (2026-10-22): the Chadaf recon robot, a four-legged walker --
+  // a Meshy remesh cut into rigid parts on rig.py's dog topology
+  // (`tools/units/import_meshy_dog.py`). Textured, so no faction ramp reaches it.
+  ugv_recon_dog: { files: ['ugv_recon_dog.glb'], faction: 'kdf' },
+
   // WP-A3.1 batch B2 (GH-179, 2026-09-30): Meshy A-pose figures cut into
   // rig.py's parts and driven by rig.py's own clips
   // (`tools/units/import_meshy_crew_team.py`). Palette-painted -- GH-307's

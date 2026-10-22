@@ -359,6 +359,13 @@
         126
       ]
     },
+    "ugv_recon_dog": {
+      "file": "ugv_recon_dog.png",
+      "extent": [
+        154,
+        172
+      ]
+    },
     "yahalom_squad": {
       "file": "yahalom_squad.png",
       "extent": [
