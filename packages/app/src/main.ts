@@ -39,9 +39,11 @@ import {
   zoneContains,
   creditsFor,
   creditInputFrom,
+  unitTypeFromJson,
   type MissionEvent,
   type MissionJson,
   type TunnelRouteJson,
+  type UnitTypeJson,
 } from '@lions/sim';
 // ThreeRenderer is deliberately NOT imported here: it arrives by dynamic
 // import below, and eslint bans a static import of `@lions/render/three` --
@@ -210,7 +212,7 @@ import { cursorAnimDriver } from './input/cursor-anim';
 import { prefersReducedMotion, prefersSaveData } from './ui/motion';
 import { firstLaunchIntro, introAvailable, replayIntro } from './ui/intro';
 import { isShippedVideo } from './ui/cinematics-model';
-import { roleBucket } from './ui/role';
+import { isMountCarrier, roleBucket } from './ui/role';
 import { rosterLanguages, voiceClassOf } from './voice/lines';
 import { VoiceRuntime, voicePlaceholderOn } from './voice/voice-runtime';
 import { medicCallInputs, type AnnounceInput } from './voice/announce';
@@ -406,13 +408,18 @@ function unitFor(typeId: string): { id: string; role: string } {
  *  at all. */
 function kdfBrigadeTraits(
   u: (typeof units)[keyof typeof units]
-): { isKamikaze: boolean; transportSlots: number; isSoft: boolean } {
+): { isKamikaze: boolean; transportSlots: number; isSoft: boolean; canCarry: readonly string[] | null; canEmbark: boolean } {
   const abilities = 'abilities' in u ? (u.abilities as string[]) : [];
-  const hull = u.hull as { transport_slots?: number; armor: { front: number } };
+  const hull = u.hull as { transport_slots?: number; armor: { front: number }; can_carry?: readonly string[] };
   return {
     isKamikaze: abilities.includes('kamikaze'),
     transportSlots: hull.transport_slots ?? 0,
     isSoft: hull.armor.front < 30,
+    // GH-707 P2: `canEmbark`'s role default (`FOOT_ROLES`) is the sim's own, so it is read
+    // off `unitTypeFromJson` rather than re-derived; it is what tells the medic team's
+    // stretcher seat from the ambulance's in `roleBucket`.
+    canCarry: hull.can_carry ?? null,
+    canEmbark: unitTypeFromJson(u as unknown as UnitTypeJson).canEmbark,
   };
 }
 
@@ -2906,7 +2913,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       ids: myLiving(),
       x: w.x,
       y: w.y,
-      isCarrier: (i) => sim.unitTypes[sim.state.typeIdx[i]].transportSlots > 0,
+      // GH-707: a carrier whose seats are for the wounded alone is never a squad's mount.
+      isCarrier: (i) => isMountCarrier(sim.unitTypes[sim.state.typeIdx[i]]),
       canEmbark: (i) => sim.unitTypes[sim.state.typeIdx[i]].canEmbark,
       canSmoke: (i) => sim.unitTypes[sim.state.typeIdx[i]].canSmoke,
       passengerCount: (i) => sim.passengerCount(i),
@@ -3141,8 +3149,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       },
       carrierEmptySeat: () =>
         sel.some((i) => {
-          const slots = sim.unitTypes[sim.state.typeIdx[i]].transportSlots;
-          return slots > 0 && sim.passengerCount(i) < slots;
+          const type = sim.unitTypes[sim.state.typeIdx[i]];
+          return isMountCarrier(type) && sim.passengerCount(i) < type.transportSlots;
         }),
       enemyPinned: () => {
         for (let i = 0; i < sim.entityCount; i++) {
@@ -5514,7 +5522,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // exists rather than a second one. `target_minutes` gets that same
             // treatment -- the sim never reads it either (`grade.ts`).
             const kdfUnits = Object.values(units)
-              .filter((u) => u.faction === 'kdf')
+              // GH-707 P2: not the wounded -- a casualty is never "newly unlocked".
+              .filter((u) => u.faction === 'kdf' && u.role !== 'wounded')
               .map((u) => ({
                 id: u.id,
                 name: u.name ?? u.id,

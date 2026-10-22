@@ -2365,7 +2365,8 @@ export class Sim {
     const type = structureTypeFromJson(json, TICKS_PER_SECOND);
     // GH-707: an aid post turns the wound block's hash fold on when one is placed or staked
     // (`addStructure`), not here: every world registers the whole structure catalogue (`standMapStructures`), so
-    // a registration trigger would fold the block into every mission and versus world.
+    // a registration trigger would fold the block into every versus world (a mission registers the
+    // wounded types and folds from tick 0 anyway).
     this.structureTypes.push(type);
     return this.structureTypes.length - 1;
   }

@@ -91,6 +91,11 @@ export interface BrigadeUnit {
   isKamikaze: boolean;
   transportSlots: number;
   isSoft: boolean;
+  /** GH-707 P2: `hull.can_carry` (null = the ordinary seating rule) and the
+   *  sim's `canEmbark` -- what lets `roleBucket` tell the medic team's
+   *  stretcher seat (soft) from the ambulance's (transport). */
+  canCarry: readonly string[] | null;
+  canEmbark: boolean;
   /** Brigade economy step 3 upgrade tracks (`@lions/data`'s `UpgradeTracks`) --
    *  absent for a unit with none. Rendered on a locked unit too (F7): read-only,
    *  as what the type could become once it is unlocked -- tier 1 of every track

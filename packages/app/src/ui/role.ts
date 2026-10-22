@@ -20,19 +20,42 @@ export type RoleBucket =
   | 'soft'
   | 'armour';
 
-/** Structural on purpose: the four fields it reads, so this module needs no
- *  sim import and a test can describe a unit without building one. */
+/** GH-707: whether a `hull.can_carry` list seats the wounded and nothing else. */
+function carriesOnlyWounded(canCarry: readonly string[] | null): boolean {
+  return canCarry !== null && canCarry.length > 0 && canCarry.every((r) => r === 'wounded');
+}
+
+/**
+ * Whether a unit is a carrier a squad can MOUNT: it has seats, and those seats
+ * are not reserved for the wounded alone (GH-707). The medic team's stretcher
+ * seat, the ambulance and the medevac all carry `can_carry: ['wounded']`, so
+ * none of them may be picked as the vehicle a right-clicked squad boards.
+ * Structural, like `roleBucket`, so the intents and `main.ts` read one rule.
+ */
+export function isMountCarrier(type: { transportSlots: number; canCarry: readonly string[] | null }): boolean {
+  return type.transportSlots > 0 && !carriesOnlyWounded(type.canCarry);
+}
+
+/** Structural on purpose: the fields it reads, so this module needs no
+ *  sim import and a test can describe a unit without building one.
+ *
+ *  GH-707 P2: a FOOT unit (`canEmbark`) whose only seats are for the wounded
+ *  -- the medic team's stretcher -- is not a transport; it falls through to
+ *  soft/armour. The ambulance and the medevac carry only the wounded too, but
+ *  neither can embark, so they stay `transport`. */
 export function roleBucket(type: {
   isKamikaze: boolean;
   role?: string;
   transportSlots: number;
   isSoft: boolean;
+  canCarry: readonly string[] | null;
+  canEmbark: boolean;
 }): RoleBucket {
   if (type.isKamikaze) return 'kamikaze';
   if (type.role === 'drone') return 'drone';
   if (type.role === 'gunship') return 'gunship';
   if (type.role === 'sniper') return 'sniper';
-  if (type.transportSlots > 0) return 'transport';
+  if (type.transportSlots > 0 && !(type.canEmbark && carriesOnlyWounded(type.canCarry))) return 'transport';
   return type.isSoft ? 'soft' : 'armour';
 }
 

@@ -14,7 +14,7 @@
 //
 // Every check below that measures a quantity also runs against an input built to fail (a control),
 // inside the spec: a litter moved 0.3 m, a clip with the litter left switched on, a foot speed the
-// clip was not authored for, a figure compared with itself, a weapon in its low-ready `idle`.
+// clip was not authored for, med_b given med_a's own body, a weapon in its low-ready `idle`.
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -117,13 +117,14 @@ describe('inf_medic_squad: the per-figure split of the clips', () => {
 });
 
 describe('inf_medic_squad: two different bodies', () => {
-  const verts = restVertices(new Rig(doc));
   const rig0 = new Rig(doc);
+  const verts = restVertices(rig0);
+  type Vert = (typeof verts)[number];
   /** Height of a body (head, helmet and boots: the textured roles), and the width of its trunk: twice
    *  the 80th percentile of the textured vertices' distance from his own spine, over the chest band
    *  (a percentile, not the extreme: a sleeve's stray triangle is not his chest). */
-  function body(prefix: string): { height: number; trunk: number } {
-    const mine = verts.filter((v) => v.joint.getName().startsWith(`${prefix}_`) && !/death/.test(v.joint.getName()));
+  function body(vs: readonly Vert[], prefix: string): { height: number; trunk: number } {
+    const mine = vs.filter((v) => v.joint.getName().startsWith(`${prefix}_`) && !/death/.test(v.joint.getName()));
     const worn = mine.filter((v) => v.role === 'uniform' || v.role === 'face' || v.role === 'boot');
     const cz = rig0.restWorld.get(rig0.node(`${prefix}_spine`))!.t[2];
     const trunk = worn
@@ -132,21 +133,42 @@ describe('inf_medic_squad: two different bodies', () => {
       .sort((x, y) => x - y);
     return { height: Math.max(...worn.map((v) => v.p[1])), trunk: 2 * trunk[Math.floor(0.8 * (trunk.length - 1))] };
   }
-  const a = body('med_a');
-  const b = body('med_b');
+  /** The lead's rule, as the conditions it breaks: med_a taller by > 5 cm, med_b wider by > 10 %,
+   *  both inside 1.7-1.9 m. Empty when the two bodies differ as they must. */
+  function bodyRuleBreaks(vs: readonly Vert[]): string[] {
+    const a = body(vs, 'med_a');
+    const b = body(vs, 'med_b');
+    console.log(`medic bodies: med_a ${a.height.toFixed(3)} m, trunk ${a.trunk.toFixed(3)} m; med_b ${b.height.toFixed(3)} m, trunk ${b.trunk.toFixed(3)} m`);
+    const out: string[] = [];
+    if (!(a.height - b.height > 0.05)) out.push('not taller');
+    if (!(b.trunk / a.trunk > 1.1)) out.push('not wider');
+    if (!(Math.max(a.height, b.height) < 1.9)) out.push('too tall');
+    if (!(Math.min(a.height, b.height) > 1.7)) out.push('too short');
+    return out;
+  }
 
   it('one is taller by at least 5 cm and the other wider through the trunk by at least 10 %', () => {
-    console.log(`medic bodies: med_a ${a.height.toFixed(3)} m, trunk ${a.trunk.toFixed(3)} m; med_b ${b.height.toFixed(3)} m, trunk ${b.trunk.toFixed(3)} m`);
-    expect(a.height - b.height).toBeGreaterThan(0.05);
-    expect(b.trunk / a.trunk).toBeGreaterThan(1.1);
-    expect(Math.max(a.height, b.height)).toBeLessThan(1.9);
-    expect(Math.min(a.height, b.height)).toBeGreaterThan(1.7);
+    expect(bodyRuleBreaks(verts)).toEqual([]);
   });
 
-  it('control: a body measured against itself reads neither taller nor wider', () => {
-    expect(a.height - a.height).toBe(0);
-    expect(a.trunk / a.trunk).toBe(1);
-    expect(Math.abs(a.height - b.height)).toBeGreaterThan(0); // and the two are not one measurement
+  it('control: med_b given med_a\'s own body (in memory) is read as neither taller nor wider', () => {
+    // Every med_b vertex replaced by med_a's, re-bound to med_b's same-named joint and moved by the
+    // two spines' rest offset: one body twice over, which the rule must refuse on both counts.
+    const sa = rig0.restWorld.get(rig0.node('med_a_spine'))!.t;
+    const sb = rig0.restWorld.get(rig0.node('med_b_spine'))!.t;
+    // (med_a's litter has no med_b twin, and is not part of a body: it is left out.)
+    const names = new Set(doc.getRoot().listNodes().map((n) => n.getName()));
+    const twin = verts
+      .filter((v) => v.joint.getName().startsWith('med_a_') && names.has(v.joint.getName().replace(/^med_a_/, 'med_b_')))
+      .map((v) => ({
+        ...v,
+        joint: rig0.node(v.joint.getName().replace(/^med_a_/, 'med_b_')),
+        p: [v.p[0] + sb[0] - sa[0], v.p[1], v.p[2] + sb[2] - sa[2]] as typeof v.p,
+      }));
+    const same = [...verts.filter((v) => !v.joint.getName().startsWith('med_b_')), ...twin];
+    const breaks = bodyRuleBreaks(same);
+    expect(breaks).toContain('not taller');
+    expect(breaks).toContain('not wider');
   });
 });
 
@@ -267,16 +289,26 @@ describe('inf_medic_squad: carry', () => {
     expect(worstGripGap(d, 'carry')).toBeGreaterThan(0.25);
   });
 
-  it('the bearers stand inside the lead\'s +-1.35 m, past the +-1.2 m rest footprint', () => {
-    const poses = measureJointPoses(FILE, 'carry', 'start');
+  /** The lead's carrying footprint, as the conditions it breaks: in `carry` each bearer's root
+   *  stands between 1.2 and 1.35 m off the litter's centre line, and at rest (`idle`) inside 1.2 m. */
+  function spacingBreaks(path: string): string[] {
+    const poses = measureJointPoses(path, 'carry', 'start');
     const xs = BODY.map((p) => poses.find((j) => j.name === `${p}_root`)!.translation[0]).sort((a, b) => a - b);
     console.log(`carry: bearers at x ${xs.map((x) => x.toFixed(3)).join(', ')}`);
-    expect(xs[0]).toBeGreaterThan(-1.35);
-    expect(xs[0]).toBeLessThan(-1.2);
-    expect(xs[1]).toBeLessThan(1.35);
-    expect(xs[1]).toBeGreaterThan(1.2);
-    const rest = measureJointPoses(FILE, 'idle', 'start');
-    for (const p of BODY) expect(Math.abs(rest.find((j) => j.name === `${p}_root`)!.translation[0]), `${p} at rest`).toBeLessThan(1.2);
+    const out: string[] = [];
+    if (!(xs[0] > -1.35)) out.push('rear bearer outside 1.35 m');
+    if (!(xs[0] < -1.2)) out.push('rear bearer inside 1.2 m');
+    if (!(xs[1] < 1.35)) out.push('front bearer outside 1.35 m');
+    if (!(xs[1] > 1.2)) out.push('front bearer inside 1.2 m');
+    const rest = measureJointPoses(path, 'idle', 'start');
+    for (const p of BODY) {
+      if (!(Math.abs(rest.find((j) => j.name === `${p}_root`)!.translation[0]) < 1.2)) out.push(`${p} at rest outside 1.2 m`);
+    }
+    return out;
+  }
+
+  it('the bearers stand inside the lead\'s +-1.35 m, past the +-1.2 m rest footprint', () => {
+    expect(spacingBreaks(FILE)).toEqual([]);
   });
 
   it('control: bearers 0.1 m further apart are read as outside the allowance', async () => {
@@ -288,8 +320,9 @@ describe('inf_medic_squad: carry', () => {
         writeTrack(d, anim, rig.node(`${p}_root`), 'translation', Array.from(tr.times), Array.from(tr.values).map((v, i) => (i % 3 === 0 ? v + dx : v)));
       }
     });
-    const poses = measureJointPoses(path, 'carry', 'start');
-    expect(Math.abs(poses.find((j) => j.name === 'med_b_root')!.translation[0])).toBeGreaterThan(1.35);
+    const breaks = spacingBreaks(path);
+    expect(breaks).toContain('rear bearer outside 1.35 m');
+    expect(breaks).toContain('front bearer outside 1.35 m');
   });
 
   it('a planted foot moves at the unit\'s own carrying speed, not at its walking speed', () => {

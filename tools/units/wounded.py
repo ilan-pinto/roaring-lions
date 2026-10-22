@@ -271,8 +271,8 @@ def _build_crawl(arm_obj):
         p = f / n
         s = math.sin(2.0 * math.pi * p)
         c = math.cos(2.0 * math.pi * p)
-        xl, _lift_l = _hand_target(p)
-        xr, _lift_r = _hand_target(p + 0.5)
+        xl, _ = _hand_target(p)
+        xr, _ = _hand_target(p + 0.5)
         _arm_to(arm_obj, f, "L", (xl, -(WRIST_Y + 0.045)))
         _arm_to(arm_obj, f, "R", (xr, WRIST_Y + 0.045))
         # One knee does the work: drawn up forward and out as its opposite arm
@@ -423,7 +423,11 @@ def crawl_probe(arm_obj, team_id):
         # contact half = the longest run of falling x
         speeds = []
         for f in range(1, CRAWL_FRAMES + 1):
-            dx = series[f] - series[f - 1]
+            # a frame whose hand selection came up empty has no reading: skip it, never KeyError
+            prev, cur = series.get(f - 1), series.get(f)
+            if prev is None or cur is None:
+                continue
+            dx = cur - prev
             if dx < 0:
                 speeds.append(-dx * FPS)
         out.append((sgn, max(speeds) if speeds else 0.0, sum(speeds) / max(1, len(speeds))))

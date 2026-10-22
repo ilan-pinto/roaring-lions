@@ -560,7 +560,7 @@ def build_kdf_aid_post(state):
         collapse([tent], 0.0, AID_HEIGHT)
         scale_about(tent, (0, AID_OFFSET[1], 0), (1.0, 1.0, 0.45))
         for c, (x, y) in zip(crates, ((-1.2, -0.3), (-0.5, 0.8), (1.3, 0.2), (1.0, -1.6))):
-            translate(c, (x + 1.95 if c is crates[0] else x + 1.95, y + 3.7, 0))
+            translate(c, (x + 1.95, y + 3.7, 0))
         # ONE standing frame bay at the far (+Y) end: two arched hoops, purlins,
         # and a torn strip of canvas hanging from the rear hoop. Porch is down.
         parts += aid_hoop_bay(y0=3.55, y1=4.35)

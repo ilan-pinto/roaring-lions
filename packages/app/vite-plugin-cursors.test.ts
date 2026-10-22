@@ -460,7 +460,7 @@ describe('the badge is the housing\'s fourth plate', () => {
     const badged = [...new Set(
       [...css.matchAll(/canvas\[data-cursor='((?:garrison|demolish|charge)-[a-z]+)'\]/g)].map((m) => m[1])
     )];
-    expect(badged.length).toBe(6); // GH-707 P2: garrison x3 (+ transport); was garrison x2, demolish x2, charge x1
+    expect(badged.length).toBe(5); // garrison x2, demolish x2, charge x1
     for (const key of badged) {
       expect({ key, hasBr: artOf(css, key).includes(BR) }).toEqual({ key, hasBr: false });
     }

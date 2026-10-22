@@ -288,12 +288,12 @@ def export(scale=SHIPPED_SCALE, out_path=OUT):
     for o in kit:
         bpy.data.objects.remove(o, do_unlink=True)
     log(f"dropped {len(kit)} imported kit_* object(s)")
-    death = bpy.data.objects.get("death_root")
-    if death is not None:
-        doomed = [death] + [o for o in bpy.data.objects if o.parent == death]
-        for o in doomed:
-            bpy.data.objects.remove(o, do_unlink=True)
-        log(f"stripped death_root and {len(doomed) - 1} WRECK_ node(s)")
+    # By PREFIX, like the ambulance exporter: a WRECK_ node nested below another (not a direct
+    # child of death_root) would otherwise survive, unparented, into the export.
+    doomed = [o for o in bpy.data.objects if o.name.startswith("WRECK_") or o.name == "death_root"]
+    for o in doomed:
+        bpy.data.objects.remove(o, do_unlink=True)
+    log(f"stripped death_root and every WRECK_* node ({len(doomed)} object(s))")
     for act in list(bpy.data.actions):
         bpy.data.actions.remove(act)
     for o in bpy.data.objects:

@@ -140,7 +140,8 @@ export const MOTION_TEAMS: Record<string, MotionTeam> = {
     figures: [{ prefix: 'med_a', weapon: 'rifle', kneels: true }, { prefix: 'med_b', weapon: 'rifle', kneels: true }],
     hold: true, kneel: true, formation: false, squad: true, stride: true, ground: true, speedTiles: 0.95,
     // The litter is 2.2 m (poles to x +-1.1, grips centred at 0.98), carried at hand height
-    // (0.98 m) between a front bearer and a rear one 1.35 m either side of it.
+    // (0.98 m) between a front bearer and a rear one 1.30 m either side of it (inside the
+    // lead's +-1.35 m allowance, which `mesh_rescue.test.ts` gates).
     rescue: {
       litter: 'med_a_litter',
       bearers: [{ prefix: 'med_a', x: -1.30, z: 0 }, { prefix: 'med_b', x: 1.30, z: 0 }],

@@ -117,11 +117,11 @@ PACK_SIZE = (0.20, 0.34, 0.27)
 
 #: The litter, in the team frame: the carried height of the poles (the arms are
 #: short -- 0.45 m shoulder ring to fingertips -- so the poles ride near the
-#: hands' hanging reach), its length and width, and the bearers' x.
+#: hands' hanging reach), its length and width. (The bearers' x, +-1.30 m, lives
+#: in `tools/src/meshes/motion/teams.ts`'s rescue entry, the only reader.)
 LITTER_Z = 0.98
 LITTER_LEN = 2.20
 LITTER_W = 0.55
-BEARER_X = 1.35
 CASUALTY_FIT = 0.90          # the casualty is scaled to the litter bed
 DEATH_DECIMATE = 0.25
 CASUALTY_RATIO = 0.60        # the casualty's collapse ratio, per role; kit.casualty is 1,646 tris

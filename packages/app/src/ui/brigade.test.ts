@@ -20,6 +20,8 @@ const units = [
     isKamikaze: false,
     transportSlots: 0,
     isSoft: true,
+    canCarry: null,
+    canEmbark: false,
     upgrades: {
       armour: {
         tiers: [
@@ -38,6 +40,8 @@ const units = [
     isKamikaze: false,
     transportSlots: 6,
     isSoft: false,
+    canCarry: null,
+    canEmbark: false,
   },
   {
     id: 'breach_team',
@@ -47,6 +51,8 @@ const units = [
     isKamikaze: false,
     transportSlots: 0,
     isSoft: true,
+    canCarry: null,
+    canEmbark: false,
   },
 ];
 
@@ -154,6 +160,8 @@ describe('showBrigade — the header and the rail', () => {
         isKamikaze: false,
         transportSlots: 0,
         isSoft: true,
+        canCarry: null,
+        canEmbark: false,
       },
       {
         id: 'price_only',
@@ -163,6 +171,8 @@ describe('showBrigade — the header and the rail', () => {
         isKamikaze: false,
         transportSlots: 0,
         isSoft: true,
+        canCarry: null,
+        canEmbark: false,
       },
     ];
     const host = mount({ units: fixture, ledger: {}, possibleStars: 78 });
@@ -303,6 +313,8 @@ describe('showBrigade — the header and the rail', () => {
         isKamikaze: false,
         transportSlots: 0,
         isSoft: true,
+        canCarry: null,
+        canEmbark: false,
         upgrades: {
           armour: { tiers: [{ price: 100, patch: { 'hull.hp': 10 } }, { price: 100, patch: { 'hull.hp': 10 } }] },
           firepower: { tiers: [{ price: 50, patch: { 'weapons[0].accuracy': 0.05 } }, { price: 50, patch: { 'weapons[0].accuracy': 0.05 } }] },
@@ -403,6 +415,8 @@ describe('showBrigade — the bay', () => {
           isKamikaze: false,
           transportSlots: 0,
           isSoft: false,
+          canCarry: null,
+          canEmbark: false,
         },
       ],
       ledger: {},
@@ -1398,6 +1412,8 @@ describe('showBrigade — a purchase is an event (§3.5)', () => {
       isKamikaze: false,
       transportSlots: 0,
       isSoft: false,
+      canCarry: null,
+      canEmbark: false,
       upgrades: { armour: { tiers: [{ price: 400, patch: { 'hull.hp': 250 } }] } },
     };
     let owned: Record<string, Record<string, number>> = {};
@@ -2076,7 +2092,7 @@ describe('the garage rows — special forces (E5 Task 7)', () => {
       role: string;
       unlock: BrigadeUnit['unlock'];
     };
-    return { id, name: raw.name, role: raw.role, unlock: raw.unlock, isKamikaze: false, transportSlots: 0, isSoft: false };
+    return { id, name: raw.name, role: raw.role, unlock: raw.unlock, isKamikaze: false, transportSlots: 0, isSoft: false, canCarry: null, canEmbark: false };
   });
   const cardFor = (host: HTMLElement, id: string): Element | null =>
     host.querySelector(`.rl-garage__card[data-unit="${id}"]`);

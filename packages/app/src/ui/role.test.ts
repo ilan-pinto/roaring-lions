@@ -6,14 +6,22 @@
 // zoneContains in the slice before this one.
 import { describe, expect, it } from 'vitest';
 import { units } from '@lions/data';
-import { bucketVisible, ROLE_LABEL, roleBadgeSvg, roleBucket, roleLabel, type RoleBucket } from './role';
+import { bucketVisible, isMountCarrier, ROLE_LABEL, roleBadgeSvg, roleBucket, roleLabel, type RoleBucket } from './role';
 import { symbolBody } from './symbol';
 
 const BUCKETS: readonly RoleBucket[] = ['kamikaze', 'drone', 'gunship', 'sniper', 'transport', 'soft', 'armour'];
 
-/** The four fields the classifier reads, defaulted to an armour unit. */
+/** The fields the classifier reads, defaulted to an armour unit. */
 function unit(over: Partial<Parameters<typeof roleBucket>[0]> = {}) {
-  return { isKamikaze: false, role: 'mbt', transportSlots: 0, isSoft: false, ...over };
+  return {
+    isKamikaze: false,
+    role: 'mbt',
+    transportSlots: 0,
+    isSoft: false,
+    canCarry: null as readonly string[] | null,
+    canEmbark: false,
+    ...over,
+  };
 }
 
 describe('roleBucket', () => {
@@ -42,6 +50,39 @@ describe('roleBucket', () => {
     expect(roleBucket(unit({ role: 'mbt' }))).toBe('armour');
   });
 
+  it('GH-707: a foot medic whose only seat is a stretcher is soft, not a transport', () => {
+    // inf_medic_squad: role support, transport_slots 1, can_carry ['wounded'], on foot.
+    expect(
+      roleBucket(unit({ role: 'support', transportSlots: 1, isSoft: true, canCarry: ['wounded'], canEmbark: true }))
+    ).toBe('soft');
+  });
+
+  it('GH-707: the ambulance and the medevac carry only the wounded and stay transports', () => {
+    // veh_ambulance / air_medevac_heli: role apc, transport_slots 4, can_carry ['wounded'], cannot embark.
+    expect(roleBucket(unit({ role: 'apc', transportSlots: 4, canCarry: ['wounded'] }))).toBe('transport');
+    expect(roleBucket(unit({ role: 'apc', transportSlots: 4, isSoft: true, canCarry: ['wounded'] }))).toBe('transport');
+  });
+
+  it('GH-707: a foot unit that seats anyone other than the wounded is still a transport', () => {
+    expect(
+      roleBucket(unit({ role: 'infantry', transportSlots: 1, isSoft: true, canCarry: ['wounded', 'infantry'], canEmbark: true }))
+    ).toBe('transport');
+    expect(roleBucket(unit({ role: 'infantry', transportSlots: 1, isSoft: true, canEmbark: true }))).toBe('transport');
+  });
+
+});
+
+describe('isMountCarrier', () => {
+  it('GH-707: nothing whose seats are for the wounded alone is a carrier a squad mounts', () => {
+    expect(isMountCarrier({ transportSlots: 1, canCarry: ['wounded'] })).toBe(false); // medic team
+    expect(isMountCarrier({ transportSlots: 4, canCarry: ['wounded'] })).toBe(false); // ambulance, medevac
+  });
+
+  it('an ordinary transport, or a carrier that seats someone else too, is one', () => {
+    expect(isMountCarrier({ transportSlots: 2, canCarry: null })).toBe(true);
+    expect(isMountCarrier({ transportSlots: 2, canCarry: ['wounded', 'infantry'] })).toBe(true);
+    expect(isMountCarrier({ transportSlots: 0, canCarry: null })).toBe(false);
+  });
 });
 
 describe('roleBadgeSvg', () => {

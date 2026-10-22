@@ -99,6 +99,8 @@ export const VEHICLE_TRACK_KIND: Readonly<Record<string, VehicleTrackKind>> = {
   spg_long_range: 'tracked',
   ifv_namer: 'tracked',
   dozer_d9: 'tracked',
+  // GH-707 P2: the Pered armoured ambulance runs on tracks (no `gear`, so the schema's `tracks`).
+  veh_ambulance: 'tracked',
   apc_eitan: 'wheeled',
   jeep_shoded: 'wheeled',
   technical: 'wheeled',
