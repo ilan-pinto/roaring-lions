@@ -5,7 +5,7 @@ import { Sim, type SimEvent, type UnitTypeJson, type WeaponJson } from './sim';
 // E2 (the `indirect` weapon flag) and E3 (submunitions), GH-709.
 // Spec: docs/superpowers/specs/2026-10-22-special-units-design.md §2.
 
-/** The staged `at_nlos_team`'s `spike_nlos`, without (E2's control) or with the flag. */
+/** The staged `at_nlos_team`'s `zaron_missile`, without (E2's control) or with the flag. */
 const NLOS: WeaponJson = {
   id: 'nlos', type: 'atgm', range_tiles: 24, effective_range_tiles: 18, accuracy: 0.8,
   penetration: 1000, damage: 450, suppression: 20, rof_per_min: 2, min_range_tiles: 4,

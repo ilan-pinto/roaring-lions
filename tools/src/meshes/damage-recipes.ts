@@ -297,6 +297,9 @@ const ROTOR: DamageOp = {
   yawDeg: 35,
 };
 
+/** GH-709: the Te'o Howitzer's thrown track, shared with the cluster graft on its hull. */
+const TEO_THROW_TRACK: ThrowTrack = { verb: 'throwTrack', side: 1, slide: -1.5, out0: 0.6, out1: 1.3, wave: 0.13, lowY: 0.6 };
+
 export const DAMAGE_RECIPES: Readonly<Record<string, readonly DamageOp[]>> = {
   mbt_lavi: scaleDamageOps(LAVI, rescaleOf('mbt_lavi')),
   // GH-298: the command Lavi is the shipped Lavi plus a cupola, a mast and
@@ -386,7 +389,30 @@ export const DAMAGE_RECIPES: Readonly<Record<string, readonly DamageOp[]>> = {
   // 4.25e-3 of the 6.8 m hull is about 3 cm; the copy is drawn charred and black.
   spg_long_range: [
     { verb: 'simplify', mesh: 'hull_rubber', ratio: 0.21, maxError: 0.01, flags: ['Permissive'] },
-    { verb: 'throwTrack', side: 1, slide: -1.5, out0: 0.6, out1: 1.3, wave: 0.13, lowY: 0.6 },
+    TEO_THROW_TRACK,
     { verb: 'breakBarrel', mesh: 'turret_metal', breakX: 2.3, droopDeg: 60, axisRadius: 0.3, elevationDeg: 35 },
+  ],
+  // GH-709 P7: the Te'o Cluster Howitzer -- the Te'o's own three verbs on the Te'o's
+  // own hull (tools/vehicles/export_spg_cluster.py), with the gun re-laid to 50 degrees.
+  // `breakX` keeps the Te'o's break at the same distance ALONG the bore: the Te'o
+  // breaks 1.10 m out from its trunnion (x 1.399 + 1.10 cos 35 = 2.3); at 50 that is
+  // x 1.399 + 1.10 cos 50 = 2.1. `axisRadius` 0.3 takes the tube AND the new brake
+  // (a 0.40 x 0.30 box, 0.25 m to its corners). The rubber ratio is re-swept: the
+  // brake adds 417 triangles to the gun copy, so the Te'o's 0.21 no longer fits.
+  // Measured 2026-10-22 on the Draco mirror (Draco bytes / share of the 64 KiB cap,
+  // raw bytes, rubber triangles of 27,657, meshopt error relative to extent):
+  //
+  //   0.21  69,804 107% / 378,655  5,738  4.25e-3   (over)
+  //   0.20  67,950 104% / 368,518  5,508  4.43e-3   (over)
+  //   0.19  65,453 99.9% / 355,071 5,234  4.55e-3   (fits by 83 bytes)
+  //   0.18  62,890  96% / 341,054  4,937  4.58e-3   <- shipped
+  //   0.17  60,898  93% / 328,593  4,661  4.78e-3
+  //
+  // 0.18, not the largest that fits: 0.19 clears the cap by 83 bytes, which one
+  // Draco encoder release could take. The error moves 0.03e-3 between the two.
+  spg_cluster: [
+    { verb: 'simplify', mesh: 'hull_rubber', ratio: 0.18, maxError: 0.01, flags: ['Permissive'] },
+    TEO_THROW_TRACK,
+    { verb: 'breakBarrel', mesh: 'turret_metal', breakX: 2.1, droopDeg: 60, axisRadius: 0.3, elevationDeg: 50 },
   ],
 };

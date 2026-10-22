@@ -83,6 +83,7 @@ import {
   type UpgradableUnit,
   firstUseHints,
   videoManifest,
+  coupons,
 } from '@lions/data';
 import './ui/theme.css';
 import { siteOfSelection, siteSelection, worksCardModel, worksEventNotice, worksLegendKeys, worksPreview, worksRings, worksShapeOf, type WorksShape } from './ui/works-model';
@@ -157,7 +158,8 @@ import { pauseMenu, type PauseDeps } from './ui/pause';
 import { advance as advanceClock, type Clock } from './shell/clock';
 import { applySettings, loadSettings, saveSettings, settingsBus, type Settings } from './settings';
 import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace, supportKeyTarget } from './input/keymap';
-import { buyUnlock, buyUpgrade } from './brigade-account';
+import { buyUnlock, buyUpgrade, redeemCoupon } from './brigade-account';
+import { sha256Hex } from './sha256';
 import { payVictory } from './campaign-pay';
 import { tierLine } from './ui/grade-copy';
 import { clocklessObjectives, speakerPlate, speakerPortrait, withoutHiddenClocks } from './ui/hud-model';
@@ -303,7 +305,7 @@ import { forgetRetiredKeys } from './retired-keys';
 // by a dynamic import, so neither import below pulls three into this chunk.
 import { sceneHost } from './ui/scene-host';
 import { dioramaSceneOptions } from './front/diorama';
-import { initTutorial, advance, type TutorialState, type StepJson } from './tutorial/runtime';
+import { initTutorial, advance, productionInputs, type TutorialState, type StepJson } from './tutorial/runtime';
 import { tutorialPanel, type TutorialPanel } from './tutorial/panel';
 import { hudVisibility, type MissionHudJson, type TutorialHudJson } from './tutorial/hud-visibility';
 import type { HudElement } from './ui/hud-elements';
@@ -1206,6 +1208,20 @@ async function main(): Promise<void> {
         ? () => {
             telemetry().account('reset', ledgerStore.resetAccount());
             return now();
+          }
+        : undefined,
+      // A coupon code (`data/coupons.json`, hashes only). Client-side and trust-based
+      // until the server ledger (GH-205). No telemetry: the attempt carries the code.
+      onRedeem: ledgerStore.available
+        ? (code) => {
+            const r = redeemCoupon(ledgerStore.readAccount(), code, coupons, sha256Hex, Date.now());
+            if (!r.ok) return { state: now(), result: r.reason };
+            try {
+              ledgerStore.writeAccount(r.account);
+            } catch {
+              return { state: now(), result: 'failed' as const };
+            }
+            return { state: now(), result: 'ok' as const, credits: r.credits };
           }
         : undefined,
       onBuy: ledgerStore.available
@@ -4442,7 +4458,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const stepList = Object.values(
     tutorials as Record<
       string,
-      ({ mission: string; steps: StepJson[]; completes?: string } & TutorialHudJson) | undefined
+      ({ id: string; mission: string; steps: StepJson[]; completes?: string } & TutorialHudJson) | undefined
     >
   ).find((t) => t?.mission === missionId);
   let tut: TutorialState | null = null;
@@ -4458,8 +4474,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   /** The last hover the tutorial was told about, projection included: an
    *  enemy that becomes identified under a still cursor is a new fact. */
   let lastHoverProjection: FireState | null = null;
-  /** Whether tutorial beat 9 currently holds the Conduct invoice open. */
+  /** Whether the Conduct beat currently holds the invoice open. */
   let tutInvoiceOpen = false;
+  /** GH-184: each production line's `contested` as the tutorial last read
+   *  it, so `productionInputs` can report the paused and resumed edges. */
+  let tutLineContested: boolean[] = [];
+  /** GH-184: the player's purchases that have already deployed (side-0
+   *  `built`), so `productionInputs` counts purchases, not the line. */
+  let tutDeployed = 0;
   let telemetryTutIndex = -1;
   let tutPanel: TutorialPanel | null = null;
   // Companions for the hover dispatch in `updateHover`: it runs every frame,
@@ -4479,6 +4501,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     tut = initTutorial(stepList.steps, performance.now());
     refreshHudShown();
     tutPanel = tutorialPanel(document.body, {
+      tutorialId: stepList.id,
       onSkip: () => {
         tut = null;
         refreshHudShown();
@@ -5413,6 +5436,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           zone: (id) => map.zones[id],
         });
         if (tut) tut = advance(tut, { kind: 'mission', event: mev }, performance.now());
+        if (mev.kind === 'built' && isOwnSide(mev.side, me)) tutDeployed++;
         if (mev.kind === 'roe') deductions.push({ penalty: mev.penalty, reason: mev.reason, tick: mev.tick });
         if (mev.kind === 'evacuated') evacuatedSoFar++;
         // The memorial half of the service record (WP-G-E4). `unitLost` is already
@@ -5674,7 +5698,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             // of `paused` too, and left open it would render over the end
             // screen about to be pushed.
             closeKeysOverlay();
-            // PA-11: and the Conduct invoice tutorial beat 9 left open. The
+            // PA-11: and the Conduct invoice the tutorial's last beat left open. The
             // HUD closes it on its own 4 Hz rebuild once the result is in;
             // this takes it down on the same frame the moment mounts.
             hud.setInvoiceOpen(false);
@@ -5827,9 +5851,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           },
           now
         );
+        // GH-184: the camp beats. The caller reads the player's lines
+        // (read-only, the dock's own view); the reducer only compares.
+        if (runtime) {
+          const read = productionInputs(tutLineContested, runtime.productionLines(0), tutDeployed);
+          tutLineContested = read.contested;
+          for (const input of read.inputs) tut = advance(tut, input, now);
+        }
         tut = advance(tut, { kind: 'tick' }, now);
         refreshHudShown();
-        // GH-345 beat 9: the beat that reveals Conduct opens its invoice, and
+        // GH-345, the Conduct beat (the last): the beat that reveals Conduct opens its invoice, and
         // it stays open past the last beat (the index clamps to it) until the
         // player clicks Conduct -- it is the last thing the tutorial teaches.
         // Only on a CHANGE, so a player who closes it is not overruled four

@@ -79,6 +79,18 @@ export const MOTION_TEAMS: Record<string, MotionTeam> = {
     figures: rifles(['f0', 'f1', 'f2'], [[-0.45, 1.05], [0.45, 0], [-0.45, -1.05]]),
     hold: true, kneel: true, formation: true, stride: true, ground: true, speedTiles: 0.9,
   },
+  // GH-709 phase 3 (22 Oct): two grenadiers and a leader. The launcher is a
+  // hand-held `rifle`-kind weapon to the hold (butt pocket, trigger and
+  // foregrip hands, right shoulder) but its shots kick like a launcher's
+  // (`recoil`), and the wedge is a little deeper than inf_squad's.
+  inf_grenadier: {
+    figures: [
+      { prefix: 'gre0', weapon: 'rifle', recoil: 'launcher', kneels: true, slot: [-0.55, 1.0] },
+      { prefix: 'gre1', weapon: 'rifle', kneels: true, slot: [0.55, 0] },
+      { prefix: 'gre2', weapon: 'rifle', recoil: 'launcher', kneels: true, slot: [-0.55, -1.0] },
+    ],
+    hold: true, kneel: true, formation: true, stride: true, ground: true, speedTiles: 0.85,
+  },
   sarim_rifles: {
     figures: rifles(['sar0', 'sar1', 'sar2'], [[-0.3, 1.15], [0.5, 0.05], [-0.6, -0.95]]),
     hold: true, kneel: true, formation: true, stride: true, ground: true, speedTiles: 0.9,
@@ -154,6 +166,13 @@ export const MOTION_TEAMS: Record<string, MotionTeam> = {
   // Unit polish (14 Oct): the gunner on the gun, and a `fire` (`crew-fire.ts`).
   atgm_cell: { figures: [], hold: false, kneel: false, formation: false, stride: true, ground: true, crewFire: true, speedTiles: 0.7 },
   mortar_crew: { figures: [], hold: false, kneel: false, formation: false, stride: true, ground: true, crewFire: true, speedTiles: 0.6 },
+  // GH-709 Phase 7: the Zaron Missile Team -- mortar_team's leader with his
+  // carbine (the hold), and atgm_cell's crew-served `fire`: the gunner seated
+  // at the fire-control case (`crew-fire.ts`, seat "console").
+  at_nlos_team: {
+    figures: [{ prefix: 'nl_lead', weapon: 'rifle' }],
+    hold: true, kneel: false, formation: false, stride: true, ground: true, crewFire: true, speedTiles: 0.6,
+  },
   digger_crew: { figures: [], hold: false, kneel: false, formation: false, stride: true, ground: true, speedTiles: 0.5 },
   // Ground only (ground-debt, 6 Oct): neither was through this pass before.
   // The sniper's walk is rig.py's pendulum, kept as it is -- it gains ankles
@@ -161,6 +180,10 @@ export const MOTION_TEAMS: Record<string, MotionTeam> = {
   // planted; the bike's wheels are held out of the ground under its bob.
   sniper_team: { figures: [], hold: false, kneel: false, formation: false, stride: false, ground: true, speedTiles: 0.45 },
   moto_rpg: { figures: [], hold: false, kneel: false, formation: false, stride: false, ground: true, speedTiles: 3.4 },
+  // GH-709 unit 10 (22 Oct): the Chadaf recon robot, four legs on planted foot
+  // paths (rig.py's dog topology). Ground only, like the bike: no figure, no
+  // hold, no kneel, and no stride re-solve -- its trot is IK-planted already.
+  ugv_recon_dog: { figures: [], hold: false, kneel: false, formation: false, stride: false, ground: true, speedTiles: 1.3 },
   // The civilians (`data/units/civilians.json`, 0.8 tiles/s): captured
   // Mixamo bipeds, re-timed and re-planted on their own leg bones.
   civilian_child: { dir: 'civilians', figures: [], hold: false, kneel: false, formation: false, stride: true, ground: true, speedTiles: 0.8 },

@@ -1,0 +1,48 @@
+{
+  "request": {
+    "mode": "refine",
+    "preview_task_id": "01a16330-1af3-7501-bdc1-d514585c2a00",
+    "texture_resolution": "2k",
+    "texture_prompt": "Dull matte olive-drab painted metal body and legs, dark gunmetal knee and hip actuators, black rubber foot pads, dark glass sensor lenses on the head, light even wear. No markings, numbers, decals, stripes, logos or team colours. No baked shadows."
+  },
+  "response": {
+    "id": "01a16331-cfd0-764f-98ee-8dd90b5c0baa",
+    "type": "text-to-3d-refine",
+    "mode": "refine",
+    "name": "",
+    "model_type": "standard",
+    "seed": 51577674,
+    "prompt": "A single low-poly game-ready four-legged reconnaissance robot, a machine of a fictional army in plain matte olive-drab paint with dark gunmetal joints, unarmed. A flat rectangular box body, a small boxy sensor head on a short neck at the front top, a short thin whip antenna at the rear top. Four straight vertical legs, each two plain rods with a gunmetal knee joint, ending in small round black rubber foot pads. Standing square, legs slightly apart, clear daylight between all four legs and under the body, no leg touching another or the body. Real-world scale, 1.0 metre long, 0.62 metres to the body top. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "Dull matte olive-drab painted metal body and legs, dark gunmetal knee and hip actuators, black rubber foot pads, dark glass sensor lenses on the head, light even wear. No markings, numbers, decals, stripes, logos or team colours. No baked shadows.",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1792665573001,
+    "progress": 100,
+    "started_at": 1792665573009,
+    "finished_at": 1792665663115,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a16331-cfd0-764f-98ee-8dd90b5c0baa/output/model.glb?Expires=4946227200&Signature=JHfjrf15UXKWXHa0DPx6EG8YAVxDvT2wTbtaSUtqlWb2cXqNvZLgdJtqjExO2bVq4r2P2JmfcYb8uZqKaJ7v25S8s7LxP5I6nxJ3WXkdEumP9MQ7QqdDUKEi81UNw2m7cmTj1flIkogIjNicSnBIlf1lkjHJ7tTpFyccjaM9ss5SEQX48wUhifX7K3y-p7bUYJkq8hSr-mXnPHRPOP6rcKQCpv-OWn70Qq~zlaYuBzh~UaRA1nfhClxL-BRh5PSsM~KyYjLQpVwb40pS-2gAmrhMub1Uh3ksUA6SeDKLLiGRAlAD1NhMEDP77TwVJHqE37yCN1dxf~~nyNZOpanWYw__&Key-Pair-Id=K1VGYTHIYLM9UM",
+      "fbx": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a16331-cfd0-764f-98ee-8dd90b5c0baa/output/model.fbx?Expires=4946227200&Signature=KvHbl~C~d2Ac3QO8Qnb7b1mvETi2zR3s~cdXWj1f5eNPAtxeMNUn4N-bRE2OGOQ1ngIqeISe-dE7WS1dMQwzh00Pjx2C-Mabo5ZM1e1BUWMTsKqhm1sF6K8YQ1hKzk-7ct5uRfPVKRYKN42kO3JuryHLXtkYY6E5bPD3RC4W4kyH79BxvAdjYQOYh9MhJ95CFQuFGnRWvo-7TJJRubd~KtscK5ZN3Wsv49nGvthelitNHKdN-63ePoAi7tgLSURj10gMVgoPC1a6bnNoKQVOlJCdks1RzALqfir0UA7YOpmIJbo7g7qCJA~f8kf6H5W8ap2kxwSf7~lvN0NGsxfbGw__&Key-Pair-Id=K1VGYTHIYLM9UM",
+      "usdz": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a16331-cfd0-764f-98ee-8dd90b5c0baa/output/model.usdz?Expires=4946227200&Signature=RBExg3AXFY-yEA8b-X-khS9t3x2TPHm72GQMLDunKfPcgwUL~TpsBZbRRAlLI28YWBgVdiTYq~A6IL~j~PsWeYqep63a1xWtRiO4EGyzvYcG0--CuxwkOHPu5t9HzAqHLtfiZNTVZKDhhwo-xxI3mGF0vlUzwq9jHIhfayQNgE4Zjcnch9wAAcChdAaWb8cWW0zeK1GZM4kzZqFxLLEmc3MpnepMbvJFWVxvgzjwkE6OF5-t0QVWJnkA~WN5TSv~LtAKHgKZLZFAfXZ1ViUBq78dT0AP4ZBRAxiJJCn5SFh3SIQu5AYjKkovvzWI8dYFYS9iIFhrFP0Gz1onjqe~GQ__&Key-Pair-Id=K1VGYTHIYLM9UM",
+      "obj": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a16331-cfd0-764f-98ee-8dd90b5c0baa/output/model.obj?Expires=4946227200&Signature=dzjBG~PWop3BHdAZjEQIQvTs18~5lnSuoVTl5pdkGgwRswYkOGL4ui8yuuxzckDKm1ERYiJWjCcKNN8pUpGv4QQqLtxMYFDJ4a8FkJfljJK6wZf9Wayy8Lb8n2EwtSL719v-AlOj3KvH5OGB76Mz3W1VEgVT3Nt8XhHNYIltKp1Tzlp214pVVRwEo2aclqsPNNzm3kpDnSzBMiRCOJrfz6LIVTMAlq7Uoec1XHoPVBYGvfSuE0ajFmK6CjQ5FW7G1YjxgNE8LZAFGpB3IY63kVSs1QZEWAq7sGQuPsci5Z1GeZke8S9sfdD6lxEz728cSHugyy98qA9lg29ZgJPwGQ__&Key-Pair-Id=K1VGYTHIYLM9UM",
+      "mtl": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a16331-cfd0-764f-98ee-8dd90b5c0baa/output/model.mtl?Expires=4946227200&Signature=Suw12N2H8IUBwFNolNnYtjLg29mxrCCHbY~h7rDZd4FKunoelqcLjteFx5AA7K9ApmnZKh9RgQEq5~fWdUcveoAqZKP8G6Z5uIHvrOdhsYkHBQRvA7TaJWPVAFBKNMH-HD287mccf-uXAfJgnNzCkGYRTVz7vpTTwjvHXsM3PapN5MynlYzvYiE52k69nGgdXtHutjKD0gJVM7MYwEmqEneOO49iOaGZf7TbUMSZf53xfBgTzkSVM9t6xL2jV6y-KRTb66LLeO4fegXqoo8YwCPKsjNkGQ6sN6mmishU5fvivFUT8g-4SX9zrtZe~JX2MPfTSCpE8h9f4eX8BxJp-A__&Key-Pair-Id=K1VGYTHIYLM9UM",
+      "stl": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a16331-cfd0-764f-98ee-8dd90b5c0baa/output/model.stl?Expires=4946227200&Signature=aYoZfkei9LgRsxGyvLXYBiLIxgIUHmSHzLaxwXJA-M8OvhjgX82JgNv8A~NLK3Act9ei1uKR8cf0qiINMdN1iI7jUrXGorSFOYVW7VY5nKK~RXSSCYOgw0vCMxAIESNZw95VCsc7j7AlRqD72FbLw2kNCCIl6LjOuVPy6gTLSjXmm3vHUh69eQ6wzz21PhcujmX40uACINS5-y54sHJ92X75C5HJhPGVQroClQm5K9AXlxKo~sPfXAPJY7h28Oh929rpRQkRkA1zdMyuIPGREEn92rvs3umfatlxyT5uLnojV99ccTe5XBVMigWwMbrMSdy4N~Lr13qiO1G9BAHzGg__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a16331-cfd0-764f-98ee-8dd90b5c0baa/output/preview.png?Expires=4946227200&Signature=dE3D31gc6vuoJbvy9WKgwgx6PM3NnzT2ZUlYGXhitAYwT6lb8ilyxmcJEnLl9-cv~cw6poRtDmJpWXo0x1dxxYN2hM4uDwgzTqRZ7npUXQsDJMt6FHWouNYXPCT6GGnTyEHIip7fBVJUrqa6tMmooEZpcpY8D12UnrJQcRA8cubX3xyNuv2iL1s-Qkt1xY~vd4YayRxo5ZvyNV-HBcnCN5SxMwVi0bjB4usqEvlL00nQrn6vXFytmh4E9KDzddjw6~nzzrir4RI7k-2NG~WTxu~dQ-MrQMyCrlpdlAzjmtQcQdODCAdIpA1iBm2YAO2n5PmZm4Ip1-G6YdTiJlljzg__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [
+      {
+        "base_color": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a16331-cfd0-764f-98ee-8dd90b5c0baa/output/texture_0.png?Expires=4946227200&Signature=lotmKLoefoTe5IiOwLXxLHt2nU5a50jfjERpN0MtUusiIDg~2129OoewEevqxFuzjdwdgpqAOCfEmGs7az80MbxFHD7xyoUsXwSJ-0LrWVzmRDYx88ey2yULf3JD~~lJ8eJagNFeddyRLy6-xo8v1ywk3oUcJs1djtwGv73hpt6uo9NvDUXAVk8WnI3Lm6mNVKa-VD5pG5hBLR-GQ2bPA-97nGDHp-PIEaNzTNfgSI2nrOb3ucuZQ1Jsir4qaf0E2mdKeIjCOm3pEdedi44vatw9EZUIRg2UcR5gLRW~IgUI5IeBxz7QVYM8lOldzzVI-s-xdcngJVGkO-aFFCF6SQ__&Key-Pair-Id=K1VGYTHIYLM9UM"
+      }
+    ],
+    "remove_lighting": true,
+    "consumed_credits": 10
+  },
+  "consumed_credits": 10,
+  "timestamps": {
+    "created_at": 1792665573001,
+    "started_at": 1792665573009,
+    "finished_at": 1792665663115
+  },
+  "usd_estimated": 0.2
+}

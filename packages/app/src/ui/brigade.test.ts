@@ -2139,3 +2139,68 @@ describe('the garage rows — special forces (E5 Task 7)', () => {
     expect(host.querySelector('.rl-garage__bay')?.textContent).not.toMatch(/[★☆⭐]/);
   });
 });
+
+describe('showBrigade — redeem a code', () => {
+  const redeemer = (answer: 'ok' | 'unknown' | 'used' | 'failed') => {
+    const asked: string[] = [];
+    let credits = 100;
+    const host = mount({
+      units,
+      ledger: {},
+      possibleStars: 78,
+      credits,
+      onRedeem: (code) => {
+        asked.push(code);
+        if (answer === 'ok') credits += 10000;
+        return { state: { units: [], credits, owned: {} }, result: answer, credits: 10000 };
+      },
+    });
+    const input = host.querySelector<HTMLInputElement>('.rl-garage__redeem-input')!;
+    const submit = (v: string): void => {
+      input.value = v;
+      host.querySelector<HTMLFormElement>('.rl-garage__redeem')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    };
+    return { host, asked, input, submit };
+  };
+
+  // Falsified by hand: removing the `onRedeem` call from the submit handler turns
+  // the first two assertions red; removing `answer(out.state)` turns the wallet red.
+  it('sends the typed code, redraws the wallet, announces the grant in a polite-live line', () => {
+    const { host, asked, input, submit } = redeemer('ok');
+    submit('Some-Code');
+    expect(asked).toEqual(['Some-Code']);
+    expect(text(host, '.rl-garage__wallet-n')).toBe('10100');
+    const said = host.querySelector('.rl-garage__redeem-said')!;
+    expect(said.getAttribute('aria-live')).toBe('polite');
+    expect(said.textContent).toBe('Code accepted: 10000 credits added');
+    expect(input.value).toBe('');
+  });
+
+  it.each([
+    ['unknown', 'That code is not valid'],
+    ['used', 'That code has already been redeemed on this account'],
+  ] as const)('says %s and keeps the field', (result, words) => {
+    const { host, input, submit } = redeemer(result);
+    submit('Some-Code');
+    expect(text(host, '.rl-garage__redeem-said')).toBe(words);
+    expect(input.value).toBe('Some-Code');
+    expect(text(host, '.rl-garage__wallet-n')).toBe('100');
+  });
+
+  it('caps the field, reports a failed save, and clears the line when the field is edited', () => {
+    const { host, input, submit } = redeemer('failed');
+    expect(input.maxLength).toBe(128);
+    submit('Some-Code');
+    expect(text(host, '.rl-garage__redeem-said')).toBe('Could not save the account; nothing was added');
+    input.dispatchEvent(new Event('input'));
+    expect(text(host, '.rl-garage__redeem-said')).toBe('');
+  });
+
+  it('asks nothing for an empty field, and draws no form without the handler or the wallet', () => {
+    const { asked, submit } = redeemer('ok');
+    submit('   ');
+    expect(asked).toEqual([]);
+    expect(mount({ units, ledger: {}, possibleStars: 78, credits: 5 }).querySelector('.rl-garage__redeem')).toBeNull();
+    expect(mount({ units, ledger: {}, possibleStars: 78, onRedeem: () => undefined }).querySelector('.rl-garage__redeem')).toBeNull();
+  });
+});

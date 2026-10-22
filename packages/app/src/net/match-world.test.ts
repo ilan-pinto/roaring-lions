@@ -125,7 +125,7 @@ function brigade(map: string, tiers: [Tiers, Tiers], opts: { factions?: ['kdf' |
  *  registers MATCHED_TYPES types in a matched room; a mbt_lavi's hull.hp is
  *  3000 and its armour tier 1 adds 210 (data/units/kdf/mbt_lavi.json), so in
  *  Q16.16 a base Lavi reads 3000 * 65536 and a tier-1 Lavi 3210 * 65536. */
-const MATCHED_TYPES = 35;
+const MATCHED_TYPES = 36;
 const LAVI_BASE_HP = 196608000;
 const LAVI_ARMOUR1_HP = 210370560;
 const LAVI1: Tiers = { mbt_lavi: { armour: 1 } };

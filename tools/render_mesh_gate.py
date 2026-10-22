@@ -330,6 +330,11 @@ VEHICLE_ROLE_PALETTES = {
     "spg_long_range": {
         "hull": "olive.0", "metal": "gunmetal.2", "rubber": "shadow.0",
     },
+    # GH-709 Phase 7: the Te'o Cluster Howitzer, the Te'o's own bake and nodes
+    # (tools/vehicles/export_spg_cluster.py): the Te'o's repaint.
+    "spg_cluster": {
+        "hull": "olive.0", "metal": "gunmetal.2", "rubber": "shadow.0",
+    },
 }
 VEHICLE_ROLE_PALETTE_FALLBACK = {
     "hull": "olive.0", "plate": "olive.0", "metal": "gunmetal.2",

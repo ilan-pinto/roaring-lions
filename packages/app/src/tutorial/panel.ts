@@ -12,13 +12,14 @@
 import { t } from '../i18n/t';
 import { panel } from '../ui/panel';
 import type { TutorialState } from './runtime';
+import { stepText } from './text';
 
 export interface TutorialPanel {
   render(state: TutorialState): void;
   destroy(): void;
 }
 
-export function tutorialPanel(host: HTMLElement, opts: { onSkip: () => void }): TutorialPanel {
+export function tutorialPanel(host: HTMLElement, opts: { tutorialId: string; onSkip: () => void }): TutorialPanel {
   const p = panel({
     // A lesson is read, so it wears the briefing's rank (VR-24), not the
     // machinery's.
@@ -66,14 +67,15 @@ export function tutorialPanel(host: HTMLElement, opts: { onSkip: () => void }): 
       const step = state.steps[state.index];
       if (step === undefined) return;
       if (state.index !== paintedIndex) {
-        p.setTitle(step.title);
+        const words = stepText(opts.tutorialId, step);
+        p.setTitle(words.title);
         p.setTag(`${state.index + 1} / ${state.steps.length}`);
-        teach.textContent = step.teach;
+        teach.textContent = words.teach;
         p.show();
         paintedIndex = state.index;
       }
       if (state.nudging !== paintedNudging) {
-        nudge.textContent = state.nudging ? (step.nudge ?? '') : '';
+        nudge.textContent = state.nudging ? (stepText(opts.tutorialId, step).nudge ?? '') : '';
         paintedNudging = state.nudging;
       }
     },

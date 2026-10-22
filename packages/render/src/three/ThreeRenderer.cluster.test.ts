@@ -6,7 +6,7 @@
  * plumbing and the grouping are the shipped ones.
  *
  * The unit fixtures are the staged `docs/campaign/special_units/gh709/`
- * weapons (`dpicm_155`, `spike_nlos`) trimmed to the fields the sim reads and
+ * weapons (`dpicm_155`, `zaron_missile`) trimmed to the fields the sim reads and
  * inlined, so landing the staged units in `data/units/` cannot break this file.
  */
 import { describe, it, expect, vi } from 'vitest';
@@ -17,7 +17,7 @@ import type { ShellModel } from './units/shells';
 import type { MissileModel } from './units/missiles';
 import type { EmitterSpec } from '../vfx/emitters';
 import { WORLD_Y_PER_LIFT_PIXEL } from '../project';
-import { CLUSTER_BURST_LIFT_PX } from './units/cluster-burst';
+import { BOMBLET_CRATER_RADIUS_TILES, CLUSTER_BURST_LIFT_PX } from './units/cluster-burst';
 import clusterAirburst from '../../../../data/vfx/cluster_airburst.json';
 import shellImpact from '../../../../data/vfx/shell_impact.json';
 
@@ -86,7 +86,7 @@ function nlosTeam(extra: Record<string, unknown>): UnitTypeJson {
     mobility: { speed_tiles_s: 0 },
     sensors: { optics: 1.2, sight_tiles: 20 },
     weapons: [{
-      id: 'spike_nlos', type: 'atgm', range_tiles: 24, effective_range_tiles: 18,
+      id: 'zaron_missile', type: 'atgm', range_tiles: 24, effective_range_tiles: 18,
       accuracy: 0.8, penetration: 1000, damage: 450, suppression: 20, rof_per_min: 2,
       min_range_tiles: 4, collateral_risk: 0.2, ...extra,
     }],
@@ -150,6 +150,48 @@ const bomblets = (evs: SimEvent[][]): Extract<SimEvent, { kind: 'submunition' }>
   evs.flat().filter((e): e is Extract<SimEvent, { kind: 'submunition' }> => e.kind === 'submunition');
 
 describe('a cluster round (GH-709 E3)', () => {
+  // A capture (22 Oct) read "one central crater" after a burst. This pins what the
+  // renderer stamps: one crater per bomblet, each at its OWN sim position, none at
+  // the centre, and twelve distinct marks in the pool's own vertex buffer.
+  it('stamps one crater per bomblet at that bomblet\'s own position, not one at the centre', () => {
+    const { sim, fireEvents, later } = run(howitzer(CLUSTER_WEAPON), 600);
+    const subs = bomblets(later);
+    expect(subs).toHaveLength(12);
+    const r = renderer(sim);
+    type Stamp = { kind: string; x: number; z: number; halfLength: number };
+    const stampSpy = vi.spyOn(r as unknown as { stampGroundDecal(s: Stamp): boolean }, 'stampGroundDecal');
+    r.onEvents(fireEvents);
+    for (const evs of later) r.onEvents(evs);
+    const craters = stampSpy.mock.calls.map((c) => c[0]).filter((s) => s.kind === 'crater');
+    expect(craters).toHaveLength(12);
+    subs.forEach((e, k) => {
+      expect(craters[k].x).toBeCloseTo(fx.toNumber(e.x), 9);
+      expect(craters[k].z).toBeCloseTo(fx.toNumber(e.y), 9);
+      expect(craters[k].halfLength).toBe(BOMBLET_CRATER_RADIUS_TILES);
+    });
+    // The marks spread like the bomblets: not one point.
+    const xs = craters.map((s) => s.x);
+    const zs = craters.map((s) => s.z);
+    expect(Math.max(...xs) - Math.min(...xs) + Math.max(...zs) - Math.min(...zs)).toBeGreaterThan(1);
+    // And the pool holds twelve distinct slots: each slot's vertex centroid differs.
+    const pool = (r as unknown as { decalsPersistent: { liveCount: number; mesh: { geometry: { getAttribute(n: string): { array: Float32Array } } } } }).decalsPersistent;
+    expect(pool.liveCount).toBe(12);
+    const pos = pool.mesh.geometry.getAttribute('position').array;
+    const perSlot = pos.length / 3 / 1024;
+    const centres = new Set<string>();
+    for (let slot = 0; slot < 12; slot++) {
+      let sx = 0;
+      let sz = 0;
+      for (let v = 0; v < perSlot; v++) {
+        sx += pos[(slot * perSlot + v) * 3];
+        sz += pos[(slot * perSlot + v) * 3 + 2];
+      }
+      centres.add(`${(sx / perSlot).toFixed(3)},${(sz / perSlot).toFixed(3)}`);
+    }
+    expect(centres.size).toBe(12);
+    r.dispose();
+  });
+
   it('draws its carrier as a tagged mortar arc, and the carrier lands as NO bomb', () => {
     const { sim, fireEvents } = run(howitzer(CLUSTER_WEAPON), 400);
     const r = renderer(sim);
@@ -230,7 +272,7 @@ describe('a cluster round (GH-709 E3)', () => {
 });
 
 describe('an indirect ATGM flies lofted (GH-709 E2)', () => {
-  it('spike_nlos (`indirect: true`) is a lofted round, well above the plain Spike arc', () => {
+  it('zaron_missile (`indirect: true`) is a lofted round, well above the plain Spike arc', () => {
     const { sim, fireEvents } = run(nlosTeam({ indirect: true }), 400);
     const r = renderer(sim);
     r.onEvents(fireEvents);

@@ -171,6 +171,12 @@ export const RIGGED_UNIT_MESHES: Readonly<Record<string, RiggedMeshEntry>> = {
   mortar_team: { files: ['mortar_team.glb'], faction: 'kdf' },
   yahalom_squad: { files: ['yahalom_squad.glb'], faction: 'kdf' },
 
+  // GH-709 phase 3 (22 Oct 2026): the Chomet grenadier squad. One Meshy figure
+  // (preview 01a1631c, refine 01a1632a, remesh 01a16330) with its bake, cut like
+  // inf_squad's and carrying a Blender revolving launcher part
+  // (`tools/units/import_meshy_crew_team.py`, `tools/units/export_grenade_launcher.py`).
+  inf_grenadier: { files: ['inf_grenadier.glb'], faction: 'kdf' },
+
   // The star-gated Tzinah (docs/campaign/special_units/design.md §3), built by
   // the same kit.py/teams.py pipeline as the rest of this table.
   breach_team: { files: ['breach_team.glb'], faction: 'kdf' },
@@ -178,6 +184,15 @@ export const RIGGED_UNIT_MESHES: Readonly<Record<string, RiggedMeshEntry>> = {
   // E5 (GH-181, 2026-10-01): the bought-only Shmamit deep recon team, a Meshy
   // figure cut into rig.py's parts (`tools/units/import_meshy_zikit_team.py`).
   recon_zikit: { files: ['recon_zikit.glb'], faction: 'kdf' },
+
+  // GH-709 unit 10 (2026-10-22): the Chadaf recon robot, a four-legged walker --
+  // a Meshy remesh cut into rigid parts on rig.py's dog topology
+  // (`tools/units/import_meshy_dog.py`). Textured, so no faction ramp reaches it.
+  ugv_recon_dog: { files: ['ugv_recon_dog.glb'], faction: 'kdf' },
+  // GH-709 Phase 7 (2026-10-22): the bought-only Zaron Missile Team -- the KDF
+  // mortar crewman's Meshy body three times beside a Meshy four-cell launcher
+  // (`tools/units/nlos_launcher_part.py`, then `import_meshy_crew_team.py`).
+  at_nlos_team: { files: ['at_nlos_team.glb'], faction: 'kdf' },
 
   // WP-A3.1 batch B2 (GH-179, 2026-09-30): Meshy A-pose figures cut into
   // rig.py's parts and driven by rig.py's own clips
@@ -233,6 +248,10 @@ export const VEHICLE_UNIT_MESHES: Readonly<Record<string, string>> = {
   // (`tools/vehicles/export_meshy_spg_long_range.py`), textured
   // (`TEXTURED_VEHICLE_TYPES`), its turret and raised gun under `turret_pivot`.
   spg_long_range: 'vehicles/spg_long_range.glb',
+  // GH-709 Phase 7: the Te'o Cluster Howitzer -- spg_long_range.glb's own bake with the
+  // gun re-laid to 50 degrees, a box brake and a rear-deck rack
+  // (`tools/vehicles/export_spg_cluster.py`), textured (`TEXTURED_VEHICLE_TYPES`).
+  spg_cluster: 'vehicles/spg_cluster.glb',
   technical: 'vehicles/technical.glb',
   ifv_namer: 'vehicles/ifv_namer.glb',
   jeep_shoded: 'vehicles/jeep_shoded.glb',

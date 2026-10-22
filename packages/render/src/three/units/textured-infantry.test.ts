@@ -35,6 +35,7 @@ describe('the textured infantry opt-out is a named list', () => {
   // so an entry with no bake behind it is an edit made on purpose.
   it('names exactly the teams that ship a bake', () => {
     expect([...TEXTURED_INFANTRY_TYPES].sort()).toEqual([
+      'at_nlos_team',
       'at_team',
       'atgm_cell',
       'breach_team',
@@ -42,6 +43,7 @@ describe('the textured infantry opt-out is a named list', () => {
       'civilians',
       'demo_squad',
       'digger_crew',
+      'inf_grenadier',
       'inf_squad',
       'manpad_team',
       'militia_cell',
@@ -56,6 +58,7 @@ describe('the textured infantry opt-out is a named list', () => {
       'rpg_team',
       'sarim_rifles',
       'sniper_team',
+      'ugv_recon_dog',
       'yahalom_squad',
     ]);
   });

@@ -177,6 +177,11 @@ export interface BrigadeOptions {
    *  and answers with the account as it now stands, which the screen redraws around in
    *  place; this screen only asks twice. Answering nothing leaves the control disabled. */
   onReset?: () => GarageState | void;
+  /** Called when the player submits a coupon code. The caller redeems against the
+   *  account, saves, and answers with the account as it now stands plus the outcome;
+   *  this screen only asks and reads the outcome out in an aria-live line. Rendered
+   *  only alongside `credits`, like the reset. */
+  onRedeem?: (code: string) => { state: GarageState; result: 'ok' | 'unknown' | 'used' | 'failed'; credits?: number } | void;
   /** Called when the player clicks a locked, priced unit's Buy control. The caller buys,
    *  saves and answers with the account as the store now holds it -- a refusal answers
    *  too, off the true state. This screen only asks; it never mutates the account itself. */
@@ -455,6 +460,49 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     walletWord = el('span', 'rl-garage__wallet-word');
     wallet.append(walletN, walletWord);
     head.appendChild(wallet);
+  }
+  // Redeem a code (coupons): a small form beside the wallet. Its answer line is
+  // polite-live, so the outcome is announced; the field is cleared on success only.
+  if (state.credits !== undefined && opts.onRedeem) {
+    const form = document.createElement('form');
+    form.className = 'rl-garage__redeem';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'rl-garage__redeem-input';
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    input.maxLength = 128;
+    input.setAttribute('aria-label', t('garage.redeem.label'));
+    const go = document.createElement('button');
+    go.type = 'submit';
+    go.className = 'rl-btn rl-garage__redeem-go';
+    go.textContent = t('garage.redeem.button');
+    const said = el('span', 'rl-garage__redeem-said');
+    said.setAttribute('aria-live', 'polite');
+    form.append(input, go, said);
+    input.addEventListener('input', () => {
+      said.textContent = '';
+      delete said.dataset.result;
+    });
+    form.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      if (input.value.trim() === '') return;
+      const out = opts.onRedeem?.(input.value);
+      if (out === undefined) return;
+      said.dataset.result = out.result;
+      said.textContent = '';
+      said.textContent =
+        out.result === 'ok'
+          ? t('garage.redeem.ok', { n: out.credits ?? 0 })
+          : out.result === 'used'
+            ? t('garage.redeem.used')
+            : out.result === 'failed'
+              ? t('garage.redeem.failed')
+              : t('garage.redeem.unknown');
+      if (out.result === 'ok') input.value = '';
+      answer(out.state, null);
+    });
+    head.appendChild(form);
   }
   wrap.appendChild(head);
 

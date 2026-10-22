@@ -191,7 +191,7 @@ function mortarBeat(edit?: (m: MissionJson) => void, seed?: number): { w: World;
   return { w, mortar: w.ids('mortar_team')[0] };
 }
 
-describe('tutorial beat 9 in the world (PA-12)', () => {
+describe('tutorial beat 12 in the world (PA-12)', () => {
   // Seeds 12 and 20 are the slowest of thirty measured (58 s); most clear on
   // the beat's own 12 s floor. The two-minute bound is the old timer's.
   it.each([424242, 1, 12, 20])('seed %i: a mortar held where it arrives bills a round into the flagged zone, with no one else spotting', (seed) => {
@@ -202,7 +202,7 @@ describe('tutorial beat 9 in the world (PA-12)', () => {
     w.sim.queueCommand({ kind: 'halt', ids: [mortar] });
     tut = advance(tut, { kind: 'intent', intent: { kind: 'halt', ids: [mortar] } }, w.sim.tickCount * MS_PER_TICK);
     const took = runBeat(w, tut, 'what_a_shot_costs', 120);
-    expect(took, 'beat 9 never cleared: no Conduct line within two minutes').not.toBeNull();
+    expect(took, 'beat 12 never cleared: no Conduct line within two minutes').not.toBeNull();
     // Fired from where it stood: the lesson is "from the road", not "walk in".
     expect(w.sim.state.posX[mortar]).toBe(x0);
     expect(w.sim.state.posY[mortar]).toBe(y0);
@@ -256,7 +256,7 @@ describe('tutorial beat 9 in the world (PA-12)', () => {
       return rightClick(w, t, [mortar], ordered);
     });
     expect(ordered, 'the mortar never identified two enemies it could be ordered onto').toBeGreaterThanOrEqual(0);
-    expect(took, 'beat 9 never cleared after the right-click: no Conduct line within two minutes').not.toBeNull();
+    expect(took, 'beat 12 never cleared after the right-click: no Conduct line within two minutes').not.toBeNull();
     // The bill can come from a round fired before the click, so tick on past
     // the mortar's reload (15 s) to see the ordered one.
     settle(w, 20);

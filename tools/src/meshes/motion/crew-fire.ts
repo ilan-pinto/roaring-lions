@@ -61,8 +61,23 @@ export interface CrewFireSpec {
   readonly durationS: number;
   readonly gunner: string;
   readonly mate: string;
-  /** What the gunner is seated at. */
-  readonly seat: 'sight' | 'handwheel';
+  /** What the gunner is seated at. `console`: a fire-control unit's display
+   *  and its two hand grips, read from the GLB's `rl_crew_points` (`sight`,
+   *  `grip_r`, `grip_l`, written by the importer), not measured off the gun. */
+  readonly seat: 'sight' | 'handwheel' | 'console';
+  /** Where the eye sits from the `sight`: this far back along -X (default
+   *  `EYE_GAP_M`, an eyepiece) and this far above it (default 0) -- a screen
+   *  is read from arm's length, not with the eye on it. */
+  readonly eyeGapM?: number;
+  readonly eyeRiseM?: number;
+  /** The team's `fire` is the launcher's, not a hand-held weapon's: an
+   *  existing `fire` (rig.py's raise-and-recoil, built for a figure that
+   *  carries a rifle -- at_nlos_team's leader) is REPLACED. The figures named
+   *  in `keep` hold that clip's FIRST frame through the new one -- the hold's
+   *  aim, before any recoil: the leader covers with his carbine while the
+   *  launcher fires, and does not kick as if he had shot. Without this an
+   *  existing `fire` is refused, as before. */
+  readonly replacesFire?: { readonly keep: readonly string[] };
   readonly keys: Readonly<Record<string, readonly FireKey[]>>;
 }
 
@@ -101,6 +116,39 @@ export const CREW_FIRE: Readonly<Record<string, CrewFireSpec>> = {
         { t: 0.06, spine: [0, 8], head: [0, 35] },
         { t: 0.5, spine: [0, 8], head: [0, 35] },
         { t: 1.0, spine: [0, 0], head: [0, 0] },
+        { t: 2.0, spine: [0, 0], head: [0, 0] },
+      ],
+    },
+  },
+  // GH-709 Phase 7: the Zaron Missile Team. Kornet's table shape and length:
+  // the gunner guides from the fire-control case's display (seat `console`),
+  // hands on its two grips, his eye 0.40 m back from the screen and 0.26 m
+  // above its centre. The loader kneels on the launcher's right, so the
+  // launcher is on HIS left: he ducks and turns right, away from the launch
+  // and the backblast. Nothing moves `prop`.
+  at_nlos_team: {
+    durationS: 2.0,
+    gunner: 'nl_gun',
+    mate: 'nl_load',
+    seat: 'console',
+    replacesFire: { keep: ['nl_lead'] },
+    eyeGapM: 0.4,
+    eyeRiseM: 0.26,
+    keys: {
+      nl_gun: [
+        { t: 0, spine: [0, 0], head: [0, 0] },
+        { t: 0.06, spine: [0, 0], head: [0, 3] },
+        { t: 0.46, spine: [0, 0], head: [0, 0] },
+        { t: 1.0, spine: [0, 0.5] },
+        { t: 1.6, spine: [0, -0.5] },
+        { t: 1.8, spine: [0, 0] },
+        { t: 2.0, spine: [0, 0] },
+      ],
+      nl_load: [
+        { t: 0, spine: [0, 0], head: [0, 0] },
+        { t: 0.06, spine: [15, -10], head: [15, -35] },
+        { t: 0.6, spine: [15, -10], head: [15, -35] },
+        { t: 1.2, spine: [0, 0], head: [0, 0] },
         { t: 2.0, spine: [0, 0], head: [0, 0] },
       ],
     },
@@ -184,6 +232,27 @@ function measurePost(post: V3[]): { sight: V3; right: V3; left: V3; rear: V3; mu
   const rear = centroid(tube.filter((p) => p[0] < tMin + 0.03));
   const muzzle = centroid(tube.filter((p) => p[0] > tMax - 0.03));
   return { sight, right, left, rear, muzzle };
+}
+
+/** A `console` seat's points off the scene's `rl_crew_points` (glTF metres,
+ *  team frame): the display's centre and the two grips, refused if absent or
+ *  malformed. The grips must sit on either side of the display, the right
+ *  grip on the figure's right (+Z): swapped, the arms would cross. */
+export function consolePoints(extras: unknown): { sight: V3; right: V3; left: V3 } {
+  const pts = (extras as { rl_crew_points?: Record<string, unknown> } | undefined)?.rl_crew_points;
+  if (!pts) throw new Error('crew-fire: a console seat needs rl_crew_points on the scene (the importer writes it)');
+  const v3 = (k: string): V3 => {
+    const v = pts[k];
+    if (!Array.isArray(v) || v.length !== 3 || !v.every((x) => typeof x === 'number' && Number.isFinite(x)))
+      throw new Error(`crew-fire: rl_crew_points.${k} is not three numbers`);
+    return [v[0], v[1], v[2]];
+  };
+  const sight = v3('sight');
+  const right = v3('grip_r');
+  const left = v3('grip_l');
+  if (!(right[2] > sight[2] && left[2] < sight[2]))
+    throw new Error(`crew-fire: the console grips are not either side of the display (right z ${right[2]}, display ${sight[2]}, left ${left[2]})`);
+  return { sight, right, left };
 }
 
 /** Move a kneeling figure (its root, corpse and walker) by `d`, binds rebuilt. */
@@ -286,12 +355,34 @@ export function applyCrewFire(doc: Document, id: string): string[] {
   const spec = CREW_FIRE[id];
   if (!spec) return [];
   const root = doc.getRoot();
-  if (root.listAnimations().some((a) => a.getName() === 'fire')) throw new Error(`crew-fire: ${id} already has a fire clip`);
+  const replaced: string[] = [];
+  const kept: Pose = new Map();
+  const existing = root.listAnimations().find((a) => a.getName() === 'fire');
+  if (existing) {
+    if (!spec.replacesFire) throw new Error(`crew-fire: ${id} already has a fire clip`);
+    const keep = spec.replacesFire.keep;
+    const before = new Rig(doc);
+    const tracks = tracksOf(existing);
+    const first = before.sample(tracks, 0);
+    for (const tr of tracks.values()) {
+      if (keep.some((p) => tr.node.getName().startsWith(`${p}_`))) kept.set(tr.node, first.get(tr.node)!);
+    }
+    if (keep.length > 0 && kept.size === 0) throw new Error(`crew-fire: ${id}'s fire keys none of ${keep.join(', ')}`);
+    replaced.push(
+      `crew ${id}: rig.py's fire (${existing.listChannels().length} channels) replaced -- the team fires the launcher; ` +
+        `${keep.join(', ')} hold its first frame (${kept.size} bones)`
+    );
+    const accessors = new Set(existing.listSamplers().flatMap((sm) => [sm.getInput(), sm.getOutput()]));
+    for (const ch of existing.listChannels()) ch.dispose();
+    for (const sm of existing.listSamplers()) sm.dispose();
+    existing.dispose();
+    for (const a of accessors) if (a && a.listParents().every((p) => p === root)) a.dispose();
+  }
   const idle = root.listAnimations().find((a) => a.getName() === 'idle');
   if (!idle) throw new Error(`crew-fire: ${id} has no idle`);
   let rig = new Rig(doc);
   verifyBinds(rig);
-  const lines: string[] = [];
+  const lines: string[] = [...replaced];
   const g = spec.gunner;
   const prop = rig.node('prop');
   const idleTracks0 = tracksOf(idle);
@@ -305,14 +396,33 @@ export function applyCrewFire(doc: Document, id: string): string[] {
   // --- where the gunner kneels -------------------------------------------
   const rootAt = rig.restWorld.get(rig.node(`${g}_root`))!.t;
   let d: V3;
-  let post: ReturnType<typeof measurePost> | null = null;
+  let post: { sight: V3; right: V3; left: V3; rear?: V3; muzzle?: V3 } | null = null;
   let wheel: V3 | null = null;
-  if (spec.seat === 'sight') {
-    post = measurePost(partWorld);
+  const gap = spec.eyeGapM ?? EYE_GAP_M;
+  const rise = spec.eyeRiseM ?? 0;
+  if (spec.seat === 'sight' || spec.seat === 'console') {
+    post = spec.seat === 'sight' ? measurePost(partWorld) : consolePoints(root.listScenes()[0].getExtras());
+    if (spec.seat === 'console') {
+      // The declared GRIPS must be on the case (its `metal` on `prop`): a grip
+      // point off the geometry would have the IK close a hand on air, and the
+      // pass's own hand gap -- to the TARGET -- cannot see that. Read against
+      // the vertices, which on a grip (rings every 3 cm, 3 cm out) is honest;
+      // the display's centre is mid-panel, far from any of the lid's eight
+      // corners, so it is not judged here (crew_on_gun.test.ts reads the eye
+      // against the case's vertices instead).
+      const caseWorld = restVertices(rig)
+        .filter((v) => v.joint === prop && v.role === 'metal')
+        .map((v) => carry(rig, w0, prop, v.p));
+      if (caseWorld.length < 50) throw new Error(`crew-fire: ${id} has ${caseWorld.length} metal vertices on prop -- no console`);
+      for (const [k, p] of [['grip_r', post.right], ['grip_l', post.left]] as const) {
+        const gapM = Math.min(...caseWorld.map((q) => len(sub(q, p))));
+        if (gapM > CREW_GRIP_GAP_M) throw new Error(`crew-fire: rl_crew_points.${k} is ${gapM.toFixed(3)} m off the console's own vertices`);
+      }
+    }
     // Directly behind the sight, at exactly the distance his own torso
     // reaches: his spine base sits where swinging his rest eye about it
     // lands the eye on the target (|target - base| = |eye - base|).
-    const eyeTarget: V3 = [post.sight[0] - EYE_GAP_M, post.sight[1], post.sight[2]];
+    const eyeTarget: V3 = [post.sight[0] - gap, post.sight[1] + rise, post.sight[2]];
     const head0 = rig.node(`${g}_head`);
     const face0 = restVertices(rig).filter((v) => v.joint === head0 && v.role === 'face');
     // At idle frame 0, after the ground step's raise -- not at rest.
@@ -349,7 +459,7 @@ export function applyCrewFire(doc: Document, id: string): string[] {
     face.length > 0 ? scale(face.reduce((s, v) => add(s, v.p), [0, 0, 0] as V3), 1 / face.length) : add(rig.restWorld.get(head)!.t, [0.09, 0.04, 0]);
   const seat: Seat = {
     eyeRest,
-    ...(post ? { eyeTarget: [post.sight[0] - EYE_GAP_M, post.sight[1], post.sight[2]] as V3, grips: { right: post.right, left: post.left } } : {}),
+    ...(post ? { eyeTarget: [post.sight[0] - gap, post.sight[1] + rise, post.sight[2]] as V3, grips: { right: post.right, left: post.left } } : {}),
     ...(wheel ? { wheel } : {}),
     handR: handPoint(rig, verts, rig.node(`${g}_forearm_L`)),
     handL: handPoint(rig, verts, rig.node(`${g}_forearm_R`)),
@@ -372,7 +482,7 @@ export function applyCrewFire(doc: Document, id: string): string[] {
     writeTrack(doc, idle, b, 'rotation', times, solved.flatMap((s) => [...s.pose.get(b)!.r]));
     writeTrack(doc, idle, b, 'translation', times, solved.flatMap((s) => [...s.pose.get(b)!.t]));
   }
-  lines.push(`crew ${g} idle: ${times.length} keys, eye ${post ? `${(worstEye * 1000).toFixed(1)} mm off ${EYE_GAP_M} m behind the sight` : 'free'}, hands within ${(worstHand * 1000).toFixed(1)} mm`);
+  lines.push(`crew ${g} idle: ${times.length} keys, eye ${post ? `${(worstEye * 1000).toFixed(1)} mm off ${gap} m behind${rise ? ` and ${rise} m above` : ''} the ${spec.seat}` : 'free'}, hands within ${(worstHand * 1000).toFixed(1)} mm`);
 
   // --- fire: the table on top of the seated idle frame 0 -----------------
   rig = new Rig(doc);
@@ -380,12 +490,14 @@ export function applyCrewFire(doc: Document, id: string): string[] {
   const n = Math.round(spec.durationS * CREW_FIRE_FPS);
   const fireTimes = Array.from({ length: n + 1 }, (_, i) => (i * spec.durationS) / n);
   const tracked = new Set<Node>([...idleNow.values()].map((tr) => tr.node));
+  for (const n of kept.keys()) tracked.add(n);
   for (const pfx of [g, spec.mate]) {
     for (const b of ['spine', 'neck', 'head', 'upperarm_L', 'forearm_L', 'upperarm_R', 'forearm_R']) tracked.add(rig.node(`${pfx}_${b}`));
   }
   let fireHand = 0;
   const poses = fireTimes.map((t) => {
     const pose = rig.sample(idleNow, 0);
+    for (const [n, x] of kept) pose.set(n, x);
     for (const pfx of [g, spec.mate]) {
       const k = lerpKeys(spec.keys[pfx] ?? [], t);
       turn(rig, pose, rig.node(`${pfx}_spine`), k.spine[0], k.spine[1]);
@@ -413,19 +525,22 @@ export function applyCrewFire(doc: Document, id: string): string[] {
   lines.push(`crew ${id} fire: ${spec.durationS} s, ${fireTimes.length} keys at ${CREW_FIRE_FPS} fps, gunner's hands within ${(fireHand * 1000).toFixed(1)} mm`);
 
   // --- the renderer's fire point for a launcher's backblast --------------
-  if (post) {
+  // (A console team's points are the importer's, measured on its launcher
+  // part, and already on the scene.)
+  if (post?.rear && post.muzzle) {
     const scene = root.listScenes()[0];
     const rear = post.rear;
+    const muzzle = post.muzzle;
     scene.setExtras({
       ...((scene.getExtras() ?? {}) as Record<string, unknown>),
       rl_fire: {
         backblast: rear.map((x) => Math.round(x * 1e4) / 1e4),
-        muzzle: post.muzzle.map((x) => Math.round(x * 1e4) / 1e4),
+        muzzle: muzzle.map((x) => Math.round(x * 1e4) / 1e4),
       },
     });
     lines.push(
       `crew ${id}: rl_fire.backblast at the tube's rear (${rear.map((x) => x.toFixed(2)).join(', ')}), ` +
-        `muzzle (${post.muzzle.map((x) => x.toFixed(2)).join(', ')})`
+        `muzzle (${muzzle.map((x) => x.toFixed(2)).join(', ')})`
     );
   }
   return lines;
@@ -446,7 +561,7 @@ export const CREW_PINNED_BACK_DEG = 8;
  */
 export function applyCrewPinned(doc: Document, id: string): string[] {
   const spec = CREW_FIRE[id];
-  if (!spec || spec.seat !== 'sight') return [];
+  if (!spec || (spec.seat !== 'sight' && spec.seat !== 'console')) return [];
   const root = doc.getRoot();
   const idle = root.listAnimations().find((a) => a.getName() === 'idle');
   const pinned = root.listAnimations().find((a) => a.getName() === 'pinned');
@@ -457,11 +572,14 @@ export function applyCrewPinned(doc: Document, id: string): string[] {
   const idleT = tracksOf(idle);
   const pinT = tracksOf(pinned);
   const pose0 = rig.sample(idleT, 0);
-  const post = measurePost(
-    restVertices(rig)
-      .filter((v) => v.joint === prop && v.role === ROLE_PART)
-      .map((v) => carry(rig, (n) => rig.worldOf(n, pose0), prop, v.p))
-  );
+  const post =
+    spec.seat === 'console'
+      ? consolePoints(root.listScenes()[0].getExtras())
+      : measurePost(
+          restVertices(rig)
+            .filter((v) => v.joint === prop && v.role === ROLE_PART)
+            .map((v) => carry(rig, (n) => rig.worldOf(n, pose0), prop, v.p))
+        );
   const verts = restVertices(rig);
   const handR = handPoint(rig, verts, rig.node(`${g}_forearm_L`));
   const handL = handPoint(rig, verts, rig.node(`${g}_forearm_R`));

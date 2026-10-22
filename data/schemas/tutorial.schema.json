@@ -31,16 +31,18 @@
   "$defs": {
     "step": {
       "type": "object",
-      "required": ["id", "title", "teach", "await"],
+      "required": ["id", "await"],
       "additionalProperties": false,
       "properties": {
         "id": { "type": "string", "pattern": "^[a-z0-9_]+$" },
-        "title": { "type": "string", "maxLength": 60 },
-        "teach": { "type": "string", "maxLength": 240 },
         "await": { "$ref": "#/$defs/predicate" },
         "focus": { "$ref": "#/$defs/focus" },
-        "nudge_after_s": { "type": "number", "minimum": 3, "maximum": 120 },
-        "nudge": { "type": "string", "maxLength": 160 },
+        "nudge_after_s": {
+          "type": "number",
+          "minimum": 3,
+          "maximum": 120,
+          "description": "Seconds the step may sit open before its nudge shows. The nudge text is the catalogue key tutorial.<tutorial id>.<step id>.nudge, required by validate:data when this is set."
+        },
         "reveal": {
           "type": "array",
           "uniqueItems": true,
@@ -48,14 +50,14 @@
           "description": "GH-345: HUD elements added when this step OPENS, cumulative with hud_start and every earlier step's reveal."
         }
       },
-      "dependentRequired": { "nudge": ["nudge_after_s"], "nudge_after_s": ["nudge"] }
+      "description": "A step carries NO text. Its words are chrome, so they live in packages/app/src/i18n/en.json under tutorial.<tutorial id>.<step id>.title / .teach (and .nudge when nudge_after_s is set) and go through t(). The key is derived from the ids, which telemetry already pins, so a key can neither drift from nor be mistyped against its step. additionalProperties false is what refuses a raw title/teach/nudge here."
     },
     "predicate": {
       "type": "object",
       "required": ["kind"],
       "additionalProperties": false,
       "properties": {
-        "kind": { "enum": ["intent", "sim", "mission", "elapsed_s", "all_of", "any_of", "hover", "camera"] },
+        "kind": { "enum": ["intent", "sim", "mission", "elapsed_s", "all_of", "any_of", "hover", "camera", "production"] },
         "intent": {
           "type": "string",
           "description": "intent only: a PlayerIntent kind. Cross-checked against INTENT_KINDS in packages/app/src/input/intents.ts."
@@ -94,6 +96,19 @@
         "target": {
           "enum": ["enemy", "structure", "any"],
           "description": "hover only: which kind of thing must be under the cursor. Default any. Cross-checked against runtime.ts's `matches`."
+        },
+        "bought": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "production only (GH-184): the player has bought at least this many units this mission, deployed, building or waiting -- a count of purchases, not a snapshot of the line."
+        },
+        "rally": {
+          "type": "boolean",
+          "description": "production only: whether any living line of the player's has a rally point."
+        },
+        "edge": {
+          "enum": ["paused", "resumed"],
+          "description": "production only: a line's contested state changed while it was building (paused: false -> true; resumed: true -> false). An edge, so an all_of of the two cannot be marked out of order. A production predicate names exactly one of bought, rally or edge (steps.test.ts)."
         }
       }
     },
@@ -103,7 +118,7 @@
       "additionalProperties": false,
       "description": "Same as predicate, but for use inside another predicate's `of`. `kind` excludes all_of: the reducer accumulates all_of across successive inputs only for a step's top-level await, so an all_of nested any deeper can never be satisfied and would stall the tutorial silently.",
       "properties": {
-        "kind": { "enum": ["intent", "sim", "mission", "elapsed_s", "any_of", "hover", "camera"] },
+        "kind": { "enum": ["intent", "sim", "mission", "elapsed_s", "any_of", "hover", "camera", "production"] },
         "intent": {
           "type": "string",
           "description": "intent only: a PlayerIntent kind. Cross-checked against INTENT_KINDS in packages/app/src/input/intents.ts."
@@ -142,6 +157,19 @@
         "target": {
           "enum": ["enemy", "structure", "any"],
           "description": "hover only: which kind of thing must be under the cursor. Default any. Cross-checked against runtime.ts's `matches`."
+        },
+        "bought": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "production only (GH-184): the player has bought at least this many units this mission, deployed, building or waiting -- a count of purchases, not a snapshot of the line."
+        },
+        "rally": {
+          "type": "boolean",
+          "description": "production only: whether any living line of the player's has a rally point."
+        },
+        "edge": {
+          "enum": ["paused", "resumed"],
+          "description": "production only: a line's contested state changed while it was building (paused: false -> true; resumed: true -> false). An edge, so an all_of of the two cannot be marked out of order. A production predicate names exactly one of bought, rally or edge (steps.test.ts)."
         }
       }
     },

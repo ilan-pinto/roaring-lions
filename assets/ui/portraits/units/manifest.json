@@ -16,6 +16,20 @@
         148
       ]
     },
+    "at_nlos_team": {
+      "file": "at_nlos_team.png",
+      "extent": [
+        156,
+        174
+      ],
+      "lead": {
+        "file": "lead/at_nlos_team.png",
+        "extent": [
+          92,
+          174
+        ]
+      }
+    },
     "at_team": {
       "file": "at_team.png",
       "extent": [
@@ -141,6 +155,20 @@
         182,
         132
       ]
+    },
+    "inf_grenadier": {
+      "file": "inf_grenadier.png",
+      "extent": [
+        174,
+        138
+      ],
+      "lead": {
+        "file": "lead/inf_grenadier.png",
+        "extent": [
+          78,
+          174
+        ]
+      }
     },
     "inf_squad": {
       "file": "inf_squad.png",
@@ -345,6 +373,13 @@
         ]
       }
     },
+    "spg_cluster": {
+      "file": "spg_cluster.png",
+      "extent": [
+        162,
+        182
+      ]
+    },
     "spg_long_range": {
       "file": "spg_long_range.png",
       "extent": [
@@ -357,6 +392,13 @@
       "extent": [
         182,
         126
+      ]
+    },
+    "ugv_recon_dog": {
+      "file": "ugv_recon_dog.png",
+      "extent": [
+        154,
+        172
       ]
     },
     "yahalom_squad": {

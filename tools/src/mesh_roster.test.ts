@@ -164,6 +164,7 @@ const RUNNING_GEAR: Record<string, { wheels: number; steered: number; tracks: nu
   officer_armour: { wheels: 0, steered: 0, tracks: 2 },
   rocket_battery: { wheels: 6, steered: 0, tracks: 0 },
   spg_long_range: { wheels: 12, steered: 0, tracks: 2 },
+  spg_cluster: { wheels: 12, steered: 0, tracks: 2 },
   scout_shachaf: { wheels: 4, steered: 2, tracks: 0 },
   technical: { wheels: 4, steered: 2, tracks: 0 },
 };

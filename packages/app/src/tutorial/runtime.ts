@@ -18,7 +18,7 @@ import type { FireState } from '../ui/fire-state';
 import type { HudElement } from '../ui/hud-elements';
 
 export interface PredicateJson {
-  kind: 'intent' | 'sim' | 'mission' | 'elapsed_s' | 'all_of' | 'any_of' | 'hover' | 'camera';
+  kind: 'intent' | 'sim' | 'mission' | 'elapsed_s' | 'all_of' | 'any_of' | 'hover' | 'camera' | 'production';
   intent?: string;
   verb?: 'move' | 'attackMove';
   via?: 'click' | 'box' | 'group';
@@ -39,16 +39,26 @@ export interface PredicateJson {
   /** camera only (GH-345): tiles the view's centre has moved from where it
    *  stood when the tutorial started. */
   tiles?: number;
+  /** production only (GH-184): the player has bought at least this many
+   *  units this mission -- deployed, building or waiting. A count of
+   *  purchases, not a snapshot of the line: two clicks fifteen seconds apart
+   *  are two even though the first squad has walked out before the second. */
+  bought?: number;
+  /** production only: whether any living line of the player's has a rally. */
+  rally?: boolean;
+  /** production only: a line's contested state CHANGED while it was building
+   *  -- `paused` on false -> true, `resumed` on true -> false. An edge, not a
+   *  state, so an `all_of` of the two cannot be marked out of order. */
+  edge?: ProductionEdge;
 }
+
+export type ProductionEdge = 'paused' | 'resumed';
 
 export interface StepJson {
   id: string;
-  title: string;
-  teach: string;
   await: PredicateJson;
   focus?: { kind: 'marker' | 'zone' | 'none'; marker?: string; zone?: string };
   nudge_after_s?: number;
-  nudge?: string;
   /** HUD elements added when this step opens (GH-345, `hud-visibility.ts`). */
   reveal?: HudElement[];
 }
@@ -71,7 +81,10 @@ export type TutorialInput =
     }
   /** How far the view's centre has moved from where the tutorial found it,
    *  in tiles. The caller measures; the runtime only compares. */
-  | { kind: 'camera'; tilesFromStart: number };
+  | { kind: 'camera'; tilesFromStart: number }
+  /** The player's production lines as the caller read them this tick
+   *  (`productionInput`). `edge` is set only on the input that reports one. */
+  | { kind: 'production'; bought: number; rally: boolean; edge: ProductionEdge | null };
 
 export interface TutorialState {
   readonly steps: readonly StepJson[];
@@ -145,6 +158,16 @@ export function matches(
     }
     case 'camera':
       return input.kind === 'camera' && input.tilesFromStart >= (pred.tiles ?? 1);
+    case 'production': {
+      if (input.kind !== 'production') return false;
+      if (pred.edge !== undefined) return input.edge === pred.edge;
+      // A production predicate that names nothing would match every tick;
+      // steps.test.ts refuses one in shipped data, and this refuses it here.
+      if (pred.bought === undefined && pred.rally === undefined) return false;
+      if (pred.bought !== undefined && input.bought < pred.bought) return false;
+      if (pred.rally !== undefined && input.rally !== pred.rally) return false;
+      return true;
+    }
     case 'hover': {
       if (input.kind !== 'hover') return false;
       const want = pred.target ?? 'any';
@@ -216,4 +239,55 @@ export function advance(state: TutorialState, input: TutorialInput, nowMs: numbe
     step.nudge_after_s !== undefined && nowMs - state.openedAtMs > step.nudge_after_s * 1000;
   if (nudging === state.nudging && seen === state.seen) return state;
   return { ...state, nudging, seen };
+}
+
+/** The read of one production line `productionInputs` needs -- a subset of
+ *  `MissionRuntime.productionLines(0)`'s rows, so a test can hand in literals. */
+export interface TutorialLineView {
+  readonly alive: boolean;
+  readonly current: string | null;
+  /** Waiting items, the one building excluded. */
+  readonly queued: number;
+  readonly contested: boolean;
+  readonly rally: unknown;
+}
+
+/**
+ * Turn this tick's production lines into the reducer's inputs (GH-184): one
+ * state input, then one input per contested edge. `prevContested` is what the
+ * caller kept from the last call (start with `[]`); the returned `contested`
+ * replaces it. `deployed` is how many of the player's purchases have already
+ * walked out (the caller counts side-0 `built` mission events), so `bought` is
+ * those plus every item still on a living line. Pure: the caller reads the
+ * lines, this only compares -- the tutorial still holds no `Sim` and can queue
+ * nothing.
+ *
+ * `contested` is only ever true while a line is building (the runtime's own
+ * rule), so a `paused` edge is always a build stopping. A line that is lost
+ * reads uncontested, which is a `resumed` edge: the clock is not running, but
+ * nothing contests it any more either, and a beat waiting on it should not wait
+ * for a camp that will never build again.
+ */
+export function productionInputs(
+  prevContested: readonly boolean[],
+  lines: readonly TutorialLineView[],
+  deployed = 0
+): { inputs: TutorialInput[]; contested: boolean[] } {
+  let bought = deployed;
+  let rally = false;
+  const contested: boolean[] = [];
+  const edges: ProductionEdge[] = [];
+  lines.forEach((l, i) => {
+    const now = l.alive && l.contested;
+    contested.push(now);
+    const was = prevContested[i] === true;
+    if (now && !was) edges.push('paused');
+    if (!now && was) edges.push('resumed');
+    if (!l.alive) return;
+    bought += l.queued + (l.current === null ? 0 : 1);
+    if (l.rally !== null && l.rally !== undefined) rally = true;
+  });
+  const inputs: TutorialInput[] = [{ kind: 'production', bought, rally, edge: null }];
+  for (const edge of edges) inputs.push({ kind: 'production', bought, rally, edge });
+  return { inputs, contested };
 }

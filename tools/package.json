@@ -36,6 +36,7 @@
     "end-panel:check": "tsx src/ui-review/end-panel-check.ts",
     "blast:capture": "tsx src/perf/blast-captures.ts",
     "atgm:capture": "tsx src/perf/atgm-captures.ts",
+    "grenade:capture": "tsx src/perf/grenade-captures.ts",
     "tunnel:capture": "tsx src/perf/tunnel-xray-captures.ts",
     "banner:capture": "tsx src/perf/garrison-banner-captures.ts",
     "radio:clips": "tsx src/audio/radio-clips.ts",

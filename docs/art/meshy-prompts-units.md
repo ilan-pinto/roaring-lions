@@ -1283,3 +1283,31 @@ one thing none of them has -- a long gun held at a steep angle over the bow -- a
 negative prompt names the three ways it fails (a short barrel, a horizontal one, a tank).
 `spg_cluster` (design row 11) swaps this GLB's `turret_metal` barrel node for a Blender
 variant.
+
+## 29. `at_nlos_team` — the Zaron Missile Team's launcher (KDF crew weapon part, special units P7, GH-709)
+
+Sent 2026-10-22 after the lead approved the art spec (Q1: Meshy makes ONLY the launcher; the
+crew reuse `mortar_team`'s crewman, section 25's team). AI-generated (Meshy), disclosed per
+`CONTRIBUTING.md`. The task ids and credits are in `art/meshy/ledger.jsonl`, name
+`at_nlos_team_launcher`.
+
+| item | number | source |
+|---|---|---|
+| credits | **55**: preview 20 (rejected), preview 20, refine 2k 10, remesh 5 (approved plan 35, limit 75) | ledger |
+| first preview `01a1631b` | rejected: the spec's prompt (A6) returned bulbous domed pods on a horizontal box over tall tripod legs -- no long canister pack | thumbnail kept |
+| second preview `01a16320` | four long tubes, 2 x 2, on a four-leg stand with a junction box; came back near-vertical (fitted 87.1 deg) | `art/meshy/at-nlos-team-launcher-20261022-01a16320/` |
+| refine / remesh | `01a16323` (2k) / `01a16328` at 800 (arrived 774) | |
+| pose | re-posed in Blender to **75.0 deg** on the pack's fitted axis about the cradle hinge, the legs following (`tools/units/nlos_launcher_part.py`) | `art/parts/at_nlos_team/points.json` |
+| drawn size | the pack **1.90 m declared** (scale 1.1576); 2.20 m tall at 75 deg, 1.35 x 1.04 m on the ground | part script |
+| markings | none painted: 127 clustered bright texels, every one a steel fitting, looked at one by one | part script `_ink_census` |
+| IoU | worst **0.498** (`manpad_team`), `atgm_cell` 0.326, `at_team` 0.255, `mortar_team` 0.269 | `validate_assets.silhouette`/`iou` on the gate's renders |
+
+Second (used) prompt, verbatim, with its negative (rewritten against the first preview's domes, pods and tall legs):
+
+```
+A single low-poly game-ready missile launcher of a fictional army. Its main body is one long slender square pack: four long straight cylindrical tubes of equal size bundled tightly two-by-two, like four long pipes strapped together, held by welded square frame bands along their length. The pack is 1.9 metres long and 0.56 metres square, over three times longer than wide. Every tube end is a flat flush disc cover, no domes. The long pack points steeply up at the sky, nearly upright, about seventy-five degrees, sitting on a small low hinged cradle with four short stubby splayed legs, below knee height, much smaller than the pack. Side lifting handles, a small armoured junction box. Matte olive drab, dark gunmetal. One object, centred, no ground, no base. No insignia, text or markings.
+```
+
+`--negative "domes, spheres, round caps, bulbous tanks, lamps, short stubby tubes, horizontal box, tall legs, long legs, tripod, truck, vehicle, wheels, rocket pod with many small tubes, exposed missiles, pointed warheads, fins, single tube, soldiers, people, text, insignia, ground plane, base"`. The first prompt and negative were the approved spec's
+(A6), verbatim.
+

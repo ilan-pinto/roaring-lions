@@ -1,0 +1,24 @@
+{
+  "unit": "inf_grenadier",
+  "variant": "lead",
+  "source": "assets/meshes/inf_grenadier.glb",
+  "source_sha256": "ffd7b1076e5d0c74591599102ab468b1f583e7754ba021463e37e0334bbcd135",
+  "yaw_deg": -125.0,
+  "elevation_deg": 12.0,
+  "fov_deg": 30.0,
+  "fill": [
+    "longer",
+    0.88
+  ],
+  "ndc_box": [
+    0.3123,
+    0.6877,
+    0.06,
+    0.94
+  ],
+  "materials": {
+    "baked": 4,
+    "flat": 0
+  },
+  "lead_figure": "gre1"
+}

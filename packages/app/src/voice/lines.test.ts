@@ -27,9 +27,10 @@ describe('voiceClassOf (spec §3)', () => {
   const EXPECTED: Record<string, VoiceClass> = {
     apc_eitan: 'crew', apc_kipod: 'crew', at_team: 'infantry', attack_drone: 'air',
     breach_team: 'infantry', demo_squad: 'engineer', dozer_d9: 'engineer', heli_peten: 'air',
-    ifv_namer: 'crew', inf_squad: 'infantry', jeep_shoded: 'crew', mbt_lavi: 'crew',
+    ifv_namer: 'crew', inf_grenadier: 'infantry', inf_squad: 'infantry', jeep_shoded: 'crew', mbt_lavi: 'crew',
     mortar_team: 'infantry', recon_drone: 'air', scout_shachaf: 'crew', sniper_team: 'infantry',
     yahalom_squad: 'engineer', recon_zikit: 'infantry', heli_peten_gunship: 'air', heli_yanshuf: 'air',
+    at_nlos_team: 'infantry', // GH-709 Phase 7: role at_team, a foot team
     atgm_cell: 'infantry', charge_squad: 'infantry', digger_crew: 'engineer', gun_truck: 'crew',
     loiter_drone: 'air', manpad_team: 'infantry', militia_cell: 'infantry', mortar_crew: 'infantry',
     moto_rpg: 'crew', paramotor: 'air', recoilless_team: 'infantry', rocket_battery: 'crew',
@@ -37,6 +38,11 @@ describe('voiceClassOf (spec §3)', () => {
     // GH-709: the Te'o Howitzer is role `artillery` (a foot role) with a tracked crew of four,
     // so it carries `voice: "crew"`, the rocket_battery override. The camo Lavi is an mbt.
     spg_long_range: 'crew', mbt_lavi_camo: 'crew',
+    // GH-709 Phase 8: the Chadaf recon robot is role `drone`, remotely operated like the
+    // recon drone, so the role default (the operator's `air` voice) is right; no override.
+    ugv_recon_dog: 'air',
+    // GH-709 Phase 7: the Te'o Cluster Howitzer, the Te'o's hull and crew.
+    spg_cluster: 'crew',
     civilians: 'infantry', // a class, but no language: civilians never speak (languageOf)
   };
 

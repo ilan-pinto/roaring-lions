@@ -67,6 +67,9 @@ export const TEXTURED_INFANTRY_TYPES: ReadonlySet<string> = new Set<string>([
   // and rifle carry no map and take the faction ramp. HELD in
   // mesh-catalogue.ts until Task 9 lands its unit JSON.
   'recon_zikit',
+  // GH-709 unit 10 (22 Oct): the Chadaf recon robot, one Meshy remesh with its 2k
+  // base-colour bake on every role (tools/units/import_meshy_dog.py).
+  'ugv_recon_dog',
   // B7 (GH-179, 2026-10-01): the two B2 teams, their bake bought on the B2
   // preview itself (`pnpm meshy -- refine`) and re-remeshed; and the four
   // supplied civilian figures, which keep their own supplied bake
@@ -82,4 +85,11 @@ export const TEXTURED_INFANTRY_TYPES: ReadonlySet<string> = new Set<string>([
   'mortar_team',
   'sniper_team',
   'yahalom_squad',
+  // GH-709 Phase 7 (2026-10-22): the Zaron Missile Team, the KDF mortar
+  // crewman's bake three times beside the Meshy launcher's, one 2048x1024
+  // atlas (tools/units/import_meshy_crew_team.py); its kit fire-control case,
+  // cable and the leader's kit rifle take no map of their own.
+  'at_nlos_team',
+  // GH-709 phase 3 (22 Oct 2026): the Chomet grenadier squad, same importer.
+  'inf_grenadier',
 ]);

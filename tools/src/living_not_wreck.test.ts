@@ -91,12 +91,13 @@ const WITH_CORPSE = DRAWN.filter((f) => existsSync(`${MESHES}${f}`) && clipsOf(f
 describe('no living state plays its corpse', () => {
   it('judges every drawn file that has a corpse -- a known population', () => {
     // A literal, so an empty catalogue or a path that matches nothing cannot
-    // pass this file in no time: 18 rigged infantry files with a `wreck`
-    // (the civilians have none; the three officers are held) and 19
+    // pass this file in no time: 20 rigged files with a `wreck` -- 18
+    // infantry plus ugv_recon_dog (GH-709 Phase 8), inf_grenadier (Phase 3) and
+    // at_nlos_team (Phase 7) -- (the civilians have none; the three officers are held) and 20
     // vehicles: 16 counted 7 Oct, plus heli_yanshuf (GH-698, 21 Oct),
-    // mbt_lavi_camo and spg_long_range (GH-709, 22 Oct).
-    expect(WITH_CORPSE.filter((f) => !f.startsWith('vehicles/'))).toHaveLength(18);
-    expect(WITH_CORPSE.filter((f) => f.startsWith('vehicles/'))).toHaveLength(19);
+    // mbt_lavi_camo and spg_long_range (GH-709, 22 Oct), spg_cluster (GH-709 P7).
+    expect(WITH_CORPSE.filter((f) => !f.startsWith('vehicles/'))).toHaveLength(21); // Was 20: Phase 3 and Phase 7 each added one
+    expect(WITH_CORPSE.filter((f) => f.startsWith('vehicles/'))).toHaveLength(20);
   });
 
   for (const file of WITH_CORPSE) {

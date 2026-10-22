@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://roaringlions.dev/schemas/coupons.schema.json",
+  "title": "Brigade coupons",
+  "description": "Redeemable codes that grant brigade credits. Each entry holds the SHA-256 of the code (trimmed, case-sensitive), never the code. Client-side and trust-based until a server ledger exists (GH-205): a hash of a short code can be brute-forced offline.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["coupons"],
+  "properties": {
+    "coupons": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "sha256", "credits"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$", "maxLength": 48 },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "credits": { "type": "integer", "minimum": 1, "maximum": 1000000 }
+        }
+      }
+    }
+  }
+}

@@ -2328,7 +2328,13 @@ export interface CrewOnGunReading {
   readonly instants: number;
 }
 
-export function measureCrewOnGun(path: string, clip: string, prefix: string): CrewOnGunReading {
+export function measureCrewOnGun(
+  path: string,
+  clip: string,
+  prefix: string,
+  /** The roles on `prop` the gunner works: the gun itself (`weapon`), or a fire-control case beside it (`metal`). */
+  gunRoles: readonly string[] = ['weapon']
+): CrewOnGunReading {
   const glb = readGlb(path);
   const nodes = glb.json.nodes ?? [];
   const meshes = glb.json.meshes ?? [];
@@ -2355,7 +2361,7 @@ export function measureCrewOnGun(path: string, clip: string, prefix: string): Cr
         for (let k = 1; k < 4; k++) if (pick.weights.data[i * 4 + k] > pick.weights.data[i * 4 + b]) b = k;
         const jn = names[skin.joints[pick.joints.data[i * 4 + b]]];
         let key: string | null = null;
-        if (role === 'weapon' && jn === 'prop') key = 'weapon';
+        if (gunRoles.includes(role) && jn === 'prop') key = 'weapon';
         else if (role === 'face' && jn === `${prefix}_head`) key = 'face';
         else if (role !== 'weapon' && role !== 'metal' && (jn === `${prefix}_forearm_L` || jn === `${prefix}_forearm_R`)) key = jn;
         if (!key) continue;
@@ -2470,6 +2476,29 @@ export function measureHipHeight(path: string, clip: string): FigureHipHeight[] 
     const sorted = [...hips].sort((a, b) => a - b);
     return { figure, hiddenInClip: false, thighM, hipMinM: sorted[0], hipMedianM: sorted[Math.floor(sorted.length / 2)] };
   });
+}
+
+/**
+ * The world height of ONE named joint over `clip` (GH-709 Phase 8): lowest and
+ * median over the samples where it is drawn, metres above the armature's
+ * y = 0. `measureHipHeight` reads a biped's pelvis and thighs; a quadruped's
+ * body is one rigid link (`dog_root`), so its height is this joint's. Throws
+ * for a joint the file does not carry, so a rename cannot read as nothing.
+ */
+export function measureJointHeight(path: string, clip: string, joint: string): { minM: number; medianM: number } {
+  const glb = readGlb(path);
+  const i = (glb.json.nodes ?? []).findIndex((n) => n.name === joint);
+  if (i < 0) throw new Error(`${path}: no joint ${joint}`);
+  const { tracks, start, end } = readClip(glb, clip);
+  const ys: number[] = [];
+  for (let s = 0; s <= SAMPLES; s++) {
+    const w = nodeWorlds(glb, tracks, start + ((end - start) * s) / SAMPLES);
+    if (jointScale(w[i]) <= HIDDEN_SCALE) continue;
+    ys.push(w[i][13]);
+  }
+  if (ys.length === 0) throw new Error(`${path}: ${joint} is scaled out of all of ${clip}`);
+  ys.sort((a, b) => a - b);
+  return { minM: ys[0], medianM: ys[Math.floor(ys.length / 2)] };
 }
 
 export interface FigureLowest {

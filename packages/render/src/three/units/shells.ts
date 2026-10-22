@@ -150,7 +150,7 @@ import { WEAPON_CLASS } from '@lions/sim';
  *
  * An ATGM or an RPG is NOT a shell since GH-250 -- see `ProjectileKind`.
  */
-export type ShellKind = 'mortar' | 'rocket' | 'bolt' | 'rifle' | 'mg';
+export type ShellKind = 'mortar' | 'rocket' | 'bolt' | 'rifle' | 'mg' | 'grenade';
 
 /** What `shellKindFor` answers: a `ShellKind` this module flies, or
  *  `'missile'`, which `units/missiles.ts` flies (GH-250, spec D5). */
@@ -319,7 +319,38 @@ export const SHELL_PROFILES: Record<ShellKind, ShellProfile> = {
     baseLiftPx: 7, trailS: 0.05, widthPx: 2.2, minDurationS: 0.12,
     indirect: false, impactPower: 0,
   },
+  // GH-709 P2 (the grenadier's `gl_40`, lead-approved numbers 22 Oct): a short
+  // lobbed 40 mm round, keyed by WEAPON id (`LOBBED_WEAPON_IDS`), not class --
+  // its class is `he`, which flies as a missile. A small dark round with no
+  // smoke and no glow (`HDR_GAINS.streakKind.grenade` darkens it below the
+  // bloom threshold); `trailS` is not 0 only because the streak IS the round's
+  // body -- 0.05 s at 10 tiles/s is half a tile, a dot rather than a streak.
+  // Apex 10 px a tile, 20-60. Speed 10 copies PROJ_SPEED[he], like mortar and
+  // rocket copy theirs, so the round lands about when the sim resolves it; the
+  // approved spec said "about 8", and 8 would land 0.2 s after the sim's hit
+  // at range 7. Arcs (`indirect`), so it rides the arc batch, ignores depth
+  // like a mortar bomb, and lands through `shell_impact` at 0.15 -- half the
+  // mortar's 0.3 -- with a small crater and scorch.
+  grenade: {
+    speedTilesS: 10, apexPxPerTile: 10, apexMinPx: 20, apexMaxPx: 60,
+    baseLiftPx: 0, trailS: 0.05, widthPx: 4, minDurationS: 0.3,
+    indirect: true, impactPower: 0.15,
+  },
 };
+
+/**
+ * GH-709 P2: weapons whose round is LOBBED -- the `grenade` kind -- whatever
+ * their class. A whitelist by weapon id, like `TOP_ATTACK_WEAPON_IDS`
+ * (`./missiles.ts`), because a 40 mm grenade is an `he` round to the sim and
+ * nothing in the weapon data says "lobbed".
+ */
+export const LOBBED_WEAPON_IDS: ReadonlySet<string> = new Set(['gl_40']);
+
+/** `shellKindFor`, with the weapon-id overrides applied: the one routing
+ *  answer `ThreeRenderer.onFire` asks. */
+export function shellKindForWeapon(cls: number, weaponId: string): ProjectileKind | null {
+  return LOBBED_WEAPON_IDS.has(weaponId) ? 'grenade' : shellKindFor(cls);
+}
 
 /** How a `fire` event of a burst kind becomes several streaks. */
 export interface BurstProfile {

@@ -21,10 +21,22 @@ import { measureCrewOnGun, readGlb } from './mesh_gait';
 
 const MESHES = fileURLToPath(new URL('../../art/meshes/', import.meta.url));
 
-const ROWS: readonly { file: string; gunner: string; eye: number | null; hands: readonly ('L' | 'R')[] }[] = [
+const ROWS: readonly {
+  file: string;
+  gunner: string;
+  eye: number | null;
+  hands: readonly ('L' | 'R')[];
+  roles?: readonly string[];
+}[] = [
   { file: 'atgm_cell.glb', gunner: 'atgm_crew0', eye: 0.1, hands: ['L', 'R'] },
   // On the mortar's right: his inboard (left) hand is rig `_R`.
   { file: 'mortar_crew.glb', gunner: 'emtr_crew0', eye: null, hands: ['R'] },
+  // GH-709 Phase 7: the Zaron gunner works the fire-control case (`metal` on
+  // `prop`), not the launcher: both hands on its grips, and his eye over the
+  // case at arm's length from the screen, not on an eyepiece. 0.45 m: a man
+  // reading a screen on the ground, against 0.44 m for the pre-polish ATGM
+  // gunner who knelt BESIDE his post (the header above).
+  { file: 'at_nlos_team.glb', gunner: 'nl_gun', eye: 0.45, hands: ['L', 'R'], roles: ['metal'] },
 ];
 const HAND_MAX_M = 0.05;
 
@@ -37,7 +49,7 @@ describe('a crew-served gunner is on the gun', () => {
     });
     for (const clip of ['idle', 'fire']) {
       it(`${row.file} ${clip}: ${row.gunner}'s ${row.eye !== null ? 'eye at the sight and ' : ''}hands on the weapon`, () => {
-        const r = measureCrewOnGun(`${MESHES}${row.file}`, clip, row.gunner);
+        const r = measureCrewOnGun(`${MESHES}${row.file}`, clip, row.gunner, row.roles);
         expect(r.instants, `${row.file} ${clip}: instants`).toBeGreaterThan(2);
         if (row.eye !== null) expect(r.eyeM, `${row.file} ${clip}: eye to the weapon`).toBeLessThan(row.eye);
         for (const side of row.hands) expect(r.handM[side], `${row.file} ${clip}: hand ${side} to the weapon`).toBeLessThan(HAND_MAX_M);

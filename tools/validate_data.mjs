@@ -191,13 +191,14 @@ const schemas = {
   structure: loadJson(join(ROOT, 'data/schemas/structure.schema.json')),
   doctrine: loadJson(join(ROOT, 'data/schemas/doctrine.schema.json')),
   versus: loadJson(join(ROOT, 'data/schemas/versus_rules.schema.json')),
+  coupons: loadJson(join(ROOT, 'data/schemas/coupons.schema.json')),
 };
 
 let checked = 0;
 if (
   schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tutorial &&
   schemas.world && schemas.countries && schemas.commander && schemas.names && schemas.diorama && schemas.hints &&
-  schemas.structure && schemas.doctrine && schemas.versus
+  schemas.structure && schemas.doctrine && schemas.versus && schemas.coupons
 ) {
   const validators = {
     unit: ajv.compile(schemas.unit),
@@ -214,6 +215,7 @@ if (
     structure: ajv.compile(schemas.structure),
     doctrine: ajv.compile(schemas.doctrine),
     versus: ajv.compile(schemas.versus),
+    coupons: ajv.compile(schemas.coupons),
   };
   checked += validateDir(join(ROOT, 'data/units'), validators.unit, 'unit.schema');
   checked += validateDir(join(ROOT, 'data/missions'), validators.mission, 'mission.schema');
@@ -232,6 +234,20 @@ if (
   checked += validateFile(join(ROOT, 'data/front/menu_diorama.json'), validators.diorama, 'diorama.schema');
   checked += validateFile(join(ROOT, 'data/hints/first_use.json'), validators.hints, 'first_use_hints.schema');
   checked += validateFile(join(ROOT, 'data/structures.json'), validators.structure, 'structure.schema');
+  checked += validateFile(join(ROOT, 'data/coupons.json'), validators.coupons, 'coupons.schema');
+  // The schema cannot see these: a duplicate id or hash makes a coupon unreachable or
+  // double-spendable, and the file must hold hashes, never a literal code.
+  {
+    const list = loadJson(join(ROOT, 'data/coupons.json'))?.coupons ?? [];
+    const ids = new Set();
+    const hashes = new Set();
+    for (const c of list) {
+      if (ids.has(c.id)) failures.push(`data/coupons.json: duplicate coupon id "${c.id}"`);
+      if (hashes.has(c.sha256)) failures.push(`data/coupons.json: coupon "${c.id}" repeats another coupon's hash`);
+      ids.add(c.id);
+      hashes.add(c.sha256);
+    }
+  }
 } else {
   failures.push('schema files missing or unparseable — cannot validate content');
 }
@@ -1036,6 +1052,39 @@ const garrisonableSymbols = new Set(
       const zone = step.focus?.zone;
       if (zone && !zoneNames.has(zone)) {
         failures.push(`${rel(file)}: step "${step.id}" focus.zone "${zone}" is not a zone on "${mission.map?.file}"`);
+      }
+    }
+  }
+}
+
+// --- tutorial text keys ---------------------------------------------------------
+// A step carries no words (tutorial.schema.json refuses a raw title/teach/nudge);
+// they are en.json keys derived from the ids: tutorial.<id>.<step>.title|teach and,
+// when nudge_after_s is set, .nudge. A step whose key is missing would paint the key
+// itself at the player; a key with no step is a lesson cut without its words.
+{
+  const catalogue = loadJson(join(ROOT, 'packages/app/src/i18n/en.json')) ?? {};
+  for (const file of jsonFilesIn(join(ROOT, 'data/tutorial'))) {
+    const tu = loadJson(file);
+    if (!tu) continue;
+    const want = new Set();
+    for (const step of tu.steps ?? []) {
+      const fields = ['title', 'teach', ...(step.nudge_after_s !== undefined ? ['nudge'] : [])];
+      for (const f of fields) {
+        const key = `tutorial.${tu.id}.${step.id}.${f}`;
+        want.add(key);
+        if (typeof catalogue[key] !== 'string' || catalogue[key].trim() === '') {
+          failures.push(`${rel(file)}: step "${step.id}" has no catalogue text for "${key}" in packages/app/src/i18n/en.json`);
+        } else if (catalogue[key].length > { title: 60, teach: 240, nudge: 160 }[f]) {
+          // The caps the schema carried before the text moved out of it.
+          failures.push(`en.json "${key}" is ${catalogue[key].length} characters, over its ${{ title: 60, teach: 240, nudge: 160 }[f]} cap`);
+        }
+      }
+    }
+    const prefix = `tutorial.${tu.id}.`;
+    for (const key of Object.keys(catalogue)) {
+      if (key.startsWith(prefix) && !want.has(key)) {
+        failures.push(`packages/app/src/i18n/en.json: "${key}" belongs to no step of ${rel(file)} (or a nudge with no nudge_after_s)`);
       }
     }
   }

@@ -24,6 +24,7 @@ has been updated to match.
 | Q4 | The cluster cannon is a separate unit, `spg_cluster`, a Blender variant of unit 2's GLB, with no ammunition selector (D6 stays deferred). |
 | Q14 | Meshy is approved at **280 credits planned, 600 at most**. Every call is announced before it is spent, and its prompt is written by an Opus agent at high effort. With nine units the plan needs 210 / 450 (§4), inside the approval. |
 | Q1, Q2, Q5, Q6, Q7, Q8, Q10, Q11, Q12, Q13, Q15 | Take the recommendation in §6 as written. |
+| Phase 7 (22 Oct) | `spg_cluster` rof 2 -> 5, so it destroys half of open infantry and of a technical in 90 s (probe 11); the NLOS weapon id is `zaron_missile`, not a real platform name. |
 
 **Nine units are built:** `mbt_lavi_camo`, `spg_long_range`, `at_nlos_team`, `veh_ambulance`,
 `air_medevac_heli`, `inf_medic_squad`, `inf_grenadier`, `ugv_recon_dog`, `spg_cluster`.
@@ -178,7 +179,7 @@ mortar crew or an ATGM cell in a town without paying for it.
 **Ability: needs E2.** Line of sight is decided by weapon CLASS (`INDIRECT_MASK` = mortar | rocket). An
 `atgm` must see its target. Authoring the missile as `rocket` would work in the sim today, but it would
 draw as a Grad arc with a rocket trail and be counted by everything that reads "rocket" as artillery.
-E2 adds one boolean (`indirect`) so the class stays honest. Weapon `spike_nlos`: atgm, `indirect: true`
+E2 adds one boolean (`indirect`) so the class stays honest. Weapon `zaron_missile`: atgm, `indirect: true`
 (E2), range 24 / eff 18, accuracy 0.8, pen 1000, damage 450, rof 2, min range 4, collateral 0.2,
 `can_target: ["ground","structure"]`. Hull hp 380, crew 4, speed 0.6, sight 9.
 
@@ -285,7 +286,7 @@ measurement. Built last for that reason.
 
 **Role.** Area denial against infantry and soft-skin vehicles in the open. Same tracked chassis and
 hull as unit 2; weapon `dpicm_155`: mortar class, range 24 (shorter than unit 2: the carrier shell is
-heavier), min range 6, rof 2, collateral **0.95**, `can_target: ["ground"]` (no structures; bomblets do
+heavier), min range 6, rof 5 (raised from 2 by the lead, 22 Oct, so the 90 s claim holds; `gh709/numbers.md`), collateral **0.95**, `can_target: ["ground"]` (no structures; bomblets do
 not bring a building down).
 
 **Ability: needs E3, submunitions.** One round bursts into **12 bomblets** scattered up to 2.5 tiles,
