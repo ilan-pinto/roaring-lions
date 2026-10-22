@@ -10,6 +10,7 @@
     "rocket_battery",
     "recoilless_team"
   ],
+  "pop_cap": 56,
   "budget": {
     "logistics_start": 4800,
     "status": "provisional"

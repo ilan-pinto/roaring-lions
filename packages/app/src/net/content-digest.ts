@@ -19,7 +19,7 @@
  * WebKit are compared on the real data by CI's `net:engines` job
  * (`tools/src/net/two-engine.ts`, reading `__lions.contentDigest()`).
  */
-import { maps, structures, units } from '@lions/data';
+import { doctrines, maps, structures, units, versusRules } from '@lions/data';
 import { fnv1a32 } from '@lions/net';
 
 /** What the digest covers. Plain JSON values, keyed as `@lions/data` keys them. */
@@ -27,6 +27,10 @@ export interface Content {
   readonly units: Readonly<Record<string, unknown>>;
   readonly structures: Readonly<Record<string, unknown>>;
   readonly maps: Readonly<Record<string, unknown>>;
+  /** N3: the skirmish doctrines (menu, purse, cap), keyed by faction. */
+  readonly doctrines: Readonly<Record<string, unknown>>;
+  /** N3: the versus rules files (camps, income zones), keyed by map id. */
+  readonly versusRules: Readonly<Record<string, unknown>>;
 }
 
 /** Key-sorted JSON text. Throws on anything JSON content cannot hold
@@ -49,12 +53,18 @@ export function canonicalJson(v: unknown): string {
 
 /** The digest of `content`: pure, and the same in every engine. */
 export function contentDigest(content: Content): number {
-  return fnv1a32(canonicalJson({ maps: content.maps, structures: content.structures, units: content.units }));
+  return fnv1a32(canonicalJson({
+      doctrines: content.doctrines,
+      maps: content.maps,
+      structures: content.structures,
+      units: content.units,
+      versusRules: content.versusRules,
+    }));
 }
 
 /** The content this build ships. */
 export function shippedContent(): Content {
-  return { units, structures, maps };
+  return { units, structures, maps, doctrines, versusRules };
 }
 
 let shipped: number | null = null;
