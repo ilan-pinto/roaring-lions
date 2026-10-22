@@ -5771,13 +5771,15 @@ export class ThreeRenderer implements Renderer {
   /** GH-748: loads the support aircraft's two meshes (`main.ts`, after the
    *  first frame, on a mission that can call fire support). */
   async loadSupportAircraftMeshes(heliUrl: string, jetUrl: string): Promise<void> {
+    this.supportAircraft.decoder = this.imageDecoder;
     await this.supportAircraft.load(heliUrl, jetUrl);
   }
 
   /** GH-748: what the support layers hold right now (a harness read). */
-  debugSupport(): { flights: number; heli: boolean; jet: boolean; rings: number; lights: number } {
+  debugSupport(): { flights: number; heli: boolean; jet: boolean; warm: boolean; rings: number; lights: number } {
     return {
       flights: this.supportAircraft.flightCount,
+      warm: this.supportAircraft.isWarm,
       ...this.supportAircraft.ready,
       rings: this.shockRings.liveCount,
       lights: this.flashLights.countTagged(SUPPORT_BLAST_TAG),

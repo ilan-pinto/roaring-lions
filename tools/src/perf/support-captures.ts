@@ -94,7 +94,7 @@ interface LionsWindow {
       camera: { x: number; y: number; zoom: number };
       isVisible(x: number, y: number): boolean;
       supportCalled(call: string, x: number, y: number, tick: number): void;
-      debugSupport(): { flights: number; heli: boolean; jet: boolean; rings: number; lights: number };
+      debugSupport(): { flights: number; heli: boolean; jet: boolean; warm: boolean; rings: number; lights: number };
       setDebugLayerVisible(name: string, visible: boolean): number;
       emitterLibrary: { byName(id: string): unknown };
     };
@@ -259,6 +259,11 @@ async function main(): Promise<void> {
 
     // --- the barrage: the third round ---
     const b0 = await call('mortar_barrage');
+    // The aircraft load COLD and decode on the first call; the decode is a
+    // browser task, so it lands between evaluates, never inside a step loop.
+    await page.waitForFunction(() => (window as unknown as LionsWindow).__lions.renderer.debugSupport().warm, undefined, {
+      timeout: MESH_WAIT_MS,
+    });
     await stepTo(b0 + 120 + 2 * 36 - 2);
     if (!(await stepUntil('lights', 8))) throw new Error('barrage: round three never threw its light');
     await toggle('barrage-round3', 'support-air', readings);

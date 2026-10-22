@@ -7,7 +7,15 @@
  * minimap: the plans come from `Renderer.supportCalled` (the app, when a call
  * is accepted) and the clock is the sim clock the caller hands `update`.
  *
- * Both meshes load ONCE per renderer (`load`), not per call. The helicopter is
+ * Both meshes load ONCE per renderer (`load`), not per call, and COLD
+ * (GH-469's `coldGltfLoader`): parsed after the first frame with every
+ * texture still encoded, and decoded only on the first `call` (`warm`). A
+ * mission nobody calls fire support in never holds the ~23 MiB of decoded
+ * bake the two carry -- `perf:memory`'s decoded-ImageBitmap budget is what
+ * caught the eager version. Nothing is drawn until the decode lands: a cold
+ * texture is a 1x1 placeholder. The barrage's helicopter is wanted ~4 s after
+ * the call and the jet ~1.2 s after it, both well behind a 2k JPEG decode.
+ * The helicopter is
  * its own copy of `heli_peten_gunship`'s vehicle template, deliberately not
  * the one a mission that fields the gunship draws its units from: that one is
  * replaced and torn down with its type, and an aircraft mid-pass must not be.
@@ -29,7 +37,7 @@ import {
   type SupportAirKind,
   type SupportAirPlan,
 } from '../support-air';
-import { gltfLoader } from './gltf-loader';
+import { coldGltfLoader, warmColdTextures, type ImageDecoder } from './gltf-loader';
 import { MESH_SCALE, meshYawFromFacing } from './mesh-anim';
 import {
   disposeVehicleMeshEntity,
@@ -97,6 +105,11 @@ export class SupportAircraftManager {
   private readonly glowMaterial: THREE.MeshBasicMaterial;
   private debugHidden = false;
   private disposed = false;
+  /** The decode, once started; `warmed` once it landed. */
+  private warming: Promise<void> | null = null;
+  private warmed = false;
+  /** `warmColdTextures`' decoder; undefined is three's own (a test seam). */
+  decoder: ImageDecoder | undefined = undefined;
 
   constructor(glowColor: THREE.ColorRepresentation) {
     this.group.name = 'support-air';
@@ -112,8 +125,8 @@ export class SupportAircraftManager {
   /** Loads both meshes. Either may fail alone: a call then flies what loaded. */
   async load(heliUrl: string, jetUrl: string): Promise<void> {
     const [heli, jet] = await Promise.allSettled([
-      loadVehicleMeshTemplate(heliUrl, SUPPORT_HELI_TYPE, true),
-      gltfLoader().loadAsync(jetUrl),
+      loadVehicleMeshTemplate(heliUrl, SUPPORT_HELI_TYPE, true, undefined, true),
+      coldGltfLoader().loadAsync(jetUrl),
     ]);
     if (this.disposed) {
       if (heli.status === 'fulfilled') disposeVehicleMeshTemplate(heli.value);
@@ -124,6 +137,25 @@ export class SupportAircraftManager {
     else console.error(`support aircraft: ${heliUrl} failed to load`, heli.reason);
     if (jet.status === 'fulfilled') this.jetTemplate = this.adoptJet(jet.value.scene);
     else console.error(`support aircraft: ${jetUrl} failed to load`, jet.reason);
+    // A call made before the meshes landed is still waiting for them.
+    if (this.flights.length > 0) this.warm();
+  }
+
+  /** Decodes both meshes' textures, once. Started by the first `call`. */
+  private warm(): void {
+    if (this.warming !== null || (this.heliTemplate === null && this.jetTemplate === null)) return;
+    const roots = [this.heliTemplate?.root, this.jetTemplate].filter((r): r is THREE.Object3D => r != null);
+    this.warming = Promise.all(roots.map((r) => warmColdTextures(r, this.decoder))).then(
+      () => {
+        if (!this.disposed) this.warmed = true;
+      },
+      (err: unknown) => console.error('support aircraft: texture decode failed', err)
+    );
+  }
+
+  /** True once the meshes' textures are decoded and the aircraft can draw. */
+  get isWarm(): boolean {
+    return this.warmed;
   }
 
   get ready(): { heli: boolean; jet: boolean } {
@@ -171,6 +203,7 @@ export class SupportAircraftManager {
   call(kind: SupportAirKind, callTick: number, x: number, y: number, fromX: number | null, fromY: number | null): void {
     if (this.flights.length >= MAX_SUPPORT_FLIGHTS) this.retire(this.flights[0]);
     this.flights.push({ plan: makeSupportAirPlan(kind, callTick, x, y, fromX, fromY), heli: null, jet: null, bomb: null });
+    this.warm();
   }
 
   /** A sim `strike` landed: re-anchor the oldest un-anchored plan of its kind near it. */
@@ -236,6 +269,7 @@ export class SupportAircraftManager {
   }
 
   private ensureBody(f: Flight): THREE.Object3D | null {
+    if (!this.warmed) return null;
     if (f.plan.kind === 'barrage') {
       if (f.heli === null && this.heliTemplate !== null) {
         f.heli = instantiateVehicleMesh(this.heliTemplate, SUPPORT_HELI_TYPE);
