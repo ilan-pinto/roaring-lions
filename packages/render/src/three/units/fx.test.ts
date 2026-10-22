@@ -792,9 +792,15 @@ describe('HDR on the tracer / shell materials', () => {
     }
     const head = (SHELL_TRAIL_SEGMENTS - 1) * 12;
     for (let v = 0; v < 4; v++) expect(out.colors[head + v * 3]).toBeCloseTo(r0 * 0.4, 6);
-    // On the arc batch (uHdr 3.5) the glint crosses bloom's 1.0 and the body does not.
-    expect(r0 * 0.4 * 3.5).toBeGreaterThan(1);
-    expect(r0 * 0.06 * 3.5).toBeLessThan(0.25);
+    // On the arc batch (uHdr 3.5), with the shipped shell colours (palette
+    // reserved.vfx.colors fire #FFB43C and ember #E8541E, one per side), the glint's
+    // red crosses bloom's 1.0 -- only just, for ember (about 1.1): faint -- and the
+    // body stays far under it.
+    for (const hex of ['#FFB43C', '#E8541E']) {
+      const [red] = hexToLinear(hex);
+      expect(red * 0.4 * 3.5, hex).toBeGreaterThan(1);
+      expect(red * 0.06 * 3.5, hex).toBeLessThan(0.25);
+    }
   });
 
   it('no other kind changes colour at its head', () => {
