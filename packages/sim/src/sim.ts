@@ -48,6 +48,8 @@ import {
   TRAIL_SIGNATURE,
   TUNNEL_COLLAPSE_RADIUS,
   TUNNEL_COLLAPSE_SHOCK,
+  TUNNEL_CAPACITY_DEFAULT,
+  TUNNEL_ENTER_RANGE_SQ,
   type TunnelRouteJson,
 } from './tunnels';
 import {
@@ -172,6 +174,7 @@ import {
   MED_CARRYING,
   MED_DELIVERING,
   WOUND_DEFAULT_BLEED_TICKS,
+  TUNNEL_TILES_PER_S,
   type SupportKind,
 } from './tuning';
 import { bestCoverTile, figuresStanding, rescuePriority, scaleDown, scarredShare } from './wounds';
@@ -946,6 +949,22 @@ export type Command =
    */
   | { kind: 'chargeTunnel'; ids: number[]; tunnel: number }
   /**
+   * Versus tunnels (GH-681): walk to the nearer end of route `tunnel` -- the
+   * mouth or the vent -- and go below there. Only foot units of the route's
+   * owning side (`TunnelRouteJson.side`) take it; a route with no owner admits
+   * nobody. Entered at the mouth, the unit crawls to the vent at
+   * `TUNNEL_TILES_PER_S`; entered at the vent, it is there at once. Any later
+   * order naming the unit cancels the walk.
+   */
+  | { kind: 'enterTunnel'; ids: number[]; tunnel: number }
+  /**
+   * Versus tunnels (GH-681): bring buried units that have reached the vent up,
+   * target or not. `raid` is the scripted pop-up (the exposure window and the
+   * volley, then back down); `exit` comes up for good. The one command the
+   * containment rule lets reach a buried unit.
+   */
+  | { kind: 'vent'; ids: number[]; mode: 'raid' | 'exit' }
+  /**
    * Fire on THIS enemy (Stage 4 targeted fire, GH-420). Sets the unit's
    * `focusTarget`; any other order that names the unit releases it. The sim
    * accepts the order on geometry-free grounds only (`canFocus`): whether a
@@ -1558,6 +1577,18 @@ export class Sim {
    *  `homeTunnel` is where I go back to — a unit that is up has `tunnelIn`
    *  -1 and `homeTunnel` set, and is hit by the ordinary surface rules. */
   private readonly homeTunnel: Int32Array;
+  /** GH-681: the route end an `enterTunnel` order is walking this unit to, -1
+   *  for none: `r` for route r's mouth, `-(r + 2)` for its vent. Hashed only
+   *  behind `tnOrderLive`. */
+  private readonly tunnelGoal: Int32Array;
+  /** GH-681: ticks until a unit that went below at a mouth reaches the vent;
+   *  0 at the vent (or never ordered). Hashed only behind `tnOrderLive`. */
+  private readonly tunnelEta: Int32Array;
+  /** GH-681: true once any `enterTunnel` or `vent` order has been accepted.
+   *  hash() folds `tunnelGoal` and `tunnelEta` only while it is set, so a world
+   *  that never sees one keeps its digest (the `mobLive` / `fwLive` shape).
+   *  Never cleared. */
+  private tnOrderLive = false;
   /** Called-for strikes still in the air. */
   private pendingStrikes: { x: Fx; y: Fx; by: number; readyTick: number; profile: number }[] = [];
 
@@ -1676,6 +1707,13 @@ export class Sim {
   readonly tnLength = new Int32Array(MAX_TUNNELS);
   readonly tnVentOpen = new Uint8Array(MAX_TUNNELS);
   readonly tnOccupants = new Int32Array(MAX_TUNNELS);
+  /** GH-681: the side that may `enterTunnel` each route, -1 for none (every
+   *  map-file route). Load-time, immutable after addTunnel: NOT in hash(). */
+  private readonly tnOwner = new Int8Array(MAX_TUNNELS).fill(-1);
+  /** GH-681: how many units an `enterTunnel` may put below. Load-time: NOT in hash(). */
+  private readonly tnCapacity = new Int32Array(MAX_TUNNELS);
+  /** GH-681: ticks from mouth to vent at `TUNNEL_TILES_PER_S`. Load-time: NOT in hash(). */
+  private readonly tnTravelTicks = new Int32Array(MAX_TUNNELS);
   /** Per-tick dig advance, Q16.16 tiles: dig_tiles_per_s * DT, precomputed so
    *  the step function does no conversion. */
   readonly tnDigRate = new Int32Array(MAX_TUNNELS);
@@ -1757,6 +1795,8 @@ export class Sim {
     readonly carriedBy: Int32Array;
     /** Route this unit is inside, or -1 on the surface. */
     readonly tunnelIn: Int32Array;
+    /** GH-681: ticks until a buried unit reaches its route's vent; 0 there. */
+    readonly tunnelEta: Int32Array;
     /** BRACE_* per entity (spec 2026-10-05-infantry-halt-to-fire §5): a unit
      *  that halts to fire is standing (NONE), getting down (DROPPING), down
      *  and firing (KNEELING), or getting up (RISING). Always NONE for every
@@ -1968,6 +2008,8 @@ export class Sim {
     this.surfaceTicks = new Int32Array(n);
     this.volleyLeft = new Int32Array(n);
     this.homeTunnel = new Int32Array(n).fill(-1);
+    this.tunnelGoal = new Int32Array(n).fill(-1);
+    this.tunnelEta = new Int32Array(n);
     const sc = MAX_STRUCTURES;
     this.stAlive = new Uint8Array(sc);
     this.stHp = new Int32Array(sc);
@@ -2064,6 +2106,7 @@ export class Sim {
       demoTarget: this.demoTarget,
       carriedBy: this.carriedBy,
       tunnelIn: this.tunnelIn,
+      tunnelEta: this.tunnelEta,
       brace: this.brace,
       braceTicks: this.braceTicks,
       focusTarget: this.focusTarget,
@@ -2883,6 +2926,22 @@ export class Sim {
     return this.tunnelCount_;
   }
 
+  /** GH-681: the side that may `enterTunnel` route `r`, or -1 (none, or no
+   *  such route). Load-time data, so both seats of a room agree on it. */
+  tunnelOwner(r: number): number {
+    return r >= 0 && r < this.tunnelCount_ ? this.tnOwner[r] : -1;
+  }
+
+  /** GH-681: how many units an `enterTunnel` may put below on route `r`. */
+  tunnelCapacity(r: number): number {
+    return r >= 0 && r < this.tunnelCount_ ? this.tnCapacity[r] : 0;
+  }
+
+  /** GH-681: ticks a crawl from route `r`'s mouth to its vent takes. */
+  tunnelTravelTicks(r: number): number {
+    return r >= 0 && r < this.tunnelCount_ ? this.tnTravelTicks[r] : 0;
+  }
+
   /** Register an authored route. Returns its index. */
   addTunnel(route: TunnelRouteJson): number {
     if (this.tunnelCount_ >= MAX_TUNNELS) throw new Error('too many tunnels');
@@ -2904,6 +2963,20 @@ export class Sim {
     this.tnProgress[id] = route.pre_dug === true ? this.tnLength[id] : 0;
     this.tnVentOpen[id] = route.pre_dug === true ? 1 : 0;
     this.tnOccupants[id] = 0;
+    // GH-681. An owner is a combatant side or none; a capacity is a positive
+    // whole number. Both are load-time data and refused loudly when malformed,
+    // because a wrong owner would hand a route to the wrong seat silently.
+    const owner = route.side ?? -1;
+    if (owner !== -1 && owner !== 0 && owner !== 1) throw new Error(`tunnel ${route.id}: side must be 0 or 1`);
+    this.tnOwner[id] = owner;
+    const cap = route.capacity ?? TUNNEL_CAPACITY_DEFAULT;
+    if (!Number.isInteger(cap) || cap < 1) throw new Error(`tunnel ${route.id}: capacity must be a positive integer`);
+    this.tnCapacity[id] = cap;
+    // Ticks from mouth to vent: seconds at the crawl speed, times the tick
+    // rate, rounded up so a nonzero route never takes 0. Through seconds, not
+    // a per-tick step: 0.5 * DT is not exact in Q16.16 and would add a tick.
+    const crawlS = fx.div(this.tnLength[id], TUNNEL_TILES_PER_S);
+    this.tnTravelTicks[id] = (fx.mul(crawlS, fx.fromInt(TICKS_PER_SECOND)) + 65535) >> 16;
     this.tnDigRate[id] = fx.mul(fx.from(route.dig_tiles_per_s), DT);
     this.tnDigger[id] = -1;
     const vent = route.points[route.points.length - 1];
@@ -2972,6 +3045,13 @@ export class Sim {
     this.demoTarget[unitId] = -1;
     this.chargeOrder[unitId] = -1;
     this.chargeTicks[unitId] = 0;
+    this.tunnelGoal[unitId] = -1;
+  }
+
+  /** Tile centre of a route's mouth (its first point), Q16.16. */
+  private mouthPos(r: number): [Fx, Fx] {
+    const m = this.tnPoints[r][0];
+    return [fx.add(fx.from(m[0]), HALF), fx.add(fx.from(m[1]), HALF)];
   }
 
   /** Tile centre of a route's vent — where a surfacing unit stands up. */
@@ -3393,6 +3473,7 @@ export class Sim {
     this.stepEvacuation();
     this.stepFields();
     this.stepGarrison();
+    this.stepTunnelEntry();
     // Field works: before upkeep, which reads the aura arrays every tick.
     this.stepAuras();
     this.stepDemolition();
@@ -3684,7 +3765,10 @@ export class Sim {
       // `continue`d before the old per-branch guard could run. A SURFACED
       // unit (homeTunnel >= 0, tunnelIn === -1) is ordinary and passes.
       // One scan first: the common case — nobody buried — allocates nothing.
-      if ('ids' in cmd) {
+      // GH-681: `vent` is the one command addressed TO buried units -- it is how
+      // a human seat brings them up -- so it is the named exception to the
+      // containment rule below. Every other kind stays contained.
+      if ('ids' in cmd && cmd.kind !== 'vent') {
         // GH-707: a wounded (DOWN, STABILISED -- any woundState but NONE) takes no order
         // either, by the same filter: he is hors de combat and goes where a medic takes him.
         // Without wound content every woundState is NONE, so this adds nothing.
@@ -3742,6 +3826,17 @@ export class Sim {
             this.medState[id] = MED_IDLE;
             this.medTarget[id] = -1;
             this.medTimer[id] = park ? -1 : 0;
+          }
+        }
+        // GH-681: any surface order naming a unit cancels its walk to a route
+        // end (`enterTunnel` sets a fresh one below), and on a human-held side
+        // it ends a raid: the unit stays up for good rather than being taken
+        // back below from wherever the order walked it. Behind `tnOrderLive`,
+        // so a world that never saw a tunnel order touches neither column.
+        if (this.tnOrderLive) {
+          for (const id of cmd.ids) {
+            this.tunnelGoal[id] = -1;
+            if (this.homeTunnel[id] >= 0 && this.isHumanHeld(this.side[id])) this.endRaid(id);
           }
         }
         if (cmd.kind !== 'attack' && cmd.kind !== 'rescue') {
@@ -4307,6 +4402,10 @@ export class Sim {
           this.medTarget[id] = cmd.target;
           this.medTimer[id] = 0;
         }
+      } else if (cmd.kind === 'enterTunnel') {
+        this.applyEnterTunnel(cmd.ids, cmd.tunnel);
+      } else if (cmd.kind === 'vent') {
+        this.applyVent(cmd.ids, cmd.mode);
       } else if (cmd.kind === 'construct') {
         this.applyConstruct(cmd.ids, cmd.structType, cmd.x, cmd.y);
       } else if (cmd.kind === 'cancelConstruct') {
@@ -4855,6 +4954,9 @@ export class Sim {
         this.surfaceTicks[i]--;
         if (this.surfaceTicks[i] === 0 && this.volleyLeft[i] <= 0) {
           this.submerge(i);
+        } else if (this.surfaceTicks[i] === 0 && this.raidHasNoTarget(i)) {
+          // GH-681: a seat's raid with nothing to shoot ends with its window.
+          this.submerge(i);
         }
         continue;
       }
@@ -4865,35 +4967,197 @@ export class Sim {
         // outlives the window (a slow weapon, a pin across the window's end)
         // finishes later, in ordinary combat. An edge check alone strands the
         // unit on the surface forever, homeTunnel latched, silently.
-        if (this.volleyLeft[i] > 0) continue;
+        if (this.volleyLeft[i] > 0 && !this.raidHasNoTarget(i)) continue;
         this.submerge(i);
         continue;
       }
 
       const r = this.tunnelIn[i];
-      if (r < 0 || this.tnAlive[r] === 0 || this.tnVentOpen[r] === 0) continue;
+      if (r < 0) continue;
+      // GH-681: a unit crawling from the mouth is not at the vent yet. It
+      // neither surfaces by itself nor can be vented until it arrives.
+      if (this.tunnelEta[i] > 0) {
+        this.tunnelEta[i]--;
+        continue;
+      }
+      if (this.tnAlive[r] === 0 || this.tnVentOpen[r] === 0) continue;
+      // GH-681 (T-R2): nothing on a human-held side comes up by itself; its
+      // seat brings it up with `vent`. The authored enemy of a single-player
+      // mission is not human-held and surfaces exactly as it always has.
+      if (this.isHumanHeld(this.side[i])) continue;
       const type = this.unitTypes[this.typeIdx[i]];
       if (type.weapons.length === 0) continue;
-      let [vx, vy] = this.ventPos(r);
-      // Field works (Q7): a vent may sit under a standing structure (a work
-      // raised over an unidentified route; refusing that footprint would leak
-      // the route). The fighters come up beside it, at its exitTile, never
-      // inside it -- and judge their shot from where they will stand.
-      const vs = this.structureOfTile[(vy >> 16) * this.width + (vx >> 16)];
-      if (vs >= 0 && this.stAlive[vs] === 1) [vx, vy] = this.exitTile(vs);
+      const [vx, vy] = this.surfacePoint(r);
       if (!this.hasTargetFrom(i, vx, vy)) continue;
+      this.surfaceAt(i, r, vx, vy, true);
+    }
+  }
 
-      this.tunnelIn[i] = -1;
+  /** Where a unit coming up route `r` stands: the vent's tile centre, or --
+   *  Field works (Q7) -- beside a standing structure raised over the vent (a
+   *  work raised over an unidentified route; refusing that footprint would
+   *  leak the route), at its exitTile, never inside it. */
+  private surfacePoint(r: number): [Fx, Fx] {
+    const [vx, vy] = this.ventPos(r);
+    const vs = this.structureOfTile[(vy >> 16) * this.width + (vx >> 16)];
+    if (vs >= 0 && this.stAlive[vs] === 1) return this.exitTile(vs);
+    return [vx, vy];
+  }
+
+  /** Bring buried unit `i` up route `r` at (vx, vy). `raid` arms the exposure
+   *  window and the volley and keeps `homeTunnel`, so `stepSurfacing` takes it
+   *  back down; otherwise (GH-681's `exit`) it is an ordinary surface unit. */
+  private surfaceAt(i: number, r: number, vx: Fx, vy: Fx, raid: boolean): void {
+    this.tunnelIn[i] = -1;
+    this.tnOccupants[r]--;
+    this.posX[i] = vx;
+    this.posY[i] = vy;
+    if (raid) {
       this.homeTunnel[i] = r;
-      this.tnOccupants[r]--;
-      this.posX[i] = vx;
-      this.posY[i] = vy;
       this.surfaceTicks[i] = SURFACE_SECONDS * TICKS_PER_SECOND;
       this.volleyLeft[i] = SURFACE_VOLLEY;
-      // Out of the shaft low and ready: the guaranteed window is the
-      // player's answer to this mechanic, and a drop would spend it.
-      this.braceDown(i);
-      this.pendingEvents.push({ kind: 'surfaced', tick: this.tickCount, entity: i, tunnel: r });
+    }
+    // Out of the shaft low and ready: the guaranteed window is the
+    // player's answer to this mechanic, and a drop would spend it.
+    this.braceDown(i);
+    this.pendingEvents.push({ kind: 'surfaced', tick: this.tickCount, entity: i, tunnel: r });
+  }
+
+  /** GH-681: true for a raid on a HUMAN-HELD side that has nothing left to
+   *  shoot at from where it stands (`hasTargetFrom`'s geometry: effective
+   *  range and a sight line, no detection). A seat vents on order, target or
+   *  not, so its raid can come up to an empty field, or see its target leave;
+   *  the scripted hold (window AND volley) would then keep it up for good. A
+   *  target still there keeps the hold: detection takes time, and the volley
+   *  is the exposure the KDF is owed. Always false for a scripted side, whose
+   *  surfacing is exactly what it was. */
+  private raidHasNoTarget(i: number): boolean {
+    if (!this.isHumanHeld(this.side[i])) return false;
+    if (this.unitTypes[this.typeIdx[i]].weapons.length === 0) return true;
+    return !this.hasTargetFrom(i, this.posX[i], this.posY[i]);
+  }
+
+  /** GH-681: a raiding unit stays up for good -- the `exit` state. */
+  private endRaid(i: number): void {
+    this.homeTunnel[i] = -1;
+    this.surfaceTicks[i] = 0;
+    this.volleyLeft[i] = 0;
+  }
+
+  /** GH-681: `enterTunnel`. Each id that qualifies walks to the nearer end of
+   *  route `r`; `stepTunnelEntry` takes it below on arrival. */
+  private applyEnterTunnel(ids: readonly number[], r: number): void {
+    if (r < 0 || r >= this.tunnelCount_ || this.tnAlive[r] === 0 || this.tnVentOpen[r] === 0) return;
+    const owner = this.tnOwner[r];
+    if (owner < 0) return;
+    const [mx, my] = this.mouthPos(r);
+    const [vx, vy] = this.ventPos(r);
+    for (const id of ids) {
+      if (this.alive[id] === 0 || this.routed[id] === 1) continue;
+      if (this.side[id] !== owner) continue;
+      if (this.carriedBy[id] >= 0) continue;
+      const type = this.unitTypes[this.typeIdx[id]];
+      // Foot only: the vehicle predicate the boulder rule already uses.
+      if (type.isAir || type.wheeled) continue;
+      this.tnOrderLive = true;
+      if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
+      const mdx = fx.sub(mx, this.posX[id]);
+      const mdy = fx.sub(my, this.posY[id]);
+      const vdx = fx.sub(vx, this.posX[id]);
+      const vdy = fx.sub(vy, this.posY[id]);
+      const toMouth = fx.add(fx.mul(mdx, mdx), fx.mul(mdy, mdy));
+      const toVent = fx.add(fx.mul(vdx, vdx), fx.mul(vdy, vdy));
+      // Ties go to the mouth: the end a route is entered by.
+      const atVent = toVent < toMouth;
+      this.tunnelGoal[id] = atVent ? -(r + 2) : r;
+      const ex = atVent ? vx : mx;
+      const ey = atVent ? vy : my;
+      const d = this.domainOf(id);
+      const [gtx, gty] = this.nearestOpenTile(fx.toInt(ex), fx.toInt(ey), this.maskFor(d));
+      this.wpCount[id] = 0;
+      this.boardGoal[id] = -1;
+      this.garrisonGoal[id] = -1;
+      this.demolishOrder[id] = -1;
+      this.demoTicks[id] = 0;
+      this.demoTarget[id] = -1;
+      this.chargeOrder[id] = -1;
+      this.chargeTicks[id] = 0;
+      this.goalX[id] = fx.add(fx.fromInt(gtx), HALF);
+      this.goalY[id] = fx.add(fx.fromInt(gty), HALF);
+      this.fieldRef[id] = this.fieldFor(gtx, gty, d);
+      this.moving[id] = 1;
+      this.attackMove[id] = 0;
+      this.sweepOrder[id] = 0;
+      this.engaging[id] = 0;
+      this.stance[id] = 0;
+    }
+  }
+
+  /** GH-681: `vent`. Each buried id that has reached an open vent comes up,
+   *  target or not; one still crawling is refused (Q6). */
+  private applyVent(ids: readonly number[], mode: 'raid' | 'exit'): void {
+    for (const id of ids) {
+      if (this.alive[id] === 0) continue;
+      // A seat's order: a side nobody holds (the scripted enemy) surfaces by
+      // its own rule only, whatever reaches the queue.
+      if (!this.isHumanHeld(this.side[id])) continue;
+      // GH-707: `vent` skips the containment filter, so it must also refuse a
+      // wounded man itself -- he takes no order (a raider shot down stays down).
+      if (this.woundState[id] !== WOUND_NONE) continue;
+      const r = this.tunnelIn[id];
+      // `exit` to a raider already up keeps it up for good, as any other order does.
+      if (r < 0 && mode === 'exit' && this.homeTunnel[id] >= 0) {
+        this.endRaid(id);
+        continue;
+      }
+      if (r < 0 || this.tunnelEta[id] > 0) continue;
+      if (this.tnAlive[r] === 0 || this.tnVentOpen[r] === 0) continue;
+      this.tnOrderLive = true;
+      const [px, py] = this.surfacePoint(r);
+      this.surfaceAt(id, r, px, py, mode === 'raid');
+    }
+  }
+
+  /** GH-681: take a unit walking under `enterTunnel` below once it reaches its
+   *  route end. Skipped outright until the first tunnel order. */
+  private stepTunnelEntry(): void {
+    if (!this.tnOrderLive) return;
+    for (let i = 0; i < this.count; i++) {
+      const g = this.tunnelGoal[i];
+      if (g === -1) continue;
+      const atVent = g < -1;
+      const r = atVent ? -g - 2 : g;
+      if (
+        this.alive[i] === 0 ||
+        this.routed[i] === 1 ||
+        this.tunnelIn[i] >= 0 ||
+        this.carriedBy[i] >= 0 ||
+        this.garrisonedIn[i] >= 0 ||
+        this.tnAlive[r] === 0 ||
+        this.tnVentOpen[r] === 0
+      ) {
+        this.tunnelGoal[i] = -1;
+        continue;
+      }
+      const [ex, ey] = atVent ? this.ventPos(r) : this.mouthPos(r);
+      const dx = fx.sub(ex, this.posX[i]);
+      const dy = fx.sub(ey, this.posY[i]);
+      const nearEnd = fx.add(fx.mul(dx, dx), fx.mul(dy, dy)) <= TUNNEL_ENTER_RANGE_SQ;
+      // An end on blocked ground was snapped to the nearest open tile: having
+      // stopped there counts as arrival, the way a door does for garrison.
+      const gx = fx.sub(this.goalX[i], this.posX[i]);
+      const gy = fx.sub(this.goalY[i], this.posY[i]);
+      const atGoal = this.moving[i] === 0 && fx.add(fx.mul(gx, gx), fx.mul(gy, gy)) <= TUNNEL_ENTER_RANGE_SQ;
+      if (!nearEnd && !atGoal) continue;
+      this.tunnelGoal[i] = -1;
+      if (this.tnOccupants[r] >= this.tnCapacity[r]) {
+        // Full (Q4): the order is refused at the end; the unit stops there.
+        this.moving[i] = 0;
+        this.fieldRef[i] = -1;
+        continue;
+      }
+      this.putInTunnel(i, r);
+      this.tunnelEta[i] = atVent ? 0 : this.tnTravelTicks[r];
     }
   }
 
@@ -9861,6 +10125,12 @@ export class Sim {
     h = hashArray(h, this.homeTunnel);
     h = hashArray(h, this.surfaceTicks);
     h = hashArray(h, this.volleyLeft);
+    // GH-681: folded only once a tunnel order has been accepted, so every
+    // world that never sees one keeps its digest.
+    if (this.tnOrderLive) {
+      h = hashArray(h, this.tunnelGoal);
+      h = hashArray(h, this.tunnelEta);
+    }
     h = hashArray(h, this.chargeOrder);
     h = hashArray(h, this.chargeTicks);
     h = hashArray(h, this.tnAlive);

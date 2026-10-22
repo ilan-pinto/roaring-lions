@@ -263,5 +263,8 @@ describe('describeCommand', () => {
     expect(describeCommand({ kind: 'cancelBuild', side: 0, line: 0, index: 2 })).toBe('Cancel line 0, item 2');
     expect(describeCommand({ kind: 'setRally', side: 0, line: 0, x: 2 * ONE, y: 3 * ONE })).toBe('Rally line 0 at (2, 3)');
     expect(describeCommand({ kind: 'clearRally', side: 0, line: 0 })).toBe('Clear rally on line 0');
+    expect(describeCommand({ kind: 'enterTunnel', ids: [1, 2], tunnel: 0 })).toBe('Take 2 units into a tunnel');
+    expect(describeCommand({ kind: 'vent', ids: [1], mode: 'raid' })).toBe('Raid from the vent with 1 unit');
+    expect(describeCommand({ kind: 'vent', ids: [1, 2], mode: 'exit' })).toBe('Bring 2 units up out of the tunnel');
   });
 });

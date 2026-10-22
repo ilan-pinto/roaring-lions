@@ -574,3 +574,8 @@ export const MED_DELIVERING = 4;
 /** Bleed, ticks, of a `wounded`-role unit spawned directly rather than shed by a fall: it has
  *  no parent `hull.wounds` to read `bleed_s` from. 60 s x 20 Hz. */
 export const WOUND_DEFAULT_BLEED_TICKS = 1200;
+
+/** Versus tunnels (GH-681, Q11): the one crawl speed below ground, tiles per second, Q16.16. A
+ *  unit that enters at a route's mouth reaches the vent after `ceil(length / this * TICKS_PER_SECOND)`
+ *  ticks, whatever its surface speed. Proposal, open to the probe. */
+export const TUNNEL_TILES_PER_S = 32768; // 0.5
