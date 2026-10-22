@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { fx, type Fx } from './fixed';
 import { Sim, type SimEvent, type UnitTypeJson } from './sim';
+import type { StructureTypeJson } from './structures';
 
 // GH-707 Task 4: carrying -- the `can_carry` role filter, the drag/stretcher speed, the
 // stabilise aura (already in woundTended: reused, tested here from an ambulance), evacuation
@@ -104,8 +105,8 @@ interface World {
   down: (x: number, y: number) => number;
 }
 
-function world(): World {
-  const sim = new Sim({ seed: 0x7070_0004, width: 20, height: 12, capacity: 48 });
+function world(width = 20, height = 12): World {
+  const sim = new Sim({ seed: 0x7070_0004, width, height, capacity: 48 });
   const types = new Map<string, number>();
   const put = (t: UnitTypeJson, side: number, x: number, y: number): number => {
     let ti = types.get(t.id);
@@ -729,6 +730,227 @@ describe('carry-overs into Task 5', () => {
     const wd = world();
     downOf(wd, 0, 5.5, 5.5);
     expect(wd.sim.state.woundedAlive[0]).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// GH-707 Task 5 review fixes.
+
+describe('the medic, Task 5 review fixes', () => {
+  it('a medic on an enemy wounded stops tracking him the tick his side loses him', () => {
+    const wd = world();
+    const medic = wd.put(DRAGGER, 0, 2.5, 5.5);
+    const e = downOf(wd, 1, 17.5, 5.5); // 15 tiles: beyond every side-0 eye
+    contact(wd.sim)[0 * CAP + e] = 65536;
+    wd.sim.queueCommand({ kind: 'rescue', ids: [medic], target: e });
+    wd.sim.tick();
+    expect([wd.sim.state.medState[medic], wd.sim.state.medTarget[medic], wd.sim.state.moving[medic]]).toEqual([1, e, 1]);
+    contact(wd.sim)[0 * CAP + e] = 0;
+    wd.sim.tick();
+    expect([wd.sim.state.medState[medic], wd.sim.state.medTarget[medic], wd.sim.state.moving[medic]]).toEqual([0, -1, 0]);
+  });
+
+  it('two medics, one wounded: only one takes the job', () => {
+    const wd = world();
+    const a = wd.put(DRAGGER, 0, 2.5, 5.5);
+    const b = wd.put(DRAGGER, 0, 2.5, 6.5);
+    const w = downOf(wd, 0, 6.5, 5.5);
+    wd.sim.tick();
+    expect([wd.sim.state.medTarget[a], wd.sim.state.medTarget[b], wd.sim.state.medState[a], wd.sim.state.medState[b]]).toEqual([w, -1, 1, 0]);
+  });
+
+  it('a refused `attack` changes nothing: the medic keeps treating, his clock running', () => {
+    const wd = world();
+    const medic = wd.put(DRAGGER, 0, 5.5, 5.5); // no weapon: canFocus refuses every attack
+    downOf(wd, 0, 6.5, 5.5);
+    for (let k = 0; k < 10; k++) wd.sim.tick();
+    const t0 = wd.sim.state.medTimer[medic];
+    expect(wd.sim.state.medState[medic]).toBe(2);
+    contact(wd.sim)[0 * CAP + wd.shooter] = 65536;
+    wd.sim.queueCommand({ kind: 'attack', ids: [medic], target: wd.shooter });
+    wd.sim.tick();
+    expect([wd.sim.state.medState[medic], wd.sim.state.medTimer[medic]]).toEqual([2, t0 - 1]);
+  });
+
+  it('an accepted `attack` takes an armed medic off his job', () => {
+    const ARMED: UnitTypeJson = {
+      ...DRAGGER,
+      id: 'rs_armed_medic',
+      weapons: [{ id: 'rs_rifle', type: 'small_arms', range_tiles: 8, effective_range_tiles: 6.4, accuracy: 0.6, penetration: 8, damage: 15, suppression: 50, rof_per_min: 300 }],
+    };
+    const wd = world();
+    const medic = wd.put(ARMED, 0, 5.5, 5.5);
+    const w = downOf(wd, 0, 6.5, 5.5);
+    for (let k = 0; k < 10; k++) wd.sim.tick();
+    expect([wd.sim.state.medState[medic], wd.sim.state.medTarget[medic]]).toEqual([2, w]);
+    contact(wd.sim)[0 * CAP + wd.shooter] = 65536;
+    wd.sim.queueCommand({ kind: 'attack', ids: [medic], target: wd.shooter });
+    wd.sim.tick();
+    expect([wd.sim.state.focusTarget[medic], wd.sim.state.medState[medic], wd.sim.state.medTarget[medic]]).toEqual([wd.shooter, 0, -1]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// GH-707 Task 6: the aid post. Post: tiles (16,5) (17,5) (16,6) (17,6), owner side 0, admit
+// 2 tiles, treat 10 s = 200 ticks (100 when the man was STABILISED), dispatch 12 tiles.
+
+const AID_POST: StructureTypeJson = { id: 'rs_aid', hp_per_tile: 200, aid: { admit_radius: 2, treat_s: 10, dispatch_radius: 12 } };
+
+function post(sim: Sim, owner: number, tiles: number[] = [5 * 20 + 16, 5 * 20 + 17, 6 * 20 + 16, 6 * 20 + 17]): number {
+  return sim.addStructure(sim.addStructureType(AID_POST), tiles, { owner });
+}
+
+describe('the aid post (GH-707 Task 6)', () => {
+  it('admits from an ambulance beside it; 200 ticks later his squad is 3 -> 4 men and +100 hp, a second man +80', () => {
+    const wd = world();
+    const s = post(wd.sim, 0);
+    const squad = wd.put(SLOW_BLEEDER, 0, 5.5, 5.5);
+    const w1 = wd.sim.entityCount;
+    hit(wd.sim, squad, 100, wd.shooter);
+    const w2 = wd.sim.entityCount;
+    hit(wd.sim, squad, 100, wd.shooter);
+    expect([wd.sim.state.figuresUp[squad], wd.sim.state.hp[squad], wd.sim.state.woundedAlive[0]]).toEqual([2, 200 * 65536, 2]);
+    const amb = wd.put(AMBULANCE, 0, 15.5, 5.5); // 1 tile from tile (16,5)'s centre: inside 2
+    expect(wd.sim.embarkAtSpawn(amb, w1) && wd.sim.embarkAtSpawn(amb, w2)).toBe(true);
+    const evs: SimEvent[] = [];
+    for (let k = 0; k < 201; k++) evs.push(...wd.sim.tick());
+    expect(of(evs, 'woundAdmitted').map((e) => [e.tick, e.entity, e.structure, e.side])).toEqual([[0, w1, s, 0], [0, w2, s, 0]]);
+    expect([wd.sim.state.alive[w1], wd.sim.state.removed[w1], passengers(wd.sim)[amb], wd.sim.state.woundedAlive[0]]).toEqual([0, 1, 0, 0]);
+    // Admitted on tick 0 with 200 ticks; counted down from tick 1: 0 on tick 200.
+    expect(of(evs, 'woundRejoined').map((e) => [e.tick, e.entity, e.squad])).toEqual([[200, w1, squad], [200, w2, squad]]);
+    // 200 + 100 (scars 0) + 80 (scars 1: 100 x 52429 raw) = 13107200 + 6553600 + 5242900 raw.
+    expect([wd.sim.state.figuresUp[squad], wd.sim.state.hp[squad], wd.sim.state.scars[squad]]).toEqual([4, 24903700, 2]);
+    expect([wd.sim.state.woundState[w1], wd.sim.state.admittedAt[w1]]).toEqual([4, -1]);
+    expect(of(evs, 'destroyed').filter((e) => e.entity === w1 || e.entity === w2)).toEqual([]);
+  });
+
+  it('the rejoin never lifts hp past the standing men`s full shares (defensive: hp poked above them)', () => {
+    const wd = world();
+    post(wd.sim, 0);
+    const squad = wd.put(SLOW_BLEEDER, 0, 5.5, 5.5);
+    const w = wd.sim.entityCount;
+    hit(wd.sim, squad, 100, wd.shooter);
+    wd.sim.state.hp[squad] = 390 * 65536; // 3 men up, 390 hp: no shipped path reaches this
+    const amb = wd.put(AMBULANCE, 0, 15.5, 5.5);
+    expect(wd.sim.embarkAtSpawn(amb, w)).toBe(true);
+    for (let k = 0; k < 201; k++) wd.sim.tick();
+    // 390 + 100 capped at 400 x 4 / 4 = 400.
+    expect([wd.sim.state.figuresUp[squad], wd.sim.state.hp[squad]]).toEqual([4, 400 * 65536]);
+  });
+
+  it('a medic carries a STABILISED man to the post: treated in half the time (100 ticks)', () => {
+    const wd = world();
+    const s = post(wd.sim, 0);
+    const medic = wd.put(DRAGGER, 0, 2.5, 5.5);
+    const squad = wd.put(SLOW_BLEEDER, 0, 6.5, 5.5);
+    const w = wd.sim.entityCount;
+    hit(wd.sim, squad, 100, wd.shooter);
+    const evs: SimEvent[] = [];
+    for (let k = 0; k < 1500 && of(evs, 'woundRejoined').length === 0; k++) evs.push(...wd.sim.tick());
+    const adm = of(evs, 'woundAdmitted');
+    expect(adm.map((e) => [e.entity, e.structure, e.side])).toEqual([[w, s, 0]]);
+    expect(of(evs, 'woundRejoined').map((e) => [e.tick - adm[0].tick, e.squad])).toEqual([[100, squad]]);
+    expect([wd.sim.state.medState[medic], passengers(wd.sim)[medic], wd.sim.state.figuresUp[squad]]).toEqual([0, 0, 4]);
+  });
+
+  it('his own squad dead: the nearest same-type squad of his side below full takes him', () => {
+    const wd = world();
+    post(wd.sim, 0);
+    const own = wd.put(SLOW_BLEEDER, 0, 5.5, 5.5);
+    const w = wd.sim.entityCount;
+    hit(wd.sim, own, 100, wd.shooter);
+    const far = wd.put(SLOW_BLEEDER, 0, 2.5, 9.5); // below full, farther
+    hit(wd.sim, far, 100, wd.shooter);
+    const near = wd.put(SLOW_BLEEDER, 0, 12.5, 9.5); // below full, nearer
+    hit(wd.sim, near, 100, wd.shooter);
+    wd.put(SLOW_BLEEDER, 0, 14.5, 8.5); // nearest of all, but full
+    const other = wd.put(BLEEDER, 0, 15.5, 9.5); // below full and nearer still, another type
+    hit(wd.sim, other, 100, wd.shooter);
+    wd.put(SLOW_BLEEDER, 1, 15.5, 3.5); // the enemy's, below full
+    hit(wd.sim, wd.sim.entityCount - 1, 100, wd.put(RIFLES, 0, 0.5, 11.5));
+    wd.sim.debugKill(own);
+    const amb = wd.put(AMBULANCE, 0, 15.5, 5.5);
+    expect(wd.sim.embarkAtSpawn(amb, w)).toBe(true);
+    const evs: SimEvent[] = [];
+    for (let k = 0; k < 201; k++) evs.push(...wd.sim.tick());
+    expect(of(evs, 'woundRejoined').map((e) => [e.entity, e.squad])).toEqual([[w, near]]);
+    expect([wd.sim.state.figuresUp[near], wd.sim.state.figuresUp[far], wd.sim.state.figuresUp[other]]).toEqual([4, 3, 3]);
+  });
+
+  it('no squad to take him, an enemy`s man, a last man: each leaves alive, evacuated (carrier -1)', () => {
+    const wd = world();
+    post(wd.sim, 0);
+    // A squad's last man (parent -1): a 400-hp hit, chance 1, sheds 3 + the body.
+    const sq = wd.put(SLOW_BLEEDER, 0, 5.5, 5.5);
+    const first = wd.sim.entityCount;
+    hit(wd.sim, sq, 400, wd.shooter);
+    const last = first + 3;
+    expect([wd.sim.state.alive[sq], wd.sim.state.woundParent[last]]).toEqual([0, -1]);
+    const enemy = downOf(wd, 1, 9.5, 9.5);
+    const amb = wd.put(AMBULANCE, 0, 15.5, 5.5);
+    const amb2 = wd.put(AMBULANCE, 0, 15.5, 6.5);
+    expect(wd.sim.embarkAtSpawn(amb, first) && wd.sim.embarkAtSpawn(amb, last) && wd.sim.embarkAtSpawn(amb2, enemy)).toBe(true);
+    const evs: SimEvent[] = [];
+    for (let k = 0; k < 201; k++) evs.push(...wd.sim.tick());
+    expect(of(evs, 'woundRejoined')).toEqual([]);
+    // `first` fell from a squad that is gone, and nobody of its type is left below full.
+    expect(of(evs, 'woundEvacuated').map((e) => [e.tick, e.entity, e.carrier, e.side])).toEqual([[200, first, -1, 0], [200, last, -1, 0], [200, enemy, -1, 0]]);
+  });
+
+  it('the post falls mid-treatment: the patient is lost', () => {
+    const wd = world();
+    const s = post(wd.sim, 0);
+    const w = wd.down(5.5, 5.5);
+    const amb = wd.put(AMBULANCE, 0, 15.5, 5.5);
+    expect(wd.sim.embarkAtSpawn(amb, w)).toBe(true);
+    const evs: SimEvent[] = [];
+    for (let k = 0; k < 50; k++) evs.push(...wd.sim.tick());
+    wd.sim.debugDestroyStructure(s);
+    for (let k = 0; k < 200; k++) evs.push(...wd.sim.tick());
+    expect(of(evs, 'woundLost').map((e) => [e.tick, e.entity, e.structure])).toEqual([[50, w, s]]);
+    expect(of(evs, 'woundRejoined')).toEqual([]);
+    expect(of(evs, 'woundEvacuated')).toEqual([]);
+    expect([wd.sim.state.woundState[w], wd.sim.state.removed[w]]).toEqual([4, 0]);
+  });
+
+  it('only its own side`s carriers are admitted: an enemy`s post or a neutral one takes nobody', () => {
+    const admitted = (owner: number): number => {
+      const wd = world();
+      post(wd.sim, owner);
+      const w = downOf(wd, 0, 5.5, 5.5);
+      const amb = wd.put(AMBULANCE, 0, 15.5, 5.5);
+      expect(wd.sim.embarkAtSpawn(amb, w)).toBe(true);
+      const evs: SimEvent[] = [];
+      for (let k = 0; k < 5; k++) evs.push(...wd.sim.tick());
+      return of(evs, 'woundAdmitted').length;
+    };
+    expect([admitted(0), admitted(1), admitted(-1)]).toEqual([1, 0, 0]);
+  });
+
+  it('beyond admit_radius nobody is admitted (2 tiles: 2.5 tiles off, no)', () => {
+    const wd = world();
+    post(wd.sim, 0);
+    const w = downOf(wd, 0, 5.5, 5.5);
+    const amb = wd.put(AMBULANCE, 0, 13.5, 5.5); // 3 tiles from (16,5)'s centre
+    expect(wd.sim.embarkAtSpawn(amb, w)).toBe(true);
+    const evs: SimEvent[] = [];
+    for (let k = 0; k < 5; k++) evs.push(...wd.sim.tick());
+    expect(of(evs, 'woundAdmitted')).toEqual([]);
+  });
+
+  it('dispatch: a medic 10 tiles from the post goes to a wounded 11 tiles from the post, 21 from him', () => {
+    const pick = (owner: number | null): [number, number] => {
+      const wd = world(40, 12);
+      if (owner !== null) post(wd.sim, owner, [5 * 40 + 20]); // one tile, centre (20.5, 5.5)
+      const medic = wd.put(DRAGGER, 0, 10.5, 5.5);
+      const w = downOf(wd, 0, 31.5, 5.5);
+      wd.sim.tick();
+      return [wd.sim.state.medTarget[medic], w];
+    };
+    const [t, w] = pick(0);
+    expect(t).toBe(w);
+    expect(pick(null)[0]).toBe(-1); // no post: 21 tiles is beyond his own 8
+    expect(pick(1)[0]).toBe(-1); // the enemy's post dispatches nobody of ours
   });
 });
 

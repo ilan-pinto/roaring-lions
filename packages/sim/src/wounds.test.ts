@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bestCoverTile, figuresStanding, rescuePriority, scaleDown } from './wounds';
+import { bestCoverTile, figuresStanding, rescuePriority, scaleDown, scarredShare } from './wounds';
 
 // GH-707 Task 2: the pure share arithmetic. Literals only: 400 hp is 400 x 65536 = 26214400.
 const HP400 = 26214400;
@@ -108,5 +108,14 @@ describe('rescuePriority (GH-707 D2)', () => {
     expect([rescuePriority(1, 1), rescuePriority(1, 2), rescuePriority(1, 0)]).toEqual([0, 1, -1]);
     // A civilian-side rescuer: his own are side 2, so they are "own" (0), never "civilian" (1).
     expect([rescuePriority(2, 2), rescuePriority(2, 0)]).toEqual([0, -1]);
+  });
+});
+
+describe('scarredShare (GH-707 Task 6)', () => {
+  it('a 100-hp share is worth 100, 80, 60, 40, then 40 at the 0.4 floor', () => {
+    // share 100 = 6553600 raw; fx.mul(6553600, m) = 100 x m exactly. m = 65536 - 13107 x scars,
+    // floored at 26214: 65536, 52429, 39322, 26215, then 13108 -> 26214.
+    const share = 100 * 65536;
+    expect([0, 1, 2, 3, 4, 9].map((n) => scarredShare(share, n))).toEqual([6553600, 5242900, 3932200, 2621500, 2621400, 2621400]);
   });
 });

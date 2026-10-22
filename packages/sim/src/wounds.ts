@@ -1,8 +1,8 @@
 // GH-707 (wounded and rescue): pure helpers with no Sim state. Integer and Q16.16 only
 // (invariant 2): no Math.*, no float literals.
 
-import type { Fx } from './fixed';
-import { WOUND_CRAWL_SCAN } from './tuning';
+import { fx, ONE, type Fx } from './fixed';
+import { WOUND_CRAWL_SCAN, WOUND_SCAR_FLOOR, WOUND_SCAR_STEP } from './tuning';
 
 /**
  * Men of a `figures`-strong team still standing at `hp` of `typeHp`: one man per
@@ -89,4 +89,15 @@ export function rescuePriority(rescuerSide: number, woundedSide: number): number
   if (woundedSide === rescuerSide) return 0;
   if (woundedSide === 2) return 1;
   return -1;
+}
+
+/**
+ * What one man's share is worth when he walks back from an aid post (GH-707 Task 6, "weaker
+ * each time"): `share x max(WOUND_SCAR_FLOOR, 1 - WOUND_SCAR_STEP x scars)`, `scars` being how
+ * many men the team has already taken back. Q16.16; integers only.
+ */
+export function scarredShare(share: Fx, scars: number): Fx {
+  let m = ONE - WOUND_SCAR_STEP * scars;
+  if (m < WOUND_SCAR_FLOOR) m = WOUND_SCAR_FLOOR;
+  return fx.mul(share, m);
 }
