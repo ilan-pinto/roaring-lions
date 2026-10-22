@@ -33,7 +33,7 @@
   },
   "weapons": [
     {
-      "id": "spike_nlos",
+      "id": "zaron_missile",
       "type": "atgm",
       "range_tiles": 24,
       "effective_range_tiles": 18,
