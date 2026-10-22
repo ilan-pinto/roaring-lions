@@ -4412,7 +4412,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   const stepList = Object.values(
     tutorials as Record<
       string,
-      ({ mission: string; steps: StepJson[]; completes?: string } & TutorialHudJson) | undefined
+      ({ id: string; mission: string; steps: StepJson[]; completes?: string } & TutorialHudJson) | undefined
     >
   ).find((t) => t?.mission === missionId);
   let tut: TutorialState | null = null;
@@ -4455,6 +4455,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     tut = initTutorial(stepList.steps, performance.now());
     refreshHudShown();
     tutPanel = tutorialPanel(document.body, {
+      tutorialId: stepList.id,
       onSkip: () => {
         tut = null;
         refreshHudShown();

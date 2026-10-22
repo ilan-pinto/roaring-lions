@@ -25,6 +25,7 @@ import { describe, expect, it } from 'vitest';
 import { tutorials } from '@lions/data';
 import type { MissionEvent, SimEvent } from '@lions/sim';
 import { advance, initTutorial, type StepJson, type TutorialInput, type TutorialState } from './runtime';
+import { stepText } from './text';
 
 const tutorial = (tutorials as Record<string, { steps: StepJson[] } | undefined>).beit_sahwan_0;
 if (tutorial === undefined) throw new Error('beit_sahwan_0 tutorial missing');
@@ -147,7 +148,7 @@ describe('beat 6, identify then shoot (PA-12, GH-420)', () => {
 
   it('teaches the right-click in its text, and keeps H for the squad that is halted instead', () => {
     const beat = steps.find((x) => x.id === id) as StepJson;
-    for (const [what, text] of [['teach', beat.teach], ['nudge', beat.nudge ?? '']] as const) {
+    for (const [what, text] of [['teach', stepText('beit_sahwan_0', beat).teach], ['nudge', stepText('beit_sahwan_0', beat).nudge ?? '']] as const) {
       expect(text, `beat 6 ${what} no longer names the right-click it awaits`).toMatch(/right-click/i);
       expect(text, `beat 6 ${what} dropped H, which still clears the beat`).toMatch(/\bH\b/);
     }

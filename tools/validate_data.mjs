@@ -1035,6 +1035,39 @@ const garrisonableSymbols = new Set(
   }
 }
 
+// --- tutorial text keys ---------------------------------------------------------
+// A step carries no words (tutorial.schema.json refuses a raw title/teach/nudge);
+// they are en.json keys derived from the ids: tutorial.<id>.<step>.title|teach and,
+// when nudge_after_s is set, .nudge. A step whose key is missing would paint the key
+// itself at the player; a key with no step is a lesson cut without its words.
+{
+  const catalogue = loadJson(join(ROOT, 'packages/app/src/i18n/en.json')) ?? {};
+  for (const file of jsonFilesIn(join(ROOT, 'data/tutorial'))) {
+    const tu = loadJson(file);
+    if (!tu) continue;
+    const want = new Set();
+    for (const step of tu.steps ?? []) {
+      const fields = ['title', 'teach', ...(step.nudge_after_s !== undefined ? ['nudge'] : [])];
+      for (const f of fields) {
+        const key = `tutorial.${tu.id}.${step.id}.${f}`;
+        want.add(key);
+        if (typeof catalogue[key] !== 'string' || catalogue[key].trim() === '') {
+          failures.push(`${rel(file)}: step "${step.id}" has no catalogue text for "${key}" in packages/app/src/i18n/en.json`);
+        } else if (catalogue[key].length > { title: 60, teach: 240, nudge: 160 }[f]) {
+          // The caps the schema carried before the text moved out of it.
+          failures.push(`en.json "${key}" is ${catalogue[key].length} characters, over its ${{ title: 60, teach: 240, nudge: 160 }[f]} cap`);
+        }
+      }
+    }
+    const prefix = `tutorial.${tu.id}.`;
+    for (const key of Object.keys(catalogue)) {
+      if (key.startsWith(prefix) && !want.has(key)) {
+        failures.push(`packages/app/src/i18n/en.json: "${key}" belongs to no step of ${rel(file)} (or a nudge with no nudge_after_s)`);
+      }
+    }
+  }
+}
+
 // --- first-use hint cross-checks ----------------------------------------------
 // A rule naming a mission or unit type that does not exist is a hint that can
 // never fire, with no error anywhere. Ids must also be unique: the id is the

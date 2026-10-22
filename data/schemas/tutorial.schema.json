@@ -31,16 +31,18 @@
   "$defs": {
     "step": {
       "type": "object",
-      "required": ["id", "title", "teach", "await"],
+      "required": ["id", "await"],
       "additionalProperties": false,
       "properties": {
         "id": { "type": "string", "pattern": "^[a-z0-9_]+$" },
-        "title": { "type": "string", "maxLength": 60 },
-        "teach": { "type": "string", "maxLength": 240 },
         "await": { "$ref": "#/$defs/predicate" },
         "focus": { "$ref": "#/$defs/focus" },
-        "nudge_after_s": { "type": "number", "minimum": 3, "maximum": 120 },
-        "nudge": { "type": "string", "maxLength": 160 },
+        "nudge_after_s": {
+          "type": "number",
+          "minimum": 3,
+          "maximum": 120,
+          "description": "Seconds the step may sit open before its nudge shows. The nudge text is the catalogue key tutorial.<tutorial id>.<step id>.nudge, required by validate:data when this is set."
+        },
         "reveal": {
           "type": "array",
           "uniqueItems": true,
@@ -48,7 +50,7 @@
           "description": "GH-345: HUD elements added when this step OPENS, cumulative with hud_start and every earlier step's reveal."
         }
       },
-      "dependentRequired": { "nudge": ["nudge_after_s"], "nudge_after_s": ["nudge"] }
+      "description": "A step carries NO text. Its words are chrome, so they live in packages/app/src/i18n/en.json under tutorial.<tutorial id>.<step id>.title / .teach (and .nudge when nudge_after_s is set) and go through t(). The key is derived from the ids, which telemetry already pins, so a key can neither drift from nor be mistyped against its step. additionalProperties false is what refuses a raw title/teach/nudge here."
     },
     "predicate": {
       "type": "object",

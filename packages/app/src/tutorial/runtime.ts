@@ -56,12 +56,9 @@ export type ProductionEdge = 'paused' | 'resumed';
 
 export interface StepJson {
   id: string;
-  title: string;
-  teach: string;
   await: PredicateJson;
   focus?: { kind: 'marker' | 'zone' | 'none'; marker?: string; zone?: string };
   nudge_after_s?: number;
-  nudge?: string;
   /** HUD elements added when this step opens (GH-345, `hud-visibility.ts`). */
   reveal?: HudElement[];
 }

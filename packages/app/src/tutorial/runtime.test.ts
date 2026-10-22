@@ -14,22 +14,15 @@ import {
 const STEPS: StepJson[] = [
   {
     id: 'take_command',
-    title: 'Take command',
-    teach: 'Click a squad.',
     await: { kind: 'intent', intent: 'select' },
     nudge_after_s: 12,
-    nudge: 'Click the squad.',
   },
   {
     id: 'move',
-    title: 'Move',
-    teach: 'Right-click ground.',
     await: { kind: 'intent', intent: 'order', verb: 'attackMove' },
   },
   {
     id: 'pin',
-    title: 'Pin them',
-    teach: 'Fire holds them down.',
     await: { kind: 'sim', event: 'pinned', side: 1 },
   },
 ];
@@ -108,8 +101,8 @@ describe('advance', () => {
     // Two steps both awaiting `select` must not both clear on one click, or a
     // single action skips a lesson the player never saw.
     const twoSelects: StepJson[] = [
-      { id: 'a', title: 'A', teach: 'a', await: { kind: 'intent', intent: 'select' } },
-      { id: 'b', title: 'B', teach: 'b', await: { kind: 'intent', intent: 'select' } },
+      { id: 'a', await: { kind: 'intent', intent: 'select' } },
+      { id: 'b', await: { kind: 'intent', intent: 'select' } },
     ];
     let s = initTutorial(twoSelects, 0);
     s = advance(s, { kind: 'intent', intent: { kind: 'select', ids: [1], via: 'click' } }, 0);
@@ -121,8 +114,6 @@ describe('advance', () => {
     const steps: StepJson[] = [
       {
         id: 'both',
-        title: 'Both',
-        teach: 'contact and overlay',
         await: {
           kind: 'all_of',
           of: [
@@ -145,8 +136,6 @@ describe('advance', () => {
     const steps: StepJson[] = [
       {
         id: 'both',
-        title: 'Both',
-        teach: 'contact and overlay',
         await: {
           kind: 'all_of',
           of: [
@@ -170,8 +159,8 @@ describe('advance', () => {
 
   it('satisfies elapsed_s from when the step opened, not from mission start', () => {
     const steps: StepJson[] = [
-      { id: 'a', title: 'A', teach: 'a', await: { kind: 'intent', intent: 'select' } },
-      { id: 'beat', title: 'Beat', teach: 'read this', await: { kind: 'elapsed_s', seconds: 5 } },
+      { id: 'a', await: { kind: 'intent', intent: 'select' } },
+      { id: 'beat', await: { kind: 'elapsed_s', seconds: 5 } },
     ];
     let s = initTutorial(steps, 0);
     s = advance(s, { kind: 'intent', intent: { kind: 'select', ids: [1], via: 'click' } }, 30_000);
@@ -303,8 +292,6 @@ describe('append narrowing', () => {
   const QUEUE_STEPS: StepJson[] = [
     {
       id: 'move_as_one',
-      title: 'Move as one',
-      teach: 'Queue waypoints with shift.',
       await: { kind: 'intent', intent: 'order', append: true },
     },
   ];
@@ -382,8 +369,6 @@ describe('hover.projection', () => {
     const steps: StepJson[] = [
       {
         id: 'read',
-        title: 'Read',
-        teach: 'Hover each.',
         await: {
           kind: 'all_of',
           of: (['unidentified', 'cover', 'moving', 'out_of_reach'] as const).map((projection) => ({
@@ -393,7 +378,7 @@ describe('hover.projection', () => {
           })),
         },
       },
-      { id: 'next', title: 'Next', teach: '.', await: { kind: 'elapsed_s', seconds: 1 } },
+      { id: 'next', await: { kind: 'elapsed_s', seconds: 1 } },
     ];
     let s = initTutorial(steps, 0);
     s = advance(s, at(101, 'unidentified'), 1);
@@ -487,8 +472,6 @@ describe('production (GH-184)', () => {
     const steps: StepJson[] = [
       {
         id: 'gate',
-        title: 'Gate',
-        teach: 'Clear it.',
         await: { kind: 'all_of', of: [{ kind: 'production', edge: 'paused' }, { kind: 'production', edge: 'resumed' }] },
       },
     ];
