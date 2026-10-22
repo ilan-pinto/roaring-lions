@@ -5,6 +5,7 @@
  *
  *   pnpm --filter @lions/tools exec tsx src/perf/grenade-captures.ts --label=after  --port=5243
  *   pnpm --filter @lions/tools exec tsx src/perf/grenade-captures.ts --label=before --port=5243
+ *   pnpm grenade:capture -- --label=after --out=glint-after   (any output directory under grenade/)
  *
  * A sibling of `atgm-captures.ts`, with its method (frozen frame loop, the sim
  * stepped in lockstep by hand, subjects spawned, one flip page a subject) and
@@ -210,7 +211,11 @@ async function main(): Promise<void> {
   if (label !== 'before' && label !== 'after') throw new Error('--label=before|after is required');
   const port = await claimPort('grenade-captures', 'GRENADE_CAPTURE_PORT', 5243);
   if (port === 5177 || port === 5173) throw new Error(`port ${port} is someone else's`);
-  const out = path.join(OUT_ROOT, label);
+  // `--out=<dir>` names the output directory under OUT_ROOT (default: the label), so a
+  // later change can be photographed beside an earlier one without touching either.
+  const outName = arg('out') || label;
+  if (!/^[a-z0-9-]+$/.test(outName)) throw new Error(`--out=${outName}: lower-case letters, digits and dashes only`);
+  const out = path.join(OUT_ROOT, outName);
   fs.mkdirSync(out, { recursive: true });
 
   const server = await ensureDevServer(port, REPO_ROOT, 'grenade-captures');

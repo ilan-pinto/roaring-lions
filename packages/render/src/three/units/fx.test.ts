@@ -777,6 +777,37 @@ describe('HDR on the tracer / shell materials', () => {
     expect(red('rifle') / red('bolt')).toBeCloseTo(0.45, 5);
     expect(red('mg') / red('bolt')).toBeCloseTo(0.6, 5);
   });
+
+  it('a grenade is a dark body with a glint at its head only: 0.06x, then 0.4x on the last segment', () => {
+    const out: TracerInstanceBuffers = {
+      positions: new Float32Array(SHELL_TRAIL_SEGMENTS * 4 * 3),
+      colors: new Float32Array(SHELL_TRAIL_SEGMENTS * 4 * 3),
+      alphas: new Float32Array(SHELL_TRAIL_SEGMENTS * 4),
+    };
+    writeShellInstances([{ ...spawnShell(0, 0, 7, 0, 0, 'grenade'), t: 0.2 }], ['#FF8040', '#00FF00'], null, 0, 0, out, 0);
+    const [r0] = hexToLinear('#FF8040');
+    // Literals (0.06, 0.4), not HDR_GAINS: the oracle must not read the code under test.
+    for (let seg = 0; seg < SHELL_TRAIL_SEGMENTS - 1; seg++) {
+      for (let v = 0; v < 4; v++) expect(out.colors[seg * 12 + v * 3]).toBeCloseTo(r0 * 0.06, 6);
+    }
+    const head = (SHELL_TRAIL_SEGMENTS - 1) * 12;
+    for (let v = 0; v < 4; v++) expect(out.colors[head + v * 3]).toBeCloseTo(r0 * 0.4, 6);
+    // On the arc batch (uHdr 3.5) the glint crosses bloom's 1.0 and the body does not.
+    expect(r0 * 0.4 * 3.5).toBeGreaterThan(1);
+    expect(r0 * 0.06 * 3.5).toBeLessThan(0.25);
+  });
+
+  it('no other kind changes colour at its head', () => {
+    const out: TracerInstanceBuffers = {
+      positions: new Float32Array(SHELL_TRAIL_SEGMENTS * 4 * 3),
+      colors: new Float32Array(SHELL_TRAIL_SEGMENTS * 4 * 3),
+      alphas: new Float32Array(SHELL_TRAIL_SEGMENTS * 4),
+    };
+    for (const kind of ['mortar', 'rocket', 'bolt', 'rifle', 'mg'] as const) {
+      writeShellInstances([{ ...spawnShell(0, 0, 7, 0, 0, kind), t: 0.05 }], ['#FF8040', '#00FF00'], null, 0, 0, out, 0);
+      expect(out.colors[(SHELL_TRAIL_SEGMENTS - 1) * 12], kind).toBe(out.colors[0]);
+    }
+  });
 });
 
 describe('writeShellInstances', () => {
