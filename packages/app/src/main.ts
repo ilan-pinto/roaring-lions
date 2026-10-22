@@ -1214,7 +1214,11 @@ async function main(): Promise<void> {
         ? (code) => {
             const r = redeemCoupon(ledgerStore.readAccount(), code, coupons, sha256Hex, Date.now());
             if (!r.ok) return { state: now(), result: r.reason };
-            ledgerStore.writeAccount(r.account);
+            try {
+              ledgerStore.writeAccount(r.account);
+            } catch {
+              return { state: now(), result: 'failed' as const };
+            }
             return { state: now(), result: 'ok' as const, credits: r.credits };
           }
         : undefined,

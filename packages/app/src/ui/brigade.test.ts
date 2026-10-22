@@ -2141,7 +2141,7 @@ describe('the garage rows — special forces (E5 Task 7)', () => {
 });
 
 describe('showBrigade — redeem a code', () => {
-  const redeemer = (answer: 'ok' | 'unknown' | 'used') => {
+  const redeemer = (answer: 'ok' | 'unknown' | 'used' | 'failed') => {
     const asked: string[] = [];
     let credits = 100;
     const host = mount({
@@ -2185,6 +2185,15 @@ describe('showBrigade — redeem a code', () => {
     expect(text(host, '.rl-garage__redeem-said')).toBe(words);
     expect(input.value).toBe('Some-Code');
     expect(text(host, '.rl-garage__wallet-n')).toBe('100');
+  });
+
+  it('caps the field, reports a failed save, and clears the line when the field is edited', () => {
+    const { host, input, submit } = redeemer('failed');
+    expect(input.maxLength).toBe(128);
+    submit('Some-Code');
+    expect(text(host, '.rl-garage__redeem-said')).toBe('Could not save the account; nothing was added');
+    input.dispatchEvent(new Event('input'));
+    expect(text(host, '.rl-garage__redeem-said')).toBe('');
   });
 
   it('asks nothing for an empty field, and draws no form without the handler or the wallet', () => {

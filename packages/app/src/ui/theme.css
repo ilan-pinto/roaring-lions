@@ -1179,7 +1179,6 @@ body {
 }
 .rl-garage__redeem-input {
   font: inherit;
-  font-family: var(--font-mono);
   color: var(--ink);
   background: transparent;
   border: 1px solid var(--panel-frame);

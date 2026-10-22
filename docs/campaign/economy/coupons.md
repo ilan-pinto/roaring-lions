@@ -7,3 +7,4 @@ A coupon is a redeemable code that grants brigade credits. The "Redeem code" fie
 - **Reset clears redemptions.** "Reset brigade account" removes the whole key, so the code can be used again afterwards. `?fresh` and a new campaign leave the account alone, so redemptions survive both.
 - **Trust-based.** The grant is client-side. Anyone can already edit `localStorage` to give themselves credits, so a coupon adds no new exposure, and a hash of a short code can be brute-forced offline: treat a coupon as a convenience for testers, not a secret. The server ledger (GH-205) is where a real entitlement belongs.
 - **Credits only.** No sim state, no pins, no telemetry event (an attempt would carry the code).
+- **Save slots.** A slot snapshots the account with its redemptions, so loading a slot saved before redeeming makes the code usable again. Accepted for the same reason.

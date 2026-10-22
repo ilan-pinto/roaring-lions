@@ -181,7 +181,7 @@ export interface BrigadeOptions {
    *  account, saves, and answers with the account as it now stands plus the outcome;
    *  this screen only asks and reads the outcome out in an aria-live line. Rendered
    *  only alongside `credits`, like the reset. */
-  onRedeem?: (code: string) => { state: GarageState; result: 'ok' | 'unknown' | 'used'; credits?: number } | void;
+  onRedeem?: (code: string) => { state: GarageState; result: 'ok' | 'unknown' | 'used' | 'failed'; credits?: number } | void;
   /** Called when the player clicks a locked, priced unit's Buy control. The caller buys,
    *  saves and answers with the account as the store now holds it -- a refusal answers
    *  too, off the true state. This screen only asks; it never mutates the account itself. */
@@ -471,8 +471,8 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     input.className = 'rl-garage__redeem-input';
     input.autocomplete = 'off';
     input.spellcheck = false;
+    input.maxLength = 128;
     input.setAttribute('aria-label', t('garage.redeem.label'));
-    input.placeholder = t('garage.redeem.label');
     const go = document.createElement('button');
     go.type = 'submit';
     go.className = 'rl-btn rl-garage__redeem-go';
@@ -480,18 +480,25 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     const said = el('span', 'rl-garage__redeem-said');
     said.setAttribute('aria-live', 'polite');
     form.append(input, go, said);
+    input.addEventListener('input', () => {
+      said.textContent = '';
+      delete said.dataset.result;
+    });
     form.addEventListener('submit', (ev) => {
       ev.preventDefault();
       if (input.value.trim() === '') return;
       const out = opts.onRedeem?.(input.value);
       if (out === undefined) return;
       said.dataset.result = out.result;
+      said.textContent = '';
       said.textContent =
         out.result === 'ok'
           ? t('garage.redeem.ok', { n: out.credits ?? 0 })
           : out.result === 'used'
             ? t('garage.redeem.used')
-            : t('garage.redeem.unknown');
+            : out.result === 'failed'
+              ? t('garage.redeem.failed')
+              : t('garage.redeem.unknown');
       if (out.result === 'ok') input.value = '';
       answer(out.state, null);
     });

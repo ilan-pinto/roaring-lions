@@ -497,6 +497,7 @@
   "garage.redeem.button": "Redeem",
   "garage.redeem.ok": "Code accepted: {n, plural, one {# credit} other {# credits}} added",
   "garage.redeem.used": "That code has already been redeemed on this account",
+  "garage.redeem.failed": "Could not save the account; nothing was added",
   "garage.redeem.unknown": "That code is not valid",
   "garage.reset.button": "Reset brigade account",
   "garage.reset.confirm": "Click again to reset — this cannot be undone",
