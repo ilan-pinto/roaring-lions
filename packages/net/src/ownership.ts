@@ -51,8 +51,15 @@ export function validateCommand(cmd: Command, seat: Seat, world: SeatWorld): boo
   switch (cmd.kind) {
     case 'move': case 'attackMove': case 'smoke':
       return cmd.ids.length > 0 && cmd.ids.every(own) && onMap(cmd.x, cmd.y);
-    case 'halt': case 'unload': case 'setStance':
+    case 'halt': case 'unload':
       return cmd.ids.length > 0 && cmd.ids.every(own);
+    case 'setStance':
+      // N3 Task 9: a patrol's every waypoint must be on the map (the count and
+      // the integers are `cleanCommand`'s); the sim clamps nothing it was not sent.
+      return (
+        cmd.ids.length > 0 && cmd.ids.every(own) &&
+        (cmd.stance !== 'patrol' || cmd.waypoints.every(([x, y]) => onMap(x, y)))
+      );
     case 'garrison': case 'demolish':
       return cmd.ids.length > 0 && cmd.ids.every(own) && world.structureExists(cmd.structure);
     case 'chargeTunnel':

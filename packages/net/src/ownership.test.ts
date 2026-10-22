@@ -51,6 +51,21 @@ describe('validateCommand: setStance', () => {
     expect(validateCommand({ kind: 'setStance', ids: [1, 12], stance: 'hold' }, 0, versus)).toBe(false);
     expect(validateCommand({ kind: 'setStance', ids: [], stance: 'hold' }, 0, world)).toBe(false);
   });
+  it('N3 Task 9: a patrol passes for own units with every waypoint on the map; one point off it, or a foreign id, drops it', () => {
+    const versus = { ...world, versus: true };
+    const patrol = (ids: number[], waypoints: [number, number][]): Command => ({ kind: 'setStance', ids, stance: 'patrol', waypoints });
+    const on: [number, number][] = [[F, F], [47 * F, 47 * F + F - 1]];
+    expect(validateCommand(patrol([1, 2], on), 0, world)).toBe(true);
+    expect(validateCommand(patrol([1, 2], on), 0, versus)).toBe(true);
+    expect(validateCommand(patrol([11], on), 1, versus)).toBe(true);
+    expect(validateCommand(patrol([1, 12], on), 0, versus)).toBe(false);
+    expect(validateCommand(patrol([11], on), 0, versus)).toBe(false);
+    expect(validateCommand(patrol([], on), 0, world)).toBe(false);
+    for (const off of [[-1, F], [F, -1], [48 * F, F], [F, 48 * F], [Number.NaN, F]] as [number, number][]) {
+      expect(validateCommand(patrol([1], [on[0], off]), 0, world), JSON.stringify(off)).toBe(false);
+      expect(validateCommand(patrol([1], [off, on[1]]), 0, versus), JSON.stringify(off)).toBe(false);
+    }
+  });
 });
 
 describe('validateCommand: the map and the target', () => {

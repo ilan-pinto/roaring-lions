@@ -487,6 +487,10 @@ export const CORRIDOR_RECHECK_TICKS = 20; // 1 s at 20 Hz
 export const AMBUSH_RADIUS_DEFAULT = 196608;
 export const AMBUSH_RADIUS_MAX = 655360;
 
+/** N3 Task 9 (Q6): the most waypoints a `setStance{patrol}` carries (the least is 2).
+ *  The sim refuses a count outside 2..4, and so does the wire (`cleanCommand`). */
+export const MAX_PATROL_WAYPOINTS = 4;
+
 /** Production lines one side may stand (F4, R-F4-4): `validate:data` and `start()` refuse more. */
 export const MAX_PRODUCTION_LINES = 4;
 /** Items waiting on one production line, not counting the one in progress (F4, R-F4-4). */

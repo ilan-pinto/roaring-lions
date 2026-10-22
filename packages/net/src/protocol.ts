@@ -3,7 +3,7 @@
  * the ONLY way bytes become one. Spec §3.2.3. The room never learns a
  * position: the only battle facts here are `Command`s and hashes.
  */
-import { AMBUSH_RADIUS_MAX, FIRE_SUPPORT, FIRE_SUPPORT_KINDS, MAX_LINE_QUEUE, MAX_PRODUCTION_LINES, type Command } from '@lions/sim';
+import { AMBUSH_RADIUS_MAX, FIRE_SUPPORT, MAX_PATROL_WAYPOINTS, FIRE_SUPPORT_KINDS, MAX_LINE_QUEUE, MAX_PRODUCTION_LINES, type Command } from '@lions/sim';
 import { isFactionPair, validateConfig, type Faction, type MatchConfig, type Seat } from './config';
 import type { Frame, Stamped } from './frames';
 import { ADVISOR_SCOPES, cleanAdvisorMsg, type AdvisorMsg, type AdvisorScope } from './advisor';
@@ -204,7 +204,22 @@ export function cleanCommand(v: unknown): Command | null {
     case 'smoke':
       return ids === null || !isInt(c.x) || !isInt(c.y) ? null : { kind, ids, x: c.x, y: c.y };
     case 'setStance': {
-      if (ids === null || (c.stance !== 'hold' && c.stance !== 'ambush')) return null;
+      if (ids === null) return null;
+      if (c.stance === 'patrol') {
+        // N3 Task 9 (Q6): 2 to MAX_PATROL_WAYPOINTS points, each a pair of
+        // integers (Q16.16), rebuilt pair by pair; no radius. On the map is
+        // `validateCommand`'s, which knows the map.
+        if (c.radius !== undefined || !Array.isArray(c.waypoints)) return null;
+        const wps = c.waypoints as unknown[];
+        if (wps.length < 2 || wps.length > MAX_PATROL_WAYPOINTS) return null;
+        const waypoints: [number, number][] = [];
+        for (const w of wps) {
+          if (!Array.isArray(w) || w.length !== 2 || !isInt(w[0]) || !isInt(w[1])) return null;
+          waypoints.push([w[0], w[1]]);
+        }
+        return { kind, ids, stance: 'patrol', waypoints };
+      }
+      if (c.waypoints !== undefined || (c.stance !== 'hold' && c.stance !== 'ambush')) return null;
       if (c.stance === 'hold') return c.radius === undefined ? { kind, ids, stance: 'hold' } : null;
       if (c.radius === undefined) return { kind, ids, stance: 'ambush' };
       return isInt(c.radius) && c.radius > 0 && c.radius <= AMBUSH_RADIUS_MAX ? { kind, ids, stance: 'ambush', radius: c.radius } : null;

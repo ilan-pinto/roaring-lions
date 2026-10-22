@@ -212,6 +212,27 @@ describe('versus: two sides, one frame stream', () => {
     expect(a.hashes[19]).not.toBe(base.hashes[19]);
   }, 60_000);
 
+  it('a setStance patrol is stamped and agreed on by both clients, not dropped, and it moves the hash (N3 Task 9)', () => {
+    const at = (tick: number, seat: 0 | 1, seq: number, cmd: Command): [number, Stamped] => [tick, { seat, seq, cmd }];
+    const probe = versusWorld();
+    const [hx, hy] = probe.anchors.hostile;
+    // A beat round the hostile end, three points, all on the map.
+    const beat: [number, number][] = [
+      [fx.from(hx + 0.5), fx.from(hy + 0.5)],
+      [fx.from(hx + 4.5), fx.from(hy + 0.5)],
+      [fx.from(hx + 4.5), fx.from(hy + 4.5)],
+    ];
+    const frames = versusFrames(true, (theirs) => [
+      at(12, 1, 9, { kind: 'setStance', ids: theirs.slice(0, 2), stance: 'patrol', waypoints: beat }),
+    ]);
+    const a = runVersus(frames);
+    const b = runVersus(frames);
+    expect(a.hashes).toEqual(b.hashes);
+    expect(a.drops).toEqual([CRAFT_TICK]);
+    const base = runVersus(versusFrames(true));
+    expect(a.hashes[19]).not.toBe(base.hashes[19]);
+  }, 60_000);
+
   it('the crafted command is dropped for ownership, not for being malformed', () => {
     // Control: if seat 1 were on side 0 the crafted order (it names a side-0
     // unit, on the map) is accepted; its own side-1 orders are what drop.
