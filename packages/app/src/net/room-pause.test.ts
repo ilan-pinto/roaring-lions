@@ -6,7 +6,7 @@ import type { TransportStatus } from '@lions/net';
 import { t } from '../i18n/t';
 import { leaveCopy } from '../ui/leave-copy';
 import { routes } from '../shell/links';
-import { BLOCKED_CUE_GAP_MS, blockedOrderNotes, escapeOpensPause, hudExit, matchLeaveCopy, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderOffered } from './room-pause';
+import { BLOCKED_CUE_GAP_MS, blockedOrderNotes, dockHeld, escapeOpensPause, hudExit, matchLeaveCopy, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderOffered } from './room-pause';
 
 // N1b task 8, R-B17: the room silently ignores a pause it refuses, so the
 // client decides from its own count (the last `paused` it saw) whether to ask
@@ -386,5 +386,25 @@ describe('blockedOrderNotes', () => {
     // ... and the cue it sounds is the one a refused ground order plays.
     const wired = main.slice(main.indexOf('? blockedOrderNotes('), main.indexOf('if (room !== null && blockedNotes !== null)'));
     expect(wired).toContain('audio.playCue(CRITICAL_CUES.uiDeny)');
+  });
+});
+
+// N3 Task 4 (spec §11b.4 follow-up): a room now runs a runtime, so its dock buys -- and in a
+// paused room the dock's pre-check holds the buy before `canBuild`, saying why, rather than
+// noting "building" for a command the order sink then drops.
+describe('dockHeld', () => {
+  it('holds (and notes the pause) only while orders wait; the status is read per click', () => {
+    let status: TransportStatus = { kind: 'live', behind: 0 };
+    let blocked = 0;
+    const held = dockHeld(() => status, () => { blocked++; });
+    expect([held(), blocked]).toEqual([false, 0]);
+    status = { kind: 'paused', seat: 1, untilMs: 5 };
+    expect([held(), blocked]).toEqual([true, 1]);
+    status = { kind: 'paused', seat: 0, untilMs: 5 };
+    expect([held(), blocked]).toEqual([true, 2]);
+    for (const s of [{ kind: 'stalled', reason: 'behind', seat: 1 }, { kind: 'waiting' }] as TransportStatus[]) {
+      status = s;
+      expect([held(), blocked]).toEqual([false, 2]);
+    }
   });
 });

@@ -254,6 +254,7 @@ describe('describeCommand', () => {
     expect(describeCommand({ kind: 'attackMove', ids: [1, 2], x: 3 * ONE, y: 4 * ONE })).toBe('Attack-move 2 units to (3, 4)');
     expect(describeCommand({ kind: 'setStance', ids: [1, 2], stance: 'ambush' })).toBe('Set an ambush with 2 units');
     expect(describeCommand({ kind: 'setStance', ids: [1, 2], stance: 'hold' })).toBe('Hold 2 units where they stand');
+    expect(describeCommand({ kind: 'setStance', ids: [1], stance: 'patrol', waypoints: [[0, 0], [ONE, 0], [ONE, ONE]] })).toBe('Patrol 1 unit round 3 points');
     expect(describeCommand({ kind: 'halt', ids: [1, 2] })).toBe('Halt 2 units');
     expect(describeCommand({ kind: 'attack', ids: [1], target: 9 })).toBe('Fire on an enemy with 1 unit');
     expect(describeCommand({ kind: 'build', side: 0, unit: 'inf_squad' })).toBe('Build inf_squad');

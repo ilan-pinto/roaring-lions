@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { FACTION_MATCHUP_MAPS, TIERS_MAX_TIER, TIERS_MAX_TRACKS, TIERS_MAX_TYPES, VERSUS_FAIR_MAPS, factionsOfMatchup, isFactionPair, matchupAllowed, matchupField, validateConfig, fnv1a32, versusMapAllowed, type MatchConfig } from './config';
+import { endOfSeat, sidesOfFactions, sidesOfMatchup, FACTION_MATCHUP_MAPS, TIERS_MAX_TIER, TIERS_MAX_TRACKS, TIERS_MAX_TYPES, VERSUS_FAIR_MAPS, factionsOfMatchup, isFactionPair, matchupAllowed, matchupField, validateConfig, fnv1a32, versusMapAllowed, type MatchConfig } from './config';
 
 export const CONFIG: MatchConfig = {
   matchId: 'm1', code: 'ABCDEF', seed: 20260727, map: 'beit_sahwan_outskirts', mode: 'sandbox',
@@ -13,6 +13,12 @@ export const CONFIG: MatchConfig = {
 describe('validateConfig', () => {
   it('accepts the sandbox config and returns it typed', () => {
     expect(validateConfig(JSON.parse(JSON.stringify(CONFIG)))).toEqual(CONFIG);
+  });
+  it('accepts a Sarim host on side 1 and its KDF guest on side 0 (LD1, N3)', () => {
+    const sarimHost: MatchConfig = { ...CONFIG, mode: 'versus', map: 'tel_marum', seats: [
+      { ...CONFIG.seats[0], side: 1, faction: 'sarim' }, { ...CONFIG.seats[1], side: 0, faction: 'kdf' },
+    ] };
+    expect(validateConfig(JSON.parse(JSON.stringify(sarimHost)))).toEqual(sarimHost);
   });
   it('refuses a missing seat, a non-integer seed, a bad mode and an unknown faction', () => {
     expect(validateConfig({ ...CONFIG, seats: [CONFIG.seats[0]] })).toBeNull();
@@ -85,6 +91,21 @@ describe('the versus matchup (2026-10-14, KDF vs Sarim)', () => {
     expect(factionsOfMatchup('kdf')).toEqual(['kdf', 'sarim']);
     expect(factionsOfMatchup('sarim')).toEqual(['sarim', 'kdf']);
     expect(factionsOfMatchup('mirror')).toEqual(['kdf', 'kdf']);
+  });
+
+  it('LD1 (N3): the KDF seat is side 0 in a faction pairing, whichever seat hosts; a mirror is seat s on side s', () => {
+    expect(sidesOfMatchup('sarim')).toEqual([1, 0]);
+    expect(sidesOfMatchup('kdf')).toEqual([0, 1]);
+    expect(sidesOfMatchup('mirror')).toEqual([0, 1]);
+    expect(sidesOfFactions(['sarim', 'kdf'])).toEqual([1, 0]);
+    expect(sidesOfFactions(['kdf', 'sarim'])).toEqual([0, 1]);
+    expect(sidesOfFactions(['kdf', 'kdf'])).toEqual([0, 1]);
+    expect(sidesOfFactions(['sarim', 'sarim'])).toEqual([0, 1]);
+  });
+
+  it('the spawn end follows the SEAT: the host stands on the friendly anchor whatever it picked', () => {
+    expect(endOfSeat(0)).toBe('friendly');
+    expect(endOfSeat(1)).toBe('hostile');
   });
 
   it('anything a client sends that is not kdf or sarim is the mirror', () => {

@@ -1,0 +1,21 @@
+{
+  "id": "wadi_tarfan",
+  "map": "wadi_tarfan",
+  "ends": {
+    "friendly": { "camp": { "at": [7, 7], "size": [2, 2] } },
+    "hostile": { "camp": { "at": [39, 39], "size": [2, 2] } }
+  },
+  "income_zones": [
+    { "zone": "centre_ford", "rate_per_min": 60 },
+    { "zone": "ne_ford", "rate_per_min": 40 },
+    { "zone": "sw_ford", "rate_per_min": 40 },
+    { "zone": "bluff_near_0", "rate_per_min": 20 },
+    { "zone": "bluff_near_1", "rate_per_min": 20 },
+    { "zone": "bluff_far_0", "rate_per_min": 20 },
+    { "zone": "bluff_far_1", "rate_per_min": 20 },
+    { "zone": "farm_near_0", "rate_per_min": 20 },
+    { "zone": "farm_near_1", "rate_per_min": 20 },
+    { "zone": "farm_far_0", "rate_per_min": 20 },
+    { "zone": "farm_far_1", "rate_per_min": 20 }
+  ]
+}

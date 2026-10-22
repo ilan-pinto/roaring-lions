@@ -12,6 +12,8 @@
 //   data/tutorial/** against data/schemas/tutorial.schema.json
 //   data/doctrines/** against data/schemas/doctrine.schema.json, plus the
 //                    menu and budget rules in tools/validate_doctrine.mjs
+//   data/versus/**   against data/schemas/versus_rules.schema.json, plus the camp,
+//                    zone and one-per-matchup-map rules in tools/validate_versus_rules.mjs
 //   tools/fixtures/units/** against the unit schema (synthetic, but must parse)
 //   data/structures.json against data/schemas/structure.schema.json, and its
 //                    `color`/`wall_tone` keys against the palette
@@ -32,6 +34,7 @@ import { popCapFailures } from './validate_pop_cap.mjs';
 import { incomeFailures } from './validate_income.mjs';
 import { productionFailures } from './validate_production.mjs';
 import { doctrineFailures } from './validate_doctrine.mjs';
+import { versusRulesFailures } from './validate_versus_rules.mjs';
 import { garrisonStanceFailures, garrisonWeaponFailures } from './validate_garrison.mjs';
 import {
   buildableOwnerFailures,
@@ -187,6 +190,7 @@ const schemas = {
   // was a comment.
   structure: loadJson(join(ROOT, 'data/schemas/structure.schema.json')),
   doctrine: loadJson(join(ROOT, 'data/schemas/doctrine.schema.json')),
+  versus: loadJson(join(ROOT, 'data/schemas/versus_rules.schema.json')),
   coupons: loadJson(join(ROOT, 'data/schemas/coupons.schema.json')),
 };
 
@@ -194,7 +198,7 @@ let checked = 0;
 if (
   schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tutorial &&
   schemas.world && schemas.countries && schemas.commander && schemas.names && schemas.diorama && schemas.hints &&
-  schemas.structure && schemas.doctrine && schemas.coupons
+  schemas.structure && schemas.doctrine && schemas.versus && schemas.coupons
 ) {
   const validators = {
     unit: ajv.compile(schemas.unit),
@@ -210,6 +214,7 @@ if (
     hints: ajv.compile(schemas.hints),
     structure: ajv.compile(schemas.structure),
     doctrine: ajv.compile(schemas.doctrine),
+    versus: ajv.compile(schemas.versus),
     coupons: ajv.compile(schemas.coupons),
   };
   checked += validateDir(join(ROOT, 'data/units'), validators.unit, 'unit.schema');
@@ -218,6 +223,7 @@ if (
   checked += validateDir(join(ROOT, 'data/maps'), validators.map, 'map.schema');
   checked += validateDir(join(ROOT, 'data/tutorial'), validators.tutorial, 'tutorial.schema');
   checked += validateDir(join(ROOT, 'data/doctrines'), validators.doctrine, 'doctrine.schema');
+  checked += validateDir(join(ROOT, 'data/versus'), validators.versus, 'versus_rules.schema');
   checked += validateDir(join(ROOT, 'tools/fixtures/units'), validators.unit, 'unit.schema');
   // data/campaign is a mixed directory: world.json is hand-authored, countries.json
   // is generated geometry, commander.json is hand-authored. Each gets its own schema.
@@ -1323,6 +1329,20 @@ const garrisonableSymbols = new Set(
   }
   const doctrines = jsonFilesIn(join(ROOT, 'data/doctrines')).map((file) => ({ file: rel(file), doc: loadJson(file) }));
   failures.push(...doctrineFailures(doctrines, doctrineUnits));
+}
+
+// --- versus rules files (N3 Task 1) -------------------------------------------
+// Camps on open ground near their end's anchor, income zones the map declares, one file per
+// faction-matchup map. The anchors-equal-versusAnchors cross-check needs app code:
+// tools/src/validate_versus_rules.test.ts.
+{
+  const mapsById = new Map();
+  for (const file of jsonFilesIn(join(ROOT, 'data/maps'))) {
+    const m = loadJson(file);
+    if (m?.id) mapsById.set(m.id, m);
+  }
+  const rulesFiles = jsonFilesIn(join(ROOT, 'data/versus')).map((file) => ({ file: rel(file), doc: loadJson(file) }));
+  failures.push(...versusRulesFailures(rulesFiles, mapsById));
 }
 
 // --- map grid + bounds checks (beyond what JSON Schema can express) ---------

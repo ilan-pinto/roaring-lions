@@ -9,6 +9,14 @@
 // it boots a dev server and three browsers. What it decides lives in
 // `two-engine-verdict.ts`, which `two-engine.test.ts` falsifies in `pnpm test`.
 //
+// N3 Task 8: on the same page each engine then plays the economy-room frame stream
+// (`packages/app/src/net/economy-stream.test-helper.ts`: a Sarim-host wadi_tarfan room,
+// both seats building, cancelling and rallying through frames, one forged build), by
+// importing that module from the dev server. Nothing about it needs WebGL or the app's
+// boot: the page runs `buildMatchWorld` + `runFrames` + `matchTick`, the room's own body.
+// Node plays the same stream here, and the verdict holds every engine's hash-tick digests,
+// `built` per side, drops and accepted count to NODE's (`economyMismatch`).
+//
 // Exit codes (Ruling R39, decided in `two-engine-verdict.ts`'s `decide`):
 // 0 every engine booted and they agree; 1 the engines that booted disagree,
 // missed the tick, or booted incomparable forces; 2 an engine started and then
@@ -25,8 +33,9 @@ import { ensureDevServer, stopDevServer } from '../golden-diff/browser';
 import { BOOT_FREEZE_INIT_SCRIPT, FREEZE_FRAME_LOOP_STATEMENTS } from '../golden-diff/capture-protocol';
 import { claimPort } from '../ui-review/port';
 import { musicOffInitScript } from '../ui-review/music-off';
-import { decide, parseEngineArgs, type EngineOutcome, type EngineReading } from './two-engine-verdict';
+import { decide, parseEngineArgs, type EconomyReading, type EngineOutcome, type EngineReading } from './two-engine-verdict';
 import { shippedContentDigest } from '../../../packages/app/src/net/content-digest';
+import { economyStreamFrames, runEconomyClient, type EconomyStreamResult } from '../../../packages/app/src/net/economy-stream.test-helper';
 
 const REPO = fileURLToPath(new URL('../../../', import.meta.url));
 const MAP = 'beit_sahwan_outskirts';
@@ -82,6 +91,21 @@ for (const t of ticks) {
 if (L.sim.tickCount < ${TARGET_TICK}) L.step(${TARGET_TICK} - L.sim.tickCount);
 return JSON.stringify({ start, tick: L.sim.tickCount, hash: L.sim.hash(), contentDigest: L.contentDigest() });
 })()`;
+
+/** N3 Task 8: the economy-room stream, played in the page from the module the dev
+ *  server serves (the app's own graph: `match-world`, `frame-step`, the sim). The
+ *  frame loop is already frozen, so nothing else ticks the sandbox meanwhile; the
+ *  stream builds its own worlds and never touches `__lions`. */
+const ECONOMY_SCRIPT = `(async () => {
+const m = await import('/src/net/economy-stream.test-helper.ts');
+const r = m.runEconomyClient(m.economyStreamFrames());
+return JSON.stringify({ digests: r.digests, built: r.built, droppedTicks: r.droppedTicks, accepted: r.accepted });
+})()`;
+
+/** The fields the verdict compares, from a full client result (Node's side). */
+function economyReadingOf(r: EconomyStreamResult): EconomyReading {
+  return { digests: r.digests, built: r.built, droppedTicks: r.droppedTicks, accepted: r.accepted };
+}
 
 /** An engine that could not launch, or cannot create WebGL2 here: an
  *  environment finding (exit 3, a warning), never a hash. */
@@ -171,7 +195,10 @@ async function reading(launch: () => Promise<Browser>, name: string, port: numbe
       start: number; tick: number; hash: number; contentDigest: number;
     };
     console.log(`[${TAG}] ${name}: orders from tick ${end.start}; tick ${end.tick} hash ${end.hash}; content digest ${end.contentDigest}`);
-    return { bootTick: end.start, bootUnits: boot.units, bootHostiles: boot.hostiles, tick: end.tick, hash: end.hash, contentDigest: end.contentDigest };
+    const economy = JSON.parse((await within(page.evaluate(ECONOMY_SCRIPT), SCRIPT_TIMEOUT_MS, `${name}: the economy stream`)) as string) as EconomyReading;
+    const last = economy.digests[economy.digests.length - 1];
+    console.log(`[${TAG}] ${name}: economy stream: ${economy.digests.length} hash ticks, final ${last === undefined ? 'none' : `${last[1]} at tick ${last[0]}`}, built ${JSON.stringify(economy.built)}, dropped at ${JSON.stringify(economy.droppedTicks)}`);
+    return { bootTick: end.start, bootUnits: boot.units, bootHostiles: boot.hostiles, tick: end.tick, hash: end.hash, contentDigest: end.contentDigest, economy };
   } catch (err) {
     // Whatever broke (a lost context mid-step, a navigation timeout), it is
     // this engine's, and the message says which.
@@ -224,7 +251,15 @@ async function main(): Promise<number> {
     // every engine's `__lions.contentDigest()` must equal.
     const nodeContent = shippedContentDigest();
     console.log(`[${TAG}] node ${process.version}: content digest ${nodeContent}`);
-    const d = decide(outcomes, TARGET_TICK, FIRST_ORDER_TICK, nodeContent, args.require);
+    // N3 Task 8: the economy stream as NODE plays it, which every engine must equal.
+    const nodeEconomy = economyReadingOf(runEconomyClient(economyStreamFrames()));
+    const nodeLast = nodeEconomy.digests[nodeEconomy.digests.length - 1];
+    // An empty Node reading would let an engine that read nothing pass: refuse it outright.
+    if (nodeEconomy.digests.length === 0 || nodeEconomy.built.some((n) => n === 0)) {
+      throw new Error('the economy stream produced no reading in Node (no hash ticks, or a side built nothing)');
+    }
+    console.log(`[${TAG}] node: economy stream: ${nodeEconomy.digests.length} hash ticks, final ${nodeLast?.[1]} at tick ${nodeLast?.[0]}, built ${JSON.stringify(nodeEconomy.built)}`);
+    const d = decide(outcomes, TARGET_TICK, FIRST_ORDER_TICK, nodeContent, args.require, nodeEconomy);
     // A `::warning::` line must START the line for the runner to read it, so
     // it is printed bare; everything else carries the tag.
     for (const { level, text } of d.lines) {

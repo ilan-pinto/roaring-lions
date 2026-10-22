@@ -575,6 +575,18 @@ describe('F4: the armed Set rally cursor and click', () => {
     expect(sent).toEqual([{ kind: 'setRally', side: 0, line: 1, x: fx.from(g.x), y: fx.from(g.y) }]);
   });
 
+  it('N3 Task 6: a side-1 seat\'s rally asks side 1 and sends setRally{side:1}', () => {
+    const { sim } = world();
+    const asked: (number | undefined)[] = [];
+    const rt1 = { canSetRally: (_l: number, x: number, y: number, side?: 0 | 1) => (asked.push(side), open(sim)(fx.toNumber(x), fx.toNumber(y))) };
+    const sent: Command[] = [];
+    const sink = { queueCommand: (cmd: Command) => void sent.push(cmd) };
+    const g = callRally(rt1, sink, 0, viewOf(sim, { x: 14.5, y: 24.5, zoom: 1 }), sim, CENTRE.x, CENTRE.y, 1);
+    expect(g.ok).toBe(true);
+    expect(asked).toEqual([1]);
+    expect(sent).toEqual([{ kind: 'setRally', side: 1, line: 0, x: fx.from(g.x), y: fx.from(g.y) }]);
+  });
+
   it('an armed support call outranks a stale rally hint (only one can own the click)', () => {
     const { sim } = world();
     const view = viewOf(sim, { x: 14.5, y: 24.5, zoom: 1 });

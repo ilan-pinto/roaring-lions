@@ -163,7 +163,12 @@ Sides in the sim stay what they are: 0 and 1 are combatants, 2 is civilians,
 and the contact arrays are sized `2 × capacity` (sim.ts:1256-1263). A
 **faction is a property of the seat's roster, not of the side index**: a
 KDF v KDF match registers the KDF catalogue and spawns it on side 1 for the
-second seat. The rules that hard-code "side 0 is the player" today (no
+second seat. **LD1, as built (N3, 22 Oct 2026):** in a KDF v Sarim room the
+KDF seat is always side 0 and Sarim always side 1, whichever seat hosts; where
+a force stands follows the SEAT (the host on the `friendly` end), and the
+camera starts on the viewer's end. The worker mints each seat's side by faction
+(`sidesOfFactions`), so a Sarim host is seat 0 on side 1 (§7.1, N3 Task 2).
+The rules that hard-code "side 0 is the player" today (no
 auto-breach in `Sim.selectBreachTarget`; ROE, production anchor, fire
 support, `unitLost` in mission.ts) become seat or faction rules (§7.1).
 **As built (N2, 16 Oct 2026):** the breach rule is the one that moved. It
@@ -546,6 +551,14 @@ tick and the report button. Both are `aria-live` lines, through `t()`.
   is a halt on a free unit and leaves garrisoned and carried units alone
   (D2); `ambush` takes an integer Q16.16 radius in (0, `AMBUSH_RADIUS_MAX` = 655360], up to ten
   tiles; absent means `AMBUSH_RADIUS_DEFAULT` (196608), three tiles (R-1). `patrol` is N3's (L3).
+  **`patrol` as built (N3 Task 9, 22 Oct 2026, GH-741):** `stance: 'patrol'` with
+  2 to `MAX_PATROL_WAYPOINTS` (4) Q16.16 `waypoints`, sim-native (`stepPatrolStance`,
+  the runtime's `stepPatrols` rule moved into the sim) and live-gated (`patrolLive`,
+  so no pin moves). Any later order ends it; a unit that halts to fire resumes its
+  leg; a routed, buried, downed or landing patroller holds its index; a patrolling
+  medic stays parked (the patrol's own legs never pass through `applyCommands`, so
+  they do not un-park him). **No UI verb issues it yet**, and the MCP verb list is
+  unchanged.
 - `build{camp, unit}` from the doctrine's menu at the Sarim camp, through
   Stage 4 F4's production line, spending the per-match budget (G3 Q7, 1.6×,
   doctrine data). Until F4 exists, N1's mirror match has no production on
@@ -639,6 +652,58 @@ line. The "Built" column below names the commit that made each row true.
 | 10 side-1 AI production through the same path | `692851cb` (`spendDown`), `f33af5a1` |
 
 Still N3's: `applyQueued` skips `side !== 0` for all five runtime kinds and `validateCommand` drops all five in versus (N3 lifts both in one commit with its two-seat test), so side 1 is reached today only by a direct call and the AI spender; `built` carries `side` and the app filters to side 0 (`isOwnSide`; the announcer takes viewer 0, the tutorial `!== 0`), which N3 switches to `viewerSide`; no shipped mission gives side 1 a camp (D7). A dead camp's line keeps its index. `declaresProduction` was deleted (the camp clause reads the lines). The economy and digest pins moved once, `e0c39d39`: `ECONOMY_PIN` 275731552 -> 904873885, `ECONOMY_PIN_RELIEF` 145368021 -> 2771311510, `RUNTIME_DIGEST_PIN` 2984314042 -> 2037118941, `RUNTIME_DIGEST_PIN_RELIEF` 3060732596 -> 1884258391; the sim pins did not move. Numbers: `docs/campaign/economy/production-numbers.md`.
+
+**N3 as built (22 Oct 2026, plan `docs/superpowers/plans/2026-10-22-net-n3-sarim-seat.md`, branch `feat/net-n3`, base `0cb0ced2`; GH-741).** One row per task; the ledger is `_coord/net-n3-progress.md` and the run artifacts `_coord/net-n3-run/`.
+
+| task | landed in |
+|---|---|
+| 1 versus rules files (`data/versus/<map>.json`, schema, validator), doctrines exported, both in the content digest; camps tel_marum (23,44)/(25,14), wadi_tarfan (7,7)/(39,39); `pop_cap` 40/56 in the doctrines | `5de363b2` |
+| 2 LD1: KDF is side 0, the spawn end and camera follow the seat, the worker mints side by faction; the probe's cells by end; the arena board by seat | `973f3e4f`, `4b040d24` |
+| 3 the runtime boots in an economy room (KDF v Sarim) from `buildMatchWorld`, through one `matchTick`; `checkEnd` ends nothing when a mission has no objectives; `unitLost` for a held side 1; `VERSUS_ECONOMY_PINS` born | `8aedf0c9`, `bbafa14f`, `b1b36f93` |
+| 4 the lift: `applyQueued` asks `isHumanHeld` and passes the side; `validateCommand` admits the four production kinds in an economy room, and the dock honours a paused room | `28305689` |
+| 5 the win rule counts production (`OutcomeProduction.canField`) | `d189ce38`, `16a5ae11` |
+| 6 dock, purse and population by viewer side; LD7 (Conduct shows on the KDF seat only); LD5 (no fire support in a room); the lobby copy; the camp mesh loads in a room | `4dd8e7f9`, `62ae16b3` |
+| 7 the versus probe reads a room's seat table and gains the report-only `--economy` arm; the arm's plan rebuilds the doctrine's own force mix | `3a74fd73`, `73c87eb6` |
+| 7b start purses KDF 1500 / Sarim 2400 (the lead, 22 Oct) and the `VERSUS_ECONOMY_PINS` re-pin | `db2803f0`, `529df9ab` |
+| 8 two clients and three engines, both seats producing (`net:engines` runs the same stream; CI only) | `dd40b824`, `e90135fe` |
+| 9 `setStance` `patrol`, sim-native and live-gated | `35c6b356`, `0ff39e83` |
+| 10 this section, CLAUDE.md's production bullet | the docs commit that adds this row |
+
+**What N3 changed in the rules.** `applyQueued` asks `isHumanHeld(c.side)` (it was `c.side !== 0`) and passes the side to `requestBuild`, `cancelBuild`, `setRally` and `clearRally`; `support`, `raiseWorks` and `cancelWorks` have no side parameter and refuse any side but 0, and `validateCommand` keeps fire support, `callStrike`, `reveal` and field works dropped in every versus room (LD5). An economy room (`economyRoom`: versus, the two seats' factions differ) boots a `MissionRuntime` from `data/versus/<map>.json` through `versusMissionOf`/`versusZonesOf`, each side's menu, purse and cap from its faction's doctrine; a mirror room keeps `runtime === null` and every mirror byte. A runtime with no objectives never ends by itself (`checkEnd` guard; no single-player path reaches it, the schema needs one objective).
+
+**Fairness record.**
+- *The Task 2 probe move.* Under the probe's OLD single-player seat table (`humanHeld [true, false]`), `wadi_tarfan` Sarim friendly moved KDF 22 / Sarim 26 to KDF 21 / Sarim 27 (6 games). It is wholly the breach rule: Sarim is side 1 now, and that table does not hold side 1. The new world with `[false, true]` reads the base world with `[true, false]` game for game (48 of 48), and under room rules (`[true, true]`) the placed-force cells are game-for-game identical to base, 192 of 192. The coordinator accepted it as PM (22 Oct): it is the probe's own seat setting, not a room's. The probe therefore reads room rules by default now, and the old table is a labelled control (`--rules=default`, "control: single-player seat table").
+- *Placed force, room rules, 48 seeds (west/east/draw):* tel_marum kdf/kdf 22/26, KDF friendly 25/23, Sarim friendly 22/26; wadi_tarfan kdf/kdf 24/24, KDF friendly 27/21, Sarim friendly 22/26. All within 60/40, identical to `base-0cb0ced2` apart from the mirror cell wadi_tarfan kdf/kdf, which the base printed as 25/23 under the single-player table (the control row reads that still).
+- *Economy arm at the provisional start (KDF 3000 / Sarim 4800), 48 seeds:* every cell outside 60/40, KDF ahead (tel_marum 70.8 / 81.3, wadi_tarfan 81.3 / 85.4 for KDF friendly / Sarim friendly), about three quarters of the games running to the cap and decided on unit value.
+- *The build-rule fix (`73c87eb6`).* The first plan, from the N3 plan's wording ("cheapest armed menu unit not queued last time, cycling the menu"), contradicts itself and opened every round on the dearest units, so it understated what a doctrine's own force mix would do. The probe's plan now buys, each round, the ARMED menu unit with the lowest (living + queued + in progress) / weight, weight being how many the faction's placed versus force fields, ties by menu order, a refused unit falling through to the next, unarmed units never bought; the same rule for both factions. That alone moved the 10-minute readings to tel_marum 54.2 / 70.8 and wadi_tarfan 64.6 / 60.4 (KDF / Sarim friendly) at 3000 / 4800, three cells still outside. Nine mutations ran; the one survivor (the side filter on the living count) cannot change a pick because the two menus share no type, and is disclosed in the header.
+- *The KDF-start sweep* (`_coord/net-n3-run/task7b/sweep/`, Sarim held at 8 / 5 of KDF, 24 seeds, 25-minute cap; KDF share of wins, cells in the order tel_marum KDF friendly, tel_marum Sarim friendly, wadi_tarfan KDF friendly, wadi_tarfan Sarim friendly; * = outside 60/40):
+
+| KDF start | tel KDF-f | tel Sarim-f | wadi KDF-f | wadi Sarim-f |
+|---|---|---|---|---|
+| 500 | Sarim 58.3 | Sarim 66.7* | Sarim 79.2* | level |
+| 750 | Sarim 66.7* | KDF 54.2 | Sarim 75* | Sarim 54.2 |
+| 1000 | Sarim 58.3 | KDF 58.3 | KDF 66.7* | KDF 58.3 |
+| 1250 | Sarim 54.2 | KDF 66.7* | level | Sarim 58.3 |
+| **1500** | KDF 54.2 | KDF 62.5* | KDF 54.2 | Sarim 62.5* |
+| 1750 | KDF 54.2 | KDF 62.5* | KDF 54.2 | level |
+| 2000 | KDF 58.3 | KDF 75* | KDF 62.5* | KDF 58.3 |
+| 2500 | KDF 62.5* | KDF 70.8* | KDF 62.5* | KDF 54.2 |
+| 3000 | KDF 54.2 | KDF 70.8* | KDF 58.3 | KDF 54.2 |
+| 3500 | KDF 58.3 | KDF 75* | KDF 58.3 | KDF 62.5* |
+| 4000 | KDF 58.3 | KDF 75* | KDF 58.3 | KDF 62.5* |
+| 4500 | KDF 58.3 | KDF 70.8* | KDF 58.3 | KDF 54.2 |
+
+  Twenty-four seeds is below the bar's 48, so the sweep only nominated points; 1500 and 1750 were then read at 48.
+- *The lead's approval, 22 Oct:* **KDF 1500 / Sarim 2400** (`db2803f0`; status stays provisional). At 48 seeds under room rules every economy cell reads 52.1 to 54.2% at both the 10-minute and the 25-minute cap (`task7b/point-k1500-*`, `final/economy-cap10.txt`, `economy-cap25.txt`). 1750 / 2800 was the runner-up and left one cell outside at both caps (wadi_tarfan KDF friendly, KDF 62.5%).
+
+  | 48 seeds, KDF 1500 / Sarim 2400 | 10-min cap | 25-min cap |
+  |---|---|---|
+  | tel_marum KDF friendly | KDF 52.1% | KDF 52.1% |
+  | tel_marum Sarim friendly | KDF 52.1% | KDF 52.1% |
+  | wadi_tarfan KDF friendly | KDF 52.1% | KDF 54.2% |
+  | wadi_tarfan Sarim friendly | Sarim 54.2% | Sarim 54.2% |
+
+**Pins.** Born: `VERSUS_ECONOMY_PINS` (a KDF-host room, seed 20260727, 200 ticks of `matchTick` with no orders, `matchDigest`): tel_marum -1014683486, wadi_tarfan -1434364569 (`bbafa14f`). Re-pinned once, for the 1500 / 2400 start, because `runtime.digest()` folds the purse (`529df9ab`): tel_marum -193936706, wadi_tarfan -1815401533. Every other pin read back unchanged through all ten tasks: golden flat 3719067886, relief 2842924511, orders 3272041047; `ECONOMY_PIN` 904873885, `ECONOMY_PIN_RELIEF` 2771311510; `RUNTIME_DIGEST_PIN` 2037118941, `_RELIEF` 1884258391; `WOUNDED_WORLD_PIN` 1774950105; versus-force mirror 3296182002 / 1524988923; match-world mirror 1108074073 / 1524988923; per-seat-types 580559085. `pnpm playtest` (outcomes, `LADDER_CREDITS` 5920, `ROSTER_MAX` 29) and `pnpm balance` were identical to base apart from timing. `shippedContentDigest()` changed in Task 1 (the rules files), as designed. Open: the N3 gate itself (§9) is the lead's five matches.
 
 **Per-seat unit types are no longer sim work. Ruled 15 Oct (coordinator,
 lead-delegated) (L2), confirmed by N2-P5 (`b375d07c`, `bf76cc77`,
@@ -850,7 +915,7 @@ green, per the working rules on every WP issue.
 | **N0 · two-machine test** (re-scoped #190) | 12–31 Oct | new `packages/net`, `MatchRoom` DO, `MatchTransport`, tick loop; `wrangler.jsonc` bindings | two laptops in one sandbox room, both ordering the KDF force (no ownership, no sides), hashes compared every 20 ticks for ten minutes; the two-client CI test; a report with RTT, stall count, replay time | hashes equal on 10/10 ten-minute runs across two machines; report on #190 |
 | **N1 · versus, mirror** | 2–27 Nov, beside Stage 4 | app, render (`viewerSide`), worker; no sim | code and link, lobby, tickets, pause/stall/reconnect, desync report, chat and pings, `pickUnit` leak closed; **KDF v KDF on a placed-force sandbox map** | Ilan and a friend play three matches to a result; one deliberate desync reported end to end |
 | **N2 · sim seat work** | directly after F3 (L5) | sim (lane C slot) | F2 Task 1 first (integer purse), then runtime digest, seat rules (`humanHeld`, the breach rule), `build`/`support`/`setStance` (`hold`, `ambush`) as commands. A room still runs no runtime (L1); per-seat types are app/render work (L2). **Ruled 15 Oct (coordinator, lead-delegated)**; this row first read "per-seat types … golden hash moves once": under option B the sim pins are expected not to move | determinism green with the sim pins unmoved and the new runtime-digest pin born; `tools/src/net/two-client.test.ts` shows equal hashes over the versus frame stream, the `setStance` frame included, and the mirror pins are unmoved (versus-force, match-world, per-seat-types); a live two-client replay is CI/N3's. **Met 16 Oct 2026** (branch `feat/net-n2-sim`, head `a5c0deab`; §7.1 "As built"). Not built, moved to N3 (D1): the mission.ts seat sites |
-| **N3 · the Sarim seat** | Jan–Feb 2027, with WP-G-G | sim, data, app | KDF v Sarim on the skirmish rules (zones, pop caps, doctrine production), the lobby's side pick live, `build` from the doctrine menu | G5 #169 closed 5 Feb with this spec's answers; Ilan plays five KDF v Sarim matches |
+| **N3 · the Sarim seat** | Jan–Feb 2027, with WP-G-G | sim, data, app | KDF v Sarim on the skirmish rules (zones, pop caps, doctrine production), the lobby's side pick live, `build` from the doctrine menu | G5 #169 closed 5 Feb with this spec's answers; Ilan plays five KDF v Sarim matches. **Built 22 Oct 2026 (§7.1 "N3 as built", GH-741):** the Sarim seat on side 1 (LD1), both seats building through F4's lines from the doctrine menus, the win rule counting production, dock/purse/pop by viewer side, the rules files, start purses KDF 1500 / Sarim 2400 (lead-approved, provisional), the probe's economy arm, `patrol`. **The gate is still open: it is the lead's five matches** |
 | **N4 · AI harness and arena** | Jan–Mar 2027, in parallel from N1's protocol | net, tools, worker | `pnpm agent` (MCP, three scopes), advisor panel, `pnpm arena`, `/stats/arena` | an `assist` advisor completes a match with Ilan; a ten-seed arena run between two models reported |
 | Follow-ons | after N3/N4 | | insurgent toolkit (§6.3), sim snapshot (§3.2.6), spectators as a feature, accounts via ST5, skirmish payouts | own specs |
 

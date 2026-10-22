@@ -71,6 +71,11 @@ import wadiHalam2 from '../../../data/maps/wadi_halam_2.json';
 import wadiHalam3 from '../../../data/maps/wadi_halam_3.json';
 import wadiHalam4 from '../../../data/maps/wadi_halam_4.json';
 import wadiHalam5 from '../../../data/maps/wadi_halam_5.json';
+import kdfDoctrine from '../../../data/doctrines/kdf.json';
+import sarimDoctrine from '../../../data/doctrines/sarim.json';
+import telMarumVersus from '../../../data/versus/tel_marum.json';
+import wadiTarfanVersus from '../../../data/versus/wadi_tarfan.json';
+import type { DoctrineJson, VersusRulesJson } from './versus';
 import structureCatalogue from '../../../data/structures.json';
 import couponsJson from '../../../data/coupons.json';
 import beitSahwanBreach from '../../../data/missions/beit_sahwan_breach.json';
@@ -246,6 +251,29 @@ export {
   type UpgradeTrack,
   type UpgradeTracks,
 } from './upgrades';
+
+export {
+  versusMissionOf,
+  versusZonesOf,
+  type DoctrineJson,
+  type VersusEndJson,
+  type VersusMissionJson,
+  type VersusRulesJson,
+} from './versus';
+
+/** Skirmish doctrines (N3, LD2/LD3), keyed by faction: what a seat may build and its start
+ *  purse. data/doctrines/*.json against doctrine.schema.json. */
+export const doctrines: Readonly<Record<'kdf' | 'sarim', DoctrineJson>> = {
+  kdf: kdfDoctrine as DoctrineJson,
+  sarim: sarimDoctrine as DoctrineJson,
+};
+
+/** Versus rules files (N3 Task 1), keyed by map id: each faction-matchup map's camps and
+ *  income zones. data/versus/*.json against versus_rules.schema.json. */
+export const versusRules: Readonly<Record<string, VersusRulesJson>> = {
+  tel_marum: telMarumVersus as unknown as VersusRulesJson,
+  wadi_tarfan: wadiTarfanVersus as unknown as VersusRulesJson,
+};
 
 /** Battlefield maps, keyed by map id. Shapes match map.schema.json. */
 export const maps = {

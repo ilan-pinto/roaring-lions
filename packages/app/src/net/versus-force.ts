@@ -1,4 +1,4 @@
-import type { Faction, MatchConfig } from '@lions/net';
+import type { Faction, MatchConfig, SpawnEnd } from '@lions/net';
 import type { Sim } from '@lions/sim';
 import { SANDBOX_KDF, type SandboxPlacement } from '../sandbox-force';
 import type { SandboxAnchors } from '../sandbox-anchors';
@@ -87,9 +87,14 @@ export function versusUnitTypes(factions: readonly [Faction, Faction]): Set<stri
 
 /** A versus match (network design §9, N1): each side's faction force --
  *  `VERSUS_KDF` (the sandbox's KDF force plus `VERSUS_EXTRA`) or
- *  `VERSUS_SARIM` -- side 1's offsets mirrored through its own anchor so the
- *  two forces face each other. Side 0 is placed first, then side 1, as the
- *  mirror always was, so a KDF-vs-KDF room spawns exactly what it did. No
+ *  `VERSUS_SARIM` -- on its own END's anchor (`ends`, by side). The force at
+ *  the `hostile` end has its offsets mirrored through that anchor so the two
+ *  forces face each other -- by END, never by side (LD1, N3 Task 2): a Sarim
+ *  host is side 1 at the friendly end and stands exactly where a Sarim side 0
+ *  stood before LD1. The FRIENDLY end's force is placed first, whichever side
+ *  stands there, so entity ids, and with them every per-entity RNG stream, do
+ *  not depend on which side a seat plays. With the default `ends` (side 0
+ *  friendly) a KDF-vs-KDF room spawns exactly what it always did. No
  *  civilians: in a room the only opposition is the other seat.
  *
  *  `typeOf` is one id -> type map for both sides (the headless probes, and
@@ -100,21 +105,25 @@ export function versusSpawns(
   typeOf: Map<string, number> | readonly [Map<string, number>, Map<string, number>],
   anchors: SandboxAnchors,
   factions: readonly [Faction, Faction] = ['kdf', 'kdf'],
+  ends: readonly [SpawnEnd, SpawnEnd] = ['friendly', 'hostile'],
 ): VersusForce {
-  const [typeOf0, typeOf1] = typeOf instanceof Map ? [typeOf, typeOf] : typeOf;
-  const place0 = placeOnOpen(sim, typeOf0);
-  const place1 = placeOnOpen(sim, typeOf1);
+  if (ends[0] === ends[1]) throw new Error(`versusSpawns: the two sides need two ends, got ${ends[0]} twice`);
+  const typeOfBySide = typeOf instanceof Map ? [typeOf, typeOf] as const : typeOf;
+  const atFriendly: 0 | 1 = ends[0] === 'friendly' ? 0 : 1;
+  const atHostile: 0 | 1 = atFriendly === 0 ? 1 : 0;
+  const placeF = placeOnOpen(sim, typeOfBySide[atFriendly]);
+  const placeH = placeOnOpen(sim, typeOfBySide[atHostile]);
   const [ax, ay] = anchors.friendly;
   const [bx, by] = anchors.hostile;
-  const faceA = hostileFacing(bx, by, ax, ay); // side 0 looks at side 1
-  const faceB = hostileFacing(ax, ay, bx, by); // side 1 looks at side 0
+  const faceA = hostileFacing(bx, by, ax, ay); // the friendly end looks at the hostile one
+  const faceB = hostileFacing(ax, ay, bx, by); // the hostile end looks back
   const bySide: [number[], number[]] = [[], []];
-  for (const [id, dx, dy] of versusForceOf(factions[0])) bySide[0].push(place0(id, 0, ax + dx, ay + dy, faceA));
-  for (const [id, dx, dy] of versusForceOf(factions[1])) bySide[1].push(place1(id, 1, bx - dx, by - dy, faceB));
+  for (const [id, dx, dy] of versusForceOf(factions[atFriendly])) bySide[atFriendly].push(placeF(id, atFriendly, ax + dx, ay + dy, faceA));
+  for (const [id, dx, dy] of versusForceOf(factions[atHostile])) bySide[atHostile].push(placeH(id, atHostile, bx - dx, by - dy, faceB));
   return { bySide };
 }
 
-/** The tile a seat's camera starts on: its own side's anchor. */
-export function campOf(anchors: SandboxAnchors, side: 0 | 1): readonly [number, number] {
-  return side === 0 ? anchors.friendly : anchors.hostile;
+/** The tile a seat's camera starts on: its own END's anchor (`endOfSeat`). */
+export function campOf(anchors: SandboxAnchors, end: SpawnEnd): readonly [number, number] {
+  return end === 'friendly' ? anchors.friendly : anchors.hostile;
 }

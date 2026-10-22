@@ -1,7 +1,7 @@
-import { applyTerrain, maps, parseMap, units, type MapJson, type ParsedMap } from '@lions/data';
-import { seatRules, type Faction, type MatchConfig, type SeatConfig } from '@lions/net';
+import { applyTerrain, doctrines, maps, parseMap, roadMaskOf, units, versusMissionOf, versusRules, versusZonesOf, type MapJson, type ParsedMap } from '@lions/data';
+import { economyRoom, endOfSeat, seatRules, type Faction, type MatchConfig, type SeatConfig, type SpawnEnd } from '@lions/net';
 import { sameTrackTiers } from '@lions/render';
-import { Sim, type TunnelRouteJson } from '@lions/sim';
+import { MissionRuntime, Sim, type MissionContext, type MissionEvent, type MissionJson, type SimEvent, type TunnelRouteJson } from '@lions/sim';
 import { standMapStructures } from '../map-sim';
 import type { SandboxAnchors } from '../sandbox-anchors';
 import { versusAnchors } from './versus-seats';
@@ -29,8 +29,22 @@ export interface MatchWorld {
   map: ParsedMap;
   anchors: SandboxAnchors;
   factions: [Faction, Faction];
+  /** Each SIDE's spawn end (LD1, N3 Task 2): the end of the seat that plays
+   *  it (`endOfSeat`), so a Sarim host -- side 1 -- stands on `friendly`.
+   *  `['friendly', 'hostile']` in every mirror and KDF-host room. */
+  endOfSide: readonly [SpawnEnd, SpawnEnd];
   /** Entity ids each side spawned with, by side. */
   bySide: [number[], number[]];
+  /** The skirmish economy's runtime (N3 Task 3): camps, purses, doctrine
+   *  menus and income zones, from `data/versus/<map>.json` and
+   *  `data/doctrines/*.json`. Null in a mirror room (`economyRoom`), which
+   *  plays today's placed-force match and nothing else. It never ends by
+   *  itself (no objectives, `checkEnd`); `outcome.ts` decides the match. */
+  runtime: MissionRuntime | null;
+  /** The structure types the economy runtime stands (its rules file's camps, through
+   *  `versusMissionOf`), so the browser loads their meshes (N3 Task 6): a room has no
+   *  mission whose `structures` the mesh plan could read. `[]` in a mirror room. */
+  structureTypes: readonly string[];
 }
 
 /**
@@ -100,8 +114,105 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
   const typeOfBySide = [typeOf, typeOf1] as const;
 
   const anchors = versusAnchors(mapJson);
-  const { bySide } = versusSpawns(sim, typeOfBySide, anchors, factions);
-  return { sim, typeOf, typeOfBySide, kitBySide, mapJson, map, anchors, factions, bySide };
+  const endOfSide = endsBySide(config);
+  const { bySide } = versusSpawns(sim, typeOfBySide, anchors, factions, endOfSide);
+  // The runtime comes AFTER both forces, so every entity id a mirror room
+  // spawned, and so every mirror byte, is what it was; a mirror builds none.
+  const economy = economyRoom(config) ? economyRuntime(sim, config.map, map, typeOf, factions, endOfSide) : null;
+  const runtime = economy?.runtime ?? null;
+  const structureTypes = economy?.structureTypes ?? [];
+  return { sim, typeOf, typeOfBySide, kitBySide, mapJson, map, anchors, factions, endOfSide, bySide, runtime, structureTypes };
+}
+
+/**
+ * One room tick, the ONE body both the browser (`main.ts`'s room path) and
+ * the AI harness (`tools/src/net/agent-client.ts`) run, so the two cannot
+ * drift: the runtime prices and spends what the frame set aside, the sim
+ * ticks, the runtime steps over the tick's events. A mirror room (no runtime)
+ * is `sim.tick()` alone, exactly as before.
+ */
+export function matchTick(w: Pick<MatchWorld, 'sim' | 'runtime'>): { sim: SimEvent[]; mission: MissionEvent[] } {
+  w.runtime?.applyQueued();
+  const ev = w.sim.tick();
+  return { sim: ev, mission: w.runtime?.step(ev) ?? [] };
+}
+
+/**
+ * The runtime's production catalogue in a versus room: a unit on the asking
+ * side's doctrine menu (`menus[side]`, by side, so by that side's faction)
+ * costs what its own JSON says; anything else is not available in the field.
+ * No `unlock` -- the doctrine menu IS the gate (P-7) -- and no `intel`.
+ */
+export function versusUnitInfo(menus: readonly [readonly string[], readonly string[]]): NonNullable<MissionContext['unitInfo']> {
+  // A room registers `versusRoster()` (shipped units minus VERSUS_HELD_UNITS), so a menu id
+  // outside it would pass here and throw in `typeIdOf` at the build: answer null instead.
+  const catalogue: Record<string, RosterUnit | undefined> = Object.fromEntries(versusRoster().map((u) => [u.id, u]));
+  return (id, side) => {
+    if (!menus[side].includes(id)) return null;
+    const u = catalogue[id];
+    if (u === undefined) return null;
+    return {
+      logistics: u.cost.logistics,
+      buildTimeS: 'build_time_s' in u.cost ? u.cost.build_time_s : 20,
+      population: 'population' in u.cost ? u.cost.population : 1,
+    };
+  };
+}
+
+/**
+ * The runtime an economy room plays (N3 Task 3). Everything in it is data:
+ * the camps and income zones from the map's versus rules file, the menu, start
+ * purse and population cap from each side's faction's doctrine. Side `s`
+ * stands at `endOfSide[s]`, so its camp is that end's (LD1: a Sarim host is
+ * side 1 at the friendly end, and the friendly camp is side 1's).
+ */
+function economyRuntime(
+  sim: Sim,
+  mapId: string,
+  map: ParsedMap,
+  typeOf: ReadonlyMap<string, number>,
+  factions: readonly [Faction, Faction],
+  endOfSide: readonly [SpawnEnd, SpawnEnd],
+): { runtime: MissionRuntime; structureTypes: string[] } {
+  const rules = versusRules[mapId];
+  if (rules === undefined) throw new Error(`buildMatchWorld: map "${mapId}" has no versus rules file`);
+  const sideAt = (end: SpawnEnd): 0 | 1 => (endOfSide[0] === end ? 0 : 1);
+  const mission = versusMissionOf(rules, { friendly: sideAt('friendly'), hostile: sideAt('hostile') });
+  // By SIDE, and so by that side's faction -- never the files' or the seats' order.
+  const doctrine = [doctrines[factions[0]], doctrines[factions[1]]] as const;
+  const ctx: MissionContext = {
+    // The context has one lookup: side 0's (Q7). Under LD1 side 0 is the KDF
+    // side, and a Sarim type is never kitted, so this is exact for both.
+    typeIdOf: (id) => {
+      const t = typeOf.get(id);
+      if (t === undefined) throw new Error(`versus runtime references unknown unit ${id}`);
+      return t;
+    },
+    markers: map.markers,
+    zones: versusZonesOf(rules, map.zones),
+    roadMask: roadMaskOf(map),
+    unitInfo: versusUnitInfo([doctrine[0].menu, doctrine[1].menu]),
+    popCaps: [doctrine[0].pop_cap ?? null, doctrine[1].pop_cap ?? null],
+    economy: {
+      logisticsStart: [doctrine[0].budget.logistics_start, doctrine[1].budget.logistics_start],
+      logisticsRatePerMin: [0, 0],
+    },
+  };
+  const runtime = new MissionRuntime(sim, mission as MissionJson, ctx);
+  runtime.start();
+  return { runtime, structureTypes: [...new Set(mission.structures.map((st) => st.type))] };
+}
+
+/** Each SIDE's spawn end, from the seat that plays it: the end follows the
+ *  SEAT (`endOfSeat`), the side follows the faction (LD1). A config whose two
+ *  seats share a side (never a versus room's) keeps today's default. */
+export function endsBySide(config: Pick<MatchConfig, 'seats'>): readonly [SpawnEnd, SpawnEnd] {
+  const [a, b] = config.seats;
+  if (a.side === b.side) return ['friendly', 'hostile'];
+  const out: [SpawnEnd, SpawnEnd] = ['friendly', 'hostile'];
+  out[a.side] = endOfSeat(a.seat);
+  out[b.side] = endOfSeat(b.seat);
+  return out;
 }
 
 /** Each SIDE's seat (index 0 is side 0), read by `side` and never by seat

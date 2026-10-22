@@ -4,11 +4,13 @@
 // Each test below is seen red under a one-line mutation of versus-probe.ts (the
 // header there lists them; the commit message says which was run).
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { MapId } from '@lions/data';
+import { doctrines, versusRules, type MapId } from '@lions/data';
 import { VERSUS_FAIR_MAPS } from '@lions/net';
+import { buildMatchWorld } from '../../../packages/app/src/net/match-world';
 import {
   CAP_TICKS_DEFAULT, DECIDE_EVERY_TICKS, FAIR_MAX_PERCENT, ORDER_EVERY_TICKS, SEEDS_DEFAULT,
-  candidateMaps, main, parseArrangements, play, reading, seedOf, selfCheck, tally, type Played, type PlayFn,
+  candidateMaps, cellName, economySelfCheck, forceMixOf, humanHeldOf, layoutOf, main, parseArrangements, parsePair, planRound, play,
+  reading, roomConfig, seedOf, selfCheck, tally, withOverrides, type Played, type PlayFn,
 } from './versus-probe';
 
 // Every test that plays FULL games carries this instead of vitest's 5 s
@@ -144,6 +146,25 @@ describe('reading (the 60/40 bar)', () => {
   });
 });
 
+describe('cells by END (LD1, N3 Task 2)', () => {
+  it('lays a cell out as a room seats it: the KDF on side 0 at whichever end it stands', () => {
+    expect(layoutOf(['kdf', 'kdf'])).toEqual({ sideOfEnd: [0, 1], factions: ['kdf', 'kdf'], ends: ['friendly', 'hostile'] });
+    expect(layoutOf(['kdf', 'sarim'])).toEqual({ sideOfEnd: [0, 1], factions: ['kdf', 'sarim'], ends: ['friendly', 'hostile'] });
+    // Sarim friendly: Sarim is side 1 on the friendly end, the KDF side 0 on the hostile end.
+    expect(layoutOf(['sarim', 'kdf'])).toEqual({ sideOfEnd: [1, 0], factions: ['kdf', 'sarim'], ends: ['hostile', 'friendly'] });
+  });
+  it('names a faction cell by the faction at the friendly end', () => {
+    expect(cellName(['kdf', 'kdf'])).toBe('kdf/kdf');
+    expect(cellName(['kdf', 'sarim'])).toBe('KDF friendly');
+    expect(cellName(['sarim', 'kdf'])).toBe('Sarim friendly');
+  });
+  it('a Sarim-friendly cell reports its winner by END: the hostile KDF cut to one unit loses', () => {
+    // capTicks 40: the larger force holds more value at the cap, so the friendly end (Sarim, side 1) wins.
+    expect(play('tel_marum', ['sarim', 'kdf'], seedOf(0), { capTicks: 40, cutSide: 1 })).toEqual({ winner: 0, by: 'cap', ticks: 40 });
+    expect(play('tel_marum', ['sarim', 'kdf'], seedOf(0), { capTicks: 40, cutSide: 0 })).toEqual({ winner: 1, by: 'cap', ticks: 40 });
+  });
+});
+
 describe('the command line', () => {
   it('reads arrangements as <faction>/<faction>', () => {
     expect(parseArrangements('kdf/kdf,kdf/sarim,sarim/kdf')).toEqual([['kdf', 'kdf'], ['kdf', 'sarim'], ['sarim', 'kdf']]);
@@ -188,5 +209,172 @@ describe('main', () => {
   }, FULL_GAMES_TIMEOUT_MS);
   it('refuses a map the build does not ship', () => {
     expect(() => main(['--maps=atlantis'])).toThrow(/not a shipped map/);
+  });
+  it('reads on the room\'s seat table by default, and labels the single-player table a control', () => {
+    expect(run().out).toContain('seat table: room (humanHeld [true, true]');
+    const out: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((...a) => { out.push(a.join(' ')); });
+    expect(main(['--maps=tel_marum', '--seeds=1', '--arr=kdf/kdf', '--rules=default'])).toBe(0);
+    expect(out.join('\n')).toContain('control: single-player seat table');
+    expect(() => main(['--rules=solo'])).toThrow(/--rules/);
+  }, FULL_GAMES_TIMEOUT_MS);
+  it('the economy arm refuses what it cannot play: a mirror cell, the control seat table, a map with no rules file, a sweep without --economy', () => {
+    expect(() => main(['--economy', '--arr=kdf/kdf'])).toThrow(/KDF-against-Sarim/);
+    expect(() => main(['--economy', '--rules=default'])).toThrow(/--rules=default/);
+    expect(() => main(['--economy', '--maps=milh_flats'])).toThrow(/no versus rules file/);
+    expect(() => main(['--start=3000/4800'])).toThrow(/need --economy/);
+    expect(() => parsePair('start', '3000')).toThrow(/--start/);
+    expect(parsePair('pop-cap', '40/56')).toEqual([40, 56]);
+  });
+  it('--economy prints what the economy did: units built and the final purse, by faction', () => {
+    const out: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((...a) => { out.push(a.join(' ')); });
+    expect(main(['--economy', '--maps=tel_marum', '--seeds=1', '--arr=kdf/sarim'])).toBe(0);
+    const text = out.join('\n');
+    expect(text).toContain('economy: buildMatchWorld + matchTick; start kdf 1500 / sarim 2400; pop cap kdf 40 / sarim 56; income as shipped');
+    expect(text).toContain('built K/S');
+    expect(text).toMatch(/tel_marum\s+KDF friendly\s+\d+\s+\d+\s+\d+\s+\S+\s+[\d.]+\s+[\d.]+\/[\d.]+\s+\d+\/\d+/);
+  }, FULL_GAMES_TIMEOUT_MS);
+});
+
+describe('the seat table (N3 Task 7: a room\'s, by default)', () => {
+  it('a room holds both sides; the control holds side 0 alone (the Sim\'s default)', () => {
+    expect(humanHeldOf('room', 'tel_marum', ['kdf', 'sarim'], 1000)).toEqual([true, true]);
+    expect(humanHeldOf('default', 'tel_marum', ['kdf', 'sarim'], 1000)).toBeUndefined();
+  });
+  it('play is on the room\'s table unless told otherwise: a wadi_tarfan game the two tables decide differently', () => {
+    // LITERALS, read at 0cb0ced2 (games-room.jsonl, and the default-rules run of N3 Task 2):
+    // Sarim friendly, seed 246489, KDF wins by annihilation at 4580 ticks under the room's
+    // table and at 5160 under the single-player one, whose side 1 auto-breaches walls.
+    const seed = seedOf(31);
+    expect(seed).toBe(246489);
+    expect(play('wadi_tarfan', ['sarim', 'kdf'], seed)).toEqual({ winner: 1, by: 'annihilation', ticks: 4580 });
+    expect(play('wadi_tarfan', ['sarim', 'kdf'], seed, { rules: 'default' })).toEqual({ winner: 1, by: 'annihilation', ticks: 5160 });
+  }, FULL_GAMES_TIMEOUT_MS);
+});
+
+describe('the economy arm (N3 Task 7)', () => {
+  // The plan rebuilds toward the doctrine's own force mix (`planRound`). LITERALS
+  // throughout: the mixes and costs are read off data/ by hand, not from the code.
+  // KDF placed force: Lavi 2, Namer 2, Eitan 1, squad 3, AT team 2, mortar 1, jeep 1,
+  // Peten 1 (drone and D9 unarmed); Yahalom is on the menu and not in the force.
+  // Sarim: rifles 2, Kornet 14, ZU truck 6, MANPADS 2, Grad 2; recoilless not in the force.
+  const freshPlan = (arr: ['kdf', 'sarim'] | ['sarim', 'kdf'], map = 'tel_marum' as MapId) => {
+    // The literal sequences below were read off a 3000 / 4800 start (the doctrines' value until the
+    // lead's 1500 / 2400 of 22 Oct), so the world is built under that override: a purse change must
+    // not silently rewrite the rule's witness.
+    const w = withOverrides({ start: [3000, 4800] }, () => buildMatchWorld(roomConfig(map, arr, 1000)));
+    const rt = w.runtime;
+    if (rt === null) throw new Error('no runtime');
+    return { w, rt, plan: (side: 0 | 1) => planRound(rt, w.sim, doctrines[w.factions[side]].menu, forceMixOf(w.factions[side]), side) };
+  };
+  it('the plan rebuilds the force mix: a fresh purse buys the missing type, then one of each in menu order', () => {
+    const { rt, plan } = freshPlan(['kdf', 'sarim']);
+    // KDF 3000: every fielded type stands at ratio 1 and Yahalom at 0, so Yahalom (260) first,
+    // then the ties in menu order -- Lavi 906, Namer 630, Eitan 520, squad 292, AT team 236 --
+    // and the 156 left covers nothing (mortar 209). The drone (210) and D9 are unarmed: never bought.
+    expect(plan(0)).toEqual(['yahalom_squad', 'mbt_lavi', 'ifv_namer', 'apc_eitan', 'inf_squad', 'at_team']);
+    expect(rt.logisticsOf(0)).toBe(156);
+    expect(rt.productionOf(0).map((p) => p.unit)).toEqual(['yahalom_squad', 'mbt_lavi', 'ifv_namer', 'apc_eitan', 'inf_squad', 'at_team']);
+    // Sarim 4800: recoilless (0/1), then one of each at ratio 1 in menu order, recoilless again
+    // (1/1 is the lowest), then the Kornet wall and the ZU screen climb by ratio
+    // (15/14 < 7/6 < 16/14 ...), rifles at the 3/2 tie, and the line's queue bound
+    // (one in progress + 16) ends the round with the purse unspent.
+    expect(plan(1)).toEqual([
+      'recoilless_team', 'sarim_rifles', 'atgm_cell', 'gun_truck', 'manpad_team', 'rocket_battery', 'recoilless_team',
+      'atgm_cell', 'atgm_cell', 'gun_truck', 'atgm_cell', 'atgm_cell', 'gun_truck', 'atgm_cell', 'atgm_cell', 'sarim_rifles', 'atgm_cell',
+    ]);
+    expect(rt.logisticsOf(1)).toBe(447);
+    // What is queued and in progress counts. Cancel the queued AT team (refund 236, purse 392):
+    // the line holds Yahalom in progress and Lavi, Namer, Eitan, squad queued, so the AT team
+    // (2 living / 2) ties at 1 with the mortar, jeep, Peten and Yahalom and is first by menu.
+    // Uncounted, the queued types would read 1 and the squad (292) would be bought instead;
+    // the in-progress Yahalom uncounted would read 0 and be bought first.
+    expect(rt.cancelBuild(0, 4, 0)).toBe(true);
+    expect(rt.logisticsOf(0)).toBe(392);
+    expect(plan(0)).toEqual(['at_team']);
+    expect(rt.logisticsOf(0)).toBe(156);
+    // A second round with the queue full and the purse short buys nothing.
+    expect(plan(0)).toEqual([]);
+    expect(plan(1)).toEqual([]);
+  });
+  it('the plan buys what a side has lost, by ratio to the mix, and falls through a refusal to the next', () => {
+    const { w, rt, plan } = freshPlan(['kdf', 'sarim']);
+    const ofType = (side: 0 | 1, t: string) => w.bySide[side].filter((i) => w.sim.unitTypes[w.sim.state.typeIdx[i]]?.id === t);
+    for (const id of ofType(0, 'inf_squad')) w.sim.debugKill(id);
+    // The drone and the D9 lost too: both read 0/1, and neither is armed, so neither is bought.
+    for (const id of [...ofType(0, 'recon_drone'), ...ofType(0, 'dozer_d9')]) w.sim.debugKill(id);
+    for (const id of ofType(1, 'atgm_cell').slice(0, 7)) w.sim.debugKill(id);
+    // KDF, squads 0/3 and Yahalom 0/1 tie at 0 (squad first by menu), then squad 1/3, 2/3;
+    // at the ratio-1 tie Lavi (906) and Namer (630) leave 328, the Eitan (520) is REFUSED,
+    // and the plan falls through to the squad (292): 36 left.
+    expect(plan(0)).toEqual(['inf_squad', 'yahalom_squad', 'inf_squad', 'inf_squad', 'mbt_lavi', 'ifv_namer', 'inf_squad']);
+    expect(rt.logisticsOf(0)).toBe(36);
+    // Sarim, 7 of 14 Kornet teams lost: recoilless (0), then seven Kornets back up to 14/14,
+    // then the ratio-1 ties in menu order.
+    expect(plan(1).slice(0, 14)).toEqual([
+      'recoilless_team', 'atgm_cell', 'atgm_cell', 'atgm_cell', 'atgm_cell', 'atgm_cell', 'atgm_cell', 'atgm_cell',
+      'sarim_rifles', 'atgm_cell', 'gun_truck', 'manpad_team', 'rocket_battery', 'recoilless_team',
+    ]);
+  });
+  it('the plan is the same for a faction on either end: swapping the ends changes nothing either buys', () => {
+    for (const map of Object.keys(versusRules) as MapId[]) {
+      const a = freshPlan(['kdf', 'sarim'], map);
+      const b = freshPlan(['sarim', 'kdf'], map);
+      // KDF is side 0 and Sarim side 1 in both rooms (`sidesOfFactions`); only the ends differ.
+      expect(a.w.endOfSide).not.toEqual(b.w.endOfSide);
+      expect(b.plan(0), `${map} KDF`).toEqual(a.plan(0));
+      expect(b.plan(1), `${map} Sarim`).toEqual(a.plan(1));
+    }
+  });
+  it('the economy self-check passes on each map with a rules file', () => {
+    for (const map of Object.keys(versusRules)) expect(economySelfCheck(map as MapId), map).toEqual([]);
+  }, 60_000);
+  it('goes red when the plan never queues: no side fields a built unit (the no-queue mutation)', () => {
+    const noQueue: PlayFn = (m, a, s, o) => play(m, a, s, { ...o, plan: false });
+    const failed = economySelfCheck('tel_marum', noQueue);
+    expect(failed.join('\n')).toContain('at least one built unit');
+  }, FULL_GAMES_TIMEOUT_MS);
+  it('goes red when the sides are swapped', () => {
+    const swapped: PlayFn = (m, a, s, o) => {
+      const g = play(m, a, s, o);
+      return { ...g, winner: g.winner === null ? null : g.winner === 0 ? 1 : 0 };
+    };
+    expect(economySelfCheck('tel_marum', swapped).filter((f) => f.includes('should win by annihilation'))).toHaveLength(2);
+  }, FULL_GAMES_TIMEOUT_MS);
+  it('goes red when the outcome rule forgets production: a side with a camp and a purse is called beaten at once', () => {
+    const noProduction: PlayFn = (m, a, s, o) => {
+      const g = play(m, a, s, o);
+      // What the units-only rule reads on a wiped end: beaten on the first decision tick.
+      return o?.wipeSide !== undefined ? { winner: o.wipeSide === 0 ? 1 : 0, by: 'annihilation', ticks: DECIDE_EVERY_TICKS } : g;
+    };
+    expect(economySelfCheck('tel_marum', noProduction).filter((f) => f.includes('should not be beaten'))).toHaveLength(2);
+  }, FULL_GAMES_TIMEOUT_MS);
+  it('goes red when the control keeps the weak end\'s camp: it buys its way back', () => {
+    // The control destroys the cut end's camp as well; without that the weak end's purse
+    // fields a force and the strong end no longer wins by annihilation.
+    const campKept: PlayFn = (m, a, s, o) => (o?.economy === true && o.cutSide !== undefined ? play(m, a, s, { ...o, cutSide: undefined }) : play(m, a, s, o));
+    expect(economySelfCheck('tel_marum', campKept).length).toBeGreaterThanOrEqual(1);
+  }, FULL_GAMES_TIMEOUT_MS);
+});
+
+describe('the sweep overrides (in memory only)', () => {
+  it('lays start purses, population caps and an income scale over the data for one run, and puts the data back', () => {
+    const kdf = doctrines.kdf;
+    const rules = versusRules.tel_marum;
+    const seen = withOverrides({ start: [1000, 1600], popCap: [30, 42], rateScalePercent: 50 }, () => {
+      const w = buildMatchWorld(roomConfig('tel_marum', ['kdf', 'sarim'], 1000));
+      return {
+        purse: [w.runtime?.logisticsOf(0), w.runtime?.logisticsOf(1)],
+        cap: [w.runtime?.populationView(0)?.cap, w.runtime?.populationView(1)?.cap],
+        rates: versusRules.tel_marum.income_zones.map((z) => z.rate_per_min),
+      };
+    });
+    expect(seen).toEqual({ purse: [1000, 1600], cap: [30, 42], rates: [20, 20, 10, 10, 10] });
+    expect(doctrines.kdf).toBe(kdf);
+    expect(versusRules.tel_marum).toBe(rules);
+    expect(doctrines.kdf.budget.logistics_start).toBe(1500);
+    expect(() => withOverrides({ start: [1, 1] }, () => { throw new Error('boom'); })).toThrow('boom');
+    expect(doctrines.sarim.budget.logistics_start).toBe(2400);
   });
 });

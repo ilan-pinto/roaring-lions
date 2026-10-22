@@ -195,7 +195,7 @@ below is what is put to the lead.
     zone; `map` not in `FACTION_MATCHUP_MAPS`; a file for a map with none (each matchup map must
     have exactly one); `rate_per_min` outside 1..120.
   - `versus.test.ts`: `versusMissionOf(r, {friendly: 1, hostile: 0}).structures[0].side === 0`
-    and its `at` is the hostile camp's; the output's keys are exactly the seven listed above.
+    and its `at` is the hostile camp's; the output's keys are exactly the six listed above.
 - [ ] **Step 2: Run, watch red** (`pnpm --filter @lions/tools exec vitest run validate_versus_rules versus`).
 - [ ] **Step 3: Implement** the schema, the two files with the approved numbers, the validator
   (wired into `validate_data.mjs` as `validate_doctrine.mjs` is), the exports and the loader. The

@@ -9,11 +9,16 @@ import { missionWorld } from '../mission-harness';
 import { buildWorld } from '../../../packages/app/src/net/versus-world.test-helper';
 import { versusSpawns } from '../../../packages/app/src/net/versus-force';
 import { versusAnchors } from '../../../packages/app/src/net/versus-seats';
-import { buildMatchWorld } from '../../../packages/app/src/net/match-world';
+import { buildMatchWorld, matchTick } from '../../../packages/app/src/net/match-world';
+import { harnessTick } from './agent-client';
+import { FogTracker } from './fog-tracker';
 import { runFrames, seatWorldFor, type FrameStep } from '../../../packages/app/src/net/frame-step';
 import { versusConfig } from './test-config';
 import { contentDigest, shippedContent, shippedContentDigest } from '../../../packages/app/src/net/content-digest';
 import { units } from '@lions/data';
+import {
+  ECONOMY_STREAM_ACCEPTED, ECONOMY_STREAM_FORGED_TICK, ECONOMY_STREAM_TICKS, economyStreamFrames, runEconomyClient,
+} from '../../../packages/app/src/net/economy-stream.test-helper';
 
 const MISSION = 'beit_sahwan_1_recon';
 const TICKS = 1000;
@@ -25,6 +30,7 @@ function worldFor(sim: SimView): SeatWorld {
   return {
     sideOfSeat: () => 0,
     versus: false,
+    economy: false,
     sideOfEntity: (id) => (id >= 0 && id < sim.entityCount ? sim.state.side[id] : undefined),
     width: sim.width,
     height: sim.height,
@@ -206,6 +212,27 @@ describe('versus: two sides, one frame stream', () => {
     expect(a.hashes[19]).not.toBe(base.hashes[19]);
   }, 60_000);
 
+  it('a setStance patrol is stamped and agreed on by both clients, not dropped, and it moves the hash (N3 Task 9)', () => {
+    const at = (tick: number, seat: 0 | 1, seq: number, cmd: Command): [number, Stamped] => [tick, { seat, seq, cmd }];
+    const probe = versusWorld();
+    const [hx, hy] = probe.anchors.hostile;
+    // A beat round the hostile end, three points, all on the map.
+    const beat: [number, number][] = [
+      [fx.from(hx + 0.5), fx.from(hy + 0.5)],
+      [fx.from(hx + 4.5), fx.from(hy + 0.5)],
+      [fx.from(hx + 4.5), fx.from(hy + 4.5)],
+    ];
+    const frames = versusFrames(true, (theirs) => [
+      at(12, 1, 9, { kind: 'setStance', ids: theirs.slice(0, 2), stance: 'patrol', waypoints: beat }),
+    ]);
+    const a = runVersus(frames);
+    const b = runVersus(frames);
+    expect(a.hashes).toEqual(b.hashes);
+    expect(a.drops).toEqual([CRAFT_TICK]);
+    const base = runVersus(versusFrames(true));
+    expect(a.hashes[19]).not.toBe(base.hashes[19]);
+  }, 60_000);
+
   it('the crafted command is dropped for ownership, not for being malformed', () => {
     // Control: if seat 1 were on side 0 the crafted order (it names a side-0
     // unit, on the map) is accepted; its own side-1 orders are what drop.
@@ -297,5 +324,126 @@ describe('the reported match digest (runFrames)', () => {
     // and only the data digest can see the two clients are not on one build.
     expect([...b.feed.simHashes]).toEqual([...a.feed.simHashes]);
     expect(firstDisagreement(a.feed.digests, b.feed.digests)).toBe(19);
+  }, 60_000);
+});
+
+// N3 Task 3: a KDF-v-Sarim room runs an economy runtime, and both the browser's room path
+// (`main.ts`: `matchTick`, the world runtime's digest) and the AI harness (`harnessTick`) must
+// report one digest. Builds stay direct calls in Task 3: the wire still drops `build` in versus.
+describe('an economy room: two clients and the harness, one frame stream (N3 Task 3)', () => {
+  const MAP = 'tel_marum';
+  const ETICKS = 400;
+
+  class Feed implements MatchTransport {
+    readonly local = false;
+    readonly digests = new Map<number, number>();
+    private frames: Frame[];
+    constructor(frames: Frame[]) { this.frames = [...frames]; }
+    queueCommand(): void {}
+    take(max: number): Frame[] { return this.frames.splice(0, max); }
+    reportTick(tick: number, digest: number | null): void { if (digest !== null) this.digests.set(tick, digest); }
+    status(): TransportStatus { return { kind: 'live', behind: this.frames.length }; }
+    close(): void {}
+  }
+
+  /** The same stream the digest block above uses: both sides attack-move at the other's end. */
+  function frames(bySide: [number[], number[]], anchors: { readonly friendly: readonly [number, number]; readonly hostile: readonly [number, number] }): Frame[] {
+    const [hx, hy] = anchors.hostile;
+    const [fx0, fy0] = anchors.friendly;
+    return stream(new Map<number, Stamped[]>([
+      [5, [
+        { seat: 0, seq: 0, cmd: { kind: 'attackMove', ids: bySide[0], x: fx.from(hx + 0.5), y: fx.from(hy + 0.5) } },
+        { seat: 1, seq: 0, cmd: { kind: 'attackMove', ids: bySide[1], x: fx.from(fx0 + 0.5), y: fx.from(fy0 + 0.5) } },
+      ]],
+    ]), ETICKS);
+  }
+
+  /** One client. `harness` runs the AI harness's tick; otherwise the browser's room body. */
+  function client(harness: boolean) {
+    const config = versusConfig(MAP, { factions: ['kdf', 'sarim'] });
+    const w = buildMatchWorld(config);
+    if (w.runtime === null) throw new Error('a kdf room must have a runtime');
+    const rt = w.runtime;
+    const feed = new Feed(frames(w.bySide, w.anchors));
+    const body: Pick<FrameStep, 'runTick' | 'runtimeDigest'> = harness
+      ? harnessTick(w, new FogTracker(w.sim, 1))
+      : { runTick: () => { matchTick(w); }, runtimeDigest: () => rt.digest() };
+    const step: FrameStep = { transport: feed, sim: w.sim, seatWorld: seatWorldFor(config, w.sim), config, ...body };
+    // A direct build on each side between ticks (the wire is closed until Task 4).
+    expect(runFrames(step, 30).ran).toBe(30);
+    expect(rt.requestBuild('inf_squad', 0, 0)).toBe(true);
+    expect(rt.requestBuild('atgm_cell', 0, 1)).toBe(true);
+    expect(runFrames(step, ETICKS).ran).toBe(ETICKS - 30);
+    return { feed, rt };
+  }
+
+  const firstDisagreement = (a: Map<number, number>, b: Map<number, number>): number | null => {
+    for (const [tick, d] of [...a].sort(([p], [q]) => p - q)) if (b.get(tick) !== d) return tick;
+    return null;
+  };
+
+  it('two browser clients report equal digests on every hash tick, with a non-zero runtime digest', () => {
+    const a = client(false);
+    const b = client(false);
+    expect(a.feed.digests.size).toBe(ETICKS / 20);
+    expect(firstDisagreement(a.feed.digests, b.feed.digests)).toBeNull();
+    expect(a.rt.digest()).not.toBe(0);
+  }, 60_000);
+
+  it('the harness and the browser report the same digest on every hash tick', () => {
+    const browser = client(false);
+    const harness = client(true);
+    expect(firstDisagreement(browser.feed.digests, harness.feed.digests)).toBeNull();
+    expect(harness.feed.digests.size).toBe(ETICKS / 20);
+  }, 60_000);
+});
+
+// N3 Task 8: both seats PRODUCE over the wire (Review Focus 2). A Sarim-host wadi_tarfan room
+// (seat 0 Sarim on side 1, LD1); the stream and the client are shared with `net:engines`
+// (`economy-stream.test-helper.ts`), so the browsers play exactly what is asserted here.
+describe('an economy room: both seats producing through frames (N3 Task 8)', () => {
+  const firstDisagreement = (a: readonly [number, number][], b: readonly [number, number][]): number | null => {
+    const bm = new Map(b);
+    for (const [tick, d] of a) if (bm.get(tick) !== d) return tick;
+    return a.length === b.length ? null : -1;
+  };
+  const frames = economyStreamFrames();
+  const a = runEconomyClient(frames);
+  const b = runEconomyClient(frames);
+
+  it('two clients report equal digests on every hash tick, and agree on what each side built', () => {
+    expect(a.digests.length).toBe(ECONOMY_STREAM_TICKS / 20);
+    expect(firstDisagreement(a.digests, b.digests)).toBeNull();
+    expect(a.built).toEqual(b.built);
+    expect(a.built[0]).toBeGreaterThan(0);
+    expect(a.built[1]).toBeGreaterThan(0);
+    expect(a.runtimeDigest).not.toBe(0);
+    expect(a.purse).toEqual(b.purse);
+    // Every runtime command in the stream reached the runtime and was accepted:
+    // the builds, the cancel, both rallies set and both cleared.
+    expect(a.accepted).toBe(ECONOMY_STREAM_ACCEPTED);
+    expect(b.accepted).toBe(ECONOMY_STREAM_ACCEPTED);
+  }, 60_000);
+
+  it('the forged build{side: 0} from seat 0 (side 1) is dropped on both clients, and only it', () => {
+    expect(a.droppedTicks).toEqual([ECONOMY_STREAM_FORGED_TICK]);
+    expect(b.droppedTicks).toEqual([ECONOMY_STREAM_FORGED_TICK]);
+  });
+
+  it('falsified: a frame out of order on client B is a desync on that window\'s hash tick', () => {
+    // Swap the frames of ticks 5 and 6 (each carries one seat's opening builds):
+    // B runs Sarim's builds before KDF's, a tick early.
+    const swapped = [...frames];
+    [swapped[5], swapped[6]] = [swapped[6], swapped[5]];
+    const bad = runEconomyClient(swapped);
+    expect(firstDisagreement(a.digests, bad.digests)).toBe(19);
+  }, 60_000);
+
+  it('falsified: the cancelBuild dropped from client B alone is a desync by the next hash tick (59)', () => {
+    const cut = frames.map((f) => (f.tick === 40 ? { tick: 40, cmds: f.cmds.filter((s) => s.cmd.kind !== 'cancelBuild') } : f));
+    expect(cut[40].cmds.length).toBe(frames[40].cmds.length - 1);
+    const bad = runEconomyClient(cut);
+    // The refund is in the purse, which the runtime digest folds: the window holding tick 40 closes at 59.
+    expect(firstDisagreement(a.digests, bad.digests)).toBe(59);
   }, 60_000);
 });

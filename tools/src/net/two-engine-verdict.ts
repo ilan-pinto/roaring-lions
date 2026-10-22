@@ -22,6 +22,53 @@ export interface EngineReading {
   hash: number;
   /** `__lions.contentDigest()`: this engine's digest of the shipped content (L4). */
   contentDigest: number;
+  /** N3 Task 8: the economy-room stream (`economy-stream.test-helper.ts`) played in
+   *  this engine. Absent when the engine did not report one. */
+  economy?: EconomyReading;
+}
+
+/** What one client of the economy-room stream reports: every hash-tick digest
+ *  (sim, runtime and content folded), `built` per side, the dropped commands'
+ *  ticks and the runtime commands accepted. The same fields Node computes. */
+export interface EconomyReading {
+  digests: [number, number][];
+  built: [number, number];
+  droppedTicks: number[];
+  accepted: number;
+}
+
+/** The first hash tick at which `got` reports a different digest from `want`
+ *  (or -1 when one ran more hash ticks than the other), or null when every one agrees. */
+function firstDigestOff(want: readonly [number, number][], got: readonly [number, number][]): number | null {
+  for (let i = 0; i < want.length; i++) {
+    if (i >= got.length || got[i][0] !== want[i][0] || got[i][1] !== want[i][1]) return want[i][0];
+  }
+  return got.length === want.length ? null : -1;
+}
+
+/** N3 Task 8 (engine == Node): the first reading whose economy stream is absent
+ *  or differs from the one Node played, as a FAIL message, or null. Per engine,
+ *  like `contentMismatch`, so a lone booted engine is still held to Node. */
+export function economyMismatch(
+  results: Readonly<Record<string, EngineReading>>, nodeEconomy: EconomyReading,
+): string | null {
+  for (const [name, r] of Object.entries(results)) {
+    const e = r.economy;
+    if (e === undefined) return `FAIL: economy stream: ${name} reported no reading of it`;
+    const off = firstDigestOff(nodeEconomy.digests, e.digests);
+    if (off !== null) {
+      return `FAIL: economy stream: ${name} reported a different digest from Node at hash tick ${off}` +
+        ` (${name} ${JSON.stringify(e.digests.find(([t]) => t === off) ?? null)}, Node ${JSON.stringify(nodeEconomy.digests.find(([t]) => t === off) ?? null)})`;
+    }
+    if (e.built[0] !== nodeEconomy.built[0] || e.built[1] !== nodeEconomy.built[1]) {
+      return `FAIL: economy stream: ${name} built ${JSON.stringify(e.built)} per side, Node ${JSON.stringify(nodeEconomy.built)}`;
+    }
+    if (JSON.stringify(e.droppedTicks) !== JSON.stringify(nodeEconomy.droppedTicks) || e.accepted !== nodeEconomy.accepted) {
+      return `FAIL: economy stream: ${name} dropped ${JSON.stringify(e.droppedTicks)} and accepted ${e.accepted}, ` +
+        `Node dropped ${JSON.stringify(nodeEconomy.droppedTicks)} and accepted ${nodeEconomy.accepted}`;
+    }
+  }
+  return null;
 }
 
 export interface Verdict {
@@ -51,6 +98,7 @@ export function contentMismatch(
  */
 export function verdict(
   results: Readonly<Record<string, EngineReading>>, targetTick: number, firstOrderTick: number, nodeContentDigest: number,
+  nodeEconomy?: EconomyReading,
 ): Verdict {
   const all = JSON.stringify(results);
   const readings = Object.values(results);
@@ -79,9 +127,18 @@ export function verdict(
   if (hashes.size !== 1) {
     return { ok: false, message: `FAIL: engines disagree: ${all}` };
   }
+  // N3 Task 8: the economy stream, every engine against Node (so against each other too).
+  if (nodeEconomy !== undefined) {
+    const offEconomy = economyMismatch(results, nodeEconomy);
+    if (offEconomy !== null) return { ok: false, message: offEconomy };
+  }
+  const last = nodeEconomy?.digests[nodeEconomy.digests.length - 1];
+  const economy = nodeEconomy === undefined || last === undefined
+    ? ''
+    : `; economy stream: ${nodeEconomy.digests.length} hash ticks equal to Node's, final digest ${last[1]} at tick ${last[0]}, built ${JSON.stringify(nodeEconomy.built)}`;
   return {
     ok: true,
-    message: `PASS: ${readings.length} engines, tick ${targetTick}, hash ${readings[0].hash}, content digest ${nodeContentDigest} (equal to Node's)`,
+    message: `PASS: ${readings.length} engines, tick ${targetTick}, hash ${readings[0].hash}, content digest ${nodeContentDigest} (equal to Node's)${economy}`,
   };
 }
 
@@ -133,7 +190,7 @@ export function annotationText(s: string): string {
  */
 export function decide(
   outcomes: Readonly<Record<string, EngineOutcome>>, targetTick: number, firstOrderTick: number, nodeContentDigest: number,
-  required: readonly string[] = [],
+  required: readonly string[] = [], nodeEconomy?: EconomyReading,
 ): Decision {
   const lines: Decision['lines'] = [];
   const results: Record<string, EngineReading> = {};
@@ -167,8 +224,11 @@ export function decide(
   // The digest is per-engine, not per-pair: check it before the pair gate.
   const offContent = contentMismatch(results, nodeContentDigest);
   if (offContent !== null) return { exit: 1, lines: [...lines, { level: 'error', text: offContent }] };
+  // N3 Task 8: likewise per engine -- the economy stream is held to Node's, not to a peer.
+  const offEconomy = nodeEconomy === undefined ? null : economyMismatch(results, nodeEconomy);
+  if (offEconomy !== null) return { exit: 1, lines: [...lines, { level: 'error', text: offEconomy }] };
   if (booted >= 2) {
-    const v = verdict(results, targetTick, firstOrderTick, nodeContentDigest);
+    const v = verdict(results, targetTick, firstOrderTick, nodeContentDigest, nodeEconomy);
     if (!v.ok) return { exit: 1, lines: [...lines, { level: 'error', text: v.message }] };
     lines.push({ level: 'log', text: `${v.message} (${Object.keys(results).join(', ')})` });
   }

@@ -131,7 +131,8 @@ export interface AnnounceCue extends VoiceCue {
 export function announceInputsOf(
   events: readonly MissionEvent[],
   labelOf: (objectiveId: string) => string,
-  /** Whose purchases are "reinforcements" (R-F4-1). Seat 0 until N3 threads the viewer in. */
+  /** Whose purchases are "reinforcements" (R-F4-1): the viewer's side (`VoiceRuntime` passes
+   *  `look.viewer`, N3 Task 6). Absent: side 0. */
   viewer = 0
 ): AnnounceInput[] {
   const out: AnnounceInput[] = [];

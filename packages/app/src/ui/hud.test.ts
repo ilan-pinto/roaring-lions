@@ -3942,6 +3942,24 @@ describe('the strip with no mission (PA-25)', () => {
     }
     expect(rig(null, { placeName: 'Tel Marum' }).stripEl().querySelector('[data-versus]')).toBeNull();
   });
+  // N3 Task 6: an economy room's purse is the viewer's side's; Conduct is the KDF seat's
+  // only (LD7); no versus room shows an intel figure (LD5).
+  it('an economy room: the viewer\'s purse and rate, Conduct for the KDF seat only, never intel', () => {
+    const sarim = rig(null, { placeName: 'Wadi Tarfan', versusFaction: 'sarim', roomEconomy: () => ({ logistics: 4800, ratePerMin: 40 }) });
+    const purse = sarim.stripEl().querySelector<HTMLElement>('[data-tip="logistics"]');
+    expect(purse?.querySelector('b')?.textContent).toBe('4800');
+    expect(purse?.textContent).toContain(t('hud.strip.rate', { n: 40 }));
+    expect(sarim.stripEl().querySelector('[data-tip="conduct"]')).toBeNull();
+    expect(sarim.stripEl().querySelector('[data-tip="intel"]')).toBeNull();
+    const kdf = rig(null, { placeName: 'Wadi Tarfan', versusFaction: 'kdf', roomEconomy: () => ({ logistics: 3000, ratePerMin: 0, conduct: 100 }) });
+    expect(kdf.stripEl().querySelector('[data-roe]')?.textContent).toBe('100');
+    expect(kdf.stripEl().querySelector('[data-tip="logistics"] b')?.textContent).toBe('3000');
+    expect(kdf.stripEl().querySelector('[data-tip="intel"]')).toBeNull();
+    // A mirror room (no economy) shows neither purse nor Conduct.
+    const mirror = rig(null, { placeName: 'Tel Marum', versusFaction: 'kdf' });
+    expect(mirror.stripEl().querySelector('[data-tip="logistics"]')).toBeNull();
+    expect(mirror.stripEl().querySelector('[data-tip="conduct"]')).toBeNull();
+  });
   it('says nothing of free play in a mission, or with no place to name', () => {
     expect(rig(mission()).stripEl().querySelector('[data-free-play]')).toBeNull();
     expect(rig(null).stripEl().querySelector('[data-free-play]')).toBeNull();

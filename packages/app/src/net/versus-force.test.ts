@@ -95,10 +95,10 @@ describe('versusSpawns', () => {
     expect(a.sim.hash()).toBe(b.sim.hash());
   });
 
-  it("each side's camp is its own anchor", () => {
+  it("a camp is its END's anchor", () => {
     const anchors = { friendly: [5, 24] as const, hostile: [40, 24] as const };
-    expect(campOf(anchors, 0)).toEqual([5, 24]);
-    expect(campOf(anchors, 1)).toEqual([40, 24]);
+    expect(campOf(anchors, 'friendly')).toEqual([5, 24]);
+    expect(campOf(anchors, 'hostile')).toEqual([40, 24]);
   });
 });
 
@@ -146,10 +146,12 @@ describe('KDF vs Sarim (2026-10-14)', () => {
     expect(versusForceOf('sarim')).toBe(VERSUS_SARIM);
   });
 
-  for (const factions of [['sarim', 'kdf'], ['kdf', 'sarim']] as const) {
-    it(`each side spawns its faction's force on open ground (${factions.join(' vs ')}, tel_marum)`, () => {
+  // LD1: the KDF is side 0; a Sarim host is side 1 at the friendly end.
+  for (const ends of [['friendly', 'hostile'], ['hostile', 'friendly']] as const) {
+    const factions = ['kdf', 'sarim'] as const;
+    it(`each side spawns its faction's force on open ground (KDF side 0 at the ${ends[0]} end, tel_marum)`, () => {
       const { sim, typeOf, map } = buildWorld('tel_marum');
-      const force = versusSpawns(sim, typeOf, versusAnchors(map), factions);
+      const force = versusSpawns(sim, typeOf, versusAnchors(map), factions, ends);
       for (const side of [0, 1] as const) {
         const want = versusForceOf(factions[side]).map(([id]) => id);
         expect(force.bySide[side].map((i) => sim.unitTypes[sim.state.typeIdx[i]].id)).toEqual(want);
@@ -177,9 +179,41 @@ describe('KDF vs Sarim (2026-10-14)', () => {
   it('both seats of one KDF-vs-Sarim room spawn the same world', () => {
     const a = buildWorld('tel_marum');
     const b = buildWorld('tel_marum');
-    versusSpawns(a.sim, a.typeOf, versusAnchors(a.map), ['sarim', 'kdf']);
-    versusSpawns(b.sim, b.typeOf, versusAnchors(b.map), ['sarim', 'kdf']);
+    versusSpawns(a.sim, a.typeOf, versusAnchors(a.map), ['kdf', 'sarim'], ['hostile', 'friendly']);
+    versusSpawns(b.sim, b.typeOf, versusAnchors(b.map), ['kdf', 'sarim'], ['hostile', 'friendly']);
     for (let i = 0; i < 100; i++) { a.sim.tick(); b.sim.tick(); }
     expect(a.sim.hash()).toBe(b.sim.hash());
+  });
+});
+
+describe('LD1 (N3 Task 2): the spawn end follows the seat, the side follows the faction', () => {
+  // The world before LD1 for a Sarim host: Sarim on side 0, at the friendly end.
+  // After: Sarim on side 1, at the friendly end. Only the side labels may differ.
+  const read = (sim: ReturnType<typeof buildWorld>['sim'], ids: readonly number[]) =>
+    ids.map((i) => [sim.unitTypes[sim.state.typeIdx[i]].id, sim.state.posX[i], sim.state.posY[i], sim.state.facing[i]]);
+  for (const mapId of ['tel_marum', 'wadi_tarfan'] as const) {
+    it(`a Sarim host's side-1 unit k stands where the side-0 Sarim unit k stood, with the same facing (${mapId})`, () => {
+      const before = buildWorld(mapId);
+      const old = versusSpawns(before.sim, before.typeOf, versusAnchors(before.map), ['sarim', 'kdf']);
+      const after = buildWorld(mapId);
+      const now = versusSpawns(after.sim, after.typeOf, versusAnchors(after.map), ['kdf', 'sarim'], ['hostile', 'friendly']);
+      expect(read(after.sim, now.bySide[1])).toEqual(read(before.sim, old.bySide[0]));
+      expect(read(after.sim, now.bySide[0])).toEqual(read(before.sim, old.bySide[1]));
+      for (const i of now.bySide[1]) expect(after.sim.state.side[i]).toBe(1);
+      for (const i of now.bySide[0]) expect(after.sim.state.side[i]).toBe(0);
+    });
+    it(`the friendly end's force is placed first, whichever side it is: the same entity ids (${mapId})`, () => {
+      const before = buildWorld(mapId);
+      const old = versusSpawns(before.sim, before.typeOf, versusAnchors(before.map), ['sarim', 'kdf']);
+      const after = buildWorld(mapId);
+      const now = versusSpawns(after.sim, after.typeOf, versusAnchors(after.map), ['kdf', 'sarim'], ['hostile', 'friendly']);
+      expect(now.bySide[1]).toEqual(old.bySide[0]);
+      expect(now.bySide[0]).toEqual(old.bySide[1]);
+      expect(now.bySide[1][0]).toBe(0);
+    });
+  }
+  it('refuses two sides on one end', () => {
+    const { sim, typeOf, map } = buildWorld('tel_marum');
+    expect(() => versusSpawns(sim, typeOf, versusAnchors(map), ['kdf', 'sarim'], ['friendly', 'friendly'])).toThrow(/two ends/);
   });
 });

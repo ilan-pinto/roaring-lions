@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { maps, structures, units } from '@lions/data';
+import { doctrines, maps, structures, units, versusRules } from '@lions/data';
 import { canonicalJson, contentDigest, shippedContent, shippedContentDigest, type Content } from './content-digest';
 
 const ROOT = fileURLToPath(new URL('../../../../', import.meta.url));
@@ -44,9 +44,9 @@ describe('contentDigest (L4)', () => {
     expect(d | 0).toBe(d);
   });
 
-  it('the shipped digest covers units, structures and maps, as they are shipped', () => {
-    expect(shippedContent()).toEqual({ units, structures, maps });
-    expect(shippedContentDigest()).toBe(contentDigest({ units, structures, maps }));
+  it('the shipped digest covers units, structures, maps, doctrines and versus rules, as they are shipped', () => {
+    expect(shippedContent()).toEqual({ units, structures, maps, doctrines, versusRules });
+    expect(shippedContentDigest()).toBe(contentDigest({ units, structures, maps, doctrines, versusRules }));
   });
 
   it('is key-sorted: the same content in a different insertion order digests the same', () => {
@@ -55,6 +55,8 @@ describe('contentDigest (L4)', () => {
       units: reversed(shipped.units) as Content['units'],
       structures: reversed(shipped.structures) as Content['structures'],
       maps: reversed(shipped.maps) as Content['maps'],
+      doctrines: reversed(shipped.doctrines) as Content['doctrines'],
+      versusRules: reversed(shipped.versusRules) as Content['versusRules'],
     };
     // The control: the reversal really changed the text an unsorted hash would see.
     expect(JSON.stringify(turned.units)).not.toBe(JSON.stringify(shipped.units));
@@ -64,6 +66,23 @@ describe('contentDigest (L4)', () => {
   it('one unit\'s hp changed by one is a different digest; put back, it is the same', () => {
     expect(contentDigest(withInfHp(infSquad.hull.hp + 1))).not.toBe(shippedContentDigest());
     expect(contentDigest(withInfHp(infSquad.hull.hp))).toBe(shippedContentDigest());
+  });
+
+  it('N3: one doctrine value and one versus-rules rate each count; put back, the same', () => {
+    const shipped = shippedContent();
+    const withDoctrine = (by: number): Content => ({
+      ...shipped,
+      doctrines: { ...doctrines, kdf: { ...doctrines.kdf, budget: { ...doctrines.kdf.budget, logistics_start: doctrines.kdf.budget.logistics_start + by } } },
+    });
+    expect(contentDigest(withDoctrine(1))).not.toBe(shippedContentDigest());
+    expect(contentDigest(withDoctrine(0))).toBe(shippedContentDigest());
+    const tel = versusRules.tel_marum;
+    const withRate = (by: number): Content => ({
+      ...shipped,
+      versusRules: { ...versusRules, tel_marum: { ...tel, income_zones: tel.income_zones.map((z, i) => (i === 0 ? { ...z, rate_per_min: z.rate_per_min + by } : z)) } },
+    });
+    expect(contentDigest(withRate(1))).not.toBe(shippedContentDigest());
+    expect(contentDigest(withRate(0))).toBe(shippedContentDigest());
   });
 
   it('a structure, a map row, and array order all count', () => {

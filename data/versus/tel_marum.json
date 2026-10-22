@@ -1,0 +1,15 @@
+{
+  "id": "tel_marum",
+  "map": "tel_marum",
+  "ends": {
+    "friendly": { "camp": { "at": [23, 44], "size": [2, 2] } },
+    "hostile": { "camp": { "at": [25, 14], "size": [2, 2] } }
+  },
+  "income_zones": [
+    { "zone": "pass", "rate_per_min": 40 },
+    { "zone": "approach", "rate_per_min": 40 },
+    { "zone": "overwatch_east", "rate_per_min": 20 },
+    { "zone": "overwatch_west", "rate_per_min": 20 },
+    { "zone": "ammo_draw", "rate_per_min": 20 }
+  ]
+}

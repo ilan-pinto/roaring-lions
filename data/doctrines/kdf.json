@@ -15,8 +15,9 @@
     "heli_peten",
     "yahalom_squad"
   ],
+  "pop_cap": 40,
   "budget": {
-    "logistics_start": 3000,
+    "logistics_start": 1500,
     "status": "provisional"
   }
 }

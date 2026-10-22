@@ -538,6 +538,15 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
   sideReason.textContent = t('versus.lobby.side.none');
   sideReason.hidden = offered.length > 0;
   sides.appendChild(sideReason);
+  // N3 Task 6: KDF against Sarim plays the skirmish rules -- a camp, a purse and a
+  // production line each -- where the mirror is today's placed-force match. Said
+  // while a faction side is picked, and tied to both faction radios.
+  const matchupNote = document.createElement('p');
+  matchupNote.className = 'rl-versus__matchup-note';
+  matchupNote.id = nextId('matchup-note');
+  matchupNote.textContent = t('versus.matchup.economy');
+  sides.appendChild(matchupNote);
+  for (const [m, radio] of sideRadios) if (m !== 'mirror') radio.setAttribute('aria-describedby', matchupNote.id);
   for (const [m, radio] of sideRadios) {
     if (m === 'mirror' || offered.length > 0) continue;
     radio.disabled = true;
@@ -690,6 +699,7 @@ export function showVersus(stage: HTMLElement, deps: VersusDeps): Disposer {
       tile.sub.textContent = off ? t('versus.lobby.map.offReason') : t('versus.lobby.map.pairing', { both: String(pairsBoth(tile.id)) });
     }
     sideNote.hidden = !narrowed;
+    matchupNote.hidden = !narrowed;
     paintCard(youCard, hostSide(side), youName);
     paintCard(friendCard, friendSide(side), friendWho);
     paintGround();

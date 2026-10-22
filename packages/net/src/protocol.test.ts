@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { cleanCommand, endingLoser, parseClientMsg, parseServerMsg, FORFEIT_MS, MAX_MESSAGE_BYTES, MAX_CMD_IDS, OVER_CLOSE_MS } from './protocol';
 import type { MatchConfig } from './config';
+import { MAX_PATROL_WAYPOINTS } from '@lions/sim';
 
 const CFG: MatchConfig = {
   matchId: 'm1', code: 'ABCDEF', seed: 7, map: 'beit_sahwan_outskirts', mode: 'sandbox',
@@ -290,6 +291,31 @@ describe('cleanCommand: setStance', () => {
     for (const b of bad) expect(cleanCommand(b), JSON.stringify(b)).toBeNull();
     // An unknown key is stripped, not carried (the #566 rule this function exists for).
     expect(cleanCommand({ kind: 'setStance', ids: [1], stance: 'ambush', pad: 'x'.repeat(4000) })).toEqual({ kind: 'setStance', ids: [1], stance: 'ambush' });
+  });
+  it('N3 Task 9: patrol takes 2 to MAX_PATROL_WAYPOINTS integer pairs, rebuilt pair by pair, and no radius', () => {
+    const two = [[65536, 65536], [655360, 131072]];
+    expect(cleanCommand({ kind: 'setStance', ids: [1, 1], stance: 'patrol', waypoints: two })).toEqual({ kind: 'setStance', ids: [1], stance: 'patrol', waypoints: two });
+    const four = [[0, 0], [1, 1], [2, 2], [3, 3]];
+    expect(MAX_PATROL_WAYPOINTS).toBe(4);
+    expect(cleanCommand({ kind: 'setStance', ids: [1], stance: 'patrol', waypoints: four })).toEqual({ kind: 'setStance', ids: [1], stance: 'patrol', waypoints: four });
+    // A pair carries nothing but its two integers.
+    const extra = [[0, 0, 7], [1, 1]];
+    const bad: unknown[] = [
+      { kind: 'setStance', ids: [1], stance: 'patrol', waypoints: [[0, 0]] },               // one point is not a beat
+      { kind: 'setStance', ids: [1], stance: 'patrol', waypoints: [...four, [4, 4]] },      // five
+      { kind: 'setStance', ids: [1], stance: 'patrol', waypoints: [] },
+      { kind: 'setStance', ids: [1], stance: 'patrol', waypoints: [[0, 0], [1.5, 1]] },     // not Q16.16 integers
+      { kind: 'setStance', ids: [1], stance: 'patrol', waypoints: [[0, 0], ['1', 1]] },
+      { kind: 'setStance', ids: [1], stance: 'patrol', waypoints: extra },
+      { kind: 'setStance', ids: [1], stance: 'patrol', waypoints: [[0, 0], { x: 1, y: 1 }] },
+      { kind: 'setStance', ids: [1], stance: 'patrol', waypoints: { 0: [0, 0], 1: [1, 1], length: 2 } },
+      { kind: 'setStance', ids: [1], stance: 'patrol', waypoints: two, radius: 196608 },
+      { kind: 'setStance', ids: [1], stance: 'hold', waypoints: two },                     // a hold has no beat
+      { kind: 'setStance', stance: 'patrol', waypoints: two },
+    ];
+    for (const b of bad) expect(cleanCommand(b), JSON.stringify(b)).toBeNull();
+    const padded = cleanCommand({ kind: 'setStance', ids: [1], stance: 'patrol', waypoints: two, pad: 'x' });
+    expect(padded).toEqual({ kind: 'setStance', ids: [1], stance: 'patrol', waypoints: two });
   });
 });
 

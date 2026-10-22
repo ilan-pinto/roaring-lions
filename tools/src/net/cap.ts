@@ -10,12 +10,12 @@
  * same state there, so the answer is the one either seat would have reached.
  * A pure read: nothing here writes to the sim.
  */
-import { MATCH_CAP_TICKS, outcomeOf, type MatchResult, type OutcomeSim } from '../../../packages/app/src/net/outcome';
+import { MATCH_CAP_TICKS, outcomeOf, type MatchResult, type OutcomeProduction, type OutcomeSim } from '../../../packages/app/src/net/outcome';
 
 /** The result at the arena's cap. Never `ongoing`: at `MATCH_CAP_TICKS` the
  *  rule always decides (annihilation, mutual, stalemate or time). */
-export function capOutcome(sim: OutcomeSim): MatchResult {
-  const o = outcomeOf(sim, MATCH_CAP_TICKS);
+export function capOutcome(sim: OutcomeSim, production?: OutcomeProduction): MatchResult {
+  const o = outcomeOf(sim, MATCH_CAP_TICKS, undefined, production);
   if (o.kind === 'ongoing') throw new Error('capOutcome: the outcome rule left a game ongoing at the cap');
   return o;
 }

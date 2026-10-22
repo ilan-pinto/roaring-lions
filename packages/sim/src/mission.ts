@@ -1642,22 +1642,31 @@ export class MissionRuntime {
    * setRally, clearRally; field works: raiseWorks, cancelWorks), in queue order, through
    * `requestBuild`, `requestSupport`, `requestConstruct`, `requestCancelWorks` and the line
    * methods exactly as a direct call would. Call BEFORE `sim.tick()`: anything still set aside when the tick
-   * starts is discarded (R-3). A command for a side other than 0 is refused
-   * (C-R3: every spend is side 0's until N3). Returns how many were accepted.
+   * starts is discarded (R-3). A command for a side no human holds is refused
+   * (`Sim.isHumanHeld`: side 0 always; side 1 in a room both seats hold, N3 Task 4),
+   * and so is any side outside 0 and 1. The four production kinds run on the
+   * command's own side; `support`, `raiseWorks` and `cancelWorks` have no side
+   * parameter (they act for side 0), so they refuse any other side outright (LD5:
+   * fire support stays off in versus; field works are KDF's). Returns how many
+   * were accepted.
    */
   applyQueued(): number {
     let accepted = 0;
     for (const c of this.sim.takeRuntimeCommands()) {
-      if (c.side !== 0) continue; // C-R3: only side 0 spends until N3
+      if (!this.sim.isHumanHeld(c.side)) continue;
+      // Narrowed by comparison, never asserted: a side outside 0 and 1 is refused.
+      const side = c.side === 0 ? 0 : c.side === 1 ? 1 : null;
+      if (side === null) continue;
       let ok: boolean;
       switch (c.kind) {
-        case 'build': ok = this.requestBuild(c.unit, c.line); break;
-        case 'cancelBuild': ok = this.cancelBuild(c.line, c.index); break;
-        case 'setRally': ok = this.setRally(c.line, c.x, c.y); break;
-        case 'clearRally': ok = this.clearRally(c.line); break;
-        case 'support': ok = this.requestSupport(c.support, c.x, c.y); break;
-        case 'raiseWorks': ok = this.requestConstruct(c.works, c.x, c.y, c.ids.length > 0 ? c.ids : undefined); break;
-        case 'cancelWorks': ok = this.requestCancelWorks(c.site); break;
+        case 'build': ok = this.requestBuild(c.unit, c.line, side); break;
+        case 'cancelBuild': ok = this.cancelBuild(c.line, c.index, side); break;
+        case 'setRally': ok = this.setRally(c.line, c.x, c.y, side); break;
+        case 'clearRally': ok = this.clearRally(c.line, side); break;
+        // No side parameter on these three: each acts for side 0, so side 0 alone may send them.
+        case 'support': ok = side === 0 && this.requestSupport(c.support, c.x, c.y); break;
+        case 'raiseWorks': ok = side === 0 && this.requestConstruct(c.works, c.x, c.y, c.ids.length > 0 ? c.ids : undefined); break;
+        case 'cancelWorks': ok = side === 0 && this.requestCancelWorks(c.site); break;
         default: { const unreachable: never = c; return unreachable; }
       }
       if (ok) accepted++;
@@ -2538,12 +2547,14 @@ export class MissionRuntime {
       // and must fire for a death with no killer at all. `destroy()` clears
       // `alive` but leaves `side` and `typeIdx` untouched (sim.ts:4833-4847),
       // so both are still readable here, one tick's-worth of statements later.
-      if (e.kind === 'destroyed' && this.sim.state.side[e.entity] === 0) {
+      // N3 Task 3: a human-held side 1 (a versus room's second seat) loses units too. The
+      // default table holds side 1 by the machine, so single-player emits side 0 alone.
+      if (e.kind === 'destroyed' && this.isPlayerLoss(e.entity)) {
         out.push({
           kind: 'unitLost',
           tick,
           entity: e.entity,
-          side: 0,
+          side: this.sim.state.side[e.entity],
           unit: this.sim.unitTypes[this.sim.state.typeIdx[e.entity]].id,
         });
       }
@@ -3992,7 +4003,21 @@ export class MissionRuntime {
     }
   }
 
+  /** Whether a dead entity was a human's (`unitLost`): side 0's, or side 1's when a human holds it. */
+  private isPlayerLoss(id: number): boolean {
+    const side = this.sim.state.side[id];
+    return side === 0 || (side === 1 && this.sim.isHumanHeld(1));
+  }
+
   private checkEnd(tick: number, out: MissionEvent[]): void {
+    // N3 Task 3 (P-9): a mission with no objectives has nothing to win, so it never ends by
+    // itself; whoever runs it decides (a versus room: `outcome.ts`). Without this, a versus
+    // runtime ended as a wipe the tick its last BUILT side-0 unit died (production spawns into
+    // `playerIds`; the placed force does not), and income and production stopped for good.
+    // The return skips EVERY end check, the ROE floor and `time_limit_s` too, not only the wipe:
+    // a versus mission authors neither. Every shipped mission has at least one objective
+    // (`minItems: 1`), so none reaches this.
+    if (this.objectives.length === 0) return;
     const primaries = this.objectives.filter((o) => o.def.primary);
     const won = primaries.length > 0 && primaries.every((o) => o.status === 'complete');
     const wiped =

@@ -21,11 +21,12 @@ import {
   type SocketLike,
 } from '@lions/net';
 import type { Command } from '@lions/sim';
-import { buildMatchWorld, type MatchWorld } from '../../../packages/app/src/net/match-world';
+import { buildMatchWorld, matchTick, type MatchWorld } from '../../../packages/app/src/net/match-world';
 import { runFrames, seatWorldFor } from '../../../packages/app/src/net/frame-step';
 import { shippedContentDigest } from '../../../packages/app/src/net/content-digest';
 import {
   decideOnHashTick,
+  productionOf,
   matchResult,
   reportOver,
   roomEndingOutcome,
@@ -51,8 +52,9 @@ export interface AgentClientOptions {
   /** Default: stderr. stdout is the MCP protocol channel and never written. */
   log?: (line: string) => void;
   /** Folded into every hash this seat reports (`FrameStep.runtimeDigest`,
-   *  N2-P2). Absent -- 0 -- until N2's versus runtime, exactly as the
-   *  browser's is; the room compares it like the rest of the digest. */
+   *  N2-P2). Absent: the world's own economy runtime's digest (0 in a mirror
+   *  room), exactly as the browser's is (N3 Task 3); the room compares it like
+   *  the rest of the digest. A test overrides it to make a seat desync. */
   runtimeDigest?: () => number;
 }
 
@@ -221,9 +223,8 @@ export class AgentClient {
       transport: this.transport,
       sim,
       seatWorld,
-      runTick: () => { sim.tick(); fog.step(); },
+      ...harnessTick(w, fog, this.o.runtimeDigest),
       config,
-      runtimeDigest: this.o.runtimeDigest,
       dataDigest,
       beforeFrame: (f: Frame) => {
         const own = canonicalOrder(f.cmds)
@@ -233,7 +234,7 @@ export class AgentClient {
         this.desk.onTick(f.tick);
       },
       stopAfter: (tick) => {
-        this.decided = decideOnHashTick(this.decided, tick, config, sim);
+        this.decided = decideOnHashTick(this.decided, tick, config, sim, productionOf(w));
         if (this.decided === null) return false;
         // As the browser does through its end panel: the sim's result, told once.
         reportOver(this.o.role === 'seat' ? this.transport : null, this.decided.result, this.decided);
@@ -284,4 +285,21 @@ export class AgentClient {
     if (this.o.role === 'seat' && !over) this.transport.close();
     else this.transport.detach();
   }
+}
+
+/**
+ * The harness's tick and runtime digest (N3 Task 3): the browser's own
+ * `matchTick`, then this seat's fog, and the world runtime's digest unless a
+ * test overrides it. Exported so a spec can run it against the browser's body
+ * and see the two report one digest (`two-client.test.ts`).
+ */
+export function harnessTick(
+  w: Pick<MatchWorld, 'sim' | 'runtime'>,
+  fog: { step(): void },
+  runtimeDigest?: () => number,
+): { runTick: () => void; runtimeDigest: () => number } {
+  return {
+    runTick: () => { matchTick(w); fog.step(); },
+    runtimeDigest: runtimeDigest ?? (() => w.runtime?.digest() ?? 0),
+  };
 }

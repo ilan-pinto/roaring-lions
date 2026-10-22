@@ -47,7 +47,7 @@ describe('applyIntent', () => {
     applyIntent(s, { kind: 'order', verb: 'attackMove', ids: [1], x: 48, y: -0.5, append: false }, MAP);
     applyIntent(s, { kind: 'order', verb: 'move', ids: [1], x: 47.99, y: 0, append: false }, { width: 48, height: 30 });
     // ...so the ownership check keeps every one of them.
-    const world = { sideOfSeat: () => 0, sideOfEntity: () => 0, width: 48, height: 48, structureExists: () => true, tunnelExists: () => true, factionOfSeat: () => 'kdf' as const, tunnelOwner: () => -1, versus: false };
+    const world = { sideOfSeat: () => 0, sideOfEntity: () => 0, width: 48, height: 48, structureExists: () => true, tunnelExists: () => true, factionOfSeat: () => 'kdf' as const, tunnelOwner: () => -1, versus: false, economy: false };
     expect(s.out.slice(0, 2).map((c) => validateCommand(c, 0, world))).toEqual([true, true]);
     expect(s.out).toMatchObject([
       { kind: 'move', x: 0, y: 48 * F - 1 },

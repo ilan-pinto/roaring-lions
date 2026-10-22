@@ -13,6 +13,7 @@ const world: SeatWorld = {
   factionOfSeat: (seat) => (seat === 1 ? 'sarim' : 'kdf'),
   tunnelOwner: (id) => (id === 0 ? 1 : -1),
   versus: false,
+  economy: false,
 };
 const F = 65536;
 
@@ -49,6 +50,21 @@ describe('validateCommand: setStance', () => {
     expect(validateCommand({ kind: 'setStance', ids: [1, 12], stance: 'hold' }, 0, world)).toBe(false);
     expect(validateCommand({ kind: 'setStance', ids: [1, 12], stance: 'hold' }, 0, versus)).toBe(false);
     expect(validateCommand({ kind: 'setStance', ids: [], stance: 'hold' }, 0, world)).toBe(false);
+  });
+  it('N3 Task 9: a patrol passes for own units with every waypoint on the map; one point off it, or a foreign id, drops it', () => {
+    const versus = { ...world, versus: true };
+    const patrol = (ids: number[], waypoints: [number, number][]): Command => ({ kind: 'setStance', ids, stance: 'patrol', waypoints });
+    const on: [number, number][] = [[F, F], [47 * F, 47 * F + F - 1]];
+    expect(validateCommand(patrol([1, 2], on), 0, world)).toBe(true);
+    expect(validateCommand(patrol([1, 2], on), 0, versus)).toBe(true);
+    expect(validateCommand(patrol([11], on), 1, versus)).toBe(true);
+    expect(validateCommand(patrol([1, 12], on), 0, versus)).toBe(false);
+    expect(validateCommand(patrol([11], on), 0, versus)).toBe(false);
+    expect(validateCommand(patrol([], on), 0, world)).toBe(false);
+    for (const off of [[-1, F], [F, -1], [48 * F, F], [F, 48 * F], [Number.NaN, F]] as [number, number][]) {
+      expect(validateCommand(patrol([1], [on[0], off]), 0, world), JSON.stringify(off)).toBe(false);
+      expect(validateCommand(patrol([1], [off, on[1]]), 0, versus), JSON.stringify(off)).toBe(false);
+    }
   });
 });
 
@@ -136,7 +152,7 @@ describe('validateCommand: build and support (N2)', () => {
     expect(validateCommand({ kind: 'support', side: 0, support: 'air_strike', x: 48 * F, y: 3 * F }, 0, world)).toBe(false);
     expect(validateCommand({ kind: 'support', side: 0, support: 'air_strike', x: 2 * F, y: -1 }, 0, world)).toBe(false);
   });
-  it('versus: both drop for every side (no runtime prices them; the #559 rule)', () => {
+  it('a mirror versus room: both drop for every side (no runtime prices them; the #559 rule)', () => {
     const versus = { ...world, versus: true };
     for (const seat of [0, 1] as const) {
       for (const side of [0, 1]) {
@@ -159,13 +175,55 @@ describe('validateCommand: the line verbs (F4 Task 5b)', () => {
     expect(validateCommand({ kind: 'setRally', side: 0, line: 0, x: 48 * F, y: 3 * F }, 0, world)).toBe(false);
     expect(validateCommand({ kind: 'setRally', side: 0, line: 0, x: 2 * F, y: -1 }, 0, world)).toBe(false);
   });
-  it('versus: all three drop for every side', () => {
+  it('a mirror versus room: all three drop for every side', () => {
     const versus = { ...world, versus: true };
     for (const seat of [0, 1] as const) {
       for (const side of [0, 1]) {
         for (const c of mk(side)) expect(validateCommand(c, seat, versus), c.kind).toBe(false);
       }
     }
+  });
+});
+
+describe('validateCommand: an economy room (N3 Task 4)', () => {
+  const economy: SeatWorld = { ...world, versus: true, economy: true };
+  const production = (side: number): Command[] => [
+    { kind: 'build', side, unit: 'sarim_rifles' },
+    { kind: 'build', side, unit: 'sarim_rifles', line: 1 },
+    { kind: 'cancelBuild', side, line: 0, index: -1 },
+    { kind: 'setRally', side, line: 0, x: 2 * F, y: 3 * F },
+    { kind: 'clearRally', side, line: 0 },
+  ];
+  it('each seat passes every production kind for its OWN side', () => {
+    for (const seat of [0, 1] as const) {
+      for (const c of production(seat)) expect(validateCommand(c, seat, economy), `${seat} ${c.kind}`).toBe(true);
+    }
+  });
+  it('a forged side drops: seat 0 sending build{side:1} (and every other kind), and seat 1 sending side 0', () => {
+    for (const c of production(1)) expect(validateCommand(c, 0, economy), c.kind).toBe(false);
+    for (const c of production(0)) expect(validateCommand(c, 1, economy), c.kind).toBe(false);
+  });
+  it('LD1: a Sarim host is seat 0 on side 1, and builds for side 1 -- not for side 0', () => {
+    const sarimHost: SeatWorld = { ...economy, sideOfSeat: (seat) => (seat === 0 ? 1 : 0) };
+    for (const c of production(1)) expect(validateCommand(c, 0, sarimHost), c.kind).toBe(true);
+    for (const c of production(0)) expect(validateCommand(c, 0, sarimHost), c.kind).toBe(false);
+  });
+  it('a rally off the map still drops', () => {
+    expect(validateCommand({ kind: 'setRally', side: 1, line: 0, x: 48 * F, y: 3 * F }, 1, economy)).toBe(false);
+    expect(validateCommand({ kind: 'setRally', side: 1, line: 0, x: 2 * F, y: -1 }, 1, economy)).toBe(false);
+  });
+  it('a mirror room still drops every production kind, from both seats, for every side', () => {
+    const mirror: SeatWorld = { ...economy, economy: false };
+    for (const seat of [0, 1] as const) {
+      for (const side of [0, 1]) for (const c of production(side)) expect(validateCommand(c, seat, mirror), c.kind).toBe(false);
+    }
+  });
+  it('LD5: support, callStrike and reveal drop in an economy room as in a mirror one', () => {
+    for (const seat of [0, 1] as const) {
+      expect(validateCommand({ kind: 'support', side: seat, support: 'drone_sweep', x: 2 * F, y: 3 * F }, seat, economy)).toBe(false);
+      expect(validateCommand({ kind: 'reveal', side: seat, x: 2 * F, y: 3 * F }, seat, economy)).toBe(false);
+    }
+    expect(validateCommand({ kind: 'callStrike', caller: 1, x: 2 * F, y: 3 * F }, 0, economy)).toBe(false);
   });
 });
 
@@ -178,13 +236,15 @@ describe('validateCommand: field works requests (GH-277)', () => {
     expect(validateCommand({ kind: 'cancelWorks', side: 0, site: 0 }, 0, world)).toBe(true);
     expect(validateCommand({ kind: 'cancelWorks', side: 1, site: 0 }, 0, world)).toBe(false);
   });
-  it('versus: both drop for every side, like build (no runtime prices them)', () => {
+  it('versus (mirror or economy): both drop for every side (field works are not in a versus room)', () => {
     const versus = { ...world, versus: true };
     for (const seat of [0, 1] as const) {
       for (const side of [0, 1]) {
         const own = seat === 0 ? [1] : [11];
-        expect(validateCommand({ kind: 'raiseWorks', side, works: 'kdf_outpost', x: 4, y: 4, ids: own }, seat, versus)).toBe(false);
-        expect(validateCommand({ kind: 'cancelWorks', side, site: 0 }, seat, versus)).toBe(false);
+        for (const room of [versus, { ...versus, economy: true }]) {
+          expect(validateCommand({ kind: 'raiseWorks', side, works: 'kdf_outpost', x: 4, y: 4, ids: own }, seat, room)).toBe(false);
+          expect(validateCommand({ kind: 'cancelWorks', side, site: 0 }, seat, room)).toBe(false);
+        }
       }
     }
   });

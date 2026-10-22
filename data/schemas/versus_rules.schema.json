@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://roaringlions.dev/schemas/versus_rules.schema.json",
+  "title": "Versus rules",
+  "description": "The skirmish rules of one KDF-v-Sarim matchup map (network design §2.2, §2.3; N3 plan Task 1): where each END of the map has its camp, and which zones pay logistics to whoever holds them. Read by @lions/data's `versusMissionOf`, which maps it field for field into the MissionJson shape the runtime already takes -- no objective, trigger, wave or civilian is authored, so `checkEnd` can never end the runtime and the network rule (outcome.ts) decides the match. `ends` are the two anchors `versusAnchors` returns (friendly = seat 0's end, hostile = seat 1's), NOT sides: which faction, and so which side, stands at an end is the room's. `pnpm validate:data` (tools/validate_versus_rules.mjs) holds the cross-file rules the schema cannot see: camp tiles on open ground inside the map and within 6 tiles of the end's anchor, every income zone declared by the map or by this file, no zone name clashing with the map's, exactly one file per faction-matchup map.",
+  "type": "object",
+  "required": ["id", "map", "ends", "income_zones"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z0-9_]+$", "description": "The map id (one file per map)." },
+    "map": { "type": "string", "pattern": "^[a-z0-9_]+$", "description": "A map id in data/maps; must be one of the faction-matchup maps (@lions/net FACTION_MATCHUP_MAPS)." },
+    "ends": {
+      "type": "object",
+      "required": ["friendly", "hostile"],
+      "additionalProperties": false,
+      "properties": {
+        "friendly": { "$ref": "#/$defs/end" },
+        "hostile": { "$ref": "#/$defs/end" }
+      }
+    },
+    "zones": {
+      "type": "object",
+      "description": "Extra zones this file declares beside the map's own, [x, y, w, h] in tiles. A name may not repeat one of the map's.",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[a-z0-9_]+$": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "income_zones": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "description": "Zones that pay logistics per minute to whichever side holds them uncontested (the mission schema's resources.income_zones, copied as is).",
+      "items": {
+        "type": "object",
+        "required": ["zone", "rate_per_min"],
+        "additionalProperties": false,
+        "properties": {
+          "zone": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+          "rate_per_min": { "type": "integer", "minimum": 1, "description": "1..120 (tools/validate_versus_rules.mjs)." }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "end": {
+      "type": "object",
+      "required": ["camp"],
+      "additionalProperties": false,
+      "properties": {
+        "camp": {
+          "type": "object",
+          "required": ["at", "size"],
+          "additionalProperties": false,
+          "description": "The end's camp (structure type `camp`, which is not authored): top-left tile and footprint.",
+          "properties": {
+            "at": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "integer", "minimum": 0 } },
+            "size": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "integer", "minimum": 1 } }
+          }
+        }
+      }
+    }
+  }
+}

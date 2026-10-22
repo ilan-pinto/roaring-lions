@@ -104,6 +104,17 @@ export interface ProductionOptions {
   onArm(kind: SupportKind | null): void;
   /** Where an accepted purchase goes: the order sink, so it travels the frame path (N2). */
   dispatch(cmd: Command): void;
+  /** A room's pause (spec §11b.4 follow-up, N3 Task 4; `dockHeld`): true when orders wait,
+   *  and the caller has already said why. A unit tile's click then checks, sends, counts and
+   *  notes nothing. Absent (single-player): never held. */
+  held?(): boolean;
+  /** The side this dock commands (N3 Task 6): every order it dispatches carries it, and its
+   *  rows read that side's lines. A room passes the viewer's side with a runtime view bound to
+   *  the same side (`net/room-economy.ts`). Absent: side 0, single-player. */
+  side?: 0 | 1;
+  /** Draw the fire-support tiles. False in a versus room, which has no fire support (LD5).
+   *  Absent: drawn. */
+  support?: boolean;
   /** Telemetry's count of bought units; never reaches the sim. Called exactly
    *  once per click the runtime's pre-check (`canBuild`) accepted -- never for
    *  a locked tile and never for one it refused. Two clicks in one frame that
@@ -259,7 +270,7 @@ export class ReinforcementDock {
   private readonly linesEl: HTMLDivElement;
   private readonly hintEl: HTMLDivElement;
   private readonly rows: LineRow[] = [];
-  /** The runtime's lines as last read (`refresh`), side 0's. */
+  /** The runtime's lines as last read (`refresh`), this dock's side's. */
   private lines: readonly (LineSnapshot & { readonly anchor: number })[] = [];
   /** The pinned row: tiles build on its line. Null = the runtime's shortest
    *  queue, which is the default (the lead's ruling). */
@@ -269,10 +280,14 @@ export class ReinforcementDock {
   /** Frame-clock ms until which a newly set rally stays drawn, per line. */
   private readonly rallyFlash = new Map<number, number>();
 
+  /** The side this dock commands (`ProductionOptions.side`). */
+  private readonly side: 0 | 1;
+
   constructor(
     host: HTMLElement,
     private readonly opts: ProductionOptions
   ) {
+    this.side = opts.side ?? 0;
     this.el = document.createElement('div');
     this.el.className = 'rl-dock';
 
@@ -325,7 +340,7 @@ export class ReinforcementDock {
     grid.className = 'rl-dock__grid';
 
     for (const unit of opts.units) grid.appendChild(this.buildUnitTile(unit));
-    for (const kind of SUPPORT_KINDS) {
+    for (const kind of opts.support === false ? [] : SUPPORT_KINDS) {
       grid.appendChild(this.buildSupportTile(kind, opts.runtime.supportCost(kind)));
     }
     // Field works (GH-277): a third group, only when the mission lists any.
@@ -457,6 +472,10 @@ export class ReinforcementDock {
       // unit's own `name` (free text in `data/units/*.json`) and the lock
       // sentence (which names a MISSION, through `missionName`) are escaped
       // before `t()` puts them beside the catalogue's `<b>`.
+      if (this.opts.held?.() === true) {
+        el.blur(); // keep the keyboard on the battlefield
+        return;
+      }
       const state = tileState(unit, this.opts.runtime, this.opts.ledger, this.opts.missionName);
       const name = escapeHtml(unit.name);
       if (state.lock !== null) {
@@ -479,7 +498,7 @@ export class ReinforcementDock {
       const line = buildLine(this.pinned, this.lines);
       if (this.opts.runtime.canBuild(unit.id, line)) {
         this.opts.dispatch(
-          line === undefined ? { kind: 'build', side: 0, unit: unit.id } : { kind: 'build', side: 0, unit: unit.id, line }
+          line === undefined ? { kind: 'build', side: this.side, unit: unit.id } : { kind: 'build', side: this.side, unit: unit.id, line }
         );
         this.bought.add(unit.id);
         this.opts.onBought?.(unit.id);
@@ -574,6 +593,8 @@ export class ReinforcementDock {
    *  denies with a note and the cue when intel is short. Returns true if armed. */
   press(kind: SupportKind): boolean {
     if (isWorksKind(kind)) return this.pressWorks(kind);
+    // A versus room has no fire support (LD5): its hotkey does nothing, and says nothing.
+    if (this.opts.support === false) return false;
     const spec = SUPPORT[kind];
     const tile = this.supportTiles.find((x) => x.kind === kind);
     if (tile === undefined || this.opts.runtime.intel < tile.cost) {
@@ -905,7 +926,7 @@ export class ReinforcementDock {
     clear.textContent = t('dock.rally.clearShort');
     clear.addEventListener('click', () => {
       if (this.lines[index]?.rally == null) return;
-      this.opts.dispatch({ kind: 'clearRally', side: 0, line: index });
+      this.opts.dispatch({ kind: 'clearRally', side: this.side, line: index });
       this.opts.note(t('dock.note.rallyCleared', { camp: this.campName(index) }), 'info');
       if (this.armedRally === index) this.setRallyArmed(null);
       clear.blur();
@@ -935,7 +956,7 @@ export class ReinforcementDock {
     const unitId = index < 0 ? view?.current?.unit : view?.chips[index]?.unit;
     if (unitId === undefined) return;
     const unit = this.unitOf(unitId);
-    this.opts.dispatch({ kind: 'cancelBuild', side: 0, line, index });
+    this.opts.dispatch({ kind: 'cancelBuild', side: this.side, line, index });
     this.opts.note(
       t('dock.note.cancelBuild', { name: escapeHtml(unit?.name ?? unitId), n: unit?.logistics ?? 0, camp: this.campName(line) }),
       'info'
@@ -1046,7 +1067,7 @@ export class ReinforcementDock {
   }
 
   private paintLines(): void {
-    const lines = this.opts.runtime.productionLines?.(0) ?? [];
+    const lines = this.opts.runtime.productionLines?.(this.side) ?? [];
     this.lines = lines;
     const shown = linesShown(lines);
     this.linesEl.hidden = !shown;

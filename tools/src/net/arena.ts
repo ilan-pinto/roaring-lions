@@ -59,8 +59,8 @@ import { appendFileSync, existsSync, mkdirSync, realpathSync, writeFileSync } fr
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { MATCHUPS, factionsOfMatchup, matchupAllowed, versusMapAllowed, type MatchConfig, type Matchup, type TransportStatus } from '@lions/net';
-import { MATCH_CAP_TICKS, type MatchResult, type OutcomeSim } from '../../../packages/app/src/net/outcome';
-import { scoreOf } from '../../../packages/app/src/net/scoreboard';
+import { MATCH_CAP_TICKS, productionOf, type MatchResult, type OutcomeProduction, type OutcomeSim } from '../../../packages/app/src/net/outcome';
+import { scoreOf, type MatchScore } from '../../../packages/app/src/net/scoreboard';
 import { AgentClient } from './agent-client';
 import { gateVerdict, headToHead, markdownReport, pval, tally, type GameRecord, type GateVerdict, type Tally } from './arena-score';
 import { buildId } from './build-id';
@@ -255,11 +255,15 @@ export interface SeatSnapshot {
   tick: number;
   status: TransportStatus;
   sim: OutcomeSim | null;
+  /** The economy half of the win rule (an economy room only). */
+  production?: OutcomeProduction;
 }
 
 /** A seat's client as it stands now. Call before `stop()`. */
 export function snapshotOf(c: AgentClient): SeatSnapshot {
-  return { result: c.result(), tick: c.tick(), status: c.transport.status(), sim: c.world()?.sim ?? null };
+  const w = c.world();
+  const production = w === null ? undefined : productionOf(w);
+  return { result: c.result(), tick: c.tick(), status: c.transport.status(), sim: c.world()?.sim ?? null, ...(production !== undefined ? { production } : {}) };
 }
 
 /** The record's outcome from the seats' snapshots (null for a player not in
@@ -290,7 +294,7 @@ export function judge(
     return toOutcome(decided[0], decided[0].by);
   }
   const referee = seats[0] ?? seats[1];
-  if (referee !== null && referee.sim !== null && live.every((c) => c.tick === capTicks)) return toOutcome(capOutcome(referee.sim), 'cap');
+  if (referee !== null && referee.sim !== null && live.every((c) => c.tick === capTicks)) return toOutcome(capOutcome(referee.sim, referee.production), 'cap');
   const st = referee?.status;
   return { outcome: 'void', by: st?.kind === 'closed' ? st.reason : 'unfinished' };
 }
@@ -446,7 +450,7 @@ async function playGame(g: GameSpec, a: ArenaArgs, build: string, startRelay: No
     if (sim === undefined) throw new Error('the reading seat never built its world');
     return {
       seed: g.seed, map: a.map, matchup: a.matchup, players: g.names, factions,
-      outcome: verdict.outcome, by: verdict.by, ticks: referee.tick(), score: scoreOf(sim), reports,
+      outcome: verdict.outcome, by: verdict.by, ticks: referee.tick(), score: bySeat(scoreOf(sim), sides), reports,
     };
   } finally {
     // Every close is guarded: one that fails is logged and the next still runs.
@@ -619,4 +623,9 @@ if (isEntry()) {
     (r) => { if (!signals.signalled()) process.exit(r.code); },
     (err: unknown) => { process.stderr.write(`arena: ${messageOf(err)}\n`); if (!signals.signalled()) process.exit(1); },
   );
+}
+
+/** A by-SIDE board re-indexed by SEAT (LD1: a Sarim host is seat 0 on side 1). */
+export function bySeat(score: MatchScore, sides: readonly [0 | 1, 0 | 1]): MatchScore {
+  return [score[sides[0]], score[sides[1]]];
 }

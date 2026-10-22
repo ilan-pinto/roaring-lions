@@ -78,7 +78,7 @@ interface Game {
   running: [RunningPlayer, RunningPlayer];
 }
 
-/** Plays one game, `players[s]` on seat `s` (seat s is side s in versus), to
+/** Plays one game, `players[s]` on seat `s` (seat s is side s in these KDF mirror fixtures), to
  *  a result or the cap; the cap's result is `capOutcome` on seat 0's sim. */
 async function play(players: [ArenaPlayer, ArenaPlayer], o: { seed: number; capTicks: number; roundWallMs?: number; roundTicks?: number; timeoutMs: number }): Promise<Game> {
   const relay = await relayOf(o.seed);

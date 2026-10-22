@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { units } from '@lions/data';
-import { validateConfig, type MatchConfig } from '@lions/net';
+import { sidesOfFactions, validateConfig, type MatchConfig } from '@lions/net';
 import { buildMatchWorld } from './match-world';
 import { upgradePrepass } from '../upgrade-prepass';
 import { templateKey } from '@lions/render';
@@ -12,7 +12,9 @@ type Faction = 'kdf' | 'sarim';
 /** A versus config, KDF against KDF unless `factions` says otherwise, each
  *  SEAT's kit mode and tiers given. */
 function room(tiers: [Tiers, Tiers], kit: 'matched' | 'brigade' = 'brigade', factions: [Faction, Faction] = ['kdf', 'kdf']): MatchConfig {
-  const seat = (s: 0 | 1) => ({ seat: s, side: s, faction: factions[s], kit, tiers: tiers[s], unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' });
+  // The room's own rule (LD1): the KDF seat is side 0 in a faction pairing.
+  const sides = sidesOfFactions(factions);
+  const seat = (s: 0 | 1) => ({ seat: s, side: sides[s], faction: factions[s], kit, tiers: tiers[s], unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' });
   const c = validateConfig({ matchId: 'M', code: 'ABCDEF', seed: 1234, map: 'tel_marum', mode: 'versus', seats: [seat(0), seat(1)], pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b', dataDigest: 0 });
   if (c === null) throw new Error('bad fixture');
   return c;
@@ -114,16 +116,18 @@ describe("templateKey agrees with buildMatchWorld on which ids differ", () => {
     expect(shared).toBeGreaterThan(0);
   });
 
-  it("a Sarim side 0 against a kitted KDF side 1: one template per id, wearing side 1's kit", () => {
-    // Side 0 fields no KDF type, so the id's one template is drawn by side 1
-    // alone: it wears side 1's kit -- the kit side 1's sim copy runs -- and no
-    // `#s1` copy is parsed beside a base template nobody draws.
+  it("a Sarim host (side 1, LD1) against a kitted KDF guest (side 0): one template per id, wearing the KDF's kit", () => {
+    // The KDF guest is side 0 and holds the claim; side 1 is Sarim and fields
+    // no KDF type, so no copy is registered and the id's one template wears
+    // side 0's kit -- no `#s1` copy is parsed beside a template nobody draws.
     const w = buildMatchWorld(room([{}, { mbt_lavi: { armour: 2 } }], 'brigade', ['sarim', 'kdf']));
-    expect(w.typeOfBySide[1].get('mbt_lavi')).not.toBe(w.typeOfBySide[0].get('mbt_lavi'));
-    const bySide = screenKit(upgradePrepass(Object.values(units), {}), w, 1).unitKitTiersBySide;
-    for (const id of KDF_IDS) expect(templateKey(id, 1, bySide)).toBe(id);
-    // The table the renderer builds the `id` template from (`templateKitTiers`).
-    expect(bySide?.[0].mbt_lavi).toEqual({ armour: 2 });
+    expect(w.typeOfBySide[1].get('mbt_lavi')).toBe(w.typeOfBySide[0].get('mbt_lavi'));
+    for (const me of [0, 1] as const) {
+      const bySide = screenKit(upgradePrepass(Object.values(units), {}), w, me).unitKitTiersBySide;
+      for (const id of KDF_IDS) expect(templateKey(id, 0, bySide)).toBe(id);
+      // The table the renderer builds the `id` template from (`templateKitTiers`).
+      expect(bySide?.[0].mbt_lavi).toEqual({ armour: 2 });
+    }
   });
 
   it('a matched room splits nothing, whatever the seats claimed', () => {

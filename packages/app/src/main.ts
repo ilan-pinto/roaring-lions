@@ -42,6 +42,7 @@ import {
   unitTypeFromJson,
   type MissionEvent,
   type MissionJson,
+  type SimEvent,
   type TunnelRouteJson,
   type UnitTypeJson,
 } from '@lions/sim';
@@ -96,7 +97,7 @@ import { portraitIds, unitIcon, unitPlate } from './ui/portrait';
 import { trackCloseup } from './ui/garage-closeup';
 import { Minimap, MINIMAP_SIZE, flipRows } from './ui/minimap';
 import { alertsForTick, initAlertState, missionEventTier, nextJump, type Alert, type AlertState, type JumpTarget } from './ui/alerts';
-import { sandboxAlertsForTick } from './ui/sandbox-feed';
+import { roomAlertsForTick, roomArrivals } from './ui/sandbox-feed';
 import { PinnedSince } from './ui/pinned-since';
 import { alertWorldFor } from './ui/alert-world';
 import { placeOnScreen } from './ui/alert-place';
@@ -187,7 +188,7 @@ import { watchNoGpu } from './ui/no-gpu';
 import { bootFailureCard, bootFailureKind, guardBoot, mountErrorCard, mountInterrupted, watchContextLoss } from './ui/boot-failure';
 import { webgl2Available } from './ui/webgl-probe';
 import { alertNotice, evacuatedNotice, placePhrase, reinforceTrigger, removedNotice, ledgerSavedNotice, triggerLabel, unknownSandboxMapNotice } from './ui/mission-notice';
-import { ReinforcementDock, isWorksKind } from './ui/production';
+import { ReinforcementDock, isWorksKind, type ProductionRuntime } from './ui/production';
 import { IntelMoments, READY_FLASH_MS, type IntelOutput } from './ui/intel-moments';
 import { barrageLine, breakdownLine, strikeLine } from './ui/intel-copy';
 import { SUPPORT, SUPPORT_KINDS, type SupportKind } from './ui/support-kinds';
@@ -266,7 +267,7 @@ import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
 import { PAUSES_PER_SEAT, WsTransport, seatRules, validateCommand, type Seat, type TransportStatus } from '@lions/net';
 import { JoinNeedsConfirmation, connectMatch, inviteAdvisor, openRoom, type Connected } from './net/connect';
 import { desyncReportDraft, withoutReplay } from './net/desync-report';
-import { blockedOrderNotes, escapeOpensPause, hudExit, matchLeaveCopy, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderCopy, surrenderOffered } from './net/room-pause';
+import { blockedOrderNotes, dockHeld, escapeOpensPause, hudExit, matchLeaveCopy, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderCopy, surrenderOffered } from './net/room-pause';
 import { CatchUpQuiet, roomTickCap, tickCostEma, INITIAL_TICK_COST_MS } from './net/catch-up';
 import { safeStorage as safeStorageLike } from './telemetry/identity';
 import { runFrames, seatWorldFor, type FrameStep } from './net/frame-step';
@@ -274,7 +275,8 @@ import { roomFlags } from './net/room-flags';
 import { netReport } from './net/net-report';
 import { viewerSideOf } from './net/viewer';
 import { campOf, factionsBySide, versusUnitTypes } from './net/versus-force';
-import { buildMatchWorld } from './net/match-world';
+import { buildMatchWorld, matchTick } from './net/match-world';
+import { roomDockMenu, roomDockRuntime, roomEconomyView } from './net/room-economy';
 import { screenKit } from './net/room-kit';
 import { shippedContentDigest } from './net/content-digest';
 import { pruneHiddenHostiles, type SeatSight } from './net/hidden-selection';
@@ -285,7 +287,7 @@ import { showNetEnd } from './ui/net-end';
 import { describeCommand, mountAdvisorPanel, type AdvisorPanel } from './ui/advisor';
 import { NetScoreboard, advisorPresenceHook } from './ui/net-score';
 import { scoreOf, showsScoreboard } from './net/scoreboard';
-import { decideOnHashTick, matchResult, reportOver, roomEndingOutcome, type LocalDecision, type MatchResult } from './net/outcome';
+import { decideOnHashTick, productionOf, matchResult, reportOver, roomEndingOutcome, type LocalDecision, type MatchResult } from './net/outcome';
 import { lightOverrideOf, timeOfDayOf } from './time-of-day';
 import { enginesOf } from './engines-flag';
 import { buildingFitOf } from './building-fit-flag';
@@ -2172,7 +2174,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     mission?.field_works,
     wantWorks && !mission && versusWorld === null && !inRoom ? sim.structureTypes : null
   );
-  const meshPlan = meshPlanFor(map, meshRoster, [...(mission?.structures ?? []).map((s) => s.type), ...worksIds]);
+  // An economy room's camps (N3 Task 6) are the runtime's structures: the room has no mission.
+  const meshPlan = meshPlanFor(map, meshRoster, [
+    ...(mission?.structures ?? []).map((s) => s.type),
+    ...(versusWorld?.structureTypes ?? []),
+    ...worksIds,
+  ]);
   // Resolved once, beside `meshPlan` and BEFORE `new ThreeRenderer` below --
   // nothing between here and the renderer's construction may throw, because
   // its teardown is not registered until the context exists.
@@ -3249,6 +3256,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // the mission; the same name the Free Play picker lists it by.
     placeName: mission ? undefined : mapJson.name,
     ...(versusRoom ? { versusFaction: versusFactions[me] } : {}),
+    // N3 Task 6: an economy room's purse and (the KDF seat's only, LD7) Conduct.
+    ...(versusWorld?.runtime ? { roomEconomy: () => (versusWorld.runtime ? roomEconomyView(versusWorld.runtime, me, versusFactions[me]) : null) } : {}),
     commander: hudCommander,
     orders,
     armedOrder: () => armedOrder,
@@ -3931,8 +3940,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     renderer.camera.x = start[0];
     renderer.camera.y = start[1];
   } else if (netConfig !== null) {
-    // A room's seat starts on its own camp, not on side 0's.
-    const [cx, cy] = campOf(anchors, me);
+    // A room's seat starts on its own camp, not on side 0's: its own END,
+    // which follows the seat, not the side (LD1 -- a Sarim host is side 1 on
+    // the friendly end). A sandbox room (no versus world) is side 0's end.
+    const [cx, cy] = campOf(anchors, versusWorld?.endOfSide[me] ?? 'friendly');
     renderer.camera.x = cx;
     renderer.camera.y = cy;
   }
@@ -4035,7 +4046,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     renderer.selection.filter(
       (i) => isOwnSide(sim.state.side[i], me) && sim.state.alive[i] === 1 && sim.unitTypes[sim.state.typeIdx[i]].canConstruct
     );
-  const dockRt = runtime && mission?.resources ? runtime : sandboxWorksRt;
+  /** An economy room's runtime (N3 Task 3): null in a mirror room and off a room. */
+  const roomRt = versusWorld?.runtime ?? null;
+  /** The units an economy room's dock lists: the viewer faction's doctrine menu, in its
+   *  order (N3 Task 6). Null off an economy room. */
+  const roomMenu = roomRt !== null ? roomDockMenu(versusFactions[me]) : null;
+  const dockRt: ProductionRuntime | null =
+    roomRt !== null ? roomDockRuntime(roomRt, me) : runtime && mission?.resources ? runtime : sandboxWorksRt;
   if (dockRt) {
     production = new ReinforcementDock(document.body, {
       onBought: (id) => {
@@ -4047,10 +4064,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // "deploying" once bought. A FAILED type is not pending: it draws a
       // proxy box and has its own HUD note.
       meshPending: (id) => hasUnitMesh(id) && !meshReady.has(id) && !failedMesh.includes(id),
-      units: (dockRt === sandboxWorksRt ? [] : Object.values(units))
-        // GH-707 P2: not the wounded -- the dock draws a tile for every unit it is handed, and a
-        // casualty is no one's to build (it would read as a free "Wounded Soldier" at 0 logistics).
-        .filter((u) => u.faction === 'kdf' && u.role !== 'wounded')
+      units: (dockRt === sandboxWorksRt
+        ? []
+        : roomMenu !== null
+          ? roomMenu.map((id) => (units as Record<string, (typeof units)[keyof typeof units]>)[id])
+          // GH-707 P2: not the wounded -- the dock draws a tile for every unit it is handed, and a
+          // casualty is no one's to build (it would read as a free "Wounded Soldier" at 0 logistics).
+          : Object.values(units).filter((u) => u.faction === 'kdf' && u.role !== 'wounded')
+      )
         .map((u) => {
           // The role bucket comes from the SIM's unit type, through the very
           // `roleBucket` call the selection chips make, so a Namer badged as a
@@ -4087,8 +4108,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             population: 'population' in u.cost ? u.cost.population : 1,
             // The same gate `unitInfo` above hands `MissionRuntime`, so the tile's
             // lock sentence (`gateSentence`, via `dock-model.ts`'s `tileState`) can
-            // never disagree with what the runtime is actually enforcing.
-            unlock: kdfUnlockGate(u, boughtUnits),
+            // never disagree with what the runtime is actually enforcing. A room's doctrine
+            // menu IS the gate (N3 P-7): its runtime hands no unlock, so neither does the tile.
+            unlock: roomMenu !== null ? undefined : kdfUnlockGate(u, boughtUnits),
           };
         }),
       runtime: dockRt,
@@ -4100,10 +4122,18 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // `localStorage` directly. `undefined` when the store itself is
       // unavailable, which `ProductionOptions.credits`' doc comment says is
       // the one state with no number to show.
-      credits: ledgerStore.available ? ledgerStore.readAccount().balance : undefined,
+      // Not in a room: the brigade's credits are no currency of a match.
+      credits: roomMenu === null && ledgerStore.available ? ledgerStore.readAccount().balance : undefined,
+      // N3 Task 6: the side this dock commands -- every order carries it -- and no fire
+      // support in a versus room (LD5).
+      side: me,
+      support: !versusRoom,
       note: (html, tone) => hud.note(html, tone),
       // N2 D3: an accepted purchase is a `build` command down the frame path.
       dispatch: (cmd) => cmdSink.queueCommand(cmd),
+      // N3 Task 4 (spec §11b.4 follow-up): in a paused room a buy is held before the
+      // pre-check, with the pause notice, rather than noted "building" and then dropped.
+      ...(room === null ? {} : { held: dockHeld(() => room.status(), () => { blockedNotes?.blocked(); }) }),
       onDeny: () => audio.playCue(CRITICAL_CUES.uiDeny),
       // Read at hover time, so a rebind in Settings shows on the next tooltip.
       hotkeyLabel: (kind) => keyLabel(bindings[SUPPORT[kind].action]),
@@ -4552,9 +4582,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // and a note where it refuses -- and it stays armed, so the player tries
       // again rather than starting over. Before support: arming one disarms
       // the other, so at most one is ever set.
-      if (armedRally !== null && runtime) {
+      const rallyRt = runtime ?? versusWorld?.runtime ?? null;
+      if (armedRally !== null && rallyRt) {
         const line = armedRally;
-        const out = callRally(runtime, cmdSink, line, pointerView, sim, p.x, p.y);
+        const out = callRally(rallyRt, cmdSink, line, pointerView, sim, p.x, p.y, me);
         if (out.ok) {
           production?.setRallyArmed(null);
           production?.flashRally(line, performance.now());
@@ -5329,9 +5360,25 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // `callStrike` therefore enter the sim queue after this frame's other
     // orders: they run last in their tick, deterministically.
     // `&works`' synthetic runtime prices its `raiseWorks`/`cancelWorks` the same way.
-    const ranQueued = runtime && mission ? runtime.applyQueued() : sandboxWorksRt ? sandboxWorksRt.applyQueued() : 0;
-    intelMoments?.beforeTick(sim);
-    const events = sim.tick();
+    // A versus room ticks through `matchTick`, the body the AI harness runs too (N3 Task 3):
+    // its economy runtime, when the room has one, prices the frame's set-aside commands and
+    // steps over the tick. A room has no mission, works runtime or intel moments, so the
+    // other branch is exactly what every non-room boot ran before.
+    let ranQueued: number;
+    let events: SimEvent[];
+    /** The economy runtime's events this tick (N3 Task 6); `[]` in a mirror room and off one. */
+    let roomEvents: MissionEvent[] = [];
+    if (versusWorld !== null) {
+      const out = matchTick(versusWorld);
+      events = out.sim;
+      roomEvents = out.mission;
+      // A purchase landed: repaint the dock now rather than at the next 4 Hz beat.
+      ranQueued = roomEvents.length;
+    } else {
+      ranQueued = runtime && mission ? runtime.applyQueued() : sandboxWorksRt ? sandboxWorksRt.applyQueued() : 0;
+      intelMoments?.beforeTick(sim);
+      events = sim.tick();
+    }
     tickQuiet = catchUpQuiet.next();
     renderer.snapshot();
     // A tick far behind the live edge throws no burst, plays no sound and
@@ -5351,7 +5398,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // The sim half of the layer needs nothing a mission has; the one mission
     // event it reads, a loss of ours, is derived by the runtime's own rule.
     // Nothing is scored: no objective, wave or Conduct line exists here.
-    if (!mission) announceAlerts(sandboxAlertsForTick(alertState, events, alertWorld, sim.tickCount));
+    // A room adds its own runtime's purchases (N3 Task 6), each seat hearing its own only.
+    if (!mission) announceAlerts(roomAlertsForTick(alertState, events, roomEvents, alertWorld, sim.tickCount));
+    if (versusWorld?.runtime && !tickQuiet) voice.onMission(roomArrivals(roomEvents));
     // `&works`: the synthetic runtime settles the sim's answers (charges, refunds, counts) and
     // words the works events; nothing else of a mission runs for it.
     if (sandboxWorksRt) {
@@ -6063,9 +6112,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     seatWorld,
     runTick,
     config: netConfig,
-    // N2: folds 0 in every room until N3 starts a runtime there (L1);
-    // single-player is never asked.
-    runtimeDigest: () => runtime?.digest() ?? 0,
+    // N3 Task 3: a versus room folds its economy runtime's digest (0 in a mirror
+    // room, which has none), as the AI harness does; single-player is never asked.
+    runtimeDigest: () => (versusWorld !== null ? versusWorld.runtime?.digest() ?? 0 : runtime?.digest() ?? 0),
     // L4: this client's OWN content digest, folded into every hash it
     // reports. Taken here at boot in a room, so its ~50 ms cold computation
     // is not a hitch on tick 19; single-player hashes nothing and never pays it.
@@ -6076,7 +6125,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     ...(versusRoom
       ? {
           stopAfter: (tick: number): boolean => {
-            matchDecided = decideOnHashTick(matchDecided, tick, netConfig, sim);
+            matchDecided = decideOnHashTick(matchDecided, tick, netConfig, sim, versusWorld !== null ? productionOf(versusWorld) : undefined);
             return matchDecided !== null;
           },
         }
@@ -6467,7 +6516,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     armedMove: armedOrder === 'move',
     // F4: the armed rally's cursor reads the runtime's own `canSetRally` at
     // the point the click would send (`callRally`'s `pointerPoint`).
-    rallyAt: armedRally !== null && runtime ? (x, y) => canRally(runtime, armedRally ?? -1, x, y) : null,
+    rallyAt:
+      armedRally !== null && (runtime ?? versusWorld?.runtime)
+        ? (x, y) => {
+            const rt = runtime ?? versusWorld?.runtime;
+            return rt ? canRally(rt, armedRally ?? -1, x, y, me) : false;
+          }
+        : null,
   });
   hoverCursorName = name;
   // Guard the write: a dataset attribute set every frame forces needless

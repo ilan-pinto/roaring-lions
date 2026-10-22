@@ -183,11 +183,12 @@ describe('doctrine.schema.json', () => {
     expect(validate(inner)).toBe(false);
   });
 
-  it('takes an optional pop_cap, an integer of at least 1, set in no shipped doctrine yet', () => {
+  it('takes an optional pop_cap, an integer of at least 1, set in both shipped doctrines (Q4: KDF 40, Sarim 56)', () => {
     expect(validate({ ...clone(byFaction('sarim')), pop_cap: 27 })).toBe(true);
     expect(validate({ ...clone(byFaction('sarim')), pop_cap: 0 })).toBe(false);
     expect(validate({ ...clone(byFaction('sarim')), pop_cap: 1.5 })).toBe(false);
-    for (const { doc } of shipped) expect(doc).not.toHaveProperty('pop_cap');
+    expect(byFaction('kdf')).toHaveProperty('pop_cap', 40);
+    expect(byFaction('sarim')).toHaveProperty('pop_cap', 56);
   });
 
   it('refuses each required key missing', () => {

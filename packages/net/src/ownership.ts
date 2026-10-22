@@ -23,10 +23,16 @@ export interface SeatWorld {
    *  `reveal` -- is priced, cooled down and ranged only by the mission
    *  runtime, and a room runs none, so in versus both kinds are dropped
    *  (#559 F1): the same answer on both machines, from the shared config.
-   *  `build` and `support` (N2) are priced only by the runtime too, and drop
-   *  in versus for the same reason, as do field works' `raiseWorks` and
-   *  `cancelWorks` (GH-277). */
+   *  `support` (N2) is priced only by the runtime too, and drops in versus
+   *  for the same reason (LD5: fire support stays off in versus), as do field
+   *  works' `raiseWorks` and `cancelWorks` (GH-277). */
   readonly versus: boolean;
+  /** A room on the skirmish economy (`economyRoom(config)`, N3 Task 4): a
+   *  versus room whose seats field different factions, which runs a
+   *  `MissionRuntime`. There the four production kinds -- `build`,
+   *  `cancelBuild`, `setRally`, `clearRally` -- pass for the seat's own side.
+   *  False in single-player and in a mirror room, which has no runtime. */
+  readonly economy: boolean;
 }
 
 /**
@@ -45,8 +51,15 @@ export function validateCommand(cmd: Command, seat: Seat, world: SeatWorld): boo
   switch (cmd.kind) {
     case 'move': case 'attackMove': case 'smoke':
       return cmd.ids.length > 0 && cmd.ids.every(own) && onMap(cmd.x, cmd.y);
-    case 'halt': case 'unload': case 'setStance':
+    case 'halt': case 'unload':
       return cmd.ids.length > 0 && cmd.ids.every(own);
+    case 'setStance':
+      // N3 Task 9: a patrol's every waypoint must be on the map (the count and
+      // the integers are `cleanCommand`'s); the sim clamps nothing it was not sent.
+      return (
+        cmd.ids.length > 0 && cmd.ids.every(own) &&
+        (cmd.stance !== 'patrol' || cmd.waypoints.every(([x, y]) => onMap(x, y)))
+      );
     case 'garrison': case 'demolish':
       return cmd.ids.length > 0 && cmd.ids.every(own) && world.structureExists(cmd.structure);
     case 'chargeTunnel':
@@ -81,9 +94,12 @@ export function validateCommand(cmd: Command, seat: Seat, world: SeatWorld): boo
     case 'reveal':
       return !world.versus && cmd.side === side && onMap(cmd.x, cmd.y);
     case 'build': case 'cancelBuild': case 'clearRally':
-      return !world.versus && cmd.side === side;
+      // N3 Task 4: production runs wherever a runtime prices it -- single-player
+      // and an economy room -- and always on the seat's OWN side: a forged
+      // `side` vanishes here on both machines.
+      return (!world.versus || world.economy) && cmd.side === side;
     case 'setRally':
-      return !world.versus && cmd.side === side && onMap(cmd.x, cmd.y);
+      return (!world.versus || world.economy) && cmd.side === side && onMap(cmd.x, cmd.y);
     case 'support':
       return !world.versus && cmd.side === side && onMap(cmd.x, cmd.y);
     case 'construct': case 'cancelConstruct':

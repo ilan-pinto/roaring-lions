@@ -145,6 +145,7 @@ import {
   REGEN_CAP,
   AURA_CADENCE_TICKS,
   AMBUSH_RADIUS_DEFAULT,
+  MAX_PATROL_WAYPOINTS,
   MAX_SITES,
   BUILD_RANGE_SQ,
   MAX_BUILDERS,
@@ -971,8 +972,15 @@ export type Command =
    *  carried unit is left as it is (the building or the vehicle is its hold).
    *  `ambush`: the same halt, then `setAmbush(id, radius ?? AMBUSH_RADIUS_DEFAULT)`.
    *  Both skip a dead, routed, garrisoned or carried id; a buried one never gets
-   *  here (the containment filter). `patrol` is N3's. */
+   *  here (the containment filter).
+   *  `patrol` (N3 Task 9, Q6): the same halt, then walk `waypoints` (2 to
+   *  `MAX_PATROL_WAYPOINTS`, Q16.16 points) in order and round again, halting to
+   *  fight on contact as the mission runtime's `stepPatrols` does (`stepPatrolStance`).
+   *  Any later order naming the unit drops it (`dropPatrol`); a refused `attack` or
+   *  `rescue` changes nothing, as ever (GH-420). A count out of bounds refuses the
+   *  whole command. */
   | { kind: 'setStance'; ids: number[]; stance: 'hold' | 'ambush'; radius?: Fx }
+  | { kind: 'setStance'; ids: number[]; stance: 'patrol'; waypoints: [Fx, Fx][] }
   | { kind: 'garrison'; ids: number[]; structure: number }
   /** Climb aboard a vehicle with seats. */
   | { kind: 'load'; ids: number[]; carrier: number }
@@ -1032,7 +1040,7 @@ export type Command =
    */
   | { kind: 'rescue'; ids: number[]; target: number }
   /** N2: buy a unit. The MissionRuntime prices and queues it; the sim never
-   *  executes it (R-3). Side 0 only until N3 (C-R3). */
+   *  executes it (R-3). Any human-held side (N3 Task 4; `MissionRuntime.applyQueued`). */
   | { kind: 'build'; side: number; unit: string; line?: number }
   /** F4: cancel `index` on production line `line` (-1 = the item in progress). Runtime-priced. */
   | { kind: 'cancelBuild'; side: number; line: number; index: number }
@@ -1288,6 +1296,8 @@ const MAX_STRUCTURES = 256;
 /** Queued path points per unit. Enough for a route around a block; a cap
  *  keeps the storage flat and the hash cheap. */
 const MAX_WAYPOINTS = 8;
+/** `stance` values: 0 none, 1 ambush, 2 a `setStance{patrol}` beat (N3 Task 9). */
+const STANCE_PATROL = 2;
 /** Flow fields kept alive at once. Slots give every unit in an order its own
  *  goal tile (formation.ts), so a twelve-unit order can want twelve fields
  *  where it used to want one. Beyond this many, `fieldFor` reuses the
@@ -1640,6 +1650,21 @@ export class Sim {
    *  that never sees one keeps its digest (the `mobLive` / `fwLive` shape).
    *  Never cleared. */
   private tnOrderLive = false;
+  /** N3 Task 9 (Q6): a `setStance{patrol}` unit's beat, `MAX_PATROL_WAYPOINTS` slots
+   *  per unit (Q16.16), read only while `stance` is 2. Hashed only behind `patrolLive`. */
+  private readonly patrolX: Int32Array;
+  private readonly patrolY: Int32Array;
+  /** How many of the unit's slots its beat uses (2..MAX_PATROL_WAYPOINTS). */
+  private readonly patrolCount: Uint8Array;
+  /** The waypoint the unit's next leg goes to: the runtime `stepPatrols`' `idx`. */
+  private readonly patrolIdx: Uint8Array;
+  /** True once any `setStance{patrol}` has been accepted for a unit. hash() folds
+   *  the four patrol columns only while it is set, so a world that never patrols
+   *  keeps its digest (the `mobLive` / `tnOrderLive` shape); it also gates
+   *  `stepPatrolStance` and `dropPatrol`. Never cleared. */
+  private patrolLive = false;
+  /** One-element scratch `ids` for a patrol leg, reused rather than allocated per leg. */
+  private readonly patrolLegIds: number[] = [0];
   /** Called-for strikes still in the air. */
   private pendingStrikes: { x: Fx; y: Fx; by: number; readyTick: number; profile: number }[] = [];
 
@@ -2066,6 +2091,10 @@ export class Sim {
     this.homeTunnel = new Int32Array(n).fill(-1);
     this.tunnelGoal = new Int32Array(n).fill(-1);
     this.tunnelEta = new Int32Array(n);
+    this.patrolX = new Int32Array(n * MAX_PATROL_WAYPOINTS);
+    this.patrolY = new Int32Array(n * MAX_PATROL_WAYPOINTS);
+    this.patrolCount = new Uint8Array(n);
+    this.patrolIdx = new Uint8Array(n);
     const sc = MAX_STRUCTURES;
     this.stAlive = new Uint8Array(sc);
     this.stHp = new Int32Array(sc);
@@ -3458,6 +3487,84 @@ export class Sim {
     this.braceDown(id);
   }
 
+  /** N3 Task 9 (Q6): put a unit on a patrol of `wps` (2..MAX_PATROL_WAYPOINTS,
+   *  checked by the caller), its next leg to the first. `stance` 2; the beat is
+   *  walked by `stepPatrolStance`. Sets `patrolLive`. */
+  private setPatrol(id: number, wps: readonly (readonly [Fx, Fx])[]): void {
+    this.patrolLive = true;
+    this.stance[id] = STANCE_PATROL;
+    const base = id * MAX_PATROL_WAYPOINTS;
+    for (let k = 0; k < MAX_PATROL_WAYPOINTS; k++) {
+      this.patrolX[base + k] = k < wps.length ? wps[k][0] : 0;
+      this.patrolY[base + k] = k < wps.length ? wps[k][1] : 0;
+    }
+    this.patrolCount[id] = wps.length;
+    this.patrolIdx[id] = 0;
+  }
+
+  /** N3 Task 9: end a unit's patrol, if it has one, for an order branch that
+   *  does not reset `stance` itself (smoke, unload, an appended move). Touches
+   *  nothing else: the unit finishes whatever leg it is on. A hold or an ambush
+   *  is left alone, exactly as before. Nothing without `patrolLive`. */
+  private dropPatrol(id: number): void {
+    if (this.patrolLive && id >= 0 && id < this.count && this.stance[id] === STANCE_PATROL) this.stance[id] = 0;
+  }
+
+  /** Is this unit on a `setStance{patrol}` beat? Read-only, for tests and the app. */
+  isPatrolling(id: number): boolean {
+    return this.stance[id] === STANCE_PATROL;
+  }
+
+  /** The waypoint a patroller's next leg goes to (0-based), -1 when it is not patrolling. */
+  patrolIndexOf(id: number): number {
+    return this.stance[id] === STANCE_PATROL ? this.patrolIdx[id] : -1;
+  }
+
+  /**
+   * N3 Task 9 (Q6): walk every `setStance{patrol}` beat -- the mission runtime's
+   * `stepPatrols` rule, sim-native. A dead, routed, garrisoned, carried or buried
+   * patroller holds its index. Contact: a patroller that halts to fire walks on a
+   * plain move, which never stops to shoot, so one with a target (unit or
+   * structure) that is still moving is halted here, keeping its patrol and its
+   * interrupted leg (the index steps back one), and resumes the beat once the
+   * target is gone; a vehicle fires on the move and is left as it is. Otherwise an
+   * arrived patroller is sent on to its next waypoint by `applyMove(.., true)`,
+   * the one move that keeps `stance`. After combat and stepSweep and before
+   * movement, so a halt here is what stepBrace kneels on next tick and a new leg
+   * walks this tick. A wounded (down) patroller and a LANDING aircraft hold their
+   * index too. A patrolling medic stays PARKED (`setStance` parks him, GH-707): these
+   * legs never pass through applyCommands, so they do not un-park him, and he walks
+   * his beat without rescuing on his own. Nothing at all before `patrolLive`.
+   */
+  private stepPatrolStance(): void {
+    if (!this.patrolLive) return;
+    for (let i = 0; i < this.count; i++) {
+      if (this.stance[i] !== STANCE_PATROL || this.alive[i] === 0) continue;
+      if (this.routed[i] === 1 || this.garrisonedIn[i] >= 0 || this.carriedBy[i] >= 0 || this.tunnelIn[i] >= 0) continue;
+      // A downed man takes no order (applyCommands' wounded filter), and a leg issued here
+      // never passes that filter, so the patrol holds for him as it does for a buried one.
+      if (this.woundState[i] !== WOUND_NONE) continue;
+      // A LANDING aircraft ignores a move (applyMove), so a leg would leave `moving` 0 and
+      // advance the index -- with a formation pass -- every tick of the descent. Hold instead.
+      if (this.airState[i] === AIR_LANDING && this.unitTypes[this.typeIdx[i]].isAir) continue;
+      const n = this.patrolCount[i];
+      if ((this.curTarget[i] >= 0 || this.curStructure[i] >= 0) && this.unitTypes[this.typeIdx[i]].haltsToFire) {
+        if (this.moving[i] === 1) {
+          this.haltUnit(i);
+          this.haltAir(i);
+          this.stance[i] = STANCE_PATROL; // haltUnit clears it; this halt is the patrol's own
+          this.patrolIdx[i] = (this.patrolIdx[i] + n - 1) % n;
+        }
+        continue;
+      }
+      if (this.moving[i] === 1) continue;
+      const k = i * MAX_PATROL_WAYPOINTS + this.patrolIdx[i];
+      this.patrolIdx[i] = (this.patrolIdx[i] + 1) % n;
+      this.patrolLegIds[0] = i;
+      this.applyMove({ kind: 'move', ids: this.patrolLegIds, x: this.patrolX[k], y: this.patrolY[k] }, true);
+    }
+  }
+
   /** Put a unit that halts to fire straight into BRACE_KNEELING, no drop.
    *  For the two cases that start a fight already low: an ambusher, and a
    *  fighter coming up out of a tunnel shaft. A no-op for any other unit,
@@ -3520,6 +3627,8 @@ export class Sim {
     // ends here hands the unit back before the sweep looks at it.
     this.stepFocus();
     this.stepSweep();
+    // N3 Task 9: after combat (its contact read) and the sweep, before movement.
+    this.stepPatrolStance();
     // GH-698: immediately before movement, so a `moving = 0` written for a
     // landing, landed or lifting carrier holds against every setter above
     // (orders, stepFocus, stepSweep) for this tick's step.
@@ -3818,6 +3927,280 @@ export class Sim {
     this.stance[id] = 0;
   }
 
+  /** The `move` / `attackMove` order (moved here whole from `applyCommands` for
+   *  N3 Task 9). `patrolLeg` is true only for a leg `stepPatrolStance` issues
+   *  itself, the one move that does not reset `stance`: every other caller is a
+   *  command off the queue, and "any order overrides a held stance". */
+  private applyMove(cmd: Extract<Command, { kind: 'move' | 'attackMove' }>, patrolLeg: boolean): void {
+    const gx = this.clampX(cmd.x);
+    const gy = this.clampY(cmd.y);
+    // A goal no GROUND unit can stand on has to become one that it can.
+    // `demolish`, `garrison` and `chargeTunnel` all snap through
+    // nearestOpenTile already; `move` was the one goal-setter that did
+    // not, and it is the one that could least afford to skip it, because
+    // move is the only order whose *completion* is a position test.
+    // stepMovement clears `moving` and shifts the waypoint queue on
+    // `nx === goalX && ny === goalY` alone, so a goal inside a wall is
+    // never reached: the all-DIR_NONE field drops the unit onto the
+    // straight-line fallback, the wall-slide clamp parks it flush against
+    // the first face on that line, and it stands there with `moving === 1`
+    // for the rest of the mission — taking every waypoint queued behind it
+    // with it.
+    //
+    // The GOAL moves here, not just the field. Routing the field alone is
+    // enough for demolish and garrison, whose arrival tests are range
+    // checks against the true centroid; for move it would only relocate
+    // the freeze to the open tile next door, since dirs[fieldGoal] is
+    // DIR_NONE too and the last leg beelines into the wall regardless.
+    const tx = fx.toInt(gx);
+    const ty = fx.toInt(gy);
+    const [fgx, fgy] = this.nearestOpenTile(tx, ty);
+    // A vehicle snaps against its OWN mask, because a boulder is open
+    // ground to a rifleman and a wall to a tank: the same right-click
+    // resolves to different tiles for the two, and each domain's tile is
+    // where that domain's rank of the formation is anchored. `move` is
+    // the one order whose completion is a position test, so a vehicle
+    // goal left on a tile it can never stand on is the freeze described
+    // above, arriving by a different door. Resolved once per order, and
+    // deliberately with no `hasBoulders` shortcut of its own: on a
+    // boulder-free map the two masks are the same array, so this arrives
+    // at the same tile the foot snap did. One collapse, in one place, is
+    // the only kind a test can pin.
+    const [vgx, vgy] = this.nearestOpenTile(tx, ty, this.blockedVehicleMask);
+    // An EXACT order opts out of the formation: it keeps the point it was
+    // given and every unit in it gets that same goal. It is how the sim
+    // shepherds a unit to a point one of its own rules has already chosen
+    // — `CivilianFlight` sending a family to the refuge — where spreading
+    // the order would move a unit off ground the rule picked, and off the
+    // evacuation zone drawn around it. Never set on a player order. Note
+    // it opts out of being PLACED, not out of being avoided:
+    // `reservedTilesFor` is untouched, so an exact goal still holds its
+    // tile against everybody else's slots.
+    //
+    // The three lines below are the goal resolution this branch had
+    // before formations (75461bc), kept whole rather than re-derived: the
+    // exact point when the click tile is open for that domain, the
+    // centre of that domain's snapped tile when it is not, and the raw
+    // point for air, which hovers over rock as happily as over road.
+    const exact = cmd.exact === true;
+    const snapped = fgx !== tx || fgy !== ty;
+    const vSnapped = vgx !== tx || vgy !== ty;
+    const sgx = snapped ? fx.add(fx.fromInt(fgx), HALF) : gx;
+    const sgy = snapped ? fx.add(fx.fromInt(fgy), HALF) : gy;
+    const xgx = vSnapped ? fx.add(fx.fromInt(vgx), HALF) : gx;
+    const xgy = vSnapped ? fx.add(fx.fromInt(vgy), HALF) : gy;
+    // One slot per unit (formation.ts): a group order lands as a
+    // formation around the click — vehicles and aircraft on the clicked
+    // row, infantry in the ranks behind — instead of every unit
+    // converging on the one point.
+    //
+    // AIR is not exempt on this path, deliberately. A drone ordered onto a
+    // blocked tile used to keep the raw point and the raw (all-DIR_NONE)
+    // field, which flew it to the rock it was told to hover over; that is
+    // a coherent order and it is simply not expressible as a slot. It now
+    // takes the foot-snapped click tile and the foot mask like everything
+    // else, with `front` set so it leads the ranks rather than queueing up
+    // behind the infantry. (The exemption survives on the exact path
+    // above, which is not placing anything.)
+    const members: FormationUnit[] = [];
+    let sumX = 0;
+    let sumY = 0;
+    for (const id of exact ? [] : cmd.ids) {
+      // A passenger is inside a vehicle and does not walk anywhere: the
+      // carrier decides where it goes, and `unload` is how it gets out.
+      // This used to disembark instead, which made the ordinary workflow
+      // fail — a box-select still holds the infantry after they board, so
+      // the next right-click dumped them in the road while the APC drove
+      // off. They are already untargetable while aboard; being immune to
+      // movement orders is the same idea. Refused HERE, where the members
+      // are gathered, so a passenger is not handed a slot on the ground
+      // either — the loop below then skips it for having none.
+      if (this.alive[id] === 0 || this.routed[id] === 1 || this.carriedBy[id] >= 0) continue;
+      const utype = this.unitTypes[this.typeIdx[id]];
+      // GH-698: a LANDING aircraft ignores a move outright -- no slot here,
+      // nothing written below. #706: any air type, since a forced landing
+      // brings a gunship down too.
+      if (utype.isAir && this.airState[id] === AIR_LANDING) continue;
+      const front = utype.isAir || utype.moveDomain === DOMAIN_VEHICLE;
+      members.push({ id, domain: utype.isAir ? DOMAIN_FOOT : utype.moveDomain, front });
+      // Where this unit will be coming FROM: its last queued point when
+      // the order appends to a route, otherwise where it stands. Their
+      // centroid is the only thing that fixes which way the ranks face,
+      // so an appended leg has to be measured from the end of the leg
+      // before it and not from a unit still standing on the start line.
+      const queued = cmd.append === true && this.moving[id] === 1;
+      const n = this.wpCount[id];
+      const fromX = queued
+        ? n > 0
+          ? this.wpX[id * MAX_WAYPOINTS + n - 1]
+          : this.goalX[id]
+        : this.posX[id];
+      const fromY = queued
+        ? n > 0
+          ? this.wpY[id * MAX_WAYPOINTS + n - 1]
+          : this.goalY[id]
+        : this.posY[id];
+      sumX += fx.toInt(fromX);
+      sumY += fx.toInt(fromY);
+    }
+    const slots = new Map<number, [number, number]>();
+    if (members.length > 0) {
+      const n = members.length;
+      const assigned = assignFormation({
+        width: this.width,
+        height: this.height,
+        masks: [this.blocked, this.blockedVehicleMask],
+        origins: [
+          [fgx, fgy],
+          [vgx, vgy],
+        ],
+        clickX: fgx,
+        clickY: fgy,
+        // The tree's integer-divide idiom (`fixed.ts:119`), not a float
+        // divide truncated: subtracting the remainder first leaves a
+        // dividend exactly divisible by `n`, so no float is ever produced
+        // to be rounded on the way past. `Math.trunc` is banned in this
+        // package (invariant 2), and `| 0` would have been bit-identical
+        // here — this says what it means instead of relying on the
+        // dividend staying non-negative and inside 2^31.
+        fromX: (sumX - (sumX % n)) / n,
+        fromY: (sumY - (sumY % n)) / n,
+        units: members,
+        // An order's ids are single-side by construction (a player or a
+        // script never mixes sides in one command), so the first member
+        // stands in for all of them here.
+        reserved: this.reservedTilesFor(this.side[members[0].id], cmd.ids),
+      });
+      for (const s of assigned) slots.set(s.id, [s.x, s.y]);
+    }
+    const attack = cmd.kind === 'attackMove' ? 1 : 0;
+    const sweep = cmd.kind === 'attackMove' && cmd.sweep === true ? 1 : 0;
+    for (const id of cmd.ids) {
+      if (this.alive[id] === 0 || this.routed[id] === 1) continue; // broken troops aren't listening
+      const utype = this.unitTypes[this.typeIdx[id]];
+      // GH-698: a move cancels an air carrier's land plan -- except while
+      // LANDING, which ignores it before any write (a goal, field or
+      // attack-move latch left behind would let stepSweep/stepFocus lift
+      // it once landed). Before the append fast-path: an appended leg
+      // behind a land order would otherwise land the carrier on the
+      // waypoint, wherever that is. #706: any air type (a non-carrier's want
+      // is always NONE, so only the LANDING rule bites).
+      if (utype.isAir) {
+        if (this.airState[id] === AIR_LANDING) continue;
+        const want = this.airWant[id];
+        if (want === AIR_WANT_LOAD || want === AIR_WANT_UNLOAD) this.airWant[id] = AIR_WANT_NONE;
+      }
+      const slot = exact ? undefined : slots.get(id);
+      // A passenger is not going anywhere on its own feet either way: on
+      // the formation path it claimed no slot, and on the exact path it
+      // is refused here.
+      if (exact ? this.carriedBy[id] >= 0 : slot === undefined) continue;
+      let ux: Fx;
+      let uy: Fx;
+      // The point is resolved here; the FIELD toward it is not. Only the
+      // goal tile and the domain to path it on are carried down, because
+      // an appended order stores `ux/uy` as a waypoint and returns — the
+      // field is recomputed when that waypoint activates on arrival. A
+      // `fieldFor` call up here would therefore sweep 2304 cells per
+      // appended unit for a result nothing ever reads, and leave it in
+      // the pool for eviction to clear.
+      //
+      // `slot === undefined` here means the EXACT path: on the formation
+      // path a member always has a slot by construction (it would not be
+      // in `members` otherwise), and the guard above already `continue`d
+      // away anyone the formation path left without one.
+      let ufx: number;
+      let ufy: number;
+      let ufd: number;
+      if (slot === undefined) {
+        if (snapped && utype.isAir) {
+          ux = gx;
+          uy = gy;
+          ufx = tx;
+          ufy = ty;
+          ufd = DOMAIN_AIR;
+        } else if (utype.moveDomain === DOMAIN_VEHICLE) {
+          ux = xgx;
+          uy = xgy;
+          ufx = vgx;
+          ufy = vgy;
+          ufd = DOMAIN_VEHICLE;
+        } else {
+          ux = sgx;
+          uy = sgy;
+          ufx = fgx;
+          ufy = fgy;
+          ufd = utype.pathDomain; // DOMAIN_FOOT, or DOMAIN_AIR for an aircraft
+        }
+      } else {
+        // A unit whose slot IS the tile under the cursor keeps the exact
+        // point clicked, fraction and all — snapping that to a tile centre
+        // would be a different order from the one issued, and it is the one
+        // case where nothing is bought by moving it: the tile is this
+        // unit's alone either way. Everyone the formation displaced takes
+        // its slot's centre, because a displaced unit has no clicked point
+        // of its own to keep.
+        const onClick = slot[0] === tx && slot[1] === ty;
+        ux = onClick ? gx : fx.add(fx.fromInt(slot[0]), HALF);
+        uy = onClick ? gy : fx.add(fx.fromInt(slot[1]), HALF);
+        ufx = slot[0];
+        ufy = slot[1];
+        ufd = utype.pathDomain;
+      }
+      // Appending to a unit already under way queues the point instead of
+      // overriding it: that is how a player draws a route round a block.
+      if (cmd.append === true && this.moving[id] === 1) {
+        const n = this.wpCount[id];
+        if (n < MAX_WAYPOINTS) {
+          const k = id * MAX_WAYPOINTS + n;
+          this.wpX[k] = ux;
+          this.wpY[k] = uy;
+          this.wpAttack[k] = attack;
+          this.wpSweep[k] = sweep;
+          this.wpCount[id] = n + 1;
+        }
+        // N3 Task 9: an appended leg is a new order too -- the patrol ends, and the
+        // unit walks its current leg and then the appended route. (This fast-path
+        // never reached the stance reset below, so a hold or ambush, which never
+        // has `moving` 1, could not notice; a patroller nearly always does.)
+        this.dropPatrol(id);
+        continue;
+      }
+      // (A passenger never reached here: the guard above turned it away —
+      // no slot on the formation path, refused outright on the exact one.)
+      // (Buried units were already dropped where the ids expanded, above
+      // the append fast-path — the earth's refusal is not per-branch.)
+      this.wpCount[id] = 0; // a fresh order replaces the whole path
+      if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
+      this.boardGoal[id] = -1;
+      this.garrisonGoal[id] = -1;
+      // Sending the unit somewhere cancels a demolition it was told to do:
+      // otherwise the designation survives the player changing their mind
+      // and fires again the moment the unit next halts near that building.
+      this.demolishOrder[id] = -1;
+      // A charge designation dies with the same change of mind, or the
+      // team quietly resumes the countdown the next time it halts within
+      // reach of that route's spoil.
+      this.chargeOrder[id] = -1;
+      this.chargeTicks[id] = 0;
+      this.goalX[id] = ux;
+      this.goalY[id] = uy;
+      // Asked for and stamped into `fieldRef` in one statement, so no
+      // other `fieldFor` can run between the two: the pool reuses any
+      // field no living unit references, and a field issued but not yet
+      // stamped is exactly that. (`evictableField`'s same-tick exclusion
+      // is the other half of that guarantee.)
+      this.fieldRef[id] = this.fieldFor(ufx, ufy, ufd);
+      this.moving[id] = 1;
+      this.attackMove[id] = attack;
+      this.sweepOrder[id] = sweep;
+      this.engaging[id] = 0;
+      // Any order overrides a held stance -- a patrol included. A leg the patrol
+      // issues itself (`stepPatrolStance`, `patrolLeg`) is the one move that keeps it.
+      if (!patrolLeg) this.stance[id] = 0;
+    }
+  }
+
   private applyCommands(): void {
     if (this.runtimeQueue.length !== 0) this.runtimeQueue = []; // R-3: no runtime took them
     const q = this.commandQueue;
@@ -3919,268 +4302,12 @@ export class Sim {
         }
       }
       if (cmd.kind === 'move' || cmd.kind === 'attackMove') {
-        const gx = this.clampX(cmd.x);
-        const gy = this.clampY(cmd.y);
-        // A goal no GROUND unit can stand on has to become one that it can.
-        // `demolish`, `garrison` and `chargeTunnel` all snap through
-        // nearestOpenTile already; `move` was the one goal-setter that did
-        // not, and it is the one that could least afford to skip it, because
-        // move is the only order whose *completion* is a position test.
-        // stepMovement clears `moving` and shifts the waypoint queue on
-        // `nx === goalX && ny === goalY` alone, so a goal inside a wall is
-        // never reached: the all-DIR_NONE field drops the unit onto the
-        // straight-line fallback, the wall-slide clamp parks it flush against
-        // the first face on that line, and it stands there with `moving === 1`
-        // for the rest of the mission — taking every waypoint queued behind it
-        // with it.
-        //
-        // The GOAL moves here, not just the field. Routing the field alone is
-        // enough for demolish and garrison, whose arrival tests are range
-        // checks against the true centroid; for move it would only relocate
-        // the freeze to the open tile next door, since dirs[fieldGoal] is
-        // DIR_NONE too and the last leg beelines into the wall regardless.
-        const tx = fx.toInt(gx);
-        const ty = fx.toInt(gy);
-        const [fgx, fgy] = this.nearestOpenTile(tx, ty);
-        // A vehicle snaps against its OWN mask, because a boulder is open
-        // ground to a rifleman and a wall to a tank: the same right-click
-        // resolves to different tiles for the two, and each domain's tile is
-        // where that domain's rank of the formation is anchored. `move` is
-        // the one order whose completion is a position test, so a vehicle
-        // goal left on a tile it can never stand on is the freeze described
-        // above, arriving by a different door. Resolved once per order, and
-        // deliberately with no `hasBoulders` shortcut of its own: on a
-        // boulder-free map the two masks are the same array, so this arrives
-        // at the same tile the foot snap did. One collapse, in one place, is
-        // the only kind a test can pin.
-        const [vgx, vgy] = this.nearestOpenTile(tx, ty, this.blockedVehicleMask);
-        // An EXACT order opts out of the formation: it keeps the point it was
-        // given and every unit in it gets that same goal. It is how the sim
-        // shepherds a unit to a point one of its own rules has already chosen
-        // — `CivilianFlight` sending a family to the refuge — where spreading
-        // the order would move a unit off ground the rule picked, and off the
-        // evacuation zone drawn around it. Never set on a player order. Note
-        // it opts out of being PLACED, not out of being avoided:
-        // `reservedTilesFor` is untouched, so an exact goal still holds its
-        // tile against everybody else's slots.
-        //
-        // The three lines below are the goal resolution this branch had
-        // before formations (75461bc), kept whole rather than re-derived: the
-        // exact point when the click tile is open for that domain, the
-        // centre of that domain's snapped tile when it is not, and the raw
-        // point for air, which hovers over rock as happily as over road.
-        const exact = cmd.exact === true;
-        const snapped = fgx !== tx || fgy !== ty;
-        const vSnapped = vgx !== tx || vgy !== ty;
-        const sgx = snapped ? fx.add(fx.fromInt(fgx), HALF) : gx;
-        const sgy = snapped ? fx.add(fx.fromInt(fgy), HALF) : gy;
-        const xgx = vSnapped ? fx.add(fx.fromInt(vgx), HALF) : gx;
-        const xgy = vSnapped ? fx.add(fx.fromInt(vgy), HALF) : gy;
-        // One slot per unit (formation.ts): a group order lands as a
-        // formation around the click — vehicles and aircraft on the clicked
-        // row, infantry in the ranks behind — instead of every unit
-        // converging on the one point.
-        //
-        // AIR is not exempt on this path, deliberately. A drone ordered onto a
-        // blocked tile used to keep the raw point and the raw (all-DIR_NONE)
-        // field, which flew it to the rock it was told to hover over; that is
-        // a coherent order and it is simply not expressible as a slot. It now
-        // takes the foot-snapped click tile and the foot mask like everything
-        // else, with `front` set so it leads the ranks rather than queueing up
-        // behind the infantry. (The exemption survives on the exact path
-        // above, which is not placing anything.)
-        const members: FormationUnit[] = [];
-        let sumX = 0;
-        let sumY = 0;
-        for (const id of exact ? [] : cmd.ids) {
-          // A passenger is inside a vehicle and does not walk anywhere: the
-          // carrier decides where it goes, and `unload` is how it gets out.
-          // This used to disembark instead, which made the ordinary workflow
-          // fail — a box-select still holds the infantry after they board, so
-          // the next right-click dumped them in the road while the APC drove
-          // off. They are already untargetable while aboard; being immune to
-          // movement orders is the same idea. Refused HERE, where the members
-          // are gathered, so a passenger is not handed a slot on the ground
-          // either — the loop below then skips it for having none.
-          if (this.alive[id] === 0 || this.routed[id] === 1 || this.carriedBy[id] >= 0) continue;
-          const utype = this.unitTypes[this.typeIdx[id]];
-          // GH-698: a LANDING aircraft ignores a move outright -- no slot here,
-          // nothing written below. #706: any air type, since a forced landing
-          // brings a gunship down too.
-          if (utype.isAir && this.airState[id] === AIR_LANDING) continue;
-          const front = utype.isAir || utype.moveDomain === DOMAIN_VEHICLE;
-          members.push({ id, domain: utype.isAir ? DOMAIN_FOOT : utype.moveDomain, front });
-          // Where this unit will be coming FROM: its last queued point when
-          // the order appends to a route, otherwise where it stands. Their
-          // centroid is the only thing that fixes which way the ranks face,
-          // so an appended leg has to be measured from the end of the leg
-          // before it and not from a unit still standing on the start line.
-          const queued = cmd.append === true && this.moving[id] === 1;
-          const n = this.wpCount[id];
-          const fromX = queued
-            ? n > 0
-              ? this.wpX[id * MAX_WAYPOINTS + n - 1]
-              : this.goalX[id]
-            : this.posX[id];
-          const fromY = queued
-            ? n > 0
-              ? this.wpY[id * MAX_WAYPOINTS + n - 1]
-              : this.goalY[id]
-            : this.posY[id];
-          sumX += fx.toInt(fromX);
-          sumY += fx.toInt(fromY);
-        }
-        const slots = new Map<number, [number, number]>();
-        if (members.length > 0) {
-          const n = members.length;
-          const assigned = assignFormation({
-            width: this.width,
-            height: this.height,
-            masks: [this.blocked, this.blockedVehicleMask],
-            origins: [
-              [fgx, fgy],
-              [vgx, vgy],
-            ],
-            clickX: fgx,
-            clickY: fgy,
-            // The tree's integer-divide idiom (`fixed.ts:119`), not a float
-            // divide truncated: subtracting the remainder first leaves a
-            // dividend exactly divisible by `n`, so no float is ever produced
-            // to be rounded on the way past. `Math.trunc` is banned in this
-            // package (invariant 2), and `| 0` would have been bit-identical
-            // here — this says what it means instead of relying on the
-            // dividend staying non-negative and inside 2^31.
-            fromX: (sumX - (sumX % n)) / n,
-            fromY: (sumY - (sumY % n)) / n,
-            units: members,
-            // An order's ids are single-side by construction (a player or a
-            // script never mixes sides in one command), so the first member
-            // stands in for all of them here.
-            reserved: this.reservedTilesFor(this.side[members[0].id], cmd.ids),
-          });
-          for (const s of assigned) slots.set(s.id, [s.x, s.y]);
-        }
-        const attack = cmd.kind === 'attackMove' ? 1 : 0;
-        const sweep = cmd.kind === 'attackMove' && cmd.sweep === true ? 1 : 0;
-        for (const id of cmd.ids) {
-          if (this.alive[id] === 0 || this.routed[id] === 1) continue; // broken troops aren't listening
-          const utype = this.unitTypes[this.typeIdx[id]];
-          // GH-698: a move cancels an air carrier's land plan -- except while
-          // LANDING, which ignores it before any write (a goal, field or
-          // attack-move latch left behind would let stepSweep/stepFocus lift
-          // it once landed). Before the append fast-path: an appended leg
-          // behind a land order would otherwise land the carrier on the
-          // waypoint, wherever that is. #706: any air type (a non-carrier's want
-          // is always NONE, so only the LANDING rule bites).
-          if (utype.isAir) {
-            if (this.airState[id] === AIR_LANDING) continue;
-            const want = this.airWant[id];
-            if (want === AIR_WANT_LOAD || want === AIR_WANT_UNLOAD) this.airWant[id] = AIR_WANT_NONE;
-          }
-          const slot = exact ? undefined : slots.get(id);
-          // A passenger is not going anywhere on its own feet either way: on
-          // the formation path it claimed no slot, and on the exact path it
-          // is refused here.
-          if (exact ? this.carriedBy[id] >= 0 : slot === undefined) continue;
-          let ux: Fx;
-          let uy: Fx;
-          // The point is resolved here; the FIELD toward it is not. Only the
-          // goal tile and the domain to path it on are carried down, because
-          // an appended order stores `ux/uy` as a waypoint and returns — the
-          // field is recomputed when that waypoint activates on arrival. A
-          // `fieldFor` call up here would therefore sweep 2304 cells per
-          // appended unit for a result nothing ever reads, and leave it in
-          // the pool for eviction to clear.
-          //
-          // `slot === undefined` here means the EXACT path: on the formation
-          // path a member always has a slot by construction (it would not be
-          // in `members` otherwise), and the guard above already `continue`d
-          // away anyone the formation path left without one.
-          let ufx: number;
-          let ufy: number;
-          let ufd: number;
-          if (slot === undefined) {
-            if (snapped && utype.isAir) {
-              ux = gx;
-              uy = gy;
-              ufx = tx;
-              ufy = ty;
-              ufd = DOMAIN_AIR;
-            } else if (utype.moveDomain === DOMAIN_VEHICLE) {
-              ux = xgx;
-              uy = xgy;
-              ufx = vgx;
-              ufy = vgy;
-              ufd = DOMAIN_VEHICLE;
-            } else {
-              ux = sgx;
-              uy = sgy;
-              ufx = fgx;
-              ufy = fgy;
-              ufd = utype.pathDomain; // DOMAIN_FOOT, or DOMAIN_AIR for an aircraft
-            }
-          } else {
-            // A unit whose slot IS the tile under the cursor keeps the exact
-            // point clicked, fraction and all — snapping that to a tile centre
-            // would be a different order from the one issued, and it is the one
-            // case where nothing is bought by moving it: the tile is this
-            // unit's alone either way. Everyone the formation displaced takes
-            // its slot's centre, because a displaced unit has no clicked point
-            // of its own to keep.
-            const onClick = slot[0] === tx && slot[1] === ty;
-            ux = onClick ? gx : fx.add(fx.fromInt(slot[0]), HALF);
-            uy = onClick ? gy : fx.add(fx.fromInt(slot[1]), HALF);
-            ufx = slot[0];
-            ufy = slot[1];
-            ufd = utype.pathDomain;
-          }
-          // Appending to a unit already under way queues the point instead of
-          // overriding it: that is how a player draws a route round a block.
-          if (cmd.append === true && this.moving[id] === 1) {
-            const n = this.wpCount[id];
-            if (n < MAX_WAYPOINTS) {
-              const k = id * MAX_WAYPOINTS + n;
-              this.wpX[k] = ux;
-              this.wpY[k] = uy;
-              this.wpAttack[k] = attack;
-              this.wpSweep[k] = sweep;
-              this.wpCount[id] = n + 1;
-            }
-            continue;
-          }
-          // (A passenger never reached here: the guard above turned it away —
-          // no slot on the formation path, refused outright on the exact one.)
-          // (Buried units were already dropped where the ids expanded, above
-          // the append fast-path — the earth's refusal is not per-branch.)
-          this.wpCount[id] = 0; // a fresh order replaces the whole path
-          if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
-          this.boardGoal[id] = -1;
-          this.garrisonGoal[id] = -1;
-          // Sending the unit somewhere cancels a demolition it was told to do:
-          // otherwise the designation survives the player changing their mind
-          // and fires again the moment the unit next halts near that building.
-          this.demolishOrder[id] = -1;
-          // A charge designation dies with the same change of mind, or the
-          // team quietly resumes the countdown the next time it halts within
-          // reach of that route's spoil.
-          this.chargeOrder[id] = -1;
-          this.chargeTicks[id] = 0;
-          this.goalX[id] = ux;
-          this.goalY[id] = uy;
-          // Asked for and stamped into `fieldRef` in one statement, so no
-          // other `fieldFor` can run between the two: the pool reuses any
-          // field no living unit references, and a field issued but not yet
-          // stamped is exactly that. (`evictableField`'s same-tick exclusion
-          // is the other half of that guarantee.)
-          this.fieldRef[id] = this.fieldFor(ufx, ufy, ufd);
-          this.moving[id] = 1;
-          this.attackMove[id] = attack;
-          this.sweepOrder[id] = sweep;
-          this.engaging[id] = 0;
-          this.stance[id] = 0; // any order overrides a held stance
-        }
+        this.applyMove(cmd, false);
       } else if (cmd.kind === 'smoke') {
         for (const id of cmd.ids) {
+          // N3 Task 9: this branch never touched `stance` (a smoke order left a
+          // hold or an ambush standing, and still does); a patrol is dropped by it.
+          this.dropPatrol(id);
           if (this.alive[id] === 0 || !this.unitTypes[this.typeIdx[id]].canSmoke) continue;
           if (this.smokeCooldown[id] > 0) continue;
           if (distSqFx(fx.sub(cmd.x, this.posX[id]), fx.sub(cmd.y, this.posY[id])) > SMOKE_RANGE_SQ) continue;
@@ -4278,6 +4405,7 @@ export class Sim {
         }
       } else if (cmd.kind === 'unload') {
         for (const id of cmd.ids) {
+          this.dropPatrol(id); // N3 Task 9: as `smoke`, the one other branch that never resets `stance`
           // GH-698 R4: an air carrier lands, then unloads. A ground carrier
           // keeps unloadAll, the immediate everyone-out.
           if (id >= 0 && id < this.count && this.unitTypes[this.typeIdx[id]].isAirCarrier) this.airUnloadOrder(id);
@@ -4479,6 +4607,9 @@ export class Sim {
       } else if (cmd.kind === 'cancelConstruct') {
         this.applyCancelConstruct(cmd.site);
       } else if (cmd.kind === 'setStance') {
+        // N3 Task 9: a patrol of the wrong length is no order at all -- refused
+        // whole, before any id is halted, so it changes nothing.
+        if (cmd.stance === 'patrol' && (cmd.waypoints.length < 2 || cmd.waypoints.length > MAX_PATROL_WAYPOINTS)) continue;
         // Not a plain halt: it must skip garrisoned and carried ids, which halt would pull out of their post.
         for (const id of cmd.ids) {
           if (this.alive[id] === 0 || this.routed[id] === 1) continue;
@@ -4486,6 +4617,7 @@ export class Sim {
           this.haltUnit(id);
           this.haltAir(id);
           if (cmd.stance === 'ambush') this.setAmbush(id, cmd.radius ?? AMBUSH_RADIUS_DEFAULT);
+          else if (cmd.stance === 'patrol') this.setPatrol(id, cmd.waypoints);
         }
       } else if (cmd.kind === 'halt') {
         for (const id of cmd.ids) {
@@ -6115,7 +6247,8 @@ export class Sim {
       this.attackMove[i] = 0;
       this.sweepOrder[i] = 0;
       this.engaging[i] = 0;
-      this.stance[i] = 0;
+      // N3 Task 9: a broken patroller keeps its beat and resumes it when it rallies.
+      if (this.stance[i] !== STANCE_PATROL) this.stance[i] = 0;
       return;
     }
     const gx = fx.clamp(fx.add(this.posX[i], fx.mul(nx, ROUT_DISTANCE)), ONE, (this.width - 2) * ONE);
@@ -6127,7 +6260,7 @@ export class Sim {
     this.attackMove[i] = 0;
     this.sweepOrder[i] = 0;
     this.engaging[i] = 0;
-    this.stance[i] = 0;
+    if (this.stance[i] !== STANCE_PATROL) this.stance[i] = 0; // N3 Task 9: as above
   }
 
   /**
@@ -10290,6 +10423,16 @@ export class Sim {
     if (this.tnOrderLive) {
       h = hashArray(h, this.tunnelGoal);
       h = hashArray(h, this.tunnelEta);
+    }
+    // N3 Task 9 (Q6): the patrol beat, folded only once a patrol has been accepted,
+    // so every world that never patrols keeps its digest. (`stance` itself is
+    // folded above, unconditionally, and reads 2 on a patroller.)
+    if (this.patrolLive) {
+      h = hashWord(h, 0x50540009); // 'PT' N3 Task 9
+      h = hashArray(h, this.patrolX);
+      h = hashArray(h, this.patrolY);
+      h = hashArray(h, this.patrolCount);
+      h = hashArray(h, this.patrolIdx);
     }
     h = hashArray(h, this.chargeOrder);
     h = hashArray(h, this.chargeTicks);

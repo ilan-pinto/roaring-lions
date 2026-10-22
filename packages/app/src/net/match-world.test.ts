@@ -1,9 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { validateConfig, type MatchConfig, type SeatConfig } from '@lions/net';
-import { buildMatchWorld, seatKitTiers, type MatchWorld } from './match-world';
+import { doctrines, units, versusRules } from '@lions/data';
+import { matchDigest, sidesOfFactions, validateConfig, type MatchConfig, type SeatConfig } from '@lions/net';
+import type { MissionEvent } from '@lions/sim';
+import { campOf } from './versus-force';
+import { viewerSideOf } from './viewer';
+import { buildMatchWorld, matchTick, seatKitTiers, versusUnitInfo, type MatchWorld } from './match-world';
+import { versusRoster } from './versus-roster';
 
 function config(map: string, factions: ['kdf' | 'sarim', 'kdf' | 'sarim'], seed = 1234): MatchConfig {
-  const seat = (s: 0 | 1) => ({ seat: s, side: s, faction: factions[s], kit: 'matched', tiers: {}, unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' });
+  // The room's own rule (LD1): the side follows the faction, the end the seat.
+  const sides = sidesOfFactions(factions);
+  const seat = (s: 0 | 1) => ({ seat: s, side: sides[s], faction: factions[s], kit: 'matched', tiers: {}, unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' });
   const c = validateConfig({ matchId: 'M', code: 'ABCDEF', seed, map, mode: 'versus', seats: [seat(0), seat(1)], pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b', dataDigest: 0 });
   if (c === null) throw new Error('bad fixture');
   return c;
@@ -43,12 +50,59 @@ describe('buildMatchWorld', () => {
     expect(a.sim.hash()).toBe(b.sim.hash());
     expect(c.sim.hash()).not.toBe(a.sim.hash());
   });
-  it('spawns each side its faction force on its own anchor', () => {
-    const w = buildMatchWorld(config('tel_marum', ['sarim', 'kdf']));
-    const types = (ids: number[]) => new Set(ids.map((i) => w.sim.unitTypes[w.sim.state.typeIdx[i]].id));
-    expect(types(w.bySide[0]).has('atgm_cell')).toBe(true);
-    expect(types(w.bySide[1]).has('mbt_lavi')).toBe(true);
-    expect(w.bySide[0].every((i) => w.sim.state.side[i] === 0)).toBe(true);
+  it('spawns each side its faction force: the KDF on side 0 whichever seat hosts (LD1)', () => {
+    for (const factions of [['sarim', 'kdf'], ['kdf', 'sarim']] as const) {
+      const w = buildMatchWorld(config('tel_marum', [...factions]));
+      const types = (ids: number[]) => new Set(ids.map((i) => w.sim.unitTypes[w.sim.state.typeIdx[i]].id));
+      expect(w.factions).toEqual(['kdf', 'sarim']);
+      expect(types(w.bySide[0]).has('mbt_lavi')).toBe(true);
+      expect(types(w.bySide[1]).has('atgm_cell')).toBe(true);
+      for (const side of [0, 1] as const) expect(w.bySide[side].every((i) => w.sim.state.side[i] === side)).toBe(true);
+    }
+  });
+  it('host end follows the seat: a Sarim host is side 1 on the friendly anchor, with its camera there (LD1)', () => {
+    for (const map of ['tel_marum', 'wadi_tarfan']) {
+      const cfg = config(map, ['sarim', 'kdf']);
+      const w = buildMatchWorld(cfg);
+      const near = (side: 0 | 1, [ax, ay]: readonly [number, number]) => w.bySide[side].every((i) =>
+        Math.max(Math.abs(w.sim.state.posX[i] / 65536 - ax), Math.abs(w.sim.state.posY[i] / 65536 - ay)) <= 11);
+      // Within the force's own spread of its anchor (offsets reach 9 tiles along the line, plus placeOnOpen's search).
+      expect(w.endOfSide).toEqual(['hostile', 'friendly']);
+      expect(near(1, w.anchors.friendly), `${map}: Sarim side 1 on the friendly anchor`).toBe(true);
+      expect(near(0, w.anchors.hostile), `${map}: KDF side 0 on the hostile anchor`).toBe(true);
+      // The force CENTRE, tighter than the spread: within 3 tiles of its end's anchor.
+      const centre = (side: 0 | 1) => {
+        const ids = w.bySide[side];
+        return [ids.reduce((a, i) => a + w.sim.state.posX[i], 0) / ids.length / 65536, ids.reduce((a, i) => a + w.sim.state.posY[i], 0) / ids.length / 65536];
+      };
+      const [fx, fy] = w.anchors.friendly;
+      const [c1x, c1y] = centre(1);
+      expect(Math.max(Math.abs(c1x - fx), Math.abs(c1y - fy)), `${map}: Sarim centre`).toBeLessThanOrEqual(3);
+      // The host's camera (main.ts): its viewer side's end.
+      expect(campOf(w.anchors, w.endOfSide[viewerSideOf(cfg, 0)])).toEqual(w.anchors.friendly);
+      expect(campOf(w.anchors, w.endOfSide[viewerSideOf(cfg, 1)])).toEqual(w.anchors.hostile);
+    }
+  });
+  it('a KDF host and a mirror keep side 0 on the friendly end', () => {
+    expect(buildMatchWorld(config('tel_marum', ['kdf', 'sarim'])).endOfSide).toEqual(['friendly', 'hostile']);
+    expect(buildMatchWorld(config('tel_marum', ['kdf', 'kdf'])).endOfSide).toEqual(['friendly', 'hostile']);
+  });
+  it('the side swap moves only the side labels: a Sarim host room spawns the KDF-host room\'s ids, types and tiles', () => {
+    const read = (w: MatchWorld) => Array.from({ length: w.sim.entityCount }, (_, i) => [
+      w.sim.unitTypes[w.sim.state.typeIdx[i]].id, w.sim.state.posX[i], w.sim.state.posY[i], w.sim.state.facing[i],
+    ]);
+    // Before LD1 a Sarim host was Sarim on side 0 at the friendly end: that world is
+    // a config with seat 0 on side 0 playing Sarim, which `buildMatchWorld` still builds.
+    const before = validateConfig({ ...config('tel_marum', ['sarim', 'kdf']), seats: [
+      { ...config('tel_marum', ['sarim', 'kdf']).seats[0], side: 0 }, { ...config('tel_marum', ['sarim', 'kdf']).seats[1], side: 1 },
+    ] });
+    if (before === null) throw new Error('bad fixture');
+    const old = buildMatchWorld(before);
+    const now = buildMatchWorld(config('tel_marum', ['sarim', 'kdf']));
+    expect(read(now)).toEqual(read(old));
+    // The friendly end's force came first: Sarim, on side 1 now.
+    expect(now.bySide[1][0]).toBe(0);
+    expect(old.bySide[0][0]).toBe(0);
   });
   it('refuses a sandbox config', () => {
     expect(() => buildMatchWorld({ ...config('tel_marum', ['kdf', 'kdf']), mode: 'sandbox' })).toThrow(/versus/);
@@ -243,3 +297,130 @@ describe("a matched room, and a brigade room with equal claims, build today's by
     expect(w.sim.unitTypes.length).toBe(MATCHED_TYPES);
   });
 });
+
+// N3 Task 3: a KDF-v-Sarim room boots the skirmish economy; a mirror room boots none.
+describe('the economy runtime (N3 Task 3)', () => {
+  const MATCHUP_MAPS = ['tel_marum', 'wadi_tarfan'] as const;
+  /** Every match-world step through the ONE shared tick body, collecting the runtime's events. */
+  const run = (w: MatchWorld, n: number, into: MissionEvent[] = []): MissionEvent[] => {
+    for (let i = 0; i < n; i++) into.push(...matchTick(w).mission);
+    return into;
+  };
+
+  it('a mirror room has no runtime', () => {
+    for (const map of ['beit_sahwan_outskirts', ...MATCHUP_MAPS]) {
+      expect(buildMatchWorld(config(map, ['kdf', 'kdf'])).runtime, map).toBeNull();
+    }
+  });
+
+  it('a KDF-v-Sarim room, either host: one living line per side, each at its own end\'s camp, and each side its faction\'s purse', () => {
+    for (const map of MATCHUP_MAPS) {
+      for (const factions of [['kdf', 'sarim'], ['sarim', 'kdf']] as const) {
+        const w = buildMatchWorld(config(map, [...factions]));
+        const rt = w.runtime;
+        if (rt === null) throw new Error(`${map}: no runtime`);
+        // By side, and so by faction (LD1: KDF is side 0): never the seats' order.
+        expect(rt.logisticsOf(0), `${map} ${factions.join('/')}`).toBe(doctrines.kdf.budget.logistics_start);
+        expect(rt.logisticsOf(1), `${map} ${factions.join('/')}`).toBe(doctrines.sarim.budget.logistics_start);
+        for (const side of [0, 1] as const) {
+          const lines = rt.productionLines(side);
+          expect(lines).toHaveLength(1);
+          expect(lines[0].alive).toBe(true);
+          expect(lines[0].anchor).toBeGreaterThanOrEqual(0);
+          // The camp of the end this side stands at, from the rules file.
+          const [cx, cy] = versusRules[map].ends[w.endOfSide[side]].camp.at;
+          const [ex, ey] = lines[0].exit.map((v) => v / 65536);
+          expect(Math.max(Math.abs(ex - cx), Math.abs(ey - cy)), `${map} side ${side} exit by its camp`).toBeLessThanOrEqual(4);
+        }
+      }
+    }
+  });
+
+  it('versusUnitInfo: the asking side\'s menu only, its cost from the unit JSON, no unlock and no intel', () => {
+    const info = versusUnitInfo([doctrines.kdf.menu, doctrines.sarim.menu]);
+    expect(info('mbt_lavi', 0)).toEqual({ logistics: units.mbt_lavi.cost.logistics, buildTimeS: expect.any(Number), population: expect.any(Number) });
+    expect(info('mbt_lavi', 1)).toBeNull();
+    expect(info('atgm_cell', 1)).not.toBeNull();
+    expect(info('atgm_cell', 0)).toBeNull();
+    expect(info('no_such_unit', 0)).toBeNull();
+    // A gated KDF unit (Conduct 90 in single-player) is simply buildable here: the menu is the gate.
+    const lavi = info('mbt_lavi', 0);
+    expect(lavi !== null && !('unlock' in lavi) && !('intel' in lavi)).toBe(true);
+  });
+
+  it('matchTick drains the commands the frame set aside before the tick runs', () => {
+    const w = buildMatchWorld(config('tel_marum', ['kdf', 'sarim']));
+    const rt = w.runtime;
+    if (rt === null) throw new Error('no runtime');
+    // Straight into the sim's set-aside list (the wire still drops `build` in versus).
+    w.sim.queueCommand({ kind: 'build', side: 0, unit: 'inf_squad', line: 0 });
+    matchTick(w);
+    expect(rt.productionLines(0)[0].current).toBe('inf_squad');
+    expect(rt.logisticsOf(0)).toBe(doctrines.kdf.budget.logistics_start - units.inf_squad.cost.logistics);
+  });
+
+  it('build and lose: the built KDF unit dies, the placed force lives, and the room keeps producing', () => {
+    const w = buildMatchWorld(config('tel_marum', ['kdf', 'sarim']));
+    const rt = w.runtime;
+    if (rt === null) throw new Error('no runtime');
+    const events: MissionEvent[] = [];
+    const first = w.sim.entityCount;
+    expect(rt.requestBuild('inf_squad', 0, 0)).toBe(true);
+    run(w, 1200, events);
+    const built: number[] = [];
+    for (let i = first; i < w.sim.entityCount; i++) if (w.sim.state.side[i] === 0) built.push(i);
+    expect(built.length).toBeGreaterThan(0);
+    for (const id of built) w.sim.debugKill(id);
+    run(w, 1, events);
+    // Without `checkEnd`'s guard every `playerIds` entry is dead and the runtime ends a defeat here.
+    expect(rt.result).toBe('ongoing');
+    expect(events.some((e) => e.kind === 'missionEnd')).toBe(false);
+    expect(w.bySide[0].some((id) => w.sim.state.alive[id] === 1)).toBe(true);
+    const builtBefore = events.filter((e) => e.kind === 'built').length;
+    expect(rt.requestBuild('inf_squad', 0, 0)).toBe(true);
+    run(w, 1200, events);
+    expect(events.filter((e) => e.kind === 'built').length).toBe(builtBefore + 1);
+    expect(rt.result).toBe('ongoing');
+  }, 60_000);
+
+  it('never ends: 30,000 ticks (the 25-minute cap) with no orders, and a build at tick 29,000 starts', () => {
+    const w = buildMatchWorld(config('wadi_tarfan', ['kdf', 'sarim']));
+    const rt = w.runtime;
+    if (rt === null) throw new Error('no runtime');
+    const events = run(w, 29_000);
+    expect(rt.result).toBe('ongoing');
+    expect(rt.requestBuild('inf_squad', 0, 0)).toBe(true);
+    expect(rt.requestBuild('atgm_cell', 0, 1)).toBe(true);
+    run(w, 1000, events);
+    expect(w.sim.tickCount).toBe(30_000);
+    expect(rt.result).toBe('ongoing');
+    expect(events.some((e) => e.kind === 'missionEnd')).toBe(false);
+    expect(events.filter((e) => e.kind === 'built').map((e) => (e.kind === 'built' ? e.side : -1)).sort()).toEqual([0, 1]);
+  }, 120_000);
+
+  it('VERSUS_ECONOMY_PINS (born N3 Task 3): a KDF-host room on each matchup map, 200 ticks', () => {
+    // LITERALS (CLAUDE.md). seed 20260727, KDF host, 200 ticks of `matchTick` with no orders,
+    // matchDigest(sim.hash(), runtime.digest(), 0).
+    // Re-pinned with the lead's start purses KDF 1500 / Sarim 2400 (22 Oct; db2803f0): the purse is folded by
+    // runtime.digest(). Was -1014683486 / -1434364569.
+    const VERSUS_ECONOMY_PINS = [['tel_marum', -193936706], ['wadi_tarfan', -1815401533]] as const;
+    for (const [map, pin] of VERSUS_ECONOMY_PINS) {
+      const w = buildMatchWorld(config(map, ['kdf', 'sarim'], 20260727));
+      run(w, 200);
+      expect(matchDigest(w.sim.hash(), w.runtime?.digest() ?? NaN, 0), map).toBe(pin);
+    }
+  });
+});
+
+describe('doctrine menus and the room roster (Task 3 review, M-a)', () => {
+  it('every doctrine menu id is a unit a room registers, so a build can never reach a missing type', () => {
+    const ids = new Set(versusRoster().map((u) => u.id));
+    for (const d of Object.values(doctrines)) for (const id of d.menu) expect(ids.has(id), id).toBe(true);
+  });
+  it('a held unit on a menu is answered null, not passed on', () => {
+    const held = units.mbt_lavi_camo === undefined ? null : 'mbt_lavi_camo';
+    if (held === null) return;
+    expect(versusUnitInfo([[held], []])(held, 0)).toBeNull();
+  });
+});
+

@@ -57,6 +57,36 @@ export function factionsOfMatchup(m: Matchup): [Faction, Faction] {
   return ['kdf', 'kdf'];
 }
 
+/** Each SEAT's sim side for a pair of seat factions (LD1, N3 Task 2): in a
+ *  KDF-vs-Sarim pairing the KDF seat is side 0 and the Sarim seat side 1,
+ *  whichever seat hosts; in a mirror (or a sandbox room's KDF pair) seat s is
+ *  side s, as every room was before. Where a side STANDS is the seat's, not
+ *  the side's (`endOfSeat`): a Sarim host is side 1 at the friendly end. */
+export function sidesOfFactions(f: readonly [Faction, Faction]): [0 | 1, 0 | 1] {
+  return f[0] !== f[1] && f[0] === 'sarim' ? [1, 0] : [0, 1];
+}
+
+/** Each SEAT's sim side for a host's matchup: `sidesOfFactions` of `factionsOfMatchup`. */
+export function sidesOfMatchup(m: Matchup): [0 | 1, 0 | 1] {
+  return sidesOfFactions(factionsOfMatchup(m));
+}
+
+/** Whether a room plays on the skirmish economy (N3 Task 3, Q1): a versus room
+ *  whose two seats field different factions. Such a room builds a
+ *  `MissionRuntime` (camps, purses, doctrine menus, income zones); a mirror
+ *  room -- KDF against KDF -- keeps today's placed-force match and builds none. */
+export function economyRoom(config: Pick<MatchConfig, 'mode' | 'seats'>): boolean {
+  return config.mode === 'versus' && config.seats[0].faction !== config.seats[1].faction;
+}
+
+/** Where a seat's force spawns: the host (seat 0) on the map's `friendly`
+ *  anchor, the guest on `hostile` -- by SEAT, never by side, so picking Sarim
+ *  does not move the host's end (LD1, N3 Task 2). */
+export type SpawnEnd = 'friendly' | 'hostile';
+export function endOfSeat(seat: Seat): SpawnEnd {
+  return seat === 0 ? 'friendly' : 'hostile';
+}
+
 /** The maps a versus room is offered on (the lead's ruling on #561,
  *  2026-10-14, "Limit, then fix"): the two the versus probe measured close to
  *  even in a mirror match (#589, `pnpm versus:probe`). On
