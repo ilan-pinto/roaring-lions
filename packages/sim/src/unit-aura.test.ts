@@ -327,6 +327,17 @@ describe('unit aura: passengers', () => {
 });
 
 describe('unit aura and GH-707 wounded (the E1 ruling)', () => {
+  it('a medic that is itself down projects nothing', () => {
+    const { sim, u, more } = world([WOUNDED]);
+    void more; // registering the wounded type turns the wound fold on
+    const medic = sim.spawn(u.medic, 0, at(20.5), at(15.5));
+    const id = sim.spawn(u.squad, 0, at(22.5), at(15.5));
+    run(sim, 10);
+    expect(sim.state.auraHealRate[id]).toBe(66); // the control
+    sim.state.woundState[medic] = 1; // WOUND_DOWN (tuning.ts)
+    run(sim, 10);
+    expect(sim.state.auraHealRate[id]).toBe(0);
+  });
   it('a wounded body in range is not covered and bleeds exactly as without the medic', () => {
     const bleedAfter = (withMedic: boolean): { bleed: number; rate: number; squadRate: number } => {
       const { sim, u, more } = world([WOUNDED]);
@@ -374,5 +385,23 @@ describe('unit aura: the deferred fold (no pin moves while unused)', () => {
   });
   it('replays bit-identically', () => {
     expect(play(true, true).hashes).toEqual(play(true, true).hashes);
+  });
+  it('a medic fielded mid-mission (tick 137) replays bit-identically and differs from none', () => {
+    const late = (spawnAt: number): number[] => {
+      const sim = new Sim({ seed: 0xe1, width: 48, height: 32, capacity: 32 });
+      const sq = sim.addUnitType(SQUAD);
+      const med = sim.addUnitType(MEDIC);
+      const a = sim.spawn(sq, 0, at(20.5), at(15.5));
+      damage(sim, a, 200);
+      const hashes: number[] = [];
+      for (let i = 0; i < 400; i++) {
+        if (i === spawnAt) sim.spawn(med, 0, at(21.5), at(15.5));
+        sim.tick();
+        if (i % 50 === 0) hashes.push(sim.hash());
+      }
+      return hashes;
+    };
+    expect(late(137)).toEqual(late(137));
+    expect(late(137)).not.toEqual(late(-1));
   });
 });

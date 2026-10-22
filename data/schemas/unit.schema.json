@@ -585,7 +585,7 @@
                 "type": "number",
                 "exclusiveMinimum": 0,
                 "maximum": 12,
-                "description": "Tiles from the carrier's position. Ignored by `passengers`, which covers the carrier's own riders wherever they sit."
+                "description": "Tiles from the carrier's position. Required but unused by `passengers`, which covers the carrier's own riders wherever they sit."
               },
               "affects": {
                 "enum": ["foot", "vehicle", "any", "passengers"],
@@ -594,7 +594,7 @@
               "stationary": {
                 "type": "boolean",
                 "default": false,
-                "description": "The effect applies only while the carrier is not moving."
+                "description": "The effect applies only while the carrier has no movement order (the sim's `moving` flag: a unit braced on an attack-move, or a stuck hull still holding a move order, counts as moving)."
               },
               "heal_per_s": {
                 "type": "number",

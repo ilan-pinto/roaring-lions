@@ -9541,12 +9541,14 @@ export class Sim {
   /**
    * E1 (GH-709): the unit half of stepAuras, the same max-over-effects rule into the same
    * columns, so a unit aura and a station never stack with each other or themselves. A
-   * carrier counts while alive, not garrisoned, not carried and not underground (and, for a
-   * `stationary` effect, not moving). An area effect covers what a station's does -- same
+   * carrier counts while alive, not down, not garrisoned, not carried and not underground
+   * (and, for a `stationary` effect, with no movement order: `moving[c] === 0`, the field-fix
+   * assist's own "stands still"). An area effect covers what a station's does -- same
    * side, alive, surface, not garrisoned, not carried, not air, in the effect's domain --
    * within `radius` of the carrier, never the carrier itself. `passengers` covers the
    * carrier's own living riders (`carriedBy === c`) wherever it is, in the air included.
-   * GH-707 wounded (`horsDeCombat`) are never covered: an aura heals pooled squad hp and
+   * GH-707 wounded (`horsDeCombat`) are never covered by a UNIT aura (a station's coverage
+   * is GH-707's and unchanged here), at cadence granularity: a unit aura heals pooled squad hp and
    * leaves bleeding to the medic's treat and the carrier's `stabilise_radius` (the E1 x
    * GH-707 ruling, in the PR). Called only while `unitAuraLive`; allocates nothing.
    */
@@ -9557,6 +9559,8 @@ export class Sim {
       const area = this.unitTypes[this.typeIdx[c]].aura;
       if (area === null) continue;
       if (this.garrisonedIn[c] >= 0 || this.carriedBy[c] >= 0 || this.tunnelIn[c] >= 0) continue;
+      // A carrier that is itself down (GH-707) projects nothing.
+      if (this.woundLive && this.horsDeCombat(c)) continue;
       const side = this.side[c];
       const cx = this.posX[c];
       const cy = this.posY[c];
