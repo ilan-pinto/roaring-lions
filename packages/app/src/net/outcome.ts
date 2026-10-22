@@ -13,7 +13,7 @@
  * room closes itself two minutes after both seats have reported it. That
  * ending (`over`) is no result of its own -- the panel is already up.
  */
-import { units } from '@lions/data';
+import { doctrines, units } from '@lions/data';
 import { endingLoser, type MatchConfig, type Seat } from '@lions/net';
 import { isHashTick } from './frame-step';
 
@@ -85,7 +85,9 @@ function immobile(sim: OutcomeSim, i: number): boolean {
 }
 
 /** Whether every living unit of the two playing sides is immobile. */
-function allImmobile(sim: OutcomeSim): boolean {
+function allImmobile(sim: OutcomeSim, production?: OutcomeProduction): boolean {
+  // A side that can still field a unit can still produce a mover.
+  if (production !== undefined && SIDES.some((s) => production.canField(s))) return false;
   const { side: sides, alive } = sim.state;
   for (let i = 0; i < sim.entityCount; i++) {
     if (alive[i] === 0 || (sides[i] !== 0 && sides[i] !== 1)) continue;
@@ -131,6 +133,53 @@ function armedStanding(sim: OutcomeSim, side: 0 | 1): boolean {
   return false;
 }
 
+/** What an economy room adds to the win rule (N3 Task 5): whether a side that
+ *  has no armed unit standing can still field one. Absent -- every mirror
+ *  room -- the rule is the units-only rule, exactly. */
+export interface OutcomeProduction {
+  canField(side: 0 | 1): boolean;
+}
+
+/** The slice of `MatchWorld` that `productionOf` reads. */
+export interface ProductionWorld {
+  readonly runtime: {
+    productionLines(side: 0 | 1): readonly { readonly alive: boolean; readonly current: string | null; readonly items: readonly string[] }[];
+    logisticsOf(side: 0 | 1): number;
+  } | null;
+  readonly factions: readonly ['kdf' | 'sarim', 'kdf' | 'sarim'];
+}
+
+/** A unit id the shipped data knows to carry a weapon (`armedStanding`'s own test). */
+function armedType(id: string): boolean {
+  const u = (units as Record<string, { weapons?: readonly unknown[] } | undefined>)[id];
+  return (u?.weapons?.length ?? 0) > 0;
+}
+
+/** The production half of the rule, from state both machines share: the
+ *  runtime's lines and purse (hashed through its digest), and the faction's
+ *  shipped doctrine menu. `canField(s)` is true when side `s` has a living
+ *  line AND (an armed item is queued or in progress on a line, OR its purse
+ *  covers the cheapest ARMED unit on its menu). Undefined with no runtime. */
+export function productionOf(w: ProductionWorld): OutcomeProduction | undefined {
+  const runtime = w.runtime;
+  if (runtime === null) return undefined;
+  return productionFor(runtime, [doctrines[w.factions[0]].menu, doctrines[w.factions[1]].menu]);
+}
+
+/** `productionOf` over an explicit menu per side (the tests' seam). */
+export function productionFor(runtime: NonNullable<ProductionWorld['runtime']>, menus: readonly [readonly string[], readonly string[]]): OutcomeProduction {
+  return {
+    canField(side) {
+      const lines = runtime.productionLines(side).filter((l) => l.alive);
+      if (lines.length === 0) return false;
+      if (lines.some((l) => (l.current !== null && armedType(l.current)) || l.items.some(armedType))) return true;
+      let cheapest = Infinity;
+      for (const id of menus[side]) if (armedType(id)) cheapest = Math.min(cheapest, unitCost(id));
+      return runtime.logisticsOf(side) >= cheapest;
+    },
+  };
+}
+
 /** Spec §2.3, version one, read from sim state alone so both machines agree:
  *  a side with no living armed unit has lost; both on the same tick is a
  *  draw. With both standing, the lead's ruling (2026-10-13) settles two more
@@ -139,11 +188,11 @@ function armedStanding(sim: OutcomeSim, side: 0 | 1): boolean {
  *  can ever close the distance -- a stalemate, ended at once), and the
  *  25-minute cap, which until then was always a draw. There is no production
  *  in a sandbox, so the counts are the whole test. */
-export function outcomeOf(sim: OutcomeSim, tick: number, costOf: (typeId: string) => number = unitCost): MatchOutcome {
-  const standing = SIDES.filter((side) => armedStanding(sim, side));
+export function outcomeOf(sim: OutcomeSim, tick: number, costOf: (typeId: string) => number = unitCost, production?: OutcomeProduction): MatchOutcome {
+  const standing = SIDES.filter((side) => armedStanding(sim, side) || production?.canField(side) === true);
   if (standing.length === 0) return { kind: 'draw', by: 'mutual' };
   if (standing.length === 1) return { kind: 'won', side: standing[0], by: 'annihilation' };
-  if (allImmobile(sim)) return byForces(sim, 'stalemate', costOf);
+  if (allImmobile(sim, production)) return byForces(sim, 'stalemate', costOf);
   if (tick >= MATCH_CAP_TICKS) return byForces(sim, 'time', costOf);
   return { kind: 'ongoing' };
 }
@@ -154,9 +203,9 @@ export function outcomeOf(sim: OutcomeSim, tick: number, costOf: (typeId: string
  *  hash sent on that tick covers the state the decision was read from. The
  *  cap is measured on the sim's own tick count. Null while it is ongoing,
  *  on any other tick, and without a room. */
-export function hashTickOutcome(frameTick: number, config: MatchConfig | null, sim: OutcomeSim & { readonly tickCount: number }): MatchResult | null {
+export function hashTickOutcome(frameTick: number, config: MatchConfig | null, sim: OutcomeSim & { readonly tickCount: number }, production?: OutcomeProduction): MatchResult | null {
   if (!isHashTick(frameTick, config)) return null;
-  const o = outcomeOf(sim, sim.tickCount);
+  const o = outcomeOf(sim, sim.tickCount, unitCost, production);
   return o.kind === 'ongoing' ? null : o;
 }
 
@@ -168,10 +217,10 @@ export interface LocalDecision { readonly result: MatchResult; readonly tick: nu
  *  first decision stands. Both seats read it on the same frame tick, so both
  *  report the same `over` tick. */
 export function decideOnHashTick(
-  prev: LocalDecision | null, frameTick: number, config: MatchConfig | null, sim: OutcomeSim & { readonly tickCount: number },
+  prev: LocalDecision | null, frameTick: number, config: MatchConfig | null, sim: OutcomeSim & { readonly tickCount: number }, production?: OutcomeProduction,
 ): LocalDecision | null {
   if (prev !== null) return prev;
-  const result = hashTickOutcome(frameTick, config, sim);
+  const result = hashTickOutcome(frameTick, config, sim, production);
   return result === null ? null : { result, tick: frameTick };
 }
 

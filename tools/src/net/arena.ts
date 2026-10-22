@@ -59,7 +59,7 @@ import { appendFileSync, existsSync, mkdirSync, realpathSync, writeFileSync } fr
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { MATCHUPS, factionsOfMatchup, matchupAllowed, versusMapAllowed, type MatchConfig, type Matchup, type TransportStatus } from '@lions/net';
-import { MATCH_CAP_TICKS, type MatchResult, type OutcomeSim } from '../../../packages/app/src/net/outcome';
+import { MATCH_CAP_TICKS, productionOf, type MatchResult, type OutcomeProduction, type OutcomeSim } from '../../../packages/app/src/net/outcome';
 import { scoreOf, type MatchScore } from '../../../packages/app/src/net/scoreboard';
 import { AgentClient } from './agent-client';
 import { gateVerdict, headToHead, markdownReport, pval, tally, type GameRecord, type GateVerdict, type Tally } from './arena-score';
@@ -255,11 +255,15 @@ export interface SeatSnapshot {
   tick: number;
   status: TransportStatus;
   sim: OutcomeSim | null;
+  /** The economy half of the win rule (an economy room only). */
+  production?: OutcomeProduction;
 }
 
 /** A seat's client as it stands now. Call before `stop()`. */
 export function snapshotOf(c: AgentClient): SeatSnapshot {
-  return { result: c.result(), tick: c.tick(), status: c.transport.status(), sim: c.world()?.sim ?? null };
+  const w = c.world();
+  const production = w === null ? undefined : productionOf(w);
+  return { result: c.result(), tick: c.tick(), status: c.transport.status(), sim: c.world()?.sim ?? null, ...(production !== undefined ? { production } : {}) };
 }
 
 /** The record's outcome from the seats' snapshots (null for a player not in
@@ -290,7 +294,7 @@ export function judge(
     return toOutcome(decided[0], decided[0].by);
   }
   const referee = seats[0] ?? seats[1];
-  if (referee !== null && referee.sim !== null && live.every((c) => c.tick === capTicks)) return toOutcome(capOutcome(referee.sim), 'cap');
+  if (referee !== null && referee.sim !== null && live.every((c) => c.tick === capTicks)) return toOutcome(capOutcome(referee.sim, referee.production), 'cap');
   const st = referee?.status;
   return { outcome: 'void', by: st?.kind === 'closed' ? st.reason : 'unfinished' };
 }
