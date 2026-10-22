@@ -60,12 +60,27 @@ describe('unit schema: wound and rescue fields (GH-707)', () => {
     expect(validateUnit({ ...squad, hull: { ...squad.hull, figures: 9 } })).toBe(false);
     expect(validateUnit({ ...medic, rescue: { ...medic.rescue, crawl: 1 } })).toBe(false);
   });
+
+  it('refuses a duration over 1600 s and a radius over 64 tiles (Fx would wrap)', () => {
+    expect(validateUnit({ ...squad, hull: { ...squad.hull, wounds: { ...squad.hull.wounds, bleed_s: 1601 } } })).toBe(false);
+    expect(validateUnit({ ...medic, rescue: { ...medic.rescue, treat_s: 1601 } })).toBe(false);
+    expect(validateUnit({ ...medic, rescue: { ...medic.rescue, radius_tiles: 65 } })).toBe(false);
+    expect(validateUnit({ ...ambulance, hull: { ...ambulance.hull, stabilise_radius: 65 } })).toBe(false);
+  });
+
+  it('can_carry names roles: "wonded" is refused', () => {
+    expect(validateUnit({ ...ambulance, hull: { ...ambulance.hull, can_carry: ['wonded'] } })).toBe(false);
+  });
 });
 
 describe('structure schema: the aid block (GH-707)', () => {
   const aidPost = { id: 'probe_aid_post', symbol: 'A', hp_per_tile: 200, aid: { admit_radius: 1, treat_s: 20, dispatch_radius: 12 } };
   it('accepts an aid post', () => {
     expect(validateStructures({ types: { probe_aid_post: aidPost } })).toBe(true);
+  });
+  it('refuses an aid treat_s over 1600 s and a dispatch radius over 64 tiles', () => {
+    expect(validateStructures({ types: { probe_aid_post: { ...aidPost, aid: { ...aidPost.aid, treat_s: 1601 } } } })).toBe(false);
+    expect(validateStructures({ types: { probe_aid_post: { ...aidPost, aid: { ...aidPost.aid, dispatch_radius: 65 } } } })).toBe(false);
   });
   it('refuses an aid block missing treat_s', () => {
     expect(validateStructures({ types: { probe_aid_post: { ...aidPost, aid: { admit_radius: 1, dispatch_radius: 12 } } } })).toBe(false);

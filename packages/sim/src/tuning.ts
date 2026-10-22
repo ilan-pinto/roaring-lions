@@ -538,6 +538,11 @@ export const CONDUCT_GAIN_CIVILIAN = 3;
 export const CONDUCT_GAIN_CAP = 10;
 /** Conduct deducted when the player kills an enemy wounded. */
 export const CONDUCT_KILL_WOUNDED_ENEMY = 3;
+/** Longest authored wound/rescue/aid duration, seconds: secondsToTicks' fx.mul wraps at
+ *  1638.4 s (32768 ticks x 65536 = 2^31), so the schema and the loader stop at 1600. */
+export const WOUND_MAX_SECONDS = 1600;
+/** Largest authored wound/rescue/aid radius, tiles: squared in Q16.16 it stays far from 2^31. */
+export const WOUND_MAX_RADIUS_TILES = 64;
 /** Evacuation points one sim holds (D4, `addEvacPoint`). */
 export const MAX_EVAC_POINTS = 8;
 /** `woundState`: NONE for every unit that is not down. */

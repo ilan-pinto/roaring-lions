@@ -151,6 +151,8 @@ import {
   AIR_WANT_UNLOAD,
   AIR_WANT_DEPART,
   MAX_EVAC_POINTS,
+  WOUND_MAX_RADIUS_TILES,
+  WOUND_MAX_SECONDS,
   WOUND_NONE,
   MED_IDLE,
   type SupportKind,
@@ -601,12 +603,27 @@ function secondsToTicks(s: number): number {
 
 /** GH-707: `hull.wounds`, validated: the schema's bounds, re-checked so a test type or a
  *  hand-built JSON cannot slip a chance above one or a bleed under a tick past the loader. */
+/** GH-707: an authored duration, refused above WOUND_MAX_SECONDS rather than wrapped in Fx. */
+function woundSeconds(id: string, field: string, s: number): number {
+  if (!(s <= WOUND_MAX_SECONDS)) throw new Error(`unit ${id}: ${field} must be <= ${WOUND_MAX_SECONDS} s, got ${s}`);
+  return secondsToTicks(s);
+}
+
+/** GH-707: an authored radius in tiles, squared in Q16.16; refused outside 0..WOUND_MAX_RADIUS_TILES. */
+function woundRadiusSq(id: string, field: string, r: number): Fx {
+  if (!(r >= 0 && r <= WOUND_MAX_RADIUS_TILES)) {
+    throw new Error(`unit ${id}: ${field} must be 0..${WOUND_MAX_RADIUS_TILES} tiles, got ${r}`);
+  }
+  const f = fx.from(r);
+  return fx.mul(f, f);
+}
+
 function woundsFromJson(json: UnitTypeJson): UnitType['wounds'] {
   const w = json.hull.wounds;
   if (w === undefined) return null;
   const chance = fx.from(w.wound_chance);
   if (chance < 0 || chance > ONE) throw new Error(`unit ${json.id}: hull.wounds.wound_chance must be 0..1`);
-  const bleedTicks = secondsToTicks(w.bleed_s);
+  const bleedTicks = woundSeconds(json.id, 'hull.wounds.bleed_s', w.bleed_s);
   if (bleedTicks < 1) throw new Error(`unit ${json.id}: hull.wounds.bleed_s is under one tick`);
   return { chance, bleedTicks, typeId: w.type, inPlace: w.in_place ?? false };
 }
@@ -686,8 +703,7 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
   const wheeled = json.mobility.wheeled ?? !FOOT_ROLES.has(json.role ?? '');
   const isKamikaze = abilities.includes('kamikaze');
   const armed = (json.weapons ?? []).length > 0;
-  const stabilise = fx.from(json.hull.stabilise_radius ?? 0);
-  const stabiliseSq = fx.mul(stabilise, stabilise);
+  const stabiliseSq = woundRadiusSq(json.id, 'hull.stabilise_radius', json.hull.stabilise_radius ?? 0);
   return {
     id: json.id,
     name: json.name ?? json.id,
@@ -758,8 +774,8 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
       json.rescue === undefined
         ? null
         : {
-            radiusSq: fx.mul(fx.from(json.rescue.radius_tiles), fx.from(json.rescue.radius_tiles)),
-            treatTicks: secondsToTicks(json.rescue.treat_s),
+            radiusSq: woundRadiusSq(json.id, 'rescue.radius_tiles', json.rescue.radius_tiles),
+            treatTicks: woundSeconds(json.id, 'rescue.treat_s', json.rescue.treat_s),
             dragMult: fx.from(json.rescue.drag_speed_mult),
             carryMult: fx.from(json.rescue.carry_speed_mult),
           },

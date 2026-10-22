@@ -50,6 +50,14 @@ const MEDIC: UnitTypeJson = {
   rescue: { radius_tiles: 8, treat_s: 6, drag_speed_mult: 0.5, carry_speed_mult: 0.75 },
 };
 
+/** A medic with seats but no `can_carry`: the `rescue` block alone must turn the fold on. */
+const MEDIC_RESCUE_ONLY: UnitTypeJson = {
+  ...RIFLES,
+  id: 'wd_medic_plain',
+  abilities: ['rescue'],
+  rescue: { radius_tiles: 8, treat_s: 6, drag_speed_mult: 0.5, carry_speed_mult: 0.75 },
+};
+
 const AMBULANCE: UnitTypeJson = {
   id: 'wd_ambulance',
   role: 'apc',
@@ -115,7 +123,7 @@ describe('wound data shape (GH-707 Task 1)', () => {
   });
 
   it('each wound-related type flips it: wounds, role wounded, rescue, can_carry, an aid post', () => {
-    for (const t of [WOUNDABLE, WOUNDED, MEDIC, AMBULANCE]) {
+    for (const t of [WOUNDABLE, WOUNDED, MEDIC_RESCUE_ONLY, MEDIC, AMBULANCE]) {
       const sim = new Sim({ seed: 1, width: 8, height: 8, capacity: 4 });
       sim.addUnitType(RIFLES);
       expect(sim.woundsLive).toBe(false);
@@ -164,6 +172,24 @@ describe('wound data shape (GH-707 Task 1)', () => {
     expect(() => sim.addUnitType(bad({ wounds: { wound_chance: 0.5, bleed_s: 0.01, type: 'w' } }))).toThrow(/bleed_s/);
     expect(() => sim.addUnitType(bad({ figures: 9 }))).toThrow(/figures/);
     expect(() => sim.addUnitType(bad({ figures: 0 }))).toThrow(/figures/);
+  });
+
+  it('refuses a duration over 1600 s or a radius over 64 tiles rather than wrapping it in Fx', () => {
+    // 1700 s x 20 = 34000 ticks; x 65536 passes 2^31, so fx.mul would wrap without the check.
+    const sim = new Sim({ seed: 1, width: 8, height: 8, capacity: 4 });
+    const w = { wound_chance: 0.5, bleed_s: 1700, type: 'w' };
+    expect(() => sim.addUnitType({ ...WOUNDABLE, hull: { ...WOUNDABLE.hull, wounds: w } })).toThrow(/bleed_s must be <= 1600/);
+    const r = MEDIC_RESCUE_ONLY.rescue ?? { radius_tiles: 0, treat_s: 0, drag_speed_mult: 0, carry_speed_mult: 0 };
+    expect(() => sim.addUnitType({ ...MEDIC_RESCUE_ONLY, rescue: { ...r, treat_s: 1700 } })).toThrow(/treat_s must be <= 1600/);
+    expect(() => sim.addUnitType({ ...MEDIC_RESCUE_ONLY, rescue: { ...r, radius_tiles: 65 } })).toThrow(/radius_tiles must be 0..64/);
+    expect(() => sim.addUnitType({ ...AMBULANCE, hull: { ...AMBULANCE.hull, stabilise_radius: 65 } })).toThrow(/stabilise_radius must be 0..64/);
+    const aid = { admit_radius: 1, treat_s: 20, dispatch_radius: 12 };
+    expect(() => sim.addStructureType({ ...AID_POST, aid: { ...aid, treat_s: 1700 } })).toThrow(/treat_s must be <= 1600/);
+    expect(() => sim.addStructureType({ ...AID_POST, aid: { ...aid, dispatch_radius: 65 } })).toThrow(/radii must be 0..64/);
+    // The bounds themselves load: 1600 s = 32000 ticks, 64 tiles -> 4096 tile^2 = 268435456.
+    const edge = sim.unitTypes[sim.addUnitType({ ...MEDIC_RESCUE_ONLY, rescue: { ...r, treat_s: 1600, radius_tiles: 64 } })];
+    expect(edge.rescue?.treatTicks).toBe(32000);
+    expect(edge.rescue?.radiusSq).toBe(268435456);
   });
 
   it('spawn writes the defaults: figuresUp = type.figures, speedMul ONE, -1 links, 0 states', () => {

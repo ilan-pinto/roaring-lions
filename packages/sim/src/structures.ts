@@ -7,6 +7,7 @@
 // nothing to a wall; a mortar shell does a great deal.
 
 import { fx, ONE, type Fx } from './fixed';
+import { WOUND_MAX_RADIUS_TILES, WOUND_MAX_SECONDS } from './tuning';
 
 export interface StructureTypeJson {
   id: string;
@@ -208,9 +209,16 @@ export interface StructureAid {
 function aidFromJson(json: StructureTypeJson, ticksPerSecond: number): StructureAid | null {
   const a = json.aid;
   if (a === undefined) return null;
+  for (const r of [a.admit_radius, a.dispatch_radius]) {
+    if (!(r >= 0 && r <= WOUND_MAX_RADIUS_TILES)) {
+      throw new Error(`structure type ${json.id}: aid radii must be 0..${WOUND_MAX_RADIUS_TILES} tiles, got ${r}`);
+    }
+  }
+  if (!(a.treat_s <= WOUND_MAX_SECONDS)) {
+    throw new Error(`structure type ${json.id}: aid treat_s must be <= ${WOUND_MAX_SECONDS} s, got ${a.treat_s}`);
+  }
   const admit = fx.from(a.admit_radius);
   const dispatch = fx.from(a.dispatch_radius);
-  if (admit < 0 || dispatch < 0) throw new Error(`structure type ${json.id}: aid radii must be >= 0`);
   const treatTicks = fx.toInt(fx.mul(fx.from(a.treat_s), fx.fromInt(ticksPerSecond)));
   if (treatTicks < 1) throw new Error(`structure type ${json.id}: aid treat_s ${a.treat_s} is under one tick`);
   return { admitRadiusSq: fx.mul(admit, admit), treatTicks, dispatchRadiusSq: fx.mul(dispatch, dispatch) };

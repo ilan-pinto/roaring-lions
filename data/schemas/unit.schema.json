@@ -228,7 +228,7 @@
           "description": "GH-707: a man lost from this team may fall wounded instead of dead. Absent = he always dies.",
           "properties": {
             "wound_chance": { "type": "number", "minimum": 0, "maximum": 1 },
-            "bleed_s": { "type": "number", "exclusiveMinimum": 0, "description": "Seconds a wounded man lasts untreated." },
+            "bleed_s": { "type": "number", "exclusiveMinimum": 0, "maximum": 1600, "description": "Seconds a wounded man lasts untreated." },
             "type": { "type": "string", "pattern": "^[a-z0-9_]+$", "description": "Unit id of the wounded man shed (role `wounded`)." },
             "in_place": { "type": "boolean", "default": false, "description": "A one-figure unit goes down itself instead of shedding a man (civilians)." }
           }
@@ -237,12 +237,13 @@
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
-          "items": { "type": "string" },
+          "items": { "$ref": "#/properties/role" },
           "description": "GH-707: when present this carrier seats ONLY these roles (an ambulance: [\"wounded\"])."
         },
         "stabilise_radius": {
           "type": "number",
           "minimum": 0,
+          "maximum": 64,
           "description": "GH-707: tiles around this unit inside which a friendly wounded does not bleed."
         }
       }
@@ -253,8 +254,8 @@
       "additionalProperties": false,
       "description": "GH-707: a medic. How far it looks for wounded, how long it treats one, and its speed multiplier dragging (one man) or carrying (a stretcher team).",
       "properties": {
-        "radius_tiles": { "type": "number", "exclusiveMinimum": 0 },
-        "treat_s": { "type": "number", "exclusiveMinimum": 0 },
+        "radius_tiles": { "type": "number", "exclusiveMinimum": 0, "maximum": 64 },
+        "treat_s": { "type": "number", "exclusiveMinimum": 0, "maximum": 1600 },
         "drag_speed_mult": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
         "carry_speed_mult": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 }
       }
