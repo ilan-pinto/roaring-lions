@@ -476,6 +476,9 @@ export const HELD_MESH_FILES: Readonly<Record<string, string>> = {
   // E5 part 2 (GH-181, 2026-10-01): the Tzav's unit JSON is staged and its
   // placed charge is E6's, so the file waits for E6 to wire it.
   'vehicles/demo_tzav.glb': 'demo_tzav (GH-181 E5 -> E6; VEHICLE_UNIT_MESHES)',
+  // GH-748 (2026-10-22): the air strike's fly-over jet. Presentation only,
+  // not a unit; it moves into VFX_MESHES when the barrage-fx runtime draws it.
+  'vfx/strike_jet.glb': 'the air-strike fly-over (GH-748 barrage-fx; VFX_MESHES)',
 };
 
 /**

@@ -202,3 +202,11 @@ art/meshy/ugv-recon-dog-20261022-01a16330/model.glb
 art/meshy/ugv-recon-dog-20261022-01a16331/model.*
 art/meshy/ugv-recon-dog-20261022-01a16331/texture_*
 art/meshy/ugv-recon-dog-20261022-01a16333/texture_*
+# GH-748 (22 Oct): the strike jet's preview model, the refine's six formats and base
+# colour, and the remesh's loose texture PNGs (its model.glb, the source
+# export_meshy_strike_jet.py reads, IS tracked); task.json and the thumbnails beside
+# them are tracked.
+art/meshy/strike-jet-20261022-01a16471/model.glb
+art/meshy/strike-jet-20261022-01a16474/model.*
+art/meshy/strike-jet-20261022-01a16474/texture_*
+art/meshy/strike-jet-20261022-01a16476/texture_*

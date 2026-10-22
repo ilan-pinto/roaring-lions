@@ -1,0 +1,46 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready single-seat multirole strike jet of a fictional air force, landing gear retracted. A slim pointed nose, one bubble canopy far forward, a long fuselage blended smoothly into wide clipped-delta wings with sharply swept leading edges, an air intake under the cockpit, one round engine nozzle at the tail, two vertical tail fins canted outward, two small swept tailplanes. One large bomb under each wing on a short pylon. Real-world scale, 15 metres long, 10.7 metre wingspan. Matte grey desert camouflage of pale sand-grey and medium grey patches, dark tinted canopy, gunmetal nozzle. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, roundels, stars, flags, numbers, text or markings of any kind.",
+    "negative_prompt": "landing gear, wheels, single vertical tail fin, propeller, rotor, missiles, rockets, external fuel tanks, drop tanks, pilot figure, people, ground, base, stand, text, letters, numbers, insignia, roundels, star, flag, decals, stripes, tail code",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a16471-cc98-7661-9529-ef31a1dbf1b4",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 3905528970,
+    "prompt": "A single low-poly game-ready single-seat multirole strike jet of a fictional air force, landing gear retracted. A slim pointed nose, one bubble canopy far forward, a long fuselage blended smoothly into wide clipped-delta wings with sharply swept leading edges, an air intake under the cockpit, one round engine nozzle at the tail, two vertical tail fins canted outward, two small swept tailplanes. One large bomb under each wing on a short pylon. Real-world scale, 15 metres long, 10.7 metre wingspan. Matte grey desert camouflage of pale sand-grey and medium grey patches, dark tinted canopy, gunmetal nozzle. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, roundels, stars, flags, numbers, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1792686543708,
+    "progress": 100,
+    "started_at": 1792686543718,
+    "finished_at": 1792686615661,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a16471-cc98-7661-9529-ef31a1dbf1b4/output/model.glb?Expires=4946227200&Signature=eUJxtOYCJVSsg-p69mvusrC3AFfF3k806Rh9L4uf3sL~xxQi7Pyqjoy6Dlo39-hjo4BkmOKwYAZtgzkJ6NysgnFs8X54AL3sAvwK-QSXDw7EKNaucyJb9NWiiTaan84XPNZTi5b2y1Tdvy1SHSSBA-u1Kuc8Hd3KF6KsoIJHO4UZH-2KaGTQTc2gp1lZizE6tySslHIZ6RX4OHRDhakvsfcU2J7uFgxVyiEUMdqfbAdyQubbw8QvK2d845aijZPaJo4Zj-pcqfn9uDjX-uXt9n5sHSIenAGT6AFiMsMzyjez4A~8Zo5OGCzCC5U8st~srDLBvx8iNYILXOmQ3ydl8Q__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a16471-cc98-7661-9529-ef31a1dbf1b4/output/preview.png?Expires=4946227200&Signature=KzPZNkx5ucYsipEp86~VGvyqsmwQqGRCDy6UP5j5xg1ixFuqywlb2D-bbIdOf3XJQ1EDgZMY-szcNXJjFncVrgx233Tg6zchtUoAgYxBptsc7J0mVC3tilmlX4IV4Cl8FVvCmbbR-qLAPqzloy3Shq7DKht3LUgvhdBGILYgNRcdAecW8HBCo5U5wPZwrSZgBsNc0iW0XD2LjBGmKHJZbojxVoalGoqJq1HkGbVNKOG78tkuPPFfGWDOPZx~qArh~-VwHpNAxAIlVMT7hDBlBxzUdBFBCC0LNsPPwfhIRdwCxM2sUuVnLE~2PUJXkTNUnGTMeBG92pcoimPd7KQwvQ__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1792686543708,
+    "started_at": 1792686543718,
+    "finished_at": 1792686615661
+  },
+  "usd_estimated": 0.4
+}
