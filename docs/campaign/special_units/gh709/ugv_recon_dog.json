@@ -1,0 +1,43 @@
+{
+  "id": "ugv_recon_dog",
+  "name": "Chadaf Recon Robot",
+  "blurb": "Walks boulders and alleys no wheel can, and finds tunnel routes. Unarmed, and cheap to lose.",
+  "faction": "kdf",
+  "role": "drone",
+  "cost": {
+    "logistics": 190,
+    "build_time_s": 10,
+    "population": 0
+  },
+  "unlock": {
+    "price": 4000
+  },
+  "hull": {
+    "hp": 160,
+    "armor": {
+      "front": 6,
+      "side": 6,
+      "rear": 6
+    },
+    "crew": 0,
+    "suppression_resistance": 1.0,
+    "can_embark": true
+  },
+  "mobility": {
+    "speed_tiles_s": 1.3,
+    "turn_rate_deg_s": 200,
+    "wheeled": false
+  },
+  "sensors": {
+    "optics": 1.6,
+    "sight_tiles": 12,
+    "thermal": true,
+    "signature": 0.35,
+    "firing_signature_mult": 1.0
+  },
+  "weapons": [],
+  "abilities": [
+    "mark_target",
+    "mark_tunnel"
+  ]
+}

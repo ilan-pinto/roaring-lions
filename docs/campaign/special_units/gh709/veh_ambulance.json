@@ -1,0 +1,41 @@
+{
+  "id": "veh_ambulance",
+  "name": "Pered Armoured Ambulance",
+  "blurb": "Men on foot around it heal while it stands still. Four seats under armour, and no gun at all.",
+  "faction": "kdf",
+  "role": "apc",
+  "cost": {
+    "logistics": 540,
+    "build_time_s": 30,
+    "population": 2
+  },
+  "unlock": {
+    "price": 5000
+  },
+  "hull": {
+    "hp": 1700,
+    "armor": {
+      "front": 240,
+      "side": 150,
+      "rear": 90,
+      "top": 40
+    },
+    "crew": 2,
+    "transport_slots": 4,
+    "suppression_resistance": 0.75
+  },
+  "mobility": {
+    "speed_tiles_s": 1.4,
+    "turn_rate_deg_s": 85
+  },
+  "sensors": {
+    "optics": 1.0,
+    "sight_tiles": 9,
+    "signature": 0.9,
+    "firing_signature_mult": 1.0
+  },
+  "weapons": [],
+  "abilities": [
+    "smoke"
+  ]
+}

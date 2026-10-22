@@ -1,0 +1,72 @@
+{
+  "id": "inf_grenadier",
+  "name": "Chomet Grenadier Squad",
+  "blurb": "Grenades reach men behind a wall, never inside a house. In a flagged street they cost Conduct.",
+  "faction": "kdf",
+  "role": "infantry",
+  "cost": {
+    "logistics": 320,
+    "build_time_s": 18,
+    "population": 1
+  },
+  "unlock": {
+    "price": 4000
+  },
+  "hull": {
+    "hp": 400,
+    "armor": {
+      "front": 10,
+      "side": 10,
+      "rear": 10
+    },
+    "crew": 7,
+    "suppression_resistance": 0.55
+  },
+  "mobility": {
+    "speed_tiles_s": 0.85
+  },
+  "sensors": {
+    "optics": 1.0,
+    "sight_tiles": 8,
+    "signature": 0.6,
+    "firing_signature_mult": 3.5
+  },
+  "weapons": [
+    {
+      "id": "gl_40",
+      "type": "he",
+      "range_tiles": 7,
+      "effective_range_tiles": 5.5,
+      "accuracy": 0.55,
+      "penetration": 30,
+      "damage": 60,
+      "splash_tiles": 1.2,
+      "suppression": 120,
+      "rof_per_min": 30,
+      "can_target": [
+        "ground"
+      ],
+      "collateral_risk": 0.3
+    },
+    {
+      "id": "rifles",
+      "type": "small_arms",
+      "range_tiles": 8,
+      "effective_range_tiles": 6.4,
+      "accuracy": 0.6,
+      "penetration": 8,
+      "damage": 15,
+      "suppression": 50,
+      "rof_per_min": 200,
+      "can_target": [
+        "ground",
+        "air"
+      ],
+      "collateral_risk": 0.1
+    }
+  ],
+  "abilities": [
+    "garrison",
+    "mark_target"
+  ]
+}

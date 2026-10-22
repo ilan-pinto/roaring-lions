@@ -1,0 +1,39 @@
+{
+  "id": "air_medevac_heli",
+  "name": "Nachlieli Medevac",
+  "blurb": "Heals what it carries while it flies, four squads at a time. Unarmed, and it lands to load.",
+  "faction": "kdf",
+  "role": "apc",
+  "cost": {
+    "logistics": 330,
+    "build_time_s": 40,
+    "population": 2
+  },
+  "unlock": {
+    "price": 6500
+  },
+  "hull": {
+    "hp": 800,
+    "armor": {
+      "front": 32,
+      "side": 20,
+      "rear": 14
+    },
+    "crew": 4,
+    "transport_slots": 4,
+    "suppression_resistance": 0.6
+  },
+  "mobility": {
+    "speed_tiles_s": 3.0,
+    "turn_rate_deg_s": 90,
+    "domain": "air"
+  },
+  "sensors": {
+    "optics": 1.1,
+    "sight_tiles": 11,
+    "thermal": true,
+    "signature": 1.4,
+    "firing_signature_mult": 1.0
+  },
+  "weapons": []
+}

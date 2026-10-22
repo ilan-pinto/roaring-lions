@@ -1,0 +1,58 @@
+{
+  "id": "spg_cluster",
+  "name": "Te'o Cluster Howitzer",
+  "blurb": "Bomblets shred men and trucks in the open, not armour or houses. Conduct pays for every round.",
+  "faction": "kdf",
+  "role": "artillery",
+  "cost": {
+    "logistics": 400,
+    "build_time_s": 45,
+    "population": 3
+  },
+  "unlock": {
+    "price": 7500
+  },
+  "hull": {
+    "hp": 1400,
+    "armor": {
+      "front": 60,
+      "side": 30,
+      "rear": 20,
+      "top": 15
+    },
+    "crew": 4,
+    "suppression_resistance": 0.6,
+    "can_embark": false
+  },
+  "mobility": {
+    "speed_tiles_s": 0.9,
+    "turn_rate_deg_s": 45,
+    "wheeled": true,
+    "gear": "tracks"
+  },
+  "sensors": {
+    "optics": 0.9,
+    "sight_tiles": 7,
+    "signature": 1.0,
+    "firing_signature_mult": 6.0
+  },
+  "weapons": [
+    {
+      "id": "dpicm_155",
+      "type": "mortar",
+      "range_tiles": 24,
+      "effective_range_tiles": 18,
+      "accuracy": 0.45,
+      "penetration": 20,
+      "damage": 120,
+      "splash_tiles": 1.2,
+      "suppression": 160,
+      "rof_per_min": 2,
+      "min_range_tiles": 6,
+      "can_target": [
+        "ground"
+      ],
+      "collateral_risk": 0.95
+    }
+  ]
+}
