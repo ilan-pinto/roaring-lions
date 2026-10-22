@@ -246,6 +246,7 @@ export class DebugOverlay {
         );
         break;
       case 'nearMiss':
+      case 'submunition':
         break; // too chatty for the feed; rendered as puffs instead
       case 'spawn':
         this.line(t + `spawn ${this.name(e.entity)} side${e.side}`, 'var(--ink-dim)');

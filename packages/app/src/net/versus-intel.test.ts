@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Frame, MatchConfig, MatchTransport, TransportStatus } from '@lions/net';
 import type { Command } from '@lions/sim';
-import { sandboxAnchors } from '../sandbox-anchors';
+import { versusAnchors } from './versus-seats';
 import { runFrames, seatWorldFor } from './frame-step';
 import { versusSpawns } from './versus-force';
 import { buildWorld } from './versus-world.test-helper';
@@ -40,7 +40,7 @@ class Frames implements MatchTransport {
  *  ownership check dropped. */
 function strikeEverything(mode: MatchConfig['mode']): { before: number; after: number; dropped: number; revealed: number; enemies: number } {
   const { sim, typeOf, map } = buildWorld('tel_marum');
-  const force = versusSpawns(sim, typeOf, sandboxAnchors(map));
+  const force = versusSpawns(sim, typeOf, versusAnchors(map));
   const caller = force.bySide[0][0];
   const enemies = force.bySide[1];
   const hpOf = (ids: number[]): number => ids.reduce((a, i) => a + (sim.state.alive[i] ? sim.state.hp[i] : 0), 0);

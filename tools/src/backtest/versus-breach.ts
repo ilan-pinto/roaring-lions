@@ -61,7 +61,8 @@ import { fileURLToPath } from 'node:url';
 import { BRACE_NONE, type Sim } from '@lions/sim';
 import { maps, type MapId } from '@lions/data';
 import { FACTION_MATCHUP_MAPS, VERSUS_FAIR_MAPS, validateConfig, type Faction, type MatchConfig } from '@lions/net';
-import { sandboxAnchors, type SandboxAnchors } from '../../../packages/app/src/sandbox-anchors';
+import type { SandboxAnchors } from '../../../packages/app/src/sandbox-anchors';
+import { versusAnchors } from '../../../packages/app/src/net/versus-seats';
 import { hostileFacing } from '../../../packages/app/src/sandbox-facing';
 import { placeOnOpen } from '../../../packages/app/src/sandbox-place';
 import { versusForceOf } from '../../../packages/app/src/net/versus-force';
@@ -209,7 +210,7 @@ export interface CampOptions {
 export function playCamps(mapId: MapId, factionsByCamp: readonly [Faction, Faction], seed: number, arm: Arm, opts: CampOptions = {}): CampGame {
   const capTicks = opts.capTicks ?? CAP_TICKS_DEFAULT;
   const { sim, typeOf, map } = world(mapId, seed, opts.humanHeld);
-  const camps = spawnCamps(sim, typeOf, sandboxAnchors(map), factionsByCamp, arm);
+  const camps = spawnCamps(sim, typeOf, versusAnchors(map), factionsByCamp, arm);
   const sideOf = sidesOf(arm);
   const counter = new Counter(sim, opts.breach);
   const finish = (o: MatchResult): CampGame => {
@@ -258,7 +259,7 @@ export const sameGame = (x: CampGame, y: CampGame): boolean =>
  */
 export function garrisonControl(mapId: MapId = 'wadi_tarfan', breach: BreachFn = isBreach, ticks = 1600): Activity {
   const { sim, typeOf, map } = world(mapId, seedOf(0));
-  const anchors = sandboxAnchors(map);
+  const anchors = versusAnchors(map);
   const camps = spawnCamps(sim, typeOf, anchors, ['kdf', 'kdf'], 'normal');
   const [ax, ay] = anchors.hostile;
   let best = -1;
@@ -296,7 +297,7 @@ export function pinWindow(mapId: MapId, how: 'helper' | 'room', breach: BreachFn
   let sim: Sim;
   if (how === 'helper') {
     const w = world(mapId, PIN_SEED);
-    spawnCamps(w.sim, w.typeOf, sandboxAnchors(w.map), ['kdf', 'kdf'], 'normal');
+    spawnCamps(w.sim, w.typeOf, versusAnchors(w.map), ['kdf', 'kdf'], 'normal');
     sim = w.sim;
   } else {
     sim = buildMatchWorld(mirrorConfig(mapId, PIN_SEED)).sim;

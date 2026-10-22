@@ -74,6 +74,9 @@ export interface ArenaArgs {
   a: string;
   b: string;
   seeds: number;
+  /** The first game's index in the probe's seed sequence (`seedOf`): seeds
+   *  `seedOf(firstSeed)` .. `seedOf(firstSeed + seeds - 1)`. Default 0 (1000). */
+  firstSeed: number;
   map: string;
   matchup: Matchup;
   /** Ticks a paced round (the room clamps to 20-1,200, D5: refused outside that here). */
@@ -91,8 +94,8 @@ export interface ArenaArgs {
 /** `--gate` FAILED: every game was played and A was not told from B at p < 0.05. */
 export const EXIT_GATE_FAIL = 3;
 
-const USAGE = 'usage: pnpm arena -- --a <player> --b <player> [--seeds 10] [--map tel_marum] [--matchup mirror|kdf|sarim] [--pace 60] [--round-wall-ms 120000] [--cap-ticks 12000] [--tick-ms 2] [--out arena-results/] [--gate]\n  a player is passive, rush, or cmd:<template>';
-const VALUED = new Set(['a', 'b', 'seeds', 'map', 'matchup', 'pace', 'round-wall-ms', 'cap-ticks', 'tick-ms', 'out']);
+const USAGE = 'usage: pnpm arena -- --a <player> --b <player> [--seeds 10] [--first-seed 0] [--map tel_marum] [--matchup mirror|kdf|sarim] [--pace 60] [--round-wall-ms 120000] [--cap-ticks 12000] [--tick-ms 2] [--out arena-results/] [--gate]\n  a player is passive, rush, or cmd:<template>';
+const VALUED = new Set(['a', 'b', 'seeds', 'first-seed', 'map', 'matchup', 'pace', 'round-wall-ms', 'cap-ticks', 'tick-ms', 'out']);
 /** Options that take no value. */
 const FLAGS = new Set(['gate']);
 const BUILT_IN: Record<string, (log: (line: string) => void) => ArenaPlayer> = {
@@ -145,14 +148,16 @@ export function parseArgs(argv: readonly string[]): ArenaArgs | { error: string 
   const matchup = got.get('matchup') ?? 'mirror';
   if (!(MATCHUPS as readonly string[]).includes(matchup)) return { error: `--matchup is ${MATCHUPS.join(', ')}` };
   const seeds = intIn('seeds', got.get('seeds'), 10, 1, 10_000);
+  const firstSeed = intIn('first-seed', got.get('first-seed'), 0, 0, 1_000_000);
   const pace = intIn('pace', got.get('pace'), 60, 20, 1200);
   const roundWallMs = intIn('round-wall-ms', got.get('round-wall-ms'), 120_000, 1000, 600_000);
   const capTicks = intIn('cap-ticks', got.get('cap-ticks'), 12_000, 1, MATCH_CAP_TICKS);
   const tickMs = intIn('tick-ms', got.get('tick-ms'), 2, 1, 1000);
-  for (const v of [seeds, pace, roundWallMs, capTicks, tickMs]) if (typeof v !== 'number') return v;
+  for (const v of [seeds, firstSeed, pace, roundWallMs, capTicks, tickMs]) if (typeof v !== 'number') return v;
   return {
     a, b,
     seeds: seeds as number,
+    firstSeed: firstSeed as number,
     map: got.get('map') ?? 'tel_marum',
     matchup: matchup as Matchup,
     pace: pace as number,
@@ -504,7 +509,7 @@ export async function runArena(argv: readonly string[], deps: ArenaDeps = {}): P
   log(`arena: ${names[0]} vs ${names[1]}, ${a.seeds} seed(s) x 2 on ${a.map} (${a.matchup}), pace ${a.pace}, cap ${a.capTicks}`);
   try {
     for (let n = 0; n < a.seeds; n++) {
-      const seed = seedOf(n);
+      const seed = seedOf(a.firstSeed + n);
       // Game 1: A on seat 0. Game 2: the same seed with the seats swapped.
       const orders: GameSpec[] = [
         { seed, players: [A, B], names: [names[0], names[1]], logBase: join(dir, `${base}-game${2 * n + 1}`) },

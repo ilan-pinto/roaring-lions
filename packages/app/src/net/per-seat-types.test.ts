@@ -154,8 +154,13 @@ function run(mapId: 'beit_sahwan_outskirts' | 'tel_marum', ticks: number, varian
 }
 
 /** What a unit's fight did to it, read per placement (side, k). */
+/** Suppression is in the fate since mobility kills (#706): with both Petens
+ *  forced down, the 90 s fight's firepower patch reaches side 0 as suppression
+ *  (units 12 and 13: 39110 vs 38861, 36672 vs 36627) and no longer as hp. */
 const fate = (r: ReturnType<typeof run>) =>
-  r.bySide.map((ids) => ids.map((i) => [r.sim.state.alive[i], r.sim.state.hp[i], r.sim.state.posX[i], r.sim.state.posY[i]]));
+  r.bySide.map((ids) =>
+    ids.map((i) => [r.sim.state.alive[i], r.sim.state.hp[i], r.sim.state.posX[i], r.sim.state.posY[i], r.sim.state.suppression[i]]),
+  );
 
 /** 90 s of the probe's play: long enough on beit for both sides to lose units. */
 const BATTLE_TICKS = 1800;
@@ -163,8 +168,11 @@ const BATTLE_TICKS = 1800;
 describe('per-seat unit types with no sim code (N2-P5, ruling L2)', () => {
   it('the per-seat spawner IS the mirror when both seats share one map (the pin holds)', () => {
     // Control: the test's spawner with side 1 on side 0's types reproduces
-    // versus-force.test.ts's pinned mirror hash, so what follows differs from
-    // the mirror ONLY by side 1's registrations.
+    // the mirror's hash on the sandbox heuristic's seats (versus-force.test.ts's
+    // pin before beit's versus seats moved, `versus-seats.ts`), so what follows
+    // differs from the mirror ONLY by side 1's registrations. This file keeps
+    // those seats on purpose: it measures a mechanism, and its 90 s fight was
+    // sized on them.
     expect(run('beit_sahwan_outskirts', 200, 'base').sim.hash()).toBe(580559085);
   });
 

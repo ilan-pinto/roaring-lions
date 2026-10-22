@@ -13,16 +13,19 @@ describe('buildMatchWorld', () => {
   it('reproduces the mirror pins versus-force.test.ts holds (beit, tel; 200 ticks)', () => {
     // LITERALS (an oracle that imports its expectation from the code under test
     // cannot fail, CLAUDE.md). seed 20260727, 200 ticks, KDF against KDF.
-    // tel_marum: 1260439781 is versus-force.test.ts's own pin (re-pinned 14 Oct, GH-420)
+    // tel_marum: 1524988923 is versus-force.test.ts's own pin. Was 1260439781: re-pinned
+    // 2026-10-22 when its versus seat 0 moved to (24,46) (`versus-seats.ts`, the lead's ruling)
     // -- the map has no tunnels, so the helper's world and the browser's agree.
-    // beit_sahwan_outskirts: versus-force.test.ts pins 580559085 through
+    // beit_sahwan_outskirts: versus-force.test.ts pins 3296182002 through
     // `versus-world.test-helper.ts`, which registers NO tunnels. The browser's boot
     // (`bootBattlefield`) registers the map's four routes, and tunnel state is in the
     // hash, so the browser's world -- and so this builder's -- hashes differently.
     // The browser path is the truth; that is its own pin. Registering the prepass's
     // types instead of the raw units moves nothing (checked both ways); the tunnels
-    // are the whole difference (drop the loop and this reads 580559085 again).
-    for (const [map, pin] of [['beit_sahwan_outskirts', 3043363756], ['tel_marum', 1260439781]] as const) {
+    // are the whole difference (drop the loop and this reads 3296182002 again).
+    // beit re-pinned 2026-10-22 for its versus seats (`versus-seats.ts`, seat 1 at (40,24)
+    // rather than town_center): was 3043363756.
+    for (const [map, pin] of [['beit_sahwan_outskirts', 1108074073], ['tel_marum', 1524988923]] as const) {
       const w = buildMatchWorld(config(map, ['kdf', 'kdf'], 20260727));
       for (let i = 0; i < 200; i++) w.sim.tick();
       expect(w.sim.hash()).toBe(pin);
@@ -202,7 +205,7 @@ describe("seatKitTiers: a seat's claim as the world reads it", () => {
 
 describe("a matched room, and a brigade room with equal claims, build today's bytes", () => {
   // LITERALS: the same two pins the first describe holds (seed 20260727, 200 ticks).
-  const PINS = [['beit_sahwan_outskirts', 3043363756], ['tel_marum', 1260439781]] as const;
+  const PINS = [['beit_sahwan_outskirts', 1108074073], ['tel_marum', 1524988923]] as const;
   const SEED = 20260727;
 
   it("kit 'matched' with empty tiers: the pins, and the roster registered once", () => {

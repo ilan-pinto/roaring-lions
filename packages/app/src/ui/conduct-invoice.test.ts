@@ -45,6 +45,20 @@ const TEMPLATES = [
     sample: 'heavy ordnance danger-close to civilians',
     cause: 'danger_close',
   },
+  // E3 (GH-709): a cluster round's bomblets. The zone charge is the near
+  // miss's own template, written a second time in the submunition branch;
+  // danger-close has its own words and the same cause.
+  {
+    source: '`fire into protected structure (${zoneName})`',
+    sample: 'fire into protected structure (z_school)',
+    cause: 'struck',
+    place: 'z_school',
+  },
+  {
+    source: "'cluster munition danger-close to civilians'",
+    sample: 'cluster munition danger-close to civilians',
+    cause: 'danger_close',
+  },
 ] as const;
 
 const NAMES: PlaceNames = {

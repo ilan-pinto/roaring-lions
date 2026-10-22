@@ -556,6 +556,15 @@ export function symbolSvg(id: SymbolId, size: number, opts?: { framed?: boolean;
   );
 }
 
+/** GH-706: the class that draws a status mark at half ink (theme.css). */
+export const HALF_INK_CLASS = 'rl-sym--half';
+
+/** GH-706: SLOWED is the immobilised mark at half ink -- the same running-gear
+ *  damage, half as bad -- and deliberately no new symbol (spec §4). */
+export function slowedSymbolSvg(size: number): string {
+  return symbolSvg('immobilised', size, { className: HALF_INK_CLASS });
+}
+
 /**
  * A mark beside catalogue text, as HTML: `<svg> text` (or `text <svg>` with
  * `after`). GH-261's rule for i18n: a catalogue string never carries the mark

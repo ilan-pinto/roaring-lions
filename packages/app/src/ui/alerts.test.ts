@@ -525,6 +525,24 @@ describe('alertsForTick — our units broken or damaged (pass C2/C4, A1)', () =>
     expect(alertsForTick(initAlertState(), [component(7, 'crew_shaken')], [], world, 40).alerts).toEqual([]);
   });
 
+  // GH-706: a wheel shot out reads "slowed", never immobilised or stuck; a crew's
+  // field fix reads "back on the move, slowed". Both minor: the plan bends.
+  it('words a mobility_damaged hit as slowed and a field fix as back on the move', () => {
+    const fixed = (entity: number): SimEvent => ({ kind: 'fieldFixed', tick: 0, entity }) as SimEvent;
+    const slowed = alertsForTick(initAlertState(), [component(7, 'mobility_damaged')], [], world, 40).alerts;
+    expect(slowed).toHaveLength(1);
+    expect(slowed[0]).toMatchObject({ kind: 'damaged', tier: 'minor', tone: 'warn', cue: 'alert.minor', line: { key: 'alert.slowed', tone: 'warn' } });
+    expect(catalogue['alert.slowed']).toMatch(/slowed/);
+    expect(catalogue['alert.slowed']).not.toMatch(/stuck|immobil/i);
+    const back = alertsForTick(initAlertState(), [fixed(7), fixed(8)], [], world, 40).alerts;
+    expect(back).toHaveLength(1);
+    expect(back[0]).toMatchObject({ tier: 'minor', tone: 'good', count: 2, line: { key: 'alert.fieldFixed', params: { more: 1 }, tone: 'good' } });
+    expect(catalogue['alert.fieldFixed']).toMatch(/back on the move, slowed/);
+    // The enemy's, and one of ours lost this tick: silent.
+    expect(alertsForTick(initAlertState(), [component(17, 'mobility_damaged'), fixed(17)], [], world, 40).alerts).toEqual([]);
+    expect(alertsForTick(initAlertState(), [component(7, 'mobility_damaged')], [lost(7, 'apc_eitan')], world, 40).alerts.map((a) => a.line?.key)).not.toContain('alert.slowed');
+  });
+
   it('is silent about the enemy breaking, and about a unit already lost this tick', () => {
     expect(alertsForTick(initAlertState(), [routed(12), component(17, 'mobility_kill')], [], world, 40).alerts).toEqual([]);
     const { alerts } = alertsForTick(initAlertState(), [routed(2)], [lost(2, 'inf_squad')], world, 40);

@@ -300,6 +300,14 @@
           "type": "boolean",
           "description": "Rides on wheels or tracks, so a boulder field (map symbol `b`) stops it where infantry walk through. Absent means derived from `role`: everything outside the dismounted set (infantry, at_team, artillery, engineer, sniper, support) is wheeled. The derivation is wrong for two shipped units, one each way, and that is why this field exists -- `rocket_battery` is a Grad on a 6x6 truck and declares role \"artillery\" exactly as `mortar_team`, four men and a tube, does (so it says true); `manpad_team` is two men and a launcher with role \"aa\", which `gun_truck` shares (so it says false, GH-247). Set it only where the default gets a unit wrong."
         },
+        "gear": {
+          "enum": [
+            "tracks",
+            "wheels"
+          ],
+          "default": "tracks",
+          "description": "Running gear, for a mobility kill (#706). `wheels`: the first mobility hit only SLOWS the hull (half speed) and a second leaves it stuck. `tracks` (the default, and the behaviour before #706): one mobility hit leaves it stuck. NOT the same as `wheeled`, which means a vehicle rather than foot and is true of a tracked Lavi. Pinned against tools/src/meshes/running-gear-recipes.ts by tools/src/mobility_gear.test.ts: a recipe with wheels and no track is `wheels`, one with a track is `tracks`. Air types ignore it."
+        },
         "halts_to_fire": {
           "type": "boolean",
           "description": "Fires only from a halt: the unit stops, kneels (KNEEL_DROP_TICKS) before its first shot, fires while down, and gets up (KNEEL_RISE_TICKS) before it moves on; it never fires while its feet move. Absent means derived: armed, not wheeled, not air, not a kamikaze -- every foot unit that shoots, and no vehicle, aircraft or charge squad. Set it only where the derivation gets a unit wrong. Spec docs/superpowers/specs/2026-10-05-infantry-halt-to-fire.md."
@@ -486,7 +494,25 @@
           "fires_from_building": {
             "type": "boolean",
             "default": true,
-            "description": "Whether this weapon fires while its unit is garrisoned. False for indirect fire (a mortar needs open sky over the tube; lead ruling 2026-10-14, G4). validate_data requires false on any mortar or rocket weapon of a unit with the garrison ability."
+            "description": "Whether this weapon fires while its unit is garrisoned. False for indirect fire (a mortar needs open sky over the tube; lead ruling 2026-10-14, G4). validate_data requires false on any mortar or rocket weapon, or any weapon declaring \"indirect\": true, of a unit with the garrison ability."
+          },
+          "indirect": {
+            "type": "boolean",
+            "default": false,
+            "description": "E2 (GH-709): fires on a target its side has identified with no line of sight of its own, whatever its type. Mortar and rocket are indirect by type either way. Only the sight rule moves: structure damage, anti-armour ranking, projectile speed and range falloff stay with the weapon type."
+          },
+          "submunitions": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["count", "scatter_tiles", "damage", "splash_tiles"],
+            "description": "E3 (GH-709): the round bursts where it lands (on the target if it hit, otherwise its scatter point) into count bomblets, each placed within scatter_tiles and resolved as a detonation in place: soft units only, nobody underground, garrisoned or carried, no structure. The parent's own damage and splash_tiles are not applied. ROE judges each bomblet as a flagged-zone stray and charges danger-close once per round, at twice disproportionate_ordnance_penalty, where the bomblets land.",
+            "properties": {
+              "count": { "type": "integer", "minimum": 1, "maximum": 32 },
+              "scatter_tiles": { "type": "number", "minimum": 0, "maximum": 6 },
+              "damage": { "type": "number", "minimum": 0 },
+              "splash_tiles": { "type": "number", "exclusiveMinimum": 0, "maximum": 4 },
+              "suppression": { "type": "number", "minimum": 0 }
+            }
           }
         }
       }

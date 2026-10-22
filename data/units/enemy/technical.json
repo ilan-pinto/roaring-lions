@@ -21,7 +21,8 @@
   },
   "mobility": {
     "speed_tiles_s": 2.6,
-    "turn_rate_deg_s": 120
+    "turn_rate_deg_s": 120,
+    "gear": "wheels"
   },
   "sensors": {
     "optics": 1.0,

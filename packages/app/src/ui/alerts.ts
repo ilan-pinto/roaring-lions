@@ -537,12 +537,24 @@ export function alertsForTick(
    *  component -- by what the hit took. */
   const brokenOwn: number[] = [];
   const damagedOwn = new Map<'immobilised' | 'gunOut' | 'outOfAction', number[]>();
+  /** GH-706: ours slowed (a wheel shot out) this tick, and ours a crew freed
+   *  from stuck to slowed -- quieter than a kill, and never "immobilised". */
+  const slowedOwn: number[] = [];
+  const fieldFixedOwn: number[] = [];
   for (const e of sim) {
     if (e.kind === 'routed') {
       if (isOwnSide(world.sideOf(e.entity), viewer) && !lostEntities.has(e.entity)) brokenOwn.push(e.entity);
       continue;
     }
+    if (e.kind === 'fieldFixed') {
+      if (isOwnSide(world.sideOf(e.entity), viewer) && !lostEntities.has(e.entity)) fieldFixedOwn.push(e.entity);
+      continue;
+    }
     if (e.kind === 'component') {
+      if (e.result === 'mobility_damaged') {
+        if (isOwnSide(world.sideOf(e.target), viewer) && !lostEntities.has(e.target)) slowedOwn.push(e.target);
+        continue;
+      }
       const what =
         e.result === 'mobility_kill' ? 'immobilised' : e.result === 'firepower_kill' ? 'gunOut' : e.result === 'combat_ineffective' ? 'outOfAction' : null;
       if (what !== null && isOwnSide(world.sideOf(e.target), viewer) && !lostEntities.has(e.target)) {
@@ -724,6 +736,10 @@ export function alertsForTick(
   // naming the first and counting the rest.
   if (brokenOwn.length > 0) alerts.push(ownStateAlert('broken', 'alert.broken', brokenOwn, world));
   for (const [what, entities] of damagedOwn) alerts.push(ownStateAlert('damaged', `alert.${what}`, entities, world));
+  // GH-706: a wheel shot out still drives, and a crew's field fix is good news --
+  // both `minor`, glanceable: the plan bends rather than breaks.
+  if (slowedOwn.length > 0) alerts.push(ownStateAlert('damaged', 'alert.slowed', slowedOwn, world, 'minor', 'warn'));
+  if (fieldFixedOwn.length > 0) alerts.push(ownStateAlert('damaged', 'alert.fieldFixed', fieldFixedOwn, world, 'minor', 'good'));
   // GH-471: routes found this tick, one line with a count (several routes in
   // sight at once -- a mission start -- read as "3 tunnels found").
   if (tunnelsFound.length > 0) {
@@ -783,19 +799,26 @@ export function alertsForTick(
 }
 
 /** A line about the state of one or more of OUR units (pass C2/C4, A1). */
-function ownStateAlert(kind: 'broken' | 'damaged', key: string, entities: readonly number[], world: AlertWorld): Alert {
+function ownStateAlert(
+  kind: 'broken' | 'damaged',
+  key: string,
+  entities: readonly number[],
+  world: AlertWorld,
+  tier: AlertTier = 'important',
+  tone: Tone = 'bad'
+): Alert {
   const points = entities.map((e) => world.posOf(e)).filter((p): p is { x: number; y: number } => p !== null);
   return {
     kind,
-    tier: 'important',
-    tone: 'bad',
+    tier,
+    tone,
     line: {
       key,
       params: { name: world.unitName(world.typeOf(entities[0])), more: entities.length - 1 },
-      tone: 'bad',
+      tone,
       place: distinctPlaces(points.map((p) => world.placeOf(p.x, p.y))),
     },
-    cue: ALERT_CUE.important,
+    cue: ALERT_CUE[tier],
     at: points[0] ?? null,
     marks: points.slice(0, 1),
     count: entities.length,

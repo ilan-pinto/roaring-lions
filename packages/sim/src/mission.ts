@@ -1626,8 +1626,9 @@ export class MissionRuntime {
 
   /**
    * Run the commands the sim set aside (N2, F4: build, support, cancelBuild,
-   * setRally, clearRally), in queue order, through `requestBuild`,
-   * `requestSupport` and the line methods exactly as a direct call would. Call BEFORE `sim.tick()`: anything still set aside when the tick
+   * setRally, clearRally; field works: raiseWorks, cancelWorks), in queue order, through
+   * `requestBuild`, `requestSupport`, `requestConstruct`, `requestCancelWorks` and the line
+   * methods exactly as a direct call would. Call BEFORE `sim.tick()`: anything still set aside when the tick
    * starts is discarded (R-3). A command for a side other than 0 is refused
    * (C-R3: every spend is side 0's until N3). Returns how many were accepted.
    */
@@ -1642,6 +1643,8 @@ export class MissionRuntime {
         case 'setRally': ok = this.setRally(c.line, c.x, c.y); break;
         case 'clearRally': ok = this.clearRally(c.line); break;
         case 'support': ok = this.requestSupport(c.support, c.x, c.y); break;
+        case 'raiseWorks': ok = this.requestConstruct(c.works, c.x, c.y, c.ids.length > 0 ? c.ids : undefined); break;
+        case 'cancelWorks': ok = this.requestCancelWorks(c.site); break;
         default: { const unreachable: never = c; return unreachable; }
       }
       if (ok) accepted++;
@@ -1904,11 +1907,17 @@ export class MissionRuntime {
   /** Take one of the player's own sites down; the refund and the count come back when the sim
    *  answers (`constructCancelled`). False for a site that is not a live side-0 site. */
   requestCancelWorks(site: number): boolean {
-    if (this.ended) return false;
-    const w = this.sim.works;
-    if (site < 0 || site >= w.alive.length || w.alive[site] === 0 || w.side[site] !== 0) return false;
+    if (!this.canCancelWorks(site)) return false;
     this.sim.queueCommand({ kind: 'cancelConstruct', site });
     return true;
+  }
+
+  /** Would `requestCancelWorks(site)` accept now? Read-only: the app's click-time check before
+   *  it sends a `cancelWorks` command down the order sink. */
+  canCancelWorks(site: number): boolean {
+    if (this.ended) return false;
+    const w = this.sim.works;
+    return site >= 0 && site < w.alive.length && w.alive[site] !== 0 && w.side[site] === 0;
   }
 
   /** Give a charge back: whole logistics `refundLogistics` to the purse, `intel` to intel, and the
@@ -3313,6 +3322,10 @@ export class MissionRuntime {
       out.push({ kind: 'roeGain', tick, gain, reason, score: this.roeScoreValue });
     };
 
+    // E3 (GH-709, Q6): a submunition round is charged danger-close at most once,
+    // however many of its bomblets fall near civilians. Its bomblets arrive
+    // consecutively, index 0 first, so index 0 opens a round.
+    let roundDangerCharged = false;
     for (const e of simEvents) {
       if (e.kind === 'structureDestroyed') {
         // Only the player's demolitions are judged: the enemy wrecking its
@@ -3365,6 +3378,47 @@ export class MissionRuntime {
             break;
           }
         }
+      } else if (e.kind === 'submunition' && st.side[e.by] === 0) {
+        // E3, lead ruling Q6 (22 Oct): judged where the bomblets land. Each
+        // bomblet is a flagged-zone stray, under the same per-zone cooldown a
+        // near miss uses (so one round charges a zone once). Danger-close is
+        // charged once per ROUND at twice the penalty; the parent's aimpoint
+        // check is skipped in the `fire` branch below, so a round is never
+        // charged twice.
+        if (e.index === 0) roundDangerCharged = false;
+        const type = this.sim.unitTypes[st.typeIdx[e.by]];
+        const weapon = type.weapons.find((w) => w.id === e.weaponId);
+        if (weapon === undefined) continue;
+        if (weapon.collateralRisk >= STRUCTURAL_COLLATERAL) {
+          const tx = e.x >> 16;
+          const ty = e.y >> 16;
+          for (const zoneName of roe?.flagged_zones ?? []) {
+            if (zoneContains(this.zone(zoneName), tx, ty)) {
+              const last = this.zoneDeductedAt.get(zoneName);
+              if (last === undefined || tick - last >= ZONE_DEDUCT_COOLDOWN) {
+                this.zoneDeductedAt.set(zoneName, tick);
+                deduct(roe?.flagged_structure_penalty ?? 5, `fire into protected structure (${zoneName})`);
+              }
+              break;
+            }
+          }
+        }
+        if (!roundDangerCharged && weapon.collateralRisk >= HEAVY_COLLATERAL) {
+          for (const civ of this.civIds) {
+            // The strike loop's rule: a civilian underground is not endangered.
+            if (st.alive[civ] === 0 || st.tunnelIn[civ] >= 0) continue;
+            const dx = (fx.sub(st.posX[civ], e.x) >> 8) | 0;
+            const dy = (fx.sub(st.posY[civ], e.y) >> 8) | 0;
+            if (dx * dx + dy * dy <= DANGER_CLOSE_SQ) {
+              roundDangerCharged = true;
+              deduct(
+                (roe?.disproportionate_ordnance_penalty ?? 3) * 2,
+                'cluster munition danger-close to civilians'
+              );
+              break;
+            }
+          }
+        }
       } else if (e.kind === 'strike' && st.side[e.by] === 0) {
         const tx = e.x >> 16;
         const ty = e.y >> 16;
@@ -3395,7 +3449,9 @@ export class MissionRuntime {
       } else if (e.kind === 'fire' && st.side[e.shooter] === 0) {
         const type = this.sim.unitTypes[st.typeIdx[e.shooter]];
         const weapon = type.weapons.find((w) => w.id === e.weaponId);
-        if (weapon !== undefined && weapon.collateralRisk >= HEAVY_COLLATERAL) {
+        // A submunition round is judged where its bomblets land (the
+        // `submunition` branch above, Q6), not at the aimpoint.
+        if (weapon !== undefined && weapon.collateralRisk >= HEAVY_COLLATERAL && weapon.submunitions === null) {
           // The aimpoint is a unit, or a building when target is -1. Reading
           // position[-1] silently yields NaN, which coerced to distance zero
           // and charged every shot at a building as danger-close.

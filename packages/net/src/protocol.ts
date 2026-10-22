@@ -34,7 +34,7 @@ export const FORFEIT_MS = 60_000;
 export const COMMAND_KINDS = [
   'move', 'attackMove', 'halt', 'setStance', 'garrison', 'load', 'unload', 'reveal', 'callStrike', 'smoke', 'demolish', 'chargeTunnel', 'attack', 'rescue',
   'build', 'support', 'cancelBuild', 'setRally', 'clearRally',
-  'construct', 'cancelConstruct',
+  'construct', 'cancelConstruct', 'raiseWorks', 'cancelWorks',
 ] as const satisfies readonly Command['kind'][];
 
 /** The other half of the pin (N2 prerequisite P1): `satisfies` above catches a
@@ -223,11 +223,19 @@ export function cleanCommand(v: unknown): Command | null {
         : null;
     case 'construct':
     case 'cancelConstruct':
-      // Field works (#277) is not networked yet: the order is priced by the
-      // mission runtime (Task 5), a versus room runs none, and nothing
-      // validates a site's owner on the wire. Refused here, so it vanishes
-      // the same way on both machines, until a task carries it.
+      // The sim's own field-works orders (GH-277) never travel: a client sends
+      // `raiseWorks`/`cancelWorks`, which the mission runtime prices and turns
+      // into these. A raw `construct` on the wire would raise works unpaid, so
+      // it is refused here and vanishes the same way on both machines.
       return null;
+    case 'raiseWorks':
+      // The player's field-works request, shaped like `build`; a versus room
+      // drops it in `validateCommand` (no runtime prices it there).
+      return ids === null || !isInt(c.side) || !isStr(c.works) || !UNIT_ID.test(c.works) || !isInt(c.x) || !isInt(c.y)
+        ? null
+        : { kind, side: c.side, works: c.works, x: c.x, y: c.y, ids };
+    case 'cancelWorks':
+      return isInt(c.side) && isInt(c.site) ? { kind, side: c.side, site: c.site } : null;
     default: {
       const unreachable: never = kind;
       return unreachable;

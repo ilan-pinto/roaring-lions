@@ -3,7 +3,8 @@ import { seatRules, type Faction, type MatchConfig, type SeatConfig } from '@lio
 import { sameTrackTiers } from '@lions/render';
 import { Sim, type TunnelRouteJson } from '@lions/sim';
 import { standMapStructures } from '../map-sim';
-import { sandboxAnchors, type SandboxAnchors } from '../sandbox-anchors';
+import type { SandboxAnchors } from '../sandbox-anchors';
+import { versusAnchors } from './versus-seats';
 import { upgradePrepass, type UpgradePrepass } from '../upgrade-prepass';
 import { factionsBySide, versusSpawns } from './versus-force';
 import { versusRoster } from './versus-roster';
@@ -98,7 +99,7 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
   });
   const typeOfBySide = [typeOf, typeOf1] as const;
 
-  const anchors = sandboxAnchors(mapJson);
+  const anchors = versusAnchors(mapJson);
   const { bySide } = versusSpawns(sim, typeOfBySide, anchors, factions);
   return { sim, typeOf, typeOfBySide, kitBySide, mapJson, map, anchors, factions, bySide };
 }

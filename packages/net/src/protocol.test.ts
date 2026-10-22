@@ -349,9 +349,27 @@ describe('cleanCommand: the line verbs (F4 Task 5b)', () => {
   });
 });
 
-describe('cleanCommand: field works is not on the wire yet (#277)', () => {
-  it('refuses construct and cancelConstruct, well-formed as they are', () => {
+describe('cleanCommand: field works (GH-277)', () => {
+  it('refuses the sim-level construct and cancelConstruct, well-formed as they are', () => {
     expect(cleanCommand({ kind: 'construct', ids: [1], structType: 0, x: 4, y: 4 })).toBeNull();
     expect(cleanCommand({ kind: 'cancelConstruct', site: 0 })).toBeNull();
+  });
+  it('rebuilds raiseWorks and cancelWorks, deduplicating ids and stripping unknown keys', () => {
+    const pad = 'x'.repeat(4000);
+    expect(cleanCommand({ kind: 'raiseWorks', side: 0, works: 'kdf_outpost', x: 4, y: 5, ids: [3, 3, 1], pad }))
+      .toEqual({ kind: 'raiseWorks', side: 0, works: 'kdf_outpost', x: 4, y: 5, ids: [3, 1] });
+    expect(cleanCommand({ kind: 'cancelWorks', side: 0, site: 2, pad })).toEqual({ kind: 'cancelWorks', side: 0, site: 2 });
+  });
+  it('refuses a bad works id, a non-integer tile, missing ids, or a missing site', () => {
+    const bad: unknown[] = [
+      { kind: 'raiseWorks', side: 0, works: 'KDF-outpost', x: 4, y: 5, ids: [] },
+      { kind: 'raiseWorks', side: 0, works: 'x'.repeat(33), x: 4, y: 5, ids: [] },
+      { kind: 'raiseWorks', side: 0, works: 'kdf_outpost', x: 4.5, y: 5, ids: [] },
+      { kind: 'raiseWorks', side: 0, works: 'kdf_outpost', x: 4, y: 5 },
+      { kind: 'raiseWorks', works: 'kdf_outpost', x: 4, y: 5, ids: [] },
+      { kind: 'cancelWorks', side: 0 },
+      { kind: 'cancelWorks', side: 0, site: 0.5 },
+    ];
+    for (const b of bad) expect(cleanCommand(b), JSON.stringify(b)).toBeNull();
   });
 });
