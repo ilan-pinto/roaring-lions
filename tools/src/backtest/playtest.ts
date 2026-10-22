@@ -3933,7 +3933,10 @@ for (const [label, got, want] of [
 // after: Tel Marum III 11 -> 7 (-4); Umm Zeitoun I 14 -> 10, II 19 -> 15, III 25 -> 21, IV 33 -> 29
 // (each 0 of its own, the 4 inherited). -4 + 0 + 0 + 0 + 0 = -4. Qarn Hadid, off the same ledger,
 // reads 22 -> 18 by the same four. No outcome, star, credit or sweep line moved.
-const ROSTER_MAX = 29;
+// 2026-10-22, GH-707 P3: infantry falls wounded, and a squad whose last man falls is dead as before
+// (ruling 5), so fewer come home: 29 -> 27, same mission. Umm Zeitoun IV's plain line reads roster
+// out 29 -> 27 (its re-tuned plan keeps the mortar out of the Adhal push and the hunt).
+const ROSTER_MAX = 27;
 console.log(`roster maximum: ${rosterMax} at ${rosterMaxMissionId}`);
 if (rosterMax !== ROSTER_MAX) {
   console.error(`roster maximum: FAILED — expected ${ROSTER_MAX}, got ${rosterMax} at ${rosterMaxMissionId}`);
