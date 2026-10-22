@@ -19,8 +19,11 @@ import {
   spawnBurst,
   shellLaunched,
   isBurstShell,
+  shellKindForWeapon,
+  LOBBED_WEAPON_IDS,
   type ShellKind,
 } from './shells';
+import { HDR_GAINS, streakKindGain } from './hdr-gains';
 import { SIM_PROJ_SPEED_TILES_S } from './missiles';
 
 describe('shellKindFor', () => {
@@ -121,7 +124,7 @@ describe('the bolt profile', () => {
 
   it('outruns every missile the sim flies, so a Hellfire and a sabot round do not read alike', () => {
     expect(SHELL_PROFILES.bolt.speedTilesS).toBeGreaterThan(SIM_PROJ_SPEED_TILES_S.rpg * 4);
-    expect(Object.keys(SHELL_PROFILES).sort()).toEqual(['bolt', 'mg', 'mortar', 'rifle', 'rocket']);
+    expect(Object.keys(SHELL_PROFILES).sort()).toEqual(['bolt', 'grenade', 'mg', 'mortar', 'rifle', 'rocket']);
   });
 });
 
@@ -384,5 +387,38 @@ describe('rifle and mg streaks', () => {
     expect(isBurstShell('bolt')).toBe(false);
     expect(isIndirectShell('rifle')).toBe(false);
     expect(isIndirectShell('mg')).toBe(false);
+  });
+});
+
+// GH-709 P2: the grenadier's lobbed 40 mm round (lead-approved numbers, 22 Oct).
+describe('the lobbed grenade', () => {
+  it('routes gl_40 to grenade by weapon id, and leaves every other he weapon a missile', () => {
+    expect([...LOBBED_WEAPON_IDS]).toEqual(['gl_40']);
+    expect(shellKindForWeapon(WEAPON_CLASS.he, 'gl_40')).toBe('grenade');
+    expect(shellKindForWeapon(WEAPON_CLASS.he, 'rocket_pod')).toBe('missile');
+    expect(shellKindForWeapon(WEAPON_CLASS.mortar, 'mortar_81')).toBe('mortar');
+    expect(shellKindForWeapon(WEAPON_CLASS.small_arms, 'rifles')).toBe('rifle');
+  });
+
+  it('flies at the sim\'s own he speed, arcs 10 px a tile inside 20-60, and lands small', () => {
+    const g = SHELL_PROFILES.grenade;
+    // The sim's PROJ_SPEED[he], pinned against tuning.ts in missiles.test.ts.
+    expect(g.speedTilesS).toBe(SIM_PROJ_SPEED_TILES_S.he);
+    expect(isIndirectShell('grenade')).toBe(true);
+    expect(isBurstShell('grenade')).toBe(false);
+    expect(spawnShell(0, 0, 1, 0, 0, 'grenade').apexPx).toBe(20);
+    expect(spawnShell(0, 0, 4, 0, 0, 'grenade').apexPx).toBe(40);
+    expect(spawnShell(0, 0, 7, 0, 0, 'grenade').apexPx).toBe(60);
+    expect(spawnShell(0, 0, 7, 0, 0, 'grenade').duration).toBeCloseTo(0.7, 6);
+    // Half a mortar bomb's landing.
+    expect(g.impactPower).toBe(0.15);
+    expect(g.impactPower).toBeLessThan(SHELL_PROFILES.mortar.impactPower);
+  });
+
+  it('is a dark round: under the bloom threshold where a mortar bomb glows', () => {
+    // Bloom's scene-referred threshold is 1.0 (`../bloom.ts`); the arc batch gain is
+    // HDR_GAINS.arc. A full-brightness channel times both must stay well under 1.
+    expect(HDR_GAINS.arc * streakKindGain('grenade')).toBeLessThan(0.25);
+    expect(HDR_GAINS.arc * streakKindGain('mortar')).toBeGreaterThan(1);
   });
 });

@@ -327,6 +327,8 @@ TEXTURED_INFANTRY_EXEMPT = {
     "inf_squad", "sarim_rifles", "mortar_team", "sniper_team", "yahalom_squad",
     # GH-707 P2 (22 Oct 2026): the Nemala Medic Team, tools/units/import_meshy_medic_team.py.
     "inf_medic_squad",
+    # GH-709 phase 3 (22 Oct 2026): the Chomet grenadier squad, same importer.
+    "inf_grenadier",
 }
 
 # A unit TYPE that draws several files: this gate names a mesh by its file

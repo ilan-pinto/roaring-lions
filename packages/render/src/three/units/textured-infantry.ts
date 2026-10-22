@@ -89,4 +89,6 @@ export const TEXTURED_INFANTRY_TYPES: ReadonlySet<string> = new Set<string>([
   // two bodies of one Meshy figure with its 1024 bake on uniform/boot/face (the casualty on
   // its litter takes a texel of it); pack, bundle, litter and carbines are palette parts.
   'inf_medic_squad',
+  // GH-709 phase 3 (22 Oct 2026): the Chomet grenadier squad, same importer.
+  'inf_grenadier',
 ]);

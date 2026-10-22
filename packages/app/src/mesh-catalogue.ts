@@ -171,6 +171,12 @@ export const RIGGED_UNIT_MESHES: Readonly<Record<string, RiggedMeshEntry>> = {
   mortar_team: { files: ['mortar_team.glb'], faction: 'kdf' },
   yahalom_squad: { files: ['yahalom_squad.glb'], faction: 'kdf' },
 
+  // GH-709 phase 3 (22 Oct 2026): the Chomet grenadier squad. One Meshy figure
+  // (preview 01a1631c, refine 01a1632a, remesh 01a16330) with its bake, cut like
+  // inf_squad's and carrying a Blender revolving launcher part
+  // (`tools/units/import_meshy_crew_team.py`, `tools/units/export_grenade_launcher.py`).
+  inf_grenadier: { files: ['inf_grenadier.glb'], faction: 'kdf' },
+
   // The star-gated Tzinah (docs/campaign/special_units/design.md §3), built by
   // the same kit.py/teams.py pipeline as the rest of this table.
   breach_team: { files: ['breach_team.glb'], faction: 'kdf' },

@@ -210,6 +210,10 @@ SOURCES = {
     "mortar_team": (os.path.join(REPO, "art", "meshy", "mortar-team-*-01a0f89f", "model.glb"), 1.76),
     "sniper_team": (os.path.join(REPO, "art", "meshy", "sniper-team-*-01a0f8a1", "model.glb"), 1.78),
     "yahalom_squad": (os.path.join(REPO, "art", "meshy", "yahalom-squad-*-01a0f8ab", "model.glb"), 1.78),
+    # GH-709 phase 3 (22 Oct 2026): the Chomet grenadier body, ONE Meshy text-to-3d
+    # figure (preview 01a1631c, refine 01a1632a, remesh 01a16330 at 1,500 tris; art/meshy/ledger.jsonl) at
+    # 1.78 m; the leader wears the same body and carries the kdf_carbine part.
+    "inf_grenadier": (os.path.join(REPO, "art", "meshy", "inf-grenadier-*-01a16330", "model.glb"), 1.78),
 }
 
 #: Teams whose GLB ships the remesh's own base-colour bake (PR #307's
@@ -235,7 +239,9 @@ TEXTURED = {"militia_cell", "rpg_team", "atgm_cell",
             # B7: the two B2 teams, refined on their own previews, and the
             # five replaced supplied teams.
             "manpad_team", "recoilless_team",
-            "inf_squad", "sarim_rifles", "mortar_team", "sniper_team", "yahalom_squad"}
+            "inf_squad", "sarim_rifles", "mortar_team", "sniper_team", "yahalom_squad",
+            # GH-709 phase 3: the grenadier squad ships its own bake the same way.
+            "inf_grenadier"}
 TEXTURE_PX = 1024
 JPEG_QUALITY = 85
 
@@ -284,7 +290,7 @@ ADD_KEFFIYEH = {"manpad_team": True, "recoilless_team": False,
                 # B7: four KDF teams (helmets, see HEAD_ROLE); sarim_rifles
                 # set from its preview.
                 "inf_squad": False, "mortar_team": False, "sniper_team": False,
-                "yahalom_squad": False,
+                "yahalom_squad": False, "inf_grenadier": False,
                 # B7 (2 Oct ruling): both on the militia_cell body, which came
                 # bare-headed -- kit's keffiyeh, militia's own fix.
                 "sarim_rifles": True}
@@ -297,7 +303,8 @@ ADD_KEFFIYEH = {"manpad_team": True, "recoilless_team": False,
 HEAD_ROLE = {"breach_team": "uniform",
              # B7: the four KDF teams on this path wear helmets.
              "inf_squad": "uniform", "mortar_team": "uniform",
-             "sniper_team": "uniform", "yahalom_squad": "uniform"}
+             "sniper_team": "uniform", "yahalom_squad": "uniform",
+             "inf_grenadier": "uniform"}
 HEAD_ROLE_DEFAULT = "keffiyeh"
 
 #: charge_squad only: put kit's `vest_f`/`vest_b` slabs (the `charge` role,
@@ -379,6 +386,10 @@ CORPSE_Y_OFFSET = {"charge_squad": {"chg0": -0.30, "chg1": 0.30},
                    # side still overlapped; pushed apart the same way.
                    "breach_team": {"brc_point": -0.22, "brc_cover": 0.22}}
 
+#: Teams whose belt plane is bisected too (see `_bisect_source`): the figure
+#: wears a vest whose hem sits ON the belt cut. GH-709 phase 3, inf_grenadier.
+BELT_BISECT = {"inf_grenadier"}
+
 #: `kit.blob` topology per team. B2 used kit's default (9 sides, 3 rings: 72
 #: glTF tris a blob, ~580 a body copy). B3's numbers tables budget the
 #: kneeling ATGM crew at three copies per figure inside the 8,000-tri team
@@ -388,7 +399,10 @@ BLOB_KW = {"militia_cell": dict(sides=7, rings=2), "rpg_team": dict(sides=7, rin
            "atgm_cell": dict(sides=7, rings=2),
            "mortar_crew": dict(sides=7, rings=2), "charge_squad": dict(sides=7, rings=2),
            "digger_crew": dict(sides=7, rings=2), "breach_team": dict(sides=7, rings=2),
-           "moto_rpg": dict(sides=7, rings=2)}
+           "moto_rpg": dict(sides=7, rings=2),
+           # GH-709 phase 3: a little coarser than kit's 9 x 3, to pay for the
+           # belt ring (BELT_BISECT) inside inf_squad's 8,604-triangle ceiling.
+           "inf_grenadier": dict(sides=8, rings=2)}
 
 #: Hand-bound weapon carriers get both forearms bent forward at the elbow --
 #: rest geometry like the arm hang, one rigid rotation per forearm about its
@@ -432,14 +446,19 @@ FACE_HALF_W = 0.07
 ARM_ROOT_FALLBACK_F = 0.105    # torso half-width at the armpit: both B2 figures measure 0.20/1.90 src
 #: Per team, the height (fraction of H) above which the hand's lateral reach
 #: is read -- see `_arm_axis`. Default 0.62.
-ARM_REACH_Z_F = {"inf_squad": 0.5}
+ARM_REACH_Z_F = {"inf_squad": 0.5,
+                 # GH-709 phase 3: the grenadier's open hands cup at 0.52 H, under the
+                 # default 0.62 H reach line, so `ymax` read the ELBOW's reach and the
+                 # "wrist" landed 0.14 m from the shoulder (upper 0.09 m, fore 0.05 m
+                 # on the first build): no arm, and the hold's hands 0.164 m off.
+                 "inf_grenadier": 0.42}
 #: The motion pass's rifleman (5 Oct) hangs straight arms with open hands
 #: down to 0.48 H, and his sleeves and gloves are fuller than the B-batch
 #: figures': below the default 0.5 H floor, or outside the default reach of
 #: the arm's axis, a glove or a cuff stayed with the torso and floated at
 #: the old A-pose hand once the arm was hung.
-ARM_FLOOR_Z_F = {"inf_squad": 0.40}
-R_ARM_BY_TEAM = {"inf_squad": 0.075}
+ARM_FLOOR_Z_F = {"inf_squad": 0.40, "inf_grenadier": 0.40}
+R_ARM_BY_TEAM = {"inf_squad": 0.075, "inf_grenadier": 0.075}
 ARM_BAND_Z_F = 0.15            # a |y| band spanning less than this in z (above 0.62 H) is arm, not torso
 WRIST_IN_F, HAND_F = 0.07, 0.035 # the wrist band, measured inward from the fingertips along |y|
 HAND_PAST_WRIST = 0.24         # how far past the wrist band the forearm segment still claims faces
@@ -549,6 +568,12 @@ def _bisect_source(team_id, ob, height):
     # splits the hips -- each cut then adds one ring where it is needed.)
     planes = [((0.0, 0.0, f * H), (0.0, 0.0, 1.0), (lambda c, zf=f * H: abs(c[2] - zf) < 0.12)) for f in (ANKLE_F, KNEE_F)]
     planes += [((0.0, 0.0, zc), (0.0, 0.0, 1.0), (lambda c: abs(c[2] - zc) < 0.12))]
+    if team_id in BELT_BISECT:
+        # The spine pivots at the belt, and a vest hem there is a ring of long
+        # thin triangles that open into saw teeth the moment the torso leans
+        # off the hips (a kneel, an aimed shot): cut a ring at the belt too.
+        zb = zc + 0.08
+        planes += [((0.0, 0.0, zb), (0.0, 0.0, 1.0), (lambda c, zb=zb: abs(c[2] - zb) < 0.12))]
     on_torso = ARMS_ON_TORSO.get(team_id, set())
     # The arm axes are measured BEFORE the cut and cached for `cut_figure`:
     # a bisected ring at |y| = w_arm puts torso-height vertices into the
@@ -2796,6 +2821,11 @@ HAND_PARTS = {
     "inf_squad": ("kdf_carbine",),
     "yahalom_squad": ("kdf_carbine",),
     "breach_team": ("kdf_carbine",),
+    # GH-709 phase 3: the leader's carbine (the shipped kdf_carbine, re-cut from
+    # inf_squad.glb's bytes: its Meshy source is on no reachable disk, see
+    # tools/units/export_kdf_carbine_part.py) and the grenadiers' revolving
+    # launcher (a Blender part, not Meshy: see FIGURE_PART).
+    "inf_grenadier": ("kdf_carbine_shipped", "grenade_launcher"),
     "manpad_team": ("manpad_tube",),
     "atgm_cell": ("atgm_post",),
     "recoilless_team": ("recoilless_rifle",),
@@ -2806,6 +2836,23 @@ HAND_PARTS = {
 PART_SPECS = {
     "sarim_rifle": dict(kind="rifle", length_m=0.88),
     "kdf_carbine": dict(kind="rifle", length_m=0.85, cut=lambda *a: _cut_carbine_sling(*a)),
+    # GH-709 phase 3: `kdf_carbine`, re-cut out of the shipped inf_squad.glb by
+    # tools/units/export_kdf_carbine_part.py -- already normalised (0.85 m, butt
+    # -X, bbox-centred in x and y, body centreline on z), so `canonical` and no
+    # `grip`: it takes `_rifle_part_at_hand`'s centred placement, as the Meshy
+    # one does. Same 315 triangles, same bake, same placement as inf_squad's.
+    "kdf_carbine_shipped": dict(kind="rifle", length_m=0.85, canonical=True,
+                                path=os.path.join("art", "parts", "kdf_carbine", "kdf_carbine.glb"),
+                                provenance="export_kdf_carbine_part.py <- inf_squad.glb @13f667ff <- Meshy kdf_carbine remesh 01a10c6f"),
+    # GH-709 phase 3: the six-round revolving 40 mm launcher, authored in Blender
+    # by tools/units/export_grenade_launcher.py (procedural, not AI). `canonical`:
+    # it arrives in the rifle frame already (butt plate -X at x = 0, muzzle +X,
+    # bore on the X axis), so `_normalise_part` neither turns nor re-centres it;
+    # `grip` is its pistol grip's centre in that frame, which `_rifle_part_at_hand`
+    # lays on the kit rifle's own grip point so the hand meets it.
+    "grenade_launcher": dict(kind="rifle", length_m=0.78, canonical=True, grip=(0.234, -0.11),
+                             path=os.path.join("art", "parts", "grenade_launcher", "grenade_launcher.glb"),
+                             provenance="export_grenade_launcher.py (Blender, procedural; not AI-generated)"),
     # Spike (A3.1 #3): Meshy's muzzle (the sealed front cap) at -X, the CLU
     # with its thermal sight at the rear; the plain canister is the front
     # third. Seated by `import_meshy_kdf_team.py` (at_team), which keeps its
@@ -3015,7 +3062,20 @@ def _normalise_part(team_id, name, ob):
     section comment) and record what the placers need in `_PART_INFO`."""
     spec = PART_SPECS[name]
     co = _coords(ob)
-    co = co - co.mean(axis=0)
+    if not spec.get("canonical"):
+        co = co - co.mean(axis=0)
+    if spec["kind"] == "rifle" and spec.get("canonical"):
+        # Already in the rifle frame (butt -X, muzzle +X, bore on the X axis):
+        # only the length is checked, and the part keeps its authored origin.
+        co = _coords(ob)
+        got = float(np.ptp(co[:, 0]))
+        if abs(got - spec["length_m"]) > 0.01:
+            raise SystemExit(f"{team_id}: {name}: authored length {got:.3f} m, spec says {spec['length_m']} m")
+        _PART_INFO[name] = dict(kind="rifle", length=spec["length_m"])
+        log(f"{team_id}: {name}: canonical rifle-frame part, {got:.3f} m, "
+            f"x {co[:, 0].min():+.3f}..{co[:, 0].max():+.3f} y {co[:, 1].min():+.3f}..{co[:, 1].max():+.3f} "
+            f"z {co[:, 2].min():+.3f}..{co[:, 2].max():+.3f} m")
+        return
     if spec["kind"] == "rifle":
         # Meshy delivers a "lying flat, level" rifle in its profile plane:
         # the long axis on X, up on +Z (both 5 Oct rifles, measured: X span
@@ -3441,10 +3501,19 @@ def _rifle_frame(prefix, joints, dx, dy):
     return at, yaw
 
 
+#: A team whose figures do not all carry the team's FIRST rifle part: per
+#: figure prefix, the `HAND_PARTS` name that figure holds. Absent = the first.
+#: inf_grenadier: the two grenadiers hold the launcher, the leader the carbine.
+FIGURE_PART = {"inf_grenadier": {"gre0": "grenade_launcher", "gre2": "grenade_launcher"}}
+
+
 def _hand_rifle(prefix, joints, dx, dy):
     """The rifle at this figure's hand: the team's Meshy rifle part if it has
     one (`HAND_PARTS`), else kit's seven boxes (`_rifle_at_hand`)."""
     rifles = [n for n in HAND_PARTS.get(_TEAM["id"], ()) if PART_SPECS[n]["kind"] == "rifle"]
+    named = FIGURE_PART.get(_TEAM["id"], {}).get(prefix)
+    if named:
+        rifles = [named]
     if rifles:
         return _rifle_part_at_hand(rifles[0], prefix, joints, dx, dy)
     return _rifle_at_hand(prefix, joints, dx, dy)
@@ -3458,7 +3527,15 @@ def _rifle_part_at_hand(name, prefix, joints, dx, dy):
     g = Vector(rig._weapon_anchor(at, yaw, "standing", False))
     u_c = (KIT_RIFLE_SPAN[0] + KIT_RIFLE_SPAN[1]) / 2.0
     ob = _part_copy(name, f"{prefix}_w_rifle")
-    _transform(ob, Matrix.Translation(g) @ Matrix.Rotation(yaw, 4, "Z") @ Matrix.Translation((u_c, 0.0, 0.0)))
+    grip = PART_SPECS[name].get("grip")
+    if grip is not None:
+        # A canonical part keeps its own origin (the butt plate): its pistol
+        # grip's centre goes where kit's grip box sits, x -0.03 and z -0.065
+        # from the anchor (rig._weapon_parts), which is where the hand is.
+        place = Matrix.Translation((-0.03 - grip[0], 0.0, -0.065 - grip[1]))
+    else:
+        place = Matrix.Translation((u_c, 0.0, 0.0))
+    _transform(ob, Matrix.Translation(g) @ Matrix.Rotation(yaw, 4, "Z") @ place)
     _part_extent_log(ob)
     return [ob]
 
@@ -3467,10 +3544,99 @@ def _rifle_part_at_hand(name, prefix, joints, dx, dy):
 # teams
 # ---------------------------------------------------------------------------
 
+#: Per-figure BODY variants, one Meshy figure made into several men in Blender
+#: (the lead's rule, 22 Oct: no two figures of a squad share a build, and all
+#: still look fit). team -> figure prefix -> kind (`BODY_KINDS`). A kind is a
+#: smooth, z-dependent deformation of the already bisected source -- the
+#: topology, UVs and triangle count do not change -- applied per figure BEFORE
+#: the cut, so a rebuild reproduces it. The leader is the tall one: he carries
+#: the carbine and is the one the eye should find; the grenadiers, who carry
+#: the heavy launchers, are the strong one and the round one.
+BODY_VARIANT = {"inf_grenadier": {"gre1": "tall", "gre0": "strong", "gre2": "round"}}
+#: kind -> numbers. legs/torso: z factors below / above the crotch (0.47 H);
+#: chest: (y, x) gain at the shoulder/chest peak (0.58-0.88 H), arms: extra y
+#: gain on upper arms; waist: (y, x) gain at the belly peak (0.40-0.72 H);
+#: limb: x/y gain on the legs below the crotch; all = overall x/y gain.
+BODY_KINDS = {
+    # taller, with longer limbs: legs +6.5%, the rest +3.8% -> +5.1% overall.
+    "tall": dict(legs=1.065, torso=1.038, chest=(0.0, 0.0), waist=(0.0, 0.0), limb=0.0, all=0.995),
+    # stronger: same height, wider shoulders and chest (+8% y, +6% x), thicker thighs.
+    "strong": dict(legs=1.0, torso=1.0, chest=(0.08, 0.06), waist=(0.03, 0.02), limb=0.05, all=1.0),
+    # rounder and heavier: waist and torso girth (+17% y, +14% x at the belly), 3% shorter.
+    "round": dict(legs=0.97, torso=0.97, chest=(0.03, 0.02), waist=(0.17, 0.14), limb=0.03, all=1.02),
+}
+
+
+def _smooth(t):
+    t = np.clip(t, 0.0, 1.0)
+    return t * t * (3.0 - 2.0 * t)
+
+
+def _bump(zf, a0, a1, b0, b1):
+    return _smooth((zf - a0) / (a1 - a0)) * (1.0 - _smooth((zf - b0) / (b1 - b0)))
+
+
+def _variant_map(kind, H):
+    """The deformation of `kind` as a function on an (N, 3) array."""
+    k = BODY_KINDS[kind]
+    def f(p):
+        p = np.asarray(p, dtype=np.float64).copy()
+        zf = p[:, 2] / H
+        zc = CROTCH_FALLBACK_F
+        gain_y = k["all"] + k["chest"][0] * _bump(zf, 0.58, 0.72, 0.80, 0.92) + k["waist"][0] * _bump(zf, 0.40, 0.52, 0.62, 0.74) \
+            + k["limb"] * (1.0 - _smooth((zf - 0.40) / 0.12))
+        gain_x = k["all"] + k["chest"][1] * _bump(zf, 0.58, 0.72, 0.80, 0.92) + k["waist"][1] * _bump(zf, 0.40, 0.52, 0.62, 0.74) \
+            + k["limb"] * (1.0 - _smooth((zf - 0.40) / 0.12))
+        z = np.where(zf < zc, zf * k["legs"], zc * k["legs"] + (zf - zc) * k["torso"]) * H
+        p[:, 0] *= gain_x
+        p[:, 1] *= gain_y
+        p[:, 2] = z
+        return p
+    return f
+
+
+def _body_variant(src, height, kind, prefix):
+    """A deformed COPY of `src` for one figure, its new height, and the arm axes
+    (the cache `cut_figure` reads) carried through the same map."""
+    f = _variant_map(kind, height)
+    ob = src.copy()
+    ob.data = src.data.copy()
+    bpy.context.scene.collection.objects.link(ob)
+    ob.name = ob.data.name = f"{prefix}_body_src"
+    co = _coords(ob)
+    new = f(co)
+    _apply_np(ob, new)
+    h_new = height * float(new[:, 2].max() / co[:, 2].max())
+    cache = {}
+    for side, ax in _ARM_AXES_CACHE.items():
+        sh, el, wr, w = ax
+        pts = f(np.array([tuple(sh), tuple(el), tuple(wr), (0.0, w if side == 1 else -w, sh[2])]))
+        cache[side] = (tuple(pts[0]), tuple(pts[1]), tuple(pts[2]), float(abs(pts[3][1])))
+    log(f"{prefix}: body '{kind}': height {height:.3f} -> {h_new:.3f} m, torso y-span "
+        f"{np.ptp(new[(new[:, 2] > 0.6 * h_new) & (np.abs(new[:, 1]) < 0.3)][:, 1]):.3f} m")
+    return ob, h_new, cache
+
+
 def _figure(src, height, spec, kneel):
     """Parts + bones + forced binds for one TEAM_FIGURES spec, placed at its
     anchor. `kneel` builds the deployed kneel AND (per design D6) a standing
     walker with the `{prefix}w` prefix."""
+    kind = BODY_VARIANT.get(_TEAM["id"], {}).get(spec["prefix"])
+    if kind is None:
+        return _figure_cut(src, height, spec, kneel)
+    saved = dict(_ARM_AXES_CACHE)
+    body, h_body, cache = _body_variant(src, height, kind, spec["prefix"])
+    _ARM_AXES_CACHE.clear()
+    _ARM_AXES_CACHE.update(cache)
+    try:
+        return _figure_cut(body, h_body, spec, kneel)
+    finally:
+        _ARM_AXES_CACHE.clear()
+        _ARM_AXES_CACHE.update(saved)
+        bpy.data.objects.remove(body, do_unlink=True)
+
+
+def _figure_cut(src, height, spec, kneel):
     prefix, x, y = spec["prefix"], spec["x"], spec["y"]
     forced = {}
     if not kneel:
@@ -3784,6 +3950,13 @@ def build_team(team_id):
             w = _hand_rifle(spec["prefix"], hands[spec["prefix"]], spec["x"], spec["y"])
             forced.update({ob: f"{spec['prefix']}_forearm_R" for ob in w})
             parts += w
+    elif team_id == "inf_grenadier":
+        # GH-709 phase 3: the leader's kdf_carbine and each grenadier's revolving
+        # launcher, one part per man (FIGURE_PART), all on his own forearm_R.
+        for spec in figures:
+            w = _hand_rifle(spec["prefix"], hands[spec["prefix"]], spec["x"], spec["y"])
+            forced.update({ob: f"{spec['prefix']}_forearm_R" for ob in w})
+            parts += w
     elif team_id == "sarim_rifles":
         # B7: three riflemen, grip on each man's own bent right hand --
         # militia_cell's rule, three times.
@@ -3941,6 +4114,18 @@ def build_team(team_id):
             has = any(m is not None for m in ob.data.materials)
             log(f"  role {role:9s} material {'yes' if has else 'no '} uv {'yes' if ob.data.uv_layers else 'no '}")
     rig.export_glb(arm_obj, path, materials=textured, jpeg_quality=JPEG_QUALITY)
+    blend_out = os.environ.get("CREW_BLEND_OUT")
+    if blend_out:
+        # The scene this export was made from (armature, joined role meshes, every
+        # clip) as a .blend source: CONTRIBUTING.md wants one beside a mesh. Saved
+        # AFTER the export: packing an image re-encodes it, and the GLB must not
+        # depend on whether a .blend was asked for.
+        for im in bpy.data.images:
+            if im.packed_file is None and im.size[0] and im.source in ("GENERATED", "FILE"):
+                im.pack()
+        os.makedirs(os.path.dirname(blend_out), exist_ok=True)
+        bpy.ops.wm.save_as_mainfile(filepath=blend_out, copy=True)
+        log(f"{team_id}: scene saved to {blend_out}")
     tris = sum(len(ob.data.polygons) for ob in merged.values())
     log(f"{team_id}: wrote {path} ({os.path.getsize(path)} bytes), roles {sorted(merged)}, {tris} tris, "
         f"clips {[a.name for a in bpy.data.actions]}")

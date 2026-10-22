@@ -146,6 +146,10 @@ SUPPORTED_TEAMS = (
     "at_team", "rpg_team", "mortar_team", "mortar_crew", "atgm_cell",
     "sniper_team", "yahalom_squad", "digger_crew", "moto_rpg",
     "breach_team",
+    # GH-709 phase 3, 22 Oct 2026: the Chomet grenadier squad, one Meshy
+    # figure cut like the rifle squad, with the Blender revolving launcher part.
+    # Built by tools/units/import_meshy_crew_team.py.
+    "inf_grenadier",
     # B2, GH-179, 2026-09-30: Meshy figures cut into this module's parts and
     # driven by its clips -- built by tools/units/import_meshy_crew_team.py,
     # which owns both files below. Listed here so `build_clips`/`TEAM_FIGURES`
@@ -228,6 +232,7 @@ TEAM_MESH_OWNER = {
     "digger_crew": "tools/units/import_meshy_crew_team.py",   # B4 (GH-179, 2026-10-01)
     "moto_rpg": "tools/units/import_meshy_moto_rpg.py",       # B6 (GH-179, 2026-10-01)
     "breach_team": "tools/units/import_meshy_crew_team.py",   # B5 (GH-179, 2026-10-01)
+    "inf_grenadier": "tools/units/import_meshy_crew_team.py",   # GH-709 phase 3 (22 Oct 2026)
     "manpad_team": "tools/units/import_meshy_crew_team.py",
     "recoilless_team": "tools/units/import_meshy_crew_team.py",
     "sarim_rifles": "tools/units/import_meshy_crew_team.py",   # B7 (GH-179, 2026-10-01)
@@ -1153,6 +1158,15 @@ TEAM_FIGURES = {
         _f("f1", 0.20, 0.0, leader=True, weapon="rifle"),
         _f("f2", 0.0, 0.78, weapon="rifle"),
     ],
+    # GH-709 phase 3: two grenadiers and a leader, the launcher (a Blender hand
+    # part) on each grenadier's right-shoulder grip, the leader's kdf_carbine
+    # at his hand. The wedge is deeper than inf_squad's straight line (rest
+    # slots here, the motion pass re-slots them in motion/teams.ts).
+    "inf_grenadier": [
+        _f("gre0", -0.10, -0.86, weapon="rifle"),
+        _f("gre1", 0.34, 0.0, leader=True, weapon="rifle"),
+        _f("gre2", -0.10, 0.86, weapon="rifle"),
+    ],
     "militia_cell": [
         _f("mil0", 0.0, -0.24, headgear="keffiyeh", loadout="irregular", leader=True, weapon="rifle"),
         _f("mil1", 0.12, 0.26, headgear="keffiyeh", loadout="irregular", weapon="rifle"),
@@ -1342,7 +1356,7 @@ def _check_team_figures_against_teams():
         "charge_squad": "enemy", "at_team": "kdf", "rpg_team": "enemy",
         "mortar_team": "kdf", "mortar_crew": "enemy", "atgm_cell": "enemy",
         "sniper_team": "kdf", "yahalom_squad": "kdf", "digger_crew": "enemy",
-        "moto_rpg": "enemy", "breach_team": "kdf",
+        "moto_rpg": "enemy", "breach_team": "kdf", "inf_grenadier": "kdf",
         "manpad_team": "enemy", "recoilless_team": "enemy",
         "sarim_rifles": "enemy",
         "wounded_kdf": "kdf", "wounded_sarim": "enemy",

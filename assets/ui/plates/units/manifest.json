@@ -221,6 +221,15 @@
         168,
         118
       ]
+    },
+    "inf_grenadier": {
+      "file": "inf_grenadier.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        309,
+        240
+      ]
     }
   }
 }

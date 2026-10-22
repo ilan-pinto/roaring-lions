@@ -133,6 +133,8 @@ import mbtLaviCamo from '../../../data/units/kdf/mbt_lavi_camo.json';
 import spgLongRange from '../../../data/units/kdf/spg_long_range.json';
 // Phase 8: the Chadaf Recon Robot, a four-legged walker (role drone, ground domain, foot).
 import ugvReconDog from '../../../data/units/kdf/ugv_recon_dog.json';
+// Phase 3: the Chomet Grenadier Squad.
+import infGrenadier from '../../../data/units/kdf/inf_grenadier.json';
 import militiaCell from '../../../data/units/enemy/militia_cell.json';
 import rpgTeam from '../../../data/units/enemy/rpg_team.json';
 import atgmCell from '../../../data/units/enemy/atgm_cell.json';
@@ -413,6 +415,7 @@ export const units = {
   mbt_lavi_camo: mbtLaviCamo,
   spg_long_range: spgLongRange,
   ugv_recon_dog: ugvReconDog,
+  inf_grenadier: infGrenadier,
 } as const;
 
 export type UnitId = keyof typeof units;

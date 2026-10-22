@@ -89,6 +89,13 @@ CAPTURED = {
     "inf_squad": dict(source="meshy_soldier", figures=("f0", "f1", "f2"),
                       clips={"idle": ("sarim_rifles", ("f0", "f1", "f2"))}),
     "sarim_rifles": dict(source="sarim_rifles", figures=("f0", "f1", "f2")),
+    # GH-709 phase 3 (22 Oct): the grenadier squad plays the SAME captures as
+    # inf_squad, the rifle squad it is a sibling of -- the standing idle from the
+    # Sarim capture, the run and the deaths from the KDF soldier -- so the two
+    # squads walk, fire and fall alike, and `fall` ships (the lead's clip list is
+    # inf_squad's). It dies on its living body, so no prone corpse is built.
+    "inf_grenadier": dict(source="meshy_soldier", figures=("f0", "f1", "f2"),
+                          clips={"idle": ("sarim_rifles", ("f0", "f1", "f2"))}),
     # The engineer's own `move` is a WALK (1.04 s a cycle, 0.88 m a stride on
     # this body), which yahalom's 0.85 tiles/s would play at 3.02x -- past
     # mesh_gait.test.ts's 2.8 ceiling, and it already shipped at 2.645x, the
@@ -132,6 +139,7 @@ CONTACT_M = 0.03
 ARM_GAIN = {
     "inf_squad": {"L": 0.55, "R": 0.35},
     "sarim_rifles": {"L": 0.55, "R": 0.35},
+    "inf_grenadier": {"L": 0.55, "R": 0.35},
     "yahalom_squad": {"L": 0.55, "R": 0.35},
 }
 

@@ -40,8 +40,10 @@ describe('the hold: hands on the weapon, eye over the bore', () => {
     // Rule 1 of mesh_gait.test.ts: the population first. 3 + 3 + 2 + 1 + 2 +
     // 1 + 1 + 1 + 1 + 1: inf, sarim, militia, yahalom, rpg (rifle and RPG),
     // demo, mortar No.3, MANPAD, and since spike-walk (6 Oct) the Spike and
-    // the Zikit's rifleman; GH-707 P2 (22 Oct): + 2, the medics' carbines.
-    expect(HELD).toHaveLength(18);
+    // the Zikit's rifleman; GH-707 P2 (22 Oct): + 2, the medics' carbines; and
+    // GH-709 phase 3 (22 Oct) the Chomet grenadier squad, 3: two launchers and a
+    // carbine, all `rifle`-kind holds.
+    expect(HELD).toHaveLength(21);
   });
 
   for (const h of HELD) {

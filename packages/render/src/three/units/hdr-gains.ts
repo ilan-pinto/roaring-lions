@@ -36,7 +36,9 @@ export const HDR_GAINS = Object.freeze({
   arc: 3.5,
   sparks: 4,
   fireball: 2.6,
-  streakKind: Object.freeze({ rifle: 0.45, mg: 0.6 }),
+  // grenade: a DARK round (GH-709 P2): 3.5 (arc) x 0.06 keeps the ember
+  // colour about 0.2 of itself, under the bloom threshold -- no glow.
+  streakKind: Object.freeze({ rifle: 0.45, mg: 0.6, grenade: 0.06 }),
 });
 
 export type HdrZoneRole = 'core' | 'mid' | 'outer';
@@ -51,5 +53,8 @@ export function burstGain(role: HdrZoneRole): number {
 
 /** Per-kind factor on a shell streak's colour (1 for every other kind). */
 export function streakKindGain(kind: string): number {
-  return kind === 'rifle' ? HDR_GAINS.streakKind.rifle : kind === 'mg' ? HDR_GAINS.streakKind.mg : 1;
+  if (kind === 'rifle') return HDR_GAINS.streakKind.rifle;
+  if (kind === 'mg') return HDR_GAINS.streakKind.mg;
+  if (kind === 'grenade') return HDR_GAINS.streakKind.grenade;
+  return 1;
 }
