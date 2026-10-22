@@ -567,6 +567,59 @@
       "default": 1,
       "description": "Field works (#277): how fast a `construct` unit raises a field work, as a multiple of the type's build time. Absent means 1; the D9 authors 1.5. Two builders add."
     },
+    "aura": {
+      "type": "object",
+      "required": ["area"],
+      "additionalProperties": false,
+      "description": "E1 (GH-709): the field-works aura carried by a unit. Same effect shape as a structure's aura.area, read by the same stepAuras pass into the same columns; every covering effect, structure or unit, gives the MAX (never a sum). The carrier never covers itself. Absent means none.",
+      "properties": {
+        "area": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["radius", "affects"],
+            "properties": {
+              "radius": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 12,
+                "description": "Tiles from the carrier's position. Ignored by `passengers`, which covers the carrier's own riders wherever they sit."
+              },
+              "affects": {
+                "enum": ["foot", "vehicle", "any", "passengers"],
+                "description": "foot / vehicle / any as on a structure: same-side ground units on the surface, not garrisoned, not carried, never air. `passengers` is units only: the carrier's own riders (air carriers included). An aircraft may carry only `passengers` effects."
+              },
+              "stationary": {
+                "type": "boolean",
+                "default": false,
+                "description": "The effect applies only while the carrier is not moving."
+              },
+              "heal_per_s": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Fraction of max HP restored a second. The delay is REGEN_DELAY_TICKS, not a field."
+              },
+              "heal_cap": {
+                "type": "number",
+                "minimum": 0.7,
+                "maximum": 1.0
+              },
+              "repair_per_s": {
+                "type": "number",
+                "minimum": 0
+              },
+              "accuracy_mult": {
+                "type": "number",
+                "minimum": 1.0,
+                "maximum": 1.25
+              }
+            }
+          }
+        }
+      }
+    },
     "art": {
       "type": "object",
       "required": [

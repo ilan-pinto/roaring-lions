@@ -30,6 +30,10 @@ import {
   BREACH_DETOUR_SLACK,
   AFFECTS_FOOT,
   AFFECTS_VEHICLE,
+  AFFECTS_PASSENGERS,
+  areaEffectsFromJson,
+  type AreaEffect,
+  type AreaEffectJson,
   type StructureAid,
   type StructureAura,
   type StructureType,
@@ -300,6 +304,9 @@ export interface UnitTypeJson {
   /** GH-707: a medic (ability `rescue`): how far it looks, how long it treats, how fast it
    *  moves dragging (one man) or carrying (a stretcher team). */
   rescue?: { radius_tiles: number; treat_s: number; drag_speed_mult: number; carry_speed_mult: number };
+  /** E1 (GH-709): the field-works `aura.area` shape carried by a unit, plus the unit-only
+   *  `affects: "passengers"` and `stationary`. Absent = none (every shipped unit). */
+  aura?: { area: AreaEffectJson[] };
 }
 
 /**
@@ -682,6 +689,23 @@ export interface UnitType {
   stabiliseRadiusSq: Fx;
   /** GH-707: the medic block, null for every non-medic. */
   rescue: { radiusSq: Fx; treatTicks: number; dragMult: Fx; carryMult: Fx } | null;
+  /** E1 (GH-709): the unit's own `aura.area`, parsed; null for every type without one. */
+  aura: AreaEffect[] | null;
+}
+
+/** E1 (GH-709): a unit's `aura`, parsed through the structures' own area parser. An aircraft
+ *  may carry only `passengers` effects: an area scope from a carrier in the air would heal
+ *  the ground beneath it, which nothing in the design asks for (the medevac heals its riders). */
+function unitAuraFromJson(json: UnitTypeJson): AreaEffect[] | null {
+  if (json.aura === undefined) return null;
+  const area = areaEffectsFromJson(`unit ${json.id}`, json.aura.area, TICKS_PER_SECOND, true);
+  if (area.length === 0) throw new Error(`unit ${json.id}: aura.area is empty`);
+  if (json.mobility.domain === 'air') {
+    for (const e of area) {
+      if (e.affects !== AFFECTS_PASSENGERS) throw new Error(`unit ${json.id}: an aircraft's aura may only affect passengers`);
+    }
+  }
+  return area;
 }
 
 /** Seconds of authored data to whole ticks, crossing into fixed point once (invariant 2). */
@@ -874,6 +898,7 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
             dragMult: fx.from(json.rescue.drag_speed_mult),
             carryMult: fx.from(json.rescue.carry_speed_mult),
           },
+    aura: unitAuraFromJson(json),
   };
 }
 
@@ -1607,6 +1632,11 @@ export class Sim {
    *  while it is set. Never cleared: once live, always folded. Not itself
    *  hashed -- it is a function of what the block holds. */
   private fwLive = false;
+  /** E1 (GH-709): set when a unit whose type carries an `aura` is spawned (which also sets
+   *  `fwLive`, so the aura columns it writes are hashed). Gates stepAuras' unit pass, so a
+   *  world with no aura unit pays nothing for it. Never cleared. Not hashed: it is a
+   *  function of the spawned types, and the hp it moves is hashed anyway. */
+  private unitAuraLive = false;
   /** Field works (#277 Task 7): per sensor structure, bit `r` set when any tile of route `r`
    *  lies within the type's `tunnel_radius` of the centroid. Geometry only (footprints and
    *  route tiles never change), so it is filled when the structure is raised and when a route
@@ -3219,6 +3249,13 @@ export class Sim {
       this.woundedAlive[side]++;
     }
     this.apsAmmo[id] = type.apsMagazine;
+    // E1 (GH-709): the first aura-carrying unit turns the field-works fold on, so the aura
+    // columns its heal writes are hashed (spec §2 E1). At SPAWN, not at type registration:
+    // only a mission that fields one pays for it, and no shipped unit carries an aura.
+    if (type.aura !== null) {
+      this.fwLive = true;
+      this.unitAuraLive = true;
+    }
     this.pendingEvents.push({ kind: 'spawn', tick: this.tickCount, entity: id, typeId: type.id, side });
     return id;
   }
@@ -9495,6 +9532,55 @@ export class Sim {
           if (e.accMult > this.auraAccMult[i]) this.auraAccMult[i] = e.accMult;
           const c = e.compTicks;
           if (c > 0 && (this.auraCompAt[i] === 0 || c < this.auraCompAt[i])) this.auraCompAt[i] = c;
+        }
+      }
+    }
+    if (this.unitAuraLive) this.stepUnitAuras();
+  }
+
+  /**
+   * E1 (GH-709): the unit half of stepAuras, the same max-over-effects rule into the same
+   * columns, so a unit aura and a station never stack with each other or themselves. A
+   * carrier counts while alive, not garrisoned, not carried and not underground (and, for a
+   * `stationary` effect, not moving). An area effect covers what a station's does -- same
+   * side, alive, surface, not garrisoned, not carried, not air, in the effect's domain --
+   * within `radius` of the carrier, never the carrier itself. `passengers` covers the
+   * carrier's own living riders (`carriedBy === c`) wherever it is, in the air included.
+   * GH-707 wounded (`horsDeCombat`) are never covered: an aura heals pooled squad hp and
+   * leaves bleeding to the medic's treat and the carrier's `stabilise_radius` (the E1 x
+   * GH-707 ruling, in the PR). Called only while `unitAuraLive`; allocates nothing.
+   */
+  private stepUnitAuras(): void {
+    const n = this.count;
+    for (let c = 0; c < n; c++) {
+      if (this.alive[c] === 0) continue;
+      const area = this.unitTypes[this.typeIdx[c]].aura;
+      if (area === null) continue;
+      if (this.garrisonedIn[c] >= 0 || this.carriedBy[c] >= 0 || this.tunnelIn[c] >= 0) continue;
+      const side = this.side[c];
+      const cx = this.posX[c];
+      const cy = this.posY[c];
+      const still = this.moving[c] === 0;
+      for (let k = 0; k < area.length; k++) {
+        const e = area[k];
+        if (e.stationary && !still) continue;
+        const passengers = e.affects === AFFECTS_PASSENGERS;
+        for (let i = 0; i < n; i++) {
+          if (i === c || this.alive[i] === 0 || this.side[i] !== side) continue;
+          if (passengers) {
+            if (this.carriedBy[i] !== c) continue;
+          } else {
+            if (this.garrisonedIn[i] >= 0 || this.carriedBy[i] >= 0 || this.tunnelIn[i] >= 0) continue;
+            const t = this.unitTypes[this.typeIdx[i]];
+            if (t.isAir) continue;
+            if (e.affects === AFFECTS_FOOT && t.moveDomain !== DOMAIN_FOOT) continue;
+            if (e.affects === AFFECTS_VEHICLE && t.moveDomain !== DOMAIN_VEHICLE) continue;
+            if (distSqFx(fx.sub(this.posX[i], cx), fx.sub(this.posY[i], cy)) > e.radiusSq) continue;
+          }
+          if (this.woundLive && this.horsDeCombat(i)) continue;
+          if (e.healRate > this.auraHealRate[i]) this.auraHealRate[i] = e.healRate;
+          if (e.healCap > this.auraHealCap[i]) this.auraHealCap[i] = e.healCap;
+          if (e.accMult > this.auraAccMult[i]) this.auraAccMult[i] = e.accMult;
         }
       }
     }
