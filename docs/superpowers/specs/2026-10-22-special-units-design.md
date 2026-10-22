@@ -1,6 +1,6 @@
-# Eleven credit-only special units for the brigade store — design (GH-709)
+# Credit-only special units for the brigade store — design (GH-709)
 
-**Date:** 2026-10-22 · **Status:** proposal for the lead; nothing is built. **Issue:** GH-709 (ten units,
+**Date:** 2026-10-22 · **Status:** ruled by the lead on 22 Oct (below); nine units go ahead, Phase 1 next. **Issue:** GH-709 (ten units,
 plus unit 11, the cluster bomb cannon, from the lead's 20 Oct comment). **Base:** `origin/main` at
 `2f57c99a3` (mobility kills, GH-706, merged). **Precedent:** E5, the three bought-only units
 (`docs/superpowers/specs/2026-09-29-e5-special-forces-design.md`, numbers in
@@ -10,12 +10,28 @@ plus unit 11, the cluster bomb cannon, from the lead's 20 Oct comment). **Base:*
 
 No engine code, no `data/units/` JSON and no Meshy credit was spent for this document. The 11 draft
 units below were written to a scratch directory only, to measure them against the schema and the cost
-curve; Phase 1 stages them in the repository.
+curve; Phase 1 stages the nine the lead approved in the repository.
+
+## Lead rulings (22 Oct)
+
+Binding. They supersede the recommendations in §6 where they differ, and the rest of this document
+has been updated to match.
+
+| Q | ruling |
+|---|---|
+| Q3 | **The AA missile team (`inf_aa_missile`) is HELD until E6** (GH-274, the drone swarm). It is not built, staged or priced into the catalogue now. Its section (§1.3) stays as the design to resume from. |
+| Q9 | **The camouflaged rifle squad (`inf_rifle_camo`) is NOT built.** It is removed from the store. §1.8 stays only as the record of why. |
+| Q4 | The cluster cannon is a separate unit, `spg_cluster`, a Blender variant of unit 2's GLB, with no ammunition selector (D6 stays deferred). |
+| Q14 | Meshy is approved at **280 credits planned, 600 at most**. Every call is announced before it is spent, and its prompt is written by an Opus agent at high effort. With nine units the plan needs 210 / 450 (§4), inside the approval. |
+| Q1, Q2, Q5, Q6, Q7, Q8, Q10, Q11, Q12, Q13, Q15 | Take the recommendation in §6 as written. |
+
+**Nine units are built:** `mbt_lavi_camo`, `spg_long_range`, `at_nlos_team`, `veh_ambulance`,
+`air_medevac_heli`, `inf_medic_squad`, `inf_grenadier`, `ugv_recon_dog`, `spg_cluster`.
 
 ## 0. What this design found, in one place
 
-1. **Six of the eleven are JSON-only today.** Camouflage tank, long-range cannon, AA missile team,
-   camouflage rifle squad, grenadier squad and robot dog need no engine change: every ability they
+1. **Six of the eleven drafted were JSON-only (four of the nine built are).** Camouflage tank, long-range
+   cannon, AA missile team (held), camouflage rifle squad (dropped), grenadier squad and robot dog need no engine change: every ability they
    advertise is a stat the sim already reads (signature, the firing multiplier, the ambush stance,
    indirect fire on per-side identification, `can_target: ["air"]`, `splash_tiles`, `mark_tunnel`).
 2. **Three engine concepts cover the other five**, and each is small, data-driven and reuses a shipped
@@ -36,20 +52,21 @@ curve; Phase 1 stages them in the repository.
    at low collateral (§1.4).
 4. **Enemy air is near-dead content**: five placements across 27 missions (`loiter_drone`, `paramotor`).
    A KDF AA team (unit 3) is cheap to build and nearly idle in the campaign; the 2026-09-13 star-unit
-   design rejected a dedicated AA unit on the same measurement (its G6).
-5. **The store's size roughly doubles.** The shipped credit catalogue is **72,485** credits
+   design rejected a dedicated AA unit on the same measurement (its G6). **Held until E6 (ruling Q3).**
+5. **The store's size grows by two-thirds.** The shipped credit catalogue is **72,485** credits
    (every KDF `unlock.price` and upgrade tier, plus staged `demo_tzav`), **12.2 campaigns** at
-   `LADDER_CREDITS` 5,920. The eleven at the prices below add **57,750**: **130,235, 22.0 campaigns**,
-   before any upgrade track. Every item stays reachable by play (coin spec G1), but "reachable" now
-   means roughly ninety hours. That is the first question for the lead (§6, Q1).
-6. **The cost curve passes with all eleven** (47 units within ±18%, both passes), and adding them moves
-   no shipped unit closer to the band edge: `attack_drone` goes from +16.0% to +13.7%. The curve cannot
+   `LADDER_CREDITS` 5,920. The nine at the prices below add **49,250**: **121,735, 20.6 campaigns**,
+   before any upgrade track. (The eleven drafted would have added 57,750: 130,235, 22.0 campaigns.)
+   Every item stays reachable by play (coin spec G1), but "reachable" now means roughly eighty-five
+   hours. The lead accepted this (Q1).
+6. **The cost curve passes with the nine** (45 units within ±18%, both passes; re-run 22 Oct, §3), and
+   adding them moves no shipped unit closer to the band edge: `attack_drone` goes from +16.0% to +13.7%. The curve cannot
    see any of the abilities that are the point of these units, so five carry a deliberate premium inside
    the band (§3).
 
-## 1. The eleven units
+## 1. The units
 
-Common to all eleven: `"faction": "kdf"`, `"unlock": { "price": N }` and no earned field. That is the
+Eleven were drafted; nine are built (rulings above). Common to all of them: `"faction": "kdf"`, `"unlock": { "price": N }` and no earned field. That is the
 credit-only shape: `isBoughtOnly` (`packages/sim/src/unlock.ts`) reads "no earned field and a price" as
 "closed until bought", and the brigade screen already renders it (`unlockReason` returns
 `buy for N credits`). The shared `unlock` schema (`common.schema.json#/$defs/unlock`) accepts `price`
@@ -65,12 +82,12 @@ ceiling 8,000), ordered by how much each changes what a player can do. "Ladders"
 |---|---|---|---|---|---|---|---|
 | 1 | `mbt_lavi_camo` | mbt | 960 | 6,000 | 1.01 | none | Blender kit on `mbt_lavi.glb`, 0 cr |
 | 2 | `spg_long_range` | artillery | 400 | 6,500 | 1.10 | none | Meshy, 35 / 75 cr |
-| 3 | `inf_aa_missile` | aa | 240 | 4,000 | 0.68 | none | Meshy, 35 / 75 cr |
+| 3 | ~~`inf_aa_missile`~~ **held for E6** | aa | 240 | (4,000) | 0.68 | none | Meshy, 35 / 75 cr (not spent) |
 | 4 | `at_nlos_team` | at_team | 265 | 5,500 | 0.93 | **E2** | Meshy, 35 / 75 cr |
 | 5 | `veh_ambulance` | apc | 540 | 5,000 | 0.84 | **E1** | Meshy, 35 / 75 cr |
 | 6 | `air_medevac_heli` | apc (air) | 330 | 6,500 | 1.10 | **E1** | Blender on `heli_yanshuf.glb`, 0 cr |
 | 7 | `inf_medic_squad` | support | 295 | 4,250 | 0.72 | **E1** | Meshy, 35 / 75 cr |
-| 8 | `inf_rifle_camo` | infantry | 320 | 4,500 | 0.76 | none | Meshy, 35 / 75 cr |
+| 8 | ~~`inf_rifle_camo`~~ **not built** | infantry | 320 | — | — | none | — |
 | 9 | `inf_grenadier` | infantry | 320 | 4,000 | 0.68 | none | Meshy, 35 / 75 cr |
 | 10 | `ugv_recon_dog` | drone (ground) | 190 | 4,000 | 0.68 | none (rig: new) | Meshy, 35 / 75 cr |
 | 11 | `spg_cluster` | artillery | 400 | 7,500 | 1.27 | **E3** | Blender on unit 2's GLB, 0 cr |
@@ -133,7 +150,9 @@ rejected a 20-tile guided mortar as a reward for restraint; credits are not rest
 still lands where the round lands (collateral 0.8 arms both the zone penalty and danger-close). A probe
 duels it against the Grad with a drone spotter on each side.
 
-### 1.3 `inf_aa_missile` — AA missile team
+### 1.3 `inf_aa_missile` — AA missile team (HELD until E6, GH-274)
+
+*Ruling Q3: not built now. Kept as the design to resume from when E6 gives it work.*
 
 **Role.** The KDF's first foot AA: a three-man team with a shoulder-launched missile, the mirror of the
 Sarim `manpad_team`. **Ability:** `can_target: ["air"]` on an `atgm`-class weapon, which `engageable`
@@ -208,7 +227,9 @@ unit's v2. Recommendation: build E1 now (it is useful whatever #707 decides), bu
 the ambulance and the medevac after #707's model decision, as the issue suggests, so they are not
 redesigned twice (§6, Q8).
 
-### 1.8 `inf_rifle_camo` — camouflaged rifle squad
+### 1.8 `inf_rifle_camo` — camouflaged rifle squad (NOT BUILT)
+
+*Ruling Q9: removed from the store. Kept only as the record of the overlap question.*
 
 **Role.** A fighting squad in ghillie suits: it holds a hedge line unseen and opens fire first. Six men,
 `marksman_rifles` (range 10 / eff 8, accuracy 0.72, pen 12, damage 30, rof 120, collateral 0.06),
@@ -372,27 +393,31 @@ move**. A PR that moves one has a bug or must say why in the same commit.
 
 ## 3. Balance
 
-**Cost curve, measured.** Drafts in a scratch directory (schema: 11 PASS against the shipped
-`unit.schema.json` through `ajv/dist/2020.js`, as `validate_data.mjs` uses). Command:
+**Cost curve, measured (re-run 22 Oct over the nine).** Drafts in a scratch directory (schema: PASS
+against the shipped `unit.schema.json` through `ajv/dist/2020.js`, as `validate_data.mjs` uses); Phase 1
+stages the same nine in `docs/campaign/special_units/gh709/`. Command:
 
 ```
 python3 tools/validate_balance.py --units data/units \
-  --also docs/campaign/special_units/e5 --also <scratch>/su --report
-fitted curve: cost = 284.578 * power^0.480  (n=47)
-at_nlos_team      0.7   265   236  +12.1%     inf_rifle_camo    1.1   320   301   +6.2%
-air_medevac_heli  1.1   330   297  +11.1%     ugv_recon_dog     0.5   190   196   -3.2%
-spg_cluster       1.7   400   367   +9.0%     inf_grenadier     1.4   320   330   -3.1%
-veh_ambulance     3.2   540   497   +8.7%     inf_aa_missile    0.7   240   242   -0.9%
-inf_medic_squad   0.9   295   272   +8.6%
+  --also docs/campaign/special_units/e5 --also <the nine> --report
+fitted curve: cost = 283.978 * power^0.481  (n=45)
+at_nlos_team      0.7   265   236  +12.3%     ugv_recon_dog     0.5   190   196   -3.2%
+air_medevac_heli  1.1   330   297  +11.2%     inf_grenadier     1.4   320   330   -3.0%
+spg_cluster       1.7   400   366   +9.2%
+veh_ambulance     3.2   540   496   +8.8%
+inf_medic_squad   0.9   295   271   +8.8%
+spg_long_range    1.8   400   374   +6.9%
 mbt_lavi_camo    11.0   960   899   +6.8%
-spg_long_range    1.8   400   375   +6.8%
-balance gate passed: 47 units within +/-18%
+balance gate passed: 45 units within +/-18%
 ```
 
-The curve without the eleven is `288.175 * power^0.468` (n=36), tightest `attack_drone` +16.0%; with
-them `attack_drone` reads +13.7%. Max-tier pass (`--max-tier --upgrade-cost-factor 0.02`): passes,
-tightest `heli_yanshuf` +15.1% (a shipped unit), and none of the eleven above +11.3%. None of the
-eleven declares an upgrade track.
+The curve without them is `288.175 * power^0.468` (n=36), tightest `attack_drone` +16.0%; with the
+nine `attack_drone` reads +13.7% and stays the tightest unit. Max-tier pass (`--max-tier
+--upgrade-cost-factor 0.02`, curve `304.655 * power^0.481`): passes, tightest `heli_yanshuf` +15.0% (a
+shipped unit); of the nine, highest `air_medevac_heli` +12.7%, then `veh_ambulance` +12.4%,
+`spg_cluster` +12.3%, `at_nlos_team` +12.0%, lowest `ugv_recon_dog` -5.1%. None of the nine declares an
+upgrade track. (The eleven-unit run, n=47, read the same tightest units: `attack_drone` +13.7%,
+`at_nlos_team` +12.1%.)
 
 **What the curve cannot see, and the premium for it.** The curve scores kills per minute, hull and
 mobility. It does not read the firing multiplier, the ambush stance, indirect fire, an aura, or
@@ -403,7 +428,7 @@ JSON-only units whose value the curve does read. **The premiums are judgement, a
 what tests them.**
 
 **§5.7 and `pnpm balance`.** `pnpm balance` names six ids (`tools/src/backtest/targets.ts`) and cannot
-move; it runs as a guard. None of the eleven is in a §5.7 target. **`validate_balance.py --also` on CI
+move; it runs as a guard. None of the nine is in a §5.7 target. **`validate_balance.py --also` on CI
 is what sees them**, from Phase 1 on, exactly as it sees the E5 three.
 
 **Probes** (`tools/src/backtest/special-units-probes.ts`, report-only, bands frozen by
@@ -413,10 +438,10 @@ is what sees them**, from Phase 1 on, exactly as it sees the E5 three.
 |---|---|---|
 | 1 | detection tick vs `sarim_rifles`, `atgm_cell`, `rpg_team` at 4/6/8 tiles, parked in ambush (radius 3, and widened to 8) / moving / firing, against the Lavi | is it found at all, and only by firing? |
 | 2 | vs `rocket_battery` at 20-28 tiles, a recon drone spotting for each side | does reach win the duel outright? |
-| 3 | vs `paramotor`, `loiter_drone` | kills per pass |
+| 3 | (held for E6) vs `paramotor`, `loiter_drone` | kills per pass |
 | 4 | vs `rocket_battery`, `atgm_cell` at 20 tiles with a drone spotter; Conduct spent in a flagged zone vs `mortar_team` | the precision claim |
 | 5-7 | hp restored per minute on a pinned rifle squad vs `kdf_medic_station` | an aura is not a better station |
-| 8 | detection as 1, against `inf_squad` and `recon_zikit` | the overlap |
+| 8 | (not built) | — |
 | 9 | vs `militia_cell` on cover 2 and in the open, vs `inf_squad` | the cover claim |
 | 10 | first identification of a buried route on `beit_sahwan_4_subterranean`, vs `recon_drone` and `yahalom_squad` | the tunnel claim |
 | 11 | vs infantry in the open, a garrisoned house, a `technical`, an armoured column; Conduct per round near civilians | the lead's four claims |
@@ -425,7 +450,7 @@ is what sees them**, from Phase 1 on, exactly as it sees the E5 three.
 unit 4 on `tel_marum_3_clearance` (the Grad), units 5-7 on `wadi_halam_5_depot` (the hold), unit 10 on
 `beit_sahwan_4_subterranean`.
 
-**Staging.** Phase 1 puts the eleven JSONs in `docs/campaign/special_units/gh709/`, extends
+**Staging.** Phase 1 puts the nine JSONs in `docs/campaign/special_units/gh709/`, extends
 `tools/src/e5_staged.test.ts`'s pattern to it (schema-valid, not half-landed, no staged id in
 `@lions/data`'s `units`), and adds `--also docs/campaign/special_units/gh709` to CI's
 two `--also` steps (`ci.yml` has four `validate_balance.py` steps: plain and `--also e5`, each with and
@@ -447,17 +472,19 @@ and one remesh (5); **ceiling** adds a re-roll and a second remesh. At the CLI's
 |---|---|---|---|---|
 | 1 | Blender kit grafted on `mbt_lavi.glb` (as `officer_armour`, `export_officer_armour.py`) | 0 | `mbt_lavi`, `officer_armour` | the net's draped top line; `officer_armour`'s mast took it to 0.526 |
 | 2 | Meshy text-to-3D | 35 / 75 | `rocket_battery`, `ifv_namer`, `mbt_lavi` | barrel at 35°, spades down |
-| 3 | Meshy (team) | 35 / 75 | `manpad_team`, `at_team`, `inf_squad` | tube aimed high, back radar pack |
+| 3 | held for E6: Meshy (team) | (35 / 75, not in the plan) | `manpad_team`, `at_team`, `inf_squad` | tube aimed high, back radar pack |
 | 4 | Meshy (team) | 35 / 75 | `at_team`, `atgm_cell` | tripod launcher box |
 | 5 | Meshy text-to-3D | 35 / 75 | `ifv_namer`, `apc_kipod`, `apc_eitan` | raised box roof, stretcher racks |
 | 6 | Blender on `heli_yanshuf.glb` | 0 | `heli_yanshuf` | hoist boom, external tanks |
 | 7 | Meshy (team) | 35 / 75 | `inf_squad`, `breach_team` | boxy trauma packs, rolled stretchers |
-| 8 | Meshy (team) | 35 / 75 | `sniper_team`, `recon_zikit` | ghillie cloak: a draped, caped outline |
+| 8 | not built | — | — | — |
 | 9 | Meshy (team) | 35 / 75 | `inf_squad` (highest risk) | drum launcher, bandolier vest |
 | 10 | Meshy | 35 / 75 | `recon_drone`? none on four legs | quadruped body |
 | 11 | Blender on unit 2's GLB | 0 | unit 2 (identical chassis) | a different barrel and a rear ammunition rack, measured before any spend |
 
-**Total: 280 credits planned, 600 ceiling (about $5.60-$12).** Measure IoU on every Blender variant
+**Total for the nine: 210 credits planned, 450 ceiling (about $4.20-$9), six Meshy models** (units 2, 4,
+5, 7, 9, 10), inside the lead's approval of 280 / 600 (Q14). The eleven would have been 280 / 600. The
+held AA team would add 35 / 75 when E6 releases it. Measure IoU on every Blender variant
 before deciding it needs Meshy; a variant that cannot clear 0.88 against its parent costs one Meshy part
 (35).
 
@@ -484,9 +511,9 @@ from `gh709/` to `data/units/kdf/` (CLAUDE.md, "Adding content").
 
 | phase | PR | contents | owner | needs |
 |---|---|---|---|---|
-| 1 | Numbers and staging | the eleven staged in `gh709/`, the staged test, CI `--also`, the probe file, the names screen | balance-analyst, narrative-designer | the lead's numbers gate (Q1-Q13) |
+| 1 | Numbers and staging | the nine staged in `gh709/`, the staged test, CI `--also`, the probe file, the names screen | balance-analyst, narrative-designer | the lead's numbers gate (Q1-Q13) |
 | 2 | Ambush armour | units 1 and 2 (JSON-only); one Meshy model (unit 2) | blender-art | 1 |
-| 3 | Infantry, JSON-only | units 8, 9, 3; three Meshy teams; P2 (the lobbed grenade) | blender-art, render-vfx | 1 |
+| 3 | Infantry, JSON-only | unit 9; one Meshy team; P2 (the lobbed grenade). Unit 8 dropped (Q9); unit 3 held for E6 (Q3) | blender-art, render-vfx | 1 |
 | 4 | E1, the unit aura | schema, sim, tests; no content | sim-guard | 1 |
 | 5 | The medic trio | units 7, 5, 6; two Meshy models, one Blender | blender-art | 4, and GH-707's model decision |
 | 6 | E2 and E3 | the `indirect` flag and submunitions (own resolver on `splashDirect`, the `submunition` event), with their ROE and render hooks; no content | sim-guard, render-vfx | 1 |
@@ -495,10 +522,15 @@ from `gh709/` to `data/units/kdf/` (CLAUDE.md, "Adding content").
 
 Phases 2, 3 and 4 can run at once; 6 can run beside 5.
 
+**Held for E6:** unit 3, `inf_aa_missile` (JSON-only, one Meshy team). It resumes as its own phase after
+GH-274 lands, from §1.3 as written, and is staged only then.
+
 ## 6. Questions for the lead
 
+*Answered 22 Oct: see "Lead rulings" at the top. The questions stand as asked, with the ruling noted.*
+
 1. **The store doubles.** 57,750 credits for the eleven take the catalogue from 12.2 to 22.0
-   campaigns at the measured ladder, and upgrade tracks on them would add ~25,000 more (about 26
+   campaigns at the measured ladder (with the nine: 49,250, to 20.6), and upgrade tracks on them would add ~25,000 more (about 26
    campaigns). *Recommendation:* keep the 4,000-8,000 band (it is the rule that a bought-only unit is
    never cheaper than the dearest earned one), ship no upgrade tracks on the eleven in v1, and accept
    the larger catalogue as the long-tail goal it is.
@@ -506,9 +538,9 @@ Phases 2, 3 and 4 can run at once; 6 can run beside 5.
    logistics, not credits.
 3. **The AA team has almost nothing to shoot.** *Recommendation:* build it (it is cheap, JSON-only and
    fills a real roster hole), at the floor price, after the other JSON-only units; or hold it until E6's
-   drone swarm (GH-274) gives it work.
+   drone swarm (GH-274) gives it work. **Ruled: held until E6.**
 4. **Cluster: separate unit or ammunition choice?** *Recommendation:* separate unit `spg_cluster` on a
-   Blender variant of unit 2's chassis (0 credits); no ammunition selector (D6).
+   Blender variant of unit 2's chassis (0 credits); no ammunition selector (D6). **Ruled: as recommended.**
 5. **Duds as a lasting hazard?** *Recommendation:* no, not in v1 (D2). The Conduct cost is the
    cluster's price.
 6. **How hard does the cluster hit Conduct?** *Recommendation:* the zone judge per bomblet (with the
@@ -521,6 +553,7 @@ Phases 2, 3 and 4 can run at once; 6 can run beside 5.
    #707's model decision so they are designed once.
 9. **Is the camouflaged rifle squad too close to the Shmamit and the sniper?** *Recommendation:* keep
    it as the one that fights as a squad; it is the first to drop if the store needs trimming.
+   **Ruled: not built.**
 10. **Grenade collateral 0.3, on the structural threshold?** *Recommendation:* yes; 40 mm HE in a
     street should cost in a flagged zone.
 11. **Long-range cannon at 28 tiles outranges the Grad.** *Recommendation:* 28, sight 7, firing ×6, and
@@ -531,5 +564,6 @@ Phases 2, 3 and 4 can run at once; 6 can run beside 5.
     lead's drafts lean on (Kornet, Spike NLOS, Black Hawk, Merkava).
 14. **Meshy spend.** 280 credits planned, 600 ceiling (about $5.60-$12), eight models, announced one
     by one. *Recommendation:* approve the plan; each call is still announced before it is spent.
+   **Ruled: approved at 280 / 600; the nine need 210 / 450, six models.**
 15. **Network play.** *Recommendation:* the existing rule holds: a bought unit reaches network play
     only in a friends' room on "bring your brigade".
