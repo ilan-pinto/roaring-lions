@@ -103,6 +103,11 @@ const MOUNTED: readonly (readonly [string, string, readonly string[], readonly s
   // 0.22, 0 at +0.24) plus 0.05; the gunner's inboard hand closes on the
   // handwheel (15 samples), so his forearms are out of the body set.
   ['mortar_crew.glb', 'the raised mortar vs its crew', ['idle', 'fire', 'pinned'], ['weapon'], 'prop', /^emtr_crew(1_|0_(?!forearm))/],
+  // GH-709 Phase 7 (22 Oct): the Zaron launcher (`weapon`) and the fire-control
+  // case and cable (`metal`), all on `prop`, against the whole crew; the
+  // gunner's hands close on the case's grips by design (crew-fire.ts, seat
+  // "console"), so his forearms are out of the body set, as the ATGM gunner's.
+  ['at_nlos_team.glb', 'the launcher and fire-control case vs the crew', ['idle', 'fire', 'pinned'], ['weapon', 'metal'], 'prop', /^nl_(load|lead|gun_(?!forearm))/],
 ];
 
 describe('a mounted kit part stays out of the body it rides', () => {

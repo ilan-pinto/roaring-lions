@@ -338,6 +338,7 @@ function kitAccount(): BrigadeAccount {
     unlocks: [...KIT_VEHICLE_TYPES],
     upgrades,
     grants: [{ source: 'granted', amount: 5000, at: 1 }],
+    coupons: [],
   };
 }
 const LAUNCH_ARGS = useMetal ? METAL_ARGS : SWIFTSHADER_ARGS;

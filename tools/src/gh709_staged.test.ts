@@ -3,9 +3,9 @@
 // Nine credit-only units, approved and priced by the lead on 22 Oct 2026
 // (docs/superpowers/specs/2026-10-22-special-units-design.md, "Lead rulings"). Each is STAGED
 // here, not in data/units/kdf, until the phase that lands its art (and engine) moves it, in one
-// commit. Phase 2 landed `mbt_lavi_camo` and `spg_long_range`, Phase 8 `ugv_recon_dog`; the
-// other six still wait for art, and five of them for an engine concept (E1 unit aura, E2 the
-// `indirect` weapon flag, E3 submunitions). This spec is the E5 guard (`e5_staged.test.ts`) for this set:
+// commit. Phase 2 landed `mbt_lavi_camo` and `spg_long_range`, Phase 7 `at_nlos_team` and
+// `spg_cluster`, Phase 8 `ugv_recon_dog`; the other four still wait for art, and three of them
+// for E1 (the unit aura). This spec is the E5 guard (`e5_staged.test.ts`) for this set:
 //   - the staged set is exactly the nine the lead approved -- the AA team is held until E6
 //     (GH-274) and the camouflaged rifle squad is not built, and neither may be staged;
 //   - every draft parses against the shipped unit schema (a draft that needs E1 is staged
@@ -108,10 +108,10 @@ describe('GH-709: staged and landed partition the nine approved units', () => {
 });
 
 describe('GH-709 staged special units', () => {
-  it('stages five: Phase 2 landed the Lavi Ambush Tank and the Te\'o Howitzer, Phase 3 the Chomet grenadiers, Phase 8 the Chadaf robot', () => {
+  it('stages three: Phase 2 landed the Lavi Ambush Tank and the Te\'o Howitzer, Phase 3 the Chomet grenadiers, Phase 7 the Zaron Missile Team and the Te\'o Cluster Howitzer, Phase 8 the Chadaf robot', () => {
     // Update these lines, not the partition above, when a unit lands with its art. Named, so a
     // unit that vanished from both places cannot pass as "landed".
-    expect([...LANDED_IDS]).toEqual(['inf_grenadier', 'mbt_lavi_camo', 'spg_long_range', 'ugv_recon_dog']);
+    expect([...LANDED_IDS]).toEqual(['at_nlos_team', 'inf_grenadier', 'mbt_lavi_camo', 'spg_cluster', 'spg_long_range', 'ugv_recon_dog']);
     expect(staged.map((s) => s.json.id)).toEqual(GH709_IDS.filter((id) => !LANDED_IDS.includes(id)));
   });
 
@@ -150,15 +150,16 @@ describe('GH-709 staged special units', () => {
 
 // Phase 7 (GH-733's open finding): the cost curve reads E2's `indirect` reach and E3's
 // bomblet block. tools/validate_balance.py is Python, so these specs run its functions in a
-// subprocess against the staged drafts and pin its mirrored sim constants to tuning.ts.
+// subprocess against the landed units in data/units/kdf (both landed in Phase 7) and pin its
+// mirrored sim constants to tuning.ts.
 describe('validate_balance.py reads the E2 flag and the E3 bomblets', () => {
   const PROBE = String.raw`
 import json, sys, copy
 sys.path.insert(0, 'tools')
 import validate_balance as v
 st = 'docs/campaign/special_units/gh709/'
-cl = json.load(open(st + 'spg_cluster.json'))
-nl = json.load(open(st + 'at_nlos_team.json'))
+cl = json.load(open('data/units/kdf/spg_cluster.json'))  # landed in Phase 7 (GH-709)
+nl = json.load(open('data/units/kdf/at_nlos_team.json'))  # landed in Phase 7
 def off(u): return v.offense_score(u)
 def mut(u, f):
     u = copy.deepcopy(u); f(u['weapons'][0]); return u

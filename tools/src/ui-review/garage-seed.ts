@@ -47,6 +47,7 @@ export const GARAGE_SEED_ACCOUNT: BrigadeAccount = {
     mbt_lavi: { armour: 3, sensors: 3, firepower: 3 },
   },
   grants: [{ source: 'granted', amount: 5000, at: 1 }],
+  coupons: [],
 };
 
 /** Three Beit Sahwan missions logged at 3 stars, the breach at 2 (11 total --

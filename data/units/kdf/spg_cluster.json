@@ -4,6 +4,7 @@
   "blurb": "Bomblets shred men and trucks in the open, not armour or houses. Conduct pays for every round.",
   "faction": "kdf",
   "role": "artillery",
+  "voice": "crew",
   "cost": {
     "logistics": 400,
     "build_time_s": 45,

@@ -36,6 +36,7 @@ describe('parseKitDrawcallArgs', () => {
       'officer_armour',
       'rocket_battery',
       'scout_shachaf',
+      'spg_cluster',
       'spg_long_range',
       'technical',
     ]);

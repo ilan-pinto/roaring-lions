@@ -210,3 +210,17 @@ art/meshy/strike-jet-20261022-01a16471/model.glb
 art/meshy/strike-jet-20261022-01a16474/model.*
 art/meshy/strike-jet-20261022-01a16474/texture_*
 art/meshy/strike-jet-20261022-01a16476/texture_*
+
+# GH-709 Phase 7 (22 Oct): the Zaron Missile Team's launcher -- the rejected first
+# preview's model, the second preview's model, the 2k refine's six formats and base
+# colour, and the remesh's loose texture PNGs (its model.glb, the source
+# tools/units/nlos_launcher_part.py reads, IS tracked); task.json and the thumbnails
+# beside them are tracked. The mortar crewman remesh (01a0f89f) is the body the team
+# reuses: its model.glb IS tracked (import_meshy_crew_team.py reads it), its loose
+# texture PNGs are not.
+art/meshy/at-nlos-team-launcher-20261022-01a1631b/model.glb
+art/meshy/at-nlos-team-launcher-20261022-01a16320/model.glb
+art/meshy/01a16320-590e-7155-aa3b-23eb213b4f01-20261022-01a16323/model.*
+art/meshy/01a16320-590e-7155-aa3b-23eb213b4f01-20261022-01a16323/texture_*
+art/meshy/at-nlos-team-launcher-20261022-01a16328/texture_*
+art/meshy/mortar-team-20261001-01a0f89f/texture_*

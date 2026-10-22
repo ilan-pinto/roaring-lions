@@ -166,6 +166,10 @@ SUPPORTED_TEAMS = (
     # tools/units/import_meshy_dog.py from a Meshy remesh; see the dog section
     # below. It is not a `teams.TEAMS` team, so it has no TEAM_FIGURES row.
     "ugv_recon_dog",
+    # GH-709 Phase 7, 2026-10-22: the Zaron Missile Team -- the KDF mortar
+    # crewman's Meshy body three times beside a Meshy launcher part, cut and
+    # driven by this module through tools/units/import_meshy_crew_team.py.
+    "at_nlos_team",
 )
 DEFAULT_TEAM = "inf_squad"
 
@@ -225,6 +229,7 @@ TEAM_MESH_OWNER = {
     "recoilless_team": "tools/units/import_meshy_crew_team.py",
     "sarim_rifles": "tools/units/import_meshy_crew_team.py",   # B7 (GH-179, 2026-10-01)
     "ugv_recon_dog": "tools/units/import_meshy_dog.py",        # GH-709 (2026-10-22)
+    "at_nlos_team": "tools/units/import_meshy_crew_team.py",   # GH-709 Phase 7 (2026-10-22)
 }
 assert set(TEAM_MESH_OWNER) == set(SUPPORTED_TEAMS), (
     "TEAM_MESH_OWNER needs exactly one entry per SUPPORTED_TEAMS member -- "
@@ -1279,6 +1284,18 @@ TEAM_FIGURES = {
         _f("sar1", 0.0, 0.0, headgear="keffiyeh", loadout="irregular", leader=True, weapon="rifle"),
         _f("sar2", -0.34, 0.86, headgear="keffiyeh", loadout="irregular", weapon="rifle"),
     ],
+    # GH-709 Phase 7 (2026-10-22): the Zaron Missile Team, three drawn of a
+    # crew of four (the approved art spec, unit 4, A2) -- mortar_team's shape.
+    # The gunner kneels at the fire-control case (`_nlos_extras`), the loader
+    # kneels on the launcher's right, both on D6 walkers; the leader stands
+    # with a carbine. The launcher is on `prop`, packed away while they walk.
+    # The motion pass re-seats the gunner at the case's display and grips
+    # (`tools/src/meshes/motion/crew-fire.ts`, seat "console").
+    "at_nlos_team": [
+        _f("nl_gun", -0.92, 0.50, posture="kneeling", animates=False, move_posture="standing"),
+        _f("nl_load", 0.10, -0.80, posture="kneeling", animates=False, move_posture="standing"),
+        _f("nl_lead", -0.70, -0.35, leader=True, weapon="rifle"),
+    ],
     # moto_rpg is NOT built through `_add_figure`/PART_BONE at all -- see
     # `_moto_rpg_rest`, which force-binds every single part it creates to an
     # explicit bone name. These six entries exist only so `figure_prefixes`
@@ -1321,7 +1338,7 @@ def _check_team_figures_against_teams():
         "sniper_team": "kdf", "yahalom_squad": "kdf", "digger_crew": "enemy",
         "moto_rpg": "enemy", "breach_team": "kdf", "inf_grenadier": "kdf",
         "manpad_team": "enemy", "recoilless_team": "enemy",
-        "sarim_rifles": "enemy",
+        "sarim_rifles": "enemy", "at_nlos_team": "kdf",
     }
     for team_id, figures in TEAM_FIGURES.items():
         assert team_id in teams.TEAMS, f"{team_id} missing from teams.TEAMS"
@@ -1492,6 +1509,91 @@ def _mortar_crew_extras():
 def _atgm_extras():
     post = kit.atgm_tripod("atgm_post", (0.24, 0.0, 0.0))
     return post, [_prop_bone((0.24, 0.0, 0.20), 0.45)], {ob: "prop" for ob in post}
+
+
+#: at_nlos_team (GH-709 Phase 7): the launcher's cradle hinge on the ground
+#: plan (the approved art spec, A2: +0.45, 0), the fire-control case's
+#: centre, and its dimensions -- a rugged case 0.36 deep x 0.50 wide, 0.30
+#: tall on two skids, its lid display hinged at the far top edge and opened
+#: `NLOS_LID_DEG` (100: just past upright, the screen toward the gunner), and
+#: two hand grips standing on the near top corners. Metres, Blender team frame.
+NLOS_HINGE_AT = (0.45, 0.0)
+NLOS_FCU_AT = (-0.30, 0.50)
+NLOS_FCU_SIZE = (0.36, 0.50, 0.26)
+NLOS_FCU_SKID = 0.04
+NLOS_LID = (0.34, 0.46, 0.03)
+NLOS_LID_DEG = 100.0
+#: Each grip: `rings` stacked segments of alternating radius (the finger
+#: grooves), `h` tall, standing on the case top.
+NLOS_GRIP = dict(r=(0.034, 0.028), h=0.12, rings=4, inset_x=0.06, half_y=0.17)
+NLOS_CABLE_R = 0.012
+
+
+def _slab(name, centre, axes, size, role):
+    """A cuboid on arbitrary orthonormal `axes` (u, v, w) -- kit's `box` with
+    a turn baked into its vertices (object rotation is banned, kit.rot_z)."""
+    u, v, w = (Vector(a) for a in axes)
+    c = Vector(centre)
+    verts = []
+    for x, y, z in kit._box_verts(size, (0.0, 0.0, 0.0)):
+        verts.append(tuple(c + x * u + y * v + z * w))
+    return kit._mesh(name, verts, list(kit._BOX_FACES), role)
+
+
+def _nlos_extras(socket=None):
+    """at_nlos_team's fire-control unit and its cable, on the static `prop`
+    bone with the launcher (which `import_meshy_crew_team.py` adds from its
+    Meshy part). `socket`: the launcher's junction-box socket, team frame,
+    metres; the cable lies from the case's front face along the ground and
+    climbs to it. Returns (parts, prop bones, forced, points), `points` the
+    gunner's seat in the Blender team frame: `sight` (the display's centre,
+    on its screen face), `grip_r`/`grip_l` (the grips' middles, the figure's
+    anatomical right at -y)."""
+    fx, fy = NLOS_FCU_AT
+    sx, sy, sz = NLOS_FCU_SIZE
+    k = NLOS_FCU_SKID
+    parts = [kit.box("nl_fcu_case", (sx, sy, sz), (fx, fy, k + sz / 2.0), "metal")]
+    for s in (-1, 1):
+        parts.append(kit.box(f"nl_fcu_skid{'lr'[s > 0]}", (sx * 0.95, 0.05, k), (fx, fy + s * (sy / 2.0 - 0.06), k / 2.0), "metal"))
+    top = k + sz
+    # The lid: hinged on the far (+x) top edge, opened NLOS_LID_DEG from
+    # lying closed over the case (pointing -x): its long axis rises to
+    # (-cos a, 0, sin a), the screen face looking back at the gunner.
+    a = math.radians(NLOS_LID_DEG)
+    along = Vector((-math.cos(a), 0.0, math.sin(a)))
+    face_n = Vector((-math.sin(a), 0.0, -math.cos(a)))      # the screen's outward normal
+    if face_n.x > 0:
+        face_n = -face_n
+    hinge = Vector((fx + sx / 2.0, fy, top))
+    lx, ly, lt = NLOS_LID
+    lid_c = hinge + along * (lx / 2.0) + face_n * (-lt / 2.0)
+    parts.append(_slab("nl_fcu_lid", lid_c, (along, Vector((0, 1, 0)), face_n), (lx, ly, lt), "metal"))
+    parts.append(kit.tube("nl_fcu_hinge", sy * 0.9, 0.015, tuple(hinge), yaw=math.radians(90.0), sides=6, role="metal"))
+    sight = hinge + along * (lx / 2.0)
+    g = NLOS_GRIP
+    grips = {}
+    for side, s in (("r", -1), ("l", 1)):
+        at = Vector((fx - sx / 2.0 + g["inset_x"], fy + s * g["half_y"], top + g["h"] / 2.0))
+        seg = g["h"] / g["rings"]
+        for ring in range(g["rings"]):
+            c = (at.x, at.y, top + seg * (ring + 0.5))
+            parts.append(kit.tube(f"nl_fcu_grip{side}{ring}", seg, g["r"][ring % 2], c, pitch=math.radians(90.0),
+                                  sides=8, role="metal"))
+        grips[side] = at.copy()     # the hand closes round the grip's middle
+    # The cable: out of the case's front face, down to the ground, along it
+    # and up to the junction box (a straight chain of thin tubes).
+    hx, hy = NLOS_HINGE_AT
+    sock = Vector(socket) if socket is not None else Vector((hx + 0.10, hy + 0.44, 0.48))
+    port = Vector((fx + sx / 2.0, fy - 0.10, k + 0.08))
+    chain = [port, Vector((port.x + 0.10, port.y, NLOS_CABLE_R)),
+             Vector((sock.x - 0.02, sock.y + 0.08, NLOS_CABLE_R)), sock]
+    for i, (p0, p1) in enumerate(zip(chain, chain[1:])):
+        d = p1 - p0
+        parts.append(kit.tube(f"nl_cable{i}", d.length, NLOS_CABLE_R, tuple((p0 + p1) / 2.0),
+                              yaw=math.atan2(d.y, d.x), pitch=math.atan2(d.z, math.hypot(d.x, d.y)),
+                              sides=4, role="metal"))
+    points = {"sight": sight, "grip_r": grips["r"], "grip_l": grips["l"]}
+    return parts, [_prop_bone((hx, hy, 0.20), 0.45)], {ob: "prop" for ob in parts}, points
 
 
 def _yahalom_extras():

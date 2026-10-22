@@ -1,0 +1,38 @@
+{
+  "frame": "glTF metres, +X forward, +Y up, +Z anatomical right; the hinge on the origin in xy",
+  "source": "art/meshy/at-nlos-team-launcher-20261022-01a16328/model.glb",
+  "pitch_deg": 75.0,
+  "pitch_fitted_deg": 75.0,
+  "source_pitch_deg": 87.09,
+  "pack_m": 1.9,
+  "scale": 1.15759,
+  "tris": 774,
+  "ink_texels": 127,
+  "extent_m": [
+    1.348,
+    1.04,
+    2.196
+  ],
+  "points": {
+    "hinge": [
+      0.0,
+      0.3358,
+      -0.0
+    ],
+    "muzzle": [
+      0.4353,
+      2.1023,
+      0.1737
+    ],
+    "backblast": [
+      -0.0115,
+      0.3402,
+      0.2517
+    ],
+    "socket": [
+      0.1062,
+      0.4782,
+      -0.4397
+    ]
+  }
+}
