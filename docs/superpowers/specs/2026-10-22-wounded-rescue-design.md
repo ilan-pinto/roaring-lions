@@ -2,8 +2,40 @@
 
 GH-707, with GH-709's three medic units (#5 `veh_ambulance`, #6 `air_medevac_heli`,
 #7 `inf_medic_squad`). Lane C (sim), stream 1. **Design only: nothing here is built.**
-Read against `origin/main` at `a886c3b2` (22 Oct 2026). Every model below is a lead
-decision; section 9 lists the questions with a recommendation each.
+Read against `origin/main` at `a886c3b2` (22 Oct 2026). Section 9 lists the questions;
+section 0 records the lead's rulings on them, and where a ruling and the text below
+differ, **the ruling wins**. The plan is
+`docs/superpowers/plans/2026-10-22-wounded-rescue.md`.
+
+## 0. Lead rulings (22 Oct 2026, PR #728)
+
+1. **Model A** (a squad sheds a one-man `wounded_<faction>` entity with a bleed timer
+   and a crawl to cover; rescue reuses the transport, carrier and landing code).
+2. **Scope: ALL infantry, everywhere** -- not a per-mission opt-in (Q1's
+   recommendation is overruled). Every shipped foot unit with more than one figure on
+   both sides gets `hull.wounds`, and civilians go down in place (section 6). The
+   golden hash, versus pins, §5.7 balance, playtest, and possibly `LADDER_CREDITS` and
+   `ROSTER_MAX` are expected to move; each is measured and re-pinned with its reason
+   in the content-on step (P3). **Any §5.7 target that fails goes back to the lead
+   before re-tuning.** There is no `wounded: true` mission flag and no `&wounded`
+   sandbox flag.
+3. **Conduct gains approved**: +2 per enemy wounded rescued (admitted or evacuated),
+   +3 per civilian wounded, capped at +10 per mission, never above 100. The civilian
+   deduction moves from the hit to the death.
+4. **Meshy approved, about 120-150 credits**, for the medic team, stretcher and tent.
+   An Opus agent at high effort writes the prompts; every call is announced with its
+   credit estimate first. The ambulance and medevac reuse the Namer and Yanshuf GLBs.
+   Because the tent is funded, **Q7 resolves to a NEW `kdf_aid_post` tent structure**;
+   `kdf_medic_station` keeps its aura and is not extended.
+5. **Last man down: the squad dies as today** (memorial row). He may still leave a
+   wounded body; his rescue counts as evacuated and creates no roster entry (Q3, the
+   spec's recommendation, taken by the PM).
+
+The questions not ruled on (Q4, Q5, Q6, Q8, Q9, Q11) take the recommendation written
+under each in section 9. Build order is three phases (section 10): **P1** the engine
+with no content turned on and no pin moved, **P2** the content (medic team, stretcher,
+aid post tent, ambulance, medevac, `wounded_*` types) still not attached to any
+shipped infantry, **P3** `hull.wounds` on all infantry, measured and re-pinned.
 
 ## 1. What the sim does today (the ground this stands on)
 
@@ -45,7 +77,8 @@ decision; section 9 lists the questions with a recommendation each.
 ## 2. The three models
 
 All three keep vehicles out of scope (crew bail-out is a follow-up) and apply to
-foot units that opt in by data (section 4).
+foot units that carry `hull.wounds` in data (section 4); by ruling 2 that is every
+infantry unit once P3 lands.
 
 ### Model A -- a squad sheds a `wounded` entity
 
@@ -126,13 +159,14 @@ is a medic column naming (squad, slot); an aid post or carrier consumes the toke
 | Renderer | `figuresUp` + one prone unit | per-figure truth | synthesised figures |
 | Per-man identity | no | yes | no |
 
-## 3. Recommendation: Model A, opt-in by data, deferred hash fold
+## 3. Recommendation: Model A, opt-in by data, deferred hash fold (RULED: A, all infantry)
 
 A is the only model where the rescue chain (treat, drag, stretcher, ambulance, medevac,
 aid post) is built from parts the sim already proves: transport, air carriers, flow
 fields and identification. It costs nothing until content opts in, so the engine can
 land with every pin standing, and switching it on for shipped infantry becomes one
-measured, separately-blessed step (Q1).
+measured, separately-blessed step (Q1). **Ruled:** Model A; the switch-on (P3) covers
+all infantry, not one Act.
 
 ## 4. Model A in full
 
@@ -146,7 +180,11 @@ curve and `validate_balance.py` skip them by role.
 
 **Falling.** At a share crossing: roll on the squad's stream; wounded spawns unless
 `MAX_WOUNDED_PER_SIDE` alive is reached (then killed). The LAST man's crossing is the
-squad's death as today (`destroy`, memorial), and may still leave a wounded body (Q3).
+squad's death as today (`destroy`, memorial), and may still leave a wounded body
+(ruling 5): that body's parent is dead, so his admission or evacuation counts as
+evacuated and creates no roster entry. A single-figure unit (`hull.figures` 1: the
+civilians) does not spawn: it goes down IN PLACE (`hull.wounds.in_place`), the same
+entity becoming wounded, so its id, `civIds` membership and refuge latches are kept.
 
 **Bleed-out.** `bleedTicks` counts down from `bleed_s`; at 0 the wounded entity is
 destroyed (`destroyed`, `by` = the original shooter, so Conduct and kill credit stay
@@ -178,7 +216,9 @@ the aid post twice as fast.
 
 **The aid post / medic tent.** A new field-works structure `kdf_aid_post` (2x3,
 footprint `buildable`, 200 logistics) beside the existing `kdf_medic_station`
-(Q7: or extend that station). Its aura keeps the station's heal; new: wounded
+(Q7 RULED by ruling 4: the new tent; the station is not extended). The engine reads an
+optional structure `aid` block (`admit_radius`, `treat_s`, `dispatch_radius`), so any
+structure type may admit; P2 gives it to the tent only. Its aura keeps the station's heal; new: wounded
 unloaded within 1 tile are **admitted** (entity removed, `evacuated`-shaped event),
 treated for `treat_s` 20, then **rejoin**; and a `dispatch` field auto-assigns its
 idle medics within 12 tiles (the "sends stretcher teams out" ask) without a new
@@ -201,13 +241,13 @@ mission-scoped squad column (Q9).
 
 | Step | Golden | versus | playtest | LADDER_CREDITS | ROSTER_MAX | §5.7 balance |
 |---|---|---|---|---|---|---|
-| A1 engine + deferred fold, no content | no | no | no | no | no | no |
-| A2 medic units, aid post, `wounded_*` types (store-only) | no | no | no | no | no | no (role skipped) |
-| A3 `hull.wounds` on shipped KDF + Sarim infantry | **yes** (replay has infantry) | **yes** | **likely** (losses, timings) | possibly (grades read losses) | possibly (rejoined/evacuated) | **yes**: hp ceiling `figuresUp` changes regen; cap-only effects |
+| P1 engine + deferred fold, no content | no | no | no | no | no | no |
+| P2 medic units, aid post tent, `wounded_*` types, ambulance, medevac (no infantry carries `hull.wounds`) | no | no | no | no | no | no (role skipped) |
+| P3 `hull.wounds` on all shipped KDF + Sarim infantry, civilians down in place | **yes** (replay has infantry) | **yes** | **likely** (losses, timings) | possibly (grades read losses) | possibly (rejoined/evacuated) | **yes**: hp ceiling `figuresUp` changes regen; cap-only effects |
 
-A3 is the only step that moves anything and is its own PR with its measurements and
-bless. One escape: wounds only in missions that declare `wounded: true` (Q1), which
-keeps A3 to the declaring missions' playtest lines and leaves §5.7 and versus alone.
+P3 is the only step that moves anything and is its own PR with its measurements and
+bless. The per-mission escape (`wounded: true`) was offered and **declined** (ruling 2).
+A §5.7 target that fails in P3 goes back to the lead before any re-tuning.
 
 ## 6. Roster and Conduct
 
@@ -216,7 +256,7 @@ keeps A3 to the declaring missions' playtest lines and leaves §5.7 and versus a
   and `rescued` (count) per entry; memorial rows unchanged. Evacuated wounded of a
   DEAD squad are not a new roster entry (they are pooled men, not a named unit): the
   debrief prints "N evacuated" (Q4). `ROSTER_CAP` and R-2 untouched.
-- **Conduct gains** (needs a ceiling: Q10). Friendly rescue earns nothing (it is
+- **Conduct gains** (RULED, ruling 3: approved as written). Friendly rescue earns nothing (it is
   tactics, and it pays in hp). **Enemy wounded admitted or evacuated: +2 each**;
   **civilian wounded admitted or evacuated: +3 each**; both capped at 100 and at +10
   per mission. A civilian hit by the player becomes a wounded civilian (a `downed`
@@ -261,7 +301,7 @@ in #709, every call is announced with its estimate first, max detail, no red cro
 against `inf_squad`, `ifv_namer` and `heli_yanshuf` siblings (the variants will need
 a distinct roof and boom to clear 0.88).
 
-## 9. Questions for the lead
+## 9. Questions for the lead (ruled 22 Oct: see section 0)
 
 1. **Where do wounds apply?** Every infantry squad on both sides (moves golden,
    versus, §5.7, playtest), or only missions that declare `wounded: true` plus
@@ -295,9 +335,22 @@ a distinct roof and boom to clear 0.88).
 12. **Meshy spend ~120-150 credits** for medic team, stretcher and tent. **Recommend:
     approve after Q7**, which can save the tent's 30.
 
-## 10. Build order once decided
+## 10. Build order (ruled)
 
-A1 engine (columns, fold, falling, bleed, crawl, targeting skip; sim-guard review,
-`pnpm test:determinism` unchanged) -> A2 medic behaviour, `can_carry` filter, aid
-admission, staged units in `docs/campaign/special_units/` (`validate_balance.py
---also`) -> A3 content opt-in with its pins re-measured -> art and clips -> feed/radio.
+- **P1 engine, no content, no pin moved.** Schema fields, type parsing, the `woundLive`
+  deferred fold, falling (spawn and in-place), bleed, crawl, the targeting skip, the
+  medic's automatic rescue and `rescue` order, drag and stretcher carry through the
+  transport code, the `can_carry` carrier filter and stabilise aura, aid admission,
+  treatment, rejoin with scars, dispatch, evacuation at an `evac` marker or on a
+  medevac's lift-off, the events, and Conduct gains and deductions in the mission
+  runtime. Every behaviour is proved with test-only types; nothing under `data/units`
+  or `data/structures.json` uses a new field. `pnpm test:determinism`, versus, net,
+  balance and playtest byte-identical.
+- **P2 content, still no pin moved.** `inf_medic_squad`, the stretcher, `kdf_aid_post`
+  (tent and `_wreck`), `veh_ambulance` (Namer GLB + roof kit), `air_medevac_heli`
+  (Yanshuf GLB + hoist boom), `wounded_kdf` / `wounded_sarim` (kit.py prone figures),
+  clips, `squad-rig` figure hiding, feed/radio lines, the HUD bleed ring, roster
+  service-record counts. Meshy ~120-150 credits, prompts by an Opus agent at high
+  effort, each call announced first. No shipped infantry carries `hull.wounds` yet.
+- **P3 turn wounds on for all infantry**, measure, re-pin each moved pin with its
+  reason, re-check §5.7 balance (a failing target goes to the lead first).
