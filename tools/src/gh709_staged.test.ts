@@ -8,13 +8,14 @@
 // commit. This spec is the E5 guard (`e5_staged.test.ts`) for this set:
 //   - the staged set is exactly the nine the lead approved -- the AA team is held until E6
 //     (GH-274) and the camouflaged rifle squad is not built, and neither may be staged;
-//   - every draft parses against the shipped unit schema (so a draft that needs E1-E3 is
-//     staged WITHOUT its engine field, which the schema would refuse, and gains it in its
-//     engine phase);
+//   - every draft parses against the shipped unit schema (a draft that needs E1 is staged
+//     WITHOUT its engine field until E1 lands; E2 and E3 have landed (GH-733), so
+//     at_nlos_team carries `indirect` and spg_cluster its `submunitions` block);
 //   - bought-only: `unlock` is exactly `{ price }`, inside the prices.md section 8 band;
 //   - not half-landed: no staged id is already a shipped unit;
 //   - the mirror pin: a LANDED id has no staged twin, is registered in `units`, is
 //     bought-only in the same band, and is named in mesh-catalogue.ts and not held there.
+import { spawnSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -143,4 +144,88 @@ describe('GH-709 staged special units', () => {
       });
     });
   }
+});
+
+// Phase 7 (GH-733's open finding): the cost curve reads E2's `indirect` reach and E3's
+// bomblet block. tools/validate_balance.py is Python, so these specs run its functions in a
+// subprocess against the staged drafts and pin its mirrored sim constants to tuning.ts.
+describe('validate_balance.py reads the E2 flag and the E3 bomblets', () => {
+  const PROBE = String.raw`
+import json, sys, copy
+sys.path.insert(0, 'tools')
+import validate_balance as v
+st = 'docs/campaign/special_units/gh709/'
+cl = json.load(open(st + 'spg_cluster.json'))
+nl = json.load(open(st + 'at_nlos_team.json'))
+def off(u): return v.offense_score(u)
+def mut(u, f):
+    u = copy.deepcopy(u); f(u['weapons'][0]); return u
+def dbl(w): w['submunitions']['damage'] *= 2
+def parent(w): w['damage'] = 9999; w['splash_tiles'] = 4
+def armour(w): w['submunitions']['damage'] = 1e9
+def noflag(w): w.pop('indirect', None)
+def asmortar(w): w.pop('indirect', None); w['type'] = 'mortar'
+print(json.dumps({
+  'scatterBase': v.SUB_SCATTER_BASE, 'softLimit': v.SUB_SOFT_ARMOR_LIMIT,
+  'reach0': v.bomblet_reach(2.5, 0.8, 0.0, 0.0),
+  'cluster': off(cl), 'clusterDbl': off(mut(cl, dbl)), 'clusterParent': off(mut(cl, parent)),
+  'clusterHuge': off(mut(cl, armour)),
+  'nlos': off(nl), 'nlosNoFlag': off(mut(nl, noflag)),
+  'reach': [v.standoff_range(w['weapons'][0]) for w in (nl, mut(nl, noflag), mut(nl, asmortar))],
+  'ranges': [nl['weapons'][0]['range_tiles'], nl['weapons'][0]['effective_range_tiles']],
+  'cap': v.MAX_ENGAGE_RATE, 'mix': v.TARGET_MIX, 'supMax': v.SUP_MAX_VALUE,
+  'standoff': 1 + __import__('math').log1p(cl['weapons'][0]['range_tiles']) * 0.25,
+}))
+`;
+  const run = spawnSync('python3', ['-c', PROBE], { cwd: ROOT, encoding: 'utf8' });
+  const r = JSON.parse(run.stdout || '{}') as {
+    scatterBase: number; softLimit: number; reach0: number[]; cluster: number; clusterDbl: number;
+    clusterParent: number; clusterHuge: number; nlos: number; nlosNoFlag: number; reach: number[];
+    ranges: number[]; cap: number; mix: number[][]; supMax: number; standoff: number;
+  };
+  const tuning = readFileSync(join(ROOT, 'packages', 'sim', 'src', 'tuning.ts'), 'utf8');
+  const fxConst = (name: string): number => {
+    const m = new RegExp(`export const ${name} = (\\d+);`).exec(tuning);
+    expect(m, name).not.toBeNull();
+    return Number(m?.[1]) / 65536;
+  };
+
+  it('the probe ran', () => {
+    expect(run.status, run.stderr).toBe(0);
+  });
+
+  it('mirrors SCATTER_BASE and SOFT_ARMOR_LIMIT from tuning.ts', () => {
+    expect(r.scatterBase).toBe(fxConst('SCATTER_BASE'));
+    expect(r.softLimit).toBe(fxConst('SOFT_ARMOR_LIMIT'));
+  });
+
+  it('a bomblet burst on the target reaches it with P = splash/scatter and mean falloff half that', () => {
+    // radius U[0, scatter): P(r < splash) = 0.32, E[(1 - r/splash) 1{r < splash}] = 0.16.
+    expect(r.reach0[0]).toBeCloseTo(0.32, 1);
+    expect(Math.abs(r.reach0[0] - 0.32)).toBeLessThan(0.01);
+    expect(Math.abs(r.reach0[1] - 0.16)).toBeLessThan(0.005);
+  });
+
+  it('the cluster round is priced on its bomblets, not on the unread parent damage and splash', () => {
+    expect(r.clusterDbl).toBeGreaterThan(r.cluster);
+    expect(r.clusterParent).toBe(r.cluster);
+  });
+
+  it('bomblets score against soft targets only: unbounded damage saturates on the soft share', () => {
+    // Every class but the 8 mm infantry row is at or over the sim's 30 mm soft limit, so the
+    // kill term tops out at the soft share of the cap; suppression adds at most supMax.
+    const soft = r.mix.filter((row) => row[0] < r.softLimit).reduce((a, row) => a + row[2], 0);
+    expect(soft).toBeCloseTo(0.4, 6);
+    const ceiling = (soft * r.cap + r.supMax) * r.standoff;
+    expect(r.clusterHuge).toBeLessThanOrEqual(ceiling + 1e-9);
+    expect(r.clusterHuge).toBeGreaterThan(soft * r.cap * r.standoff);
+  });
+
+  it('an indirect weapon prices its whole range: the flag, or the mortar class, and not neither', () => {
+    expect(r.nlos).toBeGreaterThan(r.nlosNoFlag);
+    // The flag and the mortar class both read range_tiles (24); the bare atgm reads its
+    // effective range (18), as every direct weapon does.
+    expect(r.reach).toEqual([r.ranges[0], r.ranges[1], r.ranges[0]]);
+    expect(r.ranges[0]).toBeGreaterThan(r.ranges[1]);
+  });
 });
