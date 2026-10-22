@@ -26,6 +26,11 @@ describe('garrisonWeaponFailures (G4)', () => {
     expect(garrisonWeaponFailures({ ...mortar, weapons: [{ id: 'w', type: 'mortar', fires_from_building: false }] }, 'm.json')).toEqual([]);
     expect(garrisonWeaponFailures({ ...mortar, abilities: [] }, 'm.json')).toEqual([]);
   });
+  it('treats a weapon declaring indirect: true as indirect, whatever its type (E2, GH-709)', () => {
+    const nlos = { ...mortar, weapons: [{ id: 'w', type: 'atgm', indirect: true }] };
+    expect(garrisonWeaponFailures(nlos, 'm.json')).toHaveLength(1);
+    expect(garrisonWeaponFailures({ ...nlos, weapons: [{ id: 'w', type: 'atgm', indirect: true, fires_from_building: false }] }, 'm.json')).toEqual([]);
+  });
   it('passes a direct-fire weapon either way', () => {
     expect(garrisonWeaponFailures({ ...mortar, weapons: [{ id: 'w', type: 'atgm' }] }, 'm.json')).toEqual([]);
   });

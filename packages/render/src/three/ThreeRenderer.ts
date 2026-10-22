@@ -4714,6 +4714,14 @@ export class ThreeRenderer implements Renderer {
           this.spawnFlatFx(nx, ny, this.opts.nearMissColor, 7, 14);
         }
         this.flinchNear(nx, ny);
+      } else if (e.kind === 'submunition') {
+        // E3 (GH-709): a bomblet. A small flat flash where the sim put it;
+        // the airburst, the per-bomblet craters and the Defilade flipbooks
+        // are the cluster unit's presentation phase, not this hook.
+        const bx = fx.toNumber(e.x);
+        const by = fx.toNumber(e.y);
+        this.spawnFlatFx(bx, by, this.opts.nearMissColor, 5, 10);
+        this.flinchNear(bx, by);
       } else if (e.kind === 'aps') {
         // GH-85 (`interceptor_launch`): the launcher fires on every engagement,
         // hit or miss -- the defender cannot know which (GDD 5.6).

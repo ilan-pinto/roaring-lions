@@ -1263,11 +1263,34 @@ const MORTAR: UnitTypeJson = {
   ],
 };
 
+/** E3 (GH-709): the staged `spg_cluster`'s `dpicm_155`, with its bomblets. */
+const CLUSTER: UnitTypeJson = {
+  ...MORTAR,
+  id: 'm_cluster',
+  weapons: [
+    {
+      id: 'dpicm',
+      type: 'mortar',
+      range_tiles: 24,
+      effective_range_tiles: 18,
+      accuracy: 0.45,
+      penetration: 20,
+      damage: 120,
+      splash_tiles: 1.2,
+      suppression: 160,
+      rof_per_min: 2,
+      min_range_tiles: 6,
+      collateral_risk: 0.95,
+      submunitions: { count: 12, scatter_tiles: 2.5, damage: 90, splash_tiles: 0.8, suppression: 60 },
+    },
+  ],
+};
+
 describe('civilians and ROE (GDD §6)', () => {
   function civWorld(partial: Partial<MissionJson>, ctx?: Partial<MissionContext>): World {
     const sim = new Sim({ seed: 11, width: 28, height: 12, capacity: 32 });
     const ids = new Map<string, number>();
-    for (const t of [SQUAD, AMBUSHER, RUNNER, TANK, CIVILIANS, MORTAR, CARRIER, CIV_RIDER])
+    for (const t of [SQUAD, AMBUSHER, RUNNER, TANK, CIVILIANS, MORTAR, CARRIER, CIV_RIDER, CLUSTER])
       ids.set(t.id, sim.addUnitType(t));
     const runtime = new MissionRuntime(sim, baseMission(partial), {
       typeIdOf: (u) => {
@@ -1398,6 +1421,102 @@ describe('civilians and ROE (GDD §6)', () => {
     const roeEvents = out.filter((e) => e.kind === 'roe');
     expect(roeEvents.length).toBe(1);
     expect(w.runtime.roeScore).toBe(97);
+  });
+
+  // E3, lead ruling Q6 (22 Oct): a cluster round is judged where its bomblets
+  // land -- the zone per bomblet under the shared cooldown, danger-close once
+  // per round at twice the penalty -- and never at its aimpoint.
+  describe('a cluster round (E3, Q6)', () => {
+    const MISSION: Partial<MissionJson> = {
+      starting_force: [{ unit: 'm_cluster', count: 1, at: [3, 5] }],
+      enemy: { garrison: [{ unit: 'm_squad', count: 1, at: [12, 9], facing_deg: 180 }] },
+      civilians: { groups: [{ unit: 'm_civ', count: 1, at: [12, 6] }] },
+      roe: {
+        enabled: true,
+        flagged_zones: ['clinic'],
+        flagged_structure_penalty: 5,
+        disproportionate_ordnance_penalty: 3,
+      },
+    };
+    /** One round of 12: `near` bomblets on the civilian at (12.5, 6.5), `inZone`
+     *  in the clinic [20, 2, 4, 4], the rest in open ground far from both. */
+    function round(tick: number, near: number, inZone: number, by = 0): SimEvent[] {
+      const out: SimEvent[] = [];
+      for (let k = 0; k < 12; k++) {
+        let x = fx.from(6.5);
+        let y = fx.from(10.5);
+        if (k < near) {
+          x = fx.from(12.5);
+          y = fx.from(7.5);
+        } else if (k < near + inZone) {
+          x = fx.from(21.5);
+          y = fx.from(3.5);
+        }
+        out.push({ kind: 'submunition', tick, by, weaponId: 'dpicm', x, y, index: k, count: 12 });
+      }
+      return out;
+    }
+    const roeOf = (out: MissionEvent[]) => out.filter((e) => e.kind === 'roe');
+
+    it('charges danger-close once a round, at twice the penalty, however many bomblets land near', () => {
+      const w = civWorld(MISSION);
+      const out = w.runtime.step(round(1, 5, 0));
+      const roe = roeOf(out);
+      expect(roe).toHaveLength(1);
+      expect(roe[0].kind === 'roe' && roe[0].penalty).toBe(6);
+      expect(w.runtime.roeScore).toBe(94);
+    });
+
+    it('charges a second round again: the once is per round, not per tick or per shooter', () => {
+      const w = civWorld(MISSION);
+      w.runtime.step([...round(1, 2, 0), ...round(1, 1, 0)]);
+      expect(w.runtime.roeScore).toBe(88);
+    });
+
+    it('charges a flagged zone per bomblet under the shared cooldown: once per round', () => {
+      const w = civWorld(MISSION);
+      const out = w.runtime.step(round(1, 0, 4));
+      expect(roeOf(out)).toHaveLength(1);
+      expect(w.runtime.roeScore).toBe(95);
+      // A plain near miss in the same window is the same incident.
+      w.runtime.step([{ kind: 'nearMiss', tick: 2, shooter: 0, weaponId: 'dpicm', x: fx.from(21.5), y: fx.from(3.5) }]);
+      expect(w.runtime.roeScore).toBe(95);
+    });
+
+    it('charges nothing for bomblets that land in open ground', () => {
+      const w = civWorld(MISSION);
+      expect(roeOf(w.runtime.step(round(1, 0, 0)))).toHaveLength(0);
+      expect(w.runtime.roeScore).toBe(100);
+    });
+
+    it('does not judge the aimpoint: a cluster fire beside a civilian charges nothing by itself', () => {
+      const w = civWorld(MISSION);
+      const fire: SimEvent = {
+        kind: 'fire',
+        tick: 1,
+        shooter: 0,
+        target: 1,
+        weaponId: 'dpicm',
+        pHit: 1000,
+        roll: 1,
+        willHit: false,
+        breakdown: { accuracy: 1, rangeFalloff: 1, coverMod: 1, motionMod: 1, stanceMod: 1, suppressionMod: 1 },
+      };
+      // The civilian at (12.5, 6.5) is 3 tiles from the squad: move it beside the aimpoint.
+      w.sim.state.posY[2] = w.sim.state.posY[1];
+      expect(roeOf(w.runtime.step([fire]))).toHaveLength(0);
+      expect(w.runtime.roeScore).toBe(100);
+    });
+
+    it("does not judge the enemy's bomblets", () => {
+      // The enemy fields the same gun, so its weapon resolves and only the side test refuses it.
+      const w = civWorld({
+        ...MISSION,
+        enemy: { garrison: [{ unit: 'm_cluster', count: 1, at: [12, 9], facing_deg: 180 }] },
+      });
+      expect(roeOf(w.runtime.step(round(1, 12, 4, 1)))).toHaveLength(0);
+      expect(w.runtime.roeScore).toBe(100);
+    });
   });
 
   it('falling below fail_below loses the mission', () => {

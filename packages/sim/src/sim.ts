@@ -189,6 +189,21 @@ export interface WeaponJson {
   collateral_risk?: number;
   /** Fires while its unit is garrisoned; default true. False for indirect fire (G4). */
   fires_from_building?: boolean;
+  /** E2 (GH-709): fires on a side-identified target with no sight line of its
+   *  own, whatever its class. Absent is false; mortar and rocket are indirect
+   *  by class either way. */
+  indirect?: boolean;
+  /** E3 (GH-709): the round bursts into `count` bomblets where it lands. */
+  submunitions?: SubmunitionJson;
+}
+
+/** E3's bomblet block, as authored (unit.schema.json `submunitions`). */
+export interface SubmunitionJson {
+  count: number;
+  scatter_tiles: number;
+  damage: number;
+  splash_tiles: number;
+  suppression?: number;
 }
 
 export interface UnitTypeJson {
@@ -390,6 +405,47 @@ export interface WeaponStats {
   garrisonRangeSq: Fx;
   garrisonEffRange: Fx;
   garrisonEffRangeSq: Fx;
+  /**
+   * E2 (GH-709): needs no line of sight of its own, only its side's
+   * identification. `INDIRECT_MASK` membership OR the authored `indirect`
+   * flag, so it is the class rule exactly for every weapon that does not
+   * carry the flag. Only the sight rule moves with it: structure damage,
+   * anti-armour ranking, projectile speed and falloff stay with the class.
+   */
+  isIndirect: boolean;
+  /** E3 (GH-709): the bomblets this round bursts into, or null for a plain round. */
+  submunitions: SubmunitionStats | null;
+}
+
+/** E3's bomblet block, loaded. `supp` is already per-stat-divided, like
+ *  `WeaponStats.suppPerMiss`, so it goes straight into `splashDirect`. */
+export interface SubmunitionStats {
+  count: number;
+  scatter: Fx;
+  damage: Fx;
+  splash: Fx;
+  supp: Fx;
+}
+
+/** Bomblets a round may carry. The schema says the same; the loader holds it
+ *  because a count is a loop bound per landing. */
+export const MAX_SUBMUNITIONS = 32;
+
+function submunitionsFromJson(weaponId: string, j: SubmunitionJson | undefined): SubmunitionStats | null {
+  if (j === undefined) return null;
+  if (!Number.isInteger(j.count) || j.count < 1 || j.count > MAX_SUBMUNITIONS) {
+    throw new Error(`weapon ${weaponId}: submunitions.count must be an integer 1..${MAX_SUBMUNITIONS}, got ${j.count}`);
+  }
+  if (!(j.splash_tiles > 0)) {
+    throw new Error(`weapon ${weaponId}: submunitions.splash_tiles must be above 0, got ${j.splash_tiles}`);
+  }
+  return {
+    count: j.count,
+    scatter: fx.from(j.scatter_tiles),
+    damage: fx.from(j.damage),
+    splash: fx.from(j.splash_tiles),
+    supp: fx.div(fx.from(j.suppression ?? 0), fx.fromInt(SUPP_STAT_DIVISOR)),
+  };
 }
 
 /** Every multiplier behind one shot's hit probability, and their product.
@@ -615,6 +671,8 @@ function weaponFromJson(w: WeaponJson): WeaponStats {
     garrisonRangeSq: fx.mul(gRange, gRange),
     garrisonEffRange: gEff,
     garrisonEffRangeSq: fx.mul(gEff, gEff),
+    isIndirect: (INDIRECT_MASK & (1 << cls)) !== 0 || w.indirect === true,
+    submunitions: submunitionsFromJson(w.id, w.submunitions),
   };
 }
 
@@ -907,6 +965,11 @@ export type SimEvent =
     }
   | { kind: 'component'; tick: number; target: number; result: ComponentResult; overmatch: Fx }
   | { kind: 'nearMiss'; tick: number; shooter: number; weaponId: string; x: Fx; y: Fx }
+  /** E3 (GH-709): one bomblet of a submunition round landed at (x, y). A round's
+   *  bomblets are pushed consecutively, `index` 0 to `count - 1`, in the tick the
+   *  parent lands; `weaponId` is the parent's. The ROE judge groups a round by
+   *  them. A submunition round raises no `nearMiss` and no `impact` of its own. */
+  | { kind: 'submunition'; tick: number; by: number; weaponId: string; x: Fx; y: Fx; index: number; count: number }
   | { kind: 'ambushSprung'; tick: number; entity: number }
   | { kind: 'strike'; tick: number; by: number; x: Fx; y: Fx; profile: number }
   | { kind: 'smokeLaid'; tick: number; by: number; x: Fx; y: Fx }
@@ -967,7 +1030,7 @@ export type SimEvent =
  *  without adding it here fails typecheck.
  */
 export const SIM_EVENT_KINDS = [
-  'spawn', 'contact', 'fire', 'aps', 'impact', 'component', 'nearMiss', 'ambushSprung',
+  'spawn', 'contact', 'fire', 'aps', 'impact', 'component', 'nearMiss', 'submunition', 'ambushSprung',
   'strike', 'smokeLaid', 'revealed', 'structureHit', 'structureDestroyed', 'garrison',
   'transport', 'ventOpened', 'tunnelContact', 'surfaced', 'submerged', 'tunnelCollapsed', 'routed', 'rallied', 'pinned', 'unpinned', 'destroyed',
   'fieldFixed',
@@ -4026,9 +4089,9 @@ export class Sim {
   }
 
   /** Field works: the `aura.garrison.range_bonus` unit `i`'s weapon `w` adds ON TOP of
-   *  GARRISON_RANGE_BONUS. Direct fire only: an INDIRECT_MASK weapon gets none (spec §3). */
+   *  GARRISON_RANGE_BONUS. Direct fire only: an indirect weapon (`isIndirect`) gets none (spec §3). */
   private auraRangeBonus(i: number, w: WeaponStats): Fx {
-    if ((INDIRECT_MASK & (1 << w.cls)) !== 0) return 0;
+    if (w.isIndirect) return 0;
     const a = this.garrisonAura(i);
     return a === null ? 0 : a.rangeBonus;
   }
@@ -4355,7 +4418,7 @@ export class Sim {
     for (const w of type.weapons) {
       if (this.garrisonedIn[shooter] >= 0 && !w.firesFromBuilding) continue;
       if (dSq > this.reachSq(shooter, w) || this.minRangeBlocks(w, dSq, target)) continue;
-      if ((INDIRECT_MASK & (1 << w.cls)) === 0) {
+      if (!w.isIndirect) {
         if (this.losRay(px >> 16, py >> 16, tx >> 16, ty >> 16, this.eyeLift(shooter), 0) < 0) continue;
       }
       const factors = this.hitFactors(shooter, w, target);
@@ -5029,7 +5092,7 @@ export class Sim {
     const py = this.eyeY;
     const dSq = distSqFx(fx.sub(this.posX[t], px), fx.sub(this.posY[t], py));
     if (dSq > this.reachSq(shooter, w) || this.minRangeBlocks(w, dSq, t)) return false;
-    if ((INDIRECT_MASK & (1 << w.cls)) === 0) {
+    if (!w.isIndirect) {
       if (this.losRay(px >> 16, py >> 16, this.posX[t] >> 16, this.posY[t] >> 16, this.eyeLift(shooter), 0) < 0) return false;
     }
     this.engageDSq = dSq;
@@ -5125,7 +5188,7 @@ export class Sim {
       const py = this.eyeY;
       const dSq = this.structDistSq(s, px, py);
       if (dSq > this.reachSq(shooter, w) || dSq < w.minRangeSq || dSq >= bestDistSq) continue;
-      if ((INDIRECT_MASK & (1 << w.cls)) === 0) {
+      if (!w.isIndirect) {
         const [tx, ty] = this.nearestStructTile(s, px, py);
         if (this.losRay(px >> 16, py >> 16, tx >> 16, ty >> 16, this.eyeLift(shooter), 0) < 0) continue;
       }
@@ -6022,6 +6085,15 @@ export class Sim {
   }
 
   private resolveProjectile(pr: number): void {
+    // E3: a submunition round does not strike; it bursts where it lands. Before
+    // the APS block on purpose -- a carrier shell opens above the hull, and no
+    // shipped interceptor class carries one -- and before the structure branch,
+    // because bomblets do not bring a building down (they reach soft units only).
+    const sub = this.weaponOf(pr).submunitions;
+    if (sub !== null) {
+      this.burstSubmunitions(pr, sub);
+      return;
+    }
     const struct = this.prStructure[pr];
     if (struct >= 0) {
       this.prStructure[pr] = -1;
@@ -6265,6 +6337,40 @@ export class Sim {
       }
     }
     if (this.prSplash[pr] > 0) this.splashAt(pr, x, y, -1);
+  }
+
+  /**
+   * E3 (GH-709): the parent round opens over where it lands -- the target, if
+   * it was a hit on a unit still alive, otherwise the aim point (a miss's
+   * scatter point, or the building it was fired at) -- into `sub.count`
+   * bomblets. Each is placed by two draws from the SHOOTER's own stream
+   * (invariant 3), as a called strike places its rounds, and resolved in this
+   * tick through `splashDirect`: soft units only, nobody underground, nobody
+   * garrisoned or carried (applyDamage), no structure. Not the fire-support
+   * resolver: that one damages armour and buildings alike.
+   *
+   * The parent round itself does nothing else: no hit or penetration roll, no
+   * splash, no `nearMiss`. Its weapon's `damage` and `splash_tiles` are unread.
+   */
+  private burstSubmunitions(pr: number, sub: SubmunitionStats): void {
+    this.prStructure[pr] = -1;
+    const shooter = this.prShooter[pr];
+    const target = this.prTarget[pr];
+    let cx = this.prAimX[pr];
+    let cy = this.prAimY[pr];
+    if (target >= 0 && this.prWillHit[pr] === 1 && this.alive[target] === 1) {
+      cx = this.posX[target];
+      cy = this.posY[target];
+    }
+    const weaponId = this.weaponOf(pr).id;
+    for (let k = 0; k < sub.count; k++) {
+      const ang = this.rng.nextU32(shooter) & 0xffff;
+      const rad = fx.mul(this.rng.nextU32(shooter) >>> 16, sub.scatter);
+      const x = fx.add(cx, fx.mul(fx.cos(ang), rad));
+      const y = fx.add(cy, fx.mul(fx.sin(ang), rad));
+      this.pendingEvents.push({ kind: 'submunition', tick: this.tickCount, by: shooter, weaponId, x, y, index: k, count: sub.count });
+      this.splashDirect(x, y, sub.splash, sub.damage, sub.supp, shooter, -1);
+    }
   }
 
   private splashAt(pr: number, x: Fx, y: Fx, excludeId: number): void {
@@ -7701,7 +7807,7 @@ export class Sim {
         continue;
       }
       if (hold || dSq > reachSq || dSq > this.reachSq(i, w)) continue;
-      if ((INDIRECT_MASK & (1 << w.cls)) === 0) {
+      if (!w.isIndirect) {
         if (los === 0) los = this.losRay(px >> 16, py >> 16, this.posX[t] >> 16, this.posY[t] >> 16) < 0 ? -1 : 1;
         if (los < 0) continue;
       }
