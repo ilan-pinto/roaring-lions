@@ -156,6 +156,7 @@ import {
   WOUND_NONE,
   WOUND_DOWN,
   WOUND_STABILISED,
+  WOUND_GONE,
   MAX_WOUNDED_PER_SIDE,
   WOUND_CRAWL_PERIOD_TICKS,
   WOUND_COVER_STOP,
@@ -1008,6 +1009,10 @@ export type SimEvent =
    *  whose `by` is the man who downed him (`woundBy`), so kill credit and Conduct stay
    *  with the shooter. */
   | { kind: 'bledOut'; tick: number; entity: number }
+  /** GH-707 Task 4: a wounded aboard `carrier` left the fight alive -- a ground carrier on its
+   *  side's evac point, or an air carrier lifting off. `side` is the RESCUING side (the
+   *  carrier's), which Conduct reads. He is `alive` 0 with no `destroyed`. */
+  | { kind: 'woundEvacuated'; tick: number; entity: number; carrier: number; side: number }
   /** Field works (#277): a `construct` was accepted. `builder` is the lowest qualifying id the
    *  command named. `joined`: it named a live site's type and origin and joined that site rather
    *  than opening one (nothing new to pay for). */
@@ -1041,7 +1046,7 @@ export const SIM_EVENT_KINDS = [
   'spawn', 'contact', 'fire', 'aps', 'impact', 'component', 'nearMiss', 'ambushSprung',
   'strike', 'smokeLaid', 'revealed', 'structureHit', 'structureDestroyed', 'garrison',
   'transport', 'ventOpened', 'tunnelContact', 'surfaced', 'submerged', 'tunnelCollapsed', 'routed', 'rallied', 'pinned', 'unpinned', 'destroyed',
-  'removed', 'woundedDown', 'manKilled', 'bledOut',
+  'removed', 'woundedDown', 'manKilled', 'bledOut', 'woundEvacuated',
   'constructQueued', 'constructRefused', 'constructStaked', 'structureComplete', 'constructCancelled',
 ] as const satisfies readonly SimEvent['kind'][];
 
@@ -3071,6 +3076,22 @@ export class Sim {
     if (st === WOUND_DOWN || st === WOUND_STABILISED) this.woundedAlive[this.side[id]]--;
   }
 
+  /**
+   * GH-707 Task 4 (D4): an evacuation point for `side` at (x, y). A ground carrier with
+   * wounded aboard that comes within 1 tile of one of its own side's points evacuates them
+   * (`stepEvacuation`). At most MAX_EVAC_POINTS; one more throws -- the mission runtime is
+   * the only caller, at start, and a ninth point is an authoring error, not a fight event.
+   */
+  addEvacPoint(side: number, x: Fx, y: Fx): void {
+    if (this.evacCount >= MAX_EVAC_POINTS) throw new Error(`addEvacPoint: at most ${MAX_EVAC_POINTS} evacuation points`);
+    if (side !== 0 && side !== 1 && side !== 2) throw new Error(`addEvacPoint: side must be 0, 1 or 2, got ${side}`);
+    const k = this.evacCount;
+    this.evacSide[k] = side;
+    this.evacX[k] = x;
+    this.evacY[k] = y;
+    this.evacCount = k + 1;
+  }
+
   queueCommand(cmd: Command): void {
     // N2/F4: the five runtime-run kinds (build, support, cancelBuild, setRally, clearRally) go to
     // their own list; the sim never runs them.
@@ -3180,6 +3201,9 @@ export class Sim {
     this.stepWounded();
     this.stepMovement();
     this.stepTransport();
+    // GH-707 Task 4: a ground carrier on its side's evac point, after it moved and its riders
+    // with it. Nothing without wound content.
+    this.stepEvacuation();
     this.stepFields();
     this.stepGarrison();
     // Field works: before upkeep, which reads the aura arrays every tick.
@@ -6570,6 +6594,48 @@ export class Sim {
   }
 
   /**
+   * GH-707 Task 4 (D4): every living ground carrier within 1 tile (Euclidean, 1 tile^2) of an
+   * evac point of its own side evacuates the wounded it carries. Once a tick, after
+   * stepTransport. Nothing without wound content, with no point declared, or with no wounded
+   * alive on any side. An air carrier evacuates on lifting instead (stepAirCarriers).
+   */
+  private stepEvacuation(): void {
+    if (!this.woundLive || this.evacCount === 0) return;
+    const wa = this.woundedAlive;
+    if (wa[0] === 0 && wa[1] === 0 && wa[2] === 0) return;
+    for (let c = 0; c < this.count; c++) {
+      if (this.alive[c] === 0 || this.passengers[c] === 0) continue;
+      if (this.unitTypes[this.typeIdx[c]].isAirCarrier) continue;
+      const side = this.side[c];
+      for (let k = 0; k < this.evacCount; k++) {
+        if (this.evacSide[k] !== side) continue;
+        const dSq = distSqFx(fx.sub(this.posX[c], this.evacX[k]), fx.sub(this.posY[c], this.evacY[k]));
+        if (dSq > ONE) continue;
+        this.evacuateAboard(c);
+        break;
+      }
+    }
+  }
+
+  /** GH-707 Task 4: every wounded aboard `car` leaves the fight alive -- `woundEvacuated`
+   *  (`side` the rescuing side, `car`'s), `alive` 0 with no `destroyed`, woundState GONE, his
+   *  side's wounded count down once. Healthy riders stay aboard. */
+  private evacuateAboard(car: number): void {
+    for (let i = 0; i < this.count; i++) {
+      if (this.carriedBy[i] !== car || this.alive[i] === 0 || !this.horsDeCombat(i)) continue;
+      this.forgetWounded(i);
+      this.carriedBy[i] = -1;
+      if (this.passengers[car] > 0) this.passengers[car]--;
+      this.alive[i] = 0;
+      this.moving[i] = 0;
+      this.fieldRef[i] = -1;
+      this.woundState[i] = WOUND_GONE;
+      this.pendingEvents.push({ kind: 'woundEvacuated', tick: this.tickCount, entity: i, carrier: car, side: this.side[car] });
+    }
+    this.refreshSpeedMul(car);
+  }
+
+  /**
    * GH-707 Task 3, the wounded man: once a tick, before movement. Nothing at all without
    * wound content (`woundLive`), and nothing while no side has a wounded alive.
    *
@@ -6660,8 +6726,11 @@ export class Sim {
       nx = fx.add(px, fx.div(fx.mul(dx, step), dist));
       ny = fx.add(py, fx.div(fx.mul(dy, step), dist));
     }
-    // bestCoverTile never picks a blocked tile or one behind a blocked midpoint; a corner
-    // cut on the way is refused here rather than slid along.
+    // bestCoverTile never picks a blocked tile, nor one whose straight line from the START
+    // tile's centre crosses a blocked tile. But he is rarely on that centre (he lies where his
+    // squad stood, and he re-picks mid-crawl), and from off-centre a line to a diagonal
+    // neighbour can cut the corner tile beside it: that step is refused here rather than slid
+    // along, and he lies still (wounded.test.ts, "an off-centre diagonal crawl").
     if (this.blocked[(ny >> 16) * w + (nx >> 16)] !== 0) return;
     this.posX[i] = nx;
     this.posY[i] = ny;
@@ -6929,6 +6998,7 @@ export class Sim {
     if (car < 0) return;
     this.carriedBy[id] = -1;
     if (this.passengers[car] > 0) this.passengers[car]--;
+    if (this.woundLive) this.refreshSpeedMul(car);
     // Step clear of the hull so they do not stack on it.
     let px = this.clampX(fx.add(this.posX[car], HALF));
     let py = this.clampY(fx.add(this.posY[car], HALF));
@@ -6948,7 +7018,11 @@ export class Sim {
     this.posY[id] = py;
     this.moving[id] = 0;
     this.fieldRef[id] = -1;
-    if (shaken) {
+    // GH-707 Task 4: a wounded rider is put down where the hull died, alive and in the state
+    // he was carried in -- not hurt and shaken. The bail-out's 40% would be lethal to a man
+    // downed in place (he lies at 1 hp) and is meaningless to one already out of the fight;
+    // the stretcher, not the man, came off the hull.
+    if (shaken && !(this.woundLive && this.horsDeCombat(id))) {
       const type = this.unitTypes[this.typeIdx[id]];
       this.applyDamage(id, fx.mul(type.hp, BAILOUT_DAMAGE_FRAC), -1);
       this.applySuppression(id, BAILOUT_SHOCK, false);
@@ -7032,7 +7106,23 @@ export class Sim {
     if (id === car || id < 0 || id >= this.count || this.alive[id] === 0) return false;
     // Only dismounted elements ride. This also covers vehicle stacking, since no
     // carrier is a foot role.
-    if (!this.unitTypes[this.typeIdx[id]].canEmbark) return false;
+    // GH-707 Task 4, the role filter. A carrier with `can_carry` seats ONLY the roles it
+    // lists; a wounded rider (down, or a `wounded`-role body) is seated by one listing
+    // `wounded` whatever his `canEmbark`, and by NO carrier without `can_carry` (an APC is not
+    // an ambulance). No shipped type has `can_carry` and every woundState is NONE without
+    // wound content, so the shipped answer is exactly the `canEmbark` line, as before.
+    const carType = this.unitTypes[this.typeIdx[car]];
+    const riderType = this.unitTypes[this.typeIdx[id]];
+    const woundedRider = this.woundState[id] !== WOUND_NONE || riderType.isWounded;
+    if (carType.canCarry !== null) {
+      if (woundedRider) {
+        if (!carType.canCarry.includes('wounded')) return false;
+      } else if (!riderType.canEmbark || !carType.canCarry.includes(riderType.role)) {
+        return false;
+      }
+    } else if (woundedRider || !riderType.canEmbark) {
+      return false;
+    }
     // Neither party may be underground: a buried rider cannot reach a seat,
     // and a buried hull is not a place a surface unit can climb into. The
     // deepest gate — embarkAtSpawn and boarding both pass through here.
@@ -7052,6 +7142,7 @@ export class Sim {
     this.braceClear(id);
     this.boardGoal[id] = -1;
     this.passengers[car]++;
+    if (this.woundLive) this.refreshSpeedMul(car);
     this.moving[id] = 0;
     this.fieldRef[id] = -1;
     this.pendingEvents.push({
@@ -7061,6 +7152,44 @@ export class Sim {
       carrier: car,
       loaded: true,
     });
+  }
+
+  /**
+   * GH-707 Task 4: `car`'s movement multiplier from what it carries. A medic (`rescue`)
+   * carrying anyone moves at `dragMult`, or `carryMult` when the team has two men or more
+   * (a stretcher); empty, or not a medic, ONE. Called from `seat` and `disembark` only while
+   * `woundLive`, so a world without wound content never writes the column.
+   */
+  private refreshSpeedMul(car: number): void {
+    const r = this.unitTypes[this.typeIdx[car]].rescue;
+    if (r === null) return;
+    if (this.passengers[car] === 0) this.speedMul[car] = ONE;
+    else this.speedMul[car] = this.unitTypes[this.typeIdx[car]].figures >= 2 ? r.carryMult : r.dragMult;
+  }
+
+  /**
+   * GH-707 Task 4: hand rider `id` from `fromCar` to `toCar` in one step -- a medic passing a
+   * wounded into an ambulance (D3: no nested carrying). Seats, types and states only, by
+   * `canSeat`'s own rule as if he were already down; distance is the caller's business, as
+   * for `canSeat`. False, and nothing written, when he is not aboard `fromCar` or `toCar`
+   * cannot take him. Otherwise one `transport` unload then one load, and he is on `toCar`'s
+   * hull the same tick: no frame beside either vehicle.
+   *
+   * `protected`, not `private`, only until Task 5's medic calls it: TS flags an unread
+   * private member, and nothing in the sim hands a rider over before the medic exists.
+   */
+  protected transferSeat(fromCar: number, toCar: number, id: number): boolean {
+    if (fromCar === toCar || id < 0 || id >= this.count || this.carriedBy[id] !== fromCar) return false;
+    this.carriedBy[id] = -1; // canSeat refuses a rider already aboard something
+    const ok = this.canSeat(toCar, id);
+    this.carriedBy[id] = fromCar;
+    if (!ok) return false;
+    this.disembark(id, false);
+    this.seat(toCar, id);
+    this.posX[id] = this.posX[toCar];
+    this.posY[id] = this.posY[toCar];
+    this.facing[id] = this.facing[toCar];
+    return true;
   }
 
   /**
@@ -7148,6 +7277,8 @@ export class Sim {
             this.airState[i] = AIR_LIFTING;
             this.airTimer[i] = AIR_LIFT_TICKS;
             this.airWant[i] = AIR_WANT_DEPART;
+            // GH-707 Task 4 (D4): a medevac lifting off takes its wounded out of the fight.
+            if (this.woundLive && this.passengers[i] > 0) this.evacuateAboard(i);
             this.moving[i] = 0; // goal and waypoints are kept for the lift's end
           }
         }
@@ -8313,7 +8444,10 @@ export class Sim {
       const goalTileX = this.goalX[i] >> 16;
       const goalTileY = this.goalY[i] >> 16;
 
-      let step = type.stepPerTick;
+      // GH-707 Task 4: a medic carrying a wounded drags or stretchers him (`speedMul`). The
+      // column is ONE for every unit without wound content, and fx.mul(x, ONE) === x exactly
+      // (bh 1, bl 0: (ah << 16) + al), so this is the identity there.
+      let step = fx.mul(type.stepPerTick, this.speedMul[i]);
       if (this.routed[i] === 1) {
         step = step >> ROUT_SPEED_SHIFT; // fleeing at a crouch-run
       } else if (this.pinned[i] === 1) {

@@ -34,7 +34,8 @@ export function scaleDown(a: number, num: number, den: number): number {
  * beats it. Ties go to the lowest tile index (the scan runs in index order and only a
  * strictly higher cover replaces the best). A blocked tile, or one off the map, is never a
  * candidate; a candidate two tiles out is refused when the tile between it and the start --
- * the integer midpoint, each offset halved toward zero -- is blocked: he does not crawl
+ * the integer midpoint, each offset halved toward zero -- is blocked, and a knight's-move
+ * candidate also when the second tile its straight line crosses is: he does not crawl
  * through a wall. Pure: integers only, no Sim state.
  */
 export function bestCoverTile(
@@ -60,6 +61,15 @@ export function bestCoverTile(
         const mx = tx + (dx - (dx % 2)) / 2;
         const my = ty + (dy - (dy % 2)) / 2;
         if (blocked[my * width + mx] !== 0) continue;
+        // A knight's-move candidate ((2,1), (1,2) and their mirrors): the straight line from
+        // the start centre crosses TWO tiles between, either side of the corner it passes at
+        // the half-way column (or row) -- the midpoint above and the one beside it. Either
+        // blocked, he would crawl into a wall and lie against it for good: refused.
+        if (dx === 1 || dx === -1) {
+          if (blocked[my * width + tx + dx] !== 0) continue;
+        } else if (dy === 1 || dy === -1) {
+          if (blocked[(ty + dy) * width + mx] !== 0) continue;
+        }
       }
       best = t;
       bestCover = cover[t];

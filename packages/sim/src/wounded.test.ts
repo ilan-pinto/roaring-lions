@@ -224,6 +224,31 @@ describe('the deferred fold (GH-707 Task 1)', () => {
     expect(sim.hash()).toBe(before);
   });
 
+  // The evac table (Task 1 review, owed): its three arrays and its count. addEvacPoint is
+  // the only writer; the rows are reached past `private` for the mutation.
+  type EvacTable = { evacX: Int32Array; evacY: Int32Array; evacSide: Int32Array; evacCount: number };
+  for (const name of ['evacX', 'evacY', 'evacSide'] as const) {
+    it(`wound-live: hash covers ${name}`, () => {
+      const { sim } = world([WOUNDABLE]);
+      sim.addEvacPoint(0, fx.fromInt(2), fx.fromInt(3));
+      const before = sim.hash();
+      (sim as unknown as EvacTable)[name][0] += 1;
+      expect(sim.hash()).not.toBe(before);
+    });
+  }
+  it('wound-live: hash covers evacCount', () => {
+    const { sim } = world([WOUNDABLE]);
+    const before = sim.hash();
+    (sim as unknown as EvacTable).evacCount = 1; // an all-zero row 0: only the count differs
+    expect(sim.hash()).not.toBe(before);
+  });
+  it('no wound type registered: an evac point is not folded', () => {
+    const { sim } = world([]);
+    const before = sim.hash();
+    sim.addEvacPoint(1, fx.fromInt(2), fx.fromInt(3));
+    expect(sim.hash()).toBe(before);
+  });
+
   for (const name of COLUMNS) {
     it(`wound-live: hash covers ${name}`, () => {
       const { sim, inf } = world([WOUNDABLE]);
@@ -641,6 +666,22 @@ describe('bleeding (GH-707 Task 3)', () => {
     expect(c.sim.state.bleedTicks[c.w]).toBe(40);
   });
 
+  it('a medic downed in place cannot tend: the wounded beside him bleeds out on time (Task 3 review)', () => {
+    // A one-man medic type that goes down in place (in_place, chance 1, 30 hp). Standing 1 tile
+    // off he pauses the bleed (the case above); downed by a 30-hp hit he is woundState DOWN and
+    // woundTended skips him, so the wounded dies on his 40th tick as if alone.
+    const MEDIC_DOWNABLE: UnitTypeJson = {
+      ...MEDIC_RESCUE_ONLY,
+      id: 'wd_medic_downable',
+      hull: { hp: 30, armor: { front: 0, side: 0, rear: 0 }, wounds: { wound_chance: 1, bleed_s: 60, type: 'wounded_test', in_place: true } },
+    };
+    const { sim, w, shooter, spawnType } = woundWorld();
+    const medic = spawnType(MEDIC_DOWNABLE, 0, 6.5, 5.5);
+    hit(sim, medic, 30, shooter);
+    expect([sim.state.alive[medic], sim.state.woundState[medic]]).toEqual([1, 1]);
+    expect(ticksToDeath(sim, w, 100).n).toBe(40);
+  });
+
   it('a friendly carrier pauses it inside its stabilise radius (1.5) and not outside it', () => {
     const a = woundWorld();
     a.spawnType(AMBULANCE, 0, 6.5, 5.5); // 1 tile: 1 <= 2.25
@@ -690,6 +731,29 @@ describe('crawling to cover (GH-707 Task 3)', () => {
     for (let t = 0; t < 200; t++) sim.tick();
     expect([s.posX[w], s.posY[w]]).toEqual([stopped, 360448]);
     expect(s.moving[w]).toBe(0);
+  });
+
+  it('an off-centre diagonal crawl that would cut a blocked corner stops at the wall', () => {
+    // He lies at (5.9, 5.1), inside tile (5,5); cover 2 at (6,6), the diagonal neighbour, which
+    // bestCoverTile takes (a one-away tile has nothing between it and the start CENTRE). His own
+    // line to (6.5, 6.5) crosses x = 6 at y = 5.1 + 1.4 x 0.1 / 0.6 = 5.33: tile (6,5),
+    // blocked. The crawl's own blocked-tile guard is what stops him there.
+    const { sim, w } = woundWorld(SLOW);
+    sim.setCover(6, 6, 2);
+    sim.setBlocked(6, 5, true);
+    const s = sim.state;
+    s.posX[w] = fx.from(5.9);
+    s.posY[w] = fx.from(5.1);
+    const start = [s.posX[w], s.posY[w]];
+    let walled = 0;
+    for (let t = 0; t < 200; t++) {
+      sim.tick();
+      if (s.posX[w] >> 16 === 6 && s.posY[w] >> 16 === 5) walled++;
+    }
+    expect(walled).toBe(0);
+    // He crawled up to the wall's edge (x just under 6.0 = 393216) and lies there.
+    expect(s.posX[w]).toBeLessThan(393216);
+    expect(s.posX[w]).toBeGreaterThanOrEqual(start[0]);
   });
 
   it('with no better cover in reach he lies still', () => {

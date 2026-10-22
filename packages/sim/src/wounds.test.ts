@@ -62,12 +62,37 @@ describe('bestCoverTile (GH-707 Task 3)', () => {
     expect(bestCoverTile(grid({ 0: 3 }), NONE, 5, 5, 2, 2)).toBe(0);
     // (4,3) = 19: offset (2,1) -> midpoint (2+1, 2+0) = (3,2) = 13.
     expect(bestCoverTile(grid({ 19: 3 }), grid({ 13: 1 }), 5, 5, 2, 2)).toBe(12);
-    // (3,3) = 18 blocked is not its midpoint: still taken.
-    expect(bestCoverTile(grid({ 19: 3 }), grid({ 18: 1 }), 5, 5, 2, 2)).toBe(19);
+    // (4,2) = 14 and (2,3) = 17 blocked lie off its line: still taken. ((3,3) = 18 is ON it:
+    // see the knight's-move case below.)
+    expect(bestCoverTile(grid({ 19: 3 }), grid({ 14: 1, 17: 1 }), 5, 5, 2, 2)).toBe(19);
     // (0,1) = 5: offset (-2,-1) -> midpoint (1,2) = 11.
     expect(bestCoverTile(grid({ 5: 3 }), grid({ 11: 1 }), 5, 5, 2, 2)).toBe(12);
     // A tile one away is never midpoint-checked: (1,1) = 6 with nothing blocked around.
     expect(bestCoverTile(grid({ 6: 1 }), grid({ 7: 1, 11: 1 }), 5, 5, 2, 2)).toBe(6);
+  });
+
+  it("refuses a knight's move whose line crosses a blocked tile beside the midpoint (Task 3 review)", () => {
+    // From (0,0) to (2,1) = 7: the line (0.5,0.5) -> (2.5,1.5) crosses x = 1..2 at
+    // y = 0.75..1.25, i.e. tiles (1,0) = 1 AND (1,1) = 6. The midpoint rule alone checked
+    // only (1,0); with (1,1) blocked he crawled into the wall and lay against it for good.
+    expect(bestCoverTile(grid({ 7: 3 }), grid({ 6: 1 }), 5, 5, 0, 0)).toBe(0);
+    expect(bestCoverTile(grid({ 7: 3 }), grid({ 1: 1 }), 5, 5, 0, 0)).toBe(0); // the midpoint, as before
+    expect(bestCoverTile(grid({ 7: 3 }), NONE, 5, 5, 0, 0)).toBe(7);
+    // (1,2) = 11, the transpose: crosses (0,1) = 5 (midpoint) and (1,1) = 6.
+    expect(bestCoverTile(grid({ 11: 3 }), grid({ 6: 1 }), 5, 5, 0, 0)).toBe(0);
+    expect(bestCoverTile(grid({ 11: 3 }), NONE, 5, 5, 0, 0)).toBe(11);
+    // Mirrors from (2,2) = 12. (4,3) = 19: crosses (3,2) = 13 and (3,3) = 18.
+    expect(bestCoverTile(grid({ 19: 3 }), grid({ 18: 1 }), 5, 5, 2, 2)).toBe(12);
+    // (0,1) = 5, offset (-2,-1): crosses (1,2) = 11 (midpoint) and (1,1) = 6.
+    expect(bestCoverTile(grid({ 5: 3 }), grid({ 6: 1 }), 5, 5, 2, 2)).toBe(12);
+    // (1,4) = 21, offset (-1,2): crosses (2,3) = 17 (midpoint) and (1,3) = 16.
+    expect(bestCoverTile(grid({ 21: 3 }), grid({ 16: 1 }), 5, 5, 2, 2)).toBe(12);
+    expect(bestCoverTile(grid({ 21: 3 }), grid({ 15: 1, 22: 1 }), 5, 5, 2, 2)).toBe(21); // off the line
+    // (3,0) = 3, offset (1,-2): crosses (2,1) = 7 (midpoint) and (3,1) = 8.
+    expect(bestCoverTile(grid({ 3: 3 }), grid({ 8: 1 }), 5, 5, 2, 2)).toBe(12);
+    // A straight two ((4,2) = 14) or a diagonal two ((4,4) = 24) has only its midpoint between.
+    expect(bestCoverTile(grid({ 14: 3 }), grid({ 8: 1, 18: 1 }), 5, 5, 2, 2)).toBe(14);
+    expect(bestCoverTile(grid({ 24: 3 }), grid({ 17: 1, 19: 1 }), 5, 5, 2, 2)).toBe(24);
   });
 
   it('stays on the map at its edge', () => {
