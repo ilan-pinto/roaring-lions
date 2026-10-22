@@ -40,6 +40,8 @@ interface ActiveFlash {
   decayMs: number;
   ageMs: number;
   color: THREE.Color;
+  /** GH-748: who spawned it, so one debug layer can zero its own lights. */
+  tag: string | null;
 }
 
 export class FlashLightManager {
@@ -63,7 +65,7 @@ export class FlashLightManager {
     for (const light of this.lights) scene.add(light);
   }
 
-  spawn(x: number, z: number, groundY: number, spec: FlashLightSpec, colorHex: string): void {
+  spawn(x: number, z: number, groundY: number, spec: FlashLightSpec, colorHex: string, tag: string | null = null): void {
     const decayMs = spec.decay_ms ?? 0;
     if (decayMs <= 0) return;
     // `intensity <= 0`, NOT `Math.round(intensity) <= 0`. The rounding was a
@@ -88,6 +90,7 @@ export class FlashLightManager {
       decayMs,
       ageMs: 0,
       color: new THREE.Color(colorHex),
+      tag,
     });
   }
 
@@ -111,6 +114,26 @@ export class FlashLightManager {
       light.distance = f.radius;
       light.intensity = f.peak * Math.sin(progress * Math.PI);
     }
+  }
+
+  /** GH-748: zeroes the pool lights now carrying a flash spawned with `tag`
+   *  (the `support-blast` debug layer, applied after `step` as `blast-light`
+   *  is). Returns how many it zeroed. */
+  zeroTagged(tag: string): number {
+    let n = 0;
+    for (let i = 0; i < this.lights.length; i++) {
+      if (this.active[i]?.tag !== tag) continue;
+      this.lights[i].intensity = 0;
+      n++;
+    }
+    return n;
+  }
+
+  /** How many live flashes carry `tag`. */
+  countTagged(tag: string): number {
+    let n = 0;
+    for (const f of this.active) if (f.tag === tag) n++;
+    return n;
   }
 
   dispose(): void {
