@@ -227,7 +227,8 @@ export class VoiceRuntime {
   onMission(events: readonly MissionEvent[], extra: readonly AnnounceInput[] = []): void {
     if (this.disposed || this.ended || !this.deps.announcements) return;
     const labelOf = this.deps.labelOf ?? ((id: string) => id);
-    const inputs = [...announceInputsOf(events, labelOf), ...extra];
+    // N3 Task 6: a purchase is "reinforcements" for the side this screen commands only.
+    const inputs = [...announceInputsOf(events, labelOf, this.deps.look.viewer), ...extra];
     // AU-5: a quiet tick still asks when a gathered loss count is waiting
     // for its window to close.
     if (inputs.length === 0 && !hasPendingAnnouncement(this.announceState)) return;

@@ -451,3 +451,23 @@ describe('voicePlaceholderOn (R-10)', () => {
     expect(voicePlaceholderOn(new URLSearchParams(''), true)).toBe(false);
   });
 });
+
+// N3 Task 6: in an economy room both seats' purchases arrive as `built`, each with its side;
+// the announcer says "reinforcements" for the side this screen commands (`look.viewer`) only.
+describe('reinforcements are the viewer\'s own (N3 Task 6)', () => {
+  const REINF: AnnouncementManifest = {
+    ...TABLE,
+    events: { reinforcements: { caption: 'a.reinf', audio: '', cooldown_s: 2, priority: 'high' } },
+  } as AnnouncementManifest;
+  const built = (side: 0 | 1) => ({ kind: 'built', tick: 1, unit: 'atgm_cell', side }) as const;
+  it('a side-1 seat hears its own purchase, and not side 0\'s', () => {
+    const one = rig({ announcements: REINF, announceLang: 'he', look: { ...look, viewer: 1 } });
+    one.rt.onMission([built(0)]);
+    expect(one.captions).toEqual([]);
+    one.rt.onMission([built(1)]);
+    expect(one.captions.map((c) => c[0])).toEqual(['a.reinf']);
+    const zero = rig({ announcements: REINF, announceLang: 'he' });
+    zero.rt.onMission([built(1)]);
+    expect(zero.captions).toEqual([]);
+  });
+});

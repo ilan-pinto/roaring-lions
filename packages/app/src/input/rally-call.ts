@@ -25,9 +25,10 @@ export interface RallyRuntime {
 
 export type RallyOutcome = { ok: boolean; x: number; y: number };
 
-/** Would a rally for `line` stand at this tile point? The cursor's question. */
-export function canRally(rt: RallyRuntime, line: number, x: number, y: number): boolean {
-  return rt.canSetRally(line, fx.from(x), fx.from(y));
+/** Would a rally for `line` stand at this tile point? The cursor's question.
+ *  `side` is the seat's own (N3 Task 6: a room's viewer); single-player is 0. */
+export function canRally(rt: RallyRuntime, line: number, x: number, y: number, side: 0 | 1 = 0): boolean {
+  return rt.canSetRally(line, fx.from(x), fx.from(y), side);
 }
 
 export function callRally(
@@ -37,10 +38,11 @@ export function callRally(
   view: PointerView,
   sim: Sim,
   px: number,
-  py: number
+  py: number,
+  side: 0 | 1 = 0
 ): RallyOutcome {
   const p = pointerPoint(view, sim, px, py);
-  if (!canRally(rt, line, p.x, p.y)) return { ok: false, x: p.x, y: p.y };
-  sink.queueCommand({ kind: 'setRally', side: 0, line, x: fx.from(p.x), y: fx.from(p.y) });
+  if (!canRally(rt, line, p.x, p.y, side)) return { ok: false, x: p.x, y: p.y };
+  sink.queueCommand({ kind: 'setRally', side, line, x: fx.from(p.x), y: fx.from(p.y) });
   return { ok: true, x: p.x, y: p.y };
 }

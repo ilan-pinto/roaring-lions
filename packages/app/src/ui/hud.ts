@@ -316,6 +316,11 @@ export interface HudDeps {
    *  objective slot names the force this seat commands instead of the Free
    *  Play line. Absent everywhere else, which keeps the strip as it was. */
   versusFaction?: 'kdf' | 'sarim';
+  /** An economy room's purse (N3 Task 6, KDF against Sarim): the VIEWER's side's logistics
+   *  and what its held zones pay a minute, and Conduct only for the KDF seat (LD7). Read
+   *  only with no mission. A room shows no intel figure (LD5). Absent, or null: no purse --
+   *  every mirror room, Free Play and every mission, which reads its own off `getMission`. */
+  roomEconomy?: () => { logistics: number; ratePerMin: number; conduct?: number } | null;
   /** Shai's rank/plate for the mission in play, and Idit's static plate --
    *  see `HudCommanderInfo`'s own doc comment. */
   commander: HudCommanderInfo;
@@ -1764,6 +1769,14 @@ export class Hud {
           ? `<span class="rl-strip__name">${escapeHtml(place)}</span>`
           : /* i18n-ok: proper noun */ '<span class="rl-strip__name">Roaring Lions</span>'
       );
+      // N3 Task 6, LD7: an economy room's Conduct is the KDF seat's; the Sarim seat's view
+      // carries none, so it draws no field (and so no invoice to open).
+      const roomConduct = this.deps.roomEconomy?.()?.conduct;
+      if (roomConduct !== undefined && this.shown('conduct')) {
+        rows.push(
+          `<span data-tip="conduct" tabindex="0"><b class="rl-${roeTone(roomConduct)}" data-roe>${roomConduct}</b> <span class="rl-dim">${t('hud.strip.conduct')}</span></span>`
+        );
+      }
       // PA-25: a place with no mission is a Free Play sandbox (`placeName`
       // is set only then). Its objective slot says so, and how to leave,
       // rather than standing empty -- an empty slot read as a mission that
@@ -1779,6 +1792,15 @@ export class Hud {
     }
 
     const info: string[] = [];
+    // N3 Task 6: an economy room's purse, the viewer's side's, where a mission's would be.
+    const purse = m ? null : (this.deps.roomEconomy?.() ?? null);
+    if (purse !== null && this.shown('logistics')) {
+      const rate = purse.ratePerMin > 0 ? ` <span class="rl-dim">${t('hud.strip.rate', { n: purse.ratePerMin })}</span>` : '';
+      info.push(
+        `<span class="rl-info" data-tip="logistics" tabindex="0">${symbolSvg('logistics', STRIP_GLYPH_PX)} <b>${purse.logistics}</b> ` +
+          `<span class="rl-dim">${t('hud.strip.logistics.word')}</span>${rate}</span>`
+      );
+    }
     if (m?.logistics !== undefined && this.shown('logistics')) {
       // S-F F2: with held-ground income the figure is base + zones, and a `½`
       // in --warn follows while anything is halved (the cause lives in the tip).
@@ -1938,7 +1960,9 @@ export class Hud {
   private logisticsTipHtml(): string {
     const m = this.deps.getMission();
     const inc = m?.income ?? null;
-    if (inc === null) return t('hud.strip.logistics.tip', { rate: m?.logisticsRate ?? 0 });
+    // N3 Task 6: an economy room's rate is its held zones' (`roomEconomy`).
+    const roomRate = m ? undefined : this.deps.roomEconomy?.()?.ratePerMin;
+    if (inc === null) return t('hud.strip.logistics.tip', { rate: m?.logisticsRate ?? roomRate ?? 0 });
     const rows: string[] = [t('hud.strip.logistics.tip', { rate: 0 })];
     const line = (cls: string, text: string): void => {
       rows.push(`<div class="rl-tip__blurb ${cls}">${escapeHtml(text)}</div>`);

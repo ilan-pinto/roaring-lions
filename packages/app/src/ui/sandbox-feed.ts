@@ -52,3 +52,32 @@ export function sandboxAlertsForTick(
 ): { state: AlertState; alerts: Alert[] } {
   return alertsForTick(state, events, sandboxLosses(events, world.sideOf, world.typeOf, tick, world.viewer), world, tick);
 }
+
+/** The economy runtime's events a room's feed takes (N3 Task 6): the purchases
+ *  (`built`) and nothing else. A room's losses stay `sandboxLosses`' -- the
+ *  runtime also emits a `unitLost` for the OTHER human-held side, which is not
+ *  this seat's loss -- and `alertsForTick`/`announceInputsOf` keep only the
+ *  viewer's own `built` (`isOwnSide`). */
+export function roomArrivals(events: readonly MissionEvent[]): MissionEvent[] {
+  return events.filter((e) => e.kind === 'built');
+}
+
+/** A room tick through the alert layer: the sandbox's own derivation, plus the
+ *  room runtime's purchases (`roomArrivals`), so a seat hears its own arrivals
+ *  and never the other seat's. With no runtime (a mirror room) pass `[]`: the
+ *  result is `sandboxAlertsForTick`'s. */
+export function roomAlertsForTick(
+  state: AlertState,
+  events: readonly SimEvent[],
+  roomEvents: readonly MissionEvent[],
+  world: AlertWorld,
+  tick: number
+): { state: AlertState; alerts: Alert[] } {
+  return alertsForTick(
+    state,
+    events,
+    [...sandboxLosses(events, world.sideOf, world.typeOf, tick, world.viewer), ...roomArrivals(roomEvents)],
+    world,
+    tick
+  );
+}

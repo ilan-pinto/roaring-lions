@@ -283,6 +283,21 @@ describe('showVersus (/versus)', () => {
     expect(note.hidden).toBe(true);
   });
 
+  it('N3 Task 6: the KDF-v-Sarim options say the economy is on; the mirror says nothing of it', () => {
+    const stage = mountPick(deps());
+    const note = stage.querySelector<HTMLElement>('.rl-versus__matchup-note')!;
+    expect(note.hidden).toBe(true);
+    for (const m of ['kdf', 'sarim']) {
+      pick(sideRadio(stage, m));
+      expect(note.hidden).toBe(false);
+      expect(note.textContent).toBe('Camps, income and production on');
+      expect(describedBy(sideRadio(stage, m))).toBe('Camps, income and production on');
+    }
+    pick(sideRadio(stage, 'mirror'));
+    expect(note.hidden).toBe(true);
+    expect(sideRadio(stage, 'mirror').hasAttribute('aria-describedby')).toBe(false);
+  });
+
   it('a build that ships neither faction map offers the mirror alone, and says why on the greyed sides', () => {
     const stage = mountPick(deps({ maps: [MAPS[0]!] }));
     const radios = [...stage.querySelectorAll<HTMLInputElement>('input.rl-versus__side-radio')];

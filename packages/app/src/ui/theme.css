@@ -7818,6 +7818,7 @@ fieldset.rl-versus__maps {
   border-color: var(--panel-frame);
 }
 .rl-versus__side-reason,
+.rl-versus__matchup-note,
 .rl-versus__side-note {
   flex-basis: 100%;
   margin: 0;
@@ -7827,6 +7828,7 @@ fieldset.rl-versus__maps {
 }
 .rl-versus__side-note { text-align: left; grid-column: 1 / -1; }
 .rl-versus__side-reason[hidden],
+.rl-versus__matchup-note[hidden],
 .rl-versus__side-note[hidden] {
   display: none;
 }

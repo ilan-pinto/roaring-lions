@@ -246,6 +246,7 @@
   "versus.room.kit": "Kit",
   "versus.room.kit.value": "{kit, select, brigade {Brigades (friends only)} other {Standard kit for both}}",
   "versus.faction": "{f, select, sarim {Sarim} other {KDF}}",
+  "versus.matchup.economy": "Camps, income and production on",
   "versus.join.code": "Room code",
   "versus.join.go": "Join",
   "versus.room.title": "Room {code}",
