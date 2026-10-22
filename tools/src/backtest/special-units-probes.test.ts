@@ -272,7 +272,7 @@ describe('SU probe 4b: Conduct lost killing an atgm_cell inside a flagged zone (
     expect(nlosConductClaims(t).join('\n')).toBe('');
   });
 
-  it('inside the bands (measured 22 Oct: NLOS 20/20, 1.60 rounds, 0.00 lost; mortar 20/20, 4.35, 16.50)', () => {
+  it('inside the bands (measured 22 Oct: NLOS 20/20, 1.60 rounds, 0.00 lost; mortar 20/20, 4.35, 16.50, charged on 19)', () => {
     expect(t.nlos.kills).toBe(20);
     near(t.nlos.rounds, 1.6, 'nlos rounds');
     expect(t.nlos.lost).toBe(0);
@@ -280,7 +280,9 @@ describe('SU probe 4b: Conduct lost killing an atgm_cell inside a flagged zone (
     expect(t.mortar.kills).toBe(20);
     near(t.mortar.rounds, 4.35, 'mortar rounds');
     near(t.mortar.lost, 16.5, 'mortar lost');
-    expect(t.mortar.seedsCharged).toBe(20);
+    // Was 20. GH-707 P3: the atgm_cell (2 men) now sheds a wounded man at half hp; on one
+    // seed of 20 the mortar's rounds that cost Conduct land after a different man is down.
+    expect(t.mortar.seedsCharged).toBe(19);
   });
 });
 
@@ -334,9 +336,11 @@ describe('SU probe 11: spg_cluster, the lead\'s four claims (E3)', () => {
     near(u.perRound, 3, 'unitary per round');
     near(c.lost, 45, 'cluster lost'); // Was 16.8 over 3 rounds.
     near(u.lost, 24, 'unitary lost'); // Was 9.
-    // At rof 5 the cluster kills a civilian 2 tiles off in 2 of 10 seeds (was 0 at rof 2); the
+    // At rof 5 the cluster kills a civilian 2 tiles off in 3 of 10 seeds (was 0 at rof 2); the
     // scene's civilian_casualty_penalty is 0, so Conduct above is the ordnance rule alone.
-    expect(c.civDead).toBeCloseTo(0.2, 9);
+    // Was 0.2. GH-707 P3: a civilian hit to zero now goes down in place on a won roll, and
+    // a downed civilian dies to any later round: 3 of 10 seeds end with one dead (was 2).
+    expect(c.civDead).toBeCloseTo(0.3, 9);
     expect(u.civDead).toBe(0);
   });
 });
