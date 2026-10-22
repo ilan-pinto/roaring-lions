@@ -82,6 +82,9 @@ import {
   COMP_FIREPOWER,
   COMP_BOTH,
   COMP_CATASTROPHIC,
+  MOB_DAMAGED_PCT,
+  FIELD_FIX_TICKS,
+  FIELD_FIX_ASSIST_RADIUS,
   OVERMATCH_SHIFT_PER_Z,
   OVERMATCH_SHIFT_MAX,
   SUPP_DECAY,
@@ -157,6 +160,9 @@ import {
  *  index) order: the centre, the four edge neighbours, the four corners. */
 const AIR_SPREAD_DX = [0, 0, -1, 1, 0, -1, 1, -1, 1] as const;
 const AIR_SPREAD_DY = [0, -1, 0, 0, 1, -1, -1, 1, 1] as const;
+
+/** #706: FIELD_FIX_ASSIST_RADIUS squared, Q16.16 square tiles (distSqFx's unit). */
+const FIELD_FIX_ASSIST_RADIUS_SQ = fx.fromInt(FIELD_FIX_ASSIST_RADIUS * FIELD_FIX_ASSIST_RADIUS);
 
 export const TICKS_PER_SECOND = 20;
 /** Tick length in Q16.16 seconds (65536 / 20, rounded). Time IS the tick
@@ -236,6 +242,9 @@ export interface UnitTypeJson {
      *  before it moves on. Absent means derived -- every armed foot unit that
      *  is not a kamikaze. See UnitType.haltsToFire. */
     halts_to_fire?: boolean;
+    /** #706: running gear, `tracks` (absent) or `wheels`. Schema-constrained;
+     *  typed loosely for the same JSON-widening reason as `domain`. */
+    gear?: string;
   };
   sensors: {
     optics: number;
@@ -522,6 +531,14 @@ export interface UnitType {
   canSmoke: boolean;
   /** Field works (#277): can raise a field work (`abilities` 'construct'). */
   canConstruct: boolean;
+  /** #706: the `repair` ability (demo_squad, dozer_d9). Standing still within
+   *  FIELD_FIX_ASSIST_RADIUS of a stuck friendly ground hull, it doubles that
+   *  hull's crew field-fix rate. A passive: no command, no button. */
+  canRepair: boolean;
+  /** #706: `mobility.gear === 'wheels'`. A wheeled hull's first mobility hit
+   *  only slows it (`mobilityDamaged`); tracks (the default) go stuck at once.
+   *  Not `wheeled` (vehicle-vs-foot). Read only for a ground hull. */
+  partialMobility: boolean;
   /** Field works: progress multiplier, Q16.16 (`construct_rate`, default ONE). */
   constructRate: Fx;
   hp: Fx;
@@ -675,6 +692,8 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
     canMarkTunnel: abilities.includes('mark_tunnel'),
     canSmoke: abilities.includes('smoke'),
     canConstruct: abilities.includes('construct'),
+    canRepair: abilities.includes('repair'),
+    partialMobility: json.mobility.gear === 'wheels',
     constructRate: fx.from(json.construct_rate ?? 1),
     hp: fx.from(json.hull.hp),
     armorFront,
@@ -817,6 +836,9 @@ export type FacingArc = 'front' | 'side' | 'rear';
 export type ComponentResult =
   | 'crew_shaken'
   | 'mobility_kill'
+  /** #706: a mobility hit on a `gear: wheels` hull that was sound -- it is now
+   *  SLOWED (`mobilityDamaged`), not stuck, and keeps driving. */
+  | 'mobility_damaged'
   | 'firepower_kill'
   | 'combat_ineffective'
   | 'catastrophic';
@@ -897,6 +919,9 @@ export type SimEvent =
   | { kind: 'submerged'; tick: number; entity: number; tunnel: number }
   | { kind: 'tunnelCollapsed'; tick: number; tunnel: number; by: number }
   | { kind: 'routed'; tick: number; entity: number }
+  /** #706: a stuck ground hull's crew fixed it in the field (FIELD_FIX_TICKS of
+   *  quiet, halved by a `repair` unit standing by). It is SLOWED now, not sound. */
+  | { kind: 'fieldFixed'; tick: number; entity: number }
   | { kind: 'rallied'; tick: number; entity: number }
   | { kind: 'pinned'; tick: number; entity: number }
   | { kind: 'unpinned'; tick: number; entity: number }
@@ -934,6 +959,7 @@ export const SIM_EVENT_KINDS = [
   'spawn', 'contact', 'fire', 'aps', 'impact', 'component', 'nearMiss', 'ambushSprung',
   'strike', 'smokeLaid', 'revealed', 'structureHit', 'structureDestroyed', 'garrison',
   'transport', 'ventOpened', 'tunnelContact', 'surfaced', 'submerged', 'tunnelCollapsed', 'routed', 'rallied', 'pinned', 'unpinned', 'destroyed',
+  'fieldFixed',
   'removed',
   'constructQueued', 'constructRefused', 'constructStaked', 'structureComplete', 'constructCancelled',
 ] as const satisfies readonly SimEvent['kind'][];
@@ -1135,20 +1161,35 @@ export class Sim {
    *  the focus is held. Hashed, and added with the column above so the focus
    *  behaviour that follows is hash-neutral. */
   private readonly focusLost: Uint16Array;
-  /** GH-698: air carrier flight state, AIR_AIRBORNE..AIR_LIFTING (tuning.ts); 0 for
-   *  every non-carrier. Folded into hash() only once `airLive` is set. */
+  /** GH-698: air flight state, AIR_AIRBORNE..AIR_LIFTING (tuning.ts). 0 (AIRBORNE)
+   *  for every ground unit, and for every non-carrier aircraft until a mobility kill
+   *  brings it down (#706 §3.5, the forced landing). Folded into hash() only once
+   *  `airLive` is set. */
   private readonly airState: Uint8Array;
   /** GH-698: ticks left in AIR_LANDING / AIR_LIFTING. Hashed with `airState`. */
   private readonly airTimer: Uint16Array;
   /** GH-698: what an air carrier lands for, AIR_WANT_* (tuning.ts). Hashed with `airState`. */
   private readonly airWant: Uint8Array;
   /** GH-698, Q-A (deferred fold, lead 21 Oct): true once `addUnitType` registers an air
-   *  carrier type. hash() folds the air block only while set, so no world without one
-   *  moves any pin. Same shape as field works' `fwLive` (D1). */
+   *  carrier type, or (#706 §3.5) once any aircraft is mobility-killed -- the one way a
+   *  non-carrier aircraft leaves AIRBORNE. hash() folds the air block only while set,
+   *  so no world without either moves any pin. Same shape as field works' `fwLive` (D1). */
   private airLive = false;
   /** Structure this unit is currently engaging, -1 when none. */
   private readonly curStructure: Int32Array;
   private readonly mobilityKilled: Uint8Array;
+  /** #706: SLOWED -- moves at MOB_DAMAGED_PCT of its step. Set by a first
+   *  mobility hit on a `gear: wheels` hull, or by a crew field fix; cleared by
+   *  the workshop aura. Hashed behind `mobLive`. */
+  private readonly mobilityDamaged: Uint8Array;
+  /** #706: a stuck ground hull's crew repair clock, ticks of quiet so far (2 a
+   *  tick with a `repair` unit by). Hashed behind `mobLive`. */
+  private readonly fieldFixTicks: Int32Array;
+  /** #706: true once any mobility result (stuck or slowed) has been applied.
+   *  hash() folds `mobilityDamaged` and `fieldFixTicks` only while it is set,
+   *  so a world that never sees one keeps its digest. Never cleared. Same shape
+   *  as `fwLive` (D1). */
+  private mobLive = false;
   private readonly firepowerKilled: Uint8Array;
   private readonly pinned: Uint8Array;
   /** 0 = normal, 1 = ambush (hold fire + minimum signature until sprung). */
@@ -1429,6 +1470,10 @@ export class Sim {
     readonly moving: Uint8Array;
     readonly pinned: Uint8Array;
     readonly mobilityKilled: Uint8Array;
+    /** #706: slowed (half step). */
+    readonly mobilityDamaged: Uint8Array;
+    /** #706: a stuck ground hull's field-fix clock, 0..FIELD_FIX_TICKS. */
+    readonly fieldFixTicks: Int32Array;
     readonly firepowerKilled: Uint8Array;
     readonly apsAmmo: Int32Array;
     readonly veterancy: Uint8Array;
@@ -1595,6 +1640,8 @@ export class Sim {
     this.airWant = new Uint8Array(n);
     this.curStructure = new Int32Array(n).fill(-1);
     this.mobilityKilled = new Uint8Array(n);
+    this.mobilityDamaged = new Uint8Array(n);
+    this.fieldFixTicks = new Int32Array(n);
     this.firepowerKilled = new Uint8Array(n);
     this.pinned = new Uint8Array(n);
     this.stance = new Uint8Array(n);
@@ -1711,6 +1758,8 @@ export class Sim {
       moving: this.moving,
       pinned: this.pinned,
       mobilityKilled: this.mobilityKilled,
+      mobilityDamaged: this.mobilityDamaged,
+      fieldFixTicks: this.fieldFixTicks,
       firepowerKilled: this.firepowerKilled,
       apsAmmo: this.apsAmmo,
       veterancy: this.veterancy,
@@ -2050,8 +2099,8 @@ export class Sim {
     return this.stKnown[side * MAX_STRUCTURES + s] === 1;
   }
 
-  /** GH-698: true once an air carrier type is registered and the air block is folded
-   *  into hash() (Q-A). Read-only. */
+  /** GH-698: true once an air carrier type is registered, or (#706) an aircraft has
+   *  been mobility-killed, and the air block is folded into hash() (Q-A). Read-only. */
   get airCarrierLive(): boolean {
     return this.airLive;
   }
@@ -2821,6 +2870,8 @@ export class Sim {
     this.auraCompAt[id] = 0;
     this.auraRepairTicks[id] = 0;
     this.auraAccMult[id] = ONE;
+    this.mobilityDamaged[id] = 0;
+    this.fieldFixTicks[id] = 0;
     this.airState[id] = 0; // AIR_AIRBORNE
     this.airTimer[id] = 0;
     this.airWant[id] = 0; // AIR_WANT_NONE
@@ -3388,9 +3439,10 @@ export class Sim {
           // either — the loop below then skips it for having none.
           if (this.alive[id] === 0 || this.routed[id] === 1 || this.carriedBy[id] >= 0) continue;
           const utype = this.unitTypes[this.typeIdx[id]];
-          // GH-698: a LANDING air carrier ignores a move outright -- no slot here,
-          // nothing written below.
-          if (utype.isAirCarrier && this.airState[id] === AIR_LANDING) continue;
+          // GH-698: a LANDING aircraft ignores a move outright -- no slot here,
+          // nothing written below. #706: any air type, since a forced landing
+          // brings a gunship down too.
+          if (utype.isAir && this.airState[id] === AIR_LANDING) continue;
           const front = utype.isAir || utype.moveDomain === DOMAIN_VEHICLE;
           members.push({ id, domain: utype.isAir ? DOMAIN_FOOT : utype.moveDomain, front });
           // Where this unit will be coming FROM: its last queued point when
@@ -3453,8 +3505,9 @@ export class Sim {
           // attack-move latch left behind would let stepSweep/stepFocus lift
           // it once landed). Before the append fast-path: an appended leg
           // behind a land order would otherwise land the carrier on the
-          // waypoint, wherever that is.
-          if (utype.isAirCarrier) {
+          // waypoint, wherever that is. #706: any air type (a non-carrier's want
+          // is always NONE, so only the LANDING rule bites).
+          if (utype.isAir) {
             if (this.airState[id] === AIR_LANDING) continue;
             const want = this.airWant[id];
             if (want === AIR_WANT_LOAD || want === AIR_WANT_UNLOAD) this.airWant[id] = AIR_WANT_NONE;
@@ -3788,8 +3841,8 @@ export class Sim {
           // order before any write; otherwise it cancels a land plan, so
           // stepFocus's chase goal (the target's last-seen tile, never checked
           // as an LZ) can never become a landing, and stepTransport releases the
-          // riders. LANDED, the chase lifts it as a move would.
-          if (this.unitTypes[this.typeIdx[id]].isAirCarrier) {
+          // riders. LANDED, the chase lifts it as a move would. #706: any air type.
+          if (this.unitTypes[this.typeIdx[id]].isAir) {
             if (this.airState[id] === AIR_LANDING) continue;
             const want = this.airWant[id];
             if (want === AIR_WANT_LOAD || want === AIR_WANT_UNLOAD) this.airWant[id] = AIR_WANT_NONE;
@@ -6111,14 +6164,37 @@ export class Sim {
     else if (draw < wCrew + COMP_MOBILITY + COMP_FIREPOWER + COMP_BOTH) result = 'combat_ineffective';
     else result = 'catastrophic';
 
+    // #706 §3.3: a sound GROUND hull on wheels only loses a wheel to its first
+    // mobility hit -- slowed, still driving. A second one (or tracks, or a
+    // combat_ineffective) leaves it stuck. Air keeps the stuck rule (Task 2).
+    const tType = this.unitTypes[this.typeIdx[target]];
+    if (
+      result === 'mobility_kill' &&
+      tType.partialMobility &&
+      !tType.isAir &&
+      this.mobilityDamaged[target] === 0 &&
+      this.mobilityKilled[target] === 0
+    ) {
+      result = 'mobility_damaged';
+    }
+
     this.pendingEvents.push({ kind: 'component', tick: this.tickCount, target, result, overmatch: z });
 
     switch (result) {
       case 'crew_shaken':
         this.applySuppression(target, CREW_SHAKEN_SUPP, false);
         break;
+      case 'mobility_damaged':
+        this.mobLive = true;
+        this.mobilityDamaged[target] = 1;
+        break;
       case 'mobility_kill':
+        this.mobLive = true;
+        // #706 §3.5: an aircraft brought down turns the air machine (and its
+        // hash fold) on, so a world that never mobility-kills one is untouched.
+        if (tType.isAir) this.airLive = true;
         this.mobilityKilled[target] = 1;
+        this.fieldFixTicks[target] = 0;
         this.moving[target] = 0;
         this.fieldRef[target] = -1;
         break;
@@ -6126,7 +6202,10 @@ export class Sim {
         this.firepowerKilled[target] = 1;
         break;
       case 'combat_ineffective':
+        this.mobLive = true;
+        if (tType.isAir) this.airLive = true; // #706 §3.5, as mobility_kill
         this.mobilityKilled[target] = 1;
+        this.fieldFixTicks[target] = 0;
         this.moving[target] = 0;
         this.fieldRef[target] = -1;
         this.firepowerKilled[target] = 1;
@@ -6640,17 +6719,23 @@ export class Sim {
   // (AIR_LIFT_TICKS) -> AIRBORNE, and it does not move outside AIRBORNE.
   // `airWant` is what it was last asked to land for. No rng anywhere: every
   // choice is a fixed scan order (invariant 3). Nothing here runs, and nothing
-  // here is reachable, in a world with no air carrier type (`airLive`).
+  // here is reachable, in a world with no air carrier type and no
+  // mobility-killed aircraft (`airLive`).
+  //
+  // #706 §3.5: the machine runs for EVERY air type. A non-carrier's `airWant`
+  // is always NONE (only load/unload, carrier-only, set it), so for a gunship
+  // or a drone only the forced landing and the LANDED hold ever apply; a
+  // healthy one stays AIRBORNE and is skipped on the `want` check.
 
   /**
-   * One tick of the machine, for every air carrier. Called immediately before
+   * One tick of the machine, for every aircraft. Called immediately before
    * stepMovement, so the `moving = 0` it writes outside AIRBORNE wins over every
    * setter earlier in the tick (orders, stepFocus, stepSweep).
    */
   private stepAirCarriers(): void {
     if (!this.airLive) return;
     for (let i = 0; i < this.count; i++) {
-      if (this.alive[i] === 0 || !this.unitTypes[this.typeIdx[i]].isAirCarrier) continue;
+      if (this.alive[i] === 0 || !this.unitTypes[this.typeIdx[i]].isAir) continue;
       let st = this.airState[i];
       if (st === AIR_AIRBORNE) {
         // A hull that cannot move never reaches an LZ, so it would hover for
@@ -6723,8 +6808,8 @@ export class Sim {
   }
 
   /**
-   * Forced landing (fix/air-pathing, lead ruling 21 Oct 2026): an AIRBORNE
-   * carrier whose mobility is knocked out (`mobilityKilled`, from the
+   * Forced landing (fix/air-pathing, lead ruling 21 Oct 2026; every air type
+   * since #706 §3.5): an AIRBORNE aircraft whose mobility is knocked out (`mobilityKilled`, from the
    * component roll's `mobility_kill` or `combat_ineffective`) starts LANDING
    * at once -- where it is when its tile is foot-open, else on the centre of
    * the nearest foot-open tile (a rifleman's ground, not the vehicle LZ rule:
@@ -6845,7 +6930,9 @@ export class Sim {
    *  Airborne, the land plan is cancelled and it hovers. Lifting, it hovers
    *  where it lifted. Landing completes; landed stays. */
   private haltAir(id: number): void {
-    if (!this.unitTypes[this.typeIdx[id]].isAirCarrier) return;
+    // #706: any air type -- a non-carrier lifting after a workshop cleared its
+    // forced landing hovers on a halt like a carrier does.
+    if (!this.unitTypes[this.typeIdx[id]].isAir) return;
     const st = this.airState[id];
     if (st === AIR_AIRBORNE) {
       this.airWant[id] = AIR_WANT_NONE;
@@ -7857,6 +7944,13 @@ export class Sim {
       const goalTileY = this.goalY[i] >> 16;
 
       let step = type.stepPerTick;
+      // #706: slowed running gear, an integer percent of the Q16.16 step, by the
+      // tree's integer-divide idiom (`fixed.ts:119`): no float is produced. The
+      // product stays far inside int32 (a step is under 0.2 tile, ~13000 raw).
+      if (this.mobilityDamaged[i] === 1) {
+        const p = step * MOB_DAMAGED_PCT;
+        step = (p - (p % 100)) / 100;
+      }
       if (this.routed[i] === 1) {
         step = step >> ROUT_SPEED_SHIFT; // fleeing at a crouch-run
       } else if (this.pinned[i] === 1) {
@@ -8051,6 +8145,76 @@ export class Sim {
     }
   }
 
+  /**
+   * #706 §3.4 items 2-3: one tick of a stuck hull's crew field fix. Called from
+   * stepUpkeep for a living unit with `mobilityKilled === 1`. Only a ground hull
+   * on the surface and not carried or garrisoned counts; an aircraft never does
+   * (a crew cannot re-rig a rotor in a field). A hit this tick (`lastDamagedTick
+   * === tickCount`) restarts the clock. Otherwise it counts 1, or 2 while any
+   * living same-side `repair` unit stands still on the surface within
+   * FIELD_FIX_ASSIST_RADIUS (assists do not stack). At FIELD_FIX_TICKS the hull
+   * is SLOWED, not stuck, and a `fieldFixed` event is pushed. No rng, no
+   * allocation.
+   */
+  private stepFieldFix(i: number): void {
+    const rate = this.fieldFixRate(i);
+    if (rate === 0) return;
+    if (this.lastDamagedTick[i] === this.tickCount) {
+      this.fieldFixTicks[i] = 0;
+      return;
+    }
+    this.fieldFixTicks[i] += rate;
+    if (this.fieldFixTicks[i] >= FIELD_FIX_TICKS) {
+      this.mobilityKilled[i] = 0;
+      this.mobilityDamaged[i] = 1;
+      this.fieldFixTicks[i] = 0;
+      this.pendingEvents.push({ kind: 'fieldFixed', tick: this.tickCount, entity: i });
+    }
+  }
+
+  /**
+   * #706: how fast unit `i`'s crew field fix counts -- 0 when it cannot count
+   * at all (dead, not stuck, an aircraft, carried, garrisoned or underground),
+   * 2 while a living same-side `repair` unit stands still on the surface
+   * within FIELD_FIX_ASSIST_RADIUS, else 1. It does NOT read this tick's hit
+   * (that reset is `stepFieldFix`'s). The one source of the rule: the sim's
+   * own field fix and the HUD's repair countdown both call it. A pure read,
+   * no allocation.
+   */
+  fieldFixRate(i: number): number {
+    if (
+      i < 0 ||
+      i >= this.count ||
+      this.alive[i] === 0 ||
+      this.mobilityKilled[i] !== 1 ||
+      this.unitTypes[this.typeIdx[i]].isAir ||
+      this.carriedBy[i] >= 0 ||
+      this.garrisonedIn[i] >= 0 ||
+      this.tunnelIn[i] >= 0
+    ) {
+      return 0;
+    }
+    const side = this.side[i];
+    const px = this.posX[i];
+    const py = this.posY[i];
+    for (let j = 0; j < this.count; j++) {
+      if (
+        j === i ||
+        this.alive[j] === 0 ||
+        this.side[j] !== side ||
+        this.moving[j] !== 0 ||
+        this.carriedBy[j] >= 0 ||
+        this.garrisonedIn[j] >= 0 ||
+        this.tunnelIn[j] >= 0 ||
+        !this.unitTypes[this.typeIdx[j]].canRepair
+      ) {
+        continue;
+      }
+      if (distSqFx(fx.sub(this.posX[j], px), fx.sub(this.posY[j], py)) <= FIELD_FIX_ASSIST_RADIUS_SQ) return 2;
+    }
+    return 1;
+  }
+
   private stepUpkeep(): void {
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0) continue;
@@ -8106,10 +8270,18 @@ export class Sim {
         if (++this.auraRepairTicks[i] >= compAt) {
           this.mobilityKilled[i] = 0;
           this.firepowerKilled[i] = 0;
+          // #706: a workshop puts the running gear right too, slowed included.
+          this.mobilityDamaged[i] = 0;
+          this.fieldFixTicks[i] = 0;
         }
       } else if (this.auraRepairTicks[i] !== 0) {
         this.auraRepairTicks[i] = 0;
       }
+      // #706 §3.4: the crew field fix. A stuck, living, surface ground hull
+      // counts quiet ticks (2 with a `repair` unit standing by); a hit this
+      // tick restarts it, the aura's own "under fire" rule. At FIELD_FIX_TICKS
+      // it steps down to SLOWED, never to sound; a lost gun stays lost.
+      if (this.mobilityKilled[i] === 1) this.stepFieldFix(i);
       // Weapon cooldowns.
       if (this.cooldown[i * 2] > 0) this.cooldown[i * 2]--;
       if (this.cooldown[i * 2 + 1] > 0) this.cooldown[i * 2 + 1]--;
@@ -8264,12 +8436,23 @@ export class Sim {
       h = hashArray(h, this.auraRepairTicks);
       h = hashArray(h, this.auraAccMult);
     }
+    // Mobility kills (#706): the deferred fold, field works' D1 shape. The two
+    // columns are folded only once a mobility result (stuck or slowed) has been
+    // applied, and nothing at all before that, so a world that never sees one
+    // keeps its digest. Both stay at their spawn defaults until then.
+    if (this.mobLive) {
+      h = hashWord(h, 0x4d4b0706); // 'MK' #706
+      h = hashArray(h, this.mobilityDamaged);
+      h = hashArray(h, this.fieldFixTicks);
+    }
     // Air carriers (GH-698), Q-A (lead 21 Oct): the deferred fold, field works' D1
     // shape. The block is folded only once `addUnitType` has registered an air
     // carrier type, and nothing at all (no marker, no length word) before that, so
     // no golden, versus, net, economy or runtime-digest pin moved. Only an air
-    // carrier ever leaves these columns at their spawn defaults, and it cannot
-    // exist without its type, so the canary still sees every air divergence.
+    // carrier, or (#706 §3.5) a mobility-killed aircraft, ever leaves these
+    // columns at their spawn defaults; the first needs its type and the second
+    // sets the latch in rollComponent, so the canary still sees every air
+    // divergence.
     if (this.airLive) {
       h = hashWord(h, 0x41490698); // 'AI' GH-698
       h = hashArray(h, this.airState);

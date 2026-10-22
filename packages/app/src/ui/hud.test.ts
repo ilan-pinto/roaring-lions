@@ -1698,6 +1698,66 @@ describe('the single-unit card', () => {
     expect(card.querySelector('.rl-pin-mark')!.getAttribute('data-mark')).toBe('gunOut');
   });
 
+  // GH-706: slowed is its own state, under the kills, with the immobilised mark
+  // at half ink on the card's state word and on the art.
+  it('heads a slowed vehicle RUNNING GEAR HIT -- SLOWED, the half-ink immobilised mark on the art', () => {
+    const world = makeForce();
+    const r = clusterRig(() => [world.namer], {}, world);
+    world.sim.state.mobilityDamaged[world.namer] = 1;
+    for (let i = 0; i < 5; i++) r.tick();
+    const card = r.host.querySelector<HTMLElement>('.rl-card')!;
+    const cond = card.querySelector('.rl-card__cond')!;
+    expect(cond.textContent).toContain('Running gear hit — slowed');
+    expect(cond.textContent).toContain('half speed, can still fire');
+    expect(cond.textContent).not.toContain('Immobilised');
+    expect(cond.querySelector('.rl-card__state .rl-sym--half[data-symbol="immobilised"]')).not.toBeNull();
+    const mark = card.querySelector('.rl-pin-mark')!;
+    expect(mark.getAttribute('data-mark')).toBe('slowed');
+    expect(mark.querySelector('.rl-sym--half[data-symbol="immobilised"]')).not.toBeNull();
+    // Stuck again (a second hit): immobilised wins, at full ink.
+    world.sim.state.mobilityKilled[world.namer] = 1;
+    for (let i = 0; i < 5; i++) r.tick();
+    const again = r.host.querySelector<HTMLElement>('.rl-card')!;
+    expect(again.querySelector('.rl-card__cond')!.textContent).toContain('Immobilised');
+    expect(again.querySelector('.rl-pin-mark')!.getAttribute('data-mark')).toBe('immobilised');
+    expect(again.querySelector('.rl-pin-mark .rl-sym--half')).toBeNull();
+  });
+
+  // GH-706: the stuck hull's countdown, from the hashed clock at the sim's rate.
+  it('counts a stuck hull of ours down to its field fix, at twice the pace with an engineer by', () => {
+    const world = makeForce();
+    const r = clusterRig(() => [world.namer], {}, world);
+    world.sim.state.mobilityKilled[world.namer] = 1;
+    world.sim.state.fieldFixTicks[world.namer] = 860; // 940 ticks left: 47 s
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(r.host.querySelector('.rl-card')!.textContent).toContain('Repairing 0:47');
+    const demo = world.sim.addUnitType(units.demo_squad as unknown as UnitTypeJson);
+    world.sim.spawn(demo, 0, fx.from(5), fx.from(1)); // 1 tile off, standing still
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(r.host.querySelector('.rl-card')!.textContent).toContain('Repairing 0:24'); // 470 ticks
+    // Freed: slowed, and no countdown.
+    world.sim.state.mobilityKilled[world.namer] = 0;
+    world.sim.state.mobilityDamaged[world.namer] = 1;
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(r.host.querySelector('.rl-card')!.textContent).not.toContain('Repairing');
+  });
+
+  it('shows no repair countdown for an aircraft (no field fix) or for an enemy hull', () => {
+    const world = makeForce();
+    const heliT = world.sim.addUnitType(units.heli_peten as unknown as UnitTypeJson);
+    const heli = world.sim.spawn(heliT, 0, fx.from(8), fx.from(8));
+    const enemyT = world.sim.addUnitType(units.ifv_namer as unknown as UnitTypeJson);
+    const enemy = world.sim.spawn(enemyT, 1, fx.from(12), fx.from(12));
+    for (const id of [heli, enemy]) {
+      const r = clusterRig(() => [id], {}, world);
+      world.sim.state.mobilityKilled[id] = 1;
+      for (let i = 0; i < 5; i++) r.tick();
+      const card = r.host.querySelector('.rl-card')!;
+      expect(card.textContent).toContain('Immobilised');
+      expect(card.textContent).not.toContain('Repairing');
+    }
+  });
+
   it('paints a veteran’s stripe as a commendation, never as a caution', () => {
     // The stripe is earned, not a warning, and `--commend` exists so a reward
     // never borrows the caution colour. The card is the one place the stripe

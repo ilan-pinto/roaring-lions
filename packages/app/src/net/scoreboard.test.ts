@@ -8,8 +8,8 @@ import { versusSpawns } from './versus-force';
 import { buildWorld } from './versus-world.test-helper';
 
 const TYPES = [
-  { id: 'tank', weapons: [1], stepPerTick: 3000 },
-  { id: 'rifles', weapons: [1], stepPerTick: 3000 },
+  { id: 'tank', weapons: [1], stepPerTick: 3000, isAir: false },
+  { id: 'rifles', weapons: [1], stepPerTick: 3000, isAir: false },
 ] as const;
 const COST: Record<string, number> = { tank: 500, rifles: 100 };
 const costOf = (id: string): number => COST[id] ?? 0;

@@ -322,6 +322,12 @@ describe('decideCalls: ours report breaking and vehicle damage (pass C2/C4, A1)'
     expect(decideCalls(INITIAL_DIRECTOR, [component(3, 'combat_ineffective')], look, LANGS, 0).notes[0].cue?.key).toBe('he.common.gunout');
   });
 
+  // GH-706: slowed is not stuck -- no "We're stuck" on the net for a wheel shot out.
+  it('is silent for a slowed hull and for a field fix: the radio never calls slowed stuck', () => {
+    expect(decideCalls(INITIAL_DIRECTOR, [component(3, 'mobility_damaged')], look, LANGS, 0).notes).toEqual([]);
+    expect(decideCalls(INITIAL_DIRECTOR, [{ kind: 'fieldFixed', tick: 0, entity: 3 } as SimEvent], look, LANGS, 0).notes).toEqual([]);
+  });
+
   it('is silent for a shaken crew, an enemy, and a civilian', () => {
     expect(decideCalls(INITIAL_DIRECTOR, [component(3, 'crew_shaken')], look, LANGS, 0).notes).toEqual([]);
     const enemy: DirectorLook = { ...look, side: () => 1 };

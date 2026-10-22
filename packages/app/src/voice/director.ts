@@ -461,6 +461,11 @@ export function decideDeaths(
 function callOf(event: SimEvent): { entity: number; call: CommonCall; caption: string } | null {
   if (event.kind === 'routed') return { entity: event.entity, call: 'broken', caption: 'voice.caption.broken' };
   if (event.kind === 'component') {
+    // GH-706: a wheel shot out (`mobility_damaged`) still drives -- the radio
+    // must never call it stuck, and there is no recorded "slowed" line, so the
+    // net stays quiet and the feed says "slowed". A field fix is news for the
+    // feed too, not a call.
+    if (event.result === 'mobility_damaged') return null;
     if (event.result === 'mobility_kill') return { entity: event.target, call: 'immobilised', caption: 'voice.caption.immobilised' };
     if (event.result === 'firepower_kill' || event.result === 'combat_ineffective')
       return { entity: event.target, call: 'gunout', caption: 'voice.caption.gunout' };
