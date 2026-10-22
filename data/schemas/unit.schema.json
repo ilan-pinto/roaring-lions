@@ -461,7 +461,7 @@
             "minimum": 0,
             "maximum": 1,
             "default": 0,
-            "description": "GH-709 unit 9 (the grenadier, lead ruling 22 Oct): the fraction of the cover bonus this weapon's rounds ignore, 0-1. It closes that fraction of the gap between a target's tile-cover multiplier and the open ground's 1, for the hit chance and for the suppression its hits, near misses and splash put on men in cover. A building's own cover (a garrison) is untouched: the round does not reach into a house. Detection is untouched."
+            "description": "GH-709 unit 9 (the grenadier, lead ruling 22 Oct): the fraction of the cover bonus this weapon's rounds ignore, 0-1. It closes that fraction of the gap between a target's tile-cover multiplier and the open ground's 1, for the hit chance and for the suppression its hits, near misses and splash put on men in cover. A building's own cover (a garrison) is untouched: the round does not reach into a house. Detection, and the suppression of a round bouncing off armour, are untouched. The sim refuses it beside submunitions, whose bomblets read no weapon."
           },
           "submunitions": {
             "type": "object",

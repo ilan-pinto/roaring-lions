@@ -195,8 +195,8 @@ export interface WeaponJson {
   indirect?: boolean;
   /** E3 (GH-709): the round bursts into `count` bomblets where it lands. */
   submunitions?: SubmunitionJson;
-  /** GH-709 unit 9: the fraction of the cover HIT penalty this weapon ignores,
-   *  0-1. Absent is 0, every weapon's old rule. */
+  /** GH-709 unit 9: the fraction of the tile-cover bonus (hit chance and
+   *  suppression) this weapon ignores, 0-1. Absent is 0, every weapon's old rule. */
   cover_ignore?: number;
 }
 
@@ -420,10 +420,12 @@ export interface WeaponStats {
   submunitions: SubmunitionStats | null;
   /**
    * GH-709 unit 9 (the grenadier, lead ruling 22 Oct): the fraction of the
-   * cover hit penalty this weapon ignores, from `cover_ignore`. 0 (absent) is
-   * the old rule exactly; 1 would make a target behind cover as easy to hit as
-   * one in the open. Only the HIT chance reads it: cover's suppression and
-   * detection tables, and the rule that a garrison cannot be hurt, stand.
+   * tile-cover bonus this weapon ignores, from `cover_ignore`. 0 (absent) is
+   * the old rule exactly; 1 makes a man behind cover as easy to hit and to pin
+   * as one in the open. It reads the hit chance (COVER_HIT, parapet included)
+   * and the suppression of this weapon's hits, near misses and splash on a
+   * TILE (COVER_SUPP). Not garrison cover (Q7), not detection, not the clang
+   * of a round bouncing off armour, and not bomblets (refused at load).
    */
   coverIgnore: Fx;
 }
@@ -684,15 +686,18 @@ function weaponFromJson(w: WeaponJson): WeaponStats {
     garrisonEffRangeSq: fx.mul(gEff, gEff),
     isIndirect: (INDIRECT_MASK & (1 << cls)) !== 0 || w.indirect === true,
     submunitions: submunitionsFromJson(w.id, w.submunitions),
-    coverIgnore: coverIgnoreFromJson(w.id, w.cover_ignore),
+    coverIgnore: coverIgnoreFromJson(w.id, w.cover_ignore, w.submunitions),
   };
 }
 
 /** `cover_ignore`, loaded: 0-1, absent 0. A bad value throws naming the
  *  weapon, because out of range it would push a hit chance past the open-ground
  *  one or below the covered one, and nothing downstream would say why. */
-function coverIgnoreFromJson(weaponId: string, raw: number | undefined): Fx {
+function coverIgnoreFromJson(weaponId: string, raw: number | undefined, sub: SubmunitionJson | undefined): Fx {
   if (raw === undefined) return 0;
+  // Bomblets detonate through splashDirect, which reads no weapon: the field
+  // would silently do nothing there, so the pair is refused rather than ignored.
+  if (sub !== undefined) throw new Error(`weapon ${weaponId}: cover_ignore is not applied to submunitions`);
   if (!(raw >= 0 && raw <= 1)) throw new Error(`weapon ${weaponId}: cover_ignore must be in 0-1, got ${raw}`);
   return fx.from(raw);
 }
@@ -6242,6 +6247,8 @@ export class Sim {
       // same test: blast, or penetration up to the side armour (lead ruling,
       // 2026-10-13). Otherwise a rifle squad pins a tank by ringing its hull.
       const threatens = this.prSplash[pr] > 0 || pen >= tType.armorSide;
+      // No cover_ignore here, deliberately: a bounce is armour shock, not a hit
+      // on a man in cover.
       const bounce = fx.mul(this.prSupp[pr], BOUNCE_SUPP_MULT);
       this.applySuppression(
         target,
@@ -6495,17 +6502,17 @@ export class Sim {
       // A man inside a building fights with the building's cover, not the
       // cover of the tile under its centroid -- which is a building tile, 0
       // (B1, GH-280: every near miss on a 2x2 house pinned its garrison).
-      const s = this.garrisonedIn[target];
+      const gIn = this.garrisonedIn[target];
       const cov =
-        s >= 0
-          ? this.structureTypes[this.stTypeIdx[s]].garrisonCover
+        gIn >= 0
+          ? this.structureTypes[this.stTypeIdx[gIn]].garrisonCover
           : this.cover[(this.posY[target] >> 16) * this.width + (this.posX[target] >> 16)];
       let mod = COVER_SUPP[cov];
       // A round that ignores part of the cover bonus (GH-709 unit 9) closes
       // that fraction of the gap to the open ground -- on a TILE only: a
       // building's own cover is the building, and the grenadier does not
       // reach into a house (lead ruling Q7).
-      if (coverIgnore > 0 && s < 0) mod = fx.add(mod, fx.mul(fx.sub(ONE, mod), coverIgnore));
+      if (coverIgnore > 0 && gIn < 0) mod = fx.add(mod, fx.mul(fx.sub(ONE, mod), coverIgnore));
       a = fx.mul(a, mod);
     }
     const s = fx.add(this.suppression[target], a);

@@ -237,6 +237,8 @@ describe('cover_ignore: a weapon that ignores part of the cover bonus', () => {
     );
     expect(() => sim.addUnitType(shooter('c', { ...GL, cover_ignore: 1.5 }))).toThrow(/cover_ignore/);
     expect(() => sim.addUnitType(shooter('d', { ...GL, cover_ignore: -0.1 }))).toThrow(/cover_ignore/);
+    // Bomblets read no weapon, so the field would be inert on them: refused, not ignored.
+    expect(() => sim.addUnitType(shooter('e', { ...DPICM, cover_ignore: 0.5 }))).toThrow(/submunitions/);
   });
 
   it('hit chance: absent leaves cover 2 exactly at .1375; 0.75 lifts it three quarters of the way to 1', () => {
