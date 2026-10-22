@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import catalogue from '../../../data/structures.json';
+import { CivilianFlight, CIV_FLEE_AT } from './civilians';
 import { fx, type Fx } from './fixed';
 import { Sim, type SimEvent, type UnitTypeJson } from './sim';
 import type { StructureTypeJson } from './structures';
@@ -504,5 +505,342 @@ describe('falling (GH-707 Task 2)', () => {
       return [sim.entityCount, sim.hash(), ...of(sim.tick(), 'woundedDown').map((e) => e.parent)];
     };
     expect(run()).toEqual(run());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GH-707 Task 2 review fix (b): the cap in downInPlace.
+// ---------------------------------------------------------------------------
+
+describe('the wounded cap in place (GH-707 Task 2 review)', () => {
+  it('the 25th downing on a capped side, in place, dies as today: destroyed, no woundedDown', () => {
+    const { sim, ti, shooter } = fallWorld(squadType(1), 64);
+    const ci = sim.addUnitType(IN_PLACE);
+    // Six squads x 4 men = 24 wounded on side 0, the cap.
+    for (let k = 0; k < 6; k++) hit(sim, sim.spawn(ti, 0, fx.fromInt(2 + k), fx.fromInt(2)), 400, shooter);
+    expect(sim.state.woundedAlive[0]).toBe(24);
+    sim.tick();
+    const civ = sim.spawn(ci, 0, fx.fromInt(10), fx.fromInt(10));
+    hit(sim, civ, 50, shooter); // chance 1: only the cap can kill him
+    expect(sim.state.alive[civ]).toBe(0);
+    expect(sim.state.woundState[civ]).toBe(0);
+    expect(sim.state.woundedAlive[0]).toBe(24);
+    const evs = sim.tick();
+    expect(of(evs, 'woundedDown')).toEqual([]);
+    expect(of(evs, 'destroyed')).toEqual([{ kind: 'destroyed', tick: 2, entity: civ, by: shooter }]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GH-707 Task 3: the wounded man -- bleed, crawl, hors de combat.
+// ---------------------------------------------------------------------------
+
+/** 400 hp / 4 men, chance 1, bleed 2 s = 40 ticks. */
+const BLEEDER: UnitTypeJson = {
+  ...RIFLES,
+  id: 'wd_bleeder',
+  hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 }, figures: 4, wounds: { wound_chance: 1, bleed_s: 2, type: 'wounded_test' } },
+};
+
+const GUN = {
+  type: 'small_arms',
+  range_tiles: 8,
+  effective_range_tiles: 6,
+  accuracy: 0.6,
+  penetration: 8,
+  damage: 1,
+  suppression: 0,
+  rof_per_min: 300,
+};
+
+/** An armed enemy rifle team. */
+const GUNNERS: UnitTypeJson = { ...RIFLES, id: 'wd_gunners', weapons: [{ id: 'rifle', ...GUN }] };
+
+/** A plain APC: seats, no aura, no medic. */
+const APC: UnitTypeJson = {
+  id: 'wd_apc',
+  role: 'apc',
+  hull: { hp: 900, armor: { front: 40, side: 30, rear: 20 }, transport_slots: 4 },
+  mobility: { speed_tiles_s: 2 },
+  sensors: { optics: 1, sight_tiles: 8 },
+};
+
+interface WoundWorld {
+  sim: Sim;
+  squad: number;
+  shooter: number;
+  /** The first wounded the 100-hp hit made. */
+  w: number;
+  spawnType: (t: UnitTypeJson, side: number, x: number, y: number) => number;
+}
+
+/** BLEEDER at (5.5, 5.5) hit for 100 by a far side-1 shooter: one wounded `w` at (5.5, 5.5). */
+function woundWorld(sq: UnitTypeJson = BLEEDER): WoundWorld {
+  const { sim, squad, shooter } = fallWorld(sq);
+  const types = new Map<string, number>();
+  const spawnType = (t: UnitTypeJson, side: number, x: number, y: number): number => {
+    let ti = types.get(t.id);
+    if (ti === undefined) {
+      ti = sim.addUnitType(t);
+      types.set(t.id, ti);
+    }
+    return sim.spawn(ti, side, fx.from(x), fx.from(y));
+  };
+  const w = sim.entityCount;
+  hit(sim, squad, 100, shooter);
+  expect(sim.state.woundState[w]).toBe(1);
+  return { sim, squad, shooter, w, spawnType };
+}
+
+/** Ticks until `id` dies (or `max`), with `each` run before every tick. */
+function ticksToDeath(sim: Sim, id: number, max: number, each?: () => void): { n: number; evs: SimEvent[] } {
+  for (let n = 1; n <= max; n++) {
+    each?.();
+    const evs = sim.tick();
+    if (sim.state.alive[id] === 0) return { n, evs };
+  }
+  return { n: -1, evs: [] };
+}
+
+describe('bleeding (GH-707 Task 3)', () => {
+  it('a DOWN wounded with bleed_s 2 dies on his 40th tick: bledOut, then destroyed by the man who downed him', () => {
+    const { sim, w, shooter } = woundWorld();
+    expect(sim.state.bleedTicks[w]).toBe(40); // 2 s x 20
+    const { n, evs } = ticksToDeath(sim, w, 100);
+    expect(n).toBe(40);
+    const mine = evs.filter((e) => (e.kind === 'bledOut' || e.kind === 'destroyed') && e.entity === w);
+    expect(mine).toEqual([
+      { kind: 'bledOut', tick: 40, entity: w },
+      { kind: 'destroyed', tick: 40, entity: w, by: shooter },
+    ]);
+    expect(sim.state.woundedAlive[0]).toBe(0);
+  });
+
+  it('pinned, he bleeds twice as fast: dead on tick 20 (40 / 2)', () => {
+    const { sim, w } = woundWorld();
+    expect(ticksToDeath(sim, w, 100, () => (sim.state.pinned[w] = 1)).n).toBe(20);
+  });
+
+  it('a friendly medic within 2 tiles pauses the bleed; out of reach, an enemy medic, or a dead one does not', () => {
+    const { sim, w, spawnType } = woundWorld();
+    const medic = spawnType(MEDIC, 0, 6.5, 5.5); // 1 tile off
+    for (let t = 0; t < 200; t++) sim.tick();
+    expect([sim.state.alive[w], sim.state.bleedTicks[w]]).toEqual([1, 40]);
+    sim.debugKill(medic);
+    expect(ticksToDeath(sim, w, 100).n).toBe(40);
+
+    const b = woundWorld();
+    b.spawnType(MEDIC, 1, 6.5, 5.5); // the enemy's medic
+    b.spawnType(MEDIC, 0, 8.5, 5.5); // 3 tiles off: 9 tile^2 > 4
+    expect(ticksToDeath(b.sim, b.w, 100).n).toBe(40);
+
+    // Exactly 2 tiles off is in reach (4 tile^2 <= 4).
+    const c = woundWorld();
+    c.spawnType(MEDIC, 0, 7.5, 5.5);
+    for (let t = 0; t < 100; t++) c.sim.tick();
+    expect(c.sim.state.bleedTicks[c.w]).toBe(40);
+  });
+
+  it('a friendly carrier pauses it inside its stabilise radius (1.5) and not outside it', () => {
+    const a = woundWorld();
+    a.spawnType(AMBULANCE, 0, 6.5, 5.5); // 1 tile: 1 <= 2.25
+    for (let t = 0; t < 100; t++) a.sim.tick();
+    expect(a.sim.state.bleedTicks[a.w]).toBe(40);
+    const b = woundWorld();
+    b.spawnType(AMBULANCE, 0, 7.5, 5.5); // 2 tiles: 4 > 2.25
+    expect(ticksToDeath(b.sim, b.w, 100).n).toBe(40);
+  });
+
+  it('carried, he does not bleed', () => {
+    const { sim, w, spawnType } = woundWorld();
+    const apc = spawnType(APC, 0, 5.5, 5.5);
+    (sim as unknown as { seat(car: number, id: number): void }).seat(apc, w);
+    for (let t = 0; t < 100; t++) sim.tick();
+    expect([sim.state.alive[w], sim.state.bleedTicks[w]]).toEqual([1, 40]);
+  });
+
+  it('STABILISED never bleeds', () => {
+    const { sim, w } = woundWorld();
+    sim.state.woundState[w] = 2;
+    for (let t = 0; t < 100; t++) sim.tick();
+    expect([sim.state.alive[w], sim.state.bleedTicks[w]]).toEqual([1, 40]);
+  });
+});
+
+describe('crawling to cover (GH-707 Task 3)', () => {
+  const SLOW: UnitTypeJson = { ...BLEEDER, id: 'wd_slow', hull: { ...BLEEDER.hull, wounds: { wound_chance: 1, bleed_s: 60, type: 'wounded_test' } } };
+
+  it('a crawler on cover 0 beside a cover-2 tile crawls onto it at his own speed and stops', () => {
+    const { sim, w } = woundWorld(SLOW);
+    sim.setCover(6, 5, 2);
+    const s = sim.state;
+    // 0.12 tiles/s: 0.12 x 65536 = 7864; x DT 3277 >> 16 = 393 a tick at most (fx.sqrt of the
+    // shrinking gap rounds the direction, so a tick may come out a few units short; 390 is
+    // the floor asserted). Tile 6 starts 0.5 tile (32768) east of 5.5 (360448):
+    // 80 x 393 = 31440 short of it; 85 x 390 = 33150 onto it.
+    for (let t = 0; t < 80; t++) sim.tick();
+    expect(s.posX[w] >> 16).toBe(5);
+    expect(s.posX[w]).toBeGreaterThanOrEqual(360448 + 80 * 390);
+    expect(s.posX[w]).toBeLessThanOrEqual(360448 + 80 * 393);
+    for (let t = 0; t < 5; t++) sim.tick();
+    expect(s.posX[w] >> 16).toBe(6);
+    expect(s.posY[w]).toBe(360448);
+    const stopped = s.posX[w];
+    expect(stopped).toBeLessThan(393216 + 393); // he stopped on the first tick onto the tile (6.0 = 393216)
+    for (let t = 0; t < 200; t++) sim.tick();
+    expect([s.posX[w], s.posY[w]]).toEqual([stopped, 360448]);
+    expect(s.moving[w]).toBe(0);
+  });
+
+  it('with no better cover in reach he lies still', () => {
+    const { sim, w } = woundWorld(SLOW);
+    sim.setCover(9, 5, 3); // four tiles off: outside the 5x5
+    for (let t = 0; t < 100; t++) sim.tick();
+    expect([sim.state.posX[w], sim.state.posY[w]]).toEqual([360448, 360448]);
+  });
+
+  it('a tended wounded does not crawl', () => {
+    const { sim, w, spawnType } = woundWorld(SLOW);
+    sim.setCover(6, 5, 2);
+    spawnType(MEDIC, 0, 5.5, 7.0);
+    for (let t = 0; t < 100; t++) sim.tick();
+    expect([sim.state.posX[w], sim.state.posY[w]]).toEqual([360448, 360448]);
+  });
+
+  it('no order moves him, and no autonomous `moving` walks him', () => {
+    const { sim, w, squad } = woundWorld(SLOW);
+    sim.queueCommand({ kind: 'move', ids: [w, squad], x: fx.from(10.5), y: fx.from(5.5) });
+    sim.tick();
+    expect(sim.state.moving[w]).toBe(0);
+    expect(sim.state.moving[squad]).toBe(1); // the squad in the same order went
+    // A `moving` set behind the orders' back (a rout is one such setter) takes no step: a goal
+    // 5 tiles east, with him lying on cover 2 so his own crawl (which steers by the same goal
+    // columns) stays put.
+    sim.setCover(5, 5, 2);
+    (sim as unknown as { goalX: Int32Array }).goalX[w] = fx.from(10.5);
+    sim.state.moving[w] = 1;
+    for (let t = 0; t < 30; t++) sim.tick();
+    expect([sim.state.posX[w], sim.state.posY[w]]).toEqual([360448, 360448]);
+  });
+});
+
+describe('hors de combat (GH-707 Task 3)', () => {
+  /** The whole squad down in one hit (4 wounded, no squad left), an identified enemy rifle
+   *  team 3 tiles east, and a wounded-role body spawned bare (woundState NONE). */
+  function field(): { sim: Sim; rifle: number; wounded: number[] } {
+    const { sim, squad, shooter } = fallWorld({ ...BLEEDER, id: 'wd_b60', hull: { ...BLEEDER.hull, wounds: { wound_chance: 1, bleed_s: 60, type: 'wounded_test' } } });
+    const first = sim.entityCount;
+    hit(sim, squad, 400, shooter);
+    const bare = sim.spawn(sim.unitTypes.findIndex((t) => t.id === 'wounded_test'), 0, fx.from(5.5), fx.from(6.5));
+    const rifle = sim.spawn(sim.addUnitType(GUNNERS), 1, fx.from(8.5), fx.from(5.5));
+    const wounded = [first, first + 1, first + 2, first + 3, bare];
+    for (const t of wounded) sim.identifyTo(1, t);
+    return { sim, rifle, wounded };
+  }
+
+  it('an enemy rifle team beside them never fires at a wounded man, of either kind', () => {
+    const { sim, rifle, wounded } = field();
+    let fires = 0;
+    for (let t = 0; t < 100; t++) {
+      for (const k of wounded) sim.identifyTo(1, k);
+      fires += of(sim.tick(), 'fire').filter((e) => e.shooter === rifle).length;
+    }
+    expect(fires).toBe(0);
+    for (const k of wounded) expect(sim.state.alive[k]).toBe(1);
+  });
+
+  it('canFocus refuses him and an attack order on him changes nothing', () => {
+    const { sim, rifle, wounded } = field();
+    for (const k of wounded) expect(sim.canFocus(rifle, k)).toBe(false);
+    sim.queueCommand({ kind: 'attack', ids: [rifle], target: wounded[0] });
+    sim.tick();
+    expect(sim.state.focusTarget[rifle]).toBe(-1);
+  });
+
+  it('a loitering munition does not dive at him', () => {
+    const { sim, wounded } = field();
+    const MUNITION: UnitTypeJson = {
+      id: 'wd_munition',
+      role: 'drone',
+      hull: { hp: 90, armor: { front: 0, side: 0, rear: 0 } },
+      mobility: { speed_tiles_s: 2.8, domain: 'air' },
+      sensors: { optics: 1, sight_tiles: 13, signature: 0.3 },
+      abilities: ['kamikaze'],
+      weapons: [{ id: 'warhead', type: 'heat', range_tiles: 1.2, effective_range_tiles: 1.2, accuracy: 0.9, penetration: 480, damage: 520, splash_tiles: 1.2, suppression: 70, rof_per_min: 6 }],
+    };
+    const m = sim.spawn(sim.addUnitType(MUNITION), 1, fx.from(12.5), fx.from(5.5));
+    for (let t = 0; t < 20; t++) {
+      for (const k of wounded) sim.identifyTo(1, k);
+      sim.tick();
+    }
+    expect(sim.state.curTarget[m]).toBe(-1);
+    for (const k of wounded) expect(sim.state.alive[k]).toBe(1);
+  });
+
+  it('splash still finds him', () => {
+    const { sim, wounded } = field();
+    sim.debugSplash(fx.from(5.5), fx.from(5.5), fx.fromInt(1), fx.fromInt(100), 0, -1, -1);
+    for (const k of wounded.slice(0, 4)) expect(sim.state.alive[k]).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GH-707 Task 2 review fix (a): a downed civilian is no longer a fleeing family.
+// ---------------------------------------------------------------------------
+
+describe('a downed civilian and CivilianFlight (GH-707)', () => {
+  const CIV: UnitTypeJson = { ...IN_PLACE, id: 'wd_civ_walk', mobility: { speed_tiles_s: 0.8 } };
+  const REFUGE: readonly [Fx, Fx] = [fx.from(12.5), fx.from(12.5)];
+
+  function civWorld(): { sim: Sim; civ: number; shooter: number; flight: CivilianFlight } {
+    const sim = new Sim({ seed: 0x7070_0003, width: 16, height: 16, capacity: 16 });
+    const ci = sim.addUnitType(CIV);
+    sim.addUnitType(WOUNDED);
+    const ri = sim.addUnitType(RIFLES);
+    const civ = sim.spawn(ci, 2, fx.from(5.5), fx.from(5.5));
+    const shooter = sim.spawn(ri, 1, fx.from(14.5), fx.from(1.5));
+    sim.tick();
+    return { sim, civ, shooter, flight: new CivilianFlight({ shepherd: false }) };
+  }
+
+  it('step: a downed civilian under fire is not ordered out and not latched as fled', () => {
+    const { sim, civ, shooter, flight } = civWorld();
+    hit(sim, civ, 50, shooter);
+    expect(sim.state.woundState[civ]).toBe(1);
+    sim.state.suppression[civ] = CIV_FLEE_AT + 1;
+    flight.step(sim, [civ], [], REFUGE);
+    sim.tick();
+    expect(flight.hasFled(civ)).toBe(false);
+    expect(sim.state.moving[civ]).toBe(0);
+    // Control: the same fear on a standing civilian sends him.
+    const b = civWorld();
+    b.sim.state.suppression[b.civ] = CIV_FLEE_AT + 1;
+    b.flight.step(b.sim, [b.civ], [], REFUGE);
+    b.sim.tick();
+    expect(b.flight.hasFled(b.civ)).toBe(true);
+    expect(b.sim.state.moving[b.civ]).toBe(1);
+  });
+
+  it('step: one who fled and was then downed is not re-ordered', () => {
+    const { sim, civ, shooter, flight } = civWorld();
+    sim.state.suppression[civ] = CIV_FLEE_AT + 1;
+    flight.step(sim, [civ], [], REFUGE);
+    sim.tick();
+    expect(sim.state.moving[civ]).toBe(1);
+    hit(sim, civ, 50, shooter); // down in place: moving 0
+    flight.step(sim, [civ], [], REFUGE);
+    sim.tick();
+    expect(sim.state.moving[civ]).toBe(0);
+  });
+
+  it('collect: a downed civilian lying in the zone is not evacuated; a standing one is', () => {
+    const { sim, civ, shooter, flight } = civWorld();
+    hit(sim, civ, 50, shooter);
+    const zone = [4, 4, 4, 4]; // tiles 4..7: (5,5) is inside
+    expect(flight.collect(sim, [civ], zone)).toEqual([]);
+    expect(sim.state.alive[civ]).toBe(1);
+    expect(sim.state.woundedAlive[2]).toBe(1);
+    const b = civWorld();
+    expect(b.flight.collect(b.sim, [b.civ], zone)).toEqual([b.civ]);
   });
 });

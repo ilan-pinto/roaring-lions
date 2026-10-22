@@ -157,10 +157,13 @@ import {
   WOUND_DOWN,
   WOUND_STABILISED,
   MAX_WOUNDED_PER_SIDE,
+  WOUND_CRAWL_PERIOD_TICKS,
+  WOUND_COVER_STOP,
+  MEDIC_TREAT_REACH_SQ,
   MED_IDLE,
   type SupportKind,
 } from './tuning';
-import { figuresStanding, scaleDown } from './wounds';
+import { bestCoverTile, figuresStanding, scaleDown } from './wounds';
 
 /** GH-698: unloadAir's spread, the LZ and its 8 neighbours in (distance, tile
  *  index) order: the centre, the four edge neighbours, the four corners. */
@@ -1001,6 +1004,10 @@ export type SimEvent =
    *  the side's wounded cap or the sim's capacity was reached, or no wounded type resolves).
    *  The squad's LAST man is its `destroyed`, never this. */
   | { kind: 'manKilled'; tick: number; entity: number; by: number }
+  /** GH-707: a DOWN wounded's bleed ran out. Followed in the same tick by his `destroyed`,
+   *  whose `by` is the man who downed him (`woundBy`), so kill credit and Conduct stay
+   *  with the shooter. */
+  | { kind: 'bledOut'; tick: number; entity: number }
   /** Field works (#277): a `construct` was accepted. `builder` is the lowest qualifying id the
    *  command named. `joined`: it named a live site's type and origin and joined that site rather
    *  than opening one (nothing new to pay for). */
@@ -1034,7 +1041,7 @@ export const SIM_EVENT_KINDS = [
   'spawn', 'contact', 'fire', 'aps', 'impact', 'component', 'nearMiss', 'ambushSprung',
   'strike', 'smokeLaid', 'revealed', 'structureHit', 'structureDestroyed', 'garrison',
   'transport', 'ventOpened', 'tunnelContact', 'surfaced', 'submerged', 'tunnelCollapsed', 'routed', 'rallied', 'pinned', 'unpinned', 'destroyed',
-  'removed', 'woundedDown', 'manKilled',
+  'removed', 'woundedDown', 'manKilled', 'bledOut',
   'constructQueued', 'constructRefused', 'constructStaked', 'structureComplete', 'constructCancelled',
 ] as const satisfies readonly SimEvent['kind'][];
 
@@ -3168,6 +3175,9 @@ export class Sim {
     // landing, landed or lifting carrier holds against every setter above
     // (orders, stepFocus, stepSweep) for this tick's step.
     this.stepAirCarriers();
+    // GH-707: bleed and crawl, before movement (a wounded takes no movement step of its
+    // own: stepMovement skips him, and his crawl is a direct position write here).
+    this.stepWounded();
     this.stepMovement();
     this.stepTransport();
     this.stepFields();
@@ -3464,9 +3474,12 @@ export class Sim {
       // unit (homeTunnel >= 0, tunnelIn === -1) is ordinary and passes.
       // One scan first: the common case — nobody buried — allocates nothing.
       if ('ids' in cmd) {
+        // GH-707: a wounded (DOWN, STABILISED -- any woundState but NONE) takes no order
+        // either, by the same filter: he is hors de combat and goes where a medic takes him.
+        // Without wound content every woundState is NONE, so this adds nothing.
         let anyBuried = false;
         for (const id of cmd.ids) {
-          if (this.tunnelIn[id] >= 0) {
+          if (this.tunnelIn[id] >= 0 || this.woundState[id] !== WOUND_NONE) {
             anyBuried = true;
             break;
           }
@@ -3474,7 +3487,7 @@ export class Sim {
         if (anyBuried) {
           const kept: number[] = [];
           for (const id of cmd.ids) {
-            if (this.tunnelIn[id] < 0) kept.push(id);
+            if (this.tunnelIn[id] < 0 && this.woundState[id] === WOUND_NONE) kept.push(id);
           }
           if (kept.length === 0) continue;
           // A copy, not a splice: the queued object belongs to whoever sent
@@ -5161,6 +5174,8 @@ export class Sim {
     // Civilians (side 2) are never targets — collateral comes from
     // ordnance, not aimpoints. That asymmetry is what ROE scores.
     if (this.alive[t] === 0 || this.side[t] === sSide || this.side[t] > 1) return false;
+    // GH-707: a wounded man is hors de combat -- nobody picks him (splash still finds him).
+    if (this.woundLive && this.horsDeCombat(t)) return false;
     // Men inside a building cannot be shot at: the building is in the way,
     // and taking it down is the only way to reach them. A tunnel is the same
     // idea a third time — the earth is in the way, and Yahalom is the way in.
@@ -6479,6 +6494,10 @@ export class Sim {
    * meet a fresh `wounded` (no weapon, nothing queued, default columns) and do nothing with
    * it; `destroy`'s passenger loop matches `carriedBy`, which a fresh id never has. Ids are
    * never reused, so every per-id table (`contact`, rng streams) is already at its default.
+   *
+   * Only a hit through `applyDamage` rolls: a kill that bypasses it -- `debugKill`, or an
+   * airborne carrier taking its passengers with it (`destroy`'s `takesAll`) -- rolls no falls
+   * by design, and every man in that team dies with it.
    */
   private woundCrossings(target: number, by: number, inPlace: boolean): void {
     const type = this.unitTypes[this.typeIdx[target]];
@@ -6542,6 +6561,110 @@ export class Sim {
     this.woundedAlive[side]++;
     this.pendingEvents.push({ kind: 'woundedDown', tick: this.tickCount, entity: id, parent: -1, by });
     return true;
+  }
+
+  /** GH-707: out of the fight -- a unit that is down (any woundState but NONE) or is a
+   *  `wounded`-role body. Read only while `woundLive`. */
+  private horsDeCombat(t: number): boolean {
+    return this.woundState[t] !== WOUND_NONE || this.unitTypes[this.typeIdx[t]].isWounded;
+  }
+
+  /**
+   * GH-707 Task 3, the wounded man: once a tick, before movement. Nothing at all without
+   * wound content (`woundLive`), and nothing while no side has a wounded alive.
+   *
+   * Bleed: a DOWN wounded loses one tick of `bleedTicks` a tick, two while pinned; none while
+   * carried or tended (`woundTended`: a friendly medic within MEDIC_TREAT_REACH_SQ, or a
+   * friendly carrier inside its own `stabiliseRadiusSq`). STABILISED never bleeds. At zero he
+   * dies: `bledOut`, then `destroy` with `by` = the man who downed him (`woundBy`).
+   *
+   * Crawl: a DOWN wounded, not carried, not tended, lying on cover under WOUND_COVER_STOP,
+   * crawls toward `bestCoverTile` -- re-picked every WOUND_CRAWL_PERIOD_TICKS (the first time
+   * on his first tick down) into `goalX`/`goalY`, which no order of his can use -- one
+   * `stepPerTick` of his OWN type a tick, a straight position step: no flow field, no
+   * `moving`. A unit downed in place keeps its own type (a civilian), so it crawls at that
+   * type's speed -- acceptable for P1; P2 tunes the content.
+   */
+  private stepWounded(): void {
+    if (!this.woundLive) return;
+    const wa = this.woundedAlive;
+    if (wa[0] === 0 && wa[1] === 0 && wa[2] === 0) return;
+    const n = this.count;
+    for (let i = 0; i < n; i++) {
+      if (this.alive[i] === 0 || this.woundState[i] !== WOUND_DOWN) continue;
+      if (this.carriedBy[i] >= 0 || this.woundTended(i)) continue;
+      this.bleedTicks[i] -= this.pinned[i] === 1 ? 2 : 1;
+      if (this.bleedTicks[i] <= 0) {
+        this.bleedTicks[i] = 0;
+        this.pendingEvents.push({ kind: 'bledOut', tick: this.tickCount, entity: i });
+        this.destroy(i, this.woundBy[i]);
+        continue;
+      }
+      this.crawlWounded(i);
+    }
+  }
+
+  /** GH-707: is DOWN wounded `i` being tended -- a living, free (not carried, not buried, not
+   *  down) unit of his own side that is a medic within MEDIC_TREAT_REACH_SQ, or a carrier
+   *  within its own `stabiliseRadiusSq`? */
+  private woundTended(i: number): boolean {
+    const side = this.side[i];
+    const px = this.posX[i];
+    const py = this.posY[i];
+    for (let t = 0; t < this.count; t++) {
+      if (t === i || this.alive[t] === 0 || this.side[t] !== side) continue;
+      const type = this.unitTypes[this.typeIdx[t]];
+      if (type.rescue === null && type.stabiliseRadiusSq === 0) continue;
+      if (this.carriedBy[t] >= 0 || this.tunnelIn[t] >= 0 || this.woundState[t] !== WOUND_NONE) continue;
+      const dSq = distSqFx(fx.sub(this.posX[t], px), fx.sub(this.posY[t], py));
+      if (type.rescue !== null && dSq <= MEDIC_TREAT_REACH_SQ) return true;
+      if (type.stabiliseRadiusSq > 0 && dSq <= type.stabiliseRadiusSq) return true;
+    }
+    return false;
+  }
+
+  /** GH-707: one tick of DOWN wounded `i`'s crawl to cover (see stepWounded). */
+  private crawlWounded(i: number): void {
+    const w = this.width;
+    const px = this.posX[i];
+    const py = this.posY[i];
+    const tx = px >> 16;
+    const ty = py >> 16;
+    if (this.cover[ty * w + tx] >= WOUND_COVER_STOP) return;
+    if (this.woundTimer[i] > 0) {
+      this.woundTimer[i]--;
+    } else {
+      this.woundTimer[i] = WOUND_CRAWL_PERIOD_TICKS - 1;
+      const best = bestCoverTile(this.cover, this.blocked, w, this.height, tx, ty);
+      if (best === ty * w + tx) {
+        this.goalX[i] = px;
+        this.goalY[i] = py;
+      } else {
+        this.goalX[i] = fx.add(fx.fromInt(best % w), HALF);
+        this.goalY[i] = fx.add(fx.fromInt((best - (best % w)) / w), HALF);
+      }
+    }
+    const dx = fx.sub(this.goalX[i], px);
+    const dy = fx.sub(this.goalY[i], py);
+    if (dx === 0 && dy === 0) return;
+    const step = this.unitTypes[this.typeIdx[i]].stepPerTick;
+    if (step <= 0) return;
+    // The goal is at most WOUND_CRAWL_SCAN tiles off, so dx^2 + dy^2 stays far inside Fx.
+    const dist = fx.sqrt(fx.add(fx.mul(dx, dx), fx.mul(dy, dy)));
+    let nx: Fx;
+    let ny: Fx;
+    if (dist <= step) {
+      nx = this.goalX[i];
+      ny = this.goalY[i];
+    } else {
+      nx = fx.add(px, fx.div(fx.mul(dx, step), dist));
+      ny = fx.add(py, fx.div(fx.mul(dy, step), dist));
+    }
+    // bestCoverTile never picks a blocked tile or one behind a blocked midpoint; a corner
+    // cut on the way is refused here rather than slid along.
+    if (this.blocked[(ny >> 16) * w + (nx >> 16)] !== 0) return;
+    this.posX[i] = nx;
+    this.posY[i] = ny;
   }
 
   /** `type.wounds.type` as a unit-type index, resolved at the first fall and cached on the
@@ -7258,6 +7381,7 @@ export class Sim {
         // Same containment skip as selectTarget: a one-shot munition must not
         // spend itself diving at three metres of dirt.
         if (this.garrisonedIn[t] >= 0 || this.carriedBy[t] >= 0 || this.tunnelIn[t] >= 0) continue;
+        if (this.woundLive && this.horsDeCombat(t)) continue; // GH-707: nor at a wounded man
         if (this.contact[side * cap + t] < IDENTIFIED_AT) continue;
         // A munition picks its own target, so the can_target rule has to be
         // applied here too -- selectTarget is never consulted on this path. A
@@ -8098,6 +8222,7 @@ export class Sim {
    */
   private focusStillTargetable(sSide: number, target: number): boolean {
     if (this.alive[target] === 0 || this.side[target] === sSide || this.side[target] > 1) return false;
+    if (this.woundLive && this.horsDeCombat(target)) return false; // GH-707
     return this.garrisonedIn[target] < 0 && this.carriedBy[target] < 0 && this.tunnelIn[target] < 0;
   }
 
@@ -8170,6 +8295,10 @@ export class Sim {
       // buried body: stepDigging never touches posX, and surfacing writes
       // the vent position directly rather than walking there.
       if (this.tunnelIn[i] >= 0) continue;
+      // GH-707, the same belt for a wounded: no order reaches him (applyCommands), but an
+      // autonomous setter could -- a rout from long pinning is one -- and he crawls only by
+      // stepWounded's own step.
+      if (this.woundLive && this.woundState[i] !== WOUND_NONE) continue;
       // Attack-movers halt to fight while they hold a target (stationary
       // stance emerges from this — no scripted bonus needed).
       if (this.attackMove[i] === 1 && this.engaging[i] === 1) continue;
