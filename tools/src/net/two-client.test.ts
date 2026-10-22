@@ -16,6 +16,9 @@ import { runFrames, seatWorldFor, type FrameStep } from '../../../packages/app/s
 import { versusConfig } from './test-config';
 import { contentDigest, shippedContent, shippedContentDigest } from '../../../packages/app/src/net/content-digest';
 import { units } from '@lions/data';
+import {
+  ECONOMY_STREAM_ACCEPTED, ECONOMY_STREAM_FORGED_TICK, ECONOMY_STREAM_TICKS, economyStreamFrames, runEconomyClient,
+} from '../../../packages/app/src/net/economy-stream.test-helper';
 
 const MISSION = 'beit_sahwan_1_recon';
 const TICKS = 1000;
@@ -371,5 +374,55 @@ describe('an economy room: two clients and the harness, one frame stream (N3 Tas
     const harness = client(true);
     expect(firstDisagreement(browser.feed.digests, harness.feed.digests)).toBeNull();
     expect(harness.feed.digests.size).toBe(ETICKS / 20);
+  }, 60_000);
+});
+
+// N3 Task 8: both seats PRODUCE over the wire (Review Focus 2). A Sarim-host wadi_tarfan room
+// (seat 0 Sarim on side 1, LD1); the stream and the client are shared with `net:engines`
+// (`economy-stream.test-helper.ts`), so the browsers play exactly what is asserted here.
+describe('an economy room: both seats producing through frames (N3 Task 8)', () => {
+  const firstDisagreement = (a: readonly [number, number][], b: readonly [number, number][]): number | null => {
+    const bm = new Map(b);
+    for (const [tick, d] of a) if (bm.get(tick) !== d) return tick;
+    return a.length === b.length ? null : -1;
+  };
+  const frames = economyStreamFrames();
+  const a = runEconomyClient(frames);
+  const b = runEconomyClient(frames);
+
+  it('two clients report equal digests on every hash tick, and agree on what each side built', () => {
+    expect(a.digests.length).toBe(ECONOMY_STREAM_TICKS / 20);
+    expect(firstDisagreement(a.digests, b.digests)).toBeNull();
+    expect(a.built).toEqual(b.built);
+    expect(a.built[0]).toBeGreaterThan(0);
+    expect(a.built[1]).toBeGreaterThan(0);
+    expect(a.runtimeDigest).not.toBe(0);
+    expect(a.purse).toEqual(b.purse);
+    // Every runtime command in the stream reached the runtime and was accepted:
+    // the builds, the cancel, both rallies set and both cleared.
+    expect(a.accepted).toBe(ECONOMY_STREAM_ACCEPTED);
+    expect(b.accepted).toBe(ECONOMY_STREAM_ACCEPTED);
+  }, 60_000);
+
+  it('the forged build{side: 0} from seat 0 (side 1) is dropped on both clients, and only it', () => {
+    expect(a.droppedTicks).toEqual([ECONOMY_STREAM_FORGED_TICK]);
+    expect(b.droppedTicks).toEqual([ECONOMY_STREAM_FORGED_TICK]);
+  });
+
+  it('falsified: a frame out of order on client B is a desync on that window\'s hash tick', () => {
+    // Swap the frames of ticks 5 and 6 (each carries one seat's opening builds):
+    // B runs Sarim's builds before KDF's, a tick early.
+    const swapped = [...frames];
+    [swapped[5], swapped[6]] = [swapped[6], swapped[5]];
+    const bad = runEconomyClient(swapped);
+    expect(firstDisagreement(a.digests, bad.digests)).toBe(19);
+  }, 60_000);
+
+  it('falsified: the cancelBuild dropped from client B alone is a desync by the next hash tick (59)', () => {
+    const cut = frames.map((f) => (f.tick === 40 ? { tick: 40, cmds: f.cmds.filter((s) => s.cmd.kind !== 'cancelBuild') } : f));
+    expect(cut[40].cmds.length).toBe(frames[40].cmds.length - 1);
+    const bad = runEconomyClient(cut);
+    // The refund is in the purse, which the runtime digest folds: the window holding tick 40 closes at 59.
+    expect(firstDisagreement(a.digests, bad.digests)).toBe(59);
   }, 60_000);
 });

@@ -1,8 +1,8 @@
 // `two-engine.ts` drives three real browsers and is run only by CI's `visual`
 // job; what it DECIDES is `verdict`, tested here on hand-written readings.
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
-import { annotationText, decide, parseEngineArgs, verdict, type EngineOutcome, type EngineReading } from './two-engine-verdict';
+import { annotationText, decide, economyMismatch, parseEngineArgs, verdict, type EconomyReading, type EngineOutcome, type EngineReading } from './two-engine-verdict';
 
 const TARGET = 600;
 const FIRST_ORDER = 10;
@@ -197,5 +197,67 @@ describe('CI runs the check so that it can judge three engines', () => {
     const req = /--require=(\S+)/.exec(step ?? '')?.[1];
     expect(parseEngineArgs([`--require=${req ?? ''}`]).require.sort()).toEqual(['chromium', 'firefox', 'webkit']);
     expect(ci).not.toMatch(/"\$code" = "3"[\s\S]{0,400}net:engines|net:engines[\s\S]{0,400}"\$code" = "3"/);
+  });
+});
+
+// N3 Task 8: every engine also plays the economy-room stream, and each one is held to
+// what NODE computed for it -- not merely to its peers.
+describe('two-engine verdict: the economy stream (N3 Task 8)', () => {
+  const NODE: EconomyReading = { digests: [[19, 11], [39, 22], [59, 33]], built: [3, 3], droppedTicks: [100], accepted: 16 };
+  const eco = (over: Partial<EconomyReading> = {}): EconomyReading => ({ ...NODE, digests: NODE.digests.map(([t, d]) => [t, d]), ...over });
+  const three = (b: EconomyReading | undefined, c: EconomyReading | undefined = eco()) => ({
+    chromium: at(5, { economy: eco() }), firefox: at(5, { economy: b }), webkit: at(5, { economy: c }),
+  });
+  const reading = (r: Record<string, EngineReading>): Record<string, EngineOutcome> =>
+    Object.fromEntries(Object.entries(r).map(([k, v]) => [k, { kind: 'reading', reading: v } as EngineOutcome]));
+
+  it('passes three engines that play it exactly as Node did, naming the final digest', () => {
+    const v = verdict(three(eco()), TARGET, FIRST_ORDER, CONTENT, NODE);
+    expect(v.ok).toBe(true);
+    expect(v.message).toContain('final digest 33 at tick 59');
+    expect(decide(reading(three(eco())), TARGET, FIRST_ORDER, CONTENT, [], NODE).exit).toBe(0);
+  });
+
+  it('fails when one engine reports a different digest at a hash tick, naming the tick', () => {
+    const v = verdict(three(eco({ digests: [[19, 11], [39, 23], [59, 33]] })), TARGET, FIRST_ORDER, CONTENT, NODE);
+    expect(v.ok).toBe(false);
+    expect(v.message).toMatch(/firefox reported a different digest from Node at hash tick 39/);
+  });
+
+  it('fails when the engines agree with EACH OTHER and not with Node', () => {
+    const off = eco({ digests: [[19, 11], [39, 22], [59, 34]] });
+    const r = { chromium: at(5, { economy: off }), firefox: at(5, { economy: off }), webkit: at(5, { economy: off }) };
+    expect(verdict(r, TARGET, FIRST_ORDER, CONTENT, NODE).ok).toBe(false);
+    expect(decide(reading(r), TARGET, FIRST_ORDER, CONTENT, [], NODE).exit).toBe(1);
+  });
+
+  it('fails an engine that stopped short (fewer hash ticks), built differently, or dropped differently', () => {
+    expect(economyMismatch({ webkit: at(5, { economy: eco({ digests: NODE.digests.slice(0, 2) }) }) }, NODE)).toMatch(/hash tick 59/);
+    expect(economyMismatch({ webkit: at(5, { economy: eco({ built: [3, 2] }) }) }, NODE)).toMatch(/webkit built \[3,2\]/);
+    expect(economyMismatch({ webkit: at(5, { economy: eco({ droppedTicks: [] }) }) }, NODE)).toMatch(/webkit dropped \[\]/);
+    expect(economyMismatch({ webkit: at(5, { economy: eco({ accepted: 17 }) }) }, NODE)).toMatch(/accepted 17/);
+    expect(economyMismatch({ webkit: at(5, { economy: eco() }) }, NODE)).toBeNull();
+  });
+
+  it('fails an engine that reported no economy reading, and a lone engine off Node is exit 1', () => {
+    expect(verdict(three(undefined), TARGET, FIRST_ORDER, CONTENT, NODE).message).toMatch(/firefox reported no reading of it/);
+    const lone: Record<string, EngineOutcome> = {
+      chromium: { kind: 'reading', reading: at(5, { economy: eco({ built: [0, 0] }) }) },
+      firefox: { kind: 'unbootable', reason: 'no WebGL2' },
+      webkit: { kind: 'unbootable', reason: 'no WebGL2' },
+    };
+    expect(decide(lone, TARGET, FIRST_ORDER, CONTENT, [], NODE).exit).toBe(1);
+  });
+});
+
+describe('the tool wires the economy stream to Node', () => {
+  // The tool itself only runs on CI (three browsers); this pins, from its source, that the
+  // page plays the shared stream and that the verdict is handed Node's own reading of it.
+  const tool = readFileSync(new URL('./two-engine.ts', import.meta.url), 'utf8');
+  it('imports the shared stream into the page, plays it in Node, and passes Node\'s reading to decide', () => {
+    expect(tool).toContain("import('/src/net/economy-stream.test-helper.ts')");
+    expect(existsSync(new URL('../../../packages/app/src/net/economy-stream.test-helper.ts', import.meta.url))).toBe(true);
+    expect(tool).toMatch(/const nodeEconomy = economyReadingOf\(runEconomyClient\(economyStreamFrames\(\)\)\)/);
+    expect(tool).toMatch(/decide\(outcomes, TARGET_TICK, FIRST_ORDER_TICK, nodeContent, args\.require, nodeEconomy\)/);
   });
 });
