@@ -91,6 +91,7 @@ export function describeCommand(cmd: Command): string {
     case 'demolish': return t('net.advisor.cmd.demolish', { n });
     case 'chargeTunnel': return t('net.advisor.cmd.chargeTunnel', { n });
     case 'attack': return t('net.advisor.cmd.attack', { n });
+    case 'rescue': return t('net.advisor.cmd.rescue', { n });
     case 'reveal': return t('net.advisor.cmd.reveal', { x: tile(cmd.x), y: tile(cmd.y) });
     case 'callStrike': return t('net.advisor.cmd.callStrike', { x: tile(cmd.x), y: tile(cmd.y) });
     case 'build': return t('net.advisor.cmd.build', { unit: cmd.unit });

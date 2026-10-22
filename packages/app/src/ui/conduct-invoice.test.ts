@@ -22,6 +22,7 @@ const ROOT = new URL('../../../../', import.meta.url).pathname;
 const TEMPLATES = [
   { source: '} destroyed`', sample: 'House destroyed', cause: 'destroyed', place: 'house' },
   { source: "'civilian casualties'", sample: 'civilian casualties', cause: 'civilians' },
+  { source: "'wounded enemy killed'", sample: 'wounded enemy killed', cause: 'wounded_enemy' },
   {
     source: '`fire into protected structure (${zoneName})`',
     sample: 'fire into protected structure (z_clinic)',

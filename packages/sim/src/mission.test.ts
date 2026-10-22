@@ -6496,3 +6496,248 @@ describe('held-ground income and corridors (F2 Task 7)', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------------------------
+// GH-707 Task 7: Conduct gains for rescuing enemy and civilian wounded (ruling 3), the kill of
+// a wounded enemy, the `wounded_evac` marker, and a rescued man not counted lost. Every type
+// here is test-only; no shipped JSON carries a wound field in P1.
+
+describe('Conduct and the wounded (GH-707 Task 7)', () => {
+  const CG_SQUAD: UnitTypeJson = {
+    id: 'cg_squad',
+    hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 } },
+    mobility: { speed_tiles_s: 1 },
+    sensors: { optics: 1, sight_tiles: 1, signature: 0.6 },
+    weapons: [],
+  };
+  const CG_WOUNDED: UnitTypeJson = {
+    id: 'cg_wounded',
+    role: 'wounded',
+    hull: { hp: 30, armor: { front: 0, side: 0, rear: 0 }, can_embark: true },
+    mobility: { speed_tiles_s: 0.12 },
+    sensors: { optics: 0.5, sight_tiles: 0, signature: 0.3 },
+  };
+  /** One man who goes down in place at 1 hp; bleeds 2 s = 40 ticks. */
+  const CG_CIV: UnitTypeJson = {
+    ...CG_SQUAD,
+    id: 'cg_civ',
+    role: 'civilian',
+    hull: { hp: 30, armor: { front: 0, side: 0, rear: 0 }, wounds: { wound_chance: 1, bleed_s: 2, type: 'cg_wounded', in_place: true } },
+  };
+  /** The same shape on the player's side: a one-man team that goes down in place. */
+  const CG_SCOUT: UnitTypeJson = { ...CG_CIV, id: 'cg_scout', role: 'recon' };
+  const CG_AMBULANCE: UnitTypeJson = {
+    id: 'cg_ambulance',
+    role: 'apc',
+    hull: { hp: 900, armor: { front: 40, side: 30, rear: 20 }, transport_slots: 4, can_carry: ['wounded'] },
+    mobility: { speed_tiles_s: 2 },
+    sensors: { optics: 1, sight_tiles: 1 },
+  };
+  /** Admit 2 tiles, treat 10 s = 200 ticks. */
+  const CG_POST = { id: 'cg_aid', hp_per_tile: 200, aid: { admit_radius: 2, treat_s: 10, dispatch_radius: 12 } };
+
+  /** Player squad id 0; enemy squads 1..6; civilians 7..8 (placement order). */
+  function cgWorld(roe: MissionJson['roe'], markers: Record<string, [number, number]> = {}): World {
+    const sim = new Sim({ seed: 0x707, width: 28, height: 12, capacity: 32 });
+    const ids = new Map<string, number>();
+    for (const t of [CG_SQUAD, CG_WOUNDED, CG_CIV, CG_SCOUT, CG_AMBULANCE]) ids.set(t.id, sim.addUnitType(t));
+    // Aid post at tiles (16,5) (17,5) (16,6) (17,6), the player's.
+    sim.addStructure(sim.addStructureType(CG_POST), [5 * 28 + 16, 5 * 28 + 17, 6 * 28 + 16, 6 * 28 + 17], { owner: 0 });
+    const runtime = new MissionRuntime(
+      sim,
+      baseMission({
+        starting_force: [{ unit: 'cg_squad', count: 1, at: [2, 2] }],
+        enemy: { garrison: [{ unit: 'cg_squad', count: 6, at: [22, 1] }] },
+        civilians: { groups: [{ unit: 'cg_civ', count: 2, at: [8, 9] }] },
+        objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
+        roe,
+      }),
+      {
+        typeIdOf: (u) => {
+          const t = ids.get(u);
+          if (t === undefined) throw new Error(`unknown unit ${u}`);
+          return t;
+        },
+        markers,
+        zones: {},
+      }
+    );
+    runtime.start();
+    return {
+      sim,
+      runtime,
+      step: (ticks: number) => {
+        const out: { sim: SimEvent[]; mission: MissionEvent[] } = { sim: [], mission: [] };
+        for (let i = 0; i < ticks; i++) {
+          const se = sim.tick();
+          out.sim.push(...se);
+          out.mission.push(...runtime.step(se));
+        }
+        return out;
+      },
+    };
+  }
+
+  const ENEMIES = [1, 2, 3, 4, 5, 6];
+  const admitted = (entity: number, side = 0): SimEvent => ({ kind: 'woundAdmitted', tick: 1, entity, structure: 0, side });
+  const evacuated = (entity: number, side = 0): SimEvent => ({ kind: 'woundEvacuated', tick: 1, entity, carrier: -1, side });
+  const gains = (out: MissionEvent[]): [number, number][] =>
+    out.flatMap((e) => (e.kind === 'roeGain' ? [[e.gain, e.score] as [number, number]] : []));
+  const run = (w: World, evs: SimEvent[]): MissionEvent[] => evs.flatMap((e) => w.runtime.step([e]));
+
+  it('the placement order the tests below assume', () => {
+    const w = cgWorld({ enabled: true });
+    expect([0, ...ENEMIES, 7, 8].map((id) => w.sim.state.side[id])).toEqual([0, 1, 1, 1, 1, 1, 1, 2, 2]);
+  });
+
+  it('at 100, six enemy wounded rescued: the score stays 100 and nothing is announced', () => {
+    const w = cgWorld({ enabled: true });
+    const out = run(w, ENEMIES.map((id) => admitted(id)));
+    expect([w.runtime.roeScore, gains(out)]).toEqual([100, []]);
+  });
+
+  it('from 80, six enemy wounded: +2 five times, then the +10 cap holds it at 90', () => {
+    const w = cgWorld({ enabled: true, civilian_casualty_penalty: 20 });
+    run(w, [{ kind: 'destroyed', tick: 1, entity: 7, by: 0 }]);
+    expect(w.runtime.roeScore).toBe(80);
+    const out = run(w, ENEMIES.map((id) => admitted(id)));
+    // 80 + 2 x 5 = 90; the sixth would be 92, past the mission's +10.
+    expect(gains(out)).toEqual([[2, 82], [2, 84], [2, 86], [2, 88], [2, 90]]);
+    expect(w.runtime.roeScore).toBe(90);
+  });
+
+  it('from 90, six enemy wounded: 100 and no further (both limits at once)', () => {
+    const w = cgWorld({ enabled: true, civilian_casualty_penalty: 10 });
+    run(w, [{ kind: 'destroyed', tick: 1, entity: 7, by: 0 }]);
+    const out = run(w, ENEMIES.map((id) => admitted(id)));
+    expect(gains(out)).toEqual([[2, 92], [2, 94], [2, 96], [2, 98], [2, 100]]);
+    expect(w.runtime.roeScore).toBe(100);
+  });
+
+  it('from 96: an enemy +2 (98), then a civilian adds only 2 of his 3 -- never past 100', () => {
+    const w = cgWorld({ enabled: true, civilian_casualty_penalty: 4 });
+    run(w, [{ kind: 'destroyed', tick: 1, entity: 7, by: 0 }]);
+    const out = run(w, [admitted(1), admitted(8), admitted(2)]);
+    expect(gains(out)).toEqual([[2, 98], [2, 100]]);
+    expect(w.runtime.roeScore).toBe(100);
+  });
+
+  it('a civilian is +3; an enemy rescuing, or the player rescuing his own, earns nothing', () => {
+    const w = cgWorld({ enabled: true, civilian_casualty_penalty: 20 });
+    run(w, [{ kind: 'destroyed', tick: 1, entity: 7, by: 0 }]);
+    const out = run(w, [admitted(1, 1), evacuated(8, 1), admitted(0), admitted(8)]);
+    expect(gains(out)).toEqual([[3, 83]]);
+  });
+
+  it('one man pays once: admitted, then discharged as evacuated, is a single +2', () => {
+    const w = cgWorld({ enabled: true, civilian_casualty_penalty: 20 });
+    run(w, [{ kind: 'destroyed', tick: 1, entity: 7, by: 0 }]);
+    const out = run(w, [admitted(1), evacuated(1), evacuated(2), admitted(2)]);
+    expect(gains(out)).toEqual([[2, 82], [2, 84]]);
+  });
+
+  it('player fire killing a DOWN enemy costs 3; the enemy`s fire, a standing enemy, or a bleed-out do not', () => {
+    const w = cgWorld({ enabled: true });
+    const ws = w.sim.state.woundState as Uint8Array;
+    ws[1] = 1; // DOWN
+    ws[2] = 2; // STABILISED
+    ws[3] = 1;
+    ws[4] = 1;
+    const out = [
+      ...w.runtime.step([{ kind: 'destroyed', tick: 1, entity: 1, by: 0 }]), // -3
+      ...w.runtime.step([{ kind: 'destroyed', tick: 1, entity: 2, by: 0 }]), // -3
+      ...w.runtime.step([{ kind: 'destroyed', tick: 1, entity: 3, by: 5 }]), // the enemy's own fire
+      ...w.runtime.step([{ kind: 'bledOut', tick: 1, entity: 4 }, { kind: 'destroyed', tick: 1, entity: 4, by: 0 }]),
+      ...w.runtime.step([{ kind: 'destroyed', tick: 1, entity: 6, by: 0 }]), // never down
+    ];
+    expect(out.flatMap((e) => (e.kind === 'roe' ? [[e.penalty, e.reason, e.score]] : []))).toEqual([
+      [3, 'wounded enemy killed', 97],
+      [3, 'wounded enemy killed', 94],
+    ]);
+  });
+
+  it('a civilian the player downs and then rescues costs nothing and pays +3, end to end', () => {
+    const w = cgWorld({ enabled: true });
+    const civ = 8;
+    (w.sim as unknown as { applyDamage(t: number, d: number, by: number): void }).applyDamage(civ, fx.fromInt(30), 0);
+    expect([w.sim.state.alive[civ], w.sim.state.woundState[civ]]).toEqual([1, 1]);
+    const amb = w.sim.spawn(4, 0, fx.from(15.5), fx.from(5.5)); // 1 tile from (16,5)'s centre
+    expect(w.sim.embarkAtSpawn(amb, civ)).toBe(true);
+    const out = w.step(5);
+    expect(out.sim.filter((e) => e.kind === 'woundAdmitted').map((e) => e.entity)).toEqual([civ]);
+    // No deduction, and at 100 the ceiling leaves nothing to gain.
+    expect([out.mission.filter((e) => e.kind === 'roe'), gains(out.mission), w.runtime.roeScore]).toEqual([[], [], 100]);
+    // Again from 92 (the other civilian's death by player fire).
+    const w2 = cgWorld({ enabled: true });
+    w2.runtime.step([{ kind: 'destroyed', tick: 1, entity: 7, by: 0 }]);
+    (w2.sim as unknown as { applyDamage(t: number, d: number, by: number): void }).applyDamage(civ, fx.fromInt(30), 0);
+    const amb2 = w2.sim.spawn(4, 0, fx.from(15.5), fx.from(5.5));
+    expect(w2.sim.embarkAtSpawn(amb2, civ)).toBe(true);
+    const out2 = w2.step(5);
+    expect(out2.mission.filter((e) => e.kind === 'roe')).toEqual([]);
+    expect(gains(out2.mission)).toEqual([[3, 95]]); // 100 - 8 + 3
+  });
+
+  it('a civilian the player downs and leaves bleeds out 40 ticks later: -8 then, not at the hit', () => {
+    const w = cgWorld({ enabled: true });
+    const civ = 8;
+    (w.sim as unknown as { applyDamage(t: number, d: number, by: number): void }).applyDamage(civ, fx.fromInt(30), 0);
+    const early = w.step(30);
+    expect(early.mission.filter((e) => e.kind === 'roe')).toEqual([]);
+    const late = w.step(20);
+    expect(late.sim.filter((e) => e.kind === 'bledOut').map((e) => e.entity)).toEqual([civ]);
+    expect(late.mission.flatMap((e) => (e.kind === 'roe' ? [[e.penalty, e.score]] : []))).toEqual([[8, 92]]);
+  });
+
+  it('a player unit evacuated or admitted is not lost; a remove trigger`s body still is', () => {
+    const w = cgWorld({ enabled: true });
+    const s = w.runtime;
+    const scout = w.sim.spawn(3, 0, fx.from(5.5), fx.from(5.5)); // not in playerIds: lost counts ignore it
+    expect(scout).toBeGreaterThan(8);
+    expect([s.startingHome, s.lostByType()]).toEqual([1, {}]);
+    // The starting squad (id 0) taken off the board by a remove trigger: lost, as before.
+    w.sim.removeFromPlay(0);
+    expect([s.startingHome, s.lostByType()]).toEqual([0, { cg_squad: 1 }]);
+    // The same body, had it left as a rescued wounded man (GONE): not lost.
+    (w.sim.state.woundState as Uint8Array)[0] = 4;
+    expect([s.startingHome, s.lostByType()]).toEqual([1, {}]);
+    (w.sim.state.woundState as Uint8Array)[0] = 3; // ADMITTED
+    expect([s.startingHome, s.lostByType()]).toEqual([1, {}]);
+    // A patient whose post fell is lost again (`removed` back to 0).
+    (w.sim.state.removed as Uint8Array)[0] = 0;
+    expect([s.startingHome, s.lostByType()]).toEqual([0, { cg_squad: 1 }]);
+  });
+
+  it('a player unit downed in place and admitted, end to end: home, not lost, and no wipe', () => {
+    const sim = new Sim({ seed: 0x707, width: 28, height: 12, capacity: 32 });
+    const ids = new Map<string, number>();
+    for (const t of [CG_SQUAD, CG_WOUNDED, CG_SCOUT, CG_AMBULANCE]) ids.set(t.id, sim.addUnitType(t));
+    sim.addStructure(sim.addStructureType(CG_POST), [5 * 28 + 16, 5 * 28 + 17, 6 * 28 + 16, 6 * 28 + 17], { owner: 0 });
+    const rt = new MissionRuntime(
+      sim,
+      baseMission({
+        starting_force: [{ unit: 'cg_scout', count: 1, at: [15, 5] }],
+        enemy: { garrison: [{ unit: 'cg_squad', count: 1, at: [26, 10] }] },
+        objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
+      }),
+      { typeIdOf: (u) => ids.get(u) ?? -1, markers: {}, zones: {} }
+    );
+    rt.start();
+    (sim as unknown as { applyDamage(t: number, d: number, by: number): void }).applyDamage(0, fx.fromInt(30), 1);
+    const amb = sim.spawn(ids.get('cg_ambulance') ?? -1, 0, fx.from(15.5), fx.from(6.5));
+    expect(sim.embarkAtSpawn(amb, 0)).toBe(true);
+    let ended = false;
+    for (let k = 0; k < 5; k++) ended = rt.step(sim.tick()).some((e) => e.kind === 'missionEnd') || ended;
+    expect([sim.state.alive[0], sim.state.removed[0], sim.state.woundState[0]]).toEqual([0, 1, 3]);
+    expect([rt.startingHome, rt.lostByType(), ended]).toEqual([1, {}, false]);
+  });
+
+  it('a `wounded_evac` marker is side 0`s evacuation point; without one, none', () => {
+    type Evac = { evacCount: number; evacX: Int32Array; evacY: Int32Array; evacSide: Int32Array };
+    const w = cgWorld({ enabled: true }, { wounded_evac: [3, 4] });
+    const e = w.sim as unknown as Evac;
+    // Tile (3,4)'s centre: 3.5 x 65536 = 229376, 4.5 x 65536 = 294912.
+    expect([e.evacCount, e.evacX[0], e.evacY[0], e.evacSide[0]]).toEqual([1, 229376, 294912, 0]);
+    expect((cgWorld({ enabled: true }).sim as unknown as Evac).evacCount).toBe(0);
+  });
+});

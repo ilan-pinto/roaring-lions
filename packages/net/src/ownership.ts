@@ -53,6 +53,10 @@ export function validateCommand(cmd: Command, seat: Seat, world: SeatWorld): boo
       const theirs = world.sideOfEntity(cmd.target);
       return cmd.ids.length > 0 && cmd.ids.every(own) && theirs !== undefined && theirs !== side;
     }
+    case 'rescue':
+      // GH-707: own medics only, and a target that exists -- of ANY side: rescuing your own,
+      // a civilian or an enemy wounded are all orders. Whether he is down and known is the sim's.
+      return cmd.ids.length > 0 && cmd.ids.every(own) && world.sideOfEntity(cmd.target) !== undefined;
     case 'callStrike':
       return !world.versus && own(cmd.caller) && onMap(cmd.x, cmd.y);
     case 'reveal':

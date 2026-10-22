@@ -53,6 +53,7 @@ describe('parseClientMsg', () => {
       [{ kind: 'callStrike', caller: 3, x: 1, y: 2, profile: 1, pad }, { kind: 'callStrike', caller: 3, x: 1, y: 2, profile: 1 }],
       [{ kind: 'smoke', ids: [1], x: 1, y: 2, pad }, { kind: 'smoke', ids: [1], x: 1, y: 2 }],
       [{ kind: 'attack', ids: [1, 2], target: 14, pad }, { kind: 'attack', ids: [1, 2], target: 14 }],
+      [{ kind: 'rescue', ids: [1, 2], target: 14, pad }, { kind: 'rescue', ids: [1, 2], target: 14 }],
     ];
     for (const [sent, kept] of cases) {
       const parsed = parseClientMsg(JSON.stringify({ t: 'cmd', seq: 0, cmd: sent }));
@@ -87,6 +88,18 @@ describe('parseClientMsg', () => {
       { kind: 'attack', ids: [1], target: 1.5 },
       { kind: 'attack', ids: [1], target: '14' },
       { kind: 'attack', target: 14 },
+    ]) {
+      expect(parseClientMsg(JSON.stringify({ t: 'cmd', seq: 0, cmd: bad }))).toBeNull();
+    }
+  });
+  it('GH-707: a rescue round-trips exactly, and is refused without ids or an integer target', () => {
+    const ok = { kind: 'rescue', ids: [3, 1], target: 9 };
+    expect(parseClientMsg(JSON.stringify({ t: 'cmd', seq: 0, cmd: ok }))).toEqual({ t: 'cmd', seq: 0, cmd: ok });
+    for (const bad of [
+      { kind: 'rescue', ids: [1] },
+      { kind: 'rescue', ids: [1], target: 2.5 },
+      { kind: 'rescue', ids: [1], target: '9' },
+      { kind: 'rescue', target: 9 },
     ]) {
       expect(parseClientMsg(JSON.stringify({ t: 'cmd', seq: 0, cmd: bad }))).toBeNull();
     }

@@ -56,7 +56,9 @@ export const ORDER_VERBS = COMMAND_KINDS.filter(
     k !== 'cancelBuild' && k !== 'setRally' && k !== 'clearRally' &&
     // Field works (GH-277): the sim's construct/cancelConstruct never travel, and
     // raiseWorks/cancelWorks are runtime-priced like build (dropped in versus).
-    k !== 'construct' && k !== 'cancelConstruct' && k !== 'raiseWorks' && k !== 'cancelWorks',
+    k !== 'construct' && k !== 'cancelConstruct' && k !== 'raiseWorks' && k !== 'cancelWorks' &&
+    // GH-707 `rescue` is engine-only until its content lands (P2); a model verb comes with it.
+    k !== 'rescue',
 );
 type Verb = (typeof ORDER_VERBS)[number];
 export const WAIT_MAX_TICKS = 200;
