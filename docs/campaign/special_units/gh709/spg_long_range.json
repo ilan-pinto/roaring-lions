@@ -44,7 +44,7 @@
       "effective_range_tiles": 22,
       "accuracy": 0.45,
       "penetration": 60,
-      "damage": 320,
+      "damage": 280,
       "splash_tiles": 2.4,
       "suppression": 140,
       "rof_per_min": 3,

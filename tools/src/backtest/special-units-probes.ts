@@ -15,7 +15,7 @@
 //
 // Run: `pnpm --filter @lions/tools su:probes` (exit 1 when a claim fails).
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Sim, fx, TICKS_PER_SECOND, type UnitTypeJson } from '@lions/sim';
@@ -25,8 +25,14 @@ const WEST = 32768;
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const STAGED = join(ROOT, 'docs', 'campaign', 'special_units', 'gh709');
 
+/** A unit still staged in gh709 is read from disk; one that has landed (Phase 2 on) is the
+ *  registered `@lions/data` entry, so a probe follows a unit out of staging unchanged. */
 export function stagedUnit(id: string): UnitTypeJson {
-  return JSON.parse(readFileSync(join(STAGED, `${id}.json`), 'utf8')) as UnitTypeJson;
+  const path = join(STAGED, `${id}.json`);
+  if (existsSync(path)) return JSON.parse(readFileSync(path, 'utf8')) as UnitTypeJson;
+  const landed = (units as Record<string, UnitTypeJson | undefined>)[id];
+  if (!landed) throw new Error(`special-units probe: ${id} is neither staged in gh709 nor registered in @lions/data`);
+  return landed;
 }
 
 function median(xs: number[]): number {
@@ -176,6 +182,11 @@ export interface DuelOutcome {
   spgHpFrac: number;
   /** Ticks until the first gun fell (the cap on a draw). */
   ticks: number;
+  /** Ticks on which the Grad lost hp: the rounds that hurt it, a direct hit or a splash near
+   *  miss (the Grad is soft-skinned, so both reach its hp and neither raises an `impact`
+   *  event). Only the SPG shoots at it. The lead's ruling (22 Oct): one round must not kill
+   *  it, so on every seed the SPG wins this reads 2 or more. */
+  gradHits: number;
 }
 
 export function duel(spgJson: UnitTypeJson, d: number, seed: number): DuelOutcome {
@@ -194,9 +205,19 @@ export function duel(spgJson: UnitTypeJson, d: number, seed: number): DuelOutcom
     for (let i = 0; i < sim.entityCount; i++) if (sim.state.alive[i] === 1 && sim.state.typeIdx[i] === type) return true;
     return false;
   };
+  const gradIdx = (): number => {
+    for (let i = 0; i < sim.entityCount; i++) if (sim.state.typeIdx[i] === grad) return i;
+    return -1;
+  };
+  const g = gradIdx();
+  let gradHits = 0;
+  let lastHp = sim.state.hp[g];
   let ticks = 0;
   for (; ticks < DUEL_CAP_TICKS; ticks++) {
     sim.tick();
+    const hp = sim.state.alive[g] === 1 ? sim.state.hp[g] : 0;
+    if (hp < lastHp) gradHits++;
+    lastHp = hp;
     if (sim.state.alive[a] === 0 || !gunLive(grad)) break;
   }
   const spgAlive = sim.state.alive[a] === 1;
@@ -206,6 +227,7 @@ export function duel(spgJson: UnitTypeJson, d: number, seed: number): DuelOutcom
     gradWon: !spgAlive && gradLive,
     spgHpFrac: spgAlive ? sim.state.hp[a] / fx.from(spgJson.hull.hp) : 0,
     ticks,
+    gradHits,
   };
 }
 
@@ -218,13 +240,21 @@ export interface DuelRow {
   spgHp: number;
   /** Mean ticks until the first gun fell. */
   meanTicks: number;
+  /** Fewest and most rounds that hurt the Grad on the seeds the SPG won (the two-round ruling). */
+  hitsToKillMin: number;
+  hitsToKillMax: number;
 }
 export function duelRow(spgJson: UnitTypeJson, d: number, seeds = DUEL_SEEDS): DuelRow {
-  const row: DuelRow = { spgWins: 0, gradWins: 0, draws: 0, seeds, spgHp: 0, meanTicks: 0 };
+  const row: DuelRow = {
+    spgWins: 0, gradWins: 0, draws: 0, seeds, spgHp: 0, meanTicks: 0, hitsToKillMin: Infinity, hitsToKillMax: 0,
+  };
   for (let s = 0; s < seeds; s++) {
     const o = duel(spgJson, d, 98000 + d * 100 + s);
-    if (o.spgWon) row.spgWins++;
-    else if (o.gradWon) row.gradWins++;
+    if (o.spgWon) {
+      row.spgWins++;
+      row.hitsToKillMin = Math.min(row.hitsToKillMin, o.gradHits);
+      row.hitsToKillMax = Math.max(row.hitsToKillMax, o.gradHits);
+    } else if (o.gradWon) row.gradWins++;
     else row.draws++;
     row.spgHp += o.spgHpFrac / seeds;
     row.meanTicks += o.ticks / seeds;
@@ -425,10 +455,10 @@ function main(): void {
   const dt = duelTable(stagedUnit('spg_long_range'));
   console.log('');
   console.log(`SU probe 2 -- spg_long_range vs rocket_battery, a recon_drone spotting for each side, ${DUEL_SEEDS} seeds, ${DUEL_CAP_TICKS / TICKS_PER_SECOND} s cap`);
-  console.log('distance   spg wins   grad wins   draws   spg hp left   mean s');
+  console.log('distance   spg wins   grad wins   draws   spg hp left   mean s   rounds to kill');
   for (const r of DUEL_RANGES) {
     const row = dt[r];
-    console.log(`${String(r).padEnd(10)} ${String(row.spgWins).padEnd(10)} ${String(row.gradWins).padEnd(11)} ${String(row.draws).padEnd(7)} ${row.spgHp.toFixed(2).padEnd(13)} ${(row.meanTicks / TICKS_PER_SECOND).toFixed(1)}`);
+    console.log(`${String(r).padEnd(10)} ${String(row.spgWins).padEnd(10)} ${String(row.gradWins).padEnd(11)} ${String(row.draws).padEnd(7)} ${row.spgHp.toFixed(2).padEnd(13)} ${(row.meanTicks / TICKS_PER_SECOND).toFixed(1).padEnd(8)} ${row.hitsToKillMin}-${row.hitsToKillMax}`);
   }
   console.log(q11Note(dt));
 

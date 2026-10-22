@@ -117,6 +117,9 @@ describe('SU probe 2: spg_long_range vs rocket_battery, a drone spotting for eac
     t = duelTable(stagedUnit('spg_long_range'));
   });
 
+  // Re-frozen 22 Oct (Phase 2) after the lead's ruling cut howitzer_155 from 320 to 280 damage
+  // (the Grad has 320 hp), range unchanged at 28. The 30/30 and the hp are unchanged: the Grad is
+  // outranged above 20 tiles and the SPG's 1400 hp outlasts its 240-damage salvo at 20.
   it('wins every seed at every range 20-28, and loses no hp doing it (measured 22 Oct: 30/30, hp 1.00)', () => {
     for (const r of [20, 22, 24, 26, 28]) {
       expect(t[r].spgWins, `${r}`).toBe(30);
@@ -126,11 +129,18 @@ describe('SU probe 2: spg_long_range vs rocket_battery, a drone spotting for eac
   });
 
   it('kills the Grad in a measured time (mean seconds to the first gun falling, +/-15%)', () => {
-    const measured: Record<number, number> = { 20: 24.7, 22: 24.1, 24: 23.9, 26: 25.8, 28: 28.9 };
+    const measured: Record<number, number> = { 20: 32.7, 22: 34.1, 24: 33.3, 26: 35.8, 28: 34.9 };
     for (const [r, s] of Object.entries(measured)) {
       const got = t[Number(r)].meanTicks / 20;
       expect(got, `${r}`).toBeGreaterThanOrEqual(s * 0.85);
       expect(got, `${r}`).toBeLessThanOrEqual(s * 1.15);
+    }
+  });
+
+  it('never kills the Grad with one round: 2 or 3 rounds hurt it on every seed (the 280-damage ruling)', () => {
+    for (const r of [20, 22, 24, 26, 28]) {
+      expect(t[r].hitsToKillMin, `${r}`).toBe(2);
+      expect(t[r].hitsToKillMax, `${r}`).toBe(3);
     }
   });
 

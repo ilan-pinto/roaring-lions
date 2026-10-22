@@ -92,6 +92,36 @@ what would is a lower damage or hp, not range. The staged drafts are unchanged.
 **Bands**: SPG wins 30/30 and Grad wins 0 at every range, SPG hp left >= 0.95; mean time to first gun
 down ±15% of the table above.
 
+### Phase 2 retune (22 Oct): damage 320 -> 280, range 28 kept
+
+The lead's ruling on the finding above: cut `howitzer_155`'s damage below the Grad's 320 hp so it
+takes two rounds, and keep the range at 28. Shipped at **280** (the smallest round number that
+leaves the Grad 40 hp after a direct hit). The probe now also prints the rounds that hurt the Grad
+on each won seed (ticks on which its hp fell; it is soft-skinned, so a direct hit and a splash near
+miss both count, and neither raises an `impact` event).
+
+| distance | SPG wins | Grad wins | draws | SPG hp left | mean seconds | rounds to kill |
+|---|---|---|---|---|---|---|
+| 20 | 30 | 0 | 0 | 1.00 | 32.7 | 2-3 |
+| 22 | 30 | 0 | 0 | 1.00 | 34.1 | 2-3 |
+| 24 | 30 | 0 | 0 | 1.00 | 33.3 | 2-3 |
+| 26 | 30 | 0 | 0 | 1.00 | 35.8 | 2-3 |
+| 28 | 30 | 0 | 0 | 1.00 | 34.9 | 2-3 |
+
+At 320 the same reading was 1-3 (one round killed it on some seeds); at 280 no seed is a one-round
+kill. The duel takes ~35 s instead of ~25 s. **The SPG still wins 30/30 at every range, and Q11 is
+still triggered.** That outcome cannot be changed by damage while the range stays 28: above 20 tiles
+the Grad cannot reach the SPG, and at 20 its 240-damage salvo (rof 2) meets 1400 hp. Swept on the
+staged JSON, range 28 kept: damage 300, 280, 260, 240, 200 and 160 all read 30/30 at every range;
+only at 120 (three or more rounds, ~90 s) does the 120 s cap start producing draws (27/30 at 28
+tiles). A Grad win needs a change to range or hp, which the ruling did not make.
+
+Cost curve at 280 (`validate_balance.py --also e5 --also gh709`): **+7.2%** (fitted 373, logistics
+400; was +6.9% at 320), max-tier pass **+10.0%** (fitted 364). Both passes green, 45 units.
+
+**Bands re-frozen** from this run: mean seconds ±15% of the table above, rounds to kill exactly
+2-3 at every range, 30/30 and hp >= 0.95 unchanged.
+
 ## Probe 9 -- the grenadier (unit 9)
 
 **Set-up.** Two KDF squads at x=5.5 face three `militia_cell` 6 tiles away, one tile apart (so splash 1.2
