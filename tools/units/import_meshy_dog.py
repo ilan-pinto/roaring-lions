@@ -31,7 +31,7 @@ front is +X, the end the grey cylinder is on, so the rear whip is the one kept.
   * legs too long and splayed: each leg is cut at its measured knee (the dense
     vertex block, `_joint`), and each half is rotated and scaled rigidly to the
     spec's 0.30 m and stood in the sagittal plane, knee rearward, at the pose
-    `rig.dog_two_bone` solves for a 0.51 m hip over the foot pads;
+    `rig.dog_two_bone` solves for the hip (0.51 m x rig.DOG_SCALE) over the foot pads;
   * no distinct sensor head: a kit part (a 0.16 m box and a lens) is added at
     the front top, role `face`, and given the bake's own dark-gunmetal texel so
     it draws from the same material instead of a skin-tone ramp;
@@ -89,12 +89,13 @@ OLIVE_MIN_SAT = 0.35
 MARK_DILATE_PX = 3
 OLIVE_MIN_TEXELS = 1000
 
-DOG_PAD_DIAMETER = 0.07           # spec 3.1
-HEAD_SIZE = 0.16
+# All sizes below follow rig.DOG_SCALE (1.2, the lead's ruling of 22 Oct).
+DOG_PAD_DIAMETER = 0.07 * rig.DOG_SCALE           # spec 3.1 x scale
+HEAD_SIZE = 0.16 * rig.DOG_SCALE
 HEAD_CENTRE_X = rig.DOG_HEAD_PIVOT[0]
-HEAD_SINK = 0.02                  # the head sits this far into the body top
-LENS_RADIUS = 0.045
-LENS_PROUD = 0.03
+HEAD_SINK = 0.02 * rig.DOG_SCALE                  # the head sits this far into the body top
+LENS_RADIUS = 0.045 * rig.DOG_SCALE
+LENS_PROUD = 0.03 * rig.DOG_SCALE
 ANTENNA_RADIAL_GAIN = 0.8         # the whip is scaled thicker than its length so it reads
 
 ROLE = {"body": "uniform", "antenna": "metal", "head": "face",

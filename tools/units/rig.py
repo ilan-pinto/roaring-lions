@@ -1872,18 +1872,24 @@ DOG_UNIT_JSON = os.path.join(REPO, "data", "units", "kdf", "ugv_recon_dog.json")
 
 #: Spec section 3.1, in metres. Body 0.95 x 0.36 x 0.20 (the Meshy body keeps
 #: its belly, so it reads 0.22 deep), body top 0.62 above the ground.
-DOG_BODY_LEN = 0.95
-DOG_BODY_WID = 0.36
-DOG_BODY_DEEP = 0.22
-DOG_BODY_TOP = 0.62
-DOG_HIP_X = 0.34          # fore/hind hip, from the body centre
-DOG_HIP_Y = 0.21          # a hip sits just outboard of the 0.18 half width
+#: AMENDED 22 Oct (the lead, after seeing the screenshots): the dog is 1.2x the
+#: spec's real-scale numbers. One named constant, applied to every length below
+#: (the unscaled figure is written beside each); angles, the cycle and the frame
+#: counts are untouched, so the trot's stride grows with the legs. It lives here
+#: and not in the importer because geometry, bones and clips all read these.
+DOG_SCALE = 1.2
+DOG_BODY_LEN = 0.95 * DOG_SCALE
+DOG_BODY_WID = 0.36 * DOG_SCALE
+DOG_BODY_DEEP = 0.22 * DOG_SCALE
+DOG_BODY_TOP = 0.62 * DOG_SCALE
+DOG_HIP_X = 0.34 * DOG_SCALE          # fore/hind hip, from the body centre
+DOG_HIP_Y = 0.21 * DOG_SCALE          # a hip sits just outboard of the half width
 DOG_HIP_Z = DOG_BODY_TOP - DOG_BODY_DEEP / 2.0 + 0.0   # the middle of the body's depth
-DOG_THIGH = 0.30
-DOG_LOWER = 0.30
-DOG_ANKLE_Z = 0.046       # the top of the 0.07 foot pad, which is 0.046 thick
-DOG_HEAD_PIVOT = (0.40, 0.0, DOG_BODY_TOP)   # the sensor head pans about this, vertical
-DOG_ANTENNA_TIP_Z = 0.85
+DOG_THIGH = 0.30 * DOG_SCALE
+DOG_LOWER = 0.30 * DOG_SCALE
+DOG_ANKLE_Z = 0.046 * DOG_SCALE       # the top of the foot pad, which is this thick
+DOG_HEAD_PIVOT = (0.40 * DOG_SCALE, 0.0, DOG_BODY_TOP)   # the sensor head pans about this, vertical
+DOG_ANTENNA_TIP_Z = 0.85 * DOG_SCALE
 
 DOG_END = ("fore", "hind")
 DOG_SIDE = ("L", "R")
@@ -1892,11 +1898,11 @@ DOG_CYCLE_S = 0.40
 DOG_FPS = 120
 DOG_MOVE_FRAMES = 48
 DOG_REACH_CAP = 0.90      # a foot never asks the leg for more than this share of its length
-DOG_SWING_LIFT = 0.07
+DOG_SWING_LIFT = 0.07 * DOG_SCALE
 DOG_IDLE_S = 4.0
 DOG_IDLE_KEY_STEP = 16
 DOG_HEAD_PAN_RAD = math.radians(25.0)
-DOG_SWAY_M = 0.01
+DOG_SWAY_M = 0.01 * DOG_SCALE
 #: Diagonal pairs: fore L with hind R, fore R with hind L.
 DOG_LEG_PHASE = {("fore", "L"): 0.0, ("hind", "R"): 0.0, ("fore", "R"): 0.5, ("hind", "L"): 0.5}
 

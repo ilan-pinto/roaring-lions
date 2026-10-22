@@ -440,14 +440,17 @@ function humanCadence(metresPerSecond: number): { lo: number; hi: number } {
 /**
  * The rigged types that walk on FOUR legs (GH-709 Phase 8), declared here by
  * type with the hip height the approved art spec gives them
- * (`docs/superpowers/specs/2026-10-22-robot-dog-art.md` §3.1: body top 0.62 m
- * less half its 0.22 m depth -- rig.py's `DOG_HIP_Z`). A declared KIND, not a
+ * (`docs/superpowers/specs/2026-10-22-robot-dog-art.md` §3.1 x the 1.2x
+ * amendment of 22 Oct: body top 0.744 m less half its 0.264 m depth -- rig.py's
+ * `DOG_HIP_Z`). A declared KIND, not a
  * file name in the band logic; and the declaration is checked against the
  * bytes both ways below (`the declared quadrupeds are exactly the rigs on four
  * legs`), with the hip measured against this literal.
  */
 const QUADRUPEDS: Readonly<Record<string, { readonly hipHeightM: number; readonly why: string }>> = {
-  ugv_recon_dog: { hipHeightM: 0.51, why: 'the Chadaf recon robot: a box body on four two-link legs, trotting' },
+  // Was 0.51. The lead ruled the dog 1.2x on 22 Oct (rig.py `DOG_SCALE`): body top 0.744 m
+  // less half its 0.264 m depth is 0.612 m, read 0.613 m off the bytes.
+  ugv_recon_dog: { hipHeightM: 0.612, why: 'the Chadaf recon robot: a box body on four two-link legs, trotting' },
 };
 
 /**
@@ -460,16 +463,19 @@ const QUADRUPEDS: Readonly<Record<string, { readonly hipHeightM: number; readonl
  * steps per second are 2u / lambda -- the same two footfalls per cycle the
  * human band counts (`2 x multiplier / cycleS` below).
  *
- * At the Chadaf's 3.9 m/s (1.3 tiles/s) and h = 0.51 m: Froude u^2/gh = 3.04,
- * lambda = 0.51 x 2.3 x 3.04^0.3 = 1.638 m, so 2 x 3.9 / 1.638 = 4.76 steps/s.
+ * At the Chadaf's 3.9 m/s (1.3 tiles/s) and h = 0.612 m (was 0.51 m before the
+ * 1.2x amendment, centre 4.76): Froude u^2/gh = 2.53, lambda = 0.612 x 2.3 x
+ * 2.53^0.3 = 1.86 m, so 2 x 3.9 / 1.86 = 4.19 steps/s.
  * (Froude 3 is the top of a mammal's trot, where it would gallop: the same
  * truth as every rifleman here already running, CLAUDE.md "gait".)
  *
  * The band is that centre ÷/× `QUADRUPED_CADENCE_TOL`. The tolerance is THIS
  * gate's, not the paper's: Alexander's line is one fit across mammals from
  * rodents to rhinos, so it is held about twice as loose as the human run
- * band's +/-11% (2.5-3.1 around 2.8): +/-25%, 3.81-5.95 steps/s here. The
- * shipped trot reads 5.35 (+12% of centre). Played 1.8x it reads 9.6, and a
+ * band's +/-11% (2.5-3.1 around 2.8): +/-25%, 3.35-5.24 steps/s here. The
+ * shipped trot reads 5.21 (+24% of centre, 0.6% under the top edge: the
+ * 1.2x amendment kept the 0.40 s cycle and the legs still cover speed x cycle, so
+ * steps/s stayed ~5 while the centre fell from 4.76 to 4.19; was 5.35, +12%). Played 1.8x it reads 9.6, and a
  * human-cadence trot (2.8) would need a 2.8 m stride on 0.6 m legs -- both
  * outside; the controls below pin both.
  */
@@ -613,8 +619,8 @@ describe('mesh unit gait -- the sweep over every rigged type', () => {
       expect(steps * 1.8, `${typeId}: 1.8x`).toBeGreaterThan(trot.hi);
       expect(steps / 1.8, `${typeId}: 1/1.8x`).toBeLessThan(trot.lo);
       // The tighter control: a quarter too fast is already a scurry and must read
-      // red. One-sided on purpose -- the shipped trot sits +12% of centre, so the
-      // band refuses it 1.25x faster but only about 1.40x slower; that asymmetry
+      // red. One-sided on purpose -- the shipped trot sits +24% of centre (+12% before
+      // the 1.2x amendment), so the band refuses it 1.25x faster but only about 1.55x slower; that asymmetry
       // is the tolerance's, stated, not hidden.
       expect(steps * 1.25, `${typeId}: 1.25x`).toBeGreaterThan(trot.hi);
       const human = humanCadence(mps);
@@ -2578,7 +2584,8 @@ describe('upright in motion -- every figure walks on its feet', () => {
  * its living root, so its height IS that joint's: the lowest sample of `move`
  * against the `idle` median must clear the same `UPRIGHT_IN_MOTION_FRACTION`
  * the bipeds' hips do -- the trot must not crouch. Read 22 Oct: the Chadaf's
- * `dog_root` 0.510 m lowest in `move` against 0.511 m standing (0.998).
+ * `dog_root` 0.510 m lowest in `move` against 0.511 m standing (0.998);
+ * after the 1.2x amendment of 22 Oct the ratio reads 0.9984 (was 0.998).
  */
 describe('upright in motion -- a quadruped trots on straight-ish legs, not a crouch', () => {
   const rows = Object.keys(QUADRUPEDS).flatMap((typeId) =>
