@@ -55,7 +55,9 @@ export const ORDER_VERBS = COMMAND_KINDS.filter(
   (k) => k !== 'reveal' && k !== 'callStrike' && k !== 'setStance' && k !== 'build' && k !== 'support' &&
     k !== 'cancelBuild' && k !== 'setRally' && k !== 'clearRally' &&
     // Field works (#277) is not on the wire yet (`cleanCommand` refuses both).
-    k !== 'construct' && k !== 'cancelConstruct',
+    k !== 'construct' && k !== 'cancelConstruct' &&
+    // GH-707 `rescue` is engine-only until its content lands (P2); a model verb comes with it.
+    k !== 'rescue',
 );
 type Verb = (typeof ORDER_VERBS)[number];
 export const WAIT_MAX_TICKS = 200;

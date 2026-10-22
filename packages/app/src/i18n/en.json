@@ -297,6 +297,7 @@
   "net.advisor.cmd.demolish": "Demolish a building with {n, plural, one {# unit} other {# units}}",
   "net.advisor.cmd.chargeTunnel": "Set a charge on a tunnel with {n, plural, one {# unit} other {# units}}",
   "net.advisor.cmd.attack": "Fire on an enemy with {n, plural, one {# unit} other {# units}}",
+  "net.advisor.cmd.rescue": "Rescue a wounded man with {n, plural, one {# medic} other {# medics}}",
   "net.advisor.cmd.reveal": "Reveal the ground near ({x}, {y})",
   "net.advisor.cmd.callStrike": "Call a strike on ({x}, {y})",
   "net.advisor.cmd.build": "Build {unit}",

@@ -162,9 +162,14 @@ import {
   WOUND_COVER_STOP,
   MEDIC_TREAT_REACH_SQ,
   MED_IDLE,
+  MED_TO_WOUNDED,
+  MED_TREATING,
+  MED_CARRYING,
+  MED_DELIVERING,
+  WOUND_DEFAULT_BLEED_TICKS,
   type SupportKind,
 } from './tuning';
-import { bestCoverTile, figuresStanding, scaleDown } from './wounds';
+import { bestCoverTile, figuresStanding, rescuePriority, scaleDown } from './wounds';
 
 /** GH-698: unloadAir's spread, the LZ and its 8 neighbours in (distance, tile
  *  index) order: the centre, the four edge neighbours, the four corners. */
@@ -870,6 +875,13 @@ export type Command =
    * step's to apply. A refused id is a no-op.
    */
   | { kind: 'attack'; ids: number[]; target: number }
+  /**
+   * GH-707 Task 5: treat and carry THIS wounded. Taken by medics only (a type with a `rescue`
+   * block), for a target that is DOWN or STABILISED, not aboard anything, and of the medic's
+   * own side or identified by it -- an enemy or civilian the side cannot see is refused. The
+   * one way to rescue an enemy wounded (D2). A refused id changes nothing.
+   */
+  | { kind: 'rescue'; ids: number[]; target: number }
   /** N2: buy a unit. The MissionRuntime prices and queues it; the sim never
    *  executes it (R-3). Side 0 only until N3 (C-R3). */
   | { kind: 'build'; side: number; unit: string; line?: number }
@@ -1013,6 +1025,9 @@ export type SimEvent =
    *  side's evac point, or an air carrier lifting off. `side` is the RESCUING side (the
    *  carrier's), which Conduct reads. He is `alive` 0 with no `destroyed`. */
   | { kind: 'woundEvacuated'; tick: number; entity: number; carrier: number; side: number }
+  /** GH-707 Task 5: `medic` finished treating DOWN wounded `entity`: he is STABILISED and
+   *  bleeds no more. */
+  | { kind: 'woundStabilised'; tick: number; entity: number; medic: number }
   /** Field works (#277): a `construct` was accepted. `builder` is the lowest qualifying id the
    *  command named. `joined`: it named a live site's type and origin and joined that site rather
    *  than opening one (nothing new to pay for). */
@@ -1046,7 +1061,7 @@ export const SIM_EVENT_KINDS = [
   'spawn', 'contact', 'fire', 'aps', 'impact', 'component', 'nearMiss', 'ambushSprung',
   'strike', 'smokeLaid', 'revealed', 'structureHit', 'structureDestroyed', 'garrison',
   'transport', 'ventOpened', 'tunnelContact', 'surfaced', 'submerged', 'tunnelCollapsed', 'routed', 'rallied', 'pinned', 'unpinned', 'destroyed',
-  'removed', 'woundedDown', 'manKilled', 'bledOut', 'woundEvacuated',
+  'removed', 'woundedDown', 'manKilled', 'bledOut', 'woundEvacuated', 'woundStabilised',
   'constructQueued', 'constructRefused', 'constructStaked', 'structureComplete', 'constructCancelled',
 ] as const satisfies readonly SimEvent['kind'][];
 
@@ -1153,6 +1168,11 @@ export const SMOKE_RISE = 2;
 
 /** distance² in Q16.16 tile² without overflow: (d>>8)² == d²>>16 exactly
  *  enough for ranges; safe out to ±176 tiles. */
+/** GH-707 Task 5: `deliveryTarget`'s answer. Task 6 adds the aid post. */
+const DELIVER_NONE = 0;
+const DELIVER_CARRIER = 1;
+const DELIVER_EVAC = 2;
+
 function distSqFx(dx: Fx, dy: Fx): Fx {
   const x = dx >> 8;
   const y = dy >> 8;
@@ -1292,6 +1312,11 @@ export class Sim {
   private readonly evacY = new Int32Array(MAX_EVAC_POINTS);
   private readonly evacSide = new Int32Array(MAX_EVAC_POINTS);
   private evacCount = 0;
+  /** GH-707 Task 5: `deliveryTarget`'s answer -- a carrier id or an evac point index, and the
+   *  point to walk to. Scratch, read straight after the call that wrote it; never hashed. */
+  private deliverId = -1;
+  private deliverX: Fx = 0;
+  private deliverY: Fx = 0;
   /** GH-707: true once `addUnitType` registers a type with `wounds`, `rescue`, `can_carry` or
    *  role `wounded`, or `addStructureType` one with `aid`. hash() folds the wound block only
    *  while set, so no world without wound content moves any pin. */
@@ -3039,6 +3064,16 @@ export class Sim {
     this.medTimer[id] = 0;
     this.speedMul[id] = ONE;
     this.admittedAt[id] = -1;
+    // GH-707 Task 5 (c): a `wounded`-role body is DOWN from the moment it exists, whoever
+    // spawned it -- a fall (`fallMan` then sets the parent's own bleed over this default) or a
+    // mission placing one directly, which has no parent `hull.wounds` to read and bleeds
+    // WOUND_DEFAULT_BLEED_TICKS. Counted on his side here, the one place every body passes.
+    // Registering such a type sets `woundLive`, so no shipped world takes this branch.
+    if (this.woundLive && type.isWounded) {
+      this.woundState[id] = WOUND_DOWN;
+      this.bleedTicks[id] = WOUND_DEFAULT_BLEED_TICKS;
+      this.woundedAlive[side]++;
+    }
     this.apsAmmo[id] = type.apsMagazine;
     this.pendingEvents.push({ kind: 'spawn', tick: this.tickCount, entity: id, typeId: type.id, side });
     return id;
@@ -3199,6 +3234,9 @@ export class Sim {
     // GH-707: bleed and crawl, before movement (a wounded takes no movement step of its
     // own: stepMovement skips him, and his crawl is a direct position write here).
     this.stepWounded();
+    // GH-707 Task 5: medics after the bleed (a man who bled out this tick is not walked to)
+    // and before movement, so the leg a medic is given walks this same tick.
+    this.stepMedics();
     this.stepMovement();
     this.stepTransport();
     // GH-707 Task 4: a ground carrier on its side's evac point, after it moved and its riders
@@ -3541,7 +3579,22 @@ export class Sim {
         if (this.fwLive) {
           for (const id of cmd.ids) this.buildSite[id] = -1;
         }
-        if (cmd.kind !== 'attack') {
+        // GH-707 Task 5: any order but `rescue` takes a medic off his automatic job (he keeps
+        // whoever he carries), and `halt`, `setStance` and `unload` PARK him -- `medTimer` -1
+        // in MED_IDLE, no automatic rescue until his next order -- because a halted unit stays
+        // halted (the lead's ruling of 2026-10-11) and a man put down on an order must not be
+        // picked straight back up. `rescue` itself, like `attack`, touches only the ids it
+        // accepts (its branch). Nothing here without wound content.
+        if (this.woundLive && cmd.kind !== 'rescue') {
+          const park = cmd.kind === 'halt' || cmd.kind === 'setStance' || cmd.kind === 'unload';
+          for (const id of cmd.ids) {
+            if (id < 0 || id >= this.count || this.unitTypes[this.typeIdx[id]].rescue === null) continue;
+            this.medState[id] = MED_IDLE;
+            this.medTarget[id] = -1;
+            this.medTimer[id] = park ? -1 : 0;
+          }
+        }
+        if (cmd.kind !== 'attack' && cmd.kind !== 'rescue') {
           for (const id of cmd.ids) {
             if (this.focusTarget[id] >= 0) {
               this.moving[id] = 0;
@@ -3894,6 +3947,9 @@ export class Sim {
           // since no carrier is a foot role.
           if (!this.unitTypes[this.typeIdx[id]].canEmbark) continue;
           if (this.carriedBy[id] >= 0) continue;
+          // GH-707 D3: a carrying medic boards nothing (canSeat refuses him too); refused here
+          // so he is not walked to a hull that will never take him.
+          if (this.unitTypes[this.typeIdx[id]].rescue !== null && this.passengers[id] > 0) continue;
           if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
           this.boardGoal[id] = car;
           this.wpCount[id] = 0;
@@ -4066,6 +4122,31 @@ export class Sim {
           this.sweepOrder[id] = 0;
           this.engaging[id] = 0;
           this.stance[id] = 0; // any order overrides a held stance
+        }
+      } else if (cmd.kind === 'rescue') {
+        // GH-707 Task 5. Like `attack`: BEFORE the bare halt `else`, and a refused id changes
+        // nothing (the generic focus release above skips this kind).
+        for (const id of cmd.ids) {
+          if (!this.canRescue(id, cmd.target)) continue;
+          if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
+          this.focusTarget[id] = -1;
+          this.focusLost[id] = 0;
+          this.wpCount[id] = 0;
+          this.boardGoal[id] = -1;
+          this.garrisonGoal[id] = -1;
+          this.demolishOrder[id] = -1;
+          this.chargeOrder[id] = -1;
+          this.chargeTicks[id] = 0;
+          // stepMedics, later this tick, walks him there (it owns his movement from now on).
+          this.moving[id] = 0;
+          this.fieldRef[id] = -1;
+          this.attackMove[id] = 0;
+          this.sweepOrder[id] = 0;
+          this.engaging[id] = 0;
+          this.stance[id] = 0;
+          this.medState[id] = MED_TO_WOUNDED;
+          this.medTarget[id] = cmd.target;
+          this.medTimer[id] = 0;
         }
       } else if (cmd.kind === 'construct') {
         this.applyConstruct(cmd.ids, cmd.structType, cmd.x, cmd.y);
@@ -6556,12 +6637,11 @@ export class Sim {
       return;
     }
     const id = this.spawn(wt, side, this.posX[squad], this.posY[squad], this.facing[squad]);
+    // `spawn` already made him DOWN and counted him on his side (a `wounded`-role body).
     this.woundParent[id] = last ? -1 : squad;
     this.woundBy[id] = by;
-    this.woundState[id] = WOUND_DOWN;
     this.bleedTicks[id] = w.bleedTicks;
     this.scars[id] = this.scars[squad];
-    this.woundedAlive[side]++;
     this.pendingEvents.push({ kind: 'woundedDown', tick: this.tickCount, entity: id, parent: last ? -1 : squad, by });
   }
 
@@ -6627,6 +6707,10 @@ export class Sim {
       this.carriedBy[i] = -1;
       if (this.passengers[car] > 0) this.passengers[car]--;
       this.alive[i] = 0;
+      // Out of the fight ALIVE: `removed` is the flag `alive` alone cannot carry, the one
+      // `casualties_pct` and the renderer already read to tell a body taken off the board from
+      // a death (removeFromPlay's). Not hashed (see the field), so this moves no pin.
+      this.removed[i] = 1;
       this.moving[i] = 0;
       this.fieldRef[i] = -1;
       this.woundState[i] = WOUND_GONE;
@@ -6671,22 +6755,322 @@ export class Sim {
   }
 
   /** GH-707: is DOWN wounded `i` being tended -- a living, free (not carried, not buried, not
-   *  down) unit of his own side that is a medic within MEDIC_TREAT_REACH_SQ, or a carrier
-   *  within its own `stabiliseRadiusSq`? */
+   *  down) unit that would rescue him of its own accord (`rescuePriority` >= 0: his own side,
+   *  or anyone's when he is a civilian) and is a medic within MEDIC_TREAT_REACH_SQ, or a
+   *  carrier within its own `stabiliseRadiusSq`? An enemy medic beside him stops his bleed only
+   *  while actually treating him (on a `rescue` order); merely standing there, he does not. */
   private woundTended(i: number): boolean {
     const side = this.side[i];
     const px = this.posX[i];
     const py = this.posY[i];
     for (let t = 0; t < this.count; t++) {
-      if (t === i || this.alive[t] === 0 || this.side[t] !== side) continue;
+      if (t === i || this.alive[t] === 0) continue;
       const type = this.unitTypes[this.typeIdx[t]];
       if (type.rescue === null && type.stabiliseRadiusSq === 0) continue;
       if (this.carriedBy[t] >= 0 || this.tunnelIn[t] >= 0 || this.woundState[t] !== WOUND_NONE) continue;
+      // A medic treating him on an order (an enemy's medic, Task 5) is tending him too.
+      if (rescuePriority(this.side[t], side) < 0 && !(this.medState[t] === MED_TREATING && this.medTarget[t] === i)) continue;
       const dSq = distSqFx(fx.sub(this.posX[t], px), fx.sub(this.posY[t], py));
       if (type.rescue !== null && dSq <= MEDIC_TREAT_REACH_SQ) return true;
       if (type.stabiliseRadiusSq > 0 && dSq <= type.stabiliseRadiusSq) return true;
     }
     return false;
+  }
+
+  /**
+   * GH-707 Task 5, the medic: once a tick, after stepWounded and before movement, for every
+   * living free unit with a `rescue` block. Nothing at all without wound content.
+   *
+   * MED_IDLE: a medic standing still with no fire order, no boarding walk and not parked (a
+   * halt, stance or unload parks him: `medTimer` -1) goes to work by himself. Carrying someone
+   * (a player order took him off a delivery), he delivers (MED_CARRYING). Otherwise he picks
+   * the best wounded within `rescue.radiusSq` (`pickWounded`, D2: friendly, then civilian,
+   * never an enemy; nearest, then lowest id) and walks to him (MED_TO_WOUNDED).
+   * MED_TO_WOUNDED / MED_TREATING (`medicTend`): within MEDIC_TREAT_REACH_SQ he stops and
+   * treats a DOWN man for `rescue.treatTicks` ticks, the last of them stabilising him
+   * (`woundStabilised`); a STABILISED man he takes into his own seat when he has one free
+   * (MED_CARRYING), else his job is done (MED_IDLE).
+   * MED_CARRYING / MED_DELIVERING (`medicDeliver`): to the nearest place that takes a wounded
+   * (`deliveryTarget`); none, he holds where he is, still carrying.
+   *
+   * He moves only by the ordinary move machinery (`medicGoTo`: a goal and a pooled flow
+   * field), never by a position write; the wounded is never given a goal (his crawl reads his
+   * own goalX/goalY). A routed medic drops his job (keeping his passenger) and runs.
+   */
+  private stepMedics(): void {
+    if (!this.woundLive) return;
+    for (let m = 0; m < this.count; m++) {
+      if (this.alive[m] === 0) continue;
+      const r = this.unitTypes[this.typeIdx[m]].rescue;
+      if (r === null) continue;
+      if (this.carriedBy[m] >= 0 || this.tunnelIn[m] >= 0 || this.garrisonedIn[m] >= 0) continue;
+      if (this.woundState[m] !== WOUND_NONE) continue;
+      let st = this.medState[m];
+      if (this.routed[m] === 1) {
+        if (st !== MED_IDLE) this.medicIdle(m);
+        continue;
+      }
+      if (st === MED_IDLE) {
+        if (this.medTimer[m] < 0) continue; // parked by an order
+        if (this.moving[m] !== 0 || this.focusTarget[m] >= 0 || this.boardGoal[m] >= 0) continue;
+        if (this.passengers[m] > 0) {
+          st = MED_CARRYING;
+        } else {
+          const w = this.pickWounded(m, r.radiusSq);
+          if (w < 0) continue;
+          this.medTarget[m] = w;
+          this.medTimer[m] = 0;
+          st = MED_TO_WOUNDED;
+        }
+        this.medState[m] = st;
+      }
+      if (st === MED_TO_WOUNDED || st === MED_TREATING) this.medicTend(m, r.treatTicks);
+      else this.medicDeliver(m);
+    }
+  }
+
+  /** GH-707 Task 5: medic `m` back to MED_IDLE with no target, his walk stopped. Whoever he
+   *  carries stays aboard. */
+  private medicIdle(m: number): void {
+    this.medState[m] = MED_IDLE;
+    this.medTarget[m] = -1;
+    this.medTimer[m] = 0;
+    this.moving[m] = 0;
+    this.fieldRef[m] = -1;
+  }
+
+  /** GH-707 Task 5: may `w` be treated or picked up now -- alive, DOWN or STABILISED, not
+   *  aboard anything, on the surface. */
+  private rescuable(w: number): boolean {
+    if (w < 0 || w >= this.count || this.alive[w] === 0) return false;
+    const st = this.woundState[w];
+    if (st !== WOUND_DOWN && st !== WOUND_STABILISED) return false;
+    return this.carriedBy[w] < 0 && this.tunnelIn[w] < 0;
+  }
+
+  /** GH-707 Task 5: does medic `m`'s side know wounded `w` -- its own man always; anyone
+   *  else only at IDENTIFIED_AT or better (a civilian side, holding no contacts, knows only
+   *  its own). */
+  private medicKnows(m: number, w: number): boolean {
+    const side = this.side[m];
+    if (this.side[w] === side) return true;
+    return side <= 1 && this.contact[side * this.capacity + w] >= IDENTIFIED_AT;
+  }
+
+  /** GH-707 Task 5: the `rescue` order's gate for one id. */
+  private canRescue(id: number, w: number): boolean {
+    if (id < 0 || id >= this.count || this.alive[id] === 0) return false;
+    if (this.unitTypes[this.typeIdx[id]].rescue === null) return false;
+    if (this.routed[id] === 1 || this.carriedBy[id] >= 0 || this.tunnelIn[id] >= 0) return false;
+    return this.rescuable(w) && this.medicKnows(id, w);
+  }
+
+  /**
+   * GH-707 Task 5 (D2): the wounded idle medic `m` goes to of his own accord, or -1. Within
+   * `radiusSq` of him, rescuable, known to his side, `rescuePriority` >= 0 (friendly 0, then
+   * civilian 1; never an enemy), not already some other medic's job; a STABILISED man only
+   * when `m` has a free seat (he has nothing left to do for him otherwise). Best priority,
+   * then nearest, then lowest id (the scan order and a strict `<`).
+   */
+  private pickWounded(m: number, radiusSq: Fx): number {
+    const wa = this.woundedAlive;
+    if (wa[0] === 0 && wa[1] === 0 && wa[2] === 0) return -1;
+    const side = this.side[m];
+    const type = this.unitTypes[this.typeIdx[m]];
+    const seat = this.passengers[m] < type.transportSlots;
+    const mx = this.posX[m];
+    const my = this.posY[m];
+    let best = -1;
+    let bestP = 0;
+    let bestD = 0;
+    for (let w = 0; w < this.count; w++) {
+      if (w === m || !this.rescuable(w)) continue;
+      const p = rescuePriority(side, this.side[w]);
+      if (p < 0) continue;
+      if (this.woundState[w] === WOUND_STABILISED && !seat) continue;
+      const d = distSqFx(fx.sub(this.posX[w], mx), fx.sub(this.posY[w], my));
+      if (d > radiusSq) continue;
+      if (best >= 0 && (p > bestP || (p === bestP && d >= bestD))) continue;
+      if (!this.medicKnows(m, w) || this.claimedByOther(w, m)) continue;
+      best = w;
+      bestP = p;
+      bestD = d;
+    }
+    return best;
+  }
+
+  /** GH-707 Task 5: is wounded `w` some living medic's job other than `m`'s? */
+  private claimedByOther(w: number, m: number): boolean {
+    for (let o = 0; o < this.count; o++) {
+      if (o === m || this.alive[o] === 0 || this.medTarget[o] !== w) continue;
+      const st = this.medState[o];
+      if (st === MED_TO_WOUNDED || st === MED_TREATING) return true;
+    }
+    return false;
+  }
+
+  /** GH-707 Task 5: one tick of medic `m` going to, then treating, his `medTarget`. */
+  private medicTend(m: number, treatTicks: number): void {
+    const w = this.medTarget[m];
+    if (!this.rescuable(w)) {
+      this.medicIdle(m);
+      return;
+    }
+    const d = distSqFx(fx.sub(this.posX[w], this.posX[m]), fx.sub(this.posY[w], this.posY[m]));
+    if (d > MEDIC_TREAT_REACH_SQ) {
+      this.medState[m] = MED_TO_WOUNDED;
+      this.medTimer[m] = 0;
+      this.medicGoTo(m, this.posX[w], this.posY[w]);
+      return;
+    }
+    // In reach: he stops where he is and works.
+    this.moving[m] = 0;
+    this.fieldRef[m] = -1;
+    this.wpCount[m] = 0;
+    if (this.woundState[w] === WOUND_DOWN) {
+      if (this.medState[m] !== MED_TREATING) {
+        this.medState[m] = MED_TREATING;
+        this.medTimer[m] = treatTicks;
+      }
+      const t = this.medTimer[m] - 1;
+      this.medTimer[m] = t;
+      if (t > 0) return;
+      this.woundState[w] = WOUND_STABILISED;
+      this.pendingEvents.push({ kind: 'woundStabilised', tick: this.tickCount, entity: w, medic: m });
+    }
+    this.medTimer[m] = 0;
+    if (this.canSeat(m, w)) {
+      this.seat(m, w);
+      this.posX[w] = this.posX[m];
+      this.posY[w] = this.posY[m];
+      this.facing[w] = this.facing[m];
+      this.medState[m] = MED_CARRYING;
+      return;
+    }
+    this.medicIdle(m); // treat-only (no seat), or his seats are full: done with him
+  }
+
+  /** GH-707 Task 5: one tick of medic `m` carrying -- to `deliveryTarget`, or holding. */
+  private medicDeliver(m: number): void {
+    if (this.passengers[m] === 0) {
+      // Delivered (handed over, evacuated) or put down: the job is over.
+      this.medicIdle(m);
+      return;
+    }
+    const kind = this.deliveryTarget(m);
+    if (kind === DELIVER_NONE) {
+      if (this.medState[m] === MED_DELIVERING) {
+        this.moving[m] = 0;
+        this.fieldRef[m] = -1;
+      }
+      this.medState[m] = MED_CARRYING;
+      return;
+    }
+    this.medState[m] = MED_DELIVERING;
+    if (kind === DELIVER_CARRIER) {
+      const c = this.deliverId;
+      const d = distSqFx(fx.sub(this.posX[c], this.posX[m]), fx.sub(this.posY[c], this.posY[m]));
+      if (d <= LOAD_RANGE_SQ) {
+        for (let i = 0; i < this.count; i++) {
+          if (this.carriedBy[i] === m && this.alive[i] === 1) this.transferSeat(m, c, i);
+        }
+        if (this.passengers[m] === 0) {
+          this.medicIdle(m);
+          return;
+        }
+      }
+    }
+    // DELIVER_EVAC: stepEvacuation takes his wounded once he stands within a tile of the point.
+    this.medicGoTo(m, this.deliverX, this.deliverY);
+  }
+
+  /**
+   * GH-707 Task 5: where carrying medic `m` takes his wounded -- the nearest (strict `<`, so
+   * ties go to the earlier candidate in scan order) of: a living friendly carrier, not itself a
+   * medic, that would seat a wounded now (`canSeat`'s own rule: `can_carry` listing
+   * `wounded`, a free seat, and an air carrier only while LANDED), handed over within
+   * LOAD_RANGE_SQ; or one of his side's evac points. Writes `deliverId`/`deliverX`/`deliverY`
+   * (scratch, never hashed) and returns the kind, DELIVER_NONE when there is nowhere.
+   *
+   * THE HOOK FOR TASK 6: a friendly aid structure is one more candidate kind here, scanned
+   * FIRST; nothing else in stepMedics needs to know about it.
+   */
+  private deliveryTarget(m: number): number {
+    const side = this.side[m];
+    const mx = this.posX[m];
+    const my = this.posY[m];
+    let rider = -1;
+    for (let i = 0; i < this.count; i++) {
+      if (this.carriedBy[i] === m && this.alive[i] === 1) {
+        rider = i;
+        break;
+      }
+    }
+    let kind = DELIVER_NONE;
+    let bestD = 0;
+    if (rider >= 0) {
+      for (let c = 0; c < this.count; c++) {
+        if (c === m || this.alive[c] === 0 || this.side[c] !== side) continue;
+        const ct = this.unitTypes[this.typeIdx[c]];
+        if (ct.canCarry === null || ct.rescue !== null || ct.transportSlots === 0) continue;
+        const d = distSqFx(fx.sub(this.posX[c], mx), fx.sub(this.posY[c], my));
+        if (kind !== DELIVER_NONE && d >= bestD) continue;
+        // canSeat refuses a rider already aboard something; ask as transferSeat does.
+        this.carriedBy[rider] = -1;
+        const ok = this.canSeat(c, rider);
+        this.carriedBy[rider] = m;
+        if (!ok) continue;
+        kind = DELIVER_CARRIER;
+        bestD = d;
+        this.deliverId = c;
+        this.deliverX = this.posX[c];
+        this.deliverY = this.posY[c];
+      }
+    }
+    for (let k = 0; k < this.evacCount; k++) {
+      if (this.evacSide[k] !== side) continue;
+      const d = distSqFx(fx.sub(this.evacX[k], mx), fx.sub(this.evacY[k], my));
+      if (kind !== DELIVER_NONE && d >= bestD) continue;
+      kind = DELIVER_EVAC;
+      bestD = d;
+      this.deliverId = k;
+      this.deliverX = this.evacX[k];
+      this.deliverY = this.evacY[k];
+    }
+    return kind;
+  }
+
+  /**
+   * GH-707 Task 5: walk medic `m` toward (x, y) by the ordinary machinery -- a goal and a
+   * pooled flow field on his own domain, the goal snapped to ground he can stand on (the
+   * exact point when its tile is open, the open tile's centre otherwise: stepFocus's rule).
+   * A no-op while he is already walking to that tile, so a chase costs one field per tile the
+   * goal crosses, not one per tick. Allocation-free.
+   */
+  private medicGoTo(m: number, x: Fx, y: Fx): void {
+    const domain = this.domainOf(m);
+    let gx = x;
+    let gy = y;
+    let gtx = x >> 16;
+    let gty = y >> 16;
+    if (!this.unitTypes[this.typeIdx[m]].isAir) {
+      this.snapOpenTile(gtx, gty, this.maskFor(domain));
+      if (this.snapX !== gtx || this.snapY !== gty) {
+        gtx = this.snapX;
+        gty = this.snapY;
+        gx = fx.add(fx.fromInt(gtx), HALF);
+        gy = fx.add(fx.fromInt(gty), HALF);
+      }
+    }
+    if (this.moving[m] === 1 && this.fieldRef[m] >= 0 && this.goalX[m] >> 16 === gtx && this.goalY[m] >> 16 === gty) return;
+    this.wpCount[m] = 0;
+    this.goalX[m] = gx;
+    this.goalY[m] = gy;
+    this.fieldRef[m] = this.fieldFor(gtx, gty, domain);
+    this.moving[m] = 1;
+    this.attackMove[m] = 0;
+    this.sweepOrder[m] = 0;
+    this.engaging[m] = 0;
   }
 
   /** GH-707: one tick of DOWN wounded `i`'s crawl to cover (see stepWounded). */
@@ -7123,6 +7507,10 @@ export class Sim {
     } else if (woundedRider || !riderType.canEmbark) {
       return false;
     }
+    // GH-707 D3: a medic carrying a wounded does not board anything himself -- no nested
+    // carrying; he hands the man over instead (`transferSeat`). Only a `rescue` type can be
+    // refused here, and only content gives a type one.
+    if (riderType.rescue !== null && this.passengers[id] > 0) return false;
     // Neither party may be underground: a buried rider cannot reach a seat,
     // and a buried hull is not a place a surface unit can climb into. The
     // deepest gate — embarkAtSpawn and boarding both pass through here.
@@ -7174,11 +7562,8 @@ export class Sim {
    * for `canSeat`. False, and nothing written, when he is not aboard `fromCar` or `toCar`
    * cannot take him. Otherwise one `transport` unload then one load, and he is on `toCar`'s
    * hull the same tick: no frame beside either vehicle.
-   *
-   * `protected`, not `private`, only until Task 5's medic calls it: TS flags an unread
-   * private member, and nothing in the sim hands a rider over before the medic exists.
    */
-  protected transferSeat(fromCar: number, toCar: number, id: number): boolean {
+  private transferSeat(fromCar: number, toCar: number, id: number): boolean {
     if (fromCar === toCar || id < 0 || id >= this.count || this.carriedBy[id] !== fromCar) return false;
     this.carriedBy[id] = -1; // canSeat refuses a rider already aboard something
     const ok = this.canSeat(toCar, id);

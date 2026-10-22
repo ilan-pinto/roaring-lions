@@ -157,7 +157,7 @@ describe('the can_carry role filter (GH-707 Task 4)', () => {
     const { sim, put } = world();
     const amb = put(AMBULANCE, 0, 5.5, 5.5);
     expect(sim.embarkAtSpawn(amb, put(WOUNDED_NO_EMBARK, 0, 6.5, 5.5))).toBe(true); // isWounded, can_embark false
-    expect(sim.embarkAtSpawn(amb, put(WOUNDED, 0, 6.5, 5.5))).toBe(true); // woundState NONE, role wounded
+    expect(sim.embarkAtSpawn(amb, put(WOUNDED, 0, 6.5, 5.5))).toBe(true); // spawned directly, role wounded
   });
 
   it('a downed-in-place civilian is a wounded rider: the ambulance takes him, an APC does not', () => {
@@ -196,6 +196,7 @@ describe('transferSeat (GH-707 Task 4)', () => {
     const amb = put(AMBULANCE, 0, 6.5, 5.5);
     const w = down(5.5, 6.5);
     expect(sim.embarkAtSpawn(medic, w)).toBe(true);
+    sim.queueCommand({ kind: 'halt', ids: [medic] }); // parked: he would hand over by himself (Task 5)
     sim.tick();
     expect(sim.state.speedMul[medic]).toBe(49152); // 0.75 while he carries
     expect(transfer(sim, medic, amb, w)).toBe(true);
@@ -217,6 +218,7 @@ describe('transferSeat (GH-707 Task 4)', () => {
     const heli = put(MEDEVAC, 0, 8.5, 5.5); // AIRBORNE: seats nobody
     const w = down(5.5, 6.5);
     expect(sim.embarkAtSpawn(medic, w)).toBe(true);
+    sim.queueCommand({ kind: 'halt', ids: [medic] }); // parked (Task 5): no walk to the ambulance
     sim.tick();
     expect(transfer(sim, medic, apc, w)).toBe(false);
     expect(transfer(sim, medic, heli, w)).toBe(false);
@@ -387,6 +389,346 @@ describe('a carrier dies with a wounded aboard (GH-707 Task 4)', () => {
     sim.debugKill(heli);
     expect([sim.state.alive[w], sim.state.woundedAlive[0]]).toEqual([0, 0]);
     expect(of(sim.tick(), 'destroyed').map((e) => e.entity)).toEqual([w, heli]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// GH-707 Task 5: the medic. Every wounded below bleeds 60 s (1200 ticks) unless said otherwise,
+// so nobody dies of the walk.
+
+/** A BLEEDER that bleeds 60 s: a 100-hp hit sheds one DOWN wounded with 1200 bleed ticks. */
+const SLOW_BLEEDER: UnitTypeJson = {
+  ...BLEEDER,
+  id: 'rs_slow_bleeder',
+  hull: { ...BLEEDER.hull, wounds: { wound_chance: 1, bleed_s: 60, type: 'rs_wounded' } },
+};
+
+/** One-man medic, no seat: he treats and nothing else. */
+const TREATER: UnitTypeJson = { ...DRAGGER, id: 'rs_treater', hull: { ...DRAGGER.hull, transport_slots: 0 } };
+
+/** A DOWN wounded of `side` at (x, y), shed by a SLOW_BLEEDER the far shooter of the other
+ *  side hits for 100. */
+function downOf(w: World, side: number, x: number, y: number): number {
+  const by = side === 0 ? w.shooter : w.put(RIFLES, 0, 0.5, 11.5);
+  const squad = w.put(SLOW_BLEEDER, side, x, y);
+  const id = w.sim.entityCount;
+  hit(w.sim, squad, 100, by);
+  expect([w.sim.state.woundState[id], w.sim.state.side[id], w.sim.state.bleedTicks[id]]).toEqual([1, side, 1200]);
+  return id;
+}
+
+const col = (sim: Sim, name: 'goalY' | 'boardGoal'): Int32Array => (sim as unknown as Record<string, Int32Array>)[name];
+const contact = (sim: Sim): Int32Array => (sim as unknown as { contact: Int32Array }).contact;
+const CAP = 48; // world()'s capacity: contact is side * capacity + target
+
+describe('rescuePriority is wired into the pick (GH-707 Task 5, D2)', () => {
+  it('an idle medic leaves an enemy wounded alone, however near', () => {
+    const wd = world();
+    const medic = wd.put(DRAGGER, 0, 5.5, 5.5);
+    const e = downOf(wd, 1, 6.5, 5.5);
+    wd.sim.queueCommand({ kind: 'reveal', side: 0, x: fx.from(6.5), y: fx.from(5.5) }); // identified: not the reason
+    for (let t = 0; t < 100; t++) wd.sim.tick();
+    expect([wd.sim.state.medState[medic], wd.sim.state.medTarget[medic], wd.sim.state.woundState[e]]).toEqual([0, -1, 1]);
+  });
+
+  it('a civilian wounded is picked when he is alone, and loses to a friendly at equal distance', () => {
+    const civAlone = (withFriend: boolean): { medic: number; civ: number; friend: number; target: number } => {
+      const wd = world();
+      const medic = wd.put(DRAGGER, 0, 8.5, 5.5);
+      // The civilian first, so he holds the LOWER id: a tie broken by id alone would pick him.
+      const civ = wd.put(CIVILIAN, 2, 11.5, 5.5); // 3 tiles east: 9 tile^2
+      hit(wd.sim, civ, 30, wd.shooter);
+      const friend = withFriend ? downOf(wd, 0, 5.5, 5.5) : -1; // 3 tiles west: 9 tile^2
+      contact(wd.sim)[0 * CAP + civ] = 65536; // side 0 knows him: the priority is what is tested
+      wd.sim.tick();
+      return { medic, civ, friend, target: wd.sim.state.medTarget[medic] };
+    };
+    const a = civAlone(false);
+    expect(a.target).toBe(a.civ);
+    const b = civAlone(true);
+    expect(b.target).toBe(b.friend);
+  });
+
+  it('an unidentified civilian is not picked; the same man identified is', () => {
+    // A medic who sees 2 tiles, the only side-0 eye on the map, 5 tiles from the civilian: side 0
+    // never identifies him by itself.
+    const SHORT_SIGHTED: UnitTypeJson = { ...DRAGGER, id: 'rs_short', sensors: { optics: 1, sight_tiles: 2, signature: 0.6 } };
+    const wd = world();
+    const medic = wd.put(SHORT_SIGHTED, 0, 6.5, 5.5);
+    const civ = wd.put(CIVILIAN, 2, 11.5, 5.5);
+    hit(wd.sim, civ, 30, wd.shooter);
+    for (let t = 0; t < 50; t++) wd.sim.tick();
+    expect(contact(wd.sim)[0 * CAP + civ]).toBeLessThan(39322); // IDENTIFIED_AT 0.6
+    expect([wd.sim.state.medState[medic], wd.sim.state.medTarget[medic]]).toEqual([0, -1]);
+    contact(wd.sim)[0 * CAP + civ] = 65536;
+    wd.sim.tick();
+    expect([wd.sim.state.medState[medic], wd.sim.state.medTarget[medic]]).toEqual([1, civ]);
+  });
+});
+
+describe('the automatic rescue, end to end (GH-707 Task 5)', () => {
+  /** Medic of `t` at (2.5, 5.5), a friendly DOWN wounded at (8.5, 5.5) -- 6 tiles, inside the
+   *  8-tile radius -- and the side's evac point at (16.5, 5.5). Tick by tick, up to `max`. */
+  function rescue(t: UnitTypeJson, max: number) {
+    const wd = world();
+    const medic = wd.put(t, 0, 2.5, 5.5);
+    const w = downOf(wd, 0, 8.5, 5.5);
+    wd.sim.addEvacPoint(0, fx.from(16.5), fx.from(5.5));
+    const states: number[] = [];
+    const bleed: number[] = [];
+    const evs: SimEvent[] = [];
+    for (let k = 0; k < max; k++) {
+      evs.push(...wd.sim.tick());
+      states.push(wd.sim.state.medState[medic]);
+      bleed.push(wd.sim.state.bleedTicks[w]);
+    }
+    return { sim: wd.sim, medic, w, states, bleed, evs };
+  }
+
+  it('walks to him, treats exactly treat_s x 20 = 120 ticks, drags him to the evac point, and he leaves alive', () => {
+    const r = rescue(DRAGGER, 1200);
+    const firstTreat = r.states.indexOf(2); // tick index (0-based) of the first tick ending TREATING
+    expect(r.states.slice(0, firstTreat).every((s) => s === 1)).toBe(true); // TO_WOUNDED all the way
+    const stab = of(r.evs, 'woundStabilised');
+    expect(stab.map((e) => [e.entity, e.medic])).toEqual([[r.w, r.medic]]);
+    // TREATING set on tick T with timer 120, decremented that same tick: 119 ... 0 on T + 119,
+    // the 120th tick of treatment. Event ticks are 0-based like the index.
+    expect(stab[0].tick - firstTreat).toBe(119);
+    expect(r.states.slice(firstTreat, firstTreat + 119).every((s) => s === 2)).toBe(true);
+    // He bled while the medic walked (more than 2 tiles off), and not from the tick he was in reach.
+    expect(r.bleed[firstTreat - 1]).toBeLessThan(1200);
+    expect(r.bleed[firstTreat + 119]).toBe(r.bleed[firstTreat - 1]);
+    // Picked up the tick he was stabilised (CARRYING, 3), delivering (4) from the next.
+    expect([r.states[firstTreat + 119], r.states[firstTreat + 120]]).toEqual([3, 4]);
+    const ev = of(r.evs, 'woundEvacuated');
+    expect(ev.map((e) => [e.entity, e.carrier, e.side])).toEqual([[r.w, r.medic, 0]]);
+    expect(of(r.evs, 'destroyed').filter((e) => e.entity === r.w)).toEqual([]);
+    // Carry-over (b): out of play alive -- `removed`, the flag casualties_pct reads, not a death.
+    expect([r.sim.state.alive[r.w], r.sim.state.removed[r.w], r.sim.state.woundState[r.w]]).toEqual([0, 1, 4]);
+    // His job over, the medic is idle again and empty-handed, back at full speed.
+    expect([r.sim.state.medState[r.medic], passengers(r.sim)[r.medic], r.sim.state.speedMul[r.medic]]).toEqual([0, 0, 65536]);
+  });
+
+  it('a medic with no seat treats and stops: STABILISED, left lying, not picked again', () => {
+    const r = rescue(TREATER, 400);
+    expect(of(r.evs, 'woundStabilised')).toHaveLength(1);
+    expect([r.sim.state.woundState[r.w], carriedBy(r.sim)[r.w], r.sim.state.alive[r.w]]).toEqual([2, -1, 1]);
+    expect(r.states.at(-1)).toBe(0);
+    expect(r.sim.state.medTarget[r.medic]).toBe(-1);
+  });
+
+  it('beyond rescue.radius (8 tiles) nobody comes', () => {
+    const wd = world();
+    const medic = wd.put(DRAGGER, 0, 2.5, 5.5);
+    downOf(wd, 0, 11.5, 5.5); // 9 tiles: 81 > 64
+    for (let k = 0; k < 50; k++) wd.sim.tick();
+    expect([wd.sim.state.medState[medic], wd.sim.state.moving[medic]]).toEqual([0, 0]);
+  });
+
+  it('a medic killed while dragging drops him where he stood, still STABILISED, unhurt', () => {
+    const wd = world();
+    const medic = wd.put(DRAGGER, 0, 7.5, 5.5);
+    const w = downOf(wd, 0, 8.5, 5.5);
+    wd.sim.addEvacPoint(0, fx.from(16.5), fx.from(5.5));
+    let k = 0;
+    while (passengers(wd.sim)[medic] === 0 && k < 400) {
+      wd.sim.tick();
+      k++;
+    }
+    for (let j = 0; j < 20; j++) wd.sim.tick();
+    expect([carriedBy(wd.sim)[w], wd.sim.state.medState[medic]]).toEqual([medic, 4]);
+    wd.sim.debugKill(medic);
+    expect([wd.sim.state.alive[w], carriedBy(wd.sim)[w], wd.sim.state.woundState[w], wd.sim.state.hp[w]]).toEqual([1, -1, 2, 30 * 65536]);
+    const bleedAt = wd.sim.state.bleedTicks[w];
+    for (let j = 0; j < 40; j++) wd.sim.tick();
+    expect([wd.sim.state.alive[w], wd.sim.state.bleedTicks[w]]).toEqual([1, bleedAt]); // STABILISED: no bleed
+  });
+});
+
+describe('the medic hands over (GH-707 Task 5)', () => {
+  it('to a friendly ambulance nearer than the evac point: walks into LOAD_RANGE and transfers the seat', () => {
+    const wd = world();
+    const medic = wd.put(DRAGGER, 0, 5.5, 5.5);
+    const w = downOf(wd, 0, 5.5, 6.5);
+    const amb = wd.put(AMBULANCE, 0, 10.5, 5.5); // 5 tiles: 25 tile^2
+    wd.sim.addEvacPoint(0, fx.from(16.5), fx.from(5.5)); // 11 tiles: 121
+    expect(wd.sim.embarkAtSpawn(medic, w)).toBe(true);
+    const evs: SimEvent[] = [];
+    for (let k = 0; k < 400 && carriedBy(wd.sim)[w] !== amb; k++) evs.push(...wd.sim.tick());
+    expect([carriedBy(wd.sim)[w], passengers(wd.sim)[amb], passengers(wd.sim)[medic], wd.sim.state.medState[medic]]).toEqual([amb, 1, 0, 0]);
+    // He handed over from within 1.5 tiles (LOAD_RANGE_SQ 2.25 tile^2 = 147456).
+    // Measured as the sim measures it (distSqFx: each delta >> 8, then squared), not in floats.
+    const dx = (wd.sim.state.posX[amb] - wd.sim.state.posX[medic]) >> 8;
+    const dy = (wd.sim.state.posY[amb] - wd.sim.state.posY[medic]) >> 8;
+    expect(dx * dx + dy * dy).toBeLessThanOrEqual(147456);
+    expect(of(evs, 'woundEvacuated')).toEqual([]);
+  });
+
+  it('to a LANDED medevac, never to an airborne one', () => {
+    const go = (landed: boolean): number => {
+      const wd = world();
+      const medic = wd.put(DRAGGER, 0, 5.5, 5.5);
+      const w = downOf(wd, 0, 5.5, 6.5);
+      const heli = wd.put(MEDEVAC, 0, 8.5, 5.5);
+      if (landed) wd.sim.state.airState[heli] = 2; // AIR_LANDED
+      expect(wd.sim.embarkAtSpawn(medic, w)).toBe(true);
+      for (let k = 0; k < 300; k++) wd.sim.tick();
+      return carriedBy(wd.sim)[w] === heli ? 1 : wd.sim.state.medState[medic];
+    };
+    expect(go(true)).toBe(1);
+    expect(go(false)).toBe(3); // nowhere to go: CARRYING, holding
+  });
+
+  it('nowhere to deliver: he holds where he is, carrying', () => {
+    const wd = world();
+    const medic = wd.put(DRAGGER, 0, 5.5, 5.5);
+    const w = downOf(wd, 0, 5.5, 6.5);
+    expect(wd.sim.embarkAtSpawn(medic, w)).toBe(true);
+    const x0 = wd.sim.state.posX[medic];
+    for (let k = 0; k < 60; k++) wd.sim.tick();
+    expect([wd.sim.state.medState[medic], wd.sim.state.moving[medic], wd.sim.state.posX[medic], carriedBy(wd.sim)[w]]).toEqual([3, 0, x0, medic]);
+  });
+});
+
+describe('player orders and the medic (GH-707 Task 5)', () => {
+  it('a `rescue` order sends him to an IDENTIFIED enemy wounded; he treats him (his bleed paused) and carries him', () => {
+    const wd = world();
+    const medic = wd.put(DRAGGER, 0, 5.5, 5.5);
+    const e = downOf(wd, 1, 9.5, 5.5);
+    wd.sim.queueCommand({ kind: 'reveal', side: 0, x: fx.from(9.5), y: fx.from(5.5) });
+    wd.sim.tick();
+    wd.sim.queueCommand({ kind: 'rescue', ids: [medic], target: e });
+    const evs: SimEvent[] = [];
+    let treatBleed = -1;
+    for (let k = 0; k < 400 && carriedBy(wd.sim)[e] !== medic; k++) {
+      evs.push(...wd.sim.tick());
+      if (wd.sim.state.medState[medic] === 2) {
+        if (treatBleed < 0) treatBleed = wd.sim.state.bleedTicks[e];
+        else expect(wd.sim.state.bleedTicks[e]).toBe(treatBleed); // an enemy medic, but treating him
+      }
+    }
+    expect(of(evs, 'woundStabilised').map((x) => [x.entity, x.medic])).toEqual([[e, medic]]);
+    expect([carriedBy(wd.sim)[e], wd.sim.state.woundState[e]]).toEqual([medic, 2]);
+  });
+
+  it('refuses an unidentified enemy wounded: the medic keeps the order he had, nothing written', () => {
+    const wd = world();
+    const medic = wd.put(DRAGGER, 0, 2.5, 5.5);
+    const e = downOf(wd, 1, 17.5, 5.5); // 15 tiles: beyond sight 8
+    wd.sim.queueCommand({ kind: 'move', ids: [medic], x: fx.from(2.5), y: fx.from(10.5) });
+    wd.sim.tick();
+    expect(contact(wd.sim)[0 * CAP + e]).toBeLessThan(39322);
+    const gy = col(wd.sim, 'goalY')[medic];
+    wd.sim.queueCommand({ kind: 'rescue', ids: [medic], target: e });
+    wd.sim.tick();
+    expect([wd.sim.state.medState[medic], wd.sim.state.medTarget[medic], wd.sim.state.moving[medic], col(wd.sim, 'goalY')[medic]]).toEqual([0, -1, 1, gy]);
+    // Control: the same order once side 0 knows him is taken.
+    contact(wd.sim)[0 * CAP + e] = 65536;
+    wd.sim.queueCommand({ kind: 'rescue', ids: [medic], target: e });
+    wd.sim.tick();
+    expect([wd.sim.state.medState[medic], wd.sim.state.medTarget[medic]]).toEqual([1, e]);
+  });
+
+  it('refuses a non-medic, a target that is not down, and a target already carried', () => {
+    const wd = world();
+    const rifle = wd.put(RIFLES, 0, 5.5, 5.5);
+    const medic = wd.put(DRAGGER, 0, 5.5, 6.5);
+    const w = downOf(wd, 0, 6.5, 5.5);
+    const amb = wd.put(AMBULANCE, 0, 7.5, 5.5);
+    wd.sim.queueCommand({ kind: 'halt', ids: [medic] }); // parked
+    wd.sim.queueCommand({ kind: 'rescue', ids: [rifle], target: w });
+    wd.sim.queueCommand({ kind: 'rescue', ids: [medic], target: rifle });
+    wd.sim.tick();
+    expect([wd.sim.state.medState[rifle], wd.sim.state.medState[medic], wd.sim.state.medTimer[medic]]).toEqual([0, 0, -1]);
+    expect(wd.sim.embarkAtSpawn(amb, w)).toBe(true);
+    wd.sim.queueCommand({ kind: 'rescue', ids: [medic], target: w });
+    wd.sim.tick();
+    expect([wd.sim.state.medState[medic], wd.sim.state.medTimer[medic]]).toEqual([0, -1]);
+  });
+
+  it('a move mid-carry: back to IDLE, the passenger kept; stopped again, he carries on delivering', () => {
+    const wd = world();
+    const medic = wd.put(DRAGGER, 0, 5.5, 5.5);
+    const w = downOf(wd, 0, 5.5, 6.5);
+    expect(wd.sim.embarkAtSpawn(medic, w)).toBe(true);
+    wd.sim.tick();
+    expect(wd.sim.state.medState[medic]).toBe(3);
+    wd.sim.queueCommand({ kind: 'move', ids: [medic], x: fx.from(7.5), y: fx.from(5.5) });
+    wd.sim.tick();
+    expect([wd.sim.state.medState[medic], wd.sim.state.moving[medic], carriedBy(wd.sim)[w]]).toEqual([0, 1, medic]);
+    wd.sim.addEvacPoint(0, fx.from(14.5), fx.from(5.5));
+    const evs: SimEvent[] = [];
+    for (let k = 0; k < 900; k++) evs.push(...wd.sim.tick());
+    expect(of(evs, 'woundEvacuated').map((e) => e.entity)).toEqual([w]);
+  });
+
+  it('`unload` puts him down beside the medic and parks the medic: he is not picked straight back up', () => {
+    const wd = world();
+    const medic = wd.put(DRAGGER, 0, 5.5, 5.5);
+    const w = downOf(wd, 0, 5.5, 6.5);
+    expect(wd.sim.embarkAtSpawn(medic, w)).toBe(true);
+    wd.sim.tick();
+    wd.sim.queueCommand({ kind: 'unload', ids: [medic] });
+    wd.sim.tick();
+    expect([carriedBy(wd.sim)[w], wd.sim.state.posX[w], wd.sim.state.posY[w]]).toEqual([-1, fx.from(6), fx.from(6)]);
+    for (let k = 0; k < 100; k++) wd.sim.tick();
+    expect([wd.sim.state.medState[medic], wd.sim.state.medTimer[medic], carriedBy(wd.sim)[w], wd.sim.state.alive[w]]).toEqual([0, -1, -1, 1]);
+  });
+
+  it('D3: a carrying medic is refused as a rider; empty, he boards', () => {
+    const wd = world();
+    const medic = wd.put(DRAGGER, 0, 5.5, 5.5);
+    const apc = wd.put(APC, 0, 6.5, 5.5);
+    const w = downOf(wd, 0, 5.5, 6.5);
+    expect(wd.sim.embarkAtSpawn(medic, w)).toBe(true);
+    expect(wd.sim.embarkAtSpawn(apc, medic)).toBe(false);
+    wd.sim.queueCommand({ kind: 'load', ids: [medic], carrier: apc });
+    wd.sim.tick();
+    expect(col(wd.sim, 'boardGoal')[medic]).toBe(-1); // not walked to a hull that will not take him
+    wd.sim.queueCommand({ kind: 'unload', ids: [medic] });
+    wd.sim.tick();
+    expect(wd.sim.embarkAtSpawn(apc, medic)).toBe(true);
+  });
+});
+
+describe('carry-overs into Task 5', () => {
+  it('(a) a civilian`s bleed pauses for ANY side`s medic within reach (parked here)', () => {
+    const bleedAfter = (medicSide: number | null): number => {
+      const wd = world();
+      const civ = wd.put(CIVILIAN, 2, 5.5, 5.5);
+      hit(wd.sim, civ, 30, wd.shooter);
+      if (medicSide !== null) wd.sim.queueCommand({ kind: 'halt', ids: [wd.put(DRAGGER, medicSide, 6.5, 5.5)] });
+      for (let k = 0; k < 50; k++) wd.sim.tick();
+      return wd.sim.state.bleedTicks[civ];
+    };
+    expect(bleedAfter(null)).toBe(1150); // 60 s = 1200, less 50
+    expect(bleedAfter(0)).toBe(1200);
+    expect(bleedAfter(1)).toBe(1200);
+  });
+
+  it('(a) an enemy medic standing (parked) beside a soldier does not pause his bleed', () => {
+    const wd = world();
+    const w = downOf(wd, 0, 5.5, 5.5);
+    wd.sim.queueCommand({ kind: 'halt', ids: [wd.put(DRAGGER, 1, 6.5, 5.5)] });
+    for (let k = 0; k < 50; k++) wd.sim.tick();
+    expect(wd.sim.state.bleedTicks[w]).toBe(1150);
+  });
+
+  it('(c) a wounded-role body spawned directly is DOWN, bleeds WOUND_DEFAULT_BLEED_TICKS (60 s), and counts', () => {
+    const wd = world();
+    expect(wd.sim.state.woundedAlive[1]).toBe(0);
+    const b = wd.put(WOUNDED, 1, 5.5, 5.5);
+    expect([wd.sim.state.woundState[b], wd.sim.state.bleedTicks[b], wd.sim.state.woundedAlive[1]]).toEqual([1, 1200, 1]);
+    for (let k = 0; k < 10; k++) wd.sim.tick();
+    expect(wd.sim.state.bleedTicks[b]).toBe(1190);
+    wd.sim.debugKill(b);
+    expect(wd.sim.state.woundedAlive[1]).toBe(0);
+  });
+
+  it('(c) a fall still counts its man once (spawn counts him; fallMan no longer does)', () => {
+    const wd = world();
+    downOf(wd, 0, 5.5, 5.5);
+    expect(wd.sim.state.woundedAlive[0]).toBe(1);
   });
 });
 

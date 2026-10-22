@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bestCoverTile, figuresStanding, scaleDown } from './wounds';
+import { bestCoverTile, figuresStanding, rescuePriority, scaleDown } from './wounds';
 
 // GH-707 Task 2: the pure share arithmetic. Literals only: 400 hp is 400 x 65536 = 26214400.
 const HP400 = 26214400;
@@ -99,5 +99,14 @@ describe('bestCoverTile (GH-707 Task 3)', () => {
     // From (0,0): the window is x 0..2, y 0..2; (2,2) = 12 is the far corner, 24 is outside it.
     expect(bestCoverTile(grid({ 12: 1, 24: 3 }), NONE, 5, 5, 0, 0)).toBe(12);
     expect(bestCoverTile(grid({ 24: 3 }), NONE, 5, 5, 0, 0)).toBe(0);
+  });
+});
+
+describe('rescuePriority (GH-707 D2)', () => {
+  it('own side 0, a civilian 1, an enemy -1, from either fighting side', () => {
+    expect([rescuePriority(0, 0), rescuePriority(0, 2), rescuePriority(0, 1)]).toEqual([0, 1, -1]);
+    expect([rescuePriority(1, 1), rescuePriority(1, 2), rescuePriority(1, 0)]).toEqual([0, 1, -1]);
+    // A civilian-side rescuer: his own are side 2, so they are "own" (0), never "civilian" (1).
+    expect([rescuePriority(2, 2), rescuePriority(2, 0)]).toEqual([0, -1]);
   });
 });

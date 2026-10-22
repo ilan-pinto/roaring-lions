@@ -77,3 +77,16 @@ export function bestCoverTile(
   }
   return best;
 }
+
+/**
+ * Whom a medic of `rescuerSide` rescues of his own accord (GH-707 D2): his own side first
+ * (0), then a civilian (side 2: 1), and nobody else (-1) -- an enemy wounded is rescued only
+ * by a player `rescue` order, an explicit act Conduct pays for. Lower is sooner; the caller
+ * breaks ties by distance, then by id. Also the bleed pause's rule: a medic whose priority for
+ * a wounded is >= 0 keeps him from bleeding while within treat reach.
+ */
+export function rescuePriority(rescuerSide: number, woundedSide: number): number {
+  if (woundedSide === rescuerSide) return 0;
+  if (woundedSide === 2) return 1;
+  return -1;
+}

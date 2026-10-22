@@ -647,21 +647,25 @@ describe('bleeding (GH-707 Task 3)', () => {
   });
 
   it('a friendly medic within 2 tiles pauses the bleed; out of reach, an enemy medic, or a dead one does not', () => {
+    // Every medic here is PARKED by a halt (Task 5): left alone he would treat the man, and a
+    // STABILISED man never bleeds -- this is the bleed pause alone, not the rescue.
     const { sim, w, spawnType } = woundWorld();
     const medic = spawnType(MEDIC, 0, 6.5, 5.5); // 1 tile off
+    sim.queueCommand({ kind: 'halt', ids: [medic] });
     for (let t = 0; t < 200; t++) sim.tick();
     expect([sim.state.alive[w], sim.state.bleedTicks[w]]).toEqual([1, 40]);
     sim.debugKill(medic);
     expect(ticksToDeath(sim, w, 100).n).toBe(40);
 
     const b = woundWorld();
-    b.spawnType(MEDIC, 1, 6.5, 5.5); // the enemy's medic
-    b.spawnType(MEDIC, 0, 8.5, 5.5); // 3 tiles off: 9 tile^2 > 4
+    const enemyMedic = b.spawnType(MEDIC, 1, 6.5, 5.5); // the enemy's medic
+    const farMedic = b.spawnType(MEDIC, 0, 8.5, 5.5); // 3 tiles off: 9 tile^2 > 4
+    b.sim.queueCommand({ kind: 'halt', ids: [enemyMedic, farMedic] });
     expect(ticksToDeath(b.sim, b.w, 100).n).toBe(40);
 
     // Exactly 2 tiles off is in reach (4 tile^2 <= 4).
     const c = woundWorld();
-    c.spawnType(MEDIC, 0, 7.5, 5.5);
+    c.sim.queueCommand({ kind: 'halt', ids: [c.spawnType(MEDIC, 0, 7.5, 5.5)] });
     for (let t = 0; t < 100; t++) c.sim.tick();
     expect(c.sim.state.bleedTicks[c.w]).toBe(40);
   });

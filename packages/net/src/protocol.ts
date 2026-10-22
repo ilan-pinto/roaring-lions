@@ -32,7 +32,7 @@ export const FORFEIT_MS = 60_000;
 
 /** `Command['kind']` as a value, so a wire command can be checked at runtime. */
 export const COMMAND_KINDS = [
-  'move', 'attackMove', 'halt', 'setStance', 'garrison', 'load', 'unload', 'reveal', 'callStrike', 'smoke', 'demolish', 'chargeTunnel', 'attack',
+  'move', 'attackMove', 'halt', 'setStance', 'garrison', 'load', 'unload', 'reveal', 'callStrike', 'smoke', 'demolish', 'chargeTunnel', 'attack', 'rescue',
   'build', 'support', 'cancelBuild', 'setRally', 'clearRally',
   'construct', 'cancelConstruct',
 ] as const satisfies readonly Command['kind'][];
@@ -182,6 +182,7 @@ export function cleanCommand(v: unknown): Command | null {
     case 'chargeTunnel':
       return ids === null || !isInt(c.tunnel) ? null : { kind, ids, tunnel: c.tunnel };
     case 'attack':
+    case 'rescue':
       return ids === null || !isInt(c.target) ? null : { kind, ids, target: c.target };
     case 'reveal':
       return isInt(c.side) && isInt(c.x) && isInt(c.y) ? { kind, side: c.side, x: c.x, y: c.y } : null;

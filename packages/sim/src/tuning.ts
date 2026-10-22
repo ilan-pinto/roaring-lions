@@ -557,3 +557,6 @@ export const MED_TO_WOUNDED = 1;
 export const MED_TREATING = 2;
 export const MED_CARRYING = 3;
 export const MED_DELIVERING = 4;
+/** Bleed, ticks, of a `wounded`-role unit spawned directly rather than shed by a fall: it has
+ *  no parent `hull.wounds` to read `bleed_s` from. 60 s x 20 Hz. */
+export const WOUND_DEFAULT_BLEED_TICKS = 1200;
