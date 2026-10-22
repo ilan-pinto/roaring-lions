@@ -154,9 +154,13 @@ import {
   WOUND_MAX_RADIUS_TILES,
   WOUND_MAX_SECONDS,
   WOUND_NONE,
+  WOUND_DOWN,
+  WOUND_STABILISED,
+  MAX_WOUNDED_PER_SIDE,
   MED_IDLE,
   type SupportKind,
 } from './tuning';
+import { figuresStanding, scaleDown } from './wounds';
 
 /** GH-698: unloadAir's spread, the LZ and its 8 neighbours in (distance, tile
  *  index) order: the centre, the four edge neighbours, the four corners. */
@@ -625,7 +629,10 @@ function woundsFromJson(json: UnitTypeJson): UnitType['wounds'] {
   if (chance < 0 || chance > ONE) throw new Error(`unit ${json.id}: hull.wounds.wound_chance must be 0..1`);
   const bleedTicks = woundSeconds(json.id, 'hull.wounds.bleed_s', w.bleed_s);
   if (bleedTicks < 1) throw new Error(`unit ${json.id}: hull.wounds.bleed_s is under one tick`);
-  return { chance, bleedTicks, typeId: w.type, inPlace: w.in_place ?? false };
+  const inPlace = w.in_place ?? false;
+  // In place means the unit ITSELF goes down (GH-707 Task 2): one man, nothing to shed.
+  if (inPlace && (json.hull.figures ?? 1) !== 1) throw new Error(`unit ${json.id}: hull.wounds.in_place needs hull.figures 1`);
+  return { chance, bleedTicks, typeId: w.type, inPlace };
 }
 
 function weaponFromJson(w: WeaponJson): WeaponStats {
@@ -986,6 +993,14 @@ export type SimEvent =
   | { kind: 'pinned'; tick: number; entity: number }
   | { kind: 'unpinned'; tick: number; entity: number }
   | { kind: 'destroyed'; tick: number; entity: number; by: number }
+  /** GH-707: a man fell wounded. `entity` is the wounded (a new `wounded`-role unit, or the
+   *  unit itself when it went down in place); `parent` the squad he fell from, -1 in place or
+   *  for the squad's last man (ruling 5); `by` who downed him, -1 for nobody. */
+  | { kind: 'woundedDown'; tick: number; entity: number; parent: number; by: number }
+  /** GH-707: a man of squad `entity` was killed outright at a share crossing (the roll failed,
+   *  the side's wounded cap or the sim's capacity was reached, or no wounded type resolves).
+   *  The squad's LAST man is its `destroyed`, never this. */
+  | { kind: 'manKilled'; tick: number; entity: number; by: number }
   /** Field works (#277): a `construct` was accepted. `builder` is the lowest qualifying id the
    *  command named. `joined`: it named a live site's type and origin and joined that site rather
    *  than opening one (nothing new to pay for). */
@@ -1019,7 +1034,7 @@ export const SIM_EVENT_KINDS = [
   'spawn', 'contact', 'fire', 'aps', 'impact', 'component', 'nearMiss', 'ambushSprung',
   'strike', 'smokeLaid', 'revealed', 'structureHit', 'structureDestroyed', 'garrison',
   'transport', 'ventOpened', 'tunnelContact', 'surfaced', 'submerged', 'tunnelCollapsed', 'routed', 'rallied', 'pinned', 'unpinned', 'destroyed',
-  'removed',
+  'removed', 'woundedDown', 'manKilled',
   'constructQueued', 'constructRefused', 'constructStaked', 'structureComplete', 'constructCancelled',
 ] as const satisfies readonly SimEvent['kind'][];
 
@@ -1598,6 +1613,8 @@ export class Sim {
     readonly medTimer: Int32Array;
     readonly speedMul: Int32Array;
     readonly admittedAt: Int32Array;
+    /** GH-707: wounded alive per side (0, 1, 2) -- not per unit; indexed by side. */
+    readonly woundedAlive: Int32Array;
     /** Field works (#277): the site this unit builds, -1 none. */
     readonly buildSite: Int8Array;
     /** Field works: aura modifiers (Task 6). `auraAccMult` ONE = none. */
@@ -1888,6 +1905,7 @@ export class Sim {
       medTimer: this.medTimer,
       speedMul: this.speedMul,
       admittedAt: this.admittedAt,
+      woundedAlive: this.woundedAlive,
       buildSite: this.buildSite,
       auraHealRate: this.auraHealRate,
       auraHealCap: this.auraHealCap,
@@ -3030,10 +3048,20 @@ export class Sim {
   removeFromPlay(id: number): void {
     if (this.alive[id] !== 1) return;
     const side = this.side[id];
+    if (this.woundLive) this.forgetWounded(id);
     this.alive[id] = 0;
     this.removed[id] = 1;
     this.releaseSlot(id);
     this.pendingEvents.push({ kind: 'removed', tick: this.tickCount, entity: id, side });
+  }
+
+  /** GH-707: a living wounded (DOWN or STABILISED) is leaving play -- dead or removed -- so
+   *  his side's MAX_WOUNDED_PER_SIDE count drops. Only for a unit still alive, so a second
+   *  call on the same death cannot count him twice. */
+  private forgetWounded(id: number): void {
+    if (this.alive[id] !== 1) return;
+    const st = this.woundState[id];
+    if (st === WOUND_DOWN || st === WOUND_STABILISED) this.woundedAlive[this.side[id]]--;
   }
 
   queueCommand(cmd: Command): void {
@@ -6108,7 +6136,9 @@ export class Sim {
       }
       this.pendingEvents.push({ kind: 'strike', tick: this.tickCount, by: s.by, x: s.x, y: s.y, profile: s.profile });
       const splashSq = fx.mul(p.splash, p.splash);
-      for (let i = 0; i < this.count; i++) {
+      // `count` read once: a man this blast wounds (GH-707) is not hit by it again.
+      const n = this.count;
+      for (let i = 0; i < n; i++) {
         if (this.alive[i] === 0) continue;
         const dSq = distSqFx(fx.sub(this.posX[i], s.x), fx.sub(this.posY[i], s.y));
         if (dSq > splashSq) continue;
@@ -6366,7 +6396,9 @@ export class Sim {
     const splashSq = fx.mul(splash, splash);
     const dmg = this.prDamage[pr];
     const shooter = this.prShooter[pr];
-    for (let i = 0; i < this.count; i++) {
+    // `count` read once: a man this blast wounds (GH-707) is not hit by it again.
+    const n = this.count;
+    for (let i = 0; i < n; i++) {
       if (this.alive[i] === 0 || i === excludeId) continue;
       if (this.tunnelIn[i] >= 0) continue; // three metres of earth
       const dSq = distSqFx(fx.sub(this.posX[i], x), fx.sub(this.posY[i], y));
@@ -6396,7 +6428,9 @@ export class Sim {
     const srcSide = by >= 0 ? this.side[by] : -1;
     const srcX = by >= 0 ? this.posX[by] : x;
     const srcY = by >= 0 ? this.posY[by] : y;
-    for (let i = 0; i < this.count; i++) {
+    // `count` read once: a man this blast wounds (GH-707) is not hit by it again.
+    const n = this.count;
+    for (let i = 0; i < n; i++) {
       if (this.alive[i] === 0 || i === exclude || i === by) continue;
       if (this.tunnelIn[i] >= 0) continue; // three metres of earth
       const dSq = distSqFx(fx.sub(this.posX[i], x), fx.sub(this.posY[i], y));
@@ -6416,7 +6450,115 @@ export class Sim {
     if (this.garrisonedIn[target] >= 0 || this.carriedBy[target] >= 0 || this.tunnelIn[target] >= 0) return;
     this.hp[target] = fx.sub(this.hp[target], dmg);
     this.lastDamagedTick[target] = this.tickCount;
+    // GH-707: a team that can lose men wounded sheds one at each share crossing. Only while
+    // `woundLive` and only for a type with `hull.wounds` that is not already down itself, so
+    // a world without wound content takes none of this (no rng draw, no state written).
+    if (this.woundLive) {
+      const w = this.unitTypes[this.typeIdx[target]].wounds;
+      if (w !== null && this.woundState[target] === WOUND_NONE) {
+        this.woundCrossings(target, by, w.inPlace);
+        return;
+      }
+    }
     if (this.hp[target] <= 0) this.destroy(target, by);
+  }
+
+  /**
+   * GH-707 Task 2, falling. `target` (a type with `hull.wounds`, not down) has just lost hp.
+   * Every man above `figuresStanding` falls, one roll each (`fallMan`), down to ONE man: a
+   * single hit from full to nothing (an ATGM on a 4-man squad) crosses every share in this one
+   * call and rolls for each intermediate man. If the hit was fatal, the last man is the
+   * squad's own death as today (`destroy`, the memorial) and may still leave a body whose
+   * parent is -1 (ruling 5) -- unless the type goes down IN PLACE (`in_place`, figures 1: the
+   * civilians), where the fatal hit instead downs the unit itself, same id, on a won roll.
+   *
+   * A spawned wounded takes the id `count` had. Every loop that can reach `applyDamage`
+   * while iterating ids is harmless to that: the splash loops (`stepStrikes`, `splashAt`,
+   * `splashDirect`) bound on `count` read BEFORE the loop, so the blast that downed him does
+   * not also hit the man it just made; the per-tick system loops that still read `count` live
+   * meet a fresh `wounded` (no weapon, nothing queued, default columns) and do nothing with
+   * it; `destroy`'s passenger loop matches `carriedBy`, which a fresh id never has. Ids are
+   * never reused, so every per-id table (`contact`, rng streams) is already at its default.
+   */
+  private woundCrossings(target: number, by: number, inPlace: boolean): void {
+    const type = this.unitTypes[this.typeIdx[target]];
+    const standing = figuresStanding(this.hp[target], type.hp, type.figures);
+    const floor = standing > 1 ? standing : 1;
+    while (this.figuresUp[target] > floor) this.fallMan(target, by, false);
+    if (this.hp[target] > 0) return;
+    if (inPlace && this.downInPlace(target, by)) return;
+    this.destroy(target, by);
+    if (!inPlace) this.fallMan(target, by, true);
+  }
+
+  /**
+   * One man of `squad` falls. ONE roll on the squad's own stream (invariant 3; chance 0 or
+   * ONE draws nothing), then he lives as a new `wounded` entity at the squad's position, or
+   * dies. He dies regardless of the roll when his side already has MAX_WOUNDED_PER_SIDE
+   * wounded alive, when the sim is at capacity, or when `wounds.type` names no registered
+   * `wounded`-role type -- killed, never thrown, so content can never crash a fight.
+   * `figuresUp` drops either way. `last`: the squad's final man, already `destroy`ed -- his
+   * body (if any) has parent -1, and a failed roll emits nothing beyond that `destroyed`.
+   */
+  private fallMan(squad: number, by: number, last: boolean): void {
+    const type = this.unitTypes[this.typeIdx[squad]];
+    const w = type.wounds;
+    if (w === null) return;
+    if (this.figuresUp[squad] > 0) this.figuresUp[squad]--;
+    const side = this.side[squad];
+    const lives = this.rng.chance(squad, w.chance);
+    const wt = lives ? this.woundedTypeOf(type) : -1;
+    if (wt < 0 || this.woundedAlive[side] >= MAX_WOUNDED_PER_SIDE || this.count >= this.capacity) {
+      if (!last) this.pendingEvents.push({ kind: 'manKilled', tick: this.tickCount, entity: squad, by });
+      return;
+    }
+    const id = this.spawn(wt, side, this.posX[squad], this.posY[squad], this.facing[squad]);
+    this.woundParent[id] = last ? -1 : squad;
+    this.woundBy[id] = by;
+    this.woundState[id] = WOUND_DOWN;
+    this.bleedTicks[id] = w.bleedTicks;
+    this.scars[id] = this.scars[squad];
+    this.woundedAlive[side]++;
+    this.pendingEvents.push({ kind: 'woundedDown', tick: this.tickCount, entity: id, parent: last ? -1 : squad, by });
+  }
+
+  /** The fatal hit on an `in_place` type: on a won roll (and under the side's cap) the unit
+   *  itself goes DOWN at 1 hp -- same id, so `civIds` and refuge latches keep it -- and its one
+   *  man is no longer standing (`figuresUp` 0, which also zeroes its regen ceiling). False
+   *  when it dies instead, and the caller destroys it as today. */
+  private downInPlace(id: number, by: number): boolean {
+    const type = this.unitTypes[this.typeIdx[id]];
+    const w = type.wounds;
+    if (w === null) return false;
+    const side = this.side[id];
+    if (!this.rng.chance(id, w.chance) || this.woundedAlive[side] >= MAX_WOUNDED_PER_SIDE) return false;
+    this.hp[id] = ONE;
+    this.figuresUp[id] = 0;
+    this.moving[id] = 0;
+    this.woundParent[id] = -1;
+    this.woundBy[id] = by;
+    this.woundState[id] = WOUND_DOWN;
+    this.bleedTicks[id] = w.bleedTicks;
+    this.woundedAlive[side]++;
+    this.pendingEvents.push({ kind: 'woundedDown', tick: this.tickCount, entity: id, parent: -1, by });
+    return true;
+  }
+
+  /** `type.wounds.type` as a unit-type index, resolved at the first fall and cached on the
+   *  type (each Sim builds its own UnitType objects). -1, uncached, while no registered type
+   *  of role `wounded` carries that id -- the man then dies (`fallMan`). */
+  private woundedTypeOf(type: UnitType): number {
+    if (type.woundedTypeIdx >= 0) return type.woundedTypeIdx;
+    const w = type.wounds;
+    if (w === null) return -1;
+    for (let t = 0; t < this.unitTypes.length; t++) {
+      const u = this.unitTypes[t];
+      if (u.id === w.typeId && u.isWounded) {
+        type.woundedTypeIdx = t;
+        return t;
+      }
+    }
+    return -1;
   }
 
   /** coverProtects: fire arriving from outside is muffled by entrenchment;
@@ -7565,6 +7707,7 @@ export class Sim {
         }
       }
     }
+    if (this.woundLive) this.forgetWounded(target);
     this.alive[target] = 0;
     this.releaseSlot(target);
     for (let s = 0; s < 2; s++) this.lastSeenValid[s * this.capacity + target] = 0;
@@ -8280,7 +8423,10 @@ export class Sim {
         const type = this.unitTypes[this.typeIdx[i]];
         const auraCap = this.auraHealCap[i];
         const auraRate = this.auraHealRate[i];
-        const cap = fx.mul(type.hp, auraCap > REGEN_CAP ? auraCap : REGEN_CAP);
+        let cap = fx.mul(type.hp, auraCap > REGEN_CAP ? auraCap : REGEN_CAP);
+        // GH-707: a team that has lost men heals only its standing men's shares.
+        const up = this.figuresUp[i];
+        if (this.woundLive && up < type.figures) cap = scaleDown(cap, up, type.figures);
         if (this.hp[i] < cap) {
           this.hp[i] = fx.min(fx.add(this.hp[i], fx.mul(type.hp, auraRate > REGEN_FRAC ? auraRate : REGEN_FRAC)), cap);
         }

@@ -3,8 +3,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import catalogue from '../../../data/structures.json';
-import { fx } from './fixed';
-import { Sim, type UnitTypeJson } from './sim';
+import { fx, type Fx } from './fixed';
+import { Sim, type SimEvent, type UnitTypeJson } from './sim';
 import type { StructureTypeJson } from './structures';
 
 // GH-707 Task 1: the wound data shape and the deferred fold. Twelve per-unit columns plus
@@ -110,6 +110,7 @@ const COLUMNS = [
   'medTimer',
   'speedMul',
   'admittedAt',
+  'woundedAlive', // per side, not per unit: index 0 is side 0's count
 ] as const;
 
 describe('wound data shape (GH-707 Task 1)', () => {
@@ -230,4 +231,278 @@ describe('the deferred fold (GH-707 Task 1)', () => {
       expect(sim.hash()).not.toBe(before);
     });
   }
+});
+
+// ---------------------------------------------------------------------------
+// GH-707 Task 2: falling.
+// ---------------------------------------------------------------------------
+
+/** 400 hp, 4 figures: one man per 100 hp. `chance` is the wound roll. */
+function squadType(chance: number, type = 'wounded_test'): UnitTypeJson {
+  return {
+    ...RIFLES,
+    id: `wd_squad_${chance}_${type}`,
+    hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 }, figures: 4, wounds: { wound_chance: chance, bleed_s: 60, type } },
+  };
+}
+
+/** A one-man unit that goes down in place (the civilians' shape). */
+const IN_PLACE: UnitTypeJson = {
+  ...RIFLES,
+  id: 'wd_civ',
+  role: 'civilian',
+  hull: { hp: 30, armor: { front: 0, side: 0, rear: 0 }, wounds: { wound_chance: 1, bleed_s: 60, type: 'wounded_test', in_place: true } },
+};
+
+/** The sim's one damage path, as a hit takes it. */
+function hit(sim: Sim, id: number, hp: number, by: number): void {
+  (sim as unknown as { applyDamage(t: number, d: Fx, by: number): void }).applyDamage(id, fx.fromInt(hp), by);
+}
+
+/** A sim with the wounded type registered, one squad of `sq` on side 0 at (5.5, 5.5) and a
+ *  shooter on side 1 far away (no weapons: nobody fires on their own). */
+function fallWorld(sq: UnitTypeJson, capacity = 32, withWounded = true): { sim: Sim; squad: number; shooter: number; ti: number } {
+  const sim = new Sim({ seed: 0x7070_0002, width: 16, height: 16, capacity });
+  const ti = sim.addUnitType(sq);
+  if (withWounded) sim.addUnitType(WOUNDED);
+  const ri = sim.addUnitType(RIFLES);
+  const squad = sim.spawn(ti, 0, fx.from(5.5), fx.from(5.5));
+  const shooter = sim.spawn(ri, 1, fx.from(14.5), fx.from(14.5));
+  sim.tick();
+  return { sim, squad, shooter, ti };
+}
+
+const of = <K extends SimEvent['kind']>(evs: readonly SimEvent[], k: K): Extract<SimEvent, { kind: K }>[] =>
+  evs.filter((e): e is Extract<SimEvent, { kind: K }> => e.kind === k);
+
+describe('falling (GH-707 Task 2)', () => {
+  it('a 100-hp hit on 400 hp / 4 men sheds exactly one wounded at the squad, chance 1', () => {
+    const { sim, squad, shooter } = fallWorld(squadType(1));
+    const before = sim.entityCount;
+    hit(sim, squad, 100, shooter);
+    const s = sim.state;
+    expect(sim.entityCount).toBe(before + 1);
+    const w = before; // the next id
+    expect(s.figuresUp[squad]).toBe(3);
+    expect(s.alive[w]).toBe(1);
+    expect(sim.unitTypes[s.typeIdx[w]].id).toBe('wounded_test');
+    expect([s.posX[w], s.posY[w], s.side[w]]).toEqual([360448, 360448, 0]); // 5.5 x 65536
+    expect([s.woundState[w], s.woundParent[w], s.woundBy[w], s.bleedTicks[w]]).toEqual([1, squad, shooter, 1200]); // 60 s x 20
+    expect(s.woundedAlive[0]).toBe(1);
+    expect(s.hp[squad]).toBe(300 * 65536);
+    const evs = sim.tick();
+    expect(of(evs, 'woundedDown')).toEqual([{ kind: 'woundedDown', tick: 1, entity: w, parent: squad, by: shooter }]);
+    expect(of(evs, 'manKilled')).toEqual([]);
+  });
+
+  it('chance 0: the man is killed (manKilled), nothing spawns, no draw is needed', () => {
+    const { sim, squad, shooter } = fallWorld(squadType(0));
+    const before = sim.entityCount;
+    hit(sim, squad, 100, shooter);
+    expect(sim.entityCount).toBe(before);
+    expect(sim.state.figuresUp[squad]).toBe(3);
+    expect(sim.state.woundedAlive[0]).toBe(0);
+    const evs = sim.tick();
+    expect(of(evs, 'manKilled')).toEqual([{ kind: 'manKilled', tick: 1, entity: squad, by: shooter }]);
+    expect(of(evs, 'woundedDown')).toEqual([]);
+  });
+
+  it('a hit below a share boundary sheds nobody; 99 more crosses it', () => {
+    const { sim, squad, shooter } = fallWorld(squadType(1));
+    const before = sim.entityCount;
+    hit(sim, squad, 99, shooter); // 301 hp -> ceil(3.01) = 4 standing
+    expect([sim.entityCount, sim.state.figuresUp[squad]]).toEqual([before, 4]);
+    hit(sim, squad, 1, shooter); // 300 hp -> 3
+    expect([sim.entityCount, sim.state.figuresUp[squad]]).toEqual([before + 1, 3]);
+  });
+
+  it('400 hp in one hit: three wounded with the squad as parent, then the squad dies and its last man leaves a body with parent -1', () => {
+    const { sim, squad, shooter } = fallWorld(squadType(1));
+    const before = sim.entityCount;
+    hit(sim, squad, 400, shooter);
+    const s = sim.state;
+    expect(s.alive[squad]).toBe(0);
+    expect(sim.entityCount).toBe(before + 4);
+    const parents = [0, 1, 2, 3].map((k) => s.woundParent[before + k]);
+    expect(parents).toEqual([squad, squad, squad, -1]);
+    expect([0, 1, 2, 3].map((k) => s.woundState[before + k])).toEqual([1, 1, 1, 1]);
+    expect(s.figuresUp[squad]).toBe(0);
+    expect(s.woundedAlive[0]).toBe(4);
+    const evs = sim.tick();
+    expect(of(evs, 'destroyed')).toEqual([{ kind: 'destroyed', tick: 1, entity: squad, by: shooter }]);
+    expect(of(evs, 'woundedDown').map((e) => e.parent)).toEqual([squad, squad, squad, -1]);
+    expect(of(evs, 'manKilled')).toEqual([]);
+  });
+
+  it('400 hp in one hit, chance 0: three manKilled, then the squad destroyed, and no fourth manKilled', () => {
+    const { sim, squad, shooter } = fallWorld(squadType(0));
+    const before = sim.entityCount;
+    hit(sim, squad, 400, shooter);
+    expect(sim.entityCount).toBe(before);
+    const evs = sim.tick();
+    expect(of(evs, 'manKilled').length).toBe(3);
+    expect(of(evs, 'destroyed').map((e) => e.entity)).toEqual([squad]);
+  });
+
+  it('the 25th wounded on a side is killed, not spawned (MAX_WOUNDED_PER_SIDE 24)', () => {
+    const { sim, ti, shooter } = fallWorld(squadType(1), 64);
+    // Six squads x 4 men = 24 wounded on side 0.
+    for (let k = 0; k < 6; k++) {
+      const q = sim.spawn(ti, 0, fx.fromInt(2 + k), fx.fromInt(2));
+      hit(sim, q, 400, shooter);
+    }
+    expect(sim.state.woundedAlive[0]).toBe(24);
+    const seventh = sim.spawn(ti, 0, fx.fromInt(10), fx.fromInt(10));
+    const before = sim.entityCount;
+    hit(sim, seventh, 100, shooter);
+    expect(sim.entityCount).toBe(before);
+    expect(sim.state.figuresUp[seventh]).toBe(3);
+    expect(sim.state.woundedAlive[0]).toBe(24);
+    expect(of(sim.tick(), 'manKilled')).toEqual([{ kind: 'manKilled', tick: 1, entity: seventh, by: shooter }]);
+    // Side 1 has its own count: one of theirs still falls wounded.
+    const theirs = sim.spawn(ti, 1, fx.fromInt(12), fx.fromInt(12));
+    hit(sim, theirs, 100, -1);
+    expect(sim.state.woundedAlive[1]).toBe(1);
+  });
+
+  it('a fall at the sim capacity kills the man and does not throw', () => {
+    // capacity 3: squad, shooter, one free id. 200 hp crosses two shares.
+    const { sim, squad, shooter } = fallWorld(squadType(1), 3);
+    expect(() => hit(sim, squad, 200, shooter)).not.toThrow();
+    expect(sim.entityCount).toBe(3);
+    expect(sim.state.figuresUp[squad]).toBe(2);
+    const evs = sim.tick();
+    expect(of(evs, 'woundedDown').length).toBe(1);
+    expect(of(evs, 'manKilled').length).toBe(1);
+  });
+
+  it('wounds.type naming no registered wounded-role type kills the man, never throws', () => {
+    for (const [sq, withWounded] of [
+      [squadType(1, 'wounded_missing'), true],
+      [squadType(1), false], // 'wounded_test' never registered
+      [squadType(1, 'wd_inf'), true], // registered, but a rifle squad, not role wounded
+    ] as const) {
+      const { sim, squad, shooter } = fallWorld(sq, 32, withWounded);
+      const before = sim.entityCount;
+      expect(() => hit(sim, squad, 100, shooter)).not.toThrow();
+      expect(sim.entityCount).toBe(before);
+      expect(sim.state.figuresUp[squad]).toBe(3);
+      expect(of(sim.tick(), 'manKilled').length).toBe(1);
+    }
+  });
+
+  it('a blast that downs a man does not hit the wounded it made (splash reads count once)', () => {
+    const { sim, squad, shooter } = fallWorld(squadType(1));
+    const before = sim.entityCount;
+    // 100 hp at the squad's own point (falloff 1): one man down, at distance 0 from the blast.
+    sim.debugSplash(fx.from(5.5), fx.from(5.5), fx.fromInt(1), fx.fromInt(100), 0, shooter, -1);
+    expect(sim.entityCount).toBe(before + 1);
+    expect(sim.state.alive[before]).toBe(1);
+    expect(sim.state.hp[before]).toBe(30 * 65536);
+    expect(sim.state.figuresUp[squad]).toBe(3);
+  });
+
+  it('regen tops out at the standing men: 0.7 x 400 x 1/4 = 70 hp, not 280', () => {
+    const { sim, squad, shooter } = fallWorld(squadType(1));
+    hit(sim, squad, 350, shooter); // 50 hp -> ceil(0.5) = 1 standing: three fall
+    expect(sim.state.figuresUp[squad]).toBe(1);
+    for (let t = 0; t < 3000; t++) sim.tick();
+    // REGEN_CAP 0.7 = 45875: 26214400 x 45875 >> 16 = 18350000; x 1/4 = 4587500 (69.9997 hp).
+    expect(sim.state.hp[squad]).toBe(4587500);
+  });
+
+  it('a team one man down regens to three quarters of the 0.7 ceiling', () => {
+    const { sim, squad, shooter } = fallWorld(squadType(1));
+    hit(sim, squad, 199, shooter); // 201 hp: ceil(2.01) = 3 standing, one man down
+    for (let t = 0; t < 3000; t++) sim.tick();
+    // 3 of 4 standing: 18350000 x 3 / 4 = 13762500 (209.9997 hp), not the full 18350000.
+    expect(sim.state.hp[squad]).toBe(13762500);
+  });
+
+  it('in place: the fatal hit downs the unit itself, same id, 1 hp, no destroyed', () => {
+    const { sim, squad: civ, shooter } = fallWorld(IN_PLACE);
+    const before = sim.entityCount;
+    hit(sim, civ, 50, shooter);
+    const s = sim.state;
+    expect(sim.entityCount).toBe(before);
+    expect([s.alive[civ], s.hp[civ], s.woundState[civ], s.figuresUp[civ]]).toEqual([1, 65536, 1, 0]);
+    expect([s.woundParent[civ], s.woundBy[civ], s.bleedTicks[civ]]).toEqual([-1, shooter, 1200]);
+    expect(s.woundedAlive[0]).toBe(1);
+    let evs = sim.tick();
+    expect(of(evs, 'destroyed')).toEqual([]);
+    expect(of(evs, 'woundedDown')).toEqual([{ kind: 'woundedDown', tick: 1, entity: civ, parent: -1, by: shooter }]);
+    // Down, his regen ceiling is zero: 400 quiet ticks leave him at 1 hp.
+    for (let t = 0; t < 400; t++) sim.tick();
+    expect(s.hp[civ]).toBe(65536);
+    // Any further hit kills him, and the side's count comes back down.
+    hit(sim, civ, 1, shooter);
+    expect(s.alive[civ]).toBe(0);
+    expect(s.woundedAlive[0]).toBe(0);
+    evs = sim.tick();
+    expect(of(evs, 'destroyed')).toEqual([{ kind: 'destroyed', tick: 402, entity: civ, by: shooter }]);
+  });
+
+  it('in place with chance 0 dies as today', () => {
+    const { sim, squad: civ, shooter } = fallWorld({ ...IN_PLACE, hull: { ...IN_PLACE.hull, wounds: { wound_chance: 0, bleed_s: 60, type: 'wounded_test', in_place: true } } });
+    hit(sim, civ, 50, shooter);
+    expect(sim.state.alive[civ]).toBe(0);
+    expect(sim.state.woundedAlive[0]).toBe(0);
+  });
+
+  it('in_place needs a one-man type', () => {
+    const sim = new Sim({ seed: 1, width: 8, height: 8, capacity: 4 });
+    const bad = { ...IN_PLACE, hull: { ...IN_PLACE.hull, figures: 4 } };
+    expect(() => sim.addUnitType(bad)).toThrow(/in_place needs hull.figures 1/);
+  });
+
+  it('woundedAlive drops on a wounded death or removal, once', () => {
+    const { sim, squad, shooter } = fallWorld(squadType(1));
+    const before = sim.entityCount;
+    hit(sim, squad, 200, shooter); // two wounded
+    expect(sim.state.woundedAlive[0]).toBe(2);
+    sim.debugKill(before);
+    expect(sim.state.woundedAlive[0]).toBe(1);
+    sim.debugKill(before); // already dead: no second decrement
+    expect(sim.state.woundedAlive[0]).toBe(1);
+    // `destroy` reached twice for one death (it is private; every caller guards today):
+    // the count is not taken twice.
+    (sim as unknown as { destroy(t: number, by: number): void }).destroy(before, -1);
+    expect(sim.state.woundedAlive[0]).toBe(1);
+    sim.removeFromPlay(before + 1);
+    expect(sim.state.woundedAlive[0]).toBe(0);
+    // Killing the squad itself (not a wounded) touches nothing.
+    sim.debugKill(squad);
+    expect(sim.state.woundedAlive[0]).toBe(0);
+  });
+
+  it('a wounded hit is an ordinary hit: 30 hp, no falling of his own', () => {
+    const { sim, squad, shooter } = fallWorld(squadType(1));
+    const before = sim.entityCount;
+    hit(sim, squad, 100, shooter);
+    hit(sim, before, 30, shooter);
+    expect(sim.state.alive[before]).toBe(0);
+    expect(sim.entityCount).toBe(before + 1);
+    expect(sim.state.woundedAlive[0]).toBe(0);
+  });
+
+  it('no wound content: a figures-4 type takes hits exactly as today', () => {
+    const FOUR: UnitTypeJson = { ...RIFLES, id: 'wd_four', hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 }, figures: 4 } };
+    const sim = new Sim({ seed: 3, width: 16, height: 16, capacity: 8 });
+    const ti = sim.addUnitType(FOUR);
+    expect(sim.woundsLive).toBe(false);
+    const q = sim.spawn(ti, 0, fx.fromInt(5), fx.fromInt(5));
+    hit(sim, q, 350, -1);
+    expect([sim.entityCount, sim.state.figuresUp[q]]).toEqual([1, 4]);
+    for (let t = 0; t < 3000; t++) sim.tick();
+    expect(sim.state.hp[q]).toBe(18350000); // the ordinary 0.7 ceiling
+  });
+
+  it('the same fight from the same seed sheds the same men (one draw per intermediate man)', () => {
+    const run = (): number[] => {
+      const { sim, squad, shooter } = fallWorld(squadType(0.5));
+      hit(sim, squad, 400, shooter);
+      return [sim.entityCount, sim.hash(), ...of(sim.tick(), 'woundedDown').map((e) => e.parent)];
+    };
+    expect(run()).toEqual(run());
+  });
 });
