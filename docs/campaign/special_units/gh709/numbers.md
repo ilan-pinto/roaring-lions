@@ -3,7 +3,7 @@
 Record of what `pnpm --filter @lions/tools su:probes` measured on **22 Oct 2026** against the nine
 staged drafts in this directory, the claims made, and the frozen bands. Design:
 `docs/superpowers/specs/2026-10-22-special-units-design.md` (§1, §3 "Probes", lead rulings).
-Pinned by `tools/src/backtest/special-units-probes.test.ts` (61 specs). The probes are
+Pinned by `tools/src/backtest/special-units-probes.test.ts` (74 specs since Phases 3 and 7; the CLI runs in ~1.5-3 s). The probes are
 report-only: a claim that misses leaves the CLI at exit 1 and is a unit to retune (the lead's call),
 never a band to widen. At Phase 1 no staged number was edited to make a claim pass and no engine code
 was written. **Phase 3 (22 Oct) retuned one unit on the lead's ruling**: the grenadier, with a new
@@ -19,11 +19,11 @@ are untouched.
 | 2 `spg_long_range` | duel vs `rocket_battery`, 20-28 tiles, a `recon_drone` spotting for each side | report win rate; Q11 | **Wins 30/30 at every range 20-28 with no hp lost. Q11 TRIGGERED** (reported, not retuned) |
 | 9 `inf_grenadier` | 2 squads vs 3 `militia_cell`, open vs cover 2, vs `inf_squad` | advantage over `inf_squad` larger against cover | **MET since Phase 3** (cover2 0.684 vs open 0.643), after the lead's ruling and the `cover_ignore` field; Phase 1 MISSED it (cover2 0.052 vs open 0.548). See "Phase 3" below |
 | 10 `ugv_recon_dog` | first tick a `pre_dug` route is identified, synthetic map | after `recon_drone`, before `yahalom_squad` | **MET**: drone 92, dog 217, yahalom 425 ticks |
-| 4 `at_nlos_team` | | | deferred to Phase 7 (needs E2, the `indirect` weapon flag) |
+| 4 `at_nlos_team` | 4a: kills `rocket_battery` / `atgm_cell` 20 tiles off behind a 2-tile wall, a `recon_drone` spotting; control with `indirect` stripped. 4b: Conduct lost killing an `atgm_cell` in a flagged zone, vs `mortar_team` | kills most seeds, control never fires; fewer Conduct lost than `mortar_team` | **MET** (22 Oct, Phase 7, E2). 4a: 19/20 kills each, 21.4 / 21.5 s, 1.65 rounds; control 0 rounds, 0 kills. 4b: Conduct lost **0.00** (0 of 20 seeds charged) vs `mortar_team` **16.50** (20 of 20) |
 | 5 `veh_ambulance` | | | deferred to Phase 5 (needs E1, the unit aura) |
 | 6 `air_medevac_heli` | | | deferred to Phase 5 (needs E1) |
 | 7 `inf_medic_squad` | | | deferred to Phase 5 (needs E1) |
-| 11 `spg_cluster` | | | deferred to Phase 7 (needs E3, submunitions) |
+| 11 `spg_cluster` | 18 tiles, 90 s (3 rounds): open infantry, a technical, a garrisoned house, an armoured column; vs the unitary draft; Conduct per round near civilians | the lead's four claims; more per round than the unitary draft; Conduct per round >= unitary | **MIXED** (22 Oct, Phase 7, E3). **MET**: house men 0 hp lost and the house 0, men suppressed (peak 0.045); armour 0 hp lost; 2.0x the unitary draft per round (0.116 vs 0.058); Conduct 5.60 vs 3.00 per round. **MISSED** (the pre-registered "destroys more than half in 90 s"): open infantry 0.347, technical 0.248 |
 
 The phase numbers on the deferred rows are the CLI's labels for the engine concept (E1 / E2 / E3); the
 order in which the engine phases land is the spec's, not this file's.
@@ -231,18 +231,124 @@ this probe (no enemy is present).
 
 **Bands**: ±15% of 92 / 217 / 425, and dog strictly between the other two.
 
+## Probe 4 -- the NLOS missile team (unit 4, Phase 7, on E2)
+
+Design fixed before any number was seen. Staged `at_nlos_team` (`spike_nlos`: atgm, `indirect`, range
+24 / effective 18, accuracy 0.8, damage 450, rof 2, min 4, collateral 0.2).
+
+**4a, reach without a sight line.** Set-up: team at x=4.5, target 20 tiles east at x=24.5 (y=12.5), a
+2-tile-thick wall of an indestructible structure (x 12-13, the whole map height of 24) between them,
+a KDF `recon_drone` at (21.5, 10.5) as the spotter. **No `identifyTo`**: the drone is the claim's
+spotter. Control: the same JSON with `indirect` set false in memory (`withoutIndirect`). 20 seeds,
+120 s cap.
+
+| target | variant | kills | drone identified it | mean s to kill | rounds fired |
+|---|---|---|---|---|---|
+| `rocket_battery` | NLOS | 19/20 | 20/20 | 21.4 | 1.65 |
+| `rocket_battery` | `indirect` stripped | 0/20 | 20/20 | never | 0.00 |
+| `atgm_cell` | NLOS | 19/20 | 20/20 | 21.5 | 1.65 |
+| `atgm_cell` | `indirect` stripped | 0/20 | 20/20 | never | 0.00 |
+
+**MET.** The drone (an air unit, so not stopped by the wall) identifies the target in every seed, the
+NLOS team kills it behind the wall in 19 of 20, and the control, which sees exactly the same
+identification, never fires: the wall stops the shot and `indirect` is what lets it through. The one
+miss in 20 is a run of misses at accuracy 0.8 and range 20 (past the 18-tile effective range) inside the
+120 s cap; the mean is 1.65 rounds a seed. The fallback to `identifyTo` was not needed.
+
+**4b, the precision claim.** Set-up: a `MissionRuntime` scene, the KDF shooter and one Sarim
+`atgm_cell` on open ground, a flagged zone "clinic" (5x5 tiles) round the `atgm_cell`,
+`flagged_structure_penalty` 5, `disproportionate_ordnance_penalty` 3. The shooter is the NLOS team at 18
+tiles (its effective range) or, separately, the shipped KDF `mortar_team` at 13 tiles (inside its
+effective 14, outside the `atgm_cell`'s sight 10, so it is not shot back at). Both get the target by
+`identifyTo` every tick (the same way for both: the spotter is 4a's question). Until the target dies,
+120 s cap, 20 seeds. Reading: `100 - roeScore`.
+
+| shooter | distance | kills | rounds | Conduct lost (mean) | seeds charged |
+|---|---|---|---|---|---|
+| `at_nlos_team` | 18 | 20/20 | 1.60 | **0.00** | 0/20 |
+| `mortar_team` | 13 | 20/20 | 4.35 | **16.50** | 20/20 |
+
+**MET.** The mortar's strays (collateral 0.7, above the 0.3 structural threshold) land in the clinic in
+every seed and cost 16.5 Conduct on average; the NLOS team (collateral 0.2, below it) charges nothing,
+and kills in fewer rounds. The reading is also exactly the rule rather than a margin: NLOS 0 in all 20
+seeds, so the claim does not depend on a close mean. A direct hit is not judged (only `nearMiss` is).
+
+**Bands.** 4a: kills >= 16 of 20 each, drone identification 20/20, mean seconds and rounds within
+±15% (21.4 / 21.5 s, 1.65); control exactly 0 rounds and 0 kills, 20/20 identified. 4b: NLOS Conduct lost
+**exactly 0** and 0 seeds charged, 20/20 kills, rounds within ±15% of 1.60; mortar 16.50 ±15%, 20/20 seeds
+charged, 4.35 rounds ±15%.
+
+## Probe 11 -- the cluster howitzer (unit 11, Phase 7, on E3)
+
+Staged `spg_cluster` (`dpicm_155`: 12 bomblets x 90 damage, scatter 2.5, splash 0.8, suppression 60;
+no parent damage; accuracy 0.45, rof 2, min 6, collateral 0.95, can_target ground). Lead rulings
+applied: no duds; bomblets do no damage to garrisoned men but may suppress them (Q7); Conduct per Q6.
+
+**Set-up.** Gun at (4.5, 12.5), targets side 1 at x=22.5 (18 tiles, its effective range), no orders. The
+gun's sight is 7, so the target is handed over by `identifyTo` every tick, as
+`packages/sim/src/special-weapons.test.ts` does (the spotter's rules are probe 4's). 90 s cap, 10 seeds
+(3 rounds in every scene, rof 2). Scenes: **infantry** = 3 `sarim_rifles` one tile apart; **technical**
+= one (front 15 mm, soft by the 30 mm rule); **house** = 2 `sarim_rifles` garrisoned in a 1-tile house
+(slots 2, hp 900); **armour** = 3 `mbt_lavi` on side 1 (no Sarim armour exists). **Control for what E3
+buys** (`unitaryRound`, in memory): the same JSON with the bomblets stripped and the Phase-1 unitary
+round restored (damage 120, splash 1.2), against the same infantry. **Conduct**: a `MissionRuntime`
+with the three `sarim_rifles` and **2 civilians 2 tiles off**, `disproportionate_ordnance_penalty` 3 and
+`civilian_casualty_penalty` 0, so the reading is the ordnance rules of Q6 and not who died (0 civilians
+died in any seed regardless).
+
+| scene | gun | hp lost (mean) | worst seed | rounds | hp lost / round | peak suppression | house hp lost |
+|---|---|---|---|---|---|---|---|
+| infantry | cluster | 0.347 | 0.573 | 3.00 | 0.116 | 0.252 | - |
+| technical | cluster | 0.248 | 0.511 | 3.00 | 0.083 | 0.381 | - |
+| house (2 men garrisoned, 2.0 of 2) | cluster | **0.000** | **0.000** | 3.00 | 0 | 0.045 | **0.000** |
+| armour (3 `mbt_lavi`) | cluster | **0.000** | **0.000** | 3.00 | 0 | 0.236 | - |
+| infantry | unitary | 0.175 | 0.301 | 3.00 | 0.058 | 0.280 | - |
+
+| Conduct (3 rounds, 2 civilians 2 tiles off) | rounds | Conduct lost | per round |
+|---|---|---|---|
+| cluster | 3.00 | 16.80 | **5.60** |
+| unitary draft | 3.00 | 9.00 | **3.00** |
+
+**Honest reading, claim by claim.**
+
+- **In the open: MISSED, as pre-registered.** The claim "shreds men and trucks in the open" was fixed
+  before the numbers as "destroys more than half of the target's hp in 90 s". It destroys **0.347** of three
+  riflemen (worst seed 0.573) and **0.248** of a technical (worst 0.511). Reading why: 90 s is three
+  rounds at rof 2, and accuracy 0.45 at 18 tiles puts most aimpoints a tile or two off the men, so a
+  scattered 12-bomblet pattern of 90 hp (splash 0.8) catches one or two of them. Per round, the cluster
+  does **2.0x** the unitary draft (0.116 vs 0.058; 0.347 vs 0.175 over the run), so E3 buys what it was
+  for, and the "more than half" bar is a statement about the rate of fire, not the round. No softer
+  scenario (longer cap, more rounds) was built after seeing the miss; that is the lead's retune.
+- **Garrisoned house: MET (Q7 and the ruling).** 2 of 2 men garrisoned in every seed, the gun fired 3
+  rounds at them, the men lost **0 hp** in every seed and the house **0**, and they were **suppressed**
+  (peak mean 0.045, small: the garrison cover cuts incoming suppression). The scene can detect harm: see the
+  falsification below.
+- **Armoured column: MET.** 3 `mbt_lavi` lose 0 hp in every seed (and are suppressed, peak 0.236, which
+  the ruling allows). Same falsification.
+- **Conduct per round near civilians: claim MET (cluster >= unitary), the "about 2x" nearly.** 5.60 vs
+  3.00 per round, 1.87x: a cluster round is charged once at twice the penalty (6) when a bomblet lands
+  within 2 tiles of a civilian, which 2.8 of the 3 rounds did on average (16.80 / 6); a
+  unitary shot is charged the penalty (3) per shot at its aimpoint. The cluster's Conduct bill is higher
+  per round and it kills a bit more than twice as much per round, so per hp destroyed the two are about even.
+
+**Bands.** Open infantry hp lost 0.347, per round 0.116; technical 0.248 / 0.083; unitary control
+0.175 / 0.058 (all ±15%); rounds 3.00 in every scene (±15%); the cluster exceeds 1.7x the unitary per
+round. House: 2 garrisoned, **exactly 0** hp lost in every seed (worst seed), **exactly 0** house hp lost,
+peak suppression 0.045 ±15%. Armour: **exactly 0** hp lost, peak suppression 0.236 ±15%. Conduct: 5.60 /
+3.00 per round and 16.80 / 9.00 lost (±15%), cluster >= unitary, 0 civilians dead. The two misses are
+pinned as a miss (the test asserts exactly those two failures).
+
 ## Deferred
 
 | unit | needs | why no probe now |
 |---|---|---|
-| `at_nlos_team` (4) | E2, the `indirect` weapon flag | an `atgm` still needs its own line of sight; authoring it as `rocket` would measure a Grad |
 | `veh_ambulance` (5) | E1, the unit aura | no heal aura on a unit type exists |
 | `air_medevac_heli` (6) | E1 | same |
 | `inf_medic_squad` (7) | E1 | same |
-| `spg_cluster` (11) | E3, submunitions | no cluster round exists; the lead's four claims need it |
 
-Each prints one `deferred to Phase N (needs E#)` line in the CLI and has no pinned band yet; its bands
-are frozen when its engine phase lands. Unit 3 is held for E6 and unit 8 is not built (Lead rulings Q3, Q9).
+Units 4 and 11 were deferred here until Phase 7 (E2 and E3, GH-733) and are measured above. The three
+remaining each print one `deferred to Phase N (needs E#)` line in the CLI and have no pinned band yet;
+their bands are frozen when E1 lands. Unit 3 is held for E6 and unit 8 is not built (Lead rulings Q3, Q9).
 
 ## Falsifications (22 Oct)
 
@@ -258,6 +364,24 @@ JSON files were never touched), the probe file restored byte-for-byte afterwards
 - dog speed 1.3 -> 0.3: the tunnel claim ("before yahalom_squad") and its band go red.
 - one banded number edited in the test (`atgm_cell` ambush 8t 265 -> 400): that spec goes red.
 
+Phase 7 (22 Oct), same method (a temporary hook in `stagedUnit`, in memory; the staged JSON and the probe
+file were restored byte-for-byte, `diff` clean):
+
+- `indirect` stripped from the NLOS weapon: 3 specs red (the 4a claim, and both targets' kill bands:
+  0 kills). The control is the same mutation applied by the probe itself.
+- NLOS collateral 0.2 -> 0.8: the 4b band goes red (Conduct lost 3, not 0; its strays now charge the
+  zone). **The claim spec stays green**, because 3 is still below the mortar's 16.5: the claim is
+  relative and the exact-zero band is what holds the "below the structural threshold" reading.
+- bomblet count 12 -> 1: 6 specs red (infantry and technical hp, per-round vs unitary, house and armour
+  suppression bands, the Conduct per round; the known-miss spec gains a third failure).
+- bomblet damage 90 -> 0: 3 specs red (open infantry reads 0, the bands, the E3-buys spec).
+- cluster collateral 0.95 -> 0.2: the Conduct spec goes red (0 per round).
+- **The house and armour claims are falsified by changing the ROUND, not the reading**: the cluster
+  replaced by a unitary 120-damage round with penetration 2000 loses garrisoned men **0.112** of their
+  hp and armour **0.347** of theirs, and the 0-hp specs go red (6 specs). So the 0 in the table is the
+  bomblets' refusal to hurt them and not a scene that cannot register damage. There is no honest
+  mutation of the E3 sim rule itself from the tools side; changing the bomblet rule needs the sim.
+
 ## Notes for the lead and the landing phases
 
 - **The grenadier's blurb stands** (Phase 3). "Grenades reach men behind a wall" is now true in the
@@ -271,3 +395,25 @@ JSON files were never touched), the probe file restored byte-for-byte afterwards
   firing?" is answered: yes, and no.
 - **Q11 is triggered**: `spg_long_range` wins 30/30 at every range 20-28 with no hp lost. Range is not
   the lever (one 320-damage round equals the Grad's 320 hp); the lead decides.
+
+## Phase 7: the cost curve reads E2 and E3 (22 Oct 2026)
+
+GH-733 left `validate_balance.py` blind to both fields. It now reads them:
+- **indirect reach**: an indirect weapon (mortar/rocket class, or `indirect: true`) prices its
+  standoff on `range_tiles`; a direct weapon keeps `effective_range_tiles`.
+- **bomblets**: a `submunitions` weapon is priced on its bomblets, soft targets only (the sim's
+  30 mm limit), the burst on the target on a hit and `SCATTER_BASE` + U[0,1) off it on a miss, each
+  bomblet at radius U[0, scatter) with linear falloff, integrated numerically. The parent's damage
+  and splash (unread by the sim) are dropped from the staged JSON.
+
+| run | curve | at_nlos_team | spg_cluster | tightest |
+|---|---|---|---|---|
+| data/units + e5 + gh709, before | 283.978 * power^0.481 (n=45) | +12.3% | +9.2% | attack_drone +13.7% |
+| the same, after | 283.814 * power^0.481 (n=45) | **+11.8%** | **+8.5%** | attack_drone +13.8% |
+| max tier, after | 304.471 * power^0.481 (n=45) | +11.6% | +11.5% | heli_yanshuf +15.0% |
+| data/units alone, after | 287.734 * power^0.469 (n=35) | - | - | attack_drone +16.2% (unchanged) |
+
+Shipped units the indirect reading moves: `mortar_team` -2.4 -> -2.6%, `mortar_crew` -2.4 -> -2.6%,
+`rocket_battery` +2.9 -> +2.7%. Every unit stays inside +/-18% in all four CI passes. The curve sees
+the two abilities only weakly (half a point each): the premiums stay the judgement the probes test.
+Pinned and falsified in `tools/src/gh709_staged.test.ts` (six one-line mutations of the Python, each red).

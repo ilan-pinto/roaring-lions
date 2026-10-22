@@ -62,7 +62,7 @@
 import { WEAPON_CLASS } from '@lions/sim';
 import { AIR_LIFT_PX } from './frame-state';
 
-export type MissileVariant = 'top_attack' | 'guided' | 'unguided' | 'warhead';
+export type MissileVariant = 'top_attack' | 'lofted' | 'guided' | 'unguided' | 'warhead';
 export type MissileClass = 'atgm' | 'rpg' | 'heat' | 'he';
 
 export interface MissileProfile {
@@ -83,6 +83,17 @@ export interface MissileProfile {
 export const MISSILE_PROFILES: Record<MissileVariant, MissileProfile> = {
   top_attack: {
     shape: 'climb_dive', apexPxPerTile: 6, apexMinPx: 30, apexMaxPx: 60, apexU: 0.4,
+    weaveTiles: 0, weaveCycles: 0, ignitionTiles: 0, tracks: true, drawn: true,
+    impactPower: 0.25, trailLifeScale: 1,
+  },
+  // GH-709 (E2): an atgm weapon the sim marks `indirect` (`spike_nlos`) fires
+  // over what it cannot see, so it climbs well above the roofline. The apex
+  // is in lift pixels: 120 px x WORLD_Y_PER_LIFT_PIXEL (0.0255) = 3.06 world
+  // units, above the tallest building (`apartment`, 3 floors, 1 wu each),
+  // and the top of the clamp is 190 px = 4.85 wu. `top_attack` stays as
+  // shipped (30..60 px, 0.8-1.5 wu): a Spike that sees its target.
+  lofted: {
+    shape: 'climb_dive', apexPxPerTile: 10, apexMinPx: 120, apexMaxPx: 190, apexU: 0.45,
     weaveTiles: 0, weaveCycles: 0, ignitionTiles: 0, tracks: true, drawn: true,
     impactPower: 0.25, trailLifeScale: 1,
   },
@@ -140,6 +151,8 @@ export interface MissileLaunch {
   targetAir: boolean;
   tick: number;
   shooter: number;
+  /** The weapon's sim `isIndirect` flag (GH-709); absent reads as direct. */
+  indirect?: boolean;
 }
 
 export interface MissileModel {
@@ -205,8 +218,18 @@ export function missileClassOf(cls: number): MissileClass | null {
   return null;
 }
 
-export function missileVariantFor(cls: number, weaponId: string): MissileVariant | null {
-  if (cls === WEAPON_CLASS.atgm) return TOP_ATTACK_WEAPON_IDS.has(weaponId) ? 'top_attack' : 'guided';
+/**
+ * `indirect` is the weapon's own sim flag (`WeaponStats.isIndirect`, the
+ * unit JSON's `indirect: true`): GH-709 keys the lofted arc on that data fact
+ * rather than on an id, so the next NLOS missile needs no renderer edit. It
+ * only matters for an `atgm`; a mortar or rocket is indirect by class and is
+ * not a missile here.
+ */
+export function missileVariantFor(cls: number, weaponId: string, indirect: boolean = false): MissileVariant | null {
+  if (cls === WEAPON_CLASS.atgm) {
+    if (indirect) return 'lofted';
+    return TOP_ATTACK_WEAPON_IDS.has(weaponId) ? 'top_attack' : 'guided';
+  }
   if (cls === WEAPON_CLASS.rpg) return 'unguided';
   if (cls === WEAPON_CLASS.heat) return 'warhead';
   // E5: the Peten's rocket pods -- unguided, like an RPG.
@@ -257,7 +280,7 @@ function clamp(v: number, lo: number, hi: number): number {
 export function spawnMissile(l: MissileLaunch): MissileModel | null {
   const mclass = missileClassOf(l.cls);
   if (mclass === null) return null;
-  const variant = missileVariantFor(l.cls, l.weaponId);
+  const variant = missileVariantFor(l.cls, l.weaponId, l.indirect === true);
   if (variant === null) return null;
   const prof = MISSILE_PROFILES[variant];
 

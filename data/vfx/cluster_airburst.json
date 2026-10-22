@@ -1,0 +1,54 @@
+{
+  "id": "cluster_airburst",
+  "trigger": "impact_terrain",
+  "layer": "above_units",
+  "budget_priority": 6,
+  "light": { "color": "vfx.fire", "intensity": 2.4, "radius_tiles": 3, "decay_ms": 220 },
+  "flipbook": [
+    { "type": "fire", "count": 1, "delay_ms": [0, 0], "duration_ms": [450, 450], "scale": { "base": 0.45, "per_power": 0.8 }, "velocity": { "radial": [0, 0], "up": [0, 0] } },
+    { "type": "fire", "count": 4, "delay_ms": [0, 15], "duration_ms": [350, 500], "scale": { "base": 0.3 }, "velocity": { "radial": [0.9, 0.9], "up": [0, 0.2] } },
+    { "type": "smoke", "count": 3, "delay_ms": [80, 60], "duration_ms": [1600, 2400], "scale": { "base": 0.5, "rand": 0.2 }, "velocity": { "radial": [0.3, 0.5], "up": [0, 0.15] }, "tint": 0.3 }
+  ],
+  "particles": [
+    {
+      "sprite": "soft_dot",
+      "count": [3, 4],
+      "lifetime_ms": [120, 220],
+      "speed_tiles_s": [0.8, 1.8],
+      "cone_deg": 360,
+      "size_px": [6, 10],
+      "size_over_life": [0.5, 1.0, 0.8],
+      "color_over_life": ["vfx.white_hot", "vfx.fire", "vfx.ember"],
+      "alpha_over_life": [1.0, 0.8, 0.0],
+      "additive": true,
+      "mesh_burst": true
+    },
+    {
+      "sprite": "spark",
+      "count": [6, 9],
+      "lifetime_ms": [200, 420],
+      "speed_tiles_s": [1.4, 3.0],
+      "cone_deg": 360,
+      "gravity_tiles_s2": 2.5,
+      "drag": 0.3,
+      "size_px": [2, 4],
+      "size_over_life": [1.0, 0.5],
+      "color_over_life": ["vfx.white_hot", "vfx.ember"],
+      "alpha_over_life": [1.0, 0.0],
+      "additive": true
+    },
+    {
+      "sprite": "smoke_puff",
+      "count": [3, 5],
+      "lifetime_ms": [900, 1500],
+      "speed_tiles_s": [0.3, 0.9],
+      "cone_deg": 360,
+      "gravity_tiles_s2": 0.2,
+      "drag": 0.8,
+      "size_px": [8, 14],
+      "size_over_life": [0.5, 2.0],
+      "color_over_life": ["dust.2", "dust.4"],
+      "alpha_over_life": [0.6, 0.0]
+    }
+  ]
+}

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WEAPON_CLASS } from '@lions/sim';
 import { AIR_LIFT_PX } from './frame-state';
+import { WORLD_Y_PER_LIFT_PIXEL } from '../../project';
 import {
   INTERCEPT_SCALE,
   MISSILE_AIR_LIFT_PX,
@@ -98,6 +99,40 @@ describe('the flight time is the sim\'s own (spec D1)', () => {
     // left to guard for this case and the comment above should be revisited.
     expect(dist / perTick).toBeGreaterThan(3);
     expect(missileDurationS(WEAPON_CLASS.atgm, dist)).toBeCloseTo((3 - 1) * SIM_TICK_S, 12);
+  });
+});
+
+describe('a lofted (indirect) atgm (GH-709 E2)', () => {
+  it('keys on the weapon\'s indirect flag, not on its id, and only for an atgm', () => {
+    expect(missileVariantFor(WEAPON_CLASS.atgm, 'spike_nlos', true)).toBe('lofted');
+    expect(missileVariantFor(WEAPON_CLASS.atgm, 'anything_else', true)).toBe('lofted');
+    expect(missileVariantFor(WEAPON_CLASS.atgm, 'spike_nlos', false)).toBe('guided');
+    expect(missileVariantFor(WEAPON_CLASS.atgm, 'spike_atgm', false)).toBe('top_attack');
+    expect(missileVariantFor(WEAPON_CLASS.rpg, 'x', true)).toBe('unguided');
+  });
+
+  it('climbs over the tallest building at every range, higher than a Spike, with the sim\'s own flight time', () => {
+    const APARTMENT_WU = 3; // three floors, one world unit each
+    for (const d of [4, 8, 12, 24]) {
+      const m = spawned({ weaponId: 'spike_nlos', indirect: true, tx: d, simDistTiles: d });
+      expect(m.variant).toBe('lofted');
+      expect(m.apexPx * WORLD_Y_PER_LIFT_PIXEL, `range ${d}`).toBeGreaterThan(APARTMENT_WU);
+      const spike = spawned({ weaponId: 'spike_atgm', tx: d, simDistTiles: d });
+      expect(m.apexPx).toBeGreaterThanOrEqual(spike.apexPx * 2);
+      // The arc changes the path, never the flight time.
+      expect(m.duration).toBe(spike.duration);
+    }
+    expect(spawned({ weaponId: 'spike_nlos', indirect: true, tx: 24, simDistTiles: 24 }).apexPx).toBe(190);
+    expect(spawned({ weaponId: 'spike_nlos', indirect: true, tx: 4, simDistTiles: 4 }).apexPx).toBe(120);
+  });
+
+  it('peaks at u = 0.45 and dives steeper than it climbs', () => {
+    const m = spawned({ weaponId: 'spike_nlos', indirect: true, tx: 15, simDistTiles: 15 });
+    const h = (u: number): number => missilePointAt(m, u).liftPx - MISSILE_GROUND_LIFT_PX;
+    expect(h(0.45)).toBeCloseTo(m.apexPx, 9);
+    for (const u of [0.1, 0.3, 0.6, 0.9]) expect(h(u)).toBeLessThan(m.apexPx);
+    expect((h(0.9) - h(1)) / 0.1).toBeGreaterThan((h(0.1) - h(0)) / 0.1);
+    expect(h(1)).toBeCloseTo(0, 9);
   });
 });
 

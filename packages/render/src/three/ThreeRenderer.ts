@@ -203,6 +203,13 @@ import {
 } from './units/smoke-plume';
 import { CollapseShroudManager, COLLAPSE_SHROUD_SWAP_DELAY_MS } from './units/collapse-shroud';
 import { scorchRadiusTiles } from './scorch-decals';
+import {
+  ClusterBurstGrouper,
+  BOMBLET_CRATER_RADIUS_TILES,
+  CLUSTER_BURST_LIFT_PX,
+  CLUSTER_BURST_POWER,
+  clusterCarrierToRetire,
+} from './units/cluster-burst';
 import { decalShowcase, showcaseAnchor, showcaseSites } from './decal-showcase';
 import {
   DecalPool,
@@ -225,6 +232,7 @@ import {
 import {
   BLAST_EMITTER_ID,
   SHELL_IMPACT_EMITTER_ID,
+  CLUSTER_AIRBURST_EMITTER_ID,
   STRUCTURE_COLLAPSE_EMITTER_ID,
   COLLAPSE_FLASH_EMITTER_ID,
   collapseFrontPoint,
@@ -2271,6 +2279,9 @@ export class ThreeRenderer implements Renderer {
    * the bug rather than the baseline.
    */
   private shells: ShellModel[] = [];
+  /** GH-709 (E3): collects a cluster round's `submunition` events into their
+   *  burst centre. Presentation state only. */
+  private readonly clusterBursts = new ClusterBurstGrouper();
   private readonly shellBatch = new ShellBatch(SHELL_CAPACITY);
 
   /**
@@ -4715,13 +4726,21 @@ export class ThreeRenderer implements Renderer {
         }
         this.flinchNear(nx, ny);
       } else if (e.kind === 'submunition') {
-        // E3 (GH-709): a bomblet. A small flat flash where the sim put it;
-        // the airburst, the per-bomblet craters and the Defilade flipbooks
-        // are the cluster unit's presentation phase, not this hook.
+        // E3 (GH-709): a bomblet. A small flat flash and a flinch where the
+        // sim put it, and a small crater there on the sim clock (every decal
+        // is stamped with the tick it belongs to). `submunition` is a
+        // burst-only kind, so a catch-up (`quiet`) never reaches here: the
+        // same rule as a mortar bomb, whose shell is a `fire` event and is
+        // dropped too, so it too leaves no crater during a catch-up.
         const bx = fx.toNumber(e.x);
         const by = fx.toNumber(e.y);
         this.spawnFlatFx(bx, by, this.opts.nearMissColor, 5, 10);
         this.flinchNear(bx, by);
+        this.stampGroundDecal(this.persistentStamp('crater', bx, by, BOMBLET_CRATER_RADIUS_TILES));
+        // The last bomblet of the round completes its group: the carrier
+        // shell opens in the air over the centroid. The sim emits no centre.
+        const centre = this.clusterBursts.push({ by: e.by, x: bx, y: by, index: e.index, count: e.count });
+        if (centre !== null) this.openClusterShell(centre.by, centre.x, centre.y);
       } else if (e.kind === 'aps') {
         // GH-85 (`interceptor_launch`): the launcher fires on every engagement,
         // hit or miss -- the defender cannot know which (GDD 5.6).
@@ -5343,6 +5362,7 @@ export class ThreeRenderer implements Renderer {
         side: st.side[e.shooter], cls, weaponId: e.weaponId,
         target: atStruct ? -1 : e.target, willHit: e.willHit,
         shooterAir: type.isAir, targetAir, tick: e.tick, shooter: e.shooter,
+        indirect: wp?.isIndirect === true,
       });
       const mcls = missileClassOf(cls);
       flightS = Math.hypot(tx - this.curX[e.shooter], ty - this.curY[e.shooter]) / SIM_PROJ_SPEED_TILES_S[mcls ?? 'atgm'];
@@ -5370,6 +5390,11 @@ export class ThreeRenderer implements Renderer {
           shell.target = e.target;
         }
         flightS = shell.duration;
+        // GH-709 (E3): a cluster carrier opens in the air, it does not land.
+        if (wp?.submunitions != null) {
+          shell.cluster = true;
+          shell.shooter = e.shooter;
+        }
         // N1b task 13 (R-N14 leak 4): an arc from a versus shooter the seat
         // cannot see appears at its apex and falls, instead of drawing its
         // rising half straight back at the hidden tube. `seen` above already
@@ -5666,7 +5691,7 @@ export class ThreeRenderer implements Renderer {
    * climbing past it as the fireball fades -- an emergent sequencing from
    * each effect's own envelope shape, not an explicit spawn-time delay.
    */
-  private spawnCollapseFx(id: string, bx: number, by: number, power = 1, yawTurns = 0): boolean {
+  private spawnCollapseFx(id: string, bx: number, by: number, power = 1, yawTurns = 0, liftWu = 0): boolean {
     if (!this.particleSystem) return false;
     const em = this.emitterLibrary.byName(id);
     if (!em) return false;
@@ -5679,7 +5704,10 @@ export class ThreeRenderer implements Renderer {
     const recipe = this.flipbookRecipeOf(em);
     if (recipe && !this.quiet) {
       const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, bx, by);
-      this.flipbook.spawnRecipe(recipe, bx, worldY, by, power);
+      // `liftWu` (GH-709, an airburst) raises the whole recipe; 0 for every
+      // other caller, which is the shipped call.
+      if (liftWu === 0) this.flipbook.spawnRecipe(recipe, bx, worldY, by, power);
+      else this.flipbook.spawnRecipe(recipe, bx, worldY + liftWu, by, power, 0, worldY);
     }
     for (const layer of em.particles) {
       if (recipe && flipbookSupersedes(layer)) continue;
@@ -5691,7 +5719,7 @@ export class ThreeRenderer implements Renderer {
       // own top comment.
       if (layer.mesh_burst && this.explosionBursts.ready) {
         const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, bx, by);
-        this.explosionBursts.spawn(bx, worldY, by, yawTurns, power, EXPLOSION_BURST_DEFAULT_DURATION_MS);
+        this.explosionBursts.spawn(bx, worldY + liftWu, by, yawTurns, power, EXPLOSION_BURST_DEFAULT_DURATION_MS);
         continue;
       }
       // The `mesh_burst` sibling, for the multi-second smoke AFTERMATH --
@@ -9449,7 +9477,10 @@ export class ThreeRenderer implements Renderer {
     // shell was drawn, and this reads nothing from it that `onFire` did not
     // already capture at launch.
     for (const s of this.shells) {
-      if (shellHasLanded(s, dtSeconds)) this.spawnShellImpactFx(s);
+      // A cluster carrier (GH-709) lands as nothing: `openClusterShell`
+      // retires it at the sim's burst, and one that outlives its own flight
+      // (the sim bursts a tick late) simply ends without a bomb's crater.
+      if (shellHasLanded(s, dtSeconds) && s.cluster !== true) this.spawnShellImpactFx(s);
     }
     this.shells = stepShells(this.shells, dtSeconds);
     // GH-85: an arcing ROCKET lays smoke along its real arc, on this same
@@ -9535,6 +9566,42 @@ export class ThreeRenderer implements Renderer {
    */
   private spawnShellImpactFx(s: ShellModel): void {
     this.spawnShellLandingAt(s.kind, s.tx, s.ty);
+  }
+
+  /**
+   * GH-709 (E3): a cluster round opens. Called once per round, when its last
+   * `submunition` event arrives, with the centroid of the bomblets.
+   *
+   * THE CLOCK. The airburst is thrown on the SIM clock, at the tick the sim
+   * resolves the round, and not off `shellHasLanded` on the frame clock like
+   * a mortar bomb's fireball. Both are defensible; the sim clock is the
+   * honest one here for three reasons. The bomblets, their flashes and their
+   * craters are on it already, so the carrier opening and what falls out of it
+   * cannot disagree. The shell is drawn at the speed the sim flies it
+   * (`SHELL_PROFILES.mortar` is 4 tiles/s, `PROJ_SPEED`'s mortar entry), so the
+   * two land within a tick or two of each other. And the centre is only known
+   * from those events: the shell's own aim point is the target's position at
+   * FIRE time, which a moving target has left. In lock-step the drawn carrier
+   * ends a few frames before the burst and lands as nothing; when the frame
+   * clock lags the sim it is still in the air, and is retired here so it ends
+   * where it opens -- only a carrier nearly down, never a younger round from the
+   * same gun (`clusterCarrierToRetire`).
+   *
+   * The charge is in the air (`CLUSTER_BURST_LIFT_PX`), a modest power, light
+   * only -- no shake and no hit-stop, which a barrage of these would stack.
+   */
+  private openClusterShell(shooter: number, x: number, y: number): void {
+    // Retire this shooter's carrier that is nearly down, never a younger one.
+    const best = clusterCarrierToRetire(this.shells, shooter);
+    if (best >= 0) this.shells.splice(best, 1);
+    const lift = CLUSTER_BURST_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL;
+    this.spawnCollapseFx(CLUSTER_AIRBURST_EMITTER_ID, x, y, CLUSTER_BURST_POWER, tileHash(Math.floor(x), Math.floor(y)), lift);
+    const em = this.emitterLibrary.byName(CLUSTER_AIRBURST_EMITTER_ID);
+    const light = blastLightSpec(em, CLUSTER_BURST_POWER);
+    if (light) {
+      const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, y) + lift;
+      this.flashLights.spawn(x, y, worldY, light, this.overlayColor(light.color ?? 'vfx.fire', FLASH_LIGHT_FALLBACK));
+    }
   }
 
   /** A shell of `kind` landing at (tx, ty): the body `spawnShellImpactFx` always
