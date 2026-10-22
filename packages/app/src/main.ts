@@ -1072,7 +1072,9 @@ async function main(): Promise<void> {
      *  unit (`bought`), and nothing else about the roster moves. */
     const garageUnits = (bought: ReadonlySet<string>): BrigadeUnit[] =>
       Object.values(units)
-        .filter((u) => u.faction === 'kdf')
+        // GH-707 P2: `wounded_kdf` is faction kdf and costs nothing, but it is a casualty the sim
+        // makes, not a unit anyone buys, fields or upgrades: not in the garage.
+        .filter((u) => u.faction === 'kdf' && u.role !== 'wounded')
         .map((u) => ({
           id: u.id,
           name: u.name,
@@ -4022,7 +4024,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // proxy box and has its own HUD note.
       meshPending: (id) => hasUnitMesh(id) && !meshReady.has(id) && !failedMesh.includes(id),
       units: (dockRt === sandboxWorksRt ? [] : Object.values(units))
-        .filter((u) => u.faction === 'kdf')
+        // GH-707 P2: not the wounded -- the dock draws a tile for every unit it is handed, and a
+        // casualty is no one's to build (it would read as a free "Wounded Soldier" at 0 logistics).
+        .filter((u) => u.faction === 'kdf' && u.role !== 'wounded')
         .map((u) => {
           // The role bucket comes from the SIM's unit type, through the very
           // `roleBucket` call the selection chips make, so a Namer badged as a

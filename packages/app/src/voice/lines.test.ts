@@ -35,6 +35,7 @@ describe('voiceClassOf (spec §3)', () => {
     moto_rpg: 'crew', paramotor: 'air', recoilless_team: 'infantry', rocket_battery: 'crew',
     rpg_team: 'infantry', sarim_rifles: 'infantry', technical: 'crew',
     civilians: 'infantry', // a class, but no language: civilians never speak (languageOf)
+    wounded_kdf: 'infantry', wounded_sarim: 'infantry', // role wounded (GH-707 P2): a class by role; nobody orders or voices a casualty
   };
 
   it('gives every shipped unit the class spec §3 names, overrides first', () => {

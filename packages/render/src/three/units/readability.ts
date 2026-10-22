@@ -124,6 +124,9 @@ export const RADIUS_BY_TYPE: Readonly<Record<string, number>> = {
   // kneel with the rear shin laid back is a wider footprint than the kit pair. 0.46
   // since its tube moved from the hip onto the shoulder (2026-10-01), shorter in front.
   recoilless_team: 0.46, civilians: 0.45,
+  // GH-707 P2 (2026-10-22): the wounded pair, from a fresh `unit-footprints.ts` run (footprint
+  // 0.357 and 0.355 tile, a man lying on his front: 1.15 x that is under the foot class value).
+  wounded_kdf: 0.45, wounded_sarim: 0.45,
   jeep_shoded: 1.03, technical: 1.02, dozer_d9: 1.56, rocket_battery: 1.16, moto_rpg: 0.55,
   // `gun_truck` measured 1.17 once its mesh landed (B2, 2026-09-30; 1.15 x its own
   // 5.4 m footprint) -- it was the infantry class 0.55 while billboard-only.

@@ -54,6 +54,14 @@ const TEAM_MESHES = `${REPO}art/meshes/`;
  */
 const NO_DOWN_CLIP = new Set(['moto_rpg']);
 
+/**
+ * The wounded (GH-707 P2) play `down` as a LIVING clip: a casualty lying and breathing (3 s, looped),
+ * which `rescueClipFor` falls back to when a GLB has no `idleWounded`. It is not a held pose, by the
+ * art spec; his corpse is `wreck`, and `wreck` is still held below. Named so a third team cannot
+ * walk through the gap; `tools/src/mesh_wounded.test.ts` pins that `down` differs from `wreck`.
+ */
+const LIVING_DOWN = new Set(['wounded_kdf', 'wounded_sarim']);
+
 /** Team GLBs are the files at the top level of `art/meshes/`; every
  *  subdirectory is a different asset class with a different contract. */
 function shippedTeams(): string[] {
@@ -105,6 +113,7 @@ describe('shipped infantry team meshes: the death clips exist', () => {
   it.each(shippedTeams())('%s: `down`/`wreck` are held poses, not animated collapses', async (team) => {
     const template = await templateFor(team);
     for (const name of ['down', 'wreck'] as const) {
+      if (name === 'down' && LIVING_DOWN.has(team)) continue;
       const clip = template.clips.get(name);
       if (!clip) {
         expect(NO_DOWN_CLIP.has(team)).toBe(true);

@@ -97,16 +97,19 @@ FIGURES = {"inf_squad", "at_team", "mortar_team", "sniper_team", "demo_squad",
            # faction ramp, `mesh-catalogue.ts`), so it lives here, not in
            # vehicles/.
            "militia_cell", "rpg_team", "mortar_crew", "charge_squad",
-           "moto_rpg", "digger_crew"}
+           "moto_rpg", "digger_crew",
+           # GH-707 P2 (22 Oct): the wounded pair, one man on his front each. No `idle`:
+           # `pose_idle` falls back to `idleWounded`.
+           "wounded_kdf", "wounded_sarim"}
 ENEMY_FIGURES = {"atgm_cell", "manpad_team", "recoilless_team", "sarim_rifles",
                  "militia_cell", "rpg_team", "mortar_crew", "charge_squad",
-                 "moto_rpg", "digger_crew"}
+                 "moto_rpg", "digger_crew", "wounded_sarim"}
 # Figure rigs with ONE figure root: the `lead` variant would duplicate the
 # team picture (and `isolate_lead` refuses it), so they ship the team picture
 # only and the chip falls back to it, as a vehicle's does. `moto_rpg` binds
 # bike, rider and gunner to the single `m_root`; `digger_crew` is one man
 # (`dig_root` plus its second pose root `digw_root`).
-NO_LEAD = {"moto_rpg", "digger_crew"}
+NO_LEAD = {"moto_rpg", "digger_crew", "wounded_kdf", "wounded_sarim"}
 ROSTER = (
     # KDF (19)
     "inf_squad,at_team,mortar_team,sniper_team,demo_squad,breach_team,yahalom_squad,recon_zikit,"
@@ -179,7 +182,9 @@ def drop_dead_geometry(unit):
 
 
 def pose_idle():
-    action = bpy.data.actions.get("idle")
+    # The wounded have no `idle`; the lying pose the game draws a still casualty in is
+    # `idleWounded` (`rescue-pose.ts`'s `woundedIdle`).
+    action = bpy.data.actions.get("idle") or bpy.data.actions.get("idleWounded")
     armatures = [o for o in bpy.context.scene.objects if o.type == "ARMATURE"]
     if action is None:
         raise SystemExit("no `idle` clip -- spec row 2 poses every unit from it")

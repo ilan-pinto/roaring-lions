@@ -21,7 +21,13 @@ import { fx } from '../../packages/sim/src/fixed';
 import { Sim, TICKS_PER_SECOND, type UnitTypeJson } from '../../packages/sim/src/sim';
 
 const all = units as Record<string, UnitTypeJson & { faction: string }>;
-const KDF = Object.values(all).filter((u) => u.faction === 'kdf').map((u) => u.id);
+// Not the role-`wounded` types (GH-707 P2): a casualty is something the sim makes and he crawls at
+// 0.12 tile/s on his own account; nobody fields him, so an order's "held where it was sent" is not
+// a question about him (measured: `wounded_kdf` drifts 10.0 tiles under the plain attack-move and
+// stays put under the sweep, being unarmed). `mesh_wounded.test.ts` is where he is judged.
+const KDF = Object.values(all)
+  .filter((u) => u.faction === 'kdf' && (u as { role?: string }).role !== 'wounded')
+  .map((u) => u.id);
 
 /** The one type allowed to leave: an `attack_drone` IS its warhead, and
  *  stepKamikaze steers it onto an identified target on its own, at any range,

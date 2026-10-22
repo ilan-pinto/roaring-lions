@@ -345,6 +345,20 @@
         126
       ]
     },
+    "wounded_kdf": {
+      "file": "wounded_kdf.png",
+      "extent": [
+        174,
+        49
+      ]
+    },
+    "wounded_sarim": {
+      "file": "wounded_sarim.png",
+      "extent": [
+        174,
+        52
+      ]
+    },
     "yahalom_squad": {
       "file": "yahalom_squad.png",
       "extent": [

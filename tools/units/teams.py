@@ -682,6 +682,18 @@ def manpad_team(clip, frame):
     return out
 
 
+def wounded_kdf(clip, frame):
+    """A wounded KDF soldier (GH-707 P2): one man on his front, no weapon. The
+    sheet builder exists for the registry only -- `tools/units/wounded.py` is
+    what poses the rig; every clip here is the same lying man."""
+    return kit.casualty("w0", headgear="helmet", loadout="regular")
+
+
+def wounded_sarim(clip, frame):
+    """A wounded Sarim fighter: the same man in the militia kit."""
+    return kit.casualty("w0", headgear="keffiyeh", loadout="irregular")
+
+
 #: id -> (builder, faction, sprite directory). The sheet name follows the unit id
 #: so a missing sheet is obvious in main.ts rather than hidden behind an alias --
 #: which is exactly how seven types came to share one directory.
@@ -703,6 +715,8 @@ TEAMS = {
     "sarim_rifles": (sarim_rifles, "enemy", "INF_SARIM"),
     "recoilless_team": (recoilless_team, "enemy", "INF_RECOILLESS"),
     "manpad_team": (manpad_team, "enemy", "INF_MANPAD"),
+    "wounded_kdf": (wounded_kdf, "kdf", "WOUNDED_KDF"),
+    "wounded_sarim": (wounded_sarim, "enemy", "WOUNDED_SARIM"),
 }
 
 #: Clips that are the same for every team. `idle` is not among them any more --

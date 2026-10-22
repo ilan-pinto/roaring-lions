@@ -157,6 +157,12 @@ SUPPORTED_TEAMS = (
     # Meshy A-pose figure on the same path; it was never a kit export, so it
     # joins here for `build_clips`/`TEAM_FIGURES` and nothing else.
     "sarim_rifles",
+    # GH-707 P2, 22 Oct 2026: the wounded, one prone man each, built from
+    # `kit.casualty` and driven by `wounded.py`, which owns their bones and
+    # their four clips: down, idleWounded, crawl, wreck. Kit-owned. No
+    # parentheses in this comment: mesh_ownership.test.ts reads the tuple with
+    # a regex that stops at the first closing bracket.
+    "wounded_kdf", "wounded_sarim",
 )
 DEFAULT_TEAM = "inf_squad"
 
@@ -214,6 +220,8 @@ TEAM_MESH_OWNER = {
     "manpad_team": "tools/units/import_meshy_crew_team.py",
     "recoilless_team": "tools/units/import_meshy_crew_team.py",
     "sarim_rifles": "tools/units/import_meshy_crew_team.py",   # B7 (GH-179, 2026-10-01)
+    "wounded_kdf": MESH_KIT_OWNED,      # GH-707 P2: kit.casualty + units/wounded.py
+    "wounded_sarim": MESH_KIT_OWNED,
 }
 assert set(TEAM_MESH_OWNER) == set(SUPPORTED_TEAMS), (
     "TEAM_MESH_OWNER needs exactly one entry per SUPPORTED_TEAMS member -- "
@@ -1268,6 +1276,11 @@ TEAM_FIGURES = {
     # `posture="standing"` is filler to satisfy that check's assert and is
     # not used to build anything; `x`/`y` are likewise unread here (only
     # `.prefix` is).
+    # The wounded: one prone man each, built by `wounded.py` (its own bone
+    # table and clips), not by `_add_figure`. The entry is here for the figure
+    # prefix, `build_and_export`'s `figure_prefixes` and the self-check below.
+    "wounded_kdf": [_f("w0", 0.0, 0.0, posture="prone", animates=False)],
+    "wounded_sarim": [_f("w0", 0.0, 0.0, posture="prone", headgear="keffiyeh", loadout="irregular", animates=False)],
     "moto_rpg": [
         _f("m", 0.0, 0.0, animates=False),
         _f("rid", 0.0, 0.0, animates=False),
@@ -1297,6 +1310,7 @@ def _check_team_figures_against_teams():
         "moto_rpg": "enemy", "breach_team": "kdf",
         "manpad_team": "enemy", "recoilless_team": "enemy",
         "sarim_rifles": "enemy",
+        "wounded_kdf": "kdf", "wounded_sarim": "enemy",
     }
     for team_id, figures in TEAM_FIGURES.items():
         assert team_id in teams.TEAMS, f"{team_id} missing from teams.TEAMS"
@@ -1306,7 +1320,7 @@ def _check_team_figures_against_teams():
             f"{teams.TEAMS[team_id][1]!r}"
         )
         for spec in figures:
-            assert spec["posture"] in ("standing", "kneeling"), spec
+            assert spec["posture"] in ("standing", "kneeling", "prone"), spec
             assert spec["weapon"] in (None, "rifle", "launcher"), spec
     assert set(SUPPORTED_TEAMS) == set(TEAM_FIGURES), "SUPPORTED_TEAMS/TEAM_FIGURES drifted apart"
 
@@ -1884,6 +1898,12 @@ def _build_team_rest_inner(team_id):
         forced_bone.update(f)
     elif team_id == "moto_rpg":
         p, b, f = _moto_rpg_rest()
+        parts += p
+        bone_table += b
+        forced_bone.update(f)
+    elif team_id in ("wounded_kdf", "wounded_sarim"):
+        import wounded
+        p, b, f = wounded.rest(team_id)
         parts += p
         bone_table += b
         forced_bone.update(f)
@@ -2582,6 +2602,10 @@ def build_moto_clips(arm_obj):
 
 
 def build_clips(arm_obj, team_id):
+    if team_id in ("wounded_kdf", "wounded_sarim"):
+        import wounded
+        wounded.build_clips(arm_obj, team_id)
+        return
     if team_id == "sniper_team":
         build_sniper_clips(arm_obj, gait_for_team(team_id))
         return
@@ -2671,7 +2695,13 @@ def build_and_export(team_id=DEFAULT_TEAM, out_path=None):
     rig_parts(parts, arm_obj, forced_bone, figure_prefixes)
     merged = join_by_role(parts)
     build_clips(arm_obj, team_id)
+    if team_id in ("wounded_kdf", "wounded_sarim"):
+        import wounded
+        wounded.crawl_probe(arm_obj, team_id)
+        wounded.set_extras(team_id)
     export_glb(arm_obj, path)
+    if team_id in ("wounded_kdf", "wounded_sarim"):
+        wounded.save_source(team_id)
     return arm_obj, merged, path
 
 

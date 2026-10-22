@@ -1439,7 +1439,7 @@ export class Sim {
   private deliverX: Fx = 0;
   private deliverY: Fx = 0;
   /** GH-707: true once `addUnitType` registers a type with `wounds`, `rescue`, `can_carry` or
-   *  role `wounded`, or `addStructureType` one with `aid`. hash() folds the wound block only
+   *  role `wounded`, or `addStructure` places (or stakes) a structure with `aid`. hash() folds the wound block only
    *  while set, so no world without wound content moves any pin. */
   private woundLive = false;
   /** Structure this unit is currently engaging, -1 when none. */
@@ -2264,8 +2264,9 @@ export class Sim {
 
   addStructureType(json: StructureTypeJson): number {
     const type = structureTypeFromJson(json, TICKS_PER_SECOND);
-    // GH-707: an aid post turns the wound block's hash fold on.
-    if (type.aid !== null) this.woundLive = true;
+    // GH-707: an aid post turns the wound block's hash fold on when one is placed or staked
+    // (`addStructure`), not here: every world registers the whole structure catalogue (`standMapStructures`), so
+    // a registration trigger would fold the block into every mission and versus world.
     this.structureTypes.push(type);
     return this.structureTypes.length - 1;
   }
@@ -2311,7 +2312,10 @@ export class Sim {
     this.stOwner[id] = owner;
     this.stProgress[id] = progress;
     if (owner !== -1 || progress !== ONE) this.fwLive = true;
-    if (type.aid !== null) this.aidPosts++;
+    if (type.aid !== null) {
+      this.aidPosts++;
+      this.woundLive = true;
+    }
     this.stMaxHp[id] = fx.mul(type.hpPerTile, fx.fromInt(tiles.length));
     this.stHp[id] = this.stMaxHp[id];
     this.stOccupants[id] = 0;

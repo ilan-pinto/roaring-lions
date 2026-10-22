@@ -67,6 +67,7 @@ const ROLE_KEYS: Readonly<Record<string, string>> = {
   recon: 'role.recon',
   sniper: 'role.sniper',
   support: 'role.support',
+  wounded: 'role.wounded',
 };
 
 /**

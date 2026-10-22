@@ -192,6 +192,7 @@ const WALL_SURFACE: Record<string, WallSurface> = {
   kdf_outpost: 'flat',
   kdf_intel_centre: 'flat',
   kdf_workshop: 'flat',
+  kdf_aid_post: 'flat',
   militia_field_clinic: 'flat',
   militia_firing_position: 'flat',
   militia_observation_post: 'flat',

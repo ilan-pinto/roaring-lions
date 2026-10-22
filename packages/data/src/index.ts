@@ -143,6 +143,9 @@ import sarimRifles from '../../../data/units/enemy/sarim_rifles.json';
 import manpadTeam from '../../../data/units/enemy/manpad_team.json';
 import recoillessTeam from '../../../data/units/enemy/recoilless_team.json';
 import civilians from '../../../data/units/civilians.json';
+// GH-707 P2: the wounded, role `wounded`. Not buildable, in no store; a casualty the sim makes.
+import woundedKdf from '../../../data/units/kdf/wounded_kdf.json';
+import woundedSarim from '../../../data/units/enemy/wounded_sarim.json';
 
 import catastrophicKill from '../../../data/vfx/catastrophic_kill.json';
 import fireApfsds from '../../../data/vfx/fire_apfsds.json';
@@ -391,6 +394,8 @@ export const units = {
   recoilless_team: recoillessTeam,
   civilians: civilians,
   heli_yanshuf: heliYanshuf,
+  wounded_kdf: woundedKdf,
+  wounded_sarim: woundedSarim,
 } as const;
 
 export type UnitId = keyof typeof units;

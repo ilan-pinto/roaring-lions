@@ -12,8 +12,14 @@ export type VersusRosterUnit = (typeof units)[keyof typeof units];
  * menu (`data/doctrines/*.json`) until the air-assault probe gives it a bar
  * (spec Q9). Deleting the id here registers it again and moves the versus pins,
  * in that same commit -- which is the right time for them to move.
+ *
+ * `wounded_kdf` and `wounded_sarim` (GH-707 P2): two more registered types would
+ * move the roster-count literals every net spec pins (35, 36, ...) and the type
+ * index layout. No unit declares `hull.wounds` yet and no versus side can field
+ * either, so the room leaves them out until the rescue loop is opened to versus
+ * (the lead's call); that commit deletes the ids here and moves the literals.
  */
-export const VERSUS_HELD_UNITS: ReadonlySet<string> = new Set(['heli_yanshuf']);
+export const VERSUS_HELD_UNITS: ReadonlySet<string> = new Set(['heli_yanshuf', 'wounded_kdf', 'wounded_sarim']);
 
 /**
  * The unit types a versus room registers, in roster order: the shipped

@@ -213,6 +213,15 @@ export const RIGGED_UNIT_MESHES: Readonly<Record<string, RiggedMeshEntry>> = {
     ],
     faction: 'civilian',
   },
+
+  // GH-707 P2 (22 Oct 2026): the wounded, one man on his front each, built from
+  // `kit.casualty` and driven by `tools/units/wounded.py` (clips down,
+  // idleWounded, crawl, wreck; no weapon, no `move`). Role `wounded`: a casualty
+  // the sim makes (`hull.wounds.type`), not a type a mission JSON names, so
+  // `missionUnitTypes` does not find them and main.ts's 1 Hz mesh sweep loads
+  // them on the first one that falls unless a roster rule adds the wounds type.
+  wounded_kdf: { files: ['wounded_kdf.glb'], faction: 'kdf' },
+  wounded_sarim: { files: ['wounded_sarim.glb'], faction: 'enemy' },
 };
 
 /**
@@ -327,6 +336,12 @@ export const BUILDING_MESHES: Readonly<
     idle: 'buildings/kdf_workshop.glb',
     wreck: 'buildings/kdf_workshop_wreck.glb',
     construction: 'buildings/kdf_workshop_construction.glb',
+  },
+  // GH-707 P2 (2026-10-22): the 2x3 aid post, the fifth KDF work.
+  kdf_aid_post: {
+    idle: 'buildings/kdf_aid_post.glb',
+    wreck: 'buildings/kdf_aid_post_wreck.glb',
+    construction: 'buildings/kdf_aid_post_construction.glb',
   },
   militia_field_clinic: { idle: 'buildings/militia_field_clinic.glb', wreck: 'buildings/militia_field_clinic_wreck.glb' },
   militia_firing_position: { idle: 'buildings/militia_firing_position.glb', wreck: 'buildings/militia_firing_position_wreck.glb' },

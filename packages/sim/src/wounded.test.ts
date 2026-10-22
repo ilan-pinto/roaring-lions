@@ -117,10 +117,17 @@ const COLUMNS = [
 describe('wound data shape (GH-707 Task 1)', () => {
   it('a sim with every shipped unit and structure type is not wound-live', () => {
     const sim = new Sim({ seed: 1, width: 8, height: 8, capacity: 4 });
-    const units = shippedUnits();
+    // Less the `wounded`-role types and the structure types carrying `aid`: landing those (GH-707 P2,
+    // `wounded_kdf` and `wounded_sarim`) IS wound content, and registering one turns the fold on --
+    // the next test pins exactly that. What this one still holds is that no OTHER shipped type
+    // does it by accident.
+    const units = shippedUnits().filter((u) => (u as { role?: string }).role !== 'wounded');
     expect(units.length).toBeGreaterThan(30); // the walk found the roster, not an empty dir
     for (const u of units) sim.addUnitType(u);
-    for (const s of Object.values(catalogue.types)) sim.addStructureType(s as StructureTypeJson);
+    for (const s of Object.values(catalogue.types)) {
+      if ((s as { aid?: unknown }).aid !== undefined) continue;
+      sim.addStructureType(s as StructureTypeJson);
+    }
     expect(sim.woundsLive).toBe(false);
   });
 
@@ -132,10 +139,17 @@ describe('wound data shape (GH-707 Task 1)', () => {
       sim.addUnitType(t);
       expect(sim.woundsLive).toBe(true);
     }
+    // An aid post flips it when one is placed or staked (addStructure), not when its type is registered: every world
+    // registers the whole structure catalogue (standMapStructures), so a registration trigger
+    // folded the wound block into every mission and versus world (GH-707 P2: six versus/net
+    // pins moved the moment kdf_aid_post entered data/structures.json).
     const sim = new Sim({ seed: 1, width: 8, height: 8, capacity: 4 });
-    sim.addStructureType({ id: 'wd_house', hp_per_tile: 100 });
+    const house = sim.addStructureType({ id: 'wd_house', hp_per_tile: 100 });
+    const post = sim.addStructureType(AID_POST);
     expect(sim.woundsLive).toBe(false);
-    sim.addStructureType(AID_POST);
+    sim.addStructure(house, [0]);
+    expect(sim.woundsLive).toBe(false);
+    sim.addStructure(post, [2]);
     expect(sim.woundsLive).toBe(true);
   });
 

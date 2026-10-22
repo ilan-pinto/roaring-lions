@@ -48,7 +48,7 @@ import {
   swingLiftFraction,
   type RootTravel,
 } from './mesh_gait';
-import { MIN_GAIT_TRAVEL_M } from './meshes/gait-pass';
+import { GAIT_CRAWL_ONLY, MIN_GAIT_TRAVEL_M } from './meshes/gait-pass';
 import { MOTION_TEAMS } from './meshes/motion/teams';
 import { RIGGED_UNIT_MESHES } from '../../packages/app/src/mesh-catalogue';
 // Task 7, and the brief spells this out: `@lions/tools` deliberately does not
@@ -328,6 +328,11 @@ export const FALL_CLIPS: ReadonlySet<string> = new Set(['fall', 'fallAlt']);
 function riggedFiles(): RiggedFile[] {
   const out: RiggedFile[] = [];
   for (const [typeId, entry] of Object.entries(RIGGED_UNIT_MESHES)) {
+    // The wounded (GH-707 P2) crawl, which is not a locomotion clip: no `move`, no `rl_gait`, no
+    // weapon, none of the living clips this file's sweeps and census read. Named, with the reason,
+    // in `GAIT_CRAWL_ONLY`, and judged by `mesh_wounded.test.ts` (ground, crawl speed, contract),
+    // which also pins that set to the role-`wounded` unit JSONs.
+    if (typeId in GAIT_CRAWL_ONLY) continue;
     const hits = ['kdf/', 'enemy/', '']
       .map((dir) => `${REPO}data/units/${dir}${typeId}.json`)
       .filter((p) => existsSync(p));
@@ -362,7 +367,7 @@ function riggedFiles(): RiggedFile[] {
   // B2 (2026-09-30) added `manpad_team` and `recoilless_team`; E5 (2026-10-01) `recon_zikit`.
   // Numbers, not `> 0`: a catalogue that lost half its entries would still
   // clear a positive count.
-  expect(Object.keys(RIGGED_UNIT_MESHES)).toHaveLength(19);
+  expect(Object.keys(RIGGED_UNIT_MESHES).filter((id) => !(id in GAIT_CRAWL_ONLY))).toHaveLength(19);
   expect(out).toHaveLength(22);
   return out;
 }
@@ -2211,7 +2216,8 @@ describe('mesh unit walk-and-fire -- a moving shot plays a locomotion clip', () 
 
   it('covers every armed, gaited rigged type, and names the rest', () => {
     const covered = new Set(armedGaited.map((r) => r.typeId));
-    for (const typeId of Object.keys(RIGGED_UNIT_MESHES)) {
+    // The wounded (`GAIT_CRAWL_ONLY`) are unarmed and have no `move`: nothing to walk and fire.
+    for (const typeId of Object.keys(RIGGED_UNIT_MESHES).filter((id) => !(id in GAIT_CRAWL_ONLY))) {
       if (covered.has(typeId)) {
         expect(WALK_AND_FIRE_EXEMPT[typeId], `${typeId}: gated, so not exempt`).toBeUndefined();
         continue;

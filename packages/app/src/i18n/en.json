@@ -741,6 +741,7 @@
   "role.recon": "reconnaissance",
   "role.sniper": "sniper",
   "role.support": "support",
+  "role.wounded": "wounded",
 
   "weapon.unknown": "Weapon",
   "weapon.amr": "Anti-materiel rifle",
@@ -1125,6 +1126,7 @@
   "works.kdf_medic_station.blurb": "Heals infantry standing close by, up to full health.",
   "works.kdf_outpost.blurb": "A fortified post: three riflemen fight from cover with a longer view.",
   "works.kdf_intel_centre.blurb": "Watches a wide circle and reveals tunnel routes beneath it.",
+  "works.kdf_aid_post.blurb": "Takes in wounded soldiers and treats them; heals infantry nearby.",
   "works.kdf_workshop.blurb": "Repairs vehicles parked nearby and steadies fire around it.",
   "feed.works.started": "<b>{name}</b> — works begun",
   "feed.works.complete": "<b>{name}</b> — complete",

@@ -31,6 +31,7 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { measureNodePoses, readGlb, rotationDeltaDeg, type JointPose } from './mesh_gait';
+import { GAIT_CRAWL_ONLY } from './meshes/gait-pass';
 import { RIGGED_UNIT_MESHES, VEHICLE_UNIT_MESHES } from '../../packages/app/src/mesh-catalogue';
 // Relative imports, as mesh_gait.test.ts does: `clip.ts` and `mesh-anim.ts`
 // import only types from three.js-free modules.
@@ -82,10 +83,15 @@ function clipsOf(file: string): Set<ClipName> {
   return new Set((readGlb(`${MESHES}${file}`).json.animations ?? []).map((a) => a.name as ClipName));
 }
 
+/** The wounded (GH-707 P2) are not judged by this model of living states: they have no `idle`,
+ *  `move` or `pinned` for `resolveClip` to land on, and the renderer overrides every state of a
+ *  `wounded`-role type with `rescueClipFor` (idleWounded / crawl). That a living wounded man never
+ *  draws the corpse is held in `mesh_wounded.test.ts`, against `wreck`, on the clips he does play. */
+const WOUNDED_FILES = new Set(Object.keys(GAIT_CRAWL_ONLY).flatMap((id) => RIGGED_UNIT_MESHES[id]?.files ?? []));
 const DRAWN = [
   ...Object.values(RIGGED_UNIT_MESHES).flatMap((e) => e.files),
   ...Object.values(VEHICLE_UNIT_MESHES),
-].filter((f, i, all) => all.indexOf(f) === i);
+].filter((f, i, all) => all.indexOf(f) === i && !WOUNDED_FILES.has(f));
 const WITH_CORPSE = DRAWN.filter((f) => existsSync(`${MESHES}${f}`) && clipsOf(f).has('wreck')).sort();
 
 describe('no living state plays its corpse', () => {
