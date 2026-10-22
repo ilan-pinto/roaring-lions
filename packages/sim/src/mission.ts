@@ -1600,8 +1600,9 @@ export class MissionRuntime {
 
   /**
    * Run the commands the sim set aside (N2, F4: build, support, cancelBuild,
-   * setRally, clearRally), in queue order, through `requestBuild`,
-   * `requestSupport` and the line methods exactly as a direct call would. Call BEFORE `sim.tick()`: anything still set aside when the tick
+   * setRally, clearRally; field works: raiseWorks, cancelWorks), in queue order, through
+   * `requestBuild`, `requestSupport`, `requestConstruct`, `requestCancelWorks` and the line
+   * methods exactly as a direct call would. Call BEFORE `sim.tick()`: anything still set aside when the tick
    * starts is discarded (R-3). A command for a side other than 0 is refused
    * (C-R3: every spend is side 0's until N3). Returns how many were accepted.
    */
@@ -1616,6 +1617,8 @@ export class MissionRuntime {
         case 'setRally': ok = this.setRally(c.line, c.x, c.y); break;
         case 'clearRally': ok = this.clearRally(c.line); break;
         case 'support': ok = this.requestSupport(c.support, c.x, c.y); break;
+        case 'raiseWorks': ok = this.requestConstruct(c.works, c.x, c.y, c.ids.length > 0 ? c.ids : undefined); break;
+        case 'cancelWorks': ok = this.requestCancelWorks(c.site); break;
         default: { const unreachable: never = c; return unreachable; }
       }
       if (ok) accepted++;
@@ -1878,11 +1881,17 @@ export class MissionRuntime {
   /** Take one of the player's own sites down; the refund and the count come back when the sim
    *  answers (`constructCancelled`). False for a site that is not a live side-0 site. */
   requestCancelWorks(site: number): boolean {
-    if (this.ended) return false;
-    const w = this.sim.works;
-    if (site < 0 || site >= w.alive.length || w.alive[site] === 0 || w.side[site] !== 0) return false;
+    if (!this.canCancelWorks(site)) return false;
     this.sim.queueCommand({ kind: 'cancelConstruct', site });
     return true;
+  }
+
+  /** Would `requestCancelWorks(site)` accept now? Read-only: the app's click-time check before
+   *  it sends a `cancelWorks` command down the order sink. */
+  canCancelWorks(site: number): boolean {
+    if (this.ended) return false;
+    const w = this.sim.works;
+    return site >= 0 && site < w.alive.length && w.alive[site] !== 0 && w.side[site] === 0;
   }
 
   /** Give a charge back: whole logistics `refundLogistics` to the purse, `intel` to intel, and the

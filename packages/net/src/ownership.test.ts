@@ -151,3 +151,28 @@ describe('validateCommand: the line verbs (F4 Task 5b)', () => {
     }
   });
 });
+
+describe('validateCommand: field works requests (GH-277)', () => {
+  it('single-player: side 0 with its own builders (or none) passes; a foreign side or builder drops', () => {
+    expect(validateCommand({ kind: 'raiseWorks', side: 0, works: 'kdf_outpost', x: 4, y: 4, ids: [1, 2] }, 0, world)).toBe(true);
+    expect(validateCommand({ kind: 'raiseWorks', side: 0, works: 'kdf_outpost', x: 4, y: 4, ids: [] }, 0, world)).toBe(true);
+    expect(validateCommand({ kind: 'raiseWorks', side: 0, works: 'kdf_outpost', x: 4, y: 4, ids: [1, 12] }, 0, world)).toBe(false);
+    expect(validateCommand({ kind: 'raiseWorks', side: 1, works: 'kdf_outpost', x: 4, y: 4, ids: [] }, 0, world)).toBe(false);
+    expect(validateCommand({ kind: 'cancelWorks', side: 0, site: 0 }, 0, world)).toBe(true);
+    expect(validateCommand({ kind: 'cancelWorks', side: 1, site: 0 }, 0, world)).toBe(false);
+  });
+  it('versus: both drop for every side, like build (no runtime prices them)', () => {
+    const versus = { ...world, versus: true };
+    for (const seat of [0, 1] as const) {
+      for (const side of [0, 1]) {
+        const own = seat === 0 ? [1] : [11];
+        expect(validateCommand({ kind: 'raiseWorks', side, works: 'kdf_outpost', x: 4, y: 4, ids: own }, seat, versus)).toBe(false);
+        expect(validateCommand({ kind: 'cancelWorks', side, site: 0 }, seat, versus)).toBe(false);
+      }
+    }
+  });
+  it('the sim-level construct and cancelConstruct never validate, from any seat', () => {
+    expect(validateCommand({ kind: 'construct', ids: [1], structType: 0, x: 4, y: 4 }, 0, world)).toBe(false);
+    expect(validateCommand({ kind: 'cancelConstruct', site: 0 }, 0, world)).toBe(false);
+  });
+});
