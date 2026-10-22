@@ -48,9 +48,12 @@
 // file. Each side's line rallies on its own anchor; every 20 s the production
 // plan (`planRound`) queues, then every living unit of each side -- the built
 // ones too -- attack-moves as above. The plan, both seats alike and reading
-// nothing of the other side: walk the side's ARMED menu as a cycle in doctrine
-// order from the unit after the one queued last, queueing whatever `canBuild`
-// accepts, until a whole turn of the cycle buys nothing. Queues go through the
+// nothing of the other side, REBUILDS TOWARD THE DOCTRINE'S OWN FORCE MIX: while
+// `canBuild` accepts something, queue the armed menu unit with the lowest
+// (living + queued + in progress) / (how many the placed versus force fields,
+// at least 1), ties by menu order, falling through to the next by that ratio
+// when one is refused; never an unarmed unit (`planRound` says why this rule,
+// and what it replaced). Queues go through the
 // runtime's own `requestBuild(unit, undefined, side)` between ticks, which is
 // what `applyQueued` does with a `build` command at the head of `matchTick`.
 // Each economy cell also prints the units built and the final purse by faction.
@@ -95,7 +98,13 @@
 // twice is one game; and that game shows at least one `built` per side. Seen red
 // (N3 Task 7): the plan never queues (built check), the outcome rule without
 // `productionOf` (wipe control), the camp left standing in the cut control, the
-// `built` count dropped, a no-op wipe (its own assertion throws).
+// `built` count dropped, a no-op wipe (its own assertion throws). The plan's own
+// tests (literal menus, a symmetry test across the ends) were seen red under: the
+// weights ignored, an unarmed unit allowed, no fall-through past a refusal, the
+// in-progress item / the queued items / the living units not counted, the highest
+// ratio first, and ties in reverse menu order. One survivor, disclosed: dropping the
+// side filter from the living count changes nothing, because the two factions'
+// menus share no unit type (a room's economy is never a mirror).
 //
 // This file is a tool, not a test: nothing here runs under `pnpm test` but the
 // self-check's controls (versus-probe.test.ts), and nothing reads its output.
@@ -292,33 +301,67 @@ export function play(mapId: MapId, arrangement: Arrangement, seed: number, opts:
 /** A shipped unit id that carries a weapon (the outcome rule's own "armed"). */
 const armed = (id: string): boolean => ((units as Record<string, { weapons?: readonly unknown[] } | undefined>)[id]?.weapons?.length ?? 0) > 0;
 
+/** How many of each type `faction`'s placed versus force fields
+ *  (`versusForceOf`): the doctrine's own force mix, which the plan rebuilds
+ *  toward. */
+export function forceMixOf(faction: Faction): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const [id] of versusForceOf(faction)) out.set(id, (out.get(id) ?? 0) + 1);
+  return out;
+}
+
 /**
  * The production plan, one side, one round (every `ORDER_EVERY_TICKS`, both
- * seats alike, deterministic, nothing read of the other side): the side's
- * ARMED doctrine menu is a cycle in doctrine order, and the plan walks it from
- * the unit after the one it queued last, queueing each unit `canBuild`
- * accepts (`requestBuild` asks `canBuild` first), until a whole turn of the cycle finds nothing it can buy. So the
- * unit queued last is never queued again while another is affordable, and a
- * short purse fills with the cheapest units it still covers. Each queue is
- * the runtime's own `requestBuild(unit, undefined, side)` -- the shortest
- * line, exactly what a queued `build` command does in `applyQueued` -- called
- * between ticks, just before the `matchTick` that would drain such a command.
- * Returns the new cursor (the menu index queued last, -1 before any).
+ * seats alike, deterministic, nothing read of the other side): REBUILD TOWARD
+ * THE DOCTRINE'S OWN FORCE MIX. For each ARMED menu unit, its ratio is
+ * (living + queued + in progress of that type on the side) / weight, the
+ * weight being how many of it the faction's placed versus force fields
+ * (`forceMixOf`), at least 1 for a menu unit the force does not field. While
+ * `canBuild` accepts something, queue the unit with the LOWEST ratio, ties
+ * broken by doctrine menu order; if `canBuild` refuses it (purse, population,
+ * intel, queue), try the next by ratio; stop the round when none is accepted.
+ * Unarmed menu units are never bought.
+ *
+ * Why this rule (the controller's choice, 22 Oct, after the lead's "check the
+ * AI first"): the plan's first wording -- "the cheapest armed menu unit not
+ * queued last time, cycling the menu in doctrine order" -- contradicts itself
+ * (cheapest first, or the cycle?), and the cycle it shipped as walked the
+ * menu from its head, so every round opened on the dearest units and emptied
+ * the purse on them. Rebuilding the mix each force was balanced with (Sarim's
+ * Kornet wall and ZU screen, KDF's combined arms) is the same rule for both
+ * factions, so it is symmetric, and it buys what a side has LOST, which is
+ * what a player re-equipping a line does.
+ *
+ * Each queue is the runtime's own `requestBuild(unit, undefined, side)` -- the
+ * shortest line, exactly what a queued `build` command does in `applyQueued`
+ * -- called between ticks, just before the `matchTick` that would drain such
+ * a command. Returns the units queued this round, in order.
  */
-export function planRound(runtime: NonNullable<MatchWorld['runtime']>, menu: readonly string[], side: 0 | 1, cursor: number): number {
-  const cycle = menu.filter(armed);
-  let at = cursor;
+export function planRound(runtime: NonNullable<MatchWorld['runtime']>, sim: Sim, menu: readonly string[], mix: ReadonlyMap<string, number>, side: 0 | 1): string[] {
+  const cands = menu.filter(armed);
+  const have = new Map<string, number>(cands.map((id) => [id, 0]));
+  const bump = (id: string): void => {
+    const n = have.get(id);
+    if (n !== undefined) have.set(id, n + 1);
+  };
+  for (let i = 0; i < sim.entityCount; i++) {
+    if (sim.state.alive[i] !== 1 || sim.state.side[i] !== side) continue;
+    bump(sim.unitTypes[sim.state.typeIdx[i]]?.id ?? '');
+  }
+  for (const line of runtime.productionLines(side)) {
+    if (line.current !== null) bump(line.current);
+    for (const id of line.items) bump(id);
+  }
+  const weight = (id: string): number => Math.max(1, mix.get(id) ?? 0);
+  const queued: string[] = [];
   for (;;) {
-    let queued = false;
-    for (let k = 1; k <= cycle.length; k++) {
-      const i = (at + k) % cycle.length;
-      if (runtime.requestBuild(cycle[i], undefined, side)) {
-        at = i;
-        queued = true;
-        break;
-      }
-    }
-    if (!queued) return at;
+    // Lowest have/weight first (compared by cross-multiplication, whole numbers
+    // only), ties by doctrine menu order: `cands` is in menu order and the sort is stable.
+    const order = [...cands].sort((a, b) => (have.get(a) ?? 0) * weight(b) - (have.get(b) ?? 0) * weight(a));
+    const pick = order.find((id) => runtime.requestBuild(id, undefined, side));
+    if (pick === undefined) return queued;
+    bump(pick);
+    queued.push(pick);
   }
 }
 
@@ -351,7 +394,7 @@ export function playEconomy(mapId: MapId, arrangement: Arrangement, seed: number
     if (livingOf(w.sim, side).length !== 0) throw new Error('versus probe: the wipe control left a unit standing');
   }
   const menus = [doctrines[w.factions[0]].menu, doctrines[w.factions[1]].menu] as const;
-  const cursor: [number, number] = [-1, -1];
+  const mixes = [forceMixOf(w.factions[0]), forceMixOf(w.factions[1])] as const;
   const builtBySide: [number, number] = [0, 0];
   const read = (o: MatchResult): Played => {
     const kdf = w.factions[0] === 'kdf' ? 0 : 1;
@@ -363,7 +406,7 @@ export function playEconomy(mapId: MapId, arrangement: Arrangement, seed: number
   };
   for (let t = 0; t < capTicks; t++) {
     if (t % ORDER_EVERY_TICKS === 0) {
-      if (opts.plan !== false) for (const side of sideOfEnd) cursor[side] = planRound(runtime, menus[side], side, cursor[side]);
+      if (opts.plan !== false) for (const side of sideOfEnd) planRound(runtime, w.sim, menus[side], mixes[side], side);
       order(w.sim, (side) => livingOf(w.sim, side), sideOfEnd);
     }
     const ev = matchTick(w);
