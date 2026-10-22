@@ -204,3 +204,18 @@ art/meshy/inf-medic-squad-20261022-01a16321/texture_*
 art/meshy/inf-medic-squad-20261022-01a16325/model.glb
 art/meshy/inf-medic-squad-20261022-01a16325/texture_*
 art/meshy/medic-stretcher-20261022-01a16311/model.glb
+# GH-709 (22 Oct): the Te'o Howitzer's preview model, the refine's six formats and
+# base colour, and the remesh's loose texture PNGs (its model.glb, the source
+# export_meshy_spg_long_range.py reads, IS tracked); task.json and the thumbnails
+# beside them are tracked.
+art/meshy/spg-long-range-20261022-01a162a9/model.glb
+art/meshy/spg-long-range-20261022-01a162ad/model.*
+art/meshy/spg-long-range-20261022-01a162ad/texture_*
+art/meshy/spg-long-range-20261022-01a162af/texture_*
+# GH-709 Phase 8 (22 Oct): the Chadaf recon robot's preview model, the refine's six formats
+# and base colour, and the remesh's loose texture PNGs (its model.glb, the source
+# import_meshy_dog.py reads, IS tracked); task.json and the thumbnails beside them are tracked.
+art/meshy/ugv-recon-dog-20261022-01a16330/model.glb
+art/meshy/ugv-recon-dog-20261022-01a16331/model.*
+art/meshy/ugv-recon-dog-20261022-01a16331/texture_*
+art/meshy/ugv-recon-dog-20261022-01a16333/texture_*

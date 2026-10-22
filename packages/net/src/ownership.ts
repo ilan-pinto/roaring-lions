@@ -1,5 +1,5 @@
 import type { Command } from '@lions/sim';
-import type { Seat } from './config';
+import type { Faction, Seat } from './config';
 import { canonicalOrder, type Frame } from './frames';
 
 /** What ownership needs to know, answered from the live sim by the app
@@ -13,6 +13,12 @@ export interface SeatWorld {
   /** Structure and tunnel ids are `0..count-1` in the sim; anything else names nothing. */
   structureExists(id: number): boolean;
   tunnelExists(id: number): boolean;
+  /** GH-681: the faction a seat plays, from the shared match config (single-
+   *  player: KDF). Only the Sarim seat sends tunnel orders (T-R4). */
+  factionOfSeat(seat: Seat): Faction;
+  /** GH-681: the side that may enter route `id` (`Sim.tunnelOwner`), -1 for
+   *  none or no such route. Load-time sim data, so both machines agree. */
+  tunnelOwner(id: number): number;
   /** A versus room (`config.mode === 'versus'`). Intel -- `callStrike` and
    *  `reveal` -- is priced, cooled down and ranged only by the mission
    *  runtime, and a room runs none, so in versus both kinds are dropped
@@ -47,6 +53,19 @@ export function validateCommand(cmd: Command, seat: Seat, world: SeatWorld): boo
       return cmd.ids.length > 0 && cmd.ids.every(own) && world.tunnelExists(cmd.tunnel);
     case 'load':
       return cmd.ids.length > 0 && cmd.ids.every(own) && own(cmd.carrier);
+    case 'enterTunnel':
+      // GH-681 (T-R4): the Sarim seat's verb, on a route its own side owns. The
+      // KDF seat's tunnel verb is `chargeTunnel`. The sim refuses the same
+      // order on its own terms too (owner, foot, capacity); this check makes a
+      // tampered one vanish identically on both machines before the queue.
+      return (
+        cmd.ids.length > 0 && cmd.ids.every(own) && world.factionOfSeat(seat) === 'sarim' &&
+        world.tunnelExists(cmd.tunnel) && world.tunnelOwner(cmd.tunnel) === side
+      );
+    case 'vent':
+      // A KDF seat can never have a buried unit; the faction check keeps the
+      // rule symmetrical with `enterTunnel` rather than resting on that proof.
+      return cmd.ids.length > 0 && cmd.ids.every(own) && world.factionOfSeat(seat) === 'sarim';
     case 'attack': {
       // The target must exist and be the OTHER side's: an order to fire on
       // your own unit, or on an id that is nothing, vanishes on both machines.

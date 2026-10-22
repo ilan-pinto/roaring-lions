@@ -3,7 +3,7 @@ import { HUD_ELEMENTS } from '../ui/hud-elements';
 import { hudVisibility, type TutorialHudJson } from './hud-visibility';
 import { initTutorial, type StepJson, type TutorialState } from './runtime';
 
-const step = (id: string): StepJson => ({ id, title: id, teach: id, await: { kind: 'elapsed_s', seconds: 1 } });
+const step = (id: string): StepJson => ({ id, await: { kind: 'elapsed_s', seconds: 1 } });
 
 const TUT: TutorialHudJson = {
   hud_start: ['minimap'],

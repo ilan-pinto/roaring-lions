@@ -11,7 +11,7 @@ export const CAMPAIGN_ORDER: readonly string[] = [
 /** Each mission's authored `target_minutes`. Hand-kept so the Worker bundle does
  *  not carry every mission file; campaign-order.test.ts pins it to data/missions/. */
 export const MISSION_TARGET_MINUTES: Readonly<Record<string, number>> = {
-  beit_sahwan_0_tutorial: 10,
+  beit_sahwan_0_tutorial: 12,
   beit_sahwan_1_recon: 7,
   beit_sahwan_2_foothold: 7,
   beit_sahwan_3_clearance: 7,

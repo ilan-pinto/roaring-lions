@@ -56,7 +56,10 @@ export const ORDER_VERBS = COMMAND_KINDS.filter(
     k !== 'cancelBuild' && k !== 'setRally' && k !== 'clearRally' &&
     // Field works (GH-277): the sim's construct/cancelConstruct never travel, and
     // raiseWorks/cancelWorks are runtime-priced like build (dropped in versus).
-    k !== 'construct' && k !== 'cancelConstruct' && k !== 'raiseWorks' && k !== 'cancelWorks',
+    k !== 'construct' && k !== 'cancelConstruct' && k !== 'raiseWorks' && k !== 'cancelWorks' &&
+    // Versus tunnels (GH-681): `observe` shows a seat neither its routes nor
+    // its buried units yet, so a model verb would be blind; an N4 follow-up.
+    k !== 'enterTunnel' && k !== 'vent',
 );
 type Verb = (typeof ORDER_VERBS)[number];
 export const WAIT_MAX_TICKS = 200;

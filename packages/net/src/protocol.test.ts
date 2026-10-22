@@ -373,3 +373,24 @@ describe('cleanCommand: field works (GH-277)', () => {
     for (const b of bad) expect(cleanCommand(b), JSON.stringify(b)).toBeNull();
   });
 });
+
+describe('cleanCommand: versus tunnels (GH-681)', () => {
+  it('enterTunnel carries ids and an integer route; vent carries ids and raid or exit; extra keys are stripped', () => {
+    expect(cleanCommand({ kind: 'enterTunnel', ids: [1, 2], tunnel: 0, pad: 'x' })).toEqual({ kind: 'enterTunnel', ids: [1, 2], tunnel: 0 });
+    expect(cleanCommand({ kind: 'vent', ids: [1], mode: 'raid', pad: 'x' })).toEqual({ kind: 'vent', ids: [1], mode: 'raid' });
+    expect(cleanCommand({ kind: 'vent', ids: [1], mode: 'exit' })).toEqual({ kind: 'vent', ids: [1], mode: 'exit' });
+  });
+  it('refuses a missing or malformed route, mode or id list', () => {
+    for (const bad of [
+      { kind: 'enterTunnel', ids: [1] },
+      { kind: 'enterTunnel', ids: [1], tunnel: 0.5 },
+      { kind: 'enterTunnel', ids: 'x', tunnel: 0 },
+      { kind: 'vent', ids: [1] },
+      { kind: 'vent', ids: [1], mode: 'stay' },
+      { kind: 'vent', ids: [1], mode: 1 },
+      { kind: 'vent', mode: 'raid' },
+    ]) {
+      expect(cleanCommand(bad), JSON.stringify(bad)).toBeNull();
+    }
+  });
+});

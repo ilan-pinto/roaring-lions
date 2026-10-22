@@ -35,6 +35,7 @@ function fakeSim() {
     structureCount: 3,
     tunnelCount: 1,
     state: { side },
+    tunnelOwner(r: number) { return r === 0 ? 1 : -1; },
     queueCommand(cmd: Command) { s.queued.push(cmd); },
     hash() { s.hashCalls++; return 1000 + s.tickCount; },
     runTick() { s.ranWith.push(s.queued.splice(0)); s.tickCount++; },
@@ -218,5 +219,14 @@ describe('seatWorldFor', () => {
     const w = seatWorldFor(cfg, sim);
     expect(w.sideOfSeat(0)).toBe(0);
     expect(w.sideOfSeat(1)).toBe(1);
+  });
+  it('GH-681: each seat\'s faction from its config (single-player is KDF), and the route owner from the sim', () => {
+    const sim = fakeSim();
+    expect(seatWorldFor(null, sim).factionOfSeat(0)).toBe('kdf');
+    const cfg = config();
+    cfg.seats[1] = { ...cfg.seats[1], faction: 'sarim' };
+    const w = seatWorldFor(cfg, sim);
+    expect([w.factionOfSeat(0), w.factionOfSeat(1)]).toEqual(['kdf', 'sarim']);
+    expect([w.tunnelOwner(0), w.tunnelOwner(1), w.tunnelOwner(NaN)]).toEqual([1, -1, -1]);
   });
 });

@@ -85,7 +85,7 @@ describe('measureGait over every shipped rigged mesh', () => {
   // total shape of the whole tree, not just that each individual call did
   // not throw.
   it('declares a gait for every file except the one named exemption', () => {
-    expect(ALL_RIGGED_FILES.length).toBe(23); // GH-707 P2: + inf_medic_squad
+    expect(ALL_RIGGED_FILES.length).toBe(24); // was 22; GH-707 P2: + inf_medic_squad; GH-709: ugv_recon_dog
 
     const skipped: string[] = [];
     const declared: string[] = [];
@@ -102,7 +102,7 @@ describe('measureGait over every shipped rigged mesh', () => {
     }
 
     expect(skipped.sort()).toEqual(['moto_rpg.glb']);
-    expect(declared.length).toBe(22); // E5's recon_zikit joined; GH-707 P2: inf_medic_squad
+    expect(declared.length).toBe(23); // E5's recon_zikit joined; GH-707 P2: inf_medic_squad; GH-709: ugv_recon_dog (was 21)
     // 2026-10-05: every armed walker carries a `moveFire` again -- rig.py's
     // `build_move_fire_clip`, or the captured run under an aim on the three
     // captured teams (B7 had removed both of the only two). 16 of the 21:

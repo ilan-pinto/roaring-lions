@@ -32,9 +32,11 @@ describe('parseKitDrawcallArgs', () => {
       'ifv_namer',
       'jeep_shoded',
       'mbt_lavi',
+      'mbt_lavi_camo',
       'officer_armour',
       'rocket_battery',
       'scout_shachaf',
+      'spg_long_range',
       'technical',
       'veh_ambulance',
     ]);

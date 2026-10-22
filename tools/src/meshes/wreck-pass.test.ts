@@ -558,7 +558,7 @@ describe('parseWreckArgs', () => {
 });
 
 describe('WRECK_RECIPES', () => {
-  it('names the shipped vehicles plus the held E5 Gunship, Tzav, command Lavi and Yanshuf, and nothing else', () => {
+  it('names the shipped vehicles plus the held E5 Gunship, Tzav, command Lavi, Yanshuf and the Ambush Tank, and nothing else', () => {
     // The thirteen shipped vehicles, plus four held files under art/meshes/vehicles/ that
     // each need a wreck: GH-181's Peten Gunship and Shiryonan carrier (`demo_tzav`),
     // GH-298's command Lavi (`officer_armour`) and GH-698's Yanshuf transport -- and, landed with
@@ -578,11 +578,13 @@ describe('WRECK_RECIPES', () => {
       'jeep_shoded',
       'loiter_drone',
       'mbt_lavi',
+      'mbt_lavi_camo',
       'officer_armour',
       'paramotor',
       'recon_drone',
       'rocket_battery',
       'scout_shachaf',
+      'spg_long_range',
       'technical',
       'veh_ambulance',
     ]);

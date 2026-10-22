@@ -3,8 +3,8 @@
   "name": "Working Up",
   "town": "beit_sahwan",
   "phase": "recon",
-  "target_minutes": 10,
-  "time_limit_s": 1200,
+  "target_minutes": 12,
+  "time_limit_s": 1440,
   "debrief": {
     "victory": {
       "speaker": "shai",
@@ -48,12 +48,29 @@
       ]
     }
   ],
+  "structures": [
+    {
+      "type": "camp",
+      "at": [
+        5,
+        24
+      ],
+      "size": [
+        2,
+        2
+      ]
+    }
+  ],
+  "resources": {
+    "logistics_start": 650,
+    "logistics_rate_per_min": 60
+  },
   "objectives": [
     {
       "id": "work_up",
       "type": "survive_until",
       "primary": true,
-      "seconds": 600,
+      "seconds": 720,
       "text": "Work through the training area"
     },
     {
@@ -259,6 +276,30 @@
             "at": [
               33.5,
               35.5
+            ],
+            "stance": {
+              "kind": "hold_position"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "digger_at_the_camp",
+      "label": "Someone digging by the camp",
+      "on": {
+        "kind": "zone_entered",
+        "zone": "z_muster"
+      },
+      "do": {
+        "kind": "spawn",
+        "units": [
+          {
+            "unit": "digger_crew",
+            "count": 1,
+            "at": [
+              2.5,
+              18.5
             ],
             "stance": {
               "kind": "hold_position"

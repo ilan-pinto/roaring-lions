@@ -3,11 +3,13 @@
 Record of what `pnpm --filter @lions/tools su:probes` measured on **22 Oct 2026** against the nine
 staged drafts in this directory, the claims made, and the frozen bands. Design:
 `docs/superpowers/specs/2026-10-22-special-units-design.md` (§1, §3 "Probes", lead rulings).
-Pinned by `tools/src/backtest/special-units-probes.test.ts` (73 specs since Phase 7; the CLI runs in ~1.5-3 s). The probes are
+Pinned by `tools/src/backtest/special-units-probes.test.ts` (74 specs since Phases 3 and 7; the CLI runs in ~1.5-3 s). The probes are
 report-only: a claim that misses leaves the CLI at exit 1 and is a unit to retune (the lead's call),
-never a band to widen. **No staged number was edited to make a claim pass.** No engine code exists
-or was written; `packages/sim`, `data/`, the determinism hash, `playtest`, `LADDER_CREDITS`,
-`ROSTER_MAX` and the versus pins are untouched.
+never a band to widen. At Phase 1 no staged number was edited to make a claim pass and no engine code
+was written. **Phase 3 (22 Oct) retuned one unit on the lead's ruling**: the grenadier, with a new
+weapon field `cover_ignore` in the sim and the schema (probe 9, "Phase 3"); its bands were re-frozen
+from that run. The determinism hash, `playtest`, `LADDER_CREDITS`, `ROSTER_MAX` and the versus pins
+are untouched.
 
 ## Summary
 
@@ -15,13 +17,13 @@ or was written; `packages/sim`, `data/`, the determinism hash, `playtest`, `LADD
 |---|---|---|---|
 | 1 `mbt_lavi_camo` | first-identified tick vs `sarim_rifles` / `atgm_cell` / `rpg_team` at 4/6/8 tiles, ambush / moving / firing, vs `mbt_lavi` | found later than the Lavi in every claimable cell | **MET** (24 claimable cells, 24 of 24; camo is 1.6-2.0x later across them). **"Found only by firing" does NOT hold** (below) |
 | 2 `spg_long_range` | duel vs `rocket_battery`, 20-28 tiles, a `recon_drone` spotting for each side | report win rate; Q11 | **Wins 30/30 at every range 20-28 with no hp lost. Q11 TRIGGERED** (reported, not retuned) |
-| 9 `inf_grenadier` | 2 squads vs 3 `militia_cell`, open vs cover 2, vs `inf_squad` | advantage over `inf_squad` larger against cover | **MISSED** on the net-margin reading (cover2 0.052 vs open 0.548); the damage-dealt ratio goes the other way (printed, not a claim) |
+| 9 `inf_grenadier` | 2 squads vs 3 `militia_cell`, open vs cover 2, vs `inf_squad` | advantage over `inf_squad` larger against cover | **MET since Phase 3** (cover2 0.684 vs open 0.643), after the lead's ruling and the `cover_ignore` field; Phase 1 MISSED it (cover2 0.052 vs open 0.548). See "Phase 3" below |
 | 10 `ugv_recon_dog` | first tick a `pre_dug` route is identified, synthetic map | after `recon_drone`, before `yahalom_squad` | **MET**: drone 92, dog 217, yahalom 425 ticks |
 | 4 `at_nlos_team` | 4a: kills `rocket_battery` / `atgm_cell` 20 tiles off behind a 2-tile wall, a `recon_drone` spotting; control with `indirect` stripped. 4b: Conduct lost killing an `atgm_cell` in a flagged zone, vs `mortar_team` | kills most seeds, control never fires; fewer Conduct lost than `mortar_team` | **MET** (22 Oct, Phase 7, E2). 4a: 19/20 kills each, 21.4 / 21.5 s, 1.65 rounds; control 0 rounds, 0 kills. 4b: Conduct lost **0.00** (0 of 20 seeds charged) vs `mortar_team` **16.50** (20 of 20) |
 | 5 `veh_ambulance` | | | deferred to Phase 5 (needs E1, the unit aura) |
 | 6 `air_medevac_heli` | | | deferred to Phase 5 (needs E1) |
 | 7 `inf_medic_squad` | | | deferred to Phase 5 (needs E1) |
-| 11 `spg_cluster` | 18 tiles, 90 s (3 rounds): open infantry, a technical, a garrisoned house, an armoured column; vs the unitary draft; Conduct per round near civilians | the lead's four claims; more per round than the unitary draft; Conduct per round >= unitary | **MIXED** (22 Oct, Phase 7, E3). **MET**: house men 0 hp lost and the house 0, men suppressed (peak 0.045); armour 0 hp lost; 2.0x the unitary draft per round (0.116 vs 0.058); Conduct 5.60 vs 3.00 per round. **MISSED** (the pre-registered "destroys more than half in 90 s"): open infantry 0.347, technical 0.248 |
+| 11 `spg_cluster` | 18 tiles, 90 s: open infantry, a technical, a garrisoned house, an armoured column; vs the unitary draft; Conduct per round near civilians | the lead's four claims; more per round than the unitary draft; Conduct per round >= unitary | **MET after the retune** (rof 2 -> 5, the lead, 22 Oct): open infantry 0.820, technical 0.709 in 90 s (8 rounds); house men and house 0 hp, men suppressed; armour 0 hp; 1.9x the unitary draft per round; Conduct 5.63 vs 3.00 per round. At rof 2 the 90 s claim MISSED (0.347 / 0.248), below |
 
 The phase numbers on the deferred rows are the CLI's labels for the engine concept (E1 / E2 / E3); the
 order in which the engine phases land is the spec's, not this file's.
@@ -92,6 +94,38 @@ what would is a lower damage or hp, not range. The staged drafts are unchanged.
 **Bands**: SPG wins 30/30 and Grad wins 0 at every range, SPG hp left >= 0.95; mean time to first gun
 down ±15% of the table above.
 
+### Phase 2 retune (22 Oct): damage 320 -> 280, range 28 kept
+
+The lead's ruling on the finding above: cut `howitzer_155`'s damage below the Grad's 320 hp so it
+takes two rounds, and keep the range at 28. Shipped at **280** (the smallest round number that
+leaves the Grad 40 hp after a direct hit). The probe now also prints the rounds that hurt the Grad
+on each won seed (ticks on which its hp fell; it is soft-skinned, so a direct hit and a splash near
+miss both count, and neither raises an `impact` event).
+
+| distance | SPG wins | Grad wins | draws | SPG hp left | mean seconds | rounds to kill |
+|---|---|---|---|---|---|---|
+| 20 | 30 | 0 | 0 | 1.00 | 32.7 | 2-3 |
+| 22 | 30 | 0 | 0 | 1.00 | 34.1 | 2-3 |
+| 24 | 30 | 0 | 0 | 1.00 | 33.3 | 2-3 |
+| 26 | 30 | 0 | 0 | 1.00 | 35.8 | 2-3 |
+| 28 | 30 | 0 | 0 | 1.00 | 34.9 | 2-3 |
+
+At 320 the same reading was 1-3 (one round killed it on some seeds); at 280 no seed is a one-round
+kill. The duel takes ~35 s instead of ~25 s. **The SPG still wins 30/30 at every range, and Q11 is
+still triggered.** That outcome cannot be changed by damage while the range stays 28: above 20 tiles
+the Grad cannot reach the SPG, and at 20 its 240-damage salvo (rof 2) meets 1400 hp. Swept on the
+staged JSON, range 28 kept: damage 300, 280, 260, 240, 200 and 160 all read 30/30 at every range;
+only at 120 (three or more rounds, ~90 s) does the 120 s cap start producing draws (27/30 at 28
+tiles). A Grad win needs a change to range or hp, which the ruling did not make. **The lead accepted
+this on 22 Oct: the Te'o beating the Grad 30/30 is by design; damage 280 and range 28 stand, and the
+probe is pinned at that result.**
+
+Cost curve at 280 (`validate_balance.py --also e5 --also gh709`): **+7.2%** (fitted 373, logistics
+400; was +6.9% at 320), max-tier pass **+10.0%** (fitted 364). Both passes green, 45 units.
+
+**Bands re-frozen** from this run: mean seconds ±15% of the table above, rounds to kill exactly
+2-3 at every range, 30/30 and hp >= 0.95 unchanged.
+
 ## Probe 9 -- the grenadier (unit 9)
 
 **Set-up.** Two KDF squads at x=5.5 face three `militia_cell` 6 tiles away, one tile apart (so splash 1.2
@@ -121,6 +155,93 @@ miss, since choosing a scenario to make the claim pass is the same as widening a
 **Bands** (±15% of the measured value): the six margins and advantages above; the damage ratio open in
 [2.4, 3.3] and cover 2 in [7.4, 10.1].
 
+### Phase 3 (22 Oct): the grenades ignore part of the cover bonus
+
+**Ruling.** The lead ruled that the grenades IGNORE PART OF THE COVER BONUS, so "reach men behind a
+wall" holds; grenades still do not reach garrisoned men (Q7), and collateral stays 0.3 (Q10).
+
+**Why splash alone could not do it.** Splash already ignored cover for DAMAGE (`splashAt` reads no
+cover table), so the Phase 1 miss was never the hit chance. Traced on one seed: on cover 2 the militia
+(signature x0.5) are identified about 2 s after they identify the KDF, their fire pins both squads
+(`PIN_AT` 0.70, a pinned unit holds fire) within three seconds, and the squads never fire again: 14
+grenades in 25 s against 130 in the open. The militia on cover 2 take 0.1375 of every suppression
+(`COVER_SUPP[2]`) and never pin. So the fight on cover is a pinning race, and the lever is the
+suppression the grenade puts on a man in cover, not its hit chance. Hit chance alone (the field read
+by `hitFactors` only, swept 0-1) moved the cover-2 advantage from 0.052 to 0.066 at most.
+
+**The field.** `weapons[i].cover_ignore`, 0-1, absent 0 (`unit.schema.json`, `WeaponStats.coverIgnore`,
+`packages/sim/src/sim.ts`). It closes that fraction of the gap between the target's TILE cover
+multiplier and the open ground's 1, in two places: the hit chance (`COVER_HIT`, parapet included) and
+the suppression this weapon's rounds put on a man in cover (`COVER_SUPP`; the hit, the near miss and
+the splash, read from the projectile's weapon through `weaponOf`, so no new projectile state). A
+garrisoned man keeps his building's `garrison_cover` (Q7), and detection (`COVER_SIG`) does not move.
+It is static weapon data: nothing new is stored per entity, no hash folds it, and no shipped weapon
+carries it, so the determinism hash, `balance`, `playtest` and every pin are unchanged (gates below).
+
+**The retune.** `gl_40`: `cover_ignore` 0.75 (new) and `suppression` 120 -> 300. Nothing else moved;
+the blurb stands. Sweep (30 seeds, advantage cover2 vs open; the claim needs cover2 > open):
+
+| `cover_ignore` | suppression | open | cover 2 | claim |
+|---|---|---|---|---|
+| 0 | 120 (Phase 1) | 0.548 | 0.052 | miss |
+| 1 | 120 | 0.548 | 0.202 | miss |
+| 0.75 | 120 | 0.548 | 0.126 | miss |
+| 0 | 300 | 0.643 | 0.082 | miss |
+| 0.5 | 300 | 0.643 | 0.256 | miss |
+| 0.75 | 240 | 0.644 | 0.306 | miss |
+| 0.75 | 270 | 0.643 | 0.597 | miss |
+| **0.75** | **300** | **0.643** | **0.684** | **MET** |
+| 0.75 | 400 | 0.642 | 0.697 | met |
+| 0.85 | 300 | 0.643 | 0.662 | met |
+| 1 | 240 | 0.644 | 0.675 | met |
+
+The response is a cliff, not a slope (0.306 at 240, 0.597 at 270, 0.684 at 300): it is the pinning
+race tipping, whoever pins first wins the fight. 300 is the lowest suppression on the 0.75 row that
+clears it; on 90 seeds (99000-99089) it still holds, cover2 0.651 vs open 0.617. Both changes are
+needed (the two controls above, pinned in the test). The margin over the claim is thin (0.041); a
+later change to suppression, pinning or detection can tip it back, and the probe test will say so.
+
+**Measured** (30 seeds, the CLI's own run):
+
+| unit | margin open | margin cover 2 | militia hp destroyed, open | cover 2 |
+|---|---|---|---|---|
+| `inf_grenadier` | 0.570 | 0.181 | 0.610 | 0.323 |
+| `inf_squad` | -0.073 | -0.503 | 0.199 | 0.006 |
+| advantage (the claim) | **0.643** | **0.684** | | |
+| damage ratio grenadier/inf_squad (not a claim) | | | 3.07x | 49.81x |
+
+The cover-2 damage ratio has a 0.006 denominator, so it is printed for completeness and swings a lot.
+
+**Re-frozen bands** (±15% of the above): the six margins and advantages; the damage ratio open in
+[2.6, 3.6] and cover 2 in [42.3, 57.3]; plus a spec that the claim MEETS, and one that each of the
+two controls MISSES.
+
+**Cost curve, both passes** (the nine staged plus e5, as above):
+
+```
+python3 tools/validate_balance.py --units data/units --also docs/campaign/special_units/e5 \
+  --also docs/campaign/special_units/gh709 --report
+fitted curve: cost = 283.811 * power^0.481  (n=45)
+inf_grenadier   1.4   320   339   -5.6%      (was -3.0%)
+balance gate passed: 45 units within +/-18%
+  ... --max-tier --upgrade-cost-factor 0.02
+fitted curve: cost = 304.466 * power^0.481  (n=45)
+inf_grenadier   1.3   320   345   -7.2%      (was -4.5%)
+balance gate passed: 45 units within +/-18%
+```
+
+The curve prices the suppression (it saturates, so 120 -> 300 costs little) but **cannot see
+`cover_ignore`**: `validate_balance.py` has no term for it. The unit sits at -5.6%, cheap on the
+curve, while the probe says it is the better squad against cover. Pricing the field in the curve is a
+choice for the lead (no shipped unit carries it, so adding a term would move nothing today).
+
+**Falsifications** (each a one-line mutation of `sim.ts`, run, watched red, restored byte-for-byte):
+the hit-chance line removed (the hit spec red); the garrison guard removed (the building spec red);
+the near-miss pass zeroed (the suppression spec red); the splash pass zeroed (two specs red); the hit
+pass in `resolveHit` zeroed (the "1 is the open ground" spec red); the 0-1 range check removed (the
+loader spec red); the absent default set to 0.1 (three specs red). And the staged `cover_ignore` set to
+0.5 in the JSON: the probe's claim, margin and ratio specs red (restored).
+
 ## Probe 10 -- the robot dog (unit 10)
 
 **Set-up.** Synthetic: a 48x48 open map, one `pre_dug` route along y=30 (x 2..46, no spoil), the
@@ -144,7 +265,7 @@ this probe (no enemy is present).
 
 ## Probe 4 -- the NLOS missile team (unit 4, Phase 7, on E2)
 
-Design fixed before any number was seen. Staged `at_nlos_team` (`spike_nlos`: atgm, `indirect`, range
+Design fixed before any number was seen. Staged `at_nlos_team` (`zaron_missile`: atgm, `indirect`, range
 24 / effective 18, accuracy 0.8, damage 450, rof 2, min 4, collateral 0.2).
 
 **4a, reach without a sight line.** Set-up: team at x=4.5, target 20 tiles east at x=24.5 (y=12.5), a
@@ -249,6 +370,46 @@ peak suppression 0.045 ±15%. Armour: **exactly 0** hp lost, peak suppression 0.
 3.00 per round and 16.80 / 9.00 lost (±15%), cluster >= unitary, 0 civilians dead. The two misses are
 pinned as a miss (the test asserts exactly those two failures).
 
+### Retune: rof 2 -> 5 (the lead, 22 Oct)
+
+The lead ruled to raise the rate of fire until the 90 s claim passes, inside +/-18% on the cost curve.
+Swept on this probe (10 seeds, open infantry / technical hp destroyed in 90 s):
+
+| rof | infantry | technical | rounds |
+|---|---|---|---|
+| 2 | 0.347 | 0.248 | 3 |
+| 3 | 0.547 | 0.384 | 5 |
+| 4 | 0.642 | 0.439 | 6 |
+| **5** | **0.820** | **0.709** | 8 |
+| 6 | 0.878 | 0.811 | 9 |
+
+**5 is the lowest rate that passes both** (the technical needs it; rof 4 leaves it at 0.439). Re-frozen
+at rof 5:
+
+| scene | gun | hp lost (mean) | worst seed | rounds | hp lost / round | peak suppression |
+|---|---|---|---|---|---|---|
+| infantry | cluster | 0.820 | 0.963 | 8.00 | 0.103 | 0.314 |
+| technical | cluster | 0.709 | 1.000 | 7.90 | 0.090 | 0.551 |
+| house (2 of 2 garrisoned) | cluster | **0.000** | **0.000** | 8.00 | 0 | 0.059 |
+| armour (3 `mbt_lavi`) | cluster | **0.000** | **0.000** | 8.00 | 0 | 0.315 |
+| infantry | unitary (same rof) | 0.430 | 0.662 | 8.00 | 0.054 | 0.342 |
+
+| Conduct (8 rounds, 2 civilians 2 tiles off) | rounds | Conduct lost | per round | civilians dead |
+|---|---|---|---|---|
+| cluster | 8.00 | 45.00 | **5.63** | 0.20 |
+| unitary draft | 8.00 | 24.00 | **3.00** | 0.00 |
+
+- All four claims MET; the 90 s claim now passes with margin (0.820 / 0.709 against 0.5).
+- **New at rof 5: the cluster kills a civilian 2 tiles from the target in 2 of 10 seeds** (0 at rof 2).
+  The scene's `civilian_casualty_penalty` is 0, so in a mission that kill is charged on top of the
+  5.63 per round. That is the unit's design (Conduct pays for every round), but it is a real cost the
+  lead should know.
+- Cost curve at rof 5 (logistics unchanged at 400): data/units + e5 + gh709 **+5.3%** (was +8.5%),
+  max tier **+7.8%** (was +11.5%); every unit inside +/-18% in all four passes. The curve now prices
+  the gun closer to its cost, so the ability premium shrank by about 3 points.
+- Bands re-frozen at +/-15% of the rof 5 run, each moved band commented `Was <n>` in the test.
+  Falsified: rof 4 in the staged JSON turns the claim and three bands red.
+
 ## Deferred
 
 | unit | needs | why no probe now |
@@ -295,9 +456,9 @@ file were restored byte-for-byte, `diff` clean):
 
 ## Notes for the lead and the landing phases
 
-- **The grenadier's blurb is provisional.** "Grenades reach men behind a wall" is the spec's splash
-  argument, and probe 9 misses its cover claim on the net-margin reading. Re-read the blurb when the
-  lead rules on the retune.
+- **The grenadier's blurb stands** (Phase 3). "Grenades reach men behind a wall" is now true in the
+  sim: `cover_ignore` 0.75 on `gl_40`, and probe 9's cover claim MEETS. "Never inside a house" is the
+  garrison rule, which the field does not touch.
 - **`ugv_recon_dog` sets `hull.can_embark: true`**, a choice beyond the spec's §1.10 field list: a
   crew-0, population-0 robot may ride a carrier like a team. Phase 8 confirms or drops it with the
   transport rules in front of it.
@@ -319,7 +480,7 @@ GH-733 left `validate_balance.py` blind to both fields. It now reads them:
 
 | run | curve | at_nlos_team | spg_cluster | tightest |
 |---|---|---|---|---|
-| data/units + e5 + gh709, before | 283.978 * power^0.481 (n=45) | +12.3% | +9.2% | attack_drone +13.7% |
+| data/units + e5 + gh709, before (rof 2) | 283.978 * power^0.481 (n=45) | +12.3% | +9.2% | attack_drone +13.7% |
 | the same, after | 283.814 * power^0.481 (n=45) | **+11.8%** | **+8.5%** | attack_drone +13.8% |
 | max tier, after | 304.471 * power^0.481 (n=45) | +11.6% | +11.5% | heli_yanshuf +15.0% |
 | data/units alone, after | 287.734 * power^0.469 (n=35) | - | - | attack_drone +16.2% (unchanged) |

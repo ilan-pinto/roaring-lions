@@ -5,15 +5,15 @@
  * Both used to carry an `elapsed_s` backstop (60 s and 120 s) that cleared the
  * beat whatever the player did, and in the first-session walk both lessons
  * were missed and both beats ended on that clock: beat 6 asked for a stillness
- * an attack-moving squad could not give, and beat 9's mortar walked into its
+ * an attack-moving squad could not give, and beat 12's mortar walked into its
  * own minimum range and never fired. This walks the REAL step data through the
  * real reducer: a player who does the lesson clears the beat, and a player who
- * does nothing does not, however long they wait. The mission's own 600 s
+ * does nothing does not, however long they wait. The mission's own 720 s
  * `survive_until` is the backstop now, as it is for every other beat.
  *
  * GH-420 T4: beat 6 teaches the right-click on an identified enemy (the
  * `attack` intent). H still clears it, so a player who halts and lets the
- * squad pick its own shot is not stranded, and beat 9 accepts the right-click
+ * squad pick its own shot is not stranded, and beat 12 accepts the right-click
  * as the order it gives the mortar.
  *
  * The world half -- that a halted or ordered squad really does fire with odds
@@ -25,6 +25,7 @@ import { describe, expect, it } from 'vitest';
 import { tutorials } from '@lions/data';
 import type { MissionEvent, SimEvent } from '@lions/sim';
 import { advance, initTutorial, type StepJson, type TutorialInput, type TutorialState } from './runtime';
+import { stepText } from './text';
 
 const tutorial = (tutorials as Record<string, { steps: StepJson[] } | undefined>).beit_sahwan_0;
 if (tutorial === undefined) throw new Error('beit_sahwan_0 tutorial missing');
@@ -53,10 +54,10 @@ const fireAtEnemy: SimEvent = {
 };
 const conductLine: MissionEvent = { kind: 'roe', tick: 1, penalty: 5, reason: 'fire into protected structure (z_clinic)', score: 95 };
 
-/** Ten minutes of nothing but frames, four a second -- longer than the
- *  mission's own 600 s backstop. */
+/** Twelve minutes of nothing but frames, four a second -- longer than the
+ *  mission's own 720 s backstop. */
 function idle(s: TutorialState, fromMs: number): TutorialState {
-  for (let t = fromMs; t <= fromMs + 600_000; t += 250) s = advance(s, { kind: 'tick' }, t);
+  for (let t = fromMs; t <= fromMs + 720_000; t += 250) s = advance(s, { kind: 'tick' }, t);
   return s;
 }
 
@@ -147,14 +148,14 @@ describe('beat 6, identify then shoot (PA-12, GH-420)', () => {
 
   it('teaches the right-click in its text, and keeps H for the squad that is halted instead', () => {
     const beat = steps.find((x) => x.id === id) as StepJson;
-    for (const [what, text] of [['teach', beat.teach], ['nudge', beat.nudge ?? '']] as const) {
+    for (const [what, text] of [['teach', stepText('beit_sahwan_0', beat).teach], ['nudge', stepText('beit_sahwan_0', beat).nudge ?? '']] as const) {
       expect(text, `beat 6 ${what} no longer names the right-click it awaits`).toMatch(/right-click/i);
       expect(text, `beat 6 ${what} dropped H, which still clears the beat`).toMatch(/\bH\b/);
     }
   });
 });
 
-describe('beat 9, what a shot costs (PA-12)', () => {
+describe('beat 12, what a shot costs (PA-12)', () => {
   const id = 'what_a_shot_costs';
 
   it('does not end on a timer when the player does nothing', () => {

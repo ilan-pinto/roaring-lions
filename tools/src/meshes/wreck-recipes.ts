@@ -71,6 +71,8 @@ export const WRECK_RECIPES: Readonly<Record<string, WreckRecipe>> = {
   // export_officer_armour.py), so it wrecks exactly as the Lavi does. Held
   // art (HELD_MESH_FILES) until Stage 5 wires the unit.
   officer_armour: { hull: 'tracked', turretPivot: 'turret_pivot' },
+  // GH-709: the Lavi Ambush Tank (net joined into the Lavi's own nodes).
+  mbt_lavi_camo: { hull: 'tracked', turretPivot: 'turret_pivot' },
   paramotor: { hull: 'air', canopy: 'hull_hull' },
   // 6x6: wheel 2 is the rear +Z tyre.
   rocket_battery: { hull: 'wheeled', lostWheel: 2 },
@@ -113,6 +115,10 @@ export const WRECK_RECIPES: Readonly<Record<string, WreckRecipe>> = {
   // (tools/vehicles/export_veh_medevac.py), the same rotor graph, so the same
   // recipe: on its side, blades bent.
   air_medevac_heli: { hull: 'air', rotorPivot: 'rotor_pivot' },
+  // GH-709 (2026-10-22): the Te'o Howitzer is a tracked hull with its box turret
+  // AND its raised gun under `turret_pivot` (tools/vehicles/export_meshy_spg_long_range.py),
+  // so the wreck pass throws both, as it does the Lavi's turret and barrel.
+  spg_long_range: { hull: 'tracked', turretPivot: 'turret_pivot' },
 };
 
 /**

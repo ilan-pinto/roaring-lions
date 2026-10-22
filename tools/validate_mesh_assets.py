@@ -257,6 +257,9 @@ TEXTURED_VEHICLE_EXEMPT = {
     # GH-298 (2026-09-30): the command Lavi, mbt_lavi.glb's own bake with a
     # kit mast and cupola joined in (tools/vehicles/export_officer_armour.py).
     "officer_armour",
+    # GH-709: the Lavi Ambush Tank, the same bake with a Blender net joined in
+    # (tools/vehicles/export_lavi_camo.py).
+    "mbt_lavi_camo",
     # E5 part 2 (GH-181, 2026-09-30): the Peten Gunship ships the Peten's own
     # bake (tools/vehicles/export_meshy_apache_gunship.py); held until Task 9.
     "heli_peten_gunship",
@@ -280,6 +283,10 @@ TEXTURED_VEHICLE_EXEMPT = {
     # GH-709: the Nachlieli medevac, heli_yanshuf.glb's own bake under palette parts
     # (tools/vehicles/export_air_medevac_heli.py).
     "air_medevac_heli",
+    # GH-709 (2026-10-22): the Te'o Howitzer ships its remesh's own 2k bake on hull_hull,
+    # hull_rubber, turret_hull and turret_metal (tools/vehicles/export_meshy_spg_long_range.py);
+    # its cap faces and rear spades are UV-pinned into that bake.
+    "spg_long_range",
 }
 
 # Rigged INFANTRY teams that ship their own Meshy `base_color` bake (GH-286,
@@ -310,6 +317,8 @@ TEXTURED_INFANTRY_EXEMPT = {
     "officer_infantry", "officer_fires", "officer_engineer",
     # E5 part 2 (GH-181, 2026-09-30): tools/units/import_meshy_zikit_team.py.
     "recon_zikit",
+    # GH-709 unit 10 (2026-10-22): the Chadaf recon robot, tools/units/import_meshy_dog.py.
+    "ugv_recon_dog",
     # B7 (GH-179, 2026-10-01): the B2 teams' bakes bought on their own
     # previews, and the supplied civilians' own bakes kept
     # (tools/import_meshy_civilians.py) -- see TEXTURED_FILE_TYPE.

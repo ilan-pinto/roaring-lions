@@ -7,10 +7,10 @@
 // Seeds are fixed and the sim is deterministic. The whole file runs the CLI's own seed counts
 // (the full probe set is ~1.5 s), so a band here is exactly the number the CLI prints.
 //
-// KNOWN MISS, pinned as a miss (not skipped): the grenadier's advantage over inf_squad is NOT
-// larger against cover on the net-hp-margin reading (cover2 0.052 vs open 0.548). The test
-// asserts the miss as measured; when the unit is retuned it goes red, and the bands are
-// re-frozen from a new run with the lead's ruling.
+// Probe 9 was a KNOWN MISS at Phase 1 (cover2 0.052 vs open 0.548). The lead ruled (22 Oct)
+// that the grenades ignore part of the cover bonus; Phase 3 added the `cover_ignore` weapon
+// field, retuned the staged grenadier (gl_40 cover_ignore 0.75, suppression 120 -> 300), and
+// re-froze probe 9's bands from that run (numbers.md, "Phase 3"). The claim now MEETS.
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
   clusterClaims,
@@ -126,6 +126,9 @@ describe('SU probe 2: spg_long_range vs rocket_battery, a drone spotting for eac
     t = duelTable(stagedUnit('spg_long_range'));
   });
 
+  // Re-frozen 22 Oct (Phase 2) after the lead's ruling cut howitzer_155 from 320 to 280 damage
+  // (the Grad has 320 hp), range unchanged at 28. The 30/30 and the hp are unchanged: the Grad is
+  // outranged above 20 tiles and the SPG's 1400 hp outlasts its 240-damage salvo at 20.
   it('wins every seed at every range 20-28, and loses no hp doing it (measured 22 Oct: 30/30, hp 1.00)', () => {
     for (const r of [20, 22, 24, 26, 28]) {
       expect(t[r].spgWins, `${r}`).toBe(30);
@@ -135,11 +138,18 @@ describe('SU probe 2: spg_long_range vs rocket_battery, a drone spotting for eac
   });
 
   it('kills the Grad in a measured time (mean seconds to the first gun falling, +/-15%)', () => {
-    const measured: Record<number, number> = { 20: 24.7, 22: 24.1, 24: 23.9, 26: 25.8, 28: 28.9 };
+    const measured: Record<number, number> = { 20: 32.7, 22: 34.1, 24: 33.3, 26: 35.8, 28: 34.9 };
     for (const [r, s] of Object.entries(measured)) {
       const got = t[Number(r)].meanTicks / 20;
       expect(got, `${r}`).toBeGreaterThanOrEqual(s * 0.85);
       expect(got, `${r}`).toBeLessThanOrEqual(s * 1.15);
+    }
+  });
+
+  it('never kills the Grad with one round: 2 or 3 rounds hurt it on every seed (the 280-damage ruling)', () => {
+    for (const r of [20, 22, 24, 26, 28]) {
+      expect(t[r].hitsToKillMin, `${r}`).toBe(2);
+      expect(t[r].hitsToKillMax, `${r}`).toBe(3);
     }
   });
 
@@ -154,34 +164,48 @@ describe('SU probe 9: the grenadier against cover (staged inf_grenadier)', () =>
     t = coverTable(stagedUnit('inf_grenadier'));
   });
 
-  it('KNOWN MISS: the advantage over inf_squad is not larger against cover on the margin reading', () => {
-    const fails = coverClaims(t);
-    expect(fails).toHaveLength(1);
-    expect(fails[0]).toMatch(/not larger against cover/);
+  it('MEETS: the advantage over inf_squad is larger against cover than in the open', () => {
+    expect(coverClaims(t)).toEqual([]);
   });
 
-  it('net margins sit inside their bands (+/-15%, measured 22 Oct)', () => {
-    // grenadier open 0.475, cover2 -0.451; inf_squad open -0.073, cover2 -0.503; advantage open 0.548, cover2 0.052
+  it('net margins sit inside their bands (+/-15%, re-frozen 22 Oct, Phase 3)', () => {
+    // grenadier open 0.570, cover2 0.181; inf_squad open -0.073, cover2 -0.503; advantage open 0.643, cover2 0.684
     const near = (got: number, want: number) => {
       const w = Math.abs(want) * 0.15;
       expect(got).toBeGreaterThanOrEqual(want - w);
       expect(got).toBeLessThanOrEqual(want + w);
     };
-    near(t.grenadier.open.margin, 0.475);
-    near(t.grenadier.cover2.margin, -0.451);
+    near(t.grenadier.open.margin, 0.57);
+    near(t.grenadier.cover2.margin, 0.181);
     near(t.inf_squad.open.margin, -0.073);
     near(t.inf_squad.cover2.margin, -0.503);
-    near(t.advantage.open, 0.548);
-    near(t.advantage.cover2, 0.052);
+    near(t.advantage.open, 0.643);
+    near(t.advantage.cover2, 0.684);
   });
 
-  it('on damage dealt the grenadier does multiply further against cover (printed, not a claim)', () => {
+  it('on damage dealt the grenadier multiplies further against cover (printed, not a claim)', () => {
     expect(t.dealtRatio.cover2).toBeGreaterThan(t.dealtRatio.open);
-    expect(t.dealtRatio.open).toBeGreaterThan(2.4);
-    expect(t.dealtRatio.open).toBeLessThan(3.3);
-    expect(t.dealtRatio.cover2).toBeGreaterThan(7.4);
-    expect(t.dealtRatio.cover2).toBeLessThan(10.1);
+    // open 3.07x, cover2 49.81x (inf_squad deals 0.006 of the militia's hp there: a small
+    // denominator, so this ratio moves a lot for a little).
+    expect(t.dealtRatio.open).toBeGreaterThan(2.6);
+    expect(t.dealtRatio.open).toBeLessThan(3.6);
+    expect(t.dealtRatio.cover2).toBeGreaterThan(42.3);
+    expect(t.dealtRatio.cover2).toBeLessThan(57.3);
   });
+
+  it('the field carries the claim: without cover_ignore, or at the old suppression, it misses', () => {
+    // Controls measured 22 Oct: cover_ignore removed -> cover2 0.082 vs open 0.643;
+    // suppression back at 120 -> cover2 0.126 vs open 0.548. Both changes are needed.
+    const g = stagedUnit('inf_grenadier');
+    const without = structuredClone(g);
+    delete without.weapons?.[0].cover_ignore;
+    expect(coverClaims(coverTable(without))).toHaveLength(1);
+    const oldSupp = structuredClone(g);
+    if (oldSupp.weapons) oldSupp.weapons[0].suppression = 120;
+    expect(coverClaims(coverTable(oldSupp))).toHaveLength(1);
+    // Two more full cover tables (240 fights): well under a second alone, but the whole
+    // suite runs 743 files in parallel.
+  }, 60_000);
 });
 
 describe('SU probe 10: the robot dog finds a pre_dug route (synthetic map)', () => {
@@ -266,22 +290,21 @@ describe('SU probe 11: spg_cluster, the lead\'s four claims (E3)', () => {
     t = clusterTable(stagedUnit('spg_cluster'));
   });
 
-  it('KNOWN MISS, pinned: it does not destroy half of open infantry or a technical in 90 s (3 rounds)', () => {
-    const fails = clusterClaims(t);
-    expect(fails).toHaveLength(2);
-    expect(fails[0]).toMatch(/open infantry/);
-    expect(fails[1]).toMatch(/technical/);
+  it('MET since the retune (rof 2 -> 5, the lead, 22 Oct): it destroys half of open infantry and of a technical in 90 s', () => {
+    // Was a known miss at rof 2 (0.347 / 0.248 over 3 rounds).
+    expect(clusterClaims(t)).toEqual([]);
   });
 
-  it('open infantry, technical and the unitary control sit inside their bands (22 Oct)', () => {
+  it('open infantry, technical and the unitary control sit inside their bands (re-frozen at rof 5, 22 Oct)', () => {
     const c = t.cluster;
-    near(c.infantry.hpLost, 0.347, 'infantry hp');
-    near(c.infantry.perRound, 0.116, 'infantry per round');
-    near(c.technical.hpLost, 0.248, 'technical hp');
-    near(c.technical.perRound, 0.083, 'technical per round');
-    near(t.unitary.hpLost, 0.175, 'unitary hp');
-    near(t.unitary.perRound, 0.058, 'unitary per round');
-    for (const r of [c.infantry, c.technical, c.house, c.armour, t.unitary]) near(r.rounds, 3, 'rounds');
+    near(c.infantry.hpLost, 0.82, 'infantry hp'); // Was 0.347 at rof 2.
+    near(c.infantry.perRound, 0.103, 'infantry per round'); // Was 0.116.
+    near(c.technical.hpLost, 0.709, 'technical hp'); // Was 0.248.
+    near(c.technical.perRound, 0.09, 'technical per round'); // Was 0.083.
+    near(t.unitary.hpLost, 0.43, 'unitary hp'); // Was 0.175.
+    near(t.unitary.perRound, 0.054, 'unitary per round'); // Was 0.058.
+    near(c.technical.rounds, 7.9, 'technical rounds');
+    for (const r of [c.infantry, c.house, c.armour, t.unitary]) near(r.rounds, 8, 'rounds'); // Was 3.
   });
 
   it('the cluster destroys more per round than the unitary draft: what E3 buys (about 2x)', () => {
@@ -294,24 +317,26 @@ describe('SU probe 11: spg_cluster, the lead\'s four claims (E3)', () => {
     expect(h.rounds).toBeGreaterThan(0);
     expect(h.hpLostMax).toBe(0);
     expect(h.houseLost).toBe(0);
-    near(h.peakSupp, 0.045, 'house peak suppression');
+    near(h.peakSupp, 0.059, 'house peak suppression'); // Was 0.045 at rof 2.
   });
 
   it('an armoured column loses 0 hp, and is suppressed', () => {
     const a = t.cluster.armour;
     expect(a.rounds).toBeGreaterThan(0);
     expect(a.hpLostMax).toBe(0);
-    near(a.peakSupp, 0.236, 'armour peak suppression');
+    near(a.peakSupp, 0.315, 'armour peak suppression'); // Was 0.236 at rof 2.
   });
 
-  it('Conduct near civilians: cluster >= unitary per round (measured 22 Oct: 5.60 vs 3.00, 16.80 vs 9.00 over 3 rounds), nobody dies', () => {
+  it('Conduct near civilians: cluster >= unitary per round (rof 5: 5.63 vs 3.00, 45.0 vs 24.0 over 8 rounds)', () => {
     const { cluster: c, unitary: u } = t.conduct;
     expect(c.perRound).toBeGreaterThanOrEqual(u.perRound);
-    near(c.perRound, 5.6, 'cluster per round');
+    near(c.perRound, 5.63, 'cluster per round'); // Was 5.60 at rof 2.
     near(u.perRound, 3, 'unitary per round');
-    near(c.lost, 16.8, 'cluster lost');
-    near(u.lost, 9, 'unitary lost');
-    expect(c.civDead).toBe(0);
+    near(c.lost, 45, 'cluster lost'); // Was 16.8 over 3 rounds.
+    near(u.lost, 24, 'unitary lost'); // Was 9.
+    // At rof 5 the cluster kills a civilian 2 tiles off in 2 of 10 seeds (was 0 at rof 2); the
+    // scene's civilian_casualty_penalty is 0, so Conduct above is the ordnance rule alone.
+    expect(c.civDead).toBeCloseTo(0.2, 9);
     expect(u.civDead).toBe(0);
   });
 });

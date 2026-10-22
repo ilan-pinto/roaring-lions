@@ -397,22 +397,33 @@ function peelPlate(g: Geo, op: PeelPlate): number {
 
 function breakBarrel(g: Geo, op: BreakBarrel, frame: Frame): number {
   // The tube's axis, measured off the vertices forward of the break.
+  let ax = 0;
   let ay = 0;
   let az = 0;
   let n = 0;
   for (let i = 0; i < g.count; i++) {
     const p = g.pos(i);
     if (p[0] <= op.breakX) continue;
+    ax += p[0];
     ay += p[1];
     az += p[2];
     n++;
   }
   if (n === 0) throw new Error(`breakBarrel: no vertex forward of x ${op.breakX} on ${op.mesh}`);
+  ax /= n;
   ay /= n;
   az /= n;
+  // The bore: a line through the centroid, raised `elevationDeg` about the hull's lateral (Z) axis.
+  const elev = ((op.elevationDeg ?? 0) * Math.PI) / 180;
+  const bore: V3 = [Math.cos(elev), Math.sin(elev), 0];
+  const radial = (p: V3): number => {
+    const r: V3 = [p[0] - ax, p[1] - ay, p[2] - az];
+    const a = r[0] * bore[0] + r[1] * bore[1];
+    return Math.hypot(r[0] - a * bore[0], r[1] - a * bore[1], r[2]);
+  };
   const onTube = (v: number) => {
     const p = g.pos(v);
-    return p[0] > op.breakX && Math.hypot(p[1] - ay, p[2] - az) < op.axisRadius;
+    return p[0] > op.breakX && radial(p) < op.axisRadius;
   };
   const tris = g.cut((f) => g.tri(f).every(onTube));
   if (tris.length === 0) throw new Error(`breakBarrel: no barrel faces on ${op.mesh}`);
@@ -420,8 +431,8 @@ function breakBarrel(g: Geo, op: BreakBarrel, frame: Frame): number {
   for (const t of tris) for (const v of t) root = Math.min(root, g.pos(v)[0]);
   // In the ground frame: the pivot, the barrel's direction, and the axis
   // across it that tips the muzzle DOWN whatever way the turret was thrown.
-  const pivot = xfPoint(frame.toGround, [root, ay, az]);
-  const dir = norm(xfDir(frame.toGround, [1, 0, 0]));
+  const pivot = xfPoint(frame.toGround, [root, ay + (root - ax) * Math.tan(elev), az]);
+  const dir = norm(xfDir(frame.toGround, bore));
   let across = norm(cross(dir, [0, 1, 0]));
   if (Math.hypot(...cross(dir, [0, 1, 0])) < 1e-3) across = [0, 0, 1];
   const ground = new Map<number, V3>();

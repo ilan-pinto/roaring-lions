@@ -70,7 +70,7 @@ interface Privates {
   buildTrailInput(): TrailInstanceInput;
 }
 
-function world(opts: { marker: boolean; fighters: number }) {
+function world(opts: { marker: boolean; fighters: number; viewerSide?: 0 | 1 }) {
   const sim = new Sim({ seed: 7, width: 16, height: 16, capacity: 8 });
   const route = sim.addTunnel({ id: 'tn_a', points: [[2, 2], [8, 2]], dig_tiles_per_s: 1, pre_dug: true });
   const marker = opts.marker ? sim.spawn(sim.addUnitType(MARKER), 0, fx.from(4.5), fx.from(4.5)) : -1;
@@ -79,7 +79,7 @@ function world(opts: { marker: boolean; fighters: number }) {
     const id = sim.spawn(fighterType, 1, fx.from(3.5 + i), fx.from(2.5));
     sim.putInTunnel(id, route);
   }
-  const renderer = new ThreeRenderer(sim, makeOpts());
+  const renderer = new ThreeRenderer(sim, { ...makeOpts(), viewerSide: opts.viewerSide ?? 0 });
   const priv = renderer as unknown as Privates;
   const seen: SimEvent[] = [];
   const run = (ticks: number): void => {
@@ -128,6 +128,19 @@ describe('tunnel x-ray (GH-471)', () => {
     expect(sim.tunnelContactLevel(0, route)).toBe(0);
     expect(priv.tunnelXray.clock.strength[route]).toBe(0);
     expect(priv.tunnelXray.figures.count).toBe(0);
+  });
+
+  it('GH-681: a buried unit shows only to the side that identified its route -- never to the other seat', () => {
+    // Side 0's carrier has identified the route; side 1's fighters are inside
+    // it. The side-1 client (the seat whose units they are, here standing in
+    // for any viewer that has not identified the route) draws no x-ray at all,
+    // because the bore and every figure ride the VIEWER's own contact level.
+    const { sim, route, priv, run } = world({ marker: true, fighters: 2, viewerSide: 1 });
+    run(60);
+    expect(sim.tunnelContactLevel(0, route)).toBe(2);
+    expect(sim.tunnelContactLevel(1, route)).toBe(0);
+    expect(priv.tunnelXray.figures.count).toBe(0);
+    expect(priv.tunnelXray.drawCalls).toBe(0);
   });
 
   it('plays the discovery beam from the carrier that found it', () => {

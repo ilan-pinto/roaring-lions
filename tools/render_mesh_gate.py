@@ -339,6 +339,13 @@ VEHICLE_ROLE_PALETTES = {
     "air_medevac_heli": {
         "hull": "olive.0", "plate": "limestone.0", "metal": "gunmetal.2",
     },
+    # GH-709 (2026-10-22): the Te'o Howitzer ships its remesh's own bake on all four
+    # of its meshes (`hull_hull`, `hull_rubber`, `turret_hull`, `turret_metal`), so this row
+    # only names the repaint the gate makes: KDF olive hull and turret, the track band on
+    # the shadow ramp, the gun on gunmetal -- the Namer's tones.
+    "spg_long_range": {
+        "hull": "olive.0", "metal": "gunmetal.2", "rubber": "shadow.0",
+    },
 }
 VEHICLE_ROLE_PALETTE_FALLBACK = {
     "hull": "olive.0", "plate": "olive.0", "metal": "gunmetal.2",

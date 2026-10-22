@@ -94,6 +94,9 @@ export type VehicleTrackKind = 'tracked' | 'wheeled' | 'single';
  */
 export const VEHICLE_TRACK_KIND: Readonly<Record<string, VehicleTrackKind>> = {
   mbt_lavi: 'tracked',
+  mbt_lavi_camo: 'tracked',
+  // GH-709: the Te'o Howitzer's six road wheels a side and tracked loop (`gear: tracks`).
+  spg_long_range: 'tracked',
   ifv_namer: 'tracked',
   dozer_d9: 'tracked',
   apc_eitan: 'wheeled',

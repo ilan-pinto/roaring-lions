@@ -30,6 +30,10 @@ import {
   BREACH_DETOUR_SLACK,
   AFFECTS_FOOT,
   AFFECTS_VEHICLE,
+  AFFECTS_PASSENGERS,
+  areaEffectsFromJson,
+  type AreaEffect,
+  type AreaEffectJson,
   type StructureAid,
   type StructureAura,
   type StructureType,
@@ -48,6 +52,8 @@ import {
   TRAIL_SIGNATURE,
   TUNNEL_COLLAPSE_RADIUS,
   TUNNEL_COLLAPSE_SHOCK,
+  TUNNEL_CAPACITY_DEFAULT,
+  TUNNEL_ENTER_RANGE_SQ,
   type TunnelRouteJson,
 } from './tunnels';
 import {
@@ -172,6 +178,7 @@ import {
   MED_CARRYING,
   MED_DELIVERING,
   WOUND_DEFAULT_BLEED_TICKS,
+  TUNNEL_TILES_PER_S,
   type SupportKind,
 } from './tuning';
 import { bestCoverTile, figuresStanding, rescuePriority, scaleDown, scarredShare } from './wounds';
@@ -215,6 +222,9 @@ export interface WeaponJson {
   indirect?: boolean;
   /** E3 (GH-709): the round bursts into `count` bomblets where it lands. */
   submunitions?: SubmunitionJson;
+  /** GH-709 unit 9: the fraction of the tile-cover bonus (hit chance and
+   *  suppression) this weapon ignores, 0-1. Absent is 0, every weapon's old rule. */
+  cover_ignore?: number;
 }
 
 /** E3's bomblet block, as authored (unit.schema.json `submunitions`). */
@@ -300,6 +310,9 @@ export interface UnitTypeJson {
   /** GH-707: a medic (ability `rescue`): how far it looks, how long it treats, how fast it
    *  moves dragging (one man) or carrying (a stretcher team). */
   rescue?: { radius_tiles: number; treat_s: number; drag_speed_mult: number; carry_speed_mult: number };
+  /** E1 (GH-709): the field-works `aura.area` shape carried by a unit, plus the unit-only
+   *  `affects: "passengers"` and `stationary`. Absent = none (every shipped unit). */
+  aura?: { area: AreaEffectJson[] };
 }
 
 /**
@@ -446,6 +459,16 @@ export interface WeaponStats {
   isIndirect: boolean;
   /** E3 (GH-709): the bomblets this round bursts into, or null for a plain round. */
   submunitions: SubmunitionStats | null;
+  /**
+   * GH-709 unit 9 (the grenadier, lead ruling 22 Oct): the fraction of the
+   * tile-cover bonus this weapon ignores, from `cover_ignore`. 0 (absent) is
+   * the old rule exactly; 1 makes a man behind cover as easy to hit and to pin
+   * as one in the open. It reads the hit chance (COVER_HIT, parapet included)
+   * and the suppression of this weapon's hits, near misses and splash on a
+   * TILE (COVER_SUPP). Not garrison cover (Q7), not detection, not the clang
+   * of a round bouncing off armour, and not bomblets (refused at load).
+   */
+  coverIgnore: Fx;
 }
 
 /** E3's bomblet block, loaded. `supp` is already per-stat-divided, like
@@ -682,6 +705,23 @@ export interface UnitType {
   stabiliseRadiusSq: Fx;
   /** GH-707: the medic block, null for every non-medic. */
   rescue: { radiusSq: Fx; treatTicks: number; dragMult: Fx; carryMult: Fx } | null;
+  /** E1 (GH-709): the unit's own `aura.area`, parsed; null for every type without one. */
+  aura: AreaEffect[] | null;
+}
+
+/** E1 (GH-709): a unit's `aura`, parsed through the structures' own area parser. An aircraft
+ *  may carry only `passengers` effects: an area scope from a carrier in the air would heal
+ *  the ground beneath it, which nothing in the design asks for (the medevac heals its riders). */
+function unitAuraFromJson(json: UnitTypeJson): AreaEffect[] | null {
+  if (json.aura === undefined) return null;
+  const area = areaEffectsFromJson(`unit ${json.id}`, json.aura.area, TICKS_PER_SECOND, true);
+  if (area.length === 0) throw new Error(`unit ${json.id}: aura.area is empty`);
+  if (json.mobility.domain === 'air') {
+    for (const e of area) {
+      if (e.affects !== AFFECTS_PASSENGERS) throw new Error(`unit ${json.id}: an aircraft's aura may only affect passengers`);
+    }
+  }
+  return area;
 }
 
 /** Seconds of authored data to whole ticks, crossing into fixed point once (invariant 2). */
@@ -753,7 +793,20 @@ function weaponFromJson(w: WeaponJson): WeaponStats {
     garrisonEffRangeSq: fx.mul(gEff, gEff),
     isIndirect: (INDIRECT_MASK & (1 << cls)) !== 0 || w.indirect === true,
     submunitions: submunitionsFromJson(w.id, w.submunitions),
+    coverIgnore: coverIgnoreFromJson(w.id, w.cover_ignore, w.submunitions),
   };
+}
+
+/** `cover_ignore`, loaded: 0-1, absent 0. A bad value throws naming the
+ *  weapon, because out of range it would push a hit chance past the open-ground
+ *  one or below the covered one, and nothing downstream would say why. */
+function coverIgnoreFromJson(weaponId: string, raw: number | undefined, sub: SubmunitionJson | undefined): Fx {
+  if (raw === undefined) return 0;
+  // Bomblets detonate through splashDirect, which reads no weapon: the field
+  // would silently do nothing there, so the pair is refused rather than ignored.
+  if (sub !== undefined) throw new Error(`weapon ${weaponId}: cover_ignore is not applied to submunitions`);
+  if (!(raw >= 0 && raw <= 1)) throw new Error(`weapon ${weaponId}: cover_ignore must be in 0-1, got ${raw}`);
+  return fx.from(raw);
 }
 
 /**
@@ -874,6 +927,7 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
             dragMult: fx.from(json.rescue.drag_speed_mult),
             carryMult: fx.from(json.rescue.carry_speed_mult),
           },
+    aura: unitAuraFromJson(json),
   };
 }
 
@@ -945,6 +999,22 @@ export type Command =
    * blip, not a firing solution), and the collapse kills everyone below.
    */
   | { kind: 'chargeTunnel'; ids: number[]; tunnel: number }
+  /**
+   * Versus tunnels (GH-681): walk to the nearer end of route `tunnel` -- the
+   * mouth or the vent -- and go below there. Only foot units of the route's
+   * owning side (`TunnelRouteJson.side`) take it; a route with no owner admits
+   * nobody. Entered at the mouth, the unit crawls to the vent at
+   * `TUNNEL_TILES_PER_S`; entered at the vent, it is there at once. Any later
+   * order naming the unit cancels the walk.
+   */
+  | { kind: 'enterTunnel'; ids: number[]; tunnel: number }
+  /**
+   * Versus tunnels (GH-681): bring buried units that have reached the vent up,
+   * target or not. `raid` is the scripted pop-up (the exposure window and the
+   * volley, then back down); `exit` comes up for good. The one command the
+   * containment rule lets reach a buried unit.
+   */
+  | { kind: 'vent'; ids: number[]; mode: 'raid' | 'exit' }
   /**
    * Fire on THIS enemy (Stage 4 targeted fire, GH-420). Sets the unit's
    * `focusTarget`; any other order that names the unit releases it. The sim
@@ -1558,6 +1628,18 @@ export class Sim {
    *  `homeTunnel` is where I go back to — a unit that is up has `tunnelIn`
    *  -1 and `homeTunnel` set, and is hit by the ordinary surface rules. */
   private readonly homeTunnel: Int32Array;
+  /** GH-681: the route end an `enterTunnel` order is walking this unit to, -1
+   *  for none: `r` for route r's mouth, `-(r + 2)` for its vent. Hashed only
+   *  behind `tnOrderLive`. */
+  private readonly tunnelGoal: Int32Array;
+  /** GH-681: ticks until a unit that went below at a mouth reaches the vent;
+   *  0 at the vent (or never ordered). Hashed only behind `tnOrderLive`. */
+  private readonly tunnelEta: Int32Array;
+  /** GH-681: true once any `enterTunnel` or `vent` order has been accepted.
+   *  hash() folds `tunnelGoal` and `tunnelEta` only while it is set, so a world
+   *  that never sees one keeps its digest (the `mobLive` / `fwLive` shape).
+   *  Never cleared. */
+  private tnOrderLive = false;
   /** Called-for strikes still in the air. */
   private pendingStrikes: { x: Fx; y: Fx; by: number; readyTick: number; profile: number }[] = [];
 
@@ -1607,6 +1689,11 @@ export class Sim {
    *  while it is set. Never cleared: once live, always folded. Not itself
    *  hashed -- it is a function of what the block holds. */
   private fwLive = false;
+  /** E1 (GH-709): set when a unit whose type carries an `aura` is spawned (which also sets
+   *  `fwLive`, so the aura columns it writes are hashed). Gates stepAuras' unit pass, so a
+   *  world with no aura unit pays nothing for it. Never cleared. Not hashed: it is a
+   *  function of the spawned types, and the hp it moves is hashed anyway. */
+  private unitAuraLive = false;
   /** Field works (#277 Task 7): per sensor structure, bit `r` set when any tile of route `r`
    *  lies within the type's `tunnel_radius` of the centroid. Geometry only (footprints and
    *  route tiles never change), so it is filled when the structure is raised and when a route
@@ -1676,6 +1763,13 @@ export class Sim {
   readonly tnLength = new Int32Array(MAX_TUNNELS);
   readonly tnVentOpen = new Uint8Array(MAX_TUNNELS);
   readonly tnOccupants = new Int32Array(MAX_TUNNELS);
+  /** GH-681: the side that may `enterTunnel` each route, -1 for none (every
+   *  map-file route). Load-time, immutable after addTunnel: NOT in hash(). */
+  private readonly tnOwner = new Int8Array(MAX_TUNNELS).fill(-1);
+  /** GH-681: how many units an `enterTunnel` may put below. Load-time: NOT in hash(). */
+  private readonly tnCapacity = new Int32Array(MAX_TUNNELS);
+  /** GH-681: ticks from mouth to vent at `TUNNEL_TILES_PER_S`. Load-time: NOT in hash(). */
+  private readonly tnTravelTicks = new Int32Array(MAX_TUNNELS);
   /** Per-tick dig advance, Q16.16 tiles: dig_tiles_per_s * DT, precomputed so
    *  the step function does no conversion. */
   readonly tnDigRate = new Int32Array(MAX_TUNNELS);
@@ -1757,6 +1851,8 @@ export class Sim {
     readonly carriedBy: Int32Array;
     /** Route this unit is inside, or -1 on the surface. */
     readonly tunnelIn: Int32Array;
+    /** GH-681: ticks until a buried unit reaches its route's vent; 0 there. */
+    readonly tunnelEta: Int32Array;
     /** BRACE_* per entity (spec 2026-10-05-infantry-halt-to-fire §5): a unit
      *  that halts to fire is standing (NONE), getting down (DROPPING), down
      *  and firing (KNEELING), or getting up (RISING). Always NONE for every
@@ -1968,6 +2064,8 @@ export class Sim {
     this.surfaceTicks = new Int32Array(n);
     this.volleyLeft = new Int32Array(n);
     this.homeTunnel = new Int32Array(n).fill(-1);
+    this.tunnelGoal = new Int32Array(n).fill(-1);
+    this.tunnelEta = new Int32Array(n);
     const sc = MAX_STRUCTURES;
     this.stAlive = new Uint8Array(sc);
     this.stHp = new Int32Array(sc);
@@ -2064,6 +2162,7 @@ export class Sim {
       demoTarget: this.demoTarget,
       carriedBy: this.carriedBy,
       tunnelIn: this.tunnelIn,
+      tunnelEta: this.tunnelEta,
       brace: this.brace,
       braceTicks: this.braceTicks,
       focusTarget: this.focusTarget,
@@ -2887,6 +2986,22 @@ export class Sim {
     return this.tunnelCount_;
   }
 
+  /** GH-681: the side that may `enterTunnel` route `r`, or -1 (none, or no
+   *  such route). Load-time data, so both seats of a room agree on it. */
+  tunnelOwner(r: number): number {
+    return r >= 0 && r < this.tunnelCount_ ? this.tnOwner[r] : -1;
+  }
+
+  /** GH-681: how many units an `enterTunnel` may put below on route `r`. */
+  tunnelCapacity(r: number): number {
+    return r >= 0 && r < this.tunnelCount_ ? this.tnCapacity[r] : 0;
+  }
+
+  /** GH-681: ticks a crawl from route `r`'s mouth to its vent takes. */
+  tunnelTravelTicks(r: number): number {
+    return r >= 0 && r < this.tunnelCount_ ? this.tnTravelTicks[r] : 0;
+  }
+
   /** Register an authored route. Returns its index. */
   addTunnel(route: TunnelRouteJson): number {
     if (this.tunnelCount_ >= MAX_TUNNELS) throw new Error('too many tunnels');
@@ -2908,6 +3023,20 @@ export class Sim {
     this.tnProgress[id] = route.pre_dug === true ? this.tnLength[id] : 0;
     this.tnVentOpen[id] = route.pre_dug === true ? 1 : 0;
     this.tnOccupants[id] = 0;
+    // GH-681. An owner is a combatant side or none; a capacity is a positive
+    // whole number. Both are load-time data and refused loudly when malformed,
+    // because a wrong owner would hand a route to the wrong seat silently.
+    const owner = route.side ?? -1;
+    if (owner !== -1 && owner !== 0 && owner !== 1) throw new Error(`tunnel ${route.id}: side must be 0 or 1`);
+    this.tnOwner[id] = owner;
+    const cap = route.capacity ?? TUNNEL_CAPACITY_DEFAULT;
+    if (!Number.isInteger(cap) || cap < 1) throw new Error(`tunnel ${route.id}: capacity must be a positive integer`);
+    this.tnCapacity[id] = cap;
+    // Ticks from mouth to vent: seconds at the crawl speed, times the tick
+    // rate, rounded up so a nonzero route never takes 0. Through seconds, not
+    // a per-tick step: 0.5 * DT is not exact in Q16.16 and would add a tick.
+    const crawlS = fx.div(this.tnLength[id], TUNNEL_TILES_PER_S);
+    this.tnTravelTicks[id] = (fx.mul(crawlS, fx.fromInt(TICKS_PER_SECOND)) + 65535) >> 16;
     this.tnDigRate[id] = fx.mul(fx.from(route.dig_tiles_per_s), DT);
     this.tnDigger[id] = -1;
     const vent = route.points[route.points.length - 1];
@@ -2976,6 +3105,13 @@ export class Sim {
     this.demoTarget[unitId] = -1;
     this.chargeOrder[unitId] = -1;
     this.chargeTicks[unitId] = 0;
+    this.tunnelGoal[unitId] = -1;
+  }
+
+  /** Tile centre of a route's mouth (its first point), Q16.16. */
+  private mouthPos(r: number): [Fx, Fx] {
+    const m = this.tnPoints[r][0];
+    return [fx.add(fx.from(m[0]), HALF), fx.add(fx.from(m[1]), HALF)];
   }
 
   /** Tile centre of a route's vent — where a surfacing unit stands up. */
@@ -3223,6 +3359,13 @@ export class Sim {
       this.woundedAlive[side]++;
     }
     this.apsAmmo[id] = type.apsMagazine;
+    // E1 (GH-709): the first aura-carrying unit turns the field-works fold on, so the aura
+    // columns its heal writes are hashed (spec §2 E1). At SPAWN, not at type registration:
+    // only a mission that fields one pays for it, and no shipped unit carries an aura.
+    if (type.aura !== null) {
+      this.fwLive = true;
+      this.unitAuraLive = true;
+    }
     this.pendingEvents.push({ kind: 'spawn', tick: this.tickCount, entity: id, typeId: type.id, side });
     return id;
   }
@@ -3397,6 +3540,7 @@ export class Sim {
     this.stepEvacuation();
     this.stepFields();
     this.stepGarrison();
+    this.stepTunnelEntry();
     // Field works: before upkeep, which reads the aura arrays every tick.
     this.stepAuras();
     this.stepDemolition();
@@ -3688,7 +3832,10 @@ export class Sim {
       // `continue`d before the old per-branch guard could run. A SURFACED
       // unit (homeTunnel >= 0, tunnelIn === -1) is ordinary and passes.
       // One scan first: the common case — nobody buried — allocates nothing.
-      if ('ids' in cmd) {
+      // GH-681: `vent` is the one command addressed TO buried units -- it is how
+      // a human seat brings them up -- so it is the named exception to the
+      // containment rule below. Every other kind stays contained.
+      if ('ids' in cmd && cmd.kind !== 'vent') {
         // GH-707: a wounded (DOWN, STABILISED -- any woundState but NONE) takes no order
         // either, by the same filter: he is hors de combat and goes where a medic takes him.
         // Without wound content every woundState is NONE, so this adds nothing.
@@ -3746,6 +3893,17 @@ export class Sim {
             this.medState[id] = MED_IDLE;
             this.medTarget[id] = -1;
             this.medTimer[id] = park ? -1 : 0;
+          }
+        }
+        // GH-681: any surface order naming a unit cancels its walk to a route
+        // end (`enterTunnel` sets a fresh one below), and on a human-held side
+        // it ends a raid: the unit stays up for good rather than being taken
+        // back below from wherever the order walked it. Behind `tnOrderLive`,
+        // so a world that never saw a tunnel order touches neither column.
+        if (this.tnOrderLive) {
+          for (const id of cmd.ids) {
+            this.tunnelGoal[id] = -1;
+            if (this.homeTunnel[id] >= 0 && this.isHumanHeld(this.side[id])) this.endRaid(id);
           }
         }
         if (cmd.kind !== 'attack' && cmd.kind !== 'rescue') {
@@ -4311,6 +4469,10 @@ export class Sim {
           this.medTarget[id] = cmd.target;
           this.medTimer[id] = 0;
         }
+      } else if (cmd.kind === 'enterTunnel') {
+        this.applyEnterTunnel(cmd.ids, cmd.tunnel);
+      } else if (cmd.kind === 'vent') {
+        this.applyVent(cmd.ids, cmd.mode);
       } else if (cmd.kind === 'construct') {
         this.applyConstruct(cmd.ids, cmd.structType, cmd.x, cmd.y);
       } else if (cmd.kind === 'cancelConstruct') {
@@ -4859,6 +5021,9 @@ export class Sim {
         this.surfaceTicks[i]--;
         if (this.surfaceTicks[i] === 0 && this.volleyLeft[i] <= 0) {
           this.submerge(i);
+        } else if (this.surfaceTicks[i] === 0 && this.raidHasNoTarget(i)) {
+          // GH-681: a seat's raid with nothing to shoot ends with its window.
+          this.submerge(i);
         }
         continue;
       }
@@ -4869,35 +5034,197 @@ export class Sim {
         // outlives the window (a slow weapon, a pin across the window's end)
         // finishes later, in ordinary combat. An edge check alone strands the
         // unit on the surface forever, homeTunnel latched, silently.
-        if (this.volleyLeft[i] > 0) continue;
+        if (this.volleyLeft[i] > 0 && !this.raidHasNoTarget(i)) continue;
         this.submerge(i);
         continue;
       }
 
       const r = this.tunnelIn[i];
-      if (r < 0 || this.tnAlive[r] === 0 || this.tnVentOpen[r] === 0) continue;
+      if (r < 0) continue;
+      // GH-681: a unit crawling from the mouth is not at the vent yet. It
+      // neither surfaces by itself nor can be vented until it arrives.
+      if (this.tunnelEta[i] > 0) {
+        this.tunnelEta[i]--;
+        continue;
+      }
+      if (this.tnAlive[r] === 0 || this.tnVentOpen[r] === 0) continue;
+      // GH-681 (T-R2): nothing on a human-held side comes up by itself; its
+      // seat brings it up with `vent`. The authored enemy of a single-player
+      // mission is not human-held and surfaces exactly as it always has.
+      if (this.isHumanHeld(this.side[i])) continue;
       const type = this.unitTypes[this.typeIdx[i]];
       if (type.weapons.length === 0) continue;
-      let [vx, vy] = this.ventPos(r);
-      // Field works (Q7): a vent may sit under a standing structure (a work
-      // raised over an unidentified route; refusing that footprint would leak
-      // the route). The fighters come up beside it, at its exitTile, never
-      // inside it -- and judge their shot from where they will stand.
-      const vs = this.structureOfTile[(vy >> 16) * this.width + (vx >> 16)];
-      if (vs >= 0 && this.stAlive[vs] === 1) [vx, vy] = this.exitTile(vs);
+      const [vx, vy] = this.surfacePoint(r);
       if (!this.hasTargetFrom(i, vx, vy)) continue;
+      this.surfaceAt(i, r, vx, vy, true);
+    }
+  }
 
-      this.tunnelIn[i] = -1;
+  /** Where a unit coming up route `r` stands: the vent's tile centre, or --
+   *  Field works (Q7) -- beside a standing structure raised over the vent (a
+   *  work raised over an unidentified route; refusing that footprint would
+   *  leak the route), at its exitTile, never inside it. */
+  private surfacePoint(r: number): [Fx, Fx] {
+    const [vx, vy] = this.ventPos(r);
+    const vs = this.structureOfTile[(vy >> 16) * this.width + (vx >> 16)];
+    if (vs >= 0 && this.stAlive[vs] === 1) return this.exitTile(vs);
+    return [vx, vy];
+  }
+
+  /** Bring buried unit `i` up route `r` at (vx, vy). `raid` arms the exposure
+   *  window and the volley and keeps `homeTunnel`, so `stepSurfacing` takes it
+   *  back down; otherwise (GH-681's `exit`) it is an ordinary surface unit. */
+  private surfaceAt(i: number, r: number, vx: Fx, vy: Fx, raid: boolean): void {
+    this.tunnelIn[i] = -1;
+    this.tnOccupants[r]--;
+    this.posX[i] = vx;
+    this.posY[i] = vy;
+    if (raid) {
       this.homeTunnel[i] = r;
-      this.tnOccupants[r]--;
-      this.posX[i] = vx;
-      this.posY[i] = vy;
       this.surfaceTicks[i] = SURFACE_SECONDS * TICKS_PER_SECOND;
       this.volleyLeft[i] = SURFACE_VOLLEY;
-      // Out of the shaft low and ready: the guaranteed window is the
-      // player's answer to this mechanic, and a drop would spend it.
-      this.braceDown(i);
-      this.pendingEvents.push({ kind: 'surfaced', tick: this.tickCount, entity: i, tunnel: r });
+    }
+    // Out of the shaft low and ready: the guaranteed window is the
+    // player's answer to this mechanic, and a drop would spend it.
+    this.braceDown(i);
+    this.pendingEvents.push({ kind: 'surfaced', tick: this.tickCount, entity: i, tunnel: r });
+  }
+
+  /** GH-681: true for a raid on a HUMAN-HELD side that has nothing left to
+   *  shoot at from where it stands (`hasTargetFrom`'s geometry: effective
+   *  range and a sight line, no detection). A seat vents on order, target or
+   *  not, so its raid can come up to an empty field, or see its target leave;
+   *  the scripted hold (window AND volley) would then keep it up for good. A
+   *  target still there keeps the hold: detection takes time, and the volley
+   *  is the exposure the KDF is owed. Always false for a scripted side, whose
+   *  surfacing is exactly what it was. */
+  private raidHasNoTarget(i: number): boolean {
+    if (!this.isHumanHeld(this.side[i])) return false;
+    if (this.unitTypes[this.typeIdx[i]].weapons.length === 0) return true;
+    return !this.hasTargetFrom(i, this.posX[i], this.posY[i]);
+  }
+
+  /** GH-681: a raiding unit stays up for good -- the `exit` state. */
+  private endRaid(i: number): void {
+    this.homeTunnel[i] = -1;
+    this.surfaceTicks[i] = 0;
+    this.volleyLeft[i] = 0;
+  }
+
+  /** GH-681: `enterTunnel`. Each id that qualifies walks to the nearer end of
+   *  route `r`; `stepTunnelEntry` takes it below on arrival. */
+  private applyEnterTunnel(ids: readonly number[], r: number): void {
+    if (r < 0 || r >= this.tunnelCount_ || this.tnAlive[r] === 0 || this.tnVentOpen[r] === 0) return;
+    const owner = this.tnOwner[r];
+    if (owner < 0) return;
+    const [mx, my] = this.mouthPos(r);
+    const [vx, vy] = this.ventPos(r);
+    for (const id of ids) {
+      if (this.alive[id] === 0 || this.routed[id] === 1) continue;
+      if (this.side[id] !== owner) continue;
+      if (this.carriedBy[id] >= 0) continue;
+      const type = this.unitTypes[this.typeIdx[id]];
+      // Foot only: the vehicle predicate the boulder rule already uses.
+      if (type.isAir || type.wheeled) continue;
+      this.tnOrderLive = true;
+      if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
+      const mdx = fx.sub(mx, this.posX[id]);
+      const mdy = fx.sub(my, this.posY[id]);
+      const vdx = fx.sub(vx, this.posX[id]);
+      const vdy = fx.sub(vy, this.posY[id]);
+      const toMouth = fx.add(fx.mul(mdx, mdx), fx.mul(mdy, mdy));
+      const toVent = fx.add(fx.mul(vdx, vdx), fx.mul(vdy, vdy));
+      // Ties go to the mouth: the end a route is entered by.
+      const atVent = toVent < toMouth;
+      this.tunnelGoal[id] = atVent ? -(r + 2) : r;
+      const ex = atVent ? vx : mx;
+      const ey = atVent ? vy : my;
+      const d = this.domainOf(id);
+      const [gtx, gty] = this.nearestOpenTile(fx.toInt(ex), fx.toInt(ey), this.maskFor(d));
+      this.wpCount[id] = 0;
+      this.boardGoal[id] = -1;
+      this.garrisonGoal[id] = -1;
+      this.demolishOrder[id] = -1;
+      this.demoTicks[id] = 0;
+      this.demoTarget[id] = -1;
+      this.chargeOrder[id] = -1;
+      this.chargeTicks[id] = 0;
+      this.goalX[id] = fx.add(fx.fromInt(gtx), HALF);
+      this.goalY[id] = fx.add(fx.fromInt(gty), HALF);
+      this.fieldRef[id] = this.fieldFor(gtx, gty, d);
+      this.moving[id] = 1;
+      this.attackMove[id] = 0;
+      this.sweepOrder[id] = 0;
+      this.engaging[id] = 0;
+      this.stance[id] = 0;
+    }
+  }
+
+  /** GH-681: `vent`. Each buried id that has reached an open vent comes up,
+   *  target or not; one still crawling is refused (Q6). */
+  private applyVent(ids: readonly number[], mode: 'raid' | 'exit'): void {
+    for (const id of ids) {
+      if (this.alive[id] === 0) continue;
+      // A seat's order: a side nobody holds (the scripted enemy) surfaces by
+      // its own rule only, whatever reaches the queue.
+      if (!this.isHumanHeld(this.side[id])) continue;
+      // GH-707: `vent` skips the containment filter, so it must also refuse a
+      // wounded man itself -- he takes no order (a raider shot down stays down).
+      if (this.woundState[id] !== WOUND_NONE) continue;
+      const r = this.tunnelIn[id];
+      // `exit` to a raider already up keeps it up for good, as any other order does.
+      if (r < 0 && mode === 'exit' && this.homeTunnel[id] >= 0) {
+        this.endRaid(id);
+        continue;
+      }
+      if (r < 0 || this.tunnelEta[id] > 0) continue;
+      if (this.tnAlive[r] === 0 || this.tnVentOpen[r] === 0) continue;
+      this.tnOrderLive = true;
+      const [px, py] = this.surfacePoint(r);
+      this.surfaceAt(id, r, px, py, mode === 'raid');
+    }
+  }
+
+  /** GH-681: take a unit walking under `enterTunnel` below once it reaches its
+   *  route end. Skipped outright until the first tunnel order. */
+  private stepTunnelEntry(): void {
+    if (!this.tnOrderLive) return;
+    for (let i = 0; i < this.count; i++) {
+      const g = this.tunnelGoal[i];
+      if (g === -1) continue;
+      const atVent = g < -1;
+      const r = atVent ? -g - 2 : g;
+      if (
+        this.alive[i] === 0 ||
+        this.routed[i] === 1 ||
+        this.tunnelIn[i] >= 0 ||
+        this.carriedBy[i] >= 0 ||
+        this.garrisonedIn[i] >= 0 ||
+        this.tnAlive[r] === 0 ||
+        this.tnVentOpen[r] === 0
+      ) {
+        this.tunnelGoal[i] = -1;
+        continue;
+      }
+      const [ex, ey] = atVent ? this.ventPos(r) : this.mouthPos(r);
+      const dx = fx.sub(ex, this.posX[i]);
+      const dy = fx.sub(ey, this.posY[i]);
+      const nearEnd = fx.add(fx.mul(dx, dx), fx.mul(dy, dy)) <= TUNNEL_ENTER_RANGE_SQ;
+      // An end on blocked ground was snapped to the nearest open tile: having
+      // stopped there counts as arrival, the way a door does for garrison.
+      const gx = fx.sub(this.goalX[i], this.posX[i]);
+      const gy = fx.sub(this.goalY[i], this.posY[i]);
+      const atGoal = this.moving[i] === 0 && fx.add(fx.mul(gx, gx), fx.mul(gy, gy)) <= TUNNEL_ENTER_RANGE_SQ;
+      if (!nearEnd && !atGoal) continue;
+      this.tunnelGoal[i] = -1;
+      if (this.tnOccupants[r] >= this.tnCapacity[r]) {
+        // Full (Q4): the order is refused at the end; the unit stops there.
+        this.moving[i] = 0;
+        this.fieldRef[i] = -1;
+        continue;
+      }
+      this.putInTunnel(i, r);
+      this.tunnelEta[i] = atVent ? 0 : this.tnTravelTicks[r];
     }
   }
 
@@ -6191,6 +6518,10 @@ export class Sim {
     const tileCover = this.cover[(ty >> 16) * this.width + (tx >> 16)];
     const parapet = this.parapetCover(tx, ty, px, py);
     let coverMod = COVER_HIT[parapet > tileCover ? parapet : tileCover];
+    // A weapon that ignores part of the cover bonus (the grenadier's lobbed
+    // round over a wall) closes that fraction of the gap to the open-ground 1.
+    // Zero for every weapon that does not author it, so the line is exact.
+    if (w.coverIgnore > 0) coverMod = fx.add(coverMod, fx.mul(fx.sub(ONE, coverMod), w.coverIgnore));
     // Shooting through a screen: every tile of it degrades the shot, with a
     // floor because blind fire still occasionally connects.
     const smokeOnLine = this.raySmoke(px >> 16, py >> 16, tx >> 16, ty >> 16, this.eyeLift(shooter), 0);
@@ -6549,6 +6880,7 @@ export class Sim {
         this.side[shooter],
         this.prOriginX[pr],
         this.prOriginY[pr],
+        w.coverIgnore,
       );
       this.applyDamage(target, this.prDamage[pr], shooter);
       if (this.prSplash[pr] > 0) this.splashAt(pr, this.posX[target], this.posY[target], target);
@@ -6586,6 +6918,8 @@ export class Sim {
       // same test: blast, or penetration up to the side armour (lead ruling,
       // 2026-10-13). Otherwise a rifle squad pins a tank by ringing its hull.
       const threatens = this.prSplash[pr] > 0 || pen >= tType.armorSide;
+      // No cover_ignore here, deliberately: a bounce is armour shock, not a hit
+      // on a man in cover.
       const bounce = fx.mul(this.prSupp[pr], BOUNCE_SUPP_MULT);
       this.applySuppression(
         target,
@@ -6688,6 +7022,7 @@ export class Sim {
       const srcSide = this.side[this.prShooter[pr]];
       const pen = this.prPen[pr];
       const splash = this.prSplash[pr];
+      const coverIgnore = this.weaponOf(pr).coverIgnore;
       for (let i = 0; i < this.count; i++) {
         if (this.alive[i] === 0) continue;
         const dSq = distSqFx(fx.sub(this.posX[i], x), fx.sub(this.posY[i], y));
@@ -6703,6 +7038,7 @@ export class Sim {
           srcSide,
           this.prOriginX[pr],
           this.prOriginY[pr],
+          coverIgnore,
         );
       }
     }
@@ -6748,6 +7084,7 @@ export class Sim {
     const splashSq = fx.mul(splash, splash);
     const dmg = this.prDamage[pr];
     const shooter = this.prShooter[pr];
+    const coverIgnore = this.weaponOf(pr).coverIgnore;
     // `count` read once: a man this blast wounds (GH-707) is not hit by it again.
     const n = this.count;
     for (let i = 0; i < n; i++) {
@@ -6768,6 +7105,7 @@ export class Sim {
         this.side[shooter],
         this.prOriginX[pr],
         this.prOriginY[pr],
+        coverIgnore,
       );
     }
   }
@@ -7611,6 +7949,7 @@ export class Sim {
     srcSide = -1,
     srcX: Fx = 0,
     srcY: Fx = 0,
+    coverIgnore: Fx = 0,
   ): void {
     // You cannot pin someone who is underground. Without this, a mortar
     // barrage over a trail routs the occupants and the counter-unit is
@@ -7632,12 +7971,18 @@ export class Sim {
       // A man inside a building fights with the building's cover, not the
       // cover of the tile under its centroid -- which is a building tile, 0
       // (B1, GH-280: every near miss on a 2x2 house pinned its garrison).
-      const s = this.garrisonedIn[target];
+      const gIn = this.garrisonedIn[target];
       const cov =
-        s >= 0
-          ? this.structureTypes[this.stTypeIdx[s]].garrisonCover
+        gIn >= 0
+          ? this.structureTypes[this.stTypeIdx[gIn]].garrisonCover
           : this.cover[(this.posY[target] >> 16) * this.width + (this.posX[target] >> 16)];
-      a = fx.mul(a, COVER_SUPP[cov]);
+      let mod = COVER_SUPP[cov];
+      // A round that ignores part of the cover bonus (GH-709 unit 9) closes
+      // that fraction of the gap to the open ground -- on a TILE only: a
+      // building's own cover is the building, and the grenadier does not
+      // reach into a house (lead ruling Q7).
+      if (coverIgnore > 0 && gIn < 0) mod = fx.add(mod, fx.mul(fx.sub(ONE, mod), coverIgnore));
+      a = fx.mul(a, mod);
     }
     const s = fx.add(this.suppression[target], a);
     this.suppression[target] = fx.min(s, SUPP_CAP);
@@ -9523,6 +9868,59 @@ export class Sim {
         }
       }
     }
+    if (this.unitAuraLive) this.stepUnitAuras();
+  }
+
+  /**
+   * E1 (GH-709): the unit half of stepAuras, the same max-over-effects rule into the same
+   * columns, so a unit aura and a station never stack with each other or themselves. A
+   * carrier counts while alive, not down, not garrisoned, not carried and not underground
+   * (and, for a `stationary` effect, with no movement order: `moving[c] === 0`, the field-fix
+   * assist's own "stands still"). An area effect covers what a station's does -- same
+   * side, alive, surface, not garrisoned, not carried, not air, in the effect's domain --
+   * within `radius` of the carrier, never the carrier itself. `passengers` covers the
+   * carrier's own living riders (`carriedBy === c`) wherever it is, in the air included.
+   * GH-707 wounded (`horsDeCombat`) are never covered by a UNIT aura (a station's coverage
+   * is GH-707's and unchanged here), at cadence granularity: a unit aura heals pooled squad hp and
+   * leaves bleeding to the medic's treat and the carrier's `stabilise_radius` (the E1 x
+   * GH-707 ruling, in the PR). Called only while `unitAuraLive`; allocates nothing.
+   */
+  private stepUnitAuras(): void {
+    const n = this.count;
+    for (let c = 0; c < n; c++) {
+      if (this.alive[c] === 0) continue;
+      const area = this.unitTypes[this.typeIdx[c]].aura;
+      if (area === null) continue;
+      if (this.garrisonedIn[c] >= 0 || this.carriedBy[c] >= 0 || this.tunnelIn[c] >= 0) continue;
+      // A carrier that is itself down (GH-707) projects nothing.
+      if (this.woundLive && this.horsDeCombat(c)) continue;
+      const side = this.side[c];
+      const cx = this.posX[c];
+      const cy = this.posY[c];
+      const still = this.moving[c] === 0;
+      for (let k = 0; k < area.length; k++) {
+        const e = area[k];
+        if (e.stationary && !still) continue;
+        const passengers = e.affects === AFFECTS_PASSENGERS;
+        for (let i = 0; i < n; i++) {
+          if (i === c || this.alive[i] === 0 || this.side[i] !== side) continue;
+          if (passengers) {
+            if (this.carriedBy[i] !== c) continue;
+          } else {
+            if (this.garrisonedIn[i] >= 0 || this.carriedBy[i] >= 0 || this.tunnelIn[i] >= 0) continue;
+            const t = this.unitTypes[this.typeIdx[i]];
+            if (t.isAir) continue;
+            if (e.affects === AFFECTS_FOOT && t.moveDomain !== DOMAIN_FOOT) continue;
+            if (e.affects === AFFECTS_VEHICLE && t.moveDomain !== DOMAIN_VEHICLE) continue;
+            if (distSqFx(fx.sub(this.posX[i], cx), fx.sub(this.posY[i], cy)) > e.radiusSq) continue;
+          }
+          if (this.woundLive && this.horsDeCombat(i)) continue;
+          if (e.healRate > this.auraHealRate[i]) this.auraHealRate[i] = e.healRate;
+          if (e.healCap > this.auraHealCap[i]) this.auraHealCap[i] = e.healCap;
+          if (e.accMult > this.auraAccMult[i]) this.auraAccMult[i] = e.accMult;
+        }
+      }
+    }
   }
 
   /**
@@ -9886,6 +10284,12 @@ export class Sim {
     h = hashArray(h, this.homeTunnel);
     h = hashArray(h, this.surfaceTicks);
     h = hashArray(h, this.volleyLeft);
+    // GH-681: folded only once a tunnel order has been accepted, so every
+    // world that never sees one keeps its digest.
+    if (this.tnOrderLive) {
+      h = hashArray(h, this.tunnelGoal);
+      h = hashArray(h, this.tunnelEta);
+    }
     h = hashArray(h, this.chargeOrder);
     h = hashArray(h, this.chargeTicks);
     h = hashArray(h, this.tnAlive);

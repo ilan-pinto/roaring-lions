@@ -1,0 +1,46 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready tracked self-propelled howitzer, a machine of a fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and military. At rest, level. A long low tracked hull, seven road wheels a side on exposed tracks, no side skirts; a large tall slab-sided box turret set toward the rear; a very long gun barrel with a fume extractor midway and a slotted muzzle brake, raised steeply at 35 degrees over the bow; two wide recoil spades lowered at the rear; rear doors, stowage racks, smoke dischargers. Real-world scale, hull 6.8 metres long. Olive paint, gunmetal, dark rubber tracks. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "negative_prompt": "main battle tank, short barrel, horizontal barrel, side skirts, rocket launcher, rocket pods, missiles, wheeled truck, machine gun, rotating radar, people, crew, ground, base, text, insignia, flags",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 40000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a162a9-b238-737a-9ecc-965b769b2e8d",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 2236495589,
+    "prompt": "A single low-poly game-ready tracked self-propelled howitzer, a machine of a fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and military. At rest, level. A long low tracked hull, seven road wheels a side on exposed tracks, no side skirts; a large tall slab-sided box turret set toward the rear; a very long gun barrel with a fume extractor midway and a slotted muzzle brake, raised steeply at 35 degrees over the bow; two wide recoil spades lowered at the rear; rear doors, stowage racks, smoke dischargers. Real-world scale, hull 6.8 metres long. Olive paint, gunmetal, dark rubber tracks. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1792656652496,
+    "progress": 100,
+    "started_at": 1792656652506,
+    "finished_at": 1792656713227,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a162a9-b238-737a-9ecc-965b769b2e8d/output/model.glb?Expires=4946227200&Signature=m1~CGhjhGZXuCXlUxaNa8KfgplRCT8MrHt3zmB096X8jrCf2i8XvTzL~JQrWVekSSTUYOMHNNnxtKnZHBqYXefIcPRy96TYvVLgNIxiVw-g-ELN6kAcJQu0Ic~PpiSw6sUstCIFJPMcPsYFPknabolnnJhan76et2LGv5rr2~iT9jVnBmXqeVZMa54X1XhxAULnUV93EgP2Y5g7~l11YaTSpAymeaift0KLkBP~kJrydKXsnUkgmJ3POpO-lSQT0YpcHLC0tVjJWbbwBj~NqtPUwbbfvpdJTLFAPQIOS3qDhvkS0fTh5-QhuXmtAj7NykgcF2WGDs~Fl-NqLKFg80A__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a162a9-b238-737a-9ecc-965b769b2e8d/output/preview.png?Expires=4946227200&Signature=W6Hlne5h-d4kVHGQ6bTmvu3j3IUpizUXpjbRAnPWuqDnZ62K4sb4Bw87ruYUPSWquGLXiIMqQQGfXE~dXUYNZzA3UFDbDjb0cTkBqXHUnQ6mQicvkbZnZFG33O4z4TO60kTr7ZCDfPS1UXCrMPDkBCMYsdZor1qs47A1WCj~PRlShErEbHTmg5f1aWSpgztZuXHVE~aCb~IpEDQQn6X7wv4Wd1Tt039s1aDW4O3ON~XCtpGJi~Tam-ZZki3F857GGdI7e0zpkjx7ZJJAn0YFnJYTukc4dSHowcGCygtqd2deeK8lP8DdodNCAZ3~wYy5SfFgIGP16M1w6qmzNQuqvw__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1792656652496,
+    "started_at": 1792656652506,
+    "finished_at": 1792656713227
+  },
+  "usd_estimated": 0.4
+}

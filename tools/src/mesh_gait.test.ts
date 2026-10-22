@@ -34,6 +34,7 @@ import {
   measureFacing,
   measureFootSkate,
   measureHipHeight,
+  measureJointHeight,
   measureJointPoses,
   measureLowestVertex,
   measureMarkerFacing,
@@ -363,13 +364,14 @@ function riggedFiles(): RiggedFile[] {
       });
     }
   }
-  // 20 unit types, 23 files -- `civilians` is four variants of one type;
+  // 21 unit types, 24 files -- `civilians` is four variants of one type;
   // B2 (2026-09-30) added `manpad_team` and `recoilless_team`; E5 (2026-10-01) `recon_zikit`;
-  // GH-707 P2 (22 Oct) `inf_medic_squad`.
+  // GH-707 P2 (22 Oct) `inf_medic_squad`; GH-709 Phase 8 (2026-10-22) `ugv_recon_dog`, the
+  // first quadruped. Was 19 and 22.
   // Numbers, not `> 0`: a catalogue that lost half its entries would still
   // clear a positive count.
-  expect(Object.keys(RIGGED_UNIT_MESHES).filter((id) => !(id in GAIT_CRAWL_ONLY))).toHaveLength(20);
-  expect(out).toHaveLength(23);
+  expect(Object.keys(RIGGED_UNIT_MESHES).filter((id) => !(id in GAIT_CRAWL_ONLY))).toHaveLength(21);
+  expect(out).toHaveLength(24);
   return out;
 }
 
@@ -442,6 +444,65 @@ function humanCadence(metresPerSecond: number): { lo: number; hi: number } {
 }
 
 /**
+ * The rigged types that walk on FOUR legs (GH-709 Phase 8), declared here by
+ * type with the hip height the approved art spec gives them
+ * (`docs/superpowers/specs/2026-10-22-robot-dog-art.md` §3.1 x the 1.2x
+ * amendment of 22 Oct: body top 0.744 m less half its 0.264 m depth -- rig.py's
+ * `DOG_HIP_Z`). A declared KIND, not a
+ * file name in the band logic; and the declaration is checked against the
+ * bytes both ways below (`the declared quadrupeds are exactly the rigs on four
+ * legs`), with the hip measured against this literal.
+ */
+const QUADRUPEDS: Readonly<Record<string, { readonly hipHeightM: number; readonly why: string }>> = {
+  // Was 0.51. The lead ruled the dog 1.2x on 22 Oct (rig.py `DOG_SCALE`): body top 0.744 m
+  // less half its 0.264 m depth is 0.612 m, read 0.613 m off the bytes.
+  ugv_recon_dog: { hipHeightM: 0.612, why: 'the Chadaf recon robot: a box body on four two-link legs, trotting' },
+};
+
+/**
+ * Steps per second a trotting quadruped takes at a given speed and hip height,
+ * from Alexander's dynamic-similarity stride rule: relative stride length
+ * lambda/h = 2.3 (u^2 / g h)^0.3, with h the hip height (R. McN. Alexander,
+ * "Estimates of speeds of dinosaurs", Nature 261:129-130, 1976; the
+ * quadrupedal dynamic-similarity basis is Alexander & Jayes, J. Zool. 201:
+ * 135-152, 1983). A trot puts down one diagonal pair twice a stride, so its
+ * steps per second are 2u / lambda -- the same two footfalls per cycle the
+ * human band counts (`2 x multiplier / cycleS` below).
+ *
+ * At the Chadaf's 3.9 m/s (1.3 tiles/s) and h = 0.612 m (was 0.51 m before the
+ * 1.2x amendment, centre 4.76): Froude u^2/gh = 2.53, lambda = 0.612 x 2.3 x
+ * 2.53^0.3 = 1.86 m, so 2 x 3.9 / 1.86 = 4.19 steps/s.
+ * (Froude 3 is the top of a mammal's trot, where it would gallop: the same
+ * truth as every rifleman here already running, CLAUDE.md "gait".)
+ *
+ * The band is that centre ÷/× `QUADRUPED_CADENCE_TOL`. The tolerance is THIS
+ * gate's, not the paper's: Alexander's line is one fit across mammals from
+ * rodents to rhinos, so it is held about twice as loose as the human run
+ * band's +/-11% (2.5-3.1 around 2.8): +/-25%, 3.35-5.24 steps/s here. The
+ * shipped trot reads 5.21 (+24% of centre, 0.6% under the top edge: the
+ * 1.2x amendment kept the 0.40 s cycle and the legs still cover speed x cycle, so
+ * steps/s stayed ~5 while the centre fell from 4.76 to 4.19; was 5.35, +12%). Played 1.8x it reads 9.6, and a
+ * human-cadence trot (2.8) would need a 2.8 m stride on 0.6 m legs -- both
+ * outside; the controls below pin both.
+ */
+const ALEXANDER_STRIDE_K = 2.3;
+const ALEXANDER_STRIDE_EXP = 0.3;
+const GRAVITY_MPS2 = 9.81;
+const QUADRUPED_CADENCE_TOL = 1.25;
+function quadrupedTrotCadence(metresPerSecond: number, hipHeightM: number): { lo: number; hi: number } {
+  const froude = (metresPerSecond * metresPerSecond) / (GRAVITY_MPS2 * hipHeightM);
+  const strideM = hipHeightM * ALEXANDER_STRIDE_K * froude ** ALEXANDER_STRIDE_EXP;
+  const centre = (2 * metresPerSecond) / strideM;
+  return { lo: centre / QUADRUPED_CADENCE_TOL, hi: centre * QUADRUPED_CADENCE_TOL };
+}
+
+/** The cadence band for a rigged type: by its declared kind, never its file. */
+function cadenceBand(typeId: string, metresPerSecond: number): { lo: number; hi: number } {
+  const q = QUADRUPEDS[typeId];
+  return q ? quadrupedTrotCadence(metresPerSecond, q.hipHeightM) : humanCadence(metresPerSecond);
+}
+
+/**
  * A foot on the ground may move over it at most this fraction of the body's
  * speed, per figure (`measureFootSkate`). Measured 2026-10-05: every re-timed
  * walker reads 0.01-0.09; before the pass the same oracle read 1.66 (a
@@ -465,7 +526,7 @@ describe('mesh unit gait -- the sweep over every rigged type', () => {
     const declaring = RIGS.filter((r) => r.declared !== undefined).map((r) => r.typeId);
     const silent = RIGS.filter((r) => r.declared === undefined).map((r) => r.typeId);
     expect([...new Set(silent)].sort()).toEqual(Object.keys(GAIT_EXEMPT).sort());
-    expect(new Set(declaring).size).toBe(19); // GH-707 P2: + inf_medic_squad
+    expect(new Set(declaring).size).toBe(20); // Was 18: + inf_medic_squad (GH-707 P2), + ugv_recon_dog (GH-709 Phase 8)
     for (const [type, why] of Object.entries(GAIT_EXEMPT)) {
       expect(why.length, `${type}: a reason, not a name`).toBeGreaterThan(20);
     }
@@ -480,7 +541,7 @@ describe('mesh unit gait -- the sweep over every rigged type', () => {
   });
 
   it('every gaited file declares a `move` gait, so none can be skipped by absence', () => {
-    expect(gaited).toHaveLength(22); // GH-707 P2: + inf_medic_squad
+    expect(gaited).toHaveLength(23); // Was 21: + inf_medic_squad (GH-707 P2), + ugv_recon_dog's trot (GH-709 Phase 8)
     for (const rig of gaited) {
       expect(rig.declared?.has('move'), `${rig.file}: rl_gait.move`).toBe(true);
     }
@@ -496,10 +557,10 @@ describe('mesh unit gait -- the sweep over every rigged type', () => {
   );
 
   it.each(declaredLocomotion().filter(([typeId]) => !(typeId in CRAWLS)))(
-    '%s %s %s steps at a human cadence for its speed',
-    (_typeId, file, clip, rig, gait) => {
+    '%s %s %s steps at a human (or, for a declared quadruped, a trotting) cadence for its speed',
+    (typeId, file, clip, rig, gait) => {
       const steps = (2 * multiplierFor(gait, rig.speedTilesPerSecond)) / gait.cycleS;
-      const band = humanCadence(rig.speedTilesPerSecond * 3);
+      const band = cadenceBand(typeId, rig.speedTilesPerSecond * 3);
       expect(steps, `${file} ${clip}: steps/s at ${(rig.speedTilesPerSecond * 3).toFixed(2)} m/s`).toBeGreaterThan(band.lo);
       expect(steps, `${file} ${clip}: steps/s at ${(rig.speedTilesPerSecond * 3).toFixed(2)} m/s`).toBeLessThan(band.hi);
     }
@@ -515,6 +576,61 @@ describe('mesh unit gait -- the sweep over every rigged type', () => {
       const gait = rig.declared!.get('move')!;
       const skate = measureFootSkate(rig.path, 'move', rig.speedTilesPerSecond * 3, multiplierFor(gait, rig.speedTilesPerSecond));
       expect(Math.max(...skate.map((f) => f.skate)), `${typeId}: named a crawl, but its feet plant`).toBeGreaterThan(FOOT_SKATE_MAX);
+    }
+  });
+
+  it('the declared quadrupeds are exactly the rigs on four legs, at the hip height declared', () => {
+    // Both directions, from the skeleton: a rig is four-legged when one living
+    // root (`*_root`, not a death root) carries four `_foot_[LR]` joints; every
+    // biped root carries two. And the declared hip is the rest hip measured off
+    // the bytes (the mean `idle` height of the root's `_thigh_[LR]` joints).
+    const fourLegged: string[] = [];
+    for (const r of RIGS) {
+      const nodes = readGlb(r.path).json.nodes ?? [];
+      const parent = new Map<number, number>();
+      nodes.forEach((n, i) => (n.children ?? []).forEach((c) => parent.set(c, i)));
+      const under = (i: number, root: number): boolean => {
+        for (let at: number | undefined = i; at !== undefined; at = parent.get(at)) if (at === root) return true;
+        return false;
+      };
+      for (let root = 0; root < nodes.length; root++) {
+        const name = nodes[root].name ?? '';
+        if (!/_root$/.test(name) || /death_root$/.test(name)) continue;
+        const feet = nodes.filter((n, i) => /_foot_[LR]$/.test(n.name ?? '') && under(i, root));
+        if (feet.length === 4) fourLegged.push(r.typeId);
+        if (feet.length !== 4) continue;
+        const q = QUADRUPEDS[r.typeId];
+        if (!q) continue;
+        const thighs = nodes
+          .map((n, i) => [n.name ?? '', i] as const)
+          .filter(([n, i]) => /_thigh_[LR]$/.test(n) && under(i, root));
+        expect(thighs, `${r.file}: four thighs`).toHaveLength(4);
+        const hip = thighs.reduce((a, [n]) => a + measureJointHeight(r.path, 'idle', n).medianM, 0) / 4;
+        expect(Math.abs(hip - q.hipHeightM) / q.hipHeightM, `${r.file}: rest hip ${hip.toFixed(3)} m`).toBeLessThan(0.05);
+      }
+    }
+    expect(fourLegged.sort()).toEqual(Object.keys(QUADRUPEDS).sort());
+    expect(fourLegged).toHaveLength(1);
+  });
+
+  it('the trot band refuses the trot played 1.8x, and the human band refuses the trot as shipped', () => {
+    // The two controls, on the shipped bytes: the band can see a scurry, and a
+    // quadruped could not have passed the human band it replaced.
+    for (const typeId of Object.keys(QUADRUPEDS)) {
+      const rig = RIGS.find((r) => r.typeId === typeId)!;
+      const gait = rig.declared!.get('move')!;
+      const mps = rig.speedTilesPerSecond * 3;
+      const steps = (2 * multiplierFor(gait, rig.speedTilesPerSecond)) / gait.cycleS;
+      const trot = cadenceBand(typeId, mps);
+      expect(steps * 1.8, `${typeId}: 1.8x`).toBeGreaterThan(trot.hi);
+      expect(steps / 1.8, `${typeId}: 1/1.8x`).toBeLessThan(trot.lo);
+      // The tighter control: a quarter too fast is already a scurry and must read
+      // red. One-sided on purpose -- the shipped trot sits +24% of centre (+12% before
+      // the 1.2x amendment), so the band refuses it 1.25x faster but only about 1.55x slower; that asymmetry
+      // is the tolerance's, stated, not hidden.
+      expect(steps * 1.25, `${typeId}: 1.25x`).toBeGreaterThan(trot.hi);
+      const human = humanCadence(mps);
+      expect(steps > human.hi || steps < human.lo, `${typeId}: ${steps.toFixed(2)} steps/s inside the human band`).toBe(true);
     }
   });
 
@@ -591,8 +707,9 @@ describe('mesh unit gait -- the sweep over every rigged type', () => {
     // Eighteen types over twenty-one files (E5's recon_zikit included), and
     // since 2026-10-05 sixteen of them declare a `moveFire` beside `move`
     // (every armed walker; see the locomotion-pair block below): 21 + 16.
-    // GH-707 P2 (22 Oct): + inf_medic_squad, `move` and `moveFire` -- 37 + 2.
-    expect(checked).toBe(39);
+    // GH-707 P2 (22 Oct): + inf_medic_squad, `move` and `moveFire` -- + 2.
+    // GH-709 Phase 8: + 1, the unarmed robot's `move` (no `moveFire`). Was 37.
+    expect(checked).toBe(40);
   });
 });
 
@@ -609,8 +726,9 @@ describe('mesh unit gait -- a foot on the ground stays where it landed', () => {
     });
 
   it('reads every walking figure of every gaited clip', () => {
-    // Rule 1: the population first. 39 locomotion clips less the crawl's two.
-    expect(rows).toHaveLength(37);
+    // Rule 1: the population first. 40 locomotion clips less the crawl's two
+    // (was 35: + inf_medic_squad's two, GH-707 P2; + ugv_recon_dog's trot, GH-709 Phase 8).
+    expect(rows).toHaveLength(38);
     for (const r of rows) expect(r.figures.length, `${r.file} ${r.clip}: figures read`).toBeGreaterThan(0);
   });
 
@@ -768,6 +886,9 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   'recon_zikit.glb moveFire': 498,
   'atgm_cell.glb moveFire': 328,
   'mortar_crew.glb moveFire': 300,
+  // GH-709 Phase 8 (22 Oct): the Chadaf robot's four foot pads, `boot` on its
+  // `dog_*_foot_*` bones (tools/units/import_meshy_dog.py).
+  'ugv_recon_dog.glb move': 441,
 };
 
 /**
@@ -862,7 +983,8 @@ describe('mesh unit gait -- per figure, not per file', () => {
     // men each on rig.py's gait, and E5's recon_zikit walks three.
     // 2026-10-05: + 16 `moveFire` clips, every armed walker's.
     // GH-707 P2 (22 Oct): + inf_medic_squad's `move` and `moveFire`, two men each.
-    expect(rows).toHaveLength(39);
+    // GH-709 Phase 8: + 1, ugv_recon_dog's `move`. Was 37.
+    expect(rows).toHaveLength(40);
     const live = rows.flatMap((r) => r.live.map((f) => `${r.file} ${r.clip} ${f.root}`));
     // 40 visible figures over 20 clips: two each on the six original
     // `kit.py` teams and `yahalom_engineer`, three each on `meshy_soldier`
@@ -874,7 +996,8 @@ describe('mesh unit gait -- per figure, not per file', () => {
     // mortar-team precedent) are not in it.
     // B2's two crews add four: the MANPAD gunner and the spotter's walker, and
     // both recoilless walkers.
-    expect(live).toHaveLength(81); // 2026-10-05: + 36 on the sixteen `moveFire` clips; GH-707 P2: + 4, the medics' two men over two clips
+    // GH-709 Phase 8: + 1, the robot on its own `move`. Was 77.
+    expect(live).toHaveLength(82); // 2026-10-05: + 36 on the sixteen `moveFire` clips; GH-707 P2: + 4, the medics' two men over two clips
     // Both directions, the way GAIT_EXEMPT is: every named still figure must
     // be a figure that really exists and really is still, and every figure
     // that is still must be named.
@@ -1065,6 +1188,7 @@ describe('mesh unit gait -- one file’s locomotion clips against each other', (
       'civilians/office_worker.glb',
       'digger_crew.glb',
       'moto_rpg.glb',
+      'ugv_recon_dog.glb', // GH-709 Phase 8: unarmed, so no `moveFire`
     ]);
   });
 
@@ -1180,6 +1304,26 @@ export const FACING_EXEMPT: Readonly<Record<string, string>> = {
     'roots, so it carries no head joint. Correct as built; `measureFacing` raises on it.',
 };
 
+/**
+ * File/clips whose head PANS by design, gated as a pan rather than exempted
+ * (GH-709 Phase 8). The robot's standing "alive" cue is its sensor head
+ * sweeping +-25 deg on a 4 s loop (rig.py `DOG_HEAD_PAN_RAD`, approved spec
+ * §3.3); `pinned` is the motion pass's copy of `idle`. Such a head must still
+ * face the body axis ON AVERAGE -- circular mean within `PAN_MEAN_TOL_DEG` of 0
+ * -- and sweep the designed arc: spread `2 x panDeg` within `PAN_SPREAD_TOL_DEG`.
+ * Read 22 Oct: mean 0.000, extremes -24.86 / +24.86 (40 samples miss the sine's
+ * peak by 0.14 deg), spread 49.73. Tolerances, stated: 5 deg on the mean (a
+ * fifth of the standing gate's 25 deg, which the pan alone would fill); 5 deg on
+ * the spread (a tenth of the arc, so a pan halved to +-12.5 or widened to +-30
+ * reads red). `move` carries no pan and stays under the ordinary gate.
+ */
+const FACING_PAN: Readonly<Record<string, { readonly panDeg: number }>> = {
+  'ugv_recon_dog.glb idle': { panDeg: 25 },
+  'ugv_recon_dog.glb pinned': { panDeg: 25 },
+};
+const PAN_MEAN_TOL_DEG = 5;
+const PAN_SPREAD_TOL_DEG = 5;
+
 interface FacingRow {
   readonly file: string;
   readonly clip: string;
@@ -1280,7 +1424,10 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
     // thrown away for a short lever below).
     // Field Works Task 12.4 (21 Oct): + 2, demo_squad's two men over its new `work`.
     // GH-707 P2 (22 Oct): + 18, inf_medic_squad's two men over its 9 headed clips.
-    expect(rows).toHaveLength(271); // B7: 21 GLBs, every one with a face mesh now
+    // GH-709 Phase 8: + 3, the robot's sensor head on `move`, `idle` and
+    // `pinned` (the last two gated as a designed pan, FACING_PAN; its `down` is
+    // hidden). Was 253.
+    expect(rows).toHaveLength(274); // B7: 21 GLBs, every one with a face mesh now
     // WHICH files, by name -- not `not.toContain('sniper_team.glb')`, which
     // could never fail: an un-exempted `sniper_team` makes `measureFacing`
     // THROW rather than produce a row, so the absence it asserts is
@@ -1308,6 +1455,7 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'rpg_team.glb',
       'sarim_rifles.glb',
       'sniper_team.glb',
+      'ugv_recon_dog.glb',
       'yahalom_squad.glb',
     ]);
     console.log(
@@ -1449,6 +1597,9 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'sniper_team.glb idle',
       'sniper_team.glb pinned',
       'sniper_team.glb pinned',
+      // GH-709 Phase 8: the robot's living root is scaled out on `down`, where
+      // its collapsed `dog_death_root` copy takes over.
+      'ugv_recon_dog.glb down',
       'yahalom_squad.glb down',
       'yahalom_squad.glb fire',
       'yahalom_squad.glb idle',
@@ -1486,9 +1637,24 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
     ]);
   });
 
+  it('every designed pan names a row this sweep really reads', () => {
+    // Without this a mistyped FACING_PAN key would gate nothing as a pan.
+    for (const k of Object.keys(FACING_PAN)) {
+      expect(rows.some((r) => `${r.file} ${r.clip}` === k), `FACING_PAN "${k}": no row`).toBe(true);
+    }
+  });
+
   it.each(rows.map((r) => [`${r.file} ${r.clip} ${r.joint}`, r] as const))(
     '%s faces the way it travels',
     (_label, row) => {
+      const pan = FACING_PAN[`${row.file} ${row.clip}`];
+      if (pan) {
+        expect(Math.abs(row.meanDeg), `${_label}: pan centre (circular mean)`).toBeLessThan(PAN_MEAN_TOL_DEG);
+        expect(Math.abs(row.spreadDeg - 2 * pan.panDeg), `${_label}: pan arc ${row.spreadDeg.toFixed(2)} deg`).toBeLessThan(
+          PAN_SPREAD_TOL_DEG
+        );
+        return;
+      }
       const ceiling =
         row.clip === 'down' || row.clip === 'pinned'
           ? FACE_MEAN_DOWN_DEG
@@ -1593,6 +1759,7 @@ export const WEAPON_EXEMPT: Readonly<Record<string, string>> = {
   'civilians/office_worker.glb': 'a civilian',
   'civilians/farm_worker.glb': 'a civilian',
   'civilians/civilian_child.glb': 'a civilian',
+  'ugv_recon_dog.glb': 'GH-709 Phase 8: an unarmed recon robot -- `weapons: []` in its unit JSON, no `weapon` role',
 };
 
 /**
@@ -2224,6 +2391,7 @@ export const WALK_AND_FIRE_EXEMPT: Readonly<Record<string, string>> = {
   digger_crew: 'no weapon in its unit JSON: it digs, it never fires',
   civilians: 'no weapon in its unit JSON (and `FORBIDDEN_ROLES` bans a `weapon` role)',
   moto_rpg: 'no gaited `move`: a machine whose riders sit (GAIT_EXEMPT)',
+  ugv_recon_dog: 'no weapon in its unit JSON: an unarmed recon robot (GH-709 Phase 8)',
 };
 
 describe('mesh unit walk-and-fire -- a moving shot plays a locomotion clip', () => {
@@ -2438,6 +2606,43 @@ describe('upright in motion -- every figure walks on its feet', () => {
 });
 
 /**
+ * The same rule for a QUADRUPED (GH-709 Phase 8), which `measureHipHeight`
+ * cannot read: it has no `_pelvis` and no thigh pair, so the sweep above
+ * silently reads nothing for it. A trotting robot's body is one rigid link on
+ * its living root, so its height IS that joint's: the lowest sample of `move`
+ * against the `idle` median must clear the same `UPRIGHT_IN_MOTION_FRACTION`
+ * the bipeds' hips do -- the trot must not crouch. Read 22 Oct: the Chadaf's
+ * `dog_root` 0.510 m lowest in `move` against 0.511 m standing (0.998);
+ * after the 1.2x amendment of 22 Oct the ratio reads 0.9984 (was 0.998).
+ */
+describe('upright in motion -- a quadruped trots on straight-ish legs, not a crouch', () => {
+  const rows = Object.keys(QUADRUPEDS).flatMap((typeId) =>
+    RIGS.filter((r) => r.typeId === typeId).map((r) => {
+      const root = (readGlb(r.path).json.nodes ?? [])
+        .map((n) => n.name ?? '')
+        .filter((n) => /_root$/.test(n) && !/death_root$/.test(n));
+      return { r, root };
+    })
+  );
+
+  it('reads every declared quadruped, one living root each', () => {
+    expect(rows.map(({ r }) => r.typeId).sort()).toEqual(Object.keys(QUADRUPEDS).sort());
+    for (const { r, root } of rows) expect(root, `${r.file}: living roots`).toHaveLength(1);
+  });
+
+  for (const { r, root } of rows) {
+    it(`${r.file} move: ${root[0]} at least ${UPRIGHT_IN_MOTION_FRACTION} of its standing height`, () => {
+      const standing = measureJointHeight(r.path, 'idle', root[0]).medianM;
+      const moving = measureJointHeight(r.path, 'move', root[0]).minM;
+      expect(standing, `${r.file}: standing height`).toBeGreaterThan(0.1);
+      expect(moving / standing, `${r.file} move ${root[0]}: lowest sample / standing`).toBeGreaterThan(
+        UPRIGHT_IN_MOTION_FRACTION
+      );
+    });
+  }
+});
+
+/**
  * A ground prop (the charge, the tripod scope, a mortar, an ATGM post) is
  * packed away while the team moves and set down when it stops or braces
  * (spike-walk, 6 Oct, the lead's ruling): the team's `prop` joint is scaled
@@ -2641,6 +2846,8 @@ const GROUNDED_DRAWN: Readonly<Record<string, { standing: readonly string[]; wal
   civilian_woman: { standing: ['Hips'], walking: ['Hips'], clips: ['idle', 'move'] },
   farm_worker: { standing: ['Hips'], walking: ['Hips'], clips: ['idle', 'move'] },
   office_worker: { standing: ['Hips'], walking: ['Hips'], clips: ['idle', 'move'] },
+  // GH-709 Phase 8: the robot is one rigid body on `dog_root`, standing and trotting.
+  ugv_recon_dog: { standing: ['dog_root'], walking: ['dog_root'], clips: ['idle', 'move', 'pinned'] },
 };
 
 const groundedFile = (id: string): string => `${MOTION_TEAMS[id].dir ? `${MOTION_TEAMS[id].dir}/` : ''}${id}.glb`;
@@ -2678,8 +2885,9 @@ describe('on the ground in the living clips -- every figure and held item', () =
   it('grounds every rigged team, and spells out what each draws', () => {
     const grounded = Object.keys(MOTION_TEAMS).filter((id) => MOTION_TEAMS[id].ground).sort();
     expect(grounded).toEqual(Object.keys(GROUNDED_DRAWN).sort());
-    // The nine #414 grounded and the thirteen files it recorded as debt.
-    expect(grounded).toHaveLength(23); // GH-707 P2: + inf_medic_squad
+    // The nine #414 grounded and the thirteen files it recorded as debt, plus
+    // inf_medic_squad (GH-707 P2) and ugv_recon_dog (GH-709 Phase 8). Was 22.
+    expect(grounded).toHaveLength(24);
     expect([...GROUNDED_FILES].sort()).toEqual(RIGS.map((r) => r.file).sort());
   });
 

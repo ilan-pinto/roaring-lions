@@ -45,13 +45,22 @@ describe('engine family (tracked / wheeled / rotor / silent)', () => {
     expect(Object.keys(SPEC?.families ?? {}).sort()).toEqual(['rotor', 'tracked', 'wheeled']);
   });
 
-  it('tracked: the Lavi, the Namer and the D9 -- and only they carry the clank', () => {
+  it('tracked: the Lavi (and its ambush twin), the Namer, the D9 and the Te\'o -- and only they carry the clank', () => {
     const tracked = [...families].filter(([, f]) => f === 'tracked').map(([id]) => id).sort();
-    expect(tracked).toEqual(['dozer_d9', 'ifv_namer', 'mbt_lavi', 'veh_ambulance']); // GH-709: the ambulance is the Namer's hull
+    expect(tracked).toEqual(['dozer_d9', 'ifv_namer', 'mbt_lavi', 'mbt_lavi_camo', 'spg_long_range', 'veh_ambulance']); // GH-709: the ambulance is the Namer's hull
     expect(SPEC?.families?.tracked?.clank).toBe('track_clank');
     for (const [name, layers] of Object.entries(SPEC?.families ?? {})) {
       if (name !== 'tracked') expect(layers.clank, name).toBeUndefined();
     }
+  });
+
+  it('every shipped unit that declares `gear: "tracks"` plays the tracked loop (GH-709)', () => {
+    // A sweep, not a name list: the two GH-709 tracked hulls shipped once without a by_type
+    // line and would have played the wheeled loop. Falsified: with spg_long_range's by_type
+    // line deleted, this goes red.
+    const tracksDeclared = shippedUnits().filter((u) => (u.mobility as { gear?: string }).gear === 'tracks');
+    expect(tracksDeclared.length).toBeGreaterThan(0);
+    for (const u of tracksDeclared) expect(families.get(u.id), u.id).toBe('tracked');
   });
 
   it('the D9 is tracked, not wheeled, although its flag says wheels-or-tracks: by_type names it', () => {
