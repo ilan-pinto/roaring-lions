@@ -273,6 +273,33 @@ describe('chips — the one status line', () => {
     expect(s({ count: 2, routed: 0, pinned: 1, immobilised: 1, aboard: 0, moving: 0 })).toMatchObject({ status: '1 PINNED', detail: '1 IMMOBILISED' });
   });
 
+  // GH-706: slowed ranks below immobilised (D5) and over everything recoverable,
+  // with its own mark (the immobilised glyph at half ink).
+  it('puts slowed under immobilised and over suppression, with its mark', () => {
+    expect(s({ count: 1, routed: 0, pinned: 0, slowed: 1, aboard: 0, moving: 1 })).toEqual({
+      status: '1 SLOWED',
+      statusTone: 'hot',
+      mark: 'slowed',
+      detail: null,
+    });
+    expect(s({ count: 2, routed: 0, pinned: 0, immobilised: 1, slowed: 1, aboard: 0, moving: 0 })).toMatchObject({
+      status: '1 IMMOBILISED',
+      detail: '1 SLOWED',
+    });
+    expect(s({ count: 2, routed: 0, pinned: 0, slowed: 1, suppressed: 1, aboard: 0, moving: 0 })).toMatchObject({
+      status: '1 SLOWED',
+      detail: '1 suppressed',
+    });
+  });
+
+  it('counts a slowed unit from its facts, and a stuck one as immobilised only', () => {
+    const chips = groupChips([
+      unit({ typeId: 'apc_eitan', bucket: 'transport', slowed: true }),
+      unit({ typeId: 'apc_eitan', bucket: 'transport', slowed: true, mobilityKilled: true }),
+    ]);
+    expect(chips[0]).toMatchObject({ status: '1 IMMOBILISED', detail: '1 SLOWED', mark: 'immobilised' });
+  });
+
   it('names suppression and shaken under the damage, with no mark', () => {
     expect(s({ count: 3, routed: 0, pinned: 0, suppressed: 1, shaken: 2, aboard: 0, moving: 3 })).toEqual({
       status: '1 suppressed',

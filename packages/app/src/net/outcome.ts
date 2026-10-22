@@ -46,9 +46,11 @@ export interface OutcomeSim {
      *  `combat_ineffective`): never cleared, and hashed. Such a hull is not a
      *  combat unit (R-B20). */
     readonly firepowerKilled?: ArrayLike<number>;
-    /** 1 once a unit can never move again (`mobility_kill`,
-     *  `combat_ineffective`): set nowhere else, cleared nowhere, and hashed.
-     *  `stepMovement` skips such a unit outright. */
+    /** 1 while a unit is stuck (`mobility_kill`, `combat_ineffective`), and
+     *  hashed; `stepMovement` skips such a unit outright. Not for good since
+     *  GH-706: a GROUND hull's crew fixes it to slowed after 90 s of quiet (a
+     *  workshop clears it too), so only an aircraft's -- a forced landing,
+     *  which no crew can re-rig -- is permanent. */
     readonly mobilityKilled: ArrayLike<number>;
   };
   readonly unitTypes: readonly {
@@ -56,6 +58,8 @@ export interface OutcomeSim {
     readonly weapons: readonly unknown[];
     /** Q16.16 tiles a tick; 0 is a type with no movement at all. */
     readonly stepPerTick: number;
+    /** An aircraft: its mobility kill is a forced landing, never field-fixed. */
+    readonly isAir: boolean;
   }[];
 }
 
@@ -67,13 +71,17 @@ export function unitCost(typeId: string): number {
   return u?.cost?.logistics ?? 0;
 }
 
-/** Whether unit `i` can never move again: mobility-killed, or of a type with
- *  no movement. Read from hashed sim state only, so both seats agree. A
- *  pinned, garrisoned, carried, buried, braced or halted unit is NOT immobile:
- *  each of those ends, and the sim keeps no flag for them that says otherwise. */
+/** Whether unit `i` can never move again: a mobility-killed AIRCRAFT (a
+ *  forced landing; GH-706), or a type with no movement. Read from hashed sim
+ *  state only, so both seats agree. A stuck GROUND hull is NOT immobile since
+ *  GH-706: its crew field-fixes it to slowed after 90 s of quiet, so the fight
+ *  can still close. Nor is a pinned, garrisoned, carried, buried, braced or
+ *  halted unit: each of those ends, and the sim keeps no flag for them that
+ *  says otherwise. */
 function immobile(sim: OutcomeSim, i: number): boolean {
-  if (sim.state.mobilityKilled[i] === 1) return true;
-  return (sim.unitTypes[sim.state.typeIdx[i]]?.stepPerTick ?? 0) <= 0;
+  const type = sim.unitTypes[sim.state.typeIdx[i]];
+  if (sim.state.mobilityKilled[i] === 1 && type?.isAir === true) return true;
+  return (type?.stepPerTick ?? 0) <= 0;
 }
 
 /** Whether every living unit of the two playing sides is immobile. */

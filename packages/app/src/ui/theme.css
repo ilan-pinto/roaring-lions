@@ -5839,7 +5839,10 @@ button.rl-menu__item[data-kind='aside'] {
    broken and the two damage marks in the bad ink, pinned keeps --hot. */
 .rl-pin-mark[data-mark='broken'],
 .rl-pin-mark[data-mark='gunOut'],
-.rl-pin-mark[data-mark='immobilised'] { color: var(--bad-text); }
+.rl-pin-mark[data-mark='immobilised'],
+.rl-pin-mark[data-mark='slowed'] { color: var(--bad-text); }
+/* GH-706: slowed is the immobilised mark at half ink (symbol.ts HALF_INK_CLASS). */
+.rl-sym--half { opacity: 0.5; }
 .rl-kit-host > .rl-pin-mark { left: 1px; bottom: 1px; }
 .rl-kit-host > .rl-pin-mark svg { width: 0.75rem; height: 0.75rem; }
 .rl-card__frame > .rl-pin-mark { left: 0.1875rem; bottom: 0.1875rem; }

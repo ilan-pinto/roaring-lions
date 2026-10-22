@@ -257,6 +257,24 @@ describe('mobility kills (#706): the crew field fix', () => {
     });
   });
 
+  // T3: the HUD's repair countdown reads the rate through this one helper, so
+  // it must report exactly what the field fix counts at.
+  it('fieldFixRate: 0 for a sound hull, an aircraft or a dead one; 1 alone; 2 with a still engineer', () => {
+    const { sim, u, id } = stuck();
+    const sound = sim.spawn(u.tracks, 0, fx.from(30.5), fx.from(20.5));
+    const heli = sim.spawn(u.heli, 0, fx.from(40.5), fx.from(20.5));
+    roll(sim, heli, U_MOBILITY);
+    expect(sim.state.mobilityKilled[heli]).toBe(1);
+    expect([sim.fieldFixRate(id), sim.fieldFixRate(sound), sim.fieldFixRate(heli), sim.fieldFixRate(-1)]).toEqual([1, 0, 0, 0]);
+    const before = sim.state.fieldFixTicks[id];
+    sim.spawn(u.engineer, 0, fx.from(12), fx.from(10.5));
+    expect(sim.fieldFixRate(id)).toBe(2);
+    sim.tick();
+    expect(sim.state.fieldFixTicks[id] - before).toBe(2); // the rate the helper reported is the rate counted
+    sim.debugKill(id);
+    expect(sim.fieldFixRate(id)).toBe(0);
+  });
+
   it('the workshop aura clears slowed too', () => {
     const { sim, u } = world();
     const ws = sim.addStructureType(WORKSHOP);

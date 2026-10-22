@@ -200,6 +200,8 @@ export interface UnitFacts {
   suppression?: number;
   mobilityKilled?: boolean;
   firepowerKilled?: boolean;
+  /** GH-706: running gear hit, moving at half pace (`mobilityDamaged`). */
+  slowed?: boolean;
   /** Riding in a transport. */
   aboard: boolean;
   /** Active protection, where the type has any. */
@@ -246,7 +248,7 @@ export interface ChipView {
 }
 
 /** Which status mark a chip's art carries. */
-export type ChipMark = 'broken' | 'pinned' | 'gunOut' | 'immobilised';
+export type ChipMark = 'broken' | 'pinned' | 'gunOut' | 'immobilised' | 'slowed';
 
 /**
  * The ink a chip's condition line is set in. Its own union rather than
@@ -300,6 +302,7 @@ export function groupChips(units: UnitFacts[]): ChipView[] {
     let outOfAction = 0;
     let gunOut = 0;
     let immobilised = 0;
+    let slowed = 0;
     let suppressed = 0;
     let shaken = 0;
     let aboard = 0;
@@ -312,10 +315,11 @@ export function groupChips(units: UnitFacts[]): ChipView[] {
       hpMax += u.hpMax;
       if (u.routed) routed++;
       if (u.pinned) pinned++;
-      const damage = vehicleDamage(u.mobilityKilled === true, u.firepowerKilled === true);
+      const damage = vehicleDamage(u.mobilityKilled === true, u.firepowerKilled === true, u.slowed === true);
       if (damage === 'outOfAction') outOfAction++;
       else if (damage === 'gunOut') gunOut++;
       else if (damage === 'immobilised') immobilised++;
+      else if (damage === 'slowed') slowed++;
       const band = combatBand(u.suppression ?? 0, u.pinned, u.routed);
       if (band === 'suppressed') suppressed++;
       else if (band === 'shaken') shaken++;
@@ -336,6 +340,7 @@ export function groupChips(units: UnitFacts[]): ChipView[] {
       outOfAction,
       gunOut,
       immobilised,
+      slowed,
       suppressed,
       shaken,
       aboard,
@@ -369,6 +374,7 @@ interface StatusCounts {
   outOfAction?: number;
   gunOut?: number;
   immobilised?: number;
+  slowed?: number;
   suppressed?: number;
   shaken?: number;
   aboard: number;
@@ -378,9 +384,9 @@ interface StatusCounts {
 
 /** The combat states in the chip's precedence, worst first (pass C2/C4,
  *  D5): broken › pinned › out of action › gun out › immobilised ›
- *  suppressed › shaken. Each with its line, its ink and its mark. */
+ *  slowed (GH-706) › suppressed › shaken. Each with its line, its ink and its mark. */
 const COMBAT_STATES: readonly {
-  readonly key: 'routed' | 'pinned' | 'outOfAction' | 'gunOut' | 'immobilised' | 'suppressed' | 'shaken';
+  readonly key: 'routed' | 'pinned' | 'outOfAction' | 'gunOut' | 'immobilised' | 'slowed' | 'suppressed' | 'shaken';
   readonly label: string;
   readonly tone: ChipTone;
   readonly mark: ChipMark | null;
@@ -392,6 +398,9 @@ const COMBAT_STATES: readonly {
   { key: 'outOfAction', label: 'selection.chip.outOfAction', tone: 'bad', mark: 'gunOut' },
   { key: 'gunOut', label: 'selection.chip.gunOut', tone: 'bad', mark: 'gunOut' },
   { key: 'immobilised', label: 'selection.chip.immobilised', tone: 'bad', mark: 'immobilised' },
+  // GH-706: below immobilised, as the half-ink mark says -- still moving, at half
+  // pace. 'hot', the recoverable-looking ink, rather than the kills' 'bad'.
+  { key: 'slowed', label: 'selection.chip.slowed', tone: 'hot', mark: 'slowed' },
   { key: 'suppressed', label: 'selection.chip.suppressed', tone: 'hot', mark: null },
   { key: 'shaken', label: 'selection.chip.shaken', tone: null, mark: null },
 ];

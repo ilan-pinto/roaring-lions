@@ -8157,19 +8157,43 @@ export class Sim {
    * allocation.
    */
   private stepFieldFix(i: number): void {
+    const rate = this.fieldFixRate(i);
+    if (rate === 0) return;
+    if (this.lastDamagedTick[i] === this.tickCount) {
+      this.fieldFixTicks[i] = 0;
+      return;
+    }
+    this.fieldFixTicks[i] += rate;
+    if (this.fieldFixTicks[i] >= FIELD_FIX_TICKS) {
+      this.mobilityKilled[i] = 0;
+      this.mobilityDamaged[i] = 1;
+      this.fieldFixTicks[i] = 0;
+      this.pendingEvents.push({ kind: 'fieldFixed', tick: this.tickCount, entity: i });
+    }
+  }
+
+  /**
+   * #706: how fast unit `i`'s crew field fix counts -- 0 when it cannot count
+   * at all (dead, not stuck, an aircraft, carried, garrisoned or underground),
+   * 2 while a living same-side `repair` unit stands still on the surface
+   * within FIELD_FIX_ASSIST_RADIUS, else 1. It does NOT read this tick's hit
+   * (that reset is `stepFieldFix`'s). The one source of the rule: the sim's
+   * own field fix and the HUD's repair countdown both call it. A pure read,
+   * no allocation.
+   */
+  fieldFixRate(i: number): number {
     if (
+      i < 0 ||
+      i >= this.count ||
+      this.alive[i] === 0 ||
+      this.mobilityKilled[i] !== 1 ||
       this.unitTypes[this.typeIdx[i]].isAir ||
       this.carriedBy[i] >= 0 ||
       this.garrisonedIn[i] >= 0 ||
       this.tunnelIn[i] >= 0
     ) {
-      return;
+      return 0;
     }
-    if (this.lastDamagedTick[i] === this.tickCount) {
-      this.fieldFixTicks[i] = 0;
-      return;
-    }
-    let rate = 1;
     const side = this.side[i];
     const px = this.posX[i];
     const py = this.posY[i];
@@ -8186,18 +8210,9 @@ export class Sim {
       ) {
         continue;
       }
-      if (distSqFx(fx.sub(this.posX[j], px), fx.sub(this.posY[j], py)) <= FIELD_FIX_ASSIST_RADIUS_SQ) {
-        rate = 2;
-        break;
-      }
+      if (distSqFx(fx.sub(this.posX[j], px), fx.sub(this.posY[j], py)) <= FIELD_FIX_ASSIST_RADIUS_SQ) return 2;
     }
-    this.fieldFixTicks[i] += rate;
-    if (this.fieldFixTicks[i] >= FIELD_FIX_TICKS) {
-      this.mobilityKilled[i] = 0;
-      this.mobilityDamaged[i] = 1;
-      this.fieldFixTicks[i] = 0;
-      this.pendingEvents.push({ kind: 'fieldFixed', tick: this.tickCount, entity: i });
-    }
+    return 1;
   }
 
   private stepUpkeep(): void {

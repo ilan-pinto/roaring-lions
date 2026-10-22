@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import * as symbolModule from './symbol';
-import { SYMBOL_IDS, DINGBAT_IDS, symbolLabel, symbolSvg, symbolBody, VIEWBOX, W, type SymbolId } from './symbol';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { HALF_INK_CLASS, slowedSymbolSvg, SYMBOL_IDS, DINGBAT_IDS, symbolLabel, symbolSvg, symbolBody, VIEWBOX, W, type SymbolId } from './symbol';
 
 const ORDER_IDS = ['move', 'attackMove', 'halt', 'smoke', 'load', 'unload', 'sweep', 'strike', 'barrage', 'smokeScreen'] as const;
 const isOrder = (id: SymbolId): boolean => (ORDER_IDS as readonly string[]).includes(id);
@@ -206,5 +209,17 @@ describe('symbolLabel: a mark beside catalogue text', () => {
   it('puts the mark after the text when asked', () => {
     const html = symbolLabel('next', 'next mission', { after: true });
     expect(html.indexOf('next mission')).toBeLessThan(html.indexOf('data-symbol="next"'));
+  });
+});
+
+describe('slowed (GH-706): the immobilised mark at half ink, no new symbol', () => {
+  it('draws the immobilised body under the half-ink class, which theme.css halves', () => {
+    const svg = slowedSymbolSvg(12);
+    expect(svg).toContain('data-symbol="immobilised"');
+    expect(svg).toContain(symbolBody('immobilised'));
+    expect(svg).toMatch(new RegExp(`class="[^"]*\\b${HALF_INK_CLASS}\\b`));
+    expect(SYMBOL_IDS).not.toContain('slowed');
+    const css = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'theme.css'), 'utf8');
+    expect(css).toMatch(new RegExp(`\\.${HALF_INK_CLASS}\\s*\\{\\s*opacity:\\s*0\\.5;`));
   });
 });

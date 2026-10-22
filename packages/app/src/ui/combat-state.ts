@@ -103,12 +103,28 @@ export function hpWord(pct: number): HpWord {
   return null;
 }
 
-export type VehicleDamage = 'outOfAction' | 'gunOut' | 'immobilised' | null;
+export type VehicleDamage = 'outOfAction' | 'gunOut' | 'immobilised' | 'slowed' | null;
 
-/** One headline per vehicle: both kills is "out of action". */
-export function vehicleDamage(mobilityKilled: boolean, firepowerKilled: boolean): VehicleDamage {
+/** One headline per vehicle: both kills is "out of action". Slowed (GH-706: a
+ *  wheel shot out, or a stuck hull its crew fixed in the field) is the least
+ *  of them, so any kill outranks it. */
+export function vehicleDamage(mobilityKilled: boolean, firepowerKilled: boolean, slowed = false): VehicleDamage {
   if (mobilityKilled && firepowerKilled) return 'outOfAction';
   if (firepowerKilled) return 'gunOut';
   if (mobilityKilled) return 'immobilised';
+  if (slowed) return 'slowed';
   return null;
+}
+
+/**
+ * GH-706: ticks until a stuck hull's crew has it moving again (slowed), or null
+ * when the field fix is not counting (`rate` 0: an aircraft, a carried or
+ * garrisoned hull, or one not stuck). `done` is the sim's hashed clock
+ * (`fieldFixTicks`), `total` its FIELD_FIX_TICKS, and `rate` the sim's own
+ * `fieldFixRate` -- 2 while an engineer is assisting -- so this divides and
+ * decides nothing. Rounded up: the countdown never promises early.
+ */
+export function repairTicksLeft(done: number, rate: number, total: number): number | null {
+  if (rate <= 0) return null;
+  return Math.ceil(Math.max(0, total - done) / rate);
 }
