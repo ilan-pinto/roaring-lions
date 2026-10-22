@@ -316,6 +316,13 @@ VEHICLE_ROLE_PALETTES = {
         "hull": "olive.0", "plate": "olive.0", "metal": "gunmetal.2",
         "rubber": "shadow.0",
     },
+    # GH-698 (2026-10-18): the UH-60 Yanshuf transport ships its own bake, so
+    # this row only names the repaint this gate makes -- KDF olive like the
+    # drones -- for exactly the two roles the file carries: `hull_hull` and
+    # the main rotor (`rotor_metal`). Held until Lane C lands the unit.
+    "heli_yanshuf": {
+        "hull": "olive.0", "metal": "gunmetal.2",
+    },
 }
 VEHICLE_ROLE_PALETTE_FALLBACK = {
     "hull": "olive.0", "plate": "olive.0", "metal": "gunmetal.2",

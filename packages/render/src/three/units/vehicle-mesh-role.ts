@@ -452,6 +452,16 @@ const VEHICLE_ROLE_PALETTE: Record<string, Partial<Record<VehicleMeshRole, reado
     metal: sliceFrom('gunmetal', 2, 2),
     rubber: sliceFrom('shadow', 0, 3),
   },
+  // GH-698 (2026-10-18): the UH-60 Yanshuf transport
+  // (`tools/vehicles/export_meshy_yanshuf.py`), hand-copied from the gate's
+  // `VEHICLE_ROLE_PALETTES["heli_yanshuf"]`. Both of its meshes (`hull_hull`,
+  // `rotor_metal`) ship the remesh's own bake and never reach these ramps;
+  // the table exists so the gate's repaint and a proxy build have the KDF
+  // olive the Peten and the drones wear. Held until Lane C lands the unit.
+  heli_yanshuf: {
+    hull: sliceFrom('olive', 0, 4),
+    metal: sliceFrom('gunmetal', 2, 2),
+  },
 };
 
 /**

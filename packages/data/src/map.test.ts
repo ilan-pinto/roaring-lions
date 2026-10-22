@@ -49,7 +49,7 @@ describe('parseMap', () => {
   it('rejects dimension mismatches and unknown symbols', () => {
     expect(() => parseMap({ ...TINY, rows: ['..1#', '.23#'] })).toThrow(/height/);
     expect(() => parseMap({ ...TINY, rows: ['..1#', '.23', '....'] })).toThrow(/width/);
-    expect(() => parseMap({ ...TINY, rows: ['..1#', '.2X#', '....'] })).toThrow(/symbol/);
+    expect(() => parseMap({ ...TINY, rows: ['..1#', '.2Z#', '....'] })).toThrow(/symbol/);
   });
 
   it('rejects out-of-bounds markers and zones', () => {

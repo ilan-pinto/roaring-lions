@@ -675,6 +675,25 @@ describe('surfacing', () => {
     expect(fx.toNumber(sim.state.posY[hidden])).toBeCloseTo(ventY + 0.5, 1);
   });
 
+  it('a vent under a standing structure surfaces its fighters at the exit tile, not inside (Q7)', () => {
+    const { sim, hidden, target } = readyToVent({ dug: true });
+    // A 2x2 over the vent (12,6): x11-12, y6-7. exitTile scans the ring
+    // row-major from (minX-1, minY-1) = (10, 5), open, so the fighter comes
+    // up at (10.5, 5.5). The target moves onto row 5, so the shot from there
+    // runs along open ground.
+    const works = sim.addStructureType({ id: 'tn_works', hp_per_tile: 200 });
+    sim.addStructure(works, [6 * 24 + 11, 6 * 24 + 12, 7 * 24 + 11, 7 * 24 + 12]);
+    sim.teleport(target, fx.from(15.5), fx.from(5.5));
+    let surfaced = false;
+    for (let t = 0; t < 200 && !surfaced; t++) {
+      for (const e of sim.tick()) if (e.kind === 'surfaced' && e.entity === hidden) surfaced = true;
+    }
+    expect(surfaced).toBe(true);
+    expect(sim.state.posX[hidden]).toBe(fx.from(10.5));
+    expect(sim.state.posY[hidden]).toBe(fx.from(5.5));
+    expect(sim.blocked[5 * 24 + 10]).toBe(0);
+  });
+
   it('stays up for the full window even under fire that would pin it', () => {
     const { sim, hidden } = readyToVent({ dug: true });
     let surfacedAt = -1;

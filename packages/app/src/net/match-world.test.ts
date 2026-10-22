@@ -141,9 +141,22 @@ describe('buildMatchWorld: each side registers and spawns its own kit', () => {
   });
 });
 
+describe('the versus hold (GH-698)', () => {
+  it('a room registers no held unit, on either side, whatever the kit', () => {
+    const w = buildMatchWorld(config('wadi_tarfan', ['kdf', 'kdf']));
+    expect(w.typeOf.has('heli_yanshuf')).toBe(false);
+    expect(w.typeOfBySide[1].has('heli_yanshuf')).toBe(false);
+    expect(w.sim.airCarrierLive).toBe(false);
+  });
+});
+
 describe("seatKitTiers: a seat's claim as the world reads it", () => {
   const seat = (tiers: unknown, over: Partial<SeatConfig> = {}): SeatConfig =>
     ({ seat: 1, side: 1, faction: 'kdf', kit: 'brigade', tiers, unlocks: [], player: 'p', callsign: 'c', kind: 'human', ...over }) as SeatConfig;
+
+  it('drops a claim on a unit the versus room holds out (GH-698, VERSUS_HELD_UNITS)', () => {
+    expect(seatKitTiers(seat({ heli_yanshuf: { armour: 3 }, mbt_lavi: { armour: 1 } }))).toEqual({ mbt_lavi: { armour: 1 } });
+  });
 
   it("clamps each leaf to that track's own maximum, and drops what no KDF type declares", () => {
     // mbt_lavi's armour track has 3 tiers; a validated config admits up to 16.

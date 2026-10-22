@@ -115,8 +115,8 @@
  */
 import { firePointOnMap } from './units/fire-points';
 import * as THREE from 'three';
-import { fx, WEAPON_CLASS, type Fx, type MissionEvent, type Sim, type SimEvent } from '@lions/sim';
-import type { AimFootprint, ObjectiveZoneView, RallyMarkView, Renderer, RendererOptions, SupplyRouteView, TerrainTones } from '../api'; // both, after Step 2
+import { fx, ONE, WEAPON_CLASS, type Fx, type MissionEvent, type Sim, type SimEvent } from '@lions/sim';
+import type { AimFootprint, AuraRingView, ObjectiveZoneView, PlacementPreview, RallyMarkView, Renderer, RendererOptions, SupplyRouteView, TerrainTones } from '../api'; // both, after Step 2
 import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, type Camera } from '../project';
 import { QUALITY_PRESETS } from '../quality';
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec, type ParticleSpec } from '../vfx';
@@ -313,6 +313,7 @@ import { prepareTexturedMap } from './world-materials';
 import { dirtyForStructureHit, dirtyForStructureDestroyed } from './terrain/dirty';
 import { isGrindingHit } from '../grind';
 import { AIR_LIFT_PX } from './units/frame-state';
+import { airLiftFrac } from './units/air-lift';
 import {
   pickUnit as pickUnitPure,
   pickUnitAtScreen as pickUnitAtScreenPure,
@@ -491,6 +492,13 @@ import {
 } from './units/mesh-vehicle';
 import { kitLodIsFar, setKitDrawRange, setKitLod } from './units/vehicle-kit';
 import { SIDE_1_TEMPLATE_SUFFIX, templateKey, templateKitTiers } from './units/kit-template-key';
+import { collectWorksObservers } from './works-observers';
+import {
+  attachConstructionClip,
+  constructionClipY,
+  disposeConstructionClip,
+  type ConstructionClip,
+} from './units/construction-clip';
 import {
   loadBuildingMeshTemplate,
   wallTreatmentOf,
@@ -551,6 +559,7 @@ import { FogOfWarPass } from './fog-pass';
 import { SmokeMesh } from './smoke-mesh';
 import { perTileYawFor } from './units/run-direction';
 import { drawBlockedMask } from './terrain/draw-mask';
+import { crownIsEmpty, crownMask, liftCrowns, unterraceCrowns } from './terrain/crown';
 import { TrailMesh, collapsedRouteLevel, type TrailInstanceInput } from './trail-mesh';
 import { ORDER_GROUND_COLOR_KEY } from '../order-ground';
 import { TunnelProps, type TunnelPropsInput, type TunnelRouteView } from './tunnel-props';
@@ -609,6 +618,17 @@ import {
   cachedHexToLinear,
   hpBarVisible,
   REFUGE_RING_TILES,
+  AURA_RING_COLOR_KEY,
+  AURA_RING_FALLBACK_COLOR,
+  AURA_TUNNEL_RING_COLOR_KEY,
+  AURA_TUNNEL_RING_FALLBACK_COLOR,
+  PAD_INVALID_COLOR_KEY,
+  PAD_INVALID_FALLBACK_COLOR,
+  PAD_ALPHA,
+  PAD_INVALID_ALPHA,
+  PAD_LINE_WIDTH_PX,
+  padGridLines,
+  drawAuraRing,
   REFUGE_RING_COLOR_KEY,
   REFUGE_RING_FALLBACK_COLOR,
   REFUGE_RING_EDGE_COLOR_KEY,
@@ -992,6 +1012,11 @@ export class ThreeRenderer implements Renderer {
    *  ring(s), per kind (`aimRingSpecs`), drawn in the overlay pass beside the
    *  refuge ring; `null` draws nothing. */
   aimFootprint: AimFootprint | null = null;
+  /** Field works (#277 Task 9): see `Renderer.placementPreview`. Nothing in a
+   *  capture sets it, so no golden frame draws it. */
+  placementPreview: PlacementPreview | null = null;
+  /** Field works: see `Renderer.auraRingPreview`. */
+  auraRingPreview: readonly AuraRingView[] = [];
   /** S-F F2 C3: see `Renderer.supplyRoutes`. Held by `supplyRoute`, which
    *  rebuilds its one merged geometry on the next overlay pass when a NEW
    *  array arrives (the same array again is a no-op) and disposes the old. */
@@ -2105,6 +2130,19 @@ export class ThreeRenderer implements Renderer {
   /** The WRECK sibling -- absent for a type whose `loadBuildingMesh` call
    *  carried no wreck URL. */
   private readonly buildingMeshWreckTemplates = new Map<string, BuildingMeshTemplate>();
+  /** Field works (#277 Task 13): the CONSTRUCTION template of the four KDF
+   *  works, and its measured height (world units, MESH_SCALE applied, before
+   *  the per-instance fit) -- the clip plane rises over it. */
+  private readonly buildingMeshConstructionTemplates = new Map<string, BuildingMeshTemplate>();
+  private readonly buildingConstructionHeight = new Map<string, number>();
+  /** One entry per UNFINISHED structure (progress < ONE) of a type with a
+   *  construction template, by structure index: the clone, and the clip plane
+   *  and private material clones that go with it. Bounded by the sim's
+   *  `MAX_SITES`. Removed on completion, cancel, death and dispose. */
+  private readonly buildingConstruction = new Map<
+    number,
+    { readonly root: THREE.Object3D; readonly clip: ConstructionClip; readonly heightWorld: number; readonly groundY: number }
+  >();
   /** GH-469: unit types / wreck types whose template textures are still
    *  ENCODED (`coldGltfLoader`). Never drawn while listed; see `warmUnitMesh`. */
   private readonly coldUnitTypes = new Set<string>();
@@ -2746,6 +2784,9 @@ export class ThreeRenderer implements Renderer {
     // no SMAA to fall back on.
     this.renderer = new THREE.WebGLRenderer({ antialias: true, stencil: true });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    // A field work under construction is cut by a per-material clip plane
+    // (`units/construction-clip.ts`); local planes are ignored without this.
+    this.renderer.localClippingEnabled = true;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.0;
     this.renderer.setClearColor(new THREE.Color(this.opts.background));
@@ -3253,6 +3294,11 @@ export class ThreeRenderer implements Renderer {
     // each template's shared geometry/material released exactly once.
     for (const root of this.buildingMeshIdleEntities.values()) this.scene.remove(root);
     this.buildingMeshIdleEntities.clear();
+    for (const site of this.buildingConstruction.values()) {
+      this.scene.remove(site.root);
+      disposeConstructionClip(site.clip);
+    }
+    this.buildingConstruction.clear();
     for (const root of this.buildingMeshWreckEntities.values()) this.scene.remove(root);
     this.buildingMeshWreckEntities.clear();
     // GH #143 follow-up: bookkeeping only (no owned geometry/material of its
@@ -3274,6 +3320,8 @@ export class ThreeRenderer implements Renderer {
     this.buildingMeshIdleTemplates.clear();
     for (const template of this.buildingMeshWreckTemplates.values()) disposeBuildingMeshTemplate(template);
     this.buildingMeshWreckTemplates.clear();
+    for (const template of this.buildingMeshConstructionTemplates.values()) disposeBuildingMeshTemplate(template);
+    this.buildingMeshConstructionTemplates.clear();
     this.particleInstancerBelow.dispose();
     this.particleInstancerAbove.dispose();
     this.particleInstancerBelowAdditive.dispose();
@@ -3729,6 +3777,24 @@ export class ThreeRenderer implements Renderer {
         // (`GROUND_ALBEDOS[id].gain`, never a hardcoded 1), which is why the
         // previous values are stashed rather than recomputed.
         return this.setGroundAlbedoOn(visible);
+      case 'crown': {
+        // Crown summits back to today's terraced pad and back
+        // (`terrain/crown.ts`). Not a uniform: the dome is geometry and a
+        // control-map texel, so this flips the switch and flags a terrain
+        // rebuild, which the gate's own zero-time repaint (`frame(1, 0)`)
+        // performs -- and which drops the minimap's ground photograph, the
+        // one place `relief` and `aftermath` show a crown at all (their 3D
+        // frames hold none). Returns the crown tiles affected.
+        const hidden = !visible;
+        if (hidden === this.crownHidden) return 0;
+        this.crownHidden = hidden;
+        this.applyCrowns();
+        this.refreshSurface();
+        this.terrainDirty = true;
+        let tiles = 0;
+        if (this.crown) for (const c of this.crown) tiles += c;
+        return tiles;
+      }
       case 'slope-light':
         // A uniform, the `macro` shape: the slope light's gain to 1 (the
         // identity) and back (`GroundMaterial.setSlopeLightVisible`). Its
@@ -4518,9 +4584,47 @@ export class ThreeRenderer implements Renderer {
       blocked: this.sim.blocked,
       isLowProfile: (x, y) => this.isLowProfileTile(x, y),
       viewerSide: this.viewer,
+      extraObservers: this.worksObservers(),
     };
     this.fog = computeFog(this.fog, input);
     this.shroudDirty = true;
+  }
+
+  /**
+   * Field works (#277): the fixed eyes that are not entities -- the rules
+   * live in `works-observers.ts` (complete sensors; garrison sight bonus only
+   * from a COMPLETE structure, as the sim's `garrisonAura`). Accepted: these
+   * reveal with LOS in fog while the sim's sensor detection has none.
+   * Read-only; undefined (today's input exactly) when there are none.
+   */
+  private worksObservers(): { x: number; y: number; sight: number }[] | undefined {
+    const sim = this.sim;
+    const st = sim.structures;
+    const g = sim.state;
+    const garrisoned: { structure: number; sight: number }[] = [];
+    for (let i = 0; i < sim.entityCount; i++) {
+      if (g.alive[i] === 0 || g.side[i] !== this.viewer || g.garrisonedIn[i] < 0) continue;
+      garrisoned.push({ structure: g.garrisonedIn[i], sight: this.sightByType[g.typeIdx[i]] });
+    }
+    return collectWorksObservers({
+      viewer: this.viewer,
+      structureCount: sim.structureCount,
+      alive: st.alive,
+      owner: st.owner,
+      progress: st.progress,
+      complete: ONE,
+      cx: (s) => fx.toNumber(st.cx[s]),
+      cy: (s) => fx.toNumber(st.cy[s]),
+      auraOf: (s) => {
+        const aura = sim.structureTypes[st.typeIdx[s]].aura;
+        if (aura === null) return null;
+        return {
+          sensorSight: aura.sensor !== null ? fx.toNumber(aura.sensor.sight) : null,
+          sightBonus: fx.toNumber(aura.sightBonus),
+        };
+      },
+      garrisoned,
+    });
   }
 
   /** A chest-high wall casts no fog shadow, because the sim lets sight and
@@ -4682,7 +4786,7 @@ export class ThreeRenderer implements Renderer {
         if (o >= 0 && o < this.snapshottedCount) {
           const x = this.curX[o];
           const y = this.curY[o];
-          const lift = this.sim.unitTypes[st.typeIdx[o]].isAir ? AIR_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL : 0.35;
+          const lift = this.sim.unitTypes[st.typeIdx[o]].isAir ? this.airLiftY(o, 1) : 0.35;
           finder = { x, y, liftY: groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, y) + lift };
         }
         this.tunnelXray.discover(e.tunnel, presentationSimMs(e.tick, 1) / 1000, finder);
@@ -4947,7 +5051,7 @@ export class ThreeRenderer implements Renderer {
         if (this.decalGround !== null) {
           this.decalGround = {
             ...this.decalGround,
-            input: { ...this.decalGround.input, blocked: drawBlockedMask(this.sim) },
+            input: { ...this.decalGround.input, blocked: crownDrawMask(this.sim, this.drawnCrown()) },
           };
         }
         {
@@ -6084,9 +6188,45 @@ export class ThreeRenderer implements Renderer {
   //     particle actually appears); the sheet maps and tutorial focus stay
   //     retained only, for B3/B4.
   setElevation(elevation: Uint8Array): void {
-    this.retained.elevationLevels = elevation;
+    this.crownRawLevels = elevation;
+    this.applyCrowns();
     this.refreshSurface();
     this.terrainDirty = true;
+  }
+
+  /**
+   * Crown summits (`terrain/crown.ts`): the raw levels the sim handed in,
+   * kept so the lift is always taken off THEM, never off a lift; the crown
+   * mask of the current map (null when it has none, or before decor and
+   * elevation have both arrived); and the `crown` debug layer's switch.
+   */
+  private crownRawLevels: Uint8Array | null = null;
+  private crown: Uint8Array | null = null;
+  private crownHidden = false;
+
+  /** The crown mask the DRAWN surface uses this frame: null when there is
+   *  none or the `crown` debug layer is hidden, which is exactly today's
+   *  terraced pad. */
+  private drawnCrown(): Uint8Array | null {
+    return this.crownHidden ? null : this.crown;
+  }
+
+  /** Recompute the crown mask and `retained.elevationLevels` from the raw
+   *  levels. Needs both the decor and the elevation; the sim's `blocked`
+   *  (a crown touches no other blocked tile) is set by `applyTerrain` before
+   *  either arrives. With no crown the levels are the sim's own array,
+   *  untouched. */
+  private applyCrowns(): void {
+    const decor = this.retained.decor;
+    const levels = this.crownRawLevels;
+    if (decor && levels) {
+      const mask = crownMask(decor, this.sim.blocked, levels, this.sim.width, this.sim.height);
+      this.crown = crownIsEmpty(mask) ? null : mask;
+    } else {
+      this.crown = null;
+    }
+    const drawn = this.drawnCrown();
+    this.retained.elevationLevels = drawn && levels ? liftCrowns(levels, drawn) : levels;
   }
 
   /**
@@ -6103,9 +6243,10 @@ export class ThreeRenderer implements Renderer {
    * the GPU re-upload beside it.
    */
   private refreshSurface(): void {
+    const crown = this.drawnCrown();
     this.retained.elevation = terrainSurfaceFrom(
       this.retained.elevationLevels,
-      this.sim.blocked,
+      crown ? unterraceCrowns(this.sim.blocked, crown) : this.sim.blocked,
       this.sim.width,
       this.sim.height
     );
@@ -6117,6 +6258,10 @@ export class ThreeRenderer implements Renderer {
   }
   setDecor(decor: Uint8Array): void {
     this.retained.decor = decor;
+    if (this.crownRawLevels) {
+      this.applyCrowns();
+      this.refreshSurface();
+    }
     this.terrainDirty = true;
   }
   /**
@@ -6508,6 +6653,20 @@ export class ThreeRenderer implements Renderer {
    * every frame after the two mesh loops; costs one map lookup when nothing
    * has failed.
    */
+  /**
+   * The world-Y height an `isAir` unit flies at: `AIR_LIFT_PX` for every air
+   * type, scaled by `airLiftFrac` for an AIR CARRIER alone (GH-698), so a
+   * Yanshuf is drawn settling onto its LZ while it lands, on the ground while it
+   * loads or unloads, and climbing while it lifts. Every other air unit gets the
+   * same product it always did, bit for bit. Callers check `isAir` first.
+   */
+  private airLiftY(i: number, alpha: number): number {
+    const lift = AIR_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL;
+    const st = this.sim.state;
+    if (!this.sim.unitTypes[st.typeIdx[i]].isAirCarrier) return lift;
+    return lift * airLiftFrac(st.airState[i], st.airTimer[i], alpha);
+  }
+
   private updateProxyBoxes(alpha: number): void {
     if (this.meshFailures.size === 0) return;
     const st = this.sim.state;
@@ -6523,7 +6682,7 @@ export class ThreeRenderer implements Renderer {
       const z = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
       if (this.unitsDebugHidden || !unitIsObserved(st.side[i], this.viewer, x, z, this.fogVisibleAt)) continue;
       const cls = RING_CLASS_OVERRIDE[type.id] ?? ringClassOf(type);
-      const lift = type.isAir ? AIR_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL : 0;
+      const lift = type.isAir ? this.airLiftY(i, alpha) : 0;
       const facing = fx.toNumber(st.facing[i]);
       const dims = proxyBoxDims(type.id, cls);
       // Centred on the hull, not the origin: game facing `f` points along
@@ -6626,7 +6785,15 @@ export class ThreeRenderer implements Renderer {
    * must stop drawing this type's procedural box the instant its mesh art
    * is available.
    */
-  async loadBuildingMesh(structureId: string, idleUrl: string, wreckUrl: string | null): Promise<void> {
+  async loadBuildingMesh(
+    structureId: string,
+    idleUrl: string,
+    wreckUrl: string | null,
+    /** Field works (#277 Task 13): the `_construction` GLB of a buildable
+     *  work; absent for every other type (which draws its standing mesh
+     *  from the first frame). */
+    constructionUrl?: string
+  ): Promise<void> {
     const structureType = this.sim.structureTypes.find((t) => t.id === structureId);
     if (!structureType) {
       throw new Error(`loadBuildingMesh: unknown structure type "${structureId}"`);
@@ -6694,8 +6861,47 @@ export class ThreeRenderer implements Renderer {
       this.bannerSpots.set(structureId, bannerSpotFor(idleTemplate.root, sunDirectionFor(this.lightPreset)));
     }
 
+    if (constructionUrl) await this.loadBuildingConstructionMesh(structureId, constructionUrl);
     if (wreckUrl) await this.loadBuildingWreckMesh(structureId, wreckUrl);
 
+    this.terrainDirty = true;
+  }
+
+  /**
+   * One building type's CONSTRUCTION template (#277 Task 13): a palette GLB,
+   * the standing building's lower 45 % plus a scaffold kit, drawn clipped by
+   * `progress x height` while the structure is unfinished. Re-entrant: a
+   * reload tears down that type's live sites and disposes the old template.
+   */
+  async loadBuildingConstructionMesh(structureId: string, constructionUrl: string): Promise<void> {
+    const structureType = this.sim.structureTypes.find((t) => t.id === structureId);
+    if (!structureType) {
+      throw new Error(`loadBuildingConstructionMesh: unknown structure type "${structureId}"`);
+    }
+    const template = await loadBuildingMeshTemplate(
+      constructionUrl,
+      structureType.color,
+      wallSurfaceForBuilding(structureId),
+      false,
+      false,
+      wallTreatmentOf(structureType)
+    );
+    const previous = this.buildingMeshConstructionTemplates.get(structureId);
+    if (previous) {
+      const st = this.sim.structures;
+      for (const [s, site] of this.buildingConstruction) {
+        if (this.sim.structureTypes[st.typeIdx[s]].id !== structureId) continue;
+        this.scene.remove(site.root);
+        disposeConstructionClip(site.clip);
+        this.buildingConstruction.delete(s);
+      }
+      disposeBuildingMeshTemplate(previous);
+    }
+    this.buildingMeshConstructionTemplates.set(structureId, template);
+    this.buildingConstructionHeight.set(
+      structureId,
+      new THREE.Box3().setFromObject(template.root).getSize(new THREE.Vector3()).y
+    );
     this.terrainDirty = true;
   }
 
@@ -7507,7 +7713,9 @@ export class ThreeRenderer implements Renderer {
         pinned: st.pinned[i],
         speed: this.entitySpeed[i],
         firing: this.firingTimer[i] > 0,
-        working: this.sim.tunnelChargeProgress(i) > 0,
+        // A tunnel charge OR a field-works build (#277 Task 13): the builder
+        // plays `work` (`demo_squad` carries the clip) while it stakes a site.
+        working: this.sim.tunnelChargeProgress(i) > 0 || this.sim.isConstructing(i),
       };
       // SIM time, not frame time (GH-391): a frozen gate frame then holds the
       // pose sim time says, whatever frames were drawn on the way.
@@ -7901,7 +8109,8 @@ export class ThreeRenderer implements Renderer {
       // ellipse needs no change to match: `updateOverlays` computes it from
       // `groundWorldY` directly, independent of mesh-vs-billboard body
       // representation, so it already draws under a mesh-drawn air unit.
-      const airLift = type.isAir ? AIR_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL : 0;
+      // GH-698: an air carrier is drawn down onto its LZ while it lands (`airLiftY`).
+      const airLift = type.isAir ? this.airLiftY(i, alpha) : 0;
       const facingNorm = fx.toNumber(st.facing[i]);
 
       // Hull recoil: a genuine world-space shove opposite the bearing the
@@ -8306,7 +8515,7 @@ export class ThreeRenderer implements Renderer {
     const y = this.curY[id];
     const facingNorm = fx.toNumber(st.facing[id]);
     const centreGroundY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, y);
-    const airLift = type.isAir ? AIR_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL : 0;
+    const airLift = type.isAir ? this.airLiftY(id, 1) : 0;
     let pitch = 0;
     let roll = 0;
     const conform = this.vehicleConformAt(entity.templateKey, type.isAir, x, y, centreGroundY, facingNorm);
@@ -8597,6 +8806,29 @@ export class ThreeRenderer implements Renderer {
       if (!idleTemplate) continue; // this structure type has no mesh loaded
 
       const alive = st.alive[s] === 1;
+      // Field works (#277 Task 13): an UNFINISHED structure of a type with a
+      // construction mesh draws that mesh under a clip plane at
+      // `progress x height`, and no standing clone; at ONE the site goes and
+      // the standing mesh takes over (the branch below, same frame).
+      const constructionTemplate = this.buildingMeshConstructionTemplates.get(type.id);
+      const unfinished = constructionTemplate !== undefined && st.progress[s] < ONE;
+      if (alive && unfinished) {
+        this.stepConstructionSite(s, constructionTemplate, type.id, elevation);
+        continue;
+      }
+      const site = this.buildingConstruction.get(s);
+      if (site && !(this.buildingMeshSwapHold.has(s) && !alive)) {
+        // Completed, cancelled, or destroyed (once its dust has covered it).
+        this.scene.remove(site.root);
+        disposeConstructionClip(site.clip);
+        this.buildingConstruction.delete(s);
+      }
+      // By design an unfinished site leaves no wreck: there is no finished building
+      // to wreck (completed works take the normal wreck path below).
+      // A dead site that never finished has no standing building to collapse
+      // and no wreck of one: a cancelled stake leaves nothing (the sim pushes
+      // no event), a destroyed one leaves its rubble decal and dust.
+      if (!alive && constructionTemplate !== undefined && st.progress[s] < ONE) continue;
       if (alive) {
         if (!this.buildingMeshIdleEntities.has(s)) {
           const root = instantiateBuildingMesh(idleTemplate);
@@ -8687,6 +8919,34 @@ export class ThreeRenderer implements Renderer {
         this.scene.add(root);
       }
     }
+  }
+
+  /** Stands up (once) and re-cuts (every frame) one unfinished work's
+   *  construction clone. The plane is the only thing that changes. */
+  private stepConstructionSite(
+    s: number,
+    template: BuildingMeshTemplate,
+    typeId: string,
+    elevation: ThreeRenderer['retained']['elevation']
+  ): void {
+    const st = this.sim.structures;
+    let site = this.buildingConstruction.get(s);
+    const fit = this.buildingFitFor(s);
+    const heightWorld = (this.buildingConstructionHeight.get(typeId) ?? 0) * fit.sy;
+    if (!site) {
+      const root = instantiateBuildingMesh(template);
+      const { fx: cx, fy: cy } = footprintCentre(this.sim, s);
+      const groundY = groundWorldY(elevation, this.sim.width, this.sim.height, cx, cy);
+      root.position.set(cx, groundY, cy);
+      root.scale.multiply(new THREE.Vector3(fit.sx, fit.sy, fit.sz));
+      const clip = attachConstructionClip(root, groundY);
+      this.scene.add(freezeStatic(root));
+      site = { root, clip, heightWorld, groundY };
+      this.buildingConstruction.set(s, site);
+    }
+    const y = constructionClipY(fx.toNumber(st.progress[s]), heightWorld, site.groundY);
+    // `unfinished` guarantees progress < 1, so y is non-null.
+    if (y !== null) site.clip.plane.constant = y;
   }
 
   /**
@@ -9060,7 +9320,7 @@ export class ThreeRenderer implements Renderer {
       const wx = drawn ? drawn.x : this.curX[i];
       const wy = drawn ? drawn.z : this.curY[i];
       const groundY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, wx, wy);
-      const height = drawn ? drawn.y - groundY : AIR_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL;
+      const height = drawn ? drawn.y - groundY : this.airLiftY(i, 1);
       const strength = rotorWashStrength(height, this.entitySpeed[i]);
       if (strength < ROTOR_WASH_MIN_STRENGTH) {
         // No backlog for a stretch spent too high or too fast to throw dust.
@@ -10098,6 +10358,10 @@ export class ThreeRenderer implements Renderer {
           const lvl = this.sim.contactLevel(this.viewer, i);
           bodyAlpha = lvl === 2 ? 1 : lvl === 1 ? 0.65 : 0.35;
         }
+        // GH-698: an air carrier's lift shadow fades with its own descent
+        // (`airLiftFrac`), so a landed Yanshuf is not drawn over a gap shadow.
+        // Every other air unit reads exactly 1, as before.
+        if (type.isAirCarrier) bodyAlpha *= airLiftFrac(this.sim.state.airState[i], this.sim.state.airTimer[i], alpha);
         const shadowR = r * 0.7 + 2;
         this.overlayBatch.ellipseFan(
           billboardPoint(anchor, 0, -3),
@@ -10661,6 +10925,33 @@ export class ThreeRenderer implements Renderer {
       }
     }
 
+    // Field works (#277 Task 9, spec §6 treatment B): the footprint pad (the
+    // tile grid, flat, no fill), then the aura rings (dashed, no fill), after
+    // the refuge and strike rings. Preview-only: nothing arms in a capture.
+    const pad = this.placementPreview;
+    if (pad) {
+      const padColor = pad.valid
+        ? this.overlayColor(AURA_RING_COLOR_KEY, AURA_RING_FALLBACK_COLOR)
+        : this.overlayColor(PAD_INVALID_COLOR_KEY, PAD_INVALID_FALLBACK_COLOR);
+      const padAlpha = pad.valid ? PAD_ALPHA : PAD_INVALID_ALPHA;
+      for (const [a, b] of padGridLines(pad.x, pad.y, pad.w, pad.h)) {
+        const p0: [number, number, number] = [a[0], groundWorldY(elevation, width, height, a[0], a[2]), a[2]];
+        const p1: [number, number, number] = [b[0], groundWorldY(elevation, width, height, b[0], b[2]), b[2]];
+        this.overlayBatch.lineWorld(p0, p1, PAD_LINE_WIDTH_PX, padColor, padAlpha);
+      }
+    }
+    if (this.auraRingPreview.length > 0) {
+      const colors = {
+        edge: this.overlayColor(REFUGE_RING_EDGE_COLOR_KEY, REFUGE_RING_EDGE_FALLBACK_COLOR),
+        dashed: this.overlayColor(AURA_RING_COLOR_KEY, AURA_RING_FALLBACK_COLOR),
+        dotted: this.overlayColor(AURA_TUNNEL_RING_COLOR_KEY, AURA_TUNNEL_RING_FALLBACK_COLOR),
+      };
+      for (const ring of this.auraRingPreview) {
+        const groundYr = groundWorldY(elevation, width, height, ring.cx, ring.cy);
+        drawAuraRing(this.overlayBatch, [ring.cx, groundYr, ring.cy], ring, TILE_W, TILE_H, colors);
+      }
+    }
+
     // Garrison hover highlight -- renderer.ts's own doorway-arrow affordance,
     // shown only while the current selection could actually garrison the
     // hovered building. Structure-anchored, not unit-anchored: `top` there
@@ -10806,7 +11097,8 @@ export class ThreeRenderer implements Renderer {
       (id) => this.buildingMeshIdleTemplates.has(id),
       this.opts.terrainTones,
       this.opts.resolveColor,
-      this.opts.background
+      this.opts.background,
+      this.drawnCrown()
     );
     const composed = build.composed;
     this.terrainState = build.state;
@@ -11447,6 +11739,12 @@ export interface ComposedTerrainBuild {
  * milliseconds. Prop placements cannot splice per tile: they are sorted and
  * spaced map-wide under a cap (`prop-place.ts`).
  */
+/** The draw mask (`terrain/draw-mask.ts`) with a crown's tiles cleared. */
+function crownDrawMask(sim: Sim, crown: Uint8Array | null): Uint8Array {
+  const mask = drawBlockedMask(sim);
+  return crown ? unterraceCrowns(mask, crown) : mask;
+}
+
 export function composeTerrainFrom(
   prev: TerrainBuildState | null,
   sim: Sim,
@@ -11455,7 +11753,11 @@ export function composeTerrainFrom(
   hasArt: (structureId: string) => boolean,
   tones: TerrainTones,
   resolveColor: ((key: string) => string) | undefined,
-  background: string
+  background: string,
+  /** Crown summits (`terrain/crown.ts`): the tiles drawn as a smooth dome
+   *  rather than a terrace, or null for none. `elevation` must already carry
+   *  their lift. */
+  crown: Uint8Array | null = null
 ): ComposedTerrainBuild {
   const input: TerrainInput = {
     width: sim.width,
@@ -11465,7 +11767,10 @@ export function composeTerrainFrom(
     // The DRAW mask, not the sim's: a live low-profile structure (fence,
     // compound wall) stands on the ground rather than covering it, so its
     // tiles draw as open ground under the mesh -- terrain/draw-mask.ts.
-    blocked: drawBlockedMask(sim),
+    // A crown summit leaves it too, so it draws as a dome (`terrain/crown.ts`).
+    blocked: crownDrawMask(sim, crown),
+    // Read only by `decorPlacements`, to seat the rocks on a crown's slope.
+    crown,
     cover: sim.cover,
     // Read only by `decorPlacements`'s `boulder` family below -- ground/
     // scatter/buildings are indifferent to it, the same reason a

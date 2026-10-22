@@ -28,4 +28,5 @@ export const KIT_TRACKS: Readonly<Record<string, Readonly<Record<string, number>
   apc_kipod: { armour: 3, sensors: 3, firepower: 3 },
   recon_zikit: { sensors: 3, armour: 3 },
   heli_peten_gunship: { armour: 3, sensors: 3, firepower: 3 },
+  heli_yanshuf: { armour: 3, sensors: 3, firepower: 3 },
 };

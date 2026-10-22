@@ -5,6 +5,7 @@ import { buildMatchWorld } from './match-world';
 import { upgradePrepass } from '../upgrade-prepass';
 import { templateKey } from '@lions/render';
 import { roomKitTables, screenKit } from './room-kit';
+import { versusRoster } from './versus-roster';
 
 type Tiers = Record<string, Record<string, number>>;
 type Faction = 'kdf' | 'sarim';
@@ -17,7 +18,8 @@ function room(tiers: [Tiers, Tiers], kit: 'matched' | 'brigade' = 'brigade', fac
   return c;
 }
 
-const KDF_IDS = Object.values(units).filter((u) => u.faction === 'kdf').map((u) => u.id);
+/** The KDF ids a versus room registers (`versusRoster()`: `VERSUS_HELD_UNITS` stays out). */
+const KDF_IDS = versusRoster().filter((u) => u.faction === 'kdf').map((u) => u.id);
 /** LITERAL: a mbt_lavi's armour tier 2 adds 450 hull hp -- a tier's patch is
  *  a cumulative delta over base (data/units/kdf/mbt_lavi.json) -- never read
  *  from the code under test. */

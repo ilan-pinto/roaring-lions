@@ -101,6 +101,8 @@ export function describeCommand(cmd: Command): string {
     case 'setRally': return t('net.advisor.cmd.setRally', { line: cmd.line, x: tile(cmd.x), y: tile(cmd.y) });
     case 'clearRally': return t('net.advisor.cmd.clearRally', { line: cmd.line });
     case 'support': return t('net.advisor.cmd.support', { support: cmd.support, x: tile(cmd.x), y: tile(cmd.y) });
+    case 'construct': return t('net.advisor.cmd.construct', { n, x: cmd.x, y: cmd.y });
+    case 'cancelConstruct': return t('net.advisor.cmd.cancelConstruct');
   }
 }
 

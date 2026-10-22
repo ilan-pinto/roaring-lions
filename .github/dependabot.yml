@@ -45,6 +45,12 @@ updates:
       # focus on a hidden input). Lift this when both are fixed.
       - dependency-name: jsdom
         versions: [">=30.1.0"]
+      # meshoptimizer is an exact pin (1.1.1): the damage pass SIMPLIFIES the
+      # rocket battery's rubber copy with it, and damage-pass.test.ts asserts
+      # the shipped bytes are what the pass writes. 1.3.0 collapses differently
+      # (23886 vs 23862 indices; the 0.74 ratio no longer fits the raw cap), so
+      # a bump is a re-damage + re-encode task, not a weekly update (#711).
+      - dependency-name: meshoptimizer
     # The postcss override that stood in pnpm-workspace.yaml is gone: vite 8
     # requires postcss ^8.5.29 itself (#574 step 2).
 

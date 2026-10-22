@@ -803,6 +803,9 @@ describe('BASELINES layerChecks', () => {
         // contributions are sub-threshold here: magnitude floors alone.
         'slope-light': { px: 0, mean: 0.0555 },
         'height-contours': { px: 0, mean: 0.4817 },
+        // Crown summits, 2026-10-15: the same tool with --layers=crown, in the
+        // crown's minimap box, 3 fresh-page runs, bit-identical.
+        crown: { px: 80, mean: 4.4339 },
       },
       // Ground fix wave (I-2), 2026-09-25: `aftermath` reframed off the
       // sandbox force (zoom 2.2, no drone). 23 consecutive fresh-process
@@ -821,6 +824,7 @@ describe('BASELINES layerChecks', () => {
         // Relief read, 2026-10-15: the same tool, 3 fresh-page runs, bit-identical.
         'slope-light': { px: 9, mean: 1.4944 },
         'height-contours': { px: 3, mean: 0.3962 },
+        crown: { px: 61, mean: 2.1612 },
       },
       // The LOW end of the measured range (29622-29624 px / 2.9600-2.9620 over
       // 5 runs), so "floor is a third of the signal" is checked against the

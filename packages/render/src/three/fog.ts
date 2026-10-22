@@ -55,6 +55,11 @@ export interface FogInput {
   readonly isLowProfile: (x: number, y: number) => boolean;
   /** The side whose units reveal (network design §5.1); 0 in single-player. */
   readonly viewerSide: number;
+  /** Field works (#277): fixed eyes that are not entities -- a complete own
+   *  sensor structure, or a garrison in a building with a sight bonus. Tile
+   *  coordinates (centre, may be fractional), sight in tiles. Absent or empty
+   *  is today's behaviour exactly. */
+  readonly extraObservers?: readonly { readonly x: number; readonly y: number; readonly sight: number }[];
 }
 
 /**
@@ -93,8 +98,6 @@ export interface FogInput {
  */
 export function computeFog(prev: Uint8Array, input: FogInput): Uint8Array {
   const {
-    width,
-    height,
     entityCount,
     alive,
     side,
@@ -102,9 +105,8 @@ export function computeFog(prev: Uint8Array, input: FogInput): Uint8Array {
     posX,
     posY,
     sightByType,
-    blocked,
-    isLowProfile,
     viewerSide,
+    extraObservers,
   } = input;
   const fog = prev.slice();
 
@@ -114,27 +116,35 @@ export function computeFog(prev: Uint8Array, input: FogInput): Uint8Array {
   // 2. Reveal: only living units on the viewer's side.
   for (let i = 0; i < entityCount; i++) {
     if (alive[i] === 0 || side[i] !== viewerSide) continue;
-    const sight = sightByType[typeIdx[i]];
-    const ux = posX[i] / 65536;
-    const uy = posY[i] / 65536;
-    const tx = ux | 0;
-    const ty = uy | 0;
-    const r = Math.ceil(sight);
-    for (let y = ty - r; y <= ty + r; y++) {
-      if (y < 0 || y >= height) continue;
-      for (let x = tx - r; x <= tx + r; x++) {
-        if (x < 0 || x >= width) continue;
-        const t = y * width + x;
-        if (fog[t] === 2) continue;
-        const dx = x + 0.5 - ux;
-        const dy = y + 0.5 - uy;
-        if (dx * dx + dy * dy > sight * sight) continue;
-        if (hasSight(blocked, width, isLowProfile, tx, ty, x, y)) fog[t] = 2;
-      }
-    }
+    revealFrom(fog, input, posX[i] / 65536, posY[i] / 65536, sightByType[typeIdx[i]]);
+  }
+
+  if (extraObservers !== undefined) {
+    for (const o of extraObservers) revealFrom(fog, input, o.x, o.y, o.sight);
   }
 
   return fog;
+}
+
+/** Marks every tile a viewer at (ux, uy) tiles with `sight` tiles of sight
+ *  can see as 2, in place on `fog`. */
+function revealFrom(fog: Uint8Array, input: FogInput, ux: number, uy: number, sight: number): void {
+  const { width, height, blocked, isLowProfile } = input;
+  const tx = ux | 0;
+  const ty = uy | 0;
+  const r = Math.ceil(sight);
+  for (let y = ty - r; y <= ty + r; y++) {
+    if (y < 0 || y >= height) continue;
+    for (let x = tx - r; x <= tx + r; x++) {
+      if (x < 0 || x >= width) continue;
+      const t = y * width + x;
+      if (fog[t] === 2) continue;
+      const dx = x + 0.5 - ux;
+      const dy = y + 0.5 - uy;
+      if (dx * dx + dy * dy > sight * sight) continue;
+      if (hasSight(blocked, width, isLowProfile, tx, ty, x, y)) fog[t] = 2;
+    }
+  }
 }
 
 /**

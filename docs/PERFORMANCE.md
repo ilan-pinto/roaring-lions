@@ -477,6 +477,37 @@ tested). The trail/marker scans do not need staggering on this evidence —
 they are a rounding error next to either O(N²) scan at every count and
 route total the game can currently produce.
 
+### Structure recompute with a full flow-field pool (Field Works Task 3, #277, 18 Oct 2026)
+
+`addStructure` and `removeStructure` each end in `recomputeFields`, which used to
+recompute EVERY cached flow field. Field Works stakes and cancels buildings
+mid-mission, so the cost with the pool at `MAX_FLOW_FIELDS` (128) was measured
+before deciding whether to make it lazy. `pnpm perf:recompute`
+(`tools/src/perf/recompute-fields.ts`): `beit_sahwan_outskirts` (48x48) through
+`parseMap` + `applyTerrain`, 128 units each ordered `exact` to its own goal so
+128 fields are cached, one 2x2 on open ground, 50 runs after 3 warm-up runs.
+Machine: Apple M3 Pro, arm64, Node v25.9.0, on the Task 3 commit's parent
+`bc541fd7` plus the harness. Three runs of the eager loop, all 128 fields followed:
+
+| Variant | addStructure 2x2 median | p95 |
+|---|---|---|
+| eager, 128 fields (all followed) | 24.26 / 24.41 / 24.46 ms | 24.94 / 25.00 / 25.40 ms |
+| lazy, 128 followed (`--live=128`) | 24.38 ms | 25.40 ms |
+| lazy, 8 followed, 120 cached idle (`--live=8`) | 1.22 ms | 1.32 ms |
+| lazy, 0 followed (`--live=0`) | 0.003 ms | 0.003 ms |
+
+24 ms is 49% of the 50 ms tick, over the plan's 10 ms threshold, so
+`recomputeFields` is now lazy: only the fields a living unit's `fieldRef` points
+at are recomputed, and the rest are dropped from `fieldByGoal` (the next
+`fieldFor` computes them fresh). The lazy rows after the first run read the
+steady state (the first stake drops the idle fields; the eager cost for those
+was the same 24 ms). **What lazy does NOT fix:** 128 fields that are all
+followed by living units still costs 24 ms a stake. A group order gives every
+unit its own slot tile, so a 9-unit force holds 9 fields, and 128 followed
+fields is the pool's upper bound rather than a mission. If a mission ever
+holds that many, the next step is an incremental update (only tiles whose
+distance changed), not a threshold change.
+
 ---
 
 ## Infantry animation: crossfades and falls (2026-09-17)

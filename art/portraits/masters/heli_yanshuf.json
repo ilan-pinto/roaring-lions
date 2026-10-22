@@ -1,0 +1,23 @@
+{
+  "unit": "heli_yanshuf",
+  "variant": "team",
+  "source": "art/meshes/vehicles/heli_yanshuf.glb",
+  "source_sha256": "29aaa0d2aeac3853e205326292b044db7ea5d35577465dc1b1389acf6c1ab687",
+  "yaw_deg": -125.0,
+  "elevation_deg": 18.0,
+  "fov_deg": 30.0,
+  "fill": [
+    "width",
+    0.92
+  ],
+  "ndc_box": [
+    0.04,
+    0.96,
+    0.2409,
+    0.7591
+  ],
+  "materials": {
+    "baked": 2,
+    "flat": 0
+  }
+}

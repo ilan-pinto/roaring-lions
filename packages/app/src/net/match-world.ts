@@ -6,6 +6,7 @@ import { standMapStructures } from '../map-sim';
 import { sandboxAnchors, type SandboxAnchors } from '../sandbox-anchors';
 import { upgradePrepass, type UpgradePrepass } from '../upgrade-prepass';
 import { factionsBySide, versusSpawns } from './versus-force';
+import { versusRoster } from './versus-roster';
 
 /** One unit of the shipped roster, as the prepass takes and returns it. */
 export type RosterUnit = (typeof units)[keyof typeof units];
@@ -74,8 +75,9 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
   // copy only of a KDF type whose kit differs from side 0's, in roster order,
   // and only when side 1 is itself a KDF side.
   // A matched room, or a brigade room whose seats claim the same kit,
-  // therefore registers exactly the roster and nothing else.
-  const roster: readonly RosterUnit[] = Object.values(units);
+  // therefore registers exactly the roster and nothing else. The roster is
+  // `versusRoster()`: the shipped units minus `VERSUS_HELD_UNITS`.
+  const roster: readonly RosterUnit[] = versusRoster();
   const seats = seatsBySide(config);
   const kitBySide = [
     upgradePrepass(roster, seatKitTiers(seats[0])),
@@ -124,7 +126,7 @@ export function seatKitTiers(seat: SeatConfig | undefined): Record<string, Recor
   const out = Object.create(null) as Record<string, Record<string, number>>;
   if (seat === undefined || seat.kit !== 'brigade' || seat.faction !== 'kdf') return out;
   const claim: unknown = seat.tiers;
-  for (const u of Object.values(units) as readonly RosterUnit[]) {
+  for (const u of versusRoster()) {
     const upgrades = (u as { upgrades?: Record<string, { tiers: readonly unknown[] }> }).upgrades;
     if (u.faction !== 'kdf' || upgrades === undefined) continue;
     const perType = ownValue(claim, u.id);

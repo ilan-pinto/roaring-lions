@@ -3121,6 +3121,9 @@ body[data-outcome-beat] .rl-aar {
   text-transform: uppercase;
 }
 .rl-card__why { font-size: var(--t-s); color: var(--ink-mute); }
+/* GH-698: a carrier's seats and an air carrier's flight state (hud.ts, the carry line). */
+.rl-card__carry { font-size: var(--t-s); }
+.rl-card__carry svg { vertical-align: middle; margin-right: 2px; }
 .rl-supp {
   display: flex;
   align-items: center;
@@ -3234,6 +3237,20 @@ body[data-outcome-beat] .rl-aar {
 }
 .rl-held[data-side='hostile'] {
   border-left-color: var(--bad);
+}
+/* Field works (GH-277): the placement tooltip beside the cursor while a work is armed. */
+.rl-works-tip {
+  position: absolute;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-frame);
+  padding: var(--s1) var(--s2);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 5;
+}
+.rl-card--works {
+  width: auto;
+  min-width: 16rem;
 }
 /* GH-345: the Conduct invoice pinned open under the strip's Conduct field. */
 .rl-invoice {
@@ -3870,6 +3887,59 @@ body[data-outcome-beat] .rl-aar {
 .rl-tile--support[data-ready-flash='1'] {
   box-shadow: inset 0 0 0 2px var(--info);
   transition: box-shadow var(--dur-fast) var(--ease);
+}
+
+/* --- Field works (GH-277): the dock's third group ------------------------
+   A heading across the grid, then one tile per type: the mark, the price at
+   the corner, `left/max` at the top, and a lock word in the price's place
+   when the tile is refused. Only the dock for a mission that lists works has
+   any of this; the rules below match nothing otherwise. */
+.rl-dock__group {
+  grid-column: 1 / -1;
+  font-size: var(--t-xs);
+  color: var(--ink-dim);
+  text-shadow: var(--halo);
+}
+.rl-tile--works {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--info);
+  border-color: var(--info);
+}
+.rl-tile__worksleft {
+  position: absolute;
+  left: 3px;
+  top: 1px;
+  font-size: var(--t-s);
+  color: var(--ink);
+  text-shadow: var(--halo);
+}
+.rl-tile--works[data-state='unaffordable'] {
+  opacity: var(--disabled-opacity);
+}
+.rl-tile--works[data-state='unaffordable'] .rl-tile__cost {
+  color: var(--bad-text);
+}
+.rl-tile--works[data-state='locked'],
+.rl-tile--works[data-state='none_left'],
+.rl-tile--works[data-state='needs_engineers'] {
+  color: var(--ink-dim);
+  border-color: var(--panel-frame);
+  opacity: var(--disabled-opacity);
+  cursor: not-allowed;
+}
+.rl-tile--works[data-state='locked'] .rl-tile__cost,
+.rl-tile--works[data-state='none_left'] .rl-tile__cost,
+.rl-tile--works[data-state='needs_engineers'] .rl-tile__cost,
+.rl-tile--works[data-state='ready'] .rl-tile__lock,
+.rl-tile--works[data-state='unaffordable'] .rl-tile__lock {
+  display: none;
+}
+.rl-tile--works[data-armed='1'] {
+  color: var(--live);
+  border-color: var(--live);
+  opacity: 1;
 }
 
 /* Armed outranks both — this is the tile the next click on the map spends, and

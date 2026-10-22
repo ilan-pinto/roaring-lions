@@ -521,3 +521,56 @@ describe('the blade crumbles a building as it works', () => {
     expect(sim.demolitionProgress(id)).toBe(0);
   });
 });
+
+describe('a demolish order approaches from the near face', () => {
+  // Qarn Hadid II (GH bug, 21 Oct): the revetment is a 4x1 `concrete` plugging
+  // a slot in a rock wall. The order used to route to the FIRST open tile in a
+  // row-major ring around the centroid -- the far (north) face -- so engineers
+  // ordered from the south walked the whole map round through the other gate
+  // and the five-minute raze could not be made.
+  function wallWithPlug(): { sim: Sim; st: number } {
+    const sim = new Sim({ seed: 7, width: 32, height: 32, capacity: 8 });
+    // Rows 9-13 are rock from x=0 to x=29 (x=30-31 is the long way round),
+    // with a four-wide slot at x=10-13 that the plug fills at row 11 -- the
+    // shape of the shoulder gate: a cutting, plugged half way along.
+    for (let y = 9; y <= 13; y++) for (let x = 0; x < 30; x++) if (x < 10 || x > 13) sim.setBlocked(x, y, true);
+    const t = sim.addStructureType(SHACK);
+    const st = sim.addStructure(t, [10, 11, 12, 13].map((x) => 11 * 32 + x));
+    return { sim, st };
+  }
+
+  it('engineers south of the plug level it from the south', () => {
+    const { sim, st } = wallWithPlug();
+    const u = sim.addUnitType(SAPPER);
+    const id = sim.spawn(u, 0, fx.from(11.5), fx.from(17.5));
+    sim.queueCommand({ kind: 'demolish', ids: [id], structure: st });
+    let fell = -1;
+    for (let n = 1; n <= 400; n++) {
+      sim.tick();
+      if (sim.structureAt(11, 11) < 0) {
+        fell = n;
+        break;
+      }
+    }
+    expect(fell).toBeGreaterThan(0);
+    // It never left the south side of the wall.
+    expect(fx.toNumber(sim.state.posY[id])).toBeGreaterThan(11);
+  });
+
+  it('engineers north of the plug level it from the north', () => {
+    const { sim, st } = wallWithPlug();
+    const u = sim.addUnitType(SAPPER);
+    const id = sim.spawn(u, 0, fx.from(12.5), fx.from(4.5));
+    sim.queueCommand({ kind: 'demolish', ids: [id], structure: st });
+    let fell = -1;
+    for (let n = 1; n <= 400; n++) {
+      sim.tick();
+      if (sim.structureAt(11, 11) < 0) {
+        fell = n;
+        break;
+      }
+    }
+    expect(fell).toBeGreaterThan(0);
+    expect(fx.toNumber(sim.state.posY[id])).toBeLessThan(11);
+  });
+});

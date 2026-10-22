@@ -1,0 +1,46 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready utility transport helicopter, a machine of a fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and military. At rest, level. A deep boxy troop cabin behind a wide two-seat cockpit, both sliding cabin doors open with a pintle-mounted machine gun in each doorway, a four-blade main rotor, a long slender tail boom with a canted tail rotor and a horizontal stabilator, fixed main wheels and a tailwheel; no stub wings, no pylons, no missiles, no external fuel tanks. Real-world scale, 19.8 metres long. Olive paint, gunmetal rotors and guns, dark glazing. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "negative_prompt": "stub wings, weapon pylons, missiles, rocket pods, external fuel tanks, tandem cockpit, chin gun, landing skids, coaxial rotors, twin tail booms, people, text, insignia",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 40000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a14f12-8290-75bd-8d7f-b1b29921a663",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 3833507626,
+    "prompt": "A single low-poly game-ready utility transport helicopter, a machine of a fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and military. At rest, level. A deep boxy troop cabin behind a wide two-seat cockpit, both sliding cabin doors open with a pintle-mounted machine gun in each doorway, a four-blade main rotor, a long slender tail boom with a canted tail rotor and a horizontal stabilator, fixed main wheels and a tailwheel; no stub wings, no pylons, no missiles, no external fuel tanks. Real-world scale, 19.8 metres long. Olive paint, gunmetal rotors and guns, dark glazing. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1792327977394,
+    "progress": 100,
+    "started_at": 1792327977402,
+    "finished_at": 1792328018454,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a14f12-8290-75bd-8d7f-b1b29921a663/output/model.glb?Expires=4945881600&Signature=FL5opLJ9yXS1OdCd3Enew0J49W8Kc8pY2uzBfSDmPwBdeSBhat7QACxQY9XPiEiE1qceb2TQ5zyqo6YqiqjZk1cw~4L97WtBu9bgihz0vyTLMLv6CbbanvkzErOW1sKSNQMJUqiZLCziUY-v9NYRvFqfpR9SHcepOwuWXu3nLHckGfeIyLsEM-1Jt7TCQFHDc4dyyvxkZppCbTjPRQRbbZl2sM9E135w6cgJzQrDbKQgEypK30glrso0xb~JIrlNl2rCkXuObuK7Bv7yVs-nzbVTMfcV~LEchsonEvfshS9yTaoe~~C8bfDh0WBvTDWM9uwJVM4pwOhijAIQHWlT5g__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a14f12-8290-75bd-8d7f-b1b29921a663/output/preview.png?Expires=4945881600&Signature=mOV7Q2Nf6WwINr0uZ~x1aBjv6EmMEgNIxLIQpqkJusaXXPFzXaihsiNSCpHzn-vAJGkKVyVT2JchLTBOGIf5TygGb13-pnB3Q9lHJ0dt8ME6zGUqxpbn1inHX9yMrqA5azlgXcZY9M8GuGqVF9BEGlMlE5z3IFmXx32cBr~iUx7OwT56JTCD5fqCUg4osDWh1YpQ0Aa~BIO~Gwi1iKEK45k8FkODvTOoCkZmbyBmH~LcPDCYJZxwFF6O8UG40KYIqc82joI-FMasB9OHiYpdhEf9lxt8pjZtm8Xows2eaYNeLECauXux9iF942CMDbZFBqCrPkPBehdyjJQQSd8Lkw__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1792327977394,
+    "started_at": 1792327977402,
+    "finished_at": 1792328018454
+  },
+  "usd_estimated": 0.4
+}

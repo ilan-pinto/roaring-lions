@@ -25,6 +25,8 @@ export interface SandboxExtras {
   tunnel: boolean;
   sur: boolean;
   civ: boolean;
+  /** `&works` (GH-277): the engineer squad that raises the field works. */
+  works: boolean;
 }
 
 /** The task force, as offsets from the friendly anchor. */
@@ -125,6 +127,10 @@ export const SANDBOX_TUNNEL_KDF: readonly SandboxPlacement[] = [
   ['yahalom_squad', 3, 1],
 ];
 
+/** What `&works` adds to the player's side: the squad whose `construct` ability raises a field
+ *  work. The D9 in the base force can too, but a bulldozer is not the unit the feature is for. */
+export const SANDBOX_WORKS_KDF: readonly SandboxPlacement[] = [['demo_squad', 3, 2]];
+
 /**
  * Every unit type a sandbox will place, for the same flags `sandboxSpawns`
  * gets. The mesh loader's roster for `?sandbox=<map>`, and the reason these
@@ -137,6 +143,7 @@ export function sandboxUnitTypes(extras: SandboxExtras): Set<string> {
   for (const [id] of SANDBOX_ENEMY) out.add(id);
   if (extras.tunnel) for (const [id] of SANDBOX_TUNNEL_KDF) out.add(id);
   if (extras.sur) for (const [id] of SANDBOX_SUR) out.add(id);
+  if (extras.works) for (const [id] of SANDBOX_WORKS_KDF) out.add(id);
   if (extras.civ) for (const [id] of SANDBOX_CIV) out.add(id);
   return out;
 }

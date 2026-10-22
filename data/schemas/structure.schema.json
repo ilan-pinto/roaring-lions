@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://roaringlions.dev/schemas/structure.schema.json",
   "title": "Structure catalogue",
-  "description": "Building types. A structure is a contiguous run of same-symbol tiles on a map: it blocks movement, absorbs fire, shelters a garrison, and leaves passable rubble when it falls. Masonry is not armour \u2014 how much a round hurts a building is a property of the round, not a penetration roll.",
+  "description": "Building types. A structure is a contiguous run of same-symbol tiles on a map: it blocks movement, absorbs fire, shelters a garrison, and leaves passable rubble when it falls. Masonry is not armour — how much a round hurts a building is a property of the round, not a penetration roll.",
   "type": "object",
   "required": [
     "types"
@@ -116,7 +116,185 @@
             "type": "integer",
             "minimum": 0,
             "description": "Which side this structure builds units for. Present ONLY on production structures -- the seven civilian types are neutral terrain and carry no owner at all, because nothing needed one until a camp did. While a living structure of a type with produces_for === side stands, that side's requestBuild deploys beside it; destroying every one of them stops that side's production. Missions with no such structure fall back to the mission's own player_start, which is what keeps every mission authored before this feature working unchanged."
+          },
+          "owner": {
+            "type": "integer",
+            "enum": [
+              -1,
+              0,
+              1
+            ],
+            "default": -1,
+            "description": "Field works (#277): the default OWNER of a structure of this type. -1 = neutral terrain, as every pre-existing type is. 0 or 1 = a side's building: a target to the other side once seen. Overridable per mission placement. Distinct from produces_for (what it builds)."
+          },
+          "buildable": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "cost",
+              "build_time_s"
+            ],
+            "description": "Field works (#277): the player may raise this in a mission whose field_works lists it. Requires owner 0 (validate_works.mjs).",
+            "properties": {
+              "cost": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "logistics"
+                ],
+                "properties": {
+                  "logistics": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 32767
+                  },
+                  "intel": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 32767
+                  }
+                }
+              },
+              "build_time_s": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "footprint": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "minItems": 2,
+                "maxItems": 2,
+                "default": [
+                  2,
+                  2
+                ]
+              },
+              "unlock": {
+                "$ref": "common.schema.json#/$defs/unlock"
+              }
+            }
+          },
+          "aura": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Field works (#277): what a COMPLETE structure owned by a side does for that side. Overlapping auras take the max, never stack.",
+            "properties": {
+              "area": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/area_effect"
+                }
+              },
+              "garrison": {
+                "$ref": "#/$defs/garrison_effect"
+              },
+              "sensor": {
+                "$ref": "#/$defs/sensor_effect"
+              }
+            }
+          },
+          "construction_mesh": {
+            "type": "string",
+            "description": "Presentation only."
           }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "area_effect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "radius",
+        "affects"
+      ],
+      "properties": {
+        "radius": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 12,
+          "description": "Tiles from the structure's centroid."
+        },
+        "affects": {
+          "enum": [
+            "foot",
+            "vehicle",
+            "any"
+          ],
+          "description": "foot = ground infantry; vehicle = ground vehicle; any = both. Air is excluded from every scope."
+        },
+        "heal_per_s": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Fraction of max HP restored a second. The delay is REGEN_DELAY_TICKS, not a field."
+        },
+        "heal_cap": {
+          "type": "number",
+          "minimum": 0.7,
+          "maximum": 1.0
+        },
+        "repair_per_s": {
+          "type": "number",
+          "minimum": 0
+        },
+        "repair_components_s": {
+          "type": "number",
+          "minimum": 0.05,
+          "maximum": 1600,
+          "description": "Continuous covered, undamaged seconds that clear a mobility or firepower kill."
+        },
+        "accuracy_mult": {
+          "type": "number",
+          "minimum": 1.0,
+          "maximum": 1.25
+        }
+      }
+    },
+    "garrison_effect": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "range_bonus": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Tiles, direct fire only, ON TOP of the global GARRISON_RANGE_BONUS."
+        },
+        "sight_bonus": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 4,
+          "description": "Tiles added to the occupants' sight from the window."
+        }
+      }
+    },
+    "sensor_effect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sight",
+        "optics"
+      ],
+      "properties": {
+        "sight": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 14
+        },
+        "optics": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 2
+        },
+        "tunnel_radius": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 14,
+          "description": "Tiles inside which any tile of a tunnel route identifies it to the owner, with no line of sight. A mission that authors a digs or in_tunnel placement may not field a type with this above 0 (validate_works.mjs)."
         }
       }
     }

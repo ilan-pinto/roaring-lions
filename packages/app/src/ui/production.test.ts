@@ -22,9 +22,11 @@ import {
   Sim,
   type Command,
   type MissionJson,
+  type WorksOffer,
+  type WorksRefusal,
   type UnitTypeJson,
 } from '@lions/sim';
-import { ReinforcementDock, type ProductionOptions, type ProductionRuntime, type SupportKind } from './production';
+import { ReinforcementDock, isWorksKind, sameSupport, type ProductionOptions, type ProductionRuntime, type SupportKind } from './production';
 import type { DockUnit } from './dock-model';
 import type { Tone } from './hud';
 import { closeTip } from './tooltip';
@@ -1297,5 +1299,122 @@ describe('population in the dock', () => {
     expect(runtime.applyQueued()).toBe(0);
     expect(runtime.production).toHaveLength(1);
     expect(runtime.logistics).toBe(before - 292);
+  });
+});
+
+// ----------------------------------------------------------------------
+// Field works (#277): the third group
+// ----------------------------------------------------------------------
+
+const OFFERS: WorksOffer[] = [
+  { typeId: 'kdf_medic_station', name: 'Medic Station', max: 2, left: 2, logistics: 250, intel: 0 },
+  { typeId: 'kdf_workshop', name: 'Workshop', max: 2, left: 2, logistics: 300, intel: 0 },
+];
+
+function worksRig(reasons: Record<string, WorksRefusal | null> = {}, offers: WorksOffer[] = OFFERS): Rig {
+  const rt = fakeRuntime({ worksOffers: () => offers, constructReason: (id) => reasons[id] ?? null });
+  return rig([dockUnit()], rt);
+}
+
+describe('sameSupport', () => {
+  it('compares works by id and fire calls by identity, never across', () => {
+    expect(sameSupport({ works: 'a' }, { works: 'a' })).toBe(true);
+    expect(sameSupport({ works: 'a' }, { works: 'b' })).toBe(false);
+    expect(sameSupport({ works: 'a' }, 'air_strike')).toBe(false);
+    expect(sameSupport('air_strike', { works: 'a' })).toBe(false);
+    expect(sameSupport('air_strike', 'air_strike')).toBe(true);
+    expect(sameSupport(null, null)).toBe(true);
+    expect(sameSupport(null, 'air_strike')).toBe(false);
+    expect(isWorksKind({ works: 'a' })).toBe(true);
+    expect(isWorksKind('air_strike')).toBe(false);
+    expect(isWorksKind(null)).toBe(false);
+  });
+});
+
+describe('the Field works group', () => {
+  it('a mission with no offers has the dock DOM it always had', () => {
+    const norm = (html: string): string => html.replace(/rl-tip-\d+/g, 'rl-tip-N');
+    const plain = norm(rig().host.innerHTML);
+    const none = rig([dockUnit()], fakeRuntime({ worksOffers: () => [], constructReason: () => null }));
+    expect(norm(none.host.innerHTML)).toBe(plain);
+    expect(none.host.querySelector('[data-works]')).toBeNull();
+    expect(none.host.querySelector('.rl-dock__group')).toBeNull();
+  });
+
+  it('draws one tile per offer after the four support tiles, with price and left/max', () => {
+    const r = worksRig();
+    const kids = [...r.host.querySelector('.rl-dock__grid')!.children];
+    const firstWorks = kids.findIndex((el) => el.classList.contains('rl-dock__group'));
+    expect(firstWorks).toBe(kids.length - 3);
+    expect(kids.slice(0, firstWorks).filter((el) => (el as HTMLElement).dataset.support !== undefined)).toHaveLength(4);
+    const t1 = r.host.querySelector<HTMLElement>('[data-works="kdf_medic_station"]')!;
+    expect(t1.querySelector('svg')).not.toBeNull();
+    expect(t1.querySelector('.rl-tile__cost')?.textContent).toContain('250');
+    expect(t1.querySelector('.rl-tile__worksleft')?.textContent).toBe('2/2');
+    expect(r.host.querySelector('.rl-dock__group')?.textContent).toBe('Field works');
+  });
+
+  it('each state renders its lock word and a data-state', () => {
+    const r = worksRig({ kdf_medic_station: 'needs_engineers', kdf_workshop: 'none_left' });
+    const word = (id: string): string | null | undefined =>
+      r.host.querySelector(`[data-works="${id}"] .rl-tile__lock`)?.textContent;
+    expect(word('kdf_medic_station')).toBe('engineers');
+    expect(word('kdf_workshop')).toBe('none left');
+    const locked = worksRig({ kdf_medic_station: 'locked', kdf_workshop: 'unaffordable' });
+    expect(locked.host.querySelector('[data-works="kdf_medic_station"] .rl-tile__lock')?.textContent).toBe('locked');
+    expect(locked.host.querySelector<HTMLElement>('[data-works="kdf_workshop"]')?.dataset.state).toBe('unaffordable');
+    expect(locked.host.querySelector('[data-works="kdf_workshop"] .rl-tile__lock')?.textContent).toBe('');
+    expect(worksRig().host.querySelector('[data-works="kdf_workshop"] .rl-tile__lock')?.textContent).toBe('');
+  });
+
+  it('reads the selection: a selected engineer unlocks the tile, deselecting locks it again', () => {
+    let selected: number[] = [];
+    const asked: (readonly number[] | undefined)[] = [];
+    const rt = fakeRuntime({
+      worksOffers: () => OFFERS,
+      constructReason: (_id, _tx, _ty, builders) => {
+        asked.push(builders);
+        return builders !== undefined && builders.includes(7) ? null : 'needs_engineers';
+      },
+    });
+    const r = rig([dockUnit()], rt, undefined, { worksBuilders: () => selected });
+    const state = (): string | undefined => r.host.querySelector<HTMLElement>('[data-works="kdf_medic_station"]')?.dataset.state;
+    expect(state()).toBe('needs_engineers');
+    selected = [7];
+    r.dock.refresh();
+    expect(state()).toBe('ready');
+    expect(asked.at(-1)).toEqual([7]);
+    selected = [];
+    r.dock.refresh();
+    expect(state()).toBe('needs_engineers');
+  });
+
+  it('a ready tile arms its kind, a second press disarms, a refused tile denies', () => {
+    const r = worksRig({ kdf_workshop: 'none_left' });
+    r.host.querySelector<HTMLButtonElement>('[data-works="kdf_medic_station"]')!.click();
+    expect(r.arms).toEqual([{ works: 'kdf_medic_station' }]);
+    expect(r.host.querySelector<HTMLElement>('[data-works="kdf_medic_station"]')!.dataset.armed).toBe('1');
+    r.host.querySelector<HTMLButtonElement>('[data-works="kdf_medic_station"]')!.click();
+    expect(r.arms[1]).toBeNull();
+    r.host.querySelector<HTMLButtonElement>('[data-works="kdf_workshop"]')!.click();
+    expect(r.arms).toHaveLength(2);
+    expect(r.notes[r.notes.length - 1]?.tone).toBe('warn');
+  });
+
+  it('arming a works kind clears a fire call’s highlight, and the reverse', () => {
+    const r = worksRig();
+    r.dock.press('air_strike');
+    expect(r.support('air_strike').dataset.armed).toBe('1');
+    r.dock.press({ works: 'kdf_medic_station' });
+    expect(r.support('air_strike').dataset.armed).toBe('0');
+    r.dock.press('air_strike');
+    expect(r.host.querySelector<HTMLElement>('[data-works="kdf_medic_station"]')!.dataset.armed).toBe('0');
+  });
+
+  it('escapes a hostile display name in the tooltip', () => {
+    const r = worksRig({}, [{ ...OFFERS[0]!, name: '<b>x</b>' }]);
+    hover(r.host.querySelector<HTMLElement>('[data-works]')!);
+    expect(r.tip().innerHTML).not.toContain('<b>x</b>');
+    expect(r.tip().textContent).toContain('<b>x</b>');
   });
 });

@@ -6,12 +6,14 @@
 // each other, and the ones where a field says something that is not true.
 
 import { describe, expect, it } from 'vitest';
-import { TICKS_PER_SECOND } from '@lions/sim';
+import { AIR_AIRBORNE, AIR_LANDED, AIR_LANDING, AIR_LIFTING, TICKS_PER_SECOND } from '@lions/sim';
 import {
   beatDwellMs,
   clocklessObjectives,
   clockText,
   countSuppressed,
+  flightKey,
+  ridersOf,
   holdClock,
   limitClock,
   LIMIT_CLOCK_TICKS,
@@ -425,5 +427,25 @@ describe('limitClock (GH-540, the last minute only)', () => {
   });
   it('starts on the same tick as the feed warning', () => {
     expect(LIMIT_CLOCK_TICKS).toBe(DEADLINE_WARN_TICKS);
+  });
+});
+
+describe('flightKey (GH-698)', () => {
+  it('names each of the four flight states by its own key', () => {
+    expect(flightKey(AIR_AIRBORNE)).toBe('hud.card.air.airborne');
+    expect(flightKey(AIR_LANDING)).toBe('hud.card.air.landing');
+    expect(flightKey(AIR_LANDED)).toBe('hud.card.air.landed');
+    expect(flightKey(AIR_LIFTING)).toBe('hud.card.air.lifting');
+  });
+});
+
+describe('ridersOf (GH-698)', () => {
+  it('lists the living units carried by that carrier, and no other', () => {
+    const st = {
+      carriedBy: Int32Array.from([-1, 0, 0, 3, 0, 0]),
+      alive: Uint8Array.from([1, 1, 1, 1, 0, 1]),
+    };
+    // 4 is dead, 3 rides another carrier, and 5 sits past `count`.
+    expect(ridersOf(st, 5, 0)).toEqual([1, 2]);
   });
 });

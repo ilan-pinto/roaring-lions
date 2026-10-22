@@ -178,6 +178,27 @@ export interface AimFootprint {
 }
 
 /**
+ * Field works (#277): the footprint pad under an armed works key, in tiles,
+ * top-left anchored. `valid` false tints it `team.hostile` at hover strength.
+ */
+export interface PlacementPreview {
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+  readonly valid: boolean;
+}
+
+/** Field works (#277): one aura ring, centre and radius in tiles. `dotted` is
+ *  the intel centre's tunnel ring. */
+export interface AuraRingView {
+  readonly cx: number;
+  readonly cy: number;
+  readonly radius: number;
+  readonly style: 'dashed' | 'dotted';
+}
+
+/**
  * One of side 0's supply routes for the world (S-F F2 C3): the convoy's, or a
  * held income zone's. `tiles` are tile indices `y * width + x` in order, from
  * the zone (or the entry) to the rear; `cutSpan` is the cut stretch as an
@@ -677,6 +698,13 @@ export interface Renderer {
    *
    *  S-F Task 1: the rings are per kind -- see `AimFootprint`. */
   aimFootprint?: AimFootprint | null;
+  /** Field works (#277 Task 9): the footprint pad under an armed works key. An
+   *  ORDER PREVIEW like `aimFootprint`: written while armed, `null` otherwise.
+   *  Optional on the seam; absent or `null` draws nothing. */
+  placementPreview?: PlacementPreview | null;
+  /** Field works: the aura rings to draw (armed, or a hovered / selected own
+   *  works structure). Dashed, no fill. Absent or empty draws nothing. */
+  auraRingPreview?: readonly AuraRingView[];
   /** S-F F2 C3: side 0's supply routes, drawn in the world as a thin
    *  ground-draped `--info` ribbon whose cut stretch alone is dashed
    *  `--warn`. ON DEMAND, never a standing mark: the app writes the routes

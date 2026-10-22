@@ -244,6 +244,33 @@
       "elevationDeg": 18,
       "distance": 1.346
     },
+    "heli_yanshuf_armour": {
+      "file": "heli_yanshuf_armour.jpg",
+      "unit": "heli_yanshuf",
+      "track": "armour",
+      "subject": "role",
+      "yawDeg": 225,
+      "elevationDeg": 18,
+      "distance": 2.517
+    },
+    "heli_yanshuf_firepower": {
+      "file": "heli_yanshuf_firepower.jpg",
+      "unit": "heli_yanshuf",
+      "track": "firepower",
+      "subject": "whole",
+      "yawDeg": 225,
+      "elevationDeg": 18,
+      "distance": 2.517
+    },
+    "heli_yanshuf_sensors": {
+      "file": "heli_yanshuf_sensors.jpg",
+      "unit": "heli_yanshuf",
+      "track": "sensors",
+      "subject": "whole",
+      "yawDeg": 225,
+      "elevationDeg": 18,
+      "distance": 2.517
+    },
     "ifv_namer_armour": {
       "file": "ifv_namer_armour.jpg",
       "unit": "ifv_namer",

@@ -250,6 +250,12 @@ describe('createPostChain', () => {
     expect(isAoOccluder(meshWith({ normals: false }))).toBe(false);
     expect(isAoOccluder(meshWith({ normals: true, transparent: true }))).toBe(false);
     expect(isAoOccluder(meshWith({ normals: true, depthWrite: false }))).toBe(false);
+    // A construction clone cut by a clip plane: the override ignores the plane.
+    const clipped = meshWith({ normals: true });
+    (clipped.material as THREE.Material).clippingPlanes = [new THREE.Plane(new THREE.Vector3(0, -1, 0), 1)];
+    expect(isAoOccluder(clipped)).toBe(false);
+    (clipped.material as THREE.Material).clippingPlanes = [];
+    expect(isAoOccluder(clipped)).toBe(true);
     // Not a mesh: the override material never draws it, and the base pass
     // hides points and lines itself. Saying `false` here would hide whole
     // subtrees, because visibility in three is inherited.

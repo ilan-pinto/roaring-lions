@@ -440,6 +440,65 @@ export function haloStyleOf(style: DashedRingStyle): DashedRingStyle {
 }
 
 /**
+ * Field works (#277, spec §6 treatment B): the footprint pad and the aura rings
+ * under an armed works key, or round a hovered / selected works structure. An
+ * ORDER PREVIEW, never a status mark -- drawn only while the app writes it.
+ *
+ * The pad is the tile grid as thin lines, flat, no fill and no volume. The
+ * rings go through `dashedEllipseRing` and nothing else, each as its halo then
+ * its dash (the refuge ring's recipe, measured necessary on sand). The tunnel
+ * ring is dotted and sits `AURA_TUNNEL_RING_OFFSET_PX` outside, so a sensor
+ * whose tunnel radius equals its sight (the approved 10/10) still shows both.
+ */
+export const AURA_RING_STYLE: DashedRingStyle = { widthPx: 2, dashPx: 7, gapPx: 5 };
+export const AURA_RING_EDGE_STYLE: DashedRingStyle = haloStyleOf(AURA_RING_STYLE);
+export const AURA_TUNNEL_RING_STYLE: DashedRingStyle = { widthPx: 2, dashPx: 2, gapPx: 4 };
+export const AURA_TUNNEL_RING_EDGE_STYLE: DashedRingStyle = haloStyleOf(AURA_TUNNEL_RING_STYLE);
+export const AURA_TUNNEL_RING_OFFSET_PX = 4;
+export const AURA_RING_ALPHA = 0.7;
+export const PAD_ALPHA = 0.38;
+export const PAD_INVALID_ALPHA = 0.6;
+export const PAD_LINE_WIDTH_PX = 1.5;
+export const AURA_RING_COLOR_KEY = 'team.kedem';
+export const AURA_TUNNEL_RING_COLOR_KEY = 'dust.6';
+export const PAD_INVALID_COLOR_KEY = 'team.hostile';
+export const AURA_RING_FALLBACK_COLOR = paletteHex(AURA_RING_COLOR_KEY);
+export const AURA_TUNNEL_RING_FALLBACK_COLOR = paletteHex(AURA_TUNNEL_RING_COLOR_KEY);
+export const PAD_INVALID_FALLBACK_COLOR = paletteHex(PAD_INVALID_COLOR_KEY);
+
+/** The grid of a `w` x `h` tile footprint at tile (`x`, `y`) (top-left): `w+1`
+ *  lines along one axis and `h+1` along the other, as `[x, 0, tileY]` world
+ *  points. The caller sets each end's height from the ground under it. */
+export function padGridLines(x: number, y: number, w: number, h: number): readonly [WorldPoint, WorldPoint][] {
+  const lines: [WorldPoint, WorldPoint][] = [];
+  for (let i = 0; i <= w; i++) lines.push([[x + i, 0, y], [x + i, 0, y + h]]);
+  for (let j = 0; j <= h; j++) lines.push([[x, 0, y + j], [x + w, 0, y + j]]);
+  return lines;
+}
+
+/** One aura ring: halo then dash, in the style its kind names. A `dotted`
+ *  ring's radius grows by `AURA_TUNNEL_RING_OFFSET_PX` on both axes. */
+export function drawAuraRing(
+  batch: Pick<OverlayBatch, 'dashedEllipseRing'>,
+  anchor: readonly [number, number, number],
+  ring: { readonly radius: number; readonly style: 'dashed' | 'dotted' },
+  tileWPx: number,
+  tileHPx: number,
+  colors: { readonly edge: string; readonly dashed: string; readonly dotted: string }
+): void {
+  const { rightR, upR } = tileRadiusToEllipsePx(ring.radius, tileWPx, tileHPx);
+  if (ring.style === 'dotted') {
+    const r = rightR + AURA_TUNNEL_RING_OFFSET_PX;
+    const u = upR + AURA_TUNNEL_RING_OFFSET_PX;
+    batch.dashedEllipseRing(anchor, r, u, AURA_TUNNEL_RING_EDGE_STYLE, colors.edge, REFUGE_RING_EDGE_ALPHA);
+    batch.dashedEllipseRing(anchor, r, u, AURA_TUNNEL_RING_STYLE, colors.dotted, AURA_RING_ALPHA);
+  } else {
+    batch.dashedEllipseRing(anchor, rightR, upR, AURA_RING_EDGE_STYLE, colors.edge, REFUGE_RING_EDGE_ALPHA);
+    batch.dashedEllipseRing(anchor, rightR, upR, AURA_RING_STYLE, colors.dashed, AURA_RING_ALPHA);
+  }
+}
+
+/**
  * The rings an armed call draws, outermost first. Strike (and an absent kind):
  * one `vfx.fire` ring, unchanged. Barrage: that same ring at the footprint
  * radius plus an inner `vfx.ember` ring at `scatterTiles` -- only when it is a

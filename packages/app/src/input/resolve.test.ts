@@ -318,6 +318,33 @@ describe('the keyboard verbs, resolved the same way', () => {
     expect(r.note?.text).toBe('nothing selected is carrying troops — select a loaded transport to unload');
   });
 
+  // GH-698: an air carrier lands to load and lands to unload; the note says so, the intent is the same.
+  it('says an air carrier lands to take riders aboard', () => {
+    const r = resolveKeyVerb(world(), 'mount', {
+      ids: [1, 2], x: 0, y: 0,
+      isCarrier: (i) => i === 1, canEmbark: (i) => i !== 1,
+      canSmoke: () => false, passengerCount: () => 0,
+      isAirCarrier: (i) => i === 1,
+    });
+    expect(r.intents).toEqual([{ kind: 'mount', riders: [2], carrier: 1 }]);
+    expect(r.note?.text).toBe('<b>mount up</b> — landing to take them aboard');
+  });
+
+  it('says an air carrier lands to unload, but not when a ground carrier unloads with it', () => {
+    const base = {
+      x: 0, y: 0,
+      isCarrier: () => true, canEmbark: () => false,
+      canSmoke: () => false, passengerCount: () => 2,
+      isAirCarrier: (i: number) => i === 1,
+    };
+    const air = resolveKeyVerb(world(), 'dismount', { ...base, ids: [1] });
+    expect(air.intents).toEqual([{ kind: 'dismount', carriers: [1] }]);
+    expect(air.note?.text).toBe('<b>dismount</b> — landing to unload');
+    const mixed = resolveKeyVerb(world(), 'dismount', { ...base, ids: [1, 2] });
+    expect(mixed.intents).toEqual([{ kind: 'dismount', carriers: [1, 2] }]);
+    expect(mixed.note?.text).toBe('<b>dismount</b> — infantry debussing');
+  });
+
   it('halt with nothing of ours selected says what it wants; with units, says nothing (pass K)', () => {
     expect(haltNote(0)).toEqual({ text: 'nothing of yours selected to halt — select units first', tone: 'mute' });
     expect(haltNote(3)).toBeNull();

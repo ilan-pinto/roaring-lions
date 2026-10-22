@@ -22,10 +22,10 @@ import {
   type HoldView,
   type ZoneState,
 } from './income';
-import { fx, HALF, type Fx } from './fixed';
+import { fx, HALF, ONE, type Fx } from './fixed';
 import { HASH_SEED, hashWord } from './hash';
 import { starsFor, betterResult, type Stars, type MissionResult } from './grade';
-import { TICKS_PER_SECOND, type Sim, type SimEvent } from './sim';
+import { TICKS_PER_SECOND, type PlacementRefusal, type Sim, type SimEvent } from './sim';
 import { advance, cancel, enqueue, lineContested, spendDown, type LineItem, type ProductionLine } from './production';
 import { highGroundRises } from './intel-earn';
 import {
@@ -260,7 +260,22 @@ export interface MissionJson {
   objectives: readonly ObjectiveJson[];
   starting_force?: readonly PlacementJson[];
   /** Buildings this mission raises on top of its map's own. See the schema. */
-  structures?: readonly { type: string; at: readonly number[]; size?: readonly number[]; side?: number }[];
+  structures?: readonly {
+    type: string;
+    at: readonly number[];
+    size?: readonly number[];
+    /** F4: overrides the type's `produces_for`, 0 or 1. */
+    side?: number;
+    /** Field works (#277): overrides the type's `owner`, -1 neutral, 0 or 1. Distinct from
+     *  `side` (D2): reusing `side` would make every side-1 camp an owned, targetable building. */
+    owner?: number;
+  }[];
+  /** Field works (#277): the structure types the player may raise this mission, type id -> how
+   *  many may be raised in TOTAL this mission (a listed type defaults to 1 in the schema, max 2).
+   *  A per-mission total, not a standing cap: a destroyed work does not return its count (a
+   *  cancelled or refused request does, with its refund). Absent = none: every request is
+   *  `not_listed`. */
+  field_works?: Record<string, number>;
   resources?: {
     logistics_start?: number;
     intel_start?: number;
@@ -546,6 +561,22 @@ export type MissionEvent =
       ref: number | string;
       at: { x: number; y: number };
     }
+  /**
+   * A field work (#277) changed state, for the feed. `site` is the sim's site row (-1 for a
+   * refusal, which never had one); `builder` is the lead builder of a `started`, else -1;
+   * `refund` is whole logistics given back (a `refused` or `cancelled`), else 0.
+   */
+  | {
+      kind: 'works';
+      tick: number;
+      phase: 'started' | 'complete' | 'destroyed' | 'cancelled' | 'refused';
+      typeId: string;
+      site: number;
+      builder: number;
+      refund: number;
+      /** Why a `refused` was refused (the sim's own answer), else absent. */
+      reason?: PlacementRefusal | 'no_site_slot' | 'no_builder';
+    }
   | {
       kind: 'missionEnd';
       tick: number;
@@ -560,7 +591,7 @@ export type MissionEvent =
 /** Every `MissionEvent` kind, as a value. See `SIM_EVENT_KINDS`. */
 export const MISSION_EVENT_KINDS = [
   'objective', 'trigger', 'wave', 'roe', 'built', 'evacuated', 'removed', 'unitLost', 'say',
-  'missionEnd', 'intelEarned', 'zoneHolder', 'corridor',
+  'missionEnd', 'intelEarned', 'zoneHolder', 'corridor', 'works',
 ] as const satisfies readonly MissionEvent['kind'][];
 
 /** Compile-time proof the list above covers the whole union. See
@@ -573,10 +604,53 @@ export type MissionEventKindsAreExhaustive = AssertNoMissingMissionKind<MissingM
  *  the state `checkEnd` froze, in the order `checkEnd` tests it. */
 export type DefeatCause = 'force_destroyed' | 'roe_collapse' | 'withdrawn' | { objective: string };
 
+/** Why a field work is refused (`MissionRuntime.constructReason`), in the order it is checked. */
+export type WorksRefusal = 'not_listed' | 'none_left' | 'locked' | 'unaffordable' | 'needs_engineers' | PlacementRefusal;
+
+/** One row of the dock's "Field works" group (`MissionRuntime.worksOffers`). */
+export interface WorksOffer {
+  typeId: string;
+  name: string;
+  max: number;
+  left: number;
+  logistics: number;
+  intel: number;
+}
+
+/** Whole units given back for the unbuilt part of a field work: `(cost x (ONE - progress)) >> 16`,
+ *  truncated. The one rule the cancel refund and the cancel button's "refund N" both read. */
+export function worksRefund(cost: number, progress: number): number {
+  return (cost * (ONE - progress)) >> 16;
+}
+
+/** What the runtime holds for a field work: the offer, the structure type index it resolved to. */
+interface WorksEntry {
+  offer: WorksOffer;
+  structType: number;
+}
+
+/** A request charged and not yet answered by the sim (`constructQueued` / `constructRefused`). */
+interface WorksCharge {
+  typeId: string;
+  structType: number;
+  x: number;
+  y: number;
+  logistics: number;
+  intel: number;
+}
+
 const SUPPORTED = new Set([
   'locate', 'eliminate_hvt', 'capture', 'hold_for', 'survive_until', 'destroy_all',
   'evacuate_before', 'raze', 'collapse',
 ]);
+
+/** A works type's authored `buildable.unlock` (the unit schema's snake_case gate), as the
+ *  `UnlockGate` `unlockReason` reads. Anything that is not an object is no gate. */
+function worksUnlock(raw: unknown): UnlockGate | undefined {
+  if (raw === null || typeof raw !== 'object') return undefined;
+  const g = raw as { roe_rating_min?: number; stars_min?: number; after_mission?: string; price?: number };
+  return { roeMin: g.roe_rating_min, starsMin: g.stars_min, afterMission: g.after_mission, price: g.price };
+}
 
 /** Purse units per whole logistics: 1/2400ths (see `MissionRuntime.purse`). */
 const PURSE_UNITS = 2400;
@@ -824,6 +898,19 @@ export class MissionRuntime {
     halvedBy: null,
   };
   private intelValue = 0;
+  // --- field works (#277) -------------------------------------------------------
+  // Runtime-only and NOT in economyHash/digest (D1): a mission with no `field_works`
+  // never touches any of it, and the purse it moves is hashed through `logisticsOf`.
+  /** The offers, resolved once against the sim's structure types; null until first read. */
+  private worksList: WorksEntry[] | null = null;
+  /** The `offer` of each entry, in the same order: what `worksOffers` hands out. */
+  private worksOfferList: WorksOffer[] = [];
+  /** Requests charged and awaiting the sim's answer, oldest first. */
+  private readonly worksPending: WorksCharge[] = [];
+  /** Site row -> what was paid for it, for the cancel refund. Gone once the site is. */
+  private readonly worksSites = new Map<number, WorksCharge>();
+  /** Structure index -> its works type and site, from the stake; `done` once complete. */
+  private readonly worksStructures = new Map<number, { typeId: string; site: number; done: boolean }>();
   /** The production lines, one per camp per side, in structure index order (D6, LD6 ask 6).
    *  A dead camp's line keeps its index for the mission: indices commands carry never shift.
    *  Built in `start()`; side 0 with no camp gets one `player_start` line (D2). */
@@ -1604,6 +1691,274 @@ export class MissionRuntime {
     if (side === 0) this.intelValue += item.intel;
   }
 
+  // --- field works (#277) --------------------------------------------------------
+
+  /** The offers the mission lists, resolved against the sim's structure types. A listed id the
+   *  sim has no buildable type for is dropped (the validator names it at authoring time). The
+   *  same objects are returned every call, `left` kept current, so a per-frame dock read
+   *  allocates nothing. [] when `field_works` is absent. */
+  worksOffers(): readonly WorksOffer[] {
+    this.works();
+    return this.worksOfferList;
+  }
+
+  private works(): WorksEntry[] {
+    if (this.worksList !== null) return this.worksList;
+    const list: WorksEntry[] = [];
+    const fw = this.mission.field_works;
+    if (fw !== undefined) {
+      for (const typeId of Object.keys(fw)) {
+        const structType = this.sim.structureTypes.findIndex((t) => t.id === typeId);
+        const b = structType < 0 ? null : this.sim.structureTypes[structType].buildable;
+        if (b === null) continue;
+        const offer: WorksOffer = {
+          typeId,
+          name: this.sim.structureTypes[structType].name,
+          max: fw[typeId],
+          left: fw[typeId],
+          logistics: b.costLogistics,
+          intel: b.costIntel,
+        };
+        list.push({ offer, structType });
+        this.worksOfferList.push(offer);
+      }
+    }
+    this.worksList = list;
+    return list;
+  }
+
+  private worksEntry(typeId: string): WorksEntry | null {
+    const list = this.works();
+    for (let i = 0; i < list.length; i++) if (list[i].offer.typeId === typeId) return list[i];
+    return null;
+  }
+
+  /** The live side-0 site raising this type at exactly this origin, or -1: a request naming it
+   *  JOINS that site (the sim's rule), so it is neither charged nor counted. */
+  private liveSiteAt(structType: number, tx: number, ty: number): number {
+    const w = this.sim.works;
+    for (let k = 0; k < w.alive.length; k++) {
+      if (w.alive[k] === 1 && w.side[k] === 0 && w.type[k] === structType && w.x[k] === tx && w.y[k] === ty) return k;
+    }
+    return -1;
+  }
+
+  /** A unit the sim would take a `construct` order from: alive, side 0, a `construct` type,
+   *  on the surface, not routed and not riding. */
+  private canBuildWith(id: number): boolean {
+    const st = this.sim.state;
+    if (id < 0 || id >= this.sim.entityCount) return false;
+    if (st.alive[id] === 0 || st.side[id] !== 0 || st.routed[id] === 1) return false;
+    if (st.carriedBy[id] >= 0 || st.tunnelIn[id] >= 0) return false;
+    return this.sim.unitTypes[st.typeIdx[id]].canConstruct;
+  }
+
+  /**
+   * Who builds: the passed ids that can; failing that the nearest IDLE carrier (a living
+   * `construct` unit not moving and not already on a site) to the footprint centre, ties by
+   * lowest id; failing that nobody. With no tile, any carrier at all answers the dock tile.
+   */
+  private chooseBuilders(entry: WorksEntry, tx: number | undefined, ty: number | undefined, passed?: readonly number[]): number[] {
+    const picked: number[] = [];
+    if (passed !== undefined) {
+      for (const id of passed) if (this.canBuildWith(id)) picked.push(id);
+      if (picked.length > 0) return picked;
+    }
+    const b = this.sim.structureTypes[entry.structType].buildable;
+    const st = this.sim.state;
+    const cx = tx === undefined || b === null ? 0 : fx.fromInt(tx) + ((b.fw * ONE) >> 1);
+    const cy = ty === undefined || b === null ? 0 : fx.fromInt(ty) + ((b.fh * ONE) >> 1);
+    let best = -1;
+    let bestD = 0;
+    for (const id of this.playerIds) {
+      if (!this.canBuildWith(id) || st.moving[id] === 1 || st.buildSite[id] >= 0) continue;
+      if (tx === undefined) return [id];
+      const dx = (st.posX[id] - cx) >> 8;
+      const dy = (st.posY[id] - cy) >> 8;
+      const d = dx * dx + dy * dy;
+      if (best < 0 || d < bestD || (d === bestD && id < best)) {
+        best = id;
+        bestD = d;
+      }
+    }
+    return best < 0 ? [] : [best];
+  }
+
+  /**
+   * Why `typeId` cannot be raised now, or null; pure. Checked in `WorksRefusal`'s order.
+   * With no tile it is the dock tile's state (placement is not asked). A request that names
+   * the type and origin of a live site of its own joins it: no count, no price, no placement
+   * (that site's own footprint would read `overlap`).
+   */
+  constructReason(typeId: string, tx?: number, ty?: number, builders?: readonly number[]): WorksRefusal | null {
+    return this.worksReason(typeId, tx, ty, builders);
+  }
+
+  private worksReason(typeId: string, tx: number | undefined, ty: number | undefined, passed: readonly number[] | undefined): WorksRefusal | null {
+    const entry = this.worksEntry(typeId);
+    if (entry === null) return 'not_listed';
+    const placed = tx !== undefined && ty !== undefined;
+    const join = placed && this.liveSiteAt(entry.structType, tx, ty) >= 0;
+    if (!join) {
+      if (entry.offer.left < 1) return 'none_left';
+      const b = this.sim.structureTypes[entry.structType].buildable;
+      const gate = b === null ? undefined : worksUnlock(b.unlock);
+      const locked = unlockReason(gate, this.ctx.ledger);
+      if (locked !== null) return 'locked';
+      if (this.purse[0] < entry.offer.logistics * PURSE_UNITS || this.intelValue < entry.offer.intel) return 'unaffordable';
+    }
+    if (this.chooseBuilders(entry, tx, ty, passed).length === 0) return 'needs_engineers';
+    if (placed && !join) return this.sim.placementReason(entry.structType, tx, ty, 0);
+    return null;
+  }
+
+  /**
+   * Raise a listed field work with its top-left tile at (tx, ty). On success the price and one
+   * count are taken NOW and a `construct` command is queued for the next tick; the sim's answer
+   * (`constructQueued` / `constructRefused`) settles it in `step`. A join of a live site
+   * charges nothing. Refusal changes nothing.
+   */
+  requestConstruct(typeId: string, tx: number, ty: number, builders?: readonly number[]): boolean {
+    if (this.ended) return false;
+    if (this.worksReason(typeId, tx, ty, builders) !== null) return false;
+    const entry = this.worksEntry(typeId);
+    if (entry === null) return false;
+    const ids = this.chooseBuilders(entry, tx, ty, builders);
+    if (ids.length === 0) return false;
+    if (this.liveSiteAt(entry.structType, tx, ty) < 0) {
+      this.purse[0] -= entry.offer.logistics * PURSE_UNITS;
+      this.intelValue -= entry.offer.intel;
+      entry.offer.left--;
+      this.worksPending.push({ typeId, structType: entry.structType, x: tx, y: ty, logistics: entry.offer.logistics, intel: entry.offer.intel });
+    }
+    this.sim.queueCommand({ kind: 'construct', ids, structType: entry.structType, x: tx, y: ty });
+    return true;
+  }
+
+  /** The player's live site that has NOT been staked yet (no structure row) and whose footprint
+   *  covers tile (tx, ty): its site row, type name and what it cost. Null if none. Read-only; the
+   *  app uses it so an unstaked site can be selected and cancelled. */
+  unstakedWorksAt(tx: number, ty: number): { site: number; name: string; logistics: number } | null {
+    for (const [site, c] of this.worksSites) {
+      const b = this.sim.structureTypes[c.structType].buildable;
+      if (b === null || tx < c.x || ty < c.y || tx >= c.x + b.fw || ty >= c.y + b.fh) continue;
+      const u = this.unstakedWorksAtSite(site);
+      if (u !== null) return u;
+    }
+    return null;
+  }
+
+  /** The same record by site row; null once the site is staked, gone, or not the player's. */
+  unstakedWorksAtSite(site: number): { site: number; name: string; logistics: number } | null {
+    const w = this.sim.works;
+    const c = this.worksSites.get(site);
+    if (c === undefined || w.alive[site] === 0 || w.side[site] !== 0 || w.structure[site] >= 0) return null;
+    const entry = this.worksEntry(c.typeId);
+    return { site, name: entry === null ? c.typeId : entry.offer.name, logistics: c.logistics };
+  }
+
+  /** What the runtime knows of a field work the player raised, by its structure row: its type,
+   *  its site row (what `requestCancelWorks` takes), whether it is complete, and what it cost
+   *  (0 once complete: nothing is refundable then). Null for any other structure. Read-only. */
+  worksAt(structure: number): { typeId: string; name: string; site: number; done: boolean; logistics: number; intel: number } | null {
+    const w = this.worksStructures.get(structure);
+    if (w === undefined) return null;
+    const charge = w.done ? undefined : this.worksSites.get(w.site);
+    const entry = this.worksEntry(w.typeId);
+    return {
+      typeId: w.typeId,
+      name: entry === null ? w.typeId : entry.offer.name,
+      site: w.site,
+      done: w.done,
+      logistics: charge === undefined ? 0 : charge.logistics,
+      intel: charge === undefined ? 0 : charge.intel,
+    };
+  }
+
+  /** Take one of the player's own sites down; the refund and the count come back when the sim
+   *  answers (`constructCancelled`). False for a site that is not a live side-0 site. */
+  requestCancelWorks(site: number): boolean {
+    if (this.ended) return false;
+    const w = this.sim.works;
+    if (site < 0 || site >= w.alive.length || w.alive[site] === 0 || w.side[site] !== 0) return false;
+    this.sim.queueCommand({ kind: 'cancelConstruct', site });
+    return true;
+  }
+
+  /** Give a charge back: whole logistics `refundLogistics` to the purse, `intel` to intel, and the
+   *  count when `count`. */
+  private returnWorks(c: WorksCharge, refundLogistics: number, refundIntel: number, count: boolean): void {
+    this.purse[0] += refundLogistics * PURSE_UNITS;
+    this.intelValue += refundIntel;
+    if (!count) return;
+    const entry = this.worksEntry(c.typeId);
+    if (entry !== null && entry.offer.left < entry.offer.max) entry.offer.left++;
+  }
+
+  /** The oldest pending charge for this request's type and origin, removed from the list. */
+  private takePending(structType: number, x: number, y: number): WorksCharge | null {
+    for (let i = 0; i < this.worksPending.length; i++) {
+      const c = this.worksPending[i];
+      if (c.structType === structType && c.x === x && c.y === y) {
+        this.worksPending.splice(i, 1);
+        return c;
+      }
+    }
+    return null;
+  }
+
+  /** Settle the sim's field-works answers into charges, counts and `works` events. Does nothing
+   *  (and costs one pass over the tick's events) when no work was ever requested. */
+  private stepWorks(simEvents: SimEvent[], tick: number, out: MissionEvent[]): void {
+    for (const e of simEvents) {
+      if (e.kind === 'constructQueued') {
+        const typeId = this.sim.structureTypes[e.structType].id;
+        const charge = this.takePending(e.structType, e.x, e.y);
+        if (e.joined) {
+          // Two requests for one new site in one tick: the second was charged before the
+          // first had opened it. It joined, so it pays nothing.
+          if (charge !== null) this.returnWorks(charge, charge.logistics, charge.intel, true);
+          continue;
+        }
+        if (this.sim.works.side[e.site] !== 0) continue;
+        this.worksSites.set(e.site, charge ?? { typeId, structType: e.structType, x: e.x, y: e.y, logistics: 0, intel: 0 });
+        out.push({ kind: 'works', tick, phase: 'started', typeId, site: e.site, builder: e.builder, refund: 0 });
+      } else if (e.kind === 'constructRefused') {
+        const typeId = this.sim.structureTypes[e.structType].id;
+        const charge = this.takePending(e.structType, e.x, e.y);
+        if (charge !== null) this.returnWorks(charge, charge.logistics, charge.intel, true);
+        out.push({ kind: 'works', tick, phase: 'refused', typeId, site: -1, builder: -1, refund: charge === null ? 0 : charge.logistics, reason: e.reason });
+      } else if (e.kind === 'constructStaked') {
+        const c = this.worksSites.get(e.site);
+        if (c !== undefined) this.worksStructures.set(e.structure, { typeId: c.typeId, site: e.site, done: false });
+      } else if (e.kind === 'structureComplete') {
+        const c = this.worksSites.get(e.site);
+        if (c === undefined) continue;
+        this.worksSites.delete(e.site);
+        const known = this.worksStructures.get(e.structure);
+        if (known !== undefined) known.done = true;
+        out.push({ kind: 'works', tick, phase: 'complete', typeId: c.typeId, site: e.site, builder: -1, refund: 0 });
+      } else if (e.kind === 'constructCancelled') {
+        const c = this.worksSites.get(e.site);
+        if (c === undefined) continue;
+        this.worksSites.delete(e.site);
+        if (e.structure >= 0) this.worksStructures.delete(e.structure);
+        // Whole units back for what is left unbuilt, truncated: (cost x (ONE - progress)) >> 16.
+        const logistics = worksRefund(c.logistics, e.progress);
+        const intel = worksRefund(c.intel, e.progress);
+        this.returnWorks(c, logistics, intel, true);
+        out.push({ kind: 'works', tick, phase: 'cancelled', typeId: c.typeId, site: e.site, builder: -1, refund: logistics });
+      } else if (e.kind === 'structureDestroyed') {
+        const w = this.worksStructures.get(e.structure);
+        if (w === undefined) continue;
+        this.worksStructures.delete(e.structure);
+        // A wreck mid-build frees the row in the sim; the runtime forgets its payment with it.
+        if (!w.done) this.worksSites.delete(w.site);
+        out.push({ kind: 'works', tick, phase: 'destroyed', typeId: w.typeId, site: w.site, builder: -1, refund: 0 });
+      }
+    }
+  }
+
   /**
    * Complete a declared objective from outside the runtime. The tutorial's
    * "every lesson cleared" is a fact about player input, which the runtime
@@ -2127,6 +2482,7 @@ export class MissionRuntime {
     this.stepProduction(tick, out);
 
     this.stepRoe(simEvents, tick, out);
+    this.stepWorks(simEvents, tick, out);
     this.stepCivilians();
     this.stepPatrols();
     this.stepTriggers(tick, out);
@@ -2687,6 +3043,12 @@ export class MissionRuntime {
         throw new Error(`mission ${this.mission.id}: ${spec.type} has side ${spec.side}, expected 0 or 1`);
       }
       const side: 0 | 1 | undefined = spec.side;
+      // Field works (#277, D2): the owner, the placement's over the type's. Same narrowing as
+      // `side`; absent, addStructure takes the type's own default.
+      if (spec.owner !== undefined && spec.owner !== -1 && spec.owner !== 0 && spec.owner !== 1) {
+        throw new Error(`mission ${this.mission.id}: ${spec.type} has owner ${spec.owner}, expected -1, 0 or 1`);
+      }
+      const opts = spec.owner !== undefined ? { owner: spec.owner } : undefined;
       const tiles: number[] = [];
       for (let y = oy; y < oy + h; y++) {
         for (let x = ox; x < ox + w; x++) {
@@ -2713,11 +3075,11 @@ export class MissionRuntime {
       // type, and a 6x1 fence came up as a single panel on a six-tile pad.
       if (this.sim.structureTypes[ti].perTile) {
         for (const t of tiles) {
-          const id = this.sim.addStructure(ti, [t]);
+          const id = this.sim.addStructure(ti, [t], opts);
           if (side !== undefined) this.sim.setStructureProducesFor(id, side);
         }
       } else {
-        const id = this.sim.addStructure(ti, tiles);
+        const id = this.sim.addStructure(ti, tiles, opts);
         if (side !== undefined) this.sim.setStructureProducesFor(id, side);
       }
     }

@@ -36,6 +36,10 @@ const EXPECTED_FACE: Readonly<Record<string, BannerSpot['face']>> = {
   clinic: '+x',
   relay: '+z',
   pump_house: '+z',
+  // Field works (#277): both GLBs are on main (GH-277 §8 art), and both
+  // land their banner on the sunlit +z face.
+  kdf_outpost: '+z',
+  militia_firing_position: '+z',
 };
 
 /** Garrisonable types that get NO banner, and why. `bannerSpotFor` wants a

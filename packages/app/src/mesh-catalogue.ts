@@ -245,6 +245,12 @@ export const VEHICLE_UNIT_MESHES: Readonly<Record<string, string>> = {
   // (`tools/vehicles/export_meshy_apache_gunship.py`); an air unit on this path.
   heli_peten_gunship: 'vehicles/heli_peten_gunship.glb',
 
+  // GH-698 (2026-10-21): the UH-60 Yanshuf, an air carrier. Its art landed
+  // first (PR 701, held here until the land/lift sim, PR 713); a Meshy export
+  // (`tools/vehicles/export_meshy_yanshuf.py`), textured
+  // (`TEXTURED_VEHICLE_TYPES`), an air unit on this path like the Peten.
+  heli_yanshuf: 'vehicles/heli_yanshuf.glb',
+
   // WP-A3.1 batch B2 (GH-179, 2026-09-30): the first units generated through
   // `pnpm meshy` end to end (`docs/art/meshy-prompts-units.md` sections 6-7).
   // Both enemy; `gun_truck` is textured (`TEXTURED_VEHICLE_TYPES`), the drone
@@ -263,7 +269,9 @@ export const VEHICLE_UNIT_MESHES: Readonly<Record<string, string>> = {
 };
 
 /** Structure types drawing a building mesh: standing plus its wreck sibling. */
-export const BUILDING_MESHES: Readonly<Record<string, { readonly idle: string; readonly wreck: string }>> = {
+export const BUILDING_MESHES: Readonly<
+  Record<string, { readonly idle: string; readonly wreck: string; readonly construction?: string }>
+> = {
   shanty: { idle: 'buildings/shanty.glb', wreck: 'buildings/shanty_wreck.glb' },
   house: { idle: 'buildings/house.glb', wreck: 'buildings/house_wreck.glb' },
   warehouse: { idle: 'buildings/warehouse.glb', wreck: 'buildings/warehouse_wreck.glb' },
@@ -296,6 +304,34 @@ export const BUILDING_MESHES: Readonly<Record<string, { readonly idle: string; r
   t_wall: { idle: 'buildings/t_wall.glb', wreck: 'buildings/t_wall_wreck.glb' },
   sandbag_wall: { idle: 'buildings/sandbag_wall.glb', wreck: 'buildings/sandbag_wall_wreck.glb' },
   sandbag_post: { idle: 'buildings/sandbag_post.glb', wreck: 'buildings/sandbag_post_wreck.glb' },
+  // GH-277 field works (Task 13): the four KDF works carry a `construction`
+  // sibling -- the lower half plus a scaffold kit, drawn under a clip plane
+  // while `structures.progress < ONE`. The militia works are never built (they
+  // are authored placements), so they have none.
+  kdf_medic_station: {
+    idle: 'buildings/kdf_medic_station.glb',
+    wreck: 'buildings/kdf_medic_station_wreck.glb',
+    construction: 'buildings/kdf_medic_station_construction.glb',
+  },
+  kdf_outpost: {
+    idle: 'buildings/kdf_outpost.glb',
+    wreck: 'buildings/kdf_outpost_wreck.glb',
+    construction: 'buildings/kdf_outpost_construction.glb',
+  },
+  kdf_intel_centre: {
+    idle: 'buildings/kdf_intel_centre.glb',
+    wreck: 'buildings/kdf_intel_centre_wreck.glb',
+    construction: 'buildings/kdf_intel_centre_construction.glb',
+  },
+  kdf_workshop: {
+    idle: 'buildings/kdf_workshop.glb',
+    wreck: 'buildings/kdf_workshop_wreck.glb',
+    construction: 'buildings/kdf_workshop_construction.glb',
+  },
+  militia_field_clinic: { idle: 'buildings/militia_field_clinic.glb', wreck: 'buildings/militia_field_clinic_wreck.glb' },
+  militia_firing_position: { idle: 'buildings/militia_firing_position.glb', wreck: 'buildings/militia_firing_position_wreck.glb' },
+  militia_observation_post: { idle: 'buildings/militia_observation_post.glb', wreck: 'buildings/militia_observation_post_wreck.glb' },
+  militia_weapons_workshop: { idle: 'buildings/militia_weapons_workshop.glb', wreck: 'buildings/militia_weapons_workshop_wreck.glb' },
 };
 
 /** Decor: seven families, three variants each, keyed `<family>_<variant>` --
@@ -403,9 +439,8 @@ export const RETIRED_MESH_FILES: Readonly<Record<string, string>> = {
 
 /**
  * Art that has landed AHEAD of the type that will draw it -- the opposite
- * of retirement. Three batches hold files here today: the GH-277 field works
- * (spec §8, plan Task 12), whose structure types arrive at Stage 4/5 (Task
- * 13 moves each pair into `BUILDING_MESHES`); GH-298's four officers
+ * of retirement. Two batches hold files here today (the GH-277 field works
+ * left at Task 13 and now live in `BUILDING_MESHES`): GH-298's four officers
  * (spec `2026-09-30-field-commanders-design.md` §7, §8.2 E1), whose unit
  * types arrive at Stage 5 (which moves each file into `RIGGED_UNIT_MESHES`
  * / `VEHICLE_UNIT_MESHES`, runs `pnpm gait:meshes` on the teams -- it is
@@ -416,26 +451,6 @@ export const RETIRED_MESH_FILES: Readonly<Record<string, string>> = {
  * (`RETIRED_MESH_FILES`) stay distinguishable.
  */
 export const HELD_MESH_FILES: Readonly<Record<string, string>> = {
-  'buildings/kdf_medic_station.glb': 'kdf_medic_station (GH-277 Task 13)',
-  'buildings/kdf_medic_station_wreck.glb': 'kdf_medic_station (GH-277 Task 13)',
-  'buildings/kdf_medic_station_construction.glb': 'kdf_medic_station (GH-277 Task 13)',
-  'buildings/kdf_outpost.glb': 'kdf_outpost (GH-277 Task 13)',
-  'buildings/kdf_outpost_wreck.glb': 'kdf_outpost (GH-277 Task 13)',
-  'buildings/kdf_outpost_construction.glb': 'kdf_outpost (GH-277 Task 13)',
-  'buildings/kdf_intel_centre.glb': 'kdf_intel_centre (GH-277 Task 13)',
-  'buildings/kdf_intel_centre_wreck.glb': 'kdf_intel_centre (GH-277 Task 13)',
-  'buildings/kdf_intel_centre_construction.glb': 'kdf_intel_centre (GH-277 Task 13)',
-  'buildings/kdf_workshop.glb': 'kdf_workshop (GH-277 Task 13)',
-  'buildings/kdf_workshop_wreck.glb': 'kdf_workshop (GH-277 Task 13)',
-  'buildings/kdf_workshop_construction.glb': 'kdf_workshop (GH-277 Task 13)',
-  'buildings/militia_field_clinic.glb': 'militia_field_clinic (GH-277 Task 13)',
-  'buildings/militia_field_clinic_wreck.glb': 'militia_field_clinic (GH-277 Task 13)',
-  'buildings/militia_firing_position.glb': 'militia_firing_position (GH-277 Task 13)',
-  'buildings/militia_firing_position_wreck.glb': 'militia_firing_position (GH-277 Task 13)',
-  'buildings/militia_observation_post.glb': 'militia_observation_post (GH-277 Task 13)',
-  'buildings/militia_observation_post_wreck.glb': 'militia_observation_post (GH-277 Task 13)',
-  'buildings/militia_weapons_workshop.glb': 'militia_weapons_workshop (GH-277 Task 13)',
-  'buildings/militia_weapons_workshop_wreck.glb': 'militia_weapons_workshop (GH-277 Task 13)',
   'officer_infantry.glb': 'officer_infantry (GH-298 Stage 5)',
   'officer_fires.glb': 'officer_fires (GH-298 Stage 5)',
   'officer_engineer.glb': 'officer_engineer (GH-298 Stage 5)',
@@ -509,6 +524,7 @@ export function claimedMeshFiles(): Set<string> {
   for (const b of Object.values(BUILDING_MESHES)) {
     out.add(b.idle);
     out.add(b.wreck);
+    if (b.construction !== undefined) out.add(b.construction);
   }
   for (const files of Object.values(DECOR_MESHES)) for (const f of files) out.add(f);
   for (const f of Object.values(VFX_MESHES)) out.add(f);
@@ -574,7 +590,7 @@ export function meshPlanFor(
 export interface MeshManifest {
   readonly rigged: readonly { id: string; urls: readonly string[]; faction: MeshFactionName }[];
   readonly vehicles: readonly { id: string; url: string }[];
-  readonly buildings: readonly { id: string; url: string }[];
+  readonly buildings: readonly { id: string; url: string; construction?: string }[];
   readonly decor: ReadonlyMap<string, string>;
   readonly props: ReadonlyMap<PropKindName, string>;
 }
@@ -587,7 +603,12 @@ export function meshManifestFor(plan: MeshPlan): MeshManifest {
       faction: RIGGED_UNIT_MESHES[id].faction,
     })),
     vehicles: [...plan.vehicles].map((id) => ({ id, url: meshUrl(VEHICLE_UNIT_MESHES[id]) })),
-    buildings: [...plan.buildings].map((id) => ({ id, url: meshUrl(BUILDING_MESHES[id].idle) })),
+    buildings: [...plan.buildings].map((id) => {
+      const construction = BUILDING_MESHES[id].construction;
+      return construction === undefined
+        ? { id, url: meshUrl(BUILDING_MESHES[id].idle) }
+        : { id, url: meshUrl(BUILDING_MESHES[id].idle), construction: meshUrl(construction) };
+    }),
     decor: new Map(
       [...plan.decor].flatMap((fam) =>
         DECOR_MESHES[fam].map((file, v): [string, string] => [`${fam}_${v}`, meshUrl(file)])

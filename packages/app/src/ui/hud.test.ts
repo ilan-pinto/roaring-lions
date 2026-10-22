@@ -2052,6 +2052,52 @@ describe('data-icon: telling a cropped unit icon from a sheet frame', () => {
   });
 });
 
+describe('the carrier card (GH-698)', () => {
+  function yanshufForce(): { sim: Sim; squads: number[]; at: number; namer: number } {
+    const sim = new Sim({ seed: 1, width: 16, height: 16, capacity: 16 });
+    const inf = sim.addUnitType(units.inf_squad as unknown as UnitTypeJson);
+    const heli = sim.addUnitType(units.heli_yanshuf as unknown as UnitTypeJson);
+    const squads = [sim.spawn(inf, 0, fx.from(6), fx.from(6)), sim.spawn(inf, 0, fx.from(7), fx.from(6))];
+    const yanshuf = sim.spawn(heli, 0, fx.from(6), fx.from(7));
+    return { sim, squads, at: squads[0], namer: yanshuf };
+  }
+
+  it('reads seats filled over seats, a badge per rider, and the flight state', () => {
+    const world = yanshufForce();
+    const r = clusterRig(() => [world.namer], {}, world);
+    const carry = (): string => r.host.querySelector('.rl-card__carry')?.textContent ?? '';
+    expect(carry()).toContain('airborne');
+    expect(carry()).toContain('0 / 6 aboard');
+    world.sim.queueCommand({ kind: 'load', ids: world.squads, carrier: world.namer });
+    for (let i = 0; i < 400 && world.sim.passengerCount(world.namer) < 2; i++) world.sim.tick();
+    expect(world.sim.passengerCount(world.namer)).toBe(2);
+    // The cluster redraws on its own cadence, not every tick.
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(carry()).toContain('2 / 6 aboard');
+    expect(r.host.querySelectorAll('.rl-card__carry svg').length).toBe(2);
+    const st = world.sim.state as unknown as { airState: Uint8Array };
+    for (const [s, word] of [[1, 'landing'], [2, 'on the ground'], [3, 'lifting off']] as const) {
+      st.airState[world.namer] = s;
+      for (let i = 0; i < 5; i++) r.tick();
+      expect(carry()).toContain(word);
+    }
+  });
+
+  it('gives a ground carrier seats and no flight line', () => {
+    const world = makeForce();
+    const r = clusterRig(() => [world.namer], {}, world);
+    const carry = r.host.querySelector('.rl-card__carry')?.textContent ?? '';
+    expect(carry).toContain('0 / 5 aboard');
+    expect(carry).not.toContain('airborne');
+  });
+
+  it('draws no carry line for a unit with no seats', () => {
+    const world = makeForce();
+    const r = clusterRig(() => [world.at], {}, world);
+    expect(r.host.querySelector('.rl-card__carry')).toBeNull();
+  });
+});
+
 describe('the order row', () => {
   it('offers only the orders the selection can give', () => {
     const world = makeForce();
@@ -3967,5 +4013,68 @@ describe('held building count (lead ruling 2026-10-14: the badge left the world)
     const w = heldWorld();
     const { hud } = heldRig({ sim: w.sim, hoverFriendly: () => w.ours });
     expect(hud.heldTarget).toBe(w.own);
+  });
+});
+
+describe('field works on the card (GH-277)', () => {
+  // REGEN_FRAC is 16; the oracles below are literals.
+  it('the medic chip shows only for an own foot unit healed above field regen while hurt', () => {
+    let sel: number[] = [];
+    const r2 = rig(null, { getSelection: () => sel });
+    sel = [r2.ids[0]];
+    const card = (): string => r2.host.querySelector('.rl-cluster')!.textContent ?? '';
+    const id2 = r2.ids[0];
+    const max2 = r2.sim.unitTypes[r2.sim.state.typeIdx[id2]].hp;
+    r2.sim.state.hp[id2] = max2 - fx.from(2);
+    r2.sim.state.auraHealRate[id2] = 100;
+    for (let i = 0; i < 5; i++) r2.tick();
+    expect(card()).toContain('Medic: healing');
+    // Field regen alone (== REGEN_FRAC) must not light it.
+    r2.sim.state.auraHealRate[id2] = 16;
+    for (let i = 0; i < 5; i++) r2.tick();
+    expect(card()).not.toContain('Medic: healing');
+    // Healed above the floor but at full health: nothing to heal.
+    r2.sim.state.auraHealRate[id2] = 100;
+    r2.sim.state.hp[id2] = max2;
+    for (let i = 0; i < 5; i++) r2.tick();
+    expect(card()).not.toContain('Medic: healing');
+  });
+
+  it('the works card names the work, its progress and the refund, escapes the name, and cancels', () => {
+    const cancelled: number[] = [];
+    const r = rig(null, {
+      selectedWorks: () => 7,
+      worksCardOf: () => ({ name: '<i>Clinic</i>', percent: 40, refund: 180 }),
+      onCancelWorks: (s) => cancelled.push(s),
+    });
+    const cluster = r.host.querySelector<HTMLElement>('.rl-cluster')!;
+    expect(cluster.style.display).toBe('');
+    expect(cluster.textContent).toContain('Cancel works (refund 180)');
+    expect(cluster.textContent).toContain('40% built');
+    expect(cluster.innerHTML).not.toContain('<i>Clinic</i>');
+    cluster.querySelector<HTMLButtonElement>('[data-works-cancel]')!.click();
+    expect(cancelled).toEqual([7]);
+  });
+
+  it('the works card keeps the SAME Cancel button node while progress changes', () => {
+    let percent = 40;
+    const r = rig(null, {
+      selectedWorks: () => 7,
+      worksCardOf: () => ({ name: 'Clinic', percent, refund: percent * 4 }),
+      onCancelWorks: () => {},
+    });
+    const cluster = r.host.querySelector<HTMLElement>('.rl-cluster')!;
+    const btn = cluster.querySelector('[data-works-cancel]')!;
+    percent = 65;
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(cluster.querySelector('[data-works-cancel]')).toBe(btn);
+    expect(cluster.textContent).toContain('65% built');
+    expect(cluster.textContent).toContain('refund 260');
+    expect(cluster.querySelector<HTMLElement>('.rl-track > i')!.style.width).toBe('65%');
+  });
+
+  it('a complete works has no card: the cluster stays hidden', () => {
+    const r = rig(null, { selectedWorks: () => 7, worksCardOf: () => null });
+    expect(r.host.querySelector<HTMLElement>('.rl-cluster')!.style.display).toBe('none');
   });
 });

@@ -300,6 +300,12 @@ describe('keymap', () => {
   });
 
   describe('anyArmed', () => {
+    it('is true while a field work is armed (GH-277), and Escape then disarms', () => {
+      expect(anyArmed(null, null, null, 'kdf_medic_station')).toBe(true);
+      expect(escapeTarget(false, false, anyArmed(null, null, null, 'kdf_medic_station'))).toBe('disarm');
+      expect(anyArmed(null, null, null, null)).toBe(false);
+      expect(anyArmed(null, null, null)).toBe(false);
+    });
     it('is true while an attack-move order is armed', () => {
       expect(anyArmed('attackMove', null, null)).toBe(true);
     });

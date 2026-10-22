@@ -156,16 +156,31 @@ const ZERO_WEIGHTS: SurfaceWeights = { open: 0, rock: 0, scrub: 0, grove: 0, kno
 /** A road tile is open ground in control A -- the sand runs on under the
  *  road's worn edge and shoulder (R-3). The road surface itself is baked
  *  from `roadDistanceAt` into control B, not from this weight. */
-type BlendKind = 'open' | 'scrub' | 'grove' | 'knoll';
+type BlendKind = 'open' | 'rock' | 'scrub' | 'grove' | 'knoll';
 function blendChannel(kind: SurfaceKind): BlendKind | null {
   if (kind === 'open' || kind === 'road') return 'open';
   if (kind === 'scrub' || kind === 'grove' || kind === 'knoll') return kind;
-  return null; // 'pad' and 'rock' are terraces -- handled outside the blend.
+  return null; // 'pad' and a terraced 'rock' are handled outside the blend.
 }
 
 /** A tile's own weights with nothing borrowed from a neighbour -- what a
  *  hard terrace returns immediately (step 1), and what an isolated tile
  *  falls back to when no neighbour overlaps it at all (step 6). */
+/** How far, in tiles, a crown summit's rock fades out onto the ground
+ *  around it (`terrain/crown.ts`). Twice a ridge's `APRON_TILES`: a ridge
+ *  apron is litter at a cliff's foot; a crown's skirt is the summit's own
+ *  rock running down the upper flank of a smooth dome, and at 0.5 the mock
+ *  still photographed a ruled diamond edge on Milh Flats. */
+export const CROWN_SKIRT_TILES = 1;
+
+/** A rock tile the DRAW mask terraces -- a ridge wall's top. A crown summit
+ *  (`terrain/crown.ts`) is rock the draw mask has cleared: drawn smooth, so it
+ *  blends rather than stopping hard. Neutral on a map with no crown, where
+ *  every ridge tile is terraced (#635). */
+function isTerracedAt(input: TerrainInput, x: number, z: number): boolean {
+  return input.blocked[z * input.width + x] !== 0;
+}
+
 function oneHot(s: TileSurface): SurfaceWeights {
   if (s.kind === 'pad') return ZERO_WEIGHTS;
   if (s.kind === 'rock') return { ...ZERO_WEIGHTS, rock: s.strength };
@@ -223,14 +238,14 @@ export function surfaceWeightsAt(input: TerrainInput, px: number, pz: number): S
   const homeX = Math.floor(px);
   const homeZ = Math.floor(pz);
   const home = tileSurface(input, homeX, homeZ);
-  if (home.kind === 'pad' || home.kind === 'rock') return oneHot(home);
+  if (home.kind === 'pad' || (home.kind === 'rock' && isTerracedAt(input, homeX, homeZ))) return oneHot(home);
 
   const qx = px + EDGE_BEND_TILES * valueNoise2(px, pz, EDGE_BEND_CYCLES_PER_TILE, 101);
   const qz = pz + EDGE_BEND_TILES * valueNoise2(px, pz, EDGE_BEND_CYCLES_PER_TILE, 202);
   const baseX = Math.floor(qx);
   const baseZ = Math.floor(qz);
 
-  const sums = { open: 0, scrub: 0, grove: 0, knoll: 0 };
+  const sums = { open: 0, rock: 0, scrub: 0, grove: 0, knoll: 0 };
   let overlapSum = 0;
   let apron = 0;
 
@@ -241,6 +256,23 @@ export function surfaceWeightsAt(input: TerrainInput, px: number, pz: number): S
       const tx = baseX + dx;
       if (tx < 0 || tx >= input.width) continue;
       const s = tileSurface(input, tx, tz);
+      // A crown summit's rock (`terrain/crown.ts`) is NOT a terrace: it is
+      // drawn smooth, so it blends across its edge like any open-ground
+      // surface (step 3) instead of stopping dead at the tile boundary.
+      //
+      // And it throws a SKIRT, `CROWN_SKIRT_TILES` wide, the apron's shape
+      // at twice its reach: rock fading linearly from the crown's edge down
+      // its flank, so the summit reads as an outcrop weathering into scree
+      // rather than a cap with a ruled edge.
+      if (s.kind === 'rock' && !isTerracedAt(input, tx, tz)) {
+        const dist = distanceToTileRect(qx, qz, tx, tz);
+        apron = Math.max(apron, Math.max(0, 1 - dist / CROWN_SKIRT_TILES));
+        const overlap = bandOverlap(qx, tx) * bandOverlap(qz, tz);
+        if (overlap <= 0) continue;
+        overlapSum += overlap;
+        sums.rock += overlap * s.strength;
+        continue;
+      }
       if (s.kind === 'rock') {
         const dist = distanceToTileRect(qx, qz, tx, tz);
         apron = Math.max(apron, Math.max(0, 1 - dist / APRON_TILES));
@@ -259,7 +291,7 @@ export function surfaceWeightsAt(input: TerrainInput, px: number, pz: number): S
     overlapSum > 0
       ? {
           open: sums.open / overlapSum,
-          rock: 0,
+          rock: sums.rock / overlapSum,
           scrub: sums.scrub / overlapSum,
           grove: sums.grove / overlapSum,
           knoll: sums.knoll / overlapSum,
@@ -270,7 +302,7 @@ export function surfaceWeightsAt(input: TerrainInput, px: number, pz: number): S
   const keep = 1 - apron;
   return {
     open: blended.open * keep,
-    rock: apron,
+    rock: apron + blended.rock * keep,
     scrub: blended.scrub * keep,
     grove: blended.grove * keep,
     knoll: blended.knoll * keep,
