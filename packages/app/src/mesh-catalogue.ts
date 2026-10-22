@@ -233,8 +233,8 @@ export const RIGGED_UNIT_MESHES: Readonly<Record<string, RiggedMeshEntry>> = {
   // `kit.casualty` and driven by `tools/units/wounded.py` (clips down,
   // idleWounded, crawl, wreck; no weapon, no `move`). Role `wounded`: a casualty
   // the sim makes (`hull.wounds.type`), not a type a mission JSON names, so
-  // `missionUnitTypes` does not find them and main.ts's 1 Hz mesh sweep loads
-  // them on the first one that falls unless a roster rule adds the wounds type.
+  // `missionUnitTypes` does not find them; `withWoundedTypes` (P3) adds the
+  // `hull.wounds.type` of every fielded type to the boot roster instead.
   wounded_kdf: { files: ['wounded_kdf.glb'], faction: 'kdf' },
   wounded_sarim: { files: ['wounded_sarim.glb'], faction: 'enemy' },
 
@@ -718,6 +718,37 @@ export function missionUnitTypes(mission: unknown, unitIds: ReadonlySet<string>)
     }
   };
   walk(mission);
+  return out;
+}
+
+/** One unit type as `withWoundedTypes` reads it: only `hull.wounds.type`. */
+interface WoundsTypeOf {
+  readonly hull?: { readonly wounds?: { readonly type: string } };
+}
+
+/**
+ * The boot rule for the wounded (GH-707 P3): `roster` plus the `hull.wounds.type`
+ * of every type in it, so the man a squad sheds has his mesh queued at boot with
+ * the squad that sheds him. No mission JSON names a `wounded_*` type -- the sim
+ * makes them -- so neither `missionUnitTypes` nor a placement table can find
+ * them, and without this the first man down would reach the field with no mesh
+ * and be caught (loudly, by name) by `main.ts`'s 1 Hz sweep. Every roster the
+ * battlefield builds (mission, sandbox, versus room) goes through this once.
+ *
+ * One step deep on purpose: a `wounded_*` type carries no `hull.wounds` of its
+ * own. An in-place type (the civilians) names ITSELF, already in the roster. An
+ * id with no catalogue entry is dropped later by `meshPlanFor`, so it costs
+ * nothing here (and `mesh_roster.test.ts` refuses one in the data).
+ */
+export function withWoundedTypes(
+  roster: ReadonlySet<string>,
+  unitsById: Readonly<Record<string, WoundsTypeOf | undefined>>
+): Set<string> {
+  const out = new Set(roster);
+  for (const id of roster) {
+    const w = unitsById[id]?.hull?.wounds;
+    if (w !== undefined) out.add(w.type);
+  }
   return out;
 }
 

@@ -8,7 +8,9 @@
     "hp": 200,
     "armor": { "front": 0, "side": 0, "rear": 0 },
     "crew": 6,
-    "suppression_resistance": 0.15
+    "suppression_resistance": 0.15,
+    "figures": 1,
+    "wounds": { "wound_chance": 0.6, "bleed_s": 60, "type": "civilians", "in_place": true }
   },
   "mobility": { "speed_tiles_s": 0.8, "turn_rate_deg_s": 360 },
   "sensors": { "optics": 0.5, "sight_tiles": 4, "signature": 0.7, "firing_signature_mult": 1.0 }

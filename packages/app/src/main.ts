@@ -253,6 +253,7 @@ import {
   VFX_MESHES,
   meshUrl,
   missionUnitTypes,
+  withWoundedTypes,
   hasUnitMesh,
   meshPlanFor,
   meshManifestFor,
@@ -2146,12 +2147,17 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // brigade has not bought, a `gate_only` jeep the gate dropped) is not loaded
   // and decoded for a unit that cannot appear. On a `resources` mission it is
   // still buildable, and so lands in `meshDeferred` below like any other.
+  // GH-707 P3: a mission or a sandbox adds each fielded type's `hull.wounds.type`
+  // (`withWoundedTypes`), so a man who falls wounded has his mesh at boot, not from
+  // the 1 Hz sweep. A versus room does not: wounds are off in versus
+  // (`versusRoster` strips them) until the lead opens them.
+  const woundsOf = units as Readonly<Record<string, { hull?: { wounds?: { type: string } } } | undefined>>;
   const meshRoster = mission
-    ? missionUnitTypes(resolvedMission ?? mission, new Set(Object.keys(units)))
+    ? withWoundedTypes(missionUnitTypes(resolvedMission ?? mission, new Set(Object.keys(units))), woundsOf)
     : versusRoom
       // A versus room fields its two factions' forces and nothing else.
       ? versusUnitTypes(versusFactions)
-      : sandboxUnitTypes({ tunnel: wantTunnel, sur: wantSur, civ: wantCiv, works: wantWorks });
+      : withWoundedTypes(sandboxUnitTypes({ tunnel: wantTunnel, sur: wantSur, civ: wantCiv, works: wantWorks }), woundsOf);
   // Only the roster's languages decode (N16). The roster is the one the mesh
   // plan already trusts; a unit it misses still plays -- as `missing` -- and
   // the dev note names the key. Set here, before the deploy gate's click, so
