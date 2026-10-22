@@ -35,6 +35,10 @@ the wire, and the match ends by the network rule with production counted.
 
 **Base:** `origin/main` `8eeea195` (22 Oct). Line numbers are hints; locate code by symbol.
 
+**Status (22 Oct):** the lead accepted Q1–Q9 as recommended (in chat, posted on GH-741). A
+review against the code found two blocking points and four minor ones; all six are folded in (P-9,
+Task 3's fix and test, Task 3's direct calls, and the test lists in Tasks 1, 2 and 4).
+
 ---
 
 ## Pre-flight against `8eeea195` (done while writing; the executor repeats Step 0)
@@ -51,7 +55,7 @@ What the tree says, where it differs from the prep note:
 | P-6 | Doctrines landed (`data/doctrines/{kdf,sarim}.json`, GH-658 + GH-684): KDF 3000, Sarim 4800, both `provisional`; `pop_cap` unset; not exported from `@lions/data`; not in `contentDigest`. | Task 1 exports them and folds them in. Values are Q3/Q4. |
 | P-7 | Six KDF menu units carry an `unlock` gate (`mbt_lavi` Conduct 90, `ifv_namer` 85, `dozer_d9` 87, `heli_peten` 82, `yahalom_squad` 75, `recon_drone` 70). With no ledger, `unlockReason` refuses them. | The versus `unitInfo` hands the runtime no `unlock` (the doctrine menu IS the gate). Task 3. |
 | P-8 | Placed-force population: `VERSUS_KDF` 22, `VERSUS_SARIM` 32. | A pop cap below that refuses every build until losses. Q4. |
-| P-9 | `checkEnd` ends a runtime only on a primary, a player wipe (`playerIds`), an ROE floor or `time_limit_s`. A versus mission authors none and spawns no `starting_force`, so it **never ends**. | No `versus` flag in the sim. Task 3 pins "never ends" as a test instead. |
+| P-9 | `checkEnd` ends a runtime on a primary, a player wipe, an ROE floor or `time_limit_s`. A versus mission authors no primary, no floor and no limit, **but production spawns through `spawnPlacement`, which pushes every side-0 unit into `playerIds`** (~L3225). So once every BUILT KDF unit is dead, while the placed force (spawned by `buildMatchWorld`, not in `playerIds`) still lives, `wiped` is true, the runtime ends, and `step()` returns `[]` for good: income and production stop silently. (Plan review, blocking 1.) | Fixed in the sim in Task 3, before Task 4 opens building: **a runtime whose mission has no objectives never ends by itself** (`checkEnd` returns at once when `this.objectives.length === 0`). No `versus` flag: every shipped mission has at least one objective (the schema's `minItems: 1`), so single-player cannot reach the guard. Pinned by a build-and-lose test shown red without the guard. |
 | P-10 | The AI harness (`tools/src/net/agent-client.ts`) runs `runTick: () => { sim.tick(); fog.step(); }`. | Once a room has a runtime, a harness seat would desync on tick 19. Task 3's `matchTick` is shared by both. |
 | P-11 | `versus:probe` builds its own world (`world()`), not `buildMatchWorld`, and plays attack-move only. | Task 7 moves the economy arm onto `buildMatchWorld` + `matchTick`. |
 | P-12 | No hash pin covers a KDF-v-Sarim room today; the mirror pins do. | Task 3 births one per matchup map. |
@@ -202,6 +206,10 @@ below is what is put to the lead.
 - [ ] **Step 4: Content digest.** Test first: changing one doctrine's `logistics_start` by 1, and
   one rules file's rate by 1, each gives a different digest; put back, the same. Then add both to
   `shippedContent()` and `contentDigest`.
+  **Existing tests this breaks, to update in the same commit:** `content-digest.test.ts` ~L49
+  (`shippedContentDigest() === contentDigest({ units, structures, maps })`: add the two new keys)
+  and the `Content` literals at ~L65–79 (`withInfHp`, the structure, map-row and array-order cases),
+  which spread a `Content` and must carry `doctrines` and `versusRules` too.
 - [ ] **Step 5: Green** (`pnpm validate:data`, the three test files, `pnpm test`).
 - [ ] **Step 6: Falsify.** M1 drop the anchor-distance check (its test red); M2 skip `doctrines`
   in `contentDigest` (digest test red); M3 list the hostile camp first in `versusMissionOf` (the
@@ -231,6 +239,18 @@ below is what is put to the lead.
 there. With a Sarim host that is side 1, so entity ids, and every per-entity RNG stream, are the
 ones today's "Sarim west" game used; only the `side` values differ.
 
+**The mirroring rule goes with it.** Today side 1's offsets are mirrored through its own anchor
+(`bx - dx, by - dy`, `versus-force.ts` ~L88–94). That must become **by end**: the force at the
+`hostile` end is the one mirrored, whichever side it is, and its facing is `hostileFacing` toward
+the other end. Mirror by side and a Sarim host's force is flipped across its own anchor, and the
+"game for game" claim below is false by construction.
+
+**Existing tests that assume side = seat, to update in this task:** `match-world.test.ts` ~L39–40
+and ~L50–55 (seat-to-side and spawn-side expectations); the Sarim-host configs in
+`versus-force.test.ts` and `versus-probe.test.ts` (`arr=sarim/kdf` meant Sarim on side 0; it now
+means Sarim at the friendly end, on side 1). The executor greps for `side: 0, faction: 'sarim'` and
+`['sarim', 'kdf']` in `packages/app/src/net` and `tools/src` and lists every hit in the task report.
+
 - [ ] **Step 1: Failing tests.**
   - `config.test.ts`: `sidesOfMatchup('sarim')` is `[1, 0]`; the room mints seat 0 as side 1 when
     the host picks Sarim, and `validateConfig` accepts it.
@@ -238,6 +258,8 @@ ones today's "Sarim west" game used; only the `side` values differ.
     3 tiles of `anchors.friendly`, side 0's of `anchors.hostile`; `endOfSide` is
     `['hostile', 'friendly']`; the Sarim host's camera starts on `friendly`.
   - The mirror pins (`1108074073` / `1524988923`) and the `kdf` room are byte-identical.
+  - `versus-force.test.ts`: with a Sarim host, side 1's unit `k` stands where today's side-0 Sarim
+    unit `k` stood, with the same facing (mirroring by end).
 - [ ] **Step 2: Red, implement, green.**
 - [ ] **Step 3: The fairness read-back (report-only, and the STOP rule applies).** Run
   `pnpm versus:probe -- --maps=tel_marum,wadi_tarfan --seeds=48` (the probe now labels cells by
@@ -246,7 +268,8 @@ ones today's "Sarim west" game used; only the `side` values differ.
   into play (a side-indexed tie-break): **STOP and report** with the first differing seed.
 - [ ] **Step 4: Falsify.** M1 place side 0 first instead of the friendly end (Step 3 diverges,
   and the id-order test red); M2 `endOfSeat` returns `hostile` for seat 0 (host-end test red);
-  M3 room mints `side: seat` again (config test red).
+  M3 room mints `side: seat` again (config test red); M4 mirror by side instead of by end (the
+  same-tile test red).
 - [ ] **Step 5: Commit** `net, worker, app: N3 Task 2 -- KDF is side 0 (LD1); the spawn end follows the seat`.
 
 ---
@@ -254,7 +277,13 @@ ones today's "Sarim west" game used; only the `side` values differ.
 ### Task 3: The runtime boots in an economy room, through one `matchTick`
 
 **Files:** `packages/net/src/config.ts`, `packages/app/src/net/match-world.ts`, `main.ts`,
-`tools/src/net/agent-client.ts`, `packages/sim/src/mission.ts` (`unitLost` only).
+`tools/src/net/agent-client.ts`, `packages/sim/src/mission.ts` (`checkEnd`'s no-objective guard and
+`unitLost`). Reviewer: sim-guard.
+
+**The wire is still closed in this task** (Task 4 opens it): `validateCommand` drops `build` in
+versus and `applyQueued` skips `side !== 0`. **So every build in Task 3's tests is a direct call,
+`runtime.requestBuild(unit, line, side)`**, made between ticks the way the sim tests already
+call it. None of Task 3's tests sends a build through a frame.
 Tests: `match-world.test.ts`, `packages/sim/src/runtime-seats.test.ts` (new), `two-client.test.ts`.
 
 **Interfaces:**
@@ -279,8 +308,16 @@ Tests: `match-world.test.ts`, `packages/sim/src/runtime-seats.test.ts` (new), `t
     has a runtime with one living line per side (`productionLines(0).length === 1`,
     `productionLines(1).length === 1`), `logisticsOf(0) === 3000`, `logisticsOf(1) === 4800` (or
     the Q3 values, read from the doctrine files, not literals), and a camp structure of each side.
+  - **"build and lose"** (`packages/sim/src/runtime-seats.test.ts`, sim-level, and again on a real
+    `kdf` room in `match-world.test.ts`): a mission with `objectives: []`, a side-0 camp and a
+    placed side-0 unit that is NOT in `playerIds`; `requestBuild` one `inf_squad` directly, step
+    until it spawns, `debugKill` it. Assert `runtime.result === null`, `step()` still returns events
+    on the next tick, the purse still accrues from a held zone, and a second direct `requestBuild`
+    starts and finishes. **Shown red without the guard** (the runtime ends as a defeat the tick the
+    built unit dies); the commit records it.
   - "never ends": a `kdf` room stepped 30,000 ticks (the 25-minute cap) with `matchTick` and no
-    orders has `runtime.result === null` and keeps producing (a build queued at tick 29,000 starts).
+    orders has `runtime.result === null` and keeps producing (a direct `requestBuild` at tick
+    29,000 starts).
   - `runtime-seats.test.ts` (sim): with `humanHeld [true, true]` a side-1 death emits `unitLost`
     with `side: 1`; with the default table it does not (single-player unchanged).
   - **The pin born:** `VERSUS_ECONOMY_PINS` = `[['tel_marum', <n>], ['wadi_tarfan', <n>]]`,
@@ -293,13 +330,18 @@ Tests: `match-world.test.ts`, `packages/sim/src/runtime-seats.test.ts` (new), `t
   (today it holds `runtime === null` in a room) and its `runTick` body calls `matchTick`;
   `agent-client.ts`'s `runTick` calls `matchTick` too and passes `runtimeDigest: () => w.runtime?.digest() ?? 0`.
   The `unitLost` change: emit for `side === 0`, or for `side === 1` when `sim.isHumanHeld(1)`.
+  The `checkEnd` guard: `if (this.objectives.length === 0) return;` as its first line, with a
+  comment naming the reason (a runtime with nothing to win is ended only by `outcome.ts`). It is
+  the cleaner of the two options the coordinator allowed: it follows from data, adds no field to
+  `MissionContext`, and a single-player mission cannot reach it.
 - [ ] **Step 3: Green**, including `pnpm test:determinism` with every sim and economy pin unmoved
   (no fixture passes `[true, true]` to a runtime), and the mirror pins unmoved.
 - [ ] **Step 4: Falsify.** M1 drop `applyQueued` from `matchTick` (two-client equal but the
   "build starts" assertion red); M2 the harness keeps its old `runTick` (a harness-vs-browser
   digest test, written in Step 1 as part of `two-client.test.ts`, red at tick 19); M3 pass
   `economy.logisticsStart` in file order instead of by faction (the 3000/4800 assertion red for a
-  `sarim` host); M4 emit side-1 `unitLost` unconditionally (single-player case red).
+  `sarim` host); M4 emit side-1 `unitLost` unconditionally (single-player case red); M5 delete the
+  `checkEnd` guard (both build-and-lose tests red).
 - [ ] **Step 5: Commit**, then a separate commit for the pin birth if it is recorded apart.
 
 ---
@@ -326,7 +368,10 @@ branch). Tests: `packages/sim/src/runtime-seats.test.ts`, `packages/net/src/owne
   - sim: under `[true, true]`, queued `build{side:1}` on a side-1 camp line spends `purse[1]` and
     enqueues on `productionLines(1)[0]`; `cancelBuild{side:1, line:0, index:0}` refunds `purse[1]`
     and leaves side 0's line and purse untouched; `setRally{side:1}` sets side 1's rally;
-    `support{side:1}` is refused; under the default table every side-1 kind is refused (today).
+    `support{side:1}`, `raiseWorks{side:1}` and `cancelWorks{side:1}` are each refused, with side 0's
+    purse and works untouched (`requestConstruct` and `requestCancelWorks` have no side parameter,
+    so without the explicit refusal they would act for side 0); under the default table every
+    side-1 kind is refused (today).
   - net: in an economy room, seat 1 (side 1) passes `build{side:1}`, seat 0 sending `build{side:1}`
     drops; in a **mirror** room every production kind still drops; `support` drops in both.
   - app: the dock pre-check in a room consults `ordersWait(room.status())` before noting a buy
@@ -335,7 +380,8 @@ branch). Tests: `packages/sim/src/runtime-seats.test.ts`, `packages/net/src/owne
   `pnpm playtest` and `pnpm balance` byte-identical (single-player's table is `[true, false]`).
 - [ ] **Step 3: Falsify.** M1 drop `c.side` from the `cancelBuild` call (side-1 cancel test red:
   side 0 refunded); M2 `world.economy` ignored (mirror-drop test red); M3 `isHumanHeld` replaced by
-  `true` (single-player side-1 refusal red); M4 admit `support` with the others (LD5 test red).
+  `true` (single-player side-1 refusal red); M4 admit `support` with the others (LD5 test red);
+  M5 drop the explicit side refusal for `raiseWorks` (its side-1 test red: side 0 is charged).
 - [ ] **Step 4: Commit** `sim, net, app: N3 Task 4 -- both seats build through F4's lines in an economy room`.
 
 ---
@@ -495,6 +541,8 @@ A `stepPatrolStance` in the tick walks them with `stepPatrols`' halt-to-fire rul
 ---
 
 ## Questions for the lead (each with a recommendation)
+
+**All nine accepted as recommended by the lead, 22 Oct (posted on GH-741).**
 
 1. **Economy in the mirror?** **Recommend: KDF-v-Sarim only in N3.** The mirror keeps today's
    placed-force rooms, so its measured seats, its pins and the arena's controls stay; a mirror
