@@ -168,8 +168,11 @@ const BATTLE_TICKS = 1800;
 describe('per-seat unit types with no sim code (N2-P5, ruling L2)', () => {
   it('the per-seat spawner IS the mirror when both seats share one map (the pin holds)', () => {
     // Control: the test's spawner with side 1 on side 0's types reproduces
-    // versus-force.test.ts's pinned mirror hash, so what follows differs from
-    // the mirror ONLY by side 1's registrations.
+    // the mirror's hash on the sandbox heuristic's seats (versus-force.test.ts's
+    // pin before beit's versus seats moved, `versus-seats.ts`), so what follows
+    // differs from the mirror ONLY by side 1's registrations. This file keeps
+    // those seats on purpose: it measures a mechanism, and its 90 s fight was
+    // sized on them.
     expect(run('beit_sahwan_outskirts', 200, 'base').sim.hash()).toBe(580559085);
   });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Frame, MatchConfig, MatchTransport, TransportStatus } from '@lions/net';
-import { sandboxAnchors } from '../sandbox-anchors';
+import { versusAnchors } from './versus-seats';
 import { runFrames, seatWorldFor } from './frame-step';
 import { forcesOf, hashTickOutcome, unitCost, type OutcomeSim } from './outcome';
 import { scoreFor, scoreOf, showsScoreboard, type MatchScore, type ScoreSim } from './scoreboard';
@@ -59,7 +59,7 @@ describe('scoreOf: the board, from sim state alone', () => {
 
   it('prices by the unit data\'s logistics cost by default', () => {
     const { sim, typeOf, map } = buildWorld('beit_sahwan_outskirts');
-    const force = versusSpawns(sim, typeOf, sandboxAnchors(map));
+    const force = versusSpawns(sim, typeOf, versusAnchors(map));
     const victim = force.bySide[1][0];
     sim.debugKill(victim);
     const cost = unitCost(sim.unitTypes[sim.state.typeIdx[victim]].id);
@@ -105,7 +105,7 @@ describe('both seats show the same board (2026-10-14)', () => {
     const cfg = { hashEveryTicks: 20, dataDigest: 0, seats: [{ side: 0 }, { side: 1 }] } as unknown as MatchConfig;
     const seat = (batch: number) => {
       const { sim, typeOf, map } = buildWorld('beit_sahwan_outskirts');
-      const force = versusSpawns(sim, typeOf, sandboxAnchors(map));
+      const force = versusSpawns(sim, typeOf, versusAnchors(map));
       // The same battle on both machines: losses on both sides over the
       // match, then side 1's last armed unit at tick 50.
       const runTick = (): void => {
