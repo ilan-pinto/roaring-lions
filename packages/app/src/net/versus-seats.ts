@@ -1,7 +1,7 @@
 import { sandboxAnchors, type SandboxAnchors } from '../sandbox-anchors';
 
 /**
- * Per-map fair start points for a versus room (#561's "then fix"), for
+ * Per-map fair start points for a versus room (GH-561's "then fix"), for
  * campaign maps whose heuristic seats (`sandboxAnchors`) measured unfair.
  *
  * VERSUS-ROOM CONFIGURATION, not map data: the map JSON is a campaign map's,
@@ -10,7 +10,7 @@ import { sandboxAnchors, type SandboxAnchors } from '../sandbox-anchors';
  * in its own JSON (`versus_0`/`versus_1`) and needs no entry here.
  *
  * Every entry is a measurement, not a taste: `pnpm versus:probe` at 48 seeds
- * per spawn order, after air units began pathing over terrain (PR #721), the
+ * per spawn order, after air units began pathing over terrain (PR GH-721), the
  * cells a room offers on that map (`matchupAllowed`) all inside 60/40. The
  * probe's world registers no tunnel routes where a room's does; nothing digs
  * in a versus room, so the routes stay inert there.
