@@ -5098,7 +5098,15 @@ export class Sim {
   private applyVent(ids: readonly number[], mode: 'raid' | 'exit'): void {
     for (const id of ids) {
       if (this.alive[id] === 0) continue;
+      // A seat's order: a side nobody holds (the scripted enemy) surfaces by
+      // its own rule only, whatever reaches the queue.
+      if (!this.isHumanHeld(this.side[id])) continue;
       const r = this.tunnelIn[id];
+      // `exit` to a raider already up keeps it up for good, as any other order does.
+      if (r < 0 && mode === 'exit' && this.homeTunnel[id] >= 0) {
+        this.endRaid(id);
+        continue;
+      }
       if (r < 0 || this.tunnelEta[id] > 0) continue;
       if (this.tnAlive[r] === 0 || this.tnVentOpen[r] === 0) continue;
       this.tnOrderLive = true;

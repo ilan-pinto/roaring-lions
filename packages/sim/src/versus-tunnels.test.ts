@@ -249,6 +249,28 @@ describe('vent (GH-681)', () => {
     expect(w.events.some((e) => e.kind === 'submerged')).toBe(false);
   });
 
+  it('exit sent to a raider already up keeps it up for good', () => {
+    const w = world({ target: false });
+    const [u] = w.sarim;
+    goBelow(w, [u]);
+    w.run(TRAVEL);
+    w.sim.queueCommand({ kind: 'vent', ids: [u], mode: 'raid' });
+    w.run(1);
+    w.sim.queueCommand({ kind: 'vent', ids: [u], mode: 'exit' });
+    w.run(300);
+    expect(w.sim.state.tunnelIn[u]).toBe(-1);
+    expect(w.events.some((e) => e.kind === 'submerged')).toBe(false);
+  });
+
+  it('a side nobody holds is never vented by order', () => {
+    const w = world({ humanHeld: [true, false], target: false });
+    const [u] = w.sarim;
+    w.sim.putInTunnel(u, w.route);
+    w.sim.queueCommand({ kind: 'vent', ids: [u], mode: 'exit' });
+    w.run(5);
+    expect(w.sim.state.tunnelIn[u]).toBe(w.route);
+  });
+
   it('re-entry at the vent after an exit goes straight to ground, with no crawl', () => {
     const w = world({ target: false });
     const [u] = w.sarim;

@@ -96,7 +96,7 @@ export function seatWorldFor(
     tunnelExists: (id: number) => Number.isInteger(id) && id >= 0 && id < sim.tunnelCount,
     sideOfSeat: (seat: Seat) => config?.seats[seat].side ?? 0,
     // GH-681: single-player is the KDF seat; a room reads the seat's own faction.
-    factionOfSeat: (seat: Seat) => config?.seats[seat]?.faction ?? 'kdf',
+    factionOfSeat: (seat: Seat) => config?.seats[seat].faction ?? 'kdf',
     tunnelOwner: (id: number) => (Number.isInteger(id) ? sim.tunnelOwner(id) : -1),
     // Security review 559, F1: no mission runtime prices intel in a versus room.
     versus: config?.mode === 'versus',
