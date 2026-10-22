@@ -363,12 +363,13 @@ function riggedFiles(): RiggedFile[] {
       });
     }
   }
-  // 19 unit types, 22 files -- `civilians` is four variants of one type;
-  // B2 (2026-09-30) added `manpad_team` and `recoilless_team`; E5 (2026-10-01) `recon_zikit`.
+  // 20 unit types, 23 files -- `civilians` is four variants of one type;
+  // B2 (2026-09-30) added `manpad_team` and `recoilless_team`; E5 (2026-10-01) `recon_zikit`;
+  // GH-707 P2 (22 Oct) `inf_medic_squad`.
   // Numbers, not `> 0`: a catalogue that lost half its entries would still
   // clear a positive count.
-  expect(Object.keys(RIGGED_UNIT_MESHES).filter((id) => !(id in GAIT_CRAWL_ONLY))).toHaveLength(19);
-  expect(out).toHaveLength(22);
+  expect(Object.keys(RIGGED_UNIT_MESHES).filter((id) => !(id in GAIT_CRAWL_ONLY))).toHaveLength(20);
+  expect(out).toHaveLength(23);
   return out;
 }
 
@@ -464,7 +465,7 @@ describe('mesh unit gait -- the sweep over every rigged type', () => {
     const declaring = RIGS.filter((r) => r.declared !== undefined).map((r) => r.typeId);
     const silent = RIGS.filter((r) => r.declared === undefined).map((r) => r.typeId);
     expect([...new Set(silent)].sort()).toEqual(Object.keys(GAIT_EXEMPT).sort());
-    expect(new Set(declaring).size).toBe(18);
+    expect(new Set(declaring).size).toBe(19); // GH-707 P2: + inf_medic_squad
     for (const [type, why] of Object.entries(GAIT_EXEMPT)) {
       expect(why.length, `${type}: a reason, not a name`).toBeGreaterThan(20);
     }
@@ -479,7 +480,7 @@ describe('mesh unit gait -- the sweep over every rigged type', () => {
   });
 
   it('every gaited file declares a `move` gait, so none can be skipped by absence', () => {
-    expect(gaited).toHaveLength(21);
+    expect(gaited).toHaveLength(22); // GH-707 P2: + inf_medic_squad
     for (const rig of gaited) {
       expect(rig.declared?.has('move'), `${rig.file}: rl_gait.move`).toBe(true);
     }
@@ -590,7 +591,8 @@ describe('mesh unit gait -- the sweep over every rigged type', () => {
     // Eighteen types over twenty-one files (E5's recon_zikit included), and
     // since 2026-10-05 sixteen of them declare a `moveFire` beside `move`
     // (every armed walker; see the locomotion-pair block below): 21 + 16.
-    expect(checked).toBe(37);
+    // GH-707 P2 (22 Oct): + inf_medic_squad, `move` and `moveFire` -- 37 + 2.
+    expect(checked).toBe(39);
   });
 });
 
@@ -607,8 +609,8 @@ describe('mesh unit gait -- a foot on the ground stays where it landed', () => {
     });
 
   it('reads every walking figure of every gaited clip', () => {
-    // Rule 1: the population first. 37 locomotion clips less the crawl's two.
-    expect(rows).toHaveLength(35);
+    // Rule 1: the population first. 39 locomotion clips less the crawl's two.
+    expect(rows).toHaveLength(37);
     for (const r of rows) expect(r.figures.length, `${r.file} ${r.clip}: figures read`).toBeGreaterThan(0);
   });
 
@@ -737,6 +739,8 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   'breach_team.glb move': 518, // A3.1: see militia_cell's note
   // E5 (2026-10-01): the Meshy recon figure, boot = below 0.09 H, three men.
   'recon_zikit.glb move': 498, // spike-walk (6 Oct): the spotter walks too -- three men, 166 each
+  // GH-707 P2 (22 Oct): the Meshy medic figure, boot = below 0.09 H, two bodies (278 each).
+  'inf_medic_squad.glb move': 556,
   'civilians/civilian_woman.glb move': 328,
   'civilians/office_worker.glb move': 346,
   'civilians/farm_worker.glb move': 315, // re-planted legs (motion pass, 5 Oct): 279 before
@@ -757,6 +761,7 @@ const ACTIVE_BOOT_VERTICES: Readonly<Record<string, number>> = {
   'sarim_rifles.glb moveFire': 1078,
   'mortar_team.glb moveFire': 590,
   'yahalom_squad.glb moveFire': 508,
+  'inf_medic_squad.glb moveFire': 556, // the same legs as its `move`
   'manpad_team.glb moveFire': 711,
   'recoilless_team.glb moveFire': 518,
   'breach_team.glb moveFire': 518,
@@ -856,7 +861,8 @@ describe('mesh unit gait -- per figure, not per file', () => {
     // clips went with their bipeds; inf_squad/sarim/mortar_team are three
     // men each on rig.py's gait, and E5's recon_zikit walks three.
     // 2026-10-05: + 16 `moveFire` clips, every armed walker's.
-    expect(rows).toHaveLength(37);
+    // GH-707 P2 (22 Oct): + inf_medic_squad's `move` and `moveFire`, two men each.
+    expect(rows).toHaveLength(39);
     const live = rows.flatMap((r) => r.live.map((f) => `${r.file} ${r.clip} ${f.root}`));
     // 40 visible figures over 20 clips: two each on the six original
     // `kit.py` teams and `yahalom_engineer`, three each on `meshy_soldier`
@@ -868,7 +874,7 @@ describe('mesh unit gait -- per figure, not per file', () => {
     // mortar-team precedent) are not in it.
     // B2's two crews add four: the MANPAD gunner and the spotter's walker, and
     // both recoilless walkers.
-    expect(live).toHaveLength(77); // 2026-10-05: + 36 on the sixteen `moveFire` clips
+    expect(live).toHaveLength(81); // 2026-10-05: + 36 on the sixteen `moveFire` clips; GH-707 P2: + 4, the medics' two men over two clips
     // Both directions, the way GAIT_EXEMPT is: every named still figure must
     // be a figure that really exists and really is still, and every figure
     // that is still must be named.
@@ -1038,6 +1044,7 @@ describe('mesh unit gait -- one file’s locomotion clips against each other', (
       'breach_team.glb',
       'charge_squad.glb',
       'demo_squad.glb',
+      'inf_medic_squad.glb',
       'inf_squad.glb',
       'manpad_team.glb',
       'militia_cell.glb',
@@ -1272,7 +1279,8 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
     // `pinned` clip on seventeen files (35 visible figures, five of them
     // thrown away for a short lever below).
     // Field Works Task 12.4 (21 Oct): + 2, demo_squad's two men over its new `work`.
-    expect(rows).toHaveLength(253); // B7: 21 GLBs, every one with a face mesh now
+    // GH-707 P2 (22 Oct): + 18, inf_medic_squad's two men over its 9 headed clips.
+    expect(rows).toHaveLength(271); // B7: 21 GLBs, every one with a face mesh now
     // WHICH files, by name -- not `not.toContain('sniper_team.glb')`, which
     // could never fail: an un-exempted `sniper_team` makes `measureFacing`
     // THROW rather than produce a row, so the absence it asserts is
@@ -1289,6 +1297,7 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'civilians/office_worker.glb',
       'demo_squad.glb',
       'digger_crew.glb',
+      'inf_medic_squad.glb',
       'inf_squad.glb',
       'manpad_team.glb',
       'militia_cell.glb',
@@ -1370,6 +1379,9 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'digger_crew.glb idle',
       'digger_crew.glb move',
       'digger_crew.glb pinned',
+      // GH-707 P2: both medics, hidden on `down` (the corpses show).
+      'inf_medic_squad.glb down',
+      'inf_medic_squad.glb down',
       'manpad_team.glb down',
       'manpad_team.glb down',
       'manpad_team.glb down',
@@ -1468,6 +1480,9 @@ describe('mesh unit facing -- the sweep over every rigged type and clip', () => 
       'recon_zikit.glb pinned zk_rifle_head 0.0149',
       'civilians/civilian_woman.glb idle Head 0.0089',
       'civilians/civilian_woman.glb move Head 0.0073',
+      // GH-707 P2 (22 Oct): the medics' pinned heads fold over like the other rifle-holders'.
+      'inf_medic_squad.glb pinned med_a_head 0.0192',
+      'inf_medic_squad.glb pinned med_b_head 0.0229',
     ]);
   });
 
@@ -1520,6 +1535,8 @@ const WEAPON_RIGS: readonly {
   { file: 'militia_cell.glb', role: 'weapon', joint: /_weapon$/, figures: 2, clips: ['fire', 'moveFire', 'kneel'], aimDeg: 0 },
   { file: 'yahalom_squad.glb', role: 'weapon', joint: /_weapon$/, figures: 1, clips: ['fire', 'moveFire', 'kneel'], aimDeg: 0 },
   { file: 'demo_squad.glb', role: 'weapon', joint: /_weapon$/, figures: 1, clips: ['fire', 'moveFire', 'kneel'], aimDeg: 0 },
+  // GH-707 P2 (22 Oct): both medics carry the hold's kit carbine.
+  { file: 'inf_medic_squad.glb', role: 'weapon', joint: /_weapon$/, figures: 2, clips: ['fire', 'moveFire', 'kneel'], aimDeg: 0 },
   { file: 'mortar_team.glb', role: 'weapon', joint: /_weapon$/, figures: 1, clips: ['fire', 'moveFire'], aimDeg: 0 },
   // rpg_team carries one of each: the loader's rifle and the gunner's RPG,
   // which aims 3 deg up on the shoulder. Per figure, so read separately.
@@ -1715,6 +1732,8 @@ const WEAPON_IDLE_ELEVATION_DEG: Readonly<Record<string, number>> = {
   'militia_cell.glb mil1_weapon': -30,
   'yahalom_squad.glb yah_b_weapon': -30,
   'demo_squad.glb demo_b_weapon': -30,
+  'inf_medic_squad.glb med_a_weapon': -30, // GH-707 P2
+  'inf_medic_squad.glb med_b_weapon': -30,
   'mortar_team.glb mtr_no3_weapon': -30,
   'rpg_team.glb rpg_load_weapon': -30,
   // The tubes keep the importer's own carry (`_seat_launcher`) in `idle`:
@@ -1825,6 +1844,7 @@ describe('mesh unit weapons -- the axis measured from the weapon, not from a bon
     expect(gated.map((w) => w.file).sort()).toEqual([
       'at_team.glb',
       'demo_squad.glb',
+      'inf_medic_squad.glb', // GH-707 P2
       'inf_squad.glb',
       'manpad_team.glb',
       'militia_cell.glb',
@@ -2236,13 +2256,14 @@ describe('mesh unit walk-and-fire -- a moving shot plays a locomotion clip', () 
       ).toBe(false);
     }
     // A literal, so a catalogue that loses half its rigs cannot pass by
-    // iterating less: sixteen armed, gaited files, one per type.
+    // iterating less: seventeen armed, gaited files, one per type.
     expect(armedGaited.map((r) => r.file).sort()).toEqual([
       'at_team.glb',
       'atgm_cell.glb',
       'breach_team.glb',
       'charge_squad.glb',
       'demo_squad.glb',
+      'inf_medic_squad.glb',
       'inf_squad.glb',
       'manpad_team.glb',
       'militia_cell.glb',
@@ -2393,7 +2414,8 @@ describe('upright in motion -- every figure walks on its feet', () => {
     // no `_pelvis` and read nothing, and a rename would silently drop more.
     // 73 visible move/moveFire figures across the catalogue's files, + 6
     // officer `move` rows (two men each, no moveFire). Read 6 Oct.
-    expect(rows).toHaveLength(79);
+    // GH-707 P2 (22 Oct): + 4, the medics' two men over `move` and `moveFire`.
+    expect(rows).toHaveLength(83);
     for (const key of Object.keys(KNEELING_IN_MOTION)) {
       expect(rows.map((r) => r.key), `${key}: an exemption with no figure behind it`).toContain(key);
     }
@@ -2489,8 +2511,9 @@ describe('kneeling on the ground -- no kneeler below it, none floating', () => {
   it('reads every figure the motion pass kneels', () => {
     // 3 + 3 + 2 + 2 + 2 + 2 + 1 + 2 + 3: inf, sarim, militia, yahalom, rpg,
     // demo, the MANPAD gunner, the Spike team and the Zikit.
-    expect(KNEELERS).toHaveLength(20);
-    expect(TEAMS).toHaveLength(9);
+    // GH-707 P2 (22 Oct): + 2, the medic team.
+    expect(KNEELERS).toHaveLength(22);
+    expect(TEAMS).toHaveLength(10);
   });
 
   for (const team of TEAMS) {
@@ -2580,6 +2603,7 @@ const GROUNDED_DRAWN: Readonly<Record<string, { standing: readonly string[]; wal
   demo_squad: { standing: ['demo_a_root', 'demo_b_root', 'prop'], walking: ['demo_a_root', 'demo_b_root'] },
   manpad_team: { standing: ['mpd_fire_root', 'mpd_spot_root'], walking: ['mpd_fire_root', 'mpd_spotw_root'] },
   at_team: { standing: ['at_fire_root', 'at_spot_root'], walking: ['at_fire_root', 'at_spot_root'] },
+  inf_medic_squad: { standing: ['med_a_root', 'med_b_root'], walking: ['med_a_root', 'med_b_root'] },
   recon_zikit: {
     standing: ['prop', 'zk_radio_root', 'zk_rifle_root', 'zk_spot_root'],
     walking: ['zk_radio_root', 'zk_rifle_root', 'zk_spot_root'],
@@ -2655,7 +2679,7 @@ describe('on the ground in the living clips -- every figure and held item', () =
     const grounded = Object.keys(MOTION_TEAMS).filter((id) => MOTION_TEAMS[id].ground).sort();
     expect(grounded).toEqual(Object.keys(GROUNDED_DRAWN).sort());
     // The nine #414 grounded and the thirteen files it recorded as debt.
-    expect(grounded).toHaveLength(22);
+    expect(grounded).toHaveLength(23); // GH-707 P2: + inf_medic_squad
     expect([...GROUNDED_FILES].sort()).toEqual(RIGS.map((r) => r.file).sort());
   });
 

@@ -694,6 +694,19 @@ def wounded_sarim(clip, frame):
     return kit.casualty("w0", headgear="keffiyeh", loadout="irregular")
 
 
+def inf_medic_squad(clip, frame):
+    """Nemala Medic Team, crew 2 (GH-707 P2). The sheet builder exists for the
+    registry only -- `tools/units/import_meshy_medic_team.py` builds the mesh.
+    Two riflemen, the folded stretcher standing up behind each."""
+    p, st = _standing_posture(clip), _stride(clip, frame)
+    out = []
+    for i, (x, y) in enumerate(((0.30, -0.40), (-0.30, 0.40))):
+        out += kit.figure(f"med{i}", (x, y, 0.0), posture=p, stride=st, leader=(i == 0))
+        out += kit.rifle(f"med{i}_w", (x, y, 0.0), posture=p, aim=(clip == "fire"))
+        out.append(kit.tube(f"med{i}_roll", 0.9, 0.06, (x - 0.22, y, 1.45), pitch=math.pi / 2.0, sides=10, role="wood"))
+    return out
+
+
 #: id -> (builder, faction, sprite directory). The sheet name follows the unit id
 #: so a missing sheet is obvious in main.ts rather than hidden behind an alias --
 #: which is exactly how seven types came to share one directory.
@@ -715,6 +728,7 @@ TEAMS = {
     "sarim_rifles": (sarim_rifles, "enemy", "INF_SARIM"),
     "recoilless_team": (recoilless_team, "enemy", "INF_RECOILLESS"),
     "manpad_team": (manpad_team, "enemy", "INF_MANPAD"),
+    "inf_medic_squad": (inf_medic_squad, "kdf", "INF_MEDIC"),
     "wounded_kdf": (wounded_kdf, "kdf", "WOUNDED_KDF"),
     "wounded_sarim": (wounded_sarim, "enemy", "WOUNDED_SARIM"),
 }

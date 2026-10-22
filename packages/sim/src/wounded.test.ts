@@ -121,7 +121,13 @@ describe('wound data shape (GH-707 Task 1)', () => {
     // `wounded_kdf` and `wounded_sarim`) IS wound content, and registering one turns the fold on --
     // the next test pins exactly that. What this one still holds is that no OTHER shipped type
     // does it by accident.
-    const units = shippedUnits().filter((u) => (u as { role?: string }).role !== 'wounded');
+    // GH-709 (22 Oct): the same goes for a type that declares `hull.can_carry` -- the armoured ambulance
+    // and the medevac -- which is wound content by definition (`type.canCarry !== null`).
+    const units = shippedUnits().filter(
+      (u) =>
+        (u as { role?: string }).role !== 'wounded' &&
+        (u as { hull?: { can_carry?: unknown } }).hull?.can_carry === undefined,
+    );
     expect(units.length).toBeGreaterThan(30); // the walk found the roster, not an empty dir
     for (const u of units) sim.addUnitType(u);
     for (const s of Object.values(catalogue.types)) {

@@ -4,6 +4,7 @@
   "blurb": "Flies four wounded out of the fight. Unarmed, and it lands to load.",
   "faction": "kdf",
   "role": "apc",
+  "voice": "air",
   "cost": {
     "logistics": 330,
     "build_time_s": 40,

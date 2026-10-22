@@ -452,6 +452,35 @@ const VEHICLE_ROLE_PALETTE: Record<string, Partial<Record<VehicleMeshRole, reado
     metal: sliceFrom('gunmetal', 2, 2),
     rubber: sliceFrom('shadow', 0, 3),
   },
+  // GH-709 (2026-10-22): the Pered armoured ambulance
+  // (`tools/vehicles/export_veh_ambulance.py`), the Namer's hull and tracks
+  // (their bake never reaches these ramps) under four palette parts: the box
+  // body (`hull`), the band round it and the folded canvas (`plate`), the
+  // rails, lamps and hatch frame (`metal`) and the lenses and windows
+  // (`glass`). Same as `ifv_namer` above in everything but `plate`, which is
+  // the one place the lead's "white band, the palest vehicle role" lands:
+  // `sliceFrom('limestone', 0, 3)` lifts to `limestone.1` (`#E6D8BE`), the
+  // palest lit tone a vehicle takes (the Technical's hull lifts to
+  // limestone.5) and the same `dome` tone as the aid post's porch band.
+  veh_ambulance: {
+    hull: sliceFrom('olive', 0, 4),
+    plate: sliceFrom('limestone', 0, 3),
+    metal: sliceFrom('gunmetal', 2, 2),
+    rubber: sliceFrom('shadow', 0, 3),
+    glass: sliceFrom('gunmetal', 3, 1),
+    recess: sliceFrom('shadow', 1, 2),
+  },
+  // GH-709 (2026-10-22): the Nachlieli medevac
+  // (`tools/vehicles/export_air_medevac_heli.py`), the Yanshuf's hull and rotor
+  // (their bake never reaches these ramps) under three palette parts: the stub
+  // wings, pylons, tanks and litter panniers (`hull`), the hoist and struts
+  // (`metal`) and the band round the tail boom (`plate`, `limestone.1`, the
+  // palest lit tone a vehicle takes -- see `veh_ambulance` above).
+  air_medevac_heli: {
+    hull: sliceFrom('olive', 0, 4),
+    plate: sliceFrom('limestone', 0, 3),
+    metal: sliceFrom('gunmetal', 2, 2),
+  },
   // GH-698 (2026-10-18): the UH-60 Yanshuf transport
   // (`tools/vehicles/export_meshy_yanshuf.py`), hand-copied from the gate's
   // `VEHICLE_ROLE_PALETTES["heli_yanshuf"]`. Both of its meshes (`hull_hull`,

@@ -127,6 +127,9 @@ export const RADIUS_BY_TYPE: Readonly<Record<string, number>> = {
   // GH-707 P2 (2026-10-22): the wounded pair, from a fresh `unit-footprints.ts` run (footprint
   // 0.357 and 0.355 tile, a man lying on his front: 1.15 x that is under the foot class value).
   wounded_kdf: 0.45, wounded_sarim: 0.45,
+  // GH-707 P2 (22 Oct): the Nemala Medic Team, 0.426 tile at rest (1.15 x that is 0.49, over the foot
+  // class 0.45). In `carry` the two men stand 2.6 m apart; the ring stays the rest team's.
+  inf_medic_squad: 0.49,
   jeep_shoded: 1.03, technical: 1.02, dozer_d9: 1.56, rocket_battery: 1.16, moto_rpg: 0.55,
   // `gun_truck` measured 1.17 once its mesh landed (B2, 2026-09-30; 1.15 x its own
   // 5.4 m footprint) -- it was the infantry class 0.55 while billboard-only.
@@ -145,6 +148,9 @@ export const RADIUS_BY_TYPE: Readonly<Record<string, number>> = {
   // GH-698 (2026-10-21): the UH-60 Yanshuf, from a fresh `unit-footprints.ts` run
   // (footprint 0.928 tile, rotor excluded like the Petens'): 1.15 x that, rounded up.
   heli_yanshuf: 1.07,
+  // GH-709 (2026-10-22): the armoured ambulance (the Namer's hull, so the Namer's ring) and the
+  // Nachlieli medevac (the Yanshuf's footprint, rotor excluded), from a fresh `unit-footprints.ts` run.
+  veh_ambulance: 1.61, air_medevac_heli: 1.07,
 };
 
 /** The ring radius for a unit type: its own row, else the class value. */
@@ -187,6 +193,8 @@ export const ELLIPSE_BY_TYPE: Readonly<Record<string, RingEllipse>> = {
   // Re-measured 2026-10-18 after the Lavi's x1.18 rescale (lead's ruling, 2026-10-15).
   mbt_lavi: { along: 1.35, across: 0.89, offsetAlong: -0.22 },
   ifv_namer: { along: 1.61, across: 1.05, offsetAlong: 0 },
+  // GH-709: the ambulance's roof box stands inside the Namer's hull footprint, so the same ellipse.
+  veh_ambulance: { along: 1.61, across: 1.05, offsetAlong: 0 },
   apc_eitan: { along: 1.52, across: 0.83, offsetAlong: 0 },
   jeep_shoded: { along: 1.1, across: 0.69, offsetAlong: 0 },
   // Both re-measured 2026-09-30 (GH-185) from the Meshy exports by

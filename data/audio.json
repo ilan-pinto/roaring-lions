@@ -232,7 +232,9 @@
       "dozer_d9": "tracked",
       "heli_peten": "rotor",
       "heli_peten_gunship": "rotor",
-      "heli_yanshuf": "rotor"
+      "heli_yanshuf": "rotor",
+      "air_medevac_heli": "rotor",
+      "veh_ambulance": "tracked"
     }
   },
   "sets": {

@@ -71,6 +71,9 @@ import heliPeten from '../../../../../data/units/kdf/heli_peten.json';
 import heliPetenGunship from '../../../../../data/units/kdf/heli_peten_gunship.json';
 import heliYanshuf from '../../../../../data/units/kdf/heli_yanshuf.json';
 import ifvNamer from '../../../../../data/units/kdf/ifv_namer.json';
+// GH-709: the armoured ambulance and the medevac (`isAir`, excluded from the weight model like the Yanshuf).
+import vehAmbulance from '../../../../../data/units/kdf/veh_ambulance.json';
+import airMedevacHeli from '../../../../../data/units/kdf/air_medevac_heli.json';
 import jeepShoded from '../../../../../data/units/kdf/jeep_shoded.json';
 import mbtLavi from '../../../../../data/units/kdf/mbt_lavi.json';
 import scoutShachaf from '../../../../../data/units/kdf/scout_shachaf.json';
@@ -119,6 +122,8 @@ const VEHICLE_UNIT_JSON: readonly unknown[] = [
   heliPetenGunship,
   // GH-698: the UH-60 Yanshuf, `isAir`, excluded from the weight model upstream like `heli_peten`.
   heliYanshuf,
+  // GH-709: `isAir`, excluded from the weight model upstream like the Yanshuf.
+  airMedevacHeli,
   ifvNamer,
   jeepShoded,
   mbtLavi,
@@ -128,6 +133,8 @@ const VEHICLE_UNIT_JSON: readonly unknown[] = [
   technical,
   gunTruck,
   loiterDrone,
+  // GH-709: a ground hull; `mobility.weight` is the `apc` role default (none authored).
+  vehAmbulance,
 ];
 
 const BY_UNIT_ID: ReadonlyMap<string, WeightSource> = new Map(

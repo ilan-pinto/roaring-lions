@@ -89,8 +89,10 @@ describe('orders are obeyed after they are done, every KDF type', () => {
     // more than 3 tiles (4.5 to 29.7; the attack drone dies on its target).
     // The recon drone carries no weapon, so the sweep's couldEngage refuses
     // to walk it at anything -- correct, and the one stay-put expected here.
+    // GH-709 (22 Oct): the armoured ambulance and the medevac are unarmed too (`weapons: []`),
+    // so they stay put for the same reason.
     const stayed = KDF.filter((type) => !(drift(type, 'sweep') > 3));
-    expect(stayed).toEqual(['recon_drone']);
+    expect(stayed).toEqual(['recon_drone', 'veh_ambulance', 'air_medevac_heli']);
   });
 
   it('the exemption is still needed', () => {

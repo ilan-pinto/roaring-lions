@@ -274,6 +274,12 @@ TEXTURED_VEHICLE_EXEMPT = {
     # 2k bake on hull_hull and rotor_metal (tools/vehicles/export_meshy_yanshuf.py).
     # Held until Lane C lands the land/lift sim work and the unit JSON.
     "heli_yanshuf",
+    # GH-709 (2026-10-22): the Pered armoured ambulance, ifv_namer.glb's own bake
+    # under a palette roof box (tools/vehicles/export_veh_ambulance.py).
+    "veh_ambulance",
+    # GH-709: the Nachlieli medevac, heli_yanshuf.glb's own bake under palette parts
+    # (tools/vehicles/export_air_medevac_heli.py).
+    "air_medevac_heli",
 }
 
 # Rigged INFANTRY teams that ship their own Meshy `base_color` bake (GH-286,
@@ -310,6 +316,8 @@ TEXTURED_INFANTRY_EXEMPT = {
     "manpad_team", "recoilless_team", "civilians",
     # B7: the five supplied teams replaced on the crew importer's path.
     "inf_squad", "sarim_rifles", "mortar_team", "sniper_team", "yahalom_squad",
+    # GH-707 P2 (22 Oct 2026): the Nemala Medic Team, tools/units/import_meshy_medic_team.py.
+    "inf_medic_squad",
 }
 
 # A unit TYPE that draws several files: this gate names a mesh by its file

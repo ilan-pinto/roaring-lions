@@ -47,7 +47,7 @@ describe('engine family (tracked / wheeled / rotor / silent)', () => {
 
   it('tracked: the Lavi, the Namer and the D9 -- and only they carry the clank', () => {
     const tracked = [...families].filter(([, f]) => f === 'tracked').map(([id]) => id).sort();
-    expect(tracked).toEqual(['dozer_d9', 'ifv_namer', 'mbt_lavi']);
+    expect(tracked).toEqual(['dozer_d9', 'ifv_namer', 'mbt_lavi', 'veh_ambulance']); // GH-709: the ambulance is the Namer's hull
     expect(SPEC?.families?.tracked?.clank).toBe('track_clank');
     for (const [name, layers] of Object.entries(SPEC?.families ?? {})) {
       if (name !== 'tracked') expect(layers.clank, name).toBeUndefined();
@@ -75,10 +75,11 @@ describe('engine family (tracked / wheeled / rotor / silent)', () => {
     }
   });
 
-  it('rotor: both Peten helicopters and the Yanshuf; every other air unit is silent', () => {
+  it('rotor: both Peten helicopters, the Yanshuf and the medevac; every other air unit is silent', () => {
     expect(families.get('heli_peten')).toBe('rotor');
     expect(families.get('heli_peten_gunship')).toBe('rotor');
     expect(families.get('heli_yanshuf')).toBe('rotor'); // GH-698
+    expect(families.get('air_medevac_heli')).toBe('rotor'); // GH-709
     for (const id of ['recon_drone', 'attack_drone', 'loiter_drone', 'paramotor']) expect(families.get(id), id).toBeNull();
   });
 

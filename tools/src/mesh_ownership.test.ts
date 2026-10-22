@@ -119,7 +119,7 @@ describe('the infantry-team owner table', () => {
     const declared = [...(teams as RegExpExecArray)[1].matchAll(/"([a-z_]+)"/g)].map((m) => m[1]).sort();
     const owned = [...(block as RegExpExecArray)[1].matchAll(/^\s*"([a-z_]+)":/gm)].map((m) => m[1]).sort();
     expect(owned).toEqual(declared);
-    expect(owned.length).toBe(19); // B7: sarim_rifles joined SUPPORTED_TEAMS; GH-707 P2: wounded_kdf, wounded_sarim (kit-owned)
+    expect(owned.length).toBe(20); // B7: sarim_rifles joined SUPPORTED_TEAMS; GH-707 P2: wounded_kdf, wounded_sarim (kit-owned), inf_medic_squad (import_meshy_medic_team.py)
   });
 
   it('names sniper_team as import_meshy_crew_team.py (B7), and that script writes it', () => {

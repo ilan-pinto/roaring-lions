@@ -133,6 +133,33 @@ const D9_WHEELS_X: readonly [number, number][] = [
   [1.37, 0.855],
 ];
 
+/**
+ * The Namer's gear, shared with `veh_ambulance`: the ambulance's `hull_hull` and
+ * `hull_rubber` are the Namer's own meshes, byte for byte (the roof box and the
+ * stretcher racks are separate `medical_*` nodes the pass never tags), so the
+ * recipe is the same object rather than a copy that could drift.
+ */
+const NAMER_GEAR: RunningGearRecipe = {
+  // Road wheels welded into the track loop: the cut stays inside the track's
+  // inner face (0.9 of the 0.49 m rim).
+  cut: 0.9,
+  wheels: [
+    { side: 'r', x: 2.875, y: 0.537, r: 0.49, zIn: 1.12, zOut: 1.98 },
+    { side: 'r', x: 1.675, y: 0.537, r: 0.49, zIn: 1.12, zOut: 1.98 },
+    { side: 'r', x: 0.557, y: 0.537, r: 0.49, zIn: 1.12, zOut: 1.98 },
+    { side: 'r', x: -0.561, y: 0.537, r: 0.49, zIn: 1.12, zOut: 1.98 },
+    { side: 'r', x: -1.667, y: 0.537, r: 0.49, zIn: 1.12, zOut: 1.98 },
+    { side: 'r', x: -2.841, y: 0.537, r: 0.49, zIn: 1.12, zOut: 1.98 },
+    { side: 'l', x: 2.863, y: 0.537, r: 0.49, zIn: 1.12, zOut: 1.98 },
+    { side: 'l', x: 1.671, y: 0.537, r: 0.49, zIn: 1.12, zOut: 1.98 },
+    { side: 'l', x: 0.558, y: 0.537, r: 0.49, zIn: 1.12, zOut: 1.98 },
+    { side: 'l', x: -0.555, y: 0.537, r: 0.49, zIn: 1.12, zOut: 1.98 },
+    { side: 'l', x: -1.663, y: 0.537, r: 0.49, zIn: 1.12, zOut: 1.98 },
+    { side: 'l', x: -2.846, y: 0.537, r: 0.49, zIn: 1.12, zOut: 1.98 },
+  ],
+  track: { zIn: 1.08, zOut: 2.08, loopMaxY: 1.13, band: 0.08, minComponentTris: 200, excludeDiscs: [] },
+};
+
 export const RUNNING_GEAR_RECIPES: Readonly<Record<string, RunningGearRecipe>> = {
   apc_eitan: {
     cut: 1.03,
@@ -205,26 +232,10 @@ export const RUNNING_GEAR_RECIPES: Readonly<Record<string, RunningGearRecipe>> =
       { side: 'l', x: -1.192, y: 0.31, r: 0.317, zIn: 0.411, zOut: 0.847 },
     ],
   },
-  ifv_namer: {
-    // Road wheels welded into the track loop: the cut stays inside the track's
-    // inner face (0.9 of the 0.49 m rim).
-    cut: 0.9,
-    wheels: [
-      { side: 'r', x: 2.875, y: 0.537, r: 0.49, zIn: 1.12, zOut: 1.98 },
-      { side: 'r', x: 1.675, y: 0.537, r: 0.49, zIn: 1.12, zOut: 1.98 },
-      { side: 'r', x: 0.557, y: 0.537, r: 0.49, zIn: 1.12, zOut: 1.98 },
-      { side: 'r', x: -0.561, y: 0.537, r: 0.49, zIn: 1.12, zOut: 1.98 },
-      { side: 'r', x: -1.667, y: 0.537, r: 0.49, zIn: 1.12, zOut: 1.98 },
-      { side: 'r', x: -2.841, y: 0.537, r: 0.49, zIn: 1.12, zOut: 1.98 },
-      { side: 'l', x: 2.863, y: 0.537, r: 0.49, zIn: 1.12, zOut: 1.98 },
-      { side: 'l', x: 1.671, y: 0.537, r: 0.49, zIn: 1.12, zOut: 1.98 },
-      { side: 'l', x: 0.558, y: 0.537, r: 0.49, zIn: 1.12, zOut: 1.98 },
-      { side: 'l', x: -0.555, y: 0.537, r: 0.49, zIn: 1.12, zOut: 1.98 },
-      { side: 'l', x: -1.663, y: 0.537, r: 0.49, zIn: 1.12, zOut: 1.98 },
-      { side: 'l', x: -2.846, y: 0.537, r: 0.49, zIn: 1.12, zOut: 1.98 },
-    ],
-    track: { zIn: 1.08, zOut: 2.08, loopMaxY: 1.13, band: 0.08, minComponentTris: 200, excludeDiscs: [] },
-  },
+  ifv_namer: NAMER_GEAR,
+  // GH-709 (2026-10-22): the armoured ambulance is the Namer's hull under a
+  // medical box; its road wheels spin and its tracks scroll as the Namer's do.
+  veh_ambulance: NAMER_GEAR,
   mbt_lavi: { cut: 1, wheels: [], track: scaleTrackSeed(LAVI_TRACK, rescaleOf('mbt_lavi')) },
   officer_armour: { cut: 1, wheels: [], track: scaleTrackSeed(LAVI_TRACK, rescaleOf('officer_armour')) },
   dozer_d9: {

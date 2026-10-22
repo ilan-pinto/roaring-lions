@@ -2,6 +2,13 @@
   "version": 1,
   "size": 192,
   "portraits": {
+    "air_medevac_heli": {
+      "file": "air_medevac_heli.png",
+      "extent": [
+        182,
+        104
+      ]
+    },
     "apc_eitan": {
       "file": "apc_eitan.png",
       "extent": [
@@ -141,6 +148,20 @@
         182,
         132
       ]
+    },
+    "inf_medic_squad": {
+      "file": "inf_medic_squad.png",
+      "extent": [
+        166,
+        174
+      ],
+      "lead": {
+        "file": "lead/inf_medic_squad.png",
+        "extent": [
+          79,
+          174
+        ]
+      }
     },
     "inf_squad": {
       "file": "inf_squad.png",
@@ -343,6 +364,13 @@
       "extent": [
         182,
         126
+      ]
+    },
+    "veh_ambulance": {
+      "file": "veh_ambulance.png",
+      "extent": [
+        182,
+        158
       ]
     },
     "wounded_kdf": {

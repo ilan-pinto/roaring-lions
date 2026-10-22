@@ -104,6 +104,15 @@ export const WRECK_RECIPES: Readonly<Record<string, WreckRecipe>> = {
   // rotor_pivot graph (tools/vehicles/export_meshy_yanshuf.py), so it wrecks
   // exactly as the Peten does: on its side, blades bent.
   heli_yanshuf: { hull: 'air', rotorPivot: 'rotor_pivot' },
+  // GH-709 (2026-10-22): the Pered armoured ambulance is the Namer's hull under a
+  // medical box and carries no turret at all (tools/vehicles/export_veh_ambulance.py
+  // removes the RWS), so it wrecks as the plain tracked hull the D9 does: the
+  // box, racks and lamps are `medical_*` parts that go down with it.
+  veh_ambulance: { hull: 'tracked' },
+  // GH-709: the Nachlieli medevac is the Yanshuf plus a hoist, tanks and a band
+  // (tools/vehicles/export_veh_medevac.py), the same rotor graph, so the same
+  // recipe: on its side, blades bent.
+  air_medevac_heli: { hull: 'air', rotorPivot: 'rotor_pivot' },
 };
 
 /**

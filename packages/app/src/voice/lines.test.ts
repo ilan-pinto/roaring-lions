@@ -35,6 +35,10 @@ describe('voiceClassOf (spec §3)', () => {
     moto_rpg: 'crew', paramotor: 'air', recoilless_team: 'infantry', rocket_battery: 'crew',
     rpg_team: 'infantry', sarim_rifles: 'infantry', technical: 'crew',
     civilians: 'infantry', // a class, but no language: civilians never speak (languageOf)
+    // GH-709: the ambulance is a crewed hull; the medevac is an air carrier whose role is `apc`, so it
+    // carries the Yanshuf's `voice: "air"` override or it would speak as a ground crew.
+    veh_ambulance: 'crew', air_medevac_heli: 'air',
+    inf_medic_squad: 'infantry', // GH-707 P2: the Nemala Medic Team speaks as foot soldiers
     wounded_kdf: 'infantry', wounded_sarim: 'infantry', // role wounded (GH-707 P2): a class by role; nobody orders or voices a casualty
   };
 

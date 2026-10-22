@@ -82,4 +82,8 @@ export const TEXTURED_INFANTRY_TYPES: ReadonlySet<string> = new Set<string>([
   'mortar_team',
   'sniper_team',
   'yahalom_squad',
+  // GH-707 P2 (22 Oct 2026): the Nemala Medic Team, tools/units/import_meshy_medic_team.py --
+  // two bodies of one Meshy figure with its 1024 bake on uniform/boot/face (the casualty on
+  // its litter takes a texel of it); pack, bundle, litter and carbines are palette parts.
+  'inf_medic_squad',
 ]);

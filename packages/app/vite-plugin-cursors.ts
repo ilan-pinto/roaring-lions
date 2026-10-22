@@ -638,7 +638,9 @@ function badgeMark(bucket: RoleBucket, colour: string): string {
 export const BADGED_VERBS: { [K in Exclude<CursorName, UnbadgedName>]?: RoleBucket[] } = {
   move: ['kamikaze', 'drone', 'gunship', 'sniper', 'transport', 'soft', 'armour'],
   advance: ['kamikaze', 'drone', 'gunship', 'sniper', 'transport', 'soft', 'armour'],
-  garrison: ['soft', 'sniper'],
+  // GH-707 P2: `transport` since the medic team, which can garrison and has a stretcher seat
+  // (`transport_slots` 1, so `roleBucket` reads it as `transport`); the cursor badges it as one.
+  garrison: ['soft', 'sniper', 'transport'],
   demolish: ['soft', 'armour'],
   charge: ['soft'],
 };

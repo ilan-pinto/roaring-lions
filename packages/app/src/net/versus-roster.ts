@@ -18,8 +18,17 @@ export type VersusRosterUnit = (typeof units)[keyof typeof units];
  * index layout. No unit declares `hull.wounds` yet and no versus side can field
  * either, so the room leaves them out until the rescue loop is opened to versus
  * (the lead's call); that commit deletes the ids here and moves the literals.
+ *
+ * `veh_ambulance` and `air_medevac_heli` (GH-709): both declare `hull.can_carry:
+ * ['wounded']`, which turns the sim's wound hash fold on (and the medevac is an
+ * AIR carrier, which turns the air fold on besides), so registering either moves
+ * every versus/net hash pin although no versus side can field them. Held with
+ * the Yanshuf and the wounded pair until the rescue loop opens to versus.
+ *
+ * `inf_medic_squad` (GH-707 P2): its `rescue` block does the same to the wound hash fold
+ * (the sim keys `woundLive` off a type carrying one), so it is held with the others.
  */
-export const VERSUS_HELD_UNITS: ReadonlySet<string> = new Set(['heli_yanshuf', 'wounded_kdf', 'wounded_sarim']);
+export const VERSUS_HELD_UNITS: ReadonlySet<string> = new Set(['heli_yanshuf', 'wounded_kdf', 'wounded_sarim', 'veh_ambulance', 'air_medevac_heli', 'inf_medic_squad']);
 
 /**
  * The unit types a versus room registers, in roster order: the shipped

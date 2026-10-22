@@ -100,7 +100,10 @@ FIGURES = {"inf_squad", "at_team", "mortar_team", "sniper_team", "demo_squad",
            "moto_rpg", "digger_crew",
            # GH-707 P2 (22 Oct): the wounded pair, one man on his front each. No `idle`:
            # `pose_idle` falls back to `idleWounded`.
-           "wounded_kdf", "wounded_sarim"}
+           "wounded_kdf", "wounded_sarim",
+           # GH-707 P2 (22 Oct): the Nemala Medic Team. Two figures, so it has a `lead`
+           # portrait; its litter and casualty are scale 0 in `idle`.
+           "inf_medic_squad"}
 ENEMY_FIGURES = {"atgm_cell", "manpad_team", "recoilless_team", "sarim_rifles",
                  "militia_cell", "rpg_team", "mortar_crew", "charge_squad",
                  "moto_rpg", "digger_crew", "wounded_sarim"}
@@ -111,8 +114,8 @@ ENEMY_FIGURES = {"atgm_cell", "manpad_team", "recoilless_team", "sarim_rifles",
 # (`dig_root` plus its second pose root `digw_root`).
 NO_LEAD = {"moto_rpg", "digger_crew", "wounded_kdf", "wounded_sarim"}
 ROSTER = (
-    # KDF (19)
-    "inf_squad,at_team,mortar_team,sniper_team,demo_squad,breach_team,yahalom_squad,recon_zikit,"
+    # KDF (20)
+    "inf_squad,at_team,mortar_team,sniper_team,demo_squad,breach_team,yahalom_squad,recon_zikit,inf_medic_squad,"
     "mbt_lavi,ifv_namer,apc_eitan,apc_kipod,jeep_shoded,scout_shachaf,dozer_d9,"
     "heli_peten,heli_peten_gunship,attack_drone,recon_drone,"
     # Sarim (15)

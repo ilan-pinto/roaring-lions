@@ -146,6 +146,11 @@ import civilians from '../../../data/units/civilians.json';
 // GH-707 P2: the wounded, role `wounded`. Not buildable, in no store; a casualty the sim makes.
 import woundedKdf from '../../../data/units/kdf/wounded_kdf.json';
 import woundedSarim from '../../../data/units/enemy/wounded_sarim.json';
+// GH-709 / GH-707 P2: the armoured ambulance and the medevac, both `can_carry: ['wounded']`.
+// GH-707 P2: the Nemala Medic Team (`rescue` block: it treats and carries the wounded).
+import infMedicSquad from '../../../data/units/kdf/inf_medic_squad.json';
+import vehAmbulance from '../../../data/units/kdf/veh_ambulance.json';
+import airMedevacHeli from '../../../data/units/kdf/air_medevac_heli.json';
 
 import catastrophicKill from '../../../data/vfx/catastrophic_kill.json';
 import fireApfsds from '../../../data/vfx/fire_apfsds.json';
@@ -396,6 +401,9 @@ export const units = {
   heli_yanshuf: heliYanshuf,
   wounded_kdf: woundedKdf,
   wounded_sarim: woundedSarim,
+  inf_medic_squad: infMedicSquad,
+  veh_ambulance: vehAmbulance,
+  air_medevac_heli: airMedevacHeli,
 } as const;
 
 export type UnitId = keyof typeof units;

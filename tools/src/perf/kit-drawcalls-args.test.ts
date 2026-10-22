@@ -36,6 +36,7 @@ describe('parseKitDrawcallArgs', () => {
       'rocket_battery',
       'scout_shachaf',
       'technical',
+      'veh_ambulance',
     ]);
     expect(a.tierLevels).toEqual([0]);
     expect(a.runningGear).toBe(true);

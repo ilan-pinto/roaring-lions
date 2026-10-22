@@ -116,13 +116,14 @@ describe('the ring grid and cache numbers (Task 5, fix round 1)', () => {
     expect(RING_XL_TILES).toBe(1.23);
     const xl = Object.entries(ELLIPSE_BY_TYPE).filter(([, e]) => e.along > RING_XL_TILES).map(([id]) => id).sort();
     // The Lavi joined at its x1.18 rescale (along 1.17 -> 1.35, lead 2026-10-15).
-    expect(xl).toEqual(['apc_eitan', 'apc_kipod', 'dozer_d9', 'ifv_namer', 'mbt_lavi', 'rocket_battery']);
+    // GH-709: `veh_ambulance` wears the Namer's ellipse.
+    expect(xl).toEqual(['apc_eitan', 'apc_kipod', 'dozer_d9', 'ifv_namer', 'mbt_lavi', 'rocket_battery', 'veh_ambulance']);
   });
   it('GH-346: a fourth tier, 9x9 over 1.5 tiles -- at 1x exactly the four grown ellipses', () => {
     expect(RING_GRID_XXL).toBe(9);
     expect(RING_XXL_TILES).toBe(1.5);
     const xxl = Object.entries(ELLIPSE_BY_TYPE).filter(([, e]) => e.along > RING_XXL_TILES).map(([id]) => id).sort();
-    expect(xxl).toEqual(['apc_eitan', 'apc_kipod', 'dozer_d9', 'ifv_namer']);
+    expect(xxl).toEqual(['apc_eitan', 'apc_kipod', 'dozer_d9', 'ifv_namer', 'veh_ambulance']);
   });
   it('a cached ring is rebuilt past 0.05 tile of travel or about 2 degrees of turn', () => {
     expect(RING_CACHE.moveTiles).toBe(0.05);
