@@ -1,7 +1,10 @@
 # Mobility kills: design (GH-706)
 
-Status: **design for the lead, no code.** Lane C (sim). Written 2026-10-22 against
-`origin/main` at `be5ce361` (Yanshuf landed, #721 still open).
+Status: **ruled 22 Oct 2026 (lead, comment on #723); amended to the rulings.**
+Lane C (sim). Written 2026-10-22 against `origin/main` at `be5ce361` (Yanshuf
+landed, #721 still open). Sections 1-2 are the survey as written; sections 3-7
+are the model AS RULED, and the original proposal's rejected parts are kept in
+§8 so the reasoning is not lost.
 
 The issue asks for a running-gear hit that immobilises a vehicle (stuck, turret
 still fights) until it is repaired or destroyed. **Most of that already ships.**
@@ -85,168 +88,155 @@ for the `stalemate` rule. Any repair path makes that wording, not the rule, stal
 | AI recovery | no enemy hard hulls, no enemy workshops | moot today |
 | Balance probe | none | **missing** |
 
-## 3. Proposed model
+## 3. The model as ruled
 
-### 3.1 Keep ONE draw; reshape the weights
+### 3.0 The lead's rulings (22 Oct)
 
-Do not add a second roll. `rollComponent` keeps its one `nextU32(shooter)`;
-only the mobility WEIGHT changes, so every stream stays aligned and the
-draw count per penetration is unchanged. The weight becomes
+1. **No facing freeze.** A stuck hull keeps pivoting, as today.
+2. **Flat 20%.** `rollComponent`'s mobility weight stays `COMP_MOBILITY` (20) for
+   every weapon, arc and hull. No arc or class table, no `mobility.immobilise`
+   weight, no new probe numbers.
+3. **Field repair, yes.** A mobility-killed hull's crew fixes it to "slowed"
+   after 90 s with no hit taken (a hit restarts the clock); an engineer (a unit
+   with the `repair` ability) or a D9 nearby speeds it up. Wheeled hulls go
+   "slowed" on the first mobility hit and are fully stuck only on a second. The
+   field-works workshop aura keeps working.
+4. **Aircraft: forced landing for every aircraft** mobility-killed in the air,
+   extending #721's air-carrier path (land where it is, or on the nearest open
+   tile).
+5. Display stays HUD / icon / feed only (no world marks); the thrown-track
+   model is deferred.
 
-```
-wMob = COMP_MOBILITY × arcMult[arc] × classMult[weapon class] × unitMult   (integer %, floored)
-```
+### 3.1 The roll: unchanged
 
-all integer percent in `tuning.ts` (no float, invariant 2), with the total
-recomputed so the other rows keep their absolute weights. Starting numbers
-(to be measured, §6):
+`rollComponent` keeps its one `nextU32(shooter)` draw over the §5.4 weights.
+What a `mobility_kill` (or `combat_ineffective`) result DOES depends on the
+hull's running gear (3.2) and its present state (3.3).
 
-| arc | mult | | class | mult |
-|---|---|---|---|---|
-| front | 75 | | `apfsds` | 100 |
-| side | 150 | | `heat`, `rpg`, `atgm` | 100 |
-| rear | 125 | | `autocannon` | 125 |
-| | | | `he`, `mortar`, `rocket`, `demolition` | 150 |
-
-Reasoning: running gear sits on the flanks and below the glacis; blast is what
-throws a track. Note: the sim has no top-attack concept today (the `top` armour
-value is unread, and `TOP_ATTACK_WEAPON_IDS` lives in the renderer only), so a
-Spike is an `atgm` at 100; a roof-strike discount waits on a sim top-attack flag.
-The arc is already computed for the same shot (`presentedArc`), so this is a read, not a new
-geometric test.
-
-### 3.2 Data: `mobility.immobilise`, optional, role defaults
+### 3.2 Data: `mobility.gear`
 
 ```json
-"mobility": { "immobilise": { "weight": 1.0, "gear": "tracks", "partial": false } }
+"mobility": { "gear": "wheels" }
 ```
 
-- `weight` — the per-hull `unitMult` (default 1.0; schema 0–3).
-- `gear` — `"tracks" | "wheels" | "rotor"`, defaulting from the running-gear
-  recipes' own classification (Lavi, Namer, D9 tracks; Eitan, Kipod, Shachaf
-  wheels; `domain: air` rotor). `validate:data` pins the default against
-  `tools/src/meshes/running-gear-recipes.ts` both ways, the way
-  `vehicle-weight-params.ts` is pinned to the GLBs.
-- `partial` — default `true` for `wheels`, `false` otherwise.
+Optional, `"tracks" | "wheels"`, default `"tracks"` (which is today's
+behaviour). Set to `"wheels"` on the three hard wheeled hulls (Eitan, Kipod,
+Shachaf) and on the soft wheeled ones for truth's sake; a soft hull never rolls
+a component. It is NOT `mobility.wheeled`, which means "a vehicle rather than
+foot" and is true for a Lavi. Air types ignore it. A tools test pins it against
+`tools/src/meshes/running-gear-recipes.ts` (a recipe with wheels and no track
+is `wheels`; one with a track is `tracks`). Adding a hull stays JSON only.
 
-Adding a hull is JSON only (CLAUDE.md "adding content").
+### 3.3 States (two new hashed columns)
 
-### 3.3 States (one new hashed column)
-
-`mobilityKilled` keeps its meaning (immobilised) so the HUD, alerts, voice and
-versus need no rename. Add `mobilityDamaged: Uint8Array` (hashed):
+`mobilityKilled` keeps its meaning (stuck), so the HUD, alerts, voice and
+versus keep reading it. New: `mobilityDamaged: Uint8Array` ("slowed") and
+`fieldFixTicks: Int32Array` (the crew's repair clock), both hashed.
 
 | state | entered by | effect |
 |---|---|---|
-| sound | — | — |
-| **damaged** (wheels only) | first `mobility_kill` on a `partial` hull | speed and turn rate × `MOB_DAMAGED_MULT` (50) |
-| **immobilised** | `mobility_kill` on tracks, or a second one on wheels, or `combat_ineffective` | `stepPerTick` 0 **and hull facing frozen** |
-| destroyed | catastrophic / HP | — |
+| sound | -- | -- |
+| **slowed** | first `mobility_kill` on a `wheels` hull; or a field fix | `stepPerTick` x `MOB_DAMAGED_PCT` (50) |
+| **stuck** | `mobility_kill` on `tracks`, a second one on a slowed `wheels` hull, or `combat_ineffective` on any hull | no movement (as today); the hull still pivots (ruling 1) |
+| destroyed | catastrophic / HP | -- |
 
-**Frozen facing is the substantive rule change.** `turnToward` returns early when
-`mobilityKilled` is set. Firing needs no hull facing (the sim has no turret
-column; the renderer traverses the turret on its own, `stepTurretFacing`), so the
-gun still fights all round; what changes is that a stuck tank can no longer present
-its glacis to a flanker. That is the tactical payoff of the whole feature, and it
-also stops the track counter-rotation for free.
-
-Air (`gear: rotor`): an immobilise result is a **forced landing**, generalising
-#721's Yanshuf path to every aircraft — landed where it is if foot-open, else the
-nearest foot-open tile, then immobilised on the ground. A drone (soft) never
-rolls. Depends on #721 landing first.
+A slowed hull's partial hit emits the component event with the new result
+`mobility_damaged`, so the feed and the radio do not announce "stuck" for a
+hull that can still drive.
 
 ### 3.4 Repair
 
-1. **Workshop aura** (ships): unchanged; it clears damaged and immobilised.
-2. **Crew field fix** (new): a hull immobilised by `gear: tracks` with no hit and
-   not pinned for `FIELD_FIX_S` (90 s) steps DOWN to `damaged` (re-tracked,
-   limping), never to sound. Wheels: no field fix (the partial state already is
-   one). Air: none.
-3. **Engineer assist** (new, wires the dead `repair` ability): a unit with
-   `repair` (proposed: `dozer_d9`, `demo_squad`) standing adjacent and not moving
-   halves the field-fix clock, and lets a wheeled hull field-fix too.
+1. **Workshop aura** (ships): unchanged threshold and rule; it now clears
+   slowed as well as stuck and gun-out.
+2. **Crew field fix** (new): every tick a living, surface, ground hull is stuck,
+   its `fieldFixTicks` counts up; any tick it takes damage
+   (`lastDamagedTick === tickCount`, the aura's own "under fire" rule) resets it
+   to 0. At `FIELD_FIX_TICKS` (90 s x 20 = 1800) the hull steps DOWN to slowed,
+   never to sound, and the counter returns to 0. An event
+   (`fieldFixed`) tells the feed.
+3. **Engineer assist** (new, wires the dead `repair` ability): while a living
+   same-side unit with `repair` (granted to `demo_squad` and `dozer_d9`) stands
+   within `FIELD_FIX_ASSIST_RADIUS` (2 tiles) of the stuck hull and is not
+   moving, the clock counts 2 a tick: 45 s. Assists do not stack.
+4. **Aircraft get no field fix.** A forced-landed aircraft stays down until a
+   workshop clears it (none can reach one today) or it is destroyed; it is a
+   ground target while down (#721's `isAirborne`). A crew cannot re-rig a rotor
+   in a field, and a "slowed" aircraft has no meaning.
 
-Counters reuse `auraRepairTicks`'s shape (one Int32 per entity, hashed), so the
-same "a hit restarts it" rule holds everywhere.
+No rng anywhere in repair (invariant 3); counters are integers.
 
-### 3.5 AI and missions
+### 3.5 Aircraft
 
-No enemy hull is hard, and no map places an enemy workshop: **no AI recovery in
-v1.** If a hard Sarim vehicle is ever authored, it inherits the field fix with no
-AI code (it is a timer, not an order). Mission data needs nothing new.
+An AIRBORNE aircraft of ANY air type that is mobility-killed (`mobility_kill`
+or `combat_ineffective`) makes #721's forced landing: LANDING at once where it
+is if the tile is foot-open, else on the nearest foot-open tile, then LANDED.
+The air state machine (`stepAirCarriers`) runs for every air type, not only
+carriers; for a non-carrier `airWant` is always NONE, so only the forced
+landing and the LANDED hold apply. Drones and the paramotor are soft and never
+roll. The renderer draws every air type's lift through `airLiftFrac`, which is
+1 while AIRBORNE, so an air unit that never lands is drawn bit-identically.
 
-## 4. Presentation (HUD and icons only; no world status mark)
+### 3.6 AI and missions
 
-- **Already right:** card state, symbol, selection chip, alert, radio call.
-- **New `damaged` state:** `hud.state.limping` "Running gear hit — slowed", its
-  `.why`, a chip `{n} SLOWED`, ranked below immobilised in the D5 chip order.
-  Same struck-wheel glyph at half ink, or a new glyph — lead's call (Q6).
-- **Field-fix progress:** the unit card shows "Re-tracking 0:47" from the hashed
-  counter; nothing on the map.
-- **Running gear:** frozen facing makes yaw rate 0, so the tracks stop
-  counter-rotating with no renderer change. A damaged wheeled hull keeps spinning
-  at its (lower) speed — correct.
-- **Thrown track (optional, physical, not a status mark):** the damage pass
-  already builds a thrown track on the sand for Lavi, officer_armour, Namer and
-  D9, but only inside the `WRECK_` twin under `death_root` (scale 0 while alive).
-  Showing it on a LIVING hull needs the pass to split that debris into its own
-  `DMG_track` node and the runtime to toggle it on `mobilityKilled`; +0 draw
-  calls if it stays in the hull's batch. The tread mesh on the hull would still
-  draw, so it reads as "track off, track still on" unless the pass also cuts a
-  live `tracks_off` variant. Recommend deferring (Q5).
+No enemy hull is hard, and no map places an enemy workshop: **no AI recovery.**
+A hard Sarim hull, if ever authored, inherits the field fix with no AI code (it
+is a timer, not an order). Mission data needs nothing new.
 
-## 5. Pins that would move
+## 4. Presentation (HUD, icons and feed only; no world status mark)
+
+- **Already right:** card state, symbol, selection chip, alert, radio call for
+  stuck.
+- **Slowed:** the unit card shows `Running gear hit -- slowed` with its `.why`;
+  the selection chip `{n} SLOWED`, ranked below immobilised in the D5 order;
+  the immobilised glyph at half ink (no new symbol).
+- **Repair countdown:** a stuck hull's card shows `Repairing 0:47` from the
+  hashed `fieldFixTicks` (at the assisted rate when an engineer is assisting);
+  nothing on the map.
+- **Feed:** a `mobility_damaged` result reads as "slowed", not "immobilised";
+  `fieldFixed` reads "back on the move, slowed".
+- **Running gear:** unchanged. A stuck hull still pivots (ruling 1), so its
+  tracks still counter-rotate on the pivot; that is the accepted cost.
+- **Thrown track geometry: deferred** (ruling 5).
+
+## 5. Pins that move
 
 | pin | moves? | why |
 |---|---|---|
-| Golden determinism hash | **yes** | new hashed columns, and the reweighted table changes outcomes |
-| `pnpm balance` §5.7 | **likely** | armour duels: side shots immobilise more, frozen facing exposes flanks |
-| `pnpm playtest` outcomes | **check** | armour-heavy plans (Wadi Halam, Tel Marum III, Beit Sahwan IV's Namer, see `playtest.ts:1035`) |
-| `LADDER_CREDITS` / `CAMPAIGN_CREDITS` | **maybe** | only if a star or ROE result moves |
-| `ROSTER_MAX` (29) | **maybe** | if a hull that used to die now survives, or vice versa |
-| versus hash pins | **yes** | same as golden |
-| `versus:probe` (report-only) | **yes** | KDF-vs-KDF armour |
-| golden visual gate | **no** | no gated scenario fights armour; `combat` is report-only |
-| `net/outcome.ts` stalemate | **wording** | "can never move again" becomes "cannot move now"; the rule still terminates because repair needs time with no hits |
+| Golden determinism hashes | **yes** | two new hashed columns; wheeled partial state; field fix |
+| versus hash pins | **yes** | same |
+| `pnpm balance` §5.7 | **check** | wheeled hulls now slowed first; a stuck hull frees itself after 90 s quiet |
+| `pnpm playtest` outcomes | **check, must not flip** | STOP if one does |
+| `LADDER_CREDITS` / `ROSTER_MAX` | **must not move** | STOP if one does |
+| golden visual gate | **no** | no gated scenario fights armour |
+| `net/outcome.ts` stalemate | **rule follows the model** | a stuck GROUND hull is no longer "immobile" (it field-fixes); a forced-landed aircraft still is |
 
-## 6. Measurement plan
+## 6. Measurement
 
-1. **Report-only probe** `tools/src/backtest/mobility-probe.ts`: 30 seeds × the
-   §5.7 armour matchups plus a Lavi-vs-`at_team` flank duel; prints component
-   results by class × arc, seconds spent immobilised, and the ending
-   (repaired / field-fixed / destroyed / survived stuck). Baseline on `main`
-   first, then each step.
-2. **Falsify the probe before trusting it** (CLAUDE.md): `arcMult` all 0 must
-   read zero mobility kills; frozen facing removed must read a different side-hit
-   share against the flanker.
-3. `pnpm balance`, `pnpm playtest`, `pnpm versus:probe`, `test:determinism` on
-   each step; land the hash change with the reason in the same commit.
-4. Order: (a) frozen facing alone, (b) weights, (c) partial state, (d) field fix
-   and engineer assist, (e) air forced landing. Each step measured on its own so a
-   moved §5.7 number has one cause.
+`pnpm balance`, `pnpm playtest`, `test:determinism` and the versus pins on each
+sim step; the moved numbers are tabled in the build PR. No new probe (ruling 2).
+Every new check is falsified by a one-line mutation of the implementation.
 
-## 7. Questions for the lead (each with a recommendation)
+## 7. Questions, answered
 
-1. **Frozen hull facing on immobilise?** It is a real rule change: stuck tanks
-   become flankable, and it moves §5.7. *Recommend yes* — it is the whole point of
-   a mobility kill and it fixes the counter-rotating tracks.
-2. **Weight by arc and weapon class (§3.1), or keep §5.4's flat 20?** *Recommend
-   the table*, with numbers set by the probe, and the GDD §5.4 text updated to say
-   the mobility weight is modulated.
-3. **Repair beyond the workshop: crew field fix to "slowed" after 90 s quiet,
-   plus D9/engineer assist?** *Recommend yes to the field fix, engineer assist in
-   the same step*; otherwise a mobility kill is permanent in every shipped
-   mission, since no map places a workshop.
-4. **Wheeled hulls take a partial ("slowed") state first?** *Recommend yes* for
-   `wheels` only — an 8x8 runs on a lost wheel, a tank does not run on a thrown
-   track.
-5. **Thrown-track geometry on living hulls?** *Recommend defer*: HUD reading is
-   complete without it, and doing it honestly needs a second live variant from the
-   damage pass.
-6. **New glyph for "slowed", or the immobilised wheel at half ink?** *Recommend
-   half ink* (no new symbol, colour-vision safe by shape).
-7. **Aircraft: forced landing for all air hulls (after #721)?** *Recommend yes*;
-   a hovering, unmovable gunship is the same defect #721 fixed for the Yanshuf.
-8. **Versus: does a field fix delay the stalemate rule?** *Recommend yes,
-   unchanged rule*: a stuck hull is "immobile" only while immobilised; repair
-   needs quiet time, so a stalemate still resolves.
+| # | question | ruling |
+|---|---|---|
+| 1 | Freeze facing on immobilise? | **No** |
+| 2 | Arc and class table? | **No, flat 20** |
+| 3 | Crew field fix + engineer assist? | **Yes** |
+| 4 | Wheeled partial state? | **Yes** |
+| 5 | Thrown-track geometry? | **Deferred** |
+| 6 | Glyph for slowed? | half ink (recommendation, no ruling needed) |
+| 7 | Forced landing for all aircraft? | **Yes** |
+| 8 | Stalemate rule? | follows the model: a stuck ground hull is not immobile |
+
+## 8. The original proposal's rejected parts (for the record)
+
+- **Arc x class x hull weights** (front 75 / side 150 / rear 125; `apfsds` and
+  HEAT 100, `autocannon` 125, blast 150), one draw, integer percent. Rejected:
+  ruling 2.
+- **Frozen facing**: `turnToward` returning early while stuck, so a stuck tank
+  could not present its glacis to a flanker. Rejected: ruling 1.
+- **`mobility.immobilise` block** (`weight`, `gear`, `partial`). Only `gear`
+  survives, as `mobility.gear`.
+- **A report-only mobility probe.** Not built: with the flat weight there is
+  nothing to calibrate.
