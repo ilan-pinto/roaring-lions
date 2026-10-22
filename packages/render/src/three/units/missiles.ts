@@ -86,7 +86,7 @@ export const MISSILE_PROFILES: Record<MissileVariant, MissileProfile> = {
     weaveTiles: 0, weaveCycles: 0, ignitionTiles: 0, tracks: true, drawn: true,
     impactPower: 0.25, trailLifeScale: 1,
   },
-  // GH-709 (E2): an atgm weapon the sim marks `indirect` (`spike_nlos`) fires
+  // GH-709 (E2): an atgm weapon the sim marks `indirect` (`zaron_missile`) fires
   // over what it cannot see, so it climbs well above the roofline. The apex
   // is in lift pixels: 120 px x WORLD_Y_PER_LIFT_PIXEL (0.0255) = 3.06 world
   // units, above the tallest building (`apartment`, 3 floors, 1 wu each),

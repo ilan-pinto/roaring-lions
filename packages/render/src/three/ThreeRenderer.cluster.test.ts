@@ -6,7 +6,7 @@
  * plumbing and the grouping are the shipped ones.
  *
  * The unit fixtures are the staged `docs/campaign/special_units/gh709/`
- * weapons (`dpicm_155`, `spike_nlos`) trimmed to the fields the sim reads and
+ * weapons (`dpicm_155`, `zaron_missile`) trimmed to the fields the sim reads and
  * inlined, so landing the staged units in `data/units/` cannot break this file.
  */
 import { describe, it, expect, vi } from 'vitest';
@@ -86,7 +86,7 @@ function nlosTeam(extra: Record<string, unknown>): UnitTypeJson {
     mobility: { speed_tiles_s: 0 },
     sensors: { optics: 1.2, sight_tiles: 20 },
     weapons: [{
-      id: 'spike_nlos', type: 'atgm', range_tiles: 24, effective_range_tiles: 18,
+      id: 'zaron_missile', type: 'atgm', range_tiles: 24, effective_range_tiles: 18,
       accuracy: 0.8, penetration: 1000, damage: 450, suppression: 20, rof_per_min: 2,
       min_range_tiles: 4, collateral_risk: 0.2, ...extra,
     }],
@@ -230,7 +230,7 @@ describe('a cluster round (GH-709 E3)', () => {
 });
 
 describe('an indirect ATGM flies lofted (GH-709 E2)', () => {
-  it('spike_nlos (`indirect: true`) is a lofted round, well above the plain Spike arc', () => {
+  it('zaron_missile (`indirect: true`) is a lofted round, well above the plain Spike arc', () => {
     const { sim, fireEvents } = run(nlosTeam({ indirect: true }), 400);
     const r = renderer(sim);
     r.onEvents(fireEvents);
