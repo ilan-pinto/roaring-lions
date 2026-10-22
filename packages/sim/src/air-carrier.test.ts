@@ -1056,3 +1056,25 @@ describe('a mobility-killed air carrier makes a forced landing (fix/air-pathing)
     expect(sim.state.airState[heli]).toBe(AIR_LANDED);
   });
 });
+
+describe('a LANDING patroller (N3 Task 9 review)', () => {
+  it('holds its patrol index through the descent rather than churning a refused leg every tick', () => {
+    const { sim, helo } = world(true);
+    sim.queueCommand({
+      kind: 'setStance', ids: [helo], stance: 'patrol',
+      waypoints: [[fx.from(15.5), fx.from(9.5)], [fx.from(15.5), fx.from(15.5)]],
+    });
+    sim.tick();
+    expect(sim.isPatrolling(helo)).toBe(true);
+    sim.state.airState[helo] = AIR_LANDING;
+    sim.state.airTimer[helo] = AIR_LAND_TICKS;
+    const at = sim.patrolIndexOf(helo);
+    const idx = new Set<number>();
+    for (let i = 0; i < 10 && sim.state.airState[helo] === AIR_LANDING; i++) {
+      sim.tick();
+      if (sim.state.airState[helo] === AIR_LANDING) idx.add(sim.patrolIndexOf(helo));
+    }
+    expect(idx.size).toBeGreaterThan(0);
+    expect([...idx]).toEqual([at]);
+  });
+});

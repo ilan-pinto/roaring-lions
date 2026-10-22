@@ -3526,13 +3526,22 @@ export class Sim {
    * arrived patroller is sent on to its next waypoint by `applyMove(.., true)`,
    * the one move that keeps `stance`. After combat and stepSweep and before
    * movement, so a halt here is what stepBrace kneels on next tick and a new leg
-   * walks this tick. Nothing at all before `patrolLive`.
+   * walks this tick. A wounded (down) patroller and a LANDING aircraft hold their
+   * index too. A patrolling medic stays PARKED (`setStance` parks him, GH-707): these
+   * legs never pass through applyCommands, so they do not un-park him, and he walks
+   * his beat without rescuing on his own. Nothing at all before `patrolLive`.
    */
   private stepPatrolStance(): void {
     if (!this.patrolLive) return;
     for (let i = 0; i < this.count; i++) {
       if (this.stance[i] !== STANCE_PATROL || this.alive[i] === 0) continue;
       if (this.routed[i] === 1 || this.garrisonedIn[i] >= 0 || this.carriedBy[i] >= 0 || this.tunnelIn[i] >= 0) continue;
+      // A downed man takes no order (applyCommands' wounded filter), and a leg issued here
+      // never passes that filter, so the patrol holds for him as it does for a buried one.
+      if (this.woundState[i] !== WOUND_NONE) continue;
+      // A LANDING aircraft ignores a move (applyMove), so a leg would leave `moving` 0 and
+      // advance the index -- with a formation pass -- every tick of the descent. Hold instead.
+      if (this.airState[i] === AIR_LANDING && this.unitTypes[this.typeIdx[i]].isAir) continue;
       const n = this.patrolCount[i];
       if ((this.curTarget[i] >= 0 || this.curStructure[i] >= 0) && this.unitTypes[this.typeIdx[i]].haltsToFire) {
         if (this.moving[i] === 1) {

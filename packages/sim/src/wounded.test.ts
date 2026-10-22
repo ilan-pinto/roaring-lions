@@ -926,3 +926,28 @@ describe('a downed civilian and CivilianFlight (GH-707)', () => {
     expect(b.flight.collect(b.sim, [b.civ], zone)).toEqual([b.civ]);
   });
 });
+
+describe('a downed patroller (N3 Task 9 review)', () => {
+  it('is sent no leg: moving stays 0 and its patrol index holds while he is down', () => {
+    const { sim, squad: civ, shooter } = fallWorld(IN_PLACE);
+    sim.queueCommand({
+      kind: 'setStance', ids: [civ], stance: 'patrol',
+      waypoints: [[fx.from(10.5), fx.from(5.5)], [fx.from(10.5), fx.from(10.5)]],
+    });
+    sim.tick();
+    expect(sim.isPatrolling(civ)).toBe(true);
+    hit(sim, civ, 30, shooter);
+    expect(sim.state.woundState[civ]).not.toBe(0);
+    const at = sim.patrolIndexOf(civ);
+    const moving = new Set<number>();
+    const idx = new Set<number>();
+    for (let i = 0; i < 40; i++) {
+      sim.tick();
+      if (sim.state.alive[civ] === 0 || sim.state.woundState[civ] === 0) break;
+      moving.add(sim.state.moving[civ]);
+      idx.add(sim.patrolIndexOf(civ));
+    }
+    expect([...moving]).toEqual([0]);
+    expect([...idx]).toEqual([at]);
+  });
+});
