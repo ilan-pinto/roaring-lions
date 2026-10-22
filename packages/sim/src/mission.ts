@@ -30,6 +30,10 @@ import { advance, cancel, enqueue, lineContested, spendDown, type LineItem, type
 import { highGroundRises } from './intel-earn';
 import {
   AMBUSH_RADIUS_DEFAULT,
+  CONDUCT_GAIN_CAP,
+  CONDUCT_GAIN_CIVILIAN,
+  CONDUCT_GAIN_ENEMY,
+  CONDUCT_KILL_WOUNDED_ENEMY,
   CONTEST_RADIUS_SQ,
   CORRIDOR_RECHECK_TICKS,
   FIRE_SUPPORT_KINDS,
@@ -42,6 +46,10 @@ import {
   INTEL_PER_RISE,
   MAX_LINE_QUEUE,
   MAX_PRODUCTION_LINES,
+  WOUND_ADMITTED,
+  WOUND_DOWN,
+  WOUND_GONE,
+  WOUND_STABILISED,
 } from './tuning';
 import type { TunnelRouteJson } from './tunnels';
 import { unlockReason, type UnlockGate } from './unlock';
@@ -477,6 +485,14 @@ export type MissionEvent =
   | { kind: 'trigger'; tick: number; id: string }
   | { kind: 'wave'; tick: number; count: number }
   | { kind: 'roe'; tick: number; penalty: number; reason: string; score: number }
+  /**
+   * Conduct went UP (GH-707 D6, ruling 3): the player's side rescued an enemy's or a
+   * civilian's wounded man -- admitted at an aid post or evacuated. `gain` is what was
+   * actually added (the mission's +CONDUCT_GAIN_CAP and the 100 ceiling both bite, and a
+   * rescue that would add nothing emits nothing); `score` is the score after it. The app
+   * ignores it until P2's feed line.
+   */
+  | { kind: 'roeGain'; tick: number; gain: number; reason: string; score: number }
   | { kind: 'built'; tick: number; unit: string; side: 0 | 1 }
   /**
    * One civilian got out: reached the evacuation zone and was counted.
@@ -590,7 +606,7 @@ export type MissionEvent =
 
 /** Every `MissionEvent` kind, as a value. See `SIM_EVENT_KINDS`. */
 export const MISSION_EVENT_KINDS = [
-  'objective', 'trigger', 'wave', 'roe', 'built', 'evacuated', 'removed', 'unitLost', 'say',
+  'objective', 'trigger', 'wave', 'roe', 'roeGain', 'built', 'evacuated', 'removed', 'unitLost', 'say',
   'missionEnd', 'intelEarned', 'zoneHolder', 'corridor', 'works',
 ] as const satisfies readonly MissionEvent['kind'][];
 
@@ -816,6 +832,14 @@ export class MissionRuntime {
   private readonly collapseTargets = new Map<string, readonly number[]>();
   private roeScoreValue = 100;
   private roeFailed = false;
+  /** GH-707 ruling 3: Conduct actually added this mission by rescuing enemy and civilian
+   *  wounded, at most CONDUCT_GAIN_CAP. Folded into `digest()` only when non-zero, so a
+   *  mission without wound content keeps RUNTIME_DIGEST_PIN. */
+  private roeGainTotal = 0;
+  /** Wounded entity ids a rescue has already been judged for: one man pays at most once
+   *  (an admission and the later discharge-as-evacuated are the same rescue). Grows only
+   *  with wound content; derived from the same events the gain total is, so not hashed. */
+  private readonly roeGainJudged = new Set<number>();
   /** Survivors that came back a stripe more veteran this mission; set in checkEnd. */
   private promotedValue = 0;
   /** The logistics purse, per side, in 1/2400ths of a logistics. Integer on purpose:
@@ -1299,6 +1323,8 @@ export class MissionRuntime {
     // non-negative score (it is clamped at 0) without Math.
     h = hashWord(h, this.roeScoreValue | 0);
     h = hashWord(h, this.roeFailed ? 1 : 0);
+    // GH-707: only when a rescue has paid, so a mission with no wound content folds nothing.
+    if (this.roeGainTotal !== 0) h = hashWord(h, this.roeGainTotal);
     h = this.civFlight.digestInto(h);
     return h >>> 0;
   }
@@ -2017,7 +2043,7 @@ export class MissionRuntime {
     // Latched, not re-derived: nothing in the world records that the clock ran out.
     if (this.withdrawnValue) return 'withdrawn';
     const wiped =
-      this.playerIds.length > 0 && this.playerIds.every((id) => this.sim.state.alive[id] === 0);
+      this.playerIds.length > 0 && this.playerIds.every((id) => this.isLost(id));
     if (wiped) return 'force_destroyed';
     if (this.roeFailed) return 'roe_collapse';
     const failed = this.objectives.find((o) => o.def.primary && o.status === 'failed');
@@ -2042,15 +2068,32 @@ export class MissionRuntime {
    *  units are mastery practice and neither help nor hurt this count. */
   get startingHome(): number {
     let home = 0;
-    for (const id of this.startingIds) if (this.sim.state.alive[id] !== 0) home++;
+    for (const id of this.startingIds) if (!this.isLost(id)) home++;
     return home;
+  }
+
+  /**
+   * Is unit `id` lost to the player: off the board and NOT taken out alive by a rescue?
+   * GH-707: a wounded man admitted at an aid post (ADMITTED) or evacuated (GONE) has
+   * `alive` 0 and `removed` 1, like a `remove` trigger's body -- but `casualties_pct` already
+   * treats `removed` as "not a casualty", and he is not one. A `remove` trigger's body keeps
+   * counting as lost here exactly as before (its woundState is not ADMITTED/GONE), and a
+   * patient whose post fell (`woundLost`: `removed` back to 0) is lost. Without wound content
+   * every woundState is NONE, so this is `alive === 0`.
+   */
+  private isLost(id: number): boolean {
+    const st = this.sim.state;
+    if (st.alive[id] !== 0) return false;
+    if (st.removed[id] !== 1) return true;
+    const w = st.woundState[id];
+    return w !== WOUND_ADMITTED && w !== WOUND_GONE;
   }
 
   /** Player units lost, by type id. Empty when nobody died. */
   lostByType(): Record<string, number> {
     const out: Record<string, number> = {};
     for (const id of this.playerIds) {
-      if (this.sim.state.alive[id] !== 0) continue;
+      if (!this.isLost(id)) continue;
       const typeId = this.sim.unitTypes[this.sim.state.typeIdx[id]].id;
       out[typeId] = (out[typeId] ?? 0) + 1;
     }
@@ -2281,6 +2324,12 @@ export class MissionRuntime {
     this.riseHold = new Int32Array(rises.count);
     this.risePaid = new Uint8Array(rises.count);
     this.riseHolder = new Int32Array(rises.count);
+    // GH-707 D4: a map marker named `wounded_evac` is side 0's evacuation point. No shipped
+    // map declares one, and the evac table is folded only once wounds are live.
+    if (this.ctx.markers['wounded_evac'] !== undefined) {
+      const [ex, ey] = this.markerPos('wounded_evac');
+      this.sim.addEvacPoint(0, ex, ey);
+    }
     const loaned = new Set(this.ctx.loaned ?? []);
     const force = this.mission.starting_force ?? [];
     for (let i = 0; i < force.length; i++) {
@@ -3252,6 +3301,17 @@ export class MissionRuntime {
       const floor = roe?.fail_below;
       if (floor !== undefined && this.roeScoreValue < floor) this.roeFailed = true;
     };
+    // GH-707 ruling 3: a rescue of someone else's wounded raises Conduct, by at most
+    // CONDUCT_GAIN_CAP a mission and never past 100. What is added is what is counted.
+    const credit = (nominal: number, reason: string): void => {
+      let gain = CONDUCT_GAIN_CAP - this.roeGainTotal;
+      if (nominal < gain) gain = nominal;
+      if (100 - this.roeScoreValue < gain) gain = 100 - this.roeScoreValue;
+      if (gain <= 0) return;
+      this.roeScoreValue += gain;
+      this.roeGainTotal += gain;
+      out.push({ kind: 'roeGain', tick, gain, reason, score: this.roeScoreValue });
+    };
 
     for (const e of simEvents) {
       if (e.kind === 'structureDestroyed') {
@@ -3268,9 +3328,26 @@ export class MissionRuntime {
         const cost = ((type.roePenalty * mult * 2 + 1) / 2) | 0;
         if (cost > 0) deduct(cost, `${type.id.charAt(0).toUpperCase()}${type.id.slice(1)} destroyed`);
       } else if (e.kind === 'destroyed' && this.civIds.includes(e.entity)) {
+        // A civilian downed in place keeps his entity and `by` is the man who downed him, so
+        // this fires at his DEATH (bled out or finished), never at the hit, and a rescued
+        // civilian -- who never dies -- costs nothing (GH-707 ruling 3).
         if (e.by >= 0 && st.side[e.by] === 0) {
           deduct(roe?.civilian_casualty_penalty ?? 8, 'civilian casualties');
         }
+      } else if (e.kind === 'destroyed' && st.side[e.entity] === 1 && e.by >= 0 && st.side[e.by] === 0) {
+        // GH-707: player fire killing an enemy who was already down. Bleeding out is not fire:
+        // a man the player downed and left dies with `by` = his shooter, and is not charged.
+        const w = st.woundState[e.entity];
+        const down = w === WOUND_DOWN || w === WOUND_STABILISED || this.sim.unitTypes[st.typeIdx[e.entity]].isWounded;
+        if (down && !simEvents.some((b) => b.kind === 'bledOut' && b.entity === e.entity)) {
+          deduct(CONDUCT_KILL_WOUNDED_ENEMY, 'wounded enemy killed');
+        }
+      } else if ((e.kind === 'woundAdmitted' || e.kind === 'woundEvacuated') && e.side === 0) {
+        if (this.roeGainJudged.has(e.entity)) continue;
+        this.roeGainJudged.add(e.entity);
+        const ws = st.side[e.entity];
+        if (ws === 1) credit(CONDUCT_GAIN_ENEMY, 'enemy wounded rescued');
+        else if (ws === 2) credit(CONDUCT_GAIN_CIVILIAN, 'civilian wounded rescued');
       } else if (e.kind === 'nearMiss' && st.side[e.shooter] === 0) {
         // Only ordnance damages structures — rifle strays do not level clinics.
         const type = this.sim.unitTypes[st.typeIdx[e.shooter]];
@@ -3842,7 +3919,7 @@ export class MissionRuntime {
     const primaries = this.objectives.filter((o) => o.def.primary);
     const won = primaries.length > 0 && primaries.every((o) => o.status === 'complete');
     const wiped =
-      this.playerIds.length > 0 && this.playerIds.every((id) => this.sim.state.alive[id] === 0);
+      this.playerIds.length > 0 && this.playerIds.every((id) => this.isLost(id));
     // An ROE collapse loses the mission even with objectives in hand — and so
     // does a failed primary. `evacuate_before` is the first objective type
     // that can become 'failed'; without this, a mission that marks one
@@ -3915,7 +3992,7 @@ export class MissionRuntime {
     // The grade, best-of per mission, sorted keys -- the same shape and the same
     // reasoning as `ratings` above. `this.stars` reads `resultValue`, set above.
     let lostCount = 0;
-    for (const id of this.playerIds) if (this.sim.state.alive[id] === 0) lostCount++;
+    for (const id of this.playerIds) if (this.isLost(id)) lostCount++;
     const thisResult: MissionResult = { stars: this.stars, roe: roeRating, ticks: tick, lost: lostCount };
     const prevResults = this.ctx.ledger?.['campaign.mission_results'];
     const mergedResults: Record<string, MissionResult> = {};

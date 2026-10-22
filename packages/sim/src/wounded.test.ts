@@ -242,6 +242,20 @@ describe('the deferred fold (GH-707 Task 1)', () => {
     (sim as unknown as EvacTable).evacCount = 1; // an all-zero row 0: only the count differs
     expect(sim.hash()).not.toBe(before);
   });
+  // `removed` (Task 7): evacuation and admission write it once wounds are live, so it joins
+  // the block -- and only the block: a remove trigger in a wound-free world must move no pin.
+  it('wound-live: hash covers removed', () => {
+    const { sim, inf } = world([WOUNDABLE]);
+    const before = sim.hash();
+    (sim.state.removed as Uint8Array)[inf] = 1;
+    expect(sim.hash()).not.toBe(before);
+  });
+  it('no wound type registered: removed is not folded', () => {
+    const { sim, inf } = world([]);
+    const before = sim.hash();
+    (sim.state.removed as Uint8Array)[inf] = 1;
+    expect(sim.hash()).toBe(before);
+  });
   it('no wound type registered: an evac point is not folded', () => {
     const { sim } = world([]);
     const before = sim.hash();

@@ -9539,6 +9539,11 @@ export class Sim {
       h = hashArray(h, this.evacY);
       h = hashArray(h, this.evacSide);
       h = hashWord(h, this.evacCount);
+      // `removed` is written by evacuation and admission once wounds are live (a rescued man
+      // leaves the board alive), so it is state the replay must see -- folded HERE, never
+      // unconditionally: outside this block only a `remove` trigger writes it, and no pinned
+      // replay calls one (see the field's own comment).
+      h = hashArray(h, this.removed);
     }
     // Tunnel columns — every mutable one, matching how the demolition and
     // contact state above is folded in. The contact pair matters most: it

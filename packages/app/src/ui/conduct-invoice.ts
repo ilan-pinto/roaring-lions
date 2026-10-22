@@ -20,7 +20,7 @@ import { t } from '../i18n/t';
 
 /** What `stepRoe` charged for. The two danger-close templates share one cause:
  *  to a player they are the same mistake. */
-export type ConductCause = 'destroyed' | 'civilians' | 'struck' | 'strike' | 'danger_close' | 'other';
+export type ConductCause = 'destroyed' | 'civilians' | 'struck' | 'strike' | 'danger_close' | 'wounded_enemy' | 'other';
 
 export interface ConductReason {
   cause: ConductCause;
@@ -53,6 +53,8 @@ const DESTROYED = /^([A-Z][a-z0-9_]*) destroyed$/;
 /** Read one of `stepRoe`'s reason strings. */
 export function classifyReason(reason: string): ConductReason {
   if (reason === 'civilian casualties') return { cause: 'civilians' };
+  // GH-707: player fire killing an enemy who was already down.
+  if (reason === 'wounded enemy killed') return { cause: 'wounded_enemy' };
   if (reason === 'strike called danger-close to civilians' || reason === 'heavy ordnance danger-close to civilians') {
     return { cause: 'danger_close' };
   }
@@ -123,6 +125,8 @@ export function reasonLabel(reason: string, names: PlaceNames): string {
       return t('conduct.cause.civilians');
     case 'danger_close':
       return t('conduct.cause.dangerClose');
+    case 'wounded_enemy':
+      return t('conduct.cause.woundedEnemy');
     case 'struck':
       return t('conduct.cause.struck', { place: names.zone(r.place ?? '') ?? r.place ?? '' });
     case 'strike':

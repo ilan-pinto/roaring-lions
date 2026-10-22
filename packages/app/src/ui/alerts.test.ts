@@ -406,6 +406,7 @@ describe('alertsForTick agrees with MISSION_EVENT_SOUND, kind by kind', () => {
     trigger: ev<'trigger'>({ kind: 'trigger', tick: 0, id: 't' }),
     wave: ev<'wave'>({ kind: 'wave', tick: 0, count: 3 }),
     roe: ev<'roe'>({ kind: 'roe', tick: 0, penalty: 5, reason: 'r', score: 90 }),
+    roeGain: ev<'roeGain'>({ kind: 'roeGain', tick: 0, gain: 2, reason: 'r', score: 92 }),
     built: ev<'built'>({ kind: 'built', tick: 0, unit: 'inf_squad', side: 0 }),
     evacuated: ev<'evacuated'>({ kind: 'evacuated', tick: 0, entity: 30 }),
     removed: ev<'removed'>({ kind: 'removed', tick: 0, entity: 2, side: 0, unit: 'inf_squad' }),

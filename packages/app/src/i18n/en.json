@@ -1303,6 +1303,7 @@
   "roe.notice.head": "<b>{label} −{penalty}</b> · Conduct {score}",
   "conduct.cause.civilians": "Civilians killed",
   "conduct.cause.dangerClose": "Heavy fire near civilians",
+  "conduct.cause.woundedEnemy": "Wounded enemy killed",
   "conduct.cause.struck": "{place} struck",
   "conduct.cause.strike": "Strike on {place}",
   "conduct.cause.destroyed": "{place} destroyed",

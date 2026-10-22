@@ -1953,3 +1953,89 @@ describe('field works state block (D1)', () => {
     expect(c.sim.structures.owner[cs]).toBe(1);
   });
 });
+
+// ---------------------------------------------------------------------------------------------
+// WOUNDED_WORLD_PIN (GH-707 Task 7): a NEW pin, not a moved one. Every other replay in this file
+// registers no wound type, so the deferred `woundLive` block (and `removed`, folded inside it)
+// is outside all of them; this is the replay that sees it. A 600-tick fight with test-only
+// types: two side-0 squads that shed wounded (chance 0.6, bleed 8 s), a two-man stretcher medic,
+// an aid post of side 0 (admit 2 tiles, treat 5 s); against them an enemy squad that also sheds
+// and two heavy rifle sections (damage 45).
+// The scenario must reach a fall, a bleed-out, a treatment, a carry, an admission and a rejoin;
+// the test asserts each happened, so a change that quietly stops one of them fails here and not
+// only on the number.
+
+const WW_SQUAD: UnitTypeJson = {
+  ...RIFLES,
+  id: 'ww_squad',
+  abilities: [],
+  hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 }, figures: 4, wounds: { wound_chance: 0.6, bleed_s: 8, type: 'ww_wounded' } },
+};
+const WW_WOUNDED: UnitTypeJson = {
+  id: 'ww_wounded',
+  role: 'wounded',
+  hull: { hp: 30, armor: { front: 0, side: 0, rear: 0 }, can_embark: true },
+  mobility: { speed_tiles_s: 0.12 },
+  sensors: { optics: 0.5, sight_tiles: 0, signature: 0.3 },
+};
+const WW_MEDIC: UnitTypeJson = {
+  id: 'ww_medic',
+  role: 'infantry',
+  abilities: ['rescue'],
+  hull: { hp: 200, armor: { front: 10, side: 10, rear: 10 }, figures: 2, transport_slots: 1, can_carry: ['wounded'] },
+  mobility: { speed_tiles_s: 1 },
+  sensors: { optics: 1, sight_tiles: 8, signature: 0.6 },
+  rescue: { radius_tiles: 10, treat_s: 3, drag_speed_mult: 0.5, carry_speed_mult: 0.75 },
+};
+/** The enemy's heavy section: a rifle squad hitting hard enough to drop men quickly. */
+const WW_SHOOTER: UnitTypeJson = {
+  ...RIFLES,
+  id: 'ww_shooter',
+  abilities: [],
+  weapons: [{ id: 'ww_mg', type: 'small_arms', range_tiles: 8, accuracy: 0.6, penetration: 8, damage: 45, suppression: 20, rof_per_min: 300 }],
+};
+const WW_POST = { id: 'ww_aid', hp_per_tile: 200, aid: { admit_radius: 2, treat_s: 5, dispatch_radius: 12 } };
+const WW_SEED = 0x7070_0707;
+
+function woundedWorld(seed: number, squad: UnitTypeJson = WW_SQUAD): { hash: number; seen: Record<string, number> } {
+  const W = 24;
+  const sim = new Sim({ seed, width: W, height: 12, capacity: 64 });
+  const sq = sim.addUnitType(squad);
+  sim.addUnitType(WW_WOUNDED);
+  const med = sim.addUnitType(WW_MEDIC);
+  const shooter = sim.addUnitType(WW_SHOOTER);
+  sim.addStructure(sim.addStructureType(WW_POST), [5 * W + 2, 5 * W + 3, 6 * W + 2, 6 * W + 3], { owner: 0 });
+  sim.spawn(sq, 0, fx.from(7.5), fx.from(4.5));
+  sim.spawn(sq, 0, fx.from(7.5), fx.from(7.5));
+  sim.spawn(med, 0, fx.from(4.5), fx.from(6.5));
+  sim.spawn(sq, 1, fx.from(13.5), fx.from(5.5));
+  sim.spawn(shooter, 1, fx.from(13.5), fx.from(6.5));
+  sim.spawn(shooter, 1, fx.from(13.5), fx.from(4.5));
+  const seen: Record<string, number> = {};
+  for (let i = 0; i < 600; i++) {
+    for (const e of sim.tick()) {
+      if (e.kind.startsWith('wound') || e.kind === 'bledOut') seen[e.kind] = (seen[e.kind] ?? 0) + 1;
+    }
+  }
+  return { hash: sim.hash(), seen };
+}
+
+// WOUNDED_WORLD_PIN: born 2026-10-22 (GH-707 Task 7), read from the first run. It moves when a
+// wound rule or a wound column's fold changes; say why in the commit that moves it.
+const WOUNDED_WORLD_PIN = 1774950105;
+
+describe('determinism of a wounded world (600-tick replay, GH-707)', () => {
+  it('two runs from the seed agree, and the run falls, bleeds, treats, carries, admits and rejoins', () => {
+    const a = woundedWorld(WW_SEED);
+    const b = woundedWorld(WW_SEED);
+    expect(b.hash).toBe(a.hash);
+    expect(b.seen).toEqual(a.seen);
+    // Read off the first run: 6 falls, 4 bled out, 2 treated, 2 carried in and admitted,
+    // one rejoined his squad, one discharged as evacuated (his squad was gone).
+    expect(a.seen).toEqual({ woundedDown: 6, bledOut: 4, woundStabilised: 2, woundAdmitted: 2, woundRejoined: 1, woundEvacuated: 1 });
+  });
+
+  it('the pinned hash', () => {
+    expect(woundedWorld(WW_SEED).hash).toBe(WOUNDED_WORLD_PIN);
+  });
+});
