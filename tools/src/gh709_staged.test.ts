@@ -178,7 +178,11 @@ print(json.dumps({
 }))
 `;
   const run = spawnSync('python3', ['-c', PROBE], { cwd: ROOT, encoding: 'utf8' });
-  const r = JSON.parse(run.stdout || '{}') as Record<string, number & number[] & number[][]>;
+  const r = JSON.parse(run.stdout || '{}') as {
+    scatterBase: number; softLimit: number; reach0: number[]; cluster: number; clusterDbl: number;
+    clusterParent: number; clusterHuge: number; nlos: number; nlosNoFlag: number; reach: number[];
+    ranges: number[]; cap: number; mix: number[][]; supMax: number; standoff: number;
+  };
   const tuning = readFileSync(join(ROOT, 'packages', 'sim', 'src', 'tuning.ts'), 'utf8');
   const fxConst = (name: string): number => {
     const m = new RegExp(`export const ${name} = (\\d+);`).exec(tuning);
