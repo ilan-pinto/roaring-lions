@@ -139,6 +139,10 @@ export class CivilianFlight {
     const [rx, ry] = refuge;
     for (const civ of civIds) {
       if (st.alive[civ] === 0) continue;
+      // GH-707: a civilian downed in place (any woundState but NONE) is no longer a family
+      // that can flee or be walked out: no order, no fled latch. He leaves only by rescue
+      // (D5). Without wound content every woundState is 0 and this skips nobody.
+      if (st.woundState[civ] !== 0) continue;
       if (this.fledSet.has(civ)) {
         // Already ordered out -- but the order can be LOST, and the latch used
         // to make that permanent. `fledSet` is added before boarding is even
@@ -239,6 +243,10 @@ export class CivilianFlight {
       // evacuates a family that never moved, deletes it, and writes the
       // fabricated rescue into the ledger.
       if (st.tunnelIn[civ] >= 0) continue;
+      // GH-707: a DOWN or STABILISED civilian lying in the zone has not reached the refuge --
+      // he was shot there, or crawled there. He leaves only by rescue (D5), and the rescue
+      // path, not this one, takes him off the map and his side's wounded count.
+      if (st.woundState[civ] !== 0) continue;
       const tx = st.posX[civ] >> 16;
       const ty = st.posY[civ] >> 16;
       if (tx >= zone[0] && tx < zone[0] + zone[2] && ty >= zone[1] && ty < zone[1] + zone[3]) {

@@ -31,9 +31,11 @@ export const callLineKey = (lang: string, call: CommonCall): string => `${lang}.
  *  data/audio.json for, in every language. */
 export const pinnedLineKey = (lang: string): string => `${lang}.common.pinned`;
 
-/** Spec §3's defaults, plus `eod` (R-15), which the table did not name. */
+/** Spec §3's defaults, plus `eod` (R-15), which the table did not name, and `wounded`
+ *  (GH-707), a shed man: a foot soldier's voice, though P1 ships no such unit. */
 const ROLE_VOICE: Readonly<Record<string, VoiceClass>> = {
   infantry: 'infantry', at_team: 'infantry', sniper: 'infantry', support: 'infantry', artillery: 'infantry',
+  wounded: 'infantry',
   mbt: 'crew', ifv: 'crew', apc: 'crew', technical: 'crew', recon: 'crew', aa: 'crew',
   engineer: 'engineer', eod: 'engineer',
   drone: 'air', gunship: 'air',

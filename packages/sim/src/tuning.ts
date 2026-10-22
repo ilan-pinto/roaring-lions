@@ -526,3 +526,51 @@ export const AIR_WANT_NONE = 0;
 export const AIR_WANT_LOAD = 1;
 export const AIR_WANT_UNLOAD = 2;
 export const AIR_WANT_DEPART = 3;
+
+// --- wounded and rescue (GH-707, P1 engine) ---------------------------------
+// Engine only until P3 (lead rulings, 22 Oct): nothing shipped carries `hull.wounds`, so none
+// of these is reached by any replay. Every reader is gated by `Sim.woundLive`.
+/** Wounded men one side may have alive at once; the next one to fall dies instead. */
+export const MAX_WOUNDED_PER_SIDE = 24;
+/** A DOWN wounded crawls toward better cover every this many ticks. */
+export const WOUND_CRAWL_PERIOD_TICKS = 40; // 2 s
+/** Half-width of the crawl scan, tiles: a 5x5 window. */
+export const WOUND_CRAWL_SCAN = 2;
+/** A crawler on cover at or above this level stops. */
+export const WOUND_COVER_STOP = 2;
+/** A medic this near a wounded treats him, and his bleed pauses. Squared tiles, Q16.16. */
+export const MEDIC_TREAT_REACH_SQ = 262144; // 4 tile^2 = 2 tiles
+/** Each rejoin returns this much less of a man's hp share (`scarredShare`). */
+export const WOUND_SCAR_STEP = 13107; // 0.2
+/** ...but never less than this fraction of it. */
+export const WOUND_SCAR_FLOOR = 26214; // 0.4
+/** Conduct points for rescuing an enemy wounded (admitted or evacuated), ruling 3. */
+export const CONDUCT_GAIN_ENEMY = 2;
+/** Conduct points for rescuing a civilian wounded, ruling 3. */
+export const CONDUCT_GAIN_CIVILIAN = 3;
+/** Most Conduct one mission's rescues can earn, ruling 3. */
+export const CONDUCT_GAIN_CAP = 10;
+/** Conduct deducted when the player kills an enemy wounded. */
+export const CONDUCT_KILL_WOUNDED_ENEMY = 3;
+/** Longest authored wound/rescue/aid duration, seconds: secondsToTicks' fx.mul wraps at
+ *  1638.4 s (32768 ticks x 65536 = 2^31), so the schema and the loader stop at 1600. */
+export const WOUND_MAX_SECONDS = 1600;
+/** Largest authored wound/rescue/aid radius, tiles: squared in Q16.16 it stays far from 2^31. */
+export const WOUND_MAX_RADIUS_TILES = 64;
+/** Evacuation points one sim holds (D4, `addEvacPoint`). */
+export const MAX_EVAC_POINTS = 8;
+/** `woundState`: NONE for every unit that is not down. */
+export const WOUND_NONE = 0;
+export const WOUND_DOWN = 1;
+export const WOUND_STABILISED = 2;
+export const WOUND_ADMITTED = 3;
+export const WOUND_GONE = 4;
+/** `medState`: what a medic is doing. */
+export const MED_IDLE = 0;
+export const MED_TO_WOUNDED = 1;
+export const MED_TREATING = 2;
+export const MED_CARRYING = 3;
+export const MED_DELIVERING = 4;
+/** Bleed, ticks, of a `wounded`-role unit spawned directly rather than shed by a fall: it has
+ *  no parent `hull.wounds` to read `bleed_s` from. 60 s x 20 Hz. */
+export const WOUND_DEFAULT_BLEED_TICKS = 1200;

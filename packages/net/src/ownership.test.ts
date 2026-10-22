@@ -93,6 +93,20 @@ describe('validateCommand: attack (GH-420)', () => {
   });
 });
 
+describe('validateCommand: rescue (GH-707)', () => {
+  it('accepts own medics on an existing target of either side', () => {
+    expect(validateCommand({ kind: 'rescue', ids: [1, 2], target: 3 }, 0, world)).toBe(true); // own wounded
+    expect(validateCommand({ kind: 'rescue', ids: [1], target: 12 }, 0, world)).toBe(true); // an enemy's
+    expect(validateCommand({ kind: 'rescue', ids: [12], target: 1 }, 1, world)).toBe(true);
+  });
+  it('drops a foreign medic, no medic, or a target that does not exist', () => {
+    expect(validateCommand({ kind: 'rescue', ids: [1, 12], target: 3 }, 0, world)).toBe(false);
+    expect(validateCommand({ kind: 'rescue', ids: [12], target: 3 }, 0, world)).toBe(false);
+    expect(validateCommand({ kind: 'rescue', ids: [], target: 3 }, 0, world)).toBe(false);
+    expect(validateCommand({ kind: 'rescue', ids: [1], target: 999999 }, 0, world)).toBe(false);
+  });
+});
+
 describe('applyFrame', () => {
   it('queues in canonical order and counts what it dropped', () => {
     const queued: Command[] = [];
