@@ -814,14 +814,25 @@ export type Command =
   | { kind: 'construct'; ids: number[]; structType: number; x: number; y: number }
   /** Field works: take a site down. Unstaked, the row is freed; staked, the structure is
    *  removed (`removeStructure`); a completed site is no longer a site, so it is ignored. */
-  | { kind: 'cancelConstruct'; site: number };
+  | { kind: 'cancelConstruct'; site: number }
+  /**
+   * Field works through the order sink (GH-277 follow-up): the player's request to raise listed
+   * works type `works` (its JSON id) with its footprint's top-left tile at integer tile (x, y),
+   * with `ids` as the builders (empty: the runtime's nearest idle carrier). Runtime-priced, like
+   * `build`: the sim sets it aside and `MissionRuntime.applyQueued` runs it through
+   * `requestConstruct`, which takes the price and queues the sim's own `construct`.
+   */
+  | { kind: 'raiseWorks'; side: number; works: string; x: number; y: number; ids: number[] }
+  /** The player's request to take down one of his own field-works sites (`site` is the works
+   *  row). Runtime-run (`requestCancelWorks`), which queues the sim's `cancelConstruct`. */
+  | { kind: 'cancelWorks'; side: number; site: number };
 
 /** Why a field-works footprint is refused (`Sim.placementReason`), the first failing rule. */
 export type PlacementRefusal = 'off_map' | 'blocked' | 'no_footing' | 'not_level' | 'overlap' | 'seals_passage';
 
-/** The five commands the sim sets aside for the MissionRuntime to price and run (N2, F4):
- *  `queueCommand` never hands them to `applyCommands`. */
-export type RuntimeCommand = Extract<Command, { kind: 'build' | 'support' | 'cancelBuild' | 'setRally' | 'clearRally' }>;
+/** The seven commands the sim sets aside for the MissionRuntime to price and run (N2, F4, and
+ *  field works' `raiseWorks`/`cancelWorks`): `queueCommand` never hands them to `applyCommands`. */
+export type RuntimeCommand = Extract<Command, { kind: 'build' | 'support' | 'cancelBuild' | 'setRally' | 'clearRally' | 'raiseWorks' | 'cancelWorks' }>;
 /** `takeRuntimeCommands`' answer when nothing is set aside: shared, frozen, no allocation. */
 const NO_RUNTIME_COMMANDS: readonly RuntimeCommand[] = Object.freeze([]);
 
@@ -2903,10 +2914,11 @@ export class Sim {
   }
 
   queueCommand(cmd: Command): void {
-    // N2/F4: the five runtime-run kinds (build, support, cancelBuild, setRally, clearRally) go to
-    // their own list; the sim never runs them.
+    // N2/F4: the seven runtime-run kinds (build, support, cancelBuild, setRally, clearRally,
+    // raiseWorks, cancelWorks) go to their own list; the sim never runs them.
     switch (cmd.kind) {
       case 'build': case 'support': case 'cancelBuild': case 'setRally': case 'clearRally':
+      case 'raiseWorks': case 'cancelWorks':
         this.runtimeQueue.push(cmd);
         return;
       default:
@@ -3890,7 +3902,7 @@ export class Sim {
           this.haltAir(id);
         }
       } else {
-        // Exhaustive over what `commandQueue` can hold: the five RuntimeCommand kinds
+        // Exhaustive over what `commandQueue` can hold: the seven RuntimeCommand kinds
         // are excluded from its type (`queueCommand` sets them aside for the
         // runtime, N2/F4), so they need no branch here and a new sim kind still
         // fails to compile until it gets one.

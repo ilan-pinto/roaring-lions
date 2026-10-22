@@ -103,6 +103,8 @@ export function describeCommand(cmd: Command): string {
     case 'support': return t('net.advisor.cmd.support', { support: cmd.support, x: tile(cmd.x), y: tile(cmd.y) });
     case 'construct': return t('net.advisor.cmd.construct', { n, x: cmd.x, y: cmd.y });
     case 'cancelConstruct': return t('net.advisor.cmd.cancelConstruct');
+    case 'raiseWorks': return t('net.advisor.cmd.construct', { n, x: cmd.x, y: cmd.y });
+    case 'cancelWorks': return t('net.advisor.cmd.cancelConstruct');
   }
 }
 

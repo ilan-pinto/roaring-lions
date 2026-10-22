@@ -205,6 +205,7 @@ import { ANIMATED_CURSORS, type CursorName } from './input/cursor';
 import { cursorAt, pointerPoint, simIntentWorld, type PointerView } from './input/pointer';
 import { aimFootprint, callSupport, supportAim } from './input/support-call';
 import { callRally, canRally } from './input/rally-call';
+import { callCancelWorks, callWorks } from './input/works-call';
 import { cursorAnimDriver } from './input/cursor-anim';
 import { prefersReducedMotion, prefersSaveData } from './ui/motion';
 import { firstLaunchIntro, introAvailable, replayIntro } from './ui/intro';
@@ -3200,14 +3201,17 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       if (w === null || w.done) return null;
       return worksCardModel(w.name, sim.structures.progress[st], ONE, w.logistics);
     },
+    // Through the order sink as a `cancelWorks` command (check, then send), never a direct
+    // runtime call: the runtime runs it in `applyQueued` before the next tick.
     onCancelWorks: (st) => {
+      if (!worksRt) return;
       const site = siteOfSelection(st);
       if (site >= 0) {
-        if (worksRt?.requestCancelWorks(site) === true) selectedWorks = -1;
+        if (callCancelWorks(worksRt, cmdSink, site)) selectedWorks = -1;
         return;
       }
-      const w = worksRt?.worksAt(st) ?? null;
-      if (w !== null && worksRt?.requestCancelWorks(w.site) === true) selectedWorks = -1;
+      const w = worksRt.worksAt(st);
+      if (w !== null && callCancelWorks(worksRt, cmdSink, w.site)) selectedWorks = -1;
     },
     // F2 follow-up: the logistics tip names each income zone by its bearing from the map's centre.
     project: (x, y) => renderer.worldToScreen(x, y),
@@ -4582,7 +4586,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         const typeId = armedWorks;
         const tile = worksTileAt(p.x, p.y);
         const builders = ownBuilders();
-        if (worksRt.requestConstruct(typeId, tile.x, tile.y, builders.length > 0 ? builders : undefined)) {
+        // Check, then send (N2, D3): a `raiseWorks` command down the order sink, priced by the
+        // runtime in `applyQueued` before the next tick -- never a direct `requestConstruct`.
+        const out = callWorks(worksRt, cmdSink, typeId, tile.x, tile.y, builders);
+        if (out.ok) {
           // The engineers' acknowledgement is the move family's: the voice hears a move intent,
           // the sim, the replay and telemetry hear nothing but the `construct` command.
           if (builders.length > 0) {
@@ -4592,8 +4599,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           renderer.addOrderMarker(tile.x + 0.5, tile.y + 0.5);
           if (!ev.shiftKey) production?.setArmed(null);
         } else {
-          const why = worksRt.constructReason(typeId, tile.x, tile.y, builders);
-          if (why !== null) hud.note(t(`works.refuse.${why}`), 'mute');
+          if (out.why !== null) hud.note(t(`works.refuse.${out.why}`), 'mute');
           audio.playCue(CRITICAL_CUES.uiDeny);
         }
         worksKey = '';
@@ -5283,7 +5289,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // anything still set aside (R-3). A sweep's `reveal` and a strike's
     // `callStrike` therefore enter the sim queue after this frame's other
     // orders: they run last in their tick, deterministically.
-    const ranQueued = runtime && mission ? runtime.applyQueued() : 0;
+    // `&works`' synthetic runtime prices its `raiseWorks`/`cancelWorks` the same way.
+    const ranQueued = runtime && mission ? runtime.applyQueued() : sandboxWorksRt ? sandboxWorksRt.applyQueued() : 0;
     intelMoments?.beforeTick(sim);
     const events = sim.tick();
     tickQuiet = catchUpQuiet.next();

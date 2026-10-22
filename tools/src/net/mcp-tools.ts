@@ -54,8 +54,9 @@ export interface ToolDef {
 export const ORDER_VERBS = COMMAND_KINDS.filter(
   (k) => k !== 'reveal' && k !== 'callStrike' && k !== 'setStance' && k !== 'build' && k !== 'support' &&
     k !== 'cancelBuild' && k !== 'setRally' && k !== 'clearRally' &&
-    // Field works (#277) is not on the wire yet (`cleanCommand` refuses both).
-    k !== 'construct' && k !== 'cancelConstruct',
+    // Field works (GH-277): the sim's construct/cancelConstruct never travel, and
+    // raiseWorks/cancelWorks are runtime-priced like build (dropped in versus).
+    k !== 'construct' && k !== 'cancelConstruct' && k !== 'raiseWorks' && k !== 'cancelWorks',
 );
 type Verb = (typeof ORDER_VERBS)[number];
 export const WAIT_MAX_TICKS = 200;

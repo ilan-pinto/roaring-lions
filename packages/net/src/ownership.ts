@@ -18,7 +18,8 @@ export interface SeatWorld {
    *  runtime, and a room runs none, so in versus both kinds are dropped
    *  (#559 F1): the same answer on both machines, from the shared config.
    *  `build` and `support` (N2) are priced only by the runtime too, and drop
-   *  in versus for the same reason. */
+   *  in versus for the same reason, as do field works' `raiseWorks` and
+   *  `cancelWorks` (GH-277). */
   readonly versus: boolean;
 }
 
@@ -63,8 +64,15 @@ export function validateCommand(cmd: Command, seat: Seat, world: SeatWorld): boo
     case 'support':
       return !world.versus && cmd.side === side && onMap(cmd.x, cmd.y);
     case 'construct': case 'cancelConstruct':
-      // Field works (#277) is not on the wire yet (`cleanCommand` refuses it).
+      // The sim's own field-works orders never come from a client (`cleanCommand`
+      // refuses them): a client asks with `raiseWorks`/`cancelWorks`, below.
       return false;
+    case 'raiseWorks':
+      // Field works (GH-277) are priced only by the mission runtime, like `build`,
+      // so they drop in versus. Builders, when named, must be the seat's own.
+      return !world.versus && cmd.side === side && cmd.ids.every(own);
+    case 'cancelWorks':
+      return !world.versus && cmd.side === side;
   }
 }
 
