@@ -1396,7 +1396,27 @@ const khanRafid3Plan: Plan = (sim, _rt, ids, at) => {
   at(35, () => sim.queueCommand({ kind: 'move', ids: [eitan[1]], ...M(10, 35) }));
 
   at(0, () => sim.queueCommand({ kind: 'move', ids: at_team, ...M(24, 36) }));
-  at(0, () => sim.queueCommand({ kind: 'move', ids: mortar, ...M(22, 38) }));
+  // GH-707 P3: the mortar stays on the start line. Brought up to (22, 38) its rounds on the souk's
+  // squads landed on their own wounded beside them (seed 25: five charged kills by t=102, Conduct
+  // 66 and one star); the souk is taken with direct fire.
+  void mortar;
+
+  // GH-707 P3: men now fall wounded in the souk, and a wounded enemy on the square holds the capture
+  // contested until he bleeds out (60 s), long enough for the reinforcing militia to walk in
+  // unseen and hold it for good (seeds 1 and 26: the rifles had stopped short at y 33-36, the
+  // Lavi and the sniper alone on the square). A player whose souk reads contested keeps his
+  // vanguard on it: from t=60, every 15 s while it is not his, the vanguard goes at the nearest
+  // contact he has seen in the souk, or back to the alley's east end when there is none.
+  const pic = new Picture(sim);
+  const SOUK = [16, 11, 17, 14] as const;
+  for (let when = 2; when <= 1190; when += 2) at(when, () => pic.update());
+  for (let when = 60; when <= 1190; when += 15)
+    at(when, () => {
+      if (_rt.objectiveStatus('take_the_souk') !== 'active') return;
+      const c = pic.nearest(24, 18, SOUK);
+      const live = vanguard.filter((u) => sim.state.alive[u] === 1);
+      sim.queueCommand({ kind: 'attackMove', ids: live, ...(c ? M(c.x, c.y) : M(26, 16)) });
+    });
 
   // A carrier lost on the way to its orchard leaves that family behind. Since a hit suppresses
   // (2026-10-13), seed 29 lost the east-orchard Eitan by t=15 and five came in, not six. A player
@@ -1637,6 +1657,23 @@ const deirAmun2Plan: Plan = (sim, rt, ids, at) => {
     [40, eitan.slice(1, 2)],
   ];
   for (const [when, who] of screens) at(when, () => sim.queueCommand({ kind: 'smoke', ids: who, ...M(14, 30) }));
+  // GH-707 P3: on seed 15 both teams were pinned at the mouth before the 8 s charge completed
+  // (a pinned team cannot work a charge), and the plan had already walked them back out at t=50,
+  // so the door stayed open past its four minutes. A player whose door is still up tries again:
+  // from t=70, every 25 s while it stands, the Eitans screen the mouth and the teams go back.
+  for (let when = 70; when <= 200; when += 25) {
+    at(when, () => {
+      if (rt.objectiveStatus('shut_the_door') !== 'active') return;
+      const live = yahalom.filter((u) => sim.state.alive[u] === 1);
+      if (live.length === 0) return;
+      sim.queueCommand({ kind: 'smoke', ids: eitan.filter((u) => sim.state.alive[u] === 1).slice(0, 1), ...M(14, 30) });
+      sim.queueCommand({ kind: 'chargeTunnel', ids: live, tunnel: 0 });
+    });
+    at(when + 20, () => {
+      if (rt.objectiveStatus('shut_the_door') !== 'complete') return;
+      sim.queueCommand({ kind: 'move', ids: yahalom.filter((u) => sim.state.alive[u] === 1), ...M(24, 40) });
+    });
+  }
 
   // Once the door is down, split the holding force: two at the gate, the
   // rest at the interior, so one kamikaze cannot reach everyone at once.
@@ -2248,7 +2285,12 @@ const qarnHadid3Plan: Plan = (sim, rt, ids, at) => {
   const drone = ids('recon_drone');
   const west = foot.slice(0, 1);
   const civTeam = [...foot.slice(1, 2), ...at_];
-  const main = [...tank, ...namer, ...armour, ...foot.slice(2), ...demo, ...mortar, ...sniper];
+  // GH-707 P3: the mortar stays at the start line. With men falling wounded, its rounds on a
+  // squad land on the squad's own wounded beside it: on seed 8 it killed 13 of the 19 enemy
+  // wounded the force killed (Conduct -3 each, down to one star). A player who sees bodies on
+  // the square stops shelling it; the column takes the village with direct fire.
+  const main = [...tank, ...namer, ...armour, ...foot.slice(2), ...demo, ...sniper];
+  void mortar;
   at(1, () => {
     sim.queueCommand({ kind: 'attackMove', ids: west, ...M(9, 15) });
     sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 30) });
@@ -2298,6 +2340,8 @@ const qarnHadid3Plan: Plan = (sim, rt, ids, at) => {
   // free carrier goes to the nearest family still standing in the open that one of his units can see
   // (ten tiles), and the carrier loop above drives it to the clinic once they are aboard.
   const CARRIERS = [...armour, ...namer];
+  /** Carriers sent to fetch the families: the capture orders below leave them alone. */
+  const fetching = new Set<number>();
   for (let when = 170; when <= 290; when += 10)
     at(when, () => {
       if (rt.objectiveStatus('get_the_families_clear') !== 'active') return;
@@ -2310,20 +2354,44 @@ const qarnHadid3Plan: Plan = (sim, rt, ids, at) => {
         const seen = mine.some((u) => (st.posX[u] - st.posX[i]) ** 2 + (st.posY[u] - st.posY[i]) ** 2 <= (10 * 65536) ** 2);
         if (seen) { fam = i; break; }
       }
-      if (fam < 0) return;
       const busy = carriersWithFamilies();
       const free = CARRIERS.filter((v) => st.alive[v] === 1 && !busy.has(v));
       if (free.length === 0) return;
+      // GH-707 P3: on seed 24 the rescue detail (the at_team alone) was cut down on the way by two
+      // rifle squads that had slipped south, and nobody else went near the families before the
+      // clock ran out. A player who has lost his detail sends a carrier to where they were.
+      if (fam < 0) {
+        if (when < 200 || civTeam.some((u) => st.alive[u] === 1)) return;
+        const home = M(22, 4);
+        const dh = (u: number) => (st.posX[u] - home.x) ** 2 + (st.posY[u] - home.y) ** 2;
+        const pick = free.reduce((a, b) => (dh(b) < dh(a) ? b : a));
+        fetching.add(pick);
+        sim.queueCommand({ kind: 'move', ids: [pick], ...home });
+        return;
+      }
       const d = (v: number) => (st.posX[v] - st.posX[fam]) ** 2 + (st.posY[v] - st.posY[fam]) ** 2;
       const v = free.reduce((a, b) => (d(b) < d(a) ? b : a));
+      fetching.add(v);
       sim.queueCommand({ kind: 'move', ids: [v], x: st.posX[fam], y: st.posY[fam] });
     });
+  // GH-707 P3: with men falling wounded the foot thins faster (the demolition squad and a rifle
+  // squad were gone by t=180 on 424242 with the gate open), and the carriers no longer cleared the
+  // village's east end on the way: a manpad team at (37,10), never seen, held the capture contested
+  // until the clock ran out. A player whose village reads contested with nothing in sight goes and
+  // looks: the column sweeps the east end and the thorn grove, in turn, until a contact shows.
+  const SWEEP = [[36, 10], [38, 17], [34, 4]] as const;
+  let leg = 0;
   for (let when = 190; when <= 1190; when += 10)
     at(when, () => {
       if (rt.objectiveStatus('take_the_village') !== 'active') return;
       const c = pic.nearest(28, 11, VILLAGE);
       const busy = carriersWithFamilies();
-      if (c) sim.queueCommand({ kind: 'attackMove', ids: main.filter((i) => sim.state.alive[i] === 1 && !busy.has(i)), ...M(c.x, c.y) });
+      const col = main.filter((i) => sim.state.alive[i] === 1 && !busy.has(i) && !(fetching.has(i) && rt.objectiveStatus('get_the_families_clear') === 'active'));
+      if (c) sim.queueCommand({ kind: 'attackMove', ids: col, ...M(c.x, c.y) });
+      else if (when >= 240 && when % 30 === 0) {
+        const [x, y] = SWEEP[leg++ % SWEEP.length];
+        sim.queueCommand({ kind: 'attackMove', ids: col, ...M(x, y) });
+      }
     });
 };
 
@@ -2943,7 +3011,8 @@ const uz4Plan: Plan = (sim, rt, ids, at) => {
   for (let when = 100; when <= 1190; when += 10)
     at(when, () => {
       if (rt.objectiveStatus('raze_the_stockpile') === 'active' || rt.objectiveStatus('kill_adhal') !== 'active') return;
-      const force = living(sim, new Set([...demo, ...drone]));
+      // GH-707 P3: the mortar stays out of it (see the t=90 push below).
+      const force = living(sim, new Set([...demo, ...drone, ...ids('mortar_team')]));
       const c = pic.nearest(14, 7);
       sim.queueCommand({ kind: 'attackMove', ids: force, ...(c ? M(c.x, c.y) : M(14, 7)) });
     });
@@ -2956,7 +3025,10 @@ const uz4Plan: Plan = (sim, rt, ids, at) => {
       kind: 'attackMove',
       // Garrison overhaul (B2): the Namer stays at the depot to shoot the warehouse (above); it joins
       // the push for Adhal with everything else once the stockpile is down.
-      ids: [...ids('at_team'), ...ids('mortar_team'), ...ids('sniper_team'), ...ids('inf_squad')],
+      // GH-707 P3: without the mortar. Its rounds on Adhal's guard landed on the guard's own wounded
+      // beside them (seed 7, bought: nine kills, Conduct under the floor with the gunship's), so the
+      // push is made with direct fire alone.
+      ids: [...ids('at_team'), ...ids('sniper_team'), ...ids('inf_squad')],
       ...M(17, 7),
     });
   });
@@ -3000,7 +3072,9 @@ function boughtProbe(
   orderAtS: number,
   /** The use this unit must be seen to make: a gunship shoots, a recon unit sees. */
   use: 'fires' | 'sees',
-  order: (unitIds: number[]) => Parameters<Sim['queueCommand']>[0]
+  order: (unitIds: number[]) => Parameters<Sim['queueCommand']>[0],
+  /** Orders the unit gets after its first one, given its ids (GH-707 P3: the gunship's focus). */
+  after?: (sim: Sim, at: (t: number, fn: () => void) => void, mine: () => number[]) => void
 ): void {
   const label = `${id} (bought)`;
   const baseStars = missionStars.get(id as string);
@@ -3028,6 +3102,7 @@ function boughtProbe(
       for (const m of mine) mineEver.add(m);
       if (mine.length > 0) sim.queueCommand(order(mine));
     });
+    after?.(sim, at, () => ids(unitId));
   };
   const measured = { result: 'ongoing' as 'ongoing' | 'victory' | 'defeat', stars: 0 as Stars, roeScore: 0, credits: 0, minutes: 0 };
   run(id, plan, ledger, 'victory', label, baseStars, undefined, new Set([unitId]), undefined, undefined, measured,
@@ -3114,11 +3189,42 @@ boughtProbe('beit_sahwan_4_subterranean', bs4Plan, led4In, 'recon_zikit', 30, 's
 // walked ROE from 100 to 43 in two seconds -- under the floor of 45, a defeat. It is sent to the
 // summit side of the ravine instead, where the picket and the manpad it has to answer for are, and
 // stays 13 tiles from the yard.
+// GH-707 P3: parked on that side it fired three rounds and scored no kill on the pinned seed: the
+// manpad team put a missile into it at 90 s and its weapons were out for the rest of the mission
+// (`noSolution` from then on, measured through `projectHit`). A player who knows the manpad is
+// still up keeps his gunship out of its reach: it holds over the start line (24, 30) until the
+// manpad team is dead, then hunts, every 10 s, the nearest standing enemy the side has
+// identified -- never a man already down -- with an attack-move to him.
 boughtProbe('umm_zeitoun_4_clearance', uz4Plan, ledUZ3, 'heli_peten_gunship', 55, 'fires', (mine) => ({
-  kind: 'attackMove',
+  kind: 'move',
   ids: mine,
-  ...M(20, 18),
-}));
+  ...M(24, 30),
+}), (sim, at, mine) => {
+  for (let when = 60; when <= 1190; when += 10)
+    at(when, () => {
+      const st = sim.state;
+      const gun = mine().filter((u) => st.alive[u] === 1);
+      if (gun.length === 0) return;
+      let manpad = false;
+      let best = -1;
+      let bestD = Infinity;
+      const gx = fx.toNumber(st.posX[gun[0]]);
+      const gy = fx.toNumber(st.posY[gun[0]]);
+      for (let i = 0; i < sim.entityCount; i++) {
+        if (st.alive[i] !== 1 || st.side[i] !== 1) continue;
+        const t = sim.unitTypes[st.typeIdx[i]];
+        if (t.id === 'manpad_team') manpad = true;
+        if (t.isWounded || st.woundState[i] !== 0 || sim.contactLevel(0, i) < 2) continue;
+        const d = (fx.toNumber(st.posX[i]) - gx) ** 2 + (fx.toNumber(st.posY[i]) - gy) ** 2;
+        if (d < bestD) {
+          bestD = d;
+          best = i;
+        }
+      }
+      if (manpad || best < 0) return;
+      sim.queueCommand({ kind: 'attackMove', ids: gun, x: st.posX[best], y: st.posY[best] });
+    });
+});
 
 // --- Brigade economy Task 5: every optimal plan holds at max tier ----------
 //
