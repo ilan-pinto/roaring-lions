@@ -3,6 +3,7 @@ import { missions, tutorials } from '@lions/data';
 import { SIM_EVENT_KINDS, MISSION_EVENT_KINDS } from '@lions/sim';
 import { INTENT_KINDS } from '../input/intents';
 import type { PredicateJson, StepJson } from './runtime';
+import { stepText } from './text';
 
 const SIM_EVENTS = new Set<string>(SIM_EVENT_KINDS);
 const MISSION_EVENTS = new Set<string>(MISSION_EVENT_KINDS);
@@ -107,7 +108,8 @@ describe('shipped tutorial steps', () => {
     const absent = ['hidden_setup', 'breach', 'tunnel_travel'];
     for (const t of all) {
       for (const s of t.steps) {
-        const prose = `${s.title} ${s.teach} ${s.nudge ?? ''}`.toLowerCase();
+        const w = stepText(t.id, s);
+        const prose = `${w.title} ${w.teach} ${w.nudge ?? ''}`.toLowerCase();
         for (const a of absent) {
           expect(prose, `${t.id}/${s.id} mentions ${a}`).not.toContain(a.replace('_', ' '));
           expect(prose, `${t.id}/${s.id} mentions ${a}`).not.toContain(a);
@@ -156,7 +158,7 @@ describe('shipped tutorial steps', () => {
   it('beat 5 asks for all four panel states, and never for "cannot penetrate"', () => {
     const beat = tutorials.beit_sahwan_0.steps.find((s) => s.id === 'read_before_you_fire') as StepJson;
     expect((beat.await.of ?? []).map((p) => p.projection).sort()).toEqual(['cover', 'moving', 'out_of_reach', 'unidentified']);
-    expect(beat.teach).not.toMatch(/penetrat/i);
+    expect(stepText('beit_sahwan_0', beat).teach).not.toMatch(/penetrat/i);
   });
 
   it('completes only an objective its mission declares', () => {

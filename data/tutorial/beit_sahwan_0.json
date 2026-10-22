@@ -6,38 +6,27 @@
   "steps": [
     {
       "id": "look_around",
-      "title": "Look around",
-      "teach": "This is the training ground. Move the view with WASD or the arrow keys, or click the small map in the corner.",
       "reveal": ["minimap"],
       "await": { "kind": "camera", "tiles": 6 },
       "focus": { "kind": "none" },
-      "nudge_after_s": 15,
-      "nudge": "Hold W or an arrow key, or click anywhere on the small map."
+      "nudge_after_s": 15
     },
     {
       "id": "take_command",
-      "title": "Take command",
-      "teach": "Click the rifle squad. The card at the bottom says what you have selected and what it carries.",
       "reveal": ["card"],
       "await": { "kind": "intent", "intent": "select" },
       "focus": { "kind": "marker", "marker": "kdf_start" },
-      "nudge_after_s": 12,
-      "nudge": "Click the squad on the left of the field."
+      "nudge_after_s": 12
     },
     {
       "id": "advance",
-      "title": "Advance",
-      "teach": "Right-click the marked ground. Your men go there and fight whatever they meet on the way. H halts them.",
       "reveal": ["orders", "hint"],
       "await": { "kind": "intent", "intent": "order" },
       "focus": { "kind": "marker", "marker": "field" },
-      "nudge_after_s": 15,
-      "nudge": "With the squad selected, right-click the marked ground to the east."
+      "nudge_after_s": 15
     },
     {
       "id": "make_contact",
-      "title": "Make contact",
-      "teach": "Someone is in the open ahead. Right-click past him: your squad stops and fires when it has a shot.",
       "reveal": ["feed"],
       "await": {
         "kind": "all_of",
@@ -53,13 +42,10 @@
         ]
       },
       "focus": { "kind": "marker", "marker": "contact_open" },
-      "nudge_after_s": 20,
-      "nudge": "Right-click the ground beyond the man in the open."
+      "nudge_after_s": 20
     },
     {
       "id": "read_before_you_fire",
-      "title": "Read before you fire",
-      "teach": "Select your squad and hold the cursor over each enemy. The panel says whether you can shoot and why: not identified, in cover, moving, out of reach.",
       "reveal": ["fire"],
       "await": {
         "kind": "all_of",
@@ -71,13 +57,10 @@
         ]
       },
       "focus": { "kind": "marker", "marker": "range_post" },
-      "nudge_after_s": 30,
-      "nudge": "Stand at the marked rocks. One enemy is far off east: the drone sees him, your rifles cannot reach him."
+      "nudge_after_s": 30
     },
     {
       "id": "identify_then_shoot",
-      "title": "Identify, then shoot",
-      "teach": "A squad on the move shoots badly, and nobody can shoot what is only suspected. Hold the cursor over an enemy until the panel gives odds, then right-click it: your squad closes to range, stops and fires. Or press H to stand them still.",
       "await": {
         "kind": "all_of",
         "of": [
@@ -100,13 +83,10 @@
         ]
       },
       "focus": { "kind": "none" },
-      "nudge_after_s": 20,
-      "nudge": "Select the squad. Hold the cursor over an enemy until the panel shows odds, then right-click it: they close in, stop and fire. H stands them still."
+      "nudge_after_s": 20
     },
     {
       "id": "use_the_ground",
-      "title": "Use the ground",
-      "teach": "Rocks are cover and walls are better. Move into the rocks or right-click the house. Where you stand beats any order you give.",
       "reveal": ["status"],
       "await": {
         "kind": "any_of",
@@ -117,32 +97,23 @@
         ]
       },
       "focus": { "kind": "marker", "marker": "the_house" },
-      "nudge_after_s": 20,
-      "nudge": "Select infantry and right-click the house, or move into the rocks north of the wall."
+      "nudge_after_s": 20
     },
     {
       "id": "call_them_up",
-      "title": "Call them up",
-      "teach": "This is your field camp. The tiles bottom left are what it can build, and the strip shows your logistics. Click the rifle squad tile twice: you pay now, the camp builds one at a time, and each squad walks out when its bar fills.",
       "reveal": ["dock", "logistics"],
       "await": { "kind": "production", "bought": 2 },
       "focus": { "kind": "marker", "marker": "camp" },
-      "nudge_after_s": 20,
-      "nudge": "Click the rifle squad tile in the bottom left, then click it again. Grey tiles are locked; the brigade earns them later."
+      "nudge_after_s": 20
     },
     {
       "id": "rally_point",
-      "title": "Rally point",
-      "teach": "Without orders, new units wait at the camp. Click Set rally on the camp's row, then click the marked ground. Everything the camp sends out from now on goes there by itself, and fights whatever it meets on the way.",
       "await": { "kind": "production", "rally": true },
       "focus": { "kind": "marker", "marker": "muster" },
-      "nudge_after_s": 20,
-      "nudge": "Click Set rally beside Camp 1 in the dock, then click the marked ground. If the row has gone, the camp has finished: queue another squad and it comes back."
+      "nudge_after_s": 20
     },
     {
       "id": "clear_the_gate",
-      "title": "Clear the gate",
-      "teach": "An enemy within six tiles of the camp's gate stops it building. Nothing is lost and nothing is refunded: the clock waits. Clear him and it starts again by itself.",
       "await": {
         "kind": "all_of",
         "of": [
@@ -163,23 +134,17 @@
         ]
       },
       "focus": { "kind": "marker", "marker": "camp" },
-      "nudge_after_s": 25,
-      "nudge": "Someone is digging north-west of the camp. Send a squad at him; the camp's row says paused until he is gone."
+      "nudge_after_s": 25
     },
     {
       "id": "bring_them_in",
-      "title": "Bring them in",
-      "teach": "Two civilians are hiding south of the road. Drive the jeep to them and they climb in; then drive it to the refuge. Speed is the whole trick.",
       "reveal": ["objective", "objectives"],
       "await": { "kind": "mission", "event": "evacuated" },
       "focus": { "kind": "marker", "marker": "clinic_house" },
-      "nudge_after_s": 30,
-      "nudge": "Select the jeep, right-click beside the civilians by the clinic, then right-click the refuge."
+      "nudge_after_s": 30
     },
     {
       "id": "what_a_shot_costs",
-      "title": "What a shot costs",
-      "teach": "The mortar fires at the nearest enemy it knows of, or the one you right-click, and you pay for where the round lands. Select it and press H so it fires from the road, then watch the invoice. Under the mission floor you lose.",
       "reveal": ["conduct"],
       "await": {
         "kind": "all_of",
@@ -197,8 +162,7 @@
         ]
       },
       "focus": { "kind": "zone", "zone": "z_clinic" },
-      "nudge_after_s": 25,
-      "nudge": "Select the mortar on the road and press H. Do not walk it in: within four tiles of a target it cannot fire at all."
+      "nudge_after_s": 25
     }
   ]
 }
