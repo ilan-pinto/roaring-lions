@@ -97,7 +97,10 @@ FIGURES = {"inf_squad", "inf_grenadier", "at_team", "mortar_team", "sniper_team"
            # faction ramp, `mesh-catalogue.ts`), so it lives here, not in
            # vehicles/.
            "militia_cell", "rpg_team", "mortar_crew", "charge_squad",
-           "moto_rpg", "digger_crew"}
+           "moto_rpg", "digger_crew",
+           # GH-709 Phase 8: the Chadaf recon robot is a rigged walker in
+           # meshes/ itself, one figure on `dog_root`.
+           "ugv_recon_dog"}
 ENEMY_FIGURES = {"atgm_cell", "manpad_team", "recoilless_team", "sarim_rifles",
                  "militia_cell", "rpg_team", "mortar_crew", "charge_squad",
                  "moto_rpg", "digger_crew"}
@@ -105,13 +108,14 @@ ENEMY_FIGURES = {"atgm_cell", "manpad_team", "recoilless_team", "sarim_rifles",
 # team picture (and `isolate_lead` refuses it), so they ship the team picture
 # only and the chip falls back to it, as a vehicle's does. `moto_rpg` binds
 # bike, rider and gunner to the single `m_root`; `digger_crew` is one man
-# (`dig_root` plus its second pose root `digw_root`).
-NO_LEAD = {"moto_rpg", "digger_crew"}
+# (`dig_root` plus its second pose root `digw_root`); `ugv_recon_dog` is one
+# robot on `dog_root` (plus its `dog_death_root`).
+NO_LEAD = {"moto_rpg", "digger_crew", "ugv_recon_dog"}
 ROSTER = (
-    # KDF (19)
+    # KDF (23)
     "inf_squad,inf_grenadier,at_team,mortar_team,sniper_team,demo_squad,breach_team,yahalom_squad,recon_zikit,"
-    "mbt_lavi,ifv_namer,apc_eitan,apc_kipod,jeep_shoded,scout_shachaf,dozer_d9,"
-    "heli_peten,heli_peten_gunship,attack_drone,recon_drone,"
+    "mbt_lavi,mbt_lavi_camo,ifv_namer,apc_eitan,apc_kipod,jeep_shoded,scout_shachaf,dozer_d9,spg_long_range,"
+    "heli_peten,heli_peten_gunship,attack_drone,recon_drone,ugv_recon_dog,"
     # Sarim (15)
     "sarim_rifles,atgm_cell,manpad_team,recoilless_team,rocket_battery,loiter_drone,"
     "militia_cell,rpg_team,mortar_crew,charge_squad,moto_rpg,digger_crew,"

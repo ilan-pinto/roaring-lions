@@ -253,6 +253,17 @@ const VEHICLE_ROLE_PALETTE: Record<string, Partial<Record<VehicleMeshRole, reado
     glass: sliceFrom('gunmetal', 3, 1),
     recess: sliceFrom('shadow', 1, 2),
   },
+  // GH-709: the Lavi Ambush Tank IS mbt_lavi.glb's bake with a net joined into
+  // its own nodes (tools/vehicles/export_lavi_camo.py), so it takes the Lavi's
+  // table verbatim, for the reason `officer_armour`'s entry gives.
+  mbt_lavi_camo: {
+    hull: sliceFrom('olive', 0, 4),
+    plate: sliceFrom('olive', 1, 3),
+    metal: sliceFrom('gunmetal', 2, 2),
+    rubber: sliceFrom('shadow', 0, 3),
+    glass: sliceFrom('gunmetal', 3, 1),
+    recess: sliceFrom('shadow', 1, 2),
+  },
   // No sprite-rig script of its own -- the CC BY 3.0 `ifv_dmm08.blend` sheets
   // this Meshy export replaces (`NAMER_HULL`/`NAMER_TURR`,
   // `tools/render_namer.py`) never declared a `ROLE_PALETTE` of their own
@@ -461,6 +472,18 @@ const VEHICLE_ROLE_PALETTE: Record<string, Partial<Record<VehicleMeshRole, reado
   heli_yanshuf: {
     hull: sliceFrom('olive', 0, 4),
     metal: sliceFrom('gunmetal', 2, 2),
+  },
+  // GH-709 (2026-10-22): the Te'o Howitzer
+  // (`tools/vehicles/export_meshy_spg_long_range.py`), hand-copied from the
+  // gate's `VEHICLE_ROLE_PALETTES["spg_long_range"]`. All four of its meshes
+  // (`hull_hull`, `hull_rubber`, `turret_hull`, `turret_metal`) ship the
+  // remesh's own bake and never reach these ramps; the table is the Namer's
+  // tones (olive hull and turret, shadow track band, gunmetal gun) for the
+  // gate's repaint and a proxy build.
+  spg_long_range: {
+    hull: sliceFrom('olive', 0, 4),
+    metal: sliceFrom('gunmetal', 2, 2),
+    rubber: sliceFrom('shadow', 0, 3),
   },
 };
 

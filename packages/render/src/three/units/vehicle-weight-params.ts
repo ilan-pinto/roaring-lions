@@ -73,7 +73,11 @@ import heliYanshuf from '../../../../../data/units/kdf/heli_yanshuf.json';
 import ifvNamer from '../../../../../data/units/kdf/ifv_namer.json';
 import jeepShoded from '../../../../../data/units/kdf/jeep_shoded.json';
 import mbtLavi from '../../../../../data/units/kdf/mbt_lavi.json';
+// GH-709: the Lavi Ambush Tank, on the `mbt` role default (no `mobility.weight` block).
+import mbtLaviCamo from '../../../../../data/units/kdf/mbt_lavi_camo.json';
 import scoutShachaf from '../../../../../data/units/kdf/scout_shachaf.json';
+// GH-709: the Te'o Howitzer, on the `artillery` role default (no `mobility.weight` block).
+import spgLongRange from '../../../../../data/units/kdf/spg_long_range.json';
 import paramotor from '../../../../../data/units/enemy/paramotor.json';
 import rocketBattery from '../../../../../data/units/enemy/rocket_battery.json';
 import technical from '../../../../../data/units/enemy/technical.json';
@@ -122,7 +126,9 @@ const VEHICLE_UNIT_JSON: readonly unknown[] = [
   ifvNamer,
   jeepShoded,
   mbtLavi,
+  mbtLaviCamo,
   scoutShachaf,
+  spgLongRange,
   paramotor,
   rocketBattery,
   technical,

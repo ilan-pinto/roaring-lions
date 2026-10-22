@@ -185,6 +185,11 @@ export const RIGGED_UNIT_MESHES: Readonly<Record<string, RiggedMeshEntry>> = {
   // figure cut into rig.py's parts (`tools/units/import_meshy_zikit_team.py`).
   recon_zikit: { files: ['recon_zikit.glb'], faction: 'kdf' },
 
+  // GH-709 unit 10 (2026-10-22): the Chadaf recon robot, a four-legged walker --
+  // a Meshy remesh cut into rigid parts on rig.py's dog topology
+  // (`tools/units/import_meshy_dog.py`). Textured, so no faction ramp reaches it.
+  ugv_recon_dog: { files: ['ugv_recon_dog.glb'], faction: 'kdf' },
+
   // WP-A3.1 batch B2 (GH-179, 2026-09-30): Meshy A-pose figures cut into
   // rig.py's parts and driven by rig.py's own clips
   // (`tools/units/import_meshy_crew_team.py`). Palette-painted -- GH-307's
@@ -232,6 +237,13 @@ export const VEHICLE_UNIT_MESHES: Readonly<Record<string, string>> = {
   apc_eitan: 'vehicles/apc_eitan.glb',
   dozer_d9: 'vehicles/dozer_d9.glb',
   mbt_lavi: 'vehicles/mbt_lavi.glb',
+  // GH-709: the Lavi Ambush Tank -- mbt_lavi.glb's bake plus a Blender-authored
+  // net (`tools/vehicles/export_lavi_camo.py`), textured (`TEXTURED_VEHICLE_TYPES`).
+  mbt_lavi_camo: 'vehicles/mbt_lavi_camo.glb',
+  // GH-709: the Te'o Howitzer, a tracked 155 mm SPG -- a Meshy text-to-3D export
+  // (`tools/vehicles/export_meshy_spg_long_range.py`), textured
+  // (`TEXTURED_VEHICLE_TYPES`), its turret and raised gun under `turret_pivot`.
+  spg_long_range: 'vehicles/spg_long_range.glb',
   technical: 'vehicles/technical.glb',
   ifv_namer: 'vehicles/ifv_namer.glb',
   jeep_shoded: 'vehicles/jeep_shoded.glb',

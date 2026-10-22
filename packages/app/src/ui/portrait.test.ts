@@ -255,7 +255,18 @@ describe('unitPlate', () => {
 // Read off disk rather than through `unitPlate`'s glob, because the question is
 // about the shipped FILES: a manifest entry whose JPEG never landed passes a
 // glob-free check and fails the player.
+// Plates the lead deferred by name (22 Oct, GH-709 Phase 2: "skip them in this PR"). The
+// garage draws its reserved hatch for these meanwhile. Named, not globbed, and the demotion
+// spec below fails the day one of them gets a plate, so the list cannot outlive its reason.
+const PLATE_PENDING: readonly string[] = ['mbt_lavi_camo', 'spg_long_range'];
+
 describe('unit plate coverage', () => {
+  it('a plate-pending unit really has no plate yet (delete it from PLATE_PENDING when it lands)', () => {
+    const dir = path.join(__dirname, '../../../../assets/ui/plates/units');
+    const plates = (JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8')) as { plates: Record<string, unknown> }).plates;
+    for (const id of PLATE_PENDING) expect(plates[id], id).toBeUndefined();
+  });
+
   it('every KDF unit has a plate entry and a file on disk', () => {
     const dir = path.join(__dirname, '../../../../assets/ui/plates/units');
     const manifest = (
@@ -275,10 +286,10 @@ describe('unit plate coverage', () => {
     // Vacuity guard: an empty roster would make every loop below pass.
     expect(kdf.length).toBeGreaterThan(10);
 
-    const missing = kdf.filter((id) => manifest[id] === undefined);
+    const missing = kdf.filter((id) => manifest[id] === undefined && !PLATE_PENDING.includes(id));
     expect(missing, `KDF units with no plate: ${missing.join(', ')}`).toEqual([]);
 
-    const noFile = kdf.filter((id) => !fs.existsSync(path.join(dir, manifest[id].file)));
+    const noFile = kdf.filter((id) => manifest[id] !== undefined && !fs.existsSync(path.join(dir, manifest[id].file)));
     expect(noFile, `plates named in the manifest but not on disk: ${noFile.join(', ')}`).toEqual([]);
   });
 });

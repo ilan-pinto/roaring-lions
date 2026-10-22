@@ -94,6 +94,8 @@ export interface AreaEffectJson {
   repair_per_s?: number;
   repair_components_s?: number;
   accuracy_mult?: number;
+  /** E1 (GH-709), units only: the effect holds only while the carrier is not moving. */
+  stationary?: boolean;
 }
 
 /** The `aura` block. No `supp_cover`: #606 shipped `garrison_cover` instead (pre-flight). */
@@ -108,10 +110,12 @@ export interface StructureAuraJson {
   sensor?: { sight: number; optics: number; tunnel_radius?: number };
 }
 
-/** `affects` codes. Air is excluded from every scope (nothing lands). */
+/** `affects` codes. Air is excluded from every area scope (nothing lands). */
 export const AFFECTS_FOOT = 0;
 export const AFFECTS_VEHICLE = 1;
 export const AFFECTS_ANY = 2;
+/** E1 (GH-709), units only: the carrier's own riders, wherever it is (air carriers too). */
+export const AFFECTS_PASSENGERS = 3;
 
 /** A parsed area effect, every value Q16.16 or ticks, fixed at load. Zero (or ONE for
  *  `accMult`) means the field is absent. */
@@ -125,6 +129,9 @@ export interface AreaEffect {
   /** Covered, undamaged ticks that clear component kills; 0 = none. */
   compTicks: number;
   accMult: Fx;
+  /** E1 (GH-709), units only: applies only while the carrier is not moving. Always false
+   *  on a structure (the parser refuses the field there). */
+  stationary: boolean;
 }
 
 /** A parsed `aura.sensor`, Q16.16, fixed at load. */
@@ -261,22 +268,42 @@ function buildableFromJson(json: StructureTypeJson, ticksPerSecond: number): Str
 }
 
 /**
- * Parse an `aura` block. Every authored float crosses into fixed point once, here, through
- * `fx.from` (invariant 2). A per-second rate becomes a per-tick one by ROUNDED integer
- * division of the fixed value, so no float arithmetic is done on the data: 0.010/s is
- * fx.from 655, (655 + 10) / 20 = 33 raw; 0.0075/s is 492, (492 + 10) / 20 = 25 raw.
- * (Truncating, `fx.div`, would give 32 for the medic.)
+ * Parse an `aura.area` list -- a structure's (#277) or, since E1 (GH-709), a unit's. Every
+ * authored float crosses into fixed point once, here, through `fx.from` (invariant 2). A
+ * per-second rate becomes a per-tick one by ROUNDED integer division of the fixed value, so
+ * no float arithmetic is done on the data: 0.010/s is fx.from 655, (655 + 10) / 20 = 33 raw;
+ * 0.0075/s is 492, (492 + 10) / 20 = 25 raw. (Truncating, `fx.div`, would give 32 for the
+ * medic.) `forUnit` admits the two unit-only parts, `affects: "passengers"` and
+ * `stationary`; a structure refuses both, naming the field. `owner` prefixes every error.
  */
-function auraFromJson(json: StructureTypeJson, ticksPerSecond: number): StructureAura | null {
-  const a = json.aura;
-  if (a === undefined) return null;
+export function areaEffectsFromJson(
+  owner: string,
+  effects: readonly AreaEffectJson[],
+  ticksPerSecond: number,
+  forUnit: boolean,
+): AreaEffect[] {
   const area: AreaEffect[] = [];
-  for (const e of a.area ?? []) {
+  for (const e of effects) {
     const affects =
-      e.affects === 'foot' ? AFFECTS_FOOT : e.affects === 'vehicle' ? AFFECTS_VEHICLE : e.affects === 'any' ? AFFECTS_ANY : -1;
-    if (affects < 0) throw new Error(`structure type ${json.id}: aura affects "${e.affects}", expected foot, vehicle or any`);
+      e.affects === 'foot'
+        ? AFFECTS_FOOT
+        : e.affects === 'vehicle'
+          ? AFFECTS_VEHICLE
+          : e.affects === 'any'
+            ? AFFECTS_ANY
+            : forUnit && e.affects === 'passengers'
+              ? AFFECTS_PASSENGERS
+              : -1;
+    if (affects < 0) {
+      const expected = forUnit ? 'foot, vehicle, any or passengers' : 'foot, vehicle or any';
+      throw new Error(`${owner}: aura affects "${e.affects}", expected ${expected}`);
+    }
+    if (!forUnit && e.stationary !== undefined) throw new Error(`${owner}: aura stationary is for units only`);
+    if (forUnit && e.repair_components_s !== undefined) {
+      throw new Error(`${owner}: aura repair_components_s is for structures only`);
+    }
     const r = fx.from(e.radius);
-    if (r <= 0) throw new Error(`structure type ${json.id}: aura radius must be > 0`);
+    if (r <= 0) throw new Error(`${owner}: aura radius must be > 0`);
     const perS = e.heal_per_s ?? e.repair_per_s;
     const healRate = perS === undefined ? 0 : ((fx.from(perS) + (ticksPerSecond >> 1)) / ticksPerSecond) | 0;
     const healCap = perS === undefined ? 0 : e.heal_cap === undefined ? ONE : fx.from(e.heal_cap);
@@ -291,8 +318,17 @@ function auraFromJson(json: StructureTypeJson, ticksPerSecond: number): Structur
       healCap,
       compTicks,
       accMult: e.accuracy_mult === undefined ? ONE : fx.from(e.accuracy_mult),
+      stationary: e.stationary === true,
     });
   }
+  return area;
+}
+
+/** Parse a structure's `aura` block; the area list through `areaEffectsFromJson`. */
+function auraFromJson(json: StructureTypeJson, ticksPerSecond: number): StructureAura | null {
+  const a = json.aura;
+  if (a === undefined) return null;
+  const area = areaEffectsFromJson(`structure type ${json.id}`, a.area ?? [], ticksPerSecond, false);
   let sensor: StructureSensor | null = null;
   if (a.sensor !== undefined) {
     const sight = fx.from(a.sensor.sight);

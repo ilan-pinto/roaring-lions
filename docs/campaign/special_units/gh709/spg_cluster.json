@@ -45,7 +45,7 @@
       "accuracy": 0.45,
       "penetration": 20,
       "suppression": 160,
-      "rof_per_min": 2,
+      "rof_per_min": 5,
       "min_range_tiles": 6,
       "can_target": [
         "ground"

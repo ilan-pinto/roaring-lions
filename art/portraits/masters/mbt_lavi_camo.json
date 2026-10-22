@@ -1,0 +1,23 @@
+{
+  "unit": "mbt_lavi_camo",
+  "variant": "team",
+  "source": "assets/meshes/vehicles/mbt_lavi_camo.glb",
+  "source_sha256": "a9d37d27ba9dc4350017469929c81e103b9a3d931bd7f27749d2fe6830dd6f66",
+  "yaw_deg": -125.0,
+  "elevation_deg": 18.0,
+  "fov_deg": 30.0,
+  "fill": [
+    "width",
+    0.92
+  ],
+  "ndc_box": [
+    0.04,
+    0.96,
+    0.1454,
+    0.8546
+  ],
+  "materials": {
+    "baked": 4,
+    "flat": 0
+  }
+}

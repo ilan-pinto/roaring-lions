@@ -22,6 +22,14 @@ export interface TunnelRouteJson {
    *  No trail is stamped at load: spoil is what digging leaves behind, and a
    *  route finished before the mission began has weathered. */
   pre_dug?: boolean;
+  /** The side that owns the route (GH-681): the only side whose units may
+   *  `enterTunnel` it. Absent on every map-file route, which therefore admits
+   *  nobody by order (scripted placements and `submerge` are unaffected). A
+   *  versus room's rules data sets it on the Sarim seat's routes. */
+  side?: number;
+  /** How many units an `enterTunnel` order may put inside (GH-681). Absent =
+   *  `TUNNEL_CAPACITY_DEFAULT`. Placements and `submerge` do not read it. */
+  capacity?: number;
 }
 
 /** Trail density stamped on a tile the moment the dig head passes under it. */
@@ -49,6 +57,11 @@ export const SURFACE_SECONDS = 3;
 /** Shots committed per surfacing. A unit comes up to do something specific
  *  and goes back down; it does not fight a battle from the hole. */
 export const SURFACE_VOLLEY = 2;
+/** Units an ordered route holds when its data names no `capacity` (GH-681, Q4). */
+export const TUNNEL_CAPACITY_DEFAULT = 4;
+/** How near the mouth or the vent's tile centre a unit under `enterTunnel`
+ *  must stand to go below: squared tiles, Q16.16. One tile. */
+export const TUNNEL_ENTER_RANGE_SQ = 65536;
 /** Shock of a collapsing route, and its radius². This 0.6 is handed to
  *  splashDirect as a per-near-miss figure and doubled there like every blast
  *  (BOUNCE_SUPP_MULT), so everyone within the radius takes 1.2 before

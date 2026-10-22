@@ -40,11 +40,13 @@ describe('the textured vehicle opt-out is a named list', () => {
       'ifv_namer',
       'jeep_shoded',
       'mbt_lavi',
+      'mbt_lavi_camo',
       'officer_armour',
       'paramotor',
       'recon_drone',
       'rocket_battery',
       'scout_shachaf',
+      'spg_long_range',
       'technical',
     ]);
   });

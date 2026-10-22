@@ -2472,6 +2472,29 @@ export function measureHipHeight(path: string, clip: string): FigureHipHeight[] 
   });
 }
 
+/**
+ * The world height of ONE named joint over `clip` (GH-709 Phase 8): lowest and
+ * median over the samples where it is drawn, metres above the armature's
+ * y = 0. `measureHipHeight` reads a biped's pelvis and thighs; a quadruped's
+ * body is one rigid link (`dog_root`), so its height is this joint's. Throws
+ * for a joint the file does not carry, so a rename cannot read as nothing.
+ */
+export function measureJointHeight(path: string, clip: string, joint: string): { minM: number; medianM: number } {
+  const glb = readGlb(path);
+  const i = (glb.json.nodes ?? []).findIndex((n) => n.name === joint);
+  if (i < 0) throw new Error(`${path}: no joint ${joint}`);
+  const { tracks, start, end } = readClip(glb, clip);
+  const ys: number[] = [];
+  for (let s = 0; s <= SAMPLES; s++) {
+    const w = nodeWorlds(glb, tracks, start + ((end - start) * s) / SAMPLES);
+    if (jointScale(w[i]) <= HIDDEN_SCALE) continue;
+    ys.push(w[i][13]);
+  }
+  if (ys.length === 0) throw new Error(`${path}: ${joint} is scaled out of all of ${clip}`);
+  ys.sort((a, b) => a - b);
+  return { minM: ys[0], medianM: ys[Math.floor(ys.length / 2)] };
+}
+
 export interface FigureLowest {
   /** The figure's root joint (`rpg_fire_root`), or -- for a joint under no
    *  `*_root` -- the outermost skin joint above it (`prop`, a biped's `Hips`). */

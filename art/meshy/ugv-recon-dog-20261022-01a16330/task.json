@@ -1,0 +1,46 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready four-legged reconnaissance robot, a machine of a fictional army in plain matte olive-drab paint with dark gunmetal joints, unarmed. A flat rectangular box body, a small boxy sensor head on a short neck at the front top, a short thin whip antenna at the rear top. Four straight vertical legs, each two plain rods with a gunmetal knee joint, ending in small round black rubber foot pads. Standing square, legs slightly apart, clear daylight between all four legs and under the body, no leg touching another or the body. Real-world scale, 1.0 metre long, 0.62 metres to the body top. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "negative_prompt": "animal, dog head, fur, tail, ears, yellow, bright colours, consumer robot, face camera clusters, logos, text, weapon, gun, turret, wheels, tracks, sitting, lying, crouching, bent legs, merged legs, legs fused to body, cables, hoses, base, plinth, ground",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a16330-1af3-7501-bdc1-d514585c2a00",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 3797333751,
+    "prompt": "A single low-poly game-ready four-legged reconnaissance robot, a machine of a fictional army in plain matte olive-drab paint with dark gunmetal joints, unarmed. A flat rectangular box body, a small boxy sensor head on a short neck at the front top, a short thin whip antenna at the rear top. Four straight vertical legs, each two plain rods with a gunmetal knee joint, ending in small round black rubber foot pads. Standing square, legs slightly apart, clear daylight between all four legs and under the body, no leg touching another or the body. Real-world scale, 1.0 metre long, 0.62 metres to the body top. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1792665461514,
+    "progress": 100,
+    "started_at": 1792665461522,
+    "finished_at": 1792665529147,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a16330-1af3-7501-bdc1-d514585c2a00/output/model.glb?Expires=4946227200&Signature=jg5xv-AmyFyLPKe00XZeImT8fxBinH2nfm5xBRl7tmrZiCIOPAL77fHBgjavyyIHhZdNK4XRpmHobMQLPYetqmwimwOEQdq3ktLOg4hA9Ao5UNzfTZh9lm1LODHrFCC9W3v7WUzlFfJpcNDPGXbe4A9HwwpNwG5cMmVKjBwoX1v8T6i10MbIVKuEvAqIkgalNPW63EqUsazjm1mkRlHHaVtc-w0~jlbowIuwN4h6w3FmL4T~Auf2I56FiPP7o0fHq1qnf6wtVPcdnQzaprbAbQOh4~CQ7rzhDiqqZX5cfkyHzJg7a67QULel8NXqJBlH3BIsUldzzm2QMHwKSqoDZg__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a16330-1af3-7501-bdc1-d514585c2a00/output/preview.png?Expires=4946227200&Signature=LLSFDpxOYW9X5cMZoXcIF-yAM8SbuoWZlgmIpdk7iEXp5LEssDJw60HCihAnRZxLdyCANPLqY~cAfbQn0dS1xPwNKzMmComjyAU~aK5YMM9vrRqOcvtkcdtEqN5TQPpVKeo9~vt-fy3N2mdsriz-uFzJloq4~9MMDt9ZAM92nrOV9rCXdwOSpwZrsJXQJVdsF1Rle~IiLeJDyB8bSaKZGD0cQd21Uci2D4pJP2wxH6EGMbkZG1Wek8d3ZZDbUVDrAzmeYIYuUC5kDmnKiZzcXtIm5zlTrBhpMKhGWUUQKySsYey4rdRLIq3FcQq0EG2~ATD0TQFw-nBjCJu93I1i4Q__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1792665461514,
+    "started_at": 1792665461522,
+    "finished_at": 1792665529147
+  },
+  "usd_estimated": 0.4
+}

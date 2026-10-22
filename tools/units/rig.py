@@ -161,6 +161,11 @@ SUPPORTED_TEAMS = (
     # Meshy A-pose figure on the same path; it was never a kit export, so it
     # joins here for `build_clips`/`TEAM_FIGURES` and nothing else.
     "sarim_rifles",
+    # GH-709 unit 10, 2026-10-22: the Chadaf recon robot, a four-legged walker.
+    # The one topology here that is neither a biped nor a bike, built by
+    # tools/units/import_meshy_dog.py from a Meshy remesh; see the dog section
+    # below. It is not a `teams.TEAMS` team, so it has no TEAM_FIGURES row.
+    "ugv_recon_dog",
 )
 DEFAULT_TEAM = "inf_squad"
 
@@ -219,6 +224,7 @@ TEAM_MESH_OWNER = {
     "manpad_team": "tools/units/import_meshy_crew_team.py",
     "recoilless_team": "tools/units/import_meshy_crew_team.py",
     "sarim_rifles": "tools/units/import_meshy_crew_team.py",   # B7 (GH-179, 2026-10-01)
+    "ugv_recon_dog": "tools/units/import_meshy_dog.py",        # GH-709 (2026-10-22)
 }
 assert set(TEAM_MESH_OWNER) == set(SUPPORTED_TEAMS), (
     "TEAM_MESH_OWNER needs exactly one entry per SUPPORTED_TEAMS member -- "
@@ -1293,6 +1299,11 @@ TEAM_FIGURES = {
 }
 
 
+#: SUPPORTED_TEAMS members that are NOT a `teams.TEAMS` figure team and so have
+#: no `TEAM_FIGURES` row: built whole by their own importer and clip builder.
+NON_TEAM_TOPOLOGIES = frozenset({"ugv_recon_dog"})
+
+
 def _check_team_figures_against_teams():
     """Cheap, always-on self-check: every prefix in TEAM_FIGURES must be a
     real figure this pass can bind (posture standing/kneeling only), and
@@ -1322,7 +1333,8 @@ def _check_team_figures_against_teams():
         for spec in figures:
             assert spec["posture"] in ("standing", "kneeling"), spec
             assert spec["weapon"] in (None, "rifle", "launcher"), spec
-    assert set(SUPPORTED_TEAMS) == set(TEAM_FIGURES), "SUPPORTED_TEAMS/TEAM_FIGURES drifted apart"
+    assert set(SUPPORTED_TEAMS) - NON_TEAM_TOPOLOGIES == set(TEAM_FIGURES), (
+        "SUPPORTED_TEAMS/TEAM_FIGURES drifted apart")
 
 
 _check_team_figures_against_teams()
@@ -1823,6 +1835,359 @@ def _moto_rpg_rest():
     return parts, _moto_bone_table(), forced
 
 
+# --- ugv_recon_dog: a four-legged robot walker (GH-709 unit 10) --------------
+#
+# The only rig here that is neither a biped nor a bike. Spec:
+# `docs/superpowers/specs/2026-10-22-robot-dog-art.md` (approved by the lead,
+# all six section-4 recommendations). It is not a `teams.TEAMS` team, so it has
+# no `TEAM_FIGURES` row and no kit build: `tools/units/import_meshy_dog.py`
+# cuts a Meshy remesh into rigid parts, places them on the numbers declared
+# HERE, and calls `build_clips` below. Geometry and bones therefore read one
+# set of numbers and cannot drift apart.
+#
+# THE TOPOLOGY. Rigid binding, one part to one bone, weight 1 -- the same as
+# every rig in this file, and literally true of a robot, whose legs are rigid
+# links with a joint at each end. `dog_root` carries the body and the antenna;
+# `dog_head` pans on top of it; each leg is three bones, thigh -> lower -> foot.
+# The lower link is `_lower_` and NEVER `_shin_`: `motion/feet.ts` grafts a
+# biped ankle onto every `*_shin_L/R` bone, and the foot bone is `_foot_[LR]`
+# because `measurePlantedGround` reads exactly that pattern. Knees fold
+# REARWARD on all four legs, a robot's one consistent convention. Left is +Y
+# (forward is +X, Z up).
+#
+# THE DEAD. `dog_death_root` carries a separate collapsed copy of the robot
+# (every other rig's contract), and every clip keys `dog_root` / `dog_death_root`
+# scale 1/0 (living) or 0/1 (dead). One leg of that copy -- fore right -- rides
+# two extra bones, `dog_death_leg_thigh` and `dog_death_leg_lower`: baked
+# THROWN OUT (the `wreck` pose) and folded by `down`, so `down` is the tucked
+# collapse and `wreck` is the same with one leg flung straight.
+#
+# THE TROT. A flying trot, diagonal pairs (fore L + hind R, then fore R + hind
+# L) with a short flight between. Nothing here is fitted to a gate. The sim
+# speed is the unit JSON's (3.9 m/s), the cycle is the spec's 0.40 s, so the
+# ground covered per cycle is speed x cycle (1.56 m). The sweep of a planted
+# foot is the most the legs can reach without straightening past
+# `DOG_REACH_CAP` of their length, and the duty factor FOLLOWS from it
+# (`beta = sweep / ground-per-cycle`), because a planted foot must move back
+# in the body frame at exactly the body's speed: that, and only that, is what
+# makes it stationary in the world. Each leg is solved by two-bone IK onto a
+# foot path that is a straight line in stance and a lifted arc in swing, so
+# foot skate is zero by construction at every sampled frame.
+#
+# FRAMES. The dog is keyed at `DOG_FPS` (120), because 0.40 s in the other
+# rigs' 24 fps would be 9.6 frames: 48 frames make the cycle, the idle is the
+# same 120 fps for 4 s. 120 is also the motion pass's own sampling rate, so it
+# reads every sample as keyed and never an interpolation between two of them:
+# at 60 fps a planted foot dipped 9 mm below the ground half-way between two
+# IK solutions (the chord of an arc) and the pass lifted the whole body to
+# hide it. The scene fps is set in `build_dog_clips`.
+
+DOG_UNIT_JSON = os.path.join(REPO, "data", "units", "kdf", "ugv_recon_dog.json")
+
+#: Spec section 3.1, in metres. Body 0.95 x 0.36 x 0.20 (the Meshy body keeps
+#: its belly, so it reads 0.22 deep), body top 0.62 above the ground.
+#: AMENDED 22 Oct (the lead, after seeing the screenshots): the dog is 1.2x the
+#: spec's real-scale numbers. One named constant, applied to every length below
+#: (the unscaled figure is written beside each); angles, the cycle and the frame
+#: counts are untouched, so the trot's stride grows with the legs. It lives here
+#: and not in the importer because geometry, bones and clips all read these.
+DOG_SCALE = 1.2
+DOG_BODY_LEN = 0.95 * DOG_SCALE
+DOG_BODY_WID = 0.36 * DOG_SCALE
+DOG_BODY_DEEP = 0.22 * DOG_SCALE
+DOG_BODY_TOP = 0.62 * DOG_SCALE
+DOG_HIP_X = 0.34 * DOG_SCALE          # fore/hind hip, from the body centre
+DOG_HIP_Y = 0.21 * DOG_SCALE          # a hip sits just outboard of the half width
+DOG_HIP_Z = DOG_BODY_TOP - DOG_BODY_DEEP / 2.0 + 0.0   # the middle of the body's depth
+DOG_THIGH = 0.30 * DOG_SCALE
+DOG_LOWER = 0.30 * DOG_SCALE
+DOG_ANKLE_Z = 0.046 * DOG_SCALE       # the top of the foot pad, which is this thick
+DOG_HEAD_PIVOT = (0.40 * DOG_SCALE, 0.0, DOG_BODY_TOP)   # the sensor head pans about this, vertical
+DOG_ANTENNA_TIP_Z = 0.85 * DOG_SCALE
+
+DOG_END = ("fore", "hind")
+DOG_SIDE = ("L", "R")
+
+DOG_CYCLE_S = 0.40
+DOG_FPS = 120
+DOG_MOVE_FRAMES = 48
+DOG_REACH_CAP = 0.90      # a foot never asks the leg for more than this share of its length
+DOG_SWING_LIFT = 0.07 * DOG_SCALE
+DOG_IDLE_S = 4.0
+DOG_IDLE_KEY_STEP = 16
+DOG_HEAD_PAN_RAD = math.radians(25.0)
+DOG_SWAY_M = 0.01 * DOG_SCALE
+#: Diagonal pairs: fore L with hind R, fore R with hind L.
+DOG_LEG_PHASE = {("fore", "L"): 0.0, ("hind", "R"): 0.0, ("fore", "R"): 0.5, ("hind", "L"): 0.5}
+
+#: The collapsed copy. Directions are measured from straight down: a thigh
+#: swung REARWARD by `r`, a lower link swung FORWARD by `f`; the thrown leg is
+#: two collinear horizontal links, forward.
+DOG_FOLD_THIGH_REAR_DEG = 85.0
+DOG_FOLD_LOWER_FWD_DEG = 65.0
+DOG_OUT_FWD_DEG = 90.0
+DOG_DEATH_ROLL_DEG = 20.0        # +Y (left) side up
+DOG_THROWN_LEG = ("fore", "R")   # the low side after the roll
+
+
+def dog_unit_json():
+    if not os.path.exists(DOG_UNIT_JSON):
+        raise RuntimeError(f"no ugv_recon_dog unit JSON at {DOG_UNIT_JSON}")
+    with open(DOG_UNIT_JSON) as fh:
+        return json.load(fh)
+
+
+def dog_speed_tiles_s():
+    speed = dog_unit_json().get("mobility", {}).get("speed_tiles_s")
+    if not isinstance(speed, (int, float)) or isinstance(speed, bool) or speed <= 0:
+        raise RuntimeError(f"ugv_recon_dog: no usable mobility.speed_tiles_s, got {speed!r}")
+    return float(speed)
+
+
+def dog_hip(end, side):
+    return ((DOG_HIP_X if end == "fore" else -DOG_HIP_X),
+            (DOG_HIP_Y if side == "L" else -DOG_HIP_Y), DOG_HIP_Z)
+
+
+def _wrap_pi(a):
+    return (a + math.pi) % (2.0 * math.pi) - math.pi
+
+
+def dog_two_bone(dx, az):
+    """Sagittal two-bone IK. The ankle target is `dx` forward of the hip and
+    `az` above the ground; the knee folds REARWARD. Returns the knee as an
+    (x, z) offset from the hip, the thigh and lower WORLD rotations about +Y
+    from the rest pose (rest is `dx = 0, az = DOG_ANKLE_Z`, so it is exactly
+    the zero of both), and the leg extension as a share of its length. Raises
+    when the target is out of reach: nothing here clamps."""
+    vx, vz = dx, az - DOG_HIP_Z
+    d = math.hypot(vx, vz)
+    if d >= DOG_THIGH + DOG_LOWER:
+        raise RuntimeError(f"dog IK: ankle target ({dx:.3f}, {az:.3f}) is {d:.3f} m from the hip, "
+                           f"out of reach of {DOG_THIGH + DOG_LOWER:.3f} m")
+    a = (DOG_THIGH ** 2 - DOG_LOWER ** 2 + d * d) / (2.0 * d)
+    h = math.sqrt(max(DOG_THIGH ** 2 - a * a, 0.0))
+    ux, uz = vx / d, vz / d
+    nx, nz = -uz, ux
+    if nx > 0.0:
+        nx, nz = -nx, -nz
+    kx, kz = a * ux + h * nx, a * uz + h * nz
+    psi_t = math.atan2(kx, kz)
+    psi_l = math.atan2(vx - kx, vz - kz)
+    return {"knee": (kx, kz), "psi_thigh": psi_t, "psi_lower": psi_l,
+            "extension": d / (DOG_THIGH + DOG_LOWER)}
+
+
+def _dog_rest_psi():
+    rest = dog_two_bone(0.0, DOG_ANKLE_Z)
+    return rest["psi_thigh"], rest["psi_lower"], rest["knee"]
+
+
+def dog_leg_angles(dx, az):
+    """`(thigh, lower)` world angles about +Y from rest, for an ankle target."""
+    pt0, pl0, _knee = _dog_rest_psi()
+    sol = dog_two_bone(dx, az)
+    return _wrap_pi(sol["psi_thigh"] - pt0), _wrap_pi(sol["psi_lower"] - pl0), sol["extension"]
+
+
+def dog_pose_angles(kind):
+    """World rotations about +Y from the rest pose for the collapsed legs:
+    `fold` (tucked) or `out` (thrown straight forward)."""
+    pt0, pl0, _knee = _dog_rest_psi()
+    if kind == "fold":
+        psi_t = math.pi + math.radians(DOG_FOLD_THIGH_REAR_DEG)
+        psi_l = math.pi - math.radians(DOG_FOLD_LOWER_FWD_DEG)
+    elif kind == "out":
+        psi_t = psi_l = math.pi - math.radians(DOG_OUT_FWD_DEG)
+    else:
+        raise ValueError(kind)
+    return _wrap_pi(psi_t - pt0), _wrap_pi(psi_l - pl0)
+
+
+def dog_gait():
+    """Every number of the trot, derived. `ground_m` is the body's travel per
+    cycle; `sweep_m` is how far a planted foot travels back along the body; the
+    duty factor is their ratio, so a stance foot moves back at EXACTLY the
+    body's speed."""
+    speed = dog_speed_tiles_s() * TILE_M
+    ground = speed * DOG_CYCLE_S
+    reach = DOG_REACH_CAP * (DOG_THIGH + DOG_LOWER)
+    half = math.sqrt(reach ** 2 - (DOG_HIP_Z - DOG_ANKLE_Z) ** 2)
+    sweep = 2.0 * half
+    beta = sweep / ground
+    if not 0.25 < beta < 0.5:
+        raise RuntimeError(f"dog gait: duty factor {beta:.3f} is not a trot with a flight phase")
+    return {"speed": speed, "ground_m": ground, "half_sweep": half, "sweep_m": sweep,
+            "duty": beta, "flight": 0.5 - beta, "cycle_s": DOG_CYCLE_S}
+
+
+def _smootherstep(u):
+    return u * u * u * (u * (6.0 * u - 15.0) + 10.0)
+
+
+def dog_foot_path(phase, gait):
+    """Ankle target `(dx, az)` for a leg at cycle `phase` in [0, 1): a straight
+    line backward in stance (planted: the body moves forward over it), a lifted
+    arc forward in swing."""
+    s, beta = gait["half_sweep"], gait["duty"]
+    p = phase % 1.0
+    if p < beta:
+        return s - 2.0 * s * (p / beta), DOG_ANKLE_Z
+    u = (p - beta) / (1.0 - beta)
+    return -s + 2.0 * s * _smootherstep(u), DOG_ANKLE_Z + DOG_SWING_LIFT * math.sin(math.pi * u)
+
+
+def dog_bone_name(end, seg, side):
+    return f"dog_{end}_{seg}_{side}"
+
+
+def _dog_bone_table(death_leg=None):
+    """`death_leg` is the thrown leg's hip, knee and ankle IN THE COLLAPSED
+    COPY (the importer measures them after it poses and rolls the copy); the
+    default is its living position, so the table can be built on its own."""
+    pt0, pl0, (kx, kz) = _dog_rest_psi()
+    # VERTICAL, like every other root here (`m_root`, `{prefix}_root`): the motion
+    # pass lifts a root along its own local axis and assumes that axis is up. A root
+    # bone laid along the body (+X) sent the 8 mm raise 8 mm forward instead, and
+    # a planted foot wandered 18 mm.
+    table = [("dog_root", None, (0.0, 0.0, DOG_HIP_Z), (0.0, 0.0, DOG_HIP_Z + 0.30))]
+    hx, hy, hz = DOG_HEAD_PIVOT
+    table.append(("dog_head", "dog_root", (hx, hy, hz), (hx, hy, hz + 0.16)))
+    for end in DOG_END:
+        for side in DOG_SIDE:
+            x, y, z = dog_hip(end, side)
+            knee = (x + kx, y, z + kz)
+            ankle = (x, y, DOG_ANKLE_Z)
+            t, l, f = (dog_bone_name(end, seg, side) for seg in ("thigh", "lower", "foot"))
+            table.append((t, "dog_root", (x, y, z), knee))
+            table.append((l, t, knee, ankle))
+            table.append((f, l, ankle, (x + 0.08, y, DOG_ANKLE_Z)))
+    table.append(_death_root_bone("dog", 0.0, 0.0))
+    if death_leg is None:
+        x, y, z = dog_hip(*DOG_THROWN_LEG)
+        death_leg = {"hip": (x, y, z), "knee": (x + kx, y, z + kz), "ankle": (x, y, DOG_ANKLE_Z)}
+    table.append(("dog_death_leg_thigh", "dog_death_root", death_leg["hip"], death_leg["knee"]))
+    table.append(("dog_death_leg_lower", "dog_death_leg_thigh", death_leg["knee"], death_leg["ankle"]))
+    return table
+
+
+def dog_part_bone(name):
+    """The one binding table for a dog part, by part name. Raises for a name it
+    does not know, never defaults -- the same guard `PART_BONE` has, for the
+    same reason: a part nobody mapped would sit frozen in bind pose."""
+    if name in ("body", "antenna"):
+        return "dog_root"
+    if name == "head":
+        return "dog_head"
+    if name in ("d_body", "d_antenna", "d_head"):
+        return "dog_death_root"
+    for end in DOG_END:
+        for side in DOG_SIDE:
+            for seg in ("thigh", "lower", "foot"):
+                if name == f"{end}_{seg}_{side}":
+                    return dog_bone_name(end, seg, side)
+                if name == f"d_{end}_{seg}_{side}":
+                    if (end, side) == DOG_THROWN_LEG:
+                        return "dog_death_leg_thigh" if seg == "thigh" else "dog_death_leg_lower"
+                    return "dog_death_root"
+    raise RuntimeError(f"dog part {name!r} has no bone in dog_part_bone -- extend the table, "
+                       "never silence this")
+
+
+def _dog_rest(parts, death_leg=None):
+    """`(parts, bone_table, forced_bone)` for a dog's named part objects, the
+    same triple `_moto_rpg_rest` returns. Every part is force-bound by name
+    through `dog_part_bone`; an unmapped part raises."""
+    forced = {ob: dog_part_bone(ob.name) for ob in parts}
+    return parts, _dog_bone_table(death_leg), forced
+
+
+def _key_dog_visibility(pbones, alive):
+    """Living root versus the collapsed copy, in EVERY clip, for the same
+    leftover-value reason `_key_death_visibility` gives."""
+    _key_scale(pbones["dog_root"], 1.0 if alive else 0.0, _VIS_FRAMES)
+    _key_scale(pbones["dog_death_root"], 0.0 if alive else 1.0, _VIS_FRAMES)
+
+
+def _key_dog_leg(pbones, bones, end, side, a_thigh, a_lower, frame):
+    """Key one leg from the WORLD rotations of its thigh and lower link (the
+    foot stays level: world rotation 0). A child's local rotation is the world
+    change relative to its parent's, conjugated into its own rest frame, which
+    for one shared axis is `local_quat_for_world_axis` of the DIFFERENCE."""
+    t, l, f = (dog_bone_name(end, seg, side) for seg in ("thigh", "lower", "foot"))
+    key(pbones[t], bones[t], AXIS_Y, a_thigh, frame)
+    key(pbones[l], bones[l], AXIS_Y, a_lower - a_thigh, frame)
+    key(pbones[f], bones[f], AXIS_Y, -a_lower, frame)
+
+
+def build_dog_idle_clip(arm_obj):
+    """The sensor head pans +-25 degrees on a 4 s loop and the body sways about
+    a centimetre sideways, out of phase with the pan. The antenna rides the
+    body. Keyed every 16 frames of 480 at 120 fps."""
+    _new_action(arm_obj, "idle")
+    bones, pbones = arm_obj.data.bones, arm_obj.pose.bones
+    _key_dog_visibility(pbones, alive=True)
+    n = int(round(DOG_IDLE_S * DOG_FPS))
+    sway_dir = local_offset_for_world_axis(bones["dog_root"], AXIS_Y)
+    for f in range(0, n + 1, DOG_IDLE_KEY_STEP):
+        t = f / n
+        key(pbones["dog_head"], bones["dog_head"], AXIS_Z, DOG_HEAD_PAN_RAD * math.sin(2.0 * math.pi * t), f)
+        pbones["dog_root"].location = sway_dir * (DOG_SWAY_M * math.sin(2.0 * math.pi * t + 1.1))
+        pbones["dog_root"].keyframe_insert(data_path="location", frame=f)
+
+
+def build_dog_move_clip(arm_obj):
+    """One trot cycle, `DOG_MOVE_FRAMES` frames long, body level."""
+    _new_action(arm_obj, "move")
+    bones, pbones = arm_obj.data.bones, arm_obj.pose.bones
+    _key_dog_visibility(pbones, alive=True)
+    gait = dog_gait()
+    for f in range(0, DOG_MOVE_FRAMES + 1):
+        for end in DOG_END:
+            for side in DOG_SIDE:
+                dx, az = dog_foot_path(f / DOG_MOVE_FRAMES + DOG_LEG_PHASE[(end, side)], gait)
+                a_t, a_l, _ext = dog_leg_angles(dx, az)
+                _key_dog_leg(pbones, bones, end, side, a_t, a_l, f)
+
+
+def dog_death_lateral_axis():
+    """The collapsed copy is rolled about the body's long axis, so the thrown
+    leg's hinge (the body's lateral axis) is the roll's image of +Y."""
+    return Quaternion(AXIS_X, math.radians(DOG_DEATH_ROLL_DEG)) @ AXIS_Y
+
+
+def build_dog_death_clip(arm_obj, clip_name):
+    """`wreck` is the baked pose (every leg bone at rest); `down` folds the
+    thrown leg to match the other three. Static two frames, the shape every
+    `down`/`wreck` here has."""
+    _new_action(arm_obj, clip_name)
+    bones, pbones = arm_obj.data.bones, arm_obj.pose.bones
+    _key_dog_visibility(pbones, alive=False)
+    if clip_name == "down":
+        f_t, f_l = dog_pose_angles("fold")
+        o_t, o_l = dog_pose_angles("out")
+        d_t, d_l = _wrap_pi(f_t - o_t), _wrap_pi(f_l - o_l)
+        axis = dog_death_lateral_axis()
+        for frame in _VIS_FRAMES:
+            pbones["dog_death_leg_thigh"].rotation_quaternion = local_quat_for_world_axis(
+                bones["dog_death_leg_thigh"], axis, d_t)
+            pbones["dog_death_leg_thigh"].keyframe_insert(data_path="rotation_quaternion", frame=frame)
+            pbones["dog_death_leg_lower"].rotation_quaternion = local_quat_for_world_axis(
+                bones["dog_death_leg_lower"], axis, _wrap_pi(d_l - d_t))
+            pbones["dog_death_leg_lower"].keyframe_insert(data_path="rotation_quaternion", frame=frame)
+
+
+def build_dog_clips(arm_obj):
+    """`idle`, `move`, `down`, `wreck`. No fire, moveFire, kneel or pinned: it
+    is unarmed and `suppression_resistance` is 1.0."""
+    sc = bpy.context.scene
+    sc.render.fps, sc.render.fps_base = DOG_FPS, 1.0
+    build_dog_idle_clip(arm_obj)
+    build_dog_move_clip(arm_obj)
+    build_dog_death_clip(arm_obj, "down")
+    build_dog_death_clip(arm_obj, "wreck")
+
+
 def build_team_rest(team_id):
     """Fresh scene: every figure's rest geometry for `team_id`, all bone
     tables, and any team-specific extras (props, charge_squad's own
@@ -1831,6 +2196,9 @@ def build_team_rest(team_id):
         f"rig.py does not cover {team_id!r} -- see SUPPORTED_TEAMS and this "
         "module's own docstring for what's out of scope and why"
     )
+    if team_id in NON_TEAM_TOPOLOGIES:
+        raise RuntimeError(f"{team_id} has no kit build: tools/units/import_meshy_dog.py "
+                           f"({TEAM_MESH_OWNER[team_id]}) builds it from its Meshy remesh")
     kit.new_scene()
     # Observe what `teams._lean_forward` actually does to this team's rest
     # geometry, rather than trusting REST_LEAN_RAD to still be right. The
@@ -2598,6 +2966,9 @@ def build_moto_clips(arm_obj):
 def build_clips(arm_obj, team_id):
     if team_id == "sniper_team":
         build_sniper_clips(arm_obj, gait_for_team(team_id))
+        return
+    if team_id == "ugv_recon_dog":
+        build_dog_clips(arm_obj)
         return
     if team_id == "moto_rpg":
         # No `build_move_clip`, so no stride to size: `moto_rpg` is a machine

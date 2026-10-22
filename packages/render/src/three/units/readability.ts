@@ -97,7 +97,7 @@ export const HP_BAR = { widthPx: 24, heightPx: 3, framePx: 1, frameAlpha: 1 } as
 export const RADIUS_BY_TYPE: Readonly<Record<string, number>> = {
   // dozer_d9 and scout_shachaf re-measured from their A3.2 Meshy exports (GH-185, 2026-09-30).
   // mbt_lavi 1.15 -> 1.35 re-measured after the x1.18 rescale (lead, 2026-10-15).
-  mbt_lavi: 1.35, ifv_namer: 1.61, apc_eitan: 1.49, apc_kipod: 1.56, scout_shachaf: 1.01,
+  mbt_lavi: 1.35, mbt_lavi_camo: 1.51, spg_long_range: 1.55, ifv_namer: 1.61, apc_eitan: 1.49, apc_kipod: 1.56, scout_shachaf: 1.01,
   // B7 (GH-179, 2026-10-01): re-measured from the Meshy figures that replaced the
   // supplied bipeds -- three men in kit's line read narrower than the supplied
   // rifleman, the prone sniper pair wider than the sculpt.
@@ -142,6 +142,10 @@ export const RADIUS_BY_TYPE: Readonly<Record<string, number>> = {
   // GH-698 (2026-10-21): the UH-60 Yanshuf, from a fresh `unit-footprints.ts` run
   // (footprint 0.928 tile, rotor excluded like the Petens'): 1.15 x that, rounded up.
   heli_yanshuf: 1.07,
+  // GH-709 Phase 8 (2026-10-22): the Chadaf recon robot, from a fresh `unit-footprints.ts`
+  // run: ring class `foot` (it rides, `wheeled: false`), footprint 0.201 tile, so the class
+  // value 0.45 stands (1.15 x 0.201 = 0.23 raises nothing).
+  ugv_recon_dog: 0.45,
   inf_grenadier: 0.68,
 };
 
@@ -184,6 +188,11 @@ export interface RingEllipse {
 export const ELLIPSE_BY_TYPE: Readonly<Record<string, RingEllipse>> = {
   // Re-measured 2026-10-18 after the Lavi's x1.18 rescale (lead's ruling, 2026-10-15).
   mbt_lavi: { along: 1.35, across: 0.89, offsetAlong: -0.22 },
+  // GH-709: the net's rim and tufts widen the hull box past the Lavi's.
+  mbt_lavi_camo: { along: 1.48, across: 1.07, offsetAlong: -0.22 },
+  // GH-709: the Te'o Howitzer, hull and rear spades (the turret and gun excluded, as the Lavi's are):
+  // `tools/src/perf/unit-footprints.ts`, 2026-10-22.
+  spg_long_range: { along: 1.57, across: 0.9, offsetAlong: -0.08 },
   ifv_namer: { along: 1.61, across: 1.05, offsetAlong: 0 },
   apc_eitan: { along: 1.52, across: 0.83, offsetAlong: 0 },
   jeep_shoded: { along: 1.1, across: 0.69, offsetAlong: 0 },
