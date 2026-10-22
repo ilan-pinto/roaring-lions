@@ -187,13 +187,14 @@ const schemas = {
   // was a comment.
   structure: loadJson(join(ROOT, 'data/schemas/structure.schema.json')),
   doctrine: loadJson(join(ROOT, 'data/schemas/doctrine.schema.json')),
+  coupons: loadJson(join(ROOT, 'data/schemas/coupons.schema.json')),
 };
 
 let checked = 0;
 if (
   schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tutorial &&
   schemas.world && schemas.countries && schemas.commander && schemas.names && schemas.diorama && schemas.hints &&
-  schemas.structure && schemas.doctrine
+  schemas.structure && schemas.doctrine && schemas.coupons
 ) {
   const validators = {
     unit: ajv.compile(schemas.unit),
@@ -209,6 +210,7 @@ if (
     hints: ajv.compile(schemas.hints),
     structure: ajv.compile(schemas.structure),
     doctrine: ajv.compile(schemas.doctrine),
+    coupons: ajv.compile(schemas.coupons),
   };
   checked += validateDir(join(ROOT, 'data/units'), validators.unit, 'unit.schema');
   checked += validateDir(join(ROOT, 'data/missions'), validators.mission, 'mission.schema');
@@ -226,6 +228,20 @@ if (
   checked += validateFile(join(ROOT, 'data/front/menu_diorama.json'), validators.diorama, 'diorama.schema');
   checked += validateFile(join(ROOT, 'data/hints/first_use.json'), validators.hints, 'first_use_hints.schema');
   checked += validateFile(join(ROOT, 'data/structures.json'), validators.structure, 'structure.schema');
+  checked += validateFile(join(ROOT, 'data/coupons.json'), validators.coupons, 'coupons.schema');
+  // The schema cannot see these: a duplicate id or hash makes a coupon unreachable or
+  // double-spendable, and the file must hold hashes, never a literal code.
+  {
+    const list = loadJson(join(ROOT, 'data/coupons.json'))?.coupons ?? [];
+    const ids = new Set();
+    const hashes = new Set();
+    for (const c of list) {
+      if (ids.has(c.id)) failures.push(`data/coupons.json: duplicate coupon id "${c.id}"`);
+      if (hashes.has(c.sha256)) failures.push(`data/coupons.json: coupon "${c.id}" repeats another coupon's hash`);
+      ids.add(c.id);
+      hashes.add(c.sha256);
+    }
+  }
 } else {
   failures.push('schema files missing or unparseable — cannot validate content');
 }

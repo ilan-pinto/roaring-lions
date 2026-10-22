@@ -82,6 +82,7 @@ import {
   type UpgradableUnit,
   firstUseHints,
   videoManifest,
+  coupons,
 } from '@lions/data';
 import './ui/theme.css';
 import { siteOfSelection, siteSelection, worksCardModel, worksEventNotice, worksLegendKeys, worksPreview, worksRings, worksShapeOf, type WorksShape } from './ui/works-model';
@@ -156,7 +157,8 @@ import { pauseMenu, type PauseDeps } from './ui/pause';
 import { advance as advanceClock, type Clock } from './shell/clock';
 import { applySettings, loadSettings, saveSettings, settingsBus, type Settings } from './settings';
 import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace, supportKeyTarget } from './input/keymap';
-import { buyUnlock, buyUpgrade } from './brigade-account';
+import { buyUnlock, buyUpgrade, redeemCoupon } from './brigade-account';
+import { sha256Hex } from './sha256';
 import { payVictory } from './campaign-pay';
 import { tierLine } from './ui/grade-copy';
 import { clocklessObjectives, speakerPlate, speakerPortrait, withoutHiddenClocks } from './ui/hud-model';
@@ -1204,6 +1206,16 @@ async function main(): Promise<void> {
         ? () => {
             telemetry().account('reset', ledgerStore.resetAccount());
             return now();
+          }
+        : undefined,
+      // A coupon code (`data/coupons.json`, hashes only). Client-side and trust-based
+      // until the server ledger (GH-205). No telemetry: the attempt carries the code.
+      onRedeem: ledgerStore.available
+        ? (code) => {
+            const r = redeemCoupon(ledgerStore.readAccount(), code, coupons, sha256Hex, Date.now());
+            if (!r.ok) return { state: now(), result: r.reason };
+            ledgerStore.writeAccount(r.account);
+            return { state: now(), result: 'ok' as const, credits: r.credits };
           }
         : undefined,
       onBuy: ledgerStore.available

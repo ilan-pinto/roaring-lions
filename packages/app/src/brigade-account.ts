@@ -31,7 +31,7 @@ export type PayScope = 'campaign' | 'lifetime';
  *  not earned by playing any one mission. An earned entry always does. */
 export type Grant =
   | { source: 'earned'; amount: number; missionId: string; at: number }
-  | { source: 'granted'; amount: number; missionId?: string; at: number };
+  | { source: 'granted'; amount: number; missionId?: string; couponId?: string; at: number };
 
 export interface BrigadeAccount {
   version: typeof ACCOUNT_VERSION;
@@ -50,6 +50,10 @@ export interface BrigadeAccount {
   /** Per unit type, the tier reached on each track (step 3 "Upgrade"). Empty in step 1. */
   upgrades: Record<string, Record<string, number>>;
   grants: Grant[];
+  /** Ids of the coupons redeemed on this account (`redeemCoupon`). Each grants once;
+   *  `resetAccount` removes the key, so a reset makes a code usable again. Absent in a
+   *  save from before coupons: migrates to empty, so ACCOUNT_VERSION did not move. */
+  coupons: string[];
 }
 
 export interface StorageLike {
@@ -68,6 +72,7 @@ export function emptyAccount(): BrigadeAccount {
     unlocks: [],
     upgrades: {},
     grants: [],
+    coupons: [],
   };
 }
 
@@ -88,11 +93,10 @@ function migrateGrants(raw: unknown): Grant[] {
       // still carry one once the paid path exists, and this module keeps it rather
       // than treating it as hand-editing. `missionId` is not part of its shape, but a
       // well-formed one is tolerated rather than stripped.
-      out.push(
-        typeof r.missionId === 'string'
-          ? { source: 'granted', amount: r.amount, missionId: r.missionId, at: r.at }
-          : { source: 'granted', amount: r.amount, at: r.at }
-      );
+      const g: Grant = { source: 'granted', amount: r.amount, at: r.at };
+      if (typeof r.missionId === 'string') g.missionId = r.missionId;
+      if (typeof r.couponId === 'string') g.couponId = r.couponId;
+      out.push(g);
     }
   }
   return out;
@@ -176,6 +180,7 @@ export function migrateAccount(raw: unknown, doneInCampaign?: ReadonlySet<string
     unlocks: Array.isArray(r.unlocks) ? r.unlocks.filter((u): u is string => typeof u === 'string') : [],
     upgrades: migrateUpgrades(r.upgrades),
     grants,
+    coupons: Array.isArray(r.coupons) ? r.coupons.filter((u): u is string => typeof u === 'string') : [],
   };
 }
 
@@ -279,6 +284,48 @@ export function buyUpgrade(
 export function startCampaign(account: BrigadeAccount): BrigadeAccount {
   if (Object.keys(account.campaign_paid).length === 0) return account;
   return { ...account, campaign_paid: {} };
+}
+
+/** One coupon as `data/coupons.json` holds it: the SHA-256 of the code, never the code. */
+export interface Coupon {
+  readonly id: string;
+  readonly sha256: string;
+  readonly credits: number;
+}
+
+export type Redemption =
+  | { ok: true; account: BrigadeAccount; credits: number; id: string }
+  | { ok: false; reason: 'unknown' | 'used'; account: BrigadeAccount };
+
+/** Redeem a coupon code (client-side, trust-based until the server ledger, GH-205).
+ *  Pure. The code is trimmed and matched CASE-SENSITIVELY against each entry's SHA-256
+ *  (`hash` is injected so this module stays free of a hashing dependency). A valid code
+ *  grants once per account: the coupon id is recorded in `coupons`, and a second
+ *  redemption refuses with `'used'` and returns the account by identity. The grant is a
+ *  `source: 'granted'` entry (so `migrateAccount`'s balance bound can explain it) plus a
+ *  balance change; `earned_total` is for credits EARNED and does not move. */
+export function redeemCoupon(
+  account: BrigadeAccount,
+  code: string,
+  table: readonly Coupon[],
+  hash: (text: string) => string,
+  at: number
+): Redemption {
+  const digest = hash(code.trim());
+  const coupon = table.find((c) => c.sha256 === digest);
+  if (coupon === undefined) return { ok: false, reason: 'unknown', account };
+  if (account.coupons.includes(coupon.id)) return { ok: false, reason: 'used', account };
+  return {
+    ok: true,
+    id: coupon.id,
+    credits: coupon.credits,
+    account: {
+      ...account,
+      balance: account.balance + coupon.credits,
+      coupons: [...account.coupons, coupon.id],
+      grants: [...account.grants, { source: 'granted', amount: coupon.credits, couponId: coupon.id, at }],
+    },
+  };
 }
 
 export function resetAccount(store: StorageLike): BrigadeAccount {

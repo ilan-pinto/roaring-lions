@@ -1169,6 +1169,30 @@ body {
 .rl-panel > .rl-panel__body:has(+ .rl-foot) {
   border-bottom: 0;
 }
+/* The coupon form beside the wallet: a field, a button, and a polite-live answer
+   line that reads in the good or bad register by outcome. Tokens only. */
+.rl-garage__redeem {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+.rl-garage__redeem-input {
+  font: inherit;
+  font-family: var(--font-mono);
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--panel-frame);
+  padding: var(--s1) var(--s2);
+  min-width: 10rem;
+}
+.rl-garage__redeem-said[data-result='ok'] {
+  color: var(--commend);
+}
+.rl-garage__redeem-said[data-result='used'],
+.rl-garage__redeem-said[data-result='unknown'] {
+  color: var(--bad-text);
+}
 /* A destructive control (the garage's reset): kept apart from navigation by
    place -- alone at the row's far edge -- and by look: smaller, no fill, a
    dashed danger outline. Armed by its first click (`data-confirm`), it

@@ -72,6 +72,7 @@ import wadiHalam3 from '../../../data/maps/wadi_halam_3.json';
 import wadiHalam4 from '../../../data/maps/wadi_halam_4.json';
 import wadiHalam5 from '../../../data/maps/wadi_halam_5.json';
 import structureCatalogue from '../../../data/structures.json';
+import couponsJson from '../../../data/coupons.json';
 import beitSahwanBreach from '../../../data/missions/beit_sahwan_breach.json';
 import beitSahwan0 from '../../../data/missions/beit_sahwan_0_tutorial.json';
 import beitSahwan1 from '../../../data/missions/beit_sahwan_1_recon.json';
@@ -278,6 +279,9 @@ export type MapId = keyof typeof maps;
 /** Building types, keyed by id. Shapes match structure.schema.json. */
 export const structures = structureCatalogue.types;
 export type StructureId = keyof typeof structures;
+
+/** Brigade coupons (hashed codes; see coupons.schema.json). */
+export const coupons: readonly { id: string; sha256: string; credits: number }[] = couponsJson.coupons;
 
 /** Missions, keyed by mission id. Shapes match mission.schema.json. */
 export const missions = {
