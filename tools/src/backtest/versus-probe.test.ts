@@ -8,7 +8,7 @@ import type { MapId } from '@lions/data';
 import { VERSUS_FAIR_MAPS } from '@lions/net';
 import {
   CAP_TICKS_DEFAULT, DECIDE_EVERY_TICKS, FAIR_MAX_PERCENT, ORDER_EVERY_TICKS, SEEDS_DEFAULT,
-  candidateMaps, main, parseArrangements, play, reading, seedOf, selfCheck, tally, type Played, type PlayFn,
+  candidateMaps, cellName, layoutOf, main, parseArrangements, play, reading, seedOf, selfCheck, tally, type Played, type PlayFn,
 } from './versus-probe';
 
 // Every test that plays FULL games carries this instead of vitest's 5 s
@@ -141,6 +141,25 @@ describe('reading (the 60/40 bar)', () => {
     expect(reading(['kdf', 'sarim'], cell(19, 29))).toMatchObject({ labels: ['KDF', 'Sarim'], wins: [19, 29], leader: 'Sarim' });
     // Sarim west: the east wins are the KDF's.
     expect(reading(['sarim', 'kdf'], cell(19, 29))).toMatchObject({ labels: ['KDF', 'Sarim'], wins: [29, 19], leader: 'KDF' });
+  });
+});
+
+describe('cells by END (LD1, N3 Task 2)', () => {
+  it('lays a cell out as a room seats it: the KDF on side 0 at whichever end it stands', () => {
+    expect(layoutOf(['kdf', 'kdf'])).toEqual({ sideOfEnd: [0, 1], factions: ['kdf', 'kdf'], ends: ['friendly', 'hostile'] });
+    expect(layoutOf(['kdf', 'sarim'])).toEqual({ sideOfEnd: [0, 1], factions: ['kdf', 'sarim'], ends: ['friendly', 'hostile'] });
+    // Sarim friendly: Sarim is side 1 on the friendly end, the KDF side 0 on the hostile end.
+    expect(layoutOf(['sarim', 'kdf'])).toEqual({ sideOfEnd: [1, 0], factions: ['kdf', 'sarim'], ends: ['hostile', 'friendly'] });
+  });
+  it('names a faction cell by the faction at the friendly end', () => {
+    expect(cellName(['kdf', 'kdf'])).toBe('kdf/kdf');
+    expect(cellName(['kdf', 'sarim'])).toBe('KDF friendly');
+    expect(cellName(['sarim', 'kdf'])).toBe('Sarim friendly');
+  });
+  it('a Sarim-friendly cell reports its winner by END: the hostile KDF cut to one unit loses', () => {
+    // capTicks 40: the larger force holds more value at the cap, so the friendly end (Sarim, side 1) wins.
+    expect(play('tel_marum', ['sarim', 'kdf'], seedOf(0), { capTicks: 40, cutSide: 1 })).toEqual({ winner: 0, by: 'cap', ticks: 40 });
+    expect(play('tel_marum', ['sarim', 'kdf'], seedOf(0), { capTicks: 40, cutSide: 0 })).toEqual({ winner: 1, by: 'cap', ticks: 40 });
   });
 });
 

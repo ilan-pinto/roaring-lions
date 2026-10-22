@@ -63,7 +63,7 @@
  * `connected`) flushes the open batch with its write, so an eviction while
  * waiting for a reconnect re-sends nothing.
  */
-import { advisorMayRelay, factionsOfMatchup, matchupAllowed, matchupField, parseClientMsg, versusMapAllowed, validateConfig, REPLACED_CLOSE_CODE, type AdvisorScope, type ClientMsg, type Frame, type MatchConfig, type Pace, type Seat, type SeatConfig, type ServerMsg } from '@lions/net';
+import { advisorMayRelay, factionsOfMatchup, matchupAllowed, sidesOfFactions, matchupField, parseClientMsg, versusMapAllowed, validateConfig, REPLACED_CLOSE_CODE, type AdvisorScope, type ClientMsg, type Frame, type MatchConfig, type Pace, type Seat, type SeatConfig, type ServerMsg } from '@lions/net';
 import type { Env } from '../d1';
 import type { DurableStateLike, HibernatingSocket, UpgradeInit } from '../do-types';
 import { createRoom, endedMsg, lobbyMsg, logParts, pausedMsg, seatJoin, seatMessage, seatGone, clockTick, closeIfDue, expire, forfeitDueAt, forfeitIfDue, persistKey, revive, ROOM_TTL_MS, type Effect, type RoomState } from './room-core';
@@ -394,11 +394,15 @@ export class MatchRoom {
     // Per-seat kit: a sandbox room is always matched. A seat fields its claim only in a
     // brigade room and only as KDF -- the claims are KDF tracks, and a Sarim seat has none.
     const kit: Kit = mode === 'versus' ? this.meta?.kit ?? 'matched' : 'matched';
+    // LD1 (N3): a seat's SIDE follows its faction -- the KDF seat is side 0 in
+    // a KDF-vs-Sarim room whichever seat hosts -- while its spawn END follows
+    // the seat (`endOfSeat`). A mirror is seat s on side s, as before.
+    const sides = sidesOfFactions(st.factions);
     const seatConfig = (seat: Seat): SeatConfig => {
       const s = st.seats[seat];
       const faction = mode === 'versus' ? st.factions[seat] : 'kdf';
       const tiers: SeatTiers = kit === 'brigade' && faction === 'kdf' ? this.meta?.claims[seat] ?? {} : {};
-      return { seat, side: mode === 'versus' ? seat : 0, faction, kit, tiers, unlocks: [], player: tokens[seat], callsign: this.meta?.callsigns[seat] ?? s?.callsign ?? '', kind: kinds[seat] };
+      return { seat, side: mode === 'versus' ? sides[seat] : 0, faction, kit, tiers, unlocks: [], player: tokens[seat], callsign: this.meta?.callsigns[seat] ?? s?.callsign ?? '', kind: kinds[seat] };
     };
     // `dataDigest: 0` stays in the wire format, but no client folds it (L4):
     // each folds the digest of its own content.

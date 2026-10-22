@@ -15,7 +15,7 @@
 
 ## You
 
-You are side {side} (seat {seat}) in match {code}. Your camp is `camp` in `observe`; the enemy's camp is `enemyCamp`.
+You are seat {seat} in match {code}. Your side is `side` in `observe`; your camp is `camp` there, and the enemy's camp is `enemyCamp`.
 
 ## Your tools (MCP server `lions`, scope `command`)
 

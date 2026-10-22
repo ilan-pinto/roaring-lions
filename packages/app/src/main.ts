@@ -3905,8 +3905,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     renderer.camera.x = start[0];
     renderer.camera.y = start[1];
   } else if (netConfig !== null) {
-    // A room's seat starts on its own camp, not on side 0's.
-    const [cx, cy] = campOf(anchors, me);
+    // A room's seat starts on its own camp, not on side 0's: its own END,
+    // which follows the seat, not the side (LD1 -- a Sarim host is side 1 on
+    // the friendly end). A sandbox room (no versus world) is side 0's end.
+    const [cx, cy] = campOf(anchors, versusWorld?.endOfSide[me] ?? 'friendly');
     renderer.camera.x = cx;
     renderer.camera.y = cy;
   }

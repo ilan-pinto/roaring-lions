@@ -96,8 +96,9 @@ export function sideView(w: MatchWorld, side: 0 | 1, fog: FogTracker, result: st
       side: b.holder,
     });
   }
-  const camp = campOf(w.anchors, side);
-  const enemyCamp = campOf(w.anchors, side === 0 ? 1 : 0);
+  // By END, which follows the seat (LD1): a Sarim host is side 1 on `friendly`.
+  const camp = campOf(w.anchors, w.endOfSide[side]);
+  const enemyCamp = campOf(w.anchors, w.endOfSide[side === 0 ? 1 : 0]);
   return {
     tick: sim.tickCount,
     clock: clockOf(sim.tickCount),

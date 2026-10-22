@@ -20,9 +20,17 @@
 // the ground and the start points under the dumbest plan both sides share, which
 // is exactly what a spawn bias would show up under. A map that is lopsided here
 // is lopsided for a human; a map that is even here may still be lopsided for a
-// cleverer plan. And it reads a mirror cell by SIDE (west spawn against east)
+// cleverer plan. And it reads a mirror cell by END (west spawn against east)
 // but a KDF-against-Sarim cell by FACTION, so read the two spawn orders of that
 // pairing together: a faction edge shows in both, a spawn edge flips between them.
+//
+// Cells are named by END since LD1 (N3 Task 2): `--arr=<friendly>/<hostile>`,
+// printed "KDF friendly" or "Sarim friendly". The KDF is side 0 whichever end
+// it stands on, exactly as a room seats it (`sidesOfFactions`, @lions/net), so
+// "Sarim friendly" is Sarim on side 1 at the friendly anchor. Orders go out
+// friendly end first, and the friendly end's force is spawned first.
+// Under the probe's own seat table (`world()`'s default, side 0 held by a
+// human, side 1 not) the side 1 force auto-breaches walls; a room holds both.
 //
 // The bar. The lead's ruling on #561 (2026-10-14): a map re-opens for versus only
 // once its fair start points are authored and this probe reads it within 60/40
@@ -55,7 +63,7 @@
 import { fileURLToPath } from 'node:url';
 import { Sim } from '@lions/sim';
 import { applyTerrain, maps, parseMap, type MapId } from '@lions/data';
-import { VERSUS_FAIR_MAPS, type Faction } from '@lions/net';
+import { VERSUS_FAIR_MAPS, sidesOfFactions, type Faction, type SpawnEnd } from '@lions/net';
 import { standMapStructures } from '../../../packages/app/src/map-sim';
 import { versusAnchors } from '../../../packages/app/src/net/versus-seats';
 import { versusForceOf, versusSpawns, type VersusForce } from '../../../packages/app/src/net/versus-force';
@@ -78,12 +86,32 @@ export const SEEDS_DEFAULT = 48;
 /** The seed of the n-th game of a cell. */
 export const seedOf = (n: number): number => 1000 + n * 7919;
 
+/** A cell's factions by END: `[friendly, hostile]` (the host's end first). */
 export type Arrangement = readonly [Faction, Faction];
+
+/** How a room lays out an arrangement (LD1): each END's side, and each SIDE's
+ *  faction and end. A mirror is side 0 friendly; a faction pairing puts the
+ *  KDF on side 0 at whichever end it stands. */
+export interface Layout {
+  sideOfEnd: [0 | 1, 0 | 1];
+  factions: [Faction, Faction];
+  ends: [SpawnEnd, SpawnEnd];
+}
+export function layoutOf(arrangement: Arrangement): Layout {
+  const sideOfEnd = sidesOfFactions(arrangement);
+  const factions: [Faction, Faction] = ['kdf', 'kdf'];
+  const ends: [SpawnEnd, SpawnEnd] = ['friendly', 'hostile'];
+  factions[sideOfEnd[0]] = arrangement[0];
+  factions[sideOfEnd[1]] = arrangement[1];
+  ends[sideOfEnd[0]] = 'friendly';
+  ends[sideOfEnd[1]] = 'hostile';
+  return { sideOfEnd, factions, ends };
+}
 /** How a probe game ended: `cap` is the 10-minute limit, decided on surviving value. */
 export type Finish = 'annihilation' | 'mutual' | 'stalemate' | 'cap';
 
 export interface Played {
-  /** The winning SIDE (0 west, 1 east), or null for a draw. */
+  /** The winning END (0 friendly/west, 1 hostile/east), or null for a draw. */
   winner: 0 | 1 | null;
   by: Finish;
   ticks: number;
@@ -91,7 +119,8 @@ export interface Played {
 
 export interface PlayOptions {
   capTicks?: number;
-  /** CONTROL ONLY: cut this side to its first unit before the first tick. */
+  /** CONTROL ONLY: cut the force at this END (0 friendly, 1 hostile; in a
+   *  mirror the same number as its side) to its first unit before the first tick. */
   cutSide?: 0 | 1;
 }
 
@@ -120,40 +149,48 @@ export function centroid(sim: Sim, side: number): [number, number] | null {
   return n === 0 ? null : [Math.round(x / n), Math.round(y / n)];
 }
 
-/** Both sides march their living units on the other's centroid. */
-function order(sim: Sim, force: VersusForce): void {
-  for (const side of [0, 1] as const) {
+/** Both sides march their living units on the other's centroid, the friendly end's side first. */
+function order(sim: Sim, force: VersusForce, sideOfEnd: readonly [0 | 1, 0 | 1]): void {
+  for (const side of sideOfEnd) {
     const target = centroid(sim, side === 0 ? 1 : 0);
     const ids = force.bySide[side].filter((id) => sim.state.alive[id] === 1);
     if (target && ids.length > 0) sim.queueCommand({ kind: 'attackMove', ids, x: target[0], y: target[1] });
   }
 }
 
-/** A decided result, in the probe's terms. */
-function finish(o: MatchResult, ticks: number): Played {
+/** A decided result, in the probe's terms: the winning side read back as its END. */
+function finish(o: MatchResult, ticks: number, sideOfEnd: readonly [0 | 1, 0 | 1]): Played {
   const by: Finish = o.by === 'annihilation' || o.by === 'mutual' || o.by === 'stalemate' ? o.by : 'cap';
-  return { winner: o.kind === 'won' ? o.side : null, by, ticks };
+  return { winner: o.kind === 'won' ? (sideOfEnd[0] === o.side ? 0 : 1) : null, by, ticks };
 }
 
-/** One game: `arrangement[0]` on the west spawn (side 0), `arrangement[1]` on the east. */
+/** One game: `arrangement[0]` on the friendly (west) spawn, `arrangement[1]` on
+ *  the hostile (east) one, each on the side a room would seat it (`layoutOf`). */
 export function play(mapId: MapId, arrangement: Arrangement, seed: number, opts: PlayOptions = {}): Played {
   const capTicks = opts.capTicks ?? CAP_TICKS_DEFAULT;
   const { sim, typeOf, map } = world(mapId, seed);
-  const force = versusSpawns(sim, typeOf, versusAnchors(map), arrangement);
-  if (opts.cutSide !== undefined) for (const id of force.bySide[opts.cutSide].slice(1)) sim.debugKill(id);
+  const { sideOfEnd, factions, ends } = layoutOf(arrangement);
+  const force = versusSpawns(sim, typeOf, versusAnchors(map), factions, ends);
+  if (opts.cutSide !== undefined) for (const id of force.bySide[sideOfEnd[opts.cutSide]].slice(1)) sim.debugKill(id);
   for (let t = 0; t < capTicks; t++) {
-    if (t % ORDER_EVERY_TICKS === 0) order(sim, force);
+    if (t % ORDER_EVERY_TICKS === 0) order(sim, force, sideOfEnd);
     sim.tick();
     if (sim.tickCount % DECIDE_EVERY_TICKS === 0) {
       const o = outcomeOf(sim, sim.tickCount);
-      if (o.kind !== 'ongoing') return finish(o, sim.tickCount);
+      if (o.kind !== 'ongoing') return finish(o, sim.tickCount, sideOfEnd);
     }
   }
   // The cap: the real rule, asked as if the real cap had come -- the higher
   // surviving value wins, equal values draw. Never 'ongoing' there.
   const o = outcomeOf(sim, MATCH_CAP_TICKS);
   if (o.kind === 'ongoing') throw new Error('the cap rule left a game ongoing');
-  return finish(o, sim.tickCount);
+  return finish(o, sim.tickCount, sideOfEnd);
+}
+
+/** A cell's name by END (LD1): `kdf/kdf` for the mirror, else "KDF friendly" / "Sarim friendly". */
+export function cellName(arrangement: Arrangement): string {
+  if (arrangement[0] === arrangement[1]) return `${arrangement[0]}/${arrangement[1]}`;
+  return arrangement[0] === 'kdf' ? 'KDF friendly' : 'Sarim friendly';
 }
 
 // ---------------------------------------------------------------------------
@@ -191,10 +228,10 @@ export interface Reading {
   within: boolean;
 }
 
-/** Reads a cell: a mirror by side, a KDF-against-Sarim cell by faction. */
+/** Reads a cell: a mirror by end, a KDF-against-Sarim cell by faction. */
 export function reading(arrangement: Arrangement, t: Tally): Reading {
   const mirror = arrangement[0] === arrangement[1];
-  // A cell with the KDF on the east spawn lists its wins in the faction order, KDF first.
+  // `t.wins` is by END. A cell with the KDF on the east spawn lists its wins in the faction order, KDF first.
   const wins: [number, number] = mirror
     ? [t.wins[0], t.wins[1]]
     : arrangement[0] === 'kdf' ? [t.wins[0], t.wins[1]] : [t.wins[1], t.wins[0]];
@@ -282,7 +319,7 @@ export function main(args: readonly string[] = process.argv.slice(2), playFn: Pl
   }
   console.log(`self-check: ${mapIds.length} map(s), 2 controls and a repeat each -- passed`);
 
-  console.log(`${pad('map', 24)}${pad('west/east', 13)}${pad('west', 6)}${pad('east', 6)}${pad('draw', 6)}${pad('annih/stale/cap/mutual', 24)}${pad('mean min', 10)}reading`);
+  console.log(`${pad('map', 24)}${pad('cell', 16)}${pad('west', 6)}${pad('east', 6)}${pad('draw', 6)}${pad('annih/stale/cap/mutual', 24)}${pad('mean min', 10)}reading`);
   for (const id of mapIds) {
     for (const arr of arrangements) {
       const games: Played[] = [];
@@ -291,7 +328,7 @@ export function main(args: readonly string[] = process.argv.slice(2), playFn: Pl
       const r = reading(arr, t);
       const lean = r.leader === null ? 'level' : `${r.leader} ${r.leaderPercent}%`;
       console.log(
-        `${pad(id, 24)}${pad(`${arr[0]}/${arr[1]}`, 13)}${pad(t.wins[0], 6)}${pad(t.wins[1], 6)}${pad(t.draws, 6)}` +
+        `${pad(id, 24)}${pad(cellName(arr), 16)}${pad(t.wins[0], 6)}${pad(t.wins[1], 6)}${pad(t.draws, 6)}` +
           `${pad(`${t.by.annihilation}/${t.by.stalemate}/${t.by.cap}/${t.by.mutual}`, 24)}${pad((t.ticks / seeds / (60 * TICKS_PER_SECOND)).toFixed(1), 10)}` +
           `${lean}  ${r.within ? `within ${FAIR_MAX_PERCENT}/${100 - FAIR_MAX_PERCENT}` : `OUTSIDE ${FAIR_MAX_PERCENT}/${100 - FAIR_MAX_PERCENT}`}${t.seeds < SEEDS_DEFAULT ? `  (only ${t.seeds} seeds: the bar is ${SEEDS_DEFAULT})` : ''}`,
       );

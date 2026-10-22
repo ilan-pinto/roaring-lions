@@ -6,7 +6,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import AjvModule from 'ajv/dist/2020.js';
 import { describe, expect, it } from 'vitest';
-import { FACTION_MATCHUP_MAPS, validateConfig, type MatchConfig } from '@lions/net';
+import { FACTION_MATCHUP_MAPS, sidesOfFactions, validateConfig, type MatchConfig } from '@lions/net';
 import { maps, parseMap } from '@lions/data';
 import {
   CAMP_REACH,
@@ -68,7 +68,8 @@ describe('the shipped versus rules', () => {
     for (const { doc } of shipped) {
       const parsed = parseMap((maps as unknown as Record<string, never>)[doc.map]);
       for (const factions of [['kdf', 'sarim'], ['sarim', 'kdf']] as const) {
-        const seat = (s: 0 | 1) => ({ seat: s, side: s, faction: factions[s], kit: 'matched', tiers: {}, unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' });
+        const sides = sidesOfFactions(factions); // the room's own rule (LD1)
+        const seat = (s: 0 | 1) => ({ seat: s, side: sides[s], faction: factions[s], kit: 'matched', tiers: {}, unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' });
         const c = validateConfig({ matchId: 'M', code: 'ABCDEF', seed: 1, map: doc.map, mode: 'versus', seats: [seat(0), seat(1)], pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b', dataDigest: 0 } as never) as MatchConfig;
         const w = buildMatchWorld(c);
         const occupied = new Set<string>();

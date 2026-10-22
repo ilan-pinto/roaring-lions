@@ -1,5 +1,5 @@
 import { applyTerrain, maps, parseMap, units, type MapJson, type ParsedMap } from '@lions/data';
-import { seatRules, type Faction, type MatchConfig, type SeatConfig } from '@lions/net';
+import { endOfSeat, seatRules, type Faction, type MatchConfig, type SeatConfig, type SpawnEnd } from '@lions/net';
 import { sameTrackTiers } from '@lions/render';
 import { Sim, type TunnelRouteJson } from '@lions/sim';
 import { standMapStructures } from '../map-sim';
@@ -29,6 +29,10 @@ export interface MatchWorld {
   map: ParsedMap;
   anchors: SandboxAnchors;
   factions: [Faction, Faction];
+  /** Each SIDE's spawn end (LD1, N3 Task 2): the end of the seat that plays
+   *  it (`endOfSeat`), so a Sarim host -- side 1 -- stands on `friendly`.
+   *  `['friendly', 'hostile']` in every mirror and KDF-host room. */
+  endOfSide: readonly [SpawnEnd, SpawnEnd];
   /** Entity ids each side spawned with, by side. */
   bySide: [number[], number[]];
 }
@@ -100,8 +104,21 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
   const typeOfBySide = [typeOf, typeOf1] as const;
 
   const anchors = versusAnchors(mapJson);
-  const { bySide } = versusSpawns(sim, typeOfBySide, anchors, factions);
-  return { sim, typeOf, typeOfBySide, kitBySide, mapJson, map, anchors, factions, bySide };
+  const endOfSide = endsBySide(config);
+  const { bySide } = versusSpawns(sim, typeOfBySide, anchors, factions, endOfSide);
+  return { sim, typeOf, typeOfBySide, kitBySide, mapJson, map, anchors, factions, endOfSide, bySide };
+}
+
+/** Each SIDE's spawn end, from the seat that plays it: the end follows the
+ *  SEAT (`endOfSeat`), the side follows the faction (LD1). A config whose two
+ *  seats share a side (never a versus room's) keeps today's default. */
+export function endsBySide(config: Pick<MatchConfig, 'seats'>): readonly [SpawnEnd, SpawnEnd] {
+  const [a, b] = config.seats;
+  if (a.side === b.side) return ['friendly', 'hostile'];
+  const out: [SpawnEnd, SpawnEnd] = ['friendly', 'hostile'];
+  out[a.side] = endOfSeat(a.seat);
+  out[b.side] = endOfSeat(b.seat);
+  return out;
 }
 
 /** Each SIDE's seat (index 0 is side 0), read by `side` and never by seat

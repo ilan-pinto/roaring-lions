@@ -205,7 +205,8 @@ describe('an external player\'s process (stand-in children)', () => {
     await r2.done;
     await r2.stop();
     const prompt = readFileSync(promptLog, 'utf8');
-    expect(prompt).toContain('You are side 0');
+    expect(prompt).toContain('You are seat 0');
+    expect(prompt).not.toContain('{side}');
     expect(prompt).toContain('end_round');
     expect(prompt).not.toContain(tickets[0]);
   }, 30_000);

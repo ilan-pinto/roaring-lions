@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { LocalTransport, matchDigest, type Frame, type MatchConfig, type MatchTransport, type TransportStatus } from '@lions/net';
+import { LocalTransport, matchDigest, validateCommand, type Frame, type MatchConfig, type MatchTransport, type TransportStatus } from '@lions/net';
 import type { Command } from '@lions/sim';
 import { runFrames, seatWorldFor } from './frame-step';
 import { shippedContentDigest } from './content-digest';
@@ -228,5 +228,24 @@ describe('seatWorldFor', () => {
     const w = seatWorldFor(cfg, sim);
     expect([w.factionOfSeat(0), w.factionOfSeat(1)]).toEqual(['kdf', 'sarim']);
     expect([w.tunnelOwner(0), w.tunnelOwner(1), w.tunnelOwner(NaN)]).toEqual([1, -1, -1]);
+  });
+  it('LD1 (N3): a Sarim HOST is seat 0 on side 1, and it alone may take its side-1 units into its side-1 route', () => {
+    // The room's LD1 config: seat 0 Sarim on side 1, seat 1 KDF on side 0. Route 0 is side 1's (fakeSim).
+    const sim = fakeSim();
+    const cfg = config({ mode: 'versus' });
+    cfg.seats[0] = { ...cfg.seats[0], side: 1, faction: 'sarim' };
+    cfg.seats[1] = { ...cfg.seats[1], side: 0, faction: 'kdf' };
+    const w = seatWorldFor(cfg, sim);
+    expect([w.sideOfSeat(0), w.sideOfSeat(1)]).toEqual([1, 0]);
+    expect([w.factionOfSeat(0), w.factionOfSeat(1)]).toEqual(['sarim', 'kdf']);
+    // Entities 4-5 are side 1: the Sarim host's own.
+    expect(validateCommand({ kind: 'enterTunnel', ids: [4], tunnel: 0 }, 0, w)).toBe(true);
+    expect(validateCommand({ kind: 'vent', ids: [5], mode: 'raid' }, 0, w)).toBe(true);
+    // The KDF guest (side 0) can neither send its own units down nor touch the host's.
+    expect(validateCommand({ kind: 'enterTunnel', ids: [0], tunnel: 0 }, 1, w)).toBe(false);
+    expect(validateCommand({ kind: 'enterTunnel', ids: [4], tunnel: 0 }, 1, w)).toBe(false);
+    expect(validateCommand({ kind: 'vent', ids: [0], mode: 'raid' }, 1, w)).toBe(false);
+    // And the host cannot name the guest's side-0 units.
+    expect(validateCommand({ kind: 'enterTunnel', ids: [0], tunnel: 0 }, 0, w)).toBe(false);
   });
 });

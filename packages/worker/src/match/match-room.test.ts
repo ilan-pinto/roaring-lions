@@ -223,8 +223,8 @@ describe('MatchRoom', () => {
     }
   });
 
-  it('the host picks its side: sarim puts seat 0 on Sarim and seat 1 on the KDF, in the lobby and in the config (2026-10-14)', async () => {
-    for (const [matchup, factions] of [['sarim', ['sarim', 'kdf']], ['kdf', ['kdf', 'sarim']], ['mirror', ['kdf', 'kdf']], ['nonsense', ['kdf', 'kdf']]] as const) {
+  it('the host picks its faction: sarim puts seat 0 on Sarim and seat 1 on the KDF, in the lobby and in the config (2026-10-14); the KDF seat is side 0 (LD1, N3)', async () => {
+    for (const [matchup, factions, sides] of [['sarim', ['sarim', 'kdf'], [1, 0]], ['kdf', ['kdf', 'sarim'], [0, 1]], ['mirror', ['kdf', 'kdf'], [0, 1]], ['nonsense', ['kdf', 'kdf'], [0, 1]]] as const) {
       const { room } = await created(new FakeState(), { mode: 'versus', matchup });
       const ws0 = await hello(room, 0);
       const ws1 = await hello(room, 1);
@@ -234,7 +234,7 @@ describe('MatchRoom', () => {
       for (const ws of [ws0, ws1]) {
         const [start] = ofType(ws, 'start');
         expect(start.config.seats.map((s) => s.faction)).toEqual(factions);
-        expect(start.config.seats.map((s) => s.side)).toEqual([0, 1]);
+        expect(start.config.seats.map((s) => s.side)).toEqual(sides);
       }
     }
   });

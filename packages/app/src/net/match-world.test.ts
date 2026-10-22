@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { validateConfig, type MatchConfig, type SeatConfig } from '@lions/net';
+import { sidesOfFactions, validateConfig, type MatchConfig, type SeatConfig } from '@lions/net';
+import { campOf } from './versus-force';
+import { viewerSideOf } from './viewer';
 import { buildMatchWorld, seatKitTiers, type MatchWorld } from './match-world';
 
 function config(map: string, factions: ['kdf' | 'sarim', 'kdf' | 'sarim'], seed = 1234): MatchConfig {
-  const seat = (s: 0 | 1) => ({ seat: s, side: s, faction: factions[s], kit: 'matched', tiers: {}, unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' });
+  // The room's own rule (LD1): the side follows the faction, the end the seat.
+  const sides = sidesOfFactions(factions);
+  const seat = (s: 0 | 1) => ({ seat: s, side: sides[s], faction: factions[s], kit: 'matched', tiers: {}, unlocks: [], player: `p${s}`, callsign: `c${s}`, kind: 'human' });
   const c = validateConfig({ matchId: 'M', code: 'ABCDEF', seed, map, mode: 'versus', seats: [seat(0), seat(1)], pace: { kind: 'realtime' }, hashEveryTicks: 20, bufferTicks: 2, build: 'b', dataDigest: 0 });
   if (c === null) throw new Error('bad fixture');
   return c;
@@ -43,12 +47,59 @@ describe('buildMatchWorld', () => {
     expect(a.sim.hash()).toBe(b.sim.hash());
     expect(c.sim.hash()).not.toBe(a.sim.hash());
   });
-  it('spawns each side its faction force on its own anchor', () => {
-    const w = buildMatchWorld(config('tel_marum', ['sarim', 'kdf']));
-    const types = (ids: number[]) => new Set(ids.map((i) => w.sim.unitTypes[w.sim.state.typeIdx[i]].id));
-    expect(types(w.bySide[0]).has('atgm_cell')).toBe(true);
-    expect(types(w.bySide[1]).has('mbt_lavi')).toBe(true);
-    expect(w.bySide[0].every((i) => w.sim.state.side[i] === 0)).toBe(true);
+  it('spawns each side its faction force: the KDF on side 0 whichever seat hosts (LD1)', () => {
+    for (const factions of [['sarim', 'kdf'], ['kdf', 'sarim']] as const) {
+      const w = buildMatchWorld(config('tel_marum', [...factions]));
+      const types = (ids: number[]) => new Set(ids.map((i) => w.sim.unitTypes[w.sim.state.typeIdx[i]].id));
+      expect(w.factions).toEqual(['kdf', 'sarim']);
+      expect(types(w.bySide[0]).has('mbt_lavi')).toBe(true);
+      expect(types(w.bySide[1]).has('atgm_cell')).toBe(true);
+      for (const side of [0, 1] as const) expect(w.bySide[side].every((i) => w.sim.state.side[i] === side)).toBe(true);
+    }
+  });
+  it('host end follows the seat: a Sarim host is side 1 on the friendly anchor, with its camera there (LD1)', () => {
+    for (const map of ['tel_marum', 'wadi_tarfan']) {
+      const cfg = config(map, ['sarim', 'kdf']);
+      const w = buildMatchWorld(cfg);
+      const near = (side: 0 | 1, [ax, ay]: readonly [number, number]) => w.bySide[side].every((i) =>
+        Math.max(Math.abs(w.sim.state.posX[i] / 65536 - ax), Math.abs(w.sim.state.posY[i] / 65536 - ay)) <= 11);
+      // Within the force's own spread of its anchor (offsets reach 9 tiles along the line, plus placeOnOpen's search).
+      expect(w.endOfSide).toEqual(['hostile', 'friendly']);
+      expect(near(1, w.anchors.friendly), `${map}: Sarim side 1 on the friendly anchor`).toBe(true);
+      expect(near(0, w.anchors.hostile), `${map}: KDF side 0 on the hostile anchor`).toBe(true);
+      // The force CENTRE, tighter than the spread: within 3 tiles of its end's anchor.
+      const centre = (side: 0 | 1) => {
+        const ids = w.bySide[side];
+        return [ids.reduce((a, i) => a + w.sim.state.posX[i], 0) / ids.length / 65536, ids.reduce((a, i) => a + w.sim.state.posY[i], 0) / ids.length / 65536];
+      };
+      const [fx, fy] = w.anchors.friendly;
+      const [c1x, c1y] = centre(1);
+      expect(Math.max(Math.abs(c1x - fx), Math.abs(c1y - fy)), `${map}: Sarim centre`).toBeLessThanOrEqual(3);
+      // The host's camera (main.ts): its viewer side's end.
+      expect(campOf(w.anchors, w.endOfSide[viewerSideOf(cfg, 0)])).toEqual(w.anchors.friendly);
+      expect(campOf(w.anchors, w.endOfSide[viewerSideOf(cfg, 1)])).toEqual(w.anchors.hostile);
+    }
+  });
+  it('a KDF host and a mirror keep side 0 on the friendly end', () => {
+    expect(buildMatchWorld(config('tel_marum', ['kdf', 'sarim'])).endOfSide).toEqual(['friendly', 'hostile']);
+    expect(buildMatchWorld(config('tel_marum', ['kdf', 'kdf'])).endOfSide).toEqual(['friendly', 'hostile']);
+  });
+  it('the side swap moves only the side labels: a Sarim host room spawns the KDF-host room\'s ids, types and tiles', () => {
+    const read = (w: MatchWorld) => Array.from({ length: w.sim.entityCount }, (_, i) => [
+      w.sim.unitTypes[w.sim.state.typeIdx[i]].id, w.sim.state.posX[i], w.sim.state.posY[i], w.sim.state.facing[i],
+    ]);
+    // Before LD1 a Sarim host was Sarim on side 0 at the friendly end: that world is
+    // a config with seat 0 on side 0 playing Sarim, which `buildMatchWorld` still builds.
+    const before = validateConfig({ ...config('tel_marum', ['sarim', 'kdf']), seats: [
+      { ...config('tel_marum', ['sarim', 'kdf']).seats[0], side: 0 }, { ...config('tel_marum', ['sarim', 'kdf']).seats[1], side: 1 },
+    ] });
+    if (before === null) throw new Error('bad fixture');
+    const old = buildMatchWorld(before);
+    const now = buildMatchWorld(config('tel_marum', ['sarim', 'kdf']));
+    expect(read(now)).toEqual(read(old));
+    // The friendly end's force came first: Sarim, on side 1 now.
+    expect(now.bySide[1][0]).toBe(0);
+    expect(old.bySide[0][0]).toBe(0);
   });
   it('refuses a sandbox config', () => {
     expect(() => buildMatchWorld({ ...config('tel_marum', ['kdf', 'kdf']), mode: 'sandbox' })).toThrow(/versus/);
