@@ -195,6 +195,9 @@ export interface WeaponJson {
   indirect?: boolean;
   /** E3 (GH-709): the round bursts into `count` bomblets where it lands. */
   submunitions?: SubmunitionJson;
+  /** GH-709 unit 9: the fraction of the cover HIT penalty this weapon ignores,
+   *  0-1. Absent is 0, every weapon's old rule. */
+  cover_ignore?: number;
 }
 
 /** E3's bomblet block, as authored (unit.schema.json `submunitions`). */
@@ -415,6 +418,14 @@ export interface WeaponStats {
   isIndirect: boolean;
   /** E3 (GH-709): the bomblets this round bursts into, or null for a plain round. */
   submunitions: SubmunitionStats | null;
+  /**
+   * GH-709 unit 9 (the grenadier, lead ruling 22 Oct): the fraction of the
+   * cover hit penalty this weapon ignores, from `cover_ignore`. 0 (absent) is
+   * the old rule exactly; 1 would make a target behind cover as easy to hit as
+   * one in the open. Only the HIT chance reads it: cover's suppression and
+   * detection tables, and the rule that a garrison cannot be hurt, stand.
+   */
+  coverIgnore: Fx;
 }
 
 /** E3's bomblet block, loaded. `supp` is already per-stat-divided, like
@@ -673,7 +684,17 @@ function weaponFromJson(w: WeaponJson): WeaponStats {
     garrisonEffRangeSq: fx.mul(gEff, gEff),
     isIndirect: (INDIRECT_MASK & (1 << cls)) !== 0 || w.indirect === true,
     submunitions: submunitionsFromJson(w.id, w.submunitions),
+    coverIgnore: coverIgnoreFromJson(w.id, w.cover_ignore),
   };
+}
+
+/** `cover_ignore`, loaded: 0-1, absent 0. A bad value throws naming the
+ *  weapon, because out of range it would push a hit chance past the open-ground
+ *  one or below the covered one, and nothing downstream would say why. */
+function coverIgnoreFromJson(weaponId: string, raw: number | undefined): Fx {
+  if (raw === undefined) return 0;
+  if (!(raw >= 0 && raw <= 1)) throw new Error(`weapon ${weaponId}: cover_ignore must be in 0-1, got ${raw}`);
+  return fx.from(raw);
 }
 
 /**
@@ -5823,6 +5844,10 @@ export class Sim {
     const tileCover = this.cover[(ty >> 16) * this.width + (tx >> 16)];
     const parapet = this.parapetCover(tx, ty, px, py);
     let coverMod = COVER_HIT[parapet > tileCover ? parapet : tileCover];
+    // A weapon that ignores part of the cover bonus (the grenadier's lobbed
+    // round over a wall) closes that fraction of the gap to the open-ground 1.
+    // Zero for every weapon that does not author it, so the line is exact.
+    if (w.coverIgnore > 0) coverMod = fx.add(coverMod, fx.mul(fx.sub(ONE, coverMod), w.coverIgnore));
     // Shooting through a screen: every tile of it degrades the shot, with a
     // floor because blind fire still occasionally connects.
     const smokeOnLine = this.raySmoke(px >> 16, py >> 16, tx >> 16, ty >> 16, this.eyeLift(shooter), 0);
@@ -6179,6 +6204,7 @@ export class Sim {
         this.side[shooter],
         this.prOriginX[pr],
         this.prOriginY[pr],
+        w.coverIgnore,
       );
       this.applyDamage(target, this.prDamage[pr], shooter);
       if (this.prSplash[pr] > 0) this.splashAt(pr, this.posX[target], this.posY[target], target);
@@ -6318,6 +6344,7 @@ export class Sim {
       const srcSide = this.side[this.prShooter[pr]];
       const pen = this.prPen[pr];
       const splash = this.prSplash[pr];
+      const coverIgnore = this.weaponOf(pr).coverIgnore;
       for (let i = 0; i < this.count; i++) {
         if (this.alive[i] === 0) continue;
         const dSq = distSqFx(fx.sub(this.posX[i], x), fx.sub(this.posY[i], y));
@@ -6333,6 +6360,7 @@ export class Sim {
           srcSide,
           this.prOriginX[pr],
           this.prOriginY[pr],
+          coverIgnore,
         );
       }
     }
@@ -6378,6 +6406,7 @@ export class Sim {
     const splashSq = fx.mul(splash, splash);
     const dmg = this.prDamage[pr];
     const shooter = this.prShooter[pr];
+    const coverIgnore = this.weaponOf(pr).coverIgnore;
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0 || i === excludeId) continue;
       if (this.tunnelIn[i] >= 0) continue; // three metres of earth
@@ -6396,6 +6425,7 @@ export class Sim {
         this.side[shooter],
         this.prOriginX[pr],
         this.prOriginY[pr],
+        coverIgnore,
       );
     }
   }
@@ -6443,6 +6473,7 @@ export class Sim {
     srcSide = -1,
     srcX: Fx = 0,
     srcY: Fx = 0,
+    coverIgnore: Fx = 0,
   ): void {
     // You cannot pin someone who is underground. Without this, a mortar
     // barrage over a trail routs the occupants and the counter-unit is
@@ -6469,7 +6500,13 @@ export class Sim {
         s >= 0
           ? this.structureTypes[this.stTypeIdx[s]].garrisonCover
           : this.cover[(this.posY[target] >> 16) * this.width + (this.posX[target] >> 16)];
-      a = fx.mul(a, COVER_SUPP[cov]);
+      let mod = COVER_SUPP[cov];
+      // A round that ignores part of the cover bonus (GH-709 unit 9) closes
+      // that fraction of the gap to the open ground -- on a TILE only: a
+      // building's own cover is the building, and the grenadier does not
+      // reach into a house (lead ruling Q7).
+      if (coverIgnore > 0 && s < 0) mod = fx.add(mod, fx.mul(fx.sub(ONE, mod), coverIgnore));
+      a = fx.mul(a, mod);
     }
     const s = fx.add(this.suppression[target], a);
     this.suppression[target] = fx.min(s, SUPP_CAP);

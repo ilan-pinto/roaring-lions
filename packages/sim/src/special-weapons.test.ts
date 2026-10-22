@@ -196,3 +196,118 @@ describe('E3: submunitions', () => {
     expect(bad(2.5)).toThrow(/submunitions.count/);
   });
 });
+
+// GH-709 unit 9, the grenadier (lead ruling 22 Oct): a weapon may ignore part of the
+// cover bonus. `cover_ignore` closes that fraction of the gap between a covered
+// target's hit and suppression multipliers and the open ground's 1. Tile cover only:
+// a building's cover is the building (Q7), and nothing about detection moves.
+describe('cover_ignore: a weapon that ignores part of the cover bonus', () => {
+  /** The staged grenadier's `gl_40`, with the ruling's field. */
+  const GL: WeaponJson = {
+    id: 'gl', type: 'he', range_tiles: 7, effective_range_tiles: 5.5, accuracy: 0.55,
+    penetration: 30, damage: 60, splash_tiles: 1.2, suppression: 300, rof_per_min: 30,
+    collateral_risk: 0.3,
+  };
+  // Literals, not imports from the code under test: COVER_HIT[2] = 9011 and
+  // COVER_SUPP[2] = 9011 (.1375), ONE = 65536.
+  const COVER2 = 9011;
+
+  function duel(weapon: WeaponJson, cover: number) {
+    const sim = new Sim({ seed: 13, width: 24, height: 16, capacity: 8 });
+    const s = sim.addUnitType(shooter('s', weapon));
+    const m = sim.addUnitType(MAN);
+    const me = sim.spawn(s, 0, fx.from(5.5), fx.from(8.5));
+    const it = sim.spawn(m, 1, fx.from(9.5), fx.from(8.5));
+    if (cover > 0) sim.setCover(9, 8, cover);
+    sim.identifyTo(0, it);
+    return { sim, me, it };
+  }
+  const coverModOf = (weapon: WeaponJson, cover: number) => {
+    const { sim, me, it } = duel(weapon, cover);
+    const p = sim.projectHit(me, it);
+    if (p.kind !== 'shot') throw new Error(`no shot: ${p.kind}`);
+    return p.factors.coverMod;
+  };
+
+  it('loads 0 when absent, the authored fraction otherwise, and refuses one outside 0-1', () => {
+    const sim = new Sim({ seed: 1, width: 8, height: 8, capacity: 4 });
+    expect(sim.unitTypes[sim.addUnitType(shooter('a', GL))].weapons[0].coverIgnore).toBe(0);
+    expect(sim.unitTypes[sim.addUnitType(shooter('b', { ...GL, cover_ignore: 0.75 }))].weapons[0].coverIgnore).toBe(
+      fx.from(0.75),
+    );
+    expect(() => sim.addUnitType(shooter('c', { ...GL, cover_ignore: 1.5 }))).toThrow(/cover_ignore/);
+    expect(() => sim.addUnitType(shooter('d', { ...GL, cover_ignore: -0.1 }))).toThrow(/cover_ignore/);
+  });
+
+  it('hit chance: absent leaves cover 2 exactly at .1375; 0.75 lifts it three quarters of the way to 1', () => {
+    expect(coverModOf(GL, 2)).toBe(COVER2);
+    expect(coverModOf({ ...GL, cover_ignore: 0 }, 2)).toBe(COVER2);
+    // .1375 + .8625 * .75 = .784
+    expect(fx.toNumber(coverModOf({ ...GL, cover_ignore: 0.75 }, 2))).toBeCloseTo(0.784, 3);
+    expect(coverModOf({ ...GL, cover_ignore: 1 }, 2)).toBe(65536);
+    // In the open there is nothing to ignore.
+    expect(coverModOf({ ...GL, cover_ignore: 0.75 }, 0)).toBe(65536);
+  });
+
+  /** The first suppression a round puts on `it`, ticking until it lands. */
+  function firstSupp(weapon: WeaponJson, cover: number): number {
+    const { sim, it } = duel(weapon, cover);
+    for (let k = 0; k < 400; k++) {
+      sim.identifyTo(0, it);
+      sim.tick();
+      if (sim.state.suppression[it] > 0) return sim.state.suppression[it];
+    }
+    throw new Error('no suppression landed');
+  }
+
+  it('suppression: the same round pins a man on cover 2 by the same fraction harder', () => {
+    // Accuracy 0, so both runs MISS (the field lifts the hit chance, which would
+    // otherwise turn one run's miss into a hit). The miss draws the same scatter point
+    // from the same stream, so the near miss and the splash land identically and the
+    // ratio is the cover multipliers' ratio, .784 / .1375.
+    const MISS = { ...GL, accuracy: 0 };
+    const plain = firstSupp(MISS, 2);
+    const grenade = firstSupp({ ...MISS, cover_ignore: 0.75 }, 2);
+    expect(grenade / plain).toBeGreaterThan(5.6);
+    expect(grenade / plain).toBeLessThan(5.8);
+    // In the open the field changes nothing.
+    expect(firstSupp({ ...GL, cover_ignore: 0.75 }, 0)).toBe(firstSupp(GL, 0));
+  });
+
+  it('cover_ignore 1 on cover 2 is the open ground, hit and miss alike', () => {
+    // At 1 the hit multiplier is 1 too, so the cover-2 run rolls exactly as the open
+    // run does: accuracy 1 lands the hit path (resolveHit), accuracy 0 the miss path.
+    for (const accuracy of [1, 0]) {
+      const wpn = { ...GL, accuracy, cover_ignore: 1 };
+      expect(firstSupp(wpn, 2)).toBe(firstSupp(wpn, 0));
+    }
+  });
+
+  it('a man inside a building keeps the building cover: splash suppression on him is unchanged', () => {
+    const run = (weapon: WeaponJson) => {
+      const sim = new Sim({ seed: 17, width: 24, height: 16, capacity: 8 });
+      const house = sim.addStructureType(HOUSE);
+      const s = sim.addUnitType(shooter('s', { ...weapon, accuracy: 1, splash_tiles: 2.5 }));
+      const m = sim.addUnitType(MAN);
+      const h = rect(sim, house, 10, 9, 1, 1);
+      const inside = sim.spawn(m, 1, fx.from(10.5), fx.from(10.5));
+      sim.queueCommand({ kind: 'garrison', ids: [inside], structure: h });
+      for (let k = 0; k < 60 && sim.state.garrisonedIn[inside] !== h; k++) sim.tick();
+      expect(sim.state.garrisonedIn[inside]).toBe(h);
+      sim.spawn(s, 0, fx.from(5.5), fx.from(8.5));
+      const it = sim.spawn(m, 1, fx.from(9.5), fx.from(8.5));
+      sim.setCover(9, 8, 2);
+      for (let k = 0; k < 400; k++) {
+        sim.identifyTo(0, it);
+        sim.tick();
+        if (sim.state.suppression[inside] > 0) return { inside: sim.state.suppression[inside], open: sim.state.suppression[it] };
+      }
+      throw new Error('splash never reached the house');
+    };
+    const plain = run(GL);
+    const grenade = run({ ...GL, cover_ignore: 0.75 });
+    expect(grenade.inside).toBe(plain.inside);
+    // Control: in the same tick the covered man outside DID take more.
+    expect(grenade.open).toBeGreaterThan(plain.open);
+  });
+});
