@@ -294,10 +294,11 @@ describe('beam: what it can shoot', () => {
 });
 
 describe('beam: load rules', () => {
-  const unit = (weapon: object): UnitTypeJson => ({ ...CARRIER, weapons: [weapon as UnitTypeJson['weapons'][number]] });
+  const unit = (weapon: object): UnitTypeJson => ({ ...CARRIER, weapons: [weapon as NonNullable<UnitTypeJson['weapons']>[number]] });
 
   it('requires a beam block on directed_energy', () => {
-    const { beam: _beam, ...bare } = BEAM_WEAPON;
+    const bare: Record<string, unknown> = { ...BEAM_WEAPON };
+    delete bare.beam;
     expect(() => unitTypeFromJson(unit(bare))).toThrow(/needs a beam block/);
   });
 
