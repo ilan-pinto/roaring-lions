@@ -117,6 +117,8 @@ function sample(kind: PlayerIntent['kind']): PlayerIntent {
     case 'garrison': return { kind, ids: [1], structure: 2 };
     case 'demolish': return { kind, ids: [1], structure: 2 };
     case 'chargeTunnel': return { kind, ids: [1], tunnel: 0 };
+    case 'enterTunnel': return { kind, ids: [1], tunnel: 0 };
+    case 'vent': return { kind, ids: [1], mode: 'raid' };
     case 'mount': return { kind, riders: [1], carrier: 2 };
     case 'dismount': return { kind, carriers: [2] };
     case 'smoke': return { kind, ids: [1], x: 1, y: 1 };
@@ -131,6 +133,7 @@ describe('order verbs (GH-254, D2: per intent)', () => {
   it('maps every intent kind: commands to their verb, presentation to null', () => {
     expect(Object.fromEntries(INTENT_KINDS.map((k) => [k, ev.orderVerbOf(sample(k))]))).toEqual({
       select: null, order: 'attackMove', attack: 'attack', rescue: null, garrison: 'garrison', demolish: 'demolish', chargeTunnel: 'chargeTunnel',
+      enterTunnel: null, vent: null,
       mount: 'mount', dismount: 'dismount', smoke: 'smoke', halt: 'halt', group: null, overlay: null, support: 'strike',
     });
   });

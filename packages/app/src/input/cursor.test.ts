@@ -567,7 +567,7 @@ describe('the armed cursor of each support kind (S-F)', () => {
   // `barrage: anim('strike')` back in ANIMATED_CURSORS reddens the third line
   // (strike is 6 x 267 ms, the barrage 6 x 250).
   it('draws the barrage and the screen with sights of their own, not the strike\'s and the smoke order\'s', () => {
-    expect(CURSOR_ALIAS).toEqual({ moveOnly: 'move', attack: 'advance' });
+    expect(CURSOR_ALIAS).toEqual({ moveOnly: 'move', attack: 'advance', 'tunnel-enter': 'garrison' });
     expect({ barrage: SIGHT_OF.barrage, smokeScreen: SIGHT_OF.smokeScreen }).toEqual({ barrage: 'barrage', smokeScreen: 'smokeScreen' });
     expect(ANIMATED_CURSORS.barrage).toEqual({ frames: 6, intervalMs: 250 });
     expect(ANIMATED_CURSORS.smokeScreen).toEqual({ frames: 6, intervalMs: 300 });

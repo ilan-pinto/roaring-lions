@@ -55,6 +55,7 @@ import {
   TERRAIN_DECOR,
   isHostileSide,
   isOwnSide,
+  ownsRoute,
   type AudioManifest,
   type EmitterSpec,
   type Renderer,
@@ -94,6 +95,7 @@ import { Hud, type HudCommanderInfo, type MissionView, type OrderHandlers, type 
 import { hintFor, loadSeen, markSeen } from './ui/hint-model';
 import { createShownTimer, incomeHeld, loadHintsSeen, markHintSeen, owedRule, type HintContext } from './ui/hint-rules';
 import { portraitIds, unitIcon, unitPlate } from './ui/portrait';
+import { mountBelowGround, type BelowGroundStrip } from './ui/below-ground';
 import { trackCloseup } from './ui/garage-closeup';
 import { Minimap, MINIMAP_SIZE, flipRows } from './ui/minimap';
 import { alertsForTick, initAlertState, missionEventTier, nextJump, type Alert, type AlertState, type JumpTarget } from './ui/alerts';
@@ -4744,7 +4746,32 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       if (zoneContains(z, tx, ty)) return true;
     }
     return false;
-  });
+   // The viewer (GH-681): which routes this seat has found, and which it owns.
+  }, me);
+  /**
+   * The "Below ground" strip (GH-681): built only for a seat that OWNS a
+   * route -- the Sarim seat of a KDF-v-Sarim room. Single-player and the KDF
+   * seat own none, so nothing is mounted and nothing below changes for them.
+   * On `document.body`, so taken down here (the disposer contract).
+   */
+  let belowStrip: BelowGroundStrip | null = null;
+  if (Array.from({ length: sim.tunnelCount }, (_, r) => ownsRoute(sim, me, r)).some(Boolean)) {
+    const strip = mountBelowGround(document.body, {
+      state: () => sim.state,
+      entityCount: () => sim.entityCount,
+      viewer: me,
+      routeId: (r) => map.tunnels[r]?.id,
+      typeOf: (id) => sim.unitTypes[sim.state.typeIdx[id]].id,
+      nameOf: (typeId) => sim.unitTypes.find((u) => u.id === typeId)?.name ?? typeId,
+      iconOf: (typeId) => unitIcon(typeId, 'chip')?.url ?? null,
+      vent: (ids, mode) => dispatch({ kind: 'vent', ids, mode }),
+    });
+    belowStrip = strip;
+    onDispose(() => {
+      strip.dispose();
+      belowStrip = null;
+    });
+  }
   /**
    * Everything the alert layer may ask about the world (`ui/alerts.ts`'s own
    * `AlertWorld`), built once beside `intentWorld` above and for the same
@@ -5376,6 +5403,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     }
     tickQuiet = catchUpQuiet.next();
     renderer.snapshot();
+    belowStrip?.update();
     // A tick far behind the live edge throws no burst, plays no sound and
     // speaks no line; the state the same events carry is kept (net/catch-up.ts).
     renderer.setQuiet?.(tickQuiet);
