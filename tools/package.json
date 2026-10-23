@@ -35,6 +35,7 @@
     "net:engines": "tsx src/net/two-engine.ts",
     "end-panel:check": "tsx src/ui-review/end-panel-check.ts",
     "blast:capture": "tsx src/perf/blast-captures.ts",
+    "smoke-outline:capture": "tsx src/perf/smoke-outline-captures.ts",
     "support:capture": "tsx src/perf/support-captures.ts",
     "atgm:capture": "tsx src/perf/atgm-captures.ts",
     "grenade:capture": "tsx src/perf/grenade-captures.ts",
