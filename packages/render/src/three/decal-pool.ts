@@ -285,7 +285,10 @@ export class DecalPool {
     this.mesh = new THREE.Mesh(geometry, material);
     this.mesh.renderOrder = renderOrder;
     this.mesh.castShadow = false;
-    this.mesh.receiveShadow = false;
+    // Defilade Task 5 PROTOTYPE: true so the crater rim can read the sun's
+    // shadow map (three only binds it for a receiver). It does not make the
+    // decal draw in the shadow pass -- that is `castShadow`, still false.
+    this.mesh.receiveShadow = true;
     // A decal can appear anywhere a shell has landed or a vehicle has died,
     // so this mesh spans the whole map like every other whole-map mark in
     // this backend.
@@ -366,6 +369,13 @@ export class DecalPool {
   }
 }
 
+/** Defilade Task 5 PROTOTYPE: the crater rim's relief. Bowl depth and rim
+ *  height in units of the crater's own radius, and an overall gain (0 is
+ *  today's flat decal). */
+export const CRATER_RIM_BOWL_DEPTH = 0.25;
+export const CRATER_RIM_HEIGHT = 0.12;
+export const CRATER_RIM_GAIN = 1;
+
 /** F-23: pull the decal toward the camera in depth only, so the linear
  *  chord of a coarse grid cell never sinks under a bicubic crest. See this
  *  file's top comment, "The kind shader". */
@@ -379,7 +389,12 @@ export function glslFloat(v: number): string {
 }
 
 const DECAL_VERTEX_SHADER = /* glsl */ `
+  #include <common>
+  #include <shadowmap_pars_vertex>
   attribute vec2 aOffset;
+  // Defilade Task 5 PROTOTYPE: the view-space position, whose screen
+  // derivatives give the decal facet's own frame for the crater-rim normal.
+  varying vec3 vViewPos;
   attribute vec4 aDecal;
   attribute vec3 aGround;
   varying vec2 vOffset;
@@ -397,8 +412,12 @@ const DECAL_VERTEX_SHADER = /* glsl */ `
     vOffset = aOffset;
     vDecal = aDecal;
     vGround = aGround;
-    vWorldXZ = (modelMatrix * vec4(position, 1.0)).xz;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+    vWorldXZ = worldPosition.xz;
+    vec4 mvPosition = viewMatrix * worldPosition;
+    vViewPos = mvPosition.xyz;
+    gl_Position = projectionMatrix * mvPosition;
+    #include <shadowmap_vertex>
   }
 `;
 
@@ -406,6 +425,16 @@ const f = glslFloat;
 
 /** `decalAlpha`, transcribed. Keep the two in step line for line. */
 const DECAL_FRAGMENT_SHADER = /* glsl */ `
+  #include <common>
+  #include <packing>
+  #include <lights_pars_begin>
+  #include <shadowmap_pars_fragment>
+  #include <shadowmask_pars_fragment>
+  varying vec3 vViewPos;
+  // Defilade Task 5 PROTOTYPE: the crater rim's relief, a multiple of the
+  // crater's own radius (0 = today's flat decal: the shade ratio is 1).
+  uniform float uRimGain;
+  uniform vec2 uRimShape;
   uniform vec3 uColors[${DECAL_PALETTE_ORDER.length}];
   uniform float uNowSec;
   // The ground's own road inputs, SHARED uniform objects (fix wave I-3):
@@ -437,7 +466,39 @@ const DECAL_FRAGMENT_SHADER = /* glsl */ `
     return r * (1.0 + amp * sin(lobes * theta + ${f(2 * Math.PI)} * seed));
   }
 
+  // Defilade Task 5 PROTOTYPE: the crater's height, in units of its own
+  // radius, over (s, t): a parabolic bowl inside the lip and a raised rim
+  // that peaks where the lip albedo does. uRimShape = (bowl depth, rim height).
+  float craterHeight(vec2 st, float seed) {
+    float rw = wobbledRadius(st, seed, ${f(CRATER_WOBBLE)}, ${f(CRATER_LOBES)});
+    float x = rw / ${f(CRATER_LIP_IN1)};
+    float bowl = -uRimShape.x * max(1.0 - x * x, 0.0);
+    float rimC = ${f((CRATER_LIP_IN1 + CRATER_LIP_OUT0) / 2)};
+    float rim = uRimShape.y * smoothstep(${f(CRATER_BOWL_EDGE0 - 0.06)}, rimC, rw) * (1.0 - smoothstep(rimC, 1.0, rw));
+    return bowl + rim;
+  }
+
+  // Sun + sky irradiance on a view-space normal, the way the lit ground gets
+  // it (Lambert; the pi cancels in the ratio). shadow scales the sun only.
+  vec3 rlIrradiance(vec3 n, float shadow) {
+    vec3 e = ambientLightColor;
+    #if NUM_DIR_LIGHTS > 0
+      e += directionalLights[0].color * max(dot(n, directionalLights[0].direction), 0.0) * shadow;
+    #endif
+    #if NUM_HEMI_LIGHTS > 0
+      float w = 0.5 * dot(n, hemisphereLights[0].direction) + 0.5;
+      e += mix(hemisphereLights[0].groundColor, hemisphereLights[0].skyColor, w);
+    #endif
+    return e;
+  }
+
   void main() {
+    // Taken in uniform control flow, before any discard or kind branch.
+    vec3 rlDpx = dFdx(vViewPos);
+    vec3 rlDpy = dFdy(vViewPos);
+    vec2 rlDstx = dFdx(vOffset);
+    vec2 rlDsty = dFdy(vOffset);
+    float rlShadow = getShadowMask();
     // Fetched before any discard, so its implicit gradient is taken in
     // uniform control flow -- the same LOD the ground's own tap picks.
     vec4 rlB = texture2D(uControlB, vWorldXZ / uMapSize);
@@ -517,7 +578,28 @@ const DECAL_FRAGMENT_SHADER = /* glsl */ `
     // multiplied onto the LIT ground by the blend state, so a lip in shade
     // stays in shade. Alpha is unused by the blend.
     vec3 ratio = colour / max(ground, ${f(DECAL_GROUND_FLOOR)});
-    gl_FragColor = vec4(1.0 + a * (ratio - 1.0), 1.0);
+    vec3 outRatio = 1.0 + a * (ratio - 1.0);
+    if (kind == ${DECAL_KIND_INDEX.crater} && uRimGain > 0.0) {
+      // The rim's normal, bump-mapped onto the decal facet (surface-gradient
+      // form): h in world units is (crater height in radii) * halfLength.
+      float e = 0.01;
+      float hs = (craterHeight(vOffset + vec2(e, 0.0), seed) - craterHeight(vOffset - vec2(e, 0.0), seed)) / (2.0 * e);
+      float ht = (craterHeight(vOffset + vec2(0.0, e), seed) - craterHeight(vOffset - vec2(0.0, e), seed)) / (2.0 * e);
+      vec2 gst = vec2(hs, ht) * halfLength * uRimGain;
+      float dhx = dot(gst, rlDstx);
+      float dhy = dot(gst, rlDsty);
+      vec3 n0 = normalize(cross(rlDpx, rlDpy));
+      if (n0.z < 0.0) n0 = -n0;
+      vec3 r1 = cross(rlDpy, n0);
+      vec3 r2 = cross(n0, rlDpx);
+      float det = dot(rlDpx, r1);
+      vec3 surfGrad = sign(det) * (dhx * r1 + dhy * r2);
+      vec3 n1 = normalize(abs(det) * n0 - surfGrad);
+      // Relit: the bumped normal's light over the facet's, both under the
+      // same shadow, so a rim in a building's shadow catches nothing.
+      outRatio *= rlIrradiance(n1, rlShadow) / max(rlIrradiance(n0, rlShadow), 1e-4);
+    }
+    gl_FragColor = vec4(outRatio, 1.0);
   }
 `;
 
@@ -566,7 +648,14 @@ export function createDecalMaterial(palette: DecalPalette, ground?: DecalGroundU
     uRoadOn: { value: 1 },
   };
   return new THREE.ShaderMaterial({
+    // Defilade Task 5 PROTOTYPE: the crater rim reads the sun, the sky and
+    // the sun's shadow map (three's own light uniforms, cloned so nothing is
+    // shared with another material; the road uniforms below stay shared).
+    lights: true,
     uniforms: {
+      ...THREE.UniformsUtils.clone(THREE.UniformsLib.lights),
+      uRimGain: { value: CRATER_RIM_GAIN },
+      uRimShape: { value: new THREE.Vector2(CRATER_RIM_BOWL_DEPTH, CRATER_RIM_HEIGHT) },
       uColors: { value: colours },
       uNowSec: { value: 0 },
       uControlB: road.uControlB,

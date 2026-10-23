@@ -380,6 +380,7 @@ export const DEBUG_LAYERS = [
   'slope-light',
   'height-contours',
   'crown',
+  'crater-rims',
 ] as const;
 
 export type DebugLayer = (typeof DEBUG_LAYERS)[number];

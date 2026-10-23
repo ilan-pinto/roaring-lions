@@ -46,6 +46,13 @@ export interface RenderQuality {
    * -- an open item for the lead (`docs/PERFORMANCE.md`, "Defilade T4").
    */
   bloom: 'off' | 'quarter';
+  /**
+   * PROTOTYPE (Defilade Task 2, GH-705; not shipped): `'view'` refits the
+   * sun's shadow box to the camera every frame (`three/shadow-fit.ts`);
+   * `'map'` (and absent) is today's map-wide box fitted once. No preset sets
+   * it, so every preset's frame is unchanged.
+   */
+  shadowFit?: 'map' | 'view';
 }
 
 export const QUALITY_PRESETS: Readonly<Record<'low' | 'medium' | 'high', RenderQuality>> = {
