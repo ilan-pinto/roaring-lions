@@ -5,8 +5,8 @@
  *
  * Serves <tree> (run the SAME script against BEFORE and AFTER trees by pointing
  * --root at each), boots `?sandbox=beit_sahwan_outskirts` on HARDWARE Metal and,
- * per quality preset (high/medium/low), times `renderer.frame(1, 0)` bracketed
- * by `gl.finish()` (GPU wall, rAF frozen) for:
+ * per quality preset (high/medium/low, or `--presets=high,medium`), times
+ * `renderer.frame(1, 0)` synced by a 1x1 `readPixels` (GPU wall, rAF frozen) for:
  *   quiet z0.5 / z2.5 / z1.6 -- the three mocked views
  *   smoke                    -- a dense screen: ten side-0 Eitans lay at tiles
  *                               ringed round the zoom-1.6 centre
@@ -16,6 +16,12 @@
  * Draw calls come from `renderer.info` with autoReset off. The 60 Hz verdict is
  * p95 <= 16.7 ms. Refuses SwiftShader (exit 2). Frame time only: tick time is a
  * different budget and is not measured here.
+ *
+ * WHY readPixels AND NOT gl.finish() (GH-777, `_coord/high-perf/report.md` point 1):
+ * on ANGLE/Metal `gl.finish()` does not wait for the whole frame when no pass
+ * samples a render target back -- `medium` read 3 ms with it and 13.9 ms with a
+ * 1x1 readPixels, `low` ~3 -> 10.5 ms. A readPixels cannot return before every
+ * command that writes the default framebuffer has run.
  */
 import { chromium } from 'playwright';
 import path from 'node:path';
@@ -36,6 +42,12 @@ const VIEWS: [number, number, number][] = [
   [26, 22, 1.6],
 ];
 
+const PRESETS = arg('presets', 'high,medium,low')
+  .split(',')
+  .map((q) => q.trim())
+  .filter((q): q is 'high' | 'medium' | 'low' => q === 'high' || q === 'medium' || q === 'low');
+if (PRESETS.length === 0) throw new Error('--presets names no preset (high, medium, low)');
+
 const stop = devServerStopper(await ensureDevServer(port, root, 'fx-cost'), 'fx-cost');
 const browser = await chromium.launch({
   headless: true,
@@ -50,7 +62,7 @@ interface Row {
 }
 
 try {
-  for (const quality of ['high', 'medium', 'low'] as const) {
+  for (const quality of PRESETS) {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
     await page.addInitScript(musicOffInitScript({}, { quality }));
     await page.addInitScript('window.__name = (f) => f;');
@@ -94,6 +106,8 @@ try {
         const canvas: HTMLCanvasElement = r.canvas;
         const gl = canvas.getContext('webgl2') as WebGL2RenderingContext;
         const info = r.renderer.info;
+        const syncPx = new Uint8Array(4);
+        const sync = (): void => gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, syncPx);
         const time = (n: number): Row => {
           for (let i = 0; i < 20; i++) r.frame(1, 16);
           info.autoReset = false;
@@ -101,12 +115,12 @@ try {
           r.frame(1, 16);
           const calls = info.render.calls;
           info.autoReset = true;
-          gl.finish();
+          sync();
           const w: number[] = [];
           for (let i = 0; i < n; i++) {
             const t0 = performance.now();
             r.frame(1, 0);
-            gl.finish();
+            sync();
             w.push(performance.now() - t0);
           }
           w.sort((a, b) => a - b);
