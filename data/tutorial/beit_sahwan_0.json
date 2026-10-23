@@ -121,14 +121,14 @@
             "kind": "any_of",
             "of": [
               { "kind": "production", "edge": "paused" },
-              { "kind": "elapsed_s", "seconds": 90 }
+              { "kind": "elapsed_s", "seconds": 120 }
             ]
           },
           {
             "kind": "any_of",
             "of": [
               { "kind": "production", "edge": "resumed" },
-              { "kind": "elapsed_s", "seconds": 90 }
+              { "kind": "elapsed_s", "seconds": 120 }
             ]
           }
         ]

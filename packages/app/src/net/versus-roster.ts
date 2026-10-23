@@ -13,20 +13,20 @@ export type VersusRosterUnit = (typeof units)[keyof typeof units];
  * (spec Q9). Deleting the id here registers it again and moves the versus pins,
  * in that same commit -- which is the right time for them to move.
  *
- * `wounded_kdf` and `wounded_sarim` (GH-707 P2): two more registered types would
- * move the roster-count literals every net spec pins (35, 36, ...) and the type
- * index layout. No unit declares `hull.wounds` yet and no versus side can field
- * either, so the room leaves them out until the rescue loop is opened to versus
- * (the lead's call); that commit deletes the ids here and moves the literals.
+ * `wounded_kdf` and `wounded_sarim` (GH-707): held, and wounds are OFF in every
+ * room (the lead, 22 Oct: wounds in versus is a later decision). Registering the two
+ * would move the roster-count literals every net spec pins and the type index
+ * layout; and since P3 every infantry type carries `hull.wounds`, which on its own
+ * turns the sim's wound hash fold on at `addUnitType` -- so `versusRoster` also
+ * strips `hull.wounds` and `hull.figures` from what it hands a room (below). A room
+ * is therefore byte-identical to main before P3. Opening wounds to versus deletes
+ * the two ids here and the strip in `versusRoster`, and moves the versus pins.
  *
- * `veh_ambulance` and `air_medevac_heli` (GH-709): both declare `hull.can_carry:
- * ['wounded']`, which turns the sim's wound hash fold on (and the medevac is an
- * AIR carrier, which turns the air fold on besides), so registering either moves
- * every versus/net hash pin although no versus side can field them. Held with
- * the Yanshuf and the wounded pair until the rescue loop opens to versus.
- *
- * `inf_medic_squad` (GH-707 P2): its `rescue` block does the same to the wound hash fold
- * (the sim keys `woundLive` off a type carrying one), so it is held with the others.
+ * `veh_ambulance` and `air_medevac_heli` (GH-709), and `inf_medic_squad` (GH-707
+ * P2): on no doctrine menu, so no versus side can field them, and each turns the
+ * sim's wound hash fold on (`can_carry`, `rescue`; the medevac is an AIR carrier,
+ * which turns the air fold on besides). Held with the Yanshuf and the wounded pair
+ * until the rescue loop opens to versus.
  *
  * `mbt_lavi_camo` and `spg_long_range` (GH-709 Phase 2), and `spg_cluster` (Phase 7):
  * credit-only store units, on no
@@ -54,7 +54,23 @@ export const VERSUS_HELD_UNITS: ReadonlySet<string> = new Set([
  * `units` minus `VERSUS_HELD_UNITS`. The ONE list every versus/net world walks
  * (`buildMatchWorld`, `seatKitTiers`, the net test world, the versus probe), so
  * the type-index layout cannot differ between them.
+ *
+ * Each type comes WITHOUT `hull.wounds` and `hull.figures` (GH-707 P3): wounds are
+ * off in versus until the lead opens them (see `VERSUS_HELD_UNITS`). A copy, never
+ * the shared `units` object, so the campaign keeps both.
  */
 export function versusRoster(): readonly VersusRosterUnit[] {
-  return (Object.values(units) as VersusRosterUnit[]).filter((u) => !VERSUS_HELD_UNITS.has(u.id));
+  return (Object.values(units) as VersusRosterUnit[])
+    .filter((u) => !VERSUS_HELD_UNITS.has(u.id))
+    .map((u) => withoutWounds(u));
+}
+
+/** `u` with no `hull.wounds` and no `hull.figures`; `u` itself when it has neither. */
+function withoutWounds(u: VersusRosterUnit): VersusRosterUnit {
+  const hull = u.hull as Record<string, unknown>;
+  if (!('wounds' in hull) && !('figures' in hull)) return u;
+  const { wounds: _w, figures: _f, ...rest } = hull;
+  void _w;
+  void _f;
+  return { ...u, hull: rest } as unknown as VersusRosterUnit;
 }

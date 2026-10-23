@@ -18,6 +18,8 @@ interface U {
   alive?: 0 | 1;
   buried?: boolean;
   air?: boolean;
+  /** GH-707: a man down. */
+  down?: boolean;
 }
 const ONE = 65536;
 
@@ -31,6 +33,7 @@ function view(units: U[]): HoldView {
     posY: units.map((u) => u.y * ONE + ONE / 2),
     tunnelIn: units.map((u) => (u.buried ? 3 : -1)),
     isAir: (i) => units[i].air === true,
+    isDown: (i) => units[i].down === true,
   };
 }
 
@@ -38,6 +41,16 @@ function view(units: U[]): HoldView {
 const ZONE: [number, number, number, number] = [20, 20, 10, 10];
 
 describe('zoneHolder (D3)', () => {
+  it('a man down holds nothing and contests nothing (GH-707, the lead 22 Oct)', () => {
+    expect(zoneHolder(view([{ x: 24, y: 24, side: 1, down: true }]), ZONE)).toBe(-1);
+    expect(zoneHolder(view([{ x: 21, y: 25, side: 0 }, { x: 26, y: 25, side: 1, down: true }]), ZONE)).toBe(0);
+    expect(zoneState(view([{ x: 21, y: 25, side: 0 }, { x: 26, y: 25, side: 1, down: true }]), ZONE)).toBe(0);
+    // The one-pass form the runtime calls reads it too.
+    const out = new Int32Array(1);
+    zoneStates(view([{ x: 21, y: 25, side: 0 }, { x: 26, y: 25, side: 1, down: true }]), 40, 40, zoneTileMask(40, 40, [ZONE]), [ZONE], out);
+    expect(out[0]).toBe(0);
+  });
+
   it('an empty zone is held by nobody', () => {
     expect(zoneHolder(view([]), ZONE)).toBe(-1);
     expect(zoneHolder(view([{ x: 5, y: 5, side: 0 }, { x: 50, y: 50, side: 1 }]), ZONE)).toBe(-1);
@@ -189,6 +202,7 @@ describe('zoneStates: one pass over the units, equal to zoneState per zone', () 
       }
       const n = rnd(60);
       const air = new Uint8Array(n);
+      const down = new Uint8Array(n);
       const v: HoldView = {
         entityCount: n,
         alive: Array.from({ length: n }, () => (rnd(5) === 0 ? 0 : 1)),
@@ -199,8 +213,10 @@ describe('zoneStates: one pass over the units, equal to zoneState per zone', () 
         // -1 surface; 0 and 3 buried (0 is the `>= 0` edge).
         tunnelIn: Array.from({ length: n }, () => [-1, -1, -1, 0, 3][rnd(5)]),
         isAir: (i) => air[i] === 1,
+        isDown: (i) => down[i] === 1, // GH-707
       };
       for (let i = 0; i < n; i++) air[i] = rnd(6) === 0 ? 1 : 0;
+      for (let i = 0; i < n; i++) down[i] = rnd(7) === 0 ? 1 : 0;
       const mask = zoneTileMask(w, h, rects);
       const out = new Int32Array(zoneCount);
       zoneStates(v, w, h, mask, rects, out);

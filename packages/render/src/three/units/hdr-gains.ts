@@ -39,6 +39,11 @@ export const HDR_GAINS = Object.freeze({
   // grenade: a DARK round (GH-709 P2): 3.5 (arc) x 0.06 keeps the ember
   // colour about 0.2 of itself, under the bloom threshold -- no glow.
   streakKind: Object.freeze({ rifle: 0.45, mg: 0.6, grenade: 0.06 }),
+  // The grenade's GLINT (the lead, 22 Oct: "a faint glint so it reads at zoom
+  // 1"): its HEAD segment only, at this gain on the same shell colour. 3.5 (arc)
+  // x 0.4 = 1.4, so a full-red channel sits just over the bloom threshold: a
+  // small bright point that blooms faintly, on a body that still does not.
+  grenadeGlint: 0.4,
 });
 
 export type HdrZoneRole = 'core' | 'mid' | 'outer';
@@ -49,6 +54,12 @@ export function muzzleGain(role: HdrZoneRole): number {
 
 export function burstGain(role: HdrZoneRole): number {
   return role === 'core' ? HDR_GAINS.burstCore : role === 'mid' ? HDR_GAINS.burstMid : HDR_GAINS.burstOuter;
+}
+
+/** The factor on the HEAD segment of a shell streak: the grenade's glint, and
+ *  the kind's own `streakKindGain` for every other kind (no glint). */
+export function streakHeadGain(kind: string): number {
+  return kind === 'grenade' ? HDR_GAINS.grenadeGlint : streakKindGain(kind);
 }
 
 /** Per-kind factor on a shell streak's colour (1 for every other kind). */

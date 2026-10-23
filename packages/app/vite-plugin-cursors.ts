@@ -555,6 +555,8 @@ const BARE_NAMES: readonly BareCursorName[] = [
   // neither is ever badged (UNBADGED_NAMES).
   'barrage',
   'smokeScreen',
+  // The Lane A mock's armed patrol (P-B "Beat"). Unbadged: a mode, not an actor.
+  'patrol',
   // GH-707: the rescue's own sight (an alias of `advance` until the Lane A mock). Unbadged.
   'rescue',
   'blocked',

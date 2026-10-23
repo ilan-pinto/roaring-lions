@@ -188,6 +188,17 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { CopyShader } from 'three/addons/shaders/CopyShader.js';
 import { captureComposerView } from './capture-view';
 import { FlashLightManager } from './flash-light';
+import { SupportAircraftManager } from './units/support-aircraft';
+import { ShockRingPool } from './units/shock-ring';
+import {
+  AIR_STRIKE_IMPACT_POWER,
+  BARRAGE_CRATER_TILES,
+  BARRAGE_IMPACT_POWER,
+  BARRAGE_SCORCH_TILES,
+  STRIKE_CRATER_TILES,
+  strikeScorchRadius,
+  supportAirKind,
+} from './support-air';
 import { MuzzleFlashManager, MUZZLE_FLASH_DEFAULT_DURATION_MS } from './units/muzzle-flash';
 import {
   ExplosionBurstManager,
@@ -237,6 +248,8 @@ import {
 import {
   BLAST_EMITTER_ID,
   SHELL_IMPACT_EMITTER_ID,
+  BARRAGE_IMPACT_EMITTER_ID,
+  AIR_STRIKE_IMPACT_EMITTER_ID,
   CLUSTER_AIRBURST_EMITTER_ID,
   STRUCTURE_COLLAPSE_EMITTER_ID,
   COLLAPSE_FLASH_EMITTER_ID,
@@ -444,7 +457,8 @@ import {
   DECAL_PERSISTENT_RENDER_ORDER,
   DECAL_FADING_RENDER_ORDER,
 } from './units/render-order';
-import { unitIsObserved } from './units/observed';
+import { unitIsDrawn, unitIsObserved } from './units/observed';
+import { ownsRoute, routeLevelFor } from '../route-level';
 import { GarrisonBannerBatch, bannerMatrix, bannerSpotFor } from './units/garrison-banner';
 import type { BannerSpot } from './units/banner-placement';
 import { heldBuildings, heldShown } from './units/held-building';
@@ -979,6 +993,12 @@ const SHOULDER_TONE_KEY = 'limestone.2';
  *  every other fallback (VR-08): `vfx.fire`, `scrub.0` (the HP bar's healthy
  *  green, whatever the ratio) and `gunmetal.1` (a building bar's top rung). */
 export const FLASH_LIGHT_FALLBACK = paletteHex('vfx.fire');
+/** GH-748: the flash-pool tag on a fire-support impact's light, which the
+ *  `support-blast` debug layer zeroes. */
+export const SUPPORT_BLAST_TAG = 'support-blast';
+/** GH-748: the air strike's ground shock ring, tiles and ms. */
+export const STRIKE_SHOCK_RING_TILES = 2.2;
+export const STRIKE_SHOCK_RING_MS = 300;
 export const HP_BAR_FALLBACK = paletteHex('scrub.0');
 export const BUILDING_BAR_FALLBACK = paletteHex(MOBILITY_KILL_COLOR_KEY);
 /** The flat muzzle-smoke puff's palette key (polish VR-09). */
@@ -1704,6 +1724,15 @@ export class ThreeRenderer implements Renderer {
    * the gate photographs. See `./debug-layers.ts`'s own entry for it.
    */
   private flashLightsDebugHidden = false;
+  /** GH-748: the aircraft over a fire-support call (`units/support-aircraft.ts`).
+   *  Built with the flash lights, in the constructor. */
+  private supportAircraft!: SupportAircraftManager;
+  /** GH-748: the air strike's ground shock ring. */
+  private shockRings!: ShockRingPool;
+  /** GH-748: the `support-blast` debug layer -- a FLAG, `blast-light`'s
+   *  shape: the flash pool rewrites its lights every frame, so the support
+   *  impacts' own (tagged) lights are zeroed again after each `step`. */
+  private supportBlastDebugHidden = false;
   /**
    * `setDebugLayerVisible('kit', false)` (GH-238). The draw ranges it sets
    * live on the TEMPLATES' geometries, which nothing per-frame writes, so it
@@ -2896,6 +2925,11 @@ export class ThreeRenderer implements Renderer {
     // scene's only MOVING lights; the sun and sky above are the standing
     // ones.
     this.flashLights.addTo(this.scene);
+    // GH-748: the fire-support aircraft and the strike's shock ring. Both
+    // always in the scene and drawing nothing until a call or a strike.
+    this.supportAircraft = new SupportAircraftManager(this.overlayColor('vfx.fire', FLASH_LIGHT_FALLBACK));
+    this.shockRings = new ShockRingPool(this.overlayColor('vfx.white_hot', FLASH_LIGHT_FALLBACK));
+    this.scene.add(this.supportAircraft.group, this.shockRings.group);
     // Same "always present, draws nothing until fed" shape as the FX meshes
     // just above -- both start at drawRange 0 (`beginFrame`/`endFrame`
     // haven't run yet) and stay that way until `updateOverlays`'s first
@@ -3359,6 +3393,8 @@ export class ThreeRenderer implements Renderer {
     // its own `PointLightShadow` never allocates a map, so there is nothing
     // this actually frees today.
     this.flashLights.dispose();
+    this.supportAircraft.dispose();
+    this.shockRings.dispose();
     this.muzzleFlashes.dispose();
     this.explosionBursts.dispose();
     this.collapseFlashBursts.dispose();
@@ -3603,6 +3639,15 @@ export class ThreeRenderer implements Renderer {
     // in shipping code and is the only thing that makes the toggle a
     // measurement rather than the false green `units` once produced.
     if (this.flashLightsDebugHidden) this.zeroFlashLights();
+    // GH-748: the strike's shock ring ages on the same frame clock as the
+    // light it rides with; the support impacts' lights are zeroed AFTER the
+    // step that wrote them while `support-blast` is hidden. The aircraft fly
+    // on the SIM clock, so a paused game or a frozen capture holds them.
+    this.shockRings.step(this.frameDtMs(dtMs));
+    if (this.supportBlastDebugHidden) this.flashLights.zeroTagged(SUPPORT_BLAST_TAG);
+    this.supportAircraft.update(presentationSimMs(this.sim.tickCount, alpha), (x, y) =>
+      groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, y)
+    );
     // GH-279: the refuge ring ages on the same clamped frame clock
     // `frameDtSeconds` feeds every other presentation timer -- never a sim
     // tick -- and BEFORE `updateOverlays` reads it.
@@ -3993,6 +4038,20 @@ export class ThreeRenderer implements Renderer {
         // mesh, and nothing per-frame writes the group's own `visible`.
         // Returns 1.
         return setObjectsVisible(visible, this.supplyRoute.group);
+      case 'support-air':
+        // GH-748: a FLAG, `missiles`' shape -- `SupportAircraftManager.update`
+        // writes the group's `visible` every frame. Returns 1, the group.
+        return this.supportAircraft.setDebugHidden(!visible);
+      case 'support-blast':
+        // GH-748: a FLAG, `blast-light`'s shape for the support impacts' own
+        // (tagged) lights, zeroed again after every `flashLights.step`, plus
+        // the shock-ring pool, which `step` re-asserts the same way. Returns
+        // how many lights and rings it holds now: 0 with no support impact
+        // live, the honest reading for a check to fail on.
+        this.supportBlastDebugHidden = !visible;
+        this.shockRings.setDebugHidden(!visible);
+        if (this.supportBlastDebugHidden) this.flashLights.zeroTagged(SUPPORT_BLAST_TAG);
+        return this.flashLights.countTagged(SUPPORT_BLAST_TAG) + this.shockRings.liveCount;
       case 'garrison-banner':
         // A FLAG, `missiles`' shape: `GarrisonBannerBatch.update` writes the
         // mesh's `visible` every frame. Returns 1, the one mesh.
@@ -4350,7 +4409,7 @@ export class ThreeRenderer implements Renderer {
       const headY = fx.toNumber(head[1]) + 0.5;
       routes.push({
         alive: sim.tnAlive[r] !== 0,
-        contactLevel: sim.tunnelContactLevel(this.viewer, r),
+        contactLevel: routeLevelFor(sim, this.viewer, r),
         ventOpen: sim.tnVentOpen[r] !== 0,
         progressTiles: fx.toNumber(sim.tnProgress[r]),
         lengthTiles: fx.toNumber(sim.tnLength[r]),
@@ -4404,9 +4463,11 @@ export class ThreeRenderer implements Renderer {
     const sim = this.sim;
     const now = presentationSimMs(sim.tickCount, 1) / 1000;
     for (let r = 0; r < sim.tunnelCount; r++) {
-      const level = collapsedRouteLevel(sim.tnAlive[r] !== 0, sim.tunnelContactLevel(this.viewer, r));
-      let held = false;
-      if (level === 2) {
+      const level = collapsedRouteLevel(sim.tnAlive[r] !== 0, routeLevelFor(sim, this.viewer, r));
+      // GH-681: the seat's own route is held for good -- it dug it -- so it
+      // never fades to the lapsed floor the way a found enemy route does.
+      let held = ownsRoute(sim, this.viewer, r);
+      if (level === 2 && !held) {
         for (const t of this.xrayRouteTiles[r]) {
           if (sim.markerSeesTile(this.viewer, t % sim.width, Math.floor(t / sim.width))) {
             held = true;
@@ -4427,7 +4488,14 @@ export class ThreeRenderer implements Renderer {
     occ.length = 0;
     const st = sim.state;
     for (let i = 0; i < this.snapshottedCount; i++) {
-      if (st.alive[i] === 1 && st.tunnelIn[i] >= 0) occ.push([st.tunnelIn[i], i]);
+      if (st.alive[i] !== 1 || st.tunnelIn[i] < 0) continue;
+      // GH-681, the fog audit: only a route this seat may see in full (its
+      // own, or one it has identified) gives up who is inside it. Without
+      // this the occupant list held every buried unit on every route, and
+      // only the bore's eased strength stood between it and the other seat.
+      const r = st.tunnelIn[i];
+      if (collapsedRouteLevel(sim.tnAlive[r] !== 0, routeLevelFor(sim, this.viewer, r)) !== 2) continue;
+      occ.push([r, i]);
     }
     this.tunnelXray.update(presentationSimMs(sim.tickCount, alpha) / 1000, occ);
   }
@@ -4445,7 +4513,7 @@ export class ThreeRenderer implements Renderer {
       // rung. A level-2 route still shows its spoil exactly as a suspected
       // one does: the dirt is real whatever the player knows about it.
       routeLevel: (r) => {
-        const lv = collapsedRouteLevel(sim.tnAlive[r] !== 0, sim.tunnelContactLevel(this.viewer, r));
+        const lv = collapsedRouteLevel(sim.tnAlive[r] !== 0, routeLevelFor(sim, this.viewer, r));
         return lv === 2 ? 1 : lv;
       },
       tunnelUnderTile: (r, x, y) => sim.tunnelUnderTile(r, x, y),
@@ -5654,22 +5722,106 @@ export class ThreeRenderer implements Renderer {
   private onStrike(e: { x: Fx; y: Fx; tick: number; profile: number }): void {
     const sx = fx.toNumber(e.x);
     const sy = fx.toNumber(e.y);
-    const tick = e.tick;
+    // GH-748: a round re-anchors the aircraft flying for its call, so the
+    // one-tick gap between the click and the applied command never shows.
+    this.supportAircraft.onStrike(e.profile, e.tick, sx, sy);
     if (e.profile === FS_MORTAR_BARRAGE) {
-      this.spawnShellLandingAt('mortar', sx, sy);
+      this.spawnSupportImpact(BARRAGE_IMPACT_EMITTER_ID, sx, sy, BARRAGE_IMPACT_POWER, BARRAGE_CRATER_TILES, BARRAGE_SCORCH_TILES, false);
       return;
     }
-    for (let k = 0; k < 18; k++) {
-      const a = tileHash(k * 11 + tick, k * 17 + tick);
-      const b = tileHash(k * 23 + tick, k * 5 + tick);
-      this.spawnFlatFx(
-        sx + (a - 0.5) * 4,
-        sy + (b - 0.5) * 4,
-        k % 3 === 0 ? this.opts.flashColor : this.opts.nearMissColor,
-        10 + a * 14,
-        20 + Math.floor(a * 20)
+    const scorch = strikeScorchRadius(this.retained.elevationLevels, this.sim.width, this.sim.height, sx, sy);
+    this.spawnSupportImpact(AIR_STRIKE_IMPACT_EMITTER_ID, sx, sy, AIR_STRIKE_IMPACT_POWER, STRIKE_CRATER_TILES, scorch, true);
+  }
+
+  /**
+   * GH-748: one fire-support detonation -- a barrage round or the air strike.
+   * `spawnShellLandingAt`'s four calls (burst, light, shake, hit-stop) through
+   * the call's OWN emitter at its own power, then the crater and scorch at the
+   * approved radii rather than the `0.15 + power` rule, which would put a
+   * 0.95-tile crater under a mortar round.
+   *
+   * The ground marks are world state, so they are stamped even while `quiet`
+   * (a seat catching up on a log); everything else is a one-shot burst and is
+   * dropped then (`quiet.ts`: `strike` is no longer burst-only).
+   *
+   * Without its emitter nothing but the marks is thrown -- no light, no
+   * shake, no ring -- which is what makes an unregistered emitter read as 0
+   * on the `support-blast` toggle rather than as a smaller blast.
+   */
+  private spawnSupportImpact(
+    emitterId: string,
+    tx: number,
+    ty: number,
+    power: number,
+    craterTiles: number,
+    scorchTiles: number,
+    shockRing: boolean
+  ): void {
+    this.stampGroundDecal(this.persistentStamp('crater', tx, ty, craterTiles));
+    this.stampGroundDecal(this.persistentStamp('scorch', tx, ty, scorchTiles));
+    if (this.quiet) return;
+    const em = this.emitterLibrary.byName(emitterId);
+    if (em === null) return;
+    const yawTurns = tileHash(Math.floor(tx), Math.floor(ty));
+    this.spawnCollapseFx(emitterId, tx, ty, power, yawTurns);
+    const worldY = groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, tx, ty);
+    const light = blastLightSpec(em, power);
+    if (light) {
+      this.flashLights.spawn(
+        tx,
+        ty,
+        worldY,
+        light,
+        this.overlayColor(light.color ?? 'vfx.fire', FLASH_LIGHT_FALLBACK),
+        SUPPORT_BLAST_TAG
       );
     }
+    this.shakeState = pushShake(this.shakeState, blastShake(em, power), tx, ty);
+    this.hitStop = requestHitStop(this.hitStop, blastHitStopMs(em, power));
+    if (shockRing) this.shockRings.spawn(tx, worldY, ty, STRIKE_SHOCK_RING_TILES, STRIKE_SHOCK_RING_MS);
+  }
+
+  /**
+   * `Renderer.supportCalled` (`api.ts`, GH-748): the app accepted a
+   * fire-support call at (x, y), tiles, on sim tick `tick`. A barrage or an
+   * air strike starts its aircraft; the smoke screen and the drone sweep fly
+   * nothing. The aircraft come from the friendly side: the centroid of the
+   * viewer's living ground units, or a fixed default when there are none.
+   * Presentation only -- nothing here reaches the sim.
+   */
+  supportCalled(call: string, x: number, y: number, tick: number): void {
+    const kind = supportAirKind(call);
+    if (kind === null) return;
+    const st = this.sim.state;
+    let sumX = 0;
+    let sumY = 0;
+    let n = 0;
+    for (let i = 0; i < this.snapshottedCount; i++) {
+      if (st.alive[i] === 0 || !isOwnSide(st.side[i], this.viewer)) continue;
+      if (this.sim.unitTypes[st.typeIdx[i]].isAir) continue;
+      sumX += this.curX[i];
+      sumY += this.curY[i];
+      n++;
+    }
+    this.supportAircraft.call(kind, tick, x, y, n > 0 ? sumX / n : null, n > 0 ? sumY / n : null);
+  }
+
+  /** GH-748: loads the support aircraft's two meshes (`main.ts`, after the
+   *  first frame, on a mission that can call fire support). */
+  async loadSupportAircraftMeshes(heliUrl: string, jetUrl: string): Promise<void> {
+    this.supportAircraft.decoder = this.imageDecoder;
+    await this.supportAircraft.load(heliUrl, jetUrl);
+  }
+
+  /** GH-748: what the support layers hold right now (a harness read). */
+  debugSupport(): { flights: number; heli: boolean; jet: boolean; warm: boolean; rings: number; lights: number } {
+    return {
+      flights: this.supportAircraft.flightCount,
+      warm: this.supportAircraft.isWarm,
+      ...this.supportAircraft.ready,
+      rings: this.shockRings.liveCount,
+      lights: this.flashLights.countTagged(SUPPORT_BLAST_TAG),
+    };
   }
 
   /**
@@ -6753,7 +6905,7 @@ export class ThreeRenderer implements Renderer {
       if (this.meshUnitTemplates.has(type.id) || this.vehicleMeshTemplates.has(this.vehicleTemplateKey(type.id, st.side[i]))) continue;
       const x = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
       const z = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
-      if (this.unitsDebugHidden || !unitIsObserved(st.side[i], this.viewer, x, z, this.fogVisibleAt)) continue;
+      if (this.unitsDebugHidden || !unitIsDrawn(st.tunnelIn[i], st.side[i], this.viewer, x, z, this.fogVisibleAt)) continue;
       const cls = RING_CLASS_OVERRIDE[type.id] ?? ringClassOf(type);
       const lift = type.isAir ? this.airLiftY(i, alpha) : 0;
       const facing = fx.toNumber(st.facing[i]);
@@ -7825,8 +7977,9 @@ export class ThreeRenderer implements Renderer {
       // The viewer's own side is always drawn, matching `entityFrame`'s
       // own `contactLevel` short-circuit for it -- everything else defers to
       // real fog-of-war, exactly like `updateUnits`'s own `isVisible` gate.
+      // GH-681: a buried unit has no body on the surface, for any viewer.
       entity.root.visible =
-        !this.unitsDebugHidden && unitIsObserved(st.side[i], this.viewer, wx, wy, this.fogVisibleAt);
+        !this.unitsDebugHidden && unitIsDrawn(st.tunnelIn[i], st.side[i], this.viewer, wx, wy, this.fogVisibleAt);
 
       const anim: UnitAnimInput = {
         alive: st.alive[i],
@@ -8420,7 +8573,7 @@ export class ThreeRenderer implements Renderer {
       // `ThreeRenderer.vehicle-weight.test.ts` pins the sign in world space.
       entity.root.rotation.set(-roll, meshYawFromFacing(facingNorm), pitch, 'YZX');
       entity.root.visible =
-        !this.unitsDebugHidden && unitIsObserved(st.side[i], this.viewer, px, py, this.fogVisibleAt);
+        !this.unitsDebugHidden && unitIsDrawn(st.tunnelIn[i], st.side[i], this.viewer, px, py, this.fogVisibleAt);
 
       if (entity.turretPivot) {
         const target = this.resolveTurretTarget(i);
@@ -10500,6 +10653,8 @@ export class ThreeRenderer implements Renderer {
       // now skipped..."), ported here separately because this loop is
       // separate (see this method's own top comment for why).
       if (!isOwnSide(side, this.viewer) && !this.isVisible(ix, iy)) continue;
+      // GH-681: nor for a buried unit, own or not -- no body, no bar, no ring.
+      if (st.tunnelIn[i] >= 0) continue;
 
       const type = this.sim.unitTypes[st.typeIdx[i]];
       const r = unitOverlayRadiusPx(type.isSoft);

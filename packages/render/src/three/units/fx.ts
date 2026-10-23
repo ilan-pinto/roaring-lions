@@ -358,7 +358,7 @@
  * puffs -- to one tier or the other by its declared `layer`.
  */
 import * as THREE from 'three';
-import { HDR_GAINS, streakKindGain } from './hdr-gains';
+import { HDR_GAINS, streakHeadGain, streakKindGain } from './hdr-gains';
 import type { ParticleSystem } from '../../vfx';
 import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, isoX, isoY } from '../../project';
 import { screenOffsetToWorld, hexToLinear } from '../terrain/shared';
@@ -1057,7 +1057,12 @@ export function writeShellInstances(
     // A rifle or mg streak glows less than a tank round (HDR_GAINS.streakKind).
     const kindGain = streakKindGain(s.kind);
     const r = r0 * kindGain, g = g0 * kindGain, b = b0 * kindGain;
+    // The head segment may carry a glint (the grenade's: a dark round with a
+    // small bright point at its nose). Same palette colour, its own gain.
+    const headGain = streakHeadGain(s.kind);
+    const hr = r0 * headGain, hg = g0 * headGain, hb = b0 * headGain;
     for (let seg = 0; seg < SHELL_TRAIL_SEGMENTS; seg++) {
+      const isHead = seg === SHELL_TRAIL_SEGMENTS - 1;
       const fA = seg / SHELL_TRAIL_SEGMENTS;
       const fB = (seg + 1) / SHELL_TRAIL_SEGMENTS;
       const alphaA = SHELL_TAIL_ALPHA + (1 - SHELL_TAIL_ALPHA) * fA;
@@ -1075,9 +1080,9 @@ export function writeShellInstances(
       out.positions.set(quad, count * 12);
       for (let v = 0; v < 4; v++) {
         const ci = count * 12 + v * 3;
-        out.colors[ci] = r;
-        out.colors[ci + 1] = g;
-        out.colors[ci + 2] = b;
+        out.colors[ci] = isHead ? hr : r;
+        out.colors[ci + 1] = isHead ? hg : g;
+        out.colors[ci + 2] = isHead ? hb : b;
       }
       // Vertex order a0, a1, b1, b0: the first two are the tail end.
       out.alphas[count * 4] = alphaA;

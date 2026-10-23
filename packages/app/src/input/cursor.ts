@@ -41,12 +41,16 @@ export type CursorName =
   | 'garrison'
   | 'demolish'
   | 'charge'
+  /** GH-681: foot units will go down the seat's own route. Drawn by the
+   *  `garrison` art (`CURSOR_ALIAS`): going inside, as into a building. */
+  | 'tunnel-enter'
   | 'mount'
   | 'dismount'
   | 'smoke'
   | 'barrage'
   | 'smokeScreen'
-  | 'pinned';
+  | 'pinned'
+  | 'patrol';
 
 /** What the resolution cannot know, because resolvePointer never looks at
  *  enemy positions or tile passability. The caller has both already. */
@@ -73,6 +77,10 @@ export interface CursorHints {
    *  take a rally at the point under the pointer (`canSetRally`): `ok` draws
    *  the move sight, `refused` the blocked cursor. Absent: not armed. */
   armedRally?: 'ok' | 'refused';
+  /** Patrol is armed (Lane A mock, Q9/Q10), and whether the point under the
+   *  pointer may take a waypoint (`patrolPointOk`): `ok` draws the patrol
+   *  sight, `refused` the blocked cursor. Absent: not armed. */
+  armedPatrol?: 'ok' | 'refused';
 }
 
 /** Names that describe the target or the mode, never the actor: nothing
@@ -95,7 +103,9 @@ export type UnbadgedName =
   | 'barrage'
   | 'smokeScreen'
   | 'pinned'
-  | 'rescue';
+  | 'patrol'
+  | 'rescue'
+  | 'tunnel-enter';
 
 export const UNBADGED_NAMES: ReadonlySet<CursorName> = new Set<UnbadgedName>([
   'default',
@@ -113,8 +123,13 @@ export const UNBADGED_NAMES: ReadonlySet<CursorName> = new Set<UnbadgedName>([
   // Describes the units' state, not who is acting: a whole order pinned
   // means nobody is, so a role badge would name an actor that does not move.
   'pinned',
+  // A mode the player chose (Lane A mock): an armed patrol reads the same whoever walks it.
+  'patrol',
   // GH-707: describes the target (a wounded man), and the only actor is a medic.
   'rescue',
+  // GH-681: an alias of the bare `garrison` rule, which has no badged form to
+  // answer for it -- and the actors are foot units by construction.
+  'tunnel-enter',
 ]);
 
 /** How many frames a cursor steps through, and how long each frame holds. */
@@ -143,6 +158,9 @@ const SIGHT_OF: Readonly<Partial<Record<CursorName, SightOrderId>>> = {
   smoke: 'smoke',
   barrage: 'barrage',
   smokeScreen: 'smokeScreen',
+  // The Lane A mock's P-B "Beat" (approved 22 Oct): armed patrol, so it reads apart from
+  // armed Move and Set rally, which both draw the move sight.
+  patrol: 'patrol',
   // GH-707: the rescue's own sight (the Lane A mock's R-A "Plus", approved 22 Oct). It was a
   // CURSOR_ALIAS of `advance` until then, which drew a pick-up as an attack.
   rescue: 'rescue',
@@ -235,6 +253,7 @@ export const ANIMATED_CURSORS: Readonly<Partial<Record<CursorName, CursorAnimati
   strike: anim('strike'),
   barrage: anim('barrage'),
   smokeScreen: anim('smokeScreen'),
+  patrol: anim('patrol'),
   smoke: anim('smoke'),
   charge: { frames: 4, intervalMs: 200 },
   demolish: { frames: 4, intervalMs: 300 },
@@ -248,9 +267,13 @@ export const ANIMATED_CURSORS: Readonly<Partial<Record<CursorName, CursorAnimati
  *  (`attack-soft` is `advance-soft`'s image), and reads its own key so a
  *  targeted order is told from an attack-move to the tile. The plugin answers
  *  both keys with one rule (`vite-plugin-cursors.ts`). */
-export const CURSOR_ALIAS: Readonly<{ moveOnly: 'move'; attack: 'advance' }> = {
+export const CURSOR_ALIAS: Readonly<{ moveOnly: 'move'; attack: 'advance'; 'tunnel-enter': 'garrison' }> = {
   moveOnly: 'move',
   attack: 'advance',
+  // GH-681: no new art -- going below reads as going inside (the lead's
+  // reuse-not-draw rule, as for `attack`). Its own key, so `cursorKey()` and
+  // a test tell "enter the tunnel" from "garrison the building".
+  'tunnel-enter': 'garrison',
 };
 
 export { SIGHT_OF };
@@ -273,6 +296,7 @@ export function winningVerb(res: Resolution, hints: CursorHints): CursorName | n
   const has = (kind: string): boolean => res.intents.some((i) => i.kind === kind);
   if (has('demolish')) return 'demolish';
   if (has('chargeTunnel')) return 'charge';
+  if (has('enterTunnel')) return 'tunnel-enter';
   if (has('rescue')) return 'rescue';
   // GH-420: a targeted order names the cursor over an attack-move to the tile.
   if (has('attack')) return 'attack';
@@ -308,6 +332,10 @@ export function cursorFor(res: Resolution, hints: CursorHints): CursorName {
   // runtime would take it, blocked where it would refuse -- a building, a
   // rock wall, off the map.
   if (hints.armedRally !== undefined) return hints.armedRally === 'ok' ? 'move' : 'blocked';
+  // An armed patrol owns the click the same way (arming it disarms the rest): the next click is
+  // a waypoint, whatever is under the pointer -- the patrol sight where one may go, blocked where
+  // `patrolPointOk` refuses (rock, a wall, off the map).
+  if (hints.armedPatrol !== undefined) return hints.armedPatrol === 'ok' ? 'patrol' : 'blocked';
   // An armed smoke order is the same argument one rung down (Q2): the next
   // click lays a screen whatever is under the pointer. Below armed support,
   // because only one of the two can spend the click and a support call is
@@ -340,6 +368,9 @@ export function cursorFor(res: Resolution, hints: CursorHints): CursorName {
   // selected. The dim X, the same look as K-08 below -- `protected` is the
   // protected-site cursor and would tell the player to hold Alt.
   if (res.cantPenetrate) return 'blocked';
+  // GH-681: an own route end nobody selected can go down (all wheeled or
+  // airborne): the click is refused, and the cursor says so before it.
+  if (res.tunnelRefused) return 'blocked';
   // K-08: ground nobody selected can enter reads `blocked`, rock or map edge.
   if (res.groundRefused) return 'blocked';
   // Nothing selected means nothing will happen. Warning about rules of
@@ -389,8 +420,11 @@ export function idsOf(intent: PlayerIntent): number[] {
     case 'garrison':
     case 'demolish':
     case 'chargeTunnel':
+    case 'enterTunnel':
+    case 'vent':
     case 'smoke':
     case 'halt':
+    case 'patrol':
       return intent.ids;
     case 'mount':
       return intent.riders;
@@ -417,6 +451,8 @@ function intentVerb(intent: PlayerIntent, hints: CursorHints): CursorName | null
       return 'demolish';
     case 'chargeTunnel':
       return 'charge';
+    case 'enterTunnel':
+      return 'tunnel-enter';
     case 'order':
       return hints.hostile ? 'advance' : 'move';
     case 'attack':

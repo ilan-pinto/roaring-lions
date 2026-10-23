@@ -11,14 +11,14 @@
 // a realistic prelude (the first squad has gone east through the wall and into
 // the rocks, which delivers the second squad at `rp_west` and the jeep), does
 // what each beat's text asks, and requires each beat to clear on the lesson --
-// not on clear_the_gate's 90 s patience clock. The controls each remove one
+// not on clear_the_gate's 120 s patience clock (90 s until GH-707 P3). The controls each remove one
 // piece and are required to fail.
 //
 // Known and accepted (review, 22 Oct): the man by the gate pauses the camp
 // only if the second squad is still on the line when the first reaches the
 // muster. A player who sets the rally more than ~15 s after the second click
 // finds the camp idle when he appears, sees no pause, and clear_the_gate ends
-// on its 90 s clock -- the lesson is missed, nothing stalls. The same happens
+// on its 120 s clock -- the lesson is missed, nothing stalls. The same happens
 // if anyone walks into z_muster before beat 9 and spawns him early.
 import { describe, expect, it } from 'vitest';
 import { applyTerrain, maps, missions, parseMap, structures as structureCatalogue, units } from '@lions/data';
@@ -185,7 +185,7 @@ function walkCamp(
   // five seconds, the nearest squad is sent at the man by the gate.
   let pausedAt = -1;
   let sent = false;
-  const b10 = runBeat(w, tut, 'clear_the_gate', 120, (t) => {
+  const b10 = runBeat(w, tut, 'clear_the_gate', 150, (t) => {
     if (pausedAt < 0 && w.edges.some((e) => e.edge === 'paused')) pausedAt = w.sim.tickCount;
     if (opts.send !== false && !sent && pausedAt >= 0 && w.sim.tickCount - pausedAt >= 5 * TICKS_PER_SECOND) {
       const digger = w.ids('digger_crew', 1).find((d) => fx.toNumber(w.sim.state.posX[d]) < 6);
@@ -231,8 +231,8 @@ describe('the tutorial camp beats in the world (GH-184)', () => {
     expect(r.beat8, 'call_them_up never cleared on two builds').not.toBeNull();
     expect(r.beat9, 'rally_point never cleared on a rally').not.toBeNull();
     expect(r.beat10, 'clear_the_gate never cleared').not.toBeNull();
-    // On the lesson, not on the 90 s patience clock.
-    expect(r.beat10 as number).toBeLessThan(90);
+    // On the lesson, not on the 120 s patience clock (raised from 90 by the lead, GH-707 P3).
+    expect(r.beat10 as number).toBeLessThan(120);
     // The line really paused and resumed (red with the man moved out of the
     // radius, or the trigger on another zone). How long it stood paused is
     // printed under CAMP_WALK_REPORT (22-23 s on these seeds) and NOT gated:
@@ -261,7 +261,7 @@ describe('the tutorial camp beats in the world (GH-184)', () => {
     const r = walkCamp(w, { rally: [2.5, 30.5] });
     expect(r.beat9).not.toBeNull();
     expect(w.edges.some((e) => e.edge === 'paused')).toBe(false);
-    expect(r.beat10 as number).toBeGreaterThanOrEqual(90);
+    expect(r.beat10 as number).toBeGreaterThanOrEqual(120);
   });
 
   it('control: the same man seven tiles further out never pauses the camp', () => {
@@ -272,6 +272,6 @@ describe('the tutorial camp beats in the world (GH-184)', () => {
     });
     const r = walkCamp(w);
     expect(w.edges.some((e) => e.edge === 'paused')).toBe(false);
-    expect(r.beat10 as number).toBeGreaterThanOrEqual(90);
+    expect(r.beat10 as number).toBeGreaterThanOrEqual(120);
   });
 });

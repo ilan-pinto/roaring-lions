@@ -4,6 +4,9 @@ export declare const VERSUS_SEATS: Record<string, { friendly: [number, number]; 
 export declare const CAMP_REACH: number;
 export declare const OPEN_SYMBOLS: Set<string>;
 export declare const MAX_RATE_PER_MIN: number;
+export declare const VENT_MIN_DIST: number;
+export declare const MAX_TUNNELS: number;
+export declare const MAX_CAPACITY: number;
 export declare function anchorsOf(map: {
   id: string;
   markers?: Record<string, number[]>;

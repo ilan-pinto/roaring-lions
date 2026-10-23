@@ -212,7 +212,7 @@ describe('attack (GH-420)', () => {
 describe('ANIMATED_CURSORS follows the approved sheet', () => {
   it('animates the wired sights at ORDER_SIGHT\'s own frame counts and rates, plus charge and demolish', () => {
     expect(Object.keys(ANIMATED_CURSORS).sort()).toEqual(
-      ['advance', 'attack', 'barrage', 'charge', 'demolish', 'move', 'moveOnly', 'rescue', 'smoke', 'smokeScreen', 'strike', 'sweep']
+      ['advance', 'attack', 'barrage', 'charge', 'demolish', 'move', 'moveOnly', 'patrol', 'rescue', 'smoke', 'smokeScreen', 'strike', 'sweep']
     );
     for (const [name, id] of Object.entries(SIGHT_OF)) {
       const spec = ORDER_SIGHT[id];
@@ -229,6 +229,7 @@ describe('ANIMATED_CURSORS follows the approved sheet', () => {
       smoke: 'smoke',
       barrage: 'barrage',
       smokeScreen: 'smokeScreen',
+      patrol: 'patrol',
       rescue: 'rescue',
     });
     // The two housing animations keep their shipped rates (Q1).
@@ -567,7 +568,7 @@ describe('the armed cursor of each support kind (S-F)', () => {
   // `barrage: anim('strike')` back in ANIMATED_CURSORS reddens the third line
   // (strike is 6 x 267 ms, the barrage 6 x 250).
   it('draws the barrage and the screen with sights of their own, not the strike\'s and the smoke order\'s', () => {
-    expect(CURSOR_ALIAS).toEqual({ moveOnly: 'move', attack: 'advance' });
+    expect(CURSOR_ALIAS).toEqual({ moveOnly: 'move', attack: 'advance', 'tunnel-enter': 'garrison' });
     expect({ barrage: SIGHT_OF.barrage, smokeScreen: SIGHT_OF.smokeScreen }).toEqual({ barrage: 'barrage', smokeScreen: 'smokeScreen' });
     expect(ANIMATED_CURSORS.barrage).toEqual({ frames: 6, intervalMs: 250 });
     expect(ANIMATED_CURSORS.smokeScreen).toEqual({ frames: 6, intervalMs: 300 });

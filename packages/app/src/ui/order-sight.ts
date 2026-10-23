@@ -95,6 +95,7 @@ export type SightOrderId =
   | 'strike'
   | 'barrage'
   | 'smokeScreen'
+  | 'patrol'
   | 'rescue';
 export type OrderFamily = 'manoeuvre' | 'offensive' | 'control' | 'obscurant' | 'transport' | 'aid';
 
@@ -193,6 +194,9 @@ export const ORDER_SIGHT: Readonly<Record<SightOrderId, OrderSightSpec>> = {
   // only through the 2-decimal rounding; 0.75 is full by construction.
   barrage: { family: 'offensive', main: ORDER_FAMILY_COLOR_KEY.offensive, accent: 'vfx.ember', periodMs: 1500, phases: phasesFrom(0.75, 6) },
   smokeScreen: { family: 'obscurant', main: ORDER_FAMILY_COLOR_KEY.obscurant, accent: 'gunmetal.1', periodMs: 1800, phases: phasesFrom(0.75, 6) },
+  // Patrol P-B "Beat" (the Lane A mock, approved 22 Oct): manoeuvre, so lime like move and
+  // sweep. Rest 0.1: both heads on the straights, neither on a bend's beat.
+  patrol: { family: 'manoeuvre', main: ORDER_FAMILY_COLOR_KEY.manoeuvre, accent: 'vfx.white_hot', periodMs: 1800, phases: phasesFrom(0.1, 4) },
   // GH-707: R-A "Plus" (the Lane A mock, approved 22 Oct). Rest 0.6: the plus full and in the
   // family main, both hands closed on it.
   rescue: { family: 'aid', main: ORDER_FAMILY_COLOR_KEY.aid, accent: 'vfx.white_hot', periodMs: 1300, phases: phasesFrom(0.6, 4) },
@@ -422,6 +426,62 @@ function surroundSmokeScreen(t: number, p: SightPaint): string {
   return out;
 }
 
+/** A point on a stadium's centre line and its heading, `u` in [0,1) of the
+ *  perimeter, clockwise from the top straight's left end. */
+function stadiumPoint(x0: number, x1: number, cy: number, rr: number, u: number): { x: number; y: number; ang: number } {
+  const L = x1 - x0 - 2 * rr;
+  const per = 2 * L + 2 * Math.PI * rr;
+  let s = (((u % 1) + 1) % 1) * per;
+  const lx = x0 + rr;
+  const rx = x1 - rr;
+  if (s < L) return { x: lx + s, y: cy - rr, ang: 0 };
+  s -= L;
+  if (s < Math.PI * rr) {
+    const a = -Math.PI / 2 + s / rr;
+    return { x: rx + rr * Math.cos(a), y: cy + rr * Math.sin(a), ang: a + Math.PI / 2 };
+  }
+  s -= Math.PI * rr;
+  if (s < L) return { x: rx - s, y: cy + rr, ang: Math.PI };
+  s -= L;
+  const a = Math.PI / 2 + s / rr;
+  return { x: lx + rr * Math.cos(a), y: cy + rr * Math.sin(a), ang: a + Math.PI / 2 };
+}
+
+/** A triangle head pointing along `ang` (radians), tip at (x, y), half-width `h`. */
+function headAlong(x: number, y: number, ang: number, h: number): P[] {
+  const c = Math.cos(ang);
+  const s = Math.sin(ang);
+  const bx = x - c * h * 1.1;
+  const by = y - s * h * 1.1;
+  return [
+    [x, y],
+    [bx - s * h, by + c * h],
+    [bx + s * h, by - c * h],
+  ];
+}
+
+/** Patrol P-B, "Beat" (the Lane A mock, approved 22 Oct): a closed track in
+ *  the family main at 0.55, with two heads walking it half a lap apart --
+ *  round and round, for a beat of 2 to 4 points. A head on a bend (a
+ *  waypoint's turn) takes the accent. */
+function surroundPatrol(t: number, p: SightPaint): string {
+  const x0 = 1.5;
+  const x1 = 22.5;
+  // The mock's 0.6-9.6 track with 2.7 heads put the bottom head at y 11.65, over the aim's
+  // mil marks (10.75); a 1.2-9 track with 2.0 heads stays above them.
+  const y0 = 1.2;
+  const y1 = 9;
+  const rr = (y1 - y0) / 2;
+  const cy = (y0 + y1) / 2;
+  let out = fillEo(stadiumD(x0, y0, x1, y1) + ' ' + stadiumD(x0 + 1.3, y0 + 1.3, x1 - 1.3, y1 - 1.3), 0.55, p.main);
+  for (const off of [0, 0.5]) {
+    const q = stadiumPoint(x0 + 0.65, x1 - 0.65, cy, rr - 0.65, t + off);
+    const turning = Math.abs(Math.sin(q.ang)) > 0.5;
+    out += fill(poly(headAlong(q.x + Math.cos(q.ang) * 2, q.y + Math.sin(q.ang) * 2, q.ang, 2)), 1, turning ? p.accent : p.main);
+  }
+  return out;
+}
+
 /** Rescue R-A, "Plus" (the Lane A mock, approved 22 Oct): the minimap's own wounded plus
  *  (`minimap.ts`'s `wounded` shape), drawn in from a third of its size, a white-hot beat as it
  *  lands, then held in the family main while two short hands close on it from either side. One
@@ -458,6 +518,7 @@ const SURROUND: Readonly<Record<SightOrderId, (t: number, p: SightPaint) => stri
   strike: surroundStrike,
   barrage: surroundBarrage,
   smokeScreen: surroundSmokeScreen,
+  patrol: surroundPatrol,
   rescue: surroundRescue,
 };
 
@@ -512,6 +573,8 @@ export const ORDER_MARK_BOUNDS: Readonly<Record<SightOrderId, readonly [number, 
   strike: [0, 0, 24, 24],
   barrage: [0, 0.5, 24, 9.5],
   smokeScreen: [1.5, 1, 22.5, 10.5],
+  // Measured off the rest body (track 1.5-22.5 x 1.2-9; heads to y -0.15 and 10.35), rounded out.
+  patrol: [1.5, -0.25, 22.5, 10.5],
   // GH-707: computed from the rest body (plus 7.6-16.4 x 0.6-9.4; hands 3.2-20.8 x 4.11-5.89),
   // rounded outward to the quarter unit.
   rescue: [3, 0.5, 21, 9.5],

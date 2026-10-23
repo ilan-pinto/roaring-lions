@@ -49,6 +49,10 @@ import type { FlashLightSpec } from './flash-light';
 export const BLAST_EMITTER_ID = 'catastrophic_kill';
 /** The mortar/rocket landing emitter, scaled at the caller's own `impactPower`. */
 export const SHELL_IMPACT_EMITTER_ID = 'shell_impact';
+/** GH-748: one round of the mortar barrage (`data/vfx/barrage_impact.json`). */
+export const BARRAGE_IMPACT_EMITTER_ID = 'barrage_impact';
+/** GH-748: the air strike's detonation (`data/vfx/air_strike_impact.json`). */
+export const AIR_STRIKE_IMPACT_EMITTER_ID = 'air_strike_impact';
 /** GH-709 (E3): the carrier shell of a cluster round opening in the air,
  *  scaled at `CLUSTER_BURST_POWER` (`units/cluster-burst.ts`). Light only: no
  *  shake and no hit-stop, because twelve bomblets and a barrage of rounds

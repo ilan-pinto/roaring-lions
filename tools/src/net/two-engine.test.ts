@@ -203,7 +203,7 @@ describe('CI runs the check so that it can judge three engines', () => {
 // N3 Task 8: every engine also plays the economy-room stream, and each one is held to
 // what NODE computed for it -- not merely to its peers.
 describe('two-engine verdict: the economy stream (N3 Task 8)', () => {
-  const NODE: EconomyReading = { digests: [[19, 11], [39, 22], [59, 33]], built: [3, 3], droppedTicks: [100], accepted: 16 };
+  const NODE: EconomyReading = { digests: [[19, 11], [39, 22], [59, 33]], built: [3, 3], droppedTicks: [20, 100], accepted: 16, tunnel: { surfaced: 4, below: 4 } };
   const eco = (over: Partial<EconomyReading> = {}): EconomyReading => ({ ...NODE, digests: NODE.digests.map(([t, d]) => [t, d]), ...over });
   const three = (b: EconomyReading | undefined, c: EconomyReading | undefined = eco()) => ({
     chromium: at(5, { economy: eco() }), firefox: at(5, { economy: b }), webkit: at(5, { economy: c }),
@@ -236,6 +236,8 @@ describe('two-engine verdict: the economy stream (N3 Task 8)', () => {
     expect(economyMismatch({ webkit: at(5, { economy: eco({ built: [3, 2] }) }) }, NODE)).toMatch(/webkit built \[3,2\]/);
     expect(economyMismatch({ webkit: at(5, { economy: eco({ droppedTicks: [] }) }) }, NODE)).toMatch(/webkit dropped \[\]/);
     expect(economyMismatch({ webkit: at(5, { economy: eco({ accepted: 17 }) }) }, NODE)).toMatch(/accepted 17/);
+    expect(economyMismatch({ webkit: at(5, { economy: eco({ tunnel: { surfaced: 4, below: 3 } }) }) }, NODE)).toMatch(/webkit read the tunnel path/);
+    expect(economyMismatch({ webkit: at(5, { economy: eco({ tunnel: { surfaced: 0, below: 4 } }) }) }, NODE)).toMatch(/webkit read the tunnel path/);
     expect(economyMismatch({ webkit: at(5, { economy: eco() }) }, NODE)).toBeNull();
   });
 
