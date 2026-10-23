@@ -247,7 +247,8 @@ function widenSpan(route: ArrayLike<number>, w: number, px: number, py: number, 
 
 /** A living surface ground unit: the only kind that interdicts or contests. */
 function onGround(view: HoldView, i: number): boolean {
-  return view.alive[i] !== 0 && view.tunnelIn[i] < 0 && !view.isAir(i);
+  // GH-707: a man down neither interdicts a corridor nor contests an enemy who does.
+  return view.alive[i] !== 0 && view.tunnelIn[i] < 0 && !view.isAir(i) && view.isDown?.(i) !== true;
 }
 
 /** Is route `r` stocked by the enemy: a living enemy buried in it, or an enemy digger? */

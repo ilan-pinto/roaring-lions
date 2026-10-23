@@ -112,7 +112,19 @@ export function buildWorld(capacity: number): WorldSetup {
   }
 
   const typeOf = new Map<string, number>();
-  for (const u of Object.values(units) as UnitTypeJson[]) typeOf.set(u.id, sim.addUnitType(u));
+  // `PERF_NO_WOUNDS=1` registers every type without `hull.wounds`/`hull.figures` (GH-707 P3): the
+  // wounds-off arm of the tick-cost comparison in docs/PERFORMANCE.md. Unset, the shipped data.
+  const noWounds = process.env.PERF_NO_WOUNDS === '1';
+  for (const u of Object.values(units) as UnitTypeJson[]) {
+    let reg = u;
+    if (noWounds && (u.hull.wounds !== undefined || u.hull.figures !== undefined)) {
+      const { wounds: _w, figures: _f, ...hull } = u.hull;
+      void _w;
+      void _f;
+      reg = { ...u, hull };
+    }
+    typeOf.set(u.id, sim.addUnitType(reg));
+  }
 
   return { sim, map, typeOf };
 }

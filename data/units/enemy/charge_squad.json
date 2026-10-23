@@ -16,7 +16,9 @@
       "rear": 0
     },
     "crew": 2,
-    "suppression_resistance": 0.85
+    "suppression_resistance": 0.85,
+    "figures": 2,
+    "wounds": { "wound_chance": 0.6, "bleed_s": 60, "type": "wounded_sarim" }
   },
   "mobility": {
     "speed_tiles_s": 1.9,

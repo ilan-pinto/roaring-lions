@@ -208,3 +208,75 @@ describe('running gear on the roster (contract v7)', () => {
     expect(air.filter((id) => id in RUNNING_GEAR)).toEqual([]);
   });
 });
+
+// GH-707 P3: `hull.figures` mirrors the GLB's figure count (the sim must not read
+// art), and every foot team carries `hull.wounds`. The man count is read from the
+// BYTES, by a rule that imports nothing from the code under test: rig.py gives each
+// man one `<prefix>_death_root` node (his prone body), which counts him once however
+// many pose variants (`<prefix>w_`, `<prefix>k_`) he also carries -- `extras.
+// rl_figures` cannot be used, it is empty or partial on several teams (sniper_team,
+// atgm_cell, mortar_team ...). A file with no death root (a smooth-skinned Meshy
+// figure: the civilians, the wounded) counts its hip bones, `Hips` or `<prefix>_pelvis`.
+function glbMen(file: string): number {
+  const names = ((glbJson(file) as { nodes?: { name?: string }[] }).nodes ?? []).map((n) => n.name ?? '');
+  const deathRoots = names.filter((n) => n.endsWith('_death_root')).length;
+  if (deathRoots > 0) return deathRoots;
+  return names.filter((n) => n === 'Hips' || /^[a-z0-9]+_pelvis$/.test(n)).length;
+}
+
+interface WoundUnit {
+  id: string;
+  role?: string;
+  hull: { figures?: number; wounds?: { type: string; in_place?: boolean } };
+  mobility?: { domain?: string; wheeled?: boolean };
+}
+
+function woundUnits(): WoundUnit[] {
+  return walkJson(path.join(REPO, 'data', 'units')).map((f) => JSON.parse(readFileSync(f, 'utf8')) as WoundUnit);
+}
+
+describe('hull.figures and hull.wounds on the roster (GH-707 P3)', () => {
+  const all = woundUnits();
+  const byId = new Map(all.map((u) => [u.id, u]));
+
+  it('every hull.figures equals the men its GLB draws (each civilian variant: 1)', () => {
+    const declared = all.filter((u) => u.hull.figures !== undefined);
+    expect(declared.length, 'reads real figure declarations (vacuity guard)').toBeGreaterThan(15);
+    const got: Record<string, number[]> = {};
+    const want: Record<string, number[]> = {};
+    for (const u of declared) {
+      const mesh = unitMeshFiles(u.id);
+      expect(mesh, `${u.id} has hull.figures and no GLB`).not.toBeNull();
+      got[u.id] = (mesh?.files ?? []).map(glbMen);
+      want[u.id] = (mesh?.files ?? []).map(() => u.hull.figures ?? 0);
+    }
+    expect(got).toEqual(want);
+  });
+
+  it('every foot team on the ground carries hull.wounds (the lead: all infantry, both sides)', () => {
+    // Foot: a rigged team GLB (or the civilians), not air, not wheeled, and not itself a
+    // wounded man or a robot (`drone`). `wheeled` defaults as the sim's does, from the role
+    // (the sim's FOOT_ROLES, as a literal): moto_rpg is a `technical`, so a motorcycle, out.
+    const footRoles = new Set(['infantry', 'at_team', 'artillery', 'engineer', 'sniper', 'support']);
+    const foot = all.filter((u) => {
+      const kind = unitMeshFiles(u.id)?.kind;
+      const wheeled = u.mobility?.wheeled ?? !footRoles.has(u.role ?? '');
+      return (kind === 'rigged' || kind === 'civilian') && u.mobility?.domain !== 'air' && !wheeled
+        && u.role !== 'wounded' && u.role !== 'drone';
+    });
+    expect(foot.length, 'reads real foot teams (vacuity guard)').toBeGreaterThan(15);
+    expect(foot.filter((u) => u.hull.wounds === undefined || u.hull.figures === undefined).map((u) => u.id)).toEqual([]);
+  });
+
+  it('every hull.wounds.type names a role-wounded unit, or the unit itself when in place', () => {
+    const bad = all
+      .filter((u) => u.hull.wounds !== undefined)
+      .filter((u) => {
+        const w = u.hull.wounds!;
+        if (w.in_place === true) return w.type !== u.id;
+        return byId.get(w.type)?.role !== 'wounded';
+      })
+      .map((u) => `${u.id} -> ${u.hull.wounds?.type}`);
+    expect(bad).toEqual([]);
+  });
+});

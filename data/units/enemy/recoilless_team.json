@@ -8,7 +8,9 @@
     "hp": 340,
     "armor": { "front": 10, "side": 10, "rear": 10 },
     "crew": 3,
-    "suppression_resistance": 0.45
+    "suppression_resistance": 0.45,
+    "figures": 2,
+    "wounds": { "wound_chance": 0.6, "bleed_s": 60, "type": "wounded_sarim" }
   },
   "mobility": { "speed_tiles_s": 0.85 },
   "sensors": { "optics": 1.0, "sight_tiles": 8, "signature": 0.45 },
