@@ -10,9 +10,14 @@ describe('QUALITY_PRESETS', () => {
     // that only checked `typeof preset.smaa === 'boolean'` would pass on any
     // of the eight combinations.
     const expected: Record<'low' | 'medium' | 'high', RenderQuality> = {
-      low: { ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view' },
-      medium: { ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view' },
-      high: { ao: true, smaa: true, shadowMapSize: 4096, bloom: 'quarter', shadowFit: 'view' },
+      // Was: no `fxDetail` on any preset (the smoke screen had one look).
+      // high: Was 2 (both noise chains). The lead, 23 Oct: high draws the cheaper
+      // one-chain smoke (+2-3 ms median on a 110-tile screen at 2).
+      low: { ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0 },
+      medium: { ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view', fxDetail: 1 },
+      // high smokeBillboardGain: Was 0.95 (the shared default). The lead, 23 Oct:
+      // 0.8 on high, where the screen measured +1 to +5 ms median of its own.
+      high: { ao: true, smaa: true, shadowMapSize: 4096, bloom: 'quarter', shadowFit: 'view', fxDetail: 1, smokeBillboardGain: 0.8 },
     };
     expect(QUALITY_PRESETS).toEqual(expected);
   });
