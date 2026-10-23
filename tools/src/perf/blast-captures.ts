@@ -1023,9 +1023,15 @@ export const LAYER_FLOORS = {
     // three Metal runs (5770, 5878, 7118 px / 3.2078, 3.3114, 3.6809); the
     // other voters' smallest, `mbt_lavi_z1`, now reads 15910-16329 px /
     // 8.6683-8.7097. A third of 5770 is 1923.3 -> 1930; of 3.2078, 1.0693 -> 1.07.
-    minDiffPixels: 1930,
-    minMeanAbsChannelDelta: 1.07,
-    measured: { minDiffPixels: 5770, minMeanAbsChannelDelta: 3.2078, runs: 3 },
+    // Was 1930 px / 1.07 (a third of 5770 / 3.2078). Re-derived 2026-10-23 for
+    // the option A trim of the kill column (36 -> 24 puffs, cook-off 16 -> 10):
+    // `apc_eitan` is still the smallest voter, 6536, 5994, 5297 px / 3.6918,
+    // 3.5322, 3.1768 over three Metal runs (load 8.7 / 6.8 / 5.3 at the start;
+    // `mbt_lavi_z1` next at 15425-16198 / 8.48-8.71). A third of 5297 is
+    // 1765.7 -> 1770; of 3.1768, 1.0589 -> 1.06.
+    minDiffPixels: 1770,
+    minMeanAbsChannelDelta: 1.06,
+    measured: { minDiffPixels: 5297, minMeanAbsChannelDelta: 3.1768, runs: 3 },
     toggleAtMs: 200,
     rationale:
       'RE-DERIVED 2026-10-23 (GH-705 smoke uplift P2, the oily kill column and HDR sparks), 3 runs, ' +
@@ -1071,6 +1077,10 @@ export const LAYER_FLOORS = {
     // 6472 is 2157.3 -> 2160, of 2.4906, 0.8302 -> 0.84.
     minDiffPixels: 2160,
     minMeanAbsChannelDelta: 0.84,
+    // Re-checked 2026-10-23 after the option A kill trim, three more runs:
+    // `lavi_fire` (the smallest, a muzzle recipe the trim does not touch)
+    // reads 6716, 6679, 6774 px / 2.4996, 2.5069, 2.5178, none below the
+    // 6472 / 2.4906 above, so the floor is unchanged.
     measured: { minDiffPixels: 6472, minMeanAbsChannelDelta: 2.4906, runs: 3 },
     toggleAtMs: 600,
     rationale:
