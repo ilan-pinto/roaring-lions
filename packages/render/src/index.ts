@@ -50,6 +50,11 @@ export { unitIsObserved } from './three/units/observed';
 // 2026-10-14): the banner's rule, three-free, so the minimap's outline and
 // the HUD's "2 / 4 inside" ask the same function the renderer does.
 export { heldBuilding, heldBuildings, heldShown, type HeldBuilding, type HeldView } from './three/units/held-building';
+// GH-681: what of a tunnel route a seat may be shown -- its own routes always,
+// another's only as far as it has found them. Three-free, so the minimap
+// asks the same function the world's x-ray does.
+export { routeLevelFor, ownsRoute, type RouteLevelSource } from './route-level';
+export { unitIsDrawn } from './three/units/observed';
 export {
   BattleAudio,
   isAnnouncementPriority,

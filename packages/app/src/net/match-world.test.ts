@@ -4,7 +4,7 @@ import { matchDigest, sidesOfFactions, validateConfig, type MatchConfig, type Se
 import type { MissionEvent } from '@lions/sim';
 import { campOf } from './versus-force';
 import { viewerSideOf } from './viewer';
-import { buildMatchWorld, matchTick, seatKitTiers, versusUnitInfo, type MatchWorld } from './match-world';
+import { buildMatchWorld, matchTick, seatKitTiers, tunnelRouteOf, versusUnitInfo, type MatchWorld } from './match-world';
 import { versusRoster } from './versus-roster';
 
 function config(map: string, factions: ['kdf' | 'sarim', 'kdf' | 'sarim'], seed = 1234): MatchConfig {
@@ -401,14 +401,64 @@ describe('the economy runtime (N3 Task 3)', () => {
   it('VERSUS_ECONOMY_PINS (born N3 Task 3): a KDF-host room on each matchup map, 200 ticks', () => {
     // LITERALS (CLAUDE.md). seed 20260727, KDF host, 200 ticks of `matchTick` with no orders,
     // matchDigest(sim.hash(), runtime.digest(), 0).
+    // Re-pinned 22 Oct for the GH-681 route re-author (the lead's ruling after T5): the Sarim end's route
+    // points and capacities changed, and route state is hashed. Was -568662276 / -274469750.
+    // Re-pinned 22 Oct for GH-681 T3: the Sarim end's routes register in an economy room and route state
+    // is hashed. Was -193936706 / -1815401533.
     // Re-pinned with the lead's start purses KDF 1500 / Sarim 2400 (22 Oct; db2803f0): the purse is folded by
     // runtime.digest(). Was -1014683486 / -1434364569.
-    const VERSUS_ECONOMY_PINS = [['tel_marum', -193936706], ['wadi_tarfan', -1815401533]] as const;
+    const VERSUS_ECONOMY_PINS = [['tel_marum', 822414509], ['wadi_tarfan', 1021735804]] as const;
     for (const [map, pin] of VERSUS_ECONOMY_PINS) {
       const w = buildMatchWorld(config(map, ['kdf', 'sarim'], 20260727));
       run(w, 200);
       expect(matchDigest(w.sim.hash(), w.runtime?.digest() ?? NaN, 0), map).toBe(pin);
     }
+  });
+});
+
+describe('the Sarim seat\'s routes (GH-681, T3)', () => {
+  // [map, host factions, the END the Sarim side stands at, that end's route ids, their capacity (LITERALS)]
+  const CASES = [
+    ['tel_marum', ['kdf', 'sarim'], 'hostile', ['tm_n_west', 'tm_n_east'], 4],
+    ['tel_marum', ['sarim', 'kdf'], 'friendly', ['tm_s_west', 'tm_s_east'], 3],
+    ['wadi_tarfan', ['kdf', 'sarim'], 'hostile', ['wt_h_south', 'wt_h_east'], 4],
+    ['wadi_tarfan', ['sarim', 'kdf'], 'friendly', ['wt_f_north', 'wt_f_west'], 4],
+  ] as const;
+  it.each(CASES)('%s, host %j: exactly the Sarim end\'s routes, owned by the Sarim side, pre-dug, at the capacity the file authors', (map, factions, end, ids, capacity) => {
+    const w = buildMatchWorld(config(map, [factions[0], factions[1]], 7));
+    const sarimSide = w.factions[0] === 'sarim' ? 0 : 1;
+    expect(w.endOfSide[sarimSide]).toBe(end);
+    expect(w.sim.tunnelCount).toBe(ids.length);
+    expect(w.map.tunnels.map((t) => t.id)).toEqual([...ids]);
+    for (let r = 0; r < w.sim.tunnelCount; r++) {
+      expect(w.map.tunnels[r].id, `positional ${r}`).toBe(ids[r]);
+      expect(w.sim.tunnelOwner(r)).toBe(sarimSide);
+      expect(w.sim.tunnelCapacity(r)).toBe(capacity);
+    }
+    // Pre-dug: the vent is open from tick 0.
+    for (let r = 0; r < w.sim.tunnelCount; r++) expect(w.sim.tnVentOpen[r]).toBe(1);
+  });
+  it('a mirror room registers none, and the shared parse is not mutated', () => {
+    for (const map of ['tel_marum', 'wadi_tarfan']) {
+      const w = buildMatchWorld(config(map, ['kdf', 'kdf'], 7));
+      expect(w.sim.tunnelCount).toBe(0);
+      expect(w.map.tunnels).toEqual([]);
+    }
+    // A Sarim-v-Sarim room is no economy room either: nothing registers.
+    expect(buildMatchWorld(config('tel_marum', ['sarim', 'sarim'], 7)).sim.tunnelCount).toBe(0);
+    const sarim = buildMatchWorld(config('tel_marum', ['kdf', 'sarim'], 7));
+    expect(sarim.map.tunnels).toHaveLength(2);
+    expect(buildMatchWorld(config('tel_marum', ['kdf', 'kdf'], 7)).map.tunnels).toHaveLength(0);
+  });
+  it('tunnelRouteOf carries owner and capacity when the parse has them, and nothing when it has not', () => {
+    const base = { id: 'r', points: [[1, 1], [2, 2]] as [number, number][], digTilesPerS: 1, preDug: true };
+    expect(tunnelRouteOf({ ...base, side: 1, capacity: 3 })).toEqual({ id: 'r', points: base.points, dig_tiles_per_s: 1, pre_dug: true, side: 1, capacity: 3 });
+    expect(Object.keys(tunnelRouteOf(base)).sort()).toEqual(['dig_tiles_per_s', 'id', 'points', 'pre_dug']);
+  });
+  it('the economy runtime is handed the same array, in the sim\'s order', () => {
+    const w = buildMatchWorld(config('tel_marum', ['kdf', 'sarim'], 7));
+    const ctx = (w.runtime as unknown as { ctx: { tunnels?: { id: string }[] } }).ctx;
+    expect(ctx.tunnels?.map((t) => t.id)).toEqual(w.map.tunnels.map((t) => t.id));
   });
 });
 

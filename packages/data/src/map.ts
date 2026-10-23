@@ -117,6 +117,11 @@ export interface ParsedTunnel {
   digTilesPerS: number;
   /** Fully excavated at mission start: progress at length, vent open. */
   preDug: boolean;
+  /** The side that owns the route (GH-681). Absent on every map-file route; a versus room's
+   *  `buildMatchWorld` appends its rules file's routes with it set (never in `parseMap`). */
+  side?: 0 | 1;
+  /** `enterTunnel` capacity (GH-681); absent = the sim's default. Same provenance as `side`. */
+  capacity?: number;
 }
 
 /**

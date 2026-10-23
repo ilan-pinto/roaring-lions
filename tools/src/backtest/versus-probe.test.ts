@@ -11,6 +11,7 @@ import {
   CAP_TICKS_DEFAULT, DECIDE_EVERY_TICKS, FAIR_MAX_PERCENT, ORDER_EVERY_TICKS, SEEDS_DEFAULT,
   candidateMaps, cellName, economySelfCheck, forceMixOf, humanHeldOf, layoutOf, main, parseArrangements, parsePair, planRound, play,
   reading, roomConfig, seedOf, selfCheck, tally, withOverrides, type Played, type PlayFn,
+  TUNNEL_CELLS, playTunnelCells, tunnelSelfCheck, withoutVersusRoutes,
 } from './versus-probe';
 
 // Every test that plays FULL games carries this instead of vitest's 5 s
@@ -377,4 +378,58 @@ describe('the sweep overrides (in memory only)', () => {
     expect(() => withOverrides({ start: [1, 1] }, () => { throw new Error('boom'); })).toThrow('boom');
     expect(doctrines.sarim.budget.logistics_start).toBe(2400);
   });
+});
+
+describe('the tunnel arm (GH-681, T5)', () => {
+  const tun = { entered: 0, stalled: 0, surfaced: 0, raids: 0, exits: 0, identified: 0, charges: 0, collapsed: 0, collapseKills: 0 };
+  const g = (over: Partial<Played> = {}): Played => ({ winner: 0, by: 'annihilation', ticks: 1200, econ: { built: [1, 1], purse: [0, 0] }, tun, ...over });
+  const games = (cell2Surfaced: number, offTicks = 1200) => ({
+    cells: { off: [g({ ticks: offTicks })], noAnswer: [g({ tun: { ...tun, surfaced: cell2Surfaced } })], answer: [g()], turtle: [g()] },
+    routeless: [g()],
+  });
+
+  it('the self-check passes a run whose cell 2 came up and whose cell 1 is the routeless game', () => {
+    expect(tunnelSelfCheck('tel_marum', ['kdf', 'sarim'], games(3))).toEqual([]);
+  });
+  it('goes red when cell 2 never surfaced: the Sarim plan did not run (the enterTunnel no-op)', () => {
+    expect(tunnelSelfCheck('tel_marum', ['kdf', 'sarim'], games(0))).toHaveLength(1);
+  });
+  it('goes red when cell 1 is not the routeless game: an unordered route moved a game', () => {
+    expect(tunnelSelfCheck('tel_marum', ['kdf', 'sarim'], games(3, 1220))).toHaveLength(1);
+  });
+
+  it('the routeless world registers no versus route, and puts the rules back', () => {
+    const rules = versusRules.tel_marum;
+    expect(buildMatchWorld(roomConfig('tel_marum', ['kdf', 'sarim'], 1000)).sim.tunnelCount).toBe(2);
+    expect(withoutVersusRoutes(() => buildMatchWorld(roomConfig('tel_marum', ['kdf', 'sarim'], 1000)).sim.tunnelCount)).toBe(0);
+    expect(versusRules.tel_marum).toBe(rules);
+  });
+
+  it('one seed through the four cells: cell 1 is the routeless game, cell 2 goes below and comes up, the turtle never vents', () => {
+    const r = playTunnelCells('tel_marum', ['kdf', 'sarim'], 1, CAP_TICKS_DEFAULT);
+    expect(TUNNEL_CELLS.map((c) => r.cells[c].length)).toEqual([1, 1, 1, 1]);
+    const { tun: offTun, ...off } = r.cells.off[0];
+    expect(off).toEqual(r.routeless[0]);
+    expect(offTun).toMatchObject({ entered: 0, surfaced: 0, raids: 0, exits: 0, charges: 0 });
+    expect(r.cells.noAnswer[0].tun?.entered).toBeGreaterThan(0);
+    expect(r.cells.noAnswer[0].tun?.surfaced).toBeGreaterThan(0);
+    expect(r.cells.noAnswer[0].tun?.charges).toBe(0);
+    expect(r.cells.turtle[0].tun).toMatchObject({ surfaced: 0, raids: 0, exits: 0 });
+    expect(r.cells.turtle[0].tun?.entered).toBeGreaterThan(0);
+  }, FULL_GAMES_TIMEOUT_MS);
+
+  it('main exits 2 when the tunnel orders never reach the sim, and prints no table', () => {
+    // Stands in for the sim mutation (enterTunnel a no-op): the tunnel cells play the plain economy game.
+    const noTunnels: PlayFn = (m, a, s, o) => play(m, a, s, { ...o, tunnels: o?.tunnels === undefined ? undefined : 'off' });
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      expect(main(['--tunnels', '--seeds=1', '--maps=tel_marum', '--arr=kdf/sarim'], noTunnels)).toBe(2);
+      expect(log.mock.calls.flat().join('\n')).not.toContain('the bar (lead');
+      expect(err.mock.calls.flat().join('\n')).toContain("no 'surfaced' event");
+    } finally {
+      log.mockRestore();
+      err.mockRestore();
+    }
+  }, FULL_GAMES_TIMEOUT_MS);
 });

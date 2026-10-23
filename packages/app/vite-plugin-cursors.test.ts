@@ -1245,6 +1245,15 @@ describe('the composer and the plugin agree on every key -- Important 2', () => 
         keys.add(cursorKey(name, badgeFor(res, hints, badges, name)));
       }
     }
+    // GH-681: the seat's own route end, with the even-numbered units on foot.
+    const shaft = fakeWorld({ ownRouteEndAt: () => 0, canEnterTunnel: (id: number) => id % 2 === 0 });
+    for (const ids of selections) {
+      const res = resolvePointer(shaft, { ids, x: 5, y: 5, append: false, armed: null, confirm: false });
+      for (const hints of HINT_COMBOS) {
+        const name = cursorFor(res, hints);
+        keys.add(cursorKey(name, badgeFor(res, hints, badges, name)));
+      }
+    }
     const openGround = SCENARIOS[0].world;
     for (const armed of SUPPORT_KINDS) {
       const res = resolvePointer(openGround, { ids: [], x: 5, y: 5, append: false, armed, confirm: false });
@@ -1309,6 +1318,17 @@ describe('the composer and the plugin agree on every key -- Important 2', () => 
     expect(lines.filter((l) => l.startsWith("canvas[data-cursor='attack"))).toEqual([]);
     // moveOnly stays bare-only: it never earns a badged key.
     expect(css).not.toContain("canvas[data-cursor='moveOnly-");
+  });
+
+  it('answers the tunnel-enter key (GH-681) with the bare garrison rule, and gives it no rule or badge of its own', () => {
+    expect(produced.has('tunnel-enter')).toBe(true);
+    expect([...produced].filter((k) => k.startsWith('tunnel-enter-'))).toEqual([]);
+    const lines = css.split('\n');
+    const garrison = lines.filter((l) => l.startsWith("canvas[data-cursor='garrison']"));
+    expect(garrison.length).toBeGreaterThan(0);
+    expect(garrison.every((l) => l.includes("canvas[data-cursor='tunnel-enter']"))).toBe(true);
+    expect(lines.filter((l) => l.startsWith("canvas[data-cursor='tunnel-enter"))).toEqual([]);
+    expect(css).not.toContain("canvas[data-cursor='tunnel-enter-");
   });
 
   it('emits a rule for every key the real cursorFor/badgeFor can compose', () => {

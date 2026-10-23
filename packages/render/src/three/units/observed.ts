@@ -52,3 +52,24 @@ export function unitIsObserved(
 ): boolean {
   return isOwnSide(side, viewer) || fogVisible(wx, wy);
 }
+
+/**
+ * GH-681: `unitIsObserved` plus the earth. A unit inside a tunnel route
+ * (`tunnelIn >= 0`) has no body on the surface for ANY viewer -- its own seat
+ * sees it as a figure in the x-ray bore and a chip in the "Below ground"
+ * strip, the other seat sees nothing at all (versus tunnels spec §4.3). Its
+ * sim position still holds the tile it went down at, so a fog gate alone
+ * drew it standing there to anyone who could see that tile: the body, its
+ * HP bar and its ring. `pickUnit` already skipped it; every body and overlay
+ * draw path asks this now, so the draw and the pick agree.
+ */
+export function unitIsDrawn(
+  tunnelIn: number,
+  side: number,
+  viewer: number,
+  wx: number,
+  wy: number,
+  fogVisible: (wx: number, wy: number) => boolean
+): boolean {
+  return tunnelIn < 0 && unitIsObserved(side, viewer, wx, wy, fogVisible);
+}

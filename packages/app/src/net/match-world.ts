@@ -1,4 +1,4 @@
-import { applyTerrain, doctrines, maps, parseMap, roadMaskOf, units, versusMissionOf, versusRules, versusZonesOf, type MapJson, type ParsedMap } from '@lions/data';
+import { applyTerrain, doctrines, maps, parseMap, roadMaskOf, units, versusMissionOf, versusRules, versusTunnelsOf, versusZonesOf, type MapJson, type ParsedMap } from '@lions/data';
 import { economyRoom, endOfSeat, seatRules, type Faction, type MatchConfig, type SeatConfig, type SpawnEnd } from '@lions/net';
 import { sameTrackTiers } from '@lions/render';
 import { MissionRuntime, Sim, type MissionContext, type MissionEvent, type MissionJson, type SimEvent, type TunnelRouteJson } from '@lions/sim';
@@ -66,19 +66,22 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
   if (config.mode !== 'versus') throw new Error(`buildMatchWorld: a versus config is required, got mode "${config.mode}"`);
   const mapJson = (maps as Record<string, MapJson | undefined>)[config.map];
   if (mapJson === undefined) throw new Error(`buildMatchWorld: map "${config.map}" is not shipped`);
-  const map = parseMap(mapJson);
+  const parsed = parseMap(mapJson);
+  const factions = factionsBySide(config);
+  const endOfSide = endsBySide(config);
+  const economy = economyRoom(config);
+  // GH-681: in an economy room the Sarim side owns its END's routes from the rules file, registered
+  // AFTER the map's own (a map-file route keeps its index). They are appended to a COPY of the
+  // parse's tunnel list -- never the shared parse -- so `map.tunnels[r]` IS the sim's route r for
+  // every positional reader (`main.ts`'s ctx, the renderer). A mirror room appends none.
+  const map: ParsedMap = economy ? { ...parsed, tunnels: [...parsed.tunnels, ...sarimRoutes(config.map, factions, endOfSide)] } : parsed;
   // 256: see `bootBattlefield` -- `spawn` never reuses a dead unit's slot.
   const sim = new Sim({ seed: config.seed, width: map.width, height: map.height, capacity: 256, humanHeld: seatRules(config).humanHeld });
   applyTerrain(map, sim);
   standMapStructures(sim, map);
 
   // Positional: entry r IS the sim's route index, so assert it (see main.ts).
-  const tunnelRoutes: TunnelRouteJson[] = map.tunnels.map((t) => ({
-    id: t.id,
-    points: t.points,
-    dig_tiles_per_s: t.digTilesPerS,
-    pre_dug: t.preDug,
-  }));
+  const tunnelRoutes = map.tunnels.map(tunnelRouteOf);
   for (let i = 0; i < tunnelRoutes.length; i++) {
     const got = sim.addTunnel(tunnelRoutes[i]);
     if (got !== i) throw new Error(`tunnel "${tunnelRoutes[i].id}" registered as route ${got}, expected ${i}`);
@@ -101,7 +104,6 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
   const typeOf = new Map<string, number>();
   for (const registered of kitBySide[0].registered) typeOf.set(registered.id, sim.addUnitType(registered));
   const typeOf1 = new Map(typeOf);
-  const factions = factionsBySide(config);
   roster.forEach((u, k) => {
     // A Sarim side 1 fields no KDF type, so a copy for it would be registered and never spawned.
     if (factions[1] !== 'kdf' || u.faction !== 'kdf') return;
@@ -114,14 +116,43 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
   const typeOfBySide = [typeOf, typeOf1] as const;
 
   const anchors = versusAnchors(mapJson);
-  const endOfSide = endsBySide(config);
   const { bySide } = versusSpawns(sim, typeOfBySide, anchors, factions, endOfSide);
   // The runtime comes AFTER both forces, so every entity id a mirror room
   // spawned, and so every mirror byte, is what it was; a mirror builds none.
-  const economy = economyRoom(config) ? economyRuntime(sim, config.map, map, typeOf, factions, endOfSide) : null;
-  const runtime = economy?.runtime ?? null;
-  const structureTypes = economy?.structureTypes ?? [];
+  const built = economy ? economyRuntime(sim, config.map, map, typeOf, factions, endOfSide, tunnelRoutes) : null;
+  const runtime = built?.runtime ?? null;
+  const structureTypes = built?.structureTypes ?? [];
   return { sim, typeOf, typeOfBySide, kitBySide, mapJson, map, anchors, factions, endOfSide, bySide, runtime, structureTypes };
+}
+
+/** A parsed route as the sim's `addTunnel` (and a mission context's `tunnels`) takes it. The one
+ *  conversion `main.ts` and `buildMatchWorld` share, so the owner and capacity of a versus route
+ *  reach the sim from whichever array they read. */
+export function tunnelRouteOf(t: ParsedMap['tunnels'][number]): TunnelRouteJson {
+  return {
+    id: t.id,
+    points: t.points,
+    dig_tiles_per_s: t.digTilesPerS,
+    pre_dug: t.preDug,
+    ...(t.side !== undefined ? { side: t.side } : {}),
+    ...(t.capacity !== undefined ? { capacity: t.capacity } : {}),
+  };
+}
+
+/** The rules file's routes for the Sarim side's END, as parsed routes (GH-681). `[]` when no side
+ *  is Sarim (an economy room always has one) or the map has no rules file. */
+function sarimRoutes(mapId: string, factions: readonly [Faction, Faction], endOfSide: readonly [SpawnEnd, SpawnEnd]): ParsedMap['tunnels'] {
+  const rules = versusRules[mapId];
+  const side = factions[0] === 'sarim' ? 0 : factions[1] === 'sarim' ? 1 : -1;
+  if (rules === undefined || side === -1) return [];
+  return versusTunnelsOf(rules, endOfSide[side], side).map((r) => ({
+    id: r.id,
+    points: r.points,
+    digTilesPerS: r.dig_tiles_per_s,
+    preDug: r.pre_dug,
+    side: r.side,
+    capacity: r.capacity,
+  }));
 }
 
 /**
@@ -173,6 +204,7 @@ function economyRuntime(
   typeOf: ReadonlyMap<string, number>,
   factions: readonly [Faction, Faction],
   endOfSide: readonly [SpawnEnd, SpawnEnd],
+  tunnels: readonly TunnelRouteJson[],
 ): { runtime: MissionRuntime; structureTypes: string[] } {
   const rules = versusRules[mapId];
   if (rules === undefined) throw new Error(`buildMatchWorld: map "${mapId}" has no versus rules file`);
@@ -189,6 +221,8 @@ function economyRuntime(
       return t;
     },
     markers: map.markers,
+    // Positional with the sim's route order (the same array `buildMatchWorld` registered).
+    tunnels,
     zones: versusZonesOf(rules, map.zones),
     roadMask: roadMaskOf(map),
     unitInfo: versusUnitInfo([doctrine[0].menu, doctrine[1].menu]),

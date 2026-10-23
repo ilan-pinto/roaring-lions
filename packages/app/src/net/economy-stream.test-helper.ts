@@ -13,6 +13,12 @@
  * cancels one queued item, both set a rally point and later clear it, and seat 0
  * forges one `build{side: 0}` -- a side it does not hold -- which every client
  * must drop before the queue (Review Focus 2).
+ *
+ * GH-681 T6: the room's rules file registers the Sarim end's routes, and the stream uses
+ * one: four of seat 0's foot units `enterTunnel` on `wt_f_north`, crawl to the vent, two
+ * `vent raid` and two `vent exit` later, those two `enterTunnel` at the vent end again --
+ * and seat 1 (KDF) forges an `enterTunnel` into that Sarim route, which every client drops
+ * (T-R4). Tunnel orders go to the sim, not the runtime, so `ECONOMY_STREAM_ACCEPTED` is unmoved.
  */
 import { fx, type Command } from '@lions/sim';
 import {
@@ -28,6 +34,10 @@ export const ECONOMY_STREAM_TICKS = 1200;
 export const ECONOMY_STREAM_FORGED_TICK = 100;
 /** Runtime commands the stream sends that the runtime must ACCEPT (the forged one never reaches it). */
 export const ECONOMY_STREAM_ACCEPTED = 16;
+/** The Sarim end's route the tunnel orders use (registered from `data/versus/wadi_tarfan.json`). */
+export const ECONOMY_STREAM_ROUTE = 'wt_f_north';
+/** The ticks of the tunnel orders. `forged` is seat 1's enterTunnel into the Sarim route. */
+export const ECONOMY_STREAM_TUNNEL = { enter: 20, forged: 20, raid: 720, exit: 800, reenter: 860 } as const;
 
 /** The room: seat 0 Sarim (side 1), seat 1 KDF (side 0), the test fixture's own fields. */
 export function economyStreamConfig(): MatchConfig {
@@ -58,6 +68,16 @@ function rallyNear(w: MatchWorld, exit: readonly [number, number]): [number, num
     }
   }
   throw new Error('economy stream: no open tile near the camp exit');
+}
+
+/** The four Sarim foot units the tunnel orders name: a route's default capacity, ground, unwheeled. */
+function tunnelFoot(w: MatchWorld, side: 0 | 1): number[] {
+  const foot = w.bySide[side].filter((id) => {
+    const t = w.sim.unitTypes[w.sim.state.typeIdx[id]];
+    return !t.isAir && !t.wheeled;
+  }).slice(0, 4);
+  if (foot.length !== 4) throw new Error(`economy stream: the Sarim side fielded ${foot.length} foot units, the tunnel orders need 4`);
+  return foot;
 }
 
 /** The frame stream, one frame per tick. Every id and point is read off a fresh world. */
@@ -93,6 +113,17 @@ export function economyStreamFrames(): Frame[] {
   at(530, 0, { kind: 'build', side: sarim, unit: 'atgm_cell', line: 0 });     // 235
   at(800, 0, { kind: 'clearRally', side: sarim, line: 0 });
   at(820, 1, { kind: 'build', side: kdf, unit: 'at_team', line: 0 });        // 236
+  // GH-681 T6: the Sarim seat's foot units use its own end's route. Ids are read off a fresh
+  // world, exactly as the economy ids above are.
+  const route = w.map.tunnels.findIndex((t) => t.id === ECONOMY_STREAM_ROUTE);
+  if (route < 0 || w.sim.tunnelOwner(route) !== sarim) throw new Error(`economy stream: the room does not register ${ECONOMY_STREAM_ROUTE} for the Sarim side`);
+  const foot = tunnelFoot(w, sarim);
+  const T = ECONOMY_STREAM_TUNNEL;
+  at(T.enter, 0, { kind: 'enterTunnel', ids: foot, tunnel: route });
+  at(T.forged, 1, { kind: 'enterTunnel', ids: w.bySide[kdf].slice(0, 2), tunnel: route }); // dropped by every client
+  at(T.raid, 0, { kind: 'vent', ids: foot.slice(0, 2), mode: 'raid' });
+  at(T.exit, 0, { kind: 'vent', ids: foot.slice(2), mode: 'exit' });
+  at(T.reenter, 0, { kind: 'enterTunnel', ids: foot.slice(2), tunnel: route });
   const byTick = new Map<number, Stamped[]>();
   for (const [tick, s] of entries) byTick.set(tick, [...(byTick.get(tick) ?? []), s]);
   const frames: Frame[] = [];
@@ -122,6 +153,10 @@ export interface EconomyStreamResult {
   droppedTicks: number[];
   /** Runtime commands the runtime accepted (`applyQueued`). */
   accepted: number;
+  /** GH-681 T6: `surfaced` events seen, and how many of the four named units were below
+   *  ground and arrived at the vent on the tick before the raid (a stream whose units never
+   *  went under proves nothing). */
+  tunnel: { surfaced: number; below: number };
   /** The runtime's own digest after the last tick. */
   runtimeDigest: number;
   /** Each side's purse after the last tick, `[side 0, side 1]` (`logisticsOf`). */
@@ -144,6 +179,9 @@ export function runEconomyClient(frames: readonly Frame[]): EconomyStreamResult 
   const droppedTicks: number[] = [];
   let accepted = 0;
   let tick = -1;
+  const foot = tunnelFoot(w, config.seats[0].side as 0 | 1);
+  const route = w.map.tunnels.findIndex((t) => t.id === ECONOMY_STREAM_ROUTE);
+  const tunnel = { surfaced: 0, below: 0 };
   const step = {
     transport: feed, sim: w.sim, seatWorld: seatWorldFor(config, w.sim), config,
     beforeFrame: (f: Frame) => { tick = f.tick; },
@@ -152,8 +190,12 @@ export function runEconomyClient(frames: readonly Frame[]): EconomyStreamResult 
       // (the browser's body) then drains an empty queue and ticks, exactly as
       // it would have with the commands still set aside.
       accepted += rt.applyQueued();
-      const { mission } = matchTick(w);
+      const { sim, mission } = matchTick(w);
       for (const e of mission) if (e.kind === 'built') built[e.side]++;
+      for (const e of sim) if (e.kind === 'surfaced') tunnel.surfaced++;
+      if (tick === ECONOMY_STREAM_TUNNEL.raid - 1) {
+        tunnel.below = foot.filter((id) => w.sim.state.tunnelIn[id] === route && w.sim.state.tunnelEta[id] === 0).length;
+      }
     },
     runtimeDigest: () => rt.digest(),
   };
@@ -163,5 +205,5 @@ export function runEconomyClient(frames: readonly Frame[]): EconomyStreamResult 
     if (r.ran === 0) break;
     for (let i = 0; i < r.dropped; i++) droppedTicks.push(tick);
   }
-  return { digests: [...feed.digests], built, droppedTicks, accepted, runtimeDigest: rt.digest(), purse: [rt.logisticsOf(0), rt.logisticsOf(1)] };
+  return { digests: [...feed.digests], built, droppedTicks, accepted, tunnel, runtimeDigest: rt.digest(), purse: [rt.logisticsOf(0), rt.logisticsOf(1)] };
 }

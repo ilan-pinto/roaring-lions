@@ -9294,6 +9294,96 @@ fieldset.rl-versus__maps {
   padding: var(--s1) var(--s2);
 }
 
+/* The "Below ground" strip (ui/below-ground.ts, GH-681): a seat that owns
+   tunnel routes sees one chip per own unit inside one, and the two vent
+   orders. Mounted only for that seat; single-player never builds it. */
+.rl-below {
+  position: fixed;
+  left: var(--s3);
+  top: 40%;
+  width: 18rem;
+  max-width: calc(100vw - var(--s6));
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-frame); /* px-ok */
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: var(--t-s);
+  z-index: 20;
+}
+.rl-below[hidden],
+.rl-below__why[hidden] {
+  display: none;
+}
+.rl-below__title {
+  margin: 0;
+  font-size: var(--t-s);
+  font-weight: 600;
+}
+.rl-below__chips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  max-height: 14rem;
+  overflow-y: auto;
+}
+.rl-below__chip {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 2rem 1fr auto;
+  grid-template-rows: auto auto;
+  column-gap: var(--s2);
+  align-items: center;
+  padding: var(--s1);
+  background: var(--panel-bg-solid);
+  color: var(--ink);
+  border: 1px solid var(--panel-frame); /* px-ok */
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.rl-below__chip[aria-pressed='true'] {
+  border-color: var(--selected);
+  background: var(--selected-fill);
+}
+.rl-below__icon {
+  grid-row: 1 / span 2;
+  width: 2rem;
+  height: 2rem;
+  object-fit: contain;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.rl-below__name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rl-below__route,
+.rl-below__eta {
+  color: var(--ink-mute);
+}
+.rl-below__eta {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+}
+.rl-below__row {
+  display: flex;
+  gap: var(--s2);
+}
+.rl-below__why {
+  margin: 0;
+  color: var(--ink-mute);
+}
+
 /* The versus scoreboard (ui/net-score.ts, 2026-10-14): each side's destroyed
    and lost, with their value, under the strip's right end while the match
    runs; the full table, with the force left, on the match-over panel. The

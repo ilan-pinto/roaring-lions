@@ -113,8 +113,8 @@ describe('INTENT_KINDS', () => {
     // Task 5's step cross-check validates tutorial JSON against this list, so
     // a kind missing here becomes a step nobody can complete.
     const kinds: PlayerIntent['kind'][] = [
-      'select', 'order', 'attack', 'rescue', 'garrison', 'demolish', 'chargeTunnel', 'mount', 'dismount',
-      'smoke', 'halt', 'patrol', 'group', 'overlay', 'support',
+      'select', 'order', 'attack', 'rescue', 'garrison', 'demolish', 'chargeTunnel', 'enterTunnel', 'vent',
+      'mount', 'dismount', 'smoke', 'halt', 'patrol', 'group', 'overlay', 'support',
     ];
     expect([...INTENT_KINDS].sort()).toEqual([...kinds].sort());
   });

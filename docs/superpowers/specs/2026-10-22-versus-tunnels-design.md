@@ -278,31 +278,42 @@ Each check arrives with its falsification run.
 - At most `MAX_TUNNELS` (16) routes in total, map routes included.
 - Every route has `capacity` 1 to 8.
 
-### 6.3 The strawman routes
+### 6.3 The routes as shipped (re-authored 22 Oct, approved by the lead)
 
-These are for the lead to approve, move or strike (Q2). Every point has been checked against the
-map rows: the vents are on open ground. Lengths are in tiles.
+The eight strawman routes below ran the first probe and failed Q1's bar (cell 3 outside 60/40 in
+all four pairs; Tel Marum's north pair gave Sarim no edge at all). The lead ruled "change the
+routes", kept the probe's KDF answer as written, and approved this set. Lengths are in tiles; the
+last column is the vent's distance to the opposing anchor (at least 18, §6.2).
 
-| Map | End | Route | Points | Length | Vent to opposing anchor |
+| Map | End | Route | Points | Length | Vent dist. | Capacity |
+|---|---|---|---|---|---|---|
+| `wadi_tarfan` | `versus_0` (10,10) | `wt_f_north` | (13,11) → (17,13) → (22,15) | 10.5 | 26.6 | 4 |
+| `wadi_tarfan` | `versus_0` | `wt_f_west` | (11,13) → (12,17) → (13,21) | 10.2 | 28.8 | 4 |
+| `wadi_tarfan` | `versus_1` (37,37) | `wt_h_south` | (34,36) → (30,34) → (25,32) | 10.5 | 26.6 | 4 |
+| `wadi_tarfan` | `versus_1` | `wt_h_east` | (36,34) → (35,30) → (34,26) | 10.2 | 28.8 | 4 |
+| `tel_marum` | north (28,16) | `tm_n_west` | (22,17) → (16,22) → (13,27) | 13.6 | 22.0 | 4 |
+| `tel_marum` | north | `tm_n_east` | (29,17) → (33,22) → (36,27) | 12.2 | 22.5 | 4 |
+| `tel_marum` | south (24,46) | `tm_s_west` | (22,44) → (14,38) → (12,30) | 18.2 | 21.3 | 3 |
+| `tel_marum` | south | `tm_s_east` | (26,44) → (34,40) → (38,34) | 16.2 | 20.6 | 3 |
+
+- **Wadi Tarfan** stays point-symmetric: each `versus_1` route is its `versus_0` twin rotated
+  180°. Both ends were shortened and pulled back toward their own anchor.
+- **Tel Marum's north pair no longer runs under the ridge wall.** The mouths moved into the saddle
+  and the vents onto the basin flanks. Under the wall, the pair cost Sarim games (cell 2 read 9
+  Sarim wins against 23 with tunnels off).
+- **Tel Marum's south pair keeps its points and drops to capacity 3.** Pulling its vents back made
+  cell 3 worse (the KDF squad could no longer collapse the shorter routes), so capacity was the
+  lever instead.
+- The 48-seed readings are in §7.5b. Wadi Tarfan with Sarim friendly is the tightest pair.
+
+The strawman set, for the record:
+
+| Map | End | Route | Points | Length | Vent dist. |
 |---|---|---|---|---|---|
-| `wadi_tarfan` | `versus_0` (10,10) | north | (12,12) → (18,14) → (24,17) | 13.0 | 23.9 |
-| `wadi_tarfan` | `versus_0` | west | (12,12) → (15,19) → (19,26) | 15.7 | 21.1 |
-| `wadi_tarfan` | `versus_1` (37,37) | south | (35,35) → (29,33) → (23,30) | 13.0 | 23.9 |
-| `wadi_tarfan` | `versus_1` | east | (35,35) → (32,28) → (28,21) | 15.7 | 21.1 |
-| `tel_marum` | north (28,16) | west | (26,10) → (16,12) → (14,22) | 20.4 | 26.0 |
-| `tel_marum` | north | east | (30,10) → (36,14) → (36,24) | 17.2 | 25.1 |
-| `tel_marum` | south (24,46) | west | (22,44) → (14,38) → (12,30) | 18.2 | 21.3 |
-| `tel_marum` | south | east | (26,44) → (34,40) → (38,34) | 16.2 | 20.6 |
-
-- **Wadi Tarfan** is point-symmetric, so each `versus_1` route is its `versus_0` twin rotated 180°.
-  The two routes come out on either side of the centre ford: one by the near farm, one by the near
-  bluff.
-- **Tel Marum is not symmetric.** From the north, both routes pass **under the ridge wall** and come
-  out in the basin either side of the saddle. That is the strongest use of a tunnel on this map:
-  the saddle is the choke the KDF must take. From the south, the routes run up the open basin's two
-  flanks.
-  - The probe has to say whether that asymmetry is fair.
-  - Q2 offers dropping Tel Marum's under-wall pair if it is not.
+| `wadi_tarfan` | `versus_0` | north / west | (12,12) → (18,14) → (24,17); (12,12) → (15,19) → (19,26) | 13.0 / 15.7 | 23.9 / 21.1 |
+| `wadi_tarfan` | `versus_1` | south / east | (35,35) → (29,33) → (23,30); (35,35) → (32,28) → (28,21) | 13.0 / 15.7 | 23.9 / 21.1 |
+| `tel_marum` | north | west / east | (26,10) → (16,12) → (14,22); (30,10) → (36,14) → (36,24) | 20.4 / 17.2 | 26.0 / 25.1 |
+| `tel_marum` | south | west / east | as shipped, capacity 4 | 18.2 / 16.2 | 21.3 / 20.6 |
 
 ## 7. Fairness: the probe
 
@@ -350,6 +361,25 @@ them up: the probe counts `surfaced` events and refuses a table where cell 2 rea
 A test walks each authored route, with a unit buried on it. It requires that nothing reaches the
 unit (fire, smoke, the field works' AO, a `move`) except the collapse. This mirrors the
 single-player tunnel tests.
+
+### 7.5b The readings (48 seeds per spawn order, 10-minute cap; the 25-minute cap gives the same verdicts)
+
+Wins KDF / Sarim. Cell 1 tunnels off, 2 tunnels against the KDF's economy plan, 3 tunnels against
+the KDF answer, 4 the turtle.
+
+| Pair | Cell 1 | Cell 2 strawman → shipped | Cell 3 strawman → shipped | Cell 4 strawman → shipped |
+|---|---|---|---|---|
+| `tel_marum`, KDF friendly | 25/23 | 39/9 → 21/27 | 33/15 → **25/23** | 44/4 → 46/2 |
+| `tel_marum`, Sarim friendly | 25/23 | 12/36 → 12/36 | 19/29 → **23/25** | 40/8 → 41/7 |
+| `wadi_tarfan`, KDF friendly | 25/23 | 15/33 → 21/27 | 17/31 → **21/27** | 43/5 → 48/0 |
+| `wadi_tarfan`, Sarim friendly | 22/26 | 16/32 → 19/29 | 17/31 → **20/28** | 43/5 → 46/2 |
+
+- **Fragile:** `wadi_tarfan` with Sarim friendly. Cell 3 reads Sarim 28 of 48, one game from the
+  line, and cell 2's edge over cell 1 is 3 games (2 at the 25-minute cap). A one-tile vent move
+  swung about 4 of 48 games in the search. The KDF answer collapses no route on Wadi Tarfan, so
+  cell 3 tracks cell 2 there.
+- Cell 3's answer is one unescorted `yahalom_squad`, queued once, as §7.1 specifies. It reaches and
+  collapses a route in few games; a stronger answer is a plan change, not measured here.
 
 ## 8. Sequencing
 

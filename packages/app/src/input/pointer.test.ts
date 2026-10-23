@@ -259,6 +259,28 @@ describe('PA-14: a click on the house wall is a click on the house', () => {
     expect(onFootprint.name).toBe(r.name);
   });
 
+  it('GH-681: a shaft of the seat\'s OWN route behind that wall outranks it -- the enter verb, not the house', () => {
+    const { sim, spawn, house } = world();
+    const squad = spawn('inf_squad', 0, 25.5, 21.5);
+    const cam: Camera = { x: 25, y: 16, zoom: 1 };
+    const px = wallPixel(sim, house, cam, 0.8);
+    const g = screenToWorldThree(px.x, px.y, cam, VP);
+    // A route side 0 owns, its mouth on the hidden ground under that pixel.
+    const tx = Math.floor(g.x);
+    const ty = Math.floor(g.y);
+    const route = sim.addTunnel({ id: 'pa_own', points: [[tx, ty], [tx, ty - 6]], dig_tiles_per_s: 1, pre_dug: true, side: 0 });
+    const r = read(sim, cam, [squad], px.x, px.y);
+    expect(r.p.facade).toBe(-1);
+    expect(r.res.intents).toEqual([{ kind: 'enterTunnel', ids: [squad], tunnel: route }]);
+    expect(r.key).toBe('tunnel-enter');
+    // A route nobody owns there (single-player's every route) leaves the wall the house's.
+    const plain = world();
+    plain.sim.addTunnel({ id: 'pa_map', points: [[tx, ty], [tx, ty - 6]], dig_tiles_per_s: 1, pre_dug: true });
+    const sq = plain.spawn('inf_squad', 0, 25.5, 21.5);
+    expect(read(plain.sim, cam, [sq], px.x, px.y).p.facade).toBe(plain.house);
+    expect(house).toBe(plain.house);
+  });
+
   it('leaves the street in front of the house alone', () => {
     const { sim, spawn, house } = world();
     const squad = spawn('inf_squad', 0, 25.5, 21.5);
