@@ -3939,7 +3939,10 @@ for (const [label, got, want] of [
 // 2026-10-22, GH-707 P3: infantry falls wounded, and a squad whose last man falls is dead as before
 // (ruling 5), so fewer come home: 29 -> 27, same mission. Umm Zeitoun IV's plain line reads roster
 // out 29 -> 27 (its re-tuned plan keeps the mortar out of the Adhal push and the hunt).
-const ROSTER_MAX = 27;
+// 2026-10-23, the lead's wound rules: 27 -> 29, the pre-P3 figure, same mission. Umm Zeitoun IV's
+// roster out 27 -> 29 again: with no Conduct on the wounded and no wounded contesting, the chain
+// brings two more home.
+const ROSTER_MAX = 29;
 console.log(`roster maximum: ${rosterMax} at ${rosterMaxMissionId}`);
 if (rosterMax !== ROSTER_MAX) {
   console.error(`roster maximum: FAILED — expected ${ROSTER_MAX}, got ${rosterMax} at ${rosterMaxMissionId}`);
