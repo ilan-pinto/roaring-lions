@@ -2542,6 +2542,14 @@ export class Sim {
     return this.woundLive;
   }
 
+  /** GH-707: is `id` a man down -- a `wounded`-role body, or a unit downed in place (the
+   *  civilians)? Always false in a world with no wound content (`woundLive`), so a caller's
+   *  skip costs that world nothing. The lead's rules of 22 Oct read it: a man down holds and
+   *  contests no ground, and spotting him is not a new identification. Read-only. */
+  isDown(id: number): boolean {
+    return this.woundLive && this.horsDeCombat(id);
+  }
+
   /** Field works: true once the FW state block is folded into hash() (D1). Read-only. */
   get fieldWorksLive(): boolean {
     return this.fwLive;

@@ -412,6 +412,18 @@ describe('no production while the camp is contested (F4 Task 4)', () => {
     expect(run(5, (w, id) => { w.sim.state.tunnelIn[id] = -1; })).toEqual([]);
   });
 
+  it('a man down 5 tiles from the exit contests nothing (GH-707, the lead 22 Oct); standing, he does', () => {
+    // A `wounded`-role type registered turns the wound rules on (`woundsLive`); the squad is then
+    // marked down in place (woundState 1, DOWN).
+    const PR_WOUNDED = { id: 'pr_wounded', role: 'wounded', hull: { hp: 30, armor: { front: 0, side: 0, rear: 0 } }, mobility: { speed_tiles_s: 0.12 }, sensors: { optics: 0, sight_tiles: 0, signature: 0.3 } };
+    const wound = (down: boolean) => (w: ReturnType<typeof world>, id: number): void => {
+      w.sim.addUnitType(PR_WOUNDED as Parameters<typeof w.sim.addUnitType>[0]);
+      (w.sim.state.woundState as Uint8Array)[id] = down ? 1 : 0;
+    };
+    expect(run(5, wound(true))).toEqual([50]);
+    expect(run(5, wound(false))).toEqual([]);
+  });
+
   it('a side-1 drone over the exit does not contest', () => {
     expect(run(0, undefined, 3)).toEqual([50]);
   });

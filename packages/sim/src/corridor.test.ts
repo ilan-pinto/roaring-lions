@@ -330,6 +330,7 @@ interface U {
   air?: boolean;
   buried?: number; // tunnelIn
   dead?: boolean;
+  down?: boolean; // GH-707: a man down
 }
 interface V {
   alive: number[];
@@ -347,6 +348,7 @@ function view(units: U[], v: V = { alive: [], open: [], digger: [], vents: [] })
     posY: units.map((u) => q(u.y)),
     tunnelIn: units.map((u) => u.buried ?? -1),
     isAir: (i: number) => units[i].air === true,
+    isDown: (i: number) => units[i].down === true,
     width: W,
     tunnelCount: v.vents.length,
     tnAlive: v.alive,
@@ -381,6 +383,11 @@ describe('corridorCut', () => {
   it('an aircraft on either side neither interdicts nor contests', () => {
     expect(cut([{ side: 1, x: 7.5, y: 6.0, air: true }])).toBeNull();
     expect(cut([ENEMY_ON_ROUTE, { side: 0, x: 7.5, y: 8.0, air: true }])).toBe('interdicted');
+  });
+
+  it('a man down neither interdicts nor contests (GH-707, the lead 22 Oct)', () => {
+    expect(cut([{ ...ENEMY_ON_ROUTE, down: true }])).toBeNull();
+    expect(cut([ENEMY_ON_ROUTE, { side: 0, x: 7.5, y: 8.0, down: true }])).toBe('interdicted');
   });
 
   it('a buried friendly or a dead friendly does not contest', () => {

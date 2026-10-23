@@ -846,6 +846,10 @@ export class MissionRuntime {
    *  (an admission and the later discharge-as-evacuated are the same rescue). Grows only
    *  with wound content; derived from the same events the gain total is, so not hashed. */
   private readonly roeGainJudged = new Set<number>();
+  /** GH-707 (the lead, 22 Oct): enemy wounded a player round was aimed at while down. Only
+   *  their death by player fire costs Conduct; a splash kill beside a legitimate target does
+   *  not. Grows only with wound content; derived from sim events, so not hashed. */
+  private readonly aimedAtWounded = new Set<number>();
   /** Survivors that came back a stripe more veteran this mission; set in checkEnd. */
   private promotedValue = 0;
   /** The logistics purse, per side, in 1/2400ths of a logistics. Integer on purpose:
@@ -1109,6 +1113,7 @@ export class MissionRuntime {
       posY: st.posY,
       tunnelIn: st.tunnelIn,
       isAir: (i: number) => sim.unitTypes[st.typeIdx[i]].isAir,
+      isDown: (i: number) => sim.isDown(i),
       width: sim.width,
       get tunnelCount() {
         return sim.tunnelCount;
@@ -2486,7 +2491,9 @@ export class MissionRuntime {
       if (e.kind === 'fire') this.firstContact = true;
       if (e.kind === 'contact' && e.level === 'identified') {
         this.firstContact = true;
-        if (e.side === 0 && this.sim.state.side[e.target] === 1) {
+        // GH-707 (the lead, 22 Oct): a wounded man is the same man already spotted, so seeing
+        // him pays no intel and counts toward no `locate`.
+        if (e.side === 0 && this.sim.state.side[e.target] === 1 && !this.sim.isDown(e.target)) {
           this.identified.add(e.target);
           if (e.observer >= 0) this.identifiedBy.set(e.target, e.observer);
           // Intel by doing (D3): the FIRST identification of each enemy settles
@@ -3348,6 +3355,17 @@ export class MissionRuntime {
     // consecutively, index 0 first, so index 0 opens a round.
     let roundDangerCharged = false;
     for (const e of simEvents) {
+      // GH-707 (the lead, 22 Oct): a player round AIMED at an enemy who is already down is the
+      // deliberate act the -3 below judges; remembered for the mission, since the kill may land
+      // later. Not part of the chain below: the same `fire` event is still judged danger-close.
+      // Read after the tick resolved, so a man who went down THIS tick (in place, under the same
+      // id) was standing when the round was aimed, and is not recorded.
+      if (
+        e.kind === 'fire' && e.target >= 0 && st.side[e.shooter] === 0 && st.side[e.target] === 1 &&
+        this.sim.isDown(e.target) && !simEvents.some((d) => d.kind === 'woundedDown' && d.entity === e.target)
+      ) {
+        this.aimedAtWounded.add(e.target);
+      }
       if (e.kind === 'structureDestroyed') {
         // Only the player's demolitions are judged: the enemy wrecking its
         // own town is their affair, not a mark against your restraint.
@@ -3370,10 +3388,12 @@ export class MissionRuntime {
         }
       } else if (e.kind === 'destroyed' && st.side[e.entity] === 1 && e.by >= 0 && st.side[e.by] === 0) {
         // GH-707: player fire killing an enemy who was already down. Bleeding out is not fire:
-        // a man the player downed and left dies with `by` = his shooter, and is not charged.
+        // a man the player downed and left dies with `by` = his shooter, and is not charged. And
+        // (the lead, 22 Oct) splash that kills a wounded man lying beside a legitimate target is
+        // collateral and costs nothing: only a man a player round was aimed at is charged.
         const w = st.woundState[e.entity];
         const down = w === WOUND_DOWN || w === WOUND_STABILISED || this.sim.unitTypes[st.typeIdx[e.entity]].isWounded;
-        if (down && !simEvents.some((b) => b.kind === 'bledOut' && b.entity === e.entity)) {
+        if (down && this.aimedAtWounded.has(e.entity) && !simEvents.some((b) => b.kind === 'bledOut' && b.entity === e.entity)) {
           deduct(CONDUCT_KILL_WOUNDED_ENEMY, 'wounded enemy killed');
         }
       } else if ((e.kind === 'woundAdmitted' || e.kind === 'woundEvacuated') && e.side === 0) {
@@ -3560,6 +3580,7 @@ export class MissionRuntime {
     for (let f = 0; f < this.sim.entityCount; f++) {
       if (st.alive[f] === 0 || st.side[f] !== 0 || !tileInZone(st, f, zone)) continue;
       if (st.tunnelIn[f] >= 0) continue;
+      if (this.sim.isDown(f)) continue; // GH-707: a man down holds nothing to contest
       if (this.enemyNear(f, zone)) return true;
     }
     return false;
@@ -3581,6 +3602,8 @@ export class MissionRuntime {
       if (st.alive[e] === 0 || st.side[e] !== 1) continue;
       if (zone !== undefined && !tileInZone(st, e, zone)) continue;
       if (st.tunnelIn[e] >= 0) continue;
+      // GH-707 (the lead, 22 Oct): a wounded enemy contests no ground.
+      if (this.sim.isDown(e)) continue;
       const dx = (fx.sub(st.posX[e], st.posX[f]) >> 8) | 0;
       const dy = (fx.sub(st.posY[e], st.posY[f]) >> 8) | 0;
       if (dx * dx + dy * dy <= CONTEST_RADIUS_SQ) return true;
@@ -3635,6 +3658,7 @@ export class MissionRuntime {
       if (this.sim.unitTypes[st.typeIdx[id]].isAir) continue;
       if (st.garrisonedIn[id] >= 0) continue;
       if (st.carriedBy[id] >= 0) continue;
+      if (this.sim.isDown(id)) continue; // GH-707: a man down holds no rise
       const rise = this.riseUnder(id);
       // Seen anywhere but the rise it started on: from here on it can earn.
       if (this.spawnRise[id] !== rise) this.spawnRise[id] = -1;
@@ -3674,6 +3698,8 @@ export class MissionRuntime {
       // A buried unit holds no ground: its body coordinates name a tile it
       // is not standing on.
       if (st.tunnelIn[i] >= 0) continue;
+      // GH-707 (the lead, 22 Oct): nor does a man down.
+      if (this.sim.isDown(i)) continue;
       const tx = st.posX[i] >> 16;
       const ty = st.posY[i] >> 16;
       if (tx >= zone[0] && tx < zone[0] + zone[2] && ty >= zone[1] && ty < zone[1] + zone[3]) n++;
@@ -3687,6 +3713,7 @@ export class MissionRuntime {
     const st = this.sim.state;
     for (const id of this.playerIds) {
       if (st.alive[id] === 0 || st.tunnelIn[id] >= 0) continue;
+      if (this.sim.isDown(id)) continue; // GH-707: same rule as livingIn
       const tx = st.posX[id] >> 16;
       const ty = st.posY[id] >> 16;
       if (tx >= zone[0] && tx < zone[0] + zone[2] && ty >= zone[1] && ty < zone[1] + zone[3]) out.push(id);

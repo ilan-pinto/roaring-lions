@@ -21,6 +21,9 @@ export interface HoldView {
   readonly tunnelIn: ArrayLike<number>;
   /** An aircraft holds and contests nothing. */
   isAir(i: number): boolean;
+  /** GH-707 (the lead, 22 Oct): a man down -- wounded, or downed in place -- holds and contests
+   *  nothing either. Optional: a view without it has no wounded (`Sim.isDown`). */
+  isDown?(i: number): boolean;
 }
 
 /** Who stands in a zone (A1, C-R13): side 0, side 1, ZONE_EMPTY (-1) or ZONE_CONTESTED (-2).
@@ -49,6 +52,7 @@ export function zoneState(view: HoldView, zone: readonly [number, number, number
     const ty = view.posY[i] >> 16;
     if (tx < zone[0] || tx >= zone[0] + zone[2] || ty < zone[1] || ty >= zone[1] + zone[3]) continue;
     if (view.isAir(i)) continue;
+    if (view.isDown?.(i) === true) continue;
     if (s === 0) present0 = true;
     else present1 = true;
     if (present0 && present1) return ZONE_CONTESTED;
@@ -128,6 +132,7 @@ export function zoneStates(
     }
     if (bits === 0) continue;
     if (view.isAir(i)) continue;
+    if (view.isDown?.(i) === true) continue;
     if (s === 0) present0 |= bits;
     else present1 |= bits;
   }
