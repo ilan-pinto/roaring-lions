@@ -67,5 +67,5 @@ export interface RenderQuality {
 export const QUALITY_PRESETS: Readonly<Record<'low' | 'medium' | 'high', RenderQuality>> = {
   low: { ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0 },
   medium: { ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view', fxDetail: 1 },
-  high: { ao: true, smaa: true, shadowMapSize: 4096, bloom: 'quarter', shadowFit: 'view', fxDetail: 2 },
+  high: { ao: true, smaa: true, shadowMapSize: 4096, bloom: 'quarter', shadowFit: 'view', fxDetail: 1 },
 };

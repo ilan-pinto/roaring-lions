@@ -11,9 +11,11 @@ describe('QUALITY_PRESETS', () => {
     // of the eight combinations.
     const expected: Record<'low' | 'medium' | 'high', RenderQuality> = {
       // Was: no `fxDetail` on any preset (the smoke screen had one look).
+      // high: Was 2 (both noise chains). The lead, 23 Oct: high draws the cheaper
+      // one-chain smoke (+2-3 ms median on a 110-tile screen at 2).
       low: { ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0 },
       medium: { ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view', fxDetail: 1 },
-      high: { ao: true, smaa: true, shadowMapSize: 4096, bloom: 'quarter', shadowFit: 'view', fxDetail: 2 },
+      high: { ao: true, smaa: true, shadowMapSize: 4096, bloom: 'quarter', shadowFit: 'view', fxDetail: 1 },
     };
     expect(QUALITY_PRESETS).toEqual(expected);
   });
