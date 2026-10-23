@@ -10,8 +10,8 @@
     { "type": "fire", "count": 1, "delay_ms": [0, 0], "duration_ms": [1500, 1500], "scale": { "base": 1.2, "per_power": 1.0 }, "velocity": { "radial": [0, 0], "up": [0.8, 0.8] }, "offset": { "up": 0.2 } },
     { "type": "fire", "count": 6, "delay_ms": [0, 15], "duration_ms": [1100, 1500], "scale": { "base": 0.8 }, "scale_from": "fireball", "velocity": { "radial": [2.4, 2.4], "up": [1.0, 2.6], "ring": true, "ring_jitter_rad": 1 }, "offset": { "up": 0.2 } },
     { "type": "smoke", "count": 14, "delay_ms": [0, 0], "duration_ms": [1800, 2400], "scale": { "base": 0.9, "per_power": 0.4 }, "velocity": { "radial": [3.0, 3.0], "up": [0.4, 0.4], "ring": true }, "tint": 0.9 },
-    { "type": "fire", "count": 16, "delay_ms": [450, 300], "duration_ms": [900, 1300], "scale": { "base": 0.22 }, "scale_from": "fireball", "velocity": { "radial": [0, 0], "up": [0.9, 1.5] }, "offset": { "up": 0.3, "scatter": 0.6 }, "low_fraction": 0.5 },
-    { "type": "smoke", "count": 36, "delay_ms": [150, 220], "duration_ms": [7000, 10000], "scale": { "base": 1.0, "per_power": 0.4, "rand": 0.9 }, "velocity": { "radial": [0.55, 0.55], "up": [1.4, 2.2] }, "offset": { "up": 0.4, "scatter": 0.6 }, "oil": 1, "low_fraction": 0.5 },
+    { "type": "fire", "count": 10, "delay_ms": [450, 300], "duration_ms": [900, 1300], "scale": { "base": 0.22 }, "scale_from": "fireball", "velocity": { "radial": [0, 0], "up": [0.9, 1.5] }, "offset": { "up": 0.3, "scatter": 0.6 }, "low_fraction": 0.5 },
+    { "type": "smoke", "count": 24, "delay_ms": [150, 210], "duration_ms": [6000, 8000], "scale": { "base": 1.0, "per_power": 0.4, "rand": 0.5 }, "velocity": { "radial": [0.55, 0.55], "up": [1.4, 2.2] }, "offset": { "up": 0.4, "scatter": 0.6 }, "oil": 1, "low_fraction": 0.5 },
     { "type": "spark", "count": 36, "delay_ms": [0, 8], "duration_ms": [900, 1600], "scale": { "base": 0.05 }, "velocity": { "radial": [1.5, 4.0], "up": [2.0, 5.0] }, "offset": { "up": 0.3 } }
   ],
   "particles": [
