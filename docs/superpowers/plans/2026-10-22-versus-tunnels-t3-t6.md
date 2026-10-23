@@ -55,7 +55,9 @@ runs before the HUD work (T4) is spent.
   END, like `ends`). Each route: `{ id, points, capacity }`; `id` `^[a-z0-9_]+$`; `points` 2–8
   integer `[x, y]` pairs, mouth first, vent last; `capacity` integer 1–8. No `side`, no `pre_dug`
   in the file: the owner is the room's call and every versus route is pre-dug (spec §2.4, §6.1).
-- [ ] **Data: the eight strawman routes** (spec §6.3), capacity 4 each. Ends: on `tel_marum`
+- [ ] **Data: the eight strawman routes** (spec §6.3), capacity 4 each. *(As built: the strawman
+  set failed the bar in T5 and was re-authored on the lead's ruling, 22 Oct; the shipped points
+  and capacities are in spec §6.3. The list below is the strawman set the task started from.)* Ends: on `tel_marum`
   `friendly` is the south anchor (24,46) and `hostile` the north (28,16); on `wadi_tarfan`
   `friendly` is `versus_0` (10,10), `hostile` `versus_1` (37,37).
   - `wadi_tarfan` friendly: `wt_f_north` (12,12)→(18,14)→(24,17); `wt_f_west` (12,12)→(15,19)→(19,26).
