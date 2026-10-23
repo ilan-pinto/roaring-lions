@@ -25,6 +25,11 @@ import type { TunnelXray } from './tunnel-xray';
 import type { TunnelPropsInput } from './tunnel-props';
 import type { TrailInstanceInput } from './trail-mesh';
 import { unitIsDrawn } from './units/observed';
+import { buildVehicleMeshTemplate, type VehicleMeshEntity, type VehicleMeshTemplate } from './units/mesh-vehicle';
+import { buildMeshUnitTemplate, type MeshUnitEntity, type MeshUnitTemplate } from './units/mesh-unit';
+import { parseRigidFixture } from './units/rigid-mesh-fixture';
+import { parseFixture } from './units/mesh-fixture';
+import type { ProxyBoxBatch } from './units/proxy-box';
 
 vi.mock('three', async (importOriginal) => {
   const actual = await importOriginal<typeof import('three')>();
@@ -32,6 +37,7 @@ vi.mock('three', async (importOriginal) => {
     outputColorSpace = actual.SRGBColorSpace;
     domElement: unknown = {};
     setClearColor(): void {}
+    render(): void {}
     dispose(): void {}
   }
   return { ...actual, WebGLRenderer: FakeWebGLRenderer };
@@ -158,5 +164,82 @@ describe('GH-681 fog audit: a buried Sarim unit on an unidentified route gives t
     expect(priv.tunnelXray.figures.count).toBe(1);
     expect(priv.tunnelXray.clock.strength[route]).toBeGreaterThan(0.9);
     expect(priv.buildTunnelPropsInput().routes[route].contactLevel).toBe(2);
+  });
+});
+
+/** The renderer's own three body paths, over a stub template each. */
+interface DrawPriv {
+  vehicleMeshTemplates: Map<string, VehicleMeshTemplate>;
+  vehicleMeshBounds: Map<string, import('three').Vector3>;
+  meshUnitTemplates: Map<string, readonly MeshUnitTemplate[]>;
+  meshFailures: Map<string, string>;
+  meshUnitEntities: Map<number, MeshUnitEntity>;
+  vehicleMeshEntities: Map<number, VehicleMeshEntity>;
+  proxyBoxes: ProxyBoxBatch | null;
+  updateMeshUnits(alpha: number, dtMs: number): void;
+  updateVehicleMeshes(alpha: number, dtMs: number): void;
+  updateProxyBoxes(alpha: number): void;
+}
+
+const TF_FOOT: UnitTypeJson = { ...RIFLE, id: 'tf_mesh_foot' };
+const TF_PROXY: UnitTypeJson = { ...RIFLE, id: 'tf_proxy_foot' };
+const TF_HULL: UnitTypeJson = { ...RIFLE, id: 'gun_truck', role: 'apc', mobility: { speed_tiles_s: 1, wheeled: true } };
+
+/**
+ * The same KDF-v-Sarim ground, read through what the renderer DRAWS: a
+ * skinned Sarim team (`updateMeshUnits`), a Sarim hull (`updateVehicleMeshes`)
+ * and a Sarim team whose GLB failed (`updateProxyBoxes`), each on the mouth
+ * tile a KDF rifleman can see. `buried` puts all three below
+ * (`Sim.putInTunnel`, the authored-placement path; a hull has no `enterTunnel`).
+ */
+async function drawWorld(buried: boolean) {
+  const sim = new Sim({ seed: 5, width: 30, height: 12, capacity: 16, humanHeld: [true, true] });
+  const route = sim.addTunnel({ id: 'tf_s_west', points: [[4, 6], [14, 6]], dig_tiles_per_s: 1, pre_dug: true, side: 1 });
+  const at = (x: number): [number, number] => [fx.from(x), fx.from(6.5)];
+  const foot = sim.spawn(sim.addUnitType(TF_FOOT), 1, ...at(3.5));
+  const hull = sim.spawn(sim.addUnitType(TF_HULL), 1, ...at(4.5));
+  const proxy = sim.spawn(sim.addUnitType(TF_PROXY), 1, ...at(5.5));
+  sim.spawn(sim.addUnitType(RIFLE), 0, fx.from(4.5), fx.from(9.5));
+  if (buried) for (const id of [foot, hull, proxy]) sim.putInTunnel(id, route);
+  const renderer = new ThreeRenderer(sim, makeOpts(0));
+  const priv = renderer as unknown as DrawPriv;
+  const rigid = await parseRigidFixture({ parts: [{ nodeName: 'hull_hull', extrasRole: 'hull' }] });
+  priv.vehicleMeshTemplates.set(TF_HULL.id, buildVehicleMeshTemplate(rigid, TF_HULL.id));
+  const THREE = await import('three');
+  priv.vehicleMeshBounds.set(TF_HULL.id, new THREE.Vector3(2, 0.8, 1.2));
+  const skinned = await parseFixture({ roleName: 'uniform', clipName: ['idle'] });
+  priv.meshUnitTemplates.set(TF_FOOT.id, [buildMeshUnitTemplate(skinned, 'kdf')]);
+  priv.meshFailures.set(TF_PROXY.id, '/meshes/tf_proxy_foot.glb');
+  sim.tick();
+  renderer.snapshot();
+  renderer.snapshot();
+  priv.updateMeshUnits(1, 16);
+  priv.updateVehicleMeshes(1, 16);
+  priv.updateProxyBoxes(1);
+  const pos = (i: number): [number, number] => [fx.toNumber(sim.state.posX[i]), fx.toNumber(sim.state.posY[i])];
+  return {
+    seen: [foot, hull, proxy].map((i) => renderer.isVisible(...pos(i))),
+    foot: priv.meshUnitEntities.get(foot)?.root.visible,
+    hull: priv.vehicleMeshEntities.get(hull)?.root.visible,
+    proxyBoxes: priv.proxyBoxes?.count ?? 0,
+  };
+}
+
+describe('GH-681 fog audit, through the renderer\'s own draw paths', () => {
+  it('control: on the surface, all three bodies draw where the KDF rifleman sees them', async () => {
+    const d = await drawWorld(false);
+    expect(d.seen).toEqual([true, true, true]);
+    expect(d.foot).toBe(true);
+    expect(d.hull).toBe(true);
+    expect(d.proxyBoxes).toBe(1);
+  });
+
+  it('buried, on tiles the KDF sees: no skinned body, no hull, no proxy box', async () => {
+    const d = await drawWorld(true);
+    // The fog gate alone would draw every one of them.
+    expect(d.seen).toEqual([true, true, true]);
+    expect(d.foot).toBe(false);
+    expect(d.hull).toBe(false);
+    expect(d.proxyBoxes).toBe(0);
   });
 });

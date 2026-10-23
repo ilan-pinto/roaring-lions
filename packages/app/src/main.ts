@@ -4746,7 +4746,6 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       if (zoneContains(z, tx, ty)) return true;
     }
     return false;
-   // The viewer (GH-681): which routes this seat has found, and which it owns.
   }, me);
   /**
    * The "Below ground" strip (GH-681): built only for a seat that OWNS a
