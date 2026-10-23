@@ -260,12 +260,14 @@ describe('the seat table (N3 Task 7: a room\'s, by default)', () => {
   });
   it('play is on the room\'s table unless told otherwise: a wadi_tarfan game the two tables decide differently', () => {
     // LITERALS, read at 0cb0ced2 (games-room.jsonl, and the default-rules run of N3 Task 2):
-    // Sarim friendly, seed 246489, KDF wins by annihilation at 4580 ticks under the room's
-    // table and at 5160 under the single-player one, whose side 1 auto-breaches walls.
+    // Sarim friendly, seed 246489, KDF wins by annihilation at 4160 ticks under the room's
+    // table and at 3760 under the single-player one, whose side 1 auto-breaches walls.
+    // Re-read when wounds opened to versus (the lead, 23 Oct 2026: the wounded types join the
+    // roster and the wound block is in the hash). Was 4580 / 5160; still two different games.
     const seed = seedOf(31);
     expect(seed).toBe(246489);
-    expect(play('wadi_tarfan', ['sarim', 'kdf'], seed)).toEqual({ winner: 1, by: 'annihilation', ticks: 4580 });
-    expect(play('wadi_tarfan', ['sarim', 'kdf'], seed, { rules: 'default' })).toEqual({ winner: 1, by: 'annihilation', ticks: 5160 });
+    expect(play('wadi_tarfan', ['sarim', 'kdf'], seed)).toEqual({ winner: 1, by: 'annihilation', ticks: 4160 });
+    expect(play('wadi_tarfan', ['sarim', 'kdf'], seed, { rules: 'default' })).toEqual({ winner: 1, by: 'annihilation', ticks: 3760 });
   }, FULL_GAMES_TIMEOUT_MS);
 });
 

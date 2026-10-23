@@ -113,7 +113,9 @@ describe('KDF vs Sarim (2026-10-14)', () => {
     // town_center (31,22) to (40,24) after the probe read the mirror west 38 / east 10.
     // The spawn moved and nothing else. Was 580559085. tel_marum re-pinned the same day when
     // its seat 0 moved from start_line (24,44) to (24,46) (the lead's ruling). Was 1260439781.
-    const want: Record<string, number> = { beit_sahwan_outskirts: 3296182002, tel_marum: 1524988923 };
+    // Re-pinned when wounds opened to versus (the lead, 23 Oct 2026): the two wounded types join the roster, every infantry type keeps hull.wounds, and the wound block is in the hash.
+    // Was 3296182002 (beit) and 1524988923 (tel).
+    const want: Record<string, number> = { beit_sahwan_outskirts: 2485993817, tel_marum: 280818962 };
     for (const mapId of ['beit_sahwan_outskirts', 'tel_marum'] as const) {
       for (const factions of [undefined, ['kdf', 'kdf'] as const]) {
         const { sim, typeOf, map } = buildWorld(mapId);
