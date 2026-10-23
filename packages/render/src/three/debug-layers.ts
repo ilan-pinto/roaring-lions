@@ -385,6 +385,11 @@ export const DEBUG_LAYERS = [
   // golden scenario calls fire support.
   'support-air',
   'support-blast',
+  // Defilade T6 PROTOTYPE (GH-705): per-role roughness/metalness on units,
+  // the units' view-angle rim, and terrain roughness 1 -> 0.85.
+  'unit-surface',
+  'unit-rim',
+  'terrain-roughness',
 ] as const;
 
 export type DebugLayer = (typeof DEBUG_LAYERS)[number];

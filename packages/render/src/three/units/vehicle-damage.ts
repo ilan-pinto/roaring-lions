@@ -47,6 +47,7 @@
  * (`attachMeshSilhouette`) and is shared by every unit on a side.
  */
 import * as THREE from 'three';
+import { reapplyUnitRim } from './unit-surface';
 import { structureHpBand } from '../../grind';
 import { CHARRED_TINT_HEX, liftTone } from '../world-materials';
 import { BURN_BAND_MAX, SCAR_BAND_MAX } from './building-damage';
@@ -130,6 +131,7 @@ export class VehicleScarMaterials {
     let scarred = perBand.get(band);
     if (!scarred) {
       scarred = std.clone();
+      reapplyUnitRim(scarred); // Defilade T6 prototype: the clone keeps the flag, not the hook
       writeScar(scarred, std, mix);
       scarred.needsUpdate = true;
       perBand.set(band, scarred);

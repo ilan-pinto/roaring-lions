@@ -16,6 +16,7 @@
  */
 import type * as THREE from 'three';
 import type { VehicleMeshEntity } from './mesh-vehicle';
+import { reapplyUnitRim } from './unit-surface';
 import { hasRunningGear, runningGearMaterial, type RunningGearUniforms } from './running-gear-material';
 import { wheelRotation, type RunningGearSpec, type RunningGearState } from './running-gear';
 
@@ -51,6 +52,7 @@ export function bindRunningGear(entity: VehicleMeshEntity, spec: RunningGearSpec
       let clone = clones.get(original);
       if (!clone) {
         clone = runningGearMaterial(original, spec);
+        reapplyUnitRim(clone.material); // Defilade T6 prototype
         clones.set(original, clone);
       }
       swaps.push({ mesh, original });

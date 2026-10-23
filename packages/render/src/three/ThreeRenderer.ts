@@ -113,6 +113,15 @@
  * also governs a DYING unit with no loaded sheet (`stepDeaths`, Task
  * B3.14): it is silently skipped, not drawn as a placeholder either.
  */
+import {
+  setUnitRimGain,
+  setUnitRimMode,
+  setUnitRimRadiance,
+  setUnitRimVisible,
+  setUnitRimWidth,
+  setUnitSurfacePass,
+  TERRAIN_ROUGHNESS_PASS,
+} from './units/unit-surface';
 import { firePointOnMap } from './units/fire-points';
 import * as THREE from 'three';
 import { fx, MED_CARRYING, MED_DELIVERING, ONE, WEAPON_CLASS, type Fx, type MissionEvent, type Sim, type SimEvent } from '@lions/sim';
@@ -3050,6 +3059,12 @@ export class ThreeRenderer implements Renderer {
     this.post.setFogPass(this.fogPass);
     // Ground plan 2, Task 9: the dust haze lives in the same pass (R-14).
     this.applyHaze();
+    // Defilade T6 prototype: terrain roughness, on by default on this branch.
+    this.groundMat.roughness = TERRAIN_ROUGHNESS_PASS;
+    // Defilade T6 prototype: the unit rim sits at lit ground's level.
+    setUnitRimRadiance(
+      hazeRadiance(this.resolvedLights.sunIntensity, this.resolvedLights.direction.y, this.resolvedLights.hemiIntensity)
+    );
     // Task 13: ambient occlusion, AFTER fog -- see `createAoPass` for why
     // that costs it nothing (it re-renders its own normals and depth rather
     // than reading the chain's) and why `viewCamera`, the persistent one, is
@@ -3756,6 +3771,13 @@ export class ThreeRenderer implements Renderer {
     return changed;
   }
 
+  /** Defilade T6 prototype harness seams: the rim's gain and N.V width. */
+  setUnitRim(gain: number, width?: number, mode?: 'light' | 'dark', darkGain?: number): void {
+    setUnitRimGain(gain);
+    if (width !== undefined) setUnitRimWidth(width);
+    if (mode !== undefined) setUnitRimMode(mode, darkGain);
+  }
+
   setDebugLayerVisible(name: string, visible: boolean): number {
     if (!isDebugLayer(name)) throw new Error(unknownDebugLayerMessage(name));
     switch (name) {
@@ -4035,6 +4057,18 @@ export class ThreeRenderer implements Renderer {
         // A FLAG, `missiles`' shape: `GarrisonBannerBatch.update` writes the
         // mesh's `visible` every frame. Returns 1, the one mesh.
         return this.garrisonBanners.setDebugHidden(!visible);
+      // Defilade T6 PROTOTYPE (GH-705): the three material switches. Each is a
+      // uniform or material-field write nothing per-frame re-asserts.
+      case 'unit-surface':
+        return setUnitSurfacePass(visible);
+      case 'unit-rim':
+        return setUnitRimVisible(visible);
+      case 'terrain-roughness': {
+        const next = visible ? TERRAIN_ROUGHNESS_PASS : 1;
+        const changed = this.groundMat.roughness === next ? 0 : 1;
+        this.groundMat.roughness = next;
+        return changed;
+      }
       default:
         // A name `DEBUG_LAYERS` lists and this switch does not handle. The
         // compiler already refuses it (`name` is `never` here), but a build

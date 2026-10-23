@@ -57,6 +57,7 @@ import { coldGltfLoader, gltfLoader } from './gltf-loader';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import type { ClipName } from '../../sheet';
 import { charredTexturedMaterial, rampMaterial, texturedMaterial } from '../world-materials';
+import { applyUnitRim, surfaceMaterialFor } from './unit-surface';
 import { parseRunningGear, type RunningGearSpec } from './running-gear';
 import { releaseRunningGear } from './running-gear-binding';
 import { CHARRED_RAMP, isVehicleMeshRole, rampForVehicleRole } from './vehicle-mesh-role';
@@ -392,9 +393,15 @@ export function buildVehicleMeshTemplate(
         smuggled.add(role || '(unnamed mesh)');
         return;
       }
+      // Defilade T6 prototype: a LIVE part takes its role's surface clone and
+      // the rim; a wreck is the soot recolour, untouched.
       const textured = isWreck
         ? charredFor(loaded as THREE.Material)
-        : texturedMaterial(loaded as THREE.Material);
+        : (() => {
+            const base = texturedMaterial(loaded as THREE.Material);
+            addMaterial(base);
+            return applyUnitRim(surfaceMaterialFor(base, role, addMaterial));
+          })();
       mesh.material = textured;
       mesh.castShadow = true;
       mesh.receiveShadow = true;
@@ -417,7 +424,8 @@ export function buildVehicleMeshTemplate(
     // constant's own doc comment. The role is still validated above, because
     // a wreck copy whose role is outside this vehicle's own table means the
     // pass copied extras from a node this module could not have drawn either.
-    const mat = rampMaterial(isWreck ? CHARRED_RAMP : rampForVehicleRole(vehicleId, role));
+    const ramp = rampMaterial(isWreck ? CHARRED_RAMP : rampForVehicleRole(vehicleId, role));
+    const mat = isWreck ? ramp : applyUnitRim(surfaceMaterialFor(ramp, role));
     mesh.material = mat;
     mesh.castShadow = true;
     mesh.receiveShadow = true;

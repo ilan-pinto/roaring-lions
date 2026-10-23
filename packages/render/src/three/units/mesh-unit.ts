@@ -37,6 +37,7 @@ import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import type { ClipName } from '../../sheet';
 import { rampMaterial, texturedMaterial } from '../world-materials';
+import { applyUnitRim, surfaceMaterialFor } from './unit-surface';
 import { isMeshRole, rampForRole, type MeshFaction } from './mesh-role';
 import {
   isMeshClipName,
@@ -157,7 +158,10 @@ export function buildMeshUnitTemplate(
         smuggled.add(role || '(unnamed mesh)');
         return;
       }
-      const textured = texturedMaterial(loaded as THREE.Material);
+      const base = texturedMaterial(loaded as THREE.Material);
+      if (!materials.includes(base)) materials.push(base);
+      // Defilade T6 prototype: per-role surface clone, plus the rim.
+      const textured = applyUnitRim(surfaceMaterialFor(base, role));
       mesh.material = textured;
       mesh.castShadow = true;
       mesh.receiveShadow = true;
@@ -170,7 +174,7 @@ export function buildMeshUnitTemplate(
       unmapped.add(role || '(unnamed mesh)');
       return;
     }
-    const mat = rampMaterial(rampForRole(role, faction));
+    const mat = applyUnitRim(surfaceMaterialFor(rampMaterial(rampForRole(role, faction)), role));
     mesh.material = mat;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
