@@ -378,20 +378,24 @@ export const BLAST_SUBJECTS: readonly BlastSubject[] = [
     x: 18,
     y: 3,
     toggleAtMs: { bloom: 600 },
-    abstains: ['bloom'],
     why:
       "wheeled, and a different wreck recipe from the Lavi's. The WEAKEST `decals` witness in " +
       'the set and deliberately still a voting one: hp 1600 gives power 0.533 and ' +
       '`scorchRadiusTiles` its square root, so the mark is 1.17 tiles of radius against the ' +
       "Lavi's 1.6, and its own wreck covers most of that -- which is what sets that layer's floor. " +
-      'ABSTAINS from `bloom` (Defilade T4), and is photographed for it at 600 ms rather than the ' +
+      'VOTES on `bloom` since the smoke-uplift P2 recipe (it ABSTAINED before, see below), photographed at 600 ms rather than the ' +
       "layer's 200: the Eitan's fireball core leaves the bloom's 1.0 threshold right around 200 ms, " +
       'so at that rung it read 4023-4056 px / 1.99-2.01 on three toggles-only runs and 0 px / 0.0000 ' +
       'on a fourth (load 11.4, 2026-10-21) -- a coin toss, not a witness. At 600 it reads 0 px / ' +
       '0.0000 on all three calibration runs, which makes it the set\'s one NEGATIVE bloom witness: ' +
       'a cooling fireball and its smoke must not bloom, and if they start to, this abstention ' +
       'clears its floor and fails the run. Run red once: the flipbook smoke colour x6 read 1679 px / ' +
-      '2.1592 here and failed the run (fix round 1)',
+      '2.1592 here and failed the run (fix round 1). **It tripped again on 2026-10-23 and the ' +
+      'abstention is deleted (GH-705 smoke uplift P2):** the kill recipe now throws 36 HDR sparks ' +
+      '(`HDR_GAINS.sparks` 4, up to 1.6 s of life, constant-size dots), and at 600 ms the layer reads ' +
+      '5770-7118 px / 3.2078-3.6809 on three toggles-only runs, the set\'s smallest bloom reading. ' +
+      'That is the design, not a leak: the sparks are meant to bloom, and the cooling fireball and ' +
+      'its smoke still do not. The negative bloom witness is gone with it; nothing else in the set is one.',
   },
   {
     id: 'mortar_team',
@@ -1013,12 +1017,30 @@ export const LAYER_FLOORS = {
   bloom: {
     // Defilade T4 (D1/D8): the quarter-resolution HDR bloom, `bloomPass.enabled`
     // (`setDebugLayerVisible('bloom')`, which no per-frame path re-asserts).
-    minDiffPixels: 1110,
-    minMeanAbsChannelDelta: 1.71,
-    measured: { minDiffPixels: 3311, minMeanAbsChannelDelta: 5.1259, runs: 3 },
+    // Was 1110 px / 1.71 (a third of 3311 / 5.1259, `mbt_lavi_z1`). Re-derived
+    // 2026-10-23 for the smoke-uplift P2 kill recipe: `apc_eitan` now votes
+    // (HDR sparks bloom at 600 ms) and is the smallest, 5770 px / 3.2078 over
+    // three Metal runs (5770, 5878, 7118 px / 3.2078, 3.3114, 3.6809); the
+    // other voters' smallest, `mbt_lavi_z1`, now reads 15910-16329 px /
+    // 8.6683-8.7097. A third of 5770 is 1923.3 -> 1930; of 3.2078, 1.0693 -> 1.07.
+    minDiffPixels: 1930,
+    minMeanAbsChannelDelta: 1.07,
+    measured: { minDiffPixels: 5770, minMeanAbsChannelDelta: 3.2078, runs: 3 },
     toggleAtMs: 200,
     rationale:
-      'Calibrated 2026-10-21. ' + '3 runs on darwin-arm64, ANGLE/Metal (Apple M3 Pro), 1400x900 at deviceScaleFactor 1, the 600x400 ' +
+      'RE-DERIVED 2026-10-23 (GH-705 smoke uplift P2, the oily kill column and HDR sparks), 3 runs, ' +
+      'darwin-arm64, ANGLE/Metal (Apple M3 Pro), 1400x900 at deviceScaleFactor 1, the 600x400 crop, ' +
+      '`--toggles-only`, one browser, music off, load averages 15.97 / 8.26 / 17.93 at the start of each ' +
+      'run. Every voter rose or held: `mbt_lavi` 44255-44508 px / 18.07-18.14 (was 19148-19396 / ' +
+      '13.34), `mbt_lavi_z1` 15910-16329 / 8.67-8.71 (was 3311-4043 / 5.13-5.48), `scorch_qarn_shoulder` ' +
+      '106140-107302 / 28.30-28.41, `scorch_tel_ridge` 121007-121820 / 32.12-32.69, `blast_in_firefight` ' +
+      '66485-67275 / 26.46-28.01, `collapse_house` 45309 / 17.05 (unchanged: no recipe), `mortar_team` ' +
+      '21514-21515 / 11.37 and `shake_probe` 22056 / 11.52 at 0 ms (unchanged), `kamikaze_soft` ' +
+      '26226-26252 / 15.85-15.86, `kamikaze_armour` 28795-28814 / 15.30-15.32, `lavi_fire` 52246-53948 / ' +
+      '26.62-26.68. `apc_eitan` JOINED the voters at its 600 ms rung and is the smallest (see that ' +
+      'subject): 5770, 5878, 7118 px / 3.2078, 3.3114, 3.6809. Floors are a third of that subject, ' +
+      'rounded up. Falsified: see the commit message (HDR_GAINS.sparks and the fireball gain at 0). ' +
+      'EARLIER CALIBRATION, kept for the record. Calibrated 2026-10-21. ' + '3 runs on darwin-arm64, ANGLE/Metal (Apple M3 Pro), 1400x900 at deviceScaleFactor 1, the 600x400 ' +
       'ladder crop, `--toggles-only`, 2026-10-21 (fix round 1), one browser, music off; load averages ' +
       '5.13 / 17.07 / 14.52 at the start of each run (other sessions on the machine). ' +
       'At the 200 ms rung: `mbt_lavi` 19148-19396 px / 13.34-13.36, `scorch_qarn_shoulder` ' +
@@ -1043,12 +1065,25 @@ export const LAYER_FLOORS = {
     // the fireball mesh, the smoke column and the smoke discs on shell
     // impacts, vehicle kills and missile impacts, plus the muzzle recipes.
     // A FLAG (`FlipbookFx.setDebugHidden`), `missiles`' shape.
-    minDiffPixels: 2190,
-    minMeanAbsChannelDelta: 0.83,
-    measured: { minDiffPixels: 6543, minMeanAbsChannelDelta: 2.4851, runs: 3 },
+    // Was 2190 px / 0.83 (a third of 6543 / 2.4851, `lavi_fire`). Re-derived
+    // 2026-10-23: `lavi_fire`'s muzzle recipe is untouched and is still the
+    // smallest, 6472-6765 px / 2.4906-2.5080 over three Metal runs; a third of
+    // 6472 is 2157.3 -> 2160, of 2.4906, 0.8302 -> 0.84.
+    minDiffPixels: 2160,
+    minMeanAbsChannelDelta: 0.84,
+    measured: { minDiffPixels: 6472, minMeanAbsChannelDelta: 2.4906, runs: 3 },
     toggleAtMs: 600,
     rationale:
-      'Calibrated 2026-10-21. ' + '3 runs on darwin-arm64, ANGLE/Metal (Apple M3 Pro), 1400x900 at deviceScaleFactor 1, the 600x400 ' +
+      'RE-DERIVED 2026-10-23 (GH-705 smoke uplift P2), same conditions as `bloom`. Kills rose: ' +
+      '`mbt_lavi` 95419-95614 px / 25.17-25.28 (was 64935-65341 / 19.6), `apc_eitan` 84254-84741 / ' +
+      '23.57-23.65 (was 48549-48682 / 14.9), `scorch_tel_ridge` 90414-90873 / 20.17-20.73, ' +
+      '`blast_in_firefight` 87385-91944 / 22.10-22.53, `scorch_qarn_shoulder` 40960-44974 / ' +
+      '9.58-10.79, `mbt_lavi_z1` 17054-17104 / 4.80-4.82 (was 10330 / 3.13); `mortar_team` 9133 / ' +
+      '3.2384 and `shake_probe` 9895 / 3.0594 (shell recipe, unchanged in shape), `kamikaze_*` ' +
+      'unchanged (27260 / 12.78 and 20121 / 7.32), `collapse_house` 0 / 0.0000 (abstains). The floor ' +
+      'is still set by `lavi_fire` (the muzzle recipe alone): 6765, 6683, 6472 px / 2.5080, 2.4909, ' +
+      '2.4906. The sparks are a small part of the flipbook and no toggle isolates them. ' +
+      'EARLIER CALIBRATION, kept for the record. Calibrated 2026-10-21. ' + '3 runs on darwin-arm64, ANGLE/Metal (Apple M3 Pro), 1400x900 at deviceScaleFactor 1, the 600x400 ' +
       'ladder crop, `--toggles-only`, 2026-10-21 (fix round 1), one browser, music off; load averages ' +
       '5.13 / 17.07 / 14.52 at the start of each run (other sessions on the machine). ' +
       'At the 600 ms rung -- past the fireball, inside the dust and soot: `mbt_lavi` 64935-65341 px / ' +
