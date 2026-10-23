@@ -66,6 +66,8 @@ describe('E6 swarm: registration', () => {
   it('refuses a swarm whose hull.hp is not count x member_hp', () => {
     const sim = new Sim({ seed: 1, width: 8, height: 8, capacity: 2 });
     expect(() => sim.addUnitType({ ...SWARM, hull: { ...SWARM.hull, hp: 181 } })).toThrow(/count x member_hp/);
+    expect(() => sim.addUnitType({ ...SWARM, hull: { hp: 180, armor: { front: 30, side: 5, rear: 5 } } })).toThrow(/soft/);
+    expect(() => sim.addUnitType({ ...SWARM, abilities: ['kamikaze'] })).toThrow(/kamikaze/);
     expect(() => sim.addUnitType({ ...SWARM, swarm: { count: 12, member_hp: 15, spread_tiles: 0 } })).toThrow(/spread/);
     expect(() => sim.addUnitType({ ...SWARM, swarm: { count: 0.5, member_hp: 15, spread_tiles: 3 } })).toThrow(/count/);
   });
@@ -86,7 +88,7 @@ describe('E6 swarm: the dive', () => {
     expect(sim.swarmMembers(s)).toBe(12 - dives);
   });
 
-  it('the rate of fire scales with live members: the gap after a dive is ceil(tbs x count / left)', () => {
+  it('the rate of fire scales with live members: the gap after a dive is ceil(tbs x count / live), the authored rate at full strength', () => {
     const { sim, s, m } = diver();
     const ticks: number[] = [];
     for (let k = 0; k < 900; k++) {
@@ -96,8 +98,8 @@ describe('E6 swarm: the dive', () => {
     const tbs = 100; // 12 shots a minute = 5 s = 100 ticks
     expect(ticks.length).toBeGreaterThan(3);
     for (let k = 1; k < 4; k++) {
-      const left = 12 - k; // members after the k-th dive
-      expect(ticks[k] - ticks[k - 1]).toBe(Math.ceil((tbs * 12) / left));
+      const live = 12 - (k - 1); // members as the k-th dive began: the first gap is the authored 100
+      expect(ticks[k] - ticks[k - 1]).toBe(Math.ceil((tbs * 12) / live));
     }
   });
 
@@ -171,6 +173,18 @@ describe('E6 swarm: being hit', () => {
     expect(sim.swarmMembers(b)).toBe(12);
     sim.debugSplash(fx.from(4.5), fx.from(4.5), fx.from(3), fx.from(1), 0, -1, -1);
     expect(sim.state.alive[a]).toBe(0);
+  });
+});
+
+describe('E6 swarm: a second slot', () => {
+  it('a two-weapon swarm that spends its last member fires and dies once', () => {
+    const w = world();
+    const two = w.sim.addUnitType({ ...SWARM, id: 'two', weapons: [DIVE, { ...DIVE, id: 'second' }] });
+    const s = w.sim.spawn(two, 1, fx.from(5.5), fx.from(8.5));
+    const m = w.sim.spawn(w.man, 0, fx.from(6.5), fx.from(8.5));
+    const ev = run(w.sim, 8000, 1, [m]);
+    expect(ev.filter((e) => e.kind === 'destroyed' && e.entity === s)).toHaveLength(1);
+    expect(w.sim.state.alive[s]).toBe(0);
   });
 });
 

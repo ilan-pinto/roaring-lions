@@ -850,7 +850,11 @@ function swarmFromJson(json: UnitTypeJson): SwarmStats | null {
   const spread = fx.from(sw.spread_tiles);
   if (memberHp <= 0) throw new Error(`unit ${json.id}: swarm.member_hp must be > 0`);
   if (spread <= 0) throw new Error(`unit ${json.id}: swarm.spread_tiles must be > 0`);
-  if (fx.from(json.hull.hp) !== sw.count * memberHp) {
+  if (fx.from(json.hull.armor.front) >= SOFT_ARMOR_LIMIT) {
+    throw new Error(`unit ${json.id}: a swarm must be soft (a component roll would take the whole cloud)`);
+  }
+  if ((json.abilities ?? []).includes('kamikaze')) throw new Error(`unit ${json.id}: a swarm dives member by member, not as a kamikaze`);
+  if (fx.from(json.hull.hp) !== fx.from(sw.count * sw.member_hp)) {
     throw new Error(`unit ${json.id}: swarm needs hull.hp === count x member_hp`);
   }
   return { count: sw.count, memberHp, spread };
@@ -6441,7 +6445,9 @@ export class Sim {
 
         if (this.cooldown[i * 2 + slot] > 0 || holdFire) continue;
         this.fireAt(i, slot, w, target);
+        if (this.alive[i] === 0) break; // E6: a swarm's last dive ends it; nothing further fires or is written
       }
+      if (this.alive[i] === 0) continue;
 
       // Nothing in the open to shoot? Then the enemy is inside a building,
       // and the building becomes the target — if this weapon can hurt it.
@@ -6472,8 +6478,10 @@ export class Sim {
           }
           if (this.cooldown[i * 2 + slot] > 0 || holdFire) continue;
           this.fireAtStructure(i, slot, w, s, tx, ty);
+          if (this.alive[i] === 0) break;
         }
       }
+      if (this.alive[i] === 0) continue;
 
       // Still nothing worth shooting, and stopped dead against a wall on the
       // way somewhere? Then the wall is the enemy. A target on the far side of
@@ -6508,10 +6516,12 @@ export class Sim {
               }
               if (this.cooldown[i * 2 + slot] > 0 || holdFire) continue;
               this.fireAtStructure(i, slot, w, s, tx, ty);
+              if (this.alive[i] === 0) break;
             }
           }
         }
       }
+      if (this.alive[i] === 0) continue;
       this.engaging[i] = engagedClose ? 1 : 0;
 
       // What stepBrace needs from this tick's target selection (spec §2):
@@ -6940,7 +6950,9 @@ export class Sim {
         const dSq = distSqFx(fx.sub(this.posX[i], s.x), fx.sub(this.posY[i], s.y));
         if (dSq > splashSq) continue;
         const falloff = fx.sub(ONE, fx.div(fx.sqrt(dSq), p.splash));
-        this.applyDamage(i, fx.mul(p.damage, falloff), s.by);
+        const stSwarm = this.unitTypes[this.typeIdx[i]].swarm;
+        if (stSwarm !== null) this.swarmSplash(i, stSwarm, p.splash, p.damage, s.by); // E6: a called strike is a splash
+        else this.applyDamage(i, fx.mul(p.damage, falloff), s.by);
         this.applySuppression(
           i,
           fx.mul(p.suppression, falloff),
@@ -7360,13 +7372,14 @@ export class Sim {
   /**
    * E6: a swarm's shot is a dive, and the diver is spent. Called from the end of `fireAt` and
    * `fireAtStructure`, so the round is already in the air. The cooldown is the weapon's, scaled
-   * by count / remaining members (integer ceil): a thinned cloud dives more slowly. The last
+   * by count / live members as the dive began (integer ceil), so full strength is the authored rate: a thinned cloud dives more slowly. The last
    * member's dive ends the swarm, credited to nobody.
    */
   private swarmDive(shooter: number, slot: number, w: WeaponStats): void {
     const sw = this.unitTypes[this.typeIdx[shooter]].swarm;
     if (sw === null) return;
-    const left = this.swarmLive(shooter, sw) - 1;
+    const live = this.swarmLive(shooter, sw);
+    const left = live - 1;
     if (left <= 0) {
       this.hp[shooter] = 0;
       this.destroy(shooter, -1);
@@ -7374,7 +7387,7 @@ export class Sim {
     }
     const cap = left * sw.memberHp;
     if (this.hp[shooter] > cap) this.hp[shooter] = cap;
-    this.cooldown[shooter * 2 + slot] = ((w.ticksBetweenShots * sw.count + left - 1) / left) | 0;
+    this.cooldown[shooter * 2 + slot] = ((w.ticksBetweenShots * sw.count + live - 1) / live) | 0; // x count / live: 1 at full strength
   }
 
   private applyDamage(target: number, dmg: Fx, by: number): void {
