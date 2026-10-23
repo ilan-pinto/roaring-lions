@@ -4,9 +4,9 @@
   "unmaskedRenderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
   "platform": "linux",
   "arch": "x64",
-  "commit": "3ea821c9d9f2a8517ab917110418f653b2309d7a",
-  "blessedAt": "2026-10-23T09:55:24.391Z",
-  "reason": "view-fitted shadows on every preset and sunlit crater rims (GH-705 tasks 2+5, lead: ship 23 Oct)",
+  "commit": "6755f22eb56e24a11b95992d00dc0200517fa626",
+  "blessedAt": "2026-10-23T15:25:50.160Z",
+  "reason": "high preset GTAO at quarter resolution (GH-777, lead: option B 23 Oct)",
   "scenarios": {
     "quiet": {
       "tick": 200,
@@ -20,7 +20,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "716e63ad6f8dbc991b20f95442a7618872e0ca634513987dff0119c442639711"
+      "sha256": "07ea019faadaafd558e154408b6549b59871eab57ac15a65615fd193ce8a7f19"
     },
     "open-ground": {
       "tick": 60,
@@ -39,7 +39,7 @@
         "w": 450,
         "h": 400
       },
-      "sha256": "abd242a6cbd150bd0d5477b54b2b425a17b329a02e5199be0e73076a7fb2ae29"
+      "sha256": "a1eb2c786c56f5c27f83493239de58e0be5ddce528a50f15b58226be9a1b1a60"
     },
     "vehicle": {
       "tick": 140,
@@ -53,7 +53,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "9ee51af9850cb3eed9fce13d32eac880c252770f433b97940b25c1b901ae1999"
+      "sha256": "b99684be477e32313f8aa9cf4e2f47a82146afbfd0d89765e3010c7aa0746da3"
     },
     "kitted": {
       "tick": 140,
@@ -67,7 +67,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "b63ab5d43d0aaa785f6a437e20221280a227f449cc5d5e62a216a4410f95754b"
+      "sha256": "7d68e69ed17cda7959cc117a4644ac21dc444ba87b3a4cb6f508a43fbf34075e"
     },
     "relief": {
       "tick": 500,
@@ -81,7 +81,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "45d6b53bde5cc60c4cc025bdf42226d89cb7883b2109733ab58fc324c4f190d1"
+      "sha256": "4d8e84742941056e6decfa676425d9f7bdcfc7351d83466ffc1292c965e44004"
     },
     "aftermath": {
       "tick": 300,
@@ -95,7 +95,7 @@
         "h": 900
       },
       "region": null,
-      "sha256": "ec3bc8a758f5225bf4cd9839299969f6c4a589c26fccae7475e028f46ba6bd2b"
+      "sha256": "7d6e01991aec699d98a8a2845c24a200588cd890e3d4805528380385e76a7b21"
     }
   }
 }
