@@ -802,6 +802,19 @@ yours; each one records what the next phase inherits.
   the billboards in WP-A3.3, and its recorded defect -- 75-432 false px along
   a billboard Lavi's hull base -- went with it, retired rather than fixed.)
   Costs no extra draw call over the fill: measured +24 on 310, both ways.
+- **Own units in smoke keep their outline** (GH-705, the lead's ruling 23 Oct 2026;
+  `units/smoke-outline.ts`, `ThreeRenderer.stepSmokeOutlines`). A living, visible unit of
+  the VIEWER's side on a tile with `sim.smokeAt` >= 48/255 (`SMOKE_OUTLINE_MIN`) has its
+  silhouette meshes swapped onto a `depthTest: false` copy of the team material, so the
+  ring draws at band 6 over the smoke (band 5); enemies never get it, smoke is cover.
+  +0 draw calls. **Infantry wear a thinner ring**: 2.5 px tapers to 1.5 px between zoom 1
+  and 2 (`infantrySmokeOutlinePx`), because a 2.5 px ring measured 5.0 device px at DPR 2
+  and was 32% of a kneeling figure's area; 1.5 px reads 3.0 device px and 23%. Vehicles
+  keep 2.5; the behind-building silhouette is unchanged for everyone. Hiding `overlays`
+  hides these materials too. The witness is `pnpm smoke-outline:capture` (no gated golden
+  scenario lays smoke): the `smoke-outline` toggle A/B must clear a third of the smallest
+  of three runs (dense and thin smoke at zoom 1 and 2.5, floors in its source), the quiet
+  frame must read 0 px, and hidden `overlays` must read 0 px; it exits 1 otherwise.
 - **Every shot draws a travelling projectile; no line spans the gap any
   more** (PR #342, 2 Oct 2026, the lead: "no need for the straight lines").
   `units/shells.ts` is the whole model — `mortar`/`rocket` arc (GH-145),

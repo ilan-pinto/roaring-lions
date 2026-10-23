@@ -391,6 +391,9 @@ export const DEBUG_LAYERS = [
   // values). A material-field write nothing per-frame re-asserts, so the
   // toggle holds; witnessed by the golden scenarios' `unit-surface` checks.
   'unit-surface',
+  // GH-705: the viewer's own units in smoke keep their occlusion outline
+  // through it. A flag `stepSmokeOutlines` reads per frame.
+  'smoke-outline',
 ] as const;
 
 export type DebugLayer = (typeof DEBUG_LAYERS)[number];
