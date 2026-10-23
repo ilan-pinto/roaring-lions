@@ -680,8 +680,15 @@ yours; each one records what the next phase inherits.
   1.0 applied in the composer's `OutputPass`, and every world material a
   `MeshStandardMaterial` (`units/world-materials.ts`, and `terrain/mesh.ts`'s
   `GroundMaterial`/`GroveMaterial`). One sun plus one hemisphere bounce in
-  `lighting.ts`, with a 4096² map-wide orthographic shadow box fitted once per
-  map. **The sun is a SIDE light — `SUN_DIRECTION` `(-0.406, 0.819, 0.406)`,
+  `lighting.ts`, with a 4096² orthographic shadow box that **follows the
+  camera** (GH-705, `shadow-fit.ts`, `shadowFit: 'view'` on every preset): refit
+  each frame to the view's receivers, its SIZE a function of zoom alone and its
+  centre snapped to whole texels, so panning does not crawl; about one screen
+  pixel a texel from zoom 0.5 up, where the old once-per-map box was 1.9-6.4.
+  Its depth stays the map-wide box's, so off-screen casters still cast, and
+  `photographGround` (the minimap) takes the map-wide box. Crater decals carry a
+  procedural rim normal lit by the sun, sky and shadow map (`decal-pool.ts`
+  `craterHeight`, the `crater-rims` debug layer). **The sun is a SIDE light — `SUN_DIRECTION` `(-0.406, 0.819, 0.406)`,
   the render rig's stated azimuth 135° at altitude 55°, which is the CAMERA'S
   LEFT** (the camera sits at 225° in `dimetric.py`, so its right-hand vector
   points at 315°). The X and Z signs DIFFER and that is the point: a box's
@@ -787,6 +794,19 @@ yours; each one records what the next phase inherits.
   the billboards in WP-A3.3, and its recorded defect -- 75-432 false px along
   a billboard Lavi's hull base -- went with it, retired rather than fixed.)
   Costs no extra draw call over the fill: measured +24 on 310, both ways.
+- **Own units in smoke keep their outline** (GH-705, the lead's ruling 23 Oct 2026;
+  `units/smoke-outline.ts`, `ThreeRenderer.stepSmokeOutlines`). A living, visible unit of
+  the VIEWER's side on a tile with `sim.smokeAt` >= 48/255 (`SMOKE_OUTLINE_MIN`) has its
+  silhouette meshes swapped onto a `depthTest: false` copy of the team material, so the
+  ring draws at band 6 over the smoke (band 5); enemies never get it, smoke is cover.
+  +0 draw calls. **Infantry wear a thinner ring**: 2.5 px tapers to 1.5 px between zoom 1
+  and 2 (`infantrySmokeOutlinePx`), because a 2.5 px ring measured 5.0 device px at DPR 2
+  and was 32% of a kneeling figure's area; 1.5 px reads 3.0 device px and 23%. Vehicles
+  keep 2.5; the behind-building silhouette is unchanged for everyone. Hiding `overlays`
+  hides these materials too. The witness is `pnpm smoke-outline:capture` (no gated golden
+  scenario lays smoke): the `smoke-outline` toggle A/B must clear a third of the smallest
+  of three runs (dense and thin smoke at zoom 1 and 2.5, floors in its source), the quiet
+  frame must read 0 px, and hidden `overlays` must read 0 px; it exits 1 otherwise.
 - **Every shot draws a travelling projectile; no line spans the gap any
   more** (PR #342, 2 Oct 2026, the lead: "no need for the straight lines").
   `units/shells.ts` is the whole model — `mortar`/`rocket` arc (GH-145),

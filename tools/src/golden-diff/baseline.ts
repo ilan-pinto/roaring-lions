@@ -1548,6 +1548,18 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
           'of it. Falsified: with the shader term removed the toggle reads 0 px / 0.0000.',
       },
       {
+        layer: 'crater-rims',
+        minDiffPixels: 3377,
+        minMeanAbsChannelDelta: 0.205,
+        rationale:
+          'Crater rims (Defilade Task 5, GH-705; decal-pool.ts craterHeight): hiding the layer sets the ' +
+          'rim gain to 0, today\'s flat crater decal. It moves 10133 px / 0.6150 here, bit-identical on 3 ' +
+          'fresh-page runs of tools/src/perf/relief-read-signal.ts --scenario=aftermath --layers=crater-rims ' +
+          '(the gate\'s own capture, SwiftShader, repaint control 0 px / 0.0000; 2026-10-23, with the ' +
+          'view-fitted shadow box on). Floor a third of it, rounded down. Falsified: with ' +
+          'CRATER_RIM_GAIN at 0 the toggle reads 0 px / 0.0000, under the floor.',
+      },
+      {
         // LAST on purpose: restoring it re-photographs the minimap's ground,
         // which also refreshes the transient glows that photograph carries,
         // and a check after it would read those too.

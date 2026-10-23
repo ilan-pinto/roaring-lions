@@ -5,7 +5,8 @@
   "faction": "sarim",
   "role": "wounded",
   "cost": {
-    "logistics": 0
+    "logistics": 0,
+    "population": 0
   },
   "hull": {
     "hp": 30,

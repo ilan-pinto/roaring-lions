@@ -380,11 +380,15 @@ export const DEBUG_LAYERS = [
   'slope-light',
   'height-contours',
   'crown',
+  'crater-rims',
   // GH-748: the aircraft over a fire-support call, and the support impacts'
   // own light and shock ring. Witnessed by `pnpm support:capture`; no gated
   // golden scenario calls fire support.
   'support-air',
   'support-blast',
+  // GH-705: the viewer's own units in smoke keep their occlusion outline
+  // through it. A flag `stepSmokeOutlines` reads per frame.
+  'smoke-outline',
 ] as const;
 
 export type DebugLayer = (typeof DEBUG_LAYERS)[number];
