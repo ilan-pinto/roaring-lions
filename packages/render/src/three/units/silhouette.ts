@@ -245,8 +245,8 @@ export const SILHOUETTE_OUTLINE_PX = 2.5;
 export const SILHOUETTE_PX_PER_WORLD_UNIT = (TILE_W * Math.SQRT2) / 2;
 
 /** The outline's width in WORLD units (one unit is one tile) at `zoom`. */
-export function silhouetteOutlineWorldWidth(zoom: number): number {
-  return SILHOUETTE_OUTLINE_PX / (SILHOUETTE_PX_PER_WORLD_UNIT * Math.max(zoom, 1e-3));
+export function silhouetteOutlineWorldWidth(zoom: number, outlinePx: number = SILHOUETTE_OUTLINE_PX): number {
+  return outlinePx / (SILHOUETTE_PX_PER_WORLD_UNIT * Math.max(zoom, 1e-3));
 }
 
 /**
@@ -264,8 +264,8 @@ export function silhouetteOutlineWorldWidth(zoom: number): number {
  * which is exactly the class of silent, plausible-looking wrongness this
  * backend has paid for before.
  */
-export function silhouetteOutlineObjectWidth(zoom: number): number {
-  return silhouetteOutlineWorldWidth(zoom) * MESH_UNITS_PER_TILE;
+export function silhouetteOutlineObjectWidth(zoom: number, outlinePx: number = SILHOUETTE_OUTLINE_PX): number {
+  return silhouetteOutlineWorldWidth(zoom, outlinePx) * MESH_UNITS_PER_TILE;
 }
 
 /** Vertex attribute carrying the smoothed outward direction each silhouette
@@ -582,9 +582,13 @@ export function createMeshSilhouetteMaterial(color: string): THREE.MeshBasicMate
  */
 export function setSilhouetteOutlineZoom(
   materials: readonly THREE.Material[],
-  zoom: number
+  zoom: number,
+  outlinePx: number = SILHOUETTE_OUTLINE_PX
 ): void {
-  const width = silhouetteOutlineObjectWidth(zoom);
+  // `outlinePx` narrows or widens the ring only; the depth bias below stays
+  // a multiple of the DEFAULT width, which is the conservative (larger) one
+  // for a thinner ring, and a no-depth-test material ignores it anyway.
+  const width = silhouetteOutlineObjectWidth(zoom, outlinePx);
   const bias = silhouetteMeshDepthBiasWorld(zoom);
   for (const material of materials) {
     const data = material.userData as Record<string, unknown>;

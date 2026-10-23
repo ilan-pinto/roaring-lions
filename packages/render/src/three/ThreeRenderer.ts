@@ -478,7 +478,9 @@ import {
   setSilhouetteOutlineZoom,
   isSilhouette,
   SILHOUETTE_OUTLINE_UNIFORM_KEY,
+  SILHOUETTE_OUTLINE_PX,
 } from './units/silhouette';
+import { infantrySmokeOutlinePx, wearsSmokeOutline } from './units/smoke-outline';
 import {
   loadMeshUnitTemplate,
   instantiateMeshUnit,
@@ -2298,6 +2300,20 @@ export class ThreeRenderer implements Renderer {
   /** One flash material per SIDE, built on first use (polish VR-12): the
    *  flash wears the TARGET's team colour, like the pulse it accompanies. */
   private readonly fireLinkFlashMaterials = new Map<number, THREE.MeshBasicMaterial>();
+  /** GH-705 (the lead's ruling, 23 Oct 2026): the viewer's OWN units standing
+   *  in smoke wear their occlusion outline through it. Two materials, both the
+   *  viewer-side silhouette with `depthTest: false` (stencil punch kept):
+   *  one for vehicles at the normal ring width, one for infantry at a thinner,
+   *  zoom-tapered one (a 2.5 px ring on a 25-60 px figure fills its gaps).
+   *  `smokeOutlined` holds each swapped entity's silhouette meshes and which
+   *  material they wear. Read-only on the sim (invariant 4). */
+  private smokeOutlineVehicleMaterial: THREE.MeshBasicMaterial | null = null;
+  private smokeOutlineInfantryMaterial: THREE.MeshBasicMaterial | null = null;
+  private readonly smokeOutlined = new Map<number, THREE.Mesh[]>();
+  private smokeOutlineOn = true;
+  /** Set by the `overlays` layer; a material created AFTER the layer was
+   *  hidden must start hidden too. */
+  private smokeOutlinesHidden = false;
   private readonly particleInstancerBelow = new ParticleInstancer(PARTICLE_CAPACITY, FX_LAYER_BELOW, true, false);
   private readonly particleInstancerAbove = new ParticleInstancer(PARTICLE_CAPACITY, FX_LAYER_ABOVE, false, false);
   /**
@@ -3643,6 +3659,7 @@ export class ThreeRenderer implements Renderer {
     this.updateFx(dtMs, alpha);
     this.fireLinkClockS += this.frameDtSeconds(dtMs);
     this.stepFireLinkFlashes();
+    this.stepSmokeOutlines();
     // Ages every active muzzle-flash and rewrites the shared uFlash* arrays
     // every registered toon-ramp/terrain material already points at -- see
     // `FlashLightManager.step`'s own doc comment. Presentation-only timing
@@ -3944,6 +3961,9 @@ export class ThreeRenderer implements Renderer {
         // traversal required. The billboard path is not covered (see the
         // same comment).
         for (const m of this.silhouetteMeshMaterials) m.visible = visible;
+        // The smoke outline's two materials are part of "the overlays" too.
+        for (const m of [this.smokeOutlineVehicleMaterial, this.smokeOutlineInfantryMaterial]) if (m) m.visible = visible;
+        this.smokeOutlinesHidden = !visible;
         return batchCount + this.silhouetteMeshMaterials.length;
       }
       case 'fog':
@@ -4004,6 +4024,13 @@ export class ThreeRenderer implements Renderer {
         this.flashLightsDebugHidden = !visible;
         if (this.flashLightsDebugHidden) this.zeroFlashLights();
         return this.flashLights.lights.length;
+      case 'smoke-outline': {
+        // A flag `stepSmokeOutlines` reads every frame (it also puts the
+        // meshes back when the flag is off). Returns the swapped count.
+        this.smokeOutlineOn = visible;
+        this.stepSmokeOutlines();
+        return this.smokeOutlined.size;
+      }
       case 'kit': {
         // GH-238: every vehicle template geometry that carries merged kit
         // (`rlKitBaseCount`) draws its host alone while hidden, everything
@@ -10424,6 +10451,8 @@ export class ThreeRenderer implements Renderer {
     SILHOUETTE_COLOR_KEY_BY_SIDE.forEach((key, slot) => {
       this.silhouetteMeshMaterials[slot].color.set(this.overlayColor(key, SILHOUETTE_FALLBACK_HEX_BY_SIDE[slot]));
     });
+    for (const m of [this.smokeOutlineVehicleMaterial, this.smokeOutlineInfantryMaterial])
+      m?.color.copy(this.silhouetteMaterialFor(this.viewer).color);
     // One hit-flash material per side since VR-12, each in its own side's colour.
     for (const [side, m] of this.fireLinkFlashMaterials) m.color.set(teamColors[colorSlot(side, this.viewer)]);
     this.proxyBoxes?.setTeamColors(teamColors);
@@ -10446,6 +10475,55 @@ export class ThreeRenderer implements Renderer {
       this.fireLinkFlashMaterials.set(side, m);
     }
     return m;
+  }
+
+  /** Puts the viewer's own units that stand in smoke onto a no-depth outline
+   *  material (vehicles: the normal ring; infantry: the thinner one) and
+   *  everyone else back on the shared one. +0 draw calls: the silhouette
+   *  meshes draw every frame at band 6 (> smoke's 5). */
+  private stepSmokeOutlines(): void {
+    const st = this.sim.state;
+    if (this.smokeOutlineVehicleMaterial === null || this.smokeOutlineInfantryMaterial === null) {
+      const mk = (): THREE.MeshBasicMaterial => {
+        const m = createMeshSilhouetteMaterial(this.silhouetteMaterialFor(this.viewer).color.getStyle());
+        m.depthTest = false;
+        m.visible = !this.smokeOutlinesHidden;
+        return m;
+      };
+      this.smokeOutlineVehicleMaterial = mk();
+      this.smokeOutlineInfantryMaterial = mk();
+      this.updateSilhouetteOutlineWidth();
+    }
+    const want = new Map<number, THREE.MeshBasicMaterial>();
+    if (this.smokeOutlineOn) {
+      const scan = (entities: Map<number, { root: THREE.Object3D }>, mat: THREE.MeshBasicMaterial): void => {
+        for (const [id, e] of entities) {
+          const level = this.sim.smokeAt(Math.floor(fx.toNumber(st.posX[id])), Math.floor(fx.toNumber(st.posY[id])));
+          if (wearsSmokeOutline(st.alive[id], st.side[id], this.viewer, level, e.root.visible && !this.fireLinkFlashed.has(id))) want.set(id, mat);
+        }
+      };
+      scan(this.meshUnitEntities, this.smokeOutlineInfantryMaterial);
+      scan(this.vehicleMeshEntities, this.smokeOutlineVehicleMaterial);
+    }
+    for (const [id, list] of this.smokeOutlined) {
+      if (want.has(id)) continue;
+      const was = this.silhouetteMaterialFor(this.viewer);
+      for (const m of list) m.material = was;
+      this.smokeOutlined.delete(id);
+    }
+    for (const [id, mat] of want) {
+      if (this.smokeOutlined.has(id)) continue;
+      const root = this.meshUnitEntities.get(id)?.root ?? this.vehicleMeshEntities.get(id)?.root;
+      if (!root) continue;
+      const list: THREE.Mesh[] = [];
+      root.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh || !isSilhouette(mesh)) return;
+        mesh.material = mat;
+        list.push(mesh);
+      });
+      this.smokeOutlined.set(id, list);
+    }
   }
 
   /** `flash`: swaps a target's silhouette meshes onto the flash material for
@@ -10599,6 +10677,9 @@ export class ThreeRenderer implements Renderer {
   private updateSilhouetteOutlineWidth(): void {
     const zoom = this.camera.zoom;
     setSilhouetteOutlineZoom(this.silhouetteMeshMaterials, zoom);
+    if (this.smokeOutlineVehicleMaterial) setSilhouetteOutlineZoom([this.smokeOutlineVehicleMaterial], zoom);
+    if (this.smokeOutlineInfantryMaterial)
+      setSilhouetteOutlineZoom([this.smokeOutlineInfantryMaterial], zoom, infantrySmokeOutlinePx(zoom, SILHOUETTE_OUTLINE_PX));
     for (const m of this.fireLinkFlashMaterials.values()) {
       setSilhouetteOutlineZoom([m], zoom);
       const w = (m.userData as Record<string, { value: number } | undefined>)[SILHOUETTE_OUTLINE_UNIFORM_KEY];
