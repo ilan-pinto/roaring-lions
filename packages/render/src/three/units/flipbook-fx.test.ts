@@ -219,15 +219,16 @@ describe('FlipbookFx presentation RNG', () => {
 
 describe('FlipbookFx recipe linger (D3, 1x)', () => {
   it('the kill column lingers 7-10 s and shell smoke 3.5-5 s', () => {
-    // Was 6.5-9 s over instances 20..35 (16 puffs). Now 7-10 s over the 36
-    // oily puffs at 21..56 (after 1 + 6 fire, 14 ring smoke, 16 cook-off
-    // fire): the approved smoke-uplift P2 mock's longer, oilier column.
+    // Was 6.5-9 s over instances 20..35 (16 puffs), then 7-10 s over the 36
+    // oily puffs at 37..72. Now 6-8 s over the 24 oily puffs at 31..54 (after
+    // 1 + 6 fire, 14 ring smoke, 10 cook-off fire): the lead's option A trim
+    // (23 Oct), which cut the column's cost on high and low.
     const fx = ready();
     fx.spawnRecipe(catastrophicKill.flipbook as FlipbookLayerSpec[], 0, 0, 0, 1);
     const p = params(fx);
-    for (let i = 37; i < 73; i++) {
-      expect(p[i * 4 + 1]).toBeGreaterThanOrEqual(7000);
-      expect(p[i * 4 + 1]).toBeLessThanOrEqual(10000);
+    for (let i = 31; i < 55; i++) {
+      expect(p[i * 4 + 1]).toBeGreaterThanOrEqual(6000);
+      expect(p[i * 4 + 1]).toBeLessThanOrEqual(8000);
     }
     const shell = ready();
     shell.spawnRecipe(shellImpact.flipbook as FlipbookLayerSpec[], 0, 0, 0, 0.45);
@@ -289,12 +290,15 @@ function mockKill(fx: FlipbookFx, r: Rand, x: number, h: number, z: number, powe
     const a = (k / 14) * Math.PI * 2;
     fx.spawn({ x, y: h, z, vx: Math.cos(a) * 3.0, vy: 0.4, vz: Math.sin(a) * 3.0, durationMs: 1800 + 600 * r(), scale: 0.9 + 0.4 * power, type: FLIP_SMOKE, tint: 0.9 });
   }
-  for (let k = 0; k < 16; k++) {
+  // Was 16 cook-off fires; 10 after the option A trim (23 Oct).
+  for (let k = 0; k < 10; k++) {
     fx.spawn({ x: x + (r() - 0.5) * 0.6, y: h + 0.3, z: z + (r() - 0.5) * 0.6, vy: 0.9 + r() * 0.6, delayMs: 450 + 300 * k, durationMs: 900 + 400 * r(), scale: fs * 0.22, type: FLIP_FIRE });
   }
-  for (let k = 0; k < 36; k++) {
+  // Was 36 puffs, delay 150 + 220k, life 7000 + 3000r, scale rand 0.9; the
+  // lead's option A trim (23 Oct) made it 24, 150 + 210k, 6000 + 2000r, 0.5.
+  for (let k = 0; k < 24; k++) {
     const a = r() * Math.PI * 2;
-    fx.spawn({ x: x + (r() - 0.5) * 0.6, y: h + 0.4, z: z + (r() - 0.5) * 0.6, vx: Math.cos(a) * 0.55, vy: 1.4 + r() * 0.8, vz: Math.sin(a) * 0.55, delayMs: 150 + 220 * k, durationMs: 7000 + 3000 * r(), scale: 1.0 + 0.9 * r() + 0.4 * power, type: FLIP_SMOKE, tint: -1 });
+    fx.spawn({ x: x + (r() - 0.5) * 0.6, y: h + 0.4, z: z + (r() - 0.5) * 0.6, vx: Math.cos(a) * 0.55, vy: 1.4 + r() * 0.8, vz: Math.sin(a) * 0.55, delayMs: 150 + 210 * k, durationMs: 6000 + 2000 * r(), scale: 1.0 + 0.5 * r() + 0.4 * power, type: FLIP_SMOKE, tint: -1 });
   }
   for (let k = 0; k < 36; k++) {
     const a = r() * Math.PI * 2;
@@ -370,7 +374,7 @@ describe('FlipbookFx recipes from data/vfx (Task 5)', () => {
     });
   }
 
-  it('shell recipe = 22 instances (4 fire, 12 dirt, 6 smoke), kill = 109 (23 fire, 50 smoke, 36 spark), muzzle = 10 (1/3/6)', () => {
+  it('shell recipe = 22 instances (4 fire, 12 dirt, 6 smoke), kill = 91 (17 fire, 38 smoke, 36 spark), muzzle = 10 (1/3/6)', () => {
     // Was kill = 36 (10 fire, 26 smoke): the P2 mock's recipe adds 13 fire
     // (cook-off 3 -> 16), 24 smoke (column 16 -> 36, ring 10 -> 14) and 36 sparks.
     const tallyOf = (layers: readonly FlipbookLayerSpec[]): number[] => {
@@ -381,7 +385,7 @@ describe('FlipbookFx recipes from data/vfx (Task 5)', () => {
     };
     expect(tallyOf(shellLayers)).toEqual([4, 6, 12, 0]);
     expect(tallyOf(missileImpact.flipbook as FlipbookLayerSpec[])).toEqual([4, 6, 12, 0]);
-    expect(tallyOf(catastrophicKill.flipbook as FlipbookLayerSpec[])).toEqual([23, 50, 0, 36]);
+    expect(tallyOf(catastrophicKill.flipbook as FlipbookLayerSpec[])).toEqual([17, 38, 0, 36]); // Was [23, 50, 0, 36]: option A trim (23 Oct).
     expect(tallyOf(fireApfsds.flipbook as FlipbookLayerSpec[])).toEqual([1, 3, 6, 0]);
     expect(tallyOf(fireHeat.flipbook as FlipbookLayerSpec[])).toEqual([1, 3, 6, 0]);
   });
@@ -541,16 +545,18 @@ describe('the low tier (fxDetail 0)', () => {
   it('defaults to full detail', () => {
     const fx = ready();
     fx.spawnRecipe(kill, 0, 0, 0, 1);
-    expect(tally(fx)).toEqual([23, 50, 0, 36]);
+    // Was [23, 50, 0, 36]: the option A trim (23 Oct) cut cook-off fire 16 -> 10 and the column 36 -> 24.
+    expect(tally(fx)).toEqual([17, 38, 0, 36]);
   });
 
   it('drops spark layers and halves low_fraction layers, rounding up', () => {
     const fx = new FlipbookFx(undefined, 0);
     fx.setAtlases(atlas(), atlas());
     const n = fx.spawnRecipe(kill, 0, 0, 0, 1);
-    // fire 1 + 6 + ceil(16/2)=8 = 15; smoke 14 + ceil(36/2)=18 = 32; no sparks.
-    expect(tally(fx)).toEqual([15, 32, 0, 0]);
-    expect(n).toBe(47);
+    // fire 1 + 6 + ceil(10/2)=5 = 12; smoke 14 + ceil(24/2)=12 = 26; no sparks.
+    // Was [15, 32, 0, 0] and 47: the option A trim (23 Oct).
+    expect(tally(fx)).toEqual([12, 26, 0, 0]);
+    expect(n).toBe(38);
     // Rounded UP: a 3-count layer at 0.5 spawns 2.
     const odd = new FlipbookFx(undefined, 0);
     odd.setAtlases(atlas(), atlas());
@@ -562,11 +568,11 @@ describe('the low tier (fxDetail 0)', () => {
     const fx = new FlipbookFx(undefined, 1);
     fx.setAtlases(atlas(), atlas());
     fx.spawnRecipe(kill, 0, 0, 0, 1);
-    expect(tally(fx)).toEqual([23, 50, 0, 36]);
+    expect(tally(fx)).toEqual([17, 38, 0, 36]); // Was [23, 50, 0, 36]: option A trim (23 Oct).
     const low = ready();
     low.setFxDetail(0);
     low.spawnRecipe(kill, 0, 0, 0, 1);
-    expect(tally(low)).toEqual([15, 32, 0, 0]);
+    expect(tally(low)).toEqual([12, 26, 0, 0]); // Was [15, 32, 0, 0]: option A trim (23 Oct).
   });
 
   it('ships low_fraction on the column and the cook-off, and on nothing else in the kill', () => {

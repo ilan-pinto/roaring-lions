@@ -227,8 +227,9 @@ describe('ThreeRenderer flipbook wiring (D5, D6)', () => {
   it('a vehicle kill spawns the kill recipe INSTEAD of the fireball, the column and the shroud (D5)', () => {
     const { sim, r, p, tank, calls } = wired(true);
     killEntity(sim, r, tank);
-    // Was 36 (10 fire, 26 smoke): the smoke-uplift P2 recipe, 23 fire + 50 smoke + 36 sparks.
-    expect(spawned(p.flipbook)).toBe(109);
+    // Was 36 (10 fire, 26 smoke), then 109 (23 fire + 50 smoke + 36 sparks):
+    // now 91 (17 fire + 38 smoke + 36 sparks), the lead's option A trim (23 Oct).
+    expect(spawned(p.flipbook)).toBe(91);
     expect(calls.flash).toBe(0);
     expect(calls.plume).toBe(0);
     expect(p.collapseShrouds.liveCount).toBe(0);
