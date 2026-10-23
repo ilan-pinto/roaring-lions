@@ -179,6 +179,34 @@ def fit(objs, yaw_deg, edge_m, offset=(0.0, 0.0), scale_override=None):
     return lo, hi
 
 
+def fit_plan(objs, size_xy, height, offset=(0.0, 0.0)):
+    """Non-uniform fit: scale X, Y and Z independently so the bounds are
+    `size_xy` x `height`, ground at z=0, XY centred (+ offset). The aid post's
+    source is a near-square tent and its footprint is 2x3 tiles (1:1.5), so a
+    uniform `fit` cannot reach the plot. Applies the transform."""
+    for o in objs:
+        o.rotation_euler = (0.0, 0.0, 0.0)
+    bpy.context.view_layer.update()
+    apply_all(objs)
+    lo, hi = bounds(objs)
+    kx = size_xy[0] / (hi.x - lo.x)
+    ky = size_xy[1] / (hi.y - lo.y)
+    kz = height / (hi.z - lo.z)
+    for o in objs:
+        o.scale = (kx, ky, kz)
+    bpy.context.view_layer.update()
+    apply_all(objs)
+    lo, hi = bounds(objs)
+    for o in objs:
+        o.location = Vector((-(lo.x + hi.x) / 2 + offset[0], -(lo.y + hi.y) / 2 + offset[1], -lo.z))
+    bpy.context.view_layer.update()
+    apply_all(objs)
+    lo, hi = bounds(objs)
+    print(f"    fitted: {hi.x - lo.x:.2f} x {hi.y - lo.y:.2f} x {hi.z - lo.z:.2f} m "
+          f"(scale {kx:.3f} {ky:.3f} {kz:.3f})")
+    return lo, hi
+
+
 def split_by_role(ob, classify, label):
     """Split ONE mesh object into one object per role, by a per-face
     classifier `(centre: Vector, normal: Vector) -> role`. Returns
@@ -467,6 +495,110 @@ def build_kdf_medic_station(state):
             rotate_about(d, (dx, dy - 0.34, 0.34), (1, 0, 0), 90)
         ground(parts)
     return parts
+
+
+AID_BODY = (5.4, 7.7)      # tent body plan, m: 1:1.43 inside the 6 x 9 m plot
+AID_HEIGHT = 3.4           # ridge, m
+AID_OFFSET = (0.0, 0.65)   # body pushed to the rear: a 1.3 m yard in front for crates
+AID_FRONT_Y = -2.7         # the gable plane, ray-cast on the fitted mesh
+AID_TRIM_Y = 0.72          # raw source |y| beyond which the Meshy guy-line/stake slivers are cut
+
+
+def build_kdf_aid_post(state):
+    """Meshy ridge tent (entrance flap on the -Y gable, a camera face), its
+    guy-line slivers trimmed and the plan stretched to the 2x3 plot: long axis
+    on Blender Y = glTF -Z = game y = the footprint's `h`. PROVEN, not
+    assumed: `ThreeRenderer.updateBuildingMeshes` places the clone at the
+    footprint centre with no yaw, and `buildingFitScale` is fed the mesh's
+    three-x extent against the footprint's x width (`maxX-minX+1`) and its
+    three-z extent against the y depth, so Blender X (6 m) must be the 2-tile
+    side and Blender Y (9 m) the 3-tile one."""
+    src = os.path.join(meshy_dir("kdf-aid-post-remesh"), "model.glb")
+    objs = import_glb(src)
+    gone = delete_faces_where(objs[0], lambda c: abs(c.y) > AID_TRIM_Y)
+    print(f"    trimmed {gone} sliver faces beyond |y| {AID_TRIM_Y}")
+    lo, hi = fit_plan(objs, AID_BODY, AID_HEIGHT, AID_OFFSET)
+    tent = split_by_role(objs[0], lambda c, n: "wall", "tent")["wall"]
+    fy = AID_FRONT_Y
+    # the doorway: the flap is rolled up in a slit about 1.2 m wide (ray-cast on
+    # the fitted mesh: x within +-0.6, open to z 1.5-2.6). A glass pane sits 15 cm
+    # behind the gable plane -- thin in y, facing -Y, a camera face -- so
+    # `building_facing.py` has an opening to judge the front by.
+    door = kit.box("door_pane", (1.1, 0.04, 1.7), (0.0, fy + 0.17, 0.95), "glass")
+    posts = [kit.box(f"door_post{i}", (0.1, 0.1, 2.1), (x, fy - 0.06, 1.05), "metal") for i, x in enumerate((-0.72, 0.72))]
+    lintel = kit.box("door_lintel", (1.54, 0.1, 0.1), (0.0, fy - 0.06, 2.1), "metal")
+    # the white band: a pale `dome` (limestone.1) strip across the entrance
+    # gable, proud of the canvas by 8 cm. No glyph, no cross: a plain band.
+    band = kit.box("gable_band", (2.3, 0.16, 0.42), (0.0, fy - 0.02, 1.95), "dome")
+    crates = [
+        kit.box("crate0", (0.75, 0.55, 0.5), (-1.95, -3.7, 0.25), "wood"),
+        kit.box("crate1", (0.6, 0.5, 0.45), (-1.25, -3.6, 0.225), "wood"),
+        kit.box("crate2", (0.6, 0.5, 0.42), (-1.9, -3.68, 0.71), "wood"),
+        kit.box("crate3", (0.7, 0.5, 0.5), (-2.15, -4.25, 0.25), "wood"),
+    ]
+    crates[2].data.transform(Matrix.Translation((-1.9, -3.68, 0)) @ Matrix.Rotation(0.2, 4, "Z") @ Matrix.Translation((1.9, 3.68, 0)))
+    # a stretcher on the ground by the door: two grip poles and a flat canvas bed
+    sx, sy = 1.55, -3.6
+    stretcher = [
+        kit.box("str_pole0", (2.2, 0.05, 0.05), (sx, sy - 0.28, 0.1), "metal"),
+        kit.box("str_pole1", (2.2, 0.05, 0.05), (sx, sy + 0.28, 0.1), "metal"),
+        kit.box("str_bed", (2.0, 0.5, 0.03), (sx, sy, 0.1), "wall"),
+    ]
+    stakes, ropes = [], []
+    for sgn in (-1, 1):
+        for i, y in enumerate((-1.6, 0.2, 2.0, 3.8)):
+            stakes.append(kit.box(f"stake_{sgn}_{i}", (0.1, 0.1, 0.3), (sgn * 2.94, y, 0.15), "metal"))
+            ropes.append(rod(f"rope_{sgn}_{i}", (sgn * 2.62, y, 1.45), (sgn * 2.94, y, 0.28), 0.018, "metal"))
+    parts = [tent, door, lintel, band] + posts + crates + stretcher + stakes + ropes
+    if state == "wreck":
+        for o in [door, lintel, band] + posts + stakes + ropes + stretcher:
+            bpy.data.objects.remove(o, do_unlink=True)
+        parts = [tent] + crates
+        # the canvas comes down flat: diced, crushed to a low ragged heap that
+        # lies over the crates, which are moved under it (inside the old plan)
+        _dice([tent], 1.2)
+        collapse([tent], 0.0, AID_HEIGHT)
+        scale_about(tent, (0, AID_OFFSET[1], 0), (1.0, 1.0, 0.45))
+        for c, (x, y) in zip(crates, ((-1.2, -0.3), (-0.5, 0.8), (1.3, 0.2), (1.0, -1.6))):
+            translate(c, (x + 1.95, y + 3.7, 0))
+        # ONE standing frame bay at the far (+Y) end: two arched hoops, purlins,
+        # and a torn strip of canvas hanging from the rear hoop. Porch is down.
+        parts += aid_hoop_bay(y0=3.55, y1=4.35)
+        # torn flap tail on the ground at the front where the porch stood
+        parts.append(kit.box("flap_scrap", (1.5, 1.1, 0.04), (0.4, -3.3, 0.02), "wall"))
+        ground(parts)
+    return parts
+
+
+def rod(name, a, b, r, role):
+    """A square-section rod between two points (guy ropes, hoop segments)."""
+    a, b = Vector(a), Vector(b)
+    d = (b - a).normalized()
+    ref = Vector((0, 0, 1)) if abs(d.z) < 0.9 else Vector((1, 0, 0))
+    u = d.cross(ref).normalized() * r
+    w = d.cross(u).normalized() * r
+    v = [a + u + w, a - u + w, a - u - w, a + u - w, b + u + w, b - u + w, b - u - w, b + u - w]
+    f = [(0, 1, 2, 3), (7, 6, 5, 4), (0, 4, 5, 1), (1, 5, 6, 2), (2, 6, 7, 3), (3, 7, 4, 0)]
+    return kit._mesh(name, [tuple(x) for x in v], f, role)
+
+
+def aid_hoop(label, y, a=2.35, b=2.95, n=12, r=0.07):
+    """One arched hoop in the XZ plane at world y: a half-ellipse of `n` rod
+    segments, half-width `a`, crown `b`."""
+    pts = [(a * math.cos(math.pi * i / n), y, b * math.sin(math.pi * i / n)) for i in range(n + 1)]
+    return [rod(f"{label}_{i}", pts[i], pts[i + 1], r, "metal") for i in range(n)]
+
+
+def aid_hoop_bay(y0, y1):
+    """The one frame bay left standing: two hoops, purlins between them, a
+    torn canvas strip hanging off the rear hoop."""
+    out = aid_hoop("hoop0", y0) + aid_hoop("hoop1", y1)
+    for i, ang in enumerate((25, 55, 90, 125, 155)):
+        t = math.radians(ang)
+        p = (2.35 * math.cos(t), 2.95 * math.sin(t))
+        out.append(rod(f"purlin{i}", (p[0], y0, p[1]), (p[0], y1, p[1]), 0.05, "metal"))
+    out.append(kit.box("hoop_tear", (0.04, 0.8, 1.3), (2.3, (y0 + y1) / 2, 0.9), "wall"))
+    return out
 
 
 def build_kdf_outpost(state):
@@ -781,6 +913,7 @@ KDF = {
     "kdf_outpost": build_kdf_outpost,
     "kdf_intel_centre": build_kdf_intel_centre,
     "kdf_workshop": build_kdf_workshop,
+    "kdf_aid_post": build_kdf_aid_post,
 }
 # yaw (degrees about z) that puts the opening on Blender +X / -Y, from the
 # four-view renders (report), and the militia workshop's roof band.
@@ -798,6 +931,7 @@ TEXTURED = {"militia_observation_post", "militia_weapons_workshop", "militia_fie
 NAMES = {
     "kdf_medic_station": "KDF medic station", "kdf_outpost": "KDF outpost",
     "kdf_intel_centre": "KDF intel centre", "kdf_workshop": "KDF workshop",
+    "kdf_aid_post": "KDF aid post",
     "militia_observation_post": "militia observation post",
     "militia_weapons_workshop": "militia weapons workshop",
     "militia_field_clinic": "militia field clinic",

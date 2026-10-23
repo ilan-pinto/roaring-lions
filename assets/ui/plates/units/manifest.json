@@ -186,13 +186,31 @@
         441
       ]
     },
-    "inf_grenadier": {
-      "file": "inf_grenadier.jpg",
+    "air_medevac_heli": {
+      "file": "air_medevac_heli.jpg",
       "width": 1800,
       "height": 1200,
       "extent": [
-        309,
-        240
+        620,
+        449
+      ]
+    },
+    "inf_medic_squad": {
+      "file": "inf_medic_squad.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        184,
+        263
+      ]
+    },
+    "veh_ambulance": {
+      "file": "veh_ambulance.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        1030,
+        717
       ]
     },
     "ugv_recon_dog": {
@@ -202,6 +220,15 @@
       "extent": [
         168,
         118
+      ]
+    },
+    "inf_grenadier": {
+      "file": "inf_grenadier.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        309,
+        240
       ]
     },
     "at_nlos_team": {

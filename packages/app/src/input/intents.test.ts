@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { validateCommand } from '@lions/net';
-import { fx, type Command } from '@lions/sim';
+import { units } from '@lions/data';
+import { fx, unitTypeFromJson, type Command, type UnitTypeJson } from '@lions/sim';
+import { isMountCarrier } from '../ui/role';
 import {
   applyIntent,
   issueOrder,
@@ -89,6 +91,21 @@ describe('sortMount', () => {
   it('reports no riders when nothing selected can embark', () => {
     expect(sortMount([1], (i) => i === 1, () => false)).toEqual({ carrier: 1, riders: [] });
   });
+
+  it('GH-707: never picks a medic team, an ambulance or a medevac as the carrier a squad mounts', () => {
+    // The real unit types, through the same `isMountCarrier` main.ts's `isCarrier` reads. All
+    // three wound carriers have seats (`transport_slots` 1 / 4 / 4) but `can_carry: ['wounded']`,
+    // so a squad selected with any of them must not be ordered into it.
+    const ids = ['inf_medic_squad', 'veh_ambulance', 'air_medevac_heli', 'inf_squad', 'apc_eitan'] as const;
+    const types = ids.map((id) => unitTypeFromJson(units[id] as unknown as UnitTypeJson));
+    expect(types.slice(0, 3).map((t) => t.transportSlots > 0)).toEqual([true, true, true]);
+    const isCarrier = (i: number) => isMountCarrier(types[i]);
+    const canEmbark = (i: number) => types[i].canEmbark;
+    // medic + ambulance + medevac + squad: nothing a squad can board.
+    expect(sortMount([0, 1, 2, 3], isCarrier, canEmbark).carrier).toBeUndefined();
+    // add an Eitan, LAST, and it is the carrier -- not any of the wound carriers before it.
+    expect(sortMount([0, 1, 2, 3, 4], isCarrier, canEmbark).carrier).toBe(4);
+  });
 });
 
 describe('INTENT_KINDS', () => {
@@ -96,7 +113,7 @@ describe('INTENT_KINDS', () => {
     // Task 5's step cross-check validates tutorial JSON against this list, so
     // a kind missing here becomes a step nobody can complete.
     const kinds: PlayerIntent['kind'][] = [
-      'select', 'order', 'attack', 'garrison', 'demolish', 'chargeTunnel', 'mount', 'dismount',
+      'select', 'order', 'attack', 'rescue', 'garrison', 'demolish', 'chargeTunnel', 'mount', 'dismount',
       'smoke', 'halt', 'patrol', 'group', 'overlay', 'support',
     ];
     expect([...INTENT_KINDS].sort()).toEqual([...kinds].sort());
@@ -189,6 +206,7 @@ function world(over: Partial<IntentWorld> = {}): IntentWorld {
     flies: () => false,
     canFocus: () => false,
     focusHurts: () => false,
+    canRescue: () => false,
     garrisoned: () => false,
     ...over,
   };

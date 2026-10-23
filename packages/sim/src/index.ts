@@ -32,6 +32,16 @@ export {
 export type { PlacementRefusal } from './sim';
 export { DOMAIN_AIR, DOMAIN_FOOT, DOMAIN_VEHICLE } from './sim';
 export { REGEN_FRAC } from './tuning';
+export {
+  WOUND_NONE,
+  WOUND_DOWN,
+  WOUND_STABILISED,
+  MED_IDLE,
+  MED_TO_WOUNDED,
+  MED_TREATING,
+  MED_CARRYING,
+  MED_DELIVERING,
+} from './tuning';
 export type { StructureType } from './structures';
 // The civilian flight rule, shared by `MissionRuntime` and the `&civ` sandbox.
 // Exported because a sandbox has no mission and therefore no runtime, and the

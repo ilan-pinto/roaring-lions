@@ -561,8 +561,10 @@ describe('WRECK_RECIPES', () => {
   it('names the shipped vehicles plus the held E5 Gunship, Tzav, command Lavi, Yanshuf and the Ambush Tank, and nothing else', () => {
     // The thirteen shipped vehicles, plus four held files under art/meshes/vehicles/ that
     // each need a wreck: GH-181's Peten Gunship and Shiryonan carrier (`demo_tzav`),
-    // GH-298's command Lavi (`officer_armour`) and GH-698's Yanshuf transport.
+    // GH-298's command Lavi (`officer_armour`) and GH-698's Yanshuf transport -- and, landed with
+    // their art at GH-709, the armoured ambulance and the medevac.
     expect(Object.keys(WRECK_RECIPES).sort()).toEqual([
+      'air_medevac_heli',
       'apc_eitan',
       'apc_kipod',
       'attack_drone',
@@ -585,6 +587,7 @@ describe('WRECK_RECIPES', () => {
       'spg_cluster',
       'spg_long_range',
       'technical',
+      'veh_ambulance',
     ]);
   });
 });

@@ -5,15 +5,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HALF_INK_CLASS, slowedSymbolSvg, SYMBOL_IDS, DINGBAT_IDS, symbolLabel, symbolSvg, symbolBody, VIEWBOX, W, type SymbolId } from './symbol';
 
-const ORDER_IDS = ['move', 'attackMove', 'halt', 'smoke', 'load', 'unload', 'sweep', 'strike', 'barrage', 'smokeScreen', 'patrol'] as const;
+const ORDER_IDS = ['move', 'attackMove', 'halt', 'smoke', 'load', 'unload', 'sweep', 'strike', 'barrage', 'smokeScreen', 'patrol', 'rescue'] as const;
 const isOrder = (id: SymbolId): boolean => (ORDER_IDS as readonly string[]).includes(id);
 const viewBoxOf = (svg: string): number[] => (/viewBox="([^"]+)"/.exec(svg)?.[1] ?? '').split(' ').map(Number);
 
 describe('the symbol family (G1 r2 roles, r5 orders, r2 utility marks, the pinned status mark, GH-261)', () => {
-  it('is thirty-eight distinct ids: seven roles, eleven orders (S-F: barrage, smokeScreen; Lane A: patrol), four utility marks, three status marks, thirteen GH-261 marks', () => {
-    expect(SYMBOL_IDS).toHaveLength(38);
-    expect(new Set(SYMBOL_IDS).size).toBe(38);
+  it('is thirty-nine distinct ids: seven roles, twelve orders (S-F: barrage, smokeScreen; Lane A: patrol; GH-707: rescue), four utility marks, three status marks, thirteen GH-261 marks', () => {
+    expect(SYMBOL_IDS).toHaveLength(39);
+    expect(new Set(SYMBOL_IDS).size).toBe(39);
     expect(SYMBOL_IDS).toContain('patrol');
+    expect(SYMBOL_IDS).toContain('rescue');
     expect(SYMBOL_IDS).toContain('barrage');
     expect(SYMBOL_IDS).toContain('smokeScreen');
     expect(SYMBOL_IDS).toContain('immobilised');

@@ -425,6 +425,21 @@ export function parseGaitArgs(argv: readonly string[]): readonly string[] | 'all
  * printing one skip line among many and reporting success. See the file
  * header's "Skips are for a DEGENERATE measurement" section.
  */
+/**
+ * Types whose only moving clip is `crawl`, which the renderer never rate-matches
+ * (`LOCOMOTION_CLIPS` is `move` and `moveFire`: a `crawl` plays at timeScale 1).
+ * There is therefore no `rl_gait` to declare and no `move` to measure; their
+ * crawl is AUTHORED at the unit's own ground speed instead (`tools/units/
+ * wounded.py`'s `CRAWL_PULL_M`) and held to it by `tools/src/mesh_wounded.test.ts`,
+ * which measures the planted hand's slide off the file. Named, with the reason,
+ * so a type is not skipped silently: `mesh_wounded.test.ts` pins this set to
+ * the role-`wounded` unit JSONs.
+ */
+export const GAIT_CRAWL_ONLY: Readonly<Record<string, string>> = {
+  wounded_kdf: 'crawl is authored at 0.12 tile/s (0.36 m/s) and is not a locomotion clip',
+  wounded_sarim: 'crawl is authored at 0.12 tile/s (0.36 m/s) and is not a locomotion clip',
+};
+
 export async function runGaitPass(ids: readonly string[] | 'all'): Promise<void> {
   const wanted = ids === 'all' ? Object.keys(RIGGED_UNIT_MESHES) : ids;
   for (const id of wanted) {
@@ -438,6 +453,11 @@ export async function runGaitPass(ids: readonly string[] | 'all'): Promise<void>
   let skipped = 0;
   for (const id of wanted) {
     const entry = RIGGED_UNIT_MESHES[id];
+    if (id in GAIT_CRAWL_ONLY) {
+      skipped += entry.files.length;
+      for (const file of entry.files) console.log(`GAIT_PASS_SKIP ${id} (${file}): ${GAIT_CRAWL_ONLY[id]}`);
+      continue;
+    }
     for (const file of entry.files) {
       const abs = path.join(MESHES, file);
       let result: GaitMeasureResult;

@@ -1519,7 +1519,7 @@ export class Sim {
   private deliverX: Fx = 0;
   private deliverY: Fx = 0;
   /** GH-707: true once `addUnitType` registers a type with `wounds`, `rescue`, `can_carry` or
-   *  role `wounded`, or `addStructureType` one with `aid`. hash() folds the wound block only
+   *  role `wounded`, or `addStructure` places (or stakes) a structure with `aid`. hash() folds the wound block only
    *  while set, so no world without wound content moves any pin. */
   private woundLive = false;
   /** Structure this unit is currently engaging, -1 when none. */
@@ -2392,8 +2392,10 @@ export class Sim {
 
   addStructureType(json: StructureTypeJson): number {
     const type = structureTypeFromJson(json, TICKS_PER_SECOND);
-    // GH-707: an aid post turns the wound block's hash fold on.
-    if (type.aid !== null) this.woundLive = true;
+    // GH-707: an aid post turns the wound block's hash fold on when one is placed or staked
+    // (`addStructure`), not here: every world registers the whole structure catalogue (`standMapStructures`), so
+    // a registration trigger would fold the block into every versus world (a mission registers the
+    // wounded types and folds from tick 0 anyway).
     this.structureTypes.push(type);
     return this.structureTypes.length - 1;
   }
@@ -2439,7 +2441,10 @@ export class Sim {
     this.stOwner[id] = owner;
     this.stProgress[id] = progress;
     if (owner !== -1 || progress !== ONE) this.fwLive = true;
-    if (type.aid !== null) this.aidPosts++;
+    if (type.aid !== null) {
+      this.aidPosts++;
+      this.woundLive = true;
+    }
     this.stMaxHp[id] = fx.mul(type.hpPerTile, fx.fromInt(tiles.length));
     this.stHp[id] = this.stMaxHp[id];
     this.stOccupants[id] = 0;
@@ -4578,7 +4583,7 @@ export class Sim {
         // GH-707 Task 5. Like `attack`: BEFORE the bare halt `else`, and a refused id changes
         // nothing (the generic focus release above skips this kind).
         for (const id of cmd.ids) {
-          if (!this.canRescue(id, cmd.target)) continue;
+          if (!this.rescueGate(id, cmd.target)) continue;
           if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
           this.focusTarget[id] = -1;
           this.focusLost[id] = 0;
@@ -7768,7 +7773,7 @@ export class Sim {
   }
 
   /** GH-707 Task 5: the `rescue` order's gate for one id. */
-  private canRescue(id: number, w: number): boolean {
+  private rescueGate(id: number, w: number): boolean {
     if (id < 0 || id >= this.count || this.alive[id] === 0) return false;
     if (this.unitTypes[this.typeIdx[id]].rescue === null) return false;
     if (this.routed[id] === 1 || this.carriedBy[id] >= 0 || this.tunnelIn[id] >= 0) return false;
@@ -9646,6 +9651,27 @@ export class Sim {
     const tileCover = this.cover[(ty >> 16) * this.width + (tx >> 16)];
     const parapet = this.parapetCover(tx, ty, this.posX[shooter], this.posY[shooter]);
     return parapet > tileCover ? parapet : tileCover;
+  }
+
+  /**
+   * GH-707 P2: would a `rescue` order naming this medic and this wounded be accepted now?
+   * The command's own gate, read-only (no state, no rng) -- the app's cursor and click ask it
+   * so they cannot disagree with the sim.
+   */
+  canRescue(medic: number, wounded: number): boolean {
+    return this.rescueGate(medic, wounded);
+  }
+
+  /**
+   * GH-707 P2: how fast `id` is bleeding now, in ticks of bleed per tick: 0 when he is not a DOWN
+   * wounded (a STABILISED man included), is carried or is tended, 2 while pinned, else 1.
+   * Read-only; `stepWounded` applies the same rule, but on next tick's positions, so a medic
+   * stepping into reach can make this read one tick early. For display, not for arithmetic.
+   */
+  woundBleedRate(id: number): number {
+    if (id < 0 || id >= this.count || this.alive[id] === 0 || this.woundState[id] !== WOUND_DOWN) return 0;
+    if (this.carriedBy[id] >= 0 || this.woundTended(id)) return 0;
+    return this.pinned[id] === 1 ? 2 : 1;
   }
 
   /**

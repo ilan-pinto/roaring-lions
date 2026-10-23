@@ -229,7 +229,7 @@ describe('cursorRules', () => {
       defaultLines(css).flatMap((l) => [...l.matchAll(/%23([0-9a-f]{6})/g)].map((m) => `#${m[1]}`))
     );
     const c = paletteColors(resolved);
-    const wired: SightOrderId[] = ['move', 'attackMove', 'sweep', 'strike', 'smoke', 'barrage', 'smokeScreen'];
+    const wired: SightOrderId[] = ['move', 'attackMove', 'sweep', 'strike', 'smoke', 'barrage', 'smokeScreen', 'rescue'];
     const expected = new Set([
       ...[c.ink, c.dim, c.bad, c.warn, c.hot, c.info].map((h) => h.toLowerCase()),
       hexOf(SIGHT_KEYS.aim),
@@ -523,8 +523,8 @@ describe('the stadia sights -- the approved G1 r5 order cursors', () => {
   /** The default sheet's image for key at frame, as the cascade draws it. */
   const drawn = (key: string, frame: number): string => decodeSvgUri(markupOf(frameLineFor(css, key, frame)));
 
-  it('wires exactly move, attack, sweep, strike and smoke (Q2), the barrage and smoke screen (S-F), and the patrol (Lane A)', () => {
-    expect(SIGHTS.map(([n]) => n).sort()).toEqual(['advance', 'barrage', 'move', 'patrol', 'smoke', 'smokeScreen', 'strike', 'sweep']);
+  it('wires exactly move, attack, sweep, strike and smoke (Q2), the barrage and smoke screen (S-F), the patrol (Lane A) and the rescue (GH-707)', () => {
+    expect(SIGHTS.map(([n]) => n).sort()).toEqual(['advance', 'barrage', 'move', 'patrol', 'rescue', 'smoke', 'smokeScreen', 'strike', 'sweep']);
   });
 
   it('draws every frame of every wired sight on the 24-box at 32 px, with the hotspot at 16 16', () => {
@@ -684,7 +684,7 @@ describe('animated cursor frames', () => {
     // A silent eighth entry (or the loss of one) would otherwise only
     // surface as a visual difference nobody happened to look for.
     expect(Object.keys(ANIMATED_CURSORS).sort()).toEqual(
-      ['advance', 'attack', 'barrage', 'charge', 'demolish', 'move', 'moveOnly', 'patrol', 'smoke', 'smokeScreen', 'strike', 'sweep']
+      ['advance', 'attack', 'barrage', 'charge', 'demolish', 'move', 'moveOnly', 'patrol', 'rescue', 'smoke', 'smokeScreen', 'strike', 'sweep']
     );
   });
 
@@ -721,9 +721,9 @@ describe('animated cursor frames', () => {
     const keys = [...cursorImages(resolved, 'default').keys()].filter(
       (k) => ANIMATED_CURSORS[k.split('-')[0] as keyof typeof ANIMATED_CURSORS]
     );
-    // move x8, attack x8, sweep, strike, smoke, barrage, smokeScreen, patrol,
+    // move x8, attack x8, sweep, strike, smoke, barrage, smokeScreen, patrol, rescue,
     // demolish x3, charge-soft
-    expect(keys.length).toBe(8 + 8 + 6 + 3 + 1);
+    expect(keys.length).toBe(8 + 8 + 7 + 3 + 1);
     for (const key of keys) {
       const anim = ANIMATED_CURSORS[key.split('-')[0] as keyof typeof ANIMATED_CURSORS];
       if (!anim) throw new Error(key);
@@ -1159,6 +1159,7 @@ describe('the composer and the plugin agree on every key -- Important 2', () => 
       flies: () => false,
       canFocus: () => false,
       focusHurts: () => false,
+      canRescue: () => false,
       garrisoned: () => false,
       ...over,
     };
@@ -1233,6 +1234,15 @@ describe('the composer and the plugin agree on every key -- Important 2', () => 
           const name = cursorFor(res, hints);
           keys.add(cursorKey(name, badgeFor(res, hints, badges, name)));
         }
+      }
+    }
+    // GH-707: a wounded man under the pointer, with a medic (the even-numbered units) selected.
+    const medics = fakeWorld({ canRescue: (id: number) => id % 2 === 0 });
+    for (const ids of selections) {
+      const res = resolvePointer(medics, { ids, x: 5, y: 5, append: false, armed: null, confirm: false, wounded: 7 });
+      for (const hints of HINT_COMBOS) {
+        const name = cursorFor(res, hints);
+        keys.add(cursorKey(name, badgeFor(res, hints, badges, name)));
       }
     }
     const openGround = SCENARIOS[0].world;

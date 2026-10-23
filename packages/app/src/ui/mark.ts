@@ -72,6 +72,8 @@ const WORKS_MARK_BODY: Readonly<Record<string, string>> = {
   kdf_outpost: '<path d="M2 13.5h12M3 13.5v-4h10v4M5 9.5v-3h6v3M7 6.5V4h2v2.5"/>',
   // A mast with a signal arc each side: a sensor.
   kdf_intel_centre: '<path d="M8 14V6"/><circle cx="8" cy="5" r="1.5"/><path d="M4.5 3a5 5 0 0 0 0 4M11.5 3a5 5 0 0 1 0 4M2.5 1.5a8 8 0 0 0 0 7M13.5 1.5a8 8 0 0 1 0 7"/>',
+  // A tent with its flap open: the aid post (no cross, by the art rules).
+  kdf_aid_post: '<path d="M2 13.5h12M3 13.5 8 3l5 10.5M6.5 13.5 8 8.5l1.5 5"/>',
   // A spanner: repair.
   kdf_workshop: '<path d="M10.5 2.2a3.3 3.3 0 0 0-3.4 4.4L2.4 11.3a1.4 1.4 0 0 0 2 2l4.7-4.7a3.3 3.3 0 0 0 4.4-3.4l-2 2-1.6-.4-.4-1.6z"/>',
 };

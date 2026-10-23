@@ -1,0 +1,46 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready military field aid tent, a field work of a fictional army in plain matte olive-drab canvas and paint with dark gunmetal fittings and tan sandbags, clean and military. One long modular shelter with a rounded arched roof over curved frame hoops, low side walls, flat closed ends, and a small gabled entrance porch with its flap rolled up, jutting from the middle of one long side. Guy ropes to ground stakes along both long sides, stacked wooden supply crates by the porch. Long footprint about 6 by 9 metres, roof 3 metres high at the crown. Olive canvas, gunmetal frame, tan crates. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, porch facing forward. No insignia, flags, crosses, crescents, text or markings of any kind.",
+    "negative_prompt": "pyramid roof, hip roof, square tent, shipping container, sandbag wall, flag, red cross, crescent, star, emblem, text, people, vehicles",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a16328-6e95-75b1-a4a9-a852f74ae347",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 2911130897,
+    "prompt": "A single low-poly game-ready military field aid tent, a field work of a fictional army in plain matte olive-drab canvas and paint with dark gunmetal fittings and tan sandbags, clean and military. One long modular shelter with a rounded arched roof over curved frame hoops, low side walls, flat closed ends, and a small gabled entrance porch with its flap rolled up, jutting from the middle of one long side. Guy ropes to ground stakes along both long sides, stacked wooden supply crates by the porch. Long footprint about 6 by 9 metres, roof 3 metres high at the crown. Olive canvas, gunmetal frame, tan crates. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, porch facing forward. No insignia, flags, crosses, crescents, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1792664956619,
+    "progress": 100,
+    "started_at": 1792664956624,
+    "finished_at": 1792665064101,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a16328-6e95-75b1-a4a9-a852f74ae347/output/model.glb?Expires=4946227200&Signature=IRYM2CsXQ~HxO9Wyzaeb7y6x5JqBar6mBb~uf91oYt02p-X6azl-ZZsVcObNaR0ctWXw66hzYQiYQIlxvjcLFFujuf1hN1JBDg8BKqx3UBW6-2XNGkqwp7tulic-qnMuK98Sy0sIEIaCcVudn~UjgZ7ldY1fpz5aiuDtWDfnsG7H8KUQcwmcnt3BVY21LPqv268XhbdzTj69mcUjq9Rq7UxDjzc58J0nWEx3lp3MTKTSmjRJjGGjQ2iOoWqkSShPaoVvCDAXWToOTuVXCNk9LYJQEB7whI65wC4~Lx3-ju1rN4y3k2qcJQiuAIyG2ahZg1dC0Tdug~JC8eL2YnWmsQ__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a16328-6e95-75b1-a4a9-a852f74ae347/output/preview.png?Expires=4946227200&Signature=BTPO3dLqDL3kYy0bcyWzMvjstzcGlYR6IyxrQiRFeojU8NiObq8gIaMcvS5YwW6UlOihnkmMbUwAbhrQLIZa1Up85WQsCy69esaESp03rtFSN7hTWezCIaF25RyEHqG42OYONgKq9JO8eGg6RmaNF1Y3f2Hn2uHIqCtBb-OGRfbK2gZ5XIpDr9tsHUo-OrYJCN8ZFnZPxhGaeiwrimB7coRw4HqlQJ8JDX02qGDPYmKv-4zMIFoZBwUhVxuSj8enrByyMlQ8yvPQrEEs~JNlRmjMOBowYg~4R41r~jwgWTBymMl1ZCYk~ONXHDabqE1RrULNYvWf9NLoyqjslnbs-Q__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1792664956619,
+    "started_at": 1792664956624,
+    "finished_at": 1792665064101
+  },
+  "usd_estimated": 0.4
+}

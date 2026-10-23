@@ -1,0 +1,46 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready stretcher-bearer, a soldier of a fictional army in a plain olive-drab field uniform, black nylon plate carrier, tan suede boots, modern helmet with a plain olive cover. Standing in a relaxed A-pose, arms slightly away from the body, hands empty. A large boxy trauma backpack with side pouches, and a folded stretcher strapped upright to it, poles bundled in rolled canvas, its top 30 centimetres above the helmet; plain white bands round the helmet and the left upper arm, a plain white flap on the pack top. Real-world scale, 1.78 metres tall. Olive drab cloth, black webbing, tan canvas. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, crosses, emblems, text or other markings.",
+    "negative_prompt": "red cross, crescent, star, emblem, symbol, logo, patch, flag, text, letters, numbers, rifle, gun, carbine, weapon in hands, holding anything, kneeling, sitting, base, ground plane",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "a-pose",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a16317-4729-731b-b705-53cf6b889afc",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 3110267630,
+    "prompt": "A single low-poly game-ready stretcher-bearer, a soldier of a fictional army in a plain olive-drab field uniform, black nylon plate carrier, tan suede boots, modern helmet with a plain olive cover. Standing in a relaxed A-pose, arms slightly away from the body, hands empty. A large boxy trauma backpack with side pouches, and a folded stretcher strapped upright to it, poles bundled in rolled canvas, its top 30 centimetres above the helmet; plain white bands round the helmet and the left upper arm, a plain white flap on the pack top. Real-world scale, 1.78 metres tall. Olive drab cloth, black webbing, tan canvas. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, crosses, emblems, text or other markings.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1792663832408,
+    "progress": 100,
+    "started_at": 1792664184886,
+    "finished_at": 1792664409900,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a16317-4729-731b-b705-53cf6b889afc/output/model.glb?Expires=4946227200&Signature=ItWDoUJ7zha4WFWV4aOhHUt3sTq6YSsCI-WO1Fn9kGeqnuOY~~1u4xj4i73r2aYTDuvj13RAARy3zkzebcoDxGP65PxG1unvqORY6CbodyXAMbTWFVAuYqJNNhZBeoQ2HVEGGaUb5t6mO2s2tKQVFbKlZEBWGuiAdcXW0PAmb99vbH9nslaTp3IiCz4BQ9b-wHaGjukGzqw2LtA-1CghKGv2YMk0YZR1eCBK-rL~9e39XJuPFh4d4wobp-FHMC16aaWcd7kDGGEC1SVFWP3sO9tYx~m~rlmBcQmddCE7FfZ3zP~yyDB7NwL4LFPkmEFAqSfa64WuQRU2jsmSZtG1eQ__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a16317-4729-731b-b705-53cf6b889afc/output/preview.png?Expires=4946227200&Signature=ftrtJoQUJGMvKGw1JiJr4Wr~6m9Nku0C~qVPCShT5jLhzqhXfqwzwjuay8fOZGbe~OYoFP~oLO8YbNcDS2iSvbyYRmCuZbSGgSZ3c5x~OsW2gCAgn0yjgkwGZbKdP5VDxsiEdjOGEaqS-bJjG80a2whZkok0hJwLjGcY5QpsYCL5UXCa-Vb7q7QDCdXcy3ORuq9Zm81uK8iZ8xDM5zqTw6OveOYOQLnBlFi9eZwW~lLCQS0mGW16nHHnoeZ8AYOHZk2oNXGWUAZtK8bR5D7mwEebOlzBJOjriWtx5zPU0HR4lKorpJ9ppxyKf6au8k5QwI9S-4amoylEV3raAUdsMw__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1792663832408,
+    "started_at": 1792664184886,
+    "finished_at": 1792664409900
+  },
+  "usd_estimated": 0.4
+}

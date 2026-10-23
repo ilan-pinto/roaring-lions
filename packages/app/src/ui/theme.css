@@ -3165,6 +3165,25 @@ body[data-outcome-beat] .rl-aar {
 .rl-supp__cell > i { display: block; height: 100%; background: var(--hot); }
 .rl-supp__pin { line-height: 0; color: var(--panel-frame); margin-left: 2px; }
 .rl-supp__pin[data-on='1'] { color: var(--hot); }
+/* GH-707 P2: the unit card's bleed ring for a down wounded (ui/bleed.ts). The ring empties
+   clockwise as he bleeds; held (stabilised or carried) it turns to the info tone. */
+.rl-bleed {
+  --bleed: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  margin-top: 3px;
+}
+.rl-bleed__ring {
+  flex: none;
+  width: 0.875rem;
+  height: 0.875rem;
+  border-radius: 50%;
+  background: conic-gradient(var(--bad) var(--bleed), var(--well) 0);
+  border: 1px solid var(--panel-frame);
+}
+.rl-bleed[data-held='1'] .rl-bleed__ring { background: conic-gradient(var(--info) var(--bleed), var(--well) 0); }
+.rl-bleed__text { font-size: var(--t-s); }
 .rl-card__engaging {
   display: flex;
   align-items: center;

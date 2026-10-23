@@ -26,6 +26,9 @@ export type PlayerIntent =
    *  close on it until they can. Only the right-click on an identified enemy
    *  makes one; the sim queues the `attack` command it names. */
   | { kind: 'attack'; ids: number[]; target: number }
+  /** GH-707: these medics go treat and carry THIS wounded entity (friendly, civilian or an
+   *  identified enemy's). Only the right-click on a wounded makes one. */
+  | { kind: 'rescue'; ids: number[]; target: number }
   | { kind: 'garrison'; ids: number[]; structure: number }
   | { kind: 'demolish'; ids: number[]; structure: number }
   | { kind: 'chargeTunnel'; ids: number[]; tunnel: number }
@@ -44,7 +47,7 @@ export type PlayerIntent =
 /** Every kind in the union. Kept as a value so data can be validated against
  *  it — a `type` alone cannot be iterated at runtime. */
 export const INTENT_KINDS = [
-  'select', 'order', 'attack', 'garrison', 'demolish', 'chargeTunnel', 'mount', 'dismount',
+  'select', 'order', 'attack', 'rescue', 'garrison', 'demolish', 'chargeTunnel', 'mount', 'dismount',
   'smoke', 'halt', 'patrol', 'group', 'overlay', 'support',
 ] as const satisfies readonly PlayerIntent['kind'][];
 
@@ -92,6 +95,9 @@ export function applyIntent(sink: CommandSink, intent: PlayerIntent, map: MapSiz
       return;
     case 'attack':
       sink.queueCommand({ kind: 'attack', ids: intent.ids, target: intent.target });
+      return;
+    case 'rescue':
+      sink.queueCommand({ kind: 'rescue', ids: intent.ids, target: intent.target });
       return;
     case 'garrison':
       sink.queueCommand({ kind: 'garrison', ids: intent.ids, structure: intent.structure });
@@ -227,6 +233,10 @@ export interface IntentWorld {
   /** GH-420: could `id`, standing where it is now, hurt `target` (the sim's
    *  `focusHurts`)? Facing-dependent, true for soft targets. */
   focusHurts(id: number, target: number): boolean;
+  /** GH-707: may `id` be sent to rescue the wounded `target`? The sim keeps its own `canRescue`
+   *  private, so the adapter asks the one thing it can read -- the unit is a medic -- and the
+   *  sim's command gate refuses the rest (a refused `rescue` changes nothing). */
+  canRescue(id: number, target: number): boolean;
   /** True for a unit inside a building. A click on an enemy never sends one
    *  out (R-20): the sim's order branches all call `leaveStructure`, so an
    *  attack-move would empty the building. The test `haltTargets` takes. */
@@ -275,6 +285,14 @@ export interface PointerContext {
    * Absent: the rung falls back to `x`/`y`.
    */
   hostileAt?: { x: number; y: number };
+  /**
+   * GH-707: the wounded entity under the pointer (`woundedAt`), own, civilian or enemy, or -1 /
+   * absent. The rescue rung reads it BEFORE the hostile rung: with a medic selected, a click on
+   * a wounded man is a rescue even when he is an enemy's.
+   */
+  wounded?: number;
+  /** Where that wounded man lies (the order marker goes there). */
+  woundedAt?: { x: number; y: number };
 }
 
 /** Everything the click does, as data: the intents to dispatch in order, the
@@ -353,6 +371,33 @@ export function resolvePointer(world: IntentWorld, ctx: PointerContext): Resolut
   // GH-420: a body-picked enemy is the player's explicit target, so this rung
   // sits ABOVE the structure and ground rungs (R-12): an enemy in a doorway or
   // on a boulder tile is still shootable.
+  // GH-707: a wounded man under the pointer, and a medic in the selection, is a rescue. The
+  // medics get the `rescue`; everyone else attack-moves to the casualty's tile to cover the
+  // pick-up -- the GH-420 attack rule's `rest` (`resolveFocus`), approved for the rescue in the
+  // Lane A mock (Q4, 22 Oct). A garrisoned unit keeps its post silently (R-20). Before this the
+  // rest got no order at all and stood where they were.
+  const woundedId = ctx.wounded ?? -1;
+  if (woundedId >= 0 && !append) {
+    const medics = ids.filter((i) => world.canRescue(i, woundedId));
+    if (medics.length > 0) {
+      const at = ctx.woundedAt ?? { x, y };
+      const medicSet = new Set(medics);
+      const rest = haltTargets(
+        // Not the casualty himself, when he is ours and in the selection (review M-1).
+        ids.filter((i) => !medicSet.has(i) && i !== woundedId),
+        (i) => world.garrisoned(i)
+      );
+      const intents: PlayerIntent[] = [{ kind: 'rescue', ids: medics, target: woundedId }];
+      if (rest.length > 0) intents.push({ kind: 'order', verb: 'attackMove', ids: rest, x: at.x, y: at.y, append: false });
+      return {
+        intents,
+        roe: roeTierAt(world, at.x, at.y),
+        marker: true,
+        at,
+      };
+    }
+  }
+
   const target = ctx.hostile ?? -1;
   if (target >= 0 && !append) {
     const focused = resolveFocus(world, ids, target, ctx.hostileAt ?? { x, y });
@@ -705,7 +750,14 @@ export function issueOrder(
   ids: number[],
   x: number,
   y: number,
-  mods: { append: boolean; confirm: boolean; hostile?: number; hostileAt?: { x: number; y: number } }
+  mods: {
+    append: boolean;
+    confirm: boolean;
+    hostile?: number;
+    hostileAt?: { x: number; y: number };
+    wounded?: number;
+    woundedAt?: { x: number; y: number };
+  }
 ): Resolution {
   const res = resolvePointer(world, {
     ids,
@@ -716,6 +768,8 @@ export function issueOrder(
     confirm: mods.confirm,
     ...(mods.hostile !== undefined ? { hostile: mods.hostile } : {}),
     ...(mods.hostileAt !== undefined ? { hostileAt: mods.hostileAt } : {}),
+    ...(mods.wounded !== undefined ? { wounded: mods.wounded } : {}),
+    ...(mods.woundedAt !== undefined ? { woundedAt: mods.woundedAt } : {}),
   });
   for (const intent of res.intents) sink.dispatch(intent);
   if (res.note) sink.note(res.note.text, res.note.tone);

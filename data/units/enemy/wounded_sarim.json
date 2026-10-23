@@ -1,0 +1,32 @@
+{
+  "id": "wounded_sarim",
+  "name": "Wounded Fighter",
+  "blurb": "A man down. He bleeds out unless a medic reaches him, and nobody fires on him.",
+  "faction": "sarim",
+  "role": "wounded",
+  "cost": {
+    "logistics": 0
+  },
+  "hull": {
+    "hp": 30,
+    "armor": {
+      "front": 0,
+      "side": 0,
+      "rear": 0
+    },
+    "crew": 1,
+    "can_embark": true,
+    "suppression_resistance": 0
+  },
+  "mobility": {
+    "speed_tiles_s": 0.12,
+    "turn_rate_deg_s": 90,
+    "wheeled": false
+  },
+  "sensors": {
+    "optics": 0,
+    "sight_tiles": 0,
+    "signature": 0.3,
+    "firing_signature_mult": 1.0
+  }
+}

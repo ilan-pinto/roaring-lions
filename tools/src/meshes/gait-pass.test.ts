@@ -25,12 +25,13 @@ import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Document, NodeIO, type Accessor } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { measurePlantedGround, measureRoleFootprint } from '../mesh_gait';
 import { RIGGED_UNIT_MESHES } from '../../../packages/app/src/mesh-catalogue';
 import {
+  GAIT_CRAWL_ONLY,
   MIN_GAIT_TRAVEL_M,
   applyGaitPass,
   measureGait,
@@ -60,7 +61,11 @@ afterEach(() => {
 // Every file RIGGED_UNIT_MESHES claims, flattened -- the exact set this pass
 // processes (see gait-pass.ts's own header for why that is a deliberate
 // scope and not every GLB under art/meshes/).
-const ALL_RIGGED_FILES: readonly string[] = Object.values(RIGGED_UNIT_MESHES).flatMap((e) => e.files);
+// Less the crawl-only wounded (`GAIT_CRAWL_ONLY`): no `move`, so the pass names them and skips them
+// (pinned by `runGaitPass` below and by `mesh_wounded.test.ts`).
+const ALL_RIGGED_FILES: readonly string[] = Object.entries(RIGGED_UNIT_MESHES)
+  .filter(([id]) => !(id in GAIT_CRAWL_ONLY))
+  .flatMap(([, e]) => e.files);
 
 // `atgm_cell`/`mortar_crew`/`digger_crew` were here too until the
 // 2026-09-17 infantry-animation branch gave all three a standing walker
@@ -80,7 +85,7 @@ describe('measureGait over every shipped rigged mesh', () => {
   // total shape of the whole tree, not just that each individual call did
   // not throw.
   it('declares a gait for every file except the one named exemption', () => {
-    expect(ALL_RIGGED_FILES.length).toBe(25); // GH-709: ugv_recon_dog, inf_grenadier, at_nlos_team (was 24)
+    expect(ALL_RIGGED_FILES.length).toBe(26); // was 22; GH-707 P2: + inf_medic_squad; GH-709: ugv_recon_dog, inf_grenadier, at_nlos_team
 
     const skipped: string[] = [];
     const declared: string[] = [];
@@ -97,12 +102,12 @@ describe('measureGait over every shipped rigged mesh', () => {
     }
 
     expect(skipped.sort()).toEqual(['moto_rpg.glb']);
-    expect(declared.length).toBe(24); // E5's recon_zikit joined; GH-709: ugv_recon_dog, inf_grenadier, at_nlos_team (was 23)
+    expect(declared.length).toBe(25); // E5's recon_zikit joined; GH-707 P2: inf_medic_squad; GH-709: ugv_recon_dog (was 21), inf_grenadier, at_nlos_team
     // 2026-10-05: every armed walker carries a `moveFire` again -- rig.py's
     // `build_move_fire_clip`, or the captured run under an aim on the three
     // captured teams (B7 had removed both of the only two). 17 of the 22:
     // not digger_crew (unarmed) nor the four civilians.
-    expect(moveFireCount).toBe(18); // GH-709 phase 3: + inf_grenadier; Phase 7: + at_nlos_team (was 17)
+    expect(moveFireCount).toBe(19); // GH-707 P2: + inf_medic_squad (armed); GH-709 phase 3: + inf_grenadier; Phase 7: + at_nlos_team
   }, 60_000); // every shipped file, each now skinned per sample for its planted feet
 
   it.each(EXPECTED_SKIP_TYPES)('%s is a named skip, and really is degenerate', (type) => {
@@ -544,4 +549,18 @@ describe('parseGaitArgs', () => {
       expect(() => parseGaitArgs(argv)).toThrow(/unrecognised argument/);
     });
   }
+});
+
+describe('runGaitPass names a crawl-only type and skips it (GH-707 P2)', () => {
+  it('prints GAIT_PASS_SKIP for the wounded instead of throwing on a `move` they do not have', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      await runGaitPass(['wounded_kdf', 'wounded_sarim']);
+      const lines = log.mock.calls.map((c) => String(c[0]));
+      expect(lines.filter((l) => l.startsWith('GAIT_PASS_SKIP wounded_'))).toHaveLength(2);
+      expect(lines.some((l) => l.startsWith('GAIT_PASS_OK'))).toBe(false);
+    } finally {
+      log.mockRestore();
+    }
+  });
 });

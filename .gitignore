@@ -187,6 +187,23 @@ art/meshy/heli-yanshuf-20261018-01a14f12/model.glb
 art/meshy/heli-yanshuf-20261018-01a14f16/model.*
 art/meshy/heli-yanshuf-20261018-01a14f16/texture_*
 art/meshy/heli-yanshuf-20261018-01a14f19/texture_*
+# GH-707 P2 aid post (22 Oct): the two previews (the rejected first roll and the
+# re-roll the remesh was cut from, 11 and 29 MB) and the remesh's loose normal
+# map; the 6,000-tri remesh model.glb export_fw_works.py reads IS tracked, as
+# are task.json and the thumbnails.
+art/meshy/kdf-aid-post-20261022-01a16326/model.glb
+art/meshy/kdf-aid-post-20261022-01a16328/model.glb
+art/meshy/kdf-aid-post-remesh-20261022-01a1632a/texture_*
+# GH-707 P2 Meshy sources (medic figure, rejected stretcher): previews, the refine's
+# exports and the 1,800-tri remesh's 11 MB bake are kept out of git (backed up beside
+# the other large Meshy sources); task.json and thumbnails are tracked for provenance.
+art/meshy/inf-medic-squad-20261022-01a16314/model.glb
+art/meshy/inf-medic-squad-20261022-01a16317/model.glb
+art/meshy/inf-medic-squad-20261022-01a16321/model.*
+art/meshy/inf-medic-squad-20261022-01a16321/texture_*
+art/meshy/inf-medic-squad-20261022-01a16325/model.glb
+art/meshy/inf-medic-squad-20261022-01a16325/texture_*
+art/meshy/medic-stretcher-20261022-01a16311/model.glb
 # GH-709 (22 Oct): the Te'o Howitzer's preview model, the refine's six formats and
 # base colour, and the remesh's loose texture PNGs (its model.glb, the source
 # export_meshy_spg_long_range.py reads, IS tracked); task.json and the thumbnails

@@ -23,6 +23,7 @@ import { defaultSelection, isComplete, toggleEntry, type DeploySelection } from 
 import { deployLockReason } from './deploy-reason';
 import { unitIcon } from './portrait';
 import { veteranEffect } from './veteran-effect';
+import { woundRecordText } from './service-record';
 
 /** A body the mission brings itself, not drawn from the roster. */
 export interface AttachedUnit {
@@ -203,7 +204,9 @@ export function forceBar(opts: {
       }
       btn.append(picture(e.type), el('span', 'rl-force__bench-name', e.name ?? e.typeName));
       if (e.veterancy > 0) btn.append(stars(e.veterancy));
-      const rec = e.missions > 0 || e.kills > 0 ? t('hud.card.record', { missions: e.missions, kills: e.kills }) : '';
+      const base = e.missions > 0 || e.kills > 0 ? t('hud.card.record', { missions: e.missions, kills: e.kills }) : '';
+      const wounds = woundRecordText(e);
+      const rec = wounds === '' ? base : base === '' ? wounds : `${base} · ${wounds}`;
       const state = here ? 'deploy.bench.here' : elsewhere ? 'deploy.bench.fielded' : 'deploy.bench.base';
       btn.append(el('span', 'rl-force__bench-rec', rec), el('span', 'rl-force__bench-state', t(state)));
       btn.addEventListener('click', () => {
@@ -302,7 +305,9 @@ export function forceBar(opts: {
           body.append(name);
           if (entry.name !== undefined) body.append(el('span', 'rl-force__type', entry.typeName));
           if (entry.missions > 0 || entry.kills > 0) {
-            body.append(el('span', 'rl-force__rec', t('hud.card.record', { missions: entry.missions, kills: entry.kills })));
+            const wounds = woundRecordText(entry);
+            const base = t('hud.card.record', { missions: entry.missions, kills: entry.kills });
+            body.append(el('span', 'rl-force__rec', wounds === '' ? base : `${base} · ${wounds}`));
           } else if (entry.name === undefined) {
             body.append(el('span', 'rl-force__rec', t('deploy.fresh')));
           }

@@ -89,11 +89,11 @@ describe('worksShapeOf', () => {
 });
 
 describe('worksMarkSvg', () => {
-  it('draws four distinct currentColor marks with no colour literal', async () => {
+  it('draws five distinct currentColor marks with no colour literal', async () => {
     const { worksMarkSvg, WORKS_MARK_IDS } = await import('./mark');
-    expect(WORKS_MARK_IDS).toEqual(['kdf_medic_station', 'kdf_outpost', 'kdf_intel_centre', 'kdf_workshop']);
+    expect(WORKS_MARK_IDS).toEqual(['kdf_medic_station', 'kdf_outpost', 'kdf_intel_centre', 'kdf_aid_post', 'kdf_workshop']);
     const svgs = WORKS_MARK_IDS.map((id) => worksMarkSvg(id, 16));
-    expect(new Set(svgs).size).toBe(4);
+    expect(new Set(svgs).size).toBe(5);
     for (const svg of svgs) {
       expect(svg).toContain('stroke="currentColor"');
       expect(svg).not.toMatch(/#[0-9a-fA-F]{3,6}|rgb/);
