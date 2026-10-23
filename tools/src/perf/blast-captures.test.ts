@@ -14,6 +14,7 @@ import {
   layerVerdict,
   readingAccepted,
   subjectVotesOn,
+  subjectRunsLayer,
   sampleLadder,
   parseSettleResult,
   settleLine,
@@ -320,6 +321,19 @@ describe('abstaining from a layer is a named, self-cleaning exemption', () => {
   });
 });
 
+
+describe('the smoke-screen layer (GH-705 smoke uplift P1)', () => {
+  it('is run and voted on by smoke_eitan alone', () => {
+    const runners = BLAST_SUBJECTS.filter((s) => subjectRunsLayer(s, 'smoke-screen')).map((s) => s.id);
+    expect(runners).toEqual(['smoke_eitan']);
+    expect(subjectVotesOn({ votesOnly: ['smoke-screen'] }, 'smoke-screen')).toBe(true);
+    // ... and it is asked about nothing else.
+    const eitan = BLAST_SUBJECTS.find((s) => s.id === 'smoke_eitan');
+    for (const layer of Object.keys(LAYER_FLOORS)) {
+      expect(subjectRunsLayer(eitan ?? {}, layer), layer).toBe(layer === 'smoke-screen');
+    }
+  });
+});
 
 describe('each layer is photographed where it is a witness (fix round 1)', () => {
   // One rung cannot serve both, and that is measured rather than assumed. A

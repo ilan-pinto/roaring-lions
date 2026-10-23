@@ -397,7 +397,7 @@ export const DEBUG_LAYERS = [
   // through it. A flag `stepSmokeOutlines` reads per frame.
   'smoke-outline',
   // GH-705 smoke uplift P1: the lit, standing smoke screen (`smoke-mesh.ts`).
-  // A flag on `SmokeMesh`. Witnessed by `blast:capture`'s `smoke_eitan`.
+  // A flag on `SmokeMesh`. Witnessed by the `smoke_eitan` subject of `blast:capture`.
   'smoke-screen',
 ] as const;
 
