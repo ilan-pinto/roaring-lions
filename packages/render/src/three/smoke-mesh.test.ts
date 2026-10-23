@@ -842,3 +842,19 @@ describe('SmokeMesh animation integration (GH #144) -- exercised through puff 0 
     expect(ma.elements).toEqual(mb.elements);
   });
 });
+
+describe('SmokeMesh billboard gain (GH-705 smoke uplift P1, high preset)', () => {
+  it('a passed gain scales the billboard: 0.8 draws a smaller half-width than the 0.95 default', () => {
+    const smoke = new Uint8Array(4 * 4);
+    smoke[5] = 255;
+    const read = (m: SmokeMesh): number => {
+      m.update(smoke, null, 4, 4, 10000);
+      const mat = new THREE.Matrix4();
+      m.mesh.getMatrixAt(0, mat);
+      return new THREE.Vector3().setFromMatrixColumn(mat, 2).length();
+    };
+    const def = read(new SmokeMesh(4, 4, 2));
+    const high = read(new SmokeMesh(4, 4, 2, 0.8));
+    expect(high / def).toBeCloseTo(0.8 / SMOKE_BILLBOARD_GAIN, 5);
+  });
+});

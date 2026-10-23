@@ -824,7 +824,10 @@ export const SMOKE_FRAGMENT_SHADER = /* glsl */ `
 /** The lit side and the shaded side of a standing puff (palette keys). */
 export const SMOKE_LIT_KEY = 'limestone.0';
 export const SMOKE_SHADE_KEY = 'gunmetal.1';
-/** A billboard's half-width over its puff radius. */
+/** A billboard's half-width over its puff radius: the default, and what
+ *  `low` and `medium` draw. `high` passes its own (`RenderQuality.
+ *  smokeBillboardGain`, 0.8): the screen is fill-bound there (GH-705 smoke
+ *  uplift P1, the lead's ruling 23 Oct). */
 export const SMOKE_BILLBOARD_GAIN = 0.95;
 /** How far a puff's centre stands above the ground, in half-widths. 0.9, not
  *  the mock's 0.8: with the soft foot, the opaque part of the quad starts
@@ -907,7 +910,10 @@ export class SmokeMesh {
    *  `growStart` and for the identical reason. */
   private readonly prevSmoke: Uint8Array;
 
-  constructor(width: number, height: number, fxDetail: 0 | 1 | 2 = 2) {
+  private readonly billboardGain: number;
+
+  constructor(width: number, height: number, fxDetail: 0 | 1 | 2 = 2, billboardGain = SMOKE_BILLBOARD_GAIN) {
+    this.billboardGain = billboardGain;
     const gridTiles = Math.max(1, width * height);
     this.tileCapacity = Math.min(SMOKE_TILE_CAPACITY, gridTiles);
     const puffCapacity = this.tileCapacity * SMOKE_PUFFS_PER_TILE;
@@ -987,7 +993,7 @@ export class SmokeMesh {
         const radius = this.scratchPlacement.radius * growScale;
         const angle = this.scratchPlacement.baseAngle + this.scratchPlacement.spinRate * clockMs;
 
-        const half = radius * SMOKE_BILLBOARD_GAIN;
+        const half = radius * this.billboardGain;
         this.scratchPos.set(
           x + this.scratchPlacement.offsetX + driftX,
           groundY + bobY + half * SMOKE_STAND + p * SMOKE_LAYER_RISE,

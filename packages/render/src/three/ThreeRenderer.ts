@@ -2702,7 +2702,8 @@ export class ThreeRenderer implements Renderer {
     // A `DataTexture` and nothing else -- no GL context needed, so this
     // belongs here rather than in `init()`. Its `FogOfWarPass` does not.
     this.shroud = new ShroudTexture(sim.width, sim.height);
-    this.smokeMesh = new SmokeMesh(sim.width, sim.height, (opts.quality ?? QUALITY_PRESETS.high).fxDetail ?? 2);
+    const smokeQuality = opts.quality ?? QUALITY_PRESETS.high;
+    this.smokeMesh = new SmokeMesh(sim.width, sim.height, smokeQuality.fxDetail ?? 2, smokeQuality.smokeBillboardGain);
     // Colour baked once from opts.terrainTones.spoil, matching every other
     // per-map tone this backend reads once at construction rather than
     // re-resolving per frame -- see trail-mesh.ts's own top comment for why
