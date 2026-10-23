@@ -1,4 +1,26 @@
 /**
+ * The smoke screen: `sim.smoke` drawn as a LIT, STANDING billboard per puff
+ * (GH-705 smoke uplift, P1).
+ *
+ * Each of a smoked tile's `SMOKE_PUFFS_PER_TILE` puffs is a camera-facing
+ * quad standing on the ground (`SMOKE_STAND`, plus `SMOKE_LAYER_RISE` per
+ * layer), sampling the flipbook's smoke atlas (`units/flipbook-fx.ts`) and
+ * shaded toward the same sun (`setLook`): `limestone.0` on the lit side,
+ * `gunmetal.1` in shade. `depthTest` is on, so terrain, buildings and units
+ * in front hide a puff; `depthWrite` is off. Until the atlas lands a
+ * procedural puff stands in. The foot of each quad fades out
+ * (`smoothstep(-1.0, -0.55, vUv.y)`) and `SMOKE_STAND` is 0.9, so the part
+ * that is opaque clears the ground and the depth test never cuts a hard edge
+ * (pinned in `smoke-mesh.test.ts`). The `fxDetail` quality knob compiles the
+ * noise down (2 = two fbm chains, 1 = one, 0 = none).
+ *
+ * The flat feathered disc lying on the ground, the `SMOKE_COLOR` tone and the
+ * "unconditional overlay" (`depthTest: false`) text below are HISTORY; the
+ * reach guarantee, the density-alpha curve and the capacity measurement still
+ * hold and are kept as written.
+ *
+ * ---- History ----
+ *
  * Phase D readiness fix: smoke on screen. `sim.smoke` is a real, working
  * mechanic -- a player-driven ability (`canSmoke`, the `f` key), a genuine
  * line-of-sight block (`raySmoke`/`losRay`, `@lions/sim/sim.ts`) -- and until
@@ -126,28 +148,11 @@
  * standing in even a freshly-laid, full-density screen still reads through
  * 20% alpha.
  *
- * ## `SMOKE_COLOR`: moved onto the palette, not merely re-justified
- *
- * The colour used to be `'#C9CBC4'`, Pixi's own literal, kept as a literal
- * because this file's own precedent (`FOG_COLOR`) is "port the hex Pixi
- * hardcodes, exactly, even where it happens not to equal a palette entry."
- * That precedent existed to hold this effect's SHAPE and FORMULA faithful
- * to Pixi's own while a cross-backend diff still measured them -- and this
- * task already breaks both (puffs, not a quad; a curve, not a line), so the
- * "port Pixi's literal" reasoning has nothing left to protect. `#C3C7C4` is
- * `gunmetal.0` exactly (`data/palette.json`'s `gunmetal` ramp, "weapons,
- * tracks, antennae, industrial") -- a Euclidean RGB distance of ~7 from the
- * old literal (201,203,196) vs (195,199,196), imperceptible on a translucent
- * overlay -- so this is a real, named palette entry now rather than a
- * near-miss hex nobody could point to a swatch for.
- *
  * ## Band: `SMOKE_RENDER_ORDER` (5), not `OVERLAY_RENDER_ORDER` (4)
  *
  * See `units/render-order.ts`'s own band-5 row for the full argument:
- * unchanged by this task. `depthTest: false` stays for the identical reason
- * -- an unconditional overlay, so a unit standing inside a puff still reads
- * through it rather than the puff losing the depth test to the unit's own
- * raised geometry.
+ * unchanged by this task. (History: `depthTest: false` as an unconditional
+ * overlay; it is on now, and own units in smoke keep an outline instead, GH-776.)
  *
  * ## GH #144: animation added on top, still driven off the same clock
  *
@@ -232,18 +237,12 @@
 import * as THREE from 'three';
 import { pushPolygon, hexToLinear } from './terrain/shared';
 import { tileGroundWorldY, type ElevationSource } from './ground-height';
-import { SOFT_PARTICLE_CORE } from './units/fx';
 import { SMOKE_RENDER_ORDER } from './units/render-order';
 import { paletteHex } from './palette-hex';
 
 // ---------------------------------------------------------------------------
 // Pure: no THREE.* below this line yet -- mirrors fog-mesh.ts's own split.
 // ---------------------------------------------------------------------------
-
-/** `gunmetal.0` (`data/palette.json`), exactly -- see this file's own top
- *  comment, "`SMOKE_COLOR`: moved onto the palette, not merely
- *  re-justified", for why this is no longer Pixi's own `#C9CBC4` literal. */
-export const SMOKE_COLOR = paletteHex('gunmetal.0');
 
 /** Alpha ceiling `smokeDensityAlpha` approaches as `d -> 255` -- see this
  *  file's own "Why 0.80, not 0.85" section for why this is fixed BELOW
@@ -726,56 +725,148 @@ export function smokePuffQuadGeometry(): SmokePuffQuadGeometry {
 
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
 
+/** The vertex stage: a camera-facing billboard per puff. */
+export const SMOKE_VERTEX_SHADER = /* glsl */ `
+  attribute float aAlpha;
+  attribute float aSeed;
+  varying vec2 vUv;
+  varying float vAlpha;
+  varying float vSeed;
+  varying float vAng;
+  void main() {
+    vec3 centre = (instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+    vec3 ax = instanceMatrix[0].xyz;
+    float size = 0.5 * (length(ax) + length(instanceMatrix[2].xyz));
+    vec3 right = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
+    vec3 up = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]);
+    vec2 c = position.xz;
+    vec3 world = centre + (right * c.x + up * c.y) * size;
+    vUv = c;
+    vAlpha = aAlpha;
+    vSeed = aSeed;
+    vAng = atan(ax.z, ax.x);
+    gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(world, 1.0);
+  }
+`;
+
+/** The fragment stage: the flipbook's smoke atlas, lit toward the sun. */
+export const SMOKE_FRAGMENT_SHADER = /* glsl */ `
+  uniform vec3 uLit;
+  uniform vec3 uShade;
+  uniform sampler2D uAtlas;
+  uniform float uReady;
+  uniform float uLight;
+  uniform vec2 uSun;
+  uniform float uClock;
+  varying vec2 vUv;
+  varying float vAlpha;
+  varying float vSeed;
+  varying float vAng;
+  float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+  float vnoise(vec2 p) {
+    vec2 i = floor(p); vec2 f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
+               mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+  }
+  float fbm(vec2 p) {
+    float v = 0.0; float amp = 0.5;
+    for (int k = 0; k < 4; k++) { v += amp * vnoise(p); p = p * 2.03 + 11.7; amp *= 0.5; }
+    return v;
+  }
+  vec4 frameSample(float k, vec2 local) {
+    float col = mod(k, 8.0);
+    float row = floor(k / 8.0);
+    return texture2D(uAtlas, (vec2(col, 7.0 - row) + local) / 8.0);
+  }
+  void main() {
+    if (dot(vUv, vUv) > 1.0) discard;
+    float cs = cos(vAng);
+    float sn = sin(vAng);
+    vec2 a = vec2(cs * vUv.x - sn * vUv.y, sn * vUv.x + cs * vUv.y);
+    vec2 q = a * 1.7 + vSeed * 31.0 + vec2(0.0, -uClock * 0.00018);
+    #if FX_DETAIL >= 2
+    float b = (fbm(q) * 0.7 + fbm(q * 2.3 + 5.1) * 0.3) / 0.9375;
+    #elif FX_DETAIL == 1
+    float b = fbm(q) / 0.9375;
+    #else
+    float b = 0.5;
+    #endif
+    float density;
+    vec2 g = vec2(0.0);
+    if (uReady > 0.5) {
+      vec2 local = a * (1.0 + (b - 0.5) * 0.7) * (0.5 * 0.625) + 0.5;
+      float k = 12.0 + floor(vSeed * 8.0);
+      vec4 s = frameSample(k, local);
+      density = clamp(2.4 * s.r * (1.0 + (b - 0.5) * 1.2) - 0.25, 0.0, 1.0);
+      vec2 ga = (s.gb * 2.0 - 1.0) * 4.0 * 0.625 * 2.2;
+      g = vec2(cs * ga.x + sn * ga.y, -sn * ga.x + cs * ga.y);
+    } else {
+      density = (1.0 - smoothstep(0.35, 1.0, length(vUv))) * (0.6 + 0.4 * b);
+      g = -vUv * 2.0;
+    }
+    if (density < 0.01) discard;
+    float shade = clamp(0.85 - 0.12 * dot(g, uSun) + 0.30 * dot(vUv, uSun), 0.45, 1.3);
+    float lit = smoothstep(0.7, 1.15, shade);
+    vec3 col = mix(uShade * 0.8, uLit, lit) * uLight * 0.85 * (0.6 + 0.45 * shade);
+    // Self-shadow: the dense core away from the sun is darker.
+    col *= 1.0 - 0.3 * smoothstep(0.45, 1.0, density) * (1.0 - lit);
+    // Ground occlusion: the foot of a puff is darker than its crown.
+    col *= mix(0.72, 1.0, smoothstep(-1.0, 0.4, vUv.y));
+    float alpha = clamp(density * vAlpha * 1.1, 0.0, 0.92);
+    // Soft foot: a quad whose lower edge dips under the ground would be cut
+    // by the depth test into a hard line; fade it out before it can.
+    alpha *= smoothstep(-1.0, -0.55, vUv.y);
+    gl_FragColor = vec4(col, alpha);
+  }
+`;
+
+/** The lit side and the shaded side of a standing puff (palette keys). */
+export const SMOKE_LIT_KEY = 'limestone.0';
+export const SMOKE_SHADE_KEY = 'gunmetal.1';
+/** A billboard's half-width over its puff radius. */
+export const SMOKE_BILLBOARD_GAIN = 0.95;
+/** How far a puff's centre stands above the ground, in half-widths. 0.9, not
+ *  the mock's 0.8: with the soft foot, the opaque part of the quad starts
+ *  clear of the ground (pinned in `smoke-mesh.test.ts`). */
+export const SMOKE_STAND = 0.9;
+/** Extra height per puff layer, in world units. */
+export const SMOKE_LAYER_RISE = 0.5;
+
 /**
- * Soft-edged-disc material -- per-instance alpha (`aAlpha`, `writeSmokeInstances`'s
- * `smokeDensityAlpha(d)` further multiplied by the GH #144 breathing/grow
- * factors in `SmokeMesh.update`), a shared `uColor` uniform, and a radial
- * feather reusing `units/fx.ts`'s own `SOFT_PARTICLE_CORE` constant --
- * see that file's own "`aSoft`: `smoke_puff` is feathered" section for why
- * a hard circle reads as a rim-lit disc under overlap and a feathered one
- * does not. `depthTest`/`depthWrite: false` for the same "unconditional
- * overlay" reason the retired `FogMesh`'s own material needed it -- a puff
- * lying flat on
- * the ground would otherwise lose the depth test to a unit standing in it.
- * `uColor` itself is LINEAR (`hexToLinear`, not `hexToUnit`) for the same
- * reason `trail-mesh.ts`'s own `createTrailMaterial` gives: a bare
- * `ShaderMaterial` uniform applies no colour-space transform of its own, and
- * the composer's `OutputPass` encodes the whole frame to sRGB once at the
- * end -- an un-linearised sRGB hex here would get encoded a second time and
- * land brighter than the authored smoke tone.
+ * The lit, standing smoke material (GH-705 smoke uplift, P1). Per-instance
+ * alpha (`aAlpha`, `smokeDensityAlpha(d)` times the GH #144 breathing/grow
+ * factors) and seed (`aSeed`); `uLit`/`uShade` are LINEAR (`hexToLinear`)
+ * because a bare `ShaderMaterial` uniform gets no colour-space transform and
+ * the composer's `OutputPass` encodes the frame once at the end.
+ *
+ * `depthTest` is ON so terrain, buildings and units in front of a puff hide
+ * it; `depthWrite` stays off so puffs blend into one another. The foot of
+ * the quad is faded (`smoothstep(-1.0, -0.55, vUv.y)`) so a billboard whose
+ * lower edge dips under the ground never shows the depth test's hard cut.
+ * `FX_DETAIL` (the quality preset's `fxDetail`) is a compile-time define:
+ * 2 = both fbm chains, 1 = the first only, 0 = no fbm.
  */
-function createSmokeMaterial(): THREE.ShaderMaterial {
-  const [r, g, b] = hexToLinear(SMOKE_COLOR);
+function createSmokeMaterial(fxDetail: 0 | 1 | 2): THREE.ShaderMaterial {
+  const [r, g, b] = hexToLinear(paletteHex(SMOKE_LIT_KEY));
+  const [sr, sg, sb] = hexToLinear(paletteHex(SMOKE_SHADE_KEY));
   return new THREE.ShaderMaterial({
+    defines: { FX_DETAIL: fxDetail },
     uniforms: {
-      uColor: { value: new THREE.Vector3(r, g, b) },
+      uLit: { value: new THREE.Vector3(r, g, b) },
+      uShade: { value: new THREE.Vector3(sr, sg, sb) },
+      uAtlas: { value: null },
+      uReady: { value: 0 },
+      uLight: { value: 1 },
+      uSun: { value: new THREE.Vector2(-0.7, 0.7) },
+      uClock: { value: 0 },
     },
-    vertexShader: /* glsl */ `
-      attribute float aAlpha;
-      varying vec2 vLocal;
-      varying float vAlpha;
-      void main() {
-        vLocal = position.xz;
-        vAlpha = aAlpha;
-        vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(position, 1.0);
-        gl_Position = projectionMatrix * mvPosition;
-      }
-    `,
-    fragmentShader: /* glsl */ `
-      uniform vec3 uColor;
-      varying vec2 vLocal;
-      varying float vAlpha;
-      void main() {
-        float d = length(vLocal);
-        if (d > 1.0) discard;
-        float feather = 1.0 - smoothstep(${SOFT_PARTICLE_CORE.toFixed(2)}, 1.0, d);
-        gl_FragColor = vec4(uColor, vAlpha * feather);
-      }
-    `,
+    vertexShader: SMOKE_VERTEX_SHADER,
+    fragmentShader: SMOKE_FRAGMENT_SHADER,
     transparent: true,
-    depthTest: false,
+    depthTest: true,
     depthWrite: false,
-    side: THREE.FrontSide,
+    side: THREE.DoubleSide,
   });
 }
 
@@ -789,6 +880,7 @@ function createSmokeMaterial(): THREE.ShaderMaterial {
 export class SmokeMesh {
   readonly mesh: THREE.InstancedMesh;
   private readonly alphaAttr: THREE.InstancedBufferAttribute;
+  private readonly seedAttr: THREE.InstancedBufferAttribute;
   private readonly tileCapacity: number;
   private readonly scratchTilePositions: Float32Array;
   private readonly scratchTileAlphas: Float32Array;
@@ -815,7 +907,7 @@ export class SmokeMesh {
    *  `growStart` and for the identical reason. */
   private readonly prevSmoke: Uint8Array;
 
-  constructor(width: number, height: number) {
+  constructor(width: number, height: number, fxDetail: 0 | 1 | 2 = 2) {
     const gridTiles = Math.max(1, width * height);
     this.tileCapacity = Math.min(SMOKE_TILE_CAPACITY, gridTiles);
     const puffCapacity = this.tileCapacity * SMOKE_PUFFS_PER_TILE;
@@ -827,8 +919,10 @@ export class SmokeMesh {
 
     this.alphaAttr = new THREE.InstancedBufferAttribute(new Float32Array(puffCapacity), 1);
     geometry.setAttribute('aAlpha', this.alphaAttr);
+    this.seedAttr = new THREE.InstancedBufferAttribute(new Float32Array(puffCapacity), 1);
+    geometry.setAttribute('aSeed', this.seedAttr);
 
-    this.mesh = new THREE.InstancedMesh(geometry, createSmokeMaterial(), puffCapacity);
+    this.mesh = new THREE.InstancedMesh(geometry, createSmokeMaterial(fxDetail), puffCapacity);
     this.mesh.count = 0;
     this.mesh.renderOrder = SMOKE_RENDER_ORDER;
     // Smoke can drift anywhere on the map, exactly like fog/units/particles
@@ -863,6 +957,8 @@ export class SmokeMesh {
       alphas: this.scratchTileAlphas,
     });
     const alphas = this.alphaAttr.array as Float32Array;
+    const seeds = this.seedAttr.array as Float32Array;
+    (this.mesh.material as THREE.ShaderMaterial).uniforms.uClock.value = clockMs;
     // Coherent field drift -- see this file's own top comment, "A smooth
     // phase FIELD for animation..."; computed once for the whole field,
     // not per tile or per puff, matching GH #144's own fix for the
@@ -891,9 +987,10 @@ export class SmokeMesh {
         const radius = this.scratchPlacement.radius * growScale;
         const angle = this.scratchPlacement.baseAngle + this.scratchPlacement.spinRate * clockMs;
 
+        const half = radius * SMOKE_BILLBOARD_GAIN;
         this.scratchPos.set(
           x + this.scratchPlacement.offsetX + driftX,
-          groundY + bobY,
+          groundY + bobY + half * SMOKE_STAND + p * SMOKE_LAYER_RISE,
           z + this.scratchPlacement.offsetZ + driftZ
         );
         this.scratchQuat.setFromAxisAngle(Y_AXIS, angle);
@@ -902,16 +999,37 @@ export class SmokeMesh {
         // "Rotation without breaking the reach guarantee" section for why
         // this ordering, not the reverse, is what keeps the reach
         // guarantee true at every rotation angle.
-        this.scratchScale.set(radius * SMOKE_PUFF_ELONGATION, 1, radius);
+        this.scratchScale.set(half * SMOKE_PUFF_ELONGATION, 1, half);
         this.scratchMatrix.compose(this.scratchPos, this.scratchQuat, this.scratchScale);
         this.mesh.setMatrixAt(puffCount, this.scratchMatrix);
         alphas[puffCount] = tileAlpha;
+        seeds[puffCount] = smokePuffSample(tileIndex, p, 3);
         puffCount++;
       }
     }
     this.mesh.count = puffCount;
     this.mesh.instanceMatrix.needsUpdate = true;
     this.alphaAttr.needsUpdate = true;
+    this.seedAttr.needsUpdate = true;
+  }
+
+  /** The flipbook's smoke atlas, and the same light the flipbook shades its
+   *  billows by. Until the atlas lands the shader uses a procedural puff. */
+  setLook(atlas: THREE.Texture | null, radiance: number, sunScreen: THREE.Vector2): void {
+    const u = (this.mesh.material as THREE.ShaderMaterial).uniforms;
+    if (atlas && u.uAtlas.value !== atlas) {
+      u.uAtlas.value = atlas;
+      u.uReady.value = 1;
+    }
+    u.uLight.value = radiance;
+    (u.uSun.value as THREE.Vector2).copy(sunScreen);
+  }
+
+  /** Debug layer `smoke-screen`: a flag, so `update` (which never writes
+   *  `visible`) cannot undo it. Returns the meshes it governs. */
+  setDebugHidden(hidden: boolean): number {
+    this.mesh.visible = !hidden;
+    return 1;
   }
 
   dispose(): void {

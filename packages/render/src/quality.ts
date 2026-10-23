@@ -56,10 +56,16 @@ export interface RenderQuality {
    * absent, for callers that predate it) is the map-wide box fitted once.
    */
   shadowFit?: 'map' | 'view';
+  /**
+   * The smoke screen's noise detail (`three/smoke-mesh.ts`, GH-705 smoke
+   * uplift P1), a compile-time define: 2 = both fbm chains, 1 = the first
+   * only, 0 = none (flat 0.5). Optional so callers that predate it read 2.
+   */
+  fxDetail?: 0 | 1 | 2;
 }
 
 export const QUALITY_PRESETS: Readonly<Record<'low' | 'medium' | 'high', RenderQuality>> = {
-  low: { ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view' },
-  medium: { ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view' },
-  high: { ao: true, smaa: true, shadowMapSize: 4096, bloom: 'quarter', shadowFit: 'view' },
+  low: { ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0 },
+  medium: { ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view', fxDetail: 1 },
+  high: { ao: true, smaa: true, shadowMapSize: 4096, bloom: 'quarter', shadowFit: 'view', fxDetail: 2 },
 };

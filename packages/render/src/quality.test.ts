@@ -10,9 +10,10 @@ describe('QUALITY_PRESETS', () => {
     // that only checked `typeof preset.smaa === 'boolean'` would pass on any
     // of the eight combinations.
     const expected: Record<'low' | 'medium' | 'high', RenderQuality> = {
-      low: { ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view' },
-      medium: { ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view' },
-      high: { ao: true, smaa: true, shadowMapSize: 4096, bloom: 'quarter', shadowFit: 'view' },
+      // Was: no `fxDetail` on any preset (the smoke screen had one look).
+      low: { ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0 },
+      medium: { ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view', fxDetail: 1 },
+      high: { ao: true, smaa: true, shadowMapSize: 4096, bloom: 'quarter', shadowFit: 'view', fxDetail: 2 },
     };
     expect(QUALITY_PRESETS).toEqual(expected);
   });
