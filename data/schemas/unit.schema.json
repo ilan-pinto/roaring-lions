@@ -561,6 +561,17 @@
       "default": "charges",
       "description": "How this unit takes a building apart. `charges` sets satchels and the building goes down at once when the timer expires. `blade` grinds: it drains structural HP every tick, so the building crumbles as it works and damage it has already taken counts. Absent means `charges`, which is what every demolisher did before the field existed."
     },
+    "swarm": {
+      "type": "object",
+      "required": ["count", "member_hp", "spread_tiles"],
+      "additionalProperties": false,
+      "description": "E6 (GH-274, item 2): this unit is ONE entity standing for a cloud of `count` members of `member_hp` each, so `hull.hp` must equal `count * member_hp` (the sim refuses a unit that disagrees). Live members are `ceil(hp / member_hp)`. Each dive spends one member; the rate of fire scales with live / count; a single-target hit removes at most one member; a splash removes up to `ceil(live * min(1, splash / spread_tiles))`. Absent means an ordinary unit.",
+      "properties": {
+        "count": { "type": "integer", "minimum": 1, "maximum": 64, "description": "Members at full strength." },
+        "member_hp": { "type": "number", "exclusiveMinimum": 0, "description": "Hit points of one member." },
+        "spread_tiles": { "type": "number", "exclusiveMinimum": 0, "description": "How far the cloud spreads, in tiles: the denominator of a splash's reach." }
+      }
+    },
     "tunnel_charge_time_s": {
       "type": "number",
       "minimum": 0.5,
