@@ -106,7 +106,10 @@ describe('the soft foot (ground-clip fix)', () => {
   it('the opaque part of the quad starts at least 0.25 half-widths above the puff\'s ground', () => {
     // Was: SMOKE_STAND 0.8 with no foot term (the quad's lower edge dipped
     // under the ground and the depth test cut it into a hard line).
-    const heightAboveGround = SMOKE_STAND + SOFT_FOOT_END * upY; // in half-widths
+    // The vertex shader's quad half-size averages the two instance axes, the
+    // major one stretched by SMOKE_PUFF_ELONGATION: (1 + E) / 2 half-widths.
+    const quad = (1 + SMOKE_PUFF_ELONGATION) / 2;
+    const heightAboveGround = SMOKE_STAND + SOFT_FOOT_END * upY * quad; // in half-widths
     expect(heightAboveGround).toBeGreaterThanOrEqual(0.25);
   });
 

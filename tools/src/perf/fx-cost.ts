@@ -174,6 +174,12 @@ try {
         for (let i = 0; i < L.sim.smoke.length; i++) if (L.sim.smoke[i] > 0) smokedTiles++;
         rows['smoke z1.6'] = { ...time(90), note: `smokers ${smokers.length}, smokeLaid ${laid} in ${ticks} ticks, smoked tiles ${smokedTiles}` };
 
+        // Let the screen decay away in the SIM (SMOKE_DECAY 1 a tick from 255),
+        // so the kill and grad rows below time no smoke. Before this, the
+        // screen was still drawn in every later row (P1 review).
+        for (let i = 0; i < 260; i++) handTick();
+        pump(100);
+
         // ---- kill: 8 Lavis, one every 250 ms of FX time.
         const victims: number[] = [];
         const used = new Set(spots.slice(0, 10).map((s) => `${s[0]},${s[1]}`));

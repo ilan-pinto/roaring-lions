@@ -814,7 +814,7 @@ yours; each one records what the next phase inherits.
   same sun (`setLook`), `depthTest` on so terrain and buildings hide it. The quad's
   foot fades out (`smoothstep(-1.0, -0.55, vUv.y)`) so it never shows the depth test's
   hard cut on the ground; `smoke-mesh.test.ts` pins that from `VIEW_DIRECTION`.
-  `RenderQuality.fxDetail` (low 0 / medium 1 / high 2) compiles its noise down.
+  `RenderQuality.fxDetail` (low 0 / medium 1 / high 1; `high` also draws `smokeBillboardGain` 0.8) compiles its noise down.
   Debug layer `smoke-screen` is a flag on `SmokeMesh`; its witness is
   `blast:capture`'s `smoke_eitan` (an opt-in layer: only that subject runs it).
 - **Every shot draws a travelling projectile; no line spans the gap any

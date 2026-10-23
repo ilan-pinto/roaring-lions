@@ -830,7 +830,7 @@ export const SMOKE_SHADE_KEY = 'gunmetal.1';
  *  uplift P1, the lead's ruling 23 Oct). */
 export const SMOKE_BILLBOARD_GAIN = 0.95;
 /** How far a puff's centre stands above the ground, in half-widths. 0.9, not
- *  the mock's 0.8: with the soft foot, the opaque part of the quad starts
+ *  the approved look's first 0.8: with the soft foot, the opaque part of the quad starts
  *  clear of the ground (pinned in `smoke-mesh.test.ts`). */
 export const SMOKE_STAND = 0.9;
 /** Extra height per puff layer, in world units. */
