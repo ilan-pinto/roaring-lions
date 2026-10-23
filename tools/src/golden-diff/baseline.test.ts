@@ -648,7 +648,9 @@ describe('BASELINES layerChecks', () => {
       'utf8'
     );
     expect(renderer, 'the per-frame visibility writes must consult unitsDebugHidden').toContain(
-      '!this.unitsDebugHidden && unitIsObserved('
+      // GH-681: `unitIsDrawn` is `unitIsObserved` plus the earth (a buried
+      // unit has no body); the flag is still consulted first.
+      '!this.unitsDebugHidden && unitIsDrawn('
     );
   });
 

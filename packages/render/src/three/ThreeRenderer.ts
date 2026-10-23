@@ -441,7 +441,8 @@ import {
   DECAL_PERSISTENT_RENDER_ORDER,
   DECAL_FADING_RENDER_ORDER,
 } from './units/render-order';
-import { unitIsObserved } from './units/observed';
+import { unitIsDrawn, unitIsObserved } from './units/observed';
+import { ownsRoute, routeLevelFor } from '../route-level';
 import { GarrisonBannerBatch, bannerMatrix, bannerSpotFor } from './units/garrison-banner';
 import type { BannerSpot } from './units/banner-placement';
 import { heldBuildings, heldShown } from './units/held-building';
@@ -4322,7 +4323,7 @@ export class ThreeRenderer implements Renderer {
       const headY = fx.toNumber(head[1]) + 0.5;
       routes.push({
         alive: sim.tnAlive[r] !== 0,
-        contactLevel: sim.tunnelContactLevel(this.viewer, r),
+        contactLevel: routeLevelFor(sim, this.viewer, r),
         ventOpen: sim.tnVentOpen[r] !== 0,
         progressTiles: fx.toNumber(sim.tnProgress[r]),
         lengthTiles: fx.toNumber(sim.tnLength[r]),
@@ -4376,9 +4377,11 @@ export class ThreeRenderer implements Renderer {
     const sim = this.sim;
     const now = presentationSimMs(sim.tickCount, 1) / 1000;
     for (let r = 0; r < sim.tunnelCount; r++) {
-      const level = collapsedRouteLevel(sim.tnAlive[r] !== 0, sim.tunnelContactLevel(this.viewer, r));
-      let held = false;
-      if (level === 2) {
+      const level = collapsedRouteLevel(sim.tnAlive[r] !== 0, routeLevelFor(sim, this.viewer, r));
+      // GH-681: the seat's own route is held for good -- it dug it -- so it
+      // never fades to the lapsed floor the way a found enemy route does.
+      let held = ownsRoute(sim, this.viewer, r);
+      if (level === 2 && !held) {
         for (const t of this.xrayRouteTiles[r]) {
           if (sim.markerSeesTile(this.viewer, t % sim.width, Math.floor(t / sim.width))) {
             held = true;
@@ -4399,7 +4402,14 @@ export class ThreeRenderer implements Renderer {
     occ.length = 0;
     const st = sim.state;
     for (let i = 0; i < this.snapshottedCount; i++) {
-      if (st.alive[i] === 1 && st.tunnelIn[i] >= 0) occ.push([st.tunnelIn[i], i]);
+      if (st.alive[i] !== 1 || st.tunnelIn[i] < 0) continue;
+      // GH-681, the fog audit: only a route this seat may see in full (its
+      // own, or one it has identified) gives up who is inside it. Without
+      // this the occupant list held every buried unit on every route, and
+      // only the bore's eased strength stood between it and the other seat.
+      const r = st.tunnelIn[i];
+      if (collapsedRouteLevel(sim.tnAlive[r] !== 0, routeLevelFor(sim, this.viewer, r)) !== 2) continue;
+      occ.push([r, i]);
     }
     this.tunnelXray.update(presentationSimMs(sim.tickCount, alpha) / 1000, occ);
   }
@@ -4417,7 +4427,7 @@ export class ThreeRenderer implements Renderer {
       // rung. A level-2 route still shows its spoil exactly as a suspected
       // one does: the dirt is real whatever the player knows about it.
       routeLevel: (r) => {
-        const lv = collapsedRouteLevel(sim.tnAlive[r] !== 0, sim.tunnelContactLevel(this.viewer, r));
+        const lv = collapsedRouteLevel(sim.tnAlive[r] !== 0, routeLevelFor(sim, this.viewer, r));
         return lv === 2 ? 1 : lv;
       },
       tunnelUnderTile: (r, x, y) => sim.tunnelUnderTile(r, x, y),
@@ -6725,7 +6735,7 @@ export class ThreeRenderer implements Renderer {
       if (this.meshUnitTemplates.has(type.id) || this.vehicleMeshTemplates.has(this.vehicleTemplateKey(type.id, st.side[i]))) continue;
       const x = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
       const z = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
-      if (this.unitsDebugHidden || !unitIsObserved(st.side[i], this.viewer, x, z, this.fogVisibleAt)) continue;
+      if (this.unitsDebugHidden || !unitIsDrawn(st.tunnelIn[i], st.side[i], this.viewer, x, z, this.fogVisibleAt)) continue;
       const cls = RING_CLASS_OVERRIDE[type.id] ?? ringClassOf(type);
       const lift = type.isAir ? this.airLiftY(i, alpha) : 0;
       const facing = fx.toNumber(st.facing[i]);
@@ -7749,8 +7759,9 @@ export class ThreeRenderer implements Renderer {
       // The viewer's own side is always drawn, matching `entityFrame`'s
       // own `contactLevel` short-circuit for it -- everything else defers to
       // real fog-of-war, exactly like `updateUnits`'s own `isVisible` gate.
+      // GH-681: a buried unit has no body on the surface, for any viewer.
       entity.root.visible =
-        !this.unitsDebugHidden && unitIsObserved(st.side[i], this.viewer, wx, wy, this.fogVisibleAt);
+        !this.unitsDebugHidden && unitIsDrawn(st.tunnelIn[i], st.side[i], this.viewer, wx, wy, this.fogVisibleAt);
 
       const anim: UnitAnimInput = {
         alive: st.alive[i],
@@ -8344,7 +8355,7 @@ export class ThreeRenderer implements Renderer {
       // `ThreeRenderer.vehicle-weight.test.ts` pins the sign in world space.
       entity.root.rotation.set(-roll, meshYawFromFacing(facingNorm), pitch, 'YZX');
       entity.root.visible =
-        !this.unitsDebugHidden && unitIsObserved(st.side[i], this.viewer, px, py, this.fogVisibleAt);
+        !this.unitsDebugHidden && unitIsDrawn(st.tunnelIn[i], st.side[i], this.viewer, px, py, this.fogVisibleAt);
 
       if (entity.turretPivot) {
         const target = this.resolveTurretTarget(i);
@@ -10424,6 +10435,8 @@ export class ThreeRenderer implements Renderer {
       // now skipped..."), ported here separately because this loop is
       // separate (see this method's own top comment for why).
       if (!isOwnSide(side, this.viewer) && !this.isVisible(ix, iy)) continue;
+      // GH-681: nor for a buried unit, own or not -- no body, no bar, no ring.
+      if (st.tunnelIn[i] >= 0) continue;
 
       const type = this.sim.unitTypes[st.typeIdx[i]];
       const r = unitOverlayRadiusPx(type.isSoft);
