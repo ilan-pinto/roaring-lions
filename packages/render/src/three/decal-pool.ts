@@ -199,11 +199,12 @@ export * from './decal-maths';
  * which is exactly the AO pre-pass exclusion spec §8 requires ("the AO
  * pre-pass and the shadow pass must never see a decal") -- achieved by
  * omission rather than by an explicit flag this class would otherwise have
- * to remember to set. `castShadow`/`receiveShadow` are set to `false`
- * explicitly regardless, since a decal is drawn `depthTest: true,
- * depthWrite: false` translucent geometry sitting exactly on top of the
- * terrain it already shadows correctly -- casting or receiving a shadow of
- * its own would double it.
+ * to remember to set. `castShadow` is set to `false` explicitly regardless:
+ * a decal is `depthTest: true, depthWrite: false` geometry lying on the
+ * terrain, and casting a shadow of its own would double the ground's.
+ * `receiveShadow` is TRUE since GH-705 Task 5, and that adds no shadow: it
+ * only binds the sun's shadow map so a crater rim's light RATIO knows when
+ * it sits in shade (the multiply blend already carries the ground's own).
  */
 /** Flags one ring slot's vertices of `attr` for upload -- see `stamp`. */
 function markSlot(attr: THREE.BufferAttribute, slot: number, verticesPerSlot: number): void {
@@ -585,6 +586,10 @@ const DECAL_FRAGMENT_SHADER = /* glsl */ `
       float e = 0.01;
       float hs = (craterHeight(vOffset + vec2(e, 0.0), seed) - craterHeight(vOffset - vec2(e, 0.0), seed)) / (2.0 * e);
       float ht = (craterHeight(vOffset + vec2(0.0, e), seed) - craterHeight(vOffset - vec2(0.0, e), seed)) / (2.0 * e);
+      // halfLength (the decal's half-size, st = 1) is the world scale, so a
+      // height of 1 is one decal half-size, not one crater radius (0.84 of
+      // it): the relief is a look, tuned by eye through uRimGain, not a
+      // physical depth.
       vec2 gst = vec2(hs, ht) * halfLength * uRimGain;
       float dhx = dot(gst, rlDstx);
       float dhy = dot(gst, rlDsty);

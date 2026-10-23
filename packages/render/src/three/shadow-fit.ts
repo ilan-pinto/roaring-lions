@@ -155,8 +155,12 @@ export function fitShadowBox(
   let cy = 0;
   if (mode === 'view') {
     const b = viewReceiverBox(view, toSun, mapCentre, yMin, yMax, camUp);
-    const hx = Math.ceil((b.maxX - b.minX) / 2 / SIZE_STEP_WU) * SIZE_STEP_WU;
-    const hy = Math.ceil((b.maxY - b.minY) / 2 / SIZE_STEP_WU) * SIZE_STEP_WU;
+    // Plus one texel, so the centre snap (up to half a texel) can never push
+    // a receiver at the view's edge out of the box. Still pan-invariant.
+    const hx0 = Math.ceil((b.maxX - b.minX) / 2 / SIZE_STEP_WU) * SIZE_STEP_WU;
+    const hy0 = Math.ceil((b.maxY - b.minY) / 2 / SIZE_STEP_WU) * SIZE_STEP_WU;
+    const hx = hx0 * (1 + 2 / size);
+    const hy = hy0 * (1 + 2 / size);
     if (hx < mapR || hy < mapR) {
       halfX = Math.min(hx, mapR);
       halfY = Math.min(hy, mapR);

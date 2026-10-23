@@ -60,6 +60,27 @@ describe('shadow-fit (Defilade Task 2 prototype)', () => {
     }
   });
 
+  it('the snapped box contains the whole receiver slab at any pan', () => {
+    for (const [x, y] of [[14, 30], [14.0371, 30.219], [24.5, 24.5], [3.3, 40.1]]) {
+      const { r, lights, view } = fit(x, y, 1.6);
+      for (const sx of [-1, 1]) {
+        for (const sy of [-1, 1]) {
+          const n = new THREE.Vector3(sx, sy, -1).unproject(view);
+          const f = new THREE.Vector3(sx, sy, 1).unproject(view);
+          for (const h of [-1, 4]) {
+            const p = n.clone().lerp(f, (h - n.y) / (f.y - n.y));
+            // Inside the map box only: the clamp keeps the box there.
+            if (p.x < -2 || p.z < -2 || p.x > W + 2 || p.z > H + 2) continue;
+            const c = shadowClip(lights.sun, p);
+            expect(Math.abs(c.x)).toBeLessThanOrEqual(1 + 1e-9);
+            expect(Math.abs(c.y)).toBeLessThanOrEqual(1 + 1e-9);
+          }
+        }
+      }
+      expect(r.halfX).toBeGreaterThan(0);
+    }
+  });
+
   it('every receiver the view can draw is inside the fitted box, and every caster is inside its depth', () => {
     const { r, lights, view } = fit(14, 30, 1.6);
     const b = viewReceiverBox(view, SUN_DIRECTION, centre, -1, 4);
