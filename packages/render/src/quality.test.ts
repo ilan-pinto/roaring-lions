@@ -12,7 +12,8 @@ describe('QUALITY_PRESETS', () => {
     const expected: Record<'low' | 'medium' | 'high', RenderQuality> = {
       low: { ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view' },
       medium: { ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view' },
-      high: { ao: true, smaa: true, shadowMapSize: 4096, bloom: 'quarter', shadowFit: 'view' },
+      // GH-777: aoScale 0.25. Was 0.5 (absent). `high` missed 60 fps at DPR 2.
+      high: { ao: true, smaa: true, shadowMapSize: 4096, bloom: 'quarter', shadowFit: 'view', aoScale: 0.25 },
     };
     expect(QUALITY_PRESETS).toEqual(expected);
   });
@@ -31,7 +32,12 @@ describe('QUALITY_PRESETS', () => {
     // depends on: same deltas, not merely "AO and SMAA both on".
     expect(QUALITY_PRESETS.high.shadowMapSize).toBe(SHADOW_MAP_SIZE);
     expect(QUALITY_PRESETS.high.shadowMapSize).toBe(4096);
+    // GH-777: `high` no longer equals the pre-preset AO resolution. Was 0.5.
+    // Falsify: set high.aoScale to 0.5 (or drop it) and this goes red.
     expect(AO_RESOLUTION_SCALE).toBe(0.5);
+    expect(QUALITY_PRESETS.high.aoScale).toBe(0.25);
+    expect(QUALITY_PRESETS.medium.aoScale).toBeUndefined();
+    expect(QUALITY_PRESETS.low.aoScale).toBeUndefined();
     expect(QUALITY_PRESETS.high.ao).toBe(true);
     expect(QUALITY_PRESETS.high.smaa).toBe(true);
   });

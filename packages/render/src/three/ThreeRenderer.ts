@@ -3105,7 +3105,7 @@ export class ThreeRenderer implements Renderer {
     // cosmetic one. `this.aoPass` stays `null`, which is exactly the state
     // `dispose()` already handles (`this.aoPass?.dispose()`).
     if (quality.ao) {
-      this.aoPass = createAoPass(this.scene, this.viewCamera, this.cssWidth, this.cssHeight, AO_RESOLUTION_SCALE);
+      this.aoPass = createAoPass(this.scene, this.viewCamera, this.cssWidth, this.cssHeight, quality.aoScale ?? AO_RESOLUTION_SCALE);
       this.post.setAoPass(this.aoPass);
     }
     // Defilade Task 4: bloom, after AO and before OutputPass (see
