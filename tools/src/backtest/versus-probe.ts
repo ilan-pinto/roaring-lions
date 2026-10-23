@@ -62,6 +62,25 @@
 // `--pop-cap=<kdf>/<sarim>` population caps (`--cap` was already the time cap),
 // `--rate-scale=<percent>` every income zone's rate, rounded down.
 //
+// The tunnel arm (`--tunnels`, implies `--economy`; GH-681 T5, spec §7). The
+// economy arm's rooms, which register the Sarim end's routes from the rules file
+// (T3), played four ways per map and spawn order: 1 `off` (routes registered,
+// never ordered), 2 the Sarim tunnel plan against the KDF's economy plan, 3 the
+// Sarim tunnel plan against the KDF answer, 4 the turtle (enter, never vent)
+// against the KDF answer. The plans are `TunnelPlan`'s, and each cell prints the
+// counts that prove they ran: units entered, stalled walks, surfaced events,
+// raids, exits, Sarim routes the KDF identified, charges ordered, routes
+// collapsed and the units below when one did. The KDF's march aims at the
+// Sarim SURFACE centroid (`centroid`): a buried unit gives nothing away. The
+// bar (lead, Q1) is printed under the table, report-only: cell 3 within 60/40
+// in both spawn orders; cell 2 a Sarim edge over cell 1; cell 4 not a Sarim win.
+// Its own self-check (exit 2, `tunnelSelfCheck`), after the economy controls:
+// cell 2 shows at least one `surfaced` per map and spawn order, and cell 1 is,
+// seed for seed, the game an economy room with NO versus route plays
+// (`withoutVersusRoutes`) -- an unordered route must be inert. Seen red: the
+// sim's `applyEnterTunnel` made a no-op (exit 2, cell 2 never surfaced); the
+// plan scripting Sarim in the `off` cell (exit 2, cell 1 differs).
+//
 // The bar. The lead's ruling on GH-561 (2026-10-14): a map re-opens for versus only
 // once its fair start points are authored and this probe reads it within 60/40
 // at 48 seeds per spawn order -- `FAIR_MAX_PERCENT`, `SEEDS_DEFAULT`.
@@ -72,8 +91,9 @@
 //   pnpm versus:probe -- --rules=default             the single-player seat table, a CONTROL
 //   pnpm versus:probe -- --economy                    both rules-file maps, both faction cells
 //   pnpm versus:probe -- --economy --start=2400/3840 --seeds=24  a sweep point (in memory only)
+//   pnpm versus:probe -- --tunnels                    the tunnel arm's four cells, both rules-file maps
 //   flags: --maps=<id,id|all>  --arr=<kdf/kdf,kdf/sarim,sarim/kdf>  --seeds=<n>  --cap=<seconds>
-//          --rules=<room|default>  --economy  --start=<k>/<s>  --pop-cap=<k>/<s>  --rate-scale=<percent>
+//          --rules=<room|default>  --economy  --tunnels  --start=<k>/<s>  --pop-cap=<k>/<s>  --rate-scale=<percent>
 //
 // THE SELF-CHECK, and the mutation that turns it red. Before any table it plays
 // two CONTROLS per map and one repeat, on the table it reads, and refuses to
@@ -110,7 +130,7 @@
 // self-check's controls (versus-probe.test.ts), and nothing reads its output.
 
 import { fileURLToPath } from 'node:url';
-import { Sim, fx } from '@lions/sim';
+import { Sim, fx, type SimEvent } from '@lions/sim';
 import { applyTerrain, doctrines, maps, parseMap, units, versusRules, type DoctrineJson, type MapId, type VersusRulesJson } from '@lions/data';
 import { VERSUS_FAIR_MAPS, seatRules, sidesOfFactions, validateConfig, type Faction, type MatchConfig, type SpawnEnd } from '@lions/net';
 import { standMapStructures } from '../../../packages/app/src/map-sim';
@@ -175,6 +195,8 @@ export interface Played {
   ticks: number;
   /** Economy games only (`--economy`). */
   econ?: EconomyRead;
+  /** Tunnel-arm games only (`--tunnels`): the counts that prove the plans ran. */
+  tun?: TunnelRead;
 }
 
 /** Which seat table the world is built on. `room` (the default since N3 Task 7)
@@ -202,6 +224,9 @@ export interface PlayOptions {
   /** MUTATION SEAM, default true: false is the "the plan never queues"
    *  mutation the economy self-check must see (at least one `built` per side). */
   plan?: boolean;
+  /** The tunnel arm's cell (`--tunnels`, GH-681): an economy game with the
+   *  Sarim tunnel plan and/or the KDF answer laid over it. Implies `economy`. */
+  tunnels?: TunnelCell;
 }
 
 /** A versus room's config for a cell, as a room mints it (LD1: the side
@@ -231,13 +256,17 @@ export function world(mapId: MapId, seed: number, humanHeld?: readonly [boolean,
   return { sim, typeOf, map };
 }
 
-/** The raw Q16.16 centroid of a side's living units, or null when none live. */
+/** The raw Q16.16 centroid of a side's living SURFACE units, or null when
+ *  none live up there. A buried unit (GH-681, the tunnel arm) is left out: the
+ *  other seat cannot see it, so it must not steer that seat's march -- and
+ *  outside the tunnel arm nothing is ever buried, so every other reading is
+ *  what it was. */
 export function centroid(sim: Sim, side: number): [number, number] | null {
   let x = 0;
   let y = 0;
   let n = 0;
   for (let i = 0; i < sim.entityCount; i++) {
-    if (sim.state.alive[i] !== 1 || sim.state.side[i] !== side) continue;
+    if (sim.state.alive[i] !== 1 || sim.state.side[i] !== side || sim.state.tunnelIn[i] >= 0) continue;
     x += sim.state.posX[i];
     y += sim.state.posY[i];
     n++;
@@ -273,7 +302,7 @@ function finish(o: MatchResult, ticks: number, sideOfEnd: readonly [0 | 1, 0 | 1
 /** One game: `arrangement[0]` on the friendly (west) spawn, `arrangement[1]` on
  *  the hostile (east) one, each on the side a room would seat it (`layoutOf`). */
 export function play(mapId: MapId, arrangement: Arrangement, seed: number, opts: PlayOptions = {}): Played {
-  if (opts.economy === true) return playEconomy(mapId, arrangement, seed, opts);
+  if (opts.economy === true || opts.tunnels !== undefined) return playEconomy(mapId, arrangement, seed, opts);
   const capTicks = opts.capTicks ?? CAP_TICKS_DEFAULT;
   const { sim, typeOf, map } = world(mapId, seed, humanHeldOf(opts.rules ?? 'room', mapId, arrangement, seed));
   const { sideOfEnd, factions, ends } = layoutOf(arrangement);
@@ -396,20 +425,31 @@ export function playEconomy(mapId: MapId, arrangement: Arrangement, seed: number
   const menus = [doctrines[w.factions[0]].menu, doctrines[w.factions[1]].menu] as const;
   const mixes = [forceMixOf(w.factions[0]), forceMixOf(w.factions[1])] as const;
   const builtBySide: [number, number] = [0, 0];
+  // The tunnel arm (GH-681): null outside it, and for its `off` cell a plan
+  // that orders nothing and only counts, so `off` plays the economy arm's game.
+  const tp = opts.tunnels !== undefined ? new TunnelPlan(w, opts.tunnels) : null;
   const read = (o: MatchResult): Played => {
     const kdf = w.factions[0] === 'kdf' ? 0 : 1;
     const sarim = kdf === 0 ? 1 : 0;
     return {
       ...finish(o, w.sim.tickCount, sideOfEnd),
       econ: { built: [builtBySide[kdf], builtBySide[sarim]], purse: [runtime.logisticsOf(kdf), runtime.logisticsOf(sarim)] },
+      ...(tp ? { tun: tp.read() } : {}),
     };
   };
   for (let t = 0; t < capTicks; t++) {
     if (t % ORDER_EVERY_TICKS === 0) {
-      if (opts.plan !== false) for (const side of sideOfEnd) planRound(runtime, w.sim, menus[side], mixes[side], side);
-      order(w.sim, (side) => livingOf(w.sim, side), sideOfEnd);
+      if (opts.plan !== false) {
+        tp?.beforeProduction(runtime);
+        for (const side of sideOfEnd) planRound(runtime, w.sim, menus[side], mixes[side], side);
+      }
+      tp?.round(t);
+      order(w.sim, (side) => livingOf(w.sim, side).filter((id) => tp === null || !tp.holds(id)), sideOfEnd);
     }
+    if (tp !== null && t % DECIDE_EVERY_TICKS === 0) tp.second(t);
+    tp?.beforeTick();
     const ev = matchTick(w);
+    tp?.after(ev.sim);
     for (const e of ev.mission) if (e.kind === 'built') builtBySide[e.side]++;
     if (w.sim.tickCount % DECIDE_EVERY_TICKS === 0) {
       const o = outcomeOf(w.sim, w.sim.tickCount, unitCost, production);
@@ -419,6 +459,381 @@ export function playEconomy(mapId: MapId, arrangement: Arrangement, seed: number
   const o = outcomeOf(w.sim, MATCH_CAP_TICKS, unitCost, production);
   if (o.kind === 'ongoing') throw new Error('the cap rule left a game ongoing');
   return read(o);
+}
+
+// ---------------------------------------------------------------------------
+// The tunnel arm (GH-681, versus tunnels T5)
+// ---------------------------------------------------------------------------
+
+/** The four cells of the tunnel arm (spec §7.2), per map and spawn order:
+ *  `off` the economy arm with the routes registered and never ordered;
+ *  `noAnswer` the Sarim tunnel plan against the KDF's economy plan;
+ *  `answer` the Sarim tunnel plan against the KDF answer;
+ *  `turtle` the Sarim entry with no vent ever, against the KDF answer. */
+export type TunnelCell = 'off' | 'noAnswer' | 'answer' | 'turtle';
+export const TUNNEL_CELLS: readonly TunnelCell[] = ['off', 'noAnswer', 'answer', 'turtle'];
+const TUNNEL_CELL_NAME: Record<TunnelCell, string> = { off: '1 off', noAnswer: '2 on, no answer', answer: '3 on, answer', turtle: '4 turtle' };
+
+/** What proves a tunnel game's plans ran, per game (and summed per cell). */
+export interface TunnelRead {
+  /** Sarim units that went below on an `enterTunnel` (a raider going back down is not counted). */
+  entered: number;
+  /** Sarim units ordered in that never got below within `WALK_GIVE_UP_TICKS` and were released. */
+  stalled: number;
+  /** `surfaced` events (raids and exits). */
+  surfaced: number;
+  /** `vent raid` orders, one per unit. */
+  raids: number;
+  /** `vent exit` orders, one per unit. */
+  exits: number;
+  /** Sarim routes side 0 (the KDF) held IDENTIFIED (`tunnelContactLevel` 2) at any second. */
+  identified: number;
+  /** `chargeTunnel` orders the KDF answer gave, one per squad and route. */
+  charges: number;
+  /** `tunnelCollapsed` events. */
+  collapsed: number;
+  /** Units below on a route in the tick it collapsed. */
+  collapseKills: number;
+}
+const zeroRead = (): TunnelRead => ({ entered: 0, stalled: 0, surfaced: 0, raids: 0, exits: 0, identified: 0, charges: 0, collapsed: 0, collapseKills: 0 });
+
+/** A unit ordered into a route that is not below this long is released to the attack-move. */
+export const WALK_GIVE_UP_TICKS = 90 * TICKS_PER_SECOND;
+/** A raider still up this long (a raid held by a long burst) is released to the attack-move. */
+export const RAID_GIVE_UP_TICKS = 60 * TICKS_PER_SECOND;
+/** The drone takes its next sweep waypoint within this many tiles of the current one (Q16.16 squared). */
+const DRONE_REACH_SQ = 2 * 2;
+
+/** `Sim.losRay`, the sim's own sight line -- private, so read through a cast
+ *  rather than COPIED into the probe (a copy drifts). A rename throws here,
+ *  loudly, on the first raid check. -1 when the ray is blocked. */
+function losRay(sim: Sim, x0: number, y0: number, x1: number, y1: number): number {
+  return (sim as unknown as { losRay(x0: number, y0: number, x1: number, y1: number): number }).losRay(x0, y0, x1, y1);
+}
+
+type Fx2 = readonly [number, number];
+/** Squared distance between two Q16.16 points, in whole tiles squared (doubles, exact at map scale). */
+const tiles2 = (a: Fx2, b: Fx2): number => ((a[0] - b[0]) / 65536) ** 2 + ((a[1] - b[1]) / 65536) ** 2;
+const tileCentre = (p: readonly [number, number]): Fx2 => [fx.from(p[0] + 0.5), fx.from(p[1] + 0.5)];
+
+type TunnelState = { kind: 'walk' | 'below' | 'raid'; route: number; since: number };
+
+/**
+ * Both tunnel-arm plans for one game (spec §7.1, plan Task 5). Every order goes
+ * through `sim.queueCommand`, the path the economy arm's own orders take, and
+ * reaches the sim at the next `matchTick` exactly as a room frame's would.
+ *
+ * SARIM (cells 2-4). At tick 0 the Sarim side's foot units (not air, not
+ * wheeled -- the sim's own `enterTunnel` predicate) take `enterTunnel`, up to
+ * each owned route's capacity, assigned round-robin over the routes, each
+ * route taking the free unit nearest its mouth; at every later round a BUILT
+ * foot unit is fed into a route with room the same way. Room counts the units
+ * walking to it, below it and up on a raid from it. The rest play the economy
+ * arm's attack-move. Every second, an arrived buried unit (`tunnelEta` 0):
+ *   - `vent exit` once the KDF's surface centroid is nearer the Sarim anchor
+ *     than the vent is (it then joins the attack-move);
+ *   - else `vent raid` when a KDF ground unit on the surface stands within the
+ *     unit's best weapon's max range of the vent and the sim's own sight line
+ *     (`losRay`) from the vent tile reaches it; back below, it may raid again.
+ * The turtle (cell 4) enters the same way and never vents.
+ *
+ * KDF ANSWER (cells 3-4). The placed `recon_drone` sweeps the Sarim routes'
+ * midpoints and the anchors' midpoint in turn (the probe reads route geometry:
+ * the answer an informed player gives). The production round queues one
+ * `yahalom_squad` at the head of the first round. Every second, a living squad
+ * with no charge under way `chargeTunnel`s the nearest Sarim route side 0 has
+ * IDENTIFIED; at each round a squad with no charge moves to the drone (or,
+ * with the drone dead, attack-moves with the rest).
+ *
+ * In `off` and for the side a cell does not script, it orders nothing; it
+ * only counts. Every count is read, never written, so `off` plays exactly the
+ * economy arm's game.
+ */
+export class TunnelPlan {
+  private readonly sim: Sim;
+  private readonly cell: TunnelCell;
+  private readonly kdf: 0 | 1;
+  private readonly sarim: 0 | 1;
+  private readonly routes: number[];
+  /** Each owned route's points, `w.map.tunnels[r]` (positional: entry r IS the sim's route r). */
+  private readonly pointsOf = new Map<number, readonly (readonly [number, number])[]>();
+  private readonly placed: Set<number>;
+  private readonly sarimAnchor: Fx2;
+  private readonly states = new Map<number, TunnelState>();
+  private readonly ever = new Set<number>();
+  private readonly ident = new Set<number>();
+  private readonly charging = new Map<number, number>();
+  private readonly occBefore: number[];
+  private readonly drone: number;
+  private readonly sweep: Fx2[];
+  private sweepAt = -1;
+  private readonly rangeSqOf = new Map<number, number>();
+  private readonly counts = zeroRead();
+  private queuedSquad = false;
+
+  constructor(w: MatchWorld, cell: TunnelCell) {
+    this.sim = w.sim;
+    this.cell = cell;
+    this.kdf = w.factions[0] === 'kdf' ? 0 : 1;
+    this.sarim = this.kdf === 0 ? 1 : 0;
+    this.routes = [];
+    for (let r = 0; r < w.sim.tunnelCount; r++) if (w.sim.tunnelOwner(r) === this.sarim) this.routes.push(r);
+    for (const r of this.routes) this.pointsOf.set(r, w.map.tunnels[r].points);
+    if (this.routes.length === 0) throw new Error('versus probe (--tunnels): the room registered no Sarim route');
+    this.occBefore = this.routes.map(() => 0);
+    this.placed = new Set(w.bySide[this.sarim]);
+    this.sarimAnchor = tileCentre(w.anchors[w.endOfSide[this.sarim]]);
+    const kdfAnchor = tileCentre(w.anchors[w.endOfSide[this.kdf]]);
+    this.drone = w.bySide[this.kdf].find((id) => this.typeId(id) === 'recon_drone') ?? -1;
+    const mid = (a: Fx2, b: Fx2): Fx2 => [Math.round((a[0] + b[0]) / 2), Math.round((a[1] + b[1]) / 2)];
+    this.sweep = [
+      ...this.routes.map((r) => {
+        const pts = w.map.tunnels[r].points;
+        return tileCentre(pts[Math.floor(pts.length / 2)]);
+      }),
+      mid(kdfAnchor, this.sarimAnchor),
+    ];
+  }
+
+  private typeId(id: number): string {
+    return this.sim.unitTypes[this.sim.state.typeIdx[id]]?.id ?? '';
+  }
+  private get sarimPlays(): boolean {
+    return this.cell !== 'off';
+  }
+  private get kdfAnswers(): boolean {
+    return this.cell === 'answer' || this.cell === 'turtle';
+  }
+  private alive(id: number): boolean {
+    return id >= 0 && this.sim.state.alive[id] === 1;
+  }
+
+  /** Whether the economy arm's attack-move leaves `id` alone this round. */
+  holds(id: number): boolean {
+    if (this.states.has(id)) return true;
+    if (!this.kdfAnswers) return false;
+    if (id === this.drone) return true;
+    if (this.charging.has(id)) return true;
+    return this.alive(this.drone) && this.typeId(id) === 'yahalom_squad' && this.sim.state.side[id] === this.kdf;
+  }
+
+  /** The answer's production: one `yahalom_squad` at the head of the first round. */
+  beforeProduction(runtime: NonNullable<MatchWorld['runtime']>): void {
+    if (!this.kdfAnswers || this.queuedSquad) return;
+    this.queuedSquad = true;
+    runtime.requestBuild('yahalom_squad', undefined, this.kdf);
+  }
+
+  /** Every `ORDER_EVERY_TICKS`, before the attack-move. */
+  round(t: number): void {
+    if (this.sarimPlays) this.feed(t);
+    if (this.kdfAnswers) {
+      const squads = this.squads().filter((id) => !this.charging.has(id));
+      if (this.alive(this.drone) && squads.length > 0) {
+        this.sim.queueCommand({ kind: 'move', ids: squads, x: this.sim.state.posX[this.drone], y: this.sim.state.posY[this.drone] });
+      }
+    }
+  }
+
+  private squads(): number[] {
+    const out: number[] = [];
+    for (let i = 0; i < this.sim.entityCount; i++) {
+      if (this.alive(i) && this.sim.state.side[i] === this.kdf && this.typeId(i) === 'yahalom_squad') out.push(i);
+    }
+    return out;
+  }
+
+  private load(r: number): number {
+    let n = 0;
+    for (const s of this.states.values()) if (s.route === r) n++;
+    return n;
+  }
+
+  /** Free Sarim foot units into routes with room: all of them at tick 0, built ones afterwards. */
+  private feed(t: number): void {
+    const st = this.sim.state;
+    const free: number[] = [];
+    for (let i = 0; i < this.sim.entityCount; i++) {
+      if (st.alive[i] !== 1 || st.side[i] !== this.sarim || this.ever.has(i)) continue;
+      if (t > 0 && this.placed.has(i)) continue;
+      if (st.tunnelIn[i] >= 0 || st.carriedBy[i] >= 0 || st.garrisonedIn[i] >= 0 || st.routed[i] === 1) continue;
+      const type = this.sim.unitTypes[st.typeIdx[i]];
+      if (type.isAir || type.wheeled) continue;
+      free.push(i);
+    }
+    const room = this.routes.map((r) => (this.sim.tnAlive[r] === 1 ? this.sim.tunnelCapacity(r) - this.load(r) : 0));
+    const picks: number[][] = this.routes.map(() => []);
+    for (let more = true; more && free.length > 0; ) {
+      more = false;
+      for (let k = 0; k < this.routes.length && free.length > 0; k++) {
+        if (room[k] <= 0) continue;
+        const mouth = tileCentre((this.pointsOf.get(this.routes[k]) ?? [[0, 0]])[0]);
+        let best = 0;
+        for (let j = 1; j < free.length; j++) {
+          const dj = tiles2([st.posX[free[j]], st.posY[free[j]]], mouth);
+          const db = tiles2([st.posX[free[best]], st.posY[free[best]]], mouth);
+          if (dj < db) best = j;
+        }
+        const id = free.splice(best, 1)[0];
+        picks[k].push(id);
+        room[k]--;
+        more = true;
+      }
+    }
+    picks.forEach((ids, k) => {
+      if (ids.length === 0) return;
+      for (const id of ids) {
+        this.states.set(id, { kind: 'walk', route: this.routes[k], since: t });
+        this.ever.add(id);
+      }
+      this.sim.queueCommand({ kind: 'enterTunnel', ids, tunnel: this.routes[k] });
+    });
+  }
+
+  /** Every second: the units' states, the raids and exits, the drone, the charges. */
+  second(t: number): void {
+    const st = this.sim.state;
+    for (const r of this.routes) if (this.sim.tnAlive[r] === 1 && this.sim.tunnelContactLevel(this.kdf, r) === 2) this.ident.add(r);
+    for (const [id, s] of [...this.states]) {
+      if (st.alive[id] !== 1) {
+        this.states.delete(id);
+      } else if (s.kind === 'walk') {
+        if (st.tunnelIn[id] >= 0) {
+          this.states.set(id, { kind: 'below', route: s.route, since: t });
+          this.counts.entered++;
+        } else if (t - s.since >= WALK_GIVE_UP_TICKS) {
+          this.states.delete(id);
+          this.counts.stalled++;
+        }
+      } else if (s.kind === 'raid') {
+        if (st.tunnelIn[id] >= 0) this.states.set(id, { kind: 'below', route: s.route, since: t });
+        else if (this.sim.tnAlive[s.route] === 0 || t - s.since >= RAID_GIVE_UP_TICKS) this.states.delete(id);
+      }
+    }
+    if (this.cell === 'noAnswer' || this.cell === 'answer') this.vents(t);
+    if (this.kdfAnswers) {
+      this.flyDrone();
+      this.charge();
+    }
+  }
+
+  private vents(t: number): void {
+    const st = this.sim.state;
+    const kc = centroid(this.sim, this.kdf);
+    const raid: number[] = [];
+    const exit: number[] = [];
+    for (const [id, s] of this.states) {
+      if (s.kind !== 'below' || st.tunnelIn[id] < 0 || st.tunnelEta[id] !== 0) continue;
+      const vent = this.sim.tunnelVent(s.route);
+      if (kc !== null && tiles2(kc, this.sarimAnchor) < tiles2(vent, this.sarimAnchor)) exit.push(id);
+      else if (this.threat(id, vent)) raid.push(id);
+    }
+    for (const id of exit) this.states.delete(id);
+    for (const id of raid) {
+      const s = this.states.get(id);
+      if (s) this.states.set(id, { kind: 'raid', route: s.route, since: t });
+    }
+    if (exit.length > 0) this.sim.queueCommand({ kind: 'vent', ids: exit, mode: 'exit' });
+    if (raid.length > 0) this.sim.queueCommand({ kind: 'vent', ids: raid, mode: 'raid' });
+    this.counts.exits += exit.length;
+    this.counts.raids += raid.length;
+  }
+
+  /** A KDF ground unit on the surface within `id`'s best weapon's max range of the vent, in sight from it. */
+  private threat(id: number, vent: Fx2): boolean {
+    const st = this.sim.state;
+    const ti = st.typeIdx[id];
+    let r2 = this.rangeSqOf.get(ti);
+    if (r2 === undefined) {
+      r2 = 0;
+      for (const wpn of this.sim.unitTypes[ti].weapons) r2 = Math.max(r2, (wpn.range / 65536) ** 2);
+      this.rangeSqOf.set(ti, r2);
+    }
+    if (r2 === 0) return false;
+    const vx = vent[0] >> 16;
+    const vy = vent[1] >> 16;
+    for (let k = 0; k < this.sim.entityCount; k++) {
+      if (st.alive[k] !== 1 || st.side[k] !== this.kdf || st.tunnelIn[k] >= 0 || st.carriedBy[k] >= 0) continue;
+      if (this.sim.unitTypes[st.typeIdx[k]].isAir) continue;
+      if (tiles2([st.posX[k], st.posY[k]], vent) > r2) continue;
+      if (losRay(this.sim, vx, vy, st.posX[k] >> 16, st.posY[k] >> 16) < 0) continue;
+      return true;
+    }
+    return false;
+  }
+
+  private flyDrone(): void {
+    if (!this.alive(this.drone)) return;
+    const st = this.sim.state;
+    const here: Fx2 = [st.posX[this.drone], st.posY[this.drone]];
+    if (this.sweepAt >= 0 && tiles2(here, this.sweep[this.sweepAt]) > DRONE_REACH_SQ) return;
+    this.sweepAt = (this.sweepAt + 1) % this.sweep.length;
+    const [x, y] = this.sweep[this.sweepAt];
+    this.sim.queueCommand({ kind: 'move', ids: [this.drone], x, y, exact: true });
+  }
+
+  private charge(): void {
+    for (const [id, r] of [...this.charging]) if (!this.alive(id) || this.sim.tnAlive[r] === 0) this.charging.delete(id);
+    const known = this.routes.filter((r) => this.sim.tnAlive[r] === 1 && this.sim.tunnelContactLevel(this.kdf, r) === 2);
+    if (known.length === 0) return;
+    const st = this.sim.state;
+    for (const id of this.squads()) {
+      if (this.charging.has(id)) continue;
+      const at: Fx2 = [st.posX[id], st.posY[id]];
+      const near = (r: number): number => {
+        let best = Infinity;
+        for (const p of this.pointsOf.get(r) ?? []) best = Math.min(best, tiles2(at, tileCentre(p)));
+        return best;
+      };
+      let pick = known[0];
+      for (const r of known) if (near(r) < near(pick)) pick = r;
+      this.charging.set(id, pick);
+      this.counts.charges++;
+      this.sim.queueCommand({ kind: 'chargeTunnel', ids: [id], tunnel: pick });
+    }
+  }
+
+  /** Before each tick: who is below each route, for the collapse count. */
+  beforeTick(): void {
+    this.routes.forEach((r, k) => {
+      this.occBefore[k] = this.sim.tnOccupants[r];
+    });
+  }
+
+  /** After each tick: the events. */
+  after(ev: readonly SimEvent[]): void {
+    for (const e of ev) {
+      if (e.kind === 'surfaced' && this.sim.state.side[e.entity] === this.sarim) this.counts.surfaced++;
+      else if (e.kind === 'tunnelCollapsed') {
+        const k = this.routes.indexOf(e.tunnel);
+        if (k < 0) continue;
+        this.counts.collapsed++;
+        this.counts.collapseKills += this.occBefore[k];
+      }
+    }
+  }
+
+  read(): TunnelRead {
+    return { ...this.counts, identified: this.ident.size };
+  }
+}
+
+/** Runs `fn` with every rules file's `tunnels` block taken away IN MEMORY, so
+ *  `buildMatchWorld` registers no versus route: the world the `off` cell is
+ *  compared with, game for game (an unordered route must be inert). */
+export function withoutVersusRoutes<T>(fn: () => T): T {
+  const rules = versusRules as Record<string, VersusRulesJson>;
+  const saved = { ...rules };
+  try {
+    for (const [id, r] of Object.entries(saved)) {
+      const { tunnels: _drop, ...rest } = r;
+      void _drop;
+      rules[id] = rest;
+    }
+    return fn();
+  } finally {
+    for (const id of Object.keys(saved)) rules[id] = saved[id];
+  }
 }
 
 /** The sweep's knobs (Task 7 Step 4), each an IN-MEMORY override of the
@@ -633,7 +1048,8 @@ export function parsePair(name: string, raw: string): [number, number] {
 
 /** Prints the report and returns the exit code: 0 for any reading, 2 when the self-check fails. */
 export function main(args: readonly string[] = process.argv.slice(2), playFn: PlayFn = play): number {
-  const economy = args.includes('--economy');
+  const tunnels = args.includes('--tunnels');
+  const economy = tunnels || args.includes('--economy');
   const rulesArg = flag(args, 'rules') ?? 'room';
   if (rulesArg !== 'room' && rulesArg !== 'default') throw new Error(`--rules: "${rulesArg}" is not room or default`);
   const rules: SeatTable = rulesArg;
@@ -657,10 +1073,10 @@ export function main(args: readonly string[] = process.argv.slice(2), playFn: Pl
   };
   if (overrides.rateScalePercent !== undefined && !(Number.isInteger(overrides.rateScalePercent) && overrides.rateScalePercent >= 0)) throw new Error('--rate-scale must be a whole percent');
   if (!economy && Object.keys(overrides).length > 0) throw new Error('--start, --pop-cap and --rate-scale sweep the economy: they need --economy');
-  return withOverrides(overrides, () => report({ economy, rules, mapIds, arrangements, seeds, capTicks, overrides, playFn }));
+  return withOverrides(overrides, () => report({ economy, tunnels, rules, mapIds, arrangements, seeds, capTicks, overrides, playFn }));
 }
 
-function report(r: { economy: boolean; rules: SeatTable; mapIds: MapId[]; arrangements: Arrangement[]; seeds: number; capTicks: number; overrides: Overrides; playFn: PlayFn }): number {
+function report(r: { economy: boolean; tunnels: boolean; rules: SeatTable; mapIds: MapId[]; arrangements: Arrangement[]; seeds: number; capTicks: number; overrides: Overrides; playFn: PlayFn }): number {
   const { economy, rules, mapIds, arrangements, seeds, capTicks, playFn } = r;
   console.log(`versus probe (report-only): force value kdf ${valueOf('kdf')}, sarim ${valueOf('sarim')}; ${seeds} seeds per cell; cap ${capTicks / TICKS_PER_SECOND} s, decided on surviving value`);
   console.log(`bar (GH-561): within ${FAIR_MAX_PERCENT}/${100 - FAIR_MAX_PERCENT} at ${SEEDS_DEFAULT} seeds per spawn order; open now: ${VERSUS_FAIR_MAPS.join(', ')}`);
@@ -683,6 +1099,7 @@ function report(r: { economy: boolean; rules: SeatTable; mapIds: MapId[]; arrang
   console.log(economy
     ? `self-check: ${mapIds.length} map(s), 4 economy controls, a repeat and a built-per-side check each -- passed`
     : `self-check: ${mapIds.length} map(s), 2 controls and a repeat each -- passed`);
+  if (r.tunnels) return tunnelReport({ mapIds, arrangements, seeds, capTicks, playFn });
 
   console.log(`${pad('map', 24)}${pad('cell', 16)}${pad('west', 6)}${pad('east', 6)}${pad('draw', 6)}${pad('annih/stale/cap/mutual', 24)}${pad('mean min', 10)}${economy ? `${pad('built K/S', 14)}${pad('purse K/S', 14)}` : ''}reading`);
   for (const id of mapIds) {
@@ -703,6 +1120,92 @@ function report(r: { economy: boolean; rules: SeatTable; mapIds: MapId[]; arrang
       );
     }
   }
+  return 0;
+}
+
+/** The tunnel arm's games for one map and spawn order: the four cells, and
+ *  the `off` cell's twin played with no versus route registered at all. */
+export interface TunnelCellGames {
+  cells: Record<TunnelCell, Played[]>;
+  routeless: Played[];
+}
+
+export function playTunnelCells(mapId: MapId, arr: Arrangement, seeds: number, capTicks: number, playFn: PlayFn = play): TunnelCellGames {
+  const cells = { off: [], noAnswer: [], answer: [], turtle: [] } as Record<TunnelCell, Played[]>;
+  const routeless: Played[] = [];
+  for (let n = 0; n < seeds; n++) {
+    for (const c of TUNNEL_CELLS) cells[c].push(playFn(mapId, arr, seedOf(n), { capTicks, economy: true, tunnels: c }));
+    routeless.push(withoutVersusRoutes(() => playFn(mapId, arr, seedOf(n), { capTicks, economy: true })));
+  }
+  return { cells, routeless };
+}
+
+/** The tunnel arm's self-check (spec §7.4) over one map and spawn order's
+ *  games; each failure is a sentence. Cell 2 must have brought a unit up at
+ *  least once, and `off` must be the routeless game, seed for seed. */
+export function tunnelSelfCheck(mapId: MapId, arr: Arrangement, g: TunnelCellGames): string[] {
+  const failures: string[] = [];
+  const where = `${mapId} ${cellName(arr)}`;
+  const surfaced = g.cells.noAnswer.reduce((s, p) => s + (p.tun?.surfaced ?? 0), 0);
+  if (surfaced < 1) failures.push(`${where}: cell 2 (on, no answer) read no 'surfaced' event in ${g.cells.noAnswer.length} games: the Sarim plan never brought a unit up`);
+  const key = (p: Played): string => JSON.stringify([p.winner, p.by, p.ticks, p.econ]);
+  const off = g.cells.off;
+  const differ = off.map((_p, n) => n).filter((n) => key(off[n]) !== key(g.routeless[n]));
+  if (differ.length > 0) {
+    failures.push(`${where}: cell 1 (routes registered, never ordered) differs from the routeless economy game in ${differ.length} of ${off.length} seeds (first: seed ${seedOf(differ[0])}, ${key(off[differ[0]])} against ${key(g.routeless[differ[0]])})`);
+  }
+  return failures;
+}
+
+function sumTun(games: readonly Played[]): TunnelRead {
+  const t = zeroRead();
+  for (const g of games) for (const k of Object.keys(t) as (keyof TunnelRead)[]) t[k] += g.tun?.[k] ?? 0;
+  return t;
+}
+
+/** Sarim's wins in a faction cell (`t.wins` is by END). */
+const sarimWins = (arr: Arrangement, t: Tally): number => reading(arr, t).wins[1];
+
+function tunnelReport(r: { mapIds: MapId[]; arrangements: Arrangement[]; seeds: number; capTicks: number; playFn: PlayFn }): number {
+  const { mapIds, arrangements, seeds, capTicks, playFn } = r;
+  console.log('tunnel arm (GH-681): the Sarim end\'s routes registered in every room; cells 1 off, 2 Sarim tunnels vs the economy plan, 3 Sarim tunnels vs the KDF answer, 4 turtle vs the KDF answer');
+  const all: { mapId: MapId; arr: Arrangement; g: TunnelCellGames }[] = [];
+  for (const mapId of mapIds) for (const arr of arrangements) all.push({ mapId, arr, g: playTunnelCells(mapId, arr, seeds, capTicks, playFn) });
+  const failed = all.flatMap(({ mapId, arr, g }) => tunnelSelfCheck(mapId, arr, g));
+  if (failed.length > 0) {
+    console.error('TUNNEL SELF-CHECK FAILED -- the tunnel arm did not run as written, so no table is printed:');
+    for (const f of failed) console.error(`  ${f}`);
+    return 2;
+  }
+  console.log(`tunnel self-check: ${all.length} map/spawn pair(s): cell 2 surfaced, cell 1 equal to the routeless game seed for seed -- passed`);
+  const proofHead = 'enter/stall/surf/raid/exit/ident/charge/coll/ckill (totals)';
+  console.log(`${pad('map', 14)}${pad('spawn', 16)}${pad('cell', 18)}${pad('KDF', 5)}${pad('Sarim', 7)}${pad('draw', 6)}${pad('annih/stale/cap/mut', 21)}${pad('mean min', 10)}${pad('reading', 28)}${proofHead}`);
+  const bar: string[] = [];
+  for (const { mapId, arr, g } of all) {
+    const tallies = {} as Record<TunnelCell, Tally>;
+    for (const c of TUNNEL_CELLS) {
+      const t = tally(g.cells[c]);
+      tallies[c] = t;
+      const rd = reading(arr, t);
+      const p = sumTun(g.cells[c]);
+      const lean = rd.leader === null ? 'level' : `${rd.leader} ${rd.leaderPercent}%`;
+      console.log(
+        `${pad(mapId, 14)}${pad(cellName(arr), 16)}${pad(TUNNEL_CELL_NAME[c], 18)}${pad(rd.wins[0], 5)}${pad(rd.wins[1], 7)}${pad(t.draws, 6)}` +
+          `${pad(`${t.by.annihilation}/${t.by.stalemate}/${t.by.cap}/${t.by.mutual}`, 21)}${pad((t.ticks / seeds / (60 * TICKS_PER_SECOND)).toFixed(1), 10)}` +
+          `${pad(`${lean} ${rd.within ? 'within' : 'OUTSIDE'}`, 28)}${p.entered}/${p.stalled}/${p.surfaced}/${p.raids}/${p.exits}/${p.identified}/${p.charges}/${p.collapsed}/${p.collapseKills}`,
+      );
+    }
+    const where = `${mapId} ${cellName(arr)}`;
+    const c3 = reading(arr, tallies.answer);
+    bar.push(`${where}: cell 3 ${c3.within ? 'within' : 'OUTSIDE'} ${FAIR_MAX_PERCENT}/${100 - FAIR_MAX_PERCENT} (KDF ${c3.wins[0]}, Sarim ${c3.wins[1]})`);
+    const s1 = sarimWins(arr, tallies.off);
+    const s2 = sarimWins(arr, tallies.noAnswer);
+    bar.push(`${where}: cell 2 Sarim ${s2} against cell 1 Sarim ${s1} -- ${s2 > s1 ? 'a Sarim edge' : 'NO Sarim edge'}`);
+    const s4 = sarimWins(arr, tallies.turtle);
+    bar.push(`${where}: cell 4 (turtle) Sarim ${s4} of ${seeds} -- ${s4 * 2 > seeds ? 'the turtle WINS for Sarim' : 'the turtle does not win'}`);
+  }
+  console.log('the bar (lead, Q1; report-only):');
+  for (const b of bar) console.log(`  ${b}`);
   return 0;
 }
 

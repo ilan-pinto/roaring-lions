@@ -115,7 +115,7 @@ const COLUMNS = [
 ] as const;
 
 describe('wound data shape (GH-707 Task 1)', () => {
-  it('a sim with every shipped unit and structure type is not wound-live', () => {
+  it('a sim with every shipped type that carries no wound content is not wound-live', () => {
     const sim = new Sim({ seed: 1, width: 8, height: 8, capacity: 4 });
     // Less the `wounded`-role types and the structure types carrying `aid`: landing those (GH-707 P2,
     // `wounded_kdf` and `wounded_sarim`) IS wound content, and registering one turns the fold on --
@@ -123,18 +123,34 @@ describe('wound data shape (GH-707 Task 1)', () => {
     // does it by accident.
     // GH-709 (22 Oct): the same goes for a type that declares `hull.can_carry` -- the armoured ambulance
     // and the medevac -- which is wound content by definition (`type.canCarry !== null`).
+    // GH-707 P3 (22 Oct): every infantry type now carries `hull.wounds` (the lead: all infantry),
+    // and the medic team a `rescue` block; both are wound content too, so they are left out here and
+    // the next test but one pins that the full shipped roster IS wound-live.
     const units = shippedUnits().filter(
       (u) =>
         (u as { role?: string }).role !== 'wounded' &&
-        (u as { hull?: { can_carry?: unknown } }).hull?.can_carry === undefined,
+        (u as { hull?: { can_carry?: unknown } }).hull?.can_carry === undefined &&
+        (u as { hull?: { wounds?: unknown } }).hull?.wounds === undefined &&
+        (u as { rescue?: unknown }).rescue === undefined,
     );
-    expect(units.length).toBeGreaterThan(30); // the walk found the roster, not an empty dir
+    expect(units.length).toBeGreaterThan(20); // the walk found the roster, not an empty dir
     for (const u of units) sim.addUnitType(u);
     for (const s of Object.values(catalogue.types)) {
       if ((s as { aid?: unknown }).aid !== undefined) continue;
       sim.addStructureType(s as StructureTypeJson);
     }
     expect(sim.woundsLive).toBe(false);
+  });
+
+  it('a sim with the whole shipped roster IS wound-live (GH-707 P3: every infantry type carries wounds)', () => {
+    const sim = new Sim({ seed: 1, width: 8, height: 8, capacity: 4 });
+    for (const u of shippedUnits()) {
+      if ((u as { role?: string }).role === 'wounded') continue; // a squad's own `hull.wounds` must do it
+      if ((u as { hull?: { can_carry?: unknown } }).hull?.can_carry !== undefined) continue;
+      if ((u as { rescue?: unknown }).rescue !== undefined) continue;
+      sim.addUnitType(u);
+    }
+    expect(sim.woundsLive).toBe(true);
   });
 
   it('each wound-related type flips it: wounds, role wounded, rescue, can_carry, an aid post', () => {

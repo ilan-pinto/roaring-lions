@@ -33,10 +33,15 @@ import { wholeOrderPinned } from '../ui/pinned';
  * in packages/sim/src -- invariant 2). `inFlaggedZone` is the caller's: a
  * mission's declared zones, or the sandbox's synthesised ones.
  */
-export function simIntentWorld(sim: Sim, inFlaggedZone: (x: number, y: number) => boolean): IntentWorld {
+export function simIntentWorld(sim: Sim, inFlaggedZone: (x: number, y: number) => boolean, viewer = 0): IntentWorld {
   return {
     structureAt: (x, y) => sim.structureAt(Math.floor(x), Math.floor(y)),
-    tunnelAt: (x, y) => sim.tunnelAt(Math.floor(x), Math.floor(y)),
+    // GH-681, the fog audit: the route under the pointer that THIS seat has
+    // identified (`Sim.tunnelAt` asks side 0's contact, which in a room is
+    // the other seat's knowledge when this seat is side 1).
+    tunnelAt: (x, y) => identifiedRouteAt(sim, viewer, Math.floor(x), Math.floor(y)),
+    ownRouteEndAt: (x, y) => ownRouteEndAt(sim, viewer, x, y),
+    canEnterTunnel: (i) => canEnterTunnel(sim, i),
     isProtected: (s) => sim.isProtected(s),
     structureRoePenalty: (s) => sim.structureRoePenalty(s),
     garrisonFree: (s) => sim.garrisonFree(s),
@@ -59,6 +64,61 @@ export function simIntentWorld(sim: Sim, inFlaggedZone: (x: number, y: number) =
     // The same test H uses (`haltTargets`): a unit inside a building holds.
     garrisoned: (i) => sim.state.garrisonedIn[i] >= 0,
   };
+}
+
+/**
+ * The route under integer tile (`tx`, `ty`) that side `viewer` holds
+ * identified, or -1: `Sim.tunnelAt`'s rule (alive, contact level 2, the tile
+ * on the route) asked for the viewer instead of side 0. For viewer 0 it is
+ * the same answer, route for route.
+ */
+export function identifiedRouteAt(sim: Sim, viewer: number, tx: number, ty: number): number {
+  if (tx < 0 || ty < 0 || tx >= sim.width || ty >= sim.height) return -1;
+  for (let r = 0; r < sim.tunnelCount; r++) {
+    if (sim.tnAlive[r] === 1 && sim.tunnelContactLevel(viewer, r) === 2 && sim.tunnelUnderTile(r, tx, ty)) return r;
+  }
+  return -1;
+}
+
+/** How near a route end's tile centre a right-click must land to name that
+ *  end (GH-681): one tile, the reach the sim's own `enterTunnel` snaps to
+ *  (`TUNNEL_ENTER_RANGE_SQ`). */
+export const ROUTE_END_PICK_TILES = 1;
+
+/**
+ * GH-681: the route whose mouth or vent the point (`x`, `y`) is within
+ * `ROUTE_END_PICK_TILES` of, among the routes side `viewer` OWNS and could
+ * send a unit down (alive, vent open), or -1. The nearest end wins. In
+ * single-player, and for the KDF seat, no route is owned, so this is always
+ * -1 and the enter verb never appears (T-R4).
+ */
+export function ownRouteEndAt(sim: Sim, viewer: number, x: number, y: number): number {
+  let best = -1;
+  let bestD = ROUTE_END_PICK_TILES * ROUTE_END_PICK_TILES;
+  for (let r = 0; r < sim.tunnelCount; r++) {
+    if (sim.tunnelOwner(r) !== viewer || sim.tnAlive[r] === 0 || sim.tnVentOpen[r] === 0) continue;
+    const mouth = sim.tunnelPointAt(r, 0);
+    const ends: readonly (readonly [number, number])[] = [
+      [fx.toNumber(mouth[0]) + 0.5, fx.toNumber(mouth[1]) + 0.5],
+      [fx.toNumber(sim.tunnelVent(r)[0]), fx.toNumber(sim.tunnelVent(r)[1])],
+    ];
+    for (const [ex, ey] of ends) {
+      const d = (ex - x) * (ex - x) + (ey - y) * (ey - y);
+      if (d <= bestD) {
+        bestD = d;
+        best = r;
+      }
+    }
+  }
+  return best;
+}
+
+/** GH-681: may unit `id` go down a route at all? The sim's own `enterTunnel`
+ *  test, read-only: foot (not air, not `mobility.wheeled`) and not carried.
+ *  Routed and owner checks are the sim's; a refused id changes nothing. */
+export function canEnterTunnel(sim: Sim, id: number): boolean {
+  const type = sim.unitTypes[sim.state.typeIdx[id]];
+  return !type.isAir && !type.wheeled && sim.state.carriedBy[id] < 0;
 }
 
 /** What the pointer needs from the renderer: projection, the unit a pixel
@@ -172,7 +232,14 @@ export function pointerPoint(view: PointerView, sim: Sim, px: number, py: number
   const woundedAt =
     wounded >= 0 ? { x: fx.toNumber(sim.state.posX[wounded]), y: fx.toNumber(sim.state.posY[wounded]) } : null;
   const s = view.structureAtScreen(px, py);
-  if (s < 0 || sim.structures.alive[s] !== 1 || sim.structureAt(Math.floor(ground.x), Math.floor(ground.y)) === s) {
+  // GH-681: a shaft of the seat's OWN route outranks the wall in front of it.
+  // Tel Marum's Sarim mouths stand a tile from the camp, whose wall covers
+  // the mouth's pixels from the game camera; without this the right-click
+  // went to the camp's centre, more than a tile from the mouth, and the
+  // enter verb could never be reached by pointing at the shaft. Never true
+  // in single-player or for the KDF seat (no owned route).
+  const atOwnShaft = ownRouteEndAt(sim, view.viewer, ground.x, ground.y) >= 0;
+  if (atOwnShaft || s < 0 || sim.structures.alive[s] !== 1 || sim.structureAt(Math.floor(ground.x), Math.floor(ground.y)) === s) {
     return { ground, x: ground.x, y: ground.y, hostile, hostileAt, wounded, woundedAt, facade: -1 };
   }
   const st = sim.structures;
@@ -204,6 +271,9 @@ export interface CursorContext {
    *  absent when no rally is armed. Read at `p` (the `pointerPoint` rule), the
    *  point the click would send. */
   readonly rallyAt?: ((x: number, y: number) => boolean) | null;
+  /** An armed patrol (Lane A mock): may a waypoint go at this point
+   *  (`patrolPointOk`)? Absent or null: not armed. */
+  readonly patrolAt?: ((x: number, y: number) => boolean) | null;
 }
 
 export interface CursorRead {
@@ -225,7 +295,9 @@ export function cursorAt(sim: Sim, world: IntentWorld, p: PointerPoint, ctx: Cur
   // F4: an armed rally is nobody's order -- the selection does not move, so it
   // is resolved with no ids and wears no role badge.
   const rallyAt = ctx.armed === null ? (ctx.rallyAt ?? null) : null;
-  const ids = rallyAt !== null ? [] : ctx.ids;
+  // An armed patrol is the same shape: the click places a waypoint, not an order.
+  const patrolAt = ctx.armed === null && rallyAt === null ? (ctx.patrolAt ?? null) : null;
+  const ids = rallyAt !== null || patrolAt !== null ? [] : ctx.ids;
   const res = armedMove
     ? resolveMoveOrder(world, { ids, x: p.x, y: p.y, append: false })
     : resolvePointer(world, {
@@ -257,6 +329,7 @@ export function cursorAt(sim: Sim, world: IntentWorld, p: PointerPoint, ctx: Cur
     armedMove,
     pinned: wholeOrderPinned(sim.state, orderIds),
     ...(rallyAt !== null ? { armedRally: rallyAt(p.x, p.y) ? ('ok' as const) : ('refused' as const) } : {}),
+    ...(patrolAt !== null ? { armedPatrol: patrolAt(p.x, p.y) ? ('ok' as const) : ('refused' as const) } : {}),
   };
   const name = cursorFor(res, hints);
   const key = cursorKey(

@@ -35,6 +35,9 @@ export interface EconomyReading {
   built: [number, number];
   droppedTicks: number[];
   accepted: number;
+  /** GH-681 T6: the tunnel orders inside that stream -- `surfaced` events seen, and how many of the
+   *  four routed units were below ground at the vent just before the raid. Node's must be nonzero. */
+  tunnel: { surfaced: number; below: number };
 }
 
 /** The first hash tick at which `got` reports a different digest from `want`
@@ -66,6 +69,10 @@ export function economyMismatch(
     if (JSON.stringify(e.droppedTicks) !== JSON.stringify(nodeEconomy.droppedTicks) || e.accepted !== nodeEconomy.accepted) {
       return `FAIL: economy stream: ${name} dropped ${JSON.stringify(e.droppedTicks)} and accepted ${e.accepted}, ` +
         `Node dropped ${JSON.stringify(nodeEconomy.droppedTicks)} and accepted ${nodeEconomy.accepted}`;
+    }
+    if (e.tunnel.surfaced !== nodeEconomy.tunnel.surfaced || e.tunnel.below !== nodeEconomy.tunnel.below) {
+      return `FAIL: economy stream: ${name} read the tunnel path as ${JSON.stringify(e.tunnel)} (surfaced, below at the vent), ` +
+        `Node ${JSON.stringify(nodeEconomy.tunnel)}`;
     }
   }
   return null;

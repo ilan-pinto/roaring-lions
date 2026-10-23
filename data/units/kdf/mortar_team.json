@@ -17,7 +17,9 @@
       "rear": 10
     },
     "crew": 3,
-    "suppression_resistance": 0.45
+    "suppression_resistance": 0.45,
+    "figures": 3,
+    "wounds": { "wound_chance": 0.6, "bleed_s": 60, "type": "wounded_kdf" }
   },
   "mobility": {
     "speed_tiles_s": 0.65

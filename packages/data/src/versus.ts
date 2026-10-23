@@ -9,11 +9,20 @@ export interface VersusEndJson {
   readonly camp: { readonly at: readonly [number, number]; readonly size: readonly [number, number] };
 }
 
+/** One authored route of a rules file (`tunnels.friendly` / `tunnels.hostile`). */
+export interface VersusTunnelJson {
+  readonly id: string;
+  /** Tile [x, y] pairs, mouth first, vent last. */
+  readonly points: readonly (readonly [number, number])[];
+  readonly capacity: number;
+}
+
 /** data/versus/<map>.json. */
 export interface VersusRulesJson {
   readonly id: string;
   readonly map: string;
   readonly ends: { readonly friendly: VersusEndJson; readonly hostile: VersusEndJson };
+  readonly tunnels?: { readonly friendly?: readonly VersusTunnelJson[]; readonly hostile?: readonly VersusTunnelJson[] };
   readonly zones?: Readonly<Record<string, readonly number[]>>;
   readonly income_zones: readonly { readonly zone: string; readonly rate_per_min: number }[];
 }
@@ -79,4 +88,30 @@ export function versusZonesOf(
     out[name] = z;
   }
   return out;
+}
+
+/** A versus route as the sim's `addTunnel` takes it (`TunnelRouteJson`, restated: this package imports nothing). */
+export interface VersusTunnelRoute {
+  id: string;
+  points: [number, number][];
+  dig_tiles_per_s: number;
+  pre_dug: true;
+  side: 0 | 1;
+  capacity: number;
+}
+
+/**
+ * The routes of one END of the map (GH-681, spec 6.1), in file order, as copies: owned by `side`
+ * (the room's call: the Sarim side), pre-dug, digging rate 1 (inert once dug). An end with no
+ * routes, or a file with no `tunnels` block, gives `[]`.
+ */
+export function versusTunnelsOf(rules: VersusRulesJson, end: 'friendly' | 'hostile', side: 0 | 1): VersusTunnelRoute[] {
+  return (rules.tunnels?.[end] ?? []).map((t) => ({
+    id: t.id,
+    points: t.points.map((p) => [p[0], p[1]] as [number, number]),
+    dig_tiles_per_s: 1,
+    pre_dug: true as const,
+    side,
+    capacity: t.capacity,
+  }));
 }

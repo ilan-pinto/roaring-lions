@@ -73,6 +73,7 @@ import {
   heldBuildings,
   heldShown,
   relationOf,
+  routeLevelFor,
   unitIsObserved,
   type HeldView,
   type Relation,
@@ -337,6 +338,8 @@ export interface TunnelSource {
   readonly tnAlive: ArrayLike<number>;
   readonly tnLength: ArrayLike<number>;
   tunnelContactLevel(side: number, r: number): number;
+  /** GH-681: the side that owns route `r`, -1 for none (`routeLevelFor`). */
+  tunnelOwner(r: number): number;
   tunnelPointAt(r: number, d: number): readonly [number, number];
 }
 
@@ -357,7 +360,8 @@ export interface TunnelMark {
 export function tunnelMarks(sim: TunnelSource, viewer = 0): TunnelMark[] {
   const out: TunnelMark[] = [];
   for (let r = 0; r < sim.tunnelCount; r++) {
-    if (sim.tnAlive[r] === 0 || sim.tunnelContactLevel(viewer, r) !== 2) continue;
+    // GH-681: the renderer's own read -- the viewer's own routes always, another's once found.
+    if (sim.tnAlive[r] === 0 || routeLevelFor(sim, viewer, r) !== 2) continue;
     const len = fx.toNumber(sim.tnLength[r]);
     const line: [number, number][] = [];
     for (let d = 0; ; d += 0.5) {

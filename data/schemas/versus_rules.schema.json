@@ -31,6 +31,15 @@
         }
       }
     },
+    "tunnels": {
+      "type": "object",
+      "description": "Pre-dug routes the Sarim seat owns in a KDF-v-Sarim room (GH-681, versus-tunnels design 6.1), by END like `ends`: the room registers the list of whichever end the Sarim side stands at, after the map's own routes, owned by that side. No `side` and no `pre_dug` here: the owner is the room's call and every versus route is pre-dug. A mirror room registers none. tools/validate_versus_rules.mjs holds the cross-file rules (points on the map, mouth and vent on open ground, vent at least VENT_MIN_DIST tiles from the opposing anchor, unique ids, MAX_TUNNELS).",
+      "additionalProperties": false,
+      "properties": {
+        "friendly": { "$ref": "#/$defs/routes" },
+        "hostile": { "$ref": "#/$defs/routes" }
+      }
+    },
     "income_zones": {
       "type": "array",
       "minItems": 1,
@@ -48,6 +57,26 @@
     }
   },
   "$defs": {
+    "routes": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "required": ["id", "points", "capacity"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+          "points": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 8,
+            "description": "Tile [x, y] pairs, mouth first, vent last.",
+            "items": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "integer", "minimum": 0 } }
+          },
+          "capacity": { "type": "integer", "minimum": 1, "maximum": 8, "description": "Units an enterTunnel may put below on this route." }
+        }
+      }
+    },
     "end": {
       "type": "object",
       "required": ["camp"],

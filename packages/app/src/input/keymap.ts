@@ -12,7 +12,7 @@
 import type { SupportKind } from '@lions/sim';
 
 export type Action =
-  | 'halt' | 'move' | 'smoke' | 'load' | 'unload' | 'overlay' | 'production' | 'mute'
+  | 'halt' | 'move' | 'patrol' | 'smoke' | 'load' | 'unload' | 'overlay' | 'production' | 'mute'
   | 'selectAll' | 'cycleChips' | 'jumpToAlert' | 'keysOverlay' | 'idleNext'
   | 'panUp' | 'panDown' | 'panLeft' | 'panRight' | 'pause' | 'veto'
   // S-F Task 3: the four fire-support calls, Z Q C V, in the dock's left-to-right order.
@@ -50,6 +50,10 @@ export const ACTIONS: readonly ActionSpec[] = [
   // and escape are the whole of what is bound), so this sits on `n`, the key
   // beside it. Free, and not a pan or digit key.
   { id: 'move', label: 'keymap.move', key: 'n', rebindable: true },
+  // Lane A mock (Q6, the lead, 22 Oct): patrol, armed like Move. `p` was free on main and on
+  // every open branch (h n f g u o b m, ctrl+a, tab, space, f1, i, w s a d, z q c v, x and
+  // escape are what is bound), and P is the patrol key every RTS player already knows.
+  { id: 'patrol', label: 'keymap.patrol', key: 'p', rebindable: true },
   { id: 'smoke', label: 'keymap.smoke', key: 'f', rebindable: true },
   { id: 'load', label: 'keymap.load', key: 'g', rebindable: true },
   { id: 'unload', label: 'keymap.unload', key: 'u', rebindable: true },
@@ -284,7 +288,7 @@ export function escapeTarget(
  * assertion here instead of being hidden behind the other two passing.
  */
 export function anyArmed(
-  armedOrder: 'attackMove' | 'move' | 'smoke' | null,
+  armedOrder: 'attackMove' | 'move' | 'smoke' | 'patrol' | null,
   armedSupport: SupportKind | null,
   armedRally: number | null,
   /** Field works (GH-277): an armed works type, the fifth source. */

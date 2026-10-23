@@ -302,4 +302,31 @@ describe('setStance patrol (N3 Task 9, Q6)', () => {
     run(sim, 3);
     expect([sim.state.moving[u], sim.goalOf(u)[0], sim.patrolIndexOf(u)]).toEqual([1, fx.from(26.5), 1]);
   });
+
+  it('a group on one beat never shares a goal tile: each leg is slotted around the waypoint', () => {
+    // A leg is a one-id move, so nothing in the ORDER spreads the group; what does is
+    // `reservedTilesFor`, which keeps every other same-side unit's goal off the slot list.
+    // Made red by sending the leg to the exact point (`exact: true` in stepPatrolStance).
+    const { sim, rifles } = field();
+    const ids = [7.5, 8.5, 9.5].map((y) => sim.spawn(rifles, 1, fx.from(3.5), fx.from(y)));
+    sim.queueCommand({ kind: 'setStance', ids, stance: 'patrol', waypoints: BEAT });
+    const legs = ids.map(() => 0);
+    const last = ids.map(() => -1);
+    let shared = 0;
+    for (let t = 0; t < 60 * TICKS_PER_SECOND; t++) {
+      sim.tick();
+      const goals = new Set<string>();
+      ids.forEach((u, j) => {
+        const idx = sim.patrolIndexOf(u);
+        if (idx !== last[j]) { last[j] = idx; legs[j]++; }
+        if (sim.state.moving[u] !== 1) return;
+        const g = `${fx.toInt(sim.goalOf(u)[0])},${fx.toInt(sim.goalOf(u)[1])}`;
+        if (goals.has(g)) shared++;
+        goals.add(g);
+      });
+    }
+    // Not vacuous: every unit walked several legs of the beat.
+    expect(legs.every((n) => n >= 6)).toBe(true);
+    expect(shared).toBe(0);
+  });
 });

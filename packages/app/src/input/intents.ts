@@ -32,10 +32,20 @@ export type PlayerIntent =
   | { kind: 'garrison'; ids: number[]; structure: number }
   | { kind: 'demolish'; ids: number[]; structure: number }
   | { kind: 'chargeTunnel'; ids: number[]; tunnel: number }
+  /** GH-681: these foot units walk to the nearer end of the seat's own route
+   *  and go below. Only a right-click on an own mouth or vent makes one. */
+  | { kind: 'enterTunnel'; ids: number[]; tunnel: number }
+  /** GH-681: these buried units come up at their vent -- `raid` for the
+   *  pop-up and back down, `exit` to stay. The "Below ground" strip's verb. */
+  | { kind: 'vent'; ids: number[]; mode: 'raid' | 'exit' }
   | { kind: 'mount'; riders: number[]; carrier: number }
   | { kind: 'dismount'; carriers: number[] }
   | { kind: 'smoke'; ids: number[]; x: number; y: number }
   | { kind: 'halt'; ids: number[] }
+  /** A patrol beat (Lane A mock, approved 22 Oct): 2 to `MAX_PATROL_WAYPOINTS`
+   *  points in world tiles, point 1 where the selection stood when P was
+   *  pressed (`input/patrol.ts`). Queues one `setStance{patrol}`. */
+  | { kind: 'patrol'; ids: number[]; points: { x: number; y: number }[] }
   | { kind: 'group'; slot: number; action: 'assign' | 'recall' }
   | { kind: 'overlay'; on: boolean }
   | { kind: 'support'; call: SupportKind; x: number; y: number; accepted: boolean };
@@ -43,8 +53,8 @@ export type PlayerIntent =
 /** Every kind in the union. Kept as a value so data can be validated against
  *  it — a `type` alone cannot be iterated at runtime. */
 export const INTENT_KINDS = [
-  'select', 'order', 'attack', 'rescue', 'garrison', 'demolish', 'chargeTunnel', 'mount', 'dismount',
-  'smoke', 'halt', 'group', 'overlay', 'support',
+  'select', 'order', 'attack', 'rescue', 'garrison', 'demolish', 'chargeTunnel', 'enterTunnel', 'vent', 'mount',
+  'dismount', 'smoke', 'halt', 'patrol', 'group', 'overlay', 'support',
 ] as const satisfies readonly PlayerIntent['kind'][];
 
 /** The map's size in tiles: what `clampToMap` fits an order's point into. */
@@ -104,6 +114,12 @@ export function applyIntent(sink: CommandSink, intent: PlayerIntent, map: MapSiz
     case 'chargeTunnel':
       sink.queueCommand({ kind: 'chargeTunnel', ids: intent.ids, tunnel: intent.tunnel });
       return;
+    case 'enterTunnel':
+      sink.queueCommand({ kind: 'enterTunnel', ids: intent.ids, tunnel: intent.tunnel });
+      return;
+    case 'vent':
+      sink.queueCommand({ kind: 'vent', ids: intent.ids, mode: intent.mode });
+      return;
     case 'mount':
       sink.queueCommand({ kind: 'load', ids: intent.riders, carrier: intent.carrier });
       return;
@@ -115,6 +131,15 @@ export function applyIntent(sink: CommandSink, intent: PlayerIntent, map: MapSiz
       return;
     case 'halt':
       sink.queueCommand({ kind: 'halt', ids: intent.ids });
+      return;
+    case 'patrol':
+      // Every waypoint inside the box `validateCommand` accepts, as an order's point is.
+      sink.queueCommand({
+        kind: 'setStance',
+        ids: intent.ids,
+        stance: 'patrol',
+        waypoints: intent.points.map((p) => [clampToMap(fx.from(p.x), map.width), clampToMap(fx.from(p.y), map.height)]),
+      });
       return;
     case 'select':
     case 'group':
@@ -205,6 +230,13 @@ export interface IntentWorld {
   canDemolish(id: number): boolean;
   canGarrison(id: number): boolean;
   canTunnelCharge(id: number): boolean;
+  /** GH-681: the route whose mouth or vent the point is within a tile of,
+   *  among the routes the viewer's own side OWNS, or -1. Optional: a world
+   *  with no owned routes (every fixture, single-player, the KDF seat)
+   *  leaves it out and the enter rung never fires. */
+  ownRouteEndAt?(x: number, y: number): number;
+  /** GH-681: may this unit go down a route -- foot, not carried. */
+  canEnterTunnel?(id: number): boolean;
   /** Mission-declared no-fire zone. Wired in slice 2; false until then. */
   inFlaggedZone(x: number, y: number): boolean;
   /** What is under a ground point: open, a tile no foot or wheel can enter
@@ -326,6 +358,13 @@ export interface Resolution {
    */
   cantPenetrate?: boolean;
   /**
+   * GH-681: the click named one of the seat's own route ends and NOBODY
+   * selected can go below (all wheeled, airborne or carried). No intent, a
+   * short note, the deny cue and the `blocked` cursor -- the cursor reads
+   * `tunnel-enter` only when the click will send somebody down.
+   */
+  tunnelRefused?: boolean;
+  /**
    * Where the order's marker goes, when that is not the click's ground point:
    * the target's own tile, set only when the hostile rung resolved a focus
    * (R-18). `issueOrder` reads it.
@@ -389,6 +428,30 @@ export function resolvePointer(world: IntentWorld, ctx: PointerContext): Resolut
   if (target >= 0 && !append) {
     const focused = resolveFocus(world, ids, target, ctx.hostileAt ?? { x, y });
     if (focused) return focused;
+  }
+
+  // GH-681: the seat's own route end (T-R4). Above the structure rung, so
+  // a mouth beside a camp is still the mouth within a tile of it. Foot units
+  // get the `enterTunnel`; the rest of a mixed selection attack-moves to the
+  // point, as the attack rule's remainder does. Never reached in
+  // single-player or by the KDF seat: they own no route.
+  const ownEnd = append ? -1 : (world.ownRouteEndAt?.(x, y) ?? -1);
+  if (ownEnd >= 0) {
+    const goers = ids.filter((i) => world.canEnterTunnel?.(i) === true);
+    if (goers.length === 0) {
+      return {
+        intents: [],
+        roe,
+        marker: false,
+        tunnelRefused: true,
+        note: { text: t('intent.tunnelEnter.footOnly'), tone: 'mute' },
+      };
+    }
+    const goSet = new Set(goers);
+    const rest = ids.filter((i) => !goSet.has(i));
+    const intents: PlayerIntent[] = [{ kind: 'enterTunnel', ids: goers, tunnel: ownEnd }];
+    if (rest.length > 0) intents.push({ kind: 'order', verb: 'attackMove', ids: rest, x, y, append: false });
+    return { intents, roe, marker: true, note: { text: t('intent.tunnelEnter'), tone: 'info' } };
   }
 
   const struct = world.structureAt(x, y);

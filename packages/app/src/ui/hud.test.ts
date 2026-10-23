@@ -1435,6 +1435,7 @@ function clusterRig(
     orders: {
       attackMove: () => calls.push('attackMove'),
       move: () => calls.push('move'),
+      patrol: () => calls.push('patrol'),
       halt: () => calls.push('halt'),
       smoke: () => calls.push('smoke'),
       load: () => calls.push('load'),
@@ -2206,6 +2207,26 @@ describe('the order row', () => {
     expect(r.order('unload')!.textContent).not.toContain('/');
   });
 
+  // Lane A mock (Q13): a patroller says so on the card, with its beat's point count, in place of
+  // "moving"; no mark in the world. Once the beat ends, the card goes back to what it was.
+  it('says "on patrol -- N points" on its own unit\'s card while it walks a beat', () => {
+    const world = makeForce();
+    const id = world.squads[0];
+    world.sim.queueCommand({
+      kind: 'setStance', ids: [id], stance: 'patrol',
+      waypoints: [[fx.from(1.5), fx.from(1.5)], [fx.from(8.5), fx.from(1.5)], [fx.from(8.5), fx.from(8.5)]],
+    });
+    world.sim.tick();
+    const r = clusterRig(() => [id], {}, world);
+    const cond = () => r.host.querySelector('.rl-card__cond')?.textContent ?? '';
+    expect(cond()).toContain('on patrol — 3 points');
+    expect(cond()).not.toContain('moving');
+    world.sim.queueCommand({ kind: 'halt', ids: [id] });
+    world.sim.tick();
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(cond()).not.toContain('on patrol');
+  });
+
   it('dims Halt while nothing is under way', () => {
     const world = makeForce();
     const r = clusterRig(() => world.squads, {}, world);
@@ -2218,18 +2239,19 @@ describe('the order row', () => {
   // S3e (Q6): each order is the G1 sheet's surround at rest, in one ink,
   // and the family colour rides on the glyph span alone through theme.css's
   // `.rl-order__glyph[data-family=...]` -- the label beside it stays in ink.
-  it('draws the order row as six drawn marks, each tagged with its family', () => {
+  it('draws the order row as seven drawn marks, each tagged with its family', () => {
     const world = makeForce();
     const r = clusterRig(() => [world.namer], {}, world);
     const el = r.host;
-    expect(el.querySelectorAll('.rl-order__glyph svg[data-symbol]')).toHaveLength(6);
+    expect(el.querySelectorAll('.rl-order__glyph svg[data-symbol]')).toHaveLength(7);
+    expect(el.querySelector('.rl-order__glyph[data-family="manoeuvre"] [data-symbol="patrol"]')).not.toBeNull();
     expect(el.querySelector('.rl-order__glyph [data-symbol="move"]')).not.toBeNull();
     expect(el.querySelector('.rl-order__glyph[data-family="offensive"] [data-symbol="attackMove"]')).not.toBeNull();
     expect(el.querySelector('.rl-order__glyph[data-family="control"] [data-symbol="halt"]')).not.toBeNull();
     expect(el.querySelector('.rl-order__glyph[data-family="obscurant"] [data-symbol="smoke"]')).not.toBeNull();
     expect(el.querySelector('.rl-order__glyph[data-family="transport"] [data-symbol="load"]')).not.toBeNull();
     expect(el.querySelector('.rl-order__glyph[data-family="transport"] [data-symbol="unload"]')).not.toBeNull();
-    for (const id of ['attackMove', 'move', 'halt', 'smoke', 'load', 'unload']) {
+    for (const id of ['attackMove', 'move', 'patrol', 'halt', 'smoke', 'load', 'unload']) {
       expect(r.order(id)!.textContent).not.toMatch(/[⟶■◌⤓⤒]/);
     }
     // Fix round 1: cropped to the surround, not the cursor's full 24-box.

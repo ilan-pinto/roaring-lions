@@ -4,7 +4,7 @@
 import { describe, it, expect } from 'vitest';
 import { fx } from '@lions/sim';
 import type { Command } from '@lions/sim';
-import { LockstepClock, applyFrame, canonicalOrder, matchDigest, type Frame, type MatchTransport, type SeatWorld, type Stamped, type TransportStatus } from '@lions/net';
+import { LockstepClock, applyFrame, canonicalOrder, cleanCommand, matchDigest, type Frame, type MatchTransport, type SeatWorld, type Stamped, type TransportStatus } from '@lions/net';
 import { missionWorld } from '../mission-harness';
 import { buildWorld } from '../../../packages/app/src/net/versus-world.test-helper';
 import { versusSpawns } from '../../../packages/app/src/net/versus-force';
@@ -14,10 +14,13 @@ import { harnessTick } from './agent-client';
 import { FogTracker } from './fog-tracker';
 import { runFrames, seatWorldFor, type FrameStep } from '../../../packages/app/src/net/frame-step';
 import { versusConfig } from './test-config';
+import { simIntentWorld } from '../../../packages/app/src/input/pointer';
+import { applyIntent } from '../../../packages/app/src/input/intents';
+import { beginPatrol, patrolClick } from '../../../packages/app/src/input/patrol';
 import { contentDigest, shippedContent, shippedContentDigest } from '../../../packages/app/src/net/content-digest';
 import { units } from '@lions/data';
 import {
-  ECONOMY_STREAM_ACCEPTED, ECONOMY_STREAM_FORGED_TICK, ECONOMY_STREAM_TICKS, economyStreamFrames, runEconomyClient,
+  ECONOMY_STREAM_ACCEPTED, ECONOMY_STREAM_FORGED_TICK, ECONOMY_STREAM_TICKS, ECONOMY_STREAM_TUNNEL, economyStreamFrames, runEconomyClient,
 } from '../../../packages/app/src/net/economy-stream.test-helper';
 
 const MISSION = 'beit_sahwan_1_recon';
@@ -233,6 +236,63 @@ describe('versus: two sides, one frame stream', () => {
     expect(a.hashes[19]).not.toBe(base.hashes[19]);
   }, 60_000);
 
+  // Lane A mock (Q14, the lead, 22 Oct): the same beat, but drawn by the PLAYER's path --
+  // `beginPatrol` (P pressed: point 1 where the pair stands), a Shift-click, a plain click, and
+  // `applyIntent`'s command -- so the UI's own output is what both clients stamp and agree on.
+  it('a patrol drawn through the UI path is one setStance both clients accept and agree on (Lane A Q14)', () => {
+    const probe = versusWorld();
+    const [hx, hy] = probe.anchors.hostile;
+    const pair = probe.bySide[1].slice(0, 2);
+    const world = simIntentWorld(probe.sim, () => false);
+    /** The first open tile centre at or after (x, y), scanning right then down. */
+    const openNear = (x: number, y: number): [number, number] => {
+      for (let dy = 0; dy < 12; dy++) {
+        for (let dx = 0; dx < 12; dx++) {
+          const p: [number, number] = [Math.floor(x) + dx + 0.5, Math.floor(y) + dy + 0.5];
+          if (world.groundAt(p[0], p[1]) === 'open') return p;
+        }
+      }
+      throw new Error('no open tile near the hostile anchor');
+    };
+    const begun = beginPatrol(
+      pair,
+      (i) => ({ x: fx.toNumber(probe.sim.state.posX[i]), y: fx.toNumber(probe.sim.state.posY[i]) }),
+      world,
+      (i) => probe.sim.state.carriedBy[i] >= 0
+    );
+    if (typeof begun === 'string') throw new Error(`patrol refused: ${begun}`);
+    const [ax, ay] = openNear(hx + 4, hy);
+    const added = patrolClick(begun, world, ax, ay, true);
+    if (added.kind !== 'added') throw new Error(`shift-click did not add: ${added.kind}`);
+    const [bx, by] = openNear(hx + 4, hy + 4);
+    const sent = patrolClick(added.draft, world, bx, by, false);
+    if (sent.kind !== 'send') throw new Error(`plain click did not send: ${sent.kind}`);
+    const cmds: Command[] = [];
+    applyIntent({ queueCommand: (c) => cmds.push(c) }, sent.intent, { width: probe.sim.width, height: probe.sim.height });
+    expect(cmds).toHaveLength(1);
+    const cmd = cmds[0];
+    // Literal oracle: the three points the player placed, as Q16.16 integers, in order.
+    expect(cmd).toEqual({
+      kind: 'setStance',
+      ids: pair,
+      stance: 'patrol',
+      waypoints: [
+        [fx.from(begun.points[0].x), fx.from(begun.points[0].y)],
+        [fx.from(ax), fx.from(ay)],
+        [fx.from(bx), fx.from(by)],
+      ],
+    });
+    // And the room's own wire check rebuilds it unchanged (two integers per point, 2..4 points).
+    expect(cleanCommand(JSON.parse(JSON.stringify(cmd)))).toEqual(cmd);
+    const frames = versusFrames(true, () => [[12, { seat: 1, seq: 9, cmd }]]);
+    const a = runVersus(frames);
+    const b = runVersus(frames);
+    expect(a.hashes).toEqual(b.hashes);
+    // Only the crafted command drops: the UI's patrol passed `validateCommand` on both clients.
+    expect(a.drops).toEqual([CRAFT_TICK]);
+    expect(a.hashes[19]).not.toBe(runVersus(versusFrames(true)).hashes[19]);
+  }, 60_000);
+
   it('the crafted command is dropped for ownership, not for being malformed', () => {
     // Control: if seat 1 were on side 0 the crafted order (it names a side-0
     // unit, on the map) is accepted; its own side-1 orders are what drop.
@@ -425,9 +485,24 @@ describe('an economy room: both seats producing through frames (N3 Task 8)', () 
     expect(b.accepted).toBe(ECONOMY_STREAM_ACCEPTED);
   }, 60_000);
 
+  it('the Sarim seat\'s foot units went below, crawled to the vent, and came up on order (GH-681 T6)', () => {
+    expect(a.tunnel.below).toBe(4);
+    expect(a.tunnel.surfaced).toBeGreaterThan(0);
+    expect(b.tunnel).toEqual(a.tunnel);
+  });
+
+  it('falsified: the vent frame dropped from client B alone is a desync (GH-681 T6)', () => {
+    const cut = frames.map((f) => (f.tick === ECONOMY_STREAM_TUNNEL.exit ? { tick: f.tick, cmds: f.cmds.filter((s) => s.cmd.kind !== 'vent') } : f));
+    expect(cut[ECONOMY_STREAM_TUNNEL.exit].cmds.length).toBe(frames[ECONOMY_STREAM_TUNNEL.exit].cmds.length - 1);
+    const bad = runEconomyClient(cut);
+    expect(firstDisagreement(a.digests, bad.digests)).not.toBeNull();
+    expect(bad.tunnel).not.toEqual(a.tunnel);
+  }, 60_000);
+
   it('the forged build{side: 0} from seat 0 (side 1) is dropped on both clients, and only it', () => {
-    expect(a.droppedTicks).toEqual([ECONOMY_STREAM_FORGED_TICK]);
-    expect(b.droppedTicks).toEqual([ECONOMY_STREAM_FORGED_TICK]);
+    // The forged build, and seat 1's forged enterTunnel into the Sarim route (T-R4).
+    expect(a.droppedTicks).toEqual([ECONOMY_STREAM_TUNNEL.forged, ECONOMY_STREAM_FORGED_TICK]);
+    expect(b.droppedTicks).toEqual([ECONOMY_STREAM_TUNNEL.forged, ECONOMY_STREAM_FORGED_TICK]);
   });
 
   it('falsified: a frame out of order on client B is a desync on that window\'s hash tick', () => {

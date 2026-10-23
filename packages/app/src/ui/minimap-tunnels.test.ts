@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { Sim, fx, type UnitTypeJson } from '@lions/sim';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { CHROME, tunnelMarks } from './minimap';
+import { CHROME, tunnelMarks, unitDots } from './minimap';
 
 const MARKER: UnitTypeJson = {
   id: 'tn_marker',
@@ -55,6 +55,32 @@ describe('tunnelMarks', () => {
     expect(tunnelMarks(own.sim, 0)).toEqual([]);
     const theirs = world(true, 0);
     expect(tunnelMarks(theirs.sim, 1)).toEqual([]);
+  });
+
+  it('GH-681: the route a seat OWNS is marked for that seat always, and for the other seat not until found', () => {
+    const sim = new Sim({ seed: 7, width: 16, height: 16, capacity: 8, humanHeld: [true, true] });
+    const route = sim.addTunnel({ id: 'tn_s', points: [[2, 2], [8, 2]], dig_tiles_per_s: 1, pre_dug: true, side: 1 });
+    sim.tick();
+    expect(sim.tunnelContactLevel(1, route)).toBe(0);
+    expect(tunnelMarks(sim, 1).map((m) => m.route)).toEqual([route]);
+    expect(tunnelMarks(sim, 0)).toEqual([]);
+    // The other seat's carrier finds it: now the KDF screen marks it too.
+    sim.spawn(sim.addUnitType(MARKER), 0, fx.from(4.5), fx.from(4.5));
+    sim.tick();
+    expect(tunnelMarks(sim, 0).map((m) => m.route)).toEqual([route]);
+  });
+
+  it('GH-681 fog audit: a buried Sarim unit makes no dot and no mark on the KDF minimap, all fog lifted', () => {
+    const sim = new Sim({ seed: 7, width: 16, height: 16, capacity: 8, humanHeld: [true, true] });
+    const route = sim.addTunnel({ id: 'tn_s', points: [[2, 2], [8, 2]], dig_tiles_per_s: 1, pre_dug: true, side: 1 });
+    const rifle = sim.addUnitType({ ...MARKER, id: 'tn_rifle', role: 'infantry', abilities: [] });
+    const sarim = sim.spawn(rifle, 1, fx.from(1.5), fx.from(2.5));
+    sim.queueCommand({ kind: 'enterTunnel', ids: [sarim], tunnel: route });
+    for (let t = 0; t < 120 && sim.state.tunnelIn[sarim] < 0; t++) sim.tick();
+    expect(sim.state.tunnelIn[sarim]).toBe(route);
+    const everything = (): boolean => true;
+    expect(unitDots(sim, everything, 0).filter((d) => d.side === 1)).toEqual([]);
+    expect(tunnelMarks(sim, 0)).toEqual([]);
   });
 
   it('wears --intercept, which theme.css declares', () => {

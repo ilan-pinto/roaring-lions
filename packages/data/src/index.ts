@@ -256,11 +256,14 @@ export {
 
 export {
   versusMissionOf,
+  versusTunnelsOf,
   versusZonesOf,
   type DoctrineJson,
   type VersusEndJson,
   type VersusMissionJson,
   type VersusRulesJson,
+  type VersusTunnelJson,
+  type VersusTunnelRoute,
 } from './versus';
 
 /** Skirmish doctrines (N3, LD2/LD3), keyed by faction: what a seat may build and its start
