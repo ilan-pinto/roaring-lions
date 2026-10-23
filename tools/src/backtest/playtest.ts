@@ -3786,7 +3786,12 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // losses are men down (a squad that loses men regenerates only its standing men's shares) and Conduct
 // spent on wounded enemies the guns kill beside their squads; Beit Sahwan IV gains its survivors.
 // Every plan wins on 30 of 30 seeds; no star, outcome or gate moved.
-const LADDER_CREDITS = 5842;
+// 2026-10-23, the lead's wound rules (a man down holds no ground, pays no intel, and splash that
+// kills him costs no Conduct) and Qarn Hadid III's mortar back with its column: 5842 -> 5953. Against
+// the pre-P3 5920, +33: Beit Sahwan I 180 -> 170, Wadi Halam I, II 180/190 -> 170/180 (men down);
+// Beit Sahwan IV 144 -> 190; Khan Rafid III 236 -> 240; Deir Amun II 217 -> 227; Qarn Hadid III
+// 216 -> 219. Every other mission pays as it did before P3. No star, outcome or gate moved.
+const LADDER_CREDITS = 5953;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
