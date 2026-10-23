@@ -239,6 +239,33 @@
         339,
         269
       ]
+    },
+    "mbt_lavi_camo": {
+      "file": "mbt_lavi_camo.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        808,
+        533
+      ]
+    },
+    "spg_long_range": {
+      "file": "spg_long_range.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        1057,
+        502
+      ]
+    },
+    "spg_cluster": {
+      "file": "spg_cluster.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        1105,
+        532
+      ]
     }
   }
 }
