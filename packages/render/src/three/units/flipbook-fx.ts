@@ -18,6 +18,16 @@
  *              ember, to soot (`shadow.0`) and grey smoke (`gunmetal.1`).
  *   1 SMOKE -- lit soot -> grey (or, by its tint, dust), drifting, lingering.
  *   2 DIRT  -- ballistic kick-up in the ground's own dust tones, lit.
+ *   3 SPARK -- an HDR ember dot thrown ballistically (lighter than dirt),
+ *              white_hot -> fire -> ember x `HDR_GAINS.sparks` so its core
+ *              blooms; no atlas, a procedural round dot. Drawn in the FIRE
+ *              pass (no depth test, band 5.5) and settles on the ground.
+ *
+ * A SMOKE layer with `oil` is burning-fuel soot (a kill's column): it stays
+ * near `uSoot`, greys only late (`0.45 * uSmoke` after 55% of life), is
+ * nearly opaque and fades from 62% of life, carries a flickering ember glow
+ * in the dense LOWER core of a young puff, and wears a sun-side grey crown
+ * (`FLIPBOOK_OIL_CROWN`). It reaches the shader as a NEGATIVE tint.
  *
  * The billow itself is SAMPLED, not computed: FIRE reads
  * `assets/textures/vfx/flipbook_fire.png`, SMOKE and DIRT read
@@ -80,6 +90,9 @@ export const FLIPBOOK_CAPACITY = 2048;
 export const FLIP_FIRE = 0;
 export const FLIP_SMOKE = 1;
 export const FLIP_DIRT = 2;
+export const FLIP_SPARK = 3;
+/** The sun-side grey an oily puff wears: `col += oil * FLIPBOOK_OIL_CROWN * uSmoke * uLight * smoothstep(0.95, 1.25, shade)`, about +15% of `gunmetal.1` on the lit side only. */
+export const FLIPBOOK_OIL_CROWN = 0.15;
 /** Frames per atlas side; the atlas holds `FLIPBOOK_GRID ** 2` frames. */
 export const FLIPBOOK_GRID = 8;
 /**
@@ -116,6 +129,7 @@ const FLIP_TYPE: Readonly<Record<FlipbookLayerSpec['type'], number>> = Object.fr
   fire: FLIP_FIRE,
   smoke: FLIP_SMOKE,
   dirt: FLIP_DIRT,
+  spark: FLIP_SPARK,
 });
 
 const VERT = /* glsl */ `
@@ -139,7 +153,8 @@ const VERT = /* glsl */ `
     if (t < 0.0 || t > 1.0) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
     float age = ageMs / 1000.0;
     float type = aParams.w;
-    if ((uFirePass > 0.5) != (type < 0.5)) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
+    bool isFire = type < 0.5 || type > 2.5;
+    if ((uFirePass > 0.5) != isFire) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
     vec3 p = aOrigin;
     float size;
     if (type < 0.5) {
@@ -149,9 +164,15 @@ const VERT = /* glsl */ `
     } else if (type < 1.5) {
       size = aParams.z * (0.55 + 1.3 * sqrt(t));
       p += aVel * (1.0 - exp(-age * 1.2)) / 1.2 + vec3(0.10, 0.22, 0.04) * age;
-    } else {
+    } else if (type < 2.5) {
       size = aParams.z * (0.45 + 0.9 * sqrt(t));
       p += aVel * age + vec3(0.0, -4.9 * age * age, 0.0);
+      p.y = max(p.y, aOrigin.y);
+    } else {
+      // A spark: ballistic like dirt but lighter, a constant-size dot that
+      // settles on the ground rather than sinking.
+      size = aParams.z;
+      p += aVel * age + vec3(0.0, -3.2 * age * age, 0.0);
       p.y = max(p.y, aOrigin.y);
     }
     vec3 right = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
@@ -181,8 +202,10 @@ const FRAG = /* glsl */ `
   uniform vec3 uDirt;
   uniform vec3 uDirtDark;
   uniform float uFireGain;
+  uniform float uSparkGain;
   uniform float uLight;
   uniform float uSmokeAlpha;
+  uniform float uOilCrown;
   uniform vec2 uSun;
   uniform vec4 uFireFit;  // zoom, gain, k0, k1
   uniform vec4 uSmokeFit;
@@ -225,6 +248,14 @@ const FRAG = /* glsl */ `
     // The circle of radius 1 (in frame half-widths) survives any rotation
     // inside its own frame, so a rotated corner never samples a neighbour.
     if (dot(vUv, vUv) > 1.0) discard;
+    if (vType > 2.5) {
+      // A spark: a procedural round dot, white-hot to ember, HDR so it blooms.
+      float dotDensity = 1.0 - smoothstep(0.35, 1.0, length(vUv));
+      vec3 sparkCol = mix(uHot, uFire, smoothstep(0.0, 0.35, vT));
+      sparkCol = mix(sparkCol, uEmber, smoothstep(0.35, 0.8, vT)) * uSparkGain;
+      gl_FragColor = vec4(sparkCol, dotDensity * (1.0 - smoothstep(0.7, 1.0, vT)));
+      return;
+    }
     float ang = vSeed * 6.2831853;
     float cs = cos(ang);
     float sn = sin(ang);
@@ -272,10 +303,25 @@ const FRAG = /* glsl */ `
       col = mix(fire, smoke, cool);
       alpha = density * (1.0 - smoothstep(0.55, 1.0, vT));
     } else if (vType < 1.5) {
+      // A negative tint is OIL -- burning-fuel soot that stays near black for
+      // most of its life, carries an ember glow in its dense core while young,
+      // and thins out late rather than early.
+      float oil = clamp(-vTint, 0.0, 1.0);
+      float dustT = max(vTint, 0.0);
       vec3 soot = mix(uSoot, uSmoke, smoothstep(0.1, 1.0, vT));
+      vec3 oily = mix(uSoot, uSmoke * 0.45, smoothstep(0.55, 1.0, vT));
+      soot = mix(soot, oily, oil);
       vec3 dusty = mix(uDirtDark, uDirt, smoothstep(0.0, 0.75, vT)) * 0.85;
-      col = mix(soot, dusty, vTint) * uLight * shade;
-      alpha = density * uSmokeAlpha * smoothstep(0.0, 0.06, vT) * (1.0 - smoothstep(0.40, 1.0, vT));
+      col = mix(soot, dusty, dustT) * uLight * shade;
+      // The lit crown: a sun-side grey on oily puffs only.
+      col += oil * uOilCrown * uSmoke * uLight * smoothstep(0.95, 1.25, shade);
+      // Ember glow: only the dense LOWER core of a young puff, flickering.
+      float low = 1.0 - smoothstep(-0.3, 0.5, vUv.y);
+      float flick = 0.7 + 0.3 * sin(vAge * 23.0 + vSeed * 40.0);
+      float glow = oil * pow(density, 3.0) * low * flick * (1.0 - smoothstep(0.0, 0.12, vT));
+      col += uEmber * 1.4 * glow;
+      float late = mix(0.40, 0.62, oil);
+      alpha = density * mix(uSmokeAlpha, 0.97, oil) * smoothstep(0.0, 0.06, vT) * (1.0 - smoothstep(late, 1.0, vT));
     } else {
       col = mix(uDirtDark, uDirt, smoothstep(0.0, 0.6, vT)) * uLight * shade;
       alpha = density * 0.95 * (1.0 - smoothstep(0.45, 1.0, vT));
@@ -318,8 +364,8 @@ export interface FlipbookSpawn {
   durationMs: number;
   /** Billow size, in world units. */
   scale: number;
-  type: typeof FLIP_FIRE | typeof FLIP_SMOKE | typeof FLIP_DIRT;
-  /** SMOKE only: 0 soot, 1 dust. */
+  type: typeof FLIP_FIRE | typeof FLIP_SMOKE | typeof FLIP_DIRT | typeof FLIP_SPARK;
+  /** SMOKE only: 0 soot, 1 dust; NEGATIVE is oil (-1..0, `-oil`), which overrides dust. */
   tint?: number;
 }
 
@@ -387,9 +433,12 @@ export class FlipbookFx {
   private debugHidden = false;
   private atlases: { fire: THREE.Texture; smoke: THREE.Texture } | null = null;
   private disposed = false;
+  /** Effects detail, `RenderQuality.fxDetail`: 0 drops sparks and thins `low_fraction` layers. */
+  private fxDetail: 0 | 1 | 2;
 
-  constructor(capacity = FLIPBOOK_CAPACITY) {
+  constructor(capacity = FLIPBOOK_CAPACITY, fxDetail: 0 | 1 | 2 = 2) {
     this.capacity = capacity;
+    this.fxDetail = fxDetail;
     const geometry = new THREE.InstancedBufferGeometry();
     const quad = new THREE.PlaneGeometry(1, 1);
     geometry.index = quad.index;
@@ -429,6 +478,8 @@ export class FlipbookFx {
       uDirt: { value: new THREE.Color(0.5, 0.4, 0.3) },
       uDirtDark: { value: new THREE.Color(0.3, 0.25, 0.2) },
       uFireGain: { value: HDR_GAINS.fireball },
+      uSparkGain: { value: HDR_GAINS.sparks },
+      uOilCrown: { value: FLIPBOOK_OIL_CROWN },
       uLight: { value: 1 },
       uSmokeAlpha: { value: FLIPBOOK_SMOKE_ALPHA },
       uSun: { value: new THREE.Vector2(-0.7, 0.7) },
@@ -457,6 +508,11 @@ export class FlipbookFx {
   /** Both meshes, for the caller's scene. */
   get meshes(): readonly [FlipbookMesh, FlipbookMesh] {
     return [this.mesh, this.fireMesh];
+  }
+
+  /** Sets the effects detail (the quality preset's `fxDetail`); read at the next spawn. */
+  setFxDetail(detail: 0 | 1 | 2): void {
+    this.fxDetail = detail;
   }
 
   /** True once both atlases are bound. */
@@ -606,7 +662,7 @@ export class FlipbookFx {
     }
     this.mesh.geometry.instanceCount = Math.min(this.written, this.capacity);
     const end = start + durMs;
-    if (type === FLIP_FIRE) {
+    if (type === FLIP_FIRE || type === FLIP_SPARK) {
       if (end > this.fireLiveUntilMs) this.fireLiveUntilMs = end;
     } else if (end > this.smokeLiveUntilMs) this.smokeLiveUntilMs = end;
     this.syncVisible();
@@ -633,12 +689,16 @@ export class FlipbookFx {
     for (const L of layers) {
       const type = FLIP_TYPE[L.type];
       if (type === undefined) throw new Error(`flipbook: unknown layer type "${String(L.type)}"`);
+      // The lowest effects tier: sparks go, and a layer that declares
+      // `low_fraction` spawns only that share of its count (rounded up).
+      if (this.fxDetail === 0 && type === FLIP_SPARK) continue;
+      const count = this.fxDetail === 0 && L.low_fraction !== undefined ? Math.ceil(L.count * L.low_fraction) : L.count;
       const off = L.offset ?? {};
       const v = L.velocity;
       const y0 = (L.at_ground ? groundH : h) + (off.up ?? 0);
-      for (let k = 0; k < L.count; k++) {
+      for (let k = 0; k < count; k++) {
         const a = v.ring
-          ? (k / L.count) * Math.PI * 2 + (v.ring_jitter_rad ? this.rand() * v.ring_jitter_rad : 0)
+          ? (k / count) * Math.PI * 2 + (v.ring_jitter_rad ? this.rand() * v.ring_jitter_rad : 0)
           : this.rand() * Math.PI * 2;
         const radial = between(v.radial);
         const along = v.along_bore ? between(v.along_bore) : 0;
@@ -656,7 +716,7 @@ export class FlipbookFx {
         this.push(
           px, y0, pz,
           Math.cos(a) * radial + dx * along, up, Math.sin(a) * radial + dz * along,
-          L.delay_ms[0] + L.delay_ms[1] * k, between(L.duration_ms), scale, type, L.tint ?? 0
+          L.delay_ms[0] + L.delay_ms[1] * k, between(L.duration_ms), scale, type, L.oil ? -L.oil : (L.tint ?? 0)
         );
         n++;
       }

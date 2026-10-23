@@ -10,7 +10,9 @@ import {
   FLIP_DIRT,
   FLIP_FIRE,
   FLIP_SMOKE,
+  FLIP_SPARK,
   FLIPBOOK_FIT,
+  FLIPBOOK_OIL_CROWN,
   flipbookSupersedes,
   prepareFlipbookAtlas,
 } from './flipbook-fx';
@@ -159,7 +161,7 @@ describe('FlipbookFx live window', () => {
     let smokeEnd = 0;
     for (let i = 0; i < fx.mesh.geometry.instanceCount; i++) {
       const end = p[i * 4] + p[i * 4 + 1];
-      if (p[i * 4 + 3] === FLIP_FIRE) fireEnd = Math.max(fireEnd, end);
+      if (p[i * 4 + 3] === FLIP_FIRE || p[i * 4 + 3] === FLIP_SPARK) fireEnd = Math.max(fireEnd, end);
       else smokeEnd = Math.max(smokeEnd, end);
     }
     expect(fireEnd).toBeLessThan(smokeEnd);
@@ -216,13 +218,16 @@ describe('FlipbookFx presentation RNG', () => {
 });
 
 describe('FlipbookFx recipe linger (D3, 1x)', () => {
-  it('the kill column lingers 6.5-9 s and shell smoke 3.5-5 s', () => {
+  it('the kill column lingers 7-10 s and shell smoke 3.5-5 s', () => {
+    // Was 6.5-9 s over instances 20..35 (16 puffs). Now 7-10 s over the 36
+    // oily puffs at 21..56 (after 1 + 6 fire, 14 ring smoke, 16 cook-off
+    // fire): the approved smoke-uplift P2 mock's longer, oilier column.
     const fx = ready();
     fx.spawnRecipe(catastrophicKill.flipbook as FlipbookLayerSpec[], 0, 0, 0, 1);
     const p = params(fx);
-    for (let i = 20; i < 36; i++) {
-      expect(p[i * 4 + 1]).toBeGreaterThanOrEqual(6500);
-      expect(p[i * 4 + 1]).toBeLessThanOrEqual(9000);
+    for (let i = 37; i < 73; i++) {
+      expect(p[i * 4 + 1]).toBeGreaterThanOrEqual(7000);
+      expect(p[i * 4 + 1]).toBeLessThanOrEqual(10000);
     }
     const shell = ready();
     shell.spawnRecipe(shellImpact.flipbook as FlipbookLayerSpec[], 0, 0, 0, 0.45);
@@ -242,6 +247,13 @@ describe('FlipbookFx recipe linger (D3, 1x)', () => {
 // the JSON it judges. With the PRNG pinned to a constant, draw order stops
 // mattering, so the recipe and the oracle must write identical instances at
 // every constant: that pins every count, range end, delay and offset.
+//
+// `mockKill` is the exception to "the mock's three recipes": the kill's
+// oracle is now the literal transcription of the smoke-uplift P2 mock's
+// round-3 recipe (the lead-approved one, `_coord/smoke-uplift/mock-p2.diff`)
+// with the HDR spark layer in place of the mock's soft_dot ember particles.
+// Its point is unchanged: literal equality with an approved mock. Was the
+// Task 4 transcription (10 fire, 26 smoke, no spark).
 
 type Rand = () => number;
 function pinRand(fx: FlipbookFx, c: number): void {
@@ -267,22 +279,27 @@ function mockShell(fx: FlipbookFx, r: Rand, x: number, h: number, z: number, pow
 }
 
 function mockKill(fx: FlipbookFx, r: Rand, x: number, h: number, z: number, power: number): void {
-  const fs = 0.9 + 0.9 * power;
-  fx.spawn({ x, y: h + 0.2, z, vy: 0.6, durationMs: 1300, scale: fs, type: FLIP_FIRE });
+  const fs = 1.2 + 1.0 * power;
+  fx.spawn({ x, y: h + 0.2, z, vy: 0.8, durationMs: 1500, scale: fs, type: FLIP_FIRE });
   for (let k = 0; k < 6; k++) {
     const a = (k / 6) * Math.PI * 2 + r();
-    fx.spawn({ x, y: h + 0.2, z, vx: Math.cos(a) * 2.2, vy: 0.9 + r() * 1.4, vz: Math.sin(a) * 2.2, delayMs: 15 * k, durationMs: 1000 + 400 * r(), scale: fs * 0.65, type: FLIP_FIRE });
+    fx.spawn({ x, y: h + 0.2, z, vx: Math.cos(a) * 2.4, vy: 1.0 + r() * 1.6, vz: Math.sin(a) * 2.4, delayMs: 15 * k, durationMs: 1100 + 400 * r(), scale: fs * 0.8, type: FLIP_FIRE });
   }
-  for (let k = 0; k < 10; k++) {
-    const a = (k / 10) * Math.PI * 2;
-    fx.spawn({ x, y: h, z, vx: Math.cos(a) * 2.6, vy: 0.4, vz: Math.sin(a) * 2.6, durationMs: 1600 + 400 * r(), scale: 0.6 + 0.3 * power, type: FLIP_SMOKE, tint: 0.9 });
-  }
-  for (let k = 0; k < 3; k++) {
-    fx.spawn({ x: x + (r() - 0.5) * 0.6, y: h + 0.4, z: z + (r() - 0.5) * 0.6, vy: 1.2, delayMs: 500 + 550 * k, durationMs: 700, scale: fs * 0.45, type: FLIP_FIRE });
+  for (let k = 0; k < 14; k++) {
+    const a = (k / 14) * Math.PI * 2;
+    fx.spawn({ x, y: h, z, vx: Math.cos(a) * 3.0, vy: 0.4, vz: Math.sin(a) * 3.0, durationMs: 1800 + 600 * r(), scale: 0.9 + 0.4 * power, type: FLIP_SMOKE, tint: 0.9 });
   }
   for (let k = 0; k < 16; k++) {
+    fx.spawn({ x: x + (r() - 0.5) * 0.6, y: h + 0.3, z: z + (r() - 0.5) * 0.6, vy: 0.9 + r() * 0.6, delayMs: 450 + 300 * k, durationMs: 900 + 400 * r(), scale: fs * 0.22, type: FLIP_FIRE });
+  }
+  for (let k = 0; k < 36; k++) {
     const a = r() * Math.PI * 2;
-    fx.spawn({ x, y: h + 0.3, z, vx: Math.cos(a) * 0.35, vy: 0.7 + r() * 0.5, vz: Math.sin(a) * 0.35, delayMs: 200 + 260 * k, durationMs: 6500 + 2500 * r(), scale: 0.9 + 0.6 * r() + 0.4 * power, type: FLIP_SMOKE });
+    fx.spawn({ x: x + (r() - 0.5) * 0.6, y: h + 0.4, z: z + (r() - 0.5) * 0.6, vx: Math.cos(a) * 0.55, vy: 1.4 + r() * 0.8, vz: Math.sin(a) * 0.55, delayMs: 150 + 220 * k, durationMs: 7000 + 3000 * r(), scale: 1.0 + 0.9 * r() + 0.4 * power, type: FLIP_SMOKE, tint: -1 });
+  }
+  for (let k = 0; k < 36; k++) {
+    const a = r() * Math.PI * 2;
+    const sp = 1.5 + 2.5 * r();
+    fx.spawn({ x, y: h + 0.3, z, vx: Math.cos(a) * sp, vy: 2.0 + r() * 3.0, vz: Math.sin(a) * sp, delayMs: 8 * k, durationMs: 900 + 700 * r(), scale: 0.05, type: FLIP_SPARK });
   }
 }
 
@@ -353,18 +370,20 @@ describe('FlipbookFx recipes from data/vfx (Task 5)', () => {
     });
   }
 
-  it('shell recipe = 22 instances (4 fire, 12 dirt, 6 smoke), kill = 36 (10 fire, 26 smoke), muzzle = 10 (1/3/6)', () => {
+  it('shell recipe = 22 instances (4 fire, 12 dirt, 6 smoke), kill = 109 (23 fire, 50 smoke, 36 spark), muzzle = 10 (1/3/6)', () => {
+    // Was kill = 36 (10 fire, 26 smoke): the P2 mock's recipe adds 13 fire
+    // (cook-off 3 -> 16), 24 smoke (column 16 -> 36, ring 10 -> 14) and 36 sparks.
     const tallyOf = (layers: readonly FlipbookLayerSpec[]): number[] => {
       const fx = ready();
       fx.spawnRecipe(layers, 0, 0, 0, 1, 0, 0);
       const t = types(fx, fx.mesh.geometry.instanceCount);
-      return [FLIP_FIRE, FLIP_SMOKE, FLIP_DIRT].map((ty) => t.filter((x) => x === ty).length);
+      return [FLIP_FIRE, FLIP_SMOKE, FLIP_DIRT, FLIP_SPARK].map((ty) => t.filter((x) => x === ty).length);
     };
-    expect(tallyOf(shellLayers)).toEqual([4, 6, 12]);
-    expect(tallyOf(missileImpact.flipbook as FlipbookLayerSpec[])).toEqual([4, 6, 12]);
-    expect(tallyOf(catastrophicKill.flipbook as FlipbookLayerSpec[])).toEqual([10, 26, 0]);
-    expect(tallyOf(fireApfsds.flipbook as FlipbookLayerSpec[])).toEqual([1, 3, 6]);
-    expect(tallyOf(fireHeat.flipbook as FlipbookLayerSpec[])).toEqual([1, 3, 6]);
+    expect(tallyOf(shellLayers)).toEqual([4, 6, 12, 0]);
+    expect(tallyOf(missileImpact.flipbook as FlipbookLayerSpec[])).toEqual([4, 6, 12, 0]);
+    expect(tallyOf(catastrophicKill.flipbook as FlipbookLayerSpec[])).toEqual([23, 50, 0, 36]);
+    expect(tallyOf(fireApfsds.flipbook as FlipbookLayerSpec[])).toEqual([1, 3, 6, 0]);
+    expect(tallyOf(fireHeat.flipbook as FlipbookLayerSpec[])).toEqual([1, 3, 6, 0]);
   });
 });
 
@@ -458,5 +477,99 @@ describe('FLIPBOOK_FIT reaches the shader', () => {
     expect(frag).toContain('float density = clamp(fit.y * s.r * (1.0 + (b - 0.5) * nz.z) - 0.99 * tc * tc, 0.0, 1.0);');
     expect(frag).toContain('float core = max(smoothstep(0.25, 0.95, density), s.a);');
     fx.dispose();
+  });
+});
+
+// ---- GH-705 smoke uplift P2: oil, sparks, the low tier ---------------------
+
+describe('oil smoke', () => {
+  const smokeLayer = (extra: Partial<FlipbookLayerSpec>): FlipbookLayerSpec[] => [
+    { type: 'fire', count: 1, delay_ms: [0, 0], duration_ms: [100, 100], scale: { base: 1 }, velocity: { radial: [0, 0], up: [0, 0] } },
+    { type: 'smoke', count: 1, delay_ms: [0, 0], duration_ms: [1000, 1000], scale: { base: 1 }, velocity: { radial: [0, 0], up: [0, 0] }, ...extra },
+  ];
+  const tintOf = (layers: FlipbookLayerSpec[]): number => {
+    const fx = ready();
+    fx.spawnRecipe(layers, 0, 0, 0, 1);
+    return (fx.mesh.geometry.getAttribute('aTint').array as Float32Array)[1];
+  };
+
+  it('maps oil to a NEGATIVE tint, and oil overrides tint', () => {
+    expect(tintOf(smokeLayer({ oil: 1 }))).toBe(-1);
+    expect(tintOf(smokeLayer({ oil: 0.5 }))).toBeCloseTo(-0.5, 6);
+    expect(tintOf(smokeLayer({ tint: 0.9 }))).toBeCloseTo(0.9, 6);
+    expect(tintOf(smokeLayer({ oil: 1, tint: 0.9 }))).toBe(-1);
+    expect(tintOf(smokeLayer({}))).toBe(0);
+  });
+
+  it('feeds the lit-crown constant to both passes as a uniform', () => {
+    expect(FLIPBOOK_OIL_CROWN).toBe(0.15);
+    const fx = new FlipbookFx();
+    expect(fx.mesh.material.uniforms.uOilCrown.value).toBe(0.15);
+    expect(fx.fireMesh.material.uniforms.uOilCrown.value).toBe(0.15);
+  });
+});
+
+describe('spark layers', () => {
+  const sparks: FlipbookLayerSpec[] = [
+    { type: 'fire', count: 1, delay_ms: [0, 0], duration_ms: [100, 100], scale: { base: 1 }, velocity: { radial: [0, 0], up: [0, 0] } },
+    { type: 'spark', count: 4, delay_ms: [0, 8], duration_ms: [900, 1600], scale: { base: 0.05 }, velocity: { radial: [1.5, 4], up: [2, 5] } },
+  ];
+
+  it('renders in the FIRE pass only: the smoke pass collapses them off-screen', () => {
+    const fx = ready();
+    fx.spawnRecipe(sparks, 0, 0, 0, 1);
+    expect(types(fx, 5)).toEqual([FLIP_FIRE, FLIP_SPARK, FLIP_SPARK, FLIP_SPARK, FLIP_SPARK]);
+    expect(fx.fireMesh.material.uniforms.uSparkGain.value).toBe(HDR_GAINS.sparks);
+    // The window: a spark keeps the fire pass live after the fireball is out.
+    fx.step(500);
+    expect([fx.fireMesh.visible, fx.mesh.visible]).toEqual([true, false]);
+    fx.step(1200);
+    expect([fx.fireMesh.visible, fx.mesh.visible]).toEqual([false, false]);
+    const frag = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'flipbook-fx.ts'), 'utf8');
+    expect(frag).toContain('bool isFire = type < 0.5 || type > 2.5;');
+    expect(frag).toContain('-3.2 * age * age');
+  });
+});
+
+describe('the low tier (fxDetail 0)', () => {
+  const kill = catastrophicKill.flipbook as FlipbookLayerSpec[];
+  const tally = (fx: FlipbookFx): number[] => {
+    const t = types(fx, fx.mesh.geometry.instanceCount);
+    return [FLIP_FIRE, FLIP_SMOKE, FLIP_DIRT, FLIP_SPARK].map((ty) => t.filter((x) => x === ty).length);
+  };
+
+  it('defaults to full detail', () => {
+    const fx = ready();
+    fx.spawnRecipe(kill, 0, 0, 0, 1);
+    expect(tally(fx)).toEqual([23, 50, 0, 36]);
+  });
+
+  it('drops spark layers and halves low_fraction layers, rounding up', () => {
+    const fx = new FlipbookFx(undefined, 0);
+    fx.setAtlases(atlas(), atlas());
+    const n = fx.spawnRecipe(kill, 0, 0, 0, 1);
+    // fire 1 + 6 + ceil(16/2)=8 = 15; smoke 14 + ceil(36/2)=18 = 32; no sparks.
+    expect(tally(fx)).toEqual([15, 32, 0, 0]);
+    expect(n).toBe(47);
+    // Rounded UP: a 3-count layer at 0.5 spawns 2.
+    const odd = new FlipbookFx(undefined, 0);
+    odd.setAtlases(atlas(), atlas());
+    odd.spawnRecipe([{ ...kill[0], count: 3, low_fraction: 0.5 }], 0, 0, 0, 1);
+    expect(odd.mesh.geometry.instanceCount).toBe(2);
+  });
+
+  it('fxDetail 1 and the setter keep the full recipe; the setter takes effect at the next spawn', () => {
+    const fx = new FlipbookFx(undefined, 1);
+    fx.setAtlases(atlas(), atlas());
+    fx.spawnRecipe(kill, 0, 0, 0, 1);
+    expect(tally(fx)).toEqual([23, 50, 0, 36]);
+    const low = ready();
+    low.setFxDetail(0);
+    low.spawnRecipe(kill, 0, 0, 0, 1);
+    expect(tally(low)).toEqual([15, 32, 0, 0]);
+  });
+
+  it('ships low_fraction on the column and the cook-off, and on nothing else in the kill', () => {
+    expect(kill.map((l) => l.low_fraction)).toEqual([undefined, undefined, undefined, 0.5, 0.5, undefined]);
   });
 });

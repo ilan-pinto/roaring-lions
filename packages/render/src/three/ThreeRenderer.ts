@@ -3070,6 +3070,8 @@ export class ThreeRenderer implements Renderer {
     // needs, so the chain builder below and the AO guard after it agree on
     // the same object rather than re-deriving the fallback twice.
     const quality = this.opts.quality ?? QUALITY_PRESETS.high;
+    // GH-705 smoke uplift P2: the flipbook's low tier (no sparks, thinned column).
+    this.flipbook.setFxDetail(quality.fxDetail ?? 2);
     // AFTER `fitToHost`, which is what first fills `cssWidth`/`cssHeight`,
     // and after `setPixelRatio`, which `getPixelRatio` reads back here so
     // the composer's targets and the canvas agree on their scale without
