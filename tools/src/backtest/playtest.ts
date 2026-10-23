@@ -4014,7 +4014,9 @@ const INTEL_PASSIVE_BEATS_WINNER = 0;
 // 2026-10-22, GH-707 P3: 35 -> 36. The one short plan, `beit_sahwan_2_foothold`, now earns 160 (was 112):
 // every enemy man who falls wounded is a new entity, and identifying him pays like any other
 // identification, so a fight that downs men pays more intel. All 36 winning runs earn a sweep.
-const INTEL_WINNERS_ONE_SWEEP = 36;
+// 2026-10-23, the lead's ruling: spotting a man down pays no intel (he is the same man already
+// spotted). 36 -> 35, the pre-P3 figure: beit_sahwan_2_foothold earns 112 again.
+const INTEL_WINNERS_ONE_SWEEP = 35;
 {
   // Guards the SPEND plan on every seed: 424242 in the parent is also checked by the FAILED line in its own
   // `at()` call above; the other 29 seeds run quiet in workers and are re-verified ONLY here, for the spend
