@@ -386,11 +386,11 @@ export const DEBUG_LAYERS = [
   // golden scenario calls fire support.
   'support-air',
   'support-blast',
-  // Defilade T6 PROTOTYPE (GH-705): per-role roughness/metalness on units,
-  // the units' view-angle rim, and terrain roughness 1 -> 0.85.
+  // GH-705 Task 6: the per-role surface pass on units. Hiding it puts every
+  // unit surface clone back on today's roughness/metalness (the bake's own
+  // values). A material-field write nothing per-frame re-asserts, so the
+  // toggle holds; witnessed by the golden scenarios' `unit-surface` checks.
   'unit-surface',
-  'unit-rim',
-  'terrain-roughness',
 ] as const;
 
 export type DebugLayer = (typeof DEBUG_LAYERS)[number];

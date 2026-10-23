@@ -1,27 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import {
-  applyUnitRim,
   MR_MAP_ROUGHNESS_MEAN,
-  reapplyUnitRim,
-  RIM_PROGRAM_KEY,
-  RIM_UNIFORMS,
-  setUnitRimMode,
-  setUnitRimRadiance,
-  setUnitRimVisible,
   setUnitSurfacePass,
   SURFACE_PARAMS,
   surfaceClassOf,
+  surfaceCloneCount,
   surfaceMaterialFor,
 } from './unit-surface';
-
-function fakeShader(): { uniforms: Record<string, unknown>; vertexShader: string; fragmentShader: string } {
-  return {
-    uniforms: {},
-    vertexShader: '#include <common>\nvoid main() {}',
-    fragmentShader: '#include <common>\nvoid main() {\n#include <opaque_fragment>\n}',
-  };
-}
 
 describe('surfaceClassOf', () => {
   it('maps team roles and vehicle node suffixes', () => {
@@ -63,50 +49,30 @@ describe('surfaceMaterialFor', () => {
     const base = new THREE.MeshStandardMaterial();
     expect(surfaceMaterialFor(base, 'frame_cut')).toBe(base);
   });
-});
 
-describe('applyUnitRim', () => {
-  it('patches the fragment, shares the uniforms and folds the key', () => {
-    const m = new THREE.MeshStandardMaterial();
-    applyUnitRim(m);
-    const sh = fakeShader();
-    m.onBeforeCompile(sh as never, {} as never);
-    expect(sh.fragmentShader).toContain('uniform vec3 uRlRimColor;');
-    expect(sh.fragmentShader).toContain('smoothstep( 0.0, uRlRimWidth, rlNdV )');
-    expect(sh.uniforms.uRlRimColor).toBe(RIM_UNIFORMS.uRlRimColor);
-    expect(m.customProgramCacheKey()).toContain(RIM_PROGRAM_KEY);
+  it('different classes of one base are different clones, each with its own params', () => {
+    const base = new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0 });
+    const cloth = surfaceMaterialFor(base, 'uniform') as THREE.MeshStandardMaterial;
+    const gun = surfaceMaterialFor(base, 'weapon') as THREE.MeshStandardMaterial;
+    expect(cloth).not.toBe(gun);
+    expect(cloth.roughness).toBe(SURFACE_PARAMS.cloth.roughness);
+    expect(gun.metalness).toBeLessThanOrEqual(0.45);
   });
 
-  it('chains an existing hook', () => {
-    const m = new THREE.MeshStandardMaterial();
-    let ran = false;
-    m.onBeforeCompile = () => {
-      ran = true;
-    };
-    applyUnitRim(m);
-    m.onBeforeCompile(fakeShader() as never, {} as never);
-    expect(ran).toBe(true);
-  });
-
-  it('a clone gets the hook back through reapplyUnitRim', () => {
-    const m = applyUnitRim(new THREE.MeshStandardMaterial());
-    const c = m.clone();
-    expect(c.customProgramCacheKey()).not.toContain(RIM_PROGRAM_KEY);
-    reapplyUnitRim(c);
-    expect(c.customProgramCacheKey()).toContain(RIM_PROGRAM_KEY);
-  });
-
-  it('the layer and the modes write the shared uniforms', () => {
-    setUnitRimRadiance(1);
-    setUnitRimMode('light');
-    setUnitRimVisible(true);
-    expect(RIM_UNIFORMS.uRlRimColor.value.r).toBeGreaterThan(0);
-    setUnitRimVisible(false);
-    expect(RIM_UNIFORMS.uRlRimColor.value.r).toBe(0);
-    setUnitRimVisible(true);
-    setUnitRimMode('dark', 0.5);
-    expect(RIM_UNIFORMS.uRlRimColor.value.r).toBe(0);
-    expect(RIM_UNIFORMS.uRlRimDark.value).toBe(0.5);
-    setUnitRimMode('light');
+  it('a disposed clone leaves the registry and is not handed out again', () => {
+    const base = new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0 });
+    const before = surfaceCloneCount();
+    const a = surfaceMaterialFor(base, 'boot') as THREE.MeshStandardMaterial;
+    expect(surfaceCloneCount()).toBe(before + 1);
+    a.dispose();
+    expect(surfaceCloneCount()).toBe(before);
+    // The toggle no longer touches it.
+    setUnitSurfacePass(false);
+    expect(a.roughness).toBe(SURFACE_PARAMS.leather.roughness);
+    setUnitSurfacePass(true);
+    // The memo forgot it: the next ask is a fresh, live clone.
+    const b = surfaceMaterialFor(base, 'boot');
+    expect(b).not.toBe(a);
+    expect(surfaceCloneCount()).toBe(before + 1);
   });
 });

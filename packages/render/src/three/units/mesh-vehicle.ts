@@ -57,7 +57,7 @@ import { coldGltfLoader, gltfLoader } from './gltf-loader';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import type { ClipName } from '../../sheet';
 import { charredTexturedMaterial, rampMaterial, texturedMaterial } from '../world-materials';
-import { applyUnitRim, surfaceMaterialFor } from './unit-surface';
+import { surfaceMaterialFor } from './unit-surface';
 import { parseRunningGear, type RunningGearSpec } from './running-gear';
 import { releaseRunningGear } from './running-gear-binding';
 import { CHARRED_RAMP, isVehicleMeshRole, rampForVehicleRole } from './vehicle-mesh-role';
@@ -393,14 +393,14 @@ export function buildVehicleMeshTemplate(
         smuggled.add(role || '(unnamed mesh)');
         return;
       }
-      // Defilade T6 prototype: a LIVE part takes its role's surface clone and
-      // the rim; a wreck is the soot recolour, untouched.
+      // GH-705 Task 6: a LIVE part takes its role's surface clone; a wreck is
+      // the soot recolour, untouched.
       const textured = isWreck
         ? charredFor(loaded as THREE.Material)
         : (() => {
             const base = texturedMaterial(loaded as THREE.Material);
             addMaterial(base);
-            return applyUnitRim(surfaceMaterialFor(base, role, addMaterial));
+            return surfaceMaterialFor(base, role, addMaterial);
           })();
       mesh.material = textured;
       mesh.castShadow = true;
@@ -425,7 +425,7 @@ export function buildVehicleMeshTemplate(
     // a wreck copy whose role is outside this vehicle's own table means the
     // pass copied extras from a node this module could not have drawn either.
     const ramp = rampMaterial(isWreck ? CHARRED_RAMP : rampForVehicleRole(vehicleId, role));
-    const mat = isWreck ? ramp : applyUnitRim(surfaceMaterialFor(ramp, role));
+    const mat = isWreck ? ramp : surfaceMaterialFor(ramp, role);
     mesh.material = mat;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
