@@ -2782,6 +2782,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   afterFirstFrame.push(() => {
     for (const id of meshPlan.buildings) wreckMeshLoader(id);
   });
+  // GH-748: the fire-support aircraft -- the Peten gunship over a barrage and
+  // the strike jet over an air strike. Not units, so not in the roster plan.
+  // 1.8 MiB together, fetched on every boot (the sandbox included, which
+  // `pnpm support:capture` drives), but only after the first frame: no call
+  // can be made before it. Fails soft: a call then flies what loaded.
+  afterFirstFrame.push(() => {
+    three
+      .loadSupportAircraftMeshes(meshUrl(VEHICLE_UNIT_MESHES.heli_peten_gunship), meshUrl(VFX_MESHES.strikeJet))
+      .catch((err: unknown) => console.error('support aircraft meshes failed to load', err));
+  });
   /** H3: with an intro, the batch starts when the intro ENDS instead (the
    *  mock measured it landing inside the fold as a 287 ms stall), from
    *  `endIntro` below; once either way, and never into a disposed boot. */
@@ -4639,7 +4649,12 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
             out.ok ? 'info' : 'mute'
           );
         }
-        if (out.ok) renderer.addOrderMarker(out.x, out.y);
+        if (out.ok) {
+          renderer.addOrderMarker(out.x, out.y);
+          // GH-748: the aircraft over the call. The command is applied on
+          // the next tick, hence `+ 1`; the first round re-anchors it exactly.
+          renderer.supportCalled(call, out.x, out.y, sim.tickCount + 1);
+        }
         else audio.playCue(CRITICAL_CUES.uiDeny);
         production?.setArmed(null);
         dragStart = null;

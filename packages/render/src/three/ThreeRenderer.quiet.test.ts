@@ -111,9 +111,9 @@ const priv = (r: ThreeRenderer): Privates => r as unknown as Privates;
 
 describe('isBurstOnlyEvent', () => {
   it('names exactly the events whose whole effect is a one-shot', () => {
-    expect([...BURST_ONLY_EVENT_KINDS].sort()).toEqual(['aps', 'fire', 'impact', 'nearMiss', 'smokeLaid', 'strike', 'submunition']);
+    expect([...BURST_ONLY_EVENT_KINDS].sort()).toEqual(['aps', 'fire', 'impact', 'nearMiss', 'smokeLaid', 'submunition']);
     // What leaves something standing is never dropped.
-    for (const kind of ['destroyed', 'structureHit', 'structureDestroyed', 'tunnelContact', 'tunnelCollapsed', 'spawn']) {
+    for (const kind of ['strike', 'destroyed', 'structureHit', 'structureDestroyed', 'tunnelContact', 'tunnelCollapsed', 'spawn']) {
       expect(isBurstOnlyEvent(kind), kind).toBe(false);
     }
   });

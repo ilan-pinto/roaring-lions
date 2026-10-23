@@ -427,6 +427,9 @@ export const VFX_MESHES = {
   muzzleFlash: 'vfx/muzzle_flash.glb',
   explosionBurst: 'vfx/explosion_burst.glb',
   smokePlume: 'vfx/smoke_plume.glb',
+  // GH-748: the air strike's fly-over jet. Not a unit; loaded after the
+  // first frame with the barrage's helicopter (`loadSupportAircraftMeshes`).
+  strikeJet: 'vfx/strike_jet.glb',
 } as const;
 
 /**

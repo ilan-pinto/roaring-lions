@@ -736,6 +736,15 @@ export interface Renderer {
 
   addOrderMarker(x: number, y: number): void;
   /**
+   * GH-748: a fire-support call (`call`, the `SupportKind`) was ACCEPTED at
+   * (x, y), tiles, on sim tick `tick`. The backend flies the call's aircraft
+   * -- the Peten gunship over a mortar barrage, the strike jet over an air
+   * strike -- timed from the sim's own `FIRE_SUPPORT` table; other calls fly
+   * nothing. Presentation only: the explosions stay on the sim's `strike`
+   * events, and nothing here reaches the sim.
+   */
+  supportCalled(call: string, x: number, y: number, tick: number): void;
+  /**
    * GH-279: mark the refuge at `(x, y)`, in tiles, for a few seconds -- the
    * backend owns the look and the envelope (on three: a dashed ring that
    * holds a second and fades out by three, restarted by a second call). A

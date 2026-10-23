@@ -20,7 +20,9 @@ export const BURST_ONLY_EVENT_KINDS: ReadonlySet<string> = new Set([
   'aps',
   'impact',
   'smokeLaid',
-  'strike',
+  // Not `strike` (GH-748): a fire-support round stamps a crater and a scorch,
+  // which the world keeps, so `onStrike` runs while quiet and drops only its
+  // bursts (`spawnSupportImpact`).
 ]);
 
 export function isBurstOnlyEvent(kind: string): boolean {
