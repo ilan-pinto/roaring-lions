@@ -45,6 +45,32 @@ describe('canEmbark: the Grad rides nothing, the mortar team rides (same role)',
   });
 });
 
+describe('canEmbark default is a RULE, not a per-unit data patch (GH-581)', () => {
+  const stripped = (id: string): UnitTypeJson => {
+    const j = JSON.parse(JSON.stringify((units as Record<string, unknown>)[id])) as UnitTypeJson;
+    delete (j.hull as { can_embark?: boolean }).can_embark;
+    return j;
+  };
+  it('a wheeled foot-role unit that omits can_embark does not embark (the Grad, the D9)', () => {
+    for (const id of ['rocket_battery', 'dozer_d9', 'spg_cluster', 'spg_long_range']) {
+      const t = unitTypeFromJson(stripped(id));
+      expect(t.wheeled, id).toBe(true);
+      expect(t.canEmbark, id).toBe(false);
+    }
+  });
+  it('a foot-role unit on foot still embarks by default', () => {
+    expect(unitTypeFromJson(stripped('mortar_team')).canEmbark).toBe(true);
+    expect(unitTypeFromJson(stripped('inf_squad')).canEmbark).toBe(true);
+  });
+  it('no shipped ground vehicle can board even with the explicit flag removed', () => {
+    const boards = all
+      .filter((u) => !u.t.isAir && u.t.wheeled)
+      .filter((u) => unitTypeFromJson(stripped(u.id)).canEmbark)
+      .map((u) => u.id);
+    expect(boards).toEqual([]);
+  });
+});
+
 describe('canEmbark sweep over every shipped unit', () => {
   it('finds units at all (a sweep over nothing passes everything)', () => {
     expect(all.filter((u) => !u.t.isAir).length).toBeGreaterThan(20);

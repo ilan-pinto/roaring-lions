@@ -926,7 +926,10 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
     population,
     transportSlots: json.hull.transport_slots ?? 0,
     isAirCarrier: isAir && (json.hull.transport_slots ?? 0) > 0,
-    canEmbark: json.hull.can_embark ?? FOOT_ROLES.has(json.role ?? ''),
+    // GH-581: on foot AND a foot role. A vehicle never embarks, so the default is decided by the
+    // same `wheeled` answer that picks the movement domain -- a launcher on a 6x6 (role
+    // `artillery`) or a bulldozer (role `engineer`) that omits `can_embark` is still refused.
+    canEmbark: json.hull.can_embark ?? (FOOT_ROLES.has(json.role ?? '') && !wheeled),
     canMarkTarget: abilities.includes('mark_target'),
     canMarkTunnel: abilities.includes('mark_tunnel'),
     canSmoke: abilities.includes('smoke'),
@@ -8493,9 +8496,19 @@ export class Sim {
       if (!this.canSeat(goal, i)) continue; // no seat yet, or not eligible
       const d = distSqFx(fx.sub(this.posX[goal], this.posX[i]), fx.sub(this.posY[goal], this.posY[i]));
       if (d > LOAD_RANGE_SQ) {
-        // Keep chasing a vehicle that has moved on.
+        // Keep chasing a vehicle that has moved on. GH-581: the flow field follows the goal, so
+        // when the hull crosses into a new tile the rider is re-pointed at it. Left on the tile
+        // the order was given for, he walked there, arrived, and halted short of a moving hull.
+        // `fieldFor` is cached by (tile, domain), so riders of one carrier share the field, and
+        // it recomputes only on a tile change. An air carrier keeps its LZ field (GH-698).
+        const gtx = fx.toInt(this.posX[goal]);
+        const gty = fx.toInt(this.posY[goal]);
+        const moved = this.fieldRef[i] < 0 || gtx !== fx.toInt(this.goalX[i]) || gty !== fx.toInt(this.goalY[i]);
         this.goalX[i] = this.posX[goal];
         this.goalY[i] = this.posY[goal];
+        if (moved && !this.unitTypes[this.typeIdx[goal]].isAirCarrier) {
+          this.fieldRef[i] = this.fieldFor(gtx, gty, this.domainOf(i));
+        }
         this.moving[i] = 1;
         continue;
       }

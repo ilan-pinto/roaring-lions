@@ -222,7 +222,7 @@
         },
         "can_embark": {
           "type": "boolean",
-          "description": "Can ride inside a transport. Defaults from role: infantry, at_team, artillery, engineer, sniper and support dismount and can embark; mbt, apc, ifv, technical and drone cannot. Set explicitly only to override that."
+          "description": "Can ride inside a transport. Defaults from role AND mobility: infantry, at_team, artillery, engineer, sniper and support dismount and can embark unless the unit is wheeled or tracked (a vehicle never embarks); mbt, apc, ifv, technical and drone cannot. Set explicitly only to override that."
         },
         "figures": {
           "type": "integer",
