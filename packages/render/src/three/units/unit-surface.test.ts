@@ -76,17 +76,32 @@ describe('surfaceMaterialFor', () => {
     expect(surfaceCloneCount()).toBe(before + 1);
   });
 
-  it('a clone shared by two templates stays live until both release it', () => {
+  it('GH-705 leak: a class handed to several role nodes leaves tracking on the template\'s ONE dispose', () => {
+    // A template lists each material once and disposes it once
+    // (`disposeMeshUnitTemplate`, `disposeVehicleMeshTemplate`), however many
+    // role nodes draw with it. The first cut counted one hand-out per NODE, so
+    // a clone shared by three nodes was never dropped, and the module held every
+    // mission's materials -- and through them its textures and renderer -- after
+    // the mission was left (the CI memory walk).
+    const base = new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0 });
+    const before = surfaceCloneCount();
+    const a = surfaceMaterialFor(base, 'hull_hull');
+    expect(surfaceMaterialFor(base, 'turret_hull')).toBe(a);
+    expect(surfaceMaterialFor(base, 'medevac_hull')).toBe(a);
+    expect(surfaceCloneCount()).toBe(before + 1);
+    a.dispose();
+    expect(surfaceCloneCount()).toBe(before);
+  });
+
+  it('a clone a later template is handed again is tracked again', () => {
     const base = new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0 });
     const before = surfaceCloneCount();
     const a = surfaceMaterialFor(base, 'face');
-    const again = surfaceMaterialFor(base, 'face');
-    expect(again).toBe(a);
     a.dispose();
+    expect(surfaceCloneCount()).toBe(before);
+    const b = surfaceMaterialFor(base, 'face');
     expect(surfaceCloneCount()).toBe(before + 1);
-    expect(surfaceMaterialFor(base, 'face')).toBe(a);
-    a.dispose();
-    a.dispose();
+    b.dispose();
     expect(surfaceCloneCount()).toBe(before);
   });
 });

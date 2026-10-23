@@ -27,10 +27,9 @@
  * sun's specular lobe and no diffuse term. Higher draws near-black.
  *
  * The `unit-surface` debug layer writes every clone back to today's values
- * (and the pass back on). A clone's `dispose` event drops it from the
- * registry and from the memo once every template that was handed it has
- * released it (a count: two templates built from one loaded GLTF share the
- * original material, so they share its clones too).
+ * (and the pass back on). The registry holds clones WEAKLY, and a clone's
+ * first `dispose` drops it from the registry and the memo -- see `registry`
+ * for the leak a strong one caused.
  *
  * Known limit: a scar clone (`vehicle-damage`) or a running-gear clone
  * (`running-gear-binding`) is cut with `Material.clone()` from the surface
@@ -116,12 +115,24 @@ interface SurfaceEntry {
   readonly mat: THREE.MeshStandardMaterial;
   readonly off: { roughness: number; metalness: number; metalnessMap: THREE.Texture | null };
   readonly on: { roughness: number; metalness: number; metalnessMap: THREE.Texture | null };
-  /** Templates holding this clone; it leaves the registry at 0. */
-  users: number;
 }
 
-/** Every LIVE surface clone, so the debug toggle can put today's values back. */
-const registry = new Set<SurfaceEntry>();
+/**
+ * The live surface clones, for the debug toggle -- held WEAKLY, and dropped on
+ * the clone's own `dispose`. Never a strong module-level reference: a clone
+ * carries the bake's `map` (a decoded ImageBitmap) and, once drawn, three's
+ * own `dispose` listener closing over the WebGLRenderer, so a strong Set here
+ * kept every mission's renderer, textures and DOM alive after leaving it
+ * (GH-705: the CI memory walk read 3/5/7 released contexts still reachable
+ * and ImageBitmaps at 48/96/152 MiB on the menu). The first cut counted
+ * hand-outs and dropped a clone at zero, but it counted one per role NODE and
+ * a template disposes each material ONCE, so no clone was ever dropped.
+ */
+const registry = new Set<WeakRef<SurfaceEntry>>();
+/** A clone's entry: the WeakMap keeps the entry alive exactly as long as the
+ *  material, and the registry's WeakRef to it is cleared with both. */
+const entryOf = new WeakMap<THREE.Material, SurfaceEntry>();
+const refOf = new WeakMap<SurfaceEntry, WeakRef<SurfaceEntry>>();
 let surfacePassOn = true;
 
 function writeSurface(e: SurfaceEntry, on: boolean): void {
@@ -133,10 +144,21 @@ function writeSurface(e: SurfaceEntry, on: boolean): void {
   if (mapChanged) e.mat.needsUpdate = true;
 }
 
-/** A clone's registry entry, for the hand-out count. */
-const entryOf = new WeakMap<THREE.Material, SurfaceEntry>();
+function track(entry: SurfaceEntry): void {
+  let ref = refOf.get(entry);
+  if (!ref) {
+    ref = new WeakRef(entry);
+    refOf.set(entry, ref);
+  }
+  registry.add(ref);
+}
 
-/** Per original material, its clone per class. */
+function untrack(entry: SurfaceEntry): void {
+  const ref = refOf.get(entry);
+  if (ref) registry.delete(ref);
+}
+
+/** Per original material, its clone per class. Keyed weakly on the original. */
 const clones = new WeakMap<THREE.Material, Map<SurfaceClass, THREE.MeshStandardMaterial>>();
 
 /**
@@ -159,8 +181,13 @@ export function surfaceMaterialFor(
   }
   const hit = perClass.get(cls);
   if (hit) {
+    // A second template built from the same loaded original (whose first
+    // template may already have released the clone) re-registers it.
     const held = entryOf.get(hit);
-    if (held) held.users++;
+    if (held) {
+      track(held);
+      writeSurface(held, surfacePassOn);
+    }
     return hit;
   }
   const mat = std.clone();
@@ -174,21 +201,18 @@ export function surfaceMaterialFor(
       metalness: p.metalness,
       metalnessMap: p.metalness > 0 ? null : std.metalnessMap,
     },
-    users: 1,
   };
   entryOf.set(mat, entry);
-  registry.add(entry);
+  track(entry);
   writeSurface(entry, surfacePassOn);
   perClass.set(cls, mat);
-  // Each holder disposes it once; at the last, it leaves the registry and the
-  // memo, so released templates do not pin it (and the next ask for the
-  // class makes a fresh one).
+  // The disposer is registered where the clone is created: its first
+  // `dispose` (the template's teardown) drops it from the registry and the
+  // memo, however many role nodes shared it.
+  const memo = perClass;
   mat.addEventListener('dispose', () => {
-    entry.users--;
-    if (entry.users > 0) return;
-    registry.delete(entry);
-    entryOf.delete(mat);
-    if (perClass.get(cls) === mat) perClass.delete(cls);
+    untrack(entry);
+    if (memo.get(cls) === mat) memo.delete(cls);
   });
   fresh?.(mat);
   return mat;
@@ -196,13 +220,24 @@ export function surfaceMaterialFor(
 
 /** Number of live surface clones (test seam). */
 export function surfaceCloneCount(): number {
-  return registry.size;
+  let n = 0;
+  for (const ref of registry) if (ref.deref()) n++;
+  return n;
 }
 
 /** The `unit-surface` debug layer: today's values (false) or the pass (true).
  *  Returns how many materials it wrote. */
 export function setUnitSurfacePass(on: boolean): number {
   surfacePassOn = on;
-  for (const e of registry) writeSurface(e, on);
-  return registry.size;
+  let n = 0;
+  for (const ref of [...registry]) {
+    const e = ref.deref();
+    if (!e) {
+      registry.delete(ref);
+      continue;
+    }
+    writeSurface(e, on);
+    n++;
+  }
+  return n;
 }
