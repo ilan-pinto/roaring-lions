@@ -38,14 +38,29 @@ describe('VERSUS_HELD_UNITS (GH-698)', () => {
   });
 });
 
-describe('wounds are off in versus (GH-707 P3, until the lead opens them)', () => {
-  it('no type a room registers carries hull.wounds or hull.figures, and the campaign keeps both', () => {
+describe('wounds are on in versus (the lead, 23 Oct 2026), rescue is not', () => {
+  it('a room registers the infantry with hull.wounds and both wounded types, and no rescue unit', () => {
     const roster = versusRoster();
-    const carrying = roster.filter((u) => 'wounds' in u.hull || 'figures' in u.hull).map((u) => u.id);
-    expect(carrying).toEqual([]);
-    // The strip copies: the shared units table keeps its wounds (inf_squad: 3 men).
-    expect((units.inf_squad.hull as { figures?: number }).figures).toBe(3);
-    expect('wounds' in units.inf_squad.hull).toBe(true);
-    expect(roster.some((u) => u.id === 'inf_squad')).toBe(true);
+    const ids = new Set(roster.map((u) => u.id));
+    const squad = roster.find((u) => u.id === 'inf_squad');
+    expect(squad).toBeDefined();
+    expect((squad?.hull as { figures?: number }).figures).toBe(3);
+    expect('wounds' in (squad?.hull ?? {})).toBe(true);
+    // Every wound a room's types can inflict names a type the room registers:
+    // otherwise the sim kills a man who should fall wounded.
+    const woundTypes = new Set<string>();
+    for (const u of roster) {
+      const w = (u.hull as { wounds?: { type: string } }).wounds;
+      if (w !== undefined) woundTypes.add(w.type);
+    }
+    expect([...woundTypes].sort()).toEqual(['civilians', 'wounded_kdf', 'wounded_sarim']); // civilians go down in place
+    for (const t of woundTypes) expect(ids.has(t), t).toBe(true);
+    for (const id of ['inf_medic_squad', 'veh_ambulance', 'air_medevac_heli']) expect(ids.has(id), id).toBe(false);
+  });
+
+  it('a man down takes no population', () => {
+    for (const id of ['wounded_kdf', 'wounded_sarim'] as const) {
+      expect((units[id].cost as { population?: number }).population, id).toBe(0);
+    }
   });
 });

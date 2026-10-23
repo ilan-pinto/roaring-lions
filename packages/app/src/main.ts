@@ -2150,14 +2150,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // still buildable, and so lands in `meshDeferred` below like any other.
   // GH-707 P3: a mission or a sandbox adds each fielded type's `hull.wounds.type`
   // (`withWoundedTypes`), so a man who falls wounded has his mesh at boot, not from
-  // the 1 Hz sweep. A versus room does not: wounds are off in versus
-  // (`versusRoster` strips them) until the lead opens them.
+  // the 1 Hz sweep. A versus room does the same since wounds opened to versus
+  // (the lead, 23 Oct 2026).
   const woundsOf = units as Readonly<Record<string, { hull?: { wounds?: { type: string } } } | undefined>>;
   const meshRoster = mission
     ? withWoundedTypes(missionUnitTypes(resolvedMission ?? mission, new Set(Object.keys(units))), woundsOf)
     : versusRoom
       // A versus room fields its two factions' forces and nothing else.
-      ? versusUnitTypes(versusFactions)
+      ? withWoundedTypes(versusUnitTypes(versusFactions), woundsOf)
       : withWoundedTypes(sandboxUnitTypes({ tunnel: wantTunnel, sur: wantSur, civ: wantCiv, works: wantWorks }), woundsOf);
   // Only the roster's languages decode (N16). The roster is the one the mesh
   // plan already trusts; a unit it misses still plays -- as `missing` -- and
