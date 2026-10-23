@@ -36,6 +36,10 @@ export type PlayerIntent =
   | { kind: 'dismount'; carriers: number[] }
   | { kind: 'smoke'; ids: number[]; x: number; y: number }
   | { kind: 'halt'; ids: number[] }
+  /** A patrol beat (Lane A mock, approved 22 Oct): 2 to `MAX_PATROL_WAYPOINTS`
+   *  points in world tiles, point 1 where the selection stood when P was
+   *  pressed (`input/patrol.ts`). Queues one `setStance{patrol}`. */
+  | { kind: 'patrol'; ids: number[]; points: { x: number; y: number }[] }
   | { kind: 'group'; slot: number; action: 'assign' | 'recall' }
   | { kind: 'overlay'; on: boolean }
   | { kind: 'support'; call: SupportKind; x: number; y: number; accepted: boolean };
@@ -44,7 +48,7 @@ export type PlayerIntent =
  *  it — a `type` alone cannot be iterated at runtime. */
 export const INTENT_KINDS = [
   'select', 'order', 'attack', 'rescue', 'garrison', 'demolish', 'chargeTunnel', 'mount', 'dismount',
-  'smoke', 'halt', 'group', 'overlay', 'support',
+  'smoke', 'halt', 'patrol', 'group', 'overlay', 'support',
 ] as const satisfies readonly PlayerIntent['kind'][];
 
 /** The map's size in tiles: what `clampToMap` fits an order's point into. */
@@ -115,6 +119,15 @@ export function applyIntent(sink: CommandSink, intent: PlayerIntent, map: MapSiz
       return;
     case 'halt':
       sink.queueCommand({ kind: 'halt', ids: intent.ids });
+      return;
+    case 'patrol':
+      // Every waypoint inside the box `validateCommand` accepts, as an order's point is.
+      sink.queueCommand({
+        kind: 'setStance',
+        ids: intent.ids,
+        stance: 'patrol',
+        waypoints: intent.points.map((p) => [clampToMap(fx.from(p.x), map.width), clampToMap(fx.from(p.y), map.height)]),
+      });
       return;
     case 'select':
     case 'group':

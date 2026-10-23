@@ -212,7 +212,7 @@ describe('attack (GH-420)', () => {
 describe('ANIMATED_CURSORS follows the approved sheet', () => {
   it('animates the wired sights at ORDER_SIGHT\'s own frame counts and rates, plus charge and demolish', () => {
     expect(Object.keys(ANIMATED_CURSORS).sort()).toEqual(
-      ['advance', 'attack', 'barrage', 'charge', 'demolish', 'move', 'moveOnly', 'rescue', 'smoke', 'smokeScreen', 'strike', 'sweep']
+      ['advance', 'attack', 'barrage', 'charge', 'demolish', 'move', 'moveOnly', 'patrol', 'rescue', 'smoke', 'smokeScreen', 'strike', 'sweep']
     );
     for (const [name, id] of Object.entries(SIGHT_OF)) {
       const spec = ORDER_SIGHT[id];
@@ -229,6 +229,7 @@ describe('ANIMATED_CURSORS follows the approved sheet', () => {
       smoke: 'smoke',
       barrage: 'barrage',
       smokeScreen: 'smokeScreen',
+      patrol: 'patrol',
       rescue: 'rescue',
     });
     // The two housing animations keep their shipped rates (Q1).

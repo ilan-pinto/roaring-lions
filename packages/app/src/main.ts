@@ -39,6 +39,7 @@ import {
   zoneContains,
   creditsFor,
   creditInputFrom,
+  MAX_PATROL_WAYPOINTS,
   unitTypeFromJson,
   type MissionEvent,
   type MissionJson,
@@ -210,6 +211,7 @@ import { ANIMATED_CURSORS, type CursorName } from './input/cursor';
 import { cursorAt, pointerPoint, simIntentWorld, type PointerView } from './input/pointer';
 import { aimFootprint, callSupport, supportAim } from './input/support-call';
 import { callRally, canRally } from './input/rally-call';
+import { beginPatrol, patrolClick, patrolPointOk, type PatrolDraft } from './input/patrol';
 import { callCancelWorks, callWorks } from './input/works-call';
 import { cursorAnimDriver } from './input/cursor-anim';
 import { prefersReducedMotion, prefersSaveData } from './ui/motion';
@@ -2923,7 +2925,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // successor on screen after the pointer handlers instead of before them.
   /** The armed order waiting for a click on the map, if any. Only the two
    *  point-targeted orders can be armed; the other three act at once. */
-  let armedOrder: 'attackMove' | 'move' | 'smoke' | null = null;
+  let armedOrder: 'attackMove' | 'move' | 'smoke' | 'patrol' | null = null;
+  /** The armed patrol's walkers and the points placed so far (Lane A mock, Q7). Read only
+   *  while `armedOrder === 'patrol'`; `orders.patrol` writes a fresh one on every arm. */
+  let patrolDraft: PatrolDraft | null = null;
   const myLiving = (): number[] =>
     renderer.selection.filter((i) => isOwnSide(sim.state.side[i], me) && sim.state.alive[i] === 1);
   /** The mark an order leaves on the field: none while the room is paused,
@@ -2974,8 +2979,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    * end in the same `runVerb('smoke', …)` call, so what differs between a
    * button and its key is where the point comes from and nothing else.
    */
-  const armOrder = (id: 'attackMove' | 'move' | 'smoke'): void => {
+  const armOrder = (id: 'attackMove' | 'move' | 'smoke' | 'patrol'): void => {
     armedOrder = armedOrder === id ? null : id;
+    if (armedOrder !== 'patrol') patrolDraft = null;
     // Two armed modes cannot both own the next click. Arming an order disarms
     // a fire-support call, and production's onArm does the reverse.
     if (armedOrder !== null && (armedSupport !== null || armedWorks !== null)) {
@@ -3010,6 +3016,29 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       if (outside.length) dispatch({ kind: 'halt', ids: outside });
       const none = haltNote(mine.length, outside.length);
       if (none) hud.note(none.text, none.tone);
+    },
+    // Lane A mock (Q6-Q11, the lead, 22 Oct): P or the row's Patrol button arms it, with point 1
+    // fixed where the selection stands; pressing it again while armed puts it down. Nobody free
+    // to walk (nothing selected, or all inside a building or a carrier): a note, nothing armed.
+    patrol: () => {
+      if (armedOrder === 'patrol') {
+        armOrder('patrol');
+        hud.note(t('intent.patrol.cancelled'), 'info');
+        return;
+      }
+      const begun = beginPatrol(
+        myLiving(),
+        (i) => ({ x: fx.toNumber(sim.state.posX[i]), y: fx.toNumber(sim.state.posY[i]) }),
+        intentWorld,
+        (i) => sim.state.carriedBy[i] >= 0
+      );
+      if (typeof begun === 'string') {
+        hud.note(t(begun === 'noSelection' ? 'intent.patrol.noSelection' : 'intent.patrol.nobodyFree'), 'mute');
+        return;
+      }
+      armOrder('patrol');
+      patrolDraft = begun;
+      hud.note(t('intent.patrol.armed', { max: MAX_PATROL_WAYPOINTS }), 'info');
     },
     smoke: () => armOrder('smoke'),
     load: () => runVerb('mount'),
@@ -3845,6 +3874,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // and only reported in the debrief.
       // The minimap has no hover: its order is never "over a hostile" (R-3).
       order: (x, y, mods) => {
+        // An armed patrol takes no minimap order: the click puts it down, as the field's
+        // right-click does (Q8).
+        if (armedOrder === 'patrol') {
+          armedOrder = null;
+          patrolDraft = null;
+          hud.note(t('intent.patrol.cancelled'), 'info');
+          return;
+        }
         voice.hint({ hostile: false });
         if (armedOrder === 'move') {
           armedOrder = null;
@@ -4167,6 +4204,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // wins.
         if (kind !== null) {
           armedOrder = null;
+          patrolDraft = null;
           production?.setRallyArmed(null);
         }
       },
@@ -4176,6 +4214,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         armedRally = line;
         if (line !== null) {
           armedOrder = null;
+          patrolDraft = null;
           production?.setArmed(null);
         }
       },
@@ -4695,6 +4734,39 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
       // look alike — Shift still queues, Alt still confirms fire on a
       // protected site. Smoke goes through the same `runVerb` the `f` key
       // does, with this click's point instead of the cursor's.
+      // Lane A mock (Q7, Q9): an armed patrol spends this click as a waypoint. Refused ground
+      // (rock, a wall, off the map) keeps it armed with the deny cue, as Set rally does; a
+      // Shift-click adds a point and stays armed; a plain click, or the 4th point, sends the one
+      // `setStance{patrol}` and disarms.
+      if (armedOrder === 'patrol') {
+        // No draft can only mean a bug elsewhere: put the mode down rather than let the click
+        // fall through to the generic armed branch below as an attack-move (review M-1).
+        if (patrolDraft === null) {
+          armedOrder = null;
+          dragStart = null;
+          dragBox.style.display = 'none';
+          return;
+        }
+        const at = pointerPoint(pointerView, sim, p.x, p.y);
+        const out = patrolClick(patrolDraft, intentWorld, at.x, at.y, ev.shiftKey);
+        if (out.kind === 'refused') {
+          hud.note(t('intent.patrol.refused'), 'mute');
+          audio.playCue(CRITICAL_CUES.uiDeny);
+        } else if (out.kind === 'added') {
+          patrolDraft = out.draft;
+          orderMarker(at.x, at.y);
+          hud.note(t('intent.patrol.point', { n: out.draft.points.length, max: MAX_PATROL_WAYPOINTS }), 'info');
+        } else {
+          armedOrder = null;
+          patrolDraft = null;
+          voice.hint({ hostile: false });
+          dispatch(out.intent);
+          for (const q of out.intent.points) orderMarker(q.x, q.y);
+        }
+        dragStart = null;
+        dragBox.style.display = 'none';
+        return;
+      }
       if (armedOrder !== null) {
         const spend = armedOrder;
         armedOrder = null;
@@ -4816,6 +4888,14 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     // Field works (GH-268): a right-click while a work is armed puts it down and orders nothing.
     if (armedWorks !== null) {
       production?.setArmed(null);
+      return;
+    }
+    // Lane A mock (Q8): a right-click while a patrol is armed drops every pending point and
+    // sends nothing -- rally's rule, since a patrol is a multi-click mode like it.
+    if (armedOrder === 'patrol') {
+      armedOrder = null;
+      patrolDraft = null;
+      hud.note(t('intent.patrol.cancelled'), 'info');
       return;
     }
     // `issueOrder` rather than a resolve-and-dispatch written out here: since
@@ -4978,6 +5058,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     switch (action) {
       case 'move':
         orders.move();
+        break;
+      case 'patrol':
+        orders.patrol();
         break;
       case 'halt':
         // The four bound verbs go through `orders`, which is the very object
@@ -5190,6 +5273,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         // HUD's own 4 Hz repaint, so within about 250 ms.
         if (target === 'disarm') {
           armedOrder = null;
+          patrolDraft = null;
           production?.setArmed(null);
           production?.setRallyArmed(null);
           break;
@@ -6529,6 +6613,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     confirm: altHeld,
     armedSmoke: armedOrder === 'smoke',
     armedMove: armedOrder === 'move',
+    // Lane A mock (Q9): the armed patrol's cursor reads the same `patrolPointOk` its click does.
+    patrolAt:
+      armedOrder === 'patrol' && patrolDraft !== null
+        ? (x, y) => patrolDraft !== null && patrolPointOk(intentWorld, patrolDraft.ids, x, y)
+        : null,
     // F4: the armed rally's cursor reads the runtime's own `canSetRally` at
     // the point the click would send (`callRally`'s `pointerPoint`).
     rallyAt:
