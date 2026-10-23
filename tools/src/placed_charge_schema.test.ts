@@ -33,7 +33,8 @@ const base = {
 };
 const placed = { ...base, demolition_method: 'placed', placed_charge: charge };
 const without = (o: Record<string, unknown>, k: string): object => {
-  const { [k]: _gone, ...rest } = o;
+  const rest = { ...o };
+  delete rest[k];
   return rest;
 };
 

@@ -6,7 +6,7 @@
 //   2. setting takes demolition_time_s, and the building stands while the fuse burns;
 //   3. it falls exactly fuse_s later, carrier alive or dead (attribution outlives it);
 //   4. the blast hurts soft units, own troops and civilians included, with linear falloff;
-//   5. the carrier withdraws on its own, to withdraw_tiles away, through nearestOpenTile;
+//   5. the carrier withdraws on its own, to withdraw_tiles away, through the open-tile search;
 //   6. chargeSet / chargeDetonated, in order;
 //   7. the deferred fold: no placed type, no hash movement; with one, the fuse is state.
 import { describe, expect, it } from 'vitest';
@@ -93,7 +93,7 @@ describe('placed charge: schema numbers reach the type', () => {
 
   it('refuses a placed unit with no block, and a block on a unit that is not placed', () => {
     const sim = new Sim({ seed: 7, width: W, height: W, capacity: 4 });
-    const { placed_charge: _drop, ...bare } = PLACED;
+    const bare: UnitTypeJson = { ...PLACED, placed_charge: undefined };
     expect(() => sim.addUnitType({ ...bare, id: 'x1' })).toThrow(/needs placed_charge/);
     expect(() => sim.addUnitType({ ...PLACED, id: 'x2', demolition_method: 'charges' })).toThrow(/needs demolition_method/);
   });
@@ -251,7 +251,7 @@ describe('placed charge: the blast', () => {
     expect(sim2.state.hp[civ]).toBeLessThan(hp);
   });
 
-  it('does not hurt armour (isSoft only): the carrier itself is excluded', () => {
+  it('the carrier is never hurt by its own blast (splashDirect excludes `by`)', () => {
     const { sim, carrier, s } = world();
     const hp = sim.state.hp[carrier];
     sim.queueCommand({ kind: 'demolish', ids: [carrier], structure: s });
@@ -318,46 +318,60 @@ describe('placed charge: the carrier withdraws', () => {
 });
 
 describe('placed charge: the hash', () => {
-  const twin = (placedType: boolean): Sim => {
-    const sim = new Sim({ seed: 7, width: W, height: W, capacity: 8 });
-    const st = sim.addStructureType(SHACK);
-    sim.addStructure(st, [SHACK_AT]);
-    const t = sim.addUnitType(placedType ? PLACED : { ...PLACED, id: 'plain', demolition_method: 'charges', placed_charge: undefined });
-    sim.spawn(t, 0, fx.from(11.5), fx.from(10.5));
-    return sim;
+  const twin = (): World => {
+    const w = world();
+    return w;
   };
 
-  it('a world with no placed type hashes as it did: the block is not folded', () => {
-    const a = twin(false);
-    const b = twin(false);
+  it('registering a placed type moves no hash; only a set charge does (deferred fold)', () => {
+    const mk = (withType: boolean): Sim => {
+      const sim = new Sim({ seed: 7, width: W, height: W, capacity: 8 });
+      const st = sim.addStructureType(SHACK);
+      sim.addStructure(st, [SHACK_AT]);
+      const t = sim.addUnitType(RIFLEMAN);
+      if (withType) sim.addUnitType(PLACED);
+      sim.spawn(t, 0, fx.from(20.5), fx.from(20.5));
+      return sim;
+    };
+    const a = mk(false);
+    const b = mk(true);
     for (let k = 0; k < 50; k++) {
       a.tick();
       b.tick();
     }
-    expect(a.hash()).toBe(b.hash());
-    // The deferred fold: the same world with a placed type registered differs ONLY by the block.
-    const c = twin(true);
-    for (let k = 0; k < 50; k++) c.tick();
-    expect(c.hash()).not.toBe(a.hash());
+    expect(b.hash()).toBe(a.hash());
   });
 
-  it('with a placed type the fuse is hashed state', () => {
-    const a = world();
-    const b = world();
+  it('once a charge is set the fuse is hashed state', () => {
+    const a = twin();
+    const b = twin();
     a.sim.queueCommand({ kind: 'demolish', ids: [a.carrier], structure: a.s });
     b.sim.queueCommand({ kind: 'demolish', ids: [b.carrier], structure: b.s });
     run(a.sim, SET_TICKS + 10);
     run(b.sim, SET_TICKS + 10);
     expect(a.sim.hash()).toBe(b.sim.hash());
-    run(a.sim, 1, SET_TICKS + 10);
-    run(b.sim, 1, SET_TICKS + 10);
-    expect(a.sim.hash()).toBe(b.sim.hash());
-    // Same world, same positions, but one fuse shorter: only the charge column differs.
-    const c = world();
-    c.sim.queueCommand({ kind: 'demolish', ids: [c.carrier], structure: c.s });
-    run(c.sim, SET_TICKS + 10);
-    const h = c.sim.hash();
-    (c.sim as unknown as { stChargeTicks: Int32Array }).stChargeTicks[c.s] += 1;
-    expect(c.sim.hash()).not.toBe(h);
+    const h = b.sim.hash();
+    (b.sim as unknown as { stChargeTicks: Int32Array }).stChargeTicks[b.s] += 1;
+    expect(b.sim.hash()).not.toBe(h);
+  });
+});
+
+describe('placed charge: stale charges', () => {
+  it('a site removed after arming takes the charge with it: no blast, no event', () => {
+    const { sim, carrier, s, rifle } = world();
+    sim.queueCommand({ kind: 'demolish', ids: [carrier], structure: s });
+    run(sim, SET_TICKS + 5);
+    sim.removeStructure(s);
+    const hp = sim.state.hp[rifle];
+    const ev = run(sim, FUSE_TICKS + 10, SET_TICKS + 5);
+    expect(ev.filter((x) => x.e.kind === 'chargeDetonated')).toHaveLength(0);
+    expect(sim.state.hp[rifle]).toBe(hp);
+  });
+
+  it('a fuse under one tick is refused at registration', () => {
+    const sim = new Sim({ seed: 7, width: W, height: W, capacity: 4 });
+    expect(() =>
+      sim.addUnitType({ ...PLACED, id: 'x', placed_charge: { ...(PLACED.placed_charge as NonNullable<typeof PLACED.placed_charge>), fuse_s: 0.01 } }),
+    ).toThrow(/under one tick/);
   });
 });

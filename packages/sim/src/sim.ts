@@ -858,8 +858,10 @@ function placedChargeFromJson(json: UnitTypeJson): PlacedCharge | null {
   if (placed && pc === undefined) throw new Error(`unit ${json.id}: demolition_method "placed" needs placed_charge`);
   if (!placed && pc !== undefined) throw new Error(`unit ${json.id}: placed_charge needs demolition_method "placed"`);
   if (pc === undefined) return null;
+  const fuseTicks = fx.toInt(fx.mul(fx.from(pc.fuse_s), fx.fromInt(TICKS_PER_SECOND)));
+  if (fuseTicks < 1) throw new Error(`unit ${json.id}: placed_charge.fuse_s is under one tick`);
   return {
-    fuseTicks: fx.toInt(fx.mul(fx.from(pc.fuse_s), fx.fromInt(TICKS_PER_SECOND))),
+    fuseTicks,
     blast: fx.from(pc.blast_tiles),
     damage: fx.from(pc.damage),
     suppression: fx.from(pc.suppression),
@@ -1734,7 +1736,8 @@ export class Sim {
    *  reused: the attribution (blast source, ROE side) outlives the carrier. Hashed behind
    *  `placedLive`. */
   private readonly stChargeBy: Int32Array;
-  /** E6 G1: true once `addUnitType` registers a `placed` demolisher. hash() folds the charge
+  /** E6 G1: true once the first placed charge is SET (not when a type is registered, so a world
+   *  that registers the whole roster but never fires one moves no pin). hash() folds the charge
    *  columns only while set (the deferred fold, field works' D1 shape), so no world without a
    *  placed-charge type moves any pin. */
   private placedLive = false;
@@ -2315,8 +2318,6 @@ export class Sim {
     const type = unitTypeFromJson(json);
     // GH-698, Q-A: the first air carrier type turns the air block's hash fold on.
     if (type.isAirCarrier) this.airLive = true;
-    // E6 G1: the first placed-charge type turns the charge columns' hash fold on.
-    if (type.placed !== null) this.placedLive = true;
     // GH-707: the first wound-related type turns the wound block's hash fold on.
     if (type.wounds !== null || type.rescue !== null || type.canCarry !== null || type.isWounded) {
       this.woundLive = true;
@@ -2564,6 +2565,8 @@ export class Sim {
     if (this.stOccupants[s] > 0) throw new Error(`structure ${s} has occupants`);
     this.stAlive[s] = 0;
     this.stHp[s] = 0;
+    this.stChargeTicks[s] = 0; // a cancelled site takes any charge on it along (E6 G1)
+    this.stChargeBy[s] = -1;
     for (const t of this.stTiles[s]) {
       this.blocked[t] = 0;
       // A boulder under the same tile does not stop being a boulder.
@@ -9180,6 +9183,7 @@ export class Sim {
    */
   private setPlacedCharge(s: number, by: number, pc: PlacedCharge): void {
     if (this.stChargeTicks[s] > 0) return;
+    this.placedLive = true;
     this.stChargeTicks[s] = pc.fuseTicks;
     this.stChargeBy[s] = by;
     this.pendingEvents.push({ kind: 'chargeSet', tick: this.tickCount, structure: s, by, fuseTicks: pc.fuseTicks });
@@ -9245,6 +9249,11 @@ export class Sim {
     if (!this.placedLive) return;
     for (let s = 0; s < this.structureCount_; s++) {
       if (this.stChargeTicks[s] <= 0) continue;
+      if (this.stAlive[s] === 0) {
+        this.stChargeTicks[s] = 0;
+        this.stChargeBy[s] = -1;
+        continue;
+      }
       if (--this.stChargeTicks[s] > 0) continue;
       const by = this.stChargeBy[s];
       this.stChargeBy[s] = -1;
