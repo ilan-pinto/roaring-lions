@@ -111,10 +111,10 @@ describe('versusRulesFailures, one mutation at a time', () => {
   });
   it('refuses a camp more than 6 tiles (Chebyshev) from its anchor', () => {
     const r = rulesFor('wadi_tarfan');
-    r[0].doc.ends.friendly.camp.at = [10, 17]; // anchor (10,10): the nearest tile is 7 away
+    r[0].doc.ends.friendly.camp.at = [11, 18]; // anchor (11,11): the nearest tile is 7 away
     const out = failures(r).filter((f) => f.includes('Chebyshev'));
     expect(out).toHaveLength(1);
-    r[0].doc.ends.friendly.camp.at = [10, 16]; // 6 away: allowed
+    r[0].doc.ends.friendly.camp.at = [11, 17]; // 6 away: allowed
     expect(failures(r).filter((f) => f.includes('Chebyshev'))).toEqual([]);
   });
   it('refuses an income zone in neither the map nor the file, and accepts a file zone', () => {

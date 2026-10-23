@@ -102,7 +102,8 @@ export function endOfSeat(seat: Seat): SpawnEnd {
  *  dedicated versus maps (2026-10-14) are those: point-symmetric, with their
  *  seats named `versus_0`/`versus_1` and read by name (`sandboxAnchors`), and
  *  the probe's mirror read at 48 seeds is wadi_tarfan west 22 / east 25 /
- *  1 draw and milh_flats 24 / 24.
+ *  1 draw and milh_flats 24 / 24. wadi_tarfan's room seats moved to
+ *  `VERSUS_SEATS` in GH-769 (mirror at 96 seeds: west 45 / east 51).
  *
  *  `beit_sahwan_outskirts`' room seats are no longer the heuristic's: after
  *  PR #721 the mirror read west 38 / east 10 there, and its measured seats
@@ -116,9 +117,11 @@ export function versusMapAllowed(map: string): boolean {
 
 /** The maps a KDF-vs-Sarim matchup is offered on (the lead's ruling,
  *  2026-10-14): Tel Marum -- the map the versus probe balanced the Sarim
- *  force on -- and Wadi Tarfan, which reads the same at 48 seeds (KDF west:
- *  KDF 19 / Sarim 29, Tel Marum's own cell to the game; Sarim west: KDF 25 /
- *  Sarim 23). Milh Flats is NOT here: Sarim on the west seat lost 33 of 48
+ *  force on -- and Wadi Tarfan, which was opened on a 48-seed reading inside
+ *  sampling noise; at 96 seeds it read outside (GH-769), and it now stands on
+ *  measured seats (11,11)/(36,36) in `VERSUS_SEATS` with tunnel route
+ *  capacity 3, reading within 60/40 at 96 seeds on placed force, economy and
+ *  tunnel cell 3 in both spawn orders. Milh Flats is NOT here: Sarim on the west seat lost 33 of 48
  *  (KDF 68.8%), so it is a mirror-only map. The mirror plays on the fair maps
  *  (`VERSUS_FAIR_MAPS`); a non-mirror pairing is narrower still. The lobby
  *  offers no other pairing and the room refuses one (`matchupAllowed`). */
