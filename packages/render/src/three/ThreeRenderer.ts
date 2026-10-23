@@ -3441,6 +3441,11 @@ export class ThreeRenderer implements Renderer {
     this.selectionRing.dispose();
     for (const m of this.fireLinkFlashMaterials.values()) m.dispose();
     this.fireLinkFlashMaterials.clear();
+    this.smokeOutlineVehicleMaterial?.dispose();
+    this.smokeOutlineInfantryMaterial?.dispose();
+    this.smokeOutlineVehicleMaterial = null;
+    this.smokeOutlineInfantryMaterial = null;
+    this.smokeOutlined.clear();
     this.teamRing.dispose();
     this.tracerBatch.dispose();
     this.shellBatch.dispose();
@@ -10499,7 +10504,13 @@ export class ThreeRenderer implements Renderer {
       const scan = (entities: Map<number, { root: THREE.Object3D }>, mat: THREE.MeshBasicMaterial): void => {
         for (const [id, e] of entities) {
           const level = this.sim.smokeAt(Math.floor(fx.toNumber(st.posX[id])), Math.floor(fx.toNumber(st.posY[id])));
-          if (wearsSmokeOutline(st.alive[id], st.side[id], this.viewer, level, e.root.visible && !this.fireLinkFlashed.has(id))) want.set(id, mat);
+          if (
+            wearsSmokeOutline(
+              st.alive[id], st.side[id], this.viewer, level,
+              e.root.visible && !this.fireLinkFlashed.has(id),
+              this.sim.unitTypes[st.typeIdx[id]].isAir === true
+            )
+          ) want.set(id, mat);
         }
       };
       scan(this.meshUnitEntities, this.smokeOutlineInfantryMaterial);
@@ -10507,8 +10518,12 @@ export class ThreeRenderer implements Renderer {
     }
     for (const [id, list] of this.smokeOutlined) {
       if (want.has(id)) continue;
-      const was = this.silhouetteMaterialFor(this.viewer);
-      for (const m of list) m.material = was;
+      // A live hit flash owns the meshes: leave them be; the flash's own end
+      // restores the plain material and the next step re-applies smoke.
+      if (!this.fireLinkFlashed.has(id)) {
+        const was = this.silhouetteMaterialFor(st.side[id]);
+        for (const m of list) m.material = was;
+      }
       this.smokeOutlined.delete(id);
     }
     for (const [id, mat] of want) {
@@ -10547,10 +10562,16 @@ export class ThreeRenderer implements Renderer {
       if (!root) continue;
       const mat = this.fireLinkFlashMat(st.side[id]);
       const list: { mesh: THREE.Mesh; was: THREE.Material | THREE.Material[] }[] = [];
+      // A unit already on a smoke outline is handed to the flash: `was` is
+      // the plain team silhouette (never the smoke material), and the smoke
+      // step re-derives its state once the flash is over.
+      const smoked = this.smokeOutlined.has(id);
+      const plain = this.silhouetteMaterialFor(st.side[id]);
+      this.smokeOutlined.delete(id);
       root.traverse((o) => {
         const mesh = o as THREE.Mesh;
         if (!mesh.isMesh || !isSilhouette(mesh)) return;
-        list.push({ mesh, was: mesh.material });
+        list.push({ mesh, was: smoked ? plain : mesh.material });
         mesh.material = mat;
       });
       this.fireLinkFlashed.set(id, list);

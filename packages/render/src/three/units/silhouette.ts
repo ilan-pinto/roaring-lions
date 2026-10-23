@@ -567,8 +567,9 @@ export function createMeshSilhouetteMaterial(color: string): THREE.MeshBasicMate
 
 /**
  * Retunes every mesh silhouette material's outline width AND its depth bias
- * for the camera's current zoom -- two `.value` writes per material, three
- * materials for the whole scene, called once per frame from
+ * for the camera's current zoom -- two `.value` writes per material, over
+ * the materials passed in (the scene's three team ones, and the two
+ * smoke-outline ones separately), called once per frame from
  * `ThreeRenderer.frame`.
  *
  * Both, in one call, deliberately: the bias is a multiple of the width (see

@@ -36,7 +36,9 @@ export function wearsSmokeOutline(
   side: number,
   viewer: number,
   smokeLevel: number,
-  visible: boolean
+  visible: boolean,
+  isAir = false
 ): boolean {
-  return alive === 1 && side === viewer && visible && smokeLevel >= SMOKE_OUTLINE_MIN;
+  // Smoke is ground-level: an aircraft overhead is not in it.
+  return alive === 1 && side === viewer && visible && !isAir && smokeLevel >= SMOKE_OUTLINE_MIN;
 }

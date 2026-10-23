@@ -19,6 +19,10 @@ describe('wearsSmokeOutline', () => {
     expect(wearsSmokeOutline(1, 1, 1, 255, true)).toBe(true);
     expect(wearsSmokeOutline(1, 0, 1, 255, true)).toBe(false);
   });
+  it('is never true for an aircraft over the smoke', () => {
+    expect(wearsSmokeOutline(1, 0, 0, 255, true, true)).toBe(false);
+    expect(wearsSmokeOutline(1, 0, 0, 255, true, false)).toBe(true);
+  });
   it('pins the threshold the lead ruled', () => {
     expect(SMOKE_OUTLINE_MIN).toBe(48);
   });

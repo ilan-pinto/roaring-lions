@@ -30,11 +30,11 @@ const flag = (n: string): string | undefined => process.argv.slice(2).find((a) =
 const OUT = path.resolve(flag('out') ?? path.join(REPO_ROOT, '.superpowers/smoke-outline'));
 fs.mkdirSync(OUT, { recursive: true });
 
-interface Subject { id: string; tick: number; setup: 'smoke' | ''; focus: 0 | 1 }
+interface Subject { id: string; tick: number; setup: 'smoke' | '' }
 const SUBJECTS: Subject[] = [
-  { id: 'smoke-dense', tick: 90, setup: 'smoke', focus: 0 },
-  { id: 'smoke-thin', tick: 230, setup: 'smoke', focus: 0 },
-  { id: 'quiet', tick: 200, setup: '', focus: 0 },
+  { id: 'smoke-dense', tick: 90, setup: 'smoke' },
+  { id: 'smoke-thin', tick: 230, setup: 'smoke' },
+  { id: 'quiet', tick: 200, setup: '' },
 ];
 const ZOOMS = [1, 2.5];
 const SMOKE_TYPES = [
@@ -92,7 +92,7 @@ async function boot(s: Subject): Promise<{ page: Page; cam: [number, number] }> 
   await page.waitForFunction(() => !!(window as unknown as { __lions?: { renderer?: unknown } }).__lions?.renderer, null, { timeout: 120000 });
   await page.waitForTimeout(4000);
   const info = await page.evaluate(
-    async ([tick, setup, focus, smokeTypes]) => {
+    async ([tick, setup, smokeTypes]) => {
       const w = window as unknown as { __lions: Lions; requestAnimationFrame: (f: FrameRequestCallback) => number };
       const raf = w.requestAnimationFrame.bind(window);
       w.requestAnimationFrame = () => 0;
@@ -102,8 +102,6 @@ async function boot(s: Subject): Promise<{ page: Page; cam: [number, number] }> 
       const foe = L.units(1);
       const cx = mine.reduce((t, u) => t + u.x, 0) / mine.length + 0.5;
       const cy = mine.reduce((t, u) => t + u.y, 0) / mine.length + 0.5;
-      const ex = foe.length ? foe.reduce((t, u) => t + u.x, 0) / foe.length + 0.5 : cx;
-      const ey = foe.length ? foe.reduce((t, u) => t + u.y, 0) / foe.length + 0.5 : cy;
       if (L.sim.tickCount < 20) L.step(20 - L.sim.tickCount);
       const notes: string[] = [];
       const FX = 65536;
@@ -117,9 +115,9 @@ async function boot(s: Subject): Promise<{ page: Page; cam: [number, number] }> 
         notes.push(`smoke ordered by ${layers.length} unit(s): ${layers.map((u) => u.type).join(',')}`);
       }
       L.step(Math.max(0, (tick as number) - L.sim.tickCount));
-      return { cam: (focus === 1 ? [ex, ey] : [cx, cy]) as [number, number], notes, tick: L.sim.tickCount, nMine: mine.length, nFoe: foe.length };
+      return { cam: [cx, cy] as [number, number], notes, tick: L.sim.tickCount, nMine: mine.length, nFoe: foe.length };
     },
-    [s.tick, s.setup, s.focus, SMOKE_TYPES] as const
+    [s.tick, s.setup, SMOKE_TYPES] as const
   );
   const gpu = await page.evaluate(() => {
     const gl = (window as unknown as { __lions: Lions }).__lions.renderer.canvas.getContext('webgl2');
@@ -206,6 +204,12 @@ for (const s of SUBJECTS) {
     } else {
       if (floor === undefined) say(`[${key}] no floor recorded yet`);
       else if (d.px < floor.px || d.mad < floor.mad) failures.push(`${key}: ${d.px} px / ${d.mad.toFixed(4)} below floor ${floor.px} px / ${floor.mad}`);
+    }
+    if (s.id !== 'quiet') {
+      // The overlays-hidden check below is only meaningful on a frame that
+      // really has outlines: own units in smoke, and a visible A/B.
+      if (nOn <= 0) failures.push(`${key}: no own unit is in smoke (${nOn}); the frame proves nothing`);
+      if (d.px <= 0) failures.push(`${key}: the toggle moved 0 px with overlays visible; the overlays-hidden check would be vacuous`);
     }
     if (dh.px !== 0) failures.push(`${key}: overlays hidden but the smoke outline still moved ${dh.px} px`);
     if (calls.on !== calls.off) failures.push(`${key}: draw calls ${calls.off} -> ${calls.on}`);
