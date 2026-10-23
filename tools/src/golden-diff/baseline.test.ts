@@ -827,6 +827,9 @@ describe('BASELINES layerChecks', () => {
         'slope-light': { px: 9, mean: 1.4944 },
         'height-contours': { px: 3, mean: 0.3962 },
         crown: { px: 61, mean: 2.1612 },
+        // Crater rims (Defilade Task 5), 2026-10-23: relief-read-signal.ts
+        // --layers=crater-rims, 3 fresh-page runs, bit-identical.
+        'crater-rims': { px: 10133, mean: 0.615 },
       },
       // The LOW end of the measured range (29622-29624 px / 2.9600-2.9620 over
       // 5 runs), so "floor is a third of the signal" is checked against the

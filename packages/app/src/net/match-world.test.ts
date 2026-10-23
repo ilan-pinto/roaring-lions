@@ -20,7 +20,7 @@ describe('buildMatchWorld', () => {
   it('reproduces the mirror pins versus-force.test.ts holds (beit, tel; 200 ticks)', () => {
     // LITERALS (an oracle that imports its expectation from the code under test
     // cannot fail, CLAUDE.md). seed 20260727, 200 ticks, KDF against KDF.
-    // tel_marum: 1524988923 is versus-force.test.ts's own pin. Was 1260439781: re-pinned
+    // tel_marum: 1524988923 was versus-force.test.ts's own pin. Was 1260439781: re-pinned
     // 2026-10-22 when its versus seat 0 moved to (24,46) (`versus-seats.ts`, the lead's ruling)
     // -- the map has no tunnels, so the helper's world and the browser's agree.
     // beit_sahwan_outskirts: versus-force.test.ts pins 3296182002 through
@@ -30,9 +30,11 @@ describe('buildMatchWorld', () => {
     // The browser path is the truth; that is its own pin. Registering the prepass's
     // types instead of the raw units moves nothing (checked both ways); the tunnels
     // are the whole difference (drop the loop and this reads 3296182002 again).
+    // Both re-pinned when wounds opened to versus (the lead, 23 Oct 2026): the two wounded types join the roster, every infantry type keeps hull.wounds, and the wound block is in the hash.
+    // Was 1108074073 (beit) and 1524988923 (tel). tel_marum's helper pin moved with it (versus-force.test.ts).
     // beit re-pinned 2026-10-22 for its versus seats (`versus-seats.ts`, seat 1 at (40,24)
     // rather than town_center): was 3043363756.
-    for (const [map, pin] of [['beit_sahwan_outskirts', 1108074073], ['tel_marum', 1524988923]] as const) {
+    for (const [map, pin] of [['beit_sahwan_outskirts', 3227696674], ['tel_marum', 280818962]] as const) {
       const w = buildMatchWorld(config(map, ['kdf', 'kdf'], 20260727));
       for (let i = 0; i < 200; i++) w.sim.tick();
       expect(w.sim.hash()).toBe(pin);
@@ -122,10 +124,11 @@ function brigade(map: string, tiers: [Tiers, Tiers], opts: { factions?: ['kdf' |
 }
 
 /** LITERALS, never read from the code under test (CLAUDE.md). The roster
- *  registers MATCHED_TYPES types in a matched room; a mbt_lavi's hull.hp is
+ *  registers MATCHED_TYPES types in a matched room (was 36: wounded_kdf and wounded_sarim
+ *  joined it when wounds opened to versus, 23 Oct 2026); a mbt_lavi's hull.hp is
  *  3000 and its armour tier 1 adds 210 (data/units/kdf/mbt_lavi.json), so in
  *  Q16.16 a base Lavi reads 3000 * 65536 and a tier-1 Lavi 3210 * 65536. */
-const MATCHED_TYPES = 36;
+const MATCHED_TYPES = 38;
 const LAVI_BASE_HP = 196608000;
 const LAVI_ARMOUR1_HP = 210370560;
 const LAVI1: Tiers = { mbt_lavi: { armour: 1 } };
@@ -259,7 +262,7 @@ describe("seatKitTiers: a seat's claim as the world reads it", () => {
 
 describe("a matched room, and a brigade room with equal claims, build today's bytes", () => {
   // LITERALS: the same two pins the first describe holds (seed 20260727, 200 ticks).
-  const PINS = [['beit_sahwan_outskirts', 1108074073], ['tel_marum', 1524988923]] as const;
+  const PINS = [['beit_sahwan_outskirts', 3227696674], ['tel_marum', 280818962]] as const;
   const SEED = 20260727;
 
   it("kit 'matched' with empty tiers: the pins, and the roster registered once", () => {
@@ -407,7 +410,8 @@ describe('the economy runtime (N3 Task 3)', () => {
     // is hashed. Was -193936706 / -1815401533.
     // Re-pinned with the lead's start purses KDF 1500 / Sarim 2400 (22 Oct; db2803f0): the purse is folded by
     // runtime.digest(). Was -1014683486 / -1434364569.
-    const VERSUS_ECONOMY_PINS = [['tel_marum', 822414509], ['wadi_tarfan', 1021735804]] as const;
+    // Re-pinned when wounds opened to versus (the lead, 23 Oct 2026): the two wounded types join the roster, every infantry type keeps hull.wounds, and the wound block is in the hash. Was 822414509 / 1021735804.
+    const VERSUS_ECONOMY_PINS = [['tel_marum', -147026323], ['wadi_tarfan', 1960701868]] as const;
     for (const [map, pin] of VERSUS_ECONOMY_PINS) {
       const w = buildMatchWorld(config(map, ['kdf', 'sarim'], 20260727));
       run(w, 200);

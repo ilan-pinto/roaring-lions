@@ -680,8 +680,15 @@ yours; each one records what the next phase inherits.
   1.0 applied in the composer's `OutputPass`, and every world material a
   `MeshStandardMaterial` (`units/world-materials.ts`, and `terrain/mesh.ts`'s
   `GroundMaterial`/`GroveMaterial`). One sun plus one hemisphere bounce in
-  `lighting.ts`, with a 4096² map-wide orthographic shadow box fitted once per
-  map. **The sun is a SIDE light — `SUN_DIRECTION` `(-0.406, 0.819, 0.406)`,
+  `lighting.ts`, with a 4096² orthographic shadow box that **follows the
+  camera** (GH-705, `shadow-fit.ts`, `shadowFit: 'view'` on every preset): refit
+  each frame to the view's receivers, its SIZE a function of zoom alone and its
+  centre snapped to whole texels, so panning does not crawl; about one screen
+  pixel a texel from zoom 0.5 up, where the old once-per-map box was 1.9-6.4.
+  Its depth stays the map-wide box's, so off-screen casters still cast, and
+  `photographGround` (the minimap) takes the map-wide box. Crater decals carry a
+  procedural rim normal lit by the sun, sky and shadow map (`decal-pool.ts`
+  `craterHeight`, the `crater-rims` debug layer). **The sun is a SIDE light — `SUN_DIRECTION` `(-0.406, 0.819, 0.406)`,
   the render rig's stated azimuth 135° at altitude 55°, which is the CAMERA'S
   LEFT** (the camera sits at 225° in `dimetric.py`, so its right-hand vector
   points at 315°). The X and Z signs DIFFER and that is the point: a box's
