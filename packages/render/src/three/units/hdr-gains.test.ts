@@ -16,6 +16,7 @@ describe('HDR_GAINS', () => {
       sparks: 4,
       fireball: 2.6,
       streakKind: { rifle: 0.45, mg: 0.6, grenade: 0.06 },
+      grenadeGlint: 0.4,
     });
   });
   it('is frozen', () => {
