@@ -248,6 +248,10 @@ export interface UnitTypeJson {
    *  Schema-constrained to charges|blade; typed loosely because JSON module
    *  imports widen string literals — same reason as `mobility.domain`. */
   demolition_method?: string;
+  /** E6 (GH-274, item 2): a swarm is ONE entity standing for `count` members of `member_hp`
+   *  each. The schema requires `hull.hp === count * member_hp`; the sim throws at registration
+   *  if it is not. Absent for every other unit. */
+  swarm?: { count: number; member_hp: number; spread_tiles: number };
   /** Seconds of held station to set a tunnel collapse charge. Absent = CHARGE_SECONDS. */
   tunnel_charge_time_s?: number;
   /** Field works (#277): construction speed for a `construct` unit, a multiple of the
@@ -527,6 +531,16 @@ export type HitProjection =
   | { kind: 'noSolution' }
   | { kind: 'holdingFire' };
 
+/** A swarm's numbers (E6, GH-274 item 2). Live members are DERIVED from hp, never stored:
+ *  `ceil(hp / memberHp)`. Type data, not hashed. */
+export interface SwarmStats {
+  count: number;
+  /** Q16.16 hp of one member. */
+  memberHp: Fx;
+  /** Q16.16 tiles: the cloud's spread, the denominator of a splash's reach. */
+  spread: Fx;
+}
+
 export interface UnitType {
   id: string;
   /** Display name for the HUD; falls back to the id. */
@@ -547,6 +561,8 @@ export interface UnitType {
    * ability.
    */
   bladeDemolition: boolean;
+  /** E6 (GH-274): one entity standing for a cloud of members; null for every other unit. */
+  swarm: SwarmStats | null;
   /** Can sink a shaft and dig a tunnel route from it. */
   canDig: boolean;
   /** Can set a collapse charge over a revealed tunnel. */
@@ -824,6 +840,22 @@ function populationFromJson(id: string, raw: number | undefined): number {
   return raw;
 }
 
+/** `swarm` -> fixed point. A swarm whose hp is not `count x member_hp` would make the live
+ *  count disagree with its own pool at full health, so it is a data error. */
+function swarmFromJson(json: UnitTypeJson): SwarmStats | null {
+  const sw = json.swarm;
+  if (sw === undefined) return null;
+  if (!Number.isInteger(sw.count) || sw.count < 1) throw new Error(`unit ${json.id}: swarm.count must be a whole number >= 1`);
+  const memberHp = fx.from(sw.member_hp);
+  const spread = fx.from(sw.spread_tiles);
+  if (memberHp <= 0) throw new Error(`unit ${json.id}: swarm.member_hp must be > 0`);
+  if (spread <= 0) throw new Error(`unit ${json.id}: swarm.spread_tiles must be > 0`);
+  if (fx.from(json.hull.hp) !== sw.count * memberHp) {
+    throw new Error(`unit ${json.id}: swarm needs hull.hp === count x member_hp`);
+  }
+  return { count: sw.count, memberHp, spread };
+}
+
 export function unitTypeFromJson(json: UnitTypeJson): UnitType {
   const aps = json.hull.aps;
   const population = populationFromJson(json.id, json.cost?.population);
@@ -861,6 +893,7 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
       fx.mul(fx.from(json.demolition_time_s ?? DEMO_SECONDS), fx.fromInt(TICKS_PER_SECOND)),
     ),
     bladeDemolition: json.demolition_method === 'blade',
+    swarm: swarmFromJson(json),
     canDig: abilities.includes('dig_tunnel'),
     canTunnelCharge: abilities.includes('tunnel_charge'),
     tunnelChargeTicks: fx.toInt(
@@ -6768,6 +6801,7 @@ export class Sim {
       willHit,
       breakdown: { accuracy, rangeFalloff, coverMod, motionMod, stanceMod, suppressionMod },
     });
+    this.swarmDive(shooter, slot, w); // E6: the diver is spent (no-op for every other unit)
   }
 
   /**
@@ -6843,6 +6877,7 @@ export class Sim {
         suppressionMod,
       },
     });
+    this.swarmDive(shooter, slot, w); // E6: the diver is spent (no-op for every other unit)
   }
 
   // -------------------------------------------------------------- projectiles
@@ -7243,7 +7278,10 @@ export class Sim {
       const falloff = fx.sub(ONE, fx.div(fx.sqrt(dSq), splash));
       const scaled = fx.mul(dmg, falloff);
       const iType = this.unitTypes[this.typeIdx[i]];
-      if (iType.isSoft) {
+      if (iType.swarm !== null) {
+        // E6: a diver is not hurt by its own bomblet (it has already paid with the member).
+        if (i !== shooter) this.swarmSplash(i, iType.swarm, splash, dmg, shooter);
+      } else if (iType.isSoft) {
         this.applyDamage(i, scaled, shooter);
       }
       this.applySuppression(
@@ -7274,9 +7312,69 @@ export class Sim {
       const dSq = distSqFx(fx.sub(this.posX[i], x), fx.sub(this.posY[i], y));
       if (dSq > splashSq) continue;
       const falloff = fx.sub(ONE, fx.div(fx.sqrt(dSq), splash));
-      if (this.unitTypes[this.typeIdx[i]].isSoft) this.applyDamage(i, fx.mul(dmg, falloff), by);
+      const iType = this.unitTypes[this.typeIdx[i]];
+      if (iType.swarm !== null) this.swarmSplash(i, iType.swarm, splash, dmg, by);
+      else if (iType.isSoft) this.applyDamage(i, fx.mul(dmg, falloff), by);
       this.applySuppression(i, fx.mul(supp, BOUNCE_SUPP_MULT), true, srcSide, srcX, srcY);
     }
+  }
+
+  /** E6 (GH-274): live members of a swarm, `ceil(hp / member_hp)`; -1 for a unit that is not one.
+   *  A read for tests and the later instanced drawing: nothing in the sim reads it back. */
+  swarmMembers(id: number): number {
+    const sw = this.unitTypes[this.typeIdx[id]].swarm;
+    return sw === null ? -1 : this.swarmLive(id, sw);
+  }
+
+  /** E6: live members of a swarm, `ceil(hp / memberHp)` in raw Q16.16 integers (both are
+   *  multiples of 1/65536, so the ratio is exact). 0 when hp <= 0. */
+  private swarmLive(i: number, sw: SwarmStats): number {
+    const hp = this.hp[i];
+    return hp <= 0 ? 0 : ((hp + sw.memberHp - 1) / sw.memberHp) | 0;
+  }
+
+  /**
+   * E6: a splash that reaches a swarm removes up to `ceil(live x min(1, splash / spread))`
+   * members, wherever in the radius it lands (falloff scales damage, not a cloud's headcount).
+   * A blast that deals no damage removes none. Hp drops to the new member boundary; none left
+   * and the swarm is gone.
+   */
+  private swarmSplash(target: number, sw: SwarmStats, splash: Fx, dmg: Fx, by: number): void {
+    if (dmg <= 0 || this.alive[target] === 0) return;
+    if (this.garrisonedIn[target] >= 0 || this.carriedBy[target] >= 0 || this.tunnelIn[target] >= 0) return;
+    const live = this.swarmLive(target, sw);
+    const reach = fx.div(splash, sw.spread);
+    const frac = reach > ONE ? ONE : reach;
+    const gone = (live * frac + 65535) >> 16; // ceil, raw Q16.16
+    const left = live - gone;
+    this.lastDamagedTick[target] = this.tickCount;
+    if (left <= 0) {
+      this.hp[target] = 0;
+      this.destroy(target, by);
+      return;
+    }
+    const cap = left * sw.memberHp;
+    if (this.hp[target] > cap) this.hp[target] = cap;
+  }
+
+  /**
+   * E6: a swarm's shot is a dive, and the diver is spent. Called from the end of `fireAt` and
+   * `fireAtStructure`, so the round is already in the air. The cooldown is the weapon's, scaled
+   * by count / remaining members (integer ceil): a thinned cloud dives more slowly. The last
+   * member's dive ends the swarm, credited to nobody.
+   */
+  private swarmDive(shooter: number, slot: number, w: WeaponStats): void {
+    const sw = this.unitTypes[this.typeIdx[shooter]].swarm;
+    if (sw === null) return;
+    const left = this.swarmLive(shooter, sw) - 1;
+    if (left <= 0) {
+      this.hp[shooter] = 0;
+      this.destroy(shooter, -1);
+      return;
+    }
+    const cap = left * sw.memberHp;
+    if (this.hp[shooter] > cap) this.hp[shooter] = cap;
+    this.cooldown[shooter * 2 + slot] = ((w.ticksBetweenShots * sw.count + left - 1) / left) | 0;
   }
 
   private applyDamage(target: number, dmg: Fx, by: number): void {
@@ -7286,6 +7384,17 @@ export class Sim {
     // and a tunnel collapse — which kills via destroy(), never through here —
     // is the only way ordnance gets to the occupants.
     if (this.garrisonedIn[target] >= 0 || this.carriedBy[target] >= 0 || this.tunnelIn[target] >= 0) return;
+    const swarm = this.unitTypes[this.typeIdx[target]].swarm;
+    if (swarm !== null) {
+      // E6 swarm: a single-target hit removes AT MOST one member. Damage still wears down the
+      // member it lands on (hp falls by dmg), but never past the next member down.
+      const floor = (this.swarmLive(target, swarm) - 1) * swarm.memberHp;
+      const left = fx.sub(this.hp[target], dmg);
+      this.hp[target] = left < floor ? floor : left;
+      this.lastDamagedTick[target] = this.tickCount;
+      if (this.hp[target] <= 0) this.destroy(target, by);
+      return;
+    }
     this.hp[target] = fx.sub(this.hp[target], dmg);
     this.lastDamagedTick[target] = this.tickCount;
     // GH-707: a team that can lose men wounded sheds one at each share crossing. Only while
@@ -10181,7 +10290,9 @@ export class Sim {
       // walk again — but only to a ceiling. Serious damage needs M2 repair.
       // A field work's heal or repair (stepAuras) raises the rate and the ceiling, each the
       // larger of the two, after the same delay: one rule for "under fire".
-      if (this.tickCount - this.lastDamagedTick[i] >= REGEN_DELAY_TICKS) {
+      // E6: a lost swarm member does not grow back (and no aura or workshop mends one): the
+      // cloud only ever shrinks, so the regen below skips it.
+      if (this.tickCount - this.lastDamagedTick[i] >= REGEN_DELAY_TICKS && this.unitTypes[this.typeIdx[i]].swarm === null) {
         const type = this.unitTypes[this.typeIdx[i]];
         const auraCap = this.auraHealCap[i];
         const auraRate = this.auraHealRate[i];
