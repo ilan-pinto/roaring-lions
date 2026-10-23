@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PLATE_SCALE_MAX, PLATE_SCALE_MIN, plateFit } from './plate-fit';
+import { PLATE_FILL, PLATE_SCALE_MAX, PLATE_SCALE_MIN, plateFit } from './plate-fit';
 
 /** Every shipped plate is 1800 x 1200 -- one camera, one frame, seventeen
  *  different units inside it. That is the whole reason a per-unit zoom exists. */
@@ -78,7 +78,11 @@ describe('plateFit', () => {
     expect(plates.length).toBeGreaterThan(10);
     for (const [id, p] of plates) {
       const { scale } = plateFit([p.extent[0], p.extent[1]], [p.width, p.height]);
-      expect(scale, id).toBeGreaterThan(PLATE_SCALE_MIN);
+      // A plate sits at 1 only because its footprint already fills the target share of the frame
+      // (spg_cluster's long barrel: 1105 of 1800 = 61%, wanted 0.98x). Anything smaller must zoom.
+      const fills = Math.max(p.extent[0] / p.width, p.extent[1] / p.height) >= PLATE_FILL;
+      if (fills) expect(scale, id).toBe(PLATE_SCALE_MIN);
+      else expect(scale, id).toBeGreaterThan(PLATE_SCALE_MIN);
       expect(scale, id).toBeLessThanOrEqual(PLATE_SCALE_MAX);
       // Nothing is cropped: the footprint plus its margin still fits.
       expect((p.extent[0] * scale * 1.1) / p.width, id).toBeLessThanOrEqual(1.0001);
