@@ -256,11 +256,10 @@ describe('unitPlate', () => {
 // Read off disk rather than through `unitPlate`'s glob, because the question is
 // about the shipped FILES: a manifest entry whose JPEG never landed passes a
 // glob-free check and fails the player.
-// Plates the lead deferred by name (22 Oct, GH-709 Phase 2: "skip them in this PR"). The
-// garage draws its reserved hatch for these meanwhile. Named, not globbed, and the demotion
-// spec below fails the day one of them gets a plate, so the list cannot outlive its reason.
-// GH-709 Phase 7: the Te'o Cluster Howitzer waits with its sibling, by name.
-const PLATE_PENDING: readonly string[] = ['mbt_lavi_camo', 'spg_long_range', 'spg_cluster'];
+// Plates the lead deferred by name (22 Oct, GH-709) land as they are captured; the list is empty now
+// (23 Oct: mbt_lavi_camo, spg_long_range, spg_cluster captured). A new art-less unit goes here by name, and the
+// demotion spec below fails the day it gets a plate, so the list cannot outlive its reason.
+const PLATE_PENDING: readonly string[] = [];
 
 describe('unit plate coverage', () => {
   it('a plate-pending unit really has no plate yet (delete it from PLATE_PENDING when it lands)', () => {
