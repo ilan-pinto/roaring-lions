@@ -27,11 +27,14 @@ import { chromium } from 'playwright';
 import path from 'node:path';
 import { devServerStopper, ensureDevServer } from '../golden-diff/browser';
 import { musicOffInitScript } from '../ui-review/music-off';
+import { claimPort } from '../ui-review/port';
 
 const args = process.argv.slice(2);
 const arg = (n: string, d: string): string => (args.find((a) => a.startsWith(`--${n}=`)) ?? `--${n}=${d}`).slice(n.length + 3);
 const root = path.resolve(arg('root', process.cwd()));
-const port = Number(arg('port', '5211'));
+// `--port=<n>`, else FX_COST_PORT, else 5211; a port something already holds
+// is refused (`ui-review/port.ts`), so this never times someone else's server.
+const port = await claimPort('fx-cost', 'FX_COST_PORT', 5211);
 const label = arg('label', 'run');
 const extra = arg('query', '');
 const BUDGET_MS = 16.7;
