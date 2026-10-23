@@ -393,7 +393,8 @@ export const BLAST_SUBJECTS: readonly BlastSubject[] = [
       '2.1592 here and failed the run (fix round 1). **It tripped again on 2026-10-23 and the ' +
       'abstention is deleted (GH-705 smoke uplift P2):** the kill recipe now throws 36 HDR sparks ' +
       '(`HDR_GAINS.sparks` 4, up to 1.6 s of life, constant-size dots), and at 600 ms the layer reads ' +
-      '5770-7118 px / 3.2078-3.6809 on three toggles-only runs, the set\'s smallest bloom reading. ' +
+      '6536, 5994, 5297 px / 3.6918, 3.5322, 3.1768 on three toggles-only runs after the option A trim ' +
+      '(36 -> 24 puffs, cook-off 16 -> 10; 5770-7118 px / 3.2078-3.6809 before it), the set\'s smallest bloom reading. ' +
       'That is the design, not a leak: the sparks are meant to bloom, and the cooling fireball and ' +
       'its smoke still do not. The negative bloom witness is gone with it; nothing else in the set is one.',
   },
@@ -1017,18 +1018,15 @@ export const LAYER_FLOORS = {
   bloom: {
     // Defilade T4 (D1/D8): the quarter-resolution HDR bloom, `bloomPass.enabled`
     // (`setDebugLayerVisible('bloom')`, which no per-frame path re-asserts).
-    // Was 1110 px / 1.71 (a third of 3311 / 5.1259, `mbt_lavi_z1`). Re-derived
-    // 2026-10-23 for the smoke-uplift P2 kill recipe: `apc_eitan` now votes
-    // (HDR sparks bloom at 600 ms) and is the smallest, 5770 px / 3.2078 over
-    // three Metal runs (5770, 5878, 7118 px / 3.2078, 3.3114, 3.6809); the
-    // other voters' smallest, `mbt_lavi_z1`, now reads 15910-16329 px /
-    // 8.6683-8.7097. A third of 5770 is 1923.3 -> 1930; of 3.2078, 1.0693 -> 1.07.
-    // Was 1930 px / 1.07 (a third of 5770 / 3.2078). Re-derived 2026-10-23 for
-    // the option A trim of the kill column (36 -> 24 puffs, cook-off 16 -> 10):
-    // `apc_eitan` is still the smallest voter, 6536, 5994, 5297 px / 3.6918,
-    // 3.5322, 3.1768 over three Metal runs (load 8.7 / 6.8 / 5.3 at the start;
-    // `mbt_lavi_z1` next at 15425-16198 / 8.48-8.71). A third of 5297 is
-    // 1765.7 -> 1770; of 3.1768, 1.0589 -> 1.06.
+    // Was 1110 px / 1.71 (T4), then 1930 px / 1.07 before the trim.
+    // Re-derived 2026-10-23 for the option A trim of the kill column
+    // (36 -> 24 puffs, cook-off 16 -> 10): `apc_eitan` is the smallest voter,
+    // 6536, 5994, 5297 px / 3.6918, 3.5322, 3.1768 over three Metal runs
+    // (load 8.7 / 6.8 / 5.3 at the start; `mbt_lavi_z1` next at 15425-16198 /
+    // 8.48-8.71). A third of 5297 is 1765.7 -> 1770; of 3.1768, 1.0589 -> 1.06.
+    // EARLIER (pre-trim, smoke-uplift P2 recipe): `apc_eitan` was 5770, 5878,
+    // 7118 px / 3.2078, 3.3114, 3.6809, and a third of 5770 is 1923.3 -> 1930;
+    // of 3.2078, 1.0693 -> 1.07. `mbt_lavi_z1` then read 15910-16329 / 8.6683-8.7097.
     minDiffPixels: 1770,
     minMeanAbsChannelDelta: 1.06,
     measured: { minDiffPixels: 5297, minMeanAbsChannelDelta: 3.1768, runs: 3 },
@@ -1044,8 +1042,9 @@ export const LAYER_FLOORS = {
       '21514-21515 / 11.37 and `shake_probe` 22056 / 11.52 at 0 ms (unchanged), `kamikaze_soft` ' +
       '26226-26252 / 15.85-15.86, `kamikaze_armour` 28795-28814 / 15.30-15.32, `lavi_fire` 52246-53948 / ' +
       '26.62-26.68. `apc_eitan` JOINED the voters at its 600 ms rung and is the smallest (see that ' +
-      'subject): 5770, 5878, 7118 px / 3.2078, 3.3114, 3.6809. Floors are a third of that subject, ' +
-      'rounded up. Falsified: see the commit message (HDR_GAINS.sparks and the fireball gain at 0). ' +
+      'subject): 5770, 5878, 7118 px / 3.2078, 3.3114, 3.6809 before the option A trim; after it 6536, ' +
+      '5994, 5297 px / 3.6918, 3.5322, 3.1768, and the floors (1770 / 1.06) are a third of those ' +
+      'post-trim minima, rounded up. Falsified: see the commit message (HDR_GAINS.sparks and the fireball gain at 0). ' +
       'EARLIER CALIBRATION, kept for the record. Calibrated 2026-10-21. ' + '3 runs on darwin-arm64, ANGLE/Metal (Apple M3 Pro), 1400x900 at deviceScaleFactor 1, the 600x400 ' +
       'ladder crop, `--toggles-only`, 2026-10-21 (fix round 1), one browser, music off; load averages ' +
       '5.13 / 17.07 / 14.52 at the start of each run (other sessions on the machine). ' +
@@ -1091,8 +1090,10 @@ export const LAYER_FLOORS = {
       '9.58-10.79, `mbt_lavi_z1` 17054-17104 / 4.80-4.82 (was 10330 / 3.13); `mortar_team` 9133 / ' +
       '3.2384 and `shake_probe` 9895 / 3.0594 (shell recipe, unchanged in shape), `kamikaze_*` ' +
       'unchanged (27260 / 12.78 and 20121 / 7.32), `collapse_house` 0 / 0.0000 (abstains). The floor ' +
-      'is still set by `lavi_fire` (the muzzle recipe alone): 6765, 6683, 6472 px / 2.5080, 2.4909, ' +
-      '2.4906. The sparks are a small part of the flipbook and no toggle isolates them. ' +
+      'is still set by `lavi_fire` (the muzzle recipe alone, which the option A trim does not touch): ' +
+      '6765, 6683, 6472 px / 2.5080, 2.4909, 2.4906 (6472 / 2.4906 is the minimum). The kill readings ' +
+      'listed above (`mbt_lavi`, `apc_eitan`, `scorch_*`, `blast_in_firefight`, `mbt_lavi_z1`) are all ' +
+      'PRE-trim; the mortar, shake_probe and kamikaze readings are shell/missile recipes the trim does not touch. The sparks are a small part of the flipbook and no toggle isolates them. ' +
       'EARLIER CALIBRATION, kept for the record. Calibrated 2026-10-21. ' + '3 runs on darwin-arm64, ANGLE/Metal (Apple M3 Pro), 1400x900 at deviceScaleFactor 1, the 600x400 ' +
       'ladder crop, `--toggles-only`, 2026-10-21 (fix round 1), one browser, music off; load averages ' +
       '5.13 / 17.07 / 14.52 at the start of each run (other sessions on the machine). ' +

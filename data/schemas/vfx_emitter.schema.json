@@ -429,9 +429,9 @@
         },
         "oil": {
           "type": "number",
-          "minimum": 0,
+          "exclusiveMinimum": 0,
           "maximum": 1,
-          "description": "smoke only: oily burning-fuel soot that stays near black for most of its life and glows ember in its dense core while young; overrides tint."
+          "description": "smoke only: oily burning-fuel soot that stays near black for most of its life and glows ember in its dense core while young; overrides tint. Must be above 0: 0 cannot override tint (the code reads `L.oil ? -L.oil : ...`), so omit it instead."
         },
         "low_fraction": {
           "type": "number",

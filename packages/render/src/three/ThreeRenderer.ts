@@ -2947,6 +2947,9 @@ export class ThreeRenderer implements Renderer {
     this.sceneLights.sun.shadow.intensity = shadowIntensityOf(opts.lightOverride);
     this.sceneLights.addTo(this.scene);
     this.shadowFitMode = (opts.quality ?? QUALITY_PRESETS.high).shadowFit ?? 'map';
+    // GH-705 smoke uplift P2: the flipbook's low tier (no sparks, thinned column).
+    // Set in the constructor, not `init()`, so a GL-free test can see it.
+    this.flipbook.setFxDetail((opts.quality ?? QUALITY_PRESETS.high).fxDetail ?? 2);
     // Same "always present, draws nothing until fed" shape as the FX meshes
     // just above, but for real `THREE.PointLight`s rather than a batched
     // mesh: all `FLASH_CAPACITY` of them go in now, at intensity 0, and stay
@@ -3070,8 +3073,6 @@ export class ThreeRenderer implements Renderer {
     // needs, so the chain builder below and the AO guard after it agree on
     // the same object rather than re-deriving the fallback twice.
     const quality = this.opts.quality ?? QUALITY_PRESETS.high;
-    // GH-705 smoke uplift P2: the flipbook's low tier (no sparks, thinned column).
-    this.flipbook.setFxDetail(quality.fxDetail ?? 2);
     // AFTER `fitToHost`, which is what first fills `cssWidth`/`cssHeight`,
     // and after `setPixelRatio`, which `getPixelRatio` reads back here so
     // the composer's targets and the canvas agree on their scale without

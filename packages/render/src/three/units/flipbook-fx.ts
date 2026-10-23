@@ -692,7 +692,7 @@ export class FlipbookFx {
       // The lowest effects tier: sparks go, and a layer that declares
       // `low_fraction` spawns only that share of its count (rounded up).
       if (this.fxDetail === 0 && type === FLIP_SPARK) continue;
-      const count = this.fxDetail === 0 && L.low_fraction !== undefined ? Math.ceil(L.count * L.low_fraction) : L.count;
+      const count = this.fxDetail === 0 && L.low_fraction !== undefined ? Math.ceil(L.count * L.low_fraction - 1e-9) : L.count;
       const off = L.offset ?? {};
       const v = L.velocity;
       const y0 = (L.at_ground ? groundH : h) + (off.up ?? 0);

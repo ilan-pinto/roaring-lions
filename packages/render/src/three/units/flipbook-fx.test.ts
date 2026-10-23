@@ -564,6 +564,17 @@ describe('the low tier (fxDetail 0)', () => {
     expect(odd.mesh.geometry.instanceCount).toBe(2);
   });
 
+  it('does not round a float-noisy product up: 100 x 0.55 spawns 55, 10 x 0.7 spawns 7', () => {
+    // 100 * 0.55 is 55.00000000000001 in doubles, so a bare ceil gives 56.
+    // (10 * 0.7 is exactly 7, a plain regression guard.)
+    for (const [count, low_fraction, want] of [[100, 0.55, 55], [10, 0.7, 7]] as const) {
+      const fx = new FlipbookFx(undefined, 0);
+      fx.setAtlases(atlas(), atlas());
+      fx.spawnRecipe([{ ...kill[0], count, low_fraction }], 0, 0, 0, 1);
+      expect(fx.mesh.geometry.instanceCount).toBe(want);
+    }
+  });
+
   it('fxDetail 1 and the setter keep the full recipe; the setter takes effect at the next spawn', () => {
     const fx = new FlipbookFx(undefined, 1);
     fx.setAtlases(atlas(), atlas());

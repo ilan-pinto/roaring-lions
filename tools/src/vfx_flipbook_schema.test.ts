@@ -36,12 +36,13 @@ describe('vfx_emitter flipbook layer (P2 members)', () => {
   it('accepts spark, oil and low_fraction', () => {
     expect(validate(emitter(layer({ type: 'spark' })))).toBe(true);
     expect(validate(emitter(layer({ oil: 1 })))).toBe(true);
-    expect(validate(emitter(layer({ oil: 0 })))).toBe(true);
+    expect(validate(emitter(layer({ oil: 0.01 })))).toBe(true);
     expect(validate(emitter(layer({ low_fraction: 0.5 })))).toBe(true);
   });
   it('refuses oil above 1 or below 0, a bad low_fraction, and an unknown type', () => {
     expect(validate(emitter(layer({ oil: 1.01 })))).toBe(false);
     expect(validate(emitter(layer({ oil: -0.1 })))).toBe(false);
+    expect(validate(emitter(layer({ oil: 0 })))).toBe(false);
     expect(validate(emitter(layer({ low_fraction: 0 })))).toBe(false);
     expect(validate(emitter(layer({ low_fraction: 1.5 })))).toBe(false);
     expect(validate(emitter(layer({ type: 'plasma' })))).toBe(false);
