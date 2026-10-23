@@ -4,7 +4,7 @@ import { FLOORS, verdict, type Reading } from './support-captures';
 const r = (over: Partial<Reading>): Reading => ({
   shot: 's',
   layer: 'support-blast',
-  changedPx: 5000,
+  changedPx: 100_000,
   meanDelta: 1,
   controlPx: 0,
   objects: 2,
