@@ -156,6 +156,28 @@ describe('ThreeRenderer mesh-death wiring', () => {
     expect(priv.scene.children).toContain(root);
   });
 
+  it('GH-763: a unit that dies while buried in a tunnel leaves no dying body and no wreck on the surface', async () => {
+    const { sim, renderer, priv, id } = await setUp(['idle', 'down', 'wreck']);
+    priv.updateMeshUnits(1, 16);
+    const root = priv.meshUnitEntities.get(id)!.root;
+
+    // Buried for a tick (as after `digs`/`in_tunnel`), then a collapse clears
+    // `tunnelIn` and kills in the same tick (`Sim.collapseTunnel`).
+    sim.state.tunnelIn[id] = 0;
+    renderer.snapshot();
+    sim.state.tunnelIn[id] = -1;
+    sim.state.alive[id] = 0;
+    renderer.snapshot();
+    priv.updateMeshUnits(1, 16);
+
+    // Break check: delete the `buriedDeaths` latch in `snapshot()` (or its
+    // test in the prune loop) and the body goes to `meshDying`, in the scene.
+    expect(priv.meshDying).toHaveLength(0);
+    expect(priv.meshWrecks).toHaveLength(0);
+    expect(priv.meshUnitEntities.has(id)).toBe(false);
+    expect(priv.scene.children).not.toContain(root);
+  });
+
   it('advances an already-dying entity every frame via stepMeshDeaths -- fully round-trips to a persisted MeshWreck', async () => {
     const { sim, priv, id } = await setUp(['idle', 'down', 'wreck']);
     priv.updateMeshUnits(1, 16);

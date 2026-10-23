@@ -2118,6 +2118,19 @@ export class ThreeRenderer implements Renderer {
   private readonly detonated = new Set<number>();
 
   /**
+   * GH-763: ids of units that died while buried in a tunnel route. A collapse
+   * clears `tunnelIn` in the same tick it kills (`Sim.collapseTunnel`), and
+   * the sim position still holds the tile the unit went down at, so a death
+   * keyed on `alive === 0` alone drew a dying body on the surface, far from
+   * the route. Latched by `snapshot()` from `buriedLast`, the previous tick's
+   * `tunnelIn >= 0`. A unit that died underground leaves no body (the
+   * collapse effect at the route is its whole end). Ids are never reused.
+   */
+  private readonly buriedDeaths = new Set<number>();
+  /** 1 while the entity was alive and `tunnelIn >= 0` at the last `snapshot()`. */
+  private readonly buriedLast: Uint8Array;
+
+  /**
    * Vehicle meshes (mesh-unit-contract v2). One `VehicleMeshTemplate` per
    * unit type `loadVehicleMesh` was called with -- the rigid,
    * hull-plus-pivot-turret counterpart of `meshUnitTemplates` above, kept in
@@ -2614,6 +2627,7 @@ export class ThreeRenderer implements Renderer {
     this.meshBodyYawSet = new Uint8Array(n);
     this.missileTrack = { x: this.curX, y: this.curY, alive: sim.state.alive };
     this.killerX = new Float64Array(n).fill(NaN);
+    this.buriedLast = new Uint8Array(n);
     this.killerY = new Float64Array(n).fill(NaN);
     this.entitySpeed = new Float64Array(n);
     this.firingTimer = new Float64Array(n);
@@ -3298,6 +3312,7 @@ export class ThreeRenderer implements Renderer {
     this.meshDeparting.length = 0;
     this.evacuated.clear();
     this.detonated.clear();
+    this.buriedDeaths.clear();
     // Permanent wrecks share the template's geometry/material by reference
     // (like every living `MeshUnitEntity` does -- `MeshUnitTemplate`'s own
     // doc comment), so only `scene.remove` is needed; the shared resources
@@ -4569,6 +4584,10 @@ export class ThreeRenderer implements Renderer {
       this.curX[i] = fx.toNumber(st.posX[i]);
       this.curY[i] = fx.toNumber(st.posY[i]);
       this.curFacing[i] = fx.toNumber(st.facing[i]);
+      // GH-763: died while buried last tick -> no surface body. Read BEFORE
+      // the flag is rewritten from this tick's state.
+      if (st.alive[i] === 0 && this.buriedLast[i] === 1) this.buriedDeaths.add(i);
+      this.buriedLast[i] = st.alive[i] !== 0 && st.tunnelIn[i] >= 0 ? 1 : 0;
       if (i >= seen) {
         this.prevX[i] = this.curX[i];
         this.prevY[i] = this.curY[i];
@@ -8056,7 +8075,7 @@ export class ThreeRenderer implements Renderer {
       // (`this.detonated`, latched in `onEvents`) leaves no body, exactly as
       // a removed unit leaves none: the blast is the whole of its end.
       if (this.evacuated.has(id)) this.meshDeparting.push(beginMeshEvac(entity));
-      else if (id < n && (st.removed[id] === 1 || this.detonated.has(id))) {
+      else if (id < n && (st.removed[id] === 1 || this.detonated.has(id) || this.buriedDeaths.has(id))) {
         this.scene.remove(entity.root);
         disposeMeshUnitEntity(entity);
       } else {
@@ -8628,7 +8647,7 @@ export class ThreeRenderer implements Renderer {
       // GH-85: a drone whose own warhead went off (`this.detonated`) takes
       // the immediate removal too -- a munition that detonated is not a hull
       // that burnt out, and leaves no wreck.
-      if (deadTemplate?.hasWreck === true && id < n && st.removed[id] === 0 && !this.detonated.has(id)) {
+      if (deadTemplate?.hasWreck === true && id < n && st.removed[id] === 0 && !this.detonated.has(id) && !this.buriedDeaths.has(id)) {
         // Detach BEFORE the death sequence takes the entity, exactly as
         // `updateMeshUnits` does: the fade clones every material under the
         // root, and a silhouette's own `MeshBasicMaterial` is shared by every
