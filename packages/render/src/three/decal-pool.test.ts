@@ -229,7 +229,7 @@ describe('DecalPool', () => {
     const p = new DecalPool({ capacity: 2, grid: 2, renderOrder: DECAL_FADING_RENDER_ORDER, material: material() });
     expect(isAoOccluder(p.mesh)).toBe(false);
     expect(p.mesh.castShadow).toBe(false);
-    // Defilade Task 5 PROTOTYPE: a receiver, so the crater rim reads the shadow map.
+    // Defilade Task 5: a receiver, so the crater rim reads the shadow map.
     expect(p.mesh.receiveShadow).toBe(true);
     expect(p.mesh.frustumCulled).toBe(false);
     expect(p.mesh.renderOrder).toBe(DECAL_FADING_RENDER_ORDER);

@@ -218,6 +218,7 @@ import { decalShowcase, showcaseAnchor, showcaseSites } from './decal-showcase';
 import {
   DecalPool,
   createDecalMaterial,
+  CRATER_RIM_GAIN,
   craterRadiusTiles,
   isFadingKind,
   presentationSimMs,
@@ -1065,7 +1066,7 @@ export class ThreeRenderer implements Renderer {
    *  `MeshStandardMaterial` now: a scene with no lights in it is not a
    *  dimmer picture, it is a black one. */
   private readonly sceneLights: SceneLights;
-  /** Defilade Task 2 PROTOTYPE (`shadow-fit.ts`): which shadow box the sun
+  /** Defilade Task 2 (`shadow-fit.ts`): which shadow box the sun
    *  uses this frame, whether the view fit snaps to texels, and the last fit.
    *  `'map'` is today's box and is never rewritten per frame. */
   private shadowFitMode: ShadowFitMode = 'map';
@@ -3821,7 +3822,7 @@ export class ThreeRenderer implements Renderer {
         return tiles;
       }
       case 'crater-rims': {
-        // Defilade Task 5 PROTOTYPE: the rim relief's gain to 0 (today's flat
+        // Defilade Task 5: the rim relief's gain to 0 (today's flat
         // decal) and back. Nothing per-frame writes it.
         const u = this.decalMaterial.uniforms.uRimGain;
         const next = visible ? this.craterRimGain : 0;
@@ -4267,7 +4268,7 @@ export class ThreeRenderer implements Renderer {
         // hidden for the rest of the mission.
         this.setDebugLayerVisible('units', false);
         this.setDebugLayerVisible('overlays', false);
-        // Defilade Task 2 PROTOTYPE: a view-fitted shadow box covers only the
+        // Defilade Task 2: a view-fitted shadow box covers only the
         // camera's ground, so the top-down photograph takes the map-wide box;
         // the next frame refits.
         if (this.shadowFitMode === 'view') {
@@ -7310,7 +7311,7 @@ export class ThreeRenderer implements Renderer {
     this.retained.tutorialFocus = null;
   }
 
-  /** Defilade Task 2 PROTOTYPE: refit the sun's shadow box to `camera`
+  /** Defilade Task 2: refit the sun's shadow box to `camera`
    *  (`'view'`), or put the map-wide box back once after a switch (`'map'`). */
   private updateShadowFit(camera: THREE.OrthographicCamera, force?: ShadowFitMode): void {
     const mode = force ?? this.shadowFitMode;
@@ -7334,7 +7335,7 @@ export class ThreeRenderer implements Renderer {
     this.shadowFitDirty = mode === 'view';
   }
 
-  /** Defilade Task 2 PROTOTYPE debug seam (reached through `__lions.renderer`
+  /** Defilade Task 2 debug seam (reached through `__lions.renderer`
    *  by the A/B harness): switch the shadow box fit live. */
   setShadowFit(mode: ShadowFitMode, snap = true): void {
     this.shadowFitMode = mode;
@@ -7342,9 +7343,9 @@ export class ThreeRenderer implements Renderer {
     this.shadowFitDirty = true;
   }
 
-  /** Defilade Task 5 PROTOTYPE debug seam: the crater rim's gain and shape
+  /** Defilade Task 5 debug seam: the crater rim's gain and shape
    *  (bowl depth, rim height, in crater radii). */
-  private craterRimGain = 1;
+  private craterRimGain = CRATER_RIM_GAIN;
   setCraterRim(gain: number, bowlDepth?: number, rimHeight?: number): void {
     this.craterRimGain = gain;
     this.decalMaterial.uniforms.uRimGain.value = gain;

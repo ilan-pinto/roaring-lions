@@ -8,7 +8,8 @@
  * which arrives by dynamic import (three.js is the only renderer since
  * WP-A3.3; the `PixiRenderer` that once ignored this field is deleted).
  *
- * `high` was pinned to the pre-preset constants on purpose: before this file
+ * `high` was pinned to the pre-preset constants on purpose (the bloom and
+ * the view-fitted shadow box are the two knobs since that are not no-ops): before this file
  * existed, the renderer always ran ambient occlusion at
  * `AO_RESOLUTION_SCALE` and always built an SMAA pass, and the sun's shadow
  * map was always `lighting.ts`'s own `SHADOW_MAP_SIZE`. A player who never
@@ -47,16 +48,18 @@ export interface RenderQuality {
    */
   bloom: 'off' | 'quarter';
   /**
-   * PROTOTYPE (Defilade Task 2, GH-705; not shipped): `'view'` refits the
-   * sun's shadow box to the camera every frame (`three/shadow-fit.ts`);
-   * `'map'` (and absent) is today's map-wide box fitted once. No preset sets
-   * it, so every preset's frame is unchanged.
+   * The sun's shadow box (Defilade Task 2, GH-705; the lead, 22 Oct 2026:
+   * every preset). `'view'` refits it to the camera every frame, snapped to
+   * whole texels (`three/shadow-fit.ts`): about one screen pixel a texel at
+   * every zoom from 0.5 up, against 1.9-4.9 for the map-wide box, at no
+   * measured frame cost and with fewer shadow-pass draw calls. `'map'` (or
+   * absent, for callers that predate it) is the map-wide box fitted once.
    */
   shadowFit?: 'map' | 'view';
 }
 
 export const QUALITY_PRESETS: Readonly<Record<'low' | 'medium' | 'high', RenderQuality>> = {
-  low: { ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off' },
-  medium: { ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off' },
-  high: { ao: true, smaa: true, shadowMapSize: 4096, bloom: 'quarter' },
+  low: { ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view' },
+  medium: { ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view' },
+  high: { ao: true, smaa: true, shadowMapSize: 4096, bloom: 'quarter', shadowFit: 'view' },
 };

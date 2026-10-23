@@ -1,5 +1,5 @@
 /**
- * Defilade Tasks 2 and 5 (GH-705), PROTOTYPE instrument -- not a gate.
+ * Defilade Tasks 2 and 5 (GH-705): the A/B instrument -- not a gate.
  *
  *   npx tsx tools/src/perf/defilade-25-captures.ts --out=<dir> [--port=5191] [--only=stills,shimmer,cost]
  *
@@ -283,6 +283,55 @@ if (only.has('stills')) {
         save(await shot(page), `${s.id}_z${z}_rims-on-view.png`);
         await setArm(page, 'map');
       }
+    }
+  }
+}
+
+if (only.has('lighting')) {
+  // S4 MOCK (the lead, 22 Oct: mock first, ship nothing): GH-705 Task 2's own
+  // lighting numbers applied at runtime over today's, same frame. Exposure
+  // 1.05, sun #FFF4E0 x 2.8, hemisphere #DDEEFF / #3D382E x 0.55, bias
+  // -0.0004. Colours go through THREE.Color like createSceneLights' own.
+  // The haze tint is resolved at boot from today's lights and is NOT redone.
+  for (const s of SUBJECTS.filter((x) => ['quiet', 'relief', 'relief-qarn', 'crater-town'].includes(x.id))) {
+    const page = await pageFor(s);
+    for (const z of ZOOMS) {
+      await view(page, s.cam[0], s.cam[1], z);
+      const shots: Record<string, PNG> = {};
+      for (const arm of ['today', 'brief']) {
+        await page.evaluate((a) => {
+          type C = { set(v: number): void; getHex(): number };
+          const R = (window as unknown as { __lions: { renderer: {
+            renderer: { toneMappingExposure: number };
+            sceneLights: { sun: { color: C; intensity: number; shadow: { bias: number } }; hemisphere: { color: C; groundColor: C; intensity: number } };
+            frame(a: number, dt: number): void;
+          } } }).__lions.renderer;
+          const w = window as unknown as { __today?: { e: number; sc: number; si: number; hs: number; hg: number; hi: number; b: number } };
+          const L = R.sceneLights;
+          if (!w.__today) w.__today = { e: R.renderer.toneMappingExposure, sc: L.sun.color.getHex(), si: L.sun.intensity, hs: L.hemisphere.color.getHex(), hg: L.hemisphere.groundColor.getHex(), hi: L.hemisphere.intensity, b: L.sun.shadow.bias };
+          const t = w.__today;
+          const v = a === 'brief' ? { e: 1.05, sc: 0xfff4e0, si: 2.8, hs: 0xddeeff, hg: 0x3d382e, hi: 0.55, b: -0.0004 } : t;
+          R.renderer.toneMappingExposure = v.e;
+          L.sun.color.set(v.sc);
+          L.sun.intensity = v.si;
+          L.hemisphere.color.set(v.hs);
+          L.hemisphere.groundColor.set(v.hg);
+          L.hemisphere.intensity = v.hi;
+          L.sun.shadow.bias = v.b;
+          R.frame(1, 0);
+          R.frame(1, 0);
+        }, arm);
+        shots[arm] = await shot(page);
+        save(shots[arm], `${s.id}_z${z}_light-${arm}.png`);
+      }
+      const d = diff(shots.today, shots.brief);
+      // Mean luminance of each, over the whole frame.
+      const lum = (p: PNG): number => {
+        let t = 0;
+        for (let i = 0; i < p.data.length; i += 4) t += 0.2126 * p.data[i] + 0.7152 * p.data[i + 1] + 0.0722 * p.data[i + 2];
+        return t / (p.data.length / 4);
+      };
+      say(`[lighting ${s.id} z${z}] today vs brief: ${d.px} px differ, mean |delta| ${d.mad.toFixed(3)}; mean luma ${lum(shots.today).toFixed(1)} -> ${lum(shots.brief).toFixed(1)}`);
     }
   }
 }

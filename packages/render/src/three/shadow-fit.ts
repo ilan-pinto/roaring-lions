@@ -1,13 +1,14 @@
 /**
- * Defilade Task 2 (GH-705), PROTOTYPE: a camera-synced, tight shadow box.
+ * Defilade Task 2 (GH-705): a camera-synced, tight shadow box.
  *
- * `lighting.ts` fits the sun's orthographic shadow camera ONCE per map, wide
- * enough to cover the whole map at any sun azimuth (`shadowBoxRadius`). On a
- * 48x48 map that is a 71.9 world-unit box on a 4096 map, 0.0176 wu a texel,
- * and at the default zoom 1 / DPR 2 a texel lands on ~0.9 screen pixels of
- * ground along one axis and ~1.1 along the other -- the shadow edge is
- * filtered over a few texels, so it reads soft and the PCF disk is wide.
- * This module refits the box every frame to what the CAMERA can see.
+ * `lighting.ts` builds the sun's orthographic shadow camera wide enough to
+ * cover the whole map at any sun azimuth (`shadowBoxRadius`): on a 48x48 map
+ * a 71.9 world-unit box on a 4096 map, 0.0176 wu a texel. Measured through
+ * the real cameras (1440x900, DPR 2), one texel spans 1.94 / 0.79 screen
+ * pixels at zoom 1 and 4.85 / 1.99 at zoom 2.5 (64x64: 2.55 and 6.38), so a
+ * hull shadow is a soft blob. Since GH-705 every preset (`quality.ts`
+ * `shadowFit: 'view'`) refits the box every frame to what the CAMERA can
+ * see: 0.78 / 0.54 at zoom 1, 0.94 / 0.69 at 2.5, on any map size.
  *
  * ## What the box must contain
  *

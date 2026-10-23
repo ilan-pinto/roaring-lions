@@ -285,7 +285,7 @@ export class DecalPool {
     this.mesh = new THREE.Mesh(geometry, material);
     this.mesh.renderOrder = renderOrder;
     this.mesh.castShadow = false;
-    // Defilade Task 5 PROTOTYPE: true so the crater rim can read the sun's
+    // Defilade Task 5: true so the crater rim can read the sun's
     // shadow map (three only binds it for a receiver). It does not make the
     // decal draw in the shadow pass -- that is `castShadow`, still false.
     this.mesh.receiveShadow = true;
@@ -369,7 +369,7 @@ export class DecalPool {
   }
 }
 
-/** Defilade Task 5 PROTOTYPE: the crater rim's relief. Bowl depth and rim
+/** Defilade Task 5: the crater rim's relief. Bowl depth and rim
  *  height in units of the crater's own radius, and an overall gain (0 is
  *  today's flat decal). */
 export const CRATER_RIM_BOWL_DEPTH = 0.25;
@@ -392,7 +392,7 @@ const DECAL_VERTEX_SHADER = /* glsl */ `
   #include <common>
   #include <shadowmap_pars_vertex>
   attribute vec2 aOffset;
-  // Defilade Task 5 PROTOTYPE: the view-space position, whose screen
+  // Defilade Task 5: the view-space position, whose screen
   // derivatives give the decal facet's own frame for the crater-rim normal.
   varying vec3 vViewPos;
   attribute vec4 aDecal;
@@ -431,7 +431,7 @@ const DECAL_FRAGMENT_SHADER = /* glsl */ `
   #include <shadowmap_pars_fragment>
   #include <shadowmask_pars_fragment>
   varying vec3 vViewPos;
-  // Defilade Task 5 PROTOTYPE: the crater rim's relief, a multiple of the
+  // Defilade Task 5: the crater rim's relief, a multiple of the
   // crater's own radius (0 = today's flat decal: the shade ratio is 1).
   uniform float uRimGain;
   uniform vec2 uRimShape;
@@ -466,7 +466,7 @@ const DECAL_FRAGMENT_SHADER = /* glsl */ `
     return r * (1.0 + amp * sin(lobes * theta + ${f(2 * Math.PI)} * seed));
   }
 
-  // Defilade Task 5 PROTOTYPE: the crater's height, in units of its own
+  // Defilade Task 5: the crater's height, in units of its own
   // radius, over (s, t): a parabolic bowl inside the lip and a raised rim
   // that peaks where the lip albedo does. uRimShape = (bowl depth, rim height).
   float craterHeight(vec2 st, float seed) {
@@ -648,7 +648,7 @@ export function createDecalMaterial(palette: DecalPalette, ground?: DecalGroundU
     uRoadOn: { value: 1 },
   };
   return new THREE.ShaderMaterial({
-    // Defilade Task 5 PROTOTYPE: the crater rim reads the sun, the sky and
+    // Defilade Task 5: the crater rim reads the sun, the sky and
     // the sun's shadow map (three's own light uniforms, cloned so nothing is
     // shared with another material; the road uniforms below stay shared).
     lights: true,
