@@ -2748,6 +2748,21 @@ Shadow map memory unchanged (still 4096 at `high`). Crater rims: 334 = 334 calls
 app's own 60 Hz loop, and `medium`/`low`. Full account and sharpness/shimmer numbers:
 the PR description.
 
+## Defilade Task 6: the smoke outline (GH-705, 2026-10-23)
+
+Apple M3 Pro, ANGLE/Metal, headless Chromium, 1440x900 at DPR 2, `high`, load average 5.4-10.0 (the
+machine was shared). Instrument: `pnpm smoke-outline:capture -- --time`, `beit_sahwan_outskirts`
+force with six smoke carriers ordered, tick 90 (dense), 10 own units standing in smoke at >= 48/255.
+
+| measure | reading |
+|---|---|
+| `stepSmokeOutlines` per frame | median 0.6 us, p95 1.2 us per call (200 batches of 500 calls; `performance.now` is coarsened in a page, a single call reads 0) |
+| draw calls, toggle off / on | 326 / 326 at z1, 241 / 241 at z2.5, 324 / 324 and 239 / 239 on the quiet frame |
+
+The scan is one `smokeAt` read per own mesh entity; it allocates only on a swap. Not measured: frame
+time with the outline on (the silhouette meshes draw every frame whatever material they wear, so the
+submissions are the same), and a 300-unit fight.
+
 ## Wounded men and the lifetime id count (GH-707 P3, 2026-10-22)
 
 P3 puts `hull.wounds` on every infantry unit of both sides (and `in_place` on the civilians). Two
