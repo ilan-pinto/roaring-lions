@@ -99,12 +99,12 @@ return JSON.stringify({ start, tick: L.sim.tickCount, hash: L.sim.hash(), conten
 const ECONOMY_SCRIPT = `(async () => {
 const m = await import('/src/net/economy-stream.test-helper.ts');
 const r = m.runEconomyClient(m.economyStreamFrames());
-return JSON.stringify({ digests: r.digests, built: r.built, droppedTicks: r.droppedTicks, accepted: r.accepted });
+return JSON.stringify({ digests: r.digests, built: r.built, droppedTicks: r.droppedTicks, accepted: r.accepted, tunnel: r.tunnel });
 })()`;
 
 /** The fields the verdict compares, from a full client result (Node's side). */
 function economyReadingOf(r: EconomyStreamResult): EconomyReading {
-  return { digests: r.digests, built: r.built, droppedTicks: r.droppedTicks, accepted: r.accepted };
+  return { digests: r.digests, built: r.built, droppedTicks: r.droppedTicks, accepted: r.accepted, tunnel: r.tunnel };
 }
 
 /** An engine that could not launch, or cannot create WebGL2 here: an
@@ -197,7 +197,7 @@ async function reading(launch: () => Promise<Browser>, name: string, port: numbe
     console.log(`[${TAG}] ${name}: orders from tick ${end.start}; tick ${end.tick} hash ${end.hash}; content digest ${end.contentDigest}`);
     const economy = JSON.parse((await within(page.evaluate(ECONOMY_SCRIPT), SCRIPT_TIMEOUT_MS, `${name}: the economy stream`)) as string) as EconomyReading;
     const last = economy.digests[economy.digests.length - 1];
-    console.log(`[${TAG}] ${name}: economy stream: ${economy.digests.length} hash ticks, final ${last === undefined ? 'none' : `${last[1]} at tick ${last[0]}`}, built ${JSON.stringify(economy.built)}, dropped at ${JSON.stringify(economy.droppedTicks)}`);
+    console.log(`[${TAG}] ${name}: economy stream: ${economy.digests.length} hash ticks, final ${last === undefined ? 'none' : `${last[1]} at tick ${last[0]}`}, built ${JSON.stringify(economy.built)}, dropped at ${JSON.stringify(economy.droppedTicks)}, tunnel ${JSON.stringify(economy.tunnel)}`);
     return { bootTick: end.start, bootUnits: boot.units, bootHostiles: boot.hostiles, tick: end.tick, hash: end.hash, contentDigest: end.contentDigest, economy };
   } catch (err) {
     // Whatever broke (a lost context mid-step, a navigation timeout), it is
@@ -258,7 +258,11 @@ async function main(): Promise<number> {
     if (nodeEconomy.digests.length === 0 || nodeEconomy.built.some((n) => n === 0)) {
       throw new Error('the economy stream produced no reading in Node (no hash ticks, or a side built nothing)');
     }
-    console.log(`[${TAG}] node: economy stream: ${nodeEconomy.digests.length} hash ticks, final ${nodeLast?.[1]} at tick ${nodeLast?.[0]}, built ${JSON.stringify(nodeEconomy.built)}`);
+    // GH-681 T6: likewise a stream whose routed units never went below, or never came up, proves nothing.
+    if (nodeEconomy.tunnel.below !== 4 || nodeEconomy.tunnel.surfaced === 0) {
+      throw new Error(`the economy stream's tunnel orders did nothing in Node (${JSON.stringify(nodeEconomy.tunnel)}: want 4 below at the vent and some surfaced)`);
+    }
+    console.log(`[${TAG}] node: economy stream: ${nodeEconomy.digests.length} hash ticks, final ${nodeLast?.[1]} at tick ${nodeLast?.[0]}, built ${JSON.stringify(nodeEconomy.built)}, tunnel ${JSON.stringify(nodeEconomy.tunnel)}`);
     const d = decide(outcomes, TARGET_TICK, FIRST_ORDER_TICK, nodeContent, args.require, nodeEconomy);
     // A `::warning::` line must START the line for the runner to read it, so
     // it is printed bare; everything else carries the tag.

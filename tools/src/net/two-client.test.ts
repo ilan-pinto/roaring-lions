@@ -17,7 +17,7 @@ import { versusConfig } from './test-config';
 import { contentDigest, shippedContent, shippedContentDigest } from '../../../packages/app/src/net/content-digest';
 import { units } from '@lions/data';
 import {
-  ECONOMY_STREAM_ACCEPTED, ECONOMY_STREAM_FORGED_TICK, ECONOMY_STREAM_TICKS, economyStreamFrames, runEconomyClient,
+  ECONOMY_STREAM_ACCEPTED, ECONOMY_STREAM_FORGED_TICK, ECONOMY_STREAM_TICKS, ECONOMY_STREAM_TUNNEL, economyStreamFrames, runEconomyClient,
 } from '../../../packages/app/src/net/economy-stream.test-helper';
 
 const MISSION = 'beit_sahwan_1_recon';
@@ -425,9 +425,24 @@ describe('an economy room: both seats producing through frames (N3 Task 8)', () 
     expect(b.accepted).toBe(ECONOMY_STREAM_ACCEPTED);
   }, 60_000);
 
+  it('the Sarim seat\'s foot units went below, crawled to the vent, and came up on order (GH-681 T6)', () => {
+    expect(a.tunnel.below).toBe(4);
+    expect(a.tunnel.surfaced).toBeGreaterThan(0);
+    expect(b.tunnel).toEqual(a.tunnel);
+  });
+
+  it('falsified: the vent frame dropped from client B alone is a desync (GH-681 T6)', () => {
+    const cut = frames.map((f) => (f.tick === ECONOMY_STREAM_TUNNEL.exit ? { tick: f.tick, cmds: f.cmds.filter((s) => s.cmd.kind !== 'vent') } : f));
+    expect(cut[ECONOMY_STREAM_TUNNEL.exit].cmds.length).toBe(frames[ECONOMY_STREAM_TUNNEL.exit].cmds.length - 1);
+    const bad = runEconomyClient(cut);
+    expect(firstDisagreement(a.digests, bad.digests)).not.toBeNull();
+    expect(bad.tunnel).not.toEqual(a.tunnel);
+  }, 60_000);
+
   it('the forged build{side: 0} from seat 0 (side 1) is dropped on both clients, and only it', () => {
-    expect(a.droppedTicks).toEqual([ECONOMY_STREAM_FORGED_TICK]);
-    expect(b.droppedTicks).toEqual([ECONOMY_STREAM_FORGED_TICK]);
+    // The forged build, and seat 1's forged enterTunnel into the Sarim route (T-R4).
+    expect(a.droppedTicks).toEqual([ECONOMY_STREAM_TUNNEL.forged, ECONOMY_STREAM_FORGED_TICK]);
+    expect(b.droppedTicks).toEqual([ECONOMY_STREAM_TUNNEL.forged, ECONOMY_STREAM_FORGED_TICK]);
   });
 
   it('falsified: a frame out of order on client B is a desync on that window\'s hash tick', () => {
