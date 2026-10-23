@@ -110,14 +110,14 @@ describe('TrailPool', () => {
 });
 
 describe('emitAlongFlight', () => {
-  it('drops one puff every 0.20 tiles of ground travelled, and never the same stretch twice', () => {
+  it('drops one puff every 0.12 tiles of ground travelled, and never the same stretch twice', () => {
     const pool = new TrailPool(256);
     const m = missile();
     m.t = m.duration * 0.25; // 2.0 tiles of an 8-tile shot
     expect(emitAlongFlight(pool, m, look(), flatY)).toBe(Math.floor(2.0 / TRAIL_SPACING_TILES + 1e-9));
     expect(emitAlongFlight(pool, m, look(), flatY)).toBe(0);
     m.t = m.duration * 0.5;
-    expect(emitAlongFlight(pool, m, look(), flatY)).toBe(10);
+    expect(emitAlongFlight(pool, m, look(), flatY)).toBe(17); // Was 10 at 0.2 spacing: 33 - 16 puffs at 0.12 (the lead, 23 Oct, Q5)
   });
 
   it('an RPG leaves no smoke before its motor lights at 0.3 tiles (N6)', () => {
@@ -128,7 +128,7 @@ describe('emitAlongFlight', () => {
     expect(emitAlongFlight(pool, m, look(), flatY)).toBe(0);
     m.t = m.duration * (1.0 / 4);
     expect(missileIgnited(m)).toBe(true);
-    expect(emitAlongFlight(pool, m, look(), flatY)).toBe(4); // 0.4, 0.6, 0.8, 1.0
+    expect(emitAlongFlight(pool, m, look(), flatY)).toBe(6); // 0.36 .. 0.96 at 0.12. Was 4 at 0.2: 0.4, 0.6, 0.8, 1.0 (the lead, 23 Oct, Q5)
   });
 
   it('a warhead leaves nothing at all', () => {
@@ -187,14 +187,14 @@ describe('writeMissileSprites', () => {
     const pool = new TrailPool(64);
     const m = missile();
     m.t = m.duration * 0.25;
-    emitAlongFlight(pool, m, look(), flatY); // lays 10 puffs, one shared look
-    expect(pool.live).toBe(10);
+    emitAlongFlight(pool, m, look(), flatY); // lays 16 puffs (was 10 at 0.2), one shared look
+    expect(pool.live).toBe(16);
     const spy = vi.spyOn(terrainShared, 'hexToLinear');
     spy.mockClear();
     writeMissileSprites([m], pool, look(), (mm, u) => u + mm.launchLiftPx, buffers(128), buffers(8));
     // 1 halo + 1 core + at most 3 smoke colour steps = 5 distinct colours,
     // however many times each is sampled. A writer that converts per-sprite
-    // instead of caching would call this once per puff too: 10 puffs + halo +
+    // instead of caching would call this once per puff too: 16 puffs + halo +
     // core = 12, which must NOT happen.
     expect(spy.mock.calls.length).toBeLessThan(pool.live);
     spy.mockRestore();
@@ -229,16 +229,17 @@ describe('smokeLookFrom (GH-85)', () => {
 });
 
 describe('emitAlongShell (GH-85)', () => {
-  it('lays a puff every 0.2 tiles at the round\'s real arc height, not on the ground', () => {
+  it('lays a puff every 0.12 tiles at the round\'s real arc height, not on the ground', () => {
     const pool = new TrailPool(64);
     const s = spawnShell(0, 0, 10, 0, 0, 'rocket');
     s.t = s.duration * 0.5; // the apex
     const n = emitAlongShell(pool, s, rocketLook(), shellY);
-    expect(n).toBe(25); // 5 tiles of ground at 0.2
+    expect(n).toBe(41); // 5 tiles of ground at 0.12. Was 25 at 0.2 (the lead, 23 Oct, Q5)
     let top = 0;
     for (let i = 0; i < pool.capacity; i++) if (pool.alive[i] === 1) top = Math.max(top, pool.pWorldY[i]);
-    // The last puff sits at u = 0.5, so its height is the apex's, which is > 0.
-    expect(top).toBeCloseTo(shellPointAt(s, 0.5).liftPx);
+    // The last puff sits at 4.92 tiles (41 x 0.12), a hair short of the apex at u = 0.5
+    // (5.0 tiles; it was exact at 0.2 spacing), so its height is within 0.05 px of the apex's.
+    expect(top).toBeCloseTo(shellPointAt(s, 0.5).liftPx, 1);
     expect(top).toBeGreaterThan(10);
     for (let i = 0; i < pool.capacity; i++) if (pool.alive[i] === 1) expect(pool.style[i]).toBe(PUFF_ROCKET);
   });
@@ -278,7 +279,7 @@ describe('emitAlongShell (GH-85)', () => {
     expect(pool.live).toBe(0);
     s.t = s.duration * 0.6;
     const n = emitAlongShell(pool, s, rocketLook(), shellY);
-    expect(n).toBe(5); // 5 to 6 tiles of ground at 0.2: 5.2, 5.4, 5.6, 5.8, 6.0
+    expect(n).toBe(9); // 5 to 6 tiles at 0.12: 5.04 .. 6.0. Was 5 at 0.2 (the lead, 23 Oct, Q5)
     for (let i = 0; i < pool.capacity; i++) if (pool.alive[i] === 1) expect(pool.px[i]).toBeGreaterThan(5);
   });
 
