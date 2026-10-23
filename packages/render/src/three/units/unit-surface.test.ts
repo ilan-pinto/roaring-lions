@@ -75,4 +75,18 @@ describe('surfaceMaterialFor', () => {
     expect(b).not.toBe(a);
     expect(surfaceCloneCount()).toBe(before + 1);
   });
+
+  it('a clone shared by two templates stays live until both release it', () => {
+    const base = new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0 });
+    const before = surfaceCloneCount();
+    const a = surfaceMaterialFor(base, 'face');
+    const again = surfaceMaterialFor(base, 'face');
+    expect(again).toBe(a);
+    a.dispose();
+    expect(surfaceCloneCount()).toBe(before + 1);
+    expect(surfaceMaterialFor(base, 'face')).toBe(a);
+    a.dispose();
+    a.dispose();
+    expect(surfaceCloneCount()).toBe(before);
+  });
 });

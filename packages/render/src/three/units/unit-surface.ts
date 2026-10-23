@@ -14,8 +14,10 @@
  * comes from the bake (or the role ramp), only the specular response moves.
  *
  * Mechanism: the GLB's one shared material is CLONED once per surface class
- * (memoised per original), so +0 programs (same defines), +0 textures and +0
- * draw calls (each role node is already its own draw). A bake with an MR map
+ * (memoised per original): +0 textures and +0 draw calls (each role node is
+ * already its own draw), and +0 programs on a bake with no MR map (same
+ * defines). On a bake WITH one, a metal class drops the metalness map, which
+ * is one more program permutation (no `USE_METALNESSMAP`). A bake with an MR map
  * keeps it for roughness (the factor rescales the map's own mean onto the
  * target) and, on a metal class only, drops it for metalness, since a factor
  * cannot lift a map that reads 0.
@@ -26,13 +28,18 @@
  *
  * The `unit-surface` debug layer writes every clone back to today's values
  * (and the pass back on). A clone's `dispose` event drops it from the
- * registry and from the memo, so a released template leaks nothing.
+ * registry and from the memo once every template that was handed it has
+ * released it (a count: two templates built from one loaded GLTF share the
+ * original material, so they share its clones too).
  *
  * Known limit: a scar clone (`vehicle-damage`) or a running-gear clone
  * (`running-gear-binding`) is cut with `Material.clone()` from the surface
  * clone and copies the roughness/metalness in force when it was cut; it is
  * not in the registry, so toggling `unit-surface` afterwards does not reach
- * it. A debug-only effect: the shipped pass is always on.
+ * it. A debug-only effect: the shipped pass is always on. And a scar on a
+ * mapped bake's rubber lerps the roughness FACTOR (about 1.2 there) toward 1,
+ * so a scar makes that rubber marginally less rough rather than more; tiny,
+ * and presentation-only.
  */
 import * as THREE from 'three';
 
@@ -109,6 +116,8 @@ interface SurfaceEntry {
   readonly mat: THREE.MeshStandardMaterial;
   readonly off: { roughness: number; metalness: number; metalnessMap: THREE.Texture | null };
   readonly on: { roughness: number; metalness: number; metalnessMap: THREE.Texture | null };
+  /** Templates holding this clone; it leaves the registry at 0. */
+  users: number;
 }
 
 /** Every LIVE surface clone, so the debug toggle can put today's values back. */
@@ -123,6 +132,9 @@ function writeSurface(e: SurfaceEntry, on: boolean): void {
   e.mat.metalnessMap = v.metalnessMap;
   if (mapChanged) e.mat.needsUpdate = true;
 }
+
+/** A clone's registry entry, for the hand-out count. */
+const entryOf = new WeakMap<THREE.Material, SurfaceEntry>();
 
 /** Per original material, its clone per class. */
 const clones = new WeakMap<THREE.Material, Map<SurfaceClass, THREE.MeshStandardMaterial>>();
@@ -146,7 +158,11 @@ export function surfaceMaterialFor(
     clones.set(base, perClass);
   }
   const hit = perClass.get(cls);
-  if (hit) return hit;
+  if (hit) {
+    const held = entryOf.get(hit);
+    if (held) held.users++;
+    return hit;
+  }
   const mat = std.clone();
   const p = SURFACE_PARAMS[cls];
   const mapped = mat.roughnessMap !== null;
@@ -158,27 +174,33 @@ export function surfaceMaterialFor(
       metalness: p.metalness,
       metalnessMap: p.metalness > 0 ? null : std.metalnessMap,
     },
+    users: 1,
   };
+  entryOf.set(mat, entry);
   registry.add(entry);
   writeSurface(entry, surfacePassOn);
   perClass.set(cls, mat);
-  // A disposed clone leaves the registry and the memo, so a released template
-  // does not pin it (and the next ask for the class makes a fresh one).
+  // Each holder disposes it once; at the last, it leaves the registry and the
+  // memo, so released templates do not pin it (and the next ask for the
+  // class makes a fresh one).
   mat.addEventListener('dispose', () => {
+    entry.users--;
+    if (entry.users > 0) return;
     registry.delete(entry);
+    entryOf.delete(mat);
     if (perClass.get(cls) === mat) perClass.delete(cls);
   });
   fresh?.(mat);
   return mat;
 }
 
-/** The `unit-surface` debug layer: today's values (false) or the pass (true).
- *  Returns how many materials it wrote. */
 /** Number of live surface clones (test seam). */
 export function surfaceCloneCount(): number {
   return registry.size;
 }
 
+/** The `unit-surface` debug layer: today's values (false) or the pass (true).
+ *  Returns how many materials it wrote. */
 export function setUnitSurfacePass(on: boolean): number {
   surfacePassOn = on;
   for (const e of registry) writeSurface(e, on);
