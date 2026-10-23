@@ -2285,12 +2285,10 @@ const qarnHadid3Plan: Plan = (sim, rt, ids, at) => {
   const drone = ids('recon_drone');
   const west = foot.slice(0, 1);
   const civTeam = [...foot.slice(1, 2), ...at_];
-  // GH-707 P3: the mortar stays at the start line. With men falling wounded, its rounds on a
-  // squad land on the squad's own wounded beside it: on seed 8 it killed 13 of the 19 enemy
-  // wounded the force killed (Conduct -3 each, down to one star). A player who sees bodies on
-  // the square stops shelling it; the column takes the village with direct fire.
-  const main = [...tank, ...namer, ...armour, ...foot.slice(2), ...demo, ...sniper];
-  void mortar;
+  // GH-707 P3: the mortar goes with the column again. It was held on the start line while its
+  // splash on a squad's own wounded cost Conduct 3 a body (seed 8: one star); the lead ruled that
+  // collateral free (22 Oct), and with it the column reads 219 credits on 424242 (189 held back).
+  const main = [...tank, ...namer, ...armour, ...foot.slice(2), ...demo, ...mortar, ...sniper];
   at(1, () => {
     sim.queueCommand({ kind: 'attackMove', ids: west, ...M(9, 15) });
     sim.queueCommand({ kind: 'move', ids: drone, ...M(24, 30) });
