@@ -6,7 +6,7 @@
 // Tick order is part of the contract (replays depend on it):
 //   commands → digging → detection → surfacing → combat (target/face/fire) →
 //   projectiles → strikes → kamikaze → sweep → movement → transport →
-//   fields → garrison → demolition → upkeep (suppression decay, pins,
+//   fields → garrison → placed-charge fuses → demolition → upkeep (suppression decay, pins,
 //   cooldowns, APS reload) → tunnel charge (last, so the pin latched in
 //   upkeep aborts a charge on the tick it lands).
 
@@ -265,6 +265,15 @@ export interface UnitTypeJson {
    *  Schema-constrained to charges|blade; typed loosely because JSON module
    *  imports widen string literals — same reason as `mobility.domain`. */
   demolition_method?: string;
+  /** E6 (GH-274, G1): the numbers of a `demolition_method: "placed"` charge. Required by the
+   *  schema when the method is `placed`; the sim throws at registration if it is missing. */
+  placed_charge?: {
+    fuse_s: number;
+    blast_tiles: number;
+    damage: number;
+    suppression: number;
+    withdraw_tiles: number;
+  };
   /** Seconds of held station to set a tunnel collapse charge. Absent = CHARGE_SECONDS. */
   tunnel_charge_time_s?: number;
   /** Field works (#277): construction speed for a `construct` unit, a multiple of the
@@ -548,6 +557,17 @@ export type HitProjection =
   | { kind: 'noSolution' }
   | { kind: 'holdingFire' };
 
+/** A placed charge's numbers, fixed-point (E6 G1). Ticks are integers; the rest are Q16.16. */
+export interface PlacedCharge {
+  fuseTicks: number;
+  /** Blast radius, tiles. */
+  blast: Fx;
+  damage: Fx;
+  suppression: Fx;
+  /** How far the carrier backs off after setting, tiles. */
+  withdraw: Fx;
+}
+
 export interface UnitType {
   id: string;
   /** Display name for the HUD; falls back to the id. */
@@ -568,6 +588,12 @@ export interface UnitType {
    * ability.
    */
   bladeDemolition: boolean;
+  /**
+   * E6 (GH-274, G1): a `placed` demolisher sets a fused charge on an explicit `demolish` order
+   * (never on halting), withdraws, and the building falls with a blast when the fuse runs out,
+   * whether or not the carrier is still alive. Null for every other unit.
+   */
+  placed: PlacedCharge | null;
   /** Can sink a shaft and dig a tunnel route from it. */
   canDig: boolean;
   /** Can set a collapse charge over a revealed tunnel. */
@@ -870,6 +896,25 @@ function populationFromJson(id: string, raw: number | undefined): number {
   return raw;
 }
 
+/** `placed_charge` -> fixed point. A `placed` method without its block is a data error, and so
+ *  is a block on a method that never reads it: either way the numbers would silently not apply. */
+function placedChargeFromJson(json: UnitTypeJson): PlacedCharge | null {
+  const placed = json.demolition_method === 'placed';
+  const pc = json.placed_charge;
+  if (placed && pc === undefined) throw new Error(`unit ${json.id}: demolition_method "placed" needs placed_charge`);
+  if (!placed && pc !== undefined) throw new Error(`unit ${json.id}: placed_charge needs demolition_method "placed"`);
+  if (pc === undefined) return null;
+  const fuseTicks = fx.toInt(fx.mul(fx.from(pc.fuse_s), fx.fromInt(TICKS_PER_SECOND)));
+  if (fuseTicks < 1) throw new Error(`unit ${json.id}: placed_charge.fuse_s is under one tick`);
+  return {
+    fuseTicks,
+    blast: fx.from(pc.blast_tiles),
+    damage: fx.from(pc.damage),
+    suppression: fx.from(pc.suppression),
+    withdraw: fx.from(pc.withdraw_tiles),
+  };
+}
+
 export function unitTypeFromJson(json: UnitTypeJson): UnitType {
   const aps = json.hull.aps;
   const population = populationFromJson(json.id, json.cost?.population);
@@ -907,6 +952,7 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
       fx.mul(fx.from(json.demolition_time_s ?? DEMO_SECONDS), fx.fromInt(TICKS_PER_SECOND)),
     ),
     bladeDemolition: json.demolition_method === 'blade',
+    placed: placedChargeFromJson(json),
     canDig: abilities.includes('dig_tunnel'),
     canTunnelCharge: abilities.includes('tunnel_charge'),
     tunnelChargeTicks: fx.toInt(
@@ -1226,6 +1272,11 @@ export type SimEvent =
   | { kind: 'surfaced'; tick: number; entity: number; tunnel: number }
   | { kind: 'submerged'; tick: number; entity: number; tunnel: number }
   | { kind: 'tunnelCollapsed'; tick: number; tunnel: number; by: number }
+  /** E6 (GH-274, G1): a `placed` demolisher armed a fused charge on `structure`. `by` is the
+   *  carrier; it stays the attribution when the fuse runs out, alive or not. */
+  | { kind: 'chargeSet'; tick: number; structure: number; by: number; fuseTicks: number }
+  /** E6 (GH-274, G1): the fuse ran out. The structure fell and the blast has been dealt. */
+  | { kind: 'chargeDetonated'; tick: number; structure: number; by: number }
   | { kind: 'routed'; tick: number; entity: number }
   /** #706: a stuck ground hull's crew fixed it in the field (FIELD_FIX_TICKS of
    *  quiet, halved by a `repair` unit standing by). It is SLOWED now, not sound. */
@@ -1300,7 +1351,7 @@ export type SimEvent =
 export const SIM_EVENT_KINDS = [
   'spawn', 'contact', 'fire', 'aps', 'impact', 'component', 'nearMiss', 'submunition', 'ambushSprung',
   'strike', 'smokeLaid', 'revealed', 'structureHit', 'structureDestroyed', 'garrison',
-  'transport', 'ventOpened', 'tunnelContact', 'surfaced', 'submerged', 'tunnelCollapsed', 'routed', 'rallied', 'pinned', 'unpinned', 'destroyed',
+  'transport', 'ventOpened', 'tunnelContact', 'surfaced', 'submerged', 'tunnelCollapsed', 'chargeSet', 'chargeDetonated', 'routed', 'rallied', 'pinned', 'unpinned', 'destroyed',
   'fieldFixed', 'beam',
   'removed', 'woundedDown', 'manKilled', 'bledOut', 'woundEvacuated', 'woundStabilised',
   'woundAdmitted', 'woundRejoined', 'woundLost',
@@ -1742,6 +1793,18 @@ export class Sim {
   /** Per-placement `produces_for` (F4 Task 7). Setup-only; NOT in hash(). */
   private readonly stProducesFor: Int8Array;
   private readonly stOccupants: Uint8Array;
+  /** E6 (GH-274, G1): ticks left on a placed charge against this structure, 0 when none.
+   *  Hashed behind `placedLive`. */
+  private readonly stChargeTicks: Int32Array;
+  /** E6 G1: the carrier that set the charge, -1 when none. Kept as an id because ids are never
+   *  reused: the attribution (blast source, ROE side) outlives the carrier. Hashed behind
+   *  `placedLive`. */
+  private readonly stChargeBy: Int32Array;
+  /** E6 G1: true once the first placed charge is SET (not when a type is registered, so a world
+   *  that registers the whole roster but never fires one moves no pin). hash() folds the charge
+   *  columns only while set (the deferred fold, field works' D1 shape), so no world without a
+   *  placed-charge type moves any pin. */
+  private placedLive = false;
   // --- field works (#277) state block. Every array is declared and hashed
   // here (Task 2) even where a later task is its only writer; see hash() for
   // why the block folds only once `fwLive` is set (D1).
@@ -2171,6 +2234,8 @@ export class Sim {
     this.stTypeIdx = new Uint16Array(sc);
     this.stProducesFor = new Int8Array(sc).fill(-1);
     this.stOccupants = new Uint8Array(sc);
+    this.stChargeTicks = new Int32Array(sc);
+    this.stChargeBy = new Int32Array(sc).fill(-1);
     this.stOwner = new Int8Array(sc).fill(-1);
     this.stKnown = new Uint8Array(2 * sc);
     this.stProgress = new Int32Array(sc);
@@ -2569,6 +2634,8 @@ export class Sim {
     if (this.stOccupants[s] > 0) throw new Error(`structure ${s} has occupants`);
     this.stAlive[s] = 0;
     this.stHp[s] = 0;
+    this.stChargeTicks[s] = 0; // a cancelled site takes any charge on it along (E6 G1)
+    this.stChargeBy[s] = -1;
     for (const t of this.stTiles[s]) {
       this.blocked[t] = 0;
       // A boulder under the same tile does not stop being a boulder.
@@ -3736,6 +3803,9 @@ export class Sim {
     this.stepTunnelEntry();
     // Field works: before upkeep, which reads the aura arrays every tick.
     this.stepAuras();
+    // E6 G1: fuses burn BEFORE stepDemolition, so a charge set on tick T first loses a tick on
+    // T+1 and falls on T + fuse_s * 20 exactly (8 s = 160 ticks).
+    this.stepCharges();
     this.stepDemolition();
     this.stepUpkeep();
     // After upkeep rather than beside stepDemolition: the pin flag latches
@@ -9190,7 +9260,9 @@ export class Sim {
         if (!blocked && this.structDistSq(s, this.posX[i], this.posY[i]) <= DEMO_RANGE_SQ) {
           best = s;
         }
-      } else {
+      } else if (type.placed === null) {
+        // A `placed` demolisher has no initiative (E6 G1): it sets a charge only on an explicit
+        // `demolish` order, never because it halted beside a house. `best` stays -1.
         let bestD = DEMO_RANGE_SQ;
         for (let s = 0; s < this.structureCount_; s++) {
           if (this.stAlive[s] === 0) continue;
@@ -9241,7 +9313,15 @@ export class Sim {
       if (++this.demoTicks[i] >= type.demolitionTicks) {
         this.demoTicks[i] = 0;
         this.demoTarget[i] = -1;
-        this.destroyStructure(best, i);
+        if (type.placed !== null) {
+          // The charge is SET, not the building taken: it falls when the fuse runs out
+          // (stepCharges). The order is done, and the carrier backs away on its own.
+          this.setPlacedCharge(best, i, type.placed);
+          this.demolishOrder[i] = -1;
+          this.withdrawFromStructure(i, best, type.placed.withdraw);
+        } else {
+          this.destroyStructure(best, i);
+        }
       } else if (type.bladeDemolition) {
         // A blade takes a bite of the building every tick it works, so the
         // thing visibly comes apart and damage it has already taken counts.
@@ -9259,6 +9339,97 @@ export class Sim {
           i,
         );
       }
+    }
+  }
+
+  /**
+   * E6 G1: arm a placed charge on `s`, credited to `by`. A structure carries one charge: a
+   * second carrier finishing its three seconds against an already-armed wall changes nothing
+   * (the first fuse keeps burning, with the first carrier's name on it).
+   */
+  private setPlacedCharge(s: number, by: number, pc: PlacedCharge): void {
+    if (this.stChargeTicks[s] > 0) return;
+    this.placedLive = true;
+    this.stChargeTicks[s] = pc.fuseTicks;
+    this.stChargeBy[s] = by;
+    this.pendingEvents.push({ kind: 'chargeSet', tick: this.tickCount, structure: s, by, fuseTicks: pc.fuseTicks });
+  }
+
+  /**
+   * E6 G1: walk unit `i` `tiles` away from structure `s`'s centre, along the line from the
+   * centre through the unit (due +x when it stands exactly on the centre), to the nearest open
+   * tile of its own domain. Integer maths and the one open-tile search, so the retreat is the
+   * same on every machine. Allocation-free (snapOpenTile).
+   */
+  private withdrawFromStructure(i: number, s: number, tiles: Fx): void {
+    const dx = fx.sub(this.posX[i], this.stCx[s]);
+    const dy = fx.sub(this.posY[i], this.stCy[s]);
+    const len = fx.sqrt(distSqFx(dx, dy));
+    let ux: Fx = ONE;
+    let uy: Fx = 0;
+    if (len > 0) {
+      ux = fx.div(dx, len);
+      uy = fx.div(dy, len);
+    }
+    const wx = this.clampX(fx.add(this.posX[i], fx.mul(ux, tiles)));
+    const wy = this.clampY(fx.add(this.posY[i], fx.mul(uy, tiles)));
+    const domain = this.domainOf(i);
+    const tx = fx.toInt(wx);
+    const ty = fx.toInt(wy);
+    let gx = wx;
+    let gy = wy;
+    let gtx = tx;
+    let gty = ty;
+    if (!this.unitTypes[this.typeIdx[i]].isAir) {
+      this.snapOpenTile(tx, ty, this.maskFor(domain));
+      if (this.snapX !== tx || this.snapY !== ty) {
+        gtx = this.snapX;
+        gty = this.snapY;
+        gx = fx.add(fx.fromInt(gtx), HALF);
+        gy = fx.add(fx.fromInt(gty), HALF);
+      }
+    }
+    this.wpCount[i] = 0;
+    this.boardGoal[i] = -1;
+    this.garrisonGoal[i] = -1;
+    this.goalX[i] = gx;
+    this.goalY[i] = gy;
+    this.fieldRef[i] = this.fieldFor(gtx, gty, domain);
+    this.moving[i] = 1;
+    this.attackMove[i] = 0;
+    this.sweepOrder[i] = 0;
+    this.engaging[i] = 0;
+    this.stance[i] = 0;
+  }
+
+  /**
+   * E6 G1: burn every armed fuse one tick. At zero the structure falls (`destroyStructure`,
+   * which also kills the garrison and shakes the neighbours) and THEN the blast goes off at its
+   * centre (`splashDirect`): every soft unit within the radius takes damage and suppression, own
+   * troops and civilians included. The carrier is the attribution whether or not it is still
+   * alive, so ROE and veterancy read it the way they read any demolition: ids are never reused
+   * and `side`/`typeIdx` outlive death. A structure that fell some other way first takes its
+   * charge with it (`destroyStructure` clears it), with no blast and no event.
+   */
+  private stepCharges(): void {
+    if (!this.placedLive) return;
+    for (let s = 0; s < this.structureCount_; s++) {
+      if (this.stChargeTicks[s] <= 0) continue;
+      if (this.stAlive[s] === 0) {
+        this.stChargeTicks[s] = 0;
+        this.stChargeBy[s] = -1;
+        continue;
+      }
+      if (--this.stChargeTicks[s] > 0) continue;
+      const by = this.stChargeBy[s];
+      this.stChargeBy[s] = -1;
+      const pc = by >= 0 ? this.unitTypes[this.typeIdx[by]].placed : null;
+      if (pc === null) continue;
+      const cx = this.stCx[s];
+      const cy = this.stCy[s];
+      this.destroyStructure(s, by);
+      this.pendingEvents.push({ kind: 'chargeDetonated', tick: this.tickCount, structure: s, by });
+      this.splashDirect(cx, cy, pc.blast, pc.damage, pc.suppression, by, -1);
     }
   }
 
@@ -9429,6 +9600,9 @@ export class Sim {
     if (this.stAlive[s] === 0) return;
     this.stAlive[s] = 0;
     this.stHp[s] = 0;
+    // A charge against a wall that fell some other way goes with it (E6 G1).
+    this.stChargeTicks[s] = 0;
+    this.stChargeBy[s] = -1;
     const rubble = this.structureTypes[this.stTypeIdx[s]].rubbleCover;
     for (const t of this.stTiles[s]) {
       this.blocked[t] = 0;
@@ -10530,6 +10704,15 @@ export class Sim {
       h = hashArray(h, this.auraCompAt);
       h = hashArray(h, this.auraRepairTicks);
       h = hashArray(h, this.auraAccMult);
+    }
+    // Placed charges (E6, GH-274 G1): the deferred fold. Nothing (no marker, no length word) is
+    // folded before a `placed` demolisher type is registered, so no golden, versus, net or
+    // economy pin moved. Both columns can leave their defaults only through such a type, so
+    // the canary still sees every charge divergence once the block is on.
+    if (this.placedLive) {
+      h = hashWord(h, 0x43480274); // 'CH' GH-274
+      h = hashArray(h, this.stChargeTicks);
+      h = hashArray(h, this.stChargeBy);
     }
     // Mobility kills (#706): the deferred fold, field works' D1 shape. The two
     // columns are folded only once a mobility result (stuck or slowed) has been
