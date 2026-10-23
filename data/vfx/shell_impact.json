@@ -10,7 +10,7 @@
     { "type": "fire", "count": 1, "delay_ms": [0, 0], "duration_ms": [700, 700], "scale": { "base": 0.8, "per_power": 1.4 }, "velocity": { "radial": [0, 0], "up": [0.3, 0.3] } },
     { "type": "fire", "count": 3, "delay_ms": [0, 20], "duration_ms": [600, 800], "scale": { "base": 0.6 }, "scale_from": "fireball", "velocity": { "radial": [1.4, 1.4], "up": [0.6, 1.6] } },
     { "type": "dirt", "count": 16, "delay_ms": [0, 10], "duration_ms": [800, 1200], "scale": { "base": 0.4, "rand": 0.3 }, "velocity": { "radial": [0.2, 0.8], "up": [2.4, 4.4] } },
-    { "type": "smoke", "count": 9, "delay_ms": [150, 80], "duration_ms": [4000, 6000], "scale": { "base": 1.1, "rand": 0.4 }, "velocity": { "radial": [0.6, 0.6], "up": [0.3, 0.6] }, "tint": 0.15 }
+    { "type": "smoke", "count": 9, "delay_ms": [150, 80], "duration_ms": [4000, 6000], "scale": { "base": 1.1, "rand": 0.4 }, "velocity": { "radial": [0.6, 0.6], "up": [0.3, 0.6] }, "tint": 0.4 }
   ],
   "particles": [
     {

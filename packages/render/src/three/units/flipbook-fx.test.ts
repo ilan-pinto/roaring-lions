@@ -250,8 +250,10 @@ function pinRand(fx: FlipbookFx, c: number): void {
 }
 
 // The mortar/Grad shell recipe as the lead approved it on 23 Oct (smoke uplift
-// P4, Q6): whiter (tint 0.15) and bigger HE puffs with more tan dirt. Was
-// 12 dirt at 0.25 + 0.22r, 6 smoke at 0.7 + 0.4r, 3500-5000 ms, tint 0.4. The
+// P4, Q6): bigger HE puffs with more tan dirt. Was 12 dirt at 0.25 + 0.22r,
+// 6 smoke at 0.7 + 0.4r, 3500-5000 ms. Tint stays 0.4: 0.15 was tried and drew
+// the puff DARKER (tint is soot 0 -> dust 1; neither end is white), so
+// "whiter" needs a white smoke tone in the shader -- a follow-up. The
 // oracle is literal equality with THIS recipe, which replaced the old approved one.
 function mockShell(fx: FlipbookFx, r: Rand, x: number, h: number, z: number, power: number): void {
   const fs = 0.8 + 1.4 * power;
@@ -267,7 +269,7 @@ function mockShell(fx: FlipbookFx, r: Rand, x: number, h: number, z: number, pow
   }
   for (let k = 0; k < 9; k++) {
     const a = r() * Math.PI * 2;
-    fx.spawn({ x, y: h, z, vx: Math.cos(a) * 0.6, vy: 0.3 + r() * 0.3, vz: Math.sin(a) * 0.6, delayMs: 150 + 80 * k, durationMs: 4000 + 2000 * r(), scale: 1.1 + 0.4 * r(), type: FLIP_SMOKE, tint: 0.15 });
+    fx.spawn({ x, y: h, z, vx: Math.cos(a) * 0.6, vy: 0.3 + r() * 0.3, vz: Math.sin(a) * 0.6, delayMs: 150 + 80 * k, durationMs: 4000 + 2000 * r(), scale: 1.1 + 0.4 * r(), type: FLIP_SMOKE, tint: 0.4 });
   }
 }
 
