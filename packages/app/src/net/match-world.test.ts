@@ -411,7 +411,8 @@ describe('the economy runtime (N3 Task 3)', () => {
     // Re-pinned with the lead's start purses KDF 1500 / Sarim 2400 (22 Oct; db2803f0): the purse is folded by
     // runtime.digest(). Was -1014683486 / -1434364569.
     // Re-pinned when wounds opened to versus (the lead, 23 Oct 2026): the two wounded types join the roster, every infantry type keeps hull.wounds, and the wound block is in the hash. Was 822414509 / 1021735804.
-    const VERSUS_ECONOMY_PINS = [['tel_marum', -147026323], ['wadi_tarfan', 1960701868]] as const;
+    // Re-pinned for GH-769 (Wadi Tarfan seats (11,11)/(36,36) and tunnel capacity 3; seats and route state are hashed). Was 1960701868 for wadi_tarfan.
+    const VERSUS_ECONOMY_PINS = [['tel_marum', -147026323], ['wadi_tarfan', -1972637780]] as const;
     for (const [map, pin] of VERSUS_ECONOMY_PINS) {
       const w = buildMatchWorld(config(map, ['kdf', 'sarim'], 20260727));
       run(w, 200);
@@ -425,8 +426,8 @@ describe('the Sarim seat\'s routes (GH-681, T3)', () => {
   const CASES = [
     ['tel_marum', ['kdf', 'sarim'], 'hostile', ['tm_n_west', 'tm_n_east'], 4],
     ['tel_marum', ['sarim', 'kdf'], 'friendly', ['tm_s_west', 'tm_s_east'], 3],
-    ['wadi_tarfan', ['kdf', 'sarim'], 'hostile', ['wt_h_south', 'wt_h_east'], 4],
-    ['wadi_tarfan', ['sarim', 'kdf'], 'friendly', ['wt_f_north', 'wt_f_west'], 4],
+    ['wadi_tarfan', ['kdf', 'sarim'], 'hostile', ['wt_h_south', 'wt_h_east'], 3],
+    ['wadi_tarfan', ['sarim', 'kdf'], 'friendly', ['wt_f_north', 'wt_f_west'], 3],
   ] as const;
   it.each(CASES)('%s, host %j: exactly the Sarim end\'s routes, owned by the Sarim side, pre-dug, at the capacity the file authors', (map, factions, end, ids, capacity) => {
     const w = buildMatchWorld(config(map, [factions[0], factions[1]], 7));
