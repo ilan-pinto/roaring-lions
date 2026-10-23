@@ -380,6 +380,7 @@ export const DEBUG_LAYERS = [
   'slope-light',
   'height-contours',
   'crown',
+  'crater-rims',
   // GH-748: the aircraft over a fire-support call, and the support impacts'
   // own light and shock ring. Witnessed by `pnpm support:capture`; no gated
   // golden scenario calls fire support.

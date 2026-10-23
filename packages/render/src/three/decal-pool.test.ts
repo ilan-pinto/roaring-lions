@@ -229,7 +229,8 @@ describe('DecalPool', () => {
     const p = new DecalPool({ capacity: 2, grid: 2, renderOrder: DECAL_FADING_RENDER_ORDER, material: material() });
     expect(isAoOccluder(p.mesh)).toBe(false);
     expect(p.mesh.castShadow).toBe(false);
-    expect(p.mesh.receiveShadow).toBe(false);
+    // Defilade Task 5: a receiver, so the crater rim reads the shadow map.
+    expect(p.mesh.receiveShadow).toBe(true);
     expect(p.mesh.frustumCulled).toBe(false);
     expect(p.mesh.renderOrder).toBe(DECAL_FADING_RENDER_ORDER);
     expect(p.mesh.geometry.getAttribute('normal')).toBeUndefined();
@@ -458,7 +459,7 @@ describe('createDecalMaterial', () => {
     expect(m.vertexShader).toContain('attribute vec3 aGround');
     expect(m.fragmentShader).toContain('vec3 ground = mix(mix(vGround, uRoadTone, rlRoadSurf), uShoulderTone, rlShoulder);');
     expect(m.fragmentShader).toContain('colour / max(ground');
-    expect(m.fragmentShader).toContain('gl_FragColor = vec4(1.0 + a * (ratio - 1.0), 1.0)');
+    expect(m.fragmentShader).toContain('vec3 outRatio = 1.0 + a * (ratio - 1.0);');
   });
   it('carries the tested constants', () => {
     for (const k of [SCORCH_ALPHA, TRACK_FADE_SEC]) expect(m.fragmentShader).toContain(k.toFixed(3));
@@ -502,7 +503,7 @@ describe('createDecalMaterial', () => {
     const edge = src.indexOf('if (vWorldXZ.x < 0.0 || vWorldXZ.y < 0.0 || vWorldXZ.x > uMapSize.x || vWorldXZ.y > uMapSize.y) discard;');
     expect(edge).toBeGreaterThan(-1);
     expect(edge).toBeLessThan(src.indexOf('int kind ='));
-    expect(m.vertexShader).toContain('vWorldXZ = (modelMatrix * vec4(position, 1.0)).xz;');
+    expect(m.vertexShader).toContain('vWorldXZ = worldPosition.xz;');
   });
   it('writes no colour into the GLSL -- palette uniforms only', () => {
     expect(m.fragmentShader).not.toMatch(/#[0-9a-fA-F]{6}\b/);

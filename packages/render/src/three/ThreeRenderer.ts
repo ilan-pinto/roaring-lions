@@ -164,7 +164,9 @@ import {
   CAMERA_FAR,
 } from './camera';
 import { structureAtScreenThree, structureBoxes } from './structure-pick';
-import { createSceneLights, DAY_LIGHTS, shadowIntensityOf, withLightOverride, type ResolvedLights, type SceneLights } from './lighting';
+import { createSceneLights, DAY_LIGHTS, shadowBoxRadius, shadowIntensityOf, withLightOverride, type ResolvedLights, type SceneLights } from './lighting';
+import { fitShadowBox, type ShadowFitMode, type ShadowFitResult } from './shadow-fit';
+import { WORLD_PER_LEVEL as SHADOW_WORLD_PER_LEVEL } from './terrain/shared';
 import {
   BOUNCE_KEY,
   resolveTimeOfDay,
@@ -227,6 +229,7 @@ import { decalShowcase, showcaseAnchor, showcaseSites } from './decal-showcase';
 import {
   DecalPool,
   createDecalMaterial,
+  CRATER_RIM_GAIN,
   craterRadiusTiles,
   isFadingKind,
   presentationSimMs,
@@ -1083,6 +1086,13 @@ export class ThreeRenderer implements Renderer {
    *  `MeshStandardMaterial` now: a scene with no lights in it is not a
    *  dimmer picture, it is a black one. */
   private readonly sceneLights: SceneLights;
+  /** Defilade Task 2 (`shadow-fit.ts`): which shadow box the sun
+   *  uses this frame, whether the view fit snaps to texels, and the last fit.
+   *  `'map'` is today's box and is never rewritten per frame. */
+  private shadowFitMode: ShadowFitMode = 'map';
+  private shadowFitSnap = true;
+  private shadowFitDirty = false;
+  private lastShadowFit: ShadowFitResult | null = null;
   /** The light this map is lit by (`time-of-day.ts`), resolved once from
    *  `opts.timeOfDay`: absent is `day`, `night` is `dusk` (D10). Kept, with
    *  its preset row, for the haze (Task 9), which reads `hazeFar` and
@@ -2906,6 +2916,7 @@ export class ThreeRenderer implements Renderer {
     );
     this.sceneLights.sun.shadow.intensity = shadowIntensityOf(opts.lightOverride);
     this.sceneLights.addTo(this.scene);
+    this.shadowFitMode = (opts.quality ?? QUALITY_PRESETS.high).shadowFit ?? 'map';
     // Same "always present, draws nothing until fed" shape as the FX meshes
     // just above, but for real `THREE.PointLight`s rather than a batched
     // mesh: all `FLASH_CAPACITY` of them go in now, at intensity 0, and stay
@@ -3686,6 +3697,7 @@ export class ThreeRenderer implements Renderer {
     // this frame's depth through last frame's view, which reads on screen as
     // the shroud sliding a frame behind the ground whenever the camera pans.
     this.fogPass?.updateCamera(camera);
+    this.updateShadowFit(camera);
     // The haze's focus plane is the camera's look-at point, which IS the
     // screen centre: `updateDimetricCamera` aims a symmetric orthographic
     // frustum at world (camera.x, 0, camera.y), so no half-tile offset --
@@ -3853,6 +3865,15 @@ export class ThreeRenderer implements Renderer {
         let tiles = 0;
         if (this.crown) for (const c of this.crown) tiles += c;
         return tiles;
+      }
+      case 'crater-rims': {
+        // Defilade Task 5: the rim relief's gain to 0 (today's flat
+        // decal) and back. Nothing per-frame writes it.
+        const u = this.decalMaterial.uniforms.uRimGain;
+        const next = visible ? this.craterRimGain : 0;
+        if (u.value === next) return 0;
+        u.value = next;
+        return 1;
       }
       case 'slope-light':
         // A uniform, the `macro` shape: the slope light's gain to 1 (the
@@ -4306,6 +4327,13 @@ export class ThreeRenderer implements Renderer {
         // hidden for the rest of the mission.
         this.setDebugLayerVisible('units', false);
         this.setDebugLayerVisible('overlays', false);
+        // Defilade Task 2: a view-fitted shadow box covers only the
+        // camera's ground, so the top-down photograph takes the map-wide box;
+        // the next frame refits.
+        if (this.shadowFitMode === 'view') {
+          this.updateShadowFit(this.viewCamera, 'map');
+          this.shadowFitDirty = true;
+        }
         this.renderer.setRenderTarget(linear);
         // Explicit rather than trusting `autoClear`, which the post chain's
         // own `RenderPass` turns off and on around itself.
@@ -7433,6 +7461,54 @@ export class ThreeRenderer implements Renderer {
   }
   clearTutorialFocus(): void {
     this.retained.tutorialFocus = null;
+  }
+
+  /** Defilade Task 2: refit the sun's shadow box to `camera`
+   *  (`'view'`), or put the map-wide box back once after a switch (`'map'`). */
+  private updateShadowFit(camera: THREE.OrthographicCamera, force?: ShadowFitMode): void {
+    const mode = force ?? this.shadowFitMode;
+    if (mode === 'map' && !this.shadowFitDirty) return;
+    const w = this.sim.width;
+    const h = this.sim.height;
+    let maxLevel = 0;
+    const levels = this.retained.elevationLevels;
+    if (levels) for (let i = 0; i < levels.length; i++) if (levels[i] > maxLevel) maxLevel = levels[i];
+    this.lastShadowFit = fitShadowBox(
+      this.sceneLights.sun,
+      mode,
+      camera,
+      this.resolvedLights.direction,
+      new THREE.Vector3(w / 2, 0, h / 2),
+      shadowBoxRadius(w, h),
+      -1,
+      maxLevel * SHADOW_WORLD_PER_LEVEL + 4,
+      this.shadowFitSnap
+    );
+    this.shadowFitDirty = mode === 'view';
+  }
+
+  /** Defilade Task 2 debug seam (reached through `__lions.renderer`
+   *  by the A/B harness): switch the shadow box fit live. */
+  setShadowFit(mode: ShadowFitMode, snap = true): void {
+    this.shadowFitMode = mode;
+    this.shadowFitSnap = snap;
+    this.shadowFitDirty = true;
+  }
+
+  /** Defilade Task 5 debug seam: the crater rim's gain and shape
+   *  (bowl depth, rim height, in crater radii). */
+  private craterRimGain = CRATER_RIM_GAIN;
+  setCraterRim(gain: number, bowlDepth?: number, rimHeight?: number): void {
+    this.craterRimGain = gain;
+    this.decalMaterial.uniforms.uRimGain.value = gain;
+    const shape = this.decalMaterial.uniforms.uRimShape.value as THREE.Vector2;
+    if (bowlDepth !== undefined) shape.x = bowlDepth;
+    if (rimHeight !== undefined) shape.y = rimHeight;
+  }
+
+  /** The last fit, for the harness: texel size, extents, centre. */
+  shadowFitInfo(): ShadowFitResult | null {
+    return this.lastShadowFit;
   }
 
   /** Reconfigures `viewCamera` in place and returns it -- never a fresh

@@ -2726,6 +2726,28 @@ The live game loop (sim ticking, HUD, a real fight): the harness calls `renderer
 loop with the sim parked. SwiftShader (CI's rasteriser). A GPU timer that separates the bloom's own
 cost from back-pressure. Any map but `beit_sahwan_outskirts`, and DPR 1.
 
+## Defilade Tasks 2 and 5: view-fitted shadow box and crater rims (GH-705, 2026-10-23)
+
+Apple M3 Pro, ANGLE/Metal, headless Chromium, 1440x900 at DPR 2, `high`, load average 1.6-5.6.
+Instrument: `tools/src/perf/defilade-25-captures.ts --only=cost` -- arms interleaved on one page,
+16 blocks of 40 frames of `frame(1, 16)` bracketed by `gl.finish()`, draw calls summed by hand over
+one frame. `EXT_disjoint_timer_query_webgl2` is absent on ANGLE/Metal, and wall time is bimodal in
+every arm (q1 ~2.7 ms, q3 ~13 ms: the render-pass cliff above), so the MEDIAN is the mix of the two
+modes and moved +3 ms on one run with no cause; q1 is the steady-state figure.
+
+| frame | map box q1 / calls / tris | view box q1 / calls / tris |
+|---|---|---|
+| beit_sahwan_outskirts force, z1 | 3.10 ms / 334 / 1.83 M | 2.90 / 323 / 1.59 M |
+| same, z2.5 | 2.80 / 279 / 1.40 M | 2.70 / 238 / 0.89 M |
+| tel_marum force, z1 | 2.90 / 251 / 1.49 M | 2.60 / 248 / 1.31 M |
+| same, z2.5 | 2.70 / 241 / 1.28 M | 2.60 / 238 / 0.93 M |
+
+No measured cost; the shadow pass culls casters outside the box (up to -41 calls, -36% triangles).
+Shadow map memory unchanged (still 4096 at `high`). Crater rims: 334 = 334 calls, +0 textures,
++0 programs, q1 3.10 / 3.10 ms (z1) and 2.70 / 2.60 (z2.5) on a 20-crater field. Not measured: the
+app's own 60 Hz loop, and `medium`/`low`. Full account and sharpness/shimmer numbers:
+the PR description.
+
 ## Wounded men and the lifetime id count (GH-707 P3, 2026-10-22)
 
 P3 puts `hull.wounds` on every infantry unit of both sides (and `in_place` on the civilians). Two
