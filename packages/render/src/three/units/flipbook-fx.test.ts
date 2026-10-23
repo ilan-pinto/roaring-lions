@@ -385,9 +385,9 @@ describe('flipbook recipes, as shipped', () => {
     .map((f) => ({ file: f, em: JSON.parse(readFileSync(path.join(VFX_DIR, f), 'utf8')) as { flipbook?: FlipbookLayerSpec[] } }))
     .filter((r) => r.em.flipbook !== undefined);
 
-  it('finds the six shipped recipes', () => {
+  it('finds the eight shipped recipes', () => {
     expect(recipes.map((r) => r.file).sort()).toEqual([
-      'catastrophic_kill.json', 'cluster_airburst.json', 'fire_apfsds.json', 'fire_heat.json', 'missile_impact.json', 'shell_impact.json',
+      'air_strike_impact.json', 'barrage_impact.json', 'catastrophic_kill.json', 'cluster_airburst.json', 'fire_apfsds.json', 'fire_heat.json', 'missile_impact.json', 'shell_impact.json',
     ]);
   });
 

@@ -271,6 +271,9 @@ export interface CursorContext {
    *  absent when no rally is armed. Read at `p` (the `pointerPoint` rule), the
    *  point the click would send. */
   readonly rallyAt?: ((x: number, y: number) => boolean) | null;
+  /** An armed patrol (Lane A mock): may a waypoint go at this point
+   *  (`patrolPointOk`)? Absent or null: not armed. */
+  readonly patrolAt?: ((x: number, y: number) => boolean) | null;
 }
 
 export interface CursorRead {
@@ -292,7 +295,9 @@ export function cursorAt(sim: Sim, world: IntentWorld, p: PointerPoint, ctx: Cur
   // F4: an armed rally is nobody's order -- the selection does not move, so it
   // is resolved with no ids and wears no role badge.
   const rallyAt = ctx.armed === null ? (ctx.rallyAt ?? null) : null;
-  const ids = rallyAt !== null ? [] : ctx.ids;
+  // An armed patrol is the same shape: the click places a waypoint, not an order.
+  const patrolAt = ctx.armed === null && rallyAt === null ? (ctx.patrolAt ?? null) : null;
+  const ids = rallyAt !== null || patrolAt !== null ? [] : ctx.ids;
   const res = armedMove
     ? resolveMoveOrder(world, { ids, x: p.x, y: p.y, append: false })
     : resolvePointer(world, {
@@ -324,6 +329,7 @@ export function cursorAt(sim: Sim, world: IntentWorld, p: PointerPoint, ctx: Cur
     armedMove,
     pinned: wholeOrderPinned(sim.state, orderIds),
     ...(rallyAt !== null ? { armedRally: rallyAt(p.x, p.y) ? ('ok' as const) : ('refused' as const) } : {}),
+    ...(patrolAt !== null ? { armedPatrol: patrolAt(p.x, p.y) ? ('ok' as const) : ('refused' as const) } : {}),
   };
   const name = cursorFor(res, hints);
   const key = cursorKey(

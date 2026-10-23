@@ -55,6 +55,7 @@ import {
   decorFamiliesFor,
   propKindsFor,
   missionUnitTypes,
+  withWoundedTypes,
   hasUnitMesh,
   meshPlanFor,
   meshManifestFor,
@@ -239,6 +240,40 @@ describe('mesh catalogue: mission rosters', () => {
   it('ignores a string that is not a unit id', () => {
     expect([...missionUnitTypes({ briefing: 'take the ridge', at: [1, 2] }, UNIT_IDS)]).toEqual([]);
   });
+});
+
+describe('mesh catalogue: the wounded boot rule (GH-707 P3)', () => {
+  const byId = units as Record<string, { hull?: { wounds?: { type: string } } } | undefined>;
+
+  it('adds the man a fielded squad sheds, and nothing for a vehicle', () => {
+    // Synthetic types: a KDF squad, a Sarim squad, a vehicle with no wounds, and an
+    // in-place type that names itself. Oracles are literals.
+    const table = {
+      sq_k: { hull: { wounds: { type: 'wounded_kdf' } } },
+      sq_s: { hull: { wounds: { type: 'wounded_sarim' } } },
+      tank: { hull: {} },
+      civ: { hull: { wounds: { type: 'civ' } } },
+    };
+    expect([...withWoundedTypes(new Set(['sq_k', 'tank']), table)].sort()).toEqual(['sq_k', 'tank', 'wounded_kdf']);
+    expect([...withWoundedTypes(new Set(['tank', 'civ']), table)].sort()).toEqual(['civ', 'tank']);
+    expect([...withWoundedTypes(new Set(['sq_s', 'sq_k']), table)].sort()).toEqual(['sq_k', 'sq_s', 'wounded_kdf', 'wounded_sarim']);
+  });
+
+  it('beit_sahwan_breach boots both wounded meshes (KDF and Sarim infantry are fielded)', () => {
+    const roster = withWoundedTypes(missionUnitTypes(missions.beit_sahwan_breach, UNIT_IDS), byId);
+    expect(roster.has('wounded_kdf')).toBe(true);
+    expect(roster.has('wounded_sarim')).toBe(true);
+    expect(meshPlanFor(parseMap(maps.beit_sahwan_outskirts), roster).rigged.has('wounded_kdf')).toBe(true);
+  });
+
+  for (const [id, mission] of Object.entries(missions as Record<string, MissionJson>)) {
+    it(`${id}: every wounds type a fielded type sheds is in the boot roster with a mesh`, () => {
+      const roster = withWoundedTypes(missionUnitTypes(mission, UNIT_IDS), byId);
+      const owed = [...roster].map((u) => byId[u]?.hull?.wounds?.type).filter((t): t is string => t !== undefined);
+      expect(owed.length, 'the mission fields no wounded-capable type (vacuity guard)').toBeGreaterThan(0);
+      expect(owed.filter((t) => !roster.has(t) || !hasUnitMesh(t))).toEqual([]);
+    });
+  }
 });
 
 describe('mesh catalogue: decor families', () => {

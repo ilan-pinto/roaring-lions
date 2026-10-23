@@ -6537,7 +6537,12 @@ describe('Conduct and the wounded (GH-707 Task 7)', () => {
   const CG_POST = { id: 'cg_aid', hp_per_tile: 200, aid: { admit_radius: 2, treat_s: 10, dispatch_radius: 12 } };
 
   /** Player squad id 0; enemy squads 1..6; civilians 7..8 (placement order). */
-  function cgWorld(roe: MissionJson['roe'], markers: Record<string, [number, number]> = {}): World {
+  function cgWorld(
+    roe: MissionJson['roe'],
+    markers: Record<string, [number, number]> = {},
+    objectives: MissionJson['objectives'] = [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
+    zones: Record<string, [number, number, number, number]> = {}
+  ): World {
     const sim = new Sim({ seed: 0x707, width: 28, height: 12, capacity: 32 });
     const ids = new Map<string, number>();
     for (const t of [CG_SQUAD, CG_WOUNDED, CG_CIV, CG_SCOUT, CG_AMBULANCE]) ids.set(t.id, sim.addUnitType(t));
@@ -6549,7 +6554,7 @@ describe('Conduct and the wounded (GH-707 Task 7)', () => {
         starting_force: [{ unit: 'cg_squad', count: 1, at: [2, 2] }],
         enemy: { garrison: [{ unit: 'cg_squad', count: 6, at: [22, 1] }] },
         civilians: { groups: [{ unit: 'cg_civ', count: 2, at: [8, 9] }] },
-        objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
+        objectives,
         roe,
       }),
       {
@@ -6559,7 +6564,7 @@ describe('Conduct and the wounded (GH-707 Task 7)', () => {
           return t;
         },
         markers,
-        zones: {},
+        zones,
       }
     );
     runtime.start();
@@ -6636,7 +6641,13 @@ describe('Conduct and the wounded (GH-707 Task 7)', () => {
     expect(gains(out)).toEqual([[2, 82], [2, 84]]);
   });
 
-  it('player fire killing a DOWN enemy costs 3; the enemy`s fire, a standing enemy, or a bleed-out do not', () => {
+  /** A player round aimed at `target` (GH-707: the deliberate act the -3 judges). */
+  const aimed = (target: number, shooter = 0): SimEvent => ({
+    kind: 'fire', tick: 1, shooter, target, weaponId: 'w', pHit: 0, roll: 0, willHit: true,
+    breakdown: { accuracy: 0, rangeFalloff: 0, coverMod: 0, motionMod: 0, stanceMod: 0, suppressionMod: 0 },
+  });
+
+  it('player fire AIMED at a down enemy and killing him costs 3; the enemy`s fire, a standing enemy, or a bleed-out do not', () => {
     const w = cgWorld({ enabled: true });
     const ws = w.sim.state.woundState as Uint8Array;
     ws[1] = 1; // DOWN
@@ -6644,16 +6655,100 @@ describe('Conduct and the wounded (GH-707 Task 7)', () => {
     ws[3] = 1;
     ws[4] = 1;
     const out = [
-      ...w.runtime.step([{ kind: 'destroyed', tick: 1, entity: 1, by: 0 }]), // -3
-      ...w.runtime.step([{ kind: 'destroyed', tick: 1, entity: 2, by: 0 }]), // -3
-      ...w.runtime.step([{ kind: 'destroyed', tick: 1, entity: 3, by: 5 }]), // the enemy's own fire
-      ...w.runtime.step([{ kind: 'bledOut', tick: 1, entity: 4 }, { kind: 'destroyed', tick: 1, entity: 4, by: 0 }]),
-      ...w.runtime.step([{ kind: 'destroyed', tick: 1, entity: 6, by: 0 }]), // never down
+      ...w.runtime.step([aimed(1), { kind: 'destroyed', tick: 1, entity: 1, by: 0 }]), // -3
+      ...w.runtime.step([aimed(2)]),
+      ...w.runtime.step([{ kind: 'destroyed', tick: 2, entity: 2, by: 0 }]), // -3: aimed a tick earlier
+      ...w.runtime.step([aimed(3, 5), { kind: 'destroyed', tick: 1, entity: 3, by: 5 }]), // the enemy's own fire
+      ...w.runtime.step([aimed(4), { kind: 'bledOut', tick: 1, entity: 4 }, { kind: 'destroyed', tick: 1, entity: 4, by: 0 }]),
+      ...w.runtime.step([aimed(6), { kind: 'destroyed', tick: 1, entity: 6, by: 0 }]), // never down
     ];
     expect(out.flatMap((e) => (e.kind === 'roe' ? [[e.penalty, e.reason, e.score]] : []))).toEqual([
       [3, 'wounded enemy killed', 97],
       [3, 'wounded enemy killed', 94],
     ]);
+  });
+
+  it('splash that kills a down enemy beside a legitimate target costs nothing (the lead, 22 Oct)', () => {
+    const w = cgWorld({ enabled: true });
+    const ws = w.sim.state.woundState as Uint8Array;
+    ws[1] = 1; // DOWN, never aimed at
+    ws[2] = 1; // DOWN; the round was aimed at the standing squad 3 beside him
+    // Squad 5 was aimed at while STANDING and only then went down: no aim at a down man.
+    const out = [
+      ...w.runtime.step([{ kind: 'destroyed', tick: 1, entity: 1, by: 0 }]),
+      ...w.runtime.step([aimed(3), { kind: 'destroyed', tick: 1, entity: 2, by: 0 }]),
+      ...w.runtime.step([aimed(5)]),
+    ];
+    ws[5] = 1;
+    out.push(...w.runtime.step([{ kind: 'destroyed', tick: 2, entity: 5, by: 0 }]));
+    // Squad 4 goes down IN PLACE in the very tick the round aimed at him lands (read after the
+    // tick, he is already down): he was standing when it was aimed, so his later death is free.
+    ws[4] = 1;
+    out.push(...w.runtime.step([aimed(4), { kind: 'woundedDown', tick: 3, entity: 4, parent: -1, by: 0 }]));
+    out.push(...w.runtime.step([{ kind: 'destroyed', tick: 4, entity: 4, by: 0 }]));
+    expect(out.filter((e) => e.kind === 'roe')).toEqual([]);
+    expect(w.runtime.roeScore).toBe(100);
+  });
+
+  it('through the real sim: an enemy wounded body killed by player damage with no round aimed at him costs nothing', () => {
+    const w = cgWorld({ enabled: true });
+    // A wounded-role body on side 1 beside enemy squad 1 (the sim spawns one like this at a fall).
+    const body = w.sim.spawn(1, 1, w.sim.state.posX[1], w.sim.state.posY[1]);
+    expect(w.sim.isDown(body)).toBe(true);
+    // Player damage reaches him the way splash does: through applyDamage, no `fire` naming him.
+    (w.sim as unknown as { applyDamage(t: number, d: number, by: number): void }).applyDamage(body, fx.fromInt(30), 0);
+    const out = w.step(2);
+    expect(out.sim.some((e) => e.kind === 'destroyed' && e.entity === body && e.by === 0)).toBe(true);
+    expect([out.mission.filter((e) => e.kind === 'roe'), w.runtime.roeScore]).toEqual([[], 100]);
+  });
+
+  it('spotting a down enemy pays no intel and counts toward no locate; a standing one does (the lead, 22 Oct)', () => {
+    const w = cgWorld({ enabled: true }, {}, [
+      { id: 'hold', type: 'survive_until', primary: true, seconds: 600 },
+      { id: 'find', type: 'locate', primary: false, count: 1 },
+    ]);
+    (w.sim.state.woundState as Uint8Array)[1] = 1; // enemy 1 is down
+    const contact = (target: number): SimEvent => ({ kind: 'contact', tick: 1, side: 0, target, level: 'identified', confidence: 65536, observer: 0 });
+    const before = w.runtime.intel;
+    const out = w.runtime.step([contact(1)]);
+    expect(out.filter((e) => e.kind === 'intelEarned')).toEqual([]);
+    expect([w.runtime.intel - before, w.runtime.objectiveStatus('find')]).toEqual([0, 'active']);
+    // The control: a standing enemy pays 8 (INTEL_PER_IDENTIFIED) and completes the locate.
+    const out2 = w.runtime.step([contact(2)]);
+    // (the locate's completion pays its own 40 beside it, cause 'objective').
+    expect(out2.filter((e) => e.kind === 'intelEarned').map((e) => [(e as { cause: string }).cause, (e as { amount: number }).amount])).toEqual([
+      ['identified', 8],
+      ['objective', 40],
+    ]);
+    expect(w.runtime.objectiveStatus('find')).toBe('complete');
+  });
+
+  it('a wounded enemy does not contest a capture, and a wounded player man does not hold it (the lead, 22 Oct)', () => {
+    // Zone (2..5, 1..4) holds the player's squad 0 at (2,2). A capture of 2 s = 40 ticks.
+    const take = [{ id: 'take', type: 'capture' as const, primary: true, target: 'z', seconds: 2 }];
+    const ZONES: Record<string, [number, number, number, number]> = { z: [2, 1, 4, 4] };
+    const put = (w: World, id: number, x: number, y: number): void => {
+      (w.sim.state.posX as Int32Array)[id] = fx.from(x);
+      (w.sim.state.posY as Int32Array)[id] = fx.from(y);
+    };
+    // A down enemy two tiles from the squad, inside the zone: the capture runs out.
+    const w = cgWorld({ enabled: true }, {}, take, ZONES);
+    put(w, 1, 4.5, 2.5);
+    (w.sim.state.woundState as Uint8Array)[1] = 1;
+    w.step(45);
+    expect(w.runtime.objectiveStatus('take')).toBe('complete');
+    // The control: the same enemy standing contests it.
+    const c = cgWorld({ enabled: true }, {}, take, ZONES);
+    put(c, 1, 4.5, 2.5);
+    c.step(45);
+    expect(c.runtime.objectiveStatus('take')).toBe('active');
+    // A player man down alone in the zone holds nothing: the squad moved out, a down scout in.
+    const h = cgWorld({ enabled: true }, {}, take, ZONES);
+    put(h, 0, 20.5, 9.5);
+    const scout = h.sim.spawn(3, 0, fx.from(3.5), fx.from(2.5));
+    (h.sim.state.woundState as Uint8Array)[scout] = 1;
+    h.step(45);
+    expect(h.runtime.objectiveStatus('take')).toBe('active');
   });
 
   it('a civilian the player downs and then rescues costs nothing and pays +3, end to end', () => {

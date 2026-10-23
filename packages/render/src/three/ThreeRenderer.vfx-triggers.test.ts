@@ -28,6 +28,8 @@ import apsJson from '../../../../data/vfx/aps_launch.json';
 import demolitionJson from '../../../../data/vfx/demolition_blast.json';
 import dischargeJson from '../../../../data/vfx/smoke_discharge.json';
 import shellImpactJson from '../../../../data/vfx/shell_impact.json';
+import barrageImpactJson from '../../../../data/vfx/barrage_impact.json';
+import airStrikeImpactJson from '../../../../data/vfx/air_strike_impact.json';
 import mortarBaseDustJson from '../../../../data/vfx/mortar_base_dust.json';
 
 vi.mock('three', async (importOriginal) => {
@@ -84,7 +86,9 @@ const MISSILE_TRAIL = missileTrailJson as unknown as EmitterSpec;
 // by the missile trail's sprite mesh, which needs both looks wired.
 const SHELL_IMPACT = shellImpactJson as unknown as EmitterSpec;
 const MORTAR_BASE_DUST = mortarBaseDustJson as unknown as EmitterSpec;
-const ALL = [RICOCHET, PENETRATION, SMOULDER, APS, DEMOLITION, DISCHARGE, MISSILE_TRAIL, ROCKET_TRAIL, SHELL_IMPACT, MORTAR_BASE_DUST];
+const BARRAGE_IMPACT = barrageImpactJson as unknown as EmitterSpec;
+const AIR_STRIKE_IMPACT = airStrikeImpactJson as unknown as EmitterSpec;
+const ALL = [RICOCHET, PENETRATION, SMOULDER, APS, DEMOLITION, DISCHARGE, MISSILE_TRAIL, ROCKET_TRAIL, SHELL_IMPACT, MORTAR_BASE_DUST, BARRAGE_IMPACT, AIR_STRIKE_IMPACT];
 
 const weapon = (id: string, type: string, penetration: number, range = 10) => ({
   id, type, range_tiles: range, effective_range_tiles: range * 0.8, accuracy: 0.95,
@@ -130,6 +134,8 @@ interface Privates {
   missileFx: { trail: { live: number; alive: Uint8Array; style: Uint8Array; pWorldY: Float32Array; capacity: number }; spriteMesh: { count: number } };
   wreckSmoulder: Map<number, unknown>;
   pendingCharges: unknown[];
+  hitStop: { remainingMs: number };
+  decalsPersistent: { liveCount: number };
 }
 const priv = (r: ThreeRenderer): Privates => r as unknown as Privates;
 
@@ -315,19 +321,51 @@ describe('a fire-support round draws by its profile (F-Q8)', () => {
   const strike = (shooter: number, profile: number): SimEvent =>
     ({ kind: 'strike', tick: 1, by: shooter, x: fx.from(12.5), y: fx.from(8.5), profile }) as SimEvent;
 
-  it('a barrage round lands as a mortar shell: burst, no 18 puffs', () => {
+  // GH-748 (the lead, 22 Oct): each call throws its OWN detonation -- the
+  // barrage `barrage_impact` at 0.8, the strike `air_strike_impact` at 1.5 --
+  // in place of the mortar's shell burst and the old 18 flat puffs.
+  it('a barrage round throws barrage_impact: not the mortar shell, no flat puffs', () => {
     const { r, shooter, log } = world(GUNNER);
     r.onEvents([strike(shooter, 1)]);
-    expect(log).toContain('shell_impact');
+    expect(log).toContain('barrage_impact');
+    expect(log).not.toContain('shell_impact');
+    expect(log).not.toContain('air_strike_impact');
     expect(log.filter((k) => k === 'flat')).toHaveLength(0);
+    // No freeze-frame on a barrage round.
+    expect(priv(r).hitStop.remainingMs).toBe(0);
     r.dispose();
   });
 
-  it('a precision strike keeps its 18 puffs and no shell burst', () => {
+  it('a precision strike throws air_strike_impact with a 60 ms freeze-frame and a shock ring', () => {
     const { r, shooter, log } = world(GUNNER);
     r.onEvents([strike(shooter, 0)]);
-    expect(log.filter((k) => k === 'flat')).toHaveLength(18);
+    expect(log).toContain('air_strike_impact');
     expect(log).not.toContain('shell_impact');
+    expect(log.filter((k) => k === 'flat')).toHaveLength(0);
+    expect(priv(r).hitStop.remainingMs).toBeCloseTo(60, 6);
+    expect(r.debugSupport().rings).toBe(1);
+    expect(r.debugSupport().lights).toBe(1);
+    r.dispose();
+  });
+
+  it('a quiet renderer still marks the ground under a strike, and throws nothing else', () => {
+    const { r, shooter, log } = world(GUNNER);
+    r.setQuiet(true);
+    const before = priv(r).decalsPersistent.liveCount;
+    r.onEvents([strike(shooter, 0), strike(shooter, 1)]);
+    // A crater and a scorch each: the world keeps them (quiet.ts).
+    expect(priv(r).decalsPersistent.liveCount - before).toBe(4);
+    expect(log).toHaveLength(0);
+    expect(r.debugSupport()).toMatchObject({ rings: 0, lights: 0 });
+    expect(priv(r).hitStop.remainingMs).toBe(0);
+    r.dispose();
+  });
+
+  it('a strike whose emitter is not loaded throws no light, shake or ring', () => {
+    const { r, shooter } = world(GUNNER);
+    r.useEmitters(ALL.filter((e) => e !== AIR_STRIKE_IMPACT), (k) => (k.startsWith('#') ? k : '#E6D8BE'));
+    r.onEvents([strike(shooter, 0)]);
+    expect(r.debugSupport()).toMatchObject({ rings: 0, lights: 0 });
     r.dispose();
   });
 

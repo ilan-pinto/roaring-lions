@@ -37,3 +37,15 @@ describe('VERSUS_HELD_UNITS (GH-698)', () => {
     for (const id of VERSUS_HELD_UNITS) expect(versusRoster().some((u) => u.id === id)).toBe(false);
   });
 });
+
+describe('wounds are off in versus (GH-707 P3, until the lead opens them)', () => {
+  it('no type a room registers carries hull.wounds or hull.figures, and the campaign keeps both', () => {
+    const roster = versusRoster();
+    const carrying = roster.filter((u) => 'wounds' in u.hull || 'figures' in u.hull).map((u) => u.id);
+    expect(carrying).toEqual([]);
+    // The strip copies: the shared units table keeps its wounds (inf_squad: 3 men).
+    expect((units.inf_squad.hull as { figures?: number }).figures).toBe(3);
+    expect('wounds' in units.inf_squad.hull).toBe(true);
+    expect(roster.some((u) => u.id === 'inf_squad')).toBe(true);
+  });
+});

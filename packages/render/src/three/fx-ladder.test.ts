@@ -31,6 +31,7 @@ import { describe, expect, it } from 'vitest';
 import { WEAPON_CLASS } from '@lions/sim';
 import type { EmitterSpec } from '../vfx/emitters';
 import { blastHitStopMs, blastLightSpec, blastShake } from './blast-spec';
+import { AIR_STRIKE_IMPACT_POWER, BARRAGE_IMPACT_POWER } from './support-air';
 import { explosionBurstPowerFromFootprint, explosionBurstPowerFromMaxHp } from './units/explosion-burst';
 import { SHELL_PROFILES, shellKindFor } from './units/shells';
 
@@ -125,6 +126,23 @@ describe('explosion strength follows the event (VR-22)', () => {
   }
 });
 
+describe('the fire-support detonations (GH-748, the lead 22 Oct)', () => {
+  it('air strike > barrage round > shell landing, on light and shake', () => {
+    const strike = blastLevel(byId('air_strike_impact'), AIR_STRIKE_IMPACT_POWER);
+    const round = blastLevel(byId('barrage_impact'), BARRAGE_IMPACT_POWER);
+    const shell = ladder().shell;
+    for (const key of ['light', 'shake'] as const) {
+      const row = `strike ${strike[key]}, barrage ${round[key]}, shell ${shell[key]}`;
+      expect(strike[key], row).toBeGreaterThan(round[key]);
+      expect(round[key], row).toBeGreaterThan(shell[key]);
+    }
+  });
+  it('freezes the frame 60 ms on the strike and never on a barrage round', () => {
+    expect(blastLevel(byId('air_strike_impact'), AIR_STRIKE_IMPACT_POWER).hitStop).toBeCloseTo(60, 9);
+    expect(blastLevel(byId('barrage_impact'), BARRAGE_IMPACT_POWER).hitStop).toBe(0);
+  });
+});
+
 describe('firing never shakes the screen (VR-23)', () => {
   it('no weapon_fire emitter authors a screen_shake', () => {
     const fire = emitters().filter((e) => e.trigger === 'weapon_fire');
@@ -140,7 +158,10 @@ describe('only the ranked blasts jolt or freeze the screen (GH-85)', () => {
   // emitter outside that set authoring either would be a rung nobody ranked
   // -- or dead data that reads as a promise. `missile_impact` shakes (P-4)
   // and is the HEAT landing, a shell-class event with no freeze of its own.
-  const BLASTS = new Set(['structure_collapse', 'catastrophic_kill', 'shell_impact', 'missile_impact']);
+  // GH-748 adds the two fire-support detonations, ranked by the lead on 22 Oct:
+  // the air strike above a vehicle kill's freeze, a barrage round with a shake
+  // and no freeze.
+  const BLASTS = new Set(['structure_collapse', 'catastrophic_kill', 'shell_impact', 'missile_impact', 'barrage_impact', 'air_strike_impact']);
 
   it('no emitter outside the blasts authors screen_shake or hit_stop_ms', () => {
     const offenders = emitters()

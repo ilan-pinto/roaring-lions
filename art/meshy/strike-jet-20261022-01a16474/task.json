@@ -1,0 +1,47 @@
+{
+  "request": {
+    "mode": "refine",
+    "preview_task_id": "01a16471-cc98-7661-9529-ef31a1dbf1b4",
+    "texture_resolution": "2k"
+  },
+  "response": {
+    "id": "01a16474-014f-7769-8751-cadeadc5fcaf",
+    "type": "text-to-3d-refine",
+    "mode": "refine",
+    "name": "",
+    "model_type": "standard",
+    "seed": 3137162549,
+    "prompt": "A single low-poly game-ready single-seat multirole strike jet of a fictional air force, landing gear retracted. A slim pointed nose, one bubble canopy far forward, a long fuselage blended smoothly into wide clipped-delta wings with sharply swept leading edges, an air intake under the cockpit, one round engine nozzle at the tail, two vertical tail fins canted outward, two small swept tailplanes. One large bomb under each wing on a short pylon. Real-world scale, 15 metres long, 10.7 metre wingspan. Matte grey desert camouflage of pale sand-grey and medium grey patches, dark tinted canopy, gunmetal nozzle. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, roundels, stars, flags, numbers, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1792686686557,
+    "progress": 100,
+    "started_at": 1792686686564,
+    "finished_at": 1792686791204,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a16474-014f-7769-8751-cadeadc5fcaf/output/model.glb?Expires=4946227200&Signature=MgrlkO132HFSlhVgZ62wRgXFDRDRe6sEHLPMmL05XzAQU6EfHdQEiG5j8ZkzUFN4xA~dzaPnoP4TjwFFBjG2PUekIWubEt~uvImM8j5BrNsVHMZo5V~fed-CDSXwHCvuJJQgq2XuNSzjTtr6sLOLPDs-QbafMZBUdpUhNR9dVbUFwP1sN1jhHZLHARVBhC1w3RvYTYlv6SOi6w6~Dl8xaKDTtS8Ldw6wam3burHZux8iQmNCcN5xhtJzKxhPky-v7-0P78qIgLRZaxJxAqtDAawin4cEM~d--85YWlX09wTg-FxCaqTF0XD--1P5aLc31cLC5R-ORWanxtll5I6fBQ__&Key-Pair-Id=K1VGYTHIYLM9UM",
+      "fbx": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a16474-014f-7769-8751-cadeadc5fcaf/output/model.fbx?Expires=4946227200&Signature=AMdcPUrx4Ny2gHCLRWhq3aSv1Pq6Aw2BaobRNQ3q5jPW9faEZfo9Dsj1dDllSatyLQs9H0ZCak2GooPO4tdk9fkeh4I73Y~GZioxYVbvdPATeVAt0Em0dGJ9bUnejz0q69JqR8LsnW8WqVd6e6NqPzylCYXhSNxRZWRT3XsgxwATvxfjcIdvcc~2laOaoBdqV1iSVA~mN1CrXMfape2RupAzqiRTYjXZh6oAtTj6r6a7~GVPZjZQQ3A3SavGS9GL-M4067OWWmturXwZV0Z1n7WYlt299ZnAQXmiqFg2RZ~IKyoqaxlQcyEYWYfJVsfQpQqqMgpdMJ2in3AVDCIITw__&Key-Pair-Id=K1VGYTHIYLM9UM",
+      "usdz": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a16474-014f-7769-8751-cadeadc5fcaf/output/model.usdz?Expires=4946227200&Signature=oU8rocV6hA7Ycrr68JzkNVLXxfAvwb9mRszCbSNNDj2LJBLTttRurDjMWlbs2gOgLrySH0wwynnCj9YdeGA3Frl5l8~m7yzpwtCwaS7ZRqrqfsaVRp98Zt2ytEBva4bwyopnhGd2lZH8zOrIppgaWxzQhlKw-NU5GmwOYEo3g6wdw42EkdYak6zzRYghtiqeuhWVsvDZ8jltzvxujmZme7zPfNAfTL1lT5FuP5~Rswesr-QN2PLLN43FFImTHvzYEIz1dtZu8QI77nYLNrgIahvB4E~G0HKEZ5mqtkUmeUw5Zj5QXQsbPtKxl8me2~AjUL46-8w44gUVScEtWXSHEQ__&Key-Pair-Id=K1VGYTHIYLM9UM",
+      "obj": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a16474-014f-7769-8751-cadeadc5fcaf/output/model.obj?Expires=4946227200&Signature=oaJRmF1h04D7PrYDaPu27lNqHkxehL65M5dQhtPZDhT75K6KT0hNcPpONcenaWM8UuS6qkopHJtavXyR7K3oMtS41lPqxLIPA3cpMA1S0aJWE~o12WqSMvYU1xhcN1-sIH3-q3DosZWaT23QiENominUZVCHUp58oOeU-1txIuMMys9OqUm0p1P-5tjv661Rf2Se9wnhJJslRtYuaaZiXHIaYGCbOAn77zMyicECnrN74MxghUkAz6mwxTMSKHiCK~9w71jFEyCn4Mz7vIWCp38GM35F7cs66D7ARAabObRQmPagl3TiKi5oyZx0MEMdNo4k9IxbhaZ7hzdJyZb~kQ__&Key-Pair-Id=K1VGYTHIYLM9UM",
+      "mtl": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a16474-014f-7769-8751-cadeadc5fcaf/output/model.mtl?Expires=4946227200&Signature=gbJMb4niJwgyjouyriWtLfvPZP39bsk-sEMhjp7YDdMPumy4tiAWmtTX1~H6EgsOwd~SzLbRI~tcr5mlZExrgglFWOpberwT7J~SQWyMHVBJ6BkM7arwhsenoBnpMergFfFrXyRBipkCX6ZJM9ORqSqiwJlAUorDEwFZC-QfjLLk7rNohd2SsNBJ3mbw8aTX6Z7gKs8SI-vT94ziYsP9BV0CD-TcVhPvB4qs23of5kine5ie3pY-P8BWlnLd7~w-SOzdjAjXwB5YU0a1rlkvEj3YsFQo~kKBC2yZCBh7UCmYDBPf9C1bOxlW~7SjlDeXzIB1LKaUpWZEhYNHA112eg__&Key-Pair-Id=K1VGYTHIYLM9UM",
+      "stl": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a16474-014f-7769-8751-cadeadc5fcaf/output/model.stl?Expires=4946227200&Signature=XbiouRh1nu3iWPI-hTSk2rBTkfZM9R9hODhL5kKl-7AoR6i-Quo3k8SDa8v8qlTWAxo01vam1Pru-fpg1CqdLEGlpKhALbSMyVFkdwG-VSLnAWlVTPG5nsTHhEgEyinXizBtEmgJET4mo43YRkPH9T8cG0MdwAD7tQNr05ndrEeHLB4r3tTjA7A9D9MDwXXy2qAk0HX4YlysPNLBMXrx8oTyL0bqtYmWOoZOLjiPAlepb0GgW6Er5w1SUMyobc6Nz4QyitaIWi5P1e-HEpZhRU0BF6Vo8FlStoqFZ05b~r84374n3x4ZH12Qul3HquzVf637ECLL4BdedidmYkqYjg__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a16474-014f-7769-8751-cadeadc5fcaf/output/preview.png?Expires=4946227200&Signature=qKxoznhSgIjCEAt9qEoLYYIKRfR8KOXtdNAqyVdzHewja4xf6xjHGffhuNmanqg78EaXuRphleS-bWCdSJq6OEKWNXCveFihAQDh5TL8xtFzVerCYU710tt~5CT4lrN8oxR7Wp9X1XLyKFPGB7EULBTQS06Y0OpVtCL4AgCk1MYs8dm4R30-qir0t1Ma83UyGQI8F9o1DjsKVT0owJ-gcOHf50Zs54diSFzW6Ar8lhhjuL-sfEMZbw0EnLye96RlYjdkcWV1kQLfL8t8x593u1YgrD7sHY~IGGOXItMesBogkhY9lwXIrmpwu8-eU9dqJ91LySyrF~UY83oMgPk5Dw__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [
+      {
+        "base_color": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a16474-014f-7769-8751-cadeadc5fcaf/output/texture_0.png?Expires=4946227200&Signature=cnMR-OG1QPMA9iFga1Vc8SSjLPI0Xh1Aviz3lj~jabF9kJQUMdI5ZnYir56Rgzu7qTmSeHmTU2C72GZ8Dc1xJoOf5XKH2pMISG9546n-0sv6vMFUuacB8xBG8S49D4unT-HuQrcEg4Ji1IKaXeM0Qq1mNQdWye-pYGpmfI3QS~xcawo7Wl5aLqHdEq4wCQr2M32gMKPUAS2yonmbkdxanN9wV1VVjKZrl1md0xnJ-m-3o06OjaCVn-ur~7EVDZPOoeA00OFV6N6JbILYKmSkJHCVuNYPJyUYSqiVIRvRTeqWgOIwza-lJQ~MKJbNNJqpG9Pb4jFHupUDoGQvj0NjYA__&Key-Pair-Id=K1VGYTHIYLM9UM"
+      }
+    ],
+    "remove_lighting": true,
+    "consumed_credits": 10
+  },
+  "consumed_credits": 10,
+  "timestamps": {
+    "created_at": 1792686686557,
+    "started_at": 1792686686564,
+    "finished_at": 1792686791204
+  },
+  "usd_estimated": 0.2
+}

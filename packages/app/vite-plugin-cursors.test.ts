@@ -523,8 +523,8 @@ describe('the stadia sights -- the approved G1 r5 order cursors', () => {
   /** The default sheet's image for key at frame, as the cascade draws it. */
   const drawn = (key: string, frame: number): string => decodeSvgUri(markupOf(frameLineFor(css, key, frame)));
 
-  it('wires exactly move, attack, sweep, strike and smoke (Q2), the barrage and smoke screen (S-F), and the rescue (GH-707)', () => {
-    expect(SIGHTS.map(([n]) => n).sort()).toEqual(['advance', 'barrage', 'move', 'rescue', 'smoke', 'smokeScreen', 'strike', 'sweep']);
+  it('wires exactly move, attack, sweep, strike and smoke (Q2), the barrage and smoke screen (S-F), the patrol (Lane A) and the rescue (GH-707)', () => {
+    expect(SIGHTS.map(([n]) => n).sort()).toEqual(['advance', 'barrage', 'move', 'patrol', 'rescue', 'smoke', 'smokeScreen', 'strike', 'sweep']);
   });
 
   it('draws every frame of every wired sight on the 24-box at 32 px, with the hotspot at 16 16', () => {
@@ -684,7 +684,7 @@ describe('animated cursor frames', () => {
     // A silent eighth entry (or the loss of one) would otherwise only
     // surface as a visual difference nobody happened to look for.
     expect(Object.keys(ANIMATED_CURSORS).sort()).toEqual(
-      ['advance', 'attack', 'barrage', 'charge', 'demolish', 'move', 'moveOnly', 'rescue', 'smoke', 'smokeScreen', 'strike', 'sweep']
+      ['advance', 'attack', 'barrage', 'charge', 'demolish', 'move', 'moveOnly', 'patrol', 'rescue', 'smoke', 'smokeScreen', 'strike', 'sweep']
     );
   });
 
@@ -721,9 +721,9 @@ describe('animated cursor frames', () => {
     const keys = [...cursorImages(resolved, 'default').keys()].filter(
       (k) => ANIMATED_CURSORS[k.split('-')[0] as keyof typeof ANIMATED_CURSORS]
     );
-    // move x8, attack x8, sweep, strike, smoke, barrage, smokeScreen, rescue,
+    // move x8, attack x8, sweep, strike, smoke, barrage, smokeScreen, patrol, rescue,
     // demolish x3, charge-soft
-    expect(keys.length).toBe(8 + 8 + 6 + 3 + 1);
+    expect(keys.length).toBe(8 + 8 + 7 + 3 + 1);
     for (const key of keys) {
       const anim = ANIMATED_CURSORS[key.split('-')[0] as keyof typeof ANIMATED_CURSORS];
       if (!anim) throw new Error(key);
@@ -1272,6 +1272,15 @@ describe('the composer and the plugin agree on every key -- Important 2', () => 
           const name = cursorFor(res, { ...hints, armedMove: true });
           keys.add(cursorKey(name, badgeFor(res, hints, badges, name)));
         }
+      }
+    }
+    // The armed patrol (Lane A mock): nobody's order, so resolved with no ids, and the hint
+    // says whether a waypoint may go here -- `patrol` where it may, `blocked` where not.
+    for (const armedPatrol of ['ok', 'refused'] as const) {
+      const res = resolvePointer(openGround, { ids: [], x: 5, y: 5, append: false, armed: null, confirm: false });
+      for (const hints of HINT_COMBOS) {
+        const name = cursorFor(res, { ...hints, armedPatrol });
+        keys.add(cursorKey(name, badgeFor(res, hints, badges, name)));
       }
     }
     return keys;

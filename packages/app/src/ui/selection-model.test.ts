@@ -46,8 +46,8 @@ describe('order row — which orders are offered at all', () => {
     expect(orderRow(facts({ count: 0 }), null)).toEqual([]);
   });
 
-  it('offers attack-move, move and halt to anything alive', () => {
-    expect(ids(facts())).toEqual(['attackMove', 'move', 'halt']);
+  it('offers attack-move, move, patrol and halt to anything alive', () => {
+    expect(ids(facts())).toEqual(['attackMove', 'move', 'patrol', 'halt']);
   });
 
   it('omits smoke unless something in the selection carries it', () => {
@@ -58,14 +58,14 @@ describe('order row — which orders are offered at all', () => {
   it('omits load and unload unless a transport is selected', () => {
     // The infantry case: they can BOARD one, but with no carrier in hand
     // neither verb has a subject, so neither is offered.
-    expect(ids(facts({ riders: 4 }))).toEqual(['attackMove', 'move', 'halt']);
+    expect(ids(facts({ riders: 4 }))).toEqual(['attackMove', 'move', 'patrol', 'halt']);
     expect(ids(facts({ carriers: 1, slots: 8 }))).toContain('load');
     expect(ids(facts({ carriers: 1, slots: 8 }))).toContain('unload');
   });
 
   it('keeps the spec order regardless of which orders survive', () => {
     const all = ids(facts({ smokers: 1, carriers: 1, slots: 8 }));
-    expect(all).toEqual(['attackMove', 'move', 'halt', 'smoke', 'load', 'unload']);
+    expect(all).toEqual(['attackMove', 'move', 'patrol', 'halt', 'smoke', 'load', 'unload']);
     expect(ORDERS.map((o) => o.id)).toEqual(all);
   });
 });

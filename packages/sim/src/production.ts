@@ -82,7 +82,7 @@ export function cancel(line: ProductionLine, i: number): LineItem | null {
 /**
  * D1, LD6 ask 9. A line is contested when a living, surface (tunnelIn < 0), ground (!isAir)
  * unit of side `1 - side` stands within CONTEST_RADIUS_SQ of (x, y), compared on `>> 8` deltas
- * as the hold rule does. Civilians (side 2) contest nothing. No allocation.
+ * as the hold rule does. Civilians (side 2) and men down (GH-707) contest nothing. No allocation.
  */
 export function lineContested(view: HoldView, x: Fx, y: Fx, side: 0 | 1): boolean {
   const foe = 1 - side;
@@ -91,6 +91,7 @@ export function lineContested(view: HoldView, x: Fx, y: Fx, side: 0 | 1): boolea
     if (view.alive[e] === 0 || view.side[e] !== foe) continue;
     if (view.tunnelIn[e] >= 0) continue;
     if (view.isAir(e)) continue;
+    if (view.isDown?.(e) === true) continue; // GH-707: a man down contests nothing
     const dx = ((view.posX[e] - x) >> 8) | 0;
     const dy = ((view.posY[e] - y) >> 8) | 0;
     if (dx * dx + dy * dy <= CONTEST_RADIUS_SQ) return true;

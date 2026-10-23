@@ -120,6 +120,14 @@ describe('lineContested on a literal HoldView (F4 Task 4)', () => {
     expect(lineContested(view(1, -1, false, 0), 0, 0, 0)).toBe(false);
     expect(lineContested(view(1, -1, false, 2), 0, 0, 1)).toBe(false);
   });
+
+  it('a man down contests no line (GH-707, the lead 22 Oct)', () => {
+    const v = (down: boolean) => ({
+      entityCount: 1, alive: [1], side: [1], posX: [fx.from(1)], posY: [0], tunnelIn: [-1], isAir: () => false, isDown: () => down,
+    });
+    expect(lineContested(v(false), 0, 0, 0)).toBe(true);
+    expect(lineContested(v(true), 0, 0, 0)).toBe(false);
+  });
 });
 
 describe('spendDown (F4 Task 8, D8)', () => {

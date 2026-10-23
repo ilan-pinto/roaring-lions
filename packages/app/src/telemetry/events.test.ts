@@ -123,6 +123,7 @@ function sample(kind: PlayerIntent['kind']): PlayerIntent {
     case 'dismount': return { kind, carriers: [2] };
     case 'smoke': return { kind, ids: [1], x: 1, y: 1 };
     case 'halt': return { kind, ids: [1] };
+    case 'patrol': return { kind, ids: [1], points: [{ x: 1, y: 1 }, { x: 4, y: 1 }] };
     case 'group': return { kind, slot: 1, action: 'assign' };
     case 'overlay': return { kind, on: true };
     case 'support': return { kind, call: 'air_strike', x: 1, y: 1, accepted: true };
@@ -134,7 +135,7 @@ describe('order verbs (GH-254, D2: per intent)', () => {
     expect(Object.fromEntries(INTENT_KINDS.map((k) => [k, ev.orderVerbOf(sample(k))]))).toEqual({
       select: null, order: 'attackMove', attack: 'attack', rescue: null, garrison: 'garrison', demolish: 'demolish', chargeTunnel: 'chargeTunnel',
       enterTunnel: null, vent: null,
-      mount: 'mount', dismount: 'dismount', smoke: 'smoke', halt: 'halt', group: null, overlay: null, support: 'strike',
+      mount: 'mount', dismount: 'dismount', smoke: 'smoke', halt: 'halt', patrol: null, group: null, overlay: null, support: 'strike',
     });
   });
 
