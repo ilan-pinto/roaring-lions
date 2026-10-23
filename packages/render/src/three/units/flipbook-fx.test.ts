@@ -216,7 +216,7 @@ describe('FlipbookFx presentation RNG', () => {
 });
 
 describe('FlipbookFx recipe linger (D3, 1x)', () => {
-  it('the kill column lingers 6.5-9 s and shell smoke 3.5-5 s', () => {
+  it('the kill column lingers 6.5-9 s and shell smoke 4-6 s', () => {
     const fx = ready();
     fx.spawnRecipe(catastrophicKill.flipbook as FlipbookLayerSpec[], 0, 0, 0, 1);
     const p = params(fx);
@@ -227,9 +227,10 @@ describe('FlipbookFx recipe linger (D3, 1x)', () => {
     const shell = ready();
     shell.spawnRecipe(shellImpact.flipbook as FlipbookLayerSpec[], 0, 0, 0, 0.45);
     const q = params(shell);
-    for (let i = 16; i < 22; i++) {
-      expect(q[i * 4 + 1]).toBeGreaterThanOrEqual(3500);
-      expect(q[i * 4 + 1]).toBeLessThanOrEqual(5000);
+    // Was 3500-5000 ms over instances 16..21 (the lead, 23 Oct, Q6: smoke 6 -> 9, 4-6 s).
+    for (let i = 20; i < 29; i++) {
+      expect(q[i * 4 + 1]).toBeGreaterThanOrEqual(4000);
+      expect(q[i * 4 + 1]).toBeLessThanOrEqual(6000);
     }
   });
 });
@@ -248,7 +249,31 @@ function pinRand(fx: FlipbookFx, c: number): void {
   (fx as unknown as { rand: Rand }).rand = () => c;
 }
 
+// The mortar/Grad shell recipe as the lead approved it on 23 Oct (smoke uplift
+// P4, Q6): whiter (tint 0.15) and bigger HE puffs with more tan dirt. Was
+// 12 dirt at 0.25 + 0.22r, 6 smoke at 0.7 + 0.4r, 3500-5000 ms, tint 0.4. The
+// oracle is literal equality with THIS recipe, which replaced the old approved one.
 function mockShell(fx: FlipbookFx, r: Rand, x: number, h: number, z: number, power: number): void {
+  const fs = 0.8 + 1.4 * power;
+  fx.spawn({ x, y: h, z, vy: 0.3, durationMs: 700, scale: fs, type: FLIP_FIRE });
+  for (let k = 0; k < 3; k++) {
+    const a = r() * Math.PI * 2;
+    fx.spawn({ x, y: h, z, vx: Math.cos(a) * 1.4, vy: 0.6 + r(), vz: Math.sin(a) * 1.4, delayMs: 20 * k, durationMs: 600 + 200 * r(), scale: fs * 0.6, type: FLIP_FIRE });
+  }
+  for (let k = 0; k < 16; k++) {
+    const a = r() * Math.PI * 2;
+    const sp = 0.2 + r() * 0.6;
+    fx.spawn({ x, y: h, z, vx: Math.cos(a) * sp, vy: 2.4 + r() * 2.0, vz: Math.sin(a) * sp, delayMs: 10 * k, durationMs: 800 + 400 * r(), scale: 0.4 + 0.3 * r(), type: FLIP_DIRT });
+  }
+  for (let k = 0; k < 9; k++) {
+    const a = r() * Math.PI * 2;
+    fx.spawn({ x, y: h, z, vx: Math.cos(a) * 0.6, vy: 0.3 + r() * 0.3, vz: Math.sin(a) * 0.6, delayMs: 150 + 80 * k, durationMs: 4000 + 2000 * r(), scale: 1.1 + 0.4 * r(), type: FLIP_SMOKE, tint: 0.15 });
+  }
+}
+
+
+// missile_impact still carries the earlier recipe (P4 did not touch it).
+function mockMissileImpact(fx: FlipbookFx, r: Rand, x: number, h: number, z: number, power: number): void {
   const fs = 0.8 + 1.4 * power;
   fx.spawn({ x, y: h, z, vy: 0.3, durationMs: 700, scale: fs, type: FLIP_FIRE });
   for (let k = 0; k < 3; k++) {
@@ -332,7 +357,7 @@ describe('FlipbookFx recipes from data/vfx (Task 5)', () => {
   const cases: Case[] = [
     { name: 'shell_impact (mortar 0.3)', layers: shellLayers, args: [3, 1.5, -2, 0.3], oracle: (fx, r) => mockShell(fx, r, 3, 1.5, -2, 0.3) },
     { name: 'shell_impact (Grad 0.45)', layers: shellLayers, args: [3, 1.5, -2, 0.45], oracle: (fx, r) => mockShell(fx, r, 3, 1.5, -2, 0.45) },
-    { name: 'missile_impact', layers: missileImpact.flipbook as FlipbookLayerSpec[], args: [0, 0.4, 7, 0.5], oracle: (fx, r) => mockShell(fx, r, 0, 0.4, 7, 0.5) },
+    { name: 'missile_impact', layers: missileImpact.flipbook as FlipbookLayerSpec[], args: [0, 0.4, 7, 0.5], oracle: (fx, r) => mockMissileImpact(fx, r, 0, 0.4, 7, 0.5) },
     { name: 'catastrophic_kill', layers: catastrophicKill.flipbook as FlipbookLayerSpec[], args: [-4, 2, 1, 0.8], oracle: (fx, r) => mockKill(fx, r, -4, 2, 1, 0.8) },
     { name: 'fire_apfsds', layers: fireApfsds.flipbook as FlipbookLayerSpec[], args: [1, 1.2, 2, 1, 0.7, 0.3], oracle: (fx, r) => mockMuzzle(fx, r, 1, 1.2, 2, 0.7, 0.3, 1) },
     { name: 'fire_heat', layers: fireHeat.flipbook as FlipbookLayerSpec[], args: [1, 1.2, 2, 0.6, 2.5, 0.3], oracle: (fx, r) => mockMuzzle(fx, r, 1, 1.2, 2, 2.5, 0.3, 0.6) },
@@ -353,14 +378,15 @@ describe('FlipbookFx recipes from data/vfx (Task 5)', () => {
     });
   }
 
-  it('shell recipe = 22 instances (4 fire, 12 dirt, 6 smoke), kill = 36 (10 fire, 26 smoke), muzzle = 10 (1/3/6)', () => {
+  it('shell recipe = 29 instances (4 fire, 16 dirt, 9 smoke), missile 22 (4/12/6), kill = 36 (10 fire, 26 smoke), muzzle = 10 (1/3/6)', () => {
     const tallyOf = (layers: readonly FlipbookLayerSpec[]): number[] => {
       const fx = ready();
       fx.spawnRecipe(layers, 0, 0, 0, 1, 0, 0);
       const t = types(fx, fx.mesh.geometry.instanceCount);
       return [FLIP_FIRE, FLIP_SMOKE, FLIP_DIRT].map((ty) => t.filter((x) => x === ty).length);
     };
-    expect(tallyOf(shellLayers)).toEqual([4, 6, 12]);
+    // Was [4, 6, 12]. Smoke 6 -> 9 and dirt 12 -> 16 (the lead, 23 Oct, Q6).
+    expect(tallyOf(shellLayers)).toEqual([4, 9, 16]);
     expect(tallyOf(missileImpact.flipbook as FlipbookLayerSpec[])).toEqual([4, 6, 12]);
     expect(tallyOf(catastrophicKill.flipbook as FlipbookLayerSpec[])).toEqual([10, 26, 0]);
     expect(tallyOf(fireApfsds.flipbook as FlipbookLayerSpec[])).toEqual([1, 3, 6]);
