@@ -256,17 +256,20 @@ export function world(mapId: MapId, seed: number, humanHeld?: readonly [boolean,
   return { sim, typeOf, map };
 }
 
-/** The raw Q16.16 centroid of a side's living SURFACE units, or null when
- *  none live up there. A buried unit (GH-681, the tunnel arm) is left out: the
+/** The raw Q16.16 centroid of a side's living SURFACE units that can fight, or
+ *  null when none. A buried unit (GH-681, the tunnel arm) is left out: the
  *  other seat cannot see it, so it must not steer that seat's march -- and
- *  outside the tunnel arm nothing is ever buried, so every other reading is
- *  what it was. */
+ *  outside the tunnel arm nothing is ever buried. A man down (`sim.isDown`,
+ *  GH-707: wounds are on in versus since 23 Oct 2026) is left out too: he cannot
+ *  fight, so a side marches on what can shoot back, the way a player would, and
+ *  the reading is the harsher of the two the versus-wounds probe measured. In a
+ *  world with no wound content `isDown` is always false. */
 export function centroid(sim: Sim, side: number): [number, number] | null {
   let x = 0;
   let y = 0;
   let n = 0;
   for (let i = 0; i < sim.entityCount; i++) {
-    if (sim.state.alive[i] !== 1 || sim.state.side[i] !== side || sim.state.tunnelIn[i] >= 0) continue;
+    if (sim.state.alive[i] !== 1 || sim.state.side[i] !== side || sim.state.tunnelIn[i] >= 0 || sim.isDown(i)) continue;
     x += sim.state.posX[i];
     y += sim.state.posY[i];
     n++;

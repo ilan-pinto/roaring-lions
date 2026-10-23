@@ -6,11 +6,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { doctrines, versusRules, type MapId } from '@lions/data';
 import { VERSUS_FAIR_MAPS } from '@lions/net';
+import { fx } from '@lions/sim';
 import { buildMatchWorld } from '../../../packages/app/src/net/match-world';
 import {
   CAP_TICKS_DEFAULT, DECIDE_EVERY_TICKS, FAIR_MAX_PERCENT, ORDER_EVERY_TICKS, SEEDS_DEFAULT,
-  candidateMaps, cellName, economySelfCheck, forceMixOf, humanHeldOf, layoutOf, main, parseArrangements, parsePair, planRound, play,
-  reading, roomConfig, seedOf, selfCheck, tally, withOverrides, type Played, type PlayFn,
+  candidateMaps, cellName, centroid, economySelfCheck, forceMixOf, humanHeldOf, layoutOf, main, parseArrangements, parsePair, planRound, play,
+  reading, roomConfig, seedOf, selfCheck, tally, withOverrides, world, type Played, type PlayFn,
   TUNNEL_CELLS, playTunnelCells, tunnelSelfCheck, withoutVersusRoutes,
 } from './versus-probe';
 
@@ -104,6 +105,20 @@ describe('selfCheck', () => {
   it('goes red when the control does not cut the weak side', () => {
     expect(selfCheck('tel_marum', uncut).length).toBeGreaterThanOrEqual(1);
   }, FULL_GAMES_TIMEOUT_MS);
+});
+
+describe('centroid (wounds on in versus, 23 Oct 2026)', () => {
+  it('marches on the standing force: a man down is left out of his side\'s centroid', () => {
+    const { sim, typeOf } = world('tel_marum', 1000);
+    const squad = typeOf.get('inf_squad');
+    const down = typeOf.get('wounded_kdf');
+    expect(squad).toBeDefined();
+    expect(down).toBeDefined();
+    sim.spawn(squad ?? -1, 0, fx.from(10), fx.from(10));
+    const man = sim.spawn(down ?? -1, 0, fx.from(30), fx.from(30));
+    expect(sim.isDown(man)).toBe(true);
+    expect(centroid(sim, 0)).toEqual([fx.from(10), fx.from(10)]);
+  });
 });
 
 describe('tally', () => {
