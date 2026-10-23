@@ -336,6 +336,68 @@ if (only.has('lighting')) {
   }
 }
 
+if (only.has('lighting2')) {
+  // S4 MOCK 2 (the lead, 23 Oct): a harsher look on TODAY's palette colours --
+  // only the two intensities move, and the haze tint is recomputed from them
+  // through the renderer's own `applyHaze` (it reads `resolvedLights`).
+  // Arms: today (sun 2.6 / fill 0.9), harsh (2.8 / 0.75), alt (2.6 / 0.65).
+  const ARMS: Record<string, [number, number]> = { today: [2.6, 0.9], harsh: [2.8, 0.75], alt: [2.6, 0.65] };
+  for (const s of SUBJECTS.filter((x) => ['quiet', 'relief', 'relief-qarn', 'crater-town'].includes(x.id))) {
+    const page = await pageFor(s);
+    for (const z of ZOOMS) {
+      await view(page, s.cam[0], s.cam[1], z);
+      const shots: Record<string, PNG> = {};
+      for (const [arm, [sun, fill]] of Object.entries(ARMS)) {
+        await page.evaluate(([si, hi]) => {
+          const R = (window as unknown as { __lions: { renderer: {
+            resolvedLights: { sunIntensity: number; hemiIntensity: number };
+            sceneLights: { sun: { intensity: number }; hemisphere: { intensity: number } };
+            applyHaze(): void;
+            frame(a: number, dt: number): void;
+          } } }).__lions.renderer;
+          R.resolvedLights = { ...R.resolvedLights, sunIntensity: si, hemiIntensity: hi };
+          R.sceneLights.sun.intensity = si;
+          R.sceneLights.hemisphere.intensity = hi;
+          R.applyHaze();
+          R.frame(1, 0);
+          R.frame(1, 0);
+        }, [sun, fill] as const);
+        shots[arm] = await shot(page);
+        save(shots[arm], `${s.id}_z${z}_light-${arm}.png`);
+      }
+      const lum = (p: PNG): number => {
+        let t = 0;
+        for (let i = 0; i < p.data.length; i += 4) t += 0.2126 * p.data[i] + 0.7152 * p.data[i + 1] + 0.0722 * p.data[i + 2];
+        return t / (p.data.length / 4);
+      };
+      // Luma of the brightest and darkest tenths of the TODAY frame's pixels,
+      // read at the same pixels in every arm: the lit and shaded ends.
+      const t = shots.today;
+      const l = new Float32Array(t.width * t.height);
+      for (let i = 0; i < l.length; i++) l[i] = 0.2126 * t.data[i * 4] + 0.7152 * t.data[i * 4 + 1] + 0.0722 * t.data[i * 4 + 2];
+      const sorted = Float32Array.from(l).sort();
+      const lo = sorted[Math.floor(l.length * 0.1)];
+      const hi = sorted[Math.floor(l.length * 0.9)];
+      const band = (p: PNG, pick: (v: number) => boolean): number => {
+        let sum = 0;
+        let n = 0;
+        for (let i = 0; i < l.length; i++) {
+          if (!pick(l[i])) continue;
+          sum += 0.2126 * p.data[i * 4] + 0.7152 * p.data[i * 4 + 1] + 0.0722 * p.data[i * 4 + 2];
+          n++;
+        }
+        return sum / n;
+      };
+      say(
+        `[lighting2 ${s.id} z${z}] ` +
+          Object.keys(ARMS)
+            .map((a) => `${a}: mean ${lum(shots[a]).toFixed(1)}, lit tenth ${band(shots[a], (v) => v >= hi).toFixed(1)}, dark tenth ${band(shots[a], (v) => v <= lo).toFixed(1)}`)
+            .join(' | ')
+      );
+    }
+  }
+}
+
 if (only.has('shimmer')) {
   // Pan 1 CSS px along screen-right per step: camera (x, y) += (1, -1) / (64 zoom)
   // (project.ts: screen x = (wx - wy) * 32 * zoom, screen y = (wx + wy) * 16 * zoom).
