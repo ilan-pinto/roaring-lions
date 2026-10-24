@@ -415,6 +415,13 @@
           "accuracy"
         ],
         "additionalProperties": false,
+        "allOf": [
+          {
+            "if": { "properties": { "type": { "const": "directed_energy" } }, "required": ["type"] },
+            "then": { "required": ["beam", "can_target"], "properties": { "indirect": { "const": false }, "submunitions": false } },
+            "else": { "not": { "required": ["beam"] } }
+          }
+        ],
         "properties": {
           "id": {
             "type": "string"
@@ -432,7 +439,8 @@
               "mortar",
               "rocket",
               "interceptor",
-              "demolition"
+              "demolition",
+              "directed_energy"
             ]
           },
           "range_tiles": {
@@ -529,6 +537,17 @@
               "damage": { "type": "number", "minimum": 0 },
               "splash_tiles": { "type": "number", "exclusiveMinimum": 0, "maximum": 4 },
               "suppression": { "type": "number", "minimum": 0 }
+            }
+          },
+          "beam": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["dwell_s", "heat_s", "cooldown_s"],
+            "description": "E6 (GH-274 item 3): the timing of a `directed_energy` weapon, which resolves at once with no projectile. Allowed only on that type, which requires it. The beam must stay on ONE target, in its OWN line of sight with no smoke on the line (a spotter's sight does not count), for dwell_s before the weapon's damage lands; the dwell then starts over. Time on target builds heat; at heat_s the weapon is silent for cooldown_s, then starts cool. Heat drains at the rate it builds while the beam is off a target. Penetration is rolled against armour like any round, so pen 5 does nothing to a plated hull.",
+            "properties": {
+              "dwell_s": { "type": "number", "minimum": 0.05, "maximum": 30, "description": "Uninterrupted seconds on one target for each delivery of damage." },
+              "heat_s": { "type": "number", "minimum": 0.05, "maximum": 120, "description": "Seconds of time on target before the weapon locks out. Must be at least dwell_s." },
+              "cooldown_s": { "type": "number", "minimum": 0.05, "maximum": 120, "description": "Seconds of lockout once heat_s is reached." }
             }
           }
         }

@@ -226,6 +226,23 @@ export interface WeaponJson {
   /** GH-709 unit 9: the fraction of the tile-cover bonus (hit chance and
    *  suppression) this weapon ignores, 0-1. Absent is 0, every weapon's old rule. */
   cover_ignore?: number;
+  /** E6 (GH-274 item 3): the timing of a `directed_energy` weapon. Required by the schema
+   *  on that type and refused on any other. */
+  beam?: BeamJson;
+}
+
+/** A `directed_energy` weapon's `beam` block, as authored (unit.schema.json `beam`). */
+export interface BeamJson {
+  dwell_s: number;
+  heat_s: number;
+  cooldown_s: number;
+}
+
+/** A beam's timing in whole ticks (E6 GH-274 item 3). Integers: no Fx needed. */
+export interface BeamStats {
+  dwellTicks: number;
+  heatTicks: number;
+  coolTicks: number;
 }
 
 /** E3's bomblet block, as authored (unit.schema.json `submunitions`). */
@@ -399,6 +416,7 @@ export const WEAPON_CLASS: Record<string, number> = {
   rocket: 9,
   interceptor: 10,
   demolition: 11,
+  directed_energy: 12,
 };
 
 /** Classes that fire indirect — no line of sight needed, only a side contact. */
@@ -479,6 +497,9 @@ export interface WeaponStats {
    * of a round bouncing off armour, and not bomblets (refused at load).
    */
   coverIgnore: Fx;
+  /** E6 (GH-274 item 3): the dwell/heat/cooldown of a `directed_energy` weapon, or null for
+   *  every other weapon (all of them today). */
+  beam: BeamStats | null;
 }
 
 /** E3's bomblet block, loaded. `supp` is already per-stat-divided, like
@@ -821,7 +842,32 @@ function weaponFromJson(w: WeaponJson): WeaponStats {
     isIndirect: (INDIRECT_MASK & (1 << cls)) !== 0 || w.indirect === true,
     submunitions: submunitionsFromJson(w.id, w.submunitions),
     coverIgnore: coverIgnoreFromJson(w.id, w.cover_ignore, w.submunitions),
+    beam: beamFromJson(w, cls),
   };
+}
+
+/** E6 (GH-274 item 3): `beam`, loaded. A directed-energy weapon must carry one, no other may,
+ *  and it is refused beside `indirect` or submunitions (the sight rule and the burst both
+ *  assume a round). Seconds cross to ticks once; a value under one tick, or a heat budget
+ *  shorter than one dwell (the beam could never deliver), throws naming the weapon. */
+function beamFromJson(w: WeaponJson, cls: number): BeamStats | null {
+  if (cls !== WEAPON_CLASS.directed_energy) {
+    if (w.beam !== undefined) throw new Error(`weapon ${w.id}: beam is only for directed_energy`);
+    return null;
+  }
+  if (w.beam === undefined) throw new Error(`weapon ${w.id}: directed_energy needs a beam block`);
+  if (w.indirect === true) throw new Error(`weapon ${w.id}: a beam needs its own line of sight, so it cannot be indirect`);
+  if (w.submunitions !== undefined) throw new Error(`weapon ${w.id}: a beam has no submunitions`);
+  const b = w.beam;
+  if (!(b.dwell_s <= 30 && b.heat_s <= 120 && b.cooldown_s <= 120)) {
+    throw new Error(`weapon ${w.id}: beam times are capped at dwell 30 s, heat 120 s, cooldown 120 s`);
+  }
+  const dwellTicks = secondsToTicks(b.dwell_s);
+  const heatTicks = secondsToTicks(b.heat_s);
+  const coolTicks = secondsToTicks(b.cooldown_s);
+  if (dwellTicks < 1 || coolTicks < 1) throw new Error(`weapon ${w.id}: beam dwell_s and cooldown_s are under one tick`);
+  if (heatTicks < dwellTicks) throw new Error(`weapon ${w.id}: beam heat_s is shorter than dwell_s`);
+  return { dwellTicks, heatTicks, coolTicks };
 }
 
 /** `cover_ignore`, loaded: 0-1, absent 0. A bad value throws naming the
@@ -1290,7 +1336,11 @@ export type SimEvent =
    * it in combat terms, and `stepRoe` (which only reads `destroyed`) is
    * built to see nothing here on purpose.
    */
-  | { kind: 'removed'; tick: number; entity: number; side: number };
+  | { kind: 'removed'; tick: number; entity: number; side: number }
+  /** E6 (GH-274 item 3): a beam delivered its damage (`struck`, the dwell completed) or its heat
+   *  reached the limit (`lockout`, silent until `until`). `target` is -1 on a lockout. No
+   *  projectile exists; a presentation draws the line from this. */
+  | { kind: 'beam'; tick: number; shooter: number; target: number; weaponId: string; phase: 'struck' | 'lockout'; until: number };
 
 /** Every `SimEvent` kind, as a value.
  *
@@ -1302,7 +1352,7 @@ export const SIM_EVENT_KINDS = [
   'spawn', 'contact', 'fire', 'aps', 'impact', 'component', 'nearMiss', 'submunition', 'ambushSprung',
   'strike', 'smokeLaid', 'revealed', 'structureHit', 'structureDestroyed', 'garrison',
   'transport', 'ventOpened', 'tunnelContact', 'surfaced', 'submerged', 'tunnelCollapsed', 'chargeSet', 'chargeDetonated', 'routed', 'rallied', 'pinned', 'unpinned', 'destroyed',
-  'fieldFixed',
+  'fieldFixed', 'beam',
   'removed', 'woundedDown', 'manKilled', 'bledOut', 'woundEvacuated', 'woundStabilised',
   'woundAdmitted', 'woundRejoined', 'woundLost',
   'constructQueued', 'constructRefused', 'constructStaked', 'structureComplete', 'constructCancelled',
@@ -1499,6 +1549,20 @@ export class Sim {
   private readonly fieldRef: Int32Array;
   // combat state
   private readonly cooldown: Int32Array; // 2 slots per entity
+  // E6 (GH-274 item 3): beam state, 2 slots per entity like `cooldown`. Hashed only once
+  // `beamLive` is set (the deferred fold), so a world with no beam moves no pin.
+  /** The target the beam is dwelling on, or -1. */
+  private readonly beamTgt: Int32Array;
+  /** Ticks of uninterrupted dwell so far. */
+  private readonly beamDwell: Int32Array;
+  /** Heat in ticks of time on target, as of `beamAt`; drains one per idle tick (lazily). */
+  private readonly beamHeat: Int32Array;
+  /** The last tick the beam was on a target, or -1. A dwell continues only from the tick before. */
+  private readonly beamAt: Int32Array;
+  /** The tick the lockout ends (exclusive), 0 when none has run. */
+  private readonly beamLock: Int32Array;
+  /** True once any beam weapon has been on a target; hash() folds the beam block only while set. */
+  private beamLive = false;
   private readonly lastFired: Int32Array;
   private readonly engaging: Uint8Array;
   private readonly curTarget: Int32Array;
@@ -2096,6 +2160,11 @@ export class Sim {
     this.goalY = new Int32Array(n);
     this.fieldRef = new Int32Array(n).fill(-1);
     this.cooldown = new Int32Array(n * 2);
+    this.beamTgt = new Int32Array(n * 2).fill(-1);
+    this.beamDwell = new Int32Array(n * 2);
+    this.beamHeat = new Int32Array(n * 2);
+    this.beamAt = new Int32Array(n * 2).fill(-1);
+    this.beamLock = new Int32Array(n * 2);
     this.lastFired = new Int32Array(n).fill(-100000);
     this.engaging = new Uint8Array(n);
     this.curTarget = new Int32Array(n).fill(-1);
@@ -4875,6 +4944,24 @@ export class Sim {
     return fx.mul(r, r);
   }
 
+  /** A beam slot's state as the NEXT tick will see it, for tests and presentation. The tick
+   *  keeps a dwell lazily (it continues only from the tick before), so a beam that was off
+   *  target last tick reads target -1, dwell 0 here, and its heat net of the drain. `locked` is
+   *  true while the next tick falls inside the lockout. Allocates; never called from the tick. */
+  beamState(entity: number, slot = 0): { target: number; dwell: number; heat: number; locked: boolean; lockUntil: number } {
+    const k = entity * 2 + slot;
+    const at = this.beamAt[k];
+    const on = at >= 0 && at === this.tickCount - 1;
+    const drained = at >= 0 ? this.beamHeat[k] - (this.tickCount - 1 - at) : 0;
+    return {
+      target: on ? this.beamTgt[k] : -1,
+      dwell: on ? this.beamDwell[k] : 0,
+      heat: drained > 0 ? drained : 0,
+      locked: this.tickCount < this.beamLock[k],
+      lockUntil: this.beamLock[k],
+    };
+  }
+
   /** Smoke density on a tile, for tests and presentation. */
   smokeAt(x: number, y: number): number {
     if (x < 0 || y < 0 || x >= this.width || y >= this.height) return 0;
@@ -6007,6 +6094,16 @@ export class Sim {
     if (!w.isIndirect) {
       if (this.losRay(px >> 16, py >> 16, this.posX[t] >> 16, this.posY[t] >> 16, this.eyeLift(shooter), 0) < 0) return false;
     }
+    // A beam needs its OWN clear line (E6 GH-274 item 3): any smoke on it blocks, thin or
+    // thick, however well another unit's identification has the target. losRay only refuses a
+    // screen thick enough to stop sight; this refuses the thinnest wisp. Here, in the one copy
+    // of the filter, so the scan, an ordered focus and stepFocus's reach all agree.
+    if (
+      w.beam !== null &&
+      this.raySmoke(px >> 16, py >> 16, this.posX[t] >> 16, this.posY[t] >> 16, this.eyeLift(shooter), 0) > 0
+    ) {
+      return false;
+    }
     this.engageDSq = dSq;
     this.engageOX = px;
     this.engageOY = py;
@@ -6476,6 +6573,11 @@ export class Sim {
           this.aimHullAt(i, fx.atan2(fx.sub(this.posY[target], oy), fx.sub(this.posX[target], ox)));
         }
 
+        if (w.beam !== null) {
+          // A beam keeps no rate of fire: dwell, heat and lockout are its clock.
+          if (!holdFire) this.stepBeam(i, slot, w, w.beam, target);
+          continue;
+        }
         if (this.cooldown[i * 2 + slot] > 0 || holdFire) continue;
         this.fireAt(i, slot, w, target);
       }
@@ -6838,6 +6940,70 @@ export class Sim {
       willHit,
       breakdown: { accuracy, rangeFalloff, coverMod, motionMod, stanceMod, suppressionMod },
     });
+  }
+
+  /**
+   * One tick of a beam on `target` (E6, GH-274 item 3). Called only while the slot has a
+   * target its own sight line can reach, smoke-free (`engageable`); a tick on which it is not
+   * called (no target, a switch, a lockout, pinned, down a tunnel) breaks the dwell, because the
+   * dwell continues only from `beamAt === tickCount - 1` onto the same target.
+   *
+   * Heat is ticks of time on target, drained one per tick the beam was off, applied lazily from
+   * the gap since `beamAt` so an idle unit costs nothing. `dwellTicks` of dwell deliver one hit
+   * and the dwell starts over; `heatTicks` of heat lock the weapon out for `coolTicks`, then it
+   * starts cool. All integers: no float, no division, no RNG except an armoured target's
+   * penetration roll (the shooter's own stream, as any round).
+   */
+  private stepBeam(shooter: number, slot: number, w: WeaponStats, b: BeamStats, target: number): void {
+    const k = shooter * 2 + slot;
+    const now = this.tickCount;
+    if (now < this.beamLock[k]) return; // locked out; the dwell is already zero
+    this.beamLive = true;
+    const last = this.beamAt[k];
+    if (last >= 0 && now - 1 > last) {
+      const heat = this.beamHeat[k] - (now - 1 - last);
+      this.beamHeat[k] = heat > 0 ? heat : 0;
+    }
+    if (last !== now - 1 || this.beamTgt[k] !== target) this.beamDwell[k] = 0;
+    this.beamTgt[k] = target;
+    this.beamAt[k] = now;
+    this.lastFired[shooter] = now; // a beam is a firing signature like any shot
+    this.beamHeat[k]++;
+    if (++this.beamDwell[k] >= b.dwellTicks) {
+      this.beamDwell[k] = 0;
+      this.beamStrike(shooter, w, target);
+    }
+    if (this.beamHeat[k] >= b.heatTicks) {
+      this.beamHeat[k] = 0;
+      this.beamDwell[k] = 0;
+      this.beamTgt[k] = -1;
+      this.beamLock[k] = now + 1 + b.coolTicks;
+      this.pendingEvents.push({
+        kind: 'beam', tick: now, shooter, target: -1, weaponId: w.id, phase: 'lockout', until: this.beamLock[k],
+      });
+    }
+  }
+
+  /** The beam's damage landing: at once, no projectile, accuracy ignored (it cannot miss a
+   *  target it has dwelt on). A soft target takes the damage; an armoured one is rolled against
+   *  its plate like any round, so pen 5 does nothing. */
+  private beamStrike(shooter: number, w: WeaponStats, target: number): void {
+    this.eyePoint(shooter, this.posX[target], this.posY[target]);
+    const ox = this.eyeX;
+    const oy = this.eyeY;
+    this.pendingEvents.push({
+      kind: 'beam', tick: this.tickCount, shooter, target, weaponId: w.id, phase: 'struck', until: 0,
+    });
+    if (this.unitTypes[this.typeIdx[target]].isSoft) {
+      this.applyDamage(target, w.damage, shooter);
+      return;
+    }
+    const armor = this.presentedArmor(target, ox, oy, w.cls);
+    const z = penZ(w.penetration, armor);
+    const roll = this.rng.nextU32(shooter) >>> 16;
+    if (roll >= fx.normCdf(z)) return;
+    this.applyDamage(target, w.damage, shooter);
+    if (this.alive[target] === 1) this.rollComponent(target, shooter, z);
   }
 
   /**
@@ -10570,6 +10736,18 @@ export class Sim {
       h = hashArray(h, this.airState);
       h = hashArray(h, this.airTimer);
       h = hashArray(h, this.airWant);
+    }
+    // Beams (E6, GH-274 item 3): the deferred fold. Nothing (no marker, no length word) until a
+    // beam weapon has first been on a target, so registering the type moves no pin. Every
+    // column leaves its default only through such a weapon, so the canary still sees every
+    // beam divergence once the block is on.
+    if (this.beamLive) {
+      h = hashWord(h, 0x42450274); // 'BE' GH-274
+      h = hashArray(h, this.beamTgt);
+      h = hashArray(h, this.beamDwell);
+      h = hashArray(h, this.beamHeat);
+      h = hashArray(h, this.beamAt);
+      h = hashArray(h, this.beamLock);
     }
     // Wounded and rescue (GH-707): the same deferred fold. Nothing (no marker, no length word)
     // before a wound-related type is registered, so P1 and P2 move no pin; every column here

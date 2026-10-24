@@ -104,6 +104,8 @@ export {
   type SimEvent,
   type UnitTypeJson,
   type WeaponJson,
+  type BeamJson,
+  type BeamStats,
   type UnitType,
   type WeaponStats,
   type HitFactors,
