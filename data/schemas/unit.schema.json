@@ -15,6 +15,16 @@
     "sensors"
   ],
   "additionalProperties": false,
+  "allOf": [
+    {
+      "if": { "required": ["demolition_method"], "properties": { "demolition_method": { "const": "placed" } } },
+      "then": { "required": ["placed_charge"] }
+    },
+    {
+      "if": { "required": ["placed_charge"] },
+      "then": { "required": ["demolition_method"], "properties": { "demolition_method": { "const": "placed" } } }
+    }
+  ],
   "properties": {
     "id": {
       "type": "string",
@@ -557,9 +567,22 @@
     },
     "demolition_method": {
       "type": "string",
-      "enum": ["charges", "blade"],
+      "enum": ["charges", "blade", "placed"],
       "default": "charges",
-      "description": "How this unit takes a building apart. `charges` sets satchels and the building goes down at once when the timer expires. `blade` grinds: it drains structural HP every tick, so the building crumbles as it works and damage it has already taken counts. Absent means `charges`, which is what every demolisher did before the field existed."
+      "description": "How this unit takes a building apart. `charges` sets satchels and the building goes down at once when the timer expires. `blade` grinds: it drains structural HP every tick, so the building crumbles as it works and damage it has already taken counts. `placed` (E6, GH-274) sets a fused charge on an explicit `demolish` order only, then backs away; the building falls with a blast when the fuse runs out, even if the carrier is dead by then. It requires `placed_charge`. Absent means `charges`, which is what every demolisher did before the field existed."
+    },
+    "placed_charge": {
+      "type": "object",
+      "required": ["fuse_s", "blast_tiles", "damage", "suppression", "withdraw_tiles"],
+      "additionalProperties": false,
+      "description": "E6 (GH-274, G1): the numbers of a `placed` charge. Setting it takes `demolition_time_s` of held station beside the building. Allowed only with `demolition_method: placed`.",
+      "properties": {
+        "fuse_s": { "type": "number", "minimum": 0.5, "description": "Seconds from setting to detonation." },
+        "blast_tiles": { "type": "number", "exclusiveMinimum": 0, "description": "Blast radius around the building's centre, in tiles. Hurts every soft unit inside it, the player's own troops and civilians included." },
+        "damage": { "type": "number", "exclusiveMinimum": 0, "description": "Damage at the centre; it falls off linearly to nothing at the radius." },
+        "suppression": { "type": "number", "minimum": 0, "description": "Suppression at the centre, falling off the same way." },
+        "withdraw_tiles": { "type": "number", "minimum": 0, "description": "How far the carrier backs away from the building once the charge is set." }
+      }
     },
     "tunnel_charge_time_s": {
       "type": "number",
