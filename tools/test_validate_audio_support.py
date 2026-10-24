@@ -155,6 +155,34 @@ def main():
         if not any("NOT checked" in x for x in n):
             bad.append("crest skip note")
 
+    # --- the takes of one set are heard within 3.5 dB -------------------------------
+    with tempfile.TemporaryDirectory() as d:
+        os.makedirs(os.path.join(d, "barrage_impact"))
+        for i in (1, 2, 3):
+            for ext in ("ogg", "m4a"):
+                open(os.path.join(d, f"barrage_impact/barrage_impact_0{i}.{ext}"), "wb").write(b"x")
+        three = strike_set(variants=[variant(f"barrage_impact/barrage_impact_0{i}.ogg") for i in (1, 2, 3)], gain=1.5)
+
+        def spread(spec, levels):
+            f, n = [], []
+            mod.check_heard_spread("barrage_impact", spec, f, n, audio_dir=d, measure=lambda p: levels[os.path.basename(p)])
+            return f, n
+
+        base = {"barrage_impact_01.ogg": -20.4, "barrage_impact_02.ogg": -18.4, "barrage_impact_03.ogg": -20.9}   # 2.5 dB apart, as shipped
+        check("takes 2.5 dB apart are clean", spread(three, base)[0], None)
+        check("the same takes with one +1.5 dB (4.0 dB apart) are refused", spread(three, dict(base, **{"barrage_impact_02.ogg": -16.9}))[0], "heard 4.0 dB apart")
+        check("exactly 3.5 dB apart is clean", spread(three, dict(base, **{"barrage_impact_02.ogg": -17.4}))[0], None)
+        check("a one-take set has no spread", spread(strike_set(variants=[variant("barrage_impact/barrage_impact_01.ogg")]), base)[0], None)
+        f, n = [], []
+        mod.check_heard_spread("barrage_impact", three, f, n, audio_dir=d, measure=lambda p: None)
+        check("without ffmpeg the check says so by name", f, None)
+        print(f"{'ok  ' if any('NOT checked' in x for x in n) else 'FAIL'} ...and the note names the skip")
+        if not any("NOT checked" in x for x in n):
+            bad.append("spread skip note")
+        f = []
+        mod.check_heard_spread("tank_gun", {"event": "fire", "variants": three["variants"]}, f, [], audio_dir=d, measure=lambda p: -99.0 if "01" in p else -10.0)
+        check("a battle set is not held to it", f, None)
+
     # --- the rotor block ----------------------------------------------------------------
     def rotor_run(spec, reading=GOOD_READING, files=True, extra=None):
         with tempfile.TemporaryDirectory() as d:

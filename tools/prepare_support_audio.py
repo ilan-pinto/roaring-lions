@@ -75,15 +75,15 @@ SUPPORT_CODECS = {".ogg": ["-fflags", "+bitexact", *gen_audio.CLIP_CODECS[".ogg"
 MASTER = 0.9                      # data/audio.json master_gain
 MASTER_DB = 20 * math.log10(MASTER)
 TP_CEILING = -1.0                 # dBTP, shipped files
-TP_MARGIN = 0.1                   # ebur128 prints a peak to 0.1 dB; the shipped files are re-measured after encoding
+TP_MARGIN = 0.3                   # aim 0.3 dB under the ceiling (0.1 for ebur128's rounding, 0.2 of headroom); the shipped files are re-measured against TP_CEILING itself
 MAX_GAIN = 1.5                    # validate_audio.MAX_GAIN
 CLIP_LIMIT = 0.999
 
 PROVENANCE = (
-    "AI-generated with ElevenLabs Sound Effects, supplied by the lead; commercial-use licence per the lead's "
-    "ElevenLabs plan (GH-782); prepared by tools/prepare_support_audio.py"
+    "AI-generated with ElevenLabs Sound Effects, supplied by the lead; he states his ElevenLabs plan carries a "
+    "commercial-use licence, but the plan and date are not recorded and the licence is NOT yet confirmed "
+    "(docs/ASSET_PROVENANCE.md item 2); prepared by tools/prepare_support_audio.py"
 )
-UNCONFIRMED = "; plan and date not recorded, commercial licence NOT yet confirmed (docs/ASSET_PROVENANCE.md item 2)"
 LICENSE = "LicenseRef-owned"
 CREDIT = "Ilan Pinto"
 
@@ -608,7 +608,7 @@ def write_sets(out):
             t["base"] = base
             variants.append({
                 "file": os.path.relpath(base + ".ogg", AUDIO_DIR), "alt": os.path.relpath(base + ".m4a", AUDIO_DIR),
-                "license": LICENSE, "credit": CREDIT, "source": PROVENANCE + UNCONFIRMED,
+                "license": LICENSE, "credit": CREDIT, "source": PROVENANCE,
             })
             written += [base + ".ogg", base + ".m4a"]
         entry = {"event": spec["event"], "profiles": spec["profiles"], "gain": out[name]["gain"]}
@@ -627,7 +627,7 @@ def write_sets(out):
     rotor = {
         "file": ROTOR["file"], "alt": ROTOR["alt"], "loop_s": round(len(out["rotor"]["x"]) / SR, 6), "channels": 1,
         "gain": ROTOR["gain"], "radius_tiles": ROTOR["radius"],
-        "license": LICENSE, "credit": CREDIT, "source": PROVENANCE + UNCONFIRMED,
+        "license": LICENSE, "credit": CREDIT, "source": PROVENANCE,
     }
     return entries, rotor, written
 
@@ -652,9 +652,19 @@ def write_manifest(entries, rotor):
     sets = new["sets"]
     for name, entry in entries.items():
         sets[name] = entry
+    text = json.dumps(new, indent=2, ensure_ascii=False) + "\n"
+    # Leave every entry this script does not own byte-identical: a line the file
+    # already writes with \\u escapes keeps them (json.dumps would de-escape it).
+    with open(MANIFEST) as fh:
+        for line in fh.read().splitlines():
+            if "\\u" not in line:
+                continue
+            indent = line[: len(line) - len(line.lstrip())]
+            tail = "," if line.rstrip().endswith(",") else ""
+            decoded = json.dumps(json.loads("{" + line.strip().rstrip(",") + "}"), ensure_ascii=False)[1:-1].strip()
+            text = text.replace(indent + decoded + tail + "\n", line + "\n")
     with open(MANIFEST, "w") as fh:
-        json.dump(new, fh, indent=2, ensure_ascii=False)
-        fh.write("\n")
+        fh.write(text)
 
 
 def measure_shipped(out, log):

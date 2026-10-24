@@ -581,6 +581,60 @@ def probe_seconds(path):
         return None
 
 
+# The takes of one support set are heard within this many dB of each other (maximum
+# momentary loudness x set gain x master). The shipped barrage reads 2.5 and the
+# bomb 3.3: the lead's takes differ in crest and are left unequal on purpose.
+SUPPORT_SPREAD_MAX_DB = 3.5
+
+
+def momentary_max(path):
+    """ffmpeg ebur128's maximum momentary (400 ms) loudness in LUFS, or None
+    without ffmpeg or when the read fails."""
+    if shutil.which("ffmpeg") is None:
+        return None
+    try:
+        out = subprocess.run(
+            ["ffmpeg", "-nostats", "-hide_banner", "-i", path, "-af", "ebur128", "-f", "null", "-"],
+            capture_output=True, text=True, timeout=120,
+        ).stderr
+    except (OSError, subprocess.SubprocessError):
+        return None
+    vals = [float(v) for v in re.findall(r"M:\s*(-?[\d.]+)", out)]
+    return max(vals) if vals else None
+
+
+def check_heard_spread(name, spec, failures, notes, audio_dir=AUDIO_DIR, measure=momentary_max):
+    """GH-782: a strike, flyby or incoming set's takes are heard within
+    SUPPORT_SPREAD_MAX_DB of one another. The set gain is common to its takes, so
+    this is the spread of their file momentary maxima. Named skip without ffmpeg."""
+    if spec.get("event") not in SUPPORT_EVENTS:
+        return
+    heard = {}
+    for v in spec.get("variants", []):
+        rel = v.get("file")
+        path = os.path.join(audio_dir, rel) if rel else None
+        if not path or not os.path.exists(path):
+            continue  # check_licensed_file already names a missing file
+        m = measure(path)
+        if m is None:
+            notes.append(f"set '{name}': heard-level spread NOT checked (no ffmpeg on PATH)")
+            return
+        gain = spec.get("gain", 1.0)
+        heard[rel] = m + _db(gain)
+    if len(heard) < 2:
+        return
+    lo, hi = min(heard.values()), max(heard.values())
+    if hi - lo > SUPPORT_SPREAD_MAX_DB + 1e-9:
+        loud = max(heard, key=heard.get)
+        quiet = min(heard, key=heard.get)
+        failures.append(
+            f"set '{name}': its takes are heard {hi - lo:.1f} dB apart ({loud} at {hi:+.1f}, {quiet} at {lo:+.1f}), "
+            f"over {SUPPORT_SPREAD_MAX_DB} dB -- level them to one momentary max"
+        )
+    else:
+        notes.append(f"set '{name}': takes heard within {hi - lo:.1f} dB of each other (limit {SUPPORT_SPREAD_MAX_DB})")
+
+
 def check_set_fields(name, spec, failures):
     """GH-782: the per-set fields the support events add, and the two they refuse."""
     event = spec.get("event")
@@ -1141,6 +1195,7 @@ def main(argv=None):
                 failures.append(f"set '{name}': unknown weapon class '{cls}'")
         check_set_fields(name, spec, failures)
         check_crest(name, spec, failures, notes)
+        check_heard_spread(name, spec, failures, notes)
 
         gain = spec.get("gain", 1.0)
         if not 0 <= gain <= MAX_GAIN:
