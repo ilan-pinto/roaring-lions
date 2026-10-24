@@ -180,7 +180,8 @@ import { disposeAndReleaseContext, noteSharedTextures } from './context-release'
 import { freezeSceneRoot, freezeStatic } from './static-matrix';
 import { AO_RESOLUTION_SCALE, createAoPass, createPostChain, PIXEL_RATIO_CAP, type PostChain } from './post-chain';
 import { VignettePass } from './vignette-pass';
-import { bloomPassFor, luminanceCensus, type LuminanceCensus, type QuarterBloomPass } from './bloom';
+import { zoomFadeWeight } from './zoom-fade';
+import { BLOOM_STRENGTH, bloomPassFor, luminanceCensus, type LuminanceCensus, type QuarterBloomPass } from './bloom';
 import type { Pass } from 'three/addons/postprocessing/Pass.js';
 // The ONE piece of the post chain `captureGroundAlbedo` needs -- see that
 // method for why a render target cannot simply be read back raw.
@@ -3758,8 +3759,10 @@ export class ThreeRenderer implements Renderer {
     // whose own `antialias: true` stands in for the SMAA pass. Tone mapping
     // and the sRGB encode happen either way -- on this path the renderer
     // does them itself, on the composer's path `OutputPass` does.
-    if (this.post) this.post.render();
-    else this.renderer.render(this.scene, camera);
+    if (this.post) {
+      this.applyZoomFade();
+      this.post.render();
+    } else this.renderer.render(this.scene, camera);
     this.disposeRetired();
   }
 
@@ -7524,6 +7527,42 @@ export class ThreeRenderer implements Renderer {
   }
   clearTutorialFocus(): void {
     this.retained.tutorialFocus = null;
+  }
+
+  /** Whether `applyZoomFade` is the one holding each pass off, so it never
+   *  re-enables a pass the `bloom` debug layer switched off. */
+  private zoomFadeHeldAo = false;
+  private zoomFadeHeldBloom = false;
+
+  /**
+   * `high` only (the passes exist nowhere else): fade the AO blend and the
+   * bloom strength out as the camera pulls back (`zoom-fade.ts`). A pass is
+   * skipped only at weight exactly 0. Frame-clock presentation, no sim read.
+   */
+  private applyZoomFade(): void {
+    const w = zoomFadeWeight(this.camera.zoom);
+    const ao = this.aoPass as unknown as { enabled: boolean; blendIntensity: number } | null;
+    if (ao) {
+      ao.blendIntensity = w;
+      if (w === 0 && ao.enabled) {
+        ao.enabled = false;
+        this.zoomFadeHeldAo = true;
+      } else if (w > 0 && this.zoomFadeHeldAo) {
+        ao.enabled = true;
+        this.zoomFadeHeldAo = false;
+      }
+    }
+    const bloom = this.bloomPass;
+    if (bloom) {
+      bloom.strength = BLOOM_STRENGTH * w;
+      if (w === 0 && bloom.enabled) {
+        bloom.enabled = false;
+        this.zoomFadeHeldBloom = true;
+      } else if (w > 0 && this.zoomFadeHeldBloom) {
+        bloom.enabled = true;
+        this.zoomFadeHeldBloom = false;
+      }
+    }
   }
 
   /** Defilade Task 2: refit the sun's shadow box to `camera`
