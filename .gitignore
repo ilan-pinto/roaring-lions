@@ -241,3 +241,7 @@ art/meshy/01a16320-590e-7155-aa3b-23eb213b4f01-20261022-01a16323/model.*
 art/meshy/01a16320-590e-7155-aa3b-23eb213b4f01-20261022-01a16323/texture_*
 art/meshy/at-nlos-team-launcher-20261022-01a16328/texture_*
 art/meshy/mortar-team-20261001-01a0f89f/texture_*
+# E6 chunk A1 (24 Oct): the swarm drone's remesh at 600 collapsed and is not used; only its
+# task.json and thumbnail are tracked, for provenance. The preview's model.glb (12 MB) IS the source.
+art/meshy/drone-swarm-20261024-01a16f80/model.glb
+art/meshy/drone-swarm-20261024-01a16f80/texture_*

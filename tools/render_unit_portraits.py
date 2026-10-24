@@ -122,8 +122,8 @@ ROSTER = (
     "inf_squad,inf_grenadier,at_team,mortar_team,sniper_team,demo_squad,breach_team,yahalom_squad,recon_zikit,inf_medic_squad,at_nlos_team,"
     "mbt_lavi,mbt_lavi_camo,ifv_namer,apc_eitan,apc_kipod,jeep_shoded,scout_shachaf,dozer_d9,spg_long_range,spg_cluster,"
     "heli_peten,heli_peten_gunship,attack_drone,recon_drone,ugv_recon_dog,"
-    # Sarim (15)
-    "sarim_rifles,atgm_cell,manpad_team,recoilless_team,rocket_battery,loiter_drone,"
+    # Sarim (16)
+    "sarim_rifles,atgm_cell,manpad_team,recoilless_team,rocket_battery,loiter_drone,drone_swarm,"
     "militia_cell,rpg_team,mortar_crew,charge_squad,moto_rpg,digger_crew,"
     "technical,gun_truck,paramotor"
 )

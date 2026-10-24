@@ -383,6 +383,17 @@ const VEHICLE_ROLE_PALETTE: Record<string, Partial<Record<VehicleMeshRole, reado
     glass: sliceFrom('gunmetal', 3, 1),
     recess: sliceFrom('shadow', 1, 2),
   },
+  // E6 (GH-274) chunk A1: the Sarim swarm drone, one member's mesh -- `loiter_drone`'s own
+  // tones (dust body and rotors on the dark rubber ramp, gunmetal booms, motors and bomb).
+  // Palette-painted: instancing wants one material and at 16 px a bake buys nothing.
+  drone_swarm: {
+    hull: sliceFrom('dust', 1, 6),
+    plate: sliceFrom('dust', 2, 5),
+    metal: sliceFrom('gunmetal', 2, 2),
+    rubber: sliceFrom('shadow', 0, 3),
+    glass: sliceFrom('gunmetal', 3, 1),
+    recess: sliceFrom('shadow', 1, 2),
+  },
   heli_peten: {
     hull: sliceFrom('olive', 1, 3),
     plate: sliceFrom('olive', 2, 2),

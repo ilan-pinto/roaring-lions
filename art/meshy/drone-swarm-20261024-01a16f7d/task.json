@@ -1,0 +1,46 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready small quadcopter drone rigged to drop one bomb, a civilian vehicle crudely converted for war, sun-faded dusty paint, welded plates. At rest, level. A flat H-frame: two straight booms run front to back either side of a slim plank body, four bare two-blade rotors on exposed motors at the boom ends, no guards. A taped battery on top, a short whip antenna, and under the body a crude release claw holding one finned teardrop bomb slung lengthwise. No legs. Real-world scale, 0.5 metres across. Dusty tan plastic, gunmetal, black rotors. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "negative_prompt": "rotor guard rings, landing skids, gimbal camera, smooth white consumer plastic, fixed wing, several drones",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a16f7d-6a46-7561-ba91-482ca61d1ac3",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 4043911546,
+    "prompt": "A single low-poly game-ready small quadcopter drone rigged to drop one bomb, a civilian vehicle crudely converted for war, sun-faded dusty paint, welded plates. At rest, level. A flat H-frame: two straight booms run front to back either side of a slim plank body, four bare two-blade rotors on exposed motors at the boom ends, no guards. A taped battery on top, a short whip antenna, and under the body a crude release claw holding one finned teardrop bomb slung lengthwise. No legs. Real-world scale, 0.5 metres across. Dusty tan plastic, gunmetal, black rotors. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1792871854071,
+    "progress": 100,
+    "started_at": 1792871854081,
+    "finished_at": 1792871914442,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a16f7d-6a46-7561-ba91-482ca61d1ac3/output/model.glb?Expires=4946400000&Signature=CVO6KXo~iipLz0VvAuhnQsjd3XpL-rYHEmcxyefncD7KWlLjnekssTC~Z4gRa02bhXlcmwb-LJB1d8Sic-J7HINNGiWLEF5o5T6lpLcdRChAYHvKXoPraO3fW1YYF1ULFkeeAdEbbWwHn7Gjc589yi98hkAowK-B3xtAMfYXL~S6wyyn32M5HzcrhsqWcMmxutJrxq4GvQ5nWHOT1vPFuWdzzKFgoxzfKgajfLGzhHomb5pfxOGWpez5eZxpZKe-yjKkEEoIJZhmEsQ-cGnKiS-cp-pIk-qoSYEfCr7GRM1Phj4YwJUUr4-LP63iTA80es68a2Q-1T5Vq6pHaZV2EQ__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a16f7d-6a46-7561-ba91-482ca61d1ac3/output/preview.png?Expires=4946400000&Signature=phxcjV4Kalt2VGpqsaa-oJQlP11bdLvX2zC70hEZbsCs6eZWfV1oXrdJSuIlZKYUKrZjiMzD~mZbuBlklOFjWeflLF0MkpJcEmKwhFJSlQwhpREDuS31WlVj4SFr~W43lJGeeF~eqjIEheXaOq9ezjSB3~XVQI6UTTRJGPX9C7U1DinBcqtEoREB8DQyUZMCaIlqbuWz57pe1-o8Pgq7l0fexY27jX2--db6nUagXATe4C75-f9O0sVYy1HeEcWcesVr7~zxt1KastkvPLWsazXQ5YLsspNsCNeKekQwSjNT0DGp4mvZXqEF7NZhtzA6Z1ubdk9Kk7CPTU-URouuYg__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1792871854071,
+    "started_at": 1792871854081,
+    "finished_at": 1792871914442
+  },
+  "usd_estimated": 0.4
+}

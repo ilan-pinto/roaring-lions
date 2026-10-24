@@ -289,6 +289,12 @@ VEHICLE_ROLE_PALETTES = {
         "hull": "dust.1", "plate": "dust.2", "metal": "gunmetal.2",
         "rubber": "shadow.0", "glass": "gunmetal.3", "recess": "shadow.1",
     },
+    # E6 (GH-274) chunk A1: the swarm drone, `loiter_drone`'s tones (hull dust.1, plate
+    # dust.2, metal gunmetal.2, the rotors shadow.0); it carries hull, metal and rubber.
+    "drone_swarm": {
+        "hull": "dust.1", "plate": "dust.2", "metal": "gunmetal.2",
+        "rubber": "shadow.0", "glass": "gunmetal.3", "recess": "shadow.1",
+    },
     # The two KDF drones (GH-286 B0a, tools/drones/export_meshy_drones.py):
     # KDF olive like apc_eitan; `metal` the rotors/guards (recon) and nose
     # pod, tail and skids (attack); `glass` the camera ball / nose lens.

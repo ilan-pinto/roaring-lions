@@ -570,6 +570,7 @@ describe('WRECK_RECIPES', () => {
       'attack_drone',
       'demo_tzav',
       'dozer_d9',
+      'drone_swarm',
       'gun_truck',
       'heli_peten',
       'heli_peten_gunship',

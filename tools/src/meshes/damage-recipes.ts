@@ -371,6 +371,18 @@ export const DAMAGE_RECIPES: Readonly<Record<string, readonly DamageOp[]>> = {
   heli_yanshuf: [ROTOR],
   // GH-709: the medevac keeps the Yanshuf's rotor, so the rotor splits as the Petens'.
   air_medevac_heli: [ROTOR],
+  // E6 (GH-274) chunk A1: the swarm drone's four rotors are ONE mesh (`rotor_rubber`, four
+  // two-blade discs about hubs 0.357 m from the body's centre). `snapRotor` reads that as four
+  // "blades" (runs of occupied 15-degree sectors about the mesh's plan centre: the discs sit 48
+  // degrees wide with 42-degree gaps between), droops each about the centre and breaks blade 0
+  // off whole (every face past radius 0.28; the discs span 0.31-0.39) to lie flat beside the
+  // body. The brief also asked for two adjacent booms snapped and drooped 35 degrees: no verb
+  // cuts a region of `hull_metal` and bends it, and a new verb is pass code, so the booms are
+  // NOT damaged -- the smallest honest version. A drooping rotor sits on its boom's end, so the
+  // outline still changes where the booms would have.
+  drone_swarm: [
+    { verb: 'snapRotor', mesh: 'rotor_rubber', hubRadius: 0.1, droopDeg: 25, snapBlade: 0, snapAt: 0.28, lieAt: [0.0, 0.43], yawDeg: 30 },
+  ],
   // GH-709 (2026-10-22): the Te'o Howitzer: a thrown track and its raised gun
   // broken at the sleeve and drooped to the sand. The gun is at 35 degrees
   // (`elevationDeg`), the tube straight from x 2.4 (mesh space, the sleeve and

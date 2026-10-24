@@ -86,6 +86,9 @@ export const WRECK_RECIPES: Readonly<Record<string, WreckRecipe>> = {
   // its side like the other two air hulls.
   gun_truck: { hull: 'wheeled', turretPivot: 'turret_pivot', lostWheel: 1 },
   loiter_drone: { hull: 'air' },
+  // E6 (GH-274) chunk A1: the Sarim swarm drone (one member), a quadcopter like the two KDF
+  // ones, so it lies on its side; no pivot, its four rotors are static `rotor_rubber`.
+  drone_swarm: { hull: 'air' },
   // The two KDF drones (GH-286 B0a, 2026-09-30). `air` like the Peten: a
   // downed drone lies on its side. No pivot of any kind -- a quadcopter has
   // four rotors and a file carries one `rotor_pivot`, so the rotors are
