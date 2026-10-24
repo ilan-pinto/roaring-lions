@@ -281,6 +281,15 @@ export interface BlastSubject {
    * named outliers.
    */
   readonly abstains?: readonly string[];
+  /**
+   * A NEGATIVE witness: for these layers the subject asserts the toggle moves
+   * the frame by AT MOST the ceiling (at the layer's `toggleAtMs` rung for the
+   * subject), instead of at least the floor. For "nothing of this layer is
+   * alive at this age" -- an abstention only proves a reading is under the
+   * (large) floor, and a ceiling pins it near zero. The subject does not vote
+   * on the floor for that layer (`subjectVotesOn` is false for it).
+   */
+  readonly ceilings?: Readonly<Partial<Record<string, LayerCeiling>>>;
   /** GH-85 modes: the unit that fires (strike, aps, charge). */
   readonly shooterId?: string;
   /** `strike` only: photograph a round the plate stops (false) or one that
@@ -372,6 +381,18 @@ export const JOLT_LADDER_MS: readonly number[] = [
  * mortar's 6-tile standoff is 480 px, outside it too, so the tube itself
  * never crowds the impact.
  */
+/** `apc_eitan_cooled`'s ceiling on the `bloom` toggle at 7000 ms. */
+export const BLOOM_COOLED_CEILING: LayerCeiling = {
+  maxDiffPixels: 50,
+  maxMeanAbsChannelDelta: 0.05,
+  measured:
+    '3 toggles-only runs each on darwin-arm64, ANGLE/Metal (Apple M3 Pro), 1400x900 DPR 1, 2026-10-24: ' +
+    '`apc_eitan_cooled` (7000 ms) 0 px / 0.0000, 0 / 0.0000, 0 / 0.0000; `mortar_cooled` (3000 ms) 0 / 0.0000 x3. ' +
+    'Falsified: white smoke x2.6 (HDR_GAINS.fireball) reads `mortar_cooled` 121486 px / 31.1044 (x8 190476 / 60.6636), ' +
+    'and the oil glow unfaded and x10 reads `apc_eitan_cooled` 71158 px / 16.4531. The apc witness does NOT trip on ' +
+    'the smoke itself even at x20 (a thin dark oil column), nor on the glow merely unfaded at x1 (under the threshold).',
+};
+
 export const BLAST_SUBJECTS: readonly BlastSubject[] = [
   {
     id: 'mbt_lavi',
@@ -404,7 +425,26 @@ export const BLAST_SUBJECTS: readonly BlastSubject[] = [
       '6536, 5994, 5297 px / 3.6918, 3.5322, 3.1768 on three toggles-only runs after the option A trim ' +
       '(36 -> 24 puffs, cook-off 16 -> 10; 5770-7118 px / 3.2078-3.6809 before it), the set\'s smallest bloom reading. ' +
       'That is the design, not a leak: the sparks are meant to bloom, and the cooling fireball and ' +
-      'its smoke still do not. The negative bloom witness is gone with it; nothing else in the set is one.',
+      'its smoke still do not. The negative bloom witness moved to `apc_eitan_cooled` (below), at a rung where nothing HDR is alive.',
+  },
+  {
+    id: 'apc_eitan_cooled',
+    typeId: 'apc_eitan',
+    mode: 'kill',
+    x: 42,
+    y: 3,
+    isolate: true,
+    ladderMs: [0, 7000],
+    votesOnly: ['bloom'],
+    toggleAtMs: { bloom: 7000 },
+    ceilings: { bloom: BLOOM_COOLED_CEILING },
+    why:
+      "the set's NEGATIVE bloom witness (smoke uplift white follow-up), the `apc_eitan` kill photographed at 7000 ms, " +
+      'where nothing HDR is left alive: fireball ~1.5 s, sparks up to 1.6 s, the last cook-off flame ends by ~4450 ms, ' +
+      'the last oil-glow puff is born ~4980 ms and glows for 12% of 6-8 s so it is gone by ~6 s, the blast light lasts 500 ms. ' +
+      "`apc_eitan` itself votes `bloom` at 600 ms because its sparks bloom by design; this asks the opposite question: " +
+      'the smoke column left over must NOT bloom, so a smoke colour or glow that goes HDR (a white puff that blooms, an oil ' +
+      'glow that outlives the puff) turns it red. Ceiling and readings: see `BLOOM_COOLED_CEILING`.',
   },
   {
     id: 'mortar_team',
@@ -415,6 +455,26 @@ export const BLAST_SUBJECTS: readonly BlastSubject[] = [
     baitId: 'digger_crew',
     toggleAtMs: { bloom: 0 },
     why: 'an arcing round landing at impactPower 0.3, the indirect half of the package',
+  },
+  {
+    id: 'mortar_cooled',
+    typeId: 'mortar_team',
+    mode: 'impact',
+    x: 34,
+    y: 3,
+    standoffTiles: 6,
+    baitId: 'digger_crew',
+    isolate: true,
+    ladderMs: [0, 3000],
+    votesOnly: ['bloom'],
+    toggleAtMs: { bloom: 3000 },
+    ceilings: { bloom: BLOOM_COOLED_CEILING },
+    why:
+      "the second NEGATIVE bloom witness, and the one that SEES the white HE smoke: `mortar_team`'s landing at 3000 ms, " +
+      "when the fireball (700 ms), the dirt (<= 1.2 s) and the blast light (380 ms) are gone and only `shell_impact`'s " +
+      'white smoke (4-6 s, white 0.85) is left. A white puff is lit-ground level and must never bloom; one that does ' +
+      '(a gain on the white tone) turns this red. `apc_eitan_cooled` cannot see it: a kill column is oil smoke, with no white. ' +
+      'Ceiling and readings: see `BLOOM_COOLED_CEILING`.',
   },
   // ---------------------------------------------------------------------
   // The four the AFTER set adds. None of them has a before, and none of them
@@ -866,6 +926,26 @@ export interface LayerSignal {
   readonly runs: number;
 }
 
+/** The most a layer's toggle may move a frame in which it must be absent,
+ *  and the runs it was set from. A named constant beside its readings, never a
+ *  bare number. */
+export interface LayerCeiling {
+  readonly maxDiffPixels: number;
+  readonly maxMeanAbsChannelDelta: number;
+  /** The readings it was set from, e.g. `3 runs: 0 px / 0.0000 each`. */
+  readonly measured: string;
+}
+
+/** Whether a reading stays UNDER a ceiling. Fails on either metric. */
+export function ceilingVerdict(ceiling: LayerCeiling, reading: { diffPixels: number; meanAbsChannelDelta: number }): { ok: boolean; reasons: string[] } {
+  const reasons: string[] = [];
+  if (!(reading.diffPixels <= ceiling.maxDiffPixels)) reasons.push(`diffPixels ${reading.diffPixels} > ceiling ${ceiling.maxDiffPixels}`);
+  if (!(reading.meanAbsChannelDelta <= ceiling.maxMeanAbsChannelDelta)) {
+    reasons.push(`meanAbsChannelDelta ${reading.meanAbsChannelDelta.toFixed(4)} > ceiling ${ceiling.maxMeanAbsChannelDelta}`);
+  }
+  return { ok: reasons.length === 0, reasons };
+}
+
 /** One layer's floor pair, the signal it was derived from, and the provenance
  *  that travels with both. Same shape as `baseline.ts`'s `LayerCheckSpec`,
  *  deliberately: this is that gate's argument applied to a frame that gate
@@ -1228,10 +1308,11 @@ export function subjectRunsLayer(subject: Pick<BlastSubject, 'toggles' | 'votesO
 
 /** Whether this subject votes on this layer, or only records it. */
 export function subjectVotesOn(
-  subject: Pick<BlastSubject, 'abstains' | 'toggles' | 'votesOnly'>,
+  subject: Pick<BlastSubject, 'abstains' | 'toggles' | 'votesOnly' | 'ceilings'>,
   layer: string
 ): boolean {
   if (!subjectRunsLayer(subject, layer)) return false;
+  if (subject.ceilings?.[layer] !== undefined) return false;
   return !(subject.abstains ?? []).includes(layer);
 }
 
@@ -2790,6 +2871,28 @@ async function runLayerToggles(
       await page.evaluate(api.layerToggleScript(layer, true));
       const d = api.computeDiff(shown, hidden, { outDir: dir, diffFileName: `${subject.id}-${layer}-diff.png` });
       const verdict = layerVerdict(layer, d);
+      const ceiling = subject.ceilings?.[layer];
+      if (ceiling !== undefined) {
+        const cv = ceilingVerdict(ceiling, d);
+        readings.push({
+          subject: subject.id,
+          layer,
+          available: true,
+          diffPixels: d.diffPixels,
+          meanAbsChannelDelta: d.meanAbsChannelDelta,
+          over: false,
+          voted: true,
+          ok: cv.ok,
+          note: cv.ok
+            ? `NEGATIVE witness, under its ceiling (${ceiling.maxDiffPixels} px / ${ceiling.maxMeanAbsChannelDelta})`
+            : `OVER CEILING: ${cv.reasons.join('; ')} -- something HDR is alive here that should not be`,
+        });
+        console.log(
+          `  toggle "${layer}" on ${subject.id}: ${d.diffPixels} px / ${d.meanAbsChannelDelta.toFixed(4)}` +
+            ` -- negative witness ${cv.ok ? 'PASS' : `FAIL (${cv.reasons.join('; ')})`}`
+        );
+        continue;
+      }
       const voted = subjectVotesOn(subject, layer);
       const ok = readingAccepted(voted, verdict.ok);
       readings.push({
