@@ -947,17 +947,63 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     // 8-92 px / 0.0031-0.0060, mean 48 px, largest internal pixel gap 9 --
     // still one continuous mode, still no second cluster.
     //
-    // So the recorded range is the UNION of all three samples on this machine,
-    // 94 runs: 5-157 px / 0.0029-0.0069. That is what the headroom multiples
-    // below are computed against, and they are smaller than the ones this entry
-    // used to claim (3.0x/3.4x, which were against the narrowest sample). The
-    // thresholds themselves are unchanged and still clear the pooled maximum:
-    // 300 px is 1.9x 157, and 0.02 is 2.9x 0.0069. If a future sample exceeds
-    // them, say so and find the cause -- widening is the rejected fix, and the
-    // reason a bimodal reading is a bug rather than a band is that it was one.
+    // So the recorded range was the UNION of all three samples on this machine,
+    // 94 runs: 5-157 px / 0.0029-0.0069 -- a macOS figure from BEFORE c0044ff6,
+    // retired below. It is kept as history, and 300 px / 0.02 were calibrated
+    // against it (1.9x and 2.9x).
+    //
+    // RE-DERIVED 2026-10-25 (GH-803): 300 px / 0.02 -> 40 px / 0.004. The
+    // sample is CI's own, `linux-x64-swiftshader`, every `ci.yml` `visual` job
+    // and nightly `visual-baseline-nightly` run whose log could be read, from
+    // 2026-10-12 to 2026-10-24: 217 runs, read off the `[golden-diff] ...
+    // vehicle.png vs` block of each log (differing pixels, pixels not
+    // bit-identical, mean |channel delta|, max |channel delta|).
+    //   - 200 of the 217 read a literal 0 px / 0 not bit-identical / 0.0000 /
+    //     max 0. That includes ALL 34 runs against the current baseline (the
+    //     PR 788 bless, `2b8a00e`, blessed 2026-10-23T15:58Z): 39985245927
+    //     39985604114 39986052250 39998898888 40069340413 40071684971
+    //     40076388855 (nightly) 40109303501 40109333962 40109337528 40109342236
+    //     40109859496 40109943524 40110421933 40112067082 40112180916
+    //     40112222329 40112566752 40112696474 40114283706 40114441269
+    //     40117051197 40118444565 40118487281 40120054319 40121310302
+    //     40121496688 40123993760 40124229179 40134175602 40135341229
+    //     40135576919 40135703865 40137507901. Three runs started after
+    //     18ff0bab were still in progress when this was collected and are not
+    //     counted.
+    //   - The other 17 are NOT noise: they are 7 distinct readings, each one
+    //     the footprint of a render change that was then blessed, and every
+    //     reading that repeated did so to the pixel on separate runner VMs.
+    //       781 px / 0.0805 x6 and 817 px / 0.0994 x1 (baseline 97bc171; view-fitted shadows, PR 772);
+    //       43 px / 0.0202 x2 (baseline 3ea821c; the unit-surface pass on a PR branch);
+    //       639 px / 0.3130 x4 and 702 px / 0.3163 x1 (baseline 3ea821c; quarter-resolution GTAO, PR 786);
+    //       36 px / 0.0203 x2 (baseline 6755f22; per-surface roughness, PR 788);
+    //       5279 px / 0.2134 x1 (baseline 05492a6; nightly 38871126710, 16 Oct, next bless PR 685).
+    //     Run ids: 39925433274 39933729532 39935307799 39935619722
+    //     39936659302 39943109985 (781); 39941297093 (817); 39966375244
+    //     39976495459 (43); 39972891061 39977994337 39978272894 39981371451
+    //     (639); 39979793693 (702); 39982578512 39982953538 (36); 38871126710
+    //     (5279).
+    //   So the unimodal noise reading is a LITERAL ZERO, and there is no second
+    //   cluster. The 1-9 px (1 px x2, 9 px x3) recorded on 2026-09-23 with "no
+    //   established cause" did not recur in 217 runs and none of the 17
+    //   non-zero ones sits near it; the 2026-09-23 reading is kept below.
+    // With a maximum of 0 there is no headroom multiple to quote, and "a
+    // multiple of the largest reading" is a ceiling of 0. The rule this file
+    // already follows for a whole-frame scenario that reads 0-1 px is the one
+    // `quiet`, `relief` and `aftermath` carry: 40 px / 0.004 (`quiet`'s own
+    // comment: 40x the pixel maximum, 39x the magnitude one). `vehicle` takes
+    // that ceiling, and it also clears the one post-fix non-zero noise reading
+    // ever recorded for it, 9 px / 0.0012, by 4.4x and 3.3x. If a future run
+    // exceeds it, say so and find the cause: widening is the rejected fix.
+    //
+    // WHAT THE OLD CEILING MISSED, from the same logs. PR 788 (per-surface
+    // roughness) read 36 px / 0.0203 on this scenario: red under 0.02 by 0.0003
+    // (1.5%), and nowhere near the 300 px limit. A change 1.5% smaller would
+    // have passed. Under 40 px / 0.004 it is red on magnitude with 5.1x to
+    // spare. Pinned in `baseline.test.ts` with the exact readings above.
     region: null,
-    maxDiffPixels: 300,
-    maxMeanAbsChannelDelta: 0.02,
+    maxDiffPixels: 40,
+    maxMeanAbsChannelDelta: 0.004,
     // NO reference-free check, and that is a measurement rather than an
     // omission. What this scenario uniquely frames is mesh VEHICLES, and mesh
     // units are the one thing the toggle seam cannot hide: `updateVehicleMeshes`
@@ -1057,7 +1103,11 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
       },
     ],
     rationale:
-      'whole frame, mesh vehicles plus continuous dust/exhaust FX. The 5-157 px / 0.0029-0.0069 this ' +
+      'whole frame, mesh vehicles plus continuous dust/exhaust FX. 40 px / 0.004 since GH-803 ' +
+      '(2026-10-25), the ceiling quiet/relief/aftermath carry: 200 of 217 CI runs (linux-x64-swiftshader, ' +
+      '12-24 Oct, ci.yml `visual` + nightly) read a literal 0 px / 0.0000, all 34 against the current ' +
+      '2b8a00e baseline; the other 17 are 7 distinct render changes that were then blessed, 36 px / ' +
+      '0.0203 (PR 788) the smallest. Run ids beside the constants. History: the 5-157 px / 0.0029-0.0069 this ' +
       'line used to carry as noise (94 gate runs, 24 + 21 + 49, one macOS machine) is RETIRED: every one ' +
       'of those runs predates c0044ff6 (2026-09-18), and what varied was the ambient-FX emission ' +
       'backlog, whose size is a load time -- never renderer noise. Re-measured 2026-09-23 from every ' +
@@ -1065,8 +1115,9 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
       'after it (the a387a6a bless) 1-9 px / 0.0004-0.0012 over 5 runs, in two clusters (1 px x2, ' +
       '9 px x3) with no established cause; against the pre-fix 03fad18 baseline 33-47 px / ' +
       "0.0031-0.0054 over 26 runs, the offset being that baseline's own banked puffs. The thresholds " +
-      'are still 300 px / 0.02 -- 33x and 17x that post-fix maximum -- and re-deriving them is a ' +
-      'decision nobody has taken. The re-injected scatter defect reads 63 px / 0.1953 -- 10x over the ' +
+      'were then 300 px / 0.02 -- 33x and 17x that post-fix maximum -- and re-deriving them was a ' +
+      'decision nobody has taken. [Taken 2026-10-25, GH-803: see the comment above the constants.] ' +
+      'The re-injected scatter defect reads 63 px / 0.1953 -- 10x over the ' +
       'threshold on meanAbsChannelDelta and under it on pixel count, which is why magnitude is the ' +
       'primary metric here.',
   },
@@ -1079,21 +1130,24 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
     // bless -- the `aftermath` precedent, and intended. What votes meanwhile is
     // the two reference-free checks below.
     //
-    // THE THRESHOLDS ARE `vehicle`'s, MIRRORED, NOT MEASURED. Same map, same
-    // camera, same tick, same whole-frame region and the same continuous
-    // dust/exhaust; the only difference is the kit merged into each hull, which
-    // is static geometry on a frozen frame. No repeated-capture noise
-    // measurement of THIS scenario against a stored baseline exists yet (there
-    // is no baseline to measure against), so 300 px / 0.02 is carried over from
-    // `vehicle` with that entry's own provenance, and the first post-bless CI
-    // runs are the measurement. What WAS measured is that the zero-time repaint
-    // control reads a literal 0 px / 0.0000 on all six fresh page loads of
-    // this URL behind the two floors below (three per toggle session), so no
-    // `repaintControl` override is declared and the global hard zero applies,
-    // exactly as on `vehicle`.
+    // SETTLED 2026-10-25 (GH-803, the issue's step 4): 40 px / 0.004, from this
+    // scenario's OWN reading rather than mirrored from `vehicle`. The baseline
+    // exists now. Read off the same 217 CI logs as `vehicle` (see that entry
+    // for the method and the run ids; `kitted.png vs` block of each log):
+    // 200 of 217 read a literal 0 px / 0 not bit-identical / 0.0000, all 34
+    // against the current 2b8a00e baseline. The 17 others are the same render
+    // changes that moved `vehicle`, blessed since: 810 px / 0.0865 x6 and
+    // 843 px / 0.1106 x1 (97bc171), 40 px / 0.0258 x2, 658 px / 0.3328 x5
+    // (3ea821c), 38 px / 0.0256 x2 (6755f22), 5450 px / 0.2243 x1 (05492a6).
+    // Same ceiling as `vehicle`, for the same reason: no noise, so the rule
+    // this file already follows for a whole-frame scenario at 0-1 px. PR 788
+    // read 38 px / 0.0256 here, red on 0.02 by 0.0056 and by 6.4x on 0.004.
+    // The zero-time repaint control reads a literal 0 px / 0.0000 here (six of
+    // six fresh loads when it was added, and every `kitted` repaint control in
+    // the 217 logs since).
     region: null,
-    maxDiffPixels: 300,
-    maxMeanAbsChannelDelta: 0.02,
+    maxDiffPixels: 40,
+    maxMeanAbsChannelDelta: 0.004,
     layerChecks: [
       {
         layer: 'units',
@@ -1141,10 +1195,11 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
       },
     ],
     rationale:
-      "whole frame, `vehicle`'s mesh vehicles carrying the sandbox ladder's kit. Thresholds MIRROR " +
-      "`vehicle`'s 300 px / 0.02 and are not this scenario's own measurement: no baseline exists yet " +
-      'to measure noise against. Same frame plus static geometry; repaint control 0 px / 0.0000 on six ' +
-      'of six fresh loads. Exit 1 on an existing manifest until the post-merge bless (GH-238 K8).',
+      "whole frame, `vehicle`'s mesh vehicles carrying the sandbox ladder's kit. 40 px / 0.004 since " +
+      "GH-803 (2026-10-25), settled from this scenario's own reading: 200 of 217 CI runs " +
+      '(linux-x64-swiftshader, 12-24 Oct) read a literal 0 px / 0.0000, all 34 against the current ' +
+      '2b8a00e baseline; the other 17 are blessed render changes, 38 px / 0.0256 (PR 788) the smallest. ' +
+      'Same frame plus static geometry; repaint control 0 px / 0.0000.',
   },
   relief: {
     // MAP COVERAGE. The other four scenarios look at two of the five shipped
