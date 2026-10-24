@@ -128,7 +128,9 @@ export default defineConfig(
     },
   },
   {
-    files: ['packages/sim/src/**/*.test.ts'],
+    // `*.test-helper.ts` is test support (the golden replay worlds): it holds the same float-literal
+    // fixtures the specs do and is imported only by specs.
+    files: ['packages/sim/src/**/*.test.ts', 'packages/sim/src/**/*.test-helper.ts'],
     rules: {
       'no-restricted-globals': 'off',
       'no-restricted-properties': 'off',
