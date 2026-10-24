@@ -30,6 +30,19 @@ import { sandboxAnchors, type SandboxAnchors } from '../sandbox-anchors';
  *   (`data/versus/tel_marum.json`), reads the mirror west 39 / east 57,
  *   KDF-on-seat-0 Sarim 50 / KDF 46, Sarim-on-seat-0 KDF 52 / Sarim 44; the
  *   economy cells (600 s and 1500 s) and tunnel cell 3 stay inside too.
+ * - `wadi_tarfan` (mirror and KDF-vs-Sarim; the lead's ruling, 23 Oct,
+ *   GH-769): its own `versus_0`/`versus_1` markers (10,10)/(37,37) read
+ *   KDF-vs-Sarim outside 60/40 at 96 seeds with wounds on (placed force, KDF
+ *   friendly: KDF 64.6%; economy, KDF friendly: KDF 62.5%), while the tunnel
+ *   arm's cell 3 leaned Sarim (59.4% both ways). Both seats one tile toward
+ *   the centre, (11,11)/(36,36), keeps the map point-symmetric and reads at 96
+ *   seeds: placed KDF 57.3% / Sarim 51%, economy (600 s and 1500 s caps alike)
+ *   KDF 53.1% / KDF 51%, mirror east 53.1%. Seats alone could not hold cell 3
+ *   (Sarim 67.7% / 72.9% at these seats), so the map's tunnel routes carry
+ *   capacity 3, not 4 (data/versus/wadi_tarfan.json): cell 3 Sarim 54.2% /
+ *   57.3%. Seventeen seat pairs were screened; the reading swings up to ~25
+ *   points for a one-tile move, and a pair inside at 48 seeds failed at 96, so
+ *   judge this map at 96.
  *
  * The reading is sensitive to a tile or two (seat 1 at (38,23) reads west
  * 17 / east 6 at 24 seeds, at (43,24) 3 / 21), so a change to a map's
@@ -39,6 +52,7 @@ import { sandboxAnchors, type SandboxAnchors } from '../sandbox-anchors';
 export const VERSUS_SEATS: Readonly<Record<string, SandboxAnchors>> = {
   beit_sahwan_outskirts: { friendly: [4, 23], hostile: [40, 24] },
   tel_marum: { friendly: [27, 45], hostile: [28, 16] },
+  wadi_tarfan: { friendly: [11, 11], hostile: [36, 36] },
 };
 
 /** Where a versus room's two seats stand on `map`: seat 0 on `friendly`,

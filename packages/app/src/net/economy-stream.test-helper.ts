@@ -70,6 +70,20 @@ function rallyNear(w: MatchWorld, exit: readonly [number, number]): [number, num
   throw new Error('economy stream: no open tile near the camp exit');
 }
 
+/**
+ * How many of the named foot units the stream's route can hold, read off the sim that
+ * registered it (`tunnelCapacity`, from `data/versus/wadi_tarfan.json`), capped by the number
+ * named: the count `tunnel.below` must read at the vent. Never a literal, so a capacity change
+ * in the data moves the expectation with it.
+ */
+export function economyStreamExpectedBelow(): number {
+  const config = economyStreamConfig();
+  const w = buildMatchWorld(config);
+  const route = w.map.tunnels.findIndex((t) => t.id === ECONOMY_STREAM_ROUTE);
+  if (route < 0) throw new Error(`economy stream: the room does not register ${ECONOMY_STREAM_ROUTE}`);
+  return Math.min(tunnelFoot(w, config.seats[0].side as 0 | 1).length, w.sim.tunnelCapacity(route));
+}
+
 /** The four Sarim foot units the tunnel orders name: a route's default capacity, ground, unwheeled. */
 function tunnelFoot(w: MatchWorld, side: 0 | 1): number[] {
   const foot = w.bySide[side].filter((id) => {
