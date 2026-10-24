@@ -9,7 +9,7 @@
 // from the sim's seeded streams — audio must never influence determinism
 // (ART_PIPELINE §5).
 
-import { WEAPON_CLASS, type Sim, type SimEvent } from '@lions/sim';
+import { FS_AIR_STRIKE, FS_MORTAR_BARRAGE, WEAPON_CLASS, type Sim, type SimEvent } from '@lions/sim';
 import { buildRadioChain, scheduleSquelch, type RadioChain, type Squelch } from './radio';
 import { isOwnSide } from './relation';
 import { EngineVoices, type EngineSpec, type EngineState, type EngineVariantId } from './engines';
@@ -33,12 +33,35 @@ export interface AudioVariant {
 }
 
 export interface AudioSet {
+  /** A sim event kind, or one of the three fire-support events (GH-782):
+   *  `strike` (the sim's own, a round landing), `flyby` (a support plan's jet
+   *  pass) and `incoming` (the whistle before a known round). The last two are
+   *  NOT sim events: they play from a `SupportAirPlan`. */
   event: string;
   weapon_classes?: string[];
+  /** GH-782: the fire-support profiles this set sounds for, by name (a key of
+   *  `AUDIO_SUPPORT_PROFILES`). Legal only on `strike`, `flyby` and `incoming`.
+   *  A `strike` set without it is the default for any profile no other claims. */
+  profiles?: string[];
+  /** GH-782: audible range in tiles, in (0, 48]; the one-shot default is
+   *  `AUDIBLE_TILES`. Positional sets only. */
+  radius_tiles?: number;
+  /** GH-782: a `flyby` set's required marker, in seconds into the clip, where
+   *  the pass peaks (the runtime starts the clip so this lands on the aim point). */
+  crest_s?: number;
   gain?: number;
   pitch_jitter?: number;
   variants?: AudioVariant[];
 }
+
+/** GH-782: the fire-support profile names a set's `profiles` may use, mapped to
+ *  the sim's `FIRE_SUPPORT` indices (the `profile` of a `strike` event).
+ *  `smoke_screen` is not here on purpose: the sim raises no `strike` for it.
+ *  `tools/test_validate_audio_support.py` pins these names to the validator's. */
+export const AUDIO_SUPPORT_PROFILES: Readonly<Record<string, number>> = {
+  air_strike: FS_AIR_STRIKE,
+  mortar_barrage: FS_MORTAR_BARRAGE,
+};
 
 export interface MusicTrack {
   file: string;
@@ -137,6 +160,24 @@ export interface AmbienceBed extends AudioVariant {
   channels?: number;
 }
 
+/** GH-782: the rotor loop the Peten plays over a mortar barrage (`support_air.rotor`).
+ *  A support plan's aircraft, not a unit, so it is not an engine voice. */
+export interface SupportRotorSpec extends AudioVariant {
+  /** The loop's length in seconds, whole AAC frames, re-measured by `pnpm validate:audio`. */
+  loop_s?: number;
+  channels?: number;
+  /** 0..1, on the sfx bus. Heard at -30 LUFS or under on station. */
+  gain?: number;
+  /** Audible range in tiles (the Peten holds station 4 tiles out). */
+  radius_tiles?: number;
+}
+
+/** `data/audio.json`'s `support_air` section. Absent `rotor` (a commercial
+ *  build leaves it out) plays no rotor. */
+export interface SupportAirSpec {
+  rotor?: SupportRotorSpec;
+}
+
 /** `data/audio.json`'s `ambience` section: bed id -> bed. */
 export interface AmbienceSpec {
   beds?: Record<string, AmbienceBed>;
@@ -159,6 +200,8 @@ export interface AudioManifest {
   voices?: VoiceManifest;
   /** GH-35: the vehicle engine loops (`engines.ts`), on the sfx bus. */
   engines?: EngineSpec;
+  /** GH-782: the fire-support aircraft's own loops (`support-voices.ts`). */
+  support_air?: SupportAirSpec;
 }
 
 /** Who wins a voice slot (N5, and the audio plan's §5.1 ladder since AU-5).

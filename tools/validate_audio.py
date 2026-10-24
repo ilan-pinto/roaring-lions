@@ -63,6 +63,22 @@ Checks (all fail the build):
                   step or gap at the wrap, and heard (file + gain + master) at
                   or under -36 LUFS -- about 10 LU under the firefight's -26,
                   where the numbers sheet put one moving vehicle at -38.
+  13. SUPPORT  -- the fire-support sounds (GH-782). Events `strike` (the sim's),
+                  `flyby` and `incoming` (a support plan's aircraft pass and the
+                  whistle before a known round; not sim events). `profiles`
+                  (`air_strike`, `mortar_barrage`; `smoke_screen` refused by
+                  name) only on those three; a `strike` set without it is the
+                  default, `flyby` and `incoming` must name theirs; one profile
+                  claimed twice on one event fails; `weapon_classes` is refused
+                  on them. `radius_tiles` (0, 48] on any positional set, refused
+                  on `ui`. `crest_s` is required on `flyby` and only there, and
+                  under every variant's decoded length (ffprobe). These sets
+                  and the `support_air.rotor` block may declare `LicenseRef-owned`
+                  (the lead's ElevenLabs Sound Effects, ASSET_PROVENANCE item 2);
+                  an ordinary battle set may not. The rotor block gets the bed
+                  checks (loop length, channels, true peak, seam) through the
+                  same code and its own ceiling: heard at -30 LUFS or under at
+                  its station (4 tiles out, R `radius_tiles`).
   6. VOICES    -- licence/source/generator/text/translit/en on every voice
                   variant; ASCII voice/<lang>/<class>/<trigger>_<nn><take>.ogg|m4a
                   paths filed under their own key; keys in a language some
@@ -109,6 +125,11 @@ ALLOWED_LICENSES = {
 
 KNOWN_EVENTS = {
     "fire", "penetration", "ricochet", "near_miss", "aps_intercept", "destroyed",
+    # GH-782: fire support. `strike` is the sim's own event (a round landing);
+    # `flyby` and `incoming` are NOT sim events -- a support plan's aircraft pass
+    # and the whistle before a known round -- played from the plan, not from a
+    # sim event, and keyed by `profiles`.
+    "strike", "flyby", "incoming",
     # Not a thing happening on the map: the mixer plays this unpositioned, so
     # it has no weapon class and no distance -- an alert or an objective cue,
     # about the player rather than about a place.
@@ -118,6 +139,14 @@ KNOWN_WEAPON_CLASSES = {
     "apfsds", "heat", "he", "atgm", "rpg", "small_arms", "hmg", "autocannon",
     "mortar", "rocket", "interceptor", "demolition",
 }
+# GH-782: the fire-support events, and the profiles they are keyed by. The names
+# map to the sim's FIRE_SUPPORT indices in packages/render/src/audio.ts's
+# AUDIO_SUPPORT_PROFILES; test_validate_audio_support.py pins the two together.
+# `smoke_screen` is refused by name: the sim never raises `strike` for a smoke
+# round, so a set keyed on it could never play. `drone_sweep` is not a profile.
+SUPPORT_EVENTS = {"strike", "flyby", "incoming"}
+KNOWN_PROFILES = {"air_strike", "mortar_barrage"}
+RADIUS_MAX_TILES = 48
 ALLOWED_EXT = {".ogg", ".m4a", ".mp3"}
 MAX_BYTES = 512 * 1024      # a battlefield one-shot has no business being bigger
 MAX_MUSIC_BYTES = 8 * 1024 * 1024  # a looping track streams; it is never decoded whole
@@ -308,6 +337,27 @@ def measure_bed(path):
     }
 
 
+def check_loop(rel, got, channels, loop_s, peak_ceiling, kind, failures):
+    """The checks every looping file gets, read off one decoded measurement
+    (`measure_bed`): the channel count the manifest declares, the decoded length
+    against `loop_s` (to 1 ms), a true-peak ceiling, and the seam (no level step,
+    no gap). Shared by the ambience beds, the engine loops and the support-air
+    rotor, which differ in the ceiling and in how loud they may be heard."""
+    if got["channels"] != channels:
+        failures.append(f"{rel}: decodes to {got['channels']} channel(s), the manifest declares {channels}")
+    if abs(got["seconds"] - loop_s) > AMB_LOOP_TOL_S:
+        failures.append(
+            f"{rel}: decodes to {got['seconds']:.4f} s, the loop is {loop_s:.4f} s -- "
+            "an encoder's priming or padding left in loops with a gap"
+        )
+    if got["true_peak"] > peak_ceiling + 1e-9:
+        failures.append(f"{rel}: true peak {got['true_peak']:+.1f} dBTP, over the {kind} ceiling {peak_ceiling} dBTP")
+    if got["seam_level_db"] > AMB_SEAM_LEVEL_DB:
+        failures.append(f"{rel}: the loop's seam steps {got['seam_level_db']:.1f} dB (over {AMB_SEAM_LEVEL_DB})")
+    if got["seam_gap_db"] < -AMB_SEAM_GAP_DB:
+        failures.append(f"{rel}: a gap at the loop's seam, {got['seam_gap_db']:.1f} dB under the file's own floor")
+
+
 def check_ambience(man, failures, notes, audio_dir=AUDIO_DIR, measure=measure_bed):
     """A11: the `ambience.beds` table. The shape always; with ffmpeg, both
     encodings of every bed decoded and measured. Returns every file declared.
@@ -350,25 +400,13 @@ def check_ambience(man, failures, notes, audio_dir=AUDIO_DIR, measure=measure_be
             if got is None:
                 notes.append(f"{rel}: bed NOT measured (no ffmpeg/ffprobe on PATH) -- loop, channels, peak, loudness and seam unchecked")
                 continue
-            if got["channels"] != channels:
-                failures.append(f"{rel}: decodes to {got['channels']} channel(s), the manifest declares {channels}")
-            if abs(got["seconds"] - loop_s) > AMB_LOOP_TOL_S:
-                failures.append(
-                    f"{rel}: decodes to {got['seconds']:.4f} s, the loop is {loop_s:.4f} s -- "
-                    "an encoder's priming or padding left in loops with a gap"
-                )
-            if got["true_peak"] > AMB_MAX_TRUE_PEAK_DBTP + 1e-9:
-                failures.append(f"{rel}: true peak {got['true_peak']:+.1f} dBTP, over the bed ceiling {AMB_MAX_TRUE_PEAK_DBTP} dBTP")
+            check_loop(rel, got, channels, loop_s, AMB_MAX_TRUE_PEAK_DBTP, "bed", failures)
             heard = got["integrated"] + _db(gain * master)
             if abs(heard - AMB_HEARD_LUFS) > AMB_HEARD_TOL_LU + 1e-9:
                 failures.append(
                     f"{rel}: heard at {heard:.1f} LUFS ({got['integrated']:.1f} LUFS, gain {gain}, master {master}), "
                     f"outside {AMB_HEARD_LUFS} +- {AMB_HEARD_TOL_LU}"
                 )
-            if got["seam_level_db"] > AMB_SEAM_LEVEL_DB:
-                failures.append(f"{rel}: the loop's seam steps {got['seam_level_db']:.1f} dB (over {AMB_SEAM_LEVEL_DB})")
-            if got["seam_gap_db"] < -AMB_SEAM_GAP_DB:
-                failures.append(f"{rel}: a gap at the loop's seam, {got['seam_gap_db']:.1f} dB under the file's own floor")
             notes.append(
                 f"{rel}: {got['seconds']:.3f} s loop, {got['channels']} ch, {got['true_peak']:+.1f} dBTP, "
                 f"heard {heard:.1f} LUFS, seam {got['seam_level_db']:.1f} dB / gap {got['seam_gap_db']:+.1f} dB"
@@ -471,19 +509,7 @@ def check_engines(man, failures, notes, audio_dir=AUDIO_DIR, measure=measure_bed
                 if got is None:
                     notes.append(f"{rel}: engine loop NOT measured (no ffmpeg/ffprobe on PATH) -- loop, channels, peak, level and seam unchecked")
                     continue
-                if got["channels"] != channels:
-                    failures.append(f"{rel}: decodes to {got['channels']} channel(s), the manifest declares {channels}")
-                if abs(got["seconds"] - loop_s) > AMB_LOOP_TOL_S:
-                    failures.append(
-                        f"{rel}: decodes to {got['seconds']:.4f} s, the loop is {loop_s:.4f} s -- "
-                        "an encoder's priming or padding left in loops with a gap"
-                    )
-                if got["true_peak"] > ENGINE_MAX_TRUE_PEAK_DBTP + 1e-9:
-                    failures.append(f"{rel}: true peak {got['true_peak']:+.1f} dBTP, over the engine ceiling {ENGINE_MAX_TRUE_PEAK_DBTP} dBTP")
-                if got["seam_level_db"] > AMB_SEAM_LEVEL_DB:
-                    failures.append(f"{rel}: the loop's seam steps {got['seam_level_db']:.1f} dB (over {AMB_SEAM_LEVEL_DB})")
-                if got["seam_gap_db"] < -AMB_SEAM_GAP_DB:
-                    failures.append(f"{rel}: a gap at the loop's seam, {got['seam_gap_db']:.1f} dB under the file's own floor")
+                check_loop(rel, got, channels, loop_s, ENGINE_MAX_TRUE_PEAK_DBTP, "engine", failures)
                 heard = None
                 if gain is not None:
                     heard = got["integrated"] + _db(gain * master)
@@ -526,6 +552,166 @@ def check_engines(man, failures, notes, audio_dir=AUDIO_DIR, measure=measure_bed
             failures.append(f"engines by_type: '{uid}' is not a shipped unit id")
         if fam != "none" and fam not in families:
             failures.append(f"engines by_type: '{uid}' names family '{fam}', which is not declared (or 'none')")
+    return declared
+
+
+# GH-782: the fire-support sounds.
+SUPPORT_LICENSES = dict(ALLOWED_LICENSES, **{"LicenseRef-owned": False})
+ROTOR_LOOP_RANGE_S = (4.0, 8.0)
+ROTOR_MAX_TRUE_PEAK_DBTP = AMB_MAX_TRUE_PEAK_DBTP
+# The Peten holds station this many tiles from the aim point
+# (packages/render/src/three/support-air.ts HELI_STATION_TILES; pinned by
+# test_validate_audio_support.py). Heard there, in a mix where one moving
+# vehicle is -38 and the battle bed -26, the rotor sits at -30 LUFS or under.
+ROTOR_STATION_TILES = 4.0
+ROTOR_HEARD_MAX_LUFS = -30.0
+
+
+def probe_seconds(path):
+    """The decoded length of a file in seconds (ffprobe), or None without ffprobe."""
+    if shutil.which("ffprobe") is None:
+        return None
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
+            capture_output=True, text=True, timeout=60, check=True,
+        ).stdout.strip()
+        return float(out)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
+def check_set_fields(name, spec, failures):
+    """GH-782: the per-set fields the support events add, and the two they refuse."""
+    event = spec.get("event")
+    support = event in SUPPORT_EVENTS
+    if "radius_tiles" in spec:
+        r = spec["radius_tiles"]
+        if event == "ui":
+            failures.append(f"set '{name}': radius_tiles on a ui set, which has no position to fall off from")
+        elif not _num(r) or not 0 < r <= RADIUS_MAX_TILES:
+            failures.append(f"set '{name}': radius_tiles {r!r} outside (0, {RADIUS_MAX_TILES}]")
+    if support and "weapon_classes" in spec:
+        failures.append(f"set '{name}': weapon_classes is for fire sets; a {event} set is keyed by profiles")
+    if "profiles" in spec:
+        profiles = spec["profiles"]
+        if not support:
+            failures.append(f"set '{name}': profiles is only for strike, flyby and incoming sets, not '{event}'")
+        elif not isinstance(profiles, list) or not profiles or not all(isinstance(p, str) for p in profiles):
+            failures.append(f"set '{name}': profiles must be a non-empty list of profile names")
+        else:
+            for prof in profiles:
+                if prof == "smoke_screen":
+                    failures.append(f"set '{name}': profile 'smoke_screen' can never play -- the sim raises no strike for a smoke round")
+                elif prof not in KNOWN_PROFILES:
+                    failures.append(f"set '{name}': unknown profile '{prof}' (one of {', '.join(sorted(KNOWN_PROFILES))})")
+    elif event in ("flyby", "incoming"):
+        failures.append(f"set '{name}': a {event} set names its profiles (only a strike set has a default)")
+    crest = spec.get("crest_s")
+    if "crest_s" in spec and event != "flyby":
+        failures.append(f"set '{name}': crest_s is only for a flyby set, not '{event}'")
+    if event == "flyby" and (not _num(crest) or crest <= 0):
+        failures.append(f"set '{name}': a flyby set needs crest_s > 0 (where in the clip its pass peaks), got {crest!r}")
+
+
+def check_profile_claims(sets, failures):
+    """GH-782: one profile, one set, per event. `weapon_classes` lets the last
+    set win silently; that is not copied here. A strike set with no `profiles`
+    is the default, and there is at most one."""
+    claims = {}
+    for name, spec in sets.items():
+        event = spec.get("event")
+        if event not in SUPPORT_EVENTS:
+            continue
+        profiles = spec.get("profiles")
+        if profiles is None:
+            claims.setdefault((event, None), []).append(name)
+        elif isinstance(profiles, list):
+            for prof in profiles:
+                claims.setdefault((event, prof), []).append(name)
+    for (event, prof), names in claims.items():
+        if len(names) > 1:
+            what = "the default (no profiles)" if prof is None else f"profile '{prof}'"
+            failures.append(f"{event}: {what} is claimed by more than one set ({', '.join(names)})")
+
+
+def check_crest(name, spec, failures, notes, audio_dir=AUDIO_DIR, probe=probe_seconds):
+    """GH-782: a flyby's `crest_s` lies inside every variant's decoded length."""
+    crest = spec.get("crest_s")
+    if spec.get("event") != "flyby" or not _num(crest) or crest <= 0:
+        return
+    for v in spec.get("variants", []):
+        for role in ("file", "alt"):
+            rel = v.get(role)
+            path = os.path.join(audio_dir, rel) if rel else None
+            if not path or not os.path.exists(path):
+                continue  # check_licensed_file already names a missing file
+            seconds = probe(path)
+            if seconds is None:
+                notes.append(f"{rel}: crest_s {crest} NOT checked against the clip's length (no ffprobe on PATH)")
+            elif crest >= seconds:
+                failures.append(f"{rel}: crest_s {crest} is not inside the clip, which decodes to {seconds:.3f} s")
+
+
+def check_support_air(man, failures, notes, audio_dir=AUDIO_DIR, measure=measure_bed):
+    """GH-782: `support_air.rotor`, the loop the Peten plays over a mortar
+    barrage. Shape always; with ffmpeg and ffprobe both encodings decoded and
+    given the bed checks (`check_loop`) plus a ceiling of its own: heard at
+    ROTOR_HEARD_MAX_LUFS or under at its station. Returns every file declared."""
+    declared = set()
+    block = man.get("support_air")
+    if block is None:
+        return declared
+    if not isinstance(block, dict):
+        failures.append("support_air: not an object")
+        return declared
+    for key in block:
+        if key != "rotor" and not key.startswith("$"):
+            failures.append(f"support_air: unknown entry '{key}' (only `rotor`)")
+    spec = block.get("rotor")
+    if spec is None:
+        return declared
+    label = "support_air rotor"
+    if not isinstance(spec, dict) or not spec.get("file"):
+        failures.append(f"{label}: no file")
+        return declared
+    check_licensed_file(spec, failures, MAX_BYTES, licenses=SUPPORT_LICENSES, audio_dir=audio_dir)
+    declared |= {spec[r] for r in ("file", "alt") if spec.get(r)}
+    master = man.get("master_gain", 1.0)
+    gain, loop_s, channels, radius = spec.get("gain"), spec.get("loop_s"), spec.get("channels"), spec.get("radius_tiles")
+    if not _num(gain) or not 0 < gain <= 1:
+        failures.append(f"{label}: gain {gain!r} outside (0, 1]")
+        return declared
+    if not _num(loop_s) or not ROTOR_LOOP_RANGE_S[0] <= loop_s <= ROTOR_LOOP_RANGE_S[1]:
+        failures.append(f"{label}: loop_s {loop_s!r} outside {ROTOR_LOOP_RANGE_S[0]}..{ROTOR_LOOP_RANGE_S[1]} s")
+        return declared
+    if channels != 1 or isinstance(channels, bool):
+        failures.append(f"{label}: channels {channels!r} -- the rotor is a placed sound, mono")
+        return declared
+    if not _num(radius) or not ROTOR_STATION_TILES < radius <= RADIUS_MAX_TILES:
+        failures.append(f"{label}: radius_tiles {radius!r} outside ({ROTOR_STATION_TILES:g}, {RADIUS_MAX_TILES}] (it must reach its station)")
+        return declared
+    atten = (1 - ROTOR_STATION_TILES / radius) ** 2
+    for role in ("file", "alt"):
+        rel = spec.get(role)
+        path = os.path.join(audio_dir, rel) if rel else None
+        if not path or not os.path.exists(path):
+            continue  # check_licensed_file already names a missing file
+        got = measure(path)
+        if got is None:
+            notes.append(f"{rel}: rotor loop NOT measured (no ffmpeg/ffprobe on PATH) -- loop, channels, peak, level and seam unchecked")
+            continue
+        check_loop(rel, got, channels, loop_s, ROTOR_MAX_TRUE_PEAK_DBTP, "rotor", failures)
+        heard = got["integrated"] + _db(gain * master * atten)
+        if heard > ROTOR_HEARD_MAX_LUFS + 1e-9:
+            failures.append(
+                f"{rel}: heard at {heard:.1f} LUFS on station ({got['integrated']:.1f} LUFS, gain {gain}, master {master}, "
+                f"{ROTOR_STATION_TILES:g} of {radius} tiles out), over the rotor ceiling {ROTOR_HEARD_MAX_LUFS}"
+            )
+        notes.append(
+            f"{rel}: {got['seconds']:.3f} s loop, {got['true_peak']:+.1f} dBTP, heard on station {heard:.1f} LUFS, "
+            f"seam {got['seam_level_db']:.1f} dB / gap {got['seam_gap_db']:+.1f} dB"
+        )
     return declared
 
 
@@ -620,6 +806,9 @@ def check_commercial(man, failures):
             found += [loop[v] for v in ENGINE_VARIANTS if isinstance(loop.get(v), dict)]
     for line in ((man.get("voices") or {}).get("lines") or {}).values():
         found += line.get("variants", [])
+    rotor = (man.get("support_air") or {}).get("rotor")
+    if isinstance(rotor, dict):
+        found.append(rotor)
     for v in found:
         if UNCONFIRMED_LICENCE.search(v.get("source", "") or ""):
             failures.append(f"{v.get('file')}: licence not confirmed -- it cannot ship in a commercial build (D5, A3)")
@@ -660,6 +849,9 @@ def commercial_manifest(man):
                 del loop[v]
     for line in ((out.get("voices") or {}).get("lines") or {}).values():
         line["variants"] = [v for v in line.get("variants", []) if keep(v)]
+    air = out.get("support_air")
+    if isinstance(air, dict) and isinstance(air.get("rotor"), dict) and not keep(air["rotor"]):
+        del air["rotor"]
     return out, excluded
 
 
@@ -947,6 +1139,8 @@ def main(argv=None):
         for cls in spec.get("weapon_classes", []):
             if cls not in KNOWN_WEAPON_CLASSES:
                 failures.append(f"set '{name}': unknown weapon class '{cls}'")
+        check_set_fields(name, spec, failures)
+        check_crest(name, spec, failures, notes)
 
         gain = spec.get("gain", 1.0)
         if not 0 <= gain <= MAX_GAIN:
@@ -964,7 +1158,7 @@ def main(argv=None):
 
             # `file` is the primary encoding, `alt` the Safari fallback of the
             # same sound — both must exist and both must be playable formats.
-            check_licensed_file(v, failures, MAX_BYTES)
+            check_licensed_file(v, failures, MAX_BYTES, licenses=SUPPORT_LICENSES if event in SUPPORT_EVENTS else ALLOWED_LICENSES)
             if event == "ui":
                 total_ui += 1
                 check_ui_cue(v, failures, notes=notes, max_s=UI_CUE_CEILING_S.get(name, UI_MAX_S))
@@ -984,8 +1178,10 @@ def main(argv=None):
                 continue
             check_licensed_file(t, failures, MAX_MUSIC_BYTES)
 
+    check_profile_claims(man.get("sets", {}), failures)
     check_music_levels(music, failures, notes)
     declared_amb = check_ambience(man, failures, notes)
+    declared_support = check_support_air(man, failures, notes)
     declared_beds = check_music_beds(man, failures, notes)
     declared_engines = check_engines(man, failures, notes)
     total_cues = check_cues(man, failures)
@@ -1019,6 +1215,7 @@ def main(argv=None):
         declared |= declared_amb
         declared |= declared_beds
         declared |= declared_engines
+        declared |= declared_support
         for dirpath, _, files in os.walk(AUDIO_DIR):
             for fn in files:
                 if os.path.splitext(fn)[1].lower() not in ALLOWED_EXT:
