@@ -424,7 +424,7 @@ describe('the Sarim seat\'s routes (GH-681, T3)', () => {
   // [map, host factions, the END the Sarim side stands at, that end's route ids, their capacity (LITERALS)]
   const CASES = [
     ['tel_marum', ['kdf', 'sarim'], 'hostile', ['tm_n_west', 'tm_n_east'], 4],
-    ['tel_marum', ['sarim', 'kdf'], 'friendly', ['tm_s_west', 'tm_s_east'], 3],
+    ['tel_marum', ['sarim', 'kdf'], 'friendly', ['tm_s_west', 'tm_s_east'], 4],
     ['wadi_tarfan', ['kdf', 'sarim'], 'hostile', ['wt_h_south', 'wt_h_east'], 4],
     ['wadi_tarfan', ['sarim', 'kdf'], 'friendly', ['wt_f_north', 'wt_f_west'], 4],
   ] as const;

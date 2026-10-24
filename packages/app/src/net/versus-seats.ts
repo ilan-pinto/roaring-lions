@@ -24,6 +24,12 @@ import { sandboxAnchors, type SandboxAnchors } from '../sandbox-anchors';
  *   (60.4%). Seat 0 two tiles further south at (24,46) reads the mirror
  *   west 20 / east 28, KDF-on-seat-0 KDF 24 / Sarim 24, Sarim-on-seat-0
  *   Sarim 22 / KDF 26. Seat 1 is the heuristic's own `overwatch_east`.
+ *   At 96 seeds with wounds on (GH-774, 23 Oct) that pair read
+ *   Sarim-on-seat-0 Sarim 60 / KDF 36 (62.5%). Seat 0 at (27,45), three tiles
+ *   east and one north, with the south tunnel pair back at capacity 4
+ *   (`data/versus/tel_marum.json`), reads the mirror west 39 / east 57,
+ *   KDF-on-seat-0 Sarim 50 / KDF 46, Sarim-on-seat-0 KDF 52 / Sarim 44; the
+ *   economy cells (600 s and 1500 s) and tunnel cell 3 stay inside too.
  *
  * The reading is sensitive to a tile or two (seat 1 at (38,23) reads west
  * 17 / east 6 at 24 seeds, at (43,24) 3 / 21), so a change to a map's
@@ -32,7 +38,7 @@ import { sandboxAnchors, type SandboxAnchors } from '../sandbox-anchors';
  */
 export const VERSUS_SEATS: Readonly<Record<string, SandboxAnchors>> = {
   beit_sahwan_outskirts: { friendly: [4, 23], hostile: [40, 24] },
-  tel_marum: { friendly: [24, 46], hostile: [28, 16] },
+  tel_marum: { friendly: [27, 45], hostile: [28, 16] },
 };
 
 /** Where a versus room's two seats stand on `map`: seat 0 on `friendly`,
