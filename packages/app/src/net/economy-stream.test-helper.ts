@@ -135,9 +135,13 @@ export function economyStreamFrames(): Frame[] {
   const T = ECONOMY_STREAM_TUNNEL;
   at(T.enter, 0, { kind: 'enterTunnel', ids: foot, tunnel: route });
   at(T.forged, 1, { kind: 'enterTunnel', ids: w.bySide[kdf].slice(0, 2), tunnel: route }); // dropped by every client
-  at(T.raid, 0, { kind: 'vent', ids: foot.slice(0, 2), mode: 'raid' });
-  at(T.exit, 0, { kind: 'vent', ids: foot.slice(2), mode: 'exit' });
-  at(T.reenter, 0, { kind: 'enterTunnel', ids: foot.slice(2), tunnel: route });
+  // Two raid and the rest exit while the route holds three or more; on a route that holds
+  // fewer, the raid gives up a man so the exit (and the falsification that drops it) still
+  // names a unit that is below. Capacity 2 on Wadi Tarfan (GH-421 rebalance) made it bite.
+  const raiders = Math.min(2, w.sim.tunnelCapacity(route) - 1);
+  at(T.raid, 0, { kind: 'vent', ids: foot.slice(0, raiders), mode: 'raid' });
+  at(T.exit, 0, { kind: 'vent', ids: foot.slice(raiders), mode: 'exit' });
+  at(T.reenter, 0, { kind: 'enterTunnel', ids: foot.slice(raiders), tunnel: route });
   const byTick = new Map<number, Stamped[]>();
   for (const [tick, s] of entries) byTick.set(tick, [...(byTick.get(tick) ?? []), s]);
   const frames: Frame[] = [];

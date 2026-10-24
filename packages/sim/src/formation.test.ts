@@ -4,7 +4,7 @@ import {
   INFANTRY_SPACING,
   MAX_LATERAL,
   SEARCH_RADIUS,
-  VEHICLE_SPACING,
+  VEHICLE_RANK_DEPTH,
   VEHICLE_TO_INFANTRY_GAP,
   type FormationInput,
   type FormationUnit,
@@ -55,7 +55,7 @@ const key = (s: Slot): string => `${s.x},${s.y}`;
 const byId = (slots: Slot[]): Map<number, Slot> => new Map(slots.map((s) => [s.id, s]));
 
 describe('assignFormation on open ground', () => {
-  it('puts three spaced vehicles on the clicked row, one two rows back, infantry behind', () => {
+  it('puts three spaced vehicles on the clicked row, one VEHICLE_RANK_DEPTH rows back, infantry behind', () => {
     const slots = assignFormation(input({}));
     expect(slots).toHaveLength(15);
     expect(new Set(slots.map(key)).size).toBe(15);
@@ -64,10 +64,12 @@ describe('assignFormation on open ground', () => {
     expect([m.get(0), m.get(1), m.get(2)].map((s) => `${s?.x},${s?.y}`).sort()).toEqual(
       ['10,12', '12,12', '14,12'].sort()
     );
-    // The fourth vehicle sits VEHICLE_SPACING rows behind (toward the group), at offset 0.
-    expect(m.get(3)).toMatchObject({ x: 12, y: 12 + VEHICLE_SPACING });
+    // The fourth vehicle sits VEHICLE_RANK_DEPTH rows behind (toward the group), at offset 0:
+    // 3 tiles, not 2, so two long hulls in consecutive ranks do not overlap at rest (GH-421).
+    expect(VEHICLE_RANK_DEPTH).toBe(3);
+    expect(m.get(3)).toMatchObject({ x: 12, y: 12 + 3 });
     // Infantry starts one row behind the last vehicle rank and fills 7 wide, then 4.
-    const infantryY = 12 + VEHICLE_SPACING + VEHICLE_TO_INFANTRY_GAP;
+    const infantryY = 12 + VEHICLE_RANK_DEPTH + VEHICLE_TO_INFANTRY_GAP;
     const row1 = slots.filter((s) => s.id >= 4 && s.y === infantryY);
     const row2 = slots.filter((s) => s.id >= 4 && s.y === infantryY + INFANTRY_SPACING);
     expect(row1).toHaveLength(2 * MAX_LATERAL + 1);
@@ -88,12 +90,12 @@ describe('assignFormation on open ground', () => {
 
   it('rotates the grid for each approach direction, front rank on the click', () => {
     const fromWest = byId(assignFormation(input({ fromX: 2, fromY: 12 })));
-    // Forward is +x, so the fourth vehicle sits VEHICLE_SPACING tiles WEST of the click.
-    expect(fromWest.get(3)).toMatchObject({ x: 12 - VEHICLE_SPACING, y: 12 });
+    // Forward is +x, so the fourth vehicle sits VEHICLE_RANK_DEPTH tiles WEST of the click.
+    expect(fromWest.get(3)).toMatchObject({ x: 12 - VEHICLE_RANK_DEPTH, y: 12 });
     const fromEast = byId(assignFormation(input({ fromX: 22, fromY: 12 })));
-    expect(fromEast.get(3)).toMatchObject({ x: 12 + VEHICLE_SPACING, y: 12 });
+    expect(fromEast.get(3)).toMatchObject({ x: 12 + VEHICLE_RANK_DEPTH, y: 12 });
     const fromNorth = byId(assignFormation(input({ fromX: 12, fromY: 2 })));
-    expect(fromNorth.get(3)).toMatchObject({ x: 12, y: 12 - VEHICLE_SPACING });
+    expect(fromNorth.get(3)).toMatchObject({ x: 12, y: 12 - VEHICLE_RANK_DEPTH });
     // The clicked tile is always offset 0 of the front rank.
     for (const m of [fromWest, fromEast, fromNorth]) expect(m.get(0)).toMatchObject({ x: 12, y: 12 });
   });
@@ -115,8 +117,10 @@ describe('assignFormation in a street', () => {
     expect(new Set(slots.map(key)).size).toBe(15);
     for (const sl of slots) expect(s[sl.y * W + sl.x]).toBe(0);
     const m = byId(slots);
-    // The four vehicles hold the head of the column, one every two rows.
-    expect([0, 1, 2, 3].map((id) => `${m.get(id)?.x},${m.get(id)?.y}`)).toEqual(['10,4', '10,6', '10,8', '10,10']);
+    // Three vehicles hold the head of the column, one every VEHICLE_RANK_DEPTH
+    // rows (y 4, 7, 10; the next rank, 13, is past SEARCH_RADIUS); the fourth
+    // overflows to the nearest free tile in walk order, beside the head.
+    expect([0, 1, 2, 3].map((id) => `${m.get(id)?.x},${m.get(id)?.y}`)).toEqual(['10,4', '10,7', '10,10', '11,4']);
     // Infantry fills the ranks behind and the gaps between the vehicles, and
     // overflow is behind-first: nothing stands ahead of the click, and nothing
     // wider than the street.

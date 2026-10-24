@@ -1685,6 +1685,13 @@ const deirAmun2Plan: Plan = (sim, rt, ids, at) => {
   at(0, () => sim.queueCommand({ kind: 'move', ids: at_team, ...M(14, 30) }));
   at(0, () => sim.queueCommand({ kind: 'move', ids: mortar, ...M(24, 40) }));
   at(0, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(15, 31) }));
+  // GH-421: with vehicle ranks 3 deep the hold force's slots take the tiles round (15,31) and the
+  // drone, ordered last, parks at (15.5,34.5), a hover in the open that the Sarim mortar crew lays
+  // onto: it died at t=47 (tick 943, by the mortar_crew) and the starting force came home one short,
+  // credits 227 -> 217. With 2-deep ranks it parked at (17.5,33.5) and was gone from there by t=30.
+  // A player pulls a spotter back once the shells start: from t=30 it goes to the staging ground
+  // beside the mortar team, off the yard, and the drone comes home as it did before.
+  at(30, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(22, 40) }));
 
   // F4 Task 10 (Step 2): the camp's rally point is the pump gate the hold force takes, `M(15, 31)`,
   // beside the `pump_gate` marker (15,32) and 6.5 tiles from the camp exit (20.5,34.5). Every squad

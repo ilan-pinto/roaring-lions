@@ -36,7 +36,11 @@ describe('the normal arm is the room', () => {
   it('plays the versus probe\'s own game, camp A as side 0', { timeout: FULL_GAMES_TIMEOUT_MS }, () => {
     for (const n of [0, 2]) {
       const p = play('milh_flats', ['kdf', 'kdf'], seedOf(n));
-      const c = playCamps('milh_flats', ['kdf', 'kdf'], seedOf(n), 'normal');
+      // The room's table, as `play` reads it (`humanHeldOf('room')`): without it the camps
+      // game is the single-player one, whose side 1 breaches walls, and the two only agreed
+      // while no unit happened to reach a wall. Seed 2 does under 3-deep vehicle ranks
+      // (GH-421): 2460 ticks by `play`, 2120 by the single-player table.
+      const c = playCamps('milh_flats', ['kdf', 'kdf'], seedOf(n), 'normal', { humanHeld: [true, true] });
       expect({ winner: c.winnerCamp, by: c.by, ticks: c.ticks }).toEqual(p);
     }
   });

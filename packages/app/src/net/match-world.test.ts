@@ -428,9 +428,9 @@ describe('the Sarim seat\'s routes (GH-681, T3)', () => {
   // [map, host factions, the END the Sarim side stands at, that end's route ids, their capacity (LITERALS)]
   const CASES = [
     ['tel_marum', ['kdf', 'sarim'], 'hostile', ['tm_n_west', 'tm_n_east'], 4],
-    ['tel_marum', ['sarim', 'kdf'], 'friendly', ['tm_s_west', 'tm_s_east'], 4],
-    ['wadi_tarfan', ['kdf', 'sarim'], 'hostile', ['wt_h_south', 'wt_h_east'], 3],
-    ['wadi_tarfan', ['sarim', 'kdf'], 'friendly', ['wt_f_north', 'wt_f_west'], 3],
+    ['tel_marum', ['sarim', 'kdf'], 'friendly', ['tm_s_west', 'tm_s_east'], 5],
+    ['wadi_tarfan', ['kdf', 'sarim'], 'hostile', ['wt_h_south', 'wt_h_east'], 2],
+    ['wadi_tarfan', ['sarim', 'kdf'], 'friendly', ['wt_f_north', 'wt_f_west'], 2],
   ] as const;
   it.each(CASES)('%s, host %j: exactly the Sarim end\'s routes, owned by the Sarim side, pre-dug, at the capacity the file authors', (map, factions, end, ids, capacity) => {
     const w = buildMatchWorld(config(map, [factions[0], factions[1]], 7));
