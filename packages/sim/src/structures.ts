@@ -394,6 +394,7 @@ export const STRUCT_DAMAGE = new Int32Array([
   98304, // rocket 1.5
   0, // interceptor
   524288, // demolition 8.0
+  0, // directed_energy: a beam cannot meaningfully hurt masonry
 ]);
 
 /** Default seconds a demolition team holds station beside a building before

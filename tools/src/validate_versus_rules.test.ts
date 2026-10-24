@@ -181,9 +181,9 @@ describe('versus tunnel routes: versusRulesFailures, one mutation at a time (GH-
   it('refuses a vent under 18 tiles from the opposing anchor, and allows one beyond it', () => {
     const r = rulesFor('tel_marum');
     const pts = route(r[0].doc).points;
-    pts[2] = [24, 34]; // 12 tiles north of the friendly anchor (24,46), open ground
+    pts[2] = [27, 33]; // 12 tiles north of the friendly anchor (27,45), open ground
     expect(failures(r).filter((f) => f.includes('tiles from the friendly anchor'))).toHaveLength(1);
-    pts[2] = [24, 28]; // 18 tiles: the least allowed
+    pts[2] = [27, 27]; // 18 tiles: the least allowed
     expect(failures(r).filter((f) => f.includes('tiles from the friendly anchor'))).toEqual([]);
     // The measure is to the OPPOSING anchor: a friendly route is judged against the hostile one.
     const f = rulesFor('tel_marum');

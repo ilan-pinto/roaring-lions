@@ -34,7 +34,8 @@ describe('buildMatchWorld', () => {
     // Was 1108074073 (beit) and 1524988923 (tel). tel_marum's helper pin moved with it (versus-force.test.ts).
     // beit re-pinned 2026-10-22 for its versus seats (`versus-seats.ts`, seat 1 at (40,24)
     // rather than town_center): was 3043363756.
-    for (const [map, pin] of [['beit_sahwan_outskirts', 3227696674], ['tel_marum', 280818962]] as const) {
+    // tel_marum re-pinned 24 Oct 2026 for its seat 0 at (27,45) (GH-774): the spawn moved. Was 280818962.
+    for (const [map, pin] of [['beit_sahwan_outskirts', 3227696674], ['tel_marum', 792859212]] as const) {
       const w = buildMatchWorld(config(map, ['kdf', 'kdf'], 20260727));
       for (let i = 0; i < 200; i++) w.sim.tick();
       expect(w.sim.hash()).toBe(pin);
@@ -262,7 +263,7 @@ describe("seatKitTiers: a seat's claim as the world reads it", () => {
 
 describe("a matched room, and a brigade room with equal claims, build today's bytes", () => {
   // LITERALS: the same two pins the first describe holds (seed 20260727, 200 ticks).
-  const PINS = [['beit_sahwan_outskirts', 3227696674], ['tel_marum', 280818962]] as const;
+  const PINS = [['beit_sahwan_outskirts', 3227696674], ['tel_marum', 792859212]] as const;
   const SEED = 20260727;
 
   it("kit 'matched' with empty tiers: the pins, and the roster registered once", () => {
@@ -412,7 +413,8 @@ describe('the economy runtime (N3 Task 3)', () => {
     // runtime.digest(). Was -1014683486 / -1434364569.
     // Re-pinned when wounds opened to versus (the lead, 23 Oct 2026): the two wounded types join the roster, every infantry type keeps hull.wounds, and the wound block is in the hash. Was 822414509 / 1021735804.
     // Re-pinned for GH-769 (Wadi Tarfan seats (11,11)/(36,36) and tunnel capacity 3; seats and route state are hashed). Was 1960701868 for wadi_tarfan.
-    const VERSUS_ECONOMY_PINS = [['tel_marum', -147026323], ['wadi_tarfan', -1972637780]] as const;
+    // tel_marum re-pinned 24 Oct 2026 (GH-774): seat 0 moved from (24,46) to (27,45), so the KDF host's spawn moved (this room registers the north routes, whose capacity did not change). Was -147026323.
+    const VERSUS_ECONOMY_PINS = [['tel_marum', -1498380144], ['wadi_tarfan', -1972637780]] as const;
     for (const [map, pin] of VERSUS_ECONOMY_PINS) {
       const w = buildMatchWorld(config(map, ['kdf', 'sarim'], 20260727));
       run(w, 200);
@@ -425,7 +427,7 @@ describe('the Sarim seat\'s routes (GH-681, T3)', () => {
   // [map, host factions, the END the Sarim side stands at, that end's route ids, their capacity (LITERALS)]
   const CASES = [
     ['tel_marum', ['kdf', 'sarim'], 'hostile', ['tm_n_west', 'tm_n_east'], 4],
-    ['tel_marum', ['sarim', 'kdf'], 'friendly', ['tm_s_west', 'tm_s_east'], 3],
+    ['tel_marum', ['sarim', 'kdf'], 'friendly', ['tm_s_west', 'tm_s_east'], 4],
     ['wadi_tarfan', ['kdf', 'sarim'], 'hostile', ['wt_h_south', 'wt_h_east'], 3],
     ['wadi_tarfan', ['sarim', 'kdf'], 'friendly', ['wt_f_north', 'wt_f_west'], 3],
   ] as const;

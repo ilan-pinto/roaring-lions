@@ -24,8 +24,9 @@ describe('the normal arm is the room', () => {
     expect(pinWindow('beit_sahwan_outskirts', 'helper').hash).toBe(2485993817);
     expect(pinWindow('beit_sahwan_outskirts', 'room').hash).toBe(3227696674);
     // tel_marum re-pinned 2026-10-22 for its versus seat 0 at (24,46). Was 1260439781.
-    expect(pinWindow('tel_marum', 'helper').hash).toBe(280818962);
-    expect(pinWindow('tel_marum', 'room').hash).toBe(280818962);
+    // Re-pinned 24 Oct 2026 for its seat 0 at (27,45) (GH-774). Was 280818962.
+    expect(pinWindow('tel_marum', 'helper').hash).toBe(792859212);
+    expect(pinWindow('tel_marum', 'room').hash).toBe(792859212);
     for (const map of ['beit_sahwan_outskirts', 'tel_marum'] as const) {
       for (const how of ['helper', 'room'] as const) expect(pinWindow(map, how).activity.ticks).toEqual([0, 0]);
     }

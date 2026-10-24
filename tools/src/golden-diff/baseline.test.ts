@@ -608,7 +608,7 @@ describe('BASELINES layerChecks', () => {
     );
     const m = /export const DEBUG_LAYERS = \[([^\]]*)\] as const;/.exec(src);
     if (!m) throw new Error('could not find DEBUG_LAYERS in packages/render/src/three/debug-layers.ts');
-    return [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]);
+    return [...m[1].replace(/\/\/.*$/gm, '').matchAll(/'([^']+)'/g)].map((x) => x[1]); // comments stripped: an apostrophe in one shifts the quote pairing
   }
 
   it('names only layers the renderer can actually toggle', () => {
@@ -1013,7 +1013,7 @@ function debugLayersFromRendererSourceForTone(): string[] {
   );
   const m = /export const DEBUG_LAYERS = \[([^\]]*)\] as const;/.exec(src);
   if (!m) throw new Error('could not find DEBUG_LAYERS in packages/render/src/three/debug-layers.ts');
-  return [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]);
+  return [...m[1].replace(/\/\/.*$/gm, '').matchAll(/'([^']+)'/g)].map((x) => x[1]); // comments stripped: an apostrophe in one shifts the quote pairing
 }
 
 

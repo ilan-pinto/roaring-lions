@@ -222,7 +222,7 @@
         },
         "can_embark": {
           "type": "boolean",
-          "description": "Can ride inside a transport. Defaults from role: infantry, at_team, artillery, engineer, sniper and support dismount and can embark; mbt, apc, ifv, technical and drone cannot. Set explicitly only to override that."
+          "description": "Can ride inside a transport. Defaults from role AND mobility: infantry, at_team, artillery, engineer, sniper and support dismount and can embark unless the unit is wheeled or tracked (a vehicle never embarks); mbt, apc, ifv, technical and drone cannot. Set explicitly only to override that."
         },
         "figures": {
           "type": "integer",
@@ -415,6 +415,13 @@
           "accuracy"
         ],
         "additionalProperties": false,
+        "allOf": [
+          {
+            "if": { "properties": { "type": { "const": "directed_energy" } }, "required": ["type"] },
+            "then": { "required": ["beam", "can_target"], "properties": { "indirect": { "const": false }, "submunitions": false } },
+            "else": { "not": { "required": ["beam"] } }
+          }
+        ],
         "properties": {
           "id": {
             "type": "string"
@@ -432,7 +439,8 @@
               "mortar",
               "rocket",
               "interceptor",
-              "demolition"
+              "demolition",
+              "directed_energy"
             ]
           },
           "range_tiles": {
@@ -530,6 +538,17 @@
               "splash_tiles": { "type": "number", "exclusiveMinimum": 0, "maximum": 4 },
               "suppression": { "type": "number", "minimum": 0 }
             }
+          },
+          "beam": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["dwell_s", "heat_s", "cooldown_s"],
+            "description": "E6 (GH-274 item 3): the timing of a `directed_energy` weapon, which resolves at once with no projectile. Allowed only on that type, which requires it. The beam must stay on ONE target, in its OWN line of sight with no smoke on the line (a spotter's sight does not count), for dwell_s before the weapon's damage lands; the dwell then starts over. Time on target builds heat; at heat_s the weapon is silent for cooldown_s, then starts cool. Heat drains at the rate it builds while the beam is off a target. Penetration is rolled against armour like any round, so pen 5 does nothing to a plated hull.",
+            "properties": {
+              "dwell_s": { "type": "number", "minimum": 0.05, "maximum": 30, "description": "Uninterrupted seconds on one target for each delivery of damage." },
+              "heat_s": { "type": "number", "minimum": 0.05, "maximum": 120, "description": "Seconds of time on target before the weapon locks out. Must be at least dwell_s." },
+              "cooldown_s": { "type": "number", "minimum": 0.05, "maximum": 120, "description": "Seconds of lockout once heat_s is reached." }
+            }
           }
         }
       }
@@ -582,6 +601,17 @@
         "damage": { "type": "number", "exclusiveMinimum": 0, "description": "Damage at the centre; it falls off linearly to nothing at the radius." },
         "suppression": { "type": "number", "minimum": 0, "description": "Suppression at the centre, falling off the same way." },
         "withdraw_tiles": { "type": "number", "minimum": 0, "description": "How far the carrier backs away from the building once the charge is set." }
+      }
+    },
+    "swarm": {
+      "type": "object",
+      "required": ["count", "member_hp", "spread_tiles"],
+      "additionalProperties": false,
+      "description": "E6 (GH-274, item 2): this unit is ONE entity standing for a cloud of `count` members of `member_hp` each, so `hull.hp` must equal `count * member_hp` (the sim refuses a unit that disagrees). Live members are `ceil(hp / member_hp)`. Each dive spends one member; the rate of fire scales with live / count; a single-target hit removes at most one member; a splash removes up to `ceil(live * min(1, splash / spread_tiles))`. Absent means an ordinary unit.",
+      "properties": {
+        "count": { "type": "integer", "minimum": 1, "maximum": 64, "description": "Members at full strength." },
+        "member_hp": { "type": "number", "exclusiveMinimum": 0, "description": "Hit points of one member." },
+        "spread_tiles": { "type": "number", "exclusiveMinimum": 0, "description": "How far the cloud spreads, in tiles: the denominator of a splash's reach." }
       }
     },
     "tunnel_charge_time_s": {

@@ -54,7 +54,7 @@ export interface ParticleSpec {
  * caller's event power and `k` the instance index within the layer.
  */
 export interface FlipbookLayerSpec {
-  type: 'fire' | 'smoke' | 'dirt';
+  type: 'fire' | 'smoke' | 'dirt' | 'spark';
   count: number;
   /** `[base, per_index]`: instance k starts `base + per_index * k` ms after the spawn. */
   delay_ms: [number, number];
@@ -84,6 +84,10 @@ export interface FlipbookLayerSpec {
   };
   /** SMOKE only: 0 soot, 1 dust. */
   tint?: number;
+  /** SMOKE only, 0..1: oily burning-fuel soot -- near black for most of its life, an ember glow in its dense core while young, a sun-side grey crown. Overrides `tint`. */
+  oil?: number;
+  /** At fxDetail 0 only `ceil(count * low_fraction)` instances spawn; a `spark` layer is dropped there outright. */
+  low_fraction?: number;
   /** Start at the caller's ground height rather than its origin height. */
   at_ground?: boolean;
 }

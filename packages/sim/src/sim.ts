@@ -226,6 +226,23 @@ export interface WeaponJson {
   /** GH-709 unit 9: the fraction of the tile-cover bonus (hit chance and
    *  suppression) this weapon ignores, 0-1. Absent is 0, every weapon's old rule. */
   cover_ignore?: number;
+  /** E6 (GH-274 item 3): the timing of a `directed_energy` weapon. Required by the schema
+   *  on that type and refused on any other. */
+  beam?: BeamJson;
+}
+
+/** A `directed_energy` weapon's `beam` block, as authored (unit.schema.json `beam`). */
+export interface BeamJson {
+  dwell_s: number;
+  heat_s: number;
+  cooldown_s: number;
+}
+
+/** A beam's timing in whole ticks (E6 GH-274 item 3). Integers: no Fx needed. */
+export interface BeamStats {
+  dwellTicks: number;
+  heatTicks: number;
+  coolTicks: number;
 }
 
 /** E3's bomblet block, as authored (unit.schema.json `submunitions`). */
@@ -248,6 +265,10 @@ export interface UnitTypeJson {
    *  Schema-constrained to charges|blade; typed loosely because JSON module
    *  imports widen string literals — same reason as `mobility.domain`. */
   demolition_method?: string;
+  /** E6 (GH-274, item 2): a swarm is ONE entity standing for `count` members of `member_hp`
+   *  each. The schema requires `hull.hp === count * member_hp`; the sim throws at registration
+   *  if it is not. Absent for every other unit. */
+  swarm?: { count: number; member_hp: number; spread_tiles: number };
   /** E6 (GH-274, G1): the numbers of a `demolition_method: "placed"` charge. Required by the
    *  schema when the method is `placed`; the sim throws at registration if it is missing. */
   placed_charge?: {
@@ -399,6 +420,7 @@ export const WEAPON_CLASS: Record<string, number> = {
   rocket: 9,
   interceptor: 10,
   demolition: 11,
+  directed_energy: 12,
 };
 
 /** Classes that fire indirect — no line of sight needed, only a side contact. */
@@ -479,6 +501,9 @@ export interface WeaponStats {
    * of a round bouncing off armour, and not bomblets (refused at load).
    */
   coverIgnore: Fx;
+  /** E6 (GH-274 item 3): the dwell/heat/cooldown of a `directed_energy` weapon, or null for
+   *  every other weapon (all of them today). */
+  beam: BeamStats | null;
 }
 
 /** E3's bomblet block, loaded. `supp` is already per-stat-divided, like
@@ -536,6 +561,16 @@ export type HitProjection =
   | { kind: 'noSolution' }
   | { kind: 'holdingFire' };
 
+/** A swarm's numbers (E6, GH-274 item 2). Live members are DERIVED from hp, never stored:
+ *  `ceil(hp / memberHp)`. Type data, not hashed. */
+export interface SwarmStats {
+  count: number;
+  /** Q16.16 hp of one member. */
+  memberHp: Fx;
+  /** Q16.16 tiles: the cloud's spread, the denominator of a splash's reach. */
+  spread: Fx;
+}
+
 /** A placed charge's numbers, fixed-point (E6 G1). Ticks are integers; the rest are Q16.16. */
 export interface PlacedCharge {
   fuseTicks: number;
@@ -567,6 +602,8 @@ export interface UnitType {
    * ability.
    */
   bladeDemolition: boolean;
+  /** E6 (GH-274): one entity standing for a cloud of members; null for every other unit. */
+  swarm: SwarmStats | null;
   /**
    * E6 (GH-274, G1): a `placed` demolisher sets a fused charge on an explicit `demolish` order
    * (never on halting), withdraws, and the building falls with a blast when the fuse runs out,
@@ -821,7 +858,32 @@ function weaponFromJson(w: WeaponJson): WeaponStats {
     isIndirect: (INDIRECT_MASK & (1 << cls)) !== 0 || w.indirect === true,
     submunitions: submunitionsFromJson(w.id, w.submunitions),
     coverIgnore: coverIgnoreFromJson(w.id, w.cover_ignore, w.submunitions),
+    beam: beamFromJson(w, cls),
   };
+}
+
+/** E6 (GH-274 item 3): `beam`, loaded. A directed-energy weapon must carry one, no other may,
+ *  and it is refused beside `indirect` or submunitions (the sight rule and the burst both
+ *  assume a round). Seconds cross to ticks once; a value under one tick, or a heat budget
+ *  shorter than one dwell (the beam could never deliver), throws naming the weapon. */
+function beamFromJson(w: WeaponJson, cls: number): BeamStats | null {
+  if (cls !== WEAPON_CLASS.directed_energy) {
+    if (w.beam !== undefined) throw new Error(`weapon ${w.id}: beam is only for directed_energy`);
+    return null;
+  }
+  if (w.beam === undefined) throw new Error(`weapon ${w.id}: directed_energy needs a beam block`);
+  if (w.indirect === true) throw new Error(`weapon ${w.id}: a beam needs its own line of sight, so it cannot be indirect`);
+  if (w.submunitions !== undefined) throw new Error(`weapon ${w.id}: a beam has no submunitions`);
+  const b = w.beam;
+  if (!(b.dwell_s <= 30 && b.heat_s <= 120 && b.cooldown_s <= 120)) {
+    throw new Error(`weapon ${w.id}: beam times are capped at dwell 30 s, heat 120 s, cooldown 120 s`);
+  }
+  const dwellTicks = secondsToTicks(b.dwell_s);
+  const heatTicks = secondsToTicks(b.heat_s);
+  const coolTicks = secondsToTicks(b.cooldown_s);
+  if (dwellTicks < 1 || coolTicks < 1) throw new Error(`weapon ${w.id}: beam dwell_s and cooldown_s are under one tick`);
+  if (heatTicks < dwellTicks) throw new Error(`weapon ${w.id}: beam heat_s is shorter than dwell_s`);
+  return { dwellTicks, heatTicks, coolTicks };
 }
 
 /** `cover_ignore`, loaded: 0-1, absent 0. A bad value throws naming the
@@ -848,6 +910,26 @@ function populationFromJson(id: string, raw: number | undefined): number {
     throw new Error(`unit ${id}: cost.population must be a non-negative integer, got ${raw}`);
   }
   return raw;
+}
+
+/** `swarm` -> fixed point. A swarm whose hp is not `count x member_hp` would make the live
+ *  count disagree with its own pool at full health, so it is a data error. */
+function swarmFromJson(json: UnitTypeJson): SwarmStats | null {
+  const sw = json.swarm;
+  if (sw === undefined) return null;
+  if (!Number.isInteger(sw.count) || sw.count < 1) throw new Error(`unit ${json.id}: swarm.count must be a whole number >= 1`);
+  const memberHp = fx.from(sw.member_hp);
+  const spread = fx.from(sw.spread_tiles);
+  if (memberHp <= 0) throw new Error(`unit ${json.id}: swarm.member_hp must be > 0`);
+  if (spread <= 0) throw new Error(`unit ${json.id}: swarm.spread_tiles must be > 0`);
+  if (fx.from(json.hull.armor.front) >= SOFT_ARMOR_LIMIT) {
+    throw new Error(`unit ${json.id}: a swarm must be soft (a component roll would take the whole cloud)`);
+  }
+  if ((json.abilities ?? []).includes('kamikaze')) throw new Error(`unit ${json.id}: a swarm dives member by member, not as a kamikaze`);
+  if (fx.from(json.hull.hp) !== fx.from(sw.count * sw.member_hp)) {
+    throw new Error(`unit ${json.id}: swarm needs hull.hp === count x member_hp`);
+  }
+  return { count: sw.count, memberHp, spread };
 }
 
 /** `placed_charge` -> fixed point. A `placed` method without its block is a data error, and so
@@ -906,6 +988,7 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
       fx.mul(fx.from(json.demolition_time_s ?? DEMO_SECONDS), fx.fromInt(TICKS_PER_SECOND)),
     ),
     bladeDemolition: json.demolition_method === 'blade',
+    swarm: swarmFromJson(json),
     placed: placedChargeFromJson(json),
     canDig: abilities.includes('dig_tunnel'),
     canTunnelCharge: abilities.includes('tunnel_charge'),
@@ -926,7 +1009,10 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
     population,
     transportSlots: json.hull.transport_slots ?? 0,
     isAirCarrier: isAir && (json.hull.transport_slots ?? 0) > 0,
-    canEmbark: json.hull.can_embark ?? FOOT_ROLES.has(json.role ?? ''),
+    // GH-581: on foot AND a foot role. A vehicle never embarks, so the default is decided by the
+    // same `wheeled` answer that picks the movement domain -- a launcher on a 6x6 (role
+    // `artillery`) or a bulldozer (role `engineer`) that omits `can_embark` is still refused.
+    canEmbark: json.hull.can_embark ?? (FOOT_ROLES.has(json.role ?? '') && !wheeled),
     canMarkTarget: abilities.includes('mark_target'),
     canMarkTunnel: abilities.includes('mark_tunnel'),
     canSmoke: abilities.includes('smoke'),
@@ -1290,7 +1376,11 @@ export type SimEvent =
    * it in combat terms, and `stepRoe` (which only reads `destroyed`) is
    * built to see nothing here on purpose.
    */
-  | { kind: 'removed'; tick: number; entity: number; side: number };
+  | { kind: 'removed'; tick: number; entity: number; side: number }
+  /** E6 (GH-274 item 3): a beam delivered its damage (`struck`, the dwell completed) or its heat
+   *  reached the limit (`lockout`, silent until `until`). `target` is -1 on a lockout. No
+   *  projectile exists; a presentation draws the line from this. */
+  | { kind: 'beam'; tick: number; shooter: number; target: number; weaponId: string; phase: 'struck' | 'lockout'; until: number };
 
 /** Every `SimEvent` kind, as a value.
  *
@@ -1302,7 +1392,7 @@ export const SIM_EVENT_KINDS = [
   'spawn', 'contact', 'fire', 'aps', 'impact', 'component', 'nearMiss', 'submunition', 'ambushSprung',
   'strike', 'smokeLaid', 'revealed', 'structureHit', 'structureDestroyed', 'garrison',
   'transport', 'ventOpened', 'tunnelContact', 'surfaced', 'submerged', 'tunnelCollapsed', 'chargeSet', 'chargeDetonated', 'routed', 'rallied', 'pinned', 'unpinned', 'destroyed',
-  'fieldFixed',
+  'fieldFixed', 'beam',
   'removed', 'woundedDown', 'manKilled', 'bledOut', 'woundEvacuated', 'woundStabilised',
   'woundAdmitted', 'woundRejoined', 'woundLost',
   'constructQueued', 'constructRefused', 'constructStaked', 'structureComplete', 'constructCancelled',
@@ -1499,6 +1589,20 @@ export class Sim {
   private readonly fieldRef: Int32Array;
   // combat state
   private readonly cooldown: Int32Array; // 2 slots per entity
+  // E6 (GH-274 item 3): beam state, 2 slots per entity like `cooldown`. Hashed only once
+  // `beamLive` is set (the deferred fold), so a world with no beam moves no pin.
+  /** The target the beam is dwelling on, or -1. */
+  private readonly beamTgt: Int32Array;
+  /** Ticks of uninterrupted dwell so far. */
+  private readonly beamDwell: Int32Array;
+  /** Heat in ticks of time on target, as of `beamAt`; drains one per idle tick (lazily). */
+  private readonly beamHeat: Int32Array;
+  /** The last tick the beam was on a target, or -1. A dwell continues only from the tick before. */
+  private readonly beamAt: Int32Array;
+  /** The tick the lockout ends (exclusive), 0 when none has run. */
+  private readonly beamLock: Int32Array;
+  /** True once any beam weapon has been on a target; hash() folds the beam block only while set. */
+  private beamLive = false;
   private readonly lastFired: Int32Array;
   private readonly engaging: Uint8Array;
   private readonly curTarget: Int32Array;
@@ -2096,6 +2200,11 @@ export class Sim {
     this.goalY = new Int32Array(n);
     this.fieldRef = new Int32Array(n).fill(-1);
     this.cooldown = new Int32Array(n * 2);
+    this.beamTgt = new Int32Array(n * 2).fill(-1);
+    this.beamDwell = new Int32Array(n * 2);
+    this.beamHeat = new Int32Array(n * 2);
+    this.beamAt = new Int32Array(n * 2).fill(-1);
+    this.beamLock = new Int32Array(n * 2);
     this.lastFired = new Int32Array(n).fill(-100000);
     this.engaging = new Uint8Array(n);
     this.curTarget = new Int32Array(n).fill(-1);
@@ -4875,6 +4984,24 @@ export class Sim {
     return fx.mul(r, r);
   }
 
+  /** A beam slot's state as the NEXT tick will see it, for tests and presentation. The tick
+   *  keeps a dwell lazily (it continues only from the tick before), so a beam that was off
+   *  target last tick reads target -1, dwell 0 here, and its heat net of the drain. `locked` is
+   *  true while the next tick falls inside the lockout. Allocates; never called from the tick. */
+  beamState(entity: number, slot = 0): { target: number; dwell: number; heat: number; locked: boolean; lockUntil: number } {
+    const k = entity * 2 + slot;
+    const at = this.beamAt[k];
+    const on = at >= 0 && at === this.tickCount - 1;
+    const drained = at >= 0 ? this.beamHeat[k] - (this.tickCount - 1 - at) : 0;
+    return {
+      target: on ? this.beamTgt[k] : -1,
+      dwell: on ? this.beamDwell[k] : 0,
+      heat: drained > 0 ? drained : 0,
+      locked: this.tickCount < this.beamLock[k],
+      lockUntil: this.beamLock[k],
+    };
+  }
+
   /** Smoke density on a tile, for tests and presentation. */
   smokeAt(x: number, y: number): number {
     if (x < 0 || y < 0 || x >= this.width || y >= this.height) return 0;
@@ -6007,6 +6134,16 @@ export class Sim {
     if (!w.isIndirect) {
       if (this.losRay(px >> 16, py >> 16, this.posX[t] >> 16, this.posY[t] >> 16, this.eyeLift(shooter), 0) < 0) return false;
     }
+    // A beam needs its OWN clear line (E6 GH-274 item 3): any smoke on it blocks, thin or
+    // thick, however well another unit's identification has the target. losRay only refuses a
+    // screen thick enough to stop sight; this refuses the thinnest wisp. Here, in the one copy
+    // of the filter, so the scan, an ordered focus and stepFocus's reach all agree.
+    if (
+      w.beam !== null &&
+      this.raySmoke(px >> 16, py >> 16, this.posX[t] >> 16, this.posY[t] >> 16, this.eyeLift(shooter), 0) > 0
+    ) {
+      return false;
+    }
     this.engageDSq = dSq;
     this.engageOX = px;
     this.engageOY = py;
@@ -6476,9 +6613,16 @@ export class Sim {
           this.aimHullAt(i, fx.atan2(fx.sub(this.posY[target], oy), fx.sub(this.posX[target], ox)));
         }
 
+        if (w.beam !== null) {
+          // A beam keeps no rate of fire: dwell, heat and lockout are its clock.
+          if (!holdFire) this.stepBeam(i, slot, w, w.beam, target);
+          continue;
+        }
         if (this.cooldown[i * 2 + slot] > 0 || holdFire) continue;
         this.fireAt(i, slot, w, target);
+        if (this.alive[i] === 0) break; // E6: a swarm's last dive ends it; nothing further fires or is written
       }
+      if (this.alive[i] === 0) continue;
 
       // Nothing in the open to shoot? Then the enemy is inside a building,
       // and the building becomes the target — if this weapon can hurt it.
@@ -6509,8 +6653,10 @@ export class Sim {
           }
           if (this.cooldown[i * 2 + slot] > 0 || holdFire) continue;
           this.fireAtStructure(i, slot, w, s, tx, ty);
+          if (this.alive[i] === 0) break;
         }
       }
+      if (this.alive[i] === 0) continue;
 
       // Still nothing worth shooting, and stopped dead against a wall on the
       // way somewhere? Then the wall is the enemy. A target on the far side of
@@ -6545,10 +6691,12 @@ export class Sim {
               }
               if (this.cooldown[i * 2 + slot] > 0 || holdFire) continue;
               this.fireAtStructure(i, slot, w, s, tx, ty);
+              if (this.alive[i] === 0) break;
             }
           }
         }
       }
+      if (this.alive[i] === 0) continue;
       this.engaging[i] = engagedClose ? 1 : 0;
 
       // What stepBrace needs from this tick's target selection (spec §2):
@@ -6838,6 +6986,71 @@ export class Sim {
       willHit,
       breakdown: { accuracy, rangeFalloff, coverMod, motionMod, stanceMod, suppressionMod },
     });
+    this.swarmDive(shooter, slot, w); // E6: the diver is spent (no-op for every other unit)
+  }
+
+  /**
+   * One tick of a beam on `target` (E6, GH-274 item 3). Called only while the slot has a
+   * target its own sight line can reach, smoke-free (`engageable`); a tick on which it is not
+   * called (no target, a switch, a lockout, pinned, down a tunnel) breaks the dwell, because the
+   * dwell continues only from `beamAt === tickCount - 1` onto the same target.
+   *
+   * Heat is ticks of time on target, drained one per tick the beam was off, applied lazily from
+   * the gap since `beamAt` so an idle unit costs nothing. `dwellTicks` of dwell deliver one hit
+   * and the dwell starts over; `heatTicks` of heat lock the weapon out for `coolTicks`, then it
+   * starts cool. All integers: no float, no division, no RNG except an armoured target's
+   * penetration roll (the shooter's own stream, as any round).
+   */
+  private stepBeam(shooter: number, slot: number, w: WeaponStats, b: BeamStats, target: number): void {
+    const k = shooter * 2 + slot;
+    const now = this.tickCount;
+    if (now < this.beamLock[k]) return; // locked out; the dwell is already zero
+    this.beamLive = true;
+    const last = this.beamAt[k];
+    if (last >= 0 && now - 1 > last) {
+      const heat = this.beamHeat[k] - (now - 1 - last);
+      this.beamHeat[k] = heat > 0 ? heat : 0;
+    }
+    if (last !== now - 1 || this.beamTgt[k] !== target) this.beamDwell[k] = 0;
+    this.beamTgt[k] = target;
+    this.beamAt[k] = now;
+    this.lastFired[shooter] = now; // a beam is a firing signature like any shot
+    this.beamHeat[k]++;
+    if (++this.beamDwell[k] >= b.dwellTicks) {
+      this.beamDwell[k] = 0;
+      this.beamStrike(shooter, w, target);
+    }
+    if (this.beamHeat[k] >= b.heatTicks) {
+      this.beamHeat[k] = 0;
+      this.beamDwell[k] = 0;
+      this.beamTgt[k] = -1;
+      this.beamLock[k] = now + 1 + b.coolTicks;
+      this.pendingEvents.push({
+        kind: 'beam', tick: now, shooter, target: -1, weaponId: w.id, phase: 'lockout', until: this.beamLock[k],
+      });
+    }
+  }
+
+  /** The beam's damage landing: at once, no projectile, accuracy ignored (it cannot miss a
+   *  target it has dwelt on). A soft target takes the damage; an armoured one is rolled against
+   *  its plate like any round, so pen 5 does nothing. */
+  private beamStrike(shooter: number, w: WeaponStats, target: number): void {
+    this.eyePoint(shooter, this.posX[target], this.posY[target]);
+    const ox = this.eyeX;
+    const oy = this.eyeY;
+    this.pendingEvents.push({
+      kind: 'beam', tick: this.tickCount, shooter, target, weaponId: w.id, phase: 'struck', until: 0,
+    });
+    if (this.unitTypes[this.typeIdx[target]].isSoft) {
+      this.applyDamage(target, w.damage, shooter);
+      return;
+    }
+    const armor = this.presentedArmor(target, ox, oy, w.cls);
+    const z = penZ(w.penetration, armor);
+    const roll = this.rng.nextU32(shooter) >>> 16;
+    if (roll >= fx.normCdf(z)) return;
+    this.applyDamage(target, w.damage, shooter);
+    if (this.alive[target] === 1) this.rollComponent(target, shooter, z);
   }
 
   /**
@@ -6913,6 +7126,7 @@ export class Sim {
         suppressionMod,
       },
     });
+    this.swarmDive(shooter, slot, w); // E6: the diver is spent (no-op for every other unit)
   }
 
   // -------------------------------------------------------------- projectiles
@@ -6975,7 +7189,9 @@ export class Sim {
         const dSq = distSqFx(fx.sub(this.posX[i], s.x), fx.sub(this.posY[i], s.y));
         if (dSq > splashSq) continue;
         const falloff = fx.sub(ONE, fx.div(fx.sqrt(dSq), p.splash));
-        this.applyDamage(i, fx.mul(p.damage, falloff), s.by);
+        const stSwarm = this.unitTypes[this.typeIdx[i]].swarm;
+        if (stSwarm !== null) this.swarmSplash(i, stSwarm, p.splash, p.damage, s.by); // E6: a called strike is a splash
+        else this.applyDamage(i, fx.mul(p.damage, falloff), s.by);
         this.applySuppression(
           i,
           fx.mul(p.suppression, falloff),
@@ -7313,7 +7529,10 @@ export class Sim {
       const falloff = fx.sub(ONE, fx.div(fx.sqrt(dSq), splash));
       const scaled = fx.mul(dmg, falloff);
       const iType = this.unitTypes[this.typeIdx[i]];
-      if (iType.isSoft) {
+      if (iType.swarm !== null) {
+        // E6: a diver is not hurt by its own bomblet (it has already paid with the member).
+        if (i !== shooter) this.swarmSplash(i, iType.swarm, splash, dmg, shooter);
+      } else if (iType.isSoft) {
         this.applyDamage(i, scaled, shooter);
       }
       this.applySuppression(
@@ -7344,9 +7563,70 @@ export class Sim {
       const dSq = distSqFx(fx.sub(this.posX[i], x), fx.sub(this.posY[i], y));
       if (dSq > splashSq) continue;
       const falloff = fx.sub(ONE, fx.div(fx.sqrt(dSq), splash));
-      if (this.unitTypes[this.typeIdx[i]].isSoft) this.applyDamage(i, fx.mul(dmg, falloff), by);
+      const iType = this.unitTypes[this.typeIdx[i]];
+      if (iType.swarm !== null) this.swarmSplash(i, iType.swarm, splash, dmg, by);
+      else if (iType.isSoft) this.applyDamage(i, fx.mul(dmg, falloff), by);
       this.applySuppression(i, fx.mul(supp, BOUNCE_SUPP_MULT), true, srcSide, srcX, srcY);
     }
+  }
+
+  /** E6 (GH-274): live members of a swarm, `ceil(hp / member_hp)`; -1 for a unit that is not one.
+   *  A read for tests and the later instanced drawing: nothing in the sim reads it back. */
+  swarmMembers(id: number): number {
+    const sw = this.unitTypes[this.typeIdx[id]].swarm;
+    return sw === null ? -1 : this.swarmLive(id, sw);
+  }
+
+  /** E6: live members of a swarm, `ceil(hp / memberHp)` in raw Q16.16 integers (both are
+   *  multiples of 1/65536, so the ratio is exact). 0 when hp <= 0. */
+  private swarmLive(i: number, sw: SwarmStats): number {
+    const hp = this.hp[i];
+    return hp <= 0 ? 0 : ((hp + sw.memberHp - 1) / sw.memberHp) | 0;
+  }
+
+  /**
+   * E6: a splash that reaches a swarm removes up to `ceil(live x min(1, splash / spread))`
+   * members, wherever in the radius it lands (falloff scales damage, not a cloud's headcount).
+   * A blast that deals no damage removes none. Hp drops to the new member boundary; none left
+   * and the swarm is gone.
+   */
+  private swarmSplash(target: number, sw: SwarmStats, splash: Fx, dmg: Fx, by: number): void {
+    if (dmg <= 0 || this.alive[target] === 0) return;
+    if (this.garrisonedIn[target] >= 0 || this.carriedBy[target] >= 0 || this.tunnelIn[target] >= 0) return;
+    const live = this.swarmLive(target, sw);
+    const reach = fx.div(splash, sw.spread);
+    const frac = reach > ONE ? ONE : reach;
+    const gone = (live * frac + 65535) >> 16; // ceil, raw Q16.16
+    const left = live - gone;
+    this.lastDamagedTick[target] = this.tickCount;
+    if (left <= 0) {
+      this.hp[target] = 0;
+      this.destroy(target, by);
+      return;
+    }
+    const cap = left * sw.memberHp;
+    if (this.hp[target] > cap) this.hp[target] = cap;
+  }
+
+  /**
+   * E6: a swarm's shot is a dive, and the diver is spent. Called from the end of `fireAt` and
+   * `fireAtStructure`, so the round is already in the air. The cooldown is the weapon's, scaled
+   * by count / live members as the dive began (integer ceil), so full strength is the authored rate: a thinned cloud dives more slowly. The last
+   * member's dive ends the swarm, credited to nobody.
+   */
+  private swarmDive(shooter: number, slot: number, w: WeaponStats): void {
+    const sw = this.unitTypes[this.typeIdx[shooter]].swarm;
+    if (sw === null) return;
+    const live = this.swarmLive(shooter, sw);
+    const left = live - 1;
+    if (left <= 0) {
+      this.hp[shooter] = 0;
+      this.destroy(shooter, -1);
+      return;
+    }
+    const cap = left * sw.memberHp;
+    if (this.hp[shooter] > cap) this.hp[shooter] = cap;
+    this.cooldown[shooter * 2 + slot] = ((w.ticksBetweenShots * sw.count + live - 1) / live) | 0; // x count / live: 1 at full strength
   }
 
   private applyDamage(target: number, dmg: Fx, by: number): void {
@@ -7356,6 +7636,17 @@ export class Sim {
     // and a tunnel collapse — which kills via destroy(), never through here —
     // is the only way ordnance gets to the occupants.
     if (this.garrisonedIn[target] >= 0 || this.carriedBy[target] >= 0 || this.tunnelIn[target] >= 0) return;
+    const swarm = this.unitTypes[this.typeIdx[target]].swarm;
+    if (swarm !== null) {
+      // E6 swarm: a single-target hit removes AT MOST one member. Damage still wears down the
+      // member it lands on (hp falls by dmg), but never past the next member down.
+      const floor = (this.swarmLive(target, swarm) - 1) * swarm.memberHp;
+      const left = fx.sub(this.hp[target], dmg);
+      this.hp[target] = left < floor ? floor : left;
+      this.lastDamagedTick[target] = this.tickCount;
+      if (this.hp[target] <= 0) this.destroy(target, by);
+      return;
+    }
     this.hp[target] = fx.sub(this.hp[target], dmg);
     this.lastDamagedTick[target] = this.tickCount;
     // GH-707: a team that can lose men wounded sheds one at each share crossing. Only while
@@ -8493,9 +8784,19 @@ export class Sim {
       if (!this.canSeat(goal, i)) continue; // no seat yet, or not eligible
       const d = distSqFx(fx.sub(this.posX[goal], this.posX[i]), fx.sub(this.posY[goal], this.posY[i]));
       if (d > LOAD_RANGE_SQ) {
-        // Keep chasing a vehicle that has moved on.
+        // Keep chasing a vehicle that has moved on. GH-581: the flow field follows the goal, so
+        // when the hull crosses into a new tile the rider is re-pointed at it. Left on the tile
+        // the order was given for, he walked there, arrived, and halted short of a moving hull.
+        // `fieldFor` is cached by (tile, domain), so riders of one carrier share the field, and
+        // it recomputes only on a tile change. An air carrier keeps its LZ field (GH-698).
+        const gtx = fx.toInt(this.posX[goal]);
+        const gty = fx.toInt(this.posY[goal]);
+        const moved = this.fieldRef[i] < 0 || gtx !== fx.toInt(this.goalX[i]) || gty !== fx.toInt(this.goalY[i]);
         this.goalX[i] = this.posX[goal];
         this.goalY[i] = this.posY[goal];
+        if (moved && !this.unitTypes[this.typeIdx[goal]].isAirCarrier) {
+          this.fieldRef[i] = this.fieldFor(gtx, gty, this.domainOf(i));
+        }
         this.moving[i] = 1;
         continue;
       }
@@ -10355,7 +10656,9 @@ export class Sim {
       // walk again — but only to a ceiling. Serious damage needs M2 repair.
       // A field work's heal or repair (stepAuras) raises the rate and the ceiling, each the
       // larger of the two, after the same delay: one rule for "under fire".
-      if (this.tickCount - this.lastDamagedTick[i] >= REGEN_DELAY_TICKS) {
+      // E6: a lost swarm member does not grow back (and no aura or workshop mends one): the
+      // cloud only ever shrinks, so the regen below skips it.
+      if (this.tickCount - this.lastDamagedTick[i] >= REGEN_DELAY_TICKS && this.unitTypes[this.typeIdx[i]].swarm === null) {
         const type = this.unitTypes[this.typeIdx[i]];
         const auraCap = this.auraHealCap[i];
         const auraRate = this.auraHealRate[i];
@@ -10570,6 +10873,18 @@ export class Sim {
       h = hashArray(h, this.airState);
       h = hashArray(h, this.airTimer);
       h = hashArray(h, this.airWant);
+    }
+    // Beams (E6, GH-274 item 3): the deferred fold. Nothing (no marker, no length word) until a
+    // beam weapon has first been on a target, so registering the type moves no pin. Every
+    // column leaves its default only through such a weapon, so the canary still sees every
+    // beam divergence once the block is on.
+    if (this.beamLive) {
+      h = hashWord(h, 0x42450274); // 'BE' GH-274
+      h = hashArray(h, this.beamTgt);
+      h = hashArray(h, this.beamDwell);
+      h = hashArray(h, this.beamHeat);
+      h = hashArray(h, this.beamAt);
+      h = hashArray(h, this.beamLock);
     }
     // Wounded and rescue (GH-707): the same deferred fold. Nothing (no marker, no length word)
     // before a wound-related type is registered, so P1 and P2 move no pin; every column here

@@ -27,6 +27,7 @@ function w(penetration: number, damage: number, splash: number, suppression: num
     isIndirect: false,
     submunitions: null,
     coverIgnore: 0,
+    beam: null,
   };
 }
 

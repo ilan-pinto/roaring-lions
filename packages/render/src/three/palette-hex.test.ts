@@ -46,7 +46,7 @@ describe('render fallbacks follow a palette revision', () => {
     ['./lighting', 'SKY_COLOR_HEX', 'water.0'],
     ['./lighting', 'GROUND_BOUNCE_COLOR_HEX', 'dust.4'],
     ['./fog-pass', 'FOG_TINT_HEX', 'shadow.1'],
-    ['./smoke-mesh', 'SMOKE_COLOR', 'gunmetal.0'],
+    // Was: ['./smoke-mesh', 'SMOKE_COLOR', 'gunmetal.0'] -- the constant is gone (lit billboard, GH-705).
     ['./units/overlays', 'WORLD_HALO_FALLBACK', 'shadow.1'],
     ['./units/overlays', 'OBJECTIVE_ZONE_HALO_FALLBACK', 'shadow.1'],
     ['./units/overlays', 'CHARGE_RING_FILL_FALLBACK_COLOR', 'vfx.ember'],
