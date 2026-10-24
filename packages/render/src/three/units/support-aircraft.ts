@@ -200,10 +200,13 @@ export class SupportAircraftManager {
   }
 
   /** Starts a call's aircraft. `fromX/fromY`: the friendly centroid, tiles. */
-  call(kind: SupportAirKind, callTick: number, x: number, y: number, fromX: number | null, fromY: number | null): void {
+  call(kind: SupportAirKind, callTick: number, x: number, y: number, fromX: number | null, fromY: number | null): SupportAirPlan {
     if (this.flights.length >= MAX_SUPPORT_FLIGHTS) this.retire(this.flights[0]);
-    this.flights.push({ plan: makeSupportAirPlan(kind, callTick, x, y, fromX, fromY), heli: null, jet: null, bomb: null });
+    const plan = makeSupportAirPlan(kind, callTick, x, y, fromX, fromY);
+    this.flights.push({ plan, heli: null, jet: null, bomb: null });
     this.warm();
+    // GH-782: the audio keeps this very object; `onStrike`'s `reanchor` moves it for both.
+    return plan;
   }
 
   /** A sim `strike` landed: re-anchor the oldest un-anchored plan of its kind near it. */

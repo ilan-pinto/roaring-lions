@@ -4695,7 +4695,9 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
           renderer.addOrderMarker(out.x, out.y);
           // GH-748: the aircraft over the call. The command is applied on
           // the next tick, hence `+ 1`; the first round re-anchors it exactly.
-          renderer.supportCalled(call, out.x, out.y, sim.tickCount + 1);
+          // GH-782: the same plan goes to the audio (jet, rotor, whistles), so
+          // the sound and the picture share one clock.
+          audio.supportPlan(renderer.supportCalled(call, out.x, out.y, sim.tickCount + 1));
         }
         else audio.playCue(CRITICAL_CUES.uiDeny);
         production?.setArmed(null);

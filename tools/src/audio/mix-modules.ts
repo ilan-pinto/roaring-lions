@@ -18,6 +18,14 @@ export const AUDIO_IMPORT_MAP: Readonly<Record<string, string>> = {
   // GH-35: the engine voices. Imports only a TYPE from @lions/sim, which the
   // type-strip removes; the mix scenes play no engines (no `updateEngines`).
   './engines': './engines.js',
+  // GH-782: the fire-support voices and the plan maths they read. support-air
+  // imports the projection constants (`../project`, `./units/frame-state`),
+  // none of which imports three.js. The mix scenes start no support plan; the
+  // modules are served because audio.ts imports them, not because a scene plays them.
+  './support-voices': './support-voices.js',
+  './three/support-air': './support-air.js',
+  '../project': './project.js',
+  './units/frame-state': './frame-state.js',
 };
 
 // `from '<spec>'` (import / re-export) and a bare side-effect `import '<spec>'`.
