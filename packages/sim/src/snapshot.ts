@@ -68,10 +68,12 @@ const MAX_JSON_DEPTH = 16;
 //
 // `Sim`'s columns are private (invariant 4: nothing outside the sim mutates sim
 // state), and this file is the codec for them, so it reads and writes them by
-// name through a cast. This is the ONLY place that does; the schema table (and
+// name through a cast. This is the ONLY place that does (snapshot-witness.ts and
+// the snapshot tests reach it through the export below); the schema table (and
 // its completeness test) is what says the names are right. sim.ts takes no
 // edit for it.
-function internals(sim: Sim): Record<string, unknown> {
+/** @internal The fork witness and its tests read and mutate the world by schema name through this; nothing else may. */
+export function internals(sim: Sim): Record<string, unknown> {
   return sim as unknown as Record<string, unknown>;
 }
 
