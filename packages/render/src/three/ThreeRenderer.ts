@@ -2949,6 +2949,9 @@ export class ThreeRenderer implements Renderer {
     this.sceneLights.sun.shadow.intensity = shadowIntensityOf(opts.lightOverride);
     this.sceneLights.addTo(this.scene);
     this.shadowFitMode = (opts.quality ?? QUALITY_PRESETS.high).shadowFit ?? 'map';
+    // GH-705 smoke uplift P2: the flipbook's low tier (no sparks, thinned column).
+    // Set in the constructor, not `init()`, so a GL-free test can see it.
+    this.flipbook.setFxDetail((opts.quality ?? QUALITY_PRESETS.high).fxDetail ?? 2);
     // Same "always present, draws nothing until fed" shape as the FX meshes
     // just above, but for real `THREE.PointLight`s rather than a batched
     // mesh: all `FLASH_CAPACITY` of them go in now, at intensity 0, and stay

@@ -892,7 +892,13 @@ yours; each one records what the next phase inherits.
   and missile impacts and vehicle kills. A vehicle kill drops its tan
   collapse shroud for the flipbook's soot column (D5); building and tunnel
   collapses keep theirs. Until both atlases load the old layers draw, so a
-  kill never draws nothing. Witnessed by `pnpm blast:capture`'s `bloom` and
+  kill never draws nothing. A kill's column is OIL (smoke layer `oil` 0..1,
+  a negative tint in the shader, GH-705 P2): near-black soot, a flickering
+  ember glow in a young puff's dense lower core, and a sun-side grey crown
+  (`FLIPBOOK_OIL_CROWN`); its embers are a fourth layer type, `spark`, an HDR
+  ballistic dot in the fire pass (x `HDR_GAINS.sparks`). At `RenderQuality.fxDetail`
+  0 (`low`) spark layers are skipped and a layer with `low_fraction` spawns
+  `ceil(count * low_fraction)`. Witnessed by `pnpm blast:capture`'s `bloom` and
   `flipbook` toggle floors; see `docs/PERFORMANCE.md`, "Defilade T4", for
   cost and the two open items (the `aftermath` frame's muzzle-light bloom,
   and the unwitnessed muzzle-mesh gains).

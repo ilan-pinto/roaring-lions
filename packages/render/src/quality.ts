@@ -69,6 +69,8 @@ export interface RenderQuality {
    * The smoke screen's noise detail (`three/smoke-mesh.ts`, GH-705 smoke
    * uplift P1), a compile-time define: 2 = both fbm chains, 1 = the first
    * only, 0 = none (flat 0.5). Optional so callers that predate it read 2.
+   * The flipbook (`units/flipbook-fx.ts`) reads it too: at 0 it drops the
+   * HDR spark layers and thins layers that declare `low_fraction`.
    */
   fxDetail?: 0 | 1 | 2;
   /**

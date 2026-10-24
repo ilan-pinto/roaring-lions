@@ -306,9 +306,10 @@
           "enum": [
             "fire",
             "smoke",
-            "dirt"
+            "dirt",
+            "spark"
           ],
-          "description": "fire: HDR fireball cooling to soot (drawn over the hull, not depth-tested). smoke: lit soot or dust, drifting. dirt: a ballistic kick-up in the ground's dust tones."
+          "description": "fire: HDR fireball cooling to soot (drawn over the hull, not depth-tested). smoke: lit soot or dust, drifting. dirt: a ballistic kick-up in the ground's dust tones. spark: an HDR ember dot thrown ballistically, cooling from white-hot to ember, drawn in the fire pass and settling on the ground."
         },
         "count": {
           "type": "integer",
@@ -425,6 +426,18 @@
           "minimum": 0,
           "maximum": 1,
           "description": "smoke only: 0 soot, 1 dust."
+        },
+        "oil": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "description": "smoke only: oily burning-fuel soot that stays near black for most of its life and glows ember in its dense core while young; overrides tint. Must be above 0: 0 cannot override tint (the code reads `L.oil ? -L.oil : ...`), so omit it instead."
+        },
+        "low_fraction": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "description": "At the lowest effects detail (quality fxDetail 0) only this fraction of `count` (rounded up) is spawned. Absent: the full count. A `spark` layer is dropped outright at that tier."
         },
         "at_ground": {
           "type": "boolean",
