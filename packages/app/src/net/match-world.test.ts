@@ -35,7 +35,8 @@ describe('buildMatchWorld', () => {
     // beit re-pinned 2026-10-22 for its versus seats (`versus-seats.ts`, seat 1 at (40,24)
     // rather than town_center): was 3043363756.
     // tel_marum re-pinned 24 Oct 2026 for its seat 0 at (27,45) (GH-774): the spawn moved. Was 280818962.
-    for (const [map, pin] of [['beit_sahwan_outskirts', 3227696674], ['tel_marum', 792859212]] as const) {
+    // beit re-pinned 24 Oct 2026 for its seat 1 at (40,23) (GH-561): the spawn moved. Was 3227696674.
+    for (const [map, pin] of [['beit_sahwan_outskirts', 4047666552], ['tel_marum', 792859212]] as const) {
       const w = buildMatchWorld(config(map, ['kdf', 'kdf'], 20260727));
       for (let i = 0; i < 200; i++) w.sim.tick();
       expect(w.sim.hash()).toBe(pin);
@@ -263,7 +264,7 @@ describe("seatKitTiers: a seat's claim as the world reads it", () => {
 
 describe("a matched room, and a brigade room with equal claims, build today's bytes", () => {
   // LITERALS: the same two pins the first describe holds (seed 20260727, 200 ticks).
-  const PINS = [['beit_sahwan_outskirts', 3227696674], ['tel_marum', 792859212]] as const;
+  const PINS = [['beit_sahwan_outskirts', 4047666552], ['tel_marum', 792859212]] as const;
   const SEED = 20260727;
 
   it("kit 'matched' with empty tiers: the pins, and the roster registered once", () => {
