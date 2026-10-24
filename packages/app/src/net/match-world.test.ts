@@ -412,7 +412,8 @@ describe('the economy runtime (N3 Task 3)', () => {
     // Re-pinned with the lead's start purses KDF 1500 / Sarim 2400 (22 Oct; db2803f0): the purse is folded by
     // runtime.digest(). Was -1014683486 / -1434364569.
     // Re-pinned when wounds opened to versus (the lead, 23 Oct 2026): the two wounded types join the roster, every infantry type keeps hull.wounds, and the wound block is in the hash. Was 822414509 / 1021735804.
-    const VERSUS_ECONOMY_PINS = [['tel_marum', -147026323], ['wadi_tarfan', 1960701868]] as const;
+    // tel_marum re-pinned 24 Oct 2026 (GH-774): seat 0 moved from (24,46) to (27,45), so the KDF host's spawn moved (this room registers the north routes, whose capacity did not change). Was -147026323.
+    const VERSUS_ECONOMY_PINS = [['tel_marum', -1498380144], ['wadi_tarfan', 1960701868]] as const;
     for (const [map, pin] of VERSUS_ECONOMY_PINS) {
       const w = buildMatchWorld(config(map, ['kdf', 'sarim'], 20260727));
       run(w, 200);
