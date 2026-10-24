@@ -27,6 +27,7 @@ export const MATCHUP_MAPS = ['tel_marum', 'wadi_tarfan'];
 export const VERSUS_SEATS = {
   beit_sahwan_outskirts: { friendly: [4, 23], hostile: [40, 24] },
   tel_marum: { friendly: [24, 46], hostile: [28, 16] },
+  wadi_tarfan: { friendly: [11, 11], hostile: [36, 36] },
 };
 
 /** How far (Chebyshev, tiles, nearest camp tile) a camp may stand from its end's anchor. */
