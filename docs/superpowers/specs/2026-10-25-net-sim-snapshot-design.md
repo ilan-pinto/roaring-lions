@@ -1,7 +1,7 @@
 # Sim snapshot for faster reconnect (network follow-on)
 
-Docs only. This file is the design. The plan comes after the lead answers §11. No code lands
-before then.
+**Status: approved.** The lead ruled D1–D7 as recommended on 25 Oct (§11). Stage 1's plan is
+`docs/superpowers/plans/2026-10-25-net-sim-snapshot-s1.md`.
 
 **Read against:** `origin/main` `f946bb16` (25 Oct). Line numbers are hints only, so find code by
 its symbol.
@@ -666,14 +666,16 @@ needs all three.
 
 ---
 
-## 11. Decisions for the lead
+## 11. Decisions for the lead (ruled 25 Oct)
 
-| # | Question | Recommendation |
-|---|---|---|
-| D1 | Who makes the snapshot? | **Both clients upload; the room accepts on two equal SHA-256s plus the agreed digest.** A DO-run sim is rejected for now: it doubles the bundle, costs CPU on every match, and breaks "the Worker never imports sim". |
-| D2 | How often? | **Every 1,200 ticks (60 s)**, which bounds a rejoin's replay to one minute of ticks. |
-| D3 | The content SHAs differ while the hashes agree. | **Report only at first** (a D1 row, previous snapshot kept). Voiding the match on it comes later, once telemetry shows it never fires on honest play. |
-| D4 | What the rejoiner sees of the past | **Rebuild wrecks and bodies from the dead slots. Accept that craters, scorch and the feed from before T are gone.** |
-| D5 | Scope of the first version | **Mirror and economy rooms together (S1 + S2).** KDF v Sarim is the headline match, and it runs the runtime. |
-| D6 | Use `hello.from` for a socket drop without a reload | **Yes, in S3.** It stops re-sending the whole log (about 565 KiB at 20 minutes) to a client that already has it. |
-| D7 | Cross-version snapshots, or save-games built on this | **Never in this design.** A snapshot is scoped to one room and one build, and it dies with the room. A save-game format would need migrations, and that needs its own spec. |
+The lead approved this design on 25 Oct 2026 and ruled every decision as recommended.
+
+| # | Question | Recommendation | Ruling |
+|---|---|---|---|
+| D1 | Who makes the snapshot? | **Both clients upload; the room accepts on two equal SHA-256s plus the agreed digest.** A DO-run sim is rejected for now: it doubles the bundle, costs CPU on every match, and breaks "the Worker never imports sim". | **Ruled by the lead, 25 Oct: as recommended.** |
+| D2 | How often? | **Every 1,200 ticks (60 s)**, which bounds a rejoin's replay to one minute of ticks. | **Ruled by the lead, 25 Oct: as recommended.** |
+| D3 | The content SHAs differ while the hashes agree. | **Report only at first** (a D1 row, previous snapshot kept). Voiding the match on it comes later, once telemetry shows it never fires on honest play. | **Ruled by the lead, 25 Oct: as recommended.** |
+| D4 | What the rejoiner sees of the past | **Rebuild wrecks and bodies from the dead slots. Accept that craters, scorch and the feed from before T are gone.** | **Ruled by the lead, 25 Oct: as recommended.** |
+| D5 | Scope of the first version | **Mirror and economy rooms together (S1 + S2).** KDF v Sarim is the headline match, and it runs the runtime. | **Ruled by the lead, 25 Oct: as recommended.** |
+| D6 | Use `hello.from` for a socket drop without a reload | **Yes, in S3.** It stops re-sending the whole log (about 565 KiB at 20 minutes) to a client that already has it. | **Ruled by the lead, 25 Oct: as recommended.** |
+| D7 | Cross-version snapshots, or save-games built on this | **Never in this design.** A snapshot is scoped to one room and one build, and it dies with the room. A save-game format would need migrations, and that needs its own spec. | **Ruled by the lead, 25 Oct: as recommended.** |
