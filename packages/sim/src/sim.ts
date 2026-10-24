@@ -1467,6 +1467,14 @@ const STANCE_PATROL = 2;
  *  goals than there are units, or when the only unreferenced fields were
  *  issued this tick. 128 × ~11.5 KB on a 48×48 map is 1.5 MB. */
 export const MAX_FLOW_FIELDS = 128;
+/** What `restoreFieldPool` will allocate for a pool, in bytes (snapshot codec). The pool's real size is NOT
+ *  bounded by `capacity + MAX_FLOW_FIELDS`: every group order issues one field per unit, `evictableField`
+ *  never reuses a field issued this tick, and `fields` never shrinks, so several orders to the same units
+ *  within ONE tick grow it by about one field per unit per extra order (five orders to 60 units: 293 on a
+ *  capacity-128 world). Its growth is bounded by command volume. This bound therefore only has to stop a
+ *  hostile watermark from allocating without limit: `watermark * cells * 5` (a u8 dir plus an i32 cost per
+ *  cell) must fit, which is 5,825 fields on a 48x48 map. */
+export const POOL_RESTORE_BUDGET_BYTES = 64 * 1024 * 1024;
 /** Routes per mission. Small on purpose: a mission with more than a handful of
  *  tunnels is a mission whose player cannot reason about any of them. */
 const MAX_TUNNELS = 16;
@@ -3921,6 +3929,7 @@ export class Sim {
 
   /**
    * The flow-field pool's KEYS, for the snapshot codec (net sim snapshot S1).
+   * @internal Snapshot codec only; nothing else may call it.
    * The field bytes are not here: a keyed field is `compute(path mask, elevation,
    * goal)` of the current terrain, so `restoreFieldPool` rebuilds it.
    *
@@ -3943,6 +3952,8 @@ export class Sim {
   }
 
   /**
+   * @internal Snapshot codec only; nothing else may call it.
+   *
    * Replaces the whole pool with the one `keys` describes, recomputing every
    * keyed field against the CURRENT masks (so call it after the terrain columns
    * are restored). Validates everything before the first write and throws on a
@@ -3951,10 +3962,11 @@ export class Sim {
   restoreFieldPool(keys: FieldPoolKeys): void {
     const cells = this.width * this.height;
     const isInt = (x: unknown): x is number => typeof x === 'number' && Number.isInteger(x);
-    // The pool can grow past MAX_FLOW_FIELDS, at worst by one field per living unit.
-    const maxWatermark = this.capacity + MAX_FLOW_FIELDS;
     const { watermark, slots, order } = keys;
-    if (!isInt(watermark) || watermark < 0 || watermark > maxWatermark) throw new Error(`field pool: watermark ${String(watermark)} is outside 0..${maxWatermark}`);
+    // Bounded by restore memory, not by capacity: see POOL_RESTORE_BUDGET_BYTES.
+    if (!isInt(watermark) || watermark < 0 || watermark * cells * 5 > POOL_RESTORE_BUDGET_BYTES) {
+      throw new Error(`field pool: watermark ${String(watermark)} is past the ${POOL_RESTORE_BUDGET_BYTES}-byte restore budget`);
+    }
     if (!Array.isArray(slots) || slots.length !== watermark) throw new Error('field pool: slots do not match the watermark');
     if (!Array.isArray(order) || order.length !== DOMAIN_COUNT) throw new Error('field pool: need one order list per domain');
     let keyed = 0;

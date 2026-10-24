@@ -2,13 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
 import { RIFLES, reliefDrive, reliefSetup, runDrive, runSetup } from './golden-worlds.test-helper';
 import { Rng } from './rng';
-import { STRIKE_SNAPSHOT_KEYS, Sim, type UnitTypeJson } from './sim';
+import { MAX_FLOW_FIELDS, POOL_RESTORE_BUDGET_BYTES, STRIKE_SNAPSHOT_KEYS, Sim, type UnitTypeJson } from './sim';
 import { SIM_SNAPSHOT_SCHEMA, rowsOf } from './snapshot-schema';
 import { SNAPSHOT_FORMAT, SnapshotRefused, canonicalJson, encodeSim, restoreSim, snapshotSchemaDigest } from './snapshot';
 import * as simIndex from './index';
 
 // The encoder and the restore (net sim snapshot S1, Task 3). The worlds are the
-// golden replay's: the 1000-tick battle (a shed collapses at about tick 300, so
+// golden replay's: the 1000-tick battle (a shed collapses at tick 116, so
 // the masks change mid-run), built by `runSetup` and driven by `runDrive`, both
 // moved verbatim out of determinism.test.ts. The fork: step world A to tick T,
 // build a FRESH world with the same setup at tick 0, restore A's bytes onto it.
@@ -703,24 +703,62 @@ describe('snapshot: the flow-field pool is rebuilt from its keys', () => {
     expect(bytesEqual(encodeSim(fresh.sim), encodeSim(a.sim))).toBe(true);
   });
 
+  it('several group orders in one tick grow the pool past capacity + MAX_FLOW_FIELDS, and it still round trips', () => {
+    const build = (): { sim: Sim; ids: number[] } => {
+      const sim = new Sim({ seed: 7, width: 48, height: 48, capacity: 128 });
+      const type = sim.addUnitType(RIFLES);
+      const ids: number[] = [];
+      for (let i = 0; i < 60; i++) ids.push(sim.spawn(type, 0, fx.fromInt(2 + (i % 10)), fx.fromInt(2 + Math.floor(i / 10))));
+      return { sim, ids };
+    };
+    const a = build();
+    // Five orders to the same 60 units inside one frame: each abandons the fields the last issued, and none of them is reusable this tick.
+    for (const [x, y] of [[30, 30], [40, 10], [10, 40], [35, 35], [20, 44]]) a.sim.queueCommand({ kind: 'move', ids: a.ids, x: fx.fromInt(x), y: fx.fromInt(y) });
+    a.sim.tick();
+    expect(a.sim.flowFieldCount, 'the watermark is past the old capacity + MAX_FLOW_FIELDS bound').toBeGreaterThan(a.sim.capacity + MAX_FLOW_FIELDS);
+    const S = encodeSim(a.sim);
+    const fresh = build().sim;
+    restoreSim(fresh, S);
+    expect(fresh.flowFieldCount).toBe(a.sim.flowFieldCount);
+    expect(poolBookkeeping(fresh)).toEqual(poolBookkeeping(a.sim));
+    expect(keyedFields(fresh)).toEqual(keyedFields(a.sim));
+    expect(bytesEqual(encodeSim(fresh), S)).toBe(true);
+  });
+
   describe('a pool the decoder will not accept', () => {
-    const a = poolSetup(SEED);
-    advancePool(a, 0, 250);
-    const good = encodeSim(a.sim);
+    // Built on first use (not in the describe body, which runs at collection time).
+    let memo: Uint8Array | null = null;
+    const goodBytes = (): Uint8Array => {
+      if (memo === null) {
+        const a = poolSetup(SEED);
+        advancePool(a, 0, 250);
+        memo = encodeSim(a.sim);
+      }
+      return memo;
+    };
     const bad = (label: string, edit: (pool: { watermark: number; slots: { goal: number; domain: number; lastIssued: number }[]; order: number[][] }) => void, reason: RegExp): void => {
       it(label, () => {
-        const bytes = withTail(good, (tail) => edit(tail.fieldPool as Parameters<typeof edit>[0]));
+        const bytes = withTail(goodBytes(), (tail) => edit(tail.fieldPool as Parameters<typeof edit>[0]));
         expect(refusal(() => restoreSim(poolSetup(SEED).sim, bytes)).reason).toMatch(reason);
       });
     };
     it('the unedited bytes restore (the harness for the cases below is sound)', () => {
-      expect(() => restoreSim(poolSetup(SEED).sim, withTail(good, () => undefined))).not.toThrow();
+      expect(() => restoreSim(poolSetup(SEED).sim, withTail(goodBytes(), () => undefined))).not.toThrow();
     });
-    // The slot list is padded to match, so the bound itself (capacity 128 + MAX_FLOW_FIELDS 128) is what refuses.
-    bad('a watermark past capacity + MAX_FLOW_FIELDS', (p) => {
-      p.watermark = 257;
-      while (p.slots.length < 257) p.slots.push({ goal: -1, domain: 0, lastIssued: 0 });
-    }, /outside 0\.\.256/);
+    // The slot list is padded to match, so the memory bound itself is what refuses: 5,825 fits a 48x48 map, 5,826 does not.
+    const justOver = Math.floor(POOL_RESTORE_BUDGET_BYTES / (48 * 48 * 5)) + 1;
+    bad('a watermark just past the restore memory budget', (p) => {
+      p.watermark = justOver;
+      while (p.slots.length < justOver) p.slots.push({ goal: -1, domain: 0, lastIssued: 0 });
+    }, /restore budget/);
+    it('a watermark exactly at the budget is accepted', () => {
+      const bytes = withTail(goodBytes(), (tail) => {
+        const p = tail.fieldPool as { watermark: number; slots: unknown[] };
+        p.watermark = justOver - 1;
+        while (p.slots.length < justOver - 1) p.slots.push({ goal: -1, domain: 0, lastIssued: 0 });
+      });
+      expect(() => restoreSim(poolSetup(SEED).sim, bytes)).not.toThrow();
+    });
     bad('a negative watermark', (p) => { p.watermark = -1; }, /watermark/);
     bad('slots that do not match the watermark', (p) => { p.watermark += 1; }, /watermark/);
     bad('a goal off the map', (p) => { p.slots[p.order[0][0]].goal = 48 * 48; }, /off the map/);
