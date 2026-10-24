@@ -4,6 +4,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   BLAST_SUBJECTS,
+  BLOOM_COOLED_CEILING,
+  ceilingVerdict,
   JOLT_LADDER_MS,
   LAYER_FLOORS,
   SAMPLE_MS,
@@ -274,6 +276,32 @@ describe('the toggle A/B votes now (R-M)', () => {
     const line = floorLine('blast-light', f);
     expect(line).toContain(`${f.minDiffPixels} px`);
     expect(line).not.toContain('does not gate this layer');
+  });
+});
+
+describe('a negative witness holds a ceiling, not a floor', () => {
+  const c = { maxDiffPixels: 50, maxMeanAbsChannelDelta: 0.05, measured: 'test' };
+  it('passes a zero and refuses either metric over its ceiling', () => {
+    expect(ceilingVerdict(c, { diffPixels: 0, meanAbsChannelDelta: 0 }).ok).toBe(true);
+    expect(ceilingVerdict(c, { diffPixels: 51, meanAbsChannelDelta: 0 }).ok).toBe(false);
+    expect(ceilingVerdict(c, { diffPixels: 0, meanAbsChannelDelta: 0.06 }).ok).toBe(false);
+  });
+  it('is not a floor voter on that layer', () => {
+    expect(subjectVotesOn({ ceilings: { bloom: c } }, 'bloom')).toBe(false);
+    expect(subjectVotesOn({ ceilings: { bloom: c } }, 'decals')).toBe(true);
+  });
+  it('is carried by the two cooled subjects, at rungs their ladders reach, and only on bloom', () => {
+    for (const [id, atMs] of [['apc_eitan_cooled', 7000], ['mortar_cooled', 3000]] as const) {
+      const s = BLAST_SUBJECTS.find((x) => x.id === id);
+      expect(s, id).toBeDefined();
+      expect(Object.keys(s?.ceilings ?? {})).toEqual(['bloom']);
+      expect(s?.votesOnly).toEqual(['bloom']);
+      expect(toggleRungFor('bloom', s?.ladderMs ?? SAMPLE_MS, s)).toBe(atMs);
+    }
+  });
+  it('keeps every ceiling small (a ceiling that is a floor in disguise is not a witness)', () => {
+    expect(BLOOM_COOLED_CEILING.maxDiffPixels).toBeLessThanOrEqual(50);
+    expect(BLOOM_COOLED_CEILING.maxMeanAbsChannelDelta).toBeLessThanOrEqual(0.05);
   });
 });
 

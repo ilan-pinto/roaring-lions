@@ -86,6 +86,8 @@ export interface FlipbookLayerSpec {
   tint?: number;
   /** SMOKE only, 0..1: oily burning-fuel soot -- near black for most of its life, an ember glow in its dense core while young, a sun-side grey crown. Overrides `tint`. */
   oil?: number;
+  /** SMOKE only, 0..1: how far the puff turns white (HE smoke); a short dusty birth, then white. Separate from `tint`. */
+  white?: number;
   /** At fxDetail 0 only `ceil(count * low_fraction)` instances spawn; a `spark` layer is dropped there outright. */
   low_fraction?: number;
   /** Start at the caller's ground height rather than its origin height. */

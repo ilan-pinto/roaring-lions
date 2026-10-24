@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import {
   FlipbookFx,
   FLIPBOOK_CAPACITY,
+  FLIPBOOK_COLOR_KEYS,
   FLIPBOOK_RNG_SEED,
   FLIP_DIRT,
   FLIP_FIRE,
@@ -283,7 +284,7 @@ function mockShell(fx: FlipbookFx, r: Rand, x: number, h: number, z: number, pow
   }
   for (let k = 0; k < 9; k++) {
     const a = r() * Math.PI * 2;
-    fx.spawn({ x, y: h, z, vx: Math.cos(a) * 0.6, vy: 0.3 + r() * 0.3, vz: Math.sin(a) * 0.6, delayMs: 150 + 80 * k, durationMs: 4000 + 2000 * r(), scale: 1.1 + 0.4 * r(), type: FLIP_SMOKE, tint: 0.4 });
+    fx.spawn({ x, y: h, z, vx: Math.cos(a) * 0.6, vy: 0.3 + r() * 0.3, vz: Math.sin(a) * 0.6, delayMs: 150 + 80 * k, durationMs: 4000 + 2000 * r(), scale: 1.1 + 0.4 * r(), type: FLIP_SMOKE, tint: 0.4, white: 0.85 });
   }
 }
 
@@ -354,9 +355,9 @@ function instances(fx: FlipbookFx): number[][] {
   const n = g.instanceCount;
   const rows: number[][] = [];
   const get = (name: string): Float32Array => g.getAttribute(name).array as Float32Array;
-  const [o, v, p, s, t] = [get('aOrigin'), get('aVel'), get('aParams'), get('aSeed'), get('aTint')];
+  const [o, v, p, s, t, w] = [get('aOrigin'), get('aVel'), get('aParams'), get('aSeed'), get('aTint'), get('aWhite')];
   for (let i = 0; i < n; i++) {
-    rows.push([o[i * 3], o[i * 3 + 1], o[i * 3 + 2], v[i * 3], v[i * 3 + 1], v[i * 3 + 2], p[i * 4], p[i * 4 + 1], p[i * 4 + 2], p[i * 4 + 3], s[i], t[i]]);
+    rows.push([o[i * 3], o[i * 3 + 1], o[i * 3 + 2], v[i * 3], v[i * 3 + 1], v[i * 3 + 2], p[i * 4], p[i * 4 + 1], p[i * 4 + 2], p[i * 4 + 3], s[i], t[i], w[i]]);
   }
   return rows;
 }
@@ -539,6 +540,82 @@ describe('oil smoke', () => {
     const fx = new FlipbookFx();
     expect(fx.mesh.material.uniforms.uOilCrown.value).toBe(0.15);
     expect(fx.fireMesh.material.uniforms.uOilCrown.value).toBe(0.15);
+  });
+});
+
+describe('white HE smoke', () => {
+  const smokeLayer = (extra: Partial<FlipbookLayerSpec>): FlipbookLayerSpec[] => [
+    { type: 'fire', count: 1, delay_ms: [0, 0], duration_ms: [100, 100], scale: { base: 1 }, velocity: { radial: [0, 0], up: [0, 0] } },
+    { type: 'smoke', count: 1, delay_ms: [0, 0], duration_ms: [1000, 1000], scale: { base: 1 }, velocity: { radial: [0, 0], up: [0, 0] }, ...extra },
+  ];
+
+  it('a layer\'s white lands in its instance slot of aWhite, beside an unchanged tint', () => {
+    const fx = ready();
+    fx.spawnRecipe(smokeLayer({ white: 0.85, tint: 0.4 }), 0, 0, 0, 1);
+    const w = fx.mesh.geometry.getAttribute('aWhite').array as Float32Array;
+    const t = fx.mesh.geometry.getAttribute('aTint').array as Float32Array;
+    expect(w[0]).toBe(0); // the fire layer
+    expect(w[1]).toBeCloseTo(0.85, 6);
+    expect(t[1]).toBeCloseTo(0.4, 6);
+    // Slot-only upload: the attribute was marked for the touched slot.
+    expect((fx.mesh.geometry.getAttribute('aWhite') as THREE.BufferAttribute).updateRanges.length).toBeGreaterThan(0);
+    // A layer without white writes 0 -- including over a slot the ring reuses:
+    // a 2-slot ring takes the white recipe (slots 0, 1), then a plain one
+    // wraps onto the same two slots.
+    const ring = ready(2);
+    ring.spawnRecipe(smokeLayer({ white: 0.85 }), 0, 0, 0, 1);
+    const rw = ring.mesh.geometry.getAttribute('aWhite').array as Float32Array;
+    expect(rw[1]).toBeCloseTo(0.85, 6);
+    ring.spawnRecipe(smokeLayer({}), 0, 0, 0, 1);
+    expect(rw[1]).toBe(0);
+    // spawn() carries it as well.
+    const direct = ready();
+    direct.spawn({ x: 0, y: 0, z: 0, durationMs: 1000, scale: 1, type: FLIP_SMOKE, white: 0.5 });
+    expect((direct.mesh.geometry.getAttribute('aWhite').array as Float32Array)[0]).toBeCloseTo(0.5, 6);
+  });
+
+  it('resolves uWhite and uWhiteShade from limestone.0 and gunmetal.1 in both passes', () => {
+    expect(FLIPBOOK_COLOR_KEYS.white).toBe('limestone.0');
+    expect(FLIPBOOK_COLOR_KEYS.whiteShade).toBe('gunmetal.1');
+    const fx = new FlipbookFx();
+    const asked: string[] = [];
+    fx.setColors((k) => {
+      asked.push(k);
+      return new THREE.Color(k === 'limestone.0' ? 0.9 : 0.1, 0.2, 0.3);
+    });
+    expect(asked).toContain('limestone.0');
+    for (const m of [fx.mesh, fx.fireMesh]) {
+      expect((m.material.uniforms.uWhite.value as THREE.Color).r).toBeCloseTo(0.9, 6);
+      expect((m.material.uniforms.uWhiteShade.value as THREE.Color).r).toBeCloseTo(0.1, 6);
+    }
+    fx.dispose();
+  });
+
+  it('the HE recipes (shell, barrage, air strike) turn white at 0.85 with tint 0.4; missile and kill do not', () => {
+    const smokeOf = (file: string): FlipbookLayerSpec[] =>
+      (JSON.parse(readFileSync(path.join(VFX_DIR, file), 'utf8')) as { flipbook: FlipbookLayerSpec[] }).flipbook.filter((l) => l.type === 'smoke');
+    for (const f of ['shell_impact.json', 'barrage_impact.json', 'air_strike_impact.json']) {
+      const layers = smokeOf(f);
+      expect(layers.length, f).toBeGreaterThan(0);
+      for (const l of layers) {
+        expect(l.white, f).toBe(0.85);
+        expect(l.tint, f).toBe(0.4);
+      }
+    }
+    for (const f of ['missile_impact.json', 'catastrophic_kill.json']) {
+      for (const l of smokeOf(f)) expect(l.white, f).toBeUndefined();
+    }
+  });
+
+  it('the fragment shader mixes white in after the soot/dust/oil colour and before the light', () => {
+    const fx = new FlipbookFx();
+    const src = fx.mesh.material.fragmentShader;
+    const iWhite = src.indexOf('vWhite * smoothstep(0.0, 0.18, vT)');
+    expect(src.indexOf('mix(soot, dusty, dustT)')).toBeGreaterThanOrEqual(0);
+    expect(iWhite).toBeGreaterThanOrEqual(0);
+    expect(iWhite).toBeGreaterThan(src.indexOf('mix(soot, dusty, dustT)'));
+    expect(iWhite).toBeLessThan(src.indexOf('col = base * uLight * shade'));
+    fx.dispose();
   });
 });
 

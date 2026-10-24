@@ -433,6 +433,12 @@
           "maximum": 1,
           "description": "smoke only: oily burning-fuel soot that stays near black for most of its life and glows ember in its dense core while young; overrides tint. Must be above 0: 0 cannot override tint (the code reads `L.oil ? -L.oil : ...`), so omit it instead."
         },
+        "white": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "description": "smoke only: how far the puff turns white (HE smoke): a short dusty birth, then limestone.0 lit / gunmetal.1 shaded, still times the scene light so it never blooms. Independent of tint and oil. Must be above 0: omit it for none."
+        },
         "low_fraction": {
           "type": "number",
           "exclusiveMinimum": 0,

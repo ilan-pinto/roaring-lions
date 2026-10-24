@@ -35,7 +35,7 @@ import { claimPort } from '../ui-review/port';
 import { musicOffInitScript } from '../ui-review/music-off';
 import { decide, parseEngineArgs, type EconomyReading, type EngineOutcome, type EngineReading } from './two-engine-verdict';
 import { shippedContentDigest } from '../../../packages/app/src/net/content-digest';
-import { economyStreamFrames, runEconomyClient, type EconomyStreamResult } from '../../../packages/app/src/net/economy-stream.test-helper';
+import { economyStreamExpectedBelow, economyStreamFrames, runEconomyClient, type EconomyStreamResult } from '../../../packages/app/src/net/economy-stream.test-helper';
 
 const REPO = fileURLToPath(new URL('../../../', import.meta.url));
 const MAP = 'beit_sahwan_outskirts';
@@ -259,8 +259,10 @@ async function main(): Promise<number> {
       throw new Error('the economy stream produced no reading in Node (no hash ticks, or a side built nothing)');
     }
     // GH-681 T6: likewise a stream whose routed units never went below, or never came up, proves nothing.
-    if (nodeEconomy.tunnel.below !== 4 || nodeEconomy.tunnel.surfaced === 0) {
-      throw new Error(`the economy stream's tunnel orders did nothing in Node (${JSON.stringify(nodeEconomy.tunnel)}: want 4 below at the vent and some surfaced)`);
+    // The load that must be below is the route's own capacity (capped by the units named), read from the data.
+    const wantBelow = economyStreamExpectedBelow();
+    if (wantBelow < 1 || nodeEconomy.tunnel.below !== wantBelow || nodeEconomy.tunnel.surfaced === 0) {
+      throw new Error(`the economy stream's tunnel orders did nothing in Node (${JSON.stringify(nodeEconomy.tunnel)}: want ${wantBelow} below at the vent and some surfaced)`);
     }
     console.log(`[${TAG}] node: economy stream: ${nodeEconomy.digests.length} hash ticks, final ${nodeLast?.[1]} at tick ${nodeLast?.[0]}, built ${JSON.stringify(nodeEconomy.built)}, tunnel ${JSON.stringify(nodeEconomy.tunnel)}`);
     const d = decide(outcomes, TARGET_TICK, FIRST_ORDER_TICK, nodeContent, args.require, nodeEconomy);
