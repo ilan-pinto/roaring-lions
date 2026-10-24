@@ -138,10 +138,12 @@ const VERT = /* glsl */ `
   attribute vec4 aParams; // start ms, duration ms, scale (tiles), type
   attribute float aSeed;
   attribute float aTint;
+  attribute float aWhite;
   uniform float uTime;
   uniform float uFirePass;
   uniform float uQuadScale;
   varying float vTint;
+  varying float vWhite;
   varying vec2 vUv;
   varying float vT;
   varying float vType;
@@ -187,6 +189,7 @@ const VERT = /* glsl */ `
     vSeed = aSeed;
     vAge = age;
     vTint = aTint;
+    vWhite = aWhite;
     gl_Position = projectionMatrix * viewMatrix * vec4(world, 1.0);
   }
 `;
@@ -201,6 +204,8 @@ const FRAG = /* glsl */ `
   uniform vec3 uSmoke;
   uniform vec3 uDirt;
   uniform vec3 uDirtDark;
+  uniform vec3 uWhite;
+  uniform vec3 uWhiteShade;
   uniform float uFireGain;
   uniform float uSparkGain;
   uniform float uLight;
@@ -217,6 +222,7 @@ const FRAG = /* glsl */ `
   varying float vType;
   varying float vSeed;
   varying float vTint;
+  varying float vWhite;
 
   const float GRID = ${FLIPBOOK_GRID.toFixed(1)};
   const float LAST = ${(FLIPBOOK_GRID * FLIPBOOK_GRID - 1).toFixed(1)};
@@ -312,7 +318,13 @@ const FRAG = /* glsl */ `
       vec3 oily = mix(uSoot, uSmoke * 0.45, smoothstep(0.55, 1.0, vT));
       soot = mix(soot, oily, oil);
       vec3 dusty = mix(uDirtDark, uDirt, smoothstep(0.0, 0.75, vT)) * 0.85;
-      col = mix(soot, dusty, dustT) * uLight * shade;
+      vec3 base = mix(soot, dusty, dustT);
+      // HE smoke tone: a short dusty/grey birth, then white (limestone.0 lit,
+      // gunmetal.1 shaded -- the player smoke screen's own pair). Still times
+      // uLight and shade, so it sits at lit-ground level and never blooms.
+      vec3 whiteCol = mix(uWhiteShade, uWhite, smoothstep(0.7, 1.15, shade));
+      base = mix(base, whiteCol, vWhite * smoothstep(0.0, 0.18, vT));
+      col = base * uLight * shade;
       // The lit crown: a sun-side grey on oily puffs only.
       col += oil * uOilCrown * uSmoke * uLight * smoothstep(0.95, 1.25, shade);
       // Ember glow: only the dense LOWER core of a young puff, flickering.
@@ -339,6 +351,8 @@ export interface FlipbookColors {
   smoke: string;
   dirt: string;
   dirtDark: string;
+  white: string;
+  whiteShade: string;
 }
 
 export const FLIPBOOK_COLOR_KEYS: Readonly<FlipbookColors> = Object.freeze({
@@ -349,6 +363,8 @@ export const FLIPBOOK_COLOR_KEYS: Readonly<FlipbookColors> = Object.freeze({
   smoke: 'gunmetal.1',
   dirt: 'dust.2',
   dirtDark: 'dust.5',
+  white: 'limestone.0',
+  whiteShade: 'gunmetal.1',
 });
 
 /** One instance, in world units (x east, y up, z south) and milliseconds. */
@@ -367,6 +383,8 @@ export interface FlipbookSpawn {
   type: typeof FLIP_FIRE | typeof FLIP_SMOKE | typeof FLIP_DIRT | typeof FLIP_SPARK;
   /** SMOKE only: 0 soot, 1 dust; NEGATIVE is oil (-1..0, `-oil`), which overrides dust. */
   tint?: number;
+  /** SMOKE only, 0..1: how far the puff turns white (HE smoke), beside `tint`. */
+  white?: number;
 }
 
 /** A `FLIPBOOK_FIT` entry as the shader's two uniform vectors: the atlas fit, and the billow noise. */
@@ -419,6 +437,7 @@ export class FlipbookFx {
   private readonly params: THREE.InstancedBufferAttribute;
   private readonly seed: THREE.InstancedBufferAttribute;
   private readonly tint: THREE.InstancedBufferAttribute;
+  private readonly white: THREE.InstancedBufferAttribute;
   private head = 0;
   private written = 0;
   private timeMs = 0;
@@ -453,12 +472,14 @@ export class FlipbookFx {
     }
     this.seed = new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1);
     this.tint = new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1);
-    for (const a of [this.origin, this.vel, this.params, this.seed, this.tint]) a.setUsage(THREE.DynamicDrawUsage);
+    this.white = new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1);
+    for (const a of [this.origin, this.vel, this.params, this.seed, this.tint, this.white]) a.setUsage(THREE.DynamicDrawUsage);
     geometry.setAttribute('aOrigin', this.origin);
     geometry.setAttribute('aVel', this.vel);
     geometry.setAttribute('aParams', this.params);
     geometry.setAttribute('aSeed', this.seed);
     geometry.setAttribute('aTint', this.tint);
+    geometry.setAttribute('aWhite', this.white);
     geometry.instanceCount = 0;
     const uniforms = (firePass: number): Record<string, THREE.IUniform> => ({
       uTime: { value: 0 },
@@ -477,6 +498,8 @@ export class FlipbookFx {
       uSmoke: { value: new THREE.Color(0.3, 0.3, 0.3) },
       uDirt: { value: new THREE.Color(0.5, 0.4, 0.3) },
       uDirtDark: { value: new THREE.Color(0.3, 0.25, 0.2) },
+      uWhite: { value: new THREE.Color(0.8, 0.8, 0.8) },
+      uWhiteShade: { value: new THREE.Color(0.3, 0.3, 0.3) },
       uFireGain: { value: HDR_GAINS.fireball },
       uSparkGain: { value: HDR_GAINS.sparks },
       uOilCrown: { value: FLIPBOOK_OIL_CROWN },
@@ -535,6 +558,8 @@ export class FlipbookFx {
       (u.uSmoke.value as THREE.Color).copy(resolveLinear(c.smoke));
       (u.uDirt.value as THREE.Color).copy(resolveLinear(c.dirt));
       (u.uDirtDark.value as THREE.Color).copy(resolveLinear(c.dirtDark));
+      (u.uWhite.value as THREE.Color).copy(resolveLinear(c.white));
+      (u.uWhiteShade.value as THREE.Color).copy(resolveLinear(c.whiteShade));
     }
   }
 
@@ -625,7 +650,7 @@ export class FlipbookFx {
 
   /** One instance. */
   spawn(o: FlipbookSpawn): void {
-    this.push(o.x, o.y, o.z, o.vx ?? 0, o.vy ?? 0, o.vz ?? 0, o.delayMs ?? 0, o.durationMs, o.scale, o.type, o.tint ?? 0);
+    this.push(o.x, o.y, o.z, o.vx ?? 0, o.vy ?? 0, o.vz ?? 0, o.delayMs ?? 0, o.durationMs, o.scale, o.type, o.tint ?? 0, o.white ?? 0);
   }
 
   private syncVisible(): void {
@@ -647,7 +672,7 @@ export class FlipbookFx {
   private push(
     x: number, y: number, z: number,
     vx: number, vy: number, vz: number,
-    delayMs: number, durMs: number, scale: number, type: number, tint = 0
+    delayMs: number, durMs: number, scale: number, type: number, tint = 0, white = 0
   ): void {
     const i = this.head;
     this.head = (this.head + 1) % this.capacity;
@@ -661,8 +686,9 @@ export class FlipbookFx {
     p[i * 4] = start; p[i * 4 + 1] = durMs; p[i * 4 + 2] = scale; p[i * 4 + 3] = type;
     (this.seed.array as Float32Array)[i] = this.rand();
     (this.tint.array as Float32Array)[i] = tint;
+    (this.white.array as Float32Array)[i] = white;
     // Upload only the touched slot.
-    for (const [attr, size] of [[this.origin, 3], [this.vel, 3], [this.params, 4], [this.seed, 1], [this.tint, 1]] as const) {
+    for (const [attr, size] of [[this.origin, 3], [this.vel, 3], [this.params, 4], [this.seed, 1], [this.tint, 1], [this.white, 1]] as const) {
       attr.addUpdateRange(i * size, size);
       attr.needsUpdate = true;
     }
@@ -722,7 +748,7 @@ export class FlipbookFx {
         this.push(
           px, y0, pz,
           Math.cos(a) * radial + dx * along, up, Math.sin(a) * radial + dz * along,
-          L.delay_ms[0] + L.delay_ms[1] * k, between(L.duration_ms), scale, type, L.oil ? -L.oil : (L.tint ?? 0)
+          L.delay_ms[0] + L.delay_ms[1] * k, between(L.duration_ms), scale, type, L.oil ? -L.oil : (L.tint ?? 0), L.white ?? 0
         );
         n++;
       }
