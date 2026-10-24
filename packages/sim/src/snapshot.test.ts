@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
 import { runDrive, runSetup } from './golden-worlds.test-helper';
 import { Rng } from './rng';
-import { Sim } from './sim';
+import { STRIKE_SNAPSHOT_KEYS, Sim } from './sim';
 import { SIM_SNAPSHOT_SCHEMA, rowsOf } from './snapshot-schema';
 import { SNAPSHOT_FORMAT, SnapshotRefused, canonicalJson, encodeSim, restoreSim, snapshotSchemaDigest } from './snapshot';
 import * as simIndex from './index';
@@ -73,12 +73,19 @@ describe('snapshot: round trip, encode(restore(fresh, S)) == S', () => {
         const fresh = setup(SEED).sim;
         const before = encodeSim(fresh);
         const aliased = props(fresh).posX;
+        const viewPosX = fresh.state.posX;
+        const viewStHp = fresh.structures.hp;
         restoreSim(fresh, S);
         expect(bytesEqual(encodeSim(fresh), S), `tick ${T}: re-encode`).toBe(true);
         if (T > 0) expect(bytesEqual(before, S), `tick ${T}: the fresh world already equalled the snapshot, so the test proves nothing`).toBe(false);
         expect(fresh.tickCount).toBe(T);
         expect(fresh.hash(), `tick ${T}: hash`).toBe(a.sim.hash());
         expect(props(fresh).posX, 'columns are written in place, so views stay aliased').toBe(aliased);
+        // The read-only views the renderer holds, guarded directly: still the private arrays, not copies.
+        expect(fresh.state.posX).toBe(viewPosX);
+        expect(fresh.state.posX).toBe(props(fresh).posX);
+        expect(fresh.structures.hp).toBe(viewStHp);
+        expect(fresh.structures.hp).toBe(props(fresh).stHp);
       }
     });
   };
@@ -124,6 +131,23 @@ describe('snapshot: round trip, encode(restore(fresh, S)) == S', () => {
     const tiles = props(a.sim).stTiles as number[][];
     expect(tiles.length).toBeGreaterThan(0);
     expect(props(fresh).stTiles).toEqual(tiles);
+  });
+
+  it('a strike from the REAL path (callStrike through the command queue and a tick) is carried', () => {
+    const a = runSetup(SEED);
+    advance(a, 0, 20);
+    a.sim.queueCommand({ kind: 'callStrike', caller: a.ids.west[0], x: fx.fromInt(30), y: fx.fromInt(24) });
+    a.sim.tick();
+    const strikes = props(a.sim).pendingStrikes as { by: number }[];
+    expect(strikes.length, 'a strike is in the air at the boundary').toBeGreaterThan(0);
+    expect(strikes[0].by).toBe(a.ids.west[0]);
+    const S = encodeSim(a.sim);
+    const fresh = runSetup(SEED).sim;
+    restoreSim(fresh, S);
+    expect(props(fresh).pendingStrikes).toEqual(strikes);
+    expect(bytesEqual(encodeSim(fresh), S)).toBe(true);
+    // The decoder's key list is the sim's own tuple: the keys of the real strike are exactly it.
+    expect(Object.keys(strikes[0]).sort()).toEqual([...STRIKE_SNAPSHOT_KEYS].sort());
   });
 
   it('hands the meta back as written', () => {
@@ -195,6 +219,11 @@ describe('snapshot: restoreSim refuses a different world, before writing anythin
     b[6] ^= 1; // the digest follows the 4-byte magic and the u16 format
     refusedUntouched(runSetup(SEED).sim, b, /schema digest/);
   });
+  it('a header tick that disagrees with the stream is refused with the target untouched', () => {
+    const b = base.slice();
+    b[22] ^= 1; // simTick follows magic 4, format 2, digest 4, build 2, content 4, matchId 2, frameTick 4
+    refusedUntouched(runSetup(SEED).sim, b, /tickCount/);
+  });
   it('a bad magic', () => {
     const b = base.slice();
     b[0] = 0;
@@ -256,6 +285,9 @@ describe('snapshot: other refusals', () => {
     expect(() => encodeSim(sim, { build: 'x'.repeat(257) })).toThrow(/limit/);
     expect(() => encodeSim(sim, { contentDigest: 2 ** 32 })).toThrow(/u32/);
     expect(() => encodeSim(sim, { frameTick: -1 })).toThrow(/u32/);
+    expect(() => encodeSim(sim, { matchId: 'a\ud800b' })).toThrow(/surrogate/);
+    expect(() => encodeSim(sim, { build: '\udc00' })).toThrow(/surrogate/);
+    expect(() => encodeSim(sim, { matchId: 'ok \ud83d\ude00' })).not.toThrow();
     const ok = encodeSim(sim, { build: 'x'.repeat(256) });
     const b = ok.slice();
     // build length u16 sits at 10; make it 257 (and the stream no longer lines up)
@@ -355,7 +387,7 @@ describe('snapshot: exports', () => {
 });
 
 describe('snapshot: fuzz', () => {
-  it('2,000 seeded mutations: each is a clean refusal or a canonical world, and none allocates past 4 MiB', () => {
+  it('2,000 seeded mutations: each is a clean refusal or a canonical world, and no ArrayBuffer growth past 4 MiB', () => {
     const a = runSetup(SEED);
     advance(a, 0, 137);
     withPending(a.sim);

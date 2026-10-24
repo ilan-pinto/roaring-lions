@@ -1409,6 +1409,17 @@ type MissingSimEventKind = Exclude<SimEvent['kind'], (typeof SIM_EVENT_KINDS)[nu
 type AssertNoMissingKind<T extends never> = T;
 export type SimEventKindsAreExhaustive = AssertNoMissingKind<MissingSimEventKind>;
 
+/** A called-for strike still in the air (`Sim.pendingStrikes`). */
+export type PendingStrike = { x: Fx; y: Fx; by: number; readyTick: number; profile: number };
+
+/** Every key of a `PendingStrike`, as a value, for the snapshot decoder. `satisfies` catches a name that is
+ *  not a key; the pair of aliases below catches a key missing from the list, so a new field on the strike
+ *  fails typecheck here instead of making every in-flight strike refuse at restore. */
+export const STRIKE_SNAPSHOT_KEYS = ['x', 'y', 'by', 'readyTick', 'profile'] as const satisfies readonly (keyof PendingStrike)[];
+type MissingStrikeKey = Exclude<keyof PendingStrike, (typeof STRIKE_SNAPSHOT_KEYS)[number]>;
+type AssertNoMissingStrikeKey<T extends never> = T;
+export type StrikeKeysAreExhaustive = AssertNoMissingStrikeKey<MissingStrikeKey>;
+
 export interface SimConfig {
   seed: number;
   width: number;
@@ -1821,7 +1832,7 @@ export class Sim {
   /** One-element scratch `ids` for a patrol leg, reused rather than allocated per leg. */
   private readonly patrolLegIds: number[] = [0];
   /** Called-for strikes still in the air. */
-  private pendingStrikes: { x: Fx; y: Fx; by: number; readyTick: number; profile: number }[] = [];
+  private pendingStrikes: PendingStrike[] = [];
 
   // --- structure SoA ---
   private structureCount_ = 0;

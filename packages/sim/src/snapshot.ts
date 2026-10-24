@@ -1,5 +1,5 @@
 import { HASH_SEED, hashWord } from './hash';
-import { SIM_EVENT_KINDS, type Sim } from './sim';
+import { SIM_EVENT_KINDS, STRIKE_SNAPSHOT_KEYS, type Sim } from './sim';
 import {
   RNG_SNAPSHOT_SCHEMA,
   SIM_SNAPSHOT_SCHEMA,
@@ -61,7 +61,6 @@ const MAX_META_BYTES = 256;
 const MAX_TAIL_BYTES = 4 * 1024 * 1024;
 /** Nesting the canonical JSON writer and checker will follow. */
 const MAX_JSON_DEPTH = 16;
-const MAX_SAFE = 9007199254740991;
 
 // ---- the one doorway to Sim's private fields --------------------------------
 //
@@ -214,6 +213,11 @@ class Reader {
     this.pos += 4;
     return x;
   }
+  /** An i32 at an absolute offset, without moving the cursor. */
+  i32At(offset: number): number {
+    if (offset < 0 || offset + 4 > this.bytes.length) throw new SnapshotRefused('truncated');
+    return this.view.getInt32(offset, true);
+  }
   take(n: number): Uint8Array {
     this.need(n);
     const out = this.bytes.subarray(this.pos, this.pos + n);
@@ -238,7 +242,22 @@ class Reader {
   }
 }
 
+/** True when `s` has an unpaired UTF-16 surrogate (`String.prototype.isWellFormed` is past this lib target). */
+function hasLoneSurrogate(s: string): boolean {
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c >= 0xd800 && c <= 0xdbff) {
+      const d = s.charCodeAt(i + 1);
+      if (!(d >= 0xdc00 && d <= 0xdfff)) return true;
+      i++;
+    } else if (c >= 0xdc00 && c <= 0xdfff) return true;
+  }
+  return false;
+}
+
 function writeString(w: Writer, s: string, what: string): void {
+  // A lone surrogate would be silently replaced by U+FFFD on the way out, so the string read back would differ.
+  if (hasLoneSurrogate(s)) throw new Error(`encodeSim: ${what} holds an unpaired surrogate`);
   const b = new TextEncoder().encode(s);
   if (b.length > MAX_META_BYTES) throw new Error(`encodeSim: ${what} is ${b.length} bytes, the limit is ${MAX_META_BYTES}`);
   w.u16(b.length);
@@ -276,7 +295,7 @@ export function canonicalJson(v: unknown, depth = 0): string {
     case 'string':
       return JSON.stringify(v);
     case 'number':
-      if (!Number.isInteger(v) || v > MAX_SAFE || v < -MAX_SAFE) throw new Error(`canonicalJson: ${String(v)} is not a safe integer`);
+      if (!Number.isInteger(v) || v > Number.MAX_SAFE_INTEGER || v < Number.MIN_SAFE_INTEGER) throw new Error(`canonicalJson: ${String(v)} is not a safe integer`);
       return Object.is(v, -0) ? '0' : String(v);
     case 'object': {
       if (Array.isArray(v)) {
@@ -307,6 +326,8 @@ export function canonicalJson(v: unknown, depth = 0): string {
 
 // ---- the aux rows (the JSON tail) -------------------------------------------
 
+/** The strike's keys, sorted, from the type-checked tuple in sim.ts. */
+const STRIKE_KEYS = [...STRIKE_SNAPSHOT_KEYS].sort().join(',');
 const isInt = (x: unknown): x is number => typeof x === 'number' && Number.isInteger(x);
 const isPlain = (x: unknown): x is Record<string, unknown> => x !== null && typeof x === 'object' && !Array.isArray(x);
 
@@ -332,7 +353,7 @@ const AUX_RESTORE: Record<string, (value: unknown, c: AuxContext) => void> = {
     if (!Array.isArray(value)) throw new SnapshotRefused('pendingStrikes: not an array');
     for (const s of value) {
       const keys = isPlain(s) ? Object.keys(s).sort().join(',') : '';
-      if (!isPlain(s) || keys !== 'by,profile,readyTick,x,y' || !Object.values(s).every(isInt)) {
+      if (!isPlain(s) || keys !== STRIKE_KEYS || !Object.values(s).every(isInt)) {
         throw new SnapshotRefused('pendingStrikes: bad entry');
       }
     }
@@ -482,6 +503,17 @@ function restoreInner(sim: Sim, bytes: Uint8Array): Required<SnapshotMeta> {
 
   // ---- columns, in place (.set-equivalent element writes keep every view aliased).
   const state = rowsOf('state');
+  // The stream's own tickCount must agree with the header, and is checked HERE, before the first
+  // write: every column's length is the target's (checked again as each is read), so the scalar's
+  // offset is known, and a mismatch leaves the target untouched.
+  let tickAt = r.pos;
+  for (const row of typedRows(state)) tickAt += 4 + typedOf(self, row).array.length * typedOf(self, row).codec.size;
+  for (const row of state) {
+    if (row.kind.t !== 'scalar') continue;
+    if (row.name === 'tickCount') break;
+    tickAt += typeof self[row.name] === 'boolean' ? 1 : 4;
+  }
+  if (simTick < 0 || r.i32At(tickAt) !== simTick) throw new SnapshotRefused('tickCount disagrees with the header');
   // A column that IS another column's array in this world (`blockedVehicleMask` is `blocked` on a
   // map with no boulders) is checked against what the first one wrote, not written over it: two
   // different byte strings for one array would otherwise be accepted, the second silently winning.
@@ -509,7 +541,6 @@ function restoreInner(sim: Sim, bytes: Uint8Array): Required<SnapshotMeta> {
   }
 
   // ---- the counts, against the capacities they index, and the type tables.
-  if (sim.tickCount !== simTick || simTick < 0) throw new SnapshotRefused('tickCount disagrees with the header');
   const within = (name: string, cap: number): void => {
     const v = self[name] as number;
     if (v < 0 || v > cap) throw new SnapshotRefused(`${name} ${v} is outside 0..${cap}`);
