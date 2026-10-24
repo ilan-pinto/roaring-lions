@@ -564,6 +564,7 @@ describe('WRECK_RECIPES', () => {
     // GH-298's command Lavi (`officer_armour`) and GH-698's Yanshuf transport -- and, landed with
     // their art at GH-709, the armoured ambulance and the medevac.
     expect(Object.keys(WRECK_RECIPES).sort()).toEqual([
+      'aa_remetz',
       'air_medevac_heli',
       'apc_eitan',
       'apc_kipod',

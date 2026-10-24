@@ -79,6 +79,10 @@ export const WRECK_RECIPES: Readonly<Record<string, WreckRecipe>> = {
   // The Meshy Shachaf (GH-185, 2026-09-30) carries a `turret_pivot` on its
   // roof ring for the kit RWS (`cupola_mg`); the kit build had none.
   scout_shachaf: { hull: 'wheeled', turretPivot: 'turret_pivot', lostWheel: 1 },
+  // E6 (GH-274 chunk A2): the Remetz Laser Carrier, a 6x6 under a beam turret on a column: `turret_pivot`
+  // is thrown (the head, ring, glass and fins; the column and the stack stay in `hull_metal`), and wheel 2
+  // is the rear +Z tyre, as the Kipod's and the Grad's.
+  aa_remetz: { hull: 'wheeled', turretPivot: 'turret_pivot', lostWheel: 2 },
   technical: { hull: 'wheeled', turretPivot: 'turret_pivot', lostWheel: 1 },
   // B2 (GH-179, 2026-09-30): the Meshy gun truck traverses its twin AA gun
   // on a pedestal, so it takes the technical's own recipe; the Sarim

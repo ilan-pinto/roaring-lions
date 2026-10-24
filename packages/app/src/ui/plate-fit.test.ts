@@ -78,9 +78,13 @@ describe('plateFit', () => {
     expect(plates.length).toBeGreaterThan(10);
     for (const [id, p] of plates) {
       const { scale } = plateFit([p.extent[0], p.extent[1]], [p.width, p.height]);
-      // A plate sits at 1 only because its footprint already fills the target share of the frame
-      // (spg_cluster's long barrel: 1105 of 1800 = 61%, wanted 0.98x). Anything smaller must zoom.
-      const fills = Math.max(p.extent[0] / p.width, p.extent[1] / p.height) >= PLATE_FILL;
+      // A plate sits at 1 only because its footprint already fills the target share of the frame's WIDTH
+      // (spg_cluster's long barrel: 1105 of 1800 = 61%, wanted 0.98x). Anything narrower must zoom. Width
+      // alone, because that is what `plateFit` fills: the height can only CUT a zoom (the margin bound,
+      // asserted below), never ask for one. The first tall plate, E6 chunk A2's laser carrier (912 x 751
+      // of 1800 x 1200: 51% of the width, 63% of the height), was read as "fills" by an either-axis test
+      // and expected 1 where plateFit rightly zooms it to 1.18.
+      const fills = p.extent[0] / p.width >= PLATE_FILL;
       if (fills) expect(scale, id).toBe(PLATE_SCALE_MIN);
       else expect(scale, id).toBeGreaterThan(PLATE_SCALE_MIN);
       expect(scale, id).toBeLessThanOrEqual(PLATE_SCALE_MAX);

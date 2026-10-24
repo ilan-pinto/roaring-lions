@@ -45,6 +45,8 @@ describe('voiceClassOf (spec §3)', () => {
     spg_cluster: 'crew',
     // E6 (GH-274) chunk A1: the swarm is role `drone`, so the air voice.
     drone_swarm: 'air',
+    // E6 chunk A2: the Remetz Laser Carrier is role `aa` (a crewed truck), so the crew voice by role.
+    aa_remetz: 'crew',
     civilians: 'infantry', // a class, but no language: civilians never speak (languageOf)
     // GH-709: the ambulance is a crewed hull; the medevac is an air carrier whose role is `apc`, so it
     // carries the Yanshuf's `voice: "air"` override or it would speak as a ground crew.

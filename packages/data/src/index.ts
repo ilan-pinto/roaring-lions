@@ -157,6 +157,8 @@ import paramotor from '../../../data/units/enemy/paramotor.json';
 import loiterDrone from '../../../data/units/enemy/loiter_drone.json';
 // E6 (GH-274) chunk A1: the Sarim swarm, one entity standing for twelve drones.
 import droneSwarm from '../../../data/units/enemy/drone_swarm.json';
+// E6 (GH-274) chunk A2: the Remetz Laser Carrier, the first unit with a `directed_energy` beam.
+import aaRemetz from '../../../data/units/kdf/aa_remetz.json';
 import diggerCrew from '../../../data/units/enemy/digger_crew.json';
 import rocketBattery from '../../../data/units/enemy/rocket_battery.json';
 import sarimRifles from '../../../data/units/enemy/sarim_rifles.json';
@@ -463,6 +465,8 @@ export const units = {
   inf_grenadier: infGrenadier,
   // E6 (GH-274) chunk A1, registered last so no earlier type index moves.
   drone_swarm: droneSwarm,
+  // E6 chunk A2, registered after it so no earlier type index moves.
+  aa_remetz: aaRemetz,
 } as const;
 
 export type UnitId = keyof typeof units;

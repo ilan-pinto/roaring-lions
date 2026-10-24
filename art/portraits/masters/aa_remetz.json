@@ -1,0 +1,23 @@
+{
+  "unit": "aa_remetz",
+  "variant": "team",
+  "source": "assets/meshes/vehicles/aa_remetz.glb",
+  "source_sha256": "0e8c6c4965239f85d9bb6911b25f8bb37881de2a1ac132fa896376e438a85dd5",
+  "yaw_deg": -125.0,
+  "elevation_deg": 18.0,
+  "fov_deg": 30.0,
+  "fill": [
+    "width",
+    0.92
+  ],
+  "ndc_box": [
+    0.04,
+    0.96,
+    0.0525,
+    0.9475
+  ],
+  "materials": {
+    "baked": 2,
+    "flat": 4
+  }
+}

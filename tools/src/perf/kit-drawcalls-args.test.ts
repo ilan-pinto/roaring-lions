@@ -25,6 +25,7 @@ describe('parseKitDrawcallArgs', () => {
     const a = parseKitDrawcallArgs(['--running-gear'], 'darwin');
     // Literals (the approved A1 + A2 lists), not the contract's own arrays.
     expect([...a.ids].sort()).toEqual([
+      'aa_remetz',
       'apc_eitan',
       'apc_kipod',
       'dozer_d9',

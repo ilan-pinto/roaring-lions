@@ -91,6 +91,8 @@ import gunTruck from '../../../../../data/units/enemy/gun_truck.json';
 import loiterDrone from '../../../../../data/units/enemy/loiter_drone.json';
 // E6 (GH-274) chunk A1: the swarm drone, `isAir`, excluded from the weight model like every air hull.
 import droneSwarm from '../../../../../data/units/enemy/drone_swarm.json';
+// E6 (GH-274) chunk A2: the Remetz Laser Carrier, a ground hull on the `aa` role default (no `mobility.weight` block).
+import aaRemetz from '../../../../../data/units/kdf/aa_remetz.json';
 
 const DEG = Math.PI / 180;
 
@@ -145,6 +147,7 @@ const VEHICLE_UNIT_JSON: readonly unknown[] = [
   gunTruck,
   loiterDrone,
   droneSwarm,
+  aaRemetz,
   // GH-709: a ground hull; `mobility.weight` is the `apc` role default (none authored).
   vehAmbulance,
 ];

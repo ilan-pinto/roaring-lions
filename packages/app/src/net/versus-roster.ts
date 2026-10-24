@@ -37,6 +37,10 @@ export type VersusRosterUnit = (typeof units)[keyof typeof units];
  * builds and no seat fields, and one entity standing for twelve drones, which a lockstep
  * versus world has no rule for yet. Held the same way until a versus design gives it a seat;
  * `drone_swarm` is registered last in `units`, so no earlier type index moves either.
+ *
+ * `aa_remetz` (E6, GH-274 chunk A2): the KDF laser carrier. Its beam has no versus rule yet (the lockstep world does
+ * not step `directed_energy`), and it exists to answer the swarm, which is itself held; both stay held until a
+ * versus design gives them seats. It follows `drone_swarm` in `units`, so no earlier type index moves.
  */
 export const VERSUS_HELD_UNITS: ReadonlySet<string> = new Set([
   'at_nlos_team',
@@ -49,6 +53,7 @@ export const VERSUS_HELD_UNITS: ReadonlySet<string> = new Set([
   'spg_long_range',
   'ugv_recon_dog',
   'drone_swarm',
+  'aa_remetz',
 ]);
 
 /**

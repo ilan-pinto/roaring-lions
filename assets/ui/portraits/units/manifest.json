@@ -2,6 +2,13 @@
   "version": 1,
   "size": 192,
   "portraits": {
+    "aa_remetz": {
+      "file": "aa_remetz.png",
+      "extent": [
+        182,
+        178
+      ]
+    },
     "air_medevac_heli": {
       "file": "air_medevac_heli.png",
       "extent": [

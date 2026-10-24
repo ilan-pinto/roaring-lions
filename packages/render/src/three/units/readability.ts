@@ -144,6 +144,9 @@ export const RADIUS_BY_TYPE: Readonly<Record<string, number>> = {
   // E6 (GH-274) chunk A1 (24 Oct): the swarm drone, one member's mesh, from a fresh `unit-footprints.ts`
   // run (footprint 0.139 tile): the air class value 0.35 stands. The cloud-sized ring is chunk B's.
   drone_swarm: 0.35,
+  // E6 (GH-274) chunk A2 (25 Oct): the Remetz Laser Carrier, from a fresh `unit-footprints.ts` run (footprint 1.435 tile,
+  // the beam turret excluded like the Eitan's RWS; 1.15 x that is 1.65).
+  aa_remetz: 1.65,
   // E5 (GH-181, 2026-10-01): the bought-only Shmamit team and Peten Gunship, from a fresh
   // `tools/src/perf/unit-footprints.ts` run (footprint 0.476 and 0.778 tile). recon_zikit
   // 0.55 -> 0.53 at spike-walk (6 Oct): the spotter stands beside his tripod (0.454 tile).
@@ -226,6 +229,8 @@ export const ELLIPSE_BY_TYPE: Readonly<Record<string, RingEllipse>> = {
   // B2 (2026-09-30): the Meshy gun truck, 5.4 m x 2.8 m, from a fresh `ellipseFor`.
   gun_truck: { along: 1.2, across: 0.77, offsetAlong: 0 },
   rocket_battery: { along: 1.25, across: 0.64, offsetAlong: 0.01 },
+  // E6 (GH-274) chunk A2 (25 Oct): the Remetz Laser Carrier, a fresh `unit-footprints.ts` run (hull and tyres; the turret is excluded).
+  aa_remetz: { along: 1.67, across: 1.04, offsetAlong: 0 },
 };
 
 /**

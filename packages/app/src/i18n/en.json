@@ -740,6 +740,7 @@
   "grade.tier.3": "Ari'im citation",
   "grade.tier.3.line": "A citation. Put it with the slip and get the men fed.",
 
+  "role.aa": "air defence",
   "role.apc": "carrier",
   "role.artillery": "artillery",
   "role.at_team": "anti-tank team",
@@ -756,6 +757,7 @@
 
   "weapon.unknown": "Weapon",
   "weapon.amr": "Anti-materiel rifle",
+  "weapon.beam": "Laser beam",
   "weapon.bomblet_dive": "Bomblet dive",
   "weapon.cannon_30": "30 mm cannon",
   "weapon.carbines": "Carbines",

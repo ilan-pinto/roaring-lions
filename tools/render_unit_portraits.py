@@ -53,7 +53,7 @@ import sys
 
 import bpy
 from bpy_extras.object_utils import world_to_camera_view
-from mathutils import Vector
+from mathutils import Matrix, Vector
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
@@ -118,9 +118,9 @@ ENEMY_FIGURES = {"atgm_cell", "manpad_team", "recoilless_team", "sarim_rifles",
 # robot on `dog_root` (plus its `dog_death_root`).
 NO_LEAD = {"moto_rpg", "digger_crew", "wounded_kdf", "wounded_sarim", "ugv_recon_dog"}
 ROSTER = (
-    # KDF (25)
+    # KDF (26)
     "inf_squad,inf_grenadier,at_team,mortar_team,sniper_team,demo_squad,breach_team,yahalom_squad,recon_zikit,inf_medic_squad,at_nlos_team,"
-    "mbt_lavi,mbt_lavi_camo,ifv_namer,apc_eitan,apc_kipod,jeep_shoded,scout_shachaf,dozer_d9,spg_long_range,spg_cluster,"
+    "mbt_lavi,mbt_lavi_camo,ifv_namer,apc_eitan,apc_kipod,jeep_shoded,scout_shachaf,dozer_d9,spg_long_range,spg_cluster,aa_remetz,"
     "heli_peten,heli_peten_gunship,attack_drone,recon_drone,ugv_recon_dog,"
     # Sarim (16)
     "sarim_rifles,atgm_cell,manpad_team,recoilless_team,rocket_battery,loiter_drone,drone_swarm,"
@@ -351,9 +351,14 @@ def turn_unit():
     TURN_DEG off its axis, toward screen-left (-X)."""
     theta = math.atan2(-math.cos(math.radians(TURN_DEG)), -math.sin(math.radians(TURN_DEG)))
     roots = [o for o in bpy.context.scene.objects if o.parent is None and o.type in {"EMPTY", "ARMATURE", "MESH"}]
+    # About the WORLD ORIGIN, not each root's own: a root that sits off the origin (a `turret_pivot` carrying
+    # its turret, E6 chunk A2's 1.4 m aft of centre) would otherwise spin in place while the hull turns round
+    # the origin, and its children would draw several metres off the vehicle. Roots at the origin (every other
+    # mesh, every armature) come out as before.
+    turn = Matrix.Rotation(theta, 4, "Z")
     for r in roots:
         r.rotation_mode = "XYZ"
-        r.rotation_euler.rotate_axis("Z", theta)
+        r.matrix_world = turn @ r.matrix_world
     bpy.context.view_layer.update()
     return math.degrees(theta)
 

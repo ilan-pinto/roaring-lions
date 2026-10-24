@@ -110,4 +110,8 @@ export const TEXTURED_VEHICLE_TYPES: ReadonlySet<string> = new Set([
   // GH-709 Phase 7: the Te'o Cluster Howitzer is spg_long_range.glb's own bake with
   // its gun re-laid, a brake and a rack UV-pinned into it (tools/vehicles/export_spg_cluster.py).
   'spg_cluster',
+  // E6 (GH-274) chunk A2 (2026-10-25): the Remetz Laser Carrier is a Meshy text-to-3D remesh shipping its own 8k bake
+  // (2048 after export) on hull_hull and hull_rubber (tools/vehicles/export_meshy_remetz.py); its beam turret,
+  // column and stack are Blender palette parts with no material and draw through `rampForVehicleRole`, per mesh.
+  'aa_remetz',
 ]);

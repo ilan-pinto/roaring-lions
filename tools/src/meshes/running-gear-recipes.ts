@@ -176,6 +176,24 @@ const TEO_RUNNING_GEAR: RunningGearRecipe = {
 };
 
 export const RUNNING_GEAR_RECIPES: Readonly<Record<string, RunningGearRecipe>> = {
+  // E6 (GH-274 chunk A2, 25 Oct): the Remetz Laser Carrier, a Meshy 6x6 whose tandem OVERLAPS (the
+  // rear two tyres' axles are 0.88 m apart for a 1.43 m tyre, as the source delivered them: the Grad's
+  // are the same), so `overlapOk` and a face goes to its nearer axle. Measured 2026-10-25 on the
+  // exported `hull_rubber` (circle fit to each rim, bbox centre and half-extent in a seeded disc,
+  // iterated to convergence; right and left within 4 cm of each other): axle y 0.71-0.73, rim radius
+  // 0.69-0.72, tyre slab |z| 1.01-1.63. The front axle steers (A9, as the four 4x4s').
+  aa_remetz: {
+    cut: 1.03,
+    overlapOk: true,
+    wheels: [
+      { side: 'r', x: 2.087, y: 0.729, r: 0.708, zIn: 1.012, zOut: 1.626, steer: true },
+      { side: 'r', x: -1.483, y: 0.718, r: 0.718, zIn: 1.032, zOut: 1.613 },
+      { side: 'r', x: -2.34, y: 0.714, r: 0.713, zIn: 1.03, zOut: 1.61 },
+      { side: 'l', x: 2.117, y: 0.723, r: 0.709, zIn: 1.035, zOut: 1.633, steer: true },
+      { side: 'l', x: -1.445, y: 0.723, r: 0.713, zIn: 1.032, zOut: 1.623 },
+      { side: 'l', x: -2.347, y: 0.722, r: 0.719, zIn: 1.034, zOut: 1.626 },
+    ],
+  },
   apc_eitan: {
     cut: 1.03,
     wheels: [
