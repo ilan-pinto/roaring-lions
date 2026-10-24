@@ -19,6 +19,17 @@ describe('SupportAircraftManager', () => {
     m.dispose();
   });
 
+  it('call() returns the plan it keeps, and a strike re-anchors that very object (the audio holds it, GH-782)', () => {
+    const m = new SupportAircraftManager(0xffffff);
+    const plan = m.call('barrage', 100, 20, 20, 10, 20);
+    expect(plan).toBe(plans(m)[0]);
+    expect(plan).toEqual(expect.objectContaining({ kind: 'barrage', anchorMs: 100 * 50, anchored: false, ax: 20, ay: 20 }));
+    m.onStrike(1, 100 + 121, 20.5, 19.5);
+    expect(plan.anchored).toBe(true);
+    expect(plan.anchorMs).toBe(101 * 50);
+    m.dispose();
+  });
+
   it('does not let an earlier barrage re-anchor a later one over the same ground', () => {
     const m = new SupportAircraftManager(0xffffff);
     m.call('barrage', 0, 20, 20, 10, 20);

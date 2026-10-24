@@ -21,6 +21,7 @@ import type { RenderQuality } from './quality';
 // so this file still reaches neither backend's library.
 import type { LightOverride, TimeOfDay } from './three/time-of-day';
 // Three-free too (`three/units/building-fit.ts` imports nothing).
+import type { SupportAirPlan } from './three/support-air';
 import type { BuildingFit } from './three/units/building-fit';
 // Three-free too (`three/units/kit-template-key.ts` imports nothing).
 import type { KitTiers, KitTiersBySide } from './three/units/kit-template-key';
@@ -742,8 +743,14 @@ export interface Renderer {
    * strike -- timed from the sim's own `FIRE_SUPPORT` table; other calls fly
    * nothing. Presentation only: the explosions stay on the sim's `strike`
    * events, and nothing here reaches the sim.
+   *
+   * GH-782: RETURNS the plan it built (`null` for a call that flies nothing, a
+   * smoke screen or a drone sweep). The app hands that object to
+   * `BattleAudio.supportPlan`; the backend's re-anchor (the first real `strike`
+   * moves it by at most a tick) mutates the same object, so the jet, the rotor
+   * and the whistles you hear read the clock the aircraft you see fly on.
    */
-  supportCalled(call: string, x: number, y: number, tick: number): void;
+  supportCalled(call: string, x: number, y: number, tick: number): SupportAirPlan | null;
   /**
    * GH-279: mark the refuge at `(x, y)`, in tiles, for a few seconds -- the
    * backend owns the look and the envelope (on three: a dashed ring that

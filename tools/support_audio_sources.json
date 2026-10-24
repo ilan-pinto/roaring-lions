@@ -1,0 +1,91 @@
+{
+  "$comment": "GH-782: the lead's ElevenLabs Sound Effects takes (48 kHz, 16-bit, stereo WAV), the inputs of tools/prepare_support_audio.py. They are NOT committed (29 MB); the script refuses any input whose sha256 differs from the one here. A backup is kept outside the repo by the lead.",
+  "version": 1,
+  "tool": "ElevenLabs Sound Effects",
+  "inputs": [
+    {
+      "file": "A_500_kg_aircraft_bo_#2-1792859724416.wav",
+      "sha256": "83d09eca6785403b66c7bb11b0bfde085a30a2e286f18545f9d2aa7a9284c636",
+      "role": "strike_impact",
+      "take": 2
+    },
+    {
+      "file": "A_500_kg_aircraft_bo_#3-1792859720758.wav",
+      "sha256": "24c49d270c51d7b3c2604db3ca7ea2851196c77cf1bf3b6aaf22ecf882ce2345",
+      "role": "strike_impact",
+      "take": 3
+    },
+    {
+      "file": "A_500_kg_aircraft_bo_#4-1792859714839.wav",
+      "sha256": "5844b55b738ef128355c001fb1cb3703e3f80daa87e7008f157674c8474ab4b8",
+      "role": "strike_impact",
+      "take": 4
+    },
+    {
+      "file": "A_single_120mm_morta_#1-1792859631273.wav",
+      "sha256": "e416644ea3c4a345bfa17f8b00200ce5c0b23b308c1dcc7efb118ecf58526dfe",
+      "role": "barrage_impact",
+      "take": 1
+    },
+    {
+      "file": "A_single_120mm_morta_#2-1792859667315.wav",
+      "sha256": "16eedbef8bcb84b3d6f2deaa9268e5a5d3d5cb7829c5a705daa686e30070c3e6",
+      "role": "barrage_impact",
+      "take": 2
+    },
+    {
+      "file": "A_single_120mm_morta_#3-1792859675560.wav",
+      "sha256": "e2c852eeb24c79ef54812fe8af91f52f5ee56664c1a1bbe5f5a20f3c8fb7db28",
+      "role": "barrage_impact",
+      "take": 3
+    },
+    {
+      "file": "A_single_fighter_jet_#1-1792859758868.wav",
+      "sha256": "86fa5224a8d6de5cce81562b6b3c65b25e2af46207e3b5082978d557b92fe0ce",
+      "role": "jet_flyby",
+      "take": 1
+    },
+    {
+      "file": "A_single_fighter_jet_#2-1792859763351.wav",
+      "sha256": "f54442761a5830ebe9f5e4b29ce948890befbb0c4041758556419cbdfe0f4573",
+      "role": "jet_flyby",
+      "take": 2
+    },
+    {
+      "file": "A_single_fighter_jet_#3-1792859769252.wav",
+      "sha256": "f5ee112009ad5cd04801041a72500495bfb2c922ec22812ede4e2604eb30f45a",
+      "role": "jet_flyby",
+      "take": 3
+    },
+    {
+      "file": "A_single_fighter_jet_#4-1792859774036.wav",
+      "sha256": "331669812de3ad3ebdc2da02c923d24e45b0b05db31fa0333871e8655428d519",
+      "role": "jet_flyby",
+      "take": 4
+    },
+    {
+      "file": "An_attack_helicopter_#1-1792859820654.wav",
+      "sha256": "33c51d551564b0b1fd3fc015fd1916fd192c89e70b8bfb9ea7585c7622075790",
+      "role": "rotor_loop",
+      "take": 1
+    },
+    {
+      "file": "An_attack_helicopter_#4-1792859810718.wav",
+      "sha256": "52316ddfca51f3e0ddb66ed4fb6f10e1ddf417f8c1c894b2103a2326f39707d3",
+      "role": "rotor_loop",
+      "take": 4
+    },
+    {
+      "file": "The_descending_whist_#3-1792859856125.wav",
+      "sha256": "c9d1682514e0687efa88cefb499891a8e823dc4ff748605cf4195106a12cd763",
+      "role": "incoming_whistle",
+      "take": 3
+    },
+    {
+      "file": "The_descending_whist_#4-1792859864405.wav",
+      "sha256": "fef406c0357012cc68d71811461f36d86b654f50049dd5f4e32002689f2019a7",
+      "role": "incoming_whistle",
+      "take": 4
+    }
+  ]
+}

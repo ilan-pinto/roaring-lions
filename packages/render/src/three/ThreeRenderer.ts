@@ -199,6 +199,7 @@ import {
   STRIKE_CRATER_TILES,
   strikeScorchRadius,
   supportAirKind,
+  type SupportAirPlan,
 } from './support-air';
 import { MuzzleFlashManager, MUZZLE_FLASH_DEFAULT_DURATION_MS } from './units/muzzle-flash';
 import {
@@ -5850,11 +5851,13 @@ export class ThreeRenderer implements Renderer {
    * air strike starts its aircraft; the smoke screen and the drone sweep fly
    * nothing. The aircraft come from the friendly side: the centroid of the
    * viewer's living ground units, or a fixed default when there are none.
-   * Presentation only -- nothing here reaches the sim.
+   * Returns the plan it built (GH-782), the same object the aircraft re-anchor
+   * on, for the app to hand to the audio. Presentation only -- nothing here
+   * reaches the sim.
    */
-  supportCalled(call: string, x: number, y: number, tick: number): void {
+  supportCalled(call: string, x: number, y: number, tick: number): SupportAirPlan | null {
     const kind = supportAirKind(call);
-    if (kind === null) return;
+    if (kind === null) return null;
     const st = this.sim.state;
     let sumX = 0;
     let sumY = 0;
@@ -5866,7 +5869,7 @@ export class ThreeRenderer implements Renderer {
       sumY += this.curY[i];
       n++;
     }
-    this.supportAircraft.call(kind, tick, x, y, n > 0 ? sumX / n : null, n > 0 ? sumY / n : null);
+    return this.supportAircraft.call(kind, tick, x, y, n > 0 ? sumX / n : null, n > 0 ? sumY / n : null);
   }
 
   /** GH-748: loads the support aircraft's two meshes (`main.ts`, after the

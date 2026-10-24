@@ -37,11 +37,13 @@ What the pass found, most important first:
    directory since `bf909d0b` (2026-08-03) pointed `publicDir` at `assets/`,
    and nothing references them, but both were in a public repository. **Deleted in this PR**; they
    stay in history like the rest ("History is kept").
-2. **Thirty-five shipped files carry a question the repository cannot
-   answer.** Fifteen are audio: the main theme, its two re-cut mission beds
-   (two formats each, AU-7) and the five voice lines (in two formats each) are
-   AI-generated or cut from AI-generated audio, and the plan or tool is not
-   recorded (items 2 and 3). Twenty have no recorded origin at all: the four
+2. **Sixty-one shipped files carry a question the repository cannot
+   answer.** Forty-one are audio: the main theme, its two re-cut mission beds
+   (two formats each, AU-7), the five voice lines (in two formats each) and,
+   since GH-782, the lead's ElevenLabs Sound Effects (the barrage, bomb, jet and
+   whistle sets and the Peten rotor loop: 26 files) are AI-generated or cut
+   from AI-generated audio, and the plan or tool is not recorded (items 2 and
+   3; for the sound effects the tool is recorded and the plan is not). Twenty have no recorded origin at all: the four
    favicon files and the sixteen ground-tile files (items 5 and 7). The two
    briefing videos that used to be counted here were removed on 2026-10-11
    (item 4).
@@ -62,17 +64,23 @@ Every audio file that ships has a row in the register below. By class:
 | The main theme | `music/holding_the_perimeter.mp3` | an AI music generator, from `docs/audio/main-theme-prompt.md` | **Yes** | Open: item 3 (the generator's terms) |
 | The mission's calm and battle beds (AU-7, #493) | `music/holding_the_perimeter_{calm,battle}.{ogg,m4a}` | `tools/recut_music.py`: slices of the theme, nothing generated or added | **Yes, by inheritance** | Open: item 3, inherited |
 | Five Hebrew unit voice takes on four keys (`he.infantry.{move,attack,death}`, `he.common.ack`) | `voice/he/**` (10 files) | ElevenLabs, supplied by the lead (placeholders) | **Yes** | **Left out** (D5, A3): see below |
+| The fire-support sound effects (GH-782): a mortar round landing (3 takes), the 500 kg bomb (3), the fighter-jet pass (4), the incoming whistle (2), and the Peten's rotor loop | `barrage_impact/`, `strike_impact/`, `jet_flyby/`, `incoming_whistle/`, `support/` (26 files) | ElevenLabs Sound Effects, supplied by the lead (14 takes, cut and levelled by `tools/prepare_support_audio.py`) | **Yes** | **Left out** (the same plan question, item 2): see "Fire-support sound effects" below |
 | Six Hebrew lines in the lead's own voice: five announcer lines (`he.common.announce_{defeat,mission_start,objective_active,objective_complete,reinforcements}`) and a second `he.infantry.attack` take | `voice/he/common/announce_*_01a`, `voice/he/infantry/attack_02a` (12 files) | Recorded by the lead, 2026-10-09; trimmed and normalised by `tools/voice_prep.py` | No | Ships (`LicenseRef-owned`, his own voice): see "Voice lines recorded by the lead" below |
 | Three ambience beds (open, town, ridge) | `ambience/amb_{open,town,ridge}.{ogg,m4a}` | `tools/gen_audio.py`, procedural synthesis | No | **Switched off** since 9 Oct 2026 (`AMBIENCE_ENABLED = false`, the lead's ruling): declared and validated, fetched by no build. Ships nothing audible; CC0-1.0 if it ever does |
 
-**How the four placeholder keys are kept out of a commercial build.**
+**How the four placeholder keys, and the fire-support effects, are kept out of
+a commercial build.**
 `python3 tools/validate_audio.py --commercial` fails on every variant whose
-`source` records an unconfirmed licence: today exactly the five ElevenLabs
-takes (the lead's own recordings beside them are not touched, and
+`source` records an unconfirmed licence: today the five ElevenLabs voice takes
+and the lead's ElevenLabs sound effects (the barrage, bomb, jet and whistle
+variants and the `support_air.rotor` loop, GH-782), which record the same
+unconfirmed plan (the lead's own recordings beside the voices are not touched, and
 `he.infantry.attack` keeps his take in a commercial build). `python3 tools/validate_audio.py --commercial-manifest OUT` writes the
 manifest a commercial build ships (those variants removed, every key still
 declared, its take list empty, so it plays nothing), proves it clean against
-that same gate, and prints the ten files the bundle must leave out.
+that same gate, and prints the 36 files the bundle must leave out (the ten
+voice files and the 26 sound-effect files; a stripped support set keeps its
+declaration with no takes, and a build with no rotor block plays no rotor).
 `tools/test_validate_audio_mix.py`, inside `pnpm validate:audio`, pins both
 halves against the shipped `data/audio.json`. What does not exist yet is the
 commercial build itself: its packaging step must use that manifest and delete
@@ -83,8 +91,8 @@ is the lead's to settle (audit L6), not this gate's to catch.
 
 **The credits screen** names all of it (`credits-data.ts`, `credits.ai.*` in
 `en.json`): the generated theme and the music cut from it, the ElevenLabs
-placeholders and their exclusion from a commercial release, and the
-synthesised cues and effects (item 10).
+placeholders and their exclusion from a commercial release, the AI-generated
+fire-support effects, and the synthesised cues and other effects (item 10).
 
 ### Retired, and confirmed gone
 
@@ -115,7 +123,7 @@ two `.glb` "hits" a looser search shows are digit runs inside float data.
 | # | Item | What is missing | What would close it |
 |---|---|---|---|
 | 1 | **Meshy plan tier for commercial use.** *Pending: lead to confirm Meshy plan tier for commercial use.* | The repository holds only the lead's word of 2026-08-30 that the plan permits commercial use ("Commercial rights" below). No plan name, no date the terms were read, no answer on redistribution inside a shipped binary, and nothing says the plan was in force on every generation date (the earliest supplied files carry 0829 stamps, the last task is 2026-10-05). `tools/src/meshy/pricing.ts` prices on the Pro plan's advertised $20 per 1,000 credits, which is a cost-estimate constant and not a record of the plan owned. This pass does not guess a tier. | The plan name, the date read, and two answers: commercial use of outputs, and redistribution of them in a shipped binary. 130 shipped meshes, the Meshy working record in `art/meshy/`, and everything rendered from them (portraits, plates, the Roar coin relief) depend on it |
-| 2 | **ElevenLabs commercial licence (D5).** | Five Hebrew voice lines (10 files) are declared `LicenseRef-owned`, but the plan and date of generation are unrecorded and the licence was never confirmed. `CONTRIBUTING.md` says a free-tier TTS output cannot be committed. Already on HANDOVER's "open for the lead" line | Plan name and date, with the same two answers as item 1; or delete the five variants (an empty `variants` list plays nothing). Until then a commercial build ships `validate_audio.py --commercial-manifest`'s output, which leaves them out (AU-10, "Audio, after polish pass F" above) |
+| 2 | **ElevenLabs commercial licence (D5).** | Five Hebrew voice lines (10 files) **and, since GH-782, the lead's ElevenLabs Sound Effects (26 files: the barrage, bomb, jet and whistle sets and the Peten rotor loop)** are declared `LicenseRef-owned`, but the plan and date of generation are unrecorded and the licence was never confirmed (for the sound effects the lead says his plan carries a commercial-use licence; no plan name or date is written down). `CONTRIBUTING.md` says a free-tier TTS output cannot be committed. Already on HANDOVER's "open for the lead" line | Plan name and date, with the same two answers as item 1; or delete the five variants (an empty `variants` list plays nothing). Until then a commercial build ships `validate_audio.py --commercial-manifest`'s output, which leaves them out (AU-10, "Audio, after polish pass F" above; 36 files now). For the sound effects, writing the plan and date into each `source` (and removing "commercial licence NOT yet confirmed") puts them back in the commercial manifest with no other change |
 | 3 | **The main theme's generator.** | `holding_the_perimeter.mp3` is AI-generated from `docs/audio/main-theme-prompt.md` and declared CC-BY-4.0 with the credit "Ilan Pinto". Its two re-cuts, the mission's calm and battle beds (`holding_the_perimeter_{calm,battle}.{ogg,m4a}`, AU-7), are slices of it and carry the same question. A CC-BY grant covers only what the grantor owns, and that depends on the generator's terms, which are not recorded | The tool, the plan, the date, and whether it permits commercial use of the output |
 | 4 | **The two briefing videos.** | **REMOVED 2026-10-11 (the lead's request, to be replaced by videos he makes himself).** `assets/video/tel_marum_{2,3}_briefing.mp4` were deleted, with their `data/video.json` entries and the two `briefing_video` lines in `tel_marum_2_foothold.json` and `tel_marum_3_clearance.json`. They had no recorded origin (the commit said only that the lead cut them; the container's encoder tag read `Google`; each carried an AAC audio track). They stay in git history (commits b0177497 and 22f97611) | Nothing remains to establish for the files themselves. When the lead supplies his own videos, each needs its `data/video.json` entry recorded honestly (`docs/cinematics/README.md`); `pnpm validate:data -- --commercial` fails any entry not confirmed. `assets/video/` is empty and `data/video.json` has an empty `files` object |
 | 5 | **The lion emblem.** | `art/favicon/favicon.png` and its three favicon sizes: "the lead supplied" it (commit `a76d4652`). By inspection it has the look of generative-model output; the repository records no tool | The tool and its terms, or a statement that it was drawn |
@@ -123,7 +131,7 @@ two `.glb` "hits" a looser search shows are digit runs inside float data.
 | 7 | **The images behind the Meshy image-to-3D assets, the ground tiles and the character portraits.** | The lead supplied source images (the image fed to Meshy for each supplied building, vehicle, civilian and tile; concept images for the five characters). How those images were made is not recorded. The eight ground tiles (16 files) are the cleanest case: the image *is* the shipped asset | The tool that made each image, or "drawn" |
 | 8 | **Draco decoder notice** (minor). | `assets/draco/` ships the Apache-2.0 decoder with a README that links the licence. Apache-2.0 section 4 asks that recipients get a copy of the licence text, and the credits screen lists only `three` | Add `LICENSE` text beside the decoder and one credits line |
 | 9 | **Meshy record gaps.** | (a) The seven ground props (2026-09-27) are in this file by task id, but `art/meshy/ledger.jsonl` starts on 2026-09-30, so their ledger lines were never committed, the prompts here are truncated, and the earlier text "full prompts are in the ledger" was false. `tools/terrain/export_meshy_props.py` resolves its sources through the ledger and cannot find them. (b) The olive and desert-tree sources have no task ids. (c) Four ledger tasks are cited nowhere in this file and ship nothing: first previews of `atgm_post` (`01a10c31`) and `recoilless_rifle` (`01a10c3f`), and two `loiter_drone` previews of 5 Oct (`01a10c42`, `01a10c4d`), 80 credits | The early ledger lines if they survive in the main checkout's untracked file (not looked at: this pass never touched it); otherwise the doc stays as the record |
-| 10 | **The credits screen's AI disclosure.** | **The audio half is closed (AU-10, 9 Oct 2026):** the disclosure is three `en.json` paragraphs now (`credits.ai.*`), naming the generated theme and the mission music cut from it, the ElevenLabs placeholder voices and their exclusion from a commercial release, and the synthesised cues and effects, and the stale "four art gates" line is gone (`credits-data.test.ts` pins all of it). Still omitted: the videos and the images (items 4, 5 and 7). Before AU-10, `CREDITS.aiDisclosure` said "Some models were generated with Meshy ... passes the same four art gates", and the "four art gates" had been retired with `validate:assets` in #374. Separately, 1,848 of the 2,416 commits on `main` (at `c626848f`) carry a Claude co-author trailer, so every Blender script, the audio synthesiser and the SVG paths were written with Claude Code; this register files that under "No" (procedural, no generative art tool). Whether a Steam disclosure should count it is the lead's reading | For the videos and images: a wording decision once items 4, 5 and 7 are answered, then a line in `credits.ai.*` |
+| 10 | **The credits screen's AI disclosure.** | **The audio half is closed (AU-10, 9 Oct 2026):** the disclosure is three `en.json` paragraphs now (`credits.ai.*`), naming the generated theme and the mission music cut from it, the ElevenLabs placeholder voices and their exclusion from a commercial release, the AI-generated fire-support effects (GH-782, ElevenLabs Sound Effects, likewise left out), and the synthesised cues and other effects, and the stale "four art gates" line is gone (`credits-data.test.ts` pins all of it). Still omitted: the videos and the images (items 4, 5 and 7). Before AU-10, `CREDITS.aiDisclosure` said "Some models were generated with Meshy ... passes the same four art gates", and the "four art gates" had been retired with `validate:assets` in #374. Separately, 1,848 of the 2,416 commits on `main` (at `c626848f`) carry a Claude co-author trailer, so every Blender script, the audio synthesiser and the SVG paths were written with Claude Code; this register files that under "No" (procedural, no generative art tool). Whether a Steam disclosure should count it is the lead's reading | For the videos and images: a wording decision once items 4, 5 and 7 are answered, then a line in `credits.ai.*` |
 
 ### The register
 
@@ -383,6 +391,11 @@ one directory, `**` crosses directories).
 | `assets/audio/music/holding_the_perimeter_battle.{ogg,m4a}` | The mission's battle music loop (AU-7): the theme's heaviest section, 16 bars at 92 BPM ending on its own fill, a 41.749 s stereo loop | Cut from `holding_the_perimeter.mp3` by `tools/recut_music.py` (the lead's ruling and by-ear pick, 2026-10-09): a slice of the theme with its last 40 ms crossfaded into the theme's own preceding 40 ms, resampled by under 0.03% to whole AAC frames, gain to -15.0 LUFS, encoded by ffmpeg (Vorbis q5, AAC 160 kb/s). Nothing generated or added | Python (numpy, scipy), ffmpeg | Yes, by inheritance: a cut of the AI-generated theme; the generator is unrecorded | Declared CC-BY-4.0, credit Ilan Pinto, as the theme; **inherits the theme's open question (item 3)** and adds none | `data/audio.json`, `music.beds` |
 | `assets/audio/voice/he/infantry/{move_01a,attack_01a,death_01a,death_02a}.{ogg,m4a}`<br>`assets/audio/voice/he/common/ack_01a.{ogg,m4a}` | Five Hebrew unit voice lines, ogg and m4a | ElevenLabs speech the lead generated and supplied on 2026-09-29, trimmed by `tools/voice_prep.py`; the plan and the generation date are not recorded | ElevenLabs; ffmpeg | Yes: ElevenLabs | Declared `LicenseRef-owned`; ElevenLabs commercial licence NOT confirmed (D5, item 2) | Unit voices (ElevenLabs) |
 | `assets/audio/voice/he/common/announce_{defeat,mission_start,objective_active,objective_complete,reinforcements}_01a.{ogg,m4a}`<br>`assets/audio/voice/he/infantry/attack_02a.{ogg,m4a}` | Six Hebrew voice lines in the lead's own voice (five announcer lines, one unit order), ogg and m4a | Recorded by the project lead on 2026-10-09 and supplied as MP3 (the raw files stay untracked in the main checkout); trimmed, mono 44.1 kHz, -18 LUFS by `tools/voice_prep.py` | ffmpeg | No: a human voice | `LicenseRef-owned`, credit Ilan Pinto: his own voice, commercial-safe | Voice lines recorded by the lead |
+| `assets/audio/barrage_impact/barrage_impact_0{1,2,3}.{ogg,m4a}` | A 120 mm mortar round landing (GH-782): 3 takes, ogg and m4a | ElevenLabs Sound Effects, supplied by the lead (his `A_single_120mm_morta_#1..#3` WAVs): mono (L+R)/2, 44.1 kHz, hit trimmed to 2.5 s, levelled by `tools/prepare_support_audio.py` | ElevenLabs Sound Effects; ffmpeg | **Yes**: ElevenLabs Sound Effects | Declared `LicenseRef-owned`, credit Ilan Pinto; the plan and date are not recorded, commercial licence NOT confirmed (item 2) | `tools/support_audio_sources.json` (sha256 of every input), `data/audio.json` `sets.barrage_impact` |
+| `assets/audio/strike_impact/strike_impact_0{1,2,3}.{ogg,m4a}` | The 500 kg bomb of an air strike (GH-782): 3 takes, ogg and m4a | ElevenLabs Sound Effects, supplied by the lead (`A_500_kg_aircraft_bo_#2..#4`): mono, 44.1 kHz, hit trimmed to 5.0 s, levelled by `tools/prepare_support_audio.py` | ElevenLabs Sound Effects; ffmpeg | **Yes**: ElevenLabs Sound Effects | Declared `LicenseRef-owned`, credit Ilan Pinto; commercial licence NOT confirmed (item 2) | `tools/support_audio_sources.json`, `data/audio.json` `sets.strike_impact` |
+| `assets/audio/jet_flyby/jet_flyby_0{1,2,3,4}.{ogg,m4a}` | The strike jet's pass (GH-782): 4 takes aligned on one loudness peak (`crest_s` 1.8 s), ogg and m4a | ElevenLabs Sound Effects, supplied by the lead (`A_single_fighter_jet_#1..#4`): mono, 44.1 kHz, cut so each take's loudest 400 ms window centres at 1.8 s, 5.0 s long, by `tools/prepare_support_audio.py` | ElevenLabs Sound Effects; ffmpeg | **Yes**: ElevenLabs Sound Effects | Declared `LicenseRef-owned`, credit Ilan Pinto; commercial licence NOT confirmed (item 2) | `tools/support_audio_sources.json`, `data/audio.json` `sets.jet_flyby` |
+| `assets/audio/incoming_whistle/incoming_whistle_0{1,2}.{ogg,m4a}` | The whistle before each mortar-barrage round (GH-782): 2 takes, ogg and m4a | ElevenLabs Sound Effects, supplied by the lead (`The_descending_whist_#3`, `#4`): mono, 44.1 kHz, trimmed from both ends so it ends where its descent ends, by `tools/prepare_support_audio.py` | ElevenLabs Sound Effects; ffmpeg | **Yes**: ElevenLabs Sound Effects | Declared `LicenseRef-owned`, credit Ilan Pinto; commercial licence NOT confirmed (item 2) | `tools/support_audio_sources.json`, `data/audio.json` `sets.incoming_whistle` |
+| `assets/audio/support/rotor_loop.{ogg,m4a}` | The Peten gunship's rotor over a mortar barrage (GH-782): one 5.805 s seamless loop, ogg and m4a | ElevenLabs Sound Effects, supplied by the lead (`An_attack_helicopter_#1`): the steadiest stretch, cut at zero crossings a whole number of AAC frames and blade periods apart with a 256-sample crossfade, by `tools/prepare_support_audio.py` | ElevenLabs Sound Effects; ffmpeg | **Yes**: ElevenLabs Sound Effects | Declared `LicenseRef-owned`, credit Ilan Pinto; commercial licence NOT confirmed (item 2) | `tools/support_audio_sources.json`, `data/audio.json` `support_air.rotor` |
 | `assets/audio/README.md` | Audio rules | Project text | None | No | ARR, project original | none needed |
 
 #### Fonts, decoder and service worker
@@ -980,6 +993,44 @@ taken from the filenames: nobody has transcribed the audio. The mapping of the
 the lead's ear.
 
 ---
+
+
+## Fire-support sound effects (ElevenLabs Sound Effects, supplied by the lead, 2026-10-24) -- GH-782
+
+Twenty-six files in `assets/audio/{barrage_impact,strike_impact,jet_flyby,incoming_whistle,support}/`,
+declared in `data/audio.json` (`sets.barrage_impact`, `sets.strike_impact`,
+`sets.jet_flyby`, `sets.incoming_whistle`, `support_air.rotor`) and voiced by
+`packages/render/src/support-voices.ts` and `audio.ts`.
+
+**Where they came from.** The lead generated 14 takes with **ElevenLabs Sound
+Effects** (48 kHz, 16-bit, stereo WAV, 29 MB): three mortar-round impacts, three
+500 kg bomb impacts, four fighter-jet passes, two attack-helicopter loops and
+two descending whistles. The WAVs are not committed.
+`tools/support_audio_sources.json` records every input's filename, sha256 and role,
+and `tools/prepare_support_audio.py --src=<dir>` refuses a file whose hash
+differs, so the shipped clips regenerate byte for byte from the lead's files. A
+backup of the inputs is kept outside the repository by the lead
+(`~/dev/roaring-lions-art-backup/audio/support-gh782/`). Nothing is downloaded and
+nothing is taken from a library.
+
+**What was done to them**: downmix to mono as (L+R)/2, resample to 44.1 kHz,
+trim, fade, level to the lead's approved heard targets, encode (OGG Vorbis q3
+and AAC at 160 kb/s). One take was not used: `An_attack_helicopter_#4` carries a
+sample at 0 dBFS. Every other take ships. No sound was added to them and none is
+layered over them.
+
+**Rights.** AI-generated: **Yes**, ElevenLabs Sound Effects. Declared
+`LicenseRef-owned`, credit Ilan Pinto (the repository's precedent for ElevenLabs
+output, the Hebrew voice lines). The lead's account is that his ElevenLabs plan
+carries a commercial-use licence; the plan name and the date it was read are not
+recorded, so each `source` also carries "commercial licence NOT yet confirmed" and
+a commercial build leaves these files out exactly as it leaves out the voices
+(`validate_audio.py --commercial` fails them, `--commercial-manifest` strips
+them; the support sets stay declared with no takes and the rotor block goes).
+`LicenseRef-owned` is allowed for these sets and the rotor block only: an
+ordinary battle set that declares it is refused (`test_validate_audio_support.py`).
+The credits screen says the fire-support effects are AI-generated
+(`credits.ai.audio`, pinned by `credits-data.test.ts`).
 
 ## Voice lines recorded by the lead (2026-10-09)
 
