@@ -10,6 +10,7 @@ import * as THREE from 'three';
 import { Sim, fx, type SimEvent, type UnitTypeJson } from '@lions/sim';
 import type { RendererOptions, TerrainTones } from '../api';
 import { ThreeRenderer } from './ThreeRenderer';
+import { QUALITY_PRESETS } from '../quality';
 import type { FlipbookFx } from './units/flipbook-fx';
 import { FLIP_SMOKE } from './units/flipbook-fx';
 import type { EmitterSpec } from '../vfx/emitters';
@@ -179,12 +180,12 @@ function spyLayers(p: WiredPrivates): string[] {
 /** Instances the flipbook has been handed (delayed ones included). */
 const spawned = (fb: FlipbookFx): number => fb.mesh.geometry.instanceCount;
 
-function wired(withAtlases: boolean) {
+function wired(withAtlases: boolean, quality?: RendererOptions['quality']) {
   const sim = new Sim({ seed: 1, width: 32, height: 32, capacity: 8 });
   const hardIdx = sim.addUnitType(HARD);
   const tank = sim.spawn(hardIdx, 0, fx.from(12.5), fx.from(12.5));
   const enemy = sim.spawn(hardIdx, 1, fx.from(18.5), fx.from(12.5));
-  const r = new ThreeRenderer(sim, makeOpts());
+  const r = new ThreeRenderer(sim, quality ? { ...makeOpts(), quality } : makeOpts());
   r.useEmitters(
     [catastrophic, shellImpact, missileImpact, fireApfsds, structureCollapse] as unknown as EmitterSpec[],
     (key) => (key.startsWith('#') ? key : '#FFB43C')
@@ -227,7 +228,9 @@ describe('ThreeRenderer flipbook wiring (D5, D6)', () => {
   it('a vehicle kill spawns the kill recipe INSTEAD of the fireball, the column and the shroud (D5)', () => {
     const { sim, r, p, tank, calls } = wired(true);
     killEntity(sim, r, tank);
-    expect(spawned(p.flipbook)).toBe(36);
+    // Was 36 (10 fire, 26 smoke), then 109 (23 fire + 50 smoke + 36 sparks):
+    // now 91 (17 fire + 38 smoke + 36 sparks), the lead's option A trim (23 Oct).
+    expect(spawned(p.flipbook)).toBe(91);
     expect(calls.flash).toBe(0);
     expect(calls.plume).toBe(0);
     expect(p.collapseShrouds.liveCount).toBe(0);
@@ -236,6 +239,17 @@ describe('ThreeRenderer flipbook wiring (D5, D6)', () => {
     expect(p.hitStop.remainingMs).toBe(70);
     expect(p.decalsPersistent.liveCount).toBe(2);
     r.dispose();
+  });
+
+  it('the quality preset reaches the flipbook: low spawns 38 kill instances, the default 91', () => {
+    const low = wired(true, QUALITY_PRESETS.low);
+    killEntity(low.sim, low.r, low.tank);
+    expect(spawned(low.p.flipbook)).toBe(38);
+    low.r.dispose();
+    const high = wired(true);
+    killEntity(high.sim, high.r, high.tank);
+    expect(spawned(high.p.flipbook)).toBe(91);
+    high.r.dispose();
   });
 
   it('a vehicle kill before the atlases land falls back to the fireball, column and shroud', () => {

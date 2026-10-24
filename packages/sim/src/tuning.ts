@@ -66,6 +66,7 @@ export const FALLOFF_SCALE = new Int32Array([
   65536, // rocket
   65536, // interceptor
   65536, // demolition
+  65536, // directed_energy
 ]);
 /** Hit-chance cover modifiers by cover level 0-3 (GDD: 0.2 … 1.0). */
 /** Hit-chance cover modifiers by cover level 0-3 (GDD: 0.2 … 1.0).
@@ -179,7 +180,7 @@ export const SUPP_STAT_DIVISOR = 730;
 /** Which weapon classes an APS can engage at all (shaped charge family). */
 export const APS_INTERCEPTABLE_MASK = (1 << 1) | (1 << 3) | (1 << 4); // heat|atgm|rpg
 /** P(intercept) velocity factor by weapon class index (0 where N/A). */
-export const APS_VEL_F = new Int32Array([0, 49152, 0, 65536, 62259, 0, 0, 0, 0, 0, 0, 0]); // heat .75, atgm 1.0, rpg .95
+export const APS_VEL_F = new Int32Array([0, 49152, 0, 65536, 62259, 0, 0, 0, 0, 0, 0, 0, 0]); // heat .75, atgm 1.0, rpg .95
 export const APS_SAT_WINDOW = 40; // 2 s
 export const APS_SAT_PENALTY = 16384; // 0.25 per recent engagement
 export const APS_SAT_CAP = 49152; // 0.75
@@ -199,6 +200,7 @@ export const PROJ_SPEED = new Int32Array([
   327680, // rocket 5
   0, // interceptor
   131072, // demolition 2
+  0, // directed_energy: resolves at once, no projectile (E6 GH-274)
 ]);
 /** Miss scatter: radius = 0.5 + u tiles, u uniform in [0,1). */
 export const SCATTER_BASE = 32768; // 0.5

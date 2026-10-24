@@ -815,6 +815,16 @@ yours; each one records what the next phase inherits.
   scenario lays smoke): the `smoke-outline` toggle A/B must clear a third of the smallest
   of three runs (dense and thin smoke at zoom 1 and 2.5, floors in its source), the quiet
   frame must read 0 px, and hidden `overlays` must read 0 px; it exits 1 otherwise.
+- **The smoke screen is a lit, standing billboard** (GH-705 smoke uplift P1;
+  `smoke-mesh.ts`). It was a flat feathered disc lying on the ground with
+  `depthTest: false`; each puff is now a camera-facing quad that stands on the
+  ground (`SMOKE_STAND` 0.9), samples the flipbook's smoke atlas and is lit by the
+  same sun (`setLook`), `depthTest` on so terrain and buildings hide it. The quad's
+  foot fades out (`smoothstep(-1.0, -0.55, vUv.y)`) so it never shows the depth test's
+  hard cut on the ground; `smoke-mesh.test.ts` pins that from `VIEW_DIRECTION`.
+  `RenderQuality.fxDetail` (low 0 / medium 1 / high 1; `high` also draws `smokeBillboardGain` 0.8) compiles its noise down.
+  Debug layer `smoke-screen` is a flag on `SmokeMesh`; its witness is
+  `blast:capture`'s `smoke_eitan` (an opt-in layer: only that subject runs it).
 - **Every shot draws a travelling projectile; no line spans the gap any
   more** (PR #342, 2 Oct 2026, the lead: "no need for the straight lines").
   `units/shells.ts` is the whole model — `mortar`/`rocket` arc (GH-145),
@@ -882,7 +892,13 @@ yours; each one records what the next phase inherits.
   and missile impacts and vehicle kills. A vehicle kill drops its tan
   collapse shroud for the flipbook's soot column (D5); building and tunnel
   collapses keep theirs. Until both atlases load the old layers draw, so a
-  kill never draws nothing. Witnessed by `pnpm blast:capture`'s `bloom` and
+  kill never draws nothing. A kill's column is OIL (smoke layer `oil` 0..1,
+  a negative tint in the shader, GH-705 P2): near-black soot, a flickering
+  ember glow in a young puff's dense lower core, and a sun-side grey crown
+  (`FLIPBOOK_OIL_CROWN`); its embers are a fourth layer type, `spark`, an HDR
+  ballistic dot in the fire pass (x `HDR_GAINS.sparks`). At `RenderQuality.fxDetail`
+  0 (`low`) spark layers are skipped and a layer with `low_fraction` spawns
+  `ceil(count * low_fraction)`. Witnessed by `pnpm blast:capture`'s `bloom` and
   `flipbook` toggle floors; see `docs/PERFORMANCE.md`, "Defilade T4", for
   cost and the two open items (the `aftermath` frame's muzzle-light bloom,
   and the unwitnessed muzzle-mesh gains).

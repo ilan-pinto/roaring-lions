@@ -14,7 +14,7 @@ const seats = (id: MapId) => {
 describe('versusAnchors: the measured versus seats', () => {
   it('stands each measured map on its table entry (literals)', () => {
     expect(seats('beit_sahwan_outskirts')).toEqual([[4, 23], [40, 24]]);
-    expect(seats('tel_marum')).toEqual([[24, 46], [28, 16]]);
+    expect(seats('tel_marum')).toEqual([[27, 45], [28, 16]]);
   });
 
   it('reads a versus map its own named seats, and the raw JSON the same as the parsed map', () => {

@@ -277,6 +277,13 @@
  *                 `layerChecks` entry: no gated scenario has a blast in it
  *                 (`blast-light`'s reason); its witness is a frame with one.
  *
+ * ONE MORE FOR THE LIT SMOKE SCREEN (GH-705 smoke uplift, P1):
+ * - `smoke-screen` the standing smoke billboards (`smoke-mesh.ts`), one
+ *                 instanced mesh. A flag (`SmokeMesh.setDebugHidden`) that
+ *                 `update` never overrides. Returns 1. No `layerChecks`
+ *                 entry: no gated scenario lays smoke. `blast:capture`'s
+ *                 `smoke_eitan` subject votes it.
+ *
  * ONE MORE FOR GH-471, the `missiles` rule again:
  * - `tunnel-xray` the x-ray of an identified tunnel (`../tunnel-xray.ts`):
  *                 bore and shafts, surface collars, the figures inside and
@@ -394,6 +401,9 @@ export const DEBUG_LAYERS = [
   // GH-705: the viewer's own units in smoke keep their occlusion outline
   // through it. A flag `stepSmokeOutlines` reads per frame.
   'smoke-outline',
+  // GH-705 smoke uplift P1: the lit, standing smoke screen (`smoke-mesh.ts`).
+  // A flag on `SmokeMesh`. Witnessed by the `smoke_eitan` subject of `blast:capture`.
+  'smoke-screen',
 ] as const;
 
 export type DebugLayer = (typeof DEBUG_LAYERS)[number];

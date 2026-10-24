@@ -201,6 +201,21 @@ describe('transport', () => {
     expect(sim.state.posX[squad]).toBe(sim.state.posX[car]);
   });
 
+  it('a rider chases a MOVING carrier to its seat (GH-581), not to where it was', () => {
+    // The carrier drives off across the rider's line (slower than he walks, so he can catch it).
+    // The chase used to rewrite the goal POINT every tick but leave the flow field on the
+    // carrier's original tile: he walked to that tile, arrived, and halted short of a hull that
+    // had moved on. Measured before the fix: stuck a few tiles from it for 40 s.
+    const { sim, inf } = world();
+    const crawler = sim.addUnitType({ ...JEEP, id: 'c_crawler', mobility: { speed_tiles_s: 0.6, turn_rate_deg_s: 150 } });
+    const car = sim.spawn(crawler, 0, fx.from(10.5), fx.from(14.5));
+    const squad = sim.spawn(inf, 0, fx.from(6.5), fx.from(10.5));
+    sim.queueCommand({ kind: 'move', ids: [car], x: fx.from(10.5), y: fx.from(2.5) });
+    sim.queueCommand({ kind: 'load', ids: [squad], carrier: car });
+    run(sim, 40 * TICKS_PER_SECOND);
+    expect(sim.state.carriedBy[squad]).toBe(car);
+  });
+
   it('refuses to load a tank into a personnel carrier', () => {
     // A carrier is not a flatbed. The old rule was "anything that is not
     // itself a carrier can ride", which is true of tanks — so a box-select
