@@ -19,6 +19,10 @@ import {
 } from './fog-pass';
 import { hexToLinear, WORLD_PER_LEVEL } from './terrain/shared';
 import { HAZE_FORWARD, HAZE_LOW, HAZE_LOW_LEVELS, HAZE_RAMP_TILES } from './haze';
+import {
+  SHIMMER_K1, SHIMMER_K2, SHIMMER_KX, SHIMMER_MAX_OFFSET_PX, SHIMMER_MAX_SITES, SHIMMER_NORM,
+  SHIMMER_VERTICAL, SHIMMER_W1, SHIMMER_W2, shimmerSite,
+} from './shimmer';
 
 describe('FogOfWarPass', () => {
   it('carries the spec constants as uniforms and the tint as a LINEAR colour', () => {
@@ -244,5 +248,63 @@ describe('the haze term (R-13, R-14)', () => {
     expect(pass.uniforms.uHazeRef.value).toBe(2);
     expect(pass.uniforms.uHazeTint.value.toArray()).toEqual([0.5, 0.4, 0.3]);
     expect(pass.uniforms.uFocus.value.toArray()).toEqual([10, 20]);
+  });
+});
+
+describe('the beam\'s heat shimmer (E6 chunk C)', () => {
+  it('carries shimmer.ts\'s constants in the shader source, and is a no-op with no site', () => {
+    const pass = new FogOfWarPass(new THREE.Texture(), 8, 8);
+    const frag = pass.material.fragmentShader;
+    // The skip: nothing in a frame without a beam reads the uniform array.
+    expect(frag).toContain('if (uShimmerCount > 0)');
+    expect(frag).toContain(`uniform vec4 uShimmer[${SHIMMER_MAX_SITES}];`);
+    expect(frag).toContain(`rlD.y * ${SHIMMER_K1.toFixed(4)} + uShimmerTime * ${SHIMMER_W1.toFixed(4)}`);
+    expect(frag).toContain(
+      `rlD.y * ${SHIMMER_K2.toFixed(4)} - uShimmerTime * ${SHIMMER_W2.toFixed(4)} + rlD.x * ${SHIMMER_KX.toFixed(4)}`
+    );
+    expect(frag).toContain(`${SHIMMER_MAX_OFFSET_PX.toFixed(4)} / ${SHIMMER_NORM.toFixed(8)}`);
+    expect(frag).toContain(`${SHIMMER_VERTICAL.toFixed(4)} * rlW2 * rlA`);
+    // The offset is in pixels and the sample in UV: it is scaled by the pixel size, or it is a 1-UV jump.
+    expect(frag).toContain('* uShimmerPx;');
+    expect(pass.uniforms.uShimmerCount.value).toBe(0);
+    expect(pass.uniforms.uShimmerAmp.value).toBe(1);
+    expect(pass.uniforms.uShimmer.value).toHaveLength(SHIMMER_MAX_SITES);
+  });
+
+  it('samples the scene colour at the shimmered UV, BEFORE the haze and the shroud touch it', () => {
+    const frag = new FogOfWarPass(new THREE.Texture(), 8, 8).material.fragmentShader;
+    const sample = frag.indexOf('texture2D(tDiffuse, rlUv)');
+    expect(sample).toBeGreaterThan(0);
+    expect(frag).not.toContain('texture2D(tDiffuse, vUv)');
+    expect(frag.indexOf('color.rgb = mix(color.rgb, uHazeTint, rlHaze)')).toBeGreaterThan(sample);
+    expect(frag.indexOf('texture2D(uShroud, tex)')).toBeGreaterThan(sample);
+    // The depth read stays at the pixel's own UV: only the colour is displaced.
+    expect(frag).toContain('texture2D(tDepth, vUv)');
+  });
+
+  it('setShimmer writes the sites, the count, the aspect, the pixel size and the sim clock', () => {
+    const pass = new FogOfWarPass(new THREE.Texture(), 8, 8);
+    pass.setShimmer([shimmerSite(0.2, -0.4, 0.8, 1, 900), shimmerSite(0, 0, 0.5, 1, 900)], 1600, 900, 12.5);
+    expect(pass.uniforms.uShimmerCount.value).toBe(2);
+    expect(pass.uniforms.uShimmer.value[0].toArray()).toEqual([0.6, 0.3, 10 / 900, 0.8]);
+    expect(pass.uniforms.uShimmerAspect.value).toBeCloseTo(1600 / 900, 12);
+    expect(pass.uniforms.uShimmerPx.value.toArray()).toEqual([1 / 1600, 1 / 900]);
+    expect(pass.uniforms.uShimmerTime.value).toBe(12.5);
+    pass.setShimmer([], 1600, 900, 12.55);
+    expect(pass.uniforms.uShimmerCount.value).toBe(0);
+  });
+
+  it('caps the sites at the array length', () => {
+    const pass = new FogOfWarPass(new THREE.Texture(), 8, 8);
+    const many = Array.from({ length: 12 }, (_, i) => shimmerSite(i / 12, 0, 1, 1, 900));
+    pass.setShimmer(many, 1600, 900, 0);
+    expect(pass.uniforms.uShimmerCount.value).toBe(SHIMMER_MAX_SITES);
+  });
+
+  it('setShimmer never writes the amplitude the beam-shimmer layer owns', () => {
+    const pass = new FogOfWarPass(new THREE.Texture(), 8, 8);
+    pass.uniforms.uShimmerAmp.value = 0;
+    pass.setShimmer([shimmerSite(0, 0, 1, 1, 900)], 1600, 900, 1);
+    expect(pass.uniforms.uShimmerAmp.value).toBe(0);
   });
 });

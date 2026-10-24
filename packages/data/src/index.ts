@@ -207,6 +207,9 @@ import demolitionBlast from '../../../data/vfx/demolition_blast.json';
 import smokeDischarge from '../../../data/vfx/smoke_discharge.json';
 // E6 (GH-274) chunk B: a swarm member shot down, thrown by id where it was hit.
 import swarmMemberDown from '../../../data/vfx/swarm_member_down.json';
+// E6 (GH-274) chunk C: the laser carrier's beam. `beam_strike` where a dwell completed, `beam_vent` on a lockout.
+import beamStrike from '../../../data/vfx/beam_strike.json';
+import beamVent from '../../../data/vfx/beam_vent.json';
 
 // The scene-host diorama (2026-09-24-scene-host §3.2/§10): a real map, a
 // camera and a few idle units, standing behind the main menu. One file, one
@@ -575,6 +578,9 @@ export const vfxEmitters = [
   smokeDischarge,
   // E6 (GH-274) chunk B: a swarm member shot down (`SwarmBatch`'s 'down' event), by id.
   swarmMemberDown,
+  // E6 (GH-274) chunk C: the beam's strike sparks and its overheat vent, by id.
+  beamStrike,
+  beamVent,
 ];
 
 /** Resolve a palette key like "vfx.fire" or "dust.2" to its hex colour. */

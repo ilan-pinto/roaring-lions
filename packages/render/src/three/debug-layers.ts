@@ -349,6 +349,23 @@
  * Neither gets a `layerChecks` entry: no gated scenario contains a swarm, so a check there would
  * read 0 px on a healthy tree. `pnpm e6:capture` (chunk D) is where they vote.
  *
+ * TWO FOR E6 (GH-274, chunk C), the laser carrier's beam:
+ *
+ * - `beam`        the beam batch's one mesh (`units/beam-batch.ts`): the core and sheath ribbons and the
+ *                 lens and target glows. A FLAG the batch's `finish` consults (`BeamBatch.setDebugHidden`),
+ *                 because `finish` re-derives `visible` from its beam count every frame - a bare write would
+ *                 hold only until the next repaint, the `vehicle` story. It hides neither the heat shimmer
+ *                 (its own layer) nor the `beam_strike`/`beam_vent` particles. Returns 1.
+ * - `beam-shimmer` the heat shimmer at the target, which lives inside the fog-of-war pass (spec 6.3):
+ *                 `uShimmerAmp` driven to 0, the term's own amplitude, so the shroud and the haze run
+ *                 exactly as shipped and the beam itself still draws. `haze`'s shape: a uniform
+ *                 `frame()` never writes (it writes the sites, the aspect and the clock), so the plain
+ *                 write holds across the gate's repaint. Returns 1 when it changed, 0 when it was already
+ *                 there or the pass does not exist.
+ *
+ * Neither gets a `layerChecks` entry: no gated scenario contains a beam, so a check there would read 0 px
+ * on a healthy tree. `pnpm e6:capture` (chunk D) is where they vote.
+ *
  * `fog`, ADDED FOR THE SAME KEY-ART PLATE, ONE STEP LATER (task-10
  * follow-up 2): the large dark diagonal a first attempt at the plate read as
  * a shadow was the fog-of-war boundary -- `FogOfWarPass` (`../fog-pass.ts`)
@@ -428,6 +445,10 @@ export const DEBUG_LAYERS = [
   // scenario holds a swarm.
   'swarm',
   'swarm-wrecks',
+  // E6 (GH-274) chunk C: the beam batch's mesh, a flag (`BeamBatch.setDebugHidden`); and the heat
+  // shimmer, `uShimmerAmp` in the fog pass. Witnessed by `pnpm e6:capture` (chunk D).
+  'beam',
+  'beam-shimmer',
 ] as const;
 
 export type DebugLayer = (typeof DEBUG_LAYERS)[number];

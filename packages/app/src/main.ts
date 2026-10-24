@@ -6439,6 +6439,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
        *  "the drawn members follow the live count": compare it with `sim.swarmMembers(id)`. */
       swarmDrawn: (id: number) => renderer.swarmDrawn(id),
 
+      /** E6 (GH-274) chunk C: what the beam batch was handed last frame for laser carrier `id`'s weapon
+       *  `slot` (look numbers and both ends), or null - read off the batch's inputs (`Renderer.beamDrawn`),
+       *  never recomputed from the sim. The witness for "the beam follows the dwell". */
+      beamDrawn: (id: number, slot = 0) => renderer.beamDrawn(id, slot),
+      /** E6 chunk C: heat-shimmer sites the fog pass was handed last frame (`Renderer.beamShimmerSites`). */
+      beamShimmerSites: () => renderer.beamShimmerSites(),
+
       /** Redraw the minimap's GROUND now, off its own 4 Hz tick, everything
        *  else as its last draw had it (`Minimap.redrawGround`). The visual
        *  gate's `crown` toggle needs it: the frame loop is frozen there, so a

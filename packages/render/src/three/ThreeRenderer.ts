@@ -117,7 +117,7 @@ import { setUnitSurfacePass } from './units/unit-surface';
 import { firePointOnMap } from './units/fire-points';
 import * as THREE from 'three';
 import { fx, MED_CARRYING, MED_DELIVERING, ONE, WEAPON_CLASS, type Fx, type MissionEvent, type Sim, type SimEvent } from '@lions/sim';
-import type { AimFootprint, AuraRingView, ObjectiveZoneView, PlacementPreview, RallyMarkView, Renderer, RendererOptions, SupplyRouteView, TerrainTones } from '../api'; // both, after Step 2
+import type { AimFootprint, AuraRingView, BeamReadback, ObjectiveZoneView, PlacementPreview, RallyMarkView, Renderer, RendererOptions, SupplyRouteView, TerrainTones } from '../api'; // both, after Step 2
 import { WORLD_Y_PER_LIFT_PIXEL, TILE_W, TILE_H, type Camera } from '../project';
 import { QUALITY_PRESETS } from '../quality';
 import { EmitterLibrary, ParticleSystem, firePower, type EmitterSpec, type ParticleSpec } from '../vfx';
@@ -371,6 +371,10 @@ import type { MissileLanding, TargetTrack } from './units/missiles';
 import { missileClassOf, SIM_PROJ_SPEED_TILES_S } from './units/missiles';
 import { SwarmBatch, extractSwarmParts, type SwarmBatchEvent } from './units/swarm-batch';
 import type { DiveRequest } from './units/swarm-layout';
+import { BeamBatch, vehicleMuzzleOf } from './units/beam-batch';
+import { BEAM_MS_PER_TICK, newBeamLook, newBeamLookState, stepBeamLook, type BeamLook, type BeamLookState } from './units/beam-look';
+import { shimmerSite, SHIMMER_MAX_SITES, type ShimmerSite } from './shimmer';
+import type { FirePoint } from './units/fire-points';
 import {
   isKamikazeDetonation,
   detonationHeadingTurns,
@@ -788,6 +792,11 @@ const MESH_TURRET_RECOIL_TILES = 0.11;
  * than the pre-existing 0.8-tile hull-centre guess, since the pivot itself
  * is already offset forward from the hull's own origin.
  */
+/** E6 chunk C: a carrier with no turret pivot to read the muzzle from draws its beam from this far
+ *  above the hull centre, tiles (about 4.5 m: the Remetz's roof module). A fallback, not a measurement. */
+const BEAM_FALLBACK_HEIGHT = 1.5;
+/** How far behind the carrier's centre, tiles, the `beam_vent` puffs leave (its power module). */
+const BEAM_VENT_BACK_TILES = 0.6;
 const MESH_TURRET_MUZZLE_TILES = 0.5;
 /**
  * Main-rotor spin rate for a `rotor_pivot`-carrying mesh vehicle (`heli_peten`
@@ -980,6 +989,25 @@ const MAX_RANGE_HOOP_ALPHA = 0.22;
  */
 function decalSeed(kind: DecalKind, x: number, z: number): number {
   return tileHash(Math.floor(8 * x), Math.floor(8 * z) + 977 * DECAL_KIND_INDEX[kind]);
+}
+
+/**
+ * E6 (GH-274) chunk C: one laser carrier weapon slot's presentation state. The look's envelopes
+ * (`beam-look.ts`), the events that arrived since the last frame, the last end the beam held (a
+ * `struck` spark and a break's fade both need a point after the target has gone), and what was
+ * drawn last frame.
+ */
+interface BeamSlotState {
+  readonly look: BeamLookState;
+  readonly out: BeamLook;
+  pendingStruckMs: number | null;
+  pendingLockout: boolean;
+  haveEnd: boolean;
+  endX: number;
+  endY: number;
+  endZ: number;
+  drawn: boolean;
+  readback: BeamReadback | null;
 }
 
 /**
@@ -2099,6 +2127,23 @@ export class ThreeRenderer implements Renderer {
    *  the end of `updateSwarms`; events arrive (`onEvents`) before the frame that draws them. */
   private readonly swarmDiveRequests = new Map<number, DiveRequest[]>();
   private readonly swarmEvents: SwarmBatchEvent[] = [];
+  /**
+   * E6 (GH-274) chunk C: every laser beam in the world, one mesh and one draw call
+   * (`units/beam-batch.ts`), fed by `updateBeams` from `Sim.beamState` and the `beam` event. Added
+   * to the scene here and empty (`visible = false`, 0 draws) until a carrier lases.
+   */
+  private readonly beamBatch = new BeamBatch(this.scene);
+  /** Per carrier weapon slot (key `entity * 2 + slot`): the look's envelopes and last readback. */
+  private readonly beamSlots = new Map<number, BeamSlotState>();
+  /** Where this frame's beams land, world space, for the fog pass's heat shimmer. */
+  private readonly beamShimmerWorld: { x: number; y: number; z: number; amp: number }[] = [];
+  /** Sites handed to the fog pass last frame: what `beamShimmerSites` reads back. */
+  private beamShimmerFed = 0;
+  private readonly beamShimmerScratch: ShimmerSite[] = [];
+  private readonly beamTmp = new THREE.Vector3();
+  private readonly beamTmpEnd = new THREE.Vector3();
+  /** `rl_fire.muzzle` by template, parsed once: it is turret-local, see `vehicleMuzzleOf`. */
+  private readonly beamMuzzles = new WeakMap<object, FirePoint | null>();
   private readonly proxyEntries: ProxyBoxEntry[] = [];
   private readonly meshUnitEntities = new Map<number, MeshUnitEntity>();
   /** Mesh units mid-death-fade, not keyed by entity id -- see
@@ -2982,6 +3027,8 @@ export class ThreeRenderer implements Renderer {
     // always in the scene and drawing nothing until a call or a strike.
     this.supportAircraft = new SupportAircraftManager(this.overlayColor('vfx.fire', FLASH_LIGHT_FALLBACK));
     this.shockRings = new ShockRingPool(this.overlayColor('vfx.white_hot', FLASH_LIGHT_FALLBACK));
+    // E6 chunk C: the beam's two palette keys, a white-hot core in an ember sheath.
+    this.beamBatch.setColors(this.overlayColor('vfx.white_hot', FLASH_LIGHT_FALLBACK), this.overlayColor('vfx.ember', FLASH_LIGHT_FALLBACK));
     this.scene.add(this.supportAircraft.group, this.shockRings.group);
     // Same "always present, draws nothing until fed" shape as the FX meshes
     // just above -- both start at drawRange 0 (`beginFrame`/`endFrame`
@@ -3477,6 +3524,8 @@ export class ThreeRenderer implements Renderer {
     this.tracerBatch.dispose();
     this.shellBatch.dispose();
     this.boltBatch.dispose();
+    this.beamBatch.dispose();
+    this.beamSlots.clear();
     this.missileFx.dispose();
     // Phase C: same "added once in the constructor, no scene.remove needed"
     // shape as the FX batches just above -- see the shroud/fog-pass comment
@@ -3679,6 +3728,9 @@ export class ThreeRenderer implements Renderer {
     this.updateMeshUnits(alpha, dtMs);
     this.updateVehicleMeshes(alpha, dtMs);
     this.updateSwarms(alpha, dtMs);
+    // After the vehicles and the swarms: the beam's two ends are a turret pivot and a swarm member,
+    // both written this frame.
+    this.updateBeams(alpha);
     this.updateKitLod();
     this.updateProxyBoxes(alpha);
     this.updateVehicleAmbientFx(dtMs);
@@ -3762,6 +3814,8 @@ export class ThreeRenderer implements Renderer {
     // this frame's depth through last frame's view, which reads on screen as
     // the shroud sliding a frame behind the ground whenever the camera pans.
     this.fogPass?.updateCamera(camera);
+    // The beam's heat shimmer, projected through the SAME shaken camera that draws the ground.
+    this.feedBeamShimmer(camera, alpha);
     this.updateShadowFit(camera);
     // The haze's focus plane is the camera's look-at point, which IS the
     // screen centre: `updateDimetricCamera` aims a symmetric orthographic
@@ -4159,6 +4213,23 @@ export class ThreeRenderer implements Renderer {
           n += 2;
         }
         return n;
+      }
+      case 'beam':
+        // A FLAG on the batch (`BeamBatch.setDebugHidden`): `finish` re-derives the mesh's `visible`
+        // from its beam count every frame, so a bare write would hold only until the next repaint.
+        // Hides the ribbons and glows, NOT the shimmer (`beam-shimmer`) and not the emitters.
+        this.beamBatch.setDebugHidden(!visible);
+        return 1;
+      case 'beam-shimmer': {
+        // `haze`'s shape: the pass's amplitude uniform to 0 and back, which `frame()` never writes
+        // (it writes the sites, the aspect and the clock, not this). 1 when it changed, 0 when it was
+        // already there or there is no pass.
+        if (this.fogPass === null) return 0;
+        const amp = this.fogPass.uniforms.uShimmerAmp;
+        const next = visible ? 1 : 0;
+        const changed = amp.value === next ? 0 : 1;
+        amp.value = next;
+        return changed;
       }
       case 'swarm-wrecks': {
         this.swarmWrecksDebugHidden = !visible;
@@ -4932,6 +5003,7 @@ export class ThreeRenderer implements Renderer {
       // collapsed building, a discovered route) still run below.
       if (this.quiet && isBurstOnlyEvent(e.kind)) continue;
       if (e.kind === 'fire') this.onFire(e);
+      else if (e.kind === 'beam') this.onBeam(e);
       else if (e.kind === 'nearMiss') {
         const nx = fx.toNumber(e.x);
         const ny = fx.toNumber(e.y);
@@ -6393,6 +6465,16 @@ export class ThreeRenderer implements Renderer {
     return false;
   }
 
+  /** E6 chunk C: `Renderer.beamDrawn` - what the beam batch was handed last frame for this slot. */
+  beamDrawn(id: number, slot = 0): BeamReadback | null {
+    return this.beamSlots.get(id * 2 + slot)?.readback ?? null;
+  }
+
+  /** E6 chunk C: `Renderer.beamShimmerSites` - the sites the fog pass was handed last frame. */
+  beamShimmerSites(): number {
+    return this.beamShimmerFed;
+  }
+
   /** A left-click's unit -- `units/pick.ts`'s `pickUnitAtScreen` has the
    *  defect and the rule. `radiusTiles` absent is the left-click's own. */
   unitAtScreen(px: number, py: number, radiusTiles?: number): number {
@@ -7167,6 +7249,205 @@ export class ThreeRenderer implements Renderer {
     for (const e of events) {
       if (e.kind === 'down') this.spawnNamedBurst('swarm_member_down', e.x, e.z, 0);
     }
+  }
+
+  /**
+   * E6 (GH-274) chunk C, spec 6.2: every laser carrier's beam for this frame.
+   *
+   * Per carrier weapon slot, `Sim.beamState` (target, dwell, locked: "as the next tick will see it",
+   * allocating a little, once per slot per frame) and the `beam` events `onBeam` filed go through
+   * `stepBeamLook`, which decides the look; this puts its two ends on the world. The ORIGIN is the
+   * carrier's `rl_fire.muzzle` through its clone's live `turret_pivot` world matrix, so the beam
+   * follows traverse, recoil and hull pitch and roll. The END of a swarm target is the member at
+   * slot `live - 1` - the one the next `struck` removes, so the drone the beam is on is the drone
+   * that falls - and of any other air target its interpolated position plus the air lift.
+   *
+   * Fogged: a beam is drawn only while its carrier AND its target are (`unitIsDrawn`, the vehicle
+   * rule); a break's fade holds the last end the beam had. Presentation only, one-way: sim state in,
+   * quads out. The weapon's `beam.dwellTicks` is read from the unit type, never hard-coded.
+   */
+  private updateBeams(alpha: number): void {
+    const st = this.sim.state;
+    const n = this.snapshottedCount;
+    const nowMs = presentationSimMs(this.sim.tickCount, alpha);
+    this.beamBatch.beginFrame(this.camera.zoom);
+    this.beamShimmerWorld.length = 0;
+    for (let i = 0; i < n; i++) {
+      const type = this.sim.unitTypes[st.typeIdx[i]];
+      for (let slot = 0; slot < type.weapons.length && slot < 2; slot++) {
+        const beam = type.weapons[slot].beam;
+        if (beam === null) continue;
+        if (st.alive[i] === 0 || st.removed[i] === 1) {
+          this.beamSlots.delete(i * 2 + slot);
+          continue;
+        }
+        this.updateBeamSlot(i, slot, beam.dwellTicks, alpha, nowMs);
+      }
+    }
+    this.beamBatch.finish();
+  }
+
+  private updateBeamSlot(i: number, slot: number, dwellTicks: number, alpha: number, nowMs: number): void {
+    const st = this.sim.state;
+    const key = i * 2 + slot;
+    const bs = this.beamSlots.get(key) ?? this.newBeamSlot(key);
+    const s = this.sim.beamState(i, slot);
+    const look = stepBeamLook(
+      bs.look,
+      {
+        target: s.target, dwell: s.dwell, locked: s.locked, dwellTicks, alpha, nowMs,
+        struckAtMs: bs.pendingStruckMs, lockout: bs.pendingLockout,
+      },
+      bs.out
+    );
+    bs.pendingStruckMs = null;
+    bs.pendingLockout = false;
+    bs.drawn = false;
+    bs.readback = null;
+    if (!look.ribbon && !look.lens) return;
+
+    const wx = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
+    const wy = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
+    if (!unitIsDrawn(st.tunnelIn[i], st.side[i], this.viewer, wx, wy, this.fogVisibleAt)) return;
+
+    const origin = this.beamTmp;
+    this.beamOriginInto(i, wx, wy, origin);
+
+    if (s.target >= 0) {
+      const t = s.target;
+      const tx = this.prevX[t] + (this.curX[t] - this.prevX[t]) * alpha;
+      const ty = this.prevY[t] + (this.curY[t] - this.prevY[t]) * alpha;
+      if (!unitIsDrawn(st.tunnelIn[t], st.side[t], this.viewer, tx, ty, this.fogVisibleAt)) {
+        // The target is in fog: no beam into the dark, and no stale end to fade onto either.
+        bs.haveEnd = false;
+        return;
+      }
+      const end = this.beamTmpEnd;
+      let found = false;
+      if (this.sim.unitTypes[st.typeIdx[t]].swarm !== null) {
+        const live = this.sim.swarmMembers(t);
+        found = live > 0 && this.swarmMemberWorldPosition(t, live - 1, end);
+      }
+      if (!found) {
+        end.set(tx, groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, tx, ty) + this.airLiftY(t, alpha), ty);
+      }
+      bs.endX = end.x;
+      bs.endY = end.y;
+      bs.endZ = end.z;
+      bs.haveEnd = true;
+    }
+    // A ribbon needs both ends; a fade with no end ever held draws the lens glow alone.
+    const ribbon = look.ribbon && bs.haveEnd;
+    if (!ribbon) look.ribbon = false;
+    if (!ribbon && !look.lens) return;
+
+    const added = this.beamBatch.add({
+      ox: origin.x, oy: origin.y, oz: origin.z, ex: bs.endX, ey: bs.endY, ez: bs.endZ, look,
+    });
+    if (!added) return;
+    bs.drawn = true;
+    bs.readback = {
+      origin: [origin.x, origin.y, origin.z],
+      end: [bs.endX, bs.endY, bs.endZ],
+      ribbon,
+      corePx: look.corePx,
+      coreAlpha: look.coreAlpha,
+      sheathPx: look.sheathPx,
+      sheathAlpha: look.sheathAlpha,
+      targetGlowTiles: look.targetGlowTiles,
+      lensGlowAlpha: look.lensGlowAlpha,
+      shimmerAmp: ribbon ? look.shimmerAmp : 0,
+      focus: look.focus,
+      pulse: look.pulse,
+    };
+    if (ribbon && look.shimmerAmp > 0) this.beamShimmerWorld.push({ x: bs.endX, y: bs.endY, z: bs.endZ, amp: look.shimmerAmp });
+  }
+
+  private newBeamSlot(key: number): BeamSlotState {
+    const bs: BeamSlotState = {
+      look: newBeamLookState(), out: newBeamLook(), pendingStruckMs: null, pendingLockout: false,
+      haveEnd: false, endX: 0, endY: 0, endZ: 0, drawn: false, readback: null,
+    };
+    this.beamSlots.set(key, bs);
+    return bs;
+  }
+
+  /**
+   * Where carrier `i`'s beam leaves: `rl_fire.muzzle` (turret-local, in the GLB's metres) through
+   * the clone's live `turret_pivot` world matrix. The pivot's world matrix is brought up to date
+   * HERE rather than read off the last render: `updateVehicleMeshes` has just rewritten its
+   * rotation and recoil kick this frame and nothing has walked the scene since. A carrier with no
+   * mesh yet (a proxy box, a GLB still in flight) or no muzzle falls back to the hull centre at
+   * turret height.
+   */
+  private beamOriginInto(i: number, wx: number, wy: number, out: THREE.Vector3): void {
+    const entity = this.vehicleMeshEntities.get(i);
+    const pivot = entity?.turretPivot ?? null;
+    if (entity && pivot) {
+      const template = this.vehicleMeshTemplates.get(entity.templateKey);
+      let muzzle = template ? this.beamMuzzles.get(template) : null;
+      if (template && muzzle === undefined) {
+        muzzle = vehicleMuzzleOf(template.root.userData as Record<string, unknown>, `${entity.typeId}.glb`);
+        this.beamMuzzles.set(template, muzzle);
+      }
+      if (muzzle) {
+        pivot.updateWorldMatrix(true, false);
+        out.set(muzzle[0], muzzle[1], muzzle[2]).applyMatrix4(pivot.matrixWorld);
+        return;
+      }
+    }
+    out.set(wx, groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, wx, wy) + BEAM_FALLBACK_HEIGHT, wy);
+  }
+
+  /**
+   * A `beam` event (E6 chunk C, spec 6.2). Files it for the next `updateBeams` (the pulse is
+   * stamped with the EVENT's tick, so it is on the sim clock) and throws its emitter: `beam_strike`
+   * where the beam was last seen on its target, `beam_vent` from the carrier on a lockout. A beam is
+   * one-shot presentation and a catch-up (`quiet`) drops it whole, as it drops every burst.
+   */
+  private onBeam(e: Extract<SimEvent, { kind: 'beam' }>): void {
+    if (this.quiet) return;
+    const st = this.sim.state;
+    const type = this.sim.unitTypes[st.typeIdx[e.shooter]];
+    const found = type.weapons.findIndex((w) => w.id === e.weaponId);
+    const slot = found < 0 ? 0 : found;
+    const key = e.shooter * 2 + slot;
+    const bs = this.beamSlots.get(key) ?? this.newBeamSlot(key);
+    if (e.phase === 'struck') {
+      bs.pendingStruckMs = e.tick * BEAM_MS_PER_TICK;
+      if (bs.drawn && bs.haveEnd) this.spawnNamedBurst('beam_strike', bs.endX, bs.endZ, 0);
+      return;
+    }
+    bs.pendingLockout = true;
+    const cx = this.curX[e.shooter];
+    const cy = this.curY[e.shooter];
+    if (unitIsDrawn(st.tunnelIn[e.shooter], st.side[e.shooter], this.viewer, cx, cy, this.fogVisibleAt)) {
+      // Out of the power module at the carrier's back, rising for 1.2 s (`beam_vent.json`).
+      const facing = fx.toNumber(st.facing[e.shooter]) * Math.PI * 2;
+      this.spawnNamedBurst('beam_vent', cx - Math.cos(facing) * BEAM_VENT_BACK_TILES, cy - Math.sin(facing) * BEAM_VENT_BACK_TILES, facing);
+    }
+  }
+
+  /**
+   * Hands the fog pass this frame's heat-shimmer sites: each lasing beam's target end, projected
+   * through the camera that draws the frame. An empty list is `uShimmerCount = 0`, which skips the
+   * whole block in the shader (a frame with no beam is bit-identical to one without the feature).
+   */
+  private feedBeamShimmer(camera: THREE.OrthographicCamera, alpha: number): void {
+    const sites = this.beamShimmerScratch;
+    sites.length = 0;
+    const world = this.beamShimmerWorld;
+    for (let k = 0; k < world.length && k < SHIMMER_MAX_SITES; k++) {
+      const w = world[k];
+      const ndc = this.beamTmp.set(w.x, w.y, w.z).project(camera);
+      sites.push(shimmerSite(ndc.x, ndc.y, w.amp, this.camera.zoom, this.height));
+    }
+    if (this.fogPass === null) {
+      this.beamShimmerFed = 0;
+      return;
+    }
+    this.fogPass.setShimmer(sites, this.width, this.height, presentationSimMs(this.sim.tickCount, alpha) / 1000);
+    this.beamShimmerFed = sites.length;
   }
 
   private updateProxyBoxes(alpha: number): void {
@@ -9182,6 +9463,7 @@ export class ThreeRenderer implements Renderer {
       this.tracerBatch.mesh,
       this.shellBatch.mesh,
       this.boltBatch.mesh,
+      this.beamBatch.mesh,
       ...this.missileFx.meshes,
       this.smokeMesh.mesh,
       this.collapseShrouds.mesh,
