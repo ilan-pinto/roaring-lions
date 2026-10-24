@@ -23,7 +23,8 @@ describe('the normal arm is the room', () => {
     // (beit helper / room) and 1524988923 (tel, both).
     // beit's helper pin re-pinned 24 Oct 2026 for its seat 1 at (40,23) (GH-561). Was 2485993817.
     expect(pinWindow('beit_sahwan_outskirts', 'helper').hash).toBe(1732930723);
-    expect(pinWindow('beit_sahwan_outskirts', 'room').hash).toBe(3227696674);
+    // beit's room pin re-pinned 24 Oct 2026 for its seat 1 at (40,23) (GH-561). Was 3227696674.
+    expect(pinWindow('beit_sahwan_outskirts', 'room').hash).toBe(4047666552);
     // tel_marum re-pinned 2026-10-22 for its versus seat 0 at (24,46). Was 1260439781.
     // Re-pinned 24 Oct 2026 for its seat 0 at (27,45) (GH-774). Was 280818962.
     expect(pinWindow('tel_marum', 'helper').hash).toBe(792859212);
