@@ -13,7 +13,7 @@ const seats = (id: MapId) => {
 
 describe('versusAnchors: the measured versus seats', () => {
   it('stands each measured map on its table entry (literals)', () => {
-    expect(seats('beit_sahwan_outskirts')).toEqual([[4, 23], [40, 24]]);
+    expect(seats('beit_sahwan_outskirts')).toEqual([[4, 23], [40, 23]]);
     expect(seats('tel_marum')).toEqual([[27, 45], [28, 16]]);
   });
 

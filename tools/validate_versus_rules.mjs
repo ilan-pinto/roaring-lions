@@ -25,7 +25,7 @@ export const MATCHUP_MAPS = ['tel_marum', 'wadi_tarfan'];
 
 /** packages/app/src/net/versus-seats.ts VERSUS_SEATS. */
 export const VERSUS_SEATS = {
-  beit_sahwan_outskirts: { friendly: [4, 23], hostile: [40, 24] },
+  beit_sahwan_outskirts: { friendly: [4, 23], hostile: [40, 23] },
   tel_marum: { friendly: [27, 45], hostile: [28, 16] },
 };
 
