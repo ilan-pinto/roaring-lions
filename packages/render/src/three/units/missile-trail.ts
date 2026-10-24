@@ -20,7 +20,7 @@
  * denser trail -- and it never re-emits a stretch of ground it has already
  * covered: `MissileModel.trailTiles` (from Task 2) remembers the last
  * distance a puff was actually placed at, and a call that emits nothing
- * (because the missile has not moved a further 0.2 tiles, or an RPG has not
+ * (because the missile has not moved a further 0.12 tiles, or an RPG has not
  * yet reached `ignitionTiles`) leaves it untouched. That second case is what
  * lets an unlit RPG's first LIT puff start exactly at its ignition point
  * rather than backfilling the unlit stretch behind it.
@@ -40,12 +40,12 @@ import {
 } from './missiles';
 import { shellGroundDist, shellPointInto, shellProgress, type ShellModel } from './shells';
 
-export const TRAIL_SPACING_TILES = 0.2;
+export const TRAIL_SPACING_TILES = 0.12;
 export const TRAIL_RISE_PX_S = 5;
 export const TRAIL_DRIFT_TILES_S = 0.15;
 /** Toward screen upper-right; one map-wide presentation wind (N10). */
 export const TRAIL_DRIFT_TURNS = 0.875;
-export const TRAIL_CAPACITY = 768;
+export const TRAIL_CAPACITY = 2048;
 /** `TrailPool.style` values. */
 export const PUFF_MISSILE = 0;
 export const PUFF_ROCKET = 1;
@@ -245,7 +245,7 @@ export class TrailPool {
  *
  * `groundDist === 0` needs no explicit guard: `travelled = progress *
  * groundDist` is then 0 too, and `kStart >= 1` (so `kStart *
- * TRAIL_SPACING_TILES >= 0.2`) always fails the loop's own `<= travelled +
+ * TRAIL_SPACING_TILES >= 0.12`) always fails the loop's own `<= travelled +
  * 1e-9` bound -- the loop body, and the division by `groundDist`, simply
  * never run. An `if (groundDist > 0)` around the emit used to sit inside
  * the loop as a belt-and-braces check; it was unreachable dead code (the

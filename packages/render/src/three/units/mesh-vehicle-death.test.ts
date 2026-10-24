@@ -345,26 +345,31 @@ describe('buildVehicleMeshTemplate, with a death root', () => {
     expect(meshesOf(template.root)).toHaveLength(4);
 
     // Break check: `addMaterial` -> `materials.push`. This reads 4 and goes
-    // red, and so does the disposal count below.
-    expect(template.materials).toHaveLength(2);
-    expect(new Set(template.materials).size).toBe(2);
+    // red, and so does the disposal count below. Was 2: GH-705 Task 6 gives
+    // each role CLASS its own surface clone of the bake (`unit-surface.ts`), so
+    // the list holds the bake, the `armour` clone (hull_hull), the `gunmetal`
+    // clone (turret_metal) and the one charred wreck material -- still one
+    // entry per distinct object, never one per mesh.
+    expect(template.materials).toHaveLength(4);
+    expect(new Set(template.materials).size).toBe(4);
 
-    const live = byName(template.root, 'hull_hull').material as THREE.Material;
+    const hullLive = byName(template.root, 'hull_hull').material as THREE.Material;
+    const turretLive = byName(template.root, 'turret_metal').material as THREE.Material;
     const charred = byName(template.root, 'WRECK_hull_hull').material as THREE.Material;
-    expect(live).toBe(bake); // `texturedMaterial` normalises in place
+    // Each live part wears its class's clone, not the bake itself.
+    expect(hullLive).not.toBe(bake);
+    expect(turretLive).not.toBe(bake);
+    expect(hullLive).not.toBe(turretLive);
     expect(charred).not.toBe(bake);
     // Break check: drop the `charredFor` memo and call
     // `charredTexturedMaterial` directly. Both wreck meshes then get their
-    // own byte-identical clone, `materials` reads 3, and this goes red.
+    // own byte-identical clone, `materials` reads 5, and this goes red.
     expect(byName(template.root, 'WRECK_turret_metal').material).toBe(charred);
-    expect(byName(template.root, 'turret_metal').material).toBe(bake);
-    expect(new Set(template.materials)).toEqual(new Set([live, charred]));
+    expect(new Set(template.materials)).toEqual(new Set([bake, hullLive, turretLive, charred]));
 
-    const liveSpy = vi.spyOn(live, 'dispose');
-    const charredSpy = vi.spyOn(charred, 'dispose');
+    const spies = [bake, hullLive, turretLive, charred].map((m) => vi.spyOn(m, 'dispose'));
     disposeVehicleMeshTemplate(template);
-    expect(liveSpy).toHaveBeenCalledTimes(1);
-    expect(charredSpy).toHaveBeenCalledTimes(1);
+    for (const spy of spies) expect(spy).toHaveBeenCalledTimes(1);
   });
 
   it('keeps a wreck part in its twin\'s render-order band, shadows and all', async () => {
