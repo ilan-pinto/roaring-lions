@@ -60,6 +60,7 @@ describe('mobility.gear vs the running-gear recipes (#706)', () => {
   it('every unit declaring wheels has a wheels-only recipe', () => {
     const wheels = units.filter((u) => u.mobility.gear === 'wheels').map((u) => u.id);
     for (const id of wheels) expect(`${id}: ${recipeGear(id) ?? 'no recipe'}`).toBe(`${id}: wheels`);
-    expect(wheels.length).toBe(7);
+    // E6 chunk A2: the Remetz Laser Carrier. Was 7.
+    expect(wheels.length).toBe(8);
   });
 });

@@ -92,8 +92,11 @@ describe('orders are obeyed after they are done, every KDF type', () => {
     // GH-709 (22 Oct): the armoured ambulance and the medevac are unarmed too (`weapons: []`),
     // so they stay put for the same reason, and so does the Chadaf recon robot
     // (GH-709 Phase 8, 22 Oct). Was ['recon_drone'].
+    // E6 chunk A2 (25 Oct): the Remetz Laser Carrier's only weapon is an air-only beam, so the sweep's
+    // couldEngage refuses to walk it at the ground contact, the same way: it stays put. Was
+    // ['recon_drone', 'veh_ambulance', 'air_medevac_heli', 'ugv_recon_dog'].
     const stayed = KDF.filter((type) => !(drift(type, 'sweep') > 3));
-    expect(stayed).toEqual(['recon_drone', 'veh_ambulance', 'air_medevac_heli', 'ugv_recon_dog']);
+    expect(stayed).toEqual(['recon_drone', 'veh_ambulance', 'air_medevac_heli', 'ugv_recon_dog', 'aa_remetz']);
   });
 
   it('the exemption is still needed', () => {
