@@ -219,6 +219,16 @@ describe('snapshot schema: completeness', () => {
     expect(SIM_SNAPSHOT_SCHEMA.filter((r) => r.kind.t === 'rng').map((r) => r.name)).toEqual(['rng']);
   });
 
+  it('a state row is always a kind the encoder walks: typed with a known length, scalar, rng, aux or pool', () => {
+    // An `object` row, or a typed row of unpromised length ('any'), carries no state: the encoder
+    // (snapshot.ts) has no way to write either, so one classed `state` would be silently dropped.
+    for (const r of rowsOf('state')) {
+      const ok =
+        (r.kind.t === 'typed' && r.kind.len !== 'any') || r.kind.t === 'scalar' || r.kind.t === 'rng' || r.kind.t === 'aux' || r.kind.t === 'pool';
+      expect(ok, `${r.name} is state but has kind ${JSON.stringify(r.kind)}`).toBe(true);
+    }
+  });
+
   it('rowsOf returns a class in schema order', () => {
     for (const c of ['state', 'config', 'derived', 'scratch', 'boundary'] as const) {
       const want = SIM_SNAPSHOT_SCHEMA.filter((r) => r.cls === c);
