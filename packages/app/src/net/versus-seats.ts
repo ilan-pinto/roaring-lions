@@ -19,6 +19,9 @@ import { sandboxAnchors, type SandboxAnchors } from '../sandbox-anchors';
  *   `town_center` (31,22), inside the town, and the west seat won 38 of 48
  *   (79.2%). Seat 1 on the open ground east of the town at (40,24) reads
  *   west 22 / east 26 of 48, no draws. Seat 0 is the heuristic's own `kdf_assembly`.
+ *   At 96 seeds (GH-561, 24 Oct) that seat read east 57 / west 39 (59.4%).
+ *   One tile north, at (40,23), it reads west 49 / east 47; its neighbours
+ *   (40,22), (40,25) and (40,26) read 50-54%, so it is not a one-tile spike.
  * - `tel_marum` (mirror and KDF-vs-Sarim; the lead's ruling, 22 Oct): the
  *   heuristic's `start_line` (24,44) read Sarim 29 of 48 with Sarim on seat 0
  *   (60.4%). Seat 0 two tiles further south at (24,46) reads the mirror
@@ -50,7 +53,7 @@ import { sandboxAnchors, type SandboxAnchors } from '../sandbox-anchors';
  * probe.
  */
 export const VERSUS_SEATS: Readonly<Record<string, SandboxAnchors>> = {
-  beit_sahwan_outskirts: { friendly: [4, 23], hostile: [40, 24] },
+  beit_sahwan_outskirts: { friendly: [4, 23], hostile: [40, 23] },
   tel_marum: { friendly: [27, 45], hostile: [28, 16] },
   wadi_tarfan: { friendly: [11, 11], hostile: [36, 36] },
 };
