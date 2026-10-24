@@ -746,6 +746,14 @@ yours; each one records what the next phase inherits.
   still the source of every AUTHORED colour (`docs/ART_PIPELINE.md` §2), and
   `pnpm validate:ui` and `pnpm validate:meshes` hold it (`validate:assets`, the
   sprite gate, was retired with the sheets in WP-A3.3).
+- **Unit surfaces take per-role roughness/metalness** (`units/unit-surface.ts`,
+  GH-705 Task 6, ruled 23 Oct 2026). The GLB's one material is cloned once per
+  surface class (cloth, gunmetal, rubber, ...): +0 draw calls and textures,
+  +0 programs except one permutation where a metal class drops an MR map. The bakes' own MR maps are flat (roughness 0.797, metal ~0.004), so
+  this is the only source of contrast. Metal is capped at 0.45: there is no
+  environment map, so a metal surface keeps only the sun's lobe. The
+  `unit-surface` debug layer restores today's values; its floors are in
+  `golden-diff/baseline.ts`. A scar or running-gear clone keeps the values it was cut with.
 - **`units/render-order.ts` is the single source of truth for every
   `renderOrder`.** Read it before setting one. Bands are: **-1 world (mesh
   buildings)**, 0 hull/structures, 0.5 selection ring, 1 turret, 1.5 badge numeral, 2 FX,

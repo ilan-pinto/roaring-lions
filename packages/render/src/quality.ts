@@ -57,6 +57,15 @@ export interface RenderQuality {
    */
   shadowFit?: 'map' | 'view';
   /**
+   * GTAO's internal resolution as a fraction of the drawing buffer, per axis
+   * (GH-777). Absent means `post-chain.ts`'s `AO_RESOLUTION_SCALE` (0.5, the
+   * value before this field). Only `high` builds the pass, so only `high`
+   * sets it: 0.25, which the lead chose (23 Oct 2026) because at DPR 2 `high`
+   * missed 60 fps on quiet views and this is the cheapest cut that holds it
+   * (about 2 ms), costing coarser contact shadows and nothing else.
+   */
+  aoScale?: number;
+  /**
    * The smoke screen's noise detail (`three/smoke-mesh.ts`, GH-705 smoke
    * uplift P1), a compile-time define: 2 = both fbm chains, 1 = the first
    * only, 0 = none (flat 0.5). Optional so callers that predate it read 2.
@@ -74,5 +83,5 @@ export interface RenderQuality {
 export const QUALITY_PRESETS: Readonly<Record<'low' | 'medium' | 'high', RenderQuality>> = {
   low: { ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0 },
   medium: { ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view', fxDetail: 1 },
-  high: { ao: true, smaa: true, shadowMapSize: 4096, bloom: 'quarter', shadowFit: 'view', fxDetail: 1, smokeBillboardGain: 0.8 },
+  high: { ao: true, smaa: true, shadowMapSize: 4096, bloom: 'quarter', shadowFit: 'view', aoScale: 0.25, fxDetail: 1, smokeBillboardGain: 0.8 },
 };

@@ -47,7 +47,7 @@ describe('the kitted scenario (GH-238 K8)', () => {
     expect(spec.maxDiffPixels).toBe(BASELINES.vehicle.maxDiffPixels);
     expect(spec.maxMeanAbsChannelDelta).toBe(BASELINES.vehicle.maxMeanAbsChannelDelta);
     expect(spec.repaintControl).toBeUndefined();
-    expect((spec.layerChecks ?? []).map((c) => c.layer)).toEqual(['units', 'kit']);
+    expect((spec.layerChecks ?? []).map((c) => c.layer)).toEqual(['units', 'kit', 'unit-surface']);
     const units = spec.layerChecks?.find((c) => c.layer === 'units');
     const vehicleUnits = BASELINES.vehicle.layerChecks?.find((c) => c.layer === 'units');
     expect(units?.minDiffPixels).toBe(vehicleUnits?.minDiffPixels);

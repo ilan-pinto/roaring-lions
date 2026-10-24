@@ -1454,6 +1454,9 @@ export class MissionRuntime {
         return `population cap reached (${used}/${cap})`;
       }
     }
+    // The sim has a fixed number of lifetime entity ids (wounded men use them too, GH-761). A
+    // build queued with none left would be refused at deploy anyway; refuse it up front, with a reason.
+    if (this.sim.entityCount >= this.sim.capacity) return 'no room on the field (entity limit reached)';
     // Last (R-F4-4): a line holds one in progress and MAX_LINE_QUEUE waiting. Named: that line;
     // unnamed: every living line of the side.
     const named = this.livingLine(side, line);
@@ -2627,8 +2630,15 @@ export class MissionRuntime {
         const ids = this.spawnPlacement(
           group === undefined ? { unit: done.unit, count: 1 } : { unit: done.unit, count: 1, group },
           line.side,
-          line.anchor >= 0 ? this.sim.structureExit(line.anchor) : undefined
+          line.anchor >= 0 ? this.sim.structureExit(line.anchor) : undefined,
+          true
         );
+        if (ids.length === 0) {
+          // No entity ids left (capacity). Nothing deployed, so nothing was built: the price
+          // goes back and no `built` event is raised.
+          this.refund(line.side, done);
+          continue;
+        }
         // D5: a rally point is a no-sweep attack-move, queued on the deploy tick. `sweep` is left
         // off on purpose: an arrived attack-mover holds (sweepOrder 0, #537).
         if (line.rally !== null && ids.length > 0) {
@@ -3182,7 +3192,17 @@ export class MissionRuntime {
     }
   }
 
-  private spawnPlacement(p: PlacementJson, side: number, origin?: readonly [Fx, Fx]): number[] {
+  private spawnPlacement(p: PlacementJson, side: number, origin?: readonly [Fx, Fx], soft = false): number[] {
+    // A runtime spawn (wave, spawn/reinforce trigger, production deploy) at the sim's entity
+    // capacity is skipped per PLACEMENT (whole, never half-placed), rather than thrown. A wave with no body
+    // spawned raises no wave event and no say; a spawn/reinforce trigger still shows its own label.
+    // It reads only integers the sim already hashes, so both peers refuse on the same tick.
+    // Start-time placements stay strict: a force that does not fit is an authoring error.
+    if (soft) {
+      let bodies = p.count;
+      for (const q of p.passengers ?? []) bodies += p.count * q.count;
+      if (this.sim.capacity - this.sim.entityCount < bodies) return [];
+    }
     let bx: Fx;
     let by: Fx;
     if (origin !== undefined) {
@@ -3845,11 +3865,11 @@ export class MissionRuntime {
           }
         }
       } else if (t.do.kind === 'spawn') {
-        for (const p of t.do.units ?? []) this.spawnPlacement(p, 1);
+        for (const p of t.do.units ?? []) this.spawnPlacement(p, 1, undefined, true);
       } else if (t.do.kind === 'reinforce') {
         // Player-side arrival (GDD §6). `spawn` stays side-1-only so no
         // existing mission changes behaviour.
-        for (const p of t.do.units ?? []) this.spawnPlacement(p, 0);
+        for (const p of t.do.units ?? []) this.spawnPlacement(p, 0, undefined, true);
       } else if (t.do.kind === 'dismount') {
         // Everyone out of every carrier in the group. Queued as a command rather
         // than reaching into sim state, same as commit and withdraw_to.
@@ -3914,10 +3934,14 @@ export class MissionRuntime {
         spawned.push(
           ...this.spawnPlacement(
             { unit: u.unit, count: u.count, marker: u.from, group: u.group, tag: u.tag },
-            1
+            1,
+            undefined,
+            true
           )
         );
       }
+      // A wave the sim had no entity ids for spawned nothing: it stays silent (no event, no line).
+      if (spawned.length === 0 && w.units.length > 0) continue;
       out.push({ kind: 'wave', tick, count: spawned.length });
       // The story voice on the wave, after the event it annotates -- the same
       // ordering a trigger's say keeps relative to its trigger event.

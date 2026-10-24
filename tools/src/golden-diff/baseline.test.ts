@@ -608,7 +608,7 @@ describe('BASELINES layerChecks', () => {
     );
     const m = /export const DEBUG_LAYERS = \[([^\]]*)\] as const;/.exec(src);
     if (!m) throw new Error('could not find DEBUG_LAYERS in packages/render/src/three/debug-layers.ts');
-    return [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]);
+    return [...m[1].replace(/\/\/.*$/gm, '').matchAll(/'([^']+)'/g)].map((x) => x[1]); // comments stripped: an apostrophe in one shifts the quote pairing
   }
 
   it('names only layers the renderer can actually toggle', () => {
@@ -718,6 +718,9 @@ describe('BASELINES layerChecks', () => {
     // gated frame -- the sandbox force boots with an empty brigade account
     // everywhere but under `&kit` -- so `kitted` is its only witness.
     expect(byLayer.get('kit')).toEqual(['kitted']);
+    // GH-705 Task 6: the per-role surface pass moves only frames that carry
+    // lit unit bodies at a readable size.
+    expect(byLayer.get('unit-surface')?.sort()).toEqual(['kitted', 'vehicle']);
   });
 
   it('sets every floor strictly below the signal it was measured from, on both metrics', () => {
@@ -836,6 +839,9 @@ describe('BASELINES layerChecks', () => {
       // weakest reading rather than the flattering one.
       vehicle: {
         units: { px: 29622, mean: 2.96 },
+        // GH-705 Task 6, 2026-10-23: relief-read-signal.ts --layers=unit-surface,
+        // 3 fresh-page runs, bit-identical.
+        'unit-surface': { px: 43, mean: 0.0202 },
       },
       // Plan 3 Task 8 (GH-238 K8), 2026-10-07: `kit:capture -- --toggle`, the
       // gate's own capture code, 3 fresh loads per layer, bit-identical
@@ -844,6 +850,7 @@ describe('BASELINES layerChecks', () => {
       kitted: {
         units: { px: 37565, mean: 3.7734 },
         kit: { px: 6460, mean: 0.4278 },
+        'unit-surface': { px: 40, mean: 0.0258 },
       },
     };
     /** Below this many pixels a count is not a measurement you can take a
@@ -1006,7 +1013,7 @@ function debugLayersFromRendererSourceForTone(): string[] {
   );
   const m = /export const DEBUG_LAYERS = \[([^\]]*)\] as const;/.exec(src);
   if (!m) throw new Error('could not find DEBUG_LAYERS in packages/render/src/three/debug-layers.ts');
-  return [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]);
+  return [...m[1].replace(/\/\/.*$/gm, '').matchAll(/'([^']+)'/g)].map((x) => x[1]); // comments stripped: an apostrophe in one shifts the quote pairing
 }
 
 
