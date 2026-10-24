@@ -21,7 +21,8 @@ describe('the normal arm is the room', () => {
     // (no tunnels) and the room's world (buildMatchWorld) for each pin map.
     // All four re-pinned when wounds opened to versus (23 Oct 2026). Was 3296182002 / 1108074073
     // (beit helper / room) and 1524988923 (tel, both).
-    expect(pinWindow('beit_sahwan_outskirts', 'helper').hash).toBe(2485993817);
+    // beit's helper pin re-pinned 24 Oct 2026 for its seat 1 at (40,23) (GH-561). Was 2485993817.
+    expect(pinWindow('beit_sahwan_outskirts', 'helper').hash).toBe(1732930723);
     expect(pinWindow('beit_sahwan_outskirts', 'room').hash).toBe(3227696674);
     // tel_marum re-pinned 2026-10-22 for its versus seat 0 at (24,46). Was 1260439781.
     // Re-pinned 24 Oct 2026 for its seat 0 at (27,45) (GH-774). Was 280818962.
