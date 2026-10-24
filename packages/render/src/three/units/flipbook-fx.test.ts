@@ -558,7 +558,7 @@ describe('white HE smoke', () => {
     expect(w[1]).toBeCloseTo(0.85, 6);
     expect(t[1]).toBeCloseTo(0.4, 6);
     // Slot-only upload: the attribute was marked for the touched slot.
-    expect(fx.mesh.geometry.getAttribute('aWhite').updateRanges.length).toBeGreaterThan(0);
+    expect((fx.mesh.geometry.getAttribute('aWhite') as THREE.BufferAttribute).updateRanges.length).toBeGreaterThan(0);
     // A layer without white writes 0, over a slot a wrapped ring reuses too.
     const plain = ready();
     plain.spawnRecipe(smokeLayer({}), 0, 0, 0, 1);
