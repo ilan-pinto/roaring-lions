@@ -81,7 +81,7 @@ CLIP_LIMIT = 0.999
 
 PROVENANCE = (
     "AI-generated with ElevenLabs Sound Effects, supplied by the lead; he states his ElevenLabs plan carries a "
-    "commercial-use licence, but the plan and date are not recorded and the licence is NOT yet confirmed "
+    "commercial-use licence, but the plan and date are not recorded; commercial licence NOT yet confirmed "
     "(docs/ASSET_PROVENANCE.md item 2); prepared by tools/prepare_support_audio.py"
 )
 LICENSE = "LicenseRef-owned"
