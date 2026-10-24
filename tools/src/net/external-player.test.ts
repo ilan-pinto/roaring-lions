@@ -252,13 +252,13 @@ describe('a model over MCP, end to end (the stand-in client, no model, no key)',
   it('case 1: cmd:<test-mcp-client> playing rush through observe/order/end_round beats passive from both seats', async () => {
     const out = tempDir('ext-e2e-');
     const fake = `cmd:${TSX} ${CLIENT} {mcp}`;
-    const r = await runArena(['--a', fake, '--b', 'passive', '--seeds', '1', '--first-seed', '5', '--map', 'tel_marum', '--pace', '40', '--tick-ms', '1', '--cap-ticks', '6000', '--out', out], quiet);
+    const r = await runArena(['--a', fake, '--b', 'passive', '--seeds', '1', '--first-seed', '0', '--map', 'tel_marum', '--pace', '40', '--tick-ms', '1', '--cap-ticks', '6000', '--out', out], quiet);
     expect(r.code).toBe(0);
     const g: GameRecord[] = r.games;
     expect(g).toHaveLength(2);
-    // Game 1: the fake on seat 0; game 2: on seat 1. It wins both on seed 40595
-    // (`--first-seed 5`; was seed 1000 until tel_marum's versus seat 0 moved to
-    // (24,46), 2026-10-22 -- see arena.test.ts's header).
+    // Game 1: the fake on seat 0; game 2: on seat 1. It wins both on seed 1000
+    // (`--first-seed 0`; was seed 40595 until tel_marum's versus seat 0 moved to
+    // (27,45), 2026-10-24, GH-774 -- see arena.test.ts's header).
     expect(g.map((x) => x.outcome)).toEqual(['seat0', 'seat1']);
     // Its last stdout line said usage 0 + 0: read, not defaulted to null.
     expect(g[0].reports[0].tokens).toBe(0);

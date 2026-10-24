@@ -221,11 +221,12 @@ describe('the controls, on the local relay (the arena\'s pace 60 and cap 12,000)
       const players: [ArenaPlayer, ArenaPlayer] = rushSeat === 0
         ? [inProcess('rush', rush, { log: () => {} }), inProcess('passive', passive, { log: () => {} })]
         : [inProcess('passive', passive, { log: () => {} }), inProcess('rush', rush, { log: () => {} })];
-      // Seed 40595 (seedOf(5)); was 3 until tel_marum's versus seat 0 moved to
-      // (24,46) on 2026-10-22 (`versus-seats.ts`, the lead's ruling), after which
-      // passive on the south edge beat rush on seat 1 on seed 3. At this pace and
-      // cap, of the arena's seeds 0-5 only 40595 is won by rush from both seats.
-      const game = await play(players, { seed: 40595, capTicks: CAP, roundTicks: PACE, timeoutMs: 150_000 });
+      // Seed 1000 (seedOf(0)); was 40595 (seedOf(5)) until tel_marum's versus
+      // seat 0 moved to (27,45) on 2026-10-24 (GH-774), after which passive beat
+      // rush on seat 1 on seed 40595. At this pace and cap, of the arena's seeds
+      // 0-11, rush wins from both seats on 0, 1, 7, 9 and 10. (Was 3 until seat 0
+      // moved to (24,46) on 2026-10-22.)
+      const game = await play(players, { seed: 1000, capTicks: CAP, roundTicks: PACE, timeoutMs: 150_000 });
       expect(game.result.kind).toBe('won');
       if (game.result.kind !== 'won') return;
       expect(game.result.side).toBe(rushSeat);
