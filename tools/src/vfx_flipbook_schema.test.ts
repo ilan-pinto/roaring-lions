@@ -39,6 +39,13 @@ describe('vfx_emitter flipbook layer (P2 members)', () => {
     expect(validate(emitter(layer({ oil: 0.01 })))).toBe(true);
     expect(validate(emitter(layer({ low_fraction: 0.5 })))).toBe(true);
   });
+  it('accepts white in (0, 1] and refuses 0, above 1 and negatives', () => {
+    expect(validate(emitter(layer({ white: 0.85 })))).toBe(true);
+    expect(validate(emitter(layer({ white: 1 })))).toBe(true);
+    expect(validate(emitter(layer({ white: 0 })))).toBe(false);
+    expect(validate(emitter(layer({ white: 1.01 })))).toBe(false);
+    expect(validate(emitter(layer({ white: -0.1 })))).toBe(false);
+  });
   it('refuses oil above 1 or below 0, a bad low_fraction, and an unknown type', () => {
     expect(validate(emitter(layer({ oil: 1.01 })))).toBe(false);
     expect(validate(emitter(layer({ oil: -0.1 })))).toBe(false);
