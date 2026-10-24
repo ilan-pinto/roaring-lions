@@ -559,10 +559,15 @@ describe('white HE smoke', () => {
     expect(t[1]).toBeCloseTo(0.4, 6);
     // Slot-only upload: the attribute was marked for the touched slot.
     expect((fx.mesh.geometry.getAttribute('aWhite') as THREE.BufferAttribute).updateRanges.length).toBeGreaterThan(0);
-    // A layer without white writes 0, over a slot a wrapped ring reuses too.
-    const plain = ready();
-    plain.spawnRecipe(smokeLayer({}), 0, 0, 0, 1);
-    expect((plain.mesh.geometry.getAttribute('aWhite').array as Float32Array)[1]).toBe(0);
+    // A layer without white writes 0 -- including over a slot the ring reuses:
+    // a 2-slot ring takes the white recipe (slots 0, 1), then a plain one
+    // wraps onto the same two slots.
+    const ring = ready(2);
+    ring.spawnRecipe(smokeLayer({ white: 0.85 }), 0, 0, 0, 1);
+    const rw = ring.mesh.geometry.getAttribute('aWhite').array as Float32Array;
+    expect(rw[1]).toBeCloseTo(0.85, 6);
+    ring.spawnRecipe(smokeLayer({}), 0, 0, 0, 1);
+    expect(rw[1]).toBe(0);
     // spawn() carries it as well.
     const direct = ready();
     direct.spawn({ x: 0, y: 0, z: 0, durationMs: 1000, scale: 1, type: FLIP_SMOKE, white: 0.5 });
@@ -606,6 +611,8 @@ describe('white HE smoke', () => {
     const fx = new FlipbookFx();
     const src = fx.mesh.material.fragmentShader;
     const iWhite = src.indexOf('vWhite * smoothstep(0.0, 0.18, vT)');
+    expect(src.indexOf('mix(soot, dusty, dustT)')).toBeGreaterThanOrEqual(0);
+    expect(iWhite).toBeGreaterThanOrEqual(0);
     expect(iWhite).toBeGreaterThan(src.indexOf('mix(soot, dusty, dustT)'));
     expect(iWhite).toBeLessThan(src.indexOf('col = base * uLight * shade'));
     fx.dispose();
