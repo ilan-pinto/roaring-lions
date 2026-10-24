@@ -113,6 +113,7 @@
  * also governs a DYING unit with no loaded sheet (`stepDeaths`, Task
  * B3.14): it is silently skipped, not drawn as a placeholder either.
  */
+import { setUnitSurfacePass } from './units/unit-surface';
 import { firePointOnMap } from './units/fire-points';
 import * as THREE from 'three';
 import { fx, MED_CARRYING, MED_DELIVERING, ONE, WEAPON_CLASS, type Fx, type MissionEvent, type Sim, type SimEvent } from '@lions/sim';
@@ -4103,6 +4104,9 @@ export class ThreeRenderer implements Renderer {
         // A FLAG, `missiles`' shape: `GarrisonBannerBatch.update` writes the
         // mesh's `visible` every frame. Returns 1, the one mesh.
         return this.garrisonBanners.setDebugHidden(!visible);
+      // GH-705 Task 6: a material-field write nothing per-frame re-asserts.
+      case 'unit-surface':
+        return setUnitSurfacePass(visible);
       default:
         // A name `DEBUG_LAYERS` lists and this switch does not handle. The
         // compiler already refuses it (`name` is `never` here), but a build
