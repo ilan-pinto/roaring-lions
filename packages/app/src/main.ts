@@ -6434,6 +6434,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
        *  never match, behind a fully green suite. */
       cursorKey: () => canvas.dataset.cursor ?? '(unset)',
 
+      /** E6 (GH-274): how many members of swarm `id` the renderer's instanced draw was handed last
+       *  frame, read off the batch (`Renderer.swarmDrawn`) and never recomputed. The witness for
+       *  "the drawn members follow the live count": compare it with `sim.swarmMembers(id)`. */
+      swarmDrawn: (id: number) => renderer.swarmDrawn(id),
+
       /** Redraw the minimap's GROUND now, off its own 4 Hz tick, everything
        *  else as its last draw had it (`Minimap.redrawGround`). The visual
        *  gate's `crown` toggle needs it: the frame loop is frozen there, so a

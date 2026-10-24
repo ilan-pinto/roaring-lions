@@ -369,6 +369,8 @@ import {
 } from './units/missile-fx';
 import type { MissileLanding, TargetTrack } from './units/missiles';
 import { missileClassOf, SIM_PROJ_SPEED_TILES_S } from './units/missiles';
+import { SwarmBatch, extractSwarmParts, type SwarmBatchEvent } from './units/swarm-batch';
+import type { DiveRequest } from './units/swarm-layout';
 import {
   isKamikazeDetonation,
   detonationHeadingTurns,
@@ -2081,6 +2083,22 @@ export class ThreeRenderer implements Renderer {
   /** Built on the first failure, never before: a boot where every GLB lands
    *  adds nothing to the scene. */
   private proxyBoxes: ProxyBoxBatch | null = null;
+  /**
+   * E6 (GH-274) chunk B: one instanced draw per swarm TYPE (`drone_swarm` is the only one), built
+   * when that type's template lands (`loadVehicleMesh`). A swarm entity never gets a per-entity
+   * clone: `updateVehicleMeshes` skips any type with `swarm !== null` and `updateSwarms` owns it.
+   */
+  private readonly swarmBatches = new Map<string, SwarmBatch>();
+  /** The `swarm` debug layer. A FLAG `updateSwarms` consults every frame, `unitsDebugHidden`'s shape:
+   *  the batch rewrites its own `visible` and `count` on every frame, so a one-shot write would be
+   *  undone by the very repaint the gate photographs next. */
+  private swarmDebugHidden = false;
+  /** The `swarm-wrecks` layer, for the same reason (`SwarmBatch.finish` re-derives `visible`). */
+  private swarmWrecksDebugHidden = false;
+  /** `fire` events from a swarm shooter this frame, by entity: which exits are dives. Cleared at
+   *  the end of `updateSwarms`; events arrive (`onEvents`) before the frame that draws them. */
+  private readonly swarmDiveRequests = new Map<number, DiveRequest[]>();
+  private readonly swarmEvents: SwarmBatchEvent[] = [];
   private readonly proxyEntries: ProxyBoxEntry[] = [];
   private readonly meshUnitEntities = new Map<number, MeshUnitEntity>();
   /** Mesh units mid-death-fade, not keyed by entity id -- see
@@ -3384,6 +3402,10 @@ export class ThreeRenderer implements Renderer {
     this.vehicleDying.length = 0;
     for (const template of this.vehicleMeshTemplates.values()) disposeVehicleMeshTemplate(template);
     this.vehicleMeshTemplates.clear();
+    // E6 chunk B: the swarm batches own merged geometry of their own, nothing shared with a template.
+    for (const batch of this.swarmBatches.values()) batch.dispose();
+    this.swarmBatches.clear();
+    this.swarmDiveRequests.clear();
     // Building meshes: same shape again -- every clone removed from the
     // scene first (nothing of its own to dispose, matching vehicles), then
     // each template's shared geometry/material released exactly once.
@@ -3656,6 +3678,7 @@ export class ThreeRenderer implements Renderer {
     if (this.showcasePending) this.stampDecalShowcase();
     this.updateMeshUnits(alpha, dtMs);
     this.updateVehicleMeshes(alpha, dtMs);
+    this.updateSwarms(alpha, dtMs);
     this.updateKitLod();
     this.updateProxyBoxes(alpha);
     this.updateVehicleAmbientFx(dtMs);
@@ -3848,7 +3871,14 @@ export class ThreeRenderer implements Renderer {
         if (this.proxyBoxes) this.proxyBoxes.mesh.visible = visible;
         for (const entity of this.meshUnitEntities.values()) entity.root.visible = visible;
         for (const entity of this.vehicleMeshEntities.values()) entity.root.visible = visible;
-        return this.meshUnitEntities.size + this.vehicleMeshEntities.size + (this.proxyBoxes ? 1 : 0);
+        // E6 chunk B: the swarm bodies hide with the rest (`updateSwarms` reads the same flag).
+        if (!visible) {
+          for (const batch of this.swarmBatches.values()) {
+            batch.bodies.visible = false;
+            batch.rotors.visible = false;
+          }
+        }
+        return this.meshUnitEntities.size + this.vehicleMeshEntities.size + (this.proxyBoxes ? 1 : 0) + this.swarmBatches.size * 2;
       case 'vignette':
         // A `Pass.enabled` rather than an `Object3D.visible`, and nothing in
         // `frame()` re-asserts it -- the chain is rebuilt only by the three
@@ -4115,6 +4145,30 @@ export class ThreeRenderer implements Renderer {
       // GH-705 Task 6: a material-field write nothing per-frame re-asserts.
       case 'unit-surface':
         return setUnitSurfacePass(visible);
+      case 'swarm': {
+        // A FLAG (`swarmDebugHidden`): `updateSwarms` rewrites the batch's count and visibility on
+        // every frame. Set first, then the meshes go dark on the same repaint; a caller that never
+        // repaints still sees it.
+        this.swarmDebugHidden = !visible;
+        let n = 0;
+        for (const batch of this.swarmBatches.values()) {
+          if (!visible) {
+            batch.bodies.visible = false;
+            batch.rotors.visible = false;
+          }
+          n += 2;
+        }
+        return n;
+      }
+      case 'swarm-wrecks': {
+        this.swarmWrecksDebugHidden = !visible;
+        let n = 0;
+        for (const batch of this.swarmBatches.values()) {
+          batch.setWrecksDebugHidden(!visible);
+          n += batch.wrecks ? 1 : 0;
+        }
+        return n;
+      }
       default:
         // A name `DEBUG_LAYERS` lists and this switch does not handle. The
         // compiler already refuses it (`name` is `never` here), but a build
@@ -5031,7 +5085,9 @@ export class ThreeRenderer implements Renderer {
         // half can ever admit infantry or a crew-served weapon team: every
         // isotropic, `isSoft: true`, non-tracked/wheeled/single unit type on
         // the roster (civilians included) is absent from both.
-        const isVehicleKill = !deadType.isSoft || trackKindFor(deadType.id) !== null;
+        // E6 chunk B: not for a swarm. `catastrophic_kill` sized from one drone's bounds would be
+        // wrong, and the batch has already drawn the last member's exit (a dive or a fall).
+        const isVehicleKill = deadType.swarm === null && (!deadType.isSoft || trackKindFor(deadType.id) !== null);
         // The readiness of the two MESH pools is no longer the gate on this
         // block, only on their own two spawns below (which already carry it,
         // unchanged). Everything the blast package adds -- the light, the
@@ -5336,6 +5392,14 @@ export class ThreeRenderer implements Renderer {
     const muzzleShown = seen && shooterShown;
 
     const type = this.sim.unitTypes[st.typeIdx[e.shooter]];
+    // E6 chunk B (spec 5.3): a swarm's shot is a DIVE, not a missile and not a muzzle. The diving
+    // member is a body in the swarm batch, so there is no `missileFx` round, no smoke trail and no
+    // `fire_heat` flash at the cloud's centre; the landing is thrown by `updateSwarms`. With no batch
+    // (the GLB failed) the type falls through to the ordinary heat path below.
+    if (type.swarm !== null && this.swarmBatches.has(type.id)) {
+      this.onSwarmDive(e, atStruct, tx, ty, seen);
+      return;
+    }
     // Which weapon fired decides the signature, not whether the shooter is
     // soft (renderer.ts:785-791). Resolved here, at the top, rather than
     // where the muzzle FX below need it: GH-145 made the tracer conditional
@@ -6295,9 +6359,40 @@ export class ThreeRenderer implements Renderer {
       radiusTiles,
       0,
       0,
-      this.pickable
+      this.pickable,
+      this.pickRadiusFloor
     );
   }
+  /**
+   * E6 chunk B: a swarm is picked by its CLOUD, not by one drone. Whatever radius a pick asks for,
+   * a swarm entity is hit anywhere within its cloud's radius (`spread_tiles / 2`, the ring's own
+   * 0.75): a right-click's tight order radius (0.5) would otherwise miss an edge drone and an order
+   * would land on the ground under the cloud. 0 for every other unit, so nothing else moves.
+   */
+  private readonly pickRadiusFloor = (i: number): number => {
+    const swarm = this.sim.unitTypes[this.sim.state.typeIdx[i]].swarm;
+    return swarm === null ? 0 : fx.toNumber(swarm.spread) / 2;
+  };
+  /** E6 chunk B: `Renderer.swarmDrawn` - the swarm batches' own drawn count for entity `id`. */
+  swarmDrawn(id: number): number {
+    let n = 0;
+    for (const batch of this.swarmBatches.values()) n += batch.drawnCount(id);
+    return n;
+  }
+
+  /**
+   * E6 chunk B, for the beam (chunk C): the world position of live member `slot` of swarm `id` as
+   * drawn last frame, or false. The beam ends on slot `live - 1`, the member the next `struck`
+   * removes, so the drone the beam is on is the drone that falls. A position, not a pixel: written
+   * even for an entity fog hides, so the caller gates on its own visibility.
+   */
+  swarmMemberWorldPosition(id: number, slot: number, out: THREE.Vector3): boolean {
+    for (const batch of this.swarmBatches.values()) {
+      if (batch.memberWorldPosition(id, slot, out)) return true;
+    }
+    return false;
+  }
+
   /** A left-click's unit -- `units/pick.ts`'s `pickUnitAtScreen` has the
    *  defect and the rule. `radiusTiles` absent is the left-click's own. */
   unitAtScreen(px: number, py: number, radiusTiles?: number): number {
@@ -6315,7 +6410,8 @@ export class ThreeRenderer implements Renderer {
       this.camera,
       { width: this.width, height: this.height },
       this.pickable,
-      radiusTiles
+      radiusTiles,
+      this.pickRadiusFloor
     );
   }
   /**
@@ -6737,6 +6833,18 @@ export class ThreeRenderer implements Renderer {
       }
     }
 
+    // E6 chunk B: a swarm type also builds its instanced draw, BEFORE anything is filed, so a GLB
+    // that lacks the swarm extras fails whole (a proxy box and a console.error naming it) rather than
+    // leaving a template that quietly draws one drone for a cloud of twelve.
+    try {
+      this.syncSwarmBatch(unitTypeId, template);
+    } catch (err) {
+      disposeVehicleMeshTemplate(template);
+      if (side1) disposeVehicleMeshTemplate(side1);
+      this.noteMeshFailure(unitTypeId, glbUrl, err);
+      throw err;
+    }
+
     const staleSide1Key = `${unitTypeId}${SIDE_1_TEMPLATE_SUFFIX}`;
     const previous = this.vehicleMeshTemplates.get(unitTypeId);
     const previousSide1 = this.vehicleMeshTemplates.get(staleSide1Key);
@@ -6787,6 +6895,21 @@ export class ThreeRenderer implements Renderer {
       // a side-1 kit's own hull is the one its conform and shroud measure.
       this.vehicleMeshBounds.set(key, vehicleShroudBounds(t.root));
     }
+  }
+
+  /**
+   * E6 chunk B: a swarm type's template just landed (or was reloaded) - build its instanced
+   * draw from it. Any other type is a no-op. The batch merges NEW geometry out of the template, so
+   * the template stays the vehicle path's to dispose; a reload replaces the batch whole.
+   */
+  private syncSwarmBatch(unitTypeId: string, template: VehicleMeshTemplate): void {
+    const swarmType = this.sim.unitTypes.find((t) => t.id === unitTypeId);
+    if (!swarmType || swarmType.swarm === null) return;
+    this.swarmBatches.get(unitTypeId)?.dispose();
+    this.swarmBatches.delete(unitTypeId);
+    const batch = new SwarmBatch(this.scene, extractSwarmParts(template, unitTypeId));
+    batch.setWrecksDebugHidden(this.swarmWrecksDebugHidden);
+    this.swarmBatches.set(unitTypeId, batch);
   }
 
   /**
@@ -6953,6 +7076,97 @@ export class ThreeRenderer implements Renderer {
   private airLiftY(i: number, alpha: number): number {
     const st = this.sim.state;
     return AIR_LIFT_PX * WORLD_Y_PER_LIFT_PIXEL * airLiftFrac(st.airState[i], st.airTimer[i], alpha);
+  }
+
+  /**
+   * E6 chunk B (spec 2026-10-24 section 5.2): every swarm entity, drawn as slots `0 .. live-1` of its
+   * type's `SwarmBatch`. `live` is `Sim.swarmMembers(id)` and nothing else - the draw count is never
+   * derived from the type's `count` - and the highest slots are the ones that leave.
+   *
+   * Presentation only and one-way: sim state in, instance matrices out. The sim does not know
+   * which member died, so a drop in the live count is classified HERE: a `fire` event from that
+   * shooter this frame makes the highest slot a dive (`onFire` filed the request), anything else a
+   * fall. A dead entity is processed once with `live = 0`, so its last members still exit, and then
+   * forgotten; the entity's own `destroyed` fires no kill blast (`onEvents`).
+   *
+   * The fog gate is `updateVehicleMeshes`'s own (`unitIsDrawn`, at the interpolated centre), and so
+   * is the `units` debug flag. Positions wander on the SIM clock; exits age on the FRAME clock, as
+   * a missile's flight does.
+   */
+  private updateSwarms(alpha: number, dtMs: number): void {
+    if (this.swarmBatches.size === 0) return;
+    const st = this.sim.state;
+    const n = this.snapshottedCount;
+    const simSec = presentationSimMs(this.sim.tickCount, alpha) / 1000;
+    const elevation = this.retained.elevation;
+    const env = {
+      simTick: this.sim.tickCount,
+      simSec,
+      groundAt: (x: number, z: number): number => groundWorldY(elevation, this.sim.width, this.sim.height, x, z),
+      drawnAt: (side: number, x: number, z: number): boolean => unitIsDrawn(-1, side, this.viewer, x, z, this.fogVisibleAt),
+      exploredAt: (x: number, z: number): boolean => this.isExplored(x, z),
+      bodiesHidden: this.unitsDebugHidden || this.swarmDebugHidden,
+      quiet: this.quiet,
+    };
+    for (const batch of this.swarmBatches.values()) batch.beginFrame(env);
+    const events = this.swarmEvents;
+    events.length = 0;
+    for (let i = 0; i < n; i++) {
+      const type = this.sim.unitTypes[st.typeIdx[i]];
+      const swarm = type.swarm;
+      if (swarm === null) continue;
+      const batch = this.swarmBatches.get(type.id);
+      if (!batch) continue;
+      const alive = st.alive[i] === 1;
+      if (!alive && !batch.has(i)) continue;
+      // An abduction (a mission `remove`) is not a death: the cloud just goes, nothing falls or dives.
+      if (st.removed[i] === 1) {
+        batch.forget(i);
+        continue;
+      }
+      const wx = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
+      const wy = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
+      batch.updateEntity(
+        {
+          id: i,
+          side: st.side[i],
+          count: swarm.count,
+          spreadTiles: fx.toNumber(swarm.spread),
+          live: alive ? this.sim.swarmMembers(i) : 0,
+          x: wx,
+          z: wy,
+          groundY: groundWorldY(elevation, this.sim.width, this.sim.height, wx, wy),
+          liftY: this.airLiftY(i, alpha),
+          yaw: meshYawFromFacing(fx.toNumber(st.facing[i])),
+          drawn: unitIsDrawn(st.tunnelIn[i], st.side[i], this.viewer, wx, wy, this.fogVisibleAt),
+        },
+        this.swarmDiveRequests.get(i),
+        events
+      );
+      // Everything of the dead entity that outlives it is in the batch's exits.
+      if (!alive) batch.forget(i);
+    }
+    this.swarmDiveRequests.clear();
+    const dt = this.frameDtSeconds(dtMs);
+    for (const batch of this.swarmBatches.values()) {
+      for (const l of batch.stepExits(dt)) {
+        if (l.showImpact) {
+          this.spawnMissileImpactFx({
+            x: l.x,
+            y: l.z,
+            headingTurns: l.headingTurns,
+            power: l.power,
+            scale: l.scale,
+            miss: l.miss,
+          });
+        }
+      }
+      batch.finish();
+    }
+    // A member shot down throws its own spark-and-puff where it was hit.
+    for (const e of events) {
+      if (e.kind === 'down') this.spawnNamedBurst('swarm_member_down', e.x, e.z, 0);
+    }
   }
 
   private updateProxyBoxes(alpha: number): void {
@@ -7884,6 +8098,32 @@ export class ThreeRenderer implements Renderer {
     }
   }
 
+  /**
+   * E6 chunk B: files a swarm shooter's `fire` event as a dive request for `updateSwarms` to pair with
+   * the exit the live-count drop produces this frame. Distance is the SIM's own (positions, not the
+   * interpolated ones), which is what the round's flight is counted from.
+   */
+  private onSwarmDive(e: Extract<SimEvent, { kind: 'fire' }>, atStruct: boolean, tx: number, ty: number, seen: boolean): void {
+    const st = this.sim.state;
+    const sx = fx.toNumber(st.posX[e.shooter]);
+    const sy = fx.toNumber(st.posY[e.shooter]);
+    const ax = atStruct ? tx : fx.toNumber(st.posX[e.target]);
+    const ay = atStruct ? ty : fx.toNumber(st.posY[e.target]);
+    const req: DiveRequest = {
+      tick: e.tick,
+      target: atStruct ? -1 : e.target,
+      structure: atStruct ? (e.structure as number) : -1,
+      toX: tx,
+      toZ: ty,
+      willHit: e.willHit,
+      simDistTiles: Math.hypot(ax - sx, ay - sy),
+      showImpact: seen,
+    };
+    const pending = this.swarmDiveRequests.get(e.shooter);
+    if (pending) pending.push(req);
+    else this.swarmDiveRequests.set(e.shooter, [req]);
+  }
+
   private spawnBackblast(shooter: number, facingRad: number, at?: { x: number; y: number; magnitude: number }): void {
     const em = this.emitterLibrary.byName('rpg_backblast');
     if (!em || !this.particleSystem) return;
@@ -8400,6 +8640,8 @@ export class ThreeRenderer implements Renderer {
     for (let i = 0; i < n; i++) {
       if (st.alive[i] === 0) continue;
       const type = this.sim.unitTypes[st.typeIdx[i]];
+      // E6 chunk B: a swarm is one instanced draw for the whole cloud, never a per-entity clone.
+      if (type.swarm !== null && this.swarmBatches.has(type.id)) continue;
       // Per-seat kit (Task 6): a versus side-1 hull whose kit differs from
       // side 0's draws its own template; everything else draws `type.id`'s.
       const key = this.vehicleTemplateKey(type.id, st.side[i]);
@@ -8926,6 +9168,12 @@ export class ThreeRenderer implements Renderer {
     for (const r of this.buildingMeshIdleEntities.values()) tag(r, 'buildings');
     for (const r of this.buildingMeshWreckEntities.values()) tag(r, 'buildings');
     for (const w of this.meshWrecks) tag(w.root, 'wrecks');
+    // E6 chunk B: the swarm batches' three instanced meshes.
+    for (const b of this.swarmBatches.values()) {
+      tag(b.bodies, 'units: vehicles');
+      tag(b.rotors, 'units: vehicles');
+      tag(b.wrecks, 'wrecks');
+    }
     for (const o of [
       this.particleInstancerBelow.mesh,
       this.particleInstancerAbove.mesh,

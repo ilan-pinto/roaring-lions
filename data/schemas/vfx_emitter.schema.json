@@ -17,7 +17,7 @@
       "pattern": "^[a-z0-9_]+$"
     },
     "trigger": {
-      "description": "What spawns this emitter. Every value but `ambient_idle` is a sim event. `ambient_idle` is presentation-only: the renderer spawns it on its own timer for units showing the idle clip, seeded from the presentation PRNG. It exists because idling is not an event and must not become one -- putting a cigarette in the deterministic simulation would widen the state the replay hash covers for something no outcome depends on. The renderer reads sim state and writes none, so invariant 4 holds.",
+      "description": "What spawns this emitter. Every value but `ambient_idle` is a sim event. `ambient_idle` is presentation-only: the renderer spawns it on its own timer for units showing the idle clip, seeded from the presentation PRNG. It exists because idling is not an event and must not become one -- putting a cigarette in the deterministic simulation would widen the state the replay hash covers for something no outcome depends on. The renderer reads sim state and writes none, so invariant 4 holds. `swarm_member_down` (E6) is the other presentation-side inference: the sim says only how many members of a swarm are left, so the renderer throws it when that count drops without a dive (a fire event from the swarm).",
       "type": "string",
       "enum": [
         "weapon_fire",
@@ -37,6 +37,7 @@
         "eod_breach",
         "smoke_screen",
         "flare",
+        "swarm_member_down",
         "ambient_idle"
       ]
     },

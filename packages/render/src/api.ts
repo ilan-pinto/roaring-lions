@@ -579,6 +579,14 @@ export interface Renderer {
    *  left-click's 1.2 tiles; an order asks a tighter one of the same pick
    *  (GH-420, R-23: `ORDER_PICK_RADIUS_TILES` in the app's input/pointer.ts). */
   unitAtScreen(px: number, py: number, radiusTiles?: number): number;
+  /**
+   * E6 (GH-274): how many members of swarm entity `id` the renderer's instanced draw was handed
+   * last frame - read off the batch itself, never recomputed from the sim, so a witness comparing
+   * it with `Sim.swarmMembers(id)` can tell a draw that follows the live count from one that does
+   * not. 0 for an entity that is not a swarm, is hidden by fog, or is not drawn. `cursorKey`'s
+   * shape: a read of what is actually applied.
+   */
+  swarmDrawn(id: number): number;
   isVisible(wx: number, wy: number): boolean;
   /** Living units whose screen position falls inside a screen-space rect.
    *  Box-select is a projection question, so only the renderer can answer it. */

@@ -205,6 +205,8 @@ import wreckSmoulder from '../../../data/vfx/wreck_smoulder.json';
 import apsLaunch from '../../../data/vfx/aps_launch.json';
 import demolitionBlast from '../../../data/vfx/demolition_blast.json';
 import smokeDischarge from '../../../data/vfx/smoke_discharge.json';
+// E6 (GH-274) chunk B: a swarm member shot down, thrown by id where it was hit.
+import swarmMemberDown from '../../../data/vfx/swarm_member_down.json';
 
 // The scene-host diorama (2026-09-24-scene-host §3.2/§10): a real map, a
 // camera and a few idle units, standing behind the main menu. One file, one
@@ -571,6 +573,8 @@ export const vfxEmitters = [
   apsLaunch,
   demolitionBlast,
   smokeDischarge,
+  // E6 (GH-274) chunk B: a swarm member shot down (`SwarmBatch`'s 'down' event), by id.
+  swarmMemberDown,
 ];
 
 /** Resolve a palette key like "vfx.fire" or "dust.2" to its hex colour. */

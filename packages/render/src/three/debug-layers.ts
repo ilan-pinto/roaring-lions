@@ -332,6 +332,23 @@
  *                 shadow, AO), and not its occlusion outline, which is built
  *                 from the whole geometry.
  *
+ * TWO FOR E6 (GH-274, chunk B), the `units` rule again, for the swarm's instanced draw:
+ *
+ * - `swarm`       the three `InstancedMesh`es' BODY draw (`units/swarm-batch.ts`): the live members,
+ *                 the rotor blur discs (which share the bodies' matrix buffer) and every member in
+ *                 flight, a dive or a fall. A FLAG (`ThreeRenderer.swarmDebugHidden`), because
+ *                 `updateSwarms` rewrites `count` and `visible` every frame - a bare `visible`
+ *                 write would hold only until the next repaint and read as ~76 px of residue, the
+ *                 `vehicle` story. The existing `units` layer hides the swarm bodies too, so
+ *                 `vehicle` and `kitted` keep meaning "unit bodies". Returns the meshes it governs
+ *                 (2 per swarm type: bodies and rotors), 0 with no swarm template loaded.
+ * - `swarm-wrecks` the ground wreck batch. Also a flag (`SwarmBatch.setWrecksDebugHidden`), since
+ *                 `finish()` re-derives the mesh's `visible` from its wreck count each frame (an
+ *                 empty batch costs no draw call). Returns 1 per swarm type.
+ *
+ * Neither gets a `layerChecks` entry: no gated scenario contains a swarm, so a check there would
+ * read 0 px on a healthy tree. `pnpm e6:capture` (chunk D) is where they vote.
+ *
  * `fog`, ADDED FOR THE SAME KEY-ART PLATE, ONE STEP LATER (task-10
  * follow-up 2): the large dark diagonal a first attempt at the plate read as
  * a shadow was the fog-of-war boundary -- `FogOfWarPass` (`../fog-pass.ts`)
@@ -404,6 +421,13 @@ export const DEBUG_LAYERS = [
   // GH-705 smoke uplift P1: the lit, standing smoke screen (`smoke-mesh.ts`).
   // A flag on `SmokeMesh`. Witnessed by the `smoke_eitan` subject of `blast:capture`.
   'smoke-screen',
+  // E6 (GH-274) chunk B: the swarm's instanced draw (`units/swarm-batch.ts`). `swarm` hides the
+  // bodies, the rotor discs and every member in flight; `swarm-wrecks` the ground wreck batch.
+  // Both are FLAGS the per-frame path consults (the `units` lesson): the batch rewrites its own
+  // `visible` and `count` every frame. Witnessed by `pnpm e6:capture` (chunk D); no gated golden
+  // scenario holds a swarm.
+  'swarm',
+  'swarm-wrecks',
 ] as const;
 
 export type DebugLayer = (typeof DEBUG_LAYERS)[number];
