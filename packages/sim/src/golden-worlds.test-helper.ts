@@ -8,8 +8,11 @@ import { Sim, type UnitTypeJson } from './sim';
 // structure fixtures, and the builders of the replays that pin the sim. Each
 // builder is split in two so a caller can fork a world mid-run: `*Setup` does
 // everything up to the first tick (types, spawns, structures, tunnels) and
-// returns the world at tick 0 with the ids, and `*Drive(sim, t, ids)` queues
-// exactly the commands the loop queues at tick t, without calling sim.tick().
+// returns the world at tick 0 with the ids, and `*Drive(sim, t, ids)` applies
+// tick t's inputs without calling sim.tick(): the commands the loop queues, plus
+// the direct calls it makes -- `ordersDrive`'s `sim.identifyTo` (tick 20) and
+// `economyDrive`'s `sim.debugKill` (raider out) and runtime `requestBuild` /
+// `setRally` / `cancelBuild` (which in 'direct' mode bypass the command queue).
 // determinism.test.ts keeps thin wrappers with the old signatures, so its
 // pinned numbers are read off the same code as before. The file name is not
 // matched by vitest's `*.test.ts` glob on purpose: it holds no spec.
@@ -438,6 +441,10 @@ export const ECONOMY_RAIDER_OUT_TICK = 1750;
 export const ECONOMY_CANCEL_TICK = 1800;
 export const ECONOMY_RALLY_TILE_X = 14;
 
+// The economy types mirror the shipped data (data/units/kdf/inf_squad.json, recon_drone,
+// data/units/enemy/militia_cell.json) in the fields that decide behaviour: an
+// in-test type with no `role` derives wheeled and never braces (halt to fire,
+// 6 Oct), so the squads carry `role: 'infantry'`.
 export const ECO_SQUAD: UnitTypeJson = {
   id: 'inf_squad',
   role: 'infantry',

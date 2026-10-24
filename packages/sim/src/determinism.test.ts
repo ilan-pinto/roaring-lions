@@ -38,7 +38,6 @@ import { BRACE_DROPPING, BRACE_KNEELING, BRACE_RISING, Sim, type SimEvent, type 
 // fixed seed and assert the state hash is stable. Must pass before any
 // commit touching @lions/sim. A failure here is never cosmetic.
 
-
 /** A full little battle: walls, mixed forces, mid-run orders both sides. */
 function run(
   seed: number,
@@ -493,7 +492,6 @@ describe('determinism (1000-tick replay)', () => {
 //
 // The ground: a nine-by-nine hill, eight levels up, sitting squarely between an
 // assault in the south and its objective in the north. Everything else is flat.
-//
 /**
  * The same little battle twice over: an assault north into a held position,
  * once with the hill in the way and once on ground left flat. Same seed, same
@@ -655,7 +653,6 @@ describe('determinism over relief (900-tick replay round a hill)', () => {
 // riflemen, one halted mid-move, one sent with a plain attack-move, one with a
 // sweeping one, and an enemy far off that their side has identified and lost.
 
-
 function orders(seed: number, humanHeld?: readonly [boolean, boolean]): { sim: Sim; halted: number; plain: number; sweeper: number; haltAt: [number, number] } {
   const { sim, ids } = ordersSetup(seed, humanHeld);
   const { halted, plain, sweeper } = ids;
@@ -717,12 +714,6 @@ describe('determinism of an order once it is done (900-tick replay)', () => {
 // nothing hashed it. `economyHash()` hashes its FLOOR, plus the queue; this
 // replay pins it BEFORE the Stage 4 economy plans (F1 first) change it, so the
 // first thing the pin has to explain is a deliberate change.
-//
-// The types mirror the shipped data (data/units/kdf/inf_squad.json, recon_drone,
-// data/units/enemy/militia_cell.json) in the fields that decide behaviour: an
-// in-test type with no `role` derives wheeled and never braces (halt to fire,
-// 6 Oct), so the squads carry `role: 'infantry'`.
-
 
 const ECONOMY_SEED = 0x0e_c0_0001;
 // ECONOMY_PIN: born 2026-10-14 at da74f887 (F1 Task 1, before any economy
@@ -1365,7 +1356,6 @@ describe('field works state block (D1)', () => {
 // The scenario must reach a fall, a bleed-out, a treatment, a carry, an admission and a rejoin;
 // the test asserts each happened, so a change that quietly stops one of them fails here and not
 // only on the number.
-
 
 function woundedWorld(seed: number, squad: UnitTypeJson = WW_SQUAD): { hash: number; seen: Record<string, number> } {
   const sim = woundedSetup(seed, squad);

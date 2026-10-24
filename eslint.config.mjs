@@ -117,6 +117,10 @@ export default defineConfig(
           message: '@lions/sim imports NOTHING (CLAUDE.md package layout). Only relative imports are allowed.',
         },
         {
+          selector: 'ImportDeclaration[source.value=/\\.test-helper/]',
+          message: 'Test helpers are for *.test.ts only; a non-test sim file must not import one.',
+        },
+        {
           selector: 'ExportNamedDeclaration[source.value=/^[^.]/]',
           message: '@lions/sim imports NOTHING (CLAUDE.md package layout). Only relative re-exports are allowed.',
         },
@@ -128,9 +132,10 @@ export default defineConfig(
     },
   },
   {
-    // `*.test-helper.ts` is test support (the golden replay worlds): it holds the same float-literal
-    // fixtures the specs do and is imported only by specs.
-    files: ['packages/sim/src/**/*.test.ts', 'packages/sim/src/**/*.test-helper.ts'],
+    // The golden replay worlds are test support: they hold the same float-literal fixtures the
+    // specs do. Named as the exact file (not a glob), and the sim block above bans importing any
+    // `.test-helper`, so only specs can reach it.
+    files: ['packages/sim/src/**/*.test.ts', 'packages/sim/src/golden-worlds.test-helper.ts'],
     rules: {
       'no-restricted-globals': 'off',
       'no-restricted-properties': 'off',
