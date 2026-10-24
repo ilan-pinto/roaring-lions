@@ -20,6 +20,7 @@
     "perf:memory": "tsx src/perf/memory.ts",
     "perf:lowend": "tsx src/perf/low-end.ts",
     "perf:bloom-census": "tsx src/perf/bloom-census.ts",
+    "perf:fx": "tsx src/perf/fx-cost.ts",
     "perf:recompute": "tsx src/perf/recompute-fields.ts",
     "ground:capture": "tsx src/perf/ground-captures.ts",
     "golden-diff": "tsx src/golden-diff/diff.ts",

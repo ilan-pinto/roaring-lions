@@ -531,6 +531,19 @@ describe('DEBUG_LAYERS', () => {
     expect(unknownDebugLayerMessage('decalz')).toContain('decals');
   });
 
+  it('smoke-screen hides the smoke mesh through a flag the per-frame update leaves alone', () => {
+    const r = makeRenderer();
+    const smoke = (r as unknown as { smokeMesh: { mesh: { visible: boolean } } }).smokeMesh;
+    expect(isDebugLayer('smoke-screen')).toBe(true);
+    expect(r.setDebugLayerVisible('smoke-screen', false)).toBe(1);
+    expect(smoke.mesh.visible).toBe(false);
+    r.frame(1, 16);
+    expect(smoke.mesh.visible).toBe(false);
+    r.setDebugLayerVisible('smoke-screen', true);
+    expect(smoke.mesh.visible).toBe(true);
+    r.dispose();
+  });
+
   it('names the decal pool as one layer, and no longer knows "scorch"', () => {
     // R-17: `scorch` is REMOVED, not aliased. A caller still asking for it
     // is a harness that was not migrated, and the loud throw is how it

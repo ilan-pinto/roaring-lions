@@ -14,6 +14,7 @@ import {
   layerVerdict,
   readingAccepted,
   subjectVotesOn,
+  subjectRunsLayer,
   sampleLadder,
   parseSettleResult,
   settleLine,
@@ -238,7 +239,11 @@ describe('the toggle A/B votes now (R-M)', () => {
     );
     const m = /export const DEBUG_LAYERS = \[([^\]]*)\] as const;/.exec(src);
     if (!m) throw new Error('could not find DEBUG_LAYERS in packages/render/src/three/debug-layers.ts');
-    const known = [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]);
+    // Comments are stripped first: an apostrophe in one (main's "the bake's own
+    // values" above `unit-surface`) shifted the quote pairing and hid every
+    // name after it -- `smoke-screen` first, once it landed below.
+    const body = m[1].replace(/\/\/.*$/gm, '');
+    const known = [...body.matchAll(/'([^']+)'/g)].map((x) => x[1]);
     expect(known.length).toBeGreaterThan(0);
     for (const layer of Object.keys(LAYER_FLOORS)) expect(known, `floor for layer "${layer}"`).toContain(layer);
   });
@@ -320,6 +325,19 @@ describe('abstaining from a layer is a named, self-cleaning exemption', () => {
   });
 });
 
+
+describe('the smoke-screen layer (GH-705 smoke uplift P1)', () => {
+  it('is run and voted on by smoke_eitan alone', () => {
+    const runners = BLAST_SUBJECTS.filter((s) => subjectRunsLayer(s, 'smoke-screen')).map((s) => s.id);
+    expect(runners).toEqual(['smoke_eitan']);
+    expect(subjectVotesOn({ votesOnly: ['smoke-screen'] }, 'smoke-screen')).toBe(true);
+    // ... and it is asked about nothing else.
+    const eitan = BLAST_SUBJECTS.find((s) => s.id === 'smoke_eitan');
+    for (const layer of Object.keys(LAYER_FLOORS)) {
+      expect(subjectRunsLayer(eitan ?? {}, layer), layer).toBe(layer === 'smoke-screen');
+    }
+  });
+});
 
 describe('each layer is photographed where it is a witness (fix round 1)', () => {
   // One rung cannot serve both, and that is measured rather than assumed. A

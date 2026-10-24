@@ -65,10 +65,23 @@ export interface RenderQuality {
    * (about 2 ms), costing coarser contact shadows and nothing else.
    */
   aoScale?: number;
+  /**
+   * The smoke screen's noise detail (`three/smoke-mesh.ts`, GH-705 smoke
+   * uplift P1), a compile-time define: 2 = both fbm chains, 1 = the first
+   * only, 0 = none (flat 0.5). Optional so callers that predate it read 2.
+   */
+  fxDetail?: 0 | 1 | 2;
+  /**
+   * The smoke screen's billboard half-width over its puff radius
+   * (`three/smoke-mesh.ts`). Optional: absent reads `SMOKE_BILLBOARD_GAIN`
+   * (0.95). `high` draws 0.8 -- the screen is fill-bound there, measured +1 to
+   * +5 ms median on a 110-tile screen at 0.95 (the lead, 23 Oct).
+   */
+  smokeBillboardGain?: number;
 }
 
 export const QUALITY_PRESETS: Readonly<Record<'low' | 'medium' | 'high', RenderQuality>> = {
-  low: { ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view' },
-  medium: { ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view' },
-  high: { ao: true, smaa: true, shadowMapSize: 4096, bloom: 'quarter', shadowFit: 'view', aoScale: 0.25 },
+  low: { ao: false, smaa: false, shadowMapSize: 1024, bloom: 'off', shadowFit: 'view', fxDetail: 0 },
+  medium: { ao: false, smaa: true, shadowMapSize: 2048, bloom: 'off', shadowFit: 'view', fxDetail: 1 },
+  high: { ao: true, smaa: true, shadowMapSize: 4096, bloom: 'quarter', shadowFit: 'view', aoScale: 0.25, fxDetail: 1, smokeBillboardGain: 0.8 },
 };
