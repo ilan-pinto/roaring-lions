@@ -141,9 +141,10 @@ export const RADIUS_BY_TYPE: Readonly<Record<string, number>> = {
   // `loiter_drone` reads 0.58 since its mesh landed (B2, 2026-09-30): 1.15 x its own
   // 2.43 m shipped span; it was the 0.35 air class while billboard-only.
   loiter_drone: 0.58,
-  // E6 (GH-274) chunk A1 (24 Oct): the swarm drone, one member's mesh, from a fresh `unit-footprints.ts`
-  // run (footprint 0.139 tile): the air class value 0.35 stands. The cloud-sized ring is chunk B's.
-  drone_swarm: 0.35,
+  // E6 (GH-274) chunk B (25 Oct): the swarm is a CLOUD, so its ring is the cloud's radius -- `swarm.spread_tiles
+  // / 2` = 0.75 (`unit-footprints.ts`'s `cloudRadiusTiles` special case, so this stays generated). One member's
+  // mesh measures 0.139 tile; 1.15 x that is under the air class value 0.35 and is not what the ring is for.
+  drone_swarm: 0.75,
   // E6 (GH-274) chunk A2 (25 Oct): the Remetz Laser Carrier, from a fresh `unit-footprints.ts` run (footprint 1.435 tile,
   // the beam turret excluded like the Eitan's RWS; 1.15 x that is 1.65).
   aa_remetz: 1.65,
