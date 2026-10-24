@@ -318,6 +318,17 @@
           "default": "tracks",
           "description": "Running gear, for a mobility kill (#706). `wheels`: the first mobility hit only SLOWS the hull (half speed) and a second leaves it stuck. `tracks` (the default, and the behaviour before #706): one mobility hit leaves it stuck. NOT the same as `wheeled`, which means a vehicle rather than foot and is true of a tracked Lavi. Pinned against tools/src/meshes/running-gear-recipes.ts by tools/src/mobility_gear.test.ts: a recipe with wheels and no track is `wheels`, one with a track is `tracks`. Air types ignore it."
         },
+        "footprint": {
+          "type": "object",
+          "description": "Vehicle spacing (GH-421): the hull as a capsule, in tiles, measured from the vehicle GLB (tools/src/perf/unit-footprints.ts). Present only on vehicles that separate; the sim never pushes a unit without one. half_width is at most VEHICLE_SPACING / 2 so no sideways formation slot is contested.",
+          "required": ["half_length_tiles", "half_width_tiles"],
+          "additionalProperties": false,
+          "properties": {
+            "half_length_tiles": { "type": "number", "minimum": 0.2, "maximum": 1.5 },
+            "half_width_tiles": { "type": "number", "minimum": 0.2, "maximum": 1.0 },
+            "centre_along_tiles": { "type": "number", "minimum": -0.5, "maximum": 0.5 }
+          }
+        },
         "halts_to_fire": {
           "type": "boolean",
           "description": "Fires only from a halt: the unit stops, kneels (KNEEL_DROP_TICKS) before its first shot, fires while down, and gets up (KNEEL_RISE_TICKS) before it moves on; it never fires while its feet move. Absent means derived: armed, not wheeled, not air, not a kamikaze -- every foot unit that shoots, and no vehicle, aircraft or charge squad. Set it only where the derivation gets a unit wrong. Spec docs/superpowers/specs/2026-10-05-infantry-halt-to-fire.md."
