@@ -264,10 +264,15 @@ describe('the seat table (N3 Task 7: a room\'s, by default)', () => {
     // table and at 3760 under the single-player one, whose side 1 auto-breaches walls.
     // Re-read when wounds opened to versus (the lead, 23 Oct 2026: the wounded types join the
     // roster and the wound block is in the hash). Was 4580 / 5160; still two different games.
-    const seed = seedOf(31);
-    expect(seed).toBe(246489);
-    expect(play('wadi_tarfan', ['sarim', 'kdf'], seed)).toEqual({ winner: 1, by: 'annihilation', ticks: 4160 });
-    expect(play('wadi_tarfan', ['sarim', 'kdf'], seed, { rules: 'default' })).toEqual({ winner: 1, by: 'annihilation', ticks: 3760 });
+    // Re-read when vehicle formation ranks went 3 deep (GH-421): on seed 246489 the two
+    // tables now play the SAME game (4220 ticks both; was 4160 / 3760), so the pin moved to
+    // seed 56433 (seedOf(7)), the first of seedOf(0..39) where the tables still differ:
+    // KDF wins by annihilation at 7640 ticks under the room's table and at 4920 under the
+    // single-player one (19 and 20 differ too).
+    const seed = seedOf(7);
+    expect(seed).toBe(56433);
+    expect(play('wadi_tarfan', ['sarim', 'kdf'], seed)).toEqual({ winner: 1, by: 'annihilation', ticks: 7640 });
+    expect(play('wadi_tarfan', ['sarim', 'kdf'], seed, { rules: 'default' })).toEqual({ winner: 1, by: 'annihilation', ticks: 4920 });
   }, FULL_GAMES_TIMEOUT_MS);
 });
 
