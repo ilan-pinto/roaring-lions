@@ -218,11 +218,12 @@ describe('FlipbookFx presentation RNG', () => {
 });
 
 describe('FlipbookFx recipe linger (D3, 1x)', () => {
-  it('the kill column lingers 7-10 s and shell smoke 3.5-5 s', () => {
+  it('the kill column lingers 6-8 s and shell smoke 4-6 s', () => {
     // Was 6.5-9 s over instances 20..35 (16 puffs), then 7-10 s over the 36
     // oily puffs at 37..72. Now 6-8 s over the 24 oily puffs at 31..54 (after
     // 1 + 6 fire, 14 ring smoke, 10 cook-off fire): the lead's option A trim
-    // (23 Oct), which cut the column's cost on high and low.
+    // (23 Oct), which cut the column's cost on high and low. Shell smoke: Was
+    // 3.5-5 s; 4-6 s since P3+P4 (Q6).
     const fx = ready();
     fx.spawnRecipe(catastrophicKill.flipbook as FlipbookLayerSpec[], 0, 0, 0, 1);
     const p = params(fx);
@@ -233,9 +234,10 @@ describe('FlipbookFx recipe linger (D3, 1x)', () => {
     const shell = ready();
     shell.spawnRecipe(shellImpact.flipbook as FlipbookLayerSpec[], 0, 0, 0, 0.45);
     const q = params(shell);
-    for (let i = 16; i < 22; i++) {
-      expect(q[i * 4 + 1]).toBeGreaterThanOrEqual(3500);
-      expect(q[i * 4 + 1]).toBeLessThanOrEqual(5000);
+    // Was 3500-5000 ms over instances 16..21 (the lead, 23 Oct, Q6: smoke 6 -> 9, 4-6 s).
+    for (let i = 20; i < 29; i++) {
+      expect(q[i * 4 + 1]).toBeGreaterThanOrEqual(4000);
+      expect(q[i * 4 + 1]).toBeLessThanOrEqual(6000);
     }
   });
 });
@@ -261,7 +263,33 @@ function pinRand(fx: FlipbookFx, c: number): void {
   (fx as unknown as { rand: Rand }).rand = () => c;
 }
 
+// The mortar/Grad shell recipe as the lead approved it on 23 Oct (smoke uplift
+// P4, Q6): bigger HE puffs with more tan dirt. Was 12 dirt at 0.25 + 0.22r,
+// 6 smoke at 0.7 + 0.4r, 3500-5000 ms. Tint stays 0.4: 0.15 was tried and drew
+// the puff DARKER (tint is soot 0 -> dust 1; neither end is white), so
+// "whiter" needs a white smoke tone in the shader -- a follow-up. The
+// oracle is literal equality with THIS recipe, which replaced the old approved one.
 function mockShell(fx: FlipbookFx, r: Rand, x: number, h: number, z: number, power: number): void {
+  const fs = 0.8 + 1.4 * power;
+  fx.spawn({ x, y: h, z, vy: 0.3, durationMs: 700, scale: fs, type: FLIP_FIRE });
+  for (let k = 0; k < 3; k++) {
+    const a = r() * Math.PI * 2;
+    fx.spawn({ x, y: h, z, vx: Math.cos(a) * 1.4, vy: 0.6 + r(), vz: Math.sin(a) * 1.4, delayMs: 20 * k, durationMs: 600 + 200 * r(), scale: fs * 0.6, type: FLIP_FIRE });
+  }
+  for (let k = 0; k < 16; k++) {
+    const a = r() * Math.PI * 2;
+    const sp = 0.2 + r() * 0.6;
+    fx.spawn({ x, y: h, z, vx: Math.cos(a) * sp, vy: 2.4 + r() * 2.0, vz: Math.sin(a) * sp, delayMs: 10 * k, durationMs: 800 + 400 * r(), scale: 0.4 + 0.3 * r(), type: FLIP_DIRT });
+  }
+  for (let k = 0; k < 9; k++) {
+    const a = r() * Math.PI * 2;
+    fx.spawn({ x, y: h, z, vx: Math.cos(a) * 0.6, vy: 0.3 + r() * 0.3, vz: Math.sin(a) * 0.6, delayMs: 150 + 80 * k, durationMs: 4000 + 2000 * r(), scale: 1.1 + 0.4 * r(), type: FLIP_SMOKE, tint: 0.4 });
+  }
+}
+
+
+// missile_impact still carries the earlier recipe (P4 did not touch it).
+function mockMissileImpact(fx: FlipbookFx, r: Rand, x: number, h: number, z: number, power: number): void {
   const fs = 0.8 + 1.4 * power;
   fx.spawn({ x, y: h, z, vy: 0.3, durationMs: 700, scale: fs, type: FLIP_FIRE });
   for (let k = 0; k < 3; k++) {
@@ -353,7 +381,7 @@ describe('FlipbookFx recipes from data/vfx (Task 5)', () => {
   const cases: Case[] = [
     { name: 'shell_impact (mortar 0.3)', layers: shellLayers, args: [3, 1.5, -2, 0.3], oracle: (fx, r) => mockShell(fx, r, 3, 1.5, -2, 0.3) },
     { name: 'shell_impact (Grad 0.45)', layers: shellLayers, args: [3, 1.5, -2, 0.45], oracle: (fx, r) => mockShell(fx, r, 3, 1.5, -2, 0.45) },
-    { name: 'missile_impact', layers: missileImpact.flipbook as FlipbookLayerSpec[], args: [0, 0.4, 7, 0.5], oracle: (fx, r) => mockShell(fx, r, 0, 0.4, 7, 0.5) },
+    { name: 'missile_impact', layers: missileImpact.flipbook as FlipbookLayerSpec[], args: [0, 0.4, 7, 0.5], oracle: (fx, r) => mockMissileImpact(fx, r, 0, 0.4, 7, 0.5) },
     { name: 'catastrophic_kill', layers: catastrophicKill.flipbook as FlipbookLayerSpec[], args: [-4, 2, 1, 0.8], oracle: (fx, r) => mockKill(fx, r, -4, 2, 1, 0.8) },
     { name: 'fire_apfsds', layers: fireApfsds.flipbook as FlipbookLayerSpec[], args: [1, 1.2, 2, 1, 0.7, 0.3], oracle: (fx, r) => mockMuzzle(fx, r, 1, 1.2, 2, 0.7, 0.3, 1) },
     { name: 'fire_heat', layers: fireHeat.flipbook as FlipbookLayerSpec[], args: [1, 1.2, 2, 0.6, 2.5, 0.3], oracle: (fx, r) => mockMuzzle(fx, r, 1, 1.2, 2, 2.5, 0.3, 0.6) },
@@ -374,16 +402,17 @@ describe('FlipbookFx recipes from data/vfx (Task 5)', () => {
     });
   }
 
-  it('shell recipe = 22 instances (4 fire, 12 dirt, 6 smoke), kill = 91 (17 fire, 38 smoke, 36 spark), muzzle = 10 (1/3/6)', () => {
-    // Was kill = 36 (10 fire, 26 smoke): the P2 mock's recipe adds 13 fire
-    // (cook-off 3 -> 16), 24 smoke (column 16 -> 36, ring 10 -> 14) and 36 sparks.
+  it('shell recipe = 29 instances (4 fire, 16 dirt, 9 smoke), missile 22 (4/12/6), kill = 91 (17 fire, 38 smoke, 36 spark), muzzle = 10 (1/3/6)', () => {
+    // Was kill = 36 (10 fire, 26 smoke): the P2 recipe adds 7 fire (cook-off
+    // 3 -> 10), 12 smoke (column 16 -> 24, ring 10 -> 14) and 36 sparks.
     const tallyOf = (layers: readonly FlipbookLayerSpec[]): number[] => {
       const fx = ready();
       fx.spawnRecipe(layers, 0, 0, 0, 1, 0, 0);
       const t = types(fx, fx.mesh.geometry.instanceCount);
       return [FLIP_FIRE, FLIP_SMOKE, FLIP_DIRT, FLIP_SPARK].map((ty) => t.filter((x) => x === ty).length);
     };
-    expect(tallyOf(shellLayers)).toEqual([4, 6, 12, 0]);
+    // Was [4, 6, 12]. Smoke 6 -> 9 and dirt 12 -> 16 (the lead, 23 Oct, Q6).
+    expect(tallyOf(shellLayers)).toEqual([4, 9, 16, 0]);
     expect(tallyOf(missileImpact.flipbook as FlipbookLayerSpec[])).toEqual([4, 6, 12, 0]);
     expect(tallyOf(catastrophicKill.flipbook as FlipbookLayerSpec[])).toEqual([17, 38, 0, 36]); // Was [23, 50, 0, 36]: option A trim (23 Oct).
     expect(tallyOf(fireApfsds.flipbook as FlipbookLayerSpec[])).toEqual([1, 3, 6, 0]);

@@ -24,10 +24,15 @@ import { describe, it, expect, vi } from 'vitest';
 import * as THREE from 'three';
 import { groundWorldY } from './ground-height';
 import { hexToLinear } from './terrain/shared';
-import { SOFT_PARTICLE_CORE } from './units/fx';
+import { VIEW_DIRECTION } from './camera';
+import { paletteHex } from './palette-hex';
 import { SMOKE_RENDER_ORDER, OVERLAY_RENDER_ORDER } from './units/render-order';
 import {
-  SMOKE_COLOR,
+  SMOKE_LIT_KEY,
+  SMOKE_SHADE_KEY,
+  SMOKE_BILLBOARD_GAIN,
+  SMOKE_STAND,
+  SMOKE_LAYER_RISE,
   SMOKE_ALPHA_CEIL,
   SMOKE_ALPHA_GAMMA,
   smokeDensityAlpha,
@@ -81,9 +86,37 @@ function placement(): SmokePuffPlacement {
   return { offsetX: 0, offsetZ: 0, radius: 0, baseAngle: 0, spinRate: 0 };
 }
 
-describe('SMOKE_COLOR', () => {
-  it('is gunmetal.0 exactly (#C3C7C4), not Pixi\'s own #C9CBC4 literal -- see smoke-mesh.ts\'s own top comment for why this moved onto the palette', () => {
-    expect(SMOKE_COLOR).toBe('#C3C7C4');
+// Was: a `SMOKE_COLOR` describe pinning gunmetal.0 (#C3C7C4). The flat disc
+// is gone (lit billboard, GH-705 smoke uplift P1), so the constant is deleted;
+// the two keys below replace it.
+describe('SMOKE_LIT_KEY / SMOKE_SHADE_KEY', () => {
+  it('are limestone.0 (lit) and gunmetal.1 (shade)', () => {
+    expect(SMOKE_LIT_KEY).toBe('limestone.0');
+    expect(SMOKE_SHADE_KEY).toBe('gunmetal.1');
+  });
+});
+
+describe('the soft foot (ground-clip fix)', () => {
+  // The camera's up vector has a vertical component of sqrt(1 - dirY^2) for a
+  // unit view direction; computed from camera.ts, never hard-coded.
+  const dirY = VIEW_DIRECTION.clone().normalize().y;
+  const upY = Math.sqrt(1 - dirY * dirY);
+  const SOFT_FOOT_END = -0.55; // vUv.y where the foot term reaches 1
+
+  it('the opaque part of the quad starts at least 0.25 half-widths above the puff\'s ground', () => {
+    // Was: SMOKE_STAND 0.8 with no foot term (the quad's lower edge dipped
+    // under the ground and the depth test cut it into a hard line).
+    // The vertex shader's quad half-size averages the two instance axes, the
+    // major one stretched by SMOKE_PUFF_ELONGATION: (1 + E) / 2 half-widths.
+    const quad = (1 + SMOKE_PUFF_ELONGATION) / 2;
+    const heightAboveGround = SMOKE_STAND + SOFT_FOOT_END * upY * quad; // in half-widths
+    expect(heightAboveGround).toBeGreaterThanOrEqual(0.25);
+  });
+
+  it('the fragment shader carries the foot term the height above is derived from', () => {
+    const mesh = new SmokeMesh(W, H);
+    const material = mesh.mesh.material as THREE.ShaderMaterial;
+    expect(material.fragmentShader).toContain(`smoothstep(-1.0, ${SOFT_FOOT_END.toFixed(2)}, vUv.y)`);
   });
 });
 
@@ -313,28 +346,51 @@ describe('SmokeMesh construction', () => {
     expect(mesh.mesh.count).toBe(1 * SMOKE_PUFFS_PER_TILE);
   });
 
-  it('the material is transparent, depth-tested false, depth-written false -- an unconditional overlay, as the retired FogMesh was', () => {
+  it('the material is transparent, depth-tested, depth-written false', () => {
     const mesh = new SmokeMesh(W, H);
     const m = mesh.mesh.material as THREE.Material;
     expect(m.transparent).toBe(true);
-    expect(m.depthTest).toBe(false);
+    // Was: false -- an unconditional overlay. Terrain now hides a puff.
+    expect(m.depthTest).toBe(true);
     expect(m.depthWrite).toBe(false);
   });
 
-  it('the uColor uniform holds exactly hexToLinear(SMOKE_COLOR), component-wise -- the value the shader actually reads', () => {
+  // Was: `uColor` held hexToLinear(SMOKE_COLOR) (gunmetal.0).
+  it('uLit / uShade hold exactly hexToLinear of the two palette keys, component-wise', () => {
     const mesh = new SmokeMesh(W, H);
-    const material = mesh.mesh.material as THREE.ShaderMaterial;
-    const uColor = material.uniforms.uColor.value as THREE.Vector3;
-    const [r, g, b] = hexToLinear(SMOKE_COLOR);
-    expect(uColor.x).toBeCloseTo(r, 6);
-    expect(uColor.y).toBeCloseTo(g, 6);
-    expect(uColor.z).toBeCloseTo(b, 6);
+    const u = (mesh.mesh.material as THREE.ShaderMaterial).uniforms;
+    for (const [name, key] of [['uLit', SMOKE_LIT_KEY], ['uShade', SMOKE_SHADE_KEY]] as const) {
+      const v = u[name].value as THREE.Vector3;
+      const [r, g, b] = hexToLinear(paletteHex(key));
+      expect(v.x).toBeCloseTo(r, 6);
+      expect(v.y).toBeCloseTo(g, 6);
+      expect(v.z).toBeCloseTo(b, 6);
+    }
   });
 
-  it('the fragment shader\'s feather threshold is units/fx.ts\'s own SOFT_PARTICLE_CORE, reused rather than re-authored', () => {
+  // Was: the fragment shader's feather threshold was SOFT_PARTICLE_CORE.
+  it('FX_DETAIL is a compile-time define: default 2, and the constructor argument reaches it', () => {
+    expect((new SmokeMesh(W, H).mesh.material as THREE.ShaderMaterial).defines.FX_DETAIL).toBe(2);
+    expect((new SmokeMesh(W, H, 0).mesh.material as THREE.ShaderMaterial).defines.FX_DETAIL).toBe(0);
+    expect((new SmokeMesh(W, H, 1).mesh.material as THREE.ShaderMaterial).defines.FX_DETAIL).toBe(1);
+  });
+
+  it('setLook binds the atlas once and flips uReady; setDebugHidden hides the mesh and update does not undo it', () => {
     const mesh = new SmokeMesh(W, H);
-    const material = mesh.mesh.material as THREE.ShaderMaterial;
-    expect(material.fragmentShader).toContain(SOFT_PARTICLE_CORE.toFixed(2));
+    const u = (mesh.mesh.material as THREE.ShaderMaterial).uniforms;
+    expect(u.uReady.value).toBe(0);
+    const tex = new THREE.Texture();
+    mesh.setLook(tex, 0.7, new THREE.Vector2(0.6, 0.8));
+    expect(u.uAtlas.value).toBe(tex);
+    expect(u.uReady.value).toBe(1);
+    expect(u.uLight.value).toBe(0.7);
+    expect(mesh.setDebugHidden(true)).toBe(1);
+    const smoke = emptySmoke();
+    smoke[0] = 200;
+    mesh.update(smoke, null, W, H, 0);
+    expect(mesh.mesh.visible).toBe(false);
+    mesh.setDebugHidden(false);
+    expect(mesh.mesh.visible).toBe(true);
   });
 
   // The second half of this test used to assert that smoke's band sat
@@ -396,10 +452,12 @@ describe('SmokeMesh construction', () => {
     const phase = smokeTilePhase(3, 2);
     const ageMs = CLOCK - CLOCK; // birth frame
     const growScale = smokeGrowScaleFactor(ageMs);
-    const expectedRadius = p.radius * growScale;
+    // Was: expectedRadius = p.radius * growScale, y = bob alone. The quad is a
+    // billboard now: half-width = radius * GAIN, standing SMOKE_STAND half-widths up.
+    const expectedRadius = p.radius * growScale * SMOKE_BILLBOARD_GAIN;
 
     expect(pos.x).toBeCloseTo(3 + p.offsetX + smokeDriftX(CLOCK), 6);
-    expect(pos.y).toBeCloseTo(smokeBobOffset(CLOCK, phase), 6);
+    expect(pos.y).toBeCloseTo(smokeBobOffset(CLOCK, phase) + expectedRadius * SMOKE_STAND + 0 * SMOKE_LAYER_RISE, 6);
     expect(pos.z).toBeCloseTo(2 + p.offsetZ + smokeDriftZ(CLOCK), 6);
     expect(scale.z).toBeCloseTo(expectedRadius, 6); // minor axis: unelongated
     expect(scale.x).toBeCloseTo(expectedRadius * SMOKE_PUFF_ELONGATION, 6); // major axis: elongated
@@ -473,7 +531,11 @@ describe('SmokeMesh construction', () => {
     const groundY = groundWorldY(elevation, W, H, 1, 1);
     const phase = smokeTilePhase(1, 1);
     expect(groundY).toBeGreaterThan(0);
-    expect(pos.y).toBeCloseTo(groundY + smokeBobOffset(CLOCK, phase), 6);
+    // Was: groundY + bob. Plus the standing offset (puff 0: no layer rise).
+    const pl = placement();
+    writeSmokePuffPlacement(1 * W + 1, 0, pl);
+    const half = pl.radius * smokeGrowScaleFactor(0) * SMOKE_BILLBOARD_GAIN;
+    expect(pos.y).toBeCloseTo(groundY + smokeBobOffset(CLOCK, phase) + half * SMOKE_STAND, 6);
   });
 
   it('dispose() releases both geometry and material', () => {
@@ -781,5 +843,21 @@ describe('SmokeMesh animation integration (GH #144) -- exercised through puff 0 
     a.mesh.getMatrixAt(0, ma);
     b.mesh.getMatrixAt(0, mb);
     expect(ma.elements).toEqual(mb.elements);
+  });
+});
+
+describe('SmokeMesh billboard gain (GH-705 smoke uplift P1, high preset)', () => {
+  it('a passed gain scales the billboard: 0.8 draws a smaller half-width than the 0.95 default', () => {
+    const smoke = new Uint8Array(4 * 4);
+    smoke[5] = 255;
+    const read = (m: SmokeMesh): number => {
+      m.update(smoke, null, 4, 4, 10000);
+      const mat = new THREE.Matrix4();
+      m.mesh.getMatrixAt(0, mat);
+      return new THREE.Vector3().setFromMatrixColumn(mat, 2).length();
+    };
+    const def = read(new SmokeMesh(4, 4, 2));
+    const high = read(new SmokeMesh(4, 4, 2, 0.8));
+    expect(high / def).toBeCloseTo(0.8 / SMOKE_BILLBOARD_GAIN, 5);
   });
 });

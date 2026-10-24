@@ -515,6 +515,12 @@ export class FlipbookFx {
     this.fxDetail = detail;
   }
 
+  /** The bound smoke atlas, or null until it lands (the smoke screen,
+   *  `smoke-mesh.ts`, samples the same billows). */
+  get smokeAtlas(): THREE.Texture | null {
+    return this.atlases ? this.atlases.smoke : null;
+  }
+
   /** True once both atlases are bound. */
   get ready(): boolean {
     return this.atlases !== null;

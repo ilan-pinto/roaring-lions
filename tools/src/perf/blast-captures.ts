@@ -298,6 +298,14 @@ export interface BlastSubject {
    *  these subjects have no layer they are a witness for. */
   readonly toggles?: false;
   /**
+   * Run, record and vote on THESE layers only. For a subject that is a
+   * witness for one layer alone (`smoke_eitan` and `smoke-screen`): without it
+   * the subject would also be asked to clear every other floor, where a smoke
+   * screen moves nothing. A layer in `OPT_IN_LAYERS` is run only by a subject
+   * that names it here.
+   */
+  readonly votesOnly?: readonly string[];
+  /**
    * This subject's own toggle rung for a layer, in ms, where the layer's
    * `LayerFloor.toggleAtMs` would miss the effect. Same rule as that field:
    * the first ladder rung at or past it. A `kamikaze` detonation's light is
@@ -613,11 +621,13 @@ export const BLAST_SUBJECTS: readonly BlastSubject[] = [
     x: 20,
     y: 4,
     isolate: true,
-    toggles: false,
     ladderMs: [0, 100, 250, 500, 1000],
+    votesOnly: ['smoke-screen'],
+    toggleAtMs: { 'smoke-screen': 1000 },
     why:
       "`smoke_discharge` (smoke_screen): an Eitan lays a screen three tiles east; the pop at the " +
-      'hull says who fired it (the screen itself was always drawn)',
+      'hull says who fired it. It is also the witness for the `smoke-screen` layer (the lit, standing ' +
+      'screen itself) at the 1000 ms rung, and for that layer alone',
   },
   {
     id: 'charge_demo',
@@ -1112,6 +1122,22 @@ export const LAYER_FLOORS = {
       "`mortar_team`'s and `shake_probe`'s bloom to 0 with them: their landing core IS the flipbook " +
       'fireball).',
   },
+  'smoke-screen': {
+    // GH-705 smoke uplift P1: the lit, standing smoke screen (`smoke-mesh.ts`).
+    // A FLAG on `SmokeMesh` (`setDebugHidden`) that `update` never overrides.
+    // Opt-in (`OPT_IN_LAYERS`): only `smoke_eitan` runs it.
+    minDiffPixels: 38970,
+    minMeanAbsChannelDelta: 12.56,
+    measured: { minDiffPixels: 116907, minMeanAbsChannelDelta: 37.6701, runs: 3 },
+    toggleAtMs: 1000,
+    rationale:
+      'Calibrated 2026-10-23. 3 runs on darwin-arm64, ANGLE/Metal (Apple M3 Pro), 1400x900 at ' +
+      'deviceScaleFactor 1, the 600x400 ladder crop, `--toggles-only`, one browser, music off, load ' +
+      'average 5.3 / 6.0 / 5.5: `smoke_eitan` at the 1000 ms rung read 116907 px / 37.6701, ' +
+      '116963 / 37.7717, 116962 / 37.7790 (the smallest of each column sets the floor, a third of it, ' +
+      'rounded up). Falsified: `SmokeMesh.update` setting `mesh.count = 0` drives the toggle under ' +
+      'its floor (readings in the commit message).',
+  },
 } satisfies Record<string, LayerFloor>;
 
 /**
@@ -1188,9 +1214,24 @@ export function layerVerdict(layer: string, reading: LayerReadingNumbers): Layer
   return { ok: reasons.length === 0, layer, reasons };
 }
 
-/** Whether this subject votes on this layer, or only records it. */
-export function subjectVotesOn(subject: Pick<BlastSubject, 'abstains' | 'toggles'>, layer: string): boolean {
+/** Layers no subject is asked about unless it names them in `votesOnly`:
+ *  their effect exists in one scene only, and running the A/B on every other
+ *  subject would record a meaningless 0 for each. */
+export const OPT_IN_LAYERS: readonly string[] = ['smoke-screen'];
+
+/** Whether the toggle A/B for this layer is run on this subject at all. */
+export function subjectRunsLayer(subject: Pick<BlastSubject, 'toggles' | 'votesOnly'>, layer: string): boolean {
   if (subject.toggles === false) return false;
+  if (OPT_IN_LAYERS.includes(layer)) return (subject.votesOnly ?? []).includes(layer);
+  return subject.votesOnly === undefined || subject.votesOnly.includes(layer);
+}
+
+/** Whether this subject votes on this layer, or only records it. */
+export function subjectVotesOn(
+  subject: Pick<BlastSubject, 'abstains' | 'toggles' | 'votesOnly'>,
+  layer: string
+): boolean {
+  if (!subjectRunsLayer(subject, layer)) return false;
   return !(subject.abstains ?? []).includes(layer);
 }
 
@@ -1847,7 +1888,7 @@ async function main(): Promise<void> {
             probeOut.push(...samples);
             ageMs = ms;
           }
-          const due = LAYERS.filter((l) => rungFor.get(l) === ms && p.subject.toggles !== false);
+          const due = LAYERS.filter((l) => rungFor.get(l) === ms && subjectRunsLayer(p.subject, l));
           if (togglesOnly) {
             if (due.length > 0) {
               const rect = await frameCrop(page, p.subject);

@@ -1,6 +1,6 @@
 {
   "name": "roaring-lions",
-  "version": "0.126.5",
+  "version": "0.126.6",
   "private": true,
   "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
@@ -26,6 +26,7 @@
     "perf:recompute": "pnpm --filter @lions/tools perf:recompute",
     "perf:lowend": "pnpm --filter @lions/tools perf:lowend",
     "perf:bloom-census": "pnpm --filter @lions/tools perf:bloom-census",
+    "perf:fx": "pnpm --filter @lions/tools perf:fx",
     "ground:capture": "pnpm --filter @lions/tools ground:capture",
     "golden-baseline": "pnpm --filter @lions/tools golden-baseline",
     "golden-baseline:bless": "pnpm --filter @lions/tools golden-baseline:bless",

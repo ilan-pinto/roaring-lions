@@ -746,6 +746,14 @@ yours; each one records what the next phase inherits.
   still the source of every AUTHORED colour (`docs/ART_PIPELINE.md` §2), and
   `pnpm validate:ui` and `pnpm validate:meshes` hold it (`validate:assets`, the
   sprite gate, was retired with the sheets in WP-A3.3).
+- **Unit surfaces take per-role roughness/metalness** (`units/unit-surface.ts`,
+  GH-705 Task 6, ruled 23 Oct 2026). The GLB's one material is cloned once per
+  surface class (cloth, gunmetal, rubber, ...): +0 draw calls and textures,
+  +0 programs except one permutation where a metal class drops an MR map. The bakes' own MR maps are flat (roughness 0.797, metal ~0.004), so
+  this is the only source of contrast. Metal is capped at 0.45: there is no
+  environment map, so a metal surface keeps only the sun's lobe. The
+  `unit-surface` debug layer restores today's values; its floors are in
+  `golden-diff/baseline.ts`. A scar or running-gear clone keeps the values it was cut with.
 - **`units/render-order.ts` is the single source of truth for every
   `renderOrder`.** Read it before setting one. Bands are: **-1 world (mesh
   buildings)**, 0 hull/structures, 0.5 selection ring, 1 turret, 1.5 badge numeral, 2 FX,
@@ -807,6 +815,16 @@ yours; each one records what the next phase inherits.
   scenario lays smoke): the `smoke-outline` toggle A/B must clear a third of the smallest
   of three runs (dense and thin smoke at zoom 1 and 2.5, floors in its source), the quiet
   frame must read 0 px, and hidden `overlays` must read 0 px; it exits 1 otherwise.
+- **The smoke screen is a lit, standing billboard** (GH-705 smoke uplift P1;
+  `smoke-mesh.ts`). It was a flat feathered disc lying on the ground with
+  `depthTest: false`; each puff is now a camera-facing quad that stands on the
+  ground (`SMOKE_STAND` 0.9), samples the flipbook's smoke atlas and is lit by the
+  same sun (`setLook`), `depthTest` on so terrain and buildings hide it. The quad's
+  foot fades out (`smoothstep(-1.0, -0.55, vUv.y)`) so it never shows the depth test's
+  hard cut on the ground; `smoke-mesh.test.ts` pins that from `VIEW_DIRECTION`.
+  `RenderQuality.fxDetail` (low 0 / medium 1 / high 1; `high` also draws `smokeBillboardGain` 0.8) compiles its noise down.
+  Debug layer `smoke-screen` is a flag on `SmokeMesh`; its witness is
+  `blast:capture`'s `smoke_eitan` (an opt-in layer: only that subject runs it).
 - **Every shot draws a travelling projectile; no line spans the gap any
   more** (PR #342, 2 Oct 2026, the lead: "no need for the straight lines").
   `units/shells.ts` is the whole model — `mortar`/`rocket` arc (GH-145),

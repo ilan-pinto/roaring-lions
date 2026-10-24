@@ -129,7 +129,7 @@ describe('ThreeRenderer flipbook', () => {
 // ---------------------------------------------------------------------------
 // Task 6 (D5, D6): the flipbook is WIRED -- each event that owns a recipe
 // spawns it and stops spawning what it supersedes, and only while the
-// atlases are in. Counts are literals (the recipe sizes: shell and missile 22,
+// atlases are in. Counts are literals (the recipe sizes: shell 29, missile 22,
 // kill 36, muzzle 10), read off the instanced geometry, not off the JSON.
 // ---------------------------------------------------------------------------
 
@@ -277,7 +277,8 @@ describe('ThreeRenderer flipbook wiring (D5, D6)', () => {
     const { r, p, calls } = wired(true);
     const sprites = spyLayers(p);
     p.spawnShellImpactFx({ kind: 'mortar', tx: 12.5, ty: 12.5 });
-    expect(spawned(p.flipbook)).toBe(22);
+    // Was 22. Dirt 12 -> 16 and smoke 6 -> 9 (the lead, 23 Oct, Q6).
+    expect(spawned(p.flipbook)).toBe(29);
     expect(calls.burst + calls.plume).toBe(0);
     expect(sprites).toEqual(['shard']);
     r.dispose();

@@ -28,10 +28,9 @@
  *     `support-blast` to read UNDER its floor there. A run whose falsified
  *     pass still clears the floor exits 1: the gate could not fail.
  *
- * Floors are PROVISIONAL and deliberately low (a few hundred pixels where the
- * readings are thousands): they come from one Metal run, n = 1, because the
- * lead's machine takes one browser check per stream. They are not the
- * one-third-of-three-runs rule; re-derive them before anything gates on CI.
+ * Floors are the one-third-of-the-smallest-of-three rule, derived from three
+ * Metal runs (see FLOORS). They are macOS/Metal numbers; a SwiftShader or CI
+ * run is not pixel-comparable, so re-derive before anything gates on CI.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -51,10 +50,24 @@ const CLIP = { x: 250, y: 120, width: 900, height: 620 } as const;
 const STEP_TIMEOUT_MS = 120_000;
 const MESH_WAIT_MS = 90_000;
 
-/** Provisional floors, changed exact pixels (see the header). */
+/** Floors, changed exact pixels: one third of the smallest reading of the
+ *  layer over every shot and run (CLAUDE.md, "Floors are one third of a
+ *  measured signal"). n = 3 full runs, 2026-10-23, macOS / Apple M3 Pro, ANGLE
+ *  Metal (--gpu=metal), headless Chromium, 1400x900 viewport at DPR 1, clip
+ *  900x620, music off, one browser at a time.
+ *    support-air:   barrage-round3 3331 / 3686 / 3476, airstrike-pass 8471 /
+ *                   8452 / 8488, airstrike-impact 7007 x3. Smallest 3331;
+ *                   1110 = floor(3331 / 3). (Was 500.)
+ *    support-blast: barrage-round3 32333 / 32313 / 33015, airstrike-impact
+ *                   116218 / 116203 / 116217. Smallest 32313; 10771 =
+ *                   floor(32313 / 3). (Was 500.)
+ *  The zero-time repaint control read 0 px in all 18 readings, and the
+ *  falsified pass (air_strike_impact unregistered) read 0 px in all 3 runs.
+ *  The spread is small and unimodal (the barrage's air reading varies 11% with
+ *  the frame clock; nothing bimodal). */
 export const FLOORS = {
-  'support-air': 500,
-  'support-blast': 500,
+  'support-air': 1110,
+  'support-blast': 10771,
 } as const;
 
 export type Layer = keyof typeof FLOORS;

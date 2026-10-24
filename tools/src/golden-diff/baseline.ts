@@ -1041,6 +1041,20 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
           'floors on both metrics, red. That is also the honest shape of what this check now guards: ' +
           'most of the signal in this frame is the vehicles, which is the point of the scenario.',
       },
+      {
+        layer: 'unit-surface',
+        minDiffPixels: 0,
+        minMeanAbsChannelDelta: 0.0067,
+        rationale:
+          'GH-705 Task 6, 2026-10-23: hiding the per-role surface pass puts every unit surface clone back ' +
+          'on the bake\'s own roughness/metalness (a material-field write nothing per-frame re-asserts). ' +
+          'Hiding it moves 43 / 43 / 43 px and 0.0202 x3, bit-identical across three fresh page loads (r1-r3), repaint control 0 px / 0.0000 on ' +
+          'all three; measured with `relief-read-signal.ts --layers=unit-surface` on ' +
+          'macOS host, SwiftShader (ANGLE, Vulkan, SwiftShader driver), the gate\'s own capture. ' +
+          'A small signal by nature: a unit is ~25 px at this zoom and the pass moves its specular, not ' +
+          'its colour. 43/40 px is under SUB_THRESHOLD_PX (100), so the pixel floor is 0 and the magnitude ' +
+          'floor carries it (a third of the smallest, rounded down). WATCHED GOING RED: `setUnitSurfacePass` made a no-op (returns before writing) reads 0 px / 0.0000 on this frame, under both floors.',
+      },
     ],
     rationale:
       'whole frame, mesh vehicles plus continuous dust/exhaust FX. The 5-157 px / 0.0029-0.0069 this ' +
@@ -1110,6 +1124,20 @@ export const BASELINES: Readonly<Record<string, BaselineSpec>> = {
           'geometries and moves 0 px / 0.0000, under both floors. That is the erasure defect this ' +
           'check exists for (the kit never reaching the renderer: a seed that does not arrive, a merge ' +
           'that keeps nothing, `kit_*` nodes dropped at export), not a toggle a later restore undoes.',
+      },
+      {
+        layer: 'unit-surface',
+        minDiffPixels: 0,
+        minMeanAbsChannelDelta: 0.0086,
+        rationale:
+          'GH-705 Task 6, 2026-10-23: hiding the per-role surface pass puts every unit surface clone back ' +
+          'on the bake\'s own roughness/metalness (a material-field write nothing per-frame re-asserts). ' +
+          'Hiding it moves 40 / 40 / 40 px and 0.0258 x3, bit-identical across three fresh page loads (r1-r3), repaint control 0 px / 0.0000 on ' +
+          'all three; measured with `relief-read-signal.ts --layers=unit-surface` on ' +
+          'macOS host, SwiftShader (ANGLE, Vulkan, SwiftShader driver), the gate\'s own capture. ' +
+          'A small signal by nature: a unit is ~25 px at this zoom and the pass moves its specular, not ' +
+          'its colour. 43/40 px is under SUB_THRESHOLD_PX (100), so the pixel floor is 0 and the magnitude ' +
+          'floor carries it (a third of the smallest, rounded down). WATCHED GOING RED: `setUnitSurfacePass` made a no-op (returns before writing) reads 0 px / 0.0000 on this frame, under both floors.',
       },
     ],
     rationale:
