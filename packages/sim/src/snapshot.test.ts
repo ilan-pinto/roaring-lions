@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
-import { runDrive, runSetup } from './golden-worlds.test-helper';
+import { RIFLES, reliefDrive, reliefSetup, runDrive, runSetup } from './golden-worlds.test-helper';
 import { Rng } from './rng';
-import { STRIKE_SNAPSHOT_KEYS, Sim } from './sim';
+import { STRIKE_SNAPSHOT_KEYS, Sim, type UnitTypeJson } from './sim';
 import { SIM_SNAPSHOT_SCHEMA, rowsOf } from './snapshot-schema';
 import { SNAPSHOT_FORMAT, SnapshotRefused, canonicalJson, encodeSim, restoreSim, snapshotSchemaDigest } from './snapshot';
 import * as simIndex from './index';
@@ -498,4 +498,265 @@ describe('snapshot: fuzz', () => {
     expect(tally.truncate.accepted).toBe(0);
     expect(tally['garbage-tail'].refused).toBeGreaterThan(400);
   }, 120000);
+});
+
+// ---- the flow-field pool (Task 4) ---------------------------------------------
+
+/** A wheeled rifle-armed vehicle (a DOMAIN_VEHICLE walker) and an air unit, beside the golden battle. */
+const WHEELED: UnitTypeJson = { ...RIFLES, id: 't_wheeled', mobility: { ...RIFLES.mobility, wheeled: true } };
+const AIRCRAFT: UnitTypeJson = { ...RIFLES, id: 't_air', mobility: { ...RIFLES.mobility, domain: 'air' } };
+
+interface PoolWorld {
+  sim: Sim;
+  ids: ReturnType<typeof runSetup>['ids'];
+  wheeled: number;
+  air: number;
+}
+
+/** The golden battle plus boulders, a wheeled unit and an aircraft, so all three domains hold fields. */
+function poolSetup(seed: number): PoolWorld {
+  const w = boulderSetup(seed);
+  const wheeled = w.sim.spawn(w.sim.addUnitType(WHEELED), 0, fx.fromInt(6), fx.fromInt(30));
+  const air = w.sim.spawn(w.sim.addUnitType(AIRCRAFT), 0, fx.fromInt(6), fx.fromInt(34));
+  return { ...w, wheeled, air };
+}
+
+function poolDrive(w: PoolWorld, t: number): void {
+  runDrive(w.sim, t, w.ids);
+  if (t === 3) w.sim.queueCommand({ kind: 'move', ids: [w.wheeled], x: fx.fromInt(20), y: fx.fromInt(6) });
+  if (t === 4) w.sim.queueCommand({ kind: 'move', ids: [w.air], x: fx.fromInt(40), y: fx.fromInt(40) });
+  if (t === 150) w.sim.queueCommand({ kind: 'move', ids: [w.wheeled], x: fx.fromInt(12), y: fx.fromInt(42) });
+}
+
+function advancePool(w: PoolWorld, from: number, to: number): void {
+  for (let t = from; t < to; t++) {
+    poolDrive(w, t);
+    w.sim.tick();
+  }
+}
+
+/** Every keyed slot of `sim`: [domain, goal, slot, dirs, costs]. The unkeyed slots' bytes are unobservable and not listed. */
+function keyedFields(sim: Sim): { domain: number; goal: number; slot: number; dirs: number[]; cost: number[] }[] {
+  const keys = sim.fieldPoolKeys();
+  const fields = props(sim).fields as { dirs: Uint8Array; costAt(t: number): number }[];
+  const cells = sim.width * sim.height;
+  const out: ReturnType<typeof keyedFields> = [];
+  keys.order.forEach((list, domain) => {
+    for (const slot of list) {
+      const cost: number[] = [];
+      for (let t = 0; t < cells; t++) cost.push(fields[slot].costAt(t));
+      out.push({ domain, goal: keys.slots[slot].goal, slot, dirs: Array.from(fields[slot].dirs), cost });
+    }
+  });
+  return out;
+}
+
+/** The same world's pool state, apart from the field bytes: what `fieldFor` and `evictableField` read. */
+function poolBookkeeping(sim: Sim): unknown {
+  const s = props(sim);
+  return {
+    fieldRef: Array.from(s.fieldRef as Int32Array),
+    goalKey: [...(s.fieldGoalKey as number[])],
+    domain: [...(s.fieldDomain as number[])],
+    lastIssued: [...(s.fieldLastIssued as number[])],
+    maps: (s.fieldByGoal as Map<number, number>[]).map((m) => [...m]),
+    watermark: (s.fields as unknown[]).length,
+  };
+}
+
+/** Rewrites the canonical JSON tail of `bytes` through `edit`, re-canonicalised, with the length word fixed. */
+function withTail(bytes: Uint8Array, edit: (tail: Record<string, unknown>) => void): Uint8Array {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let start = -1;
+  for (let p = bytes.length - 5; p >= 0; p--) {
+    if (p + 4 + view.getUint32(p, true) === bytes.length && bytes[p + 4] === 0x7b) {
+      start = p;
+      break;
+    }
+  }
+  expect(start).toBeGreaterThan(0);
+  const tail = JSON.parse(new TextDecoder().decode(bytes.subarray(start + 4))) as Record<string, unknown>;
+  edit(tail);
+  const tb = new TextEncoder().encode(canonicalJson(tail));
+  const out = new Uint8Array(start + 4 + tb.length);
+  out.set(bytes.subarray(0, start));
+  new DataView(out.buffer).setUint32(start, tb.length, true);
+  out.set(tb, start + 4);
+  return out;
+}
+
+describe('snapshot: the flow-field pool is rebuilt from its keys', () => {
+  it('1000-tick world, restore at 100, 250, 320 and 700: every keyed slot equals the source byte for byte', () => {
+    const a = runSetup(SEED);
+    let at = 0;
+    const blockedAt: string[] = [];
+    for (const T of [100, 250, 320, 700]) {
+      advance(a, at, T);
+      at = T;
+      blockedAt.push(Array.from(props(a.sim).blocked as Uint8Array).join(''));
+      const S = encodeSim(a.sim);
+      const fresh = runSetup(SEED).sim;
+      restoreSim(fresh, S);
+      const want = keyedFields(a.sim);
+      expect(want.length, `tick ${T}: the source keys some fields`).toBeGreaterThan(5);
+      expect(keyedFields(fresh), `tick ${T}: dirs and costs`).toEqual(want);
+      expect(poolBookkeeping(fresh), `tick ${T}: the bookkeeping`).toEqual(poolBookkeeping(a.sim));
+      expect(bytesEqual(encodeSim(fresh), S), `tick ${T}: re-encode`).toBe(true);
+    }
+    // The shed falls at about tick 116, so the masks differ between 100 and 250: the rebuild reads the RESTORED ones.
+    expect(blockedAt[0]).not.toBe(blockedAt[1]);
+    expect(blockedAt[1]).toBe(blockedAt[3]);
+  });
+
+  it('the source pool has an unkeyed slot, and it is carried with its lastIssued', () => {
+    const a = runSetup(SEED);
+    advance(a, 0, 250);
+    const keys = a.sim.fieldPoolKeys();
+    const unkeyed = keys.slots.filter((s) => s.goal === -1);
+    expect(unkeyed.length).toBeGreaterThan(0);
+    const fresh = runSetup(SEED).sim;
+    restoreSim(fresh, encodeSim(a.sim));
+    expect(fresh.fieldPoolKeys()).toEqual(keys);
+  });
+
+  it('a world with boulders, a wheeled unit and an aircraft: all three domains round trip', () => {
+    const a = poolSetup(SEED);
+    advancePool(a, 0, 400);
+    const keys = a.sim.fieldPoolKeys();
+    expect(keys.order.map((o) => o.length).every((n) => n > 0), `a field in every domain: ${keys.order.map((o) => o.length).join(',')}`).toBe(true);
+    const S = encodeSim(a.sim);
+    const fresh = poolSetup(SEED).sim;
+    restoreSim(fresh, S);
+    expect(keyedFields(fresh)).toEqual(keyedFields(a.sim));
+    expect(poolBookkeeping(fresh)).toEqual(poolBookkeeping(a.sim));
+    expect(bytesEqual(encodeSim(fresh), S)).toBe(true);
+    // A vehicle field really differs from the foot field toward the same goal (the boulders), so the mask choice is witnessed.
+    const vehicle = keyedFields(a.sim).filter((f) => f.domain === 1);
+    const foot = keyedFields(a.sim).filter((f) => f.domain === 0);
+    const air = keyedFields(a.sim).filter((f) => f.domain === 2);
+    expect(vehicle.length).toBeGreaterThan(0);
+    expect(air.length).toBeGreaterThan(0);
+    // The air field is blind to walls: it must differ from every ground field's dirs.
+    for (const f of air) expect(foot.some((g) => g.goal === f.goal && g.dirs.join() === f.dirs.join())).toBe(false);
+  });
+
+  it('a target whose pool is already non-empty is replaced, larger or smaller', () => {
+    const wm = (s: Sim): number => (props(s).fields as unknown[]).length;
+    const source = poolSetup(SEED);
+    advancePool(source, 0, 100);
+    const small = encodeSim(source.sim);
+    advancePool(source, 100, 700);
+    const large = encodeSim(source.sim);
+    const atHundred = poolSetup(SEED);
+    advancePool(atHundred, 0, 100);
+
+    // Grow: a target that has only issued a few orders takes the larger pool.
+    const grow = poolSetup(SEED);
+    advancePool(grow, 0, 8);
+    expect(wm(grow.sim)).toBeGreaterThan(0);
+    expect(wm(grow.sim)).toBeLessThan(wm(source.sim));
+    restoreSim(grow.sim, large);
+    expect(wm(grow.sim)).toBe(wm(source.sim));
+    expect(poolBookkeeping(grow.sim)).toEqual(poolBookkeeping(source.sim));
+    expect(keyedFields(grow.sim)).toEqual(keyedFields(source.sim));
+    expect(bytesEqual(encodeSim(grow.sim), large)).toBe(true);
+
+    // Truncate: a target that has run on to tick 700 takes the pool of tick 100.
+    const shrink = poolSetup(SEED);
+    advancePool(shrink, 0, 700);
+    expect(wm(shrink.sim)).toBeGreaterThan(wm(atHundred.sim));
+    restoreSim(shrink.sim, small);
+    expect(wm(shrink.sim)).toBe(wm(atHundred.sim));
+    expect(poolBookkeeping(shrink.sim)).toEqual(poolBookkeeping(atHundred.sim));
+    expect(keyedFields(shrink.sim)).toEqual(keyedFields(atHundred.sim));
+    expect(bytesEqual(encodeSim(shrink.sim), small)).toBe(true);
+  });
+
+  it('a world with relief: the rebuilt fields read the restored elevation', () => {
+    const a = reliefSetup(SEED, true);
+    for (let t = 0; t < 400; t++) {
+      reliefDrive(a.sim, t, a.up);
+      a.sim.tick();
+    }
+    const want = keyedFields(a.sim);
+    expect(want.length).toBeGreaterThan(0);
+    expect(Math.max(...(props(a.sim).elevation as Uint8Array)), 'the map has relief').toBeGreaterThan(0);
+    const S = encodeSim(a.sim);
+    const fresh = reliefSetup(SEED, true).sim;
+    restoreSim(fresh, S);
+    expect(keyedFields(fresh)).toEqual(want);
+    expect(bytesEqual(encodeSim(fresh), S)).toBe(true);
+  });
+
+  it('restore-then-step: a restored world keeps choosing the same slots as the uninterrupted run', () => {
+    const a = poolSetup(SEED);
+    advancePool(a, 0, 300);
+    const fresh = poolSetup(SEED);
+    restoreSim(fresh.sim, encodeSim(a.sim));
+    for (let t = 300; t < 460; t++) {
+      poolDrive(a, t);
+      a.sim.tick();
+      poolDrive(fresh, t);
+      fresh.sim.tick();
+      if (t % 20 === 0) expect(poolBookkeeping(fresh.sim), `tick ${t}`).toEqual(poolBookkeeping(a.sim));
+    }
+    expect(bytesEqual(encodeSim(fresh.sim), encodeSim(a.sim))).toBe(true);
+  });
+
+  describe('a pool the decoder will not accept', () => {
+    const a = poolSetup(SEED);
+    advancePool(a, 0, 250);
+    const good = encodeSim(a.sim);
+    const bad = (label: string, edit: (pool: { watermark: number; slots: { goal: number; domain: number; lastIssued: number }[]; order: number[][] }) => void, reason: RegExp): void => {
+      it(label, () => {
+        const bytes = withTail(good, (tail) => edit(tail.fieldPool as Parameters<typeof edit>[0]));
+        expect(refusal(() => restoreSim(poolSetup(SEED).sim, bytes)).reason).toMatch(reason);
+      });
+    };
+    it('the unedited bytes restore (the harness for the cases below is sound)', () => {
+      expect(() => restoreSim(poolSetup(SEED).sim, withTail(good, () => undefined))).not.toThrow();
+    });
+    // The slot list is padded to match, so the bound itself (capacity 128 + MAX_FLOW_FIELDS 128) is what refuses.
+    bad('a watermark past capacity + MAX_FLOW_FIELDS', (p) => {
+      p.watermark = 257;
+      while (p.slots.length < 257) p.slots.push({ goal: -1, domain: 0, lastIssued: 0 });
+    }, /outside 0\.\.256/);
+    bad('a negative watermark', (p) => { p.watermark = -1; }, /watermark/);
+    bad('slots that do not match the watermark', (p) => { p.watermark += 1; }, /watermark/);
+    bad('a goal off the map', (p) => { p.slots[p.order[0][0]].goal = 48 * 48; }, /off the map/);
+    bad('a domain past DOMAIN_COUNT', (p) => { p.slots[0].domain = 3; }, /domain/);
+    bad('a negative lastIssued', (p) => { p.slots[0].lastIssued = -2; }, /lastIssued/);
+    bad('a lastIssued in the future', (p) => { p.slots[0].lastIssued = 251; }, /lastIssued/);
+    bad('an order list naming a slot twice', (p) => { p.order[0].push(p.order[0][0]); }, /listed twice/);
+    bad('an order list naming a slot outside the pool', (p) => { p.order[0].push(p.watermark); }, /names slot/);
+    bad('a keyed slot missing from the order lists', (p) => { p.order[0].pop(); }, /missing/);
+    bad('a slot listed under the wrong domain', (p) => { p.order[2].push(p.order[0].pop() as number); }, /not keyed there/);
+    bad('an unkeyed slot in an order list', (p) => { p.order[0].push(p.slots.findIndex((s) => s.goal === -1)); }, /not keyed there/);
+    bad('two slots for one goal', (p) => { p.slots[p.order[0][1]].goal = p.slots[p.order[0][0]].goal; }, /two slots/);
+    bad('a pool of the wrong shape', (p) => { (p as unknown as Record<string, unknown>).extra = 1; }, /fieldPool: bad shape/);
+    it('a vehicle field on a map with no boulders', () => {
+      const w = runSetup(SEED);
+      advance(w, 0, 250);
+      const bytes = withTail(encodeSim(w.sim), (tail) => {
+        const p = tail.fieldPool as { slots: { domain: number }[]; order: number[][] };
+        const slot = p.order[0].pop() as number;
+        p.slots[slot].domain = 1;
+        p.order[1].push(slot);
+      });
+      expect(refusal(() => restoreSim(runSetup(SEED).sim, bytes)).reason).toMatch(/no boulders/);
+    });
+    it('a unit following a slot outside the pool', () => {
+      const w = runSetup(SEED);
+      advance(w, 0, 250);
+      const s = encodeSim(w.sim);
+      const bytes = withTail(s, (tail) => {
+        const p = tail.fieldPool as { watermark: number; slots: unknown[] };
+        p.watermark = 1;
+        p.slots.length = 1;
+        (tail.fieldPool as { order: number[][] }).order = [[], [], []];
+        (p.slots[0] as { goal: number }).goal = -1;
+      });
+      expect(refusal(() => restoreSim(runSetup(SEED).sim, bytes)).reason).toMatch(/outside the pool/);
+    });
+  });
 });

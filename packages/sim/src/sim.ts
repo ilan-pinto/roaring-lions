@@ -1420,6 +1420,15 @@ type MissingStrikeKey = Exclude<keyof PendingStrike, (typeof STRIKE_SNAPSHOT_KEY
 type AssertNoMissingStrikeKey<T extends never> = T;
 export type StrikeKeysAreExhaustive = AssertNoMissingStrikeKey<MissingStrikeKey>;
 
+/** The flow-field pool's keys (`Sim.fieldPoolKeys`): enough to rebuild every keyed field and to
+ *  reproduce `fieldFor`'s later choices, without the field bytes. `slots[i].goal` is -1 for a slot
+ *  the pool no longer keys; `order[d]` is domain d's slot list in `fieldByGoal[d]` insertion order. */
+export interface FieldPoolKeys {
+  watermark: number;
+  slots: { goal: number; domain: number; lastIssued: number }[];
+  order: number[][];
+}
+
 export interface SimConfig {
   seed: number;
   width: number;
@@ -3908,6 +3917,102 @@ export class Sim {
     this.fieldDomain[idx] = d;
     byGoal.set(key, idx);
     return idx;
+  }
+
+  /**
+   * The flow-field pool's KEYS, for the snapshot codec (net sim snapshot S1).
+   * The field bytes are not here: a keyed field is `compute(path mask, elevation,
+   * goal)` of the current terrain, so `restoreFieldPool` rebuilds it.
+   *
+   * `slots` has one entry per pool slot, `watermark` of them. `goal` is the goal
+   * tile index, or -1 for a slot `recomputeFields` unkeyed (its bytes are
+   * unobservable). `lastIssued` is carried for EVERY slot, keyed or not:
+   * `evictableField` picks the least-recently-issued slot and an unkeyed one
+   * competes on its stale value, so which slot a later order lands in (and so
+   * `fieldRef`) depends on it. `order[d]` lists domain d's slots in
+   * `fieldByGoal[d]` insertion order, which is the Map's iteration order.
+   */
+  fieldPoolKeys(): FieldPoolKeys {
+    const slots: FieldPoolKeys['slots'] = [];
+    for (let i = 0; i < this.fields.length; i++) {
+      slots.push({ goal: this.fieldGoalKey[i], domain: this.fieldDomain[i], lastIssued: this.fieldLastIssued[i] });
+    }
+    const order: number[][] = [];
+    for (let d = 0; d < DOMAIN_COUNT; d++) order.push(Array.from(this.fieldByGoal[d].values()));
+    return { watermark: this.fields.length, slots, order };
+  }
+
+  /**
+   * Replaces the whole pool with the one `keys` describes, recomputing every
+   * keyed field against the CURRENT masks (so call it after the terrain columns
+   * are restored). Validates everything before the first write and throws on a
+   * bad input; the pool is the encoding's, whatever the target already held.
+   */
+  restoreFieldPool(keys: FieldPoolKeys): void {
+    const cells = this.width * this.height;
+    const isInt = (x: unknown): x is number => typeof x === 'number' && Number.isInteger(x);
+    // The pool can grow past MAX_FLOW_FIELDS, at worst by one field per living unit.
+    const maxWatermark = this.capacity + MAX_FLOW_FIELDS;
+    const { watermark, slots, order } = keys;
+    if (!isInt(watermark) || watermark < 0 || watermark > maxWatermark) throw new Error(`field pool: watermark ${String(watermark)} is outside 0..${maxWatermark}`);
+    if (!Array.isArray(slots) || slots.length !== watermark) throw new Error('field pool: slots do not match the watermark');
+    if (!Array.isArray(order) || order.length !== DOMAIN_COUNT) throw new Error('field pool: need one order list per domain');
+    let keyed = 0;
+    for (let i = 0; i < watermark; i++) {
+      const s = slots[i];
+      if (s === null || typeof s !== 'object') throw new Error(`field pool: slot ${i} is not an object`);
+      if (!isInt(s.domain) || s.domain < 0 || s.domain >= DOMAIN_COUNT) throw new Error(`field pool: slot ${i} domain ${String(s.domain)}`);
+      if (!isInt(s.lastIssued) || s.lastIssued < 0 || s.lastIssued > this.tickCount) throw new Error(`field pool: slot ${i} lastIssued ${String(s.lastIssued)}`);
+      if (s.goal === -1) continue;
+      if (!isInt(s.goal) || s.goal < 0 || s.goal >= cells) throw new Error(`field pool: slot ${i} goal ${String(s.goal)} is off the map`);
+      // `fieldFor` collapses vehicle onto foot on a map with no boulders, so no keyed slot can hold it.
+      if (s.domain === DOMAIN_VEHICLE && !this.hasBoulders) throw new Error(`field pool: slot ${i} is a vehicle field on a map with no boulders`);
+      keyed++;
+    }
+    const listed = new Uint8Array(watermark);
+    let listedCount = 0;
+    for (let d = 0; d < DOMAIN_COUNT; d++) {
+      const list = order[d];
+      if (!Array.isArray(list)) throw new Error(`field pool: order ${d} is not a list`);
+      const goals = new Set<number>();
+      for (const idx of list) {
+        if (!isInt(idx) || idx < 0 || idx >= watermark) throw new Error(`field pool: order ${d} names slot ${String(idx)}`);
+        const s = slots[idx];
+        if (listed[idx] === 1) throw new Error(`field pool: slot ${idx} is listed twice`);
+        if (s.goal === -1 || s.domain !== d) throw new Error(`field pool: slot ${idx} is listed in domain ${d} but is not keyed there`);
+        if (goals.has(s.goal)) throw new Error(`field pool: domain ${d} has two slots for goal ${s.goal}`);
+        goals.add(s.goal);
+        listed[idx] = 1;
+        listedCount++;
+      }
+    }
+    if (listedCount !== keyed) throw new Error('field pool: a keyed slot is missing from the order lists');
+    for (let i = 0; i < this.capacity; i++) {
+      if (this.fieldRef[i] < -1 || this.fieldRef[i] >= watermark) throw new Error(`field pool: unit ${i} follows slot ${this.fieldRef[i]}, outside the pool`);
+    }
+
+    // ---- validated. Replace the pool.
+    if (this.fields.length > watermark) this.fields.length = watermark;
+    while (this.fields.length < watermark) this.fields.push(new FlowField(this.width, this.height));
+    this.fieldGoalKey.length = watermark;
+    this.fieldDomain.length = watermark;
+    this.fieldLastIssued.length = watermark;
+    for (const m of this.fieldByGoal) m.clear();
+    for (let i = 0; i < watermark; i++) {
+      this.fieldGoalKey[i] = slots[i].goal;
+      this.fieldDomain[i] = slots[i].domain;
+      this.fieldLastIssued[i] = slots[i].lastIssued;
+    }
+    for (let d = 0; d < DOMAIN_COUNT; d++) {
+      const mask = this.pathMaskFor(d);
+      const elev = d === DOMAIN_AIR ? this.openGrid : this.elevation;
+      for (const idx of order[d]) {
+        const goal = slots[idx].goal;
+        const gx = goal % this.width;
+        this.fields[idx].compute(mask, elev, gx, (goal - gx) / this.width);
+        this.fieldByGoal[d].set(goal, idx);
+      }
+    }
   }
 
   /** The least-recently-issued field no living unit follows and that was not

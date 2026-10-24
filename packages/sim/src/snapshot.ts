@@ -1,5 +1,5 @@
 import { HASH_SEED, hashWord } from './hash';
-import { SIM_EVENT_KINDS, STRIKE_SNAPSHOT_KEYS, type Sim } from './sim';
+import { SIM_EVENT_KINDS, STRIKE_SNAPSHOT_KEYS, type FieldPoolKeys, type Sim } from './sim';
 import {
   RNG_SNAPSHOT_SCHEMA,
   SIM_SNAPSHOT_SCHEMA,
@@ -27,10 +27,12 @@ import {
 //            strikes, patrol leg ids, structure tiles)
 //
 // What is deliberately NOT here: `config` (rebuilt by the setup that built the
-// target), `scratch` (overwritten before any read), `boundary` (the command and
-// runtime queues: a snapshot is cut between frames only, so encodeSim throws
-// when either holds anything) and the flow-field pool (Task 4 adds its keys to
-// the tail and its rebuild to restoreSim; the `pool` rows are skipped here).
+// target), `scratch` (overwritten before any read) and `boundary` (the command
+// and runtime queues: a snapshot is cut between frames only, so encodeSim
+// throws when either holds anything). The flow-field pool is in the tail as its
+// KEYS only (`fieldPool`: watermark, per-slot goal/domain/lastIssued, per-domain
+// Map order); restoreSim rebuilds every field from them against the restored
+// masks, so the field bytes are never written.
 
 /** The format version. Bump it when the byte layout changes; the schema digest covers the table. */
 export const SNAPSHOT_FORMAT = 1;
@@ -380,6 +382,29 @@ const AUX_RESTORE: Record<string, (value: unknown, c: AuxContext) => void> = {
   },
 };
 
+/** The tail key the flow-field pool's keys live under (not an `aux` row: the pool rows are `pool`). */
+const POOL_TAIL_KEY = 'fieldPool';
+
+/** The JSON shape of `FieldPoolKeys`; what the numbers MEAN is `Sim.restoreFieldPool`'s to check. */
+function parseFieldPoolKeys(value: unknown): FieldPoolKeys {
+  if (!isPlain(value) || Object.keys(value).sort().join(',') !== 'order,slots,watermark') throw new SnapshotRefused('fieldPool: bad shape');
+  const { watermark, slots, order } = value;
+  if (!isInt(watermark) || !Array.isArray(slots) || !Array.isArray(order)) throw new SnapshotRefused('fieldPool: bad shape');
+  const outSlots: FieldPoolKeys['slots'] = [];
+  for (const s of slots) {
+    if (!isPlain(s) || Object.keys(s).sort().join(',') !== 'domain,goal,lastIssued' || !Object.values(s).every(isInt)) {
+      throw new SnapshotRefused('fieldPool: bad slot');
+    }
+    outSlots.push({ goal: s.goal as number, domain: s.domain as number, lastIssued: s.lastIssued as number });
+  }
+  const outOrder: number[][] = [];
+  for (const list of order) {
+    if (!Array.isArray(list) || !list.every(isInt)) throw new SnapshotRefused('fieldPool: bad order list');
+    outOrder.push(list as number[]);
+  }
+  return { watermark, slots: outSlots, order: outOrder };
+}
+
 function auxRows(): SnapshotRow[] {
   return rowsOf('state').filter((r) => r.kind.t === 'aux');
 }
@@ -437,13 +462,13 @@ export function encodeSim(sim: Sim, meta: SnapshotMeta = {}): Uint8Array {
   }
 
   // The `pool` rows (fieldByGoal, fieldGoalKey, fieldDomain, fieldLastIssued) are
-  // NOT encoded here: Task 4 adds their keys to the tail and the rebuild to
-  // restoreSim. The `derived` `fields` row is never encoded.
+  // the tail's `fieldPool` key; the `derived` `fields` row is never encoded.
   const tail: Record<string, unknown> = {};
   for (const row of auxRows()) {
     if (!Object.hasOwn(AUX_RESTORE, row.name)) throw new Error(`encodeSim: aux row ${row.name} has no codec`);
     tail[row.name] = self[row.name];
   }
+  tail[POOL_TAIL_KEY] = sim.fieldPoolKeys();
   const tb = new TextEncoder().encode(canonicalJson(tail));
   w.u32(tb.length);
   w.bytes(tb);
@@ -571,8 +596,7 @@ function restoreInner(sim: Sim, bytes: Uint8Array): Required<SnapshotMeta> {
   // Canonical or refused: one state, one byte string, so a re-encode is identical.
   if (canonicalJson(tail) !== text) throw new SnapshotRefused('tail is not canonical JSON');
   const names = auxRows().map((row) => row.name);
-  // Task 4 adds the pool keys to this key set.
-  if (Object.keys(tail).sort().join(',') !== [...names].sort().join(',')) throw new SnapshotRefused('tail keys differ from the table');
+  if (Object.keys(tail).sort().join(',') !== [...names, POOL_TAIL_KEY].sort().join(',')) throw new SnapshotRefused('tail keys differ from the table');
   const ctx: AuxContext = { self, cells: sim.width * sim.height, maxStructures: stAlive.length };
   for (const name of names) {
     if (!Object.hasOwn(AUX_RESTORE, name)) throw new SnapshotRefused(`aux row ${name} has no codec`);
@@ -580,6 +604,8 @@ function restoreInner(sim: Sim, bytes: Uint8Array): Required<SnapshotMeta> {
   }
   if (r.pos !== bytes.length) throw new SnapshotRefused('trailing bytes');
 
-  // Task 4: rebuild the flow-field pool from its keys here, after the masks above.
+  // The flow-field pool, rebuilt from its keys against the masks and elevation written above.
+  // `restoreFieldPool` validates before it writes and throws a plain Error, which `restoreSim` wraps.
+  sim.restoreFieldPool(parseFieldPoolKeys(tail[POOL_TAIL_KEY]));
   return { build, contentDigest, matchId, frameTick, matchDigest };
 }
