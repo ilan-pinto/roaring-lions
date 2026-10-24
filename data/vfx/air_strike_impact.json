@@ -72,7 +72,7 @@
     },
     {
       "type": "dirt",
-      "count": 20,
+      "count": 27,
       "delay_ms": [
         0,
         10
@@ -82,9 +82,9 @@
         1200
       ],
       "scale": {
-        "base": 0.2,
-        "per_power": 0.2,
-        "rand": 0.25
+        "base": 0.32,
+        "per_power": 0.32,
+        "rand": 0.34
       },
       "velocity": {
         "radial": [
@@ -99,18 +99,18 @@
     },
     {
       "type": "smoke",
-      "count": 10,
+      "count": 15,
       "delay_ms": [
         150,
         80
       ],
       "duration_ms": [
-        5000,
-        7000
+        5700,
+        8400
       ],
       "scale": {
-        "base": 0.5,
-        "per_power": 0.6,
+        "base": 0.79,
+        "per_power": 0.94,
         "rand": 0.4
       },
       "velocity": {

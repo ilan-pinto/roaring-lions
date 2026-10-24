@@ -594,7 +594,7 @@ export function shellPointAt(s: ShellModel, u: number): { x: number; y: number; 
 }
 
 /** `shellPointAt` written into a caller-owned point, for a per-frame caller
- *  that must allocate nothing (the rocket trail lays a puff per 0.2 tile). */
+ *  that must allocate nothing (the rocket trail lays a puff per 0.12 tile). */
 export function shellPointInto<P extends { x: number; y: number; liftPx: number }>(s: ShellModel, u: number, out: P): P {
   const p = clamp(u, 0, 1);
   out.x = s.sx + (s.tx - s.sx) * p;

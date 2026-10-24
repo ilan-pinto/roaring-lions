@@ -23,11 +23,11 @@
     {
       "sprite": "smoke_puff",
       "count": [1, 1],
-      "lifetime_ms": [1600, 1600],
-      "size_px": [2.5, 2.5],
-      "size_over_life": [1.0, 3.2],
-      "color_over_life": ["limestone.1", "limestone.3", "gunmetal.1"],
-      "alpha_over_life": [0.7, 0.0]
+      "lifetime_ms": [4500, 4500],
+      "size_px": [3.5, 3.5],
+      "size_over_life": [1.0, 5.0],
+      "color_over_life": ["limestone.0", "limestone.0", "gunmetal.0"],
+      "alpha_over_life": [0.85, 0.0]
     }
   ]
 }
