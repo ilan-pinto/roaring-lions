@@ -24,7 +24,7 @@ import {
 import { carriedDiff, carryOnto } from './snapshot-runtime-carry';
 import { internals } from '../../../packages/sim/src/snapshot';
 import { SIM_SNAPSHOT_SCHEMA } from '../../../packages/sim/src/snapshot-schema';
-import { checkRuntime, props } from '../../../packages/sim/src/runtime-snapshot-schema.test-helper';
+import { censusAt, checkRuntime, collectAliases, explainAliases, newCensus, props } from '../../../packages/sim/src/runtime-snapshot-schema.test-helper';
 
 // The slice of the full witness (snapshot-witness.ts, `pnpm snapshot:witness`) that runs inside
 // `pnpm test`: one mirror and one economy world at a few cuts, the census logic, the carry, and
@@ -119,6 +119,43 @@ describe('the runtime schema covers the runtime of a real economy room, both way
     expect(seen.has('ProductionLine.queue') || seen.has('ProductionLine.current')).toBe(true);
     expect(seen.has('ZoneIncomeState.state')).toBe(true);
   }, 120_000);
+
+  it('the aliasing census on the room: every object its runtime reaches twice has a reference rule, and the closure probe holds', () => {
+    // Task 2: the reference rules (`RUNTIME_REF_RULES`) are proved against the sim-package worlds in
+    // runtime-snapshot-schema.test.ts, where every rule is also required to be USED. A match world is built
+    // in packages/app, so this runs the same walk on a KDF-v-Sarim room: nothing unruled, at eight moments.
+    const w = economyWorld('tel_marum', ['kdf', 'sarim'], 1000);
+    const rt = runtimeOf(w);
+    const acc = newCensus();
+    let moments = 0;
+    for (let t = 0; t <= 800; t++) {
+      if (CHECKED.includes(t)) {
+        void rt.incomePerMin;
+        censusAt(`room@${t}`, rt, w.sim, acc, moments === 0);
+        moments++;
+      }
+      if (t === 800) break;
+      w.driveAt(t);
+      w.advanceOnce();
+    }
+    expect(moments).toBe(CHECKED.length);
+    expect(acc.failures).toEqual([]);
+    // It found aliases to rule (a census that finds nothing would pass anything), among them a held-zone route.
+    expect(acc.seen.size).toBeGreaterThan(10);
+    expect(acc.used.has('ZoneIncomeState.route -> MissionRuntime.zoneRoutes')).toBe(true);
+    expect(acc.used.has('RouteSource.fieldFor -> MissionRuntime.corridorFields')).toBe(true);
+  }, 120_000);
+
+  it('the census can fail on the room: an unruled alias between two state rows is named', () => {
+    const w = economyWorld('tel_marum', ['kdf', 'sarim'], 1000);
+    const rt = runtimeOf(w);
+    expect(explainAliases(collectAliases(rt, w.sim)).unruled).toEqual([]);
+    props(rt).seenBlocked = props(rt).seenVehicle;
+    const found = explainAliases(collectAliases(rt, w.sim)).unruled;
+    expect(found).toHaveLength(1);
+    expect(found[0]).toContain('MissionRuntime.seenBlocked');
+    expect(found[0]).toContain('MissionRuntime.seenVehicle');
+  });
 
   it('the check can fail on the room: a throwaway property and a deleted one are both named', () => {
     const w = economyWorld('tel_marum', ['kdf', 'sarim'], 1000);

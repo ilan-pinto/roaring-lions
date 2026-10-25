@@ -46,11 +46,14 @@ import type { LengthRule, SnapshotClass, TypedCtor } from './snapshot-schema';
 // ALIASING IS PART OF THE SHAPE. Several fields are not values but the same object another
 // path holds (`ZoneIncomeState.route` IS an element of `zoneRoutes`; `cutSpan` IS the
 // record's own `spanStore`; `HoldView.alive` IS a Sim column). Those are `ref` rows naming
-// the target, and the test checks the identity on the live value. Task 2's census proves the
-// list of refs is complete; this table is where each one is first written down.
-// Two aliases this table does NOT model as refs, left to Task 2: `entityRoster`'s values and
-// `rosterPool`'s elements are the objects of `ctx.ledger['roster.surviving_units']` (config),
-// and the runtime never mutates them.
+// the target, and the test checks the identity on the live value. `RUNTIME_REF_RULES` (below
+// the row sets) is the other half: for every object the runtime graph reaches by two or more
+// paths it says which path OWNS the value (where the codec writes it) and how every other path
+// addresses it (an index into the owner array, or the owner itself). An alias that crosses into
+// `config`, into the mission or the context, or into a Sim column is legitimate only as
+// `config`: it is rebuilt by the target's constructor, never encoded. The census in
+// `runtime-snapshot-schema.test.ts` (and its tools twin) walks live runtimes, finds every such
+// object, and fails on one with no rule and on a rule that no world ever exercised.
 
 export type RuntimeClass = SnapshotClass;
 
@@ -124,8 +127,8 @@ interface Nullable {
 export type RuntimeKind =
   /** An integer typed array of the given constructor and length rule. */
   | ({ readonly t: 'typed'; readonly ctor: TypedCtor; readonly len: RuntimeLength } & Nullable)
-  /** An integer or a boolean. */
-  | { readonly t: 'scalar' }
+  /** An integer, or, with `bool`, a boolean: the two are NOT interchangeable (a restore refuses a 1 where a boolean belongs). */
+  | { readonly t: 'scalar'; readonly bool?: true }
   /** Any finite number: a DISPLAY value (`incomeRead`), never on a `state` row. */
   | { readonly t: 'number' }
   /** A string; `values`, when given, is the closed set it can take. */
@@ -139,7 +142,7 @@ export type RuntimeKind =
   /** A plain record or a class instance, with its own row set. */
   | ({ readonly t: 'record'; readonly rows: RowSetName } & Nullable)
   /** An identity, not a value: the object `to` names. */
-  | ({ readonly t: 'ref'; readonly to: RefTarget } & Nullable)
+  | ({ readonly t: 'ref'; readonly to: RefTarget; readonly column?: string } & Nullable)
   /** A `FlowField`; its own rows are stage 1's `FLOWFIELD_SNAPSHOT_SCHEMA` (all derived). */
   | { readonly t: 'flowfield' }
   /** An opaque JSON record carried through and never inspected (a ledger roster entry). */
@@ -159,6 +162,7 @@ function typed(ctor: TypedCtor, len: RuntimeLength, nullable?: true): RuntimeKin
   return nullable ? { t: 'typed', ctor, len, nullable } : { t: 'typed', ctor, len };
 }
 const SCALAR: RuntimeKind = { t: 'scalar' };
+const BOOL: RuntimeKind = { t: 'scalar', bool: true };
 const NUMBER: RuntimeKind = { t: 'number' };
 const JSON_: RuntimeKind = { t: 'json' };
 const AUX: RuntimeKind = { t: 'aux' };
@@ -186,6 +190,10 @@ function record(rows: RowSetName, nullable?: true): RuntimeKind {
 }
 function ref(to: RefTarget, nullable?: true): RuntimeKind {
   return nullable ? { t: 'ref', to, nullable } : { t: 'ref', to };
+}
+/** A Sim column (`sim.<column>`, e.g. `state.alive`, `tnAlive`, `blockedVehicle`): the identity is checked against that exact one. */
+function simColumn(column: string): RuntimeKind {
+  return { t: 'ref', to: 'sim.column', column };
 }
 
 const IDS: RuntimeKind = array(SCALAR);
@@ -230,7 +238,7 @@ export const RUNTIME_SNAPSHOT_SCHEMA: readonly RuntimeRow[] = [
   { name: 'onLoan', cls: 'config', kind: set(SCALAR) },
   { name: 'collapseTargets', cls: 'config', kind: map(str(), IDS) },
   { name: 'roeScoreValue', cls: 'state', kind: SCALAR },
-  { name: 'roeFailed', cls: 'state', kind: SCALAR },
+  { name: 'roeFailed', cls: 'state', kind: BOOL },
   { name: 'roeGainTotal', cls: 'state', kind: SCALAR },
   { name: 'roeGainJudged', cls: 'state', kind: set(SCALAR) },
   { name: 'aimedAtWounded', cls: 'state', kind: set(SCALAR) },
@@ -249,9 +257,13 @@ export const RUNTIME_SNAPSHOT_SCHEMA: readonly RuntimeRow[] = [
   { name: 'convoySpanStore', cls: 'state', kind: PAIR },
   // config: assigned once in the constructor (1098) from `supply_entry`'s marker; never written after.
   { name: 'convoyEntry', cls: 'config', kind: record('ConvoyEntry', true) },
-  { name: 'corridorsDirty', cls: 'state', kind: SCALAR },
+  { name: 'corridorsDirty', cls: 'state', kind: BOOL },
   // Keyed by goal tile; the field is `derived` and the stamp is the terrain version it was computed
   // over (`fieldFor`, 1142-1154). A field whose stamp is stale is recomputed whole before it is read.
+  // THE MAP MUST BE RESTORED IN PLACE (`identity: 'in-place'`, RUNTIME_REF_RULES): the constructor's
+  // `routeSource.fieldFor` closes over THIS Map object (`const fields = this.corridorFields`, 1132), so
+  // a restore that assigns a fresh Map leaves the closure writing to a detached one and the runtime
+  // reading an empty cache. Clear it and `set` the restored entries, in the snapshot's order.
   { name: 'corridorFields', cls: 'state', kind: map(SCALAR, record('CorridorField')) },
   { name: 'terrainVersion', cls: 'state', kind: SCALAR },
   // Copies of the three masks the routes were computed over, compared byte for byte at every
@@ -327,7 +339,7 @@ export const RUNTIME_SNAPSHOT_SCHEMA: readonly RuntimeRow[] = [
   { name: 'enemyMinCost', cls: 'config', kind: SCALAR },
   // scratch: `firstRefusal` assigns false as its first statement (1427) and sets true at 1453; the only
   // reader (`popCapped`, 1489) calls `firstRefusal` first, in the same expression.
-  { name: 'refusedByPopulation', cls: 'scratch', kind: SCALAR },
+  { name: 'refusedByPopulation', cls: 'scratch', kind: BOOL },
   { name: 'identified', cls: 'state', kind: set(SCALAR) },
   // config: copied from the incoming ledger in the constructor (1047); read at 3306 and 4205, never written.
   { name: 'marked', cls: 'config', kind: set(str()) },
@@ -358,13 +370,13 @@ export const RUNTIME_SNAPSHOT_SCHEMA: readonly RuntimeRow[] = [
   // are `json`. The pool is SPLICED by a `from_ledger` placement (3239), at start or at runtime.
   { name: 'rosterPool', cls: 'state', kind: array(JSON_) },
   { name: 'entityRoster', cls: 'state', kind: map(SCALAR, JSON_) },
-  { name: 'firedTriggers', cls: 'state', kind: array(SCALAR) },
-  { name: 'spawnedWaves', cls: 'state', kind: array(SCALAR) },
-  { name: 'firstContact', cls: 'state', kind: SCALAR },
-  { name: 'ended', cls: 'state', kind: SCALAR },
+  { name: 'firedTriggers', cls: 'state', kind: array(BOOL) },
+  { name: 'spawnedWaves', cls: 'state', kind: array(BOOL) },
+  { name: 'firstContact', cls: 'state', kind: BOOL },
+  { name: 'ended', cls: 'state', kind: BOOL },
   { name: 'externallyCompleted', cls: 'state', kind: array(str()) },
   { name: 'resultValue', cls: 'state', kind: str(RESULTS) },
-  { name: 'withdrawnValue', cls: 'state', kind: SCALAR },
+  { name: 'withdrawnValue', cls: 'state', kind: BOOL },
 ];
 
 // --- the objects a runtime owns -------------------------------------------------------------
@@ -390,7 +402,7 @@ export const CIVILIAN_FLIGHT_SNAPSHOT_SCHEMA: readonly RuntimeRow[] = [
   { name: 'fledSet', cls: 'state', kind: set(SCALAR) },
   { name: 'evacuatedSet', cls: 'state', kind: set(SCALAR) },
   // config: the constructor option, `missionShepherds(mission.objectives)` (mission.ts 1033), readonly.
-  { name: 'shepherds', cls: 'config', kind: SCALAR },
+  { name: 'shepherds', cls: 'config', kind: BOOL },
   // scratch: `foldSet` grows it (civilians.ts 102-105) and writes a[0..n) in its insertion loop
   // (108-115) before it hashes a[0..n) (117-118); it never reads a slot it has not written in the call.
   { name: 'scratch', cls: 'scratch', kind: typed('Int32Array', 'any') },
@@ -439,18 +451,18 @@ export const CORRIDOR_FIELD_SNAPSHOT_SCHEMA: readonly RuntimeRow[] = [
  */
 export const HOLD_VIEW_SNAPSHOT_SCHEMA: readonly RuntimeRow[] = [
   { name: 'entityCount', cls: 'config', kind: ref('view') },
-  { name: 'alive', cls: 'config', kind: ref('sim.column') },
-  { name: 'side', cls: 'config', kind: ref('sim.column') },
-  { name: 'posX', cls: 'config', kind: ref('sim.column') },
-  { name: 'posY', cls: 'config', kind: ref('sim.column') },
-  { name: 'tunnelIn', cls: 'config', kind: ref('sim.column') },
+  { name: 'alive', cls: 'config', kind: simColumn('state.alive') },
+  { name: 'side', cls: 'config', kind: simColumn('state.side') },
+  { name: 'posX', cls: 'config', kind: simColumn('state.posX') },
+  { name: 'posY', cls: 'config', kind: simColumn('state.posY') },
+  { name: 'tunnelIn', cls: 'config', kind: simColumn('state.tunnelIn') },
   { name: 'isAir', cls: 'config', kind: ref('view') },
   { name: 'isDown', cls: 'config', kind: ref('view') },
   { name: 'width', cls: 'config', kind: SCALAR },
   { name: 'tunnelCount', cls: 'config', kind: ref('view') },
-  { name: 'tnAlive', cls: 'config', kind: ref('sim.column') },
-  { name: 'tnVentOpen', cls: 'config', kind: ref('sim.column') },
-  { name: 'tnDigger', cls: 'config', kind: ref('sim.column') },
+  { name: 'tnAlive', cls: 'config', kind: simColumn('tnAlive') },
+  { name: 'tnVentOpen', cls: 'config', kind: simColumn('tnVentOpen') },
+  { name: 'tnDigger', cls: 'config', kind: simColumn('tnDigger') },
   { name: 'ventAt', cls: 'config', kind: ref('view') },
 ];
 
@@ -459,8 +471,9 @@ export const ROUTE_SOURCE_SNAPSHOT_SCHEMA: readonly RuntimeRow[] = [
   { name: 'width', cls: 'config', kind: SCALAR },
   { name: 'height', cls: 'config', kind: SCALAR },
   // A getter over `sim.blockedVehicle`, the Sim's own vehicle mask (the same array as `blocked` until a boulder lands).
-  { name: 'vehicleMask', cls: 'config', kind: ref('sim.column') },
+  { name: 'vehicleMask', cls: 'config', kind: simColumn('blockedVehicle') },
   { name: 'roadMask', cls: 'config', kind: ref('ctx.roadMask', true) },
+  // A closure over `corridorFields` (1132): see that row. The census probes it (`probeClosures`).
   { name: 'fieldFor', cls: 'config', kind: ref('view') },
 ];
 
@@ -512,7 +525,7 @@ export const WORKS_CHARGE_SNAPSHOT_SCHEMA: readonly RuntimeRow[] = [
 export const WORKS_STRUCTURE_SNAPSHOT_SCHEMA: readonly RuntimeRow[] = [
   { name: 'typeId', cls: 'state', kind: str() },
   { name: 'site', cls: 'state', kind: SCALAR },
-  { name: 'done', cls: 'state', kind: SCALAR },
+  { name: 'done', cls: 'state', kind: BOOL },
 ];
 
 /** `ProductionLine` (production.ts): one camp's serial line. */
@@ -539,6 +552,80 @@ export const LINE_ITEM_SNAPSHOT_SCHEMA: readonly RuntimeRow[] = [
 export const RALLY_SNAPSHOT_SCHEMA: readonly RuntimeRow[] = [
   { name: 'x', cls: 'state', kind: SCALAR },
   { name: 'y', cls: 'state', kind: SCALAR },
+];
+
+// --- the reference rules ----------------------------------------------------------------------------
+
+/**
+ * One aliasing fact: the object reached at `path` is ALSO reached at `owner`, and the codec writes it
+ * once, at the owner.
+ *
+ *   path      where the alias is held: a normalised schema path, `RowSet.row` with `[]` for an array
+ *             element, `{}` for a Set member and `.get()` for a Map value (`MissionRuntime.rosterPool[]`).
+ *   owner     where the value lives and is encoded: a schema path, or `'config'` when the other side is
+ *             an object the runtime does not own (the Sim, the mission, the context) or one a
+ *             constructor rebuilds. A `config` alias is never encoded.
+ *   key       how `path` addresses the owner. `self`: it IS the owner (the whole array, an alias of the
+ *             row). `index`: it is the element of the owner array at that position, so the codec writes
+ *             an index (or null). `config`: the owner is rebuilt, the alias is not written at all.
+ *             `closure`: not an object path but a function capturing the owner (see `identity`).
+ *   into      for a `config` rule, which side the other path is on: `sim`, `mission`, `ctx` (the
+ *             three constructor arguments, matched by the root of the foreign path) or `runtime` (two
+ *             config rows of the runtime itself).
+ *   identity  `'in-place'`: the owner container must keep its identity across a restore, because
+ *             something captured it (Task 3 clears and refills it, never reassigns the property).
+ */
+export interface RefRule {
+  readonly path: string;
+  readonly owner: string;
+  readonly key: 'self' | 'index' | 'config' | 'closure';
+  readonly into?: 'sim' | 'mission' | 'ctx' | 'runtime';
+  readonly identity?: 'in-place';
+  readonly note: string;
+}
+
+const HOLD_VIEW_COLUMN = "a Sim column the constructor aliases (`const st = sim.state`, 1106-1133): it must stay the target's OWN";
+
+/**
+ * Every aliasing the runtime graph has, found by the census (a walk of live runtimes: the two economy
+ * replays, the sink world and a versus economy room) and nothing else. A rule the census never uses is a
+ * failure, so a stale rule cannot stay; an alias with no rule is a failure, so a new one cannot slip in.
+ */
+export const RUNTIME_REF_RULES: readonly RefRule[] = [
+  // --- inside the runtime, state to state: the codec writes the owner and an address for the rest ---
+  { path: 'ZoneIncomeState.route', owner: 'MissionRuntime.zoneRoutes', key: 'index', note: 'an element of `zoneRoutes` (slot 2 * zone + holder), or null: written as that index' },
+  { path: 'ZoneIncomeState.cutSpan', owner: 'ZoneIncomeState.spanStore', key: 'self', note: 'this record\'s own `spanStore`, or null (`spanOf`, 2726)' },
+  { path: 'ConvoyRoute.route', owner: 'MissionRuntime.convoyRouteCache', key: 'self', note: 'the very `convoyRouteCache` array, or null' },
+  { path: 'ConvoyRoute.cutSpan', owner: 'MissionRuntime.convoySpanStore', key: 'self', note: 'the very `convoySpanStore` pair, or null (`spanOf`, 2754)' },
+  { path: 'WorksEntry.offer', owner: 'MissionRuntime.worksOfferList', key: 'index', note: 'an element of `worksOfferList`, built together by `works()` (1764): rebuilt, then `left` written' },
+  // --- a closure over a container: the container's identity is part of the shape ---
+  {
+    path: 'RouteSource.fieldFor',
+    owner: 'MissionRuntime.corridorFields',
+    key: 'closure',
+    identity: 'in-place',
+    note: '`const fields = this.corridorFields` (1132): fieldFor writes the entries it computes into THAT Map. Restore it in place.',
+  },
+  // --- config: rebuilt by the constructor over the target's own sim, mission and context ---
+  { path: 'MissionRuntime.sim', owner: 'config', key: 'config', into: 'sim', note: 'the constructor argument' },
+  { path: 'MissionRuntime.mission', owner: 'config', key: 'config', into: 'mission', note: 'the constructor argument' },
+  { path: 'MissionRuntime.ctx', owner: 'config', key: 'config', into: 'ctx', note: 'the constructor argument' },
+  { path: 'ObjectiveState.def', owner: 'config', key: 'config', into: 'mission', note: 'an element of `mission.objectives` (1040)' },
+  { path: 'HoldView.alive', owner: 'config', key: 'config', into: 'sim', note: HOLD_VIEW_COLUMN },
+  { path: 'HoldView.side', owner: 'config', key: 'config', into: 'sim', note: HOLD_VIEW_COLUMN },
+  { path: 'HoldView.posX', owner: 'config', key: 'config', into: 'sim', note: HOLD_VIEW_COLUMN },
+  { path: 'HoldView.posY', owner: 'config', key: 'config', into: 'sim', note: HOLD_VIEW_COLUMN },
+  { path: 'HoldView.tunnelIn', owner: 'config', key: 'config', into: 'sim', note: HOLD_VIEW_COLUMN },
+  { path: 'HoldView.tnAlive', owner: 'config', key: 'config', into: 'sim', note: HOLD_VIEW_COLUMN },
+  { path: 'HoldView.tnVentOpen', owner: 'config', key: 'config', into: 'sim', note: HOLD_VIEW_COLUMN },
+  { path: 'HoldView.tnDigger', owner: 'config', key: 'config', into: 'sim', note: HOLD_VIEW_COLUMN },
+  { path: 'RouteSource.vehicleMask', owner: 'config', key: 'config', into: 'sim', note: 'a getter over `sim.blockedVehicle`: the same array as `sim.blocked` until a boulder lands' },
+  { path: 'RouteSource.roadMask', owner: 'config', key: 'config', into: 'ctx', note: '`ctx.roadMask`, or null (1141)' },
+  { path: 'MissionRuntime.zoneRects[]', owner: 'config', key: 'config', into: 'runtime', note: 'each is the `rect` of the zone record at the same index (1083)' },
+  { path: 'ZoneIncomeState.rect', owner: 'config', key: 'config', into: 'runtime', note: 'also held by `zoneRects[k]`' },
+  // --- state that points into the ledger: copied by value, the runtime never mutates the entry ---
+  { path: 'MissionRuntime.rosterPool[]', owner: 'config', key: 'config', into: 'ctx', note: 'the elements of `ctx.ledger[\'roster.surviving_units\']` (1044, a shallow copy of the list); restored by value: the runtime only reads an entry (4110) and copies the unfielded ones at the end (4131)' },
+  { path: 'MissionRuntime.entityRoster.get()', owner: 'config', key: 'config', into: 'ctx', note: 'a pool entry a `from_ledger` placement drew (3239, 3281); restored by value, read-only like the pool' },
 ];
 
 /** Every owned record's row set, by name. */

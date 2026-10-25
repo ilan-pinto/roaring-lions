@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   ECO_CAMP,
@@ -15,14 +16,31 @@ import {
 import { fx } from './fixed';
 import { MissionRuntime, type MissionJson } from './mission';
 import {
+  RUNTIME_REF_RULES,
   RUNTIME_ROW_SETS,
   RUNTIME_SNAPSHOT_SCHEMA,
   runtimeRowsOf,
+  type RefRule,
   type RowSetName,
   type RuntimeKind,
   type RuntimeRow,
 } from './runtime-snapshot-schema';
-import { checkRows, checkRuntime, props, type Env, type Props } from './runtime-snapshot-schema.test-helper';
+import {
+  censusAt,
+  checkRows,
+  checkRuntime,
+  collectAliases,
+  explainAliases,
+  jsonComplaints,
+  newCensus,
+  probeClosures,
+  props,
+  ruleKey,
+  schemaPaths,
+  unusedRules,
+  type Env,
+  type Props,
+} from './runtime-snapshot-schema.test-helper';
 import { Sim, type SimEvent, type UnitTypeJson } from './sim';
 import type { TunnelRouteJson } from './tunnels';
 
@@ -516,7 +534,7 @@ describe('runtime snapshot schema: the check can fail', () => {
     props(w.rt).objectives = new Map();
     props(w.rt).purse = new Int32Array(3);
     const complaints = checkRuntime('rt', w.rt, w.sim, new Set());
-    expect(complaints).toContain('rt.roeScoreValue: expected an integer or boolean, found string a hundred');
+    expect(complaints).toContain('rt.roeScoreValue: expected an integer, found string a hundred');
     expect(complaints).toContain('rt.objectives: expected an array, found Map[0]');
     expect(complaints).toContain('rt.purse: length 3, rule says 2');
   });
@@ -543,7 +561,7 @@ describe('runtime snapshot schema: the check can fail', () => {
     expect(complaints).toContain('rt: row "purseOfSide" names no property');
     const reKinded = rows((r) => (r.name === 'purse' ? { ...r, kind: { t: 'scalar' } } : r.name === 'groups' ? { ...r, kind: { t: 'set', of: { t: 'scalar' } } } : r));
     const kinds = checkRows('rt', w.rt, reKinded, env(w), 'MissionRuntime');
-    expect(kinds).toContain('rt.purse: expected an integer or boolean, found Int32Array[2]');
+    expect(kinds).toContain('rt.purse: expected an integer, found Int32Array[2]');
     expect(kinds).toContain('rt.groups: expected a Set, found Map[3]');
   });
 
@@ -568,5 +586,318 @@ describe('runtime snapshot schema: the census', () => {
     // A row that appears here has only ever been checked against an empty container or a null: its
     // kind is the schema's claim from reading `mission.ts`, not something a live value confirmed.
     expect(unexercised).toEqual([...UNEXERCISED_IN_SIM_WORLDS].sort());
+  }, 60_000);
+});
+
+// --- the aliasing census (Task 2) ---------------------------------------------------------------------
+// A runtime is a graph, not a tree: several objects are held by two or more paths. A codec that walks the
+// tree and writes each path's value turns one object into two on restore, and the first in-place write
+// (a route recomputed into its slot) then reaches only one of them. So every object the runtime graph
+// reaches twice must be explained by a reference rule in the schema (`RUNTIME_REF_RULES`), and every rule
+// must explain something. The walk covers every row of every class and counts the Sim, the mission and
+// the context as paths too, so an alias between a runtime path and a Sim column (the S1 `holdView`
+// lesson) is found, and passes only as a `config` rule.
+
+/** The worlds' census, one moment at a time. The closure probe runs once per world, at its first moment. */
+function censusOfSimWorlds(): ReturnType<typeof newCensus> {
+  const acc = newCensus();
+  const first = new Set<string>();
+  const at = (c: Checkpoint): void => {
+    const world = c.label.split('@')[0];
+    censusAt(c.label, c.rt, c.sim, acc, !first.has(world));
+    first.add(world);
+  };
+  walkEconomy(ECONOMY_TICKS_CHECKED, at);
+  walkRelief(RELIEF_TICKS_CHECKED, at);
+  walkSink(at);
+  return acc;
+}
+
+describe('runtime snapshot schema: the aliasing census', () => {
+  it('every object the runtime graph reaches twice has a rule, and every rule explains one (economy, relief and sink worlds)', () => {
+    const acc = censusOfSimWorlds();
+    expect(acc.failures).toEqual([]);
+    expect(unusedRules(acc.used)).toEqual([]);
+    // Every rule used (RUNTIME_REF_RULES has 24, the closure one proved by the probe).
+    expect(acc.used.size).toBe(RUNTIME_REF_RULES.length);
+  }, 60_000);
+
+  it('the rules are well formed: real paths, owners of the right kind, each ref row ruled, no duplicates', () => {
+    const paths = schemaPaths();
+    const bad: string[] = [];
+    const seenKeys = new Set<string>();
+    for (const r of RUNTIME_REF_RULES) {
+      const k = ruleKey(r);
+      if (seenKeys.has(k)) bad.push(`${k}: listed twice`);
+      seenKeys.add(k);
+      if (!paths.has(r.path)) bad.push(`${k}: path names nothing in the schema`);
+      if (r.note.trim() === '') bad.push(`${k}: no note`);
+      if (r.owner === 'config') {
+        if (r.key !== 'config') bad.push(`${k}: a config owner needs key "config"`);
+        if (r.into === undefined) bad.push(`${k}: a config rule says which side it is on (into)`);
+        continue;
+      }
+      if (r.key === 'config') bad.push(`${k}: key "config" needs the owner "config"`);
+      if (r.into !== undefined) bad.push(`${k}: only a config rule has "into"`);
+      const owner = paths.get(r.owner);
+      if (owner === undefined) {
+        bad.push(`${k}: owner names nothing in the schema`);
+        continue;
+      }
+      if (owner.cls === 'config') bad.push(`${k}: a state alias is owned by a config row; make it a config rule`);
+      if (r.key === 'index' && owner.kind.t !== 'array') bad.push(`${k}: key "index" needs an array owner, found ${owner.kind.t}`);
+      if (r.key === 'closure' && owner.kind.t !== 'map') bad.push(`${k}: the closure rule captures a container`);
+      if ((r.key === 'closure') !== (r.identity === 'in-place')) bad.push(`${k}: a captured container is restored in place, and only a captured one`);
+    }
+    // Every ref row that names an OBJECT (not a getter or closure) has its rule; a rule on anything else is one of
+    // the documented non-ref aliases.
+    const refRows: string[] = [];
+    const collect = (path: string, k: RuntimeKind): void => {
+      if (k.t === 'ref' && k.to !== 'view') refRows.push(path);
+      else if (k.t === 'array' || k.t === 'set') collect(path, k.of);
+      else if (k.t === 'map') collect(path, k.value);
+    };
+    for (const r of RUNTIME_SNAPSHOT_SCHEMA) collect(`MissionRuntime.${r.name}`, r.kind);
+    for (const n of Object.keys(RUNTIME_ROW_SETS) as RowSetName[]) for (const r of RUNTIME_ROW_SETS[n]) collect(`${n}.${r.name}`, r.kind);
+    const ruled = new Set(RUNTIME_REF_RULES.map((r) => r.path));
+    for (const p of refRows) if (!ruled.has(p)) bad.push(`${p}: a ref row with no rule`);
+    const NOT_REF_ROWS = ['MissionRuntime.rosterPool[]', 'MissionRuntime.entityRoster.get()', 'MissionRuntime.zoneRects[]', 'ZoneIncomeState.rect', 'RouteSource.fieldFor'];
+    for (const p of ruled) if (!refRows.includes(p) && !NOT_REF_ROWS.includes(p)) bad.push(`${p}: a rule on a path that is neither a ref row nor a documented alias`);
+    expect(bad).toEqual([]);
+  });
+
+  it('exactly one rule asks for a container to be restored in place, and the constructor captures exactly that container', () => {
+    expect(RUNTIME_REF_RULES.filter((r) => r.identity === 'in-place').map(ruleKey)).toEqual(['RouteSource.fieldFor -> MissionRuntime.corridorFields']);
+    // Every `const x = this.<property>` in the constructor is a container a closure may keep. The one a
+    // closure DOES keep is `fields`; if a second appears, it needs a rule (or a reason it does not).
+    const src = readFileSync(new URL('./mission.ts', import.meta.url), 'utf8');
+    const start = src.indexOf('  constructor(sim: Sim, mission: MissionJson, ctx: MissionContext) {');
+    const end = src.indexOf('  /** Spendable logistics, floored for display. */');
+    expect(start).toBeGreaterThan(0);
+    expect(end).toBeGreaterThan(start);
+    const body = src.slice(start, end);
+    const captures = [...body.matchAll(/const (\w+) = this\.(\w+);/g)].map((m) => `${m[1]} = this.${m[2]}`);
+    expect(captures).toEqual(['fields = this.corridorFields']);
+  });
+});
+
+describe('runtime snapshot schema: the aliasing census can fail', () => {
+  /** Every alias every sim-package world shows, once per distinct shape. */
+  const corpus = (() => {
+    const out: ReturnType<typeof collectAliases> = [];
+    const seen = new Set<string>();
+    const at = (c: Checkpoint): void => {
+      for (const a of collectAliases(c.rt, c.sim)) {
+        const shape = a.reaches.map((r) => `${r.path}:${r.cls}`).sort().join(' == ');
+        if (!seen.has(shape)) {
+          seen.add(shape);
+          out.push(a);
+        }
+      }
+    };
+    walkEconomy([1, 800, 1600], at);
+    walkRelief([1, 1705], at);
+    walkSink(at);
+    return out;
+  })();
+
+  it('with a rule deleted, the census names the alias that rule explained (every rule but the closure one is load-bearing)', () => {
+    expect(explainAliases(corpus).unruled).toEqual([]);
+    const silent: string[] = [];
+    for (const rule of RUNTIME_REF_RULES) {
+      if (rule.key === 'closure') continue;
+      const named = explainAliases(corpus, RUNTIME_REF_RULES.filter((r) => r !== rule)).unruled;
+      // The complaint names the alias by every path that reaches it, the deleted rule's own path included.
+      if (!named.some((n) => n.includes(`(${rule.path})`))) silent.push(ruleKey(rule));
+    }
+    expect(silent, 'rules whose deletion the census does not notice').toEqual([]);
+    // One of them, written out: delete the rule for `ZoneIncomeState.route`.
+    const route = RUNTIME_REF_RULES.filter((r) => r.path !== 'ZoneIncomeState.route');
+    const named = explainAliases(corpus, route).unruled;
+    expect(named.length).toBeGreaterThan(0);
+    expect(named[0]).toContain('(ZoneIncomeState.route)');
+    expect(named[0]).toContain('(MissionRuntime.zoneRoutes[])');
+  });
+
+  it('a rule that explains nothing is named, however plausible it looks', () => {
+    const acc = censusOfSimWorlds();
+    expect(unusedRules(acc.used)).toEqual([]);
+    const bogus: RefRule = { path: 'MissionRuntime.groups', owner: 'MissionRuntime.tags', key: 'self', note: 'a made-up alias' };
+    expect(unusedRules(acc.used, [...RUNTIME_REF_RULES, bogus])).toEqual(['unused rule: MissionRuntime.groups -> MissionRuntime.tags']);
+    // And the closure rule is only ever proved by the probe: take the probe's word away and it is unused too.
+    const withoutProbe = new Set([...acc.used].filter((k) => k !== 'RouteSource.fieldFor -> MissionRuntime.corridorFields'));
+    expect(unusedRules(withoutProbe)).toEqual(['unused rule: RouteSource.fieldFor -> MissionRuntime.corridorFields']);
+  }, 60_000);
+
+  it('an alias between a state row and a Sim column is named, and a config view of one is not', () => {
+    const w = economySetup(ECONOMY_SEED);
+    expect(explainAliases(collectAliases(w.rt, w.sim)).unruled).toEqual([]);
+    // `seenVehicle` is a state cache of the runtime's own; making it the Sim's own mask is the holdView mistake.
+    props(w.rt).seenVehicle = w.sim.blocked;
+    const named = explainAliases(collectAliases(w.rt, w.sim)).unruled;
+    expect(named.some((n) => n.includes('MissionRuntime.seenVehicle'))).toBe(true);
+  });
+
+  it('two state rows sharing one array is named', () => {
+    const w = economySetup(ECONOMY_SEED);
+    props(w.rt).seenBlocked = props(w.rt).seenVehicle;
+    const named = explainAliases(collectAliases(w.rt, w.sim)).unruled;
+    expect(named).toHaveLength(1);
+    expect(named[0]).toContain('MissionRuntime.seenBlocked');
+    expect(named[0]).toContain('MissionRuntime.seenVehicle');
+  });
+
+  it('a state element that is a config object is named until a config rule says so', () => {
+    // enemyMenu is config and a line's queue is state: a queue item that IS a menu item would be the alias.
+    const { rt, sim } = sinkWorld();
+    const menu = props(rt).enemyMenu as Props[];
+    expect(menu.length).toBeGreaterThan(0);
+    const line = (props(rt).lines as Props[][])[1][0];
+    (line.queue as Props[]).push(menu[0]);
+    const named = explainAliases(collectAliases(rt, sim)).unruled;
+    expect(named).toHaveLength(1);
+    expect(named[0]).toContain('MissionRuntime.enemyMenu[]');
+    expect(named[0]).toContain('ProductionLine.queue[]');
+  });
+
+  it('the closure probe fails when corridorFields is replaced by a fresh Map, and leaves a healthy runtime as it found it', () => {
+    const w = economySetup(ECONOMY_SEED);
+    for (let t = 0; t < 30; t++) {
+      economyDrive(w, t);
+      economyAdvance(w, t);
+    }
+    const fields = props(w.rt).corridorFields as Map<number, unknown>;
+    const keys = [...fields.keys()];
+    expect(probeClosures(w.rt, w.sim)).toEqual({ used: ['RouteSource.fieldFor -> MissionRuntime.corridorFields'], complaints: [] });
+    expect(props(w.rt).corridorFields, 'same Map').toBe(fields);
+    expect([...fields.keys()], 'same entries, same order').toEqual(keys);
+    props(w.rt).corridorFields = new Map(fields);
+    const broken = probeClosures(w.rt, w.sim);
+    expect(broken.used).toEqual([]);
+    expect(broken.complaints).toHaveLength(1);
+    expect(broken.complaints[0]).toContain('the closure holds a different Map');
+  });
+});
+
+describe('runtime snapshot schema: the kind checks added in Task 2 can fail', () => {
+  it('json: a float, an undefined, a Map, a class instance and a function inside a roster entry are all named, at any depth', () => {
+    expect(jsonComplaints('x', { type: 'a', veterancy: 1, name: 'n', nested: [{ ok: true, none: null }] })).toEqual([]);
+    expect(jsonComplaints('x', { v: 1.5 })).toEqual(['x.v: JSON carries only safe integers, found number 1.5']);
+    expect(jsonComplaints('x', { v: Number.NaN })).toHaveLength(1);
+    expect(jsonComplaints('x', { v: 2 ** 60 })).toHaveLength(1);
+    expect(jsonComplaints('x', { a: [{ b: undefined }] })).toEqual(['x.a[0].b: JSON cannot carry undefined']);
+    expect(jsonComplaints('x', { m: new Map() })).toEqual(['x.m: JSON carries plain objects, found Map[0]']);
+    expect(jsonComplaints('x', { f: () => 1 })).toEqual(['x.f: JSON cannot carry function']);
+    expect(jsonComplaints('x', { t: new Int32Array(1) })).toHaveLength(1);
+  });
+
+  it('json rows on a live runtime: the roster map and pool, and the aux tail, refuse a bad value', () => {
+    const w = economySetup(ECONOMY_SEED);
+    props(w.rt).entityRoster = new Map([[1, { type: 'a', veterancy: 1.5 }]]);
+    props(w.rt).rosterPool = [{ type: 'a', name: undefined }];
+    props(w.rt).pendingIntelEvents = [{ kind: 'intelEarned', value: 0.5 }];
+    const c = checkRuntime('rt', w.rt, w.sim, new Set());
+    expect(c).toContain('rt.entityRoster.get(1).veterancy: JSON carries only safe integers, found number 1.5');
+    expect(c).toContain('rt.rosterPool[0].name: JSON cannot carry undefined');
+    expect(c).toContain('rt.pendingIntelEvents[0].value: JSON carries only safe integers, found number 0.5');
+  });
+
+  it('scalar: a 1 where a boolean belongs, and a true where an integer belongs, are both named', () => {
+    const w = economySetup(ECONOMY_SEED);
+    expect(checkRuntime('rt', w.rt, w.sim, new Set())).toEqual([]);
+    props(w.rt).roeFailed = 1;
+    props(w.rt).ended = 0;
+    props(w.rt).roeScoreValue = true;
+    (props(w.rt).firedTriggers as unknown[]).push(1);
+    const objective = (props(w.rt).objectives as Props[])[0];
+    objective.holdTicks = false;
+    const c = checkRuntime('rt', w.rt, w.sim, new Set());
+    expect(c).toContain('rt.roeFailed: expected a boolean, found number 1');
+    expect(c).toContain('rt.ended: expected a boolean, found number 0');
+    expect(c).toContain('rt.roeScoreValue: expected an integer, found boolean true');
+    expect(c).toContain('rt.firedTriggers[0]: expected a boolean, found number 1');
+    expect(c).toContain('rt.objectives[0].holdTicks: expected an integer, found boolean false');
+  });
+
+  it('every boolean the runtime holds is a bool row: the booleans of the schema are exactly the ones the types declare', () => {
+    const bools: string[] = [];
+    const walk = (path: string, k: RuntimeKind): void => {
+      if (k.t === 'scalar' && k.bool === true) bools.push(path);
+      else if (k.t === 'array' || k.t === 'set') walk(path, k.of);
+      else if (k.t === 'map') walk(path, k.value);
+    };
+    for (const r of RUNTIME_SNAPSHOT_SCHEMA) walk(`MissionRuntime.${r.name}`, r.kind);
+    for (const n of Object.keys(RUNTIME_ROW_SETS) as RowSetName[]) for (const r of RUNTIME_ROW_SETS[n]) walk(`${n}.${r.name}`, r.kind);
+    expect(bools.sort()).toEqual(
+      [
+        'CivilianFlight.shepherds',
+        'MissionRuntime.corridorsDirty',
+        'MissionRuntime.ended',
+        'MissionRuntime.firedTriggers',
+        'MissionRuntime.firstContact',
+        'MissionRuntime.refusedByPopulation',
+        'MissionRuntime.roeFailed',
+        'MissionRuntime.spawnedWaves',
+        'MissionRuntime.withdrawnValue',
+        'WorksStructure.done',
+      ].sort()
+    );
+  });
+
+  it('sim.column: every column ref names its column, and a view over the WRONG column or a copy of the right one is named', () => {
+    const named: string[] = [];
+    for (const n of Object.keys(RUNTIME_ROW_SETS) as RowSetName[]) {
+      for (const r of RUNTIME_ROW_SETS[n]) if (r.kind.t === 'ref' && r.kind.to === 'sim.column') named.push(`${n}.${r.name}=${r.kind.column ?? '?'}`);
+    }
+    expect(named.sort()).toEqual(
+      [
+        'HoldView.alive=state.alive',
+        'HoldView.posX=state.posX',
+        'HoldView.posY=state.posY',
+        'HoldView.side=state.side',
+        'HoldView.tnAlive=tnAlive',
+        'HoldView.tnDigger=tnDigger',
+        'HoldView.tnVentOpen=tnVentOpen',
+        'HoldView.tunnelIn=state.tunnelIn',
+        'RouteSource.vehicleMask=blockedVehicle',
+      ].sort()
+    );
+    const w = economySetup(ECONOMY_SEED);
+    expect(checkRuntime('rt', w.rt, w.sim, new Set())).toEqual([]);
+    const view = props(w.rt).holdView as Props;
+    view.alive = w.sim.state.side;
+    view.posX = w.sim.state.posX.slice();
+    const c = checkRuntime('rt', w.rt, w.sim, new Set());
+    expect(c).toContain('rt.holdView.alive: expected a reference to sim.column state.alive, found Uint8Array[32]');
+    expect(c).toContain('rt.holdView.posX: expected a reference to sim.column state.posX, found Int32Array[32]');
+  });
+});
+
+// Task 4's witness needs real FIGHTS for every row it claims to cover. These rows are populated by the
+// synthetic SINK world alone (no economy or relief replay fills them): a row on this list has been
+// checked against a real value, but no real match has ever produced one. Pinned, so a replay that starts
+// filling one turns the spec red and the list shrinks, rather than going stale.
+const ROWS_ONLY_THE_SINK_WORLD_FILLS: readonly string[] = [
+  'CivilianFlight.evacuatedSet', 'CivilianFlight.fledSet', 'MissionRuntime.aimedAtWounded', 'MissionRuntime.civIds',
+  'MissionRuntime.collapseTargets', 'MissionRuntime.enemyLast', 'MissionRuntime.enemyMenu', 'MissionRuntime.entityRoster',
+  'MissionRuntime.externallyCompleted', 'MissionRuntime.firedTriggers', 'MissionRuntime.marked', 'MissionRuntime.markedThisMission',
+  'MissionRuntime.onLoan', 'MissionRuntime.patrols', 'MissionRuntime.pendingIntelEvents', 'MissionRuntime.razeExempt',
+  'MissionRuntime.razeTargets', 'MissionRuntime.rescuedBack', 'MissionRuntime.roeGainJudged', 'MissionRuntime.rosterPool',
+  'MissionRuntime.routeFoundBy', 'MissionRuntime.spawnedWaves', 'MissionRuntime.tags', 'MissionRuntime.ventXY',
+  'MissionRuntime.worksList', 'MissionRuntime.worksOfferList', 'MissionRuntime.worksPending', 'MissionRuntime.worksSites',
+  'MissionRuntime.worksStructures', 'MissionRuntime.woundParentOf', 'MissionRuntime.woundedIn', 'MissionRuntime.zoneDeductedAt',
+  'PatrolState.id', 'PatrolState.idx', 'PatrolState.waypoints', 'ProductionLine.queue', 'RouteSource.roadMask',
+  'WorksCharge.intel', 'WorksCharge.logistics', 'WorksCharge.structType', 'WorksCharge.typeId', 'WorksCharge.x', 'WorksCharge.y',
+  'WorksEntry.offer', 'WorksEntry.structType', 'WorksOffer.intel', 'WorksOffer.left', 'WorksOffer.logistics', 'WorksOffer.max',
+  'WorksOffer.name', 'WorksOffer.typeId', 'WorksStructure.done', 'WorksStructure.site', 'WorksStructure.typeId',
+  'ZoneIncomeState.cut', 'ZoneIncomeState.cutSpan',
+];
+
+describe('runtime snapshot schema: which rows only the sink world fills', () => {
+  it('the replays alone leave exactly the pinned rows unfilled', () => {
+    const seen = new Set<string>();
+    walkEconomy(ECONOMY_TICKS_CHECKED, (c) => void checkRuntime(c.label, c.rt, c.sim, seen));
+    walkRelief(RELIEF_TICKS_CHECKED, (c) => void checkRuntime(c.label, c.rt, c.sim, seen));
+    expect(ALL_KEYS.filter((k) => !seen.has(k)).sort()).toEqual([...ROWS_ONLY_THE_SINK_WORLD_FILLS].sort());
   }, 60_000);
 });
