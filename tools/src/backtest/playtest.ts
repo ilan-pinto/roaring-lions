@@ -605,10 +605,11 @@ function e6Remetz(
   missionId: string,
   post: [number, number]
 ): void {
-  // Only the first (seed 424242, base tier) run reports: the max-tier replay builds the same carrier
-  // but is not counted, so it must not replace this record.
-  const rec = remetzReport.get(missionId) ?? { accepted: false, built: false, beams: 0 };
-  remetzReport.set(missionId, rec);
+  // Each run gets its OWN record; only the first (seed 424242, base tier) is entered in the report. The
+  // max-tier replay builds the same carrier on a record of its own, so it can neither mask a base run
+  // that refused the build or never struck, nor add its strikes to the base count.
+  const rec = { accepted: false, built: false, beams: 0 };
+  if (!remetzReport.has(missionId)) remetzReport.set(missionId, rec);
   at(0, () => void (rec.accepted = rt.requestBuild('aa_remetz')));
   for (let s = 2; s <= 120; s += 2)
     at(s, () => {
@@ -3477,7 +3478,7 @@ function syntheticLedgerAfter(count: number): LedgerData {
  * a real playthrough would hold after clearing the first `count` missions of
  * `missionOrder` -- WP-G-E1 (2026-09-18). `conductAtLeast`/`unlockReason`'s `roeMin` check
  * reads `roe.mission_ratings` only, never `campaign.mission_results`, so the star-gate
- * walk above cannot exercise the nine Conduct-gated units at all; this is the missing
+ * walk above cannot exercise the ten Conduct-gated units at all; this is the missing
  * half. Same shape, same reasoning: an empty object at `count === 0` reads as "no
  * missions rated yet" (`ratings(ledger)` sees a non-null map with zero keys and falls
  * through to the legacy `roe.cumulative_rating` check, which is absent here), so a
@@ -3576,8 +3577,8 @@ for (const gate of GATES) {
   }
 }
 
-// --- Task 7b: the nine Conduct-gated units, walked the same way ------------
-// (E6 added a tenth, aa_remetz, at Conduct 85: the two swarm plans build it.)
+// --- Task 7b: the Conduct-gated units, walked the same way ------------------
+// (nine at WP-G-E1; E6 added a tenth, aa_remetz, at Conduct 85: the two swarm plans build it.)
 //
 // WP-G-E1 (2026-09-18, GH-173): the lead raised these nine `roe_rating_min` floors
 // from 35-65 to 70-90 so they would spread across a well-played campaign instead of
