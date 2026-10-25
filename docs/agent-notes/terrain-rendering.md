@@ -252,8 +252,10 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   `height-contours` (both amplitudes to 0) are uniform writes nothing per-frame re-asserts, the
   `macro` standard. Floors are a third of `tools/src/perf/relief-read-signal.ts`'s reading (the
   gate's own capture, 3 runs, bit-identical); with the shader terms removed both read 0 px /
-  0.0000. **The frame cost is NOT measured on a quiet machine**: +0 draw calls, +0 programs, +0
-  textures, ALU per ground fragment only; every timing taken so far was swamped by load. A valley
+  0.0000. **The frame cost**: +0 draw calls, +0 programs, +0
+  textures, ALU per ground fragment only. It was timed and closed under GH-804: about +0.15 ms median at every
+  preset (high, medium, low; M3 Pro, ANGLE/Metal, DPR 2), under the 0.3 ms line, taken at load average 3-10 on a
+  shared machine, not a quiet one; `low` on `qarn_hadid` is the one cell near +0.3 ms. The earlier timings were swamped by load. A valley
   AO boost (no visible effect) was rejected; the tell-crown summit landed after it (next bullet).
 - **A tell's `^` crown draws as a smooth ROCK summit, lifted 2 levels, presentation-only**
   (`terrain/crown.ts`). A crown is a 4-connected `^` cluster of at most 12 tiles that is a SUMMIT:
