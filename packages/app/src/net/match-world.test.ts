@@ -37,7 +37,8 @@ describe('buildMatchWorld', () => {
     // tel_marum re-pinned 24 Oct 2026 for its seat 0 at (27,45) (GH-774): the spawn moved. Was 280818962.
     // beit re-pinned 24 Oct 2026 for its seat 1 at (40,23) (GH-561): the spawn moved. Was 3227696674.
     // Re-pinned 25 Oct 2026 for GH-421 Stage 2 (vehicle avoidance): the columns sepWait and sepLast join the hash and nothing else moved (with their hashArray lines removed the old values read back). Was 4047666552 (beit) and 792859212 (tel).
-    for (const [map, pin] of [['beit_sahwan_outskirts', 823410040], ['tel_marum', 52130380]] as const) {
+    // tel_marum re-pinned for its seat 1 at (29,17) (GH-421 Stage 2 rebalance): the spawn moved. Was 52130380.
+    for (const [map, pin] of [['beit_sahwan_outskirts', 823410040], ['tel_marum', 4263437644]] as const) {
       const w = buildMatchWorld(config(map, ['kdf', 'kdf'], 20260727));
       for (let i = 0; i < 200; i++) w.sim.tick();
       expect(w.sim.hash()).toBe(pin);
@@ -266,7 +267,7 @@ describe("seatKitTiers: a seat's claim as the world reads it", () => {
 describe("a matched room, and a brigade room with equal claims, build today's bytes", () => {
   // LITERALS: the same two pins the first describe holds (seed 20260727, 200 ticks).
   // Re-pinned 25 Oct 2026 for GH-421 Stage 2 (vehicle avoidance): the columns sepWait and sepLast join the hash and nothing else moved (with their hashArray lines removed the old values read back). Was 4047666552 / 792859212.
-  const PINS = [['beit_sahwan_outskirts', 823410040], ['tel_marum', 52130380]] as const;
+  const PINS = [['beit_sahwan_outskirts', 823410040], ['tel_marum', 4263437644]] as const;
   const SEED = 20260727;
 
   it("kit 'matched' with empty tiers: the pins, and the roster registered once", () => {
@@ -418,7 +419,8 @@ describe('the economy runtime (N3 Task 3)', () => {
     // Re-pinned for GH-769 (Wadi Tarfan seats (11,11)/(36,36) and tunnel capacity 3; seats and route state are hashed). Was 1960701868 for wadi_tarfan.
     // tel_marum re-pinned 24 Oct 2026 (GH-774): seat 0 moved from (24,46) to (27,45), so the KDF host's spawn moved (this room registers the north routes, whose capacity did not change). Was -147026323.
     // Re-pinned 25 Oct 2026 for GH-421 Stage 2 (vehicle avoidance): the columns sepWait and sepLast join the hash and nothing else moved (with their hashArray lines removed the old values read back). Was -1498380144 (tel_marum) and -1972637780 (wadi_tarfan).
-    const VERSUS_ECONOMY_PINS = [['tel_marum', -502812528], ['wadi_tarfan', 955375532]] as const;
+    // tel_marum re-pinned for its seat 1 at (29,17) (GH-421 Stage 2 rebalance): so the Sarim spawn moved; the north routes this room registers are unchanged. Was -502812528.
+    const VERSUS_ECONOMY_PINS = [['tel_marum', 750746188], ['wadi_tarfan', 955375532]] as const;
     for (const [map, pin] of VERSUS_ECONOMY_PINS) {
       const w = buildMatchWorld(config(map, ['kdf', 'sarim'], 20260727));
       run(w, 200);
@@ -428,12 +430,12 @@ describe('the economy runtime (N3 Task 3)', () => {
 });
 
 describe('the Sarim seat\'s routes (GH-681, T3)', () => {
-  // [map, host factions, the END the Sarim side stands at, that end's route ids, their capacity (LITERALS)]
+  // [map, host factions, the END the Sarim side stands at, that end's route ids, each route's capacity (LITERALS)]
   const CASES = [
-    ['tel_marum', ['kdf', 'sarim'], 'hostile', ['tm_n_west', 'tm_n_east'], 4],
-    ['tel_marum', ['sarim', 'kdf'], 'friendly', ['tm_s_west', 'tm_s_east'], 5],
-    ['wadi_tarfan', ['kdf', 'sarim'], 'hostile', ['wt_h_south', 'wt_h_east'], 2],
-    ['wadi_tarfan', ['sarim', 'kdf'], 'friendly', ['wt_f_north', 'wt_f_west'], 2],
+    ['tel_marum', ['kdf', 'sarim'], 'hostile', ['tm_n_west', 'tm_n_east'], [4, 4]],
+    ['tel_marum', ['sarim', 'kdf'], 'friendly', ['tm_s_west', 'tm_s_east'], [4, 4]],
+    ['wadi_tarfan', ['kdf', 'sarim'], 'hostile', ['wt_h_south', 'wt_h_east'], [2, 3]],
+    ['wadi_tarfan', ['sarim', 'kdf'], 'friendly', ['wt_f_north', 'wt_f_west'], [1, 1]],
   ] as const;
   it.each(CASES)('%s, host %j: exactly the Sarim end\'s routes, owned by the Sarim side, pre-dug, at the capacity the file authors', (map, factions, end, ids, capacity) => {
     const w = buildMatchWorld(config(map, [factions[0], factions[1]], 7));
@@ -444,7 +446,7 @@ describe('the Sarim seat\'s routes (GH-681, T3)', () => {
     for (let r = 0; r < w.sim.tunnelCount; r++) {
       expect(w.map.tunnels[r].id, `positional ${r}`).toBe(ids[r]);
       expect(w.sim.tunnelOwner(r)).toBe(sarimSide);
-      expect(w.sim.tunnelCapacity(r)).toBe(capacity);
+      expect(w.sim.tunnelCapacity(r), `capacity ${r}`).toBe(capacity[r]);
     }
     // Pre-dug: the vent is open from tick 0.
     for (let r = 0; r < w.sim.tunnelCount; r++) expect(w.sim.tnVentOpen[r]).toBe(1);
