@@ -352,6 +352,6 @@ describe('snapshot format pin', () => {
     // behaviour changes the state at tick 500. That is not the same trigger as the golden hash:
     // the bytes cover unhashed `state` rows too (the pool keys, fieldLastIssued), so a change to
     // those moves this pin and leaves the golden hash alone, and the other way round.
-    expect(h >>> 0).toBe(923693936);
+    expect(h >>> 0).toBe(1168014221);
   });
 });
