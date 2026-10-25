@@ -1043,7 +1043,7 @@ reports `isContextLost() === true` after leaving the menu; its falsification was
 `renderer.dispose()` from the door's `release()`, which failed exactly that assertion (Task 8,
 mutation (a)). That is a PROXY for the scene-host spec's §10 memory budgets (≤ 900 MB GPU
 footprint while live, ≤ 60 MB within 1 s of leaving), not a measurement of them: the landing
-checked only that the context reads lost, never what the GPU process holds. Nor did any landing
+checked only that the context reads lost, never what the GPU process holds. Since GH-469 (PR #474) a CI memory gate, `tools/src/perf/memory-budgets.ts`, covers the menu's GPU memory, no second live WebGL context after leaving, and JS growth after leaving; the literal 60 MB within 1 s of leaving is not gated as such. Nor did any landing
 run record `data-host-motion` reaching `held` on SwiftShader (§3.3 (5)); `ui:routes` leg (a)
 prints it now, at `live` and at the leave click.
 

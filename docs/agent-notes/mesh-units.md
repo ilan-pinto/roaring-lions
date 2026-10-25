@@ -406,11 +406,12 @@ for vehicles.
   METAL_METALLIC` 0, `patch_metal_glb.py --metallic-only`): painted metallic
   1.0, they drew near-black, because a vehicle material has no environment
   (`envMapIntensity = 0`) and a metal keeps no diffuse term. The exporter finds
-  the patch by its colour off every island now. **Open:** the Peten's kit still
-  reads weakly at zoom 1 (kit-toggle 255 -> 307 px of a ~800 px airframe after
+  the patch by its colour off every island now. **Resolved by PR #661 (15 Oct):** the Peten's kit
+  read weakly at zoom 1 (kit-toggle 255 -> 307 px of a ~800 px airframe after
   its camera-facing parts grew ~40% and its metal took a gunmetal texel, the
-  "fourth rule"); more needs parts beyond the airframe's 0.28 scale or the
-  gunship's stores, the lead's call (K5).
+  "fourth rule"); options A+B (larger camera-facing parts inside the airframe's 0.28 scale,
+  and a light metal tone) took the kit pixels at zoom 1 from 287 to 343. Option C, the
+  gunship's stores, was not taken (K5).
 - **A building's FACING is gated now** (GH-142, `tools/building_facing.py`,
   inside `pnpm validate:meshes`). A building never turns — `mesh-building.ts`
   leaves rotation at identity — so whichever elevation an export bakes toward

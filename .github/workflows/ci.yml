@@ -119,6 +119,12 @@ jobs:
       # workflow -- it costs nothing to run on every push rather than being gated
       # behind a schedule or a label.
       - run: pnpm playtest
+      # The full snapshot witness (tools/src/net/snapshot-witness.ts, net sim snapshot S1): restore a
+      # fresh world from a snapshot at ~25 cut ticks of every versus world and demand the same
+      # hash, the same canonical encoding and the same runtime data 1,200 ticks on; the coverage
+      # census (a state row no world ever moved must carry a reason); and with --self-check the
+      # three mutations that must turn it red. No browser, no GPU: sim only.
+      - run: pnpm snapshot:witness -- --self-check
       # The sim tick-cost gate (tools/src/perf/three-units.ts's Node-CLI half):
       # no browser/GPU involved, so it can run headless here exactly like `pnpm balance`
       # above it. Fails the build if sim.tick() cost regresses past a generous budget at
