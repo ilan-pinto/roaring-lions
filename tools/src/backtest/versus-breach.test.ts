@@ -22,13 +22,14 @@ describe('the normal arm is the room', () => {
     // All four re-pinned when wounds opened to versus (23 Oct 2026). Was 3296182002 / 1108074073
     // (beit helper / room) and 1524988923 (tel, both).
     // beit's helper pin re-pinned 24 Oct 2026 for its seat 1 at (40,23) (GH-561). Was 2485993817.
-    expect(pinWindow('beit_sahwan_outskirts', 'helper').hash).toBe(1732930723);
+    // Re-pinned 25 Oct 2026 for GH-421 Stage 2 (vehicle avoidance): the columns sepWait and sepLast join the hash and nothing else moved (with their hashArray lines removed the old values read back). Was 1732930723 (beit helper), 4047666552 (beit room), 792859212 (tel, both).
+    expect(pinWindow('beit_sahwan_outskirts', 'helper').hash).toBe(695551139);
     // beit's room pin re-pinned 24 Oct 2026 for its seat 1 at (40,23) (GH-561). Was 3227696674.
-    expect(pinWindow('beit_sahwan_outskirts', 'room').hash).toBe(4047666552);
+    expect(pinWindow('beit_sahwan_outskirts', 'room').hash).toBe(823410040);
     // tel_marum re-pinned 2026-10-22 for its versus seat 0 at (24,46). Was 1260439781.
     // Re-pinned 24 Oct 2026 for its seat 0 at (27,45) (GH-774). Was 280818962.
-    expect(pinWindow('tel_marum', 'helper').hash).toBe(792859212);
-    expect(pinWindow('tel_marum', 'room').hash).toBe(792859212);
+    expect(pinWindow('tel_marum', 'helper').hash).toBe(52130380);
+    expect(pinWindow('tel_marum', 'room').hash).toBe(52130380);
     for (const map of ['beit_sahwan_outskirts', 'tel_marum'] as const) {
       for (const how of ['helper', 'room'] as const) expect(pinWindow(map, how).activity.ticks).toEqual([0, 0]);
     }
