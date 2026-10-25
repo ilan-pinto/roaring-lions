@@ -275,6 +275,15 @@
         855,
         702
       ]
+    },
+    "demo_tzav": {
+      "file": "demo_tzav.jpg",
+      "width": 1800,
+      "height": 1200,
+      "extent": [
+        941,
+        655
+      ]
     }
   }
 }

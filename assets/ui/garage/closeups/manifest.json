@@ -172,6 +172,24 @@
       "elevationDeg": 12,
       "distance": 0.182
     },
+    "demo_tzav_armour": {
+      "file": "demo_tzav_armour.jpg",
+      "unit": "demo_tzav",
+      "track": "armour",
+      "subject": "role",
+      "yawDeg": 225,
+      "elevationDeg": 18,
+      "distance": 4.313
+    },
+    "demo_tzav_firepower": {
+      "file": "demo_tzav_firepower.jpg",
+      "unit": "demo_tzav",
+      "track": "firepower",
+      "subject": "role",
+      "yawDeg": 90,
+      "elevationDeg": 18,
+      "distance": 1.555
+    },
     "dozer_d9_armour": {
       "file": "dozer_d9_armour.jpg",
       "unit": "dozer_d9",

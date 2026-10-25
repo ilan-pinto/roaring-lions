@@ -67,6 +67,7 @@ import apcKipod from '../../../../../data/units/kdf/apc_kipod.json';
 import attackDrone from '../../../../../data/units/kdf/attack_drone.json';
 import reconDrone from '../../../../../data/units/kdf/recon_drone.json';
 import dozerD9 from '../../../../../data/units/kdf/dozer_d9.json';
+import demoTzav from '../../../../../data/units/kdf/demo_tzav.json';
 import heliPeten from '../../../../../data/units/kdf/heli_peten.json';
 import heliPetenGunship from '../../../../../data/units/kdf/heli_peten_gunship.json';
 import heliYanshuf from '../../../../../data/units/kdf/heli_yanshuf.json';
@@ -127,6 +128,8 @@ const VEHICLE_UNIT_JSON: readonly unknown[] = [
   attackDrone,
   reconDrone,
   dozerD9,
+  // GH-274: the Shiryonan carrier, `mobility.weight.mass_class: heavy` (a tracked 8.5 m hull).
+  demoTzav,
   heliPeten,
   // E5 (GH-181): `isAir`, excluded from the weight model upstream like `heli_peten`.
   heliPetenGunship,

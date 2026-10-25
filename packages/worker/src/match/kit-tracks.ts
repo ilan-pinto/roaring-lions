@@ -29,4 +29,5 @@ export const KIT_TRACKS: Readonly<Record<string, Readonly<Record<string, number>
   recon_zikit: { sensors: 3, armour: 3 },
   heli_peten_gunship: { armour: 3, sensors: 3, firepower: 3 },
   heli_yanshuf: { armour: 3, sensors: 3, firepower: 3 },
+  demo_tzav: { armour: 3, firepower: 3 },
 };

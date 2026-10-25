@@ -121,6 +121,13 @@
         ]
       }
     },
+    "demo_tzav": {
+      "file": "demo_tzav.png",
+      "extent": [
+        182,
+        139
+      ]
+    },
     "digger_crew": {
       "file": "digger_crew.png",
       "extent": [

@@ -59,8 +59,11 @@ describe('running-gear recipes against the design doc', () => {
     // A3/A4: the Lavi's and the D9's road wheels do not spin.
     expect(RUNNING_GEAR_RECIPES.mbt_lavi.wheels).toEqual([]);
     expect(RUNNING_GEAR_RECIPES.dozer_d9.wheels).toEqual([]);
-    // A5: the Tzav waits for E6.
-    expect(RUNNING_GEAR_RECIPES.demo_tzav).toBeUndefined();
+    // A5, resolved by the Tzav's landing (GH-274): it takes the tracked option, and like the
+    // Lavi's and the D9's its eight fused road wheels do not spin.
+    expect(RUNNING_GEAR_RECIPES.demo_tzav.wheels).toEqual([]);
+    expect(RUNNING_GEAR_RECIPES.demo_tzav.track).toBeDefined();
+    expect(RUNNING_GEAR_RECIPES.demo_tzav.track?.excludeDiscs.filter((d) => d.side === 'r').length).toBe(8);
   });
 
   it('steers the front axle only', () => {

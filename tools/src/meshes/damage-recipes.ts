@@ -295,6 +295,15 @@ const NAMER: readonly DamageOp[] = [
 const D9: readonly DamageOp[] = [
   { verb: 'throwTrack', side: 1, slide: -1.4, out0: 0.85, out1: 1.4, wave: 0.15, lowY: 0.6 },
 ];
+/**
+ * GH-274: the Shiryonan carrier. Its `_RL_TRACK` loop is the whole ring (lower run y 0.0-0.1,
+ * return run y 1.2-1.35, end ramps), 14.1 m, the track slab |z| 0.95-1.9 and the hull
+ * |z| 2.08 -- a hair wider than the track, like the Namer's and the D9's, so the strip starts
+ * a metre out to clear the hull's own outline (measured 2026-10-25 off the shipped bytes).
+ */
+const TZAV: readonly DamageOp[] = [
+  { verb: 'throwTrack', side: 1, slide: -1.5, out0: 1.0, out1: 1.4, wave: 0.15, lowY: 0.6 },
+];
 
 /**
  * Wheeled hulls: the rear +Z tyre is gone (`WreckRecipe.lostWheel` drops that
@@ -340,6 +349,7 @@ export const DAMAGE_RECIPES: Readonly<Record<string, readonly DamageOp[]>> = {
   // the same track.
   veh_ambulance: NAMER,
   dozer_d9: D9,
+  demo_tzav: TZAV,
   apc_eitan: [lostRearTyre(3)],
   // E6 (GH-274 chunk A2, 25 Oct): the Remetz Laser Carrier. Outline damage only, inside the cap and every
   // copy a SMALL mesh (a copy of the 5,236-face baked `hull_hull` alone would be about 70 KiB Draco, so

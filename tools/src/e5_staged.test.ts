@@ -2,10 +2,12 @@
 //
 // Three bought-only units (Zikit, Tzav, Peten gunship), approved and priced. The Zikit and
 // the Gunship LANDED (GH-181 part 2, 2026-10-01): their JSON is in data/units/kdf and their
-// meshes are out of HELD_MESH_FILES. The Tzav stays staged here because its placed charge is
-// sim work (E6 G1, Stage 4): a landed Tzav would be a bought carrier that cannot do its one
-// job. "No art-less unit ships" and its mirror, "no unit ships without the rest of its seam",
-// are why the move is one commit per unit. This spec keeps both halves honest:
+// meshes are out of HELD_MESH_FILES. The Tzav stayed staged until its placed charge landed
+// (E6 G1, PR 778: a landed Tzav would have been a bought carrier that cannot do its one job)
+// and then landed with its probes, its tracks and its plate (GH-274, closing GH-156), so
+// staging is empty and only `numbers.md` is left in the directory. "No art-less unit ships"
+// and its mirror, "no unit ships without the rest of its seam", are why the move is one
+// commit per unit. This spec keeps both halves honest:
 //   - they parse against the shipped unit schema;
 //   - they are bought-only (`unlock` is exactly `{ price }`, credits, nothing else);
 //   - the price sits in the prices.md section 8 band;
@@ -86,8 +88,24 @@ describe('E5 special forces: staged and landed partition the three approved unit
 });
 
 describe('E5 staged special-forces units', () => {
-  it('stages the Tzav until E6 lands its placed charge', () => {
-    expect(staged.map((s) => s.json.id)).toEqual(['demo_tzav']);
+  it('has nothing left in staging: all three E5 units landed', () => {
+    expect(staged.map((s) => s.json.id)).toEqual([]);
+  });
+
+  // The Tzav's one job, as the numbers the lead approved on 29 Sep (numbers.md, Q1 and Q4),
+  // read from the SHIPPED unit. The literals are the oracle: they are not imported from the
+  // JSON they judge.
+  it('the landed Tzav carries the approved placed charge', () => {
+    const t = units.demo_tzav as unknown as {
+      demolition_method: string;
+      demolition_time_s: number;
+      placed_charge: Record<string, number>;
+      abilities: string[];
+    };
+    expect(t.demolition_method).toBe('placed');
+    expect(t.demolition_time_s).toBe(3.0);
+    expect(t.placed_charge).toEqual({ fuse_s: 8, blast_tiles: 2.5, damage: 300, suppression: 120, withdraw_tiles: 4 });
+    expect(t.abilities).toContain('demolish');
   });
 
   for (const { file, json } of staged) {
