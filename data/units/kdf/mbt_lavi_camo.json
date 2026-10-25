@@ -24,6 +24,7 @@
     "suppression_resistance": 0.8
   },
   "mobility": {
+    "footprint": { "half_length_tiles": 1.1, "half_width_tiles": 0.71, "centre_along_tiles": -0.22 },
     "speed_tiles_s": 1.0,
     "turn_rate_deg_s": 55,
     "can_crush": true

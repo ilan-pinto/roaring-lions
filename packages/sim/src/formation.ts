@@ -20,9 +20,9 @@
 export const MAX_LATERAL = 3;
 /** Between vehicles sideways and between vehicle ranks: a tank is about a tile long. */
 export const VEHICLE_SPACING = 2;
-/** Between vehicle RANKS: two hulls in consecutive ranks need up to 2.54 tiles
- *  (a Namer, half-length 1.22, behind a camo Lavi whose hull reaches 1.10 + 0.22
- *  behind its origin), so 3. Sideways stays VEHICLE_SPACING (2). */
+/** Between vehicle RANKS: two hulls in consecutive ranks need up to 2.83 tiles
+ *  (two Tzavs, half-length 1.42 each; formation_rank_depth.test.ts measures the
+ *  roster), so 3. Sideways stays VEHICLE_SPACING (2). */
 export const VEHICLE_RANK_DEPTH = 3;
 /** One team per tile, ranks one tile apart. */
 export const INFANTRY_SPACING = 1;

@@ -7,7 +7,7 @@
   "cost": { "logistics": 680, "build_time_s": 34, "population": 2 },
   "unlock": { "price": 6500 },
   "hull": { "hp": 2600, "armor": { "front": 380, "side": 200, "rear": 120, "top": 40 }, "crew": 3, "suppression_resistance": 0.8, "can_embark": false },
-  "mobility": { "speed_tiles_s": 1.0, "turn_rate_deg_s": 55, "wheeled": true, "weight": { "mass_class": "heavy" } },
+  "mobility": { "footprint": { "half_length_tiles": 1.42, "half_width_tiles": 0.69 }, "speed_tiles_s": 1.0, "turn_rate_deg_s": 55, "wheeled": true, "weight": { "mass_class": "heavy" } },
   "sensors": { "optics": 0.9, "sight_tiles": 8, "signature": 1.1, "firing_signature_mult": 2.0 },
   "abilities": ["demolish", "smoke"],
   "demolition_time_s": 3.0,

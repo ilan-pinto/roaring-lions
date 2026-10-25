@@ -239,6 +239,17 @@ describe('the Stores with a TEST wallet (?testcoins)', () => {
     dispose();
   });
 
+  it('Receipts names a redeemed code\'s coins as a plus row', () => {
+    const { host, dispose } = mountStores({
+      test: { coins: 100000, grant: 0, receipts: [{ kind: 'coupon', id: '1', at: 1, coins: 100000, couponIds: ['lead_roar_coins_100k'] }] },
+    });
+    const row = host.querySelector('[data-shelf="receipts"] tbody tr');
+    expect(row?.getAttribute('data-receipt')).toBe('coupon');
+    expect(row?.textContent).toContain('Code redeemed: TEST coins');
+    expect(row?.textContent).toContain('+100000');
+    dispose();
+  });
+
   it('Grant shows only with the TEST wallet', () => {
     let grants = 0;
     const withTest = mountStores({ test, onGrant: () => grants++ });

@@ -68,10 +68,14 @@ export function packBonusPercent(pack: CoinPack, base: CoinPack = COIN_PACKS[0])
 // Was 5920: GH-707 P3 (2026-10-22), infantry falls wounded; -78 over 15 missions, per-mission reasons
 // beside `LADDER_CREDITS`.
 // Was 5842: the lead's wound rules (2026-10-23), +111; per-mission reasons beside `LADDER_CREDITS`.
+// Was 5953: GH-421 Stage 2 (2026-10-25), vehicle avoidance; +18 over ten missions, per-mission reasons beside
+// `LADDER_CREDITS`.
 // Was 5953: GH-802 (2026-10-25), Tel Marum III's plan takes the flank and cuts the relay, +40.
+// Was 5993 (main) and 5971 (GH-421): both together, 5953 + 18 + 40; reasons beside `LADDER_CREDITS`.
 // Was 5993: GH-274 item 5 (2026-10-25), the swarm missions; Umm Zeitoun II +10, Wadi Halam III -20.
+// Was 5983: GH-421 Stage 2 merged with the swarm missions, read off a fresh run; reasons beside `LADDER_CREDITS`.
 // Was 5983: GH-161 (2026-10-25), Wadi Halam I's east-bank crest and re-solved plan; WH I, II, III +10 each.
-export const CAMPAIGN_CREDITS = 6013;
+export const CAMPAIGN_CREDITS = 5991;
 /** The same ladder's mission count, for a mean pay a fresh account can quote
  *  before it has been paid for anything. */
 export const LADDER_MISSIONS = 26;

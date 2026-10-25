@@ -282,6 +282,16 @@ export const ROUT_AFTER_TICKS = 200;
 export const ROUT_SPEED_SHIFT = 1;
 export const ROUT_DISTANCE = 393216; // 6 tiles
 
+/** Vehicle separation (GH-421): the valve. A hull's `sepWait` rises by 2 for each tick it stands blocked
+ *  and by 1 for each tick it steers round, and falls by 1 for each free tick that follows a free tick;
+ *  from this count (40: twenty ticks of standing, 1 s) the hull takes its step anyway ("ghosts") until
+ *  the count has fallen below it again, so a jam never becomes a deadlock. */
+export const SEP_VALVE_TICKS = 40;
+/** cos 45 = sin 45 in Q16.16 (0.70711 x 65536 = 46340.95, rounded): the steering turn. */
+export const SEP_COS_45 = 46341;
+/** Halvings of a follow step: a hull behind a same-way mover closes up to within 1/32 of its step of contact. */
+export const SEP_FOLLOW_HALVINGS = 5;
+
 /** Extra flow-field cost per elevation level CLIMBED, in the same tenths-of-a-
  *  tile units the field already uses (COST_ORTH 10, COST_DIAG 14). One level of
  *  climb therefore costs what one extra tile of flat ground costs.

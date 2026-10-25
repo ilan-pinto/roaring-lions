@@ -338,7 +338,7 @@ export const structures = structureCatalogue.types;
 export type StructureId = keyof typeof structures;
 
 /** Brigade coupons (hashed codes; see coupons.schema.json). */
-export const coupons: readonly { id: string; sha256: string; credits: number }[] = couponsJson.coupons;
+export const coupons: readonly { id: string; sha256: string; credits?: number; coins?: number }[] = couponsJson.coupons;
 
 /** Missions, keyed by mission id. Shapes match mission.schema.json. */
 export const missions = {

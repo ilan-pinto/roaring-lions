@@ -281,7 +281,11 @@ describe('determinism (1000-tick replay)', () => {
     // now each takes the ring-1 tile cheapest from where it stands (the south
     // face, the near one). With fieldToward
     // back on the plain snap it reads 935671699 exactly. Was 935671699.
-    expect(a.hash()).toBe(3719067886);
+    //
+    // 2026-10-25: Vehicle avoidance (GH-421 Stage 2): two per-unit columns, sepWait and sepLast, join
+    // the hash. No behaviour moved (no unit in this replay declares a footprint): with their hashArray
+    // lines removed, the replay reads the old value exactly. Was 3719067886.
+    expect(a.hash()).toBe(1258746094);
   });
 
   it('the replay actually exercises halt to fire', () => {
@@ -594,14 +598,18 @@ describe('determinism over relief (900-tick replay round a hill)', () => {
     // focusTarget and focusLost, join the hash. No behaviour moved: with their
     // hashArray lines removed, all three replays (flat, relief, orders)
     // reproduce the old value exactly. Was 373999871.
-    expect(relief(RELIEF_SEED, RELIEF_TICKS, true).sim.hash()).toBe(2842924511);
+    //
+    // 2026-10-25: Vehicle avoidance (GH-421 Stage 2): two per-unit columns, sepWait and sepLast, join
+    // the hash. No behaviour moved (no unit in this replay declares a footprint): with their hashArray
+    // lines removed, the replay reads the old value exactly. Was 2842924511.
+    expect(relief(RELIEF_SEED, RELIEF_TICKS, true).sim.hash()).toBe(1070599391);
   });
 
   it("N2: the explicit single-player table is today's rule on all three golden replays", () => {
     // LITERALS, as the pins above: an oracle that imports its expectation cannot fail.
-    expect(run(RUN_SEED, 1000, false, undefined, undefined, [true, false]).hash()).toBe(3719067886);
-    expect(relief(RELIEF_SEED, RELIEF_TICKS, true, [true, false]).sim.hash()).toBe(2842924511);
-    expect(orders(ORDERS_SEED, [true, false]).sim.hash()).toBe(3272041047);
+    expect(run(RUN_SEED, 1000, false, undefined, undefined, [true, false]).hash()).toBe(1258746094);
+    expect(relief(RELIEF_SEED, RELIEF_TICKS, true, [true, false]).sim.hash()).toBe(1070599391);
+    expect(orders(ORDERS_SEED, [true, false]).sim.hash()).toBe(2559269335);
   });
 
   it('the relief changes the route, not merely the hash', () => {
@@ -709,7 +717,11 @@ describe('determinism of an order once it is done (900-tick replay)', () => {
     // focusTarget and focusLost, join the hash. No behaviour moved: with their
     // hashArray lines removed, all three replays (flat, relief, orders)
     // reproduce the old value exactly. Was 1736634855.
-    expect(orders(ORDERS_SEED).sim.hash()).toBe(3272041047);
+    //
+    // 2026-10-25: Vehicle avoidance (GH-421 Stage 2): two per-unit columns, sepWait and sepLast, join
+    // the hash. No behaviour moved (no unit in this replay declares a footprint): with their hashArray
+    // lines removed, the replay reads the old value exactly. Was 3272041047.
+    expect(orders(ORDERS_SEED).sim.hash()).toBe(2559269335);
   });
 });
 
@@ -1207,7 +1219,10 @@ function woundedWorld(seed: number, squad: UnitTypeJson = WW_SQUAD): { hash: num
 
 // WOUNDED_WORLD_PIN: born 2026-10-22 (GH-707 Task 7), read from the first run. It moves when a
 // wound rule or a wound column's fold changes; say why in the commit that moves it.
-const WOUNDED_WORLD_PIN = 1774950105;
+// 2026-10-25: Vehicle avoidance (GH-421 Stage 2): the columns sepWait and sepLast join the hash; with
+// their hashArray lines removed the world reads 1774950105 exactly (no unit here declares a footprint).
+// Was 1774950105.
+const WOUNDED_WORLD_PIN = 3748305113;
 
 describe('determinism of a wounded world (600-tick replay, GH-707)', () => {
   it('two runs from the seed agree, and the run falls, bleeds, treats, carries, admits and rejoins', () => {

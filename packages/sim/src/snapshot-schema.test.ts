@@ -150,14 +150,14 @@ function show(v: unknown): string {
 // listed; reclassifying a property is a deliberate edit to BOTH places.
 const CONFIG = [
   'width', 'height', 'capacity', 'seed', 'unitTypes', 'structureTypes', 'boulder', 'hasBoulders', 'openGrid',
-  'humanHeldBySide', 'tnPoints', 'tnTiles', 'state', 'structures', 'works',
+  'humanHeldBySide', 'tnPoints', 'tnTiles', 'state', 'structures', 'works', 'sepCols',
 ];
 const DERIVED = ['fields'];
 const SCRATCH = [
   'seenThisTick', 'bestObserver', 'bestObserverP', 'bestObserverStructure', 'detP', 'detStrength', 'detSig', 'detOccl',
   'detDistSq', 'aimTurned', 'aimDesired', 'aimFrom', 'braceWant', 'sealQueue', 'sealStamp', 'fieldLive',
   'approachField', 'snapX', 'snapY', 'presentedArc', 'engageDSq', 'engageOX', 'engageOY', 'eyeX', 'eyeY',
-  'spreadTiles',
+  'spreadTiles', 'sepHead', 'sepNext', 'sepCap', 'sepOut', 'sepHitStationary',
 ];
 
 describe('snapshot schema: completeness', () => {

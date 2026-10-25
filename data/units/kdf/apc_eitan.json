@@ -22,6 +22,7 @@
     "suppression_resistance": 0.7
   },
   "mobility": {
+    "footprint": { "half_length_tiles": 1.19, "half_width_tiles": 0.51 },
     "speed_tiles_s": 1.8,
     "turn_rate_deg_s": 90,
     "gear": "wheels"

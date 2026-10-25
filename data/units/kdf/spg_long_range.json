@@ -26,6 +26,7 @@
     "can_embark": false
   },
   "mobility": {
+    "footprint": { "half_length_tiles": 1.22, "half_width_tiles": 0.57, "centre_along_tiles": -0.08 },
     "speed_tiles_s": 0.9,
     "turn_rate_deg_s": 45,
     "wheeled": true,

@@ -36,7 +36,8 @@ describe('buildMatchWorld', () => {
     // rather than town_center): was 3043363756.
     // tel_marum re-pinned 24 Oct 2026 for its seat 0 at (27,45) (GH-774): the spawn moved. Was 280818962.
     // beit re-pinned 24 Oct 2026 for its seat 1 at (40,23) (GH-561): the spawn moved. Was 3227696674.
-    for (const [map, pin] of [['beit_sahwan_outskirts', 4047666552], ['tel_marum', 792859212]] as const) {
+    // Re-pinned 25 Oct 2026 for GH-421 Stage 2 (vehicle avoidance): the columns sepWait and sepLast join the hash and nothing else moved (with their hashArray lines removed the old values read back). Was 4047666552 (beit) and 792859212 (tel).
+    for (const [map, pin] of [['beit_sahwan_outskirts', 823410040], ['tel_marum', 52130380]] as const) {
       const w = buildMatchWorld(config(map, ['kdf', 'kdf'], 20260727));
       for (let i = 0; i < 200; i++) w.sim.tick();
       expect(w.sim.hash()).toBe(pin);
@@ -264,7 +265,8 @@ describe("seatKitTiers: a seat's claim as the world reads it", () => {
 
 describe("a matched room, and a brigade room with equal claims, build today's bytes", () => {
   // LITERALS: the same two pins the first describe holds (seed 20260727, 200 ticks).
-  const PINS = [['beit_sahwan_outskirts', 4047666552], ['tel_marum', 792859212]] as const;
+  // Re-pinned 25 Oct 2026 for GH-421 Stage 2 (vehicle avoidance): the columns sepWait and sepLast join the hash and nothing else moved (with their hashArray lines removed the old values read back). Was 4047666552 / 792859212.
+  const PINS = [['beit_sahwan_outskirts', 823410040], ['tel_marum', 52130380]] as const;
   const SEED = 20260727;
 
   it("kit 'matched' with empty tiers: the pins, and the roster registered once", () => {
@@ -415,7 +417,8 @@ describe('the economy runtime (N3 Task 3)', () => {
     // Re-pinned when wounds opened to versus (the lead, 23 Oct 2026): the two wounded types join the roster, every infantry type keeps hull.wounds, and the wound block is in the hash. Was 822414509 / 1021735804.
     // Re-pinned for GH-769 (Wadi Tarfan seats (11,11)/(36,36) and tunnel capacity 3; seats and route state are hashed). Was 1960701868 for wadi_tarfan.
     // tel_marum re-pinned 24 Oct 2026 (GH-774): seat 0 moved from (24,46) to (27,45), so the KDF host's spawn moved (this room registers the north routes, whose capacity did not change). Was -147026323.
-    const VERSUS_ECONOMY_PINS = [['tel_marum', -1498380144], ['wadi_tarfan', -1972637780]] as const;
+    // Re-pinned 25 Oct 2026 for GH-421 Stage 2 (vehicle avoidance): the columns sepWait and sepLast join the hash and nothing else moved (with their hashArray lines removed the old values read back). Was -1498380144 (tel_marum) and -1972637780 (wadi_tarfan).
+    const VERSUS_ECONOMY_PINS = [['tel_marum', -502812528], ['wadi_tarfan', 955375532]] as const;
     for (const [map, pin] of VERSUS_ECONOMY_PINS) {
       const w = buildMatchWorld(config(map, ['kdf', 'sarim'], 20260727));
       run(w, 200);
