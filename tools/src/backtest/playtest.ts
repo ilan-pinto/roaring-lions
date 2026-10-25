@@ -418,12 +418,40 @@ const led3 = run(
 // - the old plan: 29/30 and 28/30, mean 2.50 and 2.23, nine one-survivor seeds on 100-129.
 // Holding x=8, 9 or 10 with the same Spike and drone read 56-57 of the 60. The east edge read 58.
 // Most of what is left is the mission's own late waves in the grove.
+//
+// The east-bank crest (GH-161, 25 Oct). `wadi_halam_basin` gained a level-2 crest along x=14, one tile
+// outside the grove. From the bed nothing of the pasture shows over it, so the screen at (11.5,24)
+// first sees a rider at 4 tiles, not 8, and the plan above won 29 of the 30 sweep seeds (seed 9 lost
+// its squads to the pair at 210 s). Two changes, each what a player would do once he knows riders now
+// top the crest at 4 tiles:
+// - The APC takes the lee of the bank, (12,24), alone and two tiles under the crest, from 140 s (110 s before
+//   GH-421, see below). It is
+//   the one hull that can take a RPG rider's first shot (1,600 hp, a squad has 400) and the first thing
+//   a rider tops the crest onto. It is left out of the periodic re-anchor, which would walk it back
+//   into the squads.
+// - The squads hold (10.5,24), a tile and a half behind it.
+// Measured with the same script on the sweep's 30 seeds plus 100 that took no part in choosing it
+// (300-399): the plan above on the crest 29/30 and 91/100; this plan 30/30 and 95/100. For scale, the
+// plan above on the FLAT map read 30/30, then 28/30 on 100-129 and 28/30 on 200-229.
+// Tried and dropped (sweep seeds, then the 100 as well where a variant was close): the drone on the crest
+// from 110 s or 150 s (it dies: 24-25 of 30 on 100-129); the APC on the crest or one tile behind it
+// (27-29 of 30); ambush stances on the squads (holding fire against riders that outrange sight, 3-29 of
+// 30); the Spike team forward at x=6, 8 or 10 (28-29 of 30); the squads west of x=10 (26 of 30: riders
+// reach the grove floor first); the APC at (12,22) or (12,26) (27-29 of 30).
+// Re-solved against vehicle avoidance (GH-421 Stage 2, merged 26 Oct): the plan above, with the screen
+// leaving at 140 s and the APC ordered to the bank at 110 s, read 28/30 (5 and 9 lost), because the 140 s
+// screen order cancelled the APC's. Ordering the APC at 140 s, after the screen's, reads 30/30 on the
+// sweep seeds (slowest win 7.8 min), 93/100 on 300-399 and 26/30 on 100-129 (117, 119, 121, 123 lost; the
+// base tree loses 119 and 123 there). Tried: the APC at 150 s or 160 s (29/30, seed 14), 145 s and the
+// screen and APC both at 130 s or 135 s (no better on 300-399: 94/100 at 135 s).
 const wh1 = run('wadi_halam_1_fords', (sim, rt, ids, at) => {
   const drone = ids('recon_drone');
   const screen = [...ids('apc_eitan'), ...ids('inf_squad')];
   const spike = ids('at_team');
   const jeep = ids('jeep_shoded');
-  const ANCHOR = M(11.5, 24);
+  const apc = ids('apc_eitan');
+  const ANCHOR = M(10.5, 24);
+  const BANK = M(12, 24);
   const STANDOFF = M(4, 24);
   at(0, () => {
     // North first: the near gallery ambush is 4 tiles off the axis, and
@@ -454,11 +482,16 @@ const wh1 = run('wadi_halam_1_fords', (sim, rt, ids, at) => {
   for (let when = 130; when <= 320; when += 45) {
     at(when, () => {
       const cur: number[] = [];
-      for (let i = 0; i < sim.entityCount; i++) if (sim.state.side[i] === 0 && sim.state.alive[i] === 1 && !spike.includes(i)) cur.push(i);
+      for (let i = 0; i < sim.entityCount; i++) if (sim.state.side[i] === 0 && sim.state.alive[i] === 1 && !spike.includes(i) && !apc.includes(i)) cur.push(i);
       sim.queueCommand({ kind: 'attackMove', ids: cur, ...ANCHOR });
       sim.queueCommand({ kind: 'attackMove', ids: spike.filter((i) => sim.state.alive[i] === 1), ...STANDOFF });
     });
   }
+  // After the screen's order on purpose: at 140 s this order comes second and overrides the APC's share of
+  // the screen's anchor above. It was 110 s until GH-421 moved the screen's departure to 140 s: at 110 s
+  // the APC left the south gallery thirty seconds early and the 140 s order then walked it back to the
+  // squads' anchor, so the lee of the bank was never held (sweep seeds 5 and 9 lost, 28/30).
+  at(140, () => sim.queueCommand({ kind: 'attackMove', ids: apc.filter((i) => sim.state.alive[i] === 1), ...BANK }));
   void rt;
 });
 passiveAcrossSeeds('wadi_halam_1_fords', 'wadi_halam_1_fords (no orders)', 'defeat');
@@ -4087,7 +4120,15 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // Main's 5983 plus the ten avoidance missions (+18, listed above) less Umm Zeitoun II, which pays 220
 // under avoidance against main's 230 (roster out 16 against 17: one body fewer comes home). No star,
 // outcome or gate moved; every plan, the two that build a Remetz included, wins on 30 of 30 seeds.
-const LADDER_CREDITS = 5991;
+// 2026-10-25, GH-161, Wadi Halam I gets its east-bank crest and a re-solved plan (the APC alone at
+// (12,24)): 5983 -> 6013, +30. Wadi Halam I 170 -> 180, II 180 -> 190, III 160 -> 170 (more men come
+// home). Every plan still wins on 30 of 30 seeds; no star, outcome, gate or Conduct moved.
+// 2026-10-26, GH-828, the Wadi Halam I crest merged with vehicle avoidance (GH-421 Stage 2), and the plan
+// re-solved to win 30 of 30 again (the APC's bank order follows the screen's at 140 s): 5991 -> 5951, -40.
+// The seed-424242 run now brings home 3 men from Wadi Halam I, not 4, and Wadi Halam I, II and III pay
+// 170, 160 and 160 (490; 530 on main, 540 in the unfixed merge). Every other mission pays what it paid.
+// No star, outcome, gate or Conduct moved.
+const LADDER_CREDITS = 5951;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);

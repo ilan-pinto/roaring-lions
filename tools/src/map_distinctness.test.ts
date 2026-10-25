@@ -64,6 +64,51 @@ describe('map distinctness', () => {
       expect(c.elevationWithin).not.toBeNull();
       expect(tooAlike(c)).toBe(true);
     });
+    it('a flat copy of a relief map still fails: same features, grid stripped to zeros (GH-161)', () => {
+      const crest = SAMPLE.map((_, y) => (y >= 2 && y <= 7 ? '0000022000' : '0000000000'));
+      const c = compare(mk(SAMPLE, crest), mk(SAMPLE, SAMPLE.map(() => '0000000000')));
+      expect(c.feature).toBe(1);
+      expect(tooAlike(c)).toBe(true);
+    });
+    it('a flat copy of a gentle relief map fails on elevation alone, with the features moved (GH-161)', () => {
+      // A 1-level terrace is within one level of flat everywhere it stands: the counted tiles are all alike.
+      const terrace = SAMPLE.map((_, y) => (y >= 2 && y <= 7 ? '0000011000' : '0000000000'));
+      const other = SAMPLE.map((r) => r.replace(/[^.]/g, '.'));
+      other[0] = 'hhhhhhhhhh';
+      const c = compare(mk(SAMPLE, terrace), mk(other, SAMPLE.map(() => '0000000000')));
+      expect(c.feature).toBeLessThanOrEqual(FEATURE_GATE);
+      expect(c.elevationWithin).toBe(1);
+      expect(tooAlike(c)).toBe(true);
+    });
+    it('the same crest on the same tiles fails on elevation, with the features moved (GH-161)', () => {
+      const crest = SAMPLE.map((_, y) => (y >= 2 && y <= 7 ? '0000022000' : '0000000000'));
+      const other = SAMPLE.map((r) => r.replace(/[^.]/g, '.'));
+      other[0] = 'hhhhhhhhhh';
+      const c = compare(mk(SAMPLE, crest), mk(other, crest));
+      expect(c.feature).toBeLessThanOrEqual(FEATURE_GATE);
+      expect(c.elevationWithin).toBe(1);
+      expect(tooAlike(c)).toBe(true);
+    });
+    it('two different sparse reliefs pass: the flat tiles no longer vouch for each other (GH-161)', () => {
+      // Each grid is 94% zeros, so over ALL tiles they sit within one level on 88% of them. Their crests
+      // stand in different places, so over the tiles where either is raised they agree on none.
+      const a = SAMPLE.map((_, y) => (y >= 2 && y <= 4 ? '0000022000' : '0000000000'));
+      const b = SAMPLE.map((_, y) => (y >= 6 && y <= 8 ? '0220000000' : '0000000000'));
+      const other = SAMPLE.map((r) => r.replace(/[^.]/g, '.'));
+      other[0] = 'hhhhhhhhhh';
+      const c = compare(mk(SAMPLE, a), mk(other, b));
+      expect(c.feature).toBeLessThanOrEqual(FEATURE_GATE);
+      expect(c.elevationWithin).not.toBeNull();
+      expect(c.elevationWithin ?? 1).toBeLessThan(0.2);
+      expect(tooAlike(c)).toBe(false);
+    });
+    it('two all-zero grids have nothing to tell them apart and still read as alike (GH-161)', () => {
+      const other = SAMPLE.map((r) => r.replace(/[^.]/g, '.'));
+      other[0] = 'hhhhhhhhhh';
+      const c = compare(mk(SAMPLE, SAMPLE.map(() => '0000000000')), mk(other, SAMPLE.map(() => '0000000000')));
+      expect(c.elevationWithin).toBe(1);
+      expect(tooAlike(c)).toBe(true);
+    });
     it('two genuinely different maps pass', () => {
       const other = ['.........#', '..........', '..ooo.....', '..ooo..1..', '..........', '=====.....', '..........', '.....mm...', '.....mm...', '..........'];
       expect(tooAlike(compare(mk(SAMPLE), mk(other)))).toBe(false);

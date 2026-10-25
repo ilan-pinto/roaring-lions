@@ -65,8 +65,9 @@ import wadiHalamBasin from '../../../data/maps/wadi_halam_basin.json';
 // Wadi Halam's per-mission variants (docs/campaign/map-variants-design.md
 // §3.3): same 48x48 frame, same markers/zones, same depot compound and
 // poplar gallery, obstacles (and, for II, a first elevation grid) bent
-// around them per mission. The base file is untouched; I stays on it (the
-// fords are the lesson the base map already teaches).
+// around them per mission. I stays on the base file (the fords are the lesson
+// the base map already teaches); since GH-161 the base file carries its own east-bank crest
+// (a sparse elevation grid).
 import wadiHalam2 from '../../../data/maps/wadi_halam_2.json';
 import wadiHalam3 from '../../../data/maps/wadi_halam_3.json';
 import wadiHalam4 from '../../../data/maps/wadi_halam_4.json';

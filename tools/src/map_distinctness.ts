@@ -13,10 +13,18 @@
 // orientation is the one that counts.
 //
 // ELEVATION. Where both maps carry a grid, a pair whose grids sit within one level of each
-// other on more than 80% of tiles, in ANY orientation, fails too: a flat copy of a relief map
-// would otherwise read as different ground. Measured on main before this landed: the most
-// alike elevation grids of two DIFFERENT towns are 67.8% (`qarn_hadid` / `umm_zeitoun_*`), so
-// 80% separates nothing honest. A map with NO grid is flat by omission and is not compared.
+// other on more than 80% of the tiles where EITHER grid is non-zero, in ANY orientation, fails
+// too: a flat copy of a relief map would otherwise read as different ground. Counting the flat
+// tiles was the original rule and it was wrong the moment a sparse relief (one crest on a
+// mostly flat map, GH-161) arrived: a grid that is 98% zeros "matched" every other sparse grid
+// at 92-98% on the zeros alone, though their crests stood in different places. The same
+// reasoning as the feature metric above, which already skips the tiles both maps leave open.
+// Measured on main before this landed: the most alike elevation grids of two DIFFERENT towns
+// were 67.8% (`qarn_hadid` / `umm_zeitoun_*`) over all tiles. Under the non-zero rule (GH-161) the
+// most alike pair of different campaign missions reads about 77%, then 76.8%, 76.3%, 74.2% and
+// 73.7%: the 80% gate still separates them, with a margin of 3 points, not 12.
+// Two grids that are zero everywhere have nothing to tell them apart and read 100%, as before.
+// A map with NO grid is flat by omission and is not compared.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -94,7 +102,7 @@ export interface Comparison {
   raw: number;
   /** Which of the eight orientations gave `feature` (0 = as authored). */
   orientation: number;
-  /** Largest share of tiles within one level over all eight orientations, or null if either map has no grid. */
+  /** Largest share, over all eight orientations, of tiles within one level among the tiles where either grid is non-zero; null if either map has no grid. */
   elevationWithin: number | null;
 }
 
@@ -125,10 +133,16 @@ export function compare(a: GridMap, b: GridMap): Comparison {
     let within: number | null = null;
     if (Ae && be) {
       let ok = 0;
+      let relief = 0;
       for (let y = 0; y < ga.length; y++)
-        for (let x = 0; x < ga[0].length; x++)
-          if (Math.abs(Number(Ae[o][y][x]) - Number(be[y][x])) <= 1) ok++;
-      within = ok / (ga.length * ga[0].length);
+        for (let x = 0; x < ga[0].length; x++) {
+          const p = Number(Ae[o][y][x]);
+          const q = Number(be[y][x]);
+          if (p === 0 && q === 0) continue;
+          relief++;
+          if (Math.abs(p - q) <= 1) ok++;
+        }
+      within = relief === 0 ? 1 : ok / relief;
     }
     if (within !== null) bestWithin = Math.max(bestWithin ?? 0, within);
     if (feature > best.feature) {
