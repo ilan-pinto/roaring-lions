@@ -15,9 +15,9 @@ import { MAX_EVAC_POINTS, MAX_PATROL_WAYPOINTS, MAX_SITES } from './tuning';
 //   derived   a pure function of state, too large to send: the flow-field
 //             pool's contents only, rebuilt by Task 4.
 //   scratch   overwritten before any read, every use: left at the fresh value.
-// and one more that is not the world's own state at all:
-//   boundary  the command and runtime queues. They are inputs waiting to be
-//             consumed at a tick boundary, never part of a snapshot.
+// The command and runtime queues are `state` (aux rows): `MissionRuntime.step`
+// queues a rally order AFTER the tick, so some frame boundaries of a runtime
+// world hold queued commands, and a snapshot cut there has to carry them.
 //
 // THE RULE FOR A DOUBTFUL PROPERTY IS `state`. A wrong `scratch` or `derived`
 // costs a desync; encoding a small array costs a few compressed bytes. Two hash
@@ -29,7 +29,7 @@ import { MAX_EVAC_POINTS, MAX_PATROL_WAYPOINTS, MAX_SITES } from './tuning';
 // boulders (see its declaration in sim.ts). The encoder must not assume the two
 // are distinct arrays.
 
-export type SnapshotClass = 'state' | 'config' | 'derived' | 'scratch' | 'boundary';
+export type SnapshotClass = 'state' | 'config' | 'derived' | 'scratch';
 
 export type TypedCtor =
   | 'Int8Array'
@@ -305,8 +305,8 @@ export const SIM_SNAPSHOT_SCHEMA: readonly SnapshotRow[] = [
   { name: 'structures', cls: 'config', kind: obj('record') },
   { name: 'works', cls: 'config', kind: obj('record') },
   { name: 'seed', cls: 'config', kind: SCALAR },
-  { name: 'commandQueue', cls: 'boundary', kind: obj('array') },
-  { name: 'runtimeQueue', cls: 'boundary', kind: obj('array') },
+  { name: 'commandQueue', cls: 'state', kind: AUX },
+  { name: 'runtimeQueue', cls: 'state', kind: AUX },
   { name: 'pendingEvents', cls: 'state', kind: AUX },
   { name: 'fields', cls: 'derived', kind: POOL },
   { name: 'fieldByGoal', cls: 'state', kind: POOL },

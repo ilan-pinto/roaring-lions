@@ -1,5 +1,5 @@
 import { FlowField } from './flowfield';
-import { canonicalJson, encodeSim, internals, isTyped, restoreSim, type Typed } from './snapshot';
+import { auxJsonOf, canonicalJson, encodeSim, internals, isTyped, restoreSim, type Typed } from './snapshot';
 import { RNG_SNAPSHOT_SCHEMA, rowsOf, type SnapshotRow } from './snapshot-schema';
 import type { Sim } from './sim';
 
@@ -7,9 +7,16 @@ import type { Sim } from './sim';
 // snapshot carries the whole match.
 //
 //   A runs the world uninterrupted. At tick T its state is encoded to bytes S.
-//   B is a FRESH world from the same build, restored from S alone, and both are
-//   then driven with the same inputs for `horizon` ticks.
+//   B is a FRESH world from the same build, filled with garbage in every `state`
+//   row (`poisonState`), restored from S alone, and both are then driven with the
+//   same inputs for `horizon` ticks.
 //
+// The garbage goes in BEFORE the restore, always. A world built the same way as A
+// already holds A's tick-0 value in every row written only at build (`stCx`,
+// `stTiles`, `tnLength` ...), so a restore that skipped such a row would read as
+// right: the two values coincide. With the row poisoned first, a skipped row keeps
+// the garbage, and the encodings differ.
+
 // The verdict needs two things. The hashes must agree at every hash tick, AND the
 // canonical encodings of A and B must be byte-equal at the end. Hash equality is
 // not enough: the reflection probe (spec 6.2) showed `fieldByGoal` emptied and
@@ -170,6 +177,73 @@ export function configDiff(a: Sim, b: Sim): string | null {
   return null;
 }
 
+/** The junk each `aux` row holds in B before the restore; a restore that skips the row leaves it there. */
+const AUX_JUNK: Record<string, (value: unknown[]) => void> = {
+  patrolLegIds: (v) => {
+    v.fill(0x5a5a);
+  },
+  pendingStrikes: (v) => {
+    v.push({ x: 1, y: 2, by: 3, readyTick: 4, profile: 5 });
+  },
+  pendingEvents: (v) => {
+    v.push({ kind: 'spawn', tick: -7 });
+  },
+  commandQueue: (v) => {
+    v.push({ kind: 'halt', ids: [0] });
+  },
+  runtimeQueue: (v) => {
+    v.push({ kind: 'clearRally', side: 0, line: 0 });
+  },
+  stTiles: (v) => {
+    v.push([0, 1, 2]);
+  },
+};
+
+/**
+ * Fills every `state` row of a fresh world with garbage, so that a restore that fails to write
+ * a row leaves the garbage in it:
+ *   - a typed column gets a non-constant odd pattern; the RNG words are garbled the same way;
+ *   - a scalar becomes a different value (a boolean is negated);
+ *   - an `aux` array gets one junk element (or, for `patrolLegIds`, junk in place);
+ *   - the flow-field pool rows are left alone: `restoreFieldPool` replaces them whole.
+ * `config` is untouched (the restore never writes it, and `configDiff` checks it after).
+ * Throws for an `aux` row it has no junk for, so a new row cannot go unpoisoned.
+ */
+export function poisonState(sim: Sim): void {
+  const self = internals(sim);
+  for (const row of rowsOf('state')) {
+    const v = self[row.name];
+    switch (row.kind.t) {
+      case 'typed':
+        if (!isTyped(v)) throw new Error(`poisonState: ${row.name} is not a typed array`);
+        garbleColumn(v);
+        break;
+      case 'scalar':
+        self[row.name] = typeof v === 'boolean' ? !v : ((v as number) ^ POISON_STATE_XOR) | 0;
+        break;
+      case 'rng':
+        garbleColumn((v as { state: Uint32Array }).state);
+        break;
+      case 'aux': {
+        const junk = AUX_JUNK[row.name];
+        if (junk === undefined || !Array.isArray(v)) throw new Error(`poisonState: aux row ${row.name} has no junk`);
+        junk(v);
+        break;
+      }
+      case 'pool':
+        break;
+      default:
+        throw new Error(`poisonState: state row ${row.name} has a kind it cannot poison`);
+    }
+  }
+}
+
+const POISON_STATE_XOR = 0x5a5a5a;
+
+function garbleColumn(a: Typed): void {
+  for (let i = 0; i < a.length; i++) a[i] = (i * 40503 + 0x5a5b) | 1;
+}
+
 const POISON_BYTE = 0x5a;
 const POISON_SCALAR = 0x5a5a;
 const POISON_UNKEYED = 0xee;
@@ -259,6 +333,7 @@ function runForks<W extends WitnessWorld>(
     const spec = forks[index];
     const bytes = encodeSim(a.sim);
     const b = opts.build();
+    poisonState(b.sim);
     restoreSim(b.sim, bytes);
     opts.afterRestore?.(b, a);
     const configDifference = configDiff(a.sim, b.sim);
@@ -418,7 +493,7 @@ export function stateRowsMoved(base: Sim, now: Sim): Set<string> {
         if (rngMoved(vb, vn)) moved.add(row.name);
         break;
       case 'aux':
-        if (canonicalJson(vb) !== canonicalJson(vn)) moved.add(row.name);
+        if (auxJsonOf(base, row.name) !== auxJsonOf(now, row.name)) moved.add(row.name);
         break;
       case 'pool':
         if (poolRowJson(base, row.name) !== poolRowJson(now, row.name)) moved.add(row.name);

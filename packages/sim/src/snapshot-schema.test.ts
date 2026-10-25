@@ -158,7 +158,6 @@ const SCRATCH = [
   'approachField', 'snapX', 'snapY', 'presentedArc', 'engageDSq', 'engageOX', 'engageOY', 'eyeX', 'eyeY',
   'spreadTiles',
 ];
-const BOUNDARY = ['commandQueue', 'runtimeQueue'];
 
 describe('snapshot schema: completeness', () => {
   const all = worlds();
@@ -193,8 +192,7 @@ describe('snapshot schema: completeness', () => {
     expect(names('config')).toEqual([...CONFIG].sort());
     expect(names('derived')).toEqual([...DERIVED].sort());
     expect(names('scratch')).toEqual([...SCRATCH].sort());
-    expect(names('boundary')).toEqual([...BOUNDARY].sort());
-    const listed = new Set([...CONFIG, ...DERIVED, ...SCRATCH, ...BOUNDARY]);
+    const listed = new Set([...CONFIG, ...DERIVED, ...SCRATCH]);
     expect(names('state')).toEqual(SIM_SNAPSHOT_SCHEMA.filter((r) => !listed.has(r.name)).map((r) => r.name).sort());
   });
 
@@ -203,7 +201,7 @@ describe('snapshot schema: completeness', () => {
     for (const n of [
       'rng', 'trail', 'removed', 'fieldRef', 'fieldByGoal', 'fieldGoalKey', 'fieldDomain', 'fieldLastIssued',
       'stProducesFor', 'constructedAt', 'sealGen', 'blockedVehicleMask', 'pendingEvents', 'pendingStrikes',
-      'patrolLegIds', 'stTiles',
+      'patrolLegIds', 'stTiles', 'commandQueue', 'runtimeQueue',
     ]) {
       expect(cls.get(n), n).toBe('state');
     }
@@ -211,7 +209,7 @@ describe('snapshot schema: completeness', () => {
 
   it('the typed-array kinds are the only place a length rule lives, and the aux and pool rows are the design lists', () => {
     expect(SIM_SNAPSHOT_SCHEMA.filter((r) => r.kind.t === 'aux').map((r) => r.name).sort()).toEqual(
-      ['patrolLegIds', 'pendingEvents', 'pendingStrikes', 'stTiles']
+      ['commandQueue', 'patrolLegIds', 'pendingEvents', 'pendingStrikes', 'runtimeQueue', 'stTiles']
     );
     expect(SIM_SNAPSHOT_SCHEMA.filter((r) => r.kind.t === 'pool').map((r) => r.name).sort()).toEqual(
       ['fieldByGoal', 'fieldDomain', 'fieldGoalKey', 'fieldLastIssued', 'fields']
@@ -230,11 +228,11 @@ describe('snapshot schema: completeness', () => {
   });
 
   it('rowsOf returns a class in schema order', () => {
-    for (const c of ['state', 'config', 'derived', 'scratch', 'boundary'] as const) {
+    for (const c of ['state', 'config', 'derived', 'scratch'] as const) {
       const want = SIM_SNAPSHOT_SCHEMA.filter((r) => r.cls === c);
       expect(rowsOf(c)).toEqual(want);
     }
-    expect(rowsOf('state').length + rowsOf('config').length + rowsOf('derived').length + rowsOf('scratch').length + rowsOf('boundary').length).toBe(
+    expect(rowsOf('state').length + rowsOf('config').length + rowsOf('derived').length + rowsOf('scratch').length).toBe(
       SIM_SNAPSHOT_SCHEMA.length
     );
   });

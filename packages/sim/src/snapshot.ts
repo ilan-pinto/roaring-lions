@@ -1,5 +1,5 @@
 import { HASH_SEED, hashWord } from './hash';
-import { SIM_EVENT_KINDS, STRIKE_SNAPSHOT_KEYS, type FieldPoolKeys, type Sim } from './sim';
+import { SIM_EVENT_KINDS, STRIKE_SNAPSHOT_KEYS, type Command, type FieldPoolKeys, type RuntimeCommand, type Sim } from './sim';
 import {
   RNG_SNAPSHOT_SCHEMA,
   SIM_SNAPSHOT_SCHEMA,
@@ -8,6 +8,7 @@ import {
   type SnapshotRow,
   type TypedCtor,
 } from './snapshot-schema';
+import { FIRE_SUPPORT_KINDS, MAX_PATROL_WAYPOINTS } from './tuning';
 
 // encodeSim / restoreSim (net sim snapshot, stage 1, Task 3).
 //
@@ -24,12 +25,13 @@ import {
 //   scalars  every `state` scalar, schema order: i32, or u8 for a boolean
 //   rng      Rng.state: u32 length, then elements
 //   tail     u32 length, then canonical JSON of the `aux` rows (events,
-//            strikes, patrol leg ids, structure tiles)
+//            strikes, patrol leg ids, structure tiles, the command queue and
+//            the runtime queue)
 //
 // What is deliberately NOT here: `config` (rebuilt by the setup that built the
-// target), `scratch` (overwritten before any read) and `boundary` (the command
-// and runtime queues: a snapshot is cut between frames only, so encodeSim
-// throws when either holds anything). The flow-field pool is in the tail as its
+// target) and `scratch` (overwritten before any read). The two queues ARE
+// here: `MissionRuntime.step` queues a rally order after the tick, so a frame
+// boundary of a runtime world can hold queued commands. The flow-field pool is in the tail as its
 // KEYS only (`fieldPool`: watermark, per-slot goal/domain/lastIssued, per-domain
 // Map order); restoreSim rebuilds every field from them against the restored
 // masks, so the field bytes are never written.
@@ -343,6 +345,135 @@ interface AuxContext {
   readonly self: Record<string, unknown>;
   readonly cells: number;
   readonly maxStructures: number;
+  readonly capacity: number;
+}
+
+// ---- the command and runtime queues -------------------------------------------
+
+/** The most commands either queue may hold at a snapshot; the decoder refuses more. */
+export const MAX_QUEUED_COMMANDS = 64;
+/** The longest string field of a queued command (a unit or works id). */
+const MAX_COMMAND_STRING = 64;
+
+/** What one field of a queued command may hold. `ids` is a list of unit ids, each in `0..capacity-1`. */
+type FieldSpec = 'int' | 'ids' | 'bool' | 'str' | 'waypoints' | readonly string[];
+type Field = FieldSpec | { readonly opt: FieldSpec };
+/** Every key of every variant of the union member for kind `K`, bar `kind` (setStance has two variants). */
+type KeysOf<T> = T extends unknown ? Exclude<keyof T, 'kind'> : never;
+
+/**
+ * The shape of every `Command`, kind by kind. Typed as a mapped type over the `Command` union, so
+ * BOTH directions are compile-time proofs: a new command kind with no entry fails to compile, an entry
+ * naming no kind fails to compile, and the same holds for the fields of each kind (a new field on a
+ * command must be added here, or the table does not type-check). That is the same guard
+ * `SIM_EVENT_KINDS` and `STRIKE_SNAPSHOT_KEYS` give their rows, and it keeps sim.ts untouched.
+ * Whether a field is required is read from this table: `{ opt }` may be absent.
+ */
+const COMMAND_FIELDS: { readonly [K in Command['kind']]: { readonly [F in KeysOf<Extract<Command, { kind: K }>>]: Field } } = {
+  move: { ids: 'ids', x: 'int', y: 'int', append: { opt: 'bool' }, exact: { opt: 'bool' } },
+  attackMove: { ids: 'ids', x: 'int', y: 'int', append: { opt: 'bool' }, exact: { opt: 'bool' }, sweep: { opt: 'bool' } },
+  halt: { ids: 'ids' },
+  setStance: { ids: 'ids', stance: ['hold', 'ambush', 'patrol'], radius: { opt: 'int' }, waypoints: { opt: 'waypoints' } },
+  garrison: { ids: 'ids', structure: 'int' },
+  load: { ids: 'ids', carrier: 'int' },
+  unload: { ids: 'ids' },
+  reveal: { side: 'int', x: 'int', y: 'int' },
+  callStrike: { caller: 'int', x: 'int', y: 'int', profile: { opt: 'int' } },
+  smoke: { ids: 'ids', x: 'int', y: 'int' },
+  demolish: { ids: 'ids', structure: 'int' },
+  chargeTunnel: { ids: 'ids', tunnel: 'int' },
+  enterTunnel: { ids: 'ids', tunnel: 'int' },
+  vent: { ids: 'ids', mode: ['raid', 'exit'] },
+  attack: { ids: 'ids', target: 'int' },
+  rescue: { ids: 'ids', target: 'int' },
+  build: { side: 'int', unit: 'str', line: { opt: 'int' } },
+  cancelBuild: { side: 'int', line: 'int', index: 'int' },
+  setRally: { side: 'int', line: 'int', x: 'int', y: 'int' },
+  clearRally: { side: 'int', line: 'int' },
+  support: { side: 'int', support: FIRE_SUPPORT_KINDS, x: 'int', y: 'int' },
+  construct: { ids: 'ids', structType: 'int', x: 'int', y: 'int' },
+  cancelConstruct: { site: 'int' },
+  raiseWorks: { side: 'int', works: 'str', x: 'int', y: 'int', ids: 'ids' },
+  cancelWorks: { side: 'int', site: 'int' },
+};
+
+/** The seven kinds the sim sets aside for the runtime (`RuntimeCommand`); a `Record` so it too is exhaustive both ways. */
+const RUNTIME_KIND_SET: { readonly [K in RuntimeCommand['kind']]: true } = {
+  build: true, support: true, cancelBuild: true, setRally: true, clearRally: true, raiseWorks: true, cancelWorks: true,
+};
+const isRuntimeKind = (kind: string): boolean => Object.hasOwn(RUNTIME_KIND_SET, kind);
+
+const isI32 = (x: unknown): x is number => isInt(x) && x >= -0x80000000 && x <= 0x7fffffff;
+
+function fieldOk(spec: FieldSpec, v: unknown, capacity: number): boolean {
+  if (Array.isArray(spec)) return typeof v === 'string' && spec.includes(v);
+  switch (spec) {
+    case 'int':
+      return isI32(v);
+    case 'bool':
+      return typeof v === 'boolean';
+    case 'str':
+      return typeof v === 'string' && v.length <= MAX_COMMAND_STRING;
+    case 'ids':
+      return Array.isArray(v) && v.length <= capacity && v.every((id) => isInt(id) && id >= 0 && id < capacity);
+    case 'waypoints':
+      return (
+        Array.isArray(v) &&
+        v.length <= MAX_PATROL_WAYPOINTS &&
+        v.every((w) => Array.isArray(w) && w.length === 2 && isI32(w[0]) && isI32(w[1]))
+      );
+    default:
+      return false;
+  }
+}
+
+/**
+ * Validates one queue and returns it as the sim would hold it: plain objects with their `undefined`
+ * fields dropped (an absent optional field and an explicit `undefined` read the same in the sim, and
+ * canonical JSON refuses the second). Returns a problem string instead of an array on the first fault.
+ * `runtime` says which of the two queues it is: the runtime queue holds exactly the seven runtime kinds.
+ */
+function cleanQueue(value: unknown, runtime: boolean, capacity: number): { ok: Record<string, unknown>[] } | { problem: string } {
+  if (!Array.isArray(value)) return { problem: 'not an array' };
+  if (value.length > MAX_QUEUED_COMMANDS) return { problem: `${value.length} commands, the limit is ${MAX_QUEUED_COMMANDS}` };
+  const out: Record<string, unknown>[] = [];
+  for (const cmd of value as unknown[]) {
+    if (!isPlain(cmd) || typeof cmd.kind !== 'string' || !Object.hasOwn(COMMAND_FIELDS, cmd.kind)) return { problem: 'bad entry' };
+    const kind = cmd.kind;
+    if (isRuntimeKind(kind) !== runtime) return { problem: `${kind} does not belong in this queue` };
+    const fields: Record<string, Field> = COMMAND_FIELDS[kind as Command['kind']];
+    const clean: Record<string, unknown> = { kind };
+    for (const k of Object.keys(cmd)) {
+      if (k === 'kind' || cmd[k] === undefined) continue;
+      const field = Object.hasOwn(fields, k) ? fields[k] : undefined;
+      if (field === undefined) return { problem: `${kind}: unknown field ${k}` };
+      const spec: FieldSpec = typeof field === 'object' && !Array.isArray(field) && 'opt' in field ? field.opt : (field as FieldSpec);
+      if (!fieldOk(spec, cmd[k], capacity)) return { problem: `${kind}: bad ${k}` };
+      clean[k] = cmd[k];
+    }
+    for (const [k, field] of Object.entries(fields)) {
+      const optional = typeof field === 'object' && !Array.isArray(field) && 'opt' in field;
+      if (!optional && !Object.hasOwn(clean, k)) return { problem: `${kind}: missing ${k}` };
+    }
+    out.push(clean);
+  }
+  return { ok: out };
+}
+
+/** The encoder's view of a queue row: validated and cleaned, or a plain Error (this is the encoder's own contract). */
+function queueForTail(name: 'commandQueue' | 'runtimeQueue', value: unknown, capacity: number): Record<string, unknown>[] {
+  const r = cleanQueue(value, name === 'runtimeQueue', capacity);
+  if ('problem' in r) throw new Error(`encodeSim: ${name}: ${r.problem}`);
+  return r.ok;
+}
+
+function queueRestore(name: 'commandQueue' | 'runtimeQueue'): (value: unknown, c: AuxContext) => void {
+  return (value, c) => {
+    const r = cleanQueue(value, name === 'runtimeQueue', c.capacity);
+    if ('problem' in r) throw new SnapshotRefused(`${name}: ${r.problem}`);
+    // The sim itself replaces both arrays (applyCommands, takeRuntimeCommands), so nothing holds their identity.
+    c.self[name] = r.ok;
+  };
 }
 
 /**
@@ -377,6 +508,8 @@ const AUX_RESTORE: Record<string, (value: unknown, c: AuxContext) => void> = {
     }
     c.self.pendingEvents = value;
   },
+  commandQueue: queueRestore('commandQueue'),
+  runtimeQueue: queueRestore('runtimeQueue'),
   stTiles(value, c) {
     if (!Array.isArray(value) || value.length > c.maxStructures) throw new SnapshotRefused('stTiles: bad shape');
     for (const tiles of value) {
@@ -428,12 +561,24 @@ function typedOf(owner: Record<string, unknown>, row: { name: string; kind: { ct
   return { codec, array: a };
 }
 
-/** Encodes `sim` (cut between frames) to canonical bytes. Throws if inputs are still queued. */
+/**
+ * The tail's value for one `aux` row. The two queues are validated and cleaned (a command the
+ * decoder would refuse is a plain Error here, not a snapshot that cannot be restored); every other
+ * row is written as the sim holds it.
+ */
+function auxTailValue(self: Record<string, unknown>, name: string, capacity: number): unknown {
+  if (name === 'commandQueue' || name === 'runtimeQueue') return queueForTail(name, self[name], capacity);
+  return self[name];
+}
+
+/** The canonical JSON the encoder writes for one `aux` row of `sim` (the census reads this to say whether a row moved). */
+export function auxJsonOf(sim: Sim, name: string): string {
+  return canonicalJson(auxTailValue(internals(sim), name, sim.capacity));
+}
+
+/** Encodes `sim` (cut between frames) to canonical bytes. The queued commands, if any, are carried. */
 export function encodeSim(sim: Sim, meta: SnapshotMeta = {}): Uint8Array {
   const self = internals(sim);
-  if ((self.commandQueue as unknown[]).length > 0 || (self.runtimeQueue as unknown[]).length > 0) {
-    throw new Error('encodeSim: commands are still queued; a snapshot is cut between frames only');
-  }
   const w = new Writer();
   for (const b of MAGIC) w.u8(b);
   w.u16(SNAPSHOT_FORMAT);
@@ -472,7 +617,7 @@ export function encodeSim(sim: Sim, meta: SnapshotMeta = {}): Uint8Array {
   const tail: Record<string, unknown> = {};
   for (const row of auxRows()) {
     if (!Object.hasOwn(AUX_RESTORE, row.name)) throw new Error(`encodeSim: aux row ${row.name} has no codec`);
-    tail[row.name] = self[row.name];
+    tail[row.name] = auxTailValue(self, row.name, sim.capacity);
   }
   tail[POOL_TAIL_KEY] = sim.fieldPoolKeys();
   const tb = new TextEncoder().encode(canonicalJson(tail));
@@ -603,7 +748,7 @@ function restoreInner(sim: Sim, bytes: Uint8Array): Required<SnapshotMeta> {
   if (canonicalJson(tail) !== text) throw new SnapshotRefused('tail is not canonical JSON');
   const names = auxRows().map((row) => row.name);
   if (Object.keys(tail).sort().join(',') !== [...names, POOL_TAIL_KEY].sort().join(',')) throw new SnapshotRefused('tail keys differ from the table');
-  const ctx: AuxContext = { self, cells: sim.width * sim.height, maxStructures: stAlive.length };
+  const ctx: AuxContext = { self, cells: sim.width * sim.height, maxStructures: stAlive.length, capacity: sim.capacity };
   for (const name of names) {
     if (!Object.hasOwn(AUX_RESTORE, name)) throw new SnapshotRefused(`aux row ${name} has no codec`);
     AUX_RESTORE[name](tail[name], ctx);

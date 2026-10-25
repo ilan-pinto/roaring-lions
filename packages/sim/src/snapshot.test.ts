@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
-import { RIFLES, reliefDrive, reliefSetup, runDrive, runSetup } from './golden-worlds.test-helper';
+import { RIFLES, economyAdvance, economyDrive, economySetup, reliefDrive, reliefSetup, runDrive, runSetup } from './golden-worlds.test-helper';
 import { Rng } from './rng';
-import { MAX_FLOW_FIELDS, POOL_RESTORE_BUDGET_BYTES, STRIKE_SNAPSHOT_KEYS, Sim, type UnitTypeJson } from './sim';
+import { MAX_FLOW_FIELDS, POOL_RESTORE_BUDGET_BYTES, STRIKE_SNAPSHOT_KEYS, Sim, type Command, type UnitTypeJson } from './sim';
 import { SIM_SNAPSHOT_SCHEMA, rowsOf } from './snapshot-schema';
 import { SNAPSHOT_FORMAT, SnapshotRefused, canonicalJson, encodeSim, restoreSim, snapshotSchemaDigest } from './snapshot';
+import { forkWitness } from './snapshot-witness';
 import * as simIndex from './index';
 
 // The encoder and the restore (net sim snapshot S1, Task 3). The worlds are the
@@ -14,6 +15,8 @@ import * as simIndex from './index';
 // build a FRESH world with the same setup at tick 0, restore A's bytes onto it.
 
 const SEED = 0x1234;
+const RUN_SEED = 0x1310_0001; // the golden 1000-tick replay's own seed
+const ECONOMY_SEED = 0x0e_c0_0001; // the golden economy replay's own seed (the witness's, in tools)
 const props = (o: unknown): Record<string, unknown> => o as Record<string, unknown>;
 
 function advance(w: { sim: Sim; ids: ReturnType<typeof runSetup>['ids'] }, from: number, to: number): void {
@@ -173,16 +176,163 @@ describe('snapshot: the byte order is little-endian, pinned', () => {
   });
 });
 
-describe('snapshot: the encoder refuses at a boundary that is not between frames', () => {
-  it('throws when a command is queued', () => {
-    const sim = runSetup(SEED).sim;
-    sim.queueCommand({ kind: 'halt', ids: [0] });
-    expect(() => encodeSim(sim)).toThrow(/queued/);
+/** One command of every kind, typed so a kind missing here (or a field of the wrong type) fails to compile. */
+const SAMPLE: { readonly [K in Command['kind']]: Extract<Command, { kind: K }> } = {
+  move: { kind: 'move', ids: [0, 1], x: fx.fromInt(5), y: fx.fromInt(6), append: true, exact: false },
+  attackMove: { kind: 'attackMove', ids: [2], x: fx.fromInt(7), y: fx.fromInt(8), sweep: true },
+  halt: { kind: 'halt', ids: [0] },
+  setStance: { kind: 'setStance', ids: [0, 1], stance: 'patrol', waypoints: [[fx.fromInt(3), fx.fromInt(4)], [fx.fromInt(9), fx.fromInt(4)]] },
+  garrison: { kind: 'garrison', ids: [1], structure: 0 },
+  load: { kind: 'load', ids: [1], carrier: 2 },
+  unload: { kind: 'unload', ids: [2] },
+  reveal: { kind: 'reveal', side: 0, x: fx.fromInt(10), y: fx.fromInt(10) },
+  callStrike: { kind: 'callStrike', caller: 0, x: fx.fromInt(11), y: fx.fromInt(12), profile: 1 },
+  smoke: { kind: 'smoke', ids: [3], x: fx.fromInt(13), y: fx.fromInt(14) },
+  demolish: { kind: 'demolish', ids: [3], structure: 0 },
+  chargeTunnel: { kind: 'chargeTunnel', ids: [3], tunnel: 0 },
+  enterTunnel: { kind: 'enterTunnel', ids: [3], tunnel: 0 },
+  vent: { kind: 'vent', ids: [3], mode: 'raid' },
+  attack: { kind: 'attack', ids: [0], target: 4 },
+  rescue: { kind: 'rescue', ids: [0], target: 5 },
+  build: { kind: 'build', side: 0, unit: 'inf_squad', line: 1 },
+  cancelBuild: { kind: 'cancelBuild', side: 0, line: 1, index: -1 },
+  setRally: { kind: 'setRally', side: 0, line: 0, x: fx.fromInt(30), y: fx.fromInt(31) },
+  clearRally: { kind: 'clearRally', side: 1, line: 0 },
+  support: { kind: 'support', side: 0, support: 'mortar_barrage', x: fx.fromInt(20), y: fx.fromInt(21) },
+  construct: { kind: 'construct', ids: [0], structType: 0, x: 12, y: 13 },
+  cancelConstruct: { kind: 'cancelConstruct', site: 2 },
+  raiseWorks: { kind: 'raiseWorks', side: 0, works: 'sandbag_wall', x: 14, y: 15, ids: [] },
+  cancelWorks: { kind: 'cancelWorks', side: 0, site: 3 },
+};
+const SAMPLES: readonly Command[] = [
+  ...Object.values(SAMPLE),
+  { kind: 'setStance', ids: [0], stance: 'ambush', radius: fx.fromInt(4) },
+  { kind: 'setStance', ids: [1], stance: 'hold' },
+  { kind: 'vent', ids: [3], mode: 'exit' },
+  { kind: 'build', side: 0, unit: 'supply_truck' },
+];
+
+describe('snapshot: the command and runtime queues are state', () => {
+  const queued = (): { sim: Sim; w: ReturnType<typeof runSetup> } => {
+    const w = runSetup(SEED);
+    advance(w, 0, 137);
+    for (const c of SAMPLES) w.sim.queueCommand(c);
+    return { sim: w.sim, w };
+  };
+
+  it('a command of every kind, queued between two ticks, round trips byte-equal into the right queue', () => {
+    const { sim } = queued();
+    expect((props(sim).commandQueue as unknown[]).length, 'sim-run kinds').toBe(18 + 3);
+    expect((props(sim).runtimeQueue as unknown[]).length, 'runtime-run kinds').toBe(7 + 1);
+    const S = encodeSim(sim);
+    const fresh = runSetup(SEED).sim;
+    restoreSim(fresh, S);
+    expect(bytesEqual(encodeSim(fresh), S), 're-encode').toBe(true);
+    expect(props(fresh).commandQueue).toEqual(props(sim).commandQueue);
+    expect(props(fresh).runtimeQueue).toEqual(props(sim).runtimeQueue);
+    expect(fresh.hash()).toBe(sim.hash());
+    expect(fresh.takeRuntimeCommands(), 'the runtime would take them in queue order').toEqual(sim.takeRuntimeCommands());
   });
-  it('throws when the runtime queue holds something', () => {
+
+  it('an explicit undefined optional field is dropped, not refused; the restored command reads the same', () => {
+    const { sim, w } = queued();
+    w.sim.queueCommand({ kind: 'move', ids: [0], x: 1, y: 2, append: undefined });
+    const fresh = runSetup(SEED).sim;
+    restoreSim(fresh, encodeSim(sim));
+    const q = props(fresh).commandQueue as { kind: string; ids: number[]; append?: boolean }[];
+    const last = q[q.length - 1];
+    expect(last).toEqual({ kind: 'move', ids: [0], x: 1, y: 2 });
+    expect(Object.hasOwn(last, 'append')).toBe(false);
+  });
+
+  it('a fork cut at a boundary that holds queued commands stays clean (the rally order a runtime queues after its tick)', () => {
+    type W = ReturnType<typeof runSetup>;
+    const v = forkWitness<W>({
+      build: () => runSetup(RUN_SEED),
+      drive: (w, t) => runDrive(w.sim, t, w.ids),
+      // Queued AFTER the tick, as MissionRuntime.step queues a rally order: the boundary at T = 100 holds them.
+      advance: (w) => {
+        w.sim.tick();
+        if (w.sim.tickCount % 50 === 0) {
+          w.sim.queueCommand({ kind: 'attackMove', ids: [w.ids.west[0]], x: fx.fromInt(30), y: fx.fromInt(30), sweep: true });
+          w.sim.queueCommand({ kind: 'setRally', side: 0, line: 0, x: fx.fromInt(5), y: fx.fromInt(5) });
+        }
+      },
+      T: 100,
+      horizon: 200,
+      hashEvery: 20,
+      poison: true,
+      afterRestore: (b, a) => {
+        expect((props(a.sim).commandQueue as unknown[]).length, 'A holds a queued command at the cut').toBeGreaterThan(0);
+        expect(props(b.sim).commandQueue).toEqual(props(a.sim).commandQueue);
+        expect(props(b.sim).runtimeQueue).toEqual(props(a.sim).runtimeQueue);
+      },
+    });
+    expect(v.configDifference).toBeNull();
+    expect(v.hashDivergedAt).toBeNull();
+    expect(v.encodingEqualAtEnd, v.firstDifference).toBe(true);
+  });
+
+  it('the golden economy replay can be encoded, restored and re-encoded at ticks 700 and 1100, which hold a queued rally order', () => {
+    const ew = economySetup(ECONOMY_SEED);
+    const seen: number[] = [];
+    for (let t = 0; t <= 1100; t++) {
+      if (t === 700 || t === 1100) {
+        expect((props(ew.sim).commandQueue as unknown[]).length, `tick ${t} holds a queued command`).toBeGreaterThan(0);
+        const S = encodeSim(ew.sim);
+        const fresh = economySetup(ECONOMY_SEED).sim;
+        restoreSim(fresh, S);
+        expect(bytesEqual(encodeSim(fresh), S), `tick ${t}: re-encode`).toBe(true);
+        expect(props(fresh).commandQueue).toEqual(props(ew.sim).commandQueue);
+        seen.push(t);
+      }
+      if (t < 1100) {
+        economyDrive(ew, t);
+        economyAdvance(ew, ew.sim.tickCount);
+      }
+    }
+    expect(seen).toEqual([700, 1100]);
+  });
+
+  it('the decoder refuses a queue it cannot trust, with a SnapshotRefused naming the queue', () => {
+    const { sim } = queued();
+    const good = encodeSim(sim);
+    const refused = (edit: (tail: Record<string, unknown>) => void, reason: RegExp): void => {
+      const bytes = withTail(good, edit);
+      expect(refusal(() => restoreSim(runSetup(SEED).sim, bytes)).reason).toMatch(reason);
+    };
+    const cq = (tail: Record<string, unknown>): Record<string, unknown>[] => tail.commandQueue as Record<string, unknown>[];
+    const rq = (tail: Record<string, unknown>): Record<string, unknown>[] => tail.runtimeQueue as Record<string, unknown>[];
+    refused((t) => { t.commandQueue = {}; }, /commandQueue: not an array/);
+    refused((t) => { t.commandQueue = Array.from({ length: 65 }, () => ({ kind: 'halt', ids: [0] })); }, /commandQueue: 65 commands/);
+    refused((t) => { t.runtimeQueue = Array.from({ length: 65 }, () => ({ kind: 'clearRally', side: 0, line: 0 })); }, /runtimeQueue: 65 commands/);
+    refused((t) => { cq(t)[0] = { kind: 'explode', ids: [0] }; }, /commandQueue: bad entry/);
+    refused((t) => { cq(t)[0] = { kind: 'build', side: 0, unit: 'x' }; }, /build does not belong in this queue/);
+    refused((t) => { rq(t)[0] = { kind: 'halt', ids: [0] }; }, /halt does not belong in this queue/);
+    refused((t) => { cq(t)[0] = { kind: 'halt', ids: ['a'] }; }, /halt: bad ids/);
+    refused((t) => { cq(t)[0] = { kind: 'halt', ids: [128] }; }, /halt: bad ids/);
+    refused((t) => { cq(t)[0] = { kind: 'halt', ids: [-1] }; }, /halt: bad ids/);
+    refused((t) => { cq(t)[0] = { kind: 'halt', ids: [0], extra: 1 }; }, /halt: unknown field extra/);
+    refused((t) => { cq(t)[0] = { kind: 'halt' }; }, /halt: missing ids/);
+    refused((t) => { cq(t)[0] = { kind: 'move', ids: [0], x: '1', y: 2 }; }, /move: bad x/);
+    refused((t) => { cq(t)[0] = { kind: 'move', ids: [0], x: 2 ** 31, y: 2 }; }, /move: bad x/);
+    refused((t) => { cq(t)[0] = { kind: 'move', ids: [0], x: 1, y: 2, append: 1 }; }, /move: bad append/);
+    refused((t) => { cq(t)[0] = { kind: 'setStance', ids: [0], stance: 'sleep' }; }, /setStance: bad stance/);
+    refused((t) => { cq(t)[0] = { kind: 'setStance', ids: [0], stance: 'patrol', waypoints: [[1, 2, 3]] }; }, /setStance: bad waypoints/);
+    refused((t) => { rq(t)[0] = { kind: 'support', side: 0, support: 'nuke', x: 1, y: 2 }; }, /support: bad support/);
+    refused((t) => { rq(t)[0] = { kind: 'build', side: 0, unit: 'x'.repeat(65) }; }, /build: bad unit/);
+  });
+
+  it('the encoder refuses (a plain Error) a queue the decoder would refuse, rather than writing an unrestorable snapshot', () => {
     const sim = runSetup(SEED).sim;
-    (props(sim).runtimeQueue as unknown[]).push({ kind: 'halt', ids: [0] });
-    expect(() => encodeSim(sim)).toThrow(/queued/);
+    (props(sim).commandQueue as unknown[]).push({ kind: 'halt', ids: [0.5] });
+    expect(() => encodeSim(sim)).toThrow(/encodeSim: commandQueue: halt: bad ids/);
+    const sim2 = runSetup(SEED).sim;
+    (props(sim2).runtimeQueue as unknown[]).push({ kind: 'halt', ids: [0] });
+    expect(() => encodeSim(sim2)).toThrow(/encodeSim: runtimeQueue: halt does not belong/);
+    const sim3 = runSetup(SEED).sim;
+    for (let i = 0; i < 65; i++) sim3.queueCommand({ kind: 'halt', ids: [0] });
+    expect(() => encodeSim(sim3)).toThrow(/65 commands/);
   });
 });
 
