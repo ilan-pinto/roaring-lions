@@ -75,7 +75,8 @@ export function packBonusPercent(pack: CoinPack, base: CoinPack = COIN_PACKS[0])
 // Was 5993: GH-274 item 5 (2026-10-25), the swarm missions; Umm Zeitoun II +10, Wadi Halam III -20.
 // Was 5983: GH-421 Stage 2 merged with the swarm missions, read off a fresh run; reasons beside `LADDER_CREDITS`.
 // Was 5983: GH-161 (2026-10-25), Wadi Halam I's east-bank crest and re-solved plan; WH I, II, III +10 each.
-export const CAMPAIGN_CREDITS = 5991;
+// Was 5991: GH-828 (2026-10-26), Wadi Halam I's crest merged with vehicle avoidance and a plan re-solved; Wadi Halam I-III pay 490, not 530; per-mission reasons beside `LADDER_CREDITS`.
+export const CAMPAIGN_CREDITS = 5951;
 /** The same ladder's mission count, for a mean pay a fresh account can quote
  *  before it has been paid for anything. */
 export const LADDER_MISSIONS = 26;

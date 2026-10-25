@@ -4123,7 +4123,12 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // 2026-10-25, GH-161, Wadi Halam I gets its east-bank crest and a re-solved plan (the APC alone at
 // (12,24)): 5983 -> 6013, +30. Wadi Halam I 170 -> 180, II 180 -> 190, III 160 -> 170 (more men come
 // home). Every plan still wins on 30 of 30 seeds; no star, outcome, gate or Conduct moved.
-const LADDER_CREDITS = 5991;
+// 2026-10-26, GH-828, the Wadi Halam I crest merged with vehicle avoidance (GH-421 Stage 2), and the plan
+// re-solved to win 30 of 30 again (the APC's bank order follows the screen's at 140 s): 5991 -> 5951, -40.
+// The seed-424242 run now brings home 3 men from Wadi Halam I, not 4, and Wadi Halam I, II and III pay
+// 170, 160 and 160 (490; 530 on main, 540 in the unfixed merge). Every other mission pays what it paid.
+// No star, outcome, gate or Conduct moved.
+const LADDER_CREDITS = 5951;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
