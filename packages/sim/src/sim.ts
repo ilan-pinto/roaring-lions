@@ -1858,7 +1858,10 @@ export class Sim {
   private readonly stHp: Int32Array;
   private readonly stMaxHp: Int32Array;
   private readonly stTypeIdx: Uint16Array;
-  /** Per-placement `produces_for` (F4 Task 7). Setup-only; NOT in hash(). */
+  /** Per-placement `produces_for` (F4 Task 7). Setup-only; NOT in hash(), but
+   *  snapshot STATE all the same (snapshot-schema.ts): the runtime's income-zone
+   *  route and rear caches read it, and poisoning it kept every hash equal for
+   *  1,200 ticks while those caches diverged. */
   private readonly stProducesFor: Int8Array;
   private readonly stOccupants: Uint8Array;
   /** E6 (GH-274, G1): ticks left on a placed charge against this structure, 0 when none.
@@ -2009,7 +2012,8 @@ export class Sim {
   private readonly tnContactState = new Uint8Array(2 * MAX_TUNNELS);
   private tunnelCount_ = 0;
   /** Surface spoil density per tile, 0-255. Presentation reads it; detection
-   *  uses it to place the tunnel's signature. Same shape as the smoke grid. */
+   *  uses it to place the tunnel's signature. Same shape as the smoke grid.
+   *  Snapshot STATE, not derived (snapshot-schema.ts): see the note in hash(). */
   readonly trail: Uint8Array;
 
   // --- projectile SoA (ring) ---
@@ -11049,9 +11053,12 @@ export class Sim {
     // tick a route is being watched or forgotten — a sub-threshold
     // divergence there would otherwise sit dormant until an order happened
     // to be issued. NOT hashed, deliberately: the trail grid
-    // (width*height bytes of derived state that tnProgress already
-    // determines — hashing it would turn every trail-decay tuning change
-    // into a hash change for no added coverage), tnLength/tnDigRate/
+    // (width*height bytes -- hashing it would turn every trail-decay tuning
+    // change into a hash change for no added coverage). It is NOT derived
+    // state, though: it follows the HISTORY of tnProgress, not its value at a
+    // tick, and trailStrengthFor reads it, so a snapshot must carry it
+    // (snapshot-schema.ts classes it `state`; poisoning it diverged the hash
+    // within 20 ticks). Also unhashed: tnLength/tnDigRate/
     // tnVentX/tnVentY/tnPoints/tnTiles (immutable after addTunnel), and
     // tnDigger (set once by assignDigger; stepDigging re-checks `alive`).
     h = hashArray(h, this.tunnelIn);
