@@ -1,6 +1,6 @@
 import { FlowField } from './flowfield';
 import { canonicalJson, encodeSim, internals, isTyped, restoreSim, type Typed } from './snapshot';
-import { rowsOf, type SnapshotRow } from './snapshot-schema';
+import { RNG_SNAPSHOT_SCHEMA, rowsOf, type SnapshotRow } from './snapshot-schema';
 import type { Sim } from './sim';
 
 // The fork witness (net sim snapshot, stage 1, Task 5): the core proof that a
@@ -305,7 +305,13 @@ function runForks<W extends WitnessWorld>(
       if (k === fork.horizon) judge(i, fork);
     }
   }
-  return { verdicts: verdicts as ForkVerdict<W>[], a };
+  const judged: ForkVerdict<W>[] = [];
+  for (let i = 0; i < verdicts.length; i++) {
+    const v = verdicts[i];
+    if (v === undefined) throw new Error(`forkWitness: fork ${i} (T=${forks[i].T}) was never judged`);
+    judged.push(v);
+  }
+  return { verdicts: judged, a };
 }
 
 /**
@@ -370,12 +376,27 @@ function poolRowJson(sim: Sim, name: string): string {
   }
 }
 
+/** Whether any typed row of `Rng` (`RNG_SNAPSHOT_SCHEMA`, as the encoder walks it) differs between two generators. */
+function rngMoved(a: unknown, b: unknown): boolean {
+  const ra = a as Record<string, unknown>;
+  const rb = b as Record<string, unknown>;
+  for (const row of RNG_SNAPSHOT_SCHEMA) {
+    if (row.kind.t !== 'typed') continue;
+    const va = ra[row.name];
+    const vb = rb[row.name];
+    if (!isTyped(va) || !isTyped(vb)) throw new Error(`stateRowsMoved: rng.${row.name} is not a typed array in both worlds`);
+    if (firstTypedDifference(va, vb) >= 0) return true;
+  }
+  return false;
+}
+
 /**
- * The names of every `state` row whose ENCODED value differs between two worlds of one setup:
- * a typed column by element (the codec writes each element exactly, so equal elements are equal
- * bytes), a scalar by value, the RNG words as `rng`, and an aux or pool row by the canonical JSON
- * the encoder writes for it. Task 7b's coverage census runs it with `base` = a world's tick-0
- * world, to say which rows a run ever wrote. It throws on a row kind it cannot read rather than
+ * The names of every `state` row whose ENCODED value differs between two worlds of one setup,
+ * AT THIS MOMENT: a typed column by element (the codec writes each element exactly, so equal
+ * elements are equal bytes), a scalar by value, the RNG words as `rng`, and an aux or pool row by
+ * the canonical JSON the encoder writes for it. A row that moved and came back reads as unmoved,
+ * so a census over a run must union the result across its cuts. Task 7b runs it with `base` = a
+ * world's tick-0 world at each fork cut. It throws on a row kind it cannot read rather than
  * calling it unmoved.
  */
 export function stateRowsMoved(base: Sim, now: Sim): Set<string> {
@@ -394,7 +415,7 @@ export function stateRowsMoved(base: Sim, now: Sim): Set<string> {
         if (vb !== vn) moved.add(row.name);
         break;
       case 'rng':
-        if (firstTypedDifference((vb as { state: Uint32Array }).state, (vn as { state: Uint32Array }).state) >= 0) moved.add(row.name);
+        if (rngMoved(vb, vn)) moved.add(row.name);
         break;
       case 'aux':
         if (canonicalJson(vb) !== canonicalJson(vn)) moved.add(row.name);

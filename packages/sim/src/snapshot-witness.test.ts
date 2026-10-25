@@ -10,7 +10,8 @@ import {
   runSetup,
 } from './golden-worlds.test-helper';
 import { HASH_SEED, hashWord } from './hash';
-import { encodeSim, internals } from './snapshot';
+import { rowsOf } from './snapshot-schema';
+import { encodeSim, internals, type Typed } from './snapshot';
 import { configDiff, forkWitness, forkWitnessSeries, stateRowsMoved, type ForkVerdict, type WitnessWorld } from './snapshot-witness';
 import type { Sim } from './sim';
 
@@ -272,7 +273,7 @@ describe('fork witness series: one run of A, a fork at every T', () => {
 
 // ---- the row census -------------------------------------------------------------------------
 
-describe('stateRowsMoved: which rows a run ever wrote', () => {
+describe('stateRowsMoved: which rows differ from the base now', () => {
   it('reports posX, trail and the pool moved by tick 500, and smoke and elevation not', () => {
     const base = RUN.build();
     const w = RUN.build();
@@ -287,6 +288,46 @@ describe('stateRowsMoved: which rows a run ever wrote', () => {
     // The golden battle lays no smoke and has flat ground.
     for (const name of ['smoke', 'elevation', 'patrolLegIds']) expect(moved.has(name), `${name} unmoved`).toBe(false);
     expect(stateRowsMoved(base.sim, RUN.build().sim).size, 'two tick-0 worlds of one setup agree on every row').toBe(0);
+  });
+
+  it('is empty if and only if the two encodings are byte-equal', () => {
+    const bytesEqual = (x: Uint8Array, y: Uint8Array): boolean => x.length === y.length && x.every((v, i) => v === y[i]);
+    const at = (ticks: number): Sim => {
+      const w = RUN.build();
+      for (let t = 0; t < ticks; t++) {
+        RUN.drive(w, t);
+        w.sim.tick();
+      }
+      return w.sim;
+    };
+    const zero = at(0);
+    const later = at(500);
+    const differ = stateRowsMoved(zero, later);
+    expect(differ.size, 'tick 0 and tick 500 differ in some row').toBeGreaterThan(0);
+    expect(bytesEqual(encodeSim(zero), encodeSim(later)), 'and in the bytes').toBe(false);
+    const same = stateRowsMoved(zero, at(0));
+    expect(same.size, 'tick 0 against tick 0 moves no row').toBe(0);
+    expect(bytesEqual(encodeSim(zero), encodeSim(at(0))), 'and the bytes are equal').toBe(true);
+  });
+
+  it('names each typed state row on its own: one element changed is one row moved and different bytes', () => {
+    const base = RUN.build().sim;
+    const baseBytes = encodeSim(base);
+    let checked = 0;
+    for (const row of rowsOf('state')) {
+      if (row.kind.t !== 'typed') continue;
+      const w = RUN.build().sim;
+      const col = internals(w)[row.name] as Typed;
+      if (col.length === 0) continue;
+      col[0] = col[0] + 1;
+      const moved = stateRowsMoved(base, w);
+      expect(moved.has(row.name), `${row.name} reported moved`).toBe(true);
+      // `blockedVehicleMask` is `blocked` itself on a map with no boulders: both names move together.
+      expect(moved.size, `${row.name}: rows moved ${Array.from(moved).join(',')}`).toBe(col === (internals(w).blocked as Typed) || col === (internals(w).blockedVehicleMask as Typed) ? 2 : 1);
+      expect(encodeSim(w).some((v, i) => v !== baseBytes[i]), `${row.name}: bytes differ`).toBe(true);
+      checked++;
+    }
+    expect(checked, 'typed state rows exercised').toBeGreaterThan(100);
   });
 });
 
