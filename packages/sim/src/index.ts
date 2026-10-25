@@ -65,7 +65,7 @@ export {
   type TileXY,
   type VentView,
 } from './corridor';
-export { unlockReason, isBoughtOnly, starsEarned, conductAtLeast, resolveUpgrades, loanedPlacements, type UnlockGate } from './unlock';
+export { unlockReason, isBoughtOnly, starsEarned, conductAtLeast, resolveUpgrades, loanedPlacements, loanedReinforcements, reinforceKey, type UnlockGate } from './unlock';
 export {
   starsFor,
   starRoeFloor,

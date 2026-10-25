@@ -34,6 +34,8 @@ import {
   MissionRuntime,
   resolveUpgrades,
   loanedPlacements,
+  loanedReinforcements,
+  reinforceKey,
   starRoeFloor,
   starsEarned,
   zoneContains,
@@ -2051,8 +2053,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   let loanedForce: readonly number[] | undefined;
   /** The unit TYPES those placements lend, for `applyRosterCarryover`: R-2 must not replace
    *  an earlier enlisted body of a type this run lent (F3 final review F1). Derived from the
-   *  same indices into the same resolved force, never a second way. */
+   *  same loan answers the runtime gets (`loanedForce`, `loanedReinforce`), never a second judgement. */
   let lentTypes: ReadonlySet<string> | undefined;
+  /** `reinforceKey`s of the `reinforce` placements on loan (GH-801): L-1 for a unit that arrives
+   *  by trigger. Same `gateOf` as `loanedForce`. */
+  let loanedReinforce: ReadonlySet<string> | undefined;
   if (mission) {
     const gateOf = (id: string) => {
       const u = (units as Record<string, (typeof units)[keyof typeof units] | undefined>)[id];
@@ -2061,7 +2066,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     resolvedMission = resolveUpgrades(mission, ledger, gateOf);
     loanedForce = loanedPlacements(mission, ledger, gateOf);
     const resolvedForce = resolvedMission.starting_force ?? [];
-    lentTypes = new Set(loanedForce.map((i) => resolvedForce[i].unit));
+    loanedReinforce = loanedReinforcements(mission, ledger, gateOf);
+    // A reinforced loan, like a starting one, brings no body home to replace an earlier one (R-2).
+    const reinforceUnits = new Set<string>();
+    (mission.triggers ?? []).forEach((t, i) =>
+      (t.do.units ?? []).forEach((p, j) => {
+        if (loanedReinforce?.has(reinforceKey(i, j)) === true) reinforceUnits.add(p.unit);
+      }),
+    );
+    lentTypes = new Set([...loanedForce.map((i) => resolvedForce[i].unit), ...reinforceUnits]);
   } else if (versusWorld !== null) {
     // A versus room (network design §9): the KDF force (plus the second Spike
     // team, `VERSUS_EXTRA`) on EACH side, mirrored through the hostile anchor,
@@ -2703,6 +2716,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         tunnels: tunnelRoutes,
         ledger: sentLedger,
         loaned: loanedForce,
+        loanedReinforce,
         unitInfo: (id) => {
           const u = (units as Record<string, (typeof units)[keyof typeof units] | undefined>)[id];
           if (!u || u.faction !== 'kdf') return null;

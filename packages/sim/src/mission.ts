@@ -52,7 +52,7 @@ import {
   WOUND_STABILISED,
 } from './tuning';
 import type { TunnelRouteJson } from './tunnels';
-import { unlockReason, type UnlockGate } from './unlock';
+import { reinforceKey, unlockReason, type UnlockGate } from './unlock';
 
 // ---------------------------------------------------------------------------
 
@@ -403,6 +403,10 @@ export interface MissionContext {
    *  (unlock.ts, D5). The runtime never sees a gate, so the app and the harness compute it
    *  with the same lookup they resolve upgrades with and hand it in. Absent = nothing on loan. */
   loaned?: readonly number[];
+  /** `reinforceKey`s (unlock.ts) of the `reinforce` placements that are on loan: the same
+   *  judgement as `loaned`, for a unit that arrives by trigger instead of at the start
+   *  (`loanedReinforcements`, GH-801). Absent = nothing a trigger brings in is on loan. */
+  loanedReinforce?: ReadonlySet<string>;
   /** 1 where the map's decor is a road, row-major (`roadMaskOf`, @lions/data; C-R4). Supply
    *  convoys take the road where one joins their ends (D5). Absent = the map has no roads, and
    *  every convoy takes the wheeled flow route. */
@@ -827,7 +831,9 @@ export class MissionRuntime {
    *  passed still names a military target, not a civilian one. */
   private readonly razeExempt = new Set<number>();
   /** Entity ids of the bodies the starting force fielded from a placement that is on loan
-   *  (`ctx.loaned`, D5). Built once in `start()`, read by `isOnLoan`; nothing per tick. */
+   *  (`ctx.loaned`, D5), then the bodies a `reinforce` trigger fields from a loaned placement
+   *  (`ctx.loanedReinforce`, GH-801). Filled in `start()` and as such a trigger fires; read by
+   *  `isOnLoan` and the L-1 skip; nothing per tick. */
   private readonly onLoan = new Set<number>();
   /** Objective id -> the route indices whose mouths its zone held at mission
    *  start. Mirrors razeTargets, though for a different reason: ctx.tunnels
@@ -1321,7 +1327,8 @@ export class MissionRuntime {
    *    they feed is folded through `economyHash()`;
    *  - the per-step buffers `externallyCompleted` and `pendingIntelEvents` are
    *    drained within the step;
-   *  - `onLoan` and `razeExempt` are fixed at `start()`;
+   *  - `onLoan` is a pure function of `ctx`, `firedTriggers` (folded) and spawn ids (sim-hashed),
+   *    read only by presentation and the end ledger; `razeExempt` is fixed at `start()`;
    *  - the rear, zone-route, convoy-route and vent caches are derived from map
    *    data;
    *  - `enemyMenu` and `enemyMinCost` are fixed at `start()`, `ctx.economy` is a
@@ -1498,8 +1505,9 @@ export class MissionRuntime {
   }
 
   /** True when `id` is a body the starting force fielded from a placement that is on loan
-   *  (`MissionContext.loaned`, D5). Fixed at `start()`; a unit spawned later, a `from_ledger`
-   *  draw and an enemy are never on loan. A loaned carrier's authored `passengers` are not
+   *  (`MissionContext.loaned`, D5), or a body a `reinforce` trigger fielded from one
+   *  (`MissionContext.loanedReinforce`, GH-801). Recorded as the body spawns; a wave or
+   *  `spawn` unit, a `from_ledger` draw and an enemy are never on loan. A loaned carrier's authored `passengers` are not
    *  on loan either: they are separate placements, judged by their own types. */
   isOnLoan(id: number): boolean {
     return this.onLoan.has(id);
@@ -3869,7 +3877,13 @@ export class MissionRuntime {
       } else if (t.do.kind === 'reinforce') {
         // Player-side arrival (GDD §6). `spawn` stays side-1-only so no
         // existing mission changes behaviour.
-        for (const p of t.do.units ?? []) this.spawnPlacement(p, 0, undefined, true);
+        // GH-801: a gated unit that arrives this way is on loan like a gated starting_force
+        // placement, so L-1 sends it back to the lender at the end.
+        const units = t.do.units ?? [];
+        for (let j = 0; j < units.length; j++) {
+          const ids = this.spawnPlacement(units[j], 0, undefined, true);
+          if (this.ctx.loanedReinforce?.has(reinforceKey(i, j)) === true) for (const id of ids) this.onLoan.add(id);
+        }
       } else if (t.do.kind === 'dismount') {
         // Everyone out of every carrier in the group. Queued as a command rather
         // than reaching into sim state, same as commit and withdraw_to.
@@ -4121,7 +4135,8 @@ export class MissionRuntime {
       const saved = (origin?.rescued ?? 0) + (this.rescuedBack.get(id) ?? 0);
       if (saved > 0) entry.rescued = saved;
       // L-1 (GH-183): a loaned body goes back to the lender. It stays in `survivors` (the
-      // debrief count) and in `startingHome` (credits), but never joins the brigade's roster.
+      // debrief count) and, for a starting-force body, in `startingHome` (credits; a reinforced
+      // body was never in `startingIds`), but never joins the brigade's roster.
       if (this.onLoan.has(id)) continue;
       roster.push(entry);
     }
