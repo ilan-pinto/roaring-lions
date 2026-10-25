@@ -3585,7 +3585,13 @@ export class MissionRuntime {
   private stepCivilians(): void {
     const refuge = this.mission.civilians?.refuge;
     if (refuge === undefined) return;
-    this.civFlight.step(this.sim, this.civIds, this.playerIds, this.markerPos(refuge));
+    // The arrival zone is that of the first `evacuate_before` still counting (the first one
+    // at all once all have resolved): `start()` refuses a refuge outside any of them, so every
+    // zone contains the refuge point, and a civilian standing in the zone that is read is one
+    // the collector will count.
+    const evacs = this.objectives.filter((o) => o.def.type === 'evacuate_before');
+    const evac = evacs.find((o) => o.status === 'active') ?? evacs[0];
+    this.civFlight.step(this.sim, this.civIds, this.playerIds, this.markerPos(refuge), this.zone(evac?.def.target));
   }
 
   private stepPatrols(): void {
@@ -4021,7 +4027,19 @@ export class MissionRuntime {
         failed = !complete && d.seconds !== undefined && tick >= d.seconds * TICKS_PER_SECOND;
       } else if (d.type === 'eliminate_hvt') {
         const ids = this.tags.get(d.target ?? '') ?? [];
-        complete = ids.length > 0 && ids.every((id) => this.sim.state.alive[id] === 0);
+        // Eliminated means KILLED. A `remove` trigger (the enemy's act: an escape, an
+        // abduction) sets `alive` to 0 exactly as a death does and also sets `removed`,
+        // the one flag that tells the two apart (`casualties_pct` reads it the same way).
+        // GH-815: reading `alive` alone ticked the objective for a target who got away.
+        complete =
+          ids.length > 0 &&
+          ids.every((id) => this.sim.state.alive[id] === 0 && this.sim.state.removed[id] !== 1);
+        // And a target who got away cannot be killed afterwards, so the objective is
+        // permanently impossible: fail it now, as `evacuate_before` fails at its deadline.
+        // Left active, a primary would hang until the time limit and end as "withdrawn",
+        // blaming the player's clock for the enemy's escape. A failed primary ends the
+        // mission in defeat with `defeatCause: { objective }`.
+        failed = !complete && ids.some((id) => this.sim.state.removed[id] === 1);
       } else if (d.type === 'locate') {
         if (d.target) {
           const ids = this.tags.get(d.target) ?? [];
@@ -4108,7 +4126,7 @@ export class MissionRuntime {
     // in a mission that is unwinnable and unlosable at once.
     const failedPrimary = primaries.some((o) => o.status === 'failed');
     // #540: the time limit. With every timed primary resolved, a mission whose open primaries
-    // cannot fail (`locate`, `capture`, `hold_for`, `eliminate_hvt`) ends only in a win, a wipe or
+    // cannot fail (`locate`, `capture`, `hold_for`; `eliminate_hvt` fails only when its target is removed) ends only in a win, a wipe or
     // an ROE collapse, and a player who cannot finish waits forever. A win on the same tick wins;
     // any other loss on the same tick keeps its own cause.
     const limit = this.mission.time_limit_s;
