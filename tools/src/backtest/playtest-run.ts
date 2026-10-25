@@ -9,6 +9,7 @@ import {
   MissionRuntime,
   resolveUpgrades,
   loanedPlacements,
+  loanedReinforcements,
   creditsFor,
   creditInputFrom,
   type MissionJson,
@@ -329,6 +330,7 @@ export function run(
   const loaned = loanedPlacements(mission, ledger, unlockOf);
   const rt = new MissionRuntime(sim, resolvedMission, {
     loaned,
+    loanedReinforce: loanedReinforcements(mission, ledger, unlockOf),
     typeIdOf: (u) => typeOf.get(u) as number,
     markers: map.markers,
     zones: map.zones,
