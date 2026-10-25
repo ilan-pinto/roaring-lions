@@ -15,11 +15,11 @@
       "text": "Conduct went under forty-five with the tube still firing. He parked it there for that and it worked."
     }
   },
-  "briefing": "Two ways through the wall and neither is free. The wide saddle lies under both Kornet pockets and will cost you vehicles. The narrow one is ten tiles longer and no missile reaches it — the Grad's rockets do, at seventeen, but the only Sarim eyes over that corridor sit at its northern mouth and see no further, so most of its length goes unwatched. What you cannot do is send everything that way: the corridor is choked with fallen rock, passable on foot and to nothing on wheels or tracks. Armour goes through the pass or it does not go. Mind the town block behind the pass: it stands two tiles from the battery you are ordered to destroy, which is the one place heavy ordnance is guaranteed to land. Three families still live in it — get them out to the approach inside five minutes, before the fighting reaches them. Take the pass, and put the battery out of the war.",
+  "briefing": "Two ways through the wall and neither is free. The wide saddle lies under both Kornet pockets and will cost you vehicles. The narrow one is ten tiles longer and no missile reaches it — the Grad's rockets do, at seventeen. Its northern mouth is watched, and a second rifle team comes down to it early. Halfway up, in rocks no wheel reaches, a rifle team keeps the relay that carries corrections to the battery. What you cannot do is send everything that way: the corridor is choked with fallen rock, passable on foot and to nothing on wheels or tracks. Armour goes through the pass or it does not go. Mind the town block behind the pass: it stands two tiles from the battery you are ordered to destroy, which is the one place heavy ordnance is guaranteed to land. Three families still live in it — get them out to the approach inside five minutes, before the fighting reaches them. The relay is worth the climb if you can pay for it in infantry. Take the pass, and put the battery out of the war.",
   "briefing_sections": [
-    {"id": "situation", "text": "Two ways through the wall and neither is free. The wide saddle lies under both Kornet pockets and will cost you vehicles. The narrow one is ten tiles longer and no missile reaches it — the Grad's rockets do, at seventeen, but the only Sarim eyes over that corridor sit at its northern mouth and see no further, so most of its length goes unwatched."},
+    {"id": "situation", "text": "Two ways through the wall and neither is free. The wide saddle lies under both Kornet pockets and will cost you vehicles. The narrow one is ten tiles longer and no missile reaches it — the Grad's rockets do, at seventeen. Its northern mouth is watched, and a second rifle team comes down to it early. Halfway up, in rocks no wheel reaches, a rifle team keeps the relay that carries corrections to the battery."},
     {"id": "execution", "text": "What you cannot do is send everything that way: the corridor is choked with fallen rock, passable on foot and to nothing on wheels or tracks. Armour goes through the pass or it does not go. Mind the town block behind the pass: it stands two tiles from the battery you are ordered to destroy, which is the one place heavy ordnance is guaranteed to land."},
-    {"id": "notes", "text": "Three families still live in it — get them out to the approach inside five minutes, before the fighting reaches them. Take the pass, and put the battery out of the war."}
+    {"id": "notes", "text": "Three families still live in it — get them out to the approach inside five minutes, before the fighting reaches them. The relay is worth the climb if you can pay for it in infantry. Take the pass, and put the battery out of the war."}
   ],
   "briefing_image": "ui/plates/units/mbt_lavi.jpg",
   "map": {
@@ -93,6 +93,18 @@
         "speaker": "idit",
         "text": "The block came down around people who were still inside it. LANTERN's gun was never the only thing we were fighting there."
       }
+    },
+    {
+      "id": "cut_the_relay",
+      "type": "eliminate_hvt",
+      "primary": false,
+      "carries": true,
+      "target": "tm_relay",
+      "text": "Cut the battery's relay in the narrow saddle",
+      "say": {
+        "speaker": "idit",
+        "text": "The relay in the rocks is off the air. Whoever was spotting for this wall from somewhere else is talking to nobody on it now."
+      }
     }
   ],
   "roe": {
@@ -160,11 +172,18 @@
         "at": [25.5, 6.5],
         "facing_deg": 180,
         "tag": "tm_hvt_battery"
+      },
+      {
+        "unit": "sarim_rifles",
+        "count": 1,
+        "at": [4.5, 23.5],
+        "facing_deg": 180,
+        "tag": "tm_relay"
       }
     ],
     "waves": [
       {
-        "at_seconds": 150,
+        "at_seconds": 40,
         "to": "saddle_narrow",
         "units": [{ "unit": "sarim_rifles", "count": 1, "from": "sarim_west" }]
       },
