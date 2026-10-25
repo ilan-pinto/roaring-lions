@@ -3800,7 +3800,10 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // the pre-P3 5920, +33: Beit Sahwan I 180 -> 170, Wadi Halam I, II 180/190 -> 170/180 (men down);
 // Beit Sahwan IV 144 -> 190; Khan Rafid III 236 -> 240; Deir Amun II 217 -> 227; Qarn Hadid III
 // 216 -> 219. Every other mission pays as it did before P3. No star, outcome or gate moved.
-const LADDER_CREDITS = 5953;
+// 2026-10-25, GH-802: Tel Marum III's plan takes the flank and cuts the relay, its carrying
+// secondary. 5953 -> 5993, +40: Tel Marum III 245 -> 285, stars 2 -> 3, roster out 7, no unit lost.
+// Every other mission pays as it did; no outcome or gate moved.
+const LADDER_CREDITS = 5993;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
