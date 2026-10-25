@@ -138,10 +138,10 @@ export default defineConfig(
     },
   },
   {
-    // The golden replay worlds are test support: they hold the same float-literal fixtures the
+    // The golden replay worlds (and the runtime sink world, moved out of a spec in S2) are test support: they hold the same float-literal fixtures the
     // specs do. Named as the exact file (not a glob), and the sim block above bans importing any
     // `.test-helper`, so only specs can reach it.
-    files: ['packages/sim/src/**/*.test.ts', 'packages/sim/src/golden-worlds.test-helper.ts'],
+    files: ['packages/sim/src/**/*.test.ts', 'packages/sim/src/golden-worlds.test-helper.ts', 'packages/sim/src/runtime-sink-world.test-helper.ts'],
     rules: {
       'no-restricted-globals': 'off',
       'no-restricted-properties': 'off',
