@@ -268,7 +268,7 @@ export interface UnitTypeJson {
   /** E6 (GH-274, item 2): a swarm is ONE entity standing for `count` members of `member_hp`
    *  each. The schema requires `hull.hp === count * member_hp`; the sim throws at registration
    *  if it is not. Absent for every other unit. */
-  swarm?: { count: number; member_hp: number; spread_tiles: number };
+  swarm?: { count: number; member_hp: number; spread_tiles: number; hit_mult?: number };
   /** E6 (GH-274, G1): the numbers of a `demolition_method: "placed"` charge. Required by the
    *  schema when the method is `placed`; the sim throws at registration if it is missing. */
   placed_charge?: {
@@ -547,6 +547,9 @@ export interface HitFactors {
   motionMod: Fx;
   stanceMod: Fx;
   suppressionMod: Fx;
+  /** E6 N2: the target-side size factor, `swarm.hit_mult` against a swarm and exactly ONE
+   *  against anything else (the multiply is skipped then, so every other shot's `p` is bit-identical). */
+  sizeMod: Fx;
 }
 
 /**
@@ -564,6 +567,9 @@ export type HitProjection =
 /** A swarm's numbers (E6, GH-274 item 2). Live members are DERIVED from hp, never stored:
  *  `ceil(hp / memberHp)`. Type data, not hashed. */
 export interface SwarmStats {
+  /** Q16.16 factor in (0, 1] on every aimed shot's hit chance against this swarm (E6 N2,
+   *  `sizeMod`): a half-metre drone is a poor rifle target. ONE when the type authors none. */
+  hitMult: Fx;
   count: number;
   /** Q16.16 hp of one member. */
   memberHp: Fx;
@@ -929,7 +935,9 @@ function swarmFromJson(json: UnitTypeJson): SwarmStats | null {
   if (fx.from(json.hull.hp) !== fx.from(sw.count * sw.member_hp)) {
     throw new Error(`unit ${json.id}: swarm needs hull.hp === count x member_hp`);
   }
-  return { count: sw.count, memberHp, spread };
+  const hm = sw.hit_mult;
+  if (hm !== undefined && !(hm > 0 && hm <= 1 && fx.from(hm) > 0)) throw new Error(`unit ${json.id}: swarm.hit_mult must be in (0, 1] and not round to zero`);
+  return { count: sw.count, memberHp, spread, hitMult: hm === undefined ? ONE : fx.from(hm) };
 }
 
 /** `placed_charge` -> fixed point. A `placed` method without its block is a data error, and so
@@ -1267,6 +1275,8 @@ export type SimEvent =
         motionMod: Fx;
         stanceMod: Fx;
         suppressionMod: Fx;
+        /** E6 N2: present only when the target is a swarm that authors `hit_mult` (< 1). */
+        sizeMod?: Fx;
       };
     }
   | { kind: 'aps'; tick: number; target: number; shooter: number; pIntercept: Fx; roll: Fx; intercepted: boolean }
@@ -7037,7 +7047,15 @@ export class Sim {
     p = fx.mul(p, motionMod);
     p = fx.mul(p, stanceMod);
     p = fx.mul(p, suppressionMod);
-    return { p, accuracy, rangeFalloff, coverMod, motionMod, stanceMod, suppressionMod };
+    // E6 N2: a swarm is a small target. Skipped (not multiplied by ONE) for every other
+    // target, so no existing shot's p moves by a bit and no stream moves.
+    let sizeMod = ONE;
+    const tSwarm = this.unitTypes[this.typeIdx[target]].swarm;
+    if (tSwarm !== null && tSwarm.hitMult !== ONE) {
+      sizeMod = tSwarm.hitMult;
+      p = fx.mul(p, sizeMod);
+    }
+    return { p, accuracy, rangeFalloff, coverMod, motionMod, stanceMod, suppressionMod, sizeMod };
   }
 
   private fireAt(shooter: number, slot: number, w: WeaponStats, target: number): void {
@@ -7048,7 +7066,7 @@ export class Sim {
     const py = this.eyeY;
     const dSq = distSqFx(fx.sub(tx, px), fx.sub(ty, py));
     const dist = fx.sqrt(dSq);
-    const { p, accuracy, rangeFalloff, coverMod, motionMod, stanceMod, suppressionMod } =
+    const { p, accuracy, rangeFalloff, coverMod, motionMod, stanceMod, suppressionMod, sizeMod } =
       this.hitFactors(shooter, w, target);
 
     const roll = this.rng.nextU32(shooter) >>> 16;
@@ -7116,7 +7134,10 @@ export class Sim {
       pHit: p,
       roll,
       willHit,
-      breakdown: { accuracy, rangeFalloff, coverMod, motionMod, stanceMod, suppressionMod },
+      breakdown:
+        sizeMod === ONE
+          ? { accuracy, rangeFalloff, coverMod, motionMod, stanceMod, suppressionMod }
+          : { accuracy, rangeFalloff, coverMod, motionMod, stanceMod, suppressionMod, sizeMod },
     });
     this.swarmDive(shooter, slot, w); // E6: the diver is spent (no-op for every other unit)
   }

@@ -10,6 +10,7 @@ const factors = (o: Partial<Record<keyof HitFactors, number>> = {}): HitFactors 
   motionMod: fx.from(o.motionMod ?? 1),
   stanceMod: fx.from(o.stanceMod ?? 1),
   suppressionMod: fx.from(o.suppressionMod ?? 1),
+  sizeMod: fx.from(o.sizeMod ?? 1),
 });
 const shot = (p: number, f: Partial<Record<keyof HitFactors, number>> = {}): HitProjection => ({
   kind: 'shot',

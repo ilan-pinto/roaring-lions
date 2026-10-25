@@ -850,6 +850,7 @@
   "hud.fire.factor.range": "range",
   "hud.fire.factor.cover": "cover",
   "hud.fire.factor.targetMoving": "target moving",
+  "hud.fire.factor.smallTarget": "small target",
   "hud.fire.factor.firingOnTheMove": "firing on the move",
   "hud.fire.factor.suppressed": "suppressed",
   "hud.fire.factor.shaken": "shaken",

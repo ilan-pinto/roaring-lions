@@ -147,7 +147,9 @@ export class DebugOverlay {
             `P(hit)=${pct(e.pHit)} roll=${pct(e.roll)} ${e.willHit ? '<b>HIT</b>' : 'miss'}<br>` +
             `&nbsp;&nbsp;<span style="color:var(--ink-dim)">acc ${pct(b.accuracy)} · rng ${pct(b.rangeFalloff)} · cov ${pct(
               b.coverMod
-            )} · mot ${pct(b.motionMod)} · stance ${pct(b.stanceMod)} · supp ${pct(b.suppressionMod)}</span>`,
+            )} · mot ${pct(b.motionMod)} · stance ${pct(b.stanceMod)} · supp ${pct(b.suppressionMod)}${
+              b.sizeMod === undefined ? '' : ` · size ${pct(b.sizeMod)}`
+            }</span>`,
           e.willHit ? 'var(--ink)' : 'var(--ink-mute)'
         );
         break;
