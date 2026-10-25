@@ -31,6 +31,7 @@
     }
   },
   "mobility": {
+    "footprint": { "half_length_tiles": 1.03, "half_width_tiles": 0.57, "centre_along_tiles": -0.22 },
     "speed_tiles_s": 1.1,
     "turn_rate_deg_s": 60,
     "can_crush": true

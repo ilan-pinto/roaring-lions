@@ -383,6 +383,8 @@ describe('snapshot format pin', () => {
     // Was 923693936. The header gained hasRuntime (u8) and the runtime schema digest (u32) in its fixed block
     // (snapshot S2): this world has no runtime, so the only change is five zero bytes at offsets 39-43. Cutting
     // exactly those five bytes out of the new bytes reproduces 923693936.
-    expect(h >>> 0).toBe(3686246844);
+    // Was 3686246844 (main, S2's header) and 1168014221 (GH-421's appended separation rows): both together,
+    // read off a fresh run. With the separation rows taken out of the table it reads 3686246844 again.
+    expect(h >>> 0).toBe(2452666963);
   });
 });

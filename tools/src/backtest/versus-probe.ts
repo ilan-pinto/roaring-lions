@@ -98,8 +98,9 @@
 // THE SELF-CHECK, and the mutation that turns it red. Before any table it plays
 // two CONTROLS per map and one repeat, on the table it reads, and refuses to
 // report unless they hold:
-//   - the east side is cut to one unit: the west must win, by annihilation;
-//   - the west side is cut to one unit: the east must win, by annihilation;
+//   - the east side is cut to one unit, an infantry squad (`loneSurvivorOf`; a lone
+//     Lavi was sometimes never found inside the cap): the west must win, by annihilation;
+//   - the west side is cut to one such unit: the east must win, by annihilation;
 //   - one seed played twice reads the same game.
 // The first two see a probe that always names the same winner, one that swaps the
 // sides, and one whose orders never reach a side (nobody closes, so the game runs
@@ -208,8 +209,8 @@ export type SeatTable = 'room' | 'default';
 export interface PlayOptions {
   capTicks?: number;
   /** CONTROL ONLY: cut the force at this END (0 friendly, 1 hostile; in a
-   *  mirror the same number as its side) to its first unit before the first
-   *  tick. In an economy game that end's camp is destroyed at tick 0 as well,
+   *  mirror the same number as its side) to one infantry squad (its first
+   *  infantry-role unit, `loneSurvivorOf`) before the first tick. In an economy game that end's camp is destroyed at tick 0 as well,
    *  so it can field nothing more (the economy control). */
   cutSide?: 0 | 1;
   /** ECONOMY CONTROL ONLY: kill EVERY unit at this END before the first tick
@@ -289,6 +290,12 @@ export function order(sim: Sim, idsOf: (side: 0 | 1) => number[], sideOfEnd: rea
   }
 }
 
+/** The shipped role of a unit's type ('infantry', 'armour', ...), '' when it has none. */
+function roleOfType(sim: Sim, id: number): string {
+  const typeId = sim.unitTypes[sim.state.typeIdx[id]]?.id ?? '';
+  return (units as Record<string, { role?: string } | undefined>)[typeId]?.role ?? '';
+}
+
 /** Every living unit of `side`, in id order. */
 export function livingOf(sim: Sim, side: 0 | 1): number[] {
   const out: number[] = [];
@@ -302,6 +309,17 @@ function finish(o: MatchResult, ticks: number, sideOfEnd: readonly [0 | 1, 0 | 1
   return { winner: o.kind === 'won' ? (sideOfEnd[0] === o.side ? 0 : 1) : null, by, ticks };
 }
 
+/** The unit a cut side keeps (GH-421): the first INFANTRY-role unit in placement order, which is a
+ *  KDF `inf_squad` or a Sarim `sarim_rifles`. It used to be the first unit placed, a Lavi on the
+ *  KDF side, and a lone full-health Lavi on the open ground is sometimes never found and killed
+ *  inside the cap (seed 4 of 0-11 on main, 0, 5 and 7 under vehicle avoidance), which reads as a
+ *  probe that cannot end a game it has already decided. A squad of riflemen is found. */
+export function loneSurvivorOf(ids: readonly number[], roleOf: (id: number) => string): number {
+  const keep = ids.find((id) => roleOf(id) === 'infantry');
+  if (keep === undefined) throw new Error('versus probe: a cut side has no infantry unit to keep');
+  return keep;
+}
+
 /** One game: `arrangement[0]` on the friendly (west) spawn, `arrangement[1]` on
  *  the hostile (east) one, each on the side a room would seat it (`layoutOf`). */
 export function play(mapId: MapId, arrangement: Arrangement, seed: number, opts: PlayOptions = {}): Played {
@@ -310,7 +328,11 @@ export function play(mapId: MapId, arrangement: Arrangement, seed: number, opts:
   const { sim, typeOf, map } = world(mapId, seed, humanHeldOf(opts.rules ?? 'room', mapId, arrangement, seed));
   const { sideOfEnd, factions, ends } = layoutOf(arrangement);
   const force = versusSpawns(sim, typeOf, versusAnchors(map), factions, ends);
-  if (opts.cutSide !== undefined) for (const id of force.bySide[sideOfEnd[opts.cutSide]].slice(1)) sim.debugKill(id);
+  if (opts.cutSide !== undefined) {
+    const placed = force.bySide[sideOfEnd[opts.cutSide]];
+    const keep = loneSurvivorOf(placed, (id) => roleOfType(sim, id));
+    for (const id of placed) if (id !== keep) sim.debugKill(id);
+  }
   for (let t = 0; t < capTicks; t++) {
     if (t % ORDER_EVERY_TICKS === 0) order(sim, (side) => force.bySide[side], sideOfEnd);
     sim.tick();
@@ -416,7 +438,8 @@ export function playEconomy(mapId: MapId, arrangement: Arrangement, seed: number
   }
   if (opts.cutSide !== undefined) {
     const side = sideOfEnd[opts.cutSide];
-    for (const id of w.bySide[side].slice(1)) w.sim.debugKill(id);
+    const keep = loneSurvivorOf(w.bySide[side], (id) => roleOfType(w.sim, id));
+    for (const id of w.bySide[side]) if (id !== keep) w.sim.debugKill(id);
     for (const line of runtime.productionLines(side)) if (line.anchor >= 0) w.sim.debugDestroyStructure(line.anchor);
   }
   if (opts.wipeSide !== undefined) {

@@ -174,7 +174,8 @@ describe('per-seat unit types with no sim code (N2-P5, ruling L2)', () => {
     // those seats on purpose: it measures a mechanism, and its 90 s fight was
     // sized on them. Re-pinned when wounds opened to versus (23 Oct 2026: the wounded types
     // join the roster and the wound block is in the hash). Was 580559085.
-    expect(run('beit_sahwan_outskirts', 200, 'base').sim.hash()).toBe(1696120804);
+    // Re-pinned 25 Oct 2026 for GH-421 Stage 2 (vehicle avoidance): the columns sepWait and sepLast join the hash and nothing else moved (with their hashArray lines removed the old values read back). Was 1696120804.
+    expect(run('beit_sahwan_outskirts', 200, 'base').sim.hash()).toBe(1311563748);
   });
 
   it("side 1's KDF units carry the patched HP and weapon; side 0's carry the base", () => {

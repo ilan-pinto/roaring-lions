@@ -12,7 +12,7 @@
     "suppression_resistance": 0.35,
     "can_embark": false
   },
-  "mobility": { "speed_tiles_s": 0.5, "wheeled": true, "gear": "wheels" },
+  "mobility": { "footprint": { "half_length_tiles": 0.95, "half_width_tiles": 0.34 }, "speed_tiles_s": 0.5, "wheeled": true, "gear": "wheels" },
   "sensors": {
     "optics": 0.9,
     "sight_tiles": 6,

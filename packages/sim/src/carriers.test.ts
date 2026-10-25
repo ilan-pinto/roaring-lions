@@ -474,6 +474,10 @@ describe('carrier replay, air (GH-698 Task 6)', () => {
     // A new test-local literal, captured from the first run of this scenario. It is
     // not one of the shipped pins. Any change to the air carrier machine, a tuning
     // constant, or an rng draw moves it.
-    expect(build()).toBe(8862049);
+    //
+    // 2026-10-25: Vehicle avoidance (GH-421 Stage 2): the columns sepWait and sepLast join the hash.
+    // No behaviour moved: with their hashArray lines removed the scenario reads 8862049 exactly.
+    // Was 8862049.
+    expect(build()).toBe(338428513);
   });
 });

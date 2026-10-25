@@ -439,7 +439,14 @@ const wh1 = run('wadi_halam_1_fords', (sim, rt, ids, at) => {
   at(60, () => sim.queueCommand({ kind: 'attackMove', ids: screen.filter((i) => sim.state.alive[i] === 1), ...M(9, 31) }));
   // Jeep's second leg: closes on carrier group B ([16.5,33.5]).
   at(60, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(17, 34) }));
-  at(110, () => {
+  // GH-421 (vehicle separation): 110 s -> 140 s. The screen's first fight on the south gallery is the
+  // 100 s raid (riders killed at 101-103 s); at 110 s it left for the ford while the next riders were
+  // still coming, and with hulls no longer sharing space the Eitan, which spawns inside the jeep, is a
+  // fraction of a second behind everyone else all the way. Measured on seeds 1-30 for the time the
+  // screen leaves (lost seeds): 90 s two, 95 s two (9, 29), 105 s one (20), 110 s one (18), 115 s one
+  // (18), 125 s two (3, 18), 135 s none, 140 s none; on seeds 100-129, which took no part in the
+  // choice: 135 s lost 107 and 117, 140 s lost 117 (the base tree loses 119 and 123 there).
+  at(140, () => {
     sim.queueCommand({ kind: 'attackMove', ids: screen.filter((i) => sim.state.alive[i] === 1), ...ANCHOR });
     sim.queueCommand({ kind: 'attackMove', ids: spike.filter((i) => sim.state.alive[i] === 1), ...STANDOFF });
   });
@@ -1137,7 +1144,22 @@ const bs4Plan: Plan = (sim, rt, ids, at) => {
 
   // Escort out of the yard along the lane, then clear the crossroads: the kamikaze
   // (bs4_charge_crossroads) and the pre-revealed market-lane RPG both sit at its head.
-  at(0, () => sim.queueCommand({ kind: 'move', ids: escort, ...M(27, 28) }));
+  // GH-421 (vehicle separation): the Eitan is placed 0.08 tile into the Namer, which leaves the yard
+  // at 1 s, and its way north passes the Namer's tail, so it now waits a second or two for the Namer
+  // to clear (it used to drive through). The squad is faster than the Eitan and went up the lane
+  // ahead of it: a charge squad from the crossroads caught it alone on seed 424242 at 4.4 s. The
+  // Eitan leads and the squad leaves the yard when it has cleared the Namer, as a player would
+  // not send riflemen up a lane in front of the only gun that covers them.
+  at(0, () => sim.queueCommand({ kind: 'move', ids: eitan, ...M(27, 28) }));
+  let squadOut = false;
+  for (let sec = 0; sec <= 8; sec++)
+    at(sec, () => {
+      if (squadOut) return;
+      const lead = eitan.find((i) => sim.state.alive[i] === 1);
+      if (lead !== undefined && sec < 8 && fx.toNumber(sim.state.posY[lead]) > 32.5) return;
+      squadOut = true;
+      sim.queueCommand({ kind: 'move', ids: inf, ...M(27, 28) });
+    });
   at(8, () => sim.queueCommand({ kind: 'attackMove', ids: escort, ...M(27, 26) }));
   // ...and stand there: an attackMove left running chases the rocket team at the west mouth ten tiles
   // east, and an infantry squad on its own in that fight dies (seed 1).
@@ -2021,7 +2043,29 @@ run(
     at(104, () => sim.queueCommand({ kind: 'attackMove', ids: [...tank], ...M(36, 19) }));
     at(104, () => sim.queueCommand({ kind: 'move', ids: [...foot], ...M(21, 27) }));
     // Up the gully, one level below its banks, to the cache at its head.
-    at(130, () => sim.queueCommand({ kind: 'move', ids: demo, ...M(28, 23) }));
+    // GH-421 (vehicle separation): seed 8 sent the party at 130 s with a rifle picket coming down to
+    // (31,17) on the far bank (140 s) while the Lavi stood at (36,19), 5 tiles off and not killing it
+    // in 2,000 ticks; the party was shot at the cache at 174 s and `burn_the_ammo_point` failed at
+    // 300 s. The party goes at 130 s as before when the player's picture shows nothing standing on the
+    // bank (x 26-37, y 14-21), and otherwise waits, re-reading the picture each second, until 250 s,
+    // while the rifles on the approach are sent at the nearest contact every 10 s. (An attack-move onto
+    // the spot parked the Lavi ON the picket, inside its gun's minimum range, and a right-click
+    // `attack` did not move it at all.)
+    const pic = new Picture(sim);
+    let demoSent = false;
+    for (let sec = 130; sec <= 250; sec++)
+      at(sec, () => {
+        if (demoSent) return;
+        pic.update();
+        const left = pic.nearest(36, 19, [26, 14, 12, 8]);
+        if (left !== undefined && sec < 250) {
+          // An attack-move stops where it is sent, so someone has to be told to go and finish the picket.
+          if (sec % 10 === 0) sim.queueCommand({ kind: 'attackMove', ids: [...foot], ...M(left.x, left.y) });
+          return;
+        }
+        demoSent = true;
+        sim.queueCommand({ kind: 'move', ids: demo, ...M(28, 23) });
+      });
   },
   {},
   'victory',
@@ -2728,9 +2772,17 @@ const ummZeitoun3Plan: Plan = (sim, rt, ids, at) => {
   // route uses south of it -- by the time the drone passes, `west`'s attackMove
   // is already closing on that post regardless.
   const drone = ids('recon_drone');
+  // GH-421 (vehicle separation): the east flank leaves the yard two seconds after the hamlet party. The
+  // issued force spawns overlapping (the hamlet Eitan 1.25 tiles from the east Eitan, two tiles from the
+  // Lavi), hulls no longer drive through one another, and sent together the hamlet Eitan stood behind the
+  // others for 3-4 s: the hamlet garrison walked out of its houses (a body crossing into the zone springs
+  // `the_house_was_the_section`) after the drone had passed the street, and a rifleman shot the drone at
+  // 15.6 s, `find_adhal` still open and 3 stars -> 2 on 59 seeds of 60. A player does not hold the carrier
+  // that has a street to cross behind the tanks that have a glacis. Sent at 3 s, all 60 seeds read 3 stars
+  // again (2 s and 4 s also do on 424242).
+  at(3, () => sim.queueCommand({ kind: 'attackMove', ids: east, ...M(40, 25) }));
   at(1, () => {
     sim.queueCommand({ kind: 'attackMove', ids: west, ...M(8, 25) });
-    sim.queueCommand({ kind: 'attackMove', ids: east, ...M(40, 25) });
     // Straight into the hamlet: `zone_entered` fires `the_house_was_the_section`
     // the moment either body crosses in, walking both garrisoned riflemen
     // out of their houses and into the open street at `hamlet_square`.
@@ -2969,6 +3021,65 @@ const uz4Plan: Plan = (sim, rt, ids, at) => {
       if (tanks.length === 0 || ys <= 10) sim.queueCommand({ kind: 'attackMove', ids: eitan, ...M(33, 8) });
       else sim.queueCommand({ kind: 'attackMove', ids: eitan, ...M(33, Math.min(40, ys + 4)) });
     });
+  // GH-421 (vehicle separation, after the Tel Marum relay): a porter standing at the warehouse. A porter
+  // that breaks for the refuge under the pickets' fire can be pinned on the way against the building's
+  // east wall, at (32.0, 3.3-5.4): 1.5-1.9 tiles from its centre, inside the 2-tile danger-close circle
+  // of every round aimed at it (3 Conduct a round; two Lavis, one round each 6.7 s). The shells that
+  // pinned it keep it there. Seed 3 of the ladder behind Tel Marum III (one infantry squad fewer in the
+  // roster, so every body's dice moved) shelled the warehouse over a standing porter for 60 s: 24
+  // rounds, Conduct 100 to 43 under the floor of 45, a defeat at 3.2 minutes; seeds 5, 6, 10 and 26 lost
+  // 24-39 Conduct the same way and won on 46-58. A player who sees a family standing in that circle
+  // does not keep putting the main gun into it: he takes the tanks back out of its reach (12 tiles),
+  // to (33, 17), and lets the fear pass. He does it for a family that STAYS inside it (under half a
+  // tile in each of the last eight seconds): the others are walking out past the wall and are clear of
+  // it in three, and one pinned by a burst walks on within six (424242's is, at 2.03 tiles, and costs
+  // nothing). The hold lasts until the plan's own fallback at 250 s, when the clock matters more than
+  // the score (the parties go in then, and the warehouse has to be rubble for them); the Lavis are sent
+  // back to the yard the moment it ends. While it lasts the orders below leave them where they are.
+  // Only the Lavis' gun is heavy: the Namer's cannon and the Eitans' machine guns are not held.
+  let holding = false;
+  const standing = new Map<number, [number, number, number]>();
+  for (let when = 30; when <= 250; when += 2)
+    at(when, () => {
+      const w = sim.structureAt(30, 4);
+      const was = holding;
+      holding = false;
+      const cx = w < 0 ? 0 : fx.toNumber(sim.structures.cx[w]);
+      const cy = w < 0 ? 0 : fx.toNumber(sim.structures.cy[w]);
+      for (let i = 0; i < sim.entityCount; i++) {
+        if (sim.state.side[i] !== 2 || sim.state.alive[i] !== 1) continue;
+        const x = fx.toNumber(sim.state.posX[i]);
+        const y = fx.toNumber(sim.state.posY[i]);
+        const before = standing.get(i);
+        const still = before !== undefined && (x - before[0]) ** 2 + (y - before[1]) ** 2 < 0.25 ? before[2] + 1 : 0;
+        standing.set(i, [x, y, still]);
+        if (w < 0 || when >= 250 || rt.objectiveStatus('raze_the_stockpile') !== 'active') continue;
+        if ((x - cx) ** 2 + (y - cy) ** 2 <= 2 * 2 && still >= 4) holding = true;
+      }
+      const near = lavi.filter((u) => sim.state.alive[u] === 1);
+      if (holding) {
+        const inReach = near.filter((u) => (fx.toNumber(sim.state.posX[u]) - cx) ** 2 + (fx.toNumber(sim.state.posY[u]) - cy) ** 2 < 12.5 * 12.5);
+        if (inReach.length > 0) sim.queueCommand({ kind: 'move', ids: inReach, ...M(33, 17) });
+      } else if (was && near.length > 0) sim.queueCommand({ kind: 'attackMove', ids: near, ...M(33, 8) });
+    });
+  // GH-421 (vehicle separation): an attack-moving Lavi halts the moment it has a target in range. On
+  // 424242 the pair was 1.4 tiles further back at 800 ticks than before (y 19.9 against 18.5; the valve
+  // had opened twice at the foot of the ramp, ticks 84 and 88) and halted at the edge of the gun's
+  // range, 8-9 tiles from the pickets on the shelf: both Lavis stood at y 17-20 from 40 s to 140 s, the
+  // pickets died at 2534 ticks and not at 920, and the porters were not out in 240 s. A player sees a
+  // tank that has stopped short and drives it on: a Lavi still south of y 16 that has gained under 0.3
+  // tile in the last 5 s is sent to (33,15) with a plain move, from where the pickets are 3-4 tiles off.
+  const laviLast = new Map<number, number>();
+  for (let when = 15; when <= 150; when += 5)
+    at(when, () => {
+      for (const u of lavi) {
+        if (sim.state.alive[u] !== 1) continue;
+        const y = fx.toNumber(sim.state.posY[u]);
+        const before = laviLast.get(u);
+        laviLast.set(u, y);
+        if (before !== undefined && y > 16 && before - y < 0.3 && !holding) sim.queueCommand({ kind: 'move', ids: [u], ...M(33, 15) });
+      }
+    });
   // GH-382: the spur's eye covers the ramp, so a drone sent at t=1 is shot down on the way up; it
   // follows the escort in once the spur is clear.
   // fix/air-pathing: it follows the armour's own line up x=33 (via (33,30)) rather than the straight
@@ -3051,9 +3162,10 @@ const uz4Plan: Plan = (sim, rt, ids, at) => {
       if (warehouse() >= 0 && when >= 100 && !yardGuns()) {
         closers.forEach((u, k) => {
           const spot = yardSpots[k];
+          if (holding && lavi.includes(u)) return; // held off the warehouse (above); the Namer still goes in
           if (spot && sim.state.alive[u] === 1) sim.queueCommand({ kind: 'move', ids: [u], ...M(...spot), exact: true });
         });
-      } else if (when % 30 === 0) sim.queueCommand({ kind: 'attackMove', ids: depotEscort, ...M(33, 8) });
+      } else if (when % 30 === 0) sim.queueCommand({ kind: 'attackMove', ids: holding ? eitan : depotEscort, ...M(33, 8) }); // not the Lavis while held
     });
   // The stockpile is down, so everything left goes for Adhal: the nearest hostile the player has seen,
   // else the crest. Since #537 the escort no longer walks on from the yard by itself, and three seeds
@@ -3064,9 +3176,23 @@ const uz4Plan: Plan = (sim, rt, ids, at) => {
     at(when, () => {
       if (rt.objectiveStatus('raze_the_stockpile') === 'active' || rt.objectiveStatus('kill_adhal') !== 'active') return;
       // GH-707 P3: the mortar stays out of it (see the t=90 push below).
-      const force = living(sim, new Set([...demo, ...drone, ...ids('mortar_team')]));
+      // GH-421 (vehicle separation): nor the Eitans, until a Lavi is within thirteen tiles of where the
+      // push is going. They carry a machine gun and nothing else, are faster than the tanks, and the
+      // hunt for Adhal ends at the crest in recoilless rifles: 424242 lost an Eitan to one at 5486
+      // ticks, 7 tiles out, which took the roster maximum from 29 to 28. Held back for good, seed 15 was
+      // lost; released at nine tiles, seeds 12 and 17 took 13.7 and 11.0 minutes (the Eitan's machine
+      // gun is what kills the guard); at thirteen every seed is under 7.2 minutes. They follow the
+      // tanks, they do not lead.
       const c = pic.nearest(14, 7);
-      sim.queueCommand({ kind: 'attackMove', ids: force, ...(c ? M(c.x, c.y) : M(14, 7)) });
+      const goalX = c ? c.x : 14;
+      const goalY = c ? c.y : 7;
+      const hold = new Set([...demo, ...drone, ...ids('mortar_team')]);
+      const tankUp = ids('mbt_lavi').some(
+        (u) => sim.state.alive[u] === 1 && (fx.toNumber(sim.state.posX[u]) - goalX) ** 2 + (fx.toNumber(sim.state.posY[u]) - goalY) ** 2 <= 169
+      );
+      if (!tankUp) for (const e of ids('apc_eitan')) hold.add(e);
+      const force = living(sim, hold);
+      sim.queueCommand({ kind: 'attackMove', ids: force, ...M(goalX, goalY) });
     });
   // Adhal carries no deadline of his own, so a second, dedicated push for
   // him only needs to exist at all -- it does not need to race the depot.
@@ -3246,11 +3372,30 @@ function boughtProbe(
 // dies there; (40,28) and (40,26) die too (12 and 41 rounds). (36,26), the one of the three
 // survivors above still standing, identifies 3 units and the route on 50 rounds and is alive at
 // the end. Measured, one run each.
-boughtProbe('beit_sahwan_4_subterranean', bs4Plan, led4In, 'recon_zikit', 30, 'sees', (mine) => ({
-  kind: 'move',
-  ids: mine,
-  ...M(36, 26),
-}));
+// GH-421 (vehicle separation): the plain mission now ends at 2.9 min (its Eitan leads out of the yard and
+// the squad follows it, see `bs4Plan`) instead of 2.6, and the 150 s wave at the mortar line (44,24) reached
+// the Zikit at (36,26) at 164 s, 8 tiles off: dead 10 s before the end. A recon vehicle is not left to
+// the wave it has just been shown: at 120 s it is pulled back to (28,30), 16 tiles from the line. Measured
+// on 60 seeds, one run each, deaths of the Zikit: 3 (this), 4 ((22,30) at 100 s), 5 ((24,32) at 140 s, and
+// the unmoved (36,26) -- 5 on the base tree too); (30,28) at 140 s died on 424242, the wave reaching it.
+boughtProbe(
+  'beit_sahwan_4_subterranean',
+  bs4Plan,
+  led4In,
+  'recon_zikit',
+  30,
+  'sees',
+  (mine) => ({
+    kind: 'move',
+    ids: mine,
+    ...M(36, 26),
+  }),
+  (sim, at, mine) =>
+    at(120, () => {
+      const m = mine();
+      if (m.length > 0) sim.queueCommand({ kind: 'move', ids: m, ...M(28, 30) });
+    })
+);
 // The Gunship is built on the first tick (50 s) and joins the `raze` approach: an
 // attack-move to the stockpile the depot escort is already walking to.
 // GH-382: the depot is on a shelf now, and the yard holds the four porters. A gunship sent into it
@@ -3284,6 +3429,17 @@ boughtProbe('umm_zeitoun_4_clearance', uz4Plan, ledUZ3, 'heli_peten_gunship', 55
         const t = sim.unitTypes[st.typeIdx[i]];
         if (t.id === 'manpad_team') manpad = true;
         if (t.isWounded || st.woundState[i] !== 0 || sim.contactLevel(0, i) < 2) continue;
+        // GH-421 (vehicle separation): nor a target with civilians beside it. Seed 26 sent the gunship at a
+        // rifleman 3 tiles from the porters and `heavy ordnance danger-close to civilians` took ROE from 100
+        // to 43 in two seconds, a defeat. A player has the porters on his screen.
+        const ex = fx.toNumber(st.posX[i]);
+        const ey = fx.toNumber(st.posY[i]);
+        let nearCivilians = false;
+        for (let c = 0; c < sim.entityCount && !nearCivilians; c++) {
+          if (st.alive[c] !== 1 || sim.unitTypes[st.typeIdx[c]].id !== 'civilians') continue;
+          nearCivilians = (fx.toNumber(st.posX[c]) - ex) ** 2 + (fx.toNumber(st.posY[c]) - ey) ** 2 <= 49;
+        }
+        if (nearCivilians) continue;
         const d = (fx.toNumber(st.posX[i]) - gx) ** 2 + (fx.toNumber(st.posY[i]) - gy) ** 2;
         if (d < bestD) {
           bestD = d;
@@ -3909,14 +4065,29 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // the pre-P3 5920, +33: Beit Sahwan I 180 -> 170, Wadi Halam I, II 180/190 -> 170/180 (men down);
 // Beit Sahwan IV 144 -> 190; Khan Rafid III 236 -> 240; Deir Amun II 217 -> 227; Qarn Hadid III
 // 216 -> 219. Every other mission pays as it did before P3. No star, outcome or gate moved.
+// 2026-10-25, GH-421 Stage 2 (movers-only vehicle avoidance; accepted by the lead): 5953 -> 5971, +18,
+// read off the printed per-mission credits: Beit Sahwan III 275 -> 280 (+5) and IV 190 -> 200 (+10);
+// Wadi Halam I 170 -> 180 (+10), II 180 -> 190 (+10) and IV 204 -> 198 (-6); Deir Amun II 227 -> 237
+// (+10) and III 245 -> 230 (-15); Khan Rafid III 240 -> 237 (-3); Qarn Hadid III 219 -> 225 (+6); Umm
+// Zeitoun IV 265 -> 256 (-9). Hulls no longer drive through one another, so the men a plan loses and the
+// survivors it brings home move a little; every other mission pays as before. Every plan wins on 30 of
+// 30 seeds, ROSTER_MAX stays 29, every gate opens on time, no star or outcome moved.
 // 2026-10-25, GH-802: Tel Marum III's plan takes the flank and cuts the relay, its carrying
 // secondary. 5953 -> 5993, +40: Tel Marum III 245 -> 285, stars 2 -> 3, roster out 7, no unit lost.
 // Every other mission pays as it did; no outcome or gate moved.
+// 2026-10-25, both changes together (GH-421 Stage 2 merged with GH-802's Tel Marum relay): 6011 =
+// 5953 + 18 (vehicle avoidance, the ten missions above) + 40 (Tel Marum III 245 -> 285). The two are
+// exactly additive: Tel Marum III pays 285 with avoidance on, and every other mission pays as listed
+// under GH-421. Every plan wins on 30 of 30 seeds, ROSTER_MAX 29, every gate on time.
 // 2026-10-25, GH-274 item 5, the swarm missions: 5993 -> 5983, -10. Umm Zeitoun II 220 -> 230 (the swarm is
 // a kill, and it replaces a loiter drone worth less); Wadi Halam III 180 -> 160 (two swarms ride the 170 s
 // wave, and the seed-424242 run loses bodies to them). Both plans build a Remetz now. Every plan still wins
 // on 30 of 30 seeds; no star, outcome or gate moved.
-const LADDER_CREDITS = 5983;
+// 2026-10-25, GH-421 Stage 2 merged with GH-274 item 5 (read off a fresh run, not added up): 5991.
+// Main's 5983 plus the ten avoidance missions (+18, listed above) less Umm Zeitoun II, which pays 220
+// under avoidance against main's 230 (roster out 16 against 17: one body fewer comes home). No star,
+// outcome or gate moved; every plan, the two that build a Remetz included, wins on 30 of 30 seeds.
+const LADDER_CREDITS = 5991;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
@@ -4069,7 +4240,10 @@ for (const [label, got, want] of [
 // 2026-10-25, GH-274 item 5: 29 -> 31, same mission. Umm Zeitoun II's roster out reads 15 -> 16 -> 17: the
 // swarm that replaces the loiter drone costs the plan no body (+1), and the Remetz its plan now builds
 // survives into the roster (+1). Umm Zeitoun IV inherits both.
-const ROSTER_MAX = 31;
+// 2026-10-25, GH-421 Stage 2 merged with GH-274 item 5: 31 -> 30, same mission, read off a fresh run.
+// Umm Zeitoun II's roster out reads 16 under vehicle avoidance against main's 17, and Umm Zeitoun III
+// (22) and IV (30) inherit the one body fewer. No outcome moved.
+const ROSTER_MAX = 30;
 console.log(`roster maximum: ${rosterMax} at ${rosterMaxMissionId}`);
 if (rosterMax !== ROSTER_MAX) {
   console.error(`roster maximum: FAILED — expected ${ROSTER_MAX}, got ${rosterMax} at ${rosterMaxMissionId}`);

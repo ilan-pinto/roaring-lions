@@ -15,6 +15,7 @@ import { Rng } from './rng';
 import { HASH_SEED, hashArray, hashWord } from './hash';
 import { FlowField, DIR_NONE, DIR_VX, DIR_VY, COST_ORTH, COST_DIAG } from './flowfield';
 import { assignFormation, type FormationUnit } from './formation';
+import { hullCapsule, capsuleOverlap } from './separation';
 import {
   structureTypeFromJson,
   STRUCT_DAMAGE,
@@ -123,6 +124,9 @@ import {
   PIN_SPEED_SHIFT,
   ROUT_AFTER_TICKS,
   ROUT_SPEED_SHIFT,
+  SEP_VALVE_TICKS,
+  SEP_COS_45,
+  SEP_FOLLOW_HALVINGS,
   ROUT_DISTANCE,
   SWEEP_ARRIVE_SQ,
   LOAD_RANGE_SQ,
@@ -322,6 +326,9 @@ export interface UnitTypeJson {
      *  `!FOOT_ROLES.has(role)` — see UnitType.wheeled for why role alone is
      *  not enough and this field has to exist. */
     wheeled?: boolean;
+    /** Vehicle spacing (GH-421, V-R1): the hull as a capsule, in tiles. Present on exactly the
+     *  vehicles that separate; absent, the unit is neither pushed nor pushes. */
+    footprint?: { half_length_tiles: number; half_width_tiles: number; centre_along_tiles?: number };
     /** Fires only from a halt: gets down before its first shot and up again
      *  before it moves on. Absent means derived -- every armed foot unit that
      *  is not a kamikaze. See UnitType.haltsToFire. */
@@ -654,6 +661,15 @@ export interface UnitType {
    */
   wheeled: boolean;
   /**
+   * Vehicle spacing (GH-421, V-R1): the hull as a capsule, Q16.16 tiles, all 0 when the type
+   * declares no `mobility.footprint`. A unit separates if and only if `sepHalfWid > 0` and it is
+   * not air. `sepBound = sepHalfLen + |sepCentre|` is the broad-phase radius.
+   */
+  sepHalfLen: Fx;
+  sepHalfWid: Fx;
+  sepCentre: Fx;
+  sepBound: Fx;
+  /**
    * Fires only from a halt, kneeling (spec 2026-10-05-infantry-halt-to-fire).
    *
    * A unit with this set never fires while its feet move: it stops, spends
@@ -982,6 +998,10 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
   const turnPerTick = fx.mul(fx.div(fx.from(turnDeg), fx.fromInt(360)), DT);
   const abilities = json.abilities ?? [];
   const isAir = json.mobility.domain === 'air';
+  const foot = json.mobility.footprint;
+  const sepHalfLen = foot ? fx.from(foot.half_length_tiles) : 0;
+  const sepHalfWid = foot ? fx.from(foot.half_width_tiles) : 0;
+  const sepCentre = foot ? fx.from(foot.centre_along_tiles ?? 0) : 0;
   const wheeled = json.mobility.wheeled ?? !FOOT_ROLES.has(json.role ?? '');
   const isKamikaze = abilities.includes('kamikaze');
   const armed = (json.weapons ?? []).length > 0;
@@ -1006,6 +1026,10 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
     isKamikaze,
     isAir,
     wheeled,
+    sepHalfLen,
+    sepHalfWid,
+    sepCentre,
+    sepBound: fx.add(sepHalfLen, sepCentre < 0 ? -sepCentre : sepCentre),
     // A kamikaze is excluded because its sprint IS the attack (charge_squad,
     // the drones): there is no aimed shot to kneel for. Unarmed is excluded
     // because there is nothing to fire.
@@ -1547,11 +1571,32 @@ const DELIVER_CARRIER = 1;
 const DELIVER_EVAC = 2;
 const DELIVER_AID = 3;
 
+/** Separation bucket cells: 4 tiles a side (shift 2), so a 3 x 3 visit covers every pair inside the
+ *  widest broad-phase reach (two hull bounds plus HALF, checked at type registration). A 2-tile cell
+ *  with a 5 x 5 visit (SEP_VISIT 2) measured the same stepMovement cost, 0.71 ms, on the 300-unit
+ *  scene, so the pair test and not the cell walk is what costs. */
+const SEP_CELL_TILES = 4;
+const SEP_CELL_SHIFT_TILES = 2;
+const SEP_VISIT = 1;
+/** The shortest hull segment (halfLen - halfWid) that is not a point: 1/64 tile. */
+const SEP_MIN_SEGMENT = 1024;
+const SEP_CELL_SHIFT_RAW = 16 + SEP_CELL_SHIFT_TILES;
+
 function distSqFx(dx: Fx, dy: Fx): Fx {
   const x = dx >> 8;
   const y = dy >> 8;
   return (x * x + y * y) | 0;
 }
+
+/** Vehicle-separation diagnostics for tools (GH-421): see `Sim.sepDiag`. */
+export interface SepDiag {
+  on: boolean;
+  count: number;
+  valve: number;
+  arrive: number;
+  log: Int32Array;
+}
+const SEP_DIAG = new WeakMap<object, SepDiag>();
 
 export class Sim {
   readonly width: number;
@@ -1741,6 +1786,36 @@ export class Sim {
   private readonly garrisonGoal: Int32Array;
   /** 1 when the unit actually changed position this tick. */
   private readonly displaced: Uint8Array;
+  /** GH-421: the valve count of a separating hull -- +2 a tick standing blocked, +1 a tick steering
+   *  round, -1 a free tick after a free tick (saturates at 255). At SEP_VALVE_TICKS it ghosts through
+   *  until the count falls below it again. Hashed, after the columns it was added to. */
+  private readonly sepWait: Uint8Array;
+  /** 1 when the hull's last separation test was blocked (a ghosted step included): the valve count
+   *  falls only on a free tick that follows a free tick. Hashed, after `sepWait`. */
+  private readonly sepLast: Uint8Array;
+  /** Bucket grid of this tick's separation participants (4-tile cells; `sepHead` per cell, `sepNext`
+   *  per unit, -1 ends a chain). Rebuilt at the top of stepMovement; scratch, never hashed. */
+  private readonly sepHead: Int32Array;
+  private readonly sepNext: Int32Array;
+  private readonly sepCols: number;
+  private readonly sepCap = new Int32Array(15);
+  private readonly sepOut = new Int32Array(4);
+  /** True once any separating type is registered; with none, stepMovement pays nothing. */
+  private sepLive = false;
+  /** Set by sepBlockedBy: whether the blocker it returned was a stationary hull. */
+  private sepHitStationary = false;
+  /** Diagnostics for tools (never hashed, off unless a tool turns it on): a ring of
+   *  (tick, unit, kind, blocker) quads, kind 1 = the valve opened, 2 = a leg ended at contact. */
+  get sepDiag(): SepDiag {
+    // Kept OFF the instance (a module WeakMap behind a prototype getter), so the snapshot
+    // census never sees it: the sim never reads it, so it is not match state.
+    let d = SEP_DIAG.get(this);
+    if (d === undefined) {
+      d = { on: false, count: 0, valve: 0, arrive: 0, log: new Int32Array(0) };
+      SEP_DIAG.set(this, d);
+    }
+    return d;
+  }
   /** Set for the tick when stepCombat turned a body-aimed hull onto what it is
    *  shooting at, so stepMovement does not simply steer it back. Scratch,
    *  cleared at the top of every stepCombat.
@@ -2065,6 +2140,8 @@ export class Sim {
     readonly moving: Uint8Array;
     readonly pinned: Uint8Array;
     readonly mobilityKilled: Uint8Array;
+    readonly sepWait: Uint8Array;
+    readonly sepLast: Uint8Array;
     /** #706: slowed (half step). */
     readonly mobilityDamaged: Uint8Array;
     /** #706: a stuck ground hull's field-fix clock, 0..FIELD_FIX_TICKS. */
@@ -2278,6 +2355,11 @@ export class Sim {
     this.garrisonedIn = new Int32Array(n).fill(-1);
     this.garrisonGoal = new Int32Array(n).fill(-1);
     this.displaced = new Uint8Array(n);
+    this.sepWait = new Uint8Array(n);
+    this.sepLast = new Uint8Array(n);
+    this.sepCols = (config.width + SEP_CELL_TILES - 1) >> SEP_CELL_SHIFT_TILES;
+    this.sepHead = new Int32Array(this.sepCols * ((config.height + SEP_CELL_TILES - 1) >> SEP_CELL_SHIFT_TILES));
+    this.sepNext = new Int32Array(n);
     this.aimTurned = new Uint8Array(n);
     this.aimDesired = new Int32Array(n);
     this.aimFrom = new Int32Array(n);
@@ -2395,6 +2477,8 @@ export class Sim {
       moving: this.moving,
       pinned: this.pinned,
       mobilityKilled: this.mobilityKilled,
+      sepWait: this.sepWait,
+      sepLast: this.sepLast,
       mobilityDamaged: this.mobilityDamaged,
       fieldFixTicks: this.fieldFixTicks,
       firepowerKilled: this.firepowerKilled,
@@ -2472,6 +2556,18 @@ export class Sim {
     // GH-707: the first wound-related type turns the wound block's hash fold on.
     if (type.wounds !== null || type.rescue !== null || type.canCarry !== null || type.isWounded) {
       this.woundLive = true;
+    }
+    if (type.sepHalfWid > 0 && !type.isAir) {
+      // The bucket grid's (2 x SEP_VISIT + 1)-square visit reaches SEP_CELL_TILES x SEP_VISIT tiles; a pair's broad-phase reach must fit inside.
+      if (fx.add(fx.add(type.sepBound, type.sepBound), HALF) > SEP_CELL_TILES * SEP_VISIT * ONE) {
+        throw new Error(`unit type ${type.id}: footprint too long for the separation grid`);
+      }
+      // A segment shorter than 1/64 tile but not a point would wrap fx.div by its squared length in the closest-point maths.
+      const seg = fx.sub(type.sepHalfLen, type.sepHalfWid);
+      if (seg > 0 && seg < SEP_MIN_SEGMENT) {
+        throw new Error(`unit type ${type.id}: footprint is a segment shorter than 1/64 tile`);
+      }
+      this.sepLive = true;
     }
     this.unitTypes.push(type);
     return this.unitTypes.length - 1;
@@ -3574,6 +3670,8 @@ export class Sim {
     this.suppFromY[id] = 0;
     this.suppFromSet[id] = 0;
     this.moving[id] = 0;
+    this.sepWait[id] = 0;
+    this.sepLast[id] = 0;
     this.attackMove[id] = 0;
     this.sweepOrder[id] = 0;
     this.fieldRef[id] = -1;
@@ -4506,6 +4604,8 @@ export class Sim {
       // (Buried units were already dropped where the ids expanded, above
       // the append fast-path — the earth's refusal is not per-branch.)
       this.wpCount[id] = 0; // a fresh order replaces the whole path
+      this.sepWait[id] = 0; // GH-421: a fresh order starts with a closed valve
+      this.sepLast[id] = 0;
       if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
       this.boardGoal[id] = -1;
       this.garrisonGoal[id] = -1;
@@ -4880,6 +4980,8 @@ export class Sim {
           }
           this.focusTarget[id] = cmd.target;
           this.focusLost[id] = 0;
+          this.sepWait[id] = 0; // GH-421: a fresh order starts with a closed valve
+          this.sepLast[id] = 0;
           // GH-707: an accepted fire order takes a medic off his automatic job (the generic
           // reset above skips `attack`, so a refused id keeps his).
           if (this.woundLive && this.unitTypes[this.typeIdx[id]].rescue !== null) {
@@ -10416,6 +10518,7 @@ export class Sim {
   private stepMovement(): void {
     const w = this.width;
     this.displaced.fill(0);
+    if (this.sepLive) this.buildSepGrid();
     for (let i = 0; i < this.count; i++) {
       if (this.alive[i] === 0 || this.moving[i] === 0 || this.mobilityKilled[i] === 1) continue;
       // The belt, not a duplicate. Every autonomous setter of `moving` is
@@ -10519,6 +10622,126 @@ export class Sim {
         }
       }
 
+      // GH-421: a hull never pushes another; it steers round, waits or, at its goal, stops.
+      let finishHere = false;
+      if (this.sepLive && (nx !== px || ny !== py) && this.sepParticipates(i)) {
+        const bj = this.sepBlockedBy(i, px, py, nx, ny);
+        const wait = this.sepWait[i];
+        const last = this.sepLast[i];
+        if (bj < 0) {
+          // The valve decays one a tick, so a hull that was jammed does not re-arm from zero -- but only
+          // after a free tick that follows a free tick: a hull that steps clear, is pulled back and is
+          // blocked again is going nowhere, and each free tick of that cycle must not pay off the last
+          // blocked one.
+          if (wait > 0 && last === 0) this.sepWait[i] = wait - 1;
+          this.sepLast[i] = 0;
+        } else if (wait >= SEP_VALVE_TICKS) {
+          // Ghost: today's step, while the valve is open (it closes once the count decays).
+          this.sepLast[i] = 1;
+        } else {
+          this.sepLast[i] = 1;
+          const jStill = this.sepHitStationary;
+          // A leg that ends in a range test (demolish, focus, garrison, board, charge) is not finished
+          // by the goal being taken: the hull keeps trying, and the valve frees it in the end.
+          const rangeGoal =
+            this.demolishOrder[i] >= 0 ||
+            this.focusTarget[i] >= 0 ||
+            this.garrisonGoal[i] >= 0 ||
+            this.boardGoal[i] >= 0 ||
+            this.chargeOrder[i] >= 0;
+          if (!rangeGoal && this.sepAtContact(i, bj, jStill)) {
+            nx = px;
+            ny = py;
+            finishHere = true;
+            this.sepWait[i] = 0;
+            if (this.sepDiag.on) this.sepNote(i, 2, bj);
+          } else {
+            const mx = fx.sub(nx, px);
+            const my = fx.sub(ny, py);
+            const headOn = !jStill && fx.cos(fx.sub(this.facing[i], this.facing[bj]) & 0xffff) < 0;
+            // A same-way mover AHEAD is waited for (follow). Beside or behind, or ahead but also
+            // regarding i as ahead (two hulls converging on one lane), the pair must not both wait:
+            // i steers unless it is the higher id, which yields (the lower id has right of way).
+            let notAhead = false;
+            if (!jStill && !headOn) {
+              const ahead = fx.add(fx.mul(mx, fx.sub(this.posX[bj], px)), fx.mul(my, fx.sub(this.posY[bj], py))) > 0;
+              if (!ahead) {
+                notAhead = true;
+              } else if (i < bj) {
+                const jAhead =
+                  fx.add(
+                    fx.mul(fx.cos(this.facing[bj]), fx.sub(px, this.posX[bj])),
+                    fx.mul(fx.sin(this.facing[bj]), fx.sub(py, this.posY[bj]))
+                  ) > 0;
+                notAhead = jAhead;
+              }
+            }
+            let steered = false;
+            let followed = false;
+            if (!jStill && !headOn && !notAhead) {
+              // Following a same-way mover ahead: close up to contact with it, no further. The largest
+              // fraction of the step (to 1/32, five halvings) that is not blocked; a tick that gains
+              // ground is following, not standing, and costs the valve nothing.
+              let lo = 0;
+              let hi = ONE;
+              for (let k = 0; k < SEP_FOLLOW_HALVINGS; k++) {
+                const mid = (lo + hi) >> 1;
+                if (this.sepBlockedBy(i, px, py, fx.add(px, fx.mul(mx, mid)), fx.add(py, fx.mul(my, mid))) < 0) lo = mid;
+                else hi = mid;
+              }
+              const fxn = fx.add(px, fx.mul(mx, lo));
+              const fyn = fx.add(py, fx.mul(my, lo));
+              if (lo > 0 && (fxn !== px || fyn !== py)) {
+                nx = fxn;
+                ny = fyn;
+                followed = true;
+              }
+            }
+            if (jStill || headOn || notAhead) {
+              // Turn the step toward the normal that leads away from j's hull (from j's closest point to i's),
+              // not away from j's centre: a step aimed past j's bearing would otherwise flip the side every
+              // tick and the hull would creep along j's flank instead of going round it.
+              const ti = this.unitTypes[this.typeIdx[i]];
+              const tj = this.unitTypes[this.typeIdx[bj]];
+              const cap = this.sepCap;
+              hullCapsule(px, py, this.facing[i], ti.sepHalfLen, ti.sepHalfWid, ti.sepCentre, cap, 0);
+              hullCapsule(this.posX[bj], this.posY[bj], this.facing[bj], tj.sepHalfLen, tj.sepHalfWid, tj.sepCentre, cap, 10);
+              capsuleOverlap(cap, 0, 10, this.sepOut);
+              let cross = fx.sub(fx.mul(mx, this.sepOut[1]), fx.mul(my, this.sepOut[0]));
+              if (cross === 0) cross = fx.sub(fx.mul(my, fx.sub(this.posX[bj], px)), fx.mul(mx, fx.sub(this.posY[bj], py)));
+              const away = cross > 0 ? 1 : -1;
+              for (let k = 0; k < 2 && !steered; k++) {
+                const c = k === 0 ? SEP_COS_45 : 0;
+                const sn = (k === 0 ? SEP_COS_45 : ONE) * away;
+                const cx = this.clampX(fx.add(px, fx.sub(fx.mul(mx, c), fx.mul(my, sn))));
+                const cy = this.clampY(fx.add(py, fx.add(fx.mul(mx, sn), fx.mul(my, c))));
+                const ctx = cx >> 16;
+                const cty = cy >> 16;
+                if (clip[cty * w + ctx] !== 0 || clip[tileY * w + ctx] !== 0 || clip[cty * w + tileX] !== 0) continue;
+                if (this.sepBlockedBy(i, px, py, cx, cy) >= 0) continue;
+                nx = cx;
+                ny = cy;
+                steered = true;
+                // Going round is progress, not waiting: a tick spent standing costs two, a tick spent
+                // steering one (a pass of a parked hull takes thirty-odd blocked ticks at full speed).
+                this.sepWait[i] = wait + 1;
+              }
+            }
+            if (followed) {
+              // Closing up on its leader: a free tick for the valve (it decays after a free tick, as above).
+              if (wait > 0 && last === 0) this.sepWait[i] = wait - 1;
+              this.sepLast[i] = 0;
+            } else {
+              if (!steered) {
+                nx = px;
+                ny = py;
+                this.sepWait[i] = wait + 2 > 255 ? 255 : wait + 2;
+                if (wait < SEP_VALVE_TICKS && this.sepWait[i] >= SEP_VALVE_TICKS && this.sepDiag.on) this.sepNote(i, 1, bj);
+              }
+            }
+          }
+        }
+      }
       const mvx = fx.sub(nx, px);
       const mvy = fx.sub(ny, py);
       if (mvx !== 0 || mvy !== 0) {
@@ -10547,33 +10770,172 @@ export class Sim {
       }
       this.posX[i] = nx;
       this.posY[i] = ny;
-      if (arrived && nx === this.goalX[i] && ny === this.goalY[i]) {
-        const queued = this.wpCount[i];
-        if (queued > 0) {
-          // Next leg: shift the queue down and carry straight on.
-          const base = i * MAX_WAYPOINTS;
-          this.goalX[i] = this.wpX[base];
-          this.goalY[i] = this.wpY[base];
-          this.attackMove[i] = this.wpAttack[base];
-          this.sweepOrder[i] = this.wpSweep[base];
-          for (let k = 0; k < queued - 1; k++) {
-            this.wpX[base + k] = this.wpX[base + k + 1];
-            this.wpY[base + k] = this.wpY[base + k + 1];
-            this.wpAttack[base + k] = this.wpAttack[base + k + 1];
-            this.wpSweep[base + k] = this.wpSweep[base + k + 1];
+      if (finishHere || (arrived && nx === this.goalX[i] && ny === this.goalY[i])) this.finishLeg(i);
+    }
+  }
+
+  /** GH-421: a participant is a living, surface, un-boarded, un-garrisoned, ground unit with a footprint. */
+  private sepParticipates(i: number): boolean {
+    const t = this.unitTypes[this.typeIdx[i]];
+    return (
+      t.sepHalfWid > 0 &&
+      !t.isAir &&
+      this.alive[i] === 1 &&
+      this.carriedBy[i] < 0 &&
+      this.garrisonedIn[i] < 0 &&
+      this.tunnelIn[i] < 0
+    );
+  }
+
+  /** Rebuild the bucket grid from this tick's participants, ascending id. */
+  private buildSepGrid(): void {
+    this.sepHead.fill(-1);
+    for (let i = 0; i < this.count; i++) {
+      if (this.alive[i] === 0 || !this.sepParticipates(i)) continue;
+      const cell = (this.posY[i] >> SEP_CELL_SHIFT_RAW) * this.sepCols + (this.posX[i] >> SEP_CELL_SHIFT_RAW);
+      this.sepNext[i] = this.sepHead[cell];
+      this.sepHead[cell] = i;
+    }
+  }
+
+  /** Whether j is going somewhere this tick (the stepMovement skip list, as a predicate). */
+  private sepMoves(j: number): boolean {
+    return (
+      this.moving[j] === 1 &&
+      this.mobilityKilled[j] === 0 &&
+      this.brace[j] === BRACE_NONE &&
+      !(this.attackMove[j] === 1 && this.engaging[j] === 1) &&
+      this.pinned[j] === 0 &&
+      this.routed[j] === 0
+    );
+  }
+
+  /** The facing i will have after stepping (mx, my): `turnToward` on the heading, as stepMovement does it
+   *  (a hull put on its target by stepCombat keeps the facing it has). Reads only. */
+  private sepFacingAfter(i: number, mx: Fx, my: Fx): Fx {
+    if (this.aimTurned[i] === 1) return this.facing[i];
+    const cap = this.unitTypes[this.typeIdx[i]].turnPerTick;
+    const da = fx.angleDiff(fx.atan2(my, mx), this.facing[i]);
+    return (this.facing[i] + fx.clamp(da, -cap, cap)) & 0xffff;
+  }
+
+  /**
+   * The participant that blocks i's step p -> n, or -1. A step is blocked by j when it overlaps j
+   * and deepens the overlap i already had, so hulls spawned inside each other can still part.
+   * j < i is read where it now stands; a moving j > i one nominal step ahead along its facing.
+   * A stationary blocker wins over a moving one; sepHitStationary says which was returned.
+   * Reads only; allocates nothing.
+   */
+  private sepBlockedBy(i: number, px: Fx, py: Fx, nx: Fx, ny: Fx): number {
+    const ti = this.unitTypes[this.typeIdx[i]];
+    const cap = this.sepCap;
+    hullCapsule(px, py, this.facing[i], ti.sepHalfLen, ti.sepHalfWid, ti.sepCentre, cap, 0);
+    // The hull turns toward its heading as it steps, so the candidate is tested at the facing it
+    // will have, not the one it leaves with (a hull rotating past a neighbour is a step too).
+    hullCapsule(nx, ny, this.sepFacingAfter(i, fx.sub(nx, px), fx.sub(ny, py)), ti.sepHalfLen, ti.sepHalfWid, ti.sepCentre, cap, 5);
+    const cx = nx >> SEP_CELL_SHIFT_RAW;
+    const cy = ny >> SEP_CELL_SHIFT_RAW;
+    const rows = this.sepHead.length / this.sepCols;
+    let found = -1;
+    this.sepHitStationary = false;
+    for (let gy = cy - SEP_VISIT; gy <= cy + SEP_VISIT; gy++) {
+      if (gy < 0 || gy >= rows) continue;
+      for (let gx = cx - SEP_VISIT; gx <= cx + SEP_VISIT; gx++) {
+        if (gx < 0 || gx >= this.sepCols) continue;
+        for (let j = this.sepHead[gy * this.sepCols + gx]; j >= 0; j = this.sepNext[j]) {
+          if (j === i || this.alive[j] === 0) continue;
+          if (this.carriedBy[j] >= 0 || this.garrisonedIn[j] >= 0 || this.tunnelIn[j] >= 0) continue;
+          const tj = this.unitTypes[this.typeIdx[j]];
+          let jx = this.posX[j];
+          let jy = this.posY[j];
+          const reach = fx.add(fx.add(ti.sepBound, tj.sepBound), HALF);
+          const dx = jx - nx;
+          const dy = jy - ny;
+          if (dx > reach || dx < -reach || dy > reach || dy < -reach) continue;
+          const mover = this.sepMoves(j);
+          if (j > i && mover) {
+            jx = fx.add(jx, fx.mul(fx.cos(this.facing[j]), tj.stepPerTick));
+            jy = fx.add(jy, fx.mul(fx.sin(this.facing[j]), tj.stepPerTick));
           }
-          this.wpCount[i] = queued - 1;
-          this.fieldRef[i] = this.fieldFor(
-            fx.toInt(this.goalX[i]),
-            fx.toInt(this.goalY[i]),
-            this.domainOf(i)
-          );
-          this.engaging[i] = 0;
-        } else {
-          this.moving[i] = 0;
-          this.fieldRef[i] = -1;
+          hullCapsule(jx, jy, this.facing[j], tj.sepHalfLen, tj.sepHalfWid, tj.sepCentre, cap, 10);
+          const ovNew = capsuleOverlap(cap, 5, 10, this.sepOut);
+          if (ovNew <= 0) continue;
+          if (ovNew <= capsuleOverlap(cap, 0, 10, this.sepOut)) continue;
+          if (!mover) {
+            this.sepHitStationary = true;
+            return j;
+          }
+          if (found < 0) found = j;
         }
       }
+    }
+    return found;
+  }
+
+  /**
+   * B+: a blocked leg ends where it stands when the goal is already taken -- a stationary j whose
+   * hull would cover i's hull placed at i's goal, or a mover bound for the same goal tile and
+   * nearer to it.
+   */
+  private sepAtContact(i: number, j: number, jStill: boolean): boolean {
+    const sameGoal = this.goalX[j] >> 16 === this.goalX[i] >> 16 && this.goalY[j] >> 16 === this.goalY[i] >> 16;
+    const dI = distSqFx(fx.sub(this.goalX[i], this.posX[i]), fx.sub(this.goalY[i], this.posY[i]));
+    const dJ = distSqFx(fx.sub(this.goalX[j], this.posX[j]), fx.sub(this.goalY[j], this.posY[j]));
+    if (jStill && this.moving[j] === 0) {
+      // j has stopped: its hull covers i's goal, or it queued up for the same goal tile nearer to it.
+      if (sameGoal && dJ < dI) return true;
+      const ti = this.unitTypes[this.typeIdx[i]];
+      const tj = this.unitTypes[this.typeIdx[j]];
+      const cap = this.sepCap;
+      hullCapsule(this.goalX[i], this.goalY[i], this.facing[i], ti.sepHalfLen, ti.sepHalfWid, ti.sepCentre, cap, 0);
+      hullCapsule(this.posX[j], this.posY[j], this.facing[j], tj.sepHalfLen, tj.sepHalfWid, tj.sepCentre, cap, 10);
+      return capsuleOverlap(cap, 0, 10, this.sepOut) > 0;
+    }
+    if (this.moving[j] === 0 || !sameGoal) return false;
+    // A mover bound for the same goal tile and nearer to it -- but only AT the goal: a hull blocked
+    // in passing, tiles short of it, drives on once j has moved.
+    const reach = fx.add(fx.add(this.unitTypes[this.typeIdx[i]].sepBound, this.unitTypes[this.typeIdx[j]].sepBound), HALF);
+    return dI <= distSqFx(reach, 0) && dJ < dI;
+  }
+
+  private sepNote(i: number, kind: number, j: number): void {
+    const d = this.sepDiag;
+    if (d.log.length === 0) d.log = new Int32Array(4 * 4096); // lazily: a diagnostics run only
+    if (kind === 1) d.valve++;
+    else d.arrive++;
+    const o = (d.count++ & 4095) * 4;
+    d.log[o] = this.tickCount;
+    d.log[o + 1] = i;
+    d.log[o + 2] = kind;
+    d.log[o + 3] = j;
+  }
+
+  /** The unit has reached its goal: carry straight on to the next queued leg, or stop. */
+  private finishLeg(i: number): void {
+    const queued = this.wpCount[i];
+    if (queued > 0) {
+      // Next leg: shift the queue down and carry straight on.
+      const base = i * MAX_WAYPOINTS;
+      this.goalX[i] = this.wpX[base];
+      this.goalY[i] = this.wpY[base];
+      this.attackMove[i] = this.wpAttack[base];
+      this.sweepOrder[i] = this.wpSweep[base];
+      for (let k = 0; k < queued - 1; k++) {
+        this.wpX[base + k] = this.wpX[base + k + 1];
+        this.wpY[base + k] = this.wpY[base + k + 1];
+        this.wpAttack[base + k] = this.wpAttack[base + k + 1];
+        this.wpSweep[base + k] = this.wpSweep[base + k + 1];
+      }
+      this.wpCount[i] = queued - 1;
+      this.fieldRef[i] = this.fieldFor(
+        fx.toInt(this.goalX[i]),
+        fx.toInt(this.goalY[i]),
+        this.domainOf(i)
+      );
+      this.engaging[i] = 0;
+    } else {
+      this.moving[i] = 0;
+      this.fieldRef[i] = -1;
     }
   }
 
@@ -11120,6 +11482,9 @@ export class Sim {
     h = hashArray(h, this.braceClock);
     h = hashArray(h, this.focusTarget);
     h = hashArray(h, this.focusLost);
+    // GH-421: last, so the separation column is the only thing a pre-separation pin lacks.
+    h = hashArray(h, this.sepWait);
+    h = hashArray(h, this.sepLast);
     return h >>> 0;
   }
 }

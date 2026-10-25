@@ -63,7 +63,10 @@ describe('an air strike is unchanged', () => {
   const LANDS = { tick: 60, x: 1602044, y: 1081948 };
   const NEAR_HP = 1927857600; // 583.2 hp lost
   const FAR_HP = 1937666400; // 433.5 hp lost, 0.5 tile further out
-  const HASH = 2460528690;
+  // 2026-10-25: Vehicle avoidance (GH-421 Stage 2): the columns sepWait and sepLast join the hash.
+  // No behaviour moved (the landing point and both hp literals above are unchanged): with their
+  // hashArray lines removed the world reads 2460528690 exactly. Was 2460528690.
+  const HASH = 3036459314;
 
   for (const [label, profile] of [
     ['absent', undefined],

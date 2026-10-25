@@ -600,7 +600,9 @@ describe('snapshot: fuzz', () => {
     }
     expect(columnWords.length).toBeGreaterThan(100);
     expect(view0.getUint32(columnWords[columnWords.length - 1], true)).toBe(
-      (props(a.sim).prWeaponIdx as Uint16Array).length // the walk lands exactly on the last state column
+      // the walk lands exactly on the last state column: `sepLast` since GH-421 appended its two
+      // rows (was `prWeaponIdx`, a Uint16Array of capacity, so the length word reads the same)
+      (props(a.sim).sepLast as Uint8Array).length
     );
     // The tail: the last u32 that is the count of bytes after it, followed by '{'.
     let tailStart = -1;
