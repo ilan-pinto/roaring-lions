@@ -172,7 +172,7 @@
         "at_seconds": 210,
         "to": "camp_ground",
         "units": [{ "unit": "drone_swarm", "count": 1, "from": "sarim_north", "group": "uz_swarm", "tag": "uz_swarm" }],
-        "say": { "speaker": "shai", "text": "A swarm off the north rim, low and spread, coming for the line. Rifles barely touch them. A Remetz burns them down from the crest and from nowhere else — and the crest is inside the tube's reach." }
+        "say": { "speaker": "shai", "text": "A swarm off the north rim, low and spread, coming for the line. Rifles barely touch them. A Remetz burns them down, but only with open sky: on the crest, not behind it, and the crest is inside the tube's reach." }
       },
       {
         "at_seconds": 300,
