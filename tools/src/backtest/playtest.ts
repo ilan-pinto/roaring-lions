@@ -424,7 +424,8 @@ const led3 = run(
 // first sees a rider at 4 tiles, not 8, and the plan above won 29 of the 30 sweep seeds (seed 9 lost
 // its squads to the pair at 210 s). Two changes, each what a player would do once he knows riders now
 // top the crest at 4 tiles:
-// - The APC takes the lee of the bank, (12,24), alone and two tiles under the crest, from 110 s. It is
+// - The APC takes the lee of the bank, (12,24), alone and two tiles under the crest, from 140 s (110 s before
+//   GH-421, see below). It is
 //   the one hull that can take a RPG rider's first shot (1,600 hp, a squad has 400) and the first thing
 //   a rider tops the crest onto. It is left out of the periodic re-anchor, which would walk it back
 //   into the squads.
@@ -437,6 +438,12 @@ const led3 = run(
 // (27-29 of 30); ambush stances on the squads (holding fire against riders that outrange sight, 3-29 of
 // 30); the Spike team forward at x=6, 8 or 10 (28-29 of 30); the squads west of x=10 (26 of 30: riders
 // reach the grove floor first); the APC at (12,22) or (12,26) (27-29 of 30).
+// Re-solved against vehicle avoidance (GH-421 Stage 2, merged 26 Oct): the plan above, with the screen
+// leaving at 140 s and the APC ordered to the bank at 110 s, read 28/30 (5 and 9 lost), because the 140 s
+// screen order cancelled the APC's. Ordering the APC at 140 s, after the screen's, reads 30/30 on the
+// sweep seeds (slowest win 7.8 min), 93/100 on 300-399 and 26/30 on 100-129 (117, 119, 121, 123 lost; the
+// base tree loses 119 and 123 there). Tried: the APC at 150 s or 160 s (29/30, seed 14), 145 s and the
+// screen and APC both at 130 s or 135 s (no better on 300-399: 94/100 at 135 s).
 const wh1 = run('wadi_halam_1_fords', (sim, rt, ids, at) => {
   const drone = ids('recon_drone');
   const screen = [...ids('apc_eitan'), ...ids('inf_squad')];
@@ -480,9 +487,11 @@ const wh1 = run('wadi_halam_1_fords', (sim, rt, ids, at) => {
       sim.queueCommand({ kind: 'attackMove', ids: spike.filter((i) => sim.state.alive[i] === 1), ...STANDOFF });
     });
   }
-  // After the loop on purpose: at 110 s this order comes second and overrides the APC's share of the
-  // screen's anchor above.
-  at(110, () => sim.queueCommand({ kind: 'attackMove', ids: apc.filter((i) => sim.state.alive[i] === 1), ...BANK }));
+  // After the screen's order on purpose: at 140 s this order comes second and overrides the APC's share of
+  // the screen's anchor above. It was 110 s until GH-421 moved the screen's departure to 140 s: at 110 s
+  // the APC left the south gallery thirty seconds early and the 140 s order then walked it back to the
+  // squads' anchor, so the lee of the bank was never held (sweep seeds 5 and 9 lost, 28/30).
+  at(140, () => sim.queueCommand({ kind: 'attackMove', ids: apc.filter((i) => sim.state.alive[i] === 1), ...BANK }));
   void rt;
 });
 passiveAcrossSeeds('wadi_halam_1_fords', 'wadi_halam_1_fords (no orders)', 'defeat');
