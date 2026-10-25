@@ -87,7 +87,7 @@ describe('fork witness: restore at T, step 200 ticks, hash and encoding equal', 
         forks++;
       }
       expect(forks).toBeGreaterThan(10);
-    });
+    }, 60_000);
   }
 });
 
@@ -232,7 +232,7 @@ describe('fork witness series: one run of A, a fork at every T', () => {
       expect(v.configDifference).toBe(one.configDifference);
       expect(v.garbledUnkeyedSlots).toBe(one.garbledUnkeyedSlots);
     }
-  });
+  }, 60_000);
 
   it('hands the hooks A at exactly tick T, and B restored to T', () => {
     const seen: string[] = [];

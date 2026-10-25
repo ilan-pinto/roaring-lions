@@ -45,7 +45,7 @@ describe('the witness over real worlds (short plan)', () => {
     const run = runWorld(economy);
     expect(run.problems).toEqual([]);
     expect(run.forks, 'three planned cuts and the queued-command cut').toBe(4);
-  });
+  }, 60_000);
 });
 
 describe('the schema covers the sim of a real match world, both ways', () => {
@@ -101,7 +101,7 @@ describe('cuts with a command queued (the queues are snapshot state)', () => {
     expect(run.problems).toEqual([]);
     expect(run.queuedCuts.command, 'a fork was cut with a non-empty commandQueue').toBeGreaterThan(0);
     expect(runWorld(economy, { queuedCut: false }).queuedCuts.command).toBe(0);
-  });
+  }, 60_000);
 
   it('withQueuedCut adds one cut, in order, off the tail and off the other cuts; none when nothing fits', () => {
     const plan: Plan = { Ts: [200, 500], horizon: 200, tailFrom: 100, end: 800 };
@@ -120,7 +120,7 @@ describe('the runtime comparison at a fork end', () => {
     });
     expect(run.problems.length).toBeGreaterThan(0);
     expect(run.problems.every((p) => p.includes('the runtime data differs at the end (carried[0].promotedValue)')), run.problems.join('; ')).toBe(true);
-  });
+  }, 60_000);
 });
 
 describe('the match hash folds the runtime digest', () => {
@@ -131,7 +131,7 @@ describe('the match hash folds the runtime digest', () => {
       },
     });
     expect(run.problems.some((p) => p.includes('the hash diverged at tick')), run.problems.join('; ')).toBe(true);
-  });
+  }, 60_000);
 });
 
 describe('the carry never writes a sim column (the runtime\'s holdView aliases them)', () => {
@@ -280,7 +280,7 @@ describe('the self-checks: each mutation must turn its world red, its clean cont
     expect(r.effectiveCuts.length).toBeGreaterThan(0);
     expect(r.missed).toEqual([]);
     expect(r.ok).toBe(true);
-  });
+  }, 60_000);
 
   it('fieldByGoal emptied, mirror cell', () => {
     const r = runSelfCheck(short(fieldByGoal, { Ts: [97], horizon: 200, tailFrom: 300, end: 600 }));

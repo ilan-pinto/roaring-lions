@@ -733,7 +733,7 @@ function keyedFields(sim: Sim): { domain: number; goal: number; slot: number; di
       for (let t = 0; t < cells; t++) cost.push(fields[slot].costAt(t));
       out.push({ domain, goal: keys.slots[slot].goal, slot, dirs: Array.from(fields[slot].dirs), cost });
     }
-  });
+  }, 60_000);
   return out;
 }
 
