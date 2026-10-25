@@ -10,6 +10,8 @@ import {
   mirrorWorld,
   queuedBoundaries,
   withQueuedCut,
+  carryWorld,
+  rebindOf,
   runSelfCheck,
   runWorld,
   selfChecks,
@@ -18,6 +20,7 @@ import {
   type WorldSpec,
 } from './snapshot-witness';
 import { carriedDiff, carryOnto } from './snapshot-runtime-carry';
+import { internals } from '../../../packages/sim/src/snapshot';
 
 // The slice of the full witness (snapshot-witness.ts, `pnpm snapshot:witness`) that runs inside
 // `pnpm test`: one mirror and one economy world at a few cuts, the census logic, the carry, and
@@ -78,6 +81,47 @@ describe('the match hash folds the runtime digest', () => {
       },
     });
     expect(run.problems.some((p) => p.includes('the hash diverged at tick')), run.problems.join('; ')).toBe(true);
+  });
+});
+
+describe('the carry never writes a sim column (the runtime\'s holdView aliases them)', () => {
+  it('B\'s garbled posX, alive and tnVentOpen are still garbled after carryWorld, and the views resolve to B\'s columns', () => {
+    const a = economyWorld('tel_marum', ['kdf', 'sarim'], 1000);
+    for (let t = 0; t < 400; t++) {
+      a.driveAt(t);
+      a.advanceOnce();
+    }
+    const b = economyWorld('tel_marum', ['kdf', 'sarim'], 1000);
+    // Stand-in for a restore that skipped these rows: B's columns are junk, written in place as the restore writes them.
+    b.sim.state.posX.fill(12345);
+    b.sim.state.alive.fill(0);
+    const vent = internals(b.sim).tnVentOpen as Uint8Array;
+    vent.fill(7);
+    carryWorld(b, a);
+    expect(b.sim.state.posX.every((v) => v === 12345), 'posX repaired by the carry').toBe(true);
+    expect(b.sim.state.alive.every((v) => v === 0), 'alive repaired by the carry').toBe(true);
+    expect(vent.every((v) => v === 7), 'tnVentOpen repaired by the carry').toBe(true);
+    const hold = (b.runtime as unknown as { holdView: { posX: unknown; alive: unknown } }).holdView;
+    expect(hold.posX, 'the view is still B\'s own column').toBe(b.sim.state.posX);
+    expect(a.sim.state.posX.some((v) => v !== 12345)).toBe(true);
+  });
+
+  it('carriedDiff calls a view that aliases A\'s column a wrong-world reference, and a key only B has a difference', () => {
+    const colA = new Int32Array([1, 2]);
+    const colB = new Int32Array([1, 2]);
+    const rebind = new Map<object, object>([[colA, colB]]);
+    expect(carriedDiff({ view: colA }, { view: colB }, 'r', rebind)).toBeNull();
+    expect(carriedDiff({ view: colA }, { view: colA }, 'r', rebind)).toBe('r.view (a reference to the wrong world)');
+    expect(carriedDiff({ x: 1 }, { x: 1, extra: 2 }, 'r', new Map())).toBe('r.extra (only on B)');
+  });
+
+  it('rebindOf maps the sim columns, the state views and the rng words', () => {
+    const a = economyWorld('tel_marum', ['kdf', 'sarim'], 1000);
+    const b = economyWorld('tel_marum', ['kdf', 'sarim'], 1000);
+    const rebind = rebindOf(b, a);
+    expect(rebind.get(a.sim.state.posX)).toBe(b.sim.state.posX);
+    expect(rebind.get((internals(a.sim).rng as { state: Uint32Array }).state)).toBe((internals(b.sim).rng as { state: Uint32Array }).state);
+    expect(rebind.get(internals(a.sim).tnVentOpen as object)).toBe(internals(b.sim).tnVentOpen);
   });
 });
 

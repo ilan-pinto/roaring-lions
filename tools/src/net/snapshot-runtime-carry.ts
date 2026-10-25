@@ -169,5 +169,11 @@ export function carriedDiff(a: unknown, b: unknown, path: string, rebind: Rebind
     const r = carriedDiff(ad.value, bd.value, `${path}.${String(k)}`, rebind, seen, false);
     if (r !== null) return r;
   }
+  for (const k of Reflect.ownKeys(b)) {
+    const bd = Object.getOwnPropertyDescriptor(b, k);
+    if (bd === undefined || !('value' in bd) || typeof bd.value === 'function') continue;
+    const ad = Object.getOwnPropertyDescriptor(a, k);
+    if (ad === undefined) return `${path}.${String(k)} (only on B)`;
+  }
   return null;
 }

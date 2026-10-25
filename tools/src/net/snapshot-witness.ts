@@ -20,6 +20,10 @@
 // economy). `snapshot-runtime-carry.ts` is the stand-in that moves a runtime and a driver across
 // until stage 2 encodes them.
 //
+// WHAT THE MIRROR WORLDS DO AND DO NOT PROVE. A mirror room's fight ends early (annihilation inside a few
+// minutes), so most of its cuts are of a decided world; the live-combat proof comes mainly from the golden
+// battle, the economy cells and the stress world.
+//
 // THINGS THE MATRIX HAD TO LEARN ABOUT THE SIM, found by running it:
 //   - in a world with a runtime, `step` queues the rally order of a unit it has just delivered
 //     AFTER the tick, so a few frame boundaries (about 14 in 6,000 ticks of an economy room)
@@ -112,6 +116,8 @@ export interface WorldSpec {
   readonly id: string;
   readonly plan: Plan;
   readonly build: () => SnapWorld;
+  /** What this world exists to exercise, asked of A when it reaches the end; a string is a problem. */
+  readonly exercised?: (a: SnapWorld) => string | null;
 }
 
 const anchorsOf = (sim: Sim, rt: MissionRuntime): object[] => {
@@ -305,7 +311,16 @@ export function worldSpecs(): WorldSpec[] {
     plan: longPlan(MIRROR_END),
     build: () => economyWorld('tel_marum', ['kdf', 'sarim'], 1000, 'answer'),
   });
-  out.push({ id: 'stress tel_marum 256 entities 1000', plan: longPlan(STRESS_END), build: () => stressWorld('tel_marum', 1000) });
+  out.push({
+    id: 'stress tel_marum 256 entities 1000',
+    plan: longPlan(STRESS_END),
+    build: () => stressWorld('tel_marum', 1000),
+    // The world exists for a flow-field pool past its 128 cap (every field live) and a full entity table.
+    exercised: (a) =>
+      a.sim.flowFieldCount > 128 && a.sim.entityCount === a.sim.capacity
+        ? null
+        : `the stress world stopped stressing: ${a.sim.flowFieldCount} flow fields (need more than 128), ${a.sim.entityCount} of ${a.sim.capacity} entities`,
+  });
   out.push({ id: 'golden battle (1000)', plan: goldenPlan(1000), build: goldenBattle });
   out.push({ id: 'golden relief (900)', plan: goldenPlan(900), build: goldenRelief });
   out.push({ id: 'golden orders (900)', plan: goldenPlan(900), build: goldenOrders });
@@ -341,9 +356,33 @@ export interface RunOptions {
   readonly queuedCut?: boolean;
 }
 
-function rebindOf(b: SnapWorld, a: SnapWorld): Map<object, object> {
+const isColumn = (v: unknown): v is ArrayBufferView => ArrayBuffer.isView(v) && !(v instanceof DataView);
+
+/** Maps every typed-array own property of `a` to the same-named one of `b` (both plain records or class instances). */
+function rebindColumns(rebind: Map<object, object>, a: object, b: object): void {
+  for (const k of Reflect.ownKeys(a)) {
+    const va = (a as Record<string | symbol, unknown>)[k];
+    const vb = (b as Record<string | symbol, unknown>)[k];
+    if (isColumn(va) && isColumn(vb)) rebind.set(va, vb);
+  }
+}
+
+/**
+ * What exists once per world and must never cross: the anchors, the carried roots, and EVERY
+ * sim column. The runtime holds views that alias sim columns (`holdView`: alive, side, posX,
+ * posY, tunnelIn, tnAlive, tnVentOpen, tnDigger), and B's views are B's own live columns;
+ * without these entries the carry would recurse into the view and `.set` A's column into B's,
+ * repairing after the restore the very rows the restore (and the pre-restore poison) are
+ * judged on. With them a view resolves to B's own column and nothing is written.
+ */
+export function rebindOf(b: SnapWorld, a: SnapWorld): Map<object, object> {
   const rebind = new Map<object, object>();
   if (a.anchors.length !== b.anchors.length || a.carried.length !== b.carried.length) throw new Error('snapshot witness: A and B carry different things');
+  const ia = internals(a.sim);
+  const ib = internals(b.sim);
+  rebindColumns(rebind, ia, ib);
+  for (const view of ['state', 'structures', 'works']) rebindColumns(rebind, ia[view] as object, ib[view] as object);
+  rebindColumns(rebind, ia.rng as object, ib.rng as object);
   a.anchors.forEach((x, i) => rebind.set(x, b.anchors[i]));
   a.carried.forEach((x, i) => rebind.set(x, b.carried[i]));
   return rebind;
@@ -367,7 +406,7 @@ function resolveLazyConfig(b: SnapWorld, a: SnapWorld): void {
 }
 
 /** Moves A's runtime and driver data onto B's own objects, at A's tick T. */
-function carryWorld(b: SnapWorld, a: SnapWorld): void {
+export function carryWorld(b: SnapWorld, a: SnapWorld): void {
   resolveLazyConfig(b, a);
   const rebind: Rebind = rebindOf(b, a);
   a.carried.forEach((x, i) => carryOnto(b.carried[i], x, rebind));
@@ -439,6 +478,7 @@ export function runWorld(spec: WorldSpec, opts: RunOptions = {}): WorldRun {
   };
   let builds = 0;
   const queuedCuts = { command: 0, runtime: 0 };
+  const exercisedProblems: string[] = [];
   const verdicts = forkWitnessSeries<SnapWorld>({
     build: () => {
       const w = spec.build();
@@ -449,7 +489,11 @@ export function runWorld(spec: WorldSpec, opts: RunOptions = {}): WorldRun {
     advance: (w) => {
       w.advanceOnce();
       if (w.isA === true) {
-        if (w.sim.tickCount === plan.end) readCensus(w);
+        if (w.sim.tickCount === plan.end) {
+          readCensus(w);
+          const missing = spec.exercised?.(w) ?? null;
+          if (missing !== null) exercisedProblems.push(missing);
+        }
       } else if (w.parent !== undefined && w.endsAt === w.sim.tickCount && w.carried.length > 0) {
         w.carriedDiffAtEnd = carriedDiffOf(w, w.parent);
       }
@@ -472,7 +516,7 @@ export function runWorld(spec: WorldSpec, opts: RunOptions = {}): WorldRun {
     tailFrom: plan.tailFrom,
     endTick: plan.end,
   });
-  const problems: string[] = [];
+  const problems: string[] = [...exercisedProblems];
   const forkProblems: WorldRun['forkProblems'] = [];
   let garbled = 0;
   for (const v of verdicts) {
@@ -694,7 +738,7 @@ function main(argv: readonly string[]): number {
     console.log(`queued cuts: ${queued}`);
     if (queuedCommandCuts === 0) failures.push(`queued cuts: ${queued}; a runtime world must snapshot a queued command at least once`);
     const census = censusVerdict(moved);
-    console.log(`census: ${census.stateRows} state rows, ${census.stateRows - census.uncovered.length - SNAPSHOT_COVERAGE_EXEMPT.length} moved, ${SNAPSHOT_COVERAGE_EXEMPT.length} exempt`);
+    console.log(`census: ${census.stateRows} state rows, ${moved.size} moved, ${SNAPSHOT_COVERAGE_EXEMPT.length} exempt`);
     const byReason = new Map<string, string[]>();
     for (const e of SNAPSHOT_COVERAGE_EXEMPT) byReason.set(e.reason, [...(byReason.get(e.reason) ?? []), e.name]);
     for (const [reason, names] of byReason) console.log(`    exempt ${names.length}: ${names.join(' ')}\n      because ${reason}`);
