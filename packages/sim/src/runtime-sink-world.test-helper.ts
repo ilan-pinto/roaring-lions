@@ -1,4 +1,3 @@
-import { expect } from 'vitest';
 import { ECO_CAMP, ECO_CAMP_S1 } from './golden-worlds.test-helper';
 import { fx } from './fixed';
 import { MissionRuntime, type MissionJson } from './mission';
@@ -167,6 +166,11 @@ export const SINK_EVENTS = (tick: number): SimEvent[] => [
   } as SimEvent,
 ];
 
+/** The walk's own preconditions: a plain Error (the helper must load outside the runner), which fails the spec that called it. */
+function must(ok: boolean, what: string): void {
+  if (!ok) throw new Error(`sink world: ${what} refused`);
+}
+
 /** Walk the sink world 400 ticks, checking every 20, plus the moments a pending list is non-empty. */
 export function walkSink(at: (c: Checkpoint) => void): void {
   const { sim, rt } = sinkWorld();
@@ -177,15 +181,15 @@ export function walkSink(at: (c: Checkpoint) => void): void {
   look('sink@0');
   for (let t = 1; t <= 400; t++) {
     if (t === 2) {
-      expect(rt.requestConstruct('sink_outpost', 13, 10)).toBe(true);
+      must(rt.requestConstruct('sink_outpost', 13, 10), 'the sink world accepts its works request');
       look('sink@2 (a works charge pending)');
     }
-    if (t === 3) for (let k = 0; k < 3; k++) expect(rt.requestBuild('sink_squad', 0), 'line 0 takes three builds').toBe(true);
+    if (t === 3) for (let k = 0; k < 3; k++) must(rt.requestBuild('sink_squad', 0), 'line 0 takes three builds');
     const events = sim.tick();
     if (t === 10) rt.step([...events, ...SINK_EVENTS(sim.tickCount)]);
     else rt.step(events);
     if (t === 40) {
-      expect(rt.completeObjective('level')).toBe(true);
+      must(rt.completeObjective('level'), 'the sink world completes its raze objective');
       look('sink@40 (a forced completion owed)');
     }
     if (t % 20 === 0) look(`sink@${t}`);

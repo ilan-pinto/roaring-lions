@@ -43,9 +43,10 @@ import { MAX_LINE_QUEUE, MAX_PATROL_WAYPOINTS } from './tuning';
 // container's CONTENTS and keeps its identity (a Map is cleared and refilled, a typed array of the same
 // length is `set`, an array is resized in place, an in-place record has its state fields written), then
 // re-links the references, then rebuilds `corridorFields` IN PLACE: `routeSource.fieldFor` closes over
-// that Map object. Each entry is a fresh `FlowField` computed through the same call `fieldFor` makes
-// when its stamp equals the (restored) `terrainVersion`; a stale entry stays uncomputed, as `fieldFor`
-// recomputes it whole before anything reads it.
+// that Map object. Each entry is a fresh `FlowField`; one whose stamp equals the (restored) `terrainVersion` is
+// computed with the same `compute` call `fieldFor` makes but over the runtime's restored MASK COPIES
+// (`seenVehicle`, `seenElevation`), the inputs the source used, not the sim's masks as they stand now (see
+// `restoreCorridorFields`); a stale entry stays uncomputed, as `fieldFor` recomputes it whole before it is read.
 
 /** The longest runtime section the decoder will read (bytes). A fixed cap, independent of anything decoded. */
 export const MAX_RUNTIME_BYTES = 4 * 1024 * 1024;
@@ -629,6 +630,13 @@ export function planRuntime(rt: MissionRuntime, sim: Sim, section: unknown): Run
   if (!isI32(version) || version < 0) refuse('MissionRuntime.terrainVersion', 'expected a non-negative 32-bit integer');
   d.terrainVersion = version as number;
 
+  // worksList / worksOfferList are planned against a throwaway `buildWorks()` result and merged into the target's
+  // own lists, which is sound only while neither record has a reference row (a link would point into the throwaway).
+  for (const rows of ['WorksEntry', 'WorksOffer'] as const) {
+    if (RUNTIME_ROW_SETS[rows].some((r) => r.kind.t === 'ref' && r.cls === 'state')) {
+      throw new Error(`runtime snapshot: ${rows} gained a state reference row; the works lists are planned against a throwaway build`);
+    }
+  }
   const built = builtWorks(f);
   for (const row of top) {
     const live = row.name === 'worksList' ? built.list : row.name === 'worksOfferList' ? built.offers : f.rt[row.name];
@@ -656,8 +664,12 @@ export function planRuntime(rt: MissionRuntime, sim: Sim, section: unknown): Run
       }
     }
   }
-  // Fields: keys are goal tiles, stamps are terrain versions that have existed.
+  // Fields: keys are goal tiles, stamps are terrain versions that have existed. A field is only ever computed
+  // over the runtime's mask copies, which a world with no income zone and no convoy does not keep.
   const cells = f.cells;
+  if ((d.rows.corridorFields as Map<number, unknown>).size > 0 && (d.rows.seenVehicle as Uint8Array).length !== cells) {
+    refuse('MissionRuntime.corridorFields', 'fields without the mask copies they are computed over');
+  }
   for (const [key, entry] of d.rows.corridorFields as Map<number, Props>) {
     if (!isInt(key) || key < 0 || key >= cells) refuse('MissionRuntime.corridorFields', `goal tile ${String(key)} is outside the map`);
     const stamp = entry.stamp as number;
@@ -734,18 +746,29 @@ function applyPlan(f: RuntimeFacts, d: Decoder): void {
   restoreCorridorFields(f, d);
 }
 
-/** `corridorFields`, IN PLACE: `routeSource.fieldFor` closes over this Map object. */
+/**
+ * `corridorFields`, IN PLACE: `routeSource.fieldFor` closes over this Map object.
+ *
+ * A current entry is recomputed through the same `FlowField.compute` call `fieldFor` makes, but over the
+ * runtime's own COPIES of the masks (`seenVehicle`, `seenElevation`, restored just before), not over the sim's
+ * masks as they stand now: the source computed every field inside a recheck, right after `syncTerrain()` had
+ * copied the masks, and a mask can change again inside the 20-tick window before the next sync (a works site
+ * staked and cancelled) without bumping `terrainVersion`. The copies are exactly the inputs the source used.
+ * `routeSource` reads nothing else for a field (width, height, `vehicleMask` for the route BFS only, `roadMask`
+ * likewise). A stale entry stays uncomputed: `fieldFor` recomputes it whole before it is read.
+ */
 function restoreCorridorFields(f: RuntimeFacts, d: Decoder): void {
   const fields = f.rt[CORRIDOR_ROW] as Map<number, { field: FlowField; stamp: number }>;
   const sim = f.sim;
+  const seenVehicle = f.rt.seenVehicle as Uint8Array;
+  const seenElevation = f.rt.seenElevation as Uint8Array;
   fields.clear();
   for (const [key, entry] of d.rows[CORRIDOR_ROW] as Map<number, Props>) {
     const stamp = entry.stamp as number;
     const field = new FlowField(sim.width, sim.height);
-    // What `fieldFor` does for a current entry; a stale one is recomputed whole before it is read.
     if (stamp === d.terrainVersion) {
       const x = key % sim.width;
-      field.compute(sim.blockedVehicle, sim.elevation, x, (key - x) / sim.width);
+      field.compute(seenVehicle, seenElevation, x, (key - x) / sim.width);
     }
     fields.set(key, { field, stamp });
   }

@@ -11,12 +11,12 @@ import {
   reliefEconomySetup,
 } from './golden-worlds.test-helper';
 import { fx } from './fixed';
-import type { MissionRuntime } from './mission';
+import { MissionRuntime } from './mission';
 import { Rng } from './rng';
 import { MAX_RUNTIME_BYTES, runtimeSchemaDigest } from './runtime-snapshot';
 import { SINK_EVENTS, sinkWorld, walkSink } from './runtime-sink-world.test-helper';
 import { censusAt, checkRuntime, newCensus, probeClosures, props } from './runtime-snapshot-schema.test-helper';
-import type { Sim } from './sim';
+import { Sim } from './sim';
 import { SNAPSHOT_FIXED_HEADER_BYTES, SNAPSHOT_MATCH_DIGEST_OFFSET, SnapshotRefused, canonicalJson, encodeSim, restoreSim } from './snapshot';
 
 // The runtime half of the snapshot codec (net sim snapshot S2, Task 3): `encodeSim(sim, meta, runtime)` and
@@ -406,6 +406,24 @@ describe('runtime snapshot: refusals', () => {
     expect(refusal(() => restoreOnto(sinkWorld, withSection(snap as Uint8Array, (x) => (x.worksPending = Array.from({ length: 1025 }, () => (x.worksPending as unknown[])[0]))))).reason).toMatch(/worksPending: 1025 entries, the limit is 1024/);
   });
 
+  it('refuses corridor fields in a world that keeps no mask copies to compute them over', () => {
+    const bare = (): World => {
+      const sim = new Sim({ seed: 9, width: 16, height: 16, capacity: 8 });
+      const rt = new MissionRuntime(
+        sim,
+        { id: 'bare', map: { file: 'none', player_start: [2, 2] }, ledger: { requires: [], produces: [] }, objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 60 }] },
+        { typeIdOf: () => 0, markers: {}, zones: {} },
+      );
+      rt.start();
+      return { sim, rt };
+    };
+    const w = bare();
+    const S = encodeSim(w.sim, META, w.rt);
+    restoreOnto(bare, S); // the clean one restores
+    const bad = withSection(S, (s) => (s.corridorFields = [[5, { stamp: 0 }]]));
+    expect(refusal(() => restoreOnto(bare, bad)).reason).toMatch(/fields without the mask copies/);
+  });
+
   it('encode throws a plain Error, not a refusal, on a runtime the table does not allow', () => {
     const w = economySetup(ECONOMY_SEED);
     props(w.rt).roeScoreValue = 1.5;
@@ -495,6 +513,55 @@ describe('runtime snapshot: identity, aliases and the corridor fields', () => {
     expect(probe.used).toEqual(['RouteSource.fieldFor -> MissionRuntime.corridorFields']);
     // A view stays the target's OWN column.
     expect((props(b.rt).holdView as { alive: unknown }).alive).toBe(b.sim.state.alive);
+  });
+
+  it('corridor fields are recomputed over the runtime\'s mask copies, not the sim\'s masks of the snapshot tick (a site staked and cancelled inside one recheck window)', () => {
+    const sameBytes = (a: ArrayLike<number>, b: ArrayLike<number>): boolean => a.length === b.length && Array.from(a).every((v, i) => v === b[i]);
+    const compare = (label: string, a: World, b: World): number => {
+      const fa = props(a.rt).corridorFields as Map<number, { field: Record<string, unknown>; stamp: number }>;
+      const fb = props(b.rt).corridorFields as Map<number, { field: Record<string, unknown>; stamp: number }>;
+      expect([...fb.keys()], `${label}: keys`).toEqual([...fa.keys()]);
+      let compared = 0;
+      for (const [key, ea] of fa) {
+        const eb = fb.get(key);
+        expect(eb?.stamp, `${label}: stamp of ${key}`).toBe(ea.stamp);
+        if (ea.stamp !== props(a.rt).terrainVersion) continue; // a stale entry is recomputed whole before it is read
+        expect(sameBytes(eb?.field.dirs as Uint8Array, ea.field.dirs as Uint8Array), `${label}: dirs of ${key}`).toBe(true);
+        expect(sameBytes(eb?.field.cost as Int32Array, ea.field.cost as Int32Array), `${label}: cost of ${key}`).toBe(true);
+        compared++;
+      }
+      return compared;
+    };
+    const RAISE = 21;
+    const a = sinkWorld();
+    let b: World | null = null;
+    let snapAt = -1;
+    let compared = 0;
+    for (let t = 1; t <= 300; t++) {
+      const r = props(a.rt);
+      if (snapAt < 0 && t > RAISE && !sameBytes(r.seenVehicle as Uint8Array, a.sim.blockedVehicle) && t % 20 < 17) {
+        snapAt = t;
+        // Inside the window: the sim's vehicle mask has moved on from the copies the fields were computed over.
+        b = restoreOnto(sinkWorld, encodeSim(a.sim, META, a.rt)).world;
+        compared += compare(`restore tick ${t}`, a, b);
+      }
+      for (const w of b === null ? [a] : [a, b]) {
+        if (t === RAISE) expect(w.rt.requestConstruct('sink_outpost', 13, 10)).toBe(true);
+        if (snapAt > 0 && t === snapAt + 1) {
+          for (const site of [...(props(w.rt).worksSites as Map<number, unknown>).keys()]) expect(w.rt.requestCancelWorks(site)).toBe(true);
+        }
+        w.rt.step(w.sim.tick());
+      }
+      if (b !== null && t % 10 === 0) {
+        expect(b.rt.digest(), `tick ${t}: digest`).toBe(a.rt.digest());
+        expect(b.sim.hash(), `tick ${t}: sim.hash`).toBe(a.sim.hash());
+      }
+    }
+    expect(snapAt, 'a snapshot tick between a staking and its next recheck was found').toBeGreaterThan(RAISE);
+    expect(b).not.toBeNull();
+    compared += compare('tick 300', a, b as World);
+    expect(compared, 'fields were compared').toBeGreaterThan(2);
+    expect(bytesEqual(encodeSim(a.sim, META, a.rt), encodeSim((b as World).sim, META, (b as World).rt))).toBe(true);
   });
 
   it('the restored aliases are the target\'s own objects: zone routes, the convoy, spans, the ledger roster', () => {
