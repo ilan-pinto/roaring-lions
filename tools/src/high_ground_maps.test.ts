@@ -14,7 +14,8 @@ import { Sim } from '../../packages/sim/src/sim';
 const MAP_DIR = join(__dirname, '..', '..', 'data', 'maps');
 
 /** Rise count per relief map, read on first run (15 Oct 2026, head aa6b6707 + Task 4): 23 relief
- *  maps, 115 rises in all (12 flat maps, 0). Three relief maps pin 0 -- they have an elevation grid
+ *  maps, 115 rises in all (12 flat maps, 0). Wadi Halam I's crest (GH-161, 25 Oct) made it the 24th
+ *  relief map, 1 rise: 24 relief maps, 116 rises, 11 flat. Three relief maps pin 0 -- they have an elevation grid
  *  and no tile two levels over their own median -- and the pin still guards them against a rise
  *  appearing. */
 const RISES: Record<string, number> = {
@@ -40,6 +41,7 @@ const RISES: Record<string, number> = {
   wadi_halam_3: 2,
   wadi_halam_4: 1,
   wadi_halam_5: 1,
+  wadi_halam_basin: 1,
   wadi_tarfan: 0,
 };
 
@@ -80,8 +82,8 @@ describe('shipped maps: high ground', () => {
     expect(ids.length).toBeGreaterThan(30);
     const relief = ids.filter((id) => results.get(id)?.relief);
     const flat = ids.filter((id) => !results.get(id)?.relief);
-    expect(relief.length).toBe(23);
-    expect(flat.length).toBe(12);
+    expect(relief.length).toBe(24);
+    expect(flat.length).toBe(11);
   });
 
   it('every flat map reports 0 rises', () => {
