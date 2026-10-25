@@ -437,7 +437,14 @@ const wh1 = run('wadi_halam_1_fords', (sim, rt, ids, at) => {
   at(60, () => sim.queueCommand({ kind: 'attackMove', ids: screen.filter((i) => sim.state.alive[i] === 1), ...M(9, 31) }));
   // Jeep's second leg: closes on carrier group B ([16.5,33.5]).
   at(60, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(17, 34) }));
-  at(110, () => {
+  // GH-421 (vehicle separation): 110 s -> 140 s. The screen's first fight on the south gallery is the
+  // 100 s raid (riders killed at 101-103 s); at 110 s it left for the ford while the next riders were
+  // still coming, and with hulls no longer sharing space the Eitan, which spawns inside the jeep, is a
+  // fraction of a second behind everyone else all the way. Measured on seeds 1-30 for the time the
+  // screen leaves (lost seeds): 90 s two, 95 s two (9, 29), 105 s one (20), 110 s one (18), 115 s one
+  // (18), 125 s two (3, 18), 135 s none, 140 s none; on seeds 100-129, which took no part in the
+  // choice: 135 s lost 107 and 117, 140 s lost 117 (the base tree loses 119 and 123 there).
+  at(140, () => {
     sim.queueCommand({ kind: 'attackMove', ids: screen.filter((i) => sim.state.alive[i] === 1), ...ANCHOR });
     sim.queueCommand({ kind: 'attackMove', ids: spike.filter((i) => sim.state.alive[i] === 1), ...STANDOFF });
   });
