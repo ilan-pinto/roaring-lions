@@ -3072,9 +3072,23 @@ const uz4Plan: Plan = (sim, rt, ids, at) => {
     at(when, () => {
       if (rt.objectiveStatus('raze_the_stockpile') === 'active' || rt.objectiveStatus('kill_adhal') !== 'active') return;
       // GH-707 P3: the mortar stays out of it (see the t=90 push below).
-      const force = living(sim, new Set([...demo, ...drone, ...ids('mortar_team')]));
+      // GH-421 (vehicle separation): nor the Eitans, until a Lavi is within thirteen tiles of where the
+      // push is going. They carry a machine gun and nothing else, are faster than the tanks, and the
+      // hunt for Adhal ends at the crest in recoilless rifles: 424242 lost an Eitan to one at 5486
+      // ticks, 7 tiles out, which took the roster maximum from 29 to 28. Held back for good, seed 15 was
+      // lost; released at nine tiles, seeds 12 and 17 took 13.7 and 11.0 minutes (the Eitan's machine
+      // gun is what kills the guard); at thirteen every seed is under 7.2 minutes. They follow the
+      // tanks, they do not lead.
       const c = pic.nearest(14, 7);
-      sim.queueCommand({ kind: 'attackMove', ids: force, ...(c ? M(c.x, c.y) : M(14, 7)) });
+      const goalX = c ? c.x : 14;
+      const goalY = c ? c.y : 7;
+      const hold = new Set([...demo, ...drone, ...ids('mortar_team')]);
+      const tankUp = ids('mbt_lavi').some(
+        (u) => sim.state.alive[u] === 1 && (fx.toNumber(sim.state.posX[u]) - goalX) ** 2 + (fx.toNumber(sim.state.posY[u]) - goalY) ** 2 <= 169
+      );
+      if (!tankUp) for (const e of ids('apc_eitan')) hold.add(e);
+      const force = living(sim, hold);
+      sim.queueCommand({ kind: 'attackMove', ids: force, ...M(goalX, goalY) });
     });
   // Adhal carries no deadline of his own, so a second, dedicated push for
   // him only needs to exist at all -- it does not need to race the depot.
