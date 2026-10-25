@@ -62,7 +62,7 @@ to retune, never a band to widen.
 | crew / supp. res. | 3 / 0.8, `can_embark: false` | speed / turn | 1.0 / 55, `wheeled: true` |
 | sight / optics | 8 / 0.9 | signature / firing mult | 1.1 / 2.0 |
 | weapon | `rws_mg`: hmg, range 7, acc 0.55, pen 18, dmg 26, supp 55, rof 220, collateral 0.12 | abilities | `demolish`, `smoke` |
-| demolition | `placed` -- **E6**, not staged (the schema rejects it until G1 lands) | charge | fuse 8 s, blast 2.5, dmg 300, supp 120, withdraw 4 (E6) |
+| demolition | `placed`, landed with GH-274 (E6 G1, PR 778; the staged draft could not carry it) | charge | fuse 8 s, blast 2.5, dmg 300, supp 120, withdraw 4 (E6) |
 | cost | 680 logistics, 34 s, pop 2 | unlock | `{ "price": 6500 }` |
 | upgrades | armour, firepower: 2,360 credits | curve | −0.3%; max tier −6.0% |
 
@@ -325,3 +325,34 @@ either. A band frozen on them would be vacuous.
 militia routed -x into its own sight; fixed in Stage 4. A unit pinned by fire it cannot see now
 runs away from where that fire came from, so the militia, which stands east of the squad, runs
 east and never closes to 7 tiles: `never`, 0 of 20 seeds, re-measured with both units bracing.
+
+### Tzav: a defended house (GH-274, 25 Oct 2026; bands frozen from this run)
+
+The probe the E5 design moved to E6 (`houseTable` in `tools/src/backtest/e5-probes.ts`, `pnpm --filter @lions/tools
+e5:probes`, pinned in `e5-probes.test.ts`). A 2x2 `house` held by two garrisoned `militia_cell`; each of the three
+demolishers is ordered onto it alone, 20 seeds, 90 s cap. A second run per seed puts one rooted, unarmed soft bystander
+(30,000 hp) 2.2 tiles from the house centre, inside the 2.5-tile blast: it is a decoy (a garrison shooting it is not
+shooting the carrier; the `demo_squad` lived 20 of 20 with it there and died 20 of 20 without), so survival and exposure
+come from the run without it and the blast from the run with it.
+
+| carrier | house fell | alive at end | median ticks at the wall (3 tiles) until the job is done | bystander hp lost on the fall tick |
+|---|---|---|---|---|
+| `demo_tzav` | 20/20 | 20/20 | 66 | 36.1 (20/20 seeds) |
+| `dozer_d9` | 20/20 | 20/20 | 52 | 0 |
+| `demo_squad` | 0/20 | 0/20 | never (the garrison kills it) | 0 |
+
+The Tzav's 36.1 is the linear falloff, 300 x (1 - 2.2 / 2.5). Claims, all met: the house falls and the carrier lives
+in at least 90% of seeds; the Tzav survives where the sapper does not; it is exposed longer than the D9 (3 s against
+2 s by design); its blast hurts a soft unit inside 2.5 tiles in at least 90% of seeds; the D9 and the sapper hurt
+nobody. Bands: exposure [53, 79] ticks and bystander loss [29, 43] hp (+/-20% of the Tzav's reading). Falsified on the
+probe itself: `blast_tiles` 1.0 for 2.5 and a Tzav with no placed charge both turn "hurts its own" red (0/5 seeds), and a
+hull of armour 1 and 300 hp turns "completes and lives" red. All three are specs in `e5-probes.test.ts`.
+
+### Tzav: the `(bought)` playtest probe on `wadi_halam_5_depot`
+
+`pnpm playtest` prints `wadi_halam_5_depot (bought)`. The mission gives 400 logistics and 80 a minute, so the 680
+purchase is asked for at 215 s and the carrier is on the road at 255 s, after the plan has razed the depot. It is
+ordered, explicitly, onto the nearest house at least 6 tiles from the `hall_block` zone. Measured: VICTORY, 2 stars
+(plain 2), ROE 94 (plain 100: the house's `roe_penalty` 6), build accepted, the Tzav alive at the end, one charge set
+and one brought down; 30 of 30 seeds win (slowest 5.5 min). Credit ladder, star gates, ROSTER_MAX and every plain line
+are unchanged; the one pin that moved is `INTEL_WINNERS_ONE_SWEEP`, 35 -> 36, because the probe is a winning plan.

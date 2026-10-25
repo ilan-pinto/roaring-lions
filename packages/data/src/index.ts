@@ -145,6 +145,8 @@ import spgCluster from '../../../data/units/kdf/spg_cluster.json';
 import atNlosTeam from '../../../data/units/kdf/at_nlos_team.json';
 // Phase 3: the Chomet Grenadier Squad.
 import infGrenadier from '../../../data/units/kdf/inf_grenadier.json';
+// GH-274 (closes GH-156): the Shiryonan Demolition Carrier, bought-only, with its placed charge.
+import demoTzav from '../../../data/units/kdf/demo_tzav.json';
 import militiaCell from '../../../data/units/enemy/militia_cell.json';
 import rpgTeam from '../../../data/units/enemy/rpg_team.json';
 import atgmCell from '../../../data/units/enemy/atgm_cell.json';
@@ -472,6 +474,8 @@ export const units = {
   drone_swarm: droneSwarm,
   // E6 chunk A2, registered after it so no earlier type index moves.
   aa_remetz: aaRemetz,
+  // GH-274 (closes GH-156), registered last so no earlier type index moves.
+  demo_tzav: demoTzav,
 } as const;
 
 export type UnitId = keyof typeof units;

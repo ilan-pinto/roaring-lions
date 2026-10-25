@@ -11,6 +11,8 @@
   "sensors": { "optics": 0.9, "sight_tiles": 8, "signature": 1.1, "firing_signature_mult": 2.0 },
   "abilities": ["demolish", "smoke"],
   "demolition_time_s": 3.0,
+  "demolition_method": "placed",
+  "placed_charge": { "fuse_s": 8, "blast_tiles": 2.5, "damage": 300, "suppression": 120, "withdraw_tiles": 4 },
   "weapons": [
     { "id": "rws_mg", "type": "hmg", "range_tiles": 7, "effective_range_tiles": 5.6,
       "accuracy": 0.55, "penetration": 18, "damage": 26, "suppression": 55, "rof_per_min": 220,

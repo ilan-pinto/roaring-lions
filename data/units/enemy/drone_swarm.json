@@ -32,7 +32,8 @@
   "swarm": {
     "count": 12,
     "member_hp": 15,
-    "spread_tiles": 1.5
+    "spread_tiles": 1.5,
+    "hit_mult": 0.08
   },
   "weapons": [
     {
