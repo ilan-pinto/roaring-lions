@@ -295,7 +295,7 @@ Honest on a win and on a loss. Status **`live`**.
 
 `Tel Marum III — The Pass` — **unchanged.**
 
-### 3.2 `briefing` — 752 chars, 4 beats — **unchanged**
+### 3.2 `briefing` — 995 chars, 5 beats — beat 2 rewritten, beat 3 and a relay sentence added (GH-802, 25 Oct)
 
 Design §3.2 under Option C: *re-brief* **n** — *"the two-routes briefing is
 measured and correct (pinned in `tools/src/tel_marum_doctrine.test.ts`)… Do not
@@ -305,9 +305,15 @@ CLAUDE.md records the earlier "nine" as wrong and this text as already corrected
 | beat | speaker | line | chars |
 |---|---|---|---|
 | 1 | **Idit** | Two ways through the wall and neither is free. The wide saddle lies under both Kornet pockets and will cost you vehicles. | 121 |
-| 2 | **Idit** | The narrow one is ten tiles longer and no missile reaches it — the Grad's rockets do, at seventeen, but the only Sarim eyes over that corridor sit at its northern mouth and see no further, so most of its length goes unwatched. | 226 |
+| 2 | **Idit** | The narrow one is ten tiles longer and no missile reaches it — the Grad's rockets do, at seventeen. Its northern mouth is watched, and a second rifle team comes down to it early. | 189 |
+| 2b | **Idit** | Halfway up, in rocks no wheel reaches, a rifle team keeps the relay that carries corrections to the battery. | 107 |
 | 3 | **Shai** | What you cannot do is send everything that way: the corridor is choked with fallen rock, passable on foot and to nothing on wheels or tracks. Armour goes through the pass or it does not go. | 189 |
-| 4 | **Shai** | Mind the town block behind the pass: it stands two tiles from the battery you are ordered to destroy, which is the one place heavy ordnance is guaranteed to land. Three families still live in it — get them out to the approach inside five minutes, before the fighting reaches them. Take the pass, and put the battery out of the war. | 331 |
+| 4 | **Shai** | Mind the town block behind the pass: it stands two tiles from the battery you are ordered to destroy, which is the one place heavy ordnance is guaranteed to land. Three families still live in it — get them out to the approach inside five minutes, before the fighting reaches them. The relay is worth the climb if you can pay for it in infantry. Take the pass, and put the battery out of the war. | 394 |
+
+GH-802 (25 Oct) retired "most of its length goes unwatched": the corridor now holds the relay
+team (`tm_relay`, at its first bend) and the 40 s rifle team at its mouth. Neither relay line
+names LANTERN -- his file name still arrives first in `kill_battery`'s line, and the relay can
+fall before the battery does.
 
 Idit / Idit / Shai / Shai — two beats of measured picture, two of decision and
 cost. The seam falls exactly where the mission's own argument turns.
@@ -325,12 +331,13 @@ banner that closed Sur at the pass would make the four missions that follow read
 as an epilogue. (Under Option A this section carries the act's `aftermath`
 instead and Umm Zeitoun's §7.6 is void.)
 
-### 3.4 Objectives — both **unchanged**
+### 3.4 Objectives — two primaries unchanged, one carrying secondary added (GH-802)
 
 | id | as an order | as a toast |
 |---|---|---|
 | `take_pass` | Take the pass and hold it for 20 seconds | `OBJECTIVE COMPLETE — Take the pass and hold it for 20 seconds` |
 | `kill_battery` | Destroy the Grad section | `OBJECTIVE COMPLETE — Destroy the Grad section` |
+| `cut_the_relay` (secondary, `carries`) | Cut the battery's relay in the narrow saddle | `OBJECTIVE COMPLETE — Cut the battery's relay in the narrow saddle` |
 
 `20` as a numeral was checked against the tree rather than assumed: three shipped
 `capture` labels spell seconds as digits (`beit_sahwan_3_clearance`,
@@ -358,9 +365,11 @@ shipped plan is recorded in the design's §3.5, not here.
 | `objective(take_pass, complete)` | `radio` | **net** | "Pass is held. Nothing on wheels goes north of the wall by any other road." | `objectives[].say`; states the boulder corridor's consequence without repeating the briefing | live |
 | `objective(kill_battery, complete)` | `toast` | system | `OBJECTIVE COMPLETE — Destroy the Grad section` | shipped | live |
 | `objective(kill_battery, complete)` | `radio` | **Idit** | "The tube is down and the north can sleep tonight. Whoever was telling it where to fire has not been on this ground once — the file calls him LANTERN." | `objectives[].say`; **the act's hinge — the file name arrives here and nowhere earlier** | live |
+| `objective(cut_the_relay, complete)` | `toast` | system | `OBJECTIVE COMPLETE — Cut the battery's relay in the narrow saddle` | shipped | live |
+| `objective(cut_the_relay, complete)` | `radio` | **Idit** | "The relay in the rocks is off the air. Whoever was spotting for this wall from somewhere else is talking to nobody on it now." | `objectives[].say`; GH-802 | live |
 | first `roe` deduction inside `town_block` | `toast` | system | hard-coded `roeNotice` copy | strings are not authorable; this is the deduction beat 4 priced | live |
 | first `roe` deduction inside `town_block` | `radio` | Shai | "That is the block, not the battery. He parked it there so that the round which kills it is the round that bills you." | needs a trigger that can watch the sim (§12 G-E) | engine |
-| wave t=150 s (1 `sarim_rifles` from `sarim_west` → `saddle_narrow`) | `toast` | system | `enemy reinforcements — 1 unit(s) inbound` | hard-coded | live |
+| wave t=40 s (1 `sarim_rifles` from `sarim_west` → `saddle_narrow`; 150 s until GH-802) | `toast` | system | `enemy reinforcements — 1 unit(s) inbound` | hard-coded | live |
 | wave t=240 s (1 `recoilless_team` → `pass`) | `toast` | system | `enemy reinforcements — 1 unit(s) inbound` | hard-coded | live |
 | **T-C1** `casualties_pct(40)` → `the_tube_backs_into_the_town` | `toast` | system | `enemy reacts (the_tube_backs_into_the_town)` | id proposed for prose (§11); `withdraw_to town_edge` | live |
 | **T-C1** same trigger | `radio` | **Idit** | "The tube is backing into the town block. He is not hiding it from you — he is putting it where your heavy ordnance is the thing that finds it." | `triggers[].say`; **risks walking `kill_battery` out of the shipped plan's reach — `playtest` must re-run** | live |

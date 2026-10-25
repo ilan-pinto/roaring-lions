@@ -441,9 +441,14 @@ describe('III: the massif', () => {
     const pockets = [post(MID, 'tm_pocket_west'), post(MID, 'tm_pocket_east')];
     expect(Math.min(...pockets.flatMap((p) => defile.map((t) => dist(p, t))))).toBeGreaterThan(20);
   });
-  it('the only Sarim eyes over the defile sit at its northern mouth, and most of it is out of their sight', () => {
+  it('the eyes over the defile sit at its northern mouth, and most of it is out of their sight', () => {
     const eyes = post(MID, 'tm_spotter_narrow');
     expect(eyes).toEqual([10, 11]);
+    // GH-802: the relay team sits IN the defile at its first bend (on a boulder tile, so nothing
+    // wheeled reaches it), not over it -- the only post watching the defile is still the mouth's
+    const relay = post(MID, 'tm_relay');
+    expect(relay).toEqual([4, 23]);
+    expect(m.rows[relay[1]][relay[0]]).toBe('b');
     const seenBy = (s: number, json: MapJson = m) => defile.filter((t) => sees(json, s, eyes, t)).length;
     expect(seenBy(9)).toBe(15);
     // the winding hides it: even a watcher with sight 48 reads only 20 of its 72 tiles
