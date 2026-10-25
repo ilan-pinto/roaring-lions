@@ -18,6 +18,8 @@ const DOC: Record<string, { x: number[]; y: number; r: number }> = {
   jeep_shoded: { x: [1.64, -1.27], y: 0.43, r: 0.43 },
   scout_shachaf: { x: [1.41, -1.4], y: 0.537, r: 0.536 },
   apc_kipod: { x: [2.3, 0.17, -1.96], y: 0.75, r: 0.755 },
+  // E6 (GH-274 chunk A2): measured on the exported `hull_rubber`; the tandem overlaps as the source delivered it.
+  aa_remetz: { x: [1.936, -1.381, -2.159], y: 0.665, r: 0.66 },
   apc_eitan: { x: [2.29, 0.72, -0.74, -2.14], y: 0.66, r: 0.66 },
   technical: { x: [1.69, -1.19], y: 0.307, r: 0.316 },
   gun_truck: { x: [1.77, -1.47], y: 0.415, r: 0.425 },
@@ -57,8 +59,11 @@ describe('running-gear recipes against the design doc', () => {
     // A3/A4: the Lavi's and the D9's road wheels do not spin.
     expect(RUNNING_GEAR_RECIPES.mbt_lavi.wheels).toEqual([]);
     expect(RUNNING_GEAR_RECIPES.dozer_d9.wheels).toEqual([]);
-    // A5: the Tzav waits for E6.
-    expect(RUNNING_GEAR_RECIPES.demo_tzav).toBeUndefined();
+    // A5, resolved by the Tzav's landing (GH-274): it takes the tracked option, and like the
+    // Lavi's and the D9's its eight fused road wheels do not spin.
+    expect(RUNNING_GEAR_RECIPES.demo_tzav.wheels).toEqual([]);
+    expect(RUNNING_GEAR_RECIPES.demo_tzav.track).toBeDefined();
+    expect(RUNNING_GEAR_RECIPES.demo_tzav.track?.excludeDiscs.filter((d) => d.side === 'r').length).toBe(8);
   });
 
   it('steers the front axle only', () => {

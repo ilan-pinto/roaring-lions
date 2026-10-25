@@ -1,16 +1,23 @@
-// What the narrow saddle costs, measured. Run: npx tsx tools/src/backtest/saddle-price.ts
+// What the defile costs, measured. Run: pnpm --filter @lions/tools exec tsx src/backtest/saddle-price.ts [--seeds=30]
 //
-// STALE ON `tel_marum_3` SINCE GH-382: this was written against the old copy of the base map
-// (corridor at x 9-12, y 12-18, waypoints below in those coordinates). Tel Marum III now plays on
-// its own massif (`tel_marum_3`, `tel_marum_ground.test.ts`), where the defile is longer, winds, and
-// is measured by that test instead; point MISSION at a mission on the base map before running.
-// The 1.20 / 0.30 numbers quoted in CLAUDE.md belong to the base map and its doctrine test.
+// PORTED to the Tel Marum III massif (GH-382, GH-802). Until this port the file carried a STALE
+// banner: it was written against the old copy of the base map (corridor at x 9-12, y 12-18, orders
+// in that map's coordinates) and could not run on `tel_marum_3`. The numbers it once printed (3.80 pass
+// / 3.10 corridor, `fc0fc13e`, 30 Sep) belong to that geometry and are NOT comparable to this
+// file's output: different map, different route lengths (54 / 64 tiles, not 38 / 48), a different
+// roster and, since GH-707, men who fall wounded rather than dead.
 //
-// Tel Marum III offers two ways through the wall. The wide pass lies under two
-// Kornet pockets; the narrow corridor is +10 tiles, infantry-only since the
-// boulder field landed, and covered by nothing that can reach it except the
-// Grad at `battery_position` — which needs no sight of its own (`rocket` is in
-// `INDIRECT_MASK`) but does need its SIDE to have identified a target.
+// GH-802 (25 Oct): the plain-`move` defile arm below is a TRAP, not the route's price. Infantry
+// fire only from a halt (`haltsToFire`), so a squad on a plain move never fires back; it walks into
+// the mouth and is shot. The `attack-move` arm is what a player who fights his way up pays. Since
+// GH-802 the defile also holds the battery's relay (`tm_relay`, the carrying secondary) at its first
+// bend, and the rifle wave reaches the mouth at 40 s; the `relay` column reads that secondary.
+//
+// Tel Marum III offers two ways to the battery. The switchback road ends in the exit column at the
+// pass under two Kornet pockets; the defile is a 72-tile foot-only bed of boulders on the west side
+// (`saddle_narrow` [10,14] is its north end), ten tiles longer, out of both Kornets' reach, and
+// covered by nothing but the Grad at `battery_position`, which needs no sight of its own (`rocket`
+// is in `INDIRECT_MASK`) but does need its SIDE to have identified a target.
 //
 // The question this answers is not "can the flank be walked" (the doctrine test
 // settles that on terrain) but "what does walking it cost". Three controls make
@@ -35,17 +42,29 @@ import {
   Sim, fx, TICKS_PER_SECOND, MissionRuntime,
   type MissionJson, type TunnelRouteJson,
 } from '@lions/sim';
+import { SWEEP_SEEDS } from './passive-sweep';
 import { units, maps, missions, structures as structureCatalogue, parseMap, applyTerrain, roadMaskOf } from '@lions/data';
 
 const M = (x: number, y: number) => ({ x: fx.from(x), y: fx.from(y) });
 const MISSION = 'tel_marum_3_clearance';
-const SEEDS = [424242, 7, 1009, 31337, 65521, 99991, 123456, 2024, 555, 8888];
-/** The corridor and its scree apron — the ground a flanker is exposed on. */
-const inCorridor = (x: number, y: number) => x >= 9 && x <= 12 && y >= 12 && y <= 18;
+const SEEDS_10 = [424242, 7, 1009, 31337, 65521, 99991, 123456, 2024, 555, 8888];
+/** `--seeds=30` runs `main`'s 30-seed set (`passive-sweep.ts`) instead of the probe's own ten. */
+const SEEDS = process.argv.includes('--seeds=30') ? SWEEP_SEEDS : SEEDS_10;
+/** The defile is every `b` (boulder) tile: the ground a flanker is exposed on. Read off the map. */
+const DEFILE = new Set<number>();
+{
+  const raw = maps[(missions[MISSION] as unknown as MissionJson).map.file as keyof typeof maps] as unknown as { width: number; rows: string[] };
+  raw.rows.forEach((row, y) => [...row].forEach((c, x) => { if (c === 'b') DEFILE.add(y * raw.width + x); }));
+  if (DEFILE.size !== 72) throw new Error(`expected the 72-tile defile, read ${DEFILE.size} boulder tiles`);
+}
+const inDefile = (x: number, y: number, w: number) => DEFILE.has(y * w + x);
+/** `saddle_narrow`, the defile's north end, and `battery_position`. */
+const NARROW = M(10, 14);
+const BATTERY = M(25, 6);
 
-type Garrison = { unit: string; count: number; at: [number, number]; facing_deg?: number; tag?: string };
+type Killed = { victim: string; by: string; t: number };
 
-function walk(seed: number, foot: 'pass' | 'corridor', perfectEyes: boolean) {
+function walk(seed: number, foot: 'pass' | 'defile', perfectEyes: boolean, footKind: 'move' | 'attackMove' = 'move') {
   const mission = missions[MISSION] as unknown as MissionJson;
   const map = parseMap(maps[mission.map.file as keyof typeof maps]);
   const sim = new Sim({ seed, width: map.width, height: map.height, capacity: 256 });
@@ -75,113 +94,133 @@ function walk(seed: number, foot: 'pass' | 'corridor', perfectEyes: boolean) {
     },
   });
   rt.start();
+  const nameOf = (i: number) => sim.unitTypes[sim.state.typeIdx[i]].id;
   const ids = (t: string): number[] => {
     const out: number[] = [];
     for (let i = 0; i < sim.entityCount; i++)
-      if (sim.state.side[i] === 0 && sim.state.alive[i] === 1 && sim.unitTypes[sim.state.typeIdx[i]].id === t) out.push(i);
+      if (sim.state.side[i] === 0 && sim.state.alive[i] === 1 && nameOf(i) === t) out.push(i);
     return out;
   };
-  const tanks = ids('mbt_lavi'), namer = ids('ifv_namer'), carriers = ids('apc_eitan');
-  const legs = [...ids('inf_squad'), ...ids('at_team'), ...ids('mortar_team')];
+  const tanks = ids('mbt_lavi'), namer = ids('ifv_namer'), carriers = ids('apc_eitan'), mortar = ids('mortar_team');
+  // The flankers: the two arms differ in where THESE walk, and in nothing else.
+  const legs = [...ids('inf_squad'), ...ids('at_team')];
   const battery = (() => {
     for (let i = 0; i < sim.entityCount; i++)
-      if (sim.state.side[i] === 1 && sim.unitTypes[sim.state.typeIdx[i]].id === 'rocket_battery') return i;
+      if (sim.state.side[i] === 1 && nameOf(i) === 'rocket_battery') return i;
     return -1;
   })();
 
   const timed: [number, () => void][] = [];
   const at = (t: number, fn: () => void) => timed.push([Math.round(t * TICKS_PER_SECOND), fn]);
-  // --- armour: identical in both arms ------------------------------------
-  at(85, () => {
-    sim.queueCommand({ kind: 'move', ids: carriers, ...M(23, 22) });
-    sim.queueCommand({ kind: 'move', ids: tanks, ...M(25, 22) });
-    sim.queueCommand({ kind: 'move', ids: namer, ...M(24, 23) });
+  // --- armour and mortar: copied from playtest.ts's Tel Marum III plan, identical in both arms ---
+  // The column stages in the second leg behind the rib; two Lavis go up the exit column alone; one
+  // Eitan fetches the families (the evacuate_before primary is what ends a plan that forgets them).
+  at(2, () => {
+    sim.queueCommand({ kind: 'move', ids: [...tanks, ...namer, ...carriers], ...M(28, 19) });
+    sim.queueCommand({ kind: 'move', ids: mortar, ...M(26, 19) });
   });
-  at(130, () => {
-    sim.queueCommand({ kind: 'attackMove', ids: tanks, ...M(28, 16) });
-    sim.queueCommand({ kind: 'attackMove', ids: namer, ...M(20, 16) });
-  });
-  at(190, () => {
-    sim.queueCommand({ kind: 'move', ids: tanks, ...M(24, 13) });
-    sim.queueCommand({ kind: 'move', ids: carriers, ...M(24, 14) });
-  });
-  at(250, () => {
-    sim.queueCommand({ kind: 'move', ids: carriers, ...M(23, 12) });
-    sim.queueCommand({ kind: 'attackMove', ids: tanks, ...M(25, 6) });
-  });
+  at(40, () => sim.queueCommand({ kind: 'attackMove', ids: tanks, ...M(33, 16) }));
+  at(62, () => sim.queueCommand({ kind: 'move', ids: tanks, ...M(33, 11) }));
+  at(80, () => sim.queueCommand({ kind: 'move', ids: carriers, ...M(33, 14) }));
+  at(100, () => sim.queueCommand({ kind: 'move', ids: carriers, ...M(28, 6) }));
+  at(115, () => sim.queueCommand({ kind: 'move', ids: carriers, ...M(29, 36) }));
   // --- the foot: the one variable ----------------------------------------
+  let defileSent = false;
   if (foot === 'pass') {
-    at(3, () => sim.queueCommand({ kind: 'move', ids: legs, ...M(24, 22) }));
-    at(190, () => sim.queueCommand({ kind: 'move', ids: legs, ...M(24, 15) }));
-    at(250, () => sim.queueCommand({ kind: 'attackMove', ids: legs, ...M(25, 6) }));
+    // exactly what playtest.ts gives its foot
+    at(2, () => sim.queueCommand({ kind: 'move', ids: legs, ...M(27, 19) }));
+    at(80, () => sim.queueCommand({ kind: 'move', ids: legs, ...M(33, 17) }));
+    at(100, () => sim.queueCommand({ kind: 'move', ids: legs, ...M(33, 11) }));
   } else {
-    at(3, () => sim.queueCommand({ kind: 'move', ids: legs, ...M(10, 12) }));
-    at(250, () => sim.queueCommand({ kind: 'attackMove', ids: legs, ...M(25, 6) }));
+    // up the defile to its north end, then straight on to the battery (sent on ARRIVAL, below, so the
+    // arm does not wait in the open at the mouth)
+    at(2, () => sim.queueCommand({ kind: footKind, ids: legs, ...NARROW }));
   }
 
-  let rockets = 0;
-  const lost: string[] = [];
+  let rockets = 0, woundedDown = 0, manKilled = 0;
+  const lost: Killed[] = [];
+  const footIdsStart = new Set(legs);
+  let firstFootDeath = -1;
+  const footHp0 = legs.reduce((a, id) => a + (sim.state.hp[id] ?? 0) / 65536, 0);
   const maxTicks = 20 * 60 * TICKS_PER_SECOND;
   let t = 0;
   for (; t < maxTicks; t++) {
     for (const [when, fn] of timed) if (when === t) fn();
+    if (foot === 'defile' && !defileSent) {
+      const live = legs.filter((id) => sim.state.alive[id] === 1);
+      const arrived = live.length > 0 && live.every((id) => {
+        const dx = (sim.state.posX[id] ?? 0) / 65536 - 10, dy = (sim.state.posY[id] ?? 0) / 65536 - 14;
+        return dx * dx + dy * dy <= 9;
+      });
+      if (arrived || t >= 150 * TICKS_PER_SECOND) {
+        defileSent = true;
+        sim.queueCommand({ kind: 'attackMove', ids: live, ...BATTERY });
+      }
+    }
     if (perfectEyes) {
       for (const id of legs) {
         if (sim.state.alive[id] !== 1) continue;
-        if (inCorridor((sim.state.posX[id] ?? 0) >> 16, (sim.state.posY[id] ?? 0) >> 16)) sim.identifyTo(1, id);
+        if (inDefile((sim.state.posX[id] ?? 0) >> 16, (sim.state.posY[id] ?? 0) >> 16, map.width)) sim.identifyTo(1, id);
       }
     }
     const evs = sim.tick();
     for (const e of evs) {
       if (e.kind === 'fire' && e.shooter === battery) rockets++;
-      if (e.kind === 'destroyed' && sim.state.side[e.entity] === 0) lost.push(sim.unitTypes[sim.state.typeIdx[e.entity]].id);
+      if (e.kind === 'woundedDown' && e.by >= 0 && sim.state.side[e.by] === 1) woundedDown++;
+      if (e.kind === 'manKilled' && sim.state.side[e.entity] === 0) manKilled++;
+      if (e.kind === 'destroyed' && sim.state.side[e.entity] === 0) {
+        const victim = nameOf(e.entity);
+        if (victim.startsWith('wounded')) continue; // a shed man bleeding out is not a unit lost
+        lost.push({ victim, by: e.by >= 0 ? nameOf(e.by) : 'none', t: e.tick / TICKS_PER_SECOND });
+        if (footIdsStart.has(e.entity) && firstFootDeath < 0) firstFootDeath = e.tick / TICKS_PER_SECOND;
+      }
     }
     rt.step(evs);
     if (rt.result !== 'ongoing') break;
   }
   const footHp = legs.reduce((a, id) => a + (sim.state.alive[id] === 1 ? (sim.state.hp[id] ?? 0) / 65536 : 0), 0);
-  return { result: rt.result, mins: t / TICKS_PER_SECOND / 60, lost, rockets, footHp };
+  const relay = rt.objectiveList.find((o) => o.id === 'cut_the_relay')?.status === 'complete';
+  return { result: rt.result, mins: t / TICKS_PER_SECOND / 60, lost, rockets, footHp, footHp0, firstFootDeath, woundedDown, manKilled, relay };
 }
 
-function sweep(foot: 'pass' | 'corridor', perfectEyes: boolean, label: string) {
+function sweep(foot: 'pass' | 'defile', perfectEyes: boolean, label: string, footKind: 'move' | 'attackMove' = 'move') {
   const byType = new Map<string, number>();
-  let wins = 0, losses = 0, rockets = 0, hp = 0, mins = 0;
+  const byKiller = new Map<string, number>();
+  let relays = 0, wins = 0, losses = 0, footLost = 0, rockets = 0, hp = 0, hp0 = 0, mins = 0, wd = 0, mk = 0, fd = 0, fdN = 0;
+  const FOOT = new Set(['inf_squad', 'at_team']);
+  const results: string[] = [];
   for (const seed of SEEDS) {
-    const r = walk(seed, foot, perfectEyes);
+    const r = walk(seed, foot, perfectEyes, footKind);
+    if (r.relay) relays++;
+    results.push(r.result);
     if (r.result === 'victory') wins++;
     losses += r.lost.length;
-    for (const k of r.lost) byType.set(k, (byType.get(k) ?? 0) + 1);
-    rockets += r.rockets; hp += r.footHp; mins += r.mins;
+    for (const k of r.lost) {
+      byType.set(k.victim, (byType.get(k.victim) ?? 0) + 1);
+      byKiller.set(`${k.by}>${k.victim}`, (byKiller.get(`${k.by}>${k.victim}`) ?? 0) + 1);
+      if (FOOT.has(k.victim)) footLost++;
+    }
+    rockets += r.rockets; hp += r.footHp; hp0 += r.footHp0; mins += r.mins; wd += r.woundedDown; mk += r.manKilled;
+    if (r.firstFootDeath >= 0) { fd += r.firstFootDeath; fdN++; }
   }
   const n = SEEDS.length;
   console.log(
-    `${label.padEnd(40)} wins ${wins}/${n}  losses/run ${(losses / n).toFixed(2)}  ` +
-    `foot HP ${(hp / n).toFixed(0)}/1930  rockets ${(rockets / n).toFixed(1)}  ${(mins / n).toFixed(2)} min`
+    `${label.padEnd(36)} wins ${wins}/${n}  losses/run ${(losses / n).toFixed(2)} (foot ${(footLost / n).toFixed(2)})  ` +
+    `foot HP ${(hp / n).toFixed(0)}/${(hp0 / n).toFixed(0)}  men down/run ${(wd / n).toFixed(1)}, killed outright ${(mk / n).toFixed(1)}  ` +
+    `relay ${relays}/${n}  rockets ${(rockets / n).toFixed(1)}  first foot death ${fdN > 0 ? (fd / fdN).toFixed(0) + ' s (' + fdN + '/' + n + ' runs)' : 'none'}  ${(mins / n).toFixed(2)} min`
   );
   console.log(`    who died across ${n} seeds: ${[...byType.entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k}x${v}`).join(', ') || 'nobody'}`);
+  console.log(`    killer>victim: ${[...byKiller.entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k}x${v}`).join(', ') || 'nobody'}`);
+  console.log(`    results: ${results.join(' ')}`);
 }
 
-console.log('=== the route, isolated (armour orders identical in every row) ===');
+console.log('=== the route, isolated (armour and mortar orders identical in every row) ===');
 sweep('pass', false, 'foot through the pass');
-sweep('corridor', false, 'foot up the narrow corridor');
+sweep('defile', false, 'foot up the defile, plain move (trap)');
+sweep('defile', false, 'foot up the defile, attack-move', 'attackMove');
 console.log();
-console.log('=== the ceiling: unkillable, permanent eyes on the corridor ===');
+console.log('=== the ceiling: permanent Sarim eyes on every flanker standing in the defile ===');
 sweep('pass', true, 'foot through the pass, +perfect eyes');
-sweep('corridor', true, 'foot up the corridor, +perfect eyes');
-console.log();
-console.log('=== and what a REAL observer does instead (corridor arm only) ===');
-const garrison = (missions[MISSION] as unknown as { enemy: { garrison: Garrison[] } }).enemy.garrison;
-const idx = garrison.findIndex((g) => g.tag === 'tm_spotter_narrow');
-if (idx < 0) throw new Error('tel_marum_3_clearance has no tm_spotter_narrow');
-const shipped = garrison[idx];
-const variants: [string, Garrison][] = [
-  ['shipped: sarim_rifles [12,4], sees 2/12', shipped],
-  ['moved:   sarim_rifles [11,8], sees 10/12', { ...shipped, at: [11.5, 8.5] }],
-  ['manpad:  manpad_team [8,3], 6/12 @ 9.2', { ...shipped, unit: 'manpad_team', at: [8.5, 3.5] }],
-  ['manpad:  manpad_team [10,6], 12/12 @ 6.0', { ...shipped, unit: 'manpad_team', at: [10.5, 6.5] }],
-];
-for (const [label, g] of variants) {
-  garrison[idx] = g;
-  sweep('corridor', false, label);
-}
-garrison[idx] = shipped;
+sweep('defile', true, 'foot up the defile, +perfect eyes');
+// The old observer sweep (four posts on the old corridor) is not ported: its coordinates and sight
+// counts were for the old ground. The shipped post is `tm_spotter_narrow` [10.5, 11.5].

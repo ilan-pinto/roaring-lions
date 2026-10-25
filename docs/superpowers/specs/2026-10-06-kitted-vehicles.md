@@ -622,7 +622,7 @@ change were written first, in the PR.
   where the near bars' per-pixel shimmer (Eitan 0.079 at 1.75) is already
   under the far bars' at zoom 1 (0.091). The cross-hatch is gone; what is left
   is the stair-step every ~1 px diagonal edge shows.
-- **The Peten (K5, still open).** Its metal took the bake's flat texel
+- **The Peten (K5, resolved by PR #661, 15 Oct: options A+B took the kit pixels at zoom 1 from 287 to 343; the text below is the state before it).** Its metal took the bake's flat texel
   nearest gunmetal.2 (`export_vehicle_kit.choose_tones`' fourth rule: the
   `hull_metal` median sat within 25% of the paint, 0.0586 against 0.0681), and
   its camera-facing parts grew (cockpit plates 0.55x0.03x0.22 -> 0.60x0.05x0.28,

@@ -24,20 +24,21 @@ function jpegSize(buf: Buffer): [number, number] {
 }
 
 describe('garage close-ups', () => {
-  it('owes one per KDF type and track: 57 on the 21 Oct roster', () => {
+  it('owes one per KDF type and track: 59 on the 25 Oct roster', () => {
     // The plan's 49 counted seventeen types; heli_peten_gunship (3 tracks)
-    // and recon_zikit (2) have landed since, and heli_yanshuf (3, GH-698).
+    // and recon_zikit (2) have landed since, and heli_yanshuf (3, GH-698), and
+    // demo_tzav (2, GH-274; was 57 / 20 types).
     // A literal, so a roster change that ships without its close-ups fails
     // here by name.
-    expect(plan).toHaveLength(57);
-    expect(new Set(plan.map((j) => j.id)).size).toBe(20);
+    expect(plan).toHaveLength(59);
+    expect(new Set(plan.map((j) => j.id)).size).toBe(21);
     expect(plan.filter((j) => j.id === 'dozer_d9').map((j) => j.track)).toEqual(['armour', 'sensors']);
   });
 
   it('refuses a run that wrote a different count', () => {
-    expect(() => assertCloseupCount(48, plan)).toThrow(/48 written, but data\/units\/kdf\/ declares 57/);
-    expect(() => assertCloseupCount(58, plan)).toThrow();
-    expect(() => assertCloseupCount(57, plan)).not.toThrow();
+    expect(() => assertCloseupCount(48, plan)).toThrow(/48 written, but data\/units\/kdf\/ declares 59/);
+    expect(() => assertCloseupCount(60, plan)).toThrow();
+    expect(() => assertCloseupCount(59, plan)).not.toThrow();
   });
 
   it('ships exactly the plan: in the manifest, on disk, 480x320', () => {

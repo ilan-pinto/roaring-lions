@@ -193,6 +193,11 @@ array**: live members are `ceil(hp / member_hp)`, computed on read.
 - **No rout.** `crew: 0` and `suppression_resistance 1.0` as `loiter_drone`
   (`data/units/enemy/loiter_drone.json`); the rout clause (`:5110-5118`) gains `swarmCount ===
   0`. The dive branch ignores `pinned`, like `stepKamikaze` today.
+  **Built (GH-274, `applySuppression`):** the stronger form -- a swarm takes no suppression at all, so it
+  never pins, never routs, and its own dive accuracy and movement are never cut by fire
+  (`suppressionMod` is always 1; no pinned movement hold). A pinned swarm could not close to dive
+  anyway. Before it, `suppression_resistance` 1.0 only halved the amount and an armed group pinned and
+  routed a swarm before it made one dive.
 - **It is also an eye.** Sight 10, optics 1.2 feed Sarim/Rif contact like any unit
   (`stepDetection`), so a swarm cues the `rocket_battery` (range 20, sight 6). Intended (Act II:
   "kill the eyes and it goes blind"), and a playtest effect to measure (R10).
@@ -479,6 +484,13 @@ T2–T4 are independent after T1 and may run in parallel worktrees; T8 needs T3�
   scripted plan hides; `playtest` must read the ladder, not only VICTORY.
 - **R11 — names.** "Gachelet" and "Drone Swarm" have not been through the storyline §2.4 rule-3
   screen that renamed the Zikit and the Tzav (`numbers.md`, names screen).
+  **Screened 2026-10-25 (GH-274 item 5)** for "Remetz" (the shipped name of `aa_remetz`, which replaced
+  "Gachelet") and "Drone Swarm", by the E5 method (MediaWiki search on en and he.wikipedia, each name
+  alone and beside military context; an encyclopaedia search, not a trademark search). *Remetz* (Hebrew
+  רמץ, embers): no platform, unit, operation or armed group; the hits are the common noun for embers,
+  a German exonym of a Romanian village and a surname. *Drone Swarm*: a descriptive common phrase; the
+  hits are the general concept (swarming, drone warfare) and no named platform or unit. Both pass and
+  keep their names.
 
 ## 14. Open questions (each with a recommended default)
 

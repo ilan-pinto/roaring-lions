@@ -80,8 +80,8 @@ MAX_GAIN = 1.5                    # validate_audio.MAX_GAIN
 CLIP_LIMIT = 0.999
 
 PROVENANCE = (
-    "AI-generated with ElevenLabs Sound Effects, supplied by the lead; he states his ElevenLabs plan carries a "
-    "commercial-use licence, but the plan and date are not recorded; commercial licence NOT yet confirmed "
+    "AI-generated with ElevenLabs Sound Effects, supplied by the lead; generated on a paid ElevenLabs plan "
+    "(tier not named), confirmed by the lead on 25 Oct 2026, so commercial use is cleared "
     "(docs/ASSET_PROVENANCE.md item 2); prepared by tools/prepare_support_audio.py"
 )
 LICENSE = "LicenseRef-owned"

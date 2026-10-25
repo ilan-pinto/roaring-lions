@@ -301,7 +301,7 @@ in the Marj. §4(b) puts that at risk and says so.
 |---|---|---|---|---|---|
 | `tel_marum_1_recon` | Tel Marum I — The Gateway | recon | Maj | the densest intel mission in the game — **four `locate` primaries**, one explicitly *"whoever is spotting for the battery"*. Produces `I` | his network, seen whole for the first time |
 | `tel_marum_2_foothold` | Tel Marum II — The Start Line | foothold | Maj | requires `I`; her finding is that killing one eye eases the shelling and does not stop it | **one of his** dies (`tm_spotter_west`); he replaces it |
-| `tel_marum_3_clearance` | Tel Marum III — The Pass | clearance | Maj (→ Lt Col only after Umm Zeitoun) | the corridor's unwatched length — *"most of its length goes unwatched"* | **his bait** (battery two tiles from `town_block`, `fail_below 45`); **his gun** dies, he does not |
+| `tel_marum_3_clearance` | Tel Marum III — The Pass | clearance | Maj (→ Lt Col only after Umm Zeitoun) | the corridor's relay — *"a rifle team keeps the relay that carries corrections to the battery"* (GH-802; was the corridor's unwatched length) | **his bait** (battery two tiles from `town_block`, `fail_below 45`); **his gun** dies, he does not |
 
 | id | briefing today vs what must change | re-brief? | twist candidates |
 |---|---|---|---|

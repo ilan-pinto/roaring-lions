@@ -1640,6 +1640,30 @@ describe('civilians and ROE (GDD §6)', () => {
     expect(done).toHaveLength(1);
   });
 
+  it('re-orders a civilian who stopped 3 tiles short of a 1x1 refuge zone, instead of stalling', () => {
+    // The stall `CivilianFlight.step` had: it treated "within 4 tiles of the refuge" as arrived, so
+    // a porter stopped outside a narrow zone (pinned against a wall, in the field) was never
+    // ordered again and the evacuation hung. The zone here is the refuge tile alone.
+    const w = civWorld(
+      {
+        starting_force: [{ unit: 'm_squad', count: 1, at: [6, 10] }],
+        civilians: { groups: [{ unit: 'm_civ', count: 1, at: [5, 10] }], refuge: 'refuge' },
+        objectives: [
+          { id: 'evac', type: 'evacuate_before', primary: false, target: 'refuge_zone', count: 1, seconds: 900 },
+          { id: 'clock', type: 'survive_until', primary: true, seconds: 900 },
+        ],
+      },
+      { zones: { refuge_zone: [2, 10, 1, 1] } }
+    );
+    const civ = 1;
+    w.step(2); // the soldier is beside her: she breaks for the refuge
+    w.sim.queueCommand({ kind: 'halt', ids: [civ] });
+    w.step(2);
+    expect(w.sim.state.moving[civ]).toBe(1); // re-ordered the tick she stopped
+    const evs = w.step(600);
+    expect(evs.mission.filter((m) => m.kind === 'evacuated')).toHaveLength(1);
+  });
+
   it('counts civilians who reach the refuge zone and completes at the count', () => {
     const w = civWorld(
       {
@@ -5084,6 +5108,70 @@ describe('the narrative layer: remove, say, starting_force groups', () => {
     w.sim.debugKill(1);
     for (let t = 0; t < 2 * TICKS_PER_SECOND; t++) seen = seen || fired(w.runtime.step(w.sim.tick()));
     expect(seen).toBe(true);
+  });
+
+  // GH-815: `remove` sets `alive` to 0 exactly as a death does, and `eliminate_hvt` used to read
+  // `alive` alone, so an HVT who got away ticked the objective as if he had been killed.
+  describe('eliminate_hvt and a removed target (GH-815)', () => {
+    const hvtMission = (primary: boolean, tags: 1 | 2 = 1): MissionJson =>
+      baseMission({
+        starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+        enemy: {
+          garrison: [
+            { unit: 'm_tech', count: 1, at: [20, 2], group: 'runner', tag: 'hvt' },
+            ...(tags === 2 ? [{ unit: 'm_tech', count: 1, at: [20, 8], tag: 'hvt' }] : []),
+          ],
+        },
+        objectives: [
+          { id: 'kill', type: 'eliminate_hvt', primary, target: 'hvt' },
+          { id: 'clock', type: 'survive_until', primary: !primary, seconds: 20 },
+        ],
+        triggers: [{ id: 'gets_away', on: { kind: 'timer_s', value: 1 }, do: { kind: 'remove', group: 'runner' } }],
+      });
+    const status = (evs: MissionEvent[], id: string): string | undefined => {
+      const e = evs.find((x) => x.kind === 'objective' && x.id === id);
+      return e?.kind === 'objective' ? e.status : undefined;
+    };
+
+    it('does not complete when the target is removed from play, and fails the primary', () => {
+      const w = makeWorld(hvtMission(true));
+      const { mission } = w.step(5 * TICKS_PER_SECOND);
+      expect(w.sim.state.alive[1]).toBe(0);
+      expect(w.sim.state.removed[1]).toBe(1);
+      expect(status(mission, 'kill')).toBe('failed');
+      expect(w.runtime.result).toBe('defeat');
+      expect(w.runtime.defeatCause).toEqual({ objective: 'kill' });
+    });
+
+    it('fails a secondary without ending the mission', () => {
+      const w = makeWorld(hvtMission(false));
+      const { mission } = w.step(25 * TICKS_PER_SECOND);
+      expect(status(mission, 'kill')).toBe('failed');
+      expect(status(mission, 'clock')).toBe('complete');
+      expect(w.runtime.result).toBe('victory');
+    });
+
+    it('a target who was killed first stays killed; one killed and one removed fails', () => {
+      const w = makeWorld(hvtMission(false, 2));
+      w.sim.debugKill(2); // the unremoved one dies before the escape resolves
+      const { mission } = w.step(5 * TICKS_PER_SECOND);
+      expect(w.sim.state.removed[2]).toBe(0);
+      expect(status(mission, 'kill')).toBe('failed');
+    });
+
+    it('a killed target still completes it', () => {
+      const w = makeWorld(
+        baseMission({
+          starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+          enemy: { garrison: [{ unit: 'm_tech', count: 1, at: [20, 2], tag: 'hvt' }] },
+          objectives: [{ id: 'kill', type: 'eliminate_hvt', primary: true, target: 'hvt' }],
+        })
+      );
+      w.sim.debugKill(1);
+      const { mission } = w.step(2 * TICKS_PER_SECOND);
+      expect(status(mission, 'kill')).toBe('complete');
+      expect(w.runtime.result).toBe('victory');
+    });
   });
 
   it('say is emitted immediately after the trigger event it annotates', () => {

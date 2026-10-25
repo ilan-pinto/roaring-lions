@@ -235,17 +235,23 @@ if (
   checked += validateFile(join(ROOT, 'data/hints/first_use.json'), validators.hints, 'first_use_hints.schema');
   checked += validateFile(join(ROOT, 'data/structures.json'), validators.structure, 'structure.schema');
   checked += validateFile(join(ROOT, 'data/coupons.json'), validators.coupons, 'coupons.schema');
-  // The schema cannot see these: a duplicate id or hash makes a coupon unreachable or
-  // double-spendable, and the file must hold hashes, never a literal code.
+  // The schema cannot see these: a duplicate id makes a coupon unreachable or
+  // double-spendable. A hash MAY repeat (one code, several grants: each entry is redeemed
+  // once on its own id), but two entries under one hash may not grant the same kind, or the
+  // one code would pay twice. The file holds hashes, never a literal code.
   {
     const list = loadJson(join(ROOT, 'data/coupons.json'))?.coupons ?? [];
     const ids = new Set();
-    const hashes = new Set();
+    const kinds = new Set();
     for (const c of list) {
       if (ids.has(c.id)) failures.push(`data/coupons.json: duplicate coupon id "${c.id}"`);
-      if (hashes.has(c.sha256)) failures.push(`data/coupons.json: coupon "${c.id}" repeats another coupon's hash`);
       ids.add(c.id);
-      hashes.add(c.sha256);
+      for (const kind of ['credits', 'coins']) {
+        if (c[kind] === undefined) continue;
+        const key = `${c.sha256}/${kind}`;
+        if (kinds.has(key)) failures.push(`data/coupons.json: coupon "${c.id}" grants ${kind} under a hash that already grants ${kind}`);
+        kinds.add(key);
+      }
     }
   }
 } else {

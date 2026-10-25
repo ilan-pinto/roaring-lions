@@ -8,7 +8,11 @@ import { DOMAIN_VEHICLE, unitTypeFromJson, type UnitTypeJson } from '../../packa
  *  from the hull GLBs (unitFootprintTable) on 2026-10-24, after the Lavi's x1.18 rescale, rounded to 0.01. An oracle
  *  imported from the code under test cannot fail (CLAUDE.md). */
 const HULL: Record<string, readonly [number, number, number]> = {
+  // GH-274 E6 (the Remetz laser carrier, a 7.0 m 6x6), measured the same way on 2026-10-25: 1.167 / 0.621 / 0.000.
+  aa_remetz: [1.17, 0.62, 0],
   apc_eitan: [1.19, 0.51, 0],
+  // GH-274 item 1 (the Tzav, a tracked demolition vehicle), measured the same way on 2026-10-25: 1.417 / 0.692 / 0.000.
+  demo_tzav: [1.42, 0.69, 0],
   apc_kipod: [1.2, 0.62, 0],
   dozer_d9: [1.14, 0.73, 0],
   gun_truck: [0.9, 0.47, 0],

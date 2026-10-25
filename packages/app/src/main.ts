@@ -34,10 +34,13 @@ import {
   MissionRuntime,
   resolveUpgrades,
   loanedPlacements,
+  loanedReinforcements,
+  reinforceKey,
   starRoeFloor,
   starsEarned,
   zoneContains,
   creditsFor,
+  unlockReason,
   creditInputFrom,
   MAX_PATROL_WAYPOINTS,
   unitTypeFromJson,
@@ -115,7 +118,7 @@ import { showMenu, showCampaign, showSandbox } from './ui/menu';
 import { showBrigade, type BrigadeUnit, type GarageState } from './ui/brigade';
 import { accountView } from './account-view';
 import { kdfUnlockGate } from './kdf-gate';
-import { coinTiers, grantTestCoins, seedTestCoins, testCoinsParam } from './roar-test';
+import { couponReceived, coinTiers, grantTestCoins, seedTestCoins, testCoinsParam } from './roar-test';
 import { buyWithTestCoins, type CoinHalf } from './ui/stores-model';
 import { CUE_SET } from './ui/garage-model';
 import { upgradePrepass } from './upgrade-prepass';
@@ -163,7 +166,8 @@ import { pauseMenu, type PauseDeps } from './ui/pause';
 import { advance as advanceClock, type Clock } from './shell/clock';
 import { applySettings, loadSettings, saveSettings, settingsBus, type Settings } from './settings';
 import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace, supportKeyTarget } from './input/keymap';
-import { buyUnlock, buyUpgrade, redeemCoupon } from './brigade-account';
+import { buyUnlock, buyUpgrade } from './brigade-account';
+import { redeemOnStore } from './coupon-redeem';
 import { sha256Hex } from './sha256';
 import { payVictory } from './campaign-pay';
 import { tierLine } from './ui/grade-copy';
@@ -259,6 +263,7 @@ import {
   meshUrl,
   missionUnitTypes,
   withWoundedTypes,
+  deferredBuildables,
   hasUnitMesh,
   meshPlanFor,
   meshManifestFor,
@@ -1125,6 +1130,10 @@ async function main(): Promise<void> {
     if (testGrant !== null && ledgerStore.available) {
       ledgerStore.writeRoarTest(seedTestCoins(ledgerStore.readRoarTest(), testGrant, Date.now()));
     }
+    /** Whether the TEST wallet is live: `?testcoins`, or a coupon that granted
+     *  coins into it. Read afresh each time, so redeeming a code opens it with no
+     *  reload. A wallet nobody filled stays the preview. */
+    const walletLive = (): boolean => testGrant !== null || couponReceived(ledgerStore.readRoarTest());
     /** Which part of the single-player account came from coins. */
     const coinHalf = (): CoinHalf => {
       const account = ledgerStore.readAccount();
@@ -1190,12 +1199,12 @@ async function main(): Promise<void> {
           const r = ledgerStore.readRoarTest();
           return {
             coin: coinHalf(),
-            test: testGrant !== null ? { coins: r.coins, grant: testGrant, receipts: r.receipts } : undefined,
+            test: walletLive() ? { coins: r.coins, grant: testGrant ?? 0, receipts: r.receipts } : undefined,
           };
         },
-        onBuy:
-          testGrant !== null && ledgerStore.available
+        onBuy: ledgerStore.available
             ? (ask) => {
+                if (!walletLive()) return now();
                 const a = accountState();
                 const { account, ok } = buyWithTestCoins(
                   {
@@ -1228,14 +1237,8 @@ async function main(): Promise<void> {
       // until the server ledger (GH-205). No telemetry: the attempt carries the code.
       onRedeem: ledgerStore.available
         ? (code) => {
-            const r = redeemCoupon(ledgerStore.readAccount(), code, coupons, sha256Hex, Date.now());
-            if (!r.ok) return { state: now(), result: r.reason };
-            try {
-              ledgerStore.writeAccount(r.account);
-            } catch {
-              return { state: now(), result: 'failed' as const };
-            }
-            return { state: now(), result: 'ok' as const, credits: r.credits };
+            const out = redeemOnStore(ledgerStore, code, coupons, sha256Hex, Date.now());
+            return { state: now(), ...out };
           }
         : undefined,
       onBuy: ledgerStore.available
@@ -2051,8 +2054,11 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   let loanedForce: readonly number[] | undefined;
   /** The unit TYPES those placements lend, for `applyRosterCarryover`: R-2 must not replace
    *  an earlier enlisted body of a type this run lent (F3 final review F1). Derived from the
-   *  same indices into the same resolved force, never a second way. */
+   *  same loan answers the runtime gets (`loanedForce`, `loanedReinforce`), never a second judgement. */
   let lentTypes: ReadonlySet<string> | undefined;
+  /** `reinforceKey`s of the `reinforce` placements on loan (GH-801): L-1 for a unit that arrives
+   *  by trigger. Same `gateOf` as `loanedForce`. */
+  let loanedReinforce: ReadonlySet<string> | undefined;
   if (mission) {
     const gateOf = (id: string) => {
       const u = (units as Record<string, (typeof units)[keyof typeof units] | undefined>)[id];
@@ -2061,7 +2067,15 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     resolvedMission = resolveUpgrades(mission, ledger, gateOf);
     loanedForce = loanedPlacements(mission, ledger, gateOf);
     const resolvedForce = resolvedMission.starting_force ?? [];
-    lentTypes = new Set(loanedForce.map((i) => resolvedForce[i].unit));
+    loanedReinforce = loanedReinforcements(mission, ledger, gateOf);
+    // A reinforced loan, like a starting one, brings no body home to replace an earlier one (R-2).
+    const reinforceUnits = new Set<string>();
+    (mission.triggers ?? []).forEach((t, i) =>
+      (t.do.units ?? []).forEach((p, j) => {
+        if (loanedReinforce?.has(reinforceKey(i, j)) === true) reinforceUnits.add(p.unit);
+      }),
+    );
+    lentTypes = new Set([...loanedForce.map((i) => resolvedForce[i].unit), ...reinforceUnits]);
   } else if (versusWorld !== null) {
     // A versus room (network design §9): the KDF force (plus the second Spike
     // team, `VERSUS_EXTRA`) on EACH side, mirrored through the hostile anchor,
@@ -2204,12 +2218,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    * (`meshReady`). Measuring the alternative (loading every buildable before
    * deploy) is in the PR for the lead.
    */
+  // Only the types the campaign has OPENED (`deferredBuildables`): a gate-closed
+  // one cannot be built this mission, and 26 of the 31 KDF units are gated.
   const meshDeferred = mission?.resources
-    ? new Set(
-        Object.values(units)
-          .filter((u) => u.faction === 'kdf' && hasUnitMesh(u.id) && !meshRoster.has(u.id))
-          .map((u) => u.id)
-      )
+    ? deferredBuildables(Object.values(units), meshRoster, (id) => {
+        const u = (units as Record<string, (typeof units)[keyof typeof units] | undefined>)[id];
+        return u === undefined || unlockReason(kdfUnlockGate(u, boughtUnits), ledger) === null;
+      })
     : new Set<string>();
   /** Every type `ensureUnitMesh` has already started. Owned here rather than
    *  asked of the renderer: `ThreeRenderer` exposes no "is this loaded" read,
@@ -2703,6 +2718,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         tunnels: tunnelRoutes,
         ledger: sentLedger,
         loaned: loanedForce,
+        loanedReinforce,
         unitInfo: (id) => {
           const u = (units as Record<string, (typeof units)[keyof typeof units] | undefined>)[id];
           if (!u || u.faction !== 'kdf') return null;
@@ -6062,7 +6078,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         fx.add(fx.fromInt(civRefuge.at[0]), HALF),
         fx.add(fx.fromInt(civRefuge.at[1]), HALF),
       ] as const;
-      civFlight.step(sim, sandboxForce.civilians, sandboxForce.player, refuge);
+      civFlight.step(sim, sandboxForce.civilians, sandboxForce.player, refuge, civRefuge.zone);
       const out = civFlight
         .collect(sim, sandboxForce.civilians, civRefuge.zone)
         .map<MissionEvent>((entity) => ({ kind: 'evacuated', tick: sim.tickCount, entity }));
@@ -6435,6 +6451,18 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
        *  and tell you nothing. A previous slice shipped a selector that could
        *  never match, behind a fully green suite. */
       cursorKey: () => canvas.dataset.cursor ?? '(unset)',
+
+      /** E6 (GH-274): how many members of swarm `id` the renderer's instanced draw was handed last
+       *  frame, read off the batch (`Renderer.swarmDrawn`) and never recomputed. The witness for
+       *  "the drawn members follow the live count": compare it with `sim.swarmMembers(id)`. */
+      swarmDrawn: (id: number) => renderer.swarmDrawn(id),
+
+      /** E6 (GH-274) chunk C: what the beam batch was handed last frame for laser carrier `id`'s weapon
+       *  `slot` (look numbers and both ends), or null - read off the batch's inputs (`Renderer.beamDrawn`),
+       *  never recomputed from the sim. The witness for "the beam follows the dwell". */
+      beamDrawn: (id: number, slot = 0) => renderer.beamDrawn(id, slot),
+      /** E6 chunk C: heat-shimmer sites the fog pass was handed last frame (`Renderer.beamShimmerSites`). */
+      beamShimmerSites: () => renderer.beamShimmerSites(),
 
       /** Redraw the minimap's GROUND now, off its own 4 Hz tick, everything
        *  else as its last draw had it (`Minimap.redrawGround`). The visual

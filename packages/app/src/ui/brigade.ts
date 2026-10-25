@@ -186,7 +186,7 @@ export interface BrigadeOptions {
    *  account, saves, and answers with the account as it now stands plus the outcome;
    *  this screen only asks and reads the outcome out in an aria-live line. Rendered
    *  only alongside `credits`, like the reset. */
-  onRedeem?: (code: string) => { state: GarageState; result: 'ok' | 'unknown' | 'used' | 'failed'; credits?: number } | void;
+  onRedeem?: (code: string) => { state: GarageState; result: 'ok' | 'unknown' | 'used' | 'failed'; credits?: number; coins?: number } | void;
   /** Called when the player clicks a locked, priced unit's Buy control. The caller buys,
    *  saves and answers with the account as the store now holds it -- a refusal answers
    *  too, off the true state. This screen only asks; it never mutates the account itself. */
@@ -383,6 +383,13 @@ function tabStops(root: HTMLElement): HTMLElement[] {
   );
 }
 
+/** What an accepted code granted, naming each grant that was made. */
+function redeemedLine(credits: number, coins: number): string {
+  if (credits > 0 && coins > 0) return t('garage.redeem.ok.both', { credits, coins });
+  if (coins > 0) return t('garage.redeem.ok.coins', { n: coins });
+  return t('garage.redeem.ok', { n: credits });
+}
+
 export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
   /** The account this screen is drawing. Opens as the options hand it in and
    *  is replaced whole by each answer a purchase or a reset gets back
@@ -498,7 +505,7 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
       said.textContent = '';
       said.textContent =
         out.result === 'ok'
-          ? t('garage.redeem.ok', { n: out.credits ?? 0 })
+          ? redeemedLine(out.credits ?? 0, out.coins ?? 0)
           : out.result === 'used'
             ? t('garage.redeem.used')
             : out.result === 'failed'

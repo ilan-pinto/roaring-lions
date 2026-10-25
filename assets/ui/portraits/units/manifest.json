@@ -2,6 +2,13 @@
   "version": 1,
   "size": 192,
   "portraits": {
+    "aa_remetz": {
+      "file": "aa_remetz.png",
+      "extent": [
+        182,
+        182
+      ]
+    },
     "air_medevac_heli": {
       "file": "air_medevac_heli.png",
       "extent": [
@@ -114,6 +121,13 @@
         ]
       }
     },
+    "demo_tzav": {
+      "file": "demo_tzav.png",
+      "extent": [
+        182,
+        139
+      ]
+    },
     "digger_crew": {
       "file": "digger_crew.png",
       "extent": [
@@ -126,6 +140,13 @@
       "extent": [
         182,
         132
+      ]
+    },
+    "drone_swarm": {
+      "file": "drone_swarm.png",
+      "extent": [
+        182,
+        100
       ]
     },
     "gun_truck": {

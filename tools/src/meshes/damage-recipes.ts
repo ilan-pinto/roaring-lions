@@ -152,6 +152,26 @@ export interface SnapRotor {
 }
 
 /**
+ * A tall thin part bent over: an exhaust stack or a mast, the verb the wreck of a laser carrier needed
+ * (E6 chunk A2) and no earlier hull did. Every vertex within `radius` of the vertical line `axis` (x, z in
+ * mesh space) and above `y0` is carried along an arc that leans toward `lean` (a plan unit vector, aft =
+ * [-1, 0]) and turns by `angleDeg` over `length` metres of height, then runs straight at that angle: the
+ * part bends like a pipe, so a ring of verts stays a ring and nothing tears. Verts at or below `y0` (the
+ * base collar) and everything outside the radius stay put. The mesh is copied whole, so put the mast in a
+ * SMALL mesh (the Remetz's `hull_metal` is 668 triangles).
+ */
+export interface BendMast {
+  readonly verb: 'bendMast';
+  readonly mesh: string;
+  readonly axis: readonly [number, number];
+  readonly radius: number;
+  readonly y0: number;
+  readonly length: number;
+  readonly angleDeg: number;
+  readonly lean: readonly [number, number];
+}
+
+/**
  * The damaged copy simplified, ONLY to fit the cap (the lead's ruling R4:
  * "the big trucks and the helicopter may have their damaged copies simplified
  * to fit the cap"; the art rule: models at maximum detail, simplified only to a
@@ -174,7 +194,7 @@ export interface Simplify {
   readonly flags?: readonly ('LockBorder' | 'Prune' | 'Permissive' | 'Regularize')[];
 }
 
-export type DamageOp = ThrowTrack | PeelPlate | BreakBarrel | DropTyre | BlowOut | SnapRotor | Simplify;
+export type DamageOp = ThrowTrack | PeelPlate | BreakBarrel | DropTyre | BlowOut | SnapRotor | BendMast | Simplify;
 
 /**
  * The per-vehicle cap on what the damaged copies may add (the lead's ruling,
@@ -275,6 +295,15 @@ const NAMER: readonly DamageOp[] = [
 const D9: readonly DamageOp[] = [
   { verb: 'throwTrack', side: 1, slide: -1.4, out0: 0.85, out1: 1.4, wave: 0.15, lowY: 0.6 },
 ];
+/**
+ * GH-274: the Shiryonan carrier. Its `_RL_TRACK` loop is the whole ring (lower run y 0.0-0.1,
+ * return run y 1.2-1.35, end ramps), 14.1 m, the track slab |z| 0.95-1.9 and the hull
+ * |z| 2.08 -- a hair wider than the track, like the Namer's and the D9's, so the strip starts
+ * a metre out to clear the hull's own outline (measured 2026-10-25 off the shipped bytes).
+ */
+const TZAV: readonly DamageOp[] = [
+  { verb: 'throwTrack', side: 1, slide: -1.5, out0: 1.0, out1: 1.4, wave: 0.15, lowY: 0.6 },
+];
 
 /**
  * Wheeled hulls: the rear +Z tyre is gone (`WreckRecipe.lostWheel` drops that
@@ -320,7 +349,28 @@ export const DAMAGE_RECIPES: Readonly<Record<string, readonly DamageOp[]>> = {
   // the same track.
   veh_ambulance: NAMER,
   dozer_d9: D9,
+  demo_tzav: TZAV,
   apc_eitan: [lostRearTyre(3)],
+  // E6 (GH-274 chunk A2, 25 Oct): the Remetz Laser Carrier. Outline damage only, inside the cap and every
+  // copy a SMALL mesh (a copy of the 5,236-face baked `hull_hull` alone would be about 70 KiB Draco, so
+  // nothing here touches it). Measured on the exported bytes at 7.0 m (GH-807) in the vehicle frame (+X forward, +Y up, +Z
+  // the right):
+  //   - the aperture: `turret_glass` blown out to a few shards (the gun truck's windows);
+  //   - the LEFT (-Z) rear access panel of `turret_hull`: a raised plate 0.034 m proud at |z| 0.737, x -1.96..-1.40,
+  //     y 4.11..4.57 (the head's wall behind it is at |z| 0.70-0.72, so `zMin` 0.73 picks the plate alone),
+  //     hinged at its FRONT edge x -1.40 and swung 70 degrees out, its free rear edge furthest. The LEFT one, not the
+  //     right: the wreck pass throws the turret across the hull rolled 40 degrees and the +Z side is the one that goes
+  //     down, so the +Z panel swung out under the sand (measured 0.33 m below it, 25 Oct) and the -Z one stands up;
+  //   - the exhaust stack of `hull_metal` (axis x -2.625, z -0.737; collar radius 0.21; pipe from y 3.40, 1.40 m
+  //     tall to the rain cap): bent 40 degrees aft from y 3.50 over 1.40 m;
+  //   - the rear +Z tyre (wheel 2), the corner the wreck pass drops.
+  aa_remetz: [
+    { verb: 'blowOut', mesh: 'turret_glass', keep: 0.15 },
+    { verb: 'peelPlate', mesh: 'turret_hull', side: -1, x0: -1.96, x1: -1.4, y0: 4.11, y1: 4.57, normalMin: 0.55, zMin: 0.73, backing: false, hinge: 'front', angleDeg: 70, jag: 0.03, seed: 3 },
+    { verb: 'bendMast', mesh: 'hull_metal', axis: [-2.625, -0.737], radius: 0.3, y0: 3.5, length: 1.4, angleDeg: 40, lean: [-1, 0] },
+    lostRearTyre(2),
+  ],
+
   apc_kipod: [lostRearTyre(2)],
   // The soft-skins. Rubber only, except the gun truck, whose bake puts part
   // of each tyre in `hull_hull` and whose hull copy still fits the cap
@@ -371,6 +421,18 @@ export const DAMAGE_RECIPES: Readonly<Record<string, readonly DamageOp[]>> = {
   heli_yanshuf: [ROTOR],
   // GH-709: the medevac keeps the Yanshuf's rotor, so the rotor splits as the Petens'.
   air_medevac_heli: [ROTOR],
+  // E6 (GH-274) chunk A1: the swarm drone's four rotors are ONE mesh (`rotor_rubber`, four
+  // two-blade discs about hubs 0.357 m from the body's centre). `snapRotor` reads that as four
+  // "blades" (runs of occupied 15-degree sectors about the mesh's plan centre: the discs sit 48
+  // degrees wide with 42-degree gaps between), droops each about the centre and breaks blade 0
+  // off whole (every face past radius 0.28; the discs span 0.31-0.39) to lie flat beside the
+  // body. The brief also asked for two adjacent booms snapped and drooped 35 degrees: no verb
+  // cuts a region of `hull_metal` and bends it, and a new verb is pass code, so the booms are
+  // NOT damaged -- the smallest honest version. A drooping rotor sits on its boom's end, so the
+  // outline still changes where the booms would have.
+  drone_swarm: [
+    { verb: 'snapRotor', mesh: 'rotor_rubber', hubRadius: 0.1, droopDeg: 25, snapBlade: 0, snapAt: 0.28, lieAt: [0.0, 0.43], yawDeg: 30 },
+  ],
   // GH-709 (2026-10-22): the Te'o Howitzer: a thrown track and its raised gun
   // broken at the sleeve and drooped to the sand. The gun is at 35 degrees
   // (`elevationDeg`), the tube straight from x 2.4 (mesh space, the sleeve and

@@ -282,7 +282,7 @@ export function centroid(sim: Sim, side: number): [number, number] | null {
  *  end's side first. `idsOf(side)` names who is ordered: the spawned force in
  *  a placed-force game, every living unit of the side (the built ones too) in
  *  an economy game. */
-function order(sim: Sim, idsOf: (side: 0 | 1) => number[], sideOfEnd: readonly [0 | 1, 0 | 1]): void {
+export function order(sim: Sim, idsOf: (side: 0 | 1) => number[], sideOfEnd: readonly [0 | 1, 0 | 1]): void {
   for (const side of sideOfEnd) {
     const target = centroid(sim, side === 0 ? 1 : 0);
     const ids = idsOf(side).filter((id) => sim.state.alive[id] === 1);
@@ -297,7 +297,7 @@ function roleOfType(sim: Sim, id: number): string {
 }
 
 /** Every living unit of `side`, in id order. */
-function livingOf(sim: Sim, side: 0 | 1): number[] {
+export function livingOf(sim: Sim, side: 0 | 1): number[] {
   const out: number[] = [];
   for (let i = 0; i < sim.entityCount; i++) if (sim.state.alive[i] === 1 && sim.state.side[i] === side) out.push(i);
   return out;

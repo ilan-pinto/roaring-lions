@@ -31,10 +31,20 @@ export type VersusRosterUnit = (typeof units)[keyof typeof units];
  * doctrine menu. Registering a type a versus side can never field would move the
  * roster-count and hash pins for nothing, so they are held the same way until a versus
  * design gives a special unit a seat. `ugv_recon_dog` (Phase 8) joins them for the same
- * reason. So does `at_nlos_team` (Phase 7).
+ * reason. So does `at_nlos_team` (Phase 7), and `demo_tzav` (GH-274, bought-only).
+ *
+ * `drone_swarm` (E6, GH-274 chunk A1): a Sarim campaign enemy (E6 Q10) that no doctrine menu
+ * builds and no seat fields, and one entity standing for twelve drones, which a lockstep
+ * versus world has no rule for yet. Held the same way until a versus design gives it a seat;
+ * `drone_swarm` is registered last in `units`, so no earlier type index moves either.
+ *
+ * `aa_remetz` (E6, GH-274 chunk A2): the KDF laser carrier. Its beam has no versus rule yet (the lockstep world does
+ * not step `directed_energy`), and it exists to answer the swarm, which is itself held; both stay held until a
+ * versus design gives them seats. It follows `drone_swarm` in `units`, so no earlier type index moves.
  */
 export const VERSUS_HELD_UNITS: ReadonlySet<string> = new Set([
   'at_nlos_team',
+  'demo_tzav',
   'heli_yanshuf',
   'veh_ambulance',
   'air_medevac_heli',
@@ -43,6 +53,8 @@ export const VERSUS_HELD_UNITS: ReadonlySet<string> = new Set([
   'spg_cluster',
   'spg_long_range',
   'ugv_recon_dog',
+  'drone_swarm',
+  'aa_remetz',
 ]);
 
 /**

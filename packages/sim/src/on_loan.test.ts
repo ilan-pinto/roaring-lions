@@ -3,6 +3,7 @@
 // records the ids those placements spawn, every body of a count-N placement included.
 import { describe, expect, it } from 'vitest';
 import { MissionRuntime } from './mission';
+import { loanedReinforcements, type UnlockGate } from './unlock';
 import type { LedgerRosterEntry, MissionEvent, MissionJson } from './mission';
 import { Sim, TICKS_PER_SECOND, type UnitTypeJson } from './sim';
 
@@ -128,5 +129,99 @@ describe('checkEnd returns a loaned survivor (L-1)', () => {
     expect(end.survivors).toEqual(['loan_inf']);
     expect(rt.startingHome).toBe(1);
     expect(end.ledger['roster.surviving_units'] as LedgerRosterEntry[]).toHaveLength(1);
+  });
+});
+
+// GH-801 (the lead, 25 Oct 2026): L-1 reaches a gated unit that arrives by a `reinforce` trigger.
+// The fixture mirrors the shipped case, `wadi_halam_5_depot`'s second demo_squad (Conduct 77): one
+// open starting body, one gated reinforcement on a 1 s timer, played to a victory. Conduct is the
+// ledger's 'roe.mission_ratings' mean, so 60 is below the gate and 80 is above it.
+describe('a gated reinforcement is on loan (GH-801)', () => {
+  const GATE: Record<string, UnlockGate> = { loan_inf: { roeMin: 77 } };
+  const gateOf = (id: string): UnlockGate | undefined => GATE[id];
+  const MISSION: MissionJson = {
+    id: 'reinforce_loan',
+    map: { file: 'none', player_start: [4, 6] },
+    ledger: { requires: [], produces: ['roster.surviving_units'] },
+    objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 3 }],
+    resources: { logistics_start: 0 },
+    starting_force: [{ unit: 'loan_inf', count: 1, at: [3, 3], from_ledger: true }],
+    triggers: [
+      { id: 'second_team', on: { kind: 'timer_s', value: 1 }, do: { kind: 'reinforce', units: [{ unit: 'loan_inf', count: 1, at: [3, 8] }] } },
+    ],
+    enemy: { garrison: [{ unit: 'loan_inf', count: 1, at: [26, 10] }] },
+  };
+
+  function play(conduct: number): { rosterTypes: string[]; loanedIds: number[]; survivors: string[] } {
+    const ledger = { 'roe.mission_ratings': { earlier: conduct } };
+    const sim = new Sim({ seed: 3, width: 28, height: 12, capacity: 64 });
+    const type = sim.addUnitType(INF);
+    const rt = new MissionRuntime(sim, MISSION, {
+      typeIdOf: () => type,
+      markers: {},
+      zones: {},
+      ledger,
+      loanedReinforce: loanedReinforcements(MISSION, ledger, gateOf),
+    });
+    rt.start();
+    const events: MissionEvent[] = [];
+    for (let i = 0; i < 5 * TICKS_PER_SECOND; i++) events.push(...rt.step(sim.tick()));
+    const end = events.find((e) => e.kind === 'missionEnd');
+    if (end?.kind !== 'missionEnd') throw new Error('no end');
+    expect(end.result).toBe('victory');
+    const loanedIds: number[] = [];
+    for (let id = 0; id < sim.entityCount; id++) if (rt.isOnLoan(id)) loanedIds.push(id);
+    return {
+      rosterTypes: (end.ledger['roster.surviving_units'] as LedgerRosterEntry[]).map((r) => r.type),
+      loanedIds,
+      survivors: end.survivors,
+    };
+  }
+
+  it('below the gate the reinforcement goes back to the lender: it is a survivor, not on the roster', () => {
+    const got = play(60);
+    // Spawn order: the starting body is id 0, the enemy garrison id 1, the reinforcement (at 1 s) id 2.
+    expect(got.loanedIds).toEqual([2]);
+    expect(got.survivors).toEqual(['loan_inf', 'loan_inf']);
+    expect(got.rosterTypes).toEqual(['loan_inf']);
+  });
+
+  it('at or above the gate the reinforcement is the brigade\'s own and joins the roster', () => {
+    for (const conduct of [77, 80]) {
+      const got = play(conduct);
+      expect(got.loanedIds).toEqual([]);
+      expect(got.rosterTypes).toEqual(['loan_inf', 'loan_inf']);
+    }
+  });
+});
+
+describe('loanedReinforcements (GH-801)', () => {
+  const g = (id: string): UnlockGate | undefined => (id === 'gated' ? { roeMin: 77 } : undefined);
+  const mission = {
+    id: 'm',
+    starting_force: [{ unit: 'gated', count: 1, at: [1, 1] }],
+    triggers: [
+      { on: { kind: 'timer_s', value: 1 }, do: { kind: 'spawn', units: [{ unit: 'gated', count: 1, at: [1, 1] }] } },
+      {
+        on: { kind: 'timer_s', value: 2 },
+        do: {
+          kind: 'reinforce',
+          units: [
+            { unit: 'open', count: 1, at: [1, 1] },
+            { unit: 'gated', count: 1, at: [1, 1] },
+            { unit: 'gated', count: 1, at: [1, 1], from_ledger: true },
+          ],
+        },
+      },
+    ],
+  } as unknown as MissionJson;
+
+  it('names only a reinforce placement that is gated and not from the ledger', () => {
+    expect([...loanedReinforcements(mission, {}, g)]).toEqual(['1:1']);
+  });
+
+  it('names nothing once the gate is open or bought', () => {
+    expect(loanedReinforcements(mission, { 'roe.mission_ratings': { a: 80 } }, g).size).toBe(0);
+    expect(loanedReinforcements(mission, {}, (id) => (id === 'gated' ? { roeMin: 77, bought: true } : undefined)).size).toBe(0);
   });
 });

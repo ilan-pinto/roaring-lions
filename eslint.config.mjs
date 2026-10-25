@@ -117,6 +117,16 @@ export default defineConfig(
           message: '@lions/sim imports NOTHING (CLAUDE.md package layout). Only relative imports are allowed.',
         },
         {
+          selector: 'ImportDeclaration[source.value=/\\.test-helper/]',
+          message: 'Test helpers are for *.test.ts only; a non-test sim file must not import one.',
+        },
+        {
+          // The same ban, by every other door: a re-export (named or star) and a dynamic import.
+          selector:
+            'ExportNamedDeclaration[source.value=/\\.test-helper/], ExportAllDeclaration[source.value=/\\.test-helper/], ImportExpression[source.value=/\\.test-helper/]',
+          message: 'Test helpers are for *.test.ts only; a non-test sim file must not import, re-export or dynamically import one.',
+        },
+        {
           selector: 'ExportNamedDeclaration[source.value=/^[^.]/]',
           message: '@lions/sim imports NOTHING (CLAUDE.md package layout). Only relative re-exports are allowed.',
         },
@@ -128,7 +138,15 @@ export default defineConfig(
     },
   },
   {
-    files: ['packages/sim/src/**/*.test.ts'],
+    // The golden replay worlds (the runtime sink world, moved out of a spec in S2, and the witness's runtime worlds) are test support: they hold the same float-literal fixtures the
+    // specs do. Named as the exact file (not a glob), and the sim block above bans importing any
+    // `.test-helper`, so only specs can reach it.
+    files: [
+      'packages/sim/src/**/*.test.ts',
+      'packages/sim/src/golden-worlds.test-helper.ts',
+      'packages/sim/src/runtime-sink-world.test-helper.ts',
+      'packages/sim/src/snapshot-witness-worlds.test-helper.ts',
+    ],
     rules: {
       'no-restricted-globals': 'off',
       'no-restricted-properties': 'off',

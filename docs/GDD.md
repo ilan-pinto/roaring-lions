@@ -227,6 +227,7 @@ The model is wrong unless the backtest harness reproduces these:
 - ATGM Pk vs unprotected armour ≈ **0.7**
 - APS intercept rate **0.6–0.9** vs shaped charge
 - **Lanchester's square law emerges naturally** — concentration of force wins superlinearly. If it doesn't, the model is broken regardless of how good the numbers look individually.
+- **Air defence (E6, GH-274): a drone swarm is poor against rifles and MGs, the beam is worth its cost, and smoke is its counter.** One `drone_swarm` attack-moves onto a halted `inf_squad` + `apc_eitan` (60 seeds; members spent = dives before it dies, 12 unopposed). (a) the Eitan MG alone leaves ≥ 3.5 spent (measured 4.17 base, 3.83 max tier); (b) the MG still kills it before half is spent in ≥ 75% of seeds (93%, 98%); (c) adding an `aa_remetz` two tiles behind cuts the mean to ≤ 0.6 × the MG arm (0.49, 0.52); (d) a screen kept on the beam's line costs it ≥ 1.43 × the members (1.49, 1.50). Claim (d) lays smoke, the second case after the urban smoke step. Bands sit between the shipped `hit_mult` 0.08 and the nearest rejected values (0.3, 0.15, 0.05).
 
 All four pass as of M0 (`pnpm balance`). Extended targets, landing as the mechanics arrive (M1–M2), so the harness validates the enemy doctrines and not only the player's toolkit:
 

@@ -1,0 +1,35 @@
+{
+  "id": "swarm_member_down",
+  "trigger": "swarm_member_down",
+  "layer": "above_units",
+  "budget_priority": 4,
+  "particles": [
+    {
+      "sprite": "spark",
+      "count": [5, 8],
+      "lifetime_ms": [120, 260],
+      "speed_tiles_s": [1.4, 3.2],
+      "cone_deg": 360,
+      "gravity_tiles_s2": 3,
+      "drag": 0.25,
+      "size_px": [2, 3],
+      "size_over_life": [1.0, 0.4],
+      "color_over_life": ["vfx.white_hot", "vfx.fire", "vfx.ember"],
+      "alpha_over_life": [1.0, 0.0],
+      "additive": true
+    },
+    {
+      "sprite": "smoke_puff",
+      "count": [2, 3],
+      "lifetime_ms": [500, 800],
+      "speed_tiles_s": [0.2, 0.6],
+      "cone_deg": 360,
+      "gravity_tiles_s2": -0.3,
+      "drag": 0.7,
+      "size_px": [4, 7],
+      "size_over_life": [0.6, 1.8],
+      "color_over_life": ["gunmetal.2", "gunmetal.3"],
+      "alpha_over_life": [0.55, 0.0]
+    }
+  ]
+}

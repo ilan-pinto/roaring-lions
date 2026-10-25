@@ -2080,13 +2080,12 @@ describe('showBrigade — Shift+Tab reaches every track’s Buy (GH-243 Minor)',
   });
 });
 
-// E5 Task 7: the special-forces rows. The Zikit and Gunship LANDED (GH-181 part 2); the Tzav is
-// still STAGED until E6, so its fixture is read from the draft. The tag keys on `isBoughtOnly`, never an id list.
+// E5 Task 7: the special-forces rows. The Zikit and Gunship LANDED (GH-181 part 2) and the Tzav
+// with GH-274, so every fixture is read from the shipped JSON. The tag keys on `isBoughtOnly`, never an id list.
 describe('the garage rows — special forces (E5 Task 7)', () => {
-  const draftDir = resolve(__dirname, '../../../../docs/campaign/special_units/e5');
   const shippedDir = resolve(__dirname, '../../../../data/units/kdf');
   const staged = ['recon_zikit', 'demo_tzav', 'heli_peten_gunship'].map((id): BrigadeUnit => {
-    const dir = id === 'demo_tzav' ? draftDir : shippedDir; // Tzav stays staged until E6
+    const dir = shippedDir; // all three E5 units landed (the Tzav with GH-274)
     const raw = JSON.parse(readFileSync(resolve(dir, `${id}.json`), 'utf8')) as {
       name: string;
       role: string;
@@ -2157,7 +2156,7 @@ describe('the garage rows — special forces (E5 Task 7)', () => {
 });
 
 describe('showBrigade — redeem a code', () => {
-  const redeemer = (answer: 'ok' | 'unknown' | 'used' | 'failed') => {
+  const redeemer = (answer: 'ok' | 'unknown' | 'used' | 'failed', grant: { credits?: number; coins?: number } = { credits: 10000 }) => {
     const asked: string[] = [];
     let credits = 100;
     const host = mount({
@@ -2168,7 +2167,7 @@ describe('showBrigade — redeem a code', () => {
       onRedeem: (code) => {
         asked.push(code);
         if (answer === 'ok') credits += 10000;
-        return { state: { units: [], credits, owned: {} }, result: answer, credits: 10000 };
+        return { state: { units: [], credits, owned: {} }, result: answer, ...grant };
       },
     });
     const input = host.querySelector<HTMLInputElement>('.rl-garage__redeem-input')!;
@@ -2190,6 +2189,17 @@ describe('showBrigade — redeem a code', () => {
     expect(said.getAttribute('aria-live')).toBe('polite');
     expect(said.textContent).toBe('Code accepted: 10000 credits added');
     expect(input.value).toBe('');
+  });
+
+  // Falsified by hand: dropping the `coins` branch of `redeemedLine` turns both red.
+  it.each([
+    [{ coins: 100000 }, 'Code accepted: 100000 Roar coins added to the test wallet'],
+    [{ credits: 10000, coins: 100000 }, 'Code accepted: 10000 credits and 100000 Roar coins added'],
+    [{ credits: 1 }, 'Code accepted: 1 credit added'],
+  ])('names every grant the code made: %o', (grant, words) => {
+    const { host, submit } = redeemer('ok', grant);
+    submit('Some-Code');
+    expect(text(host, '.rl-garage__redeem-said')).toBe(words);
   });
 
   it.each([

@@ -2,12 +2,12 @@
 // shipped roster and measures probabilities the way a range card would.
 //
 // §5.7 measures the model WITHOUT smoke: no scenario below except
-// `urbanSmokeStep` issues a `smoke` command, and none may. Smoke is a player
+// `urbanSmokeStep` and `airDefence`'s claim (d) issues a `smoke` command, and none may. Smoke is a player
 // skill layered on top of the model (lead ruling D1, 2026-09-29, PR #292), so
 // the §5.7 numbers describe an un-smoked fight and `urbanSmokeStep` pins what a
 // good screen is allowed to buy on top of them: exactly one ratio step.
 
-import { Sim, fx, TICKS_PER_SECOND } from '@lions/sim';
+import { Sim, fx, TICKS_PER_SECOND, type UnitTypeJson } from '@lions/sim';
 import { MBT_BARE, countAlive, mean, runBattle, units, type TargetResult } from './harness';
 
 const WEST = 32768;
@@ -502,4 +502,100 @@ export function airContested(seedsPerCase = 30): TargetResult {
     target: 'a pass beats one gun (≥50%) and a battery punishes it (≤50%)',
     pass,
   };
+}
+
+// ---------------------------------------------------------------------------
+// 6. airDefence (E6, GH-274): the swarm against the MG against the beam
+//
+//    One shipped `drone_swarm` attack-moves onto a halted KDF group: an
+//    inf_squad and an apc_eitan, plus an aa_remetz two tiles behind them in
+//    the beam arms. "Members spent" is the dives the swarm made before it died
+//    (12 is unopposed). Four claims, each with a band that sits between the
+//    measured value and the nearest `hit_mult` the lead rejected (0.3, 0.15,
+//    0.05); the measurements and the red runs are in the commit that added them.
+//
+//      (a) the MG is poor: the MG arm spends at least 3.5 members;
+//      (b) the MG is still an answer: it kills the swarm before half is spent
+//          in at least 75% of seeds, so a mission stays winnable with no beam;
+//      (c) the beam earns its 350: its mean is at most 0.6 x the MG arm's;
+//      (d) smoke is the counter: a screen kept on the beam's line costs it at
+//          least 1.43 x the members (measured 1.49 base, 1.50 max tier). The
+//          proposal's 1.25 was too loose: with the beam's own "any smoke on
+//          the line blocks" rule removed the arm still reads 1.36 (a thick screen
+//          still blocks sight), so 1.43 sits between the two.
+//
+//    Claim (d) lays a screen, so it is the second case (after `urbanSmokeStep`)
+//    that may issue a `smoke` command. The rest of the section stays un-smoked.
+// ---------------------------------------------------------------------------
+type AirDefenceArm = 'mg' | 'beam' | 'beam+smoke';
+
+const AIR_DEFENCE_SEEDS = 60;
+const AIR_DEFENCE_SEED_BASE = 92000;
+
+/** A bare engineer that can lay smoke and nothing else, parked off the beam's flank. */
+const AIR_DEFENCE_SMOKER: UnitTypeJson = {
+  id: 'ad_smoker',
+  role: 'engineer',
+  hull: { hp: 380, armor: { front: 10, side: 10, rear: 10 } },
+  mobility: { speed_tiles_s: 1.0 },
+  sensors: { optics: 1, sight_tiles: 8, signature: 0.5 },
+  abilities: ['smoke'],
+  weapons: [],
+} as UnitTypeJson;
+
+interface AirDefenceRun {
+  /** Members the swarm spent before it died (12 = it was never stopped). */
+  dives: number;
+  /** The swarm died with fewer than six spent. */
+  killedBeforeHalf: boolean;
+}
+
+function airDefenceRun(arm: AirDefenceArm, seed: number, capS = 300): AirDefenceRun {
+  const sim = new Sim({ seed, width: 40, height: 20, capacity: 12 });
+  const swarm = sim.addUnitType(units.drone_swarm);
+  // The MG arm is the Eitan alone: the squad is the same body with its rifles taken off.
+  const squad = sim.addUnitType(arm === 'mg' ? { ...units.inf_squad, id: 'inf_squad_cold', weapons: [] } : units.inf_squad);
+  const eitan = sim.addUnitType(units.apc_eitan);
+  sim.spawn(squad, 0, fx.from(24.5), fx.from(9.5), WEST);
+  sim.spawn(eitan, 0, fx.from(26.5), fx.from(10.5), WEST);
+  if (arm !== 'mg') sim.spawn(sim.addUnitType(units.aa_remetz), 0, fx.from(28.5), fx.from(12.5), WEST);
+  const smoker = arm === 'beam+smoke' ? sim.spawn(sim.addUnitType(AIR_DEFENCE_SMOKER), 0, fx.from(30.5), fx.from(16.5), WEST) : -1;
+  const s = sim.spawn(swarm, 1, fx.from(6.5), fx.from(10.5));
+  sim.queueCommand({ kind: 'attackMove', ids: [s], x: fx.from(25), y: fx.from(10.5) });
+  let dives = 0;
+  for (let t = 0; t < capS * TICKS_PER_SECOND; t++) {
+    // Keep a plume on the carrier's line to the west, re-laid every four seconds.
+    if (smoker >= 0 && t % (4 * TICKS_PER_SECOND) === 0) {
+      sim.queueCommand({ kind: 'smoke', ids: [smoker], x: fx.from(25.5), y: fx.from(11.5) });
+    }
+    for (const e of sim.tick()) if (e.kind === 'fire' && e.shooter === s) dives++;
+    if (sim.state.alive[s] === 0) break;
+  }
+  return { dives, killedBeforeHalf: sim.state.alive[s] === 0 && dives < 6 };
+}
+
+/** The four claims, one row each. */
+export function airDefence(seeds = AIR_DEFENCE_SEEDS): TargetResult[] {
+  const arms = {} as Record<AirDefenceArm, AirDefenceRun[]>;
+  for (const arm of ['mg', 'beam', 'beam+smoke'] as AirDefenceArm[]) {
+    arms[arm] = Array.from({ length: seeds }, (_, k) => airDefenceRun(arm, AIR_DEFENCE_SEED_BASE + k));
+  }
+  const spent = (arm: AirDefenceArm) => mean(arms[arm].map((r) => r.dives));
+  const mg = spent('mg');
+  const beam = spent('beam');
+  const smoked = spent('beam+smoke');
+  const early = arms.mg.filter((r) => r.killedBeforeHalf).length / seeds;
+  const row = (claim: string, measured: string, target: string, pass: boolean, detail: string): TargetResult => ({
+    name: `airDefence ${claim}`,
+    detail: `${detail} (${seeds} seeds)`,
+    measured,
+    target,
+    pass,
+  });
+  return [
+    row('(a) the MG is poor', `${mg.toFixed(2)} members`, '≥ 3.5 spent against the MG arm', mg >= 3.5, 'swarm members spent against an Eitan MG alone'),
+    row('(b) the MG still answers', `${(early * 100).toFixed(0)}%`, '≥ 75% dead before half is spent', early >= 0.75, 'MG arm: swarm dead with fewer than six dives'),
+    row('(c) the beam earns its 350', `${(beam / mg).toFixed(2)} x`, '≤ 0.6 x the MG arm', beam / mg <= 0.6, `members spent: beam ${beam.toFixed(2)} vs MG ${mg.toFixed(2)}`),
+    row('(d) smoke is the counter', `${(smoked / beam).toFixed(2)} x`, '≥ 1.43 x the beam arm', smoked / beam >= 1.43, `members spent: beam + smoke ${smoked.toFixed(2)} vs beam ${beam.toFixed(2)}`),
+  ];
 }

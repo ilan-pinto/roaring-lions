@@ -241,3 +241,16 @@ art/meshy/01a16320-590e-7155-aa3b-23eb213b4f01-20261022-01a16323/model.*
 art/meshy/01a16320-590e-7155-aa3b-23eb213b4f01-20261022-01a16323/texture_*
 art/meshy/at-nlos-team-launcher-20261022-01a16328/texture_*
 art/meshy/mortar-team-20261001-01a0f89f/texture_*
+# E6 chunk A1 (24 Oct): the swarm drone's remesh at 600 collapsed and is not used; only its
+# task.json and thumbnail are tracked, for provenance. The preview's model.glb (12 MB) IS the source.
+art/meshy/drone-swarm-20261024-01a16f80/model.glb
+art/meshy/drone-swarm-20261024-01a16f80/texture_*
+# E6 chunk A2 (25 Oct): the Remetz Laser Carrier's Meshy sources. The 8,000-triangle remesh (65 MB, the 8k
+# bake embedded) is the exporter's source and is far too big to track, like the other 8k sources above; the
+# preview's model, the refine's 8k downloads (fbx/glb/obj/stl/usdz and the 54 MB base colour) are not used
+# directly. task.json and the thumbnails beside them are tracked for provenance.
+art/meshy/aa-gachelet-20261024-01a16f82/model.glb
+art/meshy/aa-gachelet-20261024-01a16f82/refine/model.*
+art/meshy/aa-gachelet-20261024-01a16f82/refine/texture_*
+art/meshy/aa-gachelet-20261024-01a16f86/model.glb
+art/meshy/aa-gachelet-20261024-01a16f86/texture_*

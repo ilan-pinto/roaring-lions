@@ -15,11 +15,15 @@ import {
   CLAIM_RANGES,
   detectClaims,
   detectTable,
+  houseClaims,
+  houseTable,
+  HOUSE_SEEDS,
   maxTierClaims,
   maxTierUnit,
   stagedUnit,
   type AirRates,
   type DetectTable,
+  type HouseTable,
 } from './e5-probes';
 import { units, unitsAtMaxTier } from './harness';
 
@@ -109,4 +113,71 @@ describe('E5 probe: the Zikit is found late (staged recon_zikit)', () => {
       });
     }
   }
+});
+
+// GH-274 (the Tzav landing, 25 Oct 2026). Measured on the landed unit, 20 seeds, the 90 s cap:
+//   demo_tzav   fell 20/20  alive 20/20  median exposed 66 ticks  bystander -36.1 hp (20/20 seeds)
+//   dozer_d9    fell 20/20  alive 20/20  median exposed 52 ticks  bystander 0
+//   demo_squad  fell  0/20  alive  0/20  (the garrison kills it at the wall)  bystander 0
+// The exposure and blast bands are +/-20% of the Tzav's measured reading (the blast reading is
+// the linear falloff 300 x (1 - 2.2 / 2.5) = 36 to within a tick of fire).
+const HOUSE_BANDS = {
+  exposedTicks: [53, 79],
+  bystanderLost: [29, 43],
+} as const;
+
+describe('E5 probe: the Tzav on a defended house (landed demo_tzav, GH-274)', () => {
+  let t: HouseTable;
+  beforeAll(() => {
+    t = houseTable(stagedUnit('demo_tzav'));
+  }, 60_000);
+
+  it('meets every claim (completes and lives; beats the sapper; exposed longer than the D9; hurts its own, the D9 does not)', () => {
+    expect(houseClaims(t).join('\n')).toBe('');
+  });
+
+  it('brings the house down and lives, in every seed', () => {
+    expect(t.demo_tzav.fell).toBe(HOUSE_SEEDS);
+    expect(t.demo_tzav.alive).toBe(HOUSE_SEEDS);
+  });
+
+  it('is exposed at the wall for about three seconds (inside its band)', () => {
+    const m = t.demo_tzav.medianExposed ?? -1;
+    expect(m).toBeGreaterThanOrEqual(HOUSE_BANDS.exposedTicks[0]);
+    expect(m).toBeLessThanOrEqual(HOUSE_BANDS.exposedTicks[1]);
+  });
+
+  it('hurts a soft unit 2.2 tiles from the house by the linear falloff (inside its band)', () => {
+    const m = t.demo_tzav.meanBystanderLost;
+    expect(m).toBeGreaterThanOrEqual(HOUSE_BANDS.bystanderLost[0]);
+    expect(m).toBeLessThanOrEqual(HOUSE_BANDS.bystanderLost[1]);
+  });
+
+  it('the D9 and a held-house sapper cannot do this alone: the D9 lives, the squad does not', () => {
+    expect(t.dozer_d9.alive).toBe(HOUSE_SEEDS);
+    expect(t.demo_squad.alive).toBe(0);
+  });
+});
+
+// Falsification of the claims, run against the probe itself (not a synthetic table): each
+// mutation is one line of the Tzav's own JSON and must turn `houseClaims` red.
+describe('E5 probe: the house claims go red on a broken Tzav', () => {
+  const tzav = stagedUnit('demo_tzav');
+
+  it('a blast that stops short of the bystander (blast_tiles 1.0 for 2.5) fails "hurts its own"', () => {
+    const pc = tzav.placed_charge;
+    if (!pc) throw new Error('the Tzav lost its placed charge');
+    const broken: typeof tzav = { ...tzav, placed_charge: { ...pc, blast_tiles: 1.0 } };
+    expect(houseClaims(houseTable(broken, 5)).join('\n')).toMatch(/hurt the bystander in only 0\//);
+  });
+
+  it('a Tzav with no placed charge (a plain sapper, same 3 s) fails "hurts its own"', () => {
+    const broken: typeof tzav = { ...tzav, placed_charge: undefined, demolition_method: 'charges' };
+    expect(houseClaims(houseTable(broken, 5)).join('\n')).toMatch(/hurt the bystander in only 0\//);
+  });
+
+  it('a Tzav that cannot take a hit (hull armour 1, hp 300) fails "completes and lives"', () => {
+    const broken = { ...tzav, hull: { ...tzav.hull, hp: 300, armor: { front: 1, side: 1, rear: 1 } } };
+    expect(houseClaims(houseTable(broken, 5)).join('\n')).toMatch(/alive at the end in only/);
+  });
 });

@@ -3,7 +3,8 @@
  *
  * Once a mission's timed primaries resolve, most missions can end only in a
  * win, a wipe or a Conduct failure: their remaining primaries (`locate`,
- * `capture`, `hold_for`, `eliminate_hvt`) can never fail. A player who has
+ * `capture`, `hold_for`, `eliminate_hvt`) cannot fail by the clock (an `eliminate_hvt`
+ * fails only if its target is removed from play, which ends the mission). A player who has
  * lost the recon drone and does not know which post is still unseen just
  * waits. This is the feed line that says what is still open.
  *

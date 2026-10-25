@@ -47,11 +47,12 @@ describe('mobility.gear vs the running-gear recipes (#706)', () => {
       expect(`${u.id}: ${gearOf(u)}`).toBe(`${u.id}: ${want}`);
       checked.push(u.id);
     }
-    // Not vacuous: the fifteen ground hulls with a recipe and a unit file (the ten,
-    // plus GH-709's `veh_ambulance`, `mbt_lavi_camo`, `spg_long_range` and `spg_cluster`)
+    // Not vacuous: the seventeen ground hulls with a recipe and a unit file (the ten,
+    // plus GH-709's `veh_ambulance`, `mbt_lavi_camo`, `spg_long_range` and `spg_cluster`,
+    // E6's `aa_remetz` and GH-274's `demo_tzav`, tracked, with no `gear` field)
     // (officer_armour has a recipe and no unit; it is a held mesh).
     expect(checked.sort()).toEqual([
-      'apc_eitan', 'apc_kipod', 'dozer_d9', 'gun_truck', 'ifv_namer', 'jeep_shoded',
+      'aa_remetz', 'apc_eitan', 'apc_kipod', 'demo_tzav', 'dozer_d9', 'gun_truck', 'ifv_namer', 'jeep_shoded',
       'mbt_lavi', 'mbt_lavi_camo', 'rocket_battery', 'scout_shachaf', 'spg_cluster', 'spg_long_range', 'technical',
       'veh_ambulance',
     ]);
@@ -60,6 +61,7 @@ describe('mobility.gear vs the running-gear recipes (#706)', () => {
   it('every unit declaring wheels has a wheels-only recipe', () => {
     const wheels = units.filter((u) => u.mobility.gear === 'wheels').map((u) => u.id);
     for (const id of wheels) expect(`${id}: ${recipeGear(id) ?? 'no recipe'}`).toBe(`${id}: wheels`);
-    expect(wheels.length).toBe(7);
+    // E6 chunk A2: the Remetz Laser Carrier. Was 7.
+    expect(wheels.length).toBe(8);
   });
 });

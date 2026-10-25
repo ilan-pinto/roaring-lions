@@ -1,0 +1,57 @@
+{
+  "id": "drone_swarm",
+  "name": "Drone Swarm",
+  "faction": "sarim",
+  "role": "drone",
+  "cost": {
+    "logistics": 240,
+    "build_time_s": 16,
+    "population": 0
+  },
+  "hull": {
+    "hp": 180,
+    "armor": {
+      "front": 0,
+      "side": 0,
+      "rear": 0
+    },
+    "crew": 0,
+    "suppression_resistance": 1.0
+  },
+  "mobility": {
+    "speed_tiles_s": 2.6,
+    "turn_rate_deg_s": 200,
+    "domain": "air"
+  },
+  "sensors": {
+    "optics": 1.2,
+    "sight_tiles": 10,
+    "signature": 0.6,
+    "firing_signature_mult": 1.0
+  },
+  "swarm": {
+    "count": 12,
+    "member_hp": 15,
+    "spread_tiles": 1.5,
+    "hit_mult": 0.08
+  },
+  "weapons": [
+    {
+      "id": "bomblet_dive",
+      "type": "heat",
+      "range_tiles": 1.5,
+      "effective_range_tiles": 1.5,
+      "accuracy": 0.8,
+      "penetration": 160,
+      "damage": 90,
+      "splash_tiles": 0.5,
+      "suppression": 60,
+      "rof_per_min": 12,
+      "can_target": [
+        "ground",
+        "structure"
+      ],
+      "collateral_risk": 0.3
+    }
+  ]
+}

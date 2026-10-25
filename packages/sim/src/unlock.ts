@@ -189,3 +189,37 @@ export function loanedPlacements(
   }
   return loaned;
 }
+
+/**
+ * The key the loan predicate and the runtime share for ONE placement of a `reinforce` trigger:
+ * the trigger's index in `mission.triggers`, then the placement's index in its `do.units`. A
+ * string so it travels in a `ReadonlySet` and survives a JSON clone of the mission.
+ */
+export function reinforceKey(triggerIndex: number, unitIndex: number): string {
+  return `${triggerIndex}:${unitIndex}`;
+}
+
+/**
+ * GH-801 (the lead, 25 Oct 2026): L-1 for the player's other way to field a unit, a `reinforce`
+ * trigger. A placement a `reinforce` trigger brings in is on loan exactly when a `starting_force`
+ * placement would be: not `from_ledger` (the brigade's own body) and its gate (as resolved for
+ * this ledger, `bought` included) still closed. Returns `reinforceKey`s for those placements.
+ * The same `gateOf` the caller resolves upgrades with, so the two cannot drift. Pure.
+ */
+export function loanedReinforcements(
+  mission: MissionJson,
+  ledger: LedgerData | undefined,
+  gateOf: (unitId: string) => UnlockGate | undefined
+): ReadonlySet<string> {
+  const loaned = new Set<string>();
+  const triggers = mission.triggers ?? [];
+  for (let i = 0; i < triggers.length; i++) {
+    if (triggers[i].do.kind !== 'reinforce') continue;
+    const units = triggers[i].do.units ?? [];
+    for (let j = 0; j < units.length; j++) {
+      if (units[j].from_ledger === true) continue;
+      if (unlockReason(gateOf(units[j].unit), ledger) !== null) loaned.add(reinforceKey(i, j));
+    }
+  }
+  return loaned;
+}

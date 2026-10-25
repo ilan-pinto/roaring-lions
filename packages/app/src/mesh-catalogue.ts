@@ -287,6 +287,13 @@ export const VEHICLE_UNIT_MESHES: Readonly<Record<string, string>> = {
   // (`tools/vehicles/export_meshy_apache_gunship.py`); an air unit on this path.
   heli_peten_gunship: 'vehicles/heli_peten_gunship.glb',
 
+  // GH-274 (closes GH-156): the bought-only Shiryonan Demolition Carrier, a Meshy
+  // text-to-3D export (`tools/vehicles/export_meshy_tzav.py`), textured
+  // (`TEXTURED_VEHICLE_TYPES`), tracks scroll (`running-gear-recipes.ts`), its
+  // kit RWS under `turret_pivot`. It was held until its placed charge
+  // (E6, PR 778) and its probes landed.
+  demo_tzav: 'vehicles/demo_tzav.glb',
+
   // GH-698 (2026-10-21): the UH-60 Yanshuf, an air carrier. Its art landed
   // first (PR 701, held here until the land/lift sim, PR 713); a Meshy export
   // (`tools/vehicles/export_meshy_yanshuf.py`), textured
@@ -309,6 +316,16 @@ export const VEHICLE_UNIT_MESHES: Readonly<Record<string, string>> = {
   // palette-painted through `VEHICLE_ROLE_PALETTE`.
   gun_truck: 'vehicles/gun_truck.glb',
   loiter_drone: 'vehicles/loiter_drone.glb',
+
+  // E6 (GH-274) chunk A1 (2026-10-24): the Sarim swarm drone, ONE member's mesh from a Meshy
+  // preview (palette-painted, `tools/vehicles/export_meshy_swarm_drone.py`). Until chunk B
+  // builds the instanced swarm, a `drone_swarm` entity draws as this one drone. Enemy only.
+  drone_swarm: 'vehicles/drone_swarm.glb',
+
+  // E6 (GH-274) chunk A2 (2026-10-25): the Remetz Laser Carrier, a Meshy 8k hull (textured, `TEXTURED_VEHICLE_TYPES`)
+  // under a beam turret built in Blender (`tools/vehicles/export_meshy_remetz.py`). A ground hull with a
+  // `turret_pivot`, steered front axle and six spinning wheels. KDF, bought; held from versus.
+  aa_remetz: 'vehicles/aa_remetz.glb',
 
   // The two KDF drones (GH-286, batch B0a, 2026-09-30): Meshy text-to-3D
   // previews remeshed at 800 tris and role-split in
@@ -516,9 +533,6 @@ export const HELD_MESH_FILES: Readonly<Record<string, string>> = {
   'officer_fires.glb': 'officer_fires (GH-298 Stage 5)',
   'officer_engineer.glb': 'officer_engineer (GH-298 Stage 5)',
   'vehicles/officer_armour.glb': 'officer_armour (GH-298 Stage 5)',
-  // E5 part 2 (GH-181, 2026-10-01): the Tzav's unit JSON is staged and its
-  // placed charge is E6's, so the file waits for E6 to wire it.
-  'vehicles/demo_tzav.glb': 'demo_tzav (GH-181 E5 -> E6; VEHICLE_UNIT_MESHES)',
 };
 
 /**
@@ -721,6 +735,42 @@ export function missionUnitTypes(mission: unknown, unitIds: ReadonlySet<string>)
     }
   };
   walk(mission);
+  return out;
+}
+
+/** One unit as `deferredBuildables` reads it: only the two fields it filters on. */
+interface DeferrableUnit {
+  readonly id: string;
+  readonly faction: string;
+}
+
+/**
+ * The unit types a `resources` mission fetches AFTER it is running, cold: every
+ * KDF type with a mesh that the roster did not already queue AND that the
+ * player's campaign has opened.
+ *
+ * `isOpen` is the campaign gate (`unlockReason(...) === null` against the
+ * ledger and the bought set the mission was booted with). A gate-closed type
+ * cannot be built this mission -- `MissionRuntime.canBuild` refuses it first --
+ * and the gate cannot open mid-mission, because its inputs (stars, Conduct,
+ * cleared missions, bought units) are the INCOMING ledger and account. Fetching
+ * and parsing its GLB buys a mesh nothing can draw, and the geometry stays in
+ * ArrayBuffers for the whole mission (the textures are cold, the vertices are
+ * not). 26 of the 31 KDF units are gated, and every credit-only special unit
+ * that landed on 22-25 Oct raised `umm_zeitoun_4_clearance`'s JS reading on a
+ * fresh account (CI `perf:memory`, 123.7 -> 154.1 MiB) until the 154 MiB
+ * ceiling failed. A type that slips through anyway (a roster miss) is still
+ * caught, loudly, by the 1 Hz sweep in `main.ts`.
+ */
+export function deferredBuildables(
+  units: Iterable<DeferrableUnit>,
+  roster: ReadonlySet<string>,
+  isOpen: (id: string) => boolean
+): Set<string> {
+  const out = new Set<string>();
+  for (const u of units) {
+    if (u.faction === 'kdf' && hasUnitMesh(u.id) && !roster.has(u.id) && isOpen(u.id)) out.add(u.id);
+  }
   return out;
 }
 

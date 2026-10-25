@@ -120,13 +120,14 @@ describe('the ring grid and cache numbers (Task 5, fix round 1)', () => {
     // mbt_lavi_camo joined with its net (GH-709, along 1.48: over 1.23, under the 1.5 fourth tier).
     // spg_long_range joined with its spades (GH-709, along 1.57: over the 1.5 fourth tier too).
     // spg_cluster (GH-709 Phase 7) is the Te'o's hull: along 1.57, the same tier.
-    expect(xl).toEqual(['apc_eitan', 'apc_kipod', 'dozer_d9', 'ifv_namer', 'mbt_lavi', 'mbt_lavi_camo', 'rocket_battery', 'spg_cluster', 'spg_long_range', 'veh_ambulance']);
+    // aa_remetz (E6 chunk A2): along 1.67, over the 1.5 fourth tier too. demo_tzav (GH-274, along 1.86) is the longest ring.
+    expect(xl).toEqual(['aa_remetz', 'apc_eitan', 'apc_kipod', 'demo_tzav', 'dozer_d9', 'ifv_namer', 'mbt_lavi', 'mbt_lavi_camo', 'rocket_battery', 'spg_cluster', 'spg_long_range', 'veh_ambulance']);
   });
-  it('GH-346: a fourth tier, 9x9 over 1.5 tiles -- at 1x exactly the six grown ellipses (the two Te\'o guns, GH-709, the fifth and sixth)', () => {
+  it('GH-346: a fourth tier, 9x9 over 1.5 tiles -- at 1x exactly the eight grown ellipses (the two Te\'o guns, GH-709, and the Tzav, GH-274)', () => {
     expect(RING_GRID_XXL).toBe(9);
     expect(RING_XXL_TILES).toBe(1.5);
     const xxl = Object.entries(ELLIPSE_BY_TYPE).filter(([, e]) => e.along > RING_XXL_TILES).map(([id]) => id).sort();
-    expect(xxl).toEqual(['apc_eitan', 'apc_kipod', 'dozer_d9', 'ifv_namer', 'spg_cluster', 'spg_long_range', 'veh_ambulance']);
+    expect(xxl).toEqual(['aa_remetz', 'apc_eitan', 'apc_kipod', 'demo_tzav', 'dozer_d9', 'ifv_namer', 'spg_cluster', 'spg_long_range', 'veh_ambulance']);
   });
   it('a cached ring is rebuilt past 0.05 tile of travel or about 2 degrees of turn', () => {
     expect(RING_CACHE.moveTiles).toBe(0.05);

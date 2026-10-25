@@ -43,6 +43,12 @@ describe('voiceClassOf (spec §3)', () => {
     ugv_recon_dog: 'air',
     // GH-709 Phase 7: the Te'o Cluster Howitzer, the Te'o's hull and crew.
     spg_cluster: 'crew',
+    // E6 (GH-274) chunk A1: the swarm is role `drone`, so the air voice.
+    drone_swarm: 'air',
+    // E6 chunk A2: the Remetz Laser Carrier is role `aa` (a crewed truck), so the crew voice by role.
+    aa_remetz: 'crew',
+    // GH-274: the Shiryonan carrier is role `engineer`, so the engineer voice, as the D9's.
+    demo_tzav: 'engineer',
     civilians: 'infantry', // a class, but no language: civilians never speak (languageOf)
     // GH-709: the ambulance is a crewed hull; the medevac is an air carrier whose role is `apc`, so it
     // carries the Yanshuf's `voice: "air"` override or it would speak as a ground crew.

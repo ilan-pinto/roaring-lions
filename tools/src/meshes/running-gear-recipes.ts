@@ -175,7 +175,32 @@ const TEO_RUNNING_GEAR: RunningGearRecipe = {
   track: { zIn: 0.97, zOut: 1.7, loopMaxY: 1.2, band: 0.08, minComponentTris: 200, excludeDiscs: [] },
 };
 
+/** GH-274 (the Tzav lands, GH-156): the eight road wheels a side of `demo_tzav`, measured
+ *  2026-10-25 on the shipped `hull_rubber` (the bounding-box fit of the rubber vertices in
+ *  a seeded disc, iterated; right and left agree within 3 cm). They are fused into the
+ *  track loop and 0.28 m in radius, so like the Lavi's and the D9's (A3/A4) they do not
+ *  spin: `excludeDiscs` keeps them out of the scrolling track. */
+const TZAV_STATIONS_X: readonly number[] = [-2.79, -2.17, -1.52, -0.91, -0.29, 0.39, 1.02, 1.63];
+
 export const RUNNING_GEAR_RECIPES: Readonly<Record<string, RunningGearRecipe>> = {
+  // E6 (GH-274 chunk A2, 25 Oct): the Remetz Laser Carrier, a Meshy 6x6 whose tandem OVERLAPS (the
+  // rear two tyres' axles are 0.78 m apart for a 1.32 m tyre, as the source delivered them: the Grad's
+  // are the same), so `overlapOk` and a face goes to its nearer axle. Measured 2026-10-25 on the
+  // exported `hull_rubber` (circle fit to each rim, bbox centre and half-extent in a seeded disc,
+  // iterated to convergence; right and left within 4 cm of each other) at the 7.0 m scale (the lead's
+  // GH-807 ruling; 7.6 m before it): axle y 0.66-0.67, rim radius 0.65-0.66, tyre slab |z| 0.93-1.50. The front axle steers (A9, as the four 4x4s').
+  aa_remetz: {
+    cut: 1.03,
+    overlapOk: true,
+    wheels: [
+      { side: 'r', x: 1.922, y: 0.671, r: 0.655, zIn: 0.932, zOut: 1.497, steer: true },
+      { side: 'r', x: -1.38, y: 0.661, r: 0.661, zIn: 0.95, zOut: 1.485 },
+      { side: 'r', x: -2.155, y: 0.658, r: 0.658, zIn: 0.949, zOut: 1.483 },
+      { side: 'l', x: 1.95, y: 0.666, r: 0.655, zIn: 0.953, zOut: 1.504, steer: true },
+      { side: 'l', x: -1.382, y: 0.666, r: 0.66, zIn: 0.95, zOut: 1.495 },
+      { side: 'l', x: -2.162, y: 0.665, r: 0.662, zIn: 0.952, zOut: 1.497 },
+    ],
+  },
   apc_eitan: {
     cut: 1.03,
     wheels: [
@@ -282,6 +307,24 @@ export const RUNNING_GEAR_RECIPES: Readonly<Record<string, RunningGearRecipe>> =
       excludeDiscs: [
         ...D9_WHEELS_X.map(([x, y]) => ({ side: 'r' as const, x, y, r: 0.39 })),
         ...D9_WHEELS_X.map(([x, y]) => ({ side: 'l' as const, x, y, r: 0.39 })),
+      ],
+    },
+  },
+  // GH-274 (A5, "do it as tracked"): the Shiryonan carrier. One rubber part a side (about
+  // 980 faces, the road wheels and the loop welded), the loop's slab 0.95-1.9 m from the
+  // centreline, its top run at y 1.34, the fenders (y > 1.35, 60 faces) a separate part.
+  demo_tzav: {
+    cut: 1,
+    wheels: [],
+    track: {
+      zIn: 0.95,
+      zOut: 1.9,
+      loopMaxY: 1.4,
+      band: 0.14,
+      minComponentTris: 200,
+      excludeDiscs: [
+        ...TZAV_STATIONS_X.map((x) => ({ side: 'r' as const, x, y: 0.39, r: 0.32 })),
+        ...TZAV_STATIONS_X.map((x) => ({ side: 'l' as const, x, y: 0.39, r: 0.32 })),
       ],
     },
   },

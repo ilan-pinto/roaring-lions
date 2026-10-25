@@ -1,0 +1,23 @@
+{
+  "unit": "demo_tzav",
+  "variant": "team",
+  "source": "assets/meshes/vehicles/demo_tzav.glb",
+  "source_sha256": "f9fc3b2e856de96705afa631e000e33229ff1b55b465d6e723cd6cd55af0c258",
+  "yaw_deg": -125.0,
+  "elevation_deg": 18.0,
+  "fov_deg": 30.0,
+  "fill": [
+    "width",
+    0.92
+  ],
+  "ndc_box": [
+    0.04,
+    0.96,
+    0.1471,
+    0.8529
+  ],
+  "materials": {
+    "baked": 2,
+    "flat": 2
+  }
+}

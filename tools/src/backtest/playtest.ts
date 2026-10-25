@@ -8,6 +8,8 @@ import {
   starsEarned,
   type LedgerData,
   type MissionResult,
+  type MissionRuntime,
+  type SimEvent,
   type Stars,
 } from '@lions/sim';
 import {
@@ -597,9 +599,45 @@ passiveAcrossSeeds('wadi_halam_2_laager', 'wadi_halam_2_laager (no orders)', 'de
 // the bunds against the two-wave counter-raid; the hold re-anchors on the
 // same schedule as II, for the same reason (a wave that breaks and runs
 // pulls a pursuing force out past the zone edge).
+// E6 (GH-274 item 5): both swarm missions' optimal plans build ONE aa_remetz at t=0 and park it halted
+// at `post`, so CI exercises the beam and the Conduct-85 gate. The post is the whole lesson: a carrier
+// behind the crest has no line to the swarm (measured: beam target -1 for the whole fight), so UZ II
+// parks it ON the crest and WH III on the bunds. It stays out of every re-anchoring attack-move below.
+const remetzReport = new Map<string, { accepted: boolean; built: boolean; beams: number }>();
+function e6Remetz(
+  sim: Sim,
+  rt: MissionRuntime,
+  ids: (t: string) => number[],
+  at: (t: number, fn: () => void) => void,
+  missionId: string,
+  post: [number, number]
+): void {
+  // Each run gets its OWN record; only the first (seed 424242, base tier) is entered in the report. The
+  // max-tier replay builds the same carrier on a record of its own, so it can neither mask a base run
+  // that refused the build or never struck, nor add its strikes to the base count.
+  const rec = { accepted: false, built: false, beams: 0 };
+  if (!remetzReport.has(missionId)) remetzReport.set(missionId, rec);
+  at(0, () => void (rec.accepted = rt.requestBuild('aa_remetz')));
+  for (let s = 2; s <= 120; s += 2)
+    at(s, () => {
+      const r = ids('aa_remetz');
+      if (r.length && !rec.built) {
+        rec.built = true;
+        sim.queueCommand({ kind: 'move', ids: r, ...M(post[0], post[1]) });
+      }
+    });
+}
+/** Count the carrier's beam strikes, from the run's own event stream. */
+const countBeams = (missionId: string) => (evs: readonly SimEvent[]): void => {
+  const rec = remetzReport.get(missionId);
+  if (rec) for (const e of evs) if (e.kind === 'beam' && e.phase === 'struck') rec.beams++;
+};
+const isRemetz = (sim: Sim, i: number): boolean => sim.unitTypes[sim.state.typeIdx[i]].id === 'aa_remetz';
+
 const wh3 = run(
   'wadi_halam_3_counterraid',
   (sim, _rt, ids, at) => {
+    e6Remetz(sim, _rt, ids, at, 'wadi_halam_3_counterraid', [20, 22]);
     const chase = [...ids('jeep_shoded'), ...ids('apc_eitan')];
     // GH-382: the herd stands on the lane's lower bend now, 10 tiles above the refuge on the
     // stream bed, and civilians break for the refuge only when a soldier reaches them. One
@@ -610,7 +648,7 @@ const wh3 = run(
     const anchor = (): void => {
       const cur: number[] = [];
       for (let i = 0; i < sim.entityCount; i++)
-        if (sim.state.side[i] === 0 && sim.state.alive[i] === 1 && !kept.has(i)) cur.push(i);
+        if (sim.state.side[i] === 0 && sim.state.alive[i] === 1 && !kept.has(i) && !isRemetz(sim, i)) cur.push(i);
       sim.queueCommand({ kind: 'attackMove', ids: cur, ...M(21, 22) });
     };
     at(0, () => {
@@ -628,7 +666,11 @@ const wh3 = run(
     });
     for (let when = 60; when <= 700; when += 45) at(when, anchor);
   },
-  wh2
+  wh2,
+  'victory',
+  'wadi_halam_3_counterraid',
+  undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+  countBeams('wadi_halam_3_counterraid')
 );
 // `get_the_herders_out` reaches `failed` at 300s. `hold_bunds` never starts
 // for the same structural reason as II; `kill_amir` cannot fail on its own.
@@ -2032,10 +2074,13 @@ run(
 
 // Tel Marum III — the pass, taken the expensive way on purpose.
 //
-// The plan takes the switchback road (GH-382: `tel_marum_3`). That is the costly route and it is
-// chosen deliberately: the defile is ten tiles longer (64 against 54, measured), foot-only and
-// reached by the Grad at seventeen, and the scripted proof should demonstrate the mission is
-// winnable by the obvious line, not by the clever one. The column stages in the second leg, behind
+// The armour takes the switchback road (GH-382: `tel_marum_3`) and the foot take the defile
+// (GH-802, the lead, 25 Oct: the plan takes the flank). The defile is ten tiles longer (64 against
+// 54, measured), foot-only and reached by the Grad at seventeen; since GH-802 it holds the battery's
+// relay (`tm_relay`, the carrying secondary and the third star) at its first bend, and a rifle team
+// reaches its mouth at 40 s. The foot ATTACK-move up it: infantry fire only from a halt, so a plain
+// move walks them past the relay and into the mouth without firing back (3.7 squads a run,
+// flank-reward probe, 30 seeds) where an attack-move costs about one. The column stages in the second leg, behind
 // the rib, where no post on the plateau can see it; two Lavis alone go up the exit column and onto
 // the plateau, because they outrange both Kornet pockets, and the rest follow once the pass is
 // quiet. One Eitan goes for the families -- and only one: a civilian boards the first hull in id
@@ -2073,7 +2118,8 @@ const ledTelMarum3 = run(
     // rim blocks every line), and the exit column is the only way up for wheels.
     at(2, () => {
       sim.queueCommand({ kind: 'move', ids: [...tanks, ...namer, ...armour], ...M(28, 19) });
-      sim.queueCommand({ kind: 'move', ids: [...foot, ...at_], ...M(27, 19) });
+      // the foot go up the defile to `saddle_narrow`, cutting the relay on the way (GH-802)
+      sim.queueCommand({ kind: 'attackMove', ids: [...foot, ...at_], ...M(10, 14) });
       sim.queueCommand({ kind: 'move', ids: mortar, ...M(26, 19) });
     });
     // Two Lavis alone go up the column and onto the plateau: they outrange both pockets.
@@ -2081,10 +2127,8 @@ const ledTelMarum3 = run(
     at(62, () => sim.queueCommand({ kind: 'move', ids: tanks, ...M(33, 11) }));
     at(80, () => {
       sim.queueCommand({ kind: 'move', ids: armour, ...M(33, 14) });
-      sim.queueCommand({ kind: 'move', ids: [...foot, ...at_], ...M(33, 17) });
     });
     at(100, () => {
-      sim.queueCommand({ kind: 'move', ids: [...foot, ...at_], ...M(33, 11) });
       // One Eitan to the families, and only one: a civilian boards the first hull in id order
       // with a free seat within four tiles, and a Namer parked in the pass would keep them.
       sim.queueCommand({ kind: 'move', ids: armour, ...M(28, 6) });
@@ -2637,6 +2681,7 @@ passiveAcrossSeeds('umm_zeitoun_2_buildup', 'umm_zeitoun_2_buildup (no orders)',
 const ledUZ2 = run(
   'umm_zeitoun_2_buildup',
   (sim, _rt, ids, at) => {
+    e6Remetz(sim, _rt, ids, at, 'umm_zeitoun_2_buildup', [24, 31]);
     const demo = ids('demo_squad');
     const strike = [...ids('apc_eitan'), ...ids('mbt_lavi'), ...ids('mortar_team'), ...ids('at_team'), ...ids('inf_squad')];
     at(1, () => {
@@ -2664,7 +2709,7 @@ const ledUZ2 = run(
       at(when, () => {
         const cur: number[] = [];
         for (let i = 0; i < sim.entityCount; i++) {
-          if (sim.state.side[i] === 0 && sim.state.alive[i] === 1 && !demo.includes(i)) cur.push(i);
+          if (sim.state.side[i] === 0 && sim.state.alive[i] === 1 && !demo.includes(i) && !isRemetz(sim, i)) cur.push(i);
         }
         sim.queueCommand({ kind: 'attackMove', ids: cur, ...M(24, 31) });
       });
@@ -2672,7 +2717,9 @@ const ledUZ2 = run(
   },
   ledUZ1,
   'victory',
-  'umm_zeitoun_2_buildup'
+  'umm_zeitoun_2_buildup',
+  undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+  countBeams('umm_zeitoun_2_buildup')
 );
 
 // UZ II does not declare `intel.marked_positions` in its own `produces`, so
@@ -2974,6 +3021,47 @@ const uz4Plan: Plan = (sim, rt, ids, at) => {
       if (tanks.length === 0 || ys <= 10) sim.queueCommand({ kind: 'attackMove', ids: eitan, ...M(33, 8) });
       else sim.queueCommand({ kind: 'attackMove', ids: eitan, ...M(33, Math.min(40, ys + 4)) });
     });
+  // GH-421 (vehicle separation, after the Tel Marum relay): a porter standing at the warehouse. A porter
+  // that breaks for the refuge under the pickets' fire can be pinned on the way against the building's
+  // east wall, at (32.0, 3.3-5.4): 1.5-1.9 tiles from its centre, inside the 2-tile danger-close circle
+  // of every round aimed at it (3 Conduct a round; two Lavis, one round each 6.7 s). The shells that
+  // pinned it keep it there. Seed 3 of the ladder behind Tel Marum III (one infantry squad fewer in the
+  // roster, so every body's dice moved) shelled the warehouse over a standing porter for 60 s: 24
+  // rounds, Conduct 100 to 43 under the floor of 45, a defeat at 3.2 minutes; seeds 5, 6, 10 and 26 lost
+  // 24-39 Conduct the same way and won on 46-58. A player who sees a family standing in that circle
+  // does not keep putting the main gun into it: he takes the tanks back out of its reach (12 tiles),
+  // to (33, 17), and lets the fear pass. He does it for a family that STAYS inside it (under half a
+  // tile in each of the last eight seconds): the others are walking out past the wall and are clear of
+  // it in three, and one pinned by a burst walks on within six (424242's is, at 2.03 tiles, and costs
+  // nothing). The hold lasts until the plan's own fallback at 250 s, when the clock matters more than
+  // the score (the parties go in then, and the warehouse has to be rubble for them); the Lavis are sent
+  // back to the yard the moment it ends. While it lasts the orders below leave them where they are.
+  // Only the Lavis' gun is heavy: the Namer's cannon and the Eitans' machine guns are not held.
+  let holding = false;
+  const standing = new Map<number, [number, number, number]>();
+  for (let when = 30; when <= 250; when += 2)
+    at(when, () => {
+      const w = sim.structureAt(30, 4);
+      const was = holding;
+      holding = false;
+      const cx = w < 0 ? 0 : fx.toNumber(sim.structures.cx[w]);
+      const cy = w < 0 ? 0 : fx.toNumber(sim.structures.cy[w]);
+      for (let i = 0; i < sim.entityCount; i++) {
+        if (sim.state.side[i] !== 2 || sim.state.alive[i] !== 1) continue;
+        const x = fx.toNumber(sim.state.posX[i]);
+        const y = fx.toNumber(sim.state.posY[i]);
+        const before = standing.get(i);
+        const still = before !== undefined && (x - before[0]) ** 2 + (y - before[1]) ** 2 < 0.25 ? before[2] + 1 : 0;
+        standing.set(i, [x, y, still]);
+        if (w < 0 || when >= 250 || rt.objectiveStatus('raze_the_stockpile') !== 'active') continue;
+        if ((x - cx) ** 2 + (y - cy) ** 2 <= 2 * 2 && still >= 4) holding = true;
+      }
+      const near = lavi.filter((u) => sim.state.alive[u] === 1);
+      if (holding) {
+        const inReach = near.filter((u) => (fx.toNumber(sim.state.posX[u]) - cx) ** 2 + (fx.toNumber(sim.state.posY[u]) - cy) ** 2 < 12.5 * 12.5);
+        if (inReach.length > 0) sim.queueCommand({ kind: 'move', ids: inReach, ...M(33, 17) });
+      } else if (was && near.length > 0) sim.queueCommand({ kind: 'attackMove', ids: near, ...M(33, 8) });
+    });
   // GH-421 (vehicle separation): an attack-moving Lavi halts the moment it has a target in range. On
   // 424242 the pair was 1.4 tiles further back at 800 ticks than before (y 19.9 against 18.5; the valve
   // had opened twice at the foot of the ramp, ticks 84 and 88) and halted at the edge of the gun's
@@ -2989,7 +3077,7 @@ const uz4Plan: Plan = (sim, rt, ids, at) => {
         const y = fx.toNumber(sim.state.posY[u]);
         const before = laviLast.get(u);
         laviLast.set(u, y);
-        if (before !== undefined && y > 16 && before - y < 0.3) sim.queueCommand({ kind: 'move', ids: [u], ...M(33, 15) });
+        if (before !== undefined && y > 16 && before - y < 0.3 && !holding) sim.queueCommand({ kind: 'move', ids: [u], ...M(33, 15) });
       }
     });
   // GH-382: the spur's eye covers the ramp, so a drone sent at t=1 is shot down on the way up; it
@@ -3074,9 +3162,10 @@ const uz4Plan: Plan = (sim, rt, ids, at) => {
       if (warehouse() >= 0 && when >= 100 && !yardGuns()) {
         closers.forEach((u, k) => {
           const spot = yardSpots[k];
+          if (holding && lavi.includes(u)) return; // held off the warehouse (above); the Namer still goes in
           if (spot && sim.state.alive[u] === 1) sim.queueCommand({ kind: 'move', ids: [u], ...M(...spot), exact: true });
         });
-      } else if (when % 30 === 0) sim.queueCommand({ kind: 'attackMove', ids: depotEscort, ...M(33, 8) });
+      } else if (when % 30 === 0) sim.queueCommand({ kind: 'attackMove', ids: holding ? eitan : depotEscort, ...M(33, 8) }); // not the Lavis while held
     });
   // The stockpile is down, so everything left goes for Adhal: the nearest hostile the player has seen,
   // else the crest. Since #537 the escort no longer walks on from the yard by itself, and three seeds
@@ -3151,6 +3240,9 @@ interface BoughtRun {
   kills: number;
   contacts: number;
   tunnelContacts: number;
+  /** GH-274: charges the unit set (`chargeSet`) and charges of its that went off (`chargeDetonated`). */
+  chargesSet: number;
+  chargesBlown: number;
 }
 
 function boughtProbe(
@@ -3159,11 +3251,17 @@ function boughtProbe(
   ledger: LedgerData,
   unitId: string,
   orderAtS: number,
-  /** The use this unit must be seen to make: a gunship shoots, a recon unit sees. */
-  use: 'fires' | 'sees',
-  order: (unitIds: number[]) => Parameters<Sim['queueCommand']>[0],
+  /** The use this unit must be seen to make: a gunship shoots, a recon unit sees, a placed-charge
+   *  carrier sets a charge and a building comes down by it. */
+  use: 'fires' | 'sees' | 'sets',
+  /** The unit's first order, given its ids and the live sim (a placed-charge carrier picks its
+   *  building from what still stands); null gives it none. */
+  order: (unitIds: number[], sim: Sim) => Parameters<Sim['queueCommand']>[0] | null,
   /** Orders the unit gets after its first one, given its ids (GH-707 P3: the gunship's focus). */
-  after?: (sim: Sim, at: (t: number, fn: () => void) => void, mine: () => number[]) => void
+  after?: (sim: Sim, at: (t: number, fn: () => void) => void, mine: () => number[]) => void,
+  /** When the purchase is asked for, in seconds. 0 for every unit the mission's starting logistics
+   *  cover; the Tzav (680) waits until the mission's income reaches it. */
+  buildAtS = 0
 ): void {
   const label = `${id} (bought)`;
   const baseStars = missionStars.get(id as string);
@@ -3174,14 +3272,14 @@ function boughtProbe(
     process.exitCode = 1;
     return;
   }
-  const seen: BoughtRun = { blocked: undefined, accepted: false, fieldedAtOrder: 0, aliveAtEnd: 0, rounds: 0, hits: 0, kills: 0, contacts: 0, tunnelContacts: 0 };
+  const seen: BoughtRun = { blocked: undefined, accepted: false, fieldedAtOrder: 0, aliveAtEnd: 0, rounds: 0, hits: 0, kills: 0, contacts: 0, tunnelContacts: 0, chargesSet: 0, chargesBlown: 0 };
   const mineEver = new Set<number>();
   let idsOf: ((t: string) => number[]) | undefined;
   const plan: Plan = (sim, rt, ids, at) => {
     idsOf = ids;
     basePlan(sim, rt, ids, at);
     // The first tick: 500 / 600 logistics against a 290 / 450 price, so nothing to wait for.
-    at(0, () => {
+    at(buildAtS, () => {
       seen.blocked = rt.buildBlockedReason(unitId);
       seen.accepted = rt.requestBuild(unitId);
     });
@@ -3189,7 +3287,8 @@ function boughtProbe(
       const mine = ids(unitId);
       seen.fieldedAtOrder = mine.length;
       for (const m of mine) mineEver.add(m);
-      if (mine.length > 0) sim.queueCommand(order(mine));
+      const first = mine.length > 0 ? order(mine, sim) : null;
+      if (first !== null) sim.queueCommand(first);
     });
     after?.(sim, at, () => ids(unitId));
   };
@@ -3202,6 +3301,8 @@ function boughtProbe(
         seen.rounds++;
         if (e.willHit) seen.hits++;
       } else if (e.kind === 'destroyed' && mineEver.has(e.by)) seen.kills++;
+      else if (e.kind === 'chargeSet' && mineEver.has(e.by)) seen.chargesSet++;
+      else if (e.kind === 'chargeDetonated' && mineEver.has(e.by)) seen.chargesBlown++;
       else if (e.kind === 'contact' && e.side === 0 && e.level === 'identified' && mineEver.has(e.observer)) seen.contacts++;
       else if (e.kind === 'tunnelContact' && e.side === 0 && e.level === 'identified' && mineEver.has(e.observer))
         seen.tunnelContacts++;
@@ -3218,13 +3319,18 @@ function boughtProbe(
   );
   console.log(
     `${label}: use — rounds ${seen.rounds} (hits ${seen.hits}), kills ${seen.kills}, ` +
-      `identified ${seen.contacts} unit(s) + ${seen.tunnelContacts} route(s)`
+      `identified ${seen.contacts} unit(s) + ${seen.tunnelContacts} route(s)` +
+      (use === 'sets' ? `, charges set ${seen.chargesSet}, brought down ${seen.chargesBlown}` : '')
   );
   // The strongest condition each plan meets: a gunship scores a kill (measured 2 here, 79
   // rounds), a recon unit identifies something (8 units + 1 route measured).
-  const used = use === 'fires' ? seen.kills > 0 : seen.contacts + seen.tunnelContacts > 0;
+  const used = use === 'fires' ? seen.kills > 0 : use === 'sets' ? seen.chargesSet > 0 && seen.chargesBlown > 0 : seen.contacts + seen.tunnelContacts > 0;
   if (!used) {
-    console.error(`${label}: FAILED — ${unitId} was fielded and ${use === 'fires' ? 'never scored a kill' : 'identified nothing'}`);
+    console.error(
+      `${label}: FAILED — ${unitId} was fielded and ${
+        use === 'fires' ? 'never scored a kill' : use === 'sets' ? 'never set a charge that went off' : 'identified nothing'
+      }`
+    );
     process.exitCode = 1;
   }
   if (seen.aliveAtEnd < 1) {
@@ -3344,6 +3450,35 @@ boughtProbe('umm_zeitoun_4_clearance', uz4Plan, ledUZ3, 'heli_peten_gunship', 55
       sim.queueCommand({ kind: 'attackMove', ids: gun, x: st.posX[best], y: st.posY[best] });
     });
 });
+
+// The Tzav (GH-274, closes GH-156) is the third bought unit: 680 logistics against a mission that
+// starts with 400 and earns 80 a minute, so the purchase waits for the income (210 s; asked at 215)
+// and the carrier is on the road a build time (34 s) later. By then the plan has razed the depot's
+// seven buildings and the engineers' work is done, so the Tzav is sent at what is left: a house of
+// the town south of the wire. It is ordered at the nearest house that stands at least 6 tiles from
+// the civic hall's block (`hall_block`, zone [28,22,4,4], centre (30,24)): its 2.5-tile blast is
+// not to be a stray into a flagged zone, and `no hall block` is what this mission's ROE floor reads.
+// The order is an explicit `demolish` (a placed charge is never set on halting), and the probe
+// asks for the one thing this unit is for: a charge set that then brings a building down.
+boughtProbe('wadi_halam_5_depot', wadiHalam5Plan, wh4, 'demo_tzav', 255, 'sets', (mine, sim) => {
+  const st = sim.structures;
+  const px = fx.toNumber(sim.state.posX[mine[0]]);
+  const py = fx.toNumber(sim.state.posY[mine[0]]);
+  let best = -1;
+  let bestD = Infinity;
+  for (let s = 0; s < sim.structureCount; s++) {
+    if (st.alive[s] !== 1 || sim.structureTypes[st.typeIdx[s]].id !== 'house') continue;
+    const cx = fx.toNumber(st.cx[s]);
+    const cy = fx.toNumber(st.cy[s]);
+    if (Math.hypot(cx - 30, cy - 24) < 6) continue;
+    const d = Math.hypot(cx - px, cy - py);
+    if (d < bestD) {
+      bestD = d;
+      best = s;
+    }
+  }
+  return best < 0 ? null : { kind: 'demolish', ids: mine, structure: best };
+}, undefined, 215);
 
 // --- Brigade economy Task 5: every optimal plan holds at max tier ----------
 //
@@ -3499,7 +3634,7 @@ function syntheticLedgerAfter(count: number): LedgerData {
  * a real playthrough would hold after clearing the first `count` missions of
  * `missionOrder` -- WP-G-E1 (2026-09-18). `conductAtLeast`/`unlockReason`'s `roeMin` check
  * reads `roe.mission_ratings` only, never `campaign.mission_results`, so the star-gate
- * walk above cannot exercise the nine Conduct-gated units at all; this is the missing
+ * walk above cannot exercise the ten Conduct-gated units at all; this is the missing
  * half. Same shape, same reasoning: an empty object at `count === 0` reads as "no
  * missions rated yet" (`ratings(ledger)` sees a non-null map with zero keys and falls
  * through to the legacy `roe.cumulative_rating` check, which is absent here), so a
@@ -3598,7 +3733,8 @@ for (const gate of GATES) {
   }
 }
 
-// --- Task 7b: the nine Conduct-gated units, walked the same way ------------
+// --- Task 7b: the Conduct-gated units, walked the same way ------------------
+// (nine at WP-G-E1; E6 added a tenth, aa_remetz, at Conduct 85: the two swarm plans build it.)
 //
 // WP-G-E1 (2026-09-18, GH-173): the lead raised these nine `roe_rating_min` floors
 // from 35-65 to 70-90 so they would spread across a well-played campaign instead of
@@ -3612,8 +3748,8 @@ for (const gate of GATES) {
 // -- mission 1, unconditionally -- scores Conduct 97 on its own, so the average after
 // mission 1 IS 97 (a single data point), which already clears every floor <= 90. The
 // campaign average never drops below 93.5 for the rest of the ladder either (its low
-// point, mission 26). So EVERY ONE of the nine gates below still opens after mission 1
-// -- `opensAfter: 1` for all nine, asserted below -- and no floor inside the lead's
+// point, mission 26). So EVERY ONE of the ten gates below still opens after mission 1
+// -- `opensAfter: 1` for all ten, asserted below -- and no floor inside the lead's
 // mandated 70-90 band can delay that on this ladder: doing so would require a floor
 // above 97 (mission 1's own score), outside the mandated range, or a change to mission
 // content, outside this work package's scope (unit JSON + one doc + test pins only).
@@ -3626,7 +3762,7 @@ interface ConductGateSpec {
   unit: string;
   roeMin: number;
   /** 1-based position in `missionOrder` where the measured ladder opens this gate.
-   *  All nine read 1 -- see the comment above for why no floor in [70, 90] can move it. */
+   *  All ten read 1 -- see the comment above for why no floor in [70, 90] can move it. */
   opensAfter: number;
 }
 
@@ -3640,6 +3776,7 @@ const CONDUCT_GATES: ConductGateSpec[] = [
   { unit: 'ifv_namer', roeMin: 85, opensAfter: 1 },
   { unit: 'dozer_d9', roeMin: 87, opensAfter: 1 },
   { unit: 'mbt_lavi', roeMin: 90, opensAfter: 1 },
+  { unit: 'aa_remetz', roeMin: 85, opensAfter: 1 },
 ];
 
 for (const gate of CONDUCT_GATES) {
@@ -3664,6 +3801,22 @@ for (const gate of CONDUCT_GATES) {
     );
     process.exitCode = 1;
   }
+}
+
+// --- E6: the swarm missions' carriers were built and the beam fired -----------
+// The optimal plans of Umm Zeitoun II and Wadi Halam III build a Remetz at t=0 (`e6Remetz`). A refused
+// build (gate closed, short of logistics) or a carrier that never strikes would leave the beam as
+// untested content, so each is a failure, not a quiet line.
+for (const [missionId, rec] of remetzReport) {
+  console.log(`remetz ${missionId}: build accepted ${rec.accepted}, deployed ${rec.built}, beam strikes ${rec.beams} (seed 424242)`);
+  if (!rec.accepted || !rec.built || rec.beams === 0) {
+    console.error(`remetz ${missionId}: FAILED — the plan's carrier must be accepted, deployed and strike at least once`);
+    process.exitCode = 1;
+  }
+}
+if (remetzReport.size !== 2) {
+  console.error(`remetz: FAILED — expected the two swarm missions to report, got ${remetzReport.size}`);
+  process.exitCode = 1;
 }
 
 // --- Brigade economy step 1: the optimal ladder's credit total ---------------
@@ -3919,7 +4072,22 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // Zeitoun IV 265 -> 256 (-9). Hulls no longer drive through one another, so the men a plan loses and the
 // survivors it brings home move a little; every other mission pays as before. Every plan wins on 30 of
 // 30 seeds, ROSTER_MAX stays 29, every gate opens on time, no star or outcome moved.
-const LADDER_CREDITS = 5971;
+// 2026-10-25, GH-802: Tel Marum III's plan takes the flank and cuts the relay, its carrying
+// secondary. 5953 -> 5993, +40: Tel Marum III 245 -> 285, stars 2 -> 3, roster out 7, no unit lost.
+// Every other mission pays as it did; no outcome or gate moved.
+// 2026-10-25, both changes together (GH-421 Stage 2 merged with GH-802's Tel Marum relay): 6011 =
+// 5953 + 18 (vehicle avoidance, the ten missions above) + 40 (Tel Marum III 245 -> 285). The two are
+// exactly additive: Tel Marum III pays 285 with avoidance on, and every other mission pays as listed
+// under GH-421. Every plan wins on 30 of 30 seeds, ROSTER_MAX 29, every gate on time.
+// 2026-10-25, GH-274 item 5, the swarm missions: 5993 -> 5983, -10. Umm Zeitoun II 220 -> 230 (the swarm is
+// a kill, and it replaces a loiter drone worth less); Wadi Halam III 180 -> 160 (two swarms ride the 170 s
+// wave, and the seed-424242 run loses bodies to them). Both plans build a Remetz now. Every plan still wins
+// on 30 of 30 seeds; no star, outcome or gate moved.
+// 2026-10-25, GH-421 Stage 2 merged with GH-274 item 5 (read off a fresh run, not added up): 5991.
+// Main's 5983 plus the ten avoidance missions (+18, listed above) less Umm Zeitoun II, which pays 220
+// under avoidance against main's 230 (roster out 16 against 17: one body fewer comes home). No star,
+// outcome or gate moved; every plan, the two that build a Remetz included, wins on 30 of 30 seeds.
+const LADDER_CREDITS = 5991;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
@@ -3998,10 +4166,9 @@ for (const [label, got, want] of [
   };
   const kdf = Object.values(units).filter((u) => (u as { faction?: string }).faction === 'kdf');
   for (const u of kdf) priced(u as Parameters<typeof priced>[0]);
-  if (!kdf.some((u) => (u as { id: string }).id === 'demo_tzav')) priced(stagedUnit('demo_tzav') as Parameters<typeof priced>[0]);
   const campaignsAt = (per: number): string => (per > 0 ? (catalogue / per).toFixed(2) : 'never');
   console.log(
-    `credits: catalogue ${catalogue} credits (shipped KDF JSON + staged demo_tzav), ` +
+    `credits: catalogue ${catalogue} credits (shipped KDF JSON), ` +
       `${campaignsAt(campaign2.paid)} campaigns at base tier, ${campaignsAt(campaign2Max.paid)} at max tier`
   );
   // Credits per plan-minute: the plan clock is a FLOOR on real play (perfect
@@ -4070,7 +4237,13 @@ for (const [label, got, want] of [
 // 2026-10-23, the lead's wound rules: 27 -> 29, the pre-P3 figure, same mission. Umm Zeitoun IV's
 // roster out 27 -> 29 again: with no Conduct on the wounded and no wounded contesting, the chain
 // brings two more home.
-const ROSTER_MAX = 29;
+// 2026-10-25, GH-274 item 5: 29 -> 31, same mission. Umm Zeitoun II's roster out reads 15 -> 16 -> 17: the
+// swarm that replaces the loiter drone costs the plan no body (+1), and the Remetz its plan now builds
+// survives into the roster (+1). Umm Zeitoun IV inherits both.
+// 2026-10-25, GH-421 Stage 2 merged with GH-274 item 5: 31 -> 30, same mission, read off a fresh run.
+// Umm Zeitoun II's roster out reads 16 under vehicle avoidance against main's 17, and Umm Zeitoun III
+// (22) and IV (30) inherit the one body fewer. No outcome moved.
+const ROSTER_MAX = 30;
 console.log(`roster maximum: ${rosterMax} at ${rosterMaxMissionId}`);
 if (rosterMax !== ROSTER_MAX) {
   console.error(`roster maximum: FAILED — expected ${ROSTER_MAX}, got ${rosterMax} at ${rosterMaxMissionId}`);
@@ -4144,7 +4317,9 @@ const INTEL_PASSIVE_BEATS_WINNER = 0;
 // identification, so a fight that downs men pays more intel. All 36 winning runs earn a sweep.
 // 2026-10-23, the lead's ruling: spotting a man down pays no intel (he is the same man already
 // spotted). 36 -> 35, the pre-P3 figure: beit_sahwan_2_foothold earns 112 again.
-const INTEL_WINNERS_ONE_SWEEP = 35;
+// 2026-10-25, GH-274: the Tzav's `(bought)` probe on wadi_halam_5_depot is a winning plan too and
+// earns its sweep (382 intel): 35 -> 36. Was 35. No outcome, star gate or credit moved.
+const INTEL_WINNERS_ONE_SWEEP = 36;
 {
   // Guards the SPEND plan on every seed: 424242 in the parent is also checked by the FAILED line in its own
   // `at()` call above; the other 29 seeds run quiet in workers and are re-verified ONLY here, for the spend

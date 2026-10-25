@@ -1,0 +1,23 @@
+{
+  "unit": "drone_swarm",
+  "variant": "team",
+  "source": "assets/meshes/vehicles/drone_swarm.glb",
+  "source_sha256": "dc3e3c8c6c8dad157d9143387888517667f8549ece2396cf409468f14b51796a",
+  "yaw_deg": -125.0,
+  "elevation_deg": 18.0,
+  "fov_deg": 30.0,
+  "fill": [
+    "width",
+    0.92
+  ],
+  "ndc_box": [
+    0.04,
+    0.96,
+    0.2557,
+    0.7443
+  ],
+  "materials": {
+    "baked": 0,
+    "flat": 3
+  }
+}

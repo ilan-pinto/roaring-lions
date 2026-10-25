@@ -153,8 +153,11 @@ describe('mesh roster precondition (every unit and structure has its mesh on dis
 // nothing from the pass, the recipes or the contract module, for this file's
 // reason: a list that drifts with the code cannot vouch for itself.
 const RUNNING_GEAR: Record<string, { wheels: number; steered: number; tracks: number }> = {
+  // E6 (GH-274 chunk A2): the Remetz Laser Carrier, a 6x6 whose front axle steers (A9).
+  aa_remetz: { wheels: 6, steered: 2, tracks: 0 },
   apc_eitan: { wheels: 8, steered: 0, tracks: 0 },
   apc_kipod: { wheels: 6, steered: 0, tracks: 0 },
+  demo_tzav: { wheels: 0, steered: 0, tracks: 2 }, // GH-274: the Tzav's fused road wheels do not spin (A3/A4)
   dozer_d9: { wheels: 0, steered: 0, tracks: 2 },
   gun_truck: { wheels: 4, steered: 2, tracks: 0 },
   ifv_namer: { wheels: 12, steered: 0, tracks: 2 },

@@ -248,6 +248,14 @@ Each has cost a session or a false green.
 - `&civ` drives the mission's own `CivilianFlight` (`packages/sim/src/civilians.ts`). Never write a second implementation in `packages/app`, and never write `alive = 0` from outside the sim (invariant 4). The arrival zone is always a synthesised 4×4 around the refuge point.
 - `pnpm meshy -- <command>`: estimate before you spend, and keep the key outside the repo (`docs/ART_PIPELINE.md`).
 - Poses: `tools/render_clip_pose.py` for the authored pose, `tools/src/perf/gait-captures.ts` for runtime behaviour (it refuses to finish if no intercepted GLB differed). `pnpm plates:units` runs one browser per unit, and `--metal` is opt-in.
+- **The drone swarm and the Remetz laser (E6, GH-274).**
+  - A `drone_swarm` entity draws as one instanced batch (`units/swarm-batch.ts`), never a clone.
+    The lost member is always the highest slot, and the beam ends on slot `live-1`.
+  - The beam (`units/beam-batch.ts`) reads `sim.beamState` plus the `beam` event. Its shimmer lives
+    in `fog-pass.ts`, and heat shows on the card only.
+  - Draw calls: +7 at most, fixed. Debug layers: `swarm`, `swarm-wrecks`, `beam`, `beam-shimmer`.
+  - The witness is `pnpm e6:capture` (port 5179, Metal), with readbacks `__lions.swarmDrawn` and
+    `__lions.beamDrawn`. Spec: `docs/superpowers/specs/2026-10-24-e6-swarm-beam-art.md`.
 - `main.ts` holds a `Renderer` (`packages/render/src/api.ts`), never the concrete class. Ask for projection (`renderer.worldToScreen`) rather than recomputing it: `project.ts` is not exported.
 
 ---
@@ -336,7 +344,7 @@ Full record: `scaling-debts.md`, `mission-findings.md`.
 - Detection and `selectTarget` are each O(N²) per tick. The 50 ms budget is not crossed until about 1,700–2,100 living units. Every per-tick scan bounds on `this.count`, the LIFETIME spawn count. The trail and route scans want staggering at the 300-unit target.
 - Rigged mesh units are draw-call bound (`SkinnedMesh` does not instance); the render budget is crossed at about 1,150 figures.
 - The flow-field pool cap, `MAX_FLOW_FIELDS` 128, is a floor, not a ceiling. A field issued this tick is never evicted.
-- `starting_force` ignores `unlock` gates on purpose: the issued force is on loan (`loanedPlacements`), and a loaned survivor goes back to the lender (L-1). Open for the lead: a gated unit that arrives by `reinforce` is kept.
+- `starting_force` ignores `unlock` gates on purpose: the issued force is on loan (`loanedPlacements`), and a loaned survivor goes back to the lender (L-1). A gated unit that arrives by a `reinforce` trigger is on loan the same way (`loanedReinforcements`, GH-801) and goes back too.
 - A wave's `from` cannot name a tunnel, though the schema text promises it. `intel.marked_positions` cannot pre-reveal a tunnel route.
 - `pnpm playtest` (in CI) proves a mission winnable, not how long it takes. A scripted plan has perfect information, so a low time ratio on a mission without an endure-clock must not be tuned against. No real-player duration has been measured for any mission.
 - `SMOKE_RISE` must stay strictly above `EYE_HEIGHT`, and it equals `BLOCK_RISE` deliberately.

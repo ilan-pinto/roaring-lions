@@ -52,7 +52,7 @@ import {
   WOUND_STABILISED,
 } from './tuning';
 import type { TunnelRouteJson } from './tunnels';
-import { unlockReason, type UnlockGate } from './unlock';
+import { reinforceKey, unlockReason, type UnlockGate } from './unlock';
 
 // ---------------------------------------------------------------------------
 
@@ -403,6 +403,10 @@ export interface MissionContext {
    *  (unlock.ts, D5). The runtime never sees a gate, so the app and the harness compute it
    *  with the same lookup they resolve upgrades with and hand it in. Absent = nothing on loan. */
   loaned?: readonly number[];
+  /** `reinforceKey`s (unlock.ts) of the `reinforce` placements that are on loan: the same
+   *  judgement as `loaned`, for a unit that arrives by trigger instead of at the start
+   *  (`loanedReinforcements`, GH-801). Absent = nothing a trigger brings in is on loan. */
+  loanedReinforce?: ReadonlySet<string>;
   /** 1 where the map's decor is a road, row-major (`roadMaskOf`, @lions/data; C-R4). Supply
    *  convoys take the road where one joins their ends (D5). Absent = the map has no roads, and
    *  every convoy takes the wheeled flow route. */
@@ -827,7 +831,9 @@ export class MissionRuntime {
    *  passed still names a military target, not a civilian one. */
   private readonly razeExempt = new Set<number>();
   /** Entity ids of the bodies the starting force fielded from a placement that is on loan
-   *  (`ctx.loaned`, D5). Built once in `start()`, read by `isOnLoan`; nothing per tick. */
+   *  (`ctx.loaned`, D5), then the bodies a `reinforce` trigger fields from a loaned placement
+   *  (`ctx.loanedReinforce`, GH-801). Filled in `start()` and as such a trigger fires; read by
+   *  `isOnLoan` and the L-1 skip; nothing per tick. */
   private readonly onLoan = new Set<number>();
   /** Objective id -> the route indices whose mouths its zone held at mission
    *  start. Mirrors razeTargets, though for a different reason: ctx.tunnels
@@ -1321,7 +1327,8 @@ export class MissionRuntime {
    *    they feed is folded through `economyHash()`;
    *  - the per-step buffers `externallyCompleted` and `pendingIntelEvents` are
    *    drained within the step;
-   *  - `onLoan` and `razeExempt` are fixed at `start()`;
+   *  - `onLoan` is a pure function of `ctx`, `firedTriggers` (folded) and spawn ids (sim-hashed),
+   *    read only by presentation and the end ledger; `razeExempt` is fixed at `start()`;
    *  - the rear, zone-route, convoy-route and vent caches are derived from map
    *    data;
    *  - `enemyMenu` and `enemyMinCost` are fixed at `start()`, `ctx.economy` is a
@@ -1498,8 +1505,9 @@ export class MissionRuntime {
   }
 
   /** True when `id` is a body the starting force fielded from a placement that is on loan
-   *  (`MissionContext.loaned`, D5). Fixed at `start()`; a unit spawned later, a `from_ledger`
-   *  draw and an enemy are never on loan. A loaned carrier's authored `passengers` are not
+   *  (`MissionContext.loaned`, D5), or a body a `reinforce` trigger fielded from one
+   *  (`MissionContext.loanedReinforce`, GH-801). Recorded as the body spawns; a wave or
+   *  `spawn` unit, a `from_ledger` draw and an enemy are never on loan. A loaned carrier's authored `passengers` are not
    *  on loan either: they are separate placements, judged by their own types. */
   isOnLoan(id: number): boolean {
     return this.onLoan.has(id);
@@ -1763,7 +1771,21 @@ export class MissionRuntime {
 
   private works(): WorksEntry[] {
     if (this.worksList !== null) return this.worksList;
+    const built = this.buildWorks();
+    for (const offer of built.offers) this.worksOfferList.push(offer);
+    this.worksList = built.list;
+    return built.list;
+  }
+
+  /**
+   * The listed offers resolved against the sim's structure types, built FRESH and stored nowhere: a pure
+   * function of the mission and the sim's structure types. `works()` stores its answer; the snapshot codec
+   * reads it (via a cast) to encode an unbuilt list as the freshly built default without building it on the
+   * source (net sim snapshot S2: peers must agree on the bytes whether or not the dock has read the list).
+   */
+  private buildWorks(): { list: WorksEntry[]; offers: WorksOffer[] } {
     const list: WorksEntry[] = [];
+    const offers: WorksOffer[] = [];
     const fw = this.mission.field_works;
     if (fw !== undefined) {
       for (const typeId of Object.keys(fw)) {
@@ -1779,11 +1801,10 @@ export class MissionRuntime {
           intel: b.costIntel,
         };
         list.push({ offer, structType });
-        this.worksOfferList.push(offer);
+        offers.push(offer);
       }
     }
-    this.worksList = list;
-    return list;
+    return { list, offers };
   }
 
   private worksEntry(typeId: string): WorksEntry | null {
@@ -3564,7 +3585,13 @@ export class MissionRuntime {
   private stepCivilians(): void {
     const refuge = this.mission.civilians?.refuge;
     if (refuge === undefined) return;
-    this.civFlight.step(this.sim, this.civIds, this.playerIds, this.markerPos(refuge));
+    // The arrival zone is that of the first `evacuate_before` still counting (the first one
+    // at all once all have resolved): `start()` refuses a refuge outside any of them, so every
+    // zone contains the refuge point, and a civilian standing in the zone that is read is one
+    // the collector will count.
+    const evacs = this.objectives.filter((o) => o.def.type === 'evacuate_before');
+    const evac = evacs.find((o) => o.status === 'active') ?? evacs[0];
+    this.civFlight.step(this.sim, this.civIds, this.playerIds, this.markerPos(refuge), this.zone(evac?.def.target));
   }
 
   private stepPatrols(): void {
@@ -3869,7 +3896,13 @@ export class MissionRuntime {
       } else if (t.do.kind === 'reinforce') {
         // Player-side arrival (GDD §6). `spawn` stays side-1-only so no
         // existing mission changes behaviour.
-        for (const p of t.do.units ?? []) this.spawnPlacement(p, 0, undefined, true);
+        // GH-801: a gated unit that arrives this way is on loan like a gated starting_force
+        // placement, so L-1 sends it back to the lender at the end.
+        const units = t.do.units ?? [];
+        for (let j = 0; j < units.length; j++) {
+          const ids = this.spawnPlacement(units[j], 0, undefined, true);
+          if (this.ctx.loanedReinforce?.has(reinforceKey(i, j)) === true) for (const id of ids) this.onLoan.add(id);
+        }
       } else if (t.do.kind === 'dismount') {
         // Everyone out of every carrier in the group. Queued as a command rather
         // than reaching into sim state, same as commit and withdraw_to.
@@ -3994,7 +4027,19 @@ export class MissionRuntime {
         failed = !complete && d.seconds !== undefined && tick >= d.seconds * TICKS_PER_SECOND;
       } else if (d.type === 'eliminate_hvt') {
         const ids = this.tags.get(d.target ?? '') ?? [];
-        complete = ids.length > 0 && ids.every((id) => this.sim.state.alive[id] === 0);
+        // Eliminated means KILLED. A `remove` trigger (the enemy's act: an escape, an
+        // abduction) sets `alive` to 0 exactly as a death does and also sets `removed`,
+        // the one flag that tells the two apart (`casualties_pct` reads it the same way).
+        // GH-815: reading `alive` alone ticked the objective for a target who got away.
+        complete =
+          ids.length > 0 &&
+          ids.every((id) => this.sim.state.alive[id] === 0 && this.sim.state.removed[id] !== 1);
+        // And a target who got away cannot be killed afterwards, so the objective is
+        // permanently impossible: fail it now, as `evacuate_before` fails at its deadline.
+        // Left active, a primary would hang until the time limit and end as "withdrawn",
+        // blaming the player's clock for the enemy's escape. A failed primary ends the
+        // mission in defeat with `defeatCause: { objective }`.
+        failed = !complete && ids.some((id) => this.sim.state.removed[id] === 1);
       } else if (d.type === 'locate') {
         if (d.target) {
           const ids = this.tags.get(d.target) ?? [];
@@ -4081,7 +4126,7 @@ export class MissionRuntime {
     // in a mission that is unwinnable and unlosable at once.
     const failedPrimary = primaries.some((o) => o.status === 'failed');
     // #540: the time limit. With every timed primary resolved, a mission whose open primaries
-    // cannot fail (`locate`, `capture`, `hold_for`, `eliminate_hvt`) ends only in a win, a wipe or
+    // cannot fail (`locate`, `capture`, `hold_for`; `eliminate_hvt` fails only when its target is removed) ends only in a win, a wipe or
     // an ROE collapse, and a player who cannot finish waits forever. A win on the same tick wins;
     // any other loss on the same tick keeps its own cause.
     const limit = this.mission.time_limit_s;
@@ -4121,7 +4166,8 @@ export class MissionRuntime {
       const saved = (origin?.rescued ?? 0) + (this.rescuedBack.get(id) ?? 0);
       if (saved > 0) entry.rescued = saved;
       // L-1 (GH-183): a loaned body goes back to the lender. It stays in `survivors` (the
-      // debrief count) and in `startingHome` (credits), but never joins the brigade's roster.
+      // debrief count) and, for a starting-force body, in `startingHome` (credits; a reinforced
+      // body was never in `startingIds`), but never joins the brigade's roster.
       if (this.onLoan.has(id)) continue;
       roster.push(entry);
     }

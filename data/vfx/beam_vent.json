@@ -1,0 +1,21 @@
+{
+  "id": "beam_vent",
+  "trigger": "beam_lockout",
+  "layer": "above_units",
+  "budget_priority": 5,
+  "particles": [
+    {
+      "sprite": "smoke_puff",
+      "count": [2, 2],
+      "lifetime_ms": [1000, 1200],
+      "speed_tiles_s": [0.15, 0.4],
+      "cone_deg": 50,
+      "gravity_tiles_s2": -0.45,
+      "drag": 0.6,
+      "size_px": [5, 8],
+      "size_over_life": [0.6, 1.9],
+      "color_over_life": ["gunmetal.1", "gunmetal.2", "gunmetal.2"],
+      "alpha_over_life": [0.5, 0.0]
+    }
+  ]
+}

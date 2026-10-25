@@ -2211,6 +2211,7 @@ export class Hud {
           [t('hud.fire.factor.range'), fx.toNumber(p.factors.rangeFalloff), 'them'],
           [t('hud.fire.factor.cover'), fx.toNumber(p.factors.coverMod), 'them'],
           [t('hud.fire.factor.targetMoving'), fx.toNumber(p.factors.motionMod), 'them'],
+          [t('hud.fire.factor.smallTarget'), fx.toNumber(p.factors.sizeMod), 'them'],
           [t('hud.fire.factor.firingOnTheMove'), fx.toNumber(p.factors.stanceMod), 'us'],
           [ourBand === 'suppressed' ? t('hud.fire.factor.suppressed') : t('hud.fire.factor.shaken'), fx.toNumber(p.factors.suppressionMod), 'us'],
         ],

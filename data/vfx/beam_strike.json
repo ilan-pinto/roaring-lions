@@ -1,0 +1,35 @@
+{
+  "id": "beam_strike",
+  "trigger": "beam_strike",
+  "layer": "above_units",
+  "budget_priority": 4,
+  "particles": [
+    {
+      "sprite": "spark",
+      "count": [6, 9],
+      "lifetime_ms": [140, 300],
+      "speed_tiles_s": [1.6, 3.6],
+      "cone_deg": 360,
+      "gravity_tiles_s2": 3,
+      "drag": 0.2,
+      "size_px": [2, 3],
+      "size_over_life": [1.0, 0.3],
+      "color_over_life": ["vfx.white_hot", "vfx.white_hot", "vfx.ember"],
+      "alpha_over_life": [1.0, 0.0],
+      "additive": true
+    },
+    {
+      "sprite": "soft_dot",
+      "count": [4, 4],
+      "lifetime_ms": [200, 380],
+      "speed_tiles_s": [0.4, 1.1],
+      "cone_deg": 360,
+      "gravity_tiles_s2": 1.2,
+      "drag": 0.35,
+      "size_px": [3, 5],
+      "size_over_life": [1.0, 0.5],
+      "color_over_life": ["vfx.ember", "vfx.ember", "vfx.fire"],
+      "alpha_over_life": [0.9, 0.0]
+    }
+  ]
+}

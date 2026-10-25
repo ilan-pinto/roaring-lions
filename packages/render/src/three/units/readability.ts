@@ -97,6 +97,8 @@ export const HP_BAR = { widthPx: 24, heightPx: 3, framePx: 1, frameAlpha: 1 } as
 export const RADIUS_BY_TYPE: Readonly<Record<string, number>> = {
   // dozer_d9 and scout_shachaf re-measured from their A3.2 Meshy exports (GH-185, 2026-09-30).
   // mbt_lavi 1.15 -> 1.35 re-measured after the x1.18 rescale (lead, 2026-10-15).
+  // GH-274: the Shiryonan carrier, from a fresh `tools/src/perf/unit-footprints.ts` run (footprint 1.577 tile).
+  demo_tzav: 1.82,
   mbt_lavi: 1.35, mbt_lavi_camo: 1.51, spg_long_range: 1.55, spg_cluster: 1.55, ifv_namer: 1.61, apc_eitan: 1.49, apc_kipod: 1.56, scout_shachaf: 1.01,
   // B7 (GH-179, 2026-10-01): re-measured from the Meshy figures that replaced the
   // supplied bipeds -- three men in kit's line read narrower than the supplied
@@ -141,6 +143,13 @@ export const RADIUS_BY_TYPE: Readonly<Record<string, number>> = {
   // `loiter_drone` reads 0.58 since its mesh landed (B2, 2026-09-30): 1.15 x its own
   // 2.43 m shipped span; it was the 0.35 air class while billboard-only.
   loiter_drone: 0.58,
+  // E6 (GH-274) chunk B (25 Oct): the swarm is a CLOUD, so its ring is the cloud's radius -- `swarm.spread_tiles
+  // / 2` = 0.75 (`unit-footprints.ts`'s `cloudRadiusTiles` special case, so this stays generated). One member's
+  // mesh measures 0.139 tile; 1.15 x that is under the air class value 0.35 and is not what the ring is for.
+  drone_swarm: 0.75,
+  // E6 (GH-274) chunk A2 (25 Oct): the Remetz Laser Carrier, from a fresh `unit-footprints.ts` run (footprint 1.321 tile at 7.0 m, the GH-807
+  // ruling; 1.435 at 7.6 m: the beam turret excluded like the Eitan's RWS; 1.15 x that is 1.52).
+  aa_remetz: 1.52,
   // E5 (GH-181, 2026-10-01): the bought-only Shmamit team and Peten Gunship, from a fresh
   // `tools/src/perf/unit-footprints.ts` run (footprint 0.476 and 0.778 tile). recon_zikit
   // 0.55 -> 0.53 at spike-walk (6 Oct): the spotter stands beside his tripod (0.454 tile).
@@ -209,6 +218,8 @@ export const ELLIPSE_BY_TYPE: Readonly<Record<string, RingEllipse>> = {
   // GH-709 Phase 7: the Te'o Cluster Howitzer, the Te'o's hull and spades (its rack sits
   // inside them): `tools/src/perf/unit-footprints.ts`, 2026-10-22.
   spg_cluster: { along: 1.57, across: 0.9, offsetAlong: -0.08 },
+  // GH-274: the Shiryonan carrier (8.5 m over the arm and crate), from the same run.
+  demo_tzav: { along: 1.86, across: 1.07, offsetAlong: 0 },
   ifv_namer: { along: 1.61, across: 1.05, offsetAlong: 0 },
   // GH-709: the ambulance's roof box stands inside the Namer's hull footprint, so the same ellipse.
   veh_ambulance: { along: 1.61, across: 1.05, offsetAlong: 0 },
@@ -223,6 +234,8 @@ export const ELLIPSE_BY_TYPE: Readonly<Record<string, RingEllipse>> = {
   // B2 (2026-09-30): the Meshy gun truck, 5.4 m x 2.8 m, from a fresh `ellipseFor`.
   gun_truck: { along: 1.2, across: 0.77, offsetAlong: 0 },
   rocket_battery: { along: 1.25, across: 0.64, offsetAlong: 0.01 },
+  // E6 (GH-274) chunk A2 (25 Oct): the Remetz Laser Carrier, a fresh `unit-footprints.ts` run at 7.0 m (hull and tyres; the turret is excluded; was 1.67 x 1.04 at 7.6 m).
+  aa_remetz: { along: 1.53, across: 0.96, offsetAlong: 0 },
 };
 
 /**

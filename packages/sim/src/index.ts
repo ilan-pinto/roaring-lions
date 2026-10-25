@@ -65,7 +65,7 @@ export {
   type TileXY,
   type VentView,
 } from './corridor';
-export { unlockReason, isBoughtOnly, starsEarned, conductAtLeast, resolveUpgrades, loanedPlacements, type UnlockGate } from './unlock';
+export { unlockReason, isBoughtOnly, starsEarned, conductAtLeast, resolveUpgrades, loanedPlacements, loanedReinforcements, reinforceKey, type UnlockGate } from './unlock';
 export {
   starsFor,
   starRoeFloor,
@@ -126,3 +126,4 @@ export { FIRE_SUPPORT, FS_AIR_STRIKE, FS_MORTAR_BARRAGE, FS_SMOKE_SCREEN, type F
 // (advance, enqueue, cancel, spendDown) is the runtime's own; nothing outside the sim imports it.
 export { lineContested, type LineItem, type ProductionLine } from './production';
 export { MAX_PRODUCTION_LINES, MAX_LINE_QUEUE } from './tuning';
+export { encodeSim, restoreSim, SNAPSHOT_FORMAT, SNAPSHOT_MATCH_DIGEST_OFFSET, SnapshotRefused, type SnapshotMeta } from './snapshot';

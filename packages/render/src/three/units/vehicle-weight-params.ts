@@ -67,6 +67,7 @@ import apcKipod from '../../../../../data/units/kdf/apc_kipod.json';
 import attackDrone from '../../../../../data/units/kdf/attack_drone.json';
 import reconDrone from '../../../../../data/units/kdf/recon_drone.json';
 import dozerD9 from '../../../../../data/units/kdf/dozer_d9.json';
+import demoTzav from '../../../../../data/units/kdf/demo_tzav.json';
 import heliPeten from '../../../../../data/units/kdf/heli_peten.json';
 import heliPetenGunship from '../../../../../data/units/kdf/heli_peten_gunship.json';
 import heliYanshuf from '../../../../../data/units/kdf/heli_yanshuf.json';
@@ -89,6 +90,10 @@ import technical from '../../../../../data/units/enemy/technical.json';
 // B2 (GH-179, 2026-09-30): the two enemy vehicles that gained a GLB.
 import gunTruck from '../../../../../data/units/enemy/gun_truck.json';
 import loiterDrone from '../../../../../data/units/enemy/loiter_drone.json';
+// E6 (GH-274) chunk A1: the swarm drone, `isAir`, excluded from the weight model like every air hull.
+import droneSwarm from '../../../../../data/units/enemy/drone_swarm.json';
+// E6 (GH-274) chunk A2: the Remetz Laser Carrier, a ground hull on the `aa` role default (no `mobility.weight` block).
+import aaRemetz from '../../../../../data/units/kdf/aa_remetz.json';
 
 const DEG = Math.PI / 180;
 
@@ -123,6 +128,8 @@ const VEHICLE_UNIT_JSON: readonly unknown[] = [
   attackDrone,
   reconDrone,
   dozerD9,
+  // GH-274: the Shiryonan carrier, `mobility.weight.mass_class: heavy` (a tracked 8.5 m hull).
+  demoTzav,
   heliPeten,
   // E5 (GH-181): `isAir`, excluded from the weight model upstream like `heli_peten`.
   heliPetenGunship,
@@ -142,6 +149,8 @@ const VEHICLE_UNIT_JSON: readonly unknown[] = [
   technical,
   gunTruck,
   loiterDrone,
+  droneSwarm,
+  aaRemetz,
   // GH-709: a ground hull; `mobility.weight` is the `apc` role default (none authored).
   vehAmbulance,
 ];
