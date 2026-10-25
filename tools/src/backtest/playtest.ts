@@ -4064,7 +4064,10 @@ for (const [label, got, want] of [
 // 2026-10-23, the lead's wound rules: 27 -> 29, the pre-P3 figure, same mission. Umm Zeitoun IV's
 // roster out 27 -> 29 again: with no Conduct on the wounded and no wounded contesting, the chain
 // brings two more home.
-const ROSTER_MAX = 29;
+// 2026-10-25, GH-274 item 5: 29 -> 31, same mission. Umm Zeitoun II's roster out reads 15 -> 16 -> 17: the
+// swarm that replaces the loiter drone costs the plan no body (+1), and the Remetz its plan now builds
+// survives into the roster (+1). Umm Zeitoun IV inherits both.
+const ROSTER_MAX = 31;
 console.log(`roster maximum: ${rosterMax} at ${rosterMaxMissionId}`);
 if (rosterMax !== ROSTER_MAX) {
   console.error(`roster maximum: FAILED — expected ${ROSTER_MAX}, got ${rosterMax} at ${rosterMaxMissionId}`);
