@@ -2976,6 +2976,47 @@ const uz4Plan: Plan = (sim, rt, ids, at) => {
       if (tanks.length === 0 || ys <= 10) sim.queueCommand({ kind: 'attackMove', ids: eitan, ...M(33, 8) });
       else sim.queueCommand({ kind: 'attackMove', ids: eitan, ...M(33, Math.min(40, ys + 4)) });
     });
+  // GH-421 (vehicle separation, after the Tel Marum relay): a porter standing at the warehouse. A porter
+  // that breaks for the refuge under the pickets' fire can be pinned on the way against the building's
+  // east wall, at (32.0, 3.3-5.4): 1.5-1.9 tiles from its centre, inside the 2-tile danger-close circle
+  // of every round aimed at it (3 Conduct a round; two Lavis, one round each 6.7 s). The shells that
+  // pinned it keep it there. Seed 3 of the ladder behind Tel Marum III (one infantry squad fewer in the
+  // roster, so every body's dice moved) shelled the warehouse over a standing porter for 60 s: 24
+  // rounds, Conduct 100 to 43 under the floor of 45, a defeat at 3.2 minutes; seeds 5, 6, 10 and 26 lost
+  // 24-39 Conduct the same way and won on 46-58. A player who sees a family standing in that circle
+  // does not keep putting the main gun into it: he takes the tanks back out of its reach (12 tiles),
+  // to (33, 17), and lets the fear pass. He does it for a family that STAYS inside it (under half a
+  // tile in each of the last eight seconds): the others are walking out past the wall and are clear of
+  // it in three, and one pinned by a burst walks on within six (424242's is, at 2.03 tiles, and costs
+  // nothing). The hold lasts until the plan's own fallback at 250 s, when the clock matters more than
+  // the score (the parties go in then, and the warehouse has to be rubble for them); the Lavis are sent
+  // back to the yard the moment it ends. While it lasts the orders below leave them where they are.
+  // Only the Lavis' gun is heavy: the Namer's cannon and the Eitans' machine guns are not held.
+  let holding = false;
+  const standing = new Map<number, [number, number, number]>();
+  for (let when = 30; when <= 250; when += 2)
+    at(when, () => {
+      const w = sim.structureAt(30, 4);
+      const was = holding;
+      holding = false;
+      const cx = w < 0 ? 0 : fx.toNumber(sim.structures.cx[w]);
+      const cy = w < 0 ? 0 : fx.toNumber(sim.structures.cy[w]);
+      for (let i = 0; i < sim.entityCount; i++) {
+        if (sim.state.side[i] !== 2 || sim.state.alive[i] !== 1) continue;
+        const x = fx.toNumber(sim.state.posX[i]);
+        const y = fx.toNumber(sim.state.posY[i]);
+        const before = standing.get(i);
+        const still = before !== undefined && (x - before[0]) ** 2 + (y - before[1]) ** 2 < 0.25 ? before[2] + 1 : 0;
+        standing.set(i, [x, y, still]);
+        if (w < 0 || when >= 250 || rt.objectiveStatus('raze_the_stockpile') !== 'active') continue;
+        if ((x - cx) ** 2 + (y - cy) ** 2 <= 2 * 2 && still >= 4) holding = true;
+      }
+      const near = lavi.filter((u) => sim.state.alive[u] === 1);
+      if (holding) {
+        const inReach = near.filter((u) => (fx.toNumber(sim.state.posX[u]) - cx) ** 2 + (fx.toNumber(sim.state.posY[u]) - cy) ** 2 < 12.5 * 12.5);
+        if (inReach.length > 0) sim.queueCommand({ kind: 'move', ids: inReach, ...M(33, 17) });
+      } else if (was && near.length > 0) sim.queueCommand({ kind: 'attackMove', ids: near, ...M(33, 8) });
+    });
   // GH-421 (vehicle separation): an attack-moving Lavi halts the moment it has a target in range. On
   // 424242 the pair was 1.4 tiles further back at 800 ticks than before (y 19.9 against 18.5; the valve
   // had opened twice at the foot of the ramp, ticks 84 and 88) and halted at the edge of the gun's
@@ -2991,7 +3032,7 @@ const uz4Plan: Plan = (sim, rt, ids, at) => {
         const y = fx.toNumber(sim.state.posY[u]);
         const before = laviLast.get(u);
         laviLast.set(u, y);
-        if (before !== undefined && y > 16 && before - y < 0.3) sim.queueCommand({ kind: 'move', ids: [u], ...M(33, 15) });
+        if (before !== undefined && y > 16 && before - y < 0.3 && !holding) sim.queueCommand({ kind: 'move', ids: [u], ...M(33, 15) });
       }
     });
   // GH-382: the spur's eye covers the ramp, so a drone sent at t=1 is shot down on the way up; it
@@ -3076,9 +3117,10 @@ const uz4Plan: Plan = (sim, rt, ids, at) => {
       if (warehouse() >= 0 && when >= 100 && !yardGuns()) {
         closers.forEach((u, k) => {
           const spot = yardSpots[k];
+          if (holding && lavi.includes(u)) return; // held off the warehouse (above); the Namer still goes in
           if (spot && sim.state.alive[u] === 1) sim.queueCommand({ kind: 'move', ids: [u], ...M(...spot), exact: true });
         });
-      } else if (when % 30 === 0) sim.queueCommand({ kind: 'attackMove', ids: depotEscort, ...M(33, 8) });
+      } else if (when % 30 === 0) sim.queueCommand({ kind: 'attackMove', ids: holding ? eitan : depotEscort, ...M(33, 8) }); // not the Lavis while held
     });
   // The stockpile is down, so everything left goes for Adhal: the nearest hostile the player has seen,
   // else the crest. Since #537 the escort no longer walks on from the yard by itself, and three seeds
