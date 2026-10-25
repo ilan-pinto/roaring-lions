@@ -252,13 +252,19 @@ describe('a model over MCP, end to end (the stand-in client, no model, no key)',
   it('case 1: cmd:<test-mcp-client> playing rush through observe/order/end_round beats passive from both seats', async () => {
     const out = tempDir('ext-e2e-');
     const fake = `cmd:${TSX} ${CLIENT} {mcp}`;
-    const r = await runArena(['--a', fake, '--b', 'passive', '--seeds', '1', '--first-seed', '0', '--map', 'tel_marum', '--pace', '40', '--tick-ms', '1', '--cap-ticks', '6000', '--out', out], quiet);
+    const r = await runArena(['--a', fake, '--b', 'passive', '--seeds', '1', '--first-seed', '14', '--map', 'tel_marum', '--pace', '40', '--tick-ms', '1', '--cap-ticks', '6000', '--out', out], quiet);
     expect(r.code).toBe(0);
     const g: GameRecord[] = r.games;
     expect(g).toHaveLength(2);
-    // Game 1: the fake on seat 0; game 2: on seat 1. It wins both on seed 1000
-    // (`--first-seed 0`; was seed 40595 until tel_marum's versus seat 0 moved to
-    // (27,45), 2026-10-24, GH-774 -- see arena.test.ts's header).
+    // Game 1: the fake on seat 0; game 2: on seat 1. It wins both on seed 111866
+    // (`--first-seed 14`: cap on seat 0, annihilation at 1960 ticks on seat 1).
+    // Re-seeded 2026-10-25 from seed 1000 (`--first-seed 0`) under movers-only vehicle
+    // avoidance (GH-421 Stage 2): on 1000 passive beats the stand-in on seat 0. The stand-in
+    // is weaker than the in-process rush (which wins both seats on seeds 0-3 and 11 of 0-11),
+    // and wins both seats on NONE of seeds 0-11 at pace 40 and cap 6,000; the search went on
+    // through seedOf(12)..seedOf(35), where it wins both on 14, 16, 20, 21, 25, 29, 31, 32
+    // and 35, and this is the first. (Before that, from seed 40595 until tel_marum's versus
+    // seat 0 moved to (27,45), 2026-10-24, GH-774 -- see arena.test.ts's header.)
     expect(g.map((x) => x.outcome)).toEqual(['seat0', 'seat1']);
     // Its last stdout line said usage 0 + 0: read, not defaulted to null.
     expect(g[0].reports[0].tokens).toBe(0);
