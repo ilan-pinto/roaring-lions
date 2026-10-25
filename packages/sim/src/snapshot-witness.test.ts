@@ -11,7 +11,7 @@ import {
 } from './golden-worlds.test-helper';
 import { HASH_SEED, hashWord } from './hash';
 import { encodeSim, internals } from './snapshot';
-import { configDiff, forkWitness, type ForkVerdict, type WitnessWorld } from './snapshot-witness';
+import { configDiff, forkWitness, forkWitnessSeries, stateRowsMoved, type ForkVerdict, type WitnessWorld } from './snapshot-witness';
 import type { Sim } from './sim';
 
 // The fork witness on the three runtime-free golden worlds (net sim snapshot S1,
@@ -70,7 +70,7 @@ function fork(g: Golden, T: number, extra: { poison?: boolean; afterRestore?: (b
   return forkWitness<World>({ build: g.build, drive: g.drive, T, horizon: HORIZON, hashEvery: HASH_EVERY, ...extra });
 }
 
-function expectClean(v: ForkVerdict<World>, label: string): void {
+function expectClean(v: Omit<ForkVerdict<World>, 'a'>, label: string): void {
   expect(v.configDifference, `${label}: a config row differs after the restore`).toBeNull();
   expect(v.hashDivergedAt, `${label}: hash diverged`).toBeNull();
   expect(v.encodingEqualAtEnd, `${label}: encodings differ at the end (${v.firstDifference ?? ''})`).toBe(true);
@@ -207,6 +207,86 @@ describe('config check: every config row of A equals B after the restore', () =>
     set.delete(first);
     set.add(first + 1_000_000);
     expect(configDiff(a, tiles)).toBe('tnTiles: differs by JSON');
+  });
+});
+
+// ---- the series runner: one A, many forks ---------------------------------------------------
+
+describe('fork witness series: one run of A, a fork at every T', () => {
+  const Ts = [0, 100, 200, 300, 400, 500, 600, 700, 800];
+  const END = 1000;
+  const series = (extra: { poison?: boolean; afterRestore?: (b: World, a: World) => void; mutate?: (b: World, a: World) => void } = {}) =>
+    forkWitnessSeries<World>({ build: RUN.build, drive: RUN.drive, Ts, horizon: HORIZON, hashEvery: HASH_EVERY, tailFrom: 300, endTick: END, ...extra });
+
+  it('gives the verdicts of separate forkWitness calls at the same T, the tail last', () => {
+    const verdicts = series({ poison: true });
+    expect(verdicts.map((v) => v.T)).toEqual([...Ts, 300]);
+    expect(verdicts.map((v) => v.horizon)).toEqual([...Ts.map(() => HORIZON), END - 300]);
+    for (const v of verdicts) {
+      const one = forkWitness<World>({ build: RUN.build, drive: RUN.drive, T: v.T, horizon: v.horizon, hashEvery: HASH_EVERY, poison: true });
+      expectClean(v, `series T=${v.T} horizon=${v.horizon}`);
+      expect(v.hashDivergedAt, `T=${v.T} horizon=${v.horizon}`).toBe(one.hashDivergedAt);
+      expect(v.encodingEqualAtEnd, `T=${v.T} horizon=${v.horizon}`).toBe(one.encodingEqualAtEnd);
+      expect(v.configDifference).toBe(one.configDifference);
+      expect(v.garbledUnkeyedSlots).toBe(one.garbledUnkeyedSlots);
+    }
+  });
+
+  it('hands the hooks A at exactly tick T, and B restored to T', () => {
+    const seen: string[] = [];
+    series({
+      afterRestore: (b, a) => {
+        seen.push(`restore a=${a.sim.tickCount} b=${b.sim.tickCount}`);
+      },
+      mutate: (b, a) => {
+        seen.push(`mutate a=${a.sim.tickCount} b=${b.sim.tickCount}`);
+      },
+    });
+    const cuts = [...Ts, 300];
+    // Forks cut at the same T run in the order given, so the pairs interleave only per fork.
+    expect(seen.length).toBe(cuts.length * 2);
+    for (const T of cuts) {
+      expect(seen).toContain(`restore a=${T} b=${T}`);
+      expect(seen).toContain(`mutate a=${T} b=${T}`);
+    }
+  });
+
+  it('a mutation applied to one fork turns that fork red and no other', () => {
+    const verdicts = series({
+      mutate: (b) => {
+        if (b.sim.tickCount === 500) (internals(b.sim).trail as Uint8Array).fill(0);
+      },
+    });
+    const red = verdicts.filter((v) => v.hashDivergedAt !== null || !v.encodingEqualAtEnd).map((v) => `${v.T}/${v.horizon}`);
+    // T=500 at horizon 200, and nothing else: the tail fork starts at 300.
+    expect(red).toEqual(['500/200']);
+  });
+
+  it('refuses a plan that does not fit: descending Ts, or a fork running past endTick', () => {
+    const base = { build: RUN.build, drive: RUN.drive, horizon: 10, hashEvery: 5 };
+    expect(() => forkWitnessSeries<World>({ ...base, Ts: [20, 10], endTick: 100 })).toThrow(/ascending/);
+    expect(() => forkWitnessSeries<World>({ ...base, Ts: [95], endTick: 100 })).toThrow(/does not fit/);
+    expect(() => forkWitnessSeries<World>({ ...base, Ts: [], tailFrom: 101, endTick: 100 })).toThrow(/does not fit/);
+  });
+});
+
+// ---- the row census -------------------------------------------------------------------------
+
+describe('stateRowsMoved: which rows a run ever wrote', () => {
+  it('reports posX, trail and the pool moved by tick 500, and smoke and elevation not', () => {
+    const base = RUN.build();
+    const w = RUN.build();
+    for (let t = 0; t < 500; t++) {
+      RUN.drive(w, t);
+      w.sim.tick();
+    }
+    const moved = stateRowsMoved(base.sim, w.sim);
+    for (const name of ['posX', 'trail', 'tickCount', 'rng', 'fieldByGoal', 'pendingEvents']) {
+      expect(moved.has(name), `${name} moved`).toBe(true);
+    }
+    // The golden battle lays no smoke and has flat ground.
+    for (const name of ['smoke', 'elevation', 'patrolLegIds']) expect(moved.has(name), `${name} unmoved`).toBe(false);
+    expect(stateRowsMoved(base.sim, RUN.build().sim).size, 'two tick-0 worlds of one setup agree on every row').toBe(0);
   });
 });
 

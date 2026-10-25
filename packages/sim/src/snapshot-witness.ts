@@ -1,5 +1,5 @@
 import { FlowField } from './flowfield';
-import { encodeSim, internals, isTyped, restoreSim, type Typed } from './snapshot';
+import { canonicalJson, encodeSim, internals, isTyped, restoreSim, type Typed } from './snapshot';
 import { rowsOf, type SnapshotRow } from './snapshot-schema';
 import type { Sim } from './sim';
 
@@ -26,22 +26,22 @@ export interface WitnessWorld {
   readonly sim: Sim;
 }
 
-export interface ForkWitnessOptions<W extends WitnessWorld> {
-  /** A fresh tick-0 world. Called twice: once for A, once for B. */
+/** The parts of a fork that do not depend on where it is cut: how to build, drive and compare worlds. */
+export interface WitnessHooks<W extends WitnessWorld> {
+  /** A fresh tick-0 world. Called once for A and once per fork for B. */
   build: () => W;
   /** Applies tick `t`'s inputs. Called on BOTH worlds identically: some drivers make direct sim calls. */
   drive: (world: W, t: number) => void;
   /** Steps one tick. Defaults to `world.sim.tick()`. */
   advance?: (world: W) => void;
-  /** The tick the snapshot is cut at. */
-  T: number;
-  /** How many ticks both worlds then run. */
-  horizon: number;
   /** Hashes are compared at T and then every `hashEvery` ticks. */
   hashEvery: number;
   /** What the hash is. Defaults to `world.sim.hash()`. */
   hash?: (world: W) => number;
-  /** Runs on B right after the restore, before anything is mutated (a caller carrying a runtime copies it here). */
+  /**
+   * Runs on B right after the restore, before anything is mutated (a caller carrying a runtime copies it here).
+   * A is exactly at tick T when it runs, in a series too: A has not stepped past T.
+   */
   afterRestore?: (b: W, a: W) => void;
   /**
    * Fills everything the restore promises not to write with garbage (see `poisonScratch`), after
@@ -49,8 +49,26 @@ export interface ForkWitnessOptions<W extends WitnessWorld> {
    * slots that actually garbled.
    */
   poison?: boolean;
-  /** Runs on B after the restore, `afterRestore` and the poison: the mutation a self-check applies. */
+  /** Runs on B after the restore, `afterRestore` and the poison: the mutation a self-check applies. A is at tick T. */
   mutate?: (b: W, a: W) => void;
+}
+
+export interface ForkWitnessOptions<W extends WitnessWorld> extends WitnessHooks<W> {
+  /** The tick the snapshot is cut at. */
+  T: number;
+  /** How many ticks both worlds then run. */
+  horizon: number;
+}
+
+export interface ForkSeriesOptions<W extends WitnessWorld> extends WitnessHooks<W> {
+  /** The ticks the snapshot is cut at, ascending. */
+  Ts: readonly number[];
+  /** How many ticks each of those forks then runs. Every `T + horizon` must be at most `endTick`. */
+  horizon: number;
+  /** One more fork, cut at this tick, whose horizon runs to `endTick`. Its verdict is the last one. */
+  tailFrom?: number;
+  /** A is stepped to this tick and no further. */
+  endTick: number;
 }
 
 export interface ForkVerdict<W extends WitnessWorld> {
@@ -68,6 +86,14 @@ export interface ForkVerdict<W extends WitnessWorld> {
   a: W;
   b: W;
 }
+
+/** One fork of a series: B only, because A is shared and still moving when the fork is judged. */
+export type SeriesForkVerdict<W extends WitnessWorld> = Omit<ForkVerdict<W>, 'a'> & {
+  /** The tick this fork was cut at. */
+  T: number;
+  /** How many ticks it then ran. */
+  horizon: number;
+};
 
 function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false;
@@ -195,6 +221,93 @@ function garble(f: FlowField, byte: number): void {
   f.goalY = byte;
 }
 
+interface Fork<W extends WitnessWorld> {
+  readonly T: number;
+  readonly horizon: number;
+  readonly b: W;
+  readonly configDifference: string | null;
+  readonly garbledUnkeyedSlots: number;
+  hashDivergedAt: number | null;
+}
+
+/**
+ * The one code path under `forkWitness` and `forkWitnessSeries`. A is built once and stepped to
+ * `endTick`. At each fork's T (before A steps past it) A is encoded, a fresh B is built and
+ * restored, and the hooks run exactly as a single fork runs them; B is then stepped in lockstep
+ * with A, so several forks are live at once. A fork is judged the tick A reaches `T + horizon`.
+ * Verdicts come back in `forks` order.
+ */
+function runForks<W extends WitnessWorld>(
+  opts: WitnessHooks<W>,
+  forks: readonly { readonly T: number; readonly horizon: number }[],
+  endTick: number
+): { verdicts: ForkVerdict<W>[]; a: W } {
+  if (!Number.isInteger(endTick) || endTick < 0) throw new Error(`forkWitness: endTick ${String(endTick)} is not a tick`);
+  for (const f of forks) {
+    if (!Number.isInteger(f.T) || !Number.isInteger(f.horizon) || f.T < 0 || f.horizon < 0 || f.T + f.horizon > endTick) {
+      throw new Error(`forkWitness: fork T=${String(f.T)} horizon=${String(f.horizon)} does not fit in 0..${endTick}`);
+    }
+  }
+  const advance = opts.advance ?? ((w: W): void => { w.sim.tick(); });
+  const hashOf = opts.hash ?? ((w: W): number => w.sim.hash());
+
+  const a = opts.build();
+  const verdicts: (ForkVerdict<W> | undefined)[] = forks.map(() => undefined);
+  const live = new Map<number, Fork<W>>();
+
+  const cut = (index: number): void => {
+    const spec = forks[index];
+    const bytes = encodeSim(a.sim);
+    const b = opts.build();
+    restoreSim(b.sim, bytes);
+    opts.afterRestore?.(b, a);
+    const configDifference = configDiff(a.sim, b.sim);
+    const garbledUnkeyedSlots = opts.poison === true ? poisonScratch(b.sim) : 0;
+    opts.mutate?.(b, a);
+    const fork: Fork<W> = { T: spec.T, horizon: spec.horizon, b, configDifference, garbledUnkeyedSlots, hashDivergedAt: null };
+    compareHash(fork);
+    live.set(index, fork);
+  };
+  const compareHash = (fork: Fork<W>): void => {
+    if (fork.hashDivergedAt === null && hashOf(a) !== hashOf(fork.b)) fork.hashDivergedAt = a.sim.tickCount;
+  };
+  const judge = (index: number, fork: Fork<W>): void => {
+    const encodingEqualAtEnd = bytesEqual(encodeSim(a.sim), encodeSim(fork.b.sim));
+    const verdict: ForkVerdict<W> = {
+      hashDivergedAt: fork.hashDivergedAt,
+      encodingEqualAtEnd,
+      configDifference: fork.configDifference,
+      garbledUnkeyedSlots: fork.garbledUnkeyedSlots,
+      a,
+      b: fork.b,
+    };
+    if (!encodingEqualAtEnd) {
+      verdict.firstDifference = firstStateDifference(a.sim, fork.b.sim) ?? 'the encodings differ outside the state columns (the tail: pool keys or an aux row)';
+    } else if (fork.hashDivergedAt !== null) {
+      verdict.firstDifference = `hash differs at tick ${fork.hashDivergedAt}`;
+    }
+    verdicts[index] = verdict;
+    live.delete(index);
+  };
+
+  for (let t = 0; ; t++) {
+    // A is at tick t, before its inputs: the forks cut here see exactly that world.
+    for (let i = 0; i < forks.length; i++) if (forks[i].T === t) cut(i);
+    for (const [i, fork] of Array.from(live)) if (fork.horizon === 0) judge(i, fork);
+    if (t === endTick) break;
+    opts.drive(a, t);
+    advance(a);
+    for (const [i, fork] of Array.from(live)) {
+      opts.drive(fork.b, t);
+      advance(fork.b);
+      const k = t - fork.T + 1;
+      if (k % opts.hashEvery === 0) compareHash(fork);
+      if (k === fork.horizon) judge(i, fork);
+    }
+  }
+  return { verdicts: verdicts as ForkVerdict<W>[], a };
+}
+
 /**
  * Runs one fork and returns the verdict. The worlds are stepped in lockstep from T, both
  * driven by the same `drive(t)`; the sim hashes are compared at T and every `hashEvery`
@@ -202,43 +315,96 @@ function garble(f: FlowField, byte: number): void {
  * decides what a verdict means (a clean fork must be clean, a self-check must be red).
  */
 export function forkWitness<W extends WitnessWorld>(opts: ForkWitnessOptions<W>): ForkVerdict<W> {
-  const advance = opts.advance ?? ((w: W): void => { w.sim.tick(); });
-  const hashOf = opts.hash ?? ((w: W): number => w.sim.hash());
+  return runForks(opts, [{ T: opts.T, horizon: opts.horizon }], opts.T + opts.horizon).verdicts[0];
+}
 
-  const a = opts.build();
-  for (let t = 0; t < opts.T; t++) {
-    opts.drive(a, t);
-    advance(a);
+/**
+ * The same proof at many cut points over ONE run of A. A is built and stepped once to `endTick`
+ * (`forkWitness` rebuilds it from tick 0 for every T); each `T` in `Ts` is a fork of `horizon`
+ * ticks, and `tailFrom`, if given, is one more whose horizon runs to `endTick`. Forks overlap, so
+ * several Bs step beside A at once. The verdicts come back in `Ts` order, the tail last, each
+ * carrying its `T` and `horizon` and its B (A is shared, so it is not in the verdict).
+ */
+export function forkWitnessSeries<W extends WitnessWorld>(opts: ForkSeriesOptions<W>): SeriesForkVerdict<W>[] {
+  for (let i = 1; i < opts.Ts.length; i++) {
+    if (opts.Ts[i] < opts.Ts[i - 1]) throw new Error('forkWitnessSeries: Ts must be ascending');
   }
-  const bytes = encodeSim(a.sim);
+  const forks = opts.Ts.map((T) => ({ T, horizon: opts.horizon }));
+  if (opts.tailFrom !== undefined) forks.push({ T: opts.tailFrom, horizon: opts.endTick - opts.tailFrom });
+  const { verdicts } = runForks(opts, forks, opts.endTick);
+  return verdicts.map((v, i) => {
+    const out: SeriesForkVerdict<W> = {
+      T: forks[i].T,
+      horizon: forks[i].horizon,
+      hashDivergedAt: v.hashDivergedAt,
+      encodingEqualAtEnd: v.encodingEqualAtEnd,
+      configDifference: v.configDifference,
+      garbledUnkeyedSlots: v.garbledUnkeyedSlots,
+      b: v.b,
+    };
+    if (v.firstDifference !== undefined) out.firstDifference = v.firstDifference;
+    return out;
+  });
+}
 
-  const b = opts.build();
-  restoreSim(b.sim, bytes);
-  opts.afterRestore?.(b, a);
-  const configDifference = configDiff(a.sim, b.sim);
-  const garbledUnkeyedSlots = opts.poison === true ? poisonScratch(b.sim) : 0;
-  opts.mutate?.(b, a);
+// ---- the row census -------------------------------------------------------------------------
 
-  let hashDivergedAt: number | null = null;
-  const compareHash = (): void => {
-    if (hashDivergedAt === null && hashOf(a) !== hashOf(b)) hashDivergedAt = a.sim.tickCount;
-  };
-  compareHash();
-  for (let k = 1; k <= opts.horizon; k++) {
-    const t = opts.T + k - 1;
-    opts.drive(a, t);
-    advance(a);
-    opts.drive(b, t);
-    advance(b);
-    if (k % opts.hashEvery === 0) compareHash();
+/**
+ * The JSON of one pool row, read from the pool's keys (`Sim.fieldPoolKeys`): the same four rows
+ * the encoder writes under its tail's `fieldPool` key, so "moved" means "the encoding of this row
+ * differs".
+ */
+function poolRowJson(sim: Sim, name: string): string {
+  const keys = sim.fieldPoolKeys();
+  switch (name) {
+    case 'fieldByGoal':
+      return canonicalJson(keys.order);
+    case 'fieldLastIssued':
+      return canonicalJson(keys.slots.map((s) => s.lastIssued));
+    case 'fieldGoalKey':
+      return canonicalJson(keys.slots.map((s) => s.goal));
+    case 'fieldDomain':
+      return canonicalJson(keys.slots.map((s) => s.domain));
+    default:
+      throw new Error(`stateRowsMoved: pool row ${name} has no reader`);
   }
+}
 
-  const encodingEqualAtEnd = bytesEqual(encodeSim(a.sim), encodeSim(b.sim));
-  const verdict: ForkVerdict<W> = { hashDivergedAt, encodingEqualAtEnd, configDifference, garbledUnkeyedSlots, a, b };
-  if (!encodingEqualAtEnd) {
-    verdict.firstDifference = firstStateDifference(a.sim, b.sim) ?? 'the encodings differ outside the state columns (the tail: pool keys or an aux row)';
-  } else if (hashDivergedAt !== null) {
-    verdict.firstDifference = `hash differs at tick ${hashDivergedAt}`;
+/**
+ * The names of every `state` row whose ENCODED value differs between two worlds of one setup:
+ * a typed column by element (the codec writes each element exactly, so equal elements are equal
+ * bytes), a scalar by value, the RNG words as `rng`, and an aux or pool row by the canonical JSON
+ * the encoder writes for it. Task 7b's coverage census runs it with `base` = a world's tick-0
+ * world, to say which rows a run ever wrote. It throws on a row kind it cannot read rather than
+ * calling it unmoved.
+ */
+export function stateRowsMoved(base: Sim, now: Sim): Set<string> {
+  const ib = internals(base);
+  const inow = internals(now);
+  const moved = new Set<string>();
+  for (const row of rowsOf('state')) {
+    const vb = ib[row.name];
+    const vn = inow[row.name];
+    switch (row.kind.t) {
+      case 'typed':
+        if (!isTyped(vb) || !isTyped(vn)) throw new Error(`stateRowsMoved: ${row.name} is not a typed array in both worlds`);
+        if (firstTypedDifference(vb, vn) >= 0) moved.add(row.name);
+        break;
+      case 'scalar':
+        if (vb !== vn) moved.add(row.name);
+        break;
+      case 'rng':
+        if (firstTypedDifference((vb as { state: Uint32Array }).state, (vn as { state: Uint32Array }).state) >= 0) moved.add(row.name);
+        break;
+      case 'aux':
+        if (canonicalJson(vb) !== canonicalJson(vn)) moved.add(row.name);
+        break;
+      case 'pool':
+        if (poolRowJson(base, row.name) !== poolRowJson(now, row.name)) moved.add(row.name);
+        break;
+      default:
+        throw new Error(`stateRowsMoved: state row ${row.name} has a kind it cannot read`);
+    }
   }
-  return verdict;
+  return moved;
 }

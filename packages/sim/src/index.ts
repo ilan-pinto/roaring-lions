@@ -127,4 +127,15 @@ export { FIRE_SUPPORT, FS_AIR_STRIKE, FS_MORTAR_BARRAGE, FS_SMOKE_SCREEN, type F
 export { lineContested, type LineItem, type ProductionLine } from './production';
 export { MAX_PRODUCTION_LINES, MAX_LINE_QUEUE } from './tuning';
 export { encodeSim, restoreSim, SNAPSHOT_FORMAT, SnapshotRefused, type SnapshotMeta } from './snapshot';
-export { forkWitness, configDiff, type ForkWitnessOptions, type ForkVerdict, type WitnessWorld } from './snapshot-witness';
+export {
+  forkWitness,
+  forkWitnessSeries,
+  stateRowsMoved,
+  configDiff,
+  type ForkWitnessOptions,
+  type ForkSeriesOptions,
+  type SeriesForkVerdict,
+  type WitnessHooks,
+  type ForkVerdict,
+  type WitnessWorld,
+} from './snapshot-witness';
