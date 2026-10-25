@@ -3308,6 +3308,17 @@ boughtProbe('umm_zeitoun_4_clearance', uz4Plan, ledUZ3, 'heli_peten_gunship', 55
         const t = sim.unitTypes[st.typeIdx[i]];
         if (t.id === 'manpad_team') manpad = true;
         if (t.isWounded || st.woundState[i] !== 0 || sim.contactLevel(0, i) < 2) continue;
+        // GH-421 (vehicle separation): nor a target with civilians beside it. Seed 26 sent the gunship at a
+        // rifleman 3 tiles from the porters and `heavy ordnance danger-close to civilians` took ROE from 100
+        // to 43 in two seconds, a defeat. A player has the porters on his screen.
+        const ex = fx.toNumber(st.posX[i]);
+        const ey = fx.toNumber(st.posY[i]);
+        let nearCivilians = false;
+        for (let c = 0; c < sim.entityCount && !nearCivilians; c++) {
+          if (st.alive[c] !== 1 || sim.unitTypes[st.typeIdx[c]].id !== 'civilians') continue;
+          nearCivilians = (fx.toNumber(st.posX[c]) - ex) ** 2 + (fx.toNumber(st.posY[c]) - ey) ** 2 <= 49;
+        }
+        if (nearCivilians) continue;
         const d = (fx.toNumber(st.posX[i]) - gx) ** 2 + (fx.toNumber(st.posY[i]) - gy) ** 2;
         if (d < bestD) {
           bestD = d;
