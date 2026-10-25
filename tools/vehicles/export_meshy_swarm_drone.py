@@ -34,13 +34,13 @@ brief asked for, and a swarm member is never aimed by its nose.
 
 WHAT WAS DONE, and why it is not "decimate everything". The brief was: cut the skids, the leg
 cages, the ball, the blades; decimate the rest (planar, then collapse) to 800. TWO decimation
-routes were built and rendered (`_coord/e6-art/previews/drone-attempt-voxel-collapse-views.png`
-is the second): collapse straight from 300k triangles tears the booms to slivers, and
-voxel-remeshing first (a clean watertight solid) then cutting the plate, booms and motors
-apart with exact booleans and collapsing each to its own budget (190 / 150 / 190) gave
-cone-shaped motors, shard booms and a crumpled plate. At 16 px that would read as noise, and
-the portrait shows it. So the body is REFIT, not decimated: every dimension below is read off
-the preview's own faces (percentiles over the face centroids of each region), and the pieces
+routes were built and rendered and both rejected (the E6 section of
+`docs/ASSET_PROVENANCE.md` records them; the second was the voxel one): collapse
+straight from 300k triangles tears the booms to slivers, and voxel-remeshing first (a clean
+watertight solid) then cutting the plate, booms and motors apart with exact booleans and
+collapsing each to its own budget (190 / 150 / 190) gave cone-shaped motors, shard booms and a
+crumpled plate. At 16 px that would read as noise, and the portrait shows it. So the body is
+REFIT, not decimated: every dimension below is read off the preview's own faces (percentiles over the face centroids of each region), and the pieces
 are clean primitives at those dimensions. Only the BOMB, the one smooth organic solid, is
 decimated from the Meshy faces (planar, then collapse), and it survives as a peanut.
   - the skids are dropped (loose parts 3 and 4);

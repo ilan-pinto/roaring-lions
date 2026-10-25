@@ -66,7 +66,7 @@ describe('aa_remetz.glb', () => {
     expect(tris(byName('turret_metal'))).toBeGreaterThanOrEqual(800);
   });
 
-  it('is 7.6 m long with its ground at y = 0 and the hull roof flat at 3.8 m', () => {
+  it('is 7.6 m long with its ground at y = 0 and the whole hull roof under 3.9 m', () => {
     const lo = [Infinity, Infinity, Infinity];
     const hi = [-Infinity, -Infinity, -Infinity];
     for (const n of live()) {
@@ -89,6 +89,14 @@ describe('aa_remetz.glb', () => {
     }
     expect(worst).toBeLessThan(3.82);
     expect(worst).toBeGreaterThan(3.7);
+    // ...and the WHOLE roof, not just the patch round the pivot: the textured hull never stands over 3.88 m anywhere
+    // (the roof, with its raised antenna mount, tops out at 3.878). The remesh's collapsed antenna whip -- one vertex
+    // at (0.286, 4.298, 0.624), a three-triangle needle 0.43 m over its mount -- is clipped by the exporter, and this
+    // is what keeps it clipped: nothing of `hull_hull` over the mount, and the turret's own parts are not in this mesh.
+    let roof = -Infinity;
+    for (let i = 0; i < p.length; i += 3) roof = Math.max(roof, p[i + 1]!);
+    expect(roof).toBeLessThan(3.9);
+    expect(roof).toBeGreaterThan(3.85);
   });
 
   it('has a turret_pivot at the column top with the turret parts under it and the column and stack not', () => {

@@ -118,7 +118,7 @@ ENEMY_FIGURES = {"atgm_cell", "manpad_team", "recoilless_team", "sarim_rifles",
 # robot on `dog_root` (plus its `dog_death_root`).
 NO_LEAD = {"moto_rpg", "digger_crew", "wounded_kdf", "wounded_sarim", "ugv_recon_dog"}
 ROSTER = (
-    # KDF (26)
+    # KDF (27)
     "inf_squad,inf_grenadier,at_team,mortar_team,sniper_team,demo_squad,breach_team,yahalom_squad,recon_zikit,inf_medic_squad,at_nlos_team,"
     "mbt_lavi,mbt_lavi_camo,ifv_namer,apc_eitan,apc_kipod,jeep_shoded,scout_shachaf,dozer_d9,spg_long_range,spg_cluster,aa_remetz,"
     "heli_peten,heli_peten_gunship,attack_drone,recon_drone,ugv_recon_dog,"

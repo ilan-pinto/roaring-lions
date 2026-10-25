@@ -51,6 +51,14 @@ THE CUTS AND SPLITS (all constants are SOURCE-frame, read off probes of this rem
   tyres    `hull_rubber`: every face within `WHEEL_R` of one of three axles in side view,
            outboard of `WHEEL_AY` (`export_meshy_apc`'s own method, which the Eitan and the
            Kipod use). The rear tandem's two discs overlap, as the Grad's do.
+  needle   one more stray in the source, found by review on 25 Oct: a roof antenna mount (a small box 1.67 m
+           forward of the turret, 0.62 m to the right, its top at 3.87 m) whose whip the remesh collapsed to
+           a three-triangle needle 0.43 m tall and a few centimetres wide: one source vertex at 4.298 m. It
+           is a decimation artefact, not geometry anyone drew: invisible at gameplay size, and a hair-thin
+           spike over the roof. `_clip_needles` drops every vertex above `ROOF_MAX_M` (3.90 m: the roof's
+           own highest point is 3.872, and the hatch box above it is already flattened) onto the mount's
+           top, `NEEDLE_TO_M`, the same flatten-in-place as the hatch (the mesh stays closed, every UV
+           stays), and the export refuses to run unless what it finds is ONE needle.
   windows  NOT split. They are painted into the bake: no pane is modelled, so there is no
            `hull_glass` to cut (the gate cannot judge it, the wreck cannot blow it out).
   hull     `hull_hull`: the rest, texture and all.
@@ -142,6 +150,9 @@ HATCH_R = 0.21                       # the box and its ears; the flange lies at 
 HATCH_Z_MIN_M = 3.795                # metres above the ground at the final scale: the flange top, 3.78
 HATCH_FLAT_M = 3.80                  # where the flattened box comes to rest: the flange top
 SRC_MPU = REAL_METRES / 1.8976       # the source's length is 1.8976 units: only used for the above
+ROOF_MAX_M = 3.90                    # nothing of the hull proper stands above this: the roof tops out at 3.872 (probe)
+NEEDLE_TO_M = 3.87                   # where a collapsed antenna whip's apex comes to rest: its mount's top
+NEEDLE_CLUSTER_M = 0.05              # the apex's split copies (one per UV/normal island) all sit within this
 
 # --- the turret, FINAL frame, metres ------------------------------------------------------
 COLUMN_H = 0.30                      # the short armoured column, above the flattened hatch
@@ -400,6 +411,37 @@ def _flatten_hatch(ob, zmin_src, mpu):
     print(f"[{UNIT_ID}] hatch flattened: {moved} verts dropped to {HATCH_FLAT_M} m, {before} -> {len(ob.data.polygons)} faces")
 
 
+def _clip_needles(ob, zmin_src, mpu):
+    """Drop a collapsed antenna whip's apex onto its mount. SOURCE frame (z up, `mpu` metres a unit).
+
+    A needle is any vertex above `ROOF_MAX_M` once the hatch box has been flattened: the roof's own highest
+    point is 3.872 m and nothing else of the hull stands over 3.90 (a first cut that asked for "a vertex over
+    its neighbours" caught 173 points of ordinary arch and rail detail; a height above the hull's own roof
+    asks only about what is not hull). Moving the vertex rather than deleting its faces keeps the mesh closed
+    and every UV in place, as `_flatten_hatch` does. Returns the apexes found as (index, x, y, metres).
+    The glTF import splits a vertex per UV island, so one whip's apex may arrive as several copies at one
+    point: they are counted as one needle, and a second needle elsewhere is a different count."""
+    z_hi = zmin_src + ROOF_MAX_M / mpu
+    z_to = zmin_src + NEEDLE_TO_M / mpu
+    found = [(v.index, v.co.x, v.co.y, (v.co.z - zmin_src) * mpu) for v in ob.data.vertices if v.co.z > z_hi]
+    for idx, *_ in found:
+        ob.data.vertices[idx].co.z = z_to
+    ob.data.update()
+    for idx, x, y, h in found:
+        print(f"[{UNIT_ID}] needle clipped: source vertex {idx} at ({x:+.4f}, {y:+.4f}), {h:.3f} m up, "
+              f"dropped to {NEEDLE_TO_M} m")
+    return found
+
+
+def _needle_clusters(found, mpu):
+    """How many distinct needles `found` is: copies within `NEEDLE_CLUSTER_M` of one another are one."""
+    centres = []
+    for _idx, x, y, _h in found:
+        if not any(math.hypot(x - cx, y - cy) * mpu < NEEDLE_CLUSTER_M for cx, cy in centres):
+            centres.append((x, y))
+    return len(centres)
+
+
 def _tris(ob):
     return sum(len(p.vertices) - 2 for p in ob.data.polygons)
 
@@ -425,6 +467,10 @@ def export(out_path=None):
     zmin_src = min(v.co.z for v in ob.data.vertices)
     _flatten_hatch(ob, zmin_src, SRC_MPU)
     # the flange height and the hatch centre in the source frame, to carry through the same transforms
+    needles = _clip_needles(ob, zmin_src, SRC_MPU)
+    if _needle_clusters(needles, SRC_MPU) != 1:
+        raise SystemExit(f"[{UNIT_ID}] found {_needle_clusters(needles, SRC_MPU)} needle(s) over {ROOF_MAX_M} m, "
+                         f"expected exactly 1 (the roof antenna whip): the source or the rule changed")
     hatch_src = Vector((HATCH_CENTRE_XY[0], HATCH_CENTRE_XY[1], zmin_src + HATCH_FLAT_M / SRC_MPU))
 
     axles = apc._axles(SPEC, ob)

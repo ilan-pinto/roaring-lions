@@ -8,8 +8,9 @@ import { describe, expect, it } from 'vitest';
 
 const PATH = new URL('../../art/meshes/vehicles/drone_swarm.glb', import.meta.url);
 
-interface Accessor { count: number; min?: number[]; max?: number[]; type: string }
+interface Accessor { count: number; min?: number[]; max?: number[]; type: string; bufferView: number; byteOffset?: number }
 interface Gltf {
+  bufferViews: { byteOffset?: number; byteStride?: number }[];
   nodes: { name: string; mesh?: number; extras?: Record<string, unknown> }[];
   meshes: { primitives: { attributes: { POSITION: number }; indices: number }[] }[];
   accessors: Accessor[];
@@ -17,10 +18,11 @@ interface Gltf {
   scenes: { extras?: { rl_rotors?: number[][]; rl_bomb?: number[] } }[];
 }
 
+const data = readFileSync(PATH);
+
 function load(): Gltf {
-  const d = readFileSync(PATH);
-  const n = d.readUInt32LE(12);
-  return JSON.parse(d.subarray(20, 20 + n).toString('utf8')) as Gltf;
+  const n = data.readUInt32LE(12);
+  return JSON.parse(data.subarray(20, 20 + n).toString('utf8')) as Gltf;
 }
 
 const g = load();
@@ -41,6 +43,23 @@ const boundsOf = () => {
   }
   return { lo, hi };
 };
+
+/** The POSITION vertices of a node's mesh, read from the GLB's BIN chunk (float32 VEC3). */
+function vertices(n: { mesh?: number }): number[][] {
+  const jsonLen = data.readUInt32LE(12);
+  const binStart = 20 + jsonLen + 8; // the BIN chunk's header is 8 bytes
+  const out: number[][] = [];
+  for (const p of g.meshes[n.mesh!]!.primitives) {
+    const a = g.accessors[p.attributes.POSITION]!;
+    const bv = g.bufferViews[a.bufferView]!;
+    const stride = bv.byteStride ?? 12;
+    const base = binStart + (bv.byteOffset ?? 0) + (a.byteOffset ?? 0);
+    for (let i = 0; i < a.count; i++) {
+      out.push([0, 4, 8].map((o) => data.readFloatLE(base + i * stride + o)));
+    }
+  }
+  return out;
+}
 
 describe('drone_swarm.glb', () => {
   it('is three palette nodes with the vehicle roles and no material', () => {
@@ -78,6 +97,29 @@ describe('drone_swarm.glb', () => {
       expect(y!).toBeGreaterThan(0.2);
       expect(r).toBeGreaterThan(0.1);
       expect(r).toBeLessThan(0.2);
+    }
+    // Each recorded hub against the rotor MESH, which the exporter's own arithmetic did not produce:
+    // the hub's y lies inside the rotor_rubber blades' y range (they are 12 mm slabs), and its xz is the
+    // centre of the disc whose vertices fill that hub's quadrant (a two-blade rotor is symmetric about its hub).
+    const rotor = live.find((n) => n.name === 'rotor_rubber')!;
+    const rv = vertices(rotor);
+    const ys = rv.map((v) => v[1]!);
+    const yLo = Math.min(...ys);
+    const yHi = Math.max(...ys);
+    expect(yHi - yLo).toBeLessThan(0.05); // the blades are thin, so "inside the range" pins y tightly
+    for (const [x, y, z, r] of ex.rl_rotors!) {
+      expect(y!).toBeGreaterThanOrEqual(yLo - 1e-4);
+      expect(y!).toBeLessThanOrEqual(yHi + 1e-4);
+      const quad = rv.filter((v) => Math.sign(v[0]!) === Math.sign(x!) && Math.sign(v[2]!) === Math.sign(z!));
+      expect(quad.length).toBeGreaterThan(0);
+      const cx = (Math.min(...quad.map((v) => v[0]!)) + Math.max(...quad.map((v) => v[0]!))) / 2;
+      const cz = (Math.min(...quad.map((v) => v[2]!)) + Math.max(...quad.map((v) => v[2]!))) / 2;
+      expect(x!).toBeCloseTo(cx, 2);
+      expect(z!).toBeCloseTo(cz, 2);
+      // and the disc's reach from that centre is the recorded radius
+      const reach = Math.max(...quad.map((v) => Math.hypot(v[0]! - cx, v[2]! - cz)));
+      expect(reach).toBeGreaterThan(r! - 0.02);
+      expect(reach).toBeLessThan(r! + 0.02);
     }
     // two hubs on each side of the body in both axes: the X frame
     expect(new Set(ex.rl_rotors!.map((h) => `${Math.sign(h[0]!)}${Math.sign(h[2]!)}`)).size).toBe(4);

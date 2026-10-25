@@ -290,7 +290,7 @@ describe.each([
 /**
  * The Remetz Laser Carrier's three outline-changing verbs besides the lost tyre (E6 chunk A2). Oracles are literals
  * measured off the exported bytes (25 Oct), in the mesh space a twin shares with its live mesh -- +X forward, +Y up, +Z
- * the vehicle's right -- not numbers the pass computed: the aperture glass (`turret_glass`), the +Z rear access panel of
+ * the vehicle's right -- not numbers the pass computed: the aperture glass (`turret_glass`), the -Z (left) rear access panel of
  * `turret_hull` (a raised plate 0.034 m proud at |z| 0.737) and the exhaust stack of `hull_metal` (axis x -2.85, z -0.80,
  * 1.40 m of pipe from y 3.70 to its rain cap at about y 5.24).
  */
@@ -461,6 +461,9 @@ describe('lost wheel (wheeled hulls)', () => {
     if (ON_OVERHANG.has(id) || ON_WELDED_TANDEM.has(id)) {
       // Demotion: still not dropping. If this goes red, delete the exemption.
       expect(axleY(plain) - axleY(doc)).toBeLessThan(0.03);
+      // ...and not a body that came UP by more than the weld's 0.024 m (measured -0.024): a lower bound, so the
+      // exemption cannot hide a lost corner that rose instead of dropping
+      expect(axleY(plain) - axleY(doc)).toBeGreaterThan(-0.1);
       return;
     }
     expect(axleY(plain) - axleY(doc)).toBeGreaterThan(0.03);
@@ -529,6 +532,30 @@ describe('lost wheel (wheeled hulls)', () => {
     const kept = node(doc, 'WRECK_hull_glass').getMesh()!.listPrimitives()[0]!.getIndices()!.getCount() / 3;
     expect(kept).toBeGreaterThan(0);
     expect(kept / live).toBeLessThan(0.3);
+  });
+});
+
+/**
+ * The swarm drone's one recipe (E6 chunk A1, GH-274): `snapRotor` on `rotor_rubber`. Oracles are literals measured off
+ * the shipped bytes (25 Oct) in the ground (death_root) frame, y up: the LIVE rotors lie flat at y 0.295-0.300 and
+ * span z +/-0.375; the wreck's droop (25 degrees about the centre) drops the discs to y 0.010 at the lowest, and the
+ * blade torn off lies flat beside the body, reaching z 0.583. Nothing here is a number the recipe computed.
+ */
+describe('snapped rotor (swarm drone)', () => {
+  it('droops the rotors and lays a torn blade beside the body: the wreck reaches z > 0.5 and y < 0.2, the live disc neither', async () => {
+    const doc = await read('drone_swarm');
+    const live = groundVerts(node(doc, 'rotor_rubber'));
+    const wreck = groundVerts(node(doc, 'WRECK_rotor_rubber'));
+    expect(Math.max(...live.map((v) => v[2]))).toBeLessThan(0.5);
+    expect(Math.min(...live.map((v) => v[1]))).toBeGreaterThan(0.2);
+    expect(Math.max(...wreck.map((v) => v[2]))).toBeGreaterThan(0.5);
+    expect(Math.min(...wreck.map((v) => v[1]))).toBeLessThan(0.2);
+    // The torn blade alone would satisfy the two above (it lies on the sand beside the body), so the DROOP is
+    // held on its own: every wreck vertex sits under the live discs' height (measured: wreck tops out at 0.233,
+    // the live discs lie at 0.295-0.300), which a recipe with `droopDeg: 0` does not do.
+    expect(Math.max(...wreck.map((v) => v[1]))).toBeLessThan(Math.min(...live.map((v) => v[1])) - 0.03);
+    // nothing sinks under the sand
+    expect(Math.min(...wreck.map((v) => v[1]))).toBeGreaterThanOrEqual(0);
   });
 });
 
