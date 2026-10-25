@@ -155,9 +155,9 @@ that click: Task 6 measured a 17.1 s menu -> campaign click locally, and
 CI's SwiftShader is slower. No landing run recorded `data-host-motion` reaching `held` (`ui:routes` leg
 (a) now prints it at `live` and again at the leave click, with the click's
 duration). And spec §10's memory budgets -- <= 900 MB while live,
-<= 60 MB within 1 s of leaving -- were never measured as memory: the landing
+<= 60 MB within 1 s of leaving -- were not measured as memory at the landing: it
 checked only the `isContextLost()` proxy (`ui:routes` leg (a) and (c)), which
-says the context was released, not what the GPU process holds.
+says the context was released, not what the GPU process holds. Since GH-469 (PR #474) a CI memory gate, `tools/src/perf/memory-budgets.ts`, covers the menu's GPU memory, no second live WebGL context after leaving, and JS growth after leaving; the literal 60 MB within 1 s of leaving is not gated as such.
 
 `ui:routes`/`ui:shots` already take `--port` (landed on `main` via #214; see
 the paragraph above, ~:306) -- nothing new here.

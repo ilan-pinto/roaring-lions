@@ -311,8 +311,8 @@ landing — mid-prefetch — must leave no canvas, no error and no warning. *As 
 after the final review):* the fast leave waits for the host's first `.glb`/`draco_` request
 instead of a time, a third leg leaves the moment `init()` has appended the canvas with
 `data-host` still `pending`, and all three leaves fail on a WebGL/loader/worker warning. The
-§10 memory rows were checked at landing only through the `isContextLost()` proxy, never as
-memory. **`ui:shots`** waits
+§10 memory rows were checked at landing only through the `isContextLost()` proxy, not as
+memory. Since GH-469 (PR #474) a CI memory gate, `tools/src/perf/memory-budgets.ts`, covers the menu's GPU memory, no second live WebGL context after leaving, and JS growth after leaving; the literal 60 MB within 1 s of leaving is not gated as such. **`ui:shots`** waits
 for a terminal `data-host` before `01-menu` and adds `01b-menu-plate` under emulated
 reduced motion.
 
@@ -529,3 +529,5 @@ executor of `effects`; every branch a leak could hide in is a table row with a t
 | Memory while live | ≤ 900 MB GPU `phys_footprint` at 1920×1080 `high` on the reference machine | measured 563–840 MB (M14) |
 | Memory after leaving | ≤ 60 MB within 1 s of dispose | measured 41–43 MB after the explicit loss vs 437–450 MB without (M14) |
 | Register tolerance | ≤ 10% relative on mean Y and mean S, camera-for-camera | the parent spec's figure; measured −1.7% / +0.5% (M16) |
+
+The two memory rows above: Since GH-469 (PR #474) a CI memory gate, `tools/src/perf/memory-budgets.ts`, covers the menu's GPU memory, no second live WebGL context after leaving, and JS growth after leaving; the literal 60 MB within 1 s of leaving is not gated as such.
