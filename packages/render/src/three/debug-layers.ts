@@ -153,6 +153,11 @@
  *               scenario whose viewport actually reaches past the map edge
  *               can see it, which is why it does not get a check on every
  *               gated scenario.
+ * - `backdrop`  PROTOTYPE (Wadi Halam look): the valley walls beyond a map whose
+ *               JSON carries a `backdrop` block (`terrain/backdrop.ts`). Off is
+ *               today's frame exactly: the skirt comes back and the off-map fog
+ *               returns to never-seen, so it is the A/B switch. Returns 0 on a
+ *               map with no block.
  *
  * `bloom`, ADDED FOR DEFILADE TASK 4 (`./bloom.ts`): the selective HDR
  * bloom pass, toggled by its own `enabled` -- `vignette`'s shape exactly,

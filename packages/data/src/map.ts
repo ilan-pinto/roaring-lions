@@ -88,7 +88,7 @@ export interface MapJson {
   /** Grove species override (GH-322). Absent means the theme's own species. */
   grove?: string;
   /** PROTOTYPE: valley walls beyond the edge. Presentation only. */
-  backdrop?: MapBackdrop;
+  backdrop?: MapBackdropJson;
   /** Per-tile elevation, one digit 0-9 per tile, same dimensions as `rows`.
    *  Absent means every tile is height 0, which is every map authored before
    *  the elevation milestone. Orthogonal to the terrain symbol on purpose:
@@ -137,6 +137,16 @@ export interface ParsedTunnel {
  */
 export const DECOR = { none: 0, road: 1, grove: 2, knoll: 3, ridge: 4, ditch: 5 } as const;
 export type DecorKind = (typeof DECOR)[keyof typeof DECOR];
+
+/** The block as a JSON module types it: `valley` is a plain string there (a
+ *  literal union in a JSON-module type breaks every call site that passes a
+ *  map file straight to `parseMap`); `parseMap` narrows it. */
+export interface MapBackdropJson {
+  valley: string;
+  crest: number;
+  seed: number;
+  hamlets: number;
+}
 
 /** PROTOTYPE (Wadi Halam look): `map.schema.json`'s `backdrop` block. */
 export interface MapBackdrop {
@@ -280,6 +290,13 @@ for (const sym of Object.keys(STRUCTURE_SYMBOLS)) {
   LEGEND[sym] = { blocked: 1, boulder: 0, cover: 0, decor: DECOR.none };
 }
 
+function parseBackdrop(json: MapJson): MapBackdrop | null {
+  const b = json.backdrop;
+  if (!b) return null;
+  if (b.valley !== 'ns' && b.valley !== 'ew') throw new Error(`map ${json.id}: backdrop.valley must be 'ns' or 'ew', got '${b.valley}'`);
+  return { valley: b.valley, crest: b.crest, seed: b.seed, hamlets: b.hamlets };
+}
+
 export function parseMap(json: MapJson): ParsedMap {
   const { width, height, rows } = json;
   const terrain = json.terrain ?? 'arid';
@@ -416,7 +433,7 @@ export function parseMap(json: MapJson): ParsedMap {
       structures.push({ type: typeId, tiles });
     }
   }
-  return { id: json.id, width, height, terrain: terrain as TerrainTheme, grove: grove as GroveSpecies | null, backdrop: json.backdrop ?? null, blocked, boulder, boulderCount, cover, decor, elevation, markers, zones, structures, tunnels };
+  return { id: json.id, width, height, terrain: terrain as TerrainTheme, grove: grove as GroveSpecies | null, backdrop: parseBackdrop(json), blocked, boulder, boulderCount, cover, decor, elevation, markers, zones, structures, tunnels };
 }
 
 /**

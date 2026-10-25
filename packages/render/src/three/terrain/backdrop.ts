@@ -66,13 +66,24 @@ export type RimHeight = (x: number, z: number) => number;
 /** How far the backdrop reaches past each edge, in map widths (the skirt's
  *  own extent, `skirt.ts`'s SKIRT_EXTENT 3 => one map out each way). */
 const MARGIN_MAPS = 1;
-/** Colour texels per tile in the bake. 4 => 576x576 on a 48x48 map. */
-export const TEXELS_PER_TILE = 4;
+/** Colour texels per tile in the bake. 6 => 864x864 on a 48x48 map. */
+export const TEXELS_PER_TILE = 6;
 /** See rule 1 in the header: 55% of the 0.816 occlusion slope. */
 export const NEAR_CAP_SLOPE = 0.45;
 /** The fog pass's off-map value while a backdrop is on (0 never seen, 0.5
- *  explored, 1 in sight). */
-export const BACKDROP_OFFMAP_SEEN = 0.62;
+ *  explored, 1 in sight). 0.5 is a rule, not a taste: scenery is shown as
+ *  explored ground -- dimmer than anything in sight, brighter than ground the
+ *  player has never seen, so the unexplored play area never reads as a hole
+ *  in a brighter frame. */
+export const BACKDROP_OFFMAP_SEEN = 0.5;
+
+/** Tiles past the north end before the gorge is shut by its head wall. */
+const HEAD_GAP = 5;
+/** Tiles past the south end before the floor climbs. */
+const MOUTH_GAP = 8;
+/** How fast each wall closes in per tile beyond the upstream end (and opens
+ *  out downstream). */
+const narrowAt = (v: number, V: number): number => (v < 0 ? 0.5 * Math.min(-v, 24) : v > V ? -0.25 * (v - V) : 0);
 
 const smooth = (a: number, b: number, x: number): number => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
@@ -148,19 +159,28 @@ export function backdropField(spec: BackdropSpec, rim: RimHeight, w: number, h: 
     const u = ns ? x : z;
     const v = ns ? z : x;
     // The valley narrows to a gorge upstream (v < 0, always a far side) and
-    // opens downstream (v > V, always a near side).
-    const narrow = v < 0 ? 0.32 * -v : v > V ? -0.25 * (v - V) : 0;
+    // opens downstream (v > V, always a near side). Past HEAD_GAP tiles the
+    // gorge is shut by a head wall, so the upstream end is a cirque and not
+    // a plain running off the frame; downstream the floor climbs again past
+    // MOUTH_GAP, the long foreground ramp rule 1 allows.
+    const narrow = narrowAt(v, V);
     const lo = narrow;
     const hi = U - narrow;
-    const up = Math.max(lo - u, u - hi, 0);
+    const sideUp = Math.max(lo - u, u - hi, 0);
+    const headUp = v < -HEAD_GAP ? -v - HEAD_GAP : 0;
+    const mouthUp = v > V + MOUTH_GAP ? (v - V - MOUTH_GAP) * 0.7 : 0;
+    // The tallest of the three decides the wall; its own along-coordinate
+    // keeps ravines and strata running the right way on each.
+    const up = Math.max(sideUp, headUp, mouthUp);
+    const coord = up === sideUp ? v : u + 31.7;
     const ox = Math.max(-x, x - w, 0);
     const oz = Math.max(-z, z - h, 0);
     const out = Math.hypot(ox, oz);
     const cx = clamp(x, 0, w);
     const cz = clamp(z, 0, h);
     const base = rim(cx, cz) + (rimMean - rim(cx, cz)) * smooth(0, 10, out);
-    const floorY = base + (v < 0 ? 0.1 * -v : v > V ? -0.05 * (v - V) : 0) + 0.3 * fbm2(x, z, 18, 2, seed + 6) * smooth(0, 6, out);
-    let y = floorY + wall(up, v) + 0.25 * fbm2(x, z, 5, 3, seed + 7) * smooth(0, 3, out);
+    const floorY = base + (v < 0 ? 0.1 * Math.min(-v, HEAD_GAP) : v > V ? -0.05 * Math.min(v - V, MOUTH_GAP) : 0) + 0.3 * fbm2(x, z, 18, 2, seed + 6) * smooth(0, 6, out);
+    let y = floorY + wall(up, coord) + 0.25 * fbm2(x, z, 5, 3, seed + 7) * smooth(0, 3, out);
     // Rule 1: hold a near-side point under the camera's line to the map.
     let capped = 0;
     const t0 = Math.max(x - w, z - h);
@@ -177,7 +197,7 @@ export function backdropField(spec: BackdropSpec, rim: RimHeight, w: number, h: 
         }
       }
     }
-    return { y, rel: y - floorY, up, out, along: v, capped };
+    return { y, rel: y - floorY, up, out, along: coord, capped };
   };
 }
 
@@ -200,7 +220,7 @@ export interface Backdrop {
  * Build the backdrop for a `w` x `h` map. `rim` samples the map's drawn
  * ground; call again (and dispose the old one) if the elevation changes.
  */
-export function buildBackdrop(spec: BackdropSpec, rim: RimHeight, w: number, h: number): Backdrop {
+export function buildBackdrop(spec: BackdropSpec, rim: RimHeight, w: number, h: number, background: string): Backdrop {
   const t0 = performance.now();
   const field = backdropField(spec, rim, w, h);
   const M = Math.round(Math.max(w, h) * MARGIN_MAPS);
@@ -269,7 +289,8 @@ export function buildBackdrop(spec: BackdropSpec, rim: RimHeight, w: number, h: 
   const scrubDark = tone('scrub.1');
   const scrub = tone('scrub.0');
   const oliveDark = tone('olive.2');
-  const grassLit = tone('grass.2');
+  const pasture0 = tone('grass.0');
+  const pasture1 = tone('grass.1');
   const grass = tone('grass.3');
   const grassDeep = tone('grass.4');
   const terraceWall = tone('limestone.5');
@@ -278,10 +299,29 @@ export function buildBackdrop(spec: BackdropSpec, rim: RimHeight, w: number, h: 
   const rockDeep = tone('limestone.5');
   const bare = tone('karst.1');
   const bareDeep = tone('karst.2');
-  const scree = tone('limestone.1');
+  const scree = tone('limestone.2');
   const sky = tone('water.0');
   const crestWu = Math.max(4, spec.crest) * WORLD_PER_LEVEL;
-  const TERRACE = 0.45; // world units between terrace risers
+  // Slope per vertex (central difference), box-blurred twice: a per-quad
+  // gradient made the 'steep face' switch step along the 1-tile grid, which
+  // read as pixel staircases on every cliff edge.
+  let slopeGrid = new Float32Array(nx * nz);
+  for (let j = 0; j < nz; j++) {
+    for (let i = 0; i < nx; i++) {
+      slopeGrid[j * nx + i] = Math.hypot((at(i + 1, j).y - at(i - 1, j).y) / 2, (at(i, j + 1).y - at(i, j - 1).y) / 2);
+    }
+  }
+  for (let pass = 0; pass < 2; pass++) {
+    const next = new Float32Array(nx * nz);
+    for (let j = 0; j < nz; j++) {
+      for (let i = 0; i < nx; i++) {
+        let acc = 0;
+        for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) acc += slopeGrid[clamp(j + dj, 0, nz - 1) * nx + clamp(i + di, 0, nx - 1)];
+        next[j * nx + i] = acc / 9;
+      }
+    }
+    slopeGrid = next;
+  }
   for (let ty = 0; ty < th; ty++) {
     const gj = ty / T;
     const j = Math.floor(gj);
@@ -301,9 +341,8 @@ export function buildBackdrop(spec: BackdropSpec, rim: RimHeight, w: number, h: 
       const up = bl((s) => s.up);
       const out = bl((s) => s.out);
       const along = bl((s) => s.along);
-      const gx = (s10.y - s00.y) * (1 - fj) + (s11.y - s01.y) * fj;
-      const gz = (s01.y - s00.y) * (1 - fi) + (s11.y - s10.y) * fi;
-      const slope = Math.hypot(gx, gz);
+      const slope = (slopeGrid[j * nx + i] * (1 - fi) + slopeGrid[j * nx + Math.min(nx - 1, i + 1)] * fi) * (1 - fj) +
+        (slopeGrid[Math.min(nz - 1, j + 1) * nx + i] * (1 - fi) + slopeGrid[Math.min(nz - 1, j + 1) * nx + Math.min(nx - 1, i + 1)] * fi) * fj;
       const wx = x0 + gi;
       const wz = z0 + gj;
       const n1 = fbm2(wx, wz, 9, 2, spec.seed + 21);
@@ -313,15 +352,36 @@ export function buildBackdrop(spec: BackdropSpec, rim: RimHeight, w: number, h: 
       col = mix3(col, oliveDark, smooth(0.35, 0.7, n2) * 0.6);
       // The valley floor beyond the map: pasture, with the odd tree.
       const floorish = 1 - smooth(0.2, 1.5, up);
-      col = mix3(col, mix3(grassLit, grass, smooth(-0.4, 0.4, n1)), floorish * 0.85);
+      // Fine grain so zoom 2.5 at the rim does not meet a smooth wash: a
+      // ~1-tile mottle and a sparse flecking of darker sward.
+      const n3 = valueNoise2(wx, wz, 1 / 1.1, spec.seed + 26);
+      let pas = mix3(pasture0, pasture1, smooth(-0.4, 0.4, n1));
+      pas = mix3(pas, grassDeep, smooth(0.25, 0.7, n3) * 0.28);
+      if (tileHash(Math.floor(wx * 5), Math.floor(wz * 5) + 311) < 0.07) pas = mix3(pas, grassDeep, 0.45);
+      col = mix3(col, pas, floorish * 0.9);
       // The terraced foot: treads of grass, dry-stone risers, olive dots.
       const foot = smooth(0.4, 1.2, up) * (1 - smooth(5.5, 7, up)) * (1 - smooth(0.7, 1.1, slope));
       if (foot > 0) {
-        const tIdx = Math.floor(y / TERRACE);
-        const tf = y / TERRACE - tIdx;
+        // Terraces follow the wall's own contour (distance up the wall plus a
+        // slow wobble), not the noisy height, whose 1-tile bumps made the
+        // risers step like pixel stairs.
+        const phase = up / 1.5 + 0.6 * valueNoise2(along, up, 1 / 9, spec.seed + 30);
+        const tIdx = Math.floor(phase);
+        const tf = phase - tIdx;
         const tread = tileHash(tIdx, Math.floor(along / 9)) < 0.5 ? grass : grassDeep;
-        let t = tf < 0.2 ? terraceWall : tread;
-        if (tf >= 0.2 && tileHash(Math.floor(wx * 2), Math.floor(wz * 2)) < 0.28) t = scrubDark;
+        let t = tf < 0.16 ? terraceWall : tread;
+        if (tf >= 0.16) {
+          // Olive trees: one soft dot per 1.7-tile cell (hash-jittered), not a
+          // per-texel scatter -- that read as a checkerboard at zoom 1.
+          const cx = Math.floor(wx / 1.7);
+          const cz = Math.floor(wz / 1.7);
+          if (tileHash(cx, cz + 91) < 0.55) {
+            const px = (cx + 0.2 + 0.6 * tileHash(cx + 7, cz)) * 1.7;
+            const pz = (cz + 0.2 + 0.6 * tileHash(cx, cz + 13)) * 1.7;
+            const d = Math.hypot(wx - px, wz - pz);
+            t = mix3(t, d < 0.3 ? oliveDark : scrubDark, 1 - smooth(0.2, 0.42, d));
+          }
+        }
         col = mix3(col, t, foot);
       }
       // Limestone: steep faces, banded by strata.
@@ -341,12 +401,12 @@ export function buildBackdrop(spec: BackdropSpec, rim: RimHeight, w: number, h: 
         const lane = Math.floor(along * 1.6 + 1.2 * valueNoise2(up, along, 1 / 6, spec.seed + 23));
         const on = tileHash(lane, spec.seed + 77) > 0.84 ? 1 : 0;
         const broken = smooth(-0.1, 0.4, valueNoise2(along, up, 1 / 4, spec.seed + 24));
-        col = mix3(col, scree, on * broken * streakZone * 0.75);
+        col = mix3(col, scree, on * broken * streakZone * 0.6);
       }
       // Macro value variation, then aerial perspective toward the sky tone.
       const macro = 1 + 0.07 * fbm2(wx, wz, 22, 2, spec.seed + 25);
       col = [col[0] * macro, col[1] * macro, col[2] * macro];
-      col = mix3(col, sky, 0.42 * smooth(10, 70, out));
+      col = mix3(col, sky, 0.3 * smooth(10, 60, out));
       const o = (ty * tw + tx) * 4;
       data[o] = clamp(Math.round(col[0] * 255), 0, 255);
       data[o + 1] = clamp(Math.round(col[1] * 255), 0, 255);
@@ -367,6 +427,7 @@ export function buildBackdrop(spec: BackdropSpec, rim: RimHeight, w: number, h: 
   texture.flipY = false;
 
   const material = new THREE.MeshStandardMaterial({ map: texture, roughness: 1, metalness: 0 });
+  fadeToBackground(material, w, h, M, background);
   const ground = new THREE.Mesh(geometry, material);
   ground.name = 'backdrop-ground';
   ground.renderOrder = WORLD_RENDER_ORDER;
@@ -383,6 +444,7 @@ export function buildBackdrop(spec: BackdropSpec, rim: RimHeight, w: number, h: 
   if (houses.length > 0) {
     const houseGeo = houseGeometry();
     const houseMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
+    fadeToBackground(houseMat, w, h, M, background);
     const inst = new THREE.InstancedMesh(houseGeo, houseMat, houses.length);
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
@@ -408,6 +470,32 @@ export function buildBackdrop(spec: BackdropSpec, rim: RimHeight, w: number, h: 
   };
 }
 
+/**
+ * The mesh ends `M` tiles out and the camera, at minimum zoom, sees past that
+ * on the near sides (the ramp lifts its own far edge up the screen), so an
+ * unfaded edge is a hard line against the clear colour. Fade the lit colour
+ * to the scene background over the outer 40% of the margin, in the fragment
+ * shader and in linear light (the colour pass is HalfFloat, tone-mapped
+ * later), so the edge is exactly the background and never a step.
+ */
+function fadeToBackground(mat: THREE.MeshStandardMaterial, w: number, h: number, M: number, background: string): void {
+  const bg = hexToLinear(background);
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uBdBg = { value: new THREE.Vector3(bg[0], bg[1], bg[2]) };
+    shader.uniforms.uBdSize = { value: new THREE.Vector2(w, h) };
+    shader.uniforms.uBdFade = { value: new THREE.Vector2(M * 0.55, M * 0.98) };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vBdXZ;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\n#ifdef USE_INSTANCING\n  vBdXZ = (modelMatrix * instanceMatrix * vec4(position, 1.0)).xz;\n#else\n  vBdXZ = (modelMatrix * vec4(position, 1.0)).xz;\n#endif');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vBdXZ;\nuniform vec3 uBdBg;\nuniform vec2 uBdSize;\nuniform vec2 uBdFade;')
+      .replace(
+        '#include <dithering_fragment>',
+        '#include <dithering_fragment>\n  {\n    vec2 bdOut = max(vec2(0.0), max(-vBdXZ, vBdXZ - uBdSize));\n    float bdF = smoothstep(uBdFade.x, uBdFade.y, length(bdOut));\n    gl_FragColor.rgb = mix(gl_FragColor.rgb, uBdBg, bdF);\n  }'
+      );
+  };
+}
+
 interface House {
   x: number;
   y: number;
@@ -429,7 +517,7 @@ function placeHouses(spec: BackdropSpec, field: (x: number, z: number) => Sample
     // Alternate walls; spread along the valley from the gorge to the mouth.
     const side = k % 2 === 0 ? -1 : 1;
     const along = -M * 0.55 + (V + M * 1.1) * ((k + 0.5) / spec.hamlets) + (rnd(k, 1) - 0.5) * 8;
-    const narrow = along < 0 ? 0.32 * -along : along > V ? -0.25 * (along - V) : 0;
+    const narrow = narrowAt(along, V);
     const across = side < 0 ? narrow - (2.5 + rnd(k, 2) * 3) : U - narrow + (2.5 + rnd(k, 2) * 3);
     const count = 6 + Math.floor(rnd(k, 3) * 8);
     for (let m = 0; m < count; m++) {
@@ -444,8 +532,8 @@ function placeHouses(spec: BackdropSpec, field: (x: number, z: number) => Sample
       if (s.up < 0.6 || s.up > 7.5) continue; // the foot only
       const g = Math.abs(field(x + 0.7, z).y - field(x - 0.7, z).y) + Math.abs(field(x, z + 0.7).y - field(x, z - 0.7).y);
       if (g > 1.4) continue; // not on a cliff
-      const size = 1.1 + rnd(k * 17 + m, 6) * 0.7;
-      const tall = 0.75 + rnd(k * 17 + m, 7) * 0.45;
+      const size = 0.85 + rnd(k * 17 + m, 6) * 0.5;
+      const tall = 0.6 + rnd(k * 17 + m, 7) * 0.4;
       if (s.y + tall + 0.6 > nearCap(rim, w, h, x, z)) continue; // rule 1
       out.push({ x, y: s.y - 0.12, z, yaw: (ns ? 0 : Math.PI / 2) + (rnd(k * 17 + m, 8) - 0.5) * 0.5, size, tall });
     }
@@ -457,8 +545,8 @@ function placeHouses(spec: BackdropSpec, field: (x: number, z: number) => Sample
  *  coloured (linear, like every vertex colour in this backend), one
  *  geometry for the whole instanced batch. 14 triangles. */
 function houseGeometry(): THREE.BufferGeometry {
-  const wall = hexToLinear(paletteHex('limestone.0'));
-  const wallShade = hexToLinear(paletteHex('limestone.2'));
+  const wall = hexToLinear(paletteHex('limestone.2'));
+  const wallShade = hexToLinear(paletteHex('limestone.4'));
   const roof = hexToLinear(paletteHex('terracotta.0'));
   const pos: number[] = [];
   const col: number[] = [];

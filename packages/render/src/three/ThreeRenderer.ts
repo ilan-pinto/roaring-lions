@@ -12243,7 +12243,7 @@ export class ThreeRenderer implements Renderer {
     const h = this.sim.height;
     const rim = (x: number, z: number): number =>
       groundWorldY(surf, w, h, Math.min(w - 0.01, Math.max(0.01, x)), Math.min(h - 0.01, Math.max(0.01, z)));
-    this.backdrop = buildBackdrop(spec, rim, w, h);
+    this.backdrop = buildBackdrop(spec, rim, w, h, this.opts.background);
     this.backdropLevels = this.retained.elevationLevels;
     this.backdropStats = this.backdrop.stats;
     this.backdrop.group.visible = this.backdropShown;

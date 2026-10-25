@@ -221,11 +221,12 @@ void main() {
   // is left alone.
   v = mix(v, 1.0, uRevealAll);
   vec2 outUv = max(vec2(0.0), max(-tex, tex - vec2(1.0)));
+  v *= 1.0 - clamp(length(outUv * uMapSize) / ${FOG_OFFMAP_FADE_TILES.toFixed(1)}, 0.0, 1.0);
   // A valley backdrop (terrain/backdrop.ts) fades off-map ground to
-  // uOffMapSeen instead of never-seen. 0 on every other map, where the added
+  // uOffMapSeen instead of never-seen: v(1-r) above plus seen*r here is
+  // v(1-r) + seen*r. uOffMapSeen is 0 on every other map, where the added
   // term is an exact +0.0 and the frame is bit-identical to before.
-  float rlOff = clamp(length(outUv * uMapSize) / ${FOG_OFFMAP_FADE_TILES.toFixed(1)}, 0.0, 1.0);
-  v = v * (1.0 - rlOff) + uOffMapSeen * rlOff;
+  v += uOffMapSeen * clamp(length(outUv * uMapSize) / ${FOG_OFFMAP_FADE_TILES.toFixed(1)}, 0.0, 1.0);
   float dim = v < 0.5 ? mix(uNeverSeen, uExplored, v * 2.0) : mix(uExplored, 0.0, (v - 0.5) * 2.0);
   float lum = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
   vec3 shrouded = lum * uTint * uTintGain;
