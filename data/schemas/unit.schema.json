@@ -611,7 +611,8 @@
       "properties": {
         "count": { "type": "integer", "minimum": 1, "maximum": 64, "description": "Members at full strength." },
         "member_hp": { "type": "number", "exclusiveMinimum": 0, "description": "Hit points of one member." },
-        "spread_tiles": { "type": "number", "exclusiveMinimum": 0, "description": "How far the cloud spreads, in tiles: the denominator of a splash's reach." }
+        "spread_tiles": { "type": "number", "exclusiveMinimum": 0, "description": "How far the cloud spreads, in tiles: the denominator of a splash's reach." },
+        "hit_mult": { "type": "number", "exclusiveMinimum": 0, "maximum": 1, "default": 1, "description": "E6 N2 (GH-274): a factor on the hit chance of every aimed shot AT this swarm, shown in the fire breakdown as `sizeMod`. A half-metre drone is a poor rifle target; 0.08 is the design placeholder. Absent means 1 (no effect), so a swarm that omits it is as easy to hit as any soft unit. Splash and the directed-energy beam do not roll, so it does not touch them." }
       }
     },
     "tunnel_charge_time_s": {

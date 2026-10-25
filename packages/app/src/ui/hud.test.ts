@@ -3816,7 +3816,7 @@ describe('projected fire wording (GH-345)', () => {
     hud.onTick();
     return host.querySelector('.rl-fire')!.textContent!.replace(/\s+/g, ' ');
   }
-  const factors = (o: Partial<Record<'coverMod' | 'motionMod' | 'rangeFalloff', number>>) => ({
+  const factors = (o: Partial<Record<'coverMod' | 'motionMod' | 'rangeFalloff' | 'sizeMod', number>>) => ({
     p: fx.from(0.1),
     accuracy: fx.from(0.6),
     rangeFalloff: fx.from(o.rangeFalloff ?? 1),
@@ -3824,6 +3824,7 @@ describe('projected fire wording (GH-345)', () => {
     motionMod: fx.from(o.motionMod ?? 1),
     stanceMod: fx.from(1),
     suppressionMod: fx.from(1),
+    sizeMod: fx.from(o.sizeMod ?? 1),
   });
 
   it('A: not identified says so and says what to do about it', () => {
@@ -3841,6 +3842,11 @@ describe('projected fire wording (GH-345)', () => {
     const text = firePanel({ kind: 'shot', weaponId: 'rifles', pHit: fx.from(0.38), hurts: true, factors: factors({ motionMod: 0.6 }) });
     expect(text).toContain('target moving −40%');
     expect(text).toContain('Wait for it to stop');
+  });
+  it('E: a swarm\'s size prints as a penalty on the target, named, never as the multiplier (E6 N2)', () => {
+    const text = firePanel({ kind: 'shot', weaponId: 'rifles', pHit: fx.from(0.04), hurts: true, factors: factors({ sizeMod: 0.08 }) });
+    expect(text).toContain('small target −92%');
+    expect(text).not.toContain('small target 8%');
   });
   // Pass C2/C4 (D4, PA-15): it says WHICH -- here the target stands inside
   // the rifles' 8 tiles, so the one reason left in `projectHit` is sight.
