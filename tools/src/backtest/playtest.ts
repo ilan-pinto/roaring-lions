@@ -2718,9 +2718,17 @@ const ummZeitoun3Plan: Plan = (sim, rt, ids, at) => {
   // route uses south of it -- by the time the drone passes, `west`'s attackMove
   // is already closing on that post regardless.
   const drone = ids('recon_drone');
+  // GH-421 (vehicle separation): the east flank leaves the yard two seconds after the hamlet party. The
+  // issued force spawns overlapping (the hamlet Eitan 1.25 tiles from the east Eitan, two tiles from the
+  // Lavi), hulls no longer drive through one another, and sent together the hamlet Eitan stood behind the
+  // others for 3-4 s: the hamlet garrison walked out of its houses (a body crossing into the zone springs
+  // `the_house_was_the_section`) after the drone had passed the street, and a rifleman shot the drone at
+  // 15.6 s, `find_adhal` still open and 3 stars -> 2 on 59 seeds of 60. A player does not hold the carrier
+  // that has a street to cross behind the tanks that have a glacis. Sent at 3 s, all 60 seeds read 3 stars
+  // again (2 s and 4 s also do on 424242).
+  at(3, () => sim.queueCommand({ kind: 'attackMove', ids: east, ...M(40, 25) }));
   at(1, () => {
     sim.queueCommand({ kind: 'attackMove', ids: west, ...M(8, 25) });
-    sim.queueCommand({ kind: 'attackMove', ids: east, ...M(40, 25) });
     // Straight into the hamlet: `zone_entered` fires `the_house_was_the_section`
     // the moment either body crosses in, walking both garrisoned riflemen
     // out of their houses and into the open street at `hamlet_square`.
