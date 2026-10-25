@@ -8,6 +8,7 @@ import {
   starsEarned,
   type LedgerData,
   type MissionResult,
+  type SimEvent,
   type Stars,
 } from '@lions/sim';
 import {
@@ -590,9 +591,44 @@ passiveAcrossSeeds('wadi_halam_2_laager', 'wadi_halam_2_laager (no orders)', 'de
 // the bunds against the two-wave counter-raid; the hold re-anchors on the
 // same schedule as II, for the same reason (a wave that breaks and runs
 // pulls a pursuing force out past the zone edge).
+// E6 (GH-274 item 5): both swarm missions' optimal plans build ONE aa_remetz at t=0 and park it halted
+// at `post`, so CI exercises the beam and the Conduct-85 gate. The post is the whole lesson: a carrier
+// behind the crest has no line to the swarm (measured: beam target -1 for the whole fight), so UZ II
+// parks it ON the crest and WH III on the bunds. It stays out of every re-anchoring attack-move below.
+const remetzReport = new Map<string, { accepted: boolean; built: boolean; beams: number }>();
+function e6Remetz(
+  sim: Sim,
+  rt: MissionRuntime,
+  ids: (t: string) => number[],
+  at: (t: number, fn: () => void) => void,
+  missionId: string,
+  post: [number, number]
+): void {
+  // Only the first (seed 424242, base tier) run reports: the max-tier replay builds the same carrier
+  // but is not counted, so it must not replace this record.
+  const rec = remetzReport.get(missionId) ?? { accepted: false, built: false, beams: 0 };
+  remetzReport.set(missionId, rec);
+  at(0, () => void (rec.accepted = rt.requestBuild('aa_remetz')));
+  for (let s = 2; s <= 120; s += 2)
+    at(s, () => {
+      const r = ids('aa_remetz');
+      if (r.length && !rec.built) {
+        rec.built = true;
+        sim.queueCommand({ kind: 'move', ids: r, ...M(post[0], post[1]) });
+      }
+    });
+}
+/** Count the carrier's beam strikes, from the run's own event stream. */
+const countBeams = (missionId: string) => (evs: readonly SimEvent[]): void => {
+  const rec = remetzReport.get(missionId);
+  if (rec) for (const e of evs) if (e.kind === 'beam' && e.phase === 'struck') rec.beams++;
+};
+const isRemetz = (sim: Sim, i: number): boolean => sim.unitTypes[sim.state.typeIdx[i]].id === 'aa_remetz';
+
 const wh3 = run(
   'wadi_halam_3_counterraid',
   (sim, _rt, ids, at) => {
+    e6Remetz(sim, _rt, ids, at, 'wadi_halam_3_counterraid', [20, 22]);
     const chase = [...ids('jeep_shoded'), ...ids('apc_eitan')];
     // GH-382: the herd stands on the lane's lower bend now, 10 tiles above the refuge on the
     // stream bed, and civilians break for the refuge only when a soldier reaches them. One
@@ -603,7 +639,7 @@ const wh3 = run(
     const anchor = (): void => {
       const cur: number[] = [];
       for (let i = 0; i < sim.entityCount; i++)
-        if (sim.state.side[i] === 0 && sim.state.alive[i] === 1 && !kept.has(i)) cur.push(i);
+        if (sim.state.side[i] === 0 && sim.state.alive[i] === 1 && !kept.has(i) && !isRemetz(sim, i)) cur.push(i);
       sim.queueCommand({ kind: 'attackMove', ids: cur, ...M(21, 22) });
     };
     at(0, () => {
@@ -621,7 +657,11 @@ const wh3 = run(
     });
     for (let when = 60; when <= 700; when += 45) at(when, anchor);
   },
-  wh2
+  wh2,
+  'victory',
+  'wadi_halam_3_counterraid',
+  undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+  countBeams('wadi_halam_3_counterraid')
 );
 // `get_the_herders_out` reaches `failed` at 300s. `hold_bunds` never starts
 // for the same structural reason as II; `kill_amir` cannot fail on its own.
@@ -2595,6 +2635,7 @@ passiveAcrossSeeds('umm_zeitoun_2_buildup', 'umm_zeitoun_2_buildup (no orders)',
 const ledUZ2 = run(
   'umm_zeitoun_2_buildup',
   (sim, _rt, ids, at) => {
+    e6Remetz(sim, _rt, ids, at, 'umm_zeitoun_2_buildup', [24, 31]);
     const demo = ids('demo_squad');
     const strike = [...ids('apc_eitan'), ...ids('mbt_lavi'), ...ids('mortar_team'), ...ids('at_team'), ...ids('inf_squad')];
     at(1, () => {
@@ -2622,7 +2663,7 @@ const ledUZ2 = run(
       at(when, () => {
         const cur: number[] = [];
         for (let i = 0; i < sim.entityCount; i++) {
-          if (sim.state.side[i] === 0 && sim.state.alive[i] === 1 && !demo.includes(i)) cur.push(i);
+          if (sim.state.side[i] === 0 && sim.state.alive[i] === 1 && !demo.includes(i) && !isRemetz(sim, i)) cur.push(i);
         }
         sim.queueCommand({ kind: 'attackMove', ids: cur, ...M(24, 31) });
       });
@@ -2630,7 +2671,9 @@ const ledUZ2 = run(
   },
   ledUZ1,
   'victory',
-  'umm_zeitoun_2_buildup'
+  'umm_zeitoun_2_buildup',
+  undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+  countBeams('umm_zeitoun_2_buildup')
 );
 
 // UZ II does not declare `intel.marked_positions` in its own `produces`, so
@@ -3533,6 +3576,7 @@ for (const gate of GATES) {
 }
 
 // --- Task 7b: the nine Conduct-gated units, walked the same way ------------
+// (E6 added a tenth, aa_remetz, at Conduct 85: the two swarm plans build it.)
 //
 // WP-G-E1 (2026-09-18, GH-173): the lead raised these nine `roe_rating_min` floors
 // from 35-65 to 70-90 so they would spread across a well-played campaign instead of
@@ -3546,8 +3590,8 @@ for (const gate of GATES) {
 // -- mission 1, unconditionally -- scores Conduct 97 on its own, so the average after
 // mission 1 IS 97 (a single data point), which already clears every floor <= 90. The
 // campaign average never drops below 93.5 for the rest of the ladder either (its low
-// point, mission 26). So EVERY ONE of the nine gates below still opens after mission 1
-// -- `opensAfter: 1` for all nine, asserted below -- and no floor inside the lead's
+// point, mission 26). So EVERY ONE of the ten gates below still opens after mission 1
+// -- `opensAfter: 1` for all ten, asserted below -- and no floor inside the lead's
 // mandated 70-90 band can delay that on this ladder: doing so would require a floor
 // above 97 (mission 1's own score), outside the mandated range, or a change to mission
 // content, outside this work package's scope (unit JSON + one doc + test pins only).
@@ -3560,7 +3604,7 @@ interface ConductGateSpec {
   unit: string;
   roeMin: number;
   /** 1-based position in `missionOrder` where the measured ladder opens this gate.
-   *  All nine read 1 -- see the comment above for why no floor in [70, 90] can move it. */
+   *  All ten read 1 -- see the comment above for why no floor in [70, 90] can move it. */
   opensAfter: number;
 }
 
@@ -3574,6 +3618,7 @@ const CONDUCT_GATES: ConductGateSpec[] = [
   { unit: 'ifv_namer', roeMin: 85, opensAfter: 1 },
   { unit: 'dozer_d9', roeMin: 87, opensAfter: 1 },
   { unit: 'mbt_lavi', roeMin: 90, opensAfter: 1 },
+  { unit: 'aa_remetz', roeMin: 85, opensAfter: 1 },
 ];
 
 for (const gate of CONDUCT_GATES) {
@@ -3598,6 +3643,22 @@ for (const gate of CONDUCT_GATES) {
     );
     process.exitCode = 1;
   }
+}
+
+// --- E6: the swarm missions' carriers were built and the beam fired -----------
+// The optimal plans of Umm Zeitoun II and Wadi Halam III build a Remetz at t=0 (`e6Remetz`). A refused
+// build (gate closed, short of logistics) or a carrier that never strikes would leave the beam as
+// untested content, so each is a failure, not a quiet line.
+for (const [missionId, rec] of remetzReport) {
+  console.log(`remetz ${missionId}: build accepted ${rec.accepted}, deployed ${rec.built}, beam strikes ${rec.beams} (seed 424242)`);
+  if (!rec.accepted || !rec.built || rec.beams === 0) {
+    console.error(`remetz ${missionId}: FAILED — the plan's carrier must be accepted, deployed and strike at least once`);
+    process.exitCode = 1;
+  }
+}
+if (remetzReport.size !== 2) {
+  console.error(`remetz: FAILED — expected the two swarm missions to report, got ${remetzReport.size}`);
+  process.exitCode = 1;
 }
 
 // --- Brigade economy step 1: the optimal ladder's credit total ---------------
