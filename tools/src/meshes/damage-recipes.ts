@@ -343,21 +343,21 @@ export const DAMAGE_RECIPES: Readonly<Record<string, readonly DamageOp[]>> = {
   apc_eitan: [lostRearTyre(3)],
   // E6 (GH-274 chunk A2, 25 Oct): the Remetz Laser Carrier. Outline damage only, inside the cap and every
   // copy a SMALL mesh (a copy of the 5,236-face baked `hull_hull` alone would be about 70 KiB Draco, so
-  // nothing here touches it). Measured on the exported bytes in the vehicle frame (+X forward, +Y up, +Z
+  // nothing here touches it). Measured on the exported bytes at 7.0 m (GH-807) in the vehicle frame (+X forward, +Y up, +Z
   // the right):
   //   - the aperture: `turret_glass` blown out to a few shards (the gun truck's windows);
-  //   - the LEFT (-Z) rear access panel of `turret_hull`: a raised plate 0.034 m proud at |z| 0.737, x -2.07..-1.51,
-  //     y 4.41..4.87 (the head's wall behind it is at |z| 0.70-0.72, so `zMin` 0.73 picks the plate alone),
-  //     hinged at its FRONT edge x -1.51 and swung 70 degrees out, its free rear edge furthest. The LEFT one, not the
+  //   - the LEFT (-Z) rear access panel of `turret_hull`: a raised plate 0.034 m proud at |z| 0.737, x -1.96..-1.40,
+  //     y 4.11..4.57 (the head's wall behind it is at |z| 0.70-0.72, so `zMin` 0.73 picks the plate alone),
+  //     hinged at its FRONT edge x -1.40 and swung 70 degrees out, its free rear edge furthest. The LEFT one, not the
   //     right: the wreck pass throws the turret across the hull rolled 40 degrees and the +Z side is the one that goes
   //     down, so the +Z panel swung out under the sand (measured 0.33 m below it, 25 Oct) and the -Z one stands up;
-  //   - the exhaust stack of `hull_metal` (axis x -2.85, z -0.80; collar radius 0.21; pipe from y 3.70, 1.40 m
-  //     tall to the rain cap): bent 40 degrees aft from y 3.80 over 1.40 m;
+  //   - the exhaust stack of `hull_metal` (axis x -2.625, z -0.737; collar radius 0.21; pipe from y 3.40, 1.40 m
+  //     tall to the rain cap): bent 40 degrees aft from y 3.50 over 1.40 m;
   //   - the rear +Z tyre (wheel 2), the corner the wreck pass drops.
   aa_remetz: [
     { verb: 'blowOut', mesh: 'turret_glass', keep: 0.15 },
-    { verb: 'peelPlate', mesh: 'turret_hull', side: -1, x0: -2.07, x1: -1.51, y0: 4.41, y1: 4.87, normalMin: 0.55, zMin: 0.73, backing: false, hinge: 'front', angleDeg: 70, jag: 0.03, seed: 3 },
-    { verb: 'bendMast', mesh: 'hull_metal', axis: [-2.85, -0.8], radius: 0.3, y0: 3.8, length: 1.4, angleDeg: 40, lean: [-1, 0] },
+    { verb: 'peelPlate', mesh: 'turret_hull', side: -1, x0: -1.96, x1: -1.4, y0: 4.11, y1: 4.57, normalMin: 0.55, zMin: 0.73, backing: false, hinge: 'front', angleDeg: 70, jag: 0.03, seed: 3 },
+    { verb: 'bendMast', mesh: 'hull_metal', axis: [-2.625, -0.737], radius: 0.3, y0: 3.5, length: 1.4, angleDeg: 40, lean: [-1, 0] },
     lostRearTyre(2),
   ],
 

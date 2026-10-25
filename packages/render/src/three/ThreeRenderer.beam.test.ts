@@ -227,8 +227,8 @@ describe('the laser carrier lases a swarm: the real engine, the real meshes', ()
     const expected = at();
     expect(Math.hypot(first[0] - expected.x, first[1] - expected.y, first[2] - expected.z)).toBeLessThan(1e-4);
 
-    // Height: the pivot sits 4.1 m up and the muzzle 0.575 m above it, 3 m to the tile. Literals.
-    expect(first[1]).toBeCloseTo((4.1 + 0.575) / 3, 2);
+    // Height: the pivot sits 3.8 m up (4.1 m at 7.6 m long, before GH-807) and the muzzle 0.575 m above it, 3 m to the tile. Literals.
+    expect(first[1]).toBeCloseTo((3.8 + 0.575) / 3, 2);
 
     // Traverse the turret a quarter turn: the origin MOVES with it (a hull-fixed muzzle would not).
     pivot.rotation.y += Math.PI / 2;

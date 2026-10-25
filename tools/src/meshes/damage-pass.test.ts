@@ -291,8 +291,8 @@ describe.each([
  * The Remetz Laser Carrier's three outline-changing verbs besides the lost tyre (E6 chunk A2). Oracles are literals
  * measured off the exported bytes (25 Oct), in the mesh space a twin shares with its live mesh -- +X forward, +Y up, +Z
  * the vehicle's right -- not numbers the pass computed: the aperture glass (`turret_glass`), the -Z (left) rear access panel of
- * `turret_hull` (a raised plate 0.034 m proud at |z| 0.737) and the exhaust stack of `hull_metal` (axis x -2.85, z -0.80,
- * 1.40 m of pipe from y 3.70 to its rain cap at about y 5.24).
+ * `turret_hull` (a raised plate 0.034 m proud at |z| 0.737) and the exhaust stack of `hull_metal` (axis x -2.625, z -0.737 at 7.0 m,
+ * 1.40 m of pipe from y 3.40 to its rain cap at about y 4.94).
  */
 describe('aa_remetz damage', () => {
   const posOf = (n: Node): Float32Array => n.getMesh()!.listPrimitives()[0]!.getAttribute('POSITION')!.getArray() as Float32Array;
@@ -332,7 +332,7 @@ describe('aa_remetz damage', () => {
         // the stack: the hull_metal vertices behind x -2.3 (the column is at x -1.39)
         if (p[i]! > -2.3) continue;
         if (p[i + 1]! > tipY) { tipY = p[i + 1]!; tipX = p[i]!; }
-        if (p[i + 1]! < 3.74) { baseX += p[i]!; baseN++; }
+        if (p[i + 1]! < 3.5) { baseX += p[i]!; baseN++; }
       }
       return { tipX, tipY, baseX: baseX / baseN };
     };

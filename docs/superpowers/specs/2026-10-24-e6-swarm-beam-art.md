@@ -14,9 +14,13 @@ GH-274 (WP-G-E6), items 2 (drawing), 4 (beam VFX) and 6 (two meshes). Approved b
   pattern of the Eitan and the Tzav. Meshy drew a roof hatch box, not the turret.
 - **The drone body is refit as clean primitives**, measured off the Meshy preview; only the bomb
   is decimated. Meshy's remesh at 600 collapsed, and Blender decimation shredded the booms.
-- **The carrier stands taller than §2.2 says.** At 7.6 m long the Meshy hull's roof is 3.71 m,
-  so the turret roof is 5.25 m and the width over the mirrors is 4.04 m. The lever is
-  `REAL_METRES` in `tools/vehicles/export_meshy_remetz.py`. This is open for the lead.
+- **The carrier is 7.0 m long, not §2.2's 7.6 m (the lead's ruling on GH-807, 25 Oct).** The Meshy
+  hull is a tall box: at 7.6 m its roof stood at 3.71 m, so the turret roof was 5.25 m and the width
+  over the mirrors 4.04 m. Shrunk to 7.0 m the hull roof is 3.50 m (3.57 m at the antenna mount),
+  the Eitan's height; the turret keeps its own size and sits above it: pivot 3.80 m, turret roof
+  4.95 m, roof sensor box 5.15 m, aperture centre 4.38 m, width over the mirrors 3.72 m, tyre radius
+  0.66 m. The lever is `REAL_METRES` in `tools/vehicles/export_meshy_remetz.py`; every
+  absolute-metre hull constant there is carried by `K = REAL_METRES / 7.6`.
 - **Meshy spend: 65 credits, exactly the approved plan**, ledger in `art/meshy/ledger.jsonl`.
 - **The witness is `pnpm e6:capture`** (`tools/src/perf/e6-captures.ts`, floors in
   `e6-floors.ts`).
@@ -251,7 +255,7 @@ parts are made (§9 ask A9).
   - the `turret_pivot` placed by measurement at the column top;
   - `turret_glass` split from the aperture by colour or normal;
   - the `rl_fire` muzzle measured on that disc;
-  - the scale to 7.6 m, `+X` forward and the origin at ground centre.
+  - the scale to 7.0 m (7.6 m before GH-807), `+X` forward and the origin at ground centre.
 - After the export: running-gear, wreck, damage and encode, in the CLAUDE.md order.
 - A Blender-only build was considered and rejected: the fleet is all Meshy bases now, and the
   lead's rule is "Meshy for the initial base model".
@@ -272,7 +276,7 @@ Changes from the E5 §8.4 text, and why:
 - "raised slightly" was dropped. Elevation is a runtime matter: the turret traverses only, as
   on every vehicle.
 - "pedestal" became "short armoured column", so "no plinth" cannot cancel it.
-- 8 m became 7.6 m (§2.2).
+- 8 m became 7.6 m (§2.2), then 7.0 m (GH-807).
 
 If textured, the refine runs `--tex 8k` (max-detail rule) on the same call (`text --refine`).
 

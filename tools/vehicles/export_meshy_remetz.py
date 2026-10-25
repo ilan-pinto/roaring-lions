@@ -42,7 +42,8 @@ model takes one 180-degree rotation about Z and the cab faces +X.
 THE CUTS AND SPLITS (all constants are SOURCE-frame, read off probes of this remesh):
 
   hatch    the roof hatch box (an octagonal box with two handle ears, top 3.96 m and ears
-           4.34 m above the ground at the final scale, in a thin circular flange at 3.78 m)
+           4.34 m above the ground at 7.6 m long, in a thin circular flange at 3.78 m; the metre figures here
+           are at 7.6 m and scale by `K`)
            is FLATTENED to the flange: every vertex above `HATCH_Z_MIN` within `HATCH_R` of
            the hatch centre drops to the flange height. That cuts the box away with the
            mesh left closed and every UV in place (a delete-and-fill leaves a loop that the
@@ -81,12 +82,14 @@ THE TURRET (palette parts, FINAL frame, origin of the pivot at the column's top 
                 origin follows traverse. (`parseFireExtras` reads it for rigged teams today;
                 a vehicle reader adds the pivot position and the turret yaw.)
 
-SCALE AND HEIGHT, a measured disagreement. The brief fixes 7.6 m LONG and a turret roof at
-3.7 m. This hull's own roof stands at 3.71 m at 7.6 m long (it is a tall MRAP-class box: the
-Kipod is 7.20 m by 3.45 m), so the two cannot both hold. The length is the explicit scale
-instruction and the turret numbers say "about", so `REAL_METRES` stays 7.6 and the head sits
-on a short column ABOVE the hull: turret roof near 5.1 m. If the lead wants the turret at
-3.7 m the only lever is the hull's scale (`REAL_METRES`, about 5.4 m long for a 4.2 m roof).
+SCALE AND HEIGHT. The brief fixed 7.6 m LONG and a turret roof at 3.7 m; this hull's own roof stood
+at 3.71 m at 7.6 m long (a tall MRAP-class box: the Kipod is 7.20 m by 3.45 m), so the two could not
+both hold, and the first landing kept 7.6 m (turret roof 5.25 m). The lead ruled on GH-807 (25 Oct) to
+shrink the hull to about 7.0 m, so its roof sits at the Eitan's height; the turret (absolute size,
+brief numbers) still sits above it. `REAL_METRES` is that length. Every constant below written in
+metres was PROBED at 7.6 m (`MEASURED_AT_M`) and is carried to the declared length by `K`
+(`REAL_METRES / MEASURED_AT_M`): the hatch and needle heights, the stack's place on the roof. The
+turret, column, stack and ring dimensions are generated at their own size and do not scale.
 
 TEXTURE. The remesh arrives with its images named `texture_0`/`..._metallic_roughness`; the
 base colour is renamed `base_color` after checking it is the image wired to the Principled
@@ -126,7 +129,9 @@ TURRET_PIVOT_NODE = "turret_pivot"
 
 UNIT_ID = "aa_remetz"
 LEDGER_NAME = "aa_gachelet"      # the Meshy CLI's record name for this unit's tasks
-REAL_METRES = 7.6                # brief and spec 2.2: the hull's declared length
+REAL_METRES = 7.0                # the hull's declared length: 7.6 until the lead's GH-807 ruling (25 Oct), so the roof sits at the Eitan's height
+MEASURED_AT_M = 7.6              # the length every absolute-metre hull constant below was probed at
+K = REAL_METRES / MEASURED_AT_M  # carries those constants to the declared length
 TRI_CAP = 10000                  # the shipped cap, checked again after the running-gear pass
 CREDIT = (
     "Remetz Laser Carrier -- AI-generated hull (Meshy text-to-3D preview + 8k refine + remesh), "
@@ -147,11 +152,11 @@ SPEC = SimpleNamespace(
 )
 HATCH_CENTRE_XY = (0.3447, 0.0018)   # bbox centre of the box above 3.9 m (probe)
 HATCH_R = 0.21                       # the box and its ears; the flange lies at 0.20-0.25
-HATCH_Z_MIN_M = 3.795                # metres above the ground at the final scale: the flange top, 3.78
-HATCH_FLAT_M = 3.80                  # where the flattened box comes to rest: the flange top
+HATCH_Z_MIN_M = 3.795 * K            # metres above the ground at the final scale: the flange top (3.78 at 7.6 m)
+HATCH_FLAT_M = 3.80 * K              # where the flattened box comes to rest: the flange top
 SRC_MPU = REAL_METRES / 1.8976       # the source's length is 1.8976 units: only used for the above
-ROOF_MAX_M = 3.90                    # nothing of the hull proper stands above this: the roof tops out at 3.872 (probe)
-NEEDLE_TO_M = 3.87                   # where a collapsed antenna whip's apex comes to rest: its mount's top
+ROOF_MAX_M = 3.90 * K               # nothing of the hull proper stands above this: the roof tops out at 3.872 (probe)
+NEEDLE_TO_M = 3.87 * K              # where a collapsed antenna whip's apex comes to rest: its mount's top
 NEEDLE_CLUSTER_M = 0.05              # the apex's split copies (one per UV/normal island) all sit within this
 
 # --- the turret, FINAL frame, metres ------------------------------------------------------
@@ -163,7 +168,7 @@ HEAD_L, HEAD_W, HEAD_H = 1.55, 1.45, 1.15
 APERTURE_R = 0.45                    # aperture radius (brief: about 0.46)
 RING_OUT_R = 0.57                    # thick armoured ring
 RING_DEPTH = 0.20
-STACK_XY = (-2.85, 0.80)             # exhaust stack: rear-left of the roof (final frame; roof is +/-1.1 wide here)
+STACK_XY = (-2.85 * K, 0.80 * K)     # exhaust stack: rear-left of the roof (final frame; roof is +/-1.1 wide here)
 STACK_R = 0.11
 STACK_H = 1.30
 

@@ -19,7 +19,7 @@ const DOC: Record<string, { x: number[]; y: number; r: number }> = {
   scout_shachaf: { x: [1.41, -1.4], y: 0.537, r: 0.536 },
   apc_kipod: { x: [2.3, 0.17, -1.96], y: 0.75, r: 0.755 },
   // E6 (GH-274 chunk A2): measured on the exported `hull_rubber`; the tandem overlaps as the source delivered it.
-  aa_remetz: { x: [2.1, -1.464, -2.344], y: 0.72, r: 0.713 },
+  aa_remetz: { x: [1.936, -1.381, -2.159], y: 0.665, r: 0.66 },
   apc_eitan: { x: [2.29, 0.72, -0.74, -2.14], y: 0.66, r: 0.66 },
   technical: { x: [1.69, -1.19], y: 0.307, r: 0.316 },
   gun_truck: { x: [1.77, -1.47], y: 0.415, r: 0.425 },
