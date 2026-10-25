@@ -38,10 +38,12 @@ describe('vehicle formation ranks clear every hull pair (GH-421)', () => {
     }
     console.log(`worst rank pair: ${worst.a} ahead, ${worst.b} behind, needs ${worst.need.toFixed(3)} tiles`);
     expect(worst.need).toBeLessThan(VEHICLE_RANK_DEPTH);
-    // An independent literal (the 2.54 of the plan's census), so the test cannot
-    // be satisfied by changing only the code under test.
-    expect(worst.need).toBeGreaterThan(2.52);
-    expect(worst.need).toBeLessThan(2.56);
+    // An independent literal, so the test cannot be satisfied by changing only the
+    // code under test. It was the 2.54 of the plan's census; E6 (GH-274) added
+    // aa_remetz, a 7.6 m 6x6 whose front reach makes mbt_lavi_camo ahead of it
+    // the worst pair at 2.581, still inside the 3-tile rank step.
+    expect(worst.need).toBeGreaterThan(2.56);
+    expect(worst.need).toBeLessThan(2.60);
   });
 
   it('fits the widest hull pair inside VEHICLE_SPACING sideways', () => {
