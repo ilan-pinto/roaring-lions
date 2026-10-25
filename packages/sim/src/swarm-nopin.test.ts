@@ -81,17 +81,22 @@ describe('E6 swarm: no pin, no rout (spec 3.2)', () => {
     expect(shots).toBeGreaterThan(50); // it was shot at, a lot
   });
 
-  it('the dive is not held back by fire: a swarm under the same fire still dives', () => {
-    const { sim, v, g, man } = world(SWARM);
-    const s = sim.spawn(v, 1, X(5.5), X(8.5));
-    sim.spawn(g, 0, X(9.5), X(8.5));
-    const m = sim.spawn(man, 0, X(6.5), X(8.5));
-    let dives = 0;
-    for (let t = 0; t < 600 && sim.state.alive[s] === 1; t++) {
-      sim.identifyTo(1, m);
-      sim.identifyTo(0, s);
-      for (const e of sim.tick()) if (e.kind === 'fire' && e.shooter === s) dives++;
+  it('the dive is not held back by fire: the dive ticks under fire equal those of an unmolested swarm', () => {
+    function diveTicks(withGunner: boolean): number[] {
+      const { sim, v, g, man } = world(SWARM);
+      const s = sim.spawn(v, 1, X(5.5), X(8.5));
+      if (withGunner) sim.spawn(g, 0, X(9.5), X(8.5));
+      const m = sim.spawn(man, 0, X(6.5), X(8.5));
+      const ticks: number[] = [];
+      for (let t = 0; t < 600 && sim.state.alive[s] === 1; t++) {
+        sim.identifyTo(1, m);
+        if (withGunner) sim.identifyTo(0, s);
+        for (const e of sim.tick()) if (e.kind === 'fire' && e.shooter === s) ticks.push(e.tick);
+      }
+      return ticks;
     }
-    expect(dives).toBeGreaterThan(1);
+    const calm = diveTicks(false);
+    expect(calm.length).toBeGreaterThan(3);
+    expect(diveTicks(true)).toEqual(calm);
   });
 });

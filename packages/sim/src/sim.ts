@@ -8600,7 +8600,8 @@ export class Sim {
     // pin test in stepUpkeep never fires and the rout clause behind it never runs; a dive is
     // an ordinary fire and stays open to it however hard it is shot at. (`suppression_resistance`
     // alone only halves the amount.) Early, before the source is recorded: nothing to run from.
-    if (this.unitTypes[this.typeIdx[target]].swarm !== null) return;
+    const type = this.unitTypes[this.typeIdx[target]];
+    if (type.swarm !== null) return;
     // Only HOSTILE fire is a direction to run from. A unit shaken by its own
     // side's splash would otherwise flee toward the enemy: the GH-291
     // emulation found a playtest gun_truck whose "source" was its own flank.
@@ -8609,7 +8610,6 @@ export class Sim {
       this.suppFromY[target] = srcY;
       this.suppFromSet[target] = 1;
     }
-    const type = this.unitTypes[this.typeIdx[target]];
     let a = fx.mul(amount, type.suppResFactor);
     const vet = this.veterancy[target];
     if (vet > 0) a = fx.mul(a, fx.sub(ONE, vet * VET_SUPP_BONUS));
