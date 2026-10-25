@@ -3585,7 +3585,11 @@ export class MissionRuntime {
   private stepCivilians(): void {
     const refuge = this.mission.civilians?.refuge;
     if (refuge === undefined) return;
-    this.civFlight.step(this.sim, this.civIds, this.playerIds, this.markerPos(refuge));
+    // The arrival zone is the first `evacuate_before`'s: `start()` refuses a refuge
+    // outside any of them, so every one contains the refuge point and a stopped
+    // civilian ordered there ends inside whichever objective is still counting.
+    const evac = this.mission.objectives.find((o) => o.type === 'evacuate_before');
+    this.civFlight.step(this.sim, this.civIds, this.playerIds, this.markerPos(refuge), this.zone(evac?.target));
   }
 
   private stepPatrols(): void {

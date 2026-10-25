@@ -128,12 +128,20 @@ export class CivilianFlight {
    *
    * `refuge` is resolved by the caller rather than looked up here, because a
    * mission names a marker and the sandbox synthesises a point.
+   *
+   * `zone` is the arrival zone (`[x, y, w, h]` in tiles) that `collect` counts
+   * people in. When given, a fled civilian who has stopped OUTSIDE it is
+   * ordered to the refuge again, wherever he stopped. Without it the rule
+   * cannot tell "arrived" from "stalled", and falls back to a distance guess
+   * (see the branch below) that strands a porter against a wall just outside a
+   * narrow zone.
    */
   step(
     sim: Sim,
     civIds: readonly number[],
     playerIds: readonly number[],
-    refuge: readonly [Fx, Fx]
+    refuge: readonly [Fx, Fx],
+    zone?: readonly number[]
   ): void {
     const st = sim.state;
     const [rx, ry] = refuge;
@@ -157,13 +165,27 @@ export class CivilianFlight {
         // who is done.
         if (st.carriedBy[civ] >= 0) continue;
         if (st.moving[civ] === 1) continue;
-        const rdx = (fx.sub(st.posX[civ], rx) >> 8) | 0;
-        const rdy = (fx.sub(st.posY[civ], ry) >> 8) | 0;
-        // Standing on the refuge and still not counted means the refuge point
-        // sits outside its own evacuation zone -- an authoring fault.
-        // Re-ordering there would queue one dead command every tick for the
-        // rest of the mission, so it stops here instead.
-        if (rdx * rdx + rdy * rdy <= SHEPHERD_RADIUS_SQ) continue;
+        if (zone !== undefined) {
+          // Inside the arrival zone the civilian is the collector's, not this
+          // rule's: `collect` counts him on its next call, so an order here
+          // would be a dead command. Outside it he is stalled, however close to
+          // the refuge he stands. The old "within 4 tiles" guard stopped a
+          // porter pinned against a wall one tile short of a 1x1 zone for the
+          // rest of the mission. A refuge outside its own zone is an authoring
+          // fault the mission loader and the sandbox both refuse, so the
+          // re-order cannot loop on a point that can never count.
+          const tx = st.posX[civ] >> 16;
+          const ty = st.posY[civ] >> 16;
+          if (tx >= zone[0] && tx < zone[0] + zone[2] && ty >= zone[1] && ty < zone[1] + zone[3]) continue;
+        } else {
+          const rdx = (fx.sub(st.posX[civ], rx) >> 8) | 0;
+          const rdy = (fx.sub(st.posY[civ], ry) >> 8) | 0;
+          // No zone to test against: standing on the refuge and still not
+          // counted means the refuge point sits outside its own evacuation
+          // zone -- an authoring fault. Re-ordering there would queue one dead
+          // command every tick for the rest of the mission, so it stops here.
+          if (rdx * rdx + rdy * rdy <= SHEPHERD_RADIUS_SQ) continue;
+        }
         // `exact`: the refuge is a point a RULE chose, not a click, and the
         // evacuation zone is drawn around it -- a formation slot beside it
         // can sit outside that zone, so this order opts out of being placed.

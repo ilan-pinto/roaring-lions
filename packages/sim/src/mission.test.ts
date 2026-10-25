@@ -1640,6 +1640,30 @@ describe('civilians and ROE (GDD §6)', () => {
     expect(done).toHaveLength(1);
   });
 
+  it('re-orders a civilian who stopped 3 tiles short of a 1x1 refuge zone, instead of stalling', () => {
+    // The stall `CivilianFlight.step` had: it treated "within 4 tiles of the refuge" as arrived, so
+    // a porter stopped outside a narrow zone (pinned against a wall, in the field) was never
+    // ordered again and the evacuation hung. The zone here is the refuge tile alone.
+    const w = civWorld(
+      {
+        starting_force: [{ unit: 'm_squad', count: 1, at: [6, 10] }],
+        civilians: { groups: [{ unit: 'm_civ', count: 1, at: [5, 10] }], refuge: 'refuge' },
+        objectives: [
+          { id: 'evac', type: 'evacuate_before', primary: false, target: 'refuge_zone', count: 1, seconds: 900 },
+          { id: 'clock', type: 'survive_until', primary: true, seconds: 900 },
+        ],
+      },
+      { zones: { refuge_zone: [2, 10, 1, 1] } }
+    );
+    const civ = 1;
+    w.step(2); // the soldier is beside her: she breaks for the refuge
+    w.sim.queueCommand({ kind: 'halt', ids: [civ] });
+    w.step(2);
+    expect(w.sim.state.moving[civ]).toBe(1); // re-ordered the tick she stopped
+    const evs = w.step(600);
+    expect(evs.mission.filter((m) => m.kind === 'evacuated')).toHaveLength(1);
+  });
+
   it('counts civilians who reach the refuge zone and completes at the count', () => {
     const w = civWorld(
       {
