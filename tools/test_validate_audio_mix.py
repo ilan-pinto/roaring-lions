@@ -87,7 +87,9 @@ def main():
     # AU-10: the commercial manifest. What the release step ships is the
     # shipped manifest with every unconfirmed variant taken out; it must pass
     # the commercial gate, and the files it leaves out are exactly the
-    # ElevenLabs takes (five takes on four keys, two encodings each).
+    # ElevenLabs voice takes (five takes on four keys, two encodings each).
+    # The ElevenLabs sound effects (GH-782) were cleared on 25 Oct 2026 (a paid
+    # plan, the lead's word) and are in the manifest, not left out.
     import json
     with open(os.path.join(HERE, "..", "data", "audio.json")) as fh:
         shipped_man = json.load(fh)
@@ -101,13 +103,19 @@ def main():
     want = sorted(f"voice/he/{p}.{ext}" for p in ("infantry/move_01a", "infantry/attack_01a", "infantry/death_01a",
                                                  "infantry/death_02a", "common/ack_01a") for ext in ("ogg", "m4a"))
     SUPPORT_TAKES = {"barrage_impact": 3, "strike_impact": 3, "jet_flyby": 4, "incoming_whistle": 2}
-    want += sorted(f"{name}/{name}_0{i}.{ext}" for name, n in SUPPORT_TAKES.items() for i in range(1, n + 1) for ext in ("ogg", "m4a"))
-    want += ["support/rotor_loop.m4a", "support/rotor_loop.ogg"]
     want = sorted(want)
     ok = sorted(excluded) == want
-    print(f"{'ok  ' if ok else 'FAIL'} it leaves out exactly the ten ElevenLabs voice files and the 26 ElevenLabs sound-effect files -> {sorted(excluded)}")
+    print(f"{'ok  ' if ok else 'FAIL'} it leaves out exactly the ten ElevenLabs voice files -> {sorted(excluded)}")
     if not ok:
         bad.append("excluded files")
+    sfx = sorted(f"{name}/{name}_0{i}.{ext}" for name, n in SUPPORT_TAKES.items() for i in range(1, n + 1) for ext in ("ogg", "m4a"))
+    sfx += ["support/rotor_loop.m4a", "support/rotor_loop.ogg"]
+    kept_sfx = sorted(f for name in SUPPORT_TAKES for v in stripped["sets"][name]["variants"] for f in (v["file"], v.get("alt")) if f)
+    kept_sfx += sorted(f for f in (stripped["support_air"]["rotor"]["file"], stripped["support_air"]["rotor"].get("alt")) if f)
+    ok = len(sfx) == 26 and sorted(kept_sfx) == sorted(sfx) and not set(sfx) & set(excluded)
+    print(f"{'ok  ' if ok else 'FAIL'} the 26 ElevenLabs sound-effect files are IN the commercial manifest (paid plan, lead 25 Oct 2026) -> {len(kept_sfx)} kept")
+    if not ok:
+        bad.append("sfx kept")
     lines = stripped["voices"]["lines"]
     ok = all(lines[k]["variants"] == [] for k in ("he.infantry.move", "he.infantry.death", "he.common.ack"))
     ok = ok and set(lines) == set(shipped_man["voices"]["lines"])
@@ -129,14 +137,13 @@ def main():
     print(f"{'ok  ' if ok else 'FAIL'} the shipped manifest is not mutated")
     if not ok:
         bad.append("not mutated")
-    plain = lambda sets: {k: v for k, v in sets.items() if k not in SUPPORT_TAKES}
-    music_kept = stripped.get("music") == shipped_man.get("music") and plain(stripped["sets"]) == plain(shipped_man["sets"])
-    print(f"{'ok  ' if music_kept else 'FAIL'} a confirmed section (every other set, music) is left exactly as it was")
+    music_kept = stripped.get("music") == shipped_man.get("music") and stripped["sets"] == shipped_man["sets"]
+    print(f"{'ok  ' if music_kept else 'FAIL'} a confirmed section (every set, the fire-support sets included, and music) is left exactly as it was")
     if not music_kept:
         bad.append("confirmed kept")
-    ok = (set(stripped["sets"]) == set(shipped_man["sets"]) and all(stripped["sets"][k]["variants"] == [] for k in SUPPORT_TAKES)
-          and "rotor" not in stripped["support_air"] and "rotor" in shipped_man["support_air"])
-    print(f"{'ok  ' if ok else 'FAIL'} the support sets stay declared with no takes, and the rotor block is stripped")
+    ok = (stripped["support_air"] == shipped_man["support_air"] and "rotor" in stripped["support_air"]
+          and all(stripped["sets"][k]["variants"] != [] for k in SUPPORT_TAKES))
+    print(f"{'ok  ' if ok else 'FAIL'} the support sets keep their takes, and the rotor block stays (cleared 25 Oct 2026)")
     if not ok:
         bad.append("support stripped")
 
