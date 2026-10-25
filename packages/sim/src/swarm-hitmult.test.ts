@@ -70,6 +70,16 @@ describe('E6 N2: swarm.hit_mult scales the hit chance of a shot at the swarm', (
     expect(scaled.factors.sizeMod).toBe(fx.from(HIT_MULT));
     expect(scaled.pHit).toBe(fx.mul(plain.pHit, fx.from(HIT_MULT)));
     expect(scaled.pHit).toBeLessThan(plain.pHit);
+    // the HUD's number is the roll's number: the fire event carries the same p
+    const fire = (() => {
+      for (let k = 0; k < 400; k++) {
+        sim.identifyTo(0, a);
+        for (const e of sim.tick()) if (e.kind === 'fire' && e.shooter === g) return e;
+      }
+      throw new Error('never fired');
+    })();
+    expect(fire.pHit).toBe(scaled.pHit);
+    expect(fire.breakdown.sizeMod).toBe(scaled.factors.sizeMod);
   });
 
   it('a swarm that authors no hit_mult is as easy to hit as an ordinary soft drone, bit for bit', () => {
@@ -140,7 +150,7 @@ describe('E6 N2: registration', () => {
   it('refuses a hit_mult outside (0, 1]; accepts 1 and anything inside', () => {
     const sim = new Sim({ seed: 1, width: 8, height: 8, capacity: 2 });
     const with_ = (hit_mult: number): UnitTypeJson => ({ ...SWARM, swarm: { count: 12, member_hp: 15, spread_tiles: 3, hit_mult } });
-    for (const bad of [0, -0.1, 1.01, Number.NaN]) expect(() => sim.addUnitType(with_(bad))).toThrow(/hit_mult/);
+    for (const bad of [0, -0.1, 1.01, Number.NaN, 1e-6]) expect(() => sim.addUnitType(with_(bad))).toThrow(/hit_mult/);
     expect(() => sim.addUnitType({ ...with_(1), id: 'one' })).not.toThrow();
     expect(() => sim.addUnitType({ ...with_(0.5), id: 'half' })).not.toThrow();
   });

@@ -10,7 +10,7 @@
 // real one (the one-way dependency rule, CLAUDE.md).
 
 import { describe, expect, it } from 'vitest';
-import { Sim } from '@lions/sim';
+import { Sim, type SimEvent } from '@lions/sim';
 import { DebugOverlay } from './overlay';
 
 const emptySim = (): Sim => new Sim({ seed: 1, width: 8, height: 8, capacity: 8 });
@@ -34,5 +34,23 @@ describe('DebugOverlay.destroy', () => {
     overlay.toggle();
     overlay.destroy();
     expect(document.body.children.length).toBe(before);
+  });
+});
+
+describe('DebugOverlay roll feed: sizeMod (E6 N2)', () => {
+  const fire = (breakdown: Record<string, number>) =>
+    ({ kind: 'fire', tick: 1, shooter: 0, target: 1, weaponId: 'rifle', pHit: 0, roll: 0, willHit: false, breakdown }) as unknown as SimEvent;
+  const base = { accuracy: 65536, rangeFalloff: 65536, coverMod: 65536, motionMod: 65536, stanceMod: 65536, suppressionMod: 65536 };
+  const feedText = (e: SimEvent): string => {
+    const host = document.createElement('div');
+    const overlay = new DebugOverlay(host, emptySim(), () => [], '0.1');
+    overlay.toggle();
+    overlay.onTick([e]);
+    return host.textContent ?? '';
+  };
+
+  it('prints the size factor when the event carries one, and not otherwise', () => {
+    expect(feedText(fire({ ...base, sizeMod: 5243 }))).toMatch(/size 8%/);
+    expect(feedText(fire(base))).not.toMatch(/size/);
   });
 });

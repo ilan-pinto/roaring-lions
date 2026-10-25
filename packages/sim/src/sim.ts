@@ -936,7 +936,7 @@ function swarmFromJson(json: UnitTypeJson): SwarmStats | null {
     throw new Error(`unit ${json.id}: swarm needs hull.hp === count x member_hp`);
   }
   const hm = sw.hit_mult;
-  if (hm !== undefined && !(hm > 0 && hm <= 1)) throw new Error(`unit ${json.id}: swarm.hit_mult must be in (0, 1]`);
+  if (hm !== undefined && !(hm > 0 && hm <= 1 && fx.from(hm) > 0)) throw new Error(`unit ${json.id}: swarm.hit_mult must be in (0, 1] and not round to zero`);
   return { count: sw.count, memberHp, spread, hitMult: hm === undefined ? ONE : fx.from(hm) };
 }
 
