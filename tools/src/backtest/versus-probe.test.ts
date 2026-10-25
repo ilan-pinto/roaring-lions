@@ -288,10 +288,15 @@ describe('the seat table (N3 Task 7: a room\'s, by default)', () => {
     // the first of 40 where the tables differ -- Sarim (side 1) wins by annihilation at
     // 2500 under the room's table and at 2480 under the single-player one. Was seedOf(7)
     // on the GH-421 branch and seedOf(28) on main.
-    const seed = seedOf(0);
-    expect(seed).toBe(1000);
-    expect(play('wadi_tarfan', ['sarim', 'kdf'], seed)).toEqual({ winner: 1, by: 'annihilation', ticks: 2500 });
-    expect(play('wadi_tarfan', ['sarim', 'kdf'], seed, { rules: 'default' })).toEqual({ winner: 1, by: 'annihilation', ticks: 2480 });
+    // Re-read for GH-421 Stage 2 (movers-only vehicle avoidance, 25 Oct 2026): hulls no longer drive
+    // through one another, and on seeds 0-16 the two tables played the SAME game. Of seeds 0-39
+    // three differ -- 17, 29, 39 -- and the pin moves to the first, seedOf(17) = 135623: winner 1 by
+    // annihilation at 5420 ticks under the room's table and at 5280 under the single-player one.
+    // Was seedOf(0) = 1000 (2500 / 2480 ticks).
+    const seed = seedOf(17);
+    expect(seed).toBe(135623);
+    expect(play('wadi_tarfan', ['sarim', 'kdf'], seed)).toEqual({ winner: 1, by: 'annihilation', ticks: 5420 });
+    expect(play('wadi_tarfan', ['sarim', 'kdf'], seed, { rules: 'default' })).toEqual({ winner: 1, by: 'annihilation', ticks: 5280 });
   }, FULL_GAMES_TIMEOUT_MS);
 });
 
