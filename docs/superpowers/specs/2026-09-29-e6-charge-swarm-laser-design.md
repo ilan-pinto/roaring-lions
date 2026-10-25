@@ -193,6 +193,11 @@ array**: live members are `ceil(hp / member_hp)`, computed on read.
 - **No rout.** `crew: 0` and `suppression_resistance 1.0` as `loiter_drone`
   (`data/units/enemy/loiter_drone.json`); the rout clause (`:5110-5118`) gains `swarmCount ===
   0`. The dive branch ignores `pinned`, like `stepKamikaze` today.
+  **Built (GH-274, `applySuppression`):** the stronger form -- a swarm takes no suppression at all, so it
+  never pins, never routs, and its own dive accuracy and movement are never cut by fire
+  (`suppressionMod` is always 1; no pinned movement hold). A pinned swarm could not close to dive
+  anyway. Before it, `suppression_resistance` 1.0 only halved the amount and an armed group pinned and
+  routed a swarm before it made one dive.
 - **It is also an eye.** Sight 10, optics 1.2 feed Sarim/Rif contact like any unit
   (`stepDetection`), so a swarm cues the `rocket_battery` (range 20, sight 6). Intended (Act II:
   "kill the eyes and it goes blind"), and a playtest effect to measure (R10).
