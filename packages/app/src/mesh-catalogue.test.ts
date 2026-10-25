@@ -26,8 +26,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   Sim,
+  unlockReason,
   type MissionJson,
 } from '@lions/sim';
+import { kdfUnlockGate } from './kdf-gate';
 import {
   maps,
   missions,
@@ -56,6 +58,7 @@ import {
   propKindsFor,
   missionUnitTypes,
   withWoundedTypes,
+  deferredBuildables,
   hasUnitMesh,
   meshPlanFor,
   meshManifestFor,
@@ -274,6 +277,38 @@ describe('mesh catalogue: the wounded boot rule (GH-707 P3)', () => {
       expect(owed.filter((t) => !roster.has(t) || !hasUnitMesh(t))).toEqual([]);
     });
   }
+});
+
+describe('deferredBuildables: a resources mission fetches only what the campaign has opened', () => {
+  const kdf = (id: string): { id: string; faction: string } => ({ id, faction: 'kdf' });
+
+  it('drops a gate-closed type, an already-queued type, a Sarim type and a type with no mesh', () => {
+    // Real ids so `hasUnitMesh` is the real catalogue; the gate is a literal table.
+    const list = [kdf('apc_eitan'), kdf('mbt_lavi_camo'), kdf('inf_squad'), { id: 'moto_rpg', faction: 'sarim' }, kdf('no_such_unit')];
+    const open = new Set(['apc_eitan', 'inf_squad', 'no_such_unit']);
+    const got = deferredBuildables(list, new Set(['inf_squad']), (id) => open.has(id));
+    expect([...got]).toEqual(['apc_eitan']);
+    expect(hasUnitMesh('moto_rpg')).toBe(true); // the Sarim type WOULD pass every filter but faction
+  });
+
+  it('on a fresh account every gated shipped unit is out, and buying one brings it in', () => {
+    const list = Object.values(units);
+    const gateOpen = (bought: ReadonlySet<string>) => (id: string): boolean => {
+      const u = (units as Record<string, (typeof units)[keyof typeof units] | undefined>)[id];
+      return u === undefined || unlockReason(kdfUnlockGate(u, bought), {}) === null;
+    };
+    const fresh = deferredBuildables(list, new Set(), gateOpen(new Set()));
+    // Oracles are literals: gated by price only (nothing earns them), and ungated.
+    for (const gated of ['demo_tzav', 'mbt_lavi_camo', 'inf_grenadier', 'spg_cluster', 'mbt_lavi', 'sniper_team']) {
+      expect(fresh.has(gated), `${gated} is gate-closed on a fresh account`).toBe(false);
+    }
+    for (const free of ['apc_eitan', 'at_team', 'inf_squad', 'jeep_shoded', 'mortar_team']) {
+      expect(fresh.has(free), `${free} has no gate`).toBe(true);
+    }
+    const bought = deferredBuildables(list, new Set(), gateOpen(new Set(['demo_tzav'])));
+    expect(bought.has('demo_tzav')).toBe(true);
+    expect(bought.has('mbt_lavi_camo')).toBe(false);
+  });
 });
 
 describe('mesh catalogue: decor families', () => {

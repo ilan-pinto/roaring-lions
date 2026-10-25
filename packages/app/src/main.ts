@@ -38,6 +38,7 @@ import {
   starsEarned,
   zoneContains,
   creditsFor,
+  unlockReason,
   creditInputFrom,
   MAX_PATROL_WAYPOINTS,
   unitTypeFromJson,
@@ -259,6 +260,7 @@ import {
   meshUrl,
   missionUnitTypes,
   withWoundedTypes,
+  deferredBuildables,
   hasUnitMesh,
   meshPlanFor,
   meshManifestFor,
@@ -2204,12 +2206,13 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    * (`meshReady`). Measuring the alternative (loading every buildable before
    * deploy) is in the PR for the lead.
    */
+  // Only the types the campaign has OPENED (`deferredBuildables`): a gate-closed
+  // one cannot be built this mission, and 26 of the 31 KDF units are gated.
   const meshDeferred = mission?.resources
-    ? new Set(
-        Object.values(units)
-          .filter((u) => u.faction === 'kdf' && hasUnitMesh(u.id) && !meshRoster.has(u.id))
-          .map((u) => u.id)
-      )
+    ? deferredBuildables(Object.values(units), meshRoster, (id) => {
+        const u = (units as Record<string, (typeof units)[keyof typeof units] | undefined>)[id];
+        return u === undefined || unlockReason(kdfUnlockGate(u, boughtUnits), ledger) === null;
+      })
     : new Set<string>();
   /** Every type `ensureUnitMesh` has already started. Owned here rather than
    *  asked of the renderer: `ThreeRenderer` exposes no "is this loaded" read,
