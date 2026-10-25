@@ -3912,7 +3912,14 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // the pre-P3 5920, +33: Beit Sahwan I 180 -> 170, Wadi Halam I, II 180/190 -> 170/180 (men down);
 // Beit Sahwan IV 144 -> 190; Khan Rafid III 236 -> 240; Deir Amun II 217 -> 227; Qarn Hadid III
 // 216 -> 219. Every other mission pays as it did before P3. No star, outcome or gate moved.
-const LADDER_CREDITS = 5953;
+// 2026-10-25, GH-421 Stage 2 (movers-only vehicle avoidance; accepted by the lead): 5953 -> 5971, +18,
+// read off the printed per-mission credits: Beit Sahwan III 275 -> 280 (+5) and IV 190 -> 200 (+10);
+// Wadi Halam I 170 -> 180 (+10), II 180 -> 190 (+10) and IV 204 -> 198 (-6); Deir Amun II 227 -> 237
+// (+10) and III 245 -> 230 (-15); Khan Rafid III 240 -> 237 (-3); Qarn Hadid III 219 -> 225 (+6); Umm
+// Zeitoun IV 265 -> 256 (-9). Hulls no longer drive through one another, so the men a plan loses and the
+// survivors it brings home move a little; every other mission pays as before. Every plan wins on 30 of
+// 30 seeds, ROSTER_MAX stays 29, every gate opens on time, no star or outcome moved.
+const LADDER_CREDITS = 5971;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
