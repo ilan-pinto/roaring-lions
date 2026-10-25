@@ -88,9 +88,11 @@ describe('CREDITS', () => {
     expect(text).toMatch(/commercial/i);
     // ...and the lines the lead recorded himself (9 Oct 2026) are said to be his.
     expect(text).toMatch(/recorded by Ilan Pinto/);
-    // The fire-support effects (GH-782) are the lead's ElevenLabs Sound Effects: said by name, and kept out of a commercial release like the voices.
+    // The fire-support effects (GH-782) are the lead's ElevenLabs Sound Effects: said by name. They were cleared for a commercial release on 25 Oct 2026 (a paid plan), so unlike the voices they are not said to be left out.
     expect(text).toMatch(/fire-support effects[^.]*AI-generated with ElevenLabs Sound Effects/i);
-    expect(text).toMatch(/ElevenLabs Sound Effects and are left out of any commercial release too/);
+    expect(text).not.toMatch(/ElevenLabs Sound Effects and are left out/);
+    expect(text).toMatch(/stand-ins[^.]*left out of any commercial release/i);
+    expect(text.match(/fire-support effects[^.]*\./)?.[0]).not.toMatch(/left out/);
     // The other cues and effects: made in code, no model -- so the class is bounded.
     expect(text).toMatch(/Every other sound effect and interface cue is made in code, with no generative model/i);
     // The art gates it used to cite were retired with validate:assets (#374).
