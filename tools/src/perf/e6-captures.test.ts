@@ -1,6 +1,6 @@
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   BEAM_GAP_TILES,
@@ -11,15 +11,21 @@ import {
   ROOT_GAP_TILES,
   TICK_FRAMES,
   TICK_MS,
+  backendVerdict,
+  checkLabel,
   classifyConsole,
   coincide,
   e6FlipHtml,
+  freshRunDir,
+  guarded,
+  installSignalStop,
+  portRefusal,
   readbackVerdict,
+  shaderVerdict,
+  type ProgramReport,
+  type SignalHost,
 } from './e6-captures';
 import { E6_KEYS, E6_KEY_LIST } from './e6-floors';
-
-const here = path.dirname(fileURLToPath(import.meta.url));
-const source = readFileSync(path.join(here, 'e6-captures.ts'), 'utf8');
 
 describe('the console is a verdict: the first compile of three shaders on a GPU', () => {
   it('fails on any console.error and any page error', () => {
@@ -115,10 +121,6 @@ describe('the subject table covers spec 8', () => {
     for (const n of ['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8']) expect(covered.has(n), n).toBe(true);
   });
 
-  it('reads every key of the floors table somewhere in the harness source', () => {
-    for (const key of E6_KEY_LIST) expect(source.includes(`'${key}'`), key).toBe(true);
-  });
-
   it('keeps every subject on the open northern band (rows 0-7) and in range of itself', () => {
     for (const s of E6_SUBJECTS) {
       expect(s.y, s.id).toBeGreaterThanOrEqual(0);
@@ -139,67 +141,205 @@ describe('the subject table covers spec 8', () => {
   });
 });
 
-describe('the lockstep', () => {
-  it('pumps one tick as three frames that sum to exactly 50 ms', () => {
-    expect(TICK_FRAMES.reduce((a, b) => a + b, 0)).toBe(TICK_MS);
-    expect(Math.max(...TICK_FRAMES)).toBeLessThan(100); // under FRAME_DT_CEILING_MS: raw and clamped clocks agree
-  });
+describe('the lockstep, run against a fake page', () => {
+  /** The in-page API, evaluated for real with a stub `__lions`, so what it DOES is asserted, not what it spells. */
+  function page(opts: { lostOnConstruct?: boolean } = {}) {
+    const frames: { alpha: number; dt: number }[] = [];
+    const calls: string[] = [];
+    const listeners: Record<string, () => void> = {};
+    const hidden: Record<string, number> = { beam: 1, missiles: 0 };
+    const renderer = {
+      camera: { x: 0, y: 0, zoom: 1 },
+      frame: (alpha: number, dt: number) => frames.push({ alpha, dt }),
+      snapshot: () => calls.push('snapshot'),
+      onEvents: () => calls.push('onEvents'),
+      setDebugLayerVisible: (name: string) => hidden[name] ?? 0,
+      worldToScreen: () => ({ x: 0, y: 0 }),
+      renderer: { getContext: () => ({ isContextLost: () => opts.lostOnConstruct === true, getExtension: () => null, getParameter: () => 'stub', RENDERER: 0, VERSION: 1 }) },
+    };
+    const sim = { tickCount: 0, tick: () => { sim.tickCount++; calls.push('tick'); return []; }, entityCount: 0, state: { alive: [] }, unitTypes: [] };
+    const window = { __lions: { renderer, sim } };
+    const document = { querySelector: () => ({ addEventListener: (ev: string, fn: () => void) => { listeners[ev] = fn; }, clientWidth: 1400, clientHeight: 900 }) };
+    const api = new Function('window', 'document', `return ${PAGE_API}`)(window, document) as Record<string, (...a: unknown[]) => unknown> & { alpha: number; lost: boolean };
+    return { api, frames, calls, listeners };
+  }
 
   it('is a string, never a function: esbuild keepNames would wrap a function in __name', () => {
     expect(typeof PAGE_API).toBe('string');
     expect(PAGE_API).not.toMatch(/__name/);
-    // The in-page API is evaluated as an expression and must parse as one.
-    expect(() => new Function(`return ${PAGE_API}`)).not.toThrow();
   });
 
-  it('carries alpha through the frames like the app loop, and never ticks through __lions.step', () => {
-    expect(PAGE_API).toMatch(/r\.frame\(acc \/ 50, f\)/);
-    expect(PAGE_API).toMatch(/sim\.tick\(\)/);
-    expect(PAGE_API).toMatch(/r\.snapshot\(\)/);
-    expect(PAGE_API).toMatch(/r\.onEvents\(events\)/);
+  it('pumps one tick as three frames that sum to exactly 50 ms', () => {
+    expect(TICK_FRAMES.reduce((a, b) => a + b, 0)).toBe(TICK_MS);
+    expect(Math.max(...TICK_FRAMES)).toBeLessThan(100);
   });
 
-  it('repaints a toggle at zero elapsed presentation time', () => {
-    expect(PAGE_API).toMatch(/api\.repaint = \(\) => \{ r\.frame\(api\.alpha, 0\)/);
-    expect(PAGE_API).toMatch(/api\.layer = .*setDebugLayerVisible.*r\.frame\(api\.alpha, 0\)/);
+  it('ticks the sim by hand and carries alpha through the tick like the app loop (never through __lions.step)', () => {
+    const { api, frames, calls } = page();
+    (api.tick as (n: number) => unknown)(1);
+    expect(calls).toEqual(['tick', 'snapshot', 'onEvents']);
+    expect(frames.map((f) => f.dt)).toEqual([16, 16, 18]);
+    expect(frames.map((f) => Number(f.alpha.toFixed(2)))).toEqual([0.32, 0.64, 1]);
+  });
+
+  it('repaints at zero elapsed presentation time at the current alpha', () => {
+    const { api, frames } = page();
+    api.alpha = 0;
+    (api.repaint as () => unknown)();
+    expect(frames).toEqual([{ alpha: 0, dt: 0 }]);
+  });
+
+  it('hands a layer toggle back the object count the renderer resolved, then repaints at zero time', () => {
+    const { api, frames } = page();
+    expect((api.layer as (n: string, v: boolean) => number)('beam', false)).toBe(1);
+    expect((api.layer as (n: string, v: boolean) => number)('missiles', false)).toBe(0);
+    expect(frames.every((f) => f.dt === 0)).toBe(true);
+  });
+
+  it('reports a lost WebGL context, from the context itself or from the event', () => {
+    const a = page();
+    expect((a.api.gl as () => { lost: boolean })().lost).toBe(false);
+    a.listeners['webglcontextlost']();
+    expect((a.api.gl as () => { lost: boolean })().lost).toBe(true);
+    expect((page({ lostOnConstruct: true }).api.gl as () => { lost: boolean })().lost).toBe(true);
   });
 });
 
-describe('the harness takes a port, music off, and the GPU like every other', () => {
-  const code = source
-    .split('\n')
-    .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
-    .join('\n');
+describe('shaderVerdict: a green over nothing is not a green', () => {
+  const good: ProgramReport = {
+    named: { fog: { present: true, compiled: true, linked: true }, beam: { present: true, compiled: true, linked: true } },
+    all: { count: 66, failed: [] },
+  };
 
-  it('claims its port through port.ts with its own environment key, and refuses 5173 and 5177', () => {
-    expect(code).toMatch(/claimPort\('e6-captures', 'E6_CAPTURE_PORT', PORT\)/);
-    expect(code).toMatch(/const PORT = 5179/);
-    expect(code).toMatch(/port === 5173 \|\| port === 5177/);
+  it('passes a full report with linked programs and a live context', () => {
+    expect(shaderVerdict(good, { full: true, contextLost: false })).toEqual([]);
   });
 
-  it('starts music off through the one helper and never writes lions.settings by hand', () => {
-    expect(code).toMatch(/musicOffInitScript\(\)/);
-    expect(code).not.toMatch(/lions\.settings/);
+  it('FAILS an inspection that saw 0 programs', () => {
+    const v = shaderVerdict({ ...good, all: { count: 0, failed: [] } }, { full: true, contextLost: false });
+    expect(v.join(' ')).toMatch(/0 programs/);
   });
 
-  it('chooses its GPU backend through gpu.ts (Metal on macOS)', () => {
-    expect(code).toMatch(/gpuLaunchArgs\(resolveGpuBackend\(process\.argv, process\.platform\)\)/);
+  it('FAILS a lost context even when every program reads linked', () => {
+    expect(shaderVerdict(good, { full: true, contextLost: true }).join(' ')).toMatch(/context was lost/);
   });
 
-  it('freezes the frame loop and asks the inherited steady-loop settle with its refusal', () => {
-    expect(code).toMatch(/FREEZE_FRAME_LOOP_SCRIPT/);
-    expect(code).toMatch(/settleScript\(settleMs\)/);
-    expect(code).toMatch(/unsteadySettleRefusal\(/);
+  it('fails a program that did not link, one that failed in the global list, and a missing report', () => {
+    const bad: ProgramReport = { named: { beam: { present: true, compiled: true, linked: false, log: 'ERROR' } }, all: { count: 3, failed: ['x: log'] } };
+    const v = shaderVerdict(bad, { full: false, contextLost: false }).join(' ');
+    expect(v).toMatch(/beam: program did not link: ERROR/);
+    expect(v).toMatch(/program failed to link: x: log/);
+    expect(shaderVerdict(null, { full: false, contextLost: false })).toEqual(['the shader link check never ran']);
   });
 
-  it('stops only the dev server it started, through the harness stop, and never pkills', () => {
-    expect(code).toMatch(/stopDevServer\(server, 'e6-captures'\)/);
-    expect(code).not.toMatch(/pkill|killall/);
+  it('requires every named program in a full run, and only the compiled ones in a partial one', () => {
+    const partial: ProgramReport = { named: { rotors: { present: true, compiled: false } }, all: { count: 5, failed: [] } };
+    expect(shaderVerdict(partial, { full: true, contextLost: false }).join(' ')).toMatch(/rotors: no program was ever compiled/);
+    expect(shaderVerdict(partial, { full: false, contextLost: false })).toEqual([]);
+  });
+});
+
+describe('backendVerdict: the floors were calibrated on Metal', () => {
+  const metal = 'ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro, Unspecified Version)';
+  it('passes a Metal request that got Metal', () => {
+    expect(backendVerdict('metal', metal)).toEqual({ failure: null, stamp: null });
+  });
+  it('FAILS a Metal request whose renderer is not Metal', () => {
+    const v = backendVerdict('metal', 'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (LLVM 10.0.0)), SwiftShader driver)');
+    expect(v.failure).toMatch(/not Metal/);
+  });
+  it('stamps a SwiftShader run, in the sheet header, rather than failing it', () => {
+    const v = backendVerdict('swiftshader', 'ANGLE (SwiftShader)');
+    expect(v.failure).toBeNull();
+    expect(v.stamp).toMatch(/floors calibrated on Metal/);
+  });
+});
+
+describe('the port is refused before anything claims it', () => {
+  it('refuses 5173 and 5177 and nothing else', () => {
+    expect(portRefusal(5177)).toMatch(/5177/);
+    expect(portRefusal(5173)).toMatch(/5173/);
+    expect(portRefusal(5179)).toBeNull();
+    expect(portRefusal(5178)).toBeNull();
+  });
+});
+
+describe('teardown: no run leaves vite listening', () => {
+  function host() {
+    const handlers: Record<string, (() => void)[]> = {};
+    const h: SignalHost = {
+      once: (e, fn) => { (handlers[e] ??= []).push(fn); },
+      removeListener: (e, fn) => { handlers[e] = (handlers[e] ?? []).filter((x) => x !== fn); },
+    };
+    return { h, handlers };
+  }
+
+  it('stops the server and exits 130 on SIGINT and on SIGTERM', () => {
+    for (const sig of ['SIGINT', 'SIGTERM'] as const) {
+      const { h, handlers } = host();
+      const log: string[] = [];
+      installSignalStop(() => log.push('stop'), h, (c) => log.push(`exit ${c}`));
+      for (const fn of handlers[sig]) fn();
+      expect(log).toEqual(['stop', 'exit 130']);
+    }
   });
 
-  it('spawns every subject and never finds one', () => {
-    expect(code).toMatch(/__e6\.spawn|window\.__e6\.spawn/);
-    expect(code).toMatch(/api\.clear/);
+  it('takes its handlers off again', () => {
+    const { h, handlers } = host();
+    const off = installSignalStop(() => undefined, h, () => undefined);
+    off();
+    expect(handlers['SIGINT']).toEqual([]);
+    expect(handlers['SIGTERM']).toEqual([]);
+  });
+
+  it('stops the server when the browser fails to LAUNCH', async () => {
+    const log: string[] = [];
+    await expect(guarded(() => Promise.reject(new Error('launch failed')), () => log.push('stop'), async () => 1)).rejects.toThrow('launch failed');
+    expect(log).toEqual(['stop']);
+  });
+
+  it('closes the browser, then stops the server, when the body throws', async () => {
+    const log: string[] = [];
+    const browser = { close: async () => { log.push('close'); } };
+    await expect(guarded(async () => browser, () => log.push('stop'), async () => { throw new Error('boom'); })).rejects.toThrow('boom');
+    expect(log).toEqual(['close', 'stop']);
+  });
+
+  it('stops the server even when closing the browser throws', async () => {
+    const log: string[] = [];
+    const browser = { close: async () => { throw new Error('close failed'); } };
+    await expect(guarded(async () => browser, () => log.push('stop'), async () => 1)).rejects.toThrow('close failed');
+    expect(log).toEqual(['stop']);
+  });
+
+  it('returns the body result on the happy path', async () => {
+    const browser = { close: async () => undefined };
+    expect(await guarded(async () => browser, () => undefined, async () => 42)).toBe(42);
+  });
+});
+
+describe('every run writes to a fresh directory', () => {
+  it('accepts a directory that does not exist or is empty', () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), 'e6-fresh-'));
+    expect(freshRunDir(root, 'a')).toBe(path.join(root, 'a'));
+    mkdirSync(path.join(root, 'b'));
+    expect(freshRunDir(root, 'b')).toBe(path.join(root, 'b'));
+  });
+
+  it('REFUSES a directory that already holds a previous run', () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), 'e6-fresh-'));
+    mkdirSync(path.join(root, 'old'));
+    writeFileSync(path.join(root, 'old', 'beam_sequence-00050ms-seq.png'), 'x');
+    expect(() => freshRunDir(root, 'old')).toThrow(/not empty/);
+  });
+});
+
+describe('a report-only row is never a pass', () => {
+  it('labels info INFO whatever its ok says, and the rest PASS or FAIL', () => {
+    expect(checkLabel({ ok: true, info: true })).toBe('INFO');
+    expect(checkLabel({ ok: false, info: true })).toBe('INFO');
+    expect(checkLabel({ ok: true })).toBe('PASS');
+    expect(checkLabel({ ok: false })).toBe('FAIL');
   });
 });
 
@@ -211,7 +351,7 @@ describe('the flip page', () => {
   });
 });
 
-describe('every key names a layer the table can toggle', () => {
+describe('every key describes its rung', () => {
   it('has a rung description for every key', () => {
     for (const key of E6_KEY_LIST) expect(E6_KEYS[key].rung.length, key).toBeGreaterThan(5);
   });

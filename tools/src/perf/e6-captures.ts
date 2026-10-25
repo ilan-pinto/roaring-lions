@@ -2,8 +2,11 @@
  * `pnpm e6:capture`: the witness for the drone swarm's instanced draw and the laser beam's VFX
  * (E6 chunk D, GH-274, spec `_coord/e6-art/spec.md` section 8).
  *
- *   pnpm e6:capture -- --label=run1 --out=<dir> [--shots=<dir>] [--only=<ids>] [--toggles-only]
+ *   pnpm e6:capture -- --label=run1 --out=<parent> [--shots=<dir>] [--only=<ids>] [--toggles-only]
  *                      [--calibrate] [--port=<n>] [--gpu=metal|swiftshader]
+ *
+ * Each run writes to a FRESH `<out>/<label>` (refused when it already holds anything). A Metal request whose
+ * renderer string is not Metal fails the run; a SwiftShader run is stamped as not comparable with the floors.
  *
  * No gated golden scenario holds a swarm or a beam, and `combat` is report-only for being unstable,
  * so, as with the blast (R-L), a dedicated harness is the only instrument.
@@ -13,7 +16,9 @@
  * Inherited unchanged, each one paid for once already:
  *
  * 1. **The frame loop is FROZEN** (`FREEZE_FRAME_LOOP_SCRIPT`) after a steady-loop settle
- *    (`settleScript`, with `unsteadySettleRefusal`), and every frame is pumped by hand.
+ *    (`settleScript`, its line printed into the sheet), and every frame is pumped by hand. The settle's
+ *    refusal (`unsteadySettleRefusal`) is not asked: it refuses only a `step(1)` subject, and every subject
+ *    here is hand-ticked, so the call could never fire.
  * 2. **Subjects are SPAWNED, never found**, on the open northern band (rows 0-7) of
  *    `beit_sahwan_outskirts`. Everything the sandbox placed is taken off the field first, so no
  *    unit of the sandbox's own can shoot a swarm, lase one, or lift fog over one.
@@ -48,7 +53,7 @@
  *   were measured and are worth keeping beside it:
  *   1. `S8/missiles` reads 0 px / 0.0000 on a build whose dive IS routed through `missile`, at +50, +100 and
  *      +150 ms, with a round live in `missileFx`: the round is a few pixels and the A/B cannot see it. The
- *      spec's reading stays, but the witnesses are `S8.diving` and `S8/bloom@50ms` (the routed shot throws
+ *      spec's reading is kept REPORT-ONLY (kind `info`, printed, never judged), and the witnesses are `S8.diving` and `S8/bloom@50ms` (the routed shot throws
  *      the `fire_heat` muzzle and its bloom: 9860 px / 4.4517 against exactly 0).
  *   2. The `locked` half of the beam's forced shutdown is NOT witnessed here: `const snapped = input.lockout;`
  *      (dropping `input.locked`) leaves S5 green, because during a lockout the sim already reports target -1
@@ -72,8 +77,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { musicOffInitScript } from '../ui-review/music-off';
-import { gpuLaunchArgs, resolveGpuBackend } from '../ui-review/gpu';
-import { claimPort } from '../ui-review/port';
+import { gpuLaunchArgs, resolveGpuBackend, type GpuBackend } from '../ui-review/gpu';
+import { claimPort, resolvePort } from '../ui-review/port';
 import {
   E6_CALIBRATION,
   E6_FALSIFICATIONS,
@@ -86,7 +91,7 @@ import {
   type Reading,
   type Verdict,
 } from './e6-floors';
-import { parseSettleResult, settleLine, settleScript, unsteadySettleRefusal } from './blast-captures';
+import { parseSettleResult, settleLine, settleScript } from './blast-captures';
 
 // ---------------------------------------------------------------------------
 // The pure half. Imported by `e6-captures.test.ts`, which must not pull playwright into
@@ -222,12 +227,124 @@ export function coincide(beamEnd: Point3, fall: Point3): { ok: boolean; xz: numb
   return { ok: xz <= COINCIDE_XZ_TILES && y <= COINCIDE_Y_TILES, xz, y };
 }
 
+/** Ports that are somebody else's: a human's own dev server and the lead's everyday `ui:routes` server. */
+export const FORBIDDEN_PORTS: readonly number[] = [5173, 5177];
+
+/** Refuses a forbidden port. Asked BEFORE `claimPort`, which prints its claim as it goes. */
+export function portRefusal(port: number): string | null {
+  return FORBIDDEN_PORTS.includes(port) ? `refusing port ${port}: it is somebody else's server` : null;
+}
+
+/** What `window.__e6.programs()` returns. */
+export interface ProgramReport {
+  readonly named: Readonly<Record<string, { present: boolean; compiled?: boolean; linked?: boolean; log?: string }>>;
+  readonly all: { readonly count: number; readonly failed: readonly string[] };
+}
+
+/**
+ * The shader judgement: every failure of the GL-level check. A report with no programs at all is a
+ * FAILURE (a context that compiled nothing links nothing, and "no failed program" over an empty list is
+ * a green nobody earned), and so is a lost WebGL context (every program of a lost context reads as
+ * unlinked or absent, or worse, as the last good frame).
+ */
+export function shaderVerdict(pr: ProgramReport | null, opts: { full: boolean; contextLost: boolean }): string[] {
+  const out: string[] = [];
+  if (opts.contextLost) out.push('the WebGL context was lost during the run');
+  if (pr === null) {
+    out.push('the shader link check never ran');
+    return out;
+  }
+  if (pr.all.count === 0) out.push('the renderer reports 0 programs: nothing compiled, so nothing was checked');
+  for (const f of pr.all.failed) out.push(`program failed to link: ${f}`);
+  for (const [k, v] of Object.entries(pr.named)) {
+    if (v.compiled === true && v.linked !== true) out.push(`${k}: program did not link: ${v.log ?? ''}`);
+    if (opts.full && (v.present !== true || v.compiled !== true)) out.push(`${k}: no program was ever compiled for it in a full run`);
+  }
+  return out;
+}
+
+/**
+ * The floors were calibrated on ANGLE/Metal. A run that asked for Metal and got something else (a driver
+ * fallback to software, a different adapter) is not comparable and FAILS; a deliberate SwiftShader run is
+ * stamped so its sheet cannot be read as a Metal one.
+ */
+export function backendVerdict(backend: GpuBackend, gl: string): { failure: string | null; stamp: string | null } {
+  if (backend === 'metal') {
+    return /Metal/i.test(gl)
+      ? { failure: null, stamp: null }
+      : { failure: `--gpu=metal resolved, but the renderer string is "${gl}", not Metal: these floors were calibrated on Metal`, stamp: null };
+  }
+  return { failure: null, stamp: 'floors calibrated on Metal (ANGLE Metal, Apple M3 Pro); this run is SwiftShader, so its readings are not comparable with them' };
+}
+
+/** The slice of `process` the signal handler needs, so a spec can drive it with an emitter. */
+export interface SignalHost {
+  once(event: 'SIGINT' | 'SIGTERM', listener: () => void): unknown;
+  removeListener(event: 'SIGINT' | 'SIGTERM', listener: () => void): unknown;
+}
+
+/**
+ * Stops the dev server on SIGINT and SIGTERM, then exits 130: a Ctrl-C mid-run must not leave vite's
+ * process group listening on the harness's port. Returns the function that takes the handlers off again.
+ */
+export function installSignalStop(stop: () => void, host: SignalHost, exit: (code: number) => void): () => void {
+  const handler = (): void => {
+    stop();
+    exit(130);
+  };
+  host.once('SIGINT', handler);
+  host.once('SIGTERM', handler);
+  return () => {
+    host.removeListener('SIGINT', handler);
+    host.removeListener('SIGTERM', handler);
+  };
+}
+
+/**
+ * Launch inside the guard: a launch that fails still stops the server, and a body that throws still closes
+ * the browser, then stops the server. (The browser used to launch BEFORE the `try`, so a failed launch
+ * leaked vite's process group.)
+ */
+export async function guarded<B extends { close(): Promise<void> }, T>(
+  launch: () => Promise<B>,
+  stop: () => void,
+  body: (browser: B) => Promise<T>
+): Promise<T> {
+  let browser: B | undefined;
+  try {
+    browser = await launch();
+    return await body(browser);
+  } finally {
+    try {
+      await browser?.close();
+    } finally {
+      stop();
+    }
+  }
+}
+
+/** A run's output directory: `<root>/<label>`, refused if it already holds anything, so frames of two runs never mix. */
+export function freshRunDir(root: string, label: string): string {
+  const dir = path.join(root, label);
+  if (fs.existsSync(dir) && fs.readdirSync(dir).length > 0) {
+    throw new Error(`${dir} is not empty: every run writes to a fresh directory, so pick another --label (or --out)`);
+  }
+  return dir;
+}
+
+/** The sheet's verdict word for a check row: a report-only row reads INFO and is never counted as a pass. */
+export function checkLabel(k: { ok: boolean; info?: boolean }): 'INFO' | 'PASS' | 'FAIL' {
+  return k.info === true ? 'INFO' : k.ok ? 'PASS' : 'FAIL';
+}
+
 /** A single-sentence summary of a check for the sheet. */
 export interface CheckRow {
   readonly id: string;
   readonly subject: string;
   readonly ok: boolean;
   readonly detail: string;
+  /** Report-only: printed as INFO, never counted as a pass. */
+  readonly info?: boolean;
 }
 
 export interface ToggleRow {
@@ -239,6 +356,8 @@ export interface ToggleRow {
   readonly reading: Reading;
   /** The repaint control's own movement: a scene that never holds still contaminates a floor. */
   readonly drift: Reading;
+  /** What the hide call resolved (`setDebugLayerVisible`'s return): 0 means nothing was hidden. */
+  readonly hidden: number;
   readonly verdict: Verdict | null;
   readonly note: string;
 }
@@ -299,7 +418,10 @@ export const PAGE_API = `(() => {
   const L = window.__lions, r = L.renderer, sim = L.sim;
   const FRAMES = ${JSON.stringify(TICK_FRAMES)}, FIXED = 65536;
   const KEEP = { beam: 1, fire: 1, destroyed: 1, smokeLaid: 1, impact: 1 };
-  const api = { alpha: 1 };
+  const api = { alpha: 1, lost: false };
+  // A lost context reads as unlinked programs or, worse, as the last good frame: listen for it.
+  const cv0 = document.querySelector('canvas');
+  if (cv0) cv0.addEventListener('webglcontextlost', () => { api.lost = true; });
   api.clear = () => {
     let n = 0;
     for (let e = 0; e < sim.entityCount; e++) if (sim.state.alive[e] === 1) { sim.removeFromPlay(e); n++; }
@@ -397,7 +519,7 @@ export const PAGE_API = `(() => {
   api.gl = () => {
     const gl = r.renderer.getContext();
     const ext = gl.getExtension('WEBGL_debug_renderer_info');
-    return { renderer: ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER), version: gl.getParameter(gl.VERSION), lost: gl.isContextLost() };
+    return { renderer: ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER), version: gl.getParameter(gl.VERSION), lost: gl.isContextLost() || api.lost };
   };
   return api;
 })()`;
@@ -595,14 +717,14 @@ async function toggle(
     console.log(`  ${key}: repaint ${attempt} moved ${drift.diffPixels} px / ${drift.meanAbsChannelDelta.toFixed(4)}; waiting for a still scene`);
     fs.copyFileSync(control, shown);
   }
-  await layer(ctx.page, spec.layer, false);
+  const hiddenObjects = await layer(ctx.page, spec.layer, false);
   await ctx.page.screenshot({ path: hidden, clip: clipArg });
   await layer(ctx.page, spec.layer, true);
   const d = ctx.computeDiff(shown, hidden, { outDir: dir, diffFileName: `${tag}-diff.png` });
   const reading: Reading = { diffPixels: d.diffPixels, meanAbsChannelDelta: d.meanAbsChannelDelta };
   let verdict: Verdict | null = null;
   let note = '';
-  if (!ctx.calibrate || spec.kind === 'zero') verdict = checkVerdict(key, reading);
+  if (!ctx.calibrate || spec.kind !== 'floor') verdict = checkVerdict(key, reading, E6_FLOORS, hiddenObjects);
   // A drift that would clear this key's floor by itself is not a measurement of the layer.
   if (spec.kind === 'floor' && verdict !== null && verdict.ok && (drift.diffPixels > 0 || drift.meanAbsChannelDelta > 0)) {
     const fl = E6_FLOORS[key];
@@ -611,7 +733,7 @@ async function toggle(
       note = 'contaminated by drift';
     }
   }
-  const row: ToggleRow = { key, subject, layer: spec.layer, rung: spec.rung, zoom, reading, drift, verdict, note };
+  const row: ToggleRow = { key, subject, layer: spec.layer, rung: spec.rung, zoom, reading, drift, hidden: hiddenObjects, verdict, note };
   ctx.toggles.push(row);
   console.log(
     `  toggle ${key.padEnd(18)} ${String(reading.diffPixels).padStart(7)} px / ${reading.meanAbsChannelDelta.toFixed(4)}` +
@@ -1006,6 +1128,7 @@ async function runRoot(ctx: Ctx, s: E6Subject): Promise<void> {
     id: `root.${s.bearingName}`,
     subject: 'root',
     ok: true,
+    info: true,
     detail:
       `INFORMATION (judged by eye on the stills): the 96 px square at the projected muzzle (${o.x.toFixed(0)}, ${o.y.toFixed(0)}) reads beam A/B ` +
       `${d.diffPixels} px / ${d.meanAbsChannelDelta.toFixed(4)}; lensGlowAlpha ${bd.lensGlowAlpha.toFixed(2)}, origin y ${bd.origin[1].toFixed(3)}`,
@@ -1133,15 +1256,23 @@ async function runScale(ctx: Ctx, s: E6Subject): Promise<void> {
 
 async function main(): Promise<void> {
   const { chromium } = await import('playwright');
-  const { ensureDevServer, stopDevServer, readUnmaskedRenderer } = await import('../golden-diff/browser');
+  const { ensureDevServer, devServerStopper, readUnmaskedRenderer } = await import('../golden-diff/browser');
   const { FREEZE_FRAME_LOOP_SCRIPT } = await import('../golden-diff/capture-protocol');
   const { computeDiff } = await import('../golden-diff/diff');
 
   const label = arg('label', 'run');
+  // Resolved and refused BEFORE `claimPort`, which prints its claim as it goes.
+  const wantedPort = resolvePort(process.argv, process.env, 'E6_CAPTURE_PORT', PORT).port;
+  const refused = portRefusal(wantedPort);
+  if (refused !== null) throw new Error(refused);
   const port = await claimPort('e6-captures', 'E6_CAPTURE_PORT', PORT);
-  if (port === 5173 || port === 5177) throw new Error(`refusing port ${port}: it is somebody else's server`);
-  const out = path.resolve(REPO_ROOT, arg('out', path.join('.superpowers', 'art-captures', 'e6', label)));
-  const shots = path.resolve(REPO_ROOT, arg('shots', path.join(out, 'hero')));
+  const backend = resolveGpuBackend(process.argv, process.platform);
+  // `--out` is the PARENT: each run writes to a fresh `<out>/<label>` (refused when it holds anything),
+  // so the frames of two runs never mix in one directory.
+  const outRoot = path.resolve(REPO_ROOT, arg('out', path.join('.superpowers', 'art-captures', 'e6')));
+  const out = freshRunDir(outRoot, label);
+  const shotsArg = arg('shots', '');
+  const shots = shotsArg === '' ? path.join(out, 'hero') : (() => { const d = path.resolve(REPO_ROOT, shotsArg); return freshRunDir(path.dirname(d), path.basename(d)); })();
   const togglesOnly = has('toggles-only');
   const calibrate = has('calibrate');
   const onlyIds = arg('only', '').split(',').map((v) => v.trim()).filter((v) => v.length > 0);
@@ -1158,7 +1289,8 @@ async function main(): Promise<void> {
     process.exitCode = 2;
     return;
   }
-  const browser = await chromium.launch({ headless: true, args: gpuLaunchArgs(resolveGpuBackend(process.argv, process.platform)) });
+  const stopServer = devServerStopper(server, 'e6-captures');
+  const removeSignals = installSignalStop(stopServer, process as unknown as SignalHost, (code) => process.exit(code));
   const notes: string[] = [`machine at start: ${load()}`];
   const ctx: Ctx = {
     page: undefined as unknown as Page,
@@ -1175,96 +1307,92 @@ async function main(): Promise<void> {
     skipped: [],
     heroes: [],
   };
-  let gl: string;
-  let programs: unknown;
-  let glPage: unknown;
+  let gl = '';
+  let programs: unknown = null;
+  let glPage: unknown = null;
+  let glEnd: unknown = null;
   try {
+    await guarded(() => chromium.launch({ headless: true, args: gpuLaunchArgs(backend) }), stopServer, async (browser) => {
     gl = await readUnmaskedRenderer(browser);
-    console.log(`GPU renderer: ${gl}`);
-    const page = await browser.newPage({ viewport: { ...SETTLE_VIEWPORT }, deviceScaleFactor: 1 });
-    ctx.page = page;
-    await page.addInitScript(musicOffInitScript());
-    page.setDefaultTimeout(STEP_TIMEOUT_MS);
-    page.on('console', (m) => {
-      const text = m.text();
-      const cls = classifyConsole(m.type(), text);
-      if (cls === 'fatal') {
-        consoleFatal.push(`[${m.type()}] ${text.slice(0, 600)}`);
-        console.error(`  CONSOLE ${m.type()}: ${text.slice(0, 300)}`);
-      } else if (cls === 'note') consoleNotes.push(`[${m.type()}] ${text.slice(0, 300)}`);
-    });
-    page.on('pageerror', (err) => {
-      consoleFatal.push(`[pageerror] ${err.message.slice(0, 600)}`);
-      console.error('  PAGE ERROR:', err.message);
-    });
-    await page.goto(`http://localhost:${port}/?sandbox=${MAP}&renderer=three`, { waitUntil: 'load' });
-    await page.waitForFunction(() => typeof (window as unknown as { __lions?: unknown }).__lions !== 'undefined');
-    await page.evaluate(() => document.fonts.ready);
-    const settle = parseSettleResult(await page.evaluate(settleScript(settleMs)));
-    const settleNote = settleLine(MAP, settle);
-    console.log(`  ${settleNote}`);
-    notes.push(settleNote);
-    // Every subject here is hand-ticked and never goes through `step(1)`, so an unsteady settle only
-    // matters to the mesh wait; `unsteadySettleRefusal` is still asked, with `handTick` true.
-    const refusal = unsteadySettleRefusal(MAP, settle, [{ id: 'e6', handTick: true }]);
-    if (refusal !== null) notes.push(refusal);
-    await page.evaluate(FREEZE_FRAME_LOOP_SCRIPT);
-    await page.setViewportSize({ ...VIEWPORT });
-    await page.waitForFunction(
-      ([w, h]) => {
-        const c = document.querySelector('canvas');
-        return c !== null && c.clientWidth === w && c.clientHeight === h;
-      },
-      [VIEWPORT.width, VIEWPORT.height] as const
-    );
-    await page.evaluate(`window.__e6 = ${PAGE_API}`);
-    await page.evaluate(() => (window as unknown as { __lions: { renderer: { frame(a: number, d: number): void } } }).__lions.renderer.frame(1, 0));
-    glPage = await ev(page, 'window.__e6.gl()');
-    console.log(`  context: ${JSON.stringify(glPage)}`);
+      console.log(`GPU renderer: ${gl}`);
+      const page = await browser.newPage({ viewport: { ...SETTLE_VIEWPORT }, deviceScaleFactor: 1 });
+      ctx.page = page;
+      await page.addInitScript(musicOffInitScript());
+      page.setDefaultTimeout(STEP_TIMEOUT_MS);
+      page.on('console', (m) => {
+        const text = m.text();
+        const cls = classifyConsole(m.type(), text);
+        if (cls === 'fatal') {
+          consoleFatal.push(`[${m.type()}] ${text.slice(0, 600)}`);
+          console.error(`  CONSOLE ${m.type()}: ${text.slice(0, 300)}`);
+        } else if (cls === 'note') consoleNotes.push(`[${m.type()}] ${text.slice(0, 300)}`);
+      });
+      page.on('pageerror', (err) => {
+        consoleFatal.push(`[pageerror] ${err.message.slice(0, 600)}`);
+        console.error('  PAGE ERROR:', err.message);
+      });
+      await page.goto(`http://localhost:${port}/?sandbox=${MAP}&renderer=three`, { waitUntil: 'load' });
+      await page.waitForFunction(() => typeof (window as unknown as { __lions?: unknown }).__lions !== 'undefined');
+      await page.evaluate(() => document.fonts.ready);
+      const settle = parseSettleResult(await page.evaluate(settleScript(settleMs)));
+      const settleNote = settleLine(MAP, settle);
+      console.log(`  ${settleNote}`);
+      notes.push(settleNote);
+        await page.evaluate(FREEZE_FRAME_LOOP_SCRIPT);
+      await page.setViewportSize({ ...VIEWPORT });
+      await page.waitForFunction(
+        ([w, h]) => {
+          const c = document.querySelector('canvas');
+          return c !== null && c.clientWidth === w && c.clientHeight === h;
+        },
+        [VIEWPORT.width, VIEWPORT.height] as const
+      );
+      await page.evaluate(`window.__e6 = ${PAGE_API}`);
+      await page.evaluate(() => (window as unknown as { __lions: { renderer: { frame(a: number, d: number): void } } }).__lions.renderer.frame(1, 0));
+      glPage = await ev(page, 'window.__e6.gl()');
+      console.log(`  context: ${JSON.stringify(glPage)}`);
 
-    const types = ['aa_remetz', 'drone_swarm', 'apc_eitan', 'dozer_d9'];
-    await clearField(page);
-    await waitForMeshes(ctx, types);
+      const types = ['aa_remetz', 'drone_swarm', 'apc_eitan', 'dozer_d9'];
+      await clearField(page);
+      await waitForMeshes(ctx, types);
 
-    for (const s of wanted) {
-      console.log(`\n=== ${s.id} (${s.covers.join(' ') || 'look'}): ${s.why.slice(0, 110)}`);
-      try {
-        if (s.mode === 'hover') await runHover(ctx, s);
-        else if (s.mode === 'beam_sequence') await runBeamSequence(ctx, s);
-        else if (s.mode === 'root') await runRoot(ctx, s);
-        else if (s.mode === 'smoke') await runSmoke(ctx, s);
-        else if (s.mode === 'dive') await runDive(ctx, s);
-        else await runScale(ctx, s);
-      } catch (err) {
-        const message = err instanceof Error ? err.stack ?? err.message : String(err);
-        console.error(`  ${s.id} threw: ${message}`);
-        notes.push(`${s.id}: THREW ${message.split('\n')[0]}`);
-        ctx.skipped.push(s.id);
+      for (const s of wanted) {
+        console.log(`\n=== ${s.id} (${s.covers.join(' ') || 'look'}): ${s.why.slice(0, 110)}`);
+        try {
+          if (s.mode === 'hover') await runHover(ctx, s);
+          else if (s.mode === 'beam_sequence') await runBeamSequence(ctx, s);
+          else if (s.mode === 'root') await runRoot(ctx, s);
+          else if (s.mode === 'smoke') await runSmoke(ctx, s);
+          else if (s.mode === 'dive') await runDive(ctx, s);
+          else await runScale(ctx, s);
+        } catch (err) {
+          const message = err instanceof Error ? err.stack ?? err.message : String(err);
+          console.error(`  ${s.id} threw: ${message}`);
+          notes.push(`${s.id}: THREW ${message.split('\n')[0]}`);
+          ctx.skipped.push(s.id);
+        }
       }
-    }
-    // The shaders: ask the GL context itself, after everything has drawn at least once.
-    programs = await ev(page, 'window.__e6.programs()');
-    console.log(`  programs: ${JSON.stringify(programs)}`);
-    await page.close();
+      // The shaders: ask the GL context itself, after everything has drawn at least once.
+      programs = await ev(page, 'window.__e6.programs()');
+      console.log(`  programs: ${JSON.stringify(programs)}`);
+      glEnd = await ev(page, 'window.__e6.gl()');
+      await page.close();
+    });
   } finally {
-    await browser.close();
-    stopDevServer(server, 'e6-captures');
+    removeSignals();
   }
   notes.push(`machine at end: ${load()}`);
 
   // --- judgement -------------------------------------------------------------
   const failures: string[] = [];
   for (const m of consoleFatal) failures.push(`console: ${m}`);
-  const pr = programs as { named: Record<string, { present: boolean; compiled?: boolean; linked?: boolean; log?: string }>; all: { count: number; failed: string[] } } | null;
+  const pr = programs as ProgramReport | null;
   const full = onlyIds.length === 0;
-  if (pr === null) failures.push('the shader link check never ran');
-  else {
-    for (const f of pr.all.failed) failures.push(`program failed to link: ${f}`);
-    for (const [k, v] of Object.entries(pr.named)) {
-      if (v.compiled === true && v.linked !== true) failures.push(`${k}: program did not link: ${v.log ?? ''}`);
-      if (full && (v.present !== true || v.compiled !== true)) failures.push(`${k}: no program was ever compiled for it in a full run`);
-    }
-  }
+  const endState = glEnd as { lost?: boolean } | null;
+  if (endState === null) failures.push('the WebGL context state was never read at the end of the run');
+  for (const f of shaderVerdict(pr, { full, contextLost: endState?.lost !== false })) failures.push(f);
+  const backendCheck = backendVerdict(backend, gl);
+  if (backendCheck.failure !== null) failures.push(backendCheck.failure);
   for (const c of ctx.checks) if (!c.ok) failures.push(`check ${c.id}: ${c.detail}`);
   for (const t of ctx.toggles) if (t.verdict !== null && !t.verdict.ok) failures.push(`toggle ${t.key}: ${t.verdict.reasons.join('; ')}`);
   for (const s of ctx.skipped) failures.push(`subject ${s} could not be driven to its event`);
@@ -1272,7 +1400,7 @@ async function main(): Promise<void> {
     for (const key of E6_KEY_LIST) if (!ctx.toggles.some((t) => t.key === key)) failures.push(`key ${key} was never read`);
   }
 
-  writeSheet(ctx, label, { gl, glPage, port, togglesOnly, calibrate, programs: pr, consoleFatal, consoleNotes, failures, wanted });
+  writeSheet(ctx, label, { gl, glPage, backend, backendStamp: backendCheck.stamp, port, togglesOnly, calibrate, programs: pr, consoleFatal, consoleNotes, failures, wanted });
   if (calibrate) {
     console.log('\nCALIBRATION readings (paste into E6_RUNS):');
     for (const t of ctx.toggles) console.log(`  ${JSON.stringify(t.key)}: { diffPixels: ${t.reading.diffPixels}, meanAbsChannelDelta: ${round4(t.reading.meanAbsChannelDelta)} },`);
@@ -1291,6 +1419,8 @@ function writeSheet(
   c: {
     gl: string;
     glPage: unknown;
+    backend: GpuBackend;
+    backendStamp: string | null;
     port: number;
     togglesOnly: boolean;
     calibrate: boolean;
@@ -1319,7 +1449,8 @@ function writeSheet(
     fs.writeFileSync(path.join(ctx.out, 'flip-swarm-thinning-10s.html'), e6FlipHtml(`${label} / the swarm thinning, first 10 s`, ten));
     flips.push('flip-swarm-thinning-10s.html');
   }
-  const verdictText = (t: ToggleRow): string => (t.verdict === null ? 'calibrating' : t.verdict.ok ? 'PASS' : 'FAIL');
+  const verdictText = (t: ToggleRow): string =>
+    E6_KEYS[t.key as FloorKey].kind === 'info' ? 'INFO (report-only)' : t.verdict === null ? 'calibrating' : t.verdict.ok ? 'PASS' : 'FAIL';
   const md = [
     `# E6 capture sheet -- ${label}`,
     ``,
@@ -1328,7 +1459,8 @@ function writeSheet(
     `## Capture conditions`,
     ``,
     `- machine: ${machine}`,
-    `- GPU renderer: ${mdSafe(c.gl)}`,
+    `- GPU renderer: ${mdSafe(c.gl)} (backend ${c.backend})`,
+    ...(c.backendStamp === null ? [] : [`- **${c.backendStamp}**`]),
     `- GL context: \`${mdSafe(JSON.stringify(c.glPage))}\``,
     `- viewport ${VIEWPORT.width}x${VIEWPORT.height}, deviceScaleFactor 1, headless chromium, dev server on :${c.port}`,
     `- map: \`${MAP}\` sandbox, \`&renderer=three\`, music off, frame loop frozen; lockstep ${TICK_MS} ms ticks pumped as ${TICK_FRAMES.join(' + ')} ms frames with alpha rising across them as the app loop's does (a photograph is a tick's last frame, alpha 1; the S4 pulse frame is alpha 0, the app's first frame after the tick)`,
@@ -1354,25 +1486,25 @@ function writeSheet(
     ``,
     `| id | subject | verdict | detail |`,
     `|---|---|---|---|`,
-    ...ctx.checks.map((k) => `| ${k.id} | ${k.subject} | ${k.ok ? 'PASS' : 'FAIL'} | ${mdSafe(k.detail)} |`),
+    ...ctx.checks.map((k) => `| ${k.id} | ${k.subject} | ${checkLabel(k)} | ${mdSafe(k.detail)} |`),
     ``,
     `## Toggle A/B (R-M)`,
     ``,
     `A zero FAILS a floor key. A \`zero\` key must read exactly 0 px / 0.0000 and is paired with a floor key read in the same run.`,
     ``,
-    `| key | subject | layer | rung | zoom | diff px | mean abs channel delta | repaint drift | verdict |`,
-    `|---|---|---|---|---|---|---|---|---|`,
+    `| key | subject | layer | rung | zoom | diff px | mean abs channel delta | repaint drift | objects hidden | verdict |`,
+    `|---|---|---|---|---|---|---|---|---|---|`,
     ...ctx.toggles.map(
       (t) =>
         `| \`${t.key}\` | ${t.subject} | \`${t.layer}\` | ${mdSafe(t.rung)} | ${t.zoom} | ${t.reading.diffPixels} | ${t.reading.meanAbsChannelDelta.toFixed(4)} | ` +
-        `${t.drift.diffPixels} px / ${t.drift.meanAbsChannelDelta.toFixed(4)} | ${verdictText(t)}${t.verdict && !t.verdict.ok ? ': ' + mdSafe(t.verdict.reasons.join('; ')) : ''} |`
+        `${t.drift.diffPixels} px / ${t.drift.meanAbsChannelDelta.toFixed(4)} | ${t.hidden} | ${verdictText(t)}${t.verdict && !t.verdict.ok ? ': ' + mdSafe(t.verdict.reasons.join('; ')) : ''} |`
     ),
     ``,
     `Floors in force:`,
     ``,
     ...(Object.keys(E6_FLOORS).length === 0 ? ['(none: uncalibrated)'] : (Object.entries(E6_FLOORS) as [FloorKey, NonNullable<(typeof E6_FLOORS)[FloorKey]>][]).map(([k, f]) => floorLine(k, f))),
     ``,
-    `Zero keys: ${E6_KEY_LIST.filter((k) => E6_KEYS[k].kind === 'zero').map((k) => `\`${k}\``).join(', ')}.`,
+    `Zero keys: ${E6_KEY_LIST.filter((k) => E6_KEYS[k].kind === 'zero').map((k) => `\`${k}\``).join(', ')}. Report-only keys: ${E6_KEY_LIST.filter((k) => E6_KEYS[k].kind === 'info').map((k) => `\`${k}\``).join(', ')}.`,
     ``,
     `## Falsifications run against these floors`,
     ``,

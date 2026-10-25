@@ -16,7 +16,7 @@
  * must FAIL a floor check (`debug-layers.ts`'s argument), because a layer that resolves to no objects
  * produces a zero delta and a check that passed on zero would read a deleted layer as healthy.
  *
- * ## The two kinds of key
+ * ## The kinds of key
  *
  * - `floor`: the toggle must MOVE the frame (a layer that is drawing something).
  * - `zero`: the toggle must move it by EXACTLY 0 px / 0.0000 (a negative control: the beam must not
@@ -30,7 +30,11 @@ export interface Reading {
   readonly meanAbsChannelDelta: number;
 }
 
-export type FloorKind = 'floor' | 'zero';
+/**
+ * `floor` and `zero` vote. `info` is read, printed and NEVER judged: for a reading its own falsification
+ * proved cannot go red (`S8/missiles@50ms`), so that a green row is not mistaken for a witness.
+ */
+export type FloorKind = 'floor' | 'zero' | 'info';
 
 export interface FloorSpec {
   readonly kind: FloorKind;
@@ -60,9 +64,12 @@ export const E6_KEYS = {
     kind: 'floor', subject: 'S3', layer: 'beam-shimmer', rung: 'mid-dwell (dwell 22 of 30)',
     why: 'the heat shimmer is spliced into the fog pass; hiding it must move the frame',
   },
+  // The A/B hides the WHOLE swarm layer, the cloud included, so it says only that the layer has something
+  // to hide at this rung (1342-1524 px, against 3361-3433 for the cloud alone at S1). The claim that a
+  // member is in the air is `S4.tumbling` (falls >= 1 read off the batch) and `S4.coincide`.
   'S4/swarm': {
     kind: 'floor', subject: 'S4', layer: 'swarm', rung: '200 ms after the first struck',
-    why: 'the swarm layer includes the tumbling member in flight',
+    why: 'the swarm layer has something to hide; S4.tumbling carries the exit claim (a member in the air)',
   },
   'S4/beam': {
     kind: 'floor', subject: 'S4', layer: 'beam', rung: 'the first struck, the frame it lands (pulse 1)',
@@ -97,14 +104,14 @@ export const E6_KEYS = {
     kind: 'floor', subject: 'S8', layer: 'swarm', rung: 'a dive in flight onto a parked apc_eitan',
     why: 'the diver is drawn (and the cloud it left)',
   },
-  // The spec's own reading. It is NOT, at this staging, a witness for a dive routed through `missile`: the
-  // round is a few pixels, flies 1.2 tiles beside the Eitan, and the falsification read 0 px / 0.0000 on it
-  // (at +50, +100 and +150 ms) with a round live in `missileFx`. It stays because the spec asks for it and
-  // it costs nothing; the witnesses are `S8.diving` (a diver in the air, no round in `missileFx`) and the
+  // The spec's own reading, kept REPORT-ONLY. It is not, at this staging, a witness for a dive routed through
+  // `missile`: the round is a few pixels, flies 1.2 tiles beside the Eitan, and the falsification read
+  // 0 px / 0.0000 on it (at +50, +100 and +150 ms) with a round live in `missileFx`. A key that cannot go
+  // red does not vote; the witnesses are `S8.diving` (a diver in the air, no round in `missileFx`) and the
   // bloom key below.
   'S8/missiles@50ms': {
-    kind: 'zero', subject: 'S8', layer: 'missiles', rung: 'a dive in flight, +50 ms', controlOf: 'S8/swarm',
-    why: 'the dive profile draws no missile body or trail',
+    kind: 'info', subject: 'S8', layer: 'missiles', rung: 'a dive in flight, +50 ms',
+    why: 'REPORT-ONLY: its own falsification read 0 px / 0.0000 on it, so a green row would witness nothing',
   },
   // What a routed shot DOES throw is the `fire_heat` muzzle flash and its bloom, which a dive never throws
   // before it lands: the falsification read 9860 px / 4.4517 here against exactly 0 on the real build.
@@ -118,55 +125,70 @@ export type FloorKey = keyof typeof E6_KEYS;
 
 export const E6_KEY_LIST = Object.keys(E6_KEYS) as FloorKey[];
 
+/** One measured run: the reading and the conditions it was taken under. */
+export interface Run extends Reading {
+  /** Which run of the calibration this is. */
+  readonly label: string;
+  readonly mode: 'full' | '--toggles-only';
+  /** The machine's load averages (1/5/15 min) at the start of that run: other sessions share the machine. */
+  readonly load: string;
+}
+
+const RUN1 = { label: 'run 1', mode: 'full', load: '59.36/20.54/14.23' } as const;
+const RUN2 = { label: 'run 2', mode: '--toggles-only', load: '52.02/25.37/16.43' } as const;
+const RUN3 = { label: 'run 3', mode: '--toggles-only', load: '35.86/23.70/16.08' } as const;
+
 /**
- * The measured runs, per `floor` key, oldest first. EMPTY until calibrated; an uncalibrated `floor`
- * key judges red (`checkVerdict`), so a new key cannot ship without evidence.
+ * The measured runs, per `floor` key, oldest first. An uncalibrated `floor` key judges red
+ * (`checkVerdict`), so a new key cannot ship without evidence. Each entry names its run, mode and load, and
+ * the floor prints how many of the runs were DISTINCT readings (S1, S6 and S8 are deterministic: three runs,
+ * one reading, and the sheet says so rather than letting "3 runs" read as three independent samples).
  *
  * Conditions of every run here are written in `E6_CALIBRATION`.
  */
-export const E6_RUNS: Readonly<Record<string, readonly Reading[]>> = {
+export const E6_RUNS: Readonly<Record<string, readonly Run[]>> = {
   'S1/swarm': [
-    { diffPixels: 3361, meanAbsChannelDelta: 1.3393 },
-    { diffPixels: 3433, meanAbsChannelDelta: 1.357 },
-    { diffPixels: 3433, meanAbsChannelDelta: 1.357 },
+    { ...RUN1, diffPixels: 3361, meanAbsChannelDelta: 1.3393 },
+    { ...RUN2, diffPixels: 3433, meanAbsChannelDelta: 1.357 },
+    { ...RUN3, diffPixels: 3433, meanAbsChannelDelta: 1.357 },
   ],
   'S3/beam': [
-    { diffPixels: 14414, meanAbsChannelDelta: 7.1598 },
-    { diffPixels: 14318, meanAbsChannelDelta: 7.1203 },
-    { diffPixels: 14318, meanAbsChannelDelta: 7.1203 },
+    { ...RUN1, diffPixels: 14414, meanAbsChannelDelta: 7.1598 },
+    { ...RUN2, diffPixels: 14318, meanAbsChannelDelta: 7.1203 },
+    { ...RUN3, diffPixels: 14318, meanAbsChannelDelta: 7.1203 },
   ],
   // Sub-threshold in pixels (23-25 of a 240,000 px crop), so the magnitude is the check, the `relief`
   // precedent. It is the faintest toggle in the set: the shimmer is a few-pixel distortion at the
   // target, and a third of 0.0141 is 0.0047. The falsification (the shimmer not fed) reads 0 / 0.0000.
   'S3/beam-shimmer': [
-    { diffPixels: 23, meanAbsChannelDelta: 0.0156 },
-    { diffPixels: 25, meanAbsChannelDelta: 0.0141 },
-    { diffPixels: 25, meanAbsChannelDelta: 0.0141 },
+    { ...RUN1, diffPixels: 23, meanAbsChannelDelta: 0.0156 },
+    { ...RUN2, diffPixels: 25, meanAbsChannelDelta: 0.0141 },
+    { ...RUN3, diffPixels: 25, meanAbsChannelDelta: 0.0141 },
   ],
   'S4/swarm': [
-    { diffPixels: 1524, meanAbsChannelDelta: 0.7023 },
-    { diffPixels: 1446, meanAbsChannelDelta: 0.6183 },
-    { diffPixels: 1342, meanAbsChannelDelta: 0.5779 },
+    { ...RUN1, diffPixels: 1524, meanAbsChannelDelta: 0.7023 },
+    { ...RUN2, diffPixels: 1446, meanAbsChannelDelta: 0.6183 },
+    { ...RUN3, diffPixels: 1342, meanAbsChannelDelta: 0.5779 },
   ],
   'S4/beam': [
-    { diffPixels: 23478, meanAbsChannelDelta: 11.3188 },
-    { diffPixels: 23860, meanAbsChannelDelta: 11.4515 },
-    { diffPixels: 23993, meanAbsChannelDelta: 11.4873 },
+    { ...RUN1, diffPixels: 23478, meanAbsChannelDelta: 11.3188 },
+    { ...RUN2, diffPixels: 23860, meanAbsChannelDelta: 11.4515 },
+    { ...RUN3, diffPixels: 23993, meanAbsChannelDelta: 11.4873 },
   ],
   'S6/beam-lit': [
-    { diffPixels: 13561, meanAbsChannelDelta: 7.1671 },
-    { diffPixels: 13561, meanAbsChannelDelta: 7.1671 },
-    { diffPixels: 13561, meanAbsChannelDelta: 7.1671 },
+    { ...RUN1, diffPixels: 13561, meanAbsChannelDelta: 7.1671 },
+    { ...RUN2, diffPixels: 13561, meanAbsChannelDelta: 7.1671 },
+    { ...RUN3, diffPixels: 13561, meanAbsChannelDelta: 7.1671 },
   ],
   'S7/swarm-wrecks': [
-    { diffPixels: 231, meanAbsChannelDelta: 0.1055 },
-    { diffPixels: 226, meanAbsChannelDelta: 0.0974 },
-    { diffPixels: 227, meanAbsChannelDelta: 0.0976 },
+    { ...RUN1, diffPixels: 231, meanAbsChannelDelta: 0.1055 },
+    { ...RUN2, diffPixels: 226, meanAbsChannelDelta: 0.0974 },
+    { ...RUN3, diffPixels: 227, meanAbsChannelDelta: 0.0976 },
   ],
   'S8/swarm': [
-    { diffPixels: 2565, meanAbsChannelDelta: 1.0228 },
-    { diffPixels: 2565, meanAbsChannelDelta: 1.0228 },
-    { diffPixels: 2565, meanAbsChannelDelta: 1.0228 },
+    { ...RUN1, diffPixels: 2565, meanAbsChannelDelta: 1.0228 },
+    { ...RUN2, diffPixels: 2565, meanAbsChannelDelta: 1.0228 },
+    { ...RUN3, diffPixels: 2565, meanAbsChannelDelta: 1.0228 },
   ],
 };
 
@@ -183,7 +205,13 @@ export interface Floor {
   readonly minDiffPixels: number;
   readonly minMeanAbsChannelDelta: number;
   /** The smallest of the runs, per metric, and how many runs there were. */
-  readonly basis: { readonly minDiffPixels: number; readonly minMeanAbsChannelDelta: number; readonly runs: number };
+  readonly basis: {
+    readonly minDiffPixels: number;
+    readonly minMeanAbsChannelDelta: number;
+    readonly runs: number;
+    /** How many of those runs read a DIFFERENT (pixels, delta) pair: a deterministic subject is 3 runs, 1 distinct. */
+    readonly distinct: number;
+  };
 }
 
 /** A third of the smallest, per metric, rounded DOWN (pixels to a whole number, delta to 4 places). */
@@ -194,7 +222,12 @@ export function deriveFloor(runs: readonly Reading[]): Floor {
   return {
     minDiffPixels: Math.floor(minPx / 3),
     minMeanAbsChannelDelta: Math.floor((minDelta / 3) * 10_000) / 10_000,
-    basis: { minDiffPixels: minPx, minMeanAbsChannelDelta: minDelta, runs: runs.length },
+    basis: {
+      minDiffPixels: minPx,
+      minMeanAbsChannelDelta: minDelta,
+      runs: runs.length,
+      distinct: new Set(runs.map((r) => `${r.diffPixels}/${r.meanAbsChannelDelta}`)).size,
+    },
   };
 }
 
@@ -227,12 +260,19 @@ export interface Verdict {
 export function checkVerdict(
   key: string,
   reading: Reading,
-  floors: Partial<Record<FloorKey, Floor>> = E6_FLOORS
+  floors: Partial<Record<FloorKey, Floor>> = E6_FLOORS,
+  /** What the hide call resolved (`setDebugLayerVisible`'s return). A `zero` key whose hide resolved 0 objects hid nothing. */
+  hiddenObjects?: number
 ): Verdict {
   const spec = (E6_KEYS as Record<string, FloorSpec>)[key];
   if (spec === undefined) return { ok: false, key, reasons: [`no key "${key}" (have: ${E6_KEY_LIST.join(', ')})`] };
   const reasons: string[] = [];
+  // Report-only: recorded, printed, never judged.
+  if (spec.kind === 'info') return { ok: true, key, reasons };
   if (spec.kind === 'zero') {
+    if (hiddenObjects !== undefined && hiddenObjects <= 0) {
+      reasons.push(`the hide call resolved ${hiddenObjects} objects: nothing was hidden, so a zero here is not a measurement`);
+    }
     if (reading.diffPixels !== 0) reasons.push(`diffPixels ${reading.diffPixels} != 0`);
     if (reading.meanAbsChannelDelta !== 0) reasons.push(`meanAbsChannelDelta ${reading.meanAbsChannelDelta.toFixed(4)} != 0`);
     return { ok: reasons.length === 0, key, reasons };
@@ -251,7 +291,7 @@ export function floorLine(key: FloorKey, f: Floor): string {
   const px = f.minDiffPixels === 0 ? 'pixel count does not gate this key -- the tone column votes' : `${f.minDiffPixels} px`;
   return (
     `- \`${key}\` (${E6_KEYS[key].rung}): ${px} / ${f.minMeanAbsChannelDelta} ` +
-    `(a third of ${f.basis.minDiffPixels} px / ${f.basis.minMeanAbsChannelDelta} over ${f.basis.runs} runs)`
+    `(a third of ${f.basis.minDiffPixels} px / ${f.basis.minMeanAbsChannelDelta} over ${f.basis.runs} runs, ${f.basis.distinct} distinct)`
   );
 }
 
