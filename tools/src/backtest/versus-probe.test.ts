@@ -33,7 +33,12 @@ import {
 // parallel runs, not reproduced single-file (3.30 s at most).
 // The margin is for contention only: needing it on a quiet machine would be
 // a regression. (`selfCheck` on every open map, below, keeps its own 60 s.)
-const FULL_GAMES_TIMEOUT_MS = 30_000;
+// Measured (26 Oct, load average 4-10): the slowest 30 s test here ("main exits 2 when the tunnel
+// orders never reach the sim") takes 4.5-4.8 s alone and 4.5 s inside the file; the rest take 0.6-3.5 s.
+// Under a heavily loaded machine (inside a full `pnpm test`, load ~100) that same test took 36.6 s, past
+// the old 30 s limit: a ~7.8x slowdown. 90 s is ~2.5x that observed worst case. A hung game still fails,
+// only later. No assertion depends on it.
+const FULL_GAMES_TIMEOUT_MS = 90_000;
 
 const game = (winner: 0 | 1 | null, by: Played['by'] = 'annihilation', ticks = 1200): Played => ({ winner, by, ticks });
 

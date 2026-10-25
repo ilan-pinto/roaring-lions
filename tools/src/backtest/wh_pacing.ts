@@ -1,4 +1,14 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- reads mission/map JSON by shape, on purpose */
+// !!! STALE OPTIMAL RUNG (checked 26 Oct 2026). The `optimal` plans in OPTIMAL below are COPIES of the
+// !!! ones in tools/src/backtest/playtest.ts, which is the SOURCE OF TRUTH, and they have drifted: the
+// !!! copy of I predates GH-421's 140 s screen order, and at seed 424242 the "xcheck" lines no longer
+// !!! match `pnpm playtest` (I: 5.1 min, credits 150 here against 4.4 min, 180 there; IV: DEFEAT here
+// !!! against VICTORY in 4.7 min there). Treat the optimal rung and the xcheck lines as unreliable until
+// !!! the copies are re-synced. The passive, naive and sensible rungs do not use them. This is a
+// !!! report-only tool (nothing imports it; road_mask_sites.test.ts only checks that it builds its
+// !!! runtime from roadMaskOf), so nothing gates on the drift. It was left as a copy, not imported,
+// !!! because playtest.ts runs its whole gate at import and holds these plans as inline closures:
+// !!! lifting them out means editing the very block GH-828 is rewriting for Wadi Halam I.
 // Wadi Halam pacing ladder (GH-90, GH-93): passive / naive / sensible / optimal over many seeds,
 // with a DEAD-AIR instrument beside the usual win/loss/Conduct/credits columns.
 //
@@ -90,6 +100,7 @@ const own = (sim: Sim): number[] => {
   return cur;
 };
 
+// STALE COPIES -- see the banner at the top of this file. The source of truth is playtest.ts.
 const OPTIMAL: Record<string, Plan> = {
   wadi_halam_1_fords: (sim, _rt, ids, at) => {
     const drone = ids('recon_drone');
