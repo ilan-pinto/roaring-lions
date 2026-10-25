@@ -418,12 +418,33 @@ const led3 = run(
 // - the old plan: 29/30 and 28/30, mean 2.50 and 2.23, nine one-survivor seeds on 100-129.
 // Holding x=8, 9 or 10 with the same Spike and drone read 56-57 of the 60. The east edge read 58.
 // Most of what is left is the mission's own late waves in the grove.
+//
+// The east-bank crest (GH-161, 25 Oct). `wadi_halam_basin` gained a level-2 crest along x=14, one tile
+// outside the grove. From the bed nothing of the pasture shows over it, so the screen at (11.5,24)
+// first sees a rider at 4 tiles, not 8, and the plan above won 29 of the 30 sweep seeds (seed 9 lost
+// its squads to the pair at 210 s). Two changes, each what a player would do once he knows riders now
+// top the crest at 4 tiles:
+// - The APC takes the lee of the bank, (12,24), alone and two tiles under the crest, from 110 s. It is
+//   the one hull that can take a RPG rider's first shot (1,600 hp, a squad has 400) and the first thing
+//   a rider tops the crest onto. It is left out of the periodic re-anchor, which would walk it back
+//   into the squads.
+// - The squads hold (10.5,24), a tile and a half behind it.
+// Measured with the same script on the sweep's 30 seeds plus 100 that took no part in choosing it
+// (300-399): the plan above on the crest 29/30 and 91/100; this plan 30/30 and 95/100. For scale, the
+// plan above on the FLAT map read 30/30, then 28/30 on 100-129 and 28/30 on 200-229.
+// Tried and dropped (sweep seeds, then the 100 as well where a variant was close): the drone on the crest
+// from 110 s or 150 s (it dies: 24-25 of 30 on 100-129); the APC on the crest or one tile behind it
+// (27-29 of 30); ambush stances on the squads (holding fire against riders that outrange sight, 3-29 of
+// 30); the Spike team forward at x=6, 8 or 10 (28-29 of 30); the squads west of x=10 (26 of 30: riders
+// reach the grove floor first); the APC at (12,22) or (12,26) (27-29 of 30).
 const wh1 = run('wadi_halam_1_fords', (sim, rt, ids, at) => {
   const drone = ids('recon_drone');
   const screen = [...ids('apc_eitan'), ...ids('inf_squad')];
   const spike = ids('at_team');
   const jeep = ids('jeep_shoded');
-  const ANCHOR = M(11.5, 24);
+  const apc = ids('apc_eitan');
+  const ANCHOR = M(10.5, 24);
+  const BANK = M(12, 24);
   const STANDOFF = M(4, 24);
   at(0, () => {
     // North first: the near gallery ambush is 4 tiles off the axis, and
@@ -447,11 +468,14 @@ const wh1 = run('wadi_halam_1_fords', (sim, rt, ids, at) => {
   for (let when = 130; when <= 320; when += 45) {
     at(when, () => {
       const cur: number[] = [];
-      for (let i = 0; i < sim.entityCount; i++) if (sim.state.side[i] === 0 && sim.state.alive[i] === 1 && !spike.includes(i)) cur.push(i);
+      for (let i = 0; i < sim.entityCount; i++) if (sim.state.side[i] === 0 && sim.state.alive[i] === 1 && !spike.includes(i) && !apc.includes(i)) cur.push(i);
       sim.queueCommand({ kind: 'attackMove', ids: cur, ...ANCHOR });
       sim.queueCommand({ kind: 'attackMove', ids: spike.filter((i) => sim.state.alive[i] === 1), ...STANDOFF });
     });
   }
+  // After the loop on purpose: at 110 s this order comes second and overrides the APC's share of the
+  // screen's anchor above.
+  at(110, () => sim.queueCommand({ kind: 'attackMove', ids: apc.filter((i) => sim.state.alive[i] === 1), ...BANK }));
   void rt;
 });
 passiveAcrossSeeds('wadi_halam_1_fords', 'wadi_halam_1_fords (no orders)', 'defeat');
