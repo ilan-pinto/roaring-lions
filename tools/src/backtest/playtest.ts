@@ -3069,6 +3069,9 @@ interface BoughtRun {
   kills: number;
   contacts: number;
   tunnelContacts: number;
+  /** GH-274: charges the unit set (`chargeSet`) and charges of its that went off (`chargeDetonated`). */
+  chargesSet: number;
+  chargesBlown: number;
 }
 
 function boughtProbe(
@@ -3077,11 +3080,17 @@ function boughtProbe(
   ledger: LedgerData,
   unitId: string,
   orderAtS: number,
-  /** The use this unit must be seen to make: a gunship shoots, a recon unit sees. */
-  use: 'fires' | 'sees',
-  order: (unitIds: number[]) => Parameters<Sim['queueCommand']>[0],
+  /** The use this unit must be seen to make: a gunship shoots, a recon unit sees, a placed-charge
+   *  carrier sets a charge and a building comes down by it. */
+  use: 'fires' | 'sees' | 'sets',
+  /** The unit's first order, given its ids and the live sim (a placed-charge carrier picks its
+   *  building from what still stands); null gives it none. */
+  order: (unitIds: number[], sim: Sim) => Parameters<Sim['queueCommand']>[0] | null,
   /** Orders the unit gets after its first one, given its ids (GH-707 P3: the gunship's focus). */
-  after?: (sim: Sim, at: (t: number, fn: () => void) => void, mine: () => number[]) => void
+  after?: (sim: Sim, at: (t: number, fn: () => void) => void, mine: () => number[]) => void,
+  /** When the purchase is asked for, in seconds. 0 for every unit the mission's starting logistics
+   *  cover; the Tzav (680) waits until the mission's income reaches it. */
+  buildAtS = 0
 ): void {
   const label = `${id} (bought)`;
   const baseStars = missionStars.get(id as string);
@@ -3092,14 +3101,14 @@ function boughtProbe(
     process.exitCode = 1;
     return;
   }
-  const seen: BoughtRun = { blocked: undefined, accepted: false, fieldedAtOrder: 0, aliveAtEnd: 0, rounds: 0, hits: 0, kills: 0, contacts: 0, tunnelContacts: 0 };
+  const seen: BoughtRun = { blocked: undefined, accepted: false, fieldedAtOrder: 0, aliveAtEnd: 0, rounds: 0, hits: 0, kills: 0, contacts: 0, tunnelContacts: 0, chargesSet: 0, chargesBlown: 0 };
   const mineEver = new Set<number>();
   let idsOf: ((t: string) => number[]) | undefined;
   const plan: Plan = (sim, rt, ids, at) => {
     idsOf = ids;
     basePlan(sim, rt, ids, at);
     // The first tick: 500 / 600 logistics against a 290 / 450 price, so nothing to wait for.
-    at(0, () => {
+    at(buildAtS, () => {
       seen.blocked = rt.buildBlockedReason(unitId);
       seen.accepted = rt.requestBuild(unitId);
     });
@@ -3107,7 +3116,8 @@ function boughtProbe(
       const mine = ids(unitId);
       seen.fieldedAtOrder = mine.length;
       for (const m of mine) mineEver.add(m);
-      if (mine.length > 0) sim.queueCommand(order(mine));
+      const first = mine.length > 0 ? order(mine, sim) : null;
+      if (first !== null) sim.queueCommand(first);
     });
     after?.(sim, at, () => ids(unitId));
   };
@@ -3120,6 +3130,8 @@ function boughtProbe(
         seen.rounds++;
         if (e.willHit) seen.hits++;
       } else if (e.kind === 'destroyed' && mineEver.has(e.by)) seen.kills++;
+      else if (e.kind === 'chargeSet' && mineEver.has(e.by)) seen.chargesSet++;
+      else if (e.kind === 'chargeDetonated' && mineEver.has(e.by)) seen.chargesBlown++;
       else if (e.kind === 'contact' && e.side === 0 && e.level === 'identified' && mineEver.has(e.observer)) seen.contacts++;
       else if (e.kind === 'tunnelContact' && e.side === 0 && e.level === 'identified' && mineEver.has(e.observer))
         seen.tunnelContacts++;
@@ -3136,13 +3148,18 @@ function boughtProbe(
   );
   console.log(
     `${label}: use — rounds ${seen.rounds} (hits ${seen.hits}), kills ${seen.kills}, ` +
-      `identified ${seen.contacts} unit(s) + ${seen.tunnelContacts} route(s)`
+      `identified ${seen.contacts} unit(s) + ${seen.tunnelContacts} route(s)` +
+      (use === 'sets' ? `, charges set ${seen.chargesSet}, brought down ${seen.chargesBlown}` : '')
   );
   // The strongest condition each plan meets: a gunship scores a kill (measured 2 here, 79
   // rounds), a recon unit identifies something (8 units + 1 route measured).
-  const used = use === 'fires' ? seen.kills > 0 : seen.contacts + seen.tunnelContacts > 0;
+  const used = use === 'fires' ? seen.kills > 0 : use === 'sets' ? seen.chargesSet > 0 && seen.chargesBlown > 0 : seen.contacts + seen.tunnelContacts > 0;
   if (!used) {
-    console.error(`${label}: FAILED — ${unitId} was fielded and ${use === 'fires' ? 'never scored a kill' : 'identified nothing'}`);
+    console.error(
+      `${label}: FAILED — ${unitId} was fielded and ${
+        use === 'fires' ? 'never scored a kill' : use === 'sets' ? 'never set a charge that went off' : 'identified nothing'
+      }`
+    );
     process.exitCode = 1;
   }
   if (seen.aliveAtEnd < 1) {
@@ -3882,10 +3899,9 @@ for (const [label, got, want] of [
   };
   const kdf = Object.values(units).filter((u) => (u as { faction?: string }).faction === 'kdf');
   for (const u of kdf) priced(u as Parameters<typeof priced>[0]);
-  if (!kdf.some((u) => (u as { id: string }).id === 'demo_tzav')) priced(stagedUnit('demo_tzav') as Parameters<typeof priced>[0]);
   const campaignsAt = (per: number): string => (per > 0 ? (catalogue / per).toFixed(2) : 'never');
   console.log(
-    `credits: catalogue ${catalogue} credits (shipped KDF JSON + staged demo_tzav), ` +
+    `credits: catalogue ${catalogue} credits (shipped KDF JSON), ` +
       `${campaignsAt(campaign2.paid)} campaigns at base tier, ${campaignsAt(campaign2Max.paid)} at max tier`
   );
   // Credits per plan-minute: the plan clock is a FLOOR on real play (perfect
