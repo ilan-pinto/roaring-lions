@@ -3585,11 +3585,13 @@ export class MissionRuntime {
   private stepCivilians(): void {
     const refuge = this.mission.civilians?.refuge;
     if (refuge === undefined) return;
-    // The arrival zone is the first `evacuate_before`'s: `start()` refuses a refuge
-    // outside any of them, so every one contains the refuge point and a stopped
-    // civilian ordered there ends inside whichever objective is still counting.
-    const evac = this.mission.objectives.find((o) => o.type === 'evacuate_before');
-    this.civFlight.step(this.sim, this.civIds, this.playerIds, this.markerPos(refuge), this.zone(evac?.target));
+    // The arrival zone is that of the first `evacuate_before` still counting (the first one
+    // at all once all have resolved): `start()` refuses a refuge outside any of them, so every
+    // zone contains the refuge point, and a civilian standing in the zone that is read is one
+    // the collector will count.
+    const evacs = this.objectives.filter((o) => o.def.type === 'evacuate_before');
+    const evac = evacs.find((o) => o.status === 'active') ?? evacs[0];
+    this.civFlight.step(this.sim, this.civIds, this.playerIds, this.markerPos(refuge), this.zone(evac?.def.target));
   }
 
   private stepPatrols(): void {
@@ -4124,7 +4126,7 @@ export class MissionRuntime {
     // in a mission that is unwinnable and unlosable at once.
     const failedPrimary = primaries.some((o) => o.status === 'failed');
     // #540: the time limit. With every timed primary resolved, a mission whose open primaries
-    // cannot fail (`locate`, `capture`, `hold_for`, `eliminate_hvt`) ends only in a win, a wipe or
+    // cannot fail (`locate`, `capture`, `hold_for`; `eliminate_hvt` fails only when its target is removed) ends only in a win, a wipe or
     // an ROE collapse, and a player who cannot finish waits forever. A win on the same tick wins;
     // any other loss on the same tick keeps its own cause.
     const limit = this.mission.time_limit_s;
