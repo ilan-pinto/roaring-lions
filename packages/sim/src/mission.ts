@@ -1771,7 +1771,21 @@ export class MissionRuntime {
 
   private works(): WorksEntry[] {
     if (this.worksList !== null) return this.worksList;
+    const built = this.buildWorks();
+    for (const offer of built.offers) this.worksOfferList.push(offer);
+    this.worksList = built.list;
+    return built.list;
+  }
+
+  /**
+   * The listed offers resolved against the sim's structure types, built FRESH and stored nowhere: a pure
+   * function of the mission and the sim's structure types. `works()` stores its answer; the snapshot codec
+   * reads it (via a cast) to encode an unbuilt list as the freshly built default without building it on the
+   * source (net sim snapshot S2: peers must agree on the bytes whether or not the dock has read the list).
+   */
+  private buildWorks(): { list: WorksEntry[]; offers: WorksOffer[] } {
     const list: WorksEntry[] = [];
+    const offers: WorksOffer[] = [];
     const fw = this.mission.field_works;
     if (fw !== undefined) {
       for (const typeId of Object.keys(fw)) {
@@ -1787,11 +1801,10 @@ export class MissionRuntime {
           intel: b.costIntel,
         };
         list.push({ offer, structType });
-        this.worksOfferList.push(offer);
+        offers.push(offer);
       }
     }
-    this.worksList = list;
-    return list;
+    return { list, offers };
   }
 
   private worksEntry(typeId: string): WorksEntry | null {

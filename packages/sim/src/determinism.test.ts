@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
-import { MissionRuntime, type MissionJson } from './mission';
+import { MissionRuntime } from './mission';
 import { enqueue } from './production';
 import {
   ECO_CAMP,
   ECO_CAMP_S1,
-  ECO_MILITIA,
   ECO_SQUAD,
   ECONOMY_POP_CAP,
   ECONOMY_SEED,
@@ -13,6 +12,11 @@ import {
   ECONOMY_TICKS,
   HILL_CORE,
   ORDERS_SEED,
+  RELIEF_ECO_B_ORDER_TICK,
+  RELIEF_ECO_POP_CAP,
+  RELIEF_ECO_REFUSED_BUILD_TICK,
+  RELIEF_ECO_SEED,
+  RELIEF_ECO_TICKS,
   RELIEF_SEED,
   RELIEF_TICKS,
   RELIEF_W,
@@ -27,6 +31,7 @@ import {
   ordersDrive,
   ordersSetup,
   reliefDrive,
+  reliefEconomySetup,
   reliefSetup,
   runDrive,
   runSetup,
@@ -930,112 +935,6 @@ describe('economy replay (2400 ticks of MissionRuntime on a flat map)', () => {
   });
 });
 
-/** `data/maps/tel_marum.json` at 2026-10-15 (F1 Task 5), as a snapshot: 1 = a tile the sim
- *  blocks (`^` rock ridge and `#` building), 0 = open on foot (`b` boulders included).
- *  A copy on purpose: sim imports nothing, and a pin must not move when the map is edited. */
-const RELIEF_ECO_BLOCKED: readonly string[] = [
-  '111111000000000000000000000000000000000000111111',
-  '111111000000000000000000000000000000000000111111',
-  '111111000000000000000000000000000000000000111111',
-  '111111000000000000000000111000000000000000111111',
-  '111111000000000000000000111000000000000000111111',
-  '111111000000000000000000000000000000000000111111',
-  '111111000000000000000000000000000000000000111111',
-  '111111000000000000000000000000000000000000111111',
-  '111111000000000000000000000000000000000000111111',
-  '111111000000000000000000000000000000000000111111',
-  '111111000000011111000000000000000000000000111111',
-  '111111000000011111000000000000000000000000111111',
-  '111111111100111111111100000111111111111111111111',
-  '111111111100111111111100000111111111111111111111',
-  '111111111100111111111100000111111111111111111111',
-  '111111111100111111100000000000111111111111111111',
-  '111111111100111111100000000000111111111111111111',
-  '111111111100111111100000000000111111111111111111',
-  '111111000000000000000000000000000000000000111111',
-  '111111000000000000000000000000000000000000111111',
-  '111111000000000000000001110000000000000000111111',
-  '111111000000000000000001110000000000000000111111',
-  '111111000000000000000000000000000000000000111111',
-  '111111000000000000000000000000000000000000111111',
-  '111111000000000000000000000000000000000000111111',
-  '111111000000000000000000000000000000000000111111',
-  '111111000000000000000000000000000000000000111111',
-  '111111000000000000000000000000000000000000111111',
-  '111111000000000000000000000000000000000000111111',
-  '111111000000000000000000000000000000000000111111',
-  '111111000000000000000000000000000000000000111111',
-  '111111000000000000000000000000000000000000111111',
-  '111111000000000000000000000000000000000000111111',
-  '111111000000000000000000000000000000000000111111',
-  '111111000000000000000000000000000000000000111111',
-  '111111000000000000000000000000000000000000111111',
-  '111111000000000000000000000000000000000000111111',
-  '111111000000000000000000000000000000000000111111',
-  '111111000000000000000000000000000000000000111111',
-  '111111000000000000000000000000000000000000111111',
-  '111111000000000000000000000000000000000000111111',
-  '111111000000000000000000000000000000000000111111',
-  '111111000000000000000000000000000000000000111111',
-  '111111000000000000000000000000000000000000111111',
-  '111111000000000000000000000000000000000000111111',
-  '111111000000000000000000000000000000000000111111',
-  '111111000000000000000000000000000000000000111111',
-  '111111000000000000000000000000000000000000111111',
-];
-
-/** The same map's `elevation` grid, one digit per tile (0-4). */
-const RELIEF_ECO_ELEVATION: readonly string[] = [
-  '333333111111111111111111111111111111111111333333',
-  '333333111111111111111111111111111111111111333333',
-  '333333111111111111111111111111111111111111333333',
-  '333333111111111111111111111111111111111111333333',
-  '333333111111111111111111111111111111111111333333',
-  '333333111111111111111111111111111111111111333333',
-  '333333111111111111111111111111111111111111333333',
-  '333333111111111111111111111111111111111111333333',
-  '333333111111111111111111111111111111111111333333',
-  '333333111111111111111111111111111111111111333333',
-  '333333111111144444111111111111111111111111333333',
-  '333333111111144444111111111111111111111111333333',
-  '333333444433444444444422222444444444444444333333',
-  '333333444433444444444422222444444444444444333333',
-  '333333444433444444444422222444444444444444333333',
-  '333333444433444444433322222333444444444444333333',
-  '333333444433444444433322222333444444444444333333',
-  '333333444433444444433322222333444444444444333333',
-  '333333000000000000000000000000000000000000333333',
-  '333333000000000000000000000000000000000000333333',
-  '333333000000000000000001110000000000000000333333',
-  '333333000000000000000001110000000000000000333333',
-  '333333000000000000000000000000000000000000333333',
-  '333333000000000000000000000000000000000000333333',
-  '333333000000000000000000000000000000000000333333',
-  '333333000000000000222222222222200000000000333333',
-  '333333000000000000222222222222200000000000333333',
-  '333333000000000000000000000000000000000000333333',
-  '333333000000000000000000000000000000000000333333',
-  '333333000000000000000000000000000000000000333333',
-  '333333000000000000000000000000000000000000333333',
-  '333333000000000000000000000000000000000000333333',
-  '333333000000000000000000000000000000000000333333',
-  '333333000000000000000000000000000000000000333333',
-  '333333000000000000000000000000000000000000333333',
-  '333333000000000000000000000000000000000000333333',
-  '333333000000000000000000000000000000000000333333',
-  '333333000000000000000000000000000000000000333333',
-  '333333000000000000000000000000000000000000333333',
-  '333333000000000000000000000000000000000000333333',
-  '333333000000000000000000000000000000000000333333',
-  '333333000000000000000000000000000000000000333333',
-  '333333000000000000000000000000000000000000333333',
-  '333333000000000000000000000000000000000000333333',
-  '333333000000000000000000000000000000000000333333',
-  '333333000000000000000000000000000000000000333333',
-  '333333000000000000000000000000000000000000333333',
-  '333333000000000000000000000000000000000000333333',
-];
-
 // --- the economy replay over relief ---------------------------------------------
 // The flat economy replay above has no high ground (`count` 0 rises), so the
 // rise state `economyHash()` folds in at F1 Task 5 -- the per-rise hold counters,
@@ -1051,15 +950,6 @@ const RELIEF_ECO_ELEVATION: readonly string[] = [
 //      ends, so the hash carries a live hold counter and not only a paid flag.
 //   C  STARTS on the bench and never leaves it: the spawn rule means it earns
 //      nothing, and the hash carries its spawn rise.
-const RELIEF_ECO_SEED = 0x0e_c0_0005;
-const RELIEF_ECO_TICKS = 2400;
-const RELIEF_ECO_B_ORDER_TICK = 1700;
-// F3 Task 4 (GH-183, C-R5): the relief fixture gets the flat one's coverage. Its three
-// squads are side 0's whole starting population, so a cap of 3 is full on the first
-// tick and the one build asked at tick 100 is refused. (Caps 2 and 3 both refuse it:
-// the cap is the only difference between those runs.)
-const RELIEF_ECO_POP_CAP = 3;
-const RELIEF_ECO_REFUSED_BUILD_TICK = 100;
 // ECONOMY_PIN_RELIEF: born 2026-10-15 at F1 Task 5 (the rise state joined
 // economyHash; there is no earlier value, so this is a birth, not a re-pin).
 // ECONOMY_PIN above did not move for the same change: the flat map has no
@@ -1073,37 +963,6 @@ const RELIEF_ECO_REFUSED_BUILD_TICK = 100;
 // re-pinned 2026-10-16, F4 Task 6: the same line fold (the fixture's one `player_start` line folds
 // empty; the fixture is unchanged); was 145368021.
 const ECONOMY_PIN_RELIEF = 2771311510;
-
-const RELIEF_ECO_MISSION: MissionJson = {
-  id: 'economy_replay_relief',
-  map: { file: 'tel_marum', player_start: [24, 44] },
-  ledger: { requires: [], produces: [] },
-  // F2 Task 7: two income zones and a live convoy. `bench` is held by C from the first tick;
-  // `basin` holds A and B and the one militia far to the east (out of everyone's sight), so it
-  // is contested until B leaves for the pass, and then side 1 holds it. The convoy enters one
-  // tile from that militia: cut from the start. tel_marum has no roads (D5's flow route).
-  resources: {
-    logistics_start: 400,
-    logistics_rate_per_min: 120,
-    intel_start: 0,
-    income_zones: [
-      { zone: 'bench', rate_per_min: 30 },
-      { zone: 'basin', rate_per_min: 45 },
-    ],
-    supply_corridor: true,
-    supply_entry: 'convoy_entry',
-  },
-  enemy: {
-    garrison: [{ unit: 'militia_cell', count: 1, at: [39, 42], stance: { kind: 'hold_position' } }],
-  },
-  // No time_limit_s, and one objective nothing here can complete: the fixture must not end.
-  objectives: [{ id: 'hold', type: 'survive_until', primary: true, seconds: 600 }],
-  starting_force: [
-    { unit: 'inf_squad', count: 1, at: [24, 40] },
-    { unit: 'inf_squad', count: 1, at: [26, 41] },
-    { unit: 'inf_squad', count: 1, at: [20, 25.5] },
-  ],
-};
 
 interface ReliefEconomyRun {
   rt: MissionRuntime;
@@ -1124,32 +983,9 @@ function reliefEconomyReplay(
   opts: { aOrdered?: boolean; bAt?: number | null; popCap?: number } = {},
   via: 'direct' | 'command' = 'direct',
 ): ReliefEconomyRun {
-  const popCap = opts.popCap ?? RELIEF_ECO_POP_CAP;
   const aOrdered = opts.aOrdered ?? true;
   const bAt = opts.bAt === undefined ? RELIEF_ECO_B_ORDER_TICK : opts.bAt;
-  const sim = new Sim({ seed, width: 48, height: 48, capacity: 32 });
-  for (let y = 0; y < 48; y++) {
-    for (let x = 0; x < 48; x++) {
-      if (RELIEF_ECO_BLOCKED[y][x] === '1') sim.setBlocked(x, y, true);
-      const level = RELIEF_ECO_ELEVATION[y].charCodeAt(x) - 48;
-      if (level !== 0) sim.setElevation(x, y, level);
-    }
-  }
-  const ids = new Map<string, number>();
-  ids.set(ECO_SQUAD.id, sim.addUnitType(ECO_SQUAD));
-  ids.set(ECO_MILITIA.id, sim.addUnitType(ECO_MILITIA));
-  const rt = new MissionRuntime(sim, RELIEF_ECO_MISSION, {
-    typeIdOf: (u) => {
-      const t = ids.get(u);
-      if (t === undefined) throw new Error(`unknown unit ${u}`);
-      return t;
-    },
-    markers: { convoy_entry: [40, 42] },
-    zones: { bench: [18, 25, 13, 2], basin: [6, 36, 36, 12] },
-    unitInfo: (u) => (u === 'inf_squad' ? { logistics: 180, buildTimeS: 15, population: 1 } : null),
-    popCaps: [popCap, null],
-  });
-  rt.start();
+  const { sim, rt } = reliefEconomySetup(seed, opts.popCap ?? RELIEF_ECO_POP_CAP);
   const paid: ReliefEconomyRun['paid'] = [];
   const seen: HeldGroundSeen = { states: new Set(), cuts: new Set() };
   let refusal: string | null = null;

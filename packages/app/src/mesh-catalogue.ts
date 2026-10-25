@@ -738,6 +738,42 @@ export function missionUnitTypes(mission: unknown, unitIds: ReadonlySet<string>)
   return out;
 }
 
+/** One unit as `deferredBuildables` reads it: only the two fields it filters on. */
+interface DeferrableUnit {
+  readonly id: string;
+  readonly faction: string;
+}
+
+/**
+ * The unit types a `resources` mission fetches AFTER it is running, cold: every
+ * KDF type with a mesh that the roster did not already queue AND that the
+ * player's campaign has opened.
+ *
+ * `isOpen` is the campaign gate (`unlockReason(...) === null` against the
+ * ledger and the bought set the mission was booted with). A gate-closed type
+ * cannot be built this mission -- `MissionRuntime.canBuild` refuses it first --
+ * and the gate cannot open mid-mission, because its inputs (stars, Conduct,
+ * cleared missions, bought units) are the INCOMING ledger and account. Fetching
+ * and parsing its GLB buys a mesh nothing can draw, and the geometry stays in
+ * ArrayBuffers for the whole mission (the textures are cold, the vertices are
+ * not). 26 of the 31 KDF units are gated, and every credit-only special unit
+ * that landed on 22-25 Oct raised `umm_zeitoun_4_clearance`'s JS reading on a
+ * fresh account (CI `perf:memory`, 123.7 -> 154.1 MiB) until the 154 MiB
+ * ceiling failed. A type that slips through anyway (a roster miss) is still
+ * caught, loudly, by the 1 Hz sweep in `main.ts`.
+ */
+export function deferredBuildables(
+  units: Iterable<DeferrableUnit>,
+  roster: ReadonlySet<string>,
+  isOpen: (id: string) => boolean
+): Set<string> {
+  const out = new Set<string>();
+  for (const u of units) {
+    if (u.faction === 'kdf' && hasUnitMesh(u.id) && !roster.has(u.id) && isOpen(u.id)) out.add(u.id);
+  }
+  return out;
+}
+
 /** One unit type as `withWoundedTypes` reads it: only `hull.wounds.type`. */
 interface WoundsTypeOf {
   readonly hull?: { readonly wounds?: { readonly type: string } };
