@@ -8,6 +8,7 @@ import {
   goldenPlan,
   goldenWounded,
   mirrorWorld,
+  problemsOf,
   queuedBoundaries,
   withQueuedCut,
   carryWorld,
@@ -42,6 +43,16 @@ describe('the witness over real worlds (short plan)', () => {
     const run = runWorld(economy);
     expect(run.problems).toEqual([]);
     expect(run.forks, 'three planned cuts and the queued-command cut').toBe(4);
+  });
+});
+
+describe('what a verdict must satisfy to be clean', () => {
+  const verdict = (over: Record<string, unknown>) =>
+    ({ T: 100, horizon: 200, roundTripEqualAtT: true, configDifference: null, hashDivergedAt: null, encodingEqualAtEnd: true, garbledUnkeyedSlots: 0, b: { carried: [] }, ...over }) as unknown as Parameters<typeof problemsOf>[0];
+
+  it('a restored world that does not re-encode to its own bytes is a problem, on its own', () => {
+    expect(problemsOf(verdict({}))).toEqual([]);
+    expect(problemsOf(verdict({ roundTripEqualAtT: false }))).toEqual(['T=100+200: the restored world does not re-encode to its own bytes']);
   });
 });
 

@@ -73,6 +73,7 @@ function fork(g: Golden, T: number, extra: { poison?: boolean; afterRestore?: (b
 
 function expectClean(v: Omit<ForkVerdict<World>, 'a'>, label: string): void {
   expect(v.configDifference, `${label}: a config row differs after the restore`).toBeNull();
+  expect(v.roundTripEqualAtT, `${label}: the restored world does not re-encode to its own bytes`).toBe(true);
   expect(v.hashDivergedAt, `${label}: hash diverged`).toBeNull();
   expect(v.encodingEqualAtEnd, `${label}: encodings differ at the end (${v.firstDifference ?? ''})`).toBe(true);
 }
@@ -118,7 +119,7 @@ describe('fork witness: scratch and unkeyed pool slots poisoned after the restor
 const RUN = GOLDEN[0];
 
 function fails(v: ForkVerdict<World>): boolean {
-  return v.hashDivergedAt !== null || !v.encodingEqualAtEnd;
+  return v.hashDivergedAt !== null || !v.encodingEqualAtEnd || !v.roundTripEqualAtT;
 }
 
 function report(label: string, v: ForkVerdict<World>): void {

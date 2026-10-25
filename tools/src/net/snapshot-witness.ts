@@ -9,6 +9,7 @@
 // tick T the sim is encoded, a FRESH world from the same build is restored from those bytes,
 // and both are driven with the same inputs for the horizon; one extra fork per world is cut at
 // tick 600 and runs to the end. Every fork is held to
+//   - the restored world re-encoding to exactly the bytes it was restored from, at T,
 //   - the match hash equal at T and every 20 ticks (the sim hash folded with the runtime's
 //     digest, for a world that has a runtime),
 //   - the two canonical encodings byte-equal at the end,
@@ -425,6 +426,7 @@ export function problemsOf(v: SeriesForkVerdict<SnapWorld>): string[] {
   const label = `T=${v.T}+${v.horizon}`;
   const out: string[] = [];
   if (v.configDifference !== null) out.push(`${label}: a config row differs after the restore (${v.configDifference})`);
+  if (!v.roundTripEqualAtT) out.push(`${label}: the restored world does not re-encode to its own bytes`);
   if (v.hashDivergedAt !== null) out.push(`${label}: the hash diverged at tick ${v.hashDivergedAt}`);
   if (!v.encodingEqualAtEnd) out.push(`${label}: the encodings differ at the end (${v.firstDifference ?? '?'})`);
   if (v.b.carried.length > 0) {

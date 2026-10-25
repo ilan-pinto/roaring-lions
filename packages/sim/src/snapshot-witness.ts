@@ -83,6 +83,13 @@ export interface ForkVerdict<W extends WitnessWorld> {
   hashDivergedAt: number | null;
   /** Whether `encodeSim(A)` and `encodeSim(B)` are byte-equal after the horizon. */
   encodingEqualAtEnd: boolean;
+  /**
+   * Whether B, encoded again straight after `restoreSim` and before anything else touches it,
+   * gives exactly the bytes it was restored from. This is the restore's own contract (spec 6.1:
+   * the round trip at T) and it is checked at the cut, not only after a horizon in which a wrong
+   * row might have been overwritten by the tick. A clean fork requires it.
+   */
+  roundTripEqualAtT: boolean;
   /** Where the divergence first shows: the first differing `state` row, or the hash tick. Absent when clean. */
   firstDifference?: string;
   /** `configDiff(A, B)` right after the restore, before any mutation: null when every `config` row agrees. */
@@ -205,7 +212,8 @@ const AUX_JUNK: Record<string, (value: unknown[]) => void> = {
  *   - a typed column gets a non-constant odd pattern; the RNG words are garbled the same way;
  *   - a scalar becomes a different value (a boolean is negated);
  *   - an `aux` array gets one junk element (or, for `patrolLegIds`, junk in place);
- *   - the flow-field pool rows are left alone: `restoreFieldPool` replaces them whole.
+ *   - the flow-field pool gets `POISON_POOL_SLOTS` junk slots (`poisonPool`): `restoreFieldPool`
+ *     replaces the pool whole, and a restore that merged into it would keep them.
  * `config` is untouched (the restore never writes it, and `configDiff` checks it after).
  * Throws for an `aux` row it has no junk for, so a new row cannot go unpoisoned.
  */
@@ -221,9 +229,16 @@ export function poisonState(sim: Sim): void {
       case 'scalar':
         self[row.name] = typeof v === 'boolean' ? !v : ((v as number) ^ POISON_STATE_XOR) | 0;
         break;
-      case 'rng':
-        garbleColumn((v as { state: Uint32Array }).state);
+      case 'rng': {
+        // The generator's own typed rows, as the encoder walks them, not a hard-coded `.state`.
+        const rng = v as Record<string, unknown>;
+        for (const r of RNG_SNAPSHOT_SCHEMA) {
+          const a = rng[r.name];
+          if (r.kind.t !== 'typed' || !isTyped(a)) throw new Error(`poisonState: rng.${r.name} is not a typed array it can poison`);
+          garbleColumn(a);
+        }
         break;
+      }
       case 'aux': {
         const junk = AUX_JUNK[row.name];
         if (junk === undefined || !Array.isArray(v)) throw new Error(`poisonState: aux row ${row.name} has no junk`);
@@ -231,10 +246,40 @@ export function poisonState(sim: Sim): void {
         break;
       }
       case 'pool':
-        break;
+        break; // the four bookkeeping rows are poisoned together below
       default:
         throw new Error(`poisonState: state row ${row.name} has a kind it cannot poison`);
     }
+  }
+  poisonPool(sim);
+}
+
+/** How many junk slots `poisonPool` adds. More than one, and across more than one domain. */
+const POISON_POOL_SLOTS = 3;
+
+/**
+ * Gives a fresh world's flow-field pool junk: slots past whatever it holds, each with a bogus goal
+ * key, a domain, a `lastIssued` and an entry in its domain's `fieldByGoal`, through direct writes
+ * (no `fieldFor`, no `restoreFieldPool`). `restoreFieldPool` replaces the pool whole; a restore
+ * that merged into it, or forgot to truncate or clear it, leaves these behind and the encodings
+ * differ.
+ */
+function poisonPool(sim: Sim): void {
+  const self = internals(sim);
+  const fields = self.fields as FlowField[];
+  const goalKey = self.fieldGoalKey as number[];
+  const domain = self.fieldDomain as number[];
+  const lastIssued = self.fieldLastIssued as number[];
+  const byGoal = self.fieldByGoal as Map<number, number>[];
+  for (let k = 0; k < POISON_POOL_SLOTS; k++) {
+    const idx = fields.length;
+    const f = new FlowField(sim.width, sim.height);
+    garble(f, POISON_BYTE);
+    fields.push(f);
+    goalKey[idx] = 3 + k;
+    domain[idx] = k % byGoal.length;
+    lastIssued[idx] = POISON_SCALAR;
+    byGoal[domain[idx]].set(goalKey[idx], idx);
   }
 }
 
@@ -301,6 +346,7 @@ interface Fork<W extends WitnessWorld> {
   readonly b: W;
   readonly configDifference: string | null;
   readonly garbledUnkeyedSlots: number;
+  readonly roundTripEqualAtT: boolean;
   hashDivergedAt: number | null;
 }
 
@@ -335,11 +381,13 @@ function runForks<W extends WitnessWorld>(
     const b = opts.build();
     poisonState(b.sim);
     restoreSim(b.sim, bytes);
+    // Before `afterRestore`, which may carry a runtime across or mutate B: the restore alone must re-encode to S.
+    const roundTripEqualAtT = bytesEqual(encodeSim(b.sim), bytes);
     opts.afterRestore?.(b, a);
     const configDifference = configDiff(a.sim, b.sim);
     const garbledUnkeyedSlots = opts.poison === true ? poisonScratch(b.sim) : 0;
     opts.mutate?.(b, a);
-    const fork: Fork<W> = { T: spec.T, horizon: spec.horizon, b, configDifference, garbledUnkeyedSlots, hashDivergedAt: null };
+    const fork: Fork<W> = { T: spec.T, horizon: spec.horizon, b, configDifference, garbledUnkeyedSlots, roundTripEqualAtT, hashDivergedAt: null };
     compareHash(fork);
     live.set(index, fork);
   };
@@ -351,6 +399,7 @@ function runForks<W extends WitnessWorld>(
     const verdict: ForkVerdict<W> = {
       hashDivergedAt: fork.hashDivergedAt,
       encodingEqualAtEnd,
+      roundTripEqualAtT: fork.roundTripEqualAtT,
       configDifference: fork.configDifference,
       garbledUnkeyedSlots: fork.garbledUnkeyedSlots,
       a,
@@ -358,6 +407,8 @@ function runForks<W extends WitnessWorld>(
     };
     if (!encodingEqualAtEnd) {
       verdict.firstDifference = firstStateDifference(a.sim, fork.b.sim) ?? 'the encodings differ outside the state columns (the tail: pool keys or an aux row)';
+    } else if (!fork.roundTripEqualAtT) {
+      verdict.firstDifference = `the restored world re-encodes differently at T=${fork.T}`;
     } else if (fork.hashDivergedAt !== null) {
       verdict.firstDifference = `hash differs at tick ${fork.hashDivergedAt}`;
     }
@@ -419,6 +470,7 @@ export function forkWitnessSeries<W extends WitnessWorld>(opts: ForkSeriesOption
       horizon: forks[i].horizon,
       hashDivergedAt: v.hashDivergedAt,
       encodingEqualAtEnd: v.encodingEqualAtEnd,
+      roundTripEqualAtT: v.roundTripEqualAtT,
       configDifference: v.configDifference,
       garbledUnkeyedSlots: v.garbledUnkeyedSlots,
       b: v.b,

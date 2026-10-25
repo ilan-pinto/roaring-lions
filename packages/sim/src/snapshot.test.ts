@@ -269,6 +269,7 @@ describe('snapshot: the command and runtime queues are state', () => {
       },
     });
     expect(v.configDifference).toBeNull();
+    expect(v.roundTripEqualAtT, 'round trip at T').toBe(true);
     expect(v.hashDivergedAt).toBeNull();
     expect(v.encodingEqualAtEnd, v.firstDifference).toBe(true);
   });

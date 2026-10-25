@@ -37,7 +37,7 @@ function fork(): ForkVerdict<ReturnType<typeof build>> {
 }
 
 describe('fork witness: B is poisoned before the restore', () => {
-  it('on entry to restoreSim every state row but the pool rows differs from a fresh world', () => {
+  it('on entry to restoreSim every state row, the four pool rows included, differs from a fresh world', () => {
     const fresh = build().sim;
     let moved: Set<string> | null = null;
     let entries = 0;
@@ -48,13 +48,14 @@ describe('fork witness: B is poisoned before the restore', () => {
     };
     try {
       const v = fork();
+      expect(v.roundTripEqualAtT).toBe(true);
       expect(v.encodingEqualAtEnd).toBe(true);
       expect(v.configDifference, 'config is untouched by the poison').toBeNull();
     } finally {
       hook.around = null;
     }
     expect(entries, 'the witness restores exactly once per fork').toBe(1);
-    const want = rowsOf('state').filter((r) => r.kind.t !== 'pool').map((r) => r.name).sort();
+    const want = rowsOf('state').map((r) => r.name).sort();
     expect(Array.from(moved ?? []).sort()).toEqual(want);
   });
 
@@ -108,6 +109,7 @@ describe('fork witness: B is poisoned before the restore', () => {
       hook.around = null;
       const clean = fork();
       expect(clean.hashDivergedAt, 'clean fork: hash').toBeNull();
+      expect(clean.roundTripEqualAtT, 'clean fork: round trip').toBe(true);
       expect(clean.encodingEqualAtEnd, `clean fork: ${clean.firstDifference ?? ''}`).toBe(true);
       skipping(s.put);
       try {
@@ -119,6 +121,7 @@ describe('fork witness: B is poisoned before the restore', () => {
           expect(s.mayThrow, `${s.row} skipped: the fork threw ${String(e)}`).toBe(true);
           return;
         }
+        expect(v.roundTripEqualAtT, `${s.row} skipped: the round trip at T`).toBe(false);
         expect(v.encodingEqualAtEnd, `${s.row} skipped`).toBe(false);
         // A typed column or a scalar is named; an aux row lives in the tail, which the message says instead.
         expect(v.firstDifference ?? '').toMatch(s.aux === true ? /outside the state columns/ : new RegExp(`^${s.row}`));
