@@ -1988,10 +1988,13 @@ run(
 
 // Tel Marum III — the pass, taken the expensive way on purpose.
 //
-// The plan takes the switchback road (GH-382: `tel_marum_3`). That is the costly route and it is
-// chosen deliberately: the defile is ten tiles longer (64 against 54, measured), foot-only and
-// reached by the Grad at seventeen, and the scripted proof should demonstrate the mission is
-// winnable by the obvious line, not by the clever one. The column stages in the second leg, behind
+// The armour takes the switchback road (GH-382: `tel_marum_3`) and the foot take the defile
+// (GH-802, the lead, 25 Oct: the plan takes the flank). The defile is ten tiles longer (64 against
+// 54, measured), foot-only and reached by the Grad at seventeen; since GH-802 it holds the battery's
+// relay (`tm_relay`, the carrying secondary and the third star) at its first bend, and a rifle team
+// reaches its mouth at 40 s. The foot ATTACK-move up it: infantry fire only from a halt, so a plain
+// move walks them past the relay and into the mouth without firing back (3.7 squads a run,
+// flank-reward probe, 30 seeds) where an attack-move costs about one. The column stages in the second leg, behind
 // the rib, where no post on the plateau can see it; two Lavis alone go up the exit column and onto
 // the plateau, because they outrange both Kornet pockets, and the rest follow once the pass is
 // quiet. One Eitan goes for the families -- and only one: a civilian boards the first hull in id
@@ -2029,7 +2032,8 @@ const ledTelMarum3 = run(
     // rim blocks every line), and the exit column is the only way up for wheels.
     at(2, () => {
       sim.queueCommand({ kind: 'move', ids: [...tanks, ...namer, ...armour], ...M(28, 19) });
-      sim.queueCommand({ kind: 'move', ids: [...foot, ...at_], ...M(27, 19) });
+      // the foot go up the defile to `saddle_narrow`, cutting the relay on the way (GH-802)
+      sim.queueCommand({ kind: 'attackMove', ids: [...foot, ...at_], ...M(10, 14) });
       sim.queueCommand({ kind: 'move', ids: mortar, ...M(26, 19) });
     });
     // Two Lavis alone go up the column and onto the plateau: they outrange both pockets.
@@ -2037,10 +2041,8 @@ const ledTelMarum3 = run(
     at(62, () => sim.queueCommand({ kind: 'move', ids: tanks, ...M(33, 11) }));
     at(80, () => {
       sim.queueCommand({ kind: 'move', ids: armour, ...M(33, 14) });
-      sim.queueCommand({ kind: 'move', ids: [...foot, ...at_], ...M(33, 17) });
     });
     at(100, () => {
-      sim.queueCommand({ kind: 'move', ids: [...foot, ...at_], ...M(33, 11) });
       // One Eitan to the families, and only one: a civilian boards the first hull in id order
       // with a free seat within four tiles, and a Namer parked in the pass would keep them.
       sim.queueCommand({ kind: 'move', ids: armour, ...M(28, 6) });
