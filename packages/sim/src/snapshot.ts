@@ -1,4 +1,6 @@
 import { HASH_SEED, hashWord } from './hash';
+import type { MissionRuntime } from './mission';
+import { MAX_RUNTIME_BYTES, encodeRuntimeSection, parseRuntimeSection, planRuntime, runtimeSchemaDigest } from './runtime-snapshot';
 import { SIM_EVENT_KINDS, STRIKE_SNAPSHOT_KEYS, type Command, type FieldPoolKeys, type RuntimeCommand, type Sim } from './sim';
 import {
   RNG_SNAPSHOT_SCHEMA,
@@ -19,7 +21,8 @@ import { FIRE_SUPPORT_KINDS, MAX_PATROL_WAYPOINTS } from './tuning';
 //
 //   header   'RLSS' | format u16 | schema digest u32 | matchDigest u32
 //            | contentDigest u32 | frameTick u32 | simTick i32 | capacity u32
-//            | width u32 | height u32 | hasBoulders u8          (39 bytes, fixed)
+//            | width u32 | height u32 | hasBoulders u8
+//            | hasRuntime u8 | runtime schema digest u32        (44 bytes, fixed)
 //            | build (u16 len + UTF-8) | matchId (u16 len + UTF-8)
 //   Every fixed-width field comes first and the length-prefixed strings last, so
 //   a reader that holds no decoder (the room, spec 5.1) finds `matchDigest` at
@@ -30,6 +33,9 @@ import { FIRE_SUPPORT_KINDS, MAX_PATROL_WAYPOINTS } from './tuning';
 //   tail     u32 length, then canonical JSON of the `aux` rows (events,
 //            strikes, patrol leg ids, structure tiles, the command queue and
 //            the runtime queue)
+//   runtime  only when hasRuntime = 1: u32 length, then the canonical JSON of the
+//            `MissionRuntime` state (runtime-snapshot.ts). The runtime schema digest is 0
+//            when there is no runtime, so a snapshot without one does not depend on that table.
 //
 // What is deliberately NOT here: `config` (rebuilt by the setup that built the
 // target) and `scratch` (overwritten before any read). The two queues ARE
@@ -122,7 +128,7 @@ export function snapshotSchemaDigest(
  */
 export const SNAPSHOT_MATCH_DIGEST_OFFSET = 4 + 2 + 4;
 /** How many bytes the fixed-width part of the header takes; the build and matchId strings follow it. */
-export const SNAPSHOT_FIXED_HEADER_BYTES = SNAPSHOT_MATCH_DIGEST_OFFSET + 4 + 4 + 4 + 4 + 4 + 4 + 4 + 1;
+export const SNAPSHOT_FIXED_HEADER_BYTES = SNAPSHOT_MATCH_DIGEST_OFFSET + 4 + 4 + 4 + 4 + 4 + 4 + 4 + 1 + 1 + 4;
 
 /** Unsigned, because the header word is read back as a u32. */
 const SCHEMA_DIGEST = snapshotSchemaDigest() >>> 0;
@@ -598,14 +604,17 @@ export function auxJsonOf(sim: Sim, name: string): string {
 
 /**
  * Encodes `sim` (cut between frames) to canonical bytes. The queued commands, if any, are carried.
+ * With `runtime` (the `MissionRuntime` built over this very sim) the runtime section is appended and the
+ * header says so; without one the bytes are the sim alone.
  *
  * It throws a PLAIN Error (not `SnapshotRefused`) on a contract fault of its own: a queue over
  * `MAX_QUEUED_COMMANDS` or holding a command the decoder would refuse, an `aux` row with no codec,
  * a scalar that is not an i32 or a boolean, a meta string over its limit or with an unpaired
- * surrogate, a meta number that is not a u32, a value canonical JSON refuses. The S4 producer must
+ * surrogate, a meta number that is not a u32, a value canonical JSON refuses, a runtime that is not this
+ * sim's or holds a value its table does not allow (the decoder would refuse the section). The S4 producer must
  * catch it and skip that cadence (log it, send nothing); it must never let it reach the tick loop.
  */
-export function encodeSim(sim: Sim, meta: SnapshotMeta = {}): Uint8Array {
+export function encodeSim(sim: Sim, meta: SnapshotMeta = {}, runtime?: MissionRuntime): Uint8Array {
   const self = internals(sim);
   const w = new Writer();
   for (const b of MAGIC) w.u8(b);
@@ -620,6 +629,8 @@ export function encodeSim(sim: Sim, meta: SnapshotMeta = {}): Uint8Array {
   w.u32(sim.width);
   w.u32(sim.height);
   w.u8(self.hasBoulders ? 1 : 0);
+  w.u8(runtime === undefined ? 0 : 1);
+  w.u32(runtime === undefined ? 0 : runtimeSchemaDigest());
   writeString(w, meta.build ?? '', 'meta.build');
   writeString(w, meta.matchId ?? '', 'meta.matchId');
 
@@ -652,6 +663,11 @@ export function encodeSim(sim: Sim, meta: SnapshotMeta = {}): Uint8Array {
   const tb = new TextEncoder().encode(canonicalJson(tail));
   w.u32(tb.length);
   w.bytes(tb);
+  if (runtime !== undefined) {
+    const rb = encodeRuntimeSection(runtime, sim);
+    w.u32(rb.length);
+    w.bytes(rb);
+  }
   return w.done();
 }
 
@@ -662,22 +678,27 @@ export function encodeSim(sim: Sim, meta: SnapshotMeta = {}): Uint8Array {
  * by the same setup (same map, same unit and structure types, same boulders)
  * and still at tick 0. Returns the caller's meta as written.
  *
+ * With `runtime` (the `MissionRuntime` of the target world, built over `sim` and `start()`ed by the same
+ * setup) the runtime section is restored too, after the sim. A snapshot with a runtime refuses a target
+ * without one, and the other way round.
+ *
  * It REFUSES rather than clamps: any problem throws `SnapshotRefused` (a
  * malformed input never throws anything else). The header is checked before
  * anything is written, but the columns are then written in place, so a refusal
- * after the header leaves `sim` HALF-WRITTEN: the caller must discard it and
- * build another (spec 5.5: restore onto a world built for the purpose).
+ * after the header leaves `sim` (and `runtime`) HALF-WRITTEN: the caller must discard it and
+ * build another (spec 5.5: restore onto a world built for the purpose). The runtime section
+ * itself is decoded and validated in full before its first write.
  */
-export function restoreSim(sim: Sim, bytes: Uint8Array): Required<SnapshotMeta> {
+export function restoreSim(sim: Sim, bytes: Uint8Array, runtime?: MissionRuntime): Required<SnapshotMeta> {
   try {
-    return restoreInner(sim, bytes);
+    return restoreInner(sim, bytes, runtime);
   } catch (e) {
     if (e instanceof SnapshotRefused) throw e;
     throw new SnapshotRefused(`malformed: ${e instanceof Error ? e.message : 'unknown failure'}`);
   }
 }
 
-function restoreInner(sim: Sim, bytes: Uint8Array): Required<SnapshotMeta> {
+function restoreInner(sim: Sim, bytes: Uint8Array, runtime: MissionRuntime | undefined): Required<SnapshotMeta> {
   const self = internals(sim);
   const r = new Reader(bytes);
 
@@ -695,6 +716,8 @@ function restoreInner(sim: Sim, bytes: Uint8Array): Required<SnapshotMeta> {
   const width = r.u32();
   const height = r.u32();
   const hasBoulders = r.u8();
+  const hasRuntime = r.u8();
+  const runtimeDigest = r.u32();
   const build = readString(r, 'build');
   const matchId = readString(r, 'matchId');
   if (capacity !== sim.capacity) throw new SnapshotRefused(`capacity ${capacity}, this world has ${sim.capacity}`);
@@ -705,6 +728,15 @@ function restoreInner(sim: Sim, bytes: Uint8Array): Required<SnapshotMeta> {
   if (hasBoulders > 1 || (hasBoulders === 1) !== Boolean(self.hasBoulders)) {
     throw new SnapshotRefused('boulders differ: the target world was not set up like the source');
   }
+  // The runtime: present in both or in neither, and written by a build with this runtime table.
+  if (hasRuntime > 1) throw new SnapshotRefused(`hasRuntime ${hasRuntime} is not a flag`);
+  if (hasRuntime === 1 && runtime === undefined) throw new SnapshotRefused('the snapshot carries a runtime, this world has none');
+  if (hasRuntime === 0 && runtime !== undefined) throw new SnapshotRefused('the snapshot carries no runtime, this world has one');
+  if (hasRuntime === 0 && runtimeDigest !== 0) throw new SnapshotRefused('runtime schema digest set on a snapshot with no runtime');
+  if (hasRuntime === 1 && runtimeDigest !== runtimeSchemaDigest()) {
+    throw new SnapshotRefused('runtime schema digest differs: written by a build with another runtime table');
+  }
+  if (runtime !== undefined && (runtime as unknown as { sim: unknown }).sim !== sim) throw new SnapshotRefused('the runtime does not belong to this sim');
 
   // ---- columns, in place (.set-equivalent element writes keep every view aliased).
   const state = rowsOf('state');
@@ -771,6 +803,13 @@ function restoreInner(sim: Sim, bytes: Uint8Array): Required<SnapshotMeta> {
   const tailLen = r.u32();
   if (tailLen > MAX_TAIL_BYTES) throw new SnapshotRefused(`tail ${tailLen} bytes, the limit is ${MAX_TAIL_BYTES}`);
   const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(r.take(tailLen));
+  // The runtime section's framing: a length word under a fixed cap, then exactly that many bytes.
+  let runtimeBytes: Uint8Array | null = null;
+  if (hasRuntime === 1) {
+    const runtimeLen = r.u32();
+    if (runtimeLen > MAX_RUNTIME_BYTES) throw new SnapshotRefused(`runtime ${runtimeLen} bytes, the limit is ${MAX_RUNTIME_BYTES}`);
+    runtimeBytes = r.take(runtimeLen);
+  }
   const tail: unknown = JSON.parse(text);
   if (!isPlain(tail)) throw new SnapshotRefused('tail is not an object');
   // Canonical or refused: one state, one byte string, so a re-encode is identical.
@@ -787,5 +826,9 @@ function restoreInner(sim: Sim, bytes: Uint8Array): Required<SnapshotMeta> {
   // The flow-field pool, rebuilt from its keys against the masks and elevation written above.
   // `restoreFieldPool` validates before it writes and throws a plain Error, which `restoreSim` wraps.
   sim.restoreFieldPool(parseFieldPoolKeys(tail[POOL_TAIL_KEY]));
+
+  // The runtime, last: it reads the restored sim (tunnel count, masks for its flow fields). The whole section
+  // is decoded and validated before its first write.
+  if (runtime !== undefined && runtimeBytes !== null) planRuntime(runtime, sim, parseRuntimeSection(runtimeBytes)).apply();
   return { build, contentDigest, matchId, frameTick, matchDigest };
 }

@@ -9,7 +9,7 @@
     "dev": "pnpm --filter @lions/app dev",
     "build": "pnpm --filter @lions/app build",
     "test": "vitest run",
-    "test:determinism": "vitest run packages/sim/src/determinism.test.ts packages/sim/src/snapshot-witness.test.ts",
+    "test:determinism": "vitest run packages/sim/src/determinism.test.ts packages/sim/src/snapshot-witness.test.ts packages/sim/src/snapshot-witness-runtime.test.ts",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tools",
     "lint": "eslint .",
     "validate:data": "node tools/validate_data.mjs",
