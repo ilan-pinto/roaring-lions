@@ -2959,6 +2959,24 @@ const uz4Plan: Plan = (sim, rt, ids, at) => {
       if (tanks.length === 0 || ys <= 10) sim.queueCommand({ kind: 'attackMove', ids: eitan, ...M(33, 8) });
       else sim.queueCommand({ kind: 'attackMove', ids: eitan, ...M(33, Math.min(40, ys + 4)) });
     });
+  // GH-421 (vehicle separation): an attack-moving Lavi halts the moment it has a target in range. On
+  // 424242 the pair was 1.4 tiles further back at 800 ticks than before (y 19.9 against 18.5; the valve
+  // had opened twice at the foot of the ramp, ticks 84 and 88) and halted at the edge of the gun's
+  // range, 8-9 tiles from the pickets on the shelf: both Lavis stood at y 17-20 from 40 s to 140 s, the
+  // pickets died at 2534 ticks and not at 920, and the porters were not out in 240 s. A player sees a
+  // tank that has stopped short and drives it on: a Lavi still south of y 16 that has gained under 0.3
+  // tile in the last 5 s is sent to (33,15) with a plain move, from where the pickets are 3-4 tiles off.
+  const laviLast = new Map<number, number>();
+  for (let when = 15; when <= 150; when += 5)
+    at(when, () => {
+      for (const u of lavi) {
+        if (sim.state.alive[u] !== 1) continue;
+        const y = fx.toNumber(sim.state.posY[u]);
+        const before = laviLast.get(u);
+        laviLast.set(u, y);
+        if (before !== undefined && y > 16 && before - y < 0.3) sim.queueCommand({ kind: 'move', ids: [u], ...M(33, 15) });
+      }
+    });
   // GH-382: the spur's eye covers the ramp, so a drone sent at t=1 is shot down on the way up; it
   // follows the escort in once the spur is clear.
   // fix/air-pathing: it follows the armour's own line up x=33 (via (33,30)) rather than the straight
