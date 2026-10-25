@@ -14,12 +14,20 @@
 //     digest, for a world that has a runtime),
 //   - the two canonical encodings byte-equal at the end,
 //   - every `config` row of A equal to B right after the restore,
-//   - for a world with a runtime or a driver: a deep-equal of A's and B's data at the end,
+//   - for a world with a stateful driver: a deep-equal of A's and B's driver data at the end,
 //   - and all of it with everything the restore promises not to write poisoned.
 // The worlds: versus MIRROR rooms (no runtime) on the four fair maps, the three ECONOMY cells,
 // the TUNNELS arm, a CAPACITY stress, and the golden worlds (battle, relief, orders, wounded,
-// economy). `snapshot-runtime-carry.ts` is the stand-in that moves a runtime and a driver across
-// until stage 2 encodes them.
+// economy).
+//
+// THE RUNTIME RESTORE IS THE REAL ONE (snapshot S2 Task 5). A world with a `MissionRuntime` hands it to
+// the sim witness (`WitnessWorld.runtime`), which encodes it with the sim, restores it natively
+// (`restoreSim(..., runtime)`), poisons its `state` rows before the restore and its `scratch` and stale
+// `derived` rows after, compares the two encodings and every `config` row, and folds `digest()` into the
+// hash. Nothing copies a runtime across any more: the forward run of every runtime world is the forward
+// run of the REAL restore (stage 1's reflection carry used to overwrite B's runtime after it). What is
+// still carried by reflection is the state a TEST DRIVER keeps beside the world (the tunnel plan, the
+// golden economy's run record): `snapshot-driver-carry.ts`, which stays until the drivers are stateless.
 //
 // WHAT THE MIRROR WORLDS DO AND DO NOT PROVE. A mirror room's fight ends early (annihilation inside a few
 // minutes), so most of its cuts are of a decided world; the live-combat proof comes mainly from the golden
@@ -36,20 +44,21 @@
 //
 // THE COVERAGE CENSUS. A fork that restores a row nobody ever changed proves nothing about that
 // row. At every cut (and at the end) the census asks `stateRowsMoved` which `state` rows of A
-// differ from the same world's tick 0, and unions the answer over all cuts and all worlds. A row
-// that never moved must be listed in `SNAPSHOT_COVERAGE_EXEMPT` with a reason naming the world
-// that would cover it; an exemption whose row DID move fails too ("delete this exemption").
+// differ from the same world's tick 0, and unions the answer over all cuts and all worlds. The
+// runtime's top-level `state` rows are in it too, named `runtime.<row>`. A row that never moved must
+// be listed in `SNAPSHOT_COVERAGE_EXEMPT` with a reason naming the world that would cover it; an
+// exemption whose row DID move fails too ("delete this exemption").
 //
-// THE SELF-CHECKS (`--self-check`). A witness that cannot fail proves nothing. Three mutations
+// THE SELF-CHECKS (`--self-check`). A witness that cannot fail proves nothing. Four mutations
 // of B right after the restore, each of which must turn its world red, each preceded by the
-// same series run clean: see `SELF_CHECKS`.
+// same series run clean: see `selfChecks`.
 
 import { fileURLToPath } from 'node:url';
 import { fx, type MissionRuntime, type Sim } from '@lions/sim';
 import { doctrines, type MapId } from '@lions/data';
 import { VERSUS_FAIR_MAPS, matchDigest, type Faction } from '@lions/net';
 import { buildMatchWorld, matchTick, type MatchWorld } from '../../../packages/app/src/net/match-world';
-import { RUNTIME_SNAPSHOT_SCHEMA } from '../../../packages/sim/src/runtime-snapshot-schema';
+import { runtimeRowsOf } from '../../../packages/sim/src/runtime-snapshot-schema';
 import { rowsOf } from '../../../packages/sim/src/snapshot-schema';
 import { internals } from '../../../packages/sim/src/snapshot';
 import { forkWitnessSeries, stateRowsMoved, type SeriesForkVerdict, type WitnessWorld } from '../../../packages/sim/src/snapshot-witness';
@@ -84,7 +93,7 @@ import {
   type Arrangement,
   type TunnelCell,
 } from '../backtest/versus-probe';
-import { carriedDiff, carryOnto, type DiffIgnore, type Rebind } from './snapshot-runtime-carry';
+import { carriedDiff, carryOnto, columnsReachableFrom, type Rebind } from './snapshot-driver-carry';
 
 // ---- worlds -----------------------------------------------------------------------------------
 
@@ -92,9 +101,12 @@ import { carriedDiff, carryOnto, type DiffIgnore, type Rebind } from './snapshot
 export interface SnapWorld extends WitnessWorld {
   readonly sim: Sim;
   readonly runtime: MissionRuntime | null;
-  /** Objects beside the sim whose data must follow the restore (the runtime, a driver), in a stable order. */
+  /**
+   * Objects beside the sim whose data follows the restore by REFLECTION: the test drivers' own state (the tunnel
+   * plan, the golden economy's run record), in a stable order. Never the runtime: that is restored natively.
+   */
   readonly carried: readonly object[];
-  /** Objects that exist once per world (the sim, the mission JSON, the context): rebound, never copied. */
+  /** Objects that exist once per world (the sim, the runtime, the mission JSON, the context): rebound, never copied. */
   readonly anchors: readonly object[];
   /** Applies tick `t`'s inputs. */
   readonly driveAt: (t: number) => void;
@@ -104,7 +116,7 @@ export interface SnapWorld extends WitnessWorld {
   isA?: boolean;
   parent?: SnapWorld;
   endsAt?: number;
-  /** Set on B at its fork's end: where the carried data of A and B differ, or null. */
+  /** Set on B at its fork's end: where the driver data of A and B differ, or null. */
   carriedDiffAtEnd?: string | null;
 }
 
@@ -125,9 +137,10 @@ export interface WorldSpec {
   readonly exercised?: (a: SnapWorld) => string | null;
 }
 
+/** What exists once per world in a world with a runtime. The runtime is an anchor, not a carried object: a driver that points at it points at B's own after the restore. */
 const anchorsOf = (sim: Sim, rt: MissionRuntime): object[] => {
   const r = rt as unknown as { mission: object; ctx: object };
-  return [sim, r.mission, r.ctx];
+  return [sim, rt, r.mission, r.ctx];
 };
 
 /** The match hash: the sim's, folded with the runtime's digest when the world has one. */
@@ -177,7 +190,7 @@ export function economyWorld(map: MapId, arr: Arrangement, seed: number, tunnels
   return {
     sim: m.sim,
     runtime: rt,
-    carried: plan === null ? [rt] : [rt, plan],
+    carried: plan === null ? [] : [plan],
     anchors: anchorsOf(m.sim, rt),
     driveAt: (t) => {
       if (t % ORDER_EVERY_TICKS === 0) {
@@ -259,8 +272,8 @@ export function goldenEconomy(): SnapWorld {
   return {
     sim: ew.sim,
     runtime: ew.rt,
-    // The replay's own record and driver fields ride beside the runtime.
-    carried: [ew.rt, ew.run, ew],
+    // The replay's own record and driver fields (the runtime is restored natively, not carried).
+    carried: [ew.run, ew],
     anchors: anchorsOf(ew.sim, ew.rt),
     driveAt: (t) => economyDrive(ew, t),
     advanceOnce: () => economyAdvance(ew, ew.sim.tickCount),
@@ -371,12 +384,11 @@ function rebindColumns(rebind: Map<object, object>, a: object, b: object): void 
 }
 
 /**
- * What exists once per world and must never cross: the anchors, the carried roots, and EVERY
- * sim column. The runtime holds views that alias sim columns (`holdView`: alive, side, posX,
- * posY, tunnelIn, tnAlive, tnVentOpen, tnDigger), and B's views are B's own live columns;
- * without these entries the carry would recurse into the view and `.set` A's column into B's,
- * repairing after the restore the very rows the restore (and the pre-restore poison) are
- * judged on. With them a view resolves to B's own column and nothing is written.
+ * What exists once per world and must never cross: the anchors (the sim, the runtime, the mission, the
+ * context), the carried roots, and EVERY sim column. A driver that holds a sim column, or the sim or the
+ * runtime themselves, resolves to B's own after the restore and nothing is written: the carry would
+ * otherwise repair, after the restore, the very rows the restore (and the pre-restore poison) are judged on.
+ * (A driver's alias of a RUNTIME column is not in the table; `carryWorld` refuses to write into one.)
  */
 export function rebindOf(b: SnapWorld, a: SnapWorld): Map<object, object> {
   const rebind = new Map<object, object>();
@@ -408,29 +420,23 @@ function resolveLazyConfig(b: SnapWorld, a: SnapWorld): void {
   });
 }
 
-/** Moves A's runtime and driver data onto B's own objects, at A's tick T. */
+/**
+ * Settles the lazy config cache, then moves A's DRIVER data onto B's own driver objects, at A's tick T. Nothing of the
+ * runtime crosses: it was restored natively by the sim witness. The carry throws before writing into any typed array B's
+ * runtime or sim reaches (a driver must never repair a column the restore is judged on).
+ */
 export function carryWorld(b: SnapWorld, a: SnapWorld): void {
   resolveLazyConfig(b, a);
+  if (a.carried.length === 0) return;
   const rebind: Rebind = rebindOf(b, a);
-  a.carried.forEach((x, i) => carryOnto(b.carried[i], x, rebind));
+  const columns = columnsReachableFrom(b.runtime ?? b.sim);
+  a.carried.forEach((x, i) => carryOnto(b.carried[i], x, rebind, columns));
 }
-
-/** The names of the runtime's own `scratch` rows (the schema's), which the reflection comparison does not look at. */
-const RUNTIME_SCRATCH_ROWS: ReadonlySet<string> = new Set(RUNTIME_SNAPSHOT_SCHEMA.filter((r) => r.cls === 'scratch').map((r) => r.name));
-
-/**
- * A runtime's `scratch` rows are not data (the codec never writes one, and the witness poisons them natively after the
- * restore since snapshot S2 Task 4), so B holds garbage in a slot the runtime has not rewritten since, where A holds its
- * old tail: `ventOut`, `CivilianFlight.scratch`. The comparison skips them. It dies with the carry in Task 5.
- */
-const ignoreScratch: DiffIgnore = (owner, key) =>
-  (owner.constructor.name === 'MissionRuntime' && typeof key === 'string' && RUNTIME_SCRATCH_ROWS.has(key)) ||
-  (owner.constructor.name === 'CivilianFlight' && key === 'scratch');
 
 function carriedDiffOf(b: SnapWorld, a: SnapWorld): string | null {
   const rebind: Rebind = rebindOf(b, a);
   for (let i = 0; i < a.carried.length; i++) {
-    const d = carriedDiff(a.carried[i], b.carried[i], `carried[${i}]`, rebind, ignoreScratch);
+    const d = carriedDiff(a.carried[i], b.carried[i], `carried[${i}]`, rebind);
     if (d !== null) return d;
   }
   return null;
@@ -444,8 +450,8 @@ export function problemsOf(v: SeriesForkVerdict<SnapWorld>): string[] {
   if (v.hashDivergedAt !== null) out.push(`${label}: the hash diverged at tick ${v.hashDivergedAt}`);
   if (!v.encodingEqualAtEnd) out.push(`${label}: the encodings differ at the end (${v.firstDifference ?? '?'})`);
   if (v.b.carried.length > 0) {
-    if (v.b.carriedDiffAtEnd === undefined) out.push(`${label}: the runtime comparison never ran`);
-    else if (v.b.carriedDiffAtEnd !== null) out.push(`${label}: the runtime data differs at the end (${v.b.carriedDiffAtEnd})`);
+    if (v.b.carriedDiffAtEnd === undefined) out.push(`${label}: the driver comparison never ran`);
+    else if (v.b.carriedDiffAtEnd !== null) out.push(`${label}: the driver data differs at the end (${v.b.carriedDiffAtEnd})`);
   }
   return out;
 }
@@ -490,7 +496,7 @@ export function runWorld(spec: WorldSpec, opts: RunOptions = {}): WorldRun {
   if (plan.Ts.includes(plan.tailFrom)) throw new Error(`snapshot witness: ${spec.id}: tailFrom ${plan.tailFrom} is also a cut`);
   const moved = new Set<string>();
   const readCensus = (a: SnapWorld): void => {
-    for (const name of stateRowsMoved(base.sim, a.sim)) moved.add(name);
+    for (const name of stateRowsMoved(base.sim, a.sim, base.runtime !== null && a.runtime !== null ? { base: base.runtime, now: a.runtime } : undefined)) moved.add(name);
   };
   let builds = 0;
   const queuedCuts = { command: 0, runtime: 0 };
@@ -584,10 +590,50 @@ export const SNAPSHOT_COVERAGE_EXEMPT: readonly { readonly name: string; readonl
       'drains its queue inside the same drive, so no boundary of any world holds one (scanned at every tick of every runtime world). Covered by a world whose frame queues a `build` command that the cut precedes (a room\'s frame applier)'
   ),
   ...rows('curStructure prStructure', 'a unit or a projectile aimed at a structure: no witness world has a building that is shot at. Covered by a world whose force attacks buildings'),
+  // ---- the runtime's top-level `state` rows (snapshot S2 Task 5), named `runtime.<row>` ----
+  // The matrix's runtime worlds are versus ECONOMY rooms (no authored objectives, triggers, waves, groups, ROE zones,
+  // civilians, field works or ledger) and the golden economy replay (a bare mission with an income zone and a convoy).
+  // Their RESTORE is proved in every fork regardless, because B's runtime `state` rows are poisoned before the restore
+  // (an unbuilt `worksList` / `worksOfferList` excepted: null until something reads it, so there is nothing to garble) and a restore that
+  // skipped one fails; what is missing is a world in which the row holds a value other than its build value at a cut.
+  ...rows(
+    'runtime.groups runtime.tags runtime.patrols',
+    'placement groups, tags and patrol stances: no witness world places a unit with a `group`, a `tag` or a patrol (a versus room places from its faction menu, the golden economy two bare squads). ' +
+      'Covered by a campaign mission replay whose placements carry groups, tags and a patrol'
+  ),
+  ...rows(
+    'runtime.civFlight',
+    'civilian flight (the fled and evacuated latches): no witness world has a civilian. Covered by a mission world with civilians, as the sim package\'s sink world has (it witnesses the row there, not here)'
+  ),
+  ...rows(
+    'runtime.zoneDeductedAt runtime.roeScoreValue runtime.roeFailed runtime.roeGainTotal runtime.roeGainJudged runtime.aimedAtWounded runtime.promotedValue',
+    'the ROE score, its zone cooldown, the shot-at-a-wounded-man set and the promotion tally: no witness world has an ROE zone, a protected target, a wound or a veterancy promotion. ' +
+      'Covered by a campaign mission replay with a civic-hall zone (the ROE rows) and a promotion (promotedValue)'
+  ),
+  ...rows(
+    'runtime.worksList runtime.worksOfferList runtime.worksPending runtime.worksSites runtime.worksStructures',
+    'field works (the lazily built works list, the offers, pending charges, staked sites and raised structures): no witness world stakes a work (versus never uses field works). Covered by a field-works mission world'
+  ),
+  ...rows(
+    'runtime.enemyLast runtime.markedThisMission runtime.rescuedBack runtime.pendingIntelEvents runtime.riseHold runtime.risePaid',
+    'side 1\'s mission-purchase cursor (D7: no shipped mission gives side 1 a camp), the intel marks and the intel events a completed objective owes, wound rescue (GH-707, engine-only), and high-ground rises (no witness map has a rise). ' +
+      'Covered by a campaign mission replay with a marking objective and a high-ground rise'
+  ),
+  ...rows(
+    'runtime.rosterPool runtime.entityRoster',
+    'the ledger roster pool and its entity map: no witness world has a ledger (`produces: []`; no `from_ledger` placement). Covered by a campaign mission replay carrying a roster (the sim package\'s sink world witnesses the encoding)'
+  ),
+  ...rows(
+    'runtime.firedTriggers runtime.spawnedWaves runtime.ended runtime.externallyCompleted runtime.resultValue runtime.withdrawnValue',
+    'the mission script and its end: no witness world has a trigger, a wave or a mission that ends inside its horizon (a versus room is played to a tick count, not to a result). Covered by a campaign mission replay played to victory'
+  ),
 ];
 
 export interface CensusVerdict {
+  /** The sim's `state` rows plus the runtime's top-level ones. */
   readonly stateRows: number;
+  /** How many of them are the runtime's (named `runtime.<row>`). */
+  readonly runtimeStateRows: number;
   /** Never moved and not exempt: the witness proves nothing about these rows. */
   readonly uncovered: string[];
   /** Exempt but moved: delete the exemption. */
@@ -596,19 +642,26 @@ export interface CensusVerdict {
   readonly badExemptions: string[];
 }
 
+/** Every census row: the sim's `state` rows, then the runtime's top-level `state` rows as `runtime.<row>`. */
+export function censusRowNames(): { readonly sim: string[]; readonly runtime: string[] } {
+  return { sim: rowsOf('state').map((r) => r.name), runtime: runtimeRowsOf('state').map((r) => `runtime.${r.name}`) };
+}
+
 export function censusVerdict(moved: ReadonlySet<string>, exempt: readonly { readonly name: string; readonly reason: string }[] = SNAPSHOT_COVERAGE_EXEMPT): CensusVerdict {
-  const names = rowsOf('state').map((r) => r.name);
+  const all = censusRowNames();
+  const names = [...all.sim, ...all.runtime];
   const known = new Set(names);
   const listed = new Set<string>();
   const bad: string[] = [];
   for (const e of exempt) {
-    if (!known.has(e.name)) bad.push(`${e.name} (not a state row)`);
+    if (!known.has(e.name)) bad.push(`${e.name} (not a state row of the sim or the runtime)`);
     else if (listed.has(e.name)) bad.push(`${e.name} (listed twice)`);
     else if (e.reason.trim() === '') bad.push(`${e.name} (no reason)`);
     listed.add(e.name);
   }
   return {
     stateRows: names.length,
+    runtimeStateRows: all.runtime.length,
     uncovered: names.filter((n) => !moved.has(n) && !listed.has(n)),
     staleExemptions: exempt.filter((e) => moved.has(e.name)).map((e) => e.name),
     badExemptions: bad,
@@ -634,7 +687,7 @@ export interface SelfCheck {
 }
 
 /**
- * The three mutations of the spec's section 6.2, each applied to B right after the restore. A
+ * The mutations of the spec's section 6.2 (and the runtime's, since stage 2), each applied to B right after the restore. A
  * mutation that changes nothing at a cut is not evidence, so each records the cuts where it did
  * (and throws if it could not have: the `trail` one asserts A's trail is non-zero first).
  */
@@ -687,6 +740,21 @@ export function selfChecks(): SelfCheck[] {
         if (!aTrail.some((v) => v !== 0)) return; // nothing to zero here: not evidence, not counted
         (internals(b.sim).trail as Uint8Array).fill(0);
         effective.add(b.sim.tickCount);
+      },
+    },
+    {
+      // The runtime's own restore (snapshot S2): side 0's first production line holds queued builds at both cuts (two at 97, one at 1200)
+      // (and side 1's holds nine), so emptying its `queue` on B right after the restore is a restore that dropped it.
+      // The mutation records a cut only where it removed something.
+      name: 'one production line\'s queue emptied (economy cell)',
+      spec: { id: `economy ${eco.map} ${eco.arr.join('/')} ${eco.seed}`, plan: longPlan(MIRROR_END), build: () => economyWorld(eco.map, eco.arr, eco.seed) },
+      plan: { Ts: [97, 1200], horizon: 600, tailFrom: 600, end: 1800 },
+      mutation: (effective) => (b) => {
+        const lines = (b.runtime as unknown as { lines: { queue: unknown[] }[][] }).lines;
+        const queue = lines[0][0].queue;
+        const held = queue.length;
+        queue.length = 0;
+        if (held > 0) effective.add(b.sim.tickCount);
       },
     },
   ];
@@ -754,7 +822,11 @@ function main(argv: readonly string[]): number {
     console.log(`queued cuts: ${queued}`);
     if (queuedCommandCuts === 0) failures.push(`queued cuts: ${queued}; a runtime world must snapshot a queued command at least once`);
     const census = censusVerdict(moved);
-    console.log(`census: ${census.stateRows} state rows, ${moved.size} moved, ${SNAPSHOT_COVERAGE_EXEMPT.length} exempt`);
+    const exemptRuntime = SNAPSHOT_COVERAGE_EXEMPT.filter((e) => e.name.startsWith('runtime.')).length;
+    console.log(
+      `census: ${census.stateRows} state rows (${census.stateRows - census.runtimeStateRows} sim, ${census.runtimeStateRows} runtime), ${moved.size} moved, ` +
+        `${SNAPSHOT_COVERAGE_EXEMPT.length} exempt (${SNAPSHOT_COVERAGE_EXEMPT.length - exemptRuntime} sim, ${exemptRuntime} runtime)`
+    );
     const byReason = new Map<string, string[]>();
     for (const e of SNAPSHOT_COVERAGE_EXEMPT) byReason.set(e.reason, [...(byReason.get(e.reason) ?? []), e.name]);
     for (const [reason, names] of byReason) console.log(`    exempt ${names.length}: ${names.join(' ')}\n      because ${reason}`);
