@@ -15,6 +15,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { units } from '../../../packages/data/src/index';
 import { unitTypeFromJson, type UnitTypeJson } from '../../../packages/sim/src/sim';
+import { fx } from '../../../packages/sim/src/fixed';
 import { MESH_SCALE } from '../../../packages/render/src/three/units/mesh-anim';
 import { RIGGED_UNIT_MESHES, VEHICLE_UNIT_MESHES } from '../../../packages/app/src/mesh-catalogue';
 import {
@@ -296,6 +297,9 @@ export interface FootprintRow {
   /** Parts left out of the measurement, and why a null was returned. */
   readonly excluded: string[];
   readonly note: string | null;
+  /** E6 (GH-274): a SWARM's cloud radius in tiles (`swarm.spread_tiles / 2`), else absent or null.
+   *  The ring and the pick are sized to the cloud, not to the one member's mesh. */
+  readonly cloudRadiusTiles?: number | null;
 }
 
 const ART = resolve(dirname(fileURLToPath(import.meta.url)), '../../../art/meshes');
@@ -319,7 +323,8 @@ export function unitFootprintTable(): FootprintRow[] {
       if (vehicleFile) vehicleHalfExtent = { along: fp.halfExtentXTiles, across: fp.halfExtentZTiles, centreAlong: fp.centreXTiles };
     }
     const note = HULL_INSEPARABLE[id] ?? null;
-    rows.push({ unit: id, ringClass, halfDiagonalTiles: note ? null : best, file: bestFile, vehicleHalfExtent, excluded, note });
+    const cloudRadiusTiles = t.swarm === null ? null : fx.toNumber(t.swarm.spread) / 2;
+    rows.push({ unit: id, ringClass, halfDiagonalTiles: note ? null : best, file: bestFile, vehicleHalfExtent, excluded, note, cloudRadiusTiles });
   }
   return rows;
 }
@@ -327,6 +332,11 @@ export function unitFootprintTable(): FootprintRow[] {
 /** The per-type rule: max(class value, 1.15 x this type's own footprint), rounded UP to 0.01. */
 export function radiusFor(row: FootprintRow, classRadii: Readonly<Record<RingClass, number>>): number {
   const classValue = classRadii[row.ringClass];
+  // E6 (GH-274, chunk B): a swarm entity stands for a CLOUD, so its ring is the cloud's radius
+  // (`spread_tiles / 2`, rounded up to 0.01), never the one member's 1.15 x footprint.
+  if (row.cloudRadiusTiles != null) {
+    return Math.max(classValue, Math.ceil(row.cloudRadiusTiles * 100 - 1e-9) / 100);
+  }
   if (row.halfDiagonalTiles === null) return classValue;
   return Math.max(classValue, Math.ceil(1.15 * row.halfDiagonalTiles * 100 - 1e-9) / 100);
 }

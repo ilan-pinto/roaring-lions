@@ -130,6 +130,17 @@ describe('per-type ring radius', () => {
     for (const r of rows) expect(RADIUS_BY_TYPE[r.unit], r.unit).toBeGreaterThanOrEqual(SELECTION_RING.radiusTiles[r.ringClass]);
   });
 
+  it('a swarm\'s ring is its CLOUD: spread_tiles / 2, not the one member\'s mesh (E6, GH-274)', () => {
+    const swarm = unitTypeFromJson(units.drone_swarm as unknown as UnitTypeJson);
+    expect(swarm.swarm).not.toBeNull();
+    expect(byUnit('drone_swarm')?.cloudRadiusTiles).toBe(0.75);
+    expect(RADIUS_BY_TYPE.drone_swarm).toBe(0.75);
+    // The member alone is far smaller: 1.15 x its footprint is under the air class value.
+    expect(1.15 * (byUnit('drone_swarm')?.halfDiagonalTiles ?? 99)).toBeLessThan(SELECTION_RING.radiusTiles.air);
+    // Nothing that is not a swarm has a cloud.
+    expect(byUnit('recon_drone')?.cloudRadiusTiles ?? null).toBeNull();
+  });
+
   it('the paramotor falls back to its class value and says why', () => {
     expect(byUnit('paramotor')?.halfDiagonalTiles).toBeNull();
     expect(byUnit('paramotor')?.note).toMatch(/canopy/);

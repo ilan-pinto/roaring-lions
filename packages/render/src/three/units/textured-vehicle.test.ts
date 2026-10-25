@@ -28,6 +28,7 @@ const texture = () => new THREE.Texture();
 describe('the textured vehicle opt-out is a named list', () => {
   it('covers exactly the supplied Meshy vehicles and every generated or held textured vehicle', () => {
     expect([...TEXTURED_VEHICLE_TYPES].sort()).toEqual([
+      'aa_remetz',
       'air_medevac_heli',
       'apc_eitan',
       'apc_kipod',

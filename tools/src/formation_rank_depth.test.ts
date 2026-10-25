@@ -38,8 +38,11 @@ describe('vehicle formation ranks clear every hull pair (GH-421)', () => {
     }
     console.log(`worst rank pair: ${worst.a} ahead, ${worst.b} behind, needs ${worst.need.toFixed(3)} tiles`);
     expect(worst.need).toBeLessThan(VEHICLE_RANK_DEPTH);
-    // An independent literal (the 2.54 of the plan's census), so the test cannot
-    // be satisfied by changing only the code under test.
+    // An independent literal, so the test cannot be satisfied by changing only the
+    // code under test. It was the 2.54 of the plan's census; E6 (GH-274) added aa_remetz at 7.6 m, whose
+    // front reach made mbt_lavi_camo ahead of it the worst pair at 2.581. The lead's GH-807 ruling shrank the
+    // carrier to 7.0 m, so the worst pair is mbt_lavi_camo ahead of ifv_namer again, at 2.531, still inside
+    // the 3-tile rank step. Was 2.56-2.60.
     expect(worst.need).toBeGreaterThan(2.52);
     expect(worst.need).toBeLessThan(2.56);
   });

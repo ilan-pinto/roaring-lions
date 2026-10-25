@@ -310,6 +310,16 @@ export const VEHICLE_UNIT_MESHES: Readonly<Record<string, string>> = {
   gun_truck: 'vehicles/gun_truck.glb',
   loiter_drone: 'vehicles/loiter_drone.glb',
 
+  // E6 (GH-274) chunk A1 (2026-10-24): the Sarim swarm drone, ONE member's mesh from a Meshy
+  // preview (palette-painted, `tools/vehicles/export_meshy_swarm_drone.py`). Until chunk B
+  // builds the instanced swarm, a `drone_swarm` entity draws as this one drone. Enemy only.
+  drone_swarm: 'vehicles/drone_swarm.glb',
+
+  // E6 (GH-274) chunk A2 (2026-10-25): the Remetz Laser Carrier, a Meshy 8k hull (textured, `TEXTURED_VEHICLE_TYPES`)
+  // under a beam turret built in Blender (`tools/vehicles/export_meshy_remetz.py`). A ground hull with a
+  // `turret_pivot`, steered front axle and six spinning wheels. KDF, bought; held from versus.
+  aa_remetz: 'vehicles/aa_remetz.glb',
+
   // The two KDF drones (GH-286, batch B0a, 2026-09-30): Meshy text-to-3D
   // previews remeshed at 800 tris and role-split in
   // `tools/drones/export_meshy_drones.py`. Air units on the vehicle path, so

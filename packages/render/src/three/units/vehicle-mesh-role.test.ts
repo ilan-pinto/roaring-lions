@@ -103,6 +103,22 @@ describe('the renderer ramp table and the mesh gate agree', () => {
     expect(Object.keys(gateTable()).length).toBeGreaterThan(0);
   });
 
+  // The comparison below walks whatever the gate knows, so a vehicle MISSING from the gate's table is simply not
+  // compared. E6 (GH-274) added two: pin that both the swarm drone and the Remetz are in it, with every role their
+  // GLB uses, so the walk cannot silently skip them.
+  it.each([
+    ['drone_swarm', ['hull', 'metal', 'rubber']],
+    ['aa_remetz', ['hull', 'metal', 'rubber', 'glass']],
+  ] as const)('the gate table carries %s with every role its GLB draws', (vehicle, roles) => {
+    const table = gateTable();
+    const row = table[vehicle];
+    expect(row, `${vehicle} is not in the gate's VEHICLE_ROLE_PALETTES`).toBeDefined();
+    for (const role of roles) {
+      expect(row![role], `${vehicle}.${role} is not in the gate's row`).toBeDefined();
+      expect(rampForVehicleRole(vehicle, role)[0]).toBe(resolve(row![role]!));
+    }
+  });
+
   // One direction only, and it is the one that fails: gate-knows-it,
   // renderer-does-not. The reverse (an entry here the gate lacks) is not a bug
   // -- the gate falls back and warns, which is visible. This direction is

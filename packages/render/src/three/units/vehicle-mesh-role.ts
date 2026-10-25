@@ -383,6 +383,17 @@ const VEHICLE_ROLE_PALETTE: Record<string, Partial<Record<VehicleMeshRole, reado
     glass: sliceFrom('gunmetal', 3, 1),
     recess: sliceFrom('shadow', 1, 2),
   },
+  // E6 (GH-274) chunk A1: the Sarim swarm drone, one member's mesh -- `loiter_drone`'s own
+  // tones (dust body and rotors on the dark rubber ramp, gunmetal booms, motors and bomb).
+  // Palette-painted: instancing wants one material and at 16 px a bake buys nothing.
+  drone_swarm: {
+    hull: sliceFrom('dust', 1, 6),
+    plate: sliceFrom('dust', 2, 5),
+    metal: sliceFrom('gunmetal', 2, 2),
+    rubber: sliceFrom('shadow', 0, 3),
+    glass: sliceFrom('gunmetal', 3, 1),
+    recess: sliceFrom('shadow', 1, 2),
+  },
   heli_peten: {
     hull: sliceFrom('olive', 1, 3),
     plate: sliceFrom('olive', 2, 2),
@@ -521,6 +532,18 @@ const VEHICLE_ROLE_PALETTE: Record<string, Partial<Record<VehicleMeshRole, reado
     hull: sliceFrom('olive', 0, 4),
     metal: sliceFrom('gunmetal', 2, 2),
     rubber: sliceFrom('shadow', 0, 3),
+  },
+  // E6 (GH-274) chunk A2: the Remetz Laser Carrier (`tools/vehicles/export_meshy_remetz.py`),
+  // hand-copied from the gate's `VEHICLE_ROLE_PALETTES["aa_remetz"]`. `hull_hull` and `hull_rubber`
+  // ship the remesh's own bake; the beam turret (`turret_hull` hull, `turret_metal` metal, `turret_glass`
+  // glass) and `hull_metal` (the column and the exhaust stack) are palette parts built in Blender and
+  // draw through these slices per mesh -- `apc_eitan`'s own KDF tones (olive hull, gunmetal fittings,
+  // dark glass, shadow rubber), the fleet this hull drives beside.
+  aa_remetz: {
+    hull: sliceFrom('olive', 0, 4),
+    metal: sliceFrom('gunmetal', 2, 2),
+    rubber: sliceFrom('shadow', 0, 3),
+    glass: sliceFrom('gunmetal', 3, 1),
   },
 };
 

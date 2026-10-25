@@ -458,6 +458,26 @@ export interface ObjectiveZoneView {
   state: 'held' | 'unheld' | 'contested' | 'target';
 }
 
+/** One beam as the renderer drew it (`Renderer.beamDrawn`). Widths are screen pixels unless they say tiles. */
+export interface BeamReadback {
+  /** World-space ends of the ribbon: x and z are tiles, y is the world height. */
+  readonly origin: readonly [number, number, number];
+  readonly end: readonly [number, number, number];
+  /** The ribbons and the target glow were drawn (false: only the lens glow, fading after a break). */
+  readonly ribbon: boolean;
+  readonly corePx: number;
+  readonly coreAlpha: number;
+  readonly sheathPx: number;
+  readonly sheathAlpha: number;
+  readonly targetGlowTiles: number;
+  readonly lensGlowAlpha: number;
+  /** The heat shimmer's amplitude fed to the fog pass, 0..1. */
+  readonly shimmerAmp: number;
+  /** The 0..1 dwell focus, and the 0..1 strike pulse. */
+  readonly focus: number;
+  readonly pulse: number;
+}
+
 export interface Renderer {
   // --- lifecycle
   init(host: HTMLElement): Promise<void>;
@@ -580,6 +600,24 @@ export interface Renderer {
    *  left-click's 1.2 tiles; an order asks a tighter one of the same pick
    *  (GH-420, R-23: `ORDER_PICK_RADIUS_TILES` in the app's input/pointer.ts). */
   unitAtScreen(px: number, py: number, radiusTiles?: number): number;
+  /**
+   * E6 (GH-274): how many members of swarm entity `id` the renderer's instanced draw was handed
+   * last frame - read off the batch itself, never recomputed from the sim, so a witness comparing
+   * it with `Sim.swarmMembers(id)` can tell a draw that follows the live count from one that does
+   * not. 0 for an entity that is not a swarm, is hidden by fog, or is not drawn. `cursorKey`'s
+   * shape: a read of what is actually applied.
+   */
+  swarmDrawn(id: number): number;
+  /**
+   * E6 (GH-274) chunk C: what the renderer's beam batch was handed for laser carrier `id`'s weapon
+   * `slot` last frame, or null when it drew no beam for it (no target, locked out, fogged, not a
+   * carrier). The look numbers are the ones written to the batch - never recomputed from the sim - so
+   * a witness comparing them with `Sim.beamState` can tell a beam that follows the dwell from one
+   * that does not. `cursorKey`'s shape: a read of what is actually applied.
+   */
+  beamDrawn(id: number, slot?: number): BeamReadback | null;
+  /** E6 chunk C: how many heat-shimmer sites the fog pass was handed last frame (0 with no beam). */
+  beamShimmerSites(): number;
   isVisible(wx: number, wy: number): boolean;
   /** Living units whose screen position falls inside a screen-space rect.
    *  Box-select is a projection question, so only the renderer can answer it. */

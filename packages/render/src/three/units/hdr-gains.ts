@@ -21,6 +21,8 @@
  *              no separate role was added.
  *  - fireball  `flipbook-fx.ts`'s `uFireGain`: the fire type's hot phase
  *              (white_hot/fire for its first ~16% of life).
+ *  - beam*     `beam-batch.ts` (E6 chunk C), as a factor on the vertex colour of the
+ *              core ribbon, the ember sheath and the lens/target glows.
  *
  * Known pre-existing HDR source NOT in this table: the tunnel x-ray
  * discovery beat is already above 1.0 on main and is accepted to glow.
@@ -36,6 +38,11 @@ export const HDR_GAINS = Object.freeze({
   arc: 3.5,
   sparks: 4,
   fireball: 2.6,
+  // E6 chunk C (units/beam-batch.ts): a laser carrier's beam. The core is a bolt-hot streak; the
+  // ember sheath stays just over the bloom threshold, so the beam blooms from its core outward.
+  beamCore: 4,
+  beamSheath: 1.6,
+  beamGlow: 2.4,
   // grenade: a DARK round (GH-709 P2): 3.5 (arc) x 0.06 keeps the ember
   // colour about 0.2 of itself, under the bloom threshold -- no glow.
   streakKind: Object.freeze({ rifle: 0.45, mg: 0.6, grenade: 0.06 }),

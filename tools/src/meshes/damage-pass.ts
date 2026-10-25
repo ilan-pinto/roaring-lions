@@ -50,7 +50,7 @@ import { NodeIO, type Accessor, type Document, type Mesh, type Node, type Primit
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { MeshoptSimplifier } from 'meshoptimizer';
 import { inLostTyre, lostTyre } from './lost-tyre';
-import { DAMAGE_RECIPES, type BreakBarrel, type DamageOp, type BlowOut, type DropTyre, type PeelPlate, type Simplify, type SnapRotor, type ThrowTrack } from './damage-recipes';
+import { DAMAGE_RECIPES, type BendMast, type BreakBarrel, type DamageOp, type BlowOut, type DropTyre, type PeelPlate, type Simplify, type SnapRotor, type ThrowTrack } from './damage-recipes';
 
 const REPO = fileURLToPath(new URL('../../../', import.meta.url));
 const VEHICLES = path.join(REPO, 'art', 'meshes', 'vehicles');
@@ -582,6 +582,67 @@ function snapRotor(g: Geo, op: SnapRotor, frame: Frame): number {
   return all.length;
 }
 
+/**
+ * An exhaust stack or mast bent over (E6 A2): the verts of a vertical column are carried along an arc of
+ * constant curvature that leans toward `lean` and turns `angleDeg` over `length` m, then straight on at
+ * that angle. A vertex keeps its offset from the centreline in the plane across it, so a ring stays a ring.
+ */
+function bendMast(g: Geo, op: BendMast): number {
+  const lean: V3 = norm([op.lean[0], 0, op.lean[1]]);
+  const perp: V3 = [-lean[2], 0, lean[0]];
+  const theta = (op.angleDeg * Math.PI) / 180;
+  if (!(theta > 0) || !(op.length > 0)) throw new Error(`bendMast: angle ${op.angleDeg} and length ${op.length} on ${op.mesh} must both be positive (a bend of nothing is not damage)`);
+  const R = op.length / theta;
+  const up: V3 = [0, 1, 0];
+  // The centreline at height h above y0, and the frame (e1 = the in-plane axis along `lean`, tilted).
+  const at = (h: number): { c: V3; e1: V3; u: V3 } => {
+    const t = Math.min(h, op.length);
+    const phi = t / R;
+    let cx = R * (1 - Math.cos(phi));
+    let cy = R * Math.sin(phi);
+    if (h > op.length) {
+      cx += (h - op.length) * Math.sin(theta);
+      cy += (h - op.length) * Math.cos(theta);
+    }
+    const ph = Math.min(phi, theta);
+    return {
+      c: add(scale(lean, cx), scale(up, cy)),
+      e1: add(scale(lean, Math.cos(ph)), scale(up, -Math.sin(ph))),
+      u: add(scale(up, Math.cos(ph)), scale(lean, Math.sin(ph))),
+    };
+  };
+  const movedVerts = new Set<number>();
+  const pos = g.attrs.find((a) => a.semantic === 'POSITION')!;
+  const nrm = g.attrs.find((a) => a.semantic === 'NORMAL')!;
+  for (let i = 0; i < g.count; i++) {
+    const p = g.pos(i);
+    const ox = p[0] - op.axis[0];
+    const oz = p[2] - op.axis[1];
+    if (Math.hypot(ox, oz) > op.radius || p[1] <= op.y0) continue;
+    const h = p[1] - op.y0;
+    const a = ox * lean[0] + oz * lean[2];
+    const b = ox * perp[0] + oz * perp[2];
+    const f = at(h);
+    const q = add(add(add([op.axis[0], op.y0, op.axis[1]] as V3, f.c), scale(f.e1, a)), scale(perp, b));
+    pos.data[3 * i] = q[0];
+    pos.data[3 * i + 1] = q[1];
+    pos.data[3 * i + 2] = q[2];
+    const n = g.nrm(i);
+    const nl = n[0] * lean[0] + n[2] * lean[2];
+    const nb = n[0] * perp[0] + n[2] * perp[2];
+    const m = norm(add(add(scale(f.e1, nl), scale(f.u, n[1])), scale(perp, nb)));
+    nrm.data[3 * i] = m[0];
+    nrm.data[3 * i + 1] = m[1];
+    nrm.data[3 * i + 2] = m[2];
+    movedVerts.add(i);
+  }
+  if (movedVerts.size === 0) throw new Error(`bendMast: no vertex of ${op.mesh} within ${op.radius} m of the axis (${op.axis}) above y ${op.y0}`);
+  // faces touched: any corner bent
+  let faces = 0;
+  for (let f = 0; f < g.faces; f++) if (g.tri(f).some((v) => movedVerts.has(v))) faces++;
+  return faces;
+}
+
 /** Resolves once meshoptimizer's WASM is up; `applyDamagePass` refuses a `simplify` before it. */
 let simplifierUp = false;
 export const damagePassReady: Promise<void> = MeshoptSimplifier.ready.then(() => {
@@ -719,9 +780,11 @@ export function applyDamagePass(doc: Document, vehicleId: string, ops: readonly 
                 ? dropTyre(g, op, frame, wheels, liveRubber())
                 : op.verb === 'snapRotor'
                   ? snapRotor(g, op, frame)
-                  : op.verb === 'simplify'
-                    ? simplify(g, op)
-                    : blowOut(g, op);
+                  : op.verb === 'bendMast'
+                    ? bendMast(g, op)
+                    : op.verb === 'simplify'
+                      ? simplify(g, op)
+                      : blowOut(g, op);
       reports.push({ verb: op.verb, mesh: source, faces });
     }
     g.compact();

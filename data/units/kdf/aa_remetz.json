@@ -1,0 +1,60 @@
+{
+  "id": "aa_remetz",
+  "name": "Remetz Laser Carrier",
+  "blurb": "A laser that burns small drones out of the air, and goes dark behind smoke or a wall.",
+  "faction": "kdf",
+  "role": "aa",
+  "cost": {
+    "logistics": 350,
+    "build_time_s": 30,
+    "population": 2
+  },
+  "unlock": {
+    "roe_rating_min": 85,
+    "price": 470
+  },
+  "hull": {
+    "hp": 1100,
+    "armor": {
+      "front": 40,
+      "side": 25,
+      "rear": 20
+    },
+    "crew": 3,
+    "suppression_resistance": 0.75
+  },
+  "mobility": {
+    "speed_tiles_s": 1.6,
+    "turn_rate_deg_s": 95,
+    "wheeled": true,
+    "gear": "wheels"
+  },
+  "sensors": {
+    "optics": 1.4,
+    "sight_tiles": 12,
+    "thermal": true,
+    "signature": 0.9,
+    "firing_signature_mult": 1.5
+  },
+  "weapons": [
+    {
+      "id": "beam",
+      "type": "directed_energy",
+      "range_tiles": 9,
+      "effective_range_tiles": 9,
+      "accuracy": 1.0,
+      "penetration": 5,
+      "damage": 80,
+      "rof_per_min": 40,
+      "can_target": [
+        "air"
+      ],
+      "collateral_risk": 0.0,
+      "beam": {
+        "dwell_s": 1.5,
+        "heat_s": 12,
+        "cooldown_s": 6
+      }
+    }
+  ]
+}

@@ -45,6 +45,7 @@ import {
   TUNNEL_XRAY_BEAM_RENDER_ORDER,
   ZONE_BAND_RENDER_ORDER,
   SUPPLY_ROUTE_RENDER_ORDER,
+  SWARM_ROTOR_RENDER_ORDER,
 } from './render-order';
 
 describe('render order bands', () => {
@@ -213,11 +214,20 @@ describe('render order bands', () => {
     expect(SUPPLY_ROUTE_RENDER_ORDER).not.toBe(OVERLAY_RENDER_ORDER);
   });
 
+  // E6 chunk B: the swarm's rotor discs had borrowed TURRET_RENDER_ORDER.
+  it('the swarm rotor discs have a band of their own: over the turret and the selection ring, under every FX band', () => {
+    expect(SWARM_ROTOR_RENDER_ORDER).not.toBe(TURRET_RENDER_ORDER);
+    expect(SWARM_ROTOR_RENDER_ORDER).toBeGreaterThan(TURRET_RENDER_ORDER);
+    expect(SWARM_ROTOR_RENDER_ORDER).toBeGreaterThan(SELECTION_RING_RENDER_ORDER);
+    expect(SWARM_ROTOR_RENDER_ORDER).toBeLessThan(FX_RENDER_ORDER);
+  });
+
   it('every band constant has its row in the table', () => {
     // The table at the top of render-order.ts is the one place a reader
     // finds a band; a constant with no row is a band nobody can reason about.
     const src = readFileSync(fileURLToPath(new URL('./render-order.ts', import.meta.url)), 'utf8');
     const table = src.slice(0, src.indexOf('export const'));
     expect(table).toMatch(/^ \* \| 0\.2 +\| `SUPPLY_ROUTE_RENDER_ORDER`/m);
+    expect(table).toMatch(/^ \* \| 1\.5 +\| `SWARM_ROTOR_RENDER_ORDER`/m);
   });
 });
