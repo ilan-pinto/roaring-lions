@@ -394,7 +394,7 @@ describe('snapshot: restoreSim refuses a different world, before writing anythin
   });
   it('a header tick that disagrees with the stream is refused with the target untouched', () => {
     const b = base.slice();
-    b[22] ^= 1; // simTick follows magic 4, format 2, digest 4, build 2, content 4, matchId 2, frameTick 4
+    b[22] ^= 1; // simTick follows the fixed-width head: magic 4, format 2, schema digest 4, matchDigest 4, contentDigest 4, frameTick 4
     refusedUntouched(runSetup(SEED).sim, b, /tickCount/);
   });
   it('a bad magic', () => {
