@@ -3910,7 +3910,11 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // 2026-10-25, GH-802: Tel Marum III's plan takes the flank and cuts the relay, its carrying
 // secondary. 5953 -> 5993, +40: Tel Marum III 245 -> 285, stars 2 -> 3, roster out 7, no unit lost.
 // Every other mission pays as it did; no outcome or gate moved.
-const LADDER_CREDITS = 5993;
+// 2026-10-25, GH-274 item 5, the swarm missions: 5993 -> 5983, -10. Umm Zeitoun II 220 -> 230 (the swarm is
+// a kill, and it replaces a loiter drone worth less); Wadi Halam III 180 -> 160 (two swarms ride the 170 s
+// wave, and the seed-424242 run loses bodies to them). Both plans build a Remetz now. Every plan still wins
+// on 30 of 30 seeds; no star, outcome or gate moved.
+const LADDER_CREDITS = 5983;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
