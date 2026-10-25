@@ -20,7 +20,9 @@
 // at 92-98% on the zeros alone, though their crests stood in different places. The same
 // reasoning as the feature metric above, which already skips the tiles both maps leave open.
 // Measured on main before this landed: the most alike elevation grids of two DIFFERENT towns
-// are 67.8% (`qarn_hadid` / `umm_zeitoun_*`) over all tiles, so 80% separates nothing honest.
+// were 67.8% (`qarn_hadid` / `umm_zeitoun_*`) over all tiles. Under the non-zero rule (GH-161) the
+// most alike pair of different campaign missions reads about 77%, then 76.8%, 76.3%, 74.2% and
+// 73.7%: the 80% gate still separates them, with a margin of 3 points, not 12.
 // Two grids that are zero everywhere have nothing to tell them apart and read 100%, as before.
 // A map with NO grid is flat by omission and is not compared.
 import { readFileSync } from 'node:fs';
