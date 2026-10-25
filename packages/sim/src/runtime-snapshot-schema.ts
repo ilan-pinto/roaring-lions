@@ -567,18 +567,32 @@ export const RALLY_SNAPSHOT_SCHEMA: readonly RuntimeRow[] = [
  *             constructor rebuilds. A `config` alias is never encoded.
  *   key       how `path` addresses the owner. `self`: it IS the owner (the whole array, an alias of the
  *             row). `index`: it is the element of the owner array at that position, so the codec writes
- *             an index (or null). `config`: the owner is rebuilt, the alias is not written at all.
- *             `closure`: not an object path but a function capturing the owner (see `identity`).
- *   into      for a `config` rule, which side the other path is on: `sim`, `mission`, `ctx` (the
- *             three constructor arguments, matched by the root of the foreign path) or `runtime` (two
- *             config rows of the runtime itself).
+ *             an index (or null). `config`: BOTH sides are config (the row's class is `config`): the
+ *             owner is rebuilt by the constructor and the alias is not written at all. `ctxIndex`: a
+ *             STATE row whose values are objects the context owns (the ledger): the codec writes each
+ *             value as its INDEX in the owner array (`owner`, spelt as the census spells a foreign path,
+ *             `ctx.ledger.roster.surviving_units` for the ledger key of that name), and the restore
+ *             re-links it to the rebuilt context's object at that index, so identity survives. It needs
+ *             `into: 'ctx'`. `closure`: not an object path but a function capturing the owner (see
+ *             `identity`).
+ *   into      which side the other path is on: `sim`, `mission`, `ctx` (the three constructor
+ *             arguments, matched by the root of the foreign path) or `runtime` (two config rows of the
+ *             runtime itself). Required on `config` and `ctxIndex` rules; `sim` and `mission` only ever
+ *             sit on config-class rows.
  *   identity  `'in-place'`: the owner container must keep its identity across a restore, because
  *             something captured it (Task 3 clears and refills it, never reassigns the property).
+ *
+ *   WHAT THE CENSUS CANNOT SEE. It matches rules on normalised paths. A `self` rule whose owner lives inside
+ *   a record (`ZoneIncomeState.spanStore`) is also required to share the alias's concrete parent, so zone 1's
+ *   `cutSpan` cannot be zone 0's `spanStore`. An `index` rule is NOT instance-checked: that `incomeZoneList[k]`
+ *   holds the slot of ITS OWN zone is not proved by the census, and the Task 1 kind check (`refHolds`:
+ *   "an element of `zoneRoutes`") only proves it is some element. The codec writing the real index is what
+ *   preserves it, and Task 3's round trip is what proves that.
  */
 export interface RefRule {
   readonly path: string;
   readonly owner: string;
-  readonly key: 'self' | 'index' | 'config' | 'closure';
+  readonly key: 'self' | 'index' | 'config' | 'ctxIndex' | 'closure';
   readonly into?: 'sim' | 'mission' | 'ctx' | 'runtime';
   readonly identity?: 'in-place';
   readonly note: string;
@@ -623,9 +637,25 @@ export const RUNTIME_REF_RULES: readonly RefRule[] = [
   { path: 'RouteSource.roadMask', owner: 'config', key: 'config', into: 'ctx', note: '`ctx.roadMask`, or null (1141)' },
   { path: 'MissionRuntime.zoneRects[]', owner: 'config', key: 'config', into: 'runtime', note: 'each is the `rect` of the zone record at the same index (1083)' },
   { path: 'ZoneIncomeState.rect', owner: 'config', key: 'config', into: 'runtime', note: 'also held by `zoneRects[k]`' },
-  // --- state that points into the ledger: copied by value, the runtime never mutates the entry ---
-  { path: 'MissionRuntime.rosterPool[]', owner: 'config', key: 'config', into: 'ctx', note: 'the elements of `ctx.ledger[\'roster.surviving_units\']` (1044, a shallow copy of the list); restored by value: the runtime only reads an entry (4110) and copies the unfielded ones at the end (4131)' },
-  { path: 'MissionRuntime.entityRoster.get()', owner: 'config', key: 'config', into: 'ctx', note: 'a pool entry a `from_ledger` placement drew (3239, 3281); restored by value, read-only like the pool' },
+  // --- STATE that points into the ledger: encoded as an index into the ledger array, re-linked on restore ---
+  // Both rows are state (the pool is spliced at 3239, the map grows at 3281), so they are written; what they
+  // hold is an object of `ctx` (config), which the runtime only reads (4110) and copies (4131, 4111-4123): no
+  // assignment to an entry anywhere in mission.ts, and `rosterEntryOf` hands it out as Readonly. A pool is a
+  // shallow copy of the ledger list (1044) that is only ever spliced, so every value is an element of that list.
+  {
+    path: 'MissionRuntime.rosterPool[]',
+    owner: 'ctx.ledger.roster.surviving_units',
+    key: 'ctxIndex',
+    into: 'ctx',
+    note: 'each pool entry IS an element of `ctx.ledger[\'roster.surviving_units\']`: write its index in that array (identity is by object, so the index is of that very element), re-link to the rebuilt ctx\'s element on restore',
+  },
+  {
+    path: 'MissionRuntime.entityRoster.get()',
+    owner: 'ctx.ledger.roster.surviving_units',
+    key: 'ctxIndex',
+    into: 'ctx',
+    note: 'an entry a `from_ledger` placement drew out of the pool (3239, 3281): the same ledger element; write its index, re-link on restore',
+  },
 ];
 
 /** Every owned record's row set, by name. */

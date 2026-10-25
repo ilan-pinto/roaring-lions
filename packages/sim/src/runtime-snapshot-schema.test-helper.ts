@@ -305,13 +305,29 @@ export interface Alias {
 
 const FOREIGN_DEPTH = 14;
 
-/** Every object reachable from the Sim, the mission and the context, with the first path it was found at. */
-function foreignObjects(rt: MissionRuntime, sim: Sim): Map<object, string> {
+/** A typed array's backing buffer, or null for anything else. */
+const bufferOf = (v: object): ArrayBuffer | SharedArrayBuffer | null => (ArrayBuffer.isView(v) ? v.buffer : null);
+
+interface Foreign {
+  /** Every object reachable from the Sim, the mission and the context, with the first path it was found at. */
+  readonly objects: Map<object, string>;
+  /** Every typed array among them, by backing buffer: two views over one buffer are one piece of memory. */
+  readonly views: Map<object, Map<object, string>>;
+}
+
+function foreignObjects(rt: MissionRuntime, sim: Sim): Foreign {
   const out = new Map<object, string>();
+  const views = new Map<object, Map<object, string>>();
   const rtp = props(rt);
   const visit = (v: unknown, path: string, depth: number): void => {
     if (v === null || typeof v !== 'object' || out.has(v) || depth > FOREIGN_DEPTH) return;
     out.set(v, path);
+    const buf = bufferOf(v);
+    if (buf !== null) {
+      let m = views.get(buf);
+      if (m === undefined) views.set(buf, (m = new Map()));
+      m.set(v, path);
+    }
     if (ArrayBuffer.isView(v)) return;
     if (v instanceof Map) {
       for (const [k, el] of v) visit(el, `${path}.get(${String(k)})`, depth + 1);
@@ -330,7 +346,7 @@ function foreignObjects(rt: MissionRuntime, sim: Sim): Map<object, string> {
   visit(sim, 'sim', 0);
   visit(rtp.mission, 'mission', 0);
   visit(rtp.ctx, 'ctx', 0);
-  return out;
+  return { objects: out, views };
 }
 
 /**
@@ -393,9 +409,28 @@ export function collectAliases(rt: MissionRuntime, sim: Sim): Alias[] {
   const out: Alias[] = [];
   for (const [obj, list] of reached) {
     const reaches: Reach[] = [...list];
-    const f = foreign.get(obj);
+    const f = foreign.objects.get(obj);
     if (f !== undefined) reaches.push({ path: `foreign:${f}`, concrete: f, cls: 'foreign' });
     if (reaches.length >= 2) out.push({ reaches });
+  }
+  // Two DIFFERENT typed arrays over one buffer (a `subarray`, a `slice`d view of the same memory) are one
+  // piece of memory with two names: an alias the identity walk above cannot see. Reported when the
+  // views are distinct objects (the same view reached twice is already an alias above).
+  const byBuffer = new Map<object, Map<object, Reach[]>>();
+  for (const [obj, list] of reached) {
+    const buf = bufferOf(obj);
+    if (buf === null) continue;
+    let m = byBuffer.get(buf);
+    if (m === undefined) byBuffer.set(buf, (m = new Map()));
+    m.set(obj, [...list]);
+  }
+  for (const [buf, mine] of byBuffer) {
+    const theirs = foreign.views.get(buf);
+    const distinct = new Set<object>([...mine.keys(), ...(theirs?.keys() ?? [])]);
+    if (distinct.size < 2) continue;
+    const reaches: Reach[] = [...mine.values()].flat();
+    for (const path of theirs?.values() ?? []) reaches.push({ path: `foreign:${path}`, concrete: path, cls: 'foreign' });
+    out.push({ reaches });
   }
   return out;
 }
@@ -405,6 +440,9 @@ export const ruleKey = (r: Pick<RefRule, 'path' | 'owner'>): string => `${r.path
 
 /** The path at which the OWNER of a rule is reached: its row, plus `[]` when the alias is one element. */
 const ownerReachPath = (r: RefRule): string => (r.key === 'index' ? `${r.owner}[]` : r.owner);
+
+/** The concrete path of the object that holds this one: everything before the last `.`. */
+const parentOf = (concrete: string): string => concrete.slice(0, concrete.lastIndexOf('.') < 0 ? 0 : concrete.lastIndexOf('.'));
 
 /** Which constructor argument a foreign path belongs to: `foreign:sim.alive` is `sim`. */
 const foreignRoot = (path: string): string => path.slice('foreign:'.length).split(/[.[{]/)[0];
@@ -428,7 +466,6 @@ export interface CensusResult {
 export function explainAliases(aliases: readonly Alias[], rules: readonly RefRule[] = RUNTIME_REF_RULES): CensusResult {
   const unruled: string[] = [];
   const used = new Set<string>();
-  const ruleFor = (path: string, owner: string): RefRule | undefined => rules.find((r) => r.path === path && r.owner === owner);
   for (const alias of aliases) {
     const runtime = alias.reaches.filter((r) => r.cls !== 'foreign');
     const foreign = alias.reaches.filter((r) => r.cls === 'foreign');
@@ -439,8 +476,17 @@ export function explainAliases(aliases: readonly Alias[], rules: readonly RefRul
     if (configSide) {
       const into = foreign.length > 0 ? foreignRoot(foreign[0].path) : 'runtime';
       const need = runtime.filter((r) => (runtime.some((q) => q.cls !== 'config') ? r.cls !== 'config' : true));
-      const got = need.map((r) => ruleFor(r.path, 'config'));
-      if (need.length > 0 && got.every((r) => r !== undefined && r.into === into)) {
+      // A `config` rule for a config-class path; for a STATE path holding a ctx object, a `ctxIndex` rule
+      // whose owner array is the one the foreign path is an element of.
+      const got = need.map((r) =>
+        rules.find(
+          (x) =>
+            x.path === r.path &&
+            x.into === into &&
+            ((x.key === 'config' && r.cls === 'config') || (x.key === 'ctxIndex' && r.cls !== 'config' && foreign.some((f) => f.path.startsWith(`foreign:${x.owner}[`)))),
+        ),
+      );
+      if (need.length > 0 && got.every((r) => r !== undefined)) {
         applied.push(...(got as RefRule[]));
         explained = true;
       }
@@ -450,7 +496,12 @@ export function explainAliases(aliases: readonly Alias[], rules: readonly RefRul
       for (const owner of new Set(runtime.map((r) => r.path))) {
         const owned = rules.filter((r) => r.owner !== 'config' && ownerReachPath(r) === owner);
         const rest = runtime.filter((r) => r.path !== owner || runtime.filter((q) => q.path === owner).length > 1);
-        const covering = rest.map((r) => owned.find((o) => o.path === r.path));
+        // A `self` owner inside a record is instance-checked: the alias and its owner share a concrete parent
+        // (`incomeZoneList[0].cutSpan` with `incomeZoneList[0].spanStore`, not `[1]`'s).
+        const ownerParents = new Set(runtime.filter((q) => q.path === owner).map((q) => parentOf(q.concrete)));
+        const covering = rest.map((r) =>
+          owned.find((o) => o.path === r.path && (o.key !== 'self' || o.owner.startsWith('MissionRuntime.') || ownerParents.has(parentOf(r.concrete)))),
+        );
         if (rest.length > 0 && foreign.length === 0 && covering.every((o) => o !== undefined)) {
           applied.push(...(covering as RefRule[]));
           explained = true;

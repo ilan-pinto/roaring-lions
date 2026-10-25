@@ -613,6 +613,60 @@ function censusOfSimWorlds(): ReturnType<typeof newCensus> {
   return acc;
 }
 
+/** Every complaint about a rule list against the schema. */
+function integrityProblems(rules: readonly RefRule[]): string[] {
+  const paths = schemaPaths();
+  const bad: string[] = [];
+  const seenKeys = new Set<string>();
+  for (const r of rules) {
+    const k = ruleKey(r);
+    if (seenKeys.has(k)) bad.push(`${k}: listed twice`);
+    seenKeys.add(k);
+    if (!paths.has(r.path)) bad.push(`${k}: path names nothing in the schema`);
+    if (r.note.trim() === '') bad.push(`${k}: no note`);
+    const row = paths.get(r.path);
+    if (r.owner === 'config') {
+      if (r.key !== 'config') bad.push(`${k}: a config owner needs key "config"`);
+      if (r.into === undefined) bad.push(`${k}: a config rule says which side it is on (into)`);
+      // "Not written at all" is only true of a config row: a STATE path holding a ctx object is a ctxIndex rule.
+      if (row !== undefined && row.cls !== 'config') bad.push(`${k}: a config rule on a ${row.cls} path (the value must still be written: use ctxIndex)`);
+      continue;
+    }
+    if (r.key === 'config') bad.push(`${k}: key "config" needs the owner "config"`);
+    if (r.key === 'ctxIndex') {
+      if (r.into !== 'ctx') bad.push(`${k}: a ctxIndex rule needs into "ctx"`);
+      if (!r.owner.startsWith('ctx.')) bad.push(`${k}: a ctxIndex owner is a ctx path`);
+      if (row !== undefined && row.cls !== 'state') bad.push(`${k}: ctxIndex is for a state path, found ${row.cls}`);
+      continue;
+    }
+    if (r.into !== undefined) bad.push(`${k}: only a config or ctxIndex rule has "into"`);
+    const owner = paths.get(r.owner);
+    if (owner === undefined) {
+      bad.push(`${k}: owner names nothing in the schema`);
+      continue;
+    }
+    if (owner.cls === 'config') bad.push(`${k}: a state alias is owned by a config row; make it a config rule`);
+    if (r.key === 'index' && owner.kind.t !== 'array') bad.push(`${k}: key "index" needs an array owner, found ${owner.kind.t}`);
+    if (r.key === 'closure' && owner.kind.t !== 'map') bad.push(`${k}: the closure rule captures a container`);
+    if ((r.key === 'closure') !== (r.identity === 'in-place')) bad.push(`${k}: a captured container is restored in place, and only a captured one`);
+  }
+  // Every ref row that names an OBJECT (not a getter or closure) has its rule; a rule on anything else is one of
+  // the documented non-ref aliases.
+  const refRows: string[] = [];
+  const collect = (path: string, k: RuntimeKind): void => {
+    if (k.t === 'ref' && k.to !== 'view') refRows.push(path);
+    else if (k.t === 'array' || k.t === 'set') collect(path, k.of);
+    else if (k.t === 'map') collect(path, k.value);
+  };
+  for (const r of RUNTIME_SNAPSHOT_SCHEMA) collect(`MissionRuntime.${r.name}`, r.kind);
+  for (const n of Object.keys(RUNTIME_ROW_SETS) as RowSetName[]) for (const r of RUNTIME_ROW_SETS[n]) collect(`${n}.${r.name}`, r.kind);
+  const ruled = new Set(rules.map((r) => r.path));
+  for (const p of refRows) if (!ruled.has(p)) bad.push(`${p}: a ref row with no rule`);
+  const NOT_REF_ROWS = ['MissionRuntime.rosterPool[]', 'MissionRuntime.entityRoster.get()', 'MissionRuntime.zoneRects[]', 'ZoneIncomeState.rect', 'RouteSource.fieldFor'];
+  for (const p of ruled) if (!refRows.includes(p) && !NOT_REF_ROWS.includes(p)) bad.push(`${p}: a rule on a path that is neither a ref row nor a documented alias`);
+  return bad;
+}
+
 describe('runtime snapshot schema: the aliasing census', () => {
   it('every object the runtime graph reaches twice has a rule, and every rule explains one (economy, relief and sink worlds)', () => {
     const acc = censusOfSimWorlds();
@@ -623,47 +677,43 @@ describe('runtime snapshot schema: the aliasing census', () => {
   }, 60_000);
 
   it('the rules are well formed: real paths, owners of the right kind, each ref row ruled, no duplicates', () => {
-    const paths = schemaPaths();
-    const bad: string[] = [];
-    const seenKeys = new Set<string>();
-    for (const r of RUNTIME_REF_RULES) {
-      const k = ruleKey(r);
-      if (seenKeys.has(k)) bad.push(`${k}: listed twice`);
-      seenKeys.add(k);
-      if (!paths.has(r.path)) bad.push(`${k}: path names nothing in the schema`);
-      if (r.note.trim() === '') bad.push(`${k}: no note`);
-      if (r.owner === 'config') {
-        if (r.key !== 'config') bad.push(`${k}: a config owner needs key "config"`);
-        if (r.into === undefined) bad.push(`${k}: a config rule says which side it is on (into)`);
-        continue;
-      }
-      if (r.key === 'config') bad.push(`${k}: key "config" needs the owner "config"`);
-      if (r.into !== undefined) bad.push(`${k}: only a config rule has "into"`);
-      const owner = paths.get(r.owner);
-      if (owner === undefined) {
-        bad.push(`${k}: owner names nothing in the schema`);
-        continue;
-      }
-      if (owner.cls === 'config') bad.push(`${k}: a state alias is owned by a config row; make it a config rule`);
-      if (r.key === 'index' && owner.kind.t !== 'array') bad.push(`${k}: key "index" needs an array owner, found ${owner.kind.t}`);
-      if (r.key === 'closure' && owner.kind.t !== 'map') bad.push(`${k}: the closure rule captures a container`);
-      if ((r.key === 'closure') !== (r.identity === 'in-place')) bad.push(`${k}: a captured container is restored in place, and only a captured one`);
-    }
-    // Every ref row that names an OBJECT (not a getter or closure) has its rule; a rule on anything else is one of
-    // the documented non-ref aliases.
-    const refRows: string[] = [];
+    expect(integrityProblems(RUNTIME_REF_RULES)).toEqual([]);
+  });
+
+  it('the integrity spec can fail: a config rule on a state row, an `into: sim` on a state row, a bad ctxIndex', () => {
+    const extra = (r: RefRule): string[] => integrityProblems([...RUNTIME_REF_RULES, r]);
+    expect(extra({ path: 'MissionRuntime.seenVehicle', owner: 'config', key: 'config', into: 'sim', note: 'bogus' })).toContain(
+      'MissionRuntime.seenVehicle -> config: a config rule on a state path (the value must still be written: use ctxIndex)',
+    );
+    expect(extra({ path: 'MissionRuntime.seenVehicle', owner: 'ctx.ledger.roster.surviving_units', key: 'ctxIndex', into: 'sim', note: 'bogus' })).toContain(
+      'MissionRuntime.seenVehicle -> ctx.ledger.roster.surviving_units: a ctxIndex rule needs into "ctx"',
+    );
+    // The shipped roster rules, demoted to config rules, are named.
+    const demoted = RUNTIME_REF_RULES.map((r): RefRule => (r.key === 'ctxIndex' ? { ...r, owner: 'config', key: 'config' } : r));
+    expect(integrityProblems(demoted).filter((p) => p.includes('state path'))).toHaveLength(2);
+  });
+
+  it('the reference rules pin the rows that may hold a function: the ref(view) rows, and nothing else', () => {
+    const views: string[] = [];
     const collect = (path: string, k: RuntimeKind): void => {
-      if (k.t === 'ref' && k.to !== 'view') refRows.push(path);
+      if (k.t === 'ref' && k.to === 'view') views.push(path);
       else if (k.t === 'array' || k.t === 'set') collect(path, k.of);
       else if (k.t === 'map') collect(path, k.value);
     };
     for (const r of RUNTIME_SNAPSHOT_SCHEMA) collect(`MissionRuntime.${r.name}`, r.kind);
     for (const n of Object.keys(RUNTIME_ROW_SETS) as RowSetName[]) for (const r of RUNTIME_ROW_SETS[n]) collect(`${n}.${r.name}`, r.kind);
-    const ruled = new Set(RUNTIME_REF_RULES.map((r) => r.path));
-    for (const p of refRows) if (!ruled.has(p)) bad.push(`${p}: a ref row with no rule`);
-    const NOT_REF_ROWS = ['MissionRuntime.rosterPool[]', 'MissionRuntime.entityRoster.get()', 'MissionRuntime.zoneRects[]', 'ZoneIncomeState.rect', 'RouteSource.fieldFor'];
-    for (const p of ruled) if (!refRows.includes(p) && !NOT_REF_ROWS.includes(p)) bad.push(`${p}: a rule on a path that is neither a ref row nor a documented alias`);
-    expect(bad).toEqual([]);
+    // A new closure-bearing row is a decision: does it capture a container (then it needs a closure rule and an
+    // in-place restore) or only the sim and `this`?
+    expect(views.sort()).toEqual(
+      ['HoldView.entityCount', 'HoldView.isAir', 'HoldView.isDown', 'HoldView.tunnelCount', 'HoldView.ventAt', 'RouteSource.fieldFor'].sort(),
+    );
+    // And no live value in a world is a function anywhere else: the census-world rows that are not `view` hold none.
+    const w = economySetup(ECONOMY_SEED);
+    const fnRows: string[] = [];
+    for (const n of ['holdView', 'routeSource'] as const) {
+      for (const [name, v] of Object.entries(props(props(w.rt)[n]))) if (typeof v === 'function') fnRows.push(`${n}.${name}`);
+    }
+    expect(fnRows.sort()).toEqual(['holdView.isAir', 'holdView.isDown', 'holdView.ventAt', 'routeSource.fieldFor']);
   });
 
   it('exactly one rule asks for a container to be restored in place, and the constructor captures exactly that container', () => {
@@ -680,6 +730,7 @@ describe('runtime snapshot schema: the aliasing census', () => {
     expect(captures).toEqual(['fields = this.corridorFields']);
   });
 });
+
 
 describe('runtime snapshot schema: the aliasing census can fail', () => {
   /** Every alias every sim-package world shows, once per distinct shape. */
@@ -745,6 +796,46 @@ describe('runtime snapshot schema: the aliasing census can fail', () => {
     expect(named).toHaveLength(1);
     expect(named[0]).toContain('MissionRuntime.seenBlocked');
     expect(named[0]).toContain('MissionRuntime.seenVehicle');
+  });
+
+  it('a view of the same memory is an alias: a subarray of a state cache, or of a Sim column, is named', () => {
+    const w = economySetup(ECONOMY_SEED);
+    expect(explainAliases(collectAliases(w.rt, w.sim)).unruled).toEqual([]);
+    // A different typed array over the SAME buffer: no identity in common, one piece of memory.
+    props(w.rt).seenBlocked = (props(w.rt).seenVehicle as Uint8Array).subarray(0);
+    const two = explainAliases(collectAliases(w.rt, w.sim)).unruled;
+    expect(two).toHaveLength(1);
+    expect(two[0]).toContain('MissionRuntime.seenBlocked');
+    expect(two[0]).toContain('MissionRuntime.seenVehicle');
+    const v = economySetup(ECONOMY_SEED);
+    props(v.rt).seenVehicle = v.sim.blocked.subarray(0);
+    const named = explainAliases(collectAliases(v.rt, v.sim)).unruled;
+    expect(named.some((n) => n.includes('MissionRuntime.seenVehicle') && n.includes('foreign:sim.blocked'))).toBe(true);
+  });
+
+  it('a self alias must share its owner\'s record: zone 1\'s cutSpan being zone 0\'s spanStore is named', () => {
+    const r = reliefEconomySetup(RELIEF_ECO_SEED);
+    expect(explainAliases(collectAliases(r.rt, r.sim)).unruled).toEqual([]);
+    const rz = props(r.rt).incomeZoneList as Props[];
+    expect(rz.length).toBeGreaterThan(1);
+    rz[1].cutSpan = rz[0].spanStore;
+    const named = explainAliases(collectAliases(r.rt, r.sim)).unruled;
+    expect(named).toHaveLength(1);
+    expect(named[0]).toContain('incomeZoneList[1].cutSpan');
+    expect(named[0]).toContain('incomeZoneList[0].spanStore');
+  });
+
+  it('a roster alias is explained only by a ctxIndex rule that names the array the entry belongs to', () => {
+    const { rt, sim } = sinkWorld();
+    const aliases = collectAliases(rt, sim);
+    expect(explainAliases(aliases).unruled).toEqual([]);
+    const wrongOwner = RUNTIME_REF_RULES.map((r): RefRule => (r.key === 'ctxIndex' ? { ...r, owner: 'ctx.ledger.some_other_list' } : r));
+    const named = explainAliases(aliases, wrongOwner).unruled;
+    expect(named.some((n) => n.includes('MissionRuntime.rosterPool[]'))).toBe(true);
+    expect(named.some((n) => n.includes('MissionRuntime.entityRoster.get()'))).toBe(true);
+    // And a config rule is not accepted for a state path, whatever it says.
+    const asConfig = RUNTIME_REF_RULES.map((r): RefRule => (r.key === 'ctxIndex' ? { ...r, owner: 'config', key: 'config' } : r));
+    expect(explainAliases(aliases, asConfig).unruled.some((n) => n.includes('MissionRuntime.rosterPool[]'))).toBe(true);
   });
 
   it('a state element that is a config object is named until a config rule says so', () => {
@@ -819,7 +910,7 @@ describe('runtime snapshot schema: the kind checks added in Task 2 can fail', ()
     expect(c).toContain('rt.objectives[0].holdTicks: expected an integer, found boolean false');
   });
 
-  it('every boolean the runtime holds is a bool row: the booleans of the schema are exactly the ones the types declare', () => {
+  it('the bool rows of the schema are exactly this hand-written list (it pins the schema; the live worlds are what prove each one holds a boolean)', () => {
     const bools: string[] = [];
     const walk = (path: string, k: RuntimeKind): void => {
       if (k.t === 'scalar' && k.bool === true) bools.push(path);
