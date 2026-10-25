@@ -221,7 +221,10 @@ describe('the controls, on the local relay (the arena\'s pace 60 and cap 12,000)
       const players: [ArenaPlayer, ArenaPlayer] = rushSeat === 0
         ? [inProcess('rush', rush, { log: () => {} }), inProcess('passive', passive, { log: () => {} })]
         : [inProcess('passive', passive, { log: () => {} }), inProcess('rush', rush, { log: () => {} })];
-      // Seed 8919 (seedOf(1)); was 1000 (seedOf(0)) until vehicle formation ranks went
+      // Seed 48514 (seedOf(6)); was 8919 until tel_marum's seat 1 moved to (29,17) for
+      // the GH-421 Stage 2 rebalance, after which passive beat rush from both seats on
+      // 8919; of seeds 0-11 only 6 is won by rush from both seats, at pace 40 and 60.
+      // Before that: 8919 (seedOf(1)); was 1000 (seedOf(0)) until vehicle formation ranks went
       // 3 deep (GH-421): on 1000 passive beat rush on seat 0 (rush wins only from seat
       // 1). Rush wins from both seats on seeds 1, 2, 7, 8, 9 and 10 of 0-11 at pace 40
       // and at pace 60. Before 1000 it was 40595 (seedOf(5)), until tel_marum's versus
@@ -229,7 +232,7 @@ describe('the controls, on the local relay (the arena\'s pace 60 and cap 12,000)
       // rush on seat 1 on seed 40595. At this pace and cap, of the arena's seeds
       // 0-11, rush wins from both seats on 0, 1, 7, 9 and 10. (Was 3 until seat 0
       // moved to (24,46) on 2026-10-22.)
-      const game = await play(players, { seed: 8919, capTicks: CAP, roundTicks: PACE, timeoutMs: 150_000 });
+      const game = await play(players, { seed: 48514, capTicks: CAP, roundTicks: PACE, timeoutMs: 150_000 });
       expect(game.result.kind).toBe('won');
       if (game.result.kind !== 'won') return;
       expect(game.result.side).toBe(rushSeat);
