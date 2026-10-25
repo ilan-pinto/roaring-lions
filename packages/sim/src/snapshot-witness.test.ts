@@ -352,6 +352,9 @@ describe('snapshot format pin', () => {
     // behaviour changes the state at tick 500. That is not the same trigger as the golden hash:
     // the bytes cover unhashed `state` rows too (the pool keys, fieldLastIssued), so a change to
     // those moves this pin and leaves the golden hash alone, and the other way round.
-    expect(h >>> 0).toBe(923693936);
+    // Was 923693936. The header gained hasRuntime (u8) and the runtime schema digest (u32) in its fixed block
+    // (snapshot S2): this world has no runtime, so the only change is five zero bytes at offsets 39-43. Cutting
+    // exactly those five bytes out of the new bytes reproduces 923693936.
+    expect(h >>> 0).toBe(3686246844);
   });
 });
