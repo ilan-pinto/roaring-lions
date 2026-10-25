@@ -100,12 +100,12 @@ describe('no living state plays its corpse', () => {
     // pass this file in no time: 22 rigged files with a `wreck` -- 18
     // infantry, plus inf_medic_squad (GH-707 P2, 22 Oct), ugv_recon_dog
     // (GH-709 Phase 8), inf_grenadier (Phase 3) and at_nlos_team (Phase 7) --
-    // (the civilians have none; the three officers are held) and 22 vehicles:
+    // (the civilians have none; the three officers are held) and 24 vehicles (Was 23):
     // 16 counted 7 Oct, plus heli_yanshuf (GH-698, 21 Oct), plus the armoured
     // ambulance and the medevac, mbt_lavi_camo and spg_long_range (GH-709, 22 Oct),
-    // and spg_cluster (GH-709 P7).
+    // spg_cluster (GH-709 P7), drone_swarm (E6, GH-274 chunk A1), and aa_remetz (chunk A2).
     expect(WITH_CORPSE.filter((f) => !f.startsWith('vehicles/'))).toHaveLength(22);
-    expect(WITH_CORPSE.filter((f) => f.startsWith('vehicles/'))).toHaveLength(22);
+    expect(WITH_CORPSE.filter((f) => f.startsWith('vehicles/'))).toHaveLength(24);
   });
 
   for (const file of WITH_CORPSE) {

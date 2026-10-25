@@ -1,0 +1,46 @@
+{
+  "request": {
+    "mode": "preview",
+    "prompt": "A single low-poly game-ready six-wheeled armoured truck carrying a beam-director turret, a machine of a fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and military. At rest, level. A flat-faced armoured cab with slit windows; behind it a tall boxy power module with radiator grilles and an exhaust stack; on the rear deck a squat octagonal turret on a short armoured column, its face one large round dark glass aperture in a thick armoured ring, a sensor box on its roof. Six large off-road tyres, side stowage bins. Real-world scale, 7.6 metres long. Olive paint, gunmetal, dark glass. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "negative_prompt": "eight wheels, shipping container, trailer, rocket launcher, missile tubes, gun barrel, open pickup bed",
+    "model_type": "standard",
+    "ai_model": "meshy-6",
+    "topology": "triangle",
+    "target_polycount": 30000,
+    "pose_mode": "",
+    "target_formats": [
+      "glb"
+    ],
+    "origin_at": "bottom"
+  },
+  "response": {
+    "id": "01a16f82-1c48-7713-a22e-3654d3d95cb0",
+    "type": "text-to-3d-preview",
+    "mode": "preview",
+    "name": "",
+    "model_type": "standard",
+    "seed": 3933647235,
+    "prompt": "A single low-poly game-ready six-wheeled armoured truck carrying a beam-director turret, a machine of a fictional army in plain matte olive-drab paint with dark gunmetal fittings, clean and military. At rest, level. A flat-faced armoured cab with slit windows; behind it a tall boxy power module with radiator grilles and an exhaust stack; on the rear deck a squat octagonal turret on a short armoured column, its face one large round dark glass aperture in a thick armoured ring, a sensor box on its roof. Six large off-road tyres, side stowage bins. Real-world scale, 7.6 metres long. Olive paint, gunmetal, dark glass. Plain even lighting, no baked shadows, no ground, no base, no plinth, centred, one object, facing forward. No insignia, flags, patches, text or markings of any kind.",
+    "texture_prompt": "",
+    "texture_image_url": "",
+    "status": "SUCCEEDED",
+    "created_at": 1792872161925,
+    "progress": 100,
+    "started_at": 1792872161932,
+    "finished_at": 1792872232548,
+    "task_error": null,
+    "model_urls": {
+      "glb": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a16f82-1c48-7713-a22e-3654d3d95cb0/output/model.glb?Expires=4946400000&Signature=JPqyOhYS-GpCvt0CNMSkhmJRMkYK7zz80mKrzslvpwRXS5WVfu~f5OTffb6Vjb9vt4Re4uhyW2b6IptCwHF3Ys05q-OSVCV8UbtAPMq3O96hHDpgctJD2eejtR602EhA6860vtETImNjTKcObhLnUxOzrzqD9lFflX0XJWnq70BUEfLZ-U6A4pJZlJud8G76iXiZgPCW8oEI6Yk19kFfL~olAUsROQUaUsYEixEJUIzOD2yOYWxSpaUrDeo0qn404QpsVdKlZQKH0RwTHmQpT9d~ZTPM1BOHUI-pvmQoPgIuBQetrbkfSoDdPxZr498Cv3uiE1zh4dSG~4jPKj23VA__&Key-Pair-Id=K1VGYTHIYLM9UM"
+    },
+    "thumbnail_url": "https://assets.meshy.ai/9d49c873-4c62-43a8-b870-370a59b40019/tasks/01a16f82-1c48-7713-a22e-3654d3d95cb0/output/preview.png?Expires=4946400000&Signature=ONF0Np7mVGWOvbJns69ozVR0oRQ4zWMjNhxOX47TNSawtRSTx5ivWsH-qfW5eQN6-7Ocam~vkN0YNtJhP37L-BgIQgfeY3G~552QmKUQ4EbDCyeo92gGtfFaLD3dtfFddeKGDRlb9X5oUWUzUR6l6hBZb0cis6KVHgEqZVtDwDz3XzNnh7yOhIumV-j~BaqRI9bGNWeYhw6LA3txWdUqoGIF0YWVkLUmKSmaQuPgiDSuAU0u7u2XABnucEiF5yufKLhAjyHnsoIXkCR~v6wQhSmX1Ix4VYXI4I3TeJE~cDpqMSLj1iYosjVa4CXsUBcYKEG1p3sclPeWmbvhnuPOKg__&Key-Pair-Id=K1VGYTHIYLM9UM",
+    "texture_urls": [],
+    "consumed_credits": 20
+  },
+  "consumed_credits": 20,
+  "timestamps": {
+    "created_at": 1792872161925,
+    "started_at": 1792872161932,
+    "finished_at": 1792872232548
+  },
+  "usd_estimated": 0.4
+}

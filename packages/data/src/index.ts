@@ -155,6 +155,10 @@ import motoRpg from '../../../data/units/enemy/moto_rpg.json';
 import chargeSquad from '../../../data/units/enemy/charge_squad.json';
 import paramotor from '../../../data/units/enemy/paramotor.json';
 import loiterDrone from '../../../data/units/enemy/loiter_drone.json';
+// E6 (GH-274) chunk A1: the Sarim swarm, one entity standing for twelve drones.
+import droneSwarm from '../../../data/units/enemy/drone_swarm.json';
+// E6 (GH-274) chunk A2: the Remetz Laser Carrier, the first unit with a `directed_energy` beam.
+import aaRemetz from '../../../data/units/kdf/aa_remetz.json';
 import diggerCrew from '../../../data/units/enemy/digger_crew.json';
 import rocketBattery from '../../../data/units/enemy/rocket_battery.json';
 import sarimRifles from '../../../data/units/enemy/sarim_rifles.json';
@@ -201,6 +205,11 @@ import wreckSmoulder from '../../../data/vfx/wreck_smoulder.json';
 import apsLaunch from '../../../data/vfx/aps_launch.json';
 import demolitionBlast from '../../../data/vfx/demolition_blast.json';
 import smokeDischarge from '../../../data/vfx/smoke_discharge.json';
+// E6 (GH-274) chunk B: a swarm member shot down, thrown by id where it was hit.
+import swarmMemberDown from '../../../data/vfx/swarm_member_down.json';
+// E6 (GH-274) chunk C: the laser carrier's beam. `beam_strike` where a dwell completed, `beam_vent` on a lockout.
+import beamStrike from '../../../data/vfx/beam_strike.json';
+import beamVent from '../../../data/vfx/beam_vent.json';
 
 // The scene-host diorama (2026-09-24-scene-host §3.2/§10): a real map, a
 // camera and a few idle units, standing behind the main menu. One file, one
@@ -459,6 +468,10 @@ export const units = {
   spg_cluster: spgCluster,
   at_nlos_team: atNlosTeam,
   inf_grenadier: infGrenadier,
+  // E6 (GH-274) chunk A1, registered last so no earlier type index moves.
+  drone_swarm: droneSwarm,
+  // E6 chunk A2, registered after it so no earlier type index moves.
+  aa_remetz: aaRemetz,
 } as const;
 
 export type UnitId = keyof typeof units;
@@ -563,6 +576,11 @@ export const vfxEmitters = [
   apsLaunch,
   demolitionBlast,
   smokeDischarge,
+  // E6 (GH-274) chunk B: a swarm member shot down (`SwarmBatch`'s 'down' event), by id.
+  swarmMemberDown,
+  // E6 (GH-274) chunk C: the beam's strike sparks and its overheat vent, by id.
+  beamStrike,
+  beamVent,
 ];
 
 /** Resolve a palette key like "vfx.fire" or "dust.2" to its hex colour. */

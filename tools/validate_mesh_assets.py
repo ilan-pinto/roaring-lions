@@ -290,6 +290,10 @@ TEXTURED_VEHICLE_EXEMPT = {
     # GH-709 Phase 7: the Te'o Cluster Howitzer, the Te'o's own bake with a re-laid gun,
     # a brake and a rack UV-pinned into it (tools/vehicles/export_spg_cluster.py).
     "spg_cluster",
+    # E6 (GH-274) chunk A2 (2026-10-25): the Remetz Laser Carrier ships its remesh's own 8k bake (2048 after export)
+    # on hull_hull and hull_rubber; its turret, column and stack are palette parts with no material
+    # (tools/vehicles/export_meshy_remetz.py).
+    "aa_remetz",
 }
 
 # Rigged INFANTRY teams that ship their own Meshy `base_color` bake (GH-286,

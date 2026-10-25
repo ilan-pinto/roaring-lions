@@ -29,6 +29,7 @@ export const RG_NOT_TRACK = -1;
 
 /** A1: the vehicles whose wheels spin (the Namer's are its road wheels). */
 export const RG_SPIN_VEHICLES: readonly string[] = [
+  'aa_remetz',
   'apc_eitan',
   'apc_kipod',
   'gun_truck',
@@ -48,7 +49,8 @@ export const RG_SPIN_VEHICLES: readonly string[] = [
 export const RG_TRACK_VEHICLES: readonly string[] = ['dozer_d9', 'ifv_namer', 'mbt_lavi', 'officer_armour', 'veh_ambulance', 'mbt_lavi_camo', 'spg_long_range', 'spg_cluster'];
 
 /** A9: the vehicles whose front axle steers. */
-export const RG_STEER_VEHICLES: readonly string[] = ['gun_truck', 'jeep_shoded', 'scout_shachaf', 'technical'];
+// E6 (GH-274 chunk A2): the Remetz Laser Carrier's front axle steers like the four 4x4s'.
+export const RG_STEER_VEHICLES: readonly string[] = ['aa_remetz', 'gun_truck', 'jeep_shoded', 'scout_shachaf', 'technical'];
 
 /** A6: the nominal tread pitch, metres. Each side's real pitch is this rounded
  *  so a whole number of bars fits its loop (`loopLength / round(loopLength /

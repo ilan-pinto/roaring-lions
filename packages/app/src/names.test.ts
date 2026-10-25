@@ -4,7 +4,7 @@ import { assignNames, nameKind, type NamesJson } from './names';
 
 const table = namesJson as NamesJson;
 const kindOf = (typeId: string): ReturnType<typeof nameKind> => {
-  const roles: Record<string, string> = { inf_squad: 'infantry', mbt_lavi: 'mbt', recon_drone: 'drone', dozer_d9: 'engineer', heli_peten: 'gunship' };
+  const roles: Record<string, string> = { inf_squad: 'infantry', mbt_lavi: 'mbt', recon_drone: 'drone', dozer_d9: 'engineer', heli_peten: 'gunship', aa_remetz: 'aa' };
   return nameKind({ id: typeId, role: roles[typeId] ?? 'infantry' }, table);
 };
 
@@ -15,6 +15,8 @@ describe('nameKind', () => {
     expect(kindOf('recon_drone')).toBe('task');
     expect(kindOf('heli_peten')).toBe('task');
     expect(kindOf('dozer_d9')).toBe('vehicle');
+    // E6 chunk A2: the laser carrier is a wheeled truck with role `aa`, which no vehicle role names, so the id does.
+    expect(kindOf('aa_remetz')).toBe('vehicle');
   });
 
   it('names the scout car by its recon role, not the squad fallback', () => {

@@ -79,6 +79,10 @@ export const WRECK_RECIPES: Readonly<Record<string, WreckRecipe>> = {
   // The Meshy Shachaf (GH-185, 2026-09-30) carries a `turret_pivot` on its
   // roof ring for the kit RWS (`cupola_mg`); the kit build had none.
   scout_shachaf: { hull: 'wheeled', turretPivot: 'turret_pivot', lostWheel: 1 },
+  // E6 (GH-274 chunk A2): the Remetz Laser Carrier, a 6x6 under a beam turret on a column: `turret_pivot`
+  // is thrown (the head, ring, glass and fins; the column and the stack stay in `hull_metal`), and wheel 2
+  // is the rear +Z tyre, as the Kipod's and the Grad's.
+  aa_remetz: { hull: 'wheeled', turretPivot: 'turret_pivot', lostWheel: 2 },
   technical: { hull: 'wheeled', turretPivot: 'turret_pivot', lostWheel: 1 },
   // B2 (GH-179, 2026-09-30): the Meshy gun truck traverses its twin AA gun
   // on a pedestal, so it takes the technical's own recipe; the Sarim
@@ -86,6 +90,9 @@ export const WRECK_RECIPES: Readonly<Record<string, WreckRecipe>> = {
   // its side like the other two air hulls.
   gun_truck: { hull: 'wheeled', turretPivot: 'turret_pivot', lostWheel: 1 },
   loiter_drone: { hull: 'air' },
+  // E6 (GH-274) chunk A1: the Sarim swarm drone (one member), a quadcopter like the two KDF
+  // ones, so it lies on its side; no pivot, its four rotors are static `rotor_rubber`.
+  drone_swarm: { hull: 'air' },
   // The two KDF drones (GH-286 B0a, 2026-09-30). `air` like the Peten: a
   // downed drone lies on its side. No pivot of any kind -- a quadcopter has
   // four rotors and a file carries one `rotor_pivot`, so the rotors are

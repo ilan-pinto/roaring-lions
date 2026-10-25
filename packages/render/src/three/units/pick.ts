@@ -69,10 +69,13 @@ export function pickUnit(
   radiusTiles = PICK_RADIUS_TILES,
   reachX = 0,
   reachY = 0,
-  pickable: (i: number) => boolean = () => true
+  pickable: (i: number) => boolean = () => true,
+  radiusFloor?: (i: number) => number
 ): number {
   let best = -1;
-  let bestD = radiusTiles * radiusTiles;
+  // With a floor, each unit has its own limit, so the best is tracked from infinity and the
+  // limit is checked per unit. Without one this is exactly the loop it always was.
+  let bestD = radiusFloor ? Infinity : radiusTiles * radiusTiles;
   let bestFeet = Infinity;
   const reach2 = reachX * reachX + reachY * reachY;
   for (let i = 0; i < entityCount; i++) {
@@ -92,6 +95,10 @@ export function pickUnit(
     const dx = fx - t * reachX;
     const dy = fy - t * reachY;
     const d = dx * dx + dy * dy;
+    if (radiusFloor) {
+      const r = Math.max(radiusTiles, radiusFloor(i));
+      if (d > r * r) continue;
+    }
     // Two bodies under one pixel (one figure standing in front of another):
     // the nearer feet win, which is the rule this had before bodies.
     if (d < bestD || (d === bestD && feet < bestFeet)) {
@@ -134,6 +141,9 @@ export const PICK_BODY_HEIGHT_TILES = 0.6;
  * 1.2 by default. An ORDER asks a tighter radius of the same segment (GH-420,
  * R-23), so a right-click on ground a tile from an enemy stays an order to
  * that ground; one pick, two generosities.
+ *
+ * `radiusFloor` (E6, chunk B) is a per-unit MINIMUM on that radius: a swarm entity stands for a
+ * cloud 1.5 tiles across, so a click anywhere in the cloud picks it even at the order radius.
  */
 export function pickUnitAtScreen(
   px: number,
@@ -149,12 +159,13 @@ export function pickUnitAtScreen(
   cam: Camera,
   vp: Viewport,
   pickable: (i: number) => boolean = () => true,
-  radiusTiles: number = PICK_RADIUS_TILES
+  radiusTiles: number = PICK_RADIUS_TILES,
+  radiusFloor?: (i: number) => number
 ): number {
   const g = screenToWorldThree(px, py, cam, vp, elevation, mapWidth, mapHeight);
   const top = worldToScreenThree(cam.x, cam.y, cam, vp, PICK_BODY_HEIGHT_TILES / WORLD_Y_PER_LIFT_PIXEL);
   const behind = screenToWorldThree(top.x, top.y, cam, vp);
-  return pickUnit(g.x, g.y, curX, curY, alive, tunnelIn, entityCount, radiusTiles, behind.x - cam.x, behind.y - cam.y, pickable);
+  return pickUnit(g.x, g.y, curX, curY, alive, tunnelIn, entityCount, radiusTiles, behind.x - cam.x, behind.y - cam.y, pickable, radiusFloor);
 }
 
 /**

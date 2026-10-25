@@ -8719,6 +8719,12 @@ export class Sim {
     // barrage over a trail routs the occupants and the counter-unit is
     // decorative.
     if (this.tunnelIn[target] >= 0) return;
+    // E6 (GH-274, spec 3.2): a swarm cannot be pinned or routed. Nothing accumulates, so the
+    // pin test in stepUpkeep never fires and the rout clause behind it never runs; a dive is
+    // an ordinary fire and stays open to it however hard it is shot at. (`suppression_resistance`
+    // alone only halves the amount.) Early, before the source is recorded: nothing to run from.
+    const type = this.unitTypes[this.typeIdx[target]];
+    if (type.swarm !== null) return;
     // Only HOSTILE fire is a direction to run from. A unit shaken by its own
     // side's splash would otherwise flee toward the enemy: the GH-291
     // emulation found a playtest gun_truck whose "source" was its own flank.
@@ -8727,7 +8733,6 @@ export class Sim {
       this.suppFromY[target] = srcY;
       this.suppFromSet[target] = 1;
     }
-    const type = this.unitTypes[this.typeIdx[target]];
     let a = fx.mul(amount, type.suppResFactor);
     const vet = this.veterancy[target];
     if (vet > 0) a = fx.mul(a, fx.sub(ONE, vet * VET_SUPP_BONUS));

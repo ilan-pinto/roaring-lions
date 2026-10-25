@@ -78,6 +78,8 @@ export function bucketVisible(unitBucket: RoleBucket, selected: RoleBucket | 'al
 /** Role id -> catalogue key. Not the labels themselves -- see `ROLE_LABEL` below
  *  for why the labels are read lazily instead of resolved from this table once. */
 const ROLE_KEYS: Readonly<Record<string, string>> = {
+  // E6 chunk A2: the Remetz Laser Carrier is the first KDF `aa` unit.
+  aa: 'role.aa',
   apc: 'role.apc',
   artillery: 'role.artillery',
   at_team: 'role.at_team',
@@ -94,10 +96,10 @@ const ROLE_KEYS: Readonly<Record<string, string>> = {
 };
 
 /**
- * The twelve KDF roles (`data/units/kdf/*.json`'s own `role` field), as
+ * The thirteen KDF roles (`data/units/kdf/*.json`'s own `role` field), as
  * lowercase player-facing words. The brigade screen (F2) is the first place
  * that ever printed a raw role id to a player; this is what stops it doing
- * that again the moment a thirteenth role ships. `role.test.ts` pins every
+ * that again the moment a fourteenth role ships. `role.test.ts` pins every
  * role any shipped KDF unit declares against this table.
  *
  * Each property is a GETTER that calls `t()` on ACCESS, not a value resolved once

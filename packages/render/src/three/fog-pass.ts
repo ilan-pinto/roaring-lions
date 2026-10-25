@@ -43,6 +43,18 @@ import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import { hexToLinear, WORLD_PER_LEVEL } from './terrain/shared';
 import { HAZE_FORWARD, HAZE_LOW, HAZE_LOW_LEVELS, HAZE_RAMP_TILES } from './haze';
 import { paletteHex } from './palette-hex';
+import {
+  SHIMMER_K1,
+  SHIMMER_K2,
+  SHIMMER_KX,
+  SHIMMER_MAX_OFFSET_PX,
+  SHIMMER_MAX_SITES,
+  SHIMMER_NORM,
+  SHIMMER_VERTICAL,
+  SHIMMER_W1,
+  SHIMMER_W2,
+  type ShimmerSite,
+} from './shimmer';
 
 export const FOG_NEVER_SEEN = 0.85;
 export const FOG_EXPLORED = 0.4;
@@ -159,9 +171,34 @@ uniform vec3 uHazeTint;
 uniform float uHazeFar;
 uniform float uHazeRef;
 uniform float uHazeAmp;
+uniform vec4 uShimmer[${SHIMMER_MAX_SITES}];
+uniform int uShimmerCount;
+uniform float uShimmerAmp;
+uniform float uShimmerAspect;
+uniform float uShimmerTime;
+uniform vec2 uShimmerPx;
 varying vec2 vUv;
 void main() {
-  vec4 color = texture2D(tDiffuse, vUv);
+  // The beam's heat shimmer (E6 chunk C, spec 6.3): the scene-colour SAMPLE is offset inside each
+  // site's disc, BEFORE the haze and the shroud below touch it, so the shroud dims a shimmered
+  // pixel exactly as it dims any other. uShimmerCount is 0 in every frame without a beam, and the
+  // whole block is skipped: vUv is read unchanged and the frame is bit-identical to one from before
+  // the shimmer existed. \`shimmerOffsetPx\` (shimmer.ts) is this loop body in TypeScript.
+  vec2 rlUv = vUv;
+  if (uShimmerCount > 0) {
+    for (int rlI = 0; rlI < ${SHIMMER_MAX_SITES}; rlI++) {
+      if (rlI >= uShimmerCount) break;
+      vec4 rlS = uShimmer[rlI];
+      vec2 rlD = vec2((vUv.x - rlS.x) * uShimmerAspect, vUv.y - rlS.y) / rlS.z;
+      float rlF = 1.0 - clamp(length(rlD), 0.0, 1.0);
+      rlF = rlF * rlF * (3.0 - 2.0 * rlF);
+      float rlW1 = sin(rlD.y * ${SHIMMER_K1.toFixed(4)} + uShimmerTime * ${SHIMMER_W1.toFixed(4)});
+      float rlW2 = sin(rlD.y * ${SHIMMER_K2.toFixed(4)} - uShimmerTime * ${SHIMMER_W2.toFixed(4)} + rlD.x * ${SHIMMER_KX.toFixed(4)});
+      float rlA = uShimmerAmp * rlS.w * rlF * ${SHIMMER_MAX_OFFSET_PX.toFixed(4)} / ${SHIMMER_NORM.toFixed(8)};
+      rlUv += vec2((rlW1 + 0.5 * rlW2) / 1.5 * rlA, ${SHIMMER_VERTICAL.toFixed(4)} * rlW2 * rlA) * uShimmerPx;
+    }
+  }
+  vec4 color = texture2D(tDiffuse, rlUv);
   float depth = texture2D(tDepth, vUv).x;
   if (depth >= 1.0) { gl_FragColor = color; return; }
   vec4 clip = vec4(vUv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
@@ -223,6 +260,12 @@ export class FogOfWarPass extends Pass {
     uHazeFar: THREE.IUniform<number>;
     uHazeRef: THREE.IUniform<number>;
     uHazeAmp: THREE.IUniform<number>;
+    uShimmer: THREE.IUniform<THREE.Vector4[]>;
+    uShimmerCount: THREE.IUniform<number>;
+    uShimmerAmp: THREE.IUniform<number>;
+    uShimmerAspect: THREE.IUniform<number>;
+    uShimmerTime: THREE.IUniform<number>;
+    uShimmerPx: THREE.IUniform<THREE.Vector2>;
   };
   readonly material: THREE.ShaderMaterial;
   private readonly quad: FullScreenQuad;
@@ -251,6 +294,12 @@ export class FogOfWarPass extends Pass {
       uHazeFar: { value: 0 },
       uHazeRef: { value: HAZE_REF_UNSET },
       uHazeAmp: { value: 1 },
+      uShimmer: { value: Array.from({ length: SHIMMER_MAX_SITES }, () => new THREE.Vector4()) },
+      uShimmerCount: { value: 0 },
+      uShimmerAmp: { value: 1 },
+      uShimmerAspect: { value: 1 },
+      uShimmerTime: { value: 0 },
+      uShimmerPx: { value: new THREE.Vector2(1, 1) },
     };
     this.material = new THREE.ShaderMaterial({
       uniforms: this.uniforms,
@@ -282,6 +331,26 @@ export class FogOfWarPass extends Pass {
     this.uniforms.uHazeTint.value.set(h.tint[0], h.tint[1], h.tint[2]);
     this.uniforms.uHazeFar.value = h.far;
     this.uniforms.uHazeRef.value = h.refLevel;
+  }
+
+  /**
+   * The beam's heat shimmer sites for this frame (E6 chunk C, spec 6.3): at most
+   * `SHIMMER_MAX_SITES`, written every frame - an empty list is `uShimmerCount = 0`, which skips
+   * the whole block. `widthPx`/`heightPx` are the viewport in CSS pixels (the offset's unit);
+   * `timeSec` is the SIM clock. NOT written: `uShimmerAmp`, the `beam-shimmer` debug layer's
+   * switch, which nothing per-frame re-asserts.
+   */
+  setShimmer(sites: readonly ShimmerSite[], widthPx: number, heightPx: number, timeSec: number): void {
+    const n = Math.min(sites.length, SHIMMER_MAX_SITES);
+    const u = this.uniforms;
+    for (let i = 0; i < n; i++) {
+      const s = sites[i];
+      u.uShimmer.value[i].set(s[0], s[1], s[2], s[3]);
+    }
+    u.uShimmerCount.value = n;
+    u.uShimmerAspect.value = widthPx / Math.max(heightPx, 1);
+    u.uShimmerPx.value.set(1 / Math.max(widthPx, 1), 1 / Math.max(heightPx, 1));
+    u.uShimmerTime.value = timeSec;
   }
 
   /** The focus plane's anchor: the camera's look-at point, in world units
