@@ -40,6 +40,7 @@
     "smoke-outline:capture": "tsx src/perf/smoke-outline-captures.ts",
     "support:capture": "tsx src/perf/support-captures.ts",
     "atgm:capture": "tsx src/perf/atgm-captures.ts",
+    "e6:capture": "tsx src/perf/e6-captures.ts",
     "grenade:capture": "tsx src/perf/grenade-captures.ts",
     "tunnel:capture": "tsx src/perf/tunnel-xray-captures.ts",
     "banner:capture": "tsx src/perf/garrison-banner-captures.ts",
