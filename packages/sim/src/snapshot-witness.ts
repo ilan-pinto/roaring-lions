@@ -76,7 +76,8 @@ export interface WitnessHooks<W extends WitnessWorld> {
   /** What the hash is. Defaults to `defaultWitnessHash`: the sim's hash, folded with `runtime.digest()` for a world with a runtime. */
   hash?: (world: W) => number;
   /**
-   * Runs on B right after the restore, before anything is mutated (a caller carrying a runtime copies it here).
+   * Runs on B right after the restore, before anything is mutated (a caller whose driver holds state copies it here;
+   * the runtime is restored by the codec itself and needs no carry).
    * A is exactly at tick T when it runs, in a series too: A has not stepped past T.
    */
   afterRestore?: (b: W, a: W) => void;
@@ -480,8 +481,9 @@ function poisonStateSlot(h: Slot, key: string | number, kind: RuntimeKind, path:
       h[key] = otherString(v, kind.values);
       return;
     case 'array': {
-      // The lazily built works lists are null until something reads them: nothing there to garble.
-      if (v === null) return;
+      // `worksList` is null until something reads it (`worksOfferList` starts as an empty array): nothing there to
+      // garble. Any other array that is null is a bug in the world or the schema, not something to skip.
+      if (v === null && path === 'MissionRuntime.worksList') return;
       if (!Array.isArray(v)) throw new Error(`poisonRuntimeState: ${path} is not an array`);
       for (let i = 0; i < v.length; i++) poisonStateSlot(v as unknown as Slot, i, kind.of, `${path}[]`, sim, out);
       if (kind.len === undefined && !FIXED_COUNT_PATHS.has(path)) v.push(junkOf(kind.of, sim));

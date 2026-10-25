@@ -311,7 +311,7 @@ describe('the driver carry never writes a sim or runtime column', () => {
   }, 60_000);
 });
 
-describe('the runtime carry', () => {
+describe('the driver carry', () => {
   class Box {
     n = 1;
     get derived(): number {

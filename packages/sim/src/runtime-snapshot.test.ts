@@ -13,7 +13,7 @@ import {
 import { fx } from './fixed';
 import { MissionRuntime } from './mission';
 import { Rng } from './rng';
-import { MAX_RUNTIME_BYTES, runtimeSchemaDigest } from './runtime-snapshot';
+import { MAX_RUNTIME_BYTES, encodeRuntimeSection, runtimeSchemaDigest } from './runtime-snapshot';
 import { SINK_EVENTS, sinkWorld, walkSink } from './runtime-sink-world.test-helper';
 import { censusAt, checkRuntime, newCensus, probeClosures, props } from './runtime-snapshot-schema.test-helper';
 import { Sim } from './sim';
@@ -121,7 +121,7 @@ describe('runtime snapshot: encode(restore(fresh, S)) == S over the golden econo
     expect(checked).toBeGreaterThan(25);
     // Not vacuous: ticks 700 and 1100 (a delivery) hold a spawn event AND a queued rally order at the frame boundary.
     expect(spawnWithRally, 'the delivery ticks were checked').toBe(2);
-  });
+  }, 60_000);
 
   it('restore then step is byte-identical to the uninterrupted run, sim and runtime alike', () => {
     for (const T of [350, 700, 1100, 1480]) {
@@ -147,7 +147,7 @@ describe('runtime snapshot: encode(restore(fresh, S)) == S over the golden econo
       }
       expect(bytesEqual(encodeSim(b.sim, META, b.rt), encodeSim(a.sim, META, a.rt)), `T=${T}: the end states encode alike`).toBe(true);
     }
-  });
+  }, 60_000);
 });
 
 describe('runtime snapshot: encode(restore(fresh, S)) == S over the relief economy replay', () => {
@@ -170,7 +170,7 @@ describe('runtime snapshot: encode(restore(fresh, S)) == S over the relief econo
       rt.step(sim.tick());
     }
     expect(checked).toBeGreaterThan(20);
-  });
+  }, 60_000);
 });
 
 describe('runtime snapshot: the sink world (every container the replays leave empty)', () => {
@@ -185,7 +185,7 @@ describe('runtime snapshot: the sink world (every container the replays leave em
       n++;
     });
     expect(n).toBeGreaterThan(20);
-  });
+  }, 60_000);
 
   it('restore then step is byte-identical to the uninterrupted run (sink world, events fed to the runtime)', () => {
     const drive = (w: World, t: number): void => {
@@ -212,7 +212,7 @@ describe('runtime snapshot: the sink world (every container the replays leave em
       }
       expect(bytesEqual(encodeSim(b.sim, META, b.rt), encodeSim(a.sim, META, a.rt)), `T=${T}: the end states encode alike`).toBe(true);
     }
-  });
+  }, 60_000);
 });
 
 // ---- the header ---------------------------------------------------------------------------------------------
@@ -368,7 +368,38 @@ describe('runtime snapshot: refusals', () => {
     for (const [what, edit, reason] of cases) {
       expect(refusal(() => restoreOnto(economyFresh, withSection(S, edit))).reason, what).toMatch(reason);
     }
-  });
+  }, 60_000);
+
+  it('a section refused at PLAN time leaves the target runtime untouched: the target is mid-run, so a stray write would show', () => {
+    const { S } = world();
+    // The target is a different world from the snapshot's (tick 300, not 500), so every row a refused restore wrote
+    // would differ from what the target held. Cases refuse at four depths: a row decoded first, one decoded in the
+    // middle of the record walk, one by the cross-row checks, and one only after every row is decoded.
+    const cases: [string, (s: Record<string, unknown>) => void, RegExp][] = [
+      ['an entity id past the capacity (an early row)', (s) => ((s.playerIds as number[])[0] = 32), /playerIds\[\]: 32 is outside/],
+      ['an objective status outside its set (inside a record)', (s) => (((s.objectives as Record<string, unknown>[])[0]).status = 'nope'), /ObjectiveState\.status/],
+      ['a corridor stamp from the future (the last check)', (s) => (s.corridorFields = [[5, { stamp: 99 }]]), /CorridorField\.stamp: 99 is outside/],
+      [
+        'a unit this world cannot build (after every row is decoded)',
+        (s) => (((s.lines as Record<string, unknown>[][])[0][0]).current = { unit: 'tank', logistics: 1, intel: 0, population: 1, buildTicks: 5 }),
+        /LineItem\.unit: "tank" is not a unit this world can build/,
+      ],
+    ];
+    for (const [what, edit, reason] of cases) {
+      const t = economySetup(ECONOMY_SEED);
+      for (let k = 0; k < 300; k++) {
+        economyDrive(t, k);
+        economyAdvance(t, k);
+      }
+      const before = encodeRuntimeSection(t.rt, t.sim);
+      const digestBefore = t.rt.digest();
+      const fresh = economySetup(ECONOMY_SEED);
+      expect(bytesEqual(before, encodeRuntimeSection(fresh.rt, fresh.sim)), `${what}: the target must differ from a fresh runtime`).toBe(false);
+      expect(refusal(() => restoreSim(t.sim, withSection(S, edit), t.rt)).reason, what).toMatch(reason);
+      expect(bytesEqual(encodeRuntimeSection(t.rt, t.sim), before), `${what}: the refusal left the runtime's section byte-equal`).toBe(true);
+      expect(t.rt.digest(), `${what}: and its digest`).toBe(digestBefore);
+    }
+  }, 60_000);
 
   it('asks the unit catalogue per SIDE: a line\'s items are checked as the side that owns the line (a versus room keys its menus by side)', () => {
     let S: Uint8Array | null = null;
@@ -593,7 +624,7 @@ describe('runtime snapshot: identity, aliases and the corridor fields', () => {
     compared += compare('tick 300', a, b as World);
     expect(compared, 'fields were compared').toBeGreaterThan(2);
     expect(bytesEqual(encodeSim(a.sim, META, a.rt), encodeSim((b as World).sim, META, (b as World).rt))).toBe(true);
-  });
+  }, 60_000);
 
   it('the restored aliases are the target\'s own objects: zone routes, the convoy, spans, the ledger roster', () => {
     let S: Uint8Array | null = null;

@@ -320,6 +320,15 @@ describe('poison: the runtime\'s state rows, before the restore', () => {
     expect(writes, 'the garbage (the negation of false), then the restored value').toEqual([true, false]);
   }, 60_000);
 
+  it('a null array is skipped only for the lazily built works list; any other null array is a thrown error', () => {
+    const w = SINK_WORLD.hooks.build();
+    const rt = props(w.runtime);
+    rt.worksList = null;
+    expect(() => poisonRuntimeState(w.runtime)).not.toThrow();
+    rt.firedTriggers = null;
+    expect(() => poisonRuntimeState(w.runtime)).toThrow(/MissionRuntime\.firedTriggers is not an array/);
+  }, 60_000);
+
   it('a restore that wrote nothing is red: the poisoned runtime is left in place after the restore', () => {
     for (const spec of [ECONOMY_WORLD, SINK_WORLD]) {
       const v = fork(spec, spec === SINK_WORLD ? 100 : 700, {
@@ -438,12 +447,14 @@ describe('runtime self-checks that must stay red', () => {
   }, 60_000);
 
   it('the rosterPool re-linked to copies too (the pool is state: spliced by a from_ledger placement)', () => {
-    selfCheck('rosterPool copies', SINK_WORLD, 20, (b) => {
+    const v = selfCheck('rosterPool copies', SINK_WORLD, 20, (b) => {
       const pool = props(b.runtime).rosterPool as unknown[];
       const before = [...pool];
       for (let i = 0; i < pool.length; i++) pool[i] = JSON.parse(JSON.stringify(pool[i])) as unknown;
       return before.length > 0 && pool.some((x, i) => x !== before[i]);
     });
+    // Pin the REASON: any unrelated red (a mutation that breaks the encoding some other way) must not pass for this one.
+    expect(v.firstDifference ?? '').toMatch(/rosterPool\[\] is not an element of the ledger roster/);
   }, 60_000);
 
   it('a civFlight latch cleared (sink world: both civilians have fled at tick 1)', () => {
