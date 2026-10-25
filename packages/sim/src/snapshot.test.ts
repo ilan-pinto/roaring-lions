@@ -4,7 +4,7 @@ import { ECONOMY_SEED, RIFLES, RUN_SEED, economyAdvance, economyDrive, economySe
 import { Rng } from './rng';
 import { MAX_FLOW_FIELDS, POOL_RESTORE_BUDGET_BYTES, STRIKE_SNAPSHOT_KEYS, Sim, type Command, type UnitTypeJson } from './sim';
 import { SIM_SNAPSHOT_SCHEMA, rowsOf } from './snapshot-schema';
-import { SNAPSHOT_FORMAT, SnapshotRefused, canonicalJson, encodeSim, restoreSim, snapshotSchemaDigest } from './snapshot';
+import { SNAPSHOT_FIXED_HEADER_BYTES, SNAPSHOT_FORMAT, SNAPSHOT_MATCH_DIGEST_OFFSET, SnapshotRefused, canonicalJson, encodeSim, restoreSim, snapshotSchemaDigest } from './snapshot';
 import { forkWitness } from './snapshot-witness';
 import * as simIndex from './index';
 
@@ -171,6 +171,30 @@ describe('snapshot: the byte order is little-endian, pinned', () => {
     expect(hex).not.toContain('01020304');
     // The header: magic, then the format as a little-endian u16.
     expect(Array.from(bytes.subarray(0, 6))).toEqual([0x52, 0x4c, 0x53, 0x53, SNAPSHOT_FORMAT, 0]);
+  });
+});
+
+describe('snapshot: the header is fixed-width first, so the room can read matchDigest without a decoder', () => {
+  const u32At = (b: Uint8Array, at: number): number => new DataView(b.buffer, b.byteOffset, b.byteLength).getUint32(at, true);
+
+  it('matchDigest sits at SNAPSHOT_MATCH_DIGEST_OFFSET, whatever the build and matchId say', () => {
+    const sim = runSetup(SEED).sim;
+    expect(SNAPSHOT_MATCH_DIGEST_OFFSET).toBe(10);
+    const digest = 0xdeadbeef;
+    const none = encodeSim(sim, { matchDigest: digest });
+    const long = encodeSim(sim, { matchDigest: digest, build: 'b'.repeat(200), matchId: 'm'.repeat(250), contentDigest: 7, frameTick: 9 });
+    expect(u32At(none, SNAPSHOT_MATCH_DIGEST_OFFSET)).toBe(digest);
+    expect(u32At(long, SNAPSHOT_MATCH_DIGEST_OFFSET)).toBe(digest);
+    // The first length word (the build's) follows the fixed part, so a longer string moves nothing before it.
+    expect(long[SNAPSHOT_FIXED_HEADER_BYTES] | (long[SNAPSHOT_FIXED_HEADER_BYTES + 1] << 8)).toBe(200);
+    // A neighbour's value does not leak into the word: the digest alone, then everything else.
+    expect(u32At(encodeSim(sim, { contentDigest: 0x11111111, frameTick: 0x22222222 }), SNAPSHOT_MATCH_DIGEST_OFFSET)).toBe(0);
+  });
+
+  it('the decoder returns the same meta from the new layout', () => {
+    const sim = runSetup(SEED).sim;
+    const meta = { build: 'b1', contentDigest: 5, matchId: 'room-7', frameTick: 3, matchDigest: 0xfeedface };
+    expect(restoreSim(runSetup(SEED).sim, encodeSim(sim, meta))).toEqual(meta);
   });
 });
 
@@ -439,10 +463,17 @@ describe('snapshot: other refusals', () => {
     expect(() => encodeSim(sim, { matchId: 'ok \ud83d\ude00' })).not.toThrow();
     const ok = encodeSim(sim, { build: 'x'.repeat(256) });
     const b = ok.slice();
-    // build length u16 sits at 10; make it 257 (and the stream no longer lines up)
-    b[10] = 1;
-    b[11] = 1;
+    // the build length u16 is the first thing after the fixed header; make it 257 (and the stream no longer lines up)
+    b[SNAPSHOT_FIXED_HEADER_BYTES] = 1;
+    b[SNAPSHOT_FIXED_HEADER_BYTES + 1] = 1;
     expect(refusal(() => restoreSim(runSetup(SEED).sim, b)).reason).toMatch(/build/);
+    // and the matchId length follows the build text
+    const m = encodeSim(sim, { build: 'ab', matchId: 'cd' });
+    const at = SNAPSHOT_FIXED_HEADER_BYTES + 2 + 2;
+    expect(m[at]).toBe(2);
+    m[at] = 1;
+    m[at + 1] = 1;
+    expect(refusal(() => restoreSim(runSetup(SEED).sim, m)).reason).toMatch(/matchId/);
   });
 
   it('a count past its capacity is refused', () => {

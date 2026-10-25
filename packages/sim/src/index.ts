@@ -126,4 +126,4 @@ export { FIRE_SUPPORT, FS_AIR_STRIKE, FS_MORTAR_BARRAGE, FS_SMOKE_SCREEN, type F
 // (advance, enqueue, cancel, spendDown) is the runtime's own; nothing outside the sim imports it.
 export { lineContested, type LineItem, type ProductionLine } from './production';
 export { MAX_PRODUCTION_LINES, MAX_LINE_QUEUE } from './tuning';
-export { encodeSim, restoreSim, SNAPSHOT_FORMAT, SnapshotRefused, type SnapshotMeta } from './snapshot';
+export { encodeSim, restoreSim, SNAPSHOT_FORMAT, SNAPSHOT_MATCH_DIGEST_OFFSET, SnapshotRefused, type SnapshotMeta } from './snapshot';

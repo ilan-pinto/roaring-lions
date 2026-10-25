@@ -17,10 +17,13 @@ import { FIRE_SUPPORT_KINDS, MAX_PATROL_WAYPOINTS } from './tuning';
 // byte order is the platform's, so its memory is never copied raw). It is
 // walked off `SIM_SNAPSHOT_SCHEMA`, whose ORDER is the encoding order:
 //
-//   header   'RLSS' | format u16 | schema digest u32 | build (u16 len + UTF-8)
-//            | contentDigest u32 | matchId (u16 len + UTF-8) | frameTick u32
-//            | simTick i32 | capacity u32 | width u32 | height u32
-//            | hasBoulders u8 | matchDigest u32
+//   header   'RLSS' | format u16 | schema digest u32 | matchDigest u32
+//            | contentDigest u32 | frameTick u32 | simTick i32 | capacity u32
+//            | width u32 | height u32 | hasBoulders u8          (39 bytes, fixed)
+//            | build (u16 len + UTF-8) | matchId (u16 len + UTF-8)
+//   Every fixed-width field comes first and the length-prefixed strings last, so
+//   a reader that holds no decoder (the room, spec 5.1) finds `matchDigest` at
+//   `SNAPSHOT_MATCH_DIGEST_OFFSET` whatever the build and matchId say.
 //   columns  every `state` typed array, schema order: u32 length, then elements
 //   scalars  every `state` scalar, schema order: i32, or u8 for a boolean
 //   rng      Rng.state: u32 length, then elements
@@ -111,6 +114,15 @@ export function snapshotSchemaDigest(
   }
   return h;
 }
+
+/**
+ * The byte offset of `matchDigest` (a little-endian u32) in every snapshot: after the magic, the
+ * format and the schema digest, and before anything of variable length. The room reads it at this
+ * offset without parsing the rest (spec 5.1, 5.3). Moving it is a format change.
+ */
+export const SNAPSHOT_MATCH_DIGEST_OFFSET = 4 + 2 + 4;
+/** How many bytes the fixed-width part of the header takes; the build and matchId strings follow it. */
+export const SNAPSHOT_FIXED_HEADER_BYTES = SNAPSHOT_MATCH_DIGEST_OFFSET + 4 + 4 + 4 + 4 + 4 + 4 + 4 + 1;
 
 /** Unsigned, because the header word is read back as a u32. */
 const SCHEMA_DIGEST = snapshotSchemaDigest() >>> 0;
@@ -583,16 +595,17 @@ export function encodeSim(sim: Sim, meta: SnapshotMeta = {}): Uint8Array {
   for (const b of MAGIC) w.u8(b);
   w.u16(SNAPSHOT_FORMAT);
   w.u32(SCHEMA_DIGEST);
-  writeString(w, meta.build ?? '', 'meta.build');
+  // The fixed-width fields first (matchDigest at SNAPSHOT_MATCH_DIGEST_OFFSET), then the strings.
+  w.u32(u32Meta(meta.matchDigest, 'matchDigest'));
   w.u32(u32Meta(meta.contentDigest, 'contentDigest'));
-  writeString(w, meta.matchId ?? '', 'meta.matchId');
   w.u32(u32Meta(meta.frameTick, 'frameTick'));
   w.i32(sim.tickCount);
   w.u32(sim.capacity);
   w.u32(sim.width);
   w.u32(sim.height);
   w.u8(self.hasBoulders ? 1 : 0);
-  w.u32(u32Meta(meta.matchDigest, 'matchDigest'));
+  writeString(w, meta.build ?? '', 'meta.build');
+  writeString(w, meta.matchId ?? '', 'meta.matchId');
 
   const state = rowsOf('state');
   for (const row of typedRows(state)) {
@@ -658,16 +671,16 @@ function restoreInner(sim: Sim, bytes: Uint8Array): Required<SnapshotMeta> {
   if (format !== SNAPSHOT_FORMAT) throw new SnapshotRefused(`format ${format}, this build reads ${SNAPSHOT_FORMAT}`);
   const digest = r.u32();
   if (digest !== SCHEMA_DIGEST) throw new SnapshotRefused('schema digest differs: written by a build with another state table');
-  const build = readString(r, 'build');
+  const matchDigest = r.u32();
   const contentDigest = r.u32();
-  const matchId = readString(r, 'matchId');
   const frameTick = r.u32();
   const simTick = r.i32();
   const capacity = r.u32();
   const width = r.u32();
   const height = r.u32();
   const hasBoulders = r.u8();
-  const matchDigest = r.u32();
+  const build = readString(r, 'build');
+  const matchId = readString(r, 'matchId');
   if (capacity !== sim.capacity) throw new SnapshotRefused(`capacity ${capacity}, this world has ${sim.capacity}`);
   if (width !== sim.width) throw new SnapshotRefused(`width ${width}, this world has ${sim.width}`);
   if (height !== sim.height) throw new SnapshotRefused(`height ${height}, this world has ${sim.height}`);
