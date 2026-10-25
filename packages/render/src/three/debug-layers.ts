@@ -406,6 +406,7 @@ export const DEBUG_LAYERS = [
   'vignette',
   'bloom',
   'skirt',
+  'backdrop',
   'overlays',
   'fog',
   'haze',

@@ -20,6 +20,7 @@ import type { RenderQuality } from './quality';
 // A type from a three-FREE module beside `lighting.ts` (it imports nothing),
 // so this file still reaches neither backend's library.
 import type { LightOverride, TimeOfDay } from './three/time-of-day';
+import type { BackdropSpec } from './three/terrain/backdrop';
 // Three-free too (`three/units/building-fit.ts` imports nothing).
 import type { SupportAirPlan } from './three/support-air';
 import type { BuildingFit } from './three/units/building-fit';
@@ -27,6 +28,7 @@ import type { BuildingFit } from './three/units/building-fit';
 import type { KitTiers, KitTiersBySide } from './three/units/kit-template-key';
 
 export type { LightOverride, TimeOfDay } from './three/time-of-day';
+export type { BackdropSpec } from './three/terrain/backdrop';
 export type { BuildingFit } from './three/units/building-fit';
 
 /** How open ground is grained. Tones are data; mark shape is drawing code. */
@@ -403,6 +405,12 @@ export interface RendererOptions {
    * `shellColors`.
    */
   timeOfDay?: TimeOfDay;
+  /**
+   * PROTOTYPE (Wadi Halam look): the map's `backdrop` block -- valley walls
+   * beyond the map edge (`three/terrain/backdrop.ts`), drawn instead of the
+   * flat skirt. Absent is today's skirt, to the bit. Never read by the sim.
+   */
+  backdrop?: BackdropSpec;
   /**
    * PA-24: a mission's own lift on top of its `timeOfDay` preset (the
    * mission JSON's optional `map.light`). `fill` replaces the hemisphere

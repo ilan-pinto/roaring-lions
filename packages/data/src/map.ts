@@ -87,6 +87,8 @@ export interface MapJson {
   terrain?: string;
   /** Grove species override (GH-322). Absent means the theme's own species. */
   grove?: string;
+  /** PROTOTYPE: valley walls beyond the edge. Presentation only. */
+  backdrop?: MapBackdrop;
   /** Per-tile elevation, one digit 0-9 per tile, same dimensions as `rows`.
    *  Absent means every tile is height 0, which is every map authored before
    *  the elevation milestone. Orthogonal to the terrain symbol on purpose:
@@ -136,7 +138,18 @@ export interface ParsedTunnel {
 export const DECOR = { none: 0, road: 1, grove: 2, knoll: 3, ridge: 4, ditch: 5 } as const;
 export type DecorKind = (typeof DECOR)[keyof typeof DECOR];
 
+/** PROTOTYPE (Wadi Halam look): `map.schema.json`'s `backdrop` block. */
+export interface MapBackdrop {
+  valley: 'ns' | 'ew';
+  crest: number;
+  seed: number;
+  hamlets: number;
+}
+
 export interface ParsedMap {
+  /** PROTOTYPE: the map's valley backdrop, or null. Presentation only --
+   *  never given to Sim. */
+  backdrop?: MapBackdrop | null;
   id: string;
   width: number;
   height: number;
@@ -403,7 +416,7 @@ export function parseMap(json: MapJson): ParsedMap {
       structures.push({ type: typeId, tiles });
     }
   }
-  return { id: json.id, width, height, terrain: terrain as TerrainTheme, grove: grove as GroveSpecies | null, blocked, boulder, boulderCount, cover, decor, elevation, markers, zones, structures, tunnels };
+  return { id: json.id, width, height, terrain: terrain as TerrainTheme, grove: grove as GroveSpecies | null, backdrop: json.backdrop ?? null, blocked, boulder, boulderCount, cover, decor, elevation, markers, zones, structures, tunnels };
 }
 
 /**

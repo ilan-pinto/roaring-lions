@@ -50,6 +50,18 @@
       "enum": ["olive", "desert", "cedar"],
       "description": "Which tree species this map's 'o' grove tiles draw, overriding the terrain theme's own (arid: desert, green: olive, highland: cedar). Presentation only. Absent means the theme's species. Umm Zeitoun sets 'olive': its groves are its olive terraces by name, while the rest of the highland around them grows cedar."
     },
+    "backdrop": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["valley", "crest", "seed", "hamlets"],
+      "description": "PROTOTYPE (Wadi Halam look). Valley walls drawn BEYOND the map edge instead of the flat skirt. Presentation only: read by the app and the renderer, never by the sim. 'valley' is the axis the valley runs along ('ns' = along the rows: walls beyond the west and east edges); 'crest' the wall height in elevation levels; 'hamlets' how many red-roofed hamlets stand on the lower slopes.",
+      "properties": {
+        "valley": { "type": "string", "enum": ["ns", "ew"] },
+        "crest": { "type": "integer", "minimum": 8, "maximum": 80 },
+        "seed": { "type": "integer" },
+        "hamlets": { "type": "integer", "minimum": 0, "maximum": 16 }
+      }
+    },
     "elevation": {
       "type": "array",
       "description": "Per-tile elevation, one digit 0-9 per tile, with the same dimensions as rows. Absent means every tile is height 0. Deliberately orthogonal to the terrain symbol: a symbol table can express ridges but not valleys, and elevation needs both. 0-4 is the practical authoring range -- deeper relief reads as a wall rather than as terrain -- but 0-9 is legal so a dramatic peak needs no format change.",

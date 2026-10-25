@@ -166,6 +166,7 @@ uniform float uNeverSeen;
 uniform float uExplored;
 uniform float uTintGain;
 uniform float uRevealAll;
+uniform float uOffMapSeen;
 uniform vec2 uFocus;
 uniform vec3 uHazeTint;
 uniform float uHazeFar;
@@ -220,7 +221,11 @@ void main() {
   // is left alone.
   v = mix(v, 1.0, uRevealAll);
   vec2 outUv = max(vec2(0.0), max(-tex, tex - vec2(1.0)));
-  v *= 1.0 - clamp(length(outUv * uMapSize) / ${FOG_OFFMAP_FADE_TILES.toFixed(1)}, 0.0, 1.0);
+  // A valley backdrop (terrain/backdrop.ts) fades off-map ground to
+  // uOffMapSeen instead of never-seen. 0 on every other map, where the added
+  // term is an exact +0.0 and the frame is bit-identical to before.
+  float rlOff = clamp(length(outUv * uMapSize) / ${FOG_OFFMAP_FADE_TILES.toFixed(1)}, 0.0, 1.0);
+  v = v * (1.0 - rlOff) + uOffMapSeen * rlOff;
   float dim = v < 0.5 ? mix(uNeverSeen, uExplored, v * 2.0) : mix(uExplored, 0.0, (v - 0.5) * 2.0);
   float lum = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
   vec3 shrouded = lum * uTint * uTintGain;
@@ -255,6 +260,7 @@ export class FogOfWarPass extends Pass {
     uExplored: THREE.IUniform<number>;
     uTintGain: THREE.IUniform<number>;
     uRevealAll: THREE.IUniform<number>;
+    uOffMapSeen: THREE.IUniform<number>;
     uFocus: THREE.IUniform<THREE.Vector2>;
     uHazeTint: THREE.IUniform<THREE.Vector3>;
     uHazeFar: THREE.IUniform<number>;
@@ -289,6 +295,7 @@ export class FogOfWarPass extends Pass {
       uExplored: { value: FOG_EXPLORED },
       uTintGain: { value: FOG_TINT_GAIN },
       uRevealAll: { value: 0 },
+      uOffMapSeen: { value: 0 },
       uFocus: { value: new THREE.Vector2() },
       uHazeTint: { value: new THREE.Vector3() },
       uHazeFar: { value: 0 },

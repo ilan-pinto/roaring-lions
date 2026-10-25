@@ -274,6 +274,7 @@ import {
 import { buildGroundTiled, groundAlbedoSlotsUsed, spliceGround } from './terrain/ground';
 import { decalBaseTone, makeDecalGroundSource, type DecalGroundSource } from './terrain/decal-ground-tone';
 import { buildSkirt, disposeSkirt, setSkirtAlbedo, type SkirtMesh } from './terrain/skirt';
+import { buildBackdrop, disposeBackdrop, BACKDROP_OFFMAP_SEEN, type Backdrop } from './terrain/backdrop';
 import { buildScatterTiled, spliceScatter } from './terrain/scatter';
 import { changedTerrainTiles, spliceMask, terrainBuildState, type TerrainBuildState } from './terrain/incremental';
 import type { TiledMeshData } from './terrain/tiled-mesh';
@@ -2668,6 +2669,13 @@ export class ThreeRenderer implements Renderer {
    * quad. Disposed in `dispose()` with everything else added once here.
    */
   private readonly skirtMesh: SkirtMesh;
+  /** PROTOTYPE: the valley backdrop (`./terrain/backdrop.ts`), built from
+   *  `opts.backdrop` once the elevation is known; null on every other map. */
+  private backdrop: Backdrop | null = null;
+  private backdropLevels: Uint8Array | null | undefined = undefined;
+  private backdropShown = true;
+  /** Read by the prototype's capture tool. */
+  backdropStats: Backdrop['stats'] | null = null;
   /**
    * Phase D readiness fix: `sim.smoke` on screen -- see `smoke-mesh.ts`'s own
    * top comment for the full port account. Unlike the shroud, there is no
@@ -3209,6 +3217,7 @@ export class ThreeRenderer implements Renderer {
     // releases this one.
     this.fogPass = new FogOfWarPass(this.shroud.texture, this.sim.width, this.sim.height);
     this.post.setFogPass(this.fogPass);
+    this.applyBackdropFog();
     // Ground plan 2, Task 9: the dust haze lives in the same pass (R-14).
     this.applyHaze();
     // Task 13: ambient occlusion, AFTER fog -- see `createAoPass` for why
@@ -3625,6 +3634,8 @@ export class ThreeRenderer implements Renderer {
     // The skirt's geometry and material -- added once in the constructor, so
     // no `scene.remove`, exactly like `smokeMesh`/`trailMesh` below.
     disposeSkirt(this.skirtMesh);
+    if (this.backdrop) disposeBackdrop(this.backdrop);
+    this.backdrop = null;
     // A full-map `InstancedMesh`, same "added once in the constructor, no
     // scene.remove needed" reasoning as every mesh above (terrain,
     // particles, tracers): this dispose() sequence never removes those from
@@ -4009,6 +4020,16 @@ export class ThreeRenderer implements Renderer {
         const was = this.bloomPass?.enabled ?? false;
         if (this.bloomPass) this.bloomPass.enabled = visible;
         return this.bloomPass === null || was === visible ? 0 : 1;
+      }
+      case 'backdrop': {
+        // PROTOTYPE A/B: the backdrop off is today's frame -- skirt back,
+        // off-map fog back to never-seen.
+        if (!this.opts.backdrop) return 0;
+        this.backdropShown = visible;
+        if (this.backdrop) this.backdrop.group.visible = visible;
+        this.skirtMesh.visible = !visible;
+        this.applyBackdropFog();
+        return 1;
       }
       case 'skirt':
         // An ordinary `visible` flag: the skirt is added once in the
@@ -12206,10 +12227,41 @@ export class ThreeRenderer implements Renderer {
    * is now closed in PRACTICE too, not merely in principle -- see
    * `onEvents`'s own doc comment on those two kinds.
    */
+  /** PROTOTYPE: (re)build the valley backdrop when the elevation grid it
+   *  meets has changed (it arrives by `setElevation` after the first
+   *  rebuilds). A collapse never touches the rim, so it never rebuilds. */
+  private syncBackdrop(): void {
+    const spec = this.opts.backdrop;
+    if (!spec) return;
+    if (this.backdrop && this.backdropLevels === this.retained.elevationLevels) return;
+    if (this.backdrop) {
+      this.scene.remove(this.backdrop.group);
+      disposeBackdrop(this.backdrop);
+    }
+    const surf = this.retained.elevation;
+    const w = this.sim.width;
+    const h = this.sim.height;
+    const rim = (x: number, z: number): number =>
+      groundWorldY(surf, w, h, Math.min(w - 0.01, Math.max(0.01, x)), Math.min(h - 0.01, Math.max(0.01, z)));
+    this.backdrop = buildBackdrop(spec, rim, w, h);
+    this.backdropLevels = this.retained.elevationLevels;
+    this.backdropStats = this.backdrop.stats;
+    this.backdrop.group.visible = this.backdropShown;
+    this.scene.add(this.backdrop.group);
+    this.skirtMesh.visible = !this.backdropShown;
+    this.applyBackdropFog();
+  }
+
+  private applyBackdropFog(): void {
+    if (!this.fogPass) return;
+    this.fogPass.uniforms.uOffMapSeen.value = this.opts.backdrop && this.backdropShown ? BACKDROP_OFFMAP_SEEN : 0;
+  }
+
   private rebuildTerrain(): void {
     // The terrace rule reads `sim.blocked`, which changes under this class
     // (a destroyed structure). See `refreshSurface`.
     this.refreshSurface();
+    this.syncBackdrop();
     if (this.terrainMesh) {
       this.scene.remove(this.terrainMesh);
       this.terrainMesh.geometry.dispose();
