@@ -103,9 +103,9 @@ describe('no living state plays its corpse', () => {
     // (the civilians have none; the three officers are held) and 24 vehicles (Was 23):
     // 16 counted 7 Oct, plus heli_yanshuf (GH-698, 21 Oct), plus the armoured
     // ambulance and the medevac, mbt_lavi_camo and spg_long_range (GH-709, 22 Oct),
-    // spg_cluster (GH-709 P7), drone_swarm (E6, GH-274 chunk A1), and aa_remetz (chunk A2).
+    // spg_cluster (GH-709 P7), drone_swarm (E6, GH-274 chunk A1), aa_remetz (chunk A2), and demo_tzav (GH-274, the Tzav landing): 25; was 24.
     expect(WITH_CORPSE.filter((f) => !f.startsWith('vehicles/'))).toHaveLength(22);
-    expect(WITH_CORPSE.filter((f) => f.startsWith('vehicles/'))).toHaveLength(24);
+    expect(WITH_CORPSE.filter((f) => f.startsWith('vehicles/'))).toHaveLength(25);
   });
 
   for (const file of WITH_CORPSE) {

@@ -2,7 +2,7 @@
   "kinds": {
     "task_roles": ["drone", "gunship"],
     "vehicle_roles": ["apc", "ifv", "mbt", "recon"],
-    "vehicle_ids": ["dozer_d9", "aa_remetz"]
+    "vehicle_ids": ["dozer_d9", "aa_remetz", "demo_tzav"]
   },
   "squads": [
     { "name": "Sela", "screened": "2026-09-11" },

@@ -2080,13 +2080,12 @@ describe('showBrigade — Shift+Tab reaches every track’s Buy (GH-243 Minor)',
   });
 });
 
-// E5 Task 7: the special-forces rows. The Zikit and Gunship LANDED (GH-181 part 2); the Tzav is
-// still STAGED until E6, so its fixture is read from the draft. The tag keys on `isBoughtOnly`, never an id list.
+// E5 Task 7: the special-forces rows. The Zikit and Gunship LANDED (GH-181 part 2) and the Tzav
+// with GH-274, so every fixture is read from the shipped JSON. The tag keys on `isBoughtOnly`, never an id list.
 describe('the garage rows — special forces (E5 Task 7)', () => {
-  const draftDir = resolve(__dirname, '../../../../docs/campaign/special_units/e5');
   const shippedDir = resolve(__dirname, '../../../../data/units/kdf');
   const staged = ['recon_zikit', 'demo_tzav', 'heli_peten_gunship'].map((id): BrigadeUnit => {
-    const dir = id === 'demo_tzav' ? draftDir : shippedDir; // Tzav stays staged until E6
+    const dir = shippedDir; // all three E5 units landed (the Tzav with GH-274)
     const raw = JSON.parse(readFileSync(resolve(dir, `${id}.json`), 'utf8')) as {
       name: string;
       role: string;

@@ -10,6 +10,10 @@
 // docs/campaign/special_units/e5/numbers.md. A probe outside its band is a unit to
 // retune (the lead's call, since the numbers were approved), never a band to widen.
 //
+// Probe 3 (GH-274, the Tzav landing) is the placed-charge carrier against the D9 and a
+// `demo_squad` on a defended house; the Tzav is a landed unit now, so it reads from
+// data/units/kdf like the other two and from `@lions/data`'s `units` for the D9.
+//
 // Every seed is fixed. The Peten runs use `targets.ts`'s own airContested seeds, so the
 // Peten column here must equal the "Air is contested by AA" line of `pnpm balance`.
 //
@@ -19,7 +23,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Sim, fx, TICKS_PER_SECOND, type UnitTypeJson } from '@lions/sim';
-import { applyUpgrades, maxTiers, type UpgradableUnit } from '@lions/data';
+import { applyUpgrades, maxTiers, structures, type UpgradableUnit } from '@lions/data';
 import { runBattle, units, unitsAtMaxTier } from './harness';
 
 const WEST = 32768;
@@ -179,12 +183,182 @@ export function detectTable(zikit: UnitTypeJson, seeds = DETECT_SEEDS): DetectTa
 }
 
 // ---------------------------------------------------------------------------
+// Probe 3 (GH-274, closes GH-156): the Tzav on a defended house.
+//   The three demolishers, one at a time, ordered onto a 2x2 `house` held by two garrisoned
+//   `militia_cell`, with one soft bystander (no weapons, 30,000 hp) two tiles from the house
+//   centre, inside the Tzav's 2.5-tile blast. Same map, same seeds, same orders for all three.
+//   What the design promised (E5 spec 1.2) and what each reading answers:
+//     - "exposed 3 s; the D9 must hold 2 s, demo_squad 5 s": `exposedTicks`, the time from
+//       first standing within 3 tiles of the house centre to the job being done (the charge
+//       SET for the Tzav, the house down for the others);
+//     - "the demolition completes after it leaves, or dies": `fell` and `carrierAlive`;
+//     - "the blast damages every soft unit within 2.5 tiles, own infantry included, and the D9
+//       stays the clean tool": `bystanderLost`, the hp the bystander loses on the tick the
+//       house falls (bracketed, so gunfire on the approach is not counted).
+// ---------------------------------------------------------------------------
+export const HOUSE_SEEDS = 20;
+export const HOUSE_CARRIERS = ['demo_tzav', 'dozer_d9', 'demo_squad'] as const;
+export type HouseCarrier = (typeof HOUSE_CARRIERS)[number];
+export const HOUSE_CAP_TICKS = 90 * TICKS_PER_SECOND;
+const HOUSE_W = 40;
+/** The bystander's hp: the garrison shoots it for the whole approach (a 1,000 hp one was dead
+ *  before the Tzav had set its charge), so it carries enough to still stand on the fall tick. */
+const BYSTANDER_HP = 30000;
+/** The house's tiles (24..25, 9..10): centre (25, 10). */
+const HOUSE_TILES = [9 * HOUSE_W + 24, 9 * HOUSE_W + 25, 10 * HOUSE_W + 24, 10 * HOUSE_W + 25];
+const HOUSE_CX = 25;
+const HOUSE_CY = 10;
+/** Standing within this many tiles of the house centre counts as "at the wall". */
+const AT_WALL_TILES = 3;
+
+export interface HouseRun {
+  /** The house came down inside the cap. */
+  fell: boolean;
+  /** Ticks at the wall until the job was done; null if it never got there or never finished. */
+  exposedTicks: number | null;
+  carrierAlive: boolean;
+  /** hp the bystander lost on the tick the house fell (0 if it never fell). */
+  bystanderLost: number;
+  /** Tiles between the carrier and the house centre at the moment it fell. */
+  carrierDistAtFall: number | null;
+  /** Garrison killed by the fall (of 2). */
+  garrisonKilled: number;
+}
+
+export function houseRun(carrierJson: UnitTypeJson, seed: number, withBystander = false): HouseRun {
+  const sim = new Sim({ seed, width: HOUSE_W, height: 20, capacity: 16 });
+  const house = sim.addStructureType(structures.house as Parameters<typeof sim.addStructureType>[0]);
+  const militia = sim.addUnitType(units.militia_cell);
+  const bystander = sim.addUnitType({
+    ...units.inf_squad,
+    id: 'house_bystander',
+    hull: { ...units.inf_squad.hull, hp: BYSTANDER_HP },
+    // Rooted: a soft unit under fire breaks and walks off, and one that left was never inside
+    // the blast. Speed 0 keeps it where the escort would have stood.
+    mobility: { ...units.inf_squad.mobility, speed_tiles_s: 0 },
+    weapons: [],
+  } as UnitTypeJson);
+  const carrierType = sim.addUnitType(carrierJson);
+  const s = sim.addStructure(house, HOUSE_TILES);
+  const defs = [0, 1].map((k) => sim.spawn(militia, 1, fx.from(22.5), fx.from(9.5 + k), WEST));
+  sim.queueCommand({ kind: 'garrison', ids: defs, structure: s });
+  for (let k = 0; k < 300 && defs.some((d) => sim.state.garrisonedIn[d] !== s); k++) sim.tick();
+  const by = withBystander ? sim.spawn(bystander, 0, fx.from(25), fx.from(12.2)) : -1;
+  const carrier = sim.spawn(carrierType, 0, fx.from(4.5), fx.from(9.5));
+  sim.queueCommand({ kind: 'demolish', ids: [carrier], structure: s });
+  const dist = (): number =>
+    Math.hypot(sim.state.posX[carrier] / 65536 - HOUSE_CX, sim.state.posY[carrier] / 65536 - HOUSE_CY);
+  const placed = carrierJson.demolition_method === 'placed';
+  let arrive: number | null = null;
+  let done: number | null = null;
+  let fell = false;
+  let lost = 0;
+  let atFall: number | null = null;
+  for (let t = 0; t < HOUSE_CAP_TICKS && !fell; t++) {
+    if (arrive === null && sim.state.alive[carrier] === 1 && dist() <= AT_WALL_TILES) arrive = t;
+    const hpBefore = by >= 0 ? sim.state.hp[by] : 0;
+    const aliveBefore = by >= 0 ? sim.state.alive[by] : 0;
+    const dBefore = dist();
+    for (const e of sim.tick()) {
+      if (e.kind === 'chargeSet' && placed && done === null) done = t;
+      if (e.kind === 'structureDestroyed' && e.structure === s) {
+        fell = true;
+        if (!placed && done === null) done = t;
+      }
+    }
+    if (fell) {
+      // The tick's own damage, bracketed: a dead bystander lost whatever it had left.
+      if (by >= 0 && aliveBefore === 1) {
+        lost = fx.toNumber(hpBefore) - (sim.state.alive[by] === 1 ? fx.toNumber(sim.state.hp[by]) : 0);
+      }
+      atFall = sim.state.alive[carrier] === 1 ? dist() : dBefore;
+    }
+  }
+  return {
+    fell,
+    exposedTicks: arrive !== null && done !== null ? done - arrive : null,
+    carrierAlive: sim.state.alive[carrier] === 1,
+    bystanderLost: Math.max(0, lost),
+    carrierDistAtFall: atFall,
+    garrisonKilled: defs.filter((d) => sim.state.alive[d] !== 1).length,
+  };
+}
+
+export interface HouseCase {
+  fell: number;
+  alive: number;
+  /** Median ticks at the wall until the job was done, over the seeds that finished it. */
+  medianExposed: number | null;
+  /** Mean hp the bystander lost on the fall tick, over every seed. */
+  meanBystanderLost: number;
+  /** Seeds in which the bystander lost any hp on the fall tick. */
+  bystanderHurt: number;
+  seeds: number;
+}
+
+export function houseCase(carrierJson: UnitTypeJson, seeds = HOUSE_SEEDS): HouseCase {
+  // Two runs a seed, because the bystander is a decoy: a garrison that is shooting it is not
+  // shooting the carrier (the demo_squad lived 20 of 20 with one beside the house and died 20
+  // of 20 without), so survival and exposure are read from the run with nobody else there,
+  // and the blast from the run with the bystander.
+  const runs: HouseRun[] = [];
+  const blasts: HouseRun[] = [];
+  for (let k = 0; k < seeds; k++) {
+    runs.push(houseRun(carrierJson, 97000 + k));
+    blasts.push(houseRun(carrierJson, 97000 + k, true));
+  }
+  const exposed = runs.map((r) => r.exposedTicks).filter((x): x is number => x !== null).sort((a, b) => a - b);
+  return {
+    fell: runs.filter((r) => r.fell).length,
+    alive: runs.filter((r) => r.carrierAlive).length,
+    medianExposed: exposed.length ? exposed[exposed.length >> 1] : null,
+    meanBystanderLost: blasts.reduce((a, r) => a + r.bystanderLost, 0) / seeds,
+    bystanderHurt: blasts.filter((r) => r.bystanderLost > 0).length,
+    seeds,
+  };
+}
+
+export type HouseTable = Record<HouseCarrier, HouseCase>;
+
+export function houseTable(tzav: UnitTypeJson, seeds = HOUSE_SEEDS): HouseTable {
+  return {
+    demo_tzav: houseCase(tzav, seeds),
+    dozer_d9: houseCase(units.dozer_d9, seeds),
+    demo_squad: houseCase(units.demo_squad, seeds),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // The claims. Each returns the lines that failed; empty means the probe passed.
 // ---------------------------------------------------------------------------
 
 /** "Later than" on medians; a never-found case counts as +Infinity. */
 function laterThan(a: DetectCase, b: DetectCase): boolean {
   return a.median > b.median;
+}
+
+/** Probe 3's claims, each from the design (E5 spec 1.2). Empty means the probe passed. */
+export function houseClaims(t: HouseTable): string[] {
+  const fails: string[] = [];
+  const z = t.demo_tzav;
+  const d = t.dozer_d9;
+  const q = t.demo_squad;
+  // "The demolition completes after it leaves, or dies": the house comes down and the carrier lives.
+  if (z.fell < Math.ceil(0.9 * z.seeds)) fails.push(`tzav brought the house down in ${z.fell}/${z.seeds} seeds`);
+  if (z.alive < Math.ceil(0.9 * z.seeds)) fails.push(`tzav alive at the end in only ${z.alive}/${z.seeds} seeds`);
+  // The soft sapper cannot do the same job alone against a held house.
+  if (!(z.alive > q.alive)) fails.push(`tzav survives (${z.alive}) no more often than demo_squad (${q.alive})`);
+  // "Exposed 3 s; the D9 must hold 2 s": the placed charge costs the carrier more time at the wall.
+  if (z.medianExposed === null || d.medianExposed === null || !(z.medianExposed > d.medianExposed)) {
+    fails.push(`tzav exposed ${z.medianExposed} ticks, not longer than the D9's ${d.medianExposed}`);
+  }
+  // "The blast damages every soft unit within 2.5 tiles, own infantry included; the D9 stays the clean tool."
+  if (z.bystanderHurt < Math.ceil(0.9 * z.seeds)) {
+    fails.push(`tzav hurt the bystander in only ${z.bystanderHurt}/${z.seeds} seeds`);
+  }
+  if (d.meanBystanderLost !== 0) fails.push(`the D9 hurt the bystander (mean ${d.meanBystanderLost} hp)`);
+  if (q.meanBystanderLost !== 0) fails.push(`demo_squad hurt the bystander (mean ${q.meanBystanderLost} hp)`);
+  return fails;
 }
 
 export function airClaims(gunship: AirRates, peten: AirRates): string[] {
@@ -291,7 +465,24 @@ function main(): void {
   }
   console.log('8-tile rows are non-claims (outside militia sight 7 and Zikit weapon range 6).');
 
-  const fails = [...airClaims(g, p), ...maxTierClaims(gMax, pMax), ...detectClaims(d)];
+
+  const tzav = stagedUnit('demo_tzav');
+  const h = houseTable(tzav);
+  console.log('');
+  console.log(
+    `E5 probe 3 -- a defended house (2 militia_cell inside), ${HOUSE_SEEDS} seeds, ${HOUSE_CAP_TICKS / TICKS_PER_SECOND} s cap; ` +
+      'a bystander 2.2 tiles from the centre, rooted and unarmed',
+  );
+  console.log('carrier       fell   alive  median exposed (ticks)  bystander hp lost on the fall tick (mean, hurt/seeds)');
+  for (const c of HOUSE_CARRIERS) {
+    const r = h[c];
+    console.log(
+      `${c.padEnd(13)} ${`${r.fell}/${r.seeds}`.padEnd(6)} ${`${r.alive}/${r.seeds}`.padEnd(6)} ${tk(r.medianExposed).padEnd(23)} ` +
+        `${r.meanBystanderLost.toFixed(1)} (${r.bystanderHurt}/${r.seeds})`,
+    );
+  }
+
+  const fails = [...airClaims(g, p), ...maxTierClaims(gMax, pMax), ...detectClaims(d), ...houseClaims(h)];
   console.log('');
   if (fails.length === 0) {
     console.log('e5 probes: all claims met');

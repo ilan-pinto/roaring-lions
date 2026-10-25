@@ -287,6 +287,13 @@ export const VEHICLE_UNIT_MESHES: Readonly<Record<string, string>> = {
   // (`tools/vehicles/export_meshy_apache_gunship.py`); an air unit on this path.
   heli_peten_gunship: 'vehicles/heli_peten_gunship.glb',
 
+  // GH-274 (closes GH-156): the bought-only Shiryonan Demolition Carrier, a Meshy
+  // text-to-3D export (`tools/vehicles/export_meshy_tzav.py`), textured
+  // (`TEXTURED_VEHICLE_TYPES`), tracks scroll (`running-gear-recipes.ts`), its
+  // kit RWS under `turret_pivot`. It was held until its placed charge
+  // (E6, PR 778) and its probes landed.
+  demo_tzav: 'vehicles/demo_tzav.glb',
+
   // GH-698 (2026-10-21): the UH-60 Yanshuf, an air carrier. Its art landed
   // first (PR 701, held here until the land/lift sim, PR 713); a Meshy export
   // (`tools/vehicles/export_meshy_yanshuf.py`), textured
@@ -526,9 +533,6 @@ export const HELD_MESH_FILES: Readonly<Record<string, string>> = {
   'officer_fires.glb': 'officer_fires (GH-298 Stage 5)',
   'officer_engineer.glb': 'officer_engineer (GH-298 Stage 5)',
   'vehicles/officer_armour.glb': 'officer_armour (GH-298 Stage 5)',
-  // E5 part 2 (GH-181, 2026-10-01): the Tzav's unit JSON is staged and its
-  // placed charge is E6's, so the file waits for E6 to wire it.
-  'vehicles/demo_tzav.glb': 'demo_tzav (GH-181 E5 -> E6; VEHICLE_UNIT_MESHES)',
 };
 
 /**

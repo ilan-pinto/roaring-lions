@@ -97,6 +97,8 @@ export const HP_BAR = { widthPx: 24, heightPx: 3, framePx: 1, frameAlpha: 1 } as
 export const RADIUS_BY_TYPE: Readonly<Record<string, number>> = {
   // dozer_d9 and scout_shachaf re-measured from their A3.2 Meshy exports (GH-185, 2026-09-30).
   // mbt_lavi 1.15 -> 1.35 re-measured after the x1.18 rescale (lead, 2026-10-15).
+  // GH-274: the Shiryonan carrier, from a fresh `tools/src/perf/unit-footprints.ts` run (footprint 1.577 tile).
+  demo_tzav: 1.82,
   mbt_lavi: 1.35, mbt_lavi_camo: 1.51, spg_long_range: 1.55, spg_cluster: 1.55, ifv_namer: 1.61, apc_eitan: 1.49, apc_kipod: 1.56, scout_shachaf: 1.01,
   // B7 (GH-179, 2026-10-01): re-measured from the Meshy figures that replaced the
   // supplied bipeds -- three men in kit's line read narrower than the supplied
@@ -216,6 +218,8 @@ export const ELLIPSE_BY_TYPE: Readonly<Record<string, RingEllipse>> = {
   // GH-709 Phase 7: the Te'o Cluster Howitzer, the Te'o's hull and spades (its rack sits
   // inside them): `tools/src/perf/unit-footprints.ts`, 2026-10-22.
   spg_cluster: { along: 1.57, across: 0.9, offsetAlong: -0.08 },
+  // GH-274: the Shiryonan carrier (8.5 m over the arm and crate), from the same run.
+  demo_tzav: { along: 1.86, across: 1.07, offsetAlong: 0 },
   ifv_namer: { along: 1.61, across: 1.05, offsetAlong: 0 },
   // GH-709: the ambulance's roof box stands inside the Namer's hull footprint, so the same ellipse.
   veh_ambulance: { along: 1.61, across: 1.05, offsetAlong: 0 },

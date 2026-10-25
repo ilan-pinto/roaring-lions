@@ -28,6 +28,7 @@ describe('parseKitDrawcallArgs', () => {
       'aa_remetz',
       'apc_eitan',
       'apc_kipod',
+      'demo_tzav',
       'dozer_d9',
       'gun_truck',
       'ifv_namer',
