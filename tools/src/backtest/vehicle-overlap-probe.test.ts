@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fx } from '@lions/sim';
+import { units } from '@lions/data';
 import {
   boxAt,
   measure,
@@ -16,7 +17,10 @@ import {
  * how often hulls interpenetrate and asserts no level, so this file stays green before and after
  * the vehicle-separation fix. What it does pin is that the probe can see an overlap at all --
  * literal geometry, a stacked pair that must count, a separated pair that must not, a mover
- * driven through a parked hull that must read as MS. Falsified by hand (see the PR).
+ * driven through a parked hull that must read as MS. Since movers-only avoidance (GH-421 Stage 2) a
+ * hull with a footprint no longer drives through a parked one, so the MS fixtures are the cases
+ * where avoidance does not hold it: the valve opening on a head-on block, and a type with no
+ * footprint. A fixture where avoidance works reads as steering, not MS. Falsified by hand (see the PR).
  */
 
 const axis = (cx: number, cy: number, a: number, b: number, turn = 0): Box => ({
@@ -92,13 +96,59 @@ describe('measure (the counter)', () => {
     expect(r.atRest).toBe(0);
     expect(r.pairs).toBe(0);
   });
-  it('a Lavi driven through a parked one reads as MS', () => {
+  // The mover leaves (10.5, 23.5) for (20, 23.5) on beit_sahwan_outskirts; a Lavi is parked at (14.5, y).
+  const drive = (parkedY: number, goalY: number, moverType = 'mbt_lavi', hullMap = hulls, ticks = 200) => {
     const { sim, typeOf, nameOf } = worldOn('beit_sahwan_outskirts', 1);
     const lavi = typeOf.get('mbt_lavi') as number;
-    const a = sim.spawn(lavi, 0, fx.from(10.5), fx.from(23.5), 0);
-    sim.spawn(lavi, 0, fx.from(14.5), fx.from(23.5), 0);
-    sim.queueCommand({ kind: 'move', ids: [a], x: fx.from(20), y: fx.from(23), exact: true });
-    const r = measure('through', sim, nameOf, hulls, 200);
+    let t = typeOf.get(moverType);
+    if (t === undefined) {
+      // A Lavi without its footprint: the sim does not make it avoid anything (a non-participant).
+      const bare = JSON.parse(JSON.stringify((units as Record<string, unknown>).mbt_lavi)) as { id: string; mobility: { footprint?: unknown } };
+      bare.id = moverType;
+      delete bare.mobility.footprint;
+      t = sim.addUnitType(bare as never);
+      nameOf.set(t, moverType);
+    }
+    const a = sim.spawn(t, 0, fx.from(10.5), fx.from(23.5), 0);
+    const b = sim.spawn(lavi, 0, fx.from(14.5), fx.from(parkedY), 0);
+    const parkedAt = [sim.state.posX[b], sim.state.posY[b]];
+    sim.queueCommand({ kind: 'move', ids: [a], x: fx.from(20), y: fx.from(goalY), exact: true });
+    const r = measure('through', sim, nameOf, hullMap, ticks);
+    const arrived = sim.state.posX[a] === fx.from(20) && sim.state.posY[a] === fx.from(goalY) && sim.state.moving[a] === 0;
+    const parkedStill = sim.state.posX[b] === parkedAt[0] && sim.state.posY[b] === parkedAt[1];
+    return { r, arrived, parkedStill };
+  };
+  const bareHulls = new Map(hulls).set('mbt_lavi_bare', hulls.get('mbt_lavi') as never);
+  it('a Lavi driven past a parked one, a tile off its line, steers round it: it arrives, the parked hull never moves, and the overlap stays under 0.15 tile', () => {
+    // Measured at the Stage 2 landing: 16 MS pair-ticks, maxDepth 0.138, deep 0. The control is the same
+    // drive by a Lavi with no footprint, which avoids nothing: 74 MS pair-ticks, maxDepth 0.138 (a tile
+    // off the line is nearly clear of the 1.14 of the two half-widths, so the depth cannot tell the
+    // two apart; the count of pair-ticks in contact can).
+    const { r, arrived, parkedStill } = drive(22.5, 23.5);
+    const control = drive(22.5, 23.5, 'mbt_lavi_bare', bareHulls);
+    expect(arrived).toBe(true);
+    expect(parkedStill).toBe(true);
+    expect(r.mm).toBe(0);
+    expect(r.deep).toBe(0); // the valve (a ghost step through the hull) would put 99 pair-ticks past 0.25
+    expect(r.maxDepth).toBeLessThan(0.15);
+    expect(r.ms).toBeLessThanOrEqual(20);
+    expect(r.ms * 3).toBeLessThan(control.r.ms);
+  });
+  it('a Lavi driven at a parked one head-on is held, then the valve opens and it goes through: that reads as MS', () => {
+    // 2 s (SEP_VALVE_TICKS 40 at +2 a tick blocked) of standing against the nose, then the step is taken.
+    // Measured: arrives at tick 210 of 300; 110 MS pair-ticks, 99 of them deeper than 0.25, maxDepth 0.669.
+    const { r, arrived, parkedStill } = drive(23.5, 23, 'mbt_lavi', hulls, 300);
+    expect(arrived).toBe(true);
+    expect(parkedStill).toBe(true);
+    expect(r.ms).toBeGreaterThan(0);
+    expect(r.mm).toBe(0);
+    expect(r.deep).toBeGreaterThan(0);
+    expect(r.maxDepth).toBeGreaterThan(0.5);
+  });
+  it('a mover with no footprint is driven through a parked Lavi and reads as MS: the counter still sees a pair that avoidance does not hold apart', () => {
+    const { r, arrived, parkedStill } = drive(23.5, 23, 'mbt_lavi_bare', bareHulls, 200);
+    expect(arrived).toBe(true);
+    expect(parkedStill).toBe(true);
     expect(r.ms).toBeGreaterThan(0);
     expect(r.mm).toBe(0);
     expect(r.maxDepth).toBeGreaterThan(1);
