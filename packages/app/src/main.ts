@@ -118,7 +118,7 @@ import { showMenu, showCampaign, showSandbox } from './ui/menu';
 import { showBrigade, type BrigadeUnit, type GarageState } from './ui/brigade';
 import { accountView } from './account-view';
 import { kdfUnlockGate } from './kdf-gate';
-import { coinTiers, grantTestCoins, seedTestCoins, testCoinsParam } from './roar-test';
+import { couponReceived, coinTiers, grantTestCoins, seedTestCoins, testCoinsParam } from './roar-test';
 import { buyWithTestCoins, type CoinHalf } from './ui/stores-model';
 import { CUE_SET } from './ui/garage-model';
 import { upgradePrepass } from './upgrade-prepass';
@@ -166,7 +166,8 @@ import { pauseMenu, type PauseDeps } from './ui/pause';
 import { advance as advanceClock, type Clock } from './shell/clock';
 import { applySettings, loadSettings, saveSettings, settingsBus, type Settings } from './settings';
 import { anyArmed, bindingsFrom, escapeTarget, heldAction, isAction, isTextEntry, keyLabel, overridesOf, passesThroughModal, resolveKey, shouldYieldSpace, supportKeyTarget } from './input/keymap';
-import { buyUnlock, buyUpgrade, redeemCoupon } from './brigade-account';
+import { buyUnlock, buyUpgrade } from './brigade-account';
+import { redeemOnStore } from './coupon-redeem';
 import { sha256Hex } from './sha256';
 import { payVictory } from './campaign-pay';
 import { tierLine } from './ui/grade-copy';
@@ -1129,6 +1130,10 @@ async function main(): Promise<void> {
     if (testGrant !== null && ledgerStore.available) {
       ledgerStore.writeRoarTest(seedTestCoins(ledgerStore.readRoarTest(), testGrant, Date.now()));
     }
+    /** Whether the TEST wallet is live: `?testcoins`, or a coupon that granted
+     *  coins into it. Read afresh each time, so redeeming a code opens it with no
+     *  reload. A wallet nobody filled stays the preview. */
+    const walletLive = (): boolean => testGrant !== null || couponReceived(ledgerStore.readRoarTest());
     /** Which part of the single-player account came from coins. */
     const coinHalf = (): CoinHalf => {
       const account = ledgerStore.readAccount();
@@ -1194,12 +1199,12 @@ async function main(): Promise<void> {
           const r = ledgerStore.readRoarTest();
           return {
             coin: coinHalf(),
-            test: testGrant !== null ? { coins: r.coins, grant: testGrant, receipts: r.receipts } : undefined,
+            test: walletLive() ? { coins: r.coins, grant: testGrant ?? 0, receipts: r.receipts } : undefined,
           };
         },
-        onBuy:
-          testGrant !== null && ledgerStore.available
+        onBuy: ledgerStore.available
             ? (ask) => {
+                if (!walletLive()) return now();
                 const a = accountState();
                 const { account, ok } = buyWithTestCoins(
                   {
@@ -1232,14 +1237,8 @@ async function main(): Promise<void> {
       // until the server ledger (GH-205). No telemetry: the attempt carries the code.
       onRedeem: ledgerStore.available
         ? (code) => {
-            const r = redeemCoupon(ledgerStore.readAccount(), code, coupons, sha256Hex, Date.now());
-            if (!r.ok) return { state: now(), result: r.reason };
-            try {
-              ledgerStore.writeAccount(r.account);
-            } catch {
-              return { state: now(), result: 'failed' as const };
-            }
-            return { state: now(), result: 'ok' as const, credits: r.credits };
+            const out = redeemOnStore(ledgerStore, code, coupons, sha256Hex, Date.now());
+            return { state: now(), ...out };
           }
         : undefined,
       onBuy: ledgerStore.available

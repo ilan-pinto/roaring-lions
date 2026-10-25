@@ -286,24 +286,32 @@ export function startCampaign(account: BrigadeAccount): BrigadeAccount {
   return { ...account, campaign_paid: {} };
 }
 
-/** One coupon as `data/coupons.json` holds it: the SHA-256 of the code, never the code. */
+/** One coupon as `data/coupons.json` holds it: the SHA-256 of the code, never the code.
+ *  An entry grants brigade credits, Roar TEST coins, or both. Several entries may share
+ *  one hash (one code, several grants); each is redeemed once per account on its own id,
+ *  so a grant added later is still claimable by someone who used the code before. */
 export interface Coupon {
   readonly id: string;
   readonly sha256: string;
-  readonly credits: number;
+  readonly credits?: number;
+  readonly coins?: number;
 }
 
 export type Redemption =
-  | { ok: true; account: BrigadeAccount; credits: number; id: string }
+  | { ok: true; account: BrigadeAccount; credits: number; coins: number; ids: string[] }
   | { ok: false; reason: 'unknown' | 'used'; account: BrigadeAccount };
 
 /** Redeem a coupon code (client-side, trust-based until the server ledger, GH-205).
  *  Pure. The code is trimmed and matched CASE-SENSITIVELY against each entry's SHA-256
- *  (`hash` is injected so this module stays free of a hashing dependency). A valid code
- *  grants once per account: the coupon id is recorded in `coupons`, and a second
- *  redemption refuses with `'used'` and returns the account by identity. The grant is a
- *  `source: 'granted'` entry (so `migrateAccount`'s balance bound can explain it) plus a
- *  balance change; `earned_total` is for credits EARNED and does not move. */
+ *  (`hash` is injected so this module stays free of a hashing dependency). EVERY entry
+ *  under that hash not yet redeemed on this account is granted, each once: its id goes
+ *  in `coupons`. A code whose entries are all redeemed refuses with `'used'` and returns
+ *  the account by identity. The credits become one `source: 'granted'` entry per coupon
+ *  (so `migrateAccount`'s balance bound can explain them) plus a balance change;
+ *  `earned_total` is for credits EARNED and does not move. The COINS belong to the Roar
+ *  TEST wallet (`roar-test.ts`, its own key), not to this account: the total comes back
+ *  for the caller to hand to `grantCouponCoins`, so credits never become coins or the
+ *  reverse. */
 export function redeemCoupon(
   account: BrigadeAccount,
   code: string,
@@ -312,18 +320,29 @@ export function redeemCoupon(
   at: number
 ): Redemption {
   const digest = hash(code.trim());
-  const coupon = table.find((c) => c.sha256 === digest);
-  if (coupon === undefined) return { ok: false, reason: 'unknown', account };
-  if (account.coupons.includes(coupon.id)) return { ok: false, reason: 'used', account };
+  const matches = table.filter((c) => c.sha256 === digest);
+  if (matches.length === 0) return { ok: false, reason: 'unknown', account };
+  const fresh = matches.filter((c) => !account.coupons.includes(c.id));
+  if (fresh.length === 0) return { ok: false, reason: 'used', account };
+  let credits = 0;
+  let coins = 0;
+  const grants: Grant[] = [];
+  for (const c of fresh) {
+    const cr = c.credits ?? 0;
+    credits += cr;
+    coins += c.coins ?? 0;
+    if (cr > 0) grants.push({ source: 'granted', amount: cr, couponId: c.id, at });
+  }
   return {
     ok: true,
-    id: coupon.id,
-    credits: coupon.credits,
+    ids: fresh.map((c) => c.id),
+    credits,
+    coins,
     account: {
       ...account,
-      balance: account.balance + coupon.credits,
-      coupons: [...account.coupons, coupon.id],
-      grants: [...account.grants, { source: 'granted', amount: coupon.credits, couponId: coupon.id, at }],
+      balance: account.balance + credits,
+      coupons: [...account.coupons, ...fresh.map((c) => c.id)],
+      grants: [...account.grants, ...grants],
     },
   };
 }

@@ -465,11 +465,13 @@ function receiptsTable(receipts: readonly RoarReceipt[], opts: StoresOptions): H
       `${when.toLocaleDateString()} ${when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
       r.kind === 'grant'
         ? t('stores.receipt.grant')
-        : r.kind === 'unit'
-          ? name(r.unitId)
-          : t('stores.receipt.tier', { name: name(r.unitId), track: t(`garage.track.${r.track}`), tier: r.tier }),
-      r.kind === 'grant' ? t('stores.receipt.plus', { n: r.coins }) : String(r.coins),
-      r.kind === 'grant' ? t('stores.receipt.none') : t('stores.price.credits', { n: r.credits }),
+        : r.kind === 'coupon'
+          ? t('stores.receipt.coupon')
+          : r.kind === 'unit'
+            ? name(r.unitId)
+            : t('stores.receipt.tier', { name: name(r.unitId), track: t(`garage.track.${r.track}`), tier: r.tier }),
+      r.kind === 'grant' || r.kind === 'coupon' ? t('stores.receipt.plus', { n: r.coins }) : String(r.coins),
+      r.kind === 'grant' || r.kind === 'coupon' ? t('stores.receipt.none') : t('stores.price.credits', { n: r.credits }),
     ];
     for (const c of cells) tr.appendChild(el('td', '', c));
     body.appendChild(tr);

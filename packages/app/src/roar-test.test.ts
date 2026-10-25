@@ -6,7 +6,9 @@ import {
   buyTierWithCoins,
   buyUnitWithCoins,
   emptyRoarTest,
+  couponReceived,
   entitlementsOf,
+  grantCouponCoins,
   grantTestCoins,
   loadRoarTest,
   migrateRoarTest,
@@ -77,6 +79,32 @@ describe('the TEST wallet', () => {
     expect(a.entitlements.units).toEqual({ a: { coins: true } });
     expect(a.receipts).toEqual([]);
     expect(migrateRoarTest('garbage')).toEqual(emptyRoarTest());
+  });
+});
+
+describe('coupon coins in the TEST wallet', () => {
+  it('adds the coins, writes a coupon receipt naming the entries, and leaves `seeded` alone', () => {
+    const w = grantCouponCoins(emptyRoarTest(), 100000, ['lead_roar_coins_100k'], 7);
+    expect(w.coins).toBe(100000);
+    expect(w.seeded).toBe(false); // ?testcoins' own first-visit seed still happens
+    expect(w.receipts).toEqual([{ kind: 'coupon', id: '7-1', at: 7, coins: 100000, couponIds: ['lead_roar_coins_100k'] }]);
+    expect(couponReceived(w)).toBe(true);
+    expect(couponReceived(emptyRoarTest())).toBe(false);
+    expect(couponReceived(grantTestCoins(emptyRoarTest(), 500, 1))).toBe(false); // a Grant is not a coupon
+  });
+
+  it('stacks on the coins already held, and the wallet cap still applies', () => {
+    const held = { ...emptyRoarTest(), coins: 950_000 };
+    const w = grantCouponCoins(held, 100000, ['x'], 1);
+    expect(w.coins).toBe(MAX_TEST_COINS);
+    expect(w.receipts[0]).toMatchObject({ kind: 'coupon', coins: 50_000 });
+  });
+
+  it('ignores a non-positive amount, and a coupon receipt survives the round trip', () => {
+    const w = emptyRoarTest();
+    expect(grantCouponCoins(w, 0, ['x'], 1)).toBe(w);
+    const once = grantCouponCoins(w, 30, ['a', 'b'], 2);
+    expect(migrateRoarTest(JSON.parse(JSON.stringify(once)))).toEqual(once);
   });
 });
 

@@ -36,6 +36,7 @@ export const MAX_TEST_COINS = 1_000_000;
 
 export type RoarReceipt =
   | { kind: 'grant'; id: string; at: number; coins: number }
+  | { kind: 'coupon'; id: string; at: number; coins: number; couponIds: string[] }
   | { kind: 'unit'; id: string; at: number; unitId: string; coins: number; credits: number }
   | { kind: 'tier'; id: string; at: number; unitId: string; track: string; tier: number; coins: number; credits: number };
 
@@ -66,6 +67,10 @@ function migrateReceipt(raw: unknown): RoarReceipt | null {
   const { kind, id, at, coins } = raw;
   if (typeof id !== 'string' || !isNonNegInt(at) || !isNonNegInt(coins)) return null;
   if (kind === 'grant') return { kind, id, at, coins };
+  if (kind === 'coupon') {
+    const couponIds = Array.isArray(raw.couponIds) ? raw.couponIds.filter((c): c is string => typeof c === 'string') : [];
+    return { kind, id, at, coins, couponIds };
+  }
   if (typeof raw.unitId !== 'string' || !isNonNegInt(raw.credits)) return null;
   if (kind === 'unit') return { kind, id, at, coins, unitId: raw.unitId, credits: raw.credits };
   if (kind === 'tier' && typeof raw.track === 'string' && isNonNegInt(raw.tier)) {
@@ -137,6 +142,24 @@ export function grantTestCoins(a: RoarTestAccount, n: number, at: number): RoarT
   const added = coins - a.coins;
   if (added === 0) return { ...a, seeded: true };
   return { ...a, coins, seeded: true, receipts: [...a.receipts, { kind: 'grant', id: receiptId(a, at), at, coins: added }] };
+}
+
+/** Coins from a redeemed coupon (`redeemCoupon`'s `coins`): into the same TEST wallet
+ *  the Grant button fills, capped at `MAX_TEST_COINS`, with a `coupon` receipt naming
+ *  the entries. It does NOT mark the wallet `seeded` (that is `?testcoins`' own
+ *  first-visit flag). `couponReceived` is what lets the Stores open without
+ *  `?testcoins`: a wallet only a code can have filled. */
+export function grantCouponCoins(a: RoarTestAccount, n: number, couponIds: readonly string[], at: number): RoarTestAccount {
+  if (!isNonNegInt(n) || n < 1) return a;
+  const coins = Math.min(a.coins + n, MAX_TEST_COINS);
+  const added = coins - a.coins;
+  const receipt: RoarReceipt = { kind: 'coupon', id: receiptId(a, at), at, coins: added, couponIds: [...couponIds] };
+  return { ...a, coins, receipts: [...a.receipts, receipt] };
+}
+
+/** Whether a coupon has ever put coins in this wallet. */
+export function couponReceived(a: RoarTestAccount): boolean {
+  return a.receipts.some((r) => r.kind === 'coupon');
 }
 
 /** `?testcoins`' first visit: seeds the wallet once, never again on a reload. */
