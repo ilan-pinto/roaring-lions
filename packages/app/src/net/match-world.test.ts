@@ -428,12 +428,12 @@ describe('the economy runtime (N3 Task 3)', () => {
 });
 
 describe('the Sarim seat\'s routes (GH-681, T3)', () => {
-  // [map, host factions, the END the Sarim side stands at, that end's route ids, their capacity (LITERALS)]
+  // [map, host factions, the END the Sarim side stands at, that end's route ids, each route's capacity (LITERALS)]
   const CASES = [
-    ['tel_marum', ['kdf', 'sarim'], 'hostile', ['tm_n_west', 'tm_n_east'], 4],
-    ['tel_marum', ['sarim', 'kdf'], 'friendly', ['tm_s_west', 'tm_s_east'], 5],
-    ['wadi_tarfan', ['kdf', 'sarim'], 'hostile', ['wt_h_south', 'wt_h_east'], 2],
-    ['wadi_tarfan', ['sarim', 'kdf'], 'friendly', ['wt_f_north', 'wt_f_west'], 2],
+    ['tel_marum', ['kdf', 'sarim'], 'hostile', ['tm_n_west', 'tm_n_east'], [4, 4]],
+    ['tel_marum', ['sarim', 'kdf'], 'friendly', ['tm_s_west', 'tm_s_east'], [4, 4]],
+    ['wadi_tarfan', ['kdf', 'sarim'], 'hostile', ['wt_h_south', 'wt_h_east'], [2, 3]],
+    ['wadi_tarfan', ['sarim', 'kdf'], 'friendly', ['wt_f_north', 'wt_f_west'], [1, 1]],
   ] as const;
   it.each(CASES)('%s, host %j: exactly the Sarim end\'s routes, owned by the Sarim side, pre-dug, at the capacity the file authors', (map, factions, end, ids, capacity) => {
     const w = buildMatchWorld(config(map, [factions[0], factions[1]], 7));
@@ -444,7 +444,7 @@ describe('the Sarim seat\'s routes (GH-681, T3)', () => {
     for (let r = 0; r < w.sim.tunnelCount; r++) {
       expect(w.map.tunnels[r].id, `positional ${r}`).toBe(ids[r]);
       expect(w.sim.tunnelOwner(r)).toBe(sarimSide);
-      expect(w.sim.tunnelCapacity(r)).toBe(capacity);
+      expect(w.sim.tunnelCapacity(r), `capacity ${r}`).toBe(capacity[r]);
     }
     // Pre-dug: the vent is open from tick 0.
     for (let r = 0; r < w.sim.tunnelCount; r++) expect(w.sim.tnVentOpen[r]).toBe(1);

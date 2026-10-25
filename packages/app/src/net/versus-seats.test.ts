@@ -14,12 +14,12 @@ const seats = (id: MapId) => {
 describe('versusAnchors: the measured versus seats', () => {
   it('stands each measured map on its table entry (literals)', () => {
     expect(seats('beit_sahwan_outskirts')).toEqual([[4, 23], [40, 23]]);
-    expect(seats('tel_marum')).toEqual([[27, 45], [28, 16]]);
+    expect(seats('tel_marum')).toEqual([[27, 45], [29, 17]]);
     expect(seats('wadi_tarfan')).toEqual([[11, 11], [36, 36]]);
   });
 
   it('reads a versus map its own named seats, and the raw JSON the same as the parsed map', () => {
-    expect(seats('milh_flats')).toEqual([[9, 37], [38, 9]]);
+    expect(seats('milh_flats')).toEqual([[9, 38], [38, 9]]);
     for (const id of VERSUS_FAIR_MAPS as MapId[]) {
       const raw = versusAnchors(maps[id]);
       expect([[...raw.friendly], [...raw.hostile]]).toEqual(seats(id));

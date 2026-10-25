@@ -137,11 +137,15 @@ export function economyStreamFrames(): Frame[] {
   at(T.forged, 1, { kind: 'enterTunnel', ids: w.bySide[kdf].slice(0, 2), tunnel: route }); // dropped by every client
   // Two raid and the rest exit while the route holds three or more; on a route that holds
   // fewer, the raid gives up a man so the exit (and the falsification that drops it) still
-  // names a unit that is below. Capacity 2 on Wadi Tarfan (GH-421 rebalance) made it bite.
-  const raiders = Math.min(2, w.sim.tunnelCapacity(route) - 1);
+  // names a unit that is below. Capacity 2 on Wadi Tarfan (GH-421 Stage 1) made it bite. On a
+  // route that holds one (GH-421 Stage 2), that one man raids and then exits: a raid ends
+  // below, so the exit still names a unit there.
+  const cap = w.sim.tunnelCapacity(route);
+  const raiders = Math.max(1, Math.min(2, cap - 1));
+  const exiters = cap === 1 ? foot : foot.slice(raiders);
   at(T.raid, 0, { kind: 'vent', ids: foot.slice(0, raiders), mode: 'raid' });
-  at(T.exit, 0, { kind: 'vent', ids: foot.slice(raiders), mode: 'exit' });
-  at(T.reenter, 0, { kind: 'enterTunnel', ids: foot.slice(raiders), tunnel: route });
+  at(T.exit, 0, { kind: 'vent', ids: exiters, mode: 'exit' });
+  at(T.reenter, 0, { kind: 'enterTunnel', ids: exiters, tunnel: route });
   const byTick = new Map<number, Stamped[]>();
   for (const [tick, s] of entries) byTick.set(tick, [...(byTick.get(tick) ?? []), s]);
   const frames: Frame[] = [];

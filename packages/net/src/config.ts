@@ -120,7 +120,7 @@ export function versusMapAllowed(map: string): boolean {
  *  force on -- and Wadi Tarfan, which was opened on a 48-seed reading inside
  *  sampling noise; at 96 seeds it read outside (GH-769), and it now stands on
  *  measured seats (11,11)/(36,36) in `VERSUS_SEATS` with tunnel route
- *  capacity 2 (3 until 3-deep vehicle ranks, GH-421), reading within 60/40 at 96 seeds on placed force, economy and
+ *  capacities 1 (its friendly pair) and 2 / 3 (its hostile pair; GH-421 Stages 1 and 2), reading within 60/40 at 96 seeds on placed force, economy and
  *  tunnel cell 3 in both spawn orders. Milh Flats is NOT here: Sarim on the west seat lost 33 of 48
  *  (KDF 68.8%), so it is a mirror-only map. The mirror plays on the fair maps
  *  (`VERSUS_FAIR_MAPS`); a non-mirror pairing is narrower still. The lobby

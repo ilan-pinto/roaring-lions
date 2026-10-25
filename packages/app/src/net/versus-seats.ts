@@ -36,6 +36,12 @@ import { sandboxAnchors, type SandboxAnchors } from '../sandbox-anchors';
  *   Under 3-deep vehicle ranks (GH-421) tunnel cell 3 with Sarim on seat 0
  *   read KDF 61 / Sarim 35 (63.5%); the south pair at capacity 5 reads KDF 49 /
  *   Sarim 47 (capacity 2, 3, 4 and 6 read 60.4-63.5%, 6 on the Sarim side).
+ *   Under vehicle avoidance (GH-421 Stage 2) the mirror read east 60 / west
+ *   36 (62.5%) and cell 3 with KDF on seat 0 KDF 65.6%. Seat 1 one tile east
+ *   and one south at (29,17) reads the mirror 48 / 48 and cell 3 KDF 54.2%;
+ *   the south pair back at capacity 4 keeps cell 3 with Sarim on seat 0 at
+ *   Sarim 58.3% and cell 2's Sarim edge (capacity 3 read 51.0% with no edge,
+ *   5 read 67.7%).
  * - `wadi_tarfan` (mirror and KDF-vs-Sarim; the lead's ruling, 23 Oct,
  *   GH-769): its own `versus_0`/`versus_1` markers (10,10)/(37,37) read
  *   KDF-vs-Sarim outside 60/40 at 96 seeds with wounds on (placed force, KDF
@@ -52,12 +58,17 @@ import { sandboxAnchors, type SandboxAnchors } from '../sandbox-anchors';
  *   Under 3-deep vehicle ranks (GH-421) cell 3 with Sarim on seat 0 read
  *   Sarim 60 / KDF 36 (62.5%) at capacity 3; all four routes at capacity 2
  *   read cell 3 Sarim 56.3% / 59.4% (capacity 4 and 5 read 67.7-74.0%).
+ *   Under vehicle avoidance (GH-421 Stage 2) cell 3 with Sarim on seat 0 read
+ *   60.4% and cell 2 with KDF on seat 0 lost its Sarim edge. The friendly pair
+ *   at capacity 1 and the hostile pair at 2 (south) / 3 (east) read cell 3
+ *   Sarim 56.3% / 57.3% with a Sarim edge in cell 2 both ways; the hostile pair
+ *   at 2 / 2 had no edge and at 3 / 3 read 65.6%.
  *
- * - `milh_flats` (mirror only): a dedicated versus map, whose own named seats
- *   (`versus_0` (9,38), `versus_1` (38,9)) the single-player sandbox still
- *   uses. Under 3-deep vehicle ranks (GH-421) its mirror read west 61 /
- *   east 35 at 96 seeds (63.5%). Seat 0 one tile north at (9,37) reads west
- *   49 / east 47; (8,38), (10,38) and (9,39) read 53-54%.
+ * - `milh_flats` (mirror only) has no entry: it stands on its own named seats
+ *   (`versus_0` (9,38), `versus_1` (38,9)). Under 3-deep vehicle ranks
+ *   (GH-421 Stage 1) its mirror read west 63.5% there and seat 0 moved to
+ *   (9,37); under vehicle avoidance (Stage 2) (9,37) read east 62 / west 34
+ *   (64.6%) and the named seats read east 49 / west 47, so the entry went.
  *
  * The reading is sensitive to a tile or two (seat 1 at (38,23) reads west
  * 17 / east 6 at 24 seeds, at (43,24) 3 / 21), so a change to a map's
@@ -66,9 +77,8 @@ import { sandboxAnchors, type SandboxAnchors } from '../sandbox-anchors';
  */
 export const VERSUS_SEATS: Readonly<Record<string, SandboxAnchors>> = {
   beit_sahwan_outskirts: { friendly: [4, 23], hostile: [40, 23] },
-  tel_marum: { friendly: [27, 45], hostile: [28, 16] },
+  tel_marum: { friendly: [27, 45], hostile: [29, 17] },
   wadi_tarfan: { friendly: [11, 11], hostile: [36, 36] },
-  milh_flats: { friendly: [9, 37], hostile: [38, 9] },
 };
 
 /** Where a versus room's two seats stand on `map`: seat 0 on `friendly`,
