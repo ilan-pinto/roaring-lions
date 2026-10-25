@@ -6079,7 +6079,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
         fx.add(fx.fromInt(civRefuge.at[0]), HALF),
         fx.add(fx.fromInt(civRefuge.at[1]), HALF),
       ] as const;
-      civFlight.step(sim, sandboxForce.civilians, sandboxForce.player, refuge);
+      civFlight.step(sim, sandboxForce.civilians, sandboxForce.player, refuge, civRefuge.zone);
       const out = civFlight
         .collect(sim, sandboxForce.civilians, civRefuge.zone)
         .map<MissionEvent>((entity) => ({ kind: 'evacuated', tick: sim.tickCount, entity }));

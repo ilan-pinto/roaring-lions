@@ -205,6 +205,44 @@ describe('CivilianFlight without a mission', () => {
     expect(sim.state.moving[arrived]).toBe(0);
   });
 
+  it('re-orders a stopped civilian standing outside a narrow arrival zone, however near the refuge', () => {
+    // The stall: the guard above is "within 4 tiles of the refuge", a distance
+    // standing in for "arrived". A 1x1 zone makes the stand-in wrong: a porter
+    // pinned two tiles short (against a wall, say) is inside the 4 tiles and
+    // outside the zone, so no order ever reached him and the family was never
+    // counted. Given the zone the rule asks the real question.
+    const { sim, civ, soldier } = world();
+    const porter = civ(32, 30); // two tiles east of the refuge, outside [30,30,1,1]
+    const near = soldier(33, 30);
+    const flight = new CivilianFlight({ shepherd: true });
+    flight.step(sim, [porter], [near], REFUGE, [30, 30, 1, 1]);
+    sim.tick();
+    expect(flight.hasFled(porter)).toBe(true);
+    sim.queueCommand({ kind: 'halt', ids: [porter] });
+    sim.tick();
+    expect(sim.state.moving[porter]).toBe(0);
+    flight.step(sim, [porter], [near], REFUGE, [30, 30, 1, 1]);
+    sim.tick();
+    expect(sim.state.moving[porter]).toBe(1);
+  });
+
+  it('with a zone, does not re-order a civilian already standing inside it', () => {
+    // The other half of the same rule, and the half that keeps it from queueing
+    // a dead command every tick: one tile off the refuge but INSIDE the 4x4
+    // box, so the collector owns him.
+    const { sim, civ, soldier } = world();
+    const arrived = civ(31, 30);
+    const near = soldier(32, 30);
+    const flight = new CivilianFlight({ shepherd: true });
+    flight.step(sim, [arrived], [near], REFUGE, REFUGE_ZONE);
+    sim.tick();
+    sim.queueCommand({ kind: 'halt', ids: [arrived] });
+    sim.tick();
+    flight.step(sim, [arrived], [near], REFUGE, REFUGE_ZONE);
+    sim.tick();
+    expect(sim.state.moving[arrived]).toBe(0);
+  });
+
   it('a drone beside a family does not move it', () => {
     // GH-279 ruling a: an aircraft overhead walks nobody out. The drone is at
     // ONE tile, well inside SHEPHERD_RADIUS_SQ, so only the type can stop it.
