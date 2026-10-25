@@ -1588,6 +1588,16 @@ function distSqFx(dx: Fx, dy: Fx): Fx {
   return (x * x + y * y) | 0;
 }
 
+/** Vehicle-separation diagnostics for tools (GH-421): see `Sim.sepDiag`. */
+export interface SepDiag {
+  on: boolean;
+  count: number;
+  valve: number;
+  arrive: number;
+  log: Int32Array;
+}
+const SEP_DIAG = new WeakMap<object, SepDiag>();
+
 export class Sim {
   readonly width: number;
   readonly height: number;
@@ -1796,7 +1806,16 @@ export class Sim {
   private sepHitStationary = false;
   /** Diagnostics for tools (never hashed, off unless a tool turns it on): a ring of
    *  (tick, unit, kind, blocker) quads, kind 1 = the valve opened, 2 = a leg ended at contact. */
-  readonly sepDiag = { on: false, count: 0, valve: 0, arrive: 0, log: new Int32Array(0) };
+  get sepDiag(): SepDiag {
+    // Kept OFF the instance (a module WeakMap behind a prototype getter), so the snapshot
+    // census never sees it: the sim never reads it, so it is not match state.
+    let d = SEP_DIAG.get(this);
+    if (d === undefined) {
+      d = { on: false, count: 0, valve: 0, arrive: 0, log: new Int32Array(0) };
+      SEP_DIAG.set(this, d);
+    }
+    return d;
+  }
   /** Set for the tick when stepCombat turned a body-aimed hull onto what it is
    *  shooting at, so stepMovement does not simply steer it back. Scratch,
    *  cleared at the top of every stepCombat.

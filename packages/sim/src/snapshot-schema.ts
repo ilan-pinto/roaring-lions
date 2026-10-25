@@ -326,6 +326,24 @@ export const SIM_SNAPSHOT_SCHEMA: readonly SnapshotRow[] = [
   { name: 'eyeX', cls: 'scratch', kind: SCALAR },
   { name: 'eyeY', cls: 'scratch', kind: SCALAR },
   { name: 'spreadTiles', cls: 'scratch', kind: typed('Int32Array', { fixed: 9 }) },
+  // GH-421 vehicle separation, APPENDED (the table is append-only within a format version).
+  // sepWait/sepLast carry a hull's blocked count across ticks and are hashed: state.
+  { name: 'sepWait', cls: 'state', kind: typed('Uint8Array', 'capacity') },
+  { name: 'sepLast', cls: 'state', kind: typed('Uint8Array', 'capacity') },
+  // The bucket grid is rebuilt at the top of every stepMovement before any read.
+  { name: 'sepHead', cls: 'scratch', kind: typed('Int32Array', 'any') },
+  { name: 'sepNext', cls: 'scratch', kind: typed('Int32Array', 'capacity') },
+  // Grid columns, a function of the map width fixed at construction.
+  { name: 'sepCols', cls: 'config', kind: SCALAR },
+  // Capsule scratch and the overlap out-buffer, written before every read.
+  { name: 'sepCap', cls: 'scratch', kind: typed('Int32Array', { fixed: 15 }) },
+  { name: 'sepOut', cls: 'scratch', kind: typed('Int32Array', { fixed: 4 }) },
+  // True once a registered type declares a footprint. addUnitType sets it, which a match boot
+  // repeats, but the rule for a doubtful property is state, and a scalar costs nothing.
+  { name: 'sepLive', cls: 'state', kind: SCALAR },
+  // Written by the blocker test and consumed in the same call chain, every use.
+  { name: 'sepHitStationary', cls: 'scratch', kind: SCALAR },
+
 ];
 
 /** `Rng`'s only own property: one mulberry32 word per entity slot. */
