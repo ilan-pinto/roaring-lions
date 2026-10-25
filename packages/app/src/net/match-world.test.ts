@@ -419,7 +419,8 @@ describe('the economy runtime (N3 Task 3)', () => {
     // Re-pinned for GH-769 (Wadi Tarfan seats (11,11)/(36,36) and tunnel capacity 3; seats and route state are hashed). Was 1960701868 for wadi_tarfan.
     // tel_marum re-pinned 24 Oct 2026 (GH-774): seat 0 moved from (24,46) to (27,45), so the KDF host's spawn moved (this room registers the north routes, whose capacity did not change). Was -147026323.
     // Re-pinned 25 Oct 2026 for GH-421 Stage 2 (vehicle avoidance): the columns sepWait and sepLast join the hash and nothing else moved (with their hashArray lines removed the old values read back). Was -1498380144 (tel_marum) and -1972637780 (wadi_tarfan).
-    const VERSUS_ECONOMY_PINS = [['tel_marum', -502812528], ['wadi_tarfan', 955375532]] as const;
+    // tel_marum re-pinned for its seat 1 at (29,17) (GH-421 Stage 2 rebalance): so the Sarim spawn moved; the north routes this room registers are unchanged. Was -502812528.
+    const VERSUS_ECONOMY_PINS = [['tel_marum', 750746188], ['wadi_tarfan', 955375532]] as const;
     for (const [map, pin] of VERSUS_ECONOMY_PINS) {
       const w = buildMatchWorld(config(map, ['kdf', 'sarim'], 20260727));
       run(w, 200);
