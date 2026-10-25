@@ -11,7 +11,7 @@
 // version mirrors; the runtime half builds through `missionStage`, the app's own world.
 import { describe, expect, it } from 'vitest';
 import { units } from '@lions/data';
-import { MissionRuntime, loanedPlacements, resolveUpgrades, type UnlockGate } from '../../packages/sim/src';
+import { MissionRuntime, loanedPlacements, loanedReinforcements, resolveUpgrades, type UnlockGate } from '../../packages/sim/src';
 import { missionStage } from './mission-harness';
 import { kdfUnlockGate } from './backtest/playtest-run';
 
@@ -59,5 +59,13 @@ describe('wadi_halam_5_depot on an empty ledger', () => {
     const jeep = byType('jeep_shoded');
     expect(jeep.length).toBe(1);
     expect(rt.isOnLoan(jeep[0])).toBe(false);
+  });
+
+  // GH-801: the second demo_squad (trigger 1, placement 0) sits behind the same Conduct 77 gate as
+  // the loaned starting one, and now goes back to the lender with it. Literals, not read off the data.
+  it('lends the second engineer team too, until Conduct 77 is earned', () => {
+    expect([...loanedReinforcements(stage.mission, {}, gateOf)]).toEqual(['1:0']);
+    const earned = { 'roe.mission_ratings': { a: 77 } };
+    expect([...loanedReinforcements(stage.mission, earned, gateOf)]).toEqual([]);
   });
 });

@@ -344,7 +344,7 @@ Full record: `scaling-debts.md`, `mission-findings.md`.
 - Detection and `selectTarget` are each O(N²) per tick. The 50 ms budget is not crossed until about 1,700–2,100 living units. Every per-tick scan bounds on `this.count`, the LIFETIME spawn count. The trail and route scans want staggering at the 300-unit target.
 - Rigged mesh units are draw-call bound (`SkinnedMesh` does not instance); the render budget is crossed at about 1,150 figures.
 - The flow-field pool cap, `MAX_FLOW_FIELDS` 128, is a floor, not a ceiling. A field issued this tick is never evicted.
-- `starting_force` ignores `unlock` gates on purpose: the issued force is on loan (`loanedPlacements`), and a loaned survivor goes back to the lender (L-1). Open for the lead: a gated unit that arrives by `reinforce` is kept.
+- `starting_force` ignores `unlock` gates on purpose: the issued force is on loan (`loanedPlacements`), and a loaned survivor goes back to the lender (L-1). A gated unit that arrives by a `reinforce` trigger is on loan the same way (`loanedReinforcements`, GH-801) and goes back too.
 - A wave's `from` cannot name a tunnel, though the schema text promises it. `intel.marked_positions` cannot pre-reveal a tunnel route.
 - `pnpm playtest` (in CI) proves a mission winnable, not how long it takes. A scripted plan has perfect information, so a low time ratio on a mission without an endure-clock must not be tuned against. No real-player duration has been measured for any mission.
 - `SMOKE_RISE` must stay strictly above `EYE_HEIGHT`, and it equals `BLOCK_RISE` deliberately.
