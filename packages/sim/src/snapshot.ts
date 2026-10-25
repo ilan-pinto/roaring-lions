@@ -362,7 +362,15 @@ interface AuxContext {
 
 // ---- the command and runtime queues -------------------------------------------
 
-/** The most commands either queue may hold at a snapshot; the decoder refuses more. */
+/**
+ * The most commands either queue may hold at a snapshot; the decoder refuses more AND the encoder
+ * throws a plain Error above it (a snapshot that could not be restored is never written). It bounds
+ * what the producers leave queued at a frame boundary, all of them `MissionRuntime` after its tick:
+ * a delivered unit's rally order (an `attackMove`, one per line per delivery, so at most
+ * `MAX_PRODUCTION_LINES` x 2 sides), the construct, garrison and patrol orders it issues, and the
+ * commit, withdraw, dismount and wave orders a mission's triggers fire. A handful on any shipped
+ * mission; 64 is a bound on a corrupt or hostile input, not a tuned number.
+ */
 export const MAX_QUEUED_COMMANDS = 64;
 /** The longest string field of a queued command (a unit or works id). */
 const MAX_COMMAND_STRING = 64;
@@ -588,7 +596,15 @@ export function auxJsonOf(sim: Sim, name: string): string {
   return canonicalJson(auxTailValue(internals(sim), name, sim.capacity));
 }
 
-/** Encodes `sim` (cut between frames) to canonical bytes. The queued commands, if any, are carried. */
+/**
+ * Encodes `sim` (cut between frames) to canonical bytes. The queued commands, if any, are carried.
+ *
+ * It throws a PLAIN Error (not `SnapshotRefused`) on a contract fault of its own: a queue over
+ * `MAX_QUEUED_COMMANDS` or holding a command the decoder would refuse, an `aux` row with no codec,
+ * a scalar that is not an i32 or a boolean, a meta string over its limit or with an unpaired
+ * surrogate, a meta number that is not a u32, a value canonical JSON refuses. The S4 producer must
+ * catch it and skip that cadence (log it, send nothing); it must never let it reach the tick loop.
+ */
 export function encodeSim(sim: Sim, meta: SnapshotMeta = {}): Uint8Array {
   const self = internals(sim);
   const w = new Writer();

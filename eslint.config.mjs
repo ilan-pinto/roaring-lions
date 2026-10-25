@@ -121,6 +121,12 @@ export default defineConfig(
           message: 'Test helpers are for *.test.ts only; a non-test sim file must not import one.',
         },
         {
+          // The same ban, by every other door: a re-export (named or star) and a dynamic import.
+          selector:
+            'ExportNamedDeclaration[source.value=/\\.test-helper/], ExportAllDeclaration[source.value=/\\.test-helper/], ImportExpression[source.value=/\\.test-helper/]',
+          message: 'Test helpers are for *.test.ts only; a non-test sim file must not import, re-export or dynamically import one.',
+        },
+        {
           selector: 'ExportNamedDeclaration[source.value=/^[^.]/]',
           message: '@lions/sim imports NOTHING (CLAUDE.md package layout). Only relative re-exports are allowed.',
         },

@@ -1,6 +1,8 @@
 // A STAND-IN (net sim snapshot, stage 1, Task 7b). TEST-ONLY: imported by the snapshot
-// witness (`snapshot-witness.ts`) and its test, by nothing else, and DELETED when stage 2's
-// runtime encoder lands.
+// witness (`snapshot-witness.ts`) and its test, by nothing else. Stage 2's runtime encoder
+// replaces the RUNTIME half of it (the `MissionRuntime` carry); the DRIVER half (the tunnel plan,
+// the golden economy's run record) stays until drivers are stateless, since no encoder will ever
+// own a test driver's private state.
 //
 // Stage 1 snapshots the `Sim`. A `MissionRuntime` (an economy room's purses, lines and income
 // routes) and a stateful driver (the tunnel plan) have no encoder yet, so a fork of such a world

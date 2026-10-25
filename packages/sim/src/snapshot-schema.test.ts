@@ -18,8 +18,9 @@ import {
 // checks every row's kind against the runtime value, so a table that merely
 // lists the right names with the wrong shape is red too.
 //
-// The brief's ruling: a fourth world (buildMatchWorld) would need packages/app,
-// which the sim may not import, so that check lives with the encoder (Task 7).
+// A match world (`buildMatchWorld`) would need packages/app, which the sim may not import, so the
+// same two-way check on the sim of a mirror room and of an economy room lives in
+// tools/src/net/snapshot-witness.test.ts ("the schema covers the sim of a real match world").
 
 type Props = Record<string, unknown>;
 

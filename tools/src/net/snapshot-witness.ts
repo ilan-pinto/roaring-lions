@@ -7,8 +7,8 @@
 //
 // WHAT IT RUNS. Every world below is played once by A, uninterrupted, to its end. At each cut
 // tick T the sim is encoded, a FRESH world from the same build is restored from those bytes,
-// and both are driven with the same inputs for the horizon; one extra fork per world is cut at
-// tick 600 and runs to the end. Every fork is held to
+// and both are driven with the same inputs for the horizon; one extra fork per world (the tail)
+// runs to the end, cut at tick 600 on the long worlds and at tick 100 on the golden ones. Every fork is held to
 //   - the restored world re-encoding to exactly the bytes it was restored from, at T,
 //   - the match hash equal at T and every 20 ticks (the sim hash folded with the runtime's
 //     digest, for a world that has a runtime),

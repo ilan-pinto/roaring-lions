@@ -17,11 +17,13 @@ import {
   runWorld,
   selfChecks,
   type Plan,
+  type SnapWorld,
   type SelfCheck,
   type WorldSpec,
 } from './snapshot-witness';
 import { carriedDiff, carryOnto } from './snapshot-runtime-carry';
 import { internals } from '../../../packages/sim/src/snapshot';
+import { SIM_SNAPSHOT_SCHEMA } from '../../../packages/sim/src/snapshot-schema';
 
 // The slice of the full witness (snapshot-witness.ts, `pnpm snapshot:witness`) that runs inside
 // `pnpm test`: one mirror and one economy world at a few cuts, the census logic, the carry, and
@@ -43,6 +45,43 @@ describe('the witness over real worlds (short plan)', () => {
     const run = runWorld(economy);
     expect(run.problems).toEqual([]);
     expect(run.forks, 'three planned cuts and the queued-command cut').toBe(4);
+  });
+});
+
+describe('the schema covers the sim of a real match world, both ways', () => {
+  // snapshot-schema.test.ts reflects over the sim-package worlds only: buildMatchWorld lives in
+  // packages/app, which the sim may not import, so the match worlds are checked here.
+  const named = new Set(SIM_SNAPSHOT_SCHEMA.map((r) => r.name));
+  const complaints = (sim: object): string[] => {
+    const own = Object.keys(sim);
+    return [
+      ...own.filter((k) => !named.has(k)).map((k) => `property "${k}" has no row`),
+      ...[...named].filter((n) => !own.includes(n)).map((n) => `row "${n}" names no property`),
+    ];
+  };
+  const worlds: [string, () => SnapWorld][] = [
+    ['mirror room', () => mirrorWorld('tel_marum', 1000)],
+    ['economy room', () => economyWorld('tel_marum', ['kdf', 'sarim'], 1000)],
+  ];
+  for (const [label, build] of worlds) {
+    it(`${label}: no unlisted property and no row naming a missing one, at tick 0 and after 300 ticks`, () => {
+      const w = build();
+      expect(complaints(w.sim), `${label} @0`).toEqual([]);
+      for (let t = 0; t < 300; t++) {
+        w.driveAt(t);
+        w.advanceOnce();
+      }
+      expect(complaints(w.sim), `${label} @300`).toEqual([]);
+    });
+  }
+
+  it('the check can fail: a throwaway property, and a missing one, are both named', () => {
+    const w = mirrorWorld('tel_marum', 1000);
+    (w.sim as unknown as Record<string, unknown>).zzThrowaway = 1;
+    expect(complaints(w.sim)).toEqual(['property "zzThrowaway" has no row']);
+    delete (w.sim as unknown as Record<string, unknown>).zzThrowaway;
+    delete (w.sim as unknown as Record<string, unknown>).fieldRef;
+    expect(complaints(w.sim)).toEqual(['row "fieldRef" names no property']);
   });
 });
 
