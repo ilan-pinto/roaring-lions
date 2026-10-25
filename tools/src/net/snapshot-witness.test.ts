@@ -24,6 +24,7 @@ import {
 import { carriedDiff, carryOnto } from './snapshot-runtime-carry';
 import { internals } from '../../../packages/sim/src/snapshot';
 import { SIM_SNAPSHOT_SCHEMA } from '../../../packages/sim/src/snapshot-schema';
+import { checkRuntime, props } from '../../../packages/sim/src/runtime-snapshot-schema.test-helper';
 
 // The slice of the full witness (snapshot-witness.ts, `pnpm snapshot:witness`) that runs inside
 // `pnpm test`: one mirror and one economy world at a few cuts, the census logic, the carry, and
@@ -82,6 +83,52 @@ describe('the schema covers the sim of a real match world, both ways', () => {
     delete (w.sim as unknown as Record<string, unknown>).zzThrowaway;
     delete (w.sim as unknown as Record<string, unknown>).fieldRef;
     expect(complaints(w.sim)).toEqual(['row "fieldRef" names no property']);
+  });
+});
+
+describe('the runtime schema covers the runtime of a real economy room, both ways', () => {
+  // runtime-snapshot-schema.test.ts reflects over the sim-package runtimes only: buildMatchWorld lives
+  // in packages/app, which the sim may not import, so the versus room's runtime is checked here, with
+  // the same reflection (`runtime-snapshot-schema.test-helper.ts`): every own property of the runtime
+  // and of every record it owns has a row, every row names a property, the order is creation order, and
+  // each live value has the shape its row's kind promises, references by identity included.
+  const CHECKED = [0, 1, 100, 200, 300, 450, 600, 800];
+  const runtimeOf = (w: SnapWorld): NonNullable<SnapWorld['runtime']> => {
+    if (w.runtime === null) throw new Error('an economy room built no runtime');
+    return w.runtime;
+  };
+
+  it('a KDF-v-Sarim room on tel_marum: no unlisted property, no row naming a missing one, at eight ticks of play', () => {
+    const w = economyWorld('tel_marum', ['kdf', 'sarim'], 1000);
+    const rt = runtimeOf(w);
+    const seen = new Set<string>();
+    const checked: number[] = [];
+    for (let t = 0; t <= 800; t++) {
+      if (CHECKED.includes(t)) {
+        void rt.incomePerMin;
+        expect(checkRuntime(`room@${t}`, rt, w.sim, seen), `room@${t}`).toEqual([]);
+        checked.push(t);
+      }
+      if (t === 800) break;
+      w.driveAt(t);
+      w.advanceOnce();
+    }
+    expect(checked).toEqual(CHECKED);
+    // The room's runtime really is the economy one: two sides' lines, held ground, and a populated purse row.
+    expect(seen.has('MissionRuntime.lines')).toBe(true);
+    expect(seen.has('ProductionLine.queue') || seen.has('ProductionLine.current')).toBe(true);
+    expect(seen.has('ZoneIncomeState.state')).toBe(true);
+  }, 120_000);
+
+  it('the check can fail on the room: a throwaway property and a deleted one are both named', () => {
+    const w = economyWorld('tel_marum', ['kdf', 'sarim'], 1000);
+    const rt = runtimeOf(w);
+    expect(checkRuntime('room', rt, w.sim, new Set())).toEqual([]);
+    props(rt).zzThrowaway = 1;
+    expect(checkRuntime('room', rt, w.sim, new Set())).toEqual(['room: property "zzThrowaway" has no row']);
+    delete props(rt).zzThrowaway;
+    delete props(rt).fromTile;
+    expect(checkRuntime('room', rt, w.sim, new Set())).toContain('room: row "fromTile" names no property');
   });
 });
 
