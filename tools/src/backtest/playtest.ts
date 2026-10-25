@@ -3940,7 +3940,10 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // a kill, and it replaces a loiter drone worth less); Wadi Halam III 180 -> 160 (two swarms ride the 170 s
 // wave, and the seed-424242 run loses bodies to them). Both plans build a Remetz now. Every plan still wins
 // on 30 of 30 seeds; no star, outcome or gate moved.
-const LADDER_CREDITS = 5983;
+// 2026-10-25, GH-161, Wadi Halam I gets its east-bank crest and a re-solved plan (the APC alone at
+// (12,24)): 5983 -> 6013, +30. Wadi Halam I 170 -> 180, II 180 -> 190, III 160 -> 170 (more men come
+// home). Every plan still wins on 30 of 30 seeds; no star, outcome, gate or Conduct moved.
+const LADDER_CREDITS = 6013;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
