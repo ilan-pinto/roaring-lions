@@ -4083,7 +4083,11 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // a kill, and it replaces a loiter drone worth less); Wadi Halam III 180 -> 160 (two swarms ride the 170 s
 // wave, and the seed-424242 run loses bodies to them). Both plans build a Remetz now. Every plan still wins
 // on 30 of 30 seeds; no star, outcome or gate moved.
-const LADDER_CREDITS = 5983;
+// 2026-10-25, GH-421 Stage 2 merged with GH-274 item 5 (read off a fresh run, not added up): 5991.
+// Main's 5983 plus the ten avoidance missions (+18, listed above) less Umm Zeitoun II, which pays 220
+// under avoidance against main's 230 (roster out 16 against 17: one body fewer comes home). No star,
+// outcome or gate moved; every plan, the two that build a Remetz included, wins on 30 of 30 seeds.
+const LADDER_CREDITS = 5991;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
