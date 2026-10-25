@@ -92,6 +92,8 @@ picture.
 | textures | +0 |
 | work | ALU per ground fragment: an `atan`/`sin`/`cos` and a view-matrix multiply for A; `fract`, `fwidth` and `smoothstep` for B |
 
-**The frame cost is NOT measured on a quiet machine.** Every timing taken (load average 60–135 from
+**The frame cost was NOT measured on a quiet machine at build time.** Every timing taken (load average 60–135 from
 other sessions) was swamped. That includes a paired, interleaved run (±7–12 ms per round).
-Re-measure with `docs/PERFORMANCE.md`'s method before calling the cost known.
+**Since measured and closed (GH-804):** about +0.15 ms median at every preset (high, medium, low; M3 Pro,
+ANGLE/Metal, DPR 2), under the 0.3 ms line, at load average 3-10 on a shared machine, not a quiet one;
+`low` on `qarn_hadid` is the one cell near +0.3 ms.

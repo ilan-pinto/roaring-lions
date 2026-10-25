@@ -47,4 +47,9 @@ describe('unit schema: swarm (E6 item 2)', () => {
     expect(validateUnit({ ...base, swarm: { ...swarm, member_hp: 0 } })).toBe(false);
     expect(validateUnit({ ...base, swarm: { ...swarm, spread_tiles: 0 } })).toBe(false);
   });
+  it('hit_mult (E6 N2) is optional and lives in (0, 1]', () => {
+    expect(validateUnit({ ...base, swarm: { ...swarm, hit_mult: 0.08 } })).toBe(true);
+    expect(validateUnit({ ...base, swarm: { ...swarm, hit_mult: 1 } })).toBe(true);
+    for (const bad of [0, -0.1, 1.01, '0.08']) expect(validateUnit({ ...base, swarm: { ...swarm, hit_mult: bad } })).toBe(false);
+  });
 });

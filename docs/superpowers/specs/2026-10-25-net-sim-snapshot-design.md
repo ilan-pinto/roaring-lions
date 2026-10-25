@@ -679,3 +679,218 @@ The lead approved this design on 25 Oct 2026 and ruled every decision as recomme
 | D5 | Scope of the first version | **Mirror and economy rooms together (S1 + S2).** KDF v Sarim is the headline match, and it runs the runtime. | **Ruled by the lead, 25 Oct: as recommended.** |
 | D6 | Use `hello.from` for a socket drop without a reload | **Yes, in S3.** It stops re-sending the whole log (about 565 KiB at 20 minutes) to a client that already has it. | **Ruled by the lead, 25 Oct: as recommended.** |
 | D7 | Cross-version snapshots, or save-games built on this | **Never in this design.** A snapshot is scoped to one room and one build, and it dies with the room. A save-game format would need migrations, and that needs its own spec. | **Ruled by the lead, 25 Oct: as recommended.** |
+
+---
+
+## 12. S1 as built (25 Oct 2026)
+
+Stage 1 is the sim half of the snapshot for the sim alone: the schema, the canonical codec, the
+pool rebuild, the fork witness and the format pin. The runtime half (`MissionRuntime`) is S2. Where
+a section above says otherwise, this one wins. The deviations (§12.2) are the part S2, S3 and S4
+must read.
+
+### 12.1 What landed
+
+**Schema** (`packages/sim/src/snapshot-schema.ts`). All 239 own properties of `Sim` have exactly one
+row, in creation order, and `Rng` has its own table.
+
+| Class | Rows | Of which |
+|---|---|---|
+| `state` | 197 | 167 typed arrays, 19 scalars, 6 `aux` (JSON tail), 4 `pool`, 1 `rng` |
+| `config` | 15 | rebuilt by the setup that built the target |
+| `scratch` | 26 | left at the fresh world's value |
+| `derived` | 1 | `fields`, the flow-field pool's contents |
+
+The `boundary` class that an earlier draft carried is gone (§12.2). A completeness test reflects
+over a bare world, the golden world at tick 0 and 500 and the wounded world, in both directions
+(every property has a row, every row names a property, and each row's kind matches the live value).
+The match-world half, a mirror room and an economy room at tick 0 and 300, is in
+`tools/src/net/snapshot-witness.test.ts`, because `sim` cannot import `app`.
+
+**Codec** (`packages/sim/src/snapshot.ts`). `encodeSim(sim, meta)` and `restoreSim(sim, bytes)`.
+- The header is fixed-width first (39 bytes), strings last: `RLSS`, format u16, schema digest u32,
+  `matchDigest` u32, `contentDigest` u32, `frameTick` u32, `simTick` i32, capacity, width and height
+  u32, `hasBoulders` u8, then `build` and `matchId` (u16 length, UTF-8, at most 256 bytes each).
+  `matchDigest` sits at `SNAPSHOT_MATCH_DIGEST_OFFSET` (10), so the room can read it without a
+  decoder (§5.1).
+- The schema digest is the sim's own `hashWord` folded over every row's name, class and kind, in
+  order. A build whose table differs in any row, or in their order, writes another number and
+  `restoreSim` refuses it.
+- Then every `state` typed array at **full length** (u32 length, then elements), the scalars (i32,
+  or u8 for a boolean), the RNG words, and a tail: u32 length, then canonical JSON (sorted keys, no
+  floats, depth at most 16, at most 4 MiB) of the six `aux` rows and the pool's keys.
+- Every refusal is a `SnapshotRefused` with a reason. The header is checked before the first write;
+  a refusal after that leaves the target half-written, so the caller discards it and builds another.
+  The decoder bounds every allocation by the target's own lengths and never sizes one from a decoded
+  field. It does not range-check every id column (ruling, Task 3): the bytes come from two seats
+  that agreed on them, and the digest is re-checked before the first tick.
+
+**The pool is rebuilt from its keys** (`Sim.fieldPoolKeys`, `Sim.restoreFieldPool`). All slots'
+`{goalKey, domain, lastIssued}` are carried, unkeyed slots included, because eviction compares the
+stale `lastIssued` of unkeyed slots and that decides a later `fieldRef`. Each domain's `fieldByGoal`
+order is carried. The decoder bounds the watermark by restore memory, not by capacity:
+`watermark * width * height * 5 bytes` (a `Uint8Array` dir and an `Int32Array` cost per cell) must be
+at most `POOL_RESTORE_BUDGET_BYTES`, 64 MiB, which is about 5,800 slots on a 48×48 map. Capacity was
+the wrong bound. Group orders create a field per unit per order, `fields` never shrinks, and a probe
+grew a 256-capacity world's pool to 293 slots in five orders of 60 units. A capacity bound would have
+made that match unsnapshottable.
+
+**The fork witness** (`packages/sim/src/snapshot-witness.ts`: `forkWitness`, `forkWitnessSeries`).
+It is a non-test module so that `tools` runs the same proof. A runs uninterrupted. At each cut tick
+T, B is a fresh world from the same build, and:
+1. every `state` row of B is **poisoned before the restore** (`poisonState`), the pool included
+   (three junk slots with bogus keys), so a restore that skips a row leaves garbage and shows;
+2. B is restored from A's bytes alone, and **re-encoded at T**: it must give back exactly the bytes
+   it was restored from (round trip at T);
+3. every `config` row of A is compared with B's (`configDiff`, Sets and Maps by content);
+4. both worlds are driven with the same inputs for the horizon, with the match hash compared at T
+   and every 20 ticks;
+5. the two canonical encodings must be **byte-equal at the end**.
+
+`pnpm test:determinism` is now `determinism.test.ts` plus `snapshot-witness.test.ts` (83 tests, 2.7
+s before, 3.5 s after). That file holds the fast witness, a fork every 50 ticks with N = 200 on
+three golden replays (the 1000-tick battle, relief, orders), the self-checks that must stay red, the
+series runner and the format pin. `snapshot.test.ts` (round trips, refusals, fuzz) runs in `pnpm
+test` only.
+
+**The tools witness** (`tools/src/net/snapshot-witness.ts`, `pnpm snapshot:witness`; CI runs
+`pnpm snapshot:witness -- --self-check` in `gates`, right after `pnpm playtest`).
+
+| World group | Worlds | Cuts |
+|---|---|---|
+| mirror rooms | four fair maps × seeds 1000 and 8919, 24,000 ticks | every 1,200 ticks and 97, 1,013, 4,999, 11,003, N = 1,200; a tail from 600 |
+| economy rooms | the three KDF/Sarim cells of §2.1, 24,000 ticks | the same, plus one cut at a boundary with a queued command |
+| tunnels arm | tel_marum KDF/Sarim 1000 with the tunnel plan (`answer`) | the same |
+| capacity stress | tel_marum, 256 of 256 entities, 6,000 ticks; the pool reaches 256 slots | the same, asserted by `exercised` |
+| golden replays | battle, relief, orders, wounded, economy | every 25 ticks (50 for the economy replay) and 97, N = 300; a tail from 100 |
+
+Wall time is **77–117 s** over the runs made (CLI with `--self-check`, 77 s on a quiet machine,
+the high end with a load average of 35–47 from other lanes), and the pnpm-test slice
+(`snapshot-witness.test.ts` in `tools`) is 4.6–7.6 s. The three self-checks are mutations of B right
+after the restore that must turn their world red (`stProducesFor` reset, `fieldByGoal` emptied,
+`trail` zeroed), each preceded by the same series run clean; the CLI fails if a mutation is not red
+at any cut.
+
+**The coverage census** (§6.3). Of 197 `state` rows, **116 moved** in the matrix and **81 are
+exempt**, each with a reason naming the world that would cover it. The census fails if an exempt row
+moves. The groups:
+- **30 rows written only at build** (`elevation`, the structure and tunnel tables, evacuation
+  points, `stProducesFor`, `woundLive`, `veterancy` and others). A and a fresh B come from one
+  config, so B already holds A's value. The pre-restore poison proves the restore writes them in
+  every fork; what is missing is a world that holds a non-build value at a cut.
+- **19 field-works rows** (sites, `buildSite`, `fwLive`, the aura rows); a field-works mission.
+- **placed charges** (`placedLive`, `stChargeTicks`, `stChargeBy`); **beam units** (six rows); the
+  **attack order** (`focusTarget`, `focusLost`); **appended waypoints** (five rows); **embarking**
+  (`boardGoal`); **ambush and patrol** (eight rows); **smoke and fire support** (`smoke`,
+  `smokeCooldown`, `pendingStrikes`, player UI only); **air carriers** (`airWant`, GH-698);
+  **a unit or projectile aimed at a structure** (`curStructure`, `prStructure`).
+- `runtimeQueue`: never non-empty at any boundary of any witness world (scanned at every tick of
+  all five runtime worlds).
+
+The matrix of §6.4 listed more worlds (wounds, field works, air carrier, patrol, beam, placed,
+mobility kill); S1 did not build them, and the exemption list is the record of what that leaves
+unproved.
+
+**The format pin** (`snapshot-witness.test.ts`): `hashWord` folded over every byte of `encodeSim`
+(default, all-zero meta) of the 1000-tick golden battle at tick 500, unsigned: **923693936**. It was
+born at 2172139112 and moved once, "Was 2172139112.", when the two queues became `state` (§12.2). The
+later header reorder left it unchanged: the pin encodes zero meta, so the permuted header fields are
+the same zero bytes in another order. No sim, economy, versus, runtime-digest or net pin moved.
+
+### 12.2 Deviations from §1–§9
+
+1. **The queues are state, and the `boundary` class is gone.** §3.1's assumption that the command and
+   runtime queues are empty at the cut is false in an economy room: `MissionRuntime.step` queues the
+   rally `attackMove` of a unit it has just delivered after the tick, so about 14 frame boundaries
+   per 6,000 ticks hold a queued command, and a producer that skipped them would miss its cadence.
+   `commandQueue` and `runtimeQueue` are `state`/`aux` rows in the tail, order preserved, and the
+   "commands are still queued" refusal is deleted. `encodeSim` throws a plain `Error` above 64
+   queued commands or for a command the decoder would refuse.
+2. **`runtimeQueue` never held a command** at any boundary of any witness world, so it is carried
+   but unproved dynamically (exempt, with a reason).
+3. **Restore is a free function, `restoreSim(sim, bytes)`, not `Sim.restoreState`.** It reaches the
+   private fields through one `internals()` cast in `snapshot.ts`. Why: `sim.ts`, shared with other
+   lanes, stays nearly untouched. Cost: a renamed private field fails the completeness test and not
+   `tsc`. The witness exports are not on the `@lions/sim` index; `tools` imports them by relative path.
+4. **The format pin is a 32-bit `hashWord` fold, not SHA-256**: the sim has no SHA-256, and the
+   SHA-256 of §5.1 belongs to the net layer (S3 and S4).
+5. **The fast witness covers three golden replays, not four.** The economy replay needs a runtime,
+   which `snapshot-witness.test.ts` cannot carry across a restore. It is forked only in the tools
+   witness, through `tools/src/net/snapshot-runtime-carry.ts`, a **test-only reflection copy** of the
+   runtime (and of stateful drivers such as `TunnelPlan`) from A to B after the restore. S2's encoder
+   replaces the runtime half; the driver half stays until drivers are stateless. The carry once
+   wrote A's sim columns into B through the runtime's `holdView` aliases and repaired eight poisoned
+   rows; it rebinds every sim column to B's own now.
+6. **The header carries the schema digest and `hasBoulders`.** `count`, `structureCount`,
+   `tunnelCount` and the latches are body scalars, not header fields.
+7. **The aux rows are canonical JSON, not per-kind binary lists.** `pendingEvents`, strikes, patrol
+   leg ids, `stTiles`, the queues and the pool keys share one tail. The tail compresses to 0.9–1.5
+   KiB (§12.3).
+8. **`trail` and `stProducesFor` are `state`** (§3.1 said so; the sim's `hash()` comment calling
+   `trail` derived was wrong and is fixed). `trail` is proved only on the golden battle: the versus
+   routes are pre-dug, so no tunnels-arm world stamps it in 24,000 ticks, and a restore bug on a
+   versus-only trail path would be unproved until versus routes are dug.
+9. **`UnitType.woundedTypeIdx` is a lazy cache written on the `unitTypes` config objects** at the
+   first fall. After a wound A's config differs from a fresh B's. It is a pure function of the
+   registered types; the witness calls the sim's own resolver on B before `configDiff`. The config
+   check is therefore blind to that one cached field.
+10. **`encodeSim` can throw a plain `Error`** on a contract fault of its own (a queue over the cap, a
+    scalar that is not an i32, a meta string over 256 bytes or with an unpaired surrogate, a meta
+    number that is not a u32, an `aux` row with no codec). The S4 producer must catch it, log it and
+    skip that cadence, and never let it reach the tick loop.
+11. **`SNAPSHOT_FORMAT` stays 1.** No snapshot was ever written in an earlier layout outside this
+    branch's tests; the pinned bytes did not move at the header reorder.
+12. **`restoreSim`'s "target at tick 0" is a documented precondition, not an enforced one.** S4
+    always restores onto a freshly built world; the match digest check catches a misuse.
+
+### 12.3 What a snapshot weighs, as built
+
+Measured on 25 Oct 2026: macOS, Apple M3 Pro, Node 25.9.0, `tsx`, one process, no browser, the
+machine otherwise quiet (1-minute load average 3.2 at the start). The worlds are the witness's own
+builders (`economyWorld`, `mirrorWorld`, `stressWorld`, `goldenBattle`), played as `playEconomy` and
+the versus probe play them, 24,000 ticks without stopping at an outcome. The meta was a 12-byte build
+and a 6-byte matchId. The bytes are the **sim alone**: the runtime of an economy room is S2's, so
+the economy rows exclude the 2.7–3.5 KiB gzipped §2.2 measured for it. Gzip is `zlib` level 9,
+brotli is quality 11.
+
+| Case | Tick | count / cap | Pool | Raw | gzip -9 | brotli | §2.2 estimate: gzip / brotli |
+|---|---|---|---|---|---|---|---|
+| golden battle (1000-tick replay) | 500 | 26 / 128 | 20 | 147.0 KiB | 2.5 KiB | 2.2 KiB | none |
+| economy tel_marum KDF/Sarim 1000 | 24,000 | 84 / 256 | 128 | 207.2 KiB | 6.3 KiB | 4.9 KiB | 3.6 / 3.0 |
+| economy wadi_tarfan KDF/Sarim 8919 | 24,000 | 108 / 256 | 128 | 207.4 KiB | 8.7 KiB | 6.7 KiB | 4.5 / 3.7 |
+| economy wadi_tarfan Sarim/KDF 16838 | 24,000 | 78 / 256 | 128 | 207.5 KiB | 7.2 KiB | 5.6 KiB | 4.3 / 3.6 |
+| mirror tel_marum 1000 | 24,000 | 46 / 256 | 89 | 205.3 KiB | 4.9 KiB | 3.8 KiB | 2.3 / 2.0 |
+| mirror milh_flats 8919 | 24,000 | 45 / 256 | 96 | 205.6 KiB | 5.7 KiB | 4.6 KiB | 3.5 / 3.0 |
+| stress tel_marum 1000 | 600 | 256 / 256 | 256 | 212.6 KiB | 15.4 KiB | 11.3 KiB | 14.5 / 10.9 |
+| stress tel_marum 1000 | 1,200 | 256 / 256 | 256 | 212.7 KiB | 15.7 KiB | 11.3 KiB | none |
+| stress wadi_tarfan 8919 | 600 | 256 / 256 | 256 | 212.8 KiB | 15.6 KiB | 11.4 KiB | none |
+| stress wadi_tarfan 8919 | 1,200 | 256 / 256 | 256 | 212.9 KiB | **16.1 KiB** | 11.6 KiB | 15.2 / 11.3 |
+
+(The table's economy and mirror counts differ from §2.2's, 76/84/72/43/48, because the witness's
+drivers are the `playEconomy` ones and the probe's were its own.)
+
+- **Raw is 205–213 KiB against §2.2's 231 KiB "full".** The 231 included the scratch columns, which
+  the snapshot does not carry. The prefix figures of §2.2 (77–107 KiB) do not apply: S1 writes full
+  length.
+- **Compressed, the small matches are 1.6–2.1× the probe's gzip, and the stress world is 1.06×.**
+  The stress world has `count` = capacity, where the probe's prefix and S1's full length are the
+  same bytes, so the small-match gap fits §3.2's choice of full-length columns plus the tail. I did
+  not bisect it further. In the economy tel_marum cell the columns alone gzip to 5.1 KiB and the
+  JSON tail (raw 6.1 KB, of which the pool keys are 5.9 KB) to 0.9 KiB; in the stress world 13.5 and
+  1.4 KiB (separate streams; the whole snapshot compresses to a little less than their sum).
+- **The 16 KiB budget of §2.2 holds with no margin.** The largest reading, wadi_tarfan at t = 1,200,
+  is 16.1 KiB gzipped and 11.6 KiB brotli. S3 must not size its cap at exactly 16 KiB. The room's
+  limits (2 MB a row) are far away.
+- **Cost, median of 5, same conditions:**
+
+| Case | `encodeSim` | `restoreSim` including the pool rebuild | Pool |
+|---|---|---|---|
+| golden battle, tick 500 | 0.94 ms | 5.1 ms | 20 slots |
+| economy tel_marum, tick 24,000 | 1.16 ms | 19.4 ms | 128 slots |
+| stress tel_marum, tick 600 | 1.25 ms | 39.0 ms | 256 slots |
+| stress tel_marum, tick 1,200 | 1.23 ms | 38.0 ms | 256 slots |
+
+  The restore time tracks the pool's slot count (5, 19 and 39 ms at 20, 128 and 256 slots), and §2.3's
+  restore without the pool was a few ms. §2.3's 10–68 ms for a poisoned restore is the same range. The restored world's hash
+  equalled A's in every timed restore. These are Node timings of the sim alone; the browser's cost
+  is S4's to measure (§2.2).
