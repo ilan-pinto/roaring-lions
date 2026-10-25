@@ -808,7 +808,7 @@ export function woundedSetup(seed: number, squad: UnitTypeJson = WW_SQUAD): Sim 
 }
 
 // --- the economy replay over relief (moved from determinism.test.ts, S2 Task 1) ---
-/** `data/maps/tel_marum.json` at 2026-10-15 (F1 Task 5), as a snapshot: 1 = a tile the sim
+/** The Tel Marum map file (`tel_marum.json`) at 2026-10-15 (F1 Task 5), as a snapshot: 1 = a tile the sim
  *  blocks (`^` rock ridge and `#` building), 0 = open on foot (`b` boulders included).
  *  A copy on purpose: sim imports nothing, and a pin must not move when the map is edited. */
 export const RELIEF_ECO_BLOCKED: readonly string[] = [
