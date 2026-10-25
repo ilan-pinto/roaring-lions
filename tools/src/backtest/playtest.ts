@@ -3197,11 +3197,30 @@ function boughtProbe(
 // dies there; (40,28) and (40,26) die too (12 and 41 rounds). (36,26), the one of the three
 // survivors above still standing, identifies 3 units and the route on 50 rounds and is alive at
 // the end. Measured, one run each.
-boughtProbe('beit_sahwan_4_subterranean', bs4Plan, led4In, 'recon_zikit', 30, 'sees', (mine) => ({
-  kind: 'move',
-  ids: mine,
-  ...M(36, 26),
-}));
+// GH-421 (vehicle separation): the plain mission now ends at 2.9 min (its Eitan leads out of the yard and
+// the squad follows it, see `bs4Plan`) instead of 2.6, and the 150 s wave at the mortar line (44,24) reached
+// the Zikit at (36,26) at 164 s, 8 tiles off: dead 10 s before the end. A recon vehicle is not left to
+// the wave it has just been shown: at 120 s it is pulled back to (28,30), 16 tiles from the line. Measured
+// on 60 seeds, one run each, deaths of the Zikit: 3 (this), 4 ((22,30) at 100 s), 5 ((24,32) at 140 s, and
+// the unmoved (36,26) -- 5 on the base tree too); (30,28) at 140 s died on 424242, the wave reaching it.
+boughtProbe(
+  'beit_sahwan_4_subterranean',
+  bs4Plan,
+  led4In,
+  'recon_zikit',
+  30,
+  'sees',
+  (mine) => ({
+    kind: 'move',
+    ids: mine,
+    ...M(36, 26),
+  }),
+  (sim, at, mine) =>
+    at(120, () => {
+      const m = mine();
+      if (m.length > 0) sim.queueCommand({ kind: 'move', ids: m, ...M(28, 30) });
+    })
+);
 // The Gunship is built on the first tick (50 s) and joins the `raze` approach: an
 // attack-move to the stockpile the depot escort is already walking to.
 // GH-382: the depot is on a shelf now, and the yard holds the four porters. A gunship sent into it
