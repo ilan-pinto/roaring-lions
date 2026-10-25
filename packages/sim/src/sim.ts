@@ -1409,6 +1409,26 @@ type MissingSimEventKind = Exclude<SimEvent['kind'], (typeof SIM_EVENT_KINDS)[nu
 type AssertNoMissingKind<T extends never> = T;
 export type SimEventKindsAreExhaustive = AssertNoMissingKind<MissingSimEventKind>;
 
+/** A called-for strike still in the air (`Sim.pendingStrikes`). */
+export type PendingStrike = { x: Fx; y: Fx; by: number; readyTick: number; profile: number };
+
+/** Every key of a `PendingStrike`, as a value, for the snapshot decoder. `satisfies` catches a name that is
+ *  not a key; the pair of aliases below catches a key missing from the list, so a new field on the strike
+ *  fails typecheck here instead of making every in-flight strike refuse at restore. */
+export const STRIKE_SNAPSHOT_KEYS = ['x', 'y', 'by', 'readyTick', 'profile'] as const satisfies readonly (keyof PendingStrike)[];
+type MissingStrikeKey = Exclude<keyof PendingStrike, (typeof STRIKE_SNAPSHOT_KEYS)[number]>;
+type AssertNoMissingStrikeKey<T extends never> = T;
+export type StrikeKeysAreExhaustive = AssertNoMissingStrikeKey<MissingStrikeKey>;
+
+/** The flow-field pool's keys (`Sim.fieldPoolKeys`): enough to rebuild every keyed field and to
+ *  reproduce `fieldFor`'s later choices, without the field bytes. `slots[i].goal` is -1 for a slot
+ *  the pool no longer keys; `order[d]` is domain d's slot list in `fieldByGoal[d]` insertion order. */
+export interface FieldPoolKeys {
+  watermark: number;
+  slots: { goal: number; domain: number; lastIssued: number }[];
+  order: number[][];
+}
+
 export interface SimConfig {
   seed: number;
   width: number;
@@ -1447,6 +1467,14 @@ const STANCE_PATROL = 2;
  *  goals than there are units, or when the only unreferenced fields were
  *  issued this tick. 128 × ~11.5 KB on a 48×48 map is 1.5 MB. */
 export const MAX_FLOW_FIELDS = 128;
+/** What `restoreFieldPool` will allocate for a pool, in bytes (snapshot codec). The pool's real size is NOT
+ *  bounded by `capacity + MAX_FLOW_FIELDS`: every group order issues one field per unit, `evictableField`
+ *  never reuses a field issued this tick, and `fields` never shrinks, so several orders to the same units
+ *  within ONE tick grow it by about one field per unit per extra order (five orders to 60 units: 293 on a
+ *  capacity-128 world). Its growth is bounded by command volume. This bound therefore only has to stop a
+ *  hostile watermark from allocating without limit: `watermark * cells * 5` (a u8 dir plus an i32 cost per
+ *  cell) must fit, which is 5,825 fields on a 48x48 map. */
+export const POOL_RESTORE_BUDGET_BYTES = 64 * 1024 * 1024;
 /** Routes per mission. Small on purpose: a mission with more than a handful of
  *  tunnels is a mission whose player cannot reason about any of them. */
 const MAX_TUNNELS = 16;
@@ -1821,7 +1849,7 @@ export class Sim {
   /** One-element scratch `ids` for a patrol leg, reused rather than allocated per leg. */
   private readonly patrolLegIds: number[] = [0];
   /** Called-for strikes still in the air. */
-  private pendingStrikes: { x: Fx; y: Fx; by: number; readyTick: number; profile: number }[] = [];
+  private pendingStrikes: PendingStrike[] = [];
 
   // --- structure SoA ---
   private structureCount_ = 0;
@@ -1830,7 +1858,10 @@ export class Sim {
   private readonly stHp: Int32Array;
   private readonly stMaxHp: Int32Array;
   private readonly stTypeIdx: Uint16Array;
-  /** Per-placement `produces_for` (F4 Task 7). Setup-only; NOT in hash(). */
+  /** Per-placement `produces_for` (F4 Task 7). Setup-only; NOT in hash(), but
+   *  snapshot STATE all the same (snapshot-schema.ts): the runtime's income-zone
+   *  route and rear caches read it, and poisoning it kept every hash equal for
+   *  1,200 ticks while those caches diverged. */
   private readonly stProducesFor: Int8Array;
   private readonly stOccupants: Uint8Array;
   /** E6 (GH-274, G1): ticks left on a placed charge against this structure, 0 when none.
@@ -1981,7 +2012,8 @@ export class Sim {
   private readonly tnContactState = new Uint8Array(2 * MAX_TUNNELS);
   private tunnelCount_ = 0;
   /** Surface spoil density per tile, 0-255. Presentation reads it; detection
-   *  uses it to place the tunnel's signature. Same shape as the smoke grid. */
+   *  uses it to place the tunnel's signature. Same shape as the smoke grid.
+   *  Snapshot STATE, not derived (snapshot-schema.ts): see the note in hash(). */
   readonly trail: Uint8Array;
 
   // --- projectile SoA (ring) ---
@@ -3897,6 +3929,106 @@ export class Sim {
     this.fieldDomain[idx] = d;
     byGoal.set(key, idx);
     return idx;
+  }
+
+  /**
+   * The flow-field pool's KEYS, for the snapshot codec (net sim snapshot S1).
+   * @internal Snapshot codec only; nothing else may call it.
+   * The field bytes are not here: a keyed field is `compute(path mask, elevation,
+   * goal)` of the current terrain, so `restoreFieldPool` rebuilds it.
+   *
+   * `slots` has one entry per pool slot, `watermark` of them. `goal` is the goal
+   * tile index, or -1 for a slot `recomputeFields` unkeyed (its bytes are
+   * unobservable). `lastIssued` is carried for EVERY slot, keyed or not:
+   * `evictableField` picks the least-recently-issued slot and an unkeyed one
+   * competes on its stale value, so which slot a later order lands in (and so
+   * `fieldRef`) depends on it. `order[d]` lists domain d's slots in
+   * `fieldByGoal[d]` insertion order, which is the Map's iteration order.
+   */
+  fieldPoolKeys(): FieldPoolKeys {
+    const slots: FieldPoolKeys['slots'] = [];
+    for (let i = 0; i < this.fields.length; i++) {
+      slots.push({ goal: this.fieldGoalKey[i], domain: this.fieldDomain[i], lastIssued: this.fieldLastIssued[i] });
+    }
+    const order: number[][] = [];
+    for (let d = 0; d < DOMAIN_COUNT; d++) order.push(Array.from(this.fieldByGoal[d].values()));
+    return { watermark: this.fields.length, slots, order };
+  }
+
+  /**
+   * @internal Snapshot codec only; nothing else may call it.
+   *
+   * Replaces the whole pool with the one `keys` describes, recomputing every
+   * keyed field against the CURRENT masks (so call it after the terrain columns
+   * are restored). Validates everything before the first write and throws on a
+   * bad input; the pool is the encoding's, whatever the target already held.
+   */
+  restoreFieldPool(keys: FieldPoolKeys): void {
+    const cells = this.width * this.height;
+    const isInt = (x: unknown): x is number => typeof x === 'number' && Number.isInteger(x);
+    const { watermark, slots, order } = keys;
+    // Bounded by restore memory, not by capacity: see POOL_RESTORE_BUDGET_BYTES.
+    if (!isInt(watermark) || watermark < 0 || watermark * cells * 5 > POOL_RESTORE_BUDGET_BYTES) {
+      throw new Error(`field pool: watermark ${String(watermark)} is past the ${POOL_RESTORE_BUDGET_BYTES}-byte restore budget`);
+    }
+    if (!Array.isArray(slots) || slots.length !== watermark) throw new Error('field pool: slots do not match the watermark');
+    if (!Array.isArray(order) || order.length !== DOMAIN_COUNT) throw new Error('field pool: need one order list per domain');
+    let keyed = 0;
+    for (let i = 0; i < watermark; i++) {
+      const s = slots[i];
+      if (s === null || typeof s !== 'object') throw new Error(`field pool: slot ${i} is not an object`);
+      if (!isInt(s.domain) || s.domain < 0 || s.domain >= DOMAIN_COUNT) throw new Error(`field pool: slot ${i} domain ${String(s.domain)}`);
+      if (!isInt(s.lastIssued) || s.lastIssued < 0 || s.lastIssued > this.tickCount) throw new Error(`field pool: slot ${i} lastIssued ${String(s.lastIssued)}`);
+      if (s.goal === -1) continue;
+      if (!isInt(s.goal) || s.goal < 0 || s.goal >= cells) throw new Error(`field pool: slot ${i} goal ${String(s.goal)} is off the map`);
+      // `fieldFor` collapses vehicle onto foot on a map with no boulders, so no keyed slot can hold it.
+      if (s.domain === DOMAIN_VEHICLE && !this.hasBoulders) throw new Error(`field pool: slot ${i} is a vehicle field on a map with no boulders`);
+      keyed++;
+    }
+    const listed = new Uint8Array(watermark);
+    let listedCount = 0;
+    for (let d = 0; d < DOMAIN_COUNT; d++) {
+      const list = order[d];
+      if (!Array.isArray(list)) throw new Error(`field pool: order ${d} is not a list`);
+      const goals = new Set<number>();
+      for (const idx of list) {
+        if (!isInt(idx) || idx < 0 || idx >= watermark) throw new Error(`field pool: order ${d} names slot ${String(idx)}`);
+        const s = slots[idx];
+        if (listed[idx] === 1) throw new Error(`field pool: slot ${idx} is listed twice`);
+        if (s.goal === -1 || s.domain !== d) throw new Error(`field pool: slot ${idx} is listed in domain ${d} but is not keyed there`);
+        if (goals.has(s.goal)) throw new Error(`field pool: domain ${d} has two slots for goal ${s.goal}`);
+        goals.add(s.goal);
+        listed[idx] = 1;
+        listedCount++;
+      }
+    }
+    if (listedCount !== keyed) throw new Error('field pool: a keyed slot is missing from the order lists');
+    for (let i = 0; i < this.capacity; i++) {
+      if (this.fieldRef[i] < -1 || this.fieldRef[i] >= watermark) throw new Error(`field pool: unit ${i} follows slot ${this.fieldRef[i]}, outside the pool`);
+    }
+
+    // ---- validated. Replace the pool.
+    if (this.fields.length > watermark) this.fields.length = watermark;
+    while (this.fields.length < watermark) this.fields.push(new FlowField(this.width, this.height));
+    this.fieldGoalKey.length = watermark;
+    this.fieldDomain.length = watermark;
+    this.fieldLastIssued.length = watermark;
+    for (const m of this.fieldByGoal) m.clear();
+    for (let i = 0; i < watermark; i++) {
+      this.fieldGoalKey[i] = slots[i].goal;
+      this.fieldDomain[i] = slots[i].domain;
+      this.fieldLastIssued[i] = slots[i].lastIssued;
+    }
+    for (let d = 0; d < DOMAIN_COUNT; d++) {
+      const mask = this.pathMaskFor(d);
+      const elev = d === DOMAIN_AIR ? this.openGrid : this.elevation;
+      for (const idx of order[d]) {
+        const goal = slots[idx].goal;
+        const gx = goal % this.width;
+        this.fields[idx].compute(mask, elev, gx, (goal - gx) / this.width);
+        this.fieldByGoal[d].set(goal, idx);
+      }
+    }
   }
 
   /** The least-recently-issued field no living unit follows and that was not
@@ -10921,9 +11053,12 @@ export class Sim {
     // tick a route is being watched or forgotten — a sub-threshold
     // divergence there would otherwise sit dormant until an order happened
     // to be issued. NOT hashed, deliberately: the trail grid
-    // (width*height bytes of derived state that tnProgress already
-    // determines — hashing it would turn every trail-decay tuning change
-    // into a hash change for no added coverage), tnLength/tnDigRate/
+    // (width*height bytes -- hashing it would turn every trail-decay tuning
+    // change into a hash change for no added coverage). It is NOT derived
+    // state, though: it follows the HISTORY of tnProgress, not its value at a
+    // tick, and trailStrengthFor reads it, so a snapshot must carry it
+    // (snapshot-schema.ts classes it `state`; poisoning it diverged the hash
+    // within 20 ticks). Also unhashed: tnLength/tnDigRate/
     // tnVentX/tnVentY/tnPoints/tnTiles (immutable after addTunnel), and
     // tnDigger (set once by assignDigger; stepDigging re-checks `alive`).
     h = hashArray(h, this.tunnelIn);

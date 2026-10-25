@@ -24,7 +24,11 @@ const CTX_FILE: Record<string, string> = { 'packages/app/src/mission-start.ts': 
 
 /** Sites whose runtime stands on a synthetic, road-free scene (no shipped map): there is no road
  *  to hand on, so they are held to loading no map at all instead. */
-const SYNTHETIC = new Set(['tools/src/backtest/special-units-probes.ts']);
+const SYNTHETIC = new Set([
+  'tools/src/backtest/special-units-probes.ts',
+  // The golden economy replay's world: a flat 48x48 sim with no map loaded and no roads.
+  'packages/sim/src/golden-worlds.test-helper.ts',
+]);
 
 describe('the road mask reaches every mission runtime (C-R4)', () => {
   const sites = [...sources(join(ROOT, 'packages')), ...sources(join(ROOT, 'tools', 'src'))]
@@ -32,11 +36,13 @@ describe('the road mask reaches every mission runtime (C-R4)', () => {
     .map((p) => relative(ROOT, p))
     .sort();
 
-  it('the eleven sites are the ones on the tree', () => {
+  it('the twelve sites are the ones on the tree', () => {
     expect(sites).toEqual([
       'packages/app/src/mission-start.ts',
       // N3 Task 3: a KDF-v-Sarim room's economy runtime.
       'packages/app/src/net/match-world.ts',
+      // Net snapshot S1 Task 1: the golden economy replay's world, importable (synthetic, no map).
+      'packages/sim/src/golden-worlds.test-helper.ts',
       'tools/src/backtest/enemy-production-probe.ts',
       'tools/src/backtest/fl_ladder.ts',
       'tools/src/backtest/playtest-run.ts',
