@@ -10,7 +10,7 @@ import { fx } from '@lions/sim';
 import { buildMatchWorld } from '../../../packages/app/src/net/match-world';
 import {
   CAP_TICKS_DEFAULT, DECIDE_EVERY_TICKS, FAIR_MAX_PERCENT, ORDER_EVERY_TICKS, SEEDS_DEFAULT,
-  candidateMaps, cellName, centroid, economySelfCheck, forceMixOf, humanHeldOf, layoutOf, main, parseArrangements, parsePair, planRound, play,
+  candidateMaps, cellName, centroid, economySelfCheck, forceMixOf, humanHeldOf, layoutOf, loneSurvivorOf, main, parseArrangements, parsePair, planRound, play,
   reading, roomConfig, seedOf, selfCheck, tally, withOverrides, world, type Played, type PlayFn,
   TUNNEL_CELLS, playTunnelCells, tunnelSelfCheck, withoutVersusRoutes,
 } from './versus-probe';
@@ -68,6 +68,22 @@ describe('play', () => {
       expect(play(map as MapId, ['kdf', 'kdf'], seedOf(0), { cutSide: 0 })).toMatchObject({ winner: 1, by: 'annihilation' });
     }
   }, FULL_GAMES_TIMEOUT_MS);
+  // GH-421: the lone survivor is an infantry squad, not the first unit placed (a Lavi). A full-health
+  // Lavi alone was sometimes never found inside the cap (seed 4 of 0-11 on main, 0 and 7 under vehicle
+  // avoidance) and on seed 5 it won. Ninety-six games, ~4 s alone.
+  it('a side cut to one unit loses by annihilation on every seed of 0-11, on each open map and from each end', () => {
+    for (const map of VERSUS_FAIR_MAPS) {
+      for (let n = 0; n < 12; n++) {
+        expect(play(map as MapId, ['kdf', 'kdf'], seedOf(n), { cutSide: 1 }), `${map} seed ${n} east cut`).toMatchObject({ winner: 0, by: 'annihilation' });
+        expect(play(map as MapId, ['kdf', 'kdf'], seedOf(n), { cutSide: 0 }), `${map} seed ${n} west cut`).toMatchObject({ winner: 1, by: 'annihilation' });
+      }
+    }
+  }, 120_000);
+  it('keeps the first infantry-role unit placed, and refuses a side with none', () => {
+    const roles = ['armour', 'armour', 'infantry', 'infantry', 'artillery'];
+    expect(loneSurvivorOf([10, 11, 12, 13, 14], (id) => roles[id - 10])).toBe(12);
+    expect(() => loneSurvivorOf([10, 11], () => 'armour')).toThrow('no infantry unit to keep');
+  });
 });
 
 describe('selfCheck', () => {
