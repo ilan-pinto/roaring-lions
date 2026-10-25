@@ -1095,7 +1095,22 @@ const bs4Plan: Plan = (sim, rt, ids, at) => {
 
   // Escort out of the yard along the lane, then clear the crossroads: the kamikaze
   // (bs4_charge_crossroads) and the pre-revealed market-lane RPG both sit at its head.
-  at(0, () => sim.queueCommand({ kind: 'move', ids: escort, ...M(27, 28) }));
+  // GH-421 (vehicle separation): the Eitan is placed 0.08 tile into the Namer, which leaves the yard
+  // at 1 s, and its way north passes the Namer's tail, so it now waits a second or two for the Namer
+  // to clear (it used to drive through). The squad is faster than the Eitan and went up the lane
+  // ahead of it: a charge squad from the crossroads caught it alone on seed 424242 at 4.4 s. The
+  // Eitan leads and the squad leaves the yard when it has cleared the Namer, as a player would
+  // not send riflemen up a lane in front of the only gun that covers them.
+  at(0, () => sim.queueCommand({ kind: 'move', ids: eitan, ...M(27, 28) }));
+  let squadOut = false;
+  for (let sec = 0; sec <= 8; sec++)
+    at(sec, () => {
+      if (squadOut) return;
+      const lead = eitan.find((i) => sim.state.alive[i] === 1);
+      if (lead !== undefined && sec < 8 && fx.toNumber(sim.state.posY[lead]) > 32.5) return;
+      squadOut = true;
+      sim.queueCommand({ kind: 'move', ids: inf, ...M(27, 28) });
+    });
   at(8, () => sim.queueCommand({ kind: 'attackMove', ids: escort, ...M(27, 26) }));
   // ...and stand there: an attackMove left running chases the rocket team at the west mouth ten tiles
   // east, and an infantry squad on its own in that fight dies (seed 1).
