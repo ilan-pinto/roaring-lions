@@ -4012,7 +4012,11 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // 2026-10-25, GH-802: Tel Marum III's plan takes the flank and cuts the relay, its carrying
 // secondary. 5953 -> 5993, +40: Tel Marum III 245 -> 285, stars 2 -> 3, roster out 7, no unit lost.
 // Every other mission pays as it did; no outcome or gate moved.
-const LADDER_CREDITS = 5993;
+// 2026-10-25, both changes together (GH-421 Stage 2 merged with GH-802's Tel Marum relay): 6011 =
+// 5953 + 18 (vehicle avoidance, the ten missions above) + 40 (Tel Marum III 245 -> 285). The two are
+// exactly additive: Tel Marum III pays 285 with avoidance on, and every other mission pays as listed
+// under GH-421. Every plan wins on 30 of 30 seeds, ROSTER_MAX 29, every gate on time.
+const LADDER_CREDITS = 6011;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
