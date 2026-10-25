@@ -20,13 +20,12 @@
 // economy). `snapshot-runtime-carry.ts` is the stand-in that moves a runtime and a driver across
 // until stage 2 encodes them.
 //
-// TWO THINGS THE MATRIX HAD TO LEARN ABOUT THE SIM, both found by running it:
-//   - `encodeSim` refuses a sim with commands queued, and in a world with a runtime `step`
-//     queues the rally order of a unit it has just delivered AFTER the tick. On those frame
-//     boundaries (about 14 in 6,000 ticks of an economy room) no snapshot can be cut, so a
-//     runtime world pre-scans its quiet ticks (`quietTicks`) and moves each cut to the next
-//     tick that is quiet at its start and at its end. Stage 2/3 must decide what a real
-//     producer does on such a frame.
+// THINGS THE MATRIX HAD TO LEARN ABOUT THE SIM, found by running it:
+//   - in a world with a runtime, `step` queues the rally order of a unit it has just delivered
+//     AFTER the tick, so a few frame boundaries (about 14 in 6,000 ticks of an economy room)
+//     hold a queued command. The queues are snapshot `state`, so a cut there must round-trip:
+//     every runtime world gets one extra cut at such a boundary (`withQueuedCut`) and the CLI
+//     fails if no fork of the matrix was cut with a non-empty `commandQueue`.
 //   - `UnitType.woundedTypeIdx` is a lazy cache written on the `unitTypes` CONFIG objects; see
 //     `resolveLazyConfig`.
 //
@@ -326,6 +325,10 @@ export interface WorldRun {
   /** Every `state` row that differed from tick 0 at any cut or at the end. */
   readonly moved: Set<string>;
   readonly garbledUnkeyedSlots: number;
+  /** Whether the world has a runtime (so its frames can end with a queued command). */
+  readonly hasRuntime: boolean;
+  /** How many cuts found A's `commandQueue` / `runtimeQueue` non-empty. */
+  readonly queuedCuts: { readonly command: number; readonly runtime: number };
   readonly wallMs: number;
 }
 
@@ -334,6 +337,8 @@ export interface RunOptions {
   readonly mutate?: (b: SnapWorld, a: SnapWorld) => void;
   /** Overrides the spec's plan (a self-check runs a short one). */
   readonly plan?: Plan;
+  /** A runtime world gets one extra cut at a boundary with a queued command. Default true; false is the falsification. */
+  readonly queuedCut?: boolean;
 }
 
 function rebindOf(b: SnapWorld, a: SnapWorld): Map<object, object> {
@@ -391,44 +396,34 @@ export function problemsOf(v: SeriesForkVerdict<SnapWorld>): string[] {
 }
 
 /**
- * The ticks at which a snapshot can be cut: `encodeSim` refuses a sim with inputs still queued,
- * and in a world with a runtime `step` queues the rally order of a unit it has just delivered
- * AFTER the tick, so on those frame boundaries (14 in 6,000 ticks of an economy room) the
- * queue is not empty. `quiet[t]` is true when it is empty with the world at tick `t`.
+ * The frame boundaries at which the command queue is NOT empty. In a world with a runtime `step`
+ * queues the rally order of a unit it has just delivered AFTER the tick, so on a handful of
+ * boundaries (14 in 6,000 ticks of an economy room) a snapshot is cut with a queued command, and
+ * the queues are snapshot state. Returned in ascending order, boundary `t` meaning "A at tick
+ * `t`, before its inputs": exactly where a cut is taken.
  */
-function quietTicks(spec: WorldSpec, end: number): boolean[] {
+export function queuedBoundaries(spec: WorldSpec, end: number): { command: number[]; runtime: number[] } {
   const w = spec.build();
-  const quiet = [true];
+  const out = { command: [] as number[], runtime: [] as number[] };
   for (let t = 0; t < end; t++) {
     w.driveAt(t);
     w.advanceOnce();
     const self = internals(w.sim);
-    quiet.push((self.commandQueue as unknown[]).length === 0 && (self.runtimeQueue as unknown[]).length === 0);
+    if ((self.commandQueue as unknown[]).length > 0) out.command.push(t + 1);
+    if ((self.runtimeQueue as unknown[]).length > 0) out.runtime.push(t + 1);
   }
-  return quiet;
+  return out;
 }
 
 /**
- * `plan` with every cut moved forward to the next tick that is quiet at its start AND at its end
- * (the judge encodes both worlds there too), and the end pulled back to a quiet tick; a cut that
- * no longer fits is dropped.
+ * `plan` plus one cut at a boundary whose command queue is non-empty (the first that fits), so a
+ * runtime world's matrix always snapshots a queued command at least once. Nothing is moved: the
+ * other cuts stay exactly where the plan put them.
  */
-function snapToQuiet(plan: Plan, quiet: readonly boolean[]): Plan {
-  let end = plan.end;
-  while (end > 0 && !quiet[end]) end--;
-  const next = (T: number, horizon: number): number => {
-    let t = T;
-    while (t + horizon <= end && !(quiet[t] && quiet[t + horizon])) t++;
-    return t;
-  };
-  const tailFrom = next(plan.tailFrom, end - plan.tailFrom);
-  const Ts: number[] = [];
-  for (const T of plan.Ts) {
-    const snapped = next(T, plan.horizon);
-    if (snapped + plan.horizon > end || snapped === tailFrom || Ts.includes(snapped)) continue;
-    Ts.push(snapped);
-  }
-  return { ...plan, Ts, tailFrom, end };
+export function withQueuedCut(plan: Plan, queued: readonly number[]): Plan {
+  const T = queued.find((t) => t > 0 && t + plan.horizon <= plan.end && t !== plan.tailFrom && !plan.Ts.includes(t));
+  if (T === undefined) return plan;
+  return { ...plan, Ts: [...plan.Ts, T].sort((x, y) => x - y) };
 }
 
 /** Plays one world's series: A once, a fork at every cut, the census read at every cut. */
@@ -436,13 +431,14 @@ export function runWorld(spec: WorldSpec, opts: RunOptions = {}): WorldRun {
   const started = performance.now();
   const base = spec.build(); // the world at tick 0, for the census
   const wanted = opts.plan ?? spec.plan;
-  const plan = base.runtime === null ? wanted : snapToQuiet(wanted, quietTicks(spec, wanted.end));
+  const plan = base.runtime === null || opts.queuedCut === false ? wanted : withQueuedCut(wanted, queuedBoundaries(spec, wanted.end).command);
   if (plan.Ts.includes(plan.tailFrom)) throw new Error(`snapshot witness: ${spec.id}: tailFrom ${plan.tailFrom} is also a cut`);
   const moved = new Set<string>();
   const readCensus = (a: SnapWorld): void => {
     for (const name of stateRowsMoved(base.sim, a.sim)) moved.add(name);
   };
   let builds = 0;
+  const queuedCuts = { command: 0, runtime: 0 };
   const verdicts = forkWitnessSeries<SnapWorld>({
     build: () => {
       const w = spec.build();
@@ -465,6 +461,9 @@ export function runWorld(spec: WorldSpec, opts: RunOptions = {}): WorldRun {
       b.parent = a;
       b.endsAt = a.sim.tickCount === plan.tailFrom ? plan.end : a.sim.tickCount + plan.horizon;
       readCensus(a);
+      const self = internals(a.sim);
+      if ((self.commandQueue as unknown[]).length > 0) queuedCuts.command++;
+      if ((self.runtimeQueue as unknown[]).length > 0) queuedCuts.runtime++;
     },
     poison: true,
     ...(opts.mutate === undefined ? {} : { mutate: opts.mutate }),
@@ -482,7 +481,7 @@ export function runWorld(spec: WorldSpec, opts: RunOptions = {}): WorldRun {
     forkProblems.push({ T: v.T, horizon: v.horizon, problems: p });
     garbled += v.garbledUnkeyedSlots;
   }
-  return { id: spec.id, forks: verdicts.length, problems, forkProblems, moved, garbledUnkeyedSlots: garbled, wallMs: performance.now() - started };
+  return { id: spec.id, forks: verdicts.length, problems, forkProblems, moved, garbledUnkeyedSlots: garbled, hasRuntime: base.runtime !== null, queuedCuts, wallMs: performance.now() - started };
 }
 
 // ---- the coverage census ----------------------------------------------------------------------
@@ -500,9 +499,10 @@ export const SNAPSHOT_COVERAGE_EXEMPT: readonly { readonly name: string; readonl
     'elevation structureCount_ stMaxHp stTypeIdx stCx stCy stMinX stMinY stMaxX stMaxY stTiles structureOfTile stRouteMask ' +
       'stProducesFor tnLength tnOwner tnCapacity tnTravelTicks tnDigRate tnDigger tnVentX tnVentY tunnelCount_ ' +
       'evacX evacY evacSide evacCount aidPosts woundLive veterancy',
-    'written only at build (applyTerrain, addStructure, addTunnel, addEvacPoint, addUnitType, spawn at veterancy 0), and A and its fresh B are built from one config, ' +
-      'so B already holds A\'s value in every witness world and a restore that skipped the row could not be told from one that wrote it (the encoding comparison does see ' +
-      'a wrong value: the stProducesFor self-check). Covered by a world that adds structures or tunnels mid-match (a field-works mission) or builds B from a different config than A'
+    'never moves after build in any witness world (written only by applyTerrain, addStructure, addTunnel, addEvacPoint, addUnitType and spawn at veterancy 0). ' +
+      'Their RESTORE is proved in every fork regardless, because B\'s state rows are poisoned before `restoreSim` and a restore that skipped one fails; ' +
+      'what is missing is a world in which the row holds a value other than its build value at a cut. Covered dynamically by a world that adds structures ' +
+      'or tunnels mid-match (a field-works mission), or one that promotes veterancy and lays a new evacuation point'
   ),
   ...rows(
     'siteAlive siteType siteX siteY siteSide siteStructure buildSite stProgress constructedAt fwLive stOwner stKnown sealGen ' +
@@ -518,6 +518,11 @@ export const SNAPSHOT_COVERAGE_EXEMPT: readonly { readonly name: string; readonl
   ...rows('stance ambushRadiusSq patrolX patrolY patrolCount patrolIdx patrolLive patrolLegIds', 'stances (ambush, patrol): no witness driver or placement sets one. Covered by a world whose units patrol or ambush'),
   ...rows('smoke smokeCooldown pendingStrikes', 'abilities reachable only from the player UI (smoke, fire-support strikes): no witness driver calls them. Covered by a world whose driver lays smoke and calls a strike'),
   ...rows('airWant', 'air carriers (GH-698): the air units of the witness worlds are drones, which never take a load or unload order. Covered by an air-carrier world'),
+  ...rows(
+    'runtimeQueue',
+    'runtime commands (build, setRally, cancelBuild) queued through `queueCommand`: every witness driver calls the runtime directly (`requestBuild`), and the golden economy\'s `command` variant ' +
+      'drains its queue inside the same drive, so no boundary of any world holds one (scanned at every tick of every runtime world). Covered by a world whose frame queues a `build` command that the cut precedes (a room\'s frame applier)'
+  ),
   ...rows('curStructure prStructure', 'a unit or a projectile aimed at a structure: no witness world has a building that is shot at. Covered by a world whose force attacks buildings'),
 ];
 
@@ -657,6 +662,7 @@ function main(argv: readonly string[]): number {
   const started = performance.now();
   const failures: string[] = [];
   const moved = new Set<string>();
+  let queuedCommandCuts = 0;
   let ranAll = true;
   for (const spec of worldSpecs()) {
     if (only !== undefined && !spec.id.includes(only)) {
@@ -665,18 +671,28 @@ function main(argv: readonly string[]): number {
     }
     const run = runWorld(spec);
     for (const n of run.moved) moved.add(n);
+    queuedCommandCuts += run.queuedCuts.command;
     const verdict = run.problems.length === 0 ? 'clean' : `RED (${run.problems.length})`;
     console.log(
       `${spec.id.padEnd(46)} ${String(run.forks).padStart(3)} forks of ${String(spec.plan.horizon).padStart(4)} ticks to ${String(spec.plan.end).padStart(5)}  ` +
-        `${String(run.moved.size).padStart(3)} rows moved  ${String(run.garbledUnkeyedSlots).padStart(4)} unkeyed slots poisoned  ${verdict.padEnd(9)} ${seconds(run.wallMs)}`
+        `${String(run.moved.size).padStart(3)} rows moved  ${String(run.garbledUnkeyedSlots).padStart(4)} unkeyed slots poisoned  ${String(run.queuedCuts.command).padStart(2)}/${run.queuedCuts.runtime} queued cuts  ${verdict.padEnd(9)} ${seconds(run.wallMs)}`
     );
     for (const p of run.problems.slice(0, 5)) console.log(`    ${p}`);
     for (const p of run.problems) failures.push(`${spec.id}: ${p}`);
+    // A runtime world's frames end with a queued rally order now and then; the queues are state, so each such world must have been cut at one.
+    if (run.hasRuntime && run.queuedCuts.command === 0) {
+      failures.push(`${spec.id}: no fork was cut with a non-empty commandQueue`);
+      console.log(`    ${spec.id}: no fork was cut with a non-empty commandQueue`);
+    }
   }
   const matrixMs = performance.now() - started;
   console.log(`matrix: ${seconds(matrixMs)}`);
 
   if (ranAll) {
+    // The queues are snapshot state: a matrix that never cuts with a command queued proves nothing about them.
+    const queued = `${queuedCommandCuts} fork(s) of the matrix were cut with a non-empty commandQueue`;
+    console.log(`queued cuts: ${queued}`);
+    if (queuedCommandCuts === 0) failures.push(`queued cuts: ${queued}; a runtime world must snapshot a queued command at least once`);
     const census = censusVerdict(moved);
     console.log(`census: ${census.stateRows} state rows, ${census.stateRows - census.uncovered.length - SNAPSHOT_COVERAGE_EXEMPT.length} moved, ${SNAPSHOT_COVERAGE_EXEMPT.length} exempt`);
     const byReason = new Map<string, string[]>();

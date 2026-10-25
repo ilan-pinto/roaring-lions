@@ -8,6 +8,8 @@ import {
   goldenPlan,
   goldenWounded,
   mirrorWorld,
+  queuedBoundaries,
+  withQueuedCut,
   runSelfCheck,
   runWorld,
   selfChecks,
@@ -36,7 +38,23 @@ describe('the witness over real worlds (short plan)', () => {
   it('an economy room forks clean with its runtime carried, and the runtime comparison ran', () => {
     const run = runWorld(economy);
     expect(run.problems).toEqual([]);
-    expect(run.forks).toBe(3);
+    expect(run.forks, 'three planned cuts and the queued-command cut').toBe(4);
+  });
+});
+
+describe('cuts with a command queued (the queues are snapshot state)', () => {
+  it('an economy run cuts at a boundary with a queued command, clean, and not when the queued cut is withheld', () => {
+    const run = runWorld(economy);
+    expect(run.problems).toEqual([]);
+    expect(run.queuedCuts.command, 'a fork was cut with a non-empty commandQueue').toBeGreaterThan(0);
+    expect(runWorld(economy, { queuedCut: false }).queuedCuts.command).toBe(0);
+  });
+
+  it('withQueuedCut adds one cut, in order, off the tail and off the other cuts; none when nothing fits', () => {
+    const plan: Plan = { Ts: [200, 500], horizon: 200, tailFrom: 100, end: 800 };
+    expect(withQueuedCut(plan, [100, 200, 320, 400]).Ts).toEqual([200, 320, 500]);
+    expect(withQueuedCut(plan, [700]).Ts, '700 + 200 runs past the end').toEqual([200, 500]);
+    expect(queuedBoundaries(economy, 800).command).toContain(320);
   });
 });
 
@@ -154,7 +172,7 @@ describe('the coverage census', () => {
   it('every shipped exemption has a reason and names a state row', () => {
     const v = censusVerdict(new Set(), SNAPSHOT_COVERAGE_EXEMPT);
     expect(v.badExemptions).toEqual([]);
-    expect(SNAPSHOT_COVERAGE_EXEMPT.every((e) => e.reason.includes('Covered by'))).toBe(true);
+    expect(SNAPSHOT_COVERAGE_EXEMPT.every((e) => e.reason.includes('Covered'))).toBe(true);
   });
 });
 
