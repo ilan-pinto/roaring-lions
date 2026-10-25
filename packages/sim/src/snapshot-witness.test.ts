@@ -11,7 +11,7 @@ import {
 } from './golden-worlds.test-helper';
 import { HASH_SEED, hashWord } from './hash';
 import { encodeSim, internals } from './snapshot';
-import { configDiff, forkWitness, poisonScratch, type ForkVerdict, type WitnessWorld } from './snapshot-witness';
+import { configDiff, forkWitness, type ForkVerdict, type WitnessWorld } from './snapshot-witness';
 import type { Sim } from './sim';
 
 // The fork witness on the three runtime-free golden worlds (net sim snapshot S1,
@@ -66,7 +66,7 @@ const GOLDEN: readonly Golden[] = [
   },
 ];
 
-function fork(g: Golden, T: number, extra: { mutate?: (b: World, a: World) => void } = {}): ForkVerdict<World> {
+function fork(g: Golden, T: number, extra: { poison?: boolean; afterRestore?: (b: World, a: World) => void; mutate?: (b: World, a: World) => void } = {}): ForkVerdict<World> {
   return forkWitness<World>({ build: g.build, drive: g.drive, T, horizon: HORIZON, hashEvery: HASH_EVERY, ...extra });
 }
 
@@ -94,13 +94,8 @@ describe('fork witness: scratch and unkeyed pool slots poisoned after the restor
     it(`${g.name}: stays green at ${g.poisonAt.join(', ')}`, () => {
       let unkeyed = 0;
       for (const T of g.poisonAt) {
-        const v = fork(g, T, {
-          mutate: (b) => {
-            const self = internals(b.sim);
-            unkeyed += (self.fieldGoalKey as number[]).filter((k) => k === -1).length;
-            poisonScratch(b.sim);
-          },
-        });
+        const v = fork(g, T, { poison: true });
+        unkeyed += v.garbledUnkeyedSlots;
         expectClean(v, `${g.name} poisoned T=${T}`);
       }
       // A poison check that garbles nothing proves nothing: say what it had to garble.
@@ -133,6 +128,15 @@ function report(label: string, v: ForkVerdict<World>): void {
 }
 
 describe('fork witness: self-checks that must stay red', () => {
+  it('the config check is wired to B: one openGrid byte flipped after the restore is reported', () => {
+    const v = fork(RUN, 250, {
+      afterRestore: (b) => {
+        (internals(b.sim).openGrid as Uint8Array)[7] ^= 1;
+      },
+    });
+    expect(v.configDifference, 'configDiff compared A with something other than B').toBe('openGrid[7]');
+  });
+
   it('fieldByGoal emptied: the encoding differs by the end (the hash stays equal)', () => {
     const v = fork(RUN, 250, {
       mutate: (b) => {
@@ -194,6 +198,15 @@ describe('config check: every config row of A equals B after the restore', () =>
     const table = RUN.build().sim;
     (internals(table).structureTypes as unknown[]).push({ id: 'extra' });
     expect(configDiff(a, table)).toBe('structureTypes: differs by JSON');
+
+    // `tnTiles` is a Set<number>[]: JSON alone writes every Set as {}, so only the replacer sees this.
+    const tiles = RUN.build().sim;
+    const set = (internals(tiles).tnTiles as Set<number>[])[0];
+    expect(set.size, 'the battle digs, so route 0 has tiles').toBeGreaterThan(0);
+    const first = Array.from(set)[0];
+    set.delete(first);
+    set.add(first + 1_000_000);
+    expect(configDiff(a, tiles)).toBe('tnTiles: differs by JSON');
   });
 });
 
@@ -214,8 +227,9 @@ describe('snapshot format pin', () => {
     // machine. It moves ONLY in a commit that changes the format or the set of `state` rows on
     // purpose (a row added, removed, reordered or reclassed in snapshot-schema.ts, or a layout
     // change in snapshot.ts), and that commit says "Was <n>." and why. It also moves when sim
-    // behaviour changes the state at tick 500, but then the golden hash in determinism.test.ts
-    // moves in the same commit and says why there.
+    // behaviour changes the state at tick 500. That is not the same trigger as the golden hash:
+    // the bytes cover unhashed `state` rows too (the pool keys, fieldLastIssued), so a change to
+    // those moves this pin and leaves the golden hash alone, and the other way round.
     expect(h >>> 0).toBe(2172139112);
   });
 });

@@ -115,7 +115,11 @@ const SCHEMA_DIGEST = snapshotSchemaDigest() >>> 0;
 
 // ---- typed-array codecs -----------------------------------------------------
 
-type Typed = Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
+/** @internal The integer typed arrays the snapshot walks. Not in the package index. */
+export type Typed = Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
+/** @internal */
+export const isTyped = (v: unknown): v is Typed =>
+  v instanceof Int8Array || v instanceof Uint8Array || v instanceof Int16Array || v instanceof Uint16Array || v instanceof Int32Array || v instanceof Uint32Array;
 
 interface Codec {
   readonly size: number;

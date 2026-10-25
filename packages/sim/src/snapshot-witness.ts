@@ -1,5 +1,5 @@
 import { FlowField } from './flowfield';
-import { encodeSim, internals, restoreSim } from './snapshot';
+import { encodeSim, internals, isTyped, restoreSim, type Typed } from './snapshot';
 import { rowsOf, type SnapshotRow } from './snapshot-schema';
 import type { Sim } from './sim';
 
@@ -43,7 +43,13 @@ export interface ForkWitnessOptions<W extends WitnessWorld> {
   hash?: (world: W) => number;
   /** Runs on B right after the restore, before anything is mutated (a caller carrying a runtime copies it here). */
   afterRestore?: (b: W, a: W) => void;
-  /** Runs on B after the restore and `afterRestore`: the mutation a self-check applies, or `poisonScratch`. */
+  /**
+   * Fills everything the restore promises not to write with garbage (see `poisonScratch`), after
+   * `afterRestore` and before `mutate`. The verdict's `garbledUnkeyedSlots` says how many pool
+   * slots that actually garbled.
+   */
+  poison?: boolean;
+  /** Runs on B after the restore, `afterRestore` and the poison: the mutation a self-check applies. */
   mutate?: (b: W, a: W) => void;
 }
 
@@ -56,15 +62,12 @@ export interface ForkVerdict<W extends WitnessWorld> {
   firstDifference?: string;
   /** `configDiff(A, B)` right after the restore, before any mutation: null when every `config` row agrees. */
   configDifference: string | null;
+  /** How many unkeyed pool slots `poison` garbled (0 when `poison` was off or the pool had none). */
+  garbledUnkeyedSlots: number;
   /** The two worlds after the horizon, for a caller's own extra comparisons. */
   a: W;
   b: W;
 }
-
-type Typed = Int8Array | Uint8Array | Int16Array | Uint16Array | Int32Array | Uint32Array;
-
-const isTyped = (v: unknown): v is Typed =>
-  v instanceof Int8Array || v instanceof Uint8Array || v instanceof Int16Array || v instanceof Uint16Array || v instanceof Int32Array || v instanceof Uint32Array;
 
 function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false;
@@ -105,6 +108,17 @@ function firstStateDifference(a: Sim, b: Sim): string | null {
 }
 
 /**
+ * JSON.stringify writes every Set and Map as `{}`, which would make a compare of `tnTiles`
+ * (a `Set<number>[]`) vacuous. A Set becomes its members sorted, a Map its entries sorted by key.
+ */
+function contentReplacer(_key: string, v: unknown): unknown {
+  const order = (x: unknown, y: unknown): number => ((x as number) < (y as number) ? -1 : (x as number) > (y as number) ? 1 : 0);
+  if (v instanceof Set) return Array.from(v).sort(order);
+  if (v instanceof Map) return Array.from(v.entries()).sort((x, y) => order(x[0], y[0]));
+  return v;
+}
+
+/**
  * Compares every `config` row of two worlds: typed arrays by element, scalars by value, the
  * type tables by JSON. The read-only views (`state`, `structures`, `works`) are records over
  * `state` columns and are skipped. Returns a description of the first difference, or null.
@@ -123,7 +137,7 @@ export function configDiff(a: Sim, b: Sim): string | null {
       if (at >= 0) return `${row.name}[${at}]`;
     } else if (row.kind.t === 'scalar') {
       if (va !== vb) return `${row.name}: ${String(va)} vs ${String(vb)}`;
-    } else if (JSON.stringify(va) !== JSON.stringify(vb)) {
+    } else if (JSON.stringify(va, contentReplacer) !== JSON.stringify(vb, contentReplacer)) {
       return `${row.name}: differs by JSON`;
     }
   }
@@ -143,14 +157,19 @@ const POISON_UNKEYED = 0xee;
  * Keyed slots are not touched: the restore rebuilt them from their keys, and `derived` means
  * exactly that those bytes are a function of state.
  */
-export function poisonScratch(sim: Sim): void {
+function poisonScratch(sim: Sim): number {
   const self = internals(sim);
   for (const row of rowsOf('scratch')) poisonRow(self, row, sim);
   const fields = self.fields as FlowField[];
   const goalKey = self.fieldGoalKey as number[];
+  let garbled = 0;
   for (let i = 0; i < fields.length; i++) {
-    if (goalKey[i] === -1) garble(fields[i], POISON_UNKEYED);
+    if (goalKey[i] === -1) {
+      garble(fields[i], POISON_UNKEYED);
+      garbled++;
+    }
   }
+  return garbled;
 }
 
 function poisonRow(self: Record<string, unknown>, row: SnapshotRow, sim: Sim): void {
@@ -159,7 +178,7 @@ function poisonRow(self: Record<string, unknown>, row: SnapshotRow, sim: Sim): v
     if (!isTyped(v)) throw new Error(`poisonScratch: ${row.name} is not a typed array`);
     v.fill(POISON_BYTE);
   } else if (row.kind.t === 'scalar') {
-    self[row.name] = typeof v === 'boolean' ? true : POISON_SCALAR;
+    self[row.name] = typeof v === 'boolean' ? !v : POISON_SCALAR;
   } else if (row.kind.t === 'object' && row.kind.shape === 'flowfield') {
     const f = new FlowField(sim.width, sim.height);
     garble(f, POISON_BYTE);
@@ -197,6 +216,7 @@ export function forkWitness<W extends WitnessWorld>(opts: ForkWitnessOptions<W>)
   restoreSim(b.sim, bytes);
   opts.afterRestore?.(b, a);
   const configDifference = configDiff(a.sim, b.sim);
+  const garbledUnkeyedSlots = opts.poison === true ? poisonScratch(b.sim) : 0;
   opts.mutate?.(b, a);
 
   let hashDivergedAt: number | null = null;
@@ -214,7 +234,7 @@ export function forkWitness<W extends WitnessWorld>(opts: ForkWitnessOptions<W>)
   }
 
   const encodingEqualAtEnd = bytesEqual(encodeSim(a.sim), encodeSim(b.sim));
-  const verdict: ForkVerdict<W> = { hashDivergedAt, encodingEqualAtEnd, configDifference, a, b };
+  const verdict: ForkVerdict<W> = { hashDivergedAt, encodingEqualAtEnd, configDifference, garbledUnkeyedSlots, a, b };
   if (!encodingEqualAtEnd) {
     verdict.firstDifference = firstStateDifference(a.sim, b.sim) ?? 'the encodings differ outside the state columns (the tail: pool keys or an aux row)';
   } else if (hashDivergedAt !== null) {
