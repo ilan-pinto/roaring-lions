@@ -484,6 +484,13 @@ T2–T4 are independent after T1 and may run in parallel worktrees; T8 needs T3�
   scripted plan hides; `playtest` must read the ladder, not only VICTORY.
 - **R11 — names.** "Gachelet" and "Drone Swarm" have not been through the storyline §2.4 rule-3
   screen that renamed the Zikit and the Tzav (`numbers.md`, names screen).
+  **Screened 2026-10-25 (GH-274 item 5)** for "Remetz" (the shipped name of `aa_remetz`, which replaced
+  "Gachelet") and "Drone Swarm", by the E5 method (MediaWiki search on en and he.wikipedia, each name
+  alone and beside military context; an encyclopaedia search, not a trademark search). *Remetz* (Hebrew
+  רמץ, embers): no platform, unit, operation or armed group; the hits are the common noun for embers,
+  a German exonym of a Romanian village and a surname. *Drone Swarm*: a descriptive common phrase; the
+  hits are the general concept (swarming, drone warfare) and no named platform or unit. Both pass and
+  keep their names.
 
 ## 14. Open questions (each with a recommended default)
 

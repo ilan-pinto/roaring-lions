@@ -69,7 +69,8 @@ export function packBonusPercent(pack: CoinPack, base: CoinPack = COIN_PACKS[0])
 // beside `LADDER_CREDITS`.
 // Was 5842: the lead's wound rules (2026-10-23), +111; per-mission reasons beside `LADDER_CREDITS`.
 // Was 5953: GH-802 (2026-10-25), Tel Marum III's plan takes the flank and cuts the relay, +40.
-export const CAMPAIGN_CREDITS = 5993;
+// Was 5993: GH-274 item 5 (2026-10-25), the swarm missions; Umm Zeitoun II +10, Wadi Halam III -20.
+export const CAMPAIGN_CREDITS = 5983;
 /** The same ladder's mission count, for a mean pay a fresh account can quote
  *  before it has been paid for anything. */
 export const LADDER_MISSIONS = 26;
