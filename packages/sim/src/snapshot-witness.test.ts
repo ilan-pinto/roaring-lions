@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ORDERS_SEED,
   RELIEF_SEED,
+  RUN_SEED,
   ordersDrive,
   ordersSetup,
   reliefDrive,
@@ -21,7 +22,6 @@ import type { Sim } from './sim';
 // encodings byte-equal at the end. The routine is `snapshot-witness.ts`, a
 // non-test module, so tools/ runs the same proof on the versus worlds.
 
-const RUN_SEED = 0x1310_0001; // the golden 1000-tick replay's own seed
 const HORIZON = 200;
 const HASH_EVERY = 20;
 

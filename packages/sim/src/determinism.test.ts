@@ -8,6 +8,7 @@ import {
   ECO_MILITIA,
   ECO_SQUAD,
   ECONOMY_POP_CAP,
+  ECONOMY_SEED,
   ECONOMY_RALLY_TILE_X,
   ECONOMY_TICKS,
   HILL_CORE,
@@ -16,6 +17,7 @@ import {
   RELIEF_TICKS,
   RELIEF_W,
   RIFLES,
+  RUN_SEED,
   WW_SEED,
   WW_SQUAD,
   economyAdvance,
@@ -59,8 +61,8 @@ function run(
 
 describe('determinism (1000-tick replay)', () => {
   it('two independent replays from the same seed produce an identical state hash', () => {
-    const a = run(0x1310_0001, 1000);
-    const b = run(0x1310_0001, 1000);
+    const a = run(RUN_SEED, 1000);
+    const b = run(RUN_SEED, 1000);
     expect(a.hash()).toBe(b.hash());
     // Golden pin. This value must be identical on every machine and engine —
     // that is the whole claim of invariants 2 and 3. It changes ONLY when the
@@ -286,7 +288,7 @@ describe('determinism (1000-tick replay)', () => {
     const seen = new Set<number>();
     let kneelingShots = 0;
     let standingShots = 0;
-    run(0x1310_0001, 1000, false, undefined, (sim, events) => {
+    run(RUN_SEED, 1000, false, undefined, (sim, events) => {
       for (let i = 0; i < sim.entityCount; i++) seen.add(sim.state.brace[i]);
       for (const e of events) {
         if (e.kind !== 'fire' || e.shooter < 0) continue;
@@ -314,14 +316,14 @@ describe('determinism (1000-tick replay)', () => {
     // Mid-replay: the defender is inside, so `stepGarrison` ran and the shed
     // is occupied. Aggregate rather than an entity id, so spawn order can move
     // without silently turning this into a no-op.
-    const mid = run(0x1310_0001, 90);
+    const mid = run(RUN_SEED, 90);
     expect(mid.structureCount).toBe(1);
     expect(mid.structures.occupants[0]).toBe(1);
     expect(mid.structures.alive[0]).toBe(1);
 
     // End of replay: the shed came down on him, so the damage, collapse and
     // flow-field recompute ran too.
-    const end = run(0x1310_0001, 1000);
+    const end = run(RUN_SEED, 1000);
     expect(end.structures.alive[0]).toBe(0);
     expect(end.structures.hp[0]).toBeLessThanOrEqual(0);
   });
@@ -340,7 +342,7 @@ describe('determinism (1000-tick replay)', () => {
     const collapses: { tick: number; by: number }[] = [];
     const destroyed: { tick: number; by: number }[] = [];
     const contacts: { side: number; tunnel: number; level: string }[] = [];
-    const end = run(0x1310_0001, 1000, false, (e) => {
+    const end = run(RUN_SEED, 1000, false, (e) => {
       if (e.kind === 'ventOpened') ventOpened = true;
       if (e.kind === 'surfaced') {
         surfacedCount++;
@@ -363,7 +365,7 @@ describe('determinism (1000-tick replay)', () => {
     // Mid-run: the route is genuinely being dug — progress has climbed off
     // zero but not reached the end, the vent is still shut, and both
     // occupants are below. Present-but-idle (or pre_dug) would fail here.
-    const mid = run(0x1310_0001, 60);
+    const mid = run(RUN_SEED, 60);
     expect(mid.tunnelCount).toBe(2);
     expect(mid.tnProgress[0]).toBeGreaterThan(0);
     expect(mid.tnProgress[0]).toBeLessThan(mid.tnLength[0]);
@@ -418,21 +420,21 @@ describe('determinism (1000-tick replay)', () => {
   // element through the state view, which a hash that skipped the column
   // would not notice. The replay is short: nothing has to have happened yet.
   it('hash covers suppFromX', () => {
-    const sim = run(0x1310_0001, 20);
+    const sim = run(RUN_SEED, 20);
     const before = sim.hash();
     sim.state.suppFromX[0] += 1;
     expect(sim.hash()).not.toBe(before);
   });
 
   it('hash covers suppFromY', () => {
-    const sim = run(0x1310_0001, 20);
+    const sim = run(RUN_SEED, 20);
     const before = sim.hash();
     sim.state.suppFromY[0] += 1;
     expect(sim.hash()).not.toBe(before);
   });
 
   it('hash covers suppFromSet', () => {
-    const sim = run(0x1310_0001, 20);
+    const sim = run(RUN_SEED, 20);
     const before = sim.hash();
     sim.state.suppFromSet[0] ^= 1;
     expect(sim.hash()).not.toBe(before);
@@ -592,7 +594,7 @@ describe('determinism over relief (900-tick replay round a hill)', () => {
 
   it("N2: the explicit single-player table is today's rule on all three golden replays", () => {
     // LITERALS, as the pins above: an oracle that imports its expectation cannot fail.
-    expect(run(0x1310_0001, 1000, false, undefined, undefined, [true, false]).hash()).toBe(3719067886);
+    expect(run(RUN_SEED, 1000, false, undefined, undefined, [true, false]).hash()).toBe(3719067886);
     expect(relief(RELIEF_SEED, RELIEF_TICKS, true, [true, false]).sim.hash()).toBe(2842924511);
     expect(orders(ORDERS_SEED, [true, false]).sim.hash()).toBe(3272041047);
   });
@@ -715,7 +717,6 @@ describe('determinism of an order once it is done (900-tick replay)', () => {
 // replay pins it BEFORE the Stage 4 economy plans (F1 first) change it, so the
 // first thing the pin has to explain is a deliberate change.
 
-const ECONOMY_SEED = 0x0e_c0_0001;
 // ECONOMY_PIN: born 2026-10-14 at da74f887 (F1 Task 1, before any economy
 // change). There is no earlier value. Move it deliberately, in the commit that
 // moves the economy, and say why; each Stage 4 economy plan (F1, F2, F4) that

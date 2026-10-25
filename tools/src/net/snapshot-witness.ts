@@ -45,16 +45,19 @@
 // same series run clean: see `SELF_CHECKS`.
 
 import { fileURLToPath } from 'node:url';
-import { fx, forkWitnessSeries, stateRowsMoved, type MissionRuntime, type SeriesForkVerdict, type Sim, type WitnessWorld } from '@lions/sim';
+import { fx, type MissionRuntime, type Sim } from '@lions/sim';
 import { doctrines, type MapId } from '@lions/data';
 import { VERSUS_FAIR_MAPS, matchDigest, type Faction } from '@lions/net';
 import { buildMatchWorld, matchTick, type MatchWorld } from '../../../packages/app/src/net/match-world';
 import { rowsOf } from '../../../packages/sim/src/snapshot-schema';
 import { internals } from '../../../packages/sim/src/snapshot';
+import { forkWitnessSeries, stateRowsMoved, type SeriesForkVerdict, type WitnessWorld } from '../../../packages/sim/src/snapshot-witness';
 import {
+  ECONOMY_SEED,
   ECONOMY_TICKS,
   RELIEF_SEED,
   ORDERS_SEED,
+  RUN_SEED,
   WW_SEED,
   economyAdvance,
   economyDrive,
@@ -234,8 +237,6 @@ export function stressWorld(map: MapId, seed: number): SnapWorld {
 // The golden worlds of determinism.test.ts, by relative import of their test helper (a controller
 // ruling: tools is outside the sim lint). The pinned replays run 1000 / 900 / 900 / 600 / 2400
 // ticks; the witness runs each to exactly that.
-const RUN_SEED = 0x1310_0001;
-const ECONOMY_SEED = 0x0e_c0_0001;
 
 export function goldenBattle(): SnapWorld {
   const { sim, ids } = runSetup(RUN_SEED);

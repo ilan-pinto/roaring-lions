@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fx } from './fixed';
-import { RIFLES, economyAdvance, economyDrive, economySetup, reliefDrive, reliefSetup, runDrive, runSetup } from './golden-worlds.test-helper';
+import { ECONOMY_SEED, RIFLES, RUN_SEED, economyAdvance, economyDrive, economySetup, reliefDrive, reliefSetup, runDrive, runSetup } from './golden-worlds.test-helper';
 import { Rng } from './rng';
 import { MAX_FLOW_FIELDS, POOL_RESTORE_BUDGET_BYTES, STRIKE_SNAPSHOT_KEYS, Sim, type Command, type UnitTypeJson } from './sim';
 import { SIM_SNAPSHOT_SCHEMA, rowsOf } from './snapshot-schema';
@@ -15,8 +15,6 @@ import * as simIndex from './index';
 // build a FRESH world with the same setup at tick 0, restore A's bytes onto it.
 
 const SEED = 0x1234;
-const RUN_SEED = 0x1310_0001; // the golden 1000-tick replay's own seed
-const ECONOMY_SEED = 0x0e_c0_0001; // the golden economy replay's own seed (the witness's, in tools)
 const props = (o: unknown): Record<string, unknown> => o as Record<string, unknown>;
 
 function advance(w: { sim: Sim; ids: ReturnType<typeof runSetup>['ids'] }, from: number, to: number): void {
@@ -534,6 +532,12 @@ describe('snapshot: exports', () => {
     expect(simIndex.restoreSim).toBe(restoreSim);
     expect(simIndex.SnapshotRefused).toBe(SnapshotRefused);
     expect(simIndex.SNAPSHOT_FORMAT).toBe(1);
+  });
+  it('index.ts does not export the witness: tools and tests import snapshot-witness.ts by path', () => {
+    const names = Object.keys(simIndex);
+    for (const gone of ['forkWitness', 'forkWitnessSeries', 'stateRowsMoved', 'configDiff']) {
+      expect(names, gone).not.toContain(gone);
+    }
   });
 });
 

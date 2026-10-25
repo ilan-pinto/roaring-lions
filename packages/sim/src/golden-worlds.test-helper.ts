@@ -198,6 +198,11 @@ export const VENT_GUARD: UnitTypeJson = {
 };
 
 /** What `runSetup` returns beside the sim: the ids `runDrive` addresses. */
+/** The golden 1000-tick replay's own seed (determinism.test.ts pins its hash). */
+export const RUN_SEED = 0x1310_0001;
+/** The golden economy replay's own seed (determinism.test.ts pins its economy hash and runtime digest). */
+export const ECONOMY_SEED = 0x0e_c0_0001;
+
 export interface RunIds {
   west: number[];
   east: number[];

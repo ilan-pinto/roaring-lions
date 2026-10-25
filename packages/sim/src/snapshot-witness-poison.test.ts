@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { runDrive, runSetup } from './golden-worlds.test-helper';
+import { RUN_SEED, runDrive, runSetup } from './golden-worlds.test-helper';
 import { internals } from './snapshot';
 import { rowsOf } from './snapshot-schema';
 import { forkWitness, stateRowsMoved, type ForkVerdict } from './snapshot-witness';
@@ -29,7 +29,6 @@ vi.mock('./snapshot', async (importOriginal) => {
 
 const T = 300;
 const HORIZON = 60;
-const RUN_SEED = 0x1310_0001; // the golden 1000-tick replay's own seed
 const build = () => runSetup(RUN_SEED);
 
 function fork(): ForkVerdict<ReturnType<typeof build>> {
