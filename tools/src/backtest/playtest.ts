@@ -8,6 +8,7 @@ import {
   starsEarned,
   type LedgerData,
   type MissionResult,
+  type MissionRuntime,
   type SimEvent,
   type Stars,
 } from '@lions/sim';
