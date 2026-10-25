@@ -4240,7 +4240,10 @@ for (const [label, got, want] of [
 // 2026-10-25, GH-274 item 5: 29 -> 31, same mission. Umm Zeitoun II's roster out reads 15 -> 16 -> 17: the
 // swarm that replaces the loiter drone costs the plan no body (+1), and the Remetz its plan now builds
 // survives into the roster (+1). Umm Zeitoun IV inherits both.
-const ROSTER_MAX = 31;
+// 2026-10-25, GH-421 Stage 2 merged with GH-274 item 5: 31 -> 30, same mission, read off a fresh run.
+// Umm Zeitoun II's roster out reads 16 under vehicle avoidance against main's 17, and Umm Zeitoun III
+// (22) and IV (30) inherit the one body fewer. No outcome moved.
+const ROSTER_MAX = 30;
 console.log(`roster maximum: ${rosterMax} at ${rosterMaxMissionId}`);
 if (rosterMax !== ROSTER_MAX) {
   console.error(`roster maximum: FAILED — expected ${ROSTER_MAX}, got ${rosterMax} at ${rosterMaxMissionId}`);
