@@ -49,6 +49,7 @@ import { fx, type MissionRuntime, type Sim } from '@lions/sim';
 import { doctrines, type MapId } from '@lions/data';
 import { VERSUS_FAIR_MAPS, matchDigest, type Faction } from '@lions/net';
 import { buildMatchWorld, matchTick, type MatchWorld } from '../../../packages/app/src/net/match-world';
+import { RUNTIME_SNAPSHOT_SCHEMA } from '../../../packages/sim/src/runtime-snapshot-schema';
 import { rowsOf } from '../../../packages/sim/src/snapshot-schema';
 import { internals } from '../../../packages/sim/src/snapshot';
 import { forkWitnessSeries, stateRowsMoved, type SeriesForkVerdict, type WitnessWorld } from '../../../packages/sim/src/snapshot-witness';
@@ -83,7 +84,7 @@ import {
   type Arrangement,
   type TunnelCell,
 } from '../backtest/versus-probe';
-import { carriedDiff, carryOnto, type Rebind } from './snapshot-runtime-carry';
+import { carriedDiff, carryOnto, type DiffIgnore, type Rebind } from './snapshot-runtime-carry';
 
 // ---- worlds -----------------------------------------------------------------------------------
 
@@ -414,10 +415,22 @@ export function carryWorld(b: SnapWorld, a: SnapWorld): void {
   a.carried.forEach((x, i) => carryOnto(b.carried[i], x, rebind));
 }
 
+/** The names of the runtime's own `scratch` rows (the schema's), which the reflection comparison does not look at. */
+const RUNTIME_SCRATCH_ROWS: ReadonlySet<string> = new Set(RUNTIME_SNAPSHOT_SCHEMA.filter((r) => r.cls === 'scratch').map((r) => r.name));
+
+/**
+ * A runtime's `scratch` rows are not data (the codec never writes one, and the witness poisons them natively after the
+ * restore since snapshot S2 Task 4), so B holds garbage in a slot the runtime has not rewritten since, where A holds its
+ * old tail: `ventOut`, `CivilianFlight.scratch`. The comparison skips them. It dies with the carry in Task 5.
+ */
+const ignoreScratch: DiffIgnore = (owner, key) =>
+  (owner.constructor.name === 'MissionRuntime' && typeof key === 'string' && RUNTIME_SCRATCH_ROWS.has(key)) ||
+  (owner.constructor.name === 'CivilianFlight' && key === 'scratch');
+
 function carriedDiffOf(b: SnapWorld, a: SnapWorld): string | null {
   const rebind: Rebind = rebindOf(b, a);
   for (let i = 0; i < a.carried.length; i++) {
-    const d = carriedDiff(a.carried[i], b.carried[i], `carried[${i}]`, rebind);
+    const d = carriedDiff(a.carried[i], b.carried[i], `carried[${i}]`, rebind, ignoreScratch);
     if (d !== null) return d;
   }
   return null;

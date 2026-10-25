@@ -64,7 +64,7 @@ const isPlain = (x: unknown): x is Props => x !== null && typeof x === 'object' 
 // ---- the schema, as the codec reads it ---------------------------------------------------
 
 /** Records that already exist on the target (built by its setup) and are written field by field. */
-const IN_PLACE: ReadonlySet<RowSetName> = new Set<RowSetName>([
+export const IN_PLACE: ReadonlySet<RowSetName> = new Set<RowSetName>([
   'ObjectiveState',
   'ZoneIncomeState',
   'ConvoyRoute',
@@ -90,7 +90,7 @@ function stateRows(rows: RowSetName | 'MissionRuntime'): readonly RuntimeRow[] {
 const CORRIDOR_ROW = 'corridorFields';
 
 /** Arrays whose COUNT is fixed by the target's own setup: the section must carry exactly that many. */
-const FIXED_COUNT_PATHS: ReadonlySet<string> = new Set([
+export const FIXED_COUNT_PATHS: ReadonlySet<string> = new Set([
   'MissionRuntime.objectives',
   'MissionRuntime.incomeZoneList',
   'MissionRuntime.firedTriggers',
@@ -656,13 +656,17 @@ export function planRuntime(rt: MissionRuntime, sim: Sim, section: unknown): Run
   }
   const unitInfo = props(f.rt.ctx).unitInfo;
   if (typeof unitInfo === 'function') {
-    const known = (u: string): boolean => (unitInfo as (u: string) => unknown)(u) !== null;
-    for (const side of d.rows.lines as Props[][]) {
-      for (const line of side) {
+    // The catalogue is asked per SIDE (a versus room keys its menus by side, and answers a one-argument call with a TypeError):
+    // a line's items are the ones its own side asked for, and `lines` is [side 0's lines, side 1's lines].
+    const known = (u: string, side: 0 | 1): boolean => (unitInfo as (u: string, side: 0 | 1) => unknown)(u, side) !== null;
+    (d.rows.lines as Props[][]).forEach((sideLines, side) => {
+      for (const line of sideLines) {
         const items = [...(line.queue as Props[]), ...(line.current === null ? [] : [line.current as Props])];
-        for (const it of items) if (!known(it.unit as string)) refuse('LineItem.unit', `"${String(it.unit)}" is not a unit this world can build`);
+        for (const it of items) {
+          if (!known(it.unit as string, side === 0 ? 0 : 1)) refuse('LineItem.unit', `"${String(it.unit)}" is not a unit this world can build`);
+        }
       }
-    }
+    });
   }
   // Fields: keys are goal tiles, stamps are terrain versions that have existed. A field is only ever computed
   // over the runtime's mask copies, which a world with no income zone and no convoy does not keep.

@@ -196,14 +196,20 @@ describe('cuts with a command queued (the queues are snapshot state)', () => {
 });
 
 describe('the runtime comparison at a fork end', () => {
-  it('sees a runtime field the hash does not fold (promotedValue) that the sim encoding cannot see', () => {
+  it('sees a runtime field the hash does not fold (promotedValue), by the runtime codec\'s encoding and by the reflection diff', () => {
     const run = runWorld(economy, {
       mutate: (b) => {
         (b.runtime as unknown as { promotedValue: number }).promotedValue = 99;
       },
     });
     expect(run.problems.length).toBeGreaterThan(0);
-    expect(run.problems.every((p) => p.includes('the runtime data differs at the end (carried[0].promotedValue)')), run.problems.join('; ')).toBe(true);
+    // Since snapshot S2 Task 4 the witness restores and encodes the runtime natively, so the encodings see the row too (as
+    // `runtime.promotedValue`); the stage-1 reflection diff (gone in Task 5) still sees it. Nothing else is wrong.
+    const known = (p: string): boolean =>
+      p.includes('the runtime data differs at the end (carried[0].promotedValue)') || p.includes('the encodings differ at the end (runtime.promotedValue)');
+    expect(run.problems.every(known), run.problems.join('; ')).toBe(true);
+    expect(run.problems.some((p) => p.includes('the encodings differ at the end (runtime.promotedValue)')), 'the native encoding sees it').toBe(true);
+    expect(run.problems.some((p) => p.includes('the runtime data differs at the end')), 'the reflection diff sees it').toBe(true);
   }, 60_000);
 });
 
@@ -247,6 +253,25 @@ describe('the carry never writes a sim column (the runtime\'s holdView aliases t
     expect(carriedDiff({ view: colA }, { view: colB }, 'r', rebind)).toBeNull();
     expect(carriedDiff({ view: colA }, { view: colA }, 'r', rebind)).toBe('r.view (a reference to the wrong world)');
     expect(carriedDiff({ x: 1 }, { x: 1, extra: 2 }, 'r', new Map())).toBe('r.extra (only on B)');
+  });
+
+  it('carriedDiff skips the own properties `ignore` names and no others', () => {
+    const none = new Map<object, object>();
+    const ignore = (owner: object, key: string | symbol): boolean => owner.constructor.name === 'Latch' && key === 'scratch';
+    class Latch {
+      constructor(
+        public scratch: Int32Array,
+        public fled: Set<number>
+      ) {}
+    }
+    const a = new Latch(new Int32Array([1, 2, 3]), new Set([4]));
+    const stale = new Latch(new Int32Array([9, 9, 9]), new Set([4]));
+    expect(carriedDiff(a, stale, 'r', none), 'without the predicate the scratch tail is a difference').toBe('r.scratch[0]');
+    expect(carriedDiff(a, stale, 'r', none, ignore)).toBeNull();
+    // Only the named key: a real difference beside it is still found.
+    expect(carriedDiff(a, new Latch(new Int32Array([9, 9, 9]), new Set([5])), 'r', none, ignore)).toBe('r.fled.member(0)');
+    // And only on the named owner class.
+    expect(carriedDiff({ scratch: new Int32Array([1]) }, { scratch: new Int32Array([2]) }, 'r', none, ignore)).toBe('r.scratch[0]');
   });
 
   it('rebindOf maps the sim columns, the state views and the rng words', () => {

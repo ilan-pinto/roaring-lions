@@ -1,4 +1,14 @@
 import { FlowField } from './flowfield';
+import { HASH_SEED, hashWord } from './hash';
+import type { MissionRuntime } from './mission';
+import { FIXED_COUNT_PATHS, IN_PLACE, encodeRuntimeSection, parseRuntimeSection } from './runtime-snapshot';
+import {
+  RUNTIME_ROW_SETS,
+  RUNTIME_SNAPSHOT_SCHEMA,
+  runtimeRowsOf,
+  type RuntimeKind,
+  type RuntimeRow,
+} from './runtime-snapshot-schema';
 import { auxJsonOf, canonicalJson, encodeSim, internals, isTyped, restoreSim, type Typed } from './snapshot';
 import { RNG_SNAPSHOT_SCHEMA, rowsOf, type SnapshotRow } from './snapshot-schema';
 import type { Sim } from './sim';
@@ -25,12 +35,32 @@ import type { Sim } from './sim';
 // the hash does not.
 //
 // This is a NON-test module so tools/ runs the SAME proof on the versus and
-// economy worlds (Task 7). It is generic over a world that exposes `.sim`, so a
-// caller can carry a runtime beside it.
+// economy worlds (Task 7). It is generic over a world that exposes `.sim`.
+//
+// THE RUNTIME (snapshot S2, Task 4). A world that exposes a `runtime` (the `MissionRuntime` built over
+// its sim) has it carried natively, through the runtime codec: A's snapshot is `encodeSim(sim, {}, runtime)`,
+// B's runtime is poisoned like its sim (every `state` row before the restore, every `scratch` row and every
+// stale `derived` field after it), restored by `restoreSim(sim, bytes, runtime)`, and held to the same
+// verdict: the round trip at T, the config rows (`runtimeConfigDiff`), the hash (the sim's folded with
+// `runtime.digest()`), and the two encodings, runtime section included, at the end.
 
-/** Anything that owns a `Sim`; a caller may add whatever else it drives (a runtime, ids). */
+/**
+ * Anything that owns a `Sim`; a caller may add whatever else it drives (ids, a script). A `runtime`, when
+ * present, is the `MissionRuntime` built over `sim` (and `start()`ed): it is encoded, restored, poisoned and
+ * compared with the sim. `null` is the same as absent.
+ */
 export interface WitnessWorld {
   readonly sim: Sim;
+  readonly runtime?: MissionRuntime | null;
+}
+
+const runtimeOf = (w: WitnessWorld): MissionRuntime | undefined => w.runtime ?? undefined;
+
+/** The match hash a world gets by default: the sim's, folded with the runtime's digest when it has one. */
+export function defaultWitnessHash(w: WitnessWorld): number {
+  const rt = runtimeOf(w);
+  if (rt === undefined) return w.sim.hash();
+  return hashWord(hashWord(HASH_SEED, w.sim.hash() | 0), rt.digest() | 0) >>> 0;
 }
 
 /** The parts of a fork that do not depend on where it is cut: how to build, drive and compare worlds. */
@@ -43,7 +73,7 @@ export interface WitnessHooks<W extends WitnessWorld> {
   advance?: (world: W) => void;
   /** Hashes are compared at T and then every `hashEvery` ticks. */
   hashEvery: number;
-  /** What the hash is. Defaults to `world.sim.hash()`. */
+  /** What the hash is. Defaults to `defaultWitnessHash`: the sim's hash, folded with `runtime.digest()` for a world with a runtime. */
   hash?: (world: W) => number;
   /**
    * Runs on B right after the restore, before anything is mutated (a caller carrying a runtime copies it here).
@@ -51,9 +81,10 @@ export interface WitnessHooks<W extends WitnessWorld> {
    */
   afterRestore?: (b: W, a: W) => void;
   /**
-   * Fills everything the restore promises not to write with garbage (see `poisonScratch`), after
-   * `afterRestore` and before `mutate`. The verdict's `garbledUnkeyedSlots` says how many pool
-   * slots that actually garbled.
+   * Fills everything the restore promises not to write with garbage (see `poisonScratch`, and for a world with a
+   * runtime `poisonRuntimeScratch` and `poisonStaleFields`), after `afterRestore` and before `mutate`. The verdict's
+   * `garbledUnkeyedSlots`, `garbledRuntimeScratch` and `garbledStaleFields` say what that actually garbled. (The
+   * runtime's `state` rows are poisoned before the restore whatever this says, as the sim's are.)
    */
   poison?: boolean;
   /** Runs on B after the restore, `afterRestore` and the poison: the mutation a self-check applies. A is at tick T. */
@@ -92,10 +123,17 @@ export interface ForkVerdict<W extends WitnessWorld> {
   roundTripEqualAtT: boolean;
   /** Where the divergence first shows: the first differing `state` row, or the hash tick. Absent when clean. */
   firstDifference?: string;
-  /** `configDiff(A, B)` right after the restore, before any mutation: null when every `config` row agrees. */
+  /**
+   * `configDiff(A, B)` (and, for a world with a runtime, `runtimeConfigDiff`) right after the restore, before
+   * any mutation: null when every `config` row agrees.
+   */
   configDifference: string | null;
   /** How many unkeyed pool slots `poison` garbled (0 when `poison` was off or the pool had none). */
   garbledUnkeyedSlots: number;
+  /** The runtime's `scratch` rows `poison` garbled, as `RowSet.row` paths (empty when `poison` was off or there is no runtime). */
+  garbledRuntimeScratch: string[];
+  /** How many stale `derived` corridor fields `poison` garbled (0 when `poison` was off or there is no runtime). */
+  garbledStaleFields: number;
   /** The two worlds after the horizon, for a caller's own extra comparisons. */
   a: W;
   b: W;
@@ -108,6 +146,21 @@ export type SeriesForkVerdict<W extends WitnessWorld> = Omit<ForkVerdict<W>, 'a'
   /** How many ticks it then ran. */
   horizon: number;
 };
+
+/**
+ * B's encoding, or the error the encoder threw. The encoder refuses a world that breaks its contract (a runtime
+ * entry that is no longer the ledger element the table says it is, an alias the rules do not know): for B that is a
+ * RED verdict, never an exception out of the witness. A's encoding is taken with `encodeSim` directly: a throw there
+ * is a broken world, not a finding.
+ */
+function tryEncode(sim: Sim, runtime: MissionRuntime | undefined): Uint8Array | Error {
+  try {
+    return encodeSim(sim, {}, runtime);
+  } catch (e) {
+    if (e instanceof Error) return e;
+    throw e;
+  }
+}
 
 function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false;
@@ -340,12 +393,351 @@ function garble(f: FlowField, byte: number): void {
   f.goalY = byte;
 }
 
+// ---- the runtime ------------------------------------------------------------------------------
+//
+// The same discipline as the sim, walked off `RUNTIME_SNAPSHOT_SCHEMA` and the row sets it names:
+//   - `poisonRuntimeState`, BEFORE the restore: every `state` row becomes garbage, so a restore that
+//     skips a row leaves the garbage. Containers keep their identity (a Map or Set is cleared and given
+//     junk, a typed array is garbled in place, an array keeps its length where the target's setup fixes
+//     it and otherwise gains a junk element, a record is poisoned field by field) because the restore
+//     writes INTO them and `routeSource.fieldFor` closes over `corridorFields`. What the decoder reads
+//     from the target stays as the setup built it: the counts of the fixed arrays, which in-place
+//     records exist (the convoy is never made from null), and every `config` row. A `ref` row is
+//     skipped: the restore re-points it at its owner (and a restore that did not would leave an alias
+//     the round trip and the continued hash expose).
+//   - `poisonRuntimeScratch`, AFTER the restore (the codec promises not to write a `scratch` row): every
+//     `scratch` row, at the top and inside a `state` record, is filled with garbage, so a row that was not
+//     in fact overwritten before its read diverges the fork.
+//   - `poisonStaleFields`, AFTER the restore: a `corridorFields` entry whose stamp is not the current
+//     `terrainVersion` was left uncomputed by the restore, and `fieldFor` recomputes it whole before any
+//     read; its field is garbled. A current entry is not touched: it was rebuilt, and `derived` means
+//     exactly that those bytes are a function of state.
+// Each throws on a row kind it cannot poison, so a new kind cannot go unpoisoned.
+
+type Slot = Record<string | number, unknown>;
+
+const JUNK_TYPED: Readonly<Record<string, new (n: number) => Typed>> = { Int8Array, Uint8Array, Int16Array, Uint16Array, Int32Array, Uint32Array };
+
+function otherString(v: unknown, values: readonly string[] | undefined): string {
+  if (values !== undefined) return values.find((x) => x !== v) ?? values[0];
+  return typeof v === 'string' ? `${v}~poison` : 'poison';
+}
+
+/** A value of `kind` made of garbage, for a container that gains an element. References are null. */
+function junkOf(kind: RuntimeKind, sim: Sim): unknown {
+  switch (kind.t) {
+    case 'typed': {
+      const a = new JUNK_TYPED[kind.ctor](2);
+      garbleColumn(a);
+      return a;
+    }
+    case 'scalar':
+      return kind.bool === true ? true : POISON_SCALAR;
+    case 'number':
+      return POISON_SCALAR;
+    case 'string':
+      return otherString(null, kind.values);
+    case 'array':
+      return [junkOf(kind.of, sim)];
+    case 'set':
+      return new Set([junkOf(kind.of, sim)]);
+    case 'map':
+      return new Map([[junkOf(kind.key, sim), junkOf(kind.value, sim)]]);
+    case 'record': {
+      const out: Slot = {};
+      for (const row of RUNTIME_ROW_SETS[kind.rows]) out[row.name] = row.kind.t === 'ref' ? null : junkOf(row.kind, sim);
+      return out;
+    }
+    case 'ref':
+      return null;
+    case 'flowfield': {
+      const f = new FlowField(sim.width, sim.height);
+      garble(f, POISON_BYTE);
+      return f;
+    }
+    case 'json':
+      return { poison: true };
+    case 'aux':
+      return [{ kind: 'intelEarned', tick: -7 }];
+    default:
+      throw new Error(`poisonRuntime: a ${(kind as RuntimeKind).t} kind has no junk`);
+  }
+}
+
+function poisonStateSlot(h: Slot, key: string | number, kind: RuntimeKind, path: string, sim: Sim, out: Set<string>): void {
+  const v = h[key];
+  if (!path.endsWith('[]')) out.add(path); // an array element is not a row of its own
+  switch (kind.t) {
+    case 'typed':
+      if (v === null) h[key] = junkOf(kind, sim);
+      else if (isTyped(v)) garbleColumn(v);
+      else throw new Error(`poisonRuntimeState: ${path} is not a typed array`);
+      return;
+    case 'scalar':
+      h[key] = typeof v === 'boolean' ? !v : ((v as number) ^ POISON_STATE_XOR) | 0;
+      return;
+    case 'string':
+      h[key] = otherString(v, kind.values);
+      return;
+    case 'array': {
+      // The lazily built works lists are null until something reads them: nothing there to garble.
+      if (v === null) return;
+      if (!Array.isArray(v)) throw new Error(`poisonRuntimeState: ${path} is not an array`);
+      for (let i = 0; i < v.length; i++) poisonStateSlot(v as unknown as Slot, i, kind.of, `${path}[]`, sim, out);
+      if (kind.len === undefined && !FIXED_COUNT_PATHS.has(path)) v.push(junkOf(kind.of, sim));
+      return;
+    }
+    case 'set':
+      if (!(v instanceof Set)) throw new Error(`poisonRuntimeState: ${path} is not a Set`);
+      v.clear();
+      v.add(junkOf(kind.of, sim));
+      return;
+    case 'map':
+      if (!(v instanceof Map)) throw new Error(`poisonRuntimeState: ${path} is not a Map`);
+      v.clear();
+      v.set(junkOf(kind.key, sim), junkOf(kind.value, sim));
+      return;
+    case 'record': {
+      if (v === null) {
+        // A record the setup built (the supply convoy) is never absent from the snapshot: the decoder refuses it.
+        if (!IN_PLACE.has(kind.rows)) h[key] = junkOf(kind, sim);
+        return;
+      }
+      if (typeof v !== 'object') throw new Error(`poisonRuntimeState: ${path} is not a record`);
+      for (const row of RUNTIME_ROW_SETS[kind.rows]) {
+        if (row.cls !== 'state' || row.kind.t === 'ref') continue;
+        poisonStateSlot(v as Slot, row.name, row.kind, `${kind.rows}.${row.name}`, sim, out);
+      }
+      return;
+    }
+    case 'json':
+      h[key] = { poison: true };
+      return;
+    case 'aux':
+      if (!Array.isArray(v)) throw new Error(`poisonRuntimeState: ${path} is not an array`);
+      v.push({ kind: 'intelEarned', tick: -7 });
+      return;
+    default:
+      throw new Error(`poisonRuntimeState: state row ${path} has a ${kind.t} kind it cannot poison`);
+  }
+}
+
+/**
+ * Fills every `state` row of a fresh world's runtime with garbage (see the section above). Returns the schema
+ * paths it poisoned (`MissionRuntime.purse`, `LineItem.unit` ...), for a census.
+ */
+export function poisonRuntimeState(rt: MissionRuntime): string[] {
+  const sim = (rt as unknown as { sim: Sim }).sim;
+  const out = new Set<string>();
+  for (const row of runtimeRowsOf('state')) {
+    if (row.kind.t === 'ref') continue;
+    poisonStateSlot(rt as unknown as Slot, row.name, row.kind, `MissionRuntime.${row.name}`, sim, out);
+  }
+  return Array.from(out);
+}
+
+function poisonScratchSlot(h: Slot, key: string | number, kind: RuntimeKind, path: string, out: Set<string>): void {
+  const v = h[key];
+  if (!path.endsWith('[]')) out.add(path); // an array element is not a row of its own
+  switch (kind.t) {
+    case 'typed':
+      if (!isTyped(v)) throw new Error(`poisonRuntimeScratch: ${path} is not a typed array`);
+      v.fill(POISON_BYTE);
+      return;
+    case 'scalar':
+      h[key] = typeof v === 'boolean' ? !v : POISON_SCALAR;
+      return;
+    case 'number':
+      h[key] = POISON_SCALAR;
+      return;
+    case 'string':
+      h[key] = otherString(v, kind.values);
+      return;
+    case 'array': {
+      // A reused pair (`ventOut`): the length is the setup's, the elements are the scratch.
+      if (!Array.isArray(v)) throw new Error(`poisonRuntimeScratch: ${path} is not an array`);
+      for (let i = 0; i < v.length; i++) poisonScratchSlot(v as unknown as Slot, i, kind.of, `${path}[]`, out);
+      return;
+    }
+    case 'record': {
+      if (typeof v !== 'object' || v === null) throw new Error(`poisonRuntimeScratch: ${path} is not a record`);
+      for (const row of RUNTIME_ROW_SETS[kind.rows]) poisonScratchSlot(v as Slot, row.name, row.kind, `${kind.rows}.${row.name}`, out);
+      return;
+    }
+    default:
+      throw new Error(`poisonRuntimeScratch: scratch row ${path} has a ${kind.t} kind it cannot poison`);
+  }
+}
+
+/** Finds the `scratch` rows that live inside a `state` row's records (`CivilianFlight.scratch`) and poisons them. */
+function scratchWithin(v: unknown, kind: RuntimeKind, path: string, only: string | undefined, out: Set<string>): void {
+  if (v === null || v === undefined) return;
+  switch (kind.t) {
+    case 'array':
+      for (const el of v as unknown[]) scratchWithin(el, kind.of, `${path}[]`, only, out);
+      return;
+    case 'map':
+      for (const el of (v as Map<unknown, unknown>).values()) scratchWithin(el, kind.value, `${path}.get()`, only, out);
+      return;
+    case 'record':
+      for (const row of RUNTIME_ROW_SETS[kind.rows]) {
+        const sub = `${kind.rows}.${row.name}`;
+        if (row.cls === 'scratch') {
+          if (only === undefined || only === sub) poisonScratchSlot(v as Slot, row.name, row.kind, sub, out);
+        } else if (row.cls === 'state') scratchWithin((v as Slot)[row.name], row.kind, sub, only, out);
+      }
+      return;
+    default:
+      return;
+  }
+}
+
+/**
+ * Fills every `scratch` row of the runtime with garbage, the codec having promised not to write one. Returns the
+ * paths it poisoned. With `only` (a unit: `MissionRuntime.<row>` for a top-level row, or `RowSet.<row>` for one
+ * inside a `state` record, `CivilianFlight.scratch`), just that row and what it holds: a check that poisons one
+ * row at a time says WHICH row a divergence belongs to.
+ */
+export function poisonRuntimeScratch(rt: MissionRuntime, only?: string): string[] {
+  const out = new Set<string>();
+  for (const row of RUNTIME_SNAPSHOT_SCHEMA) {
+    const path = `MissionRuntime.${row.name}`;
+    if (row.cls === 'scratch') {
+      if (only === undefined || only === path) poisonScratchSlot(rt as unknown as Slot, row.name, row.kind, path, out);
+    } else if (row.cls === 'state') scratchWithin((rt as unknown as Slot)[row.name], row.kind, path, only, out);
+  }
+  return Array.from(out);
+}
+
+/** Garbles the field of every `corridorFields` entry the restore left uncomputed (a stale stamp). Returns how many. */
+export function poisonStaleFields(rt: MissionRuntime): number {
+  const r = rt as unknown as { corridorFields: Map<number, { field: FlowField; stamp: number }>; terrainVersion: number };
+  let garbled = 0;
+  for (const entry of r.corridorFields.values()) {
+    if (entry.stamp !== r.terrainVersion) {
+      garble(entry.field, POISON_UNKEYED);
+      garbled++;
+    }
+  }
+  return garbled;
+}
+
+/** The runtime's section, parsed: one JSON value per top-level `state` row, exactly as the codec writes them. */
+function runtimeSectionOf(rt: MissionRuntime): Record<string, unknown> {
+  const sim = (rt as unknown as { sim: Sim }).sim;
+  return parseRuntimeSection(encodeRuntimeSection(rt, sim)) as Record<string, unknown>;
+}
+
+/**
+ * The first top-level `state` row (schema order) whose ENCODED value differs between two runtimes, as
+ * `runtime.<row>`, or null. Rows are compared by the canonical JSON the codec writes for them.
+ */
+export function firstRuntimeDifference(a: MissionRuntime, b: MissionRuntime): string | null {
+  const sa = runtimeSectionOf(a);
+  const sb = runtimeSectionOf(b);
+  for (const row of runtimeRowsOf('state')) {
+    if (canonicalJson(sa[row.name]) !== canonicalJson(sb[row.name])) return `runtime.${row.name}`;
+  }
+  return null;
+}
+
+/** Every top-level `state` row of the runtime whose encoded value differs between two runtimes, as `runtime.<row>`. */
+function runtimeRowsMoved(base: MissionRuntime, now: MissionRuntime): string[] {
+  const sa = runtimeSectionOf(base);
+  const sb = runtimeSectionOf(now);
+  return runtimeRowsOf('state')
+    .filter((row) => canonicalJson(sa[row.name]) !== canonicalJson(sb[row.name]))
+    .map((row) => `runtime.${row.name}`);
+}
+
+// ---- the runtime's config rows -----------------------------------------------------------------
+
+const sameMembers = (x: Set<unknown>, y: Set<unknown>): boolean => x.size === y.size && Array.from(x).every((m) => y.has(m));
+
+/**
+ * Walks two values of one kind. With `all`, every value found is compared (we are inside a `config` row);
+ * without it, the walk only descends into `state` and `scratch` rows to find `config` rows nested in them
+ * (`ObjectiveState.def`, `ProductionLine.anchor` ...). A `ref` is an identity, not a value: only its
+ * nullness is compared (the target's own sim, mission and context are what it points at).
+ */
+function configWalk(va: unknown, vb: unknown, kind: RuntimeKind, path: string, all: boolean): string | null {
+  if (va === null || vb === null || va === undefined || vb === undefined) {
+    return all && va !== vb ? `${path}: ${va === null || va === undefined ? 'absent in A' : 'absent in B'}` : null;
+  }
+  switch (kind.t) {
+    case 'typed': {
+      if (!all) return null;
+      if (!isTyped(va) || !isTyped(vb)) return `${path}: not a typed array in both worlds`;
+      const at = firstTypedDifference(va, vb);
+      return at >= 0 ? `${path}[${at}]` : null;
+    }
+    case 'scalar':
+    case 'number':
+    case 'string':
+      return all && va !== vb ? `${path}: ${String(va)} vs ${String(vb)}` : null;
+    case 'array': {
+      const xa = va as unknown[];
+      const xb = vb as unknown[];
+      if (xa.length !== xb.length) return all ? `${path}: ${xa.length} entries vs ${xb.length}` : null;
+      for (let i = 0; i < xa.length; i++) {
+        const d = configWalk(xa[i], xb[i], kind.of, `${path}[${i}]`, all);
+        if (d !== null) return d;
+      }
+      return null;
+    }
+    case 'set':
+      return all && !sameMembers(va as Set<unknown>, vb as Set<unknown>) ? `${path}: the members differ` : null;
+    case 'map': {
+      if (!all) return null;
+      const ma = va as Map<unknown, unknown>;
+      const mb = vb as Map<unknown, unknown>;
+      if (ma.size !== mb.size) return `${path}: ${ma.size} entries vs ${mb.size}`;
+      for (const [k, x] of ma) {
+        if (!mb.has(k)) return `${path}: key ${String(k)} only in A`;
+        const d = configWalk(x, mb.get(k), kind.value, `${path}[${String(k)}]`, all);
+        if (d !== null) return d;
+      }
+      return null;
+    }
+    case 'record': {
+      for (const row of RUNTIME_ROW_SETS[kind.rows]) {
+        const d = configWalk((va as Slot)[row.name], (vb as Slot)[row.name], row.kind, `${path}.${row.name}`, all || row.cls === 'config');
+        if (d !== null) return d;
+      }
+      return null;
+    }
+    case 'json':
+    case 'aux':
+      return all && canonicalJson(va) !== canonicalJson(vb) ? `${path}: differs by JSON` : null;
+    default:
+      return null; // ref, flowfield: an identity or a derived field, not a config value
+  }
+}
+
+/**
+ * Compares every `config` row of two runtimes, at the top and inside the records a `state` row holds: typed
+ * arrays by element, scalars by value, Sets by members, Maps and arrays entry by entry. Returns the first
+ * difference as `runtime.<path>`, or null. Right after a restore every config row must agree: that is what
+ * `config` MEANS (rebuilt by the world's own setup, never sent).
+ */
+export function runtimeConfigDiff(a: MissionRuntime, b: MissionRuntime): string | null {
+  const ra = a as unknown as Slot;
+  const rb = b as unknown as Slot;
+  for (const row of RUNTIME_SNAPSHOT_SCHEMA as readonly RuntimeRow[]) {
+    const d = configWalk(ra[row.name], rb[row.name], row.kind, `runtime.${row.name}`, row.cls === 'config');
+    if (d !== null) return d;
+  }
+  return null;
+}
+
 interface Fork<W extends WitnessWorld> {
   readonly T: number;
   readonly horizon: number;
   readonly b: W;
   readonly configDifference: string | null;
   readonly garbledUnkeyedSlots: number;
+  readonly garbledRuntimeScratch: string[];
+  readonly garbledStaleFields: number;
   readonly roundTripEqualAtT: boolean;
   hashDivergedAt: number | null;
 }
@@ -369,7 +761,7 @@ function runForks<W extends WitnessWorld>(
     }
   }
   const advance = opts.advance ?? ((w: W): void => { w.sim.tick(); });
-  const hashOf = opts.hash ?? ((w: W): number => w.sim.hash());
+  const hashOf = opts.hash ?? defaultWitnessHash;
 
   const a = opts.build();
   const verdicts: (ForkVerdict<W> | undefined)[] = forks.map(() => undefined);
@@ -377,17 +769,34 @@ function runForks<W extends WitnessWorld>(
 
   const cut = (index: number): void => {
     const spec = forks[index];
-    const bytes = encodeSim(a.sim);
+    const aRuntime = runtimeOf(a);
+    const bytes = encodeSim(a.sim, {}, aRuntime);
     const b = opts.build();
+    const bRuntime = runtimeOf(b);
+    if ((aRuntime === undefined) !== (bRuntime === undefined)) throw new Error('forkWitness: A and B do not both have a runtime');
     poisonState(b.sim);
-    restoreSim(b.sim, bytes);
+    if (bRuntime !== undefined) poisonRuntimeState(bRuntime);
+    restoreSim(b.sim, bytes, bRuntime);
     // Before `afterRestore`, which may carry a runtime across or mutate B: the restore alone must re-encode to S.
-    const roundTripEqualAtT = bytesEqual(encodeSim(b.sim), bytes);
+    const again = tryEncode(b.sim, bRuntime);
+    const roundTripEqualAtT = again instanceof Uint8Array && bytesEqual(again, bytes);
     opts.afterRestore?.(b, a);
-    const configDifference = configDiff(a.sim, b.sim);
+    const configDifference = configDiff(a.sim, b.sim) ?? (aRuntime !== undefined && bRuntime !== undefined ? runtimeConfigDiff(aRuntime, bRuntime) : null);
     const garbledUnkeyedSlots = opts.poison === true ? poisonScratch(b.sim) : 0;
+    const garbledRuntimeScratch = opts.poison === true && bRuntime !== undefined ? poisonRuntimeScratch(bRuntime) : [];
+    const garbledStaleFields = opts.poison === true && bRuntime !== undefined ? poisonStaleFields(bRuntime) : 0;
     opts.mutate?.(b, a);
-    const fork: Fork<W> = { T: spec.T, horizon: spec.horizon, b, configDifference, garbledUnkeyedSlots, roundTripEqualAtT, hashDivergedAt: null };
+    const fork: Fork<W> = {
+      T: spec.T,
+      horizon: spec.horizon,
+      b,
+      configDifference,
+      garbledUnkeyedSlots,
+      garbledRuntimeScratch,
+      garbledStaleFields,
+      roundTripEqualAtT,
+      hashDivergedAt: null,
+    };
     compareHash(fork);
     live.set(index, fork);
   };
@@ -395,18 +804,28 @@ function runForks<W extends WitnessWorld>(
     if (fork.hashDivergedAt === null && hashOf(a) !== hashOf(fork.b)) fork.hashDivergedAt = a.sim.tickCount;
   };
   const judge = (index: number, fork: Fork<W>): void => {
-    const encodingEqualAtEnd = bytesEqual(encodeSim(a.sim), encodeSim(fork.b.sim));
+    const aRuntime = runtimeOf(a);
+    const bRuntime = runtimeOf(fork.b);
+    const bEnd = tryEncode(fork.b.sim, bRuntime);
+    const encodingEqualAtEnd = bEnd instanceof Uint8Array && bytesEqual(encodeSim(a.sim, {}, aRuntime), bEnd);
     const verdict: ForkVerdict<W> = {
       hashDivergedAt: fork.hashDivergedAt,
       encodingEqualAtEnd,
       roundTripEqualAtT: fork.roundTripEqualAtT,
       configDifference: fork.configDifference,
       garbledUnkeyedSlots: fork.garbledUnkeyedSlots,
+      garbledRuntimeScratch: fork.garbledRuntimeScratch,
+      garbledStaleFields: fork.garbledStaleFields,
       a,
       b: fork.b,
     };
-    if (!encodingEqualAtEnd) {
-      verdict.firstDifference = firstStateDifference(a.sim, fork.b.sim) ?? 'the encodings differ outside the state columns (the tail: pool keys or an aux row)';
+    if (bEnd instanceof Error) {
+      verdict.firstDifference = `B cannot be encoded: ${bEnd.message}`;
+    } else if (!encodingEqualAtEnd) {
+      verdict.firstDifference =
+        firstStateDifference(a.sim, fork.b.sim) ??
+        (aRuntime !== undefined && bRuntime !== undefined ? firstRuntimeDifference(aRuntime, bRuntime) : null) ??
+        'the encodings differ outside the state columns (the tail: pool keys or an aux row)';
     } else if (!fork.roundTripEqualAtT) {
       verdict.firstDifference = `the restored world re-encodes differently at T=${fork.T}`;
     } else if (fork.hashDivergedAt !== null) {
@@ -473,6 +892,8 @@ export function forkWitnessSeries<W extends WitnessWorld>(opts: ForkSeriesOption
       roundTripEqualAtT: v.roundTripEqualAtT,
       configDifference: v.configDifference,
       garbledUnkeyedSlots: v.garbledUnkeyedSlots,
+      garbledRuntimeScratch: v.garbledRuntimeScratch,
+      garbledStaleFields: v.garbledStaleFields,
       b: v.b,
     };
     if (v.firstDifference !== undefined) out.firstDifference = v.firstDifference;
@@ -524,9 +945,10 @@ function rngMoved(a: unknown, b: unknown): boolean {
  * the canonical JSON the encoder writes for it. A row that moved and came back reads as unmoved,
  * so a census over a run must union the result across its cuts. Task 7b runs it with `base` = a
  * world's tick-0 world at each fork cut. It throws on a row kind it cannot read rather than
- * calling it unmoved.
+ * calling it unmoved. With `runtimes` (the two worlds' runtimes) it also names every top-level `state` row of
+ * the runtime whose encoded value differs, as `runtime.<row>`.
  */
-export function stateRowsMoved(base: Sim, now: Sim): Set<string> {
+export function stateRowsMoved(base: Sim, now: Sim, runtimes?: { readonly base: MissionRuntime; readonly now: MissionRuntime }): Set<string> {
   const ib = internals(base);
   const inow = internals(now);
   const moved = new Set<string>();
@@ -554,5 +976,7 @@ export function stateRowsMoved(base: Sim, now: Sim): Set<string> {
         throw new Error(`stateRowsMoved: state row ${row.name} has a kind it cannot read`);
     }
   }
+  // The runtime's top-level `state` rows, by the section the codec writes, named `runtime.<row>`.
+  if (runtimes !== undefined) for (const name of runtimeRowsMoved(runtimes.base, runtimes.now)) moved.add(name);
   return moved;
 }

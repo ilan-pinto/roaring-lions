@@ -171,6 +171,29 @@ function must(ok: boolean, what: string): void {
   if (!ok) throw new Error(`sink world: ${what} refused`);
 }
 
+/**
+ * The sink world as a fork-witness world (net sim snapshot S2, Task 4): what `walkSink` does, as a driver and a step
+ * of its own, so the witness can cut it anywhere. `i` is the tick count BEFORE the tick (`walkSink`'s `t - 1`). A
+ * works site is staked at `i = 1` and three builds are queued at `i = 2`; with `cancelAt`, every staked site is
+ * cancelled at that `i` (a site staked and cancelled inside one 20-tick recheck window moves the sim's vehicle mask
+ * and moves it back, so `terrainVersion` never bumps and the runtime's mask copies stay the old ones).
+ */
+export function sinkDrive(rt: MissionRuntime, i: number, cancelAt: number | null = null): void {
+  if (i === 1) must(rt.requestConstruct('sink_outpost', 13, 10), 'the sink world accepts its works request');
+  if (i === 2) for (let k = 0; k < 3; k++) must(rt.requestBuild('sink_squad', 0), 'line 0 takes three builds');
+  if (cancelAt !== null && i === cancelAt) {
+    for (const site of [...(rt as unknown as { worksSites: Map<number, unknown> }).worksSites.keys()]) must(rt.requestCancelWorks(site), 'the sink world cancels its site');
+  }
+}
+
+/** One tick of the sink world: the sim, then the runtime with the synthetic events at tick 10, and the forced completion at tick 40. */
+export function sinkAdvance(w: { readonly sim: Sim; readonly rt: MissionRuntime }): void {
+  const events = w.sim.tick();
+  if (w.sim.tickCount === 10) w.rt.step([...events, ...SINK_EVENTS(w.sim.tickCount)]);
+  else w.rt.step(events);
+  if (w.sim.tickCount === 40) must(w.rt.completeObjective('level'), 'the sink world completes its raze objective');
+}
+
 /** Walk the sink world 400 ticks, checking every 20, plus the moments a pending list is non-empty. */
 export function walkSink(at: (c: Checkpoint) => void): void {
   const { sim, rt } = sinkWorld();

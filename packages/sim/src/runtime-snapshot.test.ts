@@ -370,6 +370,37 @@ describe('runtime snapshot: refusals', () => {
     }
   });
 
+  it('asks the unit catalogue per SIDE: a line\'s items are checked as the side that owns the line (a versus room keys its menus by side)', () => {
+    let S: Uint8Array | null = null;
+    walkSink((c) => {
+      if (c.label === 'sink@40 (a forced completion owed)') S = encodeSim(c.sim, META, c.rt);
+    });
+    // The sink's side 1 buys from its own camp, so this snapshot holds items on BOTH sides' lines.
+    const sec = sectionOf(S as unknown as Uint8Array);
+    const held = (side: number): number => (sec.lines as { queue: unknown[]; current: unknown }[][])[side].reduce((n, l) => n + l.queue.length + (l.current === null ? 0 : 1), 0);
+    expect(held(0), 'side 0 holds items').toBeGreaterThan(0);
+    expect(held(1), 'side 1 holds items').toBeGreaterThan(0);
+    // A catalogue that, like `versusUnitInfo`, indexes its menus by the side it is asked for (and throws without one).
+    const target = (allowed: readonly [boolean, boolean]): World => {
+      const w = sinkWorld();
+      const ctx = props(props(w.rt).ctx);
+      const base = ctx.unitInfo as (u: string, side: 0 | 1) => unknown;
+      ctx.unitInfo = (u: string, side: 0 | 1): unknown => {
+        if (side !== 0 && side !== 1) throw new TypeError(`unitInfo asked without a side (${String(side)})`);
+        return allowed[side] ? base(u, side) : null;
+      };
+      return w;
+    };
+    const ok = target([true, true]);
+    restoreSim(ok.sim, S as unknown as Uint8Array, ok.rt);
+    for (const allowed of [[true, false], [false, true]] as const) {
+      const w = target(allowed);
+      expect(refusal(() => restoreSim(w.sim, S as unknown as Uint8Array, w.rt)).reason, `side ${allowed[0] ? 1 : 0} cannot build its items`).toMatch(
+        /LineItem\.unit: "sink_squad" is not a unit this world can build/
+      );
+    }
+  });
+
   it('refuses a ledger index that is not in the ledger, and a convoy the setup does not have', () => {
     let S: Uint8Array | null = null;
     walkSink((c) => {

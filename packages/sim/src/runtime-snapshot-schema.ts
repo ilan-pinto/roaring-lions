@@ -264,6 +264,23 @@ export const RUNTIME_SNAPSHOT_SCHEMA: readonly RuntimeRow[] = [
   // `routeSource.fieldFor` closes over THIS Map object (`const fields = this.corridorFields`, 1132), so
   // a restore that assigns a fresh Map leaves the closure writing to a detached one and the runtime
   // reading an empty cache. Clear it and `set` the restored entries, in the snapshot's order.
+  //
+  // DECISION (Task 4): `state`, rebuilt on restore; NOT `derived` with an invalidate. The evidence:
+  //  - Clearing the Map in a restored runtime is behaviourally NEUTRAL. Every `corridorRoute` call is inside `recheckCorridors`,
+  //    whose first statement is `syncTerrain()` (2716), and `fieldFor` recomputes any entry whose stamp is not `terrainVersion`
+  //    over the sim's masks, which at that moment ARE the runtime's copies. A current entry was computed over the copies of an
+  //    earlier recheck and the version has not bumped since, so it equals a fresh compute at every read; that includes a site
+  //    staked and cancelled inside one 20-tick window (the masks are back to the copies, the version never bumped).
+  //  - The witness agrees (`snapshot-witness-runtime.test.ts`, "corridorFields: clearing it is behaviourally neutral"): with B's
+  //    map cleared, the match hash (sim + runtime digest) stays equal for 200-250 ticks at cuts of the golden economy, the relief
+  //    economy, the sink world and the sink world with its site cancelled inside the window (T = 5, 9). Only the ENCODINGS
+  //    notice, because the keys, stamps and insertion order are `state`: that is what clearing costs a `state` row.
+  //  - So `derived` + invalidate would be CORRECT today, and `state` costs a few bytes and one compute per entry at restore.
+  //    It stays `state` because the rule for a doubtful property is `state`; because Task 3 found the neighbouring shape,
+  //    a current entry LEFT UNCOMPUTED, diverges the fork (a zero field is read as it stands); and because a restore that
+  //    computes over the SIM's masks at the snapshot tick is wrong inside a staking window while the bytes cannot tell
+  //    (`runtime-snapshot.test.ts`, the mask-copy spec). Switch only with the neutrality spec still green and the snapshot's
+  //    corridor keys and stamps dropped from the section in the same change.
   { name: 'corridorFields', cls: 'state', kind: map(SCALAR, record('CorridorField')) },
   { name: 'terrainVersion', cls: 'state', kind: SCALAR },
   // Copies of the three masks the routes were computed over, compared byte for byte at every

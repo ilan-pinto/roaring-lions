@@ -11,6 +11,7 @@ import {
   runSetup,
 } from './golden-worlds.test-helper';
 import { HASH_SEED, hashWord } from './hash';
+import { ECONOMY_WORLD, RELIEF_WORLD, type RuntimeWorld } from './snapshot-witness-worlds.test-helper';
 import { rowsOf } from './snapshot-schema';
 import { encodeSim, internals, type Typed } from './snapshot';
 import { configDiff, forkWitness, forkWitnessSeries, stateRowsMoved, type ForkVerdict, type WitnessWorld } from './snapshot-witness';
@@ -105,6 +106,33 @@ describe('fork witness: scratch and unkeyed pool slots poisoned after the restor
         expect(unkeyed, 'unkeyed pool slots garbled').toBeGreaterThan(0);
       }
     });
+  }
+});
+
+// ---- the golden economy replays: the runtime is carried natively (snapshot S2, Task 4) --------
+//
+// The two replays that run a `MissionRuntime` for 2400 ticks, cut every 100 ticks (so at every moment their
+// drivers act: builds, the rally, the raider's walk, the cancel, the order to the pass) and run 200 ticks
+// after each, with everything the restore promises not to write poisoned, the runtime's `state` rows
+// before the restore and its `scratch` rows after it. Their drivers make direct runtime calls
+// (`requestBuild`, `setRally`, `cancelBuild`), so the witness drives BOTH worlds. The self-checks, the
+// per-row poison checks and the corridor-field decision are in `snapshot-witness-runtime.test.ts`.
+
+describe('fork witness: the golden economy replays carry their MissionRuntime', () => {
+  for (const spec of [ECONOMY_WORLD, RELIEF_WORLD]) {
+    it(`${spec.name}: T = 0, 100, ... 2200, 200 ticks each, runtime poisoned and restored`, () => {
+      const Ts: number[] = [];
+      for (let T = 0; T + HORIZON <= spec.ticks; T += 100) Ts.push(T);
+      const verdicts = forkWitnessSeries<RuntimeWorld>({ ...spec.hooks, Ts, horizon: HORIZON, endTick: spec.ticks, poison: true });
+      expect(verdicts.length).toBe(Ts.length);
+      for (const v of verdicts) {
+        expectClean(v, `${spec.name} T=${v.T}`);
+        // A poison that garbled no runtime row proves nothing about the rows it names.
+        expect(v.garbledRuntimeScratch.length, `${spec.name} T=${v.T}: runtime scratch rows garbled`).toBeGreaterThan(0);
+        // The hash these forks compared is the one with the runtime folded in.
+        expect(v.b.runtime, `${spec.name} T=${v.T}: the forked world has a runtime`).toBeDefined();
+      }
+    }, 60_000);
   }
 });
 

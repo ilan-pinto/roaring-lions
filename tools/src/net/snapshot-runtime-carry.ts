@@ -30,6 +30,9 @@ type Obj = Record<string | symbol, unknown>;
 /** Source object -> the destination world's own object. */
 export type Rebind = ReadonlyMap<object, object>;
 
+/** Own properties a comparison skips: `(owner, key) => true`. */
+export type DiffIgnore = (owner: object, key: string | symbol) => boolean;
+
 const isTyped = (v: unknown): v is Uint8Array => ArrayBuffer.isView(v) && !(v instanceof DataView);
 const isObject = (v: unknown): v is object => typeof v === 'object' && v !== null;
 
@@ -113,9 +116,10 @@ function overwrite(dst: Obj, src: Obj, rebind: Rebind, mapped: Map<object, objec
  * The first path at which two carried graphs differ, or null. Data only: functions and accessors
  * are skipped, and a reference in `rebind` must meet its counterpart on the other side. Maps and
  * Sets are compared in iteration order, because an order that differs between two worlds is a
- * determinism hazard of its own.
+ * determinism hazard of its own. `ignore(owner, key)` names the own properties of an object that are
+ * not compared at all (a runtime's `scratch` rows, which the witness poisons natively since snapshot S2).
  */
-export function carriedDiff(a: unknown, b: unknown, path: string, rebind: Rebind, seen = new Set<object>(), root = true): string | null {
+export function carriedDiff(a: unknown, b: unknown, path: string, rebind: Rebind, ignore?: DiffIgnore, seen = new Set<object>(), root = true): string | null {
   // A once-per-world reference must meet its counterpart: asked BEFORE identity, because B
   // still pointing at A's own object is exactly the mistake this exists to find. The ROOT of
   // the comparison is itself in the table (a reference back to it from inside must resolve), and
@@ -139,8 +143,8 @@ export function carriedDiff(a: unknown, b: unknown, path: string, rebind: Rebind
     const ka = Array.from(a.keys());
     const kb = Array.from(b.keys());
     for (let i = 0; i < ka.length; i++) {
-      if (isObject(ka[i]) ? carriedDiff(ka[i], kb[i], `${path}.key(${i})`, rebind, seen, false) !== null : ka[i] !== kb[i]) return `${path} (key order at ${i})`;
-      const r = carriedDiff(a.get(ka[i]), b.get(kb[i]), `${path}.get(${String(ka[i])})`, rebind, seen, false);
+      if (isObject(ka[i]) ? carriedDiff(ka[i], kb[i], `${path}.key(${i})`, rebind, ignore, seen, false) !== null : ka[i] !== kb[i]) return `${path} (key order at ${i})`;
+      const r = carriedDiff(a.get(ka[i]), b.get(kb[i]), `${path}.get(${String(ka[i])})`, rebind, ignore, seen, false);
       if (r !== null) return r;
     }
     return null;
@@ -150,7 +154,7 @@ export function carriedDiff(a: unknown, b: unknown, path: string, rebind: Rebind
     const xa = Array.from(a);
     const xb = Array.from(b);
     for (let i = 0; i < xa.length; i++) {
-      const r = carriedDiff(xa[i], xb[i], `${path}.member(${i})`, rebind, seen, false);
+      const r = carriedDiff(xa[i], xb[i], `${path}.member(${i})`, rebind, ignore, seen, false);
       if (r !== null) return r;
     }
     return null;
@@ -158,7 +162,7 @@ export function carriedDiff(a: unknown, b: unknown, path: string, rebind: Rebind
   if (Array.isArray(a)) {
     if (!Array.isArray(b) || a.length !== b.length) return `${path} (length)`;
     for (let i = 0; i < a.length; i++) {
-      const r = carriedDiff(a[i], b[i], `${path}[${i}]`, rebind, seen, false);
+      const r = carriedDiff(a[i], b[i], `${path}[${i}]`, rebind, ignore, seen, false);
       if (r !== null) return r;
     }
     return null;
@@ -166,9 +170,10 @@ export function carriedDiff(a: unknown, b: unknown, path: string, rebind: Rebind
   for (const k of Reflect.ownKeys(a)) {
     const ad = Object.getOwnPropertyDescriptor(a, k);
     if (ad === undefined || !('value' in ad)) continue;
+    if (ignore?.(a, k) === true) continue;
     const bd = Object.getOwnPropertyDescriptor(b, k);
     if (bd === undefined || !('value' in bd)) return `${path}.${String(k)} (missing)`;
-    const r = carriedDiff(ad.value, bd.value, `${path}.${String(k)}`, rebind, seen, false);
+    const r = carriedDiff(ad.value, bd.value, `${path}.${String(k)}`, rebind, ignore, seen, false);
     if (r !== null) return r;
   }
   for (const k of Reflect.ownKeys(b)) {
