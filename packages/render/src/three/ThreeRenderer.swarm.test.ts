@@ -21,6 +21,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { Sim, fx, type SimEvent, type UnitTypeJson } from '@lions/sim';
 import type { RendererOptions, TerrainTones } from '../api';
 import { ThreeRenderer } from './ThreeRenderer';
+import { trackKindFor } from './vehicle-tracks';
 import { isDebugLayer } from './debug-layers';
 import { parseGlbHeadless } from './units/headless-gltf';
 import { buildVehicleMeshTemplate } from './units/mesh-vehicle';
@@ -48,6 +49,14 @@ vi.mock('three', async (importOriginal) => {
   return { ...actual, WebGLRenderer: FakeWebGLRenderer };
 });
 
+// The destroyed-guard test below needs the drone to LOOK like a ground vehicle to the kill rule: with
+// the shipped table it is not one, so removing the `swarm === null` guard changed nothing and the
+// test could not fail. Only this id is touched; the real table answers for every other.
+vi.mock('./vehicle-tracks', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./vehicle-tracks')>();
+  return { ...actual, trackKindFor: (id: string) => (id === 'drone_swarm' ? ('single' as const) : actual.trackKindFor(id)) };
+});
+
 const loaded = vi.hoisted(() => ({ template: null as unknown }));
 vi.mock('./units/mesh-vehicle', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./units/mesh-vehicle')>();
@@ -64,8 +73,9 @@ const TONES: TerrainTones = {
   haze: '#E0B87A',
 };
 
-function makeOpts(): RendererOptions {
+function makeOpts(room: Pick<RendererOptions, 'viewerSide' | 'versus'> = {}): RendererOptions {
   return {
+    ...room,
     background: '#14150F',
     teamColors: ['#C8B494', '#6E7449', '#8E9491'],
     hullColors: ['#8F9464', '#6E7449', '#4E5433'],
@@ -107,18 +117,23 @@ interface Privates {
   missileFx: { missiles: unknown[] };
   particleSystem: { spawn(spec: ParticleSpec, ...rest: unknown[]): void } | null;
   syncSwarmBatch(id: string, t: unknown): void;
+  swarmBatchList: SwarmBatch[];
+  fireLinkPulses: { target: number; bornS: number }[];
+  fireLinkFlashes: { target: number; startS: number }[];
+  fireLinkClockS: number;
+  lastShotSimS: Float64Array;
 }
 const priv = (r: ThreeRenderer): Privates => r as unknown as Privates;
 
-async function world() {
+async function world(room: Pick<RendererOptions, 'viewerSide' | 'versus'> = {}, swarmSide: 0 | 1 = 1) {
   const sim = new Sim({ seed: 3, width: 32, height: 32, capacity: 16 });
   const sw = sim.addUnitType(SWARM);
   const man = sim.addUnitType(MAN);
   const hard = sim.addUnitType(HARD);
-  const swarm = sim.spawn(sw, 1, fx.from(9.5), fx.from(8.5));
-  const victim = sim.spawn(man, 0, fx.from(10.5), fx.from(8.5));
+  const swarm = sim.spawn(sw, swarmSide, fx.from(9.5), fx.from(8.5));
+  const victim = sim.spawn(man, 1 - swarmSide, fx.from(10.5), fx.from(8.5));
   const tank = sim.spawn(hard, 1, fx.from(20.5), fx.from(20.5));
-  const r = new ThreeRenderer(sim, makeOpts());
+  const r = new ThreeRenderer(sim, makeOpts(room));
   const owner = new Map<ParticleSpec, string>();
   r.useEmitters(EMITTERS, (k) => (k.startsWith('#') ? k : '#E6D8BE'));
   for (const em of EMITTERS) for (const l of em.particles) owner.set(l, em.id);
@@ -136,7 +151,7 @@ async function world() {
   r.snapshot();
   // Fog is not what is under test: the viewer sees the whole map.
   priv(r).fog.fill(2);
-  return { sim, r, swarm, victim, tank, log };
+  return { sim, r, swarm, victim, tank, log, swarmSide };
 }
 
 /** One presented frame, with the fog held open (a `snapshot` may recompute it). */
@@ -240,6 +255,124 @@ describe('the drawn members follow the sim\'s live count', () => {
   });
 });
 
+describe('a catch-up (setQuiet) tumbles nothing, through the PUBLIC frame()', () => {
+  /** `main.ts`'s order exactly: `setQuiet(true)`, `onEvents`, `setQuiet(false)`, THEN the frame paints. */
+  function catchUp(r: ThreeRenderer, quiet: boolean): void {
+    r.setQuiet(quiet);
+    r.onEvents([]);
+    r.setQuiet(false);
+  }
+
+  it('the first frame after a quiet tick lets the lost members vanish: no exit, no wreck, no burst', async () => {
+    const { sim, r, swarm, log } = await world();
+    priv(r).fog.fill(2);
+    r.frame(1, 16);
+    expect(r.swarmDrawn(swarm)).toBe(12);
+    setLive(sim, swarm, 6);
+    catchUp(r, true);
+    priv(r).fog.fill(2);
+    r.frame(1, 16);
+    const batch = priv(r).swarmBatches.get('drone_swarm') as SwarmBatch;
+    expect(r.swarmDrawn(swarm)).toBe(6);
+    expect(batch.exitsInFlight).toBe(0);
+    expect(log).not.toContain('swarm_member_down');
+    // The latch is spent by that one frame: the next real loss tumbles as ever.
+    setLive(sim, swarm, 5);
+    priv(r).fog.fill(2);
+    r.frame(1, 16);
+    expect(batch.exitsInFlight).toBe(1);
+    expect(log).toContain('swarm_member_down');
+    r.dispose();
+  });
+
+  it('...while the very same loss with no quiet tick tumbles all six (the control)', async () => {
+    const { sim, r, swarm, log } = await world();
+    priv(r).fog.fill(2);
+    r.frame(1, 16);
+    setLive(sim, swarm, 6);
+    catchUp(r, false);
+    priv(r).fog.fill(2);
+    r.frame(1, 16);
+    const batch = priv(r).swarmBatches.get('drone_swarm') as SwarmBatch;
+    expect(batch.exitsInFlight).toBe(6);
+    expect(log).toContain('swarm_member_down'); // the quiet case above asserts none
+    r.dispose();
+  });
+});
+
+describe('a swarm frame reuses its scratch', () => {
+  it('hands the batch the SAME env object, with the same bound methods, on every frame', async () => {
+    const { r } = await world();
+    const batch = priv(r).swarmBatches.get('drone_swarm') as SwarmBatch;
+    const seen: { env: unknown; groundAt: unknown; drawnAt: unknown }[] = [];
+    const real = batch.beginFrame.bind(batch);
+    batch.beginFrame = (env): void => {
+      seen.push({ env, groundAt: env.groundAt, drawnAt: env.drawnAt });
+      real(env);
+    };
+    for (let i = 0; i < 4; i++) frame(r);
+    expect(seen).toHaveLength(4);
+    for (const f of seen.slice(1)) {
+      expect(f.env).toBe(seen[0].env);
+      expect(f.groundAt).toBe(seen[0].groundAt);
+      expect(f.drawnAt).toBe(seen[0].drawnAt);
+    }
+    r.dispose();
+  });
+});
+
+describe('a swarm the seat cannot see throws no down burst (the versus leak rule)', () => {
+  it('a hidden hostile swarm that loses a member throws no swarm_member_down, and the member still falls', async () => {
+    const { sim, r, swarm, log } = await world({ versus: true, viewerSide: 0 });
+    priv(r).fog.fill(2);
+    priv(r).updateSwarms(1, 16);
+    priv(r).fog.fill(0);
+    setLive(sim, swarm, 11);
+    priv(r).updateSwarms(1, 16);
+    expect(log).not.toContain('swarm_member_down');
+    expect((priv(r).swarmBatches.get('drone_swarm') as SwarmBatch).exitsInFlight).toBe(1);
+    r.dispose();
+  });
+
+  it('...and the same loss in sight throws it (the control)', async () => {
+    const { sim, r, swarm, log } = await world({ versus: true, viewerSide: 0 });
+    priv(r).fog.fill(2);
+    priv(r).updateSwarms(1, 16);
+    setLive(sim, swarm, 11);
+    priv(r).updateSwarms(1, 16);
+    expect(log).toContain('swarm_member_down');
+    r.dispose();
+  });
+});
+
+describe('reloading a swarm type', () => {
+  it('a reload whose GLB fails leaves the type its old batch, in the scene, still drawing', async () => {
+    const { r, swarm } = await world();
+    const before = priv(r).swarmBatches.get('drone_swarm') as SwarmBatch;
+    const t = buildVehicleMeshTemplate(await parseGlbHeadless(readFileSync(GLB)), 'drone_swarm');
+    delete (t.root.userData as Record<string, unknown>).rl_rotors;
+    expect(() => priv(r).syncSwarmBatch('drone_swarm', t)).toThrow(/rl_rotors/);
+    expect(priv(r).swarmBatches.get('drone_swarm')).toBe(before);
+    expect(priv(r).swarmBatchList).toEqual([before]);
+    frame(r);
+    expect(r.swarmDrawn(swarm)).toBe(12);
+    r.dispose();
+  });
+
+  it('a good reload swaps the batch, disposes the old one and keeps the list in step', async () => {
+    const { r } = await world();
+    const before = priv(r).swarmBatches.get('drone_swarm') as SwarmBatch;
+    const t = buildVehicleMeshTemplate(await parseGlbHeadless(readFileSync(GLB)), 'drone_swarm');
+    priv(r).syncSwarmBatch('drone_swarm', t);
+    const after = priv(r).swarmBatches.get('drone_swarm') as SwarmBatch;
+    expect(after).not.toBe(before);
+    expect(priv(r).swarmBatchList).toEqual([after]);
+    expect(before.bodies.parent).toBeNull();
+    expect(after.bodies.parent).not.toBeNull();
+    r.dispose();
+  });
+});
+
 describe('the debug layers are flags the per-frame path consults', () => {
   it('"swarm" and "swarm-wrecks" are known layers', () => {
     expect(isDebugLayer('swarm')).toBe(true);
@@ -310,6 +443,8 @@ describe('shot down members leave wrecks; the entity\'s death fires no kill blas
   });
 
   it('the swarm\'s destroyed event throws no catastrophic_kill hit-stop, light or burst', async () => {
+    // The precondition that makes this bite: the kill rule would otherwise admit the drone.
+    expect(trackKindFor('drone_swarm')).not.toBeNull();
     const { sim, r, swarm, log } = await world();
     frame(r);
     sim.state.alive[swarm] = 0;
@@ -346,7 +481,7 @@ describe('shot down members leave wrecks; the entity\'s death fires no kill blas
 describe('the dive', () => {
   /** `main.ts`'s `runTick`, without audio or missions: tick, snapshot, deliver events. */
   function stepWorld(w: Awaited<ReturnType<typeof world>>): SimEvent[] {
-    w.sim.identifyTo(1, w.victim);
+    w.sim.identifyTo(w.swarmSide, w.victim);
     const events = w.sim.tick();
     w.r.snapshot();
     w.r.onEvents(events);
@@ -374,6 +509,30 @@ describe('the dive', () => {
       }
     }
     expect(dived).toBe(true);
+    w.r.dispose();
+  });
+
+  it('is still a SHOT: the fire link pulses on the target, its hit flash waits for the diver, and the shot is stamped', async () => {
+    // Only the muzzle and the round are the dive's to skip. An own, selected swarm fires at an enemy.
+    const w = await world({}, 0);
+    w.r.selection = [w.swarm];
+    frame(w.r);
+    // Until a shot that HITS: a miss files no hit flash, and an assertion must not hang on one.
+    let hit: SimEvent | undefined;
+    for (let i = 0; i < 3000 && hit === undefined; i++) {
+      hit = stepWorld(w).find((e) => e.kind === 'fire' && e.shooter === w.swarm && e.willHit);
+    }
+    expect(hit).toBeDefined();
+    expect(priv(w.r).lastShotSimS[w.swarm]).toBeGreaterThan(-Infinity);
+    const pulses = priv(w.r).fireLinkPulses.filter((p) => p.target === w.victim);
+    expect(pulses.length).toBeGreaterThan(0);
+    // The hit flash lands with the diver, not on the frame it left (a dive is whole ticks long).
+    const flash = priv(w.r).fireLinkFlashes.find((f) => f.target === w.victim);
+    expect(flash).toBeDefined();
+    expect(flash?.startS).toBeGreaterThan(priv(w.r).fireLinkClockS);
+    // ...and still no muzzle flash, no round.
+    expect(w.log).not.toContain('fire_heat');
+    expect(priv(w.r).missileFx.missiles).toHaveLength(0);
     w.r.dispose();
   });
 

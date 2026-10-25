@@ -40,7 +40,15 @@ import { MISS_LATERAL_TILES, MISS_OVERSHOOT_TILES, hash01, missileDurationS, mis
 import { tileHash } from '../../tile-hash';
 
 /** 16 live swarms of 12 on screen. The largest authored mission is 65 units. */
-export const SWARM_CAPACITY = 12 * 16;
+export const SWARM_LIVE_CAPACITY = 12 * 16;
+/**
+ * Headroom for the members in flight on top of those: four swarms' worth of
+ * divers and tumblers (a diver lives ~0.1-0.6 s, a tumbler 0.6 s). Without it a
+ * full screen of live members left no instance for a member that had just left,
+ * and the exit vanished the frame it began.
+ */
+export const SWARM_EXIT_HEADROOM = 12 * 4;
+export const SWARM_CAPACITY = SWARM_LIVE_CAPACITY + SWARM_EXIT_HEADROOM;
 /** Ground wrecks kept, oldest evicted first (`MAX_MESH_WRECKS`'s rule). */
 export const SWARM_WRECK_CAP = 96;
 
@@ -247,7 +255,8 @@ export interface DiveFlight {
  * `missileDurationS` for class `heat` - the sim's whole-tick count, copied the
  * way `missiles.ts` copies it - so the diver arrives when the sim resolves the
  * round. A miss lands past the target and to one side from a hash of the tick
- * and the shooter, never `Math.random`, exactly as a missile miss does.
+ * and the shooter, never `Math.random`, exactly as a missile miss does; the end
+ * height is the ground under THAT point (`groundAt`), not under the target.
  */
 export function diveFlight(
   shooter: number,
@@ -255,7 +264,7 @@ export function diveFlight(
   fromX: number,
   fromZ: number,
   fromY: number,
-  toGroundY: number
+  groundAt: (x: number, z: number) => number
 ): DiveFlight {
   let tx = req.toX;
   let tz = req.toZ;
@@ -275,7 +284,8 @@ export function diveFlight(
     fromY,
     toX: tx,
     toZ: tz,
-    toY: toGroundY + SWARM_DIVE_END_LIFT,
+    // The ground under where it ACTUALLY ends: a miss lands past the target, on other ground.
+    toY: groundAt(tx, tz) + SWARM_DIVE_END_LIFT,
     duration: missileDurationS(WEAPON_CLASS.heat, req.simDistTiles),
     resolveTick: missileResolveTick(WEAPON_CLASS.heat, req.simDistTiles, req.tick),
     // Mesh yaw about +Y for a heading along game (dx, dz): the mesh's +X is forward.

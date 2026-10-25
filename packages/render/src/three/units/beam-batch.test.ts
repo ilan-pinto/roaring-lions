@@ -231,3 +231,18 @@ describe('vehicleMuzzleOf', () => {
     expect(vehicleMuzzleOf({ rl_fire: { backblast: [0, 0, 0] } }, 'x.glb')).toBeNull();
   });
 });
+
+describe('the default colours are no colour', () => {
+  it('a batch that was never given the palette keys writes black, not a literal of its own', () => {
+    const b = new BeamBatch(new THREE.Scene()); // no setColors
+    b.beginFrame(1);
+    expect(b.add(draw())).toBe(true);
+    b.finish();
+    const colour = attr(b, 'aColor');
+    for (let i = 0; i < 5 * 4; i++) {
+      expect(colour.getX(i), `vertex ${i} r`).toBe(0);
+      expect(colour.getY(i), `vertex ${i} g`).toBe(0);
+      expect(colour.getZ(i), `vertex ${i} b`).toBe(0);
+    }
+  });
+});

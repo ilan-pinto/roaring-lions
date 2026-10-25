@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { WEAPON_CLASS } from '@lions/sim';
 import { missileDurationS, missileResolveTick } from './missiles';
 import {
+  SWARM_DIVE_END_LIFT,
   SWARM_DIVE_PITCH_RAD,
   SWARM_DIVE_PITCH_S,
   SWARM_SLOT_MIN_SEP_TILES,
@@ -137,7 +138,7 @@ describe('the dive', () => {
   };
 
   it('flies for the sim\'s own heat flight time and resolves on the sim\'s own tick', () => {
-    const f = diveFlight(3, REQ, 9.5, 12, 0.36, 0);
+    const f = diveFlight(3, REQ, 9.5, 12, 0.36, () => 0);
     expect(f.duration).toBe(missileDurationS(WEAPON_CLASS.heat, 1.2));
     expect(f.resolveTick).toBe(missileResolveTick(WEAPON_CLASS.heat, 1.2, 100));
     // heat is 10 tiles/s: a 1.2-tile dive is 3 ticks in the air, resolving 2 after the shot.
@@ -146,7 +147,7 @@ describe('the dive', () => {
   });
 
   it('lands only once the flight is over AND the sim has resolved the round', () => {
-    const f = diveFlight(3, REQ, 9.5, 12, 0.36, 0);
+    const f = diveFlight(3, REQ, 9.5, 12, 0.36, () => 0);
     expect(diveHasLanded(f, 0.05, 200)).toBe(false);
     expect(diveHasLanded(f, 0.1, f.resolveTick)).toBe(false); // the tick has not FINISHED
     expect(diveHasLanded(f, 0.1, f.resolveTick + 1)).toBe(true);
@@ -154,7 +155,7 @@ describe('the dive', () => {
   });
 
   it('rides from the member\'s own position to the impact point, nose-down and low at the end', () => {
-    const f = diveFlight(3, REQ, 9.5, 12.4, 0.36, 0.2);
+    const f = diveFlight(3, REQ, 9.5, 12.4, 0.36, () => 0.2);
     const p = { x: 0, y: 0, z: 0, pitch: 0 };
     divePose(f, 0, p);
     expect([p.x, p.z, p.y]).toEqual([9.5, 12.4, 0.36]);
@@ -171,15 +172,27 @@ describe('the dive', () => {
 
   it('a miss lands past the target and to one side, the same way on every replay', () => {
     const miss = { ...REQ, willHit: false };
-    const a = diveFlight(3, miss, 9, 12, 0.36, 0);
-    const b = diveFlight(3, miss, 9, 12, 0.36, 0);
+    const a = diveFlight(3, miss, 9, 12, 0.36, () => 0);
+    const b = diveFlight(3, miss, 9, 12, 0.36, () => 0);
     expect(a).toEqual(b);
     expect(a.miss).toBe(true);
     expect(Math.hypot(a.toX - REQ.toX, a.toZ - REQ.toZ)).toBeGreaterThan(0.5);
   });
 
+  it('a miss ends on the ground under the OVERSHOOT point, not under the target', () => {
+    // A ramp rising 0.1 per tile along X: the target and the overshoot are on different ground.
+    const ramp = (x: number): number => 0.1 * x;
+    const miss = diveFlight(3, { ...REQ, willHit: false }, 9, 12, 0.36, ramp);
+    expect(miss.toX).not.toBeCloseTo(REQ.toX, 1);
+    expect(miss.toY).toBeCloseTo(ramp(miss.toX) + SWARM_DIVE_END_LIFT, 9);
+    expect(miss.toY).not.toBeCloseTo(ramp(REQ.toX) + SWARM_DIVE_END_LIFT, 3);
+    // A hit still ends on the target's ground.
+    const hit = diveFlight(3, REQ, 9, 12, 0.36, ramp);
+    expect(hit.toY).toBeCloseTo(ramp(REQ.toX) + SWARM_DIVE_END_LIFT, 9);
+  });
+
   it('faces along its flight in the mesh convention (+X forward, yaw = -heading)', () => {
-    const f = diveFlight(3, { ...REQ, toX: 5, toZ: 5 }, 5, 3, 0.36, 0); // due +Z (game y) from the member
+    const f = diveFlight(3, { ...REQ, toX: 5, toZ: 5 }, 5, 3, 0.36, () => 0); // due +Z (game y) from the member
     expect(f.yaw).toBeCloseTo(-Math.PI / 2, 9);
   });
 });

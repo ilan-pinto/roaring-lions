@@ -67,3 +67,27 @@ export function shimmerOffsetPx(dx: number, dy: number, amp: number, timeSec: nu
 export function shimmerSite(ndcX: number, ndcY: number, amp: number, zoom: number, heightPx: number): ShimmerSite {
   return [ndcX * 0.5 + 0.5, ndcY * 0.5 + 0.5, (SHIMMER_RADIUS_PX * zoom) / Math.max(heightPx, 1), amp];
 }
+
+/**
+ * Whether a site's disc touches the viewport at all. A site is a disc of radius `radiusUvY` (UV-y
+ * units, `shimmerSite`'s third element), which is `2 * radiusUvY` in NDC-y and `2 * radiusUvY /
+ * aspect` in NDC-x; one whose centre is further outside the frame than that distorts nothing the
+ * player can see, and must not take one of the `SHIMMER_MAX_SITES` slots from a beam that does.
+ */
+export function shimmerSiteOnScreen(ndcX: number, ndcY: number, radiusUvY: number, aspect: number): boolean {
+  const ry = 2 * radiusUvY;
+  const rx = ry / Math.max(aspect, 1e-6);
+  return Math.abs(ndcX) <= 1 + rx && Math.abs(ndcY) <= 1 + ry;
+}
+
+/** A `ShimmerSite` whose cells can be rewritten: the renderer's per-frame pool. */
+export type MutableShimmerSite = [number, number, number, number];
+
+/** `shimmerSite`, written into `out` instead of allocating a tuple: the per-frame path. */
+export function shimmerSiteInto(out: MutableShimmerSite, ndcX: number, ndcY: number, amp: number, zoom: number, heightPx: number): MutableShimmerSite {
+  out[0] = ndcX * 0.5 + 0.5;
+  out[1] = ndcY * 0.5 + 0.5;
+  out[2] = (SHIMMER_RADIUS_PX * zoom) / Math.max(heightPx, 1);
+  out[3] = amp;
+  return out;
+}

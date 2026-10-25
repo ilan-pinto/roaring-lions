@@ -11,6 +11,8 @@ import {
   SHIMMER_RADIUS_PX,
   shimmerOffsetPx,
   shimmerSite,
+  shimmerSiteInto,
+  shimmerSiteOnScreen,
   shimmerWeight,
 } from './shimmer';
 
@@ -91,5 +93,36 @@ describe('shimmerSite: a projected point', () => {
     expect(shimmerSite(1, -1, 1, 2, 900).slice(0, 2)).toEqual([1, 0]);
     expect(shimmerSite(0, 0, 1, 2, 900)[2]).toBeCloseTo(20 / 900, 12);
     expect(shimmerSite(0, 0, 1, 0.35, 900)[2]).toBeCloseTo(3.5 / 900, 12);
+  });
+});
+
+describe('shimmerSiteInto: the allocation-free twin of shimmerSite', () => {
+  it('writes the same four numbers into the slot it is given, and returns it', () => {
+    const slot: [number, number, number, number] = [9, 9, 9, 9];
+    expect(shimmerSiteInto(slot, -0.4, 0.7, 0.55, 1.8, 900)).toBe(slot);
+    expect(slot).toEqual(shimmerSite(-0.4, 0.7, 0.55, 1.8, 900));
+  });
+});
+
+describe('shimmerSiteOnScreen: a disc that cannot be seen takes no slot', () => {
+  // 900 px high at zoom 1: radius 10/900 UV-y is 0.0222 NDC-y; on a 1400 px wide frame 0.0143 NDC-x.
+  const r = 10 / 900;
+  const aspect = 1400 / 900;
+  it('keeps a centre inside the frame and one whose disc just overlaps the edge', () => {
+    expect(shimmerSiteOnScreen(0, 0, r, aspect)).toBe(true);
+    expect(shimmerSiteOnScreen(1, 1, r, aspect)).toBe(true);
+    expect(shimmerSiteOnScreen(1.014, 0, r, aspect)).toBe(true);
+    expect(shimmerSiteOnScreen(0, 1.02, r, aspect)).toBe(true);
+  });
+  it('drops a centre further out than its disc reaches, on either axis and either side', () => {
+    expect(shimmerSiteOnScreen(1.02, 0, r, aspect)).toBe(false);
+    expect(shimmerSiteOnScreen(-1.02, 0, r, aspect)).toBe(false);
+    expect(shimmerSiteOnScreen(0, 1.025, r, aspect)).toBe(false);
+    expect(shimmerSiteOnScreen(0, -1.025, r, aspect)).toBe(false);
+    expect(shimmerSiteOnScreen(5, 5, r, aspect)).toBe(false);
+  });
+  it('a bigger disc (a zoomed-in frame) reaches further out', () => {
+    expect(shimmerSiteOnScreen(0, 1.1, r, aspect)).toBe(false);
+    expect(shimmerSiteOnScreen(0, 1.1, r * 5, aspect)).toBe(true); // 2 * 5r = 0.111
   });
 });

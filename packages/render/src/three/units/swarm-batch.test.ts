@@ -2,7 +2,7 @@
  * E6 (GH-274) chunk B: the swarm batch, against the REAL `drone_swarm.glb`.
  *
  * A hand-built fixture would agree with whatever the code assumed; the shipped bytes
- * (`rl_rotors`, `rl_bomb`, `rotor_rubber`, the `WRECK_` twin) are what `extractSwarmParts`
+ * (`rl_rotors`, `rotor_rubber`, the `WRECK_` twin) are what `extractSwarmParts`
  * has to survive, and what a re-export would silently break.
  */
 import { readFileSync } from 'node:fs';
@@ -15,12 +15,14 @@ import { buildVehicleMeshTemplate, type VehicleMeshTemplate } from './mesh-vehic
 import {
   SwarmBatch,
   buildRotorDiscGeometry,
+  createRotorBlurMaterial,
   extractSwarmParts,
   type SwarmBatchEvent,
   type SwarmEntityInput,
   type SwarmFrameEnv,
 } from './swarm-batch';
-import { SWARM_CAPACITY, SWARM_TUMBLE_S, SWARM_WRECK_CAP, type DiveRequest } from './swarm-layout';
+import { SWARM_CAPACITY, SWARM_EXIT_HEADROOM, SWARM_LIVE_CAPACITY, SWARM_TUMBLE_S, SWARM_WRECK_CAP, type DiveRequest } from './swarm-layout';
+import { SWARM_ROTOR_RENDER_ORDER } from './render-order';
 
 const GLB = fileURLToPath(new URL('../../../../../art/meshes/vehicles/drone_swarm.glb', import.meta.url));
 
@@ -77,7 +79,7 @@ describe('extractSwarmParts: the shipped drone_swarm.glb', () => {
     expect((parts.wreck?.index?.count ?? 0) / 3).toBeGreaterThan(136 + 492); // the torn-off rotor rides in the wreck
   });
 
-  it('reads the four rotor hubs and the bomb point out of the scene extras, in tiles', async () => {
+  it('reads the four rotor hubs out of the scene extras, in tiles', async () => {
     const parts = extractSwarmParts(await template());
     expect(parts.rotors).toHaveLength(4);
     for (const r of parts.rotors) {
@@ -86,7 +88,6 @@ describe('extractSwarmParts: the shipped drone_swarm.glb', () => {
       expect(r.y).toBeCloseTo(0.298 * MESH_SCALE, 3);
       expect(r.r).toBeCloseTo(0.158 * MESH_SCALE, 3);
     }
-    expect(parts.bomb?.[1]).toBeCloseTo(0.0859 * MESH_SCALE, 4);
   });
 
   it('paints the body from the swarm ramp: vertex colours present and not one flat tone', async () => {
@@ -278,7 +279,50 @@ describe('SwarmBatch: the draw follows the LIVE count', () => {
     batch.stepExits(0.016);
     batch.finish();
     expect(batch.bodies.count).toBe(20);
-    expect(SWARM_CAPACITY).toBe(192);
+    expect(SWARM_LIVE_CAPACITY).toBe(192);
+    expect(SWARM_EXIT_HEADROOM).toBe(48);
+    expect(SWARM_CAPACITY).toBe(240);
+  });
+
+  it('has headroom for the members in flight on top of a full screen of live ones', async () => {
+    const { batch } = await built();
+    batch.beginFrame(env());
+    const events: SwarmBatchEvent[] = [];
+    // 17 swarms of 12 is 204 live: more than the 192 a screen of 16 needs.
+    for (let id = 0; id < 17; id++) batch.updateEntity(entity({ id, live: 12 }), undefined, events);
+    batch.stepExits(0.016);
+    batch.finish();
+    expect(batch.bodies.count).toBe(204);
+    // One loses three: 201 live and 3 tumbling are all drawn, none dropped for want of an instance.
+    batch.beginFrame(env());
+    for (let id = 0; id < 17; id++) batch.updateEntity(entity({ id, live: id === 0 ? 9 : 12 }), undefined, events);
+    batch.stepExits(0.016);
+    batch.finish();
+    expect(batch.exitsInFlight).toBe(3);
+    expect(batch.bodies.count).toBe(204);
+  });
+
+  it('draws the rotor discs in their own band, not the turret\'s', async () => {
+    const { batch } = await built();
+    expect(batch.rotors.renderOrder).toBe(SWARM_ROTOR_RENDER_ORDER);
+  });
+
+  it('the rotor shader never takes atan(0, 0): the hub is guarded', () => {
+    const src = createRotorBlurMaterial().fragmentShader;
+    expect(src.match(/atan\(vDisc/g)).toHaveLength(1);
+    expect(src).toMatch(/r < 1e-4 \? 0\.0 : atan\(vDisc\.y, vDisc\.x\)/);
+  });
+
+  it('a shot-down member of a swarm that is NOT drawn (fog, a versus leak) throws no "down" event, yet still falls', async () => {
+    const { batch } = await built();
+    frame(batch, entity({ live: 12 }));
+    const { events } = frame(batch, entity({ live: 10, drawn: false }));
+    expect(events).toEqual([]);
+    expect(batch.exitsInFlight).toBe(2);
+    // The control: the same drop, drawn, does throw them.
+    const drawn = await built();
+    frame(drawn.batch, entity({ live: 12 }));
+    expect(frame(drawn.batch, entity({ live: 10 })).events).toHaveLength(2);
   });
 
   it('a catch-up (quiet) frame throws no exits and leaves no wrecks', async () => {

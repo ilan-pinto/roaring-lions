@@ -65,8 +65,9 @@ const TONES: TerrainTones = {
   haze: '#E0B87A',
 };
 
-function makeOpts(): RendererOptions {
+function makeOpts(room: Pick<RendererOptions, 'viewerSide' | 'versus'> = {}): RendererOptions {
   return {
+    ...room,
     background: '#14150F',
     teamColors: ['#C8B494', '#6E7449', '#8E9491'],
     hullColors: ['#8F9464', '#6E7449', '#4E5433'],
@@ -108,6 +109,15 @@ interface Privates {
   airLiftY(i: number, alpha: number): number;
   cssWidth: number;
   cssHeight: number;
+  prevX: Float64Array;
+  curX: Float64Array;
+  prevY: Float64Array;
+  curY: Float64Array;
+  beamSlots: Map<number, { rb: object; out: { corePx: number }; look: { lastMs: number; seen: boolean; env: number } }>;
+  beamShimmerWorld: { x: number; y: number; z: number; amp: number }[];
+  beamShimmerWorldCount: number;
+  beamShimmerScratch: unknown[];
+  beamShimmerPool: unknown[];
   fog: Uint8Array;
   fogPass: FogOfWarPass | null;
   particleSystem: { spawn(spec: ParticleSpec, ...rest: unknown[]): void } | null;
@@ -116,23 +126,26 @@ const priv = (r: ThreeRenderer): Privates => r as unknown as Privates;
 
 type TargetKind = 'swarm' | 'drone';
 
-async function world(target: TargetKind = 'swarm', opts: { loadCarrier?: boolean; carrier?: UnitTypeJson; hostileCarrier?: boolean } = {}) {
+async function world(
+  target: TargetKind = 'swarm',
+  opts: { loadCarrier?: boolean; carrier?: UnitTypeJson; hostileCarrier?: boolean; versus?: boolean } = {}
+) {
   const sim = new Sim({ seed: 3, width: 40, height: 24, capacity: 16 });
   const rt = sim.addUnitType(opts.carrier ?? REMETZ);
   const carrierSide = opts.hostileCarrier ? 1 : 0;
   const carrier = sim.spawn(rt, carrierSide, fx.from(10.5), fx.from(12.5));
   const tt = sim.addUnitType(target === 'swarm' ? SWARM : DRONE);
   const prey = sim.spawn(tt, 1 - carrierSide, fx.from(17.5), fx.from(12.5));
-  const r = new ThreeRenderer(sim, makeOpts());
+  const r = new ThreeRenderer(sim, makeOpts(opts.versus ? { versus: true, viewerSide: 0 } : {}));
   const owner = new Map<ParticleSpec, { id: string; at: [number, number] }>();
   r.useEmitters(EMITTERS, (k) => (k.startsWith('#') ? k : '#E6D8BE'));
   for (const em of EMITTERS) for (const l of em.particles) owner.set(l, { id: em.id, at: [0, 0] });
   const ps = priv(r).particleSystem;
   if (ps === null) throw new Error('fixture: useEmitters built no ParticleSystem');
-  const log: { id: string; x: number; y: number }[] = [];
+  const log: { id: string; x: number; y: number; dir: number }[] = [];
   const real = ps.spawn.bind(ps);
   ps.spawn = (spec: ParticleSpec, ...rest: unknown[]): void => {
-    log.push({ id: owner.get(spec)?.id ?? 'flat', x: rest[0] as number, y: rest[1] as number });
+    log.push({ id: owner.get(spec)?.id ?? 'flat', x: rest[0] as number, y: rest[1] as number, dir: rest[2] as number });
     real(spec, ...rest);
   };
   loaded.templates.set('aa_remetz', buildVehicleMeshTemplate(await parseGlbHeadless(readFileSync(REMETZ_GLB)), 'aa_remetz', true));
@@ -616,6 +629,177 @@ describe('one-way: the renderer reads the sim and writes none of it', () => {
     const before = JSON.stringify(w.sim.beamState(w.carrier));
     for (let i = 0; i < 5; i++) frame(w);
     expect(JSON.stringify(w.sim.beamState(w.carrier))).toBe(before);
+    w.r.dispose();
+  });
+});
+
+/** One tick with the fog held CLOSED throughout, `tick()` without its `fog.fill(2)`. */
+function tickHidden(w: World): SimEvent[] {
+  w.sim.identifyTo(w.carrierSide, w.prey);
+  const events = w.sim.tick();
+  w.r.snapshot();
+  priv(w.r).fog.fill(0);
+  w.r.onEvents(events);
+  priv(w.r).fog.fill(0);
+  priv(w.r).updateVehicleMeshes(1, 16);
+  priv(w.r).updateSwarms(1, 16);
+  priv(w.r).updateBeams(1);
+  return events;
+}
+
+describe('a hostile carrier the seat cannot see throws neither sparks nor vents (the versus leak rule)', () => {
+  /** Lases in plain sight, then the fog closes and the run goes on to `until`; counts the bursts after. */
+  async function burstsAfterFogCloses(until: 'struck' | 'lockout', hidden: boolean, id: string): Promise<number> {
+    const w = await world('drone', { hostileCarrier: true, versus: true });
+    untilLasing(w);
+    ticks(w, 5);
+    expect(w.r.beamDrawn(w.carrier)).not.toBeNull(); // drawn, with an end held: the stale state the gate must beat
+    // A few ticks first, so the readback of the last VISIBLE frame is gone before the event lands.
+    for (let i = 0; i < 3; i++) (hidden ? tickHidden : tick)(w);
+    w.log.length = 0;
+    let reached = false;
+    for (let i = 0; i < 500 && !reached; i++) {
+      const events = (hidden ? tickHidden : tick)(w);
+      reached = events.some((e) => e.kind === 'beam' && e.phase === until);
+    }
+    expect(reached).toBe(true);
+    if (hidden) expect(w.r.beamDrawn(w.carrier)).toBeNull();
+    const n = w.log.filter((l) => l.id === id).length;
+    w.r.dispose();
+    return n;
+  }
+
+  it('a strike on the far side of the fog throws no beam_strike (and the same strike in sight does)', async () => {
+    expect(await burstsAfterFogCloses('struck', false, 'beam_strike')).toBeGreaterThan(0);
+    expect(await burstsAfterFogCloses('struck', true, 'beam_strike')).toBe(0);
+  });
+
+  it('a lockout on the far side of the fog throws no beam_vent (and the same lockout in sight does)', async () => {
+    expect(await burstsAfterFogCloses('lockout', false, 'beam_vent')).toBeGreaterThan(0);
+    expect(await burstsAfterFogCloses('lockout', true, 'beam_vent')).toBe(0);
+  });
+});
+
+describe('the vent leaves from where the carrier is DRAWN, drifting backwards', () => {
+  it('uses the interpolated position, and aims away from the carrier\'s facing', async () => {
+    const w = await world('drone');
+    untilLasing(w);
+    ticks(w, 2);
+    const c = w.carrier;
+    // A moving carrier: a tick ago at x 10, now at x 11, drawn halfway between.
+    priv(w.r).prevX[c] = 10;
+    priv(w.r).curX[c] = 11;
+    priv(w.r).prevY[c] = 12;
+    priv(w.r).curY[c] = 13;
+    w.sim.state.facing[c] = fx.from(0.25);
+    w.log.length = 0;
+    w.r.onEvents([
+      { kind: 'beam', tick: w.sim.tickCount, shooter: c, target: -1, weaponId: 'beam', phase: 'lockout', until: w.sim.tickCount + 120 } as SimEvent,
+    ]);
+    expect(w.log.filter((l) => l.id === 'beam_vent')).toHaveLength(0); // thrown by the frame, not the event
+    priv(w.r).updateBeams(0.5);
+    const vent = w.log.find((l) => l.id === 'beam_vent');
+    expect(vent).toBeDefined();
+    const facing = Math.PI / 2; // a quarter turn
+    expect(vent?.x).toBeCloseTo(10.5 - Math.cos(facing) * 0.6, 6);
+    expect(vent?.y).toBeCloseTo(12.5 - Math.sin(facing) * 0.6, 6);
+    // Away from the facing: half a turn on from 0.25 turns.
+    expect(vent?.dir).toBeCloseTo(0.75, 9);
+    w.r.dispose();
+  });
+});
+
+describe('the shimmer sites: what is off screen takes no slot', () => {
+  it('nine beams off the frame and one on it feed ONE site, not the first eight of the nine', async () => {
+    const w = await world('drone');
+    const pass = new FogOfWarPass(new THREE.Texture(), 40, 24);
+    priv(w.r).fogPass = pass;
+    frame(w);
+    const cam = priv(w.r).threeCamera();
+    // The camera looks at the map's centre: a point far outside the map is far outside the frame.
+    const pool = priv(w.r).beamShimmerWorld;
+    for (let k = 0; k < 9; k++) Object.assign(pool[k], { x: -300 - k, y: 0, z: -300, amp: 1 });
+    Object.assign(pool[9], { x: 20, y: 0, z: 12, amp: 1 });
+    priv(w.r).beamShimmerWorldCount = 10;
+    priv(w.r).feedBeamShimmer(cam, 1);
+    expect(w.r.beamShimmerSites()).toBe(1);
+    expect(pass.uniforms.uShimmerCount.value).toBe(1);
+    // ...and with ten on screen the cap of eight still holds.
+    for (let k = 0; k < 10; k++) Object.assign(pool[k], { x: 20 + k * 0.1, y: 0, z: 12, amp: 1 });
+    priv(w.r).feedBeamShimmer(cam, 1);
+    expect(w.r.beamShimmerSites()).toBe(8);
+    w.r.dispose();
+  });
+});
+
+describe('a live beam allocates nothing per frame it can avoid', () => {
+  it('writes its readback in place, and hands out COPIES that a later frame cannot rewrite', async () => {
+    const w = await world('drone');
+    untilLasing(w);
+    ticks(w, 3);
+    const rb = priv(w.r).beamSlots.get(w.carrier * 2)?.rb;
+    const first = w.r.beamDrawn(w.carrier);
+    const frozen = JSON.stringify(first);
+    ticks(w, 12);
+    expect(priv(w.r).beamSlots.get(w.carrier * 2)?.rb).toBe(rb); // one record for the slot's life
+    expect(JSON.stringify(first)).toBe(frozen); // what a caller read is still what it read
+    expect(w.r.beamDrawn(w.carrier)).not.toBe(w.r.beamDrawn(w.carrier));
+    expect(JSON.stringify(w.r.beamDrawn(w.carrier))).not.toBe(frozen);
+    w.r.dispose();
+  });
+
+  it('feeds the fog pass references into a preallocated pool, not tuples made this frame', async () => {
+    const w = await world('drone');
+    priv(w.r).fogPass = new FogOfWarPass(new THREE.Texture(), 40, 24);
+    untilLasing(w);
+    ticks(w, 12);
+    priv(w.r).feedBeamShimmer(priv(w.r).threeCamera(), 1);
+    expect(priv(w.r).beamShimmerScratch).toHaveLength(1);
+    expect(priv(w.r).beamShimmerScratch[0]).toBe(priv(w.r).beamShimmerPool[0]);
+    w.r.dispose();
+  });
+
+  it('an idle slot keeps its clock current, so the next beam still FADES IN rather than popping', async () => {
+    const w = await world('drone');
+    // The prey starts far out of range: the carrier idles for a second before anything is in reach.
+    w.sim.state.posX[w.prey] = fx.from(35.5);
+    w.r.snapshot();
+    w.r.snapshot();
+    ticks(w, 20);
+    expect(w.sim.beamState(w.carrier).target).toBe(-1);
+    const slot = priv(w.r).beamSlots.get(w.carrier * 2);
+    expect(slot?.look.seen).toBe(true);
+    // The early-out really engages: an idle frame does not run the look at all (a sentinel survives it).
+    if (slot) slot.out.corePx = 999;
+    frame(w);
+    expect(slot?.out.corePx).toBe(999);
+    w.sim.state.posX[w.prey] = fx.from(17.5);
+    untilLasing(w);
+    // The first lasing frame: the clock followed the idle frames, so one 50 ms tick of an 80 ms fade-in.
+    const first = w.r.beamDrawn(w.carrier);
+    expect(first).not.toBeNull();
+    expect(first?.coreAlpha).toBeGreaterThan(0.3);
+    expect(first?.coreAlpha).toBeLessThan(0.9);
+    w.r.dispose();
+  });
+
+  it('a strike never sparks at an end the beam does not hold (drawn, but only as a fading lens glow)', async () => {
+    const w = await world('drone');
+    untilLasing(w);
+    ticks(w, 3);
+    const slot = priv(w.r).beamSlots.get(w.carrier * 2) as unknown as { drawn: boolean; haveEnd: boolean };
+    slot.drawn = true;
+    slot.haveEnd = false;
+    w.log.length = 0;
+    w.r.onEvents([
+      { kind: 'beam', tick: w.sim.tickCount, shooter: w.carrier, target: w.prey, weaponId: 'beam', phase: 'struck', until: 0 } as SimEvent,
+    ]);
+    expect(w.log.filter((l) => l.id === 'beam_strike')).toHaveLength(0);
+    slot.haveEnd = true;
+    w.r.onEvents([
+      { kind: 'beam', tick: w.sim.tickCount, shooter: w.carrier, target: w.prey, weaponId: 'beam', phase: 'struck', until: 0 } as SimEvent,
+    ]);
+    expect(w.log.filter((l) => l.id === 'beam_strike').length).toBeGreaterThan(0);
     w.r.dispose();
   });
 });

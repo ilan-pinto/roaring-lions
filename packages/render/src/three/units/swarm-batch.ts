@@ -35,7 +35,7 @@ import * as THREE from 'three';
 import { MESH_SCALE } from './mesh-anim';
 import type { VehicleMeshTemplate } from './mesh-vehicle';
 import { CHARRED_RAMP, rampForVehicleRole } from './vehicle-mesh-role';
-import { HULL_RENDER_ORDER, TURRET_RENDER_ORDER } from './render-order';
+import { HULL_RENDER_ORDER, SWARM_ROTOR_RENDER_ORDER } from './render-order';
 import { WORLD_ROUGHNESS, liftTone } from '../world-materials';
 import { paletteHex } from '../palette-hex';
 import {
@@ -83,8 +83,6 @@ export interface SwarmParts {
   /** The `WRECK_` twin's meshes, `MESH_SCALE` baked in, charred. Null when the GLB has none. */
   readonly wreck: THREE.BufferGeometry | null;
   readonly rotors: readonly RotorHub[];
-  /** `rl_bomb`, tiles: where the bomb hangs (the dive's release point). Null when absent. */
-  readonly bomb: readonly [number, number, number] | null;
 }
 
 interface ColouredPart {
@@ -192,16 +190,10 @@ export function extractSwarmParts(template: VehicleMeshTemplate, vehicleId: stri
     });
   });
   if (live.length === 0) throw new Error(`swarm-batch: ${vehicleId} has no body mesh once rotor_* is left out`);
-  const bombRaw = root.userData.rl_bomb;
-  const bomb =
-    Array.isArray(bombRaw) && bombRaw.length === 3 && bombRaw.every((n) => typeof n === 'number')
-      ? ([bombRaw[0] * MESH_SCALE, bombRaw[1] * MESH_SCALE, bombRaw[2] * MESH_SCALE] as const)
-      : null;
   return {
     body: mergeColoured(live),
     wreck: dead.length > 0 ? mergeColoured(dead) : null,
     rotors: parseRotors(root.userData),
-    bomb,
   };
 }
 
@@ -267,7 +259,9 @@ export function createRotorBlurMaterial(): THREE.ShaderMaterial {
         if (r > 1.0) discard;
         float a = mix(${ROTOR_ALPHA_HUB.toFixed(2)}, ${ROTOR_ALPHA_RIM.toFixed(2)}, smoothstep(0.0, 1.0, r));
         // Two blades: |cos(2 theta)| peaks twice a turn. Faint, and clear of the hub.
-        float streak = pow(abs(cos(2.0 * (atan(vDisc.y, vDisc.x) - vSpin))), 18.0) * smoothstep(0.2, 0.75, r);
+        // atan(0, 0) is undefined: at the hub the angle is pinned (the streak is smoothstepped to 0 there).
+        float ang = r < 1e-4 ? 0.0 : atan(vDisc.y, vDisc.x);
+        float streak = pow(abs(cos(2.0 * (ang - vSpin))), 18.0) * smoothstep(0.2, 0.75, r);
         gl_FragColor = vec4(uColor, min(1.0, a + ${ROTOR_STREAK_ALPHA.toFixed(2)} * streak));
       }
     `,
@@ -374,6 +368,31 @@ const tmpMatrix = new THREE.Matrix4();
 const tmpEuler = new THREE.Euler();
 const offset: MemberOffset = { x: 0, z: 0, bob: 0 };
 const divePoseScratch: DivePose = { x: 0, y: 0, z: 0, pitch: 0 };
+/** Where a slot is this frame: module scratch, so placing a member allocates nothing. */
+const placed = { x: 0, y: 0, z: 0, yaw: 0 };
+
+function placeMember(e: EntityState, input: SwarmEntityInput, slot: number, nowSec: number, out: typeof placed): void {
+  const s = e.slots[slot];
+  memberOffset(s, nowSec, offset);
+  out.x = input.x + offset.x;
+  out.y = input.groundY + input.liftY * s.liftMul + offset.bob;
+  out.z = input.z + offset.z;
+  out.yaw = input.yaw + s.yawJitter;
+}
+
+/** A mutable `SwarmEntityInput`, for a caller that fills one scratch per entity per frame. */
+export type SwarmEntityScratch = { -readonly [K in keyof SwarmEntityInput]: SwarmEntityInput[K] };
+
+export function newSwarmEntityScratch(): SwarmEntityScratch {
+  return { id: 0, side: 0, count: 0, spreadTiles: 0, live: 0, x: 0, z: 0, groundY: 0, liftY: 0, yaw: 0, drawn: false };
+}
+
+/** A mutable `SwarmFrameEnv`: one object per renderer, its fields rewritten each frame. */
+export type SwarmFrameEnvScratch = { -readonly [K in keyof SwarmFrameEnv]: SwarmFrameEnv[K] };
+
+function clearDrawn(e: EntityState): void {
+  e.drawn = 0;
+}
 
 export class SwarmBatch {
   readonly bodies: THREE.InstancedMesh;
@@ -429,8 +448,9 @@ export class SwarmBatch {
     this.rotors.frustumCulled = false;
     this.rotors.castShadow = false;
     this.rotors.receiveShadow = false;
-    // After the zone band and the tread (0) and the selection ring (0.5), before FX (2) and overlays (4).
-    this.rotors.renderOrder = TURRET_RENDER_ORDER;
+    // Its own band (`render-order.ts`'s table): after the hulls, the tread (0) and the selection ring
+    // (0.5), before FX (2) and overlays (4). Not the turret band: a swarm has no turret.
+    this.rotors.renderOrder = SWARM_ROTOR_RENDER_ORDER;
 
     if (parts.wreck) {
       this.wreckMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 });
@@ -499,7 +519,7 @@ export class SwarmBatch {
     this.env = env;
     this.cursor = 0;
     this.landingsOut.length = 0;
-    for (const e of this.entities.values()) e.drawn = 0;
+    this.entities.forEach(clearDrawn);
   }
 
   private writeBody(x: number, y: number, z: number, q: THREE.Quaternion, phase: number): void {
@@ -536,49 +556,42 @@ export class SwarmBatch {
     const live = liveSlotCount(input.live, input.count);
     const nowSec = env.simSec;
 
-    // Where every slot is this frame (exits start from here, so nothing pops).
-    const place = (slot: number): { x: number; y: number; z: number; yaw: number } => {
-      const s = e.slots[slot];
-      memberOffset(s, nowSec, offset);
-      return {
-        x: input.x + offset.x,
-        y: input.groundY + input.liftY * s.liftMul + offset.bob,
-        z: input.z + offset.z,
-        yaw: input.yaw + s.yawJitter,
-      };
-    };
-
     if (live < e.prev && !env.quiet) {
       const exits = planExits(e.prev, live, requests?.length ?? 0);
       let nextRequest = 0;
-      for (const x of exits) {
-        const p = place(x.slot);
+      for (let k = 0; k < exits.length; k++) {
+        const x = exits[k];
+        // Where the slot is this frame (exits start from here, so nothing pops).
+        placeMember(e, input, x.slot, nowSec, placed);
         const rotorPhase = e.slots[x.slot].rotorPhase;
         if (x.kind === 'dive') {
           const req = (requests as readonly DiveRequest[])[nextRequest++];
           this.dives.push({
             id: input.id,
             side: input.side,
-            flight: diveFlight(input.id, req, p.x, p.z, p.y, env.groundAt(req.toX, req.toZ)),
+            flight: diveFlight(input.id, req, placed.x, placed.z, placed.y, env.groundAt),
             rotorPhase,
             age: 0,
           });
         } else {
+          const groundY = env.groundAt(placed.x, placed.z);
           this.falls.push({
             id: input.id,
             slot: x.slot,
             side: input.side,
-            x: p.x,
-            z: p.z,
-            groundY: env.groundAt(p.x, p.z),
-            h0: Math.max(0, p.y - env.groundAt(p.x, p.z)),
-            yaw: p.yaw,
+            x: placed.x,
+            z: placed.z,
+            groundY,
+            h0: Math.max(0, placed.y - groundY),
+            yaw: placed.yaw,
             axis: tumbleAxis(input.id, x.slot),
             rest: wreckRest(input.id, x.slot),
             rotorPhase,
             age: 0,
           });
-          events.push({ kind: 'down', x: p.x, y: p.y, z: p.z });
+          // Only a swarm that is DRAWN throws the spark-and-puff: the burst is a thing on screen, and
+          // a hostile swarm in fog (a versus seat that cannot see it) must not betray where it was hit.
+          if (input.drawn) events.push({ kind: 'down', x: placed.x, y: placed.y, z: placed.z });
         }
       }
     }
@@ -588,14 +601,14 @@ export class SwarmBatch {
     e.posLive = live;
     const write = input.drawn && !env.bodiesHidden;
     for (let slot = 0; slot < live; slot++) {
-      const p = place(slot);
-      e.pos[slot * 3] = p.x;
-      e.pos[slot * 3 + 1] = p.y;
-      e.pos[slot * 3 + 2] = p.z;
+      placeMember(e, input, slot, nowSec, placed);
+      e.pos[slot * 3] = placed.x;
+      e.pos[slot * 3 + 1] = placed.y;
+      e.pos[slot * 3 + 2] = placed.z;
       if (!write) continue;
       const before = this.cursor;
-      tmpQuat.setFromAxisAngle(tmpAxis.set(0, 1, 0), p.yaw);
-      this.writeBody(p.x, p.y, p.z, tmpQuat, SWARM_ROTOR_RAD_S * nowSec + e.slots[slot].rotorPhase);
+      tmpQuat.setFromAxisAngle(tmpAxis.set(0, 1, 0), placed.yaw);
+      this.writeBody(placed.x, placed.y, placed.z, tmpQuat, SWARM_ROTOR_RAD_S * nowSec + e.slots[slot].rotorPhase);
       if (this.cursor > before) e.drawn++;
     }
   }
@@ -672,7 +685,9 @@ export class SwarmBatch {
     const w = this.wrecks;
     if (w) {
       let n = 0;
-      for (const rec of this.wreckRing.items) {
+      const items = this.wreckRing.items;
+      for (let k = 0; k < items.length; k++) {
+        const rec = items[k];
         if (!env.exploredAt(rec.x, rec.z)) continue;
         tmpPos.set(rec.x, env.groundAt(rec.x, rec.z), rec.z);
         tmpEuler.set(-rec.roll, rec.yaw, 0, 'YZX');

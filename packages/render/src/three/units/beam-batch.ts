@@ -122,8 +122,10 @@ export class BeamBatch {
   private readonly colorAttr: THREE.BufferAttribute;
   private readonly alphaAttr: THREE.BufferAttribute;
   private readonly shapeAttr: THREE.BufferAttribute;
-  private readonly coreLinear: [number, number, number] = [1, 1, 1];
-  private readonly sheathLinear: [number, number, number] = [1, 0.5, 0.1];
+  // Zeros until `setColors` hands over the palette keys: a default here would be a colour literal no
+  // palette entry names, and one the renderer's constructor overwrites before the first frame anyway.
+  private readonly coreLinear: [number, number, number] = [0, 0, 0];
+  private readonly sheathLinear: [number, number, number] = [0, 0, 0];
   private beams = 0;
   private zoom = 1;
   private debugHidden = false;

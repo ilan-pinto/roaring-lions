@@ -368,12 +368,12 @@ import {
   MISS_SCORCH_POWER,
 } from './units/missile-fx';
 import type { MissileLanding, TargetTrack } from './units/missiles';
-import { missileClassOf, SIM_PROJ_SPEED_TILES_S } from './units/missiles';
-import { SwarmBatch, extractSwarmParts, type SwarmBatchEvent } from './units/swarm-batch';
+import { missileClassOf, missileDurationS, SIM_PROJ_SPEED_TILES_S } from './units/missiles';
+import { SwarmBatch, extractSwarmParts, newSwarmEntityScratch, type SwarmBatchEvent, type SwarmFrameEnvScratch } from './units/swarm-batch';
 import type { DiveRequest } from './units/swarm-layout';
-import { BeamBatch, vehicleMuzzleOf } from './units/beam-batch';
+import { BEAM_CAPACITY, BeamBatch, vehicleMuzzleOf } from './units/beam-batch';
 import { BEAM_MS_PER_TICK, newBeamLook, newBeamLookState, stepBeamLook, type BeamLook, type BeamLookState } from './units/beam-look';
-import { shimmerSite, SHIMMER_MAX_SITES, type ShimmerSite } from './shimmer';
+import { shimmerSiteInto, shimmerSiteOnScreen, SHIMMER_MAX_SITES, type MutableShimmerSite } from './shimmer';
 import type { FirePoint } from './units/fire-points';
 import {
   isKamikazeDetonation,
@@ -779,6 +779,11 @@ const MESH_HULL_PITCH_RAD = 0.06;
  *  rather than kicking.
  */
 const MESH_TURRET_RECOIL_TILES = 0.11;
+/** E6 chunk C: a carrier with no turret pivot to read the muzzle from draws its beam from this far
+ *  above the hull centre, tiles (about 4.5 m: the Remetz's roof module). A fallback, not a measurement. */
+const BEAM_FALLBACK_HEIGHT = 1.5;
+/** How far behind the carrier's centre, tiles, the `beam_vent` puffs leave (its power module). */
+const BEAM_VENT_BACK_TILES = 0.6;
 /**
  * Barrel-tip distance BEYOND a mesh vehicle's own `turret_pivot`, tiles --
  * `onFire` uses this to anchor the muzzle flash/tracer origin at the
@@ -792,11 +797,6 @@ const MESH_TURRET_RECOIL_TILES = 0.11;
  * than the pre-existing 0.8-tile hull-centre guess, since the pivot itself
  * is already offset forward from the hull's own origin.
  */
-/** E6 chunk C: a carrier with no turret pivot to read the muzzle from draws its beam from this far
- *  above the hull centre, tiles (about 4.5 m: the Remetz's roof module). A fallback, not a measurement. */
-const BEAM_FALLBACK_HEIGHT = 1.5;
-/** How far behind the carrier's centre, tiles, the `beam_vent` puffs leave (its power module). */
-const BEAM_VENT_BACK_TILES = 0.6;
 const MESH_TURRET_MUZZLE_TILES = 0.5;
 /**
  * Main-rotor spin rate for a `rotor_pivot`-carrying mesh vehicle (`heli_peten`
@@ -1007,7 +1007,31 @@ interface BeamSlotState {
   endY: number;
   endZ: number;
   drawn: boolean;
-  readback: BeamReadback | null;
+  /** What was drawn last frame, written in place (a live beam allocates nothing per frame);
+   *  `rbLive` is false when nothing was. `beamDrawn` hands out a copy, so a caller keeps what it read. */
+  readonly rb: BeamReadbackScratch;
+  rbLive: boolean;
+}
+
+/** `BeamReadback` with its fields writable, one per beam slot. */
+type BeamReadbackScratch = { -readonly [K in keyof BeamReadback]: BeamReadback[K] extends readonly [number, number, number] ? [number, number, number] : BeamReadback[K] };
+
+function newBeamReadbackScratch(): BeamReadbackScratch {
+  return {
+    origin: [0, 0, 0], end: [0, 0, 0], ribbon: false, corePx: 0, coreAlpha: 0, sheathPx: 0, sheathAlpha: 0,
+    targetGlowTiles: 0, lensGlowAlpha: 0, shimmerAmp: 0, focus: 0, pulse: 0,
+  };
+}
+
+/** One beam's draw record, rewritten in place for `BeamBatch.add`. */
+interface BeamDrawScratch {
+  ox: number;
+  oy: number;
+  oz: number;
+  ex: number;
+  ey: number;
+  ez: number;
+  look: BeamLook;
 }
 
 /**
@@ -2117,6 +2141,23 @@ export class ThreeRenderer implements Renderer {
    * clone: `updateVehicleMeshes` skips any type with `swarm !== null` and `updateSwarms` owns it.
    */
   private readonly swarmBatches = new Map<string, SwarmBatch>();
+  /** The same batches as an array, for the per-frame paths: iterating a Map allocates an iterator.
+   *  Rebuilt by `refreshSwarmBatchList` wherever `swarmBatches` changes. */
+  private swarmBatchList: SwarmBatch[] = [];
+  /** Per-frame scratch for `updateSwarms`: the env (its methods bound once), one entity input. */
+  private readonly swarmEnv: SwarmFrameEnvScratch = {
+    simTick: 0,
+    simSec: 0,
+    groundAt: (x: number, z: number): number => groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, z),
+    drawnAt: (side: number, x: number, z: number): boolean => unitIsDrawn(-1, side, this.viewer, x, z, this.fogVisibleAt),
+    exploredAt: (x: number, z: number): boolean => this.isExplored(x, z),
+    bodiesHidden: false,
+    quiet: false,
+  };
+  private readonly swarmInput = newSwarmEntityScratch();
+  /** Latched by `onEvents` while `quiet` is set, and spent by the next `updateSwarms`: `main.ts`
+   *  clears `setQuiet` before the frame is painted, so `quiet` itself is never true in `frame()`. */
+  private swarmCaughtUp = false;
   /** The `swarm` debug layer. A FLAG `updateSwarms` consults every frame, `unitsDebugHidden`'s shape:
    *  the batch rewrites its own `visible` and `count` on every frame, so a one-shot write would be
    *  undone by the very repaint the gate photographs next. */
@@ -2136,10 +2177,17 @@ export class ThreeRenderer implements Renderer {
   /** Per carrier weapon slot (key `entity * 2 + slot`): the look's envelopes and last readback. */
   private readonly beamSlots = new Map<number, BeamSlotState>();
   /** Where this frame's beams land, world space, for the fog pass's heat shimmer. */
-  private readonly beamShimmerWorld: { x: number; y: number; z: number; amp: number }[] = [];
+  private readonly beamShimmerWorld: { x: number; y: number; z: number; amp: number }[] = Array.from(
+    { length: BEAM_CAPACITY },
+    () => ({ x: 0, y: 0, z: 0, amp: 0 })
+  );
+  private beamShimmerWorldCount = 0;
   /** Sites handed to the fog pass last frame: what `beamShimmerSites` reads back. */
   private beamShimmerFed = 0;
-  private readonly beamShimmerScratch: ShimmerSite[] = [];
+  /** The list the fog pass is given (references into the pool below, so no tuple is made per frame). */
+  private readonly beamShimmerScratch: MutableShimmerSite[] = [];
+  private readonly beamShimmerPool: MutableShimmerSite[] = Array.from({ length: SHIMMER_MAX_SITES }, () => [0, 0, 0, 0]);
+  private readonly beamDrawScratch: BeamDrawScratch = { ox: 0, oy: 0, oz: 0, ex: 0, ey: 0, ez: 0, look: newBeamLook() };
   private readonly beamTmp = new THREE.Vector3();
   private readonly beamTmpEnd = new THREE.Vector3();
   /** `rl_fire.muzzle` by template, parsed once: it is turret-local, see `vehicleMuzzleOf`. */
@@ -3452,6 +3500,7 @@ export class ThreeRenderer implements Renderer {
     // E6 chunk B: the swarm batches own merged geometry of their own, nothing shared with a template.
     for (const batch of this.swarmBatches.values()) batch.dispose();
     this.swarmBatches.clear();
+    this.refreshSwarmBatchList();
     this.swarmDiveRequests.clear();
     // Building meshes: same shape again -- every clone removed from the
     // scene first (nothing of its own to dispose, matching vehicles), then
@@ -4996,6 +5045,8 @@ export class ThreeRenderer implements Renderer {
 
   onEvents(events: SimEvent[]): void {
     const st = this.sim.state;
+    // A catch-up tick: the next swarm frame must see it (`main.ts` has cleared `setQuiet` by then).
+    if (this.quiet) this.swarmCaughtUp = true;
     for (const e of events) {
       // A tick far behind the live edge (`setQuiet`) throws no burst: the
       // events whose whole effect is a one-shot flash, round or puff are
@@ -5461,17 +5512,16 @@ export class ThreeRenderer implements Renderer {
       isOwnSide(st.side[e.shooter], this.viewer),
       this.versus && this.isVisible(this.curX[e.shooter], this.curY[e.shooter])
     );
-    const muzzleShown = seen && shooterShown;
-
     const type = this.sim.unitTypes[st.typeIdx[e.shooter]];
     // E6 chunk B (spec 5.3): a swarm's shot is a DIVE, not a missile and not a muzzle. The diving
     // member is a body in the swarm batch, so there is no `missileFx` round, no smoke trail and no
     // `fire_heat` flash at the cloud's centre; the landing is thrown by `updateSwarms`. With no batch
-    // (the GLB failed) the type falls through to the ordinary heat path below.
-    if (type.swarm !== null && this.swarmBatches.has(type.id)) {
-      this.onSwarmDive(e, atStruct, tx, ty, seen);
-      return;
-    }
+    // (the GLB failed) the type falls through to the ordinary heat path below. Only the muzzle and
+    // the round are skipped (`muzzleShown` false turns off the tracer, the round, the flash, the
+    // light and the particles together): the shot is still a shot, so the shooter's latch, the
+    // fire-link pulse and the target's hit flash below run for it as for any other.
+    const swarmDive = type.swarm !== null && this.swarmBatches.has(type.id);
+    const muzzleShown = seen && shooterShown && !swarmDive;
     // Which weapon fired decides the signature, not whether the shooter is
     // soft (renderer.ts:785-791). Resolved here, at the top, rather than
     // where the muzzle FX below need it: GH-145 made the tracer conditional
@@ -5497,7 +5547,8 @@ export class ThreeRenderer implements Renderer {
     // Fire link: is this the SELECTED unit's own shot? Read off the
     // renderer's own selection, never fed back (invariant 4).
     const linked = isOwnSide(st.side[e.shooter], this.viewer) && this.selection.includes(e.shooter);
-    let flightS: number | null = null;
+    // A dive's flight is the sim's own for class `heat`, so the target's hit flash lands with the diver.
+    let flightS: number | null = swarmDive ? this.onSwarmDive(e, atStruct, tx, ty, seen) : null;
     // A round that flies from the muzzle needs the muzzle shown; an arc is
     // gated by `hiddenUntil` further down instead and keeps `seen` alone.
     const roundShown = shellKind !== null && shellKind !== 'missile' && isIndirectShell(shellKind) ? seen : muzzleShown;
@@ -6459,15 +6510,33 @@ export class ThreeRenderer implements Renderer {
    * even for an entity fog hides, so the caller gates on its own visibility.
    */
   swarmMemberWorldPosition(id: number, slot: number, out: THREE.Vector3): boolean {
-    for (const batch of this.swarmBatches.values()) {
-      if (batch.memberWorldPosition(id, slot, out)) return true;
+    const batches = this.swarmBatchList;
+    for (let k = 0; k < batches.length; k++) {
+      if (batches[k].memberWorldPosition(id, slot, out)) return true;
     }
     return false;
   }
 
   /** E6 chunk C: `Renderer.beamDrawn` - what the beam batch was handed last frame for this slot. */
   beamDrawn(id: number, slot = 0): BeamReadback | null {
-    return this.beamSlots.get(id * 2 + slot)?.readback ?? null;
+    const bs = this.beamSlots.get(id * 2 + slot);
+    if (!bs || !bs.rbLive) return null;
+    // A copy: the slot's own record is rewritten in place every frame, a caller keeps what it read.
+    const rb = bs.rb;
+    return {
+      origin: [rb.origin[0], rb.origin[1], rb.origin[2]],
+      end: [rb.end[0], rb.end[1], rb.end[2]],
+      ribbon: rb.ribbon,
+      corePx: rb.corePx,
+      coreAlpha: rb.coreAlpha,
+      sheathPx: rb.sheathPx,
+      sheathAlpha: rb.sheathAlpha,
+      targetGlowTiles: rb.targetGlowTiles,
+      lensGlowAlpha: rb.lensGlowAlpha,
+      shimmerAmp: rb.shimmerAmp,
+      focus: rb.focus,
+      pulse: rb.pulse,
+    };
   }
 
   /** E6 chunk C: `Renderer.beamShimmerSites` - the sites the fog pass was handed last frame. */
@@ -6987,11 +7056,18 @@ export class ThreeRenderer implements Renderer {
   private syncSwarmBatch(unitTypeId: string, template: VehicleMeshTemplate): void {
     const swarmType = this.sim.unitTypes.find((t) => t.id === unitTypeId);
     if (!swarmType || swarmType.swarm === null) return;
-    this.swarmBatches.get(unitTypeId)?.dispose();
-    this.swarmBatches.delete(unitTypeId);
+    // Build the new batch FIRST: `extractSwarmParts` throws on a GLB without the swarm extras, and a
+    // reload that fails must leave the type with the batch it had, not with none.
     const batch = new SwarmBatch(this.scene, extractSwarmParts(template, unitTypeId));
     batch.setWrecksDebugHidden(this.swarmWrecksDebugHidden);
+    const old = this.swarmBatches.get(unitTypeId);
     this.swarmBatches.set(unitTypeId, batch);
+    this.refreshSwarmBatchList();
+    old?.dispose();
+  }
+
+  private refreshSwarmBatchList(): void {
+    this.swarmBatchList = Array.from(this.swarmBatches.values());
   }
 
   /**
@@ -7176,23 +7252,27 @@ export class ThreeRenderer implements Renderer {
    * a missile's flight does.
    */
   private updateSwarms(alpha: number, dtMs: number): void {
-    if (this.swarmBatches.size === 0) return;
+    // A catch-up latched since the last frame is spent by THIS frame, batches or not.
+    const caughtUp = this.swarmCaughtUp;
+    this.swarmCaughtUp = false;
+    const batches = this.swarmBatchList;
+    if (batches.length === 0) return;
     const st = this.sim.state;
     const n = this.snapshottedCount;
-    const simSec = presentationSimMs(this.sim.tickCount, alpha) / 1000;
     const elevation = this.retained.elevation;
-    const env = {
-      simTick: this.sim.tickCount,
-      simSec,
-      groundAt: (x: number, z: number): number => groundWorldY(elevation, this.sim.width, this.sim.height, x, z),
-      drawnAt: (side: number, x: number, z: number): boolean => unitIsDrawn(-1, side, this.viewer, x, z, this.fogVisibleAt),
-      exploredAt: (x: number, z: number): boolean => this.isExplored(x, z),
-      bodiesHidden: this.unitsDebugHidden || this.swarmDebugHidden,
-      quiet: this.quiet,
-    };
-    for (const batch of this.swarmBatches.values()) batch.beginFrame(env);
+    // One env and one input per renderer, rewritten here: a swarm frame allocates nothing per entity.
+    const env = this.swarmEnv;
+    env.simTick = this.sim.tickCount;
+    env.simSec = presentationSimMs(this.sim.tickCount, alpha) / 1000;
+    env.bodiesHidden = this.unitsDebugHidden || this.swarmDebugHidden;
+    // `setQuiet` is only ever on around `onEvents` (`main.ts`), so `this.quiet` is false by the time a
+    // frame paints; the latch is what carries a catch-up tick into this frame. Without it the first
+    // frame after a catch-up tumbled every member it had lost, with a burst for each.
+    env.quiet = this.quiet || caughtUp;
+    for (let b = 0; b < batches.length; b++) batches[b].beginFrame(env);
     const events = this.swarmEvents;
     events.length = 0;
+    const input = this.swarmInput;
     for (let i = 0; i < n; i++) {
       const type = this.sim.unitTypes[st.typeIdx[i]];
       const swarm = type.swarm;
@@ -7208,30 +7288,28 @@ export class ThreeRenderer implements Renderer {
       }
       const wx = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
       const wy = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
-      batch.updateEntity(
-        {
-          id: i,
-          side: st.side[i],
-          count: swarm.count,
-          spreadTiles: fx.toNumber(swarm.spread),
-          live: alive ? this.sim.swarmMembers(i) : 0,
-          x: wx,
-          z: wy,
-          groundY: groundWorldY(elevation, this.sim.width, this.sim.height, wx, wy),
-          liftY: this.airLiftY(i, alpha),
-          yaw: meshYawFromFacing(fx.toNumber(st.facing[i])),
-          drawn: unitIsDrawn(st.tunnelIn[i], st.side[i], this.viewer, wx, wy, this.fogVisibleAt),
-        },
-        this.swarmDiveRequests.get(i),
-        events
-      );
+      input.id = i;
+      input.side = st.side[i];
+      input.count = swarm.count;
+      input.spreadTiles = fx.toNumber(swarm.spread);
+      input.live = alive ? this.sim.swarmMembers(i) : 0;
+      input.x = wx;
+      input.z = wy;
+      input.groundY = groundWorldY(elevation, this.sim.width, this.sim.height, wx, wy);
+      input.liftY = this.airLiftY(i, alpha);
+      input.yaw = meshYawFromFacing(fx.toNumber(st.facing[i]));
+      input.drawn = unitIsDrawn(st.tunnelIn[i], st.side[i], this.viewer, wx, wy, this.fogVisibleAt);
+      batch.updateEntity(input, this.swarmDiveRequests.get(i), events);
       // Everything of the dead entity that outlives it is in the batch's exits.
       if (!alive) batch.forget(i);
     }
     this.swarmDiveRequests.clear();
     const dt = this.frameDtSeconds(dtMs);
-    for (const batch of this.swarmBatches.values()) {
-      for (const l of batch.stepExits(dt)) {
+    for (let b = 0; b < batches.length; b++) {
+      const batch = batches[b];
+      const landings = batch.stepExits(dt);
+      for (let k = 0; k < landings.length; k++) {
+        const l = landings[k];
         if (l.showImpact) {
           this.spawnMissileImpactFx({
             x: l.x,
@@ -7245,8 +7323,10 @@ export class ThreeRenderer implements Renderer {
       }
       batch.finish();
     }
-    // A member shot down throws its own spark-and-puff where it was hit.
-    for (const e of events) {
+    // A member shot down throws its own spark-and-puff where it was hit. The batch pushes the event
+    // only for a swarm that is drawn, so a fogged hostile swarm in a versus room throws nothing.
+    for (let k = 0; k < events.length; k++) {
+      const e = events[k];
       if (e.kind === 'down') this.spawnNamedBurst('swarm_member_down', e.x, e.z, 0);
     }
   }
@@ -7271,7 +7351,7 @@ export class ThreeRenderer implements Renderer {
     const n = this.snapshottedCount;
     const nowMs = presentationSimMs(this.sim.tickCount, alpha);
     this.beamBatch.beginFrame(this.camera.zoom);
-    this.beamShimmerWorld.length = 0;
+    this.beamShimmerWorldCount = 0;
     for (let i = 0; i < n; i++) {
       const type = this.sim.unitTypes[st.typeIdx[i]];
       for (let slot = 0; slot < type.weapons.length && slot < 2; slot++) {
@@ -7292,23 +7372,44 @@ export class ThreeRenderer implements Renderer {
     const key = i * 2 + slot;
     const bs = this.beamSlots.get(key) ?? this.newBeamSlot(key);
     const s = this.sim.beamState(i, slot);
+    // An idle slot (no target, not locked out, both envelopes spent, nothing pending) draws nothing and
+    // `stepBeamLook` would only restamp its clock: do exactly that and stop. The clock must still be
+    // kept current, or the next beam's fade-in would read the whole idle gap as elapsed time and pop.
+    if (
+      bs.look.seen && s.target < 0 && !s.locked && bs.look.env === 0 && bs.look.lens === 0 &&
+      bs.pendingStruckMs === null && !bs.pendingLockout
+    ) {
+      bs.look.lastMs = nowMs;
+      bs.drawn = false;
+      bs.rbLive = false;
+      return;
+    }
+    const lockout = bs.pendingLockout;
     const look = stepBeamLook(
       bs.look,
       {
         target: s.target, dwell: s.dwell, locked: s.locked, dwellTicks, alpha, nowMs,
-        struckAtMs: bs.pendingStruckMs, lockout: bs.pendingLockout,
+        struckAtMs: bs.pendingStruckMs, lockout,
       },
       bs.out
     );
     bs.pendingStruckMs = null;
     bs.pendingLockout = false;
     bs.drawn = false;
-    bs.readback = null;
-    if (!look.ribbon && !look.lens) return;
+    bs.rbLive = false;
+    const dark = !look.ribbon && !look.lens;
+    if (dark && !lockout) return;
 
     const wx = this.prevX[i] + (this.curX[i] - this.prevX[i]) * alpha;
     const wy = this.prevY[i] + (this.curY[i] - this.prevY[i]) * alpha;
-    if (!unitIsDrawn(st.tunnelIn[i], st.side[i], this.viewer, wx, wy, this.fogVisibleAt)) return;
+    const shown = unitIsDrawn(st.tunnelIn[i], st.side[i], this.viewer, wx, wy, this.fogVisibleAt);
+    if (lockout && shown) {
+      // Out of the power module at the carrier's BACK, drifting backwards and rising for 1.2 s
+      // (`beam_vent.json`): from where the carrier is drawn this frame, aimed away from its facing.
+      const facing = fx.toNumber(st.facing[i]) * Math.PI * 2;
+      this.spawnNamedBurst('beam_vent', wx - Math.cos(facing) * BEAM_VENT_BACK_TILES, wy - Math.sin(facing) * BEAM_VENT_BACK_TILES, facing + Math.PI);
+    }
+    if (dark || !shown) return;
 
     const origin = this.beamTmp;
     this.beamOriginInto(i, wx, wy, origin);
@@ -7341,32 +7442,47 @@ export class ThreeRenderer implements Renderer {
     if (!ribbon) look.ribbon = false;
     if (!ribbon && !look.lens) return;
 
-    const added = this.beamBatch.add({
-      ox: origin.x, oy: origin.y, oz: origin.z, ex: bs.endX, ey: bs.endY, ez: bs.endZ, look,
-    });
-    if (!added) return;
+    const draw = this.beamDrawScratch;
+    draw.ox = origin.x;
+    draw.oy = origin.y;
+    draw.oz = origin.z;
+    draw.ex = bs.endX;
+    draw.ey = bs.endY;
+    draw.ez = bs.endZ;
+    draw.look = look;
+    if (!this.beamBatch.add(draw)) return;
     bs.drawn = true;
-    bs.readback = {
-      origin: [origin.x, origin.y, origin.z],
-      end: [bs.endX, bs.endY, bs.endZ],
-      ribbon,
-      corePx: look.corePx,
-      coreAlpha: look.coreAlpha,
-      sheathPx: look.sheathPx,
-      sheathAlpha: look.sheathAlpha,
-      targetGlowTiles: look.targetGlowTiles,
-      lensGlowAlpha: look.lensGlowAlpha,
-      shimmerAmp: ribbon ? look.shimmerAmp : 0,
-      focus: look.focus,
-      pulse: look.pulse,
-    };
-    if (ribbon && look.shimmerAmp > 0) this.beamShimmerWorld.push({ x: bs.endX, y: bs.endY, z: bs.endZ, amp: look.shimmerAmp });
+    const rb = bs.rb;
+    rb.origin[0] = origin.x;
+    rb.origin[1] = origin.y;
+    rb.origin[2] = origin.z;
+    rb.end[0] = bs.endX;
+    rb.end[1] = bs.endY;
+    rb.end[2] = bs.endZ;
+    rb.ribbon = ribbon;
+    rb.corePx = look.corePx;
+    rb.coreAlpha = look.coreAlpha;
+    rb.sheathPx = look.sheathPx;
+    rb.sheathAlpha = look.sheathAlpha;
+    rb.targetGlowTiles = look.targetGlowTiles;
+    rb.lensGlowAlpha = look.lensGlowAlpha;
+    rb.shimmerAmp = ribbon ? look.shimmerAmp : 0;
+    rb.focus = look.focus;
+    rb.pulse = look.pulse;
+    bs.rbLive = true;
+    if (ribbon && look.shimmerAmp > 0 && this.beamShimmerWorldCount < this.beamShimmerWorld.length) {
+      const site = this.beamShimmerWorld[this.beamShimmerWorldCount++];
+      site.x = bs.endX;
+      site.y = bs.endY;
+      site.z = bs.endZ;
+      site.amp = look.shimmerAmp;
+    }
   }
 
   private newBeamSlot(key: number): BeamSlotState {
     const bs: BeamSlotState = {
       look: newBeamLookState(), out: newBeamLook(), pendingStruckMs: null, pendingLockout: false,
-      haveEnd: false, endX: 0, endY: 0, endZ: 0, drawn: false, readback: null,
+      haveEnd: false, endX: 0, endY: 0, endZ: 0, drawn: false, rb: newBeamReadbackScratch(), rbLive: false,
     };
     this.beamSlots.set(key, bs);
     return bs;
@@ -7401,9 +7517,10 @@ export class ThreeRenderer implements Renderer {
 
   /**
    * A `beam` event (E6 chunk C, spec 6.2). Files it for the next `updateBeams` (the pulse is
-   * stamped with the EVENT's tick, so it is on the sim clock) and throws its emitter: `beam_strike`
-   * where the beam was last seen on its target, `beam_vent` from the carrier on a lockout. A beam is
-   * one-shot presentation and a catch-up (`quiet`) drops it whole, as it drops every burst.
+   * stamped with the EVENT's tick, so it is on the sim clock) and throws `beam_strike` where the beam
+   * was last seen on its target; the lockout's `beam_vent` is thrown by the next `updateBeamSlot`,
+   * from the carrier's drawn position. A beam is one-shot presentation and a catch-up (`quiet`) drops
+   * it whole, as it drops every burst.
    */
   private onBeam(e: Extract<SimEvent, { kind: 'beam' }>): void {
     if (this.quiet) return;
@@ -7418,14 +7535,9 @@ export class ThreeRenderer implements Renderer {
       if (bs.drawn && bs.haveEnd) this.spawnNamedBurst('beam_strike', bs.endX, bs.endZ, 0);
       return;
     }
+    // The vent leaves from the frame (`updateBeamSlot`), where the carrier's interpolated position and
+    // its fog gate are both in hand.
     bs.pendingLockout = true;
-    const cx = this.curX[e.shooter];
-    const cy = this.curY[e.shooter];
-    if (unitIsDrawn(st.tunnelIn[e.shooter], st.side[e.shooter], this.viewer, cx, cy, this.fogVisibleAt)) {
-      // Out of the power module at the carrier's back, rising for 1.2 s (`beam_vent.json`).
-      const facing = fx.toNumber(st.facing[e.shooter]) * Math.PI * 2;
-      this.spawnNamedBurst('beam_vent', cx - Math.cos(facing) * BEAM_VENT_BACK_TILES, cy - Math.sin(facing) * BEAM_VENT_BACK_TILES, facing);
-    }
   }
 
   /**
@@ -7437,10 +7549,17 @@ export class ThreeRenderer implements Renderer {
     const sites = this.beamShimmerScratch;
     sites.length = 0;
     const world = this.beamShimmerWorld;
-    for (let k = 0; k < world.length && k < SHIMMER_MAX_SITES; k++) {
+    const count = this.beamShimmerWorldCount;
+    const pool = this.beamShimmerPool;
+    const aspect = this.width / Math.max(this.height, 1);
+    // A site off the frame distorts nothing the player can see, so it must not spend one of the
+    // eight slots a visible beam could have used: the cap counts what is ON screen.
+    for (let k = 0; k < count && sites.length < SHIMMER_MAX_SITES; k++) {
       const w = world[k];
       const ndc = this.beamTmp.set(w.x, w.y, w.z).project(camera);
-      sites.push(shimmerSite(ndc.x, ndc.y, w.amp, this.camera.zoom, this.height));
+      const site = pool[sites.length];
+      shimmerSiteInto(site, ndc.x, ndc.y, w.amp, this.camera.zoom, this.height);
+      if (shimmerSiteOnScreen(ndc.x, ndc.y, site[2], aspect)) sites.push(site);
     }
     if (this.fogPass === null) {
       this.beamShimmerFed = 0;
@@ -8384,7 +8503,7 @@ export class ThreeRenderer implements Renderer {
    * the exit the live-count drop produces this frame. Distance is the SIM's own (positions, not the
    * interpolated ones), which is what the round's flight is counted from.
    */
-  private onSwarmDive(e: Extract<SimEvent, { kind: 'fire' }>, atStruct: boolean, tx: number, ty: number, seen: boolean): void {
+  private onSwarmDive(e: Extract<SimEvent, { kind: 'fire' }>, atStruct: boolean, tx: number, ty: number, seen: boolean): number {
     const st = this.sim.state;
     const sx = fx.toNumber(st.posX[e.shooter]);
     const sy = fx.toNumber(st.posY[e.shooter]);
@@ -8403,6 +8522,7 @@ export class ThreeRenderer implements Renderer {
     const pending = this.swarmDiveRequests.get(e.shooter);
     if (pending) pending.push(req);
     else this.swarmDiveRequests.set(e.shooter, [req]);
+    return missileDurationS(WEAPON_CLASS.heat, req.simDistTiles);
   }
 
   private spawnBackblast(shooter: number, facingRad: number, at?: { x: number; y: number; magnitude: number }): void {
