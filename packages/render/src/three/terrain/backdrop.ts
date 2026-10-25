@@ -357,7 +357,6 @@ export function buildBackdrop(spec: BackdropSpec, rim: RimHeight, w: number, h: 
       const n3 = valueNoise2(wx, wz, 1 / 1.1, spec.seed + 26);
       let pas = mix3(pasture0, pasture1, smooth(-0.4, 0.4, n1));
       pas = mix3(pas, grassDeep, smooth(0.25, 0.7, n3) * 0.28);
-      if (tileHash(Math.floor(wx * 5), Math.floor(wz * 5) + 311) < 0.07) pas = mix3(pas, grassDeep, 0.45);
       col = mix3(col, pas, floorish * 0.9);
       // The terraced foot: treads of grass, dry-stone risers, olive dots.
       const foot = smooth(0.4, 1.2, up) * (1 - smooth(5.5, 7, up)) * (1 - smooth(0.7, 1.1, slope));
