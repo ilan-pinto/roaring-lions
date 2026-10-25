@@ -571,6 +571,11 @@ export const SNAPSHOT_COVERAGE_EXEMPT: readonly { readonly name: string; readonl
       'drains its queue inside the same drive, so no boundary of any world holds one (scanned at every tick of every runtime world). Covered by a world whose frame queues a `build` command that the cut precedes (a room\'s frame applier)'
   ),
   ...rows('curStructure prStructure', 'a unit or a projectile aimed at a structure: no witness world has a building that is shot at. Covered by a world whose force attacks buildings'),
+  ...rows(
+    'sepLive',
+    'vehicle separation (GH-421): set once, by addUnitType, when a registered type declares a footprint, so it holds its build value at every cut. ' +
+      'Its RESTORE is proved by the poisoned fork like every state row. Covered by a world that registers its first footprinted type mid-match'
+  ),
 ];
 
 export interface CensusVerdict {
