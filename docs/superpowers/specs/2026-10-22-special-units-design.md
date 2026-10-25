@@ -26,6 +26,8 @@ has been updated to match.
 | Q1, Q2, Q5, Q6, Q7, Q8, Q10, Q11, Q12, Q13, Q15 | Take the recommendation in §6 as written. |
 | Phase 7 (22 Oct) | `spg_cluster` rof 2 -> 5, so it destroys half of open infantry and of a technical in 90 s (probe 11); the NLOS weapon id is `zaron_missile`, not a real platform name. |
 
+| 25 Oct | **Lead, 25 Oct: special units can be bought with Roar coins (single-player, test wallet).** This supersedes the 22 Oct "credit-only" store line for coins in single player. The store already sells them that way: a special unit is a bought-only unit (`unlock.price`, no earned field), and `stores-model.ts` prices every such unit at `coinPrice(price)` and sells it from the TEST wallet, so no store code changed. The rules are the same as for any coin buy: `singlePlayerView` counts a coin-bought unit, `networkView` does not (co-op and skirmish use what was earned), and the card says "Bought with TEST coins. Single-player only". To fund the wallet, the lead's coupon now also grants 100,000 coins (`docs/campaign/economy/coupons.md`); redeeming a code that put coins in the wallet opens the Stores' TEST mode without `?testcoins`. |
+
 **Nine units are built:** `mbt_lavi_camo`, `spg_long_range`, `at_nlos_team`, `veh_ambulance`,
 `air_medevac_heli`, `inf_medic_squad`, `inf_grenadier`, `ugv_recon_dog`, `spg_cluster`.
 

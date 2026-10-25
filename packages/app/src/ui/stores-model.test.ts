@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { units } from '@lions/data';
+import { emptyRoarTest, couponReceived, grantCouponCoins, networkView, singlePlayerView } from '../roar-test';
+import { emptyAccount } from '../brigade-account';
 import type { LedgerData, MissionResult, UnlockGate } from '@lions/sim';
 import {
   COIN_PACKS,
   buyEnabled,
+  buyWithTestCoins,
   CAMPAIGN_CREDITS,
   coinPrice,
   meanPay,
@@ -210,5 +213,54 @@ describe('buyEnabled: no Buy without ?testcoins, whatever the wallet holds', () 
 
   it('a pack is never enabled by a TEST wallet', () => {
     for (const pack of COIN_PACKS) expect(buyEnabled(pack, { test: true, coins: 1_000_000 })).toBe(false);
+  });
+});
+
+// The lead (25 Oct): the special (credit-priced, bought-only) units can be bought with
+// Roar coins. The store already prices them in coins (`coinPrice` of `unlock.price`), so
+// this walks the real flow: a coupon fills the TEST wallet, the wallet buys.
+describe('special units are bought with coins (single-player)', () => {
+  const SPECIAL = ['mbt_lavi_camo', 'spg_long_range', 'at_nlos_team', 'veh_ambulance', 'air_medevac_heli', 'inf_medic_squad', 'inf_grenadier', 'ugv_recon_dog', 'spg_cluster'];
+  const funded = () => grantCouponCoins(emptyRoarTest(), 100000, ['lead_roar_coins_100k'], 1);
+
+  it('every special unit is a bought-only card with a coin price, and buyable from a coupon-funded wallet', () => {
+    const items = storeItems(input({ credits: 0 })).units;
+    const wallet = { test: true, coins: funded().coins };
+    for (const id of SPECIAL) {
+      const item = items.find((u) => u.id === id);
+      expect(item?.specialForces, id).toBe(true);
+      expect(item?.coins, id).toBe(coinPrice(item?.credits ?? 0));
+      expect(buyEnabled(item as NonNullable<typeof item>, wallet), id).toBe(true);
+    }
+  });
+
+  it('buying spends coins only, opens the unit for single-player, and not for co-op or skirmish', () => {
+    const before = funded();
+    const { account, ok } = buyWithTestCoins(input({ credits: 0 }), before, { kind: 'unit', unitId: 'spg_long_range' }, 9);
+    expect(ok).toBe(true);
+    expect(account.coins).toBe(100000 - coinPrice(6500));
+    expect(account.coins).toBe(100000 - 650);
+    expect(account.receipts.at(-1)).toMatchObject({ kind: 'unit', unitId: 'spg_long_range', coins: 650, credits: 6500 });
+    const brigade = emptyAccount();
+    expect(singlePlayerView(brigade, account).boughtUnits.has('spg_long_range')).toBe(true);
+    expect(networkView(brigade, account).boughtUnits.has('spg_long_range')).toBe(false);
+    // ...and the card now reads "bought with coins", with nothing left to buy.
+    const after = unitItem(
+      kdfUnits(new Set(['spg_long_range'])).find((u) => u.id === 'spg_long_range') as StoreUnit,
+      input({ coin: { earnedUnits: new Set(), coinUnits: new Set(['spg_long_range']), earnedTiers: {}, coinTiers: {} } })
+    );
+    expect(after.state).toBe('coins');
+  });
+
+  it('an unfunded wallet buys nothing, and 100,000 coins is enough for all nine', () => {
+    expect(buyWithTestCoins(input({ credits: 0 }), emptyRoarTest(), { kind: 'unit', unitId: 'spg_long_range' }, 1).ok).toBe(false);
+    let wallet = funded();
+    for (const id of SPECIAL) {
+      const r = buyWithTestCoins(input({ credits: 0 }), wallet, { kind: 'unit', unitId: id }, 1);
+      expect(r.ok, id).toBe(true);
+      wallet = r.account;
+    }
+    expect(wallet.coins).toBeGreaterThan(0);
+    expect(couponReceived(wallet)).toBe(true);
   });
 });

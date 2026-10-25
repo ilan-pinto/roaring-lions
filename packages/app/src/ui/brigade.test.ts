@@ -2156,7 +2156,7 @@ describe('the garage rows — special forces (E5 Task 7)', () => {
 });
 
 describe('showBrigade — redeem a code', () => {
-  const redeemer = (answer: 'ok' | 'unknown' | 'used' | 'failed') => {
+  const redeemer = (answer: 'ok' | 'unknown' | 'used' | 'failed', grant: { credits?: number; coins?: number } = { credits: 10000 }) => {
     const asked: string[] = [];
     let credits = 100;
     const host = mount({
@@ -2167,7 +2167,7 @@ describe('showBrigade — redeem a code', () => {
       onRedeem: (code) => {
         asked.push(code);
         if (answer === 'ok') credits += 10000;
-        return { state: { units: [], credits, owned: {} }, result: answer, credits: 10000 };
+        return { state: { units: [], credits, owned: {} }, result: answer, ...grant };
       },
     });
     const input = host.querySelector<HTMLInputElement>('.rl-garage__redeem-input')!;
@@ -2189,6 +2189,17 @@ describe('showBrigade — redeem a code', () => {
     expect(said.getAttribute('aria-live')).toBe('polite');
     expect(said.textContent).toBe('Code accepted: 10000 credits added');
     expect(input.value).toBe('');
+  });
+
+  // Falsified by hand: dropping the `coins` branch of `redeemedLine` turns both red.
+  it.each([
+    [{ coins: 100000 }, 'Code accepted: 100000 Roar coins added to the test wallet'],
+    [{ credits: 10000, coins: 100000 }, 'Code accepted: 10000 credits and 100000 Roar coins added'],
+    [{ credits: 1 }, 'Code accepted: 1 credit added'],
+  ])('names every grant the code made: %o', (grant, words) => {
+    const { host, submit } = redeemer('ok', grant);
+    submit('Some-Code');
+    expect(text(host, '.rl-garage__redeem-said')).toBe(words);
   });
 
   it.each([

@@ -314,6 +314,12 @@ const hashOf = (s: string): string => createHash('sha256').update(s).digest('hex
 const FIXTURE: Coupon[] = [
   { id: 'fixture_a', sha256: hashOf('Fixture-Code-A'), credits: 500 },
   { id: 'fixture_b', sha256: hashOf('Fixture-Code-B'), credits: 70 },
+  // Test-only codes with their own hashes: one entry that grants coins alone, and one
+  // code with three entries under it (credits, coins, and a later credits top-up).
+  { id: 'fixture_c', sha256: hashOf('Fixture-Code-C'), coins: 900 },
+  { id: 'fixture_d_credits', sha256: hashOf('Fixture-Code-D'), credits: 40 },
+  { id: 'fixture_d_coins', sha256: hashOf('Fixture-Code-D'), coins: 7000 },
+  { id: 'fixture_d_more', sha256: hashOf('Fixture-Code-D'), credits: 2 },
 ];
 const redeem = (a = emptyAccount(), code = 'Fixture-Code-A') => redeemCoupon(a, code, FIXTURE, sha256Hex, 1000);
 
@@ -328,6 +334,7 @@ describe('coupons', () => {
     const r = redeem();
     if (!r.ok) throw new Error('refused');
     expect(r.credits).toBe(500);
+    expect(r.coins).toBe(0);
     expect(r.account.balance).toBe(500);
     expect(r.account.earned_total).toBe(0);
     expect(r.account.coupons).toEqual(['fixture_a']);
@@ -345,6 +352,48 @@ describe('coupons', () => {
     expect(again.account).toBe(first.account);
     const other = redeem(first.account, 'Fixture-Code-B');
     expect(other.ok && other.account.balance).toBe(570);
+  });
+
+  it('an entry with coins only moves no credit and writes no grant, but is recorded as redeemed', () => {
+    const r = redeem(emptyAccount(), 'Fixture-Code-C');
+    if (!r.ok) throw new Error('refused');
+    expect(r.credits).toBe(0);
+    expect(r.coins).toBe(900);
+    expect(r.ids).toEqual(['fixture_c']);
+    expect(r.account.balance).toBe(0);
+    expect(r.account.grants).toEqual([]);
+    expect(r.account.coupons).toEqual(['fixture_c']);
+    expect(redeem(r.account, 'Fixture-Code-C')).toMatchObject({ ok: false, reason: 'used' });
+  });
+
+  it('one code with several entries: a first-time redeemer gets all of them', () => {
+    const r = redeem(emptyAccount(), 'Fixture-Code-D');
+    if (!r.ok) throw new Error('refused');
+    expect(r.credits).toBe(42);
+    expect(r.coins).toBe(7000);
+    expect(r.ids).toEqual(['fixture_d_credits', 'fixture_d_coins', 'fixture_d_more']);
+    expect(r.account.balance).toBe(42);
+    expect(r.account.coupons).toEqual(['fixture_d_credits', 'fixture_d_coins', 'fixture_d_more']);
+    expect(r.account.grants.map((g) => [g.source === 'granted' && g.couponId, g.amount])).toEqual([
+      ['fixture_d_credits', 40],
+      ['fixture_d_more', 2],
+    ]);
+    expect(migrateAccount(JSON.parse(JSON.stringify(r.account)))).toEqual(r.account);
+  });
+
+  it('one code with several entries: an earlier redeemer gets only what is new, then it is used', () => {
+    // Redeemed the code back when only the credits entry existed.
+    const before = { ...emptyAccount(), balance: 40, coupons: ['fixture_d_credits'] as string[] };
+    const r = redeem(before, 'Fixture-Code-D');
+    if (!r.ok) throw new Error('refused');
+    expect(r.ids).toEqual(['fixture_d_coins', 'fixture_d_more']);
+    expect(r.credits).toBe(2); // the credits entry is NOT paid again
+    expect(r.coins).toBe(7000);
+    expect(r.account.balance).toBe(42);
+    expect(r.account.coupons).toEqual(['fixture_d_credits', 'fixture_d_coins', 'fixture_d_more']);
+    const again = redeem(r.account, 'Fixture-Code-D');
+    expect(again).toMatchObject({ ok: false, reason: 'used' });
+    expect(again.account).toBe(r.account);
   });
 
   it('refuses an unknown or empty code and returns the account by identity', () => {
@@ -385,16 +434,53 @@ describe('coupons', () => {
     expect(file.coupons.length).toBeGreaterThan(0);
     for (const c of file.coupons) {
       expect(c.sha256).toMatch(/^[0-9a-f]{64}$/);
-      expect(c.credits).toBeGreaterThan(0);
+      expect((c.credits ?? 0) + (c.coins ?? 0)).toBeGreaterThan(0);
     }
     expect(new Set(file.coupons.map((c) => c.id)).size).toBe(file.coupons.length);
   });
 
+  // The lead's code carries two entries under one hash. `hash` is injected, so this reads the
+  // shipped hash out of the table itself and never needs the code (which is not in the repo).
+  describe('the shipped table: one code, credits and coins', () => {
+    const shippedHash = (): string => {
+      const first = JSON.parse(readFileSync(resolve(__dirname, '../../../data/coupons.json'), 'utf8')) as { coupons: Coupon[] };
+      const h = first.coupons.find((c) => c.id === 'lead_special_units_10k')?.sha256;
+      if (h === undefined) throw new Error('lead_special_units_10k missing');
+      return h;
+    };
+    const table = JSON.parse(readFileSync(resolve(__dirname, '../../../data/coupons.json'), 'utf8')).coupons as Coupon[];
+    const asLead = (a: ReturnType<typeof emptyAccount>) => redeemCoupon(a, 'any text', table, () => shippedHash(), 5);
+
+    it('holds a credits entry and a coins entry under the same hash', () => {
+      const credits = table.find((c) => c.id === 'lead_special_units_10k');
+      const coins = table.find((c) => c.id === 'lead_roar_coins_100k');
+      expect(credits).toMatchObject({ credits: 10000 });
+      expect(coins).toMatchObject({ coins: 100000 });
+      expect(coins?.credits).toBeUndefined();
+      expect(coins?.sha256).toBe(credits?.sha256);
+    });
+
+    it('a first-time redeemer gets both', () => {
+      const r = asLead(emptyAccount());
+      if (!r.ok) throw new Error('refused');
+      expect([r.credits, r.coins]).toEqual([10000, 100000]);
+    });
+
+    it('someone who redeemed before (the 10,000 only) gets the coins only, and then it is used', () => {
+      const prior = { ...emptyAccount(), balance: 10000, coupons: ['lead_special_units_10k'] as string[] };
+      const r = asLead(prior);
+      if (!r.ok) throw new Error('refused');
+      expect([r.credits, r.coins]).toEqual([0, 100000]);
+      expect(r.account.balance).toBe(10000);
+      expect(asLead(r.account)).toMatchObject({ ok: false, reason: 'used' });
+    });
+  });
+
   // The shipped code is never written in the repo. With COUPON_TEST_CODE set in the
   // environment the real table is checked against it; without, this is skipped.
-  it.skipIf(!process.env.COUPON_TEST_CODE)('the shipped table grants 10,000 for the real code', async () => {
+  it.skipIf(!process.env.COUPON_TEST_CODE)('the shipped table grants 10,000 credits and 100,000 coins for the real code', async () => {
     const { coupons } = await import('@lions/data');
     const r = redeemCoupon(emptyAccount(), process.env.COUPON_TEST_CODE ?? '', coupons, sha256Hex, 1);
-    expect(r.ok && r.credits).toBe(10000);
+    expect(r.ok && [r.credits, r.coins]).toEqual([10000, 100000]);
   });
 });
