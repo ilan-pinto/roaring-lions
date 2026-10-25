@@ -118,7 +118,8 @@ describe('KDF vs Sarim (2026-10-14)', () => {
     // tel_marum re-pinned 24 Oct 2026 when its seat 0 moved from (24,46) to (27,45) (GH-774). The spawn moved and nothing else. Was 280818962.
     // beit re-pinned 24 Oct 2026 for its seat 1 at (40,23) (GH-561): the spawn moved and nothing else. Was 2485993817.
     // Re-pinned 25 Oct 2026 for GH-421 Stage 2 (vehicle avoidance): the columns sepWait and sepLast join the hash and nothing else moved (with their hashArray lines removed the old values read back). Was 1732930723 (beit) and 792859212 (tel).
-    const want: Record<string, number> = { beit_sahwan_outskirts: 695551139, tel_marum: 52130380 };
+    // tel_marum re-pinned for its seat 1 at (29,17) (GH-421 Stage 2 rebalance): the spawn moved. Was 52130380.
+    const want: Record<string, number> = { beit_sahwan_outskirts: 695551139, tel_marum: 4263437644 };
     for (const mapId of ['beit_sahwan_outskirts', 'tel_marum'] as const) {
       for (const factions of [undefined, ['kdf', 'kdf'] as const]) {
         const { sim, typeOf, map } = buildWorld(mapId);

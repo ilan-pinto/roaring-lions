@@ -37,7 +37,8 @@ describe('buildMatchWorld', () => {
     // tel_marum re-pinned 24 Oct 2026 for its seat 0 at (27,45) (GH-774): the spawn moved. Was 280818962.
     // beit re-pinned 24 Oct 2026 for its seat 1 at (40,23) (GH-561): the spawn moved. Was 3227696674.
     // Re-pinned 25 Oct 2026 for GH-421 Stage 2 (vehicle avoidance): the columns sepWait and sepLast join the hash and nothing else moved (with their hashArray lines removed the old values read back). Was 4047666552 (beit) and 792859212 (tel).
-    for (const [map, pin] of [['beit_sahwan_outskirts', 823410040], ['tel_marum', 52130380]] as const) {
+    // tel_marum re-pinned for its seat 1 at (29,17) (GH-421 Stage 2 rebalance): the spawn moved. Was 52130380.
+    for (const [map, pin] of [['beit_sahwan_outskirts', 823410040], ['tel_marum', 4263437644]] as const) {
       const w = buildMatchWorld(config(map, ['kdf', 'kdf'], 20260727));
       for (let i = 0; i < 200; i++) w.sim.tick();
       expect(w.sim.hash()).toBe(pin);
@@ -266,7 +267,7 @@ describe("seatKitTiers: a seat's claim as the world reads it", () => {
 describe("a matched room, and a brigade room with equal claims, build today's bytes", () => {
   // LITERALS: the same two pins the first describe holds (seed 20260727, 200 ticks).
   // Re-pinned 25 Oct 2026 for GH-421 Stage 2 (vehicle avoidance): the columns sepWait and sepLast join the hash and nothing else moved (with their hashArray lines removed the old values read back). Was 4047666552 / 792859212.
-  const PINS = [['beit_sahwan_outskirts', 823410040], ['tel_marum', 52130380]] as const;
+  const PINS = [['beit_sahwan_outskirts', 823410040], ['tel_marum', 4263437644]] as const;
   const SEED = 20260727;
 
   it("kit 'matched' with empty tiers: the pins, and the roster registered once", () => {
