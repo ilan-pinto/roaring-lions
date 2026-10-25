@@ -1994,7 +1994,29 @@ run(
     at(104, () => sim.queueCommand({ kind: 'attackMove', ids: [...tank], ...M(36, 19) }));
     at(104, () => sim.queueCommand({ kind: 'move', ids: [...foot], ...M(21, 27) }));
     // Up the gully, one level below its banks, to the cache at its head.
-    at(130, () => sim.queueCommand({ kind: 'move', ids: demo, ...M(28, 23) }));
+    // GH-421 (vehicle separation): seed 8 sent the party at 130 s with a rifle picket coming down to
+    // (31,17) on the far bank (140 s) while the Lavi stood at (36,19), 5 tiles off and not killing it
+    // in 2,000 ticks; the party was shot at the cache at 174 s and `burn_the_ammo_point` failed at
+    // 300 s. The party goes at 130 s as before when the player's picture shows nothing standing on the
+    // bank (x 26-37, y 14-21), and otherwise waits, re-reading the picture each second, until 250 s,
+    // while the rifles on the approach are sent at the nearest contact every 10 s. (An attack-move onto
+    // the spot parked the Lavi ON the picket, inside its gun's minimum range, and a right-click
+    // `attack` did not move it at all.)
+    const pic = new Picture(sim);
+    let demoSent = false;
+    for (let sec = 130; sec <= 250; sec++)
+      at(sec, () => {
+        if (demoSent) return;
+        pic.update();
+        const left = pic.nearest(36, 19, [26, 14, 12, 8]);
+        if (left !== undefined && sec < 250) {
+          // An attack-move stops where it is sent, so someone has to be told to go and finish the picket.
+          if (sec % 10 === 0) sim.queueCommand({ kind: 'attackMove', ids: [...foot], ...M(left.x, left.y) });
+          return;
+        }
+        demoSent = true;
+        sim.queueCommand({ kind: 'move', ids: demo, ...M(28, 23) });
+      });
   },
   {},
   'victory',
