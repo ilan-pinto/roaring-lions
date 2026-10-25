@@ -37,7 +37,7 @@ import { stripTypeScriptTypes } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { WEAPON_CLASS } from '@lions/sim';
+import { FIRE_SUPPORT, FS_AIR_STRIKE, FS_MORTAR_BARRAGE, WEAPON_CLASS } from '@lions/sim';
 import { chromium } from 'playwright';
 import { DEFAULT_SETTINGS } from '../../../packages/app/src/settings';
 import { rewriteAudioImports } from './mix-modules';
@@ -499,7 +499,18 @@ async function main(): Promise<void> {
   const enginesJs = rewriteAudioImports(
     stripTypeScriptTypes(readFileSync(join(ROOT, 'packages/render/src/engines.ts'), 'utf8')),
   );
-  const simJs = `export const WEAPON_CLASS = ${JSON.stringify(WEAPON_CLASS)};\n`;
+  // GH-782: the support modules read the sim's fire-support table and profile indices.
+  const served = (file: string): string =>
+    rewriteAudioImports(stripTypeScriptTypes(readFileSync(join(ROOT, 'packages/render/src', file), 'utf8')));
+  const supportVoicesJs = served('support-voices.ts');
+  const supportAirJs = served('three/support-air.ts');
+  const projectJs = served('project.ts');
+  const frameStateJs = served('three/units/frame-state.ts');
+  const simJs =
+    `export const WEAPON_CLASS = ${JSON.stringify(WEAPON_CLASS)};\n` +
+    `export const FS_AIR_STRIKE = ${FS_AIR_STRIKE};\n` +
+    `export const FS_MORTAR_BARRAGE = ${FS_MORTAR_BARRAGE};\n` +
+    `export const FIRE_SUPPORT = ${JSON.stringify(FIRE_SUPPORT)};\n`;
   // OUTCOME_LINE_DELAY_S is read from the mixer itself, as the app does.
   const delay = /export const OUTCOME_LINE_DELAY_S = ([\d.]+);/.exec(audioJs);
   if (!delay?.[1]) throw new Error('audio.ts: OUTCOME_LINE_DELAY_S not found');
@@ -526,6 +537,10 @@ async function main(): Promise<void> {
         if (path === '/relation.js') return route.fulfill({ contentType: 'text/javascript', body: relationJs });
         if (path === '/engines.js') return route.fulfill({ contentType: 'text/javascript', body: enginesJs });
         if (path === '/sim.js') return route.fulfill({ contentType: 'text/javascript', body: simJs });
+        if (path === '/support-voices.js') return route.fulfill({ contentType: 'text/javascript', body: supportVoicesJs });
+        if (path === '/support-air.js') return route.fulfill({ contentType: 'text/javascript', body: supportAirJs });
+        if (path === '/project.js') return route.fulfill({ contentType: 'text/javascript', body: projectJs });
+        if (path === '/frame-state.js') return route.fulfill({ contentType: 'text/javascript', body: frameStateJs });
         if (path.startsWith('/audio/')) {
           const body = serveFile(path.slice('/audio/'.length));
           return body ? route.fulfill({ body }) : route.fulfill({ status: 404, body: '' });

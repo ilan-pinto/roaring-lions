@@ -100,8 +100,12 @@ def main():
     check("...while the shipped manifest still fails it (the gate is not vacuous)", failures, "cannot ship in a commercial build")
     want = sorted(f"voice/he/{p}.{ext}" for p in ("infantry/move_01a", "infantry/attack_01a", "infantry/death_01a",
                                                  "infantry/death_02a", "common/ack_01a") for ext in ("ogg", "m4a"))
+    SUPPORT_TAKES = {"barrage_impact": 3, "strike_impact": 3, "jet_flyby": 4, "incoming_whistle": 2}
+    want += sorted(f"{name}/{name}_0{i}.{ext}" for name, n in SUPPORT_TAKES.items() for i in range(1, n + 1) for ext in ("ogg", "m4a"))
+    want += ["support/rotor_loop.m4a", "support/rotor_loop.ogg"]
+    want = sorted(want)
     ok = sorted(excluded) == want
-    print(f"{'ok  ' if ok else 'FAIL'} it leaves out exactly the ten ElevenLabs files -> {sorted(excluded)}")
+    print(f"{'ok  ' if ok else 'FAIL'} it leaves out exactly the ten ElevenLabs voice files and the 26 ElevenLabs sound-effect files -> {sorted(excluded)}")
     if not ok:
         bad.append("excluded files")
     lines = stripped["voices"]["lines"]
@@ -125,10 +129,16 @@ def main():
     print(f"{'ok  ' if ok else 'FAIL'} the shipped manifest is not mutated")
     if not ok:
         bad.append("not mutated")
-    music_kept = stripped.get("music") == shipped_man.get("music") and stripped.get("sets") == shipped_man.get("sets")
-    print(f"{'ok  ' if music_kept else 'FAIL'} a confirmed section (sets, music) is left exactly as it was")
+    plain = lambda sets: {k: v for k, v in sets.items() if k not in SUPPORT_TAKES}
+    music_kept = stripped.get("music") == shipped_man.get("music") and plain(stripped["sets"]) == plain(shipped_man["sets"])
+    print(f"{'ok  ' if music_kept else 'FAIL'} a confirmed section (every other set, music) is left exactly as it was")
     if not music_kept:
         bad.append("confirmed kept")
+    ok = (set(stripped["sets"]) == set(shipped_man["sets"]) and all(stripped["sets"][k]["variants"] == [] for k in SUPPORT_TAKES)
+          and "rotor" not in stripped["support_air"] and "rotor" in shipped_man["support_air"])
+    print(f"{'ok  ' if ok else 'FAIL'} the support sets stay declared with no takes, and the rotor block is stripped")
+    if not ok:
+        bad.append("support stripped")
 
     code = mod.main(["--nope"])
     ok = code == 2

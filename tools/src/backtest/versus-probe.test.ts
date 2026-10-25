@@ -264,13 +264,18 @@ describe('the seat table (N3 Task 7: a room\'s, by default)', () => {
     // table and at 3760 under the single-player one, whose side 1 auto-breaches walls.
     // Re-read when wounds opened to versus (the lead, 23 Oct 2026: the wounded types join the
     // roster and the wound block is in the hash). Was 4580 / 5160; still two different games.
-    // Re-read for GH-769 (Wadi Tarfan seats (11,11)/(36,36), tunnel capacity 3): seed 246489 (index 31)
-    // played the same game under both tables (Sarim wins at 3620), so the index moved to 28 (222732),
-    // the first of 40 where they differ. Was seedOf(31) = 246489, KDF wins at 4160 / 3760.
-    const seed = seedOf(28);
-    expect(seed).toBe(222732);
-    expect(play('wadi_tarfan', ['sarim', 'kdf'], seed)).toEqual({ winner: 0, by: 'annihilation', ticks: 2480 });
-    expect(play('wadi_tarfan', ['sarim', 'kdf'], seed, { rules: 'default' })).toEqual({ winner: 0, by: 'annihilation', ticks: 3420 });
+    // Re-read when vehicle formation ranks went 3 deep (GH-421): on seed 246489 the two
+    // tables played the SAME game (4220 ticks both), so the pin moved to seedOf(7) = 56433.
+    // Re-read for GH-769 (Wadi Tarfan seats (11,11)/(36,36), tunnel capacity 3), on main
+    // alone: seed 246489 played the same game under both tables, so the pin moved to
+    // seedOf(28) = 222732. Re-read with both changes together (24 Oct): seedOf(0) = 1000 is
+    // the first of 40 where the tables differ -- Sarim (side 1) wins by annihilation at
+    // 2500 under the room's table and at 2480 under the single-player one. Was seedOf(7)
+    // on the GH-421 branch and seedOf(28) on main.
+    const seed = seedOf(0);
+    expect(seed).toBe(1000);
+    expect(play('wadi_tarfan', ['sarim', 'kdf'], seed)).toEqual({ winner: 1, by: 'annihilation', ticks: 2500 });
+    expect(play('wadi_tarfan', ['sarim', 'kdf'], seed, { rules: 'default' })).toEqual({ winner: 1, by: 'annihilation', ticks: 2480 });
   }, FULL_GAMES_TIMEOUT_MS);
 });
 

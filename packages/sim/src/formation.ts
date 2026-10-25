@@ -20,6 +20,10 @@
 export const MAX_LATERAL = 3;
 /** Between vehicles sideways and between vehicle ranks: a tank is about a tile long. */
 export const VEHICLE_SPACING = 2;
+/** Between vehicle RANKS: two hulls in consecutive ranks need up to 2.54 tiles
+ *  (a Namer, half-length 1.22, behind a camo Lavi whose hull reaches 1.10 + 0.22
+ *  behind its origin), so 3. Sideways stays VEHICLE_SPACING (2). */
+export const VEHICLE_RANK_DEPTH = 3;
 /** One team per tile, ranks one tile apart. */
 export const INFANTRY_SPACING = 1;
 /** The first infantry rank sits this many rows behind the last vehicle rank. */
@@ -174,7 +178,7 @@ export function assignFormation(input: FormationInput): Slot[] {
   let lastFrontRankAtClick = -1;
   let fi = 0;
   const frontLateral = lateralOffsets(VEHICLE_SPACING);
-  for (let r = 0; r <= SEARCH_RADIUS && fi < front.length; r += VEHICLE_SPACING) {
+  for (let r = 0; r <= SEARCH_RADIUS && fi < front.length; r += VEHICLE_RANK_DEPTH) {
     for (let k = 0; k < frontLateral.length && fi < front.length; k++) {
       const u = front[fi];
       const [ax, ay] = input.origins[u.domain];

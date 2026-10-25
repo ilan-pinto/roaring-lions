@@ -9,12 +9,15 @@
 // from the sim's seeded streams — audio must never influence determinism
 // (ART_PIPELINE §5).
 
-import { WEAPON_CLASS, type Sim, type SimEvent } from '@lions/sim';
+import { FS_AIR_STRIKE, FS_MORTAR_BARRAGE, WEAPON_CLASS, type Sim, type SimEvent } from '@lions/sim';
 import { buildRadioChain, scheduleSquelch, type RadioChain, type Squelch } from './radio';
 import { isOwnSide } from './relation';
 import { EngineVoices, type EngineSpec, type EngineState, type EngineVariantId } from './engines';
+import { SupportVoices, type SupportAirSpec, type SupportSetView, type SupportState } from './support-voices';
+import type { SupportAirPlan } from './three/support-air';
 
 export { RADIO_BAND_HZ, RADIO_FX } from './radio';
+export type { SupportAirSpec, SupportRotorSpec, SupportState } from './support-voices';
 
 /** Sound SOURCES started per `onEvents` call. Was `MAX_VOICES_PER_TICK`;
  *  renamed (R-19) because "voice" now means speech. */
@@ -33,12 +36,35 @@ export interface AudioVariant {
 }
 
 export interface AudioSet {
+  /** A sim event kind, or one of the three fire-support events (GH-782):
+   *  `strike` (the sim's own, a round landing), `flyby` (a support plan's jet
+   *  pass) and `incoming` (the whistle before a known round). The last two are
+   *  NOT sim events: they play from a `SupportAirPlan`. */
   event: string;
   weapon_classes?: string[];
+  /** GH-782: the fire-support profiles this set sounds for, by name (a key of
+   *  `AUDIO_SUPPORT_PROFILES`). Legal only on `strike`, `flyby` and `incoming`.
+   *  A `strike` set without it is the default for any profile no other claims. */
+  profiles?: string[];
+  /** GH-782: audible range in tiles, in (0, 48]; the one-shot default is
+   *  `AUDIBLE_TILES`. Positional sets only. */
+  radius_tiles?: number;
+  /** GH-782: a `flyby` set's required marker, in seconds into the clip, where
+   *  the pass peaks (the runtime starts the clip so this lands on the aim point). */
+  crest_s?: number;
   gain?: number;
   pitch_jitter?: number;
   variants?: AudioVariant[];
 }
+
+/** GH-782: the fire-support profile names a set's `profiles` may use, mapped to
+ *  the sim's `FIRE_SUPPORT` indices (the `profile` of a `strike` event).
+ *  `smoke_screen` is not here on purpose: the sim raises no `strike` for it.
+ *  `tools/test_validate_audio_support.py` pins these names to the validator's. */
+export const AUDIO_SUPPORT_PROFILES: Readonly<Record<string, number>> = {
+  air_strike: FS_AIR_STRIKE,
+  mortar_barrage: FS_MORTAR_BARRAGE,
+};
 
 export interface MusicTrack {
   file: string;
@@ -159,6 +185,8 @@ export interface AudioManifest {
   voices?: VoiceManifest;
   /** GH-35: the vehicle engine loops (`engines.ts`), on the sfx bus. */
   engines?: EngineSpec;
+  /** GH-782: the fire-support aircraft's own loops (`support-voices.ts`). */
+  support_air?: SupportAirSpec;
 }
 
 /** Who wins a voice slot (N5, and the audio plan's §5.1 ladder since AU-5).
@@ -287,7 +315,14 @@ export const VOICE_NO_CUT_S = 0.3;
  * speaks on the tick of its own kill; two kills in the same breath (2) hold it.
  */
 export const BLAST_WINDOW_S = 0.6;
-export const BLAST_WEIGHT = { destroyed: 1, penetrated: 0.25, ricochet: 0.1 } as const;
+export const BLAST_WEIGHT = {
+  destroyed: 1,
+  penetrated: 0.25,
+  ricochet: 0.1,
+  /** GH-782: a bomb is a kill's worth of noise; one barrage round is half of one. */
+  airStrike: 1,
+  barrageRound: 0.5,
+} as const;
 /** A death call due at or above this energy is held. */
 export const BLAST_HOLD_ENERGY = 2;
 /** A held call is let go once the energy is under this (below one kill). */
@@ -712,6 +747,10 @@ export function uiSetGain(manifestSetGain: number): number {
 interface LoadedSet {
   gain: number;
   jitter: number;
+  /** Audible range in tiles: the set's `radius_tiles`, else `AUDIBLE_TILES` (GH-782). */
+  radius: number;
+  /** A `flyby` set's `crest_s`; null for every other set. */
+  crest: number | null;
   buffers: AudioBuffer[];
 }
 
@@ -953,6 +992,11 @@ export class BattleAudio {
   /** event kind (+ weapon class) → set name. */
   private readonly byFireClass = new Map<number, string>();
   private readonly byEvent = new Map<string, string>();
+  /** GH-782: sim profile index -> set name, per support event; and the strike default. */
+  private readonly strikeByProfile = new Map<number, string>();
+  private strikeDefault: string | null = null;
+  private readonly flybyByProfile = new Map<number, string>();
+  private readonly incomingByProfile = new Map<number, string>();
   private manifest: AudioManifest | null = null;
   private baseUrl = '';
 
@@ -992,6 +1036,16 @@ export class BattleAudio {
     decode: (v) => (this.ctx ? this.fetchDecode(this.ctx, v) : Promise.resolve(null)),
     rand: () => this.rand(),
     place: (dx, dy, radius) => placement(dx, dy, radius),
+  });
+
+  /** GH-782: the fire-support aircraft and incoming rounds, on the sfx bus. */
+  private readonly support = new SupportVoices({
+    ctx: () => this.ctx,
+    bus: () => this.sfx,
+    rand: () => this.rand(),
+    place: (dx, dy, radius) => placement(dx, dy, radius),
+    decode: (v) => (this.ctx ? this.fetchDecode(this.ctx, v) : Promise.resolve(null)),
+    setFor: (event, profile) => this.supportSet(event === 'flyby' ? this.flybyByProfile.get(profile) : this.incomingByProfile.get(profile)),
   });
 
   /** Browsers require a user gesture before audio starts. */
@@ -1065,6 +1119,11 @@ export class BattleAudio {
     this.voiceFailed.clear();
     this.voiceBudgetSkipped.clear();
     this.engines.useSpec(manifest.engines);
+    this.support.useSpec(manifest.support_air);
+    this.strikeByProfile.clear();
+    this.strikeDefault = null;
+    this.flybyByProfile.clear();
+    this.incomingByProfile.clear();
     // Re-apply the user's own sliders now that the manifest's level is known,
     // so the two compose whichever order they arrive in (a manifest can load
     // after the settings screen has already set gains, or before).
@@ -1074,6 +1133,18 @@ export class BattleAudio {
         for (const cls of spec.weapon_classes ?? []) {
           const idx = WEAPON_CLASS[cls];
           if (idx !== undefined) this.byFireClass.set(idx, name);
+        }
+      } else if (spec.event === 'strike' || spec.event === 'flyby' || spec.event === 'incoming') {
+        // GH-782: keyed by profile, not one-per-event. A strike set with no
+        // `profiles` is the default for any profile no other set claims.
+        const table = spec.event === 'strike' ? this.strikeByProfile : spec.event === 'flyby' ? this.flybyByProfile : this.incomingByProfile;
+        if (spec.profiles === undefined) {
+          if (spec.event === 'strike') this.strikeDefault = name;
+        } else {
+          for (const profile of spec.profiles) {
+            const idx = AUDIO_SUPPORT_PROFILES[profile];
+            if (idx !== undefined) table.set(idx, name);
+          }
         }
       } else {
         this.byEvent.set(spec.event, name);
@@ -1326,6 +1397,7 @@ export class BattleAudio {
     const ui = order.filter(([, spec]) => spec.event === 'ui').map(([name, spec]) => this.decodeSet(ctx, name, spec));
     await Promise.all([...ui, this.queueVoiceDecode()]);
     for (const [name, spec] of order) if (spec.event !== 'ui') await this.decodeSet(ctx, name, spec);
+    this.support.warm();
   }
 
   /** One variant's buffer: the primary encoding, else `alt` (Safari cannot
@@ -1354,6 +1426,8 @@ export class BattleAudio {
       this.sets.set(name, {
         gain: spec.gain ?? 1,
         jitter: spec.pitch_jitter ?? 0,
+        radius: spec.radius_tiles ?? AUDIBLE_TILES,
+        crest: spec.crest_s ?? null,
         buffers,
       });
     }
@@ -1542,6 +1616,8 @@ export class BattleAudio {
     else this.startAmbience(AMB_FADE_OUT_S);
     // The engines likewise; the next tick's `updateEngines` brings them back.
     if (this.muted) this.engines.stopAll(AMB_FADE_OUT_S);
+    // ...and the fire-support aircraft and incoming rounds (GH-782).
+    if (this.muted) this.support.stopAll(AMB_FADE_OUT_S);
     return this.muted;
   }
 
@@ -1727,6 +1803,9 @@ export class BattleAudio {
       // The engines too (GH-35): the sim has stopped, and no tick comes to
       // update them until it resumes -- which is what brings them back.
       this.engines.stopAll(DUCK_TABLE.pause.attackS);
+      // And the support voices (GH-782): the plans are kept, and the first tick
+      // after the resume starts each one again at the offset the sim clock says.
+      this.support.stopAll(DUCK_TABLE.pause.attackS);
     } else {
       this.setHold('pause', null);
       if (this.ambPaused) {
@@ -1756,6 +1835,7 @@ export class BattleAudio {
     this.toneTimers.clear();
     for (const h of this.heldCalls.values()) window.clearTimeout(h.timer);
     this.heldCalls.clear();
+    this.support.stop();
   }
 
   /**
@@ -1767,6 +1847,7 @@ export class BattleAudio {
     this.stopVoices();
     this.setAmbience(null);
     this.engines.stop();
+    this.support.stop();
     for (const id of [...this.holds.keys()]) this.setHold(id, null);
     this.cueBlockUntil = 0;
     this.setMusicScene('menu');
@@ -1830,6 +1911,31 @@ export class BattleAudio {
       isOwnSide(st.side[id], this.viewer) || fogVisible(st.posX[id] / 65536, st.posY[id] / 65536);
     const canSound = !this.muted && this.ctx !== null && this.ctx.state === 'running';
     this.engines.update(sim, this.listener, audible, canSound);
+    // GH-782: the fire-support aircraft and incoming rounds ride the same tick.
+    this.support.update(sim.tickCount * SIM_TICK_MS, this.listener, canSound);
+  }
+
+  /**
+   * GH-782: a fire-support call was accepted; `plan` is what
+   * `Renderer.supportCalled` built for it (null for a smoke screen or a drone
+   * sweep, which fly nothing). The renderer's re-anchor mutates this very
+   * object, so the jet, the rotor and the whistles read the clock the picture
+   * does. Safe before `attach()`: the plan waits for a context.
+   */
+  supportPlan(plan: SupportAirPlan | null): void {
+    if (plan !== null) this.support.add(plan);
+  }
+
+  /** What the support voices are doing: a readback for tests and the sandbox. */
+  supportState(): SupportState {
+    return this.support.state();
+  }
+
+  /** A decoded support set as the support voices see it, or null. */
+  private supportSet(name: string | undefined): SupportSetView | null {
+    const set = name === undefined ? undefined : this.sets.get(name);
+    if (!set || set.buffers.length === 0) return null;
+    return { gain: set.gain, jitter: set.jitter, radius: set.radius, crest: set.crest, buffers: set.buffers };
   }
 
   /** What the engines are doing: a readback for tests and the sandbox. */
@@ -2213,7 +2319,9 @@ export class BattleAudio {
     if (this.muted || this.ctx === null || this.ctx.state !== 'running') return;
     const st = sim.state;
     this.noteBlasts(events, sim);
-    let voices = 0;
+    // GH-782: a strike is voiced FIRST, so the source cap can never drop a bomb
+    // in favour of the kills it causes.
+    let voices = this.voiceStrikes(events);
     for (const e of events) {
       if (voices >= MAX_SOURCES_PER_TICK) break;
       const at = (id: number): [number, number] => [st.posX[id] / 65536, st.posY[id] / 65536];
@@ -2258,6 +2366,34 @@ export class BattleAudio {
   }
 
   /**
+   * GH-782: this tick's `strike` events, a round landing, at their own point.
+   * The set is the one that claims the event's profile, else the default
+   * strike set; with nothing decoded for it a plain synth boom stands in, as
+   * for every other event. Returns the sources started.
+   */
+  private voiceStrikes(events: SimEvent[]): number {
+    let voices = 0;
+    for (const e of events) {
+      if (e.kind !== 'strike') continue;
+      if (voices >= MAX_SOURCES_PER_TICK) break;
+      voices++;
+      const x = e.x / 65536;
+      const y = e.y / 65536;
+      const name = this.strikeByProfile.get(e.profile) ?? this.strikeDefault ?? undefined;
+      if (!this.playSet(name, x, y)) this.synthStrike(e.profile, x, y);
+    }
+    return voices;
+  }
+
+  /** A strike with no recording: a low thump and a rumble, heavier for a bomb. */
+  private synthStrike(profile: number, wx: number, wy: number): void {
+    const air = profile === FS_AIR_STRIKE;
+    if (!placement(wx - this.listener.x, wy - this.listener.y, air ? 40 : AUDIBLE_TILES).audible) return;
+    this.tone(air ? 48 : 70, air ? 0.9 : 0.45, air ? 'sine' : 'triangle', air ? 0.12 : 0.08);
+    this.noise(air ? 0.7 : 0.35, air ? 220 : 320, air ? 0.08 : 0.05);
+  }
+
+  /**
    * Remember the blasts this tick voices, for the death-call hold: an audible
    * kill or a round landing, by the weights in `BLAST_WEIGHT`. The mixer's own
    * reading of the events it is about to play; the sim is read, never written.
@@ -2269,16 +2405,27 @@ export class BattleAudio {
     this.blasts = this.blasts.filter((b) => now - b.t < BLAST_WINDOW_S);
     const st = sim.state;
     for (const e of events) {
-      let id: number;
+      let x: number;
+      let y: number;
       let w: number;
+      let radius = AUDIBLE_TILES;
       if (e.kind === 'destroyed') {
-        id = e.entity;
+        x = st.posX[e.entity] / 65536;
+        y = st.posY[e.entity] / 65536;
         w = BLAST_WEIGHT.destroyed;
       } else if (e.kind === 'impact') {
-        id = e.target;
+        x = st.posX[e.target] / 65536;
+        y = st.posY[e.target] / 65536;
         w = e.penetrated ? BLAST_WEIGHT.penetrated : BLAST_WEIGHT.ricochet;
+      } else if (e.kind === 'strike') {
+        // GH-782: a bomb or a barrage round is a blast a death call should wait out.
+        x = e.x / 65536;
+        y = e.y / 65536;
+        const air = e.profile === FS_AIR_STRIKE;
+        w = air ? BLAST_WEIGHT.airStrike : BLAST_WEIGHT.barrageRound;
+        radius = this.sets.get(this.strikeByProfile.get(e.profile) ?? this.strikeDefault ?? '')?.radius ?? (air ? 40 : AUDIBLE_TILES);
       } else continue;
-      if (placement(st.posX[id] / 65536 - this.listener.x, st.posY[id] / 65536 - this.listener.y).audible) this.blasts.push({ t: now, w });
+      if (placement(x - this.listener.x, y - this.listener.y, radius).audible) this.blasts.push({ t: now, w });
     }
   }
 
@@ -2297,6 +2444,8 @@ export class BattleAudio {
     let n = 0;
     for (const e of events) {
       if ((e.kind === 'fire' || e.kind === 'impact') && (player(e.shooter) || player(e.target))) n++;
+      // GH-782: a strike the viewer's side called is combat, so a barrage can lift the battle bed.
+      else if (e.kind === 'strike' && player(e.by)) n++;
     }
     const target = this.intensity.observe(sim.tickCount * SIM_TICK_MS, n) === 'battle' ? 1 : 0;
     if (target !== this.mixBattleTarget) {
@@ -2316,7 +2465,7 @@ export class BattleAudio {
     const set = this.sets.get(setName);
     if (!set || set.buffers.length === 0) return false;
 
-    const p = placement(wx - this.listener.x, wy - this.listener.y);
+    const p = placement(wx - this.listener.x, wy - this.listener.y, set.radius);
     if (!p.audible) return true; // audible sound exists, just too far
 
     const src = ctx.createBufferSource();

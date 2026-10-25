@@ -156,28 +156,28 @@ describe('evaluateBaseline', () => {
     // worst of one sample. If a future edit tightens a threshold under these,
     // the gate starts crying wolf -- which is how a gate earns an allowlist.
     //
-    // `vehicle` has now been over-narrow twice, which is why the number here is
-    // a union rather than a sample:
+    // `vehicle` has been over-narrow twice and then over-wide once, which is why
+    // the number here is a union rather than a sample:
     //   - before the frame-loop freeze this test carried 133 px / 0.0170 while
     //     an independent 18-run sample measured 45-1549 px / 0.0110-0.1299 and
     //     the scenario false-red 28% of the time (the rAF loop repainting
     //     between the capture script and the screenshot --
     //     `FREEZE_FRAME_LOOP_STATEMENTS`);
-    //   - after the freeze it carried 101 px / 0.0058 from a 24-run sample,
-    //     while an independent 21-run sample on the same machine and the same
-    //     clean tree read 15-157 px / 0.0033-0.0069, and a third 49-run sample
-    //     (two batches, each run its own browser process) read 8-92 px /
-    //     0.0031-0.0060.
-    // Union over all 94 runs: 5-157 px / 0.0029-0.0069, one continuous mode.
-    // That union is what is asserted, so a threshold tightened to fit any one
-    // sample goes red here rather than in CI.
+    //   - after the freeze it carried a 94-run macOS union, 5-157 px /
+    //     0.0029-0.0069, which was the ambient-FX backlog of c0044ff6 and not
+    //     renderer noise, and 300 px / 0.02 sat above it;
+    //   - GH-803 (2026-10-25) re-derived it from CI: 200 of 217 runs read a
+    //     literal 0 px / 0.0000, and the largest post-fix NON-zero noise ever
+    //     recorded is the 2026-09-23 read of 9 px / 0.0012 (1 px x2, 9 px x3).
+    //     That is what is asserted, so a threshold tightened under it goes red
+    //     here rather than in CI.
+    expect(evaluateBaseline(summary({ diffPixels: 9, meanAbsChannelDelta: 0.0012 }), BASELINES.vehicle).ok).toBe(true);
+    expect(evaluateBaseline(summary({ diffPixels: 0, meanAbsChannelDelta: 0 }), BASELINES.vehicle).ok).toBe(true);
+    expect(evaluateBaseline(summary({ diffPixels: 9, meanAbsChannelDelta: 0.0012 }), BASELINES.kitted).ok).toBe(true);
     expect(evaluateBaseline(summary({ diffPixels: 1, meanAbsChannelDelta: 0.0001 }), BASELINES.quiet).ok).toBe(true);
     expect(
       evaluateBaseline(summary({ diffPixels: 0, meanAbsChannelDelta: 0 }), BASELINES['open-ground']).ok
     ).toBe(true);
-    expect(evaluateBaseline(summary({ diffPixels: 157, meanAbsChannelDelta: 0.0069 }), BASELINES.vehicle).ok).toBe(
-      true
-    );
     expect(evaluateBaseline(summary({ diffPixels: 0, meanAbsChannelDelta: 0 }), BASELINES.relief).ok).toBe(true);
   });
 
@@ -221,7 +221,7 @@ describe('evaluateBaseline', () => {
     //
     // It is kept because the narrow property it DOES pin is worth pinning:
     // these thresholds still separate that measured signal from that measured
-    // noise, so tightening `vehicle` under 35 px / 0.0046 or loosening
+    // noise, so tightening `vehicle` under 9 px / 0.0012 or loosening
     // `relief` past 36001 px / 2.6292 goes red here. The property the old name
     // claimed -- that the gate is still pointed at the boulder field at all --
     // is pinned by `RELIEF_SCENARIO framing` below, against `tel_marum.json`.
@@ -232,9 +232,55 @@ describe('evaluateBaseline', () => {
     expect(
       evaluateBaseline(summary({ diffPixels: 0, meanAbsChannelDelta: 0 }), BASELINES['open-ground']).ok
     ).toBe(true);
-    expect(evaluateBaseline(summary({ diffPixels: 35, meanAbsChannelDelta: 0.0046 }), BASELINES.vehicle).ok).toBe(
+    expect(evaluateBaseline(summary({ diffPixels: 9, meanAbsChannelDelta: 0.0012 }), BASELINES.vehicle).ok).toBe(
       true
     );
+  });
+
+  it('goes red on every real render change CI measured on vehicle and kitted, at 40 px / 0.004 (GH-803)', () => {
+    // Real readings, not synthetic ones: each is the footprint of a render
+    // change that CI's `visual` job measured against a committed baseline on
+    // linux-x64-swiftshader (the run ids are beside `vehicle`'s constants).
+    // Before GH-803 the smallest of them, PR 788's per-surface roughness at
+    // 36 px / 0.0203, was red by 0.0003 of magnitude (1.5%) and 8x under the
+    // pixel limit -- a change 1.5% smaller was invisible to the gate. Mutating
+    // either threshold back toward 300 px / 0.02 turns this test red.
+    const vehicle: Array<[number, number]> = [
+      [36, 0.0203],
+      [43, 0.0202],
+      [639, 0.313],
+      [702, 0.3163],
+      [781, 0.0805],
+      [817, 0.0994],
+      [5279, 0.2134],
+    ];
+    for (const [px, mean] of vehicle) {
+      const v = evaluateBaseline(summary({ diffPixels: px, meanAbsChannelDelta: mean }), BASELINES.vehicle);
+      expect(v.ok, `vehicle ${px} px / ${mean}`).toBe(false);
+    }
+    const kitted: Array<[number, number]> = [
+      [38, 0.0256],
+      [40, 0.0258],
+      [658, 0.3328],
+      [810, 0.0865],
+      [843, 0.1106],
+      [5450, 0.2243],
+    ];
+    for (const [px, mean] of kitted) {
+      const v = evaluateBaseline(summary({ diffPixels: px, meanAbsChannelDelta: mean }), BASELINES.kitted);
+      expect(v.ok, `kitted ${px} px / ${mean}`).toBe(false);
+    }
+    // The magnitude is what carries the smallest one: 5.1x over 0.004, while
+    // its 36 px is UNDER the 40 px limit.
+    const smallest = evaluateBaseline(summary({ diffPixels: 36, meanAbsChannelDelta: 0.0203 }), BASELINES.vehicle);
+    expect(smallest.failures).toHaveLength(1);
+    expect(smallest.failures[0]).toMatch(/meanAbsChannelDelta 0\.0203 > 0\.004/);
+    // Extrapolated, not measured: the same change at 15% less magnitude (31 px /
+    // 0.0173) passed the old 300 px / 0.02 and is red now.
+    expect(evaluateBaseline(summary({ diffPixels: 31, meanAbsChannelDelta: 0.0173 }), BASELINES.vehicle).ok).toBe(false);
+    // And the ceiling is the one the other zero-noise whole-frame scenarios carry.
+    expect(BASELINES.vehicle.maxDiffPixels).toBe(BASELINES.quiet.maxDiffPixels);
+    expect(BASELINES.vehicle.maxMeanAbsChannelDelta).toBe(BASELINES.quiet.maxMeanAbsChannelDelta);
   });
 
   it('never votes on a report-only scenario, whatever the numbers say', () => {
