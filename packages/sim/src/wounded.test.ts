@@ -1015,3 +1015,74 @@ describe('removeFromPlay and a medic\'s load (GH-815)', () => {
     expect([sim.state.woundedAlive[0], sim.state.speedMul[medic]]).toEqual([0, 65536]);
   });
 });
+
+// GH-834 follow-up: `releaseSeat` (used by `destroy` and `removeFromPlay`) must restore a carrier's
+// `speedMul` the SAME call the carried man leaves, not at some later `disembark` or a tick's refresh.
+// Each case reads the column straight after the kill or removal, with no tick between. Delete the
+// `refreshSpeedMul` line in `releaseSeat` and every case below goes red (see the commit message).
+describe('releaseSeat restores the carrier\'s speedMul on the same tick (GH-834)', () => {
+  const ONE_MAN_MEDIC: UnitTypeJson = {
+    ...MEDIC,
+    id: 'wd_medic_one',
+    hull: { ...MEDIC.hull, figures: 1, transport_slots: 2 },
+  };
+  const DRAG = 32768; // drag_speed_mult 0.5: a one-figure medic hauling a man
+  const STRETCHER = 49152; // carry_speed_mult 0.75: a two-figure medic team
+  const FREE = 65536;
+
+  const exits: ReadonlyArray<readonly [string, (sim: Sim, id: number) => void]> = [
+    ['destroy (debugKill)', (sim, id) => sim.debugKill(id)],
+    ['removeFromPlay', (sim, id) => sim.removeFromPlay(id)],
+  ];
+
+  const loaded = (medicType: UnitTypeJson, n: number) => {
+    const sim = new Sim({ seed: 0x834_0001, width: 16, height: 16, capacity: 16 });
+    const mi = sim.addUnitType(medicType);
+    const wi = sim.addUnitType(WOUNDED);
+    const medic = sim.spawn(mi, 0, fx.from(5.5), fx.from(5.5));
+    const men: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const man = sim.spawn(wi, 0, fx.from(5.5), fx.from(5.5));
+      expect(sim.embarkAtSpawn(medic, man)).toBe(true);
+      men.push(man);
+    }
+    return { sim, medic, men };
+  };
+
+  for (const [name, leave] of exits) {
+    it(`${name}: a two-man team's stretcher load leaves, and the team is back to full speed`, () => {
+      const { sim, medic, men } = loaded(MEDIC, 1);
+      expect(sim.state.speedMul[medic]).toBe(STRETCHER);
+      leave(sim, men[0]);
+      expect([sim.state.speedMul[medic], sim.passengerCount(medic), sim.state.carriedBy[men[0]]]).toEqual([FREE, 0, -1]);
+    });
+
+    it(`${name}: a lone medic's drag load leaves, and he is back to full speed`, () => {
+      const { sim, medic, men } = loaded(ONE_MAN_MEDIC, 1);
+      expect(sim.state.speedMul[medic]).toBe(DRAG);
+      leave(sim, men[0]);
+      expect([sim.state.speedMul[medic], sim.passengerCount(medic), sim.state.carriedBy[men[0]]]).toEqual([FREE, 0, -1]);
+    });
+
+    it(`${name}: one of two carried men leaves, and the drag stays for the other`, () => {
+      const { sim, medic, men } = loaded(ONE_MAN_MEDIC, 2);
+      expect(sim.state.speedMul[medic]).toBe(DRAG);
+      leave(sim, men[0]);
+      expect([sim.state.speedMul[medic], sim.passengerCount(medic)]).toEqual([DRAG, 1]);
+      leave(sim, men[1]); // the second goes: only now is the hull free
+      expect([sim.state.speedMul[medic], sim.passengerCount(medic)]).toEqual([FREE, 0]);
+    });
+
+    it(`${name}: the carried man leaves a carrier with no rescue block (an ambulance): its speed is untouched`, () => {
+      const sim = new Sim({ seed: 0x834_0002, width: 16, height: 16, capacity: 16 });
+      const ai = sim.addUnitType(AMBULANCE);
+      const wi = sim.addUnitType(WOUNDED);
+      const amb = sim.spawn(ai, 0, fx.from(5.5), fx.from(5.5));
+      const man = sim.spawn(wi, 0, fx.from(5.5), fx.from(5.5));
+      expect(sim.embarkAtSpawn(amb, man)).toBe(true);
+      expect(sim.state.speedMul[amb]).toBe(FREE);
+      leave(sim, man);
+      expect([sim.state.speedMul[amb], sim.passengerCount(amb)]).toEqual([FREE, 0]);
+    });
+  }
+});
