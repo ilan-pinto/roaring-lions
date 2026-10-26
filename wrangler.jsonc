@@ -95,6 +95,18 @@
 				"limit": 60,
 				"period": 60
 			}
+		},
+		// Snapshot S3, Ruling 12: POST and GET /api/match/:code/snapshot, per
+		// connecting IP. Its own limiter: two seats behind one home NAT upload
+		// once a minute each, plus a rejoin's GET and a retry, so 12 and not
+		// ROOM_LIMIT's 6.
+		{
+			"name": "SNAP_LIMIT",
+			"namespace_id": "1006",
+			"simple": {
+				"limit": 12,
+				"period": 60
+			}
 		}
 	],
 	// GH-464: daily at 03:17 UTC, purge feedback pictures, replays and
