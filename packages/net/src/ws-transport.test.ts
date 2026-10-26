@@ -76,9 +76,48 @@ describe('WsTransport', () => {
     sock.open();
     expect(sock.opened).toBe(2);
     expect(sock.sent.map((s) => JSON.parse(s) as unknown).filter((m) => (m as { t: string }).t === 'hello'))
-      .toEqual([{ t: 'hello', ticket: 'tkt', build: 'b' }, { t: 'hello', ticket: 'tkt', build: 'b' }]);
+      .toEqual([{ t: 'hello', ticket: 'tkt', build: 'b' }, { t: 'hello', ticket: 'tkt', build: 'b', from: 5 }]);
     sock.recv({ t: 'log', config: CONFIG, frames: Array.from({ length: 8 }, (_, tick) => ({ tick, cmds: [] })) });
     expect(t.take(10).map((f) => f.tick)).toEqual([3, 4, 5]);
+  });
+  describe('hello.from (D6, snapshot S3)', () => {
+    const hellos = (sock: Fake): unknown[] => sock.sent.map((s) => JSON.parse(s) as { t: string }).filter((m) => m.t === 'hello');
+    it('a first connect sends no from key', () => {
+      const sock = fakeSocket();
+      new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} });
+      sock.open();
+      const [h] = hellos(sock);
+      expect(h).toEqual({ t: 'hello', ticket: 'tkt', build: 'b' });
+      expect('from' in (h as object)).toBe(false);
+    });
+    it('a reconnect after frames 0..41 sends from 42', () => {
+      vi.useFakeTimers();
+      const sock = fakeSocket();
+      new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} });
+      sock.open();
+      sock.recv({ t: 'start', config: CONFIG });
+      for (let tick = 0; tick < 42; tick++) sock.recv({ t: 'frame', tick, cmds: [] });
+      sock.closeFromServer();
+      vi.advanceTimersByTime(RECONNECT_DELAY_MS);
+      sock.open();
+      expect(hellos(sock)).toEqual([
+        { t: 'hello', ticket: 'tkt', build: 'b' },
+        { t: 'hello', ticket: 'tkt', build: 'b', from: 42 },
+      ]);
+    });
+    it('a reconnect in the lobby (no config) sends no from key', () => {
+      vi.useFakeTimers();
+      const sock = fakeSocket();
+      new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} });
+      sock.open();
+      sock.recv({ t: 'lobby', config: null, seats: [{ seat: 0, callsign: 'A', connected: true, ready: false }], you: 0, map: 'tel_marum' });
+      sock.closeFromServer();
+      vi.advanceTimersByTime(RECONNECT_DELAY_MS);
+      sock.open();
+      const hs = hellos(sock);
+      expect(hs).toEqual([{ t: 'hello', ticket: 'tkt', build: 'b' }, { t: 'hello', ticket: 'tkt', build: 'b' }]);
+      expect('from' in (hs[1] as object)).toBe(false);
+    });
   });
   it('a gap in the frames closes the socket, and the reconnect fetches the log that fills it', () => {
     vi.useFakeTimers();

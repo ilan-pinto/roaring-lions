@@ -210,7 +210,11 @@ export class WsTransport implements MatchTransport {
     if (prior !== null) { prior.onopen = null; prior.onmessage = null; prior.onclose = null; }
     const s = this.open();
     this.sock = s;
-    s.onopen = () => this.send({ t: 'hello', ticket: this.ticket, build: this.build });
+    // A reconnect that kept its clock asks for the log from its next tick (D6);
+    // a first connect, or a reload with no clock, gets the whole log.
+    s.onopen = () => this.send(this.config !== null && this.clock.newest >= 0
+      ? { t: 'hello', ticket: this.ticket, build: this.build, from: this.clock.newest + 1 }
+      : { t: 'hello', ticket: this.ticket, build: this.build });
     s.onmessage = (ev) => this.onMessage(typeof ev.data === 'string' ? ev.data : '');
     s.onclose = (ev) => {
       if (this.closed || this.terminal()) return;

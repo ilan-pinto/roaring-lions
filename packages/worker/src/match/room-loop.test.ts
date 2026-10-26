@@ -274,7 +274,9 @@ describe('room loop: MatchRoom and two WsTransports', () => {
     const second1 = loop.wires[2];
     expect(kinds(second1)).toContain('log');
     const log = second1.received.find((m): m is Extract<ServerMsg, { t: 'log' }> => m.t === 'log');
-    expect(log?.frames.map((f) => f.tick)).toEqual(range(12));
+    // Seat 1 held ticks 0..11 when the link dropped, so the log starts at 12 (D6): nothing is re-sent.
+    expect(log?.from).toBe(12);
+    expect(log?.frames.map((f) => f.tick)).toEqual([]);
     expect(p1.configs).toHaveLength(1);   // a reconnect mid-match is not a second start
     await step(loop, [p0, p1], 10);
     expect(p1.ticks()).toEqual(range(p1.taken.length));
@@ -282,6 +284,52 @@ describe('room loop: MatchRoom and two WsTransports', () => {
     expect(p1.taken).toEqual(p0.taken.slice(0, p1.taken.length));
     expect(p1.t.status().kind).toBe('live');
   });
+
+  it('D6: a seat that dropped and kept its clock asks for the log from its next tick, gets a small fraction of the full log, and stays in lockstep (snapshot S3)', async () => {
+    const { loop, p0, p1 } = await started();
+    await step(loop, [p0, p1], 600);
+    expect(p1.t.status().kind).toBe('live');
+    const logsOf = (w: Wire): Extract<ServerMsg, { t: 'log' }>[] => w.received.filter((m): m is Extract<ServerMsg, { t: 'log' }> => m.t === 'log');
+    const chars = (logs: ServerMsg[]): number => logs.reduce((n, m) => n + JSON.stringify(m).length, 0);
+    // The link goes quiet before either end learns it: the room keeps minting
+    // frames that seat 1 never receives (it stalls behind a seat that stops
+    // acking only after 40 ticks, so 30 fit), then the socket drops for good.
+    const lost = loop.wires[1];
+    lost.live = false;
+    await step(loop, [p0], 30);
+    lost.drop();
+    await loop.flush();
+    const heldTo = Math.max(...lost.received.flatMap((m) => (m.t === 'frame' ? [m.tick] : [])));
+    await vi.advanceTimersByTimeAsync(RECONNECT_DELAY_MS);
+    await loop.flush();
+    const rejoin = loop.wires[2];
+    const logs = logsOf(rejoin);
+    expect(logs.length).toBeGreaterThan(0);
+    // Every part names where it starts, and holds nothing before it.
+    for (const m of logs) {
+      expect(m.from).toBe(heldTo + 1);
+      expect(m.frames.every((f) => f.tick >= heldTo + 1)).toBe(true);
+    }
+    const sent = logs.flatMap((m) => m.frames);
+    expect(sent.length).toBeGreaterThanOrEqual(30);   // the loss was real: those frames came back
+    expect(sent[0].tick).toBe(heldTo + 1);
+    const trimmed = chars(logs);
+    await step(loop, [p0, p1], 200);
+    expect(p1.ticks()).toEqual(range(p1.taken.length));
+    expect(p1.taken).toEqual(p0.taken.slice(0, p1.taken.length));
+    expect(p1.taken.length).toBeGreaterThan(heldTo + 150);
+    expect(p1.t.stats().hashOk.lastTick).toBeGreaterThan(heldTo);
+    expect(p1.t.status().kind).toBe('live');
+    // The same room answering a hello with no from: the whole log.
+    const bare = openSocket(loop.room);
+    const bareReceived: ServerMsg[] = [];
+    bare.onSend((text) => { bareReceived.push(JSON.parse(text) as ServerMsg); });
+    const ticket = await signTicket(SECRET, { matchId: CODE, seat: 1, player: 'Guest', exp: NOW + 3600 * 1000 });
+    await loop.room.webSocketMessage(bare.asSocket(), JSON.stringify({ t: 'hello', ticket, build: BUILD }));
+    const full = chars(bareReceived.filter((m) => m.t === 'log'));
+    expect(full).toBeGreaterThan(0);
+    expect(trimmed, `${trimmed} chars trimmed against ${full} chars for the full log`).toBeLessThan(full / 10);
+  }, 60_000);
 
   it('#559 H-1: a long log reaches a rejoining seat in parts of at most LOG_PART_CHARS, and the seat runs on with no gap', async () => {
     const { loop, p0, p1 } = await started();
@@ -294,9 +342,8 @@ describe('room loop: MatchRoom and two WsTransports', () => {
     }
     const sent = loop.wires[0].received.flatMap((m) => (m.t === 'frame' ? [{ tick: m.tick, cmds: m.cmds }] : []));
     expect(JSON.stringify(sent).length).toBeGreaterThan(LOG_PART_CHARS);
-    loop.wires[1].drop();
-    await loop.flush();
-    await vi.advanceTimersByTimeAsync(RECONNECT_DELAY_MS);
+    // A reload: a new transport on seat 1's ticket has no clock, so it sends no from and gets the whole log.
+    const p1b = new Player(loop, await signTicket(SECRET, { matchId: CODE, seat: 1, player: 'Guest', exp: NOW + 3600 * 1000 }), sameHash);
     await loop.flush();
     const logs = (loop.wires.at(-1)?.received ?? []).filter((m): m is Extract<ServerMsg, { t: 'log' }> => m.t === 'log');
     expect(logs.length).toBeGreaterThanOrEqual(2);
@@ -305,13 +352,13 @@ describe('room loop: MatchRoom and two WsTransports', () => {
       expect(JSON.stringify(m.frames).length).toBeLessThanOrEqual(LOG_PART_CHARS + 2);
     });
     expect(logs.flatMap((m) => m.frames)).toEqual(sent);
-    expect(p1.t.status().kind).toBe('live');
-    expect(p1.configs).toHaveLength(1);
-    await step(loop, [p0, p1], 40);
-    expect(p1.ticks()).toEqual(range(p1.taken.length));
-    expect(p1.taken).toEqual(p0.taken.slice(0, p1.taken.length));
-    expect(p1.taken.length).toBeGreaterThan(sent.length);
-    expect(p1.t.stats().reconnects.count).toBe(1);
+    expect(logs.every((m) => m.from === undefined)).toBe(true);   // no from, no echo: the whole log
+    expect(p1b.t.status().kind).toBe('live');
+    expect(p1b.configs).toHaveLength(1);
+    await step(loop, [p0, p1b], 40);
+    expect(p1b.ticks()).toEqual(range(p1b.taken.length));
+    expect(p1b.taken).toEqual(p0.taken.slice(0, p1b.taken.length));
+    expect(p1b.taken.length).toBeGreaterThan(sent.length);
   });
 
   /** R-N12's budget: a command frame closes its batch (one row each), a batch
@@ -388,9 +435,8 @@ describe('room loop: MatchRoom and two WsTransports', () => {
     const sent = liveFrames(loop.wires[0]);
     expect(sent.map((f) => f.tick)).toEqual(range(47));
     expect(sent.filter((f) => f.cmds.length > 0).map((f) => f.tick)).toEqual([0, 5, 42]);
-    loop.wires[1].drop();
-    await loop.flush();
-    await vi.advanceTimersByTimeAsync(RECONNECT_DELAY_MS);
+    // A reload (no clock, so no from): the whole log, closed batches and the open one.
+    new Player(loop, await signTicket(SECRET, { matchId: CODE, seat: 1, player: 'Guest', exp: NOW + 3600 * 1000 }), sameHash);
     await loop.flush();
     const log = loop.wires[2].received.find((m): m is Extract<ServerMsg, { t: 'log' }> => m.t === 'log');
     expect(log?.frames).toEqual(sent);
