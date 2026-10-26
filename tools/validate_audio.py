@@ -159,6 +159,7 @@ UNIT_SCHEMA = os.path.join(ROOT, "data", "schemas", "unit.schema.json")
 # session record -- or, for generated speech, the plan and the date (D5).
 VOICE_LICENSES = dict(ALLOWED_LICENSES, **{"LicenseRef-owned": False})
 VOICE_KEY = re.compile(r"^([a-z]{2})\.(infantry|crew|engineer|air|common)\.([a-z_]+)$")
+ANNOUNCER_LINE = re.compile(r"^[a-z]{2}\.common\.announce_([a-z_]+)$")   # GH-110/GH-753: an announcement's voice slot
 VOICE_PATH = re.compile(r"^voice/([a-z]{2})/([a-z]+)/([a-z_]+)_(\d{2})([a-z])\.(ogg|m4a)$")
 VOICE_TEXT_FIELDS = ("generator", "text", "translit", "en")
 
@@ -1103,6 +1104,22 @@ def check_announcements(voices, failures, captions=None):
             failures.append(f"announcements '{name}': cooldown_s {cd!r} is not a non-negative number")
         if ev.get("priority") not in ANNOUNCE_PRIORITIES:
             failures.append(f"announcements '{name}': priority {ev.get('priority')!r} is not one of {ANNOUNCE_PRIORITIES}")
+    # GH-753: the other direction. An announcer line (`<lang>.common.announce_<event>`) may be declared
+    # EMPTY -- a slot waiting for its recording (an empty `variants` list plays nothing) -- but it must name
+    # an event the table declares, and once it holds a take the event's `audio` must name it: otherwise the
+    # take is shipped and never played.
+    for key, line in lines.items():
+        m = ANNOUNCER_LINE.match(key)
+        if not m:
+            continue
+        ev = events.get(m.group(1))
+        if ev is None:
+            failures.append(f"voices '{key}': an announcer line for event '{m.group(1)}', which the announcements table does not declare")
+        elif (line or {}).get("variants") and ev.get("audio") != key:
+            failures.append(
+                f"voices '{key}': has recorded take(s) but announcements '{m.group(1)}' audio is {ev.get('audio')!r} "
+                f"-- set it to '{key}', or the take ships and never plays"
+            )
 
 
 def check_voices(voices, failures, factions, audio_dir=AUDIO_DIR):
@@ -1153,6 +1170,14 @@ def check_voices(voices, failures, factions, audio_dir=AUDIO_DIR):
                 if pm.group(1, 2, 3) != m.group(1, 2, 3):
                     failures.append(f"{rel}: filed under a different key than '{key}'")
                 declared.add(rel)
+            # GH-753: ElevenLabs speech carries its licence state in `source`: either the plan was paid (cleared)
+            # or the licence is not confirmed (kept out of a commercial build by check_commercial). A source that
+            # says neither would slip past that gate, so it fails here.
+            src = v.get("source", "") or ""
+            if "elevenlabs" in str(v.get("generator", "")).lower() and not UNCONFIRMED_LICENCE.search(src) \
+                    and "paid elevenlabs plan" not in src.lower():
+                failures.append(f"{f}: generator is ElevenLabs but the source neither says it was a paid ElevenLabs plan "
+                                "nor that the licence is not confirmed (D5)")
             check_licensed_file(v, failures, MAX_BYTES, licenses=VOICE_LICENSES, audio_dir=audio_dir)
     return declared
 

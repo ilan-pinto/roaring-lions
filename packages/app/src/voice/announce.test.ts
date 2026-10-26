@@ -235,7 +235,11 @@ describe('the shipped table', () => {
     const voiced = Object.entries(t.announcements.events).filter(([, def]) => def.audio !== '');
     // The lead's first recordings (9 Oct 2026): five events speak. A failed
     // objective is caption-only: his "fall back" is the defeat verdict.
-    expect(voiced.map(([id]) => id).sort()).toEqual(['defeat', 'mission_start', 'objective_active', 'objective_complete', 'reinforcements']);
+    // GH-753: `medic` joins them the day the lead's takes are prepared (tools/prepare_medic_voice.py names the slot);
+    // until then it is caption-only. Either state is right; any OTHER event speaking is a new decision to pin here.
+    const spoken = ['defeat', 'mission_start', 'objective_active', 'objective_complete', 'reinforcements'];
+    expect(voiced.map(([id]) => id).filter((id) => id !== 'medic').sort()).toEqual(spoken);
+    expect(['', 'he.common.announce_medic']).toContain(t.announcements.events.medic.audio);
     expect(t.announcements.events.objective_failed.audio).toBe('');
     // The verdict is the only `outcome` entry; no mission event raises it.
     expect(Object.entries(t.announcements.events).filter(([, d]) => d.priority === 'outcome').map(([id]) => id)).toEqual(['defeat']);

@@ -1099,6 +1099,31 @@ plays unplaced, so it goes out through the walkie-talkie chain
 
 ---
 
+## The "Medic!" call (ElevenLabs, GH-753)
+
+The wounded-and-rescue work (GH-707) shows a "Medic!" caption when one of the
+viewer's own men goes down wounded, at most once per 8 s (`voices.announcements.events.medic`,
+raised by `medicCallInputs` in `packages/app/src/voice/announce.ts`). GH-753 asks for the
+voice. The lead generates it himself in ElevenLabs, on his **paid** plan, from the prompt sheet
+`_coord/medic-voice/prompts.md`: three Hebrew takes (`medic_he_01..03`) and one English take
+(`medic_en_01`, prepared and held, not wired: no faction speaks English).
+
+The slot is wired and empty: `voices.lines["he.common.announce_medic"]` is declared with an empty
+`variants` list (it plays nothing), and the announcement's `audio` stays `""` because the audio
+gate refuses to name a line with no take (and refuses a take its event does not name).
+`python3 tools/prepare_medic_voice.py --src=<dir> --paid-plan` checks the takes (not clipped, 0.25 to
+2.0 s once trimmed), cuts and levels them with `tools/voice_prep.py`, measures both shipped encodings,
+writes `assets/audio/voice/he/common/announce_medic_0Na.{ogg,m4a}`, fills the variants and the
+announcement's `audio`, records each input's sha256, and rewrites the register row and the status line
+below. `--paid-plan` is the lead's statement that the plan was paid; the script refuses without it, and
+the recorded `source` carries no "licence not confirmed" wording, so the commercial gate passes them.
+The generation date is the input files' date. The five older ElevenLabs voice takes (item 2) are
+unaffected: still unconfirmed.
+
+Status: **empty slot, no takes yet** (the voice key and the announcement are wired; `python3 tools/prepare_medic_voice.py --src=<dir> --paid-plan` fills them).
+
+---
+
 ## E5 part 2 -- the bought-only special forces (GH-181, 2026-09-30)
 
 All three staged units have art; every file is **held** (`HELD_MESH_FILES`,
