@@ -420,3 +420,31 @@ describe('cleanCommand: versus tunnels (GH-681)', () => {
     }
   });
 });
+
+describe('hello.from and the log from echo (snapshot S3, D6)', () => {
+  const hello = (extra: Record<string, unknown>) => parseClientMsg(JSON.stringify({ t: 'hello', ticket: 'abc', build: '0.1', ...extra }));
+  it('a hello without from parses to exactly { t, ticket, build }, with no from key', () => {
+    const m = hello({});
+    expect(m).toStrictEqual({ t: 'hello', ticket: 'abc', build: '0.1' });
+    expect(Object.keys(m ?? {})).toEqual(['t', 'ticket', 'build']);
+  });
+  it('from 0, 1200 and 0x7fffffff round-trip', () => {
+    for (const from of [0, 1200, 0x7fffffff]) expect(hello({ from })).toStrictEqual({ t: 'hello', ticket: 'abc', build: '0.1', from });
+  });
+  it('from -1, 1.5, "5", null and 2^31 refuse the whole hello', () => {
+    for (const from of [-1, 1.5, '5', null, 2 ** 31]) expect(hello({ from })).toBeNull();
+  });
+  it('a log with from round-trips (whole and in parts) and one without it is unchanged', () => {
+    const wire = (o: Record<string, unknown>) => parseServerMsg(JSON.stringify({ t: 'log', config: CFG, frames: [], ...o }));
+    expect(wire({ from: 1200 })).toStrictEqual({ t: 'log', config: CFG, frames: [], from: 1200 });
+    expect(wire({ from: 0, part: 1, parts: 3 })).toStrictEqual({ t: 'log', config: CFG, frames: [], part: 1, parts: 3, from: 0 });
+    const plain = wire({});
+    expect(plain).toStrictEqual({ t: 'log', config: CFG, frames: [] });
+    expect(Object.keys(plain ?? {})).toEqual(['t', 'config', 'frames']);
+  });
+  it('a log whose from is -1, 1.5, "5", null or 2^31 is refused', () => {
+    for (const from of [-1, 1.5, '5', null, 2 ** 31]) {
+      expect(parseServerMsg(JSON.stringify({ t: 'log', config: CFG, frames: [], from }))).toBeNull();
+    }
+  });
+});

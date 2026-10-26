@@ -50,7 +50,9 @@ void COMMAND_KINDS_COMPLETE;
 export interface SeatState { seat: Seat; callsign: string; connected: boolean; ready: boolean }
 
 export type ClientMsg =
-  | { t: 'hello'; ticket: string; build: string }
+  /** `from` (snapshot S3, D6): the first frame tick this client lacks; the
+   *  room answers the log from it. Absent is the whole log, as before. */
+  | { t: 'hello'; ticket: string; build: string; from?: number }
   | { t: 'ready' }
   | { t: 'cmd'; seq: number; cmd: Command }
   | { t: 'ack'; tick: number }
@@ -96,7 +98,10 @@ export type ServerMsg =
    *  H-1): `part` counts from 0. Each part carries the config and a run of
    *  frames that continues the last; a client is live again after the last
    *  part. Absent `part`/`parts` is a whole log in one message (pre-#559). */
-  | { t: 'log'; config: MatchConfig; frames: Frame[]; part?: number; parts?: number }
+  | { t: 'log'; config: MatchConfig; frames: Frame[]; part?: number; parts?: number;
+      /** Echo of the hello's `from` (snapshot S3): present on every part of a
+       *  log the room trimmed to start there; absent on a whole log. */
+      from?: number }
   | { t: 'paused'; seat: Seat; remainingMs: number; pausesLeft: [number, number] }
   /** The room dropped this seat's `cmd` because a pause is in force (L-2). Sent
    *  per refused cmd, to that seat only; it carries nothing the seat does not
@@ -118,6 +123,8 @@ export type ServerMsg =
   | { t: 'error'; code: ErrorCode };
 
 const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
+/** A frame tick on the wire: an integer in 0..0x7fffffff. */
+const isFromTick = (v: unknown): v is number => isInt(v) && v >= 0 && v <= 0x7fffffff;
 const isStr = (v: unknown): v is string => typeof v === 'string';
 const isSeat = (v: unknown): v is Seat => v === 0 || v === 1;
 /** The most distinct unit ids one command may name (#559 F2). A seat fields a
@@ -289,7 +296,11 @@ export function parseClientMsg(raw: string): ClientMsg | null {
   const m = parseJson(raw);
   if (m === null) return null;
   switch (m.t) {
-    case 'hello': return isStr(m.ticket) && isStr(m.build) ? { t: 'hello', ticket: m.ticket, build: m.build } : null;
+    case 'hello': {
+      if (!isStr(m.ticket) || !isStr(m.build)) return null;
+      if (m.from === undefined) return { t: 'hello', ticket: m.ticket, build: m.build };
+      return isFromTick(m.from) ? { t: 'hello', ticket: m.ticket, build: m.build, from: m.from } : null;
+    }
     case 'ready': return { t: 'ready' };
     case 'cmd': {
       const cmd = isInt(m.seq) ? cleanCommand(m.cmd) : null;
@@ -364,9 +375,11 @@ export function parseServerMsg(raw: string): ServerMsg | null {
     case 'log': {
       const c = validateConfig(m.config);
       if (!c || !Array.isArray(m.frames) || !m.frames.every(isFrame)) return null;
-      if (m.part === undefined && m.parts === undefined) return { t: 'log', config: c, frames: m.frames };
+      if (m.from !== undefined && !isFromTick(m.from)) return null;
+      const from = m.from === undefined ? {} : { from: m.from };
+      if (m.part === undefined && m.parts === undefined) return { t: 'log', config: c, frames: m.frames, ...from };
       return isInt(m.part) && isInt(m.parts) && m.part >= 0 && m.part < m.parts
-        ? { t: 'log', config: c, frames: m.frames, part: m.part, parts: m.parts } : null;
+        ? { t: 'log', config: c, frames: m.frames, part: m.part, parts: m.parts, ...from } : null;
     }
     case 'paused': return isSeat(m.seat) && isInt(m.remainingMs) && Array.isArray(m.pausesLeft) && m.pausesLeft.length === 2 && m.pausesLeft.every(isInt)
       ? { t: 'paused', seat: m.seat, remainingMs: m.remainingMs, pausesLeft: [m.pausesLeft[0], m.pausesLeft[1]] } : null;
