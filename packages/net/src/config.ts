@@ -37,6 +37,27 @@ export interface MatchConfig {
    *  OWN content instead (`packages/app/src/net/content-digest.ts`): a number
    *  the room hands both seats alike cannot tell them apart. */
   dataDigest: number;
+  /** Frame ticks between snapshots, a multiple of `hashEveryTicks`. Absent or
+   *  0 is off. The room mints it (snapshot spec §4.2); a config persisted
+   *  before the field existed reads as off. */
+  snapshotEveryTicks?: number;
+}
+
+/** The cadence the room mints, in frame ticks: one a minute at 20 Hz (D2). */
+export const SNAPSHOT_EVERY_TICKS = 1200;
+/** The largest cadence a config may carry: one an hour at 20 Hz. */
+export const SNAPSHOT_EVERY_TICKS_MAX = 72_000;
+
+/** A config's snapshot cadence in frame ticks; 0 means off. */
+export function snapshotEvery(c: Pick<MatchConfig, 'snapshotEveryTicks'>): number {
+  return c.snapshotEveryTicks ?? 0;
+}
+
+/** Whether frame `tick` is a snapshot tick for cadence `every`: the last tick
+ *  of each interval, so tick 1199 for 1200 (the state AFTER that tick's frame
+ *  is what a snapshot holds). Off (`every` <= 0) is never a snapshot tick. */
+export function isSnapshotTick(tick: number, every: number): boolean {
+  return every > 0 && tick >= 0 && (tick + 1) % every === 0;
 }
 
 /** What the host of a versus room picks (2026-10-14, the quick version before
@@ -191,6 +212,10 @@ export function validateConfig(v: unknown): MatchConfig | null {
   if (!Array.isArray(c.seats) || c.seats.length !== 2 || !isSeatConfig(c.seats[0], 0) || !isSeatConfig(c.seats[1], 1)) return null;
   if (!isPace(c.pace) || !isInt(c.hashEveryTicks) || c.hashEveryTicks < 1 || !isInt(c.bufferTicks) || c.bufferTicks < 0) return null;
   if (!isStr(c.build) || !isInt(c.dataDigest)) return null;
+  if (c.snapshotEveryTicks !== undefined) {
+    const e = c.snapshotEveryTicks;
+    if (!isInt(e) || e < 0 || e > SNAPSHOT_EVERY_TICKS_MAX || (e !== 0 && e % c.hashEveryTicks !== 0)) return null;
+  }
   return c as unknown as MatchConfig;
 }
 

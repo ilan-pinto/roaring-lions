@@ -7,7 +7,7 @@
  * `readLog`.
  */
 import {
-  canonicalOrder, cleanChat, FORFEIT_MS, LOG_PART_CHARS, MAX_CMDS_PER_SEAT_PER_FRAME, PAUSE_MS, PAUSES_PER_SEAT, OVER_CLOSE_MS,
+  canonicalOrder, cleanChat, FORFEIT_MS, isSnapshotTick, LOG_PART_CHARS, MAX_CMDS_PER_SEAT_PER_FRAME, PAUSE_MS, PAUSES_PER_SEAT, OVER_CLOSE_MS, snapshotEvery,
   type ClientMsg, type EndedReason, type Faction, type Frame, type MatchConfig, type Seat, type ServerMsg, type Stamped, type SeatState,
 } from '@lions/net';
 
@@ -79,7 +79,11 @@ export type Effect =
   /** A second hello REPLACED this seat: its other sockets go, as replaced. */
   | { kind: 'close'; seat: Seat }
   /** The room is over: this seat's sockets close normally (L-1), not as replaced. */
-  | { kind: 'shut'; seat: Seat };
+  | { kind: 'shut'; seat: Seat }
+  /** Both seats' hashes for a SNAPSHOT tick agreed, on `h` (a signed int32). The
+   *  room keeps it in memory only: a snapshot upload for that tick is accepted
+   *  only when its header's match digest is this value (snapshot S3). */
+  | { kind: 'agreed'; tick: number; h: number };
 
 /** One source for the ack cadence: the client's (`WsTransport`). */
 export { ACK_EVERY } from '@lions/net';
@@ -203,7 +207,7 @@ function droppedMsgs(st: RoomState, nowMs: number): ServerMsg[] {
 
 /** A verified hello. A second hello for an occupied seat REPLACES it (the
  *  reconnect path, spec §3.5); `readLog` supplies the frames for it. */
-export function seatJoin(st: RoomState, seat: Seat, player: string, callsign: string, nowMs: number, readLog: () => Frame[] = () => []): Effect[] {
+export function seatJoin(st: RoomState, seat: Seat, player: string, callsign: string, nowMs: number, readLog: () => Frame[] = () => [], from?: number): Effect[] {
   const prior = st.seats[seat];
   st.seats[seat] = { seat, player, callsign, connected: true, ready: prior?.ready ?? false, lastAck: prior?.lastAck ?? -1, lastSeenMs: nowMs, nextSeq: prior?.nextSeq ?? 0, goneAtMs: null };
   const out: Effect[] = [];
@@ -219,7 +223,7 @@ export function seatJoin(st: RoomState, seat: Seat, player: string, callsign: st
   if (st.status === 'lobby') {
     out.push({ kind: 'send', to: 'all', msg: lobbyMsg(st, 0) });   // the DO rewrites `you` per socket
   } else if (st.config) {
-    for (const msg of logParts(st.config, readLog())) out.push({ kind: 'send', to: seat, msg });
+    for (const msg of logParts(st.config, readLog(), LOG_PART_CHARS, from)) out.push({ kind: 'send', to: seat, msg });
     // The log makes the client live; a pause in force must be told again.
     if (st.pause !== null) out.push({ kind: 'send', to: seat, msg: pausedMsg(st, nowMs, st.pause) });
     // ...and so must the other seat's forfeit clock, if it is gone.
@@ -232,8 +236,10 @@ export function seatJoin(st: RoomState, seat: Seat, player: string, callsign: st
 /** A rejoin's log as `log` messages of at most `maxChars` characters of
  *  frames each (#559 H-1), in tick order; one part for a short log, and one
  *  (empty) part for a match that has minted nothing. A single frame larger
- *  than `maxChars` goes alone rather than being split. */
-export function logParts(config: MatchConfig, frames: readonly Frame[], maxChars = LOG_PART_CHARS): Extract<ServerMsg, { t: 'log' }>[] {
+ *  than `maxChars` goes alone rather than being split. A `from` (the hello's,
+ *  snapshot S3) is echoed on every part, so a client can tell a log trimmed
+ *  to start there from a full one; the caller passes only the frames from it. */
+export function logParts(config: MatchConfig, frames: readonly Frame[], maxChars = LOG_PART_CHARS, from?: number): Extract<ServerMsg, { t: 'log' }>[] {
   const runs: Frame[][] = [[]];
   let used = 0;
   for (const f of frames) {
@@ -241,7 +247,7 @@ export function logParts(config: MatchConfig, frames: readonly Frame[], maxChars
     const run = runs[runs.length - 1];
     if (run.length > 0 && used + size > maxChars) { runs.push([f]); used = size; } else { run.push(f); used += size; }
   }
-  return runs.map((run, part) => ({ t: 'log', config, frames: run, part, parts: runs.length }));
+  return runs.map((run, part) => ({ t: 'log', config, frames: run, part, parts: runs.length, ...(from === undefined ? {} : { from }) }));
 }
 
 export function pausedMsg(st: RoomState, nowMs: number, pause: { seat: Seat; untilMs: number }): ServerMsg {
@@ -380,7 +386,12 @@ export function seatMessage(st: RoomState, seat: Seat, msg: ClientMsg, nowMs: nu
       }
       st.lastHashTick = msg.tick;
       for (const k of Object.keys(st.hashes)) if (Number(k) <= st.lastHashTick) delete st.hashes[Number(k)];
-      if (a === b) return [{ kind: 'send', to: 'all', msg: { t: 'hashOk', tick: msg.tick } }];
+      if (a === b) {
+        const hashOk: Effect = { kind: 'send', to: 'all', msg: { t: 'hashOk', tick: msg.tick } };
+        // Before the hashOk, so the room learns the agreed digest before it tells the seats.
+        if (st.config !== null && isSnapshotTick(msg.tick, snapshotEvery(st.config))) return [{ kind: 'agreed', tick: msg.tick, h: a }, hashOk];
+        return [hashOk];
+      }
       endRoom(st, 'void', nowMs);
       return [{ kind: 'send', to: 'all', msg: { t: 'desync', tick: msg.tick, hashes: [a, b] } }];
     }

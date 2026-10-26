@@ -4,8 +4,10 @@
  * `acceptSocket`, the half of `/ws` that runs under node -- a
  * `WebSocketPair` and a 101 `Response` exist only in workerd.
  */
+import { setImmediate as realImmediate } from 'node:timers/promises';
+import { gunzipSync } from 'node:zlib';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { OVER_CLOSE_MS, validateConfig, type AdvisorMsg, type AdvisorScope, type ServerMsg, type Seat } from '@lions/net';
+import { OVER_CLOSE_MS, sha256Hex, validateConfig, type AdvisorMsg, type AdvisorScope, type ServerMsg, type Seat } from '@lions/net';
 import type { D1Like, Env } from '../d1';
 import { openTestD1 } from '../test-d1';
 import { FakeState, deliverAlarm, deliverClose, deliverError, openSocket, type FakeSocket } from './fake-do';
@@ -13,8 +15,12 @@ import { ADVISOR_MIN_GAP_MS, BATCH_TICKS, HELLO_TIMEOUT_MS, MAX_ROOM_SOCKETS, Ma
 import { ROOM_TTL_MS } from './room-core';
 import type { RoomState } from './room-core';
 import { signTicket } from './ticket';
+import { gzip, maxSizeBomb, snapshotBytes } from './snapshot-fixture';
+import type { PendingBook, ReservationBook } from './snapshot-intake';
 
 const NOW = 1_790_000_000_000;
+/** The tests run on fake timers, which never fire the inflate's zero-delay timer turn: a real event-loop turn stands in. */
+const YIELD = { inflateYield: (): Promise<void> => realImmediate() };
 /** Where a room created at NOW keeps its alarm while nothing else wants one (#559 H-1). */
 const TTL_AT = NOW + ROOM_TTL_MS + 1;
 const SECRET = 'room-test-secret';
@@ -30,10 +36,10 @@ const last = (ws: FakeSocket): ServerMsg | undefined => msgs(ws).at(-1);
 const ofType = <T extends ServerMsg['t']>(ws: FakeSocket, t: T): Extract<ServerMsg, { t: T }>[] =>
   msgs(ws).filter((m): m is Extract<ServerMsg, { t: T }> => m.t === t);
 
-interface CreateOpts { mode?: string; join?: boolean; code?: string; db?: D1Like; matchup?: string; kind?: string; pace?: unknown; joinKind?: string; kit?: unknown; tiers?: unknown; joinTiers?: unknown }
+interface CreateOpts { mode?: string; join?: boolean; code?: string; db?: D1Like; matchup?: string; snapshotEveryTicks?: number; kind?: string; pace?: unknown; joinKind?: string; kit?: unknown; tiers?: unknown; joinTiers?: unknown }
 /** Creates the room and, unless `join: false`, has the guest reserve seat 1 as the Worker does. */
 async function created(state = new FakeState(), opts: CreateOpts = {}): Promise<{ state: FakeState; room: MatchRoom }> {
-  const room = new MatchRoom(state, opts.db ? ({ ...env, DB: opts.db } as Env) : env);
+  const room = new MatchRoom(state, opts.db ? ({ ...env, DB: opts.db } as Env) : env, opts.snapshotEveryTicks === undefined ? YIELD : { ...YIELD, snapshotEveryTicks: opts.snapshotEveryTicks });
   const res = await room.fetch(new Request('https://room/create', {
     method: 'POST',
     body: JSON.stringify({ code: opts.code ?? CODE, matchId: opts.code ?? CODE, map: 'tel_marum', build: BUILD, player: 'p-host', callsign: 'Host', ...(opts.mode ? { mode: opts.mode } : {}), ...(opts.matchup ? { matchup: opts.matchup } : {}), ...(opts.kind ? { kind: opts.kind } : {}), ...(opts.pace ? { pace: opts.pace } : {}), ...(opts.kit !== undefined ? { kit: opts.kit } : {}), ...(opts.tiers !== undefined ? { tiers: opts.tiers } : {}) }),
@@ -245,7 +251,7 @@ describe('MatchRoom', () => {
       ['beit_sahwan_outskirts', 'mirror', 200], ['milh_flats', 'mirror', 200], ['tel_marum', 'sarim', 200], ['wadi_tarfan', 'sarim', 200], ['wadi_tarfan', 'kdf', 200],
     ] as const) {
       const state = new FakeState();
-      const room = new MatchRoom(state, env);
+      const room = new MatchRoom(state, env, YIELD);
       const res = await room.fetch(new Request('https://room/create', {
         method: 'POST',
         body: JSON.stringify({ code: CODE, matchId: CODE, map, build: BUILD, player: 'p-host', callsign: 'Host', mode: 'versus', matchup }),
@@ -263,7 +269,7 @@ describe('MatchRoom', () => {
       ['qarn_hadid', 'sandbox', 200],
     ] as const) {
       const state = new FakeState();
-      const room = new MatchRoom(state, env);
+      const room = new MatchRoom(state, env, YIELD);
       const res = await room.fetch(new Request('https://room/create', {
         method: 'POST',
         body: JSON.stringify({ code: CODE, matchId: CODE, map, build: BUILD, player: 'p-host', callsign: 'Host', mode }),
@@ -287,7 +293,7 @@ describe('MatchRoom', () => {
     delete stored.factions;
     await state.storage.put('state', stored);
     evict();
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     const ws = await hello(revived, 1);
     expect(ofType(ws, 'lobby').at(-1)?.factions).toEqual(['kdf', 'kdf']);
   });
@@ -323,7 +329,7 @@ describe('MatchRoom', () => {
     const { state, ws0 } = await running({ mode: 'versus' });
     const tokens = ofType(ws0, 'start')[0].config.seats.map((s) => s.player);
     evict();
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     const back = await hello(revived, 1);
     const [log] = ofType(back, 'log');
     expect(log.config.seats.map((s) => s.player)).toEqual(tokens);
@@ -340,7 +346,7 @@ describe('MatchRoom', () => {
     delete meta.tokens;
     state.storage.kv.set('meta', meta);
     evict();
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     const ws0 = await hello(revived, 0);
     const ws1 = await hello(revived, 1);
     await say(revived, ws0, { t: 'ready' });
@@ -349,7 +355,7 @@ describe('MatchRoom', () => {
     expect(tokens.every((t) => /^[0-9a-f]{16}$/.test(t))).toBe(true);
     expect(JSON.stringify(ofType(ws0, 'start')[0]).includes('p-host')).toBe(false);
     evict();
-    const again = new MatchRoom(state, env);
+    const again = new MatchRoom(state, env, YIELD);
     const back = await hello(again, 0);
     expect(ofType(back, 'log')[0].config.seats.map((s) => s.player)).toEqual(tokens);
   });
@@ -392,7 +398,7 @@ describe('MatchRoom', () => {
     const codes: string[] = [];
     try {
       const state = new FakeState();
-      const room = new MatchRoom(state, env, { tickMs: 7, seed: (code) => { codes.push(code); return 7; } });
+      const room = new MatchRoom(state, env, { ...YIELD, tickMs: 7, seed: (code) => { codes.push(code); return 7; } });
       const res = await room.fetch(new Request('https://room/create', {
         method: 'POST', body: JSON.stringify({ code: CODE, matchId: CODE, map: 'tel_marum', build: BUILD, player: 'p-host', callsign: 'Host', mode: 'versus' }),
       }));
@@ -426,7 +432,7 @@ describe('MatchRoom', () => {
   it('an unknown mode is a sandbox, and /create refuses an empty player', async () => {
     const { ws0 } = await running({ mode: 'conquest' });
     expect(ofType(ws0, 'start')[0].config.mode).toBe('sandbox');
-    const room = new MatchRoom(new FakeState(), env);
+    const room = new MatchRoom(new FakeState(), env, YIELD);
     for (const player of [undefined, '', 7]) {
       const res = await room.fetch(new Request('https://room/create', { method: 'POST', body: JSON.stringify({ code: CODE, matchId: CODE, build: BUILD, ...(player === undefined ? {} : { player }) }) }));
       expect(res.status).toBe(400);
@@ -442,7 +448,7 @@ describe('MatchRoom', () => {
   });
 
   it('a callsign handed to the room directly is cleaned too: the lobby and the config never carry a control or bidi character', async () => {
-    const room = new MatchRoom(new FakeState(), env);
+    const room = new MatchRoom(new FakeState(), env, YIELD);
     await room.fetch(new Request('https://room/create', {
       method: 'POST',
       body: JSON.stringify({ code: CODE, matchId: CODE, map: 'tel_marum', build: BUILD, player: 'p-host', callsign: 'Ho\u202Est\u0000', mode: 'versus' }),
@@ -473,7 +479,7 @@ describe('MatchRoom', () => {
   });
 
   it('two concurrent /create calls: exactly one makes the room, the other 409 (N1a final review)', async () => {
-    const room = new MatchRoom(new FakeState(), env);
+    const room = new MatchRoom(new FakeState(), env, YIELD);
     // As the /join case: a body that yields before it is read, so a check made before the read cannot pass.
     const create = (callsign: string) => {
       const req = new Request('https://room/create', {
@@ -497,7 +503,7 @@ describe('MatchRoom', () => {
     await hello(room, 0);
     await hello(room, 1);
     evict();
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     const ws0 = await hello(revived, 0);
     const ws1 = await hello(revived, 1);
     await say(revived, ws0, { t: 'ready' });
@@ -525,7 +531,7 @@ describe('MatchRoom', () => {
     await hello(room, 1);
     state.storage.kv.set('meta', { map: 'tel_marum', build: BUILD, seat1Reserved: true });
     evict();
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     const ws0 = await hello(revived, 0);
     const ws1 = await hello(revived, 1);
     expect(ofType(ws0, 'lobby').at(-1)?.seats.map((s) => s.callsign)).toEqual(['Host', 'Guest']);
@@ -572,7 +578,7 @@ describe('MatchRoom', () => {
     const sent = ofType(ws0, 'frame').map((f) => ({ tick: f.tick, cmds: f.cmds }));
     expect(sent.map((f) => f.tick)).toEqual([...Array(26).keys()]);
     evict();   // the isolate dies; storage and the hibernated sockets survive
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     await hello(revived, 1);   // a handler: the revived clock starts at the last persisted tick
     await vi.advanceTimersByTimeAsync(6 * TICK_MS);
     const [log] = ofType(await hello(revived, 0), 'log');
@@ -603,7 +609,7 @@ describe('MatchRoom', () => {
     const sent = BATCH_TICKS + 2;
     await vi.advanceTimersByTimeAsync(sent * TICK_MS);
     evict();
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     await vi.advanceTimersByTimeAsync(4 * TICK_MS);
     expect(ofType(ws1, 'frame')).toHaveLength(sent);   // no handler, no clock
     await deliverAlarm(revived, state.storage);
@@ -621,7 +627,7 @@ describe('MatchRoom', () => {
     expect(state.storage.alarmAt).toBe(TTL_AT);
     expect(vi.getTimerCount()).toBe(0);
     evict();
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     await deliverAlarm(revived, state.storage);
     expect(state.storage.alarmAt).toBe(TTL_AT);   // no watchdog: the room may sleep until its TTL
     expect(vi.getTimerCount()).toBe(0);
@@ -635,7 +641,7 @@ describe('MatchRoom', () => {
     const { state, ws0, ws1 } = await running();
     await vi.advanceTimersByTimeAsync(3 * TICK_MS);
     evict();
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     await deliverClose(revived, ws0, 1006, 'abnormal');
     await deliverClose(revived, ws1, 1006, 'abnormal');
     await deliverAlarm(revived, state.storage);
@@ -649,7 +655,7 @@ describe('MatchRoom', () => {
     expect(state.storage.alarmAt).not.toBeNull();
     state.vanish(ws0, ws1);
     evict();
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     const before = state.storage.rowsWritten;
     await deliverAlarm(revived, state.storage);
     expect((await persisted(state)).seats.map((s) => s?.connected)).toEqual([false, false]);
@@ -663,7 +669,7 @@ describe('MatchRoom', () => {
     await vi.advanceTimersByTimeAsync(3 * TICK_MS);
     state.vanish(ws1);
     evict();
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     await deliverAlarm(revived, state.storage);
     expect((await persisted(state)).seats.map((s) => s?.connected)).toEqual([true, false]);
     expect(last(ws0)).toEqual({ t: 'stall', reason: 'gone', seat: 1 });
@@ -674,7 +680,7 @@ describe('MatchRoom', () => {
     const { state, ws0 } = await running();
     expect(state.storage.alarmAt).not.toBeNull();
     evict();
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     vi.setSystemTime(Date.now() + 6 * 3600 * 1000 + 1);
     await say(revived, ws0, { t: 'ready' });   // any handler: the TTL ends the room
     expect((await persisted(state)).status).toBe('ended');
@@ -720,7 +726,7 @@ describe('MatchRoom', () => {
     await say(room, ws0, { t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [1, 2, 3] } });
     await vi.advanceTimersByTimeAsync(2 * TICK_MS);
     evict();
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     await revived.fetch(new Request('https://room/state'));
     const st = (revived as unknown as { st: RoomState }).st;
     expect(st.cmdChars).toBe(JSON.stringify({ kind: 'halt', ids: [1, 2, 3] }).length);
@@ -729,7 +735,7 @@ describe('MatchRoom', () => {
   describe('#559 H-1: storage exists only between /create and the wipe', () => {
     it('a probe of a code with no room -- /state, /join, a hello, a close, an alarm -- touches no storage at all', async () => {
       const state = new FakeState();
-      const room = new MatchRoom(state, env);
+      const room = new MatchRoom(state, env, YIELD);
       expect((await room.fetch(new Request('https://room/state'))).status).toBe(404);
       expect((await room.fetch(new Request('https://room/join', { method: 'POST', body: '{}' }))).status).toBe(404);
       const ws = await hello(room, 0);
@@ -753,12 +759,12 @@ describe('MatchRoom', () => {
       const { state } = await created();
       evict();
       vi.setSystemTime(TTL_AT);
-      await deliverAlarm(new MatchRoom(state, env), state.storage);
+      await deliverAlarm(new MatchRoom(state, env, YIELD), state.storage);
       expect((await persisted(state))).toMatchObject({ status: 'ended', endedReason: 'expired', endedAtMs: TTL_AT });
       expect(state.storage.alarmAt).toBe(TTL_AT + PURGE_AFTER_MS);
       evict();
       vi.setSystemTime(TTL_AT + PURGE_AFTER_MS);
-      await deliverAlarm(new MatchRoom(state, env), state.storage);
+      await deliverAlarm(new MatchRoom(state, env, YIELD), state.storage);
       expect(state.storage.kv.size + state.storage.batches.size).toBe(0);
       expect(state.storage.hasTable).toBe(false);
       expect(state.storage.alarmAt).toBeNull();
@@ -829,7 +835,7 @@ describe('MatchRoom', () => {
     // A running room whose instance was evicted, reached by its alarm after the TTL.
     const old = await running();
     evict();
-    const revived = new MatchRoom(old.state, env);
+    const revived = new MatchRoom(old.state, env, YIELD);
     vi.setSystemTime(Date.now() + 6 * 3600 * 1000 + 1);
     await deliverAlarm(revived, old.state.storage);
     expect(last(old.ws0)).toEqual({ t: 'ended', reason: 'expired' });
@@ -844,7 +850,7 @@ describe('MatchRoom', () => {
     expect(last(ws0)).toMatchObject({ t: 'stall', reason: 'gone', seat: 1 });
     expect(ofType(ws0, 'dropped')).toEqual([{ t: 'dropped', seat: 1, remainingMs: 60_000 }]);
     evict();   // the clock dies with the isolate: the watchdog alarm brings it back, and the drop date was persisted
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     vi.setSystemTime(Date.now() + 60_000);
     await deliverAlarm(revived, state.storage);
     expect(last(ws0)).toEqual({ t: 'ended', reason: 'forfeit', seat: 1 });
@@ -881,7 +887,7 @@ describe('MatchRoom', () => {
     expect(last(ws0)).toEqual({ t: 'ended', reason: 'surrender', seat: 1 });
     expect(last(ws1)).toEqual({ t: 'ended', reason: 'surrender', seat: 1 });
     evict();
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     const late = await hello(revived, 0);
     expect(last(late)).toEqual({ t: 'ended', reason: 'surrender', seat: 1 });
   });
@@ -949,14 +955,14 @@ describe('MatchRoom', () => {
 
   it('#559 F5: /create refuses a map the game does not ship, and stores nothing', async () => {
     const state = new FakeState();
-    const room = new MatchRoom(state, env);
+    const room = new MatchRoom(state, env, YIELD);
     const res = await room.fetch(new Request('https://room/create', { method: 'POST', body: JSON.stringify({ code: CODE, matchId: CODE, build: BUILD, player: 'p', map: '__proto__' }) }));
     expect(res.status).toBe(400);
     expect(state.storage.rowsWritten).toBe(0);
   });
 
   it('/create refuses an empty build, so the hello build check can never be off', async () => {
-    const room = new MatchRoom(new FakeState(), env);
+    const room = new MatchRoom(new FakeState(), env, YIELD);
     const res = await room.fetch(new Request('https://room/create', { method: 'POST', body: JSON.stringify({ code: CODE, matchId: CODE, player: 'p-host' }) }));
     expect(res.status).toBe(400);
     expect((await room.fetch(new Request('https://room/state'))).status).toBe(404);
@@ -965,7 +971,7 @@ describe('MatchRoom', () => {
   it('a room whose meta was never written refuses every hello on build, even an empty one', async () => {
     const { state } = await created();
     state.storage.kv.delete('meta');
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     for (const build of [BUILD, '']) {
       const ws = await hello(revived, 0, undefined, build);
       expect(msgs(ws)).toEqual([{ t: 'error', code: 'build_mismatch' }]);
@@ -980,7 +986,7 @@ describe('MatchRoom', () => {
     expect(await first.json()).toEqual({ seat: 1 });
     expect((await join()).status).toBe(409);
     // ...and the reservation outlives the instance.
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     expect((await revived.fetch(new Request('https://room/join', { method: 'POST', body: '{}' }))).status).toBe(409);
   });
 
@@ -1006,7 +1012,7 @@ describe('MatchRoom', () => {
     await deliverClose(room, ws1, 1006, 'abnormal');   // seat 1 gone: the room stalls and writes its state
     expect(ofType(ws0, 'stall')).toEqual([{ t: 'stall', reason: 'gone', seat: 1 }]);
     evict();   // the isolate dies; storage and the hibernated sockets survive
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     const back = await hello(revived, 1);
     const [log] = ofType(back, 'log');
     expect(log.frames.map((f) => f.tick)).toEqual([...Array(sent).keys()]);
@@ -1027,7 +1033,7 @@ describe('MatchRoom', () => {
     await vi.advanceTimersByTimeAsync(sent * TICK_MS);
     expect(ofType(ws1, 'frame').map((f) => f.tick)).toEqual([...Array(sent).keys()]);
     evict();   // the isolate dies; storage and the hibernated sockets survive
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     await vi.advanceTimersByTimeAsync(4 * TICK_MS);
     expect(ofType(ws1, 'frame')).toHaveLength(sent);   // nothing runs a clock until a handler does
     await wake(revived, ws0);
@@ -1052,7 +1058,7 @@ describe('MatchRoom', () => {
       const stale: Partial<RoomState> = st;
       delete stale.map;
       await state.storage.put('state', st);
-      const revived = new MatchRoom(state, env);
+      const revived = new MatchRoom(state, env, YIELD);
       const ws0 = await hello(revived, 0);
       expect(ofType(ws0, 'lobby').at(-1)?.map).toBe('tel_marum');
     });
@@ -1259,7 +1265,7 @@ describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () =>
     // The isolate dies after every wake: only the storage alarm brings the room back.
     for (let i = 0; i < 100 && state.storage.alarmAt !== null && ofType(ws0, 'ended').length === 0; i++) {
       evict();
-      const instance = new MatchRoom(state, env);
+      const instance = new MatchRoom(state, env, YIELD);
       vi.setSystemTime(state.storage.alarmAt);
       wakes.push(Date.now());
       await deliverAlarm(instance, state.storage);
@@ -1282,7 +1288,7 @@ describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () =>
     expect(vi.getTimerCount()).toBe(0);   // abandoned: no clock
     expect(state.storage.alarmAt).toBe(closeAt);   // but the deadline still wakes it
     evict();
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     // A wake before the deadline (an alarm left from before) re-aims it rather than losing it.
     vi.setSystemTime(closeAt - 10_000);
     await deliverAlarm(revived, state.storage);
@@ -1460,7 +1466,7 @@ describe('advisor sockets (N4a task 7)', () => {
     const { state, room, ws0 } = await running({ mode: 'versus' });
     const adv = await advisorHello(room, 0, 'assist');
     evict();
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     await say(revived, adv, { t: 'advisor', a: PROPOSAL });
     expect(relays(ws0)).toEqual([{ t: 'advisor', from: 'advisor', a: PROPOSAL }]);
     await say(revived, ws0, { t: 'advisor', a: { kind: 'veto', id: 1 } });
@@ -1474,7 +1480,7 @@ describe('advisor sockets (N4a task 7)', () => {
     await advisorHello(room, 0, 'assist');
     evict();
     state.vanish(ws0);
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     await say(revived, ws1, { t: 'ack', tick: 0 });
     expect((await persisted(state)).seats[0]?.connected).toBe(false);
     expect(ofType(ws1, 'dropped').map((m) => m.seat)).toEqual([0]);
@@ -1511,7 +1517,7 @@ describe('advisor sockets (N4a task 7)', () => {
     await vi.advanceTimersByTimeAsync(3 * TICK_MS);
     await say(room, ws0, { t: 'surrender' });
     evict();
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     const adv = await advisorHello(revived, 0, 'assist');
     expect(msgs(adv)).toEqual([{ t: 'ended', reason: 'surrender', seat: 0 }]);
     const seat = await hello(revived, 0);
@@ -1566,7 +1572,7 @@ describe('bot seats and the paced config (N4a task 7, D5)', () => {
     delete meta?.kinds;
     delete meta?.pace;
     await state.storage.put('meta', meta);
-    const room = new MatchRoom(state, env);
+    const room = new MatchRoom(state, env, YIELD);
     const ws0 = await hello(room, 0);
     const ws1 = await hello(room, 1);
     await say(room, ws0, { t: 'ready' });
@@ -1600,7 +1606,7 @@ describe('bot seats and the paced config (N4a task 7, D5)', () => {
     const at = state.storage.alarmAt;
     expect(at).not.toBeNull();
     evict();
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     vi.setSystemTime(at ?? 0);
     await deliverAlarm(revived, state.storage);
     await vi.advanceTimersByTimeAsync(3 * TICK_MS);
@@ -1659,7 +1665,7 @@ describe('per-seat kit: the room records each seat\'s claim and mints it only in
     delete meta?.kit;
     delete meta?.claims;
     await state.storage.put('meta', meta);
-    const room = new MatchRoom(state, env);
+    const room = new MatchRoom(state, env, YIELD);
     const ws0 = await hello(room, 0);
     const ws1 = await hello(room, 1);
     await say(room, ws0, { t: 'ready' });
@@ -1675,7 +1681,7 @@ describe('per-seat kit: the room records each seat\'s claim and mints it only in
     meta.claims = [JSON.parse('{"mbt_lavi":{"armour":99},"__proto__":{"armour":1}}'), { at_team: { firepower: 1 }, nope: { armour: 1 } }];
     await state.storage.put('meta', meta);
     const c1 = await (async () => {
-      const room = new MatchRoom(state, env);
+      const room = new MatchRoom(state, env, YIELD);
       const ws0 = await hello(room, 0);
       const ws1 = await hello(room, 1);
       await say(room, ws0, { t: 'ready' });
@@ -1688,11 +1694,957 @@ describe('per-seat kit: the room records each seat\'s claim and mints it only in
     if (!m2) throw new Error('no meta');
     m2.claims = 'junk';
     await other.state.storage.put('meta', m2);
-    const room = new MatchRoom(other.state, env);
+    const room = new MatchRoom(other.state, env, YIELD);
     const ws0 = await hello(room, 0);
     const ws1 = await hello(room, 1);
     await say(room, ws0, { t: 'ready' });
     await say(room, ws1, { t: 'ready' });
     expect(ofType(ws0, 'start')[0].config.seats.map((s) => [s.kit, s.tiers])).toEqual([['brigade', {}], ['brigade', {}]]);
+  });
+});
+
+describe('hello.from (D6, snapshot S3)', () => {
+  type FrameT = { tick: number; cmds: unknown[] };
+  const logOf = (ws: FakeSocket): ReturnType<typeof ofType<'log'>> => ofType(ws, 'log');
+  const framesOf = (ws: FakeSocket): FrameT[] => logOf(ws).flatMap((l) => l.frames);
+  /** A hello that may carry `from`. */
+  async function helloFrom(room: MatchRoom, seat: Seat, from?: number, t?: string): Promise<FakeSocket> {
+    const ws = openSocket(room);
+    await say(room, ws, { t: 'hello', ticket: t ?? (await ticket(seat)), build: BUILD, ...(from === undefined ? {} : { from }) });
+    return ws;
+  }
+  /** Both seats ack every 10 ticks, as clients do (a seat 40 ticks behind stalls the room). */
+  const live = new Map<MatchRoom, FakeSocket[]>();
+  async function step(n: number, room?: MatchRoom): Promise<void> {
+    const r = room ?? [...live.keys()].at(-1);
+    for (let left = n; left > 0; left -= 10) {
+      await vi.advanceTimersByTimeAsync(Math.min(10, left) * TICK_MS);
+      if (!r) continue;
+      for (const ws of live.get(r) ?? []) {
+        const tick = ofType(ws, 'frame').at(-1)?.tick;
+        if (tick !== undefined && ws.closed === null) await say(r, ws, { t: 'ack', tick });
+      }
+    }
+  }
+  const halt = (id: number) => ({ kind: 'halt', ids: [id] });
+  /** 56 ticks (0..55) with orders at tick 10 and tick 44. Batches: 0..10 and 11..30 (filled: 11..30), 31..44, 45..55 open... see the assertions. */
+  async function played(): Promise<{ state: FakeState; room: MatchRoom; ws0: FakeSocket; ws1: FakeSocket }> {
+    const r = await running();
+    live.clear();
+    live.set(r.room, [r.ws0, r.ws1]);
+    await step(10);
+    await say(r.room, r.ws0, { t: 'cmd', seq: 0, cmd: halt(1) });   // minted at tick 10
+    await step(34);
+    await say(r.room, r.ws1, { t: 'cmd', seq: 0, cmd: halt(2) });   // minted at tick 44
+    await step(12);
+    return r;
+  }
+  const full = async (room: MatchRoom): Promise<FrameT[]> => framesOf(await helloFrom(room, 1));
+
+  it('1. a hello without from gets today\'s log, byte for byte, with no from key (G-5)', async () => {
+    const { room } = await played();
+    const ws = await helloFrom(room, 1);
+    const [text] = ws.sent.filter((t) => t.startsWith('{"t":"log"'));
+    const [log] = logOf(ws);
+    expect(text).toBe(JSON.stringify({ t: 'log', config: log.config, frames: log.frames, part: 0, parts: 1 }));
+    expect(text).not.toContain('"from"');
+    expect(log.frames.map((f) => f.tick)).toEqual([...Array(log.frames.length).keys()]);
+  });
+
+  it('2. from 0 answers the full log, echoed', async () => {
+    const { room } = await played();
+    const all = await full(room);
+    const ws = await helloFrom(room, 1, 0);
+    expect(framesOf(ws)).toEqual(all);
+    expect(logOf(ws).every((l) => l.from === 0)).toBe(true);
+  });
+
+  it('3. from inside a persisted batch gives exactly the full log from that tick, and echoes it', async () => {
+    const { state, room } = await played();
+    const all = await full(room);
+    const from = 38;
+    // The test needs a batch that really spans `from`, with orders on both sides of it.
+    const spans = [...state.storage.batches.keys()].some((k) => k < from && from < k + row(state, k).length);
+    expect(spans).toBe(true);
+    expect(all.filter((f) => f.tick < from && f.cmds.length > 0).length).toBeGreaterThan(0);
+    expect(all.filter((f) => f.tick >= from && f.cmds.length > 0).length).toBeGreaterThan(0);
+    const ws = await helloFrom(room, 1, from);
+    expect(framesOf(ws)).toEqual(all.filter((f) => f.tick >= from));
+    expect(framesOf(ws)[0].tick).toBe(from);
+    expect(logOf(ws).every((l) => l.from === from)).toBe(true);
+  });
+
+  it('4. from inside the open (unflushed) batch: no duplicate, even when a state write flushed a partial row', async () => {
+    const { state, room } = await played();
+    const all = await full(room);
+    const seat1 = await helloFrom(room, 1);   // the live socket of seat 1
+    const openFirst = 45;   // the order at tick 44 closed a batch, so 45..55 are open
+    expect(state.storage.batches.has(openFirst)).toBe(false);
+    await deliverClose(room, seat1, 1006, 'abnormal');   // a state write: it flushes the open batch's partial row
+    expect(state.storage.batches.has(openFirst)).toBe(true);
+    const from = 50;
+    const ws = await helloFrom(room, 1, from);
+    const ticks = framesOf(ws).map((f) => f.tick);
+    expect(ticks).toEqual(all.filter((f) => f.tick >= from).map((f) => f.tick));
+    expect(new Set(ticks).size).toBe(ticks.length);
+  });
+
+  it('5. from === st.tick and from > st.tick: one part with no frames', async () => {
+    const { room, ws0 } = await played();
+    const next = ofType(ws0, 'frame').at(-1)!.tick + 1;
+    for (const from of [next, next + 500]) {
+      const ws = await helloFrom(room, 1, from);
+      expect(logOf(ws)).toHaveLength(1);
+      expect(logOf(ws)[0]).toMatchObject({ frames: [], part: 0, parts: 1, from });
+    }
+  });
+
+  it('6. after an eviction the revived room is behind the client\'s from: one empty part, then the re-minted ticks as frames', async () => {
+    const { state, ws1 } = await running();
+    await step(30);   // 0..19 closed by filling; 20..29 are memory only
+    expect(ofType(ws1, 'frame').at(-1)?.tick).toBe(29);
+    evict();
+    const revived = new MatchRoom(state, env, YIELD);
+    const back = await helloFrom(revived, 1, 30);
+    expect(logOf(back)).toHaveLength(1);
+    expect(logOf(back)[0]).toMatchObject({ frames: [], from: 30 });
+    await step(12);
+    const ticks = ofType(back, 'frame').map((f) => f.tick);
+    expect(ticks[0]).toBe(20);   // the revived clock restarts at the last persisted batch
+    expect(ticks.length).toBeGreaterThan(8);
+  });
+
+  it('7. an advisor\'s hello with from, and an ended room\'s replay with from', async () => {
+    const { room, ws0 } = await played();
+    const all = await full(room);
+    const ws1 = await helloFrom(room, 1);   // the live socket of seat 1
+    const advTicket = await signTicket(SECRET, { matchId: CODE, seat: 0, player: 'advisor', exp: NOW + 3600 * 1000, role: 'advisor', scope: 'assist' });
+    const adv = await helloFrom(room, 0, 38, advTicket);
+    expect(framesOf(adv)).toEqual(all.filter((f) => f.tick >= 38));
+    expect(logOf(adv).every((l) => l.from === 38)).toBe(true);
+    // The ended-room replay: both seats report the same result tick, the room closes itself.
+    const tick = 40;
+    await say(room, ws0, { t: 'over', tick });
+    await say(room, ws1, { t: 'over', tick });
+    await vi.advanceTimersByTimeAsync(OVER_CLOSE_MS + TICK_MS);
+    expect((await room.fetch(new Request('https://room/state'))).status).toBe(200);
+    const late = await helloFrom(room, 1, 38);
+    expect(last(late)).toEqual({ t: 'ended', reason: 'over' });
+    expect(logOf(late).length).toBeGreaterThan(0);
+    expect(framesOf(late).map((f) => f.tick)[0]).toBe(38);
+    expect(framesOf(late).every((f) => f.tick >= 38)).toBe(true);
+    expect(logOf(late).every((l) => l.from === 38)).toBe(true);
+    const lateAll = framesOf(await helloFrom(room, 1));
+    expect(lateAll[0].tick).toBe(0);
+  });
+
+  it('8. a rejoin half way through a long match reads only the batch rows that can hold its ticks', async () => {
+    const { state, room, ws0, ws1 } = await running();
+    live.clear();
+    live.set(room, [ws0, ws1]);
+    await step(2400);
+    const from = 1500;
+    const keys = [...state.storage.batches.keys()];
+    expect(keys.length).toBeGreaterThanOrEqual(120);
+    const readsOf = async (f?: number): Promise<{ delta: number; ws: FakeSocket }> => {
+      const before = state.storage.rowsRead;
+      const ws = await helloFrom(room, 1, f);
+      return { delta: state.storage.rowsRead - before, ws };
+    };
+    const whole = await readsOf();
+    const trimmed = await readsOf(from);
+    expect(whole.delta).toBe(keys.length);
+    expect(trimmed.delta).toBe(keys.filter((k) => k > from - BATCH_TICKS).length);
+    expect(trimmed.delta).toBeLessThan(whole.delta / 2);
+    expect(framesOf(trimmed.ws).map((f) => f.tick)[0]).toBe(from);
+    expect(framesOf(trimmed.ws).map((f) => f.tick)).toEqual(framesOf(whole.ws).filter((f) => f.tick >= from).map((f) => f.tick));
+  }, 5_000);   // measured 0.2 s
+});
+
+describe('the room mints the snapshot cadence and learns agreed digests (snapshot S3)', () => {
+  const startOf = (ws: FakeSocket): Extract<ServerMsg, { t: 'start' }> | undefined => ofType(ws, 'start').at(0);
+  /** `n` ticks, both seats acking every ten as clients do (a seat 40 ticks behind stalls the room). */
+  async function run(room: MatchRoom, socks: FakeSocket[], n: number): Promise<void> {
+    for (let left = n; left > 0; left -= 10) {
+      await vi.advanceTimersByTimeAsync(Math.min(10, left) * TICK_MS);
+      for (const ws of socks) {
+        const tick = ofType(ws, 'frame').at(-1)?.tick;
+        if (tick !== undefined && ws.closed === null) await say(room, ws, { t: 'ack', tick });
+      }
+    }
+  }
+  const agreedOf = (room: MatchRoom): Map<number, number> => (room as unknown as { agreedDigests: Map<number, number> }).agreedDigests;
+
+  it('the minted start config carries snapshotEveryTicks 1200', async () => {
+    const { ws0 } = await running();
+    expect(startOf(ws0)?.config.snapshotEveryTicks).toBe(1200);
+  });
+
+  it('the snapshotEveryTicks option makes it 40; 0 turns it off; an odd value falls back to 1200', async () => {
+    expect(startOf((await running({ snapshotEveryTicks: 40 })).ws0)?.config.snapshotEveryTicks).toBe(40);
+    expect(startOf((await running({ snapshotEveryTicks: 0 })).ws0)?.config.snapshotEveryTicks).toBe(0);
+    expect(startOf((await running({ snapshotEveryTicks: 30 })).ws0)?.config.snapshotEveryTicks).toBe(1200);
+    expect(startOf((await running({ snapshotEveryTicks: 72_020 })).ws0)?.config.snapshotEveryTicks).toBe(1200);
+    expect(startOf((await running({ snapshotEveryTicks: -40 })).ws0)?.config.snapshotEveryTicks).toBe(1200);
+  });
+
+  it('an agreed effect leaves both seats\' sockets open and unretired, and writes no row', async () => {
+    const { state, room, ws0, ws1 } = await running({ snapshotEveryTicks: 40 });
+    await run(room, [ws0, ws1], 45);
+    const before = state.storage.rowsWritten;
+    await say(room, ws0, { t: 'hash', tick: 39, h: 5 });
+    await say(room, ws1, { t: 'hash', tick: 39, h: 5 });
+    expect(agreedOf(room).get(39)).toBe(5);   // the effect really arrived
+    expect(state.storage.rowsWritten - before).toBe(0);
+    for (const ws of [ws0, ws1]) expect(ws.closed).toBeNull();
+    expect(ofType(ws0, 'hashOk').at(-1)).toEqual({ t: 'hashOk', tick: 39 });
+    // A seat's socket still speaks for its seat: a later order is accepted, not dropped by a retired socket.
+    await say(room, ws0, { t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [1] } });
+    expect(ofType(ws0, 'error')).toEqual([]);
+  });
+
+  it('keeps the agreed digest of the two newest snapshot ticks only (memory, three agreements -> two entries)', async () => {
+    const { room, ws0, ws1 } = await running({ snapshotEveryTicks: 40 });
+    await run(room, [ws0, ws1], 125);
+    for (const [tick, h] of [[39, 111], [79, -559038737], [119, 333]] as const) {
+      await say(room, ws0, { t: 'hash', tick, h });
+      await say(room, ws1, { t: 'hash', tick, h });
+    }
+    expect([...agreedOf(room).entries()]).toEqual([[79, -559038737], [119, 333]]);
+  });
+});
+
+describe('snapshot upload (snapshot S3)', () => {
+  // Every case below measured under 0.05 s (the room runs on fake timers), so each carries a 2 s bound.
+  /** 0xdeadbeef: above 2^31 on purpose, so the signed hash and the u32 header word are different numbers. */
+  const DIGEST = 3735928559;
+  const HASH = -559038737;
+  const OPTS = { ...YIELD, snapshotEveryTicks: 40 };
+  type Rig = { state: FakeState; room: MatchRoom; ws0: FakeSocket; ws1: FakeSocket; db?: ReturnType<typeof openTestD1> };
+
+  /** `n` ticks, both seats acking every ten as clients do (a seat 40 ticks behind stalls the room). */
+  async function run(room: MatchRoom, socks: FakeSocket[], n: number): Promise<void> {
+    for (let left = n; left > 0; left -= 10) {
+      await vi.advanceTimersByTimeAsync(Math.min(10, left) * TICK_MS);
+      for (const ws of socks) {
+        const tick = ofType(ws, 'frame').at(-1)?.tick;
+        if (tick !== undefined && ws.closed === null) await say(room, ws, { t: 'ack', tick });
+      }
+    }
+  }
+  /** Runs until the room has minted past `tick`. */
+  async function reach(r: { room: MatchRoom; ws0: FakeSocket; ws1: FakeSocket }, tick: number): Promise<void> {
+    while ((ofType(r.ws0, 'frame').at(-1)?.tick ?? -1) < tick + 2) await run(r.room, [r.ws0, r.ws1], 10);
+  }
+  /** The test D1 with every statement taking `hops` microtask turns, so a write the room forgot to await is still unwritten when its handler returns. */
+  function slowD1(inner: ReturnType<typeof openTestD1>, hops = 200): D1Like {
+    const slow = async (): Promise<void> => { for (let i = 0; i < hops; i++) await Promise.resolve(); };
+    const wrap = (st: ReturnType<D1Like['prepare']>): ReturnType<D1Like['prepare']> => ({
+      bind: (...v) => wrap(st.bind(...v)),
+      run: async () => { await slow(); return st.run(); },
+      all: async <T,>() => { await slow(); return st.all<T>(); },
+      first: async <T,>() => { await slow(); return st.first<T>(); },
+    });
+    return { prepare: (sql) => wrap(inner.prepare(sql)), batch: (ss) => inner.batch(ss) };
+  }
+  async function rig(opts: CreateOpts & { slow?: boolean } = {}): Promise<Rig> {
+    const db = openTestD1();
+    const r = await running({ ...OPTS, db: opts.slow ? slowD1(db) : db, ...opts });
+    return { ...r, db };
+  }
+  async function agree(r: Rig, tick: number, h = HASH): Promise<void> {
+    await say(r.room, r.ws0, { t: 'hash', tick, h });
+    await say(r.room, r.ws1, { t: 'hash', tick, h });
+  }
+  /** The compressed body for a tick; `fill` varies the inflated bytes, `digest` the header's match digest. */
+  const bodyFor = (tick: number, fill = 1, digest = DIGEST): Promise<Uint8Array> => gzip(snapshotBytes({ frameTick: tick, matchDigest: digest, fill }));
+  /** The same inflated bytes in a different gzip wrapper (the header's mtime word), so seat 0's and seat 1's bodies can be told apart. */
+  const rewrapped = (gz: Uint8Array): Uint8Array => { const c = gz.slice(); c[4] = 1; return c; };
+  interface PostOver { authorization?: string | null; tick?: string | null; headers?: Record<string, string> }
+  async function post(room: MatchRoom, seat: Seat, tick: number, payload: BodyInit | Uint8Array, over: PostOver = {}): Promise<Response> {
+    const authorization = over.authorization === undefined ? `Bearer ${await ticket(seat)}` : over.authorization;
+    const headers: Record<string, string> = { ...(authorization === null ? {} : { authorization }), ...(over.tick === null ? {} : { 'x-snapshot-tick': over.tick ?? String(tick) }), ...over.headers };
+    return room.fetch(new Request('https://room/snapshot', { method: 'POST', headers, body: payload as BodyInit, duplex: 'half' } as RequestInit));
+  }
+  const d1Rows = (r: Rig): unknown[] => r.db!.raw.prepare('SELECT code, tick, kind, sha_a, sha_b, digest FROM match_snap_mismatch ORDER BY tick').all();
+  const shaOf = (tick: number, fill = 1): Promise<string> => sha256Hex(snapshotBytes({ frameTick: tick, matchDigest: DIGEST, fill }));
+  const bookOf = (room: MatchRoom): PendingBook => (room as unknown as { pending: PendingBook }).pending;
+  const reservedOf = (room: MatchRoom): ReservationBook => (room as unknown as { reserved: ReservationBook }).reserved;
+  const text = async (res: Response): Promise<string> => res.text();
+  /** Every refusal writes no row and keeps whatever snapshot was stored. */
+  async function refused(r: Rig, tick: number, payload: BodyInit | Uint8Array, status: number, why: string, over: PostOver = {}, seat: Seat = 0): Promise<void> {
+    const rows = r.state.storage.rowsWritten;
+    const kept = r.state.storage.snapshotRow;
+    const res = await post(r.room, seat, tick, payload, over);
+    expect([res.status, await text(res)]).toEqual([status, why]);
+    expect(r.state.storage.rowsWritten).toBe(rows);
+    expect(r.state.storage.snapshotRow).toEqual(kept);
+  }
+
+  it('accept, agreed first: both seats hash tick 39, then both upload (202 then 201); one row with the tick, SHA, digest and seat 0\'s bytes', async () => {
+    const r = await rig();
+    await run(r.room, [r.ws0, r.ws1], 45);
+    await agree(r, 39);
+    const rows = r.state.storage.rowsWritten;
+    const gz0 = await bodyFor(39);
+    const gz1 = rewrapped(gz0);
+    expect((await post(r.room, 0, 39, gz0)).status).toBe(202);
+    expect(r.state.storage.snapshotRow).toBeNull();
+    expect((await post(r.room, 1, 39, gz1)).status).toBe(201);
+    const row = r.state.storage.snapshotRow;
+    expect(row).toMatchObject({ frame_tick: 39, sha: await shaOf(39), digest: DIGEST });
+    expect(new Uint8Array(row!.bytes)).toEqual(gz0);
+    expect(new Uint8Array(row!.bytes)).not.toEqual(gz1);
+    expect(r.state.storage.rowsWritten - rows).toBe(1);
+    expect(bookOf(r.room).ticks()).toEqual([]);
+  }, 2_000);
+
+  it('accept, agreed last: both upload (202, 202), then the hash pair agrees and the row is written inside apply', async () => {
+    const r = await rig();
+    await run(r.room, [r.ws0, r.ws1], 45);
+    const rows = r.state.storage.rowsWritten;
+    expect((await post(r.room, 0, 39, await bodyFor(39))).status).toBe(202);
+    expect((await post(r.room, 1, 39, await bodyFor(39))).status).toBe(202);
+    expect(r.state.storage.rowsWritten).toBe(rows);
+    await say(r.room, r.ws0, { t: 'hash', tick: 39, h: HASH });
+    expect(r.state.storage.snapshotRow).toBeNull();
+    await say(r.room, r.ws1, { t: 'hash', tick: 39, h: HASH });
+    expect(r.state.storage.snapshotRow).toMatchObject({ frame_tick: 39, sha: await shaOf(39), digest: DIGEST });
+    expect(r.state.storage.rowsWritten - rows).toBe(1);
+  }, 2_000);
+
+  it('one seat only: 202, then no row after 200 more ticks; the book never exceeds two ticks', async () => {
+    const r = await rig();
+    await run(r.room, [r.ws0, r.ws1], 45);
+    const rows = r.state.storage.rowsWritten;
+    expect((await post(r.room, 0, 39, await bodyFor(39))).status).toBe(202);
+    expect(r.state.storage.rowsWritten).toBe(rows);
+    for (const tick of [79, 119, 159, 199, 239]) {
+      await reach(r, tick);
+      await agree(r, tick - 40);
+      expect((await post(r.room, 0, tick, await bodyFor(tick))).status).toBe(202);
+      expect(bookOf(r.room).ticks().length).toBeLessThanOrEqual(2);
+    }
+    expect(bookOf(r.room).ticks()).toEqual([199, 239]);
+    expect(r.state.storage.snapshotRow).toBeNull();
+  }, 2_000);
+
+  it('SHA mismatch: 409, no DO row, the previous row kept, one D1 row of kind sha with both SHAs; the fourth in one instance writes no D1 row', async () => {
+    const r = await rig();
+    await run(r.room, [r.ws0, r.ws1], 45);
+    await agree(r, 39);
+    await post(r.room, 0, 39, await bodyFor(39));
+    expect((await post(r.room, 1, 39, await bodyFor(39))).status).toBe(201);
+    const kept = r.state.storage.snapshotRow;
+    await reach(r, 79);
+    expect((await post(r.room, 0, 79, await bodyFor(79, 1))).status).toBe(202);
+    const rows = r.state.storage.rowsWritten;
+    const res = await post(r.room, 1, 79, await bodyFor(79, 2));
+    expect([res.status, await text(res)]).toEqual([409, 'mismatch']);
+    expect(r.state.storage.rowsWritten).toBe(rows);
+    expect(r.state.storage.snapshotRow).toEqual(kept);
+    expect(bookOf(r.room).ticks()).toEqual([]);
+    expect(d1Rows(r)).toEqual([{ code: CODE, tick: 79, kind: 'sha', sha_a: await shaOf(79, 1), sha_b: await shaOf(79, 2), digest: DIGEST }]);
+    for (const tick of [119, 159]) {
+      await reach(r, tick);
+      await post(r.room, 0, tick, await bodyFor(tick, 1));
+      expect((await post(r.room, 1, tick, await bodyFor(tick, 2))).status).toBe(409);
+    }
+    expect(d1Rows(r).length).toBe(3);
+    await reach(r, 199);
+    await post(r.room, 0, 199, await bodyFor(199, 1));
+    expect((await post(r.room, 1, 199, await bodyFor(199, 2))).status).toBe(409);
+    expect(d1Rows(r).length).toBe(3);   // the bound is three a room, and the fourth is still refused
+    expect(r.state.storage.snapshotRow).toEqual(kept);
+  }, 2_000);
+
+  it('digest mismatch (same bytes, header digest differs from the agreed one): 409 and a D1 row of kind digest', async () => {
+    const r = await rig();
+    await run(r.room, [r.ws0, r.ws1], 45);
+    await agree(r, 39);
+    const rows = r.state.storage.rowsWritten;
+    const bad = await bodyFor(39, 1, 0x12345678);
+    expect((await post(r.room, 0, 39, bad)).status).toBe(202);
+    expect((await post(r.room, 1, 39, bad)).status).toBe(409);
+    expect(r.state.storage.rowsWritten).toBe(rows);
+    expect(r.state.storage.snapshotRow).toBeNull();
+    const sha = await sha256Hex(snapshotBytes({ frameTick: 39, matchDigest: 0x12345678, fill: 1 }));
+    expect(d1Rows(r)).toEqual([{ code: CODE, tick: 39, kind: 'digest', sha_a: sha, sha_b: sha, digest: 0x12345678 }]);
+  }, 2_000);
+
+  it('digest mismatch found when the hash pair agrees last: the D1 row is written before apply returns', async () => {
+    const r = await rig({ slow: true });
+    await run(r.room, [r.ws0, r.ws1], 45);
+    const bad = await bodyFor(39, 1, 0x12345678);
+    await post(r.room, 0, 39, bad);
+    await post(r.room, 1, 39, bad);
+    await say(r.room, r.ws0, { t: 'hash', tick: 39, h: HASH });
+    await say(r.room, r.ws1, { t: 'hash', tick: 39, h: HASH });
+    expect(d1Rows(r).map((x) => (x as { kind: string }).kind)).toEqual(['digest']);
+    expect(r.state.storage.snapshotRow).toBeNull();
+    expect(bookOf(r.room).ticks()).toEqual([]);
+  }, 2_000);
+
+  describe('sizes and bad bytes', () => {
+    /** Valid gzip of exactly `size` bytes: incompressible filler from a fixed xorshift, its length tuned until the gzip is that long. */
+    async function gzipOfSize(tick: number, size: number): Promise<Uint8Array> {
+      let n = size - 80;
+      for (let i = 0; i < 12; i++) {
+        const raw = snapshotBytes({ frameTick: tick, matchDigest: DIGEST, length: n });
+        let x = 0x9e3779b9;
+        for (let j = 22; j < raw.length; j++) { x ^= x << 13; x >>>= 0; x ^= x >>> 17; x ^= x << 5; x >>>= 0; raw[j] = x & 255; }
+        const gz = await gzip(raw);
+        if (gz.length === size) return gz;
+        n += size - gz.length;
+      }
+      throw new Error('no gzip of that size');
+    }
+
+    it('a declared Content-Length of 64 KiB + 1 is 413 before the body is read; an undeclared 64 KiB + 1 is 413; exactly 64 KiB of valid gzip is admitted', async () => {
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      let pulled = false;
+      const unread = new ReadableStream<Uint8Array>({ pull(c) { pulled = true; c.enqueue(new Uint8Array(10)); c.close(); } }, { highWaterMark: 0 });
+      // These steps test the size caps, not the one attempt a seat and tick gets: each starts with its slot free.
+      await refused(r, 39, unread, 413, 'too_large', { headers: { 'content-length': '65537' } });
+      expect(pulled).toBe(false);
+      reservedOf(r.room).clear();
+      await refused(r, 39, new Uint8Array(65537), 413, 'too_large');
+      expect(bookOf(r.room).ticks()).toEqual([]);
+      reservedOf(r.room).clear();
+      const exact = await gzipOfSize(39, 65536);
+      expect(exact.length).toBe(65536);
+      expect((await post(r.room, 0, 39, exact, { headers: { 'content-length': '65536' } })).status).toBe(202);
+      expect(bookOf(r.room).has(0, 39)).toBe(true);
+    }, 2_000);
+
+    it('a decompression bomb is 413; not gzip, an empty body, a wrong magic, a wrong format and a header tick that is not the declared one are 400', async () => {
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      // These cases test what each body is refused for, not the one attempt a seat and tick gets: each starts with its slot free.
+      const refusedFresh: typeof refused = (...a) => { reservedOf(r.room).clear(); return refused(...a); };
+      // The largest bomb the 64 KiB compressed cap admits (about 64 MiB inflated), not a token one.
+      const max = maxSizeBomb();
+      expect(max.byteLength).toBeGreaterThan(60_000);
+      expect(max.byteLength).toBeLessThanOrEqual(65_536);
+      await refusedFresh(r, 39, max, 413, 'too_large');
+      await refusedFresh(r, 39, new TextEncoder().encode('this is not gzip'), 400, 'bad_gzip');
+      await refusedFresh(r, 39, new Uint8Array(0), 400, 'bad_gzip');
+      const magic = snapshotBytes({ frameTick: 39, matchDigest: DIGEST }); magic[0] = 0x58;
+      await refusedFresh(r, 39, await gzip(magic), 400, 'bad snapshot');
+      const format = snapshotBytes({ frameTick: 39, matchDigest: DIGEST }); format[4] = 2;
+      await refusedFresh(r, 39, await gzip(format), 400, 'bad snapshot');
+      await refusedFresh(r, 39, await gzip(snapshotBytes({ frameTick: 79, matchDigest: DIGEST })), 400, 'bad snapshot');
+      await refusedFresh(r, 39, await gzip(new Uint8Array(10)), 400, 'bad snapshot');
+      expect(bookOf(r.room).ticks()).toEqual([]);
+    }, 2_000);
+
+    it('a missing, non-numeric, signed, fractional or padded X-Snapshot-Tick is 400', async () => {
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      const gz = await bodyFor(39);
+      for (const t of [null, '', 'abc', '-39', '39.0', '039', '0x27', '12345678901']) await refused(r, 39, gz, 400, 'bad request', { tick: t });
+    }, 2_000);
+  });
+
+  describe('who may upload', () => {
+    it('an advisor ticket, another match\'s seat ticket and an expired ticket are 403; no or a malformed Authorization is 401; a bad ticket is 403', async () => {
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      const gz = await bodyFor(39);
+      const advisor = await signTicket(SECRET, { matchId: CODE, seat: 0, player: 'advisor', exp: NOW + 3600 * 1000, role: 'advisor', scope: 'assist' });
+      await refused(r, 39, gz, 403, 'forbidden', { authorization: `Bearer ${advisor}` });
+      await refused(r, 39, gz, 403, 'forbidden', { authorization: `Bearer ${await ticket(0, 'ZZZZZZ')}` });
+      await refused(r, 39, gz, 403, 'forbidden', { authorization: `Bearer ${await signTicket(SECRET, { matchId: CODE, seat: 0, player: 'p-host', exp: NOW - 1 })}` });
+      await refused(r, 39, gz, 403, 'forbidden', { authorization: 'Bearer garbage' });
+      await refused(r, 39, gz, 403, 'forbidden', { authorization: `Bearer ${await signTicket('another-secret', { matchId: CODE, seat: 0, player: 'p-host', exp: NOW + 3600 * 1000 })}` });
+      await refused(r, 39, gz, 401, 'unauthorized', { authorization: null });
+      await refused(r, 39, gz, 401, 'unauthorized', { authorization: `Basic ${await ticket(0)}` });
+      await refused(r, 39, gz, 401, 'unauthorized', { authorization: await ticket(0) });
+      await refused(r, 39, gz, 401, 'unauthorized', { authorization: 'Bearer' });
+      // The scheme is `Bearer` and one space, exactly: the same valid ticket under another case is refused unread.
+      await refused(r, 39, gz, 401, 'unauthorized', { authorization: `bearer ${await ticket(0)}` });
+      await refused(r, 39, gz, 401, 'unauthorized', { authorization: `BEARER ${await ticket(0)}` });
+      await refused(r, 39, gz, 403, 'forbidden', { authorization: `Bearer  ${await ticket(0)}` });
+      expect(bookOf(r.room).ticks()).toEqual([]);
+    }, 2_000);
+  });
+
+  describe('which tick', () => {
+    it('a tick that is not on the cadence, not yet minted, equal to the stored one, older than the window, or a repeat from the same seat is 409', async () => {
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      const gz = (t: number): Promise<Uint8Array> => bodyFor(t);
+      await refused(r, 40, await gz(40), 409, 'stale');          // not a snapshot tick
+      await refused(r, 79, await gz(79), 409, 'stale');          // not yet minted
+      await refused(r, 45, await gz(45), 409, 'stale');          // the room's own tick, not on the cadence either
+      // equal to the stored tick
+      await agree(r, 39);
+      await post(r.room, 0, 39, await gz(39));
+      expect((await post(r.room, 1, 39, await gz(39))).status).toBe(201);
+      await refused(r, 39, await gz(39), 409, 'stale');
+      await refused(r, 39, await gz(39), 409, 'stale', {}, 1);
+      // older than the window: the room is at ~130, so the window is 119 and 79
+      await reach(r, 129);
+      await refused(r, 39, await gz(39), 409, 'stale');
+      // a duplicate from the same seat for a tick in the window
+      expect((await post(r.room, 0, 79, await gz(79))).status).toBe(202);
+      await refused(r, 79, await gz(79), 409, 'duplicate');
+      // and the window's edge, 79, was in
+      expect(bookOf(r.room).has(0, 79)).toBe(true);
+    }, 2_000);
+  });
+
+  describe('lifecycle', () => {
+    it('a lobby, an ended room and a room with cadence 0 are 409 not_running', async () => {
+      const lobby = await created(new FakeState(), OPTS);
+      const gz = await bodyFor(39);
+      let res = await post(lobby.room, 0, 39, gz);
+      expect([res.status, await text(res)]).toEqual([409, 'not_running']);
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      await say(r.room, r.ws1, { t: 'bye' });
+      res = await post(r.room, 0, 39, gz);
+      expect([res.status, await text(res)]).toEqual([409, 'not_running']);
+      expect(r.state.storage.snapshotRow).toBeNull();
+      const off = await rig({ snapshotEveryTicks: 0 });
+      await run(off.room, [off.ws0, off.ws1], 45);
+      res = await post(off.room, 0, 39, gz);
+      expect([res.status, await text(res)]).toEqual([409, 'not_running']);
+    }, 2_000);
+
+    it('a code with no room is 404 and touches no storage at all', async () => {
+      const state = new FakeState();
+      const room = new MatchRoom(state, env, OPTS);
+      const res = await post(room, 0, 39, await bodyFor(39));
+      expect(res.status).toBe(404);
+      expect(state.storage.hasTable).toBe(false);
+      expect(state.storage.hasSnapshotTable).toBe(false);
+      expect(state.storage.kv.size).toBe(0);
+      expect(state.storage.rowsWritten).toBe(0);
+      expect(state.storage.alarmAt).toBeNull();
+    });
+
+    it('a room made before the snapshot table gets it when it loads, and then accepts a snapshot; /create makes it for a new room', async () => {
+      const r = await rig();
+      expect(r.state.storage.hasSnapshotTable).toBe(true);
+      (r.state.storage as unknown as { snapshotTable: boolean }).snapshotTable = false;
+      evict();
+      const revived = new MatchRoom(r.state, { ...env, DB: r.db } as Env, OPTS);
+      await revived.fetch(new Request('https://room/state'));
+      expect(r.state.storage.hasSnapshotTable).toBe(true);
+      await run(revived, [r.ws0, r.ws1], 45);
+      await say(revived, r.ws0, { t: 'hash', tick: 39, h: HASH });
+      await say(revived, r.ws1, { t: 'hash', tick: 39, h: HASH });
+      await post(revived, 0, 39, await bodyFor(39));
+      expect((await post(revived, 1, 39, await bodyFor(39))).status).toBe(201);
+    }, 2_000);
+
+    it('the wipe clears the book, the agreed digests and the stored tick; the same instance can make the code again', async () => {
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      await agree(r, 39);
+      await post(r.room, 0, 39, await bodyFor(39));
+      await post(r.room, 1, 39, await bodyFor(39));
+      await say(r.room, r.ws1, { t: 'bye' });
+      vi.setSystemTime(Date.now() + PURGE_AFTER_MS);
+      await deliverAlarm(r.room, r.state.storage);
+      expect(r.state.storage.hasSnapshotTable).toBe(false);
+      expect(r.state.storage.snapshotRow).toBeNull();
+      const inner = r.room as unknown as { storedTick: number; agreedDigests: Map<number, number>; snapshotStoreReady: boolean };
+      expect([inner.storedTick, inner.agreedDigests.size, inner.snapshotStoreReady, bookOf(r.room).ticks()]).toEqual([-1, 0, false, []]);
+      const again = await r.room.fetch(new Request('https://room/create', { method: 'POST', body: JSON.stringify({ code: CODE, matchId: CODE, build: BUILD, player: 'p' }) }));
+      expect(again.status).toBe(200);
+      expect(r.state.storage.hasSnapshotTable).toBe(true);
+    }, 2_000);
+
+    it('a Content-Length that is not a plain decimal within the cap (signed, hex, exponent, zero-padded, blank, a fraction, too long) is 413 before the body is read; plain decimals pass', async () => {
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      for (const bad of ['-1', '+5', '0x10', '1e3', '', '1.5', '007', '12345678901', 'abc', '65537']) {
+        let pulled = false;
+        const unread = new ReadableStream<Uint8Array>({ pull(c) { pulled = true; c.enqueue(new Uint8Array(10)); c.close(); } }, { highWaterMark: 0 });
+        reservedOf(r.room).clear();   // this loop tests the header, not the one attempt a seat and tick gets
+        await refused(r, 39, unread, 413, 'too_large', { headers: { 'content-length': bad } });
+        expect([bad, pulled]).toEqual([bad, false]);
+      }
+      const gz = await bodyFor(39);
+      for (const ok of ['0', String(gz.length), '65536']) {
+        const res = await post(r.room, 0, 39, gz, { headers: { 'content-length': ok } });
+        expect([ok, res.status === 413]).toEqual([ok, false]);
+        bookOf(r.room).clear();
+        reservedOf(r.room).clear();
+      }
+    }, 2_000);
+  });
+
+  it('race: two uploads from the same seat for the same tick, started together, record one and refuse the other as a duplicate', async () => {
+    const r = await rig();
+    await run(r.room, [r.ws0, r.ws1], 45);
+    await agree(r, 39);
+    const gz = await bodyFor(39);
+    const both = await Promise.all([post(r.room, 0, 39, gz), post(r.room, 0, 39, gz)]);
+    expect(both.map((x) => x.status).sort()).toEqual([202, 409]);
+    expect(await text(both.find((x) => x.status === 409)!)).toBe('duplicate');
+    expect(bookOf(r.room).ticks()).toEqual([39]);
+    expect((await post(r.room, 1, 39, gz)).status).toBe(201);
+  }, 2_000);
+
+  describe('one inflate a seat and tick (security review)', () => {
+    /** Counts the decompressors the room builds while `fn` runs. */
+    async function inflates<T>(fn: () => Promise<T>): Promise<{ result: T; n: number }> {
+      const real = globalThis.DecompressionStream;
+      let n = 0;
+      globalThis.DecompressionStream = class Counting extends real { constructor(fmt: CompressionFormat) { super(fmt); n++; } } as typeof DecompressionStream;
+      try { return { result: await fn(), n }; } finally { globalThis.DecompressionStream = real; }
+    }
+
+    it('ten uploads of one seat and tick, every body still unread when the rest have been admitted: one is inflated and held, nine are 409 duplicate', async () => {
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      const gz = await bodyFor(39);
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      let pulled = 0;
+      const parkedBody = (): ReadableStream<Uint8Array> => new ReadableStream<Uint8Array>({ async pull(c) { pulled++; await gate; c.enqueue(gz); c.close(); } }, { highWaterMark: 0 });
+      const { result, n } = await inflates(async () => {
+        const all = Array.from({ length: 10 }, () => post(r.room, 0, 39, parkedBody()));
+        // The ticket check is a real (macrotask) await: let every upload reach the room before any body arrives.
+        for (let i = 0; i < 200 && pulled < 1; i++) await realImmediate();
+        for (let i = 0; i < 50; i++) await realImmediate();
+        release();
+        return Promise.all(all);
+      });
+      expect(n).toBe(1);
+      expect(result.map((x) => x.status).sort()).toEqual([202, 409, 409, 409, 409, 409, 409, 409, 409, 409]);
+      for (const x of result.filter((y) => y.status === 409)) expect(await text(x)).toBe('duplicate');
+    }, 2_000);
+
+    it('a refusal after the reservation spends it: a bad-header upload, then a good one for the same seat and tick, is 409 duplicate and is not inflated', async () => {
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      await refused(r, 39, await gzip(snapshotBytes({ frameTick: 79, matchDigest: DIGEST })), 400, 'bad snapshot');
+      const good = await bodyFor(39);
+      const { result, n } = await inflates(() => post(r.room, 0, 39, good));
+      expect([result.status, await text(result)]).toEqual([409, 'duplicate']);
+      expect(n).toBe(0);
+      // The other seat's slot for that tick is its own.
+      expect((await post(r.room, 1, 39, await bodyFor(39))).status).toBe(202);
+    }, 2_000);
+
+    it('every kind of refusal spends the slot: not gzip, too large and a wrong format each make the next upload for that seat and tick a 409', async () => {
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      await reach(r, 79);
+      await refused(r, 39, new TextEncoder().encode('this is not gzip'), 400, 'bad_gzip');
+      await refused(r, 39, await bodyFor(39), 409, 'duplicate');
+      await refused(r, 79, new Uint8Array(65537), 413, 'too_large');
+      await refused(r, 79, await bodyFor(79), 409, 'duplicate');
+      const format = snapshotBytes({ frameTick: 39, matchDigest: DIGEST }); format[4] = 2;
+      await refused(r, 39, await gzip(format), 400, 'bad snapshot', {}, 1);
+      await refused(r, 39, await bodyFor(39), 409, 'duplicate', {}, 1);
+    }, 2_000);
+
+    it('a mismatch spends the slots too: after it, neither seat can upload that tick again', async () => {
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      expect((await post(r.room, 0, 39, await bodyFor(39, 1))).status).toBe(202);
+      expect((await post(r.room, 1, 39, await bodyFor(39, 2))).status).toBe(409);
+      expect(bookOf(r.room).ticks()).toEqual([]);
+      await refused(r, 39, await bodyFor(39, 1), 409, 'duplicate', {}, 0);
+      await refused(r, 39, await bodyFor(39, 1), 409, 'duplicate', {}, 1);
+      expect(r.state.storage.snapshotRow).toBeNull();
+    }, 2_000);
+
+    it('the reservations are kept for the two newest ticks only, and the wipe clears them', async () => {
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      for (const tick of [39, 79, 119]) {
+        await reach(r, tick);
+        expect((await post(r.room, 0, tick, await bodyFor(tick))).status).toBe(202);
+      }
+      expect(reservedOf(r.room).ticks()).toEqual([79, 119]);
+      await say(r.room, r.ws1, { t: 'bye' });
+      vi.setSystemTime(Date.now() + PURGE_AFTER_MS);
+      await deliverAlarm(r.room, r.state.storage);
+      expect(reservedOf(r.room).ticks()).toEqual([]);
+    }, 2_000);
+  });
+
+  describe('the checks a write depends on run again after the last await (G-6)', () => {
+    /** A request body that stays unread until `open()`: the upload is parked in `readCapped`, and the room can change under it. */
+    function parked(gz: Uint8Array): { body: ReadableStream<Uint8Array>; open: () => void; reading: () => Promise<void> } {
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      let markPulled: () => void = () => undefined;
+      const pulledP = new Promise<void>((resolve) => { markPulled = resolve; });
+      const body = new ReadableStream<Uint8Array>({ async pull(c) { markPulled(); await gate; c.enqueue(gz); c.close(); } }, { highWaterMark: 0 });
+      // The ticket check is a real async crypto call of unbounded duration, so wait for the event itself (the first pull
+      // of the body), never for a count of turns; a hang is caught by the test's own timeout.
+      const reading = (): Promise<void> => pulledP;
+      return { body, open: release, reading };
+    }
+    /** Seat 0's upload for tick 39 parked mid-body; `change` alters the room; then the body arrives. */
+    async function parkedThen(r: Rig, change: () => Promise<void>): Promise<{ res: Response; rows: number }> {
+      const p = parked(await bodyFor(39));
+      const inflight = post(r.room, 0, 39, p.body);
+      await p.reading();
+      await change();
+      const rows = r.state.storage.rowsWritten;
+      p.open();
+      return { res: await inflight, rows };
+    }
+
+    it('check 6, storedTick: another pair\'s accept of tick 79 lands during the body read, so tick 39 is 409 stale and records nothing', async () => {
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      const { res, rows } = await parkedThen(r, async () => {
+        await reach(r, 79);
+        await agree(r, 79);
+        await post(r.room, 0, 79, await bodyFor(79));
+        expect((await post(r.room, 1, 79, await bodyFor(79))).status).toBe(201);
+      });
+      expect([res.status, await text(res)]).toEqual([409, 'stale']);
+      expect(r.state.storage.rowsWritten).toBe(rows);
+      expect(r.state.storage.snapshotRow).toMatchObject({ frame_tick: 79 });
+      expect(bookOf(r.room).ticks()).toEqual([]);
+    }, 2_000);
+
+    it('check 6, the window: the room ticks past tick 39\'s window during the body read, so it is 409 stale and records nothing', async () => {
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      const { res, rows } = await parkedThen(r, async () => { await reach(r, 129); });
+      expect([res.status, await text(res)]).toEqual([409, 'stale']);
+      expect(r.state.storage.rowsWritten).toBe(rows);
+      expect(r.state.storage.snapshotRow).toBeNull();
+      expect(bookOf(r.room).ticks()).toEqual([]);
+    }, 2_000);
+
+    it('check 4: the room ends during the body read, so the upload is 409 not_running and records nothing', async () => {
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      await agree(r, 39);
+      const { res, rows } = await parkedThen(r, async () => { await say(r.room, r.ws1, { t: 'bye' }); });
+      expect([res.status, await text(res)]).toEqual([409, 'not_running']);
+      expect(r.state.storage.rowsWritten).toBe(rows);
+      expect(r.state.storage.snapshotRow).toBeNull();
+      expect(bookOf(r.room).ticks()).toEqual([]);
+    }, 2_000);
+  });
+
+  describe('agreed last settles without re-running the admission (settleSnapshot)', () => {
+    it('a pair whose tick has left the window by the time the hashes agree is still stored, as it is above storedTick', async () => {
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      expect((await post(r.room, 0, 39, await bodyFor(39))).status).toBe(202);
+      expect((await post(r.room, 1, 39, await bodyFor(39))).status).toBe(202);
+      await reach(r, 129);   // tick 39 is now outside the two newest snapshot ticks: a fresh upload of it is stale
+      expect([(await post(r.room, 0, 39, await bodyFor(39))).status]).toEqual([409]);
+      await agree(r, 39);
+      expect(r.state.storage.snapshotRow).toMatchObject({ frame_tick: 39, sha: await shaOf(39), digest: DIGEST });
+      expect(bookOf(r.room).ticks()).toEqual([]);
+    }, 2_000);
+
+    it('nothing at or below storedTick stays pending: the accept of tick 79 drops tick 39\'s uploads, and a late agreement of 39 stores nothing', async () => {
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      await post(r.room, 0, 39, await bodyFor(39));
+      await post(r.room, 1, 39, await bodyFor(39));
+      await reach(r, 79);
+      await agree(r, 79);
+      await post(r.room, 0, 79, await bodyFor(79));
+      expect((await post(r.room, 1, 79, await bodyFor(79))).status).toBe(201);
+      expect(bookOf(r.room).ticks()).toEqual([]);
+      const rows = r.state.storage.rowsWritten;
+      await agree(r, 39);   // room-core ignores a hash at or below the last compared tick
+      expect(r.state.storage.snapshotRow).toMatchObject({ frame_tick: 79 });
+      expect(r.state.storage.rowsWritten).toBe(rows);
+    }, 2_000);
+  });
+
+  describe('a snapshot row the storage refuses', () => {
+    it('agreed last: the hash pair completes without a rejection, the failure is logged, the uploads stay in the book, and a later cadence stores once the write works', async () => {
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      await post(r.room, 0, 39, await bodyFor(39));
+      await post(r.room, 1, 39, await bodyFor(39));
+      const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const unhandled: unknown[] = [];
+      const onUnhandled = (e: unknown): void => { unhandled.push(e); };
+      process.on('unhandledRejection', onUnhandled);
+      try {
+        r.state.storage.failSnapshotPut = true;
+        await say(r.room, r.ws0, { t: 'hash', tick: 39, h: HASH });
+        await expect(say(r.room, r.ws1, { t: 'hash', tick: 39, h: HASH })).resolves.toBeUndefined();
+        for (let i = 0; i < 20; i++) await realImmediate();
+        expect(errors.mock.calls.map((c) => c[0])).toEqual(['MatchRoom: snapshot settle failed']);
+        expect(unhandled).toEqual([]);
+        expect(ofType(r.ws0, 'hashOk').map((m) => m.tick)).toContain(39);
+        expect(r.state.storage.snapshotRow).toBeNull();
+        expect(bookOf(r.room).ticks()).toEqual([39]);
+        // The room is still a room: its next cadence is accepted once the write works.
+        r.state.storage.failSnapshotPut = false;
+        await reach(r, 79);
+        await agree(r, 79);
+        await post(r.room, 0, 79, await bodyFor(79));
+        expect((await post(r.room, 1, 79, await bodyFor(79))).status).toBe(201);
+      } finally {
+        process.off('unhandledRejection', onUnhandled);
+        errors.mockRestore();
+      }
+    }, 2_000);
+    it('agreed first: the upload that completes the pair is answered 500 store failed, the failure is logged, no row is written, and the next cadence stores', async () => {
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      await agree(r, 39);
+      expect((await post(r.room, 0, 39, await bodyFor(39))).status).toBe(202);
+      const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      try {
+        r.state.storage.failSnapshotPut = true;
+        const res = await post(r.room, 1, 39, await bodyFor(39));
+        expect([res.status, await text(res)]).toEqual([500, 'store failed']);
+        expect(errors.mock.calls.map((c) => c[0])).toEqual(['MatchRoom: snapshot settle failed']);
+        expect(r.state.storage.snapshotRow).toBeNull();
+        r.state.storage.failSnapshotPut = false;
+        await reach(r, 79);
+        await agree(r, 79);
+        await post(r.room, 0, 79, await bodyFor(79));
+        expect((await post(r.room, 1, 79, await bodyFor(79))).status).toBe(201);
+      } finally {
+        errors.mockRestore();
+      }
+    }, 2_000);
+  });
+
+  describe('eviction', () => {
+    it('mid-upload: seat 0\'s pending is gone, so seat 1\'s upload is held and no row follows; the next cadence, both seats, is accepted', async () => {
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      expect((await post(r.room, 0, 39, await bodyFor(39))).status).toBe(202);
+      evict();
+      const room2 = new MatchRoom(r.state, { ...env, DB: r.db } as Env, OPTS);
+      expect((await post(room2, 1, 39, await bodyFor(39))).status).toBe(202);
+      await say(room2, r.ws0, { t: 'hash', tick: 39, h: HASH });
+      await say(room2, r.ws1, { t: 'hash', tick: 39, h: HASH });
+      expect(r.state.storage.snapshotRow).toBeNull();
+      const live = { room: room2, ws0: r.ws0, ws1: r.ws1 };
+      await reach(live, 79);
+      await say(room2, r.ws0, { t: 'hash', tick: 79, h: HASH });
+      await say(room2, r.ws1, { t: 'hash', tick: 79, h: HASH });
+      expect((await post(room2, 0, 79, await bodyFor(79))).status).toBe(202);
+      expect((await post(room2, 1, 79, await bodyFor(79))).status).toBe(201);
+      expect(r.state.storage.snapshotRow).toMatchObject({ frame_tick: 79, sha: await shaOf(79) });
+    }, 2_000);
+
+    it('after an accept: the revived instance reads the stored tick from SQL and refuses the same tick as stale', async () => {
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      await agree(r, 39);
+      await post(r.room, 0, 39, await bodyFor(39));
+      expect((await post(r.room, 1, 39, await bodyFor(39))).status).toBe(201);
+      evict();
+      const room2 = new MatchRoom(r.state, { ...env, DB: r.db } as Env, OPTS);
+      await room2.fetch(new Request('https://room/state'));   // the revival's own writes are done
+      const rows = r.state.storage.rowsWritten;
+      const res = await post(room2, 0, 39, await bodyFor(39));
+      expect([res.status, await text(res)]).toEqual([409, 'stale']);
+      expect(r.state.storage.rowsWritten).toBe(rows);
+    }, 2_000);
+  });
+
+  describe('GET (the room serves its snapshot)', () => {
+    const get = async (room: MatchRoom, auth: string | null): Promise<Response> =>
+      room.fetch(new Request('https://room/snapshot', { method: 'GET', headers: auth === null ? {} : { authorization: auth } }));
+    const getAs = async (room: MatchRoom, seat: Seat): Promise<Response> => get(room, `Bearer ${await ticket(seat)}`);
+    /** Both seats hash `tick` and upload, seat 0's body wrapped differently from seat 1's. Returns seat 0's compressed body. */
+    async function accepted(r: Rig, tick: number, fill = 1): Promise<Uint8Array> {
+      await reach(r, tick);
+      await agree(r, tick);
+      const gz0 = await bodyFor(tick, fill);
+      expect((await post(r.room, 0, tick, gz0)).status).toBe(202);
+      expect((await post(r.room, 1, tick, rewrapped(gz0))).status).toBe(201);
+      return gz0;
+    }
+
+    it('is 204 before any accept, in a running room and in a lobby, and writes nothing', async () => {
+      const lobby = await created(new FakeState(), OPTS);
+      const rows0 = lobby.state.storage.rowsWritten;
+      expect((await getAs(lobby.room, 1)).status).toBe(204);
+      expect(lobby.state.storage.rowsWritten).toBe(rows0);
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      const rows = r.state.storage.rowsWritten;
+      const res = await getAs(r.room, 0);
+      expect([res.status, await res.text()]).toEqual([204, '']);
+      expect(r.state.storage.rowsWritten).toBe(rows);
+    }, 2_000);
+
+    it('is 200 after an accept: seat 0\'s exact bytes, the SHA of the inflated bytes, the unsigned digest and the tick', async () => {
+      const r = await rig();
+      const gz0 = await accepted(r, 39);
+      const rows = r.state.storage.rowsWritten;
+      for (const seat of [0, 1] as const) {
+        const res = await getAs(r.room, seat);
+        expect(res.status).toBe(200);
+        expect(new Uint8Array(await res.arrayBuffer())).toEqual(gz0);
+        expect(res.headers.get('x-snapshot-tick')).toBe('39');
+        expect(res.headers.get('x-snapshot-sha')).toBe(await sha256Hex(new Uint8Array(gunzipSync(gz0))));
+        expect(res.headers.get('x-snapshot-digest')).toBe('3735928559');
+        expect(res.headers.get('content-type')).toBe('application/octet-stream');
+        expect(res.headers.get('cache-control')).toBe('no-store');
+        expect(res.headers.get('content-encoding')).toBeNull();
+      }
+      expect(r.state.storage.rowsWritten).toBe(rows);
+    }, 2_000);
+
+    it('after a second accept it returns the newer one: the row is replaced, never two', async () => {
+      const r = await rig();
+      await accepted(r, 39, 1);
+      const gz79 = await accepted(r, 79, 2);
+      const res = await getAs(r.room, 0);
+      expect(res.headers.get('x-snapshot-tick')).toBe('79');
+      expect(new Uint8Array(await res.arrayBuffer())).toEqual(gz79);
+      expect(res.headers.get('x-snapshot-sha')).toBe(await shaOf(79, 2));
+    }, 2_000);
+
+    it('an ended room serves it until the wipe, and after PURGE_AFTER_MS the code is 404', async () => {
+      const r = await rig();
+      const gz0 = await accepted(r, 39);
+      await say(r.room, r.ws1, { t: 'bye' });
+      const endedAt = Date.now();
+      vi.setSystemTime(endedAt + PURGE_AFTER_MS - 1);
+      const res = await getAs(r.room, 0);
+      expect(res.status).toBe(200);
+      expect(new Uint8Array(await res.arrayBuffer())).toEqual(gz0);
+      vi.setSystemTime(endedAt + PURGE_AFTER_MS);
+      await deliverAlarm(r.room, r.state.storage);
+      expect((await getAs(r.room, 0)).status).toBe(404);
+    }, 2_000);
+
+    it('an advisor ticket and another match\'s seat ticket are 403; no ticket, a malformed header or a ticket in the query is 401; none of them writes', async () => {
+      const r = await rig();
+      await accepted(r, 39);
+      const rows = r.state.storage.rowsWritten;
+      const advisor = await signTicket(SECRET, { matchId: CODE, seat: 0, player: 'advisor', exp: NOW + 3600 * 1000, role: 'advisor', scope: 'assist' });
+      expect((await get(r.room, `Bearer ${advisor}`)).status).toBe(403);
+      expect((await get(r.room, `Bearer ${await ticket(0, 'ZZZZZZ')}`)).status).toBe(403);
+      expect((await get(r.room, 'Bearer garbage')).status).toBe(403);
+      expect((await get(r.room, null)).status).toBe(401);
+      expect((await get(r.room, `Basic ${await ticket(0)}`)).status).toBe(401);
+      const query = await r.room.fetch(new Request(`https://room/snapshot?ticket=${await ticket(0)}`));
+      expect(query.status).toBe(401);
+      expect(r.state.storage.rowsWritten).toBe(rows);
+    }, 2_000);
+
+    it('a code with no room is 404 and touches no storage; a method other than GET and POST is 405', async () => {
+      const state = new FakeState();
+      const room = new MatchRoom(state, env, OPTS);
+      expect((await getAs(room, 0)).status).toBe(404);
+      expect(state.storage.hasTable).toBe(false);
+      expect(state.storage.hasSnapshotTable).toBe(false);
+      expect(state.storage.rowsWritten).toBe(0);
+      const r = await rig();
+      expect((await r.room.fetch(new Request('https://room/snapshot', { method: 'PUT', body: 'x' }))).status).toBe(405);
+    }, 2_000);
   });
 });

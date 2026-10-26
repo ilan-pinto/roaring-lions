@@ -7,6 +7,7 @@ import { handleFeedback } from './feedback-ingest';
 import { purgeExpired } from './feedback-triage';
 import { handleMatch } from './match/routes';
 import { purgeDesyncs } from './match/desync-log';
+import { purgeSnapMismatches } from './match/snap-mismatch-log';
 
 /** N0: the one Durable Object class; wrangler.jsonc's `net-v1` migration names it. */
 export { MatchRoom } from './match/match-room';
@@ -24,12 +25,12 @@ export default {
   },
   /** The daily Cron Trigger (wrangler.jsonc `triggers.crons`): GH-464's
    *  180-day purge of feedback pictures, replays and contacts, N1b's of
-   *  desync evidence (M-6), #559 M-3's of raw events, and the day counters. Each runs whatever the other does -- a missing
+   *  desync evidence (M-6) and of snapshot mismatch rows (snapshot S3), #559 M-3's of raw events, and the day counters. Each runs whatever the other does -- a missing
    *  table on one side must not keep the other's data -- and a failure still
    *  fails the run. */
   async scheduled(_controller: unknown, env: Env): Promise<void> {
     const now = Date.now();
-    const runs = await Promise.allSettled([purgeExpired(env, now), purgeDesyncs(env.DB, now), purgeEvents(env.DB, now), purgeRateDays(env.DB, now)]);
+    const runs = await Promise.allSettled([purgeExpired(env, now), purgeDesyncs(env.DB, now), purgeSnapMismatches(env.DB, now), purgeEvents(env.DB, now), purgeRateDays(env.DB, now)]);
     for (const r of runs) if (r.status === 'rejected') throw r.reason;
   },
 };

@@ -44,6 +44,9 @@ export interface Env {
   /** #559 M-1: socket upgrades, keyed on the connecting IP (60 a minute):
    *  its own limiter, so a reconnect once a second never trips ROOM_LIMIT. */
   WS_LIMIT?: RateLimiter;
+  /** Snapshot S3, Ruling 12: POST and GET of a room's snapshot, keyed on the
+   *  connecting IP (12 a minute). Its own limiter, so ROOM_LIMIT's six is not spent on it. */
+  SNAP_LIMIT?: RateLimiter;
   /** N0: signs seat tickets. Its own secret, never STATS_PASSWORD. Unset fails
    *  closed: every /api/match path answers 503. */
   TICKET_SECRET?: string;

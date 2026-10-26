@@ -45,6 +45,15 @@
  * one row in place), so the persisted frames always reach the persisted
  * state's tick.
  *
+ * Snapshots (snapshot S3) add one row a minute at the default cadence (1,200
+ * ticks) per ACCEPTED snapshot: the pair's one `INSERT OR REPLACE`, replaced
+ * in place each time. A held, refused or mismatched upload writes zero rows of
+ * the room's own (a mismatch reports to D1, bounded separately), and the wipe
+ * deletes the one row with the rest. `room-loop.test.ts` measures it: with a
+ * snapshot every 180 ticks (six a minute) a running match writes 78 rows a
+ * minute with no orders and 138 with one order a second from each seat, exactly
+ * the 72 and 132 of the budget above plus one per accepted snapshot.
+ *
  * What an eviction costs, and why it is safe: a revived room continues at
  * `max(state.tick, end of the last persisted batch)` (`revive`), reading each
  * batch's end as `first_tick + frames.length`. The frames after that point
@@ -63,9 +72,13 @@
  * `connected`) flushes the open batch with its write, so an eviction while
  * waiting for a reconnect re-sends nothing.
  */
-import { advisorMayRelay, factionsOfMatchup, matchupAllowed, sidesOfFactions, matchupField, parseClientMsg, versusMapAllowed, validateConfig, REPLACED_CLOSE_CODE, type AdvisorScope, type ClientMsg, type Frame, type MatchConfig, type Pace, type Seat, type SeatConfig, type ServerMsg } from '@lions/net';
+import { advisorMayRelay, factionsOfMatchup, matchupAllowed, sidesOfFactions, matchupField, parseClientMsg, versusMapAllowed, validateConfig, REPLACED_CLOSE_CODE, LOG_PART_CHARS, SNAPSHOT_EVERY_TICKS, SNAPSHOT_EVERY_TICKS_MAX, SNAPSHOT_FORMAT, SNAPSHOT_MAX_COMPRESSED_BYTES, SNAPSHOT_MAX_RAW_BYTES, gunzipCapped, readSnapshotHeader, sha256Hex, snapshotEvery, type AdvisorScope, type ClientMsg, type Frame, type MatchConfig, type Pace, type Seat, type SeatConfig, type ServerMsg } from '@lions/net';
 import type { Env } from '../d1';
 import type { DurableStateLike, HibernatingSocket, UpgradeInit } from '../do-types';
+import { readCapped } from '../read-capped';
+import { LOG_FROM_SQL, SNAP_CREATE_SQL, SNAP_GET_SQL, SNAP_PUT_SQL, SNAP_TICK_SQL } from './snapshot-sql';
+import { PendingBook, ReservationBook, admitTick, decide } from './snapshot-intake';
+import { SNAP_MISMATCH_PER_ROOM, writeSnapMismatch } from './snap-mismatch-log';
 import { createRoom, endedMsg, lobbyMsg, logParts, pausedMsg, seatJoin, seatMessage, seatGone, clockTick, closeIfDue, expire, forfeitDueAt, forfeitIfDue, persistKey, revive, ROOM_TTL_MS, type Effect, type RoomState } from './room-core';
 import { verifyTicket } from './ticket';
 import { DEFAULT_MAP, callsignField, kitField, mapField, paceField, seatKindField, seatTiersField, textField, type Kit, type SeatKind, type SeatTiers } from './room-fields';
@@ -78,6 +91,14 @@ export interface MatchRoomOptions {
   tickMs?: number;
   /** A versus room's seed from its code; default 32 bits from `crypto.getRandomValues`. A sandbox room keeps N0's. */
   seed?: (code: string) => number;
+  /** Frame ticks between snapshots, minted into the room's config; default
+   *  `SNAPSHOT_EVERY_TICKS`. Accepted only as a non-negative multiple of 20 (the
+   *  hash cadence) up to `SNAPSHOT_EVERY_TICKS_MAX`, else the default stands; 0
+   *  turns snapshots off. */
+  snapshotEveryTicks?: number;
+  /** The wait between the 4 KiB slices of an upload's inflate; default one event-loop turn (a zero-delay timer).
+   *  For tests that run on fake timers, which never fire it. */
+  inflateYield?: () => Promise<void>;
 }
 /** A sandbox room's seed: the app's SIM_SEED, so the two-machine protocol stays N0's. A versus room mints its own. */
 const SIM_SEED_N0 = 20260727;
@@ -274,15 +295,37 @@ export class MatchRoom {
   private readonly tickMs: number;
   /** A versus room's seed, or null for the crypto one. */
   private readonly seedFor: ((code: string) => number) | null;
+  /** The cadence minted into every room's config (`MatchRoomOptions.snapshotEveryTicks`). */
+  private readonly snapshotEveryTicks: number;
+  /** The match digest both seats agreed on at a snapshot tick, signed int32 as
+   *  the hash messages carry it. MEMORY ONLY (no row): the two newest ticks. An
+   *  eviction forgets them, and that tick can then never be accepted. */
+  private readonly agreedDigests = new Map<number, number>();
+  /** Uploads waiting for their pair: memory only, at most two snapshot ticks (256 KiB at the 64 KiB cap). */
+  private readonly pending = new PendingBook();
+  /** Which (seat, tick) uploads were taken up: one inflate a seat and tick, spent whatever the upload comes to. Memory only. */
+  private readonly reserved = new ReservationBook();
+  /** The frame tick of the stored snapshot, or -1 for none. Read from the row once per instance (`openSnapshotStore`). */
+  private storedTick = -1;
+  /** Whether this instance has created the `snapshot` table and read `storedTick`. */
+  private snapshotStoreReady = false;
+  /** D1 mismatch rows this instance has tried to write, bounded by `SNAP_MISMATCH_PER_ROOM`. */
+  private snapMismatches = 0;
+  /** The test-only wait between inflate slices; undefined in workerd, which uses the default timer turn. */
+  private readonly inflateYield: (() => Promise<void>) | undefined;
 
   /** No storage here (#559 H-1): an object is made for every code anyone
    *  probes, and only `/create` may give it a table, a key or an alarm.
    *  `opts` is the local relay's (N4b task 11, `tools/src/net/local-relay.ts`):
    *  workerd constructs a Durable Object with two arguments and never passes
-   *  it, so a deployed room keeps `TICK_MS` and the crypto seed. */
+   *  it, so a deployed room keeps `TICK_MS`, the crypto seed and
+   *  `SNAPSHOT_EVERY_TICKS`. */
   constructor(private readonly ctx: DurableStateLike, private readonly env: Env, opts: MatchRoomOptions = {}) {
     this.tickMs = typeof opts.tickMs === 'number' && Number.isFinite(opts.tickMs) && opts.tickMs > 0 ? opts.tickMs : TICK_MS;
     this.seedFor = opts.seed ?? null;
+    this.inflateYield = opts.inflateYield;
+    const every = opts.snapshotEveryTicks;
+    this.snapshotEveryTicks = typeof every === 'number' && Number.isInteger(every) && every >= 0 && every <= SNAPSHOT_EVERY_TICKS_MAX && every % 20 === 0 ? every : SNAPSHOT_EVERY_TICKS;
   }
 
   // --- storage --------------------------------------------------------------
@@ -297,6 +340,8 @@ export class MatchRoom {
       this.meta = stored === null ? null : legacyMeta(stored, st);
       let gone: Effect[] = [];
       if (st) {
+        // A room made before snapshots existed gets its table here, lazily; a code with no room never reaches this.
+        this.openSnapshotStore();
         const [lastRow] = this.batches(LAST_SQL);
         revive(st, lastRow ? lastRow.firstTick + lastRow.frames.length : 0, Date.now());
         // The stored command count dates from the last lifecycle write; the log is the truth (#559 H-1).
@@ -343,6 +388,16 @@ export class MatchRoom {
   private async saveIfChanged(): Promise<void> {
     if (this.st && persistKey(this.st) !== this.savedKey) await this.save();
   }
+  /** The snapshot table and the stored tick, once per instance. Only a room that
+   *  exists reaches it (`/create`, `load()` with a persisted state): a code with
+   *  no room touches no storage (#559 H-1). Costs no row. */
+  private openSnapshotStore(): void {
+    if (this.snapshotStoreReady) return;
+    this.ctx.storage.sql.exec(SNAP_CREATE_SQL);
+    const [r] = this.ctx.storage.sql.exec(SNAP_TICK_SQL).toArray();
+    this.storedTick = r === undefined ? -1 : Number(r.frame_tick);
+    this.snapshotStoreReady = true;
+  }
   /** Rewrites the open batch's row in place until it closes. */
   private writeOpenBatch(): void {
     const first = this.open[0];
@@ -357,8 +412,8 @@ export class MatchRoom {
     this.writeOpenBatch();
     this.open = [];
   }
-  private batches(query = SELECT_SQL): { firstTick: number; frames: Frame[] }[] {
-    return this.ctx.storage.sql.exec(query).toArray()
+  private batches(query = SELECT_SQL, ...bind: unknown[]): { firstTick: number; frames: Frame[] }[] {
+    return this.ctx.storage.sql.exec(query, ...bind).toArray()
       .map((r) => ({ firstTick: r.first_tick as number, frames: JSON.parse(r.frames as string) as Frame[] }));
   }
   /** Every frame so far: the persisted batches, then the open one (whose
@@ -366,6 +421,18 @@ export class MatchRoom {
   private readLog(): Frame[] {
     const openFirst = this.open[0]?.tick;
     return [...this.batches().filter((b) => b.firstTick !== openFirst).flatMap((b) => b.frames), ...this.open];
+  }
+  /** The log from tick `from` on (a hello's `from`, snapshot S3). A batch holds
+   *  at most `BATCH_TICKS` frames, so any batch that can hold a tick >= `from`
+   *  starts after `from - BATCH_TICKS`: only those rows are read. The open
+   *  batch follows under `readLog`'s rule (the memory copy supersedes its own
+   *  partial row), and a filter trims the head of the batch that spans `from`.
+   *  No `from` is `readLog()` exactly as before. */
+  private readLogFrom(from: number | undefined): Frame[] {
+    if (from === undefined) return this.readLog();
+    const openFirst = this.open[0]?.tick;
+    return [...this.batches(LOG_FROM_SQL, from - BATCH_TICKS).filter((b) => b.firstTick !== openFirst).flatMap((b) => b.frames), ...this.open]
+      .filter((f) => f.tick >= from);
   }
   /** Every handler starts here: load, then the TTL (R28), then a forfeit
    *  that has fallen due -- before any hello, so a seat that reconnects after
@@ -409,7 +476,7 @@ export class MatchRoom {
     const config = validateConfig({
       matchId: st.matchId, code: st.code, seed: this.meta?.seed ?? SIM_SEED_N0, map: this.meta?.map ?? DEFAULT_MAP, mode,
       seats: [seatConfig(0), seatConfig(1)],
-      pace, hashEveryTicks: 20, bufferTicks: 2, build: this.meta?.build ?? '', dataDigest: 0,
+      pace, hashEveryTicks: 20, bufferTicks: 2, build: this.meta?.build ?? '', dataDigest: 0, snapshotEveryTicks: this.snapshotEveryTicks,
     });
     if (config === null) throw new Error('MatchRoom minted a config its own validator refuses');
     return config;
@@ -453,20 +520,90 @@ export class MatchRoom {
    *  only if its lifecycle changed. */
   private async apply(effects: Effect[], keep?: WebSocket): Promise<void> {
     let desync: Extract<ServerMsg, { t: 'desync' }> | null = null;
+    const snapshots: Promise<void>[] = [];
     for (const e of effects) {
-      if (e.kind === 'frame') this.record(e.frame);
-      else if (e.kind === 'send') {
-        this.send(e.to, e.msg);
-        if (e.msg.t === 'desync') desync = e.msg;
-      } else if (e.kind === 'shut') {
-        // The room is over (L-1): each socket gives up its seat, so its close
-        // (from either end) finds no seat to mark gone and writes nothing.
-        for (const ws of [...this.socketsFor(e.seat), ...this.advisorsFor(e.seat)]) { disown(ws); shut(ws, 1000, 'ended'); }
-      } else for (const ws of this.socketsFor(e.seat)) if (ws !== keep) retire(ws);
+      // Every kind is named: an unknown one must never fall into `close` and
+      // retire a seat's sockets (the `never` below fails to compile on a new kind).
+      switch (e.kind) {
+        case 'frame': this.record(e.frame); break;
+        case 'send':
+          this.send(e.to, e.msg);
+          if (e.msg.t === 'desync') desync = e.msg;
+          break;
+        case 'shut':
+          // The room is over (L-1): each socket gives up its seat, so its close
+          // (from either end) finds no seat to mark gone and writes nothing.
+          for (const ws of [...this.socketsFor(e.seat), ...this.advisorsFor(e.seat)]) { disown(ws); shut(ws, 1000, 'ended'); }
+          break;
+        case 'close':
+          for (const ws of this.socketsFor(e.seat)) if (ws !== keep) retire(ws);
+          break;
+        // Its synchronous part (remembering the digest, a snapshot row) runs here, before the
+        // hashOk goes out; only a D1 report is awaited, after the sends (below).
+        case 'agreed': snapshots.push(this.onAgreed(e.tick, e.h)); break;
+        default: { const unhandled: never = e; throw new Error(`MatchRoom: unhandled effect ${JSON.stringify(unhandled)}`); }
+      }
     }
     await this.saveIfChanged();
     // After the sends and the state write, so a slow or failing D1 delays nothing a player sees.
+    // AWAITED: an unawaited D1 call may be cancelled when the object hibernates.
+    await Promise.all(snapshots);
     if (desync !== null) await this.logDesync(desync.tick, desync.hashes);
+  }
+  /** The pair's hashes for a snapshot tick agreed on `h`: remember the two
+   *  newest in memory (no row), then see whether the uploads waiting for this
+   *  tick can now be settled. A snapshot is accepted against this value only. */
+  private async onAgreed(tick: number, h: number): Promise<void> {
+    this.agreedDigests.set(tick, h);
+    while (this.agreedDigests.size > 2) this.agreedDigests.delete(Math.min(...this.agreedDigests.keys()));
+    // A failing snapshot write (storage refused the row) must never break the hash pair that triggered it: the
+    // hashOk has gone and the state is saved, and a rejection here would surface from `apply` unhandled.
+    // `settleSnapshot` changes no book or stored tick before the write. The agreement does not repeat and both seats'
+    // slots are spent, so that tick's snapshot is lost; the next cadence is unaffected.
+    try {
+      await this.settleSnapshot(tick);
+    } catch (e) {
+      console.error('MatchRoom: snapshot settle failed', e);
+    }
+  }
+  /** Decides `tick`'s pending uploads (the pure `decide`) and acts: `stored`
+   *  writes the one snapshot row, `held` writes nothing, `mismatch` drops both
+   *  uploads and reports to D1. Everything before the D1 await is synchronous,
+   *  so the book, `storedTick` and the agreed digests change in one step.
+   *
+   *  This is also the path of a pair that agrees AFTER both uploads arrived
+   *  ("agreed last"), and it deliberately does not re-run `admitTick`: the
+   *  uploads were admitted when they came, a late pair above `storedTick` is
+   *  still stored even if its tick has left the window since. A pair at or below
+   *  `storedTick` cannot reach here: an accept drops every pending tick through
+   *  its own (`dropThrough`), and room-core ignores a hash at or below the last
+   *  compared tick. Both are tested. */
+  private async settleSnapshot(tick: number): Promise<'stored' | 'held' | 'mismatch'> {
+    const st = this.st;
+    if (st === null) return 'held';
+    const d = decide(this.pending, tick, this.agreedDigests.get(tick));
+    if (d.kind === 'held') return 'held';
+    if (d.kind === 'accept') {
+      this.ctx.storage.sql.exec(SNAP_PUT_SQL, tick, d.sha, d.digest, d.body.slice().buffer);
+      this.storedTick = tick;
+      this.pending.dropThrough(tick);
+      this.reserved.dropThrough(tick);
+      for (const t of [...this.agreedDigests.keys()]) if (t <= tick) this.agreedDigests.delete(t);
+      return 'stored';
+    }
+    this.pending.drop(tick);
+    // The first bad upload of a tick is reported; a room that keeps sending them is not reported past its bound.
+    if (this.snapMismatches < SNAP_MISMATCH_PER_ROOM) {
+      this.snapMismatches++;
+      try {
+        const written = await writeSnapMismatch(this.env.DB, { code: st.code, tick, kind: d.why, shaA: d.shas[0], shaB: d.shas[1], digest: d.digest, createdAt: Date.now() });
+        if (!written) console.warn('MatchRoom: snapshot mismatch not logged, the daily budget is spent', st.code, tick);
+      } catch (e) {
+        // A missing table (migration not applied), a D1 outage or a missing binding never breaks the room.
+        console.error('MatchRoom: snapshot mismatch log failed', e);
+      }
+    }
+    return 'mismatch';
   }
   /** Writes a desync's evidence to D1, once per room. AWAITED by `apply`: an
    *  unawaited D1 call may be cancelled when the object hibernates, and this
@@ -526,6 +663,12 @@ export class MatchRoom {
     this.open = [];
     this.savedKey = null;
     this.desyncLogged = false;
+    this.pending.clear();
+    this.reserved.clear();
+    this.agreedDigests.clear();
+    this.storedTick = -1;
+    this.snapshotStoreReady = false;
+    this.snapMismatches = 0;
     this.alarmAt = null;
     await this.ctx.storage.deleteAlarm();
     await this.ctx.storage.deleteAll();
@@ -615,6 +758,7 @@ export class MatchRoom {
         kit: mode === 'versus' ? kitField(body.kit) : 'matched', claims: [seatTiersField(body.tiers), seatTiersField(null)] };
       // The table, the keys and the TTL alarm exist from here, and only from here (#559 H-1).
       this.ctx.storage.sql.exec(CREATE_SQL);
+      this.openSnapshotStore();
       await this.ctx.storage.put('meta', this.meta);
       await this.save();
       this.armAlarm();
@@ -634,6 +778,11 @@ export class MatchRoom {
       return new Response(null, { status: 101, webSocket: pair[0] } as UpgradeInit);
     }
     if (!st) return new Response('no such room', { status: 404 });
+    if (pathname === '/snapshot') {
+      if (req.method === 'POST') return this.snapshotUpload(req);
+      if (req.method === 'GET') return this.snapshotServe(req);
+      return new Response('method', { status: 405 });
+    }
     if (pathname === '/state') return Response.json({ status: st.status, seats: st.seats.filter((s) => s !== null).length });
     if (pathname === '/join' && req.method === 'POST') {
       // The body is read BEFORE the check-and-set below: an await between them lets a
@@ -654,6 +803,103 @@ export class MatchRoom {
       return new Response(null, { status: 101, webSocket: pair[0] } as UpgradeInit);
     }
     return new Response('not found', { status: 404 });
+  }
+
+  // --- snapshots --------------------------------------------------------------
+
+  /** Checks 2 and 3 of the snapshot contract: a `Bearer` ticket that verifies,
+   *  names THIS match and is a seat's (an advisor ticket never passes). The room
+   *  is read again after the HMAC await: a purge may have run in between. */
+  private async snapshotSeat(req: Request): Promise<{ st: RoomState; seat: Seat } | Response> {
+    const auth = req.headers.get('authorization');
+    if (auth === null || !auth.startsWith('Bearer ')) return new Response('unauthorized', { status: 401 });
+    const secret = this.env.TICKET_SECRET;
+    const ticket = secret ? await verifyTicket(secret, auth.slice('Bearer '.length), Date.now()) : null;
+    const st = this.st;
+    if (st === null) return new Response('no such room', { status: 404 });
+    if (ticket === null || ticket.matchId !== st.matchId || ticket.role !== 'seat') return new Response('forbidden', { status: 403 });
+    return { st, seat: ticket.seat };
+  }
+  /** Checks 4, 6 and 7 against the room as it is NOW (`this.st`, `storedTick`
+   *  and the book), never a value read before an await (G-6): called before the
+   *  body is read and again after the last await. With no `tick` only check 4 runs.
+   *  `own` is set on the re-run by an upload that holds its (seat, tick) slot already. */
+  private snapshotRefusal(seat: Seat, tick: number | null, own = false): Response | null {
+    const st = this.st;
+    if (st === null) return new Response('no such room', { status: 404 });
+    const every = st.config === null ? 0 : snapshotEvery(st.config);
+    if ((st.status !== 'running' && st.status !== 'stalled') || every <= 0) return new Response('not_running', { status: 409 });
+    if (tick === null) return null;
+    if (admitTick(tick, { every, roomTick: st.tick, storedTick: this.storedTick }) !== 'ok') return new Response('stale', { status: 409 });
+    if ((!own && this.reserved.has(seat, tick)) || this.pending.has(seat, tick)) return new Response('duplicate', { status: 409 });
+    return null;
+  }
+  /** `POST /snapshot` (the contract's checks 1 to 13, cheap before costly). A
+   *  refused, held or mismatched upload writes no row of this room's; only an
+   *  accepted pair does (one row, `INSERT OR REPLACE`). */
+  private async snapshotUpload(req: Request): Promise<Response> {
+    const who = await this.snapshotSeat(req);
+    if (who instanceof Response) return who;
+    const { seat } = who;
+    const early = this.snapshotRefusal(seat, null);
+    if (early !== null) return early;
+    const declaredTick = req.headers.get('x-snapshot-tick');
+    if (declaredTick === null || !/^(0|[1-9][0-9]{0,9})$/.test(declaredTick)) return new Response('bad request', { status: 400 });
+    const tick = Number(declaredTick);
+    const stale = this.snapshotRefusal(seat, tick);
+    if (stale !== null) return stale;
+    // Check 7 and the reservation are one synchronous step: nothing between them can let a second upload of this
+    // (seat, tick) past the check. From here the slot stays spent for the tick on every refusal and mismatch.
+    this.reserved.reserve(seat, tick);
+    const declared = req.headers.get('content-length');
+    // A plain decimal within the cap, or 413: a signed, hex, exponent, blank or padded value is refused unread.
+    // `readCapped` below stays the real bound for a body that lies about its length.
+    if (declared !== null && !(/^(0|[1-9][0-9]{0,9})$/.test(declared) && Number(declared) <= SNAPSHOT_MAX_COMPRESSED_BYTES)) return new Response('too_large', { status: 413 });
+    const gz = await readCapped(req, SNAPSHOT_MAX_COMPRESSED_BYTES);
+    if (gz === null) return new Response('too_large', { status: 413 });
+    const raw = await gunzipCapped(gz, SNAPSHOT_MAX_RAW_BYTES, this.inflateYield);
+    if (!raw.ok) return raw.reason === 'too_large' ? new Response('too_large', { status: 413 }) : new Response('bad_gzip', { status: 400 });
+    const header = readSnapshotHeader(raw.bytes);
+    if (header === null || header.format !== SNAPSHOT_FORMAT || header.frameTick !== tick) return new Response('bad snapshot', { status: 400 });
+    const sha = await sha256Hex(raw.bytes);
+    // Step 12: that was the last await that matters, so the checks a write depends on run again, against the
+    // room as it is now, and the upload is recorded in the same synchronous step as the decision (G-6).
+    const refused = this.snapshotRefusal(seat, tick, true);
+    if (refused !== null) return refused;
+    this.pending.put(seat, tick, { sha, digest: header.matchDigest, body: gz });
+    let outcome: 'stored' | 'held' | 'mismatch';
+    try {
+      outcome = await this.settleSnapshot(tick);
+    } catch (e) {
+      // Storage refused the row: nothing was changed past the upload's own record, and the tick is not retried.
+      console.error('MatchRoom: snapshot settle failed', e);
+      return new Response('store failed', { status: 500 });
+    }
+    if (outcome === 'stored') return new Response('stored', { status: 201 });
+    if (outcome === 'held') return new Response('held', { status: 202 });
+    return new Response('mismatch', { status: 409 });
+  }
+
+  /** `GET /snapshot`: checks 1 to 3 (an advisor ticket is refused), then the one
+   *  row. No row, or a lobby, is 204. Writes nothing and runs in any status while
+   *  the room exists, an ended room before its wipe included. The bytes are the
+   *  stored gzip as uploaded; the client inflates them itself. */
+  private async snapshotServe(req: Request): Promise<Response> {
+    const who = await this.snapshotSeat(req);
+    if (who instanceof Response) return who;
+    const [row] = this.ctx.storage.sql.exec(SNAP_GET_SQL).toArray();
+    if (row === undefined) return new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } });
+    return new Response(row.bytes as ArrayBuffer, {
+      status: 200,
+      headers: {
+        'content-type': 'application/octet-stream',
+        'cache-control': 'no-store',
+        'x-snapshot-tick': String(row.frame_tick),
+        'x-snapshot-sha': String(row.sha),
+        // The agreed match digest as an unsigned decimal: the row holds the header's u32 (the fake and SQLite refuse a signed one).
+        'x-snapshot-digest': String(row.digest),
+      },
+    });
   }
 
   /** The room's half of `/ws`: hand the server end to the Hibernation API,
@@ -757,7 +1003,8 @@ export class MatchRoom {
       // other seat ended on -- and show the same result. Only to a verified
       // ticket on this build; anyone else hears the ending alone, as before.
       if (st.config !== null && (await this.mayReplay(st, msg))) {
-        for (const part of logParts(st.config, this.readLog())) reply(ws, part);
+        const from = msg.t === 'hello' ? msg.from : undefined;
+        for (const part of logParts(st.config, this.readLogFrom(from), LOG_PART_CHARS, from)) reply(ws, part);
       }
       reply(ws, endedMsg(st));
       shut(ws, 1000, 'ended');
@@ -770,10 +1017,10 @@ export class MatchRoom {
     // /create refuses an empty build, so `''` here means meta was never written: fail closed.
     const build = this.meta?.build ?? '';
     if (build === '' || msg.build !== build) { reply(ws, { t: 'error', code: 'build_mismatch' }); shut(ws, 4002, 'build'); return; }
-    if (ticket.role === 'advisor' && ticket.scope !== undefined) { this.advisorHello(ws, st, ticket.seat, ticket.scope); return; }
+    if (ticket.role === 'advisor' && ticket.scope !== undefined) { this.advisorHello(ws, st, ticket.seat, ticket.scope, msg.from); return; }
     if (ticket.role !== 'seat') { reply(ws, { t: 'error', code: 'bad_ticket' }); shut(ws, 4001, 'bad ticket'); return; }
     (ws as HibernatingSocket).serializeAttachment({ seat: ticket.seat } satisfies SocketAttachment);
-    await this.apply(seatJoin(st, ticket.seat, ticket.player, this.meta?.callsigns[ticket.seat] ?? '', Date.now(), () => this.readLog()), ws);
+    await this.apply(seatJoin(st, ticket.seat, ticket.player, this.meta?.callsigns[ticket.seat] ?? '', Date.now(), () => this.readLogFrom(msg.from), msg.from), ws);
     // A seat that (re)joins is told the advisor badges it would otherwise have missed.
     const present = this.advisorsPresent();
     if (present.present.some((p) => p !== null)) reply(ws, present);
@@ -783,12 +1030,12 @@ export class MatchRoom {
    *  for the same seat is retired; it is told the lobby, or the log and a pause
    *  in force, as its seat would be; and everyone learns the badge. It never
    *  joins the seat: no `seatJoin`, no state change, no row. */
-  private advisorHello(ws: WebSocket, st: RoomState, seat: Seat, scope: AdvisorScope): void {
+  private advisorHello(ws: WebSocket, st: RoomState, seat: Seat, scope: AdvisorScope, from?: number): void {
     for (const old of this.advisorsFor(seat)) if (old !== ws) retire(old);
     (ws as HibernatingSocket).serializeAttachment({ seat, role: 'advisor', scope } satisfies SocketAttachment);
     if (st.status === 'lobby') reply(ws, this.lobbyFor(lobbyMsg(st, seat) as Extract<ServerMsg, { t: 'lobby' }>, seat));
     else if (st.config !== null) {
-      for (const part of logParts(st.config, this.readLog())) reply(ws, part);
+      for (const part of logParts(st.config, this.readLogFrom(from), LOG_PART_CHARS, from)) reply(ws, part);
       if (st.pause !== null) reply(ws, pausedMsg(st, Date.now(), st.pause));
     }
     this.send('all', this.advisorsPresent());

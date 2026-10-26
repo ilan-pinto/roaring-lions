@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { endOfSeat, sidesOfFactions, sidesOfMatchup, FACTION_MATCHUP_MAPS, TIERS_MAX_TIER, TIERS_MAX_TRACKS, TIERS_MAX_TYPES, VERSUS_FAIR_MAPS, factionsOfMatchup, isFactionPair, matchupAllowed, matchupField, validateConfig, fnv1a32, versusMapAllowed, type MatchConfig } from './config';
+import { endOfSeat, sidesOfFactions, sidesOfMatchup, FACTION_MATCHUP_MAPS, TIERS_MAX_TIER, TIERS_MAX_TRACKS, TIERS_MAX_TYPES, VERSUS_FAIR_MAPS, factionsOfMatchup, isFactionPair, matchupAllowed, matchupField, validateConfig, fnv1a32, isSnapshotTick, snapshotEvery, versusMapAllowed, type MatchConfig } from './config';
 
 export const CONFIG: MatchConfig = {
   matchId: 'm1', code: 'ABCDEF', seed: 20260727, map: 'beit_sahwan_outskirts', mode: 'sandbox',
@@ -146,5 +146,32 @@ describe('the versus matchup (2026-10-14, KDF vs Sarim)', () => {
 
   it('a map KDF can face Sarim on is a fair map too: the narrower rule sits inside the wider one', () => {
     for (const map of FACTION_MATCHUP_MAPS) expect(VERSUS_FAIR_MAPS).toContain(map);
+  });
+});
+
+describe('snapshotEveryTicks (snapshot S3)', () => {
+  const withEvery = (v: unknown) => validateConfig({ ...CONFIG, snapshotEveryTicks: v });
+  it('is optional: absent, 0 and 1200 are valid with hashEveryTicks 20', () => {
+    expect(validateConfig(CONFIG)).not.toBeNull();
+    expect(snapshotEvery(CONFIG)).toBe(0);
+    expect(withEvery(0)?.snapshotEveryTicks).toBe(0);
+    expect(withEvery(1200)?.snapshotEveryTicks).toBe(1200);
+    expect(snapshotEvery({ snapshotEveryTicks: 1200 })).toBe(1200);
+  });
+  it('refuses a non-multiple of the hash cadence, a negative, a fraction, a string and a too-large value', () => {
+    expect(withEvery(1210)).toBeNull();
+    expect(withEvery(-20)).toBeNull();
+    expect(withEvery(1.5)).toBeNull();
+    expect(withEvery('1200')).toBeNull();
+    expect(withEvery(72_020)).toBeNull();
+    expect(withEvery(72_000)).not.toBeNull();
+  });
+  it('isSnapshotTick is the last tick of each interval, and never when off', () => {
+    expect(isSnapshotTick(1199, 1200)).toBe(true);
+    expect(isSnapshotTick(2399, 1200)).toBe(true);
+    expect(isSnapshotTick(1200, 1200)).toBe(false);
+    expect(isSnapshotTick(0, 1200)).toBe(false);
+    expect(isSnapshotTick(1199, 0)).toBe(false);
+    expect(isSnapshotTick(-1, 1200)).toBe(false);
   });
 });

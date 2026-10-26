@@ -8,7 +8,8 @@ const ORIGIN = 'https://roaring-lions.pint12.workers.dev';
 
 /** A namespace whose every stub answers from one in-memory table of rooms.
  *  `/join` reserves the seat at once, as the real room does (R5). */
-function fakeRooms(): { env: Env; created: string[]; createBodies: Record<string, unknown>[]; joinBodies: Record<string, unknown>[]; wsSeen: Request[]; limited: string[]; calls: string[] } {
+interface SnapSeen { room: string; url: string; method: string; authorization: string | null; tick: string | null; body: Uint8Array }
+function fakeRooms(): { env: Env; created: string[]; createBodies: Record<string, unknown>[]; joinBodies: Record<string, unknown>[]; wsSeen: Request[]; limited: string[]; calls: string[]; snapSeen: SnapSeen[]; snapKeys: string[] } {
   const rooms = new Map<string, { seats: number }>();
   /** Every path any room stub was asked for, in order. */
   const calls: string[] = [];
@@ -17,6 +18,9 @@ function fakeRooms(): { env: Env; created: string[]; createBodies: Record<string
   const joinBodies: Record<string, unknown>[] = [];
   const wsSeen: Request[] = [];
   const limited: string[] = [];
+  /** What each room stub was sent at /snapshot, and the keys SNAP_LIMIT was asked for. */
+  const snapSeen: SnapSeen[] = [];
+  const snapKeys: string[] = [];
   const stub = (name: string) => ({
     fetch: async (req: Request): Promise<Response> => {
       const path = new URL(req.url).pathname;
@@ -26,16 +30,21 @@ function fakeRooms(): { env: Env; created: string[]; createBodies: Record<string
       if (path === '/state') return room ? Response.json({ status: 'lobby', seats: room.seats }) : new Response('', { status: 404 });
       if (path === '/join') { joinBodies.push(await req.json() as Record<string, unknown>); if (!room) return new Response('', { status: 404 }); if (room.seats >= 2) return new Response('', { status: 409 }); room.seats++; return Response.json({ seat: 1 }); }
       if (path === '/ws') { wsSeen.push(req); return new Response('upgraded', { status: room ? 200 : 404 }); }
+      if (path === '/snapshot') {
+        snapSeen.push({ room: name, url: req.url, method: req.method, authorization: req.headers.get('authorization'), tick: req.headers.get('x-snapshot-tick'), body: new Uint8Array(await req.arrayBuffer()) });
+        return req.method === 'POST' ? new Response('stored', { status: 201 }) : new Response(new Uint8Array([7, 8, 9]), { status: 200, headers: { 'x-snapshot-tick': '1200' } });
+      }
       return new Response('', { status: 404 });
     },
   });
   const limiter: RateLimiter = { limit: async ({ key }) => { limited.push(key); return { success: true }; } };
+  const snapLimiter: RateLimiter = { limit: async ({ key }) => { snapKeys.push(key); return { success: true }; } };
   const env = {
     DB: {} as Env['DB'], ASSETS: { fetch: async () => new Response('') },
-    TICKET_SECRET: 'secret', ROOM_LIMIT: limiter,
+    TICKET_SECRET: 'secret', ROOM_LIMIT: limiter, SNAP_LIMIT: snapLimiter,
     ROOMS: { idFromName: (n: string) => n, get: (id: unknown) => stub(id as string) },
   } as unknown as Env;
-  return { env, created, createBodies, joinBodies, wsSeen, limited, calls };
+  return { env, created, createBodies, joinBodies, wsSeen, limited, calls, snapSeen, snapKeys };
 }
 
 const post = (url: string, body: unknown, origin = ORIGIN) =>
@@ -307,6 +316,119 @@ describe('/api/match', () => {
       expect((await handleMatch(evil, env, NOW)).status).toBe(403);
       const refusing = { ...env, ROOM_LIMIT: { limit: async () => ({ success: false }) } };
       expect((await handleMatch(post(url, { ticket: await seatTicket('ABCDEF', 0), scope: 'assist' }), refusing, NOW)).status).toBe(429);
+      expect(calls).toEqual([]);
+    });
+  });
+
+  describe('snapshot S3: POST and GET /api/match/:code/snapshot', () => {
+    const SNAP = `${ORIGIN}/api/match/ABCDEF/snapshot`;
+    const seatTicket = (code: string, o: { role?: 'advisor'; exp?: number } = {}): Promise<string> =>
+      signTicket('secret', { matchId: code, seat: 0, player: 'p-host', exp: o.exp ?? NOW + 60_000, ...(o.role === 'advisor' ? { role: 'advisor', scope: 'assist' } : {}) });
+    const BYTES: Uint8Array<ArrayBuffer> = new Uint8Array([1, 2, 3, 250, 251, 0, 17]);
+    const snapReq = (url: string, method: string, auth: string | null, o: { origin?: string | null; tick?: string; body?: Uint8Array<ArrayBuffer> } = {}): Request => {
+      const h: Record<string, string> = { 'cf-connecting-ip': '198.51.100.7' };
+      if (o.origin !== null) h.origin = o.origin ?? ORIGIN;
+      if (auth !== null) h.authorization = auth;
+      if (o.tick !== undefined) h['x-snapshot-tick'] = o.tick;
+      return new Request(url, { method, headers: h, ...(o.body ? { body: o.body } : {}) });
+    };
+
+    it('a POST and a GET reach https://room/snapshot with the method, the Authorization, X-Snapshot-Tick and the bytes intact, and return the room\'s answer', async () => {
+      const { env, snapSeen, snapKeys } = fakeRooms();
+      const auth = `Bearer ${await seatTicket('ABCDEF')}`;
+      const put = await handleMatch(snapReq(SNAP, 'POST', auth, { tick: '1200', body: BYTES }), env, NOW);
+      expect(put.status).toBe(201);
+      expect(await put.text()).toBe('stored');
+      const got = await handleMatch(snapReq(SNAP, 'GET', auth), env, NOW);
+      expect(got.status).toBe(200);
+      expect(got.headers.get('x-snapshot-tick')).toBe('1200');
+      expect([...new Uint8Array(await got.arrayBuffer())]).toEqual([7, 8, 9]);
+      expect(snapSeen).toHaveLength(2);
+      expect(snapSeen[0]).toEqual({ room: 'ABCDEF', url: 'https://room/snapshot', method: 'POST', authorization: auth, tick: '1200', body: BYTES });
+      expect(snapSeen[1]).toEqual({ room: 'ABCDEF', url: 'https://room/snapshot', method: 'GET', authorization: auth, tick: null, body: new Uint8Array(0) });
+      expect(snapKeys).toEqual(['198.51.100.7', '198.51.100.7']);   // SNAP_LIMIT counted both, by IP
+    });
+
+    it('a missing or foreign Origin is 403 and no stub is called', async () => {
+      const { env, calls } = fakeRooms();
+      const auth = `Bearer ${await seatTicket('ABCDEF')}`;
+      for (const method of ['POST', 'GET']) {
+        expect((await handleMatch(snapReq(SNAP, method, auth, { origin: null, tick: '1200', ...(method === 'POST' ? { body: BYTES } : {}) }), env, NOW)).status).toBe(403);
+        expect((await handleMatch(snapReq(SNAP, method, auth, { origin: 'https://evil.example', tick: '1200', ...(method === 'POST' ? { body: BYTES } : {}) }), env, NOW)).status).toBe(403);
+      }
+      expect(calls).toEqual([]);
+    });
+
+    it('a limited IP is 429 and no stub is called; ROOM_LIMIT is not the limiter that counts', async () => {
+      const { env, calls } = fakeRooms();
+      const auth = `Bearer ${await seatTicket('ABCDEF')}`;
+      const refusing = { ...env, SNAP_LIMIT: { limit: async () => ({ success: false }) } } as Env;
+      expect((await handleMatch(snapReq(SNAP, 'POST', auth, { tick: '1200', body: BYTES }), refusing, NOW)).status).toBe(429);
+      expect((await handleMatch(snapReq(SNAP, 'GET', auth), refusing, NOW)).status).toBe(429);
+      // the limiter runs before the ticket: a limited IP with no or junk credentials is 429, not 401/403
+      expect((await handleMatch(snapReq(SNAP, 'GET', null), refusing, NOW)).status).toBe(429);
+      expect((await handleMatch(snapReq(SNAP, 'GET', 'Bearer junk'), refusing, NOW)).status).toBe(429);
+      const roomRefusing = { ...env, ROOM_LIMIT: { limit: async () => ({ success: false }) } } as Env;
+      expect((await handleMatch(snapReq(SNAP, 'GET', auth), roomRefusing, NOW)).status).toBe(200);
+      expect(calls).toEqual(['/snapshot']);   // only the ROOM_LIMIT-refusing GET got through
+    });
+
+    it('a ticket in the query string only is 401, and no stub is called', async () => {
+      const { env, calls } = fakeRooms();
+      const ticket = await seatTicket('ABCDEF');
+      for (const method of ['POST', 'GET']) {
+        const res = await handleMatch(snapReq(`${SNAP}?ticket=${ticket}`, method, null, { tick: '1200', ...(method === 'POST' ? { body: BYTES } : {}) }), env, NOW);
+        expect(res.status).toBe(401);
+      }
+      expect((await handleMatch(snapReq(SNAP, 'GET', ticket), env, NOW)).status).toBe(401);   // not Bearer-prefixed
+      expect(calls).toEqual([]);
+    });
+
+    it('the scheme is `Bearer` and one space, exactly: a valid seat ticket under `bearer` or `BEARER` is 401 and under two spaces is 403, and no stub is called', async () => {
+      const { env, calls } = fakeRooms();
+      const t = await seatTicket('ABCDEF');
+      for (const method of ['POST', 'GET']) {
+        const extra = { tick: '1200', ...(method === 'POST' ? { body: BYTES } : {}) };
+        for (const scheme of ['bearer', 'BEARER']) expect((await handleMatch(snapReq(SNAP, method, `${scheme} ${t}`, extra), env, NOW)).status, `${method} ${scheme}`).toBe(401);
+        expect((await handleMatch(snapReq(SNAP, method, `Bearer  ${t}`, extra), env, NOW)).status, `${method} two spaces`).toBe(403);
+      }
+      expect(calls).toEqual([]);
+    });
+
+    it('an advisor ticket, another code\'s ticket, an expired one and junk are 403, and no stub is called', async () => {
+      const { env, calls } = fakeRooms();
+      const bad = [
+        `Bearer ${await seatTicket('ABCDEF', { role: 'advisor' })}`,
+        `Bearer ${await seatTicket('ZZZZZZ')}`,
+        `Bearer ${await seatTicket('ABCDEF', { exp: NOW })}`,
+        'Bearer not.a.ticket',
+      ];
+      for (const auth of bad) {
+        for (const method of ['POST', 'GET']) {
+          expect((await handleMatch(snapReq(SNAP, method, auth, { tick: '1200', ...(method === 'POST' ? { body: BYTES } : {}) }), env, NOW)).status, `${method} ${auth.slice(0, 16)}`).toBe(403);
+        }
+      }
+      expect(calls).toEqual([]);
+    });
+
+    it('a lower-case code reaches the same room, and the room is asked for the upper-case name', async () => {
+      const { env, snapSeen } = fakeRooms();
+      const auth = `Bearer ${await seatTicket('ABCDEF')}`;
+      const res = await handleMatch(snapReq(`${ORIGIN}/api/match/abcdef/snapshot`, 'GET', auth), env, NOW);
+      expect(res.status).toBe(200);
+      expect(snapSeen.map((x) => x.room)).toEqual(['ABCDEF']);
+    });
+
+    it('PUT, DELETE and HEAD are 405, and no stub is called', async () => {
+      const { env, calls } = fakeRooms();
+      const auth = `Bearer ${await seatTicket('ABCDEF')}`;
+      for (const method of ['PUT', 'DELETE', 'HEAD']) expect((await handleMatch(snapReq(SNAP, method, auth), env, NOW)).status, method).toBe(405);
+      expect(calls).toEqual([]);
+    });
+
+    it('a malformed code is 400 before a room is touched', async () => {
+      const { env, calls } = fakeRooms();
+      expect((await handleMatch(snapReq(`${ORIGIN}/api/match/abc/snapshot`, 'GET', `Bearer ${await seatTicket('abc')}`), env, NOW)).status).toBe(400);
       expect(calls).toEqual([]);
     });
   });

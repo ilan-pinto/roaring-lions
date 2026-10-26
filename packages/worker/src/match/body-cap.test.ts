@@ -4,7 +4,7 @@
  *  measured here from the real tables, not from a number typed in. */
 import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
-import { ADVISOR_SCOPES, MAX_CALLSIGN_CHARS } from '@lions/net';
+import { ADVISOR_SCOPES, MAX_CALLSIGN_CHARS, SNAPSHOT_MAX_COMPRESSED_BYTES } from '@lions/net';
 import { handleMatch, MATCH_BODY_MAX_BYTES } from './routes';
 import { signTicket } from './ticket';
 import { KIT_TRACKS } from './kit-tracks';
@@ -51,8 +51,10 @@ async function measuredMax(): Promise<number> {
   return Math.max(bytes(b.create), bytes(b.join), bytes({ ticket, scope: ADVISOR_SCOPES[0] }));
 }
 
-function fakeRooms(): { env: Env; calls: string[]; created: Record<string, unknown>[] } {
+function fakeRooms(): { env: Env; calls: string[]; created: Record<string, unknown>[]; forwarded: number[] } {
   const calls: string[] = [];
+  /** The byte length of each body a room stub was sent at /snapshot. */
+  const forwarded: number[] = [];
   const created: Record<string, unknown>[] = [];
   const rooms = new Set<string>();
   const stub = (name: string) => ({
@@ -60,6 +62,7 @@ function fakeRooms(): { env: Env; calls: string[]; created: Record<string, unkno
       const path = new URL(req.url).pathname;
       calls.push(path);
       if (path === '/create') { created.push(await req.json() as Record<string, unknown>); rooms.add(name); return Response.json({ ok: true }); }
+      if (path === '/snapshot') { forwarded.push((await req.arrayBuffer()).byteLength); return new Response('stored', { status: 201 }); }
       if (path === '/join') return rooms.has(name) ? Response.json({ seat: 1 }) : new Response('', { status: 404 });
       return new Response('', { status: 404 });
     },
@@ -67,10 +70,10 @@ function fakeRooms(): { env: Env; calls: string[]; created: Record<string, unkno
   const limiter: RateLimiter = { limit: async () => ({ success: true }) };
   const env = {
     DB: {} as Env['DB'], ASSETS: { fetch: async () => new Response('') },
-    TICKET_SECRET: 'secret', ROOM_LIMIT: limiter,
+    TICKET_SECRET: 'secret', ROOM_LIMIT: limiter, SNAP_LIMIT: limiter,
     ROOMS: { idFromName: (n: string) => n, get: (id: unknown) => stub(id as string) },
   } as unknown as Env;
-  return { env, calls, created };
+  return { env, calls, created, forwarded };
 }
 
 const headers = (extra: Record<string, string> = {}): Record<string, string> =>
@@ -199,4 +202,70 @@ describe('the /api/match body cap', () => {
       }
     });
   }
+});
+
+/** The snapshot upload's own cap (snapshot S3): `POST /api/match/:code/snapshot` carries gzip bytes, not
+ *  JSON, so it has its own bound beside `MATCH_BODY_MAX_BYTES`. The Worker holds it twice, a declared
+ *  length over it at once and the actual bytes through `readCapped`, and forwards the bytes it read. */
+describe('the /api/match/:code/snapshot body cap', () => {
+  /** 65,536 bytes (64 KiB) compressed. Measured: a real mid-game snapshot gzips to 16.1 KiB (design §12.3),
+   *  about 18 KiB with the runtime (§13.3), so the cap is about 4x the first and 3.5x the second.
+   *  The headroom is gated by `tools/src/net/snapshot-size.test.ts` (Task 13: measured <= cap / 2 at the
+   *  browser's default gzip level). The literal is typed here on purpose: an oracle takes literals. */
+  const SNAP_CAP_LITERAL = 65_536;
+  const URL_ = `${ORIGIN}/api/match/${CODE}/snapshot`;
+  const snapPost = async (body: BodyInit, extra: Record<string, string> = {}, stream = false): Promise<Request> => {
+    const ticket = await signTicket('secret', { matchId: CODE, seat: 0, player: 'p', exp: NOW + 60_000 });
+    return new Request(URL_, {
+      method: 'POST',
+      headers: { origin: ORIGIN, 'content-type': 'application/octet-stream', 'cf-connecting-ip': '203.0.113.9', authorization: `Bearer ${ticket}`, 'x-snapshot-tick': '1200', ...extra },
+      body, ...(stream ? { duplex: 'half' } : {}),
+    } as RequestInit);
+  };
+
+  it('the cap constant is its literal', () => {
+    expect(SNAPSHOT_MAX_COMPRESSED_BYTES).toBe(SNAP_CAP_LITERAL);
+    expect(SNAPSHOT_MAX_COMPRESSED_BYTES).not.toBe(MATCH_BODY_MAX_BYTES);   // its own bound, not the JSON routes'
+  });
+
+  it('a declared length of cap + 1 is 413 before the body is read and before any room is asked', async () => {
+    const f = fakeRooms();
+    const s = countingStream(SNAP_CAP_LITERAL + 1);
+    const res = await handleMatch(await snapPost(s.body, { 'content-length': String(SNAP_CAP_LITERAL + 1) }, true), f.env, NOW);
+    expect(res.status).toBe(413);
+    expect(s.reads()).toBe(0);
+    expect(f.calls).toEqual([]);
+  });
+
+  it('an undeclared cap + 1 is 413 and no room is asked', async () => {
+    const f = fakeRooms();
+    const res = await handleMatch(await snapPost(new Uint8Array(SNAP_CAP_LITERAL + 1)), f.env, NOW);
+    expect(res.status).toBe(413);
+    expect(f.calls).toEqual([]);
+  });
+
+  it('a lying or absent length reads at most the cap plus one chunk, then 413', async () => {
+    for (const extra of [{ 'content-length': '10' }, {}] as Record<string, string>[]) {
+      const f = fakeRooms();
+      const s = countingStream(SNAP_CAP_LITERAL * 4, 4096);   // far more than the cap, so an unbounded reader would take it all
+      const res = await handleMatch(await snapPost(s.body, extra, true), f.env, NOW);
+      expect(res.status).toBe(413);
+      expect(s.pulled()).toBeLessThanOrEqual(SNAP_CAP_LITERAL + 2 * 4096);
+      expect(f.calls).toEqual([]);
+    }
+  });
+
+  it('exactly the cap passes, declared or not, and the room is sent exactly the bytes read', async () => {
+    const undeclared = fakeRooms();
+    expect((await handleMatch(await snapPost(new Uint8Array(SNAP_CAP_LITERAL)), undeclared.env, NOW)).status).toBe(201);
+    expect(undeclared.forwarded).toEqual([SNAP_CAP_LITERAL]);
+    const declared = fakeRooms();
+    const res = await handleMatch(await snapPost(new Uint8Array(SNAP_CAP_LITERAL), { 'content-length': String(SNAP_CAP_LITERAL) }), declared.env, NOW);
+    expect(res.status).toBe(201);
+    expect(declared.forwarded).toEqual([SNAP_CAP_LITERAL]);
+    // A smaller body than it declared is forwarded as it really is.
+    const lying = fakeRooms();
+    expect((await handleMatch(await snapPost(new Uint8Array(100), { 'content-length': '60000' }), lying.env, NOW)).status).toBe(201);
+    expect(lying.forwarded).toEqual([100]);
+  });
 });

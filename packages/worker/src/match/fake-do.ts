@@ -13,6 +13,7 @@
  * delivers its close event with `deliverClose`.
  */
 import type { DurableStateLike, DurableStorageLike, HibernatingSocket, SqlRows } from '../do-types';
+import { LOG_FROM_SQL, SNAP_CREATE_SQL, SNAP_GET_SQL, SNAP_PUT_SQL, SNAP_TICK_SQL } from './snapshot-sql';
 
 const rows = (r: Record<string, unknown>[]): SqlRows => ({ toArray: () => r });
 const norm = (q: string): string => q.replace(/\s+/g, ' ').trim();
@@ -22,6 +23,15 @@ export class FakeStorage implements DurableStorageLike {
   /** The `batch` table: first_tick -> frames JSON. */
   readonly batches = new Map<number, string>();
   private tableExists = false;
+  /** The one snapshot row (id 0), or null: frame tick, SHA, digest and the stored (cloned) bytes. */
+  snapshotRow: { frame_tick: number; sha: string; digest: number; bytes: ArrayBuffer } | null = null;
+  private snapshotTable = false;
+  /** Test switch: when true the snapshot row write throws, as a storage refusal would. */
+  failSnapshotPut = false;
+  /** Whether the `snapshot` table exists. */
+  get hasSnapshotTable(): boolean { return this.snapshotTable; }
+  /** Rows returned by SELECTs: the Workers Free read meter, counted per row. */
+  rowsRead = 0;
   /** Whether the `batch` table exists: a probe of a missing room must never create it (#559 H-1). */
   get hasTable(): boolean { return this.tableExists; }
   /** Calls to `deleteAll`. */
@@ -60,16 +70,45 @@ export class FakeStorage implements DurableStorageLike {
    *  alone (the room deletes it itself). */
   async deleteAll(): Promise<void> {
     this.wipes++;
-    this.rowsWritten += this.kv.size + this.batches.size;
+    this.rowsWritten += this.kv.size + this.batches.size + (this.snapshotRow ? 1 : 0);
     this.kv.clear();
     this.batches.clear();
     this.tableExists = false;
+    this.snapshotRow = null;
+    this.snapshotTable = false;
   }
   readonly sql = {
     exec: (query: string, ...bindings: unknown[]): SqlRows => this.exec(norm(query), bindings),
   };
 
   private exec(q: string, b: unknown[]): SqlRows {
+    const out = this.run(q, b);
+    if (q.startsWith('SELECT')) this.rowsRead += out.toArray().length;
+    return out;
+  }
+
+  private run(q: string, b: unknown[]): SqlRows {
+    if (q === SNAP_CREATE_SQL) {
+      this.snapshotTable = true;
+      return rows([]);
+    }
+    if (q === SNAP_PUT_SQL || q === SNAP_TICK_SQL || q === SNAP_GET_SQL) {
+      if (!this.snapshotTable) throw new Error('FakeStorage: no such table: snapshot');
+      if (q === SNAP_TICK_SQL) return rows(this.snapshotRow ? [{ frame_tick: this.snapshotRow.frame_tick }] : []);
+      if (q === SNAP_GET_SQL) {
+        const r = this.snapshotRow;
+        return rows(r ? [{ frame_tick: r.frame_tick, sha: r.sha, digest: r.digest, bytes: r.bytes.slice(0) }] : []);
+      }
+      if (this.failSnapshotPut) throw new Error('FakeStorage: snapshot put refused');
+      const [tick, sha, digest, bytes] = b;
+      if (b.length !== 4 || typeof tick !== 'number' || !Number.isInteger(tick) || typeof sha !== 'string' || !/^[0-9a-f]{64}$/.test(sha)
+        || typeof digest !== 'number' || !Number.isInteger(digest) || digest < 0 || digest > 0xffffffff || !(bytes instanceof ArrayBuffer)) {
+        throw new Error(`FakeStorage: bad bindings for snapshot put: ${JSON.stringify(b.map((x) => (x instanceof ArrayBuffer ? 'ArrayBuffer' : x)))}`);
+      }
+      this.rowsWritten++;
+      this.snapshotRow = { frame_tick: tick, sha, digest, bytes: bytes.slice(0) };
+      return rows([]);
+    }
     if (q === 'CREATE TABLE IF NOT EXISTS batch (first_tick INTEGER PRIMARY KEY, frames TEXT NOT NULL)') {
       this.tableExists = true;
       return rows([]);
@@ -87,6 +126,13 @@ export class FakeStorage implements DurableStorageLike {
     const ordered = (): Record<string, unknown>[] =>
       [...this.batches.entries()].sort(([a], [c]) => a - c).map(([first_tick, frames]) => ({ first_tick, frames }));
     if (q === 'SELECT first_tick, frames FROM batch ORDER BY first_tick') return rows(ordered());
+    if (q === LOG_FROM_SQL) {
+      const [after] = b;
+      if (b.length !== 1 || typeof after !== 'number' || !Number.isInteger(after)) {
+        throw new Error(`FakeStorage: bad bindings for windowed log read: ${JSON.stringify(b)}`);
+      }
+      return rows(ordered().filter((r) => (r.first_tick as number) > after));
+    }
     if (q === 'SELECT first_tick, frames FROM batch ORDER BY first_tick DESC LIMIT 1') return rows(ordered().slice(-1));
     throw new Error(`FakeStorage: unsupported SQL: ${q}`);
   }

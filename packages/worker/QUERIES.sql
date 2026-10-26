@@ -78,3 +78,8 @@ WHERE e.type = 'account'
 -- N1b: desyncs, newest first (network design §3.4).
 SELECT code, tick, hash_a, hash_b, frame_count, datetime(created_at / 1000, 'unixepoch') AS at
 FROM match_desync ORDER BY created_at DESC LIMIT 50;
+
+-- Snapshot S3: snapshot uploads the two seats disagreed on, newest first (net sim snapshot design §5.2).
+-- kind 'sha' = the seats' inflated bytes differ; 'digest' = same bytes, header digest differs from the agreed one.
+SELECT code, tick, kind, sha_a, sha_b, digest, datetime(created_at / 1000, 'unixepoch') AS at
+FROM match_snap_mismatch ORDER BY created_at DESC LIMIT 50;

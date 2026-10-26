@@ -10,14 +10,19 @@
  * handed straight to the client's `onmessage`; `open` fires on a microtask,
  * after the transport has installed its handlers, as a browser's would.
  */
+import { setImmediate as realImmediate } from 'node:timers/promises';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { endingLoser, FORFEIT_MS, LOG_PART_CHARS, OVER_CLOSE_MS, RECONNECT_DELAY_MS, WsTransport, type Frame, type MatchConfig, type Seat, type ServerMsg, type SocketLike } from '@lions/net';
-import type { Env } from '../d1';
+import type { D1Like, Env } from '../d1';
+import { openTestD1 } from '../test-d1';
 import { FakeState, deliverAlarm, deliverClose, openSocket, type FakeSocket } from './fake-do';
 import { MatchRoom, PURGE_AFTER_MS, TICK_MS } from './match-room';
+import { gzip, snapshotBytes } from './snapshot-fixture';
 import { signTicket } from './ticket';
 
 const NOW = 1_790_000_000_000;
+/** Fake timers never fire the inflate's zero-delay timer turn: a real event-loop turn stands in. */
+const YIELD = { inflateYield: (): Promise<void> => realImmediate() };
 const SECRET = 'room-loop-test-secret';
 const CODE = 'LOOPAB';
 const BUILD = 'b-loop';
@@ -107,9 +112,9 @@ const sameHash = (tick: number): number | null => (tick % 20 === 19 ? 0x5eed : n
 interface Match { state: FakeState; loop: Loop; p0: Player; p1: Player }
 /** The watchdog fires as the runtime would: whenever the scheduled time has come, on the fake clock. */
 const watchdogs = new WeakMap<Loop, FakeState>();
-async function setUp(digest1: (tick: number) => number | null = sameHash, mode?: 'versus'): Promise<Match> {
+async function setUp(digest1: (tick: number) => number | null = sameHash, mode?: 'versus', snapshotEveryTicks?: number, db?: D1Like): Promise<Match> {
   const state = new FakeState();
-  const room = new MatchRoom(state, env);
+  const room = new MatchRoom(state, db === undefined ? env : ({ ...env, DB: db } as Env), snapshotEveryTicks === undefined ? YIELD : { ...YIELD, snapshotEveryTicks });
   const res = await room.fetch(new Request('https://room/create', {
     method: 'POST', body: JSON.stringify({ code: CODE, matchId: CODE, map: 'tel_marum', build: BUILD, player: 'Host', callsign: 'Host', ...(mode ? { mode } : {}) }),
   }));
@@ -123,8 +128,8 @@ async function setUp(digest1: (tick: number) => number | null = sameHash, mode?:
   await loop.flush();
   return { state, loop, p0, p1 };
 }
-async function started(digest1?: (tick: number) => number | null, mode?: 'versus'): Promise<Match> {
-  const s = await setUp(digest1, mode);
+async function started(digest1?: (tick: number) => number | null, mode?: 'versus', snapshotEveryTicks?: number, db?: D1Like): Promise<Match> {
+  const s = await setUp(digest1, mode, snapshotEveryTicks, db);
   s.p0.t.ready();
   s.p1.t.ready();
   await s.loop.flush();
@@ -274,7 +279,9 @@ describe('room loop: MatchRoom and two WsTransports', () => {
     const second1 = loop.wires[2];
     expect(kinds(second1)).toContain('log');
     const log = second1.received.find((m): m is Extract<ServerMsg, { t: 'log' }> => m.t === 'log');
-    expect(log?.frames.map((f) => f.tick)).toEqual(range(12));
+    // Seat 1 held ticks 0..11 when the link dropped, so the log starts at 12 (D6): nothing is re-sent.
+    expect(log?.from).toBe(12);
+    expect(log?.frames.map((f) => f.tick)).toEqual([]);
     expect(p1.configs).toHaveLength(1);   // a reconnect mid-match is not a second start
     await step(loop, [p0, p1], 10);
     expect(p1.ticks()).toEqual(range(p1.taken.length));
@@ -282,6 +289,52 @@ describe('room loop: MatchRoom and two WsTransports', () => {
     expect(p1.taken).toEqual(p0.taken.slice(0, p1.taken.length));
     expect(p1.t.status().kind).toBe('live');
   });
+
+  it('D6: a seat that dropped and kept its clock asks for the log from its next tick, gets a small fraction of the full log, and stays in lockstep (snapshot S3)', async () => {
+    const { loop, p0, p1 } = await started();
+    await step(loop, [p0, p1], 600);
+    expect(p1.t.status().kind).toBe('live');
+    const logsOf = (w: Wire): Extract<ServerMsg, { t: 'log' }>[] => w.received.filter((m): m is Extract<ServerMsg, { t: 'log' }> => m.t === 'log');
+    const chars = (logs: ServerMsg[]): number => logs.reduce((n, m) => n + JSON.stringify(m).length, 0);
+    // The link goes quiet before either end learns it: the room keeps minting
+    // frames that seat 1 never receives (it stalls behind a seat that stops
+    // acking only after 40 ticks, so 30 fit), then the socket drops for good.
+    const lost = loop.wires[1];
+    lost.live = false;
+    await step(loop, [p0], 30);
+    lost.drop();
+    await loop.flush();
+    const heldTo = Math.max(...lost.received.flatMap((m) => (m.t === 'frame' ? [m.tick] : [])));
+    await vi.advanceTimersByTimeAsync(RECONNECT_DELAY_MS);
+    await loop.flush();
+    const rejoin = loop.wires[2];
+    const logs = logsOf(rejoin);
+    expect(logs.length).toBeGreaterThan(0);
+    // Every part names where it starts, and holds nothing before it.
+    for (const m of logs) {
+      expect(m.from).toBe(heldTo + 1);
+      expect(m.frames.every((f) => f.tick >= heldTo + 1)).toBe(true);
+    }
+    const sent = logs.flatMap((m) => m.frames);
+    expect(sent.length).toBeGreaterThanOrEqual(30);   // the loss was real: those frames came back
+    expect(sent[0].tick).toBe(heldTo + 1);
+    const trimmed = chars(logs);
+    await step(loop, [p0, p1], 200);
+    expect(p1.ticks()).toEqual(range(p1.taken.length));
+    expect(p1.taken).toEqual(p0.taken.slice(0, p1.taken.length));
+    expect(p1.taken.length).toBeGreaterThan(heldTo + 150);
+    expect(p1.t.stats().hashOk.lastTick).toBeGreaterThan(heldTo);
+    expect(p1.t.status().kind).toBe('live');
+    // The same room answering a hello with no from: the whole log.
+    const bare = openSocket(loop.room);
+    const bareReceived: ServerMsg[] = [];
+    bare.onSend((text) => { bareReceived.push(JSON.parse(text) as ServerMsg); });
+    const ticket = await signTicket(SECRET, { matchId: CODE, seat: 1, player: 'Guest', exp: NOW + 3600 * 1000 });
+    await loop.room.webSocketMessage(bare.asSocket(), JSON.stringify({ t: 'hello', ticket, build: BUILD }));
+    const full = chars(bareReceived.filter((m) => m.t === 'log'));
+    expect(full).toBeGreaterThan(0);
+    expect(trimmed, `${trimmed} chars trimmed against ${full} chars for the full log`).toBeLessThan(full / 10);
+  }, 60_000);
 
   it('#559 H-1: a long log reaches a rejoining seat in parts of at most LOG_PART_CHARS, and the seat runs on with no gap', async () => {
     const { loop, p0, p1 } = await started();
@@ -294,9 +347,8 @@ describe('room loop: MatchRoom and two WsTransports', () => {
     }
     const sent = loop.wires[0].received.flatMap((m) => (m.t === 'frame' ? [{ tick: m.tick, cmds: m.cmds }] : []));
     expect(JSON.stringify(sent).length).toBeGreaterThan(LOG_PART_CHARS);
-    loop.wires[1].drop();
-    await loop.flush();
-    await vi.advanceTimersByTimeAsync(RECONNECT_DELAY_MS);
+    // A reload: a new transport on seat 1's ticket has no clock, so it sends no from and gets the whole log.
+    const p1b = new Player(loop, await signTicket(SECRET, { matchId: CODE, seat: 1, player: 'Guest', exp: NOW + 3600 * 1000 }), sameHash);
     await loop.flush();
     const logs = (loop.wires.at(-1)?.received ?? []).filter((m): m is Extract<ServerMsg, { t: 'log' }> => m.t === 'log');
     expect(logs.length).toBeGreaterThanOrEqual(2);
@@ -305,20 +357,42 @@ describe('room loop: MatchRoom and two WsTransports', () => {
       expect(JSON.stringify(m.frames).length).toBeLessThanOrEqual(LOG_PART_CHARS + 2);
     });
     expect(logs.flatMap((m) => m.frames)).toEqual(sent);
-    expect(p1.t.status().kind).toBe('live');
-    expect(p1.configs).toHaveLength(1);
-    await step(loop, [p0, p1], 40);
-    expect(p1.ticks()).toEqual(range(p1.taken.length));
-    expect(p1.taken).toEqual(p0.taken.slice(0, p1.taken.length));
-    expect(p1.taken.length).toBeGreaterThan(sent.length);
-    expect(p1.t.stats().reconnects.count).toBe(1);
+    expect(logs.every((m) => m.from === undefined)).toBe(true);   // no from, no echo: the whole log
+    expect(p1b.t.status().kind).toBe('live');
+    expect(p1b.configs).toHaveLength(1);
+    await step(loop, [p0, p1b], 40);
+    expect(p1b.ticks()).toEqual(range(p1b.taken.length));
+    expect(p1b.taken).toEqual(p0.taken.slice(0, p1b.taken.length));
+    expect(p1b.taken.length).toBeGreaterThan(sent.length);
   });
 
   /** R-N12's budget: a command frame closes its batch (one row each), a batch
    *  with none closes every 20 ticks (one a second), and the watchdog re-arms
    *  every 5 s. So rows <= (max(command frames a second, 1) + 0.2) x seconds. */
-  async function budget(ordersPerSecond: boolean): Promise<{ rows: number; cmdFrames: number; seconds: number; alarms: number }> {
-    const { state, loop, p0, p1 } = await started();
+  async function budget(ordersPerSecond: boolean, snapshots?: { everyTicks: number; seat1Fill: number; db?: D1Like }): Promise<{ rows: number; cmdFrames: number; seconds: number; alarms: number; accepted: number; uploads: number; stored: number | null }> {
+    const { state, loop, p0, p1 } = await started(undefined, undefined, snapshots?.everyTicks, snapshots?.db);
+    const tickets = [await signTicket(SECRET, { matchId: CODE, seat: 0, player: 'Host', exp: NOW + 3600 * 1000 }), await signTicket(SECRET, { matchId: CODE, seat: 1, player: 'Guest', exp: NOW + 3600 * 1000 })];
+    /** The next snapshot tick not yet uploaded for. */
+    let nextSnap = snapshots === undefined ? -1 : snapshots.everyTicks - 1;
+    let accepted = 0;
+    let uploads = 0;
+    const upload = async (seat: Seat, tick: number, fill: number): Promise<number> => {
+      const res = await loop.room.fetch(new Request('https://room/snapshot', {
+        method: 'POST', headers: { authorization: `Bearer ${tickets[seat]}`, 'x-snapshot-tick': String(tick) },
+        body: await gzip(snapshotBytes({ frameTick: tick, matchDigest: sameHash(tick) ?? 0, fill })), duplex: 'half',
+      } as RequestInit));
+      uploads++;
+      return res.status;
+    };
+    /** After both clients have hashed the cadence tick (a hashOk each), both seats upload for it. */
+    const uploadDue = async (): Promise<void> => {
+      if (snapshots === undefined) return;
+      while (loop.wires.slice(0, 2).every((w) => w.received.some((m) => m.t === 'hashOk' && m.tick === nextSnap))) {
+        await upload(0, nextSnap, 1);
+        if ((await upload(1, nextSnap, snapshots.seat1Fill)) === 201) accepted++;
+        nextSnap += snapshots.everyTicks;
+      }
+    };
     const before = state.storage.rowsWritten;
     let alarms = 0;
     const arm = state.storage.setAlarm.bind(state.storage);
@@ -329,8 +403,10 @@ describe('room loop: MatchRoom and two WsTransports', () => {
       // One command a second from each seat, mid-second so they land in different frames.
       if (ordersPerSecond) p0.t.queueCommand({ kind: 'halt', ids: [s] });
       await step(loop, [p0, p1], ticksPerSecond / 2);
+      await uploadDue();
       if (ordersPerSecond) p1.t.queueCommand({ kind: 'halt', ids: [100 + s] });
       await step(loop, [p0, p1], ticksPerSecond / 2);
+      await uploadDue();
     }
     // The match really ran: every tick, acked and hashed.
     expect(p0.t.status().kind).toBe('live');
@@ -338,7 +414,7 @@ describe('room loop: MatchRoom and two WsTransports', () => {
     expect(p1.taken).toEqual(p0.taken.slice(0, p1.taken.length));
     for (const w of loop.wires) expect(w.received.filter((m) => m.t === 'hashOk').length).toBeGreaterThan(55);
     expect(state.storage.alarmAt).not.toBeNull();
-    return { rows: state.storage.rowsWritten - before, cmdFrames: p0.taken.filter((f) => f.cmds.length > 0).length, seconds: SECONDS, alarms };
+    return { rows: state.storage.rowsWritten - before, cmdFrames: p0.taken.filter((f) => f.cmds.length > 0).length, seconds: SECONDS, alarms, accepted, uploads, stored: state.storage.snapshotRow?.frame_tick ?? null };
   }
   const bound = (b: { cmdFrames: number; seconds: number }): number => Math.max(b.cmdFrames, b.seconds) + 0.2 * b.seconds;
 
@@ -354,6 +430,37 @@ describe('room loop: MatchRoom and two WsTransports', () => {
     expect(b.cmdFrames).toBe(0);
     expect(b.alarms).toBeGreaterThanOrEqual(b.seconds / 5 - 1);
     expect(b.rows, `${b.rows} rows in ${b.seconds} s`).toBeLessThanOrEqual(bound(b));
+  });
+
+  // Snapshots running (snapshot S3, task 13): the cadence is 180 ticks (200 would fit only five in 60 s: the sixth, tick 1199, is not minted until tick 1200), so six in 60 s; at each one both seats upload
+  // identical bytes once both clients have hashed it. An accepted pair costs exactly one row (INSERT OR REPLACE), a held
+  // or refused upload none.
+  describe('Workers Free, snapshots every 180 ticks (R-N12, snapshot S3)', () => {
+    const SNAP = { everyTicks: 180, seat1Fill: 1 };
+    it('a running match with no orders: six snapshots accepted, rows <= 1.2 x seconds + accepted', async () => {
+      const b = await budget(false, SNAP);
+      console.info(`snapshots, no orders: ${b.rows} rows in ${b.seconds} s (bound ${bound(b)} + ${b.accepted} accepted)`);
+      expect(b.cmdFrames).toBe(0);
+      expect([b.accepted, b.uploads, b.stored]).toEqual([6, 12, 1079]);
+      expect(b.rows, `${b.rows} rows in ${b.seconds} s`).toBeLessThanOrEqual(bound(b) + b.accepted);
+    }, 60_000);
+
+    it('one order a second from each seat: six snapshots accepted, rows <= (command frames a second + 0.2) x seconds + accepted', async () => {
+      const b = await budget(true, SNAP);
+      console.info(`snapshots, one order a second a seat: ${b.rows} rows in ${b.seconds} s (bound ${bound(b)} + ${b.accepted} accepted)`);
+      expect(b.cmdFrames).toBe(2 * b.seconds);
+      expect([b.accepted, b.uploads, b.stored]).toEqual([6, 12, 1079]);
+      expect(b.rows, `${b.rows} rows in ${b.seconds} s`).toBeLessThanOrEqual(bound(b) + b.accepted);
+    }, 60_000);
+
+    it('seat 1 uploads different bytes every time: nothing is accepted, no snapshot row is written, and rows <= the bound exactly', async () => {
+      const db = openTestD1();
+      const b = await budget(false, { everyTicks: 180, seat1Fill: 2, db });
+      console.info(`snapshots, mismatching: ${b.rows} rows in ${b.seconds} s (bound ${bound(b)})`);
+      expect([b.accepted, b.uploads, b.stored]).toEqual([0, 12, null]);
+      expect(db.raw.prepare('SELECT COUNT(*) AS n FROM match_snap_mismatch').all()).toEqual([{ n: 3 }]);   // D1, not the DO: three a room instance
+      expect(b.rows, `${b.rows} rows in ${b.seconds} s`).toBeLessThanOrEqual(bound(b));
+    }, 60_000);
   });
 
   it('a seat running at 18 Hz flaps between a behind stall and resume, and the room still writes at most 2 rows a second', async () => {
@@ -388,9 +495,8 @@ describe('room loop: MatchRoom and two WsTransports', () => {
     const sent = liveFrames(loop.wires[0]);
     expect(sent.map((f) => f.tick)).toEqual(range(47));
     expect(sent.filter((f) => f.cmds.length > 0).map((f) => f.tick)).toEqual([0, 5, 42]);
-    loop.wires[1].drop();
-    await loop.flush();
-    await vi.advanceTimersByTimeAsync(RECONNECT_DELAY_MS);
+    // A reload (no clock, so no from): the whole log, closed batches and the open one.
+    new Player(loop, await signTicket(SECRET, { matchId: CODE, seat: 1, player: 'Guest', exp: NOW + 3600 * 1000 }), sameHash);
     await loop.flush();
     const log = loop.wires[2].received.find((m): m is Extract<ServerMsg, { t: 'log' }> => m.t === 'log');
     expect(log?.frames).toEqual(sent);
@@ -403,7 +509,7 @@ describe('room loop: MatchRoom and two WsTransports', () => {
     await step(loop, [p0, p1], 47);   // ticks 0..46: tick 0 carries the order and closes its batch, 1..20 and 21..40 fill and close, 41..46 open
     const heard = loop.wires.map((w) => w.received.length);
     evict();   // the isolate dies; storage and the hibernated sockets survive
-    loop.room = new MatchRoom(state, env);
+    loop.room = new MatchRoom(state, env, YIELD);
     // The first handler to reach the revived room is an order; it is stamped into a re-sent tick.
     p1.t.queueCommand({ kind: 'halt', ids: [2] });
     await loop.flush();

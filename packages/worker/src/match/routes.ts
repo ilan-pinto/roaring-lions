@@ -1,14 +1,15 @@
-/** `/api/match*` (spec §3.2.1): create, join, the advisor ticket, and the socket upgrade. Origin
+/** `/api/match*` (spec §3.2.1): create, join, the advisor ticket, the snapshot and the socket upgrade. Origin
  *  is REQUIRED (the `/api/feedback` rule, `../origin.ts`), on the upgrade too.
  *  ROOM_LIMIT counts create, join and the advisor ticket only: a client reconnecting once a
  *  second would trip a six-a-minute limit on the upgrade (R20). The upgrade
- *  has its own, WS_LIMIT, at 60 a minute (#559 M-1). */
+ *  has its own, WS_LIMIT, at 60 a minute (#559 M-1). The snapshot has its own too, SNAP_LIMIT,
+ *  at 12 a minute (snapshot S3, Ruling 12). */
 import type { Env, RateLimiter } from '../d1';
 import { originAllowed } from '../origin';
 import { readCapped } from '../read-capped';
 import { signTicket, verifyTicket } from './ticket';
 import { mintCode, isCode } from './code';
-import { ADVISOR_SCOPES, matchupAllowed, matchupField, versusMapAllowed, type AdvisorScope } from '@lions/net';
+import { ADVISOR_SCOPES, SNAPSHOT_MAX_COMPRESSED_BYTES, matchupAllowed, matchupField, versusMapAllowed, type AdvisorScope } from '@lions/net';
 import { callsignField, kitField, mapField, paceField, seatKindField, seatTiersField, textField } from './room-fields';
 
 /** A size bound on the request bodies of create, join and the advisor ticket (hardening). */
@@ -52,7 +53,7 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
   const secret = env.TICKET_SECRET;
   const rooms = env.ROOMS;
   if (!secret || !rooms) return new Response('matches are not configured', { status: 503 });
-  const m = new URL(req.url).pathname.match(/^\/api\/match(?:\/([^/]+)\/(join|ws|advisor))?$/);
+  const m = new URL(req.url).pathname.match(/^\/api\/match(?:\/([^/]+)\/(join|ws|advisor|snapshot))?$/);
   if (!m) return new Response('not found', { status: 404 });
   const [, rawCode, action] = m;
   // Codes are minted upper case; a lower-case one typed into a URL is the same room.
@@ -100,6 +101,7 @@ export async function handleMatch(req: Request, env: Env, now: number): Promise<
 
   if (!isCode(code)) return new Response('bad code', { status: 400 });
   if (action === 'advisor') return advisorTicket(req, env, secret, code, now);
+  if (action === 'snapshot') return snapshot(req, env, secret, rooms, code, now);
   const stub = rooms.get(rooms.idFromName(code));
   if (action === 'join') {
     if (req.method !== 'POST') return new Response('method', { status: 405 });
@@ -140,4 +142,35 @@ async function advisorTicket(req: Request, env: Env, secret: string, code: strin
   if (seat === null || seat.role !== 'seat' || seat.matchId !== code) return new Response('bad ticket', { status: 403 });
   const ticket = await signTicket(secret, { matchId: code, seat: seat.seat, player: 'advisor', exp: seat.exp, role: 'advisor', scope });
   return Response.json({ ticket });
+}
+
+/**
+ * `POST` and `GET /api/match/:code/snapshot` (snapshot S3). A public write endpoint, so every
+ * refusal that needs no room happens here, before any stub is made: Origin (the caller), the
+ * method, the per-IP `SNAP_LIMIT`, then a SEAT ticket for this code in `Authorization: Bearer`.
+ * The ticket is read from that header only, never from the query string, and an advisor ticket
+ * or another code's ticket is refused. A POST body is held to `SNAPSHOT_MAX_COMPRESSED_BYTES`
+ * twice: a declared length over it at once, and the actual bytes through `readCapped`, so a
+ * wrong or absent length is not the only bound. The room is sent the bytes read here, not the
+ * original stream, and checks the ticket, the tick and the body again itself.
+ */
+async function snapshot(req: Request, env: Env, secret: string, rooms: NonNullable<Env['ROOMS']>, code: string, now: number): Promise<Response> {
+  if (req.method !== 'POST' && req.method !== 'GET') return new Response('method', { status: 405 });
+  if (await limited(req, env.SNAP_LIMIT)) return new Response('slow down', { status: 429 });
+  const auth = req.headers.get('authorization');
+  if (auth === null || !auth.startsWith('Bearer ')) return new Response('unauthorized', { status: 401 });
+  const ticket = await verifyTicket(secret, auth.slice('Bearer '.length), now);
+  if (ticket === null || ticket.role !== 'seat' || ticket.matchId !== code) return new Response('forbidden', { status: 403 });
+  const headers = new Headers({ authorization: auth });
+  const tick = req.headers.get('x-snapshot-tick');
+  if (tick !== null) headers.set('x-snapshot-tick', tick);
+  let body: Uint8Array<ArrayBuffer> | undefined;
+  if (req.method === 'POST') {
+    const declared = req.headers.get('content-length');
+    if (declared !== null && !(Number(declared) <= SNAPSHOT_MAX_COMPRESSED_BYTES)) return tooLarge();
+    const raw = await readCapped(req, SNAPSHOT_MAX_COMPRESSED_BYTES);
+    if (raw === null) return tooLarge();
+    body = raw;
+  }
+  return rooms.get(rooms.idFromName(code)).fetch(new Request('https://room/snapshot', { method: req.method, headers, body }));
 }

@@ -1155,3 +1155,72 @@ order-done, economy, wounded, runtime-digest, versus and net pins are unchanged.
 | `pnpm balance` | all targets met |
 | `pnpm playtest` | exit 0 |
 | `pnpm snapshot:witness -- --self-check` | exit 0, **86 s wall** (84.6 s by its own clock, 6.6 s of it the four self-checks, all RED as required with a clean control green) at a load average of 84; 267 state rows (197 sim, 70 runtime), 30 runtime rows exempt |
+
+## 14. S3 as built (26 Oct 2026)
+
+S3 (the room) landed on `feat/net-snapshot-s3`. Nothing under `packages/sim` changed and no pin moved
+(format pin 3686246844; golden, relief, order-done, economy, wounded, runtime-digest, versus and net pins;
+`pnpm balance`; `pnpm playtest`). The client producer and the rejoin path are S4's; S3 ships the room, the
+public endpoint, and the one-line client half of D6 (`hello.from`).
+
+### 14.1 The wire contract as landed
+
+- `POST /api/match/:code/snapshot`: Origin; `SNAP_LIMIT` (12 a minute per IP); `Authorization: Bearer
+  <seat ticket for :code>` (never the query string, never an advisor ticket); `X-Snapshot-Tick: <frame
+  tick>`; body the gzip bytes, at most 64 KiB. The Worker checks all of that and reads the body under the cap
+  before any Durable Object is made; the room checks them again.
+- `GET /api/match/:code/snapshot`: same Origin, limit and seat ticket. `204` when there is none, otherwise
+  `200` with the stored gzip bytes, `X-Snapshot-Tick`, `X-Snapshot-Sha` (hex SHA-256 of the inflated bytes),
+  `X-Snapshot-Digest` (the agreed match digest, unsigned decimal), `Cache-Control: no-store`, no
+  `Content-Encoding`.
+- The room inflates under a 1 MiB ceiling, hashes, reads four header fields (magic, `format`, `matchDigest`
+  at offset 10, `frameTick` at 18) and decides. It accepts only when both seats uploaded the same decompressed
+  bytes for a snapshot tick whose match digest the room has seen agreed, and the header digest equals that
+  agreed value. One row per room (`INSERT OR REPLACE`), wiped with the room. A mismatch writes a D1 row and
+  never voids the match (D3).
+- `hello` may carry `from`; the room answers the log from that tick and echoes `from` in every `log` part. It
+  is honoured at all three log sites (seat hello, advisor hello, ended-room replay). `WsTransport` sends
+  `from: clock.newest + 1` on a reconnect that kept its clock.
+- `snapshotEveryTicks` is optional on the wire (absent is off) and minted as 1,200 in every room.
+
+### 14.2 Rulings from the plan, and their outcome
+
+1-14 stood as written. Differences recorded here:
+- The cadence in the row-budget test is 180 ticks, not 200: tick 1199 is not minted until tick 1200, so only
+  five snapshots fit in 60 s at 200.
+- `SNAPSHOT_FORMAT` is re-exported from `@lions/net` because `packages/worker` has no `@lions/sim` dependency.
+- A seat gets one upload attempt per snapshot tick: the (seat, tick) slot is reserved when the duplicate check
+  passes, before the body is read, and stays spent for that tick after any refusal (an eviction forgets it).
+  So a seat that is refused for a tick cannot retry that tick, and a retry after a lost response answers
+  `409 duplicate`, meaning "recorded". (Behaviour added in review; the lead may rule otherwise.)
+- `gunzipCapped` feeds the decompressor in 4 KiB slices and waits one event-loop turn between them
+  (injectable; `MatchRoomOptions.inflateYield` is a test-only option, workerd never passes it), so a runtime
+  that inflates eagerly is held to one slice beyond the cap. It accepts exactly one gzip member (a length
+  heuristic: an empty leading member is not caught, which changes neither the bytes nor the SHA).
+- A store write that fails answers the upload `500 store failed`; on the hash-agreement path it is logged and
+  that tick's snapshot is lost (no retry exists; the next cadence is unaffected).
+
+### 14.3 Measured
+
+- Row budget (R-N12, `room-loop.test.ts`, 60 s, six accepted snapshots): 78 rows with no orders (bound 72 + 6),
+  138 with one order a second per seat (132 + 6); a run where seat 1 uploads different bytes stays at the
+  bound exactly (72), with zero snapshot rows and three D1 `snap_mismatch` rows.
+- Headroom (`tools/src/net/snapshot-size.test.ts`, gzip level 6, cap/2 = 32,768 B): `stressWorld('tel_marum',
+  1000)` at tick 600 is 218,271 B raw and 16,395 B gzipped; the `wadi_tarfan` KDF/Sarim 8919 economy cell at
+  tick 1,200 with its runtime is 230,925 B raw and 10,086 B gzipped. The test takes 4.2 s.
+- CPU per upload in Node 25.9: an honest 1 MiB inflate plus SHA-256 is about 2-3 ms warm; a 64 KiB incompressible
+  upload through the sliced reader is about 21 ms wall (16 slices). **Deployed workerd CPU and memory are
+  unmeasured** (the lead reads one after deploy).
+
+### 14.4 Handed to S4 (additions to the plan's list)
+
+- After a lost response a retry gets `409 duplicate`: that means "recorded", not a failure to escalate.
+- The client must verify `X-Snapshot-Sha` against the inflated bytes before use.
+- A non-same-origin `ALLOWED_ORIGINS` client needs CORS handling for the `Authorization` and `X-Snapshot-Tick`
+  headers; none is added here.
+- The local relay (`tools/src/net/local-relay.ts`) needs the three request headers, binary bodies and the
+  response headers forwarded.
+
+### 14.5 Gates
+
+See the PR body; all run on the branch tip, alone.
