@@ -155,6 +155,20 @@ export interface RingStyle {
   readonly haloAlpha: number;
   readonly thicknessTiles: number;
   readonly minThicknessPx: number;
+  /**
+   * GH-707 (wounded readability): present ONLY on the wounded ring's style, and its presence is
+   * the switch -- the batch then carries a per-ring `aArc` attribute (`push`'s `arcFraction`
+   * and `pulse`), the shader sweeps a band `arcThicken` x the ring's thickness along that
+   * fraction of the circle, and the whole ring breathes on `uTimeSec` (`setClock`). A style
+   * without it builds the selection and team rings' shader byte for byte as before.
+   */
+  readonly arcThicken?: number;
+  /** Arc mode: the most the arc may add to the core's thickness, in SCREEN pixels, so it stays a
+   *  band at any zoom (the multiple alone made a near-solid disc at zoom 2.5). */
+  readonly arcExtraMaxPx?: number;
+  /** Arc mode: the pulse's period in seconds and its alpha floor (0..1). */
+  readonly pulsePeriodS?: number;
+  readonly pulseMinAlpha?: number;
 }
 
 const DEFAULT_RING_STYLE: RingStyle = SELECTION_RING;
@@ -180,7 +194,69 @@ const RING_VERTEX_SHADER = /* glsl */ `
   }
 `;
 
+/** The arc mode's vertex shader: the same text plus the `aArc` pass-through. */
+const RING_VERTEX_SHADER_ARC = RING_VERTEX_SHADER.replace(
+  'attribute vec3 aRingColor;',
+  'attribute vec3 aRingColor;\n  attribute vec2 aArc;'
+)
+  .replace('varying vec3 vColor;', 'varying vec3 vColor;\n  varying vec2 vArc;')
+  .replace('vColor = aRingColor;', 'vColor = aRingColor;\n    vArc = aArc;');
+
+/**
+ * The arc mode's fragment shader (GH-707). The ring is the usual annulus, and over the first
+ * `vArc.x` of the circle -- swept clockwise from the top of the screen -- its core is up to `arcThicken`
+ * times as thick (but at most `arcExtraMaxPx` screen pixels thicker), growing INWARD (the outer edge, and with it the halo and the ring's radius,
+ * does not move). `vArc.y` is 1 for a man still bleeding: his ring breathes between
+ * `pulseMinAlpha` and 1 over `pulsePeriodS` on `uTimeSec` (the sim clock), and `uPulseOn` 0
+ * (reduced motion) holds it steady at 1. The sweep's start is a unit turn measured from the
+ * world direction that points up the dimetric screen, (-1, -1) in (x, z), which is 3/8 of a turn
+ * before atan's zero.
+ */
+function ringFragmentShaderArc(style: RingStyle): string {
+  const T = glslFloat(style.thicknessTiles);
+  const PX = glslFloat(style.minThicknessPx);
+  const CORE_A = glslFloat(style.coreAlpha);
+  const HALO_A = glslFloat(style.haloAlpha);
+  const THICKEN = glslFloat(style.arcThicken ?? 1);
+  const EXTRA_MAX = glslFloat(style.arcExtraMaxPx ?? 1000);
+  const PERIOD = glslFloat(style.pulsePeriodS ?? 1.6);
+  const FLOOR = glslFloat(style.pulseMinAlpha ?? 0.5);
+  return /* glsl */ `
+  uniform float uPxPerTile;
+  uniform vec3 uHaloColor;
+  uniform float uTimeSec;
+  uniform float uPulseOn;
+  varying vec2 vLocal;
+  varying vec2 vAxes;
+  varying vec3 vColor;
+  varying vec2 vArc;
+  float ringSd(vec2 p, vec2 r) {
+    vec2 q = p / r;
+    float k0 = length(q);
+    if (k0 < 0.00001) return -min(r.x, r.y);
+    return k0 * (k0 - 1.0) / length(q / r);
+  }
+  void main() {
+    float s = ringSd(vLocal, vAxes);
+    float w = max(${T}, ${PX} / uPxPerTile);
+    float turn = fract(atan(vLocal.y, vLocal.x) * 0.15915494 + 0.375);
+    float extra = min(w * (${THICKEN} - 1.0), ${EXTRA_MAX} / uPxPerTile);
+    float wHere = turn < vArc.x ? w + extra : w;
+    float core = smoothstep(-wHere - ${F}, -wHere, s) * (1.0 - smoothstep(0.0, ${F}, s));
+    float halo = smoothstep(0.0, ${F}, s) * (1.0 - smoothstep(${HALO}, ${HALO_END}, s));
+    float breathe = 0.5 + 0.5 * sin(uTimeSec * 6.2831853 / ${PERIOD});
+    float am = mix(1.0, mix(${FLOOR}, 1.0, breathe), vArc.y * uPulseOn);
+    float ca = core * ${CORE_A} * am;
+    float ha = halo * ${HALO_A} * am;
+    float a = ca + ha * (1.0 - ca);
+    if (a <= 0.0) discard;
+    gl_FragColor = vec4(vColor * ca + uHaloColor * ha * (1.0 - ca), a);
+  }
+`;
+}
+
 function ringFragmentShader(style: RingStyle): string {
+  if (style.arcThicken !== undefined) return ringFragmentShaderArc(style);
   const T = glslFloat(style.thicknessTiles);
   const PX = glslFloat(style.minThicknessPx);
   const CORE_A = glslFloat(style.coreAlpha);
@@ -219,12 +295,14 @@ function ringFragmentShader(style: RingStyle): string {
  * mark in this backend, since nothing here depends on winding.
  */
 export function createSelectionRingMaterial(halo: Rgb, style: RingStyle = DEFAULT_RING_STYLE): THREE.ShaderMaterial {
+  const arc = style.arcThicken !== undefined;
   return new THREE.ShaderMaterial({
     uniforms: {
       uPxPerTile: { value: ringPxPerTile(1) },
       uHaloColor: { value: new THREE.Vector3(halo[0], halo[1], halo[2]) },
+      ...(arc ? { uTimeSec: { value: 0 }, uPulseOn: { value: 1 } } : {}),
     },
-    vertexShader: RING_VERTEX_SHADER,
+    vertexShader: arc ? RING_VERTEX_SHADER_ARC : RING_VERTEX_SHADER,
     fragmentShader: ringFragmentShader(style),
     transparent: true,
     blending: THREE.CustomBlending,
@@ -337,6 +415,11 @@ export class SelectionRingBatch {
   private readonly positionAttr: THREE.BufferAttribute;
   private readonly colorAttr: THREE.BufferAttribute;
   private readonly axesAttr: THREE.BufferAttribute;
+  /** Arc mode only (`RingStyle.arcThicken`): `[fraction, pulse]` per vertex, the small region's
+   *  view of it, and its upload range. Null on a style without an arc. */
+  private readonly arcAttr: THREE.BufferAttribute | null = null;
+  private readonly smallArcs: Float32Array | null = null;
+  private readonly arcRange: UpdateRange = { start: 0, count: 0 };
   /** The small region's views on the three dynamic arrays, made once. */
   private readonly smallViews: readonly [Float32Array, Float32Array, Float32Array];
   /** Per LARGE slot, made once: its [positions, colours, axes, offsets] and
@@ -416,6 +499,14 @@ export class SelectionRingBatch {
     this.axesAttr = new THREE.BufferAttribute(axes, 2);
     this.axesAttr.setUsage(THREE.DynamicDrawUsage);
     geometry.setAttribute('aAxes', this.axesAttr);
+
+    if (opts.style?.arcThicken !== undefined) {
+      const arcs = new Float32Array(verts * 2);
+      this.smallArcs = arcs.subarray(largeVerts * 2);
+      this.arcAttr = new THREE.BufferAttribute(arcs, 2);
+      this.arcAttr.setUsage(THREE.DynamicDrawUsage);
+      geometry.setAttribute('aArc', this.arcAttr);
+    }
 
     const largeIndices = capacity * LARGE_INDICES;
     const indexCount = largeIndices + capacity * SMALL_INDICES;
@@ -501,7 +592,14 @@ export class SelectionRingBatch {
    *  shader divides by both semi-axes, so a zero there is a NaN fragment, not
    *  a small ring) -- the caller then draws the billboard fallback. `key`
    *  (the entity id; -1 = never cache) arms the position cache. */
-  push(p: RingPlacement, sampleY: (x: number, z: number) => number, key = -1): boolean {
+  push(
+    p: RingPlacement,
+    sampleY: (x: number, z: number) => number,
+    key = -1,
+    /** Arc mode only: the swept fraction of the circle (0..1) and whether the ring breathes. */
+    arcFraction = 0,
+    pulse = false
+  ): boolean {
     if (this.usedSmall + this.usedLarge >= this.capacity) return false;
     const a = p.alongTiles ?? p.radiusTiles;
     const b = p.acrossTiles ?? p.radiusTiles;
@@ -509,6 +607,9 @@ export class SelectionRingBatch {
     if (!(a > 0) || !(b > 0) || !Number.isFinite(a) || !Number.isFinite(b)) return false;
     const n = ringGridFor(a, b);
     const large = n !== RING_GRID;
+    // An arc ring is small-grid only: the wounded are men on foot, and the arc attribute is laid
+    // out for the small region. A larger one is refused and the caller draws no wounded ring.
+    if (large && this.smallArcs !== null) return false;
     const slot = large ? this.capacity - 1 - this.usedLarge : this.usedSmall;
     if (large && this.largeSlotGrid[slot] !== n) this.layOut(slot, n);
     const c = this.built[large ? 0 : 1];
@@ -530,6 +631,14 @@ export class SelectionRingBatch {
     } else {
       const v = this.smallViews;
       writeRingAttributes(v[0], v[1], v[2], slot, p, sampleY, this.grid, n, hit);
+    }
+    if (this.smallArcs !== null) {
+      const f = arcFraction < 0 ? 0 : arcFraction > 1 ? 1 : arcFraction;
+      const base = slot * SMALL_VERTS * 2;
+      for (let v = 0; v < SMALL_VERTS; v++) {
+        this.smallArcs[base + v * 2] = f;
+        this.smallArcs[base + v * 2 + 1] = pulse ? 1 : 0;
+      }
     }
     if (!hit) {
       c[at] = key;
@@ -564,6 +673,7 @@ export class SelectionRingBatch {
     markUsed(this.positionAttr, this.ranges[0], first, used);
     markUsed(this.colorAttr, this.ranges[1], first, used);
     markUsed(this.axesAttr, this.ranges[2], first, used);
+    if (this.arcAttr !== null) markUsed(this.arcAttr, this.arcRange, first, used);
     if (this.layoutDirty) {
       // A large slot changed grid: re-upload the static offsets and indices.
       // Rare -- a unit type changing tier in a slot -- so the whole buffers.
@@ -571,6 +681,15 @@ export class SelectionRingBatch {
       this.indexAttr.needsUpdate = true;
       this.layoutDirty = false;
     }
+  }
+
+  /** Arc mode: the clock the pulse reads (SIM seconds, never accumulated wall-clock) and whether it
+   *  runs at all -- false is reduced motion, a steady ring. A no-op on a ring without an arc. */
+  setClock(timeSec: number, pulseOn: boolean): void {
+    const u = this.mesh.material.uniforms;
+    if (u.uTimeSec === undefined) return;
+    u.uTimeSec.value = timeSec;
+    u.uPulseOn.value = pulseOn ? 1 : 0;
   }
 
   dispose(): void {

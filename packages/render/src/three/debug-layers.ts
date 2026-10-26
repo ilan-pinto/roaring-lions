@@ -449,6 +449,10 @@ export const DEBUG_LAYERS = [
   // shimmer, `uShimmerAmp` in the fog pass. Witnessed by `pnpm e6:capture` (chunk D).
   'beam',
   'beam-shimmer',
+  // GH-707: the wounded readability pass -- the pulsing ring with its bleed arc, and the albedo
+  // floor on a wounded figure. Hidden is today's faint team ring and no floor. A flag the overlay
+  // pass reads, plus a material write.
+  'wounded-read',
 ] as const;
 
 export type DebugLayer = (typeof DEBUG_LAYERS)[number];

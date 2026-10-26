@@ -60,8 +60,18 @@ function firstLight() {
     }
     return out;
   };
-  return { sim, rt, run };
+  return { sim, rt, run, world };
 }
+
+describe('the adapter knows a wounded type from the real registry (GH-707)', () => {
+  it('wounded_kdf is a wounded type; a squad and an unknown id are not', () => {
+    const { world } = firstLight();
+    expect(world.isWoundedType?.('wounded_kdf')).toBe(true);
+    expect(world.isWoundedType?.('wounded_sarim')).toBe(true);
+    expect(world.isWoundedType?.('inf_squad')).toBe(false);
+    expect(world.isWoundedType?.('no_such_type')).toBe(false);
+  });
+});
 
 describe('alerts fed by First Light\'s own runtime carry who and where', () => {
   it('the first waves say they come from every side, and jump to an entry marker', () => {

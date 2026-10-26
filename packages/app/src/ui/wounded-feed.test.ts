@@ -30,12 +30,12 @@ const down = (entity: number, parent: number): SimEvent => ({ kind: 'woundedDown
 const gain = (g: number, reason: string, score: number): MissionEvent => ({ kind: 'roeGain', tick: 0, gain: g, reason, score }) as MissionEvent;
 
 describe('alertsForTick: man down (GH-707 P2)', () => {
-  it('a man of ours going down is one minor warn line naming his squad, placed, with no chime', () => {
+  it('the FIRST man of ours down is one important warn line naming his squad, placed, with no chime', () => {
     const { alerts } = alertsForTick(initAlertState(), [down(40, 5)], [], world, 40);
     expect(alerts).toHaveLength(1);
     expect(alerts[0]).toMatchObject({
       kind: 'wounded',
-      tier: 'minor',
+      tier: 'important',
       tone: 'warn',
       cue: null,
       count: 1,
@@ -50,6 +50,24 @@ describe('alertsForTick: man down (GH-707 P2)', () => {
     expect(alerts[0].line?.params).toEqual({ name: 'Rifle squad', n: 3 });
     expect(alerts[0].count).toBe(3);
     expect(alertNotice(alerts[0].line as never)[0]).toBe('<b>man down</b> — Rifle squad (3) · east');
+  });
+
+  it('only the first is important: later men, of the same squad or another, are minor, and the flag survives the state', () => {
+    const first = alertsForTick(initAlertState(), [down(40, 5)], [], world, 40);
+    expect(first.state.manDownRaised).toBe(true);
+    const other = alertsForTick(first.state, [down(42, 6)], [], world, 41);
+    expect(other.alerts.map((a) => a.tier)).toEqual(['minor']);
+    const later = alertsForTick(other.state, [down(41, 5)], [], world, 40 + MAN_DOWN_COOLDOWN_TICKS + 5);
+    expect(later.alerts.map((a) => a.tier)).toEqual(['minor']);
+  });
+
+  it('two squads falling in the very first tick: one important, one minor', () => {
+    const { alerts } = alertsForTick(initAlertState(), [down(40, 5), down(42, 6)], [], world, 40);
+    expect(alerts.map((a) => a.tier).sort()).toEqual(['important', 'minor']);
+  });
+
+  it('a fresh mission (a fresh state) makes its first man important again', () => {
+    expect(alertsForTick(initAlertState(), [down(40, 5)], [], world, 40).alerts[0].tier).toBe('important');
   });
 
   it('two squads are two lines', () => {
@@ -77,6 +95,28 @@ describe('alertsForTick: man down (GH-707 P2)', () => {
   it('a tick with no wound event returns the very same state object', () => {
     const s = initAlertState();
     expect(alertsForTick(s, [], [], world, 40).state).toBe(s);
+  });
+});
+
+describe('alertsForTick: a wounded man bleeds out (GH-707)', () => {
+  const lost = (entity: number, unit: string): MissionEvent => ({ kind: 'unitLost', tick: 0, entity, unit }) as MissionEvent;
+  const bleeds: AlertWorld = { ...world, isWoundedType: (id) => id === 'wounded_rifleman' };
+  it('words a lost wounded body as "wounded man bled out", not "lost -- Wounded rifleman"', () => {
+    const { alerts } = alertsForTick(initAlertState(), [], [lost(41, 'wounded_rifleman')], bleeds, 40);
+    expect(alerts[0].line?.key).toBe('alert.woundedBledOut');
+    expect(alertNotice(alerts[0].line as never)[0]).toBe('<b>wounded man bled out</b> · east');
+  });
+  it('pluralises, and a squad lost stays "lost"', () => {
+    const two = alertsForTick(initAlertState(), [], [lost(41, 'wounded_rifleman'), lost(44, 'wounded_rifleman')], bleeds, 40).alerts[0];
+    expect(alertNotice(two.line as never)[0]).toMatch(/^<b>2 wounded men bled out<\/b>/);
+    const squad = alertsForTick(initAlertState(), [], [lost(5, 'inf_squad')], bleeds, 40).alerts[0];
+    expect(squad.line?.key).toBe('alert.unitLost');
+  });
+  it('a world with no isWoundedType keeps the old wording', () => {
+    expect(alertsForTick(initAlertState(), [], [lost(41, 'wounded_rifleman')], world, 40).alerts[0].line?.key).toBe('alert.unitLost');
+  });
+  it('the catalogue carries the key', () => {
+    expect(Object.keys(en)).toContain('alert.woundedBledOut');
   });
 });
 
