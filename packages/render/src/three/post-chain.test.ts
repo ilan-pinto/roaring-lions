@@ -96,7 +96,7 @@ describe('createPostChain', () => {
     expect(chain.passNames).toEqual(['RenderPass', 'FogOfWarPass', 'OutputPass', 'SMAAPass']);
   });
 
-  it('quality low: no SMAAPass is even built, and fog + vignette still slot normally', () => {
+  it('quality low: no SMAAPass is even built, and fog still slots normally', () => {
     // Task 14. `low` never calls `setAoPass` at all in the real renderer
     // (`ThreeRenderer.init` gates that call on `quality.ao`, not on this
     // file) -- so this test only has to prove the half `createPostChain`
@@ -114,10 +114,9 @@ describe('createPostChain', () => {
       QUALITY_PRESETS.low
     );
     const fog = { name: 'FogOfWarPass', render() {}, setSize() {}, dispose() {}, needsSwap: true, enabled: true, clear: false, renderToScreen: false } as unknown as import('three/addons/postprocessing/Pass.js').Pass;
-    const vignette = { ...fog, name: 'VignettePass' } as unknown as import('three/addons/postprocessing/Pass.js').Pass;
     chain.setFogPass(fog);
-    chain.setVignettePass(vignette);
-    expect(chain.passNames).toEqual(['RenderPass', 'FogOfWarPass', 'OutputPass', 'VignettePass']);
+    chain.vignette.enabled = true; // folded into OutputPass: it adds no pass (GH-829)
+    expect(chain.passNames).toEqual(['RenderPass', 'FogOfWarPass', 'OutputPass']);
     chain.dispose();
   });
 
@@ -440,13 +439,13 @@ function stubPass(name: string): Pass {
 
 describe('bloom slot (Defilade Task 4)', () => {
   // The chain per preset, built the way `ThreeRenderer.init` builds it: fog
-  // and vignette always, AO behind `quality.ao`, bloom behind
+  // always (the vignette is inside OutputPass), AO behind `quality.ao`, bloom behind
   // `bloomPassFor` -- the same gate init calls, so the order pinned here is
   // the order the renderer actually gets.
   const expected: Record<'low' | 'medium' | 'high', string[]> = {
-    high: ['RenderPass', 'FogOfWarPass', 'GTAOPass', 'QuarterBloomPass', 'OutputPass', 'VignettePass', 'SMAAPass'],
-    medium: ['RenderPass', 'FogOfWarPass', 'OutputPass', 'VignettePass', 'SMAAPass'],
-    low: ['RenderPass', 'FogOfWarPass', 'OutputPass', 'VignettePass'],
+    high: ['RenderPass', 'FogOfWarPass', 'GTAOPass', 'QuarterBloomPass', 'OutputPass', 'SMAAPass'],
+    medium: ['RenderPass', 'FogOfWarPass', 'OutputPass', 'SMAAPass'],
+    low: ['RenderPass', 'FogOfWarPass', 'OutputPass'],
   };
   for (const preset of ['high', 'medium', 'low'] as const) {
     it(`${preset}: bloom after fog and AO, before OutputPass (absent on medium and low)`, () => {
@@ -459,7 +458,7 @@ describe('bloom slot (Defilade Task 4)', () => {
       if (quality.ao) chain.setAoPass(stubPass('GTAOPass'));
       const bloom = bloomPassFor(quality, 800, 600, 1);
       if (bloom) chain.setBloomPass(bloom);
-      chain.setVignettePass(stubPass('VignettePass'));
+      chain.vignette.enabled = true;
       expect(chain.passNames).toEqual(expected[preset]);
       chain.setBloomPass(null);
       expect(chain.passNames).toEqual(expected[preset].filter((n) => n !== 'QuarterBloomPass'));
@@ -490,9 +489,9 @@ describe('bloom slot (Defilade Task 4)', () => {
     chain.setAoPass(stubPass('GTAOPass'));
     const bloom = bloomPassFor(QUALITY_PRESETS.high, 800, 600, 1) as QuarterBloomPass;
     chain.setBloomPass(bloom);
-    chain.setVignettePass(stubPass('VignettePass'));
-    const vignette = chain.composer.passes.find((p) => (p as { name?: string }).name === 'VignettePass') as Pass;
-    vignette.enabled = false; // a debug-hidden layer must come back hidden, not forced on
+    // The vignette is inside OutputPass, so the census (which disables OutputPass) reads
+    // the frame before it; and a debug-hidden layer must come back hidden, not forced on.
+    chain.vignette.enabled = false;
     let seen: string[] = [];
     let toScreen: boolean | null = null;
     chain.composer.render = () => {
@@ -505,7 +504,7 @@ describe('bloom slot (Defilade Task 4)', () => {
     expect(target).toBe(chain.composer.readBuffer);
     expect(chain.composer.renderToScreen).toBe(true);
     expect(bloom.enabled).toBe(true);
-    expect(vignette.enabled).toBe(false);
+    expect(chain.vignette.enabled).toBe(false);
     expect(chain.composer.passes.find((p) => p.constructor.name === 'OutputPass')?.enabled).toBe(true);
     expect(chain.composer.passes.find((p) => p.constructor.name === 'SMAAPass')?.enabled).toBe(true);
     // Restored even when the reader throws.

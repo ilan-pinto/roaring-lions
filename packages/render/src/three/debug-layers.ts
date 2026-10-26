@@ -141,13 +141,13 @@
  * "the world no longer ends in a hard black diagonal":
  *
  * - `vignette`  the corner darkening (`../vignette-pass.ts`), toggled by the
- *               pass's own `enabled`. The first entry here that is not a
- *               scene object at all -- it is a post pass, so there is
- *               nothing to hide, only a pass to skip. It survives the
- *               repaint for the reason the paragraph above demands be
- *               checked rather than assumed: the chain is rebuilt only from
- *               `init()` and `dispose()`, so no per-frame path re-asserts
- *               `enabled`.
+ *               handle's own `enabled`. The first entry here that is not a
+ *               scene object at all -- it is a term inside `OutputPass`'s
+ *               shader (GH-829; it was a post pass of its own until then),
+ *               so there is nothing to hide, only a strength to zero. It
+ *               survives the repaint for the reason the paragraph above
+ *               demands be checked rather than assumed: no per-frame path
+ *               re-asserts `enabled`.
  * - `skirt`     the ground beyond the map (`terrain/skirt.ts`), an ordinary
  *               `visible` on one quad added once in the constructor. Only a
  *               scenario whose viewport actually reaches past the map edge

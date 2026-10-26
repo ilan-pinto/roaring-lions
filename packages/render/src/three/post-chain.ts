@@ -1,6 +1,6 @@
 /**
  * The frame's post chain (spec §5): RenderPass -> [FogOfWarPass] -> [GTAOPass]
- * -> [Bloom] -> OutputPass -> [VignettePass] -> [SMAAPass].
+ * -> [Bloom] -> OutputPass (vignette inside) -> [SMAAPass].
  *
  * **Bloom (Defilade Task 4, `./bloom.ts`) sits after AO and before
  * OutputPass, and both neighbours are load-bearing** (gap audit §2). AFTER
@@ -21,10 +21,9 @@
  * default every caller got before the preset existed -- builds all three
  * (the bloom since Defilade Task 4, which moves no quiet frame: see
  * `./bloom.ts`). `low` builds none of them:
- * `RenderPass -> [FogOfWarPass] -> OutputPass -> [VignettePass]`, with fog
- * and the vignette unaffected -- they are not part of the `quality`
- * contract at all, and stay whatever the caller slots through
- * `setFogPass`/`setVignettePass`. `medium` keeps SMAA and drops AO and
+ * `RenderPass -> [FogOfWarPass] -> OutputPass`, with fog and the vignette
+ * unaffected -- they are not part of the `quality` contract at all, and stay
+ * whatever the caller slots through `setFogPass` / `vignette.enabled`. `medium` keeps SMAA and drops AO and
  * the bloom (lead, 22 Oct 2026, pending a GPU-timer read of its cost).
  * SMAA's construction lives in THIS file (`new SMAAPass` below), gated
  * directly on `quality.smaa`; the AO pass is built and owned by the
@@ -34,8 +33,9 @@
  * `setAoPass`" look identical from here, and both leave `GTAOPass` out of
  * `passNames`.
  *
- * The vignette is the one pass on the display-referred side of the output
- * transform, and `PostChain.setVignettePass` says why it has to be.
+ * The vignette is the one effect on the display-referred side of the output
+ * transform, so it lives at the end of `OutputPass`'s own shader
+ * (`PostChain.vignette`) rather than in the scene-referred stretch before it.
  *
  * Why SMAA on a single-sampled target rather than hardware MSAA: the fog
  * pass reads the RenderPass's depth texture, and a multisampled depth
@@ -87,6 +87,7 @@ import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { SimplexNoise } from 'three/addons/math/SimplexNoise.js';
 import type { Pass } from 'three/addons/postprocessing/Pass.js';
 import { QUALITY_PRESETS, type RenderQuality } from '../quality';
+import { OutputVignette } from './vignette-pass';
 
 /** Retina is worth paying for; a 3x phone panel is not, and this canvas is
  *  full-window. 2 caps the drawing buffer at 4x the pixels of a CSS-sized
@@ -466,19 +467,18 @@ export interface PostChain {
    */
   withPreBloomBuffer<T>(read: (target: THREE.WebGLRenderTarget) => T): T;
   /**
-   * The corner vignette (`./vignette-pass.ts`), slotted AFTER `OutputPass`
-   * and BEFORE `SMAAPass` -- the only pass in this chain that runs on
-   * display-referred colour, which is why it cannot join fog and AO in the
-   * scene-referred stretch before the output transform. See that module's
-   * own header for why linear-light darkening is a different operation, and
-   * why SMAA still has to be last.
-   *
-   * Ownership as for `setFogPass` above: the caller disposes what it built.
+   * The corner vignette (`./vignette-pass.ts`), FOLDED INTO `OutputPass`'s
+   * fragment shader (GH-829): it still runs on display-referred colour after
+   * the tone map and the sRGB encode and before SMAA, which is the only place
+   * it can sit (see that module's header), but it no longer costs a
+   * full-screen pass of its own. Starts disabled; `enabled = true` turns it
+   * on, and nothing else in the chain moves. It has no pass to own and
+   * nothing to dispose: `dispose()` below releases the output pass it lives in.
    */
-  setVignettePass(pass: Pass | null): void;
+  readonly vignette: OutputVignette;
   /** Releases the composer's targets and the four passes this module owns
    *  (RenderPass, OutputPass, SMAAPass, and the composer's own copy pass) --
-   *  never a fog, AO, bloom or vignette pass handed in from outside. */
+   *  never a fog, AO or bloom pass handed in from outside. */
   dispose(): void;
 }
 
@@ -547,13 +547,13 @@ export function createPostChain(
 
   const renderPass = new RenderPass(scene, camera);
   const outputPass = new OutputPass();
+  const vignette = new OutputVignette(outputPass);
   // `quality.smaa` gates construction, not merely whether it is slotted --
   // building an SMAAPass nobody adds would still fetch its two lookup
   // textures (`new Image()`, a base64 `src`) for a pass `low` never runs.
   const smaa = quality.smaa ? new SMAAPass() : null;
   let fogPass: Pass | null = null;
   let aoPass: Pass | null = null;
-  let vignettePass: Pass | null = null;
   let bloomPass: Pass | null = null;
 
   const rebuild = (): void => {
@@ -565,17 +565,14 @@ export function createPostChain(
     // blends into the read buffer (`needsSwap` false) and never swaps.
     if (bloomPass) composer.addPass(bloomPass);
     composer.addPass(outputPass);
-    // Between the output transform and SMAA, and it is the only slot that
-    // works: the vignette scales DISPLAY-referred colour (before ACES it
-    // would ride the tone curve's shoulder rather than the display ramp),
-    // and SMAA edge-detects on the final image, so it stays last.
-    if (vignettePass) composer.addPass(vignettePass);
+    // The vignette is inside this pass (`vignette` below), at the end of its shader.
     if (smaa) composer.addPass(smaa);
   };
   rebuild();
 
   return {
     composer,
+    vignette,
     get passNames() {
       return composer.passes.map(passName);
     },
@@ -603,12 +600,8 @@ export function createPostChain(
       bloomPass = pass;
       rebuild();
     },
-    setVignettePass(pass) {
-      vignettePass = pass;
-      rebuild();
-    },
     withPreBloomBuffer(read) {
-      const later = [bloomPass, outputPass, vignettePass, smaa].filter((p): p is Pass => p !== null);
+      const later = [bloomPass, outputPass, smaa].filter((p): p is Pass => p !== null);
       const wasEnabled = later.map((p) => p.enabled);
       const wasToScreen = composer.renderToScreen;
       try {

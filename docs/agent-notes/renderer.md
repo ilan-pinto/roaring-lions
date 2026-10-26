@@ -92,7 +92,9 @@ yours; each one records what the next phase inherits.
   carry both retired alternatives with their measurements.
   The frame goes through `post-chain.ts`: `RenderPass → FogOfWarPass →
   WorldGTAOPass (half resolution) → bloom (quarter resolution) → OutputPass →
-  VignettePass → SMAAPass`; AO, bloom, vignette and SMAA are present or not by preset. Fog of war is
+  SMAAPass`; AO, bloom and SMAA are present or not by preset. The corner vignette is
+  not a pass: it is the last statement of `OutputPass`'s shader (`vignette-pass.ts`, GH-829),
+  pixel-identical to the pass it replaced only because it rounds through half float first. Fog of war is
   `shroud-texture.ts` + `fog-pass.ts` — a depth-reading post pass, not
   geometry. A muzzle flash is a pooled `PointLight` (`units/flash-light.ts`),
   not a ramp-index shift. `applyPalettePipeline`, `paletteColorNoConvert`, the
