@@ -15,7 +15,7 @@ import { ADVISOR_MIN_GAP_MS, BATCH_TICKS, HELLO_TIMEOUT_MS, MAX_ROOM_SOCKETS, Ma
 import { ROOM_TTL_MS } from './room-core';
 import type { RoomState } from './room-core';
 import { signTicket } from './ticket';
-import { bomb, gzip, snapshotBytes } from './snapshot-fixture';
+import { gzip, maxSizeBomb, snapshotBytes } from './snapshot-fixture';
 import type { PendingBook } from './snapshot-intake';
 
 const NOW = 1_790_000_000_000;
@@ -2115,7 +2115,11 @@ describe('snapshot upload (snapshot S3)', () => {
     it('a decompression bomb is 413; not gzip, an empty body, a wrong magic, a wrong format and a header tick that is not the declared one are 400', async () => {
       const r = await rig();
       await run(r.room, [r.ws0, r.ws1], 45);
-      await refused(r, 39, await bomb(4 * 1024 * 1024), 413, 'too_large');
+      // The largest bomb the 64 KiB compressed cap admits (about 64 MiB inflated), not a token one.
+      const max = maxSizeBomb();
+      expect(max.byteLength).toBeGreaterThan(60_000);
+      expect(max.byteLength).toBeLessThanOrEqual(65_536);
+      await refused(r, 39, max, 413, 'too_large');
       await refused(r, 39, new TextEncoder().encode('this is not gzip'), 400, 'bad_gzip');
       await refused(r, 39, new Uint8Array(0), 400, 'bad_gzip');
       const magic = snapshotBytes({ frameTick: 39, matchDigest: DIGEST }); magic[0] = 0x58;

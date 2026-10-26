@@ -5,6 +5,7 @@
  * encoder, followed by filler. The room never decodes a snapshot, so a header
  * and a filler are all it can tell from a real one.
  */
+import { gzipSync } from 'node:zlib';
 import { SNAPSHOT_FRAME_TICK_OFFSET } from '@lions/net';
 
 // The worker package does not depend on @lions/sim, so the other two header
@@ -62,4 +63,11 @@ export function gzip(bytes: Uint8Array): Promise<Uint8Array> {
 /** gzip of `n` zero bytes: a decompression bomb when `n` is large. */
 export function bomb(n: number): Promise<Uint8Array> {
   return gzip(new Uint8Array(n));
+}
+
+let maxBomb: Uint8Array | null = null;
+/** The largest bomb the 64 KiB compressed cap admits: 64 MiB of zeros at gzip level 9 is about 65,250 bytes. Built once (about 0.1 s). */
+export function maxSizeBomb(): Uint8Array {
+  maxBomb ??= gzipSync(new Uint8Array(64 * 1024 * 1024), { level: 9 });
+  return maxBomb;
 }

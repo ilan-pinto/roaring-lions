@@ -50,29 +50,70 @@ export function readSnapshotHeader(raw: Uint8Array): SnapshotHeader | null {
 
 export type GunzipResult = { ok: true; bytes: Uint8Array } | { ok: false; reason: 'too_large' | 'bad_gzip' };
 
+/** The most compressed bytes handed to the decompressor at once. */
+const GUNZIP_SLICE_BYTES = 4096;
+/** Promise turns with nothing to read before the drain after a slice is over. A queued chunk is read in about three. */
+const DRAIN_IDLE_TURNS = 16;
+
 /** Inflate `gz`, refusing any output over `max` bytes. The output is counted
  *  chunk by chunk BEFORE a chunk is kept; past `max` the reader is cancelled
  *  and nothing is concatenated. A stream error, or an empty output, is
- *  `bad_gzip`. */
+ *  `bad_gzip`.
+ *
+ *  The input is fed in slices of at most `GUNZIP_SLICE_BYTES`, and the reader
+ *  is drained after each, so a runtime whose decompressor inflates eagerly
+ *  (ignoring backpressure) has produced at most one slice's output when the cap
+ *  trips, and no further slice is written. Tested against a fake that inflates
+ *  on every write (security review). */
 export async function gunzipCapped(gz: Uint8Array, max: number): Promise<GunzipResult> {
   const ds = new DecompressionStream('gzip');
   const writer = ds.writable.getWriter();
-  // Fed beside the read loop, not before it: the readable's backpressure would
-  // stall an awaited write. A failure here surfaces as the reader's error.
-  void writer.write(gz as BufferSource).then(() => writer.close()).catch(() => undefined);
   const reader = ds.readable.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
+  type Read = ReadableStreamReadResult<Uint8Array>;
+  let inFlight: Promise<Read> | null = null;
+  const nextRead = (): Promise<Read> => (inFlight ??= reader.read());
+  // Takes one chunk off a finished read; false once the cap has tripped.
+  const keep = (x: Read): boolean => {
+    inFlight = null;
+    if (x.done) return true;
+    total += x.value.byteLength;
+    if (total > max) return false;
+    chunks.push(x.value);
+    return true;
+  };
+  const refuse = async (): Promise<GunzipResult> => {
+    await reader.cancel().catch(() => undefined);
+    await writer.abort().catch(() => undefined);
+    return { ok: false, reason: 'too_large' };
+  };
+  const IDLE: unique symbol = Symbol('idle');
+  const WROTE: unique symbol = Symbol('wrote');
+  const idleTurns = async (): Promise<typeof IDLE> => {
+    for (let i = 0; i < DRAIN_IDLE_TURNS; i++) await undefined;
+    return IDLE;
+  };
   try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      total += value.byteLength;
-      if (total > max) {
-        await reader.cancel().catch(() => undefined);
-        return { ok: false, reason: 'too_large' };
+    for (let at = 0; at < gz.byteLength; at += GUNZIP_SLICE_BYTES) {
+      // Not awaited alone: a write may wait on the reader. A failure surfaces as the reader's error.
+      const wrote: Promise<typeof WROTE> = writer.write(gz.subarray(at, at + GUNZIP_SLICE_BYTES) as BufferSource).then(() => WROTE, () => WROTE);
+      // Until the write is taken, then until a read would have to wait: a few promise turns pass with nothing to read.
+      // Promise turns, not a timer, so the drain runs under a test's fake timers as it does in the Worker.
+      for (let accepted = false; ;) {
+        const wait: Promise<typeof IDLE | typeof WROTE> = accepted ? idleTurns() : wrote;
+        const x = await Promise.race([nextRead(), wait]);
+        if (x === WROTE) { accepted = true; continue; }
+        if (x === IDLE) break;
+        if (x.done) break;
+        if (!keep(x)) return await refuse();
       }
-      chunks.push(value);
+    }
+    void writer.close().catch(() => undefined);
+    for (;;) {
+      const x = await nextRead();
+      if (x.done) break;
+      if (!keep(x)) return await refuse();
     }
   } catch {
     return { ok: false, reason: 'bad_gzip' };

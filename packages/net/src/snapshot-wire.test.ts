@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { gzipSync } from 'node:zlib';
+import { constants, gunzipSync, gzipSync } from 'node:zlib';
 import { Sim, encodeSim } from '@lions/sim';
 import {
   SNAPSHOT_FRAME_TICK_OFFSET, SNAPSHOT_MAX_COMPRESSED_BYTES, SNAPSHOT_MAX_RAW_BYTES,
@@ -100,6 +100,78 @@ describe('gunzipCapped', () => {
     expect(pulled).toBeGreaterThan(MAX);
     expect(pulled).toBeLessThanOrEqual(MAX + biggest);
   });
+  /** A DecompressionStream that behaves as the Worker runtime's does: each write is inflated at once and its output queued,
+   *  whatever the reader has asked for. It records the compressed bytes it accepted. */
+  function installEagerInflater(lagTurns = 0): { accepted: () => number } {
+    let accepted = 0;
+    globalThis.DecompressionStream = class Eager {
+      readonly writable: WritableStream<BufferSource>;
+      readonly readable: ReadableStream<Uint8Array>;
+      constructor() {
+        let ctl!: ReadableStreamDefaultController<Uint8Array>;
+        this.readable = new ReadableStream<Uint8Array>({ start(c) { ctl = c; } }, { highWaterMark: Infinity });
+        const input: Buffer[] = [];
+        let out = 0;
+        let queued: Promise<void> = Promise.resolve();
+        this.writable = new WritableStream<BufferSource>({
+          write(chunk) {
+            const b = Buffer.from(chunk as Uint8Array);
+            accepted += b.byteLength;
+            input.push(b);
+            let whole: Buffer;
+            try { whole = gunzipSync(Buffer.concat(input), { finishFlush: constants.Z_SYNC_FLUSH }); } catch (e) { ctl.error(e); throw e; }
+            const from = out;
+            out = whole.byteLength;
+            // The write is taken at once; with a lag the output shows a few promise turns later.
+            queued = queued.then(async () => {
+              for (let i = 0; i < lagTurns; i++) await undefined;
+              for (let at = from; at < whole.byteLength; at += 65536) ctl.enqueue(whole.subarray(at, Math.min(at + 65536, whole.byteLength)));
+            });
+          },
+          async close() {
+            await queued;
+            try { gunzipSync(Buffer.concat(input)); } catch (e) { ctl.error(e); return; }
+            ctl.close();
+          },
+        });
+      }
+    } as unknown as typeof DecompressionStream;
+    return { accepted: () => accepted };
+  }
+  it('security review: the largest admissible bomb (64 KiB of gzip, about 64 MiB inflated) is refused after at most two 4 KiB slices were accepted, with no unhandled rejection', async () => {
+    const bomb = gzipSync(new Uint8Array(64 * 1024 * 1024), { level: 9 });
+    expect(bomb.byteLength).toBeGreaterThan(60_000);
+    expect(bomb.byteLength).toBeLessThanOrEqual(65_536);
+    const unhandled: unknown[] = [];
+    const onUnhandled = (e: unknown): void => { unhandled.push(e); };
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const spy = installEagerInflater();
+      expect(await gunzipCapped(bomb, MAX)).toEqual({ ok: false, reason: 'too_large' });
+      expect(spy.accepted()).toBeLessThanOrEqual(8 * 1024);
+      for (let i = 0; i < 10; i++) await new Promise((r) => setTimeout(r, 0));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
+  }, 20_000);
+  it('security review: the same bomb when each slice\'s output shows a few promise turns after its write is taken: still at most two slices', async () => {
+    const bomb = gzipSync(new Uint8Array(64 * 1024 * 1024), { level: 9 });
+    const spy = installEagerInflater(10);
+    expect(await gunzipCapped(bomb, MAX)).toEqual({ ok: false, reason: 'too_large' });
+    expect(spy.accepted()).toBeLessThanOrEqual(8 * 1024);
+  }, 20_000);
+  it('slicing changes nothing for honest input: the same bytes come back from the eager inflater, and the whole body is accepted', async () => {
+    const src = new Uint8Array(60_000);
+    let x = 0x9e3779b9;
+    for (let i = 0; i < src.length; i++) { x ^= x << 13; x >>>= 0; x ^= x >>> 17; x ^= x << 5; x >>>= 0; src[i] = x & 255; }
+    const gz = gzipSync(src);
+    expect(gz.byteLength).toBeGreaterThan(4096 * 3);
+    const spy = installEagerInflater();
+    const r = await gunzipCapped(gz, MAX);
+    expect(r.ok && Buffer.compare(Buffer.from(r.bytes), Buffer.from(src))).toBe(0);
+    expect(spy.accepted()).toBe(gz.byteLength);
+  }, 20_000);
   it('truncated gzip, garbage and an empty body are bad_gzip', async () => {
     const whole = gzipSync(Uint8Array.from({ length: 4000 }, (_, i) => (i * 7) & 0xff));
     expect(await gunzipCapped(whole.subarray(0, whole.byteLength - 12), MAX)).toEqual({ ok: false, reason: 'bad_gzip' });
