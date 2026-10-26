@@ -365,6 +365,9 @@ describe('/api/match', () => {
       const refusing = { ...env, SNAP_LIMIT: { limit: async () => ({ success: false }) } } as Env;
       expect((await handleMatch(snapReq(SNAP, 'POST', auth, { tick: '1200', body: BYTES }), refusing, NOW)).status).toBe(429);
       expect((await handleMatch(snapReq(SNAP, 'GET', auth), refusing, NOW)).status).toBe(429);
+      // the limiter runs before the ticket: a limited IP with no or junk credentials is 429, not 401/403
+      expect((await handleMatch(snapReq(SNAP, 'GET', null), refusing, NOW)).status).toBe(429);
+      expect((await handleMatch(snapReq(SNAP, 'GET', 'Bearer junk'), refusing, NOW)).status).toBe(429);
       const roomRefusing = { ...env, ROOM_LIMIT: { limit: async () => ({ success: false }) } } as Env;
       expect((await handleMatch(snapReq(SNAP, 'GET', auth), roomRefusing, NOW)).status).toBe(200);
       expect(calls).toEqual(['/snapshot']);   // only the ROOM_LIMIT-refusing GET got through
