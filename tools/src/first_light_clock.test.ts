@@ -17,11 +17,10 @@
 // clock and the big centre clock draw). Nothing is transcribed: the mission
 // JSON's own `clock: false` is what is read.
 import { describe, expect, it } from 'vitest';
-import { fx, TICKS_PER_SECOND } from '@lions/sim';
+import { TICKS_PER_SECOND } from '@lions/sim';
 import { clocklessObjectives, clockText, holdClock, withoutHiddenClocks } from '../../packages/app/src/ui/hud-model';
 import { HARNESS_MAX_TICKS, missionWorld } from './mission-harness';
-
-const M = (x: number, y: number) => ({ x: fx.from(x), y: fx.from(y) });
+import { firstLightPlan } from './backtest/plans/beit_sahwan';
 
 interface Reading {
   tick: number;
@@ -46,27 +45,16 @@ function playFirstLight(): { readings: Reading[]; result: string } {
       if (sim.state.side[i] === 0 && sim.state.alive[i] === 1 && sim.unitTypes[sim.state.typeIdx[i]].id === t) out.push(i);
     return out;
   };
-  // `playtest.ts`'s First Light plan, verbatim in its orders and timings.
-  const plan = new Map<number, () => void>([
-    [
-      5 * TICKS_PER_SECOND,
-      () => {
-        sim.queueCommand({ kind: 'move', ids: ids('jeep_shoded'), ...M(13, 19) });
-        sim.queueCommand({ kind: 'move', ids: ids('apc_eitan'), ...M(13, 28) });
-      },
-    ],
-    [
-      45 * TICKS_PER_SECOND,
-      () => {
-        sim.queueCommand({ kind: 'move', ids: ids('jeep_shoded'), ...M(20, 21) });
-        sim.queueCommand({ kind: 'move', ids: ids('apc_eitan'), ...M(20, 26) });
-      },
-    ],
-  ]);
+  // `playtest.ts`'s First Light plan: the very object it runs (backtest/plans/beit_sahwan.ts), not a copy.
+  const plan = new Map<number, (() => void)[]>();
+  firstLightPlan(sim, runtime, ids, (s, fn) => {
+    const k = s * TICKS_PER_SECOND;
+    plan.set(k, [...(plan.get(k) ?? []), fn]);
+  });
 
   const readings: Reading[] = [];
   for (let t = 0; t < HARNESS_MAX_TICKS && runtime.result === 'ongoing'; t++) {
-    plan.get(t)?.();
+    for (const fn of plan.get(t) ?? []) fn();
     runtime.step(sim.tick());
     if (t % TICKS_PER_SECOND !== 0) continue;
     const view = withoutHiddenClocks(runtime.objectiveList, clockless);

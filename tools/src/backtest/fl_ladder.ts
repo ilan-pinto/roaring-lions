@@ -13,8 +13,8 @@
 //   naive    - the jeep drives to the nearest village at t=0 and is never ordered again.
 //   sensible - the jeep runs the west village, then the south-west one, then comes home; the APC
 //              stays in the yard.
-//   optimal  - `playtest.ts`'s own winning plan, byte for byte (jeep and APC out at 5 s, home at
-//              45 s).
+//   optimal  - `playtest.ts`'s own winning plan: the same object, imported from plans/beit_sahwan.ts
+//              (jeep and APC out at 5 s, home at 45 s).
 //
 // `civilians in` is a histogram of how many civilians reached the compound (0/1/2/3+); the
 // objective counts civilians, not groups.
@@ -25,6 +25,7 @@
 // Every winning run reads 5.00 min: the relief hold is a fixed 300 s clock.
 import { Sim, fx, TICKS_PER_SECOND, MissionRuntime, type MissionJson, type TunnelRouteJson } from '@lions/sim';
 import { units, maps, missions, structures as structureCatalogue, parseMap, applyTerrain, roadMaskOf } from '@lions/data';
+import { firstLightPlan } from './plans/beit_sahwan';
 
 type Tier = 'passive' | 'naive' | 'sensible' | 'optimal';
 const ID = 'beit_sahwan_breach';
@@ -79,7 +80,6 @@ export function runFirstLight(tier: Tier, seed: number, mission: MissionJson = m
   const at = (s: number, fn: () => void) => timed.push([s * TICKS_PER_SECOND, fn]);
   const mk = (n: string) => map.markers[n] as readonly [number, number];
   const jeep = ids('jeep_shoded');
-  const apc = ids('apc_eitan');
   const move = (who: number[], p: readonly [number, number]) =>
     sim.queueCommand({ kind: 'move', ids: who.filter((i) => sim.state.alive[i] === 1), ...M(p[0], p[1]) });
   if (tier === 'naive') at(0, () => move(jeep, mk('families_nw')));
@@ -88,17 +88,8 @@ export function runFirstLight(tier: Tier, seed: number, mission: MissionJson = m
     at(30, () => move(jeep, mk('families_sw')));
     at(55, () => move(jeep, mk('civ_refuge')));
   }
-  if (tier === 'optimal') {
-    // playtest.ts's First Light plan, unchanged.
-    at(5, () => {
-      sim.queueCommand({ kind: 'move', ids: jeep, ...M(13, 19) });
-      sim.queueCommand({ kind: 'move', ids: apc, ...M(13, 28) });
-    });
-    at(45, () => {
-      sim.queueCommand({ kind: 'move', ids: jeep, ...M(20, 21) });
-      sim.queueCommand({ kind: 'move', ids: apc, ...M(20, 26) });
-    });
-  }
+  // The very object `pnpm playtest` runs (plans/beit_sahwan.ts), not a copy of it.
+  if (tier === 'optimal') firstLightPlan(sim, rt, ids, at);
   const maxTicks = 20 * 60 * TICKS_PER_SECOND;
   let t = 0;
   let evacuated = 0;

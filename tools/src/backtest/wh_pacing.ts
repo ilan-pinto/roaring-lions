@@ -1,14 +1,4 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- reads mission/map JSON by shape, on purpose */
-// !!! STALE OPTIMAL RUNG (checked 26 Oct 2026). The `optimal` plans in OPTIMAL below are COPIES of the
-// !!! ones in tools/src/backtest/playtest.ts, which is the SOURCE OF TRUTH, and they have drifted: the
-// !!! copy of I predates GH-421's 140 s screen order, and at seed 424242 the "xcheck" lines no longer
-// !!! match `pnpm playtest` (I: 5.1 min, credits 150 here against 4.4 min, 180 there; IV: DEFEAT here
-// !!! against VICTORY in 4.7 min there). Treat the optimal rung and the xcheck lines as unreliable until
-// !!! the copies are re-synced. The passive, naive and sensible rungs do not use them. This is a
-// !!! report-only tool (nothing imports it; road_mask_sites.test.ts only checks that it builds its
-// !!! runtime from roadMaskOf), so nothing gates on the drift. It was left as a copy, not imported,
-// !!! because playtest.ts runs its whole gate at import and holds these plans as inline closures:
-// !!! lifting them out means editing the very block GH-828 is rewriting for Wadi Halam I.
 // Wadi Halam pacing ladder (GH-90, GH-93): passive / naive / sensible / optimal over many seeds,
 // with a DEAD-AIR instrument beside the usual win/loss/Conduct/credits columns.
 //
@@ -32,10 +22,11 @@
 //              raze zone, one carrier/squad shepherds each civilian group, jeep+APC run at III's
 //              HVT, IV's houses nearest-first), plus for I a drone tour over the three hides.
 //              Written against markers and zones, never coordinates.
-//   optimal  - the scripted plans in playtest.ts, COPIED here verbatim. They are coordinate-bound
-//              and playtest.ts runs them at import, so they cannot be imported. The copy is checked:
-//              at seed 424242 with the chained ledger, every optimal row must print the same
-//              result / minutes / ROE / credits as `pnpm playtest` does (the "xcheck" lines).
+//   optimal  - the scripted plans `pnpm playtest` runs: the SAME objects, imported from
+//              plans/wadi_halam.ts (playtest.ts imports them from there too). Not a copy: a copy of
+//              them drifted once (GH-830). At seed 424242 with the chained ledger, every optimal row
+//              must still print the result / minutes / ROE / credits `pnpm playtest` does (the
+//              "xcheck" lines), and plans/plans.test.ts pins that the objects are shared.
 //
 // Ledger: each rung of mission k plays on the ledger the OPTIMAL plan of mission k-1 produced at
 // the same seed (mission I on {}), which is what playtest.ts's passive controls do too. Only this
@@ -67,6 +58,7 @@ import {
   type SimEvent,
 } from '@lions/sim';
 import { units, maps, missions, structures as structureCatalogue, parseMap, applyTerrain, roadMaskOf } from '@lions/data';
+import { WADI_HALAM_CHAIN, WADI_HALAM_PLANS } from './plans/wadi_halam';
 
 type Tier = 'passive' | 'naive' | 'sensible' | 'optimal';
 type At = (t: number, fn: () => void) => void;
@@ -74,7 +66,7 @@ type Plan = (sim: Sim, rt: MissionRuntime, ids: (t: string) => number[], at: At,
 
 const seedsN = Number(process.argv[2] ?? 10);
 const only = process.argv.slice(3);
-const CHAIN = ['wadi_halam_1_fords', 'wadi_halam_2_laager', 'wadi_halam_3_counterraid', 'wadi_halam_4_village', 'wadi_halam_5_depot'] as const;
+const CHAIN = WADI_HALAM_CHAIN;
 const MEASURE = only.length > 0 ? only : [...CHAIN];
 const BASE = process.env.WH_BASE_REV;
 const M = (x: number, y: number) => ({ x: fx.from(x), y: fx.from(y) });
@@ -92,7 +84,7 @@ function gateOf(u: any): UnlockGate | undefined {
     : undefined;
 }
 
-// ---------------------------------------------------------------- optimal (copied from playtest.ts)
+// ---------------------------------------------------------------- optimal (the shared plans)
 
 const own = (sim: Sim): number[] => {
   const cur: number[] = [];
@@ -100,132 +92,8 @@ const own = (sim: Sim): number[] => {
   return cur;
 };
 
-// STALE COPIES -- see the banner at the top of this file. The source of truth is playtest.ts.
-const OPTIMAL: Record<string, Plan> = {
-  wadi_halam_1_fords: (sim, _rt, ids, at) => {
-    const drone = ids('recon_drone');
-    const screen = [...ids('apc_eitan'), ...ids('inf_squad'), ...ids('at_team')];
-    const jeep = ids('jeep_shoded');
-    at(0, () => {
-      sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(9, 15) });
-      sim.queueCommand({ kind: 'move', ids: jeep, ...M(15, 31) });
-      sim.queueCommand({ kind: 'move', ids: drone, ...M(20, 17) });
-    });
-    at(45, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(20, 30) }));
-    at(60, () => sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(9, 31) }));
-    at(60, () => sim.queueCommand({ kind: 'move', ids: jeep, ...M(17, 34) }));
-    at(90, () => sim.queueCommand({ kind: 'move', ids: drone, ...M(21, 35) }));
-    at(120, () => sim.queueCommand({ kind: 'attackMove', ids: jeep, ...M(10, 24) }));
-    at(110, () => sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(10, 24) }));
-    for (let when = 130; when <= 320; when += 45) at(when, () => sim.queueCommand({ kind: 'attackMove', ids: own(sim), ...M(10, 24) }));
-  },
-  wadi_halam_2_laager: (sim, rt, ids, at) => {
-    const engineers = new Set(ids('demo_squad'));
-    const picket = new Set(ids('at_team'));
-    const kept = new Set([...engineers, ...picket]);
-    const anchor = (): void => sim.queueCommand({ kind: 'attackMove', ids: own(sim).filter((i) => !kept.has(i)), ...M(21, 25) });
-    const burn = (): void => {
-      for (const [tx, ty] of [[18, 22], [13, 25]] as const) {
-        const s = sim.structureAt(tx, ty);
-        if (s >= 0) {
-          sim.queueCommand({ kind: 'demolish', ids: [...engineers], structure: s });
-          return;
-        }
-      }
-    };
-    at(0, () => {
-      burn();
-      sim.queueCommand({ kind: 'attackMove', ids: [...picket], ...M(9, 9) });
-    });
-    at(1, anchor);
-    for (let when = 15; when <= 300; when += 15) at(when, burn);
-    for (let when = 45; when <= 700; when += 45) at(when, anchor);
-    for (let when = 90; when <= 700; when += 60) at(when, () => void rt.requestBuild('inf_squad'));
-  },
-  wadi_halam_3_counterraid: (sim, _rt, ids, at) => {
-    const chase = [...ids('jeep_shoded'), ...ids('apc_eitan')];
-    const shepherd = ids('inf_squad').slice(0, 1);
-    const kept = new Set(shepherd);
-    const anchor = (): void => sim.queueCommand({ kind: 'attackMove', ids: own(sim).filter((i) => !kept.has(i)), ...M(21, 22) });
-    at(0, () => {
-      sim.queueCommand({ kind: 'attackMove', ids: chase, ...M(25, 7) });
-      sim.queueCommand({ kind: 'attackMove', ids: [...ids('ifv_namer'), ...ids('inf_squad').slice(1), ...ids('at_team')], ...M(21, 22) });
-      sim.queueCommand({ kind: 'move', ids: shepherd, ...M(25, 32) });
-    });
-    at(75, () => {
-      kept.clear();
-      sim.queueCommand({ kind: 'attackMove', ids: shepherd, ...M(21, 22) });
-    });
-    for (let when = 60; when <= 700; when += 45) at(when, anchor);
-  },
-  wadi_halam_4_village: (sim, _rt, ids, at) => {
-    const apc = ids('apc_eitan');
-    const ifv = ids('ifv_namer');
-    const guns = [...apc, ...ids('inf_squad'), ...ids('at_team')];
-    at(0, () => {
-      sim.queueCommand({ kind: 'move', ids: guns, ...M(20, 27) });
-      sim.queueCommand({ kind: 'move', ids: ifv, ...M(31, 23) });
-    });
-    at(30, () => sim.queueCommand({ kind: 'move', ids: ifv, ...M(36, 23) }));
-    at(55, () => sim.queueCommand({ kind: 'move', ids: ifv, ...M(27, 27) }));
-    at(80, () => sim.queueCommand({ kind: 'move', ids: ifv, ...M(3, 24) }));
-    const stages: { house: [number, number]; stand: [number, number] }[] = [
-      { house: [19, 24], stand: [20, 27] },
-      { house: [33, 25], stand: [34, 28] },
-      { house: [37, 25], stand: [38, 28] },
-      { house: [42, 26], stand: [43, 29] },
-      { house: [43, 20], stand: [44, 23] },
-    ];
-    let stage = 0;
-    let finished = false;
-    for (let when = 10; when <= 800; when += 5) {
-      at(when, () => {
-        const cur = stages[stage];
-        if (cur && sim.structureAt(cur.house[0], cur.house[1]) < 0) {
-          stage++;
-          const next = stages[stage];
-          const all = when >= 170 ? [...guns, ...ifv] : guns;
-          if (next) sim.queueCommand({ kind: 'move', ids: all, ...M(next.stand[0], next.stand[1]) });
-        }
-        if (stage >= stages.length && !finished) {
-          finished = true;
-          sim.queueCommand({ kind: 'attackMove', ids: [...guns, ...ifv], ...M(34, 24) });
-        }
-      });
-    }
-  },
-  wadi_halam_5_depot: (sim, _rt, ids, at) => {
-    const screen = [...ids('apc_eitan'), ...ids('ifv_namer'), ...ids('inf_squad'), ...ids('at_team')];
-    const dozer = ids('dozer_d9');
-    const engineers = ids('demo_squad');
-    const jeep = ids('jeep_shoded');
-    const targets: [number, number][] = [[30, 6], [34, 6], [37, 6], [30, 10], [35, 10], [38, 11], [36, 14]];
-    const orderNext = (unit: number[], forward: boolean): void => {
-      const order = forward ? targets : [...targets].reverse();
-      for (const [tx, ty] of order) {
-        const s = sim.structureAt(tx, ty);
-        if (s >= 0) {
-          sim.queueCommand({ kind: 'demolish', ids: unit, structure: s });
-          return;
-        }
-      }
-    };
-    at(0, () => {
-      sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(33, 20) });
-      sim.queueCommand({ kind: 'move', ids: jeep, ...M(32, 27) });
-      orderNext(dozer, true);
-      orderNext(engineers, false);
-    });
-    for (let when = 15; when <= 200; when += 15) {
-      at(when, () => {
-        orderNext(dozer, true);
-        orderNext(engineers, false);
-      });
-    }
-    at(40, () => sim.queueCommand({ kind: 'attackMove', ids: screen, ...M(33, 12) }));
-    for (let when = 85; when <= 400; when += 45) at(when, () => sim.queueCommand({ kind: 'attackMove', ids: own(sim), ...M(33, 12) }));
-  },
-};
+// The optimal rung runs the OBJECTS `pnpm playtest` runs (`plans/wadi_halam.ts`), not a copy of them.
+const OPTIMAL: Readonly<Record<string, Plan>> = WADI_HALAM_PLANS;
 
 // ---------------------------------------------------------------- naive / sensible (marker-based)
 
@@ -528,7 +396,7 @@ if (process.env.WH_CAL) {
 const fmt = (n: number, d = 0) => (Number.isFinite(n) ? n.toFixed(d) : '-');
 console.log(`wh_pacing: seeds 1..${seedsN}${BASE ? `, missions from ${BASE}` : ', missions from the tree'}; cap 20 min`);
 
-// Cross-check: the copied optimal plans must reproduce `pnpm playtest` at its pinned seed.
+// Cross-check: the shared optimal plans must reproduce `pnpm playtest` at its pinned seed.
 {
   const chain = chainLedgers(424242);
   for (const id of CHAIN) {
