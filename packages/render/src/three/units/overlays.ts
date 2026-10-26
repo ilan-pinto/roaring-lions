@@ -92,6 +92,7 @@ import {
 } from './overlay-geometry';
 import { OVERLAY_RENDER_ORDER, BADGE_NUMERAL_RENDER_ORDER } from './render-order';
 import { paletteHex } from '../palette-hex';
+import { colorSlot, isOwnSide } from '../../relation';
 
 // ---------------------------------------------------------------------------
 // Pure: palette-key policy and small per-overlay-kind numeric formulas. No
@@ -332,6 +333,14 @@ export function buildingIntegrityColorKey(ratio: number, friendly: boolean): str
  *  the suppression bar wears it too, but that is a bar and this is a ground ring). Any other side's
  *  wounded wear their team colour: the hostile red, or the neutral. */
 export const WOUND_OWN_COLOR_KEY = 'vfx.fire';
+
+/** GH-707: the colour of the ring under a down wounded man of `side`, for `viewer`. The viewer's own wear
+ *  `ownColor` (the resolved `WOUND_OWN_COLOR_KEY`); anyone else's wear their `teamColors` slot, so a
+ *  wounded civilian (side 2) wears the cream civilian slot. The one place the renderer decides it, so a
+ *  test (`tools/src/wounded_civ_ring.test.ts`) reads the colour the renderer draws, not a restated key. */
+export function woundRingHex(side: number, viewer: number, ownColor: string, teamColors: readonly string[]): string {
+  return isOwnSide(side, viewer) ? ownColor : teamColors[colorSlot(side, viewer)];
+}
 
 /** Palette key for the demolition/tunnel-charge progress ring's TRACK --
  *  Pixi's own `this.opts.resolveColor ? this.opts.resolveColor('gunmetal.2')
