@@ -172,6 +172,18 @@ describe('gunzipCapped', () => {
     expect(r.ok && Buffer.compare(Buffer.from(r.bytes), Buffer.from(src))).toBe(0);
     expect(spy.accepted()).toBe(gz.byteLength);
   }, 20_000);
+  it('a second gzip member, or bytes after the member, are bad_gzip however the runtime treats them (security review)', async () => {
+    const a = Uint8Array.from({ length: 3000 }, (_, i) => (i * 7) & 0xff);
+    const b = Uint8Array.from({ length: 2000 }, (_, i) => (i * 11 + 3) & 0xff);
+    expect((await gunzipCapped(gzipSync(a), MAX)).ok).toBe(true);
+    const two = new Uint8Array(Buffer.concat([gzipSync(a), gzipSync(b)]));
+    expect(await gunzipCapped(two, MAX)).toEqual({ ok: false, reason: 'bad_gzip' });
+    const tail = new Uint8Array(Buffer.concat([gzipSync(a), Buffer.from([1, 2, 3, 4, 5, 6, 7, 8])]));
+    expect(await gunzipCapped(tail, MAX)).toEqual({ ok: false, reason: 'bad_gzip' });
+    // An empty second member adds no output and is refused all the same.
+    const empty = new Uint8Array(Buffer.concat([gzipSync(a), gzipSync(new Uint8Array(0))]));
+    expect(await gunzipCapped(empty, MAX)).toEqual({ ok: false, reason: 'bad_gzip' });
+  });
   it('truncated gzip, garbage and an empty body are bad_gzip', async () => {
     const whole = gzipSync(Uint8Array.from({ length: 4000 }, (_, i) => (i * 7) & 0xff));
     expect(await gunzipCapped(whole.subarray(0, whole.byteLength - 12), MAX)).toEqual({ ok: false, reason: 'bad_gzip' });

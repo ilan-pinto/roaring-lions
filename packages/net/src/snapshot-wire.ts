@@ -119,6 +119,10 @@ export async function gunzipCapped(gz: Uint8Array, max: number): Promise<GunzipR
     return { ok: false, reason: 'bad_gzip' };
   }
   if (total === 0) return { ok: false, reason: 'bad_gzip' };
+  // One member exactly: the last four bytes of a member are its inflated length, so a second member or trailing bytes
+  // (which a runtime may concatenate or ignore, and another may refuse) cannot match the whole output.
+  const tail = new DataView(gz.buffer, gz.byteOffset, gz.byteLength);
+  if (gz.byteLength < 18 || tail.getUint32(gz.byteLength - 4, true) !== total) return { ok: false, reason: 'bad_gzip' };
   const bytes = new Uint8Array(total);
   let at = 0;
   for (const c of chunks) { bytes.set(c, at); at += c.byteLength; }
