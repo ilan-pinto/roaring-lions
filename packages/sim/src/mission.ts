@@ -355,7 +355,8 @@ export interface MissionJson {
      *  side 0 (player). remove: every living entity in `group` (restricted to
      *  `zone` when given) leaves play via `sim.removeFromPlay` — the enemy's
      *  act, not a kill; `to`/`units` are meaningless for it and the schema
-     *  refuses them. */
+     *  refuses them. Anyone riding in a removed carrier leaves with it, whether
+     *  or not he is in the group or the zone. */
     do: { kind: string; group?: string; to?: string; units?: readonly PlacementJson[]; zone?: string };
     /** Fires as a `MissionEvent` the tick this trigger fires, right after the
      *  `trigger` event it annotates. */
@@ -3933,11 +3934,26 @@ export class MissionRuntime {
           if (zone === undefined) return true;
           return zoneContains(zone, this.sim.state.posX[id] >> 16, this.sim.state.posY[id] >> 16);
         });
+        const st = this.sim.state;
         for (const id of ids) {
-          const side = this.sim.state.side[id];
-          const unit = this.sim.unitTypes[this.sim.state.typeIdx[id]].id;
+          // Already gone: it rode out in a carrier earlier in this group, and was reported there.
+          if (st.alive[id] !== 1) continue;
+          // `removeFromPlay` takes the riders with their carrier (GH-815), so the feed names
+          // each of them too: read who is aboard BEFORE the call clears the seats.
+          // Direct riders only: no rider carries anyone (canSeat refuses nested carrying).
+          const riders: number[] = [];
+          if (this.sim.passengerCount(id) > 0) {
+            for (let i = 0; i < this.sim.entityCount; i++) {
+              if (st.carriedBy[i] === id && st.alive[i] === 1) riders.push(i);
+            }
+          }
+          const named = [id, ...riders].map((e) => ({
+            e,
+            side: st.side[e],
+            unit: this.sim.unitTypes[st.typeIdx[e]].id,
+          }));
           this.sim.removeFromPlay(id);
-          out.push({ kind: 'removed', tick, entity: id, side, unit });
+          for (const n of named) out.push({ kind: 'removed', tick, entity: n.e, side: n.side, unit: n.unit });
         }
       }
     }

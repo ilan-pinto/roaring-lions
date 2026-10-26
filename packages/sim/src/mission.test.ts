@@ -5159,6 +5159,92 @@ describe('the narrative layer: remove, say, starting_force groups', () => {
       expect(status(mission, 'kill')).toBe('failed');
     });
 
+    // The carrier follow-up: an HVT riding in a removed carrier leaves with it. He used to be put
+    // down alive a tick later, so the objective neither completed nor failed and a primary hung to
+    // the time limit (`withdrawn`).
+    describe('a target riding in a removed carrier', () => {
+      const convoy = (primary: boolean): MissionJson =>
+        baseMission({
+          starting_force: [{ unit: 'm_squad', count: 1, at: [3, 5] }],
+          enemy: {
+            garrison: [
+              {
+                unit: 'm_carrier',
+                count: 1,
+                at: [20.5, 2.5],
+                group: 'convoy',
+                passengers: [
+                  { unit: 'm_rider', count: 1, tag: 'hvt' },
+                  { unit: 'm_rider', count: 1, group: 'escort' },
+                ],
+              },
+            ],
+          },
+          objectives: [
+            { id: 'kill', type: 'eliminate_hvt', primary, target: 'hvt' },
+            { id: 'clock', type: 'survive_until', primary: !primary, seconds: 20 },
+          ],
+          triggers: [{ id: 'gets_away', on: { kind: 'timer_s', value: 1 }, do: { kind: 'remove', group: 'convoy' } }],
+        });
+
+      it('is removed with it, so the primary fails and the mission ends in defeat', () => {
+        const w = makeWorld(convoy(true));
+        const hvt = allIds(w.sim).find((i) => w.sim.state.carriedBy[i] >= 0) as number;
+        const { mission } = w.step(5 * TICKS_PER_SECOND);
+        expect([w.sim.state.alive[hvt], w.sim.state.removed[hvt], w.sim.state.carriedBy[hvt]]).toEqual([0, 1, -1]);
+        expect(status(mission, 'kill')).toBe('failed');
+        expect(w.runtime.result).toBe('defeat');
+        expect(w.runtime.defeatCause).toEqual({ objective: 'kill' });
+      });
+
+      it('fails a secondary and leaves the mission running', () => {
+        const w = makeWorld(convoy(false));
+        const { mission } = w.step(25 * TICKS_PER_SECOND);
+        expect(status(mission, 'kill')).toBe('failed');
+        expect(w.runtime.result).toBe('victory');
+      });
+
+      it('names every body that left in the feed, once each, carrier first', () => {
+        const w = makeWorld(convoy(false));
+        const { mission } = w.step(3 * TICKS_PER_SECOND);
+        const gone = mission.flatMap((e) => (e.kind === 'removed' ? [[e.unit, e.side]] : []));
+        expect(gone).toEqual([['m_carrier', 1], ['m_rider', 1], ['m_rider', 1]]);
+        // And the sim agrees: nobody from the convoy is still alive.
+        expect(allIds(w.sim).filter((i) => w.sim.state.alive[i] === 1 && w.sim.state.side[i] === 1)).toEqual([]);
+      });
+
+      it('a rider who is also in the removed group is reported once, whichever the group lists first', () => {
+        for (const carrierFirst of [false, true]) {
+          const m = convoy(false);
+          const g = m.enemy?.garrison?.[0];
+          if (!g?.passengers) throw new Error('fixture');
+          const w = makeWorld({
+            ...m,
+            enemy: { garrison: [{ ...g, passengers: [{ unit: 'm_rider', count: 1, tag: 'hvt', group: 'convoy' }] }] },
+          });
+          // Placements list a carrier's riders before it; a rider who joined later would follow it.
+          const groups = (w.runtime as unknown as { groups: Map<string, number[]> }).groups;
+          const members = groups.get('convoy') ?? [];
+          expect(members).toHaveLength(2);
+          if (carrierFirst) groups.set('convoy', [...members].reverse());
+          const { mission } = w.step(3 * TICKS_PER_SECOND);
+          expect(mission.filter((e) => e.kind === 'removed').length).toBe(2);
+        }
+      });
+
+      it('a rider removed alone leaves the carrier and the rest of its load running', () => {
+        const m = convoy(false);
+        const w = makeWorld({
+          ...m,
+          triggers: [{ id: 'gets_away', on: { kind: 'timer_s', value: 1 }, do: { kind: 'remove', group: 'escort' } }],
+        });
+        const car = allIds(w.sim).find((i) => w.sim.passengerCount(i) > 0) as number;
+        expect(w.sim.passengerCount(car)).toBe(2);
+        w.step(2 * TICKS_PER_SECOND);
+        expect([w.sim.state.alive[car], w.sim.passengerCount(car)]).toEqual([1, 1]);
+      });
+    });
+
     it('a killed target still completes it', () => {
       const w = makeWorld(
         baseMission({

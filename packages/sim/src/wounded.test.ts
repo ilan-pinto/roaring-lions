@@ -987,3 +987,31 @@ describe('a downed patroller (N3 Task 9 review)', () => {
     expect([...idx]).toEqual([at]);
   });
 });
+
+// GH-815 follow-up: a removal and the seats. A rider taken alone frees the seat and the carrier's
+// drag; a carrier taken with its load counts each wounded man once.
+describe('removeFromPlay and a medic\'s load (GH-815)', () => {
+  const load = () => {
+    const sim = new Sim({ seed: 0x815_0001, width: 16, height: 16, capacity: 16 });
+    const mi = sim.addUnitType(MEDIC);
+    const wi = sim.addUnitType(WOUNDED);
+    const medic = sim.spawn(mi, 0, fx.from(5.5), fx.from(5.5));
+    const man = sim.spawn(wi, 0, fx.from(5.5), fx.from(5.5));
+    expect(sim.embarkAtSpawn(medic, man)).toBe(true);
+    expect([sim.state.woundedAlive[0], sim.state.speedMul[medic]]).toEqual([1, 49152]); // carrying him (a two-figure medic)
+    return { sim, medic, man };
+  };
+
+  it('the wounded man removed alone: the medic is free of the drag, and the count drops once', () => {
+    const { sim, medic, man } = load();
+    sim.removeFromPlay(man);
+    expect([sim.state.woundedAlive[0], sim.state.speedMul[medic], sim.passengerCount(medic)]).toEqual([0, 65536, 0]);
+  });
+
+  it('the medic removed with his load: each wounded man leaves once, and no drag is left on the hull', () => {
+    const { sim, medic, man } = load();
+    sim.removeFromPlay(medic);
+    expect([sim.state.removed[medic], sim.state.removed[man], sim.state.carriedBy[man]]).toEqual([1, 1, -1]);
+    expect([sim.state.woundedAlive[0], sim.state.speedMul[medic]]).toEqual([0, 65536]);
+  });
+});

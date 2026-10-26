@@ -3730,21 +3730,48 @@ export class Sim {
    * reaching into state). `alive` flips to 0, same as `destroy()`, so every
    * existing alive-gated system already treats it as gone; `removed` is set
    * alongside it so `casualties_pct` and the renderer can tell the
-   * difference. Deliberately does not call `destroy()`: no passenger
-   * eject, no hp/moving reset, no `destroyed` event — none of combat's
-   * bookkeeping applies, because nothing here was combat. A no-op if the
-   * unit is not currently alive (already dead, or already removed). A unit
-   * taken out of a building frees its garrison slot (`releaseSlot`), so an
-   * overflow unit waiting at the door can take it.
+   * difference. Deliberately does not call `destroy()`: no hp/moving reset,
+   * no `destroyed` event — none of combat's bookkeeping applies, because
+   * nothing here was combat. A no-op if the unit is not currently alive
+   * (already dead, or already removed). A unit taken out of a building frees
+   * its garrison slot (`releaseSlot`), so an overflow unit waiting at the
+   * door can take it.
+   *
+   * Riders leave WITH their carrier (GH-815 follow-up). The carrier is driven
+   * off the board, so everyone aboard goes too: each living passenger is
+   * removed in the same call (`removed` set, a `removed` event of its own), not
+   * left for `stepTransport`'s dead-carrier branch to put down shaken a tick
+   * later. That branch is combat's (`destroy` -> bail out); a removal is not
+   * combat, and an HVT riding out must read as removed, which `eliminate_hvt`
+   * fails on, not as a live man standing where the truck vanished. A rider
+   * removed on its own vacates its seat, so the carrier does not keep a ghost.
    */
   removeFromPlay(id: number): void {
     if (this.alive[id] !== 1) return;
     const side = this.side[id];
     if (this.woundLive) this.forgetWounded(id);
+    // A rider taken alone gives up its seat: left set, the carrier would count a ghost aboard and
+    // a later `unload` would put the missing man down on the ground.
+    const seat = this.carriedBy[id];
+    if (seat >= 0) {
+      this.carriedBy[id] = -1;
+      if (this.passengers[seat] > 0) this.passengers[seat]--;
+      if (this.woundLive) this.refreshSpeedMul(seat);
+    }
     this.alive[id] = 0;
     this.removed[id] = 1;
     this.releaseSlot(id);
     this.pendingEvents.push({ kind: 'removed', tick: this.tickCount, entity: id, side });
+    if (this.passengers[id] > 0) {
+      for (let i = 0; i < this.count; i++) {
+        if (this.carriedBy[i] !== id || this.alive[i] !== 1) continue;
+        this.carriedBy[i] = -1;
+        this.passengers[id]--;
+        this.removeFromPlay(i);
+      }
+      // The empty hull is no longer dragging or carrying anyone.
+      if (this.woundLive) this.refreshSpeedMul(id);
+    }
   }
 
   /** GH-707: a living wounded (DOWN or STABILISED) is leaving play -- dead or removed -- so

@@ -180,6 +180,59 @@ describe('transport', () => {
     expect(sim.state.suppression[squad]).toBeGreaterThan(0);
   });
 
+  it('removeFromPlay takes the riders out WITH the carrier, whole and unhurt, not bailed out (GH-815)', () => {
+    const { sim, jeep, inf } = world();
+    const car = sim.spawn(jeep, 1, fx.from(10.5), fx.from(10.5));
+    const a = sim.spawn(inf, 1, fx.from(20.5), fx.from(20.5));
+    const b = sim.spawn(inf, 1, fx.from(21.5), fx.from(20.5));
+    const bystander = sim.spawn(inf, 1, fx.from(10.5), fx.from(11.5)); // beside the jeep, not aboard
+    expect(sim.embarkAtSpawn(car, a)).toBe(true);
+    expect(sim.embarkAtSpawn(car, b)).toBe(true);
+    const hp = sim.state.hp[a];
+
+    sim.removeFromPlay(car);
+    // The same call, before any tick: nobody is left in limbo for stepTransport to find.
+    for (const id of [car, a, b]) {
+      expect([id, sim.state.alive[id], sim.state.removed[id], sim.state.carriedBy[id]]).toEqual([id, 0, 1, -1]);
+    }
+    expect(sim.passengerCount(car)).toBe(0);
+    expect(sim.state.hp[a]).toBe(hp); // not the 40% bail-out of a brew-up
+    expect([sim.state.alive[bystander], sim.state.removed[bystander]]).toEqual([1, 0]);
+    const events = run(sim, 2);
+    // Each leaves once, with its own event, and none is put down on the ground.
+    expect(events.flatMap((e) => (e.kind === 'removed' ? [e.entity] : [])).sort((x, y) => x - y)).toEqual([car, a, b]);
+    expect(events.some((e) => e.kind === 'transport' && !e.loaded)).toBe(false);
+    expect([sim.state.alive[a], sim.state.hp[a]]).toEqual([0, hp]);
+  });
+
+  it('a rider removed on its own vacates its seat: no ghost aboard, nothing put down by unload (GH-815)', () => {
+    const { sim, jeep, inf } = world();
+    const car = sim.spawn(jeep, 1, fx.from(10.5), fx.from(10.5));
+    const a = sim.spawn(inf, 1, fx.from(20.5), fx.from(20.5));
+    const b = sim.spawn(inf, 1, fx.from(21.5), fx.from(20.5));
+    expect(sim.embarkAtSpawn(car, a)).toBe(true);
+    expect(sim.embarkAtSpawn(car, b)).toBe(true);
+
+    sim.removeFromPlay(a);
+    expect([sim.state.alive[a], sim.state.removed[a], sim.state.carriedBy[a]]).toEqual([0, 1, -1]);
+    expect(sim.passengerCount(car)).toBe(1); // b only
+    expect([sim.state.alive[car], sim.state.carriedBy[b]]).toEqual([1, car]);
+    sim.queueCommand({ kind: 'unload', ids: [car] });
+    const events = run(sim, 3);
+    // Only the living man is put down; the removed one is not resurrected beside the hull.
+    expect(events.flatMap((e) => (e.kind === 'transport' && !e.loaded ? [e.entity] : []))).toEqual([b]);
+    expect([sim.state.alive[a], sim.state.hp[a]]).toEqual([0, fx.fromInt(400)]);
+  });
+
+  it('a brew-up still bails the riders out; only a removal takes them along (GH-815 control)', () => {
+    const { sim, jeep, inf } = world();
+    const car = sim.spawn(jeep, 1, fx.from(10.5), fx.from(10.5));
+    const a = sim.spawn(inf, 1, fx.from(20.5), fx.from(20.5));
+    expect(sim.embarkAtSpawn(car, a)).toBe(true);
+    sim.debugKill(car);
+    expect([sim.state.alive[a], sim.state.removed[a], sim.state.carriedBy[a]]).toEqual([1, 0, -1]);
+  });
+
   it('keeps passengers aboard when the whole selection is ordered to move', () => {
     // A box-select still contains the infantry after they board, so the player's
     // next right-click reaches the passengers too. That used to dismount them on
