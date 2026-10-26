@@ -120,7 +120,23 @@ startPlanSweep();
 // out (`fl_ladder.ts` has the before/after ladder).
 passiveAcrossSeeds('beit_sahwan_breach', 'beit_sahwan_breach (passive control)', 'defeat');
 
-const led0 = run('beit_sahwan_breach', firstLightPlan);
+// GH-707, the lead's ruling 2 (26 Oct): First Light fields one Nemala medic team on loan (L-1) and the
+// map's `wounded_evac` marker, so rescue is taught in play. The plan gives the medic no order: it works
+// by itself. This is the check that CI exercises rescue at all -- a treatment (`woundStabilised`) and a
+// delivery (`woundEvacuated`, side 0) on the 424242 run. Falsified 26 Oct by making `stepMedics` return
+// at once: both counts read 0 and the two lines below went red.
+const breachRescue = { stabilised: 0, evacuated: 0 };
+const led0 = run('beit_sahwan_breach', firstLightPlan, {}, 'victory', 'beit_sahwan_breach', 2, 'inf_medic_squad', new Set(), undefined, undefined, undefined, [], (evs) => {
+  for (const e of evs) {
+    if (e.kind === 'woundStabilised') breachRescue.stabilised++;
+    else if (e.kind === 'woundEvacuated' && e.side === 0) breachRescue.evacuated++;
+  }
+});
+console.log(`beit_sahwan_breach: rescue — ${breachRescue.stabilised} treated, ${breachRescue.evacuated} carried out`);
+if (breachRescue.stabilised < 1 || breachRescue.evacuated < 1) {
+  console.error(`beit_sahwan_breach: FAILED — the medic team should treat and carry out at least one wounded man (treated ${breachRescue.stabilised}, carried out ${breachRescue.evacuated})`);
+  process.exitCode = 1;
+}
 
 // #540: the time limit's witnesses on shipped data. Beit Sahwan I's one primary is a `locate` and
 // Beit Sahwan III's are `eliminate_hvt` and `capture`: none can fail, so with no orders both ran
@@ -3503,7 +3519,12 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // The seed-424242 run now brings home 3 men from Wadi Halam I, not 4, and Wadi Halam I, II and III pay
 // 170, 160 and 160 (490; 530 on main, 540 in the unfixed merge). Every other mission pays what it paid.
 // No star, outcome, gate or Conduct moved.
-const LADDER_CREDITS = 5951;
+// 2026-10-26, GH-707 ruling 2, First Light fields one Nemala medic team on loan and a `wounded_evac` marker:
+// 5951 -> 5961, +10, read off the printed per-mission credits: First Light 170 -> 180 (roster out 4 -> 5, the
+// medic carries a wounded man out who would have bled). The medic is on loan, so ROSTER_MAX stays 29. Still
+// VICTORY, ROE 100, 2 stars, 30 of 30 seeds, slowest 5.0 min; the passive control still loses on 30 of 30;
+// every other mission pays what it paid.
+const LADDER_CREDITS = 5961;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);

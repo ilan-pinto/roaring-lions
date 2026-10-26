@@ -219,11 +219,12 @@ describe('First Light fence — the tiles themselves', () => {
 
   // 26 since GH-345 (2026-10-02) cut the sniper, mortar and demo teams, the
   // mortar crew and its paramotor spotter: 31 - 5.
-  it('the census it asserts on is the mission\'s own placements, not a hand list (26 bodies, 11 of them civilian)', () => {
+  // Was 26. GH-707 ruling 2 (2026-10-26): one Nemala medic team joins the starting force on loan, 26 + 1.
+  it('the census it asserts on is the mission\'s own placements, not a hand list (27 bodies, 11 of them civilian)', () => {
     // The guard on the guard. `spawnTiles` is only worth trusting if it is
     // reading the real placements, so pin the two counts and one tile that a
     // stale hand list got wrong: `families_ne`'s first body.
-    expect(PLACEMENTS.flatMap(spawnTiles)).toHaveLength(26);
+    expect(PLACEMENTS.flatMap(spawnTiles)).toHaveLength(27);
     expect(CIVILIAN_TILES).toHaveLength(11);
     expect(CIVILIAN_TILES).toContainEqual([37, 18]);
   });
