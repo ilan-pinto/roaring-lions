@@ -84,8 +84,14 @@ export function bleedFractionOf(sim: BleedSource, id: number): BleedRead | null 
  */
 export const WOUNDED_LIFT = 0.5;
 
+/** The light level (`lit` in `FLOOR_GLSL`) under which the floor is fully on, and over which it is off. */
+export const WOUNDED_GATE_LO = 0.05;
+export const WOUNDED_GATE_HI = 0.2;
+
 /** The floor every lifted material reads. 0 is today's look (the debug layer). */
 const floorUniform = { value: WOUNDED_LIFT };
+const gateLoUniform = { value: WOUNDED_GATE_LO };
+const gateHiUniform = { value: WOUNDED_GATE_HI };
 const PROGRAM_KEY = 'rl-wounded-floor';
 
 const live = new Set<WeakRef<THREE.Material>>();
@@ -97,23 +103,26 @@ function replaceOnce(src: string, find: string, by: string): string {
 }
 
 /**
- * The floor, in luminance: `E` is the light the body is getting, its outgoing luminance over its
- * albedo's; below `uWoundedFloor` 70% of the deficit is added back as albedo-coloured fill, so a body in
- * deep shadow reaches 0.7 x `albedo x floor`, a body already lit above the floor adds 0, and the
- * 30% not filled keeps some of the figure's own shading (a full fill flattened it to a grey mush). Measured in
- * luminance and added (not a per-channel `max`) because a neutral floor under warm dusk light lifts
- * the blue channel most and turned the man into a pale blue ghost.
+ * The floor, in luminance, and only in DEEP shadow. `lit` is the light the body is getting, its
+ * outgoing luminance over its albedo's. Below `uWoundedFloor` 70% of the deficit is added back as
+ * albedo-coloured fill, scaled by `gate`: 1 under `uWoundedGateLo`, 0 over `uWoundedGateHi`, a smooth
+ * ramp between. So a body the light already reads (the lit dusk patch, full sun) adds exactly 0 and is
+ * byte-identical to today, and a body in building shadow keeps its gain. Measured in luminance and
+ * added (not a per-channel `max`) because a neutral floor under warm dusk light lifts the blue channel
+ * most and turned the man into a pale blue ghost; the 30% not filled keeps some of the figure's own
+ * shading (a full fill flattened it to a grey mush).
  */
 const FLOOR_GLSL = `{
   const vec3 luma = vec3(0.2126, 0.7152, 0.0722);
   float albedoLuma = max(dot(diffuseColor.rgb, luma), 0.02);
   float lit = dot(outgoingLight, luma) / albedoLuma;
-  outgoingLight += diffuseColor.rgb * max(uWoundedFloor - lit, 0.0) * 0.7;
+  float gate = 1.0 - smoothstep(uWoundedGateLo, uWoundedGateHi, lit);
+  outgoingLight += diffuseColor.rgb * max(uWoundedFloor - lit, 0.0) * 0.7 * gate;
 }`;
 
 /** The fragment patch: declare the uniform, and clamp the outgoing light up to the floor. */
 export function patchWoundedFloor(fragmentShader: string): string {
-  const declared = replaceOnce(fragmentShader, 'void main() {', 'uniform float uWoundedFloor;\nvoid main() {');
+  const declared = replaceOnce(fragmentShader, 'void main() {', 'uniform float uWoundedFloor;\nuniform float uWoundedGateLo;\nuniform float uWoundedGateHi;\nvoid main() {');
   return replaceOnce(
     declared,
     '#include <opaque_fragment>',
@@ -141,8 +150,12 @@ export function liftWoundedTemplate(root: THREE.Object3D): THREE.Material[] {
       copy.customProgramCacheKey = () => `${baseKey}|${PROGRAM_KEY}`;
       copy.onBeforeCompile = (shader) => {
         shader.uniforms.uWoundedFloor = floorUniform;
+        shader.uniforms.uWoundedGateLo = gateLoUniform;
+        shader.uniforms.uWoundedGateHi = gateHiUniform;
         shader.fragmentShader = patchWoundedFloor(shader.fragmentShader);
       };
+      // The tuning harness (`wounded-read-captures.ts --sweep`) reaches the shared uniforms here.
+      copy.userData.rlWoundedUniforms = { floor: floorUniform, gateLo: gateLoUniform, gateHi: gateHiUniform };
       made.set(src, copy);
       live.add(new WeakRef(copy));
     }

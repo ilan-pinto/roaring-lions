@@ -163,6 +163,9 @@ export interface RingStyle {
    * without it builds the selection and team rings' shader byte for byte as before.
    */
   readonly arcThicken?: number;
+  /** Arc mode: the most the arc may add to the core's thickness, in SCREEN pixels, so it stays a
+   *  band at any zoom (the multiple alone made a near-solid disc at zoom 2.5). */
+  readonly arcExtraMaxPx?: number;
   /** Arc mode: the pulse's period in seconds and its alpha floor (0..1). */
   readonly pulsePeriodS?: number;
   readonly pulseMinAlpha?: number;
@@ -201,8 +204,8 @@ const RING_VERTEX_SHADER_ARC = RING_VERTEX_SHADER.replace(
 
 /**
  * The arc mode's fragment shader (GH-707). The ring is the usual annulus, and over the first
- * `vArc.x` of the circle -- swept clockwise from the top of the screen -- its core is `arcThicken`
- * times as thick, growing INWARD (the outer edge, and with it the halo and the ring's radius,
+ * `vArc.x` of the circle -- swept clockwise from the top of the screen -- its core is up to `arcThicken`
+ * times as thick (but at most `arcExtraMaxPx` screen pixels thicker), growing INWARD (the outer edge, and with it the halo and the ring's radius,
  * does not move). `vArc.y` is 1 for a man still bleeding: his ring breathes between
  * `pulseMinAlpha` and 1 over `pulsePeriodS` on `uTimeSec` (the sim clock), and `uPulseOn` 0
  * (reduced motion) holds it steady at 1. The sweep's start is a unit turn measured from the
@@ -215,6 +218,7 @@ function ringFragmentShaderArc(style: RingStyle): string {
   const CORE_A = glslFloat(style.coreAlpha);
   const HALO_A = glslFloat(style.haloAlpha);
   const THICKEN = glslFloat(style.arcThicken ?? 1);
+  const EXTRA_MAX = glslFloat(style.arcExtraMaxPx ?? 1000);
   const PERIOD = glslFloat(style.pulsePeriodS ?? 1.6);
   const FLOOR = glslFloat(style.pulseMinAlpha ?? 0.5);
   return /* glsl */ `
@@ -236,7 +240,8 @@ function ringFragmentShaderArc(style: RingStyle): string {
     float s = ringSd(vLocal, vAxes);
     float w = max(${T}, ${PX} / uPxPerTile);
     float turn = fract(atan(vLocal.y, vLocal.x) * 0.15915494 + 0.375);
-    float wHere = turn < vArc.x ? w * ${THICKEN} : w;
+    float extra = min(w * (${THICKEN} - 1.0), ${EXTRA_MAX} / uPxPerTile);
+    float wHere = turn < vArc.x ? w + extra : w;
     float core = smoothstep(-wHere - ${F}, -wHere, s) * (1.0 - smoothstep(0.0, ${F}, s));
     float halo = smoothstep(0.0, ${F}, s) * (1.0 - smoothstep(${HALO}, ${HALO_END}, s));
     float breathe = 0.5 + 0.5 * sin(uTimeSec * 6.2831853 / ${PERIOD});

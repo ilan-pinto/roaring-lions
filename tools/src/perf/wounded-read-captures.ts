@@ -6,7 +6,7 @@
  * shoot; show it, repaint, shoot. Same frame, same tick, same camera. It runs against a dev server
  * you started yourself (never 5177), on the real Metal GPU, music off, one browser:
  *
- *   cd tools && npx tsx src/perf/wounded-read-captures.ts --port=5183 --out=<dir> [--only=enemy,own-dusk]
+ *   cd tools && npx tsx src/perf/wounded-read-captures.ts --port=5183 --attach --out=<dir> [--only=enemy,own-dusk]
  *
  * Scenes are sandboxes with wounded men SPAWNED beside corpses (`sim.spawn` of a `wounded_*` type,
  * `debugKill` for the corpses): a scene-setting shortcut, which is fine for a look -- the pulse and
@@ -21,14 +21,18 @@ import path from 'node:path';
 import { FREEZE_FRAME_LOOP_SCRIPT } from '../golden-diff/capture-protocol';
 import { readUnmaskedRenderer } from '../golden-diff/browser';
 import { musicOffInitScript } from '../ui-review/music-off';
+import { requireAttach } from '../ui-review/port';
 
 const args = process.argv.slice(2);
 const arg = (k: string, d: string): string => args.find((a) => a.startsWith(`--${k}=`))?.slice(k.length + 3) ?? d;
 const PORT = Number(arg('port', '0'));
 if (!PORT) throw new Error('--port=<n> is required (your own dev server; 5177 is the lead’s)');
 if (PORT === 5177) throw new Error('5177 is the lead’s dev server');
+await requireAttach('wounded-read', [PORT]);
 const OUT = path.resolve(arg('out', '.superpowers/wounded-read'));
 const REDUCED = args.includes('--reduced');
+const SWEEP = args.includes('--sweep');
+const CVD = args.includes('--cvd');
 const ONLY = arg('only', '').split(',').filter(Boolean);
 const PROBE = arg('probe', '');
 const PULSE = arg('pulse', '');
@@ -328,6 +332,80 @@ async function runSpec(page: Page, spec: Spec): Promise<void> {
   }
 }
 
+
+/** `--sweep`: the gate's (lo, hi) over the two dark-body scenes, floor 0 first, so a pair can be chosen by eye. */
+const SWEEP_GATES: readonly (readonly [number, number, number])[] = [
+  [0, 0, 0],
+  [0.5, 0.0, 999],
+  [0.5, 0.02, 0.1],
+  [0.5, 0.05, 0.2],
+  [0.5, 0.1, 0.35],
+  [0.5, 0.2, 0.6],
+];
+
+async function sweep(page: Page, spec: Spec): Promise<void> {
+  const w = await build(page, spec);
+  await toPulsePhase(page, 8);
+  const at = await frameOn(page, w, 2.5);
+  for (const [k, [floor, lo, hi]] of SWEEP_GATES.entries()) {
+    await page.evaluate(
+      ([f, a, b]) => {
+        const r = (window as unknown as W).__lions.renderer as unknown as {
+          meshUnitTemplates: Map<string, { materials: { userData: { rlWoundedUniforms?: { floor: { value: number }; gateLo: { value: number }; gateHi: { value: number } } } }[] }[]>;
+        };
+        for (const ts of r.meshUnitTemplates.values()) {
+          for (const t of ts) {
+            for (const m of t.materials) {
+              const u = m.userData.rlWoundedUniforms;
+              if (!u) continue;
+              u.floor.value = f as number;
+              u.gateLo.value = a as number;
+              u.gateHi.value = b as number;
+            }
+          }
+        }
+        (window as unknown as W).__lions.renderer.frame(1, 0);
+      },
+      [floor, lo, hi] as const
+    );
+    await shoot(page, `sweep-${spec.id}-${k}`, at);
+  }
+}
+
+
+/** `--cvd`: one own and one enemy wounded man side by side, under each colour-vision variant. The
+ *  variant is seeded the way the app reads it (`settings.accessibility.colorVision`), through the
+ *  harness's own settings builder -- never a hand-written `lions.settings`. */
+const CVD_KINDS = ['default', 'deuteranopia', 'protanopia', 'tritanopia'] as const;
+
+async function cvdRows(browser: import('playwright').Browser): Promise<void> {
+  for (const kind of CVD_KINDS) {
+    const page = await browser.newPage({ viewport: { ...VIEWPORT }, deviceScaleFactor: 1 });
+    await page.addInitScript(musicOffInitScript({}, {}, { colorVision: kind }));
+    await page.addInitScript('window.__name = (f) => f;');
+    page.setDefaultTimeout(120000);
+    await open(page, 'beit_sahwan_outskirts', '');
+    const cvdAttr = await page.evaluate(() => document.documentElement.dataset.cvd);
+    const [x, y] = await quietSpot(page);
+    const obs = await spawn(page, 'inf_squad', 0, x - 5, y + 3);
+    const own = await spawn(page, 'wounded_kdf', 0, x - 1.6, y);
+    const enemy = await spawn(page, 'wounded_sarim', 1, x + 1.6, y);
+    await frameAt(page, x, y, 1);
+    await waitMeshes(page, [obs, own, enemy], 2);
+    await advance(page, 800);
+    await setBleed(page, own, 0.7, 1200);
+    await setBleed(page, enemy, 0.7, 1200);
+    console.log(`  cvd ${kind}: data-cvd=${cvdAttr}`);
+    for (const z of [1, 2.5]) {
+      await toPulsePhase(page, 8);
+      const at = await frameAt(page, x, y, z);
+      await layer(page, true);
+      await shoot(page, `cvd-${kind}-z${z}`, at);
+    }
+    await page.close();
+  }
+}
+
 /** The pulse as frames: one sim tick (50 ms) a frame over `ticks` ticks, ring on, camera on the man. */
 async function pulseFrames(page: Page, spec: Spec, zoom: number, ticks: number): Promise<void> {
   // No corpses here: a body's death clip runs on the frame clock, which a one-tick step does not advance.
@@ -399,6 +477,13 @@ async function main(): Promise<void> {
       console.log(`scene ${spec.id}`);
       await open(page, spec.map, spec.flags);
       await runSpec(page, spec);
+    }
+    if (CVD) await cvdRows(browser);
+    if (SWEEP) {
+      for (const spec of SPECS.filter((sp) => sp.id !== 'enemy')) {
+        await open(page, spec.map, spec.flags);
+        await sweep(page, spec);
+      }
     }
     if (PULSE) {
       const spec = SPECS.find((sp) => sp.id === PULSE);

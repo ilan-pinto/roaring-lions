@@ -14,6 +14,8 @@ import {
   liftWoundedTemplate,
   patchWoundedFloor,
   setWoundedLift,
+  WOUNDED_GATE_HI,
+  WOUNDED_GATE_LO,
   WOUNDED_LIFT,
   woundedFloorValue,
   type BleedSource,
@@ -71,6 +73,13 @@ describe('the albedo floor', () => {
     expect(out).toContain('uniform float uWoundedFloor;');
     expect(out.indexOf('outgoingLight += diffuseColor.rgb')).toBeLessThan(out.indexOf('#include <opaque_fragment>'));
   });
+  it('gates the fill on how dark the lit result is, so a lit body is untouched', () => {
+    const out = patchWoundedFloor(shader);
+    expect(out).toContain('uniform float uWoundedGateLo;');
+    expect(out).toMatch(/float gate = 1\.0 - smoothstep\(uWoundedGateLo, uWoundedGateHi, lit\);/);
+    expect(out).toMatch(/max\(uWoundedFloor - lit, 0\.0\) \* 0\.7 \* gate/);
+    expect(WOUNDED_GATE_LO).toBeLessThan(WOUNDED_GATE_HI);
+  });
   it('refuses a shader whose chunks moved, instead of silently doing nothing', () => {
     expect(() => patchWoundedFloor('void main() {}')).toThrow(/opaque_fragment/);
   });
@@ -121,6 +130,11 @@ describe('the wounded ring (arc mode)', () => {
       expect(b.mesh.material.fragmentShader).not.toContain('vArc');
       expect(b.mesh.material.uniforms.uTimeSec).toBeUndefined();
     }
+  });
+  it('caps the arc\'s extra thickness in screen pixels, so it stays a band at any zoom', () => {
+    const b = arcBatch();
+    expect(WOUND_RING.arcExtraMaxPx).toBeGreaterThan(0);
+    expect(b.mesh.material.fragmentShader).toMatch(/float extra = min\(w \* \(1\.800000 - 1\.0\), 2\.000000 \/ uPxPerTile\);/);
   });
   it('setClock writes the pulse uniforms, and is a no-op on a ring with no arc', () => {
     const b = arcBatch();

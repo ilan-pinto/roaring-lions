@@ -101,6 +101,7 @@ export const WOUND_RING = {
   coreAlpha: 0.95,
   haloAlpha: 0.55,
   arcThicken: 1.8,
+  arcExtraMaxPx: 2,
   pulsePeriodS: 1.6,
   pulseMinAlpha: 0.55,
   capacity: 64,
