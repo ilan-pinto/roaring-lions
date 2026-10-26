@@ -78,6 +78,7 @@ export function alertWorldFor(d: AlertWorldDeps): AlertWorld {
       if (type.isKamikaze) return 'important';
       return type.isAir || type.wheeled ? 'major' : 'important';
     },
+    isWoundedType: (typeId) => sim.unitTypes.find((u) => u.id === typeId)?.isWounded === true,
     waves: (d.mission?.enemy?.waves ?? []) as readonly AlertWave[],
     objectiveDone: (id) => d.runtime()?.objectiveList.find((o) => o.id === id)?.status === 'complete',
     markerAt,

@@ -141,6 +141,9 @@ export interface AlertWorld {
    *  reads it for an enemy kill too: `major` there is a vehicle or an
    *  aircraft, and anything else is a minor line. */
   lossTier(entity: number, typeId: string): AlertTier;
+  /** GH-707: is this a `wounded`-role type (a man down), whose "loss" is a bleed-out and is worded so.
+   *  Optional so a fixture with no wounded need not carry it; absent reads false. */
+  isWoundedType?(typeId: string): boolean;
   /** WP-P5: the mission's waves, in authored order (`[]` without one). */
   waves: readonly AlertWave[];
   /** WP-P5: is this objective complete now -- the gate a `trigger` wave
@@ -212,6 +215,9 @@ export interface AlertState {
   /** GH-707 P2: the tick each squad (or, for a man downed with no squad, each wounded TYPE) last
    *  raised a "man down" line, for `MAN_DOWN_COOLDOWN_TICKS`. */
   readonly lastManDown: ReadonlyMap<string, number>;
+  /** GH-707: has a man of ours gone down this mission yet. The FIRST is `important`, so the jump key
+   *  takes the player to him; every later one is `minor`. */
+  readonly manDownRaised: boolean;
 }
 
 /**
@@ -229,7 +235,7 @@ export interface AlertState {
 export const UNDER_FIRE_COOLDOWN_TICKS = 100;
 
 export function initAlertState(): AlertState {
-  return { lastUnderFire: new Map(), wavesSeen: new Set(), lastPinned: -Infinity, tunnelsAnnounced: new Set(), zones: new Map(), cuts: new Map(), zoneCued: new Map(), linesPaused: [], lineCued: new Map(), lastManDown: new Map() };
+  return { lastUnderFire: new Map(), wavesSeen: new Set(), lastPinned: -Infinity, tunnelsAnnounced: new Set(), zones: new Map(), cuts: new Map(), zoneCued: new Map(), linesPaused: [], lineCued: new Map(), lastManDown: new Map(), manDownRaised: false };
 }
 
 /** Five seconds at 20 Hz. A squad that loses several men in one burst says "man down" ONCE
@@ -707,13 +713,18 @@ export function alertsForTick(
   // GH-707 P2: one "man down" line per squad per cooldown, counting the men of this tick.
   const downs: Alert[] = [];
   let lastManDown = state.lastManDown;
+  let manDownRaised = state.manDownRaised;
   for (const [key, group] of manDown) {
     if (tick - (lastManDown.get(key) ?? -Infinity) < MAN_DOWN_COOLDOWN_TICKS) continue;
     lastManDown = new Map(lastManDown).set(key, tick);
     const at = world.posOf(group.entities[0]);
+    // The first man of ours down this mission is `important`: the player has not met a casualty yet,
+    // and the alert-jump key should take him there. Later ones stay `minor` (the radio call is the news).
+    const tier: AlertTier = manDownRaised ? 'minor' : 'important';
+    manDownRaised = true;
     downs.push({
       kind: 'wounded',
-      tier: 'minor',
+      tier,
       tone: 'warn',
       line: {
         key: 'alert.manDown',
@@ -732,9 +743,9 @@ export function alertsForTick(
   const nextState: AlertState =
     lastUnderFire === state.lastUnderFire && wavesSeen === state.wavesSeen && lastPinned === state.lastPinned && tunnelsAnnounced === state.tunnelsAnnounced &&
     zones === state.zones && cuts === state.cuts && zoneCued === state.zoneCued && linesPaused === state.linesPaused && lineCued === state.lineCued &&
-    lastManDown === state.lastManDown
+    lastManDown === state.lastManDown && manDownRaised === state.manDownRaised
       ? state
-      : { lastUnderFire, wavesSeen, lastPinned, tunnelsAnnounced, zones, cuts, zoneCued, linesPaused, lineCued, lastManDown };
+      : { lastUnderFire, wavesSeen, lastPinned, tunnelsAnnounced, zones, cuts, zoneCued, linesPaused, lineCued, lastManDown, manDownRaised };
 
   // --- emit, loudest first ------------------------------------------------
   for (const [typeId, entities] of lostByType) {
@@ -749,7 +760,9 @@ export function alertsForTick(
       tier,
       tone: 'bad',
       line: {
-        key: 'alert.unitLost',
+        // GH-707: a wounded man "lost" is a man who bled out (or was finished off down); the line says so
+        // instead of naming "Wounded Soldier" as a unit.
+        key: world.isWoundedType?.(typeId) === true ? 'alert.woundedBledOut' : 'alert.unitLost',
         params: { name: world.unitName(typeId), n: entities.length },
         tone: 'bad',
         place: at === null ? [] : [world.placeOf(at.x, at.y)],
