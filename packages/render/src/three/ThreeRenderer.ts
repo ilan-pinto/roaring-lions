@@ -634,6 +634,7 @@ import {
   HP_BG_COLOR_KEY,
   WORLD_HALO_COLOR_KEY,
   WOUND_OWN_COLOR_KEY,
+  woundRingHex,
   SUPPRESSION_COLOR_KEY,
   OVERLAY_ACCENT_COLOR_KEY,
   BADGE_TEXT_COLOR_KEY,
@@ -11104,9 +11105,7 @@ export class ThreeRenderer implements Renderer {
    * still has, breathing while he bleeds. false when the batch refuses it (caller keeps the team ring).
    */
   private pushWoundRing(i: number, type: Sim['unitTypes'][number], x: number, z: number, side: number, read: BleedRead): boolean {
-    const hex = isOwnSide(side, this.viewer)
-      ? this.overlayColor(WOUND_OWN_COLOR_KEY)
-      : this.opts.teamColors[colorSlot(side, this.viewer)];
+    const hex = woundRingHex(side, this.viewer, this.overlayColor(WOUND_OWN_COLOR_KEY), this.opts.teamColors);
     return this.pushSelectionRing(i, type, x, z, side, this.woundRing, WOUND_RING_SCALE, hex, read.fraction, read.bleeding);
   }
 
