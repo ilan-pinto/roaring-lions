@@ -14,9 +14,9 @@
 //   menu   `sarim_rifles` (340, 2 pop, 26 s) and `atgm_cell` (235, 1 pop, 20 s).
 //   rally  `battery_position`, group `camp_guard`: bought units walk to the HVT and hold.
 // and runs two things on `main`'s 30-seed set (SWEEP_SEEDS: 424242, then 1..29, #539/#542 --
-// NOT the G3 sheet's set): the shipped winning plan (copied below from playtest.ts, so it can
-// drift from it; it is unaltered when this was written) and a no-orders passive control. One
-// forked worker per slot, as `plan-sweep.ts` does, each running a queue of (kind, seed) jobs.
+// NOT the G3 sheet's set): the shipped winning plan (plans/tel_marum.ts, the very object
+// `pnpm playtest` runs; this probe once held a copy that GH-802's defile order left behind) and a
+// no-orders passive control. One forked worker per slot, as `plan-sweep.ts` does, each running a queue of (kind, seed) jobs.
 //
 // Three rows. `plan` and `passive` carry the camp; `control` is the shipped plan on the UNCHANGED
 // mission (no side-1 camp, no enemy.production), so a defeat in `plan` can be attributed: if the
@@ -27,9 +27,7 @@
 // here is `{}` as the shipped plan's `ledgerIn` is); `resolveUpgrades` is given `() => undefined`
 // for the unlock lookup, so a gated placement is not upgraded (Tel Marum III has no `upgrades_to`
 // placement); and the KDF `unitInfo` carries no `unlock` gate (only `requestBuild` reads it, and
-// this plan buys nothing). The plan is a COPY of the Tel Marum III closure at playtest.ts's
-// `const ledTelMarum3 = run('tel_marum_3_clearance', ...)` (~L1960), unaltered when this was
-// written, so it can drift from it.
+// this plan buys nothing).
 //
 // Per run: units bought (counted from `built` events with `side: 1`), logistics unspent at the end
 // as a share of the purse (start + earned), the outcome and its length. Expected: unspent near
@@ -37,9 +35,10 @@
 import { fork } from 'node:child_process';
 import { availableParallelism } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { Sim, MissionRuntime, resolveUpgrades, fx, TICKS_PER_SECOND, type MissionJson } from '@lions/sim';
+import { Sim, MissionRuntime, resolveUpgrades, TICKS_PER_SECOND, type MissionJson } from '@lions/sim';
 import { units, maps, missions, structures as structureCatalogue, parseMap, applyTerrain, roadMaskOf } from '@lions/data';
 import { SWEEP_SEEDS } from './passive-sweep';
+import { telMarum3Plan } from './plans/tel_marum';
 
 const ID = 'tel_marum_3_clearance' as const;
 const CAMP_TILE: [number, number] = [27, 7];
@@ -54,36 +53,6 @@ interface Reply extends Job {
   cause: string;
   minutes: number;
 }
-
-const M = (x: number, y: number) => ({ x: fx.from(x), y: fx.from(y) });
-
-type Plan = (sim: Sim, ids: (t: string) => number[], at: (t: number, fn: () => void) => void) => void;
-
-/** playtest.ts's Tel Marum III winning plan, verbatim apart from the signature. */
-const SHIPPED_PLAN: Plan = (sim, ids, at) => {
-  const tanks = ids('mbt_lavi');
-  const namer = ids('ifv_namer');
-  const armour = ids('apc_eitan');
-  const foot = ids('inf_squad');
-  const at_ = ids('at_team');
-  const mortar = ids('mortar_team');
-  at(2, () => {
-    sim.queueCommand({ kind: 'move', ids: [...tanks, ...namer, ...armour], ...M(28, 19) });
-    sim.queueCommand({ kind: 'move', ids: [...foot, ...at_], ...M(27, 19) });
-    sim.queueCommand({ kind: 'move', ids: mortar, ...M(26, 19) });
-  });
-  at(40, () => sim.queueCommand({ kind: 'attackMove', ids: tanks, ...M(33, 16) }));
-  at(62, () => sim.queueCommand({ kind: 'move', ids: tanks, ...M(33, 11) }));
-  at(80, () => {
-    sim.queueCommand({ kind: 'move', ids: armour, ...M(33, 14) });
-    sim.queueCommand({ kind: 'move', ids: [...foot, ...at_], ...M(33, 17) });
-  });
-  at(100, () => {
-    sim.queueCommand({ kind: 'move', ids: [...foot, ...at_], ...M(33, 11) });
-    sim.queueCommand({ kind: 'move', ids: armour, ...M(28, 6) });
-  });
-  at(115, () => sim.queueCommand({ kind: 'move', ids: armour, ...M(29, 36) }));
-};
 
 function runOne(job: Job): Reply {
   const base = missions[ID] as unknown as MissionJson;
@@ -132,7 +101,7 @@ function runOne(job: Job): Reply {
   };
   const timed = new Map<number, (() => void)[]>();
   if (job.kind !== 'passive') {
-    SHIPPED_PLAN(sim, ids, (t, fn) => {
+    telMarum3Plan(sim, rt, ids, (t, fn) => {
       const when = t * TICKS_PER_SECOND;
       const l = timed.get(when);
       if (l) l.push(fn);
