@@ -633,6 +633,7 @@ import {
   ROUTE_NODE_ALPHA,
   HP_BG_COLOR_KEY,
   WORLD_HALO_COLOR_KEY,
+  WOUND_OWN_COLOR_KEY,
   SUPPRESSION_COLOR_KEY,
   OVERLAY_ACCENT_COLOR_KEY,
   BADGE_TEXT_COLOR_KEY,
@@ -694,9 +695,12 @@ import {
   RING_CLASS_OVERRIDE,
   SELECTED_RING_SCALE,
   TEAM_RING,
+  WOUND_RING,
+  WOUND_RING_SCALE,
   ringClassOf,
   ringRadiusFor,
 } from './units/readability';
+import { bleedFractionOf, liftWoundedTemplate, setWoundedLift, type BleedRead } from './units/wounded-read';
 import { SelectionRingBatch } from './units/selection-ring';
 import { capTextureSize } from './units/texture-cap';
 import { buildInventory, type MemoryInventory } from './memory-inventory';
@@ -1714,6 +1718,12 @@ export class ThreeRenderer implements Renderer {
    *  ground (`readability.ts`'s `TEAM_RING`) -- a second batch in the same
    *  group, so the `overlays` debug layer hides both. */
   private readonly teamRing: SelectionRingBatch;
+  /** GH-707: the pulsing amber/red ring under a DOWN wounded man, with the bleed arc
+   *  (`readability.ts`'s `WOUND_RING`). It replaces his team ring; same group, so `overlays` hides it. */
+  private readonly woundRing: SelectionRingBatch;
+  /** The `wounded-read` debug layer: true draws today's team ring under a wounded man and no lift. A
+   *  flag the overlay pass consults (the per-frame rebuild re-asserts the mesh's `visible`). */
+  private woundedReadHidden = false;
   private readonly selectionRingGroup = new THREE.Group();
   /** `push`'s placement, reused for every ring every frame: no per-unit
    *  object literal in the overlay loop. `color` is `cachedHexToLinear`'s own
@@ -2897,10 +2907,16 @@ export class ThreeRenderer implements Renderer {
       style: TEAM_RING,
       capacity: TEAM_RING.capacity,
     });
+    this.woundRing = new SelectionRingBatch({
+      resolveShadow: () => cachedHexToLinear(this.overlayColor(WORLD_HALO_COLOR_KEY)),
+      style: WOUND_RING,
+      capacity: WOUND_RING.capacity,
+    });
     this.selectionRingGroup.name = 'selection-ring-layer';
     // Team ring first: at the same band (0.5) a selected unit's own ring is
     // drawn over any team ring a neighbour lays across it.
     this.selectionRingGroup.add(this.teamRing.mesh);
+    this.selectionRingGroup.add(this.woundRing.mesh);
     this.selectionRingGroup.add(this.selectionRing.mesh);
     // The ground's macro field (spec 3.1, G4): built once, since it depends
     // on the map's size alone. Its hue pull resolves through `overlayColor`
@@ -3572,6 +3588,7 @@ export class ThreeRenderer implements Renderer {
     this.smokeOutlineInfantryMaterial = null;
     this.smokeOutlined.clear();
     this.teamRing.dispose();
+    this.woundRing.dispose();
     this.tracerBatch.dispose();
     this.shellBatch.dispose();
     this.boltBatch.dispose();
@@ -4252,6 +4269,11 @@ export class ThreeRenderer implements Renderer {
       // GH-705 Task 6: a material-field write nothing per-frame re-asserts.
       case 'unit-surface':
         return setUnitSurfacePass(visible);
+      case 'wounded-read':
+        // GH-707: a FLAG for the ring (the overlay pass consults it every frame) plus a material-field
+        // write for the albedo floor. Returns how many lifted materials it wrote.
+        this.woundedReadHidden = !visible;
+        return setWoundedLift(visible);
       case 'swarm': {
         // A FLAG (`swarmDebugHidden`): `updateSwarms` rewrites the batch's count and visibility on
         // every frame. Set first, then the meshes go dark on the same repaint; a caller that never
@@ -6796,6 +6818,7 @@ export class ThreeRenderer implements Renderer {
     this.supplyRoute.invalidate();
     // The selection ring's cached grids were conformed to the old ground.
     this.selectionRing.invalidate();
+    this.woundRing.invalidate();
   }
   setDecor(decor: Uint8Array): void {
     this.retained.decor = decor;
@@ -6922,6 +6945,15 @@ export class ThreeRenderer implements Renderer {
     if (this.opts.maxTextureSize !== undefined) {
       const cap = this.opts.maxTextureSize;
       await Promise.all(templates.map((t) => capTextureSize(t.root, cap)));
+    }
+    // GH-707: a wounded TYPE's figure gets its own material copies carrying a minimum-albedo floor,
+    // so a man lying in a building's shadow or on a dusk map is never near-black. After the cap, so
+    // an emissive map points at the resampled texture's source.
+    if (this.sim.unitTypes.some((t) => t.id === unitTypeId && t.isWounded)) {
+      for (let k = 0; k < templates.length; k++) {
+        const t = templates[k];
+        templates[k] = { ...t, materials: [...t.materials, ...liftWoundedTemplate(t.root)] };
+      }
     }
     this.meshUnitTemplates.set(unitTypeId, templates);
     if (templates.some((t) => hasColdTextures(t.root))) this.coldUnitTypes.add(unitTypeId);
@@ -11042,7 +11074,9 @@ export class ThreeRenderer implements Renderer {
     side: number,
     batch: SelectionRingBatch = this.selectionRing,
     scale: number = SELECTED_RING_SCALE,
-    colorHex: string = this.opts.teamColors[colorSlot(side, this.viewer)]
+    colorHex: string = this.opts.teamColors[colorSlot(side, this.viewer)],
+    arcFraction = 0,
+    pulse = false
   ): boolean {
     const p = this.ringScratch;
     p.x = x;
@@ -11065,7 +11099,19 @@ export class ThreeRenderer implements Renderer {
       p.z = z + e.offsetAlong * Math.sin(heading);
     }
     // The entity id keys the batch's position cache (fix round 1).
-    return batch.push(p, this.decalSampleY, i);
+    return batch.push(p, this.decalSampleY, i, arcFraction, pulse);
+  }
+
+  /**
+   * GH-707: the ring under a down wounded man -- amber (`vfx.fire`) for the viewer's own, the team's
+   * hostile (or neutral) colour for anyone else's, 1.15 x the type's ring, the arc the bleed clock
+   * still has, breathing while he bleeds. false when the batch refuses it (caller keeps the team ring).
+   */
+  private pushWoundRing(i: number, type: Sim['unitTypes'][number], x: number, z: number, side: number, read: BleedRead): boolean {
+    const hex = isOwnSide(side, this.viewer)
+      ? this.overlayColor(WOUND_OWN_COLOR_KEY)
+      : this.opts.teamColors[colorSlot(side, this.viewer)];
+    return this.pushSelectionRing(i, type, x, z, side, this.woundRing, WOUND_RING_SCALE, hex, read.fraction, read.bleeding);
   }
 
   // ------------------------------------------------------------------
@@ -11454,6 +11500,7 @@ export class ThreeRenderer implements Renderer {
     this.chevronBatch.beginFrame();
     this.selectionRing.beginFrame();
     this.teamRing.beginFrame();
+    this.woundRing.beginFrame();
     const markScale = contactScale(this.camera.zoom);
 
     const st = this.sim.state;
@@ -11615,7 +11662,14 @@ export class ThreeRenderer implements Renderer {
       // open ground (a garrisoned one has a building over it), and a
       // shape-coded contact mark over every observed hostile -- this loop
       // has already skipped any hostile the player does not observe.
-      if (!selected && inside < 0) this.pushSelectionRing(i, type, ix, iy, side, this.teamRing, 1);
+      // GH-707: a man DOWN (or stabilised) wears the wounded ring instead of the faint team ring.
+      // Not while carried (his body is hidden) and not in a building (no ground to stand it on).
+      let woundRung = false;
+      if (!this.woundedReadHidden && inside < 0 && st.carriedBy[i] < 0) {
+        const read = bleedFractionOf(this.sim, i);
+        if (read !== null) woundRung = this.pushWoundRing(i, type, ix, iy, side, read);
+      }
+      if (!selected && inside < 0 && !woundRung) this.pushSelectionRing(i, type, ix, iy, side, this.teamRing, 1);
       if (isHostileSide(side, this.viewer)) this.pushContactMark(anchor, type, r, side, this.sim.contactLevel(this.viewer, i), markScale);
 
       // Selection ring (A4, GH-186): on the ground, in team colour, for a
@@ -11668,6 +11722,9 @@ export class ThreeRenderer implements Renderer {
     // when nothing on open ground is selected.
     this.selectionRing.endFrame(this.camera.zoom);
     this.teamRing.endFrame(this.camera.zoom);
+    this.woundRing.endFrame(this.camera.zoom);
+    // The pulse reads the SIM clock (a paused game holds it), and reduced motion holds a steady ring.
+    this.woundRing.setClock(presentationSimMs(this.sim.tickCount, alpha) / 1000, this.opts.reducedMotion?.() !== true);
 
     // Building status: an integrity bar once a building has been hit --
     // renderer.ts's own comment: "you should be able to see that a house is

@@ -83,6 +83,32 @@ export const TEAM_RING = {
   capacity: 512,
 } as const;
 
+/**
+ * GH-707 (the lead, 26 Oct 2026): the WOUNDED ring. A man down is a small body on the sand, and
+ * his faint team ring did not say so -- the investigation (`_coord/wounded-visible`) found no bug,
+ * only a read that was too quiet at zoom 1. So the ring under a down wounded is the same ring, made
+ * unmistakable: thicker (`thicknessTiles` 0.07, a 2.5 px floor, against the team ring's 0.05 / 1.5),
+ * near-opaque, drawn at 1.15 x the type's ring (`WOUND_RING_SCALE`) so it clears the lying body,
+ * amber for the viewer's own men and the team's hostile red for the enemy, and it BREATHES while he
+ * bleeds (alpha 0.55..1 over 1.6 s, on the sim clock; steady under reduced motion, and steady once a
+ * medic has stabilised him). `arcThicken` x the core's thickness, growing inward, marks the swept
+ * fraction of the circle that is the bleed clock still left. No new world mark: it replaces the team
+ * ring under him. Its own `SelectionRingBatch`: +1 draw call while a wounded man is in view.
+ */
+export const WOUND_RING = {
+  thicknessTiles: 0.07,
+  minThicknessPx: 2.5,
+  coreAlpha: 0.95,
+  haloAlpha: 0.55,
+  arcThicken: 1.8,
+  pulsePeriodS: 1.6,
+  pulseMinAlpha: 0.55,
+  capacity: 64,
+} as const;
+
+/** The wounded ring's radius, times the type's own ring (`wounded_*` 0.45 tile). */
+export const WOUND_RING_SCALE = 1.15;
+
 /** `frameAlpha` 1.0, not the 0.8 G-NUM approved: at 0.8 the frame read only
  *  as a slightly darker edge on the mock, at 1.0 as a clear outline (G-MOCK,
  *  the lead, 29 Sep: "Frame 1.0"). */

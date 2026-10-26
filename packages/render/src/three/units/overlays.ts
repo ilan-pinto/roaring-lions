@@ -328,6 +328,11 @@ export function buildingIntegrityColorKey(ratio: number, friendly: boolean): str
   return 'team.hostile';
 }
 
+/** GH-707: the ring under the viewer's OWN down wounded -- amber, `vfx.fire` (the palette's one amber;
+ *  the suppression bar wears it too, but that is a bar and this is a ground ring). Any other side's
+ *  wounded wear their team colour: the hostile red, or the neutral. */
+export const WOUND_OWN_COLOR_KEY = 'vfx.fire';
+
 /** Palette key for the demolition/tunnel-charge progress ring's TRACK --
  *  Pixi's own `this.opts.resolveColor ? this.opts.resolveColor('gunmetal.2')
  *  : '#5C625F'` (`renderer.ts`'s charge-ring block) -- already resolved
