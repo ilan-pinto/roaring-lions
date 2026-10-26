@@ -2376,10 +2376,12 @@ describe('snapshot upload (snapshot S3)', () => {
     function parked(gz: Uint8Array): { body: ReadableStream<Uint8Array>; open: () => void; reading: () => Promise<void> } {
       let release: () => void = () => undefined;
       const gate = new Promise<void>((resolve) => { release = resolve; });
-      let pulled = false;
-      const body = new ReadableStream<Uint8Array>({ async pull(c) { pulled = true; await gate; c.enqueue(gz); c.close(); } }, { highWaterMark: 0 });
-      // The ticket check is a real (macrotask) await, so wait on the real clock until the body is being read.
-      const reading = async (): Promise<void> => { for (let i = 0; i < 500 && !pulled; i++) await realImmediate(); expect(pulled).toBe(true); };
+      let markPulled: () => void = () => undefined;
+      const pulledP = new Promise<void>((resolve) => { markPulled = resolve; });
+      const body = new ReadableStream<Uint8Array>({ async pull(c) { markPulled(); await gate; c.enqueue(gz); c.close(); } }, { highWaterMark: 0 });
+      // The ticket check is a real async crypto call of unbounded duration, so wait for the event itself (the first pull
+      // of the body), never for a count of turns; a hang is caught by the test's own timeout.
+      const reading = (): Promise<void> => pulledP;
       return { body, open: release, reading };
     }
     /** Seat 0's upload for tick 39 parked mid-body; `change` alters the room; then the body arrives. */
