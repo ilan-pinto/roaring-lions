@@ -26,6 +26,8 @@ export class FakeStorage implements DurableStorageLike {
   /** The one snapshot row (id 0), or null: frame tick, SHA, digest and the stored (cloned) bytes. */
   snapshotRow: { frame_tick: number; sha: string; digest: number; bytes: ArrayBuffer } | null = null;
   private snapshotTable = false;
+  /** Test switch: when true the snapshot row write throws, as a storage refusal would. */
+  failSnapshotPut = false;
   /** Whether the `snapshot` table exists. */
   get hasSnapshotTable(): boolean { return this.snapshotTable; }
   /** Rows returned by SELECTs: the Workers Free read meter, counted per row. */
@@ -97,6 +99,7 @@ export class FakeStorage implements DurableStorageLike {
         const r = this.snapshotRow;
         return rows(r ? [{ frame_tick: r.frame_tick, sha: r.sha, digest: r.digest, bytes: r.bytes.slice(0) }] : []);
       }
+      if (this.failSnapshotPut) throw new Error('FakeStorage: snapshot put refused');
       const [tick, sha, digest, bytes] = b;
       if (b.length !== 4 || typeof tick !== 'number' || !Number.isInteger(tick) || typeof sha !== 'string' || !/^[0-9a-f]{64}$/.test(sha)
         || typeof digest !== 'number' || !Number.isInteger(digest) || digest < 0 || digest > 0xffffffff || !(bytes instanceof ArrayBuffer)) {

@@ -539,12 +539,27 @@ export class MatchRoom {
   private async onAgreed(tick: number, h: number): Promise<void> {
     this.agreedDigests.set(tick, h);
     while (this.agreedDigests.size > 2) this.agreedDigests.delete(Math.min(...this.agreedDigests.keys()));
-    await this.settleSnapshot(tick);
+    // A failing snapshot write (storage refused the row) must never break the hash pair that triggered it: the
+    // hashOk has gone and the state is saved, and a rejection here would surface from `apply` unhandled.
+    // `settleSnapshot` changes no book or stored tick before the write, so the uploads stay pending for a retry.
+    try {
+      await this.settleSnapshot(tick);
+    } catch (e) {
+      console.error('MatchRoom: snapshot settle failed', e);
+    }
   }
   /** Decides `tick`'s pending uploads (the pure `decide`) and acts: `stored`
    *  writes the one snapshot row, `held` writes nothing, `mismatch` drops both
    *  uploads and reports to D1. Everything before the D1 await is synchronous,
-   *  so the book, `storedTick` and the agreed digests change in one step. */
+   *  so the book, `storedTick` and the agreed digests change in one step.
+   *
+   *  This is also the path of a pair that agrees AFTER both uploads arrived
+   *  ("agreed last"), and it deliberately does not re-run `admitTick`: the
+   *  uploads were admitted when they came, a late pair above `storedTick` is
+   *  still stored even if its tick has left the window since. A pair at or below
+   *  `storedTick` cannot reach here: an accept drops every pending tick through
+   *  its own (`dropThrough`), and room-core ignores a hash at or below the last
+   *  compared tick. Both are tested. */
   private async settleSnapshot(tick: number): Promise<'stored' | 'held' | 'mismatch'> {
     const st = this.st;
     if (st === null) return 'held';
@@ -813,7 +828,9 @@ export class MatchRoom {
     const stale = this.snapshotRefusal(seat, tick);
     if (stale !== null) return stale;
     const declared = req.headers.get('content-length');
-    if (declared !== null && !(Number(declared) <= SNAPSHOT_MAX_COMPRESSED_BYTES)) return new Response('too_large', { status: 413 });
+    // A plain decimal within the cap, or 413: a signed, hex, exponent, blank or padded value is refused unread.
+    // `readCapped` below stays the real bound for a body that lies about its length.
+    if (declared !== null && !(/^(0|[1-9][0-9]{0,9})$/.test(declared) && Number(declared) <= SNAPSHOT_MAX_COMPRESSED_BYTES)) return new Response('too_large', { status: 413 });
     const gz = await readCapped(req, SNAPSHOT_MAX_COMPRESSED_BYTES);
     if (gz === null) return new Response('too_large', { status: 413 });
     const raw = await gunzipCapped(gz, SNAPSHOT_MAX_RAW_BYTES);

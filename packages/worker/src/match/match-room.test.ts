@@ -4,6 +4,7 @@
  * `acceptSocket`, the half of `/ws` that runs under node -- a
  * `WebSocketPair` and a 101 `Response` exist only in workerd.
  */
+import { setImmediate as realImmediate } from 'node:timers/promises';
 import { gunzipSync } from 'node:zlib';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OVER_CLOSE_MS, sha256Hex, validateConfig, type AdvisorMsg, type AdvisorScope, type ServerMsg, type Seat } from '@lions/net';
@@ -2240,6 +2241,23 @@ describe('snapshot upload (snapshot S3)', () => {
       expect(again.status).toBe(200);
       expect(r.state.storage.hasSnapshotTable).toBe(true);
     }, 2_000);
+
+    it('a Content-Length that is not a plain decimal within the cap (signed, hex, exponent, zero-padded, blank, a fraction, too long) is 413 before the body is read; plain decimals pass', async () => {
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      for (const bad of ['-1', '+5', '0x10', '1e3', '', '1.5', '007', '12345678901', 'abc', '65537']) {
+        let pulled = false;
+        const unread = new ReadableStream<Uint8Array>({ pull(c) { pulled = true; c.enqueue(new Uint8Array(10)); c.close(); } }, { highWaterMark: 0 });
+        await refused(r, 39, unread, 413, 'too_large', { headers: { 'content-length': bad } });
+        expect([bad, pulled]).toEqual([bad, false]);
+      }
+      const gz = await bodyFor(39);
+      for (const ok of ['0', String(gz.length), '65536']) {
+        const res = await post(r.room, 0, 39, gz, { headers: { 'content-length': ok } });
+        expect([ok, res.status === 413]).toEqual([ok, false]);
+        bookOf(r.room).clear();
+      }
+    }, 2_000);
   });
 
   it('race: two uploads from the same seat for the same tick, started together, record one and refuse the other as a duplicate', async () => {
@@ -2253,6 +2271,128 @@ describe('snapshot upload (snapshot S3)', () => {
     expect(bookOf(r.room).ticks()).toEqual([39]);
     expect((await post(r.room, 1, 39, gz)).status).toBe(201);
   }, 2_000);
+
+  describe('the checks a write depends on run again after the last await (G-6)', () => {
+    /** A request body that stays unread until `open()`: the upload is parked in `readCapped`, and the room can change under it. */
+    function parked(gz: Uint8Array): { body: ReadableStream<Uint8Array>; open: () => void; reading: () => Promise<void> } {
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      let pulled = false;
+      const body = new ReadableStream<Uint8Array>({ async pull(c) { pulled = true; await gate; c.enqueue(gz); c.close(); } }, { highWaterMark: 0 });
+      // The ticket check is a real (macrotask) await, so wait on the real clock until the body is being read.
+      const reading = async (): Promise<void> => { for (let i = 0; i < 500 && !pulled; i++) await realImmediate(); expect(pulled).toBe(true); };
+      return { body, open: release, reading };
+    }
+    /** Seat 0's upload for tick 39 parked mid-body; `change` alters the room; then the body arrives. */
+    async function parkedThen(r: Rig, change: () => Promise<void>): Promise<{ res: Response; rows: number }> {
+      const p = parked(await bodyFor(39));
+      const inflight = post(r.room, 0, 39, p.body);
+      await p.reading();
+      await change();
+      const rows = r.state.storage.rowsWritten;
+      p.open();
+      return { res: await inflight, rows };
+    }
+
+    it('check 6, storedTick: another pair\'s accept of tick 79 lands during the body read, so tick 39 is 409 stale and records nothing', async () => {
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      const { res, rows } = await parkedThen(r, async () => {
+        await reach(r, 79);
+        await agree(r, 79);
+        await post(r.room, 0, 79, await bodyFor(79));
+        expect((await post(r.room, 1, 79, await bodyFor(79))).status).toBe(201);
+      });
+      expect([res.status, await text(res)]).toEqual([409, 'stale']);
+      expect(r.state.storage.rowsWritten).toBe(rows);
+      expect(r.state.storage.snapshotRow).toMatchObject({ frame_tick: 79 });
+      expect(bookOf(r.room).ticks()).toEqual([]);
+    }, 2_000);
+
+    it('check 6, the window: the room ticks past tick 39\'s window during the body read, so it is 409 stale and records nothing', async () => {
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      const { res, rows } = await parkedThen(r, async () => { await reach(r, 129); });
+      expect([res.status, await text(res)]).toEqual([409, 'stale']);
+      expect(r.state.storage.rowsWritten).toBe(rows);
+      expect(r.state.storage.snapshotRow).toBeNull();
+      expect(bookOf(r.room).ticks()).toEqual([]);
+    }, 2_000);
+
+    it('check 4: the room ends during the body read, so the upload is 409 not_running and records nothing', async () => {
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      await agree(r, 39);
+      const { res, rows } = await parkedThen(r, async () => { await say(r.room, r.ws1, { t: 'bye' }); });
+      expect([res.status, await text(res)]).toEqual([409, 'not_running']);
+      expect(r.state.storage.rowsWritten).toBe(rows);
+      expect(r.state.storage.snapshotRow).toBeNull();
+      expect(bookOf(r.room).ticks()).toEqual([]);
+    }, 2_000);
+  });
+
+  describe('agreed last settles without re-running the admission (settleSnapshot)', () => {
+    it('a pair whose tick has left the window by the time the hashes agree is still stored, as it is above storedTick', async () => {
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      expect((await post(r.room, 0, 39, await bodyFor(39))).status).toBe(202);
+      expect((await post(r.room, 1, 39, await bodyFor(39))).status).toBe(202);
+      await reach(r, 129);   // tick 39 is now outside the two newest snapshot ticks: a fresh upload of it is stale
+      expect([(await post(r.room, 0, 39, await bodyFor(39))).status]).toEqual([409]);
+      await agree(r, 39);
+      expect(r.state.storage.snapshotRow).toMatchObject({ frame_tick: 39, sha: await shaOf(39), digest: DIGEST });
+      expect(bookOf(r.room).ticks()).toEqual([]);
+    }, 2_000);
+
+    it('nothing at or below storedTick stays pending: the accept of tick 79 drops tick 39\'s uploads, and a late agreement of 39 stores nothing', async () => {
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      await post(r.room, 0, 39, await bodyFor(39));
+      await post(r.room, 1, 39, await bodyFor(39));
+      await reach(r, 79);
+      await agree(r, 79);
+      await post(r.room, 0, 79, await bodyFor(79));
+      expect((await post(r.room, 1, 79, await bodyFor(79))).status).toBe(201);
+      expect(bookOf(r.room).ticks()).toEqual([]);
+      const rows = r.state.storage.rowsWritten;
+      await agree(r, 39);   // room-core ignores a hash at or below the last compared tick
+      expect(r.state.storage.snapshotRow).toMatchObject({ frame_tick: 79 });
+      expect(r.state.storage.rowsWritten).toBe(rows);
+    }, 2_000);
+  });
+
+  describe('a snapshot row the storage refuses', () => {
+    it('agreed last: the hash pair completes without a rejection, the failure is logged, the uploads stay pending, and a retry stores once the write works', async () => {
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      await post(r.room, 0, 39, await bodyFor(39));
+      await post(r.room, 1, 39, await bodyFor(39));
+      const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const unhandled: unknown[] = [];
+      const onUnhandled = (e: unknown): void => { unhandled.push(e); };
+      process.on('unhandledRejection', onUnhandled);
+      try {
+        r.state.storage.failSnapshotPut = true;
+        await say(r.room, r.ws0, { t: 'hash', tick: 39, h: HASH });
+        await expect(say(r.room, r.ws1, { t: 'hash', tick: 39, h: HASH })).resolves.toBeUndefined();
+        for (let i = 0; i < 20; i++) await realImmediate();
+        expect(errors.mock.calls.map((c) => c[0])).toEqual(['MatchRoom: snapshot settle failed']);
+        expect(unhandled).toEqual([]);
+        expect(ofType(r.ws0, 'hashOk').map((m) => m.tick)).toContain(39);
+        expect(r.state.storage.snapshotRow).toBeNull();
+        expect(bookOf(r.room).ticks()).toEqual([39]);
+        // The room is still a room: its next cadence is accepted once the write works.
+        r.state.storage.failSnapshotPut = false;
+        await reach(r, 79);
+        await agree(r, 79);
+        await post(r.room, 0, 79, await bodyFor(79));
+        expect((await post(r.room, 1, 79, await bodyFor(79))).status).toBe(201);
+      } finally {
+        process.off('unhandledRejection', onUnhandled);
+        errors.mockRestore();
+      }
+    }, 2_000);
+  });
 
   describe('eviction', () => {
     it('mid-upload: seat 0\'s pending is gone, so seat 1\'s upload is held and no row follows; the next cadence, both seats, is accepted', async () => {
