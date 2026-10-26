@@ -3519,7 +3519,12 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // The seed-424242 run now brings home 3 men from Wadi Halam I, not 4, and Wadi Halam I, II and III pay
 // 170, 160 and 160 (490; 530 on main, 540 in the unfixed merge). Every other mission pays what it paid.
 // No star, outcome, gate or Conduct moved.
-const LADDER_CREDITS = 5951;
+// 2026-10-26, GH-707 ruling 2, First Light fields one Nemala medic team on loan and a `wounded_evac` marker:
+// 5951 -> 5961, +10, read off the printed per-mission credits: First Light 170 -> 180 (roster out 4 -> 5, the
+// medic carries a wounded man out who would have bled). The medic is on loan, so ROSTER_MAX stays 29. Still
+// VICTORY, ROE 100, 2 stars, 30 of 30 seeds, slowest 5.0 min; the passive control still loses on 30 of 30;
+// every other mission pays what it paid.
+const LADDER_CREDITS = 5961;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);
