@@ -2461,7 +2461,7 @@ describe('snapshot upload (snapshot S3)', () => {
   });
 
   describe('a snapshot row the storage refuses', () => {
-    it('agreed last: the hash pair completes without a rejection, the failure is logged, the uploads stay pending, and a retry stores once the write works', async () => {
+    it('agreed last: the hash pair completes without a rejection, the failure is logged, the uploads stay in the book, and a later cadence stores once the write works', async () => {
       const r = await rig();
       await run(r.room, [r.ws0, r.ws1], 45);
       await post(r.room, 0, 39, await bodyFor(39));
@@ -2488,6 +2488,27 @@ describe('snapshot upload (snapshot S3)', () => {
         expect((await post(r.room, 1, 79, await bodyFor(79))).status).toBe(201);
       } finally {
         process.off('unhandledRejection', onUnhandled);
+        errors.mockRestore();
+      }
+    }, 2_000);
+    it('agreed first: the upload that completes the pair is answered 500 store failed, the failure is logged, no row is written, and the next cadence stores', async () => {
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      await agree(r, 39);
+      expect((await post(r.room, 0, 39, await bodyFor(39))).status).toBe(202);
+      const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      try {
+        r.state.storage.failSnapshotPut = true;
+        const res = await post(r.room, 1, 39, await bodyFor(39));
+        expect([res.status, await text(res)]).toEqual([500, 'store failed']);
+        expect(errors.mock.calls.map((c) => c[0])).toEqual(['MatchRoom: snapshot settle failed']);
+        expect(r.state.storage.snapshotRow).toBeNull();
+        r.state.storage.failSnapshotPut = false;
+        await reach(r, 79);
+        await agree(r, 79);
+        await post(r.room, 0, 79, await bodyFor(79));
+        expect((await post(r.room, 1, 79, await bodyFor(79))).status).toBe(201);
+      } finally {
         errors.mockRestore();
       }
     }, 2_000);

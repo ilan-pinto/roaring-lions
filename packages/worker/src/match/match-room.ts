@@ -558,7 +558,8 @@ export class MatchRoom {
     while (this.agreedDigests.size > 2) this.agreedDigests.delete(Math.min(...this.agreedDigests.keys()));
     // A failing snapshot write (storage refused the row) must never break the hash pair that triggered it: the
     // hashOk has gone and the state is saved, and a rejection here would surface from `apply` unhandled.
-    // `settleSnapshot` changes no book or stored tick before the write, so the uploads stay pending for a retry.
+    // `settleSnapshot` changes no book or stored tick before the write. The agreement does not repeat and both seats'
+    // slots are spent, so that tick's snapshot is lost; the next cadence is unaffected.
     try {
       await this.settleSnapshot(tick);
     } catch (e) {
@@ -866,7 +867,14 @@ export class MatchRoom {
     const refused = this.snapshotRefusal(seat, tick, true);
     if (refused !== null) return refused;
     this.pending.put(seat, tick, { sha, digest: header.matchDigest, body: gz });
-    const outcome = await this.settleSnapshot(tick);
+    let outcome: 'stored' | 'held' | 'mismatch';
+    try {
+      outcome = await this.settleSnapshot(tick);
+    } catch (e) {
+      // Storage refused the row: nothing was changed past the upload's own record, and the tick is not retried.
+      console.error('MatchRoom: snapshot settle failed', e);
+      return new Response('store failed', { status: 500 });
+    }
     if (outcome === 'stored') return new Response('stored', { status: 201 });
     if (outcome === 'held') return new Response('held', { status: 202 });
     return new Response('mismatch', { status: 409 });
