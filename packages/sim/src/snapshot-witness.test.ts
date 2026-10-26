@@ -242,6 +242,11 @@ describe('config check: every config row of A equals B after the restore', () =>
 
 // ---- the series runner: one A, many forks ---------------------------------------------------
 
+// Measured (26 Oct): the "hands the hooks A" and "a mutation applied to one fork" tests take 0.44-0.55 s,
+// alone or inside the file, at load average ~14. Both hit the default 5 s limit under a load average of
+// ~100 (a full `pnpm test` beside other streams): >10x slower. 60 s is the limit the other tests in this
+// file already use, ~120x the unloaded time. No assertion depends on it.
+const SERIES_TIMEOUT_MS = 60_000;
 describe('fork witness series: one run of A, a fork at every T', () => {
   const Ts = [0, 100, 200, 300, 400, 500, 600, 700, 800];
   const END = 1000;
@@ -279,7 +284,7 @@ describe('fork witness series: one run of A, a fork at every T', () => {
       expect(seen).toContain(`restore a=${T} b=${T}`);
       expect(seen).toContain(`mutate a=${T} b=${T}`);
     }
-  });
+   }, SERIES_TIMEOUT_MS);
 
   it('a mutation applied to one fork turns that fork red and no other', () => {
     const verdicts = series({
@@ -290,7 +295,7 @@ describe('fork witness series: one run of A, a fork at every T', () => {
     const red = verdicts.filter((v) => v.hashDivergedAt !== null || !v.encodingEqualAtEnd).map((v) => `${v.T}/${v.horizon}`);
     // T=500 at horizon 200, and nothing else: the tail fork starts at 300.
     expect(red).toEqual(['500/200']);
-  });
+   }, SERIES_TIMEOUT_MS);
 
   it('refuses a plan that does not fit: descending Ts, or a fork running past endTick', () => {
     const base = { build: RUN.build, drive: RUN.drive, horizon: 10, hashEvery: 5 };

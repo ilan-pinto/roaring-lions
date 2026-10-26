@@ -331,6 +331,8 @@ routes by zone.
 | 16 | `wadi_halam_4_village` | clearance | `wadi_halam_basin` | `wadi_halam_4` | n | courtyard walls; a forecourt on the mosque block |
 | 17 | `wadi_halam_5_depot` | clearance | `wadi_halam_basin` | `wadi_halam_5` | n | spoil either side of the last leg into the gate — light, **author last** |
 
+**Note, 26 Oct 2026.** Since GH-828 (26 Oct), the basin carries an east-bank crest (a level-2 rise along x=14, GH-161), so `wadi_halam_basin` is no longer without an elevation grid. The rows above, and §3.3 below, describe the basin as this design found it; `wadi_halam_2`'s grid is still the first one authored for a Wadi Halam *variant*.
+
 Thirteen variants. No mission's phase, `target_minutes`, objectives, ledger or
 economy changes; this is terrain only.
 
@@ -835,6 +837,8 @@ the base's.
 
 ### 3.3 Wadi Halam
 
+> **Note, 26 Oct 2026.** Since GH-828 (26 Oct), the basin carries an east-bank crest, so "no elevation grid at all" below was true of the base map when this was written and is not now. The text is left as the design record. See `docs/agent-notes/maps-and-terrain-design.md`.
+
 Base: `wadi_halam_basin`, green, 79% open, **no elevation grid at all**. Its
 existing structure is good — the poplar gallery `o` at x=7–12 running the full
 height, the bund lines `1`, the ford knolls, the village, the `=`-walled depot —
@@ -845,6 +849,8 @@ but again all of it is beside the axis: `kdf_crossing` → `village_center` is
 already teaches them (crossing → `ford_north` 9 tiles).
 
 #### `wadi_halam_2` — *the terraces the briefing already claims* (foothold)
+
+> **Note, 26 Oct 2026.** Since GH-828 (26 Oct), the basin already carries an east-bank crest, so "its first elevation grid" here means the first grid authored for a *variant* (`wadi_halam_2`), over the pasture, not the first on the map.
 
 The briefing says: *"The ground is terraced — bunds run across the pasture in
 bands, real cover if you hold it."* The bunds exist as `1` cover; **the terracing
