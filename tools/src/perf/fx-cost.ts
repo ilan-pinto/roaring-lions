@@ -17,6 +17,17 @@
  * p95 <= 16.7 ms. Refuses SwiftShader (exit 2). Frame time only: tick time is a
  * different budget and is not measured here.
  *
+ * GH-829 `--breakdown` (with `--map=<id> --dpr=<n> --rounds=<n> --burn=<k>`): swaps the FX rows
+ * for a per-pass frame breakdown on one map. Each config switches ONE thing off (a composer
+ * pass's `enabled`, the shadow casting pass, or a debug layer), is timed readPixels-synced, and
+ * switches it back; rounds interleave the configs so load drift lands on all of them. Rows carry
+ * the median over rounds, the per-round medians, p95, CPU submit time (`cpu`, frame() return
+ * before the sync) and draw calls / triangles read by hand with `autoReset` off. A toggle that
+ * does nothing shows as unchanged calls AND a ~0 delta. It first prints the free-running rAF
+ * CADENCE (app loop live) per view: the synced rows are serialised latency, the cadence is what
+ * a player's loop sees, and the two disagree (docs/PERFORMANCE.md, GH-829). `--burn=2` draws two
+ * extra frames per rAF, the falsification: the cadence must stop reading 16.7 ms.
+ *
  * WHY readPixels AND NOT gl.finish() (GH-777, `_coord/high-perf/report.md` point 1):
  * on ANGLE/Metal `gl.finish()` does not wait for the whole frame when no pass
  * samples a render target back -- `medium` read 3 ms with it and 13.9 ms with a
@@ -24,6 +35,7 @@
  * command that writes the default framebuffer has run.
  */
 import { chromium } from 'playwright';
+import os from 'node:os';
 import path from 'node:path';
 import { devServerStopper, ensureDevServer } from '../golden-diff/browser';
 import { musicOffInitScript } from '../ui-review/music-off';
@@ -38,6 +50,15 @@ const port = await claimPort('fx-cost', 'FX_COST_PORT', 5211);
 const label = arg('label', 'run');
 const extra = arg('query', '');
 const BUDGET_MS = 16.7;
+// GH-829: `--breakdown` replaces the FX rows with a per-pass frame breakdown on
+// `--map=<id>` at `--dpr=<n>` (default 2), `--rounds=<n>` interleaved passes.
+const BREAKDOWN = args.includes('--breakdown');
+const MAP = arg('map', 'beit_sahwan_outskirts');
+const DPR = Number(arg('dpr', '2'));
+const ROUNDS = Number(arg('rounds', '3'));
+// `--burn=<k>`: draw k extra frames per rAF in the cadence rows. The falsification
+// of the cadence check: at k=2 it must stop reading 16.7 ms.
+const BURN = Number(arg('burn', '0'));
 
 const VIEWS: [number, number, number][] = [
   [22, 24, 0.5],
@@ -66,10 +87,10 @@ interface Row {
 
 try {
   for (const quality of PRESETS) {
-    const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: DPR });
     await page.addInitScript(musicOffInitScript({}, { quality }));
     await page.addInitScript('window.__name = (f) => f;');
-    await page.goto(`http://localhost:${port}/?sandbox=beit_sahwan_outskirts${extra}`, { waitUntil: 'load' });
+    await page.goto(`http://localhost:${port}/?sandbox=${MAP}${extra}`, { waitUntil: 'load' });
     await page.waitForFunction(() => !!(window as unknown as { __lions?: { renderer?: unknown } }).__lions?.renderer, null, { timeout: 120000 });
     await page.waitForTimeout(4000);
     const gpu = await page.evaluate(() => {
@@ -83,6 +104,197 @@ try {
       await browser.close();
       stop();
       process.exit(2);
+    }
+    if (BREAKDOWN) {
+      await page.waitForTimeout(4000);
+      // Free-running cadence with the app's own loop on (GH-829): rAF-to-rAF
+      // intervals per view, BEFORE the loop is frozen below. This is what a
+      // player sees; the readPixels rows below are serialised GPU latency.
+      const cadence = await page.evaluate(async (burn) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const L = (window as any).__lions;
+        const r = L.renderer;
+        const base = { x: r.camera.x, y: r.camera.y, zoom: r.camera.zoom };
+        const out: Record<string, { med: number; p95: number; over20: number; over25: number; frames: number }> = {};
+        for (const z of [base.zoom, 1.6, 2.5]) {
+          r.camera.x = base.x;
+          r.camera.y = base.y;
+          r.camera.zoom = z;
+          await new Promise<void>((res) => requestAnimationFrame(() => res()));
+          const d: number[] = [];
+          let last = performance.now();
+          for (let i = 0; i < 300; i++) {
+            const now = await new Promise<number>((res) =>
+              requestAnimationFrame((t) => {
+                for (let b = 0; b < burn; b++) r.frame(1, 0);
+                res(t);
+              })
+            );
+            d.push(now - last);
+            last = now;
+          }
+          const sorted = [...d].sort((a, b) => a - b);
+          out[`z${z}`] = { med: sorted[150], p95: sorted[285], over20: d.filter((v) => v > 20).length / d.length, over25: d.filter((v) => v > 25).length / d.length, frames: d.length };
+        }
+        r.camera.x = base.x;
+        r.camera.y = base.y;
+        r.camera.zoom = base.zoom;
+        return out;
+      }, BURN);
+      console.log(`${label} CADENCE burn=${BURN} (app loop live, rAF intervals, loadavg ${os.loadavg().map((v) => v.toFixed(1)).join('/')}, visibility ${await page.evaluate(() => document.visibilityState)})`);
+      for (const [k, v] of Object.entries(cadence)) {
+        console.log(`  ${k.padEnd(6)} med ${v.med.toFixed(2)} ms  p95 ${v.p95.toFixed(2)}  >20ms ${(v.over20 * 100).toFixed(1)}%  >25ms ${(v.over25 * 100).toFixed(1)}%  (${v.frames} frames)`);
+      }
+      const out = await page.evaluate(
+        ([rounds, n]) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const L = (window as any).__lions;
+          const r = L.renderer;
+          window.requestAnimationFrame = () => 0; // freeze the app's loop; we pump frames
+          const canvas: HTMLCanvasElement = r.canvas;
+          const gl = canvas.getContext('webgl2') as WebGL2RenderingContext;
+          const info = r.renderer.info;
+          const syncPx = new Uint8Array(4);
+          const sync = (): void => gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, syncPx);
+          const post = r.post;
+          const passes: { constructor: { name: string }; enabled: boolean }[] = post.composer.passes;
+          const byName = (nm: string) => passes.find((p) => p.constructor.name === nm);
+          const sun = (() => {
+            let found: { castShadow: boolean } | null = null;
+            r.scene.traverse((o: { isDirectionalLight?: boolean; castShadow?: boolean }) => {
+              if (!found && o.isDirectionalLight && o.castShadow) found = o as { castShadow: boolean };
+            });
+            return found as { castShadow: boolean } | null;
+          })();
+          const sm = r.renderer.shadowMap;
+          interface Cfg {
+            name: string;
+            off: () => void;
+            on: () => void;
+          }
+          const passCfg = (label: string, nm: string): Cfg => ({
+            name: `-${label}`,
+            off: () => {
+              const p = byName(nm);
+              if (!p) throw new Error(`no pass ${nm}`);
+              p.enabled = false;
+            },
+            on: () => {
+              const p = byName(nm);
+              if (p) p.enabled = true;
+            },
+          });
+          const layerCfg = (label: string, layer: string): Cfg => ({
+            name: `-${label}`,
+            off: () => r.setDebugLayerVisible(layer, false),
+            on: () => r.setDebugLayerVisible(layer, true),
+          });
+          const present = (nm: string): boolean => !!byName(nm);
+          const cfgs: Cfg[] = [{ name: 'baseline', off: () => {}, on: () => {} }];
+          // Shadow casting pass only (map goes stale, sampling remains) vs the whole shadow (light stops casting).
+          cfgs.push({ name: '-shadow-cast-pass', off: () => { sm.autoUpdate = false; sm.needsUpdate = false; }, on: () => { sm.autoUpdate = true; } });
+          if (sun) cfgs.push({ name: '-shadow-all', off: () => { sun.castShadow = false; }, on: () => { sun.castShadow = true; } });
+          cfgs.push(passCfg('RenderPass(scene)', 'RenderPass'));
+          if (present('FogOfWarPass')) cfgs.push(passCfg('fog-pass', 'FogOfWarPass'));
+          if (present('WorldGTAOPass')) cfgs.push(passCfg('GTAO', 'WorldGTAOPass'));
+          const bloomName = passes.map((p) => p.constructor.name).find((nm) => /bloom/i.test(nm));
+          if (bloomName) cfgs.push(passCfg('bloom', bloomName));
+          cfgs.push(passCfg('OutputPass', 'OutputPass'));
+          cfgs.push(passCfg('vignette', 'VignettePass'));
+          if (present('SMAAPass')) cfgs.push(passCfg('SMAA', 'SMAAPass'));
+          for (const [l, k] of [['units', 'units'], ['buildings', 'buildings'], ['decals', 'decals'], ['scatter', 'scatter'], ['decor', 'decor'], ['props', 'props'], ['overlays', 'overlays'], ['ground-albedo', 'ground-albedo'], ['macro', 'macro'], ['roads', 'roads'], ['haze', 'haze']] as const) {
+            cfgs.push(layerCfg(l, k));
+          }
+          // Ground only: every object layer hidden, the ground shader still drawn.
+          const OBJECT_LAYERS = ['units', 'buildings', 'decals', 'scatter', 'decor', 'props', 'overlays'];
+          cfgs.push({
+            name: '-ALL-objects(ground only)',
+            off: () => { for (const l of OBJECT_LAYERS) r.setDebugLayerVisible(l, false); },
+            on: () => { for (const l of OBJECT_LAYERS) r.setDebugLayerVisible(l, true); },
+          });
+          // Everything but the scene + output: the post chain's whole cost by difference.
+          const postNames = passes.map((p) => p.constructor.name).filter((nm) => nm !== 'RenderPass' && nm !== 'OutputPass');
+          cfgs.push({
+            name: '-ALL-POST(except Output)',
+            off: () => { for (const nm of postNames) { const p = byName(nm); if (p) p.enabled = false; } },
+            on: () => { for (const nm of postNames) { const p = byName(nm); if (p) p.enabled = true; } },
+          });
+          cfgs.push({
+            name: '-ALL-POST+shadow-cast',
+            off: () => { for (const nm of postNames) { const p = byName(nm); if (p) p.enabled = false; } sm.autoUpdate = false; sm.needsUpdate = false; },
+            on: () => { for (const nm of postNames) { const p = byName(nm); if (p) p.enabled = true; } sm.autoUpdate = true; },
+          });
+
+          interface Cell {
+            med: number;
+            p95: number;
+            cpu: number;
+            calls: number;
+            tris: number;
+          }
+          const time = (): Cell => {
+            for (let i = 0; i < 20; i++) r.frame(1, 16);
+            info.autoReset = false;
+            info.reset();
+            r.frame(1, 16);
+            const calls = info.render.calls;
+            const tris = info.render.triangles;
+            info.autoReset = true;
+            sync();
+            const w: number[] = [];
+            const c: number[] = [];
+            for (let i = 0; i < n; i++) {
+              const t0 = performance.now();
+              r.frame(1, 0);
+              const t1 = performance.now();
+              sync();
+              w.push(performance.now() - t0);
+              c.push(t1 - t0);
+            }
+            w.sort((a, b) => a - b);
+            c.sort((a, b) => a - b);
+            return { med: w[Math.floor(n / 2)], p95: w[Math.floor(n * 0.95)], cpu: c[Math.floor(n / 2)], calls, tris };
+          };
+          const views: Record<string, [number, number, number]> = {};
+          const boot = { x: r.camera.x, y: r.camera.y, zoom: r.camera.zoom };
+          views['boot'] = [boot.x, boot.y, boot.zoom];
+          views['boot-z1.6'] = [boot.x, boot.y, 1.6];
+          views['boot-z2.5'] = [boot.x, boot.y, 2.5];
+          const res: Record<string, Record<string, Cell[]>> = {};
+          for (const [vn, [x, y, z]] of Object.entries(views)) {
+            r.camera.x = x;
+            r.camera.y = y;
+            r.camera.zoom = z;
+            res[vn] = {};
+            for (let round = 0; round < (rounds as number); round++) {
+              for (const cfg of cfgs) {
+                cfg.off();
+                (res[vn][cfg.name] ??= []).push(time());
+                cfg.on();
+              }
+            }
+          }
+          return { res, boot, passes: post.passNames.join('>'), size: [canvas.width, canvas.height], map: [L.sim.width, L.sim.height], pr: r.renderer.getPixelRatio(), sunFound: !!sun, entities: L.sim.entityCount };
+        },
+        [ROUNDS, 100] as const
+      );
+      console.log(`${label} BREAKDOWN map=${MAP} quality=${quality} dprRequested=${DPR} pixelRatio=${out.pr} canvas=${out.size.join('x')} gpu=${gpu} loadavg=${os.loadavg().map((v) => v.toFixed(1)).join('/')} (before) passes=${out.passes} sun=${out.sunFound} entities=${out.entities} map=${out.map.join('x')} boot=${JSON.stringify(out.boot)}`);
+      type Cell = { med: number; p95: number; cpu: number; calls: number; tris: number };
+      const medianOf = (v: number[]): number => [...v].sort((a, b) => a - b)[Math.floor(v.length / 2)];
+      for (const [vn, cfgs] of Object.entries(out.res as Record<string, Record<string, Cell[]>>)) {
+        console.log(` view ${vn}`);
+        const base = medianOf(cfgs['baseline'].map((c) => c.med));
+        for (const [name, cells] of Object.entries(cfgs)) {
+          const meds = cells.map((c) => c.med);
+          const m = medianOf(meds);
+          console.log(
+            `  ${name.padEnd(26)} med ${m.toFixed(2)} ms (rounds ${meds.map((v) => v.toFixed(1)).join('/')})  p95 ${medianOf(cells.map((c) => c.p95)).toFixed(2)}  cpu ${medianOf(cells.map((c) => c.cpu)).toFixed(2)}  delta ${(m - base).toFixed(2)}  calls ${cells[0].calls}  tris ${(cells[0].tris / 1000).toFixed(0)}k`
+          );
+        }
+      }
+      console.log(`loadavg after: ${os.loadavg().map((v) => v.toFixed(1)).join('/')}`);
+      await page.close();
+      continue;
     }
     // Warm the two vehicle types the stress spawns, off-view, with the app loop
     // still running so their meshes load; then take them out of play.

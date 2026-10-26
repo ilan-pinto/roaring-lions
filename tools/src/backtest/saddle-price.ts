@@ -43,6 +43,7 @@ import {
   type MissionJson, type TunnelRouteJson,
 } from '@lions/sim';
 import { SWEEP_SEEDS } from './passive-sweep';
+import { telMarum3ArmourPlan } from './plans/tel_marum';
 import { units, maps, missions, structures as structureCatalogue, parseMap, applyTerrain, roadMaskOf } from '@lions/data';
 
 const M = (x: number, y: number) => ({ x: fx.from(x), y: fx.from(y) });
@@ -101,7 +102,6 @@ function walk(seed: number, foot: 'pass' | 'defile', perfectEyes: boolean, footK
       if (sim.state.side[i] === 0 && sim.state.alive[i] === 1 && nameOf(i) === t) out.push(i);
     return out;
   };
-  const tanks = ids('mbt_lavi'), namer = ids('ifv_namer'), carriers = ids('apc_eitan'), mortar = ids('mortar_team');
   // The flankers: the two arms differ in where THESE walk, and in nothing else.
   const legs = [...ids('inf_squad'), ...ids('at_team')];
   const battery = (() => {
@@ -112,18 +112,11 @@ function walk(seed: number, foot: 'pass' | 'defile', perfectEyes: boolean, footK
 
   const timed: [number, () => void][] = [];
   const at = (t: number, fn: () => void) => timed.push([Math.round(t * TICKS_PER_SECOND), fn]);
-  // --- armour and mortar: copied from playtest.ts's Tel Marum III plan, identical in both arms ---
+  // --- armour and mortar: the shared Tel Marum III plan's half (plans/tel_marum.ts), identical in both arms ---
   // The column stages in the second leg behind the rib; two Lavis go up the exit column alone; one
   // Eitan fetches the families (the evacuate_before primary is what ends a plan that forgets them).
-  at(2, () => {
-    sim.queueCommand({ kind: 'move', ids: [...tanks, ...namer, ...carriers], ...M(28, 19) });
-    sim.queueCommand({ kind: 'move', ids: mortar, ...M(26, 19) });
-  });
-  at(40, () => sim.queueCommand({ kind: 'attackMove', ids: tanks, ...M(33, 16) }));
-  at(62, () => sim.queueCommand({ kind: 'move', ids: tanks, ...M(33, 11) }));
-  at(80, () => sim.queueCommand({ kind: 'move', ids: carriers, ...M(33, 14) }));
-  at(100, () => sim.queueCommand({ kind: 'move', ids: carriers, ...M(28, 6) }));
-  at(115, () => sim.queueCommand({ kind: 'move', ids: carriers, ...M(29, 36) }));
+  // Registered before the foot's orders, so tick 2 is column, mortar, foot, as it always was here.
+  telMarum3ArmourPlan(sim, rt, ids, at);
   // --- the foot: the one variable ----------------------------------------
   let defileSent = false;
   if (foot === 'pass') {

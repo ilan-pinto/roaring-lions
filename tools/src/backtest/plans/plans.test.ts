@@ -19,11 +19,12 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { LedgerData } from '@lions/sim';
+import { fx, type LedgerData, type MissionRuntime, type Sim } from '@lions/sim';
+import type { Plan } from '../playtest-run';
 import { ROOT } from '../../map_visibility';
 import { missionCredits, run, runLog } from '../playtest-run';
 import { firstLightPlan } from './beit_sahwan';
-import { telMarum3Plan } from './tel_marum';
+import { telMarum3ArmourPlan, telMarum3FootPlan, telMarum3Plan } from './tel_marum';
 import {
   WADI_HALAM_CHAIN,
   WADI_HALAM_PLANS,
@@ -71,8 +72,69 @@ describe('the shared plans: source', () => {
     expect(readFileSync(join(ROOT, 'tools/src/first_light_clock.test.ts'), 'utf8')).toMatch(/firstLightPlan\(sim, runtime, ids,/);
   });
 
+  it('saddle-price.ts composes the shared armour and mortar half and keeps no copy of it', () => {
+    const src = source('saddle-price.ts');
+    expect(src).toMatch(/from '\.\/plans\/tel_marum'/);
+    expect(src).toMatch(/telMarum3ArmourPlan\(sim, rt, ids, at\)/);
+    // A pasted copy names the armour and mortar units, or carries the half's waypoints. The foot's
+    // own variants (units 'inf_squad'/'at_team', waypoints (27,19), (33,17), (33,11), (10,14)) stay.
+    for (const unit of ['mbt_lavi', 'ifv_namer', 'apc_eitan', 'mortar_team']) expect(src, unit).not.toContain(`'${unit}'`);
+    for (const wp of ['M(28, 19)', 'M(26, 19)', 'M(33, 16)', 'M(33, 14)', 'M(28, 6)', 'M(29, 36)']) expect(src, wp).not.toContain(wp);
+  });
+
   it('the plans are plain functions (a plan that is not callable would be a stub)', () => {
     for (const p of [firstLightPlan, telMarum3Plan, ...Object.values(WADI_HALAM_PLANS)]) expect(typeof p).toBe('function');
+  });
+});
+
+/** What a plan orders: every `queueCommand`, in the order the runner would issue it (by tick, then registration). */
+function commandsOf(...plans: Plan[]): string[] {
+  const ID: Record<string, number[]> = {
+    mbt_lavi: [1, 2], ifv_namer: [3], apc_eitan: [4, 5], inf_squad: [6, 7], at_team: [8], mortar_team: [9],
+  };
+  const timed = new Map<number, (() => void)[]>();
+  const out: string[] = [];
+  let now = -1;
+  const sim = {
+    queueCommand: (c: { kind: string; ids: number[]; x: number; y: number }) =>
+      out.push(`${now} ${c.kind} [${c.ids.join(',')}] ${fx.toNumber(c.x)},${fx.toNumber(c.y)}`),
+  } as unknown as Sim;
+  const ids = (t: string): number[] => ID[t] ?? [];
+  const at = (t: number, fn: () => void): void => void (timed.get(t)?.push(fn) ?? timed.set(t, [fn]));
+  for (const p of plans) p(sim, {} as MissionRuntime, ids, at);
+  for (const t of [...timed.keys()].sort((a, b) => a - b)) {
+    now = t;
+    for (const fn of timed.get(t) ?? []) fn();
+  }
+  return out;
+}
+
+describe('the shared plans: Tel Marum III halves', () => {
+  // Literals, not read back from the plans (an oracle that imported its answer could not fail).
+  const COLUMN_2 = '2 move [1,2,3,4,5] 28,19';
+  const MORTAR_2 = '2 move [9] 26,19';
+  const FOOT_2 = '2 attackMove [6,7,8] 10,14';
+  const LATER = [
+    '40 attackMove [1,2] 33,16',
+    '62 move [1,2] 33,11',
+    '80 move [4,5] 33,14',
+    '100 move [4,5] 28,6',
+    '115 move [4,5] 29,36',
+  ];
+
+  it('telMarum3Plan issues the commands in the order it always has: column, foot, mortar at tick 2', () => {
+    expect(commandsOf(telMarum3Plan)).toEqual([COLUMN_2, FOOT_2, MORTAR_2, ...LATER]);
+  });
+
+  it("the armour half is what saddle-price composes: column, then mortar, and no foot", () => {
+    expect(commandsOf(telMarum3ArmourPlan)).toEqual([COLUMN_2, MORTAR_2, ...LATER]);
+  });
+
+  it('the armour half and the foot half together are the whole plan, command for command', () => {
+    const whole = commandsOf(telMarum3Plan);
+    const parts = commandsOf(telMarum3ArmourPlan, telMarum3FootPlan);
+    expect([...parts].sort()).toEqual([...whole].sort());
+    expect(commandsOf(telMarum3FootPlan)).toEqual([FOOT_2]);
   });
 });
 

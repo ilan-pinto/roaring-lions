@@ -47,6 +47,13 @@ jobs:
       # GH-153: the Blender unit portraits' manifest (size + alpha extent of
       # each team and lead-figure PNG) must match the PNGs it describes.
       - run: python3 tools/portrait_manifest.py --check
+      # Asset provenance: every tracked file under art/ and assets/ must have a
+      # row in docs/ASSET_PROVENANCE.md's register, no row may cover nothing,
+      # and the Meshy ledger and the committed task.json files must agree.
+      # It checks that a row EXISTS, not that it is true. Until this step it
+      # ran by hand and 52 problems built up unseen; a new asset now arrives
+      # with its row or this job is red.
+      - run: python3 tools/check_provenance_register.py
       # Level load time, step 4: `art/meshes/` is the uncompressed source of
       # record and `assets/meshes/` is the Draco-compressed copy that SHIPS.
       # Every other mesh gate reads the source, so a shipped file that is
