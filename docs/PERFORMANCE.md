@@ -2814,6 +2814,39 @@ shed men, and the budget is under a third used. A 300-unit fight would spend pro
 should be sized with that in mind; a fall at `count === capacity` kills the man rather than
 throwing (`fallMan`), so running out costs the rescue, never the mission.
 
+## The vignette folded into OutputPass (GH-829 option 2)
+
+`VignettePass` was a full-screen draw of its own between `OutputPass` and `SMAAPass`. It is now the last
+statement of `OutputPass`'s fragment shader (`vignette-pass.ts`, `OutputVignette`): one pass, one HalfFloat
+read and one write of the frame fewer, on every preset.
+
+**Pixel identity, measured.** One session, one build, a toggle between the separate pass and the fold. Per
+view: `frame(1, 0)` and a full-frame `readPixels` of the 2880x1800 drawing buffer in the same task, 36 views
+(`high`, `medium`, `low` x `wadi_halam_4`, `wadi_halam_basin`, `beit_sahwan_outskirts` x zoom 0.5, 1, 1.6, 2.5,
+camera (24, 24)). Legacy against fold: **max per-channel delta 0, zero pixels differing, in all 36** (20,736,000
+channel samples each). Controls that could fail: legacy against legacy reads 0 (the capture is repeatable);
+legacy against no vignette at all reads 31-114 on 3.6-4.2M samples (the toggle does change the picture).
+
+**What it took.** The first fold multiplied the unrounded output. That is within 1/255 everywhere on `low`
+(max 1, 283k-412k samples at exactly 1) but not under SMAA: `high` and `medium` read max delta 32 on 250-330
+pixels per frame (0.0015%), because SMAA edge-detects against a threshold and a half-ulp moves a few pixels
+across it. The separate pass read a HalfFloat target, so the fold now rounds through half float itself
+(`packHalf2x16`, which moves the output shader to GLSL ES 3.00) before the multiply. A max of 32 is the red.
+
+**Saving.** readPixels-synced `frame(1, 0)`, 100 frames, median, legacy and fold interleaved over 3 rounds.
+Apple M3 Pro, headless Chromium, ANGLE/Metal confirmed through `WEBGL_debug_renderer_info`, 1440x900 CSS at DPR 2
+(2880x1800), tab visible, music off, parked sandbox (no fight FX), own port.
+
+| quiet machine (load 2.7-4.4), `high` | z0.5 | z1 | z1.6 | z2.5 |
+|---|---|---|---|---|
+| wadi_halam_4, ms saved | 0.60 | 0.70 | 0.70 | 0.80 |
+| wadi_halam_basin, ms saved | 0.60 | 0.50 | 0.40 | 0.70 |
+
+Under heavy load (1-minute load average 25-260 across the longer run) the 36-view range was 0.1-1.3 ms,
+median about 0.7 ms; `low` and `medium` read 0.1-0.9 ms. This is a serialised-latency saving on a GPU-bound
+frame, not a live-cadence figure (see the GH-829 profiling comment on why those differ). Not measured: any
+other GPU, a live fight.
+
 ## GH-829: where the `high` / DPR 2 frame goes on the Wadi Halam maps (2026-10-26)
 
 Apple M3 Pro, ANGLE/Metal (confirmed through `WEBGL_debug_renderer_info`), headless Chromium, tab

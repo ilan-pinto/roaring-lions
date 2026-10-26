@@ -179,7 +179,7 @@ import {
 import { disposeAndReleaseContext, noteSharedTextures } from './context-release';
 import { freezeSceneRoot, freezeStatic } from './static-matrix';
 import { AO_RESOLUTION_SCALE, createAoPass, createPostChain, PIXEL_RATIO_CAP, type PostChain } from './post-chain';
-import { VignettePass } from './vignette-pass';
+import type { OutputVignette } from './vignette-pass';
 import { zoomFadeWeight } from './zoom-fade';
 import { BLOOM_STRENGTH, bloomPassFor, luminanceCensus, type LuminanceCensus, type QuarterBloomPass } from './bloom';
 import type { Pass } from 'three/addons/postprocessing/Pass.js';
@@ -2637,16 +2637,15 @@ export class ThreeRenderer implements Renderer {
    * Shell upgrade Phase 0: the corner vignette (`./vignette-pass.ts`), the
    * half of "the world no longer ends in a hard diagonal" that lives in the
    * post chain rather than in the scene -- `skirtMesh` below is the other.
-   * Built in `init()` and held as a field for the same two reasons
-   * `fogPass`/`aoPass` are: the chain does not own a pass it was handed, and
-   * the nine `ThreeRenderer*.test.ts` fakes never reach `init()`.
+   * Not a pass: since GH-829 it is a switch on the chain's own `OutputPass`
+   * (`post.vignette`), set in `init()` and held as a field because the nine
+   * `ThreeRenderer*.test.ts` fakes never reach `init()`.
    *
-   * Typed as the concrete class, not `Pass`, because
    * `setDebugLayerVisible('vignette', ...)` flips its `enabled` and the
-   * visual gate's toggle check is the only thing that proves this pass still
+   * visual gate's toggle check is the only thing that proves it still
    * contributes pixels.
    */
-  private vignettePass: VignettePass | null = null;
+  private vignettePass: OutputVignette | null = null;
   /**
    * Defilade Task 4: the selective HDR bloom (`./bloom.ts`), after AO and
    * before `OutputPass`. Built in `init()` only when `quality.bloom` asks
@@ -3235,13 +3234,12 @@ export class ThreeRenderer implements Renderer {
     // `setFogPass`'s again: `dispose()` below frees it.
     this.bloomPass = bloomPassFor(quality, this.cssWidth, this.cssHeight, this.renderer.getPixelRatio());
     if (this.bloomPass) this.post.setBloomPass(this.bloomPass);
-    // Shell upgrade Phase 0: the corner vignette, AFTER `OutputPass` and
-    // BEFORE SMAA -- the only pass here that runs on display-referred
-    // colour. See `vignette-pass.ts` for why that slot is the only one that
-    // works, and `PostChain.setVignettePass` for the ownership rule, which
-    // is `setFogPass`'s again: `dispose()` below frees this one.
-    this.vignettePass = new VignettePass();
-    this.post.setVignettePass(this.vignettePass);
+    // Shell upgrade Phase 0: the corner vignette, on display-referred colour
+    // (after the tone map, before SMAA). Since GH-829 it is folded into
+    // `OutputPass`'s shader, so there is nothing to build, slot or free: the
+    // chain owns the switch. See `vignette-pass.ts` for why it must sit there.
+    this.vignettePass = this.post.vignette;
+    this.vignettePass.enabled = true;
     host.appendChild(this.renderer.domElement);
     // PixiRenderer gets this from `resizeTo: host` (renderer.ts). Without an
     // equivalent the three canvas would stay at boot size while `width`/
@@ -3612,10 +3610,7 @@ export class ThreeRenderer implements Renderer {
     this.post?.setAoPass(null);
     this.aoPass?.dispose();
     this.aoPass = null;
-    // Shell upgrade Phase 0, the same ownership rule and the same order as
-    // the two passes above (out of the chain, then freed).
-    this.post?.setVignettePass(null);
-    this.vignettePass?.dispose();
+    // The vignette lives in the chain's OutputPass (GH-829): nothing to free.
     this.vignettePass = null;
     // Defilade Task 4, the same rule and order: out of the chain, then
     // freed -- the bright target, ten blur mips and nine materials.
@@ -3987,13 +3982,14 @@ export class ThreeRenderer implements Renderer {
         }
         return this.meshUnitEntities.size + this.vehicleMeshEntities.size + (this.proxyBoxes ? 1 : 0) + this.swarmBatches.size * 2;
       case 'vignette':
-        // A `Pass.enabled` rather than an `Object3D.visible`, and nothing in
-        // `frame()` re-asserts it -- the chain is rebuilt only by the three
-        // `set*Pass` calls, all of which run in `init()`/`dispose()`. So the
-        // plain toggle holds across the gate's repaint, unlike `units`
-        // above. Returns 1 when it actually changed something, which is what
-        // makes a missing pass (`init()` never ran) read as 0 objects rather
-        // than as a silent pass.
+        // A uniform write (`OutputVignette.enabled` zeroes the strength inside
+        // `OutputPass`'s shader, GH-829) rather than an `Object3D.visible`, and
+        // nothing in `frame()` re-asserts it. So the plain toggle holds across
+        // the gate's repaint, unlike `units` above, and off is the stock output
+        // pass bit for bit, which is what the layer floor measures against.
+        // Returns 1 when it actually changed something, which is what makes a
+        // missing handle (`init()` never ran) read as 0 objects rather than as
+        // a silent pass.
         {
           const was = this.vignettePass?.enabled ?? false;
           if (this.vignettePass) this.vignettePass.enabled = visible;
