@@ -45,6 +45,15 @@
  * one row in place), so the persisted frames always reach the persisted
  * state's tick.
  *
+ * Snapshots (snapshot S3) add one row a minute at the default cadence (1,200
+ * ticks) per ACCEPTED snapshot: the pair's one `INSERT OR REPLACE`, replaced
+ * in place each time. A held, refused or mismatched upload writes zero rows of
+ * the room's own (a mismatch reports to D1, bounded separately), and the wipe
+ * deletes the one row with the rest. `room-loop.test.ts` measures it: with a
+ * snapshot every 180 ticks (six a minute) a running match writes 78 rows a
+ * minute with no orders and 138 with one order a second from each seat, exactly
+ * the 72 and 132 of the budget above plus one per accepted snapshot.
+ *
  * What an eviction costs, and why it is safe: a revived room continues at
  * `max(state.tick, end of the last persisted batch)` (`revive`), reading each
  * batch's end as `first_tick + frames.length`. The frames after that point

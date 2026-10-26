@@ -12,9 +12,11 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { endingLoser, FORFEIT_MS, LOG_PART_CHARS, OVER_CLOSE_MS, RECONNECT_DELAY_MS, WsTransport, type Frame, type MatchConfig, type Seat, type ServerMsg, type SocketLike } from '@lions/net';
-import type { Env } from '../d1';
+import type { D1Like, Env } from '../d1';
+import { openTestD1 } from '../test-d1';
 import { FakeState, deliverAlarm, deliverClose, openSocket, type FakeSocket } from './fake-do';
 import { MatchRoom, PURGE_AFTER_MS, TICK_MS } from './match-room';
+import { gzip, snapshotBytes } from './snapshot-fixture';
 import { signTicket } from './ticket';
 
 const NOW = 1_790_000_000_000;
@@ -107,9 +109,9 @@ const sameHash = (tick: number): number | null => (tick % 20 === 19 ? 0x5eed : n
 interface Match { state: FakeState; loop: Loop; p0: Player; p1: Player }
 /** The watchdog fires as the runtime would: whenever the scheduled time has come, on the fake clock. */
 const watchdogs = new WeakMap<Loop, FakeState>();
-async function setUp(digest1: (tick: number) => number | null = sameHash, mode?: 'versus'): Promise<Match> {
+async function setUp(digest1: (tick: number) => number | null = sameHash, mode?: 'versus', snapshotEveryTicks?: number, db?: D1Like): Promise<Match> {
   const state = new FakeState();
-  const room = new MatchRoom(state, env);
+  const room = new MatchRoom(state, db === undefined ? env : ({ ...env, DB: db } as Env), snapshotEveryTicks === undefined ? {} : { snapshotEveryTicks });
   const res = await room.fetch(new Request('https://room/create', {
     method: 'POST', body: JSON.stringify({ code: CODE, matchId: CODE, map: 'tel_marum', build: BUILD, player: 'Host', callsign: 'Host', ...(mode ? { mode } : {}) }),
   }));
@@ -123,8 +125,8 @@ async function setUp(digest1: (tick: number) => number | null = sameHash, mode?:
   await loop.flush();
   return { state, loop, p0, p1 };
 }
-async function started(digest1?: (tick: number) => number | null, mode?: 'versus'): Promise<Match> {
-  const s = await setUp(digest1, mode);
+async function started(digest1?: (tick: number) => number | null, mode?: 'versus', snapshotEveryTicks?: number, db?: D1Like): Promise<Match> {
+  const s = await setUp(digest1, mode, snapshotEveryTicks, db);
   s.p0.t.ready();
   s.p1.t.ready();
   await s.loop.flush();
@@ -364,8 +366,30 @@ describe('room loop: MatchRoom and two WsTransports', () => {
   /** R-N12's budget: a command frame closes its batch (one row each), a batch
    *  with none closes every 20 ticks (one a second), and the watchdog re-arms
    *  every 5 s. So rows <= (max(command frames a second, 1) + 0.2) x seconds. */
-  async function budget(ordersPerSecond: boolean): Promise<{ rows: number; cmdFrames: number; seconds: number; alarms: number }> {
-    const { state, loop, p0, p1 } = await started();
+  async function budget(ordersPerSecond: boolean, snapshots?: { everyTicks: number; seat1Fill: number; db?: D1Like }): Promise<{ rows: number; cmdFrames: number; seconds: number; alarms: number; accepted: number; uploads: number; stored: number | null }> {
+    const { state, loop, p0, p1 } = await started(undefined, undefined, snapshots?.everyTicks, snapshots?.db);
+    const tickets = [await signTicket(SECRET, { matchId: CODE, seat: 0, player: 'Host', exp: NOW + 3600 * 1000 }), await signTicket(SECRET, { matchId: CODE, seat: 1, player: 'Guest', exp: NOW + 3600 * 1000 })];
+    /** The next snapshot tick not yet uploaded for. */
+    let nextSnap = snapshots === undefined ? -1 : snapshots.everyTicks - 1;
+    let accepted = 0;
+    let uploads = 0;
+    const upload = async (seat: Seat, tick: number, fill: number): Promise<number> => {
+      const res = await loop.room.fetch(new Request('https://room/snapshot', {
+        method: 'POST', headers: { authorization: `Bearer ${tickets[seat]}`, 'x-snapshot-tick': String(tick) },
+        body: await gzip(snapshotBytes({ frameTick: tick, matchDigest: sameHash(tick) ?? 0, fill })), duplex: 'half',
+      } as RequestInit));
+      uploads++;
+      return res.status;
+    };
+    /** After both clients have hashed the cadence tick (a hashOk each), both seats upload for it. */
+    const uploadDue = async (): Promise<void> => {
+      if (snapshots === undefined) return;
+      while (loop.wires.slice(0, 2).every((w) => w.received.some((m) => m.t === 'hashOk' && m.tick === nextSnap))) {
+        await upload(0, nextSnap, 1);
+        if ((await upload(1, nextSnap, snapshots.seat1Fill)) === 201) accepted++;
+        nextSnap += snapshots.everyTicks;
+      }
+    };
     const before = state.storage.rowsWritten;
     let alarms = 0;
     const arm = state.storage.setAlarm.bind(state.storage);
@@ -376,8 +400,10 @@ describe('room loop: MatchRoom and two WsTransports', () => {
       // One command a second from each seat, mid-second so they land in different frames.
       if (ordersPerSecond) p0.t.queueCommand({ kind: 'halt', ids: [s] });
       await step(loop, [p0, p1], ticksPerSecond / 2);
+      await uploadDue();
       if (ordersPerSecond) p1.t.queueCommand({ kind: 'halt', ids: [100 + s] });
       await step(loop, [p0, p1], ticksPerSecond / 2);
+      await uploadDue();
     }
     // The match really ran: every tick, acked and hashed.
     expect(p0.t.status().kind).toBe('live');
@@ -385,7 +411,7 @@ describe('room loop: MatchRoom and two WsTransports', () => {
     expect(p1.taken).toEqual(p0.taken.slice(0, p1.taken.length));
     for (const w of loop.wires) expect(w.received.filter((m) => m.t === 'hashOk').length).toBeGreaterThan(55);
     expect(state.storage.alarmAt).not.toBeNull();
-    return { rows: state.storage.rowsWritten - before, cmdFrames: p0.taken.filter((f) => f.cmds.length > 0).length, seconds: SECONDS, alarms };
+    return { rows: state.storage.rowsWritten - before, cmdFrames: p0.taken.filter((f) => f.cmds.length > 0).length, seconds: SECONDS, alarms, accepted, uploads, stored: state.storage.snapshotRow?.frame_tick ?? null };
   }
   const bound = (b: { cmdFrames: number; seconds: number }): number => Math.max(b.cmdFrames, b.seconds) + 0.2 * b.seconds;
 
@@ -401,6 +427,37 @@ describe('room loop: MatchRoom and two WsTransports', () => {
     expect(b.cmdFrames).toBe(0);
     expect(b.alarms).toBeGreaterThanOrEqual(b.seconds / 5 - 1);
     expect(b.rows, `${b.rows} rows in ${b.seconds} s`).toBeLessThanOrEqual(bound(b));
+  });
+
+  // Snapshots running (snapshot S3, task 13): the cadence is 180 ticks (200 would fit only five in 60 s: the sixth, tick 1199, is not minted until tick 1200), so six in 60 s; at each one both seats upload
+  // identical bytes once both clients have hashed it. An accepted pair costs exactly one row (INSERT OR REPLACE), a held
+  // or refused upload none.
+  describe('Workers Free, snapshots every 180 ticks (R-N12, snapshot S3)', () => {
+    const SNAP = { everyTicks: 180, seat1Fill: 1 };
+    it('a running match with no orders: six snapshots accepted, rows <= 1.2 x seconds + accepted', async () => {
+      const b = await budget(false, SNAP);
+      console.info(`snapshots, no orders: ${b.rows} rows in ${b.seconds} s (bound ${bound(b)} + ${b.accepted} accepted)`);
+      expect(b.cmdFrames).toBe(0);
+      expect([b.accepted, b.uploads, b.stored]).toEqual([6, 12, 1079]);
+      expect(b.rows, `${b.rows} rows in ${b.seconds} s`).toBeLessThanOrEqual(bound(b) + b.accepted);
+    }, 60_000);
+
+    it('one order a second from each seat: six snapshots accepted, rows <= (command frames a second + 0.2) x seconds + accepted', async () => {
+      const b = await budget(true, SNAP);
+      console.info(`snapshots, one order a second a seat: ${b.rows} rows in ${b.seconds} s (bound ${bound(b)} + ${b.accepted} accepted)`);
+      expect(b.cmdFrames).toBe(2 * b.seconds);
+      expect([b.accepted, b.uploads, b.stored]).toEqual([6, 12, 1079]);
+      expect(b.rows, `${b.rows} rows in ${b.seconds} s`).toBeLessThanOrEqual(bound(b) + b.accepted);
+    }, 60_000);
+
+    it('seat 1 uploads different bytes every time: nothing is accepted, no snapshot row is written, and rows <= the bound exactly', async () => {
+      const db = openTestD1();
+      const b = await budget(false, { everyTicks: 180, seat1Fill: 2, db });
+      console.info(`snapshots, mismatching: ${b.rows} rows in ${b.seconds} s (bound ${bound(b)})`);
+      expect([b.accepted, b.uploads, b.stored]).toEqual([0, 12, null]);
+      expect(db.raw.prepare('SELECT COUNT(*) AS n FROM match_snap_mismatch').all()).toEqual([{ n: 3 }]);   // D1, not the DO: three a room instance
+      expect(b.rows, `${b.rows} rows in ${b.seconds} s`).toBeLessThanOrEqual(bound(b));
+    }, 60_000);
   });
 
   it('a seat running at 18 Hz flaps between a behind stall and resume, and the room still writes at most 2 rows a second', async () => {
