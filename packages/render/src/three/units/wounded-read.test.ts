@@ -18,6 +18,7 @@ import {
   WOUNDED_GATE_LO,
   WOUNDED_LIFT,
   woundedFloorValue,
+  woundRingDashed,
   type BleedSource,
 } from './wounded-read';
 import { SelectionRingBatch } from './selection-ring';
@@ -116,6 +117,27 @@ describe('the wounded ring (arc mode)', () => {
     expect([arc.getX(first), arc.getY(first)]).toEqual([expect.closeTo(0.4, 5), 1]);
     // A fraction above 1 clamps; no pulse is 0.
     expect([arc.getX(second), arc.getY(second)]).toEqual([1, 0]);
+  });
+  it('writes the dashed flag per ring (aArc.z), and the shader cuts the ring by it', () => {
+    const b = arcBatch();
+    b.beginFrame();
+    expect(b.push(place(0.5), () => 0, 7, 0.4, true, true)).toBe(true);
+    expect(b.push(place(0.5), () => 0, 8, 0.4, true)).toBe(true);
+    const arc = b.mesh.geometry.getAttribute('aArc') as THREE.BufferAttribute;
+    expect(arc.itemSize).toBe(3);
+    expect(arc.getZ(b.firstVertexOf('small', 0))).toBe(1);
+    expect(arc.getZ(b.firstVertexOf('small', 1))).toBe(0);
+    // The arc and pulse channels are untouched by it.
+    expect([arc.getX(b.firstVertexOf('small', 0)), arc.getY(b.firstVertexOf('small', 0))]).toEqual([expect.closeTo(0.4, 5), 1]);
+    const fs = b.mesh.material.fragmentShader;
+    expect(fs).toContain('vArc.z');
+    expect(fs).toContain('turn * 8.000000');
+  });
+  it("dashes the viewer's own wounded ring only: enemy and civilian stay solid", () => {
+    expect(woundRingDashed(0, 0)).toBe(true);
+    expect(woundRingDashed(1, 0)).toBe(false);
+    expect(woundRingDashed(2, 0)).toBe(false);
+    expect(woundRingDashed(1, 1)).toBe(true);
   });
   it('refuses a large-grid ring rather than writing past its small-only arc buffer', () => {
     const b = arcBatch();

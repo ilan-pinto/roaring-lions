@@ -169,6 +169,14 @@ export interface RingStyle {
   /** Arc mode: the pulse's period in seconds and its alpha floor (0..1). */
   readonly pulsePeriodS?: number;
   readonly pulseMinAlpha?: number;
+  /**
+   * Arc mode: a ring that `push` marks DASHED is cut into this many segments, with a gap of
+   * `dashGapFraction` of each segment centred on its boundary (GH-707, the non-colour cue that keeps
+   * a wounded friend apart from a wounded civilian under colour-vision variants). The gap cuts the
+   * core and the halo alike, so it reads as a gap and not as a thin ring.
+   */
+  readonly dashSegments?: number;
+  readonly dashGapFraction?: number;
 }
 
 const DEFAULT_RING_STYLE: RingStyle = SELECTION_RING;
@@ -197,9 +205,9 @@ const RING_VERTEX_SHADER = /* glsl */ `
 /** The arc mode's vertex shader: the same text plus the `aArc` pass-through. */
 const RING_VERTEX_SHADER_ARC = RING_VERTEX_SHADER.replace(
   'attribute vec3 aRingColor;',
-  'attribute vec3 aRingColor;\n  attribute vec2 aArc;'
+  'attribute vec3 aRingColor;\n  attribute vec3 aArc;'
 )
-  .replace('varying vec3 vColor;', 'varying vec3 vColor;\n  varying vec2 vArc;')
+  .replace('varying vec3 vColor;', 'varying vec3 vColor;\n  varying vec3 vArc;')
   .replace('vColor = aRingColor;', 'vColor = aRingColor;\n    vArc = aArc;');
 
 /**
@@ -221,6 +229,8 @@ function ringFragmentShaderArc(style: RingStyle): string {
   const EXTRA_MAX = glslFloat(style.arcExtraMaxPx ?? 1000);
   const PERIOD = glslFloat(style.pulsePeriodS ?? 1.6);
   const FLOOR = glslFloat(style.pulseMinAlpha ?? 0.5);
+  const SEGMENTS = glslFloat(style.dashSegments ?? 1);
+  const GAP = glslFloat(style.dashGapFraction ?? 0);
   return /* glsl */ `
   uniform float uPxPerTile;
   uniform vec3 uHaloColor;
@@ -229,7 +239,7 @@ function ringFragmentShaderArc(style: RingStyle): string {
   varying vec2 vLocal;
   varying vec2 vAxes;
   varying vec3 vColor;
-  varying vec2 vArc;
+  varying vec3 vArc;
   float ringSd(vec2 p, vec2 r) {
     vec2 q = p / r;
     float k0 = length(q);
@@ -246,8 +256,12 @@ function ringFragmentShaderArc(style: RingStyle): string {
     float halo = smoothstep(0.0, ${F}, s) * (1.0 - smoothstep(${HALO}, ${HALO_END}, s));
     float breathe = 0.5 + 0.5 * sin(uTimeSec * 6.2831853 / ${PERIOD});
     float am = mix(1.0, mix(${FLOOR}, 1.0, breathe), vArc.y * uPulseOn);
-    float ca = core * ${CORE_A} * am;
-    float ha = halo * ${HALO_A} * am;
+    // Dashed (vArc.z): SEGMENTS cells round the circle, a gap of GAP of a cell centred on each
+    // boundary (the sweep's start included). Not dashed: the mask is 1 and nothing changes.
+    float cell = abs(fract(turn * ${SEGMENTS} + 0.5) - 0.5) * 2.0;
+    float dashMask = mix(1.0, smoothstep(${GAP}, ${GAP} + 0.12, cell), vArc.z);
+    float ca = core * ${CORE_A} * am * dashMask;
+    float ha = halo * ${HALO_A} * am * dashMask;
     float a = ca + ha * (1.0 - ca);
     if (a <= 0.0) discard;
     gl_FragColor = vec4(vColor * ca + uHaloColor * ha * (1.0 - ca), a);
@@ -389,6 +403,8 @@ function markUsed(attr: THREE.BufferAttribute, range: UpdateRange, first: number
 /** `[key, x, z, along, across, heading, n]` per slot in the position cache. */
 const CACHE_FIELDS = 7;
 const SMALL_VERTS = RING_GRID * RING_GRID;
+/** Arc mode's per-vertex `aArc`: `[fraction, pulse, dashed]`. */
+const ARC_FIELDS = 3;
 /** A large slot is sized for the BIGGEST large grid (9x9 since GH-346); a
  *  6x6 or 7x7 ring in it uses the first 36 or 49 vertices, and its unused
  *  index tail is degenerate. */
@@ -415,7 +431,7 @@ export class SelectionRingBatch {
   private readonly positionAttr: THREE.BufferAttribute;
   private readonly colorAttr: THREE.BufferAttribute;
   private readonly axesAttr: THREE.BufferAttribute;
-  /** Arc mode only (`RingStyle.arcThicken`): `[fraction, pulse]` per vertex, the small region's
+  /** Arc mode only (`RingStyle.arcThicken`): `[fraction, pulse, dashed]` per vertex, the small region's
    *  view of it, and its upload range. Null on a style without an arc. */
   private readonly arcAttr: THREE.BufferAttribute | null = null;
   private readonly smallArcs: Float32Array | null = null;
@@ -501,9 +517,9 @@ export class SelectionRingBatch {
     geometry.setAttribute('aAxes', this.axesAttr);
 
     if (opts.style?.arcThicken !== undefined) {
-      const arcs = new Float32Array(verts * 2);
-      this.smallArcs = arcs.subarray(largeVerts * 2);
-      this.arcAttr = new THREE.BufferAttribute(arcs, 2);
+      const arcs = new Float32Array(verts * ARC_FIELDS);
+      this.smallArcs = arcs.subarray(largeVerts * ARC_FIELDS);
+      this.arcAttr = new THREE.BufferAttribute(arcs, ARC_FIELDS);
       this.arcAttr.setUsage(THREE.DynamicDrawUsage);
       geometry.setAttribute('aArc', this.arcAttr);
     }
@@ -598,7 +614,9 @@ export class SelectionRingBatch {
     key = -1,
     /** Arc mode only: the swept fraction of the circle (0..1) and whether the ring breathes. */
     arcFraction = 0,
-    pulse = false
+    pulse = false,
+    /** Arc mode only: cut the ring into segments (`RingStyle.dashSegments`). */
+    dashed = false
   ): boolean {
     if (this.usedSmall + this.usedLarge >= this.capacity) return false;
     const a = p.alongTiles ?? p.radiusTiles;
@@ -634,10 +652,11 @@ export class SelectionRingBatch {
     }
     if (this.smallArcs !== null) {
       const f = arcFraction < 0 ? 0 : arcFraction > 1 ? 1 : arcFraction;
-      const base = slot * SMALL_VERTS * 2;
+      const base = slot * SMALL_VERTS * ARC_FIELDS;
       for (let v = 0; v < SMALL_VERTS; v++) {
-        this.smallArcs[base + v * 2] = f;
-        this.smallArcs[base + v * 2 + 1] = pulse ? 1 : 0;
+        this.smallArcs[base + v * ARC_FIELDS] = f;
+        this.smallArcs[base + v * ARC_FIELDS + 1] = pulse ? 1 : 0;
+        this.smallArcs[base + v * ARC_FIELDS + 2] = dashed ? 1 : 0;
       }
     }
     if (!hit) {

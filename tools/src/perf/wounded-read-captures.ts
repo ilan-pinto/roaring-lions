@@ -33,6 +33,7 @@ const OUT = path.resolve(arg('out', '.superpowers/wounded-read'));
 const REDUCED = args.includes('--reduced');
 const SWEEP = args.includes('--sweep');
 const CVD = args.includes('--cvd');
+const CIV = args.includes('--civ');
 const ONLY = arg('only', '').split(',').filter(Boolean);
 const PROBE = arg('probe', '');
 const PULSE = arg('pulse', '');
@@ -406,6 +407,37 @@ async function cvdRows(browser: import('playwright').Browser): Promise<void> {
   }
 }
 
+/** `--civ`: an own wounded man and a wounded CIVILIAN (side 2) side by side, under the default and
+ *  deuteranopia colour-vision variants (GH-707, the dashed own ring). There is no civilian wounded
+ *  type, so the civilian is a `wounded_kdf` spawned on side 2: the ring colour and shape come from the
+ *  side alone. `--tag=<name>` prefixes the files, so a before and an after can share a directory. */
+async function civRows(browser: import('playwright').Browser): Promise<void> {
+  const tag = arg('tag', 'civ');
+  for (const kind of ['default', 'deuteranopia'] as const) {
+    const page = await browser.newPage({ viewport: { ...VIEWPORT }, deviceScaleFactor: 1 });
+    await page.addInitScript(musicOffInitScript({}, {}, { colorVision: kind }));
+    await page.addInitScript('window.__name = (f) => f;');
+    page.setDefaultTimeout(120000);
+    await open(page, 'beit_sahwan_outskirts', '');
+    const [x, y] = await quietSpot(page);
+    const obs = await spawn(page, 'inf_squad', 0, x - 5, y + 3);
+    const own = await spawn(page, 'wounded_kdf', 0, x - 1.6, y);
+    const civ = await spawn(page, 'wounded_kdf', 2, x + 1.6, y);
+    await frameAt(page, x, y, 1);
+    await waitMeshes(page, [obs, own, civ], 2);
+    await advance(page, 800);
+    await setBleed(page, own, 0.7, 1200);
+    await setBleed(page, civ, 0.7, 1200);
+    for (const z of [1, 2.5]) {
+      await toPulsePhase(page, 8);
+      const at = await frameAt(page, x, y, z);
+      await layer(page, true);
+      await shoot(page, `${tag}-${kind}-z${z}`, at);
+    }
+    await page.close();
+  }
+}
+
 /** The pulse as frames: one sim tick (50 ms) a frame over `ticks` ticks, ring on, camera on the man. */
 async function pulseFrames(page: Page, spec: Spec, zoom: number, ticks: number): Promise<void> {
   // No corpses here: a body's death clip runs on the frame clock, which a one-tick step does not advance.
@@ -473,12 +505,14 @@ async function main(): Promise<void> {
       return;
     }
     for (const spec of SPECS) {
+      if (CIV && ONLY.length === 0) break;
       if (ONLY.length > 0 && !ONLY.includes(spec.id)) continue;
       console.log(`scene ${spec.id}`);
       await open(page, spec.map, spec.flags);
       await runSpec(page, spec);
     }
     if (CVD) await cvdRows(browser);
+    if (CIV) await civRows(browser);
     if (SWEEP) {
       for (const spec of SPECS.filter((sp) => sp.id !== 'enemy')) {
         await open(page, spec.map, spec.flags);

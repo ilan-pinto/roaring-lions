@@ -94,6 +94,12 @@ export const TEAM_RING = {
  * medic has stabilised him). `arcThicken` x the core's thickness, growing inward, marks the swept
  * fraction of the circle that is the bleed clock still left. No new world mark: it replaces the team
  * ring under him. Its own `SelectionRingBatch`: +1 draw call while a wounded man is in view.
+ *
+ * The viewer's OWN ring is also DASHED (`dashSegments` cells, a gap of `dashGapFraction` of each),
+ * the non-colour cue, so a friend never rests on colour alone against a civilian: amber against
+ * `team.neutral` yellow is under the lead's dE 20 floor in every variant (the civilian ring actually
+ * drawn is the pale cream `limestone.0`, which clears it). Enemy and civilian stay solid.
+ * `wounded_ring_cvd.test.ts` pins it.
  */
 export const WOUND_RING = {
   thicknessTiles: 0.07,
@@ -104,6 +110,8 @@ export const WOUND_RING = {
   arcExtraMaxPx: 2,
   pulsePeriodS: 1.6,
   pulseMinAlpha: 0.55,
+  dashSegments: 8,
+  dashGapFraction: 0.3,
   capacity: 64,
 } as const;
 

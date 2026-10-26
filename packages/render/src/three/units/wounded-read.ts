@@ -23,6 +23,7 @@
  */
 import * as THREE from 'three';
 import { ONE, bleedClock, type BleedClockSource } from '@lions/sim';
+import { isOwnSide } from '../../relation';
 
 /** The slice of the sim it reads (structural, so a test hands a literal). */
 export type BleedSource = BleedClockSource;
@@ -40,6 +41,15 @@ export function bleedFractionOf(sim: BleedSource, id: number): BleedRead | null 
   const clock = bleedClock(sim, id);
   if (clock === null) return null;
   return { fraction: clock.fraction / ONE, bleeding: !clock.stabilised };
+}
+
+/**
+ * Whether a wounded man's ring is drawn DASHED (`WOUND_RING.dashSegments`): the viewer's own men
+ * only; the enemy's and a civilian's stay solid. The non-colour cue behind `wounded_ring_cvd.test.ts`:
+ * own amber against `team.neutral` yellow is under dE 20 in every variant, so shape does not wait on colour.
+ */
+export function woundRingDashed(side: number, viewer: number): boolean {
+  return isOwnSide(side, viewer);
 }
 
 /**

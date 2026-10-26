@@ -700,7 +700,7 @@ import {
   ringClassOf,
   ringRadiusFor,
 } from './units/readability';
-import { bleedFractionOf, liftWoundedTemplate, setWoundedLift, type BleedRead } from './units/wounded-read';
+import { bleedFractionOf, liftWoundedTemplate, setWoundedLift, woundRingDashed, type BleedRead } from './units/wounded-read';
 import { SelectionRingBatch } from './units/selection-ring';
 import { capTextureSize } from './units/texture-cap';
 import { buildInventory, type MemoryInventory } from './memory-inventory';
@@ -11072,7 +11072,8 @@ export class ThreeRenderer implements Renderer {
     scale: number = SELECTED_RING_SCALE,
     colorHex: string = this.opts.teamColors[colorSlot(side, this.viewer)],
     arcFraction = 0,
-    pulse = false
+    pulse = false,
+    dashed = false
   ): boolean {
     const p = this.ringScratch;
     p.x = x;
@@ -11095,7 +11096,7 @@ export class ThreeRenderer implements Renderer {
       p.z = z + e.offsetAlong * Math.sin(heading);
     }
     // The entity id keys the batch's position cache (fix round 1).
-    return batch.push(p, this.decalSampleY, i, arcFraction, pulse);
+    return batch.push(p, this.decalSampleY, i, arcFraction, pulse, dashed);
   }
 
   /**
@@ -11104,10 +11105,11 @@ export class ThreeRenderer implements Renderer {
    * still has, breathing while he bleeds. false when the batch refuses it (caller keeps the team ring).
    */
   private pushWoundRing(i: number, type: Sim['unitTypes'][number], x: number, z: number, side: number, read: BleedRead): boolean {
-    const hex = isOwnSide(side, this.viewer)
-      ? this.overlayColor(WOUND_OWN_COLOR_KEY)
-      : this.opts.teamColors[colorSlot(side, this.viewer)];
-    return this.pushSelectionRing(i, type, x, z, side, this.woundRing, WOUND_RING_SCALE, hex, read.fraction, read.bleeding);
+    const own = isOwnSide(side, this.viewer);
+    const hex = own ? this.overlayColor(WOUND_OWN_COLOR_KEY) : this.opts.teamColors[colorSlot(side, this.viewer)];
+    // Own is DASHED, enemy and civilian solid, so shape separates them whatever the colours do
+    // (`WOUND_RING`; `wounded_ring_cvd.test.ts` pins it against the civilian cream and team.neutral).
+    return this.pushSelectionRing(i, type, x, z, side, this.woundRing, WOUND_RING_SCALE, hex, read.fraction, read.bleeding, woundRingDashed(side, this.viewer));
   }
 
   // ------------------------------------------------------------------
