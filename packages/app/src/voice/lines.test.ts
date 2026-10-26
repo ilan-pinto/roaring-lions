@@ -140,6 +140,9 @@ describe('rosterLanguages (N16)', () => {
   });
 });
 
+/** Announcer events whose voice slot is declared in data/audio.json before the take is recorded. */
+const ANNOUNCER_SLOTS_AWAITING_TAKES: readonly string[] = ['medic'];
+
 describe('data/audio.json declares the director’s whole vocabulary (spec §6, R-6)', () => {
   const voices = (audioManifest as {
     voices?: {
@@ -163,7 +166,21 @@ describe('data/audio.json declares the director’s whole vocabulary (spec §6, 
         expect(e.audio, event).toBe(announceLineKey('he', event));
         return e.audio;
       });
-    expect(Object.keys(voices?.lines ?? {}).sort()).toEqual([...allLineKeys(langs), ...announced].sort());
+    // GH-753: an announcer slot may be declared before its recording lands (an empty `variants` list plays
+    // nothing). Each is listed here, so a stray empty line is still caught.
+    const reserved = ANNOUNCER_SLOTS_AWAITING_TAKES.map((event) => announceLineKey('he', event));
+    expect(Object.keys(voices?.lines ?? {}).sort()).toEqual([...allLineKeys(langs), ...announced, ...reserved.filter((k) => !announced.includes(k))].sort());
+  });
+
+  it('a reserved announcer slot is empty until its event names it, and then both at once (GH-753)', () => {
+    for (const event of ANNOUNCER_SLOTS_AWAITING_TAKES) {
+      const key = announceLineKey('he', event);
+      const takes = (voices?.lines?.[key] as { variants: unknown[] } | undefined)?.variants;
+      expect(takes, key).toBeDefined();
+      const named = voices?.announcements?.events[event]?.audio;
+      // recorded <=> named: an empty slot with a name is a promise nothing keeps; a take with no name never plays.
+      expect(named === key, `${event}: audio ${JSON.stringify(named)}`).toBe((takes ?? []).length > 0);
+    }
   });
 
   it('carries N11’s line gain', () => {

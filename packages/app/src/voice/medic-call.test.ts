@@ -24,11 +24,13 @@ describe('medicCallInputs (GH-707 P2)', () => {
 });
 
 describe('the shipped "medic" announcement', () => {
-  it('speaks at most once per 8 s, as a caption (no recording yet), and says "Medic!"', () => {
+  it('speaks at most once per 8 s, with a caption that says "Medic!" and the voice slot once it is recorded', () => {
     const call = [{ event: 'medic' as const }];
     let r = decideAnnouncements(INITIAL_ANNOUNCE, call, shipped, 'he', 0);
     expect(r.cue?.caption).toBe('announce.medic');
-    expect(r.cue?.key).toBe('');
+    // GH-753: '' until tools/prepare_medic_voice.py fills the slot, then the slot's own key -- never anything else.
+    expect(r.cue?.key).toBe(shipped.events.medic.audio);
+    expect(['', 'he.common.announce_medic']).toContain(r.cue?.key);
     r = decideAnnouncements(r.state, call, shipped, 'he', 7_999);
     expect(r.cue).toBeNull();
     expect(r.notes[0].why).toBe('silent:cooldown');
