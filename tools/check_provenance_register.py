@@ -22,9 +22,10 @@ It fails (exit 1) on any of:
     (the register says the second is the Draco twin of the first)
 
 It checks that a row EXISTS, not that what the row says is true: the
-columns are claims a person has to have checked. It is not wired into CI or
-`pnpm test` -- doing that would make every art PR add a row, which is a
-policy for the project lead to set, not a side effect of a docs pass.
+columns are claims a person has to have checked. It runs in CI, as a step of
+the `gates` job (`.github/workflows/ci.yml`), so a PR that adds an asset adds
+its row. Write a row's first cell with full paths: a bare file name in
+backticks is read as nothing and leaves the file uncovered.
 """
 import argparse
 import collections
