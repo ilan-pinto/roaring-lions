@@ -114,6 +114,21 @@ def main():
     f, _ = run(mod, voices({"he.infantry.move": {"variants": [variant(source="commercial licence NOT yet confirmed (D5)", **el)]}}), [good["file"]])
     check("ElevenLabs speech with the licence marked unconfirmed passes (the commercial gate holds it back)", f, None)
 
+    # GH-753: the lead's OWN recording of a line (no ElevenLabs generator) is not caught by the ElevenLabs rule,
+    # and a commercial build keeps it.
+    own = variant(source="recorded by the project lead in his own voice on 2026-10-26, all rights reserved, not AI-generated, cleared for commercial use",
+                  generator="none (human voice, recorded by the project lead)")
+    f, _ = run(mod, voices({"he.infantry.move": {"variants": [own]}}), [good["file"]])
+    check("an own recording passes (the ElevenLabs-source rule does not fire)", f, None)
+    man = {"voices": voices({"he.infantry.move": {"variants": [own, variant(file="voice/he/infantry/move_02a.ogg", generator="ElevenLabs (AI-generated speech)",
+                                                                        source="ElevenLabs, licence not yet confirmed")]}})}
+    stripped, excluded = mod.commercial_manifest(man)
+    kept = [v["file"] for v in stripped["voices"]["lines"]["he.infantry.move"]["variants"]]
+    ok = kept == [own["file"]] and excluded == ["voice/he/infantry/move_02a.ogg"]
+    print(f"{'ok  ' if ok else 'FAIL'} the commercial manifest keeps the own recording and strips the unconfirmed ElevenLabs take" + ("" if ok else f" -- got {kept}, {excluded}"))
+    if not ok:
+        bad.append("commercial keeps own recording")
+
     f, _ = run(mod, voices({"he.infantry.move": {"variants": []}, "ar.crew.death": {"variants": []}}))
     check("every line empty passes -- the engine ships with no assets", f, None)
 

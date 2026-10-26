@@ -81,7 +81,8 @@ def snapshot(root):
 def run(src, root, **kw):
     log = []
     try:
-        pmv.run(src, kw.pop("paid", True), root=root, log=log.append, gate=kw.pop("gate", False), **kw)
+        own = kw.pop("own", False)
+        pmv.run(src, kw.pop("paid", not own), root=root, log=log.append, gate=kw.pop("gate", False), own_recording=own, **kw)
         return None, log
     except pmv.Refusal as e:
         return str(e), log
@@ -131,6 +132,11 @@ def main():
         err, _ = run(src, root, paid=False)
         check("without --paid-plan the run is refused", err is not None and "--paid-plan" in err, err)
         check("... and nothing is written", snapshot(root) == before)
+        err, _ = run(src, root, paid=False, own=False)
+        check("with neither source mode the run is refused", err is not None and "--own-recording" in err and "exactly one" in err, err)
+        err, _ = run(src, root, paid=True, own=True)
+        check("both source modes together are refused", err is not None and "exclusive" in err, err)
+        check("... and nothing is written by either refusal", snapshot(root) == before)
 
         write_wav(os.path.join(src, "medic_he_02.wav"), shout(seed=2))
         for label, x, want in (
@@ -160,6 +166,9 @@ def main():
             stamp = datetime.datetime(2026, 10, 20, 12, 0).timestamp()
             os.utime(p, (stamp, stamp))
         man_before = json.load(open(os.path.join(root, "data", "audio.json"), encoding="utf-8"))
+        # the shipped slot may already be filled (the lead's own take): what must not move is everything BESIDE it
+        man_before["voices"]["lines"][pmv.KEY]["variants"] = []
+        man_before["voices"]["announcements"]["events"]["medic"]["audio"] = ""
         text_before = open(os.path.join(root, "data", "audio.json"), encoding="utf-8").read()
         err, log = run(src, root, today=datetime.date(2026, 10, 27))
         check("three Hebrew takes and an English one are prepared", err is None, err)
@@ -220,6 +229,51 @@ def main():
         json.dump(broken, open(os.path.join(root, "data", "audio.json"), "w", encoding="utf-8"), indent=2, ensure_ascii=False)
         r = subprocess.run([sys.executable, os.path.join(root, "tools", "validate_audio.py")], capture_output=True, text=True)
         check("takes the announcement does not name turn the gate red", r.returncode != 0 and "never plays" in r.stdout + r.stderr, (r.stdout + r.stderr)[-400:])
+
+    # --- the lead's own recording (--own-recording) -------------------------------
+    with tempfile.TemporaryDirectory() as d:
+        root = tree(os.path.join(d, "root"))
+        src = os.path.join(d, "src")
+        os.makedirs(src)
+        p = os.path.join(src, "medic_he_01.wav")
+        write_wav(p, shout(seconds=1.0, seed=7))
+        err, log = run(src, root, own=True, generated="2026-10-26", today=datetime.date(2026, 10, 26))
+        check("an own recording of one take is prepared", err is None, err)
+        man = json.load(open(os.path.join(root, "data", "audio.json"), encoding="utf-8"))
+        slot = man["voices"]["lines"][pmv.KEY]["variants"]
+        check("the slot holds the one variant and the announcement names it",
+              [v["file"] for v in slot] == ["voice/he/common/announce_medic_01a.ogg"]
+              and man["voices"]["announcements"]["events"]["medic"]["audio"] == pmv.KEY)
+        v = slot[0]
+        check("the provenance says the lead's own voice, all rights reserved, not AI-generated, with the date",
+              all(w in v["source"] for w in ("own voice", "all rights reserved", "not AI-generated", "2026-10-26")), v["source"])
+        check("the generator is a human voice and never ElevenLabs", "elevenlabs" not in (v["generator"] + v["source"]).lower()
+              and v["generator"].startswith("none (human voice"), v["generator"])
+        check("licence LicenseRef-owned, credit Ilan Pinto", v["license"] == "LicenseRef-owned" and v["credit"] == "Ilan Pinto")
+        check("the source carries the input's sha256", pmv.sha256(p) in v["source"])
+        r = subprocess.run([sys.executable, os.path.join(root, "tools", "validate_audio.py")], capture_output=True, text=True)
+        check("validate_audio.py passes on an own recording (the ElevenLabs-source rule does not fire)", r.returncode == 0, (r.stdout + r.stderr)[-600:])
+        failures = []
+        va.check_commercial({"voices": {"lines": {pmv.KEY: {"variants": slot}}}}, failures)
+        check("the commercial gate passes it", failures == [], failures)
+        stripped, excluded = va.commercial_manifest(man)
+        check("the commercial manifest INCLUDES the take and excludes neither of its files",
+              stripped["voices"]["lines"][pmv.KEY]["variants"] == slot and not any("announce_medic" in f for f in excluded), excluded)
+        doc = open(os.path.join(root, "docs", "ASSET_PROVENANCE.md"), encoding="utf-8").read()
+        row = next(l for l in doc.splitlines() if l.startswith("|") and "announce_medic" in l.split("|")[1])
+        check("the register row says a human voice, not AI, and carries no ElevenLabs wording",
+              "No: a human voice" in row and "ElevenLabs" not in row and "own voice" in row, row)
+        check("the status line says filled, the lead's own voice",
+              "Status: **filled 2026-10-26**" in doc and "own voice" in doc.split("Status: **filled")[1].split("\n")[0] and "empty slot" not in doc)
+        pats = [cpr.glob_re(q) for _, q in cpr.register_patterns(doc) if "announce_medic" in q]
+        written = sorted(f"assets/audio/{v[k]}" for k in ("file", "alt"))
+        check("the provenance row covers each written file once",
+              all(sum(bool(q.match(f)) for q in pats) == 1 for f in written) and len(pats) == len(written), (len(pats), written))
+        # the same recording under --paid-plan is the ElevenLabs path and still carries ElevenLabs wording
+        root2 = tree(os.path.join(d, "root2"))
+        err, _ = run(src, root2, paid=True, generated="2026-10-26", today=datetime.date(2026, 10, 26))
+        v2 = json.load(open(os.path.join(root2, "data", "audio.json"), encoding="utf-8"))["voices"]["lines"][pmv.KEY]["variants"][0]
+        check("--paid-plan still writes ElevenLabs provenance", err is None and "paid ElevenLabs plan" in v2["source"] and "ElevenLabs" in v2["generator"], err)
 
     print("\nmedic voice prepare: " + ("all cases pass" if not bad else f"{len(bad)} case(s) failed"))
     return 1 if bad else 0

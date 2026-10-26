@@ -969,7 +969,19 @@
         ]
       },
       "he.common.announce_medic": {
-        "variants": []
+        "variants": [
+          {
+            "file": "voice/he/common/announce_medic_01a.ogg",
+            "alt": "voice/he/common/announce_medic_01a.m4a",
+            "license": "LicenseRef-owned",
+            "source": "recorded by the project lead in his own voice on 2026-10-26, all rights reserved, not AI-generated, cleared for commercial use (the lead passed --own-recording to tools/prepare_medic_voice.py, GH-753); input medic_he_01.mp3, sha256 205b41e588076fd69ccd949c7d7d4416bd1591695f91ca878e19f988458c74f2, kept untracked in assets/audio/voice/he/raw/; trimmed and normalised by tools/voice_prep.py",
+            "credit": "Ilan Pinto",
+            "generator": "none (human voice, recorded by the project lead)",
+            "text": "חובש",
+            "translit": "chovesh",
+            "en": "Medic! (one hard shout; the sheet's take 1)"
+          }
+        ]
       },
       "he.common.announce_mission_start": {
         "variants": [
@@ -1208,7 +1220,7 @@
         },
         "medic": {
           "caption": "announce.medic",
-          "audio": "",
+          "audio": "he.common.announce_medic",
           "cooldown_s": 8,
           "priority": "low"
         },

@@ -403,6 +403,7 @@ one directory, `**` crosses directories).
 | `assets/audio/music/holding_the_perimeter_battle.{ogg,m4a}` | The mission's battle music loop (AU-7): the theme's heaviest section, 16 bars at 92 BPM ending on its own fill, a 41.749 s stereo loop | Cut from `holding_the_perimeter.mp3` by `tools/recut_music.py` (the lead's ruling and by-ear pick, 2026-10-09): a slice of the theme with its last 40 ms crossfaded into the theme's own preceding 40 ms, resampled by under 0.03% to whole AAC frames, gain to -15.0 LUFS, encoded by ffmpeg (Vorbis q5, AAC 160 kb/s). Nothing generated or added | Python (numpy, scipy), ffmpeg | Yes, by inheritance: a cut of the AI-generated theme; the generator is unrecorded | Declared CC-BY-4.0, credit Ilan Pinto, as the theme; **inherits the theme's open question (item 3)** and adds none | `data/audio.json`, `music.beds` |
 | `assets/audio/voice/he/infantry/{move_01a,attack_01a,death_01a,death_02a}.{ogg,m4a}`<br>`assets/audio/voice/he/common/ack_01a.{ogg,m4a}` | Five Hebrew unit voice lines, ogg and m4a | ElevenLabs speech the lead generated and supplied on 2026-09-29, trimmed by `tools/voice_prep.py`; the plan and the generation date are not recorded | ElevenLabs; ffmpeg | Yes: ElevenLabs | Declared `LicenseRef-owned`; ElevenLabs commercial licence NOT confirmed (D5, item 2) | Unit voices (ElevenLabs) |
 | `assets/audio/voice/he/common/announce_{defeat,mission_start,objective_active,objective_complete,reinforcements}_01a.{ogg,m4a}`<br>`assets/audio/voice/he/infantry/attack_02a.{ogg,m4a}` | Six Hebrew voice lines in the lead's own voice (five announcer lines, one unit order), ogg and m4a | Recorded by the project lead on 2026-10-09 and supplied as MP3 (the raw files stay untracked in the main checkout); trimmed, mono 44.1 kHz, -18 LUFS by `tools/voice_prep.py` | ffmpeg | No: a human voice | `LicenseRef-owned`, credit Ilan Pinto: his own voice, commercial-safe | Voice lines recorded by the lead |
+| `assets/audio/voice/he/common/announce_medic_01a.{ogg,m4a}` | The "Medic!" call (GH-753): 1 Hebrew take(s) in the lead's own voice, ogg and m4a | Recorded by the project lead in his own voice on 2026-10-26 and supplied as MP3 (the raw file stays untracked in `assets/audio/voice/he/raw/`; its sha256 is in the variant's `source` in `data/audio.json`); trimmed, mono 44.1 kHz, -18 LUFS by `tools/voice_prep.py`, checked and written by `tools/prepare_medic_voice.py --own-recording` | ffmpeg | No: a human voice | `LicenseRef-owned`, credit Ilan Pinto: the lead's own recording, all rights reserved, cleared for commercial use (stated by the lead when he ran the prepare step with `--own-recording` on 2026-10-26) | `data/audio.json` `voices.lines["he.common.announce_medic"]`, `voices.announcements.events.medic` |
 | `assets/audio/barrage_impact/barrage_impact_0{1,2,3}.{ogg,m4a}` | A 120 mm mortar round landing (GH-782): 3 takes, ogg and m4a | ElevenLabs Sound Effects, supplied by the lead (his `A_single_120mm_morta_#1..#3` WAVs): mono (L+R)/2, 44.1 kHz, hit trimmed to 2.5 s, levelled by `tools/prepare_support_audio.py` | ElevenLabs Sound Effects; ffmpeg | **Yes**: ElevenLabs Sound Effects | Declared `LicenseRef-owned`, credit Ilan Pinto; commercial use cleared: paid ElevenLabs plan, tier not named, confirmed by the lead 25 Oct 2026 (item 2) | `tools/support_audio_sources.json` (sha256 of every input), `data/audio.json` `sets.barrage_impact` |
 | `assets/audio/strike_impact/strike_impact_0{1,2,3}.{ogg,m4a}` | The 500 kg bomb of an air strike (GH-782): 3 takes, ogg and m4a | ElevenLabs Sound Effects, supplied by the lead (`A_500_kg_aircraft_bo_#2..#4`): mono, 44.1 kHz, hit trimmed to 5.0 s, levelled by `tools/prepare_support_audio.py` | ElevenLabs Sound Effects; ffmpeg | **Yes**: ElevenLabs Sound Effects | Declared `LicenseRef-owned`, credit Ilan Pinto; commercial use cleared: paid ElevenLabs plan, tier not named, confirmed by the lead 25 Oct 2026 (item 2) | `tools/support_audio_sources.json`, `data/audio.json` `sets.strike_impact` |
 | `assets/audio/jet_flyby/jet_flyby_0{1,2,3,4}.{ogg,m4a}` | The strike jet's pass (GH-782): 4 takes aligned on one loudness peak (`crest_s` 1.8 s), ogg and m4a | ElevenLabs Sound Effects, supplied by the lead (`A_single_fighter_jet_#1..#4`): mono, 44.1 kHz, cut so each take's loudest 400 ms window centres at 1.8 s, 5.0 s long, by `tools/prepare_support_audio.py` | ElevenLabs Sound Effects; ffmpeg | **Yes**: ElevenLabs Sound Effects | Declared `LicenseRef-owned`, credit Ilan Pinto; commercial use cleared: paid ElevenLabs plan, tier not named, confirmed by the lead 25 Oct 2026 (item 2) | `tools/support_audio_sources.json`, `data/audio.json` `sets.jet_flyby` |
@@ -1099,28 +1100,33 @@ plays unplaced, so it goes out through the walkie-talkie chain
 
 ---
 
-## The "Medic!" call (ElevenLabs, GH-753)
+## The "Medic!" call (the lead's own voice, GH-753)
 
 The wounded-and-rescue work (GH-707) shows a "Medic!" caption when one of the
 viewer's own men goes down wounded, at most once per 8 s (`voices.announcements.events.medic`,
 raised by `medicCallInputs` in `packages/app/src/voice/announce.ts`). GH-753 asks for the
-voice. The lead generates it himself in ElevenLabs, on his **paid** plan, from the prompt sheet
-`_coord/medic-voice/prompts.md`: three Hebrew takes (`medic_he_01..03`) and one English take
-(`medic_en_01`, prepared and held, not wired: no faction speaks English).
+voice. The lead first planned to generate it in ElevenLabs from the prompt sheet
+`_coord/medic-voice/prompts.md` (three Hebrew takes `medic_he_01..03`, one English `medic_en_01`,
+held, not wired: no faction speaks English); on **26 Oct 2026** he recorded the call himself instead.
+One take shipped: `medic_he_01`, "חובש!" (chovesh), one shout, from `assets/audio/voice/he/raw/medic.mp3`
+(1.49 s, mono, 44.1 kHz; the raw file stays untracked, its sha256 is in the variant's `source`).
+**It is not AI-generated**: the project lead's own voice, all rights reserved (`LicenseRef-owned`,
+credit Ilan Pinto), cleared for commercial use, so the commercial gate keeps it
+(`validate_audio.py --commercial-manifest` strips only a source that says the licence is not
+confirmed). `credits.ai.audio` needs no change: it already says some radio lines are recorded by him.
 
-The slot is wired and empty: `voices.lines["he.common.announce_medic"]` is declared with an empty
-`variants` list (it plays nothing), and the announcement's `audio` stays `""` because the audio
-gate refuses to name a line with no take (and refuses a take its event does not name).
-`python3 tools/prepare_medic_voice.py --src=<dir> --paid-plan` checks the takes (not clipped, 0.25 to
-2.0 s once trimmed), cuts and levels them with `tools/voice_prep.py`, measures both shipped encodings,
-writes `assets/audio/voice/he/common/announce_medic_0Na.{ogg,m4a}`, fills the variants and the
-announcement's `audio`, records each input's sha256, and rewrites the register row and the status line
-below. `--paid-plan` is the lead's statement that the plan was paid; the script refuses without it, and
-the recorded `source` carries no "licence not confirmed" wording, so the commercial gate passes them.
-The generation date is the input files' date. The five older ElevenLabs voice takes (item 2) are
-unaffected: still unconfirmed.
+`voices.lines["he.common.announce_medic"]` holds the take and the announcement's `audio` names it
+(the audio gate refuses a name with no take, and a take its event does not name).
+`python3 tools/prepare_medic_voice.py --src=<dir> --own-recording` (or `--paid-plan` for ElevenLabs
+takes; exactly one of the two, the lead's statement, else the script refuses and writes nothing)
+checks the takes (not clipped, 0.25 to 2.0 s once trimmed), cuts and levels them with
+`tools/voice_prep.py`, measures both shipped encodings, writes
+`assets/audio/voice/he/common/announce_medic_0Na.{ogg,m4a}`, fills the variants and the
+announcement's `audio`, records each input's sha256, and rewrites the register row and the status
+line below. The recording date is `--generated=YYYY-MM-DD` or the input files' date. The five older
+ElevenLabs voice takes (item 2) are unaffected: still unconfirmed.
 
-Status: **empty slot, no takes yet** (the voice key and the announcement are wired; `python3 tools/prepare_medic_voice.py --src=<dir> --paid-plan` fills them).
+Status: **filled 2026-10-26**: 1 take(s), recorded 2026-10-26 by the project lead in his own voice (his word, `--own-recording`); not AI-generated, all rights reserved, cleared for a commercial build.
 
 ---
 

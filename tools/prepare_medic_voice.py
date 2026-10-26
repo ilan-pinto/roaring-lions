@@ -3,6 +3,7 @@
 Roaring Lions -- prepare the "Medic!" voice call (GH-753).
 
     python3 tools/prepare_medic_voice.py --src=~/Downloads/medic --paid-plan
+    python3 tools/prepare_medic_voice.py --src=<dir> --own-recording [--generated=YYYY-MM-DD]
     python3 tools/prepare_medic_voice.py -h
 
 The lead generates the takes himself in ElevenLabs, on his PAID plan, from the
@@ -35,9 +36,15 @@ voice slot `he.common.announce_medic` that `data/audio.json` already declares em
      register row and status line in docs/ASSET_PROVENANCE.md.
   5. Runs `python3 tools/validate_audio.py` on the result.
 
-The licence statement is the lead's word, and it is only recorded when he gives it:
-`--paid-plan` says the takes were generated on a paid ElevenLabs plan. Without it the
-script refuses. The generation date recorded is the date of the INPUT FILES
+The licence statement is the lead's word, and it is only recorded when he gives it. EXACTLY ONE
+source mode is required (both, or neither, refuses and writes nothing):
+  --paid-plan       the takes were generated on a paid ElevenLabs plan (AI-generated speech);
+  --own-recording   the takes are the project lead's own voice, recorded by him: all rights
+                    reserved, not AI-generated, cleared for commercial use. The provenance says so
+                    and carries no ElevenLabs wording, so the audio gate's ElevenLabs-source rule
+                    (which keys on the generator) does not apply, and `--commercial-manifest`
+                    keeps the take in (it strips only a source that says the licence is not
+                    confirmed). The generation date recorded is the date of the INPUT FILES
 (modification time of the oldest), or `--generated=YYYY-MM-DD`; each input's sha256 goes
 into the variant's `source`, so the committed files trace to the lead's files without
 committing them. The English take goes to `<src>/held/` next to his files: no faction
@@ -98,7 +105,7 @@ LICENSE = "LicenseRef-owned"
 CREDIT = "Ilan Pinto"
 SR = 44100
 
-STATUS_EMPTY = "Status: **empty slot, no takes yet** (the voice key and the announcement are wired; `python3 tools/prepare_medic_voice.py --src=<dir> --paid-plan` fills them)."
+STATUS_EMPTY = "Status: **empty slot, no takes yet** (the voice key and the announcement are wired; `python3 tools/prepare_medic_voice.py --src=<dir> --paid-plan` or `--own-recording` fills them)."
 STATUS_RE = re.compile(r"^Status: \*\*(empty slot, no takes yet|filled \d{4}-\d{2}-\d{2}).*$", re.M)
 ROW_ANCHOR = "| `assets/audio/voice/he/common/announce_{defeat,mission_start,objective_active,objective_complete,reinforcements}_01a.{ogg,m4a}`"
 
@@ -215,9 +222,26 @@ def encode_into(stage, stem, src, ffmpeg):
 
 
 # --- writing -----------------------------------------------------------------
-def variant_for(name, take, filename, digest, date):
+def variant_for(name, take, filename, digest, date, own=False):
     n = take["n"]
     base = f"voice/{STEM_DIR}/{STEM}_{n:02d}a"
+    if own:
+        return {
+            "file": f"{base}.ogg",
+            "alt": f"{base}.m4a",
+            "license": LICENSE,
+            "source": (
+                f"recorded by the project lead in his own voice on {date}, all rights reserved, not AI-generated, "
+                f"cleared for commercial use (the lead passed --own-recording to tools/prepare_medic_voice.py, GH-753); "
+                f"input {filename}, sha256 {digest}, kept untracked in assets/audio/voice/he/raw/; "
+                f"trimmed and normalised by tools/voice_prep.py"
+            ),
+            "credit": CREDIT,
+            "generator": "none (human voice, recorded by the project lead)",
+            "text": take["text"],
+            "translit": take["translit"],
+            "en": take["en"],
+        }
     return {
         "file": f"{base}.ogg",
         "alt": f"{base}.m4a",
@@ -267,9 +291,20 @@ def write_manifest(root, variants):
         fh.write(text)
 
 
-def register_row(variants, date, run_date):
+def register_row(variants, date, run_date, own=False):
     nums = [int(re.search(r"_(\d\d)a\.ogg$", v["file"]).group(1)) for v in variants]
     names = (f"announce_medic_0{{{','.join(str(n) for n in nums)}}}a" if len(nums) > 1 else f"announce_medic_{nums[0]:02d}a")
+    if own:
+        return (
+            f"| `assets/audio/voice/he/common/{names}.{{ogg,m4a}}` | The \"Medic!\" call (GH-753): {len(nums)} Hebrew take(s) in the lead's own voice, ogg and m4a "
+            f"| Recorded by the project lead in his own voice on {date} and supplied as MP3 (the raw file stays untracked in `assets/audio/voice/he/raw/`; "
+            f"its sha256 is in the variant's `source` in `data/audio.json`); trimmed, mono 44.1 kHz, -18 LUFS by "
+            f"`tools/voice_prep.py`, checked and written by `tools/prepare_medic_voice.py --own-recording` | ffmpeg "
+            f"| No: a human voice "
+            f"| `LicenseRef-owned`, credit Ilan Pinto: the lead's own recording, all rights reserved, cleared for commercial use "
+            f"(stated by the lead when he ran the prepare step with `--own-recording` on {run_date}) "
+            f"| `data/audio.json` `voices.lines[\"{KEY}\"]`, `voices.announcements.events.medic` |"
+        )
     return (
         f"| `assets/audio/voice/he/common/{names}.{{ogg,m4a}}` | The \"Medic!\" call (GH-753): {len(nums)} Hebrew take(s), ogg and m4a "
         f"| ElevenLabs speech generated by the project lead on {date} (his own Voice Design voice; the WAVs are not committed, "
@@ -282,7 +317,7 @@ def register_row(variants, date, run_date):
     )
 
 
-def write_provenance(root, variants, date, run_date):
+def write_provenance(root, variants, date, run_date, own=False):
     path = os.path.join(root, PROVENANCE_REL)
     with open(path, encoding="utf-8") as fh:
         lines = fh.read().split("\n")
@@ -290,10 +325,14 @@ def write_provenance(root, variants, date, run_date):
     at = next((i for i, l in enumerate(lines) if l.startswith(ROW_ANCHOR)), None)
     if at is None:
         raise Refusal(f"{PROVENANCE_REL}: the register row to insert after was not found")
-    lines.insert(at + 1, register_row(variants, date, run_date))
+    lines.insert(at + 1, register_row(variants, date, run_date, own))
     text = "\n".join(lines)
-    status = (f"Status: **filled {run_date}**: {len(variants)} take(s), generated {date} on a paid ElevenLabs plan "
-              f"(the lead's word, `--paid-plan`); cleared for a commercial build.")
+    if own:
+        status = (f"Status: **filled {run_date}**: {len(variants)} take(s), recorded {date} by the project lead in his own voice "
+                  f"(his word, `--own-recording`); not AI-generated, all rights reserved, cleared for a commercial build.")
+    else:
+        status = (f"Status: **filled {run_date}**: {len(variants)} take(s), generated {date} on a paid ElevenLabs plan "
+                  f"(the lead's word, `--paid-plan`); cleared for a commercial build.")
     if not STATUS_RE.search(text):
         raise Refusal(f"{PROVENANCE_REL}: the 'Status:' line of the Medic! section was not found")
     text = STATUS_RE.sub(lambda _m: status, text, count=1)
@@ -316,10 +355,13 @@ def generated_date(paths, override=None, today=None):
     return d.isoformat()
 
 
-def run(src, paid_plan, root=ROOT, generated=None, log=print, gate=True, today=None):
-    if not paid_plan:
-        raise Refusal("pass --paid-plan: it is the lead's statement that these takes were generated on his PAID ElevenLabs plan "
-                      "(commercial-cleared). Free-tier output cannot be committed (CONTRIBUTING.md); without the statement nothing is written")
+def run(src, paid_plan=False, root=ROOT, generated=None, log=print, gate=True, today=None, own_recording=False):
+    if paid_plan and own_recording:
+        raise Refusal("--paid-plan and --own-recording are exclusive: a take is either ElevenLabs speech or the lead's own voice, never both")
+    if not (paid_plan or own_recording):
+        raise Refusal("pass --paid-plan or --own-recording (exactly one): it is the lead's statement that these takes were generated on his PAID ElevenLabs plan "
+                      "(commercial-cleared; the other is his statement that he recorded the takes in his own voice. Free-tier ElevenLabs output cannot be committed "
+                      "(CONTRIBUTING.md); without the statement nothing is written")
     ffmpeg = os.environ.get("FFMPEG") or shutil.which("ffmpeg") or voice_prep.FFMPEG
     if not (os.path.exists(ffmpeg) or shutil.which(ffmpeg)):
         raise Refusal("ffmpeg not found (set FFMPEG)")
@@ -336,7 +378,7 @@ def run(src, paid_plan, root=ROOT, generated=None, log=print, gate=True, today=N
     date = generated_date(found.values(), generated, today)
     run_date = (today or datetime.date.today()).isoformat()
 
-    log(f"generation date {date} (from the files{'' if generated is None else ', overridden'}); statement: paid ElevenLabs plan")
+    log(f"generation date {date} (from the files{'' if generated is None else ', overridden'}); statement: {'own recording' if own_recording else 'paid ElevenLabs plan'}")
     # 1. every take is checked before anything is written
     for name in sorted(found):
         secs = check_take(name, found[name], ffmpeg)
@@ -363,7 +405,7 @@ def run(src, paid_plan, root=ROOT, generated=None, log=print, gate=True, today=N
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
                 shutil.copyfile(os.path.join(stage, "assets", "audio", rel), dst)
                 keep.add(rel)
-            variants.append(variant_for(name, TAKES[name], os.path.basename(he[name]), sha256(he[name]), date))
+            variants.append(variant_for(name, TAKES[name], os.path.basename(he[name]), sha256(he[name]), date, own_recording))
         d = os.path.join(voice_dir, "voice", STEM_DIR)
         for f in sorted(os.listdir(d)):
             rel = f"voice/{STEM_DIR}/{f}"
@@ -378,7 +420,7 @@ def run(src, paid_plan, root=ROOT, generated=None, log=print, gate=True, today=N
             log(f"held {name} in {os.path.join(src, 'held')}: no faction speaks {TAKES[name]['lang']}, so it is not wired")
     variants.sort(key=lambda v: v["file"])
     write_manifest(root, variants)
-    write_provenance(root, variants, date, run_date)
+    write_provenance(root, variants, date, run_date, own_recording)
     log(f"wrote {len(variants)} variant(s) to {KEY} and named it in announcements.events.{EVENT}.audio")
     if gate:
         r = subprocess.run([sys.executable, os.path.join(root, "tools", "validate_audio.py")], capture_output=True, text=True, cwd=root)
@@ -393,19 +435,24 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[1] + " " + __doc__.split("\n")[2])
     ap.add_argument("--src", required=True, help="the folder of the lead's takes (medic_he_01.wav ...)")
     ap.add_argument("--paid-plan", action="store_true", help="the takes were generated on a PAID ElevenLabs plan (the lead's statement)")
-    ap.add_argument("--generated", help="generation date YYYY-MM-DD; default the oldest input file's date")
+    ap.add_argument("--own-recording", action="store_true",
+                    help="the takes are the lead's own voice, recorded by him (all rights reserved, not AI-generated); exclusive with --paid-plan")
+    ap.add_argument("--generated", help="generation (or recording) date YYYY-MM-DD; default the oldest input file's date")
     ap.add_argument("--no-gate", action="store_true", help="skip running validate_audio.py at the end")
     args = ap.parse_args(argv)
     try:
-        run(args.src, args.paid_plan, generated=args.generated, gate=not args.no_gate)
+        run(args.src, args.paid_plan, generated=args.generated, gate=not args.no_gate, own_recording=args.own_recording)
     except Refusal as e:
         print(f"refused: {e}", file=sys.stderr)
         return 1
     print("\nnext: git add the new assets/audio/voice/he/common/announce_medic_* files, then run")
     print("  python3 tools/check_provenance_register.py && pnpm validate:audio && pnpm exec vitest run packages/app/src/voice")
     print("  git commit -- data/audio.json docs/ASSET_PROVENANCE.md assets/audio/voice/he/common/announce_medic_*")
-    print("credits.ai.audio (packages/app/src/i18n/en.json, pinned by credits-data.test.ts) still says every ElevenLabs voice is left out of a")
-    print("commercial release: it needs a sentence that these Medic! takes ship (they are paid-plan, cleared).")
+    if args.paid_plan:
+        print("credits.ai.audio (packages/app/src/i18n/en.json, pinned by credits-data.test.ts) still says every ElevenLabs voice is left out of a")
+        print("commercial release: it needs a sentence that these Medic! takes ship (they are paid-plan, cleared).")
+    else:
+        print("credits.ai.audio needs no change: these takes are the lead's own voice, not AI (check it still says some radio lines are recorded by him).")
     return 0
 
 
