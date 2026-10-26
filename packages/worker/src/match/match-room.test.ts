@@ -1696,3 +1696,161 @@ describe('per-seat kit: the room records each seat\'s claim and mints it only in
     expect(ofType(ws0, 'start')[0].config.seats.map((s) => [s.kit, s.tiers])).toEqual([['brigade', {}], ['brigade', {}]]);
   });
 });
+
+describe('hello.from (D6, snapshot S3)', () => {
+  type FrameT = { tick: number; cmds: unknown[] };
+  const logOf = (ws: FakeSocket): ReturnType<typeof ofType<'log'>> => ofType(ws, 'log');
+  const framesOf = (ws: FakeSocket): FrameT[] => logOf(ws).flatMap((l) => l.frames);
+  /** A hello that may carry `from`. */
+  async function helloFrom(room: MatchRoom, seat: Seat, from?: number, t?: string): Promise<FakeSocket> {
+    const ws = openSocket(room);
+    await say(room, ws, { t: 'hello', ticket: t ?? (await ticket(seat)), build: BUILD, ...(from === undefined ? {} : { from }) });
+    return ws;
+  }
+  /** Both seats ack every 10 ticks, as clients do (a seat 40 ticks behind stalls the room). */
+  const live = new Map<MatchRoom, FakeSocket[]>();
+  async function step(n: number, room?: MatchRoom): Promise<void> {
+    const r = room ?? [...live.keys()].at(-1);
+    for (let left = n; left > 0; left -= 10) {
+      await vi.advanceTimersByTimeAsync(Math.min(10, left) * TICK_MS);
+      if (!r) continue;
+      for (const ws of live.get(r) ?? []) {
+        const tick = ofType(ws, 'frame').at(-1)?.tick;
+        if (tick !== undefined && ws.closed === null) await say(r, ws, { t: 'ack', tick });
+      }
+    }
+  }
+  const halt = (id: number) => ({ kind: 'halt', ids: [id] });
+  /** 56 ticks (0..55) with orders at tick 10 and tick 44. Batches: 0..10 and 11..30 (filled: 11..30), 31..44, 45..55 open... see the assertions. */
+  async function played(): Promise<{ state: FakeState; room: MatchRoom; ws0: FakeSocket; ws1: FakeSocket }> {
+    const r = await running();
+    live.clear();
+    live.set(r.room, [r.ws0, r.ws1]);
+    await step(10);
+    await say(r.room, r.ws0, { t: 'cmd', seq: 0, cmd: halt(1) });   // minted at tick 10
+    await step(34);
+    await say(r.room, r.ws1, { t: 'cmd', seq: 0, cmd: halt(2) });   // minted at tick 44
+    await step(12);
+    return r;
+  }
+  const full = async (room: MatchRoom): Promise<FrameT[]> => framesOf(await helloFrom(room, 1));
+
+  it('1. a hello without from gets today\'s log, byte for byte, with no from key (G-5)', async () => {
+    const { room } = await played();
+    const ws = await helloFrom(room, 1);
+    const [text] = ws.sent.filter((t) => t.startsWith('{"t":"log"'));
+    const [log] = logOf(ws);
+    expect(text).toBe(JSON.stringify({ t: 'log', config: log.config, frames: log.frames, part: 0, parts: 1 }));
+    expect(text).not.toContain('"from"');
+    expect(log.frames.map((f) => f.tick)).toEqual([...Array(log.frames.length).keys()]);
+  });
+
+  it('2. from 0 answers the full log, echoed', async () => {
+    const { room } = await played();
+    const all = await full(room);
+    const ws = await helloFrom(room, 1, 0);
+    expect(framesOf(ws)).toEqual(all);
+    expect(logOf(ws).every((l) => l.from === 0)).toBe(true);
+  });
+
+  it('3. from inside a persisted batch gives exactly the full log from that tick, and echoes it', async () => {
+    const { state, room } = await played();
+    const all = await full(room);
+    const from = 38;
+    // The test needs a batch that really spans `from`, with orders on both sides of it.
+    const spans = [...state.storage.batches.keys()].some((k) => k < from && from < k + row(state, k).length);
+    expect(spans).toBe(true);
+    expect(all.filter((f) => f.tick < from && f.cmds.length > 0).length).toBeGreaterThan(0);
+    expect(all.filter((f) => f.tick >= from && f.cmds.length > 0).length).toBeGreaterThan(0);
+    const ws = await helloFrom(room, 1, from);
+    expect(framesOf(ws)).toEqual(all.filter((f) => f.tick >= from));
+    expect(framesOf(ws)[0].tick).toBe(from);
+    expect(logOf(ws).every((l) => l.from === from)).toBe(true);
+  });
+
+  it('4. from inside the open (unflushed) batch: no duplicate, even when a state write flushed a partial row', async () => {
+    const { state, room } = await played();
+    const all = await full(room);
+    const seat1 = await helloFrom(room, 1);   // the live socket of seat 1
+    const openFirst = 45;   // the order at tick 44 closed a batch, so 45..55 are open
+    expect(state.storage.batches.has(openFirst)).toBe(false);
+    await deliverClose(room, seat1, 1006, 'abnormal');   // a state write: it flushes the open batch's partial row
+    expect(state.storage.batches.has(openFirst)).toBe(true);
+    const from = 50;
+    const ws = await helloFrom(room, 1, from);
+    const ticks = framesOf(ws).map((f) => f.tick);
+    expect(ticks).toEqual(all.filter((f) => f.tick >= from).map((f) => f.tick));
+    expect(new Set(ticks).size).toBe(ticks.length);
+  });
+
+  it('5. from === st.tick and from > st.tick: one part with no frames', async () => {
+    const { room, ws0 } = await played();
+    const next = ofType(ws0, 'frame').at(-1)!.tick + 1;
+    for (const from of [next, next + 500]) {
+      const ws = await helloFrom(room, 1, from);
+      expect(logOf(ws)).toHaveLength(1);
+      expect(logOf(ws)[0]).toMatchObject({ frames: [], part: 0, parts: 1, from });
+    }
+  });
+
+  it('6. after an eviction the revived room is behind the client\'s from: one empty part, then the re-minted ticks as frames', async () => {
+    const { state, ws1 } = await running();
+    await step(30);   // 0..19 closed by filling; 20..29 are memory only
+    expect(ofType(ws1, 'frame').at(-1)?.tick).toBe(29);
+    evict();
+    const revived = new MatchRoom(state, env);
+    const back = await helloFrom(revived, 1, 30);
+    expect(logOf(back)).toHaveLength(1);
+    expect(logOf(back)[0]).toMatchObject({ frames: [], from: 30 });
+    await step(12);
+    const ticks = ofType(back, 'frame').map((f) => f.tick);
+    expect(ticks[0]).toBe(20);   // the revived clock restarts at the last persisted batch
+    expect(ticks.length).toBeGreaterThan(8);
+  });
+
+  it('7. an advisor\'s hello with from, and an ended room\'s replay with from', async () => {
+    const { room, ws0 } = await played();
+    const all = await full(room);
+    const ws1 = await helloFrom(room, 1);   // the live socket of seat 1
+    const advTicket = await signTicket(SECRET, { matchId: CODE, seat: 0, player: 'advisor', exp: NOW + 3600 * 1000, role: 'advisor', scope: 'assist' });
+    const adv = await helloFrom(room, 0, 38, advTicket);
+    expect(framesOf(adv)).toEqual(all.filter((f) => f.tick >= 38));
+    expect(logOf(adv).every((l) => l.from === 38)).toBe(true);
+    // The ended-room replay: both seats report the same result tick, the room closes itself.
+    const tick = 40;
+    await say(room, ws0, { t: 'over', tick });
+    await say(room, ws1, { t: 'over', tick });
+    await vi.advanceTimersByTimeAsync(OVER_CLOSE_MS + TICK_MS);
+    expect((await room.fetch(new Request('https://room/state'))).status).toBe(200);
+    const late = await helloFrom(room, 1, 38);
+    expect(last(late)).toEqual({ t: 'ended', reason: 'over' });
+    expect(logOf(late).length).toBeGreaterThan(0);
+    expect(framesOf(late).map((f) => f.tick)[0]).toBe(38);
+    expect(framesOf(late).every((f) => f.tick >= 38)).toBe(true);
+    expect(logOf(late).every((l) => l.from === 38)).toBe(true);
+    const lateAll = framesOf(await helloFrom(room, 1));
+    expect(lateAll[0].tick).toBe(0);
+  });
+
+  it('8. a rejoin half way through a long match reads only the batch rows that can hold its ticks', async () => {
+    const { state, room, ws0, ws1 } = await running();
+    live.clear();
+    live.set(room, [ws0, ws1]);
+    await step(2400);
+    const from = 1500;
+    const keys = [...state.storage.batches.keys()];
+    expect(keys.length).toBeGreaterThanOrEqual(120);
+    const readsOf = async (f?: number): Promise<{ delta: number; ws: FakeSocket }> => {
+      const before = state.storage.rowsRead;
+      const ws = await helloFrom(room, 1, f);
+      return { delta: state.storage.rowsRead - before, ws };
+    };
+    const whole = await readsOf();
+    const trimmed = await readsOf(from);
+    expect(whole.delta).toBe(keys.length);
+    expect(trimmed.delta).toBe(keys.filter((k) => k > from - BATCH_TICKS).length);
+    expect(trimmed.delta).toBeLessThan(whole.delta / 2);
+    expect(framesOf(trimmed.ws).map((f) => f.tick)[0]).toBe(from);
+    expect(framesOf(trimmed.ws).map((f) => f.tick)).toEqual(framesOf(whole.ws).filter((f) => f.tick >= from).map((f) => f.tick));
+  }, 5_000);   // measured 0.2 s
+});

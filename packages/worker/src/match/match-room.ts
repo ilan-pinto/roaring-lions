@@ -63,9 +63,10 @@
  * `connected`) flushes the open batch with its write, so an eviction while
  * waiting for a reconnect re-sends nothing.
  */
-import { advisorMayRelay, factionsOfMatchup, matchupAllowed, sidesOfFactions, matchupField, parseClientMsg, versusMapAllowed, validateConfig, REPLACED_CLOSE_CODE, type AdvisorScope, type ClientMsg, type Frame, type MatchConfig, type Pace, type Seat, type SeatConfig, type ServerMsg } from '@lions/net';
+import { advisorMayRelay, factionsOfMatchup, matchupAllowed, sidesOfFactions, matchupField, parseClientMsg, versusMapAllowed, validateConfig, REPLACED_CLOSE_CODE, LOG_PART_CHARS, type AdvisorScope, type ClientMsg, type Frame, type MatchConfig, type Pace, type Seat, type SeatConfig, type ServerMsg } from '@lions/net';
 import type { Env } from '../d1';
 import type { DurableStateLike, HibernatingSocket, UpgradeInit } from '../do-types';
+import { LOG_FROM_SQL } from './snapshot-sql';
 import { createRoom, endedMsg, lobbyMsg, logParts, pausedMsg, seatJoin, seatMessage, seatGone, clockTick, closeIfDue, expire, forfeitDueAt, forfeitIfDue, persistKey, revive, ROOM_TTL_MS, type Effect, type RoomState } from './room-core';
 import { verifyTicket } from './ticket';
 import { DEFAULT_MAP, callsignField, kitField, mapField, paceField, seatKindField, seatTiersField, textField, type Kit, type SeatKind, type SeatTiers } from './room-fields';
@@ -357,8 +358,8 @@ export class MatchRoom {
     this.writeOpenBatch();
     this.open = [];
   }
-  private batches(query = SELECT_SQL): { firstTick: number; frames: Frame[] }[] {
-    return this.ctx.storage.sql.exec(query).toArray()
+  private batches(query = SELECT_SQL, ...bind: unknown[]): { firstTick: number; frames: Frame[] }[] {
+    return this.ctx.storage.sql.exec(query, ...bind).toArray()
       .map((r) => ({ firstTick: r.first_tick as number, frames: JSON.parse(r.frames as string) as Frame[] }));
   }
   /** Every frame so far: the persisted batches, then the open one (whose
@@ -366,6 +367,18 @@ export class MatchRoom {
   private readLog(): Frame[] {
     const openFirst = this.open[0]?.tick;
     return [...this.batches().filter((b) => b.firstTick !== openFirst).flatMap((b) => b.frames), ...this.open];
+  }
+  /** The log from tick `from` on (a hello's `from`, snapshot S3). A batch holds
+   *  at most `BATCH_TICKS` frames, so any batch that can hold a tick >= `from`
+   *  starts after `from - BATCH_TICKS`: only those rows are read. The open
+   *  batch follows under `readLog`'s rule (the memory copy supersedes its own
+   *  partial row), and a filter trims the head of the batch that spans `from`.
+   *  No `from` is `readLog()` exactly as before. */
+  private readLogFrom(from: number | undefined): Frame[] {
+    if (from === undefined) return this.readLog();
+    const openFirst = this.open[0]?.tick;
+    return [...this.batches(LOG_FROM_SQL, from - BATCH_TICKS).filter((b) => b.firstTick !== openFirst).flatMap((b) => b.frames), ...this.open]
+      .filter((f) => f.tick >= from);
   }
   /** Every handler starts here: load, then the TTL (R28), then a forfeit
    *  that has fallen due -- before any hello, so a seat that reconnects after
@@ -757,7 +770,8 @@ export class MatchRoom {
       // other seat ended on -- and show the same result. Only to a verified
       // ticket on this build; anyone else hears the ending alone, as before.
       if (st.config !== null && (await this.mayReplay(st, msg))) {
-        for (const part of logParts(st.config, this.readLog())) reply(ws, part);
+        const from = msg.t === 'hello' ? msg.from : undefined;
+        for (const part of logParts(st.config, this.readLogFrom(from), LOG_PART_CHARS, from)) reply(ws, part);
       }
       reply(ws, endedMsg(st));
       shut(ws, 1000, 'ended');
@@ -770,10 +784,10 @@ export class MatchRoom {
     // /create refuses an empty build, so `''` here means meta was never written: fail closed.
     const build = this.meta?.build ?? '';
     if (build === '' || msg.build !== build) { reply(ws, { t: 'error', code: 'build_mismatch' }); shut(ws, 4002, 'build'); return; }
-    if (ticket.role === 'advisor' && ticket.scope !== undefined) { this.advisorHello(ws, st, ticket.seat, ticket.scope); return; }
+    if (ticket.role === 'advisor' && ticket.scope !== undefined) { this.advisorHello(ws, st, ticket.seat, ticket.scope, msg.from); return; }
     if (ticket.role !== 'seat') { reply(ws, { t: 'error', code: 'bad_ticket' }); shut(ws, 4001, 'bad ticket'); return; }
     (ws as HibernatingSocket).serializeAttachment({ seat: ticket.seat } satisfies SocketAttachment);
-    await this.apply(seatJoin(st, ticket.seat, ticket.player, this.meta?.callsigns[ticket.seat] ?? '', Date.now(), () => this.readLog()), ws);
+    await this.apply(seatJoin(st, ticket.seat, ticket.player, this.meta?.callsigns[ticket.seat] ?? '', Date.now(), () => this.readLogFrom(msg.from), msg.from), ws);
     // A seat that (re)joins is told the advisor badges it would otherwise have missed.
     const present = this.advisorsPresent();
     if (present.present.some((p) => p !== null)) reply(ws, present);
@@ -783,12 +797,12 @@ export class MatchRoom {
    *  for the same seat is retired; it is told the lobby, or the log and a pause
    *  in force, as its seat would be; and everyone learns the badge. It never
    *  joins the seat: no `seatJoin`, no state change, no row. */
-  private advisorHello(ws: WebSocket, st: RoomState, seat: Seat, scope: AdvisorScope): void {
+  private advisorHello(ws: WebSocket, st: RoomState, seat: Seat, scope: AdvisorScope, from?: number): void {
     for (const old of this.advisorsFor(seat)) if (old !== ws) retire(old);
     (ws as HibernatingSocket).serializeAttachment({ seat, role: 'advisor', scope } satisfies SocketAttachment);
     if (st.status === 'lobby') reply(ws, this.lobbyFor(lobbyMsg(st, seat) as Extract<ServerMsg, { t: 'lobby' }>, seat));
     else if (st.config !== null) {
-      for (const part of logParts(st.config, this.readLog())) reply(ws, part);
+      for (const part of logParts(st.config, this.readLogFrom(from), LOG_PART_CHARS, from)) reply(ws, part);
       if (st.pause !== null) reply(ws, pausedMsg(st, Date.now(), st.pause));
     }
     this.send('all', this.advisorsPresent());

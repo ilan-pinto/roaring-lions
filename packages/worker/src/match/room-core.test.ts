@@ -835,6 +835,20 @@ describe('#559 H-1: logParts', () => {
     const big = frame(1, 50);
     expect(logParts(CONFIG, [frame(0), big, frame(2)], 100).map((p) => p.frames.map((f) => f.tick))).toEqual([[0], [1], [2]]);
   });
+  it('a from is echoed on every part and on an empty one; no from adds no key (snapshot S3)', () => {
+    const frames = Array.from({ length: 500 }, (_, t) => frame(t, t % 7));
+    const parts = logParts(CONFIG, frames, 2000, 1200);
+    expect(parts.length).toBeGreaterThan(5);
+    expect(parts.every((p) => p.from === 1200)).toBe(true);
+    expect(logParts(CONFIG, [], 2000, 0)).toEqual([{ t: 'log', config: CONFIG, frames: [], part: 0, parts: 1, from: 0 }]);
+    expect(logParts(CONFIG, [frame(0)]).every((p) => !('from' in p))).toBe(true);
+  });
+  it('seatJoin hands its from to the log parts it sends', () => {
+    const st = running();
+    const log = (fx: Effect[]) => sends(fx).find((s) => s.msg.t === 'log')?.msg;
+    expect(log(seatJoin(st, 1, 'p1', 'Guest', 200, () => [frame(5)], 5))).toMatchObject({ t: 'log', from: 5 });
+    expect(log(seatJoin(st, 1, 'p1', 'Guest', 300, () => [frame(5)]))).not.toHaveProperty('from');
+  });
 });
 
 describe('#559 L-3: chat is cleaned like a callsign', () => {
