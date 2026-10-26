@@ -384,6 +384,17 @@ describe('/api/match', () => {
       expect(calls).toEqual([]);
     });
 
+    it('the scheme is `Bearer` and one space, exactly: a valid seat ticket under `bearer` or `BEARER` is 401 and under two spaces is 403, and no stub is called', async () => {
+      const { env, calls } = fakeRooms();
+      const t = await seatTicket('ABCDEF');
+      for (const method of ['POST', 'GET']) {
+        const extra = { tick: '1200', ...(method === 'POST' ? { body: BYTES } : {}) };
+        for (const scheme of ['bearer', 'BEARER']) expect((await handleMatch(snapReq(SNAP, method, `${scheme} ${t}`, extra), env, NOW)).status, `${method} ${scheme}`).toBe(401);
+        expect((await handleMatch(snapReq(SNAP, method, `Bearer  ${t}`, extra), env, NOW)).status, `${method} two spaces`).toBe(403);
+      }
+      expect(calls).toEqual([]);
+    });
+
     it('an advisor ticket, another code\'s ticket, an expired one and junk are 403, and no stub is called', async () => {
       const { env, calls } = fakeRooms();
       const bad = [

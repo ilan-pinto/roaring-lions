@@ -2160,6 +2160,10 @@ describe('snapshot upload (snapshot S3)', () => {
       await refused(r, 39, gz, 401, 'unauthorized', { authorization: `Basic ${await ticket(0)}` });
       await refused(r, 39, gz, 401, 'unauthorized', { authorization: await ticket(0) });
       await refused(r, 39, gz, 401, 'unauthorized', { authorization: 'Bearer' });
+      // The scheme is `Bearer` and one space, exactly: the same valid ticket under another case is refused unread.
+      await refused(r, 39, gz, 401, 'unauthorized', { authorization: `bearer ${await ticket(0)}` });
+      await refused(r, 39, gz, 401, 'unauthorized', { authorization: `BEARER ${await ticket(0)}` });
+      await refused(r, 39, gz, 403, 'forbidden', { authorization: `Bearer  ${await ticket(0)}` });
       expect(bookOf(r.room).ticks()).toEqual([]);
     }, 2_000);
   });
