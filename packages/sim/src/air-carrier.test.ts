@@ -883,24 +883,24 @@ describe('shot down in the air takes everyone (GH-698 Task 5)', () => {
     expect(sim.state.alive[sq]).toBe(1);
   });
 
-  it('Review Focus 4: removeFromPlay of a loaded landed heli sets the riders down on the next tick', () => {
-    // removeFromPlay is not combat: it calls no destroy and touches no rider.
-    // stepTransport's dead-carrier branch (alive[car] === 0) puts each one
-    // down, shaken, on the next tick -- the same as for a ground carrier --
-    // and the R5 rule never applies, because nothing was shot down.
+  it('Review Focus 4: removeFromPlay of a loaded heli takes the riders out with it (GH-815)', () => {
+    // removeFromPlay is not combat: it calls no destroy. It used to leave the riders for
+    // stepTransport's dead-carrier branch to put down shaken a tick later; now the carrier is
+    // driven off the board and the riders go with it, landed or airborne alike -- each removed
+    // in the same call, never hurt, so no rider is left standing where the aircraft vanished.
     for (const st of [AIR_LANDED, AIR_AIRBORNE]) {
       const { sim, heli, squads } = loadedHeli(20.5, 20.5, 6);
       sim.state.airState[heli] = st;
+      const hpBefore = squads.map((s) => sim.state.hp[s]);
       sim.removeFromPlay(heli);
       expect(sim.state.alive[heli]).toBe(0);
-      expect(ridersOf(sim, heli)).toBe(6); // the same tick: not yet touched
-      sim.tick();
-      expect(ridersOf(sim, heli)).toBe(0);
+      expect(ridersOf(sim, heli)).toBe(0); // the same call: nothing left aboard
       expect(sim.passengerCount(heli)).toBe(0);
-      for (const s of squads) {
-        expect(sim.state.alive[s]).toBe(1);
-        expect(sim.state.hp[s]).toBe(BAILED_HP);
-      }
+      sim.tick();
+      squads.forEach((s, k) => {
+        expect([sim.state.alive[s], sim.state.removed[s]]).toEqual([0, 1]);
+        expect(sim.state.hp[s]).toBe(hpBefore[k]); // never bailed out: nothing was shot down
+      });
     }
   });
 

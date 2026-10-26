@@ -675,7 +675,7 @@
               },
               "group": {
                 "type": "string",
-                "description": "commit/withdraw_to: which garrison group moves. dismount: whose carriers unload. remove: which group leaves play (required for this kind)."
+                "description": "commit/withdraw_to: which garrison group moves. dismount: whose carriers unload. remove: which group leaves play (required for this kind). Anyone riding in a removed carrier leaves with it, in the group or not."
               },
               "to": {
                 "type": "string",
@@ -690,7 +690,7 @@
               },
               "zone": {
                 "type": "string",
-                "description": "remove: restrict removal to living group members whose tile lies inside this map zone. Omit to remove the whole group."
+                "description": "remove: restrict removal to living group members whose tile lies inside this map zone. Omit to remove the whole group. A removed carrier's riders go with it wherever they are listed."
               }
             },
             "if": {
