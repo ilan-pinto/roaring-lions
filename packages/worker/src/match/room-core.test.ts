@@ -1230,3 +1230,67 @@ describe('paced rounds (N4a task 6)', () => {
     expect(frames(clockTick(st, 100_050)).map((f) => f.tick)).toEqual([20]);
   });
 });
+
+describe('the agreed effect (snapshot S3)', () => {
+  const snapMint = (every?: number): (() => MatchConfig) => () => ({ ...CONFIG, ...(every === undefined ? {} : { snapshotEveryTicks: every }) });
+  const agreed = (fx: Effect[]) => fx.filter((e): e is Extract<Effect, { kind: 'agreed' }> => e.kind === 'agreed');
+  /** A running room whose config carries the cadence, with `tick` minted. */
+  function runningWith(every: number | undefined, tick = 3000): { st: RoomState; mintC: () => MatchConfig } {
+    const mintC = snapMint(every);
+    const st = createRoom('ABCDEF', 'm1', 0);
+    seatJoin(st, 0, 'p0', 'Host', 0);
+    seatJoin(st, 1, 'p1', 'Guest', 0);
+    seatMessage(st, 0, { t: 'ready' }, 0, mintC);
+    seatMessage(st, 1, { t: 'ready' }, 0, mintC);
+    st.tick = tick;
+    return { st, mintC };
+  }
+  const pairAt = (st: RoomState, mintC: () => MatchConfig, tick: number, ha: number, hb: number): Effect[] => {
+    seatMessage(st, 0, { t: 'hash', tick, h: ha }, 0, mintC);
+    return seatMessage(st, 1, { t: 'hash', tick, h: hb }, 0, mintC);
+  };
+
+  it('comes at 1199 and 2399 with a cadence of 1200, carrying the tick and the digest, before the hashOk', () => {
+    const { st, mintC } = runningWith(1200);
+    expect(pairAt(st, mintC, 1199, 7, 7)).toEqual([
+      { kind: 'agreed', tick: 1199, h: 7 },
+      { kind: 'send', to: 'all', msg: { t: 'hashOk', tick: 1199 } },
+    ]);
+    expect(agreed(pairAt(st, mintC, 2399, -559038737, -559038737))).toEqual([{ kind: 'agreed', tick: 2399, h: -559038737 }]);
+  });
+
+  it('is absent at 19 (a hash tick that is not a snapshot tick) and at 1200', () => {
+    const { st, mintC } = runningWith(1200);
+    const fx = pairAt(st, mintC, 19, 7, 7);
+    expect(agreed(fx)).toEqual([]);
+    expect(sends(fx).map((s) => s.msg)).toEqual([{ t: 'hashOk', tick: 19 }]);
+    expect(agreed(pairAt(st, mintC, 1200, 7, 7))).toEqual([]);
+  });
+
+  it('is absent on a disagreeing pair: the desync path is unchanged', () => {
+    const { st, mintC } = runningWith(1200);
+    const fx = pairAt(st, mintC, 1199, 7, 8);
+    expect(agreed(fx)).toEqual([]);
+    expect(st.status).toBe('ended');
+    expect(sends(fx).map((s) => s.msg)).toEqual([{ t: 'desync', tick: 1199, hashes: [7, 8] }]);
+  });
+
+  it('is absent on a half pair', () => {
+    const { st, mintC } = runningWith(1200);
+    expect(seatMessage(st, 0, { t: 'hash', tick: 1199, h: 7 }, 0, mintC)).toEqual([]);
+  });
+
+  it('is absent when the config has no cadence, or a cadence of 0', () => {
+    for (const every of [undefined, 0]) {
+      const { st, mintC } = runningWith(every);
+      expect(agreed(pairAt(st, mintC, 1199, 7, 7))).toEqual([]);
+    }
+  });
+
+  it('is absent on a replayed hash', () => {
+    const { st, mintC } = runningWith(1200);
+    expect(agreed(pairAt(st, mintC, 1199, 7, 7))).toHaveLength(1);
+    expect(seatMessage(st, 0, { t: 'hash', tick: 1199, h: 7 }, 0, mintC)).toEqual([]);
+    expect(seatMessage(st, 1, { t: 'hash', tick: 1199, h: 7 }, 0, mintC)).toEqual([]);
+  });
+});

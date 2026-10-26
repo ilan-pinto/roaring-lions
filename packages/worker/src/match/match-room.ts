@@ -63,7 +63,7 @@
  * `connected`) flushes the open batch with its write, so an eviction while
  * waiting for a reconnect re-sends nothing.
  */
-import { advisorMayRelay, factionsOfMatchup, matchupAllowed, sidesOfFactions, matchupField, parseClientMsg, versusMapAllowed, validateConfig, REPLACED_CLOSE_CODE, LOG_PART_CHARS, type AdvisorScope, type ClientMsg, type Frame, type MatchConfig, type Pace, type Seat, type SeatConfig, type ServerMsg } from '@lions/net';
+import { advisorMayRelay, factionsOfMatchup, matchupAllowed, sidesOfFactions, matchupField, parseClientMsg, versusMapAllowed, validateConfig, REPLACED_CLOSE_CODE, LOG_PART_CHARS, SNAPSHOT_EVERY_TICKS, SNAPSHOT_EVERY_TICKS_MAX, type AdvisorScope, type ClientMsg, type Frame, type MatchConfig, type Pace, type Seat, type SeatConfig, type ServerMsg } from '@lions/net';
 import type { Env } from '../d1';
 import type { DurableStateLike, HibernatingSocket, UpgradeInit } from '../do-types';
 import { LOG_FROM_SQL } from './snapshot-sql';
@@ -79,6 +79,11 @@ export interface MatchRoomOptions {
   tickMs?: number;
   /** A versus room's seed from its code; default 32 bits from `crypto.getRandomValues`. A sandbox room keeps N0's. */
   seed?: (code: string) => number;
+  /** Frame ticks between snapshots, minted into the room's config; default
+   *  `SNAPSHOT_EVERY_TICKS`. Accepted only as a non-negative multiple of 20 (the
+   *  hash cadence) up to `SNAPSHOT_EVERY_TICKS_MAX`, else the default stands; 0
+   *  turns snapshots off. */
+  snapshotEveryTicks?: number;
 }
 /** A sandbox room's seed: the app's SIM_SEED, so the two-machine protocol stays N0's. A versus room mints its own. */
 const SIM_SEED_N0 = 20260727;
@@ -275,15 +280,24 @@ export class MatchRoom {
   private readonly tickMs: number;
   /** A versus room's seed, or null for the crypto one. */
   private readonly seedFor: ((code: string) => number) | null;
+  /** The cadence minted into every room's config (`MatchRoomOptions.snapshotEveryTicks`). */
+  private readonly snapshotEveryTicks: number;
+  /** The match digest both seats agreed on at a snapshot tick, signed int32 as
+   *  the hash messages carry it. MEMORY ONLY (no row): the two newest ticks. An
+   *  eviction forgets them, and that tick can then never be accepted. */
+  private readonly agreedDigests = new Map<number, number>();
 
   /** No storage here (#559 H-1): an object is made for every code anyone
    *  probes, and only `/create` may give it a table, a key or an alarm.
    *  `opts` is the local relay's (N4b task 11, `tools/src/net/local-relay.ts`):
    *  workerd constructs a Durable Object with two arguments and never passes
-   *  it, so a deployed room keeps `TICK_MS` and the crypto seed. */
+   *  it, so a deployed room keeps `TICK_MS`, the crypto seed and
+   *  `SNAPSHOT_EVERY_TICKS`. */
   constructor(private readonly ctx: DurableStateLike, private readonly env: Env, opts: MatchRoomOptions = {}) {
     this.tickMs = typeof opts.tickMs === 'number' && Number.isFinite(opts.tickMs) && opts.tickMs > 0 ? opts.tickMs : TICK_MS;
     this.seedFor = opts.seed ?? null;
+    const every = opts.snapshotEveryTicks;
+    this.snapshotEveryTicks = typeof every === 'number' && Number.isInteger(every) && every >= 0 && every <= SNAPSHOT_EVERY_TICKS_MAX && every % 20 === 0 ? every : SNAPSHOT_EVERY_TICKS;
   }
 
   // --- storage --------------------------------------------------------------
@@ -422,7 +436,7 @@ export class MatchRoom {
     const config = validateConfig({
       matchId: st.matchId, code: st.code, seed: this.meta?.seed ?? SIM_SEED_N0, map: this.meta?.map ?? DEFAULT_MAP, mode,
       seats: [seatConfig(0), seatConfig(1)],
-      pace, hashEveryTicks: 20, bufferTicks: 2, build: this.meta?.build ?? '', dataDigest: 0,
+      pace, hashEveryTicks: 20, bufferTicks: 2, build: this.meta?.build ?? '', dataDigest: 0, snapshotEveryTicks: this.snapshotEveryTicks,
     });
     if (config === null) throw new Error('MatchRoom minted a config its own validator refuses');
     return config;
@@ -467,19 +481,37 @@ export class MatchRoom {
   private async apply(effects: Effect[], keep?: WebSocket): Promise<void> {
     let desync: Extract<ServerMsg, { t: 'desync' }> | null = null;
     for (const e of effects) {
-      if (e.kind === 'frame') this.record(e.frame);
-      else if (e.kind === 'send') {
-        this.send(e.to, e.msg);
-        if (e.msg.t === 'desync') desync = e.msg;
-      } else if (e.kind === 'shut') {
-        // The room is over (L-1): each socket gives up its seat, so its close
-        // (from either end) finds no seat to mark gone and writes nothing.
-        for (const ws of [...this.socketsFor(e.seat), ...this.advisorsFor(e.seat)]) { disown(ws); shut(ws, 1000, 'ended'); }
-      } else for (const ws of this.socketsFor(e.seat)) if (ws !== keep) retire(ws);
+      // Every kind is named: an unknown one must never fall into `close` and
+      // retire a seat's sockets (the `never` below fails to compile on a new kind).
+      switch (e.kind) {
+        case 'frame': this.record(e.frame); break;
+        case 'send':
+          this.send(e.to, e.msg);
+          if (e.msg.t === 'desync') desync = e.msg;
+          break;
+        case 'shut':
+          // The room is over (L-1): each socket gives up its seat, so its close
+          // (from either end) finds no seat to mark gone and writes nothing.
+          for (const ws of [...this.socketsFor(e.seat), ...this.advisorsFor(e.seat)]) { disown(ws); shut(ws, 1000, 'ended'); }
+          break;
+        case 'close':
+          for (const ws of this.socketsFor(e.seat)) if (ws !== keep) retire(ws);
+          break;
+        case 'agreed': this.onAgreed(e.tick, e.h); break;
+        default: { const unhandled: never = e; throw new Error(`MatchRoom: unhandled effect ${JSON.stringify(unhandled)}`); }
+      }
     }
     await this.saveIfChanged();
     // After the sends and the state write, so a slow or failing D1 delays nothing a player sees.
     if (desync !== null) await this.logDesync(desync.tick, desync.hashes);
+  }
+  /** The pair's hashes for a snapshot tick agreed on `h`: remember the two
+   *  newest in memory (no row). A snapshot upload for the tick is accepted
+   *  against this value only. */
+  private onAgreed(tick: number, h: number): void {
+    this.agreedDigests.set(tick, h);
+    while (this.agreedDigests.size > 2) this.agreedDigests.delete(Math.min(...this.agreedDigests.keys()));
+    // Task 10: tryAccept(tick)
   }
   /** Writes a desync's evidence to D1, once per room. AWAITED by `apply`: an
    *  unawaited D1 call may be cancelled when the object hibernates, and this

@@ -7,7 +7,7 @@
  * `readLog`.
  */
 import {
-  canonicalOrder, cleanChat, FORFEIT_MS, LOG_PART_CHARS, MAX_CMDS_PER_SEAT_PER_FRAME, PAUSE_MS, PAUSES_PER_SEAT, OVER_CLOSE_MS,
+  canonicalOrder, cleanChat, FORFEIT_MS, isSnapshotTick, LOG_PART_CHARS, MAX_CMDS_PER_SEAT_PER_FRAME, PAUSE_MS, PAUSES_PER_SEAT, OVER_CLOSE_MS, snapshotEvery,
   type ClientMsg, type EndedReason, type Faction, type Frame, type MatchConfig, type Seat, type ServerMsg, type Stamped, type SeatState,
 } from '@lions/net';
 
@@ -79,7 +79,11 @@ export type Effect =
   /** A second hello REPLACED this seat: its other sockets go, as replaced. */
   | { kind: 'close'; seat: Seat }
   /** The room is over: this seat's sockets close normally (L-1), not as replaced. */
-  | { kind: 'shut'; seat: Seat };
+  | { kind: 'shut'; seat: Seat }
+  /** Both seats' hashes for a SNAPSHOT tick agreed, on `h` (a signed int32). The
+   *  room keeps it in memory only: a snapshot upload for that tick is accepted
+   *  only when its header's match digest is this value (snapshot S3). */
+  | { kind: 'agreed'; tick: number; h: number };
 
 /** One source for the ack cadence: the client's (`WsTransport`). */
 export { ACK_EVERY } from '@lions/net';
@@ -382,7 +386,12 @@ export function seatMessage(st: RoomState, seat: Seat, msg: ClientMsg, nowMs: nu
       }
       st.lastHashTick = msg.tick;
       for (const k of Object.keys(st.hashes)) if (Number(k) <= st.lastHashTick) delete st.hashes[Number(k)];
-      if (a === b) return [{ kind: 'send', to: 'all', msg: { t: 'hashOk', tick: msg.tick } }];
+      if (a === b) {
+        const hashOk: Effect = { kind: 'send', to: 'all', msg: { t: 'hashOk', tick: msg.tick } };
+        // Before the hashOk, so the room learns the agreed digest before it tells the seats.
+        if (st.config !== null && isSnapshotTick(msg.tick, snapshotEvery(st.config))) return [{ kind: 'agreed', tick: msg.tick, h: a }, hashOk];
+        return [hashOk];
+      }
       endRoom(st, 'void', nowMs);
       return [{ kind: 'send', to: 'all', msg: { t: 'desync', tick: msg.tick, hashes: [a, b] } }];
     }

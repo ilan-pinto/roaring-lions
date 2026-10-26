@@ -30,10 +30,10 @@ const last = (ws: FakeSocket): ServerMsg | undefined => msgs(ws).at(-1);
 const ofType = <T extends ServerMsg['t']>(ws: FakeSocket, t: T): Extract<ServerMsg, { t: T }>[] =>
   msgs(ws).filter((m): m is Extract<ServerMsg, { t: T }> => m.t === t);
 
-interface CreateOpts { mode?: string; join?: boolean; code?: string; db?: D1Like; matchup?: string; kind?: string; pace?: unknown; joinKind?: string; kit?: unknown; tiers?: unknown; joinTiers?: unknown }
+interface CreateOpts { mode?: string; join?: boolean; code?: string; db?: D1Like; matchup?: string; snapshotEveryTicks?: number; kind?: string; pace?: unknown; joinKind?: string; kit?: unknown; tiers?: unknown; joinTiers?: unknown }
 /** Creates the room and, unless `join: false`, has the guest reserve seat 1 as the Worker does. */
 async function created(state = new FakeState(), opts: CreateOpts = {}): Promise<{ state: FakeState; room: MatchRoom }> {
-  const room = new MatchRoom(state, opts.db ? ({ ...env, DB: opts.db } as Env) : env);
+  const room = new MatchRoom(state, opts.db ? ({ ...env, DB: opts.db } as Env) : env, opts.snapshotEveryTicks === undefined ? {} : { snapshotEveryTicks: opts.snapshotEveryTicks });
   const res = await room.fetch(new Request('https://room/create', {
     method: 'POST',
     body: JSON.stringify({ code: opts.code ?? CODE, matchId: opts.code ?? CODE, map: 'tel_marum', build: BUILD, player: 'p-host', callsign: 'Host', ...(opts.mode ? { mode: opts.mode } : {}), ...(opts.matchup ? { matchup: opts.matchup } : {}), ...(opts.kind ? { kind: opts.kind } : {}), ...(opts.pace ? { pace: opts.pace } : {}), ...(opts.kit !== undefined ? { kit: opts.kit } : {}), ...(opts.tiers !== undefined ? { tiers: opts.tiers } : {}) }),
@@ -1853,4 +1853,57 @@ describe('hello.from (D6, snapshot S3)', () => {
     expect(framesOf(trimmed.ws).map((f) => f.tick)[0]).toBe(from);
     expect(framesOf(trimmed.ws).map((f) => f.tick)).toEqual(framesOf(whole.ws).filter((f) => f.tick >= from).map((f) => f.tick));
   }, 5_000);   // measured 0.2 s
+});
+
+describe('the room mints the snapshot cadence and learns agreed digests (snapshot S3)', () => {
+  const startOf = (ws: FakeSocket): Extract<ServerMsg, { t: 'start' }> | undefined => ofType(ws, 'start').at(0);
+  /** `n` ticks, both seats acking every ten as clients do (a seat 40 ticks behind stalls the room). */
+  async function run(room: MatchRoom, socks: FakeSocket[], n: number): Promise<void> {
+    for (let left = n; left > 0; left -= 10) {
+      await vi.advanceTimersByTimeAsync(Math.min(10, left) * TICK_MS);
+      for (const ws of socks) {
+        const tick = ofType(ws, 'frame').at(-1)?.tick;
+        if (tick !== undefined && ws.closed === null) await say(room, ws, { t: 'ack', tick });
+      }
+    }
+  }
+  const agreedOf = (room: MatchRoom): Map<number, number> => (room as unknown as { agreedDigests: Map<number, number> }).agreedDigests;
+
+  it('the minted start config carries snapshotEveryTicks 1200', async () => {
+    const { ws0 } = await running();
+    expect(startOf(ws0)?.config.snapshotEveryTicks).toBe(1200);
+  });
+
+  it('the snapshotEveryTicks option makes it 40; 0 turns it off; an odd value falls back to 1200', async () => {
+    expect(startOf((await running({ snapshotEveryTicks: 40 })).ws0)?.config.snapshotEveryTicks).toBe(40);
+    expect(startOf((await running({ snapshotEveryTicks: 0 })).ws0)?.config.snapshotEveryTicks).toBe(0);
+    expect(startOf((await running({ snapshotEveryTicks: 30 })).ws0)?.config.snapshotEveryTicks).toBe(1200);
+    expect(startOf((await running({ snapshotEveryTicks: 72_020 })).ws0)?.config.snapshotEveryTicks).toBe(1200);
+    expect(startOf((await running({ snapshotEveryTicks: -40 })).ws0)?.config.snapshotEveryTicks).toBe(1200);
+  });
+
+  it('an agreed effect leaves both seats\' sockets open and unretired, and writes no row', async () => {
+    const { state, room, ws0, ws1 } = await running({ snapshotEveryTicks: 40 });
+    await run(room, [ws0, ws1], 45);
+    const before = state.storage.rowsWritten;
+    await say(room, ws0, { t: 'hash', tick: 39, h: 5 });
+    await say(room, ws1, { t: 'hash', tick: 39, h: 5 });
+    expect(agreedOf(room).get(39)).toBe(5);   // the effect really arrived
+    expect(state.storage.rowsWritten - before).toBe(0);
+    for (const ws of [ws0, ws1]) expect(ws.closed).toBeNull();
+    expect(ofType(ws0, 'hashOk').at(-1)).toEqual({ t: 'hashOk', tick: 39 });
+    // A seat's socket still speaks for its seat: a later order is accepted, not dropped by a retired socket.
+    await say(room, ws0, { t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [1] } });
+    expect(ofType(ws0, 'error')).toEqual([]);
+  });
+
+  it('keeps the agreed digest of the two newest snapshot ticks only (memory, three agreements -> two entries)', async () => {
+    const { room, ws0, ws1 } = await running({ snapshotEveryTicks: 40 });
+    await run(room, [ws0, ws1], 125);
+    for (const [tick, h] of [[39, 111], [79, -559038737], [119, 333]] as const) {
+      await say(room, ws0, { t: 'hash', tick, h });
+      await say(room, ws1, { t: 'hash', tick, h });
+    }
+    expect([...agreedOf(room).entries()]).toEqual([[79, -559038737], [119, 333]]);
+  });
 });
