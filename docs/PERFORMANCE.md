@@ -2813,3 +2813,29 @@ shed men, and the budget is under a third used. A 300-unit fight would spend pro
 (the 600-checkpoint row above lost 25 fighters to wounded ids), so a world sized near its capacity
 should be sized with that in mind; a fall at `count === capacity` kills the man rather than
 throwing (`fallMan`), so running out costs the rescue, never the mission.
+
+## GH-829: where the `high` / DPR 2 frame goes on the Wadi Halam maps (2026-10-26)
+
+Apple M3 Pro, ANGLE/Metal (confirmed through `WEBGL_debug_renderer_info`), headless Chromium, tab
+visible, music off, CSS 1440x900 at DPR 2 (2880x1800), `wadi_halam_4` and `wadi_halam_basin` sandbox
+forces (29-32 entities, parked), views z1 / z1.6 / z2.5 at the booted centre. Load average at run
+start 2-12 (one preliminary run at 54 agreed within 0.4 ms). Instrument:
+`tools/src/perf/fx-cost.ts --breakdown`, readPixels-synced, configs interleaved over 3 rounds.
+
+- **Two instruments disagree, so both are published.** `high` reads **19.1 / 18.4 / 16.4 ms** on
+  wadi_halam_4 and **21.0 / 18.1 / 17.0 ms** on basin, synced. The free-running rAF cadence with the
+  app loop live holds **16.7 ms with 0.0% of 300 frames over 20 ms** on every view of both maps, on
+  `high` and `medium`. The cadence check goes red when it should: `--burn=2` reads 50 ms (under load
+  100, so a direction, not a number). GH-777 saw 1-16% of frames over 20 ms at load 36-70.
+- **No pass dominates** (ms saved when switched off, z1 / z1.6 / z2.5, wadi_halam_4): main scene
+  pass 7.6 / 6.1 / 4.9, SMAA 2.4 / 2.8 / 2.1, shadow casting 1.7 / 1.9 / 1.3, GTAO 1.4 / 1.6 / 1.1,
+  bloom 1.0 / 1.3 / 1.2, fog 0.6 / 0.8 / 0.2, vignette 0.3 / 0.7 / -0.3. The basin reads the same
+  within 0.6 ms except decor at z1 (2.2 ms; ~2.0M of 3.9M triangles, drawn by shadow, main and
+  GTAO). Decals, scatter, props, overlays and the ground uniforms are inside noise. CPU submit is 2-3
+  ms of the frame: GPU-bound, not submission-bound.
+- `medium` DPR 2 reads 15.7 / 13.2 / 12.0 and 16.0 / 13.4 / 12.5; `high` DPR 1 reads 9.5 / 8.1 / 7.4
+  and 10.6 / 8.6 / 7.9.
+- Nothing shipped: the identical-image options total about 1.5 ms; the look-changing ones (SMAA off
+  at DPR 2, a 1.5 pixel-ratio cap, decor LOD) are the lead's call. Full tables:
+  `_coord/frame-829/report.md`.
+- Not measured: a live fight, tick time, other GPUs, a real compositor.
