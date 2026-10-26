@@ -1640,8 +1640,11 @@ export class Sim {
    * so every existing alive-gated loop already treats it as gone; this flag
    * exists only for the two callers that must tell the difference:
    * `casualties_pct` (a removed enemy is not a casualty) and the renderer
-   * (no death clip, no wreck). Deliberately absent from `hash()` — nothing
-   * in the golden replay ever calls `removeFromPlay`, and appending even an
+   * (no death clip, no wreck). Deliberately absent from `hash()` — four
+   * shipped missions author a `remove` trigger (qarn_hadid_1_recon,
+   * umm_zeitoun_1_recon, beit_sahwan_breach, khan_rafid_1_recon), but nothing
+   * in the golden replay or the pinned replays ever calls `removeFromPlay`;
+   * `alive` is hashed and already carries the effect, and appending even an
    * all-zero array to a multiplicative hash still moves the final value, so
    * hashing it would move the pinned number for no behavioural reason.
    */
@@ -3422,6 +3425,8 @@ export class Sim {
       throw new Error(`no tunnel ${routeIdx}`);
     }
     if (this.tunnelIn[unitId] === routeIdx) return;
+    // Already below on another route: give that slot up, or it is counted twice.
+    this.releaseTunnel(unitId);
     // A carrier goes below alone: the hull fits the shaft, the riders do
     // not. They are set down where it went under — at the vent, on the
     // runtime path, since submerge is the only way a loaded carrier reaches
@@ -3752,15 +3757,11 @@ export class Sim {
     if (this.woundLive) this.forgetWounded(id);
     // A rider taken alone gives up its seat: left set, the carrier would count a ghost aboard and
     // a later `unload` would put the missing man down on the ground.
-    const seat = this.carriedBy[id];
-    if (seat >= 0) {
-      this.carriedBy[id] = -1;
-      if (this.passengers[seat] > 0) this.passengers[seat]--;
-      if (this.woundLive) this.refreshSpeedMul(seat);
-    }
+    this.releaseSeat(id);
     this.alive[id] = 0;
     this.removed[id] = 1;
     this.releaseSlot(id);
+    this.releaseTunnel(id);
     this.pendingEvents.push({ kind: 'removed', tick: this.tickCount, entity: id, side });
     if (this.passengers[id] > 0) {
       for (let i = 0; i < this.count; i++) {
@@ -5690,8 +5691,7 @@ export class Sim {
    *  window and the volley and keeps `homeTunnel`, so `stepSurfacing` takes it
    *  back down; otherwise (GH-681's `exit`) it is an ordinary surface unit. */
   private surfaceAt(i: number, r: number, vx: Fx, vy: Fx, raid: boolean): void {
-    this.tunnelIn[i] = -1;
-    this.tnOccupants[r]--;
+    this.releaseTunnel(i);
     this.posX[i] = vx;
     this.posY[i] = vy;
     if (raid) {
@@ -8960,6 +8960,39 @@ export class Sim {
     if (this.stOccupants[s] > 0) this.stOccupants[s]--;
   }
 
+  /**
+   * The tunnel twin of `releaseSlot`: free the route slot of a unit that is
+   * leaving play below ground, or that surfaces or changes route. `tnOccupants[r]`
+   * counts the LIVING units with `tunnelIn === r`, and this is the one place
+   * a unit stops being counted: `surfaceAt`, `putInTunnel` (moving to another
+   * route), `destroy` and `removeFromPlay` all go through it. Without it a
+   * body that died or was taken off the board underground held its slot for
+   * the rest of the match, and the route's capacity (a balance lever in
+   * versus) shrank by one for every such death. `collapseTunnel` clears
+   * `tunnelIn` itself before it destroys and zeroes the count after, so it
+   * never reaches here for those bodies. No event: nobody came up.
+   */
+  private releaseTunnel(id: number): void {
+    const r = this.tunnelIn[id];
+    if (r < 0) return;
+    this.tunnelIn[id] = -1;
+    if (this.tnOccupants[r] > 0) this.tnOccupants[r]--;
+  }
+
+  /**
+   * The carrier twin of `releaseSlot`: a rider that leaves play without
+   * walking out (killed, or removed on its own) gives up its seat, so the
+   * carrier does not count a ghost aboard. `disembark` is the living way out
+   * and does the same bookkeeping before it moves the man.
+   */
+  private releaseSeat(id: number): void {
+    const car = this.carriedBy[id];
+    if (car < 0) return;
+    this.carriedBy[id] = -1;
+    if (this.passengers[car] > 0) this.passengers[car]--;
+    if (this.woundLive) this.refreshSpeedMul(car);
+  }
+
   private leaveStructure(id: number): void {
     const s = this.garrisonedIn[id];
     if (s < 0) return;
@@ -10075,6 +10108,8 @@ export class Sim {
     if (this.woundLive) this.forgetWounded(target);
     this.alive[target] = 0;
     this.releaseSlot(target);
+    this.releaseTunnel(target);
+    this.releaseSeat(target);
     for (let s = 0; s < 2; s++) this.lastSeenValid[s * this.capacity + target] = 0;
     this.hp[target] = 0;
     this.moving[target] = 0;
@@ -11276,13 +11311,15 @@ export class Sim {
     h = hashArray(h, this.boardGoal);
     h = hashArray(h, this.passengers);
     h = hashArray(h, this.alive);
-    // `removed` is deliberately absent too, for now. Nothing that ships
-    // reaches `removeFromPlay` yet (no mission authors a `remove` trigger),
-    // so the array is all zero on every replay this hash guards -- but
-    // hashArray folds by XOR-then-multiply, not by sum, so even an all-zero
-    // array is not a no-op to fold in: it would still move the pinned
-    // number. Add it here in the same commit that gives it real content to
-    // protect.
+    // `removed` is deliberately absent too. Four shipped missions author a
+    // `remove` trigger (qarn_hadid_1_recon, umm_zeitoun_1_recon,
+    // beit_sahwan_breach, khan_rafid_1_recon), but none of the replays this
+    // hash guards reaches `removeFromPlay`, so the array is all zero on every
+    // one of them -- and hashArray folds by XOR-then-multiply, not by sum, so
+    // even an all-zero array is not a no-op to fold in: it would still move
+    // the pinned number. `alive` (hashed) already carries a removal's effect.
+    // Fold `removed` in, in its own commit, the day a pinned replay removes
+    // a body.
     h = hashArray(h, this.side);
     h = hashArray(h, this.typeIdx);
     h = hashArray(h, this.posX);
