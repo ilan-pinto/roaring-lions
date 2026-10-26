@@ -19,6 +19,8 @@ import { gzip, maxSizeBomb, snapshotBytes } from './snapshot-fixture';
 import type { PendingBook, ReservationBook } from './snapshot-intake';
 
 const NOW = 1_790_000_000_000;
+/** The tests run on fake timers, which never fire the inflate's zero-delay timer turn: a real event-loop turn stands in. */
+const YIELD = { inflateYield: (): Promise<void> => realImmediate() };
 /** Where a room created at NOW keeps its alarm while nothing else wants one (#559 H-1). */
 const TTL_AT = NOW + ROOM_TTL_MS + 1;
 const SECRET = 'room-test-secret';
@@ -37,7 +39,7 @@ const ofType = <T extends ServerMsg['t']>(ws: FakeSocket, t: T): Extract<ServerM
 interface CreateOpts { mode?: string; join?: boolean; code?: string; db?: D1Like; matchup?: string; snapshotEveryTicks?: number; kind?: string; pace?: unknown; joinKind?: string; kit?: unknown; tiers?: unknown; joinTiers?: unknown }
 /** Creates the room and, unless `join: false`, has the guest reserve seat 1 as the Worker does. */
 async function created(state = new FakeState(), opts: CreateOpts = {}): Promise<{ state: FakeState; room: MatchRoom }> {
-  const room = new MatchRoom(state, opts.db ? ({ ...env, DB: opts.db } as Env) : env, opts.snapshotEveryTicks === undefined ? {} : { snapshotEveryTicks: opts.snapshotEveryTicks });
+  const room = new MatchRoom(state, opts.db ? ({ ...env, DB: opts.db } as Env) : env, opts.snapshotEveryTicks === undefined ? YIELD : { ...YIELD, snapshotEveryTicks: opts.snapshotEveryTicks });
   const res = await room.fetch(new Request('https://room/create', {
     method: 'POST',
     body: JSON.stringify({ code: opts.code ?? CODE, matchId: opts.code ?? CODE, map: 'tel_marum', build: BUILD, player: 'p-host', callsign: 'Host', ...(opts.mode ? { mode: opts.mode } : {}), ...(opts.matchup ? { matchup: opts.matchup } : {}), ...(opts.kind ? { kind: opts.kind } : {}), ...(opts.pace ? { pace: opts.pace } : {}), ...(opts.kit !== undefined ? { kit: opts.kit } : {}), ...(opts.tiers !== undefined ? { tiers: opts.tiers } : {}) }),
@@ -249,7 +251,7 @@ describe('MatchRoom', () => {
       ['beit_sahwan_outskirts', 'mirror', 200], ['milh_flats', 'mirror', 200], ['tel_marum', 'sarim', 200], ['wadi_tarfan', 'sarim', 200], ['wadi_tarfan', 'kdf', 200],
     ] as const) {
       const state = new FakeState();
-      const room = new MatchRoom(state, env);
+      const room = new MatchRoom(state, env, YIELD);
       const res = await room.fetch(new Request('https://room/create', {
         method: 'POST',
         body: JSON.stringify({ code: CODE, matchId: CODE, map, build: BUILD, player: 'p-host', callsign: 'Host', mode: 'versus', matchup }),
@@ -267,7 +269,7 @@ describe('MatchRoom', () => {
       ['qarn_hadid', 'sandbox', 200],
     ] as const) {
       const state = new FakeState();
-      const room = new MatchRoom(state, env);
+      const room = new MatchRoom(state, env, YIELD);
       const res = await room.fetch(new Request('https://room/create', {
         method: 'POST',
         body: JSON.stringify({ code: CODE, matchId: CODE, map, build: BUILD, player: 'p-host', callsign: 'Host', mode }),
@@ -291,7 +293,7 @@ describe('MatchRoom', () => {
     delete stored.factions;
     await state.storage.put('state', stored);
     evict();
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     const ws = await hello(revived, 1);
     expect(ofType(ws, 'lobby').at(-1)?.factions).toEqual(['kdf', 'kdf']);
   });
@@ -327,7 +329,7 @@ describe('MatchRoom', () => {
     const { state, ws0 } = await running({ mode: 'versus' });
     const tokens = ofType(ws0, 'start')[0].config.seats.map((s) => s.player);
     evict();
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     const back = await hello(revived, 1);
     const [log] = ofType(back, 'log');
     expect(log.config.seats.map((s) => s.player)).toEqual(tokens);
@@ -344,7 +346,7 @@ describe('MatchRoom', () => {
     delete meta.tokens;
     state.storage.kv.set('meta', meta);
     evict();
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     const ws0 = await hello(revived, 0);
     const ws1 = await hello(revived, 1);
     await say(revived, ws0, { t: 'ready' });
@@ -353,7 +355,7 @@ describe('MatchRoom', () => {
     expect(tokens.every((t) => /^[0-9a-f]{16}$/.test(t))).toBe(true);
     expect(JSON.stringify(ofType(ws0, 'start')[0]).includes('p-host')).toBe(false);
     evict();
-    const again = new MatchRoom(state, env);
+    const again = new MatchRoom(state, env, YIELD);
     const back = await hello(again, 0);
     expect(ofType(back, 'log')[0].config.seats.map((s) => s.player)).toEqual(tokens);
   });
@@ -396,7 +398,7 @@ describe('MatchRoom', () => {
     const codes: string[] = [];
     try {
       const state = new FakeState();
-      const room = new MatchRoom(state, env, { tickMs: 7, seed: (code) => { codes.push(code); return 7; } });
+      const room = new MatchRoom(state, env, { ...YIELD, tickMs: 7, seed: (code) => { codes.push(code); return 7; } });
       const res = await room.fetch(new Request('https://room/create', {
         method: 'POST', body: JSON.stringify({ code: CODE, matchId: CODE, map: 'tel_marum', build: BUILD, player: 'p-host', callsign: 'Host', mode: 'versus' }),
       }));
@@ -430,7 +432,7 @@ describe('MatchRoom', () => {
   it('an unknown mode is a sandbox, and /create refuses an empty player', async () => {
     const { ws0 } = await running({ mode: 'conquest' });
     expect(ofType(ws0, 'start')[0].config.mode).toBe('sandbox');
-    const room = new MatchRoom(new FakeState(), env);
+    const room = new MatchRoom(new FakeState(), env, YIELD);
     for (const player of [undefined, '', 7]) {
       const res = await room.fetch(new Request('https://room/create', { method: 'POST', body: JSON.stringify({ code: CODE, matchId: CODE, build: BUILD, ...(player === undefined ? {} : { player }) }) }));
       expect(res.status).toBe(400);
@@ -446,7 +448,7 @@ describe('MatchRoom', () => {
   });
 
   it('a callsign handed to the room directly is cleaned too: the lobby and the config never carry a control or bidi character', async () => {
-    const room = new MatchRoom(new FakeState(), env);
+    const room = new MatchRoom(new FakeState(), env, YIELD);
     await room.fetch(new Request('https://room/create', {
       method: 'POST',
       body: JSON.stringify({ code: CODE, matchId: CODE, map: 'tel_marum', build: BUILD, player: 'p-host', callsign: 'Ho\u202Est\u0000', mode: 'versus' }),
@@ -477,7 +479,7 @@ describe('MatchRoom', () => {
   });
 
   it('two concurrent /create calls: exactly one makes the room, the other 409 (N1a final review)', async () => {
-    const room = new MatchRoom(new FakeState(), env);
+    const room = new MatchRoom(new FakeState(), env, YIELD);
     // As the /join case: a body that yields before it is read, so a check made before the read cannot pass.
     const create = (callsign: string) => {
       const req = new Request('https://room/create', {
@@ -501,7 +503,7 @@ describe('MatchRoom', () => {
     await hello(room, 0);
     await hello(room, 1);
     evict();
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     const ws0 = await hello(revived, 0);
     const ws1 = await hello(revived, 1);
     await say(revived, ws0, { t: 'ready' });
@@ -529,7 +531,7 @@ describe('MatchRoom', () => {
     await hello(room, 1);
     state.storage.kv.set('meta', { map: 'tel_marum', build: BUILD, seat1Reserved: true });
     evict();
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     const ws0 = await hello(revived, 0);
     const ws1 = await hello(revived, 1);
     expect(ofType(ws0, 'lobby').at(-1)?.seats.map((s) => s.callsign)).toEqual(['Host', 'Guest']);
@@ -576,7 +578,7 @@ describe('MatchRoom', () => {
     const sent = ofType(ws0, 'frame').map((f) => ({ tick: f.tick, cmds: f.cmds }));
     expect(sent.map((f) => f.tick)).toEqual([...Array(26).keys()]);
     evict();   // the isolate dies; storage and the hibernated sockets survive
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     await hello(revived, 1);   // a handler: the revived clock starts at the last persisted tick
     await vi.advanceTimersByTimeAsync(6 * TICK_MS);
     const [log] = ofType(await hello(revived, 0), 'log');
@@ -607,7 +609,7 @@ describe('MatchRoom', () => {
     const sent = BATCH_TICKS + 2;
     await vi.advanceTimersByTimeAsync(sent * TICK_MS);
     evict();
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     await vi.advanceTimersByTimeAsync(4 * TICK_MS);
     expect(ofType(ws1, 'frame')).toHaveLength(sent);   // no handler, no clock
     await deliverAlarm(revived, state.storage);
@@ -625,7 +627,7 @@ describe('MatchRoom', () => {
     expect(state.storage.alarmAt).toBe(TTL_AT);
     expect(vi.getTimerCount()).toBe(0);
     evict();
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     await deliverAlarm(revived, state.storage);
     expect(state.storage.alarmAt).toBe(TTL_AT);   // no watchdog: the room may sleep until its TTL
     expect(vi.getTimerCount()).toBe(0);
@@ -639,7 +641,7 @@ describe('MatchRoom', () => {
     const { state, ws0, ws1 } = await running();
     await vi.advanceTimersByTimeAsync(3 * TICK_MS);
     evict();
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     await deliverClose(revived, ws0, 1006, 'abnormal');
     await deliverClose(revived, ws1, 1006, 'abnormal');
     await deliverAlarm(revived, state.storage);
@@ -653,7 +655,7 @@ describe('MatchRoom', () => {
     expect(state.storage.alarmAt).not.toBeNull();
     state.vanish(ws0, ws1);
     evict();
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     const before = state.storage.rowsWritten;
     await deliverAlarm(revived, state.storage);
     expect((await persisted(state)).seats.map((s) => s?.connected)).toEqual([false, false]);
@@ -667,7 +669,7 @@ describe('MatchRoom', () => {
     await vi.advanceTimersByTimeAsync(3 * TICK_MS);
     state.vanish(ws1);
     evict();
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     await deliverAlarm(revived, state.storage);
     expect((await persisted(state)).seats.map((s) => s?.connected)).toEqual([true, false]);
     expect(last(ws0)).toEqual({ t: 'stall', reason: 'gone', seat: 1 });
@@ -678,7 +680,7 @@ describe('MatchRoom', () => {
     const { state, ws0 } = await running();
     expect(state.storage.alarmAt).not.toBeNull();
     evict();
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     vi.setSystemTime(Date.now() + 6 * 3600 * 1000 + 1);
     await say(revived, ws0, { t: 'ready' });   // any handler: the TTL ends the room
     expect((await persisted(state)).status).toBe('ended');
@@ -724,7 +726,7 @@ describe('MatchRoom', () => {
     await say(room, ws0, { t: 'cmd', seq: 0, cmd: { kind: 'halt', ids: [1, 2, 3] } });
     await vi.advanceTimersByTimeAsync(2 * TICK_MS);
     evict();
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     await revived.fetch(new Request('https://room/state'));
     const st = (revived as unknown as { st: RoomState }).st;
     expect(st.cmdChars).toBe(JSON.stringify({ kind: 'halt', ids: [1, 2, 3] }).length);
@@ -733,7 +735,7 @@ describe('MatchRoom', () => {
   describe('#559 H-1: storage exists only between /create and the wipe', () => {
     it('a probe of a code with no room -- /state, /join, a hello, a close, an alarm -- touches no storage at all', async () => {
       const state = new FakeState();
-      const room = new MatchRoom(state, env);
+      const room = new MatchRoom(state, env, YIELD);
       expect((await room.fetch(new Request('https://room/state'))).status).toBe(404);
       expect((await room.fetch(new Request('https://room/join', { method: 'POST', body: '{}' }))).status).toBe(404);
       const ws = await hello(room, 0);
@@ -757,12 +759,12 @@ describe('MatchRoom', () => {
       const { state } = await created();
       evict();
       vi.setSystemTime(TTL_AT);
-      await deliverAlarm(new MatchRoom(state, env), state.storage);
+      await deliverAlarm(new MatchRoom(state, env, YIELD), state.storage);
       expect((await persisted(state))).toMatchObject({ status: 'ended', endedReason: 'expired', endedAtMs: TTL_AT });
       expect(state.storage.alarmAt).toBe(TTL_AT + PURGE_AFTER_MS);
       evict();
       vi.setSystemTime(TTL_AT + PURGE_AFTER_MS);
-      await deliverAlarm(new MatchRoom(state, env), state.storage);
+      await deliverAlarm(new MatchRoom(state, env, YIELD), state.storage);
       expect(state.storage.kv.size + state.storage.batches.size).toBe(0);
       expect(state.storage.hasTable).toBe(false);
       expect(state.storage.alarmAt).toBeNull();
@@ -833,7 +835,7 @@ describe('MatchRoom', () => {
     // A running room whose instance was evicted, reached by its alarm after the TTL.
     const old = await running();
     evict();
-    const revived = new MatchRoom(old.state, env);
+    const revived = new MatchRoom(old.state, env, YIELD);
     vi.setSystemTime(Date.now() + 6 * 3600 * 1000 + 1);
     await deliverAlarm(revived, old.state.storage);
     expect(last(old.ws0)).toEqual({ t: 'ended', reason: 'expired' });
@@ -848,7 +850,7 @@ describe('MatchRoom', () => {
     expect(last(ws0)).toMatchObject({ t: 'stall', reason: 'gone', seat: 1 });
     expect(ofType(ws0, 'dropped')).toEqual([{ t: 'dropped', seat: 1, remainingMs: 60_000 }]);
     evict();   // the clock dies with the isolate: the watchdog alarm brings it back, and the drop date was persisted
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     vi.setSystemTime(Date.now() + 60_000);
     await deliverAlarm(revived, state.storage);
     expect(last(ws0)).toEqual({ t: 'ended', reason: 'forfeit', seat: 1 });
@@ -885,7 +887,7 @@ describe('MatchRoom', () => {
     expect(last(ws0)).toEqual({ t: 'ended', reason: 'surrender', seat: 1 });
     expect(last(ws1)).toEqual({ t: 'ended', reason: 'surrender', seat: 1 });
     evict();
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     const late = await hello(revived, 0);
     expect(last(late)).toEqual({ t: 'ended', reason: 'surrender', seat: 1 });
   });
@@ -953,14 +955,14 @@ describe('MatchRoom', () => {
 
   it('#559 F5: /create refuses a map the game does not ship, and stores nothing', async () => {
     const state = new FakeState();
-    const room = new MatchRoom(state, env);
+    const room = new MatchRoom(state, env, YIELD);
     const res = await room.fetch(new Request('https://room/create', { method: 'POST', body: JSON.stringify({ code: CODE, matchId: CODE, build: BUILD, player: 'p', map: '__proto__' }) }));
     expect(res.status).toBe(400);
     expect(state.storage.rowsWritten).toBe(0);
   });
 
   it('/create refuses an empty build, so the hello build check can never be off', async () => {
-    const room = new MatchRoom(new FakeState(), env);
+    const room = new MatchRoom(new FakeState(), env, YIELD);
     const res = await room.fetch(new Request('https://room/create', { method: 'POST', body: JSON.stringify({ code: CODE, matchId: CODE, player: 'p-host' }) }));
     expect(res.status).toBe(400);
     expect((await room.fetch(new Request('https://room/state'))).status).toBe(404);
@@ -969,7 +971,7 @@ describe('MatchRoom', () => {
   it('a room whose meta was never written refuses every hello on build, even an empty one', async () => {
     const { state } = await created();
     state.storage.kv.delete('meta');
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     for (const build of [BUILD, '']) {
       const ws = await hello(revived, 0, undefined, build);
       expect(msgs(ws)).toEqual([{ t: 'error', code: 'build_mismatch' }]);
@@ -984,7 +986,7 @@ describe('MatchRoom', () => {
     expect(await first.json()).toEqual({ seat: 1 });
     expect((await join()).status).toBe(409);
     // ...and the reservation outlives the instance.
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     expect((await revived.fetch(new Request('https://room/join', { method: 'POST', body: '{}' }))).status).toBe(409);
   });
 
@@ -1010,7 +1012,7 @@ describe('MatchRoom', () => {
     await deliverClose(room, ws1, 1006, 'abnormal');   // seat 1 gone: the room stalls and writes its state
     expect(ofType(ws0, 'stall')).toEqual([{ t: 'stall', reason: 'gone', seat: 1 }]);
     evict();   // the isolate dies; storage and the hibernated sockets survive
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     const back = await hello(revived, 1);
     const [log] = ofType(back, 'log');
     expect(log.frames.map((f) => f.tick)).toEqual([...Array(sent).keys()]);
@@ -1031,7 +1033,7 @@ describe('MatchRoom', () => {
     await vi.advanceTimersByTimeAsync(sent * TICK_MS);
     expect(ofType(ws1, 'frame').map((f) => f.tick)).toEqual([...Array(sent).keys()]);
     evict();   // the isolate dies; storage and the hibernated sockets survive
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     await vi.advanceTimersByTimeAsync(4 * TICK_MS);
     expect(ofType(ws1, 'frame')).toHaveLength(sent);   // nothing runs a clock until a handler does
     await wake(revived, ws0);
@@ -1056,7 +1058,7 @@ describe('MatchRoom', () => {
       const stale: Partial<RoomState> = st;
       delete stale.map;
       await state.storage.put('state', st);
-      const revived = new MatchRoom(state, env);
+      const revived = new MatchRoom(state, env, YIELD);
       const ws0 = await hello(revived, 0);
       expect(ofType(ws0, 'lobby').at(-1)?.map).toBe('tel_marum');
     });
@@ -1263,7 +1265,7 @@ describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () =>
     // The isolate dies after every wake: only the storage alarm brings the room back.
     for (let i = 0; i < 100 && state.storage.alarmAt !== null && ofType(ws0, 'ended').length === 0; i++) {
       evict();
-      const instance = new MatchRoom(state, env);
+      const instance = new MatchRoom(state, env, YIELD);
       vi.setSystemTime(state.storage.alarmAt);
       wakes.push(Date.now());
       await deliverAlarm(instance, state.storage);
@@ -1286,7 +1288,7 @@ describe('the room closes itself 2 minutes after the result (L-1, R-B26)', () =>
     expect(vi.getTimerCount()).toBe(0);   // abandoned: no clock
     expect(state.storage.alarmAt).toBe(closeAt);   // but the deadline still wakes it
     evict();
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     // A wake before the deadline (an alarm left from before) re-aims it rather than losing it.
     vi.setSystemTime(closeAt - 10_000);
     await deliverAlarm(revived, state.storage);
@@ -1464,7 +1466,7 @@ describe('advisor sockets (N4a task 7)', () => {
     const { state, room, ws0 } = await running({ mode: 'versus' });
     const adv = await advisorHello(room, 0, 'assist');
     evict();
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     await say(revived, adv, { t: 'advisor', a: PROPOSAL });
     expect(relays(ws0)).toEqual([{ t: 'advisor', from: 'advisor', a: PROPOSAL }]);
     await say(revived, ws0, { t: 'advisor', a: { kind: 'veto', id: 1 } });
@@ -1478,7 +1480,7 @@ describe('advisor sockets (N4a task 7)', () => {
     await advisorHello(room, 0, 'assist');
     evict();
     state.vanish(ws0);
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     await say(revived, ws1, { t: 'ack', tick: 0 });
     expect((await persisted(state)).seats[0]?.connected).toBe(false);
     expect(ofType(ws1, 'dropped').map((m) => m.seat)).toEqual([0]);
@@ -1515,7 +1517,7 @@ describe('advisor sockets (N4a task 7)', () => {
     await vi.advanceTimersByTimeAsync(3 * TICK_MS);
     await say(room, ws0, { t: 'surrender' });
     evict();
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     const adv = await advisorHello(revived, 0, 'assist');
     expect(msgs(adv)).toEqual([{ t: 'ended', reason: 'surrender', seat: 0 }]);
     const seat = await hello(revived, 0);
@@ -1570,7 +1572,7 @@ describe('bot seats and the paced config (N4a task 7, D5)', () => {
     delete meta?.kinds;
     delete meta?.pace;
     await state.storage.put('meta', meta);
-    const room = new MatchRoom(state, env);
+    const room = new MatchRoom(state, env, YIELD);
     const ws0 = await hello(room, 0);
     const ws1 = await hello(room, 1);
     await say(room, ws0, { t: 'ready' });
@@ -1604,7 +1606,7 @@ describe('bot seats and the paced config (N4a task 7, D5)', () => {
     const at = state.storage.alarmAt;
     expect(at).not.toBeNull();
     evict();
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     vi.setSystemTime(at ?? 0);
     await deliverAlarm(revived, state.storage);
     await vi.advanceTimersByTimeAsync(3 * TICK_MS);
@@ -1663,7 +1665,7 @@ describe('per-seat kit: the room records each seat\'s claim and mints it only in
     delete meta?.kit;
     delete meta?.claims;
     await state.storage.put('meta', meta);
-    const room = new MatchRoom(state, env);
+    const room = new MatchRoom(state, env, YIELD);
     const ws0 = await hello(room, 0);
     const ws1 = await hello(room, 1);
     await say(room, ws0, { t: 'ready' });
@@ -1679,7 +1681,7 @@ describe('per-seat kit: the room records each seat\'s claim and mints it only in
     meta.claims = [JSON.parse('{"mbt_lavi":{"armour":99},"__proto__":{"armour":1}}'), { at_team: { firepower: 1 }, nope: { armour: 1 } }];
     await state.storage.put('meta', meta);
     const c1 = await (async () => {
-      const room = new MatchRoom(state, env);
+      const room = new MatchRoom(state, env, YIELD);
       const ws0 = await hello(room, 0);
       const ws1 = await hello(room, 1);
       await say(room, ws0, { t: 'ready' });
@@ -1692,7 +1694,7 @@ describe('per-seat kit: the room records each seat\'s claim and mints it only in
     if (!m2) throw new Error('no meta');
     m2.claims = 'junk';
     await other.state.storage.put('meta', m2);
-    const room = new MatchRoom(other.state, env);
+    const room = new MatchRoom(other.state, env, YIELD);
     const ws0 = await hello(room, 0);
     const ws1 = await hello(room, 1);
     await say(room, ws0, { t: 'ready' });
@@ -1802,7 +1804,7 @@ describe('hello.from (D6, snapshot S3)', () => {
     await step(30);   // 0..19 closed by filling; 20..29 are memory only
     expect(ofType(ws1, 'frame').at(-1)?.tick).toBe(29);
     evict();
-    const revived = new MatchRoom(state, env);
+    const revived = new MatchRoom(state, env, YIELD);
     const back = await helloFrom(revived, 1, 30);
     expect(logOf(back)).toHaveLength(1);
     expect(logOf(back)[0]).toMatchObject({ frames: [], from: 30 });
@@ -1917,7 +1919,7 @@ describe('snapshot upload (snapshot S3)', () => {
   /** 0xdeadbeef: above 2^31 on purpose, so the signed hash and the u32 header word are different numbers. */
   const DIGEST = 3735928559;
   const HASH = -559038737;
-  const OPTS = { snapshotEveryTicks: 40 };
+  const OPTS = { ...YIELD, snapshotEveryTicks: 40 };
   type Rig = { state: FakeState; room: MatchRoom; ws0: FakeSocket; ws1: FakeSocket; db?: ReturnType<typeof openTestD1> };
 
   /** `n` ticks, both seats acking every ten as clients do (a seat 40 ticks behind stalls the room). */

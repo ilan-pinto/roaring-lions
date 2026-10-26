@@ -102,7 +102,7 @@ describe('gunzipCapped', () => {
   });
   /** A DecompressionStream that behaves as the Worker runtime's does: each write is inflated at once and its output queued,
    *  whatever the reader has asked for. It records the compressed bytes it accepted. */
-  function installEagerInflater(lagTurns = 0): { accepted: () => number } {
+  function installEagerInflater(lagTurns = 0, lagTimer = false): { accepted: () => number } {
     let accepted = 0;
     globalThis.DecompressionStream = class Eager {
       readonly writable: WritableStream<BufferSource>;
@@ -125,6 +125,8 @@ describe('gunzipCapped', () => {
             // The write is taken at once; with a lag the output shows a few promise turns later.
             queued = queued.then(async () => {
               for (let i = 0; i < lagTurns; i++) await undefined;
+              // A runtime that shows inflate output on a later event-loop turn, not a later promise turn.
+              if (lagTimer) await new Promise<void>((r) => setTimeout(r, 0));
               for (let at = from; at < whole.byteLength; at += 65536) ctl.enqueue(whole.subarray(at, Math.min(at + 65536, whole.byteLength)));
             });
           },
@@ -161,6 +163,12 @@ describe('gunzipCapped', () => {
     expect(await gunzipCapped(bomb, MAX)).toEqual({ ok: false, reason: 'too_large' });
     expect(spy.accepted()).toBeLessThanOrEqual(8 * 1024);
   }, 20_000);
+  it('security review: the same bomb when each slice\'s output shows only on a later event-loop turn (a timer): still at most two slices accepted', async () => {
+    const bomb = gzipSync(new Uint8Array(64 * 1024 * 1024), { level: 9 });
+    const spy = installEagerInflater(0, true);
+    expect(await gunzipCapped(bomb, MAX)).toEqual({ ok: false, reason: 'too_large' });
+    expect(spy.accepted()).toBeLessThanOrEqual(8 * 1024);
+  }, 20_000);
   it('slicing changes nothing for honest input: the same bytes come back from the eager inflater, and the whole body is accepted', async () => {
     const src = new Uint8Array(60_000);
     let x = 0x9e3779b9;
@@ -168,9 +176,12 @@ describe('gunzipCapped', () => {
     const gz = gzipSync(src);
     expect(gz.byteLength).toBeGreaterThan(4096 * 3);
     const spy = installEagerInflater();
-    const r = await gunzipCapped(gz, MAX);
+    let turns = 0;
+    const r = await gunzipCapped(gz, MAX, async () => { turns++; });
     expect(r.ok && Buffer.compare(Buffer.from(r.bytes), Buffer.from(src))).toBe(0);
     expect(spy.accepted()).toBe(gz.byteLength);
+    // One yielded turn per 4 KiB slice.
+    expect(turns).toBe(Math.ceil(gz.byteLength / 4096));
   }, 20_000);
   it('a second gzip member, or bytes after the member, are bad_gzip however the runtime treats them (security review)', async () => {
     const a = Uint8Array.from({ length: 3000 }, (_, i) => (i * 7) & 0xff);

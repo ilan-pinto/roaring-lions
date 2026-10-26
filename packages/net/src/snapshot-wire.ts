@@ -52,20 +52,24 @@ export type GunzipResult = { ok: true; bytes: Uint8Array } | { ok: false; reason
 
 /** The most compressed bytes handed to the decompressor at once. */
 const GUNZIP_SLICE_BYTES = 4096;
-/** Promise turns with nothing to read before the drain after a slice is over. A queued chunk is read in about three. */
+/** Promise turns with nothing to read before a drain is over. A queued chunk is read in about three. */
 const DRAIN_IDLE_TURNS = 16;
+/** One real event-loop turn: what separates one slice from the next by default. */
+const eventLoopTurn = (): Promise<void> => new Promise<void>((r) => setTimeout(r, 0));
 
 /** Inflate `gz`, refusing any output over `max` bytes. The output is counted
  *  chunk by chunk BEFORE a chunk is kept; past `max` the reader is cancelled
  *  and nothing is concatenated. A stream error, or an empty output, is
  *  `bad_gzip`.
  *
- *  The input is fed in slices of at most `GUNZIP_SLICE_BYTES`, and the reader
- *  is drained after each, so a runtime whose decompressor inflates eagerly
- *  (ignoring backpressure) has produced at most one slice's output when the cap
- *  trips, and no further slice is written. Tested against a fake that inflates
- *  on every write (security review). */
-export async function gunzipCapped(gz: Uint8Array, max: number): Promise<GunzipResult> {
+ *  The input is fed in slices of at most `GUNZIP_SLICE_BYTES`. After each
+ *  slice is taken the call waits one event-loop turn (`yieldTurn`) and drains
+ *  what is ready, so a decompressor that inflates eagerly, in the same turn or
+ *  a later one, has produced at most one slice's output when the cap trips, and
+ *  no further slice is written. `yieldTurn` is for tests that run on fake
+ *  timers; the default is a zero-delay timer. Tested against fakes that inflate
+ *  on every write, at once and on a later turn. */
+export async function gunzipCapped(gz: Uint8Array, max: number, yieldTurn: () => Promise<void> = eventLoopTurn): Promise<GunzipResult> {
   const ds = new DecompressionStream('gzip');
   const writer = ds.writable.getWriter();
   const reader = ds.readable.getReader();
@@ -94,20 +98,22 @@ export async function gunzipCapped(gz: Uint8Array, max: number): Promise<GunzipR
     for (let i = 0; i < DRAIN_IDLE_TURNS; i++) await undefined;
     return IDLE;
   };
+  // Reads until `stop` settles or the stream ends. Returns false once the cap has tripped.
+  const readUntil = async (stop: Promise<typeof IDLE | typeof WROTE>): Promise<boolean> => {
+    for (;;) {
+      const x = await Promise.race([nextRead(), stop]);
+      if (x === IDLE || x === WROTE || x.done) return true;
+      if (!keep(x)) return false;
+    }
+  };
   try {
     for (let at = 0; at < gz.byteLength; at += GUNZIP_SLICE_BYTES) {
       // Not awaited alone: a write may wait on the reader. A failure surfaces as the reader's error.
       const wrote: Promise<typeof WROTE> = writer.write(gz.subarray(at, at + GUNZIP_SLICE_BYTES) as BufferSource).then(() => WROTE, () => WROTE);
-      // Until the write is taken, then until a read would have to wait: a few promise turns pass with nothing to read.
-      // Promise turns, not a timer, so the drain runs under a test's fake timers as it does in the Worker.
-      for (let accepted = false; ;) {
-        const wait: Promise<typeof IDLE | typeof WROTE> = accepted ? idleTurns() : wrote;
-        const x = await Promise.race([nextRead(), wait]);
-        if (x === WROTE) { accepted = true; continue; }
-        if (x === IDLE) break;
-        if (x.done) break;
-        if (!keep(x)) return await refuse();
-      }
+      // Until the write is taken, then one event-loop turn, then whatever is ready: a few promise turns pass with nothing to read.
+      if (!await readUntil(wrote)) return await refuse();
+      if (!await readUntil(yieldTurn().then(() => IDLE))) return await refuse();
+      if (!await readUntil(idleTurns())) return await refuse();
     }
     void writer.close().catch(() => undefined);
     for (;;) {

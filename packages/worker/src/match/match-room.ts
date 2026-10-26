@@ -96,6 +96,9 @@ export interface MatchRoomOptions {
    *  hash cadence) up to `SNAPSHOT_EVERY_TICKS_MAX`, else the default stands; 0
    *  turns snapshots off. */
   snapshotEveryTicks?: number;
+  /** The wait between the 4 KiB slices of an upload's inflate; default one event-loop turn (a zero-delay timer).
+   *  For tests that run on fake timers, which never fire it. */
+  inflateYield?: () => Promise<void>;
 }
 /** A sandbox room's seed: the app's SIM_SEED, so the two-machine protocol stays N0's. A versus room mints its own. */
 const SIM_SEED_N0 = 20260727;
@@ -308,6 +311,8 @@ export class MatchRoom {
   private snapshotStoreReady = false;
   /** D1 mismatch rows this instance has tried to write, bounded by `SNAP_MISMATCH_PER_ROOM`. */
   private snapMismatches = 0;
+  /** The test-only wait between inflate slices; undefined in workerd, which uses the default timer turn. */
+  private readonly inflateYield: (() => Promise<void>) | undefined;
 
   /** No storage here (#559 H-1): an object is made for every code anyone
    *  probes, and only `/create` may give it a table, a key or an alarm.
@@ -318,6 +323,7 @@ export class MatchRoom {
   constructor(private readonly ctx: DurableStateLike, private readonly env: Env, opts: MatchRoomOptions = {}) {
     this.tickMs = typeof opts.tickMs === 'number' && Number.isFinite(opts.tickMs) && opts.tickMs > 0 ? opts.tickMs : TICK_MS;
     this.seedFor = opts.seed ?? null;
+    this.inflateYield = opts.inflateYield;
     const every = opts.snapshotEveryTicks;
     this.snapshotEveryTicks = typeof every === 'number' && Number.isInteger(every) && every >= 0 && every <= SNAPSHOT_EVERY_TICKS_MAX && every % 20 === 0 ? every : SNAPSHOT_EVERY_TICKS;
   }
@@ -850,7 +856,7 @@ export class MatchRoom {
     if (declared !== null && !(/^(0|[1-9][0-9]{0,9})$/.test(declared) && Number(declared) <= SNAPSHOT_MAX_COMPRESSED_BYTES)) return new Response('too_large', { status: 413 });
     const gz = await readCapped(req, SNAPSHOT_MAX_COMPRESSED_BYTES);
     if (gz === null) return new Response('too_large', { status: 413 });
-    const raw = await gunzipCapped(gz, SNAPSHOT_MAX_RAW_BYTES);
+    const raw = await gunzipCapped(gz, SNAPSHOT_MAX_RAW_BYTES, this.inflateYield);
     if (!raw.ok) return raw.reason === 'too_large' ? new Response('too_large', { status: 413 }) : new Response('bad_gzip', { status: 400 });
     const header = readSnapshotHeader(raw.bytes);
     if (header === null || header.format !== SNAPSHOT_FORMAT || header.frameTick !== tick) return new Response('bad snapshot', { status: 400 });

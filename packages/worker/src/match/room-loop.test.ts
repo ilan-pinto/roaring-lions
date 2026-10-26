@@ -10,6 +10,7 @@
  * handed straight to the client's `onmessage`; `open` fires on a microtask,
  * after the transport has installed its handlers, as a browser's would.
  */
+import { setImmediate as realImmediate } from 'node:timers/promises';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { endingLoser, FORFEIT_MS, LOG_PART_CHARS, OVER_CLOSE_MS, RECONNECT_DELAY_MS, WsTransport, type Frame, type MatchConfig, type Seat, type ServerMsg, type SocketLike } from '@lions/net';
 import type { D1Like, Env } from '../d1';
@@ -20,6 +21,8 @@ import { gzip, snapshotBytes } from './snapshot-fixture';
 import { signTicket } from './ticket';
 
 const NOW = 1_790_000_000_000;
+/** Fake timers never fire the inflate's zero-delay timer turn: a real event-loop turn stands in. */
+const YIELD = { inflateYield: (): Promise<void> => realImmediate() };
 const SECRET = 'room-loop-test-secret';
 const CODE = 'LOOPAB';
 const BUILD = 'b-loop';
@@ -111,7 +114,7 @@ interface Match { state: FakeState; loop: Loop; p0: Player; p1: Player }
 const watchdogs = new WeakMap<Loop, FakeState>();
 async function setUp(digest1: (tick: number) => number | null = sameHash, mode?: 'versus', snapshotEveryTicks?: number, db?: D1Like): Promise<Match> {
   const state = new FakeState();
-  const room = new MatchRoom(state, db === undefined ? env : ({ ...env, DB: db } as Env), snapshotEveryTicks === undefined ? {} : { snapshotEveryTicks });
+  const room = new MatchRoom(state, db === undefined ? env : ({ ...env, DB: db } as Env), snapshotEveryTicks === undefined ? YIELD : { ...YIELD, snapshotEveryTicks });
   const res = await room.fetch(new Request('https://room/create', {
     method: 'POST', body: JSON.stringify({ code: CODE, matchId: CODE, map: 'tel_marum', build: BUILD, player: 'Host', callsign: 'Host', ...(mode ? { mode } : {}) }),
   }));
@@ -506,7 +509,7 @@ describe('room loop: MatchRoom and two WsTransports', () => {
     await step(loop, [p0, p1], 47);   // ticks 0..46: tick 0 carries the order and closes its batch, 1..20 and 21..40 fill and close, 41..46 open
     const heard = loop.wires.map((w) => w.received.length);
     evict();   // the isolate dies; storage and the hibernated sockets survive
-    loop.room = new MatchRoom(state, env);
+    loop.room = new MatchRoom(state, env, YIELD);
     // The first handler to reach the revived room is an order; it is stamped into a re-sent tick.
     p1.t.queueCommand({ kind: 'halt', ids: [2] });
     await loop.flush();
