@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { admitTick, decide, newestSnapshotTickBelow, PendingBook, type Pending } from './snapshot-intake';
+import { admitTick, decide, newestSnapshotTickBelow, PendingBook, ReservationBook, type Pending } from './snapshot-intake';
 
 const SHA_A = 'a'.repeat(64);
 const SHA_B = 'b'.repeat(64);
@@ -95,6 +95,24 @@ describe('PendingBook', () => {
     for (const t of [39, 79]) for (const s of [0, 1] as const) b.put(s, t, pend(SHA_A));
     for (const t of [39, 79]) for (const s of [0, 1] as const) expect(b.has(s, t)).toBe(true);
     expect(b.ticks()).toHaveLength(2);
+  });
+});
+
+describe('ReservationBook (security review)', () => {
+  it('a slot is taken once a seat and tick; the other seat and another tick are separate slots', () => {
+    const b = new ReservationBook();
+    expect([b.reserve(0, 39), b.reserve(0, 39), b.reserve(1, 39), b.reserve(0, 79)]).toEqual([true, false, true, true]);
+    expect([b.has(0, 39), b.has(1, 79), b.has(1, 39)]).toEqual([true, false, true]);
+  });
+  it('holds the two newest ticks, forgets the oldest, and clears', () => {
+    const b = new ReservationBook();
+    for (const t of [39, 79, 119]) b.reserve(0, t);
+    expect(b.ticks()).toEqual([79, 119]);
+    expect(b.has(0, 39)).toBe(false);
+    b.dropThrough(79);
+    expect(b.ticks()).toEqual([119]);
+    b.clear();
+    expect(b.ticks()).toEqual([]);
   });
 });
 

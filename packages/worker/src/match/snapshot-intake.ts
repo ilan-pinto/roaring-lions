@@ -91,6 +91,46 @@ export class PendingBook {
   }
 }
 
+/**
+ * Which (seat, tick) uploads have been taken up, memory only. A seat gets ONE
+ * attempt a snapshot tick: the slot is reserved in the same synchronous step
+ * as the admission check, before the body is read, and it stays spent whatever
+ * becomes of the upload (a refusal, a mismatch, a drop of the pending pair).
+ * Held for the two newest ticks, like the pending book; an eviction forgets
+ * them, and the cost is then one more attempt a seat per tick per instance.
+ */
+export class ReservationBook {
+  private readonly byTick = new Map<number, [boolean, boolean]>();
+
+  has(seat: Seat, tick: number): boolean {
+    return this.byTick.get(tick)?.[seat] === true;
+  }
+
+  /** Reserve the slot; false when it was already taken. Never awaits, so a check made just before it cannot be overtaken. */
+  reserve(seat: Seat, tick: number): boolean {
+    const slot = this.byTick.get(tick) ?? [false, false];
+    if (slot[seat]) return false;
+    slot[seat] = true;
+    this.byTick.set(tick, slot);
+    while (this.byTick.size > PENDING_TICKS_MAX) this.byTick.delete(this.ticks()[0]);
+    return true;
+  }
+
+  /** The distinct ticks held, ascending. */
+  ticks(): number[] {
+    return [...this.byTick.keys()].sort((a, b) => a - b);
+  }
+
+  /** Forget every tick up to and including `tick` (a stored snapshot makes them stale). */
+  dropThrough(tick: number): void {
+    for (const t of this.ticks()) if (t <= tick) this.byTick.delete(t);
+  }
+
+  clear(): void {
+    this.byTick.clear();
+  }
+}
+
 export type Decision =
   | { kind: 'held' }
   | { kind: 'mismatch'; why: 'sha' | 'digest'; shas: [string, string]; digest: number }

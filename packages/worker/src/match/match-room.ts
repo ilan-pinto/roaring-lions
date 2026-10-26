@@ -77,7 +77,7 @@ import type { Env } from '../d1';
 import type { DurableStateLike, HibernatingSocket, UpgradeInit } from '../do-types';
 import { readCapped } from '../read-capped';
 import { LOG_FROM_SQL, SNAP_CREATE_SQL, SNAP_GET_SQL, SNAP_PUT_SQL, SNAP_TICK_SQL } from './snapshot-sql';
-import { PendingBook, admitTick, decide } from './snapshot-intake';
+import { PendingBook, ReservationBook, admitTick, decide } from './snapshot-intake';
 import { SNAP_MISMATCH_PER_ROOM, writeSnapMismatch } from './snap-mismatch-log';
 import { createRoom, endedMsg, lobbyMsg, logParts, pausedMsg, seatJoin, seatMessage, seatGone, clockTick, closeIfDue, expire, forfeitDueAt, forfeitIfDue, persistKey, revive, ROOM_TTL_MS, type Effect, type RoomState } from './room-core';
 import { verifyTicket } from './ticket';
@@ -300,6 +300,8 @@ export class MatchRoom {
   private readonly agreedDigests = new Map<number, number>();
   /** Uploads waiting for their pair: memory only, at most two snapshot ticks (256 KiB at the 64 KiB cap). */
   private readonly pending = new PendingBook();
+  /** Which (seat, tick) uploads were taken up: one inflate a seat and tick, spent whatever the upload comes to. Memory only. */
+  private readonly reserved = new ReservationBook();
   /** The frame tick of the stored snapshot, or -1 for none. Read from the row once per instance (`openSnapshotStore`). */
   private storedTick = -1;
   /** Whether this instance has created the `snapshot` table and read `storedTick`. */
@@ -578,6 +580,7 @@ export class MatchRoom {
       this.ctx.storage.sql.exec(SNAP_PUT_SQL, tick, d.sha, d.digest, d.body.slice().buffer);
       this.storedTick = tick;
       this.pending.dropThrough(tick);
+      this.reserved.dropThrough(tick);
       for (const t of [...this.agreedDigests.keys()]) if (t <= tick) this.agreedDigests.delete(t);
       return 'stored';
     }
@@ -654,6 +657,7 @@ export class MatchRoom {
     this.savedKey = null;
     this.desyncLogged = false;
     this.pending.clear();
+    this.reserved.clear();
     this.agreedDigests.clear();
     this.storedTick = -1;
     this.snapshotStoreReady = false;
@@ -811,15 +815,16 @@ export class MatchRoom {
   }
   /** Checks 4, 6 and 7 against the room as it is NOW (`this.st`, `storedTick`
    *  and the book), never a value read before an await (G-6): called before the
-   *  body is read and again after the last await. With no `tick` only check 4 runs. */
-  private snapshotRefusal(seat: Seat, tick: number | null): Response | null {
+   *  body is read and again after the last await. With no `tick` only check 4 runs.
+   *  `own` is set on the re-run by an upload that holds its (seat, tick) slot already. */
+  private snapshotRefusal(seat: Seat, tick: number | null, own = false): Response | null {
     const st = this.st;
     if (st === null) return new Response('no such room', { status: 404 });
     const every = st.config === null ? 0 : snapshotEvery(st.config);
     if ((st.status !== 'running' && st.status !== 'stalled') || every <= 0) return new Response('not_running', { status: 409 });
     if (tick === null) return null;
     if (admitTick(tick, { every, roomTick: st.tick, storedTick: this.storedTick }) !== 'ok') return new Response('stale', { status: 409 });
-    if (this.pending.has(seat, tick)) return new Response('duplicate', { status: 409 });
+    if ((!own && this.reserved.has(seat, tick)) || this.pending.has(seat, tick)) return new Response('duplicate', { status: 409 });
     return null;
   }
   /** `POST /snapshot` (the contract's checks 1 to 13, cheap before costly). A
@@ -836,6 +841,9 @@ export class MatchRoom {
     const tick = Number(declaredTick);
     const stale = this.snapshotRefusal(seat, tick);
     if (stale !== null) return stale;
+    // Check 7 and the reservation are one synchronous step: nothing between them can let a second upload of this
+    // (seat, tick) past the check. From here the slot stays spent for the tick on every refusal and mismatch.
+    this.reserved.reserve(seat, tick);
     const declared = req.headers.get('content-length');
     // A plain decimal within the cap, or 413: a signed, hex, exponent, blank or padded value is refused unread.
     // `readCapped` below stays the real bound for a body that lies about its length.
@@ -849,7 +857,7 @@ export class MatchRoom {
     const sha = await sha256Hex(raw.bytes);
     // Step 12: that was the last await that matters, so the checks a write depends on run again, against the
     // room as it is now, and the upload is recorded in the same synchronous step as the decision (G-6).
-    const refused = this.snapshotRefusal(seat, tick);
+    const refused = this.snapshotRefusal(seat, tick, true);
     if (refused !== null) return refused;
     this.pending.put(seat, tick, { sha, digest: header.matchDigest, body: gz });
     const outcome = await this.settleSnapshot(tick);

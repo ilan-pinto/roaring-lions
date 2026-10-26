@@ -16,7 +16,7 @@ import { ROOM_TTL_MS } from './room-core';
 import type { RoomState } from './room-core';
 import { signTicket } from './ticket';
 import { gzip, maxSizeBomb, snapshotBytes } from './snapshot-fixture';
-import type { PendingBook } from './snapshot-intake';
+import type { PendingBook, ReservationBook } from './snapshot-intake';
 
 const NOW = 1_790_000_000_000;
 /** Where a room created at NOW keeps its alarm while nothing else wants one (#559 H-1). */
@@ -1967,6 +1967,7 @@ describe('snapshot upload (snapshot S3)', () => {
   const d1Rows = (r: Rig): unknown[] => r.db!.raw.prepare('SELECT code, tick, kind, sha_a, sha_b, digest FROM match_snap_mismatch ORDER BY tick').all();
   const shaOf = (tick: number, fill = 1): Promise<string> => sha256Hex(snapshotBytes({ frameTick: tick, matchDigest: DIGEST, fill }));
   const bookOf = (room: MatchRoom): PendingBook => (room as unknown as { pending: PendingBook }).pending;
+  const reservedOf = (room: MatchRoom): ReservationBook => (room as unknown as { reserved: ReservationBook }).reserved;
   const text = async (res: Response): Promise<string> => res.text();
   /** Every refusal writes no row and keeps whatever snapshot was stored. */
   async function refused(r: Rig, tick: number, payload: BodyInit | Uint8Array, status: number, why: string, over: PostOver = {}, seat: Seat = 0): Promise<void> {
@@ -2102,10 +2103,13 @@ describe('snapshot upload (snapshot S3)', () => {
       await run(r.room, [r.ws0, r.ws1], 45);
       let pulled = false;
       const unread = new ReadableStream<Uint8Array>({ pull(c) { pulled = true; c.enqueue(new Uint8Array(10)); c.close(); } }, { highWaterMark: 0 });
+      // These steps test the size caps, not the one attempt a seat and tick gets: each starts with its slot free.
       await refused(r, 39, unread, 413, 'too_large', { headers: { 'content-length': '65537' } });
       expect(pulled).toBe(false);
+      reservedOf(r.room).clear();
       await refused(r, 39, new Uint8Array(65537), 413, 'too_large');
       expect(bookOf(r.room).ticks()).toEqual([]);
+      reservedOf(r.room).clear();
       const exact = await gzipOfSize(39, 65536);
       expect(exact.length).toBe(65536);
       expect((await post(r.room, 0, 39, exact, { headers: { 'content-length': '65536' } })).status).toBe(202);
@@ -2115,19 +2119,21 @@ describe('snapshot upload (snapshot S3)', () => {
     it('a decompression bomb is 413; not gzip, an empty body, a wrong magic, a wrong format and a header tick that is not the declared one are 400', async () => {
       const r = await rig();
       await run(r.room, [r.ws0, r.ws1], 45);
+      // These cases test what each body is refused for, not the one attempt a seat and tick gets: each starts with its slot free.
+      const refusedFresh: typeof refused = (...a) => { reservedOf(r.room).clear(); return refused(...a); };
       // The largest bomb the 64 KiB compressed cap admits (about 64 MiB inflated), not a token one.
       const max = maxSizeBomb();
       expect(max.byteLength).toBeGreaterThan(60_000);
       expect(max.byteLength).toBeLessThanOrEqual(65_536);
-      await refused(r, 39, max, 413, 'too_large');
-      await refused(r, 39, new TextEncoder().encode('this is not gzip'), 400, 'bad_gzip');
-      await refused(r, 39, new Uint8Array(0), 400, 'bad_gzip');
+      await refusedFresh(r, 39, max, 413, 'too_large');
+      await refusedFresh(r, 39, new TextEncoder().encode('this is not gzip'), 400, 'bad_gzip');
+      await refusedFresh(r, 39, new Uint8Array(0), 400, 'bad_gzip');
       const magic = snapshotBytes({ frameTick: 39, matchDigest: DIGEST }); magic[0] = 0x58;
-      await refused(r, 39, await gzip(magic), 400, 'bad snapshot');
+      await refusedFresh(r, 39, await gzip(magic), 400, 'bad snapshot');
       const format = snapshotBytes({ frameTick: 39, matchDigest: DIGEST }); format[4] = 2;
-      await refused(r, 39, await gzip(format), 400, 'bad snapshot');
-      await refused(r, 39, await gzip(snapshotBytes({ frameTick: 79, matchDigest: DIGEST })), 400, 'bad snapshot');
-      await refused(r, 39, await gzip(new Uint8Array(10)), 400, 'bad snapshot');
+      await refusedFresh(r, 39, await gzip(format), 400, 'bad snapshot');
+      await refusedFresh(r, 39, await gzip(snapshotBytes({ frameTick: 79, matchDigest: DIGEST })), 400, 'bad snapshot');
+      await refusedFresh(r, 39, await gzip(new Uint8Array(10)), 400, 'bad snapshot');
       expect(bookOf(r.room).ticks()).toEqual([]);
     }, 2_000);
 
@@ -2252,6 +2258,7 @@ describe('snapshot upload (snapshot S3)', () => {
       for (const bad of ['-1', '+5', '0x10', '1e3', '', '1.5', '007', '12345678901', 'abc', '65537']) {
         let pulled = false;
         const unread = new ReadableStream<Uint8Array>({ pull(c) { pulled = true; c.enqueue(new Uint8Array(10)); c.close(); } }, { highWaterMark: 0 });
+        reservedOf(r.room).clear();   // this loop tests the header, not the one attempt a seat and tick gets
         await refused(r, 39, unread, 413, 'too_large', { headers: { 'content-length': bad } });
         expect([bad, pulled]).toEqual([bad, false]);
       }
@@ -2260,6 +2267,7 @@ describe('snapshot upload (snapshot S3)', () => {
         const res = await post(r.room, 0, 39, gz, { headers: { 'content-length': ok } });
         expect([ok, res.status === 413]).toEqual([ok, false]);
         bookOf(r.room).clear();
+        reservedOf(r.room).clear();
       }
     }, 2_000);
   });
@@ -2275,6 +2283,87 @@ describe('snapshot upload (snapshot S3)', () => {
     expect(bookOf(r.room).ticks()).toEqual([39]);
     expect((await post(r.room, 1, 39, gz)).status).toBe(201);
   }, 2_000);
+
+  describe('one inflate a seat and tick (security review)', () => {
+    /** Counts the decompressors the room builds while `fn` runs. */
+    async function inflates<T>(fn: () => Promise<T>): Promise<{ result: T; n: number }> {
+      const real = globalThis.DecompressionStream;
+      let n = 0;
+      globalThis.DecompressionStream = class Counting extends real { constructor(fmt: CompressionFormat) { super(fmt); n++; } } as typeof DecompressionStream;
+      try { return { result: await fn(), n }; } finally { globalThis.DecompressionStream = real; }
+    }
+
+    it('ten uploads of one seat and tick, every body still unread when the rest have been admitted: one is inflated and held, nine are 409 duplicate', async () => {
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      const gz = await bodyFor(39);
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      let pulled = 0;
+      const parkedBody = (): ReadableStream<Uint8Array> => new ReadableStream<Uint8Array>({ async pull(c) { pulled++; await gate; c.enqueue(gz); c.close(); } }, { highWaterMark: 0 });
+      const { result, n } = await inflates(async () => {
+        const all = Array.from({ length: 10 }, () => post(r.room, 0, 39, parkedBody()));
+        // The ticket check is a real (macrotask) await: let every upload reach the room before any body arrives.
+        for (let i = 0; i < 200 && pulled < 1; i++) await realImmediate();
+        for (let i = 0; i < 50; i++) await realImmediate();
+        release();
+        return Promise.all(all);
+      });
+      expect(n).toBe(1);
+      expect(result.map((x) => x.status).sort()).toEqual([202, 409, 409, 409, 409, 409, 409, 409, 409, 409]);
+      for (const x of result.filter((y) => y.status === 409)) expect(await text(x)).toBe('duplicate');
+    }, 2_000);
+
+    it('a refusal after the reservation spends it: a bad-header upload, then a good one for the same seat and tick, is 409 duplicate and is not inflated', async () => {
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      await refused(r, 39, await gzip(snapshotBytes({ frameTick: 79, matchDigest: DIGEST })), 400, 'bad snapshot');
+      const good = await bodyFor(39);
+      const { result, n } = await inflates(() => post(r.room, 0, 39, good));
+      expect([result.status, await text(result)]).toEqual([409, 'duplicate']);
+      expect(n).toBe(0);
+      // The other seat's slot for that tick is its own.
+      expect((await post(r.room, 1, 39, await bodyFor(39))).status).toBe(202);
+    }, 2_000);
+
+    it('every kind of refusal spends the slot: not gzip, too large and a wrong format each make the next upload for that seat and tick a 409', async () => {
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      await reach(r, 79);
+      await refused(r, 39, new TextEncoder().encode('this is not gzip'), 400, 'bad_gzip');
+      await refused(r, 39, await bodyFor(39), 409, 'duplicate');
+      await refused(r, 79, new Uint8Array(65537), 413, 'too_large');
+      await refused(r, 79, await bodyFor(79), 409, 'duplicate');
+      const format = snapshotBytes({ frameTick: 39, matchDigest: DIGEST }); format[4] = 2;
+      await refused(r, 39, await gzip(format), 400, 'bad snapshot', {}, 1);
+      await refused(r, 39, await bodyFor(39), 409, 'duplicate', {}, 1);
+    }, 2_000);
+
+    it('a mismatch spends the slots too: after it, neither seat can upload that tick again', async () => {
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      expect((await post(r.room, 0, 39, await bodyFor(39, 1))).status).toBe(202);
+      expect((await post(r.room, 1, 39, await bodyFor(39, 2))).status).toBe(409);
+      expect(bookOf(r.room).ticks()).toEqual([]);
+      await refused(r, 39, await bodyFor(39, 1), 409, 'duplicate', {}, 0);
+      await refused(r, 39, await bodyFor(39, 1), 409, 'duplicate', {}, 1);
+      expect(r.state.storage.snapshotRow).toBeNull();
+    }, 2_000);
+
+    it('the reservations are kept for the two newest ticks only, and the wipe clears them', async () => {
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      for (const tick of [39, 79, 119]) {
+        await reach(r, tick);
+        expect((await post(r.room, 0, tick, await bodyFor(tick))).status).toBe(202);
+      }
+      expect(reservedOf(r.room).ticks()).toEqual([79, 119]);
+      await say(r.room, r.ws1, { t: 'bye' });
+      vi.setSystemTime(Date.now() + PURGE_AFTER_MS);
+      await deliverAlarm(r.room, r.state.storage);
+      expect(reservedOf(r.room).ticks()).toEqual([]);
+    }, 2_000);
+  });
 
   describe('the checks a write depends on run again after the last await (G-6)', () => {
     /** A request body that stays unread until `open()`: the upload is parked in `readCapped`, and the room can change under it. */
