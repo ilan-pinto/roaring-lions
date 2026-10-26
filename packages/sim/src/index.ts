@@ -43,6 +43,8 @@ export {
   MED_DELIVERING,
 } from './tuning';
 export type { StructureType } from './structures';
+// GH-707: the one reading of a down wounded's bleed clock (ring arc and card countdown both call it).
+export { bleedClock, bleedFullTicks, bleedSecondsLeft, type BleedClock, type BleedClockSource, type BleedClockType } from './bleed';
 // The civilian flight rule, shared by `MissionRuntime` and the `&civ` sandbox.
 // Exported because a sandbox has no mission and therefore no runtime, and the
 // alternative to sharing it was a second copy of a game rule in `packages/app`.

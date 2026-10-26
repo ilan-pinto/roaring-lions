@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { bleedFullTicks, bleedView, type BleedSim, type BleedType } from './bleed';
+import { bleedFullTicks } from '@lions/sim';
+import { bleedView, type BleedSim, type BleedType } from './bleed';
 
 // type 0: a squad that sheds wounded (bleed 60 s = 1200 ticks); type 1: its `wounded` body;
 // type 2: a civilian that goes down in place (bleed 30 s = 600 ticks).
@@ -25,7 +26,10 @@ function sim(o: { type: number; woundState: number; bleedTicks: number; parent: 
 describe('bleedView (GH-707 P2)', () => {
   it('a fresh wound is a full ring; half the clock is half, in whole seconds rounded up', () => {
     expect(bleedView(sim({ type: 1, woundState: 1, bleedTicks: 1200, parent: 0 }), 1)).toEqual({ fraction: 1, seconds: 60, held: false, stabilised: false });
-    expect(bleedView(sim({ type: 1, woundState: 1, bleedTicks: 601, parent: 0 }), 1)).toMatchObject({ fraction: 601 / 1200, seconds: 31 });
+    const half = bleedView(sim({ type: 1, woundState: 1, bleedTicks: 601, parent: 0 }), 1);
+    // The sim's Q16.16 clock, as a float: within one raw step (1/65536) of 601/1200.
+    expect(half?.fraction).toBeCloseTo(601 / 1200, 4);
+    expect(half?.seconds).toBe(31);
   });
 
   it('stabilised and carried are held; stabilised says so', () => {

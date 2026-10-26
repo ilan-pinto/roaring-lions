@@ -3,10 +3,9 @@
  * here; the ring itself is `selection-ring.ts`'s arc mode (`readability.ts`'s `WOUND_RING`).
  *
  * 1. `bleedFractionOf`: how much of a down wounded's bleed clock is left, 0..1, for the ring's arc.
- *    This is `packages/app/src/ui/bleed.ts`'s `bleedView` fraction, restated here because
- *    `render` may not import `app` (`app -> render -> sim`). It reads the sim's public columns and
- *    writes nothing. If the two ever disagree the card and the ground ring disagree, so
- *    `wounded-read.test.ts` pins this one against hand-worked numbers for every parent shape.
+ *    The clock is `@lions/sim`'s `bleedClock`, the SAME reading `packages/app/src/ui/bleed.ts`'s
+ *    `bleedView` makes for the unit card, so the ring's arc and the card's countdown cannot drift.
+ *    It reads the sim's public columns and writes nothing.
  *
  * 2. `liftWoundedTemplate`: a minimum-albedo floor for wounded TYPES only (`UnitType.isWounded`).
  *    A man lying on his front, under a building's shadow or on a dusk map, drew near-black -- the
@@ -23,41 +22,10 @@
  * carries the floor for all of them, so the `wounded-read` debug layer writes it once.
  */
 import * as THREE from 'three';
-import { WOUND_DOWN, WOUND_STABILISED } from '@lions/sim';
-
-/** The slice of a unit type `bleedFractionOf` reads. */
-interface BleedType {
-  readonly id: string;
-  readonly wounds: { readonly bleedTicks: number; readonly typeId: string } | null;
-}
+import { ONE, bleedClock, type BleedClockSource } from '@lions/sim';
 
 /** The slice of the sim it reads (structural, so a test hands a literal). */
-export interface BleedSource {
-  readonly state: {
-    readonly typeIdx: ArrayLike<number>;
-    readonly woundState: ArrayLike<number>;
-    readonly bleedTicks: ArrayLike<number>;
-    readonly woundParent: ArrayLike<number>;
-  };
-  readonly unitTypes: readonly BleedType[];
-}
-
-/** The ticks a fresh wound of entity `id` bleeds for, found the way the sim chose it (see
- *  `bleed.ts`'s header): the parent squad's type, else his own, else the type that sheds his kind. */
-function fullBleedTicks(sim: BleedSource, id: number): number {
-  const st = sim.state;
-  const parent = st.woundParent[id];
-  if (parent >= 0) {
-    const w = sim.unitTypes[st.typeIdx[parent]]?.wounds;
-    if (w) return w.bleedTicks;
-  }
-  const own = sim.unitTypes[st.typeIdx[id]];
-  if (own?.wounds) return own.wounds.bleedTicks;
-  if (own) {
-    for (const u of sim.unitTypes) if (u.wounds !== null && u.wounds.typeId === own.id) return u.wounds.bleedTicks;
-  }
-  return 0;
-}
+export type BleedSource = BleedClockSource;
 
 export interface BleedRead {
   /** Remaining bleed, 0..1 (1 when no type says how long a wound bleeds, so the arc is a full band). */
@@ -66,15 +34,12 @@ export interface BleedRead {
   readonly bleeding: boolean;
 }
 
-/** The ring's read for entity `id`, or null when it is not a down or stabilised wounded. */
+/** The ring's read for entity `id`, or null when it is not a down or stabilised wounded. The clock is
+ *  `@lions/sim`'s `bleedClock`, the one the unit card reads too; this only makes its Q16.16 fraction a float. */
 export function bleedFractionOf(sim: BleedSource, id: number): BleedRead | null {
-  const w = sim.state.woundState[id];
-  if (w !== WOUND_DOWN && w !== WOUND_STABILISED) return null;
-  const full = fullBleedTicks(sim, id);
-  const bleeding = w === WOUND_DOWN;
-  if (full <= 0) return { fraction: 1, bleeding };
-  const left = Math.max(0, Math.min(full, sim.state.bleedTicks[id]));
-  return { fraction: left / full, bleeding };
+  const clock = bleedClock(sim, id);
+  if (clock === null) return null;
+  return { fraction: clock.fraction / ONE, bleeding: !clock.stabilised };
 }
 
 /**
