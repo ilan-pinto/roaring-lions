@@ -1,5 +1,9 @@
 import { SNAPSHOT_MATCH_DIGEST_OFFSET } from '@lions/sim';
 
+/** The snapshot format this build writes, re-exported so the Worker (which has
+ *  no `@lions/sim` dependency) can name it through `@lions/net`. */
+export { SNAPSHOT_FORMAT } from '@lions/sim';
+
 /** Compressed upload cap, 64 KiB. Measured (snapshot spec §12.3): the worst
  *  sim-only snapshot, a 1,000-unit stress world, is 16.1 KiB gzipped; with the
  *  mission runtime it is about 18 KiB by addition (§13.3). The cap is four

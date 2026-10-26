@@ -14,6 +14,13 @@ describe('snapshot wire constants', () => {
   });
 });
 
+describe('SNAPSHOT_FORMAT re-export', () => {
+  it('the package index names the format, pinned to the literal 1 (the worker reads it from here)', async () => {
+    const net = await import('./index');
+    expect(net.SNAPSHOT_FORMAT).toBe(1);
+  });
+});
+
 describe('readSnapshotHeader', () => {
   const snap = () => encodeSim(new Sim({ seed: 1, width: 8, height: 8, capacity: 4 }),
     { matchDigest: 0xdeadbeef, frameTick: 1199, build: 'b', matchId: 'ABCDEF' });
