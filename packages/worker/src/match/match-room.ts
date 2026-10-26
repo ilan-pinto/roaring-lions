@@ -67,7 +67,7 @@ import { advisorMayRelay, factionsOfMatchup, matchupAllowed, sidesOfFactions, ma
 import type { Env } from '../d1';
 import type { DurableStateLike, HibernatingSocket, UpgradeInit } from '../do-types';
 import { readCapped } from '../read-capped';
-import { LOG_FROM_SQL, SNAP_CREATE_SQL, SNAP_PUT_SQL, SNAP_TICK_SQL } from './snapshot-sql';
+import { LOG_FROM_SQL, SNAP_CREATE_SQL, SNAP_GET_SQL, SNAP_PUT_SQL, SNAP_TICK_SQL } from './snapshot-sql';
 import { PendingBook, admitTick, decide } from './snapshot-intake';
 import { SNAP_MISMATCH_PER_ROOM, writeSnapMismatch } from './snap-mismatch-log';
 import { createRoom, endedMsg, lobbyMsg, logParts, pausedMsg, seatJoin, seatMessage, seatGone, clockTick, closeIfDue, expire, forfeitDueAt, forfeitIfDue, persistKey, revive, ROOM_TTL_MS, type Effect, type RoomState } from './room-core';
@@ -745,6 +745,7 @@ export class MatchRoom {
     if (!st) return new Response('no such room', { status: 404 });
     if (pathname === '/snapshot') {
       if (req.method === 'POST') return this.snapshotUpload(req);
+      if (req.method === 'GET') return this.snapshotServe(req);
       return new Response('method', { status: 405 });
     }
     if (pathname === '/state') return Response.json({ status: st.status, seats: st.seats.filter((s) => s !== null).length });
@@ -829,6 +830,28 @@ export class MatchRoom {
     if (outcome === 'stored') return new Response('stored', { status: 201 });
     if (outcome === 'held') return new Response('held', { status: 202 });
     return new Response('mismatch', { status: 409 });
+  }
+
+  /** `GET /snapshot`: checks 1 to 3 (an advisor ticket is refused), then the one
+   *  row. No row, or a lobby, is 204. Writes nothing and runs in any status while
+   *  the room exists, an ended room before its wipe included. The bytes are the
+   *  stored gzip as uploaded; the client inflates them itself. */
+  private async snapshotServe(req: Request): Promise<Response> {
+    const who = await this.snapshotSeat(req);
+    if (who instanceof Response) return who;
+    const [row] = this.ctx.storage.sql.exec(SNAP_GET_SQL).toArray();
+    if (row === undefined) return new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } });
+    return new Response(row.bytes as ArrayBuffer, {
+      status: 200,
+      headers: {
+        'content-type': 'application/octet-stream',
+        'cache-control': 'no-store',
+        'x-snapshot-tick': String(row.frame_tick),
+        'x-snapshot-sha': String(row.sha),
+        // The agreed match digest as an unsigned decimal: the row holds the header's u32 (the fake and SQLite refuse a signed one).
+        'x-snapshot-digest': String(row.digest),
+      },
+    });
   }
 
   /** The room's half of `/ws`: hand the server end to the Hibernation API,

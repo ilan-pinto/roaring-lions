@@ -4,6 +4,7 @@
  * `acceptSocket`, the half of `/ws` that runs under node -- a
  * `WebSocketPair` and a 101 `Response` exist only in workerd.
  */
+import { gunzipSync } from 'node:zlib';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OVER_CLOSE_MS, sha256Hex, validateConfig, type AdvisorMsg, type AdvisorScope, type ServerMsg, type Seat } from '@lions/net';
 import type { D1Like, Env } from '../d1';
@@ -2286,6 +2287,102 @@ describe('snapshot upload (snapshot S3)', () => {
       const res = await post(room2, 0, 39, await bodyFor(39));
       expect([res.status, await text(res)]).toEqual([409, 'stale']);
       expect(r.state.storage.rowsWritten).toBe(rows);
+    }, 2_000);
+  });
+
+  describe('GET (the room serves its snapshot)', () => {
+    const get = async (room: MatchRoom, auth: string | null): Promise<Response> =>
+      room.fetch(new Request('https://room/snapshot', { method: 'GET', headers: auth === null ? {} : { authorization: auth } }));
+    const getAs = async (room: MatchRoom, seat: Seat): Promise<Response> => get(room, `Bearer ${await ticket(seat)}`);
+    /** Both seats hash `tick` and upload, seat 0's body wrapped differently from seat 1's. Returns seat 0's compressed body. */
+    async function accepted(r: Rig, tick: number, fill = 1): Promise<Uint8Array> {
+      await reach(r, tick);
+      await agree(r, tick);
+      const gz0 = await bodyFor(tick, fill);
+      expect((await post(r.room, 0, tick, gz0)).status).toBe(202);
+      expect((await post(r.room, 1, tick, rewrapped(gz0))).status).toBe(201);
+      return gz0;
+    }
+
+    it('is 204 before any accept, in a running room and in a lobby, and writes nothing', async () => {
+      const lobby = await created(new FakeState(), OPTS);
+      const rows0 = lobby.state.storage.rowsWritten;
+      expect((await getAs(lobby.room, 1)).status).toBe(204);
+      expect(lobby.state.storage.rowsWritten).toBe(rows0);
+      const r = await rig();
+      await run(r.room, [r.ws0, r.ws1], 45);
+      const rows = r.state.storage.rowsWritten;
+      const res = await getAs(r.room, 0);
+      expect([res.status, await res.text()]).toEqual([204, '']);
+      expect(r.state.storage.rowsWritten).toBe(rows);
+    }, 2_000);
+
+    it('is 200 after an accept: seat 0\'s exact bytes, the SHA of the inflated bytes, the unsigned digest and the tick', async () => {
+      const r = await rig();
+      const gz0 = await accepted(r, 39);
+      const rows = r.state.storage.rowsWritten;
+      for (const seat of [0, 1] as const) {
+        const res = await getAs(r.room, seat);
+        expect(res.status).toBe(200);
+        expect(new Uint8Array(await res.arrayBuffer())).toEqual(gz0);
+        expect(res.headers.get('x-snapshot-tick')).toBe('39');
+        expect(res.headers.get('x-snapshot-sha')).toBe(await sha256Hex(new Uint8Array(gunzipSync(gz0))));
+        expect(res.headers.get('x-snapshot-digest')).toBe('3735928559');
+        expect(res.headers.get('content-type')).toBe('application/octet-stream');
+        expect(res.headers.get('cache-control')).toBe('no-store');
+        expect(res.headers.get('content-encoding')).toBeNull();
+      }
+      expect(r.state.storage.rowsWritten).toBe(rows);
+    }, 2_000);
+
+    it('after a second accept it returns the newer one: the row is replaced, never two', async () => {
+      const r = await rig();
+      await accepted(r, 39, 1);
+      const gz79 = await accepted(r, 79, 2);
+      const res = await getAs(r.room, 0);
+      expect(res.headers.get('x-snapshot-tick')).toBe('79');
+      expect(new Uint8Array(await res.arrayBuffer())).toEqual(gz79);
+      expect(res.headers.get('x-snapshot-sha')).toBe(await shaOf(79, 2));
+    }, 2_000);
+
+    it('an ended room serves it until the wipe, and after PURGE_AFTER_MS the code is 404', async () => {
+      const r = await rig();
+      const gz0 = await accepted(r, 39);
+      await say(r.room, r.ws1, { t: 'bye' });
+      const endedAt = Date.now();
+      vi.setSystemTime(endedAt + PURGE_AFTER_MS - 1);
+      const res = await getAs(r.room, 0);
+      expect(res.status).toBe(200);
+      expect(new Uint8Array(await res.arrayBuffer())).toEqual(gz0);
+      vi.setSystemTime(endedAt + PURGE_AFTER_MS);
+      await deliverAlarm(r.room, r.state.storage);
+      expect((await getAs(r.room, 0)).status).toBe(404);
+    }, 2_000);
+
+    it('an advisor ticket and another match\'s seat ticket are 403; no ticket, a malformed header or a ticket in the query is 401; none of them writes', async () => {
+      const r = await rig();
+      await accepted(r, 39);
+      const rows = r.state.storage.rowsWritten;
+      const advisor = await signTicket(SECRET, { matchId: CODE, seat: 0, player: 'advisor', exp: NOW + 3600 * 1000, role: 'advisor', scope: 'assist' });
+      expect((await get(r.room, `Bearer ${advisor}`)).status).toBe(403);
+      expect((await get(r.room, `Bearer ${await ticket(0, 'ZZZZZZ')}`)).status).toBe(403);
+      expect((await get(r.room, 'Bearer garbage')).status).toBe(403);
+      expect((await get(r.room, null)).status).toBe(401);
+      expect((await get(r.room, `Basic ${await ticket(0)}`)).status).toBe(401);
+      const query = await r.room.fetch(new Request(`https://room/snapshot?ticket=${await ticket(0)}`));
+      expect(query.status).toBe(401);
+      expect(r.state.storage.rowsWritten).toBe(rows);
+    }, 2_000);
+
+    it('a code with no room is 404 and touches no storage; a method other than GET and POST is 405', async () => {
+      const state = new FakeState();
+      const room = new MatchRoom(state, env, OPTS);
+      expect((await getAs(room, 0)).status).toBe(404);
+      expect(state.storage.hasTable).toBe(false);
+      expect(state.storage.hasSnapshotTable).toBe(false);
+      expect(state.storage.rowsWritten).toBe(0);
+      const r = await rig();
+      expect((await r.room.fetch(new Request('https://room/snapshot', { method: 'PUT', body: 'x' }))).status).toBe(405);
     }, 2_000);
   });
 });
