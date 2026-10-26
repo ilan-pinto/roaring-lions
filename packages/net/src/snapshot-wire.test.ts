@@ -195,6 +195,14 @@ describe('gunzipCapped', () => {
     const empty = new Uint8Array(Buffer.concat([gzipSync(a), gzipSync(new Uint8Array(0))]));
     expect(await gunzipCapped(empty, MAX)).toEqual({ ok: false, reason: 'bad_gzip' });
   });
+  it('known pass: an empty LEADING member is not caught by the length check, and the inflated bytes are those of the member after it', async () => {
+    // The check is a heuristic (see gunzipCapped). This pins what it does not catch, so a change to it is a decision.
+    // Harmless: the inflated bytes, and so their SHA, equal the single-member upload's.
+    const a = Uint8Array.from({ length: 3000 }, (_, i) => (i * 7) & 0xff);
+    const lead = new Uint8Array(Buffer.concat([gzipSync(new Uint8Array(0)), gzipSync(a)]));
+    const r = await gunzipCapped(lead, MAX);
+    expect(r.ok && Buffer.compare(Buffer.from(r.bytes), Buffer.from(a))).toBe(0);
+  });
   it('truncated gzip, garbage and an empty body are bad_gzip', async () => {
     const whole = gzipSync(Uint8Array.from({ length: 4000 }, (_, i) => (i * 7) & 0xff));
     expect(await gunzipCapped(whole.subarray(0, whole.byteLength - 12), MAX)).toEqual({ ok: false, reason: 'bad_gzip' });

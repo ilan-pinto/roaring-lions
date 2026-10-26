@@ -125,8 +125,9 @@ export async function gunzipCapped(gz: Uint8Array, max: number, yieldTurn: () =>
     return { ok: false, reason: 'bad_gzip' };
   }
   if (total === 0) return { ok: false, reason: 'bad_gzip' };
-  // One member exactly: the last four bytes of a member are its inflated length, so a second member or trailing bytes
-  // (which a runtime may concatenate or ignore, and another may refuse) cannot match the whole output.
+  // A heuristic that rejects most multi-member or trailing input: the last four bytes of a member are its inflated
+  // length, so a later member or trailing bytes rarely match the whole output. An empty leading member is not caught;
+  // that is harmless, since the inflated bytes, and so their SHA, are the same as without it.
   const tail = new DataView(gz.buffer, gz.byteOffset, gz.byteLength);
   if (gz.byteLength < 18 || tail.getUint32(gz.byteLength - 4, true) !== total) return { ok: false, reason: 'bad_gzip' };
   const bytes = new Uint8Array(total);
