@@ -7327,8 +7327,15 @@ export class Sim {
     const armor = this.presentedArmor(target, ox, oy, w.cls);
     const z = penZ(w.penetration, armor);
     const roll = this.rng.nextU32(shooter) >>> 16;
-    if (roll >= fx.normCdf(z)) return;
-    this.applyDamage(target, w.damage, shooter);
+    if (roll >= fx.normCdf(z)) {
+      // GH-560 (S-1): a bounce that could have come through restarts the regen delay, as on the gun path.
+      if (w.splash > 0 || w.penetration >= this.unitTypes[this.typeIdx[target]].armorSide) {
+        this.lastDamagedTick[target] = this.tickCount;
+      }
+      return;
+    }
+    // GH-560 (S-1): a beam penetration costs what a gun penetration costs (penetrationHpCost).
+    this.applyDamage(target, penetrationHpCost(this.unitTypes[this.typeIdx[target]].hp, w.damage, overmatchShift(z)), shooter);
     if (this.alive[target] === 1) this.rollComponent(target, shooter, z);
   }
 
@@ -9606,9 +9613,12 @@ export class Sim {
           penetrated,
         });
         if (penetrated) {
-          this.applyDamage(target, w.damage, i);
+          // GH-560 (S-1): a loitering munition's penetration costs what a gun penetration costs.
+          this.applyDamage(target, penetrationHpCost(tType.hp, w.damage, overmatchShift(z)), i);
           if (this.alive[target] === 1) this.rollComponent(target, i, z);
         } else {
+          // GH-560 (S-1): a bounce that could have come through restarts the regen delay (gun-path test).
+          if (w.splash > 0 || w.penetration >= tType.armorSide) this.lastDamagedTick[target] = this.tickCount;
           this.applySuppression(
             target,
             fx.mul(w.suppPerMiss, BOUNCE_SUPP_MULT),

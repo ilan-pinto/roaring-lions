@@ -304,3 +304,141 @@ describe('a threatening bounce restarts the regen delay; a harmless one does not
     expect(threat.onBounce).toBe(0);
   });
 });
+
+// --------------------------------------------------------------------------------------------------
+// S-1 (sim-guard review of Tasks 1-3, coordinator ruling): the kamikaze terminal strike and the beam are
+// penetration rolls too, so a penetration costs at least 34% there as on the gun path.
+
+describe('a loitering munition and a beam pay the penetration cost (GH-560, S-1)', () => {
+  /** 90 hp, 1.2-tile splash, pen 480, damage 520 (attack_drone's shape). Splash skips the struck target. */
+  const MUNITION: UnitTypeJson = {
+    id: 'vh_munition', role: 'drone', hull: { hp: 90, armor: { front: 0, side: 0, rear: 0 } },
+    mobility: { speed_tiles_s: 3 }, sensors: { optics: 1.4, sight_tiles: 14, signature: 0.3 },
+    abilities: ['kamikaze'],
+    weapons: [
+      { id: 'warhead', type: 'heat', range_tiles: 1.2, effective_range_tiles: 1.2, accuracy: 0.9, penetration: 480, damage: 520, splash_tiles: 1.2, suppression: 70, rof_per_min: 60 },
+    ],
+  };
+  /** The same with no blast and a rifle's penetration: a bounce on it is noise. */
+  const DUD: UnitTypeJson = {
+    ...MUNITION, id: 'vh_dud',
+    weapons: [{ id: 'dud', type: 'heat', range_tiles: 1.2, effective_range_tiles: 1.2, accuracy: 0.9, penetration: 8, damage: 520, suppression: 70, rof_per_min: 60 }],
+  };
+  /** 3000 hp, side plate 10 mm: a 480 mm warhead has z far above 4 (shift 30, P(pen) 1). */
+  const SOFT_SIDED: UnitTypeJson = { ...HULL, id: 'vh_soft_sided', hull: { hp: 3000, armor: { front: 30, side: 10, rear: 10 } } };
+  /** Side plate 2000 mm: nothing here penetrates it (P 0). */
+  const ARMOURED_SIDE: UnitTypeJson = { ...HULL, id: 'vh_armoured_side', hull: { hp: 3000, armor: { front: 2000, side: 2000, rear: 2000 } } };
+
+  /** A tank at (10.5, 8.5), the munition 3 tiles west. Returns the strike tick (the munition's `impact`). */
+  function strike(hullType: UnitTypeJson, munition: UnitTypeJson, damageFirst: boolean): { sim: Sim; id: number; T: number } {
+    const sim = new Sim({ seed: 21, width: 40, height: 24, capacity: 8 });
+    const id = sim.spawn(sim.addUnitType(hullType), 1, fx.from(10.5), fx.from(8.5), 32768);
+    if (damageFirst) {
+      (sim as unknown as Internals).applyDamage(id, 98304000, -1); // half the bar, at tick 0
+      for (let t = 0; t < 100; t++) sim.tick();
+    }
+    sim.spawn(sim.addUnitType(munition), 0, fx.from(7.5), fx.from(8.5));
+    sim.identifyTo(0, id);
+    for (let t = 0; t < 200; t++) {
+      const evs = sim.tick();
+      const hit = impactsOn(evs, id)[0];
+      if (hit !== undefined) return { sim, id, T: hit.tick };
+    }
+    throw new Error('the munition never struck');
+  }
+
+  it('a penetrating warhead costs the floor, not the 520: 3000 hp -> 96339000 left (cost 100269000, 51%)', () => {
+    const { sim, id } = strike(SOFT_SIDED, MUNITION, false);
+    // The bar after the strike tick. Before S-1 this read 196608000 - 34078720 = 162529280 (17%).
+    expect(sim.state.hp[id]).toBe(96339000);
+    expect(196608000 - sim.state.hp[id]).toBeGreaterThanOrEqual(Math.ceil(196608000 * 0.34));
+  });
+
+  it('a bounce that could have come through (blast) restarts the regen: hp flat through T + 199, +48000 at T + 200', () => {
+    const { sim, id, T } = strike(ARMOURED_SIDE, MUNITION, true);
+    expect(T).toBeGreaterThan(100);
+    const hp: number[] = [sim.state.hp[id]];
+    for (let k = 1; k <= 200; k++) {
+      sim.tick();
+      hp.push(sim.state.hp[id]);
+    }
+    for (let k = 0; k <= 199; k++) expect(hp[k], `T + ${k}`).toBe(98304000);
+    expect(hp[200]).toBe(98304000 + 48000);
+  });
+
+  it('a bounce that never could (no blast, pen 8 on 2000 mm) leaves the delay running from tick 0', () => {
+    const { sim, id, T } = strike(ARMOURED_SIDE, DUD, true);
+    const hp: number[] = [sim.state.hp[id]];
+    for (let k = 1; k <= 200; k++) {
+      sim.tick();
+      hp.push(sim.state.hp[id]);
+    }
+    // Damaged at tick 0, so regen began at tick 200: already running at T + (200 - T).
+    expect(hp[199 - T]).toBe(98304000);
+    expect(hp[200 - T]).toBe(98304000 + 48000);
+  });
+
+  // The beam: directed_energy, a dwell of 1.5 s, then one roll against the plate. These warheads are
+  // fixtures (no shipped unit carries a beam that can penetrate), so the numbers are the test's own.
+  const beamCarrier = (penetration: number, damage: number): UnitTypeJson => ({
+    id: 'vh_carrier', role: 'aa', hull: { hp: 1100, armor: { front: 40, side: 25, rear: 20 } },
+    mobility: { speed_tiles_s: 0 }, sensors: { optics: 1.4, sight_tiles: 12, signature: 0.9 },
+    weapons: [
+      { id: 'beam', type: 'directed_energy', range_tiles: 9, accuracy: 1, penetration, damage, rof_per_min: 40, can_target: ['air'], collateral_risk: 0, beam: { dwell_s: 1.5, heat_s: 12, cooldown_s: 6 } },
+    ],
+  });
+  /** A hard airframe: 3000 hp, 2000 mm front, 300 mm sides and rear (facing the carrier it meets the front). */
+  const AIRFRAME = (side: number): UnitTypeJson => ({
+    id: 'vh_airframe', role: 'drone', hull: { hp: 3000, armor: { front: 2000, side, rear: side } },
+    mobility: { speed_tiles_s: 0, domain: 'air' }, sensors: { optics: 1, sight_tiles: 6, signature: 1 },
+  });
+
+  function beamed(carrier: UnitTypeJson, air: UnitTypeJson, damageFirst: boolean): { sim: Sim; id: number; T: number } {
+    const sim = new Sim({ seed: 9, width: 32, height: 16, capacity: 8 });
+    const id = sim.spawn(sim.addUnitType(air), 1, fx.from(11.5), fx.from(8.5), 32768);
+    if (damageFirst) {
+      (sim as unknown as Internals).applyDamage(id, 98304000, -1);
+      for (let t = 0; t < 100; t++) sim.tick();
+    }
+    const c = sim.spawn(sim.addUnitType(carrier), 0, fx.from(3.5), fx.from(8.5));
+    sim.identifyTo(0, id);
+    for (let t = 0; t < 400; t++) {
+      const evs = sim.tick();
+      const hit = evs.find((e) => e.kind === 'beam' && e.phase === 'struck');
+      if (hit !== undefined) {
+        sim.debugKill(c); // the only strike this test reads
+        return { sim, id, T: hit.tick };
+      }
+    }
+    throw new Error('the beam never struck');
+  }
+
+  it('a penetrating beam strike costs the floor: pen 9000 on 2000 mm (shift 30) -> 96339000 left', () => {
+    // damage 80 would leave 196608000 - 5242880 = 191365120 (2.7%); the floor at shift 30 is 100269000.
+    const { sim, id } = beamed(beamCarrier(9000, 80), AIRFRAME(300), false);
+    expect(sim.state.hp[id]).toBe(96339000);
+  });
+
+  it('a beam bounce that could have come through restarts the regen (pen 300 >= side 300, front 2000 holds)', () => {
+    const { sim, id, T } = beamed(beamCarrier(300, 80), AIRFRAME(300), true);
+    expect(T).toBeGreaterThan(100);
+    const hp: number[] = [sim.state.hp[id]];
+    for (let k = 1; k <= 200; k++) {
+      sim.tick();
+      hp.push(sim.state.hp[id]);
+    }
+    for (let k = 0; k <= 199; k++) expect(hp[k], `T + ${k}`).toBe(98304000);
+    expect(hp[200]).toBe(98304000 + 48000);
+  });
+
+  it('a beam bounce that never could (pen 5) leaves the delay running from tick 0', () => {
+    const { sim, id, T } = beamed(beamCarrier(5, 80), AIRFRAME(300), true);
+    const hp: number[] = [sim.state.hp[id]];
+    for (let k = 1; k <= 200; k++) {
+      sim.tick();
+      hp.push(sim.state.hp[id]);
+    }
+    expect(hp[199 - T]).toBe(98304000);
+    expect(hp[200 - T]).toBe(98304000 + 48000);
+  });
+});
