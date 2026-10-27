@@ -3,16 +3,17 @@
 // opens a Metal browser and never runs in CI. Oracles are literals.
 import { describe, expect, it } from 'vitest';
 import type { NetStats } from '@lions/net';
-import { formatTable, frozenOf, isMetalRenderer, parseArgs, phases, restartDev, stallSummary, type RoomResult } from './rejoin-measure';
+import type { ProducerStats } from '../../../packages/app/src/net/snapshot-producer';
+import { formatTable, frozenOf, isMetalRenderer, onFailures, onLines, parseArgs, phases, restartDev, stallSummary, type OnReadings, type RoomResult } from './rejoin-measure';
 
 describe('parseArgs', () => {
   it('defaults to the plan\'s run: 6,000 and 24,000 ticks, mode off, a 50 ms tick, the browser on', () => {
-    expect(parseArgs([])).toEqual({ ticks: [6000, 24000], modes: ['off'], tickMs: 50, out: null, browser: true });
-    expect(parseArgs(['--'])).toEqual({ ticks: [6000, 24000], modes: ['off'], tickMs: 50, out: null, browser: true });
+    expect(parseArgs([])).toEqual({ ticks: [6000, 24000], modes: ['off'], tickMs: 50, out: null, shotDir: null, browser: true });
+    expect(parseArgs(['--'])).toEqual({ ticks: [6000, 24000], modes: ['off'], tickMs: 50, out: null, shotDir: null, browser: true });
   });
   it('takes the options, sorts the ticks, and leaves --port to claimPort', () => {
-    expect(parseArgs(['--', '--port=5300', '--ticks=24000,600', '--modes=off', '--tick-ms=2', '--out=/x/y.json', '--no-browser']))
-      .toEqual({ ticks: [600, 24000], modes: ['off'], tickMs: 2, out: '/x/y.json', browser: false });
+    expect(parseArgs(['--', '--port=5300', '--ticks=24000,600', '--modes=off,on', '--tick-ms=2', '--out=/x/y.json', '--shot-dir=/x/shots', '--no-browser']))
+      .toEqual({ ticks: [600, 24000], modes: ['off', 'on'], tickMs: 2, out: '/x/y.json', shotDir: '/x/shots', browser: false });
   });
   it('refuses a bad --ticks, an unknown mode, a bad --tick-ms and an unknown option', () => {
     expect(parseArgs(['--ticks=abc'])).toHaveProperty('error');
@@ -20,7 +21,9 @@ describe('parseArgs', () => {
     expect(parseArgs(['--ticks=50'])).toHaveProperty('error');
     expect(parseArgs(['--ticks=30000'])).toHaveProperty('error');
     expect(parseArgs(['--ticks=6000,6000'])).toHaveProperty('error');
-    expect(parseArgs(['--modes=on'])).toEqual({ error: expect.stringContaining('unknown mode "on"') });
+    expect(parseArgs(['--modes=snap'])).toEqual({ error: expect.stringContaining('unknown mode "snap"') });
+    expect(parseArgs(['--modes=on,on'])).toEqual({ error: expect.stringContaining('distinct') });
+    expect(parseArgs(['--shot-dir'])).toHaveProperty('error');
     expect(parseArgs(['--modes=off,snap'])).toHaveProperty('error');
     expect(parseArgs(['--modes=off,off'])).toEqual({ error: expect.stringContaining('distinct') });
     expect(parseArgs(['--tick-ms=0'])).toHaveProperty('error');
@@ -133,10 +136,38 @@ describe('seat 0 stalls', () => {
       boot: { bootMs: 1, liveMs: 3, replayMs: 2 }, frozen: { longestMs: 1, longestRoomTicks: 0, tickBeforeLongest: 0, totalMs: 1, totalRoomTicks: 0 },
       browserNet: null, firstSeen: null, tickCountAtLive: 6039,
       seat0Stats: stats(0, 0, 0, 0), seat0StatsAtLive: stats(0, 0, 1, 1455),
-      consoleErrors: [], load: { start: 1, end: 1 },
+      consoleErrors: [], load: { start: 1, end: 1 }, snapshot: null,
     };
     const out = formatTable([row], 'gpu', 'conditions');
     expect(out).toContain('seat 0 stalls at live: gone 0 (longest 0 ms), behind 1 (longest 1455 ms)');
     expect(out).toContain('(at the drop: gone 0 (longest 0 ms), behind 0 (longest 0 ms))');
+  });
+});
+
+describe('mode on: onFailures', () => {
+  const prod = (over: Partial<ProducerStats> = {}): ProducerStats => ({ encodes: 5, lastEncodeMs: 12.3, stored: 2, held: 3, recorded: 0, mismatch: 0, refused: 0, failed: 0, skipped: {}, ...over });
+  const good = { rejoin: { path: 'snapshot', from: 4800, restoreMs: 140 }, browserProducer: prod(), seat0: prod(), seat1AtDrop: prod({ stored: 0, held: 0, recorded: 4 }) };
+  it('is empty for a snapshot rejoin with accepted uploads and no mismatch', () => {
+    expect(onFailures(good)).toEqual([]);
+    expect(onFailures({ ...good, browserProducer: null })).toEqual([]);
+  });
+  it('names a fallback: the full path and its reason, or no rejoin at all', () => {
+    expect(onFailures({ ...good, rejoin: { path: 'full', reason: 'none' } })).toEqual(['the browser\'s rejoin path was "full" (none), not "snapshot"']);
+    expect(onFailures({ ...good, rejoin: null })).toEqual(['the browser reported no rejoin']);
+  });
+  it('counts stored + held + recorded and refuses any mismatch, on either seat and the browser', () => {
+    expect(onFailures({ ...good, seat0: prod({ stored: 0, held: 0, recorded: 0 }) })).toEqual(['seat 0 has no accepted snapshot (stored + held + recorded is 0)']);
+    expect(onFailures({ ...good, seat1AtDrop: prod({ mismatch: 1 }) })).toEqual(['seat 1 at the drop mismatch 1, not 0']);
+    expect(onFailures({ ...good, browserProducer: prod({ mismatch: 2 }) })).toEqual(['the browser\'s producer mismatch 2, not 0']);
+    expect(onFailures({ ...good, seat0: null })).toEqual(['seat 0 has no producer counters']);
+  });
+  it('prints the rejoin, the producers, the settle and the verdict', () => {
+    const o: OnReadings = { ...good, restoreMs: 140, dead: { total: 31, explored: 4 }, settle: { pending: 0, taken: 31, wrecks: 20 }, shot: '/x/a.png', failures: [] };
+    const text = onLines(o).join('\n');
+    expect(text).toContain('rejoin: snapshot from 4800, restore 140 ms');
+    expect(text).toContain('seat 0 stored 2 held 3 recorded 0 mismatch 0');
+    expect(text).toContain('D4 settle: {"pending":0,"taken":31,"wrecks":20}; dead in the rejoiner\'s sim 31 (explored 4); screenshot /x/a.png');
+    expect(text).not.toContain('NOT A SNAPSHOT REJOIN');
+    expect(onLines({ ...o, failures: ['x'] }).join('\n')).toContain('NOT A SNAPSHOT REJOIN: x');
   });
 });

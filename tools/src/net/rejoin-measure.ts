@@ -5,8 +5,13 @@
  * 2026-10-25-net-sim-snapshot-design §2.2); this is the "before" that S4's
  * payoff is judged against.
  *
- *   pnpm net:rejoin-measure -- [--port=5251] [--ticks=6000,24000] [--modes=off]
- *                              [--tick-ms=50] [--out=<file.json>] [--no-browser]
+ *   pnpm net:rejoin-measure -- [--port=5251] [--ticks=6000,24000] [--modes=off,on]
+ *                              [--tick-ms=50] [--out=<file.json>] [--shot-dir=<dir>] [--no-browser]
+ *
+ * Modes: `off` is today's reload (no snapshot is produced, the room's cadence is 0, the browser replays the
+ * whole log). `on` (S4 Task 16) has both Node seats produce the room's snapshot, so the browser reloads by
+ * snapshot; it must report `__lions.net().rejoin.path === 'snapshot'` with producer `mismatch` 0 and
+ * `stored + held + recorded` above 0, or the run exits 1 naming why (`onFailures`).
  *
  * NEVER RUNS IN CI, and no test starts it: it opens one Chromium on Metal and
  * takes about 21 minutes, nearly all of it Node pre-play at the room's real
@@ -50,15 +55,16 @@ import { startLocalRelay, type LocalRelay } from './local-relay';
 import { buildId } from './build-id';
 import { inProcess, rush, type RunningPlayer } from './players';
 import type { NetStats } from '@lions/net';
+import type { ProducerStats } from '../../../packages/app/src/net/snapshot-producer';
 
 // ---------------------------------------------------------------- pure parts
 
-export const MODES = ['off'] as const;
+export const MODES = ['off', 'on'] as const;
 export type Mode = (typeof MODES)[number];
 
 /** The room cap (`MATCH_CAP_TICKS`, 25 min): a room is not measured past it. */
 const MAX_TICKS = 30_000;
-const USAGE = 'usage: pnpm net:rejoin-measure -- [--port=5251] [--ticks=6000,24000] [--modes=off] [--tick-ms=50] [--out=<file.json>] [--no-browser]';
+const USAGE = 'usage: pnpm net:rejoin-measure -- [--port=5251] [--ticks=6000,24000] [--modes=off,on] [--tick-ms=50] [--out=<file.json>] [--shot-dir=<dir>] [--no-browser]';
 
 export interface MeasureArgs {
   /** Ascending, unique. */
@@ -67,6 +73,8 @@ export interface MeasureArgs {
   /** The relay rooms' clock period in ms. */
   tickMs: number;
   out: string | null;
+  /** Where the `on` mode saves one screenshot of the settled wrecks after its reload; null: none. */
+  shotDir: string | null;
   /** false: pre-play and report in Node only. */
   browser: boolean;
 }
@@ -77,6 +85,7 @@ export function parseArgs(argv: readonly string[]): MeasureArgs | { error: strin
   let modes: Mode[] = ['off'];
   let tickMs = 50;
   let out: string | null = null;
+  let shotDir: string | null = null;
   let browser = true;
   for (const arg of argv) {
     if (arg === '--') continue;   // pnpm passes the separator through
@@ -88,7 +97,7 @@ export function parseArgs(argv: readonly string[]): MeasureArgs | { error: strin
       if (value === undefined) return { error: `--port needs a value\n${USAGE}` };
       continue;
     }
-    if (!['--ticks', '--modes', '--tick-ms', '--out'].includes(name)) return { error: `unknown option ${name}\n${USAGE}` };
+    if (!['--ticks', '--modes', '--tick-ms', '--out', '--shot-dir'].includes(name)) return { error: `unknown option ${name}\n${USAGE}` };
     if (value === undefined || value === '') return { error: `${name} needs a value: write ${name}=<value>` };
     if (name === '--ticks') {
       const parts = value.split(',');
@@ -109,11 +118,13 @@ export function parseArgs(argv: readonly string[]): MeasureArgs | { error: strin
     } else if (name === '--tick-ms') {
       if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 1000) return { error: '--tick-ms is 1-1000' };
       tickMs = Number(value);
+    } else if (name === '--shot-dir') {
+      shotDir = value;
     } else {
       out = value;
     }
   }
-  return { ticks, modes, tickMs, out, browser };
+  return { ticks, modes, tickMs, out, shotDir, browser };
 }
 
 /** Wall-clock stamps of one rejoin, in ms on one clock. `bootAt`/`liveAt` are null until seen. */
@@ -217,6 +228,49 @@ export interface RoomResult {
   seat0StatsAtLive: NetStats | null;
   consoleErrors: string[];
   load: { start: number; end: number };
+  /** Mode `on` only: what the snapshot path did, else null. */
+  snapshot: OnReadings | null;
+}
+
+/** What mode `on` reads beside the timing: the browser's own report and both Node seats' producer counters. */
+export interface OnReadings {
+  /** The browser's `__lions.net().rejoin`, read at live. */
+  rejoin: unknown;
+  /** The browser's own `restoreMs` (the restore and its digest, not the world build), when it restored. */
+  restoreMs: number | null;
+  /** The browser's producer after one cadence live (its `lastEncodeMs` is the frame cost of one encode), else null. */
+  browserProducer: ProducerStats | null;
+  seat0: ProducerStats | null;
+  seat1AtDrop: ProducerStats | null;
+  /** Dead entities in the rejoiner's sim, and how many of them the renderer says are on explored ground. */
+  dead: { total: number; explored: number | null } | null;
+  /** `renderer.debugSettle()` after the reload: what D4 queued and drew. */
+  settle: { pending: number; taken: number; wrecks: number } | null;
+  /** The screenshot of the settled wrecks, when one was taken. */
+  shot: string | null;
+  /** Why this row is not a snapshot rejoin; empty when it is one. */
+  failures: string[];
+}
+
+/**
+ * Why a mode-`on` row does not prove the snapshot path, as plain sentences (empty: it does). A green `on` row
+ * that fell back to the full log would measure nothing (the casebook's "empty array" shape), so the run exits 1
+ * on any of these. `stored + held + recorded` is the producers' accepted count; `mismatch` must stay 0.
+ */
+export function onFailures(r: Pick<OnReadings, 'rejoin' | 'browserProducer' | 'seat0' | 'seat1AtDrop'>): string[] {
+  const out: string[] = [];
+  const j = r.rejoin as { path?: unknown; reason?: unknown } | null | undefined;
+  if (j === null || j === undefined || typeof j !== 'object') out.push('the browser reported no rejoin');
+  else if (j.path !== 'snapshot') out.push(`the browser's rejoin path was ${JSON.stringify(j.path)}${typeof j.reason === 'string' ? ` (${j.reason})` : ''}, not "snapshot"`);
+  const seat = (name: string, p: ProducerStats | null): void => {
+    if (p === null) { out.push(`${name} has no producer counters`); return; }
+    if (p.mismatch !== 0) out.push(`${name} mismatch ${p.mismatch}, not 0`);
+    if (p.stored + p.held + p.recorded === 0) out.push(`${name} has no accepted snapshot (stored + held + recorded is 0)`);
+  };
+  seat('seat 0', r.seat0);
+  seat('seat 1 at the drop', r.seat1AtDrop);
+  if (r.browserProducer !== null && r.browserProducer.mismatch !== 0) out.push(`the browser's producer mismatch ${r.browserProducer.mismatch}, not 0`);
+  return out;
 }
 
 interface Room {
@@ -235,7 +289,7 @@ async function post(relay: LocalRelay, path: string, body: unknown): Promise<Res
 }
 
 /** A KDF v Sarim `tel_marum` room, real time, two scripted `rush` seats. */
-async function openRoom(relay: LocalRelay, ticks: number, build: string): Promise<Room> {
+async function openRoom(relay: LocalRelay, ticks: number, build: string, mode: Mode): Promise<Room> {
   const created = await post(relay, '/api/match', { player: randomUUID(), callsign: 'Host', build, map: MAP, mode: 'versus', matchup: 'kdf' });
   if (created.status !== 201) throw new Error(`the room refused to open: HTTP ${created.status} ${await created.text()}`);
   const { code, ticket } = (await created.json()) as { code: string; ticket: string };
@@ -244,7 +298,8 @@ async function openRoom(relay: LocalRelay, ticks: number, build: string): Promis
   const j = (await joined.json()) as { seat: unknown; ticket: string };
   if (j.seat !== 1) throw new Error(`the join answered seat ${String(j.seat)}, not 1`);
   const tickets: [string, string] = [ticket, j.ticket];
-  const player = inProcess('rush', rush, { log: () => {} });
+  // `on`: both seats produce the room's snapshot; `off` is the production default (a bot seat does not).
+  const player = inProcess('rush', rush, { log: () => {}, ...(mode === 'on' ? { snapshots: { produce: true } } : {}) });
   const players: RunningPlayer[] = [];
   for (const seat of [0, 1] as const) {
     players.push(await player.start({ server: relay.url, origin: relay.origin, code, seat, ticket: tickets[seat], build }));
@@ -283,7 +338,99 @@ async function readPage(page: Page): Promise<{ defined: boolean; seen: Seen | nu
   }
 }
 
-async function measureBrowserRejoin(ctx: BrowserContext, origin: string, room: Room, mode: Mode, tickMs: number): Promise<RoomResult> {
+/** How long mode `on` waits, after live, for the browser's own producer to encode once: one cadence of 1,200 ticks is 60 s at the room's tick. */
+const PRODUCER_WAIT_MS = 150_000;
+
+interface PageProbe {
+  dead: { total: number; explored: number | null };
+  settle: { pending: number; taken: number; wrecks: number } | null;
+  target: { x: number; y: number } | null;
+}
+
+/** The rejoiner's dead (alive 0, not removed) and the densest knot of them, preferring explored ground; the renderer's settle counters. */
+async function probeSettled(page: Page): Promise<PageProbe | null> {
+  try {
+    return await page.evaluate(() => {
+      type R = { debugSettle?: () => { pending: number; taken: number; wrecks: number }; isExplored?: (x: number, y: number) => boolean };
+      const l = (window as unknown as { __lions: { sim: { entityCount: number; state: { alive: ArrayLike<number>; removed: ArrayLike<number>; posX: ArrayLike<number>; posY: ArrayLike<number> } }; renderer: R } }).__lions;
+      const st = l.sim.state;
+      const pts: { x: number; y: number; seen: boolean | null }[] = [];
+      for (let i = 0; i < l.sim.entityCount; i++) {
+        if (st.alive[i] !== 0 || st.removed[i] !== 0) continue;
+        const x = (st.posX[i] ?? 0) / 65536;
+        const y = (st.posY[i] ?? 0) / 65536;
+        let seen: boolean | null = null;
+        try { if (typeof l.renderer.isExplored === 'function') seen = l.renderer.isExplored(x, y); } catch { seen = null; }
+        pts.push({ x, y, seen });
+      }
+      const pool = pts.some((p) => p.seen === true) ? pts.filter((p) => p.seen === true) : pts;
+      let best: { x: number; y: number } | null = null;
+      let bestN = -1;
+      for (const a of pool) {
+        const n = pool.filter((b) => Math.abs(a.x - b.x) < 5 && Math.abs(a.y - b.y) < 5).length;
+        if (n > bestN) { bestN = n; best = { x: a.x, y: a.y }; }
+      }
+      return {
+        dead: { total: pts.length, explored: pts.some((p) => p.seen !== null) ? pts.filter((p) => p.seen === true).length : null },
+        settle: typeof l.renderer.debugSettle === 'function' ? l.renderer.debugSettle() : null,
+        target: best,
+      };
+    });
+  } catch {
+    return null;
+  }
+}
+
+/** The browser's producer counters (`__lions.net().snapshot`), or null when it has none yet. */
+async function readBrowserProducer(page: Page): Promise<ProducerStats | null> {
+  try {
+    return await page.evaluate(() => {
+      const n = (window as unknown as { __lions: { net: () => { snapshot?: unknown } | null } }).__lions.net();
+      return (n?.snapshot ?? null) as ProducerStats | null;
+    });
+  } catch {
+    return null;
+  }
+}
+
+/** Mode `on`'s readings once the browser is live: the settle probe and one screenshot, then one cadence of its own producer. */
+async function readOn(page: Page, room: Room, c0: AgentClientLike, seat1AtDrop: ProducerStats | null, browserNet: unknown, shotDir: string | null): Promise<OnReadings> {
+  const rejoin = (browserNet as { rejoin?: unknown } | null)?.rejoin ?? null;
+  const restoreMs = typeof (rejoin as { restoreMs?: unknown } | null)?.restoreMs === 'number' ? (rejoin as { restoreMs: number }).restoreMs : null;
+  await sleep(2500);   // the settle drains 24 a frame; let the first frames land
+  const probe = await probeSettled(page);
+  let shot: string | null = null;
+  if (shotDir !== null && probe?.target) {
+    try {
+      await page.evaluate(([x, y]) => { (window as unknown as { __lions: { goto: (x: number, y: number) => unknown } }).__lions.goto(x as number, y as number); }, [probe.target.x, probe.target.y]);
+      await sleep(2000);
+      mkdirSync(shotDir, { recursive: true });
+      shot = join(shotDir, `rejoin-on-${room.ticks}-settled.png`);
+      await page.screenshot({ path: shot });
+    } catch (e) {
+      log(`screenshot failed: ${messageOf(e)}`);
+      shot = null;
+    }
+  }
+  let browserProducer: ProducerStats | null = null;
+  const t0 = Date.now();
+  while (Date.now() - t0 < PRODUCER_WAIT_MS) {
+    browserProducer = await readBrowserProducer(page);
+    if (browserProducer !== null && browserProducer.encodes >= 1) break;
+    await sleep(1000);
+  }
+  const readings: OnReadings = {
+    rejoin, restoreMs, browserProducer, seat0: c0.snapshotStats(), seat1AtDrop,
+    dead: probe?.dead ?? null, settle: probe?.settle ?? null, shot, failures: [],
+  };
+  readings.failures = onFailures(readings);
+  return readings;
+}
+
+/** The part of `AgentClient` the readings use. */
+interface AgentClientLike { snapshotStats(): ProducerStats | null }
+
+async function measureBrowserRejoin(ctx: BrowserContext, origin: string, room: Room, mode: Mode, tickMs: number, shotDir: string | null): Promise<RoomResult> {
   const c0 = room.players[0].client;
   const c1 = room.players[1].client;
   if (c0 === null || c1 === null) throw new Error('no in-process client');
@@ -291,6 +438,7 @@ async function measureBrowserRejoin(ctx: BrowserContext, origin: string, room: R
     mode, ticks: room.ticks, code: room.code, skipped: null, seat0TickAtDrop: null, seat1TickAtDrop: null,
     boot: null, frozen: null, browserNet: null, firstSeen: null, tickCountAtLive: null, seat0Stats: null, seat0StatsAtLive: null, consoleErrors: [],
     load: { start: loadavg()[0], end: loadavg()[0] },
+    snapshot: null,
   };
   const samples: TickSample[] = [];
   const sampler = setInterval(() => { samples.push({ t: Date.now(), tick: c0.tick() }); }, 10);
@@ -299,6 +447,7 @@ async function measureBrowserRejoin(ctx: BrowserContext, origin: string, room: R
   const dropAt = Date.now();
   result.seat0TickAtDrop = c0.tick();
   result.seat1TickAtDrop = c1.tick();
+  const seat1AtDrop = c1.snapshotStats();
   samples.push({ t: dropAt, tick: c0.tick() });
   c1.transport.detach();
   const page = await ctx.newPage();
@@ -332,6 +481,10 @@ async function measureBrowserRejoin(ctx: BrowserContext, origin: string, room: R
       try {
         result.browserNet = await page.evaluate(() => (window as unknown as { __lions: { net: () => unknown } }).__lions.net());
       } catch { /* the instrument was optional */ }
+      if (mode === 'on') {
+        result.snapshot = await readOn(page, room, c0, seat1AtDrop, result.browserNet, shotDir);
+        if (result.snapshot.failures.length > 0) result.skipped = `mode on is not a snapshot rejoin: ${result.snapshot.failures.join('; ')}`;
+      }
     }
   } finally {
     clearInterval(sampler);
@@ -402,6 +555,18 @@ export async function restartDev<H>(prev: H | null, deps: DevDeps<H>, downTimeou
 
 const f1 = (n: number): string => (Math.round(n * 10) / 10).toString();
 
+/** Mode `on`'s extra lines under a row. */
+export function onLines(o: OnReadings): string[] {
+  const j = o.rejoin as { path?: string; from?: number; reason?: string } | null;
+  const acc = (p: ProducerStats | null): string => (p === null ? 'not read' : `stored ${p.stored} held ${p.held} recorded ${p.recorded} mismatch ${p.mismatch} refused ${p.refused} failed ${p.failed}, ${p.encodes} encodes, last ${f1(p.lastEncodeMs)} ms`);
+  return [
+    `  rejoin: ${j === null ? 'none' : j.path === 'snapshot' ? `snapshot from ${String(j.from)}, restore ${o.restoreMs === null ? '?' : f1(o.restoreMs)} ms` : `full (${String(j.reason)})`}`,
+    `  producers: seat 0 ${acc(o.seat0)}; seat 1 at the drop ${acc(o.seat1AtDrop)}; browser after one cadence ${acc(o.browserProducer)}`,
+    `  D4 settle: ${o.settle === null ? 'not read' : JSON.stringify(o.settle)}; dead in the rejoiner's sim ${o.dead === null ? 'not read' : `${o.dead.total} (explored ${String(o.dead.explored)})`}; screenshot ${o.shot ?? 'none'}`,
+    ...(o.failures.length > 0 ? [`  NOT A SNAPSHOT REJOIN: ${o.failures.join('; ')}`] : []),
+  ];
+}
+
 /** The table, one row a measured room. */
 export function formatTable(rows: readonly RoomResult[], gpu: string, conditions: string): string {
   const lines = [`GPU: ${gpu}`, conditions, ''];
@@ -418,6 +583,7 @@ export function formatTable(rows: readonly RoomResult[], gpu: string, conditions
       `  seat 0 stalls at live: ${stallSummary(r.seat0StatsAtLive)}   (at the drop: ${stallSummary(r.seat0Stats)})`,
       `  load average (1 min) ${f1(r.load.start)} -> ${f1(r.load.end)}`,
     );
+    if (r.snapshot !== null) lines.push(...onLines(r.snapshot));
   }
   return lines.join('\n');
 }
@@ -460,7 +626,7 @@ export async function run(argv: readonly string[]): Promise<number> {
       const relay = await startLocalRelay({
         tickMs: args.tickMs,
         seedFor: () => SEED,
-        snapshotEveryTicks: mode === 'off' ? 0 : undefined,
+        snapshotEveryTicks: mode === 'off' ? 0 : undefined,   // undefined: the room's own cadence
         extraOrigins: args.browser ? [origin, `http://127.0.0.1:${port}`] : [],
         log: () => {},
       });
@@ -480,7 +646,7 @@ export async function run(argv: readonly string[]): Promise<number> {
       log(`mode ${mode}: relay ${relay.url}, build ${build}; pre-playing ${args.ticks.join(', ')} ticks at ${args.tickMs} ms`);
       const mine: Room[] = [];
       for (const ticks of args.ticks) {
-        const room = await openRoom(relay, ticks, build);
+        const room = await openRoom(relay, ticks, build, mode);
         rooms.push(room);
         mine.push(room);
       }
@@ -490,16 +656,16 @@ export async function run(argv: readonly string[]): Promise<number> {
         const c0 = room.players[0].client;
         if (why !== null || c0 === null) {
           log(`room ${room.code} @ ${room.ticks}: ${why ?? 'no client'}`);
-          results.push({ mode, ticks: room.ticks, code: room.code, skipped: why, seat0TickAtDrop: c0?.tick() ?? null, seat1TickAtDrop: null, boot: null, frozen: null, browserNet: null, firstSeen: null, tickCountAtLive: null, seat0Stats: null, seat0StatsAtLive: null, consoleErrors: [], load: { start: loadavg()[0], end: loadavg()[0] } });
+          results.push({ mode, ticks: room.ticks, code: room.code, skipped: why, seat0TickAtDrop: c0?.tick() ?? null, seat1TickAtDrop: null, boot: null, frozen: null, browserNet: null, firstSeen: null, tickCountAtLive: null, seat0Stats: null, seat0StatsAtLive: null, consoleErrors: [], load: { start: loadavg()[0], end: loadavg()[0] }, snapshot: null });
           continue;
         }
         if (ctx === null) {
           log(`room ${room.code} reached tick ${c0.tick()} (--no-browser: not measured)`);
-          results.push({ mode, ticks: room.ticks, code: room.code, skipped: 'no browser', seat0TickAtDrop: c0.tick(), seat1TickAtDrop: room.players[1].client?.tick() ?? null, boot: null, frozen: null, browserNet: null, firstSeen: null, tickCountAtLive: null, seat0Stats: c0.transport.stats(), seat0StatsAtLive: null, consoleErrors: [], load: { start: loadavg()[0], end: loadavg()[0] } });
+          results.push({ mode, ticks: room.ticks, code: room.code, skipped: 'no browser', seat0TickAtDrop: c0.tick(), seat1TickAtDrop: room.players[1].client?.tick() ?? null, boot: null, frozen: null, browserNet: null, firstSeen: null, tickCountAtLive: null, seat0Stats: c0.transport.stats(), seat0StatsAtLive: null, consoleErrors: [], load: { start: loadavg()[0], end: loadavg()[0] }, snapshot: null });
           continue;
         }
         log(`room ${room.code} reached ${room.ticks}: reloading seat 1 in the browser`);
-        const r = await measureBrowserRejoin(ctx, origin, room, mode, args.tickMs);
+        const r = await measureBrowserRejoin(ctx, origin, room, mode, args.tickMs, args.shotDir);
         results.push(r);
         // This room is done: seat 0 leaves quietly so the room stops costing Node time.
         for (const p of room.players) p.client?.transport.detach();
