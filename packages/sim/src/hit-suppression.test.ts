@@ -114,10 +114,12 @@ describe('hits, bounces and splash suppress (GDD 5.5, BOUNCE_SUPP_MULT)', () => 
   it('a round that bounces off the hull shakes the crew twice a near miss', () => {
     // GH-560: a penetration now costs a third of the bar, so the hull dies on its third
     // penetration and one seed offers only two bounces. Pool six seeds (the fixture's hp cannot
-    // help: the cost scales with it). Every bounce is still held to DOUBLED, and the count to > 3.
+    // help: the cost scales with it). Every bounce is still held to DOUBLED. The vacuity floor scales to the
+    // pool: it read 10 bounces over the six seeds, so > 6 trips if the scene loses 40% of them (a floor of
+    // > 3 meant for one seed would still pass after a 60% cut).
     const shots = [7, 8, 9, 10, 11, 12].flatMap((seed) => gains(AP_RIFLE, HULL, false, seed));
     const bounces = shots.filter((s) => s.hit && s.bounced);
-    expect(bounces.length).toBeGreaterThan(3);
+    expect(bounces.length).toBeGreaterThan(6);
     for (const b of bounces) expect(b.target).toBeCloseTo(DOUBLED, 3);
   });
 

@@ -242,12 +242,14 @@ describe('penetration as a curve with facing arcs (GDD 5.3)', () => {
       return { pens, impacts };
     };
 
+    // Vacuity floors scale to the pool of six seeds: the rifle read 1443 impacts (6 x the one-seed floor of 5 is 30),
+    // the ATGM 21 (3-4 a seed), where a floor of > 3 meant for one seed would pass after an 80% cut.
     const rifle = penRate(INF);
-    expect(rifle.impacts).toBeGreaterThan(5);
+    expect(rifle.impacts).toBeGreaterThan(30);
     expect(rifle.pens).toBe(0);
 
     const atgm = penRate(AT_TEAM);
-    expect(atgm.impacts).toBeGreaterThan(3);
+    expect(atgm.impacts).toBeGreaterThan(15);
     expect(atgm.pens / atgm.impacts).toBeGreaterThan(0.75);
   });
 

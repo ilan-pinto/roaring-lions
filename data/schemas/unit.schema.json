@@ -119,7 +119,7 @@
                   "patch": {
                     "type": "object", "minProperties": 1, "additionalProperties": false,
                     "propertyNames": { "pattern": "^(hull\\.hp|hull\\.armor\\.(front|side|rear)|hull\\.suppression_resistance|sensors\\.optics|sensors\\.sight_tiles|weapons\\[[0-9]+\\]\\.(accuracy|penetration))$" },
-                    "patternProperties": { "": { "type": "number", "minimum": 0 } }
+                    "patternProperties": { "": { "type": "number", "minimum": 0 }, "^hull\\.hp$": { "maximum": 32767 } }
                   }
                 }
               }
@@ -139,7 +139,8 @@
         "hp": {
           "type": "number",
           "minimum": 1,
-          "description": "Structural integrity. Most kills come from the component table, not HP depletion."
+          "maximum": 32767,
+          "description": "Structural integrity. Since GH-560 hit points alone end a vehicle: a penetration of a hard hull (front armour of 30 mm or more) costs at least 34% of this bar, so it sizes how many hits the hull takes (two to three), and the component table only cripples. 32767 is the Q16.16 ceiling: the sim converts with fx.from, which wraps above it."
         },
         "armor": {
           "type": "object",

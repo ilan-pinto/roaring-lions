@@ -153,6 +153,9 @@ describe('HP alone ends a hull (GH-560, lead ruling 1)', () => {
         if (evs.some((e) => e.kind === 'destroyed' && e.entity === tank)) {
           deaths++;
           expect(before, `seed ${1000 + seed}, bar before the fatal hit`).toBeLessThanOrEqual(100269000);
+          // The cap above cannot see a luck death on a bar already that low, so the fatal tick must also carry a
+          // penetrating impact on the tank: a hull that dies on a bounce, or on no impact, was not killed by its hit points.
+          expect(impactsOn(evs, tank).some((e) => e.penetrated), `seed ${1000 + seed}, a penetrating impact on the fatal tick`).toBe(true);
           break;
         }
       }

@@ -232,8 +232,9 @@ describe('the controls, on the local relay (the arena\'s pace 60 and cap 12,000)
       // 1). Rush wins from both seats on seeds 1, 2, 7, 8, 9 and 10 of 0-11 at pace 40
       // and at pace 60. Before 1000 it was 40595 (seedOf(5)), until tel_marum's versus
       // seat 0 moved to (27,45) on 2026-10-24 (GH-774), after which passive beat
-      // rush on seat 1 on seed 40595. At this pace and cap, of the arena's seeds
-      // 0-11, rush wins from both seats on 0, 1, 7, 9 and 10. (Was 3 until seat 0
+      // rush on seat 1 on seed 40595. At that pace and cap, then, of the arena's seeds
+      // 0-11, rush won from both seats on 0, 1, 7, 9 and 10 (history: under the HP model of
+      // GH-560 only 7 does, and 0 at pace 60). (Was 3 until seat 0
       // moved to (24,46) on 2026-10-22.)
       const game = await play(players, { seed: 56433, capTicks: CAP, roundTicks: PACE, timeoutMs: 150_000 });
       expect(game.result.kind).toBe('won');
