@@ -18,6 +18,7 @@ export class LockstepClock {
    *  begins at a snapshot. A frame below it is a `duplicate`; a frame above it
    *  with nothing before it is a `gap`. 0 is the whole log. */
   constructor(readonly bufferTicks: number, start = 0) {
+    if (!Number.isInteger(start) || start < 0) throw new RangeError(`LockstepClock start must be a non-negative integer, got ${start}`);
     this.nextTick = start;
     this.newest = start - 1;
   }

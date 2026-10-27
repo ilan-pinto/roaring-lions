@@ -187,6 +187,57 @@ describe('WsTransport', () => {
       t.restartFromZero();
       expect(f.socks.length).toBe(1);
     });
+    it('a from the room would refuse (NaN, negative, fractional, past 0x7fffffff) is not sent: the hello asks for the whole log', () => {
+      for (const from of [Number.NaN, -1, 1.5, 2 ** 31, Infinity]) {
+        const sock = fakeSocket();
+        const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} }, () => 0, 'seat', { from });
+        sock.open();
+        expect(hellos(sock)).toEqual([{ t: 'hello', ticket: 'tkt', build: 'b' }]);
+        sock.recv({ t: 'log', config: CONFIG, frames: span(0, 5) });
+        expect(t.behind()).toBe(6);
+      }
+      const ok = fakeSocket();
+      new WsTransport(() => ok, 'tkt', 'b', { onStart: () => {} }, () => 0, 'seat', { from: 0x7fffffff });
+      ok.open();
+      expect(hellos(ok)).toEqual([{ t: 'hello', ticket: 'tkt', build: 'b', from: 0x7fffffff }]);
+    });
+    it('restartFromZero after a drop whose reconnect timer is pending cancels it: one new socket in all, not two', () => {
+      vi.useFakeTimers();
+      const f = factory();
+      const t = new WsTransport(f.open, 'tkt', 'b', { onStart: () => {} }, () => 0, 'seat', { from: 2400 });
+      f.socks[0]?.open();
+      f.socks[0]?.recv({ t: 'log', config: CONFIG, frames: span(2400, 2450), from: 2400 });
+      f.socks[0]?.closeFromServer();            // onclose schedules a reconnect after RECONNECT_DELAY_MS
+      expect(f.socks.length).toBe(1);
+      t.restartFromZero();                      // before that timer fires
+      expect(f.socks.length).toBe(2);
+      vi.advanceTimersByTime(10 * RECONNECT_DELAY_MS);
+      expect(f.socks.length).toBe(2);
+    });
+    it('a drop after restartFromZero and before the full log reconnects with no from (the whole log is still wanted)', () => {
+      vi.useFakeTimers();
+      const f = factory();
+      const t = new WsTransport(f.open, 'tkt', 'b', { onStart: () => {} }, () => 0, 'seat', { from: 2400 });
+      f.socks[0]?.open();
+      f.socks[0]?.recv({ t: 'log', config: CONFIG, frames: span(2400, 2450), from: 2400 });
+      t.restartFromZero();
+      f.socks[1]?.open();
+      f.socks[1]?.closeFromServer();            // dropped before the log arrived
+      vi.advanceTimersByTime(RECONNECT_DELAY_MS);
+      expect(f.socks.length).toBe(3);
+      f.socks[2]?.open();
+      expect(hellos(f.socks[2] as Fake)).toEqual([{ t: 'hello', ticket: 'tkt', build: 'b' }]);
+    });
+    it('restartFromZero is a no-op after a desync (terminal), not only after detach', () => {
+      const f = factory();
+      const t = new WsTransport(f.open, 'tkt', 'b', { onStart: () => {}, onDesync: () => {} }, () => 0, 'seat', { from: 2400 });
+      f.socks[0]?.open();
+      f.socks[0]?.recv({ t: 'log', config: CONFIG, frames: span(2400, 2410), from: 2400 });
+      f.socks[0]?.recv({ t: 'desync', tick: 2405, hashes: [1, 2] });
+      expect(t.status().kind).toBe('desync');
+      t.restartFromZero();
+      expect(f.socks.length).toBe(1);
+    });
     it('a drop after a from start reconnects with from: newest + 1 (D6 still holds)', () => {
       vi.useFakeTimers();
       const sock = fakeSocket();

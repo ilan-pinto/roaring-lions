@@ -82,4 +82,11 @@ describe('canonicalOrder', () => {
     const got = canonicalOrder([halt(1, 0), halt(0, 2), halt(1, 1), halt(0, 1)]);
     expect(got.map((s) => [s.seat, s.seq])).toEqual([[0, 1], [0, 2], [1, 0], [1, 1]]);
   });
+  it('refuses a start that is NaN, negative or fractional, and takes 0 and a whole tick', () => {
+    expect(() => new LockstepClock(2, Number.NaN)).toThrow(RangeError);
+    expect(() => new LockstepClock(2, -1)).toThrow(RangeError);
+    expect(() => new LockstepClock(2, 1.5)).toThrow(RangeError);
+    expect(() => new LockstepClock(2, 0)).not.toThrow();
+    expect(new LockstepClock(2, 2400).nextTick).toBe(2400);
+  });
 });

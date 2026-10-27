@@ -124,7 +124,8 @@ export type ServerMsg =
 
 const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
 /** A frame tick on the wire: an integer in 0..0x7fffffff. */
-const isFromTick = (v: unknown): v is number => isInt(v) && v >= 0 && v <= 0x7fffffff;
+/** A `hello`'s `from`: a whole tick no higher than 0x7fffffff. The transport applies the same rule to its own `from` option. */
+export const isFromTick = (v: unknown): v is number => isInt(v) && v >= 0 && v <= 0x7fffffff;
 const isStr = (v: unknown): v is string => typeof v === 'string';
 const isSeat = (v: unknown): v is Seat => v === 0 || v === 1;
 /** The most distinct unit ids one command may name (#559 F2). A seat fields a

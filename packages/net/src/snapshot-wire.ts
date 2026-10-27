@@ -57,7 +57,8 @@ export function readSnapshotHeader(raw: Uint8Array): SnapshotHeader | null {
   };
 }
 
-export interface SnapshotMeta {
+/** The identity words of a snapshot (named apart from `@lions/sim`'s `SnapshotMeta`, which has five fields). */
+export interface SnapshotIdentity {
   build: string;
   matchId: string;
   contentDigest: number;
@@ -68,11 +69,13 @@ export interface SnapshotMeta {
  *  can leave its target half-written, so these are checked first). Null for
  *  bytes too short, without the magic, with a string length past 256 bytes or
  *  past the end, or with invalid UTF-8. */
-export function readSnapshotMeta(raw: Uint8Array): SnapshotMeta | null {
+export function readSnapshotMeta(raw: Uint8Array): SnapshotIdentity | null {
   if (readSnapshotHeader(raw) === null) return null;
   const v = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
   const contentDigest = v.getUint32(SNAPSHOT_MATCH_DIGEST_OFFSET + 4, true);
-  const dec = new TextDecoder('utf-8', { fatal: true });
+  // ignoreBOM: true, like the sim's own reader (snapshot.ts): a leading U+FEFF stays in
+  // the string, so a matchId is compared byte for byte with what the sim will read.
+  const dec = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
   let at = SNAPSHOT_META_OFFSET;
   const strings: string[] = [];
   for (let i = 0; i < 2; i++) {

@@ -10,7 +10,7 @@ import type { Faction, MatchConfig, Seat } from './config';
 import type { AdvisorMsg, AdvisorScope } from './advisor';
 import type { Frame } from './frames';
 import { LockstepClock } from './lockstep';
-import { parseServerMsg, type ClientMsg, type LobbyKit, type SeatState, type ServerMsg } from './protocol';
+import { isFromTick, parseServerMsg, type ClientMsg, type LobbyKit, type SeatState, type ServerMsg } from './protocol';
 import type { MatchTransport, TransportStatus } from './transport';
 
 /** The room's `ACK_EVERY`: a seat acks the last tick of every ten it ran. */
@@ -144,7 +144,10 @@ export class WsTransport implements MatchTransport {
      *  snapshot, S4). The first `hello` carries it and the clock starts there. */
     opts: { from?: number } = {},
   ) {
-    this.startFrom = opts.from;
+    // The room's `isFromTick` refuses anything but a non-negative integer up to 0x7fffffff,
+    // and then ignores the hello (the seat would sit connecting until the forfeit); so a
+    // `from` outside that range is dropped here and this client asks for the whole log.
+    this.startFrom = isFromTick(opts.from) ? opts.from : undefined;
     this.hooks = { ...hooks };
     this.connect();
   }
@@ -347,7 +350,12 @@ export class WsTransport implements MatchTransport {
    *  `onStart` does not fire again), closes the socket without letting its close
    *  speak, and reconnects AT ONCE: the other seat is frozen while this one waits
    *  (Ruling 15). The next `hello` carries no `from`. A no-op before the config, once
-   *  closed, and after a terminal status. */
+   *  closed, and after a terminal status.
+   *
+   *  NOT from inside `onStart`: that hook fires from within the `log` handler, which
+   *  resumes after it returns and would push the old log into the new clock, count a
+   *  reconnect and mark the link `live` before the new socket has answered. Call it
+   *  after the handler has returned (a microtask later is enough). */
   restartFromZero(): void {
     if (this.closed || this.terminal() || this.config === null) return;
     this.startFrom = undefined;

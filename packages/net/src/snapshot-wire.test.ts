@@ -248,6 +248,13 @@ describe('readSnapshotMeta (snapshot S4)', () => {
     new DataView(bad.buffer).setUint16(SNAPSHOT_META_OFFSET, 257, true);
     expect(readSnapshotMeta(bad)).toBeNull();
   });
+  it('keeps a leading U+FEFF in a string, as the sim\'s own reader does (the bytes round-trip)', () => {
+    const bom = '\uFEFF';
+    const m = readSnapshotMeta(encodeSim(new Sim({ seed: 1, width: 8, height: 8, capacity: 4 }), { build: `${bom}b-1`, matchId: `${bom}ABCDEF` }));
+    expect(m?.matchId).toBe('\uFEFFABCDEF');
+    expect(m?.matchId.length).toBe(7);
+    expect(m?.build).toBe('\uFEFFb-1');
+  });
   it('invalid UTF-8 is null', () => {
     const bad = snap();
     bad[SNAPSHOT_META_OFFSET + 2] = 0xff;
