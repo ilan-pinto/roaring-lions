@@ -164,3 +164,88 @@ describe('a reload rejoin (I-1)', () => {
     expect(p1.taken).toEqual(p0.taken.slice(0, p1.taken.length));
   });
 });
+
+// Snapshot S4, Task 1A: the baseline. Today's reload replays the WHOLE log
+// from tick 0, and the room freezes the other seat for as long as it takes, so
+// the frozen time grows with the log. The snapshot client (S4) exists to remove
+// that growth; these numbers are the "before". The harness is the one above.
+// Counted on the room's clock (one room tick = TICK_MS), not wall time: the
+// browser's own frame cost is Task 1C's.
+interface Baseline {
+  /** The rejoiner's `behind()` right after its `log`: the frames it must run. */
+  replayed: number;
+  /** Room ticks, from the drop until the rejoiner is live within 2, in which seat 0 was `stalled`. */
+  frozenRoomTicks: number;
+  /** Room ticks from the `hello` until the rejoiner is live within 2. */
+  catchUpRoomTicks: number;
+}
+
+/** A match of `played` room ticks, then seat 1 reloads (`reload`) or only drops its socket and keeps its transport. */
+async function runBaseline(played: number, reload: boolean): Promise<Baseline> {
+  const state = new FakeState();
+  const room = new MatchRoom(state, env);
+  const created = await room.fetch(new Request('https://room/create', {
+    method: 'POST', body: JSON.stringify({ code: CODE, matchId: CODE, map: 'tel_marum', build: BUILD, player: 'Host', callsign: 'Host' }),
+  }));
+  expect(created.status).toBe(200);
+  expect((await room.fetch(new Request('https://room/join', { method: 'POST', body: JSON.stringify({ player: 'Guest', callsign: 'Guest' }) }))).status).toBe(200);
+  const loop = new Loop(room, state);
+  const exp = NOW + 3600 * 1000;
+  const ticket1 = await signTicket(SECRET, { matchId: CODE, seat: 1, player: 'Guest', exp });
+  const p0 = new Seat(loop, await signTicket(SECRET, { matchId: CODE, seat: 0, player: 'Host', exp }));
+  const first1 = new Seat(loop, ticket1);
+  await loop.flush();
+  p0.t.ready();
+  first1.t.ready();
+  await loop.flush();
+  for (let i = 0; i < played; i++) {
+    await loop.tick();
+    p0.run(10);
+    first1.run(10);
+    await loop.flush();
+  }
+  expect(first1.taken.length).toBeGreaterThan(played - 10);
+
+  let p1: Seat;
+  if (reload) {
+    // A reload: the old tab's socket closes with no bye; the new tab rejoins with the stored ticket.
+    first1.t.detach();
+    await loop.flush();
+    p1 = new Seat(loop, ticket1);
+    await loop.flush();
+  } else {
+    // A socket drop with no reload: the transport survives and reconnects after RECONNECT_DELAY_MS.
+    (first1.t as unknown as { sock: SocketLike }).sock.close();
+    await loop.flush();
+    p1 = first1;
+  }
+  const replayed = p1.t.behind();
+  let frozenRoomTicks = 0;
+  let catchUpRoomTicks = 0;
+  while (catchUpRoomTicks < 3000 && !(catchUpRoomTicks > 0 && p1.t.status().kind === 'live' && p1.t.behind() <= 2)) {
+    await loop.tick();
+    catchUpRoomTicks++;
+    p0.run(10);
+    if (p0.t.status().kind === 'stalled') frozenRoomTicks++;
+    p1.run(p1.cap());
+    await loop.flush();
+  }
+  expect(p1.t.status().kind).toBe('live');
+  return { replayed, frozenRoomTicks, catchUpRoomTicks };
+}
+
+describe('baseline: the full-log reload (snapshot S4 T1)', () => {
+  it('replays the whole log, and the other seat is frozen for longer the longer the match ran', async () => {
+    const small = await runBaseline(1200, true);
+    const large = await runBaseline(6000, true);
+    const name = `1200 ticks: replayed ${small.replayed}, frozen ${small.frozenRoomTicks}, catch-up ${small.catchUpRoomTicks}; `
+      + `6000 ticks: replayed ${large.replayed}, frozen ${large.frozenRoomTicks}, catch-up ${large.catchUpRoomTicks}`;
+    // The six numbers are the test's output (Task 1C reads them beside the browser's): in the log and in every failure message.
+    console.log(`rejoin baseline (full-log reload) -- ${name}`);
+    expect(small.replayed, name).toBeGreaterThanOrEqual(1200 - 10);
+    expect(large.replayed, name).toBeGreaterThanOrEqual(6000 - 10);
+    expect(small.frozenRoomTicks, name).toBeGreaterThan(0);
+    // Frozen time grows with the log: the property S4 removes.
+    expect(large.frozenRoomTicks, name).toBeGreaterThan(3 * small.frozenRoomTicks);
+  }, 10_000);   // two runs of the file took 0.43 s each; the margin is for a loaded CI runner
+});
