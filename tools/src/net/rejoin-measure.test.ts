@@ -2,7 +2,8 @@
 // parser, the phase arithmetic and the frozen-gap reader. The tool itself
 // opens a Metal browser and never runs in CI. Oracles are literals.
 import { describe, expect, it } from 'vitest';
-import { frozenOf, parseArgs, phases } from './rejoin-measure';
+import type { NetStats } from '@lions/net';
+import { formatTable, frozenOf, isMetalRenderer, parseArgs, phases, restartDev, stallSummary, type RoomResult } from './rejoin-measure';
 
 describe('parseArgs', () => {
   it('defaults to the plan\'s run: 6,000 and 24,000 ticks, mode off, a 50 ms tick, the browser on', () => {
@@ -21,6 +22,7 @@ describe('parseArgs', () => {
     expect(parseArgs(['--ticks=6000,6000'])).toHaveProperty('error');
     expect(parseArgs(['--modes=on'])).toEqual({ error: expect.stringContaining('unknown mode "on"') });
     expect(parseArgs(['--modes=off,snap'])).toHaveProperty('error');
+    expect(parseArgs(['--modes=off,off'])).toEqual({ error: expect.stringContaining('distinct') });
     expect(parseArgs(['--tick-ms=0'])).toHaveProperty('error');
     expect(parseArgs(['--bogus'])).toEqual({ error: expect.stringContaining('unknown option --bogus') });
     expect(parseArgs(['--ticks'])).toHaveProperty('error');
@@ -61,5 +63,80 @@ describe('frozenOf', () => {
     expect(f.longestMs).toBe(1000);
     expect(f.tickBeforeLongest).toBe(100);
     expect(frozenOf([], 1000, 2000, 50)).toEqual({ longestMs: 0, longestRoomTicks: 0, tickBeforeLongest: 0, totalMs: 0, totalRoomTicks: 0 });
+  });
+});
+
+describe('isMetalRenderer', () => {
+  it('accepts the ANGLE Metal string and refuses SwiftShader and the no-GPU markers', () => {
+    expect(isMetalRenderer('ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro, Unspecified Version)')).toBe(true);
+    expect(isMetalRenderer('ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)')).toBe(false);
+    expect(isMetalRenderer('no-webgl')).toBe(false);
+    expect(isMetalRenderer('no-debug-renderer-info')).toBe(false);
+    expect(isMetalRenderer('')).toBe(false);
+  });
+});
+
+describe('restartDev', () => {
+  /** A dev server fake: `up` is whether the port answers; stopping it takes `lag` probes to go quiet. */
+  function fake(opts: { startReturns: (n: number) => string | null; lag?: number }) {
+    const log: string[] = [];
+    let up = false;
+    let probesLeft = 0;
+    let starts = 0;
+    return {
+      log,
+      deps: {
+        start: async () => { const h = opts.startReturns(starts++); log.push(`start ${h}`); up = true; return h; },
+        stop: (h: string) => { log.push(`stop ${h}`); probesLeft = opts.lag ?? 0; if (probesLeft === 0) up = false; },
+        isUp: async () => { if (probesLeft > 0 && --probesLeft === 0) up = false; return up; },
+        sleep: async () => {},
+      },
+    };
+  }
+  it('stops the last mode\'s server before starting the next, and returns the NEW handle', async () => {
+    const f = fake({ startReturns: (n) => `dev${n}` });
+    const first = await restartDev<string>(null, f.deps);
+    const second = await restartDev(first, f.deps);
+    expect(second).toBe('dev1');
+    expect(f.log).toEqual(['start dev0', 'stop dev0', 'start dev1']);
+  });
+  it('waits for the old port to go quiet, so the next start is not a reuse of the dying server', async () => {
+    const f = fake({ startReturns: (n) => `dev${n}`, lag: 3 });
+    const first = await restartDev<string>(null, f.deps);
+    await restartDev(first, f.deps);
+    expect(f.log).toEqual(['start dev0', 'stop dev0', 'start dev1']);
+  });
+  it('refuses a null start (a server this run did not start, proxying the wrong relay) rather than returning a null handle', async () => {
+    const f = fake({ startReturns: () => null });
+    await expect(restartDev<string>(null, f.deps)).rejects.toThrow(/did not start/);
+  });
+  it('gives up when the old server never goes quiet', async () => {
+    const deps = { start: async () => 'x', stop: () => {}, isUp: async () => true, sleep: async () => {} };
+    await expect(restartDev<string>('old', deps, -1)).rejects.toThrow(/still answers/);
+  });
+});
+
+describe('seat 0 stalls', () => {
+  const stats = (gone: number, goneMs: number, behind: number, behindMs: number): NetStats => ({
+    hashOk: { count: 0, lastTick: null },
+    stalls: { gone: { count: gone, longestMs: goneMs }, behind: { count: behind, longestMs: behindMs } } as NetStats['stalls'],
+    reconnects: { count: 0, lastOutageMs: null, lastReplayMs: null },
+    desyncTick: null,
+  });
+  it('summarises gone and behind', () => {
+    expect(stallSummary(stats(1, 1455.4, 2, 3910))).toBe('gone 1 (longest 1455 ms), behind 2 (longest 3910 ms)');
+    expect(stallSummary(null)).toBe('not read');
+  });
+  it('prints the reading taken at live beside the baseline from the drop', () => {
+    const row: RoomResult = {
+      mode: 'off', ticks: 6000, code: 'ABCDEF', skipped: null, seat0TickAtDrop: 6000, seat1TickAtDrop: 6000,
+      boot: { bootMs: 1, liveMs: 3, replayMs: 2 }, frozen: { longestMs: 1, longestRoomTicks: 0, tickBeforeLongest: 0, totalMs: 1, totalRoomTicks: 0 },
+      browserNet: null, firstSeen: null, tickCountAtLive: 6039,
+      seat0Stats: stats(0, 0, 0, 0), seat0StatsAtLive: stats(0, 0, 1, 1455),
+      consoleErrors: [], load: { start: 1, end: 1 },
+    };
+    const out = formatTable([row], 'gpu', 'conditions');
+    expect(out).toContain('seat 0 stalls at live: gone 0 (longest 0 ms), behind 1 (longest 1455 ms)');
+    expect(out).toContain('(at the drop: gone 0 (longest 0 ms), behind 0 (longest 0 ms))');
   });
 });

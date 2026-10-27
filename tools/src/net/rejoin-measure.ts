@@ -49,6 +49,7 @@ import { musicOffInitScript } from '../ui-review/music-off';
 import { startLocalRelay, type LocalRelay } from './local-relay';
 import { buildId } from './build-id';
 import { inProcess, rush, type RunningPlayer } from './players';
+import type { NetStats } from '@lions/net';
 
 // ---------------------------------------------------------------- pure parts
 
@@ -103,6 +104,7 @@ export function parseArgs(argv: readonly string[]): MeasureArgs | { error: strin
     } else if (name === '--modes') {
       const parts = value.split(',');
       for (const p of parts) if (!(MODES as readonly string[]).includes(p)) return { error: `unknown mode "${p}": ${MODES.join(', ')}` };
+      if (new Set(parts).size !== parts.length) return { error: '--modes entries must be distinct' };
       modes = parts as Mode[];
     } else if (name === '--tick-ms') {
       if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 1000) return { error: '--tick-ms is 1-1000' };
@@ -209,7 +211,10 @@ export interface RoomResult {
   /** The rejoiner's first reading after boot. */
   firstSeen: { status: unknown; tickCount: number } | null;
   tickCountAtLive: number | null;
-  seat0Stats: unknown;
+  /** Seat 0's counters when seat 1 dropped: the baseline. */
+  seat0Stats: NetStats | null;
+  /** Seat 0's counters again at live: the stall counts the freeze left (the plan's cross-check). */
+  seat0StatsAtLive: NetStats | null;
   consoleErrors: string[];
   load: { start: number; end: number };
 }
@@ -284,7 +289,7 @@ async function measureBrowserRejoin(ctx: BrowserContext, origin: string, room: R
   if (c0 === null || c1 === null) throw new Error('no in-process client');
   const result: RoomResult = {
     mode, ticks: room.ticks, code: room.code, skipped: null, seat0TickAtDrop: null, seat1TickAtDrop: null,
-    boot: null, frozen: null, browserNet: null, firstSeen: null, tickCountAtLive: null, seat0Stats: null, consoleErrors: [],
+    boot: null, frozen: null, browserNet: null, firstSeen: null, tickCountAtLive: null, seat0Stats: null, seat0StatsAtLive: null, consoleErrors: [],
     load: { start: loadavg()[0], end: loadavg()[0] },
   };
   const samples: TickSample[] = [];
@@ -323,6 +328,7 @@ async function measureBrowserRejoin(ctx: BrowserContext, origin: string, room: R
       result.skipped = `the browser was not live ${LIVE_TIMEOUT_MS / 1000} s after navigation (booted: ${tl.bootAt !== null})`;
     } else {
       result.frozen = frozenOf(samples, dropAt, tl.liveAt, tickMs);
+      result.seat0StatsAtLive = c0.transport.stats();
       try {
         result.browserNet = await page.evaluate(() => (window as unknown as { __lions: { net: () => unknown } }).__lions.net());
       } catch { /* the instrument was optional */ }
@@ -351,6 +357,49 @@ async function warmUp(ctx: BrowserContext, origin: string): Promise<void> {
   }
 }
 
+/** Whether the unmasked renderer string (`readUnmaskedRenderer`) names Metal: the
+ *  only GPU this instrument's numbers are meaningful on. SwiftShader, 'no-webgl'
+ *  and 'no-debug-renderer-info' are all false. */
+export function isMetalRenderer(gpu: string): boolean {
+  return /\bmetal\b/i.test(gpu);
+}
+
+/** Seat 0's stall counts from its counters, e.g. `gone 1 (longest 1455 ms), behind 0 (longest 0 ms)`. */
+export function stallSummary(stats: NetStats | null): string {
+  if (stats === null) return 'not read';
+  const g = stats.stalls.gone;
+  const b = stats.stalls.behind;
+  return `gone ${g.count} (longest ${Math.round(g.longestMs)} ms), behind ${b.count} (longest ${Math.round(b.longestMs)} ms)`;
+}
+
+export interface DevDeps<H> {
+  /** `ensureDevServer`: the handle of a server it started, or null when one was already answering. */
+  start(): Promise<H | null>;
+  stop(h: H): void;
+  isUp(): Promise<boolean>;
+  sleep(ms: number): Promise<void>;
+}
+
+/**
+ * The dev server for the next mode: stop the last one THIS run started, wait for
+ * its port to go quiet, start a fresh one. A start that comes back `null` means
+ * something else is answering on the port, whose /api proxy points at the wrong
+ * relay, so it is an error and never a `null` handle that would hide the leak.
+ */
+export async function restartDev<H>(prev: H | null, deps: DevDeps<H>, downTimeoutMs = 15_000): Promise<H> {
+  if (prev !== null) {
+    deps.stop(prev);
+    const t0 = Date.now();
+    while (await deps.isUp()) {
+      if (Date.now() - t0 > downTimeoutMs) throw new Error(`the previous mode's dev server still answers ${downTimeoutMs / 1000} s after it was stopped`);
+      await deps.sleep(200);
+    }
+  }
+  const h = await deps.start();
+  if (h === null) throw new Error('a dev server this run did not start is answering on the port; its /api proxy would point at the wrong relay');
+  return h;
+}
+
 const f1 = (n: number): string => (Math.round(n * 10) / 10).toString();
 
 /** The table, one row a measured room. */
@@ -366,6 +415,7 @@ export function formatTable(rows: readonly RoomResult[], gpu: string, conditions
       `  time to live ${r.boot.liveMs} ms   boot ${r.boot.bootMs} ms   replay phase ${r.boot.replayMs} ms`,
       `  frames replayed ${r.tickCountAtLive}   (first reading ${JSON.stringify(r.firstSeen)})`,
       `  opponent frozen: longest ${r.frozen.longestMs} ms (${r.frozen.longestRoomTicks} room ticks, newest tick before it ${r.frozen.tickBeforeLongest}), total ${r.frozen.totalMs} ms (${r.frozen.totalRoomTicks} room ticks)`,
+      `  seat 0 stalls at live: ${stallSummary(r.seat0StatsAtLive)}   (at the drop: ${stallSummary(r.seat0Stats)})`,
       `  load average (1 min) ${f1(r.load.start)} -> ${f1(r.load.end)}`,
     );
   }
@@ -402,7 +452,7 @@ export async function run(argv: readonly string[]): Promise<number> {
       browser = await chromium.launch({ headless: true, args: gpuLaunchArgs('metal') });
       gpu = await readUnmaskedRenderer(browser);
       log(`GPU: ${gpu}`);
-      if (!/metal/i.test(gpu)) throw new Error(`the unmasked renderer is "${gpu}", not Metal: this instrument is only meaningful on the GPU`);
+      if (!isMetalRenderer(gpu)) throw new Error(`the unmasked renderer is "${gpu}", not Metal: this instrument is only meaningful on the GPU`);
       ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
       await ctx.addInitScript(musicOffInitScript());
     }
@@ -417,7 +467,14 @@ export async function run(argv: readonly string[]): Promise<number> {
       relays.push(relay);
       if (args.browser && ctx !== null) {
         process.env.LIONS_API_TARGET = relay.url;
-        dev = await ensureDevServer(port, REPO, TAG);
+        // One dev server a mode: its /api proxy is read once, at start, so a server
+        // left from the last mode would still point at that mode's relay.
+        dev = await restartDev(dev, {
+          start: () => ensureDevServer(port, REPO, TAG),
+          stop: (h) => stopDevServer(h, TAG),
+          isUp: async () => { try { return (await fetch(`http://localhost:${port}/`, { signal: AbortSignal.timeout(1000) })).status < 500; } catch { return false; } },
+          sleep,
+        });
         await warmUp(ctx, origin);
       }
       log(`mode ${mode}: relay ${relay.url}, build ${build}; pre-playing ${args.ticks.join(', ')} ticks at ${args.tickMs} ms`);
@@ -433,12 +490,12 @@ export async function run(argv: readonly string[]): Promise<number> {
         const c0 = room.players[0].client;
         if (why !== null || c0 === null) {
           log(`room ${room.code} @ ${room.ticks}: ${why ?? 'no client'}`);
-          results.push({ mode, ticks: room.ticks, code: room.code, skipped: why, seat0TickAtDrop: c0?.tick() ?? null, seat1TickAtDrop: null, boot: null, frozen: null, browserNet: null, firstSeen: null, tickCountAtLive: null, seat0Stats: null, consoleErrors: [], load: { start: loadavg()[0], end: loadavg()[0] } });
+          results.push({ mode, ticks: room.ticks, code: room.code, skipped: why, seat0TickAtDrop: c0?.tick() ?? null, seat1TickAtDrop: null, boot: null, frozen: null, browserNet: null, firstSeen: null, tickCountAtLive: null, seat0Stats: null, seat0StatsAtLive: null, consoleErrors: [], load: { start: loadavg()[0], end: loadavg()[0] } });
           continue;
         }
         if (ctx === null) {
           log(`room ${room.code} reached tick ${c0.tick()} (--no-browser: not measured)`);
-          results.push({ mode, ticks: room.ticks, code: room.code, skipped: 'no browser', seat0TickAtDrop: c0.tick(), seat1TickAtDrop: room.players[1].client?.tick() ?? null, boot: null, frozen: null, browserNet: null, firstSeen: null, tickCountAtLive: null, seat0Stats: c0.transport.stats(), consoleErrors: [], load: { start: loadavg()[0], end: loadavg()[0] } });
+          results.push({ mode, ticks: room.ticks, code: room.code, skipped: 'no browser', seat0TickAtDrop: c0.tick(), seat1TickAtDrop: room.players[1].client?.tick() ?? null, boot: null, frozen: null, browserNet: null, firstSeen: null, tickCountAtLive: null, seat0Stats: c0.transport.stats(), seat0StatsAtLive: null, consoleErrors: [], load: { start: loadavg()[0], end: loadavg()[0] } });
           continue;
         }
         log(`room ${room.code} reached ${room.ticks}: reloading seat 1 in the browser`);
