@@ -359,6 +359,77 @@ describe('/api/match', () => {
       expect(calls).toEqual([]);
     });
 
+    describe('snapshot S4 T6: a same-origin GET carries no Origin', () => {
+      /** The request a browser's same-origin `fetch` GET makes: no Origin, `Sec-Fetch-Site: same-origin`, the ticket. */
+      const bare = (url: string, method: string, auth: string | null, site: string | null, extra: Record<string, string> = {}, body?: Uint8Array<ArrayBuffer>): Request => {
+        const h: Record<string, string> = { 'cf-connecting-ip': '198.51.100.7', ...extra };
+        if (site !== null) h['sec-fetch-site'] = site;
+        if (auth !== null) h.authorization = auth;
+        return new Request(url, { method, headers: h, ...(body ? { body } : {}) });
+      };
+
+      it('a GET with no Origin and Sec-Fetch-Site: same-origin reaches the room with the seat ticket, and is rate-limited by IP like any other', async () => {
+        const { env, snapSeen, snapKeys } = fakeRooms();
+        const auth = `Bearer ${await seatTicket('ABCDEF')}`;
+        const res = await handleMatch(bare(SNAP, 'GET', auth, 'same-origin'), env, NOW);
+        expect(res.status).toBe(200);
+        expect([...new Uint8Array(await res.arrayBuffer())]).toEqual([7, 8, 9]);
+        expect(snapSeen).toEqual([{ room: 'ABCDEF', url: 'https://room/snapshot', method: 'GET', authorization: auth, tick: null, body: new Uint8Array(0) }]);
+        expect(snapKeys).toEqual(['198.51.100.7']);
+        const refusing = { ...env, SNAP_LIMIT: { limit: async () => ({ success: false }) } } as Env;
+        expect((await handleMatch(bare(SNAP, 'GET', auth, 'same-origin'), refusing, NOW)).status).toBe(429);
+      });
+
+      it('the ticket is still required: none is 401, an advisor, another code\'s or a junk ticket is 403, and no stub is called', async () => {
+        const { env, calls } = fakeRooms();
+        expect((await handleMatch(bare(SNAP, 'GET', null, 'same-origin'), env, NOW)).status).toBe(401);
+        for (const t of [await seatTicket('ABCDEF', { role: 'advisor' }), await seatTicket('ZZZZZZ'), 'not.a.ticket']) {
+          expect((await handleMatch(bare(SNAP, 'GET', `Bearer ${t}`, 'same-origin'), env, NOW)).status).toBe(403);
+        }
+        expect(calls).toEqual([]);
+      });
+
+      it('Sec-Fetch-Site same-site, cross-site, none, blank, or absent is still 403 with no stub', async () => {
+        const { env, calls } = fakeRooms();
+        const auth = `Bearer ${await seatTicket('ABCDEF')}`;
+        for (const site of ['same-site', 'cross-site', 'none', '', null]) {
+          expect((await handleMatch(bare(SNAP, 'GET', auth, site), env, NOW)).status, String(site)).toBe(403);
+        }
+        expect(calls).toEqual([]);
+      });
+
+      it('only a GET gets the exemption: a POST (with or without a tick and a body), a HEAD, a PUT with no Origin are 403 even with same-origin', async () => {
+        const { env, calls } = fakeRooms();
+        const auth = `Bearer ${await seatTicket('ABCDEF')}`;
+        const body = new Uint8Array([1, 2, 3]);
+        expect((await handleMatch(bare(SNAP, 'POST', auth, 'same-origin', { 'x-snapshot-tick': '1200' }, body), env, NOW)).status).toBe(403);
+        expect((await handleMatch(bare(SNAP, 'POST', auth, 'same-origin'), env, NOW)).status).toBe(403);
+        expect((await handleMatch(bare(SNAP, 'HEAD', auth, 'same-origin'), env, NOW)).status).toBe(403);
+        expect((await handleMatch(bare(SNAP, 'PUT', auth, 'same-origin'), env, NOW)).status).toBe(403);
+        expect(calls).toEqual([]);
+      });
+
+      it('only the snapshot route gets it: /join, /ws, /advisor, create and a longer path are 403 with no Origin', async () => {
+        const { env, calls } = fakeRooms();
+        const auth = `Bearer ${await seatTicket('ABCDEF')}`;
+        for (const path of ['/api/match/ABCDEF/join', '/api/match/ABCDEF/ws', '/api/match/ABCDEF/advisor', '/api/match', '/api/match/ABCDEF/snapshot/x', '/api/match/ABCDEF']) {
+          expect((await handleMatch(bare(`${ORIGIN}${path}`, 'GET', auth, 'same-origin', { upgrade: 'websocket' }), env, NOW)).status, path).toBe(403);
+        }
+        expect(calls).toEqual([]);
+      });
+
+      it('a PRESENT Origin is judged as before even beside same-origin: a foreign one, and the literal "null", are 403', async () => {
+        const { env, calls } = fakeRooms();
+        const auth = `Bearer ${await seatTicket('ABCDEF')}`;
+        for (const origin of ['https://evil.example', 'null']) {
+          expect((await handleMatch(bare(SNAP, 'GET', auth, 'same-origin', { origin }), env, NOW)).status, origin).toBe(403);
+        }
+        // and the listed Origin is still accepted with or without the header
+        expect((await handleMatch(bare(SNAP, 'GET', auth, 'cross-site', { origin: ORIGIN }), env, NOW)).status).toBe(200);
+        expect(calls).toEqual(['/snapshot']);
+      });
+    });
+
     it('a limited IP is 429 and no stub is called; ROOM_LIMIT is not the limiter that counts', async () => {
       const { env, calls } = fakeRooms();
       const auth = `Bearer ${await seatTicket('ABCDEF')}`;

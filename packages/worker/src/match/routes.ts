@@ -48,8 +48,24 @@ async function limited(req: Request, limiter: RateLimiter | undefined): Promise<
   return !success;
 }
 
+/**
+ * The one request that passes the Origin rule without an Origin (snapshot S4, Ruling 3, the lead's approval of
+ * 27 Oct): `GET /api/match/:code/snapshot` with `Sec-Fetch-Site: same-origin`. The Fetch standard adds an
+ * `Origin` header to a request only when it is cross-origin, a WebSocket, or a method other than GET or HEAD, so
+ * the page's own same-origin GET carries none and `originAllowed` would refuse every rejoin. The seat ticket in
+ * `Authorization` is still required (a cross-site page cannot send that header without a preflight, and no
+ * preflight is answered). Anything else keeps the strict rule: a present `Origin` is judged as before, a POST
+ * always carries one, and `same-site`, `cross-site`, `none` or an absent `Sec-Fetch-Site` are refused.
+ */
+function sameOriginSnapshotGet(req: Request): boolean {
+  return req.method === 'GET'
+    && req.headers.get('origin') === null
+    && req.headers.get('sec-fetch-site') === 'same-origin'
+    && /^\/api\/match\/[^/]+\/snapshot$/.test(new URL(req.url).pathname);
+}
+
 export async function handleMatch(req: Request, env: Env, now: number): Promise<Response> {
-  if (!originAllowed(req, env)) return new Response('origin', { status: 403 });
+  if (!originAllowed(req, env) && !sameOriginSnapshotGet(req)) return new Response('origin', { status: 403 });
   const secret = env.TICKET_SECRET;
   const rooms = env.ROOMS;
   if (!secret || !rooms) return new Response('matches are not configured', { status: 503 });
