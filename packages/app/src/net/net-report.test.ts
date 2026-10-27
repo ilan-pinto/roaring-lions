@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { LocalTransport, WsTransport, type MatchConfig, type SocketLike } from '@lions/net';
-import { netReport, rejoinLines } from './net-report';
+import { logRejoin, netReport, rejoinLines } from './net-report';
 import type { ProducerStats } from './snapshot-producer';
 
 const CONFIG: MatchConfig = {
@@ -65,5 +65,32 @@ describe('rejoinLines (the console lines of a rejoin)', () => {
     const l = rejoinLines({ path: 'full', reason: 'sha_mismatch' });
     expect(l.info).toBe('[net] rejoin: full log (sha_mismatch)');
     expect(l.warn).toBe('[net] snapshot rejoin fell back to the full log: sha_mismatch');
+  });
+});
+
+describe('logRejoin (which console method a rejoin uses, G-2)', () => {
+  /** A sink with ONLY info and warn, as the type says: an `error` call is a TypeError. */
+  const sink = () => {
+    const lines: { m: 'info' | 'warn'; text: string }[] = [];
+    return { lines, s: { info: (t: string) => { lines.push({ m: 'info', text: t }); }, warn: (t: string) => { lines.push({ m: 'warn', text: t }); } } };
+  };
+  it('a snapshot rejoin is one info line and nothing else', () => {
+    const { lines, s } = sink();
+    logRejoin({ path: 'snapshot', from: 2400, restoreMs: 12 }, s);
+    expect(lines).toEqual([{ m: 'info', text: '[net] rejoin: snapshot from 2400 in 12 ms' }]);
+  });
+  it('a fallback is an info line and ONE warning naming the reason, through info and warn only', () => {
+    const { lines, s } = sink();
+    logRejoin({ path: 'full', reason: 'sha_mismatch' }, s);
+    expect(lines).toEqual([
+      { m: 'info', text: '[net] rejoin: full log (sha_mismatch)' },
+      { m: 'warn', text: '[net] snapshot rejoin fell back to the full log: sha_mismatch' },
+    ]);
+  });
+  it('never mentions a ticket', () => {
+    const { lines, s } = sink();
+    logRejoin({ path: 'full', reason: 'fetch_failed' }, s);
+    logRejoin({ path: 'snapshot', from: 1200, restoreMs: 3 }, s);
+    for (const l of lines) expect(l.text).not.toMatch(/ticket|tk-|bearer/i);
   });
 });

@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { WsTransport, gzipBytes, sha256Hex, type MatchConfig } from '@lions/net';
 import { Sim, encodeSim } from '@lions/sim';
 import { shippedContentDigest } from './content-digest';
+import { settleRejoin } from './snapshot-rejoin';
 import { AdvisorRefused, connectMatch, openRoom, requestAdvisorTicket, inviteAdvisor, JoinNeedsConfirmation, RELOAD_REFUSED, RoomRefused, RoomStarted, type OpenDeps } from './connect';
 import { handOver, dropHanded, takeHanded } from './handoff';
 import { loadSeat, saveSeat } from './ticket-store';
@@ -477,6 +478,37 @@ describe('connectMatch: a reload asks for the room\'s snapshot before its hello 
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({ url: 'http://x/api/match/ABCDEF/snapshot', method: 'GET', headers: { authorization: 'Bearer tk-secret' } });
     expect(calls[0]?.url).not.toContain('tk-secret');
+    expect(r.transport.status()).toEqual({ kind: 'live', behind: 2 });
+  });
+
+  it('the post-hello fallback restarts the transport only AFTER the log handler returned, and the old log never enters the new clock (S4 T9 F2)', async () => {
+    // The file's CONFIG is mode sandbox, so a snapshot that verified is still refused by restoreForRejoin: not_versus.
+    const { f } = reloadFetch(() => snapshotResponse());
+    const first = fakeSocket();
+    const second = fakeSocket();
+    const socks = [first, second];
+    let opened = 0;
+    const p = reload(f, first, { open: () => socks[opened++] ?? second });
+    await vi.waitFor(() => expect(first.onopen).not.toBeNull());
+    first.onopen?.({});
+    expect(hellosOf(first)).toEqual([{ t: 'hello', ticket: 'tk-secret', build: 'b', from: 1200 }]);
+    // The log handler runs onStart, which resolves the promise. It RETURNS here, synchronously, before any continuation.
+    first.onmessage?.({ data: JSON.stringify({ t: 'log', config: CONFIG(3), frames: [{ tick: 1200, cmds: [] }, { tick: 1201, cmds: [] }], from: 1200 }) });
+    expect(opened).toBe(1);
+    expect(first.closed).toBe(0);
+    const r = await p;
+    expect(r.rejoin?.path).toBe('snapshot');
+    expect(opened).toBe(1);
+    // main.ts's boot: settleRejoin after connect resolved.
+    const settled = settleRejoin(CONFIG(3) as unknown as MatchConfig, r.rejoin, r.transport as WsTransport);
+    expect(settled.rejoin).toEqual({ path: 'full', reason: 'not_versus' });
+    expect(opened).toBe(2);
+    expect(first.closed).toBe(1);
+    second.onopen?.({});
+    expect(hellosOf(second)).toEqual([{ t: 'hello', ticket: 'tk-secret', build: 'b' }]);
+    // The room answers the second hello with the WHOLE log; the clock starts at 0 and holds exactly that log.
+    second.onmessage?.({ data: LOG([0, 1, 2, 3]) });
+    expect(r.transport.take(10).map((x) => x.tick)).toEqual([0, 1]);
     expect(r.transport.status()).toEqual({ kind: 'live', behind: 2 });
   });
 

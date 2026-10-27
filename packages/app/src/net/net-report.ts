@@ -54,3 +54,15 @@ export function rejoinLines(rejoin: RejoinOutcome): { info: string; warn: string
     warn: `[net] snapshot rejoin fell back to the full log: ${rejoin.reason}`,
   };
 }
+
+/** Where `logRejoin` writes: the console in the battlefield, a fake with only these two in a test. Deliberately no
+ *  `error`: a rejoin is never an error, and `pnpm ui:routes` fails on any console error. */
+export type RejoinSink = Pick<Console, 'info' | 'warn'>;
+
+/** Prints a rejoin (G-2): the `[net] rejoin:` line through `info`, and on a fallback one reason-named warning through
+ *  `warn`. The choice of method lives here, under test, not in `main.ts`. */
+export function logRejoin(rejoin: RejoinOutcome, sink: RejoinSink): void {
+  const lines = rejoinLines(rejoin);
+  sink.info(lines.info);
+  if (lines.warn !== null) sink.warn(lines.warn);
+}

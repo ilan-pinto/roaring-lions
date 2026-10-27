@@ -282,7 +282,7 @@ import { CatchUpQuiet, roomTickCap, tickCostEma, INITIAL_TICK_COST_MS } from './
 import { safeStorage as safeStorageLike } from './telemetry/identity';
 import { runFrames, seatWorldFor, type FrameStep } from './net/frame-step';
 import { roomFlags } from './net/room-flags';
-import { netReport, rejoinLines } from './net/net-report';
+import { logRejoin, netReport } from './net/net-report';
 import { SnapshotProducer } from './net/snapshot-producer';
 import { settleRejoin } from './net/snapshot-rejoin';
 import { viewerSideOf } from './net/viewer';
@@ -1859,11 +1859,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   // (settleRejoin builds it and restarts the transport from zero). Called here, after `connectMatch` resolved and
   // its `log` handler returned -- never from `onStart`. A tab that did not reload gets a fresh world, no outcome.
   const settled = netConfig !== null && room !== null ? settleRejoin(netConfig, match.rejoin, room) : null;
-  if (settled?.rejoin) {
-    const lines = rejoinLines(settled.rejoin);
-    console.info(lines.info);
-    if (lines.warn !== null) console.warn(lines.warn);
-  }
+  if (settled?.rejoin) logRejoin(settled.rejoin, console);
   const versusWorld = versusRoom && netConfig !== null ? settled?.world ?? buildMatchWorld(netConfig) : null;
   /** The kit this screen draws (`net/room-kit.ts`'s `screenKit`): the boot
    *  prepass above everywhere but a versus room, which reads each SIDE's kit
