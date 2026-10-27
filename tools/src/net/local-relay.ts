@@ -64,6 +64,14 @@ export interface LocalRelayOptions {
   seedFor?: (code: string) => number;
   /** Where the relay's few lines go; default stderr. Never stdout, never the secret. */
   log?: (s: string) => void;
+  /** Origins accepted BESIDE the relay's own (appended to `env.ALLOWED_ORIGINS`
+   *  after it): a browser seat served from another port, such as the dev
+   *  server in `rejoin-measure`. Default none: only the relay's own origin. */
+  extraOrigins?: readonly string[];
+  /** A versus room's snapshot cadence in ticks, minted into its config
+   *  (`MatchRoomOptions.snapshotEveryTicks`); 0 turns snapshots off. Default
+   *  the room's own `SNAPSHOT_EVERY_TICKS`. */
+  snapshotEveryTicks?: number;
 }
 
 /** How often a room's scheduled alarm is checked. */
@@ -138,7 +146,7 @@ export async function serveLocalRelay(o: LocalRelayOptions & { ticketSecret: str
     let h = hosted.get(code);
     if (h === undefined) {
       const state = new FakeState();
-      h = { state, room: new MatchRoom(state, env, { tickMs: o.tickMs, seed: o.seedFor }), alarming: false, gate: Promise.resolve() };
+      h = { state, room: new MatchRoom(state, env, { tickMs: o.tickMs, seed: o.seedFor, snapshotEveryTicks: o.snapshotEveryTicks }), alarming: false, gate: Promise.resolve() };
       hosted.set(code, h);
     }
     return h;
@@ -283,7 +291,7 @@ export async function serveLocalRelay(o: LocalRelayOptions & { ticketSecret: str
   }
   const addr = server.address() as AddressInfo;
   origin = `http://127.0.0.1:${addr.port}`;
-  env.ALLOWED_ORIGINS = origin;
+  env.ALLOWED_ORIGINS = [origin, ...(o.extraOrigins ?? [])].join(',');
   log(`local relay: listening on ${origin}`);
 
   const close = (): Promise<void> => {

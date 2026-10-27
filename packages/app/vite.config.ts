@@ -64,7 +64,9 @@ export default defineConfig({
     strictPort: false,
     // N0: `/api/*` goes to a local `wrangler dev --port 8787` so a room can be
     // tested without a deploy. Only reached when something calls /api.
-    proxy: { '/api': { target: 'http://localhost:8787', ws: true } },
+    // `LIONS_API_TARGET` is set only by `tools/src/net/rejoin-measure.ts`, which
+    // points it at the local relay; unset, the target is unchanged.
+    proxy: { '/api': { target: process.env.LIONS_API_TARGET ?? 'http://localhost:8787', ws: true } },
   },
   // Serve repo-root assets/ statically: assets/audio/x.ogg → /audio/x.ogg.
   // Keeps one source of truth for assets (ART_PIPELINE §9) instead of a

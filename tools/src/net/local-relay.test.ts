@@ -139,6 +139,33 @@ describe('startLocalRelay', () => {
     expect(ok).toBe(101);
   });
 
+  it('extraOrigins: a browser seat served from another port is accepted beside the relay\'s own origin, and an unlisted one is still 403 (snapshot S4 T1B)', async () => {
+    const dev = 'http://127.0.0.1:5999';
+    const relay = await relayOf({ extraOrigins: [dev] });
+    const body = { player: 'p', build: BUILD, map: MAP, mode: 'versus' };
+    expect((await post(relay, '/api/match', body, dev)).status).toBe(201);
+    expect((await post(relay, '/api/match', body, 'http://127.0.0.1:5998')).status).toBe(403);
+    // The relay's own origin keeps working with the extra one listed.
+    expect((await post(relay, '/api/match', body)).status).toBe(201);
+    // And with no option, the extra origin is not accepted.
+    const plain = await relayOf();
+    expect((await post(plain, '/api/match', body, dev)).status).toBe(403);
+  });
+
+  it('snapshotEveryTicks is minted into a versus room\'s config: 0 turns snapshots off, 40 is kept, and unset is the room\'s default 1,200 (snapshot S4 T1B)', async () => {
+    const cadenceOf = async (o: Parameters<typeof startLocalRelay>[0]): Promise<number> => {
+      const relay = await relayOf({ tickMs: 5, ...o });
+      const { code, tickets } = await versusRoom(relay);
+      const a = seatClient(relay, code, tickets[0], 0);
+      const b = seatClient(relay, code, tickets[1], 1);
+      const [ca] = await Promise.all([a.ready, b.ready]);
+      return ca.snapshotEveryTicks ?? -1;   // -1: the config carried no cadence at all
+    };
+    expect(await cadenceOf({ snapshotEveryTicks: 0 })).toBe(0);
+    expect(await cadenceOf({ snapshotEveryTicks: 40 })).toBe(40);
+    expect(await cadenceOf({})).toBe(1200);
+  }, 30_000);
+
   it('each start mints its own ticket secret: a seat ticket from one relay is refused by another', async () => {
     const a = await relayOf();
     const b = await relayOf();
