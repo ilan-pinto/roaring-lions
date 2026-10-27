@@ -274,7 +274,7 @@ import { bindLiveTeamColors } from './live-team-colors';
 import { garageColors, garageGroundTexture, garageModelSource } from './garage-model-source';
 import { standMapStructures } from './map-sim';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
-import { PAUSES_PER_SEAT, WsTransport, seatRules, snapshotEvery, validateCommand, type Seat, type TransportStatus } from '@lions/net';
+import { PAUSES_PER_SEAT, WsTransport, seatRules, validateCommand, type Seat, type TransportStatus } from '@lions/net';
 import { JoinNeedsConfirmation, connectMatch, inviteAdvisor, openRoom, type Connected } from './net/connect';
 import { desyncReportDraft, withoutReplay } from './net/desync-report';
 import { blockedOrderNotes, dockHeld, escapeOpensPause, hudExit, matchLeaveCopy, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderCopy, surrenderOffered } from './net/room-pause';
@@ -284,6 +284,7 @@ import { runFrames, seatWorldFor, type FrameStep } from './net/frame-step';
 import { roomFlags } from './net/room-flags';
 import { logRejoin, netReport } from './net/net-report';
 import { SnapshotProducer } from './net/snapshot-producer';
+import { seatShouldProduceSnapshots } from './net/snapshot-gate';
 import { settleRejoin } from './net/snapshot-rejoin';
 import { viewerSideOf } from './net/viewer';
 import { campOf, factionsBySide, versusUnitTypes } from './net/versus-force';
@@ -6262,9 +6263,10 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  travels exactly the path a player's does. */
   const snapshotLink = match.snapshots;
   /** Snapshot S4: this seat uploads the room's snapshot at each cadence tick, from the world it runs (the restored
-   *  one after a rejoin). A versus room with a cadence and a ticket-holding tab only; reads the sim, never writes it. */
+   *  one after a rejoin). A human-versus-human room with a cadence and a ticket-holding tab only (a bot never produces,
+   *  so a bot room could never store the second copy: `net/snapshot-gate.ts`); reads the sim, never writes it. */
   const producer =
-    versusWorld !== null && room !== null && netConfig !== null && snapshotLink !== undefined && snapshotEvery(netConfig) > 0
+    versusWorld !== null && room !== null && netConfig !== null && snapshotLink !== undefined && seatShouldProduceSnapshots(netConfig)
       ? new SnapshotProducer({
           config: netConfig,
           build: netConfig.build,
