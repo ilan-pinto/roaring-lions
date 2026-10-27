@@ -123,6 +123,10 @@ export class WsTransport implements MatchTransport {
   private overTick: number | null = null;
   /** The other seat's forfeit clock while it is disconnected (`dropped`), on this machine's wall clock. */
   private forfeit: ForfeitClock | null = null;
+  /** The first tick this client lacks when its world began at a snapshot (S4): the
+   *  first `hello` asks for the log from here, and the clock starts here. Cleared by
+   *  `restartFromZero`. */
+  private startFrom: number | undefined;
 
   constructor(
     private readonly open: () => SocketLike,
@@ -136,7 +140,11 @@ export class WsTransport implements MatchTransport {
      *  `bye`; the room would ignore all five, and a leaving advisor must not
      *  read as a seat leaving. It still hellos, and it still listens. */
     private readonly role: 'seat' | 'advisor' = 'seat',
+    /** `from`: this client's world already holds every frame below it (a restored
+     *  snapshot, S4). The first `hello` carries it and the clock starts there. */
+    opts: { from?: number } = {},
   ) {
+    this.startFrom = opts.from;
     this.hooks = { ...hooks };
     this.connect();
   }
@@ -211,10 +219,13 @@ export class WsTransport implements MatchTransport {
     const s = this.open();
     this.sock = s;
     // A reconnect that kept its clock asks for the log from its next tick (D6);
-    // a first connect, or a reload with no clock, gets the whole log.
+    // a first connect, or a reload with no clock, gets the whole log -- unless this
+    // client's world began at a snapshot (S4), and then the log from its `from`.
     s.onopen = () => this.send(this.config !== null && this.clock.newest >= 0
       ? { t: 'hello', ticket: this.ticket, build: this.build, from: this.clock.newest + 1 }
-      : { t: 'hello', ticket: this.ticket, build: this.build });
+      : this.startFrom !== undefined
+        ? { t: 'hello', ticket: this.ticket, build: this.build, from: this.startFrom }
+        : { t: 'hello', ticket: this.ticket, build: this.build });
     s.onmessage = (ev) => this.onMessage(typeof ev.data === 'string' ? ev.data : '');
     s.onclose = (ev) => {
       if (this.closed || this.terminal()) return;
@@ -240,7 +251,7 @@ export class WsTransport implements MatchTransport {
   }
   private begin(config: MatchConfig): void {
     this.config = config;
-    this.clock = new LockstepClock(config.bufferTicks);
+    this.clock = new LockstepClock(config.bufferTicks, this.startFrom ?? 0);
     this.hooks.onStart(config);
   }
   /** Desync and closed are final: nothing the room says afterwards revives the transport. */
@@ -328,6 +339,27 @@ export class WsTransport implements MatchTransport {
         if (msg.code === 'bad_ticket' || msg.code === 'build_mismatch') { this.setStalled(null); this.st = { kind: 'closed', reason: msg.code }; }
         return;
     }
+  }
+
+  /** The post-hello fallback (S4): the snapshot the log started from was refused
+   *  after the room's config arrived, so throw away the trimmed log and ask for the
+   *  whole one. Clears `from`, makes a fresh clock at tick 0 (keeping the config, so
+   *  `onStart` does not fire again), closes the socket without letting its close
+   *  speak, and reconnects AT ONCE: the other seat is frozen while this one waits
+   *  (Ruling 15). The next `hello` carries no `from`. A no-op before the config, once
+   *  closed, and after a terminal status. */
+  restartFromZero(): void {
+    if (this.closed || this.terminal() || this.config === null) return;
+    this.startFrom = undefined;
+    this.clock = new LockstepClock(this.config.bufferTicks);
+    this.droppedAt ??= this.now();
+    if (this.reconnectTimer !== null) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
+    const prior = this.sock;
+    if (prior !== null) { prior.onopen = null; prior.onmessage = null; prior.onclose = null; prior.close(); }
+    const s: Stalled = { kind: 'stalled', reason: 'connecting', seat: null };
+    this.setStalled(s);
+    this.st = s;
+    this.connect();
   }
 
   ready(): void { if (this.role === 'seat') this.send({ t: 'ready' }); }
