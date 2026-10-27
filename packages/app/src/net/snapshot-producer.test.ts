@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import { gunzipCapped, readSnapshotHeader, sidesOfFactions, validateConfig, SNAPSHOT_MAX_RAW_BYTES, type Frame, type MatchConfig, type MatchTransport, type TransportStatus } from '@lions/net';
+import { gunzipCapped, readSnapshotHeader, readSnapshotMeta, sha256Hex, sidesOfFactions, validateConfig, SNAPSHOT_MAX_RAW_BYTES, type Frame, type MatchConfig, type MatchTransport, type TransportStatus } from '@lions/net';
 import { Sim, restoreSim } from '@lions/sim';
 import { buildMatchWorld } from './match-world';
 import { runFrames, seatWorldFor } from './frame-step';
 import { SnapshotProducer, type SnapshotProducerOptions, type UploadOutcome } from './snapshot-producer';
+import { shippedContentDigest } from './content-digest';
+import { prepareRejoin, snapshotLink } from './snapshot-link';
 
 /** A versus room config with a 1,200-tick cadence (snapshot S4). */
 function config(over: { every?: number; mode?: 'versus' | 'sandbox'; factions?: ['kdf' | 'sarim', 'kdf' | 'sarim'] } = {}): MatchConfig {
@@ -137,12 +139,12 @@ describe('SnapshotProducer', () => {
     q.onFrame(1199, 5);
     expect(e).toHaveBeenCalledTimes(1);
   });
-  it('409 is "recorded", 201 is stored and 202 is held', async () => {
-    for (const [outcome, key] of [['duplicate', 'recorded'], ['stored', 'stored'], ['held', 'held']] as const) {
+  it('409 duplicate is "recorded", 409 mismatch is its own counter, 201 is stored and 202 is held', async () => {
+    for (const [outcome, key] of [['duplicate', 'recorded'], ['mismatch', 'mismatch'], ['stored', 'stored'], ['held', 'held']] as const) {
       const { p } = producer({ upload: uploads(outcome).upload });
       p.onFrame(1199, 5);
       await p.idle();
-      expect(p.stats()).toMatchObject({ stored: 0, held: 0, recorded: 0, refused: 0, failed: 0, [key]: 1 });
+      expect(p.stats()).toMatchObject({ stored: 0, held: 0, recorded: 0, mismatch: 0, refused: 0, failed: 0, [key]: 1 });
     }
   });
   it('in flight: an upload that never settles makes the next cadence skip, with no second upload', () => {
@@ -223,4 +225,38 @@ describe('SnapshotProducer', () => {
       expect(fresh.sim.hash()).toBe(w.sim.hash());
     }
   }, 60_000);
+
+  describe('the content digest is a u32 on the wire (S4 review F1)', () => {
+    it('premise: the shipped digest is a signed int32 today (fnv1a32 returns h | 0); the cases below hold for either sign', () => {
+      expect(Number.isInteger(shippedContentDigest())).toBe(true);
+      expect(shippedContentDigest()).toBeGreaterThanOrEqual(-0x8000_0000);
+      expect(shippedContentDigest()).toBeLessThan(0x8000_0000);
+    });
+    it('an injected NEGATIVE digest still encodes, and the meta carries its unsigned word', async () => {
+      const { p, u } = producer({ contentDigest: -244563676 });
+      p.onFrame(1199, 5);
+      await p.idle();
+      expect(p.stats().skipped).toEqual({});
+      expect(u.calls).toHaveLength(1);
+      expect(readSnapshotMeta(await inflate(u.calls[0]?.gz ?? new Uint8Array()))?.contentDigest).toBe(4050403620);
+    });
+    it('the REAL default (no contentDigest passed) encodes and uploads, and verifyFetched accepts its own output with the real shippedContentDigest()', async () => {
+      const u = uploads();
+      const logs: string[] = [];
+      const p = new SnapshotProducer({ config: config(), build: 'b-1', sim: tinySim(), runtime: null, behind: () => 0, upload: u.upload, log: (l) => logs.push(l) });
+      p.onFrame(1199, 5);
+      await p.idle();
+      expect({ skipped: p.stats().skipped, logs }).toEqual({ skipped: {}, logs: [] });
+      expect(p.stats().stored).toBe(1);
+      const gz = u.calls[0]?.gz ?? new Uint8Array();
+      const raw = await inflate(gz);
+      expect(readSnapshotMeta(raw)?.contentDigest).toBe(shippedContentDigest() >>> 0);
+      // The reload side: serve exactly those bytes, with the headers the room would add.
+      const sha = await sha256Hex(raw);
+      const f = (() => Promise.resolve(new Response(gz as BodyInit, { status: 200, headers: { 'x-snapshot-tick': '1199', 'x-snapshot-digest': '5', 'x-snapshot-sha': sha } }))) as unknown as typeof fetch;
+      const link = snapshotLink({ fetch: f, origin: 'https://game.example', code: 'ABCDEF', ticket: 't', yieldTurn: () => Promise.resolve() });
+      const got = await prepareRejoin(link, { code: 'ABCDEF', build: 'b-1', contentDigest: shippedContentDigest() });
+      expect(got).toMatchObject({ path: 'snapshot', verified: { frameTick: 1199, matchDigest: 5 } });
+    });
+  });
 });

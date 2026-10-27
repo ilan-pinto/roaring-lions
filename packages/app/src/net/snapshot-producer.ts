@@ -20,8 +20,9 @@ import { SNAPSHOT_MAX_COMPRESSED_BYTES, gzipBytes, isSnapshotTick, snapshotEvery
 import { encodeSim, type MissionRuntime, type Sim } from '@lions/sim';
 import { shippedContentDigest } from './content-digest';
 
-/** What one upload came to. `duplicate` (HTTP 409) means "the room already recorded it" (§14.4). */
-export type UploadOutcome = 'stored' | 'held' | 'duplicate' | 'refused' | 'failed';
+/** What one upload came to. `duplicate` (a 409 whose body is `duplicate`) means "the room already recorded it" (§14.4);
+ *  `mismatch` (a 409 `mismatch`) is the two seats disagreeing on the same tick; `stale` and `not_running` are `refused`. */
+export type UploadOutcome = 'stored' | 'held' | 'duplicate' | 'mismatch' | 'refused' | 'failed';
 
 /** Why a cadence made no upload. `encode` and `gzip` are faults of our own; the rest are rules. */
 export type SkipReason = 'noDigest' | 'repeat' | 'behind' | 'inFlight' | 'encode' | 'gzip' | 'tooLarge';
@@ -31,8 +32,10 @@ export interface ProducerStats {
   lastEncodeMs: number;
   stored: number;
   held: number;
-  /** 409: the room had already recorded this tick's snapshot (§14.4). */
+  /** 409 `duplicate`: the room had already recorded this tick's snapshot (§14.4). */
   recorded: number;
+  /** 409 `mismatch`: the seats disagree on this tick's SHA or digest (a desync signal). */
+  mismatch: number;
   refused: number;
   failed: number;
   skipped: Record<string, number>;
@@ -64,7 +67,7 @@ export class SnapshotProducer {
   private lastAttempt = -1;
   private inFlight: Promise<void> | null = null;
   private readonly logged = new Set<string>();
-  private readonly s: ProducerStats = { encodes: 0, lastEncodeMs: 0, stored: 0, held: 0, recorded: 0, refused: 0, failed: 0, skipped: {} };
+  private readonly s: ProducerStats = { encodes: 0, lastEncodeMs: 0, stored: 0, held: 0, recorded: 0, mismatch: 0, refused: 0, failed: 0, skipped: {} };
 
   constructor(private readonly o: SnapshotProducerOptions) {
     this.every = snapshotEvery(o.config);
@@ -89,7 +92,7 @@ export class SnapshotProducer {
     try {
       raw = this.encode(
         this.o.sim,
-        { build: this.o.build, contentDigest: this.o.contentDigest ?? shippedContentDigest(), matchId: this.o.config.matchId, frameTick: tick, matchDigest: digest >>> 0 },
+        { build: this.o.build, contentDigest: (this.o.contentDigest ?? shippedContentDigest()) >>> 0, matchId: this.o.config.matchId, frameTick: tick, matchDigest: digest >>> 0 },
         this.o.runtime ?? undefined,
       );
     } catch (e) {
@@ -126,6 +129,7 @@ export class SnapshotProducer {
     if (outcome === 'stored') this.s.stored++;
     else if (outcome === 'held') this.s.held++;
     else if (outcome === 'duplicate') this.s.recorded++;
+    else if (outcome === 'mismatch') this.s.mismatch++;
     else if (outcome === 'refused') this.s.refused++;
     else this.s.failed++;
   }

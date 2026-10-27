@@ -418,6 +418,18 @@ describe('/api/match', () => {
         expect(calls).toEqual([]);
       });
 
+      it('path tricks with no Origin: a trailing slash, a wrong case and an encoded letter are 403 with no stub; a query string IS the snapshot route and reaches it', async () => {
+        const { env, calls } = fakeRooms();
+        const auth = `Bearer ${await seatTicket('ABCDEF')}`;
+        for (const path of ['/api/match/ABCDEF/snapshot/', '/api/match/ABCDEF/Snapshot', '/api/match/ABCDEF/SNAPSHOT', '/api/match/ABCDEF/%73napshot', '/api/match/ABCDEF/snapshot%2F', '/API/match/ABCDEF/snapshot']) {
+          expect((await handleMatch(bare(`${ORIGIN}${path}`, 'GET', auth, 'same-origin'), env, NOW)).status, path).toBe(403);
+        }
+        expect(calls).toEqual([]);
+        // the query string is not part of the pathname the exemption and the router both read
+        expect((await handleMatch(bare(`${SNAP}?x=/join`, 'GET', auth, 'same-origin'), env, NOW)).status).toBe(200);
+        expect(calls).toEqual(['/snapshot']);
+      });
+
       it('a PRESENT Origin is judged as before even beside same-origin: a foreign one, and the literal "null", are 403', async () => {
         const { env, calls } = fakeRooms();
         const auth = `Bearer ${await seatTicket('ABCDEF')}`;

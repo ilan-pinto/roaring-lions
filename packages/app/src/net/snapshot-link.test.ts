@@ -197,6 +197,12 @@ describe('prepareRejoin: one case per pre-hello fallback reason', () => {
 });
 
 describe('verifyFetched', () => {
+  it('a NEGATIVE caller digest (shippedContentDigest() is a signed int32) matches the snapshot\'s unsigned word (S4 review F1)', async () => {
+    const { f } = fakeFetch(() => respond({ meta: { contentDigest: 4050403620 } }));
+    expect(await prepareRejoin(snapshotLink(deps(f)), { ...CTX, contentDigest: -244563676 })).toMatchObject({ path: 'snapshot' });
+    // and a different word is still refused, so the check is not vacuous
+    expect(await prepareRejoin(snapshotLink(deps(f)), { ...CTX, contentDigest: -244563677 })).toEqual({ path: 'full', reason: 'content_mismatch' });
+  });
   it('runs the SHA before the header: a flipped body with a wrong magic is sha_mismatch, not bad_header', async () => {
     const raw = new Uint8Array(64);
     const f: Fetched = { tick: 0, sha: '0'.repeat(64), digest: 0, raw };
@@ -210,11 +216,23 @@ describe('snapshotLink.upload', () => {
     const { f } = fakeFetch(() => new Response(null, { status }));
     return snapshotLink(deps(f)).upload(1199, gz);
   };
-  it('201 stored, 202 held, 409 duplicate (recorded), anything else refused', async () => {
+  it('201 stored, 202 held, anything else refused', async () => {
     expect(await outcome(201)).toBe('stored');
     expect(await outcome(202)).toBe('held');
-    expect(await outcome(409)).toBe('duplicate');
     for (const s of [400, 401, 403, 413, 429, 500]) expect(await outcome(s), String(s)).toBe('refused');
+  });
+  it('a 409 is read by the room\'s body: duplicate is recorded, mismatch is its own outcome, stale / not_running / unreadable are refused (S4 review F2)', async () => {
+    const by = async (body: string | null) => {
+      const { f } = fakeFetch(() => new Response(body, { status: 409 }));
+      return snapshotLink(deps(f)).upload(1199, gz);
+    };
+    expect(await by('duplicate')).toBe('duplicate');
+    expect(await by('mismatch')).toBe('mismatch');
+    expect(await by('stale')).toBe('refused');
+    expect(await by('not_running')).toBe('refused');
+    expect(await by(null)).toBe('refused');
+    expect(await by('something else')).toBe('refused');
+    expect(await by('x'.repeat(65))).toBe('refused');
   });
   it('a network error is failed, and the request is not repeated', async () => {
     let n = 0;
@@ -241,6 +259,27 @@ describe('snapshotLink.upload', () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(await p).toBe('failed');
   });
+  it('the timeout ABORTS the request, not only the wait: the signal is aborted at ten seconds and not before (S4 review F3)', async () => {
+    vi.useFakeTimers();
+    let sig: AbortSignal | undefined;
+    const never = ((_u: string, init: RequestInit) => { sig = init.signal ?? undefined; return new Promise<Response>(() => undefined); }) as unknown as typeof fetch;
+    const p = snapshotLink(deps(never)).upload(1199, gz);
+    await vi.advanceTimersByTimeAsync(9999);
+    expect(sig?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(sig?.aborted).toBe(true);
+    expect(await p).toBe('failed');
+  });
+  it('a 409 whose body never arrives ends at ten seconds with the signal aborted', async () => {
+    vi.useFakeTimers();
+    let sig: AbortSignal | undefined;
+    const stalled = new ReadableStream<Uint8Array>({ pull: () => new Promise<void>(() => undefined) });
+    const f = ((_u: string, init: RequestInit) => { sig = init.signal ?? undefined; return Promise.resolve(new Response(stalled, { status: 409 })); }) as unknown as typeof fetch;
+    const p = snapshotLink(deps(f)).upload(1199, gz);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(sig?.aborted).toBe(true);
+    expect(await p).toBe('failed');
+  });
   it('the caller\'s abort ends a request in flight', async () => {
     const ctl = new AbortController();
     const f = ((_u: string, init: RequestInit) => new Promise<Response>((_, rej) => {
@@ -252,5 +291,34 @@ describe('snapshotLink.upload', () => {
     expect(await p).toBe('failed');
     const g = snapshotLink(deps(f, { signal: ctl.signal })).latest();
     expect(await g).toEqual({ fallback: 'fetch_failed' });
+  });
+});
+
+describe('snapshotLink.latest: the five-second timeout aborts the request (S4 review F3)', () => {
+  it('headers never arrive: the signal is aborted at five seconds and not before', async () => {
+    vi.useFakeTimers();
+    let sig: AbortSignal | undefined;
+    const never = ((_u: string, init: RequestInit) => { sig = init.signal ?? undefined; return new Promise<Response>(() => undefined); }) as unknown as typeof fetch;
+    const p = snapshotLink(deps(never)).latest();
+    await vi.advanceTimersByTimeAsync(4999);
+    expect(sig?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(sig?.aborted).toBe(true);
+    expect(await p).toEqual({ fallback: 'timeout' });
+  });
+  it('headers arrive and the body stalls: timeout at five seconds, signal aborted', async () => {
+    vi.useFakeTimers();
+    let sig: AbortSignal | undefined;
+    let pulls = 0;
+    const stalled = new ReadableStream<Uint8Array>({ pull: () => { pulls++; return new Promise<void>(() => undefined); } });
+    const headers = { 'x-snapshot-tick': '1199', 'x-snapshot-sha': 'a'.repeat(64), 'x-snapshot-digest': '3735928559' };
+    const f = ((_u: string, init: RequestInit) => { sig = init.signal ?? undefined; return Promise.resolve(new Response(stalled, { status: 200, headers })); }) as unknown as typeof fetch;
+    const p = snapshotLink(deps(f)).latest();
+    await vi.advanceTimersByTimeAsync(4999);
+    expect(pulls).toBeGreaterThan(0);
+    expect(sig?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(sig?.aborted).toBe(true);
+    expect(await p).toEqual({ fallback: 'timeout' });
   });
 });

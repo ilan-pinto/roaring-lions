@@ -151,7 +151,7 @@ export function snapshotLink(deps: SnapshotLinkDeps): SnapshotLink {
   return {
     async upload(tick, gz) {
       try {
-        const status = await within(deps.uploadTimeoutMs ?? SNAPSHOT_UPLOAD_TIMEOUT_MS, deps.signal, async (signal) => {
+        const status = await within<{ status: number; reason: string }>(deps.uploadTimeoutMs ?? SNAPSHOT_UPLOAD_TIMEOUT_MS, deps.signal, async (signal) => {
           const res = await deps.fetch(url, {
             method: 'POST',
             headers: { ...auth, 'x-snapshot-tick': String(tick), 'content-type': 'application/octet-stream' },
@@ -159,13 +159,20 @@ export function snapshotLink(deps: SnapshotLinkDeps): SnapshotLink {
             cache: 'no-store',
             signal,
           });
-          await res.body?.cancel().catch(() => undefined);
-          return res.status;
+          if (res.status !== 409) {
+            await res.body?.cancel().catch(() => undefined);
+            return { status: res.status, reason: '' };
+          }
+          // The room says why in a few bytes of text (`not_running`, `stale`, `duplicate`, `mismatch`); an unreadable one is "".
+          const body = await readCapped(res, 64).catch(() => null);
+          return { status: 409, reason: body === null ? '' : new TextDecoder().decode(body).trim() };
         });
-        // 409 is "recorded already" (§14.4), whatever the room's reason: nothing here retries either way.
-        if (status === 201) return 'stored';
-        if (status === 202) return 'held';
-        if (status === 409) return 'duplicate';
+        if (status.status === 201) return 'stored';
+        if (status.status === 202) return 'held';
+        // A 409 is ruled by the room's body (S4 review F2): only `duplicate` means "recorded already" (§14.4),
+        // which arises on a lost-response retry. `mismatch` is a desync signal and keeps its own outcome;
+        // `stale`, `not_running` and anything unreadable were NOT recorded and are refused.
+        if (status.status === 409) return status.reason === 'duplicate' ? 'duplicate' : status.reason === 'mismatch' ? 'mismatch' : 'refused';
         return 'refused';
       } catch {
         return 'failed';
@@ -239,7 +246,8 @@ export async function verifyFetched(f: Fetched, ctx: VerifyContext): Promise<Ver
   const meta = readSnapshotMeta(f.raw);
   if (meta === null) return { ok: false, reason: 'bad_header' };
   if (meta.build !== ctx.build) return { ok: false, reason: 'build_mismatch' };
-  if (meta.contentDigest !== ctx.contentDigest) return { ok: false, reason: 'content_mismatch' };
+  // `shippedContentDigest()` is a signed int32 (`fnv1a32` returns `h | 0`) and the snapshot meta is a u32 (S4 review F1).
+  if (meta.contentDigest !== ctx.contentDigest >>> 0) return { ok: false, reason: 'content_mismatch' };
   if (meta.matchId !== ctx.code) return { ok: false, reason: 'match_mismatch' };
   return { ok: true, verified: { raw: f.raw, frameTick: header.frameTick, matchDigest: header.matchDigest } };
 }
