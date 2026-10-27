@@ -122,6 +122,73 @@ describe('the bands and the mix', () => {
   });
 });
 
+/**
+ * GH-560 (HP alone ends a vehicle): what the bar, the scar and the wisp read after each hit that
+ * the hull survives. A penetration of a hard hull now costs at least 34% of max hp x (1 + shift/60),
+ * so the hp a hull is left with is a pure function of its type and the round. Every number below is a
+ * LITERAL, in the sim's raw Q16.16 (hp x 65536), computed by hand from the design's table (spec
+ * 2026-10-27-vehicle-health-design 5.2, plan Task 1): this file imports no sim constant, so a change to
+ * the cost or to the band cut shows up here as a number to read, not as a test that follows it.
+ *
+ * Each row: [max hp raw, [hp raw left after hit 1, hit 2, ...], [band after each], whether it scars,
+ * whether it wisps] -- the final entry is the lethal hit, whose remainder is <= 0.
+ *   Lavi 3000 hp (196608000), 120 mm at shift 28: cost  98040800
+ *   Lavi 3000 hp,            Kornet front, shift 8: cost  75758800
+ *   Namer 2200 hp (144179200), 120 mm at shift 30: cost  73530600
+ *   Eitan 1600 hp (104857600), 120 mm at shift 30: cost  53476800
+ *   Peten 640 hp  (41943040), ZU-23 at shift 0:    cost  14260480
+ */
+describe('the bands a vehicle reads after each hit under the HP model (GH-560)', () => {
+  const ROWS = [
+    { name: 'Lavi v 120 mm (shift 28)', max: 196608000, hp: [98567200, 526400], bands: [5, 1] },
+    { name: 'Lavi v Kornet front (shift 8)', max: 196608000, hp: [120849200, 45090400], bands: [5, 2] },
+    { name: 'Namer v 120 mm (shift 30)', max: 144179200, hp: [70648600], bands: [4] },
+    { name: 'Eitan v 120 mm (shift 30)', max: 104857600, hp: [51380800], bands: [4] },
+    { name: 'Peten v ZU-23 (shift 0)', max: 41943040, hp: [27682560, 13422080], bands: [6, 3] },
+  ];
+
+  it('reads each surviving hit as the literal band', () => {
+    // Mutation: `structureHpBand`'s Math.ceil -> Math.floor reads Lavi's first hit as 4 (98567200 x 8 /
+    // 196608000 = 4.011), Namer's as 3, Peten's second as 2: every row goes red.
+    for (const row of ROWS) {
+      expect(row.hp.map((h) => vehicleDamageBand(h, row.max)), row.name).toEqual(row.bands);
+    }
+  });
+
+  it('a hull that has just been killed reads band 0, whether the remainder is negative or destroy() zeroed it', () => {
+    // The lethal hit leaves a negative remainder, which destroy() then zeroes. Both read 0, the wreck's own.
+    expect(vehicleDamageBand(-97514400, 196608000)).toBe(0); // Lavi, third 120 mm hit
+    expect(vehicleDamageBand(-2882000, 144179200)).toBe(0); // Namer, second hit
+    expect(vehicleDamageBand(-2096000, 104857600)).toBe(0); // Eitan, second hit
+    expect(vehicleDamageBand(-838400, 41943040)).toBe(0); // Peten, third hit
+    expect(vehicleDamageBand(0, 196608000)).toBe(0);
+  });
+
+  it('the scar and the wisp that go with those bands: Lavi scars after hit 1 and wisps after hit 2', () => {
+    // Lavi v 120 mm: 5 (scar, no wisp), then 1 (scar and wisp).
+    expect(vehicleScarMixForBand(5)).toBeGreaterThan(0);
+    expect(vehicleWispsAtBand(5)).toBe(false);
+    expect(vehicleScarMixForBand(1)).toBeGreaterThan(0);
+    expect(vehicleWispsAtBand(1)).toBe(true);
+    // Lavi v Kornet front: 5 (scar), then 2 (scar and wisp: the wisp starts at 2).
+    expect(vehicleWispsAtBand(2)).toBe(true);
+    // Namer / Eitan: one survivable hit, band 4, a scar and no wisp.
+    expect(vehicleScarMixForBand(4)).toBeGreaterThan(0);
+    expect(vehicleWispsAtBand(4)).toBe(false);
+  });
+
+  it('a first penetration at shift 0 leaves the Peten CLEAN: band 6, no scar (lead question Q4, left as it is)', () => {
+    // A ZU-23 through a Peten front costs 34%, so the bar reads 6 of 8. Bands 8..6 are clean by design,
+    // so the first low-overmatch penetration of ANY hull shows nothing; the second (band 3) scars.
+    // Mutation: SCAR_BAND_MAX (building-damage.ts) 5 -> 6 scars band 6 and reds the toBe(0) below.
+    expect(vehicleDamageBand(27682560, 41943040)).toBe(6);
+    expect(vehicleScarMixForBand(6)).toBe(0);
+    expect(vehicleWispsAtBand(6)).toBe(false);
+    expect(vehicleDamageBand(13422080, 41943040)).toBe(3);
+    expect(vehicleScarMixForBand(3)).toBeGreaterThan(0);
+  });
+});
+
 describe('applyVehicleDamageBand on a hull drawing the template material', () => {
   it('touches nothing at a clean band', () => {
     const base = palette();
