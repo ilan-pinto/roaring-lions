@@ -138,6 +138,17 @@ describe('WsTransport', () => {
       expect(t.behind()).toBe(51);
       expect(t.take(100).map((f) => f.tick).slice(0, 3)).toEqual([2400, 2401, 2402]);
     });
+    it('a live start (not a log) begins the clock at 0 even when the hello asked for a from: frames from tick 0 are not a gap (S4 review F8)', () => {
+      const sock = fakeSocket();
+      const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} }, () => 0, 'seat', { from: 2400 });
+      sock.open();
+      sock.recv({ t: 'start', config: CONFIG });
+      sock.recv({ t: 'frame', tick: 0, cmds: [] });
+      sock.recv({ t: 'frame', tick: 1, cmds: [] });
+      expect(t.status()).toEqual({ kind: 'live', behind: 2 });
+      expect(t.take(100).map((f) => f.tick)).toEqual([]);
+      expect(t.behind()).toBe(2);
+    });
     it('a log without the from echo, holding 0..2450, also runs 2400 first (the older room)', () => {
       const sock = fakeSocket();
       const t = new WsTransport(() => sock, 'tkt', 'b', { onStart: () => {} }, () => 0, 'seat', { from: 2400 });

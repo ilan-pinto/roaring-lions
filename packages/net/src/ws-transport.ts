@@ -252,9 +252,11 @@ export class WsTransport implements MatchTransport {
     if (msg === null) return;
     this.handle(msg);
   }
-  private begin(config: MatchConfig): void {
+  /** `fromLog`: the room answered the hello with a `log`, trimmed from `startFrom` when it was asked for one. A live `start` carries
+   *  frames from tick 0 whatever this client asked for (a stale ticket meeting a new room under the same code), so it never starts the clock at `startFrom`. */
+  private begin(config: MatchConfig, fromLog: boolean): void {
     this.config = config;
-    this.clock = new LockstepClock(config.bufferTicks, this.startFrom ?? 0);
+    this.clock = new LockstepClock(config.bufferTicks, fromLog ? (this.startFrom ?? 0) : 0);
     this.hooks.onStart(config);
   }
   /** Desync and closed are final: nothing the room says afterwards revives the transport. */
@@ -276,13 +278,13 @@ export class WsTransport implements MatchTransport {
         this.hooks.onLobby?.(msg.seats, msg.you, msg.map, msg.factions, msg.kit);
         return;
       case 'start':
-        this.begin(msg.config);
+        this.begin(msg.config, false);
         this.st = { kind: 'live', behind: 0 };
         return;
       case 'log':
         // A reconnect after a reload has no config yet; one mid-match keeps its clock,
         // which discards the head of the log it already ran.
-        if (this.config === null) this.begin(msg.config);
+        if (this.config === null) this.begin(msg.config, true);
         for (const f of msg.frames) this.clock.push(f);
         // A log in parts (#559 H-1): the seat is relinked and live only after the
         // last. Parts arrive in order on one socket; a drop part-way sends a
