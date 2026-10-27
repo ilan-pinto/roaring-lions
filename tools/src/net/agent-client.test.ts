@@ -6,13 +6,15 @@
 // `FakeSocket` to a `SocketLike`, as `rejoin-catchup.test.ts` does.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { setImmediate as realImmediate } from 'node:timers/promises';
 import { execSync } from 'node:child_process';
-import { WsTransport, type Frame, type ServerMsg, type SocketLike } from '@lions/net';
-import type { Command } from '@lions/sim';
+import { WsTransport, gunzipCapped, readSnapshotHeader, type Frame, type ServerMsg, type SocketLike } from '@lions/net';
+import { SnapshotRefused, type Command } from '@lions/sim';
 import { buildMatchWorld, type MatchWorld } from '../../../packages/app/src/net/match-world';
 import { runFrames, seatWorldFor } from '../../../packages/app/src/net/frame-step';
 import { decideOnHashTick, type LocalDecision } from '../../../packages/app/src/net/outcome';
-import { AgentClient, matchSocketTarget } from './agent-client';
+import { AgentClient, matchSocketTarget, type AgentSnapshotOptions } from './agent-client';
+import type { SnapshotLink } from '../../../packages/app/src/net/snapshot-link';
 import { endOf, exitCodeFor } from './agent';
 import { FogTracker } from './fog-tracker';
 import { sideView } from './view';
@@ -352,5 +354,192 @@ describe('AgentClient roles and seats (transport level: the room admits advisor 
     sock.recv(lobbyFor(1));
     expect(sock.sent.map((m) => m.t)).toEqual(['hello', 'ready']);
     expect(a.transport.status()).toEqual({ kind: 'waiting' });
+  });
+});
+
+describe('AgentClient and snapshots: opt-in only (snapshot S4 task 11)', () => {
+  const SERVER = 'https://room.test';
+  interface Call { method: string; url: string; origin: string | null; auth: string | null }
+  /** A `fetch` that reaches the real room's snapshot route, recording what each call carried. */
+  const routed = (loop: Loop, calls: Call[]): typeof fetch => (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+    const h = new Headers(init?.headers);
+    calls.push({ method: init?.method ?? 'GET', url: String(input), origin: h.get('origin'), auth: h.get('authorization') });
+    return loop.room.fetch(new Request('https://room/snapshot', { ...init, headers: h, duplex: 'half' } as RequestInit));
+  }) as typeof fetch;
+  const seatClient = (loop: Loop, ticket: string, seat: 0 | 1, snapshots?: AgentSnapshotOptions): AgentClient =>
+    new AgentClient({ server: SERVER, code: CODE, ticket, build: BUILD, role: 'seat', seat, open: loop.open, log: () => {}, ...(snapshots ? { snapshots } : {}) });
+  /** The latest snapshot the room serves a seat, through the room's own route (a 204 when it holds none). */
+  const latest = (loop: Loop, ticket: string): Promise<Response> =>
+    loop.room.fetch(new Request('https://room/snapshot', { method: 'GET', headers: { authorization: `Bearer ${ticket}` } }));
+  /** A squad of six marches, so the snapshot is of a world in motion, not an idle one (a whole force ends the match inside 1,200 ticks). */
+  const march = (a: AgentClient): void => {
+    const w = a.world() as MatchWorld;
+    const v = a.view();
+    a.desk.submit({ kind: 'attackMove', ids: sideIds(w, v.side).slice(0, 6), x: v.enemyCamp[0] * TILE, y: v.enemyCamp[1] * TILE }, a.tick());
+  };
+  const both = (a: AgentClient, b: AgentClient): { pump(n: number): number }[] => [a, b];
+  /** Two producing seats played to `ticks`. */
+  async function played(ticks: number, calls: Call[], extra: { restore?: AgentSnapshotOptions['restore'] } = {}) {
+    void extra;
+    const room = await newRoom();
+    const { loop } = room;
+    const t0 = await room.ticket(0);
+    const t1 = await room.ticket(1);
+    const a = seatClient(loop, t0, 0, { produce: true, fetch: routed(loop, calls) });
+    const b = seatClient(loop, t1, 1, { produce: true, fetch: routed(loop, calls) });
+    await loop.flush();
+    await a.ready; await b.ready;
+    march(a); march(b);
+    await play(loop, ticks, both(a, b), () => a.tick() >= ticks && b.tick() >= ticks);
+    await a.snapshotIdle(); await b.snapshotIdle();
+    expect(a.tick()).toBeGreaterThanOrEqual(ticks);
+    expect(b.tick()).toBeGreaterThanOrEqual(ticks);
+    return { room, loop, a, b, t0, t1 };
+  }
+  const accepted = (c: AgentClient): number => { const s = c.snapshotStats(); return s === null ? -1 : s.stored + s.held + s.recorded; };
+
+  it('DEFAULT OFF: with no option, and with a link but no flag, no request is made at the snapshot tick and the room keeps none', async () => {
+    const globalFetch = vi.spyOn(globalThis, 'fetch');
+    const used: string[] = [];
+    const spyLink: SnapshotLink = { upload: async () => { used.push('upload'); return 'stored'; }, latest: async () => { used.push('latest'); return { fallback: 'none' }; } };
+    const room = await newRoom();
+    const a = seatClient(room.loop, await room.ticket(0), 0);
+    const b = seatClient(room.loop, await room.ticket(1), 1, { link: spyLink });
+    await room.loop.flush();
+    await a.ready; await b.ready;
+    // The cadence tick 1199 is crossed with margin.
+    await play(room.loop, 1300, both(a, b), () => a.tick() >= 1300 && b.tick() >= 1300);
+    expect(a.tick()).toBeGreaterThanOrEqual(1300);
+    expect(b.tick()).toBeGreaterThanOrEqual(1300);
+    expect(globalFetch).not.toHaveBeenCalled();
+    expect(used).toEqual([]);
+    expect(a.snapshotStats()).toBeNull();
+    expect(b.snapshotStats()).toBeNull();
+    expect(a.rejoin()).toBeNull();
+    expect((await latest(room.loop, await room.ticket(0))).status).toBe(204);
+  }, 60_000);
+
+  it('PRODUCE: both seats opted in, 1,300 ticks: the room serves tick 1199 with the digest the seats agreed on, and each seat counted one accepted upload', async () => {
+    const calls: Call[] = [];
+    const { loop, a, b, t0, t1 } = await played(1300, calls);
+    // One POST per seat, to the room's own route, from the game's own origin, the ticket in Authorization.
+    expect(calls.map((c) => [c.method, c.url, c.origin])).toEqual([
+      ['POST', 'https://room.test/api/match/AGENTS/snapshot', 'https://room.test'],
+      ['POST', 'https://room.test/api/match/AGENTS/snapshot', 'https://room.test'],
+    ]);
+    expect(calls.map((c) => c.auth).sort()).toEqual([`Bearer ${t0}`, `Bearer ${t1}`].sort());
+    for (const c of [a, b]) {
+      const s = c.snapshotStats();
+      expect(s).not.toBeNull();
+      expect(accepted(c)).toBe(1);
+      expect(s?.mismatch).toBe(0);
+      expect(s?.refused).toBe(0);
+      expect(s?.failed).toBe(0);
+      expect(s?.encodes).toBe(1);
+    }
+    // The first upload is held, the pair's second is stored.
+    expect((a.snapshotStats()?.stored ?? 0) + (b.snapshotStats()?.stored ?? 0)).toBe(1);
+    expect((a.snapshotStats()?.held ?? 0) + (b.snapshotStats()?.held ?? 0)).toBe(1);
+    const res = await latest(loop, t0);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('x-snapshot-tick')).toBe('1199');
+    // The digest is the one both seats reported for tick 1199, read off the wire, not off the code under test.
+    const hashes = loop.allSent().filter((m): m is Extract<typeof m, { t: 'hash' }> => m.t === 'hash' && m.tick === 1199);
+    expect(hashes).toHaveLength(2);
+    expect(hashes[0]?.h).toBe(hashes[1]?.h);
+    expect(res.headers.get('x-snapshot-digest')).toBe(String((hashes[0]?.h ?? 0) >>> 0));
+    const inflated = await gunzipCapped(new Uint8Array(await res.arrayBuffer()), 64 * 1024 * 1024, () => Promise.resolve());
+    expect(inflated.ok).toBe(true);
+    if (inflated.ok) expect(readSnapshotHeader(inflated.bytes)?.frameTick).toBe(1199);
+  }, 60_000);
+
+  /** Seat 1 is a reload: the old client leaves without a bye and a new one connects with `snapshots`. */
+  async function reloaded(snapshots: AgentSnapshotOptions) {
+    const calls: Call[] = [];
+    const p = await played(2500, calls);
+    p.b.transport.detach();
+    await p.loop.flush();
+    const b2 = await AgentClient.connect({ server: SERVER, code: CODE, ticket: p.t1, build: BUILD, role: 'seat', seat: 1, open: p.loop.open, log: () => {}, snapshots: { fetch: routed(p.loop, calls), yieldTurn: () => realImmediate(), ...snapshots } });
+    await p.loop.flush();
+    await b2.ready;
+    return { ...p, b2, calls };
+  }
+
+  it('REJOIN: seat 1 reloads after 2,500 ticks and boots on the snapshot from 2,400, runs at most 1,242 frames to live, and 400 more ticks agree', async () => {
+    const { loop, a, b2, calls } = await reloaded({ rejoin: true, produce: true });
+    expect(b2.rejoin()).toMatchObject({ path: 'snapshot', from: 2400 });
+    // The GET went to the room's route with the seat's ticket and the game's origin.
+    expect(calls.filter((c) => c.method === 'GET').map((c) => [c.url, c.origin])).toEqual([['https://room.test/api/match/AGENTS/snapshot', 'https://room.test']]);
+    // The frames it must run to be live: the log from 2,400 on, never the 2,500 before it.
+    let replayed = 0;
+    while (b2.transport.behind() > 2) replayed += b2.pump(10);
+    expect(replayed).toBeGreaterThan(0);
+    expect(replayed).toBeLessThanOrEqual(1242);
+    expect(b2.tick()).toBe(2400 + replayed);
+    const hashOkBefore = b2.transport.stats().hashOk.count;
+    const hashOkA = a.transport.stats().hashOk.count;
+    await play(loop, 400, both(a, b2), () => a.tick() >= 2900 && b2.tick() >= 2900);
+    expect(b2.transport.stats().hashOk.count).toBeGreaterThan(hashOkBefore + 10);
+    expect(a.transport.stats().hashOk.count).toBeGreaterThan(hashOkA + 10);
+    expect(a.transport.stats().desyncTick).toBeNull();
+    expect(b2.transport.stats().desyncTick).toBeNull();
+    for (const msgs of loop.received.values()) expect(msgs.some((m) => m.t === 'desync')).toBe(false);
+    expect(b2.tick()).toBe(a.tick());
+    expect((b2.world() as MatchWorld).sim.hash()).toBe((a.world() as MatchWorld).sim.hash());
+  }, 120_000);
+
+  it('REJOIN, restore refused: a fresh world and a restart from zero (deferred past the log handler), then the whole log agrees', async () => {
+    const refuse = { restore: (): never => { throw new SnapshotRefused('test'); } };
+    const { loop, a, b2 } = await reloaded({ rejoin: true, restore: refuse });
+    expect(b2.rejoin()).toEqual({ path: 'full', reason: 'refused' });
+    let replayed = 0;
+    while (b2.transport.behind() > 2) replayed += b2.pump(10);
+    // The whole log: every frame from 0.
+    expect(replayed).toBeGreaterThanOrEqual(2500);
+    expect(b2.tick()).toBe(replayed);
+    const hashOkBefore = b2.transport.stats().hashOk.count;
+    await play(loop, 200, both(a, b2), () => a.tick() >= 2700 && b2.tick() >= 2700);
+    expect(b2.transport.stats().desyncTick).toBeNull();
+    expect(a.transport.stats().desyncTick).toBeNull();
+    expect(b2.transport.stats().hashOk.count).toBeGreaterThan(hashOkBefore + 5);
+    expect(b2.tick()).toBe(a.tick());
+    expect((b2.world() as MatchWorld).sim.hash()).toBe((a.world() as MatchWorld).sim.hash());
+  }, 120_000);
+
+  it('a post-hello refusal restarts the transport only AFTER the log handler returned: one socket open when it returns, the second opens a microtask later with no from', async () => {
+    const socks = [bareSocket(), bareSocket()];
+    const closed: number[] = [];
+    socks.forEach((sk, i) => { sk.close = () => { closed.push(i); }; });
+    let opened = 0;
+    const config = { ...versusConfig(MAP), snapshotEveryTicks: 1200 };
+    // A snapshot that passed the pre-hello checks (frame 1199) but whose bytes the room's config refuses once it is known.
+    const prepared = { path: 'snapshot' as const, verified: { raw: new Uint8Array(8), frameTick: 1199, matchDigest: 0 } };
+    const a = new AgentClient({ server: SERVER, code: CODE, ticket: 'tkt', build: BUILD, role: 'seat', seat: 1, open: () => socks[opened++] ?? bareSocket(), log: () => {}, snapshots: { rejoin: true } }, prepared);
+    socks[0]?.onopen?.({});
+    expect(socks[0]?.sent).toEqual([{ t: 'hello', ticket: 'tkt', build: BUILD, from: 1200 }]);
+    socks[0]?.recv({ t: 'log', config, frames: [{ tick: 1200, cmds: [] }], from: 1200 });
+    // The handler has returned. The world is fresh, the restart is queued, nothing was reopened or closed yet.
+    expect(opened).toBe(1);
+    expect(closed).toEqual([]);
+    expect(a.rejoin()).toEqual({ path: 'full', reason: 'refused' });
+    expect(a.tick()).toBe(0);
+    await Promise.resolve();
+    expect(opened).toBe(2);
+    expect(closed).toEqual([0]);
+    socks[1]?.onopen?.({});
+    expect(socks[1]?.sent).toEqual([{ t: 'hello', ticket: 'tkt', build: BUILD }]);
+  });
+
+  it('the constructor refuses rejoin: true (the GET must be awaited first), and an advisor ignores snapshots entirely', () => {
+    const sock = bareSocket();
+    expect(() => new AgentClient({ server: SERVER, code: CODE, ticket: 'tkt', build: BUILD, role: 'seat', seat: 1, open: () => sock, log: () => {}, snapshots: { rejoin: true } })).toThrow('AgentClient.connect');
+    const adv = new AgentClient({ server: SERVER, code: CODE, ticket: 'tkt', build: BUILD, role: 'advisor', seat: 1, open: () => sock, log: () => {}, snapshots: { produce: true } });
+    expect(adv.snapshotStats()).toBeNull();
+  });
+
+  it('the deployed paths do not opt in: pnpm agent, the arena and the players never name `snapshots`', () => {
+    for (const f of ['agent.ts', 'arena.ts', 'players.ts', 'external-player.ts', 'two-engine.ts']) {
+      expect(readFileSync(new URL(`./${f}`, import.meta.url), 'utf8'), f).not.toMatch(/\bsnapshots\s*:/);
+    }
   });
 });
