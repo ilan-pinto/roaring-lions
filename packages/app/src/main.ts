@@ -274,7 +274,7 @@ import { bindLiveTeamColors } from './live-team-colors';
 import { garageColors, garageGroundTexture, garageModelSource } from './garage-model-source';
 import { standMapStructures } from './map-sim';
 import { readFlags, sandboxHelp, unknownParams } from './sandbox-help';
-import { PAUSES_PER_SEAT, WsTransport, seatRules, validateCommand, type Seat, type TransportStatus } from '@lions/net';
+import { PAUSES_PER_SEAT, WsTransport, seatRules, snapshotEvery, validateCommand, type Seat, type TransportStatus } from '@lions/net';
 import { JoinNeedsConfirmation, connectMatch, inviteAdvisor, openRoom, type Connected } from './net/connect';
 import { desyncReportDraft, withoutReplay } from './net/desync-report';
 import { blockedOrderNotes, dockHeld, escapeOpensPause, hudExit, matchLeaveCopy, ordersWait, pauseEndClosesMenu, quitHref, roomExitCopy, roomOrderSink, roomPauseCall, surrenderCopy, surrenderOffered } from './net/room-pause';
@@ -282,7 +282,9 @@ import { CatchUpQuiet, roomTickCap, tickCostEma, INITIAL_TICK_COST_MS } from './
 import { safeStorage as safeStorageLike } from './telemetry/identity';
 import { runFrames, seatWorldFor, type FrameStep } from './net/frame-step';
 import { roomFlags } from './net/room-flags';
-import { netReport } from './net/net-report';
+import { netReport, rejoinLines } from './net/net-report';
+import { SnapshotProducer } from './net/snapshot-producer';
+import { settleRejoin } from './net/snapshot-rejoin';
 import { viewerSideOf } from './net/viewer';
 import { campOf, factionsBySide, versusUnitTypes } from './net/versus-force';
 import { buildMatchWorld, matchTick, tunnelRouteOf } from './net/match-world';
@@ -1853,7 +1855,16 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
   /** A versus room's whole world, built by the ONE function the AI harness
    *  also calls (`net/match-world.ts`): the sim, terrain, buildings, the map's
    *  tunnels, the unit types and both forces. Null everywhere else. */
-  const versusWorld = versusRoom && netConfig !== null ? buildMatchWorld(netConfig) : null;
+  // Snapshot S4: a reload that restored a snapshot boots on the RESTORED world, and any refusal on a fresh one
+  // (settleRejoin builds it and restarts the transport from zero). Called here, after `connectMatch` resolved and
+  // its `log` handler returned -- never from `onStart`. A tab that did not reload gets a fresh world, no outcome.
+  const settled = netConfig !== null && room !== null ? settleRejoin(netConfig, match.rejoin, room) : null;
+  if (settled?.rejoin) {
+    const lines = rejoinLines(settled.rejoin);
+    console.info(lines.info);
+    if (lines.warn !== null) console.warn(lines.warn);
+  }
+  const versusWorld = versusRoom && netConfig !== null ? settled?.world ?? buildMatchWorld(netConfig) : null;
   /** The kit this screen draws (`net/room-kit.ts`'s `screenKit`): the boot
    *  prepass above everywhere but a versus room, which reads each SIDE's kit
    *  from its world -- the HUD tables for this viewer's side (a card or chip
@@ -2573,6 +2584,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     teardown();
     throw err;
   }
+  // D4 (snapshot S4 task 14): the dead before the restore point draw as settled wrecks. A no-op until the backend has it.
+  if (settled?.rejoin?.path === 'snapshot') renderer.settleDead?.();
   // `ThreeRenderer` holds a WebGL context, a 4096 shadow map, every geometry
   // and material for the map, and a ResizeObserver on the canvas; its
   // teardown was registered where it was constructed, above, and loses the
@@ -6251,12 +6264,28 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
    *  each, and the tick reported back. The frame loop and `__lions.step` both
    *  run it, so an order a tool dispatches through the UI and then steps
    *  travels exactly the path a player's does. */
+  const snapshotLink = match.snapshots;
+  /** Snapshot S4: this seat uploads the room's snapshot at each cadence tick, from the world it runs (the restored
+   *  one after a rejoin). A versus room with a cadence and a ticket-holding tab only; reads the sim, never writes it. */
+  const producer =
+    versusWorld !== null && room !== null && netConfig !== null && snapshotLink !== undefined && snapshotEvery(netConfig) > 0
+      ? new SnapshotProducer({
+          config: netConfig,
+          build: netConfig.build,
+          sim,
+          runtime: versusWorld.runtime,
+          behind: () => room.behind(),
+          upload: (tick, gz) => snapshotLink.upload(tick, gz),
+          log: (line) => console.info(`[net] ${line}`),
+        })
+      : null;
   const frameStep: FrameStep = {
     transport,
     sim,
     seatWorld,
     runTick,
     config: netConfig,
+    afterFrame: (tick, digest) => producer?.onFrame(tick, digest),
     // N3 Task 3: a versus room folds its economy runtime's digest (0 in a mirror
     // room, which has none), as the AI harness does; single-player is never asked.
     runtimeDigest: () => (versusWorld !== null ? versusWorld.runtime?.digest() ?? 0 : runtime?.digest() ?? 0),
@@ -6381,7 +6410,7 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
               return sim.tickCount;
             },
           }
-        : { net: () => netReport(transport, netSeat, netConfig, sim.tickCount) }),
+        : { net: () => netReport(transport, netSeat, netConfig, sim.tickCount, { rejoin: settled?.rejoin ?? null, snapshot: producer?.stats() ?? null }) }),
 
       /** Every voiced decision this battlefield made, and the mixer's own
        *  voice stats (WP-AU1 R-10). Read back, never recomputed: the log is

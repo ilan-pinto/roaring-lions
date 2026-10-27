@@ -7,6 +7,8 @@
  * battlefield.
  */
 import { WsTransport, type MatchConfig, type MatchTransport, type NetStats, type Seat, type TransportStatus } from '@lions/net';
+import type { ProducerStats } from './snapshot-producer';
+import type { RejoinOutcome } from './snapshot-rejoin';
 
 export interface NetReport extends NetStats {
   seat: Seat;
@@ -16,10 +18,39 @@ export interface NetReport extends NetStats {
    *  tick at the same moment, so compare `hashOk` counts, not ticks. */
   tickCount: number;
   status: TransportStatus;
+  /** Which way this tab's reload went (snapshot S4): `snapshot` with its `from` and `restoreMs`, or `full` with
+   *  the reason it fell back. Absent when this tab did not reload. */
+  rejoin?: RejoinOutcome;
+  /** This seat's snapshot producer counters, `mismatch` included. Absent when it does not produce. */
+  snapshot?: ProducerStats;
+}
+
+export interface NetReportExtra {
+  rejoin?: RejoinOutcome | null;
+  snapshot?: ProducerStats | null;
 }
 
 /** Null when the transport is not a room's (never, in a room). */
-export function netReport(transport: MatchTransport, seat: Seat, config: MatchConfig | null, tickCount: number): NetReport | null {
+export function netReport(transport: MatchTransport, seat: Seat, config: MatchConfig | null, tickCount: number, extra: NetReportExtra = {}): NetReport | null {
   if (!(transport instanceof WsTransport)) return null;
-  return { seat, room: config?.code ?? null, tickCount, status: transport.status(), ...transport.stats() };
+  return {
+    seat, room: config?.code ?? null, tickCount, status: transport.status(), ...transport.stats(),
+    ...(extra.rejoin ? { rejoin: extra.rejoin } : {}),
+    ...(extra.snapshot ? { snapshot: extra.snapshot } : {}),
+  };
+}
+
+/**
+ * What the battlefield prints about a rejoin (G-2). `info` is the `[net] rejoin:` line, for either path.
+ * `warn` is set only on a fallback to the full log, and names the reason -- a label from `FALLBACK_REASONS`,
+ * never the ticket or the bytes. A warning, never an error: `pnpm ui:routes` fails on any console error.
+ */
+export function rejoinLines(rejoin: RejoinOutcome): { info: string; warn: string | null } {
+  if (rejoin.path === 'snapshot') {
+    return { info: `[net] rejoin: snapshot from ${rejoin.from} in ${Math.round(rejoin.restoreMs)} ms`, warn: null };
+  }
+  return {
+    info: `[net] rejoin: full log (${rejoin.reason})`,
+    warn: `[net] snapshot rejoin fell back to the full log: ${rejoin.reason}`,
+  };
 }

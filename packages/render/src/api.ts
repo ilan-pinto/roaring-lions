@@ -2,8 +2,8 @@
  * What `packages/app` is allowed to know about a renderer.
  *
  * Extracted so a second backend is possible. The surface is small for a
- * 5,000-line implementation -- twenty-one methods (three of them optional)
- * and thirteen properties (two optional), counted when `reseed` was added --
+ * 5,000-line implementation -- twenty-two methods (four of them optional)
+ * and thirteen properties (two optional), counted when `settleDead` was added --
  * and that smallness is the whole reason replacing the backend is tractable.
  *
  * Types only. No implementation, no import from three.
@@ -516,6 +516,13 @@ export interface Renderer {
    * which fog phase -- so the app is coupled to none of it.
    */
   reseed(): void;
+  /**
+   * Snapshot S4 (D4): after a rejoin restored the sim from a snapshot, draw every entity that was
+   * already dead before this renderer's first frame as a settled wreck or body. It reads the sim and
+   * writes nothing. The battlefield calls it only on a snapshot rejoin, never on a normal boot.
+   * OPTIONAL until the three.js backend implements it (Task 14): until then the call is a no-op.
+   */
+  settleDead?(): void;
   onEvents(events: SimEvent[]): void;
   /**
    * Presentation only: while on, `onEvents` throws no one-shot burst -- no
