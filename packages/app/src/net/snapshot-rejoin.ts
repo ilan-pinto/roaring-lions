@@ -13,7 +13,10 @@
  * here writes a column.
  *
  * No DOM, so the AI harness and the tests run the code the browser runs. Nothing
- * here throws on a bad snapshot: every failure is a `PostReason`.
+ * here throws on a bad snapshot: every failure is a `PostReason`. The one throw
+ * that remains is `settleRejoin` building its FRESH world (`build` throws for a
+ * map that is not shipped), which a fresh boot has too; it happens before
+ * `restartFromZero`, so the transport is left untouched.
  */
 import { isSnapshotTick, matchDigest, readSnapshotHeader, readSnapshotMeta, snapshotEvery, type MatchConfig } from '@lions/net';
 import { restoreSim, SnapshotRefused } from '@lions/sim';
@@ -34,6 +37,7 @@ export type RestoreResult = { ok: true; world: MatchWorld; restoreMs: number } |
 
 /**
  * Contract step 8: the checks that need the config, then the restore, then the digest. Never throws.
+ * `restoreMs` is the restore and the digest after it; the world build is outside it.
  *
  * Before anything is built, the bytes are checked against what the pre-hello step handed over (`verified`)
  * and the room's own build: a caller that mixes two snapshots up is refused before `restoreSim` has written a
@@ -55,21 +59,28 @@ export function restoreForRejoin(config: MatchConfig, verified: Verified, deps: 
   if (header.frameTick !== verified.frameTick || header.matchDigest !== verified.matchDigest || meta.build !== config.build) {
     return { ok: false, reason: 'refused' };
   }
-  const t0 = now();
   let world: MatchWorld;
   try {
     world = build(config);
   } catch {
     return { ok: false, reason: 'build_failed' };
   }
+  // After the build: `restoreMs` is the restore and the digest, not the world build.
+  const t0 = now();
   try {
     restore(world.sim, verified.raw, world.runtime ?? undefined);
   } catch (e) {
     // The target may be half-written: the caller builds another (restoreSim's contract).
     return { ok: false, reason: e instanceof SnapshotRefused ? 'refused' : 'restore_threw' };
   }
-  // The same number the frame loop reports at a hash tick (`runFrames`), compared as the u32 the header holds.
-  const digest = matchDigest(world.sim.hash(), world.runtime?.digest() ?? 0, shippedContentDigest()) >>> 0;
+  let digest: number;
+  try {
+    // The same number the frame loop reports at a hash tick (`runFrames`), compared as the u32 the header holds.
+    digest = matchDigest(world.sim.hash(), world.runtime?.digest() ?? 0, shippedContentDigest()) >>> 0;
+  } catch {
+    // The bytes came from a seat's upload: a restore that passed validation can still leave a world that will not hash.
+    return { ok: false, reason: 'restore_threw' };
+  }
   if (digest !== verified.matchDigest) return { ok: false, reason: 'digest_after_restore' };
   return { ok: true, world, restoreMs: now() - t0 };
 }
