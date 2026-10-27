@@ -435,6 +435,7 @@ describe('the snapshot route through the relay (snapshot S4 T10)', () => {
     fetch(`${relay.url}/api/match/${code}/snapshot`, { headers: { authorization: `Bearer ${ticket}`, ...headers } });
   const utf8Fails = (b: Uint8Array): boolean => { try { new TextDecoder('utf-8', { fatal: true }).decode(b); return false; } catch { return true; } };
 
+  // A pin of two exports, not of behaviour: it catches a cap raised on one side only, and nothing else. The behavioural gate is the over-cap case below.
   it('the relay\'s body cap is the snapshot cap, as a literal 65,536 on both sides', () => {
     expect(SNAPSHOT_MAX_COMPRESSED_BYTES).toBe(65_536);
     expect(MAX_BODY_BYTES).toBe(65_536);
@@ -470,6 +471,8 @@ describe('the snapshot route through the relay (snapshot S4 T10)', () => {
     const gz = gzipOf(inflated());
     expect((await upload(relay, code, null, gz)).status).toBe(401);
     expect((await get(relay, code, 'not-a-ticket', { origin: relay.origin })).status).toBe(403);
+    // The Worker's declared-`Content-Length` precheck is NOT reached through this relay (`content-length` is not forwarded, and a `Request`
+    // built from bytes carries none), so the relay's own 413 and the Worker's `readCapped` stand in for it. `packages/worker/src/match/body-cap.test.ts` covers that branch.
     // At exactly the cap the relay reads it and the room answers (an unminted tick is stale); one byte more is the relay's 413.
     const atCap = await upload(relay, code, tickets[0], new Uint8Array(65_536).fill(0xff), { 'x-snapshot-tick': '1199' });
     expect([atCap.status, await atCap.text()]).toEqual([409, 'stale']);

@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import type { NetStats } from '@lions/net';
 import type { ProducerStats } from '../../../packages/app/src/net/snapshot-producer';
-import { formatTable, frozenOf, isMetalRenderer, onFailures, onLines, parseArgs, phases, restartDev, stallSummary, type OnReadings, type RoomResult } from './rejoin-measure';
+import { formatTable, frozenOf, isMetalRenderer, onFailures, onLines, parseArgs, phases, reachDeadlineMs, reachTicks, restartDev, stallSummary, type OnReadings, type Room, type RoomResult } from './rejoin-measure';
 
 describe('parseArgs', () => {
   it('defaults to the plan\'s run: 6,000 and 24,000 ticks, mode off, a 50 ms tick, the browser on', () => {
@@ -169,5 +169,31 @@ describe('mode on: onFailures', () => {
     expect(text).toContain('D4 settle: {"pending":0,"taken":31,"wrecks":20}; dead in the rejoiner\'s sim 31 (explored 4); screenshot /x/a.png');
     expect(text).not.toContain('NOT A SNAPSHOT REJOIN');
     expect(onLines({ ...o, failures: ['x'] }).join('\n')).toContain('NOT A SNAPSHOT REJOIN: x');
+  });
+});
+
+describe('reachTicks: a room that never gets there is given up on (S4 review F11)', () => {
+  // Two stub clients whose tick the test controls; the clock is virtual and moves only when the tool sleeps.
+  function rig(ticks: { a: number; b: number }, status: { kind: string } = { kind: 'live' }) {
+    const client = (get: () => number) => ({ tick: get, result: () => null, transport: { status: () => status } });
+    const room = { ticks: 1000, players: [{ client: client(() => ticks.a) }, { client: client(() => ticks.b) }] } as unknown as Pick<Room, 'ticks' | 'players'>;
+    let t = 0;
+    let sleeps = 0;
+    const clock = { now: () => t, sleep: async (ms: number) => { sleeps++; t += ms; if (sleeps > 100_000) throw new Error('never gave up'); } };
+    return { room, clock };
+  }
+  it('the deadline is three times the real-time length and a minute', () => {
+    expect(reachDeadlineMs(6000, 50)).toBe(960_000);
+    expect(reachDeadlineMs(0, 50)).toBe(60_000);
+  });
+  it('stuck at tick 10: resolves with a reason after the deadline, not never', async () => {
+    const { room, clock } = rig({ a: 10, b: 10 });
+    const why = await reachTicks(room, 5000, clock);
+    expect(why).toBe('seat 0 was at tick 10, seat 1 at 10, 5 s after the wait began: short of 1000');
+  });
+  it('a room that gets there resolves null, and a closed seat is named at once', async () => {
+    expect(await reachTicks(rig({ a: 1000, b: 960 }).room, 5000, rig({ a: 0, b: 0 }).clock)).toBeNull();
+    const closed = rig({ a: 3, b: 3 }, { kind: 'closed' });
+    expect(await reachTicks(closed.room, 5000, closed.clock)).toBe('seat 0 is closed at tick 3');
   });
 });

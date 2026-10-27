@@ -273,7 +273,7 @@ export function onFailures(r: Pick<OnReadings, 'rejoin' | 'browserProducer' | 's
   return out;
 }
 
-interface Room {
+export interface Room {
   code: string;
   ticks: number;
   tickets: [string, string];
@@ -307,18 +307,29 @@ async function openRoom(relay: LocalRelay, ticks: number, build: string, mode: M
   return { code, ticks, tickets, players: [players[0], players[1]] };
 }
 
-/** Resolves when seat 0 has run `ticks` frames, or says why it never will. */
-async function reachTicks(room: Room): Promise<string | null> {
+/** How long a room may take to reach `ticks` before the tool gives up on it: three times the real-time length, and a minute (S4 review F11: a stalled room must not hang the run). */
+export function reachDeadlineMs(ticks: number, tickMs: number): number {
+  return ticks * tickMs * 3 + 60_000;
+}
+
+/** Resolves when seat 0 has run `ticks` frames, or says why it never will, `deadlineMs` at the latest. */
+export async function reachTicks(
+  room: Pick<Room, 'ticks' | 'players'>,
+  deadlineMs: number,
+  clock: { now: () => number; sleep: (ms: number) => Promise<void> } = { now: Date.now, sleep },
+): Promise<string | null> {
   const c0 = room.players[0].client;
   const c1 = room.players[1].client;
   if (c0 === null || c1 === null) return 'no in-process client';
+  const gaveUpAt = clock.now() + deadlineMs;
   for (;;) {
     if (c0.tick() >= room.ticks && c1.tick() >= room.ticks - 40) return null;
     const r = c0.result() ?? c1.result();
     if (r !== null) return `the match ended at tick ${c0.tick()} before ${room.ticks} (${JSON.stringify(r)})`;
     const st = c0.transport.status();
     if (st.kind === 'closed' || st.kind === 'desync') return `seat 0 is ${st.kind} at tick ${c0.tick()}`;
-    await sleep(20);
+    if (clock.now() > gaveUpAt) return `seat 0 was at tick ${c0.tick()}, seat 1 at ${c1.tick()}, ${deadlineMs / 1000} s after the wait began: short of ${room.ticks}`;
+    await clock.sleep(20);
   }
 }
 
@@ -652,7 +663,7 @@ export async function run(argv: readonly string[]): Promise<number> {
       }
       // Each room is measured when it gets there, the earliest first; the rest keep pre-playing.
       for (const room of mine) {
-        const why = await reachTicks(room);
+        const why = await reachTicks(room, reachDeadlineMs(room.ticks, args.tickMs));
         const c0 = room.players[0].client;
         if (why !== null || c0 === null) {
           log(`room ${room.code} @ ${room.ticks}: ${why ?? 'no client'}`);
