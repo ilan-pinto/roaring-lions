@@ -101,13 +101,13 @@ export interface Room {
 /** A created versus room with both seats joined. `pace` and `guest: 'bot'`
  *  make it a paced room (decision D5: only a bot seat makes it pace).
  *  `host`/`guest` are the seats' kinds in the start config (default human). */
-export async function newRoom(o: { pace?: Pace; host?: 'human' | 'bot'; guest?: 'human' | 'bot'; room?: MatchRoomOptions } = {}): Promise<Room> {
+export async function newRoom(o: { pace?: Pace; host?: 'human' | 'bot'; guest?: 'human' | 'bot'; room?: MatchRoomOptions; map?: string; matchup?: 'kdf' | 'sarim' } = {}): Promise<Room> {
   const state = new FakeState();
   // The tests run on fake timers, which never fire an upload's inflate turn (a zero-delay timer): a real event-loop turn stands in.
   const room = new MatchRoom(state, env, { inflateYield: (): Promise<void> => realImmediate(), ...o.room });
   const created = await room.fetch(new Request('https://room/create', {
     method: 'POST',
-    body: JSON.stringify({ code: ROOM_CODE, matchId: ROOM_CODE, map: ROOM_MAP, mode: 'versus', build: ROOM_BUILD, player: 'Host', callsign: 'Host', ...(o.pace ? { pace: o.pace } : {}), ...(o.host ? { kind: o.host } : {}) }),
+    body: JSON.stringify({ code: ROOM_CODE, matchId: ROOM_CODE, map: o.map ?? ROOM_MAP, mode: 'versus', build: ROOM_BUILD, player: 'Host', callsign: 'Host', ...(o.matchup ? { matchup: o.matchup } : {}), ...(o.pace ? { pace: o.pace } : {}), ...(o.host ? { kind: o.host } : {}) }),
   }));
   expect(created.status).toBe(200);
   const joined = await room.fetch(new Request('https://room/join', {
