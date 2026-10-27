@@ -209,6 +209,19 @@ describe('prepareRejoin: one case per pre-hello fallback reason', () => {
   });
 });
 
+describe('snapshotLink.latest: the abort reaches the inflate (S4 security review I4)', () => {
+  it('a page that aborts while the body is inflating gets the inflate stopped, not a snapshot nobody reads', async () => {
+    const { f } = fakeFetch(() => respond());
+    const ctl = new AbortController();
+    // The fake `fetch` ignores its signal, as a runtime that has already handed over the response would: only the inflate can notice.
+    const link = snapshotLink(deps(f, { signal: ctl.signal }));
+    ctl.abort();
+    expect(await link.latest()).toEqual({ fallback: 'bad_gzip' });
+    // Premise: the same body, not aborted, is a snapshot.
+    expect(await snapshotLink(deps(fakeFetch(() => respond()).f)).latest()).toMatchObject({ tick: 1199 });
+  });
+});
+
 describe('verifyFetched', () => {
   it('a NEGATIVE caller digest (shippedContentDigest() is a signed int32) matches the snapshot\'s unsigned word (S4 review F1)', async () => {
     const { f } = fakeFetch(() => respond({ meta: { contentDigest: 4050403620 } }));

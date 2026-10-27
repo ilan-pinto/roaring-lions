@@ -152,7 +152,11 @@ export class AgentClient {
     return sn.link ?? snapshotLink({ fetch: snapshotFetch(o.server, sn.fetch), origin: new URL(o.server).origin, code: o.code, ticket: o.ticket, ...(sn.yieldTurn ? { yieldTurn: sn.yieldTurn } : {}) });
   }
 
-  constructor(private readonly o: AgentClientOptions, private readonly prepared?: Prepared) {
+  /** The verified snapshot (up to 1 MiB) is needed once, by `begin`; it is dropped there so a long-lived client does not carry it (S4 security review I5). */
+  private prepared: Prepared | undefined;
+
+  constructor(private readonly o: AgentClientOptions, prepared?: Prepared) {
+    this.prepared = prepared;
     if (o.role === 'seat' && o.snapshots?.rejoin === true && prepared === undefined) {
       throw new Error('AgentClient: snapshots.rejoin needs the GET awaited before the transport opens; use AgentClient.connect');
     }
@@ -238,8 +242,10 @@ export class AgentClient {
     // `restartFromZero` is deferred one microtask: onStart runs inside the transport's `log` handler, which resumes
     // after this returns and would push the old, trimmed log into the new clock (WsTransport.restartFromZero).
     let w: MatchWorld;
-    if (this.prepared !== undefined) {
-      const settled = settleRejoin(config, this.prepared, { restartFromZero: () => { queueMicrotask(() => { this.transport.restartFromZero(); }); } }, this.o.snapshots?.restore);
+    const prepared = this.prepared;
+    this.prepared = undefined;
+    if (prepared !== undefined) {
+      const settled = settleRejoin(config, prepared, { restartFromZero: () => { queueMicrotask(() => { this.transport.restartFromZero(); }); } }, this.o.snapshots?.restore);
       w = settled.world ?? buildMatchWorld(config);
       this.outcome = settled.rejoin;
       // The frames before `from` were never run here: `tick()` still reads as the room's tick.

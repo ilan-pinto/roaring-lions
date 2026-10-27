@@ -184,6 +184,25 @@ describe('gunzipCapped', () => {
     // One yielded turn per 4 KiB slice.
     expect(turns).toBe(Math.ceil(gz.byteLength / 4096));
   }, 20_000);
+  it('an aborted signal stops the inflate: no slice is written after it (S4 security review I4)', async () => {
+    const src = new Uint8Array(60_000);
+    let x = 0x9e3779b9;
+    for (let i = 0; i < src.length; i++) { x ^= x << 13; x >>>= 0; x ^= x >>> 17; x ^= x << 5; x >>>= 0; src[i] = x & 255; }
+    const gz = gzipSync(src);
+    const slices = Math.ceil(gz.byteLength / 4096);
+    expect(slices).toBeGreaterThan(8);
+    const spy = installEagerInflater();
+    const ctl = new AbortController();
+    let turns = 0;
+    // The caller times out while the second slice is being awaited.
+    const r = await gunzipCapped(gz, MAX, async () => { if (++turns === 2) ctl.abort(); }, ctl.signal);
+    expect(r).toEqual({ ok: false, reason: 'bad_gzip' });
+    expect(turns).toBe(2);
+    expect(spy.accepted()).toBe(2 * 4096);
+    // The same call with the signal unused still inflates the lot (the premise of the count above).
+    const whole = await gunzipCapped(gz, MAX, async () => {}, new AbortController().signal);
+    expect(whole.ok).toBe(true);
+  }, 20_000);
   it('a second gzip member, or bytes after the member, are bad_gzip however the runtime treats them (security review)', async () => {
     const a = Uint8Array.from({ length: 3000 }, (_, i) => (i * 7) & 0xff);
     const b = Uint8Array.from({ length: 2000 }, (_, i) => (i * 11 + 3) & 0xff);

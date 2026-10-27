@@ -532,6 +532,20 @@ describe('AgentClient and snapshots: opt-in only (snapshot S4 task 11)', () => {
     expect(socks[1]?.sent).toEqual([{ t: 'hello', ticket: 'tkt', build: BUILD }]);
   });
 
+  it('the verified snapshot bytes are dropped once the match has begun (S4 security review I5)', () => {
+    const held = (a: AgentClient): unknown => (a as unknown as { prepared: unknown }).prepared;
+    const config = { ...versusConfig(MAP), snapshotEveryTicks: 1200 };
+    const prepared = { path: 'snapshot' as const, verified: { raw: new Uint8Array(8), frameTick: 1199, matchDigest: 0 } };
+    const sock = bareSocket();
+    const a = new AgentClient({ server: SERVER, code: CODE, ticket: 'tkt', build: BUILD, role: 'seat', seat: 1, open: () => sock, log: () => {}, snapshots: { rejoin: true } }, prepared);
+    // Premise: before the log it is held (the check below can see it).
+    expect(held(a)).toBe(prepared);
+    sock.onopen?.({});
+    sock.recv({ t: 'log', config, frames: [{ tick: 1200, cmds: [] }], from: 1200 });
+    expect(a.rejoin()).not.toBeNull();
+    expect(held(a)).toBeUndefined();
+  });
+
   it('the constructor refuses rejoin: true (the GET must be awaited first), and an advisor ignores snapshots entirely', () => {
     const sock = bareSocket();
     expect(() => new AgentClient({ server: SERVER, code: CODE, ticket: 'tkt', build: BUILD, role: 'seat', seat: 1, open: () => sock, log: () => {}, snapshots: { rejoin: true } })).toThrow('AgentClient.connect');

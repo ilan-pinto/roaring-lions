@@ -109,8 +109,13 @@ const eventLoopTurn = (): Promise<void> => new Promise<void>((r) => setTimeout(r
  *  a later one, has produced at most one slice's output when the cap trips, and
  *  no further slice is written. `yieldTurn` is for tests that run on fake
  *  timers; the default is a zero-delay timer. Tested against fakes that inflate
- *  on every write, at once and on a later turn. */
-export async function gunzipCapped(gz: Uint8Array, max: number, yieldTurn: () => Promise<void> = eventLoopTurn): Promise<GunzipResult> {
+ *  on every write, at once and on a later turn.
+ *
+ *  `signal`: once it aborts, the next slice is not written, the streams are torn
+ *  down, and the call resolves `bad_gzip`. A caller that has timed out (the
+ *  reload's GET) has dropped the result already; this only stops the inflate
+ *  running on to the cap for nobody (S4 security review I4). */
+export async function gunzipCapped(gz: Uint8Array, max: number, yieldTurn: () => Promise<void> = eventLoopTurn, signal?: AbortSignal): Promise<GunzipResult> {
   const ds = new DecompressionStream('gzip');
   const writer = ds.writable.getWriter();
   const reader = ds.readable.getReader();
@@ -133,6 +138,11 @@ export async function gunzipCapped(gz: Uint8Array, max: number, yieldTurn: () =>
     await writer.abort().catch(() => undefined);
     return { ok: false, reason: 'too_large' };
   };
+  const abandon = async (): Promise<GunzipResult> => {
+    await reader.cancel().catch(() => undefined);
+    await writer.abort().catch(() => undefined);
+    return { ok: false, reason: 'bad_gzip' };
+  };
   const IDLE: unique symbol = Symbol('idle');
   const WROTE: unique symbol = Symbol('wrote');
   const idleTurns = async (): Promise<typeof IDLE> => {
@@ -149,6 +159,7 @@ export async function gunzipCapped(gz: Uint8Array, max: number, yieldTurn: () =>
   };
   try {
     for (let at = 0; at < gz.byteLength; at += GUNZIP_SLICE_BYTES) {
+      if (signal?.aborted === true) return await abandon();
       // Not awaited alone: a write may wait on the reader. A failure surfaces as the reader's error.
       const wrote: Promise<typeof WROTE> = writer.write(gz.subarray(at, at + GUNZIP_SLICE_BYTES) as BufferSource).then(() => WROTE, () => WROTE);
       // Until the write is taken, then one event-loop turn, then whatever is ready: a few promise turns pass with nothing to read.
@@ -158,6 +169,7 @@ export async function gunzipCapped(gz: Uint8Array, max: number, yieldTurn: () =>
     }
     void writer.close().catch(() => undefined);
     for (;;) {
+      if (signal?.aborted === true) return await abandon();
       const x = await nextRead();
       if (x.done) break;
       if (!keep(x)) return await refuse();
