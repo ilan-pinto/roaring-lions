@@ -1224,3 +1224,132 @@ public endpoint, and the one-line client half of D6 (`hello.from`).
 ### 14.5 Gates
 
 See the PR body; all run on the branch tip, alone.
+
+## 15. S4 as built (27 Oct 2026)
+
+S4 (the client) landed on `feat/net-snapshot-s4`. A versus seat that reloads mid-match fetches the room's
+latest accepted snapshot, restores it, replays only the frames after it, and stays in lockstep. Both seats
+produce the snapshot. Every failure falls back to today's full replay from tick 0. Nothing under
+`packages/sim` changed, and no pin moved (format pin 3686246844; golden, relief, order-done, economy,
+wounded, runtime-digest, versus, mirror, net and two-client pins; `pnpm balance`; `pnpm playtest`; the
+visual baselines).
+
+### 15.1 The client contract as landed
+
+- **Before the `hello`** (`snapshot-link.ts`, `prepareRejoin`). One GET with the seat ticket in
+  `Authorization` only (5 s timeout over headers, body and inflate), then, in order: status, the header
+  triple (decimal tick, hex SHA, decimal digest), the declared and the streamed size under 64 KiB, an inflate
+  under 1 MiB, the SHA of the inflated bytes, the snapshot header (magic, format, `frameTick`, `matchDigest`
+  against the headers), the meta strings (`build`, `contentDigest` as a u32, `matchId` against the room
+  code), and that `frameTick + 1` can be sent as a `from`. Any refusal is a reason from `FALLBACK_REASONS`
+  and a `hello` with no `from`, byte for byte today's reload. It never throws.
+- **The `hello`** carries `from = frameTick + 1`, and `WsTransport` starts its clock there.
+- **After the `log`** (`snapshot-rejoin.ts`, `settleRejoin`, run from the boot after `connect` resolves,
+  never inside the log handler). A versus config with a cadence, a snapshot tick, `matchId`, the header and
+  build re-checked against what was verified, then `restoreSim` onto a world built for it, then the post-restore
+  digest `matchDigest(hash, runtime digest, content digest)`. A refusal discards that world, builds a fresh
+  one and calls `WsTransport.restartFromZero()`, which asks for the whole log at once. Reasons: 15 before
+  the hello, 8 after.
+- **Producer** (`snapshot-producer.ts`): `FrameStep.afterFrame(tick, digest)` fires after the tick is
+  reported; on a snapshot tick the seat encodes, gzips and uploads once (10 s timeout, at most one in flight,
+  never retried, a skipped cadence is counted by reason, off while `behind > cadence`). Counters:
+  `encodes`, `lastEncodeMs`, `stored`, `held`, `recorded`, `mismatch`, `refused`, `failed`, `skipped`.
+- **Evidence** (`__lions.net()`): `rejoin` (`{ path: 'snapshot', from, restoreMs }` or `{ path: 'full',
+  reason }`) and `snapshot` (the counters). A rejoin logs one `[net] rejoin:` line; a fallback adds one
+  `console.warn` naming the reason, never the ticket, and no `console.error`.
+- **Bots** (`AgentClient`): off by default; `snapshots: { produce, rejoin }` opts in, and a rejoiner is
+  built with `AgentClient.connect`. The deployed `pnpm agent` does not opt in (lead ruling, 27 Oct), so a
+  human-versus-bot room holds no accepted snapshot.
+- **Worker**: one rule changed. `GET /api/match/:code/snapshot` with no `Origin` passes when
+  `Sec-Fetch-Site` is exactly `same-origin` (a browser sends no `Origin` on a same-origin GET). Method, path,
+  ticket, advisor refusal and the `SNAP_LIMIT` count are unchanged, and a present foreign `Origin` stays 403.
+  Lead-approved.
+- **Local relay and dev server**: the relay forwards the snapshot headers and binary bodies and takes
+  `extraOrigins` and `snapshotEveryTicks`; the dev server's `/api` proxy target is `LIONS_API_TARGET`
+  (default unchanged).
+
+### 15.2 D4 as built, and its gaps
+
+`Renderer.settleDead()` (optional; `ThreeRenderer` only) runs once after a snapshot rejoin. Every slot with
+`alive 0`, `removed 0`, a type that is neither a kamikaze nor a swarm and a GLB with a `wreck` clip is drawn
+settled: the wreck pose or the lying body, no fade, burst, sound or smoulder, at most 24 per consumer per
+frame, behind the existing explored-ground latch. Structures need no work (drawn from state).
+
+Not rebuilt, or drawn differently from a live match (accepted by the lead, 27 Oct):
+- a unit killed underground draws a surface body after a snapshot rejoin, where live draws none (GH-763):
+  no state distinguishes it. This is the reverse gap, drawn too much, and it goes with the others in the
+  PR's list;
+- passengers killed aboard an airborne carrier come back as ordinary bodies at the carrier's position;
+- a swarm's fallen members and a kamikaze (shot down or detonated, indistinguishable) are left out;
+- civilians have no wreck clip, so nothing is drawn;
+- a dead prone sniper topples and then settles instead of settling in place (same wreck pose);
+- craters, scorch marks and the kill feed from before the snapshot are gone;
+- a structure collapsed before the snapshot plays the building settle grow-in once on the first frame
+  (existing behaviour).
+
+**Explored-ground memory** from before the snapshot is lost: ground the seat had explored reads as
+never-seen until it is seen again (Ruling 11; accepted).
+
+### 15.3 Measured
+
+Task 1C and Task 16 are the same instrument (`pnpm net:rejoin-measure`): a `tel_marum` KDF v Sarim room,
+two scripted `rush` seats in Node at the room's 50 ms tick, seat 1 reloaded in one headless Chromium.
+Conditions: ANGLE (Apple, ANGLE Metal Renderer: Apple M3 Pro) read through `WEBGL_debug_renderer_info`,
+1280x720, music off, port 5251, build 0.129.0+1d47282d, darwin/arm64, a warm dev server restarted per mode,
+one-minute load average 1.9-3.4 (other sessions on the machine), later rooms pre-playing in Node during an
+earlier room's measurement. Task 1C's table (off, load 3.3-3.6): 6,000 ticks live in 3802 ms, replay phase
+2152 ms, opponent frozen 1511 ms; 24,000 ticks live in 6129 ms, replay phase 4652 ms, opponent frozen
+4011 ms.
+
+| mode | ticks | time to live | boot | replay phase | opponent frozen, longest | total |
+|---|---|---|---|---|---|---|
+| off | 6,000 | 3109 ms | 1250 ms | 1859 ms | 999 ms (20 room ticks) | 1345 ms (27) |
+| on | 6,000 | 2171 ms | 1567 ms | 604 ms | 351 ms (7) | 351 ms (7) |
+| off | 24,000 | 5788 ms | 1478 ms | 4310 ms | 3657 ms (73) | 4001 ms (80) |
+| on | 24,000 | 1792 ms | 1551 ms | 241 ms | 343 ms (7) | 343 ms (7) |
+
+- The `on` rows were each shown to be a snapshot rejoin (the run exits 1 otherwise): `rejoin.path ===
+  'snapshot'`, `from` 6000 and 24000, `restoreMs` 16.1 and 16.6, producer `mismatch` 0, `refused` 0, `failed`
+  0, and `stored + held + recorded` above 0 on both Node seats (6,000: 6 and 4; 24,000: 21 and 19) and 1
+  accepted on the browser's own producer after one cadence (one encode, `lastEncodeMs` 3).
+- At 24,000 ticks time to live fell from 5788 to 1792 ms and the replay phase from 4310 to 241 ms; the
+  opponent's longest freeze fell from 3657 to 343 ms. At 6,000 ticks: 3109 to 2171 ms and 999 to 351 ms. The
+  boot (about 1.5 s) is the page's own load and does not move. The ~345 ms floor on the opponent's freeze is
+  the room noticing the drop (the `gone` stall), common to both modes.
+- Encode on the frame: 2-6 ms in Node, 3 ms in the browser; restore plus digest 16 ms.
+- D4 was observable: the rejoiner's sim held 37 dead, all on explored ground, and `settleDead` queued and
+  drew all 37 (`{ pending 0, taken 37, wrecks 37 }`); a screenshot of the settled wrecks after the 24,000
+  reload was taken and kept out of the repo.
+- Caveats: the load was not quiet, the match state at the drop was not otherwise inspected (both matches
+  were undecided), the Task 1C and Task 16 off rows differ because the machine load differed, and a short
+  smoke run (2,500 ticks at a 10 ms tick) preceded the measurement.
+- The stall bound is tested in the room harness, not by this table: at most 1,242 frames from the log
+  (`1,200 + 42`) when every cadence was accepted and 2,442 when one was lost
+  (`tools/src/net/rejoin-catchup.test.ts`), and the rejoiner's world is byte-equal to the seat that never left
+  (`tools/src/net/snapshot-rejoin.test.ts`, economy and mirror rooms).
+
+### 15.4 Rulings from the plan, and their outcome
+
+1-17 stood, with these recorded differences:
+- The STOP gate (17) did not trip: the replay phase at 24,000 ticks was 4.65 s against the 2 s line.
+- Ruling 14's evidence gained `mismatch` (a 409 `mismatch` is its own counter, not `recorded`); end-to-end
+  checks assert on `stored + held + recorded` and expect `mismatch` 0.
+- The room's 409 body decides the outcome (`duplicate`, `mismatch`, else `refused`), not the status alone.
+- `shippedContentDigest()` is a signed int32 and the snapshot's is a u32: both sides compare `>>> 0`.
+- `WsTransport` validates `from` with the room's own rule (`isFromTick`, up to 0x7fffffff); the client
+  refuses a snapshot whose next frame could not be asked for, before the hello.
+- `restartFromZero` is a no-op when the transport is closed, terminal or has no config, and it sets a
+  `connecting` stall so the status is not `live` with an empty clock.
+- A sandbox room's reload with a stored ticket also asks once (answered 204): the mode is unknown before the
+  hello and the ticket store holds none.
+- `settleDead` is budgeted at 24 per consumer per frame (not in the plan).
+- The measurement tool restarts its dev server per mode, rejects a duplicate mode, refuses a non-Metal
+  renderer, and gained the `on` mode, the producer and settle readings and a screenshot option in Task 16.
+
+### 15.5 Gates
+
+On the branch tip, alone: `pnpm typecheck`, `pnpm lint`, `pnpm validate:ui`, `pnpm validate:data`, the full
+`pnpm test` (849 files, 16,600 passed, 1 skipped), `pnpm test:determinism` (107), `pnpm balance`,
+`pnpm playtest` and `pnpm snapshot:witness -- --self-check` all pass. No pin moved. A security review of the
+whole diff found 7 findings (2 low, 5 info), all ruled; the one fix (a tick past the `from` range) landed with
+its test.
