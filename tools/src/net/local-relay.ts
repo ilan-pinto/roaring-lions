@@ -4,9 +4,11 @@
  * and a spawned `pnpm agent` can play with no Durable Object, no D1, no billed
  * row and no network beyond loopback.
  *
- * - HTTP: `POST /api/match*` becomes a `Request` handed to `handleMatch`, with
+ * - HTTP: `/api/match*` becomes a `Request` handed to `handleMatch`, with
  *   the `Origin` header passed through: the Worker's own Origin rule is the
- *   relay's, unchanged. There are no rate limiters and no `DB`.
+ *   relay's, unchanged. The snapshot route (snapshot S4) rides the same path:
+ *   `Authorization`, `X-Snapshot-Tick` and `Sec-Fetch-Site` go in, binary bodies
+ *   both ways, and the GET's tick, SHA, digest and cache headers come back. There are no rate limiters and no `DB`.
  * - Rooms: `env.ROOMS` maps each code to one `MatchRoom` over the fake Durable
  *   Object state (`fake-do.ts`), built with this relay's `tickMs` and seed.
  * - Sockets: the `/ws` upgrade goes through `handleMatch` first (Origin, code,
@@ -76,10 +78,16 @@ export interface LocalRelayOptions {
 
 /** How often a room's scheduled alarm is checked. */
 const ALARM_POLL_MS = 250;
-/** The largest request body the relay reads; the routes' own bodies are a few hundred bytes. */
-const MAX_BODY_BYTES = 64 * 1024;
+/** The largest request body the relay reads; the JSON routes' own bodies are a few hundred bytes, and a snapshot
+ *  upload is held to the same 64 KiB (`SNAPSHOT_MAX_COMPRESSED_BYTES`; the spec pins the two as equal). */
+export const MAX_BODY_BYTES = 64 * 1024;
 /** Larger than the room's own message cap (`MAX_MESSAGE_BYTES`, 4,096), so the room is what refuses. */
 const MAX_WS_PAYLOAD = 64 * 1024;
+/** The request headers the Worker's routes read, passed through unchanged (the snapshot route's ticket, tick and
+ *  fetch-metadata included): anything not listed never reaches `handleMatch`. */
+const REQUEST_HEADERS = ['origin', 'content-type', 'authorization', 'x-snapshot-tick', 'sec-fetch-site'] as const;
+/** The response headers a client reads beside `content-type`: the snapshot GET's tick, SHA and digest, and its cache rule. */
+const RESPONSE_HEADERS = ['x-snapshot-tick', 'x-snapshot-sha', 'x-snapshot-digest', 'cache-control'] as const;
 /** The namespace stub's answer to `/ws`, read only by this file: accept, or there is no room. */
 const UPGRADE_MARKER = 'x-local-relay-upgrade';
 
@@ -204,12 +212,13 @@ export async function serveLocalRelay(o: LocalRelayOptions & { ticketSecret: str
 
   const requestFor = (req: IncomingMessage, body?: Buffer): Request => {
     const headers = new Headers();
-    for (const name of ['origin', 'content-type']) {
+    for (const name of REQUEST_HEADERS) {
       const v = req.headers[name];
       if (typeof v === 'string') headers.set(name, v);
     }
-    // Built on the relay's own origin, never the Host header: the Origin rule compares against it.
-    return new Request(new URL(req.url ?? '/', origin), { method: req.method, headers, body: body?.toString('utf8') });
+    // Built on the relay's own origin, never the Host header: the Origin rule compares against it. The body goes
+    // over as BYTES: a snapshot is gzip, and a UTF-8 round trip would replace every invalid sequence in it.
+    return new Request(new URL(req.url ?? '/', origin), { method: req.method, headers, body: body === undefined ? undefined : new Uint8Array(body) });
   };
   const isMatchPath = (req: IncomingMessage): boolean => /^\/api\/match(?:\/|$|\?)/.test(req.url ?? '');
 
@@ -222,7 +231,12 @@ export async function serveLocalRelay(o: LocalRelayOptions & { ticketSecret: str
       const r = await handleMatch(requestFor(req, body), env, Date.now());
       // A plain GET of `/ws` reached the room's upgrade: workerd answers it 426.
       if (r.headers.get(UPGRADE_MARKER) !== null) { res.writeHead(426, { 'content-type': 'text/plain' }).end('expected websocket'); return; }
-      res.writeHead(r.status, { 'content-type': r.headers.get('content-type') ?? 'text/plain' });
+      const out: Record<string, string> = { 'content-type': r.headers.get('content-type') ?? 'text/plain' };
+      for (const name of RESPONSE_HEADERS) {
+        const v = r.headers.get(name);
+        if (v !== null) out[name] = v;
+      }
+      res.writeHead(r.status, out);
       res.end(Buffer.from(await r.arrayBuffer()));
     } catch (e) {
       log(`local relay: request failed: ${e instanceof Error ? e.message : String(e)}`);

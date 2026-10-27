@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { connect } from 'node:net';
 import { format } from 'node:util';
 import { readdirSync, readFileSync } from 'node:fs';
+import { gzipSync } from 'node:zlib';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AddressInfo } from 'node:net';
@@ -15,8 +16,10 @@ import WebSocket from 'ws';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { AgentClient } from './agent-client';
-import { serveLocalRelay, startLocalRelay, type LocalRelay } from './local-relay';
+import { MAX_BODY_BYTES, serveLocalRelay, startLocalRelay, type LocalRelay } from './local-relay';
 import { MatchRoom } from '../../../packages/worker/src/match/match-room';
+import { snapshotBytes } from '../../../packages/worker/src/match/snapshot-fixture';
+import { SNAPSHOT_MAX_COMPRESSED_BYTES, sha256Hex } from '@lions/net';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../../..');
@@ -370,6 +373,129 @@ class TeeTransport extends StdioClientTransport {
 const alive = (pid: number): boolean => {
   try { process.kill(pid, 0); return true; } catch { return false; }
 };
+
+describe('the snapshot route through the relay (snapshot S4 T10)', () => {
+  /** 0xdeadbeef: above 2^31, so the signed hash the seats send and the u32 header word are different numbers. */
+  const DIGEST = 3735928559;
+  const HASH = -559038737;
+  const TICK = 39;
+
+  /** A headless seat: hello, ready, then an ack every ten ticks and a hash of HASH every twenty -- all a room needs to run and agree. */
+  function headlessSeat(relay: LocalRelay, code: string, ticket: string): { agreed(tick: number): boolean; tick(): number } {
+    const ws = own(new WebSocket(`${relay.url.replace(/^http/, 'ws')}/api/match/${code}/ws`, { origin: relay.origin }), (w) => { w.terminate(); });
+    const ok = new Set<number>();
+    let last = -1;
+    ws.on('error', () => {});
+    ws.on('open', () => { ws.send(JSON.stringify({ t: 'hello', ticket, build: BUILD })); });
+    ws.on('message', (d) => {
+      const m = JSON.parse(String(d)) as { t: string; tick?: number };
+      if (m.t === 'lobby') ws.send(JSON.stringify({ t: 'ready' }));
+      else if (m.t === 'hashOk' && m.tick !== undefined) ok.add(m.tick);
+      else if (m.t === 'frame' && m.tick !== undefined) {
+        last = m.tick;
+        if (m.tick % 10 === 9) ws.send(JSON.stringify({ t: 'ack', tick: m.tick }));
+        if (m.tick % 20 === 19) ws.send(JSON.stringify({ t: 'hash', tick: m.tick, h: HASH }));
+      }
+    });
+    return { agreed: (t) => ok.has(t), tick: () => last };
+  }
+  async function until(f: () => boolean, ms = 10_000): Promise<void> {
+    const deadline = Date.now() + ms;
+    while (!f()) {
+      if (Date.now() > deadline) throw new Error(`not reached in ${ms} ms`);
+      await new Promise((r) => setTimeout(r, 5));
+    }
+  }
+  /** A running versus room at cadence 40 whose seats agreed tick 39 on HASH and have moved past it. */
+  async function agreedRoom(): Promise<{ relay: LocalRelay; code: string; tickets: string[] }> {
+    const relay = await relayOf({ tickMs: 20, snapshotEveryTicks: 40 });
+    const { code, tickets } = await versusRoom(relay);
+    const a = headlessSeat(relay, code, tickets[0]);
+    const b = headlessSeat(relay, code, tickets[1]);
+    await until(() => a.agreed(TICK) && b.agreed(TICK) && a.tick() > TICK && b.tick() > TICK);
+    return { relay, code, tickets };
+  }
+  /** The inflated snapshot: real header words, then filler ending in bytes that are not UTF-8 (0xff 0xfe 0x00). */
+  function inflated(): Uint8Array {
+    const raw = snapshotBytes({ frameTick: TICK, matchDigest: DIGEST, fill: 0x5a, length: 200 });
+    raw.set([0xff, 0xfe, 0x00], raw.length - 3);
+    return raw;
+  }
+  /** Stored (level 0) gzip, so the invalid bytes sit in the body VERBATIM: a UTF-8 decode of it cannot round-trip. */
+  const gzipOf = (raw: Uint8Array): Uint8Array => new Uint8Array(gzipSync(raw, { level: 0 }));
+  /** Same inflated bytes, different gzip wrapper (the mtime word): seat 1's body differs from seat 0's. */
+  const rewrapped = (gz: Uint8Array): Uint8Array => { const c = gz.slice(); c[4] = 1; return c; };
+  const upload = (relay: LocalRelay, code: string, ticket: string | null, body: Uint8Array, over: Record<string, string | null> = {}): Promise<Response> => {
+    const headers: Record<string, string | null> = { origin: relay.origin, 'content-type': 'application/octet-stream', 'x-snapshot-tick': String(TICK), ...(ticket === null ? {} : { authorization: `Bearer ${ticket}` }), ...over };
+    // A null removes the header, so "no Origin" is a request that carries none.
+    const sent = Object.fromEntries(Object.entries(headers).filter((e): e is [string, string] => e[1] !== null));
+    return fetch(`${relay.url}/api/match/${code}/snapshot`, { method: 'POST', headers: sent, body: body as BufferSource });
+  };
+  const get = (relay: LocalRelay, code: string, ticket: string, headers: Record<string, string>): Promise<Response> =>
+    fetch(`${relay.url}/api/match/${code}/snapshot`, { headers: { authorization: `Bearer ${ticket}`, ...headers } });
+  const utf8Fails = (b: Uint8Array): boolean => { try { new TextDecoder('utf-8', { fatal: true }).decode(b); return false; } catch { return true; } };
+
+  it('the relay\'s body cap is the snapshot cap, as a literal 65,536 on both sides', () => {
+    expect(SNAPSHOT_MAX_COMPRESSED_BYTES).toBe(65_536);
+    expect(MAX_BODY_BYTES).toBe(65_536);
+  });
+
+  it('both seats POST the same snapshot through HTTP (202 then 201); a GET returns seat 0\'s bytes exactly, with the SHA, tick, digest and cache headers', async () => {
+    const { relay, code, tickets } = await agreedRoom();
+    const raw = inflated();
+    const gz0 = gzipOf(raw);
+    const gz1 = rewrapped(gz0);
+    expect(utf8Fails(gz0)).toBe(true);                    // the premise: these bytes cannot survive a UTF-8 round trip
+    expect(Buffer.from(gz0).includes(Buffer.from([0xff, 0xfe, 0x00]))).toBe(true);
+    expect(Buffer.compare(gz0, gz1)).not.toBe(0);
+
+    const first = await upload(relay, code, tickets[0], gz0);
+    expect([first.status, await first.text()]).toEqual([202, 'held']);
+    const second = await upload(relay, code, tickets[1], gz1);
+    expect([second.status, await second.text()]).toEqual([201, 'stored']);
+
+    const res = await get(relay, code, tickets[1], { origin: relay.origin });
+    expect(res.status).toBe(200);
+    const got = new Uint8Array(await res.arrayBuffer());
+    expect(Buffer.compare(got, gz0)).toBe(0);              // byte-exact, seat 0's upload (not seat 1's, not a mangled copy)
+    expect(res.headers.get('x-snapshot-tick')).toBe(String(TICK));
+    expect(res.headers.get('x-snapshot-sha')).toBe(await sha256Hex(raw));
+    expect(res.headers.get('x-snapshot-digest')).toBe(String(DIGEST));
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(res.headers.get('content-type')).toBe('application/octet-stream');
+  }, 30_000);
+
+  it('the Worker\'s refusals still apply: no ticket is 401, another seat code\'s ticket is 403, and a body over 64 KiB is 413 while exactly 64 KiB is not', async () => {
+    const { relay, code, tickets } = await agreedRoom();
+    const gz = gzipOf(inflated());
+    expect((await upload(relay, code, null, gz)).status).toBe(401);
+    expect((await get(relay, code, 'not-a-ticket', { origin: relay.origin })).status).toBe(403);
+    // At exactly the cap the relay reads it and the room answers (an unminted tick is stale); one byte more is the relay's 413.
+    const atCap = await upload(relay, code, tickets[0], new Uint8Array(65_536).fill(0xff), { 'x-snapshot-tick': '1199' });
+    expect([atCap.status, await atCap.text()]).toEqual([409, 'stale']);
+    const over = await upload(relay, code, tickets[0], new Uint8Array(65_537).fill(0xff), { 'x-snapshot-tick': '1199' });
+    expect(over.status).toBe(413);
+  }, 30_000);
+
+  it('a GET with no Origin and Sec-Fetch-Site: same-origin reaches the room; with neither header (or another site) the Worker answers 403', async () => {
+    const { relay, code, tickets } = await agreedRoom();
+    const raw = inflated();
+    const gz = gzipOf(raw);
+    expect((await upload(relay, code, tickets[0], gz)).status).toBe(202);
+    expect((await upload(relay, code, tickets[1], rewrapped(gz))).status).toBe(201);
+
+    const same = await get(relay, code, tickets[0], { 'sec-fetch-site': 'same-origin' });
+    expect(same.status).toBe(200);
+    expect(Buffer.compare(new Uint8Array(await same.arrayBuffer()), gz)).toBe(0);
+    expect(same.headers.get('x-snapshot-sha')).toBe(await sha256Hex(raw));
+
+    expect((await get(relay, code, tickets[0], {})).status).toBe(403);
+    expect((await get(relay, code, tickets[0], { 'sec-fetch-site': 'cross-site' })).status).toBe(403);
+    expect((await get(relay, code, tickets[0], { 'sec-fetch-site': 'none' })).status).toBe(403);
+    // The exemption is for a GET: a POST with the same header and no Origin is still refused.
+    expect((await upload(relay, code, tickets[0], gz, { origin: null, 'sec-fetch-site': 'same-origin' })).status).toBe(403);
+  }, 30_000);
+});
 
 describe('pnpm agent over stdio against the relay (deferred from N4a task 8)', () => {
   it('tools/list and observe answer, and every line the child wrote to stdout is a JSON-RPC 2.0 frame', async () => {
