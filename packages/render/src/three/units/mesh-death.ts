@@ -149,7 +149,7 @@ import { groundWorldY, type ElevationSource } from '../ground-height';
 import { WORLD_Y_PER_LIFT_PIXEL } from '../../project';
 import { advanceMeshClipFades, applyMeshClip } from './mesh-clip';
 import { disposeMeshUnitEntity, type MeshUnitEntity } from './mesh-unit';
-import { reassertHiddenFigures } from './squad-rig';
+import { reassertHiddenFigures, stopSquadPlayers } from './squad-rig';
 import { pickDeathClips } from './mesh-anim';
 
 /** Seconds a dying mesh unit fades before it either becomes a wreck or is
@@ -757,6 +757,58 @@ export function stepMeshDeath(d: DyingMeshUnit, dtSeconds: number, env: MeshDeat
   env.scene.remove(d.entity.root);
   disposeMeshUnitEntity(d.entity);
   return 'removed';
+}
+
+/** The step `settleMeshDeath` takes: far longer than any authored fall, topple or crossfade, so each
+ *  phase of `stepMeshDeath` completes in the one call that enters it. */
+const SETTLE_STEP_SECONDS = 10;
+/** falling/toppling -> settling -> done is at most three calls; the rest is slack, never a loop bound
+ *  anything relies on. */
+const SETTLE_STEP_LIMIT = 8;
+
+/**
+ * Snapshot S4 (D4): `entity` died BEFORE this renderer's first frame, so there is no death to watch.
+ * Returns the same `MeshWreck` a watched death settles into -- the wreck clip's final pose, at ground
+ * level, the sim's facing -- or `null` when the body leaves nothing (a GLB with no `wreck` clip, whose
+ * live death fades to nothing), in which case the entity is already off the scene.
+ *
+ * It IS the live death, run to its end in one call: `beginMeshDeath` then `stepMeshDeath` with a step
+ * longer than any phase, so the fall/topple/cut-to-wreck choice, the corpse yaw and the finish of the
+ * crossfade are the live code's own and cannot drift from it. What it does NOT do is show any of it: no
+ * frame is drawn between the phases, and a body with a wreck never enters `fading`, so no material is
+ * cloned and no opacity written. It emits nothing (no event, burst, light, sound, decal or smoulder);
+ * those belong to `ThreeRenderer.onEvents`, which this never reaches.
+ *
+ * The caller has instantiated `entity`, set `root.position` (x, ground y, z) and `root.rotation.y`
+ * (the facing), and has NOT attached a silhouette (a wreck has none). With no killer the topple falls
+ * straight back from the facing (`toppleDirection`), and a GLB with a `fall` clip plays it: both as the
+ * live path would for a `debugKill`. The living pose the death starts from is `idle`: which clip the
+ * unit was really playing when it died is not in the sim, so a prone sniper that died on overwatch
+ * topples here where it would have settled in place live. The wreck pose is the same either way.
+ */
+export function settleMeshDeath(entity: MeshUnitEntity, entityId: number, env: MeshDeathEnv): MeshWreck | null {
+  const pick = pickDeathClips(entityId, new Set(entity.actions.keys()));
+  if (!entity.actions.has(pick.wreck)) {
+    // No wreck to leave: the live death is a 0.4 s fade to nothing (a civilian's `down`-only GLB).
+    disposeMeshUnitEntity(entity);
+    return null;
+  }
+  env.scene.add(entity.root);
+  // The living pose `beginMeshDeath` reads (its live figure roots, the clip it is "already down" in).
+  if (entity.squad) stopSquadPlayers(entity.squad);
+  applyMeshClip(entity, 'idle');
+  entity.mixer.update(0);
+  const d = beginMeshDeath(entity, entityId, null);
+  for (let k = 0; k < SETTLE_STEP_LIMIT; k++) {
+    const result = stepMeshDeath(d, SETTLE_STEP_SECONDS, env);
+    if (result === 'fading') continue;
+    return result === 'removed' ? null : result;
+  }
+  // Unreachable with a wreck clip present; a frame must never throw, so leave nothing and say so.
+  console.warn(`mesh-death: settleMeshDeath(${entity.typeId}) did not settle in ${SETTLE_STEP_LIMIT} steps`);
+  env.scene.remove(entity.root);
+  disposeMeshUnitEntity(entity);
+  return null;
 }
 
 /** Appends `wreck` to `wrecks`, evicting the OLDEST entry once `max` is

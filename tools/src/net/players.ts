@@ -15,7 +15,7 @@
 import type { Command } from '@lions/sim';
 import { fx } from '@lions/sim';
 import type { Seat } from '@lions/net';
-import { AgentClient } from './agent-client';
+import { AgentClient, type AgentSnapshotOptions } from './agent-client';
 import type { SideView } from './view';
 
 /** May be async: an external or slow policy is a promise; the in-process
@@ -142,15 +142,15 @@ const messageOf = (e: unknown): string => (e instanceof Error ? e.message : Stri
  * abandoned and counted in `timeouts`: the room releases that round by wall
  * time (decision D5), no `done` is sent for it, and a late answer is dropped.
  */
-export function inProcess(name: string, policy: Policy, o: { log?: (line: string) => void } = {}): ArenaPlayer {
+export function inProcess(name: string, policy: Policy, o: { log?: (line: string) => void; snapshots?: AgentSnapshotOptions } = {}): ArenaPlayer {
   return {
     name,
-    start: (s) => Promise.resolve(runInProcess(policy, s, o.log ?? ((line) => { process.stderr.write(`${line}\n`); }))),
+    start: (s) => Promise.resolve(runInProcess(policy, s, o.log ?? ((line) => { process.stderr.write(`${line}\n`); }), o.snapshots)),
   };
 }
 
-function runInProcess(policy: Policy, s: SeatStart, log: (line: string) => void): RunningPlayer {
-  const client = new AgentClient({ server: s.server, code: s.code, ticket: s.ticket, build: s.build, role: 'seat', seat: s.seat, log });
+function runInProcess(policy: Policy, s: SeatStart, log: (line: string) => void, snapshots?: AgentSnapshotOptions): RunningPlayer {
+  const client = new AgentClient({ server: s.server, code: s.code, ticket: s.ticket, build: s.build, role: 'seat', seat: s.seat, log, ...(snapshots === undefined ? {} : { snapshots }) });
   const report: PlayerReport = { tokens: null, timeouts: 0, errors: [] };
   const error = (line: string): void => { if (report.errors.length < MAX_ERRORS) report.errors.push(line); };
   let finished = false;

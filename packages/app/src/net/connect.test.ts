@@ -1,5 +1,8 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { WsTransport, type MatchConfig } from '@lions/net';
+import { WsTransport, gzipBytes, sha256Hex, type MatchConfig } from '@lions/net';
+import { Sim, encodeSim } from '@lions/sim';
+import { shippedContentDigest } from './content-digest';
+import { settleRejoin } from './snapshot-rejoin';
 import { AdvisorRefused, connectMatch, openRoom, requestAdvisorTicket, inviteAdvisor, JoinNeedsConfirmation, RELOAD_REFUSED, RoomRefused, RoomStarted, type OpenDeps } from './connect';
 import { handOver, dropHanded, takeHanded } from './handoff';
 import { loadSeat, saveSeat } from './ticket-store';
@@ -350,7 +353,9 @@ describe('connectMatch: rejoin and handoff (N1b task 5)', () => {
         fetch: f, origin: 'http://x', openSocket: (u) => { opened.push(u); return sock; }, replaceUrl: () => { replaced = true; }, note: () => {}, store: null, session,
       });
       await new Promise((r) => setTimeout(r, 0));
-      expect(calls).toEqual([]);
+      // Posts nothing. The one request is the reload's snapshot GET (S4): the recording fetch answers it 201, which is
+      // `http_status`, so the hello below is the same bytes as before the snapshot work.
+      expect(calls).toEqual(['GET http://x/api/match/ABCDEF/snapshot']);
       expect(opened).toEqual(['ws://x/api/match/ABCDEF/ws']);
       sock.onopen?.({});
       expect(sock.sent.map((s) => JSON.parse(s) as unknown)).toEqual([{ t: 'hello', ticket: 'tk-stored', build: 'b' }]);
@@ -423,9 +428,238 @@ describe('connectMatch: rejoin and handoff (N1b task 5)', () => {
     const sock = fakeSocket();
     void connectMatch(new URLSearchParams(url), 'tel_marum', 'b', { fetch: f, origin: 'http://x', openSocket: () => sock, replaceUrl: () => {}, note: () => {}, store: null, session });
     await new Promise((r) => setTimeout(r, 0));
-    expect(calls).toEqual(['POST http://x/api/match']);
+    expect(calls).toEqual(['POST http://x/api/match', 'GET http://x/api/match/ABCDEF/snapshot']);
     sock.onopen?.({});
     expect(JSON.parse(sock.sent[0])).toEqual({ t: 'hello', ticket: 'tk-host', build: 'b' });
+  });
+});
+
+/** A real snapshot of room ABCDEF at frame 1199, written by build 'b' with this build's content digest. */
+async function snapshotResponse(over: { build?: string; matchId?: string; status?: number } = {}): Promise<Response> {
+  if (over.status === 204) return new Response(null, { status: 204 });
+  const sim = new Sim({ seed: 1, width: 8, height: 8, capacity: 4 });
+  const raw = encodeSim(sim, { build: over.build ?? 'b', matchId: over.matchId ?? 'ABCDEF', contentDigest: shippedContentDigest() >>> 0, frameTick: 1199, matchDigest: 7 });
+  const gz = await gzipBytes(raw);
+  return new Response(gz as BodyInit, { status: 200, headers: { 'x-snapshot-tick': '1199', 'x-snapshot-sha': await sha256Hex(raw), 'x-snapshot-digest': '7' } });
+}
+/** A fetch for a reload: answers the GET with `answer()` and records every call (url, method, headers). */
+const reloadFetch = (answer: () => Promise<Response>) => {
+  const calls: { url: string; method: string; headers: unknown }[] = [];
+  const f = ((url: string, init?: RequestInit) => {
+    calls.push({ url, method: init?.method ?? 'GET', headers: init?.headers });
+    return answer();
+  }) as unknown as typeof fetch;
+  return { f, calls };
+};
+const hellosOf = (sock: ReturnType<typeof fakeSocket>): unknown[] => sock.sent.map((x) => JSON.parse(x) as { t: string }).filter((m) => m.t === 'hello');
+const LOG = (frames: number[]) => JSON.stringify({ t: 'log', config: CONFIG(3), frames: frames.map((tick) => ({ tick, cmds: [] })) });
+
+describe('connectMatch: a reload asks for the room\'s snapshot before its hello (snapshot S4 task 8)', () => {
+  const reload = (f: typeof fetch, sock: ReturnType<typeof fakeSocket>, over: { session?: ReturnType<typeof memory>; signal?: AbortSignal; open?: () => ReturnType<typeof fakeSocket> } = {}) => {
+    const session = over.session ?? memory();
+    if (!over.session) saveSeat(session, 'ABCDEF', { ticket: 'tk-secret', seat: 1 });
+    return connectMatch(new URLSearchParams('net=ABCDEF&seat=1'), 'tel_marum', 'b', {
+      fetch: f, origin: 'http://x', openSocket: over.open ?? (() => sock), replaceUrl: () => {}, note: () => {}, store: null, session, ...(over.signal ? { signal: over.signal } : {}),
+    });
+  };
+
+  it('a snapshot that verifies makes the hello carry from: frame + 1, and resolves with rejoin.path snapshot', async () => {
+    const { f, calls } = reloadFetch(() => snapshotResponse());
+    const sock = fakeSocket();
+    const p = reload(f, sock);
+    await vi.waitFor(() => expect(sock.onopen).not.toBeNull());
+    sock.onopen?.({});
+    expect(hellosOf(sock)).toEqual([{ t: 'hello', ticket: 'tk-secret', build: 'b', from: 1200 }]);
+    sock.onmessage?.({ data: JSON.stringify({ t: 'log', config: CONFIG(3), frames: [{ tick: 1200, cmds: [] }, { tick: 1201, cmds: [] }], from: 1200 }) });
+    const r = await p;
+    expect(r.rejoin?.path).toBe('snapshot');
+    if (r.rejoin?.path === 'snapshot') expect(r.rejoin.verified.frameTick).toBe(1199);
+    // One GET, to the room's own route; the ticket rides in Authorization only.
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ url: 'http://x/api/match/ABCDEF/snapshot', method: 'GET', headers: { authorization: 'Bearer tk-secret' } });
+    expect(calls[0]?.url).not.toContain('tk-secret');
+    expect(r.transport.status()).toEqual({ kind: 'live', behind: 2 });
+  });
+
+  it('the post-hello fallback restarts the transport only AFTER the log handler returned, and the old log never enters the new clock (S4 T9 F2)', async () => {
+    // The file's CONFIG is mode sandbox, so a snapshot that verified is still refused by restoreForRejoin: not_versus.
+    const { f } = reloadFetch(() => snapshotResponse());
+    const first = fakeSocket();
+    const second = fakeSocket();
+    const socks = [first, second];
+    let opened = 0;
+    const p = reload(f, first, { open: () => socks[opened++] ?? second });
+    await vi.waitFor(() => expect(first.onopen).not.toBeNull());
+    first.onopen?.({});
+    expect(hellosOf(first)).toEqual([{ t: 'hello', ticket: 'tk-secret', build: 'b', from: 1200 }]);
+    // The log handler runs onStart, which resolves the promise. It RETURNS here, synchronously, before any continuation.
+    first.onmessage?.({ data: JSON.stringify({ t: 'log', config: CONFIG(3), frames: [{ tick: 1200, cmds: [] }, { tick: 1201, cmds: [] }], from: 1200 }) });
+    expect(opened).toBe(1);
+    expect(first.closed).toBe(0);
+    const r = await p;
+    expect(r.rejoin?.path).toBe('snapshot');
+    expect(opened).toBe(1);
+    // main.ts's boot: settleRejoin after connect resolved.
+    const settled = settleRejoin(CONFIG(3) as unknown as MatchConfig, r.rejoin, r.transport as WsTransport);
+    expect(settled.rejoin).toEqual({ path: 'full', reason: 'not_versus' });
+    expect(opened).toBe(2);
+    expect(first.closed).toBe(1);
+    second.onopen?.({});
+    expect(hellosOf(second)).toEqual([{ t: 'hello', ticket: 'tk-secret', build: 'b' }]);
+    // The room answers the second hello with the WHOLE log; the clock starts at 0 and holds exactly that log.
+    second.onmessage?.({ data: LOG([0, 1, 2, 3]) });
+    expect(r.transport.take(10).map((x) => x.tick)).toEqual([0, 1]);
+    expect(r.transport.status()).toEqual({ kind: 'live', behind: 2 });
+  });
+
+  it('a 204 sends no from, and resolves with rejoin full / none: the log is the whole one', async () => {
+    const { f } = reloadFetch(() => snapshotResponse({ status: 204 }));
+    const sock = fakeSocket();
+    const p = reload(f, sock);
+    await vi.waitFor(() => expect(sock.onopen).not.toBeNull());
+    sock.onopen?.({});
+    expect(hellosOf(sock)).toEqual([{ t: 'hello', ticket: 'tk-secret', build: 'b' }]);
+    expect('from' in (hellosOf(sock)[0] as object)).toBe(false);
+    sock.onmessage?.({ data: LOG([0, 1]) });
+    expect((await p).rejoin).toEqual({ path: 'full', reason: 'none' });
+  });
+
+  it('a snapshot of another build is refused before the hello: no from, reason build_mismatch', async () => {
+    const { f } = reloadFetch(() => snapshotResponse({ build: 'other' }));
+    const sock = fakeSocket();
+    const p = reload(f, sock);
+    await vi.waitFor(() => expect(sock.onopen).not.toBeNull());
+    sock.onopen?.({});
+    expect(hellosOf(sock)).toEqual([{ t: 'hello', ticket: 'tk-secret', build: 'b' }]);
+    sock.onmessage?.({ data: LOG([0, 1]) });
+    expect((await p).rejoin).toEqual({ path: 'full', reason: 'build_mismatch' });
+  });
+
+  it('a fetch that throws synchronously, or rejects, is today\'s reload: the hello is the same bytes, reason fetch_failed', async () => {
+    for (const f of [((): never => { throw new TypeError('offline'); }) as unknown as typeof fetch, (() => Promise.reject(new TypeError('Failed to fetch'))) as unknown as typeof fetch]) {
+      const sock = fakeSocket();
+      const p = reload(f, sock);
+      await vi.waitFor(() => expect(sock.onopen).not.toBeNull());
+      sock.onopen?.({});
+      expect(sock.sent).toEqual([JSON.stringify({ t: 'hello', ticket: 'tk-secret', build: 'b' })]);
+      sock.onmessage?.({ data: LOG([0, 1]) });
+      expect((await p).rejoin).toEqual({ path: 'full', reason: 'fetch_failed' });
+    }
+  });
+
+  it('an abort during the GET rejects as an AbortError, opens no socket, and keeps the stored ticket', async () => {
+    const ac = new AbortController();
+    const session = memory();
+    saveSeat(session, 'ABCDEF', { ticket: 'tk-secret', seat: 1 });
+    // A fetch that honours its signal, as the browser's does.
+    const f = ((_url: string, init?: RequestInit) => new Promise<Response>((_, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+    })) as unknown as typeof fetch;
+    const open = vi.fn(() => fakeSocket());
+    const p = reload(f, fakeSocket(), { session, signal: ac.signal, open });
+    const settled = expect(p).rejects.toMatchObject({ name: 'AbortError' });
+    await new Promise((r) => setTimeout(r, 0));
+    ac.abort();
+    await settled;
+    expect(open).not.toHaveBeenCalled();
+    expect(loadSeat(session, 'ABCDEF')).toEqual({ ticket: 'tk-secret', seat: 1 });
+  });
+
+  it('an abort that lands while a fetch IGNORING its signal is still pending also opens no socket', async () => {
+    const ac = new AbortController();
+    let release: () => void = () => {};
+    const f = (() => new Promise<Response>((resolve) => { release = () => resolve(new Response(null, { status: 204 })); })) as unknown as typeof fetch;
+    const open = vi.fn(() => fakeSocket());
+    const p = reload(f, fakeSocket(), { signal: ac.signal, open });
+    const settled = expect(p).rejects.toMatchObject({ name: 'AbortError' });
+    await new Promise((r) => setTimeout(r, 0));
+    ac.abort();
+    release();
+    await settled;
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it('a first create and a first join (POST paths) never fetch a snapshot; nor does a page with no ?net', async () => {
+    const calls: string[] = [];
+    const f = ((url: string, init?: RequestInit) => {
+      calls.push(`${init?.method ?? 'GET'} ${url}`);
+      return Promise.resolve(Response.json({ code: 'ABCDEF', seat: 0, ticket: 'tk-new' }, { status: 201 }));
+    }) as unknown as typeof fetch;
+    const deps = { fetch: f, origin: 'http://x', openSocket: () => fakeSocket(), replaceUrl: () => {}, note: () => {}, store: null, session: memory() };
+    void connectMatch(new URLSearchParams('net=new&mode=versus'), 'tel_marum', 'b', deps);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls).toEqual(['POST http://x/api/match']);
+    await connectMatch(new URLSearchParams(''), 'tel_marum', 'b', deps);
+    // A bare ?net=<code> with no ticket is the Join confirmation, which asks for nothing either.
+    await expect(connectMatch(new URLSearchParams('net=GHIJKL'), 'tel_marum', 'b', { ...deps, session: memory() })).rejects.toBeInstanceOf(JoinNeedsConfirmation);
+    expect(calls).toEqual(['POST http://x/api/match']);
+  });
+
+  it('a handed-over transport asks for no snapshot even when the tab holds a ticket, and carries no rejoin', async () => {
+    const { f, calls } = reloadFetch(() => snapshotResponse());
+    const session = memory();
+    saveSeat(session, 'ABCDEF', { ticket: 'tk-lobby', seat: 1 });
+    const transport = new WsTransport(() => fakeSocket(), 'tk-lobby', 'b', { onStart: () => {} });
+    handOver('ABCDEF', { transport, seat: 1, config: CONFIG(9) as unknown as MatchConfig });
+    const r = await connectMatch(new URLSearchParams('net=ABCDEF'), 'tel_marum', 'b', { fetch: f, origin: 'http://x', openSocket: noSocket, replaceUrl: () => {}, note: () => {}, store: null, session });
+    expect(calls).toEqual([]);
+    expect(r.rejoin).toBeUndefined();
+    dropHanded('ABCDEF');
+  });
+});
+
+describe('connectMatch: the seat\'s snapshot link (snapshot S4 task 8)', () => {
+  afterEach(() => dropHanded('ABCDEF'));
+
+  it('a LocalTransport (no ?net) has no link, and no rejoin', async () => {
+    const r = await connectMatch(new URLSearchParams(''), 'tel_marum', 'b', { fetch: recordingFetch(0).f, origin: 'http://x', openSocket: noSocket, replaceUrl: () => {}, note: () => {}, store: null, session: memory() });
+    expect(r.snapshots).toBeUndefined();
+    expect(r.rejoin).toBeUndefined();
+  });
+
+  it('a handed-over seat has a link that uploads with the ticket the lobby stored', async () => {
+    const session = memory();
+    saveSeat(session, 'ABCDEF', { ticket: 'tk-lobby', seat: 1 });
+    const transport = new WsTransport(() => fakeSocket(), 'tk-lobby', 'b', { onStart: () => {} });
+    handOver('ABCDEF', { transport, seat: 1, config: CONFIG(9) as unknown as MatchConfig });
+    const seen: { url: string; init?: RequestInit }[] = [];
+    const f = ((url: string, init?: RequestInit) => { seen.push({ url, ...(init ? { init } : {}) }); return Promise.resolve(new Response(null, { status: 201 })); }) as unknown as typeof fetch;
+    const r = await connectMatch(new URLSearchParams('net=ABCDEF'), 'tel_marum', 'b', { fetch: f, origin: 'http://x', openSocket: noSocket, replaceUrl: () => {}, note: () => {}, store: null, session });
+    expect(r.snapshots).toBeDefined();
+    expect(await r.snapshots?.upload(1199, new Uint8Array([1]))).toBe('stored');
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.url).toBe('http://x/api/match/ABCDEF/snapshot');
+    expect(seen[0]?.init?.headers).toMatchObject({ authorization: 'Bearer tk-lobby' });
+  });
+
+  it('a handed-over seat whose tab holds no ticket has no link (nothing to authorise an upload)', async () => {
+    const transport = new WsTransport(() => fakeSocket(), 'tk-lobby', 'b', { onStart: () => {} });
+    handOver('ABCDEF', { transport, seat: 1, config: CONFIG(9) as unknown as MatchConfig });
+    const r = await connectMatch(new URLSearchParams('net=ABCDEF'), 'tel_marum', 'b', { fetch: recordingFetch(0).f, origin: 'http://x', openSocket: noSocket, replaceUrl: () => {}, note: () => {}, store: null, session: memory() });
+    expect(r.snapshots).toBeUndefined();
+  });
+
+  it('a create has a link built from the ticket the Worker gave', async () => {
+    const { f } = recordingFetch(0, 'tk-host');
+    const sock = fakeSocket();
+    const p = connectMatch(new URLSearchParams('net=new&mode=versus'), 'tel_marum', 'b', { fetch: f, origin: 'http://x', openSocket: () => sock, replaceUrl: () => {}, note: () => {}, store: null, session: memory() });
+    await vi.waitFor(() => expect(sock.onopen).not.toBeNull());
+    sock.onopen?.({});
+    sock.onmessage?.({ data: JSON.stringify({ t: 'start', config: CONFIG(4) }) });
+    const r = await p;
+    expect(r.snapshots).toBeDefined();
+    expect(r.rejoin).toBeUndefined();
+  });
+
+  it('a reload has a link too (the producer of a rejoined seat)', async () => {
+    const session = memory();
+    saveSeat(session, 'ABCDEF', { ticket: 'tk-stored', seat: 0 });
+    const sock = fakeSocket();
+    const p = connectMatch(new URLSearchParams('net=ABCDEF&seat=0'), 'tel_marum', 'b', { fetch: recordingFetch(0).f, origin: 'http://x', openSocket: () => sock, replaceUrl: () => {}, note: () => {}, store: null, session });
+    await vi.waitFor(() => expect(sock.onopen).not.toBeNull());
+    sock.onopen?.({});
+    sock.onmessage?.({ data: LOG([0, 1]) });
+    expect((await p).snapshots).toBeDefined();
   });
 });
 

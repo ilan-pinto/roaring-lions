@@ -10,7 +10,7 @@ import type { Faction, MatchConfig, Seat } from './config';
 import type { AdvisorMsg, AdvisorScope } from './advisor';
 import type { Frame } from './frames';
 import { LockstepClock } from './lockstep';
-import { parseServerMsg, type ClientMsg, type LobbyKit, type SeatState, type ServerMsg } from './protocol';
+import { isFromTick, parseServerMsg, type ClientMsg, type LobbyKit, type SeatState, type ServerMsg } from './protocol';
 import type { MatchTransport, TransportStatus } from './transport';
 
 /** The room's `ACK_EVERY`: a seat acks the last tick of every ten it ran. */
@@ -123,6 +123,10 @@ export class WsTransport implements MatchTransport {
   private overTick: number | null = null;
   /** The other seat's forfeit clock while it is disconnected (`dropped`), on this machine's wall clock. */
   private forfeit: ForfeitClock | null = null;
+  /** The first tick this client lacks when its world began at a snapshot (S4): the
+   *  first `hello` asks for the log from here, and the clock starts here. Cleared by
+   *  `restartFromZero`. */
+  private startFrom: number | undefined;
 
   constructor(
     private readonly open: () => SocketLike,
@@ -136,7 +140,14 @@ export class WsTransport implements MatchTransport {
      *  `bye`; the room would ignore all five, and a leaving advisor must not
      *  read as a seat leaving. It still hellos, and it still listens. */
     private readonly role: 'seat' | 'advisor' = 'seat',
+    /** `from`: this client's world already holds every frame below it (a restored
+     *  snapshot, S4). The first `hello` carries it and the clock starts there. */
+    opts: { from?: number } = {},
   ) {
+    // The room's `isFromTick` refuses anything but a non-negative integer up to 0x7fffffff,
+    // and then ignores the hello (the seat would sit connecting until the forfeit); so a
+    // `from` outside that range is dropped here and this client asks for the whole log.
+    this.startFrom = isFromTick(opts.from) ? opts.from : undefined;
     this.hooks = { ...hooks };
     this.connect();
   }
@@ -211,10 +222,13 @@ export class WsTransport implements MatchTransport {
     const s = this.open();
     this.sock = s;
     // A reconnect that kept its clock asks for the log from its next tick (D6);
-    // a first connect, or a reload with no clock, gets the whole log.
+    // a first connect, or a reload with no clock, gets the whole log -- unless this
+    // client's world began at a snapshot (S4), and then the log from its `from`.
     s.onopen = () => this.send(this.config !== null && this.clock.newest >= 0
       ? { t: 'hello', ticket: this.ticket, build: this.build, from: this.clock.newest + 1 }
-      : { t: 'hello', ticket: this.ticket, build: this.build });
+      : this.startFrom !== undefined
+        ? { t: 'hello', ticket: this.ticket, build: this.build, from: this.startFrom }
+        : { t: 'hello', ticket: this.ticket, build: this.build });
     s.onmessage = (ev) => this.onMessage(typeof ev.data === 'string' ? ev.data : '');
     s.onclose = (ev) => {
       if (this.closed || this.terminal()) return;
@@ -240,7 +254,7 @@ export class WsTransport implements MatchTransport {
   }
   private begin(config: MatchConfig): void {
     this.config = config;
-    this.clock = new LockstepClock(config.bufferTicks);
+    this.clock = new LockstepClock(config.bufferTicks, this.startFrom ?? 0);
     this.hooks.onStart(config);
   }
   /** Desync and closed are final: nothing the room says afterwards revives the transport. */
@@ -328,6 +342,32 @@ export class WsTransport implements MatchTransport {
         if (msg.code === 'bad_ticket' || msg.code === 'build_mismatch') { this.setStalled(null); this.st = { kind: 'closed', reason: msg.code }; }
         return;
     }
+  }
+
+  /** The post-hello fallback (S4): the snapshot the log started from was refused
+   *  after the room's config arrived, so throw away the trimmed log and ask for the
+   *  whole one. Clears `from`, makes a fresh clock at tick 0 (keeping the config, so
+   *  `onStart` does not fire again), closes the socket without letting its close
+   *  speak, and reconnects AT ONCE: the other seat is frozen while this one waits
+   *  (Ruling 15). The next `hello` carries no `from`. A no-op before the config, once
+   *  closed, and after a terminal status.
+   *
+   *  NOT from inside `onStart`: that hook fires from within the `log` handler, which
+   *  resumes after it returns and would push the old log into the new clock, count a
+   *  reconnect and mark the link `live` before the new socket has answered. Call it
+   *  after the handler has returned (a microtask later is enough). */
+  restartFromZero(): void {
+    if (this.closed || this.terminal() || this.config === null) return;
+    this.startFrom = undefined;
+    this.clock = new LockstepClock(this.config.bufferTicks);
+    this.droppedAt ??= this.now();
+    if (this.reconnectTimer !== null) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
+    const prior = this.sock;
+    if (prior !== null) { prior.onopen = null; prior.onmessage = null; prior.onclose = null; prior.close(); }
+    const s: Stalled = { kind: 'stalled', reason: 'connecting', seat: null };
+    this.setStalled(s);
+    this.st = s;
+    this.connect();
   }
 
   ready(): void { if (this.role === 'seat') this.send({ t: 'ready' }); }

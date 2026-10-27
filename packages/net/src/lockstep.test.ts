@@ -55,9 +55,38 @@ describe('LockstepClock', () => {
   });
 });
 
+describe('LockstepClock starting at a tick (snapshot S4)', () => {
+  it('starting at 2400: 2399 is a duplicate, 2400 is ok, and 2402 straight after the start is a gap', () => {
+    const c = new LockstepClock(2, 2400);
+    expect(c.behind()).toBe(0);
+    expect(c.push(frame(2399))).toBe('duplicate');
+    expect(c.push(frame(2400))).toBe('ok');
+    expect(c.behind()).toBe(1);
+    const g = new LockstepClock(2, 2400);
+    expect(g.push(frame(2402))).toBe('gap');
+  });
+  it('yields from the start tick, in order, once the buffer allows', () => {
+    const c = new LockstepClock(2, 2400);
+    for (let t = 2400; t <= 2404; t++) c.push(frame(t));
+    expect(c.take(10).map((f) => f.tick)).toEqual([2400, 2401, 2402]);
+    expect(c.nextTick).toBe(2403);
+  });
+  it('the default start is 0, as before', () => {
+    const c = new LockstepClock(2);
+    expect([c.nextTick, c.newest]).toEqual([0, -1]);
+  });
+});
+
 describe('canonicalOrder', () => {
   it('orders by seat then seq whatever the arrival order', () => {
     const got = canonicalOrder([halt(1, 0), halt(0, 2), halt(1, 1), halt(0, 1)]);
     expect(got.map((s) => [s.seat, s.seq])).toEqual([[0, 1], [0, 2], [1, 0], [1, 1]]);
+  });
+  it('refuses a start that is NaN, negative or fractional, and takes 0 and a whole tick', () => {
+    expect(() => new LockstepClock(2, Number.NaN)).toThrow(RangeError);
+    expect(() => new LockstepClock(2, -1)).toThrow(RangeError);
+    expect(() => new LockstepClock(2, 1.5)).toThrow(RangeError);
+    expect(() => new LockstepClock(2, 0)).not.toThrow();
+    expect(new LockstepClock(2, 2400).nextTick).toBe(2400);
   });
 });

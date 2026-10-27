@@ -8,11 +8,12 @@
  * client socket sent the room, so a spec can say what reached the room.
  */
 import { expect, vi } from 'vitest';
+import { setImmediate as realImmediate } from 'node:timers/promises';
 import type { ClientMsg, Pace, ServerMsg, SocketLike } from '@lions/net';
 import type { AdvisorScope } from '@lions/net';
 import type { Env } from '../../../packages/worker/src/d1';
 import { FakeState, deliverAlarm, deliverClose, openSocket, type FakeSocket } from '../../../packages/worker/src/match/fake-do';
-import { MatchRoom, TICK_MS } from '../../../packages/worker/src/match/match-room';
+import { MatchRoom, TICK_MS, type MatchRoomOptions } from '../../../packages/worker/src/match/match-room';
 import { signTicket } from '../../../packages/worker/src/match/ticket';
 
 export const ROOM_NOW = 1_790_000_000_000;
@@ -100,12 +101,13 @@ export interface Room {
 /** A created versus room with both seats joined. `pace` and `guest: 'bot'`
  *  make it a paced room (decision D5: only a bot seat makes it pace).
  *  `host`/`guest` are the seats' kinds in the start config (default human). */
-export async function newRoom(o: { pace?: Pace; host?: 'human' | 'bot'; guest?: 'human' | 'bot' } = {}): Promise<Room> {
+export async function newRoom(o: { pace?: Pace; host?: 'human' | 'bot'; guest?: 'human' | 'bot'; room?: MatchRoomOptions; map?: string; matchup?: 'kdf' | 'sarim' } = {}): Promise<Room> {
   const state = new FakeState();
-  const room = new MatchRoom(state, env);
+  // The tests run on fake timers, which never fire an upload's inflate turn (a zero-delay timer): a real event-loop turn stands in.
+  const room = new MatchRoom(state, env, { inflateYield: (): Promise<void> => realImmediate(), ...o.room });
   const created = await room.fetch(new Request('https://room/create', {
     method: 'POST',
-    body: JSON.stringify({ code: ROOM_CODE, matchId: ROOM_CODE, map: ROOM_MAP, mode: 'versus', build: ROOM_BUILD, player: 'Host', callsign: 'Host', ...(o.pace ? { pace: o.pace } : {}), ...(o.host ? { kind: o.host } : {}) }),
+    body: JSON.stringify({ code: ROOM_CODE, matchId: ROOM_CODE, map: o.map ?? ROOM_MAP, mode: 'versus', build: ROOM_BUILD, player: 'Host', callsign: 'Host', ...(o.matchup ? { matchup: o.matchup } : {}), ...(o.pace ? { pace: o.pace } : {}), ...(o.host ? { kind: o.host } : {}) }),
   }));
   expect(created.status).toBe(200);
   const joined = await room.fetch(new Request('https://room/join', {

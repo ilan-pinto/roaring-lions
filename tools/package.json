@@ -61,7 +61,8 @@
     "video": "tsx src/video/cli.ts",
     "test": "sh -c 'if [ \"$1\" = \"--\" ]; then shift; fi; exec vitest run --root .. \"$@\"' sh",
     "agent": "tsx src/net/agent.ts",
-    "arena": "tsx src/net/arena.ts"
+    "arena": "tsx src/net/arena.ts",
+    "net:rejoin-measure": "tsx src/net/rejoin-measure.ts"
   },
   "dependencies": {
     "@lions/data": "workspace:*",

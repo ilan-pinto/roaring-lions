@@ -2,8 +2,8 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { constants, gunzipSync, gzipSync } from 'node:zlib';
 import { Sim, encodeSim } from '@lions/sim';
 import {
-  SNAPSHOT_FRAME_TICK_OFFSET, SNAPSHOT_MAX_COMPRESSED_BYTES, SNAPSHOT_MAX_RAW_BYTES,
-  gunzipCapped, readSnapshotHeader, sha256Hex,
+  SNAPSHOT_FRAME_TICK_OFFSET, SNAPSHOT_MAX_COMPRESSED_BYTES, SNAPSHOT_MAX_RAW_BYTES, SNAPSHOT_META_OFFSET,
+  gunzipCapped, gzipBytes, readSnapshotHeader, readSnapshotMeta, sha256Hex,
 } from './snapshot-wire';
 
 describe('snapshot wire constants', () => {
@@ -11,6 +11,7 @@ describe('snapshot wire constants', () => {
     expect(SNAPSHOT_MAX_COMPRESSED_BYTES).toBe(65_536);
     expect(SNAPSHOT_MAX_RAW_BYTES).toBe(1_048_576);
     expect(SNAPSHOT_FRAME_TICK_OFFSET).toBe(18);
+    expect(SNAPSHOT_META_OFFSET).toBe(44);
   });
 });
 
@@ -220,5 +221,69 @@ describe('sha256Hex', () => {
   });
   it('hashes empty input to the known SHA-256 of nothing', async () => {
     expect(await sha256Hex(new Uint8Array(0))).toBe('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
+  });
+});
+
+describe('readSnapshotMeta (snapshot S4)', () => {
+  const snap = () => encodeSim(new Sim({ seed: 1, width: 8, height: 8, capacity: 4 }),
+    { build: 'b-1', matchId: 'ABCDEF', contentDigest: 0xcafebabe, frameTick: 1199, matchDigest: 0xdeadbeef }).slice();
+
+  it('reads the real encoder\'s build, matchId and contentDigest', () => {
+    expect(readSnapshotMeta(snap())).toEqual({ build: 'b-1', matchId: 'ABCDEF', contentDigest: 3405691582 });
+  });
+  it('reads multi-byte UTF-8 and empty strings', () => {
+    const e = encodeSim(new Sim({ seed: 1, width: 8, height: 8, capacity: 4 }), { build: '', matchId: 'é', contentDigest: 7 });
+    expect(readSnapshotMeta(e)).toEqual({ build: '', matchId: 'é', contentDigest: 7 });
+  });
+  it('a length past the end of the buffer is null', () => {
+    const s = snap();
+    expect(readSnapshotMeta(s.slice(0, SNAPSHOT_META_OFFSET + 2 + 3 + 2 + 5))).toBeNull();   // matchId cut one byte short
+    expect(readSnapshotMeta(s.slice(0, SNAPSHOT_META_OFFSET + 1))).toBeNull();                // not even a length word
+    expect(readSnapshotMeta(s.slice(0, SNAPSHOT_META_OFFSET + 2 + 3 + 2 + 6))).toEqual({ build: 'b-1', matchId: 'ABCDEF', contentDigest: 3405691582 });
+  });
+  it('a length of 257 is null, and 256 is read', () => {
+    const big = encodeSim(new Sim({ seed: 1, width: 8, height: 8, capacity: 4 }), { build: 'x'.repeat(256), matchId: 'ABCDEF' });
+    expect(readSnapshotMeta(big)?.build.length).toBe(256);
+    const bad = big.slice();
+    new DataView(bad.buffer).setUint16(SNAPSHOT_META_OFFSET, 257, true);
+    expect(readSnapshotMeta(bad)).toBeNull();
+  });
+  it('keeps a leading U+FEFF in a string, as the sim\'s own reader does (the bytes round-trip)', () => {
+    const bom = '\uFEFF';
+    const m = readSnapshotMeta(encodeSim(new Sim({ seed: 1, width: 8, height: 8, capacity: 4 }), { build: `${bom}b-1`, matchId: `${bom}ABCDEF` }));
+    expect(m?.matchId).toBe('\uFEFFABCDEF');
+    expect(m?.matchId.length).toBe(7);
+    expect(m?.build).toBe('\uFEFFb-1');
+  });
+  it('invalid UTF-8 is null', () => {
+    const bad = snap();
+    bad[SNAPSHOT_META_OFFSET + 2] = 0xff;
+    expect(readSnapshotMeta(bad)).toBeNull();
+  });
+  it('a wrong magic and a short header are null', () => {
+    const bad = snap();
+    bad[0] = 0x58;
+    expect(readSnapshotMeta(bad)).toBeNull();
+    expect(readSnapshotMeta(new Uint8Array(0))).toBeNull();
+  });
+  it('reads a view onto a larger buffer by its own offset', () => {
+    const s = snap();
+    const wide = new Uint8Array(s.byteLength + 5);
+    wide.set(s, 5);
+    expect(readSnapshotMeta(wide.subarray(5))).toEqual({ build: 'b-1', matchId: 'ABCDEF', contentDigest: 3405691582 });
+  });
+});
+
+describe('gzipBytes (snapshot S4)', () => {
+  it('round-trips through gunzipCapped and through node:zlib', async () => {
+    const src = Uint8Array.from({ length: 20_000 }, (_, i) => (i * 31) & 0xff);
+    const gz = await gzipBytes(src);
+    expect(gz.byteLength).toBeLessThan(src.byteLength);
+    const r = await gunzipCapped(gz, SNAPSHOT_MAX_RAW_BYTES);
+    expect(r.ok && Buffer.compare(Buffer.from(r.bytes), Buffer.from(src))).toBe(0);
+    expect(Buffer.compare(gunzipSync(gz), Buffer.from(src))).toBe(0);
+  });
+  it('compresses an all-zero buffer far below its size', async () => {
+    expect((await gzipBytes(new Uint8Array(100_000))).byteLength).toBeLessThan(1000);
   });
 });

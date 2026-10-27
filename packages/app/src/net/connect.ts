@@ -9,7 +9,12 @@
  *  2. a ticket this tab stored for this code (`ticket-store.ts`) rejoins its
  *     own seat: a socket with that ticket and no request, which the room
  *     answers with its `log` (or its lobby, before the start). That is the
- *     reload path (R-B6), with or without `seat` on the URL;
+ *     reload path (R-B6), with or without `seat` on the URL. Before that
+ *     socket opens, ONE `GET /snapshot` asks the room for its latest snapshot
+ *     (snapshot S4, `prepareRejoin`): a snapshot that passes every check made
+ *     without the room's config makes the `hello` carry `from`, and anything
+ *     else leaves it exactly as it was. The room's config arrives only with the
+ *     `log`, so a sandbox room's reload asks too and is answered 204;
  *  3. `seat` on the URL with no stored ticket is refused (`RELOAD_REFUSED`);
  *  4. otherwise `?net=new` creates a room and rewrites the URL to
  *     `?net=<code>&seat=0` and stores its ticket; a bare `?net=<code>` does
@@ -27,6 +32,8 @@
 import { playerId } from './player-id';
 import { takeHanded } from './handoff';
 import { forgetSeat, loadSeat, saveSeat } from './ticket-store';
+import { shippedContentDigest } from './content-digest';
+import { prepareRejoin, snapshotLink, type Prepared, type SnapshotLink } from './snapshot-link';
 import type { StorageLike } from '../telemetry/identity';
 import { LocalTransport, WsTransport, callsignOrDefault, type AdvisorScope, type Faction, type LobbyKit, type Matchup, type MatchConfig, type MatchTransport, type Seat, type SeatState, type SocketLike } from '@lions/net';
 
@@ -47,7 +54,18 @@ export interface ConnectDeps {
   signal?: AbortSignal;
 }
 
-export interface Connected { transport: MatchTransport; seat: Seat | null; config: MatchConfig | null }
+export interface Connected {
+  transport: MatchTransport;
+  seat: Seat | null;
+  config: MatchConfig | null;
+  /** What the reload's snapshot GET found, made BEFORE the `hello` (snapshot S4). Present on the
+   *  stored-ticket path only; `settleRejoin` takes it as it is. A `path: 'snapshot'` result means the
+   *  transport was opened with `from`, and the battlefield owes it the post-hello restore. */
+  rejoin?: Prepared;
+  /** The seat's upload link, for the snapshot producer. Present whenever this tab knows the seat's
+   *  ticket (a handed-over, reloaded, created or joined seat); absent for a `LocalTransport`. */
+  snapshots?: SnapshotLink;
+}
 
 /** Thrown for a URL that carries `seat` when this tab holds no ticket for
  *  that room (N0 final review M1): a /join from it would take the other seat
@@ -68,6 +86,10 @@ export class JoinNeedsConfirmation extends Error {
 }
 
 const aborted = (): DOMException => new DOMException('left while connecting to the room', 'AbortError');
+
+/** The seat's snapshot link. The ticket goes into `Authorization` and nowhere else (`snapshot-link.ts`). */
+const linkFor = (code: string, ticket: string, deps: ConnectDeps): SnapshotLink =>
+  snapshotLink({ fetch: deps.fetch, origin: deps.origin, code, ticket, ...(deps.signal ? { signal: deps.signal } : {}) });
 
 export async function connectMatch(query: URLSearchParams, mapId: string, build: string, deps: ConnectDeps): Promise<Connected> {
   const net = query.get('net');
@@ -105,12 +127,21 @@ export async function connectMatch(query: URLSearchParams, mapId: string, build:
         onDesync: (tick) => deps.note(`DESYNC at tick ${tick}`),
         onEnded: (reason) => deps.note(`match ended: ${reason}`),
       });
-      return handed;
+      // The lobby stored the seat's ticket when it opened the room: the producer's link uses it.
+      const heldTicket = loadSeat(deps.session ?? null, joinCode)?.ticket;
+      return heldTicket === undefined ? handed : { ...handed, snapshots: linkFor(joinCode, heldTicket, deps) };
     }
     const stored = loadSeat(deps.session ?? null, joinCode);
     if (stored !== null) {
       deps.note(`Room ${joinCode} · seat ${stored.seat} · rejoining`);
-      return awaitStart(joinCode, stored.seat, stored.ticket, build, deps);
+      const link = linkFor(joinCode, stored.ticket, deps);
+      // The one request a reload makes before its `hello`. It never throws: any failure is `path: 'full'`,
+      // and the `hello` is then today's.
+      const rejoin = await prepareRejoin(link, { code: joinCode, build, contentDigest: shippedContentDigest() });
+      // `prepareRejoin` reads a caller's abort as `fetch_failed`. A page left during the GET opens no socket
+      // (the disposer contract), exactly as one left during the socket wait does.
+      if (deps.signal?.aborted) throw aborted();
+      return awaitStart(joinCode, stored.seat, stored.ticket, build, deps, link, rejoin);
     }
   }
   // `?net=new` rewrites the URL to `?net=<code>&seat=0`, so `seat` on the URL
@@ -139,12 +170,15 @@ export async function connectMatch(query: URLSearchParams, mapId: string, build:
   saveSeat(deps.session ?? null, code, { ticket, seat });
   if (creating) deps.replaceUrl(code, seat);
   deps.note(`Room ${code} · seat ${seat} · waiting for the other seat`);
-  return awaitStart(code, seat, ticket, build, deps);
+  return awaitStart(code, seat, ticket, build, deps, linkFor(code, ticket, deps));
 }
 
 /** Opens the room's socket with `ticket` and resolves at the room's `start`
- *  (a `log` on a rejoin becomes one: `WsTransport` begins from its config). */
-function awaitStart(code: string, seat: Seat, ticket: string, build: string, deps: ConnectDeps): Promise<Connected> {
+ *  (a `log` on a rejoin becomes one: `WsTransport` begins from its config).
+ *  A `rejoin` that found a snapshot makes the `hello` carry `from` (the frame after the snapshot's), and
+ *  the transport's clock begin there; any other `rejoin`, or none, opens it as it always was. */
+function awaitStart(code: string, seat: Seat, ticket: string, build: string, deps: ConnectDeps, snapshots: SnapshotLink, rejoin?: Prepared): Promise<Connected> {
+  const from = rejoin?.path === 'snapshot' ? rejoin.verified.frameTick + 1 : undefined;
   const wsUrl = `${deps.origin.replace(/^http/, 'ws')}/api/match/${encodeURIComponent(code)}/ws`;
   return new Promise<Connected>((resolve, reject) => {
     let settled = false;
@@ -170,7 +204,7 @@ function awaitStart(code: string, seat: Seat, ticket: string, build: string, dep
         if (settled) return;
         settled = true;
         deps.signal?.removeEventListener('abort', onAbort);
-        resolve({ transport, seat, config });
+        resolve({ transport, seat, config, snapshots, ...(rejoin ? { rejoin } : {}) });
       },
       onError: (c) => {
         if (c === 'bad_ticket') failStale(new Error(`room refused: ${c}`));
@@ -183,7 +217,7 @@ function awaitStart(code: string, seat: Seat, ticket: string, build: string, dep
         // than wait on it forever.
         failStale(new Error(`room ended before the start: ${reason}`));
       },
-    });
+    }, undefined, 'seat', from !== undefined ? { from } : {});
     deps.signal?.addEventListener('abort', onAbort, { once: true });
   });
 }

@@ -22,6 +22,9 @@ import {
 } from '@lions/net';
 import type { Command } from '@lions/sim';
 import { buildMatchWorld, matchTick, type MatchWorld } from '../../../packages/app/src/net/match-world';
+import { prepareRejoin, snapshotLink, type Prepared, type SnapshotLink } from '../../../packages/app/src/net/snapshot-link';
+import { SnapshotProducer, type ProducerStats } from '../../../packages/app/src/net/snapshot-producer';
+import { settleRejoin, type RejoinOutcome, type RestoreDeps } from '../../../packages/app/src/net/snapshot-rejoin';
 import { runFrames, seatWorldFor } from '../../../packages/app/src/net/frame-step';
 import { shippedContentDigest } from '../../../packages/app/src/net/content-digest';
 import {
@@ -37,6 +40,27 @@ import { FogTracker } from './fog-tracker';
 import { OrderDesk } from './order-desk';
 import { sideView, type SideView } from './view';
 import { nodeSocket } from './node-socket';
+
+/**
+ * Snapshots for a headless seat (snapshot S4 task 11). EVERY field is off by default, and `pnpm agent`, the arena
+ * and the other construction sites do not pass this option at all: a bot seat neither produces nor rejoins by
+ * snapshot unless a caller asks (lead ruling, 27 Oct). A seat's role must be `seat`; an advisor ignores it.
+ */
+export interface AgentSnapshotOptions {
+  /** Upload the room's snapshot at each cadence tick (`SnapshotProducer`, the browser's own). */
+  produce?: boolean;
+  /** Fetch the room's snapshot before the hello and boot on it. Needs `AgentClient.connect`, which can await the GET
+   *  before the transport opens; the constructor alone cannot. */
+  rejoin?: boolean;
+  /** The upload and the GET. Default `snapshotLink` over `fetch` with this seat's ticket, sending `Origin: <server origin>`. */
+  link?: SnapshotLink;
+  /** The `fetch` the default link uses; default Node's global one, read at call time. Tests route it to the room. */
+  fetch?: typeof fetch;
+  /** The wait between 4 KiB slices of the inflate (`gunzipCapped`); default a zero-delay timer. A test on fake timers supplies a real turn. */
+  yieldTurn?: () => Promise<void>;
+  /** A test's `restore` / `build` for the post-hello restore (`settleRejoin`), to make it refuse. */
+  restore?: RestoreDeps;
+}
 
 export interface AgentClientOptions {
   /** The game's origin, e.g. `https://<your-worker>`. */
@@ -56,6 +80,8 @@ export interface AgentClientOptions {
    *  room), exactly as the browser's is (N3 Task 3); the room compares it like
    *  the rest of the digest. A test overrides it to make a seat desync. */
   runtimeDigest?: () => number;
+  /** Off by default: see `AgentSnapshotOptions`. */
+  snapshots?: AgentSnapshotOptions;
 }
 
 /** The match's state, built at `start` (or the first `log`). */
@@ -67,6 +93,8 @@ interface Live {
   seatWorld: SeatWorld;
   /** This client's own content digest (L4), taken once at the start. */
   dataDigest: number;
+  /** The snapshot producer, when this seat produces. */
+  producer: SnapshotProducer | null;
 }
 
 /** Where a room's socket lives, and the Origin to send it: the browser's own
@@ -81,6 +109,16 @@ function resultLine(r: MatchResult, side: 0 | 1): string {
   return `${r.side === side ? 'won' : 'lost'} (${r.by})`;
 }
 
+/**
+ * A `fetch` that names the game's own origin on every request: the Worker admits a snapshot POST only from its own
+ * origin (the browser sends one; Node's `fetch` sends none). `base` is read at call time so a test can spy on the global.
+ */
+export function snapshotFetch(server: string, base?: typeof fetch): typeof fetch {
+  const origin = new URL(server).origin;
+  return ((input: Parameters<typeof fetch>[0], init?: RequestInit) =>
+    (base ?? globalThis.fetch)(input, { ...init, headers: { ...(init?.headers as Record<string, string> | undefined), origin } })) as typeof fetch;
+}
+
 export class AgentClient {
   readonly ready: Promise<MatchConfig>;
   readonly desk: OrderDesk;
@@ -92,9 +130,33 @@ export class AgentClient {
   private drained = false;
   private closed = false;
   private failure: string | null = null;
+  private outcome: RejoinOutcome | null = null;
+  private readonly link: SnapshotLink | null;
   private readonly log: (line: string) => void;
 
-  constructor(private readonly o: AgentClientOptions) {
+  /**
+   * A seat that asked to rejoin by snapshot (`snapshots.rejoin`): fetches and verifies the room's latest snapshot
+   * BEFORE the transport opens (so its hello can carry `from`), then constructs. Without that option this is
+   * `new AgentClient(o)`. A fetch that fails is never an error: the seat joins as it always did.
+   */
+  static async connect(o: AgentClientOptions): Promise<AgentClient> {
+    if (o.role !== 'seat' || o.snapshots?.rejoin !== true) return new AgentClient(o);
+    const link = AgentClient.linkOf(o) as SnapshotLink;
+    const prepared = await prepareRejoin(link, { code: o.code, build: o.build, contentDigest: shippedContentDigest() });
+    return new AgentClient(o, prepared);
+  }
+
+  private static linkOf(o: AgentClientOptions): SnapshotLink | null {
+    const sn = o.snapshots;
+    if (o.role !== 'seat' || sn === undefined || (sn.produce !== true && sn.rejoin !== true)) return null;
+    return sn.link ?? snapshotLink({ fetch: snapshotFetch(o.server, sn.fetch), origin: new URL(o.server).origin, code: o.code, ticket: o.ticket, ...(sn.yieldTurn ? { yieldTurn: sn.yieldTurn } : {}) });
+  }
+
+  constructor(private readonly o: AgentClientOptions, private readonly prepared?: Prepared) {
+    if (o.role === 'seat' && o.snapshots?.rejoin === true && prepared === undefined) {
+      throw new Error('AgentClient: snapshots.rejoin needs the GET awaited before the transport opens; use AgentClient.connect');
+    }
+    this.link = AgentClient.linkOf(o);
     this.log = o.log ?? ((line) => { process.stderr.write(`${line}\n`); });
     let resolve: (c: MatchConfig) => void = () => {};
     let reject: (e: Error) => void = () => {};
@@ -167,15 +229,35 @@ export class AgentClient {
         reject(new Error(`the room ended before the match started: ${reason}`));
       },
       onDesync: (tick) => { this.log(`desync at tick ${tick}`); },
-    }, undefined, o.role);
+    }, undefined, o.role, prepared?.path === 'snapshot' ? { from: prepared.verified.frameTick + 1 } : {});
   }
 
   private begin(config: MatchConfig): void {
     if (this.live !== null) return;
-    const w = buildMatchWorld(config);
+    // A rejoin by snapshot boots on the restored world; any refusal is a fresh one and a restart from zero.
+    // `restartFromZero` is deferred one microtask: onStart runs inside the transport's `log` handler, which resumes
+    // after this returns and would push the old, trimmed log into the new clock (WsTransport.restartFromZero).
+    let w: MatchWorld;
+    if (this.prepared !== undefined) {
+      const settled = settleRejoin(config, this.prepared, { restartFromZero: () => { queueMicrotask(() => { this.transport.restartFromZero(); }); } }, this.o.snapshots?.restore);
+      w = settled.world ?? buildMatchWorld(config);
+      this.outcome = settled.rejoin;
+      // The frames before `from` were never run here: `tick()` still reads as the room's tick.
+      if (settled.rejoin?.path === 'snapshot') this.ran = settled.rejoin.from;
+    } else {
+      w = buildMatchWorld(config);
+    }
     // ONE side for the fog and the view: the seat's own, from the config.
     const side = config.seats[this.o.seat].side as 0 | 1;
-    this.live = { config, w, side, fog: new FogTracker(w.sim, side), seatWorld: seatWorldFor(config, w.sim), dataDigest: shippedContentDigest() };
+    const producer = this.o.role === 'seat' && this.o.snapshots?.produce === true && this.link !== null
+      ? new SnapshotProducer({
+          config, build: config.build, sim: w.sim, runtime: w.runtime,
+          behind: () => this.transport.behind(),
+          upload: (tick, gz) => (this.link as SnapshotLink).upload(tick, gz),
+          log: this.log,
+        })
+      : null;
+    this.live = { config, w, side, fog: new FogTracker(w.sim, side), seatWorld: seatWorldFor(config, w.sim), dataDigest: shippedContentDigest(), producer };
     this.log(`match ${config.code} started: ${config.map}, seat ${this.o.seat} (side ${side}, ${w.factions[side]})`);
   }
 
@@ -201,7 +283,22 @@ export class AgentClient {
     return live !== null && validateCommand(cmd, this.o.seat, live.seatWorld);
   }
 
-  /** Frames run so far. */
+  /** How this seat's rejoin went (`snapshot` with its `from`, or `full` with the reason), or null when it did not try. */
+  rejoin(): RejoinOutcome | null {
+    return this.outcome;
+  }
+
+  /** The snapshot producer's counters, or null when this seat does not produce. */
+  snapshotStats(): ProducerStats | null {
+    return this.live?.producer?.stats() ?? null;
+  }
+
+  /** Settles when the producer's upload in flight has (tests and teardown). */
+  snapshotIdle(): Promise<void> {
+    return this.live?.producer?.idle() ?? Promise.resolve();
+  }
+
+  /** Frames run so far; after a snapshot rejoin, counted from the snapshot's tick (the room's tick). */
   tick(): number {
     return this.ran;
   }
@@ -216,7 +313,7 @@ export class AgentClient {
   pump(maxTicks: number): number {
     const live = this.live;
     if (live === null || this.decided !== null) return 0;
-    const { config, w, fog, seatWorld, dataDigest } = live;
+    const { config, w, fog, seatWorld, dataDigest, producer } = live;
     const sim = w.sim;
     const seat = this.o.seat;
     const { ran } = runFrames({
@@ -226,6 +323,7 @@ export class AgentClient {
       ...harnessTick(w, fog, this.o.runtimeDigest),
       config,
       dataDigest,
+      ...(producer === null ? {} : { afterFrame: (tick: number, digest: number | null) => { producer.onFrame(tick, digest); } }),
       beforeFrame: (f: Frame) => {
         const own = canonicalOrder(f.cmds)
           .filter((s) => s.seat === seat)

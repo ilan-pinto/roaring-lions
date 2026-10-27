@@ -41,6 +41,14 @@ export interface FrameStep {
    *  literal 0 stood. Absent means 0, so a client with nothing to add reports
    *  exactly what it did before. N2 wires its versus runtime here in one line. */
   runtimeDigest?: () => number;
+  /** Called after each frame has run and been reported, with the frame's tick and
+   *  the digest just reported (null off a hash tick), AFTER `stopAfter` said to
+   *  go on and before the next frame's commands are applied (snapshot S4 T4, F1).
+   *  The sim therefore stands exactly at the frame boundary: this is where a
+   *  snapshot is cut. It is NOT called on the frame `stopAfter` stops on: the
+   *  deciding frame is never snapshotted. It must not throw into the loop.
+   *  Absent in single-player and in a room that does not produce. */
+  afterFrame?: (tick: number, digest: number | null) => void;
   /** THIS client's own content digest (ruling L4, N2-P3, `content-digest.ts`),
    *  folded into every reported hash. Absent means `shippedContentDigest()`,
    *  computed on the first hash tick; a room's battlefield passes it at boot
@@ -65,11 +73,14 @@ export function runFrames(step: FrameStep, maxTicks: number): { ran: number; dro
     dropped += applyFrame(f, sim, seatWorld).dropped;
     runTick();
     ran++;
-    transport.reportTick(
-      f.tick,
-      config !== null && isHashTick(f.tick, config) ? matchDigest(sim.hash(), step.runtimeDigest?.() ?? 0, step.dataDigest ?? shippedContentDigest()) : null,
-    );
+    const digest =
+      config !== null && isHashTick(f.tick, config) ? matchDigest(sim.hash(), step.runtimeDigest?.() ?? 0, step.dataDigest ?? shippedContentDigest()) : null;
+    transport.reportTick(f.tick, digest);
+    // stopAfter FIRST, and no afterFrame on the frame that stops the loop (snapshot S4 final review F1): a seat must
+    // never snapshot the DECIDING frame. A restore of that world carries no decision (`matchDecided` is app state,
+    // not in the snapshot), so a reload would run past the end and disagree with the seat that saw it.
     if (step.stopAfter?.(f.tick) === true) break;
+    step.afterFrame?.(f.tick, digest);
   }
   return { ran, dropped };
 }
