@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { Sim, fx, type UnitTypeJson } from '@lions/sim';
-import { heldHoverTarget, heldReadout } from './held-readout';
+import { heldHoverTarget, heldReadout, silentInBuilding } from './held-readout';
 import { heldMarks } from './minimap';
 
 const RIFLES: UnitTypeJson = {
@@ -85,5 +85,26 @@ describe('heldMarks (the minimap outline)', () => {
       [a, 0],
       [b, 1],
     ]);
+  });
+});
+
+describe('silentInBuilding (GH-588, G4)', () => {
+  const fires = { firesFromBuilding: true };
+  const barred = { firesFromBuilding: false };
+
+  it('is silent only when garrisoned and no weapon fires from a building', () => {
+    expect(silentInBuilding(true, [barred])).toBe(true);
+    // A future rocket team: two barred weapons, still silent, no unit id involved.
+    expect(silentInBuilding(true, [barred, barred])).toBe(true);
+  });
+
+  it('one weapon that fires out of a window keeps the unit loud', () => {
+    expect(silentInBuilding(true, [fires])).toBe(false);
+    expect(silentInBuilding(true, [barred, fires])).toBe(false);
+  });
+
+  it('is not silent outside a building, or with no weapon to silence', () => {
+    expect(silentInBuilding(false, [barred])).toBe(false);
+    expect(silentInBuilding(true, [])).toBe(false);
   });
 });

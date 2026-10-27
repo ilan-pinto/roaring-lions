@@ -59,3 +59,15 @@ export function heldReadout(
   const type = view.structureTypes[view.structures.typeIdx[s]];
   return { s, name: type.name, n: b.occupants, cap: b.slots, own: isOwnSide(b.holder, viewer) };
 }
+
+/**
+ * GH-588 (ruling G4): a unit inside a building whose every weapon is barred
+ * from firing out of a window (`fires_from_building: false`, the mortar and
+ * the rocket) is silent, and the card says why. Read off the weapons the sim
+ * itself consults (`WeaponStats.firesFromBuilding`), never off a unit id, so a
+ * future rocket team gets the line with no change here. An unarmed unit is
+ * not silent because of the building, so it gets none.
+ */
+export function silentInBuilding(garrisoned: boolean, weapons: readonly { readonly firesFromBuilding: boolean }[]): boolean {
+  return garrisoned && weapons.length > 0 && !weapons.some((w) => w.firesFromBuilding);
+}

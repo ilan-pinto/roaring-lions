@@ -4093,6 +4093,45 @@ describe('held building count (lead ruling 2026-10-14: the badge left the world)
     expect(cond).toContain(t('hud.held.inside', { n: 1, cap: 2 }));
   });
 
+  describe('why a garrisoned mortar is silent (GH-588, ruling G4)', () => {
+    /** One shipped unit type garrisoned by the sim's own order, or left standing outside. */
+    function oneUnit(typeJson: unknown, garrison: boolean): { sim: Sim; id: number } {
+      const sim = new Sim({ seed: 1, width: 16, height: 16, capacity: 8 });
+      const ty = sim.addUnitType(typeJson as UnitTypeJson);
+      const house = sim.addStructureType({ id: 'silent_house', name: 'House', hp_per_tile: 200, garrison_slots: 2 });
+      const s = sim.addStructure(house, [2 * 16 + 2, 2 * 16 + 3]);
+      const id = sim.spawn(ty, 0, fx.from(4.5), fx.from(2.5));
+      if (garrison) {
+        sim.queueCommand({ kind: 'garrison', ids: [id], structure: s });
+        for (let k = 0; k < 200 && sim.state.garrisonedIn[id] !== s; k++) sim.tick();
+        expect(sim.state.garrisonedIn[id]).toBe(s);
+      }
+      return { sim, id };
+    }
+    const why = (host: HTMLElement): string => host.querySelector('.rl-card__why')?.textContent ?? '';
+
+    it('a garrisoned mortar team says it cannot fire from inside and how to make it fire', () => {
+      const w = oneUnit(units.mortar_team, true);
+      const { host } = heldRig({ sim: w.sim, getSelection: () => [w.id] });
+      expect(why(host)).toBe(t('hud.card.silentInside'));
+      expect(why(host)).toBe("can't fire from inside — leave the building to fire");
+    });
+
+    it('a garrisoned rifle squad fires from its window, so its card has no such line', () => {
+      const w = oneUnit(units.inf_squad, true);
+      const { host } = heldRig({ sim: w.sim, getSelection: () => [w.id] });
+      expect(host.querySelector('.rl-card__cond')!.textContent).toContain(t('hud.card.inBuilding'));
+      expect(host.innerHTML).not.toContain(t('hud.card.silentInside'));
+    });
+
+    it('a mortar team standing outside is not silent', () => {
+      const w = oneUnit(units.mortar_team, false);
+      const { host } = heldRig({ sim: w.sim, getSelection: () => [w.id] });
+      expect(host.querySelector('.rl-card')).not.toBeNull();
+      expect(host.innerHTML).not.toContain(t('hud.card.silentInside'));
+    });
+  });
+
   it('hovering your own held building shows the tag, edged as your own', () => {
     const w = heldWorld();
     const { host, hud } = heldRig({ sim: w.sim, hoverStructure: () => w.own });
