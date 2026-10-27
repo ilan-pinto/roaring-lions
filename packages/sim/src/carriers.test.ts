@@ -413,6 +413,11 @@ describe('embarkAtSpawn', () => {
 // over the NON-AIR columns only: posX, posY, hp, alive, carriedBy and the seat count.
 // The literal below was captured on the P2 base commit 41b2c731, before any air
 // carrier code existed, and must not change at any task.
+//
+// History: 1417887594 (P2 base 41b2c731) -> 224131754 (GH-560 S-1, 28 Oct 2026). The scenario's
+// loitering munition penetrates the tank, and a kamikaze penetration now costs the 34% floor
+// (penetrationHpCost) instead of the warhead's damage alone, so the hp column moved. Nothing to do
+// with air carriers: reverting only that cost in stepKamikaze returns the old literal.
 function groundDigest(sim: Sim, h: number): number {
   const fold = (v: number): void => {
     h = Math.imul(h ^ (v | 0), 16777619) >>> 0;
@@ -442,7 +447,7 @@ describe('ground carrier is bit-identical (GH-698 Task 6)', () => {
       run(sim, 50);
       h = groundDigest(sim, h); // sampled every 50 ticks, 900 in all
     }
-    expect(h).toBe(1417887594);
+    expect(h).toBe(224131754);
   });
 });
 
