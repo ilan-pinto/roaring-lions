@@ -22,6 +22,15 @@ export const SNAPSHOT_MAX_RAW_BYTES = 1024 * 1024;
  *  `snapshot-wire.test.ts`, so the sim needs no new export. */
 export const SNAPSHOT_FRAME_TICK_OFFSET = SNAPSHOT_MATCH_DIGEST_OFFSET + 8;
 
+/** Where the two strings begin: after the 44-byte fixed header (the matchDigest
+ *  word and the 34 bytes that follow it), `build` then `matchId`, each a u16
+ *  length and UTF-8. Pinned against the real encoder in `snapshot-wire.test.ts`,
+ *  as the frameTick offset is. */
+export const SNAPSHOT_META_OFFSET = SNAPSHOT_MATCH_DIGEST_OFFSET + 34;
+
+/** The longest `build` or `matchId` a reader will accept. */
+const META_STRING_MAX_BYTES = 256;
+
 /** The magic of a snapshot, 'RLSS'. */
 const MAGIC = [0x52, 0x4c, 0x53, 0x53] as const;
 /** The `format` word sits right after the magic. */
@@ -46,6 +55,35 @@ export function readSnapshotHeader(raw: Uint8Array): SnapshotHeader | null {
     matchDigest: v.getUint32(SNAPSHOT_MATCH_DIGEST_OFFSET, true),
     frameTick: v.getUint32(SNAPSHOT_FRAME_TICK_OFFSET, true),
   };
+}
+
+export interface SnapshotMeta {
+  build: string;
+  matchId: string;
+  contentDigest: number;
+}
+
+/** The identity words a client checks BEFORE it restores anything: `build`,
+ *  `matchId` and `contentDigest`, read without decoding the snapshot (a restore
+ *  can leave its target half-written, so these are checked first). Null for
+ *  bytes too short, without the magic, with a string length past 256 bytes or
+ *  past the end, or with invalid UTF-8. */
+export function readSnapshotMeta(raw: Uint8Array): SnapshotMeta | null {
+  if (readSnapshotHeader(raw) === null) return null;
+  const v = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
+  const contentDigest = v.getUint32(SNAPSHOT_MATCH_DIGEST_OFFSET + 4, true);
+  const dec = new TextDecoder('utf-8', { fatal: true });
+  let at = SNAPSHOT_META_OFFSET;
+  const strings: string[] = [];
+  for (let i = 0; i < 2; i++) {
+    if (at + 2 > raw.byteLength) return null;
+    const n = v.getUint16(at, true);
+    at += 2;
+    if (n > META_STRING_MAX_BYTES || at + n > raw.byteLength) return null;
+    try { strings.push(dec.decode(raw.subarray(at, at + n))); } catch { return null; }
+    at += n;
+  }
+  return { build: strings[0] ?? '', matchId: strings[1] ?? '', contentDigest };
 }
 
 export type GunzipResult = { ok: true; bytes: Uint8Array } | { ok: false; reason: 'too_large' | 'bad_gzip' };
@@ -143,4 +181,25 @@ export async function sha256Hex(bytes: Uint8Array): Promise<string> {
   let s = '';
   for (const b of d) s += b.toString(16).padStart(2, '0');
   return s;
+}
+
+/** Gzip `raw` at the default level (what the size headroom test measures). The
+ *  Web `CompressionStream`, so the same in a browser and in Node. */
+export async function gzipBytes(raw: Uint8Array): Promise<Uint8Array> {
+  const cs = new CompressionStream('gzip');
+  const writer = cs.writable.getWriter();
+  void writer.write(raw as BufferSource).then(() => writer.close()).catch(() => undefined);
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  const reader = cs.readable.getReader();
+  for (;;) {
+    const x = await reader.read();
+    if (x.done) break;
+    chunks.push(x.value);
+    total += x.value.byteLength;
+  }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) { out.set(c, at); at += c.byteLength; }
+  return out;
 }

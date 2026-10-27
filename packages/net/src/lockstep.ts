@@ -9,12 +9,18 @@ import type { Frame } from './frames';
  */
 export class LockstepClock {
   /** The tick the next `take` will yield first. */
-  nextTick = 0;
-  /** The newest tick received, -1 before the first frame. */
-  newest = -1;
+  nextTick: number;
+  /** The newest tick received, `start - 1` before the first frame. */
+  newest: number;
   private readonly frames = new Map<number, Frame>();
 
-  constructor(readonly bufferTicks: number) {}
+  /** `start`: the first tick this clock will run, for a client whose world
+   *  begins at a snapshot. A frame below it is a `duplicate`; a frame above it
+   *  with nothing before it is a `gap`. 0 is the whole log. */
+  constructor(readonly bufferTicks: number, start = 0) {
+    this.nextTick = start;
+    this.newest = start - 1;
+  }
 
   push(frame: Frame): 'ok' | 'duplicate' | 'gap' {
     if (frame.tick < this.nextTick || this.frames.has(frame.tick)) return 'duplicate';
