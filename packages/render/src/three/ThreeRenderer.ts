@@ -572,6 +572,7 @@ import { TEXTURED_VEHICLE_TYPES } from './units/textured-vehicle';
 import { TEXTURED_INFANTRY_TYPES } from './units/textured-infantry';
 import {
   beginMeshDeath,
+  settleMeshDeath,
   stepMeshDeath,
   pushMeshWreck,
   updateMeshWrecks,
@@ -580,7 +581,7 @@ import {
   type MeshWreck,
   type MeshDeathEnv,
 } from './units/mesh-death';
-import { beginVehicleDeath, stepVehicleDeath, type DyingVehicle } from './units/mesh-vehicle-death';
+import { beginVehicleDeath, settleVehicleDeath, stepVehicleDeath, type DyingVehicle } from './units/mesh-vehicle-death';
 import { beginMeshEvac, stepMeshEvac, type DepartingMeshUnit } from './units/mesh-evac';
 import type { MeshFaction } from './units/mesh-role';
 /** Re-exported so `app` can name the side a mesh unit fights for without
@@ -725,6 +726,11 @@ const CARRIER_SMOKE_RANGE_SQ_TILES = 5242880 / 65536; // tuning.ts SMOKE_RANGE_S
  *  `entityFrame` makes with the already-drained value. */
 const RECOIL_SECONDS = 0.15;
 const FLINCH_SECONDS = 0.18;
+
+/** Snapshot S4 (D4): how many settled wrecks or bodies `consumeSettledInfantry` / `consumeSettledVehicles`
+ *  build in one frame. Each clones a skinned figure or a hull, and a long match can have hundreds dead
+ *  before a rejoin; spread over a few dozen frames they cost nothing visible, in one they are a hitch. */
+const SETTLE_PER_FRAME = 24;
 
 /**
  * Mesh-vehicle recoil, a genuine 3D shove -- distinct from the billboard
@@ -2219,6 +2225,15 @@ export class ThreeRenderer implements Renderer {
    *  persistence" section). Bounded by `MAX_MESH_WRECKS`, oldest evicted
    *  first (`pushMeshWreck`). */
   private readonly meshWrecks: MeshWreck[] = [];
+  /**
+   * Snapshot S4 (D4): ids `settleDead` found dead before this renderer's first frame whose settled
+   * wreck or body has not been drawn yet, and every id it has ever taken (`settledDeadIds`, so a
+   * second call cannot queue one twice). `updateMeshUnits` and `updateVehicleMeshes` consume an entry
+   * once that type's template is ready, at most `SETTLE_PER_FRAME` each, and delete it. Empty on every
+   * boot that is not a snapshot rejoin.
+   */
+  private readonly pendingSettle = new Set<number>();
+  private readonly settledDeadIds = new Set<number>();
   /** Mesh units mid-DEPARTURE fade -- rescued, not killed. Same shape and
    *  same reasoning as `meshDying` above (not id-keyed, for the identical
    *  reason), a separate array because the two sequences share no state and
@@ -3298,6 +3313,121 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
+   * `Renderer.settleDead` (`api.ts`): after a snapshot restore the renderer has watched no death, so
+   * a world restored at tick T draws nothing for what died before T. This queues every such slot; the
+   * frames that load the templates draw it (`consumeSettled*`), as the wreck or body a watched death
+   * settles into and nothing of the death itself.
+   *
+   * Which dead slots come back, from the sim's columns alone (it reads them and writes nothing):
+   * `alive === 0`, not `removed` (an abduction, a rescue or an admission is not a death), and a type
+   * that is neither a kamikaze nor a swarm.
+   *
+   * What does NOT come back, each confirmed against the sim and each ruled an accepted gap (lead,
+   * snapshot S4 PR 851) because no column says it happened:
+   *  - a unit killed underground: `destroy` calls `releaseTunnel`, which clears `tunnelIn`, so the
+   *    body is indistinguishable from a surface kill. The live path draws no body for it
+   *    (`buriedDeaths`, GH-763), and here it gets one, on the surface. This is a DRAWN-TOO-MUCH gap,
+   *    the reverse of the others;
+   *  - a kamikaze, shot down or detonated: the live path infers the detonation from the `destroyed`
+   *    event's killer (`isKamikazeDetonation`), which a restore does not replay, so both are left out;
+   *  - a swarm's fallen members: a swarm is ONE entity whose members are derived from hp
+   *    (`swarmMembers`), and a dead swarm is excluded above;
+   *  - passengers lost with an airborne carrier: `destroy` clears `carriedBy` before it kills each, so
+   *    nothing marks them. They come back as ordinary bodies at the carrier's last position, which is
+   *    also what the live path draws for them.
+   *
+   * A civilian who reached a refuge is `alive 0, removed 0` too; its GLB carries `down` and no
+   * `wreck`, and a body with no wreck leaves nothing (`settleMeshDeath`), so it needs no case here.
+   *
+   * Idempotent: a slot already queued or drawn is not queued again. Never called on a normal boot.
+   */
+  settleDead(): void {
+    const st = this.sim.state;
+    const n = this.snapshottedCount;
+    for (let i = 0; i < n; i++) {
+      if (st.alive[i] !== 0 || st.removed[i] !== 0 || this.settledDeadIds.has(i)) continue;
+      const type = this.sim.unitTypes[st.typeIdx[i]];
+      if (type.isKamikaze || type.swarm !== null) continue;
+      this.settledDeadIds.add(i);
+      this.pendingSettle.add(i);
+    }
+  }
+
+  /** What `settleDead` has queued and drawn, for the spec that pins it. Debug only, not on `api.ts`. */
+  debugSettle(): { pending: number; taken: number; wrecks: number } {
+    return { pending: this.pendingSettle.size, taken: this.settledDeadIds.size, wrecks: this.meshWrecks.length };
+  }
+
+  /** The `MeshDeathEnv` a watched death is stepped with, shared by the settled path. */
+  private deathEnv(): MeshDeathEnv {
+    return {
+      scene: this.scene,
+      elevation: this.retained.elevation,
+      width: this.sim.width,
+      height: this.sim.height,
+      isExplored: (x, y) => this.isExplored(x, y),
+    };
+  }
+
+  /**
+   * Draws up to `SETTLE_PER_FRAME` queued dead infantry whose template is loaded and warm, each as
+   * the `MeshWreck` `settleMeshDeath` returns, through `pushMeshWreck` like a watched death. An entry
+   * whose type has no infantry template is left for `consumeSettledVehicles` (or for a template that
+   * lands later); a body that leaves nothing is dropped from the queue all the same.
+   */
+  private consumeSettledInfantry(): void {
+    if (this.pendingSettle.size === 0) return;
+    const st = this.sim.state;
+    const env = this.deathEnv();
+    let budget = SETTLE_PER_FRAME;
+    for (const id of this.pendingSettle) {
+      if (budget === 0) break;
+      const type = this.sim.unitTypes[st.typeIdx[id]];
+      const variants = this.meshUnitTemplates.get(type.id);
+      if (!variants) continue;
+      if (this.coldUnitTypes.has(type.id)) {
+        this.warmUnitMesh(type.id, 'spawned');
+        continue;
+      }
+      this.pendingSettle.delete(id);
+      budget--;
+      const entity = instantiateMeshUnit(pickMeshVariant(variants, id), type.id);
+      const x = fx.toNumber(st.posX[id]);
+      const y = fx.toNumber(st.posY[id]);
+      entity.root.position.set(x, groundWorldY(this.retained.elevation, this.sim.width, this.sim.height, x, y), y);
+      entity.root.rotation.y = meshYawFromFacing(fx.toNumber(st.facing[id]));
+      const wreck = settleMeshDeath(entity, id, env);
+      if (wreck) pushMeshWreck(this.meshWrecks, wreck, this.scene);
+    }
+  }
+
+  /** The vehicle half of `consumeSettledInfantry`, posed by `poseVehicleWreck` (the sim position, the
+   *  sim's facing, the terrain conform) and handed to `settleVehicleDeath`. */
+  private consumeSettledVehicles(): void {
+    if (this.pendingSettle.size === 0) return;
+    const st = this.sim.state;
+    const env = this.deathEnv();
+    let budget = SETTLE_PER_FRAME;
+    for (const id of this.pendingSettle) {
+      if (budget === 0) break;
+      const type = this.sim.unitTypes[st.typeIdx[id]];
+      const key = this.vehicleTemplateKey(type.id, st.side[id]);
+      const template = this.vehicleMeshTemplates.get(key);
+      if (!template) continue;
+      if (this.coldUnitTypes.has(type.id)) {
+        this.warmUnitMesh(type.id, 'spawned');
+        continue;
+      }
+      this.pendingSettle.delete(id);
+      budget--;
+      const entity = instantiateVehicleMesh(template, type.id, key);
+      this.poseVehicleWreck(entity, id);
+      const wreck = settleVehicleDeath(entity, id, template, env);
+      if (wreck) pushMeshWreck(this.meshWrecks, wreck, this.scene);
+    }
+  }
+
+  /**
    * Every piece of renderer state `init` derives from the sim, derived from
    * the sim as it is now. `init` and `reseed` are its only two callers, and
    * that is the point of it: a seed added here reaches both, and a seed
@@ -3481,6 +3611,8 @@ export class ThreeRenderer implements Renderer {
     // themselves are disposed once, below, by `disposeMeshUnitTemplate`.
     for (const w of this.meshWrecks) this.scene.remove(w.root);
     this.meshWrecks.length = 0;
+    this.pendingSettle.clear();
+    this.settledDeadIds.clear();
     for (const variants of this.meshUnitTemplates.values()) {
       for (const template of variants) disposeMeshUnitTemplate(template);
     }
@@ -8704,6 +8836,7 @@ export class ThreeRenderer implements Renderer {
     const st = this.sim.state;
     const n = this.snapshottedCount;
 
+    this.consumeSettledInfantry();
     for (let i = 0; i < n; i++) {
       if (st.alive[i] === 0) continue;
       const type = this.sim.unitTypes[st.typeIdx[i]];
@@ -9109,6 +9242,7 @@ export class ThreeRenderer implements Renderer {
     const st = this.sim.state;
     const n = this.snapshottedCount;
 
+    this.consumeSettledVehicles();
     for (let i = 0; i < n; i++) {
       if (st.alive[i] === 0) continue;
       const type = this.sim.unitTypes[st.typeIdx[i]];

@@ -520,7 +520,10 @@ export interface Renderer {
    * Snapshot S4 (D4): after a rejoin restored the sim from a snapshot, draw every entity that was
    * already dead before this renderer's first frame as a settled wreck or body. It reads the sim and
    * writes nothing. The battlefield calls it only on a snapshot rejoin, never on a normal boot.
-   * OPTIONAL until the three.js backend implements it (Task 14): until then the call is a no-op.
+   * Settled means the wreck or body in its final pose: no death animation, blast, effect, sound or
+   * decal is replayed. What cannot be redrawn from state (a unit killed underground, a kamikaze, a
+   * swarm's members) is left out; `ThreeRenderer.settleDead` names each gap where it skips it.
+   * Optional so a backend with nothing to settle need not declare it.
    */
   settleDead?(): void;
   onEvents(events: SimEvent[]): void;

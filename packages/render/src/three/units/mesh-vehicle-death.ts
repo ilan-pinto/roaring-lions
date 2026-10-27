@@ -263,3 +263,53 @@ export function stepVehicleDeath(
   d.settling = true;
   return 'fading';
 }
+
+/** The step `settleVehicleDeath` takes: longer than any wreck clip, so the one-shot clamps in one update. */
+const SETTLE_STEP_SECONDS = 10;
+
+/**
+ * Snapshot S4 (D4): a vehicle that died BEFORE this renderer's first frame, drawn as the `MeshWreck`
+ * a watched death settles into -- the wreck clip's clamped pose, live nodes hidden, on the ground at
+ * the pose the caller gave the root. Returns `null`, with the entity left off the scene, for a hull the
+ * live path would not have left a wreck for (no `wreck` clip, no death root, or a template whose
+ * `hasWreck` disagrees with the clone).
+ *
+ * The live code with the visible half left out: no `beginMeshDeathFade` (so no material is cloned and
+ * no opacity written), no sink, no frames between the pose and the wreck. It emits nothing, and a
+ * smoulder, scorch, blast or sound belongs to `ThreeRenderer.onEvents`, which this never reaches. The
+ * caller instantiated `entity` and posed its root (`poseVehicleWreck`).
+ */
+export function settleVehicleDeath(
+  entity: VehicleMeshEntity,
+  entityId: number,
+  template: VehicleMeshTemplate,
+  env: MeshDeathEnv
+): MeshWreck | null {
+  const mixer = entity.mixer;
+  const deathRoot = entity.deathRoot;
+  if (template.hasWreck !== entity.actions.has('wreck') || !mixer || !deathRoot || !entity.actions.has('wreck')) {
+    disposeVehicleMeshEntity(entity);
+    return null;
+  }
+  // Same name `stepVehicleDeath` resolves to (see the note there on `wreckAlt`).
+  const wreckClip = pickDeathClip(entityId, entity.actions.has('wreckAlt'));
+  deathRoot.visible = true;
+  applyMeshClip(entity, wreckClip, { once: true, cut: true });
+  const action = entity.actions.get(wreckClip);
+  advanceMeshClipFades(entity, SETTLE_STEP_SECONDS);
+  mixer.update(SETTLE_STEP_SECONDS);
+  if (!action || !action.paused) {
+    // A wreck clip that never clamps would hang a live death in `settling` for good; here it is nothing.
+    console.warn(`mesh-vehicle-death: settleVehicleDeath(${entity.typeId}) did not clamp its ${wreckClip} clip`);
+    disposeVehicleMeshEntity(entity);
+    return null;
+  }
+  for (const node of entity.liveTop) node.visible = false;
+  env.scene.add(entity.root);
+  const x = entity.root.position.x;
+  const y = entity.root.position.z;
+  entity.root.position.y = groundWorldY(env.elevation, env.width, env.height, x, y);
+  const shown = env.isExplored(x, y);
+  entity.root.visible = shown;
+  return { root: entity.root, x, y, shown };
+}
