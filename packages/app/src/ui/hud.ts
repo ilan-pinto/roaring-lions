@@ -58,7 +58,7 @@ import { bindDelegatedTip, bindTip } from './tooltip';
 import { VoiceCaption } from './voice-caption';
 import { weaponName } from './weapon-name';
 import { patchChildren } from './dom-patch';
-import { heldHoverTarget, heldReadout, type HeldReadout } from './held-readout';
+import { heldHoverTarget, heldReadout, silentInBuilding, type HeldReadout } from './held-readout';
 import { auraChipKey, type WorksCardModel } from './works-model';
 import {
   beatDwellMs,
@@ -2811,6 +2811,9 @@ export class Hud {
       const held = this.heldOf(st.garrisonedIn[id]);
       if (held) flags.push(t('hud.held.inside', { n: held.n, cap: held.cap }));
     }
+    // GH-588 (G4): why a garrisoned mortar is quiet, and how to make it fire.
+    // Derived from its weapons' `fires_from_building`, on the card and never in the world.
+    if (silentInBuilding(st.garrisonedIn[id] >= 0, type.weapons)) why.push(t('hud.card.silentInside'));
     // Lane A mock (Q13): a patroller says so, and how many points its beat has, on the card --
     // never as a mark in the world. It stands in for "moving": walking the beat IS the moving.
     const beat = own ? sim.patrolCountOf(id) : 0;

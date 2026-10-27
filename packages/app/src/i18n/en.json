@@ -966,6 +966,7 @@
   "hud.bleed.stabilised": "Stabilised",
   "hud.bleed.held": "Bleeding held",
   "hud.card.inBuilding": "in a building",
+  "hud.card.silentInside": "can't fire from inside — leave the building to fire",
   "hud.held.inside": "{n} / {cap} inside",
   "hud.card.seats": "{n} / {cap} aboard",
   "hud.card.air.airborne": "airborne",
