@@ -55,6 +55,19 @@ const ofSet = (at: number, v: number) => (raw: Uint8Array): void => { raw[at] = 
 
 afterEach(() => { vi.useRealTimers(); });
 
+describe('prepareRejoin: a tick whose next frame cannot be asked for', () => {
+  // Literals: 0x7fffffff is 2,147,483,647 and `from` may reach it, so the last askable snapshot is 0x7ffffffe.
+  const at = (tick: number) => rejoin({ meta: { frameTick: tick }, headers: { 'x-snapshot-tick': String(tick) } });
+  it('frameTick 2,147,483,647 would need from 2,147,483,648: bad_header, a full replay', async () => {
+    expect(await at(2147483647)).toEqual({ path: 'full', reason: 'bad_header' });
+  });
+  it('frameTick 2,147,483,646 is the last one that can be asked for', async () => {
+    const r = await at(2147483646);
+    expect(r.path).toBe('snapshot');
+    if (r.path === 'snapshot') expect(r.verified.frameTick).toBe(2147483646);
+  });
+});
+
 describe('prepareRejoin: the success path', () => {
   it('a good snapshot is path: snapshot with the header tick and digest', async () => {
     const r = await rejoin({});

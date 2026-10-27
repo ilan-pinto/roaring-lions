@@ -13,7 +13,7 @@
  * reason from `FALLBACK_REASONS`, and a reload that gets one is today's reload
  * (G-2: the frame log stays the authority).
  */
-import { SNAPSHOT_FORMAT, SNAPSHOT_MAX_COMPRESSED_BYTES, SNAPSHOT_MAX_RAW_BYTES, gunzipCapped, readSnapshotHeader, readSnapshotMeta, sha256Hex } from '@lions/net';
+import { SNAPSHOT_FORMAT, isFromTick, SNAPSHOT_MAX_COMPRESSED_BYTES, SNAPSHOT_MAX_RAW_BYTES, gunzipCapped, readSnapshotHeader, readSnapshotMeta, sha256Hex } from '@lions/net';
 import type { UploadOutcome } from './snapshot-producer';
 
 /** The reload's GET: the room is `gone`-stalled and the forfeit clock runs while it waits (plan Ruling 5). */
@@ -242,6 +242,9 @@ export async function verifyFetched(f: Fetched, ctx: VerifyContext): Promise<Ver
   if (header === null) return { ok: false, reason: 'bad_header' };
   if (header.format !== SNAPSHOT_FORMAT) return { ok: false, reason: 'format' };
   if (header.frameTick !== f.tick) return { ok: false, reason: 'tick_mismatch' };
+  // The hello asks for the log from `frameTick + 1`, and the room and the transport carry only a `from` up to 0x7fffffff
+  // (`isFromTick`). A tick past that could never be asked for, so refuse it here and replay the whole log (S4 review L2).
+  if (!isFromTick(header.frameTick + 1)) return { ok: false, reason: 'bad_header' };
   if (header.matchDigest !== f.digest) return { ok: false, reason: 'digest_mismatch' };
   const meta = readSnapshotMeta(f.raw);
   if (meta === null) return { ok: false, reason: 'bad_header' };
