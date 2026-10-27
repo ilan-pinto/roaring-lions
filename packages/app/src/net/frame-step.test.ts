@@ -184,6 +184,43 @@ describe('runFrames', () => {
       { tick: 2, queuedBefore: 0, ranBefore: 2 },
     ]);
   });
+  it('afterFrame (snapshot S4 T4): once per frame, at the frame boundary, with the digest just reported, before stopAfter', () => {
+    const sim = fakeSim();
+    // Frames 18, 19, 20: 19 is the first hash tick of a 20-tick window. The fake sim's tickCount starts at 100.
+    const transport = new ScriptedTransport([{ tick: 18, cmds: [] }, { tick: 19, cmds: [] }, { tick: 20, cmds: [] }]);
+    const cfg = config();
+    const order: string[] = [];
+    const seen: { tick: number; digest: number | null; simTick: number; reported: number }[] = [];
+    const step = {
+      transport, sim, seatWorld: seatWorldFor(cfg, sim), runTick: sim.runTick, config: cfg, dataDigest: OWN,
+      afterFrame: (tick: number, digest: number | null) => {
+        order.push(`after${tick}`);
+        seen.push({ tick, digest, simTick: sim.tickCount, reported: transport.reports.length });
+      },
+      stopAfter: (tick: number) => { order.push(`stop${tick}`); return false; },
+    };
+    expect(runFrames(step, 3).ran).toBe(3);
+    // Literals: the sim stood at 100 + (frames run so far) when each callback ran -- the boundary, not the batch's end (123).
+    expect(seen).toEqual([
+      { tick: 18, digest: null, simTick: 101, reported: 1 },
+      { tick: 19, digest: matchDigest(1000 + 102, 0, OWN), simTick: 102, reported: 2 },
+      { tick: 20, digest: null, simTick: 103, reported: 3 },
+    ]);
+    expect(order).toEqual(['after18', 'stop18', 'after19', 'stop19', 'after20', 'stop20']);
+    expect(transport.reports[1]).toEqual([19, matchDigest(1000 + 102, 0, OWN)]);
+  });
+  it('afterFrame: the last frame before a stop is still called; a frame after the stop is not run and not called', () => {
+    const sim = fakeSim();
+    const transport = new ScriptedTransport([{ tick: 0, cmds: [] }, { tick: 1, cmds: [] }, { tick: 2, cmds: [] }]);
+    const called: number[] = [];
+    const step = {
+      transport, sim, seatWorld: seatWorldFor(null, sim), runTick: sim.runTick, config: null,
+      afterFrame: (tick: number) => { called.push(tick); },
+      stopAfter: (tick: number) => tick === 1,
+    };
+    expect(runFrames(step, 3).ran).toBe(2);
+    expect(called).toEqual([0, 1]);
+  });
 });
 
 describe('seatWorldFor', () => {
