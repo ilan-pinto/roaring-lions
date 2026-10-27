@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { LocalTransport, matchDigest, validateCommand, type Frame, type MatchConfig, type MatchTransport, type TransportStatus } from '@lions/net';
+import { LocalTransport, isSnapshotTick, matchDigest, validateCommand, type Frame, type MatchConfig, type MatchTransport, type TransportStatus } from '@lions/net';
 import type { Command } from '@lions/sim';
 import { runFrames, seatWorldFor } from './frame-step';
 import { shippedContentDigest } from './content-digest';
@@ -184,7 +184,7 @@ describe('runFrames', () => {
       { tick: 2, queuedBefore: 0, ranBefore: 2 },
     ]);
   });
-  it('afterFrame (snapshot S4 T4): once per frame, at the frame boundary, with the digest just reported, before stopAfter', () => {
+  it('afterFrame (snapshot S4 T4): once per frame, at the frame boundary, with the digest just reported, after stopAfter said go on', () => {
     const sim = fakeSim();
     // Frames 18, 19, 20: 19 is the first hash tick of a 20-tick window. The fake sim's tickCount starts at 100.
     const transport = new ScriptedTransport([{ tick: 18, cmds: [] }, { tick: 19, cmds: [] }, { tick: 20, cmds: [] }]);
@@ -206,10 +206,10 @@ describe('runFrames', () => {
       { tick: 19, digest: matchDigest(1000 + 102, 0, OWN), simTick: 102, reported: 2 },
       { tick: 20, digest: null, simTick: 103, reported: 3 },
     ]);
-    expect(order).toEqual(['after18', 'stop18', 'after19', 'stop19', 'after20', 'stop20']);
+    expect(order).toEqual(['stop18', 'after18', 'stop19', 'after19', 'stop20', 'after20']);
     expect(transport.reports[1]).toEqual([19, matchDigest(1000 + 102, 0, OWN)]);
   });
-  it('afterFrame: the last frame before a stop is still called; a frame after the stop is not run and not called', () => {
+  it('afterFrame: the last frame before a stop is still called; the frame that stops is NOT called, and a frame after it is not run (F1)', () => {
     const sim = fakeSim();
     const transport = new ScriptedTransport([{ tick: 0, cmds: [] }, { tick: 1, cmds: [] }, { tick: 2, cmds: [] }]);
     const called: number[] = [];
@@ -219,7 +219,29 @@ describe('runFrames', () => {
       stopAfter: (tick: number) => tick === 1,
     };
     expect(runFrames(step, 3).ran).toBe(2);
-    expect(called).toEqual([0, 1]);
+    expect(called).toEqual([0]);
+  });
+  it('F1: stopAfter true on a SNAPSHOT tick: the producer makes no attempt for it, the tick before it does', () => {
+    const sim = fakeSim();
+    const cfg = config();
+    // Frame 1199 is a cadence tick (1200). The fake sim stands in for the real one; the producer's own gate is
+    // `isSnapshotTick`, which `onFrame` is only ever asked on a frame `runFrames` did not stop at.
+    const transport = new ScriptedTransport([{ tick: 1198, cmds: [] }, { tick: 1199, cmds: [] }, { tick: 1200, cmds: [] }]);
+    const attempted: number[] = [];
+    const step = {
+      transport, sim, seatWorld: seatWorldFor(cfg, sim), runTick: sim.runTick, config: cfg, dataDigest: OWN,
+      afterFrame: (tick: number) => { if (isSnapshotTick(tick, 1200)) attempted.push(tick); },
+      stopAfter: (tick: number) => tick === 1199,
+    };
+    expect(runFrames(step, 3).ran).toBe(2);
+    expect(attempted).toEqual([]);
+    // The control: the same loop with no decision attempts exactly that tick, so the empty list above is not vacuous.
+    const open = {
+      ...step, transport: new ScriptedTransport([{ tick: 1198, cmds: [] }, { tick: 1199, cmds: [] }, { tick: 1200, cmds: [] }]),
+      stopAfter: () => false,
+    };
+    runFrames(open, 3);
+    expect(attempted).toEqual([1199]);
   });
 });
 

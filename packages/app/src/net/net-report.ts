@@ -42,7 +42,7 @@ export function netReport(transport: MatchTransport, seat: Seat, config: MatchCo
 
 /**
  * What the battlefield prints about a rejoin (G-2). `info` is the `[net] rejoin:` line, for either path.
- * `warn` is set only on a fallback to the full log, and names the reason -- a label from `FALLBACK_REASONS`,
+ * `warn` is set only on a real fallback to the full log (reason other than `none`), and names the reason -- a label from `FALLBACK_REASONS`,
  * never the ticket or the bytes. A warning, never an error: `pnpm ui:routes` fails on any console error.
  */
 export function rejoinLines(rejoin: RejoinOutcome): { info: string; warn: string | null } {
@@ -51,7 +51,9 @@ export function rejoinLines(rejoin: RejoinOutcome): { info: string; warn: string
   }
   return {
     info: `[net] rejoin: full log (${rejoin.reason})`,
-    warn: `[net] snapshot rejoin fell back to the full log: ${rejoin.reason}`,
+    // `none` is not a fallback: this reload never had a snapshot to use (a sandbox room, the lobby, a match's first
+    // minute, a room with a bot). Info line only (snapshot S4 final review N1).
+    warn: rejoin.reason === 'none' ? null : `[net] snapshot rejoin fell back to the full log: ${rejoin.reason}`,
   };
 }
 

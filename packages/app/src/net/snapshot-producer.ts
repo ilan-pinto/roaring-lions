@@ -107,7 +107,7 @@ export class SnapshotProducer {
     return { ...this.s, skipped: { ...this.s.skipped } };
   }
 
-  /** Settles when the upload in flight (if any) has. For tests and teardown; the loop never awaits it. */
+  /** Settles when the upload in flight (if any) has. For tests; the loop never awaits it. The page signal in `snapshot-link.ts` ends an upload in flight at teardown. */
   idle(): Promise<void> {
     return this.inFlight ?? Promise.resolve();
   }

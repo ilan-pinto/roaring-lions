@@ -66,6 +66,9 @@ describe('rejoinLines (the console lines of a rejoin)', () => {
     expect(l.info).toBe('[net] rejoin: full log (sha_mismatch)');
     expect(l.warn).toBe('[net] snapshot rejoin fell back to the full log: sha_mismatch');
   });
+  it('reason none (this reload never had a snapshot to use) prints the info line and NO warning (final review N1)', () => {
+    expect(rejoinLines({ path: 'full', reason: 'none' })).toEqual({ info: '[net] rejoin: full log (none)', warn: null });
+  });
 });
 
 describe('logRejoin (which console method a rejoin uses, G-2)', () => {
@@ -86,6 +89,11 @@ describe('logRejoin (which console method a rejoin uses, G-2)', () => {
       { m: 'info', text: '[net] rejoin: full log (sha_mismatch)' },
       { m: 'warn', text: '[net] snapshot rejoin fell back to the full log: sha_mismatch' },
     ]);
+  });
+  it('reason none is the info line alone through the sink', () => {
+    const { lines, s } = sink();
+    logRejoin({ path: 'full', reason: 'none' }, s);
+    expect(lines).toEqual([{ m: 'info', text: '[net] rejoin: full log (none)' }]);
   });
   it('never mentions a ticket', () => {
     const { lines, s } = sink();
