@@ -222,17 +222,24 @@ describe('hit chance (GDD 5.2)', () => {
 
 describe('penetration as a curve with facing arcs (GDD 5.3)', () => {
   it('rifles never penetrate an MBT front; ATGMs usually do', () => {
+    // GH-560: a penetration costs a third of the tank's bar, so on any one seed the tank dies on
+    // its third penetration and the window holds fewer impacts. Pool the same scene over six seeds.
     const penRate = (attacker: UnitTypeJson): { pens: number; impacts: number } => {
-      const sim = new Sim({ seed: 13, width: 32, height: 16, capacity: 8 });
-      const a = sim.addUnitType(attacker);
-      const m = sim.addUnitType(DUMMY_MBT);
-      sim.spawn(a, 0, fx.from(2.5), fx.from(8.5));
-      // Tank deployed facing its attacker (west) — shots land on the front arc.
-      const tank = sim.spawn(m, 1, fx.from(7.5), fx.from(8.5), 32768);
-      const evs = collect(sim, 150 * TICKS_PER_SECOND);
-      const impacts = evs.filter((e) => e.kind === 'impact' && e.target === tank);
-      const pens = impacts.filter((e) => e.kind === 'impact' && e.penetrated);
-      return { pens: pens.length, impacts: impacts.length };
+      let pens = 0;
+      let impacts = 0;
+      for (const seed of [13, 14, 15, 16, 17, 18]) {
+        const sim = new Sim({ seed, width: 32, height: 16, capacity: 8 });
+        const a = sim.addUnitType(attacker);
+        const m = sim.addUnitType(DUMMY_MBT);
+        sim.spawn(a, 0, fx.from(2.5), fx.from(8.5));
+        // Tank deployed facing its attacker (west) — shots land on the front arc.
+        const tank = sim.spawn(m, 1, fx.from(7.5), fx.from(8.5), 32768);
+        const evs = collect(sim, 150 * TICKS_PER_SECOND);
+        const hit = evs.filter((e) => e.kind === 'impact' && e.target === tank);
+        impacts += hit.length;
+        pens += hit.filter((e) => e.kind === 'impact' && e.penetrated).length;
+      }
+      return { pens, impacts };
     };
 
     const rifle = penRate(INF);
@@ -266,7 +273,8 @@ describe('penetration as a curve with facing arcs (GDD 5.3)', () => {
 describe('component damage (GDD 5.4)', () => {
   it('most penetrations do not destroy the vehicle at moderate overmatch', () => {
     let componentEvents = 0;
-    let catastrophic = 0;
+    let penetrations = 0;
+    let destroyed = 0;
     let crewShaken = 0;
     for (let seed = 0; seed < 30; seed++) {
       const sim = new Sim({ seed: 1000 + seed, width: 32, height: 16, capacity: 8 });
@@ -276,32 +284,38 @@ describe('component damage (GDD 5.4)', () => {
       const tank = sim.spawn(m, 1, fx.from(7.5), fx.from(8.5), 32768); // facing its attacker
       const evs = collect(sim, 60 * TICKS_PER_SECOND);
       for (const e of evs) {
+        if (e.kind === 'impact' && e.target === tank && e.penetrated) penetrations++;
+        if (e.kind === 'destroyed' && e.entity === tank) destroyed++;
         if (e.kind === 'component' && e.target === tank) {
           componentEvents++;
-          if (e.result === 'catastrophic') catastrophic++;
           if (e.result === 'crew_shaken') crewShaken++;
         }
       }
     }
     expect(componentEvents).toBeGreaterThan(30);
-    expect(catastrophic / componentEvents).toBeLessThan(0.4);
+    // GH-560: the only way a hull dies is its bar (the HP-death test, vehicle-health.test.ts).
+    expect(destroyed / penetrations).toBeLessThan(0.4);
     expect(crewShaken / componentEvents).toBeGreaterThan(0.2);
   });
 
   it('mobility kills stop movement but leave the gun firing', () => {
     // Deterministic search across seeds for a mobility-kill case, then assert
-    // the immobilised tank keeps shooting.
+    // the immobilised tank keeps shooting. GH-560: the table now totals 92, so the same draws land
+    // on other rows and the first mobility kill is on seed 402, where the tank's own first round
+    // had already killed the AT team: nothing left to shoot at. A case needs a live enemy.
     for (let seed = 0; seed < 60; seed++) {
       const sim = new Sim({ seed: 400 + seed, width: 48, height: 16, capacity: 8 });
       const at = sim.addUnitType(AT_TEAM);
       const m = sim.addUnitType(MBT);
-      sim.spawn(at, 0, fx.from(2.5), fx.from(8.5));
+      const atTeam = sim.spawn(at, 0, fx.from(2.5), fx.from(8.5));
       const tank = sim.spawn(m, 1, fx.from(8.5), fx.from(8.5));
       sim.queueCommand({ kind: 'move', ids: [tank], x: fx.fromInt(40), y: fx.from(8.5) });
       let sawMobilityKill = false;
+      let enemyGone = false;
       let firedAfter = false;
       for (let t = 0; t < 60 * TICKS_PER_SECOND; t++) {
         for (const e of sim.tick()) {
+          if (e.kind === 'destroyed' && e.entity === atTeam) enemyGone = true;
           if (e.kind === 'component' && e.result === 'mobility_kill' && e.target === tank) {
             sawMobilityKill = true;
           }
@@ -309,7 +323,7 @@ describe('component damage (GDD 5.4)', () => {
         }
         if (firedAfter) break;
       }
-      if (sawMobilityKill) {
+      if (sawMobilityKill && (firedAfter || !enemyGone)) {
         expect(sim.state.moving[tank]).toBe(0);
         expect(firedAfter).toBe(true);
         return;

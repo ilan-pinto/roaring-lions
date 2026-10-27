@@ -77,8 +77,9 @@ function gains(
   shooterType: UnitTypeJson,
   targetType: UnitTypeJson,
   bystander: boolean,
+  seed = 7,
 ): { hit: boolean; bounced: boolean; target: number; bystander: number }[] {
-  const sim = new Sim({ seed: 7, width: 24, height: 12, capacity: 8 });
+  const sim = new Sim({ seed, width: 24, height: 12, capacity: 8 });
   const shooter = sim.spawn(sim.addUnitType(shooterType), 0, fx.from(4.5), fx.from(5.5));
   const tt = sim.addUnitType(targetType);
   const target = sim.spawn(tt, 1, fx.from(10.5), fx.from(5.5));
@@ -111,7 +112,10 @@ describe('hits, bounces and splash suppress (GDD 5.5, BOUNCE_SUPP_MULT)', () => 
   // A round that COULD have penetrated and did not. One that never could is
   // the next test.
   it('a round that bounces off the hull shakes the crew twice a near miss', () => {
-    const shots = gains(AP_RIFLE, HULL, false);
+    // GH-560: a penetration now costs a third of the bar, so the hull dies on its third
+    // penetration and one seed offers only two bounces. Pool six seeds (the fixture's hp cannot
+    // help: the cost scales with it). Every bounce is still held to DOUBLED, and the count to > 3.
+    const shots = [7, 8, 9, 10, 11, 12].flatMap((seed) => gains(AP_RIFLE, HULL, false, seed));
     const bounces = shots.filter((s) => s.hit && s.bounced);
     expect(bounces.length).toBeGreaterThan(3);
     for (const b of bounces) expect(b.target).toBeCloseTo(DOUBLED, 3);

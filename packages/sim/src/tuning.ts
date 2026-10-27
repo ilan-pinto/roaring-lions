@@ -120,7 +120,6 @@ export const COMP_CREW_SHAKEN = 45;
 export const COMP_MOBILITY = 20;
 export const COMP_FIREPOWER = 15;
 export const COMP_BOTH = 12;
-export const COMP_CATASTROPHIC = 8;
 /** Mobility kills (#706, spec 2026-10-22-mobility-kills-design §3.3): a SLOWED
  *  hull (`mobilityDamaged`: the first mobility hit on `gear: wheels`, or a crew
  *  field fix) moves at this integer percent of its `stepPerTick`. 50 is the
@@ -135,8 +134,10 @@ export const FIELD_FIX_TICKS = 90 * 20;
  *  tiles of a stuck hull doubles its field-fix rate (45 s). 2 tiles is the
  *  spec's number (§3.4 item 3): close enough to read as "working on it". */
 export const FIELD_FIX_ASSIST_RADIUS = 2;
-/** Overmatch shift: bonus = clamp((z - 1) * 10, 0, 30) percentage points moved
- *  from crew_shaken to catastrophic as penetration overmatch grows. */
+/** Overmatch shift: shift = clamp((z - 1) * 10, 0, 30) percentage points moved
+ *  off crew_shaken as penetration overmatch grows; the rest of the table shares them
+ *  (GH-560 removed the catastrophic row, so the weights total 92 - shift). The same shift
+ *  scales a penetration's hp cost (PEN_HP_OVERMATCH_DIV). */
 export const OVERMATCH_SHIFT_PER_Z = 10;
 export const OVERMATCH_SHIFT_MAX = 30;
 /** GH-560 (lead ruling 1, 27 Oct): a penetration of a hard hull costs at least this fraction of its MAX hp,
