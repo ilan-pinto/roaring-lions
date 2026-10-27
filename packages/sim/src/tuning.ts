@@ -139,6 +139,12 @@ export const FIELD_FIX_ASSIST_RADIUS = 2;
  *  from crew_shaken to catastrophic as penetration overmatch grows. */
 export const OVERMATCH_SHIFT_PER_Z = 10;
 export const OVERMATCH_SHIFT_MAX = 30;
+/** GH-560 (lead ruling 1, 27 Oct): a penetration of a hard hull costs at least this fraction of its MAX hp,
+ *  scaled by overmatch (PEN_HP_OVERMATCH_DIV). HP, not a roll, ends a vehicle: 2 hits at heavy overmatch,
+ *  3 otherwise (spec 2026-10-27-vehicle-health-design 5.2). */
+export const PEN_HP_FLOOR = 22282; // 0.34
+/** The floor is multiplied by (DIV + shift) / DIV, shift being the 0-30 overmatch shift: x1.5 at most. */
+export const PEN_HP_OVERMATCH_DIV = 60;
 
 // --- suppression (5.5) -----------------------------------------------------
 /** Per-tick decay: e^(-lambda * dt), lambda = 0.15/s. */

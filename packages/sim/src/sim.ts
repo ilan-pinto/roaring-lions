@@ -16,6 +16,7 @@ import { HASH_SEED, hashArray, hashWord } from './hash';
 import { FlowField, DIR_NONE, DIR_VX, DIR_VY, COST_ORTH, COST_DIAG } from './flowfield';
 import { assignFormation, type FormationUnit } from './formation';
 import { hullCapsule, capsuleOverlap } from './separation';
+import { overmatchShift } from './vehicle-health';
 import {
   structureTypeFromJson,
   STRUCT_DAMAGE,
@@ -93,8 +94,6 @@ import {
   MOB_DAMAGED_PCT,
   FIELD_FIX_TICKS,
   FIELD_FIX_ASSIST_RADIUS,
-  OVERMATCH_SHIFT_PER_Z,
-  OVERMATCH_SHIFT_MAX,
   SUPP_DECAY,
   PIN_AT,
   UNPIN_AT,
@@ -7654,8 +7653,7 @@ export class Sim {
 
   private rollComponent(target: number, shooter: number, z: Fx): void {
     // Weights shift with overmatch: crew_shaken → catastrophic (GDD 5.4).
-    let shift = fx.toInt(fx.mul(fx.max(fx.sub(z, ONE), 0), fx.fromInt(OVERMATCH_SHIFT_PER_Z)));
-    if (shift > OVERMATCH_SHIFT_MAX) shift = OVERMATCH_SHIFT_MAX;
+    const shift = overmatchShift(z);
     const wCrew = COMP_CREW_SHAKEN - shift;
     const wCat = COMP_CATASTROPHIC + shift;
     const total = wCrew + COMP_MOBILITY + COMP_FIREPOWER + COMP_BOTH + wCat;
