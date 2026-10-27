@@ -359,6 +359,8 @@ describe('AgentClient roles and seats (transport level: the room admits advisor 
 
 describe('AgentClient and snapshots: opt-in only (snapshot S4 task 11)', () => {
   const SERVER = 'https://room.test';
+  /** The room's sim seed. A room mints a random one unless told, and some seeds end the six-unit march's match before 2,500 ticks (one run in 80 failed under 10 parallel copies: 'expected 7 to be greater than 10'): the cases play a fixed world. */
+  const SNAP_SEED = 1000;
   interface Call { method: string; url: string; origin: string | null; auth: string | null }
   /** A `fetch` that reaches the real room's snapshot route, recording what each call carried. */
   const routed = (loop: Loop, calls: Call[]): typeof fetch => (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
@@ -381,7 +383,7 @@ describe('AgentClient and snapshots: opt-in only (snapshot S4 task 11)', () => {
   /** Two producing seats played to `ticks`. */
   async function played(ticks: number, calls: Call[], extra: { restore?: AgentSnapshotOptions['restore'] } = {}) {
     void extra;
-    const room = await newRoom();
+    const room = await newRoom({ room: { seed: () => SNAP_SEED } });
     const { loop } = room;
     const t0 = await room.ticket(0);
     const t1 = await room.ticket(1);
@@ -402,7 +404,7 @@ describe('AgentClient and snapshots: opt-in only (snapshot S4 task 11)', () => {
     const globalFetch = vi.spyOn(globalThis, 'fetch');
     const used: string[] = [];
     const spyLink: SnapshotLink = { upload: async () => { used.push('upload'); return 'stored'; }, latest: async () => { used.push('latest'); return { fallback: 'none' }; } };
-    const room = await newRoom();
+    const room = await newRoom({ room: { seed: () => SNAP_SEED } });
     const a = seatClient(room.loop, await room.ticket(0), 0);
     const b = seatClient(room.loop, await room.ticket(1), 1, { link: spyLink });
     await room.loop.flush();
