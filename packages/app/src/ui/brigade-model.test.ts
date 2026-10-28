@@ -277,14 +277,15 @@ describe('the garage bay and its model', () => {
     s.dispose();
   });
 
-  it('does not re-merge for an infantry tier: no parts, the plain upgrade cue', async () => {
+  it('re-merges for an infantry tier too, with the plain upgrade cue (GH-826)', async () => {
     const s = setup();
     await s.settle();
     expect(s.views[0].typeId).toBe('inf_squad');
     s.log.length = 0;
     s.host.querySelector<HTMLButtonElement>('.rl-garage__buy-tier')?.click();
-    expect(s.log).toEqual(['cue:upgrade']);
-    expect(s.views[0].kits).toEqual([]);
+    // The door decides whether a team has parts; the bay asks every unit.
+    expect(s.log).toEqual(['cue:upgrade', 'setKit:inf_squad']);
+    expect(s.views[0].kits).toEqual([{ armour: 1 }]);
     s.dispose();
   });
 

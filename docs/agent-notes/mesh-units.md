@@ -672,3 +672,16 @@ for vehicles.
   contact with it is the figure's own); the idle/kneel/pinned numbers are in
   the PR.
 
+- **The garage turntable wears it too (GH-826).** `garage-view.ts` builds a team
+  whose GLB declares kit extras the way it builds a kitted vehicle: the loaded
+  scene is a pristine source, each build runs on `cloneForBuild(pristine, true)`
+  (the skeleton-aware clone: a plain `Object3D.clone` shares one skeleton), the
+  frame and the squad's line are fitted to the MAXIMUM kit, and `setKit` is a
+  rebuild with no fetch that draws before it releases the old one. `kitCeiling`
+  reads the packed node's `parts` table, not one node per part. A team with no
+  kit extras is built straight from the loaded scene as before and has no
+  `setKit`. The bay asks EVERY unit (`syncKit` has no kitted-type list); the
+  door decides. `pnpm inf-kit:capture -- --garage` photographs tier 0, the full
+  kit seeded and the full kit bought live by Buy clicks; its pixel check reads
+  only the model's region, because the kit mark and the Maxed stamp are DOM
+  over it and change with the account whatever the model does.
