@@ -431,5 +431,69 @@ class SecondPass(unittest.TestCase):
             self.assertEqual(a.f["H"].tobytes(), b.f["H"].tobytes(), n)
 
 
+class InGame(unittest.TestCase):
+    """GH-161, the in-game pass: the layout block the runtime reads, and the corners."""
+
+    @classmethod
+    def setUpClass(cls):
+        import layout_cli as LC
+        cls.LC = LC
+        cls.block = LC.build_block(48, 48)
+        cls.pieces = {p.name: p for p in P.all_pieces()}
+
+    def test_block_is_deterministic_and_legal(self):
+        again = self.LC.build_block(48, 48)
+        self.assertEqual(self.block, again)
+        b = self.block
+        self.assertEqual((b["valley"], b["kit"]), ("ns", "wadi_halam_kit"))
+        names = set(self.pieces)
+        for pl in b["pieces"]:
+            self.assertIn(pl["id"], names, pl)
+            self.assertIn(pl["rot"], (0, 90, 180, 270), pl)
+            self.assertTrue(0.75 <= pl.get("ys", 1.0) <= 1.35, pl)
+            self.assertGreaterEqual(pl.get("lift", 0.0), 0.0, pl)
+            self.assertEqual(len(pl["at"]), 2, pl)
+        self.assertNotIn("y", b["pieces"][0], "the per-piece base heights are baked at load, not written")
+
+    def test_far_wall_terraces_stand_back_from_the_rim(self):
+        """A terrace is not buried at its inner end (its tread starts 0.3 m up) and overlaps the map by 1.5 m: it
+        must stand back by at least that, or the lozenge check (tools/src/backdrop_lozenge.test.ts) goes red."""
+        far = [p for p in self.block["pieces"] if p["id"].startswith("bd_terrace") and "lift" not in p]
+        self.assertGreaterEqual(len(far), 12, "the census of far-wall terraces")
+        for p in far:
+            inward = p["at"][0] if p["rot"] == 0 else p["at"][1]
+            self.assertLessEqual(inward, -0.5, p)   # a tile's half = 1.5 m, the overlap
+
+    def test_each_outer_corner_has_terraces_with_a_lift_that_sits_them_on_the_hill(self):
+        lifted = [p for p in self.block["pieces"] if p["id"].startswith("bd_terrace") and "lift" in p]
+        sw = [p for p in lifted if p["rot"] == 0]
+        ne = [p for p in lifted if p["rot"] == 90]
+        self.assertEqual((len(sw), len(ne)), (len(L.CORNER_TERRACES), len(L.CORNER_TERRACES)))
+        self.assertEqual([p["lift"] for p in sw], [p["lift"] for p in ne], "the corners are the same piece, mirrored")
+        corner = self.pieces["bd_outer_corner"].build()
+        # an oracle that does not call `corner_terrace_lifts`: the percentile of (hill - tread) over the footprint,
+        # read at the nearest master cell
+        for (u0, kind), p in zip(L.CORNER_TERRACES, sw):
+            terr = self.pieces["bd_terrace_" + kind].build()
+            vals = []
+            for s in range(-12, 13):
+                for t in range(0, 25):
+                    hill = corner.f["H"][int(round((t - corner.M.t[0]) / corner.M.h)), int(round((24.0 + u0 + s - corner.M.s[0]) / corner.M.h))]
+                    top = terr.f["H"][int(round((t - terr.M.t[0]) / terr.M.h)), int(round((s - terr.M.s[0]) / terr.M.h))]
+                    vals.append(hill - top)
+            want = float(np.percentile(vals, 60.0)) / K.M_PER_TILE
+            self.assertAlmostEqual(p["lift"], want, delta=0.05, msg="kind %s at %s m" % (kind, u0))
+            self.assertGreater(p["lift"], 3.0, "a hillside 12+ tiles up: the terrace cannot stand on the floor")
+
+    def test_crest_and_scree_lifts_follow_the_authored_profile(self):
+        crest = [p for p in self.block["pieces"] if p["id"].startswith("bd_crest")]
+        self.assertTrue(crest and all(abs(p["lift"] - (K.CREST_M - 0.4) / K.M_PER_TILE) < 1e-3 for p in crest))
+        scree = [p for p in self.block["pieces"] if p["id"].startswith("bd_scree")]
+        for p in scree:
+            d = abs(p["at"][0]) * K.M_PER_TILE if p["rot"] in (0, 180) else abs(p["at"][1]) * K.M_PER_TILE
+            want = float(np.interp(d, P.PROFILE.d, P.PROFILE.y)) / K.M_PER_TILE
+            self.assertAlmostEqual(p["lift"], want, delta=0.002, msg=str(p))
+
+
 if __name__ == "__main__":
     unittest.main()

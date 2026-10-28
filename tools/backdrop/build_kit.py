@@ -162,6 +162,7 @@ def main():
         ob1 = bpy.data.objects.new(p.name + "_lod1", me1)
         ob1["rl_piece"] = p.name
         ob1["rl_textured"] = True
+        ob1["rl_lod"] = 1
         col.objects.link(ob1)
         ob1.hide_render = True
         ob1.hide_viewport = True
@@ -184,6 +185,10 @@ def main():
             e.parent = ob0
             col.objects.link(e)
             out_anchors.append({"name": an, "s": s, "t": t, "local": [-wt, ws, z]})
+        # The anchors and the olives travel in the GLB as node extras, in GLB-local metres (x, up, z = -y):
+        # the runtime reads them back with the geometry, so a placement needs no sidecar.
+        ob0["rl_anchors"] = json.dumps([{"name": a["name"], "p": [round(a["local"][0], 3), round(a["local"][2], 3), round(-a["local"][1], 3)]}
+                                        for a in out_anchors])
         pos = p.gm.pos
         rec = {
             "side": p.side, "desc": p.desc,
@@ -204,6 +209,7 @@ def main():
             rec["near_envelope_max_h_over_t"] = round(float(ratio.max()), 4)
         if p.name.startswith("bd_terrace"):
             rec["olives"] = P.olive_positions(p, 45, 3.6, 1.25)
+            ob0["rl_olives"] = json.dumps([[round(q[0], 3), round(q[2], 3), round(-q[1], 3)] for q in rec["olives"]])
         stats["pieces"][p.name] = rec
         print("%-18s LOD0 %5d / cap %5d   LOD1 %5d (%2.0f%%)  master %.2f M tris   %s tex/tile"
               % (p.name, p.gm.tri_count, p.cap, gm1.tri_count, 100.0 * gm1.tri_count / p.gm.tri_count, p.M.tri_count / 1e6,
@@ -226,6 +232,7 @@ def main():
     dd = np.arange(0.0, 130.0 + 1e-9, 1.0)
     stats["profile"] = {"d": dd.tolist(), "y": np.interp(dd, pr.d, pr.y).round(3).tolist()}
     stats["total_tris_lod0"] = int(sum(r["tris_lod0"] for r in stats["pieces"].values()))
+    bpy.context.preferences.filepaths.save_version = 0   # no .blend1 backup beside a committed source
     bpy.ops.wm.save_as_mainfile(filepath=args.out, compress=True)
     if args.stats:
         with open(args.stats, "w") as f:

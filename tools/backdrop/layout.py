@@ -83,7 +83,40 @@ def _variants(n, seed, names):
     return out
 
 
-def layout_ns(w=48, h=48, seed=7, rim=None, profile=None):
+#: where the terraces along an outer corner's inner edge stand: metres past the taper's free end, and the variant.
+#: The corner's first ~20 m are the wall's own steep spur, so the run starts at 36 m; spacing 24 m, width 30 m.
+#: Two, not three: the third (84 m, 28 tiles from the map) is the least seen and took the placed-triangle total
+#: past the 250 k budget once the floor is counted (250,952 with it, 242.7 k without).
+CORNER_TERRACES = ((36.0, "a"), (60.0, "b"))
+CORNER_LIFT_PERCENTILE = 60.0
+#: tiles a far-wall terrace stands back from the rim (its inner overlap is 1.5 m = 0.5 tile)
+TERRACE_SETBACK = 0.52
+
+
+def corner_terrace_lifts(percentile=CORNER_LIFT_PERCENTILE):
+    """`lift` (metres) for each of `CORNER_TERRACES`: the rigid terrace stands on a hillside that falls away
+    along its own length, so its base is set where the terrace top meets the hill's surface at the given
+    percentile of its footprint (60 => the terrace stands proud of the hill over about 60% of its footprint and
+    is cut into the slope over the rest, which reads as a terrace cut into a hillside, never as a floating slab).
+    Built from the masters (a few seconds); pure numpy, no bpy."""
+    import numpy as np
+    import pieces as PC
+    import kitlib as KL
+    pcs = {p.name: p for p in PC.all_pieces()}
+    corner = pcs["bd_outer_corner"].build()
+    out = []
+    ss = np.arange(-12.0, 12.0 + 1e-9, 1.0)
+    tt = np.arange(0.0, 24.0 + 1e-9, 1.0)
+    SS, TT = np.meshgrid(ss, tt)
+    for u0, kind in CORNER_TERRACES:
+        terr = pcs["bd_terrace_" + kind].build()
+        hill = KL.bilinear_pts(corner.f["H"], (TT - corner.M.t[0]) / corner.M.h, (24.0 + u0 + SS - corner.M.s[0]) / corner.M.h)
+        top = KL.bilinear_pts(terr.f["H"], (TT - terr.M.t[0]) / terr.M.h, (SS - terr.M.s[0]) / terr.M.h)
+        out.append(round(float(np.percentile(hill - top, percentile)), 2))
+    return out
+
+
+def layout_ns(w=48, h=48, seed=7, rim=None, profile=None, corner_lifts=None):
     P = []
 
     def add(pid, at, rot, mirror=False, ys=1.0):
@@ -109,14 +142,33 @@ def layout_ns(w=48, h=48, seed=7, rim=None, profile=None):
     for k, v in enumerate(_variants(w // 16, seed + 9, ["a", "b"])):
         add("bd_slope_near_" + v, (8 + 16 * k, h), 270)
     add("bd_slope_corner", (w, h), 180)
-    # terraces at the foot of the far walls
+    # terraces along the inner edge of each outer corner, like the far walls' feet: the same pieces, each with a
+    # `lift` that sets it onto the hillside (see `corner_terrace_lifts`)
+    if corner_lifts is not None:
+        for (u0, kind), lift in zip(CORNER_TERRACES, corner_lifts):
+            add("bd_terrace_" + kind, (0, h + 16 + u0 / 3.0), 0, mirror=True)
+            P[-1]["lift"] = lift
+            add("bd_terrace_" + kind, (w + 16 + u0 / 3.0, 0), 90)
+            P[-1]["lift"] = lift
+    # terraces at the foot of the far walls, set back TERRACE_SETBACK tiles from the rim: a terrace is not buried
+    # at its inner end (its tread starts 0.3 m up), so its 1.5 m overlap would stand in the playable rectangle
+    # (the lozenge check, tools/src/backdrop_lozenge.test.ts, found it: up to 0.3 tile on a tread, 1.8 on the
+    # end piece's bank).
+    sb = TERRACE_SETBACK
     for k in range(h // 8):
-        add("bd_terrace_" + ("a", "b")[k % 2], (0, 4 + 8 * k), 0)
-    add("bd_terrace_a", (4, 0), 90)
-    add("bd_terrace_end", (12, 0), 90)                    # closes against the slot (bank on +s)
-    add("bd_terrace_end", (20, 0), 90, mirror=True)       # and from the other side
+        add("bd_terrace_" + ("a", "b")[k % 2], (-sb, 4 + 8 * k), 0)
+    # ...and on along the foot of each taper, into the outer corner: the same pieces at the same 8-tile pitch, so the
+    # corner's terraces and houses begin where the far walls' end (the taper's own foot is the wall's, fading under
+    # the near envelope; a rigid terrace stands proud of it where it has fallen, like a terrace cut into a hillside)
+    for z in (h + 4, h + 12):
+        add("bd_terrace_" + ("a", "b")[(z // 8) % 2], (-sb, z), 0)
+    add("bd_terrace_a", (4, -sb), 90)
+    add("bd_terrace_end", (12, -sb), 90)                  # closes against the slot (bank on +s)
+    add("bd_terrace_end", (20, -sb), 90, mirror=True)     # and from the other side
     for k, x in enumerate((28, 36, 44)):
-        add("bd_terrace_" + ("b", "a", "b")[k], (x, 0), 90)
+        add("bd_terrace_" + ("b", "a", "b")[k], (x, -sb), 90)
+    for x in (w + 4, w + 12):
+        add("bd_terrace_" + ("a", "b")[(x // 8) % 2], (x, -sb), 90)
     # scree over the foot of the cliff band
     add("bd_scree_a", (-7, 20), 0)
     add("bd_scree_c", (-7, 42), 0)
@@ -127,18 +179,29 @@ def layout_ns(w=48, h=48, seed=7, rim=None, profile=None):
     add("bd_crest_b", (-28, -16), 0)
     for k, x in enumerate((0, 32, 48)):
         add("bd_crest_" + "ab"[(k + 1) % 2], (x, -24), 90)
+    # `lift`: metres above the floor under a vertex that a piece's local z = 0 stands at. A crest sits on top of
+    # the walls; a scree fan lies on the wall's surface at its distance out (the profile there). Everything else
+    # stands on the floor (the corner terraces' lifts were set above).
+    for pl in P:
+        pid = pl["id"]
+        if pid.startswith("bd_crest"):
+            pl["lift"] = round(CREST_M - 0.4, 3)
+        elif pid.startswith("bd_scree") and profile is not None:
+            d = abs(pl["at"][0]) * TILE if pl["rot"] in (0, 180) else abs(pl["at"][1]) * TILE
+            pl["lift"] = round(float(profile(d)), 3)
     if rim is not None:
         for pl in P:
             pid = pl["id"]
             if pid.startswith("bd_scree"):
                 # free-placed over a wall's foot: it stands on the wall surface at its distance out
-                d = abs(pl["at"][0]) * TILE if pl["rot"] in (0, 180) else abs(pl["at"][1]) * TILE
                 base = float(rim(*edge_point(pl, 0.0))) - FOOT_BURY
-                pl["y"] = [base + float(profile(d))] * 2 if profile else [base] * 2
+                pl["y"] = [base + pl.get("lift", 0.0)] * 2
             elif pid in ("bd_wall_corner",):
                 pl["y"] = [float(rim(0.0, 0.0)) - FOOT_BURY] * 2
             elif pid == "bd_slope_corner":
                 pl["y"] = [float(rim(w, h)) - FOOT_BURY] * 2
             else:
                 pl["y"] = piece_ends(pl, rim)
+                if pl.get("lift") and not pid.startswith("bd_crest"):
+                    pl["y"] = [v + pl["lift"] for v in pl["y"]]
     return P
