@@ -172,3 +172,18 @@ describe('shapes', () => {
     expect(out[0]).toContain('2 ring elements');
   });
 });
+
+describe('the type count (N8)', () => {
+  it('255 formations pass, 256 fail: the sim keeps a group\'s type in one byte', () => {
+    const one = shipped.find((f) => f.doc.id === 'column') as F;
+    const many = (n: number): F[] =>
+      Array.from({ length: n }, (_, k) => {
+        const c = clone(one);
+        c.file = `data/formations/col_${k}.json`;
+        c.doc.id = `col_${k}`;
+        return c;
+      });
+    expect(run(many(255))).toEqual([]);
+    expect(run(many(256))).toEqual(['256 formations; at most 255 (the sim keeps a group\'s type in one byte)']);
+  });
+});

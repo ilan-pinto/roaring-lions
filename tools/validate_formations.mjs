@@ -13,13 +13,18 @@
 //   - `(files - 1) * file_gap` is even, so the schematic's centre is an integer;
 //   - `rest` appears at most once, and only in the last element;
 //   - `arrival.stance` is `ambush` only with a ring element and the `spring` drill;
-//   - at most one ring element.
+//   - at most one ring element;
+//   - at most 255 formations in all: the sim keeps a group's type in one byte (`fgType`) and a
+//     256th would wrap onto the first.
 //
 // The placement run (every shipped formation places N = 2..24 units on open ground with no tile
 // twice) is a vitest test, tools/src/formations_place.test.ts: this module is plain node with no
 // build step and cannot import the sim's generator (plan Ruling 14).
 
 const FACTIONS = new Set(['kdf', 'sarim']);
+/** Mirrors MAX_FORMATION_TYPES in packages/sim/src/tuning.ts (a plain-node module cannot import it;
+ *  the sim's own test pins the two together). */
+const MAX_FORMATION_TYPES = 255;
 
 /**
  * @param {{ file: string, doc: any }[]} files every parsed data/formations file
@@ -30,6 +35,7 @@ export function formationFailures(files, en) {
   const out = [];
   const seen = new Map();
   const has = (key) => Object.hasOwn(en, key);
+  if (files.length > MAX_FORMATION_TYPES) out.push(`${files.length} formations; at most ${MAX_FORMATION_TYPES} (the sim keeps a group's type in one byte)`);
   for (const { file, doc } of files) {
     if (!doc || typeof doc !== 'object') continue; // the schema check reports it
     const stem = String(file).replace(/^.*[\\/]/, '').replace(/\.json$/, '');

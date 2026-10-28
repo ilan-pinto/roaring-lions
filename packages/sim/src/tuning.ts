@@ -615,7 +615,12 @@ export const MAX_FORMATION_GROUPS_PER_SIDE = 16;
 /** Rows of the formation group table, both sides: side s owns rows s * MAX_FORMATION_GROUPS_PER_SIDE up
  *  to the next side's first. `snapshot-schema.ts` sizes the per-row columns by it. */
 export const FORMATION_ROWS = 2 * MAX_FORMATION_GROUPS_PER_SIDE;
+/** How many formation files one world may register: a group row keeps its type in one byte
+ *  (`fgType`), so a 256th would wrap onto the first. `tools/validate_formations.mjs` refuses more. */
+export const MAX_FORMATION_TYPES = 255;
 /** The deepest a formation's reachability walk goes, in steps, whatever its shapes could ask
- *  for: 24 covers the whole 48 x 48 map at worst, and it is an order-time cost, never a per-tick
- *  one (`formation-template.ts`' `compileFormation` computes each file's own extent under it). */
+ *  for: 24 steps reach every tile of a 48 x 48 map from a CENTRE click only (an edge or corner click
+ *  leaves the far side out of the walk, and a `files` element too long for it spills past it on a
+ *  full-map walk). It is an order-time cost, never a per-tick one (`formation-template.ts`'
+ *  `compileFormation` computes each file's own extent under it). */
 export const FORMATION_WALK_CAP = 24;

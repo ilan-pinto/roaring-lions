@@ -9,6 +9,7 @@ import { fx } from './fixed';
 import type { FormationJson } from './formation-template';
 import { RIFLES, SHED, TANK } from './golden-worlds.test-helper';
 import { Sim, type SimEvent, type UnitTypeJson } from './sim';
+import { MAX_FORMATION_TYPES } from './tuning';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const loadFormation = (id: string): FormationJson => JSON.parse(readFileSync(join(ROOT, 'data', 'formations', `${id}.json`), 'utf8')) as FormationJson;
@@ -84,6 +85,7 @@ interface Priv {
   fmLive: boolean;
   fgPending: Uint8Array;
   attackMove: Uint8Array;
+  wpCount: Uint8Array;
 }
 const priv = (sim: Sim): Priv => sim as unknown as Priv;
 const goalTile = (sim: Sim, id: number): [number, number] => [priv(sim).goalX[id] >> 16, priv(sim).goalY[id] >> 16];
@@ -108,7 +110,7 @@ describe('byte identity: an order without a formation is today\'s order', () => 
     const east = [0, 1, 2].map((k) => spawnAt(w, w.inf, 1, 40, 12 + 4 * k));
     const f = field === undefined ? {} : { formation: field };
     const out: number[] = [];
-    for (let t = 0; t < 300; t++) {
+    for (let t = 0; t < 600; t++) {
       if (t === 5) w.sim.queueCommand({ kind: 'move', ids: west, x: at(20), y: at(18), ...f });
       if (t === 10) w.sim.queueCommand({ kind: 'attackMove', ids: [...west2, ...west], x: at(30), y: at(22), ...f });
       if (t === 60) w.sim.queueCommand({ kind: 'attackMove', ids: east, x: at(12), y: at(20), ...f });
@@ -120,7 +122,7 @@ describe('byte identity: an order without a formation is today\'s order', () => 
   }
   it('three formations REGISTERED change nothing for orders that name none', () => {
     const plain = run(false, undefined);
-    expect(plain).toHaveLength(6);
+    expect(plain).toHaveLength(12);
     expect(run(true, undefined)).toEqual(plain);
   });
   it('a formation id the world does not hold is the same order as none at all', () => {
@@ -622,6 +624,66 @@ describe('membership and exits', () => {
     expect(w.sim.formationGroupOf(ids[1])).toBe(-1);
     expect(w.sim.formationMembersOfGroup(0)).toBe(2);
   });
+  it('removal from play (a mission `remove`)', () => {
+    const { w, ids } = column3();
+    w.sim.removeFromPlay(ids[1]);
+    expect(w.sim.formationGroupOf(ids[1])).toBe(-1);
+    expect(w.sim.formationMembersOfGroup(0)).toBe(2);
+  });
+  it('an id named twice in one order is one member: both die and the row is free (S2)', () => {
+    const w = world();
+    const [a, b] = [0, 1].map(() => spawnAt(w, w.inf, 0, 24, 40));
+    order(w, [a, a, b], 'column');
+    tick(w);
+    expect(w.sim.formationMembersOfGroup(0)).toBe(2);
+    w.sim.debugKill(a);
+    w.sim.debugKill(b);
+    expect(w.sim.formationMembersOfGroup(0)).toBe(0);
+    expect(w.sim.formationTypeOfGroup(0)).toBe(-1);
+    // sixteen such orders leave the side's table free, not exhausted
+    const w2 = world({ w: 64, h: 64 });
+    for (let k = 0; k < 17; k++) {
+      const pair = [0, 1].map(() => spawnAt(w2, w2.inf, 0, 4 + 3 * k, 60));
+      w2.sim.queueCommand({ kind: 'move', ids: [pair[0], pair[0], pair[1]], x: at(4 + 3 * k), y: at(20), formation: 'column' });
+      tick(w2);
+      expect(w2.sim.formationGroupOf(pair[0]), `order ${k}`).toBe(0);
+      w2.sim.debugKill(pair[0]);
+      w2.sim.debugKill(pair[1]);
+    }
+  });
+  it('a member taken out of an armed ring by smoke or a refused order loses the ring\'s stance (N11)', () => {
+    const w = world();
+    const ids = southStack(w, RING_TYPES(w));
+    order(w, ids, 'ambush');
+    settle(w, ids);
+    expect(ids.map((id) => w.sim.ambushRadiusSqOf(id))).toEqual([R3_SQ, R3_SQ, R3_SQ, R3_SQ, R3_SQ, R3_SQ]);
+    // a smoke order to a unit that cannot smoke is refused whole; a halt is accepted: both leave the ring
+    w.sim.queueCommand({ kind: 'smoke', ids: [ids[0]], x: at(24), y: at(20) } as never);
+    w.sim.queueCommand({ kind: 'halt', ids: [ids[1]] });
+    tick(w);
+    expect(ids.slice(0, 2).map((id) => w.sim.formationGroupOf(id))).toEqual([-1, -1]);
+    expect(ids.map((id) => w.sim.ambushRadiusSqOf(id))).toEqual([0, 0, R3_SQ, R3_SQ, R3_SQ, R3_SQ]);
+    // a setStance ambush of its own after leaving is still honoured
+    w.sim.queueCommand({ kind: 'setStance', ids: [ids[0]], stance: 'ambush' });
+    tick(w);
+    expect(w.sim.ambushRadiusSqOf(ids[0])).not.toBe(0);
+  });
+  it('an appended order whose waypoint queue is full does not make the unit a member (N3)', () => {
+    const w = world();
+    const [a, b] = [0, 1].map(() => spawnAt(w, w.inf, 0, 24, 40));
+    w.sim.queueCommand({ kind: 'move', ids: [a, b], x: at(10), y: at(30) });
+    tick(w);
+    // eight appended legs fill a (MAX_WAYPOINTS 8); b has room
+    for (let k = 0; k < 8; k++) w.sim.queueCommand({ kind: 'move', ids: [a], x: at(10 + k), y: at(31), append: true });
+    tick(w);
+    expect(priv(w.sim).wpCount[a]).toBe(8);
+    order(w, [a, b], 'column', 'move', { append: true });
+    tick(w);
+    expect(priv(w.sim).wpCount[a], 'a full queue drops the leg').toBe(8);
+    expect(w.sim.formationGroupOf(a)).toBe(-1);
+    expect(w.sim.formationGroupOf(b)).toBe(0);
+    expect(w.sim.formationMembersOfGroup(0)).toBe(1);
+  });
   it('a row whose members all leave is free: the next order takes row 0 again', () => {
     const { w, ids } = column3();
     for (const id of ids) w.sim.debugKill(id);
@@ -641,6 +703,22 @@ describe('membership and exits', () => {
     expect(w.sim.formationTypeOfGroup(0)).toBe(1);
     expect(w.sim.formationMembersOfGroup(0)).toBe(3);
     expect(w.sim.formationMembersOfGroup(1)).toBe(0);
+  });
+});
+
+describe('the type table: 255 formations at most (N8)', () => {
+  it('registering a 256th throws and leaves the 255 it had', () => {
+    const w = world({ register: false });
+    const column = loadFormation('column');
+    for (let k = 0; k < 255; k++) expect(w.sim.addFormationType({ ...column, id: `col_${k}` })).toBe(k);
+    expect(() => w.sim.addFormationType({ ...column, id: 'col_255' })).toThrow(/at most 255/);
+    expect(w.sim.formationTypeCount()).toBe(255);
+    // and the last index really fits fgType's byte: a group of type 254 reads back as 254
+    const ids = [0, 1].map(() => spawnAt(w, w.inf, 0, 24, 40));
+    order(w, ids, 'col_254');
+    tick(w);
+    expect(w.sim.formationTypeOfGroup(0)).toBe(254);
+    expect(MAX_FORMATION_TYPES).toBe(255);
   });
 });
 

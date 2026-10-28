@@ -202,6 +202,7 @@ import {
   WOUND_DEFAULT_BLEED_TICKS,
   TUNNEL_TILES_PER_S,
   FORMATION_ROWS,
+  MAX_FORMATION_TYPES,
   MAX_FORMATION_GROUPS_PER_SIDE,
   type SupportKind,
 } from './tuning';
@@ -2653,6 +2654,9 @@ export class Sim {
     for (const f of this.formationTypes) {
       if (f.id === json.id) throw new Error(`formation ${json.id}: already registered`);
     }
+    if (this.formationTypes.length >= MAX_FORMATION_TYPES) {
+      throw new Error(`formation ${json.id}: at most ${MAX_FORMATION_TYPES} formations (fgType is one byte)`);
+    }
     this.formationTypes.push(compileFormation(json));
     return this.formationTypes.length - 1;
   }
@@ -4776,13 +4780,15 @@ export class Sim {
           this.wpAttack[k] = attack;
           this.wpSweep[k] = sweep;
           this.wpCount[id] = n + 1;
+          // Only a leg that was stored makes the unit a member: a full queue drops the waypoint, and
+          // a member whose slot was never kept would spring-stance at its old final waypoint.
+          if (placed !== null) written.push(id);
         }
         // N3 Task 9: an appended leg is a new order too -- the patrol ends, and the
         // unit walks its current leg and then the appended route. (This fast-path
         // never reached the stance reset below, so a hold or ambush, which never
         // has `moving` 1, could not notice; a patroller nearly always does.)
         this.dropPatrol(id);
-        if (placed !== null) written.push(id);
         continue;
       }
       // (A passenger never reached here: the guard above turned it away —
@@ -4844,6 +4850,8 @@ export class Sim {
    *  with shape, facing and stance but no group, so no shared spring). Order-time only. */
   private fmJoin(tplIdx: number, written: readonly number[], placed: ReadonlyMap<number, TemplateSlot>, ringRadius: number): void {
     const tpl = this.formationTypes[tplIdx];
+    // The group takes the side of its first written id: an order is single-side by construction, as the
+    // plain path assumes with `reservedTilesFor` (versus checks ownership; a mixed order is the caller's).
     const side = this.side[written[0]];
     const base = side * MAX_FORMATION_GROUPS_PER_SIDE;
     let g = -1;
@@ -4853,6 +4861,7 @@ export class Sim {
         break;
       }
     }
+    let joined = 0;
     for (const id of written) {
       const sl = placed.get(id);
       const ut = this.unitTypes[this.typeIdx[id]];
@@ -4865,7 +4874,11 @@ export class Sim {
         } else arrive = tpl.arriveStance;
       }
       this.fmArrive[id] = arrive;
-      if (g >= 0) this.fmGroup[id] = g;
+      // An id named twice in one order is written twice but is one member: count it once.
+      if (g >= 0 && this.fmGroup[id] !== g) {
+        this.fmGroup[id] = g;
+        joined++;
+      }
     }
     if (g >= 0) {
       this.fgLive[g] = 1;
@@ -4873,7 +4886,7 @@ export class Sim {
       this.fgType[g] = tplIdx;
       this.fgState[g] = FM_MARCH;
       this.fgPending[g] = 0;
-      this.fgMembers[g] = written.length;
+      this.fgMembers[g] = joined;
     }
   }
 
@@ -4910,7 +4923,10 @@ export class Sim {
   }
 
   /** A member of a `spring` group sprang, or was fired on by the enemy: mark the group to spring
-   *  together. Only a group still marching is marked, once; the event names the first. */
+   *  together. Only a group still marching is marked, once; the event names the first. The mark is
+   *  consumed at the start of the next tick (`stepFormationSpring`). If every member is ordered away
+   *  in between (or dies), the row is freed with the mark still unconsumed: the event was pushed, no
+   *  spring follows. Accepted: the event names a discovery, which did happen. */
   private fmPend(id: number): void {
     const g = this.fmGroup[id];
     if (g < 0 || this.fgState[g] !== FM_MARCH || this.fgPending[g] !== 0) return;
@@ -4942,7 +4958,7 @@ export class Sim {
       const want = this.restFacing[i];
       if (want === FM_FACING_NONE) continue;
       // Stopped, alone with its orders: a target always wins, and so does anything that holds the hull.
-      if (this.alive[i] === 0 || this.moving[i] === 1 || this.aimTurned[i] === 1) continue;
+      if (this.alive[i] === 0 || this.moving[i] === 1) continue;
       if (this.curTarget[i] >= 0 || this.curStructure[i] >= 0 || this.mobilityKilled[i] === 1) continue;
       if (this.garrisonedIn[i] >= 0 || this.carriedBy[i] >= 0 || this.tunnelIn[i] >= 0) continue;
       if (this.facing[i] !== want) this.turnToward(i, want);
@@ -5059,7 +5075,13 @@ export class Sim {
         // `attack` and `rescue`: a refused order changes nothing (GH-420), so their branches call it
         // for the ids they accept. Behind `fmLive`, so a world with no formation order reads nothing.
         if (this.fmLive && cmd.kind !== 'attack' && cmd.kind !== 'rescue') {
-          for (const id of cmd.ids) this.fmForget(id);
+          for (const id of cmd.ids) {
+            // A member leaving the ring by any order (smoke, a refused order) leaves its trap too: an
+            // ambush stance it holds was the formation's (a stance of its own goes through `setStance`,
+            // which sets it again below), so it must not stay armed to spring alone.
+            if (this.fmGroup[id] >= 0 && this.stance[id] === 1) this.stance[id] = 0;
+            this.fmForget(id);
+          }
         }
         if (cmd.kind !== 'attack' && cmd.kind !== 'rescue') {
           for (const id of cmd.ids) {
@@ -8346,7 +8368,9 @@ export class Sim {
     if (w === null) return false;
     const side = this.side[id];
     if (!this.rng.chance(id, w.chance) || this.woundedAlive[side] >= MAX_WOUNDED_PER_SIDE) return false;
-    if (this.fmLive) this.fmForget(id); // GH-859 P1a exit: downed in place (behind woundLive, via the type)
+    // GH-859 P1a exit: downed in place (behind woundLive, via the type). DEFENSIVE: the only `in_place`
+    // type shipped is the civilian, class none, which never joins a group; reachable only by future content.
+    if (this.fmLive) this.fmForget(id);
     this.hp[id] = ONE;
     this.figuresUp[id] = 0;
     this.moving[id] = 0;
@@ -8396,7 +8420,9 @@ export class Sim {
     for (let i = 0; i < this.count; i++) {
       if (this.carriedBy[i] !== car || this.alive[i] === 0 || !this.horsDeCombat(i)) continue;
       this.forgetWounded(i);
-      if (this.fmLive) this.fmForget(i); // GH-859 P1a exit: evacuated or admitted off the board
+      // GH-859 P1a exit, DEFENSIVE (cannot fire): `seat` is the only writer of `carriedBy` and it already
+      // forgets, and `applyMove` skips a carried unit, so a carried unit is never in a group.
+      if (this.fmLive) this.fmForget(i);
       this.carriedBy[i] = -1;
       if (this.passengers[car] > 0) this.passengers[car]--;
       this.alive[i] = 0;
@@ -8541,7 +8567,9 @@ export class Sim {
         if (t < 1) t = 1;
       }
       this.forgetWounded(i);
-      if (this.fmLive) this.fmForget(i); // GH-859 P1a exit: evacuated or admitted off the board
+      // GH-859 P1a exit, DEFENSIVE (cannot fire): `seat` is the only writer of `carriedBy` and it already
+      // forgets, and `applyMove` skips a carried unit, so a carried unit is never in a group.
+      if (this.fmLive) this.fmForget(i);
       this.carriedBy[i] = -1;
       if (this.passengers[car] > 0) this.passengers[car]--;
       this.alive[i] = 0;
