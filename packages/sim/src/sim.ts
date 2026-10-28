@@ -10578,6 +10578,48 @@ export class Sim {
     return false;
   }
 
+  /**
+   * GH-560 follow-up: how many PENETRATING hits of `shooter`'s weapon would end `target`'s hull from
+   * where both stand now -- `ceil(hp / penetrationHpCost(maxHp, damage, overmatchShift(z)))`, with `z`
+   * over the plate `presentedArmor` shows this shooter. The HUD card's "~3 hits" and nothing else: a
+   * public, read-only estimate (no rng, no write beyond the scratch `focusHurts` documents), so the app
+   * never re-derives the cost. `weaponId` picks that weapon (the one `projectHit` priced); absent, the
+   * best of the shooter's first two slots that could hurt.
+   *
+   * Null when there is no honest number: either id out of range or dead, a shooter with no weapon, a
+   * target that is not a hard hull (soft men take their damage hit by hit, and a swarm loses a member
+   * per hit, so neither has this cost), a weapon that cannot hurt that face (`weaponHurts`' own test, the
+   * rule `canFocus` and `focusHurts` use), or one whose penetration costs nothing. Counts penetrations,
+   * not shots: P(pen) and P(hit) are the panel's other numbers.
+   */
+  penetrationsToKill(shooter: number, target: number, weaponId?: string): number | null {
+    if (shooter < 0 || shooter >= this.count || target < 0 || target >= this.count) return null;
+    if (this.alive[shooter] === 0 || this.alive[target] === 0) return null;
+    const tType = this.unitTypes[this.typeIdx[target]];
+    if (tType.isSoft || tType.swarm !== null) return null;
+    const air = this.isAirborne(target);
+    const weapons = this.unitTypes[this.typeIdx[shooter]].weapons;
+    this.eyePoint(shooter, this.posX[target], this.posY[target]);
+    const px = this.eyeX;
+    const py = this.eyeY;
+    let best = 0;
+    for (let s = 0; s < weapons.length && s < 2; s++) {
+      const w = weapons[s];
+      if (weaponId !== undefined && w.id !== weaponId) continue;
+      if (this.garrisonedIn[shooter] >= 0 && !w.firesFromBuilding) continue;
+      if (air ? !w.canTargetAir : !w.canTargetGround) continue;
+      const z = penZ(w.penetration, this.presentedArmor(target, px, py, w.cls));
+      if (fx.normCdf(z) < PEN_HURTS_MIN) continue;
+      const cost = penetrationHpCost(tType.hp, w.damage, overmatchShift(z));
+      if (cost <= 0) continue;
+      // ceil(hp / cost) in integers: the sim has no Math. hp + cost stays below 2^32, exact in a double.
+      const hits = ((this.hp[target] + cost - 1) / cost) | 0;
+      if (hits < 1) continue;
+      if (best === 0 || hits < best) best = hits;
+    }
+    return best === 0 ? null : best;
+  }
+
   /** Could any of `i`'s weapons ever be aimed at `t`, range and sight aside?
    *  The domain and containment half of selectTarget's filter, for stepSweep:
    *  worth walking toward only if, once there, combat could take the shot.
@@ -11172,6 +11214,17 @@ export class Sim {
       this.fieldFixTicks[i] = 0;
       this.pendingEvents.push({ kind: 'fieldFixed', tick: this.tickCount, entity: i });
     }
+  }
+
+  /**
+   * GH-560 final review N-4: ticks since `i` was last damaged -- the hit that zeroes a stuck hull's
+   * field-fix clock in `stepFieldFix` (it compares `lastDamagedTick` with this tick). A bounce that
+   * `threatens` counts as damage (lead ruling 3). A huge number for a unit never hit. Public and
+   * read-only: the HUD card's "repair reset" cue asks it, and the clock itself stays the sim's.
+   */
+  ticksSinceDamaged(i: number): number {
+    if (i < 0 || i >= this.count) return 0x7fffffff;
+    return this.tickCount - this.lastDamagedTick[i];
   }
 
   /**

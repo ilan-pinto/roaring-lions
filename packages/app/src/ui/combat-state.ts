@@ -128,3 +128,18 @@ export function repairTicksLeft(done: number, rate: number, total: number): numb
   if (rate <= 0) return null;
   return Math.ceil(Math.max(0, total - done) / rate);
 }
+
+/**
+ * GH-560 final review N-4: how long after the last hit the card still says the repair clock was reset
+ * by fire (2 s). Presentation only, not a sim constant: the sim zeroes `fieldFixTicks` on every tick a
+ * hit (or a threatening bounce) lands, so under continuous fire the countdown sits at its full length,
+ * and the cue explains why. It must outlast the 4 Hz card cadence (250 ms) or it would flicker past.
+ */
+export const REPAIR_RESET_CUE_TICKS = 2 * TICKS_PER_SECOND;
+
+/** True while the countdown is being restarted by fire: `sinceDamaged` is the sim's `ticksSinceDamaged`
+ *  (1 on the tick after a hit). Decides nothing about the clock; the caller shows it only beside a live
+ *  countdown. */
+export function repairResetByFire(sinceDamaged: number): boolean {
+  return sinceDamaged >= 0 && sinceDamaged <= REPAIR_RESET_CUE_TICKS;
+}

@@ -10,6 +10,8 @@ import {
   hpWord,
   PIN_AT_Q,
   recoverySeconds,
+  REPAIR_RESET_CUE_TICKS,
+  repairResetByFire,
   repairTicksLeft,
   ROUT_AFTER_TICKS,
   SUPP_DECAY_Q,
@@ -169,5 +171,16 @@ describe('repairTicksLeft (GH-706): the stuck hull\'s countdown, from the sim\'s
       }
       expect(`${assisted}: ${took}`).toBe(`${assisted}: ${promised}`);
     }
+  });
+});
+
+describe('repairResetByFire (GH-560 final review N-4): the cue lasts two seconds after the last hit', () => {
+  it('shows on the tick after a hit, through 40 ticks, and not on the 41st or for a unit never hit', () => {
+    expect(REPAIR_RESET_CUE_TICKS).toBe(40);
+    expect(repairResetByFire(0)).toBe(true);
+    expect(repairResetByFire(1)).toBe(true);
+    expect(repairResetByFire(40)).toBe(true);
+    expect(repairResetByFire(41)).toBe(false);
+    expect(repairResetByFire(100000)).toBe(false);
   });
 });

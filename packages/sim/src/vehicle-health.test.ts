@@ -478,3 +478,104 @@ describe('a loitering munition and a beam pay the penetration cost (GH-560, S-1)
     expect(hp[200 - T]).toBe(98304000 + 48000);
   });
 });
+
+// GH-560 follow-up: the card's "~3 penetrating hits". Every number is worked by hand from the cost rows above:
+// HEAVY_GUN (pen 1000, damage 85) on HULL (3000 hp, 300 mm) is z >= 5.8, shift 30, cost 100269000 raw.
+describe('penetrationsToKill: the hits that end a hard hull, from the sim\'s own cost (GH-560 follow-up)', () => {
+  function pair(shooterType: UnitTypeJson = HEAVY_GUN, targetType: UnitTypeJson = HULL) {
+    const sim = new Sim({ seed: 3, width: 24, height: 16, capacity: 8 });
+    const target = sim.spawn(sim.addUnitType(targetType), 1, fx.from(10.5), fx.from(8.5), 32768);
+    const shooter = sim.spawn(sim.addUnitType(shooterType), 0, fx.from(4.5), fx.from(8.5));
+    return { sim, target, shooter };
+  }
+
+  it('a full 3000 hp hull is 2 hits; the bar is crossed exactly at one cost (100269000 raw) and not a raw unit above', () => {
+    const { sim, target, shooter } = pair();
+    expect(sim.penetrationsToKill(shooter, target)).toBe(2);
+    sim.state.hp[target] = 100269000;
+    expect(sim.penetrationsToKill(shooter, target)).toBe(1);
+    sim.state.hp[target] = 100269001;
+    expect(sim.penetrationsToKill(shooter, target)).toBe(2);
+    sim.state.hp[target] = 1;
+    expect(sim.penetrationsToKill(shooter, target)).toBe(1);
+  });
+
+  it('agrees with what the sim then does: one live penetration leaves a hull that is one hit from death', () => {
+    const { sim, target, shooter } = pair();
+    expect(sim.penetrationsToKill(shooter, target)).toBe(2);
+    sim.identifyTo(0, target);
+    for (let t = 0; t < 400 && sim.state.hp[target] === 196608000; t++) sim.tick();
+    expect(sim.state.hp[target]).toBe(96339000); // 196608000 - 100269000
+    expect(sim.penetrationsToKill(shooter, target)).toBe(1);
+  });
+
+  it('prices the weapon it is asked about, and null for one the shooter does not carry', () => {
+    const { sim, target, shooter } = pair();
+    expect(sim.penetrationsToKill(shooter, target, 'heavy')).toBe(2);
+    expect(sim.penetrationsToKill(shooter, target, 'no_such_gun')).toBeNull();
+  });
+
+  it('is null for a weapon that cannot hurt the hull, in step with focusHurts', () => {
+    const { sim, target, shooter } = pair(RIFLE);
+    expect(sim.focusHurts(shooter, target)).toBe(false);
+    expect(sim.penetrationsToKill(shooter, target)).toBeNull();
+    const heavy = pair(HEAVY_GUN);
+    expect(heavy.sim.focusHurts(heavy.shooter, heavy.target)).toBe(true);
+  });
+
+  it('is null for a soft target (men take damage hit by hit), for a dead one, and for ids out of range', () => {
+    const soft = pair(HEAVY_GUN, HEAVY_GUN); // 10 mm plate: not a hard hull
+    expect(soft.sim.penetrationsToKill(soft.shooter, soft.target)).toBeNull();
+    const { sim, target, shooter } = pair();
+    expect(sim.penetrationsToKill(shooter, target)).toBe(2);
+    expect(sim.penetrationsToKill(-1, target)).toBeNull();
+    expect(sim.penetrationsToKill(shooter, 99)).toBeNull();
+    sim.debugKill(target);
+    expect(sim.penetrationsToKill(shooter, target)).toBeNull();
+  });
+
+  it('writes nothing: hash and rng are where they were', () => {
+    const { sim, target, shooter } = pair();
+    const before = sim.hash();
+    sim.penetrationsToKill(shooter, target);
+    sim.penetrationsToKill(shooter, target, 'heavy');
+    expect(sim.hash()).toBe(before);
+  });
+});
+
+describe('ticksSinceDamaged: the age of the hit that zeroes the crew fix (GH-560 final review N-4)', () => {
+  function scene(shooterType: UnitTypeJson) {
+    const sim = new Sim({ seed: 5, width: 40, height: 24, capacity: 8 });
+    const id = sim.spawn(sim.addUnitType(THICK_FRONT), 1, fx.from(10.5), fx.from(8.5), 32768);
+    expect(sim.ticksSinceDamaged(id)).toBeGreaterThan(99999); // never hit
+    for (let t = 0; t < 100; t++) sim.tick();
+    const shooter = sim.spawn(sim.addUnitType(shooterType), 0, fx.from(4.5), fx.from(8.5));
+    sim.identifyTo(0, id);
+    return { sim, id, shooter };
+  }
+
+  it('counts one a tick from a direct hit', () => {
+    const sim = new Sim({ seed: 5, width: 40, height: 24, capacity: 8 });
+    const id = sim.spawn(sim.addUnitType(HULL), 1, fx.from(10.5), fx.from(8.5), 32768);
+    (sim as unknown as Internals).applyDamage(id, 65536, -1);
+    expect(sim.ticksSinceDamaged(id)).toBe(0);
+    for (let t = 0; t < 7; t++) sim.tick();
+    expect(sim.ticksSinceDamaged(id)).toBe(7);
+    expect(sim.ticksSinceDamaged(-1)).toBeGreaterThan(99999);
+  });
+
+  it('a threatening bounce resets it to the tick after; a harmless one leaves it running', () => {
+    for (const [type, fresh] of [[THREAT_GUN, true], [RIFLE, false]] as const) {
+      const { sim, id, shooter } = scene(type);
+      let bounced = false;
+      for (let t = 0; t < 200 && !bounced; t++) {
+        const evs = sim.tick();
+        bounced = impactsOn(evs, id).some((e) => !e.penetrated);
+      }
+      expect(bounced).toBe(true);
+      sim.debugKill(shooter);
+      if (fresh) expect(sim.ticksSinceDamaged(id)).toBe(1);
+      else expect(sim.ticksSinceDamaged(id)).toBeGreaterThan(100);
+    }
+  });
+});
