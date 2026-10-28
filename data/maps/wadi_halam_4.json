@@ -4,6 +4,418 @@
   "width": 48,
   "height": 48,
   "terrain": "green",
+  "backdrop": {
+    "valley": "ns",
+    "crest": 48,
+    "seed": 7,
+    "kit": "wadi_halam_kit",
+    "pieces": [
+      {
+        "id": "bd_wall_corner",
+        "at": [
+          0,
+          0
+        ],
+        "rot": 0
+      },
+      {
+        "id": "bd_wall_far_c",
+        "at": [
+          0,
+          8
+        ],
+        "rot": 0
+      },
+      {
+        "id": "bd_wall_far_b",
+        "at": [
+          0,
+          24
+        ],
+        "rot": 0
+      },
+      {
+        "id": "bd_wall_far_a",
+        "at": [
+          0,
+          40
+        ],
+        "rot": 0
+      },
+      {
+        "id": "bd_taper",
+        "at": [
+          0,
+          56
+        ],
+        "rot": 0,
+        "mirror": true
+      },
+      {
+        "id": "bd_head_wall",
+        "at": [
+          16,
+          0
+        ],
+        "rot": 90
+      },
+      {
+        "id": "bd_wall_far_c",
+        "at": [
+          40,
+          0
+        ],
+        "rot": 90
+      },
+      {
+        "id": "bd_taper",
+        "at": [
+          56,
+          0
+        ],
+        "rot": 90
+      },
+      {
+        "id": "bd_outer_corner",
+        "at": [
+          0,
+          64
+        ],
+        "rot": 0,
+        "mirror": true
+      },
+      {
+        "id": "bd_outer_corner",
+        "at": [
+          64,
+          0
+        ],
+        "rot": 90
+      },
+      {
+        "id": "bd_slope_near_b",
+        "at": [
+          48,
+          8
+        ],
+        "rot": 180
+      },
+      {
+        "id": "bd_slope_near_a",
+        "at": [
+          48,
+          24
+        ],
+        "rot": 180
+      },
+      {
+        "id": "bd_slope_near_b",
+        "at": [
+          48,
+          40
+        ],
+        "rot": 180
+      },
+      {
+        "id": "bd_slope_near_a",
+        "at": [
+          8,
+          48
+        ],
+        "rot": 270
+      },
+      {
+        "id": "bd_slope_near_b",
+        "at": [
+          24,
+          48
+        ],
+        "rot": 270
+      },
+      {
+        "id": "bd_slope_near_a",
+        "at": [
+          40,
+          48
+        ],
+        "rot": 270
+      },
+      {
+        "id": "bd_slope_corner",
+        "at": [
+          48,
+          48
+        ],
+        "rot": 180
+      },
+      {
+        "id": "bd_terrace_a",
+        "at": [
+          0,
+          76
+        ],
+        "rot": 0,
+        "mirror": true,
+        "lift": 5.823
+      },
+      {
+        "id": "bd_terrace_a",
+        "at": [
+          76,
+          0
+        ],
+        "rot": 90,
+        "lift": 5.823
+      },
+      {
+        "id": "bd_terrace_b",
+        "at": [
+          0,
+          84
+        ],
+        "rot": 0,
+        "mirror": true,
+        "lift": 7.627
+      },
+      {
+        "id": "bd_terrace_b",
+        "at": [
+          84,
+          0
+        ],
+        "rot": 90,
+        "lift": 7.627
+      },
+      {
+        "id": "bd_terrace_a",
+        "at": [
+          -0.52,
+          4
+        ],
+        "rot": 0
+      },
+      {
+        "id": "bd_terrace_b",
+        "at": [
+          -0.52,
+          12
+        ],
+        "rot": 0
+      },
+      {
+        "id": "bd_terrace_a",
+        "at": [
+          -0.52,
+          20
+        ],
+        "rot": 0
+      },
+      {
+        "id": "bd_terrace_b",
+        "at": [
+          -0.52,
+          28
+        ],
+        "rot": 0
+      },
+      {
+        "id": "bd_terrace_a",
+        "at": [
+          -0.52,
+          36
+        ],
+        "rot": 0
+      },
+      {
+        "id": "bd_terrace_b",
+        "at": [
+          -0.52,
+          44
+        ],
+        "rot": 0
+      },
+      {
+        "id": "bd_terrace_a",
+        "at": [
+          -0.52,
+          52
+        ],
+        "rot": 0
+      },
+      {
+        "id": "bd_terrace_b",
+        "at": [
+          -0.52,
+          60
+        ],
+        "rot": 0
+      },
+      {
+        "id": "bd_terrace_a",
+        "at": [
+          4,
+          -0.52
+        ],
+        "rot": 90
+      },
+      {
+        "id": "bd_terrace_end",
+        "at": [
+          12,
+          -0.52
+        ],
+        "rot": 90
+      },
+      {
+        "id": "bd_terrace_end",
+        "at": [
+          20,
+          -0.52
+        ],
+        "rot": 90,
+        "mirror": true
+      },
+      {
+        "id": "bd_terrace_b",
+        "at": [
+          28,
+          -0.52
+        ],
+        "rot": 90
+      },
+      {
+        "id": "bd_terrace_a",
+        "at": [
+          36,
+          -0.52
+        ],
+        "rot": 90
+      },
+      {
+        "id": "bd_terrace_b",
+        "at": [
+          44,
+          -0.52
+        ],
+        "rot": 90
+      },
+      {
+        "id": "bd_terrace_a",
+        "at": [
+          52,
+          -0.52
+        ],
+        "rot": 90
+      },
+      {
+        "id": "bd_terrace_b",
+        "at": [
+          60,
+          -0.52
+        ],
+        "rot": 90
+      },
+      {
+        "id": "bd_scree_a",
+        "at": [
+          -7,
+          20
+        ],
+        "rot": 0,
+        "lift": 1.531
+      },
+      {
+        "id": "bd_scree_c",
+        "at": [
+          -7,
+          42
+        ],
+        "rot": 0,
+        "lift": 1.531
+      },
+      {
+        "id": "bd_scree_b",
+        "at": [
+          30,
+          -8
+        ],
+        "rot": 90,
+        "lift": 1.764
+      },
+      {
+        "id": "bd_crest_a",
+        "at": [
+          -28,
+          0
+        ],
+        "rot": 0,
+        "lift": 12.116
+      },
+      {
+        "id": "bd_crest_b",
+        "at": [
+          -28,
+          16
+        ],
+        "rot": 0,
+        "lift": 12.116
+      },
+      {
+        "id": "bd_crest_a",
+        "at": [
+          -28,
+          32
+        ],
+        "rot": 0,
+        "lift": 12.116
+      },
+      {
+        "id": "bd_crest_b",
+        "at": [
+          -28,
+          48
+        ],
+        "rot": 0,
+        "lift": 12.116
+      },
+      {
+        "id": "bd_crest_b",
+        "at": [
+          -28,
+          -16
+        ],
+        "rot": 0,
+        "lift": 12.116
+      },
+      {
+        "id": "bd_crest_b",
+        "at": [
+          0,
+          -24
+        ],
+        "rot": 90,
+        "lift": 12.116
+      },
+      {
+        "id": "bd_crest_a",
+        "at": [
+          32,
+          -24
+        ],
+        "rot": 90,
+        "lift": 12.116
+      },
+      {
+        "id": "bd_crest_b",
+        "at": [
+          48,
+          -24
+        ],
+        "rot": 90,
+        "lift": 12.116
+      }
+    ]
+  },
   "rows": [
     "................................................",
     "................................................",

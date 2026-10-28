@@ -80,6 +80,44 @@ describe('parseMap', () => {
   });
 });
 
+describe('the backdrop block (GH-161)', () => {
+  const BLOCK = {
+    valley: 'ns',
+    crest: 48,
+    seed: 7,
+    kit: 'wadi_halam_kit',
+    pieces: [
+      { id: 'bd_wall_far_a', at: [0, 8], rot: 0 },
+      { id: 'bd_terrace_a', at: [-0.52, 20], rot: 90, mirror: true, ys: 1.2, lift: 5.5 },
+    ],
+  };
+
+  it('is null on a map without one, and carries pieces through on a map with one', () => {
+    expect(parseMap(TINY).backdrop).toBeNull();
+    const b = parseMap({ ...TINY, backdrop: BLOCK }).backdrop;
+    expect(b?.kit).toBe('wadi_halam_kit');
+    expect(b?.pieces).toEqual([
+      { id: 'bd_wall_far_a', at: [0, 8], rot: 0 },
+      { id: 'bd_terrace_a', at: [-0.52, 20], rot: 90, mirror: true, ys: 1.2, lift: 5.5 },
+    ]);
+  });
+
+  it('refuses what the renderer would silently draw wrong', () => {
+    const bad = (patch: Record<string, unknown>): MapJson => ({ ...TINY, backdrop: { ...BLOCK, ...patch } as never });
+    expect(() => parseMap(bad({ valley: 'diagonal' }))).toThrow(/valley/);
+    expect(() => parseMap(bad({ kit: '' }))).toThrow(/kit/);
+    expect(() => parseMap(bad({ pieces: [] }))).toThrow(/pieces/);
+    expect(() => parseMap(bad({ pieces: [{ id: 'bd_wall_far_a', at: [0, 8], rot: 45 }] }))).toThrow(/rot/);
+    expect(() => parseMap(bad({ pieces: [{ id: 'bd_wall_far_a', at: [0], rot: 0 }] }))).toThrow(/at/);
+    expect(() => parseMap(bad({ pieces: [{ id: 'bd_wall_far_a', at: [0, 8], rot: 0, ys: 2 }] }))).toThrow(/ys/);
+  });
+
+  it('is on Wadi Halam IV and no other shipped map', () => {
+    const withBlock = Object.entries(maps).filter(([, m]) => parseMap(m as MapJson).backdrop !== null).map(([id]) => id);
+    expect(withBlock).toEqual(['wadi_halam_4']);
+  });
+});
+
 describe('terrain symbols and the decor layer', () => {
   const TERRAIN: MapJson = {
     id: 'terrain',

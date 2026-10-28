@@ -50,6 +50,7 @@ import {
   DECOR_MESHES,
   VFX_MESHES,
   PROP_MESHES,
+  BACKDROP_MESHES,
   TUNNEL_PROP_KIND_NAMES,
   RETIRED_MESH_FILES,
   HELD_MESH_FILES,
@@ -466,6 +467,7 @@ describe('meshManifestFor', () => {
       buildings: new Set(['house']),
       decor: new Set(['rock'] as const),
       props: new Set(['tyre_pile'] as const),
+      backdrop: null,
     });
     expect(m.rigged).toEqual([{ id: 'civilians', urls: RIGGED_UNIT_MESHES.civilians.files.map(meshUrl), faction: 'civilian' }]);
     expect(m.vehicles).toEqual([{ id: 'mbt_lavi', url: meshUrl('vehicles/mbt_lavi.glb') }]);
@@ -476,6 +478,31 @@ describe('meshManifestFor', () => {
       ['rock_2', meshUrl('decor/rock_2.glb')],
     ]);
     expect([...m.props.entries()]).toEqual([['tyre_pile', meshUrl('props/tyre_pile.glb')]]);
+  });
+});
+
+describe('mesh catalogue: the valley backdrop kit (GH-161)', () => {
+  it('plans the kit for a map whose JSON carries a block, and for no other', () => {
+    for (const id of Object.keys(maps) as MapId[]) {
+      const plan = meshPlanFor(parseMap(maps[id]), new Set());
+      const wants = (maps[id] as { backdrop?: { kit: string } }).backdrop?.kit ?? null;
+      expect(plan.backdrop, id).toBe(wants);
+    }
+    expect(meshPlanFor(parseMap(maps.wadi_halam_4), new Set()).backdrop).toBe('wadi_halam_kit');
+    // not a block-less map: Beit Sahwan loads no backdrop bytes
+    expect(meshPlanFor(parseMap(maps.beit_sahwan_outskirts), new Set()).backdrop).toBeNull();
+  });
+
+  it('resolves the kit to its served URL, and a kit with no entry to nothing', () => {
+    const plan = meshPlanFor(parseMap(maps.wadi_halam_4), new Set());
+    expect(meshManifestFor(plan).backdrop).toBe(meshUrl('backdrop/wadi_halam_kit.glb'));
+    expect(meshManifestFor({ ...plan, backdrop: 'no_such_kit' }).backdrop).toBeNull();
+    expect(meshManifestFor({ ...plan, backdrop: null }).backdrop).toBeNull();
+  });
+
+  it('claims the kit file, so the completeness gate sees art/meshes/backdrop', () => {
+    expect(claimedMeshFiles().has('backdrop/wadi_halam_kit.glb')).toBe(true);
+    expect(BACKDROP_MESHES.wadi_halam_kit).toBe('backdrop/wadi_halam_kit.glb');
   });
 });
 

@@ -274,7 +274,8 @@ import {
 import { buildGroundTiled, groundAlbedoSlotsUsed, spliceGround } from './terrain/ground';
 import { decalBaseTone, makeDecalGroundSource, type DecalGroundSource } from './terrain/decal-ground-tone';
 import { buildSkirt, disposeSkirt, setSkirtAlbedo, type SkirtMesh } from './terrain/skirt';
-import { buildBackdrop, disposeBackdrop, BACKDROP_OFFMAP_SEEN, type Backdrop } from './terrain/backdrop';
+import { buildBackdrop, disposeBackdrop, disposeBackdropKit, BACKDROP_OFFMAP_SEEN, type Backdrop, type LoadedBackdropKit } from './terrain/backdrop';
+import { readBackdropKit } from './terrain/backdrop-load';
 import { buildScatterTiled, spliceScatter } from './terrain/scatter';
 import { changedTerrainTiles, spliceMask, terrainBuildState, type TerrainBuildState } from './terrain/incremental';
 import type { TiledMeshData } from './terrain/tiled-mesh';
@@ -2694,9 +2695,15 @@ export class ThreeRenderer implements Renderer {
    * quad. Disposed in `dispose()` with everything else added once here.
    */
   private readonly skirtMesh: SkirtMesh;
-  /** PROTOTYPE: the valley backdrop (`./terrain/backdrop.ts`), built from
-   *  `opts.backdrop` once the elevation is known; null on every other map. */
+  /** The valley backdrop (`./terrain/backdrop.ts`), built from
+   *  `opts.backdrop` once BOTH the kit has loaded and the elevation is known;
+   *  null on every other map, and on this one while the kit is loading or if it
+   *  failed (today's skirt, to the bit). */
   private backdrop: Backdrop | null = null;
+  /** The kit GLB, read (`loadBackdropKit`); owned here, disposed in `dispose()`. */
+  private backdropKit: LoadedBackdropKit | null = null;
+  /** The kit landed after the first terrain build: `frame()` builds the backdrop on its own, without a terrain rebuild. */
+  private backdropDirty = false;
   private backdropLevels: Uint8Array | null | undefined = undefined;
   private backdropShown = true;
   /** Read by the prototype's capture tool. */
@@ -3781,6 +3788,8 @@ export class ThreeRenderer implements Renderer {
     disposeSkirt(this.skirtMesh);
     if (this.backdrop) disposeBackdrop(this.backdrop);
     this.backdrop = null;
+    if (this.backdropKit) disposeBackdropKit(this.backdropKit);
+    this.backdropKit = null;
     // A full-map `InstancedMesh`, same "added once in the constructor, no
     // scene.remove needed" reasoning as every mesh above (terrain,
     // particles, tracers): this dispose() sequence never removes those from
@@ -3919,6 +3928,9 @@ export class ThreeRenderer implements Renderer {
     this.shakeState = stepShake(this.shakeState, dtMs);
     this.beginFrameSimClock(alpha, dtMs);
     this.drainTimers(this.frameDtSeconds(dtMs));
+    // The kit landed after the terrain was built: build the backdrop alone. (Before the first terrain build there is
+    // no surface to meet, and `rebuildTerrain` builds it, with everything else.)
+    if (this.backdropDirty && !this.terrainDirty) this.syncBackdrop();
     if (this.terrainDirty) {
       this.rebuildTerrain();
       this.terrainDirty = false;
@@ -3928,6 +3940,8 @@ export class ThreeRenderer implements Renderer {
       // photograph nobody invalidated would outlive its own subject.
       this.invalidateGroundPhoto();
     }
+    // The valley kit's LOD1 twins below zoom 0.6 (terrain/backdrop.ts): by zoom band, never by distance.
+    this.backdrop?.setZoom(this.camera.zoom);
     // After the rebuild, not inside it: `groundPhoto` can build the terrain
     // before any frame has run, and the showcase must still be stamped by
     // the next frame rather than lost to whichever caller built first.
@@ -4168,14 +4182,15 @@ export class ThreeRenderer implements Renderer {
         return this.bloomPass === null || was === visible ? 0 : 1;
       }
       case 'backdrop': {
-        // PROTOTYPE A/B: the backdrop off is today's frame -- skirt back,
-        // off-map fog back to never-seen.
+        // The A/B switch: the backdrop off is today's frame -- skirt back,
+        // off-map fog back to never-seen. 0 on a map with no block, and while
+        // the kit is not (or never) loaded: there is nothing to switch.
         if (!this.opts.backdrop) return 0;
         this.backdropShown = visible;
         if (this.backdrop) this.backdrop.group.visible = visible;
-        this.skirtMesh.visible = !visible;
+        this.skirtMesh.visible = !this.backdrop || !visible;
         this.applyBackdropFog();
-        return 1;
+        return this.backdrop ? 1 : 0;
       }
       case 'skirt':
         // An ordinary `visible` flag: the skirt is added once in the
@@ -12378,6 +12393,67 @@ export class ThreeRenderer implements Renderer {
   }
 
   /**
+   * (Re)build the valley backdrop once its kit is loaded AND the elevation
+   * grid it meets has arrived (`setElevation` lands after the first rebuilds).
+   * A collapse never touches the rim, so it never rebuilds. With no kit --
+   * still loading, or failed (`loadBackdropKit` has said so in the console) --
+   * nothing is built and the frame is today's skirt, to the bit.
+   */
+  private syncBackdrop(): void {
+    const spec = this.opts.backdrop;
+    this.backdropDirty = false;
+    if (!spec || !this.backdropKit) return;
+    if (this.backdrop && this.backdropLevels === this.retained.elevationLevels) return;
+    if (this.backdrop) {
+      this.scene.remove(this.backdrop.group);
+      disposeBackdrop(this.backdrop);
+      this.backdrop = null;
+    }
+    const surf = this.retained.elevation;
+    const w = this.sim.width;
+    const h = this.sim.height;
+    const rim = (x: number, z: number): number =>
+      groundWorldY(surf, w, h, Math.min(w - 0.01, Math.max(0.01, x)), Math.min(h - 0.01, Math.max(0.01, z)));
+    this.backdrop = buildBackdrop(spec, this.backdropKit, rim, w, h, this.opts.background);
+    this.backdropLevels = this.retained.elevationLevels;
+    this.backdropStats = this.backdrop.stats;
+    this.backdrop.group.visible = this.backdropShown;
+    this.scene.add(this.backdrop.group);
+    this.skirtMesh.visible = !this.backdropShown;
+    this.applyBackdropFog();
+  }
+
+  private applyBackdropFog(): void {
+    if (!this.fogPass) return;
+    this.fogPass.uniforms.uOffMapSeen.value = this.backdrop !== null && this.backdropShown ? BACKDROP_OFFMAP_SEEN : 0;
+  }
+
+  /**
+   * Read the map's backdrop kit GLB (`opts.backdrop.kit`, fetched by the app
+   * from `meshes/backdrop/<kit>.glb`). NEVER rejects: a kit that fails to load
+   * or breaks its contract leaves the map on today's skirt with a
+   * `console.error` naming the file -- a backdrop is scenery, and losing it
+   * must not lose the mission. A no-op on a map with no `backdrop` block.
+   */
+  async loadBackdropKit(url: string): Promise<void> {
+    const spec = this.opts.backdrop;
+    if (!spec) return;
+    try {
+      const gltf = await gltfLoader().loadAsync(url);
+      const kit = readBackdropKit(gltf.scene, spec.kit);
+      if (this.backdropKit) disposeBackdropKit(this.backdropKit);
+      this.backdropKit = kit;
+    } catch (err) {
+      console.error(`loadBackdropKit: ${url} FAILED (kit "${spec.kit}") -- drawing the plain skirt`, err);
+      return;
+    }
+    // The backdrop is stale the instant the kit lands. Only the backdrop: the terrain under it did not change, and
+    // a terrain rebuild is 50-80 ms that a kit landing late in a boot has no reason to pay.
+    this.backdropLevels = undefined;
+    this.backdropDirty = true;
+  }
+
+  /**
    * (Re)builds the ground mesh, its scatter (grain) mesh, the decor and prop
    * batches, the residual (fallback-only) buildings mesh, and one
    * small mesh per LIVE, un-arted structure, from the sim's static layout
@@ -12413,36 +12489,6 @@ export class ThreeRenderer implements Renderer {
    * is now closed in PRACTICE too, not merely in principle -- see
    * `onEvents`'s own doc comment on those two kinds.
    */
-  /** PROTOTYPE: (re)build the valley backdrop when the elevation grid it
-   *  meets has changed (it arrives by `setElevation` after the first
-   *  rebuilds). A collapse never touches the rim, so it never rebuilds. */
-  private syncBackdrop(): void {
-    const spec = this.opts.backdrop;
-    if (!spec) return;
-    if (this.backdrop && this.backdropLevels === this.retained.elevationLevels) return;
-    if (this.backdrop) {
-      this.scene.remove(this.backdrop.group);
-      disposeBackdrop(this.backdrop);
-    }
-    const surf = this.retained.elevation;
-    const w = this.sim.width;
-    const h = this.sim.height;
-    const rim = (x: number, z: number): number =>
-      groundWorldY(surf, w, h, Math.min(w - 0.01, Math.max(0.01, x)), Math.min(h - 0.01, Math.max(0.01, z)));
-    this.backdrop = buildBackdrop(spec, rim, w, h, this.opts.background);
-    this.backdropLevels = this.retained.elevationLevels;
-    this.backdropStats = this.backdrop.stats;
-    this.backdrop.group.visible = this.backdropShown;
-    this.scene.add(this.backdrop.group);
-    this.skirtMesh.visible = !this.backdropShown;
-    this.applyBackdropFog();
-  }
-
-  private applyBackdropFog(): void {
-    if (!this.fogPass) return;
-    this.fogPass.uniforms.uOffMapSeen.value = this.opts.backdrop && this.backdropShown ? BACKDROP_OFFMAP_SEEN : 0;
-  }
-
   private rebuildTerrain(): void {
     // The terrace rule reads `sim.blocked`, which changes under this class
     // (a destroyed structure). See `refreshSurface`.
