@@ -3399,7 +3399,7 @@ export class ThreeRenderer implements Renderer {
     for (const id of this.pendingSettle) {
       if (budget === 0) break;
       const type = this.sim.unitTypes[st.typeIdx[id]];
-      const variants = this.meshUnitTemplates.get(type.id);
+      const variants = this.infantryTemplates(type.id, st.side[id]);
       if (!variants) continue;
       if (this.coldUnitTypes.has(type.id)) {
         this.warmUnitMesh(type.id, 'spawned');
@@ -7088,28 +7088,51 @@ export class ThreeRenderer implements Renderer {
     }
     // Computed once, like `loadVehicleMesh`'s: see `units/textured-infantry.ts`.
     const allowTextured = TEXTURED_INFANTRY_TYPES.has(unitTypeId);
-    const templates = await Promise.all(
-      urls.map((url) =>
-        loadMeshUnitTemplate(url, faction, allowTextured, opts.cold === true).catch((err: unknown) => {
-          this.noteMeshFailure(unitTypeId, url, err);
-          throw err;
-        })
-      )
-    );
+    // GH-826: the team's bought kit, merged into its role primitives at load
+    // (`units/infantry-kit.ts`), once, for every clone. Side 0's tiers
+    // (`unitKitTiers` with no `bySide`, so single-player builds exactly the one
+    // template set it always built).
+    const bySide = this.opts.unitKitTiersBySide;
+    const buildSet = (tiers: Readonly<Record<string, number>> | undefined): Promise<MeshUnitTemplate[]> =>
+      Promise.all(
+        urls.map((url) =>
+          loadMeshUnitTemplate(url, faction, allowTextured, opts.cold === true, tiers).catch((err: unknown) => {
+            this.noteMeshFailure(unitTypeId, url, err);
+            throw err;
+          })
+        )
+      );
+    const templates = await buildSet(templateKitTiers(unitTypeId, 0, this.opts.unitKitTiers, bySide));
+    // Per-seat kit: a second set only for a kitted team whose side-1 tiers
+    // differ from side 0's (`templateKey`). Built before either is filed, so a
+    // failure leaves the type with neither.
+    const side1Key = templateKey(unitTypeId, 1, bySide);
+    let side1Templates: MeshUnitTemplate[] | null = null;
+    if (side1Key !== unitTypeId && templates.some((t) => t.kitted === true)) {
+      try {
+        side1Templates = await buildSet(templateKitTiers(unitTypeId, 1, this.opts.unitKitTiers, bySide));
+      } catch (err) {
+        for (const template of templates) disposeMeshUnitTemplate(template);
+        throw err;
+      }
+    }
 
     const previous = this.meshUnitTemplates.get(unitTypeId);
-    if (previous) {
+    const previousSide1 = this.meshUnitTemplates.get(`${unitTypeId}${SIDE_1_TEMPLATE_SUFFIX}`);
+    if (previous || previousSide1) {
       for (const [id, entity] of this.meshUnitEntities) {
         if (entity.typeId !== unitTypeId) continue;
         this.scene.remove(entity.root);
         disposeMeshUnitEntity(entity);
         this.meshUnitEntities.delete(id);
       }
-      for (const template of previous) disposeMeshUnitTemplate(template);
+      for (const template of previous ?? []) disposeMeshUnitTemplate(template);
+      for (const template of previousSide1 ?? []) disposeMeshUnitTemplate(template);
+      this.meshUnitTemplates.delete(`${unitTypeId}${SIDE_1_TEMPLATE_SUFFIX}`);
     }
     if (this.opts.maxTextureSize !== undefined) {
       const cap = this.opts.maxTextureSize;
-      await Promise.all(templates.map((t) => capTextureSize(t.root, cap)));
+      await Promise.all([...templates, ...(side1Templates ?? [])].map((t) => capTextureSize(t.root, cap)));
     }
     // GH-707: a wounded TYPE's figure gets its own material copies carrying a minimum-albedo floor,
     // so a man lying in a building's shadow or on a dusk map is never near-black. After the cap, so
@@ -7121,7 +7144,8 @@ export class ThreeRenderer implements Renderer {
       }
     }
     this.meshUnitTemplates.set(unitTypeId, templates);
-    if (templates.some((t) => hasColdTextures(t.root))) this.coldUnitTypes.add(unitTypeId);
+    if (side1Templates) this.meshUnitTemplates.set(side1Key, side1Templates);
+    if ([...templates, ...(side1Templates ?? [])].some((t) => hasColdTextures(t.root))) this.coldUnitTypes.add(unitTypeId);
     else this.coldUnitTypes.delete(unitTypeId);
   }
 
@@ -7333,6 +7357,7 @@ export class ThreeRenderer implements Renderer {
     }
     const roots = [
       ...(this.meshUnitTemplates.get(unitTypeId) ?? []).map((t) => t.root),
+      ...(this.meshUnitTemplates.get(`${unitTypeId}${SIDE_1_TEMPLATE_SUFFIX}`) ?? []).map((t) => t.root),
       ...[
         this.vehicleMeshTemplates.get(unitTypeId)?.root,
         this.vehicleMeshTemplates.get(`${unitTypeId}${SIDE_1_TEMPLATE_SUFFIX}`)?.root,
@@ -7353,9 +7378,11 @@ export class ThreeRenderer implements Renderer {
         // skip it), so no clone shares these buffers and textures, and each
         // side's template owns its own (a side-1 kit is a separate load).
         this.coldUnitTypes.delete(unitTypeId);
-        const droppedUnits = this.meshUnitTemplates.get(unitTypeId);
-        this.meshUnitTemplates.delete(unitTypeId);
-        if (droppedUnits) for (const template of droppedUnits) disposeMeshUnitTemplate(template);
+        for (const key of [unitTypeId, `${unitTypeId}${SIDE_1_TEMPLATE_SUFFIX}`]) {
+          const droppedUnits = this.meshUnitTemplates.get(key);
+          this.meshUnitTemplates.delete(key);
+          if (droppedUnits) for (const template of droppedUnits) disposeMeshUnitTemplate(template);
+        }
         for (const key of [unitTypeId, `${unitTypeId}${SIDE_1_TEMPLATE_SUFFIX}`]) {
           const droppedVehicle = this.vehicleMeshTemplates.get(key);
           if (!droppedVehicle) continue;
@@ -8876,7 +8903,7 @@ export class ThreeRenderer implements Renderer {
     for (let i = 0; i < n; i++) {
       if (st.alive[i] === 0) continue;
       const type = this.sim.unitTypes[st.typeIdx[i]];
-      const variants = this.meshUnitTemplates.get(type.id);
+      const variants = this.infantryTemplates(type.id, st.side[i]);
       if (!variants) continue;
       // GH-469: a cold template is never drawn (its textures are a 1x1
       // placeholder until decoded). Treated exactly like one not loaded yet;
@@ -10254,6 +10281,17 @@ export class ThreeRenderer implements Renderer {
       memo.set(typeId, key);
     }
     return key;
+  }
+
+  /**
+   * GH-826: the infantry templates a unit of `typeId` on `side` draws from. A
+   * kitted team in a versus room whose two seats bought different kit has a
+   * second template set under `${typeId}#s1` (`loadMeshUnit`); everywhere else
+   * the key is `typeId` and this is the one `Map.get` it always was. A key with
+   * no templates falls back to the id's own, so a seat can never draw nothing.
+   */
+  private infantryTemplates(typeId: string, side: number): readonly MeshUnitTemplate[] | undefined {
+    return this.meshUnitTemplates.get(this.vehicleTemplateKey(typeId, side)) ?? this.meshUnitTemplates.get(typeId);
   }
 
   /**

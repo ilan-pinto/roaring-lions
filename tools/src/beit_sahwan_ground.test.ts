@@ -409,7 +409,9 @@ describe('III: the old town', () => {
     const road = [42, atgm[1]] as Pt;
     expect(tile(m, road[0], road[1])).toBe('r');
     expect(dist(atgm, road)).toBeLessThanOrEqual(3);
-    expect(tile(m, atgm[0], atgm[1])).toBe('.');
+    // GH-865: it stands on the nook's cover-2 apron, the '2' tile beside the sandbag line, and not
+    // on the open ground east of it where it used to stand.
+    expect(tile(m, atgm[0], atgm[1])).toBe('2');
     expect(sees(m, atgm, road, 9)).toBe(true);
     expect(sees(m, atgm, [42, 22], 9)).toBe(true);
     expect(tile(m, atgm[0] - 1, atgm[1] + 1)).toBe('=');

@@ -364,6 +364,18 @@ for _cover, _base in _COVER_BONE.items():
     PART_BONE[f"{_cover}1"] = f"{_base}_R"
 del _cover, _base
 
+# --- infantry upgrade kit (GH-826) ------------------------------------------
+# Every kit part's suffix, from the one manifest `inf_kit_parts.py`. EXTENDED
+# here, never bypassed: a kit part with no entry still raises in `rig_parts`
+# ("unmapped parts, PART_BONE is stale"), and a suffix that already means a
+# different bone is refused rather than overwritten.
+from inf_kit_parts import KIT_PART_BONE  # noqa: E402
+for _suffix, _bone in KIT_PART_BONE.items():
+    if PART_BONE.get(_suffix, _bone) != _bone:
+        raise RuntimeError(f"kit suffix {_suffix!r} already maps to {PART_BONE[_suffix]!r}")
+    PART_BONE[_suffix] = _bone
+del _suffix, _bone
+
 
 # --- standing bone topology (R0's own numbers, unchanged) ------------------
 

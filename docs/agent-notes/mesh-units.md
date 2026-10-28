@@ -637,3 +637,38 @@ for vehicles.
   that fits, raw binding; run first so its collapses see the shipped bytes).
   The corner-drop pivot runs to the FARTHEST same-side wheel: the nearest
   threw a 6x6's cab a metre into the air. Record: the design spec's §7.
+
+## Infantry kit (GH-826, 28 Oct 2026)
+
+- **A rifle squad wears its bought kit on the figures.** Contract v8 (infantry)
+  in `2026-08-28-mesh-unit-contract.md`; spec `2026-10-26-infantry-kit-design.md`.
+  `inf_squad` is the first team; the other seven upgradable teams take the same
+  library in two batches. Pipeline, load-bearing: export -> `motion:meshes` ->
+  `gait:meshes` -> `tools/units/export_infantry_kit.py` (Blender, from the
+  SHIPPED GLB) -> `pnpm kit:meshes -- --teams` -> `encode:meshes`. A re-export
+  of the team makes the kit source stale and the graft refuses it by name (bind
+  matrices, then the `rl_kit_base` hash): re-run the exporter.
+- **The shipped file carries two packed nodes, `kit_uniform` and `kit_weapon`,
+  not 81.** The node-per-part form cost +138 KiB encoded (JSON per accessor);
+  packed with a per-vertex `_RL_KIT` part id it is +31 KiB against a +64 KiB
+  budget. `infantry-kit-shipped.test.ts` (tools) holds the growth.
+- **Read an attribute through its accessor, never `.array`.** The loader hands
+  back `InterleavedBufferAttribute`s for these files, whose `.array` is the
+  whole interleaved block. The first cut copied `.array` and put 1.37 on a skin
+  weight; only the real-file test saw it (the fixture used plain attributes, so
+  `infantry-kit.test.ts` now carries an interleaved case too).
+- **A bought tier is presentation only.** `unitKitTiers` (from
+  `upgradePrepass`, resolved as `applyUpgrades` resolves it) -> `loadMeshUnit` ->
+  `buildMeshUnitTemplate(..., kitTiers)`. No world mark (the lead's ruling);
+  kit reads on the figure, on the unit icons (the steel star) and in the HUD.
+- **Sensors parts ride the `weapon` role primitive** (dark texels), so they take
+  the weapon's surface roughness/metalness; the armour and belt gear ride
+  `uniform`. Tones are pinned texels of the team's own atlas: armour pale tan,
+  khaki and olive pouches and pack, dark and black devices, a cream IR cover and
+  an orange helmet band. Zero new textures, zero new materials.
+- **Clash census** (`tools/inf_kit_clash.py`, Blender): a part rides one bone, so
+  it can only clip geometry on another bone. Side plates were moved outboard,
+  rearward and a hand up (the upper arm hangs flush with the flank, so some
+  contact with it is the figure's own); the idle/kneel/pinned numbers are in
+  the PR.
+

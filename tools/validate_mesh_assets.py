@@ -1776,6 +1776,226 @@ def check_kit_collisions(kit_masks, mesh_masks):
     return failures, worst
 
 
+# ---------------------------------------------------------------------------
+# The infantry kit (GH-826): a team's skinned kit, packed one node per host
+# ---------------------------------------------------------------------------
+#
+# `pnpm kit:meshes -- --teams` (tools/src/meshes/infantry-kit-pass.ts) packs a
+# team's kit into `kit_uniform` / `kit_weapon`: one skinned mesh per role
+# primitive it joins at load (`units/infantry-kit.ts`), `_RL_KIT` on each vertex
+# naming its part, `extras.rl_kit = {host, parts: [{track, tier, part, figure,
+# bone, slot?, side?, name, tris}]}`. Checked from the bytes here (the half a
+# render cannot see: every part still RENDERS whatever it names), and rendered
+# by `render_mesh_gate.render_infantry_kit` -- the painted maximum and each
+# track alone at tier 3 -- then held against every OTHER unit at `IOU_LIMIT`,
+# `inf_grenadier` included.
+INFANTRY_KIT_HOSTS = ("uniform", "weapon")
+INFANTRY_KIT_FIGURE_TRIS = 1200
+INFANTRY_KIT_FILE_TRIS = 5000
+INFANTRY_KIT_TAG_ATTR = "_RL_KIT"
+TEAM_KIT_PREFIX = "teamkit_"
+
+
+def infantry_kit_teams(path=KIT_CONTRACT_TS):
+    """`INFANTRY_KIT_TEAMS` parsed out of the TypeScript contract."""
+    return _ts_list(path, "INFANTRY_KIT_TEAMS")
+
+
+def infantry_kit_variant_names(tracks):
+    """What `render_mesh_gate.render_infantry_kit` owes a team whose kit spans
+    `tracks`: the painted maximum, then each track alone at tier 3."""
+    return [KIT_MAX_VARIANT] + [f"{KIT_TRACK_LETTER.get(t, t)}{KIT_TIERS[-1]}" for t in _ordered_tracks(tracks)]
+
+
+def drawn_figure_tris(parts):
+    """Triangles each figure DRAWS at maximum kit: the highest tier in every
+    (track, figure, slot, side), everything with no slot. `drawnFigureTris`
+    (infantry-kit-pass.ts) restated."""
+    best = {}
+    for p in parts:
+        if p.get("slot") is not None:
+            k = (p["track"], p["figure"], p["slot"], p.get("side"))
+            best[k] = max(best.get(k, 0), p["tier"])
+    out = {}
+    for p in parts:
+        if p.get("slot") is not None and p["tier"] != best[(p["track"], p["figure"], p["slot"], p.get("side"))]:
+            continue
+        out[p["figure"]] = out.get(p["figure"], 0) + p["tris"]
+    return out
+
+
+def check_infantry_kits(teams_root, units_root, owed):
+    """Every team in `owed` (`INFANTRY_KIT_TEAMS`) carries a kit that keeps the
+    contract AND owes nothing: a part for every (track, tier) its unit JSON
+    declares. Read from the JSON chunk, no Blender. Also: no team outside
+    `owed` carries a `kit_*` node (an unregistered kit would never be checked
+    against its unit JSON, never rendered, and never counted).
+
+    Returns (failures, lines, tracks_by_team)."""
+    failures = []
+    lines = []
+    tracks_by_team = {}
+    for path in sorted(glob.glob(os.path.join(teams_root, "*.glb"))):
+        team = os.path.splitext(os.path.basename(path))[0]
+        if team in owed:
+            continue
+        for n in _read_glb_json(path).get("nodes", []):
+            if (n.get("name") or "").startswith(KIT_NODE_PREFIX):
+                failures.append(f"{os.path.relpath(path, REPO)}: carries kit node {n['name']!r} but {team} is not in "
+                                f"INFANTRY_KIT_TEAMS (tools/src/meshes/kit-contract.ts)")
+                break
+    for team in owed:
+        path = os.path.join(teams_root, f"{team}.glb")
+        name = os.path.relpath(path, REPO)
+        if name.startswith(os.pardir):
+            name = path
+        if not os.path.isfile(path):
+            failures.append(f"{name}: missing -- {team} is in INFANTRY_KIT_TEAMS and owes a kit")
+            continue
+        upgrades, why = _unit_upgrades(team, units_root)
+        if upgrades is None:
+            failures.append(f"{name}: {team} is in INFANTRY_KIT_TEAMS but {why}")
+            continue
+        declared = {(track, tier) for track, spec in upgrades.items()
+                    for tier in range(1, len((spec or {}).get("tiers", [])) + 1)}
+        if not declared:
+            failures.append(f"{name}: {team} is in INFANTRY_KIT_TEAMS but its unit JSON declares no upgrade tier")
+            continue
+        gltf = _read_glb_json(path)
+        nodes = gltf.get("nodes", [])
+        meshes = gltf.get("meshes", [])
+        live = {n.get("name"): n for n in nodes if "mesh" in n and not (n.get("name") or "").startswith(KIT_NODE_PREFIX)}
+        kit_nodes = [n for n in nodes if (n.get("name") or "").startswith(KIT_NODE_PREFIX)]
+        if not kit_nodes:
+            failures.append(f"{name}: carries no kit at all -- {team} is in INFANTRY_KIT_TEAMS and declares "
+                            f"{len(declared)} (track, tier) upgrade(s); run `pnpm kit:meshes -- --teams`")
+            continue
+        parts = []
+        seen_hosts = set()
+        for n in kit_nodes:
+            nname = n.get("name")
+            info = (n.get("extras") or {}).get("rl_kit")
+            if not isinstance(info, dict) or not isinstance(info.get("parts"), list) or not info["parts"]:
+                failures.append(f"{name}: {nname!r} carries no extras.rl_kit.parts table")
+                continue
+            host = info.get("host")
+            if host not in INFANTRY_KIT_HOSTS or nname != f"{KIT_NODE_PREFIX}{host}":
+                failures.append(f"{name}: {nname!r} names host {host!r}; a kit node is `kit_<host>` with host one of "
+                                f"{list(INFANTRY_KIT_HOSTS)} (any other role would be +1 draw call)")
+                continue
+            if host in seen_hosts:
+                failures.append(f"{name}: two kit nodes for host {host!r}")
+            seen_hosts.add(host)
+            h = live.get(host)
+            if h is None:
+                failures.append(f"{name}: {nname!r} names host {host!r}, which is not a live mesh node of the file")
+                continue
+            if "mesh" not in n or len(meshes[n["mesh"]].get("primitives", [])) != 1:
+                failures.append(f"{name}: {nname!r} must be exactly one primitive, merged into its host's one")
+                continue
+            kp_ = meshes[n["mesh"]]["primitives"][0]
+            hp = meshes[h["mesh"]]["primitives"][0]
+            if kp_.get("mode", 4) != 4:
+                failures.append(f"{name}: {nname!r} is not TRIANGLES")
+            if kp_.get("material") != hp.get("material"):
+                failures.append(f"{name}: {nname!r} must use its host's material (+0 draw calls)")
+            want = sorted(list(hp["attributes"]) + [INFANTRY_KIT_TAG_ATTR])
+            if sorted(kp_["attributes"]) != want:
+                failures.append(f"{name}: {nname!r} carries {sorted(kp_['attributes'])}, its host {host!r} "
+                                f"{sorted(hp['attributes'])} plus {INFANTRY_KIT_TAG_ATTR}; the merge is a concatenation")
+            if (kp_.get("indices") is None) != (hp.get("indices") is None):
+                failures.append(f"{name}: {nname!r} and its host {host!r} must both be indexed or neither")
+            tag = kp_["attributes"].get(INFANTRY_KIT_TAG_ATTR)
+            if tag is not None and gltf["accessors"][tag].get("componentType") != 5121:
+                failures.append(f"{name}: {nname!r}'s {INFANTRY_KIT_TAG_ATTR} must be UNSIGNED_BYTE")
+            if n.get("skin") != h.get("skin") or n.get("skin") is None:
+                failures.append(f"{name}: {nname!r} must share its host's skin (one skeleton, one set of clips)")
+            if not _same_trs(n, h):
+                failures.append(f"{name}: {nname!r} must share its host's local transform")
+            if len(info["parts"]) > 255:
+                failures.append(f"{name}: {nname!r} lists {len(info['parts'])} parts; _RL_KIT is one byte")
+            tris = _prim_tris(gltf, kp_)
+            if tris != sum(int(p.get("tris", 0)) for p in info["parts"]):
+                failures.append(f"{name}: {nname!r} has {tris} triangles but its parts table sums to "
+                                f"{sum(int(p.get('tris', 0)) for p in info['parts'])}")
+            keys = set()
+            for p in info["parts"]:
+                if p.get("track") not in upgrades:
+                    failures.append(f"{name}: part {p.get('name')!r} is on track {p.get('track')!r}, which the unit "
+                                    f"JSON does not declare under upgrades ({sorted(upgrades)})")
+                if not isinstance(p.get("tier"), int) or isinstance(p.get("tier"), bool) or p["tier"] not in KIT_TIERS:
+                    failures.append(f"{name}: part {p.get('name')!r} has tier {p.get('tier')!r}, outside {list(KIT_TIERS)}")
+                k = (p.get("track"), p.get("tier"), p.get("part"), p.get("side"), p.get("figure"))
+                if k in keys:
+                    failures.append(f"{name}: duplicate kit part {k!r}")
+                keys.add(k)
+                parts.append(p)
+        have = {(p.get("track"), p.get("tier")) for p in parts}
+        missing = sorted(declared - have)
+        if missing:
+            failures.append(f"{name}: no kit part for {', '.join(f'{t} {k}' for t, k in missing)} -- the unit JSON "
+                            f"declares the tier, so buying it would draw nothing")
+        total = sum(int(p.get("tris", 0)) for p in parts)
+        if total > INFANTRY_KIT_FILE_TRIS:
+            failures.append(f"{name}: kit totals {total:,} triangles, over the {INFANTRY_KIT_FILE_TRIS:,} a team file may carry")
+        drawn = drawn_figure_tris([p for p in parts if isinstance(p.get("tier"), int)])
+        for fig, count in sorted(drawn.items()):
+            if count > INFANTRY_KIT_FIGURE_TRIS:
+                failures.append(f"{name}: figure {fig} draws {count} kit triangles at maximum kit, over the "
+                                f"{INFANTRY_KIT_FIGURE_TRIS} a figure may")
+        tracks_by_team[team] = sorted({p.get("track") for p in parts if p.get("track")})
+        lines.append(f"{team}: {len(parts)} part(s), {total:,} tris in the file (limit {INFANTRY_KIT_FILE_TRIS:,}); "
+                     f"drawn at max kit per figure {', '.join(f'{f} {n}' for f, n in sorted(drawn.items()))} "
+                     f"(limit {INFANTRY_KIT_FIGURE_TRIS}); {len(declared) - len(missing)} of {len(declared)} "
+                     f"declared (track, tier) covered")
+    return failures, lines, tracks_by_team
+
+
+def load_team_kit_masks(out_dir, palette_path):
+    """`<out>/<team>/teamkit_<variant>_f00_000.png`, quantized and masked as
+    the shipped renders are. Each is framed to its own bounds, so `check_framing`
+    applies (it also fails an EMPTY render, which would pass every IoU ceiling
+    by scoring 0). The painted maximum takes `check_image` unless the team is a
+    textured exemption, as its shipped render does.
+
+    Returns (failures, {team: {variant: mask}}, [teams whose maximum skipped
+    `check_image`])."""
+    failures = []
+    masks = {}
+    not_palette_checked = []
+    targets, _ = qs.load_targets(palette_path)
+    allowed, reserved = va.load_palette(palette_path)
+    for path in sorted(glob.glob(os.path.join(out_dir, "*", f"{TEAM_KIT_PREFIX}*_f00_000.png"))):
+        team = os.path.basename(os.path.dirname(path))
+        variant = os.path.basename(path)[len(TEAM_KIT_PREFIX):-len("_f00_000.png")]
+        qs.quantize(path, targets, check_only=False)
+        for e in va.check_framing(path):
+            failures.append(f"{team} infantry kit {variant}: {e}")
+        if variant == KIT_MAX_VARIANT:
+            if textured_exempt(team):
+                not_palette_checked.append(team)
+            else:
+                for e in va.check_image(path, allowed, reserved):
+                    failures.append(f"{team} infantry kit {variant}: {e}")
+        masks.setdefault(team, {})[variant] = va.silhouette(path)
+    return failures, masks, not_palette_checked
+
+
+def check_team_kit_census(team_kit_masks, tracks_by_team):
+    """Every kitted team produced every render it owes and nothing else did --
+    `check_kit_census`' lesson: the framing and collision checks iterate the
+    renders that EXIST, so a variant that never rendered is checked zero times."""
+    failures = []
+    for team in sorted(set(tracks_by_team) | set(team_kit_masks)):
+        want = set(infantry_kit_variant_names(tracks_by_team.get(team, []))) if team in tracks_by_team else set()
+        got = set(team_kit_masks.get(team, {}))
+        if got != want:
+            failures.append(f"{team}: infantry kit renders {sorted(got)} but its kit owes {sorted(want)} "
+                            f"(missing {sorted(want - got)}, unexpected {sorted(got - want)}) -- see "
+                            f"render_mesh_gate.render_infantry_kit")
+    return failures
+
+
 RUNNING_GEAR_CONTRACT_TS = os.path.join(REPO, "tools", "src", "meshes", "running-gear-contract.ts")
 RG_WHEEL_ATTR = "_RL_WHEEL"
 RG_TRACK_ATTR = "_RL_TRACK"
@@ -2384,6 +2604,11 @@ def main():
         help="stand this directory in for art/meshes/vehicles/ (renders, kit, wreck census and "
              "wreck bytes) -- the falsification hook: point it at mutated scratch COPIES",
     )
+    ap.add_argument(
+        "--teams-dir", default="",
+        help="stand this directory in for art/meshes/ in the infantry kit's byte checks only "
+             "(the renders still read art/meshes) -- the falsification hook",
+    )
     args = ap.parse_args()
     vehicles_dir = (os.path.abspath(args.vehicles_dir) if args.vehicles_dir
                     else os.path.join(REPO, "art", "meshes", "vehicles"))
@@ -2465,6 +2690,29 @@ def main():
                            if o != unit_id) if unit_id in mesh_masks else (0.0, "?")
                 print(f"    {unit_id}: shipped {base[1]} {base[0]:.3f} -> "
                       f"{variant} vs {other} {score:.3f}")
+
+        # The infantry kit (GH-826): from the bytes, then the renders, census first.
+        teams_root = os.path.abspath(args.teams_dir) if args.teams_dir else os.path.join(REPO, "art", "meshes")
+        team_kit_failures, team_kit_lines, team_kit_tracks = check_infantry_kits(
+            teams_root, os.path.join(REPO, "data", "units"), infantry_kit_teams())
+        failures.extend(team_kit_failures)
+        team_render_failures, team_kit_masks, textured_team_kit = load_team_kit_masks(out_dir, args.palette)
+        failures.extend(team_render_failures)
+        failures.extend(check_team_kit_census(team_kit_masks, team_kit_tracks))
+        team_kit_collisions, team_kit_worst = check_kit_collisions(team_kit_masks, mesh_masks)
+        failures.extend(team_kit_collisions)
+        print(f"  infantry kit: {len(team_kit_lines)} of {len(infantry_kit_teams())} INFANTRY_KIT_TEAMS, "
+              f"from the GLB bytes --")
+        for line in team_kit_lines:
+            print(f"    {line}")
+        if team_kit_masks:
+            print(f"  infantry kit: {sum(len(v) for v in team_kit_masks.values())} kitted render(s), each framed "
+                  f"to its own bounds; worst IoU per team against every other unit "
+                  f"(limit {va.IOU_LIMIT:.2f}; own base excluded) --")
+            for unit_id, (score, variant, other) in sorted(team_kit_worst.items()):
+                base = max((va.iou(mesh_masks[unit_id], m), o) for o, m in mesh_masks.items()
+                           if o != unit_id) if unit_id in mesh_masks else (0.0, "?")
+                print(f"    {unit_id}: shipped {base[1]} {base[0]:.3f} -> {variant} vs {other} {score:.3f}")
 
         decor_root = os.path.join(REPO, "art", "meshes", "decor")
         decor_failures, textured_decor = check_decor_meshes(decor_root)
@@ -2565,6 +2813,10 @@ def main():
                   f"render(s) ship their host's baked material: {', '.join(sorted(textured_kit))}")
             print("  (every kit variant is still framing- and silhouette-IoU-checked; see "
                   "load_kit_masks)")
+        if textured_team_kit:
+            print(f"  NOT palette-checked -- {len(textured_team_kit)} kitted team(s)' maximum-kit render(s) ship "
+                  f"the team's baked material: {', '.join(sorted(textured_team_kit))}")
+            print("  (every infantry kit variant is still framing- and silhouette-IoU-checked)")
         if textured_decor:
             # Same reasoning as the building line above, and deliberately on
             # the PASSING path: the thing worth catching is a reader assuming

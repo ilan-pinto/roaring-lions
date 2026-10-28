@@ -48,6 +48,7 @@ import {
 } from './mesh-anim';
 import { clipScaleSignatures, type ClipPlayer } from './mesh-clip';
 import { HULL_RENDER_ORDER } from './render-order';
+import { applyInfantryKit, type InfantryKitTiers } from './infantry-kit';
 import { buildSquadRig, parseFigureExtras, splitClips, type FigureSpec, type SquadRig } from './squad-rig';
 
 /**
@@ -92,6 +93,10 @@ export interface MeshUnitTemplate {
   /** `extras.rl_fire`: a crew-served weapon's muzzle, backblast and
    *  baseplate, measured on its own mesh (`units/fire-points.ts`). */
   readonly fire?: FirePoints;
+  /** The GLB carried kit nodes (GH-826), whatever tiers were bought. A
+   *  versus room builds a second template for the other seat's kit only for
+   *  a team that is kitted. */
+  readonly kitted?: boolean;
 }
 
 /**
@@ -133,10 +138,20 @@ export function buildMeshUnitTemplate(
    * `buildVehicleMeshTemplate`'s: a mesh that ships a texture for a team not
    * on the list throws rather than being silently repainted over.
    */
-  allowTextured = false
+  allowTextured = false,
+  /**
+   * The team's bought tiers by track (GH-826), merged into its role
+   * primitives here, once, before anything else reads the scene
+   * (`units/infantry-kit.ts`). Absent or all-zero is the shipped figure.
+   */
+  kitTiers?: InfantryKitTiers
 ): MeshUnitTemplate {
   const root = gltf.scene;
   root.scale.setScalar(MESH_SCALE);
+  // Before the role walk below: a kit node is not a role mesh, and a part the
+  // brigade has not bought must not draw.
+  const kit = applyInfantryKit(root, kitTiers);
+  for (const unused of kit.unused) unused.dispose();
 
   const materials: THREE.Material[] = [];
   const geometries: THREE.BufferGeometry[] = [];
@@ -228,6 +243,7 @@ export function buildMeshUnitTemplate(
     root, clips, materials, geometries, clipScale, figures, figureClips,
     ...(gait !== undefined ? { gait } : {}),
     ...(fire !== undefined ? { fire } : {}),
+    ...(kit.kitted ? { kitted: true } : {}),
   };
 }
 
@@ -242,10 +258,12 @@ export async function loadMeshUnitTemplate(
   faction: MeshFaction,
   allowTextured = false,
   /** GH-469: keep the textures encoded until `warmColdTextures`. */
-  cold = false
+  cold = false,
+  /** GH-826: the team's bought kit tiers. */
+  kitTiers?: InfantryKitTiers
 ): Promise<MeshUnitTemplate> {
   const gltf = await (cold ? coldGltfLoader() : gltfLoader()).loadAsync(glbUrl);
-  return buildMeshUnitTemplate(gltf, faction, glbUrl, allowTextured);
+  return buildMeshUnitTemplate(gltf, faction, glbUrl, allowTextured, kitTiers);
 }
 
 /** One living entity's mesh instance: an independent clone (own skeleton,
