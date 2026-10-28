@@ -411,7 +411,7 @@ describe('buildMeshUnitTemplate carries the kit', () => {
 
   it('builds with the kit nodes in the file (a kit node is not an unmapped role) and marks the template', () => {
     const f = team();
-    const t = buildMeshUnitTemplate(gltf(f), 'kdf', 'team.glb', false, { armour: 1 });
+    const t = buildMeshUnitTemplate(gltf(f), 'kdf', 'team.glb', false, { armour: 1 }, true);
     expect(t.kitted).toBe(true);
     expect(triangles(f.hosts.uniform.geometry)).toBeGreaterThan(HOST_TRIS.uniform);
   });
@@ -419,7 +419,7 @@ describe('buildMeshUnitTemplate carries the kit', () => {
   it('a team with no kit nodes is not marked', () => {
     const f = team();
     f.root.remove(f.kits.uniform, f.kits.weapon);
-    expect(buildMeshUnitTemplate(gltf(f), 'kdf', 'team.glb', false, { armour: 3 }).kitted).toBeUndefined();
+    expect(buildMeshUnitTemplate(gltf(f), 'kdf', 'team.glb', false, { armour: 3 }, true).kitted).toBeUndefined();
   });
 
   it('at tier 0 the template draws exactly the shipped geometry', () => {
@@ -432,7 +432,7 @@ describe('buildMeshUnitTemplate carries the kit', () => {
 
   it('registers the MERGED geometries for disposal, not the discarded ones', () => {
     const f = team();
-    const t = buildMeshUnitTemplate(gltf(f), 'kdf', 'team.glb', false, { armour: 3, firepower: 3 });
+    const t = buildMeshUnitTemplate(gltf(f), 'kdf', 'team.glb', false, { armour: 3, firepower: 3 }, true);
     expect(t.geometries).toContain(f.hosts.uniform.geometry);
     expect(t.geometries).not.toContain(f.hostGeometry.uniform);
     expect(t.geometries).not.toContain(f.kits.uniform.geometry);
