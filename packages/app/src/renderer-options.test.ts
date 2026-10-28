@@ -70,6 +70,22 @@ describe('rendererOptionsFor', () => {
     expect(TERRAIN_THEMES.green.decorColors).toBeUndefined();
   });
 
+  // GH-871 P2 T1: the four slot images (rock, scrub, grove, knoll) are the same
+  // four files for every shipped theme today, and every map's tiles sample them.
+  // A theme that gives one slot its own image (the wetland's) must change this
+  // pin for ITS maps only, so arid, green and highland are pinned as literals.
+  it('names the same four slot images for the arid, green and highland themes', () => {
+    const highland = parseMap(maps.tel_marum);
+    expect(highland.terrain).toBe('highland');
+    for (const [name, m] of [['arid', arid], ['green', green], ['highland', highland]] as const) {
+      const o = rendererOptionsFor(m, HIGH, '/');
+      expect(o.rockTextureUrl, name).toBe('/textures/rock_ground_tile.jpg');
+      expect(o.scrubTextureUrl, name).toBe('/textures/rough_scrub_tile.jpg');
+      expect(o.groveTextureUrl, name).toBe('/textures/orchard_floor_tile.jpg');
+      expect(o.knollTextureUrl, name).toBe('/textures/knoll_scree_tile.jpg');
+    }
+  });
+
   it('serves every ground texture from the deploy base', () => {
     const o = rendererOptionsFor(arid, HIGH, '/roaring-lions/');
     const urls = [o.groundTextureUrl, o.rockTextureUrl, o.scrubTextureUrl, o.groveTextureUrl, o.knollTextureUrl];

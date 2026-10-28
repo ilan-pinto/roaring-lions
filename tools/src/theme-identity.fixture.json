@@ -1,0 +1,14 @@
+{
+  "beit_sahwan_outskirts": {
+    "program": "770e1d732910550af4113b91ad6f285e7b00f32edd6f731e4a11dc28a70130dd",
+    "light": "25bf8031d5ff002a08f504fc80e19f2e124399dca4122f81c7f07864a26da5d5"
+  },
+  "wadi_halam_basin": {
+    "program": "770e1d732910550af4113b91ad6f285e7b00f32edd6f731e4a11dc28a70130dd",
+    "light": "a1d7cdfd7f49fdf1fa62365525c03add483eb126ccc6015b56247a1ff2cebfed"
+  },
+  "tel_marum": {
+    "program": "770e1d732910550af4113b91ad6f285e7b00f32edd6f731e4a11dc28a70130dd",
+    "light": "8c3d8a18f47808aedea55b7dd9db4f45cd13de9a97edbdd5851745ea9fb1b76b"
+  }
+}
