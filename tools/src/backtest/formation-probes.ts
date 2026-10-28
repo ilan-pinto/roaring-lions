@@ -22,9 +22,12 @@
 // Friendly damage is read by a probe-only wrapper on `Sim.applyDamage` (`DamageMeter`), which reads the
 // shooter's side and the target's. It changes no sim state and draws no random number.
 //
-// Two geometries, because the facing reading depends on where the column comes from. `head`: the ring
-// marches west to east and the column comes from the east, so the ring's TRAVEL facing already points at
-// the threat. `cross`: the column comes from the north, so travel facing shows the Lavi's flank.
+// Three geometries. The facing reading depends on where the column comes from. `head`: the ring marches
+// west to east and the column comes from the east, so the ring's TRAVEL facing already points at the
+// threat. `cross`: the column comes from the north, so travel facing shows the Lavi's flank. In both the
+// column attack-moves, so it STOPS to fight at its own weapon range, outside the ring. `through`: the
+// head-on column is ordered to MOVE, so it keeps driving through the kill zone while it is shot at: the
+// fratricide stress (the column is inside the ring, where a ring member's HE lands among its own).
 //
 // The map is flat open ground with no cover: the ring's cover preference has nothing to choose between.
 
@@ -36,8 +39,8 @@ import { formations, units } from '@lions/data';
 export type FacingArc = Extract<SimEvent, { kind: 'impact' }>['arc'];
 export type Arm = 'A' | 'B' | 'C';
 export const ARMS: readonly Arm[] = ['A', 'B', 'C'];
-export type Geometry = 'head' | 'cross';
-export const GEOMETRIES: readonly Geometry[] = ['head', 'cross'];
+export type Geometry = 'head' | 'cross' | 'through';
+export const GEOMETRIES: readonly Geometry[] = ['head', 'cross', 'through'];
 
 const TICKS_PER_SECOND = 20;
 export const SEEDS_DEFAULT = 60;
@@ -185,9 +188,9 @@ function build(seed: number, geometry: Geometry): { sim: Sim; ring: number[]; co
   const column = COLUMN_TYPES.map((t, k) => {
     const lane = (k % 2) * 2 - 1;
     const back = 58 + (k >> 1) * 2;
-    return geometry === 'head'
-      ? sim.spawn(tid(t), 1, at(back), at(32 + lane), 32768)
-      : sim.spawn(tid(t), 1, at(32 + lane), at(MAP - 1 - back), 16384);
+    return geometry === 'cross'
+      ? sim.spawn(tid(t), 1, at(32 + lane), at(MAP - 1 - back), 16384)
+      : sim.spawn(tid(t), 1, at(back), at(32 + lane), 32768);
   });
   return { sim, ring, column };
 }
@@ -205,9 +208,9 @@ function orderRing(sim: Sim, ring: number[], arm: Arm, goals: readonly [number, 
 }
 
 function orderColumn(sim: Sim, column: number[], geometry: Geometry): void {
-  const x = geometry === 'head' ? at(2) : at(CLICK[0]);
-  const y = geometry === 'head' ? at(CLICK[1]) : at(MAP - 3);
-  sim.queueCommand({ kind: 'attackMove', ids: column, x, y });
+  const x = geometry === 'cross' ? at(CLICK[0]) : at(2);
+  const y = geometry === 'cross' ? at(MAP - 3) : at(CLICK[1]);
+  sim.queueCommand({ kind: geometry === 'through' ? 'move' : 'attackMove', ids: column, x, y });
 }
 
 /** A's order, run alone: the tiles, the radius and the tick by which the ring has settled. */
@@ -458,7 +461,12 @@ export function main(args: readonly string[] = process.argv.slice(2)): number {
   for (const geometry of GEOMETRIES) {
     const rows = runGeometry(geometry, seeds);
     console.log('');
-    console.log(`geometry ${geometry} (${geometry === 'head' ? 'ring marches west to east, column comes from the east' : 'ring marches west to east, column comes from the north'})`);
+    const where: Record<Geometry, string> = {
+      head: 'ring marches west to east, column attack-moves in from the east and stops to fight',
+      cross: 'ring marches west to east, column attack-moves in from the north and stops to fight',
+      through: 'ring marches west to east, column MOVES in from the east and drives through the kill zone',
+    };
+    console.log(`geometry ${geometry} (${where[geometry]})`);
     console.log('fire together (members alive at the ring\'s first shot that fire within 1 s / 5 s / 10 s of it; "reach" = of those with a column unit in weapon reach):');
     console.log('arm  engaged  <=1 s    reach<=1 s  <=5 s    <=10 s   all alive <=1 s  mean spread');
     for (const r of rows) {
