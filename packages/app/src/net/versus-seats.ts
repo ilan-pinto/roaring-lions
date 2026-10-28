@@ -18,10 +18,15 @@ import { sandboxAnchors, type SandboxAnchors } from '../sandbox-anchors';
  * - `beit_sahwan_outskirts` (mirror only): the heuristic put seat 1 on
  *   `town_center` (31,22), inside the town, and the west seat won 38 of 48
  *   (79.2%). Seat 1 on the open ground east of the town at (40,24) reads
- *   west 22 / east 26 of 48, no draws. Seat 0 is the heuristic's own `kdf_assembly`.
+ *   west 22 / east 26 of 48, no draws. Seat 0 was the heuristic's own `kdf_assembly`
+ *   (4,23) until GH-560 (below).
  *   At 96 seeds (GH-561, 24 Oct) that seat read east 57 / west 39 (59.4%).
  *   One tile north, at (40,23), it reads west 49 / east 47; its neighbours
  *   (40,22), (40,25) and (40,26) read 50-54%, so it is not a one-tile spike.
+ *   Under vehicle health (GH-560) that pair read west 58 / east 38 at 96
+ *   seeds (60.4%; 160 / 128 at 288). Seat 0 one tile north of `kdf_assembly`,
+ *   at (4,22), reads west 47 / east 49 at 96, 97 / 95 at 192 and 145 / 143
+ *   at 288; its neighbours (3,22) 51%, (5,22) 59.4%, (4,21) west 74%.
  * - `tel_marum` (mirror and KDF-vs-Sarim; the lead's ruling, 22 Oct): the
  *   heuristic's `start_line` (24,44) read Sarim 29 of 48 with Sarim on seat 0
  *   (60.4%). Seat 0 two tiles further south at (24,46) reads the mirror
@@ -42,6 +47,13 @@ import { sandboxAnchors, type SandboxAnchors } from '../sandbox-anchors';
  *   the south pair back at capacity 4 keeps cell 3 with Sarim on seat 0 at
  *   Sarim 58.3% and cell 2's Sarim edge (capacity 3 read 51.0% with no edge,
  *   5 read 67.7%).
+ *   Under vehicle health (GH-560, 28 Oct) the economy cell with Sarim friendly
+ *   read Sarim 64.6% and tunnel cell 3 with KDF friendly read KDF 62.5%, at
+ *   seeds 1000 + 7919n, n = 0..95. The friendly camp at (21,46), not (23,44),
+ *   reads economy KDF 51.0% / Sarim 52.1% and cell 3 level / Sarim 55.2%; the
+ *   seats and the south pair at 4 stay. The 2x2 on the map's south rows reads
+ *   inside for x = 20, 21 and 22; row 45 is mixed ((21,45) Sarim friendly
+ *   61%).
  * - `wadi_tarfan` (mirror and KDF-vs-Sarim; the lead's ruling, 23 Oct,
  *   GH-769): its own `versus_0`/`versus_1` markers (10,10)/(37,37) read
  *   KDF-vs-Sarim outside 60/40 at 96 seeds with wounds on (placed force, KDF
@@ -63,6 +75,12 @@ import { sandboxAnchors, type SandboxAnchors } from '../sandbox-anchors';
  *   at capacity 1 and the hostile pair at 2 (south) / 3 (east) read cell 3
  *   Sarim 56.3% / 57.3% with a Sarim edge in cell 2 both ways; the hostile pair
  *   at 2 / 2 had no edge and at 3 / 3 read 65.6%.
+ *   Under vehicle health (GH-560, 28 Oct) cell 3 read Sarim 64.6% (KDF
+ *   friendly) and 61.5% (Sarim friendly). The hostile south route at capacity
+ *   1 (east stays 3) reads KDF friendly 51.0%; the friendly west route at
+ *   capacity 2 (north stays 1) reads Sarim friendly 52.1% with cell 2's Sarim
+ *   edge at +2 (50 v 48), thin: at 192 seeds it is lost, and today's 1 / 1
+ *   reads inside there. A noise call, not a verdict.
  *
  * - `milh_flats` (mirror only) has no entry: it stands on its own named seats
  *   (`versus_0` (9,38), `versus_1` (38,9)). Under 3-deep vehicle ranks
@@ -76,7 +94,7 @@ import { sandboxAnchors, type SandboxAnchors } from '../sandbox-anchors';
  * probe.
  */
 export const VERSUS_SEATS: Readonly<Record<string, SandboxAnchors>> = {
-  beit_sahwan_outskirts: { friendly: [4, 23], hostile: [40, 23] },
+  beit_sahwan_outskirts: { friendly: [4, 22], hostile: [40, 23] },
   tel_marum: { friendly: [27, 45], hostile: [29, 17] },
   wadi_tarfan: { friendly: [11, 11], hostile: [36, 36] },
 };
