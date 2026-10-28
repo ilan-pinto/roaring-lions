@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { doctrines, maps, structures, units, versusRules } from '@lions/data';
+import { doctrines, formations, maps, structures, units, versusRules } from '@lions/data';
 import { canonicalJson, contentDigest, shippedContent, shippedContentDigest, type Content } from './content-digest';
 
 const ROOT = fileURLToPath(new URL('../../../../', import.meta.url));
@@ -44,9 +44,9 @@ describe('contentDigest (L4)', () => {
     expect(d | 0).toBe(d);
   });
 
-  it('the shipped digest covers units, structures, maps, doctrines and versus rules, as they are shipped', () => {
-    expect(shippedContent()).toEqual({ units, structures, maps, doctrines, versusRules });
-    expect(shippedContentDigest()).toBe(contentDigest({ units, structures, maps, doctrines, versusRules }));
+  it('the shipped digest covers units, structures, maps, doctrines, versus rules and formations, as they are shipped', () => {
+    expect(shippedContent()).toEqual({ units, structures, maps, doctrines, versusRules, formations });
+    expect(shippedContentDigest()).toBe(contentDigest({ units, structures, maps, doctrines, versusRules, formations }));
   });
 
   it('is key-sorted: the same content in a different insertion order digests the same', () => {
@@ -57,6 +57,8 @@ describe('contentDigest (L4)', () => {
       maps: reversed(shipped.maps) as Content['maps'],
       doctrines: reversed(shipped.doctrines) as Content['doctrines'],
       versusRules: reversed(shipped.versusRules) as Content['versusRules'],
+      // key order inside each formation, NOT the order of the list (that is content, tested below)
+      formations: (shipped.formations as unknown[]).map(reversed),
     };
     // The control: the reversal really changed the text an unsorted hash would see.
     expect(JSON.stringify(turned.units)).not.toBe(JSON.stringify(shipped.units));
@@ -83,6 +85,26 @@ describe('contentDigest (L4)', () => {
     });
     expect(contentDigest(withRate(1))).not.toBe(shippedContentDigest());
     expect(contentDigest(withRate(0))).toBe(shippedContentDigest());
+  });
+
+  it('GH-859 P1a: one formation value counts (min_members 2 -> 3), and put back it is the same', () => {
+    const shipped = shippedContent();
+    const withMin = (by: number): Content => ({
+      ...shipped,
+      formations: formations.map((f, i) => (i === 0 ? { ...f, min_members: f.min_members + by } : f)),
+    });
+    expect(contentDigest(withMin(1))).not.toBe(shippedContentDigest());
+    expect(contentDigest(withMin(0))).toBe(shippedContentDigest());
+  });
+
+  it('GH-859 P1a: the ORDER formations are registered in counts, because a group row stores an index into it', () => {
+    const shipped = shippedContent();
+    // literal: the shipped order is ambush, attack, column (sorted directory order)
+    expect(formations.map((f) => f.id)).toEqual(['ambush', 'attack', 'column']);
+    const swapped: Content = { ...shipped, formations: [formations[1], formations[0], formations[2]] };
+    expect((swapped.formations as { id: string }[]).map((f) => f.id).sort()).toEqual(['ambush', 'attack', 'column']); // the same SET of files...
+    expect(contentDigest(swapped)).not.toBe(shippedContentDigest()); // ...in another order is another digest
+    expect(contentDigest({ ...shipped, formations: [formations[0], formations[1], formations[2]] })).toBe(shippedContentDigest());
   });
 
   it('a structure, a map row, and array order all count', () => {

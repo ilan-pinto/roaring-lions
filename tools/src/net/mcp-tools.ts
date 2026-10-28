@@ -16,6 +16,7 @@
  * writes to stdout either: stdout is the MCP protocol channel.
  */
 import { COMMAND_KINDS, cleanAdvisorMsg, cleanChat, cleanCommand, type TransportStatus } from '@lions/net';
+import { formations } from '@lions/data';
 import { fx, type Command } from '@lions/sim';
 import type { AgentClient } from './agent-client';
 import type { OrderRecord } from './order-desk';
@@ -306,10 +307,24 @@ function buildOrder(view: SideView, a: Record<string, unknown>): Command | { err
     if (verb !== 'attackMove') return { error: 'invalid', detail: 'sweep is for attackMove only' };
     if (typeof a.sweep !== 'boolean') return { error: 'invalid', detail: 'sweep is true or false' };
   }
+  // GH-859 P1a: `formation` is for move and attackMove, and only a shipped id of the verb the formation is
+  // for (an `attackMove` naming a `move` formation would be a plain order in the sim: say so here instead).
+  // WHICH SEAT may field it is `validateCommand`'s question, asked by the caller's precheck.
+  let formation: string | undefined;
+  if (a.formation !== undefined) {
+    if (verb !== 'move' && verb !== 'attackMove') return { error: 'invalid', detail: 'formation is for move and attackMove only' };
+    const shipped = formations.find((f) => f.id === a.formation);
+    if (shipped === undefined) return { error: 'unknown formation', detail: `one of ${formations.map((f) => f.id).join(', ')}` };
+    if (shipped.verb !== 'either' && shipped.verb !== verb) return { error: 'invalid', detail: `${shipped.id} is for ${shipped.verb}, not ${verb}` };
+    formation = shipped.id;
+  }
   const need = (key: 'structure' | 'tunnel'): number | { error: string; detail: string } =>
     isInt(a[key]) ? a[key] : { error: 'invalid', detail: `${verb} needs an integer ${key}` };
   switch (verb) {
-    case 'move':
+    case 'move': {
+      const p = point();
+      return 'error' in p ? p : formation === undefined ? { kind: verb, ids, x: p.x, y: p.y } : { kind: verb, ids, x: p.x, y: p.y, formation };
+    }
     case 'smoke': {
       const p = point();
       return 'error' in p ? p : { kind: verb, ids, x: p.x, y: p.y };
@@ -317,7 +332,11 @@ function buildOrder(view: SideView, a: Record<string, unknown>): Command | { err
     case 'attackMove': {
       const p = point();
       if ('error' in p) return p;
-      return typeof a.sweep === 'boolean' ? { kind: verb, ids, x: p.x, y: p.y, sweep: a.sweep } : { kind: verb, ids, x: p.x, y: p.y };
+      return {
+        kind: verb, ids, x: p.x, y: p.y,
+        ...(typeof a.sweep === 'boolean' ? { sweep: a.sweep } : {}),
+        ...(formation === undefined ? {} : { formation }),
+      };
     }
     case 'halt':
     case 'unload':
@@ -370,7 +389,7 @@ function sweepRefusal(ctx: ToolContext): ToolResult | null {
 
 const order: ToolDef = {
   name: 'order',
-  description: `Order your units. verb: ${ORDER_VERBS.join(' | ')}; ids: your unit ids; x, y: a tile (move, attackMove, smoke); sweep: true (attackMove only, command scope, and only when both seats are bots) to go on, once there, hunting the enemies your side remembers instead of holding the tile; target: a contact id (attack, rescue: a medic goes to treat and carry a wounded); structure (garrison, demolish); carrier (load); tunnel (chargeTunnel); note: a line for your human (assist). command: queued on the order desk (at most 4 sent a second, 12 queued) -> { ref, status }. assist: proposed to your human, who accepts or vetoes -> { proposal, status }.`,
+  description: `Order your units. verb: ${ORDER_VERBS.join(' | ')}; ids: your unit ids; x, y: a tile (move, attackMove, smoke); formation: a combat formation id (move or attackMove; column and ambush are for move, attack for attackMove) to arrive in that shape; sweep: true (attackMove only, command scope, and only when both seats are bots) to go on, once there, hunting the enemies your side remembers instead of holding the tile; target: a contact id (attack, rescue: a medic goes to treat and carry a wounded); structure (garrison, demolish); carrier (load); tunnel (chargeTunnel); note: a line for your human (assist). command: queued on the order desk (at most 4 sent a second, 12 queued) -> { ref, status }. assist: proposed to your human, who accepts or vetoes -> { proposal, status }.`,
   scopes: ['assist', 'command'],
   schema: {
     type: 'object',
@@ -383,6 +402,7 @@ const order: ToolDef = {
       structure: { type: 'integer' },
       carrier: { type: 'integer' },
       tunnel: { type: 'integer' },
+      formation: { type: 'string', description: 'move or attackMove only: a shipped formation id (column, ambush: move; attack: attackMove). The units take its slots about the tile', enum: formations.map((f) => f.id) },
       sweep: { type: 'boolean', description: 'attackMove only, and only bot against bot in command scope: on arrival, go on to hunt remembered enemies' },
       note: { type: 'string' },
     },

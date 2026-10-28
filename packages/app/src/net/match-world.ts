@@ -1,4 +1,4 @@
-import { applyTerrain, doctrines, maps, parseMap, roadMaskOf, units, versusMissionOf, versusRules, versusTunnelsOf, versusZonesOf, type MapJson, type ParsedMap } from '@lions/data';
+import { applyTerrain, doctrines, formations, maps, parseMap, roadMaskOf, units, versusMissionOf, versusRules, versusTunnelsOf, versusZonesOf, type MapJson, type ParsedMap } from '@lions/data';
 import { economyRoom, endOfSeat, seatRules, type Faction, type MatchConfig, type SeatConfig, type SpawnEnd } from '@lions/net';
 import { sameTrackTiers } from '@lions/render';
 import { MissionRuntime, Sim, type MissionContext, type MissionEvent, type MissionJson, type SimEvent, type TunnelRouteJson } from '@lions/sim';
@@ -114,6 +114,10 @@ export function buildMatchWorld(config: MatchConfig): MatchWorld {
     typeOf1.set(u.id, sim.addUnitType(kitBySide[1].registered[k]));
   });
   const typeOfBySide = [typeOf, typeOf1] as const;
+  // GH-859 P1a: the combat formations, in `formations`' own order -- a group row's type is an INDEX into
+  // this table, so the ORDER is match content (`content-digest.ts` hashes the array in this order).
+  // Config, not state: it moves no hash until a formation is ordered.
+  for (const f of formations) sim.addFormationType(f);
 
   const anchors = versusAnchors(mapJson);
   const { bySide } = versusSpawns(sim, typeOfBySide, anchors, factions, endOfSide);

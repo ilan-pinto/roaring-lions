@@ -33,6 +33,10 @@ export interface SeatWorld {
    *  `cancelBuild`, `setRally`, `clearRally` -- pass for the seat's own side.
    *  False in single-player and in a mirror room, which has no runtime. */
   readonly economy: boolean;
+  /** GH-859 P1a: whether `seat` may order formation `id` -- a shipped formation whose `factions` include
+   *  the seat's own. Shipped data, so both machines answer alike; an id nobody ships answers false and the
+   *  order vanishes on both. */
+  formationAllowed(seat: Seat, id: string): boolean;
 }
 
 /**
@@ -49,7 +53,12 @@ export function validateCommand(cmd: Command, seat: Seat, world: SeatWorld): boo
   const onMap = (x: number, y: number): boolean =>
     x >= 0 && y >= 0 && x < world.width * 65536 && y < world.height * 65536;
   switch (cmd.kind) {
-    case 'move': case 'attackMove': case 'smoke':
+    case 'move': case 'attackMove':
+      return (
+        cmd.ids.length > 0 && cmd.ids.every(own) && onMap(cmd.x, cmd.y) &&
+        (cmd.formation === undefined || world.formationAllowed(seat, cmd.formation))
+      );
+    case 'smoke':
       return cmd.ids.length > 0 && cmd.ids.every(own) && onMap(cmd.x, cmd.y);
     case 'halt': case 'unload':
       return cmd.ids.length > 0 && cmd.ids.every(own);

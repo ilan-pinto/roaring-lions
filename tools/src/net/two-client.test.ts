@@ -18,7 +18,7 @@ import { simIntentWorld } from '../../../packages/app/src/input/pointer';
 import { applyIntent } from '../../../packages/app/src/input/intents';
 import { beginPatrol, patrolClick } from '../../../packages/app/src/input/patrol';
 import { contentDigest, shippedContent, shippedContentDigest } from '../../../packages/app/src/net/content-digest';
-import { units } from '@lions/data';
+import { formations, units } from '@lions/data';
 import {
   ECONOMY_STREAM_ACCEPTED, ECONOMY_STREAM_FORGED_TICK, ECONOMY_STREAM_TICKS, ECONOMY_STREAM_TUNNEL, economyStreamFrames, runEconomyClient,
 } from '../../../packages/app/src/net/economy-stream.test-helper';
@@ -41,6 +41,7 @@ function worldFor(sim: SimView): SeatWorld {
     tunnelExists: (id) => Number.isInteger(id) && id >= 0 && id < sim.tunnelCount,
     factionOfSeat: () => 'kdf',
     tunnelOwner: () => -1,
+    formationAllowed: (_seat, id) => formations.some((f) => f.id === id),
   };
 }
 
@@ -133,9 +134,11 @@ describe('versus: two sides, one frame stream', () => {
   const VTICKS = 1000;
   const CRAFT_TICK = 50;
 
-  /** The mirror-match world: Task 7's bare Sim plus both forces. */
-  function versusWorld() {
+  /** The mirror-match world: Task 7's bare Sim plus both forces. `formed`: the shipped combat formations
+   *  registered, in `formations`' order, as `buildMatchWorld` does (GH-859 P1a). */
+  function versusWorld(formed = false) {
     const w = buildWorld(MAP);
+    if (formed) for (const f of formations) w.sim.addFormationType(f);
     const anchors = versusAnchors(w.map);
     const { bySide } = versusSpawns(w.sim, w.typeOf, anchors);
     return { ...w, anchors, bySide };
@@ -170,12 +173,18 @@ describe('versus: two sides, one frame stream', () => {
   }
 
   /** One client: its own world, the shared frame stream, a hash and the drops per tick. */
-  function runVersus(frames: Frame[], sideOfSeat: (s: number) => number = (s) => s) {
-    const w = versusWorld();
+  function runVersus(
+    frames: Frame[],
+    sideOfSeat: (s: number) => number = (s) => s,
+    formed = false,
+    watch?: { tick: number; read: (sim: ReturnType<typeof versusWorld>['sim']) => unknown }
+  ) {
+    const w = versusWorld(formed);
     const clock = new LockstepClock(0);
     const world: SeatWorld = { ...worldFor(w.sim), sideOfSeat };
     const hashes: number[] = [];
     const drops: number[] = [];
+    let watched: unknown = null;
     for (const f of frames) {
       expect(clock.push(f)).toBe('ok');
       for (const ready of clock.take(1)) {
@@ -183,10 +192,61 @@ describe('versus: two sides, one frame stream', () => {
         if (r.dropped > 0) for (let i = 0; i < r.dropped; i++) drops.push(ready.tick);
         w.sim.tick();
         hashes.push(w.sim.hash());
+        if (watch !== undefined && ready.tick === watch.tick) watched = watch.read(w.sim);
       }
     }
-    return { hashes, drops };
+    return { hashes, drops, watched };
   }
+
+  // GH-859 P1a: the `formation` field on the wire. Seat 1 orders four of its units into a Column at tick 12;
+  // both clients register the shipped formations, take the same frames, and must stay in step.
+  it('a formation move is stamped, passes ownership, forms the same group on both clients and moves the hash (GH-859 P1a)', () => {
+    const at = (tick: number, seat: 0 | 1, seq: number, cmd: Command): [number, Stamped] => [tick, { seat, seq, cmd }];
+    const probe = versusWorld(true);
+    const [fx0, fy0] = probe.anchors.friendly;
+    const four = probe.bySide[1].slice(0, 4);
+    const column = (formation: string | undefined): Command => ({
+      kind: 'move', ids: four, x: fx.from(fx0 + 0.5), y: fx.from(fy0 + 0.5), ...(formation === undefined ? {} : { formation }),
+    });
+    // What the room stamps is the room's own rebuild of the wire command (`cleanCommand`), not the object the client built.
+    const stamped = cleanCommand(JSON.parse(JSON.stringify(column('column'))));
+    expect(stamped).toEqual(column('column'));
+    if (stamped === null) throw new Error('the room refused a formation move');
+    const frames = versusFrames(true, () => [at(12, 1, 9, stamped)]);
+    // Read the group the moment after the order has run (tick 100: the halt at 400 takes them out again).
+    const groups = { tick: 100, read: (sim: ReturnType<typeof versusWorld>['sim']) => [four.map((id) => sim.formationGroupOf(id)), sim.formationTypeOfGroup(16), sim.formationMembersOfGroup(16)] };
+    const a = runVersus(frames, undefined, true, groups);
+    const b = runVersus(frames, undefined, true, groups);
+    expect(a.hashes).toEqual(b.hashes);
+    // Only the crafted ownership command drops: the formation order passed `validateCommand` on both.
+    expect(a.drops).toEqual([CRAFT_TICK]);
+    expect(b.drops).toEqual([CRAFT_TICK]);
+    // The group is in both sims: side 1's first row (16), type `column` = index 2 of ambush, attack, column, four members.
+    for (const r of [a, b]) expect(r.watched).toEqual([[16, 16, 16, 16], 2, 4]);
+    // ... and it moved the hash: the same four units sent to the same tile without the field end elsewhere.
+    const plain = runVersus(versusFrames(true, () => [at(12, 1, 9, column(undefined))]), undefined, true, groups);
+    expect(plain.drops).toEqual([CRAFT_TICK]);
+    expect(a.hashes[19]).not.toBe(plain.hashes[19]);
+    expect(plain.watched).toEqual([[-1, -1, -1, -1], -1, 0]);
+  }, 60_000);
+
+  it('a forged formation id vanishes on both clients, as if the order had never been sent (GH-859 P1a)', () => {
+    const at = (tick: number, seat: 0 | 1, seq: number, cmd: Command): [number, Stamped] => [tick, { seat, seq, cmd }];
+    const probe = versusWorld(true);
+    const [fx0, fy0] = probe.anchors.friendly;
+    const four = probe.bySide[1].slice(0, 4);
+    const forged: Command = { kind: 'move', ids: four, x: fx.from(fx0 + 0.5), y: fx.from(fy0 + 0.5), formation: 'forged' };
+    const frames = versusFrames(true, () => [at(12, 1, 9, forged)]);
+    const a = runVersus(frames, undefined, true);
+    const b = runVersus(frames, undefined, true);
+    expect(a.hashes).toEqual(b.hashes);
+    // The crafted ownership order AND the forged formation drop, on both, at their ticks.
+    expect(a.drops).toEqual([12, CRAFT_TICK]);
+    expect(b.drops).toEqual([12, CRAFT_TICK]);
+    // Dropped whole: the run is the run without that command at all.
+    const without = runVersus(versusFrames(true), undefined, true);
+    expect(a.hashes).toEqual(without.hashes);
+  }, 60_000);
 
   it('two clients on opposite sides agree on every tick, and drop the crafted command identically', () => {
     const frames = versusFrames(true);

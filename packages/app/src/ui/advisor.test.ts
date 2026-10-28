@@ -268,4 +268,10 @@ describe('describeCommand', () => {
     expect(describeCommand({ kind: 'vent', ids: [1], mode: 'raid' })).toBe('Raid from the vent with 1 unit');
     expect(describeCommand({ kind: 'vent', ids: [1, 2], mode: 'exit' })).toBe('Bring 2 units up out of the tunnel');
   });
+  it('GH-859 P1a: a formation order names the formation, through t(); an id nobody ships is the plain line', () => {
+    expect(describeCommand({ kind: 'move', ids: [1, 2, 3], x: 24 * ONE, y: 31 * ONE, formation: 'column' })).toBe('Move 3 units to (24, 31) in Column');
+    expect(describeCommand({ kind: 'attackMove', ids: [1], x: 3 * ONE, y: 4 * ONE, formation: 'attack' })).toBe('Attack-move 1 unit to (3, 4) in Attack');
+    expect(describeCommand({ kind: 'move', ids: [1, 2], x: 24 * ONE, y: 31 * ONE, formation: 'ambush' })).toBe('Move 2 units to (24, 31) in Ambush');
+    expect(describeCommand({ kind: 'move', ids: [1], x: 24 * ONE, y: 31 * ONE, formation: 'nosuch' })).toBe('Move 1 unit to (24, 31)');
+  });
 });

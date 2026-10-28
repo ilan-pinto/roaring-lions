@@ -10,6 +10,7 @@
  * the room numbers frames from 0 and knows nothing of how the sim counts.
  */
 import { applyFrame, economyRoom, matchDigest, type Frame, type MatchConfig, type MatchTransport, type Seat, type SeatWorld } from '@lions/net';
+import { formations } from '@lions/data';
 import type { Command } from '@lions/sim';
 import { shippedContentDigest } from './content-digest';
 
@@ -85,6 +86,12 @@ export function runFrames(step: FrameStep, maxTicks: number): { ran: number; dro
   return { ran, dropped };
 }
 
+/** Whether `table` holds formation `id` and lists `faction` among the factions that field it (GH-859 P1a).
+ *  The table is a parameter so a test can hold a faction-gated entry the shipped three do not have. */
+export function formationFielded(table: readonly { readonly id: string; readonly factions: readonly string[] }[], faction: string, id: string): boolean {
+  return table.some((f) => f.id === id && f.factions.includes(faction));
+}
+
 /** What ownership asks of the live sim. Single-player is seat 0 on side 0
  *  (R10): the same check runs with no room, so there is one code path. */
 export function seatWorldFor(
@@ -113,6 +120,8 @@ export function seatWorldFor(
     versus: config?.mode === 'versus',
     // N3 Task 4: a KDF-v-Sarim room runs a runtime, so both seats build there.
     economy: config !== null && economyRoom(config),
+    // GH-859 P1a: a shipped formation whose factions include this seat's own (single-player: KDF).
+    formationAllowed: (seat: Seat, id: string) => formationFielded(formations, config?.seats[seat].faction ?? 'kdf', id),
     sideOfEntity: (id: number) => (Number.isInteger(id) && id >= 0 && id < sim.entityCount ? sim.state.side[id] : undefined),
   };
 }
