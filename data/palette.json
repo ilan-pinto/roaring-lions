@@ -1,7 +1,7 @@
 {
   "name": "Sahar Basin",
   "version": 1,
-  "notes": "Locked palette: 41 ramp colours, which is the set all rendered sprites are quantized to in CI. Ramps are ordered light -> dark. Reserved bands MUST NOT appear in unit/building/terrain diffuse art; they are applied at runtime by the VFX and team-color systems only.",
+  "notes": "Locked palette: 59 ramp colours, which is the set all rendered sprites are quantized to in CI. Ramps are ordered light -> dark. Reserved bands MUST NOT appear in unit/building/terrain diffuse art; they are applied at runtime by the VFX and team-color systems only.",
   "ramps": {
     "limestone": {
       "role": "primary terrain, masonry, concrete, sun-bleached surfaces",
@@ -110,6 +110,47 @@
         "#524E47"
       ],
       "note": "Added for the highland biome (GH-322). Descending brightness like every ramp: index 0 is the lightest. A warm NEUTRAL grey, which no existing ramp holds: gunmetal jumps from luma 96 (gunmetal.2) to 146 (gunmetal.1) and is blue-cast, and limestone.5/6 are warm brown, so every grey composite between them quantised to an olive or limestone entry -- measured in the GH-322 mock as a green rim on a ridge face. `theme_only` keeps it OUT of the terrain quantiser's shared set: a theme opts in by naming it in TerrainTones.paletteRamps (only highland does). Measured before that flag existed: added to the shared set, karst moved the composed terrain of 11 of the 18 non-highland maps -- Beit Sahwan and Wadi Halam among them -- because some arid and green composites sit nearer a karst grey than the entry they used to snap to. packages/app/src/terrain-defaults.test.ts pins every non-highland map against the commit before this ramp existed."
+    },
+    "fen": {
+      "theme_only": true,
+      "role": "the wetland's living green -- open ground, cover verge, low ground and the willow crown. Procedural terrain and decor tint only (GH-871).",
+      "colors": [
+        "#75A659",
+        "#4B7135"
+      ],
+      "note": "Added for the wetland biome (GH-871 P2). Descending brightness like every ramp: index 0 is the lightest. A cool, wet green that no existing ramp holds: grass and scrub are drier and yellower, olive is a dusty grey-green, so a wet meadow snapped to one of them read as a field in August. `theme_only` keeps it OUT of the shared quantiser set: a theme opts in by naming it in TerrainTones.paletteRamps (only the wetland does), so no existing map's composed terrain can move."
+    },
+    "mud": {
+      "theme_only": true,
+      "role": "the wetland's wet earth -- the track, ruts, spoil, marsh floor and trunks. Procedural terrain and decor tint only (GH-871).",
+      "colors": [
+        "#8E6F55",
+        "#725944",
+        "#584535",
+        "#413327",
+        "#2D241B"
+      ],
+      "note": "Added for the wetland biome (GH-871 P2), revision 3: a yellower brown than the first cut, after the mood-board look. Descending brightness like every ramp: index 0 is the lightest. Terracotta is too red and limestone too pale for wet ground, so a rutted track snapped to one of them read as a dry road. `theme_only` keeps it OUT of the shared quantiser set; a theme opts in by naming it in TerrainTones.paletteRamps. Dropping the flag moves the composed terrain of shipped maps that are not wetland (recorded in the GH-871 P2 T2 report), which is why packages/app/src/terrain-defaults.test.ts pins all of them."
+    },
+    "overcast": {
+      "theme_only": true,
+      "role": "the wetland's cold overcast stone and sky -- blocked ground, rock faces, slabs and the haze key. Procedural terrain and decor tint only (GH-871).",
+      "colors": [
+        "#C4C8C9",
+        "#9FA9B5",
+        "#83898D",
+        "#656B70",
+        "#4A4F54"
+      ],
+      "note": "Added for the wetland biome (GH-871 P2), revision 3: index 1 is a bluer #9FA9B5 so the haze reads as damp air rather than dust. Descending brightness like every ramp: index 0 is the lightest. A cool grey that sits between karst (warm neutral) and gunmetal (blue-cast, with a luma gap): grey composites under a wet sky snapped to one of those and came out warm or olive. `theme_only` keeps it OUT of the shared quantiser set; a theme opts in by naming it in TerrainTones.paletteRamps."
+    },
+    "basalt": {
+      "theme_only": true,
+      "role": "the wetland's dark volcanic boulder. A tint key only -- never in any theme's paletteRamps (GH-871).",
+      "colors": [
+        "#4B453D"
+      ],
+      "note": "Added for the wetland biome (GH-871 P2). One entry, so the descending-brightness rule is vacuous. TINT KEY ONLY: a boulder's rock tint resolves it through paletteColor, but no theme names it in TerrainTones.paletteRamps, so the terrain quantiser never snaps anything onto it and the composed terrain gains no near-black warm entry."
     }
   },
   "reserved": {
@@ -170,5 +211,5 @@
     }
   },
   "mask_key": "#FF00FF",
-  "total_colors": 76
+  "total_colors": 89
 }
