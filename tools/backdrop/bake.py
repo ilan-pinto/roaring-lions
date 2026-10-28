@@ -22,6 +22,11 @@ import pieces as P
 
 PAD = 6
 
+#: the palette keys of the house swatches, top to bottom of the olive patch's right edge: lit wall, shaded wall, roof
+HOUSE_SWATCH_KEYS = ("limestone.2", "limestone.4", "terracotta.1")
+#: where each swatch's centre is, in patch pixels
+HOUSE_SWATCH_CENTRES = ((44.0, 4.0), (44.0, 12.0), (44.0, 20.0))
+
 
 def olive_patch(w=48, h=48, seed=4242):
     """A 48x48 patch for the instanced olive: canopy tones left, trunk right."""
@@ -30,6 +35,11 @@ def olive_patch(w=48, h=48, seed=4242):
     canopy = K.OLIVE_CANOPY.at(np.clip(2.6 - 2.2 * (ys / h) + 0.5 * n, 0, 3))
     trunk = K.TRUNK.at(np.clip(0.6 + 0.8 * K.fbm(xs, ys, 5.0, 2, seed + 1), 0, 2))
     out = np.where((xs < w // 2)[..., None], canopy, trunk)
+    # Three flat swatches for the placeholder houses (GH-161, baked into the kit so a hamlet is no extra draw call):
+    # walls, shaded walls and roof, each 8 x 8 texels, in the right edge of the patch, clear of the one trunk texel
+    # the olive samples at (36, 24).
+    for row, key in enumerate(HOUSE_SWATCH_KEYS):
+        out[8 * row:8 * row + 8, 40:48] = K.key_rgb(key)
     return out
 
 

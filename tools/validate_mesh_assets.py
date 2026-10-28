@@ -1169,7 +1169,11 @@ BACKDROP_PIECES = {
     "bd_scree_b": 1000,
     "bd_scree_c": 1000,
     "bd_olive": 64,
+    "bd_house": 16,
 }
+
+# Pieces with no LOD1 twin: the instanced olive and the placeholder hamlet house (baked into the kit mesh at runtime).
+BACKDROP_NO_LOD1 = ("bd_olive", "bd_house")
 
 # The atlas edge, in pixels: 2048 (kit-spec section 1b, the lead's ruling of 26 Oct 2026).
 BACKDROP_ATLAS_PX = 2048
@@ -1238,7 +1242,7 @@ def check_backdrop_meshes(backdrop_root):
          is a map that cannot be drawn, and an unlisted one is dead weight.
       3. Every piece is at or under its own triangle cap, and has a position,
          a normal and a UV set (the atlas is addressed by the UVs).
-         Every piece but the olive ships ONE LOD1 twin (`extras.rl_lod` 1,
+         Every piece but the olive and the house ships ONE LOD1 twin (`extras.rl_lod` 1,
          the minimum-zoom mesh) at no more than BACKDROP_LOD1_MAX of its
          LOD0's triangles: an LOD1 that is not smaller is a swap that costs
          the minimum-zoom frame what it was added to save.
@@ -1355,13 +1359,13 @@ def check_backdrop_meshes(backdrop_root):
         for piece, n in sorted(seen.items()):
             if n > 1:
                 failures.append(f"{name}: piece {piece!r} appears {n} times")
-        for piece in sorted(p for p in BACKDROP_PIECES if p != "bd_olive" and p in seen and p not in seen_lod1):
+        for piece in sorted(p for p in BACKDROP_PIECES if p not in BACKDROP_NO_LOD1 and p in seen and p not in seen_lod1):
             failures.append(f"{name}: piece {piece!r} has no LOD1 twin (rl_lod 1) -- the minimum-zoom mesh the renderer swaps in")
         for piece, n in sorted(seen_lod1.items()):
             if n > 1:
                 failures.append(f"{name}: piece {piece!r} has {n} LOD1 twins")
-            if piece == "bd_olive":
-                failures.append(f"{name}: the olive has no LOD1 ({BACKDROP_PIECES['bd_olive']} triangles)")
+            if piece in BACKDROP_NO_LOD1:
+                failures.append(f"{name}: the {piece[3:]} has no LOD1 ({BACKDROP_PIECES[piece]} triangles)")
             elif piece not in seen:
                 failures.append(f"{name}: an LOD1 twin of {piece!r} with no main mesh")
             elif tris_of.get((piece, 1), 0) > BACKDROP_LOD1_MAX * tris_of.get((piece, None), 0):

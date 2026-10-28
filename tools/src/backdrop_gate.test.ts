@@ -201,6 +201,14 @@ describe('check_backdrop_meshes', () => {
     expect(mention(r, /the olive has no LOD1/)).toBe(true);
   });
 
+  it('fails an LOD1 twin of the house', () => {
+    const r = gate('house-lod1', (g) => {
+      const twin = lod1Nodes(g).find((n) => n.extras.rl_piece === 'bd_terrace_b') as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+      twin.extras.rl_piece = 'bd_house';
+    });
+    expect(mention(r, /the house has no LOD1/)).toBe(true);
+  });
+
   it('fails an atlas that is not 2048 x 2048', () => {
     const r = gate('small-atlas', (g) => {
       const view = g.json.bufferViews[g.json.images[0].bufferView];

@@ -152,39 +152,20 @@
         "id": "bd_terrace_a",
         "at": [
           0,
-          76
+          74
         ],
         "rot": 0,
         "mirror": true,
-        "lift": 5.823
+        "lift": 5.31
       },
       {
         "id": "bd_terrace_a",
         "at": [
-          76,
+          74,
           0
         ],
         "rot": 90,
-        "lift": 5.823
-      },
-      {
-        "id": "bd_terrace_b",
-        "at": [
-          0,
-          84
-        ],
-        "rot": 0,
-        "mirror": true,
-        "lift": 7.627
-      },
-      {
-        "id": "bd_terrace_b",
-        "at": [
-          84,
-          0
-        ],
-        "rot": 90,
-        "lift": 7.627
+        "lift": 5.31
       },
       {
         "id": "bd_terrace_a",

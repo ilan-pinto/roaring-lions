@@ -95,6 +95,31 @@ def build_olive(bpy, atlas_chart):
                 "width_m": [float(np.ptp(verts[:, 0])), float(np.ptp(verts[:, 1]))]}
 
 
+def build_house(bpy, atlas_chart):
+    """The placeholder hamlet house, in metres: a 3 m box, walls 2.7 m, a hip roof peaking 1.2 m above (14 triangles).
+    Its UVs sit on the three flat swatches of the olive patch (`bake.HOUSE_SWATCH_CENTRES`): lit wall, shaded wall,
+    roof. The runtime plants one per `anchor_house_*`, scaled by 0.85-1.35 and turned, into the kit's merged mesh."""
+    r, H, o, apex = 1.5, 2.7, 1.74, 2.7 + 1.2
+    v = [(-r, -r, 0), (r, -r, 0), (r, r, 0), (-r, r, 0), (-r, -r, H), (r, -r, H), (r, r, H), (-r, r, H),
+         (-o, -o, H), (o, -o, H), (o, o, H), (-o, o, H), (0, 0, apex)]
+    # (a, b, c, swatch): counter-clockwise seen from outside
+    tris = [(0, 1, 5, 0), (0, 5, 4, 0), (1, 2, 6, 1), (1, 6, 5, 1), (2, 3, 7, 0), (2, 7, 6, 0), (3, 0, 4, 1), (3, 4, 7, 1),
+            (8, 9, 12, 2), (9, 10, 12, 2), (10, 11, 12, 2), (11, 8, 12, 2),
+            (8, 10, 9, 1), (8, 11, 10, 1)]
+    me = bpy.data.meshes.new("bd_house")
+    me.from_pydata(v, [], [t[:3] for t in tris])
+    me.update()
+    ox, oy, _w, _h = atlas_chart
+    uv = np.empty((len(tris), 3, 2))
+    for k, t in enumerate(tris):
+        cx, cy = B.HOUSE_SWATCH_CENTRES[t[3]]
+        uv[k, :] = ((ox + cx) / K.ATLAS_PX, 1.0 - (oy + cy) / K.ATLAS_PX)
+    me.uv_layers.new(name="UVMap").data.foreach_set("uv", uv.reshape(-1, 2).ravel())
+    me.polygons.foreach_set("use_smooth", [False] * len(me.polygons))
+    me.update()
+    return me, {"tris": len(tris), "height_m": apex}
+
+
 def main():
     args = parse()
     import bpy
@@ -227,6 +252,19 @@ def main():
         col.objects.link(ob)
         stats["pieces"]["bd_olive"] = {"tris_lod0": oinfo["tris"], "cap": 64, "height_m": round(oinfo["height_m"], 2), "width_m": oinfo["width_m"], "source_tris": oinfo["source_tris"]}
         print("bd_olive           tris %d / cap 64  (source %s)" % (oinfo["tris"], oinfo["source_tris"]))
+
+    # --- the placeholder house (baked into the kit; one per anchor_house_*)
+    if not args.only or "bd_house" in args.only:
+        me, hinfo = build_house(bpy, binfo["olive_chart"])
+        me.materials.append(mat)
+        ob = bpy.data.objects.new("bd_house", me)
+        ob["rl_piece"] = "bd_house"
+        ob["rl_textured"] = True
+        col = bpy.data.collections.new("piece:bd_house")
+        root.children.link(col)
+        col.objects.link(ob)
+        stats["pieces"]["bd_house"] = {"tris_lod0": hinfo["tris"], "cap": 16, "height_m": round(hinfo["height_m"], 2)}
+        print("bd_house           tris %d / cap 16" % hinfo["tris"])
 
     pr = P.PROFILE
     dd = np.arange(0.0, 130.0 + 1e-9, 1.0)

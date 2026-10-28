@@ -84,10 +84,10 @@ def _variants(n, seed, names):
 
 
 #: where the terraces along an outer corner's inner edge stand: metres past the taper's free end, and the variant.
-#: The corner's first ~20 m are the wall's own steep spur, so the run starts at 36 m; spacing 24 m, width 30 m.
-#: Two, not three: the third (84 m, 28 tiles from the map) is the least seen and took the placed-triangle total
-#: past the 250 k budget once the floor is counted (250,952 with it, 242.7 k without).
-CORNER_TERRACES = ((36.0, "a"), (60.0, "b"))
+#: The corner's first ~20 m are the wall's own steep spur, so the run starts at 30 m. One per corner: the ground there is
+#: 26-38 tiles from the map, inside the fade to the background (24-38), and a second terrace (the 60 m one) stood wholly
+#: past the fade's end as a hard-edged black slab floating over darker ground (seen in the in-game corner views).
+CORNER_TERRACES = ((30.0, "a"),)
 CORNER_LIFT_PERCENTILE = 60.0
 #: tiles a far-wall terrace stands back from the rim (its inner overlap is 1.5 m = 0.5 tile)
 TERRACE_SETBACK = 0.52

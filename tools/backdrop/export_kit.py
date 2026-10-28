@@ -4,7 +4,7 @@
         --out art/meshes/backdrop/wadi_halam_kit.glb
 
 Lane B (GH-161). The .blend is what `build_kit.py` wrote (LOD0 and LOD1 game meshes, one material,
-one 2048x2048 atlas, anchor empties). The GLB carries LOD0 and LOD1 (`rl_lod` 1; the olive has none): the
+one 2048x2048 atlas, anchor empties). The GLB carries LOD0 and LOD1 (`rl_lod` 1; the olive and the house have none): the
 minimum-zoom cost run missed its budget, so LOD1 ships, swapped in below zoom 0.6 (kit-spec section 1a).
 One material, one image, one texture; every mesh node is `rl_textured` and names its piece in `rl_piece`; the terrace nodes
 carry their olive positions (`rl_olives`) and the anchors (`rl_anchors`) as JSON strings, in GLB-local
@@ -38,6 +38,10 @@ LOD1_MAX = 0.40
 #: packages/render/src/three/terrain/textured-backdrop.ts (a test parses this).
 PIECE_CAPS = {p.name: p.cap for p in P.all_pieces()}
 PIECE_CAPS["bd_olive"] = OLIVE_CAP
+HOUSE_CAP = 16
+PIECE_CAPS["bd_house"] = HOUSE_CAP
+#: pieces with no LOD1 twin: the instanced olive and the placeholder house
+NO_LOD1 = ("bd_olive", "bd_house")
 
 
 def parse():
@@ -100,14 +104,15 @@ def check_blend():
     if missing:
         refuse("pieces missing from the .blend: %s" % missing)
     by_name = {o.name: o for o in out}
-    for piece in sorted(seen - {"bd_olive"}):
+    for piece in sorted(seen - set(NO_LOD1)):
         if piece not in lod1:
             refuse("%s has no LOD1" % piece)
         n0, n1 = tri_count(by_name[piece]), tri_count(lod1[piece])
         if n1 > LOD1_MAX * n0:
             refuse("%s: LOD1 has %d triangles, over %d%% of its LOD0's %d" % (piece, n1, round(LOD1_MAX * 100), n0))
-    if "bd_olive" in lod1:
-        refuse("the olive has no LOD1 (64 triangles)")
+    for p in NO_LOD1:
+        if p in lod1:
+            refuse("%s has no LOD1 (%d triangles)" % (p, PIECE_CAPS[p]))
     return out + [lod1[p] for p in sorted(lod1)]
 
 
@@ -170,7 +175,7 @@ def main():
         refuse("the GLB came back with %d/%d/%d material/image/texture, expected 1/1/1" % (n_mat, n_img, n_tex))
     nodes = [n for n in j["nodes"] if "mesh" in n]
     bad = [n.get("name") for n in nodes if (n.get("extras") or {}).get("rl_textured") is not True or "rl_piece" not in (n.get("extras") or {})]
-    want = 2 * len(PIECE_CAPS) - 1   # every piece twice (LOD0, LOD1) except the olive
+    want = 2 * len(PIECE_CAPS) - len(NO_LOD1)   # every piece twice (LOD0, LOD1) except the olive and the house
     if bad or len(nodes) != want:
         os.remove(args.out)
         refuse("the GLB has %d mesh nodes (expected %d); without rl_textured/rl_piece: %s" % (len(nodes), want, bad))
