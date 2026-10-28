@@ -390,6 +390,11 @@ describe('snapshot format pin', () => {
     // exactly those five bytes out of the new bytes reproduces 923693936.
     // Was 3686246844 (main, S2's header) and 1168014221 (GH-421's appended separation rows): both together,
     // read off a fresh run. With the separation rows taken out of the table it reads 3686246844 again.
-    expect(h >>> 0).toBe(2452666963);
+    // Was 2452666963. GH-859 P1a (combat formations) appended nine `state` columns (fmGroup, restFacing,
+    // fmArrive and the six per-row fg* columns, FORMATION_ROWS 32) and the `fmLive` scalar to the table; they
+    // are encoded even when empty, and this world orders no formation. With those rows taken out of
+    // snapshot-schema.ts the same run reads 2452666963 again, so the move is exactly the new rows and nothing
+    // else (the GH-421 method). 3512584427 is read off a fresh run.
+    expect(h >>> 0).toBe(3512584427);
   });
 });
