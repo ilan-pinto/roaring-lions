@@ -1356,8 +1356,9 @@ export type SimEvent =
   | { kind: 'ambushSprung'; tick: number; entity: number }
   /** GH-859 P1a: an ambush formation's ring was discovered (a member sprang, or was fired on) and the
    *  whole group springs: `entity` is the first member to be fired on or to spring, `group` its row.
-   *  Pushed once per group, when the springing is set in motion; the rest of the ring fires from the
-   *  next tick (`stepFormations`). */
+   *  Pushed once per group, when the springing is set in motion (during the tick of the hit or the
+   *  spring); `stepFormationSpring` clears the rest of the ring's stances at the start of the NEXT tick,
+   *  before combat, so the ring fires from that next tick. */
   | { kind: 'formationSprung'; tick: number; side: number; group: number; entity: number }
   | { kind: 'strike'; tick: number; by: number; x: Fx; y: Fx; profile: number }
   | { kind: 'smokeLaid'; tick: number; by: number; x: Fx; y: Fx }
@@ -4070,9 +4071,12 @@ export class Sim {
     this.stepDigging();
     this.stepDetection();
     this.stepSurfacing();
+    // GH-859 P1a: a ring found out on the tick before (by fire, or by a member's own spring) springs
+    // BEFORE combat reads a stance, so every member fires this tick: one tick after the hit.
+    if (this.fmLive) this.stepFormationSpring();
     this.stepCombat();
-    // GH-859 P1a: right after combat, before anything else this tick reads a stance or a facing.
-    if (this.fmLive) this.stepFormations();
+    // GH-859 P1a: right after combat, before anything else this tick reads a facing.
+    if (this.fmLive) this.stepFormationFacing();
     this.stepBrace();
     this.stepProjectiles();
     this.stepStrikes();
@@ -4915,10 +4919,12 @@ export class Sim {
     this.pendingEvents.push({ kind: 'formationSprung', tick: this.tickCount, side: this.fgSide[g], group: g, entity: id });
   }
 
-  /** Right after `stepCombat` (behind `fmLive`): a marked group springs as one, and a unit standing at
-   *  rest in a formation turns to the facing its slot gave it. O(rows) plus one compare per unit; the
+  /** Before `stepCombat` (behind `fmLive`): a marked group springs as one. A mark is set by a hit
+   *  (every `applySuppression` caller runs later in the tick) or by a member's own spring inside
+   *  `stepCombat`, so by the time this runs it is the tick after, and `stepCombat` then finds every
+   *  member's stance clear: the ring opens fire one tick after it was found. O(rows), and the
    *  spring's one O(count) scan runs once in a group's life. */
-  private stepFormations(): void {
+  private stepFormationSpring(): void {
     for (let g = 0; g < FORMATION_ROWS; g++) {
       if (this.fgLive[g] === 0 || this.fgPending[g] === 0) continue;
       this.fgPending[g] = 0;
@@ -4927,6 +4933,11 @@ export class Sim {
         if (this.fmGroup[i] === g && this.stance[i] === 1) this.stance[i] = 0;
       }
     }
+  }
+
+  /** Right after `stepCombat` (behind `fmLive`): a unit standing at rest in a formation turns to the
+   *  facing its slot gave it. One compare per unit. */
+  private stepFormationFacing(): void {
     for (let i = 0; i < this.count; i++) {
       const want = this.restFacing[i];
       if (want === FM_FACING_NONE) continue;

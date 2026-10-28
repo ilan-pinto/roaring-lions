@@ -484,6 +484,35 @@ describe('the ring springs together', () => {
     expect(sp).toHaveLength(1);
     expect(sp[0]).toMatchObject({ side: 0, group: 0, entity: h3 });
   });
+  it('a ring found by an enemy ROUND inside tick() opens fire one tick after the hit, not two', () => {
+    const { w, ids } = ringWorld();
+    settle(w, ids);
+    // An armed rifleman at (33, 26): 6 tiles from the nearest member at (27, 25), too far for a
+    // radius-3 trap and inside his own range 8, so his rounds find the ring and nothing else does.
+    spawnAt(w, w.inf, 1, 33, 26);
+    const ringSet = new Set(ids);
+    let hit = -1;
+    for (let t = 0; t < 300 && hit < 0; t++) {
+      tick(w);
+      if (kinds(w, 'formationSprung').length > 0) hit = w.sim.tickCount;
+    }
+    expect(hit, 'the foe found the ring').toBeGreaterThan(0);
+    expect(kinds(w, 'ambushSprung'), 'no radius spring: the fire did it').toHaveLength(0);
+    expect(kinds(w, 'formationSprung')[0]).toMatchObject({ side: 0, group: 0 });
+    expect(ringSet.has((kinds(w, 'formationSprung')[0] as { entity: number }).entity)).toBe(true);
+    // The hit tick is T. Every member still holds its stance at the end of T (the mark is set, not acted on).
+    const armedAfterT = ids.filter((id) => w.sim.ambushRadiusSqOf(id) !== 0).length;
+    expect(armedAfterT).toBeGreaterThan(0);
+    const before = w.events.length;
+    tick(w); // T + 1
+    // The spring ran BEFORE T+1's combat: every stance is clear at the end of T+1, and members that see
+    // the foe have fired DURING T+1 (their stance was clear when stepCombat read it).
+    expect(ids.map((id) => w.sim.ambushRadiusSqOf(id))).toEqual([0, 0, 0, 0, 0, 0]);
+    const fired = w.events.slice(before).filter((e) => e.kind === 'fire' && ringSet.has((e as { shooter: number }).shooter));
+    expect(fired.length, 'a ring member fires on the tick after it was found').toBeGreaterThan(0);
+    // event ticks are the index of the tick that pushed them: T + 1 is index `hit` (tickCount after T)
+    expect(fired.every((e) => (e as { tick: number }).tick === hit)).toBe(true);
+  });
   it('a ring found out while still forming springs too', () => {
     const { w, ids } = ringWorld();
     tick(w, 3);
