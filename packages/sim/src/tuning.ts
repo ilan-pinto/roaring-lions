@@ -608,3 +608,11 @@ export const WOUND_DEFAULT_BLEED_TICKS = 1200;
  *  unit that enters at a route's mouth reaches the vent after `ceil(length / this * TICKS_PER_SECOND)`
  *  ticks, whatever its surface speed. Proposal, open to the probe. */
 export const TUNNEL_TILES_PER_S = 32768; // 0.5
+
+/** Combat formations (GH-859 P1a). Live formation groups one side may hold; a 17th order still
+ *  gets its shape, facing and arrival stance, just no group (the degraded path). */
+export const MAX_FORMATION_GROUPS_PER_SIDE = 16;
+/** The deepest a formation's reachability walk goes, in steps, whatever its shapes could ask
+ *  for: 24 covers the whole 48 x 48 map at worst, and it is an order-time cost, never a per-tick
+ *  one (`formation-template.ts`' `compileFormation` computes each file's own extent under it). */
+export const FORMATION_WALK_CAP = 24;

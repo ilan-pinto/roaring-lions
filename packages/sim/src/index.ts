@@ -129,3 +129,29 @@ export { FIRE_SUPPORT, FS_AIR_STRIKE, FS_MORTAR_BARRAGE, FS_SMOKE_SCREEN, type F
 export { lineContested, type LineItem, type ProductionLine } from './production';
 export { MAX_PRODUCTION_LINES, MAX_LINE_QUEUE } from './tuning';
 export { encodeSim, restoreSim, SNAPSHOT_FORMAT, SNAPSHOT_MATCH_DIGEST_OFFSET, SnapshotRefused, type SnapshotMeta } from './snapshot';
+// Combat formations (GH-859 P1a): the pure template. The classes, the compiled shapes and the
+// open-ground fill the HUD's schematic draws; the sim applies the order, nothing here is state.
+export {
+  FORMATION_CLASSES,
+  FM_CLASS_NONE,
+  FM_FACING_NONE,
+  FM_ARRIVE_HOLD,
+  FM_ARRIVE_AMBUSH,
+  assignTemplate,
+  compileFormation,
+  eighthToward,
+  formationClassOf,
+  ringTiles,
+  templateOffsets,
+  type CompiledElement,
+  type CompiledFormation,
+  type FormationClassName,
+  type FormationElementJson,
+  type FormationJson,
+  type FormationShapeJson,
+  type TemplateInput,
+  type TemplateSlot,
+  type TemplateUnit,
+  type UnitClassJson,
+} from './formation-template';
+export { MAX_FORMATION_GROUPS_PER_SIDE, FORMATION_WALK_CAP } from './tuning';
