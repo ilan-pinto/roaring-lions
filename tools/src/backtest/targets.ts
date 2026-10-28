@@ -599,3 +599,139 @@ export function airDefence(seeds = AIR_DEFENCE_SEEDS): TargetResult[] {
     row('(d) smoke is the counter', `${(smoked / beam).toFixed(2)} x`, '≥ 1.43 x the beam arm', smoked / beam >= 1.43, `members spent: beam + smoke ${smoked.toFixed(2)} vs beam ${beam.toFixed(2)}`),
   ];
 }
+
+// ---------------------------------------------------------------------------
+// 6. Standoff (Sarim), SECTION form (GH-865, the lead's ruling 2)
+//    Three `atgm_cell`s firing together from a prepared position (cover 2) at
+//    8.5 tiles win the cost exchange against an APS Lavi over a 3-missile
+//    engagement each. Pass iff the exchange is above zero AND the Lavi is
+//    destroyed or disabled in at least 60% of engagements.
+//
+//    The SINGLE-CELL form is not a target, in any geometry. Under GH-560
+//    ruling 1 a Kornet through the Lavi's front costs 39% of the bar, so a
+//    Lavi dies only if all three missiles penetrate, and the Trophy stops each
+//    one alone: one cell destroys the Lavi in 0.1% of 1,000 engagements (3.5%
+//    with the Trophy off). A gate of `exchange >= 0` on one cell would pass
+//    vacuously from 12.5 tiles, where the Lavi cannot shoot it and nothing is
+//    killed. `pnpm vehicle-health:probe -- --only=s3` keeps the single-cell
+//    and open-ground rows as report-only context.
+//
+//    Measured (200 seeds, the probe's seeds 60000 + 11 s): base +271 / 74.5%,
+//    max tier +137 / 68.5%. It goes red with the cover removed, with two
+//    cells, with cover 1 at max tier, and with the Trophy at pk 0.9 at max
+//    tier (`standoff-gate.test.ts` runs each). Note the coupling: this gate and
+//    `apsIntercept` now bound the Trophy's `base_pk` from both sides.
+//    Measurement and levers: docs/superpowers/specs/2026-10-29-standoff-doctrine.md.
+// ---------------------------------------------------------------------------
+export const STANDOFF_SEEDS = 200;
+export const STANDOFF_MIN_DISABLED_PCT = 60;
+
+export interface StandoffArm {
+  cells: number;
+  /** Cover on each cell's tile, 0..3. */
+  cover: number;
+  /** Tiles between the cells and the Lavi. */
+  range?: number;
+  /** Overrides the Lavi's Trophy `base_pk` (a falsification knob; undefined = shipped data). */
+  apsBasePk?: number;
+}
+
+export interface StandoffReading {
+  seeds: number;
+  /** Mean cost exchange per engagement: the Lavi's logistics price when destroyed, less each cell lost before its third launch. */
+  exchange: number;
+  destroyedPct: number;
+  destroyedOrDisabledPct: number;
+  cellsLostPct: number;
+  missilesPerRun: number;
+}
+
+/** The probe's S3 geometry (`vehicle-health-probe.ts` `standoff`), plus cover under each cell. */
+export function standoffReading(arm: StandoffArm, seeds = STANDOFF_SEEDS): StandoffReading {
+  const range = arm.range ?? 8.5;
+  const lavi: UnitTypeJson =
+    arm.apsBasePk === undefined
+      ? units.mbt_lavi
+      : ({
+          ...units.mbt_lavi,
+          hull: { ...units.mbt_lavi.hull, aps: { ...(units.mbt_lavi.hull as { aps?: object }).aps, base_pk: arm.apsBasePk } },
+        } as UnitTypeJson);
+  const lCost = units.mbt_lavi.cost?.logistics ?? 0;
+  const cCost = units.atgm_cell.cost?.logistics ?? 0;
+  let destroyed = 0;
+  let downed = 0;
+  let cellsLost = 0;
+  let missiles = 0;
+  let exch = 0;
+  for (let s = 0; s < seeds; s++) {
+    const sim = new Sim({ seed: 60000 + s * 11, width: 40, height: 20, capacity: 16 });
+    const lav = sim.spawn(sim.addUnitType(lavi), 0, fx.from(30.5), fx.from(10.5), WEST);
+    const ct = sim.addUnitType(units.atgm_cell);
+    const ids: number[] = [];
+    for (let k = 0; k < arm.cells; k++) {
+      const cx = 30.5 - range;
+      const cy = 10.5 + (k - (arm.cells - 1) / 2) * 2;
+      if (arm.cover > 0) sim.setCover(Math.floor(cx), Math.floor(cy), arm.cover);
+      ids.push(sim.spawn(ct, 1, fx.from(cx), fx.from(cy), 0));
+    }
+    const fired = new Map<number, number>(ids.map((i) => [i, 0]));
+    let lastFire = -1;
+    let disabled = false;
+    for (let k = 0; k < 120 * TICKS_PER_SECOND; k++) {
+      let lavDown = false;
+      for (const e of sim.tick()) {
+        if (e.kind === 'fire' && fired.has(e.shooter)) {
+          const n = (fired.get(e.shooter) ?? 0) + 1;
+          fired.set(e.shooter, n);
+          missiles++;
+          lastFire = k;
+          if (n >= 3) sim.debugKill(e.shooter); // the engagement is three missiles: the cell is spent (its round still flies)
+        }
+        if (e.kind === 'destroyed' && e.entity === lav) lavDown = true;
+        if (
+          e.kind === 'component' &&
+          e.target === lav &&
+          (e.result === 'firepower_kill' || e.result === 'combat_ineffective' || e.result === 'mobility_kill')
+        ) {
+          disabled = true;
+        }
+      }
+      // Over when the Lavi is gone, or every cell is spent or dead and the last round has landed (8 s).
+      const spent = ids.every((i) => (fired.get(i) ?? 0) >= 3 || sim.state.alive[i] === 0);
+      if ((spent && k - lastFire > 8 * TICKS_PER_SECOND) || lavDown) break;
+    }
+    const killed = sim.state.alive[lav] === 0;
+    const lost = ids.filter((i) => (fired.get(i) ?? 0) < 3 && sim.state.alive[i] === 0).length;
+    if (killed) destroyed++;
+    if (killed || disabled) downed++;
+    cellsLost += lost;
+    exch += (killed ? lCost : 0) - lost * cCost;
+  }
+  return {
+    seeds,
+    exchange: exch / seeds,
+    destroyedPct: (100 * destroyed) / seeds,
+    destroyedOrDisabledPct: (100 * downed) / seeds,
+    cellsLostPct: (100 * cellsLost) / (seeds * arm.cells),
+    missilesPerRun: missiles / seeds,
+  };
+}
+
+/** The gate: exchange above zero and the Lavi destroyed or disabled in >= 60% of engagements. */
+export function standoffPasses(r: StandoffReading): boolean {
+  return r.exchange > 0 && r.destroyedOrDisabledPct >= STANDOFF_MIN_DISABLED_PCT;
+}
+
+export function standoff(seeds = STANDOFF_SEEDS): TargetResult {
+  const r = standoffReading({ cells: 3, cover: 2 }, seeds);
+  const sign = r.exchange >= 0 ? '+' : '';
+  return {
+    name: 'Standoff (Sarim), 3 cells in cover 2',
+    detail:
+      `${seeds} seeds, 8.5 tiles, APS Lavi: destroyed ${r.destroyedPct.toFixed(1)}%, cells lost ${r.cellsLostPct.toFixed(1)}%, ` +
+      `${r.missilesPerRun.toFixed(2)} missiles/run`,
+    measured: `${sign}${r.exchange.toFixed(0)} exchange, ${r.destroyedOrDisabledPct.toFixed(1)}% down`,
+    target: `exchange > 0 and ≥${STANDOFF_MIN_DISABLED_PCT}% destroyed or disabled`,
+    pass: standoffPasses(r),
+  };
+}
