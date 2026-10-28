@@ -1,23 +1,45 @@
-# Rain: a wet, overcast terrain look (GH-871). Design, numbers for approval
+# Rain: a wet terrain theme, `wetland` (GH-871). Design, numbers for approval
 
-**Date:** 2026-10-28. **Status:** design only, for the lead. Nothing is rendered, built, exported or sent to Meshy.
-**Lane:** B. **Written against:** `main` at `2871c04b`. Every engine fact below was read from the tree that day.
+**Date:** 2026-10-28, revision 2. **Status:** design only, for the lead. Nothing is rendered, built, exported or
+sent to Meshy. **Lane:** B. **Written against:** `main` at `2080d550`. Every engine fact below was read from that
+tree.
 
-**The decisions are in section 10.** Each one leads with its recommendation. Sections 1–9 hold the numbers they rest on.
+**Revision 2 applies the lead's rulings of 28 Oct (PR 873):**
+1. A WHOLE NEW TERRAIN THEME: a wet world with its own ground set, plants and textures, on new maps. It is not a
+   weather layer on the existing highland and green maps.
+2. Free Play only at first. No campaign mission yet.
+3. Every other detailed choice as recommended in revision 1, adapted to the new theme. These are: the `mud` and
+   `overcast` ramps, the puddle stand-in, 6,000 / 3,500 / 1,500 drops, no lightning yet, a frame budget of
+   +1.0 / +0.7 / +0.4 ms, rain on the sim clock, no rain in versus, and report-only visual scenarios.
+
+Presentation only stays the default. The one place the theme asks the map grid for something is the marsh symbol
+(section 5.2). It is built from two mechanics the sim already has, so no sim code changes.
+
+**The decisions are in section 11.** Each one leads with its recommendation. Sections 0-10 hold the numbers they
+rest on.
 
 **The short version:**
 
-- **Rain is a weather layer over an existing terrain theme, not a fourth `terrain` value.** It is a mission field,
-  `map.weather: "rain"`, read by the app the way `time_of_day` is, with a sandbox flag `&weather=rain`.
-- **Highland and green maps first; arid is refused until a wet-desert set is asked for.**
-- **Presentation only.** No sim rule, so `pnpm balance`, `pnpm playtest`, the versus probe and the determinism hash
-  do not move.
-- **The look** is wet tone bundles (two new `theme_only` ramps, `mud` and `overcast`), puddles drawn as an authored
-  stand-in, falling rain as one instanced batch, an overcast light built from the existing preset and `LightOverride`
-  machinery, and heavier haze in the fog pass.
-- **Estimated cost:** +0.6 to +1.15 ms gross at `high` on DPR 2, or about +0.1 to +1.05 ms net of a softer shadow map.
-  Budget proposed: <= +1.0 ms.
-- **Art:** 0 Meshy credits and no new model. At most one Blender-baked texture, and only if a capture shows the need.
+- **The theme.** A fourth `terrain` value, `wetland`, is a Levantine winter valley: dark alluvial mud under
+  winter sward, wet basalt, reed marsh with standing water, Tabor oak on the slopes and willow at the water.
+- **Rain belongs to the theme.** It falls on every `wetland` map and on no other map.
+- **Two new Free Play maps, 48x48.** Ein Qasab is a marsh valley that vehicles cross only by two causeways. Jebel
+  Matar is wet downs with two hiding crests and a basalt dyke. Neither has a mission.
+- **The art.**
+  - Five ground tiles, procedural, 0 credits.
+  - Five foliage families: oak, willow, shrub, reed and winter grass. The trees and the shrub come from Meshy
+    bases; the reeds and grass are built in Blender.
+  - The rocks are the shipped ones, retinted.
+  - Three props.
+  - **Meshy: 125 credits planned (about $2.50), with a cap of 200 (about $4.00).** No call is made before the mood
+    board and the lead's approval.
+- **The cost.**
+  - The wet layers (rain, puddles, marsh water, ripples) are estimated at +0.50 to +1.00 ms gross at `high` on
+    DPR 2, against the approved +1.0 ms.
+  - The theme's foliage is estimated at 0.70 to 0.75 M placed triangles a map. That is below the Wadi Halam
+    basin's estimated 1.09 M, the heaviest shipped map, so the wet maps should draw no worse than the basin.
+- **Nothing shipped moves.** No shipped map changes theme, and the other three themes compile today's programs.
+  The terrain pins are extended to all 35 shipped maps before the wiring lands.
 
 ---
 
@@ -25,451 +47,683 @@
 
 | Fact | Where | Why it matters here |
 |---|---|---|
-| A map's `terrain` is `arid` / `green` / `highland`: a tone bundle, a ground texture and a decor species. It is presentation only. | `map.schema.json`, `packages/app/src/terrain-themes.ts` | A fourth theme would copy species and scatter that rain does not change (section 1) |
-| Ground albedo images are **ratios** to their own mean, retinted by the theme's tone. They are `NoColorSpace` with plain `RepeatWrapping`. | `terrain/mesh.ts` `GROUND_ALBEDOS`, `terrain/surface.ts` | Wet ground is mostly a new TONE, not a new image. Never mirror-tile. |
-| A `theme_only` ramp is invisible to every theme that does not name it in `TerrainTones.paletteRamps`. | `data/palette.json` `karst`, `terrain/tones.ts` | New wet ramps cannot move a dry map. `terrain-defaults.test.ts` already pins every map. |
-| The control map's A and B channels are all used. B holds the road distance and the rut noise. The `uMacro` field and the ground's world `y` are already sampled. | `terrain/control-map.ts` | A puddle mask can be derived with **no new texture** (section 2.3) |
-| The haze sits in the fog pass, before the shroud mix. Its tint is scene-referred. It has `hazeFar` and `hazeKey` per preset and a low-lying term keyed to the map's median level. | `three/haze.ts`, `fog-pass.ts` | Rain haze is a value change, plus one optional term in the same splice |
-| `LightPreset` holds the sun, the sky, `hazeFar` and `hazeKey`. `LightOverride` holds `fill` and `shadow`. | `three/time-of-day.ts` | An overcast light is a function over the existing preset: no new light |
-| The `day` preset's lights are pinned bit-identical. | `time-of-day.test.ts` | Clear weather must stay byte-identical (section 8.3) |
-| Foliage sway runs on the SIM clock, `presentationSimMs`. Decals age on sim time. | `terrain/sway.ts`, `decal-pool.ts` | Rain animates on the same clock, so a frozen gate frame repeats exactly |
-| Unit surface classes have roughness and metalness. Metal is capped at 0.45 because there is no environment map. | `units/unit-surface.ts` | Unit wetness is roughness only, inside the cap |
-| `high` / `medium` / `low` carry `fxDetail` and `smokeBillboardGain` as optional knobs whose absence is the old behaviour | `packages/render/src/quality.ts` | `weatherDetail` follows the same shape |
-| At `high`, DPR 2, on the Wadi Halam maps, a synced frame takes 16.4–21.0 ms. The live rAF cadence holds 16.7 ms. No pass dominates: shadow 1.3–1.9 ms, fog 0.2–0.8 ms. `medium` takes 12.0–16.0 ms. | GH-829, `docs/PERFORMANCE.md` | Every cost below is a delta on top of that existing miss. GH-829 stays its own ticket. |
-| `&tod=` is a value flag in `KNOWN_PARAMS`. A mission's own value wins over it. An unknown value falls back and warns. | `packages/app/src/time-of-day.ts`, `sandbox-help.ts` | `&weather=` copies this exactly |
-| `dusk` is a report-only golden scenario: the `quiet` framing plus a value flag | `capture-protocol.ts` `DUSK_SCENARIO` | Rain scenarios use the same pattern |
+| A theme is a `terrain` enum value on the MAP, read by the renderer at boot: `arid`, `green`, `highland`. It is presentation only and never reaches the sim. "Adding a theme is a renderer change; adding a map that uses one is not." | `data/schemas/map.schema.json`, `packages/data/src/map.ts` `TerrainTheme` | A fourth value is the designed extension point |
+| A theme's bundle is a `TerrainTones` record, typed `Record<TerrainTheme, TerrainTones>`, so a missing theme is a compile error | `packages/app/src/terrain-themes.ts`, `packages/render/src/api.ts` | The compiler lists every table that needs a `wetland` row |
+| GH-322's highland added four OPTIONAL fields whose absence is the old behaviour: `paletteRamps`, `decorColors`, `openScatter`, `macroHue` | `api.ts` | The wet theme adds its fields the same way, so arid, green and highland stay byte-identical |
+| Only the OPEN-ground image is per theme (`TERRAIN_GROUND_TEXTURE`). The rock, scrub, grove and knoll slots are four fixed URLs shared by every theme. | `renderer-options.ts` lines 99-108, `terrain/mesh.ts` `DEFAULT_ALBEDO_FOR_SLOT` | "Its own ground set" needs a per-theme table for the other four slots (section 1.2) |
+| Ground images are ratios to their own mean (`GROUND_ALBEDOS`: mean, repeat in tiles, gain). They are `NoColorSpace`, plain `RepeatWrapping`, 1024², JPEG of about 0.5 to 0.7 MB each. They are never mirror-tiled. | `terrain/mesh.ts`, `tools/textures/encode_ground_tiles.py` | Each new tile needs a measured mean, and its seams must hold an edge-to-adjacent ratio of at least 0.9 |
+| A `theme_only` ramp is invisible to every theme that does not name it. `karst` in the shared set would have moved 11 of 18 other maps. | `data/palette.json`, `terrain/tones.ts` `quantisePalette` | The new ramps cannot move a shipped map |
+| Decor is one `BatchedMesh` per ROLE (`foliage`, `trunk`, `rock`, `sand`), not per family, so six families cost four draws a pass. It is drawn by the shadow, GTAO and main passes. | `terrain/decor-mesh.ts`, `decor-role.ts` | New families in the existing roles cost **+0 draw calls**. They do cost triangles. |
+| The tree species is per theme (`groveFamily`), and so is the open-ground tree (`openScatter.tree`). Grass, sand, bush and rock are global families, recoloured per theme by `decorColors` (an instance tone, +0 draws). | `decor-place.ts`, `mesh-catalogue.ts` `decorFamiliesFor` | "Its own plants" needs a per-theme family remap (section 1.3) |
+| Shipped decor triangles per variant: olive 2,847-2,998; cedar 1,523; desert tree 1,282-1,530; bush 430-456; grass 142-168; sand 98-121; rock 200-229; slab 233-280; boulder 326-347 | counted from `art/meshes/decor/*.glb` accessors, 28 Oct | The tri caps in section 3 sit on these |
+| `SCATTER_DENSITY` 0.75 is settled and lead-accepted. It scales grass and sand only. | `decor-place.ts` | The wet theme keeps it |
+| Props: one vertex-coloured batch, +3 draws, capped at 150 a map. There are seven kinds with per-kind tri caps (120-400). The roadside and yard mixes are global. | `prop-place.ts`, `prop-role.ts`, `tools/validate_mesh_assets.py` `PROP_TRI_CAPS` | New kinds need caps on both sides, and a per-theme mix |
+| `time_of_day` is a MISSION field (`map.time_of_day`). The sandbox reads `&tod=`. A theme supplies only its haze tone, used when a preset names none. | `mission.schema.json`, `app/src/time-of-day.ts`, `three/time-of-day.ts` | Free Play has no mission, so the overcast light must come from the theme (section 4.5) |
+| Ambience beds are keyed by theme (`highland` -> `ridge`), but **all beds are OFF** by the lead's ruling of 9 Oct | `app/src/ambience.ts` | No rain bed in this issue |
+| Free Play lists every map in `@lions/data`'s `maps`. Each card is painted by `paintMapTerrain` with the theme's tones and described by `freePlay.map.<id>`, which a spec requires for every map. | `app/src/ui/menu.ts` | A new map needs no picker code |
+| Every shipped map is 48x48 | `data/maps/*.json` | The camera, minimap, sandbox anchors and every frame measurement were taken at that size |
+| GH-829, `high`, DPR 2, M3 Pro. A synced frame takes 16.4-21.0 ms on Wadi Halam, and the live rAF cadence holds 16.7 ms. Decor on the basin costs **2.2 ms at z1 (about 2.0 M of 3.9 M triangles)**. Shadow costs 1.3-1.9 ms and fog 0.2-0.8 ms. | `docs/PERFORMANCE.md` | The foliage estimate in section 6 is scaled from the basin's decor |
+| `&tod=` is a value flag in `KNOWN_PARAMS`. `dusk` is a report-only golden scenario: a framing plus a flag. | `sandbox-help.ts`, `capture-protocol.ts` | The wet scenarios use the same shape |
 
-**One finding shapes the whole look.** The camera is orthographic and the sun is directional, so N, V and L are
-the same on every flat fragment. The specular term on flat ground is therefore one constant across the screen.
+**One finding still shapes the look.** The camera is orthographic and the sun directional, so on flat ground the
+specular term is one constant across the screen. For the shipped sun and the 30-degree camera, GGX puts essentially
+nothing on flat ground at any roughness (about 0.4% of the diffuse at roughness 0.6, about 0% at 0.1). **Lowering
+roughness does not make ground look wet.** A puddle at roughness 0.05 photographs as a dark patch, because there is
+no environment map to reflect. Wetness has to be AUTHORED:
+- a darker, more saturated tone;
+- a puddle and water stand-in that reflects the sky;
+- ripples that move;
+- specular only where normals vary: relief, ripple normals, and curved hulls.
 
-Worked through for the shipped sun `(-0.406, 0.819, 0.406)` and the 30-degree camera, the half-vector stands 38
-degrees off the flat-ground normal. GGX then puts essentially no specular on flat ground at any roughness:
+## 1. How a fourth theme is wired
 
-| roughness | flat-ground specular, against the diffuse | what you see |
-|---|---|---|
-| 0.6 | about 0.4% | nothing |
-| 0.1 | about 0% | nothing |
+### 1.1 What the existing three are made of
 
-**So lowering the ground's roughness does not make it look wet.** A puddle at roughness 0.05 photographs as a
-dark patch, because there is no environment map for it to reflect. Wetness has to be authored: a darker, more
-saturated tone, a puddle stand-in that reflects the sky, ripples that move, and specular only where normals vary.
-Normals vary on relief, on ripple normals, and on curved unit and vehicle surfaces. A curved hull does catch the
-sun's lobe, which is why unit wetness is worth a roughness change (section 2.6).
+| Surface | arid | green | highland | wetland (proposed) |
+|---|---|---|---|---|
+| Tone bundle | limestone / dust | grass / scrub | dust over karst | **fen / mud / overcast** (4.1) |
+| Theme-only ramps | none | none | `karst` | **`fen`, `mud`, `overcast`** |
+| Open-ground image | `desert_sand_tile` | `green_basin_tile` | `highland_v2_tile` | **`wetland_open_tile`** |
+| Rock / scrub / grove / knoll images | shared four | shared four | shared four | **its own four** (2.1) |
+| Grain (`scatter`) | `stone` | `sward` | `stone` | `sward` |
+| Grove tree | `desert_tree` | `tree` (olive) | `cedar` | **`oak`** |
+| Open-ground pass (`openScatter`) | none | none | cedar, boulder, bush, chip | **oak, willow at the water, boulder, shrub, chip** |
+| Grass / bush families | shared | shared | shared, retinted | **`wet_grass` / `shrub`** (its own) |
+| Marsh (`~`) | none | none | none | **`reed`** |
+| Rocks | shared | shared | shared, `karst` tint | shared, `overcast` tint |
+| Props | the global mix | the global mix | the global mix | **its own mix**, with three new kinds |
+| Haze | `dust.0` | `limestone.1` | `karst.0` | `overcast.1` |
+| Light | the mission's or `&tod=` | same | same | **the same, passed through `rainLight`** (4.5) |
+| Weather | clear | clear | clear | **rain** |
+| Ambience bed | `open` / `town` | `open` / `town` | `ridge` | `open` (beds are off) |
 
-## 1. Where rain lives: a weather layer, not a theme
+### 1.2 The per-theme ground set
 
-| | A. `map.weather` over a theme (recommended) | B. a fourth `terrain: "wet"` theme |
-|---|---|---|
-| What it changes | tones, air, light, the falling rain | everything a theme owns: ground image, species, scatter |
-| "Tel Marum in the rain" | yes: same map, a different mission or the sandbox | needs a copy of the map with a different `terrain` |
-| Art | two wet tone bundles (highland-wet, green-wet) | a third bundle plus a species and scatter call for each |
-| Where it is read | the APP, like `time_of_day` | the map loader, like `terrain` |
-| Future weather (a khamsin dust storm on arid, a storm) | another enum value | another theme each time |
+Today `TERRAIN_GROUND_TEXTURE` is `Record<TerrainTheme, string>` (open ground only), and the other four URLs are
+literals in `renderer-options.ts`. The change:
+- A second table, `TERRAIN_SLOT_TEXTURES: Record<TerrainTheme, { rock, scrub, grove, knoll }>`, sits in
+  `terrain-themes.ts`.
+- The three existing rows name today's four files, so their URLs are unchanged. `renderer-options.test.ts`
+  already pins the open-ground URL per theme; it gains the four slot URLs for each existing theme.
+- `wetland` names its own four files.
+- The road's grain samples the knoll slot (R-7), so the wet road gets basalt grit for free.
 
-**Recommend A.** The lead's words were "another terrain type". A wet highland **is** a different terrain to look at,
-so the player gets one. What rain does not change is the species, the scatter or the map, and a theme would force
-all three to be duplicated.
+### 1.3 Per-theme families
 
-## 2. The look
+The new optional `TerrainTones` fields, each absent on arid, green and highland:
 
-### 2.1 Palette: two new `theme_only` ramps
-
-Both ramps run light to dark, like every ramp. They are `theme_only`, so no dry map's quantised terrain moves.
-`terrain-defaults.test.ts` keeps pinning that, and the implementation watches it go red by dropping the flag
-(section 8.4).
-
-| Ramp | 0 | 1 | 2 | 3 | 4 | Role | Why no existing ramp carries it |
-|---|---|---|---|---|---|---|---|
-| `mud` | `#A06C48` L116 | `#85543A` L93 | `#6A402D` L72 | `#502F22` L53 | `#382019` L37 | wet earth, churned tracks, ruts, mud prints | `dust` is yellow (hue 35°) and stops at L82. Wet terra rossa is redder (hue 14–25°) and goes darker. Steps are 30–39 RGB apart, like `grass`. |
-| `overcast` | `#C4C8C9` L199 | `#A3A9AC` L168 | `#83898D` L136 | `#656B70` L106 | `#4A4F54` L78 | overcast sky, rain haze, the puddle's sky reflection, the streak tint, wet limestone | `karst` is a WARM grey (hue 39°). `water` is too saturated (0.19) and has two steps. `gunmetal` is blue-cast and jumps from L97 to L147. A cool neutral is what an overcast sky is. |
-
-Two things to check by eye:
-- `mud.1` is 15 RGB from `dust.5`. It earns its place by hue, not by value.
-- `overcast` sits 15–22 RGB from `karst`, step for step. It is the cool twin of a warm ramp, and highland-wet
-  names both.
-
-### 2.2 The wet tone bundles
-
-A wet bundle is a `TerrainTones` derived from its theme. It changes only the fields below; species, scatter and
-the ground images stay the theme's own.
-
-| Field | highland (dry -> wet) | green (dry -> wet) |
-|---|---|---|
-| `open` | `dust.5` L99 -> `mud.1` L93 (redder, -6) | `grass.2` L177 -> `grass.3` L161 (-16) |
-| `cover` 1/2/3 | `olive.1/2/3` -> `olive.2/3`, `shadow.0` | `grass.4`, `scrub.0/1` -> `scrub.0/1`, `olive.3` |
-| `road` / `rut` | `karst.3` / (theme) -> `mud.2` / `mud.3` | `dust.3` / (theme) -> `mud.1` / `mud.2` |
-| `rock` / `rockLit` | `karst.3` / `karst.2` -> `overcast.3` / `karst.3` | `limestone.6` / (theme) -> `limestone.7` / `limestone.6` |
-| `earth`, `spoil` | `terracotta.2` -> `mud.3` | `dust.5` -> `mud.2` |
-| leaves | one step darker on each of `leafDark/Mid/Lit` | one step darker |
-| `haze` | `karst.0` -> `overcast.1` | `limestone.1` -> `overcast.1` |
-| `macroHue` | `[karst.0, terracotta.2]` -> `[overcast.1, mud.3]` | (default) -> `[overcast.1, mud.2]` |
-| `paletteRamps` | `[karst, mud, overcast]` | `[mud, overcast]` |
-| `decorColors` | grass and bush tufts one step darker | same |
-
-**Readability bound (decision 5).** Wet open ground stays within -20 luminance of the dry tone it replaces.
-- It is the ground every unit silhouette was tuned against: `grass.2` was chosen to sit within 5 of `limestone.3`.
-- KDF `olive.1` (L112) on wet green `grass.3` keeps a 49-point gap; the dry gap is 65.
-- Highland is already low-contrast dry (13 points), and wet it is 19, slightly better because the hue moves off olive.
-
-A test pins these numbers against **literal** oracles, not values imported from the bundle.
-
-### 2.3 Wet ground, puddles and their stand-in
-
-The terms below go into the ground shader under a `WEATHER_RAIN` define, so a clear map compiles today's program
-byte for byte (section 8.3).
-
-| Term | Rule | Numbers (for approval) |
-|---|---|---|
-| Wetness | the wet bundle's tones; no shader darkening on top | — |
-| Puddle mask, roads | in the ruts: B's road distance inside the rut band, times the rut noise | 25–35% of road area |
-| Puddle mask, open ground | the macro field (`uMacro`) thresholded on FLAT ground, where the normal's y is above 0.985 | 4–8% of open ground |
-| Puddle mask, low ground | boosted where the ground lies below the map's median open level, the same `hazeReferenceLevel` the haze reads | +6% at 2 levels below |
-| Never a puddle | a terrace top, a `^` rock top, a building pad, a slope over 10 degrees, a crown | — |
-| Puddle surface | the darker wet tone, mixed toward the overcast sky colour (`overcast.0` scene-referred, the haze's own factor) by an AUTHORED reflectance | albedo x 0.55; reflectance 0.35 (physical Fresnel at this camera would be 0.05, which reads as nothing) |
-| Puddle edge | a 0.06-tile soft rim of darker mud | `mud.3` |
-| Ripples | rings on puddle fragments only, on the sim clock. Each ring cell is a `tileHash` stream, never `Math.random`. They modulate the sky reflection by ±15% and tilt the normal by at most 8 degrees. | 0.12-tile rings, 0.9 s life, 2 per cell, 0.5-tile cells |
-| Roughness | open 1.0 -> 0.62, road mud 0.45, puddle 0.08, rock top 0.55 | Honest note: on flat ground this shows almost nothing (section 0). It is there for relief faces and ripple normals. |
-
-The cheap stand-in is the recommendation. Three dearer options were considered and not recommended:
-
-| Alternative | Cost | Why not |
-|---|---|---|
-| Screen-space reflections in the fog pass | about +0.6 to +1.2 ms at `high`; needs a puddle mask in the frame (the alpha of the HalfFloat target, which nothing reserves today) | Over budget on a frame that already misses (GH-829) |
-| A constant overcast environment map | +1 program per material class | Would reopen the 0.45 metal cap game-wide, which is a renderer decision, not a weather one |
-| Planar mirrors | — | Impossible on a bicubic ground |
-
-### 2.4 Falling rain and splashes
-
-**Recommended: one world-space instanced batch, `units/rain-batch.ts`.** It follows the flipbook pool's pattern:
-one `InstancedMesh`, GPU-aged, main pass only. It has no `normal` attribute and `castShadow` is false, so the AO
-pre-pass and the shadow pass never see it, exactly as with the decal pools.
-
-- **How a drop lives.** Each instance is a hashed seed. Its position is `hash(i) + fall(presentationSimMs)`,
-  wrapped inside a box that follows the camera focus, the same idea as the view-fitted shadow box.
-- **Panning.** Drops stay fixed in the WORLD as the camera pans; the rain is never glued to the screen.
-- **Splashes.** When a drop reaches the ground it draws, in the same instance and the same draw call, as a flat
-  splash ring for its last 150 ms.
-- **Ground height.** The drop's ground height comes from an R16F height texture, 4 texels a tile (37 KB on a 48x48
-  map). It is baked at boot from `ground-height.ts`'s own sampler, so it is the drawn surface, not a tile corner.
-- **Buildings.** Buildings hide drops through the depth test. Drops do not write depth.
-- **Fog of war.** Because drops write no depth, the fog pass shrouds a streak by the ground behind it. Rain over
-  unexplored ground is dimmed like that ground. Rain is uniform, so it leaks nothing about what is there.
-
-| Number (for approval) | Value | Why |
-|---|---|---|
-| Fall speed | 4.0 wu/s (12 m/s), slant 12 degrees down-wind | Real rain falls at about 9 m/s; a little faster reads as rain rather than snow |
-| Streak | 0.42 wu long, 1.5 CSS px wide at every zoom (the silhouette's constant-pixel rule), alpha 0.28 | It is read as motion blur |
-| Colour | `overcast.0` x the haze's scene-referred light factor | It never exceeds 1.0, so it never blooms (`hdr-gains.ts` gets no entry) |
-| Splash | ring radius 0.04 -> 0.10 wu over 150 ms, alpha 0.35 -> 0, `overcast.1` | — |
-| Spawn height | 6 wu above the box floor (fall time about 1.5 s) | Above every roof |
-| Count | `high` 6,000 / `medium` 3,500 / `low` 1,500 | Section 3 |
-| Render order | a new `RAIN_RENDER_ORDER` in `render-order.ts`, in the FX-above band (3) | Over units, under overlays (4), smoke (5) and the occlusion outline (6) |
-| Reduced motion (`data-motion`) | no falling rain, no ripples; wet ground and light stay | The rain is ambient motion |
-| Pause | the rain freezes in the air | The sim-clock rule's consequence, the same as sway. Decision 12. |
-| Minimap | `photographGround` hides the rain batch; the wet tones and puddles draw | The minimap is a ground photograph |
-
-| Alternative | Verdict |
-|---|---|
-| Screen-space streaks in the fog pass (0 draw calls, about +0.1 to +0.3 ms) | Not recommended. No occlusion by buildings, and anchoring to the world on a pan is fiddly. A possible `low` fallback. |
-| Splash particles in the flipbook pool | Not recommended. It needs a third atlas, for a 150 ms ring. |
-
-### 2.5 Light, exposure, haze, low cloud and lightning
-
-**The overcast light is a pure function, `rainLight(preset)`**, in a new `three/weather.ts` next to
-`time-of-day.ts`. It uses no `three`. It keeps the preset's sun DIRECTION (rain at dawn is still dawn) and changes
-the rest:
-
-| Quantity | `day` today | rain over `day` | Rule |
+| Field | Type | `wetland` value | Read by |
 |---|---|---|---|
-| Sun intensity | 2.6 | 1.2 | x0.46 on any preset |
-| Sun colour | `limestone.0` | `overcast.0` | — |
-| Fill (hemisphere) | 0.9 | 1.35 | a `LightOverride.fill`; a mission's own `map.light` still wins |
-| Sky key | `water.0` | `overcast.1` | — |
-| Shadow strength | 1 | 0.45 | a `LightOverride.shadow` |
-| Shadow map | 4096 / 2048 / 1024 | 2048 / 1024 / 1024 | One step down. Overcast shadows are soft, and blur reads right. |
-| `hazeFar` / `hazeKey` | 0.12 / theme | 0.26 / `overcast.1` | max(preset, 0.26) |
-| Exposure | ACES 1.0 | **ACES 1.0, unchanged** | The colour-pipeline rule. The dimming comes from the lights. |
+| `familyRemap?` | `{ grass?: DecorFamily; bush?: DecorFamily }` | `{ grass: 'wet_grass', bush: 'shrub' }` | `decor-place.ts` `familyFor` and its clump pass; mirrored in `decorFamiliesFor` |
+| `waterside?` | `{ tree: GroveFamily; p: number; reach: number }` | `{ tree: 'willow', p: 0.12, reach: 1 }`: an open tile within one tile of a `~` tile rolls a willow at 0.12, on its own `tileHash` stream | `decor-place.ts`, a fourth pass after the open-ground pass |
+| `marsh?` | hex | `mud.3`: the `~` tile's ground tone, under the water stand-in | `tones.ts` `groundTone`, `paintMapTerrain` |
+| `propMix?` | `{ roadside: Record<PropKind, number>; yard: Record<PropKind, number> }` | section 3.4 | `prop-place.ts` |
 
-**Open-ground irradiance** is `(sun * sun.y + fill) / pi`. It falls from 0.964 to 0.742, a drop of 23%. That is
-moody without a black frame. Stacked with the -6 to -16 luminance of the wet tones, the bound in 2.2 is what keeps
-units readable.
+`GroveFamily` gains `oak | willow`. `DecorFamily` gains `wet_grass | shrub | reed`. `DENSITY.reed` is 1.0, for the
+reason `boulder` and `ditch` are 1.0: a `~` tile is a mechanic, a wall to vehicles, and a reed bed with a gap in it
+would show a way through that is not there.
 
-**Haze.** No new term is needed for the far haze. The low-lying term (`HAZE_LOW`) rises from 0.06 to 0.10 under
-rain, so valleys fill with murk. Its cap: units stay readable.
-- `hazeFar` does not go above 0.26.
-- A report reads unit-on-ground contrast at the far ramp point, on the `rain` capture.
-- Rain must not visually hide what the sim lets the player see. Presentation-only weather that LOOKS like
-  concealment is a lie the player acts on.
+### 1.4 Rain belongs to the theme
 
-**Low cloud shade (optional, phase 5).** A slow-drifting value-noise multiply of ±6% luminance in the fog pass,
-before the shroud and the haze.
-- 14-tile cells, drifting at 0.4 tiles/s down-wind, on the sim clock.
-- The noise is hand-rolled from `terrain/noise.ts`.
-- It is a ratio, so it never hides a unit more than the light already does.
+- A third app table, `TERRAIN_WEATHER: Record<TerrainTheme, 'clear' | 'rain'>`, is `rain` for `wetland` only.
+- `rendererOptionsFor` hands it to `RendererOptions.weather?`, read at boot like the quality preset.
+- **No `&weather=` flag.** The lead ruled rain off the other maps, so the theme is the switch.
+- A/B comparisons go through the debug layers (section 8), the `unitsDebugHidden` standard.
 
-**Lightning: recommend none in phases 1–4.** If wanted in phase 5:
-- a sky-only flash: fill x1.4 for 120 ms, with no bolt geometry and no `PointLight`;
-- at most once per 20 s, scheduled from a `tileHash` stream on sim time;
-- off under reduced motion, and well inside the three-flashes-a-second photosensitivity line;
-- it stays under the bloom threshold.
+### 1.5 Every file and data surface, end to end
 
-### 2.6 Foliage, units, decals and VFX
+| # | Surface | File | Change | Guard, and its falsification |
+|---|---|---|---|---|
+| 1 | Schema | `data/schemas/map.schema.json` | `terrain` enum + `wetland`; the `rows` description gains `~` | `validate:data`; author `"wetland"` before the enum has it and watch it go red |
+| 2 | Map types and legend | `packages/data/src/map.ts` | `TerrainTheme` + `TERRAIN_THEMES` set; `DECOR.marsh = 6`; `TERRAIN_LEGEND['~'] = { blocked: 0, boulder: 1, cover: 1, decor: DECOR.marsh }` | `tools/src/boulders.test.ts` gains `~` (vehicle-walled, open on foot, cover 1); drop `boulder: 1` and watch it go red |
+| 3 | Grid lint | `tools/validate_data.mjs` | `TERRAIN_SYMBOLS` + `~`; refuses `~` on a map whose `terrain` is not `wetland` | author one `~` on `tile_green` |
+| 4 | Palette | `data/palette.json` | `fen`, `mud`, `overcast`, all `theme_only` | `terrain/tones.test.ts` and `terrain-defaults.test.ts`; drop `theme_only` from `mud` |
+| 5 | Tone bundle | `packages/app/src/terrain-themes.ts` | `TERRAIN_THEMES.wetland`, `TERRAIN_GROUND_TEXTURE.wetland`, `TERRAIN_SLOT_TEXTURES`, `TERRAIN_WEATHER` | compile (total `Record`s); a new `wetland-readability.test.ts` with LITERAL oracles |
+| 6 | Renderer options | `packages/app/src/renderer-options.ts` | slot URLs and `weather` from the tables | `renderer-options.test.ts` gains the slot URLs of the three existing themes; point `highland`'s rock slot at the wet tile and watch it go red |
+| 7 | Render API | `packages/render/src/api.ts` | `GroveFamily`, the four optional fields, `RendererOptions.weather?` | compile |
+| 8 | Decor placement | `three/terrain/decor-place.ts`, `terrain/shared.ts` (`DECOR_MARSH = 6` mirror) | families, `DENSITY`, `familyFor` for `~`, the remap, the waterside pass | `decor-place.test.ts`; `mesh-catalogue.test.ts` runs the REAL placer on every map |
+| 9 | Decor catalogue | `packages/app/src/mesh-catalogue.ts` | `DecorFamilyName`, `DECOR_MESHES` (3 variants each), `decorFamiliesFor` mirror | the same test: a placed family missing from the plan is bare ground |
+| 10 | Ground albedos | `three/terrain/mesh.ts` `GROUND_ALBEDOS` | five entries, each mean measured off its own image | `mesh.test.ts`; `tools/validate_assets.py` prints the slot line |
+| 11 | Control map | `three/terrain/control-map.ts` | control C (RGBA8, 8 texels a tile): R the marsh weight, G a baked puddle mask, B and A spare. Built only on a wetland map. | `control-map.test.ts`; a non-wetland map allocates no C texture |
+| 12 | Ground shader | `three/terrain/surface.ts`, `ground.ts` | a `THEME_WET` define: marsh water, puddles, ripples, roughness (section 4.3) | the byte-identity test (9.1) |
+| 13 | Props | `three/terrain/prop-place.ts`, `prop-role.ts`, `tools/validate_mesh_assets.py` | three kinds, `PROP_TRI_CAPS` on both sides, `propMix` | `prop-role.test.ts` pins the two cap tables against each other |
+| 14 | Light | `three/weather.ts` (new, no `three` import) `rainLight(preset)`; `three/haze.ts` `HAZE_LOW` under rain | section 4.5 | `weather.test.ts`; `time-of-day.test.ts` keeps `day` bit-identical |
+| 15 | Rain | `three/units/rain-batch.ts` (new), `units/render-order.ts` `RAIN_RENDER_ORDER`, `quality.ts` `weatherDetail?` | section 4.4 | section 9.2 |
+| 16 | Wet surfaces | `units/unit-surface.ts`, `terrain/sway.ts`, `decal-pool.ts` (colour indices 6 and 7, tread and tyre), the crater bowl | section 4.6 | values tests |
+| 17 | VFX | `data/vfx/vehicle_mud.json` + `packages/data/src/index.ts` `vfxEmitters` | the wet theme's vehicle spray in place of `vehicle_dust` | `index.test.ts` pins the array to the directory |
+| 18 | Debug layers | `three/debug-layers.ts` | `rain`, `wet`, `marsh`, `ripples`, `cloud-shade` | each is a flag no per-frame write re-asserts |
+| 19 | Maps | `data/maps/ein_qasab.json`, `data/maps/jebel_matar.json`; `packages/data/src/index.ts` `maps`; `en.json` `freePlay.map.<id>` | section 5 | `map_grid.test.ts`, `high_ground_maps.test.ts` (`RISES`), `ambience.test.ts`, `sandbox-anchors.test.ts`, the menu spec that requires a key per map |
+| 20 | Textures | `tools/textures/author_wetland_tiles.py` (new), `encode_ground_tiles.py`, `art/textures/*.png`, `assets/textures/*.jpg` | section 2.1 | seam ratio and mean printed by the author tool |
+| 21 | Meshes | `tools/terrain/fit_meshy_wet_decor.py`, `tools/terrain/build_reeds.py`, `build_wet_grass.py`, `tools/terrain/props.py`; GLBs and `.blend` under `art/` | section 3 | `pnpm validate:meshes` (decor contract: zero materials, `rl_role` in {foliage, trunk}), `decor-heights.test.ts` (reed and grass heights) |
+| 22 | Provenance | `art/meshy/ledger.jsonl`, `docs/ASSET_PROVENANCE.md`, the PR's AI disclosure | every Meshy base | `pnpm meshy -- spent` |
+| 23 | Figure-ground | `tools/src/foliage-figure-ground.test.ts` | `THEMES` + `wetland` | it refuses a foliage tint inside the VR-05 floor; set `oak:foliage` to `fen.1` (ΔE2000 9.3) |
+| 24 | Pins for everything else | `packages/app/src/terrain-defaults.test.ts` | extend the fixture from the non-highland maps to **all 35 shipped maps**, regenerated at the commit BEFORE the wiring and committed alone | a later diff that moves any shipped map goes red |
+| 25 | Visual gate | `tools/src/golden-diff/capture-protocol.ts` | two report-only scenarios (section 8) | three fresh-process runs read 0 px before any floor |
 
-| Subject | Under rain | Cost |
-|---|---|---|
-| Foliage | wet tones (2.2); sway amplitude x1.5 and gust gain 1.4 -> 1.8, still on the sim clock | 0: uniforms |
-| Units | roughness only: cloth 0.92 -> 0.80, armour 0.78 -> 0.52, plate 0.70 -> 0.48, gunmetal 0.42 -> 0.32, rubber unchanged. Metalness unchanged (cap 0.45). No albedo darkening, because the team and role tones carry readability. | 0: values on materials already cloned; +0 programs |
-| Buildings | roughness of roof and wall classes x0.8 (phase 3, optional) | 0 |
-| Decals | tread and tyre prints take `mud.3` in place of `dust.5`. A crater holds water: the crater shader's own `craterHeight` below a threshold takes the puddle surface. | about 0 |
-| `vehicle_dust.json` | a rain variant: a low, short mud spray (`mud.2`, life x0.5, no rising column). A blast's dust column is shortened in the same way. | 0 net: a swap |
-| Smoke | unchanged. Smoke is a sim fact (section 4). | 0 |
+Not touched: the sim, `mission.schema.json`, `validate_biome.mjs` (`REGION_BIOME`, since no region uses the theme),
+`render_campaign_world.py`, `data/versus/`, and the textured buildings.
 
-**No status marks in the world.** Rain adds no badge, icon or "muddy" mark to any unit. If a sim rule ever lands
-(section 4), it is told on the briefing and the HUD unit card, in DOM, never in the world.
+## 2. Art list, with numbers for approval
 
-## 3. Frame cost, per element and per preset
+**Every model is made at maximum detail** (the lead, 2 Oct). The master keeps full geometry. The shipped GLB is cut
+only to the measured cap in section 3, and each fit report states what the cap cost. Nothing below is rendered or
+generated before the lead approves these numbers.
 
-All figures are **estimates**, by analogy with measured neighbours:
-- the relief-read ALU, +0.15 ms (GH-804);
-- the fog pass, 0.2–0.8 ms;
-- the smoke billboard's fill cost;
-- the shadow pass, 1.3–1.9 ms (GH-829).
+### 2.1 Ground tiles (procedural, 0 credits)
 
-They are to be MEASURED in phase 4 under GH-829's conditions:
-- `tools/src/perf/fx-cost.ts` with a `weather` layer A/B;
-- M3 Pro, ANGLE/Metal confirmed, 1440x900 at DPR 2;
-- `tel_marum` and `wadi_halam_basin`, zoom 0.5 / 1 / 2.5;
-- 12 interleaved rounds of 20 synced frames, median and p95, own port, music off.
+Each tile is authored by `tools/textures/author_wetland_tiles.py`:
+- numpy, with PERIODIC hand-rolled value noise and fBm, so it is seamless by construction. Never `mathutils.noise`.
+- Deterministic, from a 4096² master box-filtered to the shipped 1024².
+- JPEG q90, `NoColorSpace`.
+- Gate: an edge-to-adjacent ratio of at least 0.9 (the sand measured 0.95), and the mean measured into
+  `GROUND_ALBEDOS`.
+- The image carries hue variation only. The theme tone sets the average (the ratio form).
 
-| Element | `high` | `medium` | `low` | Draw calls | Fallback, in order |
+| Slot | File | Content | Repeat (tiles) | Gain | Why that repeat |
 |---|---|---|---|---|---|
-| Wet tones, light, haze values, foliage, unit roughness | 0 | 0 | 0 | 0 | — |
-| Ground wetness and puddles (ALU, `WEATHER_RAIN` define) | +0.10 to +0.20 | +0.10 to +0.20 | +0.10 to +0.20 | 0 | drop the low-ground and open-ground masks (roads only) |
-| Ripples | +0.05 to +0.10 | +0.05 to +0.10 | off | 0 | off |
-| Falling rain and splash (6,000 / 3,500 / 1,500 drops; about 75 device px each, 6–9% of the frame blended) | +0.30 to +0.60 | +0.20 to +0.35 | +0.10 to +0.15 | +1 | count ladder x1.0 -> x0.6 -> x0.35, then no falling rain (the wet ground stays) |
-| Decals and the crater puddle | about +0.05 | about +0.05 | about +0.05 | 0 | — |
-| Cloud shade (phase 5, optional) | +0.10 to +0.20 | +0.10 to +0.20 | off | 0 | off |
-| **Gross** | **+0.60 to +1.15** | **+0.50 to +0.90** | **+0.25 to +0.40** | **+1** | |
-| Shadow map one step down (a saving) | -0.10 to -0.50 | -0.05 to -0.30 | 0 | 0 | — |
-| **Net** | **+0.10 to +1.05** | **+0.20 to +0.85** | **+0.25 to +0.40** | **+1** | |
+| open | `wetland_open_tile` | Winter sward in clumps over dark alluvial mud: 60% blades, 40% mud. Sparse basalt grit. Darker hollows where the mud shows. | 3 | 1.25 | The highland's 3. Clumps land at about one per half tile at zoom 1. |
+| rock (`^` tops and faces) | `basalt_rock_tile` | Vesicular wet basalt, columnar cracks, a few lichen flecks | 2 | 1 | `rock_ground_tile`'s 2 |
+| scrub (cover 1-3) | `wet_scrub_tile` | Rush and bramble litter, dead stems over mud | 2 | 2 | `rough_scrub_tile`'s numbers |
+| grove (`o`) | `oak_litter_tile` | Oak leaf litter, acorn cups, moss patches | 2 | 1.5 | `orchard_floor_tile`'s numbers |
+| knoll (`n`) and road grain | `basalt_scree_tile` | Basalt cobbles set in mud | 3 | 1 | `knoll_scree_tile`'s 3. The road reads it at 2 (R-7). |
 
-| Other resource | Amount |
-|---|---|
-| Programs | +1 (rain), plus one ground permutation, built only on a rain map |
-| Textures | +1: the 37 KB height texture. A mud image would be +1 more (decision 11). |
-| GPU memory | about 0.1 MB for instances and the height texture |
-| Load | no GLB. Under 5 ms for the height bake and one compile. |
-| Tick time | 0 |
+The marsh `~` gets no image. It is the scrub image under the water stand-in (4.3).
 
-**Budget proposed (decision 13):** a delta, measured on the median and the p95:
+**Load.** Five JPEGs replace five, at about 0.6 to 0.7 MB each, so a wet map loads about what any map loads.
+`pnpm perf:load` measures it in P3; this is not a recited number.
 
-| Preset | Budget |
-|---|---|
-| `high` | <= +1.0 ms |
-| `medium` | <= +0.7 ms |
-| `low` | <= +0.4 ms |
+### 2.2 Foliage (the wet-climate set)
 
-If `high` misses, the count ladder steps first and the ripples second. A fight frame (smoke plus rain overdraw) is
-read once as well, with `blast:capture`'s method, and reported rather than gated.
+| Family | Species | Where | Heights (3 variants) | Roles | Source | Credits |
+|---|---|---|---|---|---|---|
+| `oak` | Tabor oak (*Quercus ithaburensis*): broad, rounded, open crown | grove `o` (0.6 a tile, no twin, the cedar rule); slopes through `openScatter` | 5.0 / 4.2 / 3.4 m | trunk + foliage | **Meshy, 2 bases** (text preview 20 + remesh 5 each). Variant 2 is a Blender crown cut of base 0, not a byte copy (the olive's `tree_1 == tree_2` defect). | 50 |
+| `willow` | White willow (*Salix alba*), upright with a loose crown | within one tile of `~`, at 0.12 | 4.6 / 3.8 / 3.0 m | trunk + foliage | **Meshy, 1 base**; variants 1 and 2 by Blender lean and crown cut | 25 |
+| `shrub` | Lentisk (*Pistacia lentiscus*), dense evergreen mound | cover 1-3 (the `bush` rule: 0.6 x (0.5 + 0.5 x cover)); open ground at 0.04 | 1.3 / 1.1 / 0.9 m | trunk + foliage | **Meshy, 1 base**; variants by Blender | 25 |
+| `reed` | Common reed (*Phragmites*) x2 and bulrush (*Typha*) x1: straw winter stalks with green bases | every `~` tile, 1.5 clumps a tile | **at most 1.5 m**, so a standing man's head and shoulders read | foliage | **Blender, procedural**: modelled blades and seed heads, hand-rolled noise | 0 |
+| `wet_grass` | Winter sward tuft, lusher and taller than `grass` | open ground (the clump pass, `SCATTER_DENSITY` 0.75 unchanged) | within `GRASS_SCALE_MAX` 0.9 (N-4: grass never hides a unit) | foliage | **Blender, procedural** | 0 |
 
-## 4. Presentation or rules
+Foliage tints are instance tones (+0 draws). Each was measured against the KDF uniform's `olive.1` on the VR-05
+floor (CIE76 at least 15 and ΔE2000 at least 12, `foliage-figure-ground.test.ts`):
 
-**Recommend presentation only for this issue.** Any sim rule should be a separate, later issue, and its first
-candidate would be smoke decay.
-
-Every option below must hold to the same conditions:
-- It is deterministic and in data: a `data/weather/rain.json` read through `@lions/data`, in Q16.16 or integers.
-- It is folded into `hash()` only when weather is live, the `woundLive` precedent, so no golden pin moves on a
-  clear map.
-- It reaches the sim through a sim-facing mission field of its own. `map.weather` stays app-read, like
-  `time_of_day`, and is never added to the sim's `map` type.
-
-| Option | What it does | `pnpm balance` (§5.7) | `pnpm playtest` | Versus probe | Engine work |
-|---|---|---|---|---|---|
-| **A. Presentation only (recommended)** | nothing in the sim | unmoved | byte-for-byte on a carrier mission | unmoved | none |
-| B. Sight x0.85 | detection and identification range shrink | The §5.7 urban targets were calibrated on identification range (13 tiles for a max-tier squad), so they need a rain row and likely a retune | Recon missions are BUILT on measured sight: four `locate` primaries on Tel Marum I, Umm Zeitoun's "out to thirteen tiles", and the sight facts in the Tel Marum and Qarn Hadid doctrine tests. Their slack moves and a clock can be lost. | Asymmetric: the side that fires on others' eyes (the battery, sight 6) loses more. A re-run on every map. | a Q16.16 multiply in detection; cheap |
-| C. Mud slows vehicles off-road (x0.7) and the flow field prices it | "vehicle" is `mobility.wheeled`, which includes tracked hulls, so every tank slows; routes reorder onto roads | **Blind**: the backtest has no movement, so it would not see the rule at all | Vehicle-escort and clock missions (Wadi Halam V's D9) move | KDF armour against technicals: asymmetric. A re-run per map. | a new per-tile, per-mobility cost concept, more flow-field pressure (`MAX_FLOW_FIELDS`), a doctrine test per map |
-| D. Rain beats smoke down: `SMOKE_DECAY` 1 -> 2 per tick (12.75 s -> 6.4 s of concealment) | a laid screen lasts half as long | "max-tier 2:1 urban assault with smoke" (86–96%) falls; needs a rain row | missions that lean on smoke get harder | roughly symmetric | one integer; the cheapest |
-
-**Why A:**
-
-1. The issue is a mood. Rules change every measured mission they touch.
-2. The lead's standing bar is that the §5.7 targets and the versus bar hold. B and C each need a balance campaign of
-   their own, and C's would be invisible to `pnpm balance`.
-3. D is honest and cheap: the player SEES rain thin the smoke. If the lead wants rain to matter, it is the one rule
-   to try, on a mission designed for it, after the look lands.
-
-**One rule binds A:** the look must not imply concealment the sim does not grant (the haze cap, 2.5).
-
-## 5. Data: where it is authored and read
-
-| Piece | Rule |
-|---|---|
-| Mission field | `map.weather`: an `enum ["clear", "rain"]` in `mission.schema.json`, beside `time_of_day` and `light`. Absent means `clear`. App-read only. **Never added to `packages/sim/src/mission.ts`'s `map` type.** |
-| `validate:data` | refuses `"rain"` on a mission whose map's `terrain` is `arid` until a wet-arid bundle exists (decision 3). Falsified by authoring it once and watching it go red. |
-| App | a new `packages/app/src/weather.ts`, `weatherOf(mission, params)`, mirroring `timeOfDayOf`: a mission's value wins and never reads `&weather=`. With no mission, it reads the flag. An unknown value returns `clear` and a warning. Rain on an arid map in the sandbox returns `clear` and a warning naming why. |
-| Sandbox | `&weather=clear\|rain`, a value flag in `sandbox-help.ts`'s `KNOWN_PARAMS`, beside `tod`, shown in `__lions.help()` and the boot banner. Sandbox only. It composes with `&tod=`. |
-| Free Play picker | not in phases 1–5. At phase 6, a "Rain" option whose label is a catalogue key (`freePlay.option.rain`, through `t()`) (decision 15). |
-| Renderer | `RendererOptions.weather?: 'clear' \| 'rain'`, read at boot like the quality preset, so it is not live. `RenderQuality.weatherDetail?: 0 \| 1 \| 2` (low / medium / high), optional; absent reads 2. |
-| Versus | not in phases 1–6. Presentation can differ per client without a desync, but a room should not hand one seat a darker screen. If wanted, `data/versus/<map>.json` gets the field later. |
-| Audio | a rain bed and thunder are the audio lane's, a separate call. The sourcing rules apply (redistribution rights, no paid packs). Tests stay silent (`SILENT_AUDIO`). |
-
-**Which maps can take it, with no new map:**
-
-| Theme | Maps |
-|---|---|
-| green (6) | `tile_green`, `wadi_halam_basin`, `wadi_halam_2`–`5` |
-| highland (11) | `tel_marum` (x4), `umm_zeitoun` (x4), `qarn_hadid` (x3) |
-
-**Recommended first carrier mission (phase 6):** `umm_zeitoun_1_recon`, "Cold Ground".
-- It authors no `time_of_day` today, so it has no light of its own to clash with.
-- It is a highland basin, where terra-rossa mud reads best.
-- Its title already says the weather.
-- It is not a Wadi Halam map, so GH-829's miss is not compounded on the first mission.
-- `narrative-designer` may add one briefing clause. It is optional, because the look carries it.
-
-`wadi_halam_2_laager` (green pasture and bunds) is the second candidate, after the phase 4 cost read on a Wadi
-Halam map.
-
-**A new map is not needed for presentation only.** The storyline's ending says the Marj has been quiet "since the
-winter" (`storyline.md` section 5), so the war spans a winter and a wet Act II needs no new canon. A purpose-built map is worth
-designing only if a mud rule (option C) is ever chosen. It would be mud flats where roads are the only fast lanes,
-and it goes through `campaign-designer` and the distinctness gate.
-
-## 6. Art pipeline
-
-| Asset | Tool | Credits | Note |
+| Key | Tone | ΔE76 / ΔE2000 from `olive.1` | Verdict |
 |---|---|---|---|
-| Palette ramps, tone bundles | data | 0 | numbers in 2.1 and 2.2 |
-| Puddles, ripples, rain streaks, splashes, cloud shade | shader / procedural | 0 | hashes from `tile-hash.ts`, noise from `terrain/noise.ts`; no `Math.random` in a seeded path |
-| Height texture | baked at boot from `ground-height.ts` | 0 | not an art asset |
-| Mud ratio image (only if decision 11 asks for it) | **Blender**, `tools/terrain/bake_mud_tile.py`: periodic hand-rolled value noise, so it is seamless by construction (never `mathutils.noise`) | 0 | 1024², JPEG, `NoColorSpace`, a mean measured into `GROUND_ALBEDOS`, a repeat of 2 tiles, an edge-to-adjacent ratio of at least 0.9 (the sand tile measured 0.95). It carries no ruts: the road SDF draws those. |
-| *Considered, not recommended:* a Meshy-made mud texture | Meshy | about 10–15 | It cannot be proven seamless, and the colour is off-palette. The ratio form throws its colour away anyway. |
-| New models | none | 0 | rain changes no species, prop or unit |
+| `oak:foliage`, `shrub:foliage` | `scrub.1` | 15.9 / 12.6 | passes (VR-05's own pick) |
+| `willow:foliage` | `fen.0` | 28.6 / 18.4 | passes; the silver-green of a willow against the oak |
+| `wet_grass:foliage` | `grass.3` | 35.4 / 21.3 | passes |
+| `reed:foliage` | `dust.3` | 25.9 / 19.3 | passes; winter reed beds are straw, and they read apart from both armies |
+| (refused) | `fen.1` | 17.0 / 9.3 | fails ΔE2000. It is why `fen.1` is a ground tone only. |
 
-**Recommended Meshy spend: 0 credits.** The "max detail" rule applies to the mud tile if it is built: a 4096² master
-baked down to 1024, with the cap disclosed in its report.
+### 2.3 Rocks
 
-**The art numbers the lead approves before anything is captured** are the tables in sections 2.1–2.6: ramp hexes,
-tone mapping, puddle coverage and reflectance, ripple, streak, splash, counts, light, haze, sway and roughness.
-Nothing is rendered in Blender, because there is no mesh to render.
+**Recommended: reuse.** `rock`, `slab` and `boulder` are tinted `overcast.4` / `overcast.3` / `overcast.3` through
+`decorColors`, the way highland tinted them `karst`, at 0 credits.
 
-The first image is an in-engine capture in phase 2, behind `&weather=rain`, on the agent's own port, in one Metal
-browser with music off. It is shown A/B against clear, at zoom 1 and 2.5, and the lead judges it zoomed in.
+The alternative is a Meshy basalt boulder base (25 credits, Blender variants), only if the P3 capture still reads
+as limestone. That is decision 8.
 
-**Mood board (phase 1, reference study only).**
-- About 16 references in `roaring-lions-ep/_coord/rain-look/refs/`, outside the repo. They are never committed,
-  never fed to Meshy, never traced, never shipped.
-- Each reference is recorded with its source URL and licence.
-- No personal data goes into any search.
-- One sheet, `_coord/rain-look/board.html`, annotates each reference with the number in this spec that it argues
-  for.
+### 2.4 Props
+
+| Kind | Tri cap | Mix (roadside / yard) | Source | Credits |
+|---|---|---|---|---|
+| `round_bale` (wrapped silage bale) | 160 | 0 / 0.30 | Blender | 0 |
+| `culvert_pipe` (concrete drain under a track) | 140 | 0.30 / 0 | Blender | 0 |
+| `tractor_wreck` | 400 | 0.15 / 0.10 | Meshy, 1 preview (20 + a remesh 5 if the first decimation collapses, the props precedent) | 25 |
+| the shipped seven | as shipped | jersey 0.20, tyre 0.20, wrecked car 0.05, rebar 0.10 / water tank 0.20, dish 0.10, laundry 0.20, tyre 0.10 | — | 0 |
+
+Roles come from the closed `PROP_ROLES` set: the bale is `cloth`, the pipe `concrete`, the tractor `rust` and
+`rubber`. A new role is not needed.
+
+### 2.5 Buildings, audio
+
+- **Buildings stay as shipped.** Houses, the hall and the warehouse keep their textured stone bakes. A basalt-stone
+  village is a later call, and it would go through `TEXTURED_BUILDING_TYPES` like any baked building.
+- **No rain audio.** The ambience beds are off by the lead's ruling. A rain bed later belongs to the audio lane,
+  with redistributable sources only and silent tests.
+
+### 2.6 Meshy budget
+
+| Item | Calls | Credits |
+|---|---|---|
+| Oak, 2 bases | 2 previews + 2 remeshes | 50 |
+| Willow | 1 + 1 | 25 |
+| Lentisk shrub | 1 + 1 | 25 |
+| Tractor wreck | 1 + 1 | 25 |
+| **Planned** | | **125 (about $2.50 at the CLI's $0.02 estimate)** |
+| Re-roll allowance, at most one per concept, announced first | up to 3 | +75 |
+| **Cap** | | **200 (about $4.00)** |
+
+How the calls are run:
+- **Prompts.** An Opus 5.5 agent at high effort writes every prompt, picks the preview and decides any re-roll (the
+  lead's 21 Oct rule). It works from the approved mood board and the numbers above, and puts no personal data in
+  any prompt.
+- **Before each call.** `pnpm meshy -- estimate` runs first, and each call is announced in the ledger with its
+  credits.
+- **Texture.** No texture is requested. Decor and props carry zero materials, so `text-refine` is not bought.
+- **Downloads.** Files go to `art/meshy/<task>/` the same day, because Meshy keeps them for three days only.
+- **Records.** Each base gets a ledger line, a provenance entry and an AI disclosure in the PR.
+- **Optional.** A Meshy basalt boulder (decision 8) would be 25 more, inside the cap.
+
+### 2.7 Mood board (P1, reference study only)
+
+- **Where.** About 20 references in `roaring-lions-ep/_coord/wet-theme/refs/`, outside the repo.
+- **Use.** They are never committed, never fed to Meshy, never traced and never shipped.
+- **Records.** Each reference is logged with its source URL and licence. No personal data goes into any search.
+- **The sheet.** One page, `_coord/wet-theme/board.html`, annotates each reference with the number in this spec it
+  argues for.
 
 | Category | Count | What to take from it |
 |---|---|---|
-| Mediterranean winter overcast over limestone hills and terra rossa | 3 | sky value, haze depth, how dark wet red earth goes |
-| Dirt tracks churned by vehicles, water in the ruts | 2 | puddle coverage on roads, edge darkening |
-| Wet limestone, scree and outcrops | 2 | wet rock value and coolness |
-| Green pasture and bunds in rain | 2 | the green-wet bundle |
-| Puddles at about 30 degrees, reflecting a grey sky | 2 | the authored reflectance (0.35) and ripple scale |
-| Rain in top-down and isometric strategy games, studied for mechanics only | 3 | streak density, length and alpha, splash size, how unit readability survives |
-| Wet cedar and olive foliage, low cloud on a ridge | 2 | leaf darkening, cloud-shade scale |
+| Winter reed marsh with standing water, at about a 30-degree view | 3 | water share between clumps, reed colour, the 0.35 reflectance |
+| Wet basalt outcrops and dykes | 3 | rock value and coolness; whether `overcast` is dark enough |
+| Tabor oak woodland in winter rain | 2 | crown shape and density; leaf tone |
+| Willow at a stream edge | 2 | silhouette against the oak |
+| Lentisk and bramble cover | 2 | shrub mass and tint |
+| Alluvial mud under winter sward; churned farm tracks | 3 | the open tile, puddle coverage on tracks |
+| Overcast valley, low cloud on a ridge | 2 | haze depth, sky value, cloud-shade scale |
+| Rain in top-down and isometric strategy games, mechanics only | 3 | streak density and alpha, unit readability under rain |
 
-## 7. The visual gate
+## 3. Triangle caps and the foliage budget
+
+The binding cost of a lusher set is TRIANGLES, not draw calls (section 0).
+
+Per-variant caps for the shipped GLB:
+- oak 2,500 and willow 2,500 (the olive ships 2,850-3,000, the cedar 1,523);
+- shrub 600 (the bush 430-456);
+- reed 400 a clump;
+- wet grass 200 (grass 142-168);
+- props as in 2.4.
+
+**Whole-map placed decor.** Estimated from the grid census times density times tris, by the placement rules above:
+
+| Map | Placed decor triangles (estimate) | Note |
+|---|---|---|
+| `wadi_halam_basin` (shipped, green) | about 1.09 M | 228 olive tiles x 1.38 trees; this load is GH-829's 2.2 ms at z1 |
+| `qarn_hadid` / `umm_zeitoun` (shipped, highland) | about 0.55 M | |
+| `tel_marum` (shipped, highland) | about 0.43 M | |
+| **Ein Qasab (proposed)** | **about 0.75 M** | reeds 0.18 M, grass 0.18 M, oak grove 0.14 M, open trees 0.09 M |
+| **Jebel Matar (proposed)** | **about 0.70 M** | grass 0.20 M, oak grove 0.18 M, shrubs 0.09 M |
+
+**Ceiling proposed (decision 11): at most 0.9 M placed decor triangles a wet map**, measured by running
+`decorPlacements` over the shipped map. That keeps each wet map below the heaviest shipped map. If a map goes
+over, the oak cap drops first (2,500 -> 2,000), then the reed clumps a tile (1.5 -> 1.2). `SCATTER_DENSITY` stays
+0.75.
+
+## 4. The look
+
+### 4.1 Palette
+
+All three ramps are `theme_only`. `mud` and `overcast` are as approved in revision 1. Luminance is Rec.709 on the
+sRGB bytes, as in revision 1.
+
+| Ramp | 0 | 1 | 2 | 3 | 4 | Role |
+|---|---|---|---|---|---|---|
+| `mud` (approved) | `#A06C48` L116 | `#85543A` L93 | `#6A402D` L72 | `#502F22` L53 | `#382019` L37 | wet earth, tracks, ruts, prints, the marsh floor |
+| `overcast` (approved) | `#C4C8C9` L199 | `#A3A9AC` L168 | `#83898D` L136 | `#656B70` L106 | `#4A4F54` L78 | sky, haze, the water's sky reflection, streaks, wet basalt |
+| **`fen` (new)** | `#75A659` L150 | `#4B7135` L101 | | | | winter sward, the open-ground average, and the cover-1 ground |
+
+Why `fen` earns its place:
+- No shipped green is a deep, saturated winter sward. `grass` runs yellow-green from L214 down to L131, and
+  `scrub` has two steps.
+- `fen.0` sits 26 RGB from `grass.3`, and `fen.1` 26 from `scrub.1`.
+- Steps darker than `fen.1` were drafted and dropped: they landed 8-11 RGB from `scrub.1` and `olive.3`, which
+  already serve.
+
+One honest note on an approved ramp: `overcast.0` sits 5 RGB from the shared `gunmetal.0`. Inside the wet theme the
+quantiser can land on either, and the two look the same. It moves nothing else, because the ramp is `theme_only`.
+
+### 4.2 The `wetland` tone bundle
+
+| Field | Tone | Note |
+|---|---|---|
+| `open` | `fen.0` | over `wetland_open_tile` |
+| `cover` 1/2/3 | `fen.1`, `scrub.1`, `olive.3` | under shrubs |
+| `blocked` / `underBuilding` | `overcast.3` / `shadow.0` | |
+| `road` / `rut` | `mud.1` / `mud.3` | a mud track with basalt grit |
+| `rock` / `rockLit` | `overcast.4` / `overcast.3` | wet basalt |
+| `earth` / `spoil` | `mud.2` / `mud.3` | |
+| `marsh` | `mud.3` | under the water stand-in |
+| `low` | `fen.1` | |
+| `trunk` / `trunkLit` | `mud.3` / `mud.2` | |
+| `leafDark` / `leafMid` / `leafLit` | `olive.3` / `scrub.1` / `fen.0` | |
+| `bladeLit` / `bladeShade` | `grass.3` / `fen.1` | the `sward` grain |
+| `scatter` / `groveFamily` / `crownRatio` | `sward` / `oak` / 0.8 | |
+| `haze` | `overcast.1` | |
+| `paletteRamps` | `['fen', 'mud', 'overcast']` | |
+| `macroHue` | `[fen.0, mud.2]` | |
+| `decorColors` | section 2.2, plus `boulder:rock` `overcast.3`, `rock:rock` `overcast.3`, `slab:rock` `overcast.4` | |
+| `openScatter` | tree `oak`, treePlain 0.006, treeFoothill 0.03, boulderPlain 0.01, boulderFoothill 0.03, bush 0.04, chipPlain 0.04, chipFoothill 0.08, chipCluster 0.3, sandKeep 0 | about three quarters of the highland's, because the wet maps carry groves and reeds as well |
+
+**Readability floor (decision 5).** ΔE2000 of the uniforms against the open-ground tone:
+
+| Uniform tone | on wetland `fen.0` | on green `grass.2` | on highland `dust.5` |
+|---|---|---|---|
+| KDF `olive.1` | **18.4** | 23.9 | 15.6 |
+| KDF `olive.0` (lit) | 11.0 | 13.1 | 22.3 |
+| Enemy `dust.0` / `dust.2` / `dust.4` | 26.5 / 27.1 / 29.0 | 19.0 / 22.5 / 28.8 | 30.0 / 20.9 / 6.9 |
+| Civilian `water.0` / `water.1` | 31.9 / 38.5 | 31.5 / 43.8 | 41.7 / 32.7 |
+
+The wet open ground sits between the two shipped green-ish themes for KDF and is better than both for the enemy.
+
+The pin is KDF `olive.1` on `open` at **at least 15.6** (the lowest shipped theme's figure), against LITERAL
+oracles, not values imported from the bundle. The falsification is to set `open` to `scrub.0`, which reads 9.8,
+and watch the test go red.
+
+### 4.3 Wet ground, the marsh and puddles
+
+These terms go into the ground shader under a `THEME_WET` define, so the other three themes compile today's program
+byte for byte (9.1). The masks are baked into control C at boot, not computed per fragment.
+
+| Term | Rule | Numbers (for approval) |
+|---|---|---|
+| Marsh `~` | the C.R weight, with a 0.5-tile soft edge like every surface. Standing water between the reed clumps. | 55% water by area inside a marsh tile; a `mud.3` floor x 0.55; overcast reflectance 0.35 |
+| Puddles, roads | in the ruts: B's road distance inside the rut band, times the rut noise | 25-35% of road area |
+| Puddles, open ground | the macro field thresholded on FLAT ground (normal y above 0.985) | 4-8% of open ground |
+| Puddles, low ground | boosted below the map's median open level (`hazeReferenceLevel`) | +6% at 2 levels below |
+| Never water | a terrace top, a `^` top, a building pad, a slope over 10 degrees, a crown | — |
+| Puddle surface | the wet tone mixed toward `overcast.0` scene-referred by an AUTHORED reflectance | albedo x 0.55, reflectance 0.35. Physical Fresnel here would be 0.05, which reads as nothing. |
+| Edge | a soft rim of darker mud | 0.06 tile, `mud.3` |
+| Ripples | rings on water fragments only, on the sim clock, each ring cell a `tileHash` stream | 0.12-tile rings, 0.9 s life, 2 a cell, 0.5-tile cells; ±15% on the reflection; at most an 8-degree normal tilt |
+| Roughness | open 0.62, road mud 0.45, water 0.08, basalt top 0.55 | Honest note: flat ground shows almost nothing (section 0). It is there for relief faces and ripples. |
+
+Not recommended:
+- screen-space reflections: +0.6 to +1.2 ms on a frame that already misses;
+- an environment map: it would reopen the 0.45 metal cap game-wide;
+- planar mirrors: impossible on a bicubic ground.
+
+### 4.4 Falling rain (approved shape)
+
+One world-space instanced batch, `units/rain-batch.ts`, built the way the flipbook pool is: GPU-aged and drawn in
+the main pass only. It has no `normal` attribute and `castShadow` is false, so the AO and shadow passes never see
+it.
+
+| Number | Value |
+|---|---|
+| Count | `high` 6,000 / `medium` 3,500 / `low` 1,500 (approved) |
+| Placement | each instance is a hashed seed, at `hash(i) + fall(presentationSimMs)`, wrapped in a box that follows the camera focus. Drops stay fixed in the world on a pan. |
+| Fall speed | 4.0 wu/s (12 m/s), slanted 12 degrees down-wind |
+| Streak | 0.42 wu long, 1.5 CSS px wide at every zoom (the constant-pixel rule), alpha 0.28 |
+| Splash | in the same instance and draw: a ring of 0.04 -> 0.10 wu over 150 ms, alpha 0.35 -> 0, `overcast.1` |
+| Ground height | from an R16F texture, 4 texels a tile (37 KB on 48x48), baked at boot from `ground-height.ts`'s own sampler |
+| Colour | `overcast.0` x the haze's scene-referred light factor. It stays under 1.0, so it never blooms, and `hdr-gains.ts` gets no entry. |
+| Occlusion | buildings hide drops through the depth test. Drops write no depth, so the fog pass shrouds a streak by the ground behind it. Rain is uniform, so it leaks nothing about unexplored ground. |
+| Render order | a new `RAIN_RENDER_ORDER` in `render-order.ts`, in the FX-above band (3): over units, under overlays (4), smoke (5) and the occlusion outline (6) |
+| Reduced motion (`data-motion`) | no falling rain and no ripples. The wet ground and the light stay. |
+| Pause | the rain freezes mid-air: the sim-clock rule, as with sway (approved) |
+| Minimap | `photographGround` hides the batch. The water and the wet tones draw. |
+
+### 4.5 Light and haze
+
+**`rainLight(preset)`** is a pure function in `three/weather.ts`. It is applied when `RendererOptions.weather` is
+`rain`, which means on every wetland map, over whatever preset the boot chose: `day` by default, or `&tod=` in
+Free Play. It keeps the preset's sun DIRECTION (rain at dawn is still dawn) and changes the rest:
+
+| Quantity | `day` today | `wetland` over `day` | Rule |
+|---|---|---|---|
+| Sun intensity | 2.6 | 1.2 | x0.46 on any preset |
+| Sun colour | `limestone.0` | `overcast.0` | |
+| Fill (hemisphere) | 0.9 | 1.35 | as a `LightOverride.fill` |
+| Sky key | `water.0` | `overcast.1` | |
+| Shadow strength | 1 | 0.45 | as a `LightOverride.shadow` |
+| Shadow map | 4096 / 2048 / 1024 | 2048 / 1024 / 1024 | one step down; overcast shadows are soft (approved) |
+| `hazeFar` / `hazeKey` | 0.12 / theme | 0.26 / `overcast.1` | max(preset, 0.26); never above 0.26 |
+| `HAZE_LOW` | 0.06 | 0.10 | valleys fill with murk |
+| Exposure | ACES 1.0 | **ACES 1.0, unchanged** | the colour-pipeline rule; the dimming comes from the lights |
+
+Open-ground irradiance falls 23% (0.964 -> 0.742): moody without a black frame. Rain must not visually hide what
+the sim lets the player see. A report reads unit-on-ground contrast at the far haze point, on the `wet` capture.
+
+**Low cloud shade:** optional, in P6.
+- a ±6% luminance multiply in the fog pass, before the shroud;
+- 14-tile cells drifting at 0.4 tiles/s on the sim clock, from `terrain/noise.ts`.
+
+**Lightning: none** (approved).
+
+### 4.6 Units, decals, VFX
+
+| Subject | On a wetland map | Cost |
+|---|---|---|
+| Foliage | sway amplitude x1.5 and gust gain 1.4 -> 1.8, on the sim clock; the reeds share the foliage batch and its sway | 0: uniforms |
+| Units | roughness only: cloth 0.92 -> 0.80, armour 0.78 -> 0.52, plate 0.70 -> 0.48, gunmetal 0.42 -> 0.32. Metalness unchanged (cap 0.45). No albedo darkening. | 0 |
+| Decals | tread and tyre prints (colour indices 6 and 7) take `mud.3`. A crater bowl below its `craterHeight` threshold takes the water surface. | about 0 |
+| Vehicle spray | `vehicle_mud.json` in place of `vehicle_dust.json`: low, short, `mud.2`, life x0.5, no rising column | 0 net: a swap |
+| Smoke | unchanged; smoke is a sim fact | 0 |
+
+**No status marks in the world.** The theme adds no badge, icon or "muddy" mark to any unit.
+
+## 5. The maps (Free Play only)
+
+### 5.1 How many and how big
+
+**Recommend two maps at 48x48** (decision 12). Every shipped map is that size, and the camera, minimap, sandbox
+anchors, flow-field pool and every frame measurement were taken at it. One map would show the theme but only one of
+its two ideas. A third, a wet village, is the dense-town shape the lead has warned about (6 Oct), so it waits.
+
+Both follow these rules:
+- **Keep the fight visible.** Built share stays at 3% or less, and no building stands on a main route.
+- **Relief.** A hiding crest stands 2 levels above its ground, and every open step is at most 1 level per tile.
+- **Slope.** Slope only reorders a route over ground that rises above its destination and comes back down. A
+  16-tile bowl reorders nothing.
+- **Buildings.** Each building stands on one level.
+
+The ids are working names, fictional in the existing style. Before authoring, `narrative-designer` checks them for
+a collision with a real place.
+
+### 5.2 The marsh symbol `~`
+
+`~` is cover 1 plus the vehicle wall: `{ blocked: 0, boulder: 1, cover: 1, decor: marsh }`. It is legal only on a
+`wetland` map.
+
+**It adds no sim code.** It composes two mechanics the sim already has:
+- the second blocked mask that `b` and `d` use, so vehicles bog and infantry wade;
+- cover 1 (`COVER_SIG` 0.75, `COVER_HIT` 0.375), the same as an `o` grove.
+
+What follows from that:
+- `pnpm test:determinism` and the §5.7 targets cannot move, and `pnpm balance` is blind to terrain in any case.
+- The look matches the rule: a reed bed you can hide in is cover, and a marsh a tank drives through would be a lie.
+
+The rejected options are in decision 3.
+
+The ten symbols used: `.` open, `1`-`3` cover, `r` track, `o` oak grove, `n` knoll, `^` basalt crag or dyke, `b`
+boulder field, `~` marsh, plus structures (`h` house, `w` barn as the warehouse type, `=` wall). `d` (a ditch) is
+not used.
+
+### 5.3 Ein Qasab ("Reed Spring"): the marsh valley
+
+| Band | x | Elevation | Content |
+|---|---|---|---|
+| West ridge | 0-11 | rising 1 -> 4, crest at x 6-8 | Three broken runs of `^` basalt crags along the crest (about 60 tiles, sight walls). Four oak copses `o` on the east-facing slope (about 90 tiles). A boulder skirt `b` at the foot (about 50). |
+| Valley floor | 12-33 | 0 | A reed marsh `~` meandering north to south, 6-9 tiles wide (about 300 tiles, 13%). **Two causeways**: `r` raised to level 1, at y 12 and y 34, 22 tiles apart. Willows along both banks (the waterside pass). Puddled tracks to both causeways. |
+| East downs | 34-47 | 1-2, with a 2-level crest at x 38-40 from y 6 to 40 | A hamlet of four `h` houses and a walled yard (built share about 2%) on a knoll `n` at (42, 22). Cover hedges `1`/`2` along field bunds (about 170). |
+
+- **Markers:** `kdf_start` (4, 44), `causeway_n` (22, 12), `causeway_s` (22, 34), `hamlet` (42, 22),
+  `east_crest` (39, 10). The sandbox anchors take `kdf_start` as the player and the hamlet and crest as the
+  opposition.
+- **What it plays as:**
+  - Vehicles have two crossings 22 tiles apart. Infantry wade anywhere, in cover.
+  - The west ridge overwatches the whole floor.
+  - The east crest hides the hamlet's approach until you are on it.
+- **The pin:** a vehicle FlowField from `kdf_start` to `hamlet` passes a causeway tile, and a foot field may not.
+  This is a doctrine test in the shape of `tel_marum_doctrine.test.ts`. Its falsification is to delete one
+  causeway and watch the vehicle route move to the other, then delete both and watch it fail.
+
+### 5.4 Jebel Matar ("Rain Hill"): the wet downs
+
+| Band | y | Elevation | Content |
+|---|---|---|---|
+| North crest | 12-16 | 3, a high shoulder at level 4 near the axis and a saddle at level 1 eight tiles east | Boulder fields `b` on its north flank (about 60). The summit is at (8, 6), level 4. |
+| Hollow | 17-30 | 0 | A farmstead (house, barn `w`, walled yard `=`, built share about 1.5%). Three marsh pockets `~` (about 80 tiles). A muddy track loop `r` through both saddles. |
+| South crest | 31-34 | 2-3, with a saddle at level 1 | Oak copses `o` on its south face (about 120). |
+| Throughout | | | A basalt dyke `^` running diagonally to the NE (about 90 tiles), a wall with one vehicle gap. Hedges `1`/`2` along bunds (about 180). |
+
+- **Markers:** `kdf_start` (24, 46), `farm` (24, 23), `north_summit` (8, 6), `saddle_w`, `saddle_e`.
+- **What it plays as:**
+  - Two crests that each hide what is behind them.
+  - The Qarn Hadid "two ways through" shape, softer: a high shoulder or a low saddle, and the relief has to
+    reorder the route, not just price it.
+  - The dyke gap is a vehicle choke, and the marsh pockets close the hollow to vehicles off the track.
+- **The pin:** a relief test against a control with the same rows flattened, in the shape of
+  `qarn_hadid_relief.test.ts`.
+
+### 5.5 The Free Play entry
+
+- Each map is a JSON file in `data/maps/` and an entry in `packages/data/src/index.ts` `maps`.
+- Each needs one `freePlay.map.<id>` line in `en.json`:
+  - "A reed marsh in the rain, crossed by two causeways under a basalt ridge."
+  - "Wet downs: two crests, a basalt dyke and a farm in the hollow."
+- The card paints itself from the theme's tones, and the `~` tiles use `tones.marsh`. The route is
+  `/free-play/<id>`, and the existing sandbox flags apply.
+- **No mission, no campaign entry, no `data/versus/` file.** Both seats would see the same theme, so the screen
+  is fair by construction. The approved "no rain in versus" holds simply because no wet map is a versus map. If one
+  is ever wanted, it is the network lane's call and costs a probe run.
+- **Map gates:**
+  - `map_grid.test.ts` and `high_ground_maps.test.ts` (new `RISES` entries, read on first run).
+  - `map_distinctness` against every shipped map, as a report: feature identity under 35%, and elevation within one
+    level on under 80% of raised tiles.
+  - `map_visibility` measures campaign maps from their objectives. For these two it is run from the sandbox
+    anchors' routes (`kdf_start` to each opposition anchor), report-only, and the visible share is shown to the
+    lead with the first capture.
+
+## 6. Frame cost, per element and per preset
+
+These are **estimates**, scaled from measured neighbours: the basin's decor (2.2 ms for about 1.09 M placed
+triangles at z1, so about 2.0 ms per M at `high` with three passes, and about 1.4 ms per M at `medium` and `low`
+with no GTAO pass), the relief-read ALU (+0.15 ms), the fog pass (0.2-0.8 ms) and the shadow pass (1.3-1.9 ms).
+
+They are MEASURED in P4 under GH-829's conditions:
+- `tools/src/perf/fx-cost.ts` with the wet layers as an A/B, and the basin as the reference in the same run;
+- M3 Pro, ANGLE/Metal confirmed, 1440x900 at DPR 2;
+- zoom 1 / 1.6 / 2.5;
+- 12 interleaved rounds of 20 synced frames, median and p95;
+- the agent's own port, music off, one browser.
+
+**The theme's absolute foliage cost, against the basin:**
+
+| | `high` | `medium` | `low` | Draw calls |
+|---|---|---|---|---|
+| Decor on a wet map (0.70-0.75 M) | about 1.4-1.5 ms | about 1.0-1.1 ms | about 1.0-1.1 ms | **+0** (the four role batches) |
+| The basin's decor (1.09 M) | 2.2 ms (measured) | about 1.5 ms | about 1.5 ms | |
+| **Difference** | **about -0.7** | **about -0.4** | **about -0.4** | |
+
+**The wet layers, as a delta on a wet map (the approved budget applies here):**
+
+| Element | `high` | `medium` | `low` | Draw calls | Fallback, in order |
+|---|---|---|---|---|---|
+| Per-theme ground images (the same five slots) | 0 | 0 | 0 | 0 | — |
+| Control C, marsh water, puddles (`THEME_WET`) | +0.10 to +0.25 | +0.10 to +0.25 | +0.10 to +0.25 | 0 | drop the open-ground and low-ground puddle masks (roads and marsh stay) |
+| Ripples | +0.05 to +0.10 | +0.05 to +0.10 | off | 0 | off |
+| Falling rain and splash | +0.30 to +0.60 | +0.20 to +0.35 | +0.10 to +0.15 | +1 | count ladder x1.0 -> x0.6 -> x0.35, then no falling rain (the wet ground stays) |
+| Decals and crater water | about +0.05 | about +0.05 | about +0.05 | 0 | — |
+| **Gross** | **+0.50 to +1.00** | **+0.40 to +0.75** | **+0.25 to +0.45** | **+1** | |
+| Shadow map one step down (a saving) | -0.10 to -0.50 | -0.05 to -0.30 | 0 | 0 | — |
+| **Net** | **0 to +0.90** | **+0.10 to +0.70** | **+0.25 to +0.45** | | |
+| **Budget (approved)** | **<= +1.0** | **<= +0.7** | **<= +0.4** | | |
+
+Two honest notes on the table:
+- **`low`'s top end is over budget.** The estimate reaches +0.45 ms against +0.40. If the measurement agrees, `low`
+  drops the open-ground and low-ground puddle masks from the start, which saves about 0.05-0.10 ms.
+- **`medium`'s gross top end reaches +0.75.** Only the shadow step brings it inside +0.70, so the count ladder is
+  the next step if it misses.
+
+**The theme's frame target (decision 13).** At every preset and view, a wet map's frame with everything on must
+come in at or below the basin's frame plus the wet-layer budget, measured in the same run. Because the wet maps'
+decor is about 0.4-0.7 ms cheaper, this should hold with room. A wet map at `high` on DPR 2 will still miss
+16.7 ms SYNCED, as the basin does today. That miss is GH-829's own ticket. The live rAF cadence (16.7 ms, with 0%
+of frames over 20 ms) is read as well. A fight frame (smoke plus rain overdraw) is read once with
+`blast:capture`'s method and reported, not gated.
+
+| Other resource | Amount |
+|---|---|
+| Programs | +1 (rain), plus one ground permutation, compiled only on a wet map |
+| Textures | +2 on a wet map: control C (about 0.6 MB on 48x48) and the 37 KB height texture. The five ground images replace five. |
+| GPU memory | about +0.7 MB |
+| Load | the new GLBs, measured by `pnpm perf:load` in P3, and under 5 ms for the height bake |
+| Tick time | 0 |
+
+## 7. Presentation or rules
+
+**Recommend presentation only** (decision 2). The `~` symbol (5.2) is data built from existing sim mechanics, not a
+new rule.
+
+Any rule would come in a later issue, under these conditions:
+- deterministic and in data, Q16.16 or integers;
+- folded into `hash()` only when live, the `woundLive` precedent;
+- the §5.7 targets and the versus bar held.
+
+What revision 1 measured still stands:
+- **Sight x0.85** would break the measured recon missions.
+- **A mud speed penalty** is blind to `pnpm balance` and slows every tank.
+- **Rain halving smoke's life** (`SMOKE_DECAY` 1 -> 2) is the one rule worth trying, on a mission designed for
+  it, after the look lands.
+
+With no wet mission, none of these has anywhere to be measured yet.
+
+The look must not imply concealment the sim does not grant. This is why haze is capped at 0.26, reeds stay at
+1.5 m or less, and the reed bed is real cover.
+
+## 8. The visual gate
 
 | Scenario | Framing | Status | Layer checks recorded (report) |
 |---|---|---|---|
-| `rain` | `relief`'s framing: `tel_marum` (highland), tile (10, 15), zoom 2, `targetTick` 500, the same drone order, plus `weather=rain` through `sandboxFlags` | **report-only** (`gated: false`), like `dusk` | `rain`, `wet`, `ripples`, and `cloud-shade` from phase 5 |
-| `rain-green` | `wadi_halam_basin`, a road and pasture framing clear of the force, zoom 1.6, an absolute `targetTick` | **report-only** | `rain`, `wet` |
+| `wet` | `ein_qasab`, the south causeway with marsh on both sides and a willow bank, zoom 2, an absolute `targetTick`, the sandbox force parked off the causeway | **report-only** (`gated: false`), like `dusk` | `rain`, `wet`, `marsh`, `ripples`, `decor` |
+| `wet-downs` | `jebel_matar`, the farm hollow and a marsh pocket, zoom 1.6 | **report-only** | `rain`, `wet`, `decor` |
 
-- **New debug layers** (`three/debug-layers.ts`): `rain` (the batch's visibility flag), `wet` (the puddle and wet
-  terms' amplitude uniform to 0, which leaves the wet TONES, by design), `ripples`, `cloud-shade`. Each is a flag or
-  uniform that no per-frame write re-asserts, the `unitsDebugHidden` standard.
-- **Repeatability first.** Rain is on the sim clock, so a frame frozen at tick 0 elapsed is deterministic. Three
+- **New debug layers** in `three/debug-layers.ts`:
+  - `rain`: the batch's visibility flag;
+  - `wet`: the puddle and water amplitude uniform to 0 (the wet tones stay, by design);
+  - `marsh`: the C.R weight to 0;
+  - `ripples`;
+  - `cloud-shade`.
+  None of them is re-asserted by a per-frame write.
+- **Repeatability first.** Rain runs on the sim clock, so a frame frozen at tick 0 elapsed is deterministic. Three
   fresh-process captures of one commit must read 0 px / 0.0000 before any floor is written. A bimodal reading is a
-  bug, not a band. `lateFreezeRefusal` and `guardCapture` apply unchanged.
-- **Promotion to gated** is a later lead call (decision 14). The condition is a third of the smallest of three runs,
-  per layer. **The thresholds of the existing scenarios do not move.**
-- **No baseline moves.** No gated scenario sets a weather, and clear compiles today's program (8.3).
-- The bloom census (`pnpm perf:bloom-census`) adds both rain framings. A quiet rain frame stays under 0.9.
+  bug. `lateFreezeRefusal` and `guardCapture` apply unchanged.
+- **No existing baseline moves.** No shipped map changes theme, and the other themes compile today's programs.
+  Adding the two scenarios turns the existing manifest red until the post-merge bless from CI numbers, as for any
+  new scenario. Look at the picture.
+- **Promotion to gated** is a later lead call. The floors are one third of the smallest of three runs, per layer.
+- The bloom census (`pnpm perf:bloom-census`) adds both framings. A quiet wet frame stays under 0.9.
 
-## 8. Build phases
+## 9. Checks, and the input that makes each one fail
+
+### 9.1 The other themes are byte-identical
+
+- `terrain-defaults.test.ts` is extended to every shipped map, highland included.
+  - The fixture is regenerated at the commit BEFORE the wiring and committed alone.
+  - The wiring commit then must not touch the fixture.
+- A shader test compares the compiled ground program and the light values for an arid, a green and a highland map,
+  bit for bit, with `weather` absent and with `'clear'`.
+- Falsification: compile `THEME_WET` unconditionally once, and watch both tests and the `quiet` golden go red.
+
+### 9.2 Every new check
+
+| Check | Falsifying input (run, then put back) |
+|---|---|
+| The wet tones against literal ΔE oracles | `open` -> `scrub.0` (ΔE2000 9.8 < 15.6) |
+| Foliage figure-ground on `wetland` | `oak:foliage` -> `fen.1` (9.3 < 12) |
+| `theme_only` isolation | drop `theme_only` from `fen` |
+| `~` is vehicle-walled, foot-open and cover 1 | `boulder: 0` in the legend entry |
+| `validate:data` refuses `~` off a wetland map | one `~` on `tile_green` |
+| `decorFamiliesFor` covers what is placed | drop `reed` from the mirror |
+| Reeds never stand above 1.5 m | scale one reed variant x1.3 |
+| Placed decor is at most 0.9 M a wet map | double the reed clumps a tile |
+| Rain runs on the sim clock | drive the batch from `performance.now()`: the frozen repaint must differ |
+| The `rain` layer contributes | hide the batch alone: the reading must be non-zero |
+| Constant-pixel streak width | drop the per-zoom rescale |
+| The streak never blooms | give it an `hdr-gains` entry: the census goes over 0.9 |
+| Causeway doctrine (5.3) | delete the north causeway: the vehicle route must move; delete both: it must fail |
+
+## 10. Build phases
 
 | Phase | What | Output | Gate before the next |
 |---|---|---|---|
-| P0 | this spec | the decisions in section 10 | the lead's answers |
-| P1 | mood board, reference study only | `_coord/rain-look/board.html`; the numbers revised if the board argues for it | the lead approves the numbers (sections 2.1–2.6) |
-| P2 | data and air: schema field, `weatherOf`, `&weather=`, `RendererOptions.weather`, `rainLight`, haze values, the `mud` and `overcast` ramps, the two wet bundles, unit roughness, foliage sway gain, and the `rain` / `rain-green` report-only scenarios registered | first in-engine A/B captures, own port, Metal, music off | the lead's look |
-| P3 | wet ground: the puddle mask, the stand-in, ripples, ground roughness, crater puddles, mud prints, the `vehicle_dust` rain variant; decision 11 (mud image) is read here | captures; `wet` and `ripples` layer readings | the lead's look |
-| P4 | falling rain: the batch, splash, height texture, the `weatherDetail` ladder, reduced motion; **the cost run** (section 3) | the cost table measured; ladder steps if over budget | inside budget, or the lead's call |
-| P5 | optional mood: cloud shade; lightning only if decision 8 says so | captures and cost | the lead's look |
-| P6 | carrier: `umm_zeitoun_1_recon` gets `weather: "rain"`; the Free Play option | `pnpm playtest` byte-for-byte for that mission; `validate:data` | — |
-| P7 | only if decision 2 asks for a rule: smoke decay through `balance-analyst` and `sim-guard`, a rain row in the backtest, the golden hash folded only when live | balance and probe tables | the lead |
+| P0 | this spec | the decisions in section 11 | the lead's answers |
+| **P1** | **mood board, reference study only**: no render, no Meshy, no browser | `_coord/wet-theme/board.html`; the numbers revised where the board argues | **the lead approves the art numbers (sections 2-4) and the species list** |
+| P2 | wiring with STAND-INS (no new art): the 9.1 pins first, then schema, legend `~`, ramps, the bundle, the per-theme tables, the remap and waterside passes, and an Ein Qasab greybox. The shipped GLBs and textures stand in, retinted. | first captures, own port, one Metal browser, music off, zoom 1 and 2.5 | the lead's look at tones and palette |
+| P3 | art: the Meshy batch inside the approved credits (Opus, high effort, each call announced), Blender fits and variants, procedural reeds, grass and props, the five ground tiles | `validate:meshes` green; fit reports with the cost of each cap; `perf:load` | the lead's look, zoomed in |
+| P4 | wet ground and air: control C, marsh water, puddles, ripples, roughness, `rainLight`, haze, decals, mud spray; then the rain batch, the ladder, reduced motion; **the cost run** (section 6) | the cost tables measured; the ladder stepped if over | inside budget, or the lead's call |
+| P5 | maps: Ein Qasab final and Jebel Matar; the doctrine and relief pins; the distinctness and visibility reports; the Free Play strings; the two report-only scenarios | captures of both maps; gate reports | the lead's look |
+| P6 | optional: cloud shade, only if P4 left room | captures and cost | the lead's look |
 
-### 8.3 Clear weather is byte-identical
+Not covered: a wet campaign mission, snow or a dust storm, rain that starts and stops mid-mission, rain audio, a
+basalt village, real-player readability, and any GPU but the M3 Pro.
 
-The pin, and how it is shown to work:
-- `RendererOptions.weather` absent, and `'clear'`, both build exactly today's programs and uniforms.
-- A test compares the compiled ground shader source and the light values, bit for bit.
-- Falsification: compile `WEATHER_RAIN` unconditionally once, and watch both that test and the `quiet` golden go red.
+## 11. Decisions for the lead (recommendation first)
 
-### 8.4 Every new check, with the input that makes it fail (run, then put back)
-
-| Check | Falsifying input |
-|---|---|
-| Wet tones against literal luminance oracles | change `mud.1`'s hex |
-| `theme_only` isolation (`terrain-defaults.test.ts`) | drop `theme_only` from `mud` |
-| `weatherOf`: a mission wins over the flag | read `params` first |
-| `validate:data` refuses rain on arid | author it on `beit_sahwan_1_recon` |
-| Rain on the sim clock | drive the batch from `performance.now()`; the frozen repaint must differ |
-| The `rain` layer contributes | hide the batch with nothing else changed: the reading must be non-zero |
-| Constant-pixel streak width | drop the `MESH_UNITS_PER_TILE`-style rescale; the width test goes red |
-| The streak never blooms | give it an `hdr-gains` entry; the census goes over 0.9 |
-
-## 9. What this does not cover
-
-- Snow, a khamsin dust storm, or rain that starts and stops mid-mission. The enum leaves room, and a mid-mission
-  change would need a live renderer switch that the boot-time preset model does not have.
-- Real players' readability. The contrast numbers are a floor, not a playtest.
-- Any GPU but the M3 Pro.
-
-## 10. Decisions for the lead (recommendation first)
-
-1. **A weather layer, not a fourth theme.** Recommend a mission field `map.weather: "rain"` over the map's existing
-   `terrain`. The alternative, a `terrain: "wet"` theme, duplicates species and scatter and cannot put rain on a
-   shipped map.
-2. **Presentation or rules.** Recommend presentation only for GH-871. If rain should matter later, try one rule
-   first: rain halves smoke's life (`SMOKE_DECAY` 1 -> 2), through `balance-analyst`, on a mission designed for it.
-   Sight and mud are not recommended: sight breaks the measured recon missions, and mud is invisible to
-   `pnpm balance` and slows every tank.
-3. **Themes in scope.** Recommend highland and green. Rain on an arid map is refused by `validate:data` and warned
-   in the sandbox until a wet-desert set is asked for.
-4. **Palette.** Recommend adding `mud` (`#A06C48 #85543A #6A402D #502F22 #382019`) and `overcast`
-   (`#C4C8C9 #A3A9AC #83898D #656B70 #4A4F54`), both `theme_only`.
-5. **How dark wet ground goes.** Recommend within -20 luminance of the dry tone: green -16, highland -6 and redder.
-   Pinned by a test. Darker reads wetter and costs unit readability.
-6. **Puddles.** Recommend the authored stand-in: dark wet tone, overcast sky at reflectance 0.35, and ripples. No
-   SSR and no environment map: SSR would cost +0.6 to +1.2 ms on a frame that already misses, and an environment
-   map would reopen the metal cap game-wide.
-7. **Falling rain.** Recommend one world-space instanced batch, streak and splash in one draw: 6,000 / 3,500 / 1,500
-   drops, constant 1.5 px width, alpha 0.28. None under reduced motion.
-8. **Lightning.** Recommend none through P4. If wanted at P5: a sky-only flash, at most once per 20 s, off under
-   reduced motion, never a bolt.
-9. **Overcast shadows.** Recommend keeping the shadow pass, at strength 0.45 with the map one step down. Units stay
-   grounded on `medium` and `low`, which have no GTAO. Dropping the pass on rain would save 1.3–1.9 ms at `high`,
-   and units would float on the presets with no GTAO.
-10. **Low cloud shade.** Recommend building it at P5, on `high` and `medium` only, and only after the P4 cost read
-    shows room.
-11. **A mud image.** Recommend none at first: mud is the existing ratio images under `mud` tones. A Blender-baked,
-    seamless 1024² mud tile only if the P3 capture reads flat. Meshy: 0 credits.
-12. **The rain's clock.** Recommend the sim clock, like sway and decals. The gate repeats exactly, and pausing
-    freezes the rain mid-air. A wall clock would make every rain capture noisy.
-13. **Frame budget.** Recommend approving <= +1.0 ms at `high`, <= +0.7 at `medium` and <= +0.4 at `low`, median
-    and p95, measured as a delta at DPR 2. GH-829's existing miss stays its own ticket.
-14. **The visual gate.** Recommend two report-only scenarios, `rain` (Tel Marum, highland) and `rain-green` (Wadi
-    Halam I). Promote `rain` to gated only after three bit-identical fresh-process runs and your look.
-15. **First carrier and the picker.** Recommend `umm_zeitoun_1_recon` ("Cold Ground") at P6, with no new map, and a
-    "Rain" option in Free Play at the same time.
-16. **Versus.** Recommend no rain in versus rooms for now. If wanted, it becomes a per-map rules field later, the
-    same for both seats.
-17. **Go for P1.** Recommend approving the mood board as reference study only: no render, no Meshy, no browser.
+1. **The theme's character and id.** Recommend `wetland`: a Levantine winter valley of alluvial mud and winter
+   sward, wet basalt, reed marsh, Tabor oak and willow. It is distinct from all three shipped themes and sits in the
+   game's world. Alternatives: the id `wet`, or a temperate European wet forest (a look the setting does not have).
+2. **Presentation only.** Recommend it. Rain is part of the theme: it falls on every wetland map and on no other,
+   with no `&weather=` flag. A/B comparisons go through the debug layers.
+3. **The marsh symbol `~`.** Recommend cover 1 plus the vehicle wall, legal on wetland maps only. That is two
+   mechanics the sim already has, with no sim code. The alternatives:
+   - `~` exactly as `b`, with no cover: a reed bed you cannot hide in;
+   - decor only, open to vehicles: a marsh tanks drive through, which is a lie the player acts on.
+4. **Palette.** Recommend adding `fen` (`#75A659`, `#4B7135`, `theme_only`) to the approved `mud` and `overcast`.
+   The rocks take `overcast.3` / `overcast.4`, with no basalt ramp unless the board argues for one.
+5. **Readability.** Recommend the bundle in 4.2. Pin KDF `olive.1` on open ground at ΔE2000 15.6 or more (this
+   bundle reads 18.4), and hold every foliage tint to the VR-05 floor.
+6. **Ground set.** Recommend five procedural tiles (2.1) at 0 credits, with a per-theme slot table so that each
+   theme can own its rock, scrub, grove and knoll images. The other three themes keep theirs.
+7. **The foliage species list.** Recommend Tabor oak (2 Meshy bases), white willow (1), lentisk (1), and Phragmites
+   with bulrush reeds and winter sward, both made in Blender. Alternatives for the waterside tree: oriental plane,
+   or eucalyptus (taller, and so a worse fit for units).
+8. **Rocks.** Recommend the shipped rock, slab and boulder families, retinted, at 0 credits. A Meshy basalt boulder
+   (25 credits) only if the P3 capture still reads as limestone.
+9. **Props.** Recommend three new kinds (a round bale and a culvert pipe in Blender, a tractor wreck from Meshy)
+   and a wet-theme mix that keeps the shipped seven at lower weights.
+10. **Meshy budget.** Recommend 125 credits planned (about $2.50), capped at 200 (about $4.00). The prompts are
+    written by an Opus agent at high effort after the board, and each call is announced with its credits first.
+    Nothing is spent before P3.
+11. **Triangle caps.** Recommend oak and willow 2,500, shrub 600, reed 400 and grass 200 a variant, and at most
+    0.9 M placed decor triangles a wet map (the basin is about 1.09 M). The masters are kept at full detail, and
+    each fit reports what its cap cost.
+12. **Maps.** Recommend two Free Play maps at 48x48: Ein Qasab (the marsh valley with two causeways) and Jebel
+    Matar (the wet downs, crests and dyke). They have no mission and no versus file. Their names are checked for a
+    real-place collision first. The alternative is one map, which would show only one of the theme's two ideas.
+13. **Frame budget.** Recommend the approved +1.0 / +0.7 / +0.4 ms for the wet layers, as an A/B on the wet maps.
+    In addition, a wet map's whole frame must come in at or below the basin's frame plus that budget, in the same
+    run. `low` starts with the open-ground and low-ground puddle masks off if its measurement is over. GH-829 stays
+    its own ticket.
+14. **The visual gate.** Recommend two report-only scenarios, `wet` and `wet-downs`, and the terrain pins extended
+    to all 35 shipped maps before any wiring.
+15. **Go for P1.** Recommend approving the mood board as reference study only: no render, no Meshy, no browser.
