@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   BUSH_COVER_BASE,
   CLUSTER_R_MAX,
+  buildDecorPlacements,
+  changedDecorTiles,
   decorPlacements,
   DITCH_LIFT,
   GRASS_SCALE_MAX,
@@ -838,5 +840,30 @@ describe('openScatter (GH-322)', () => {
     for (let y = 0; y < 30; y++) for (let x = 0; x < 30; x++) if (tileHash(x + 449, y + 823) < 0.6) expected++;
     expect(trees.length).toBe(expected);
     expect(trees.every((p) => p.scale >= 0.8)).toBe(true);
+  });
+});
+
+describe('changedDecorTiles refuses a splice across a wetland tone change (GH-871)', () => {
+  const water = { tree: 'willow', p: 0.2, reach: 3 } as const;
+  const built = (extra: Partial<TerrainInput>): TerrainInput => ({ ...input(8, 8), boulder: null, ...extra });
+
+  it('refuses when waterside differs by reference, even with equal contents', () => {
+    const prev = buildDecorPlacements(built({ waterside: { ...water } }));
+    expect(prev.waterside).toBeDefined();
+    expect(changedDecorTiles(prev, built({ waterside: { ...water } }), prev.density)).toBeNull();
+  });
+
+  it('refuses when familyRemap differs by reference', () => {
+    const prev = buildDecorPlacements(built({ familyRemap: { grass: 'wet_grass' } }));
+    expect(prev.familyRemap).toBeDefined();
+    expect(changedDecorTiles(prev, built({ familyRemap: { grass: 'wet_grass' } }), prev.density)).toBeNull();
+  });
+
+  it('splices when both are the same references, or both absent', () => {
+    const remap = { bush: 'shrub' } as const;
+    const prev = buildDecorPlacements(built({ waterside: water, familyRemap: remap }));
+    expect(changedDecorTiles(prev, built({ waterside: water, familyRemap: remap }), prev.density)).not.toBeNull();
+    const bare = buildDecorPlacements(built({}));
+    expect(changedDecorTiles(bare, built({}), bare.density)).not.toBeNull();
   });
 });

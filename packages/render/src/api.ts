@@ -124,6 +124,27 @@ export interface TerrainTones {
    * theme used before this field existed.
    */
   macroHue?: readonly [string, string];
+  // -- GH-871, the wetland. The three fields below are OPTIONAL and their
+  // absence is exactly the behaviour before they existed (G-3), so no
+  // shipped theme declares them yet. Read by the three.js backend only.
+  /**
+   * Which family a theme draws in place of the shared grass tuft and the
+   * shared bush: `grass` -> `wet_grass`, `bush` -> `shrub`. Applied where
+   * decor is placed, so a remapped tile is a tile of the target family and
+   * no other. Absent, or a key absent from it: that family draws as itself.
+   */
+  familyRemap?: { readonly grass?: 'wet_grass'; readonly bush?: 'shrub' };
+  /**
+   * A tree that stands at the water's edge: on a plain open tile within
+   * `reach` tiles of water, a roll of `p` places `tree`. Absent: no
+   * waterside tree, and open ground carries only what `openScatter` names.
+   */
+  waterside?: { readonly tree: GroveFamily; readonly p: number; readonly reach: number };
+  /**
+   * The resolved hex of the theme's marsh tone, the colour a `~` mud tile
+   * draws on the ground. Absent: the shared ground tone, unchanged.
+   */
+  marsh?: string;
 }
 
 /**
@@ -160,7 +181,7 @@ export interface OpenScatter {
  * back, so the two cannot drift. `cedar` is the Sur highland's Cedrus libani
  * (GH-322).
  */
-export type GroveFamily = 'tree' | 'desert_tree' | 'cedar';
+export type GroveFamily = 'tree' | 'desert_tree' | 'cedar' | 'oak' | 'willow';
 
 /**
  * The ring(s) under an armed fire-support cursor (GH-113, S-F Task 1). `x`/`y`
@@ -360,6 +381,11 @@ export interface RendererOptions {
    * renderer built before the preset existed.
    */
   quality?: RenderQuality;
+  /**
+   * GH-871: the weather a mission draws under. P4's `rainLight` reads it; in
+   * P2 nothing does. Absent means `clear`. Three-only.
+   */
+  weather?: 'clear' | 'rain';
   /**
    * GH-469: the drawing buffer's pixel ratio is `min(devicePixelRatio, this)`
    * -- `PIXEL_RATIO_CAP` (2) when absent. Three-only. The menu's backdrop

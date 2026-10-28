@@ -48,6 +48,7 @@ import {
   VEHICLE_UNIT_MESHES,
   BUILDING_MESHES,
   DECOR_MESHES,
+  type DecorFamilyName,
   VFX_MESHES,
   PROP_MESHES,
   TUNNEL_PROP_KIND_NAMES,
@@ -400,6 +401,20 @@ describe('mesh catalogue: what has a mesh at all', () => {
     expect(Object.values(VFX_MESHES).every((f) => f.startsWith('vfx/'))).toBe(true);
   });
 
+  it('names exactly the decor families DecorFamilyName names, wetland ones included (GH-871)', () => {
+    // `satisfies` makes this object a compile-time mirror of the union: a
+    // family dropped from `DecorFamilyName` is an excess key, and one added
+    // to it and missing here is a missing key -- both fail `pnpm typecheck`.
+    const NAMES = {
+      grass: 0, sand: 0, bush: 0, wet_grass: 0, shrub: 0, reed: 0, tree: 0, desert_tree: 0,
+      cedar: 0, oak: 0, willow: 0, rock: 0, slab: 0, boulder: 0, ditch: 0,
+    } satisfies Record<DecorFamilyName, 0>;
+    expect(Object.keys(DECOR_MESHES).sort()).toEqual(Object.keys(NAMES).sort());
+    for (const f of ['oak', 'willow', 'shrub', 'reed', 'wet_grass'] as const) {
+      expect(DECOR_MESHES[f].length, f).toBe(3);
+    }
+  });
+
   it('lists three variants for every scattered decor family, and one for the ditch', () => {
     // This was `every((v) => v.length === 3)` -- a stricter rule than the
     // catalogue actually needs, and `ditch` is the first family to break it
@@ -421,6 +436,11 @@ describe('mesh catalogue: what has a mesh at all', () => {
       tree: 3,
       desert_tree: 3,
       cedar: 3,
+      oak: 3,
+      willow: 3,
+      shrub: 3,
+      reed: 3,
+      wet_grass: 3,
       rock: 3,
       slab: 3,
       boulder: 3,

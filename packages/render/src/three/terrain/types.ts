@@ -6,7 +6,7 @@
  * type from a file that does not exist yet. `ground.ts` imports both of
  * these rather than redeclaring them.
  */
-import type { GroveFamily, OpenScatter } from '../../api';
+import type { GroveFamily, OpenScatter, TerrainTones } from '../../api';
 
 /** Plain-array geometry. No three.js types, so builders stay headless. */
 export interface MeshData {
@@ -105,4 +105,16 @@ export interface TerrainInput {
    * the clustered grass and sand, as it did before the field existed.
    */
   openScatter?: OpenScatter;
+  /**
+   * The theme's grass/bush remap -- `TerrainTones.familyRemap`, passed
+   * through by `composeTerrain` (GH-871). Absent means no remap: grass and
+   * bush draw as themselves. Inert until the decor pass reads it.
+   */
+  familyRemap?: TerrainTones['familyRemap'];
+  /**
+   * The theme's waterside tree -- `TerrainTones.waterside`, passed through
+   * by `composeTerrain` (GH-871). Absent means none. Inert until the decor
+   * pass reads it.
+   */
+  waterside?: TerrainTones['waterside'];
 }

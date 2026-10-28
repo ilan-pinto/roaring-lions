@@ -100,11 +100,12 @@ const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
 /** Six decimals: a sun direction is derived from float positions. */
 const r6 = (xs: readonly number[]): number[] => xs.map((x) => Number(x.toFixed(6)));
 
-function identityOf(id: MapId): Identity {
+function identityOf(id: MapId, weather?: 'clear'): Identity {
   const parsed = parseMap(maps[id]);
   const sim = new Sim({ seed: 20260727, width: parsed.width, height: parsed.height, capacity: 4 });
   applyTerrain(parsed, sim);
-  const r = new ThreeRenderer(sim, rendererOptionsFor(parsed, HIGH, '/'));
+  // `weather: 'clear'` is a seam P4 reads (GH-871): naming it must change nothing.
+  const r = new ThreeRenderer(sim, { ...rendererOptionsFor(parsed, HIGH, '/'), ...(weather ? { weather } : {}) });
   const priv = r as unknown as Private;
   // What `init()` does with the fog pass, minus the GL-dependent rest.
   priv.fogPass = new FogOfWarPass(priv.shroud.texture, sim.width, sim.height);
@@ -184,6 +185,11 @@ describe('the ground program and the boot light, per shipped theme (GH-871)', ()
       });
       it('boots the recorded light', () => {
         expect(got.light, JSON.stringify(got.lightFields)).toBe(recorded[c.id].light);
+      });
+      it("names weather: 'clear' and gets the identical program and light", () => {
+        const clear = identityOf(c.id, 'clear');
+        expect(clear.program).toBe(recorded[c.id].program);
+        expect(clear.light).toBe(recorded[c.id].light);
       });
     });
   }

@@ -32,6 +32,9 @@ export type DecorFamily =
   | 'grass'
   | 'sand'
   | 'bush'
+  | 'wet_grass'
+  | 'shrub'
+  | 'reed'
   | GroveFamily
   | 'rock'
   | 'slab'
@@ -56,7 +59,7 @@ export const VARIANTS_PER_FAMILY = 3;
  *  rock's 0.75": `b` is a mechanic (a wall to wheels and tracks), not an
  *  aesthetic scatter, and a roll that skipped even one boulder tile would
  *  draw a gap a vehicle could see straight through. */
-const DENSITY: Record<Exclude<DecorFamily, 'grass' | 'sand' | 'bush'>, number> = {
+const DENSITY: Record<Exclude<DecorFamily, 'grass' | 'sand' | 'bush' | 'wet_grass' | 'shrub'>, number> = {
   tree: 1.0,
   // Same 1.0 as the olive, and for the same reason: a grove tile is an
   // authored `o`, so every one of them draws its tree. The species differs
@@ -67,6 +70,19 @@ const DENSITY: Record<Exclude<DecorFamily, 'grass' | 'sand' | 'bush'>, number> =
   // at the olive's 1.0 plus its twin, the mock photographed Qarn Hadid's
   // grove as one closed canopy rather than as trees.
   cedar: 0.6,
+  // The wetland's grove (GH-871): the cedar's reasoning, to the letter. 0.6 a
+  // tile and NO twin, so a 5.0 m oak reads as a tree and not as a closed
+  // canopy. `wet_grass` and `shrub` are absent from this table on purpose:
+  // they are remap TARGETS (`TerrainTones.familyRemap`) that stand where
+  // `grass` and `bush` would, so they are never looked up.
+  oak: 0.6,
+  // Reachable only by a grove override (`TerrainTones.waterside`): no
+  // `GroveSpecies` names `willow`, so no `o` tile draws one. Same 0.6.
+  willow: 0.6,
+  // 1.0 for the `boulder`/`ditch` reason: a `~` mud tile is a mechanic, not
+  // an aesthetic scatter, and a roll that skipped one would draw bare
+  // ground where the sim says mud.
+  reed: 1.0,
   rock: 0.75,
   slab: 0.6,
   boulder: 1.0,
@@ -300,7 +316,7 @@ function familyFor(
   cover: number,
   boulder: boolean,
   grove: GroveFamily
-): Exclude<DecorFamily, 'grass' | 'sand'> | 'open' | null {
+): Exclude<DecorFamily, 'grass' | 'sand' | 'wet_grass' | 'shrub'> | 'open' | null {
   // BEFORE the boulder branch, and that order is load-bearing. A `d` tile
   // sets `boulder` too -- the two symbols share one vehicle-only mask by
   // design -- so a ditch that fell through to the branch below would draw a
@@ -434,6 +450,8 @@ export interface TiledDecorPlacements {
   readonly density: number;
   readonly groveFamily: GroveFamily | undefined;
   readonly openScatter: OpenScatter | undefined;
+  readonly familyRemap: TerrainInput['familyRemap'];
+  readonly waterside: TerrainInput['waterside'];
   /** By CONTENT, a copy, for the same reason `TerrainBuildState` copies
    *  `cover`: the sim owns the array. */
   readonly boulder: Uint8Array | null;
@@ -611,6 +629,8 @@ function tiledResult(
     density,
     groveFamily: input.groveFamily,
     openScatter: input.openScatter,
+    familyRemap: input.familyRemap,
+    waterside: input.waterside,
     boulder: input.boulder ? input.boulder.slice() : null,
   };
 }
@@ -626,6 +646,7 @@ export function changedDecorTiles(prev: TiledDecorPlacements, input: TerrainInpu
   if (prev.width !== input.width || prev.height !== input.height) return null;
   if (prev.density !== density) return null;
   if (prev.groveFamily !== input.groveFamily || prev.openScatter !== input.openScatter) return null;
+  if (prev.familyRemap !== input.familyRemap || prev.waterside !== input.waterside) return null;
   if ((prev.boulder === null) !== (input.boulder === null)) return null;
   const changed = new Uint8Array(input.width * input.height);
   if (prev.boulder && input.boulder) {

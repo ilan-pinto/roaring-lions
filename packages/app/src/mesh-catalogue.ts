@@ -59,9 +59,14 @@ export type DecorFamilyName =
   | 'grass'
   | 'sand'
   | 'bush'
+  | 'wet_grass'
+  | 'shrub'
+  | 'reed'
   | 'tree'
   | 'desert_tree'
   | 'cedar'
+  | 'oak'
+  | 'willow'
   | 'rock'
   | 'slab'
   | 'boulder'
@@ -428,6 +433,16 @@ export const DECOR_MESHES: Readonly<Record<DecorFamilyName, readonly string[]>> 
   // GH-322: the Sur highland's Cedrus libani -- one Meshy base fitted to the
   // decor contract at 5.4 / 4.4 / 3.3 m (`tools/terrain/fit_meshy_cedar.py`).
   cedar: ['decor/cedar_0.glb', 'decor/cedar_1.glb', 'decor/cedar_2.glb'],
+  // P2 stand-in (GH-871): P3 replaces with `decor/oak_<n>.glb`.
+  oak: ['decor/cedar_0.glb', 'decor/cedar_1.glb', 'decor/cedar_2.glb'],
+  // P2 stand-in (GH-871): P3 replaces with `decor/willow_<n>.glb`.
+  willow: ['decor/desert_tree_0.glb', 'decor/desert_tree_1.glb', 'decor/desert_tree_2.glb'],
+  // P2 stand-in (GH-871): P3 replaces with `decor/shrub_<n>.glb`.
+  shrub: ['decor/bush_0.glb', 'decor/bush_1.glb', 'decor/bush_2.glb'],
+  // P2 stand-in (GH-871): P3 replaces with `decor/reed_<n>.glb`.
+  reed: ['decor/bush_0.glb', 'decor/bush_1.glb', 'decor/bush_2.glb'],
+  // P2 stand-in (GH-871): P3 replaces with `decor/wet_grass_<n>.glb`.
+  wet_grass: ['decor/grass_0.glb', 'decor/grass_1.glb', 'decor/grass_2.glb'],
   rock: ['decor/rock_0.glb', 'decor/rock_1.glb', 'decor/rock_2.glb'],
   slab: ['decor/slab_0.glb', 'decor/slab_1.glb', 'decor/slab_2.glb'],
   boulder: ['decor/boulder_0.glb', 'decor/boulder_1.glb', 'decor/boulder_2.glb'],
