@@ -179,8 +179,8 @@
       },
       {
         "unit": "atgm_cell",
-        "count": 1,
-        "at": [34.5, 20.5],
+        "count": 2,
+        "at": [36.5, 22.5],
         "tag": "uz_atgm_glacis",
         "stance": { "kind": "ambush", "tiles": 10 }
       },
