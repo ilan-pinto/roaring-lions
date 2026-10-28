@@ -48,7 +48,7 @@ import {
 } from './mesh-anim';
 import { clipScaleSignatures, type ClipPlayer } from './mesh-clip';
 import { HULL_RENDER_ORDER } from './render-order';
-import { applyInfantryKit, type InfantryKitTiers } from './infantry-kit';
+import { applyInfantryKit, INFANTRY_KIT_ENABLED, type InfantryKitTiers } from './infantry-kit';
 import { buildSquadRig, parseFigureExtras, splitClips, type FigureSpec, type SquadRig } from './squad-rig';
 
 /**
@@ -144,13 +144,19 @@ export function buildMeshUnitTemplate(
    * primitives here, once, before anything else reads the scene
    * (`units/infantry-kit.ts`). Absent or all-zero is the shipped figure.
    */
-  kitTiers?: InfantryKitTiers
+  kitTiers?: InfantryKitTiers,
+  /**
+   * Whether `kitTiers` is honoured. Defaults to the shipped switch
+   * (`INFANTRY_KIT_ENABLED`, off: GH-826, 28 Oct 2026); only a test passes
+   * `true`. When off, the kit nodes are still stripped, exactly as at tier 0.
+   */
+  kitEnabled: boolean = INFANTRY_KIT_ENABLED
 ): MeshUnitTemplate {
   const root = gltf.scene;
   root.scale.setScalar(MESH_SCALE);
   // Before the role walk below: a kit node is not a role mesh, and a part the
   // brigade has not bought must not draw.
-  const kit = applyInfantryKit(root, kitTiers);
+  const kit = applyInfantryKit(root, kitEnabled ? kitTiers : undefined);
   for (const unused of kit.unused) unused.dispose();
 
   const materials: THREE.Material[] = [];
@@ -260,10 +266,12 @@ export async function loadMeshUnitTemplate(
   /** GH-469: keep the textures encoded until `warmColdTextures`. */
   cold = false,
   /** GH-826: the team's bought kit tiers. */
-  kitTiers?: InfantryKitTiers
+  kitTiers?: InfantryKitTiers,
+  /** See `buildMeshUnitTemplate`: defaults to the shipped switch. */
+  kitEnabled: boolean = INFANTRY_KIT_ENABLED
 ): Promise<MeshUnitTemplate> {
   const gltf = await (cold ? coldGltfLoader() : gltfLoader()).loadAsync(glbUrl);
-  return buildMeshUnitTemplate(gltf, faction, glbUrl, allowTextured, kitTiers);
+  return buildMeshUnitTemplate(gltf, faction, glbUrl, allowTextured, kitTiers, kitEnabled);
 }
 
 /** One living entity's mesh instance: an independent clone (own skeleton,
