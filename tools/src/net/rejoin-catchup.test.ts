@@ -231,8 +231,8 @@ interface Baseline {
   catchUpRoomTicks: number;
 }
 
-/** A match of `played` room ticks, then seat 1 reloads (`reload`) or only drops its socket and keeps its transport. */
-async function runBaseline(played: number, reload: boolean): Promise<Baseline> {
+/** A match of `played` room ticks, then seat 1 reloads: the old tab's socket closes with no bye and a new tab rejoins with the stored ticket. */
+async function runBaseline(played: number): Promise<Baseline> {
   const state = new FakeState();
   const room = new MatchRoom(state, env);
   const created = await room.fetch(new Request('https://room/create', {
@@ -257,19 +257,11 @@ async function runBaseline(played: number, reload: boolean): Promise<Baseline> {
   }
   expect(first1.taken.length).toBeGreaterThan(played - 10);
 
-  let p1: Seat;
-  if (reload) {
-    // A reload: the old tab's socket closes with no bye; the new tab rejoins with the stored ticket.
-    first1.t.detach();
-    await loop.flush();
-    p1 = new Seat(loop, ticket1);
-    await loop.flush();
-  } else {
-    // A socket drop with no reload: the transport survives and reconnects after RECONNECT_DELAY_MS.
-    (first1.t as unknown as { sock: SocketLike }).sock.close();
-    await loop.flush();
-    p1 = first1;
-  }
+  // A reload: the old tab's socket closes with no bye; the new tab rejoins with the stored ticket.
+  first1.t.detach();
+  await loop.flush();
+  const p1 = new Seat(loop, ticket1);
+  await loop.flush();
   const replayed = p1.t.behind();
   let frozenRoomTicks = 0;
   let catchUpRoomTicks = 0;
@@ -287,8 +279,8 @@ async function runBaseline(played: number, reload: boolean): Promise<Baseline> {
 
 describe('baseline: the full-log reload (snapshot S4 T1)', () => {
   it('replays the whole log, and the other seat is frozen for longer the longer the match ran', async () => {
-    const small = await runBaseline(1200, true);
-    const large = await runBaseline(6000, true);
+    const small = await runBaseline(1200);
+    const large = await runBaseline(6000);
     const name = `1200 ticks: replayed ${small.replayed}, frozen ${small.frozenRoomTicks}, catch-up ${small.catchUpRoomTicks}; `
       + `6000 ticks: replayed ${large.replayed}, frozen ${large.frozenRoomTicks}, catch-up ${large.catchUpRoomTicks}`;
     // The six numbers are the test's output (Task 1C reads them beside the browser's): in the log and in every failure message.
@@ -497,7 +489,7 @@ describe('a snapshot rejoin: the stall bound (snapshot S4 T12)', () => {
     expect(r.p1.taken.length).toBeGreaterThanOrEqual(1150);
     expectSameFrames(rig, r.p1, 2400, 'snapshot rejoin');
     // The baseline, measured here at the same PLAYED: a reload with no snapshot.
-    const base = await runBaseline(3599, true);
+    const base = await runBaseline(3599);
     console.log(`rejoin by snapshot, worst case: replayed ${r.behindAtLog} at the log, ${r.p1.taken.length} to live; seat 0 frozen ${frozenRoomTicks} room ticks (${roomTicks} to live) against ${base.frozenRoomTicks} frozen / ${base.catchUpRoomTicks} to live for the full log (${base.replayed} replayed)`);
     expect(base.replayed).toBeGreaterThanOrEqual(3599 - 10);
     expect(frozenRoomTicks, `frozen ${frozenRoomTicks} vs baseline ${base.frozenRoomTicks}`).toBeLessThan(base.frozenRoomTicks / 2);

@@ -219,7 +219,7 @@ async function fetchLatest(
   }
   const gz = await readCapped(res, SNAPSHOT_MAX_COMPRESSED_BYTES);
   if (gz === null) return { fallback: 'too_large' };
-  const inflated = await gunzipCapped(gz, SNAPSHOT_MAX_RAW_BYTES, deps.yieldTurn);
+  const inflated = await gunzipCapped(gz, SNAPSHOT_MAX_RAW_BYTES, deps.yieldTurn, signal);
   if (!inflated.ok) return { fallback: inflated.reason };
   return { tick, sha, digest, raw: inflated.bytes };
 }
