@@ -50,6 +50,9 @@ describe('the textured-backdrop opt-out is a named list', () => {
     const olive = /OLIVE_CAP = (\d+)/.exec(py('tools/backdrop/export_kit.py'));
     expect(olive, 'OLIVE_CAP not found in export_kit.py').not.toBeNull();
     fromPy.bd_olive = Number((olive as RegExpExecArray)[1]);
+    const house = /HOUSE_CAP = (\d+)/.exec(py('tools/backdrop/export_kit.py'));
+    expect(house, 'HOUSE_CAP not found in export_kit.py').not.toBeNull();
+    fromPy.bd_house = Number((house as RegExpExecArray)[1]);
     expect(fromPy).toEqual(KIT_PIECES);
   });
 });
@@ -66,7 +69,7 @@ describe('the shipped kit GLB holds the contract', () => {
     const main = nodes.filter((n) => n.extras?.rl_lod === undefined);
     const twins = nodes.filter((n) => n.extras?.rl_lod === 1);
     expect(main.map((n) => n.extras?.rl_piece as string).sort()).toEqual(Object.keys(KIT_PIECES).sort());
-    expect(twins.map((n) => n.extras?.rl_piece as string).sort()).toEqual(Object.keys(KIT_PIECES).filter((p) => p !== 'bd_olive').sort());
+    expect(twins.map((n) => n.extras?.rl_piece as string).sort()).toEqual(Object.keys(KIT_PIECES).filter((p) => p !== 'bd_olive' && p !== 'bd_house').sort());
     for (const n of nodes) expect(n.extras?.rl_textured, n.name).toBe(true);
   });
 
@@ -109,7 +112,7 @@ describe('readBackdropKit holds both locks at load', () => {
     return (await loader.parseAsync(ab, '')).scene;
   }
 
-  it('reads all nineteen pieces, the shared atlas and the olive', async () => {
+  it('reads all twenty pieces, the shared atlas and the olive', async () => {
     const kit = readBackdropKit(await scene(), 'wadi_halam_kit');
     expect([...kit.source.pieces.keys()].sort()).toEqual(Object.keys(KIT_PIECES).sort());
     expect(kit.map).toBeInstanceOf(THREE.Texture);
@@ -123,7 +126,7 @@ describe('readBackdropKit holds both locks at load', () => {
     expect(kit.source.pieces.get('bd_terrace_a')?.olives.length).toBe(28);
     // every placed piece carries its LOD1 twin, in tiles too, with fewer triangles over the same footprint
     for (const [name, p] of kit.source.pieces) {
-      if (name === 'bd_olive') expect(p.lod1, name).toBeUndefined();
+      if (name === 'bd_olive' || name === 'bd_house') expect(p.lod1, name).toBeUndefined();
       else expect((p.lod1?.index.length ?? Infinity) / p.index.length, name).toBeLessThan(0.4);
     }
     expect(kit.source.pieces.get('bd_terrace_a')?.anchors.map((a) => a.name)).toEqual(['anchor_house_0', 'anchor_house_1']);

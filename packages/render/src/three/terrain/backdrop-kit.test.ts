@@ -120,6 +120,9 @@ describe('heights are baked per vertex from the floor', () => {
   });
 });
 
+/** The kit without its house: the winding checks are about landforms (a house's walls stand upright and face sideways). */
+const bare: KitSource = { pieces: new Map([...kit.pieces].filter(([k]) => k !== 'bd_house')) };
+
 describe('the placed kit is wound the right way up', () => {
   const pieces: BackdropPiece[] = [];
   for (const [id, rot, mirror] of [
@@ -134,7 +137,7 @@ describe('the placed kit is wound the right way up', () => {
   }
   it('gives every front face an upward geometric normal, mirrored or not', () => {
     for (const pl of pieces) {
-      const placed = assembleKit({ pieces: [pl] }, kit, flat(0));
+      const placed = assembleKit({ pieces: [pl] }, bare, flat(0));
       let up = 0;
       let total = 0;
       for (let t = 0; t < placed.indices.length; t += 3) {
@@ -219,6 +222,45 @@ describe('houses and olives', () => {
     const spec = { pieces: [{ id: 'bd_terrace_a', at: [0, 20], rot: 0 }] as BackdropPiece[] };
     expect(assembleKit(spec, kit, flat(0), () => Infinity).houses.length).toBe(2);
     expect(assembleKit(spec, kit, flat(0), () => 0.01).houses.length).toBe(0);
+  });
+});
+
+describe('the hamlet houses are baked into the kit mesh', () => {
+  const spec = { pieces: [{ id: 'bd_terrace_a', at: [-0.52, 20], rot: 0 }, { id: 'bd_slope_near_a', at: [48, 8], rot: 180 }] as BackdropPiece[] };
+  const bareKit = bare;
+
+  it('adds 14 triangles per house to the full mesh and to the LOD1 twin, and no draw call of its own', () => {
+    const withH = assembleKit(spec, kit, flat(0));
+    const without = assembleKit(spec, bareKit, flat(0));
+    expect(withH.houses.length).toBeGreaterThan(3);
+    expect(without.houses.length).toBe(withH.houses.length); // the same anchors either way
+    expect(withH.triangles - without.triangles).toBe(14 * withH.houses.length);
+    expect(withH.lod1.triangles - without.lod1.triangles).toBe(14 * withH.houses.length);
+  });
+
+  it('plants each house at its anchor, scaled and turned, with its UVs on the three swatches', () => {
+    const one = assembleKit({ pieces: [spec.pieces[0]] }, kit, flat(0));
+    const base = assembleKit({ pieces: [spec.pieces[0]] }, bareKit, flat(0));
+    const nv = base.positions.length / 3;
+    const hs = one.houses[0];
+    const nh = (kit.pieces.get('bd_house')?.positions.length ?? 0) / 3; // flat shading: a vertex per corner per face
+    expect(nh).toBeGreaterThan(12);
+    // the first house's first vertex is the box corner (-1.5, 0, ...) in metres: stands on the anchor, within its size
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (let k = nv; k < nv + nh; k++) {
+      minY = Math.min(minY, one.positions[k * 3 + 1]);
+      maxY = Math.max(maxY, one.positions[k * 3 + 1]);
+      expect(Math.hypot(one.positions[k * 3] - hs.x, one.positions[k * 3 + 2] - hs.z)).toBeLessThanOrEqual(hs.size * (1.74 * Math.SQRT2) / 3 + 1e-6);
+    }
+    expect(minY).toBeCloseTo(hs.y, 5);
+    expect(maxY - minY).toBeCloseTo((3.9 * hs.size) / 3, 4); // body 2.7 m + roof 1.2 m, in tiles
+    // UVs: every house corner lands on a swatch centre of the olive patch (three distinct points)
+    const uvs = new Set<string>();
+    for (let k = nv; k < nv + nh; k++) uvs.add(`${one.uvs[k * 2].toFixed(5)},${one.uvs[k * 2 + 1].toFixed(5)}`);
+    expect(uvs.size).toBe(3);
+    // unit normals
+    for (let k = nv; k < nv + nh; k++) expect(Math.hypot(one.normals[k * 3], one.normals[k * 3 + 1], one.normals[k * 3 + 2])).toBeCloseTo(1, 4);
   });
 });
 

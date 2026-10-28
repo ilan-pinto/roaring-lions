@@ -18,7 +18,7 @@
  *    cliff, crest, scree, terrace and slope pieces, placed by the map's
  *    explicit `pieces` list, merged into ONE mesh whose every vertex height is
  *    baked from the floor under it. The olives on the terrace treads are one
- *    instanced batch and the placeholder hamlet houses another.
+ *    instanced batch. The placeholder hamlet houses are baked into the kit's mesh (an atlas patch), so a hamlet is no draw call.
  *
  * Four rules shape it, each the answer to a way it could hurt play.
  *
@@ -58,7 +58,7 @@ import { fbm2, valueNoise2 } from './noise';
 import { hexToUnit, hexToLinear } from './shared';
 import { paletteHex } from '../palette-hex';
 import { WORLD_RENDER_ORDER } from '../units/render-order';
-import { assembleKit, floorSurface, LOD1_BELOW_ZOOM, type BackdropPiece, type KitSource, type PlacedKit } from './backdrop-kit';
+import { assembleKit, floorSurface, LOD1_BELOW_ZOOM, type BackdropPiece, type KitSource, type PlacedKit, type Taper } from './backdrop-kit';
 
 /** A map's `backdrop` block (map.schema.json), as the renderer reads it. */
 export interface BackdropSpec {
@@ -99,6 +99,8 @@ export const FADE_TO = 0.8;
 /** The share of the olives drawn below `LOD1_BELOW_ZOOM`: each is three pixels across there, and the atlas carries
  *  baked olive dots as well. */
 export const OLIVE_SHARE_AT_MIN_ZOOM = 0.5;
+/** The floor cells within this many tiles of the map stay in the AO pre-pass (AO_RADIUS_TILES is 0.6). */
+export const AO_RING_TILES = 8;
 /** The floor sits this far under the rim along the map's own boundary, so the two never z-fight (`skirt.ts`'s
  *  MARK_EPSILON reason). */
 const RIM_EPSILON = 0.01;
@@ -175,7 +177,7 @@ export interface Backdrop {
    *  frame, cheap). */
   setZoom(zoom: number): void;
   readonly stats: {
-    /** Floor + kit + olives + houses, with the kit at full detail. */
+    /** Floor + kit (houses included) + olives, with the kit at full detail. */
     readonly triangles: number;
     /** The same with the kit at LOD1: what is drawn below `LOD1_BELOW_ZOOM`. */
     readonly trianglesLod1: number;
@@ -227,7 +229,9 @@ export function floorGrid(spec: Pick<BackdropSpec, 'seed'>, rim: RimHeight, w: n
 /** Place the kit's pieces on the floor under `spec`: exactly what `buildBackdrop` draws, without the three objects. */
 export function placeKit(spec: BackdropSpec, source: KitSource, rim: RimHeight, w: number, h: number): { grid: FloorGrid; placed: PlacedKit } {
   const grid = floorGrid(spec, rim, w, h);
-  const placed = assembleKit(spec, source, floorSurface(grid.heights, grid.x0, grid.z0, grid.nx, grid.nz), (x, z) => nearCap(rim, w, h, x, z));
+  // Full height out to FADE_FROM of the margin, none where the fade completes (FADE_TO): see `TAPERED_PIECES`.
+  const taper: Taper = (x, z) => 1 - smooth(grid.M * FADE_FROM, grid.M * FADE_TO, Math.hypot(Math.max(-x, x - w, 0), Math.max(-z, z - h, 0)));
+  const placed = assembleKit(spec, source, floorSurface(grid.heights, grid.x0, grid.z0, grid.nx, grid.nz), (x, z) => nearCap(rim, w, h, x, z), taper);
   return { grid, placed };
 }
 
@@ -264,21 +268,24 @@ export function buildBackdrop(spec: BackdropSpec, kit: LoadedBackdropKit, rim: R
       uvs[k * 2 + 1] = j / (nz - 1);
     }
   }
+  // Two index lists over the one set of vertices: the ring of cells within AO_RING_TILES of the map (drawn in the AO
+  // pre-pass, as the skirt it replaces always was, so the lozenge's rim AO is today's) and the rest (not: AO there
+  // cannot reach the map, and a second pass over those cells is triangles for nothing).
   const index: number[] = [];
+  const farIndex: number[] = [];
   for (let j = 0; j < nz - 1; j++) {
     for (let i = 0; i < nx - 1; i++) {
       const cx = x0 + i;
       const cz = z0 + j;
       if (cx >= 0 && cx < w && cz >= 0 && cz < h) continue; // the map's own tile
-      // Beyond the fade (`FADE_TO` of the margin) the frame is the scene background and nothing shows: those cells are
-      // not drawn at all. Their heights still exist (the kit samples them), they just cost no triangles.
-      if (Math.hypot(Math.max(0, -(cx + 1), cx - w), Math.max(0, -(cz + 1), cz - h)) > M * FADE_TO) continue;
+      const cellOut = Math.hypot(Math.max(0, -(cx + 1), cx - w), Math.max(0, -(cz + 1), cz - h));
       const a = j * nx + i;
       const b = a + 1;
       const c = a + nx;
       const d = c + 1;
       // Front faces up (+Y), the winding `skirt.ts` documents. `floorSurface` triangulates the same way.
-      index.push(a, c, b, b, c, d);
+      const into = cellOut <= AO_RING_TILES ? index : farIndex;
+      into.push(a, c, b, b, c, d);
     }
   }
   const geometry = new THREE.BufferGeometry();
@@ -286,6 +293,9 @@ export function buildBackdrop(spec: BackdropSpec, kit: LoadedBackdropKit, rim: R
   geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
   geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
   geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(index), 1));
+  const farGeometry = new THREE.BufferGeometry();
+  for (const name of ['position', 'normal', 'uv']) farGeometry.setAttribute(name, geometry.getAttribute(name));
+  farGeometry.setIndex(new THREE.BufferAttribute(new Uint32Array(farIndex), 1));
 
   // --- the floor's colour bake ---------------------------------------------
   const T = TEXELS_PER_TILE;
@@ -333,9 +343,17 @@ export function buildBackdrop(spec: BackdropSpec, kit: LoadedBackdropKit, rim: R
   ground.castShadow = false;
   ground.receiveShadow = false;
   ground.frustumCulled = false;
+  const farGround = new THREE.Mesh(farGeometry, floorMat);
+  farGround.name = 'backdrop-ground-far';
+  farGround.renderOrder = WORLD_RENDER_ORDER;
+  farGround.castShadow = false;
+  farGround.receiveShadow = false;
+  farGround.frustumCulled = false;
+  farGround.userData.rlAoExempt = true;
   const group = new THREE.Group();
   group.name = 'backdrop';
   group.add(ground);
+  group.add(farGround);
 
   // --- the kit: placed on the floor, merged into one mesh ----------------------
   const kitGeo = new THREE.BufferGeometry();
@@ -370,7 +388,7 @@ export function buildBackdrop(spec: BackdropSpec, kit: LoadedBackdropKit, rim: R
   kitLod1.visible = false;
   group.add(kitLod1);
 
-  let triangles = index.length / 3 + placed.triangles;
+  let triangles = (index.length + farIndex.length) / 3 + placed.triangles;
   let oliveInst: THREE.InstancedMesh | null = null;
   if (placed.olives.length > 0 && kit.olive !== null) {
     const oliveMat = new THREE.MeshStandardMaterial({ map: kit.map, roughness: 1, metalness: 0, envMapIntensity: 0 });
@@ -399,35 +417,7 @@ export function buildBackdrop(spec: BackdropSpec, kit: LoadedBackdropKit, rim: R
     triangles += placed.olives.length * (kit.olive.index ? kit.olive.index.count / 3 : 0);
   }
 
-  // --- the placeholder hamlet houses, at the kit's anchors -----------------------
-  if (placed.houses.length > 0) {
-    const houseGeo = houseGeometry();
-    const houseMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
-    fadeToBackground(houseMat, w, h, M, background);
-    const inst = new THREE.InstancedMesh(houseGeo, houseMat, placed.houses.length);
-    const m = new THREE.Matrix4();
-    const q = new THREE.Quaternion();
-    const up = new THREE.Vector3(0, 1, 0);
-    const pos = new THREE.Vector3();
-    const sc = new THREE.Vector3();
-    for (let k = 0; k < placed.houses.length; k++) {
-      const hs = placed.houses[k];
-      q.setFromAxisAngle(up, hs.yaw);
-      m.compose(pos.set(hs.x, hs.y, hs.z), q, sc.set(hs.size, hs.tall, hs.size));
-      inst.setMatrixAt(k, m);
-    }
-    inst.instanceMatrix.needsUpdate = true;
-    inst.name = 'backdrop-houses';
-    inst.renderOrder = WORLD_RENDER_ORDER;
-    inst.castShadow = false;
-    inst.receiveShadow = false;
-    inst.frustumCulled = false;
-    inst.userData.rlAoExempt = true;
-    group.add(inst);
-    triangles += placed.houses.length * 14;
-  }
-
-  const extra = triangles - placed.triangles; // floor + olives + houses
+  const extra = triangles - placed.triangles; // floor + olives
   const oliveTris = kit.olive?.index ? kit.olive.index.count / 3 : 0;
   return {
     group,
@@ -477,58 +467,13 @@ function fadeToBackground(mat: THREE.MeshStandardMaterial, w: number, h: number,
   };
 }
 
-/** A unit house: a limestone box with a terracotta hip roof, vertex
- *  coloured (linear, like every vertex colour in this backend), one
- *  geometry for the whole instanced batch. 14 triangles. Sized to the render-2
- *  mock's placeholder: a body 0.9 wide-units tall, a roof peaking 0.45 of it higher. */
-function houseGeometry(): THREE.BufferGeometry {
-  const wall = hexToLinear(paletteHex('limestone.2'));
-  const wallShade = hexToLinear(paletteHex('limestone.4'));
-  const roof = hexToLinear(paletteHex('terracotta.1'));
-  const pos: number[] = [];
-  const col: number[] = [];
-  const quad = (a: number[], b: number[], c: number[], d: number[], cc: readonly number[]): void => {
-    pos.push(...a, ...b, ...c, ...a, ...c, ...d);
-    for (let i = 0; i < 6; i++) col.push(cc[0], cc[1], cc[2]);
-  };
-  const H = 1;
-  const r = 0.5;
-  // Four walls, outward-facing.
-  quad([-r, 0, r], [r, 0, r], [r, H, r], [-r, H, r], wall);
-  quad([r, 0, -r], [-r, 0, -r], [-r, H, -r], [r, H, -r], wallShade);
-  quad([r, 0, r], [r, 0, -r], [r, H, -r], [r, H, r], wall);
-  quad([-r, 0, -r], [-r, 0, r], [-r, H, r], [-r, H, -r], wallShade);
-  // The hip roof: four triangles to a ridge point, with a small overhang.
-  const o = 0.58;
-  const top = [0, H + 0.45, 0];
-  const e = [
-    [-o, H, o],
-    [o, H, o],
-    [o, H, -o],
-    [-o, H, -o],
-  ];
-  for (let k = 0; k < 4; k++) {
-    pos.push(...e[k], ...e[(k + 1) % 4], ...top);
-    for (let i = 0; i < 3; i++) col.push(roof[0], roof[1], roof[2]);
-  }
-  // Roof underside, so a low camera never sees through the eaves.
-  pos.push(...e[0], ...e[2], ...e[1], ...e[0], ...e[3], ...e[2]);
-  for (let i = 0; i < 6; i++) col.push(wallShade[0], wallShade[1], wallShade[2]);
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-  g.computeVertexNormals();
-  return g;
-}
-
 /** Releases what `buildBackdrop` made: the floor and kit geometry, the floor's
  *  texture and every material. The kit's own atlas and olive geometry belong to
  *  the loader (`disposeBackdropKit`) and survive a rebuild. */
 export function disposeBackdrop(b: Backdrop): void {
   b.group.traverse((o) => {
     if (o instanceof THREE.InstancedMesh) {
-      // The olive geometry is the kit's; the house geometry is ours.
-      if (o.name === 'backdrop-houses') o.geometry.dispose();
+      // The olive geometry is the kit's.
       o.dispose();
     } else if (o instanceof THREE.Mesh) {
       o.geometry.dispose();

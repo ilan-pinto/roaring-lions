@@ -2704,11 +2704,13 @@ export class ThreeRenderer implements Renderer {
   private backdropKit: LoadedBackdropKit | null = null;
   /** The kit landed after the first terrain build: `frame()` builds the backdrop on its own, without a terrain rebuild. */
   private backdropDirty = false;
+  /** Fetch + Draco decode + atlas decode + contract checks of the last kit read, for `backdropStats`. */
+  private backdropKitReadMs = 0;
   /** The rim signature the standing backdrop was built for (undefined forces a rebuild). */
   private backdropLevels: number | undefined = undefined;
   private backdropShown = true;
   /** Read by the prototype's capture tool. */
-  backdropStats: Backdrop['stats'] | null = null;
+  backdropStats: (Backdrop['stats'] & { kitReadMs: number }) | null = null;
   /**
    * Phase D readiness fix: `sim.smoke` on screen -- see `smoke-mesh.ts`'s own
    * top comment for the full port account. Unlike the shroud, there is no
@@ -12481,7 +12483,7 @@ export class ThreeRenderer implements Renderer {
       return;
     }
     this.backdropLevels = key;
-    this.backdropStats = this.backdrop.stats;
+    this.backdropStats = { ...this.backdrop.stats, kitReadMs: this.backdropKitReadMs };
     this.backdrop.group.visible = this.backdropShown;
     this.scene.add(this.backdrop.group);
     this.skirtMesh.visible = !this.backdropShown;
@@ -12503,9 +12505,11 @@ export class ThreeRenderer implements Renderer {
   async loadBackdropKit(url: string): Promise<void> {
     const spec = this.opts.backdrop;
     if (!spec) return;
+    const t0 = performance.now();
     try {
       const gltf = await gltfLoader().loadAsync(url);
       const kit = readBackdropKit(gltf.scene, spec.kit);
+      this.backdropKitReadMs = performance.now() - t0;
       // Landed after the mission was left: nobody will ever use it, and nobody else will free it.
       if (this.disposed) {
         disposeBackdropKit(kit);

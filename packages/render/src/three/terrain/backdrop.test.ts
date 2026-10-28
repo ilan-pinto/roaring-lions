@@ -22,6 +22,7 @@ import {
   nearCap,
   OLIVE_SHARE_AT_MIN_ZOOM,
   FADE_TO,
+  AO_RING_TILES,
   placeKit,
   type BackdropSpec,
   type LoadedBackdropKit,
@@ -108,8 +109,8 @@ describe('buildBackdrop', () => {
   const kit = loaded();
   const b = buildBackdrop(SPEC, kit, RIM, W, H, '#1a1a1a');
 
-  it('draws the floor, the kit (full and LOD1), the olives and the houses', () => {
-    expect(b.group.children.map((c) => c.name)).toEqual(['backdrop-ground', 'backdrop-kit', 'backdrop-kit-lod1', 'backdrop-olives', 'backdrop-houses']);
+  it('draws the floor (ring and far), the kit (full and LOD1, houses baked in) and the olives', () => {
+    expect(b.group.children.map((c) => c.name)).toEqual(['backdrop-ground', 'backdrop-ground-far', 'backdrop-kit', 'backdrop-kit-lod1', 'backdrop-olives']);
     expect(b.stats.pieces).toBe(3);
     expect(b.stats.olives).toBeGreaterThan(10);
     expect(b.stats.houses).toBeGreaterThan(0);
@@ -125,16 +126,16 @@ describe('buildBackdrop', () => {
   });
 
   it('keeps the kit out of the AO pre-pass and the floor in it', () => {
-    const [ground, kitMesh, kitLod1, olives, houses] = b.group.children;
-    expect(isAoOccluder(ground)).toBe(true);
+    const [ground, far, kitMesh, kitLod1, olives] = b.group.children;
+    expect(isAoOccluder(ground)).toBe(true); // the 8-tile ring around the map
+    expect(isAoOccluder(far)).toBe(false); // AO there cannot reach the map
     expect(isAoOccluder(kitMesh)).toBe(false);
     expect(isAoOccluder(kitLod1)).toBe(false);
     expect(isAoOccluder(olives)).toBe(false);
-    expect(isAoOccluder(houses)).toBe(false);
   });
 
   it('swaps to the LOD1 twin below zoom 0.6 and back, one kit mesh drawn at a time', () => {
-    const [, full, low] = b.group.children;
+    const [, , full, low] = b.group.children;
     for (const [zoom, lod1] of [[0.35, true], [0.59, true], [0.6, false], [1, false], [2.5, false]] as const) {
       b.setZoom(zoom);
       expect([full.visible, low.visible], `zoom ${zoom}`).toEqual([!lod1, lod1]);
@@ -164,21 +165,48 @@ describe('buildBackdrop', () => {
     b.setZoom(1);
   });
 
-  it('draws no floor cell beyond the fade, where the frame is the background', () => {
-    const pos = (b.group.children[0] as THREE.Mesh).geometry.getAttribute('position') as THREE.BufferAttribute;
-    const idx = (b.group.children[0] as THREE.Mesh).geometry.getIndex() as THREE.BufferAttribute;
-    let worst = 0;
-    for (let t = 0; t < idx.count; t++) {
-      const x = pos.getX(idx.getX(t));
-      const z = pos.getZ(idx.getX(t));
-      worst = Math.max(worst, Math.hypot(Math.max(0, -x, x - W), Math.max(0, -z, z - H)));
+  it('draws the floor out to the margin (a cull at the fade left a visible stair at dusk), and only the ring around the map in the AO pre-pass', () => {
+    const reach = (mesh: THREE.Mesh): number => {
+      const pos = mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
+      const idx = mesh.geometry.getIndex() as THREE.BufferAttribute;
+      let worst = 0;
+      for (let t = 0; t < idx.count; t++) {
+        const x = pos.getX(idx.getX(t));
+        const z = pos.getZ(idx.getX(t));
+        worst = Math.max(worst, Math.hypot(Math.max(0, -x, x - W), Math.max(0, -z, z - H)));
+      }
+      return worst;
+    };
+    const [ring, far] = b.group.children as THREE.Mesh[];
+    // The fade's end (FADE_TO of the margin) is NOT where the floor stops: faded floor and the clear colour differ a little
+    // after the fog pass, so a floor that ended at the fade drew a stair-step edge at dusk. It runs to the margin.
+    expect(reach(far)).toBeGreaterThan(48 * FADE_TO + 4);
+    expect(reach(ring)).toBeLessThanOrEqual(AO_RING_TILES + 2); // the pre-pass sees only the ring
+    expect(ring.geometry.getIndex()?.count).toBeGreaterThan(1000);
+  });
+
+  it('tapers the near-side ground onto the floor where the fade completes, and leaves the far side alone', () => {
+    // the slope along the east edge, and the west wall: height above the floor under each vertex, by distance out
+    const flatSpec: BackdropSpec = { ...SPEC, pieces: [{ id: 'bd_slope_near_a', at: [W, 24], rot: 180 }, { id: 'bd_wall_far_a', at: [0, 24], rot: 0 }, { id: 'bd_crest_a', at: [-28, 24], rot: 0, lift: 12 }] };
+    const rim0 = (): number => 0;
+    const { placed } = placeKit(flatSpec, kitSource, rim0, W, H);
+    // floor under both is the rim (0) plus a swell of at most 0.3: heights above 0.4 are the piece's own
+    const near: number[] = [];
+    const far: number[] = [];
+    for (let k = 0; k < placed.positions.length / 3; k++) {
+      const x = placed.positions[k * 3];
+      const y = placed.positions[k * 3 + 1];
+      if (x > W + 38.4) near.push(y);
+      if (x < -38.6) far.push(y); // the crest's own reach, past the fade
     }
-    expect(worst).toBeGreaterThan(30); // the floor really does reach out toward the fade...
-    expect(worst).toBeLessThanOrEqual(48 * FADE_TO + 2); // ...and stops there, not at the 48-tile margin
+    expect(near.length).toBeGreaterThan(100);
+    expect(Math.max(...near)).toBeLessThan(0.45); // flat on the floor by the end of the fade
+    expect(far.length).toBeGreaterThan(50);
+    expect(Math.max(...far), 'a far-side piece keeps its height even where the fade is complete').toBeGreaterThan(8);
   });
 
   it('shares one atlas between the kit mesh and the olives', () => {
-    const [, kitMesh, kitLod1, olives] = b.group.children as THREE.Mesh[];
+    const [, , kitMesh, kitLod1, olives] = b.group.children as THREE.Mesh[];
     expect((kitMesh.material as THREE.MeshStandardMaterial).map).toBe(kit.map);
     expect(kitLod1.material).toBe(kitMesh.material);
     expect((olives.material as THREE.MeshStandardMaterial).map).toBe(kit.map);
@@ -203,7 +231,7 @@ describe('placeKit is what buildBackdrop draws', () => {
   it('builds the kit mesh from the same arrays', () => {
     const { placed } = placeKit(SPEC, kitSource, RIM, W, H);
     const b = buildBackdrop(SPEC, loaded(), RIM, W, H, '#1a1a1a');
-    const kitGeo = (b.group.children[1] as THREE.Mesh).geometry;
+    const kitGeo = (b.group.children[2] as THREE.Mesh).geometry;
     expect(Array.from((kitGeo.getAttribute('position') as THREE.BufferAttribute).array.slice(0, 300))).toEqual(Array.from(placed.positions.slice(0, 300)));
     expect(kitGeo.getIndex()?.count).toBe(placed.indices.length);
     disposeBackdrop(b);

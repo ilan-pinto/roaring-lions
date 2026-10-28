@@ -69,10 +69,15 @@ export const KIT_PIECES: Readonly<Record<string, number>> = {
   bd_scree_b: 1000,
   bd_scree_c: 1000,
   bd_olive: 64,
+  bd_house: 16,
 };
 
-/** The one non-placed piece: the olive every terrace instances. */
+/** The olive every terrace instances. */
 export const OLIVE_PIECE = 'bd_olive';
+/** The placeholder hamlet house, baked into the merged kit mesh at each `anchor_house_*`. */
+export const HOUSE_PIECE = 'bd_house';
+/** Pieces a map's list cannot name and that ship no LOD1 twin: both are planted by the runtime, not placed. */
+export const UNPLACED_PIECES: ReadonlySet<string> = new Set([OLIVE_PIECE, HOUSE_PIECE]);
 
 /** Whether a kit id is allowed to ship its own baked atlas. */
 export function isTexturedBackdropKit(kit: string): boolean {

@@ -41,7 +41,7 @@
  * vertex is added to the exported normal, to first order.
  */
 import { tileHash } from '../../tile-hash';
-import { KIT_PIECES, OLIVE_PIECE } from './textured-backdrop';
+import { HOUSE_PIECE, KIT_PIECES, UNPLACED_PIECES } from './textured-backdrop';
 
 /** One placement of a kit piece, as a map's `backdrop.pieces` carries it. */
 export interface BackdropPiece {
@@ -157,13 +157,25 @@ export interface PlacedKit extends PlacedMesh {
   readonly olives: readonly PlacedOlive[];
   readonly houses: readonly PlacedHouse[];
   readonly pieces: number;
-  /** The same pieces from their LOD1 twins: what is drawn at minimum zoom. */
+  /** The same pieces from their LOD1 twins: what is drawn at minimum zoom. The hamlet houses are in both. */
   readonly lod1: PlacedMesh;
 }
 
 /** Below this zoom the kit draws its LOD1 twins (kit-spec section 1a: by zoom band, never by distance --
  *  the camera is orthographic). The minimum-zoom cost run is what put it there. */
 export const LOD1_BELOW_ZOOM = 0.6;
+
+/**
+ * The pieces whose height is brought down onto the floor toward their far end: the near-side ground (the south and
+ * east slopes, their corner and the outer corners). They end at 41-46 tiles as a cliff facing the camera; faded to the
+ * scene background it showed as a ragged black silhouette against greener floor behind it. Tapered to the floor where the
+ * fade completes, the ground simply runs on and dims into the background, with nothing standing up to be an edge.
+ * Far-side pieces (walls, crests) are not touched: they are seen from the front, rising, and the approved look keeps them.
+ */
+export const TAPERED_PIECES: ReadonlySet<string> = new Set(['bd_slope_near_a', 'bd_slope_near_b', 'bd_slope_corner', 'bd_outer_corner']);
+
+/** 1 where a point is at full height, falling to 0 where the ground has finished fading into the background. */
+export type Taper = (x: number, z: number) => number;
 
 /** The legal Y-scale range (kit-spec section 2). */
 export const YS_MIN = 0.75;
@@ -177,6 +189,11 @@ interface Transform {
   readonly lift: number;
   readonly atX: number;
   readonly atZ: number;
+}
+
+/** The height factor of a placement's piece at `(x, z)`: the taper for a near-side piece, else 1. */
+function heightFactor(pl: BackdropPiece, taper: Taper | undefined, x: number, z: number): number {
+  return taper !== undefined && TAPERED_PIECES.has(pl.id) ? taper(x, z) : 1;
 }
 
 function transformOf(pl: BackdropPiece): Transform {
@@ -199,23 +216,23 @@ const scratch = new Float64Array(3);
  * World position of a GLB-local point of a placement: plan from the
  * placement's transform, height from the floor under it.
  */
-export function placePoint(pl: BackdropPiece, floor: FloorSurface, p: readonly [number, number, number]): [number, number, number] {
+export function placePoint(pl: BackdropPiece, floor: FloorSurface, p: readonly [number, number, number], taper?: Taper): [number, number, number] {
   const t = transformOf(pl);
   const [x, z] = planOf(t, p[0], p[2]);
   floor.sample(x, z, scratch);
-  return [x, scratch[0] + t.lift + t.ys * p[1] - FOOT_BURY, z];
+  return [x, scratch[0] + (t.lift + t.ys * p[1]) * heightFactor(pl, taper, x, z) - FOOT_BURY, z];
 }
 
 /**
  * Merge every placement's `pick(source)` geometry into one mesh: plan from the placement's transform, height from
  * the floor under each vertex, the winding kept right-way-up under a mirror.
  */
-function mergePieces(spec: PlacementSpec, kit: KitSource, floor: FloorSurface, pick: (src: KitPieceSource) => KitGeometry): PlacedMesh {
+function mergePieces(spec: PlacementSpec, kit: KitSource, floor: FloorSurface, pick: (src: KitPieceSource) => KitGeometry, taper?: Taper): PlacedMesh {
   let nv = 0;
   let ni = 0;
   for (const pl of spec.pieces) {
     const src = kit.pieces.get(pl.id);
-    if (src === undefined || pl.id === OLIVE_PIECE || !(pl.id in KIT_PIECES)) throw new Error(`backdrop: no kit piece "${pl.id}"`);
+    if (src === undefined || UNPLACED_PIECES.has(pl.id) || !(pl.id in KIT_PIECES)) throw new Error(`backdrop: no kit piece "${pl.id}"`);
     const g = pick(src);
     nv += g.positions.length / 3;
     ni += g.index.length;
@@ -237,7 +254,7 @@ function mergePieces(spec: PlacementSpec, kit: KitSource, floor: FloorSurface, p
       const [x, z] = planOf(t, gx, gz);
       floor.sample(x, z, scratch);
       positions[(vo + k) * 3] = x;
-      positions[(vo + k) * 3 + 1] = scratch[0] + t.lift + t.ys * gy - FOOT_BURY;
+      positions[(vo + k) * 3 + 1] = scratch[0] + (t.lift + t.ys * gy) * heightFactor(pl, taper, x, z) - FOOT_BURY;
       positions[(vo + k) * 3 + 2] = z;
       // The normal: the height scale (the inverse transpose of a Y scale), the mirror, the turn, then the
       // floor's slope added to the surface's.
@@ -272,6 +289,57 @@ function mergePieces(spec: PlacementSpec, kit: KitSource, floor: FloorSurface, p
   return { positions, normals, uvs, indices, triangles: ni / 3 };
 }
 
+/** One mesh after another, indices rebased. */
+function concatMeshes(a: PlacedMesh, b: PlacedMesh): PlacedMesh {
+  const positions = new Float32Array(a.positions.length + b.positions.length);
+  positions.set(a.positions);
+  positions.set(b.positions, a.positions.length);
+  const normals = new Float32Array(positions.length);
+  normals.set(a.normals);
+  normals.set(b.normals, a.normals.length);
+  const uvs = new Float32Array(a.uvs.length + b.uvs.length);
+  uvs.set(a.uvs);
+  uvs.set(b.uvs, a.uvs.length);
+  const base = a.positions.length / 3;
+  const indices = new Uint32Array(a.indices.length + b.indices.length);
+  indices.set(a.indices);
+  for (let k = 0; k < b.indices.length; k++) indices[a.indices.length + k] = b.indices[k] + base;
+  return { positions, normals, uvs, indices, triangles: a.triangles + b.triangles };
+}
+
+/** Every house as the placeholder box, scaled by its size, turned by its yaw, stood at its anchor. */
+function plantHouses(src: KitGeometry, houses: readonly PlacedHouse[]): PlacedMesh {
+  const nv = src.positions.length / 3;
+  const ni = src.index.length;
+  const positions = new Float32Array(houses.length * nv * 3);
+  const normals = new Float32Array(houses.length * nv * 3);
+  const uvs = new Float32Array(houses.length * nv * 2);
+  const indices = new Uint32Array(houses.length * ni);
+  houses.forEach((hs, h) => {
+    const c = Math.cos(hs.yaw);
+    const s = Math.sin(hs.yaw);
+    for (let k = 0; k < nv; k++) {
+      const px = src.positions[k * 3] * hs.size;
+      const py = src.positions[k * 3 + 1] * hs.size;
+      const pz = src.positions[k * 3 + 2] * hs.size;
+      const o = (h * nv + k) * 3;
+      // a turn about +Y by `yaw`, the way three's `setFromAxisAngle(up, yaw)` turns an instance
+      positions[o] = hs.x + px * c + pz * s;
+      positions[o + 1] = hs.y + py;
+      positions[o + 2] = hs.z - px * s + pz * c;
+      const nx = src.normals[k * 3];
+      const nz = src.normals[k * 3 + 2];
+      normals[o] = nx * c + nz * s;
+      normals[o + 1] = src.normals[k * 3 + 1];
+      normals[o + 2] = -nx * s + nz * c;
+      uvs[(h * nv + k) * 2] = src.uvs[k * 2];
+      uvs[(h * nv + k) * 2 + 1] = src.uvs[k * 2 + 1];
+    }
+    for (let k = 0; k < ni; k++) indices[h * ni + k] = src.index[k] + h * nv;
+  });
+  return { positions, normals, uvs, indices, triangles: (houses.length * ni) / 3 };
+}
+
 /**
  * Place every piece of `spec` on `floor`, merged into one mesh (and its LOD1 twin).
  *
@@ -282,12 +350,13 @@ export function assembleKit(
   spec: PlacementSpec,
   kit: KitSource,
   floor: FloorSurface,
-  houseLimit: (x: number, z: number) => number = () => Infinity
+  houseLimit: (x: number, z: number) => number = () => Infinity,
+  taper?: Taper
 ): PlacedKit {
-  const main = mergePieces(spec, kit, floor, (src) => src);
+  const main = mergePieces(spec, kit, floor, (src) => src, taper);
   // A kit with no LOD1 twins (a test fixture, a future kit) draws its full mesh at every zoom.
   const hasLod1 = spec.pieces.every((pl) => kit.pieces.get(pl.id)?.lod1 !== undefined);
-  const lod1 = hasLod1 ? mergePieces(spec, kit, floor, (src) => src.lod1 as KitGeometry) : main;
+  const lod1 = hasLod1 ? mergePieces(spec, kit, floor, (src) => src.lod1 as KitGeometry, taper) : main;
 
   const olives: PlacedOlive[] = [];
   const houses: PlacedHouse[] = [];
@@ -296,14 +365,14 @@ export function assembleKit(
     // Olives stand on the terrace treads; houses on the anchors. Both are hashed on a running count, so the
     // same layout always plants the same trees (and the render-2 mock, which counted the same way, agrees).
     for (const q of src.olives) {
-      const [x, y, z] = placePoint(pl, floor, q);
+      const [x, y, z] = placePoint(pl, floor, q, taper);
       const k = olives.length;
       const sc = 0.85 + 0.3 * tileHash(k, 17);
       olives.push({ x, y, z, yaw: tileHash(k, 5) * 6.28, scale: sc, scaleY: sc * (0.9 + 0.2 * tileHash(k, 23)) });
     }
     for (const a of src.anchors) {
       if (!a.name.startsWith('anchor_house')) continue;
-      const [x, y, z] = placePoint(pl, floor, a.p);
+      const [x, y, z] = placePoint(pl, floor, a.p, taper);
       const k = houses.length;
       const size = 0.85 + 0.5 * tileHash(k, 9);
       const tall = 0.9 * size;
@@ -315,5 +384,10 @@ export function assembleKit(
   // Thin by a fixed hash order, so the first half of the list is a spatially even half of the trees: the renderer draws
   // only that half at minimum zoom (`Backdrop.setZoom`), where an olive is three pixels across.
   olives.sort((a, b) => tileHash(Math.round(a.x * 64), Math.round(a.z * 64)) - tileHash(Math.round(b.x * 64), Math.round(b.z * 64)));
-  return { ...main, olives, houses, pieces: spec.pieces.length, lod1 };
+  // The hamlet houses are part of the kit's mesh (no draw call of their own): planted, scaled and turned, into both.
+  const house = kit.pieces.get(HOUSE_PIECE);
+  const withHouses = house && houses.length > 0 ? (m: PlacedMesh): PlacedMesh => concatMeshes(m, plantHouses(house, houses)) : (m: PlacedMesh): PlacedMesh => m;
+  const mainH = withHouses(main);
+  const lod1H = lod1 === main ? mainH : withHouses(lod1);
+  return { ...mainH, olives, houses, pieces: spec.pieces.length, lod1: lod1H };
 }

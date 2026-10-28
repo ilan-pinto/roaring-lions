@@ -50,7 +50,7 @@ try {
       const group = r.backdrop.group;
       r.backdrop.setZoom = (): void => {}; // the frame loop must not re-pick the kit mesh under us
       const byName = (n: string): { visible: boolean } => group.children.find((c: { name: string }) => c.name === n);
-      const parts = ['backdrop-kit', 'backdrop-kit-lod1', 'backdrop-olives', 'backdrop-houses'];
+      const parts = ['backdrop-ground-far', 'backdrop-kit', 'backdrop-kit-lod1', 'backdrop-olives'];
       const show = (on: string[]): void => {
         r.setDebugLayerVisible('backdrop', true);
         for (const n of parts) byName(n).visible = on.includes(n);
@@ -61,11 +61,11 @@ try {
       };
       const states: Record<string, () => void> = {
         skirt: () => r.setDebugLayerVisible('backdrop', false),
-        floor: () => show([]),
-        'floor+lod1': () => show(['backdrop-kit-lod1']),
-        'floor+lod1+olives': () => show(['backdrop-kit-lod1', 'backdrop-olives']),
-        'floor+lod1+olives+houses': () => show(['backdrop-kit-lod1', 'backdrop-olives', 'backdrop-houses']),
-        'floor+lod0 (ref)': () => show(['backdrop-kit']),
+        'ring floor': () => show([]),
+        '+far floor': () => show(['backdrop-ground-far']),
+        '+kit LOD0': () => show(['backdrop-ground-far', 'backdrop-kit']),
+        '+kit LOD1': () => show(['backdrop-ground-far', 'backdrop-kit-lod1']),
+        '+olives (LOD0)': () => show(['backdrop-ground-far', 'backdrop-kit', 'backdrop-olives']),
       };
       const names = Object.keys(states);
       const w: Record<string, number[]> = Object.fromEntries(names.map((n) => [n, []]));
@@ -94,7 +94,7 @@ try {
           }
         }
       }
-      states['floor+lod1+olives+houses']();
+      states['+olives (LOD0)']();
       const med = (a: number[]): number => a.slice().sort((p, q) => p - q)[Math.floor(a.length / 2)];
       return Object.fromEntries(names.map((n) => [n, { med: med(w[n]), calls: geo[n].calls, tris: geo[n].tris }]));
     },

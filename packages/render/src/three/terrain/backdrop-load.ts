@@ -1,7 +1,7 @@
 /**
  * Reading a loaded backdrop kit GLB into what `buildBackdrop` places.
  *
- * The GLB is one scene of 37 mesh nodes -- 19 pieces and the 18 LOD1 twins
+ * The GLB is one scene of 38 mesh nodes -- 20 pieces and the 18 LOD1 twins
  * of the placed ones (`extras.rl_lod` 1) -- each named by `extras.rl_piece`,
  * all sharing one material and one atlas. Nothing is looked
  * up by node order or index (a re-export reshuffles it): every piece is found by
@@ -25,7 +25,7 @@ import { MESH_SCALE } from '../units/mesh-anim';
 import { prepareTexturedMap } from '../world-materials';
 import type { KitGeometry, KitPieceSource, KitSource } from './backdrop-kit';
 import type { LoadedBackdropKit } from './backdrop';
-import { KIT_PIECES, OLIVE_PIECE, isKitPiece, isTexturedBackdropKit } from './textured-backdrop';
+import { KIT_PIECES, OLIVE_PIECE, UNPLACED_PIECES, isKitPiece, isTexturedBackdropKit } from './textured-backdrop';
 
 interface PieceExtras {
   rl_textured?: unknown;
@@ -128,8 +128,8 @@ function readBackdropKitUnguarded(root: THREE.Object3D, kitId: string): LoadedBa
   });
   const missing = Object.keys(KIT_PIECES).filter((p) => !pieces.has(p));
   if (missing.length > 0) throw new Error(`backdrop kit "${kitId}" is missing piece(s): ${missing.join(', ')}`);
-  // Every placed piece ships its LOD1 twin (the minimum-zoom mesh); the olive has none.
-  const noLod = [...pieces.keys()].filter((p) => p !== OLIVE_PIECE && !lod1.has(p));
+  // Every placed piece ships its LOD1 twin (the minimum-zoom mesh); the olive and the house have none.
+  const noLod = [...pieces.keys()].filter((p) => !UNPLACED_PIECES.has(p) && !lod1.has(p));
   if (noLod.length > 0) throw new Error(`backdrop kit "${kitId}" has no LOD1 for piece(s): ${noLod.join(', ')}`);
   const stray = [...lod1.keys()].filter((p) => !pieces.has(p));
   if (stray.length > 0) throw new Error(`backdrop kit "${kitId}" has an LOD1 with no LOD0: ${stray.join(', ')}`);

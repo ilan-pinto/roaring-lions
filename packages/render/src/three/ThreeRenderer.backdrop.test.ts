@@ -305,7 +305,7 @@ describe('with a kit loaded', () => {
 
   it('swaps the kit to its LOD1 twin with the camera zoom, every frame', () => {
     const { r, p } = withKit();
-    const [, full, low] = (p.backdrop as { group: THREE.Group }).group.children;
+    const [, , full, low] = (p.backdrop as { group: THREE.Group }).group.children;
     (r as unknown as { camera: { zoom: number } }).camera.zoom = 0.35;
     r.frame(1, 0);
     expect([full.visible, low.visible]).toEqual([false, true]);
