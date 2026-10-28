@@ -186,6 +186,15 @@ describe('mountGarageView: the bought kit on a team on the turntable (GH-826)', 
     m.view.dispose();
   });
 
+  it('a rig swapped in by a purchase is never frustum-culled and still casts and receives shadows', async () => {
+    const m = await mount(SQUAD, 'inf_squad', {});
+    m.view.setKit(FULL);
+    const flags = m.meshes().map((x) => [x.frustumCulled, x.castShadow, x.receiveShadow]);
+    expect(flags.length).toBe(4);
+    expect(flags).toEqual(flags.map(() => [false, true, true]));
+    m.view.dispose();
+  });
+
   it('does nothing for tiers that draw the parts already shown', async () => {
     const m = await mount(SQUAD, 'inf_squad', { armour: 3 });
     const frames = m.view.stats().frames;

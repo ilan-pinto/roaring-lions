@@ -344,6 +344,16 @@ function stageRigged(gltf: { scene: THREE.Group; animations: THREE.AnimationClip
       kitted ? tiers : undefined
     );
     const rig = tpl.root;
+    // `mountGarageView` does this once for the model it first stages; a rig
+    // swapped in by a purchase is a new object and needs it too (skinned
+    // bounds are the bind pose's, so a culled mesh would blink out mid-turn).
+    rig.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      m.castShadow = true;
+      m.receiveShadow = true;
+      m.frustumCulled = false;
+    });
     const { source, mixer } = poseRigged(rig, { showcase, idle: tpl.clips.get('idle') ?? null });
     const figures = lineOrder(livingFigureRoots(bonesOf(rig)));
     if (figures.length > 1) {
