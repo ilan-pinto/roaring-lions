@@ -153,7 +153,9 @@ import os
 import struct
 import sys
 
+import bmesh
 import bpy
+import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -832,6 +834,125 @@ def render_vehicle_kit(unit_id, kit_stashed, cam, out_dir):
     return written
 
 
+# ---------------------------------------------------------------------------
+# The infantry kit (GH-826): packed skinned nodes, `kit_uniform` / `kit_weapon`
+# ---------------------------------------------------------------------------
+#
+# A team's kit is two nodes, each a skinned mesh whose vertices carry `_RL_KIT`,
+# the id of the part they belong to (an index into `rl_kit.parts`). The shipped
+# render is the squad a fresh account fields, tier 0, so the kit is stashed
+# BEFORE `cull_unroled_meshes` (which would delete it as import noise: a kit
+# node has no `rl_role`). `render_infantry_kit` then re-links it variant by
+# variant with only the faces of the parts that variant buys:
+#
+#   teamkit_max   every track at tier 3 (the painted maximum)
+#   teamkit_A3 / S3 / F3   each track alone at tier 3
+#
+# The selection is `units/infantry-kit.ts` `keptPartIds` restated (this module
+# runs inside Blender and can import neither), and the validator derives the
+# same variant list from the bytes (`infantry_kit_variant_names`).
+TEAM_KIT_PREFIX = "teamkit_"
+TEAM_KIT_TAG = "_RL_KIT"
+
+
+def stash_team_kit():
+    """Unlink every `kit_*` mesh from the scene, remembering its collections.
+    Unlinked, not hidden, for `hide_kit_parts`' reason: `world_bounds` reads
+    every object in the scene with no visibility test."""
+    stashed = []
+    for obj in [o for o in bpy.context.scene.objects if o.type == "MESH" and o.name.startswith(KIT_PREFIX)]:
+        colls = list(obj.users_collection)
+        for coll in colls:
+            coll.objects.unlink(obj)
+        stashed.append((obj, colls))
+    return stashed
+
+
+def team_kept_part_ids(parts, tiers):
+    """`keptPartIds` (infantry-kit.ts): parts with tier <= the track's tier, and
+    of those only the highest tier in each (track, figure, slot, side)."""
+    eligible = [(i, p) for i, p in enumerate(parts) if int(p["tier"]) <= tiers.get(str(p["track"]), 0)]
+
+    def key(p):
+        return (str(p["track"]), str(p["figure"]), str(p.get("slot", "")), str(p.get("side", "")))
+    best = {}
+    for _i, p in eligible:
+        if p.get("slot") is not None:
+            best[key(p)] = max(best.get(key(p), 0), int(p["tier"]))
+    return {i for i, p in eligible if p.get("slot") is None or int(p["tier"]) == best[key(p)]}
+
+
+def cut_kit_object(ob, pristine, keep):
+    """Rebuild `ob.data` (in place, so its vertex-group names and armature
+    binding stay) from `pristine` with only the faces of parts in `keep`."""
+    bm = bmesh.new()
+    bm.from_mesh(pristine)
+    layer = bm.verts.layers.int.get(TEAM_KIT_TAG)
+    if layer is None:
+        bm.free()
+        raise SystemExit(f"{ob.name}: no {TEAM_KIT_TAG} attribute -- the importer dropped the part ids")
+    dead = [f for f in bm.faces if f.verts[0][layer] not in keep]
+    if dead:
+        bmesh.ops.delete(bm, geom=dead, context="FACES")
+    bm.to_mesh(ob.data)
+    bm.free()
+    ob.data.update()
+
+
+def render_infantry_kit(unit_id, faction, kit_stashed, cam, out_dir):
+    """The kitted renders of a team: the painted maximum and each track alone
+    at tier 3, each framed to its OWN bounds as `render_vehicle_kit` does
+    (the kit grows the bounds, and the reframing is part of what moves the
+    IoU). Cycles, the shipped render's samples and film; the scene is left as
+    it was found (kit unlinked, meshes restored, camera re-fitted)."""
+    scene = bpy.context.scene
+    objs = [o for o, _ in kit_stashed]
+    pristine = {}
+    parts = {}
+    for ob in objs:
+        info = ob.get("rl_kit")
+        if info is None:
+            raise SystemExit(f"{ob.name}: a {KIT_PREFIX}* node with no extras.rl_kit")
+        parts[ob] = [dict(p) for p in info["parts"]]
+        ob["rl_role"] = str(info["host"])
+        pristine[ob] = ob.data.copy()
+    tracks = sorted({str(p["track"]) for ps in parts.values() for p in ps},
+                    key=lambda t: (list(KIT_TRACK_LETTER).index(t) if t in KIT_TRACK_LETTER else 99, t))
+    top = {t: max(int(p["tier"]) for ps in parts.values() for p in ps if p["track"] == t) for t in tracks}
+    variants = [(KIT_MAX_VARIANT, dict(top))] + [(f"{KIT_TRACK_LETTER.get(t, t)}{top[t]}", {t: top[t]}) for t in tracks]
+    written = []
+    try:
+        for name, tiers in variants:
+            shown = []
+            for ob, colls in kit_stashed:
+                keep = team_kept_part_ids(parts[ob], tiers)
+                if not keep:
+                    continue
+                cut_kit_object(ob, pristine[ob], keep)
+                for coll in colls:
+                    if ob.name not in coll.objects:
+                        coll.objects.link(ob)
+                shown.append(ob)
+            bpy.context.view_layer.update()
+            render_team.apply_materials(shown, faction, casualty=False)
+            lo, hi = world_bounds()
+            frame_camera(cam, lo, hi)
+            path = os.path.join(out_dir, f"{TEAM_KIT_PREFIX}{name}_f00_000.png")
+            scene.render.filepath = path
+            bpy.ops.render.render(write_still=True)
+            written.append((name, path))
+            for ob, _colls in kit_stashed:
+                for coll in list(ob.users_collection):
+                    coll.objects.unlink(ob)
+    finally:
+        for ob, _colls in kit_stashed:
+            for coll in list(ob.users_collection):
+                coll.objects.unlink(ob)
+        lo, hi = world_bounds()
+        frame_camera(cam, lo, hi)
+    return written
+
+
 def render_vehicle_wreck(unit_id, stashed, out_dir):
     """Render the wreck ALONE, through the camera the live render was already
     framed with, to `<out_dir>/wreck_f00_000.png`.
@@ -1016,6 +1137,11 @@ def render_one(glb_path, out_root):
     wipe_scene()
     bpy.ops.import_scene.gltf(filepath=glb_path, import_scene_extras=True)
 
+    # A team's kit (GH-826) is stashed BEFORE the cull below, which would
+    # delete it as import noise (a kit node has no `rl_role`), and the shipped
+    # render is the squad at tier 0.
+    team_kit_stashed = stash_team_kit() if kind == "infantry" else []
+
     stray = cull_unroled_meshes()
     if stray:
         print(f"MESH_GATE_WARN: {unit_id}: dropped {len(stray)} unroled mesh "
@@ -1081,6 +1207,10 @@ def render_one(glb_path, out_root):
     bpy.context.scene.render.filepath = out_path
     bpy.ops.render.render(write_still=True)
     print(f"MESH_GATE_OK: {unit_id} ({kind}) -> {out_path}")
+
+    if team_kit_stashed:
+        for name, path in render_infantry_kit(unit_id, faction, team_kit_stashed, cam, out_dir):
+            print(f"MESH_GATE_OK: {unit_id} (infantry-kit {name}) -> {path}")
 
     if kit_stashed:
         # Between the shipped render and the wreck, and it hands the scene
