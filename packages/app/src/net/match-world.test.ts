@@ -434,11 +434,12 @@ describe('the economy runtime (N3 Task 3)', () => {
 
 describe('the Sarim seat\'s routes (GH-681, T3)', () => {
   // [map, host factions, the END the Sarim side stands at, that end's route ids, each route's capacity (LITERALS)]
+  // wadi_tarfan re-priced 28 Oct 2026 (GH-560 Task 7B): wt_h_south 2 -> 1, wt_f_west 1 -> 2. Was [2, 3] and [1, 1].
   const CASES = [
     ['tel_marum', ['kdf', 'sarim'], 'hostile', ['tm_n_west', 'tm_n_east'], [4, 4]],
     ['tel_marum', ['sarim', 'kdf'], 'friendly', ['tm_s_west', 'tm_s_east'], [4, 4]],
-    ['wadi_tarfan', ['kdf', 'sarim'], 'hostile', ['wt_h_south', 'wt_h_east'], [2, 3]],
-    ['wadi_tarfan', ['sarim', 'kdf'], 'friendly', ['wt_f_north', 'wt_f_west'], [1, 1]],
+    ['wadi_tarfan', ['kdf', 'sarim'], 'hostile', ['wt_h_south', 'wt_h_east'], [1, 3]],
+    ['wadi_tarfan', ['sarim', 'kdf'], 'friendly', ['wt_f_north', 'wt_f_west'], [1, 2]],
   ] as const;
   it.each(CASES)('%s, host %j: exactly the Sarim end\'s routes, owned by the Sarim side, pre-dug, at the capacity the file authors', (map, factions, end, ids, capacity) => {
     const w = buildMatchWorld(config(map, [factions[0], factions[1]], 7));
