@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { units } from '@lions/data';
 import type { UnitTypeJson } from '@lions/sim';
-import { argOf, engagement, quantile, sf2, summarise, type Tally } from './vehicle-health-probe';
+import { argOf, engagement, manpadHover, manpadPass, quantile, sf2, summarise, type Tally } from './vehicle-health-probe';
 
 const U = units as unknown as Record<string, UnitTypeJson>;
 
@@ -65,6 +65,45 @@ describe('vehicle-health probe: a small round against a light hard hull (GH-868,
     expect(med).toBeGreaterThanOrEqual(4.5); // 6.6 read; flat 2.9
     expect(med).toBeLessThanOrEqual(8.5); // main 9.6
     expect(r.pensPerRun).toBeGreaterThanOrEqual(5); // 7.0 read; flat 3.0
+  }, 60_000);
+});
+
+/**
+ * GH-868 (the MANPAD half): a Peten is 640 hp and a Yanshuf 760, and a MANPAD hit cost 300 of it, so a lone
+ * team needed three hits, and a hit that rolls a mobility kill lands the helicopter first, which takes it
+ * out of the air-only MANPAD's reach. A lone team destroyed a hovering Peten 0 times in 200 (43 before PR
+ * 866). The lead's 28 Oct ruling made the warhead 420: two hits kill either helicopter.
+ *
+ * 60 seeds (the first 60 of the 200-seed rows), READING at damage 420: hover 30 s, destroyed Peten v 1 team
+ * 18, v 2 teams 45; Yanshuf v 1 15, v 2 40; destroyed-or-grounded Peten v 1 team 37. Firing pass v 3 teams,
+ * Peten survives 36. READING at 300: 0, 16, 0, 10, 26 and 51. A one-hit warhead (damage 640) reads
+ * 200-seed Peten v 1 hover 170 (about 51 of 60) and pass survival 22% against three, so the upper bounds hold
+ * it from overshooting.
+ *
+ * Falsified by setting manpad_team's damage back to 300 in data/units/enemy/manpad_team.json: the four
+ * destroyed floors, the grounded floor and the pass ceiling all go red (see the commit message).
+ */
+describe('vehicle-health probe: a helicopter against MANPAD teams (GH-868)', () => {
+  it('a lone team can destroy a hovering Peten or Yanshuf again; a pair usually does', () => {
+    const p1 = manpadHover(U, 'heli_peten', 1, 30, 60);
+    const p2 = manpadHover(U, 'heli_peten', 2, 30, 60);
+    const y1 = manpadHover(U, 'heli_yanshuf', 1, 30, 60);
+    const y2 = manpadHover(U, 'heli_yanshuf', 2, 30, 60);
+    expect(p1.destroyed).toBeGreaterThanOrEqual(8); // 18 read; at 300: 0
+    expect(p1.destroyed).toBeLessThanOrEqual(30); // a one-hit warhead reads about 51
+    expect(p2.destroyed).toBeGreaterThanOrEqual(30); // 45 read; at 300: 16
+    expect(y1.destroyed).toBeGreaterThanOrEqual(7); // 15 read; at 300: 0
+    expect(y2.destroyed).toBeGreaterThanOrEqual(25); // 40 read; at 300: 10
+    expect(p1.downOrDead).toBeGreaterThanOrEqual(32); // 37 read; at 300: 26
+    // Destroyed is a subset of destroyed-or-grounded: a count that broke that would read a bigger DD for nothing.
+    for (const r of [p1, p2, y1, y2]) expect(r.downOrDead).toBeGreaterThanOrEqual(r.destroyed);
+  }, 60_000);
+
+  it('three teams in a firing pass bring a Peten down far more often than at 300', () => {
+    const p = manpadPass(U, 'heli_peten', 3, 60);
+    expect(p.survives).toBeGreaterThanOrEqual(25); // 36 read; a one-hit warhead reads about 13
+    expect(p.survives).toBeLessThanOrEqual(45); // at 300: 51
+    expect(p.intact).toBeLessThanOrEqual(p.survives);
   }, 60_000);
 });
 
