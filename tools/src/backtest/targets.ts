@@ -8,6 +8,7 @@
 // good screen is allowed to buy on top of them: exactly one ratio step.
 
 import { Sim, fx, TICKS_PER_SECOND, type UnitTypeJson } from '@lions/sim';
+import { formations } from '@lions/data';
 import { MBT_BARE, countAlive, mean, runBattle, units, type TargetResult } from './harness';
 
 const WEST = 32768;
@@ -83,6 +84,9 @@ interface UrbanOutcome {
   won: boolean;
   /** `smokeLaid` events the sim actually emitted (it drops a refused order silently). */
   screens: number;
+  /** GH-859 P1a: attackers that stood in a formation group one tick after the first order (0 for an
+   *  arm that names none). The formation arm is vacuous if this is 0: a refused field is a plain order. */
+  formed: number;
 }
 
 /** Each assault group's own block front: where the defenders of the block that
@@ -100,7 +104,7 @@ const URBAN_FRONTS: [number, number][] = [
  *  float test here on the right side of the sim's fixed-point one. */
 const SMOKE_REACH_SQ = 79.5;
 
-function urbanAssault(attackers: number, seed: number, smoke = false): UrbanOutcome {
+function urbanAssault(attackers: number, seed: number, smoke = false, formation?: string): UrbanOutcome {
   const W = 40;
   const H = 28;
   const sim = new Sim({ seed, width: W, height: H, capacity: 64 });
@@ -115,6 +119,10 @@ function urbanAssault(attackers: number, seed: number, smoke = false): UrbanOutc
     smoke ? { ...units.inf_squad, abilities: [...(units.inf_squad.abilities ?? []), 'smoke'] } : units.inf_squad
   );
   const militia = sim.addUnitType(units.militia_cell);
+  // GH-859 P1a: the formation arm registers the shipped formations AFTER the unit types, as a room does.
+  // Registering is config and moves no hash; only the order that names one does.
+  if (formation !== undefined) for (const f of formations) sim.addFormationType(f);
+  const named = formation === undefined ? {} : { formation };
 
   // Town: three building blocks with heavy-cover surroundings.
   const blocks: [number, number, number, number][] = [
@@ -168,7 +176,7 @@ function urbanAssault(attackers: number, seed: number, smoke = false): UrbanOutc
     [35, 24],
   ];
   for (let gi = 0; gi < 3; gi++) {
-    sim.queueCommand({ kind: 'attackMove', ids: groups[gi], x: fx.fromInt(objectives[gi][0]), y: fx.fromInt(objectives[gi][1]), sweep: true });
+    sim.queueCommand({ kind: 'attackMove', ids: groups[gi], x: fx.fromInt(objectives[gi][0]), y: fx.fromInt(objectives[gi][1]), sweep: true, ...named });
   }
 
   // Consolidation: every 120 s the commander re-tasks all survivors onto the
@@ -184,6 +192,7 @@ function urbanAssault(attackers: number, seed: number, smoke = false): UrbanOutc
   // to carry the assault, and what one shipped carrier per axis already buys.
   const spent = [false, false, false];
   let screens = 0;
+  let formed = 0;
   for (let t = 0; t < maxTicks; t++) {
     if (t > 0 && t % (120 * TICKS_PER_SECOND) === 0) {
       const survivors: number[] = [];
@@ -191,7 +200,7 @@ function urbanAssault(attackers: number, seed: number, smoke = false): UrbanOutc
       const obj = objectives[wave % 3];
       wave++;
       if (survivors.length > 0) {
-        sim.queueCommand({ kind: 'attackMove', ids: survivors, x: fx.fromInt(obj[0]), y: fx.fromInt(obj[1]), sweep: true });
+        sim.queueCommand({ kind: 'attackMove', ids: survivors, x: fx.fromInt(obj[0]), y: fx.fromInt(obj[1]), sweep: true, ...named });
       }
     }
     if (smoke && t % 10 === 0) {
@@ -208,13 +217,30 @@ function urbanAssault(attackers: number, seed: number, smoke = false): UrbanOutc
     }
     const events = sim.tick();
     if (smoke) for (const e of events) if (e.kind === 'smokeLaid') screens++;
+    if (t === 0 && formation !== undefined) {
+      for (const g of groups) for (const id of g) if (sim.formationGroupOf(id) >= 0) formed++;
+    }
     if ((t & 31) === 0) {
       const alive = countAlive(sim);
       if (alive[0] === 0 || alive[1] === 0) break;
     }
   }
   const alive = countAlive(sim);
-  return { won: alive[1] === 0 && alive[0] >= Math.ceil(attackers * 0.25), screens };
+  return { won: alive[1] === 0 && alive[0] >= Math.ceil(attackers * 0.25), screens, formed };
+}
+
+/** The urban band, §5.7 plus the 2026-09-15 ruling (derivation under `urbanRatio`): 1:1 fails, 2:1 is
+ *  unreliable (<= 85% AND 15 pp under 3:1, so no ratio step is bought), 3:1 is reliable, 4:1 is no worse
+ *  than 3:1 by more than 10 pp. `urbanRatio` and `urbanAttackFormation` read the SAME function, so the
+ *  formation arm is held to the band and cannot drift from it. */
+export function urbanBandPass(rates: Readonly<Record<string, number>>): boolean {
+  return (
+    rates['1:1'] <= 0.25 &&
+    rates['2:1'] <= 0.85 &&
+    rates['2:1'] <= rates['3:1'] - 0.15 &&
+    rates['3:1'] >= 0.65 &&
+    rates['4:1'] >= rates['3:1'] - 0.1
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -292,12 +318,7 @@ export function urbanRatio(seedsPerRatio = 60): TargetResult {
   // 3:1 itself reads, which a flat cap cannot say. The measurement supports it
   // with room: 3:1 is 100% and 2:1 is 63–65%, a 35pp gap against the 15pp
   // demanded.
-  const pass =
-    rates['1:1'] <= 0.25 &&
-    rates['2:1'] <= 0.85 &&
-    rates['2:1'] <= rates['3:1'] - 0.15 &&
-    rates['3:1'] >= 0.65 &&
-    rates['4:1'] >= rates['3:1'] - 0.1;
+  const pass = urbanBandPass(rates);
   return {
     name: 'Urban assault force ratio',
     detail: `win rates by attacker:defender — ${detail}`,
@@ -373,6 +394,55 @@ export function urbanSmokeStep(seeds = 60): TargetResult {
       ` · ${(screens / runs).toFixed(2)} screens/run · compare the un-smoked row above`,
     measured: `2:1+smoke → ${pct(rates['2:1'])}`,
     target: '2:1+smoke in the 3:1 band (≥90%), 1:1+smoke still fails (≤25%)',
+    pass,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 3c. A formation buys no ratio step (GH-859 P1a, spec 8.3, D10)
+//
+//    NOT a §5.7 target: §5.7 measures the model with no formation order. This holds the Attack
+//    formation to the SAME band as `urbanRatio` (`urbanBandPass`, both tiers): the same town, the same
+//    seeds (60000 + ratio·1000 + s) and the same clearing plan, with the three assault groups' attack-moves
+//    (the first and every 120 s re-task) carrying `formation: 'attack'`. The two arms are paired seed for
+//    seed, so the order is the only difference. The urban groups are rifle squads only, so what this
+//    checks is that rank placement, facing and the persistent group change nothing that matters; smoke
+//    stays the only buyer of a ratio step (`urbanSmokeStep`). A reading outside the band is STOP gate S2:
+//    reported to the lead, never retuned.
+// ---------------------------------------------------------------------------
+export function urbanAttackFormation(seeds = 60): TargetResult {
+  const defenders = 6;
+  const plain: Record<string, number> = {};
+  const formed: Record<string, number> = {};
+  let members = 0;
+  let runs = 0;
+  let differ = 0;
+  for (const ratio of [1, 2, 3, 4]) {
+    let winsPlain = 0;
+    let winsFormed = 0;
+    for (let s = 0; s < seeds; s++) {
+      const seed = 60000 + ratio * 1000 + s;
+      const base = urbanAssault(defenders * ratio, seed);
+      if (base.won) winsPlain++;
+      const out = urbanAssault(defenders * ratio, seed, false, 'attack');
+      if (out.won) winsFormed++;
+      if (out.won !== base.won) differ++;
+      members += out.formed;
+      runs++;
+    }
+    plain[`${ratio}:1`] = winsPlain / seeds;
+    formed[`${ratio}:1`] = winsFormed / seeds;
+  }
+  const row = (r: Record<string, number>) => Object.entries(r).map(([k, v]) => `${k}=${(v * 100).toFixed(0)}%`).join(' ');
+  // Vacuity guard: an arm whose order never formed anyone measured the plain game twice. At 1:1 each of
+  // the 3 groups holds 2 squads (the formation's own minimum), so every attacker is a member.
+  const formedPerRun = members / runs;
+  const pass = urbanBandPass(formed) && formedPerRun >= 6;
+  return {
+    name: 'Attack formation buys no ratio step',
+    detail: `formation ${row(formed)} · plain ${row(plain)} · ${formedPerRun.toFixed(1)} grouped attackers/run · ${differ}/${runs} seeds read differently`,
+    measured: `3:1 → ${(formed['3:1'] * 100).toFixed(0)}%, 2:1 → ${(formed['2:1'] * 100).toFixed(0)}%`,
+    target: 'the urban band holds in Attack: 1:1 ≤25%, 2:1 ≤85% and ≥15pp below 3:1, 3:1 ≥65%, 4:1 ≥ 3:1 − 10pp',
     pass,
   };
 }
