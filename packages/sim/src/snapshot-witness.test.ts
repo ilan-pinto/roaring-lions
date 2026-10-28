@@ -405,10 +405,12 @@ describe('snapshot format pin', () => {
 // ---- the formation world (GH-859 P1a Task 4) -------------------------------------------------
 //
 // The 600-tick world that orders a Column, an Attack and an Ambush ring (golden-worlds.test-helper.ts,
-// FORMATION_WORLD_PIN's replay), cut at the three moments the formation columns do something: while the
+// FORMATION_WORLD_PIN's replay), cut at the four moments the formation columns do something: while the
 // ring is still walking, once every ring member has set its ambush stance and before the group has
-// sprung, and after it has. Measured on the scouting run below: the first ring member sets its stance at
-// tick 196, the last at 344, and the group springs at 404 (the side-1 riflemen find the ring by fire).
+// sprung, at the state after tick 403 (the group found by fire and MARKED, `fgPending` 1, the one column
+// whose life crosses a tick boundary), and after it has sprung. Measured on the scouting run below: the
+// first ring member sets its stance at tick 196, the last at 344, and the group is marked at 404 (the
+// side-1 riflemen find the ring by fire); the stances clear at the start of the following tick.
 // Every formation column is `state` (none is `scratch`), so nothing here is poisoned that was not
 // before; the proof is that each restored world agrees with the uninterrupted one at every hash tick
 // of the next 200 and re-encodes to the same bytes.
@@ -426,21 +428,31 @@ const FORMATION: Golden = {
 };
 
 describe('fork witness: the formation world, cut before the ring arrives, after it arrives, after it springs', () => {
-  it('scouting: the ring arms at tick 344 and springs at 404, so 150, 350 and 420 are the three moments', () => {
+  it('scouting: the ring arms at tick 344 and is found at 404 (mark set), so 150, 350, 404 and 420 are the moments', () => {
     const w = FORMATION.build() as FormationWorld;
     let firstArmed = -1;
     let allArmed = -1;
     let sprung = -1;
+    let pendingAtCut = -1;
     for (let t = 0; t < FORMATION.ticks; t++) {
       FORMATION.drive(w, t);
       for (const e of w.sim.tick()) if (e.kind === 'formationSprung') sprung = w.sim.tickCount;
       if (firstArmed < 0 && w.ids.amb.some((i) => w.sim.ambushRadiusSqOf(i) > 0)) firstArmed = w.sim.tickCount;
       if (allArmed < 0 && w.ids.amb.every((i) => w.sim.ambushRadiusSqOf(i) > 0)) allArmed = w.sim.tickCount;
+      // `fgPending` has a one-tick life across a tick boundary: set while the hit tick runs, consumed at
+      // the top of the next one. The state after the 404th tick holds it set.
+      if (w.sim.tickCount === 404) pendingAtCut = (internals(w.sim).fgPending as Uint8Array).reduce((a, b) => a + b, 0);
     }
     expect([firstArmed, allArmed, sprung]).toEqual([196, 344, 404]);
+    expect(pendingAtCut, 'T = 404 cuts while a group is marked and not yet sprung').toBe(1);
   });
 
-  for (const [label, T] of [['mid-approach', 150], ['after arrival, before the spring', 350], ['after the spring', 420]] as const) {
+  for (const [label, T] of [
+    ['mid-approach', 150],
+    ['after arrival, before the spring', 350],
+    ['found, mark set and not yet consumed (fgPending 1)', 404],
+    ['after the spring', 420],
+  ] as const) {
     it(`${label} (T = ${T}): every hash tick of the next 200 agrees, and so do the bytes`, () => {
       expectClean(fork(FORMATION, T), `${FORMATION.name} T=${T}`);
       expectClean(fork(FORMATION, T, { poison: true }), `${FORMATION.name} poisoned T=${T}`);
@@ -466,6 +478,15 @@ describe('fork witness: the formation world, cut before the ring arrives, after 
     });
     expect(fails(v)).toBe(true);
     expect(v.hashDivergedAt, 'the formation block is in the hash').not.toBeNull();
+  });
+
+  it('the one-tick mark lost after the restore turns the fork red (T = 404, fgPending 1)', () => {
+    const v = fork(FORMATION, 404, {
+      mutate: (b) => {
+        (internals(b.sim).fgPending as Uint8Array).fill(0);
+      },
+    });
+    expect(fails(v)).toBe(true);
   });
 
   it('the group sprung early in B turns the fork red (T = 350)', () => {
