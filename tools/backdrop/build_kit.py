@@ -27,6 +27,7 @@ import numpy as np
 import kitlib as K
 import pieces as P
 import bake as B
+import olive as O
 
 # house pads and the like: (name, s, t) on the local frame of each piece
 ANCHORS = {
@@ -48,12 +49,13 @@ def parse():
     return ap.parse_args(argv)
 
 
-def mesh_from_grid(bpy, name, pos, tris, uv):
+def mesh_from_grid(bpy, name, pos, tris, uv_corner):
+    """`uv_corner` is [ntri * 3, 2]: one UV per triangle corner (a vertex on a chart break has two)."""
     me = bpy.data.meshes.new(name)
     me.from_pydata(pos.tolist(), [], tris.tolist())
     me.update()
     layer = me.uv_layers.new(name="UVMap")
-    layer.data.foreach_set("uv", uv[tris.ravel()].ravel())
+    layer.data.foreach_set("uv", uv_corner.ravel())
     me.polygons.foreach_set("use_smooth", [True] * len(me.polygons))
     me.update()
     return me
@@ -66,57 +68,31 @@ def surface_z(M, H, s, t):
 
 
 def build_olive(bpy, atlas_chart):
-    """The 64-triangle olive, sized to the in-map olive (`decor/tree_0.glb`: 3.4 m tall,
-    a canopy about 3 m across, a 1.3 m trunk).
-
-    The spec says "derived from the in-map olive decor, decimated in Blender". That
-    was tried and measured: the in-map olive is a Meshy leaf-card cloud (2,634 + 364
-    triangles) and a collapse decimate to 44 + 20 triangles leaves scattered shards.
-    So the olive is hand-built here from a tapered trunk and three lumpy low-poly
-    blobs, to the in-map olive's measured bounds. Nothing of the Meshy mesh is kept.
-    """
-    import bmesh
-    import mathutils
-    bm = bmesh.new()
-    # trunk: a tapered six-sided prism, slightly leaning
-    ring0 = [bm.verts.new((0.30 * math.cos(a), 0.30 * math.sin(a), 0.0)) for a in [i * math.pi / 3 for i in range(6)]]
-    ring1 = [bm.verts.new((0.17 * math.cos(a) + 0.12, 0.17 * math.sin(a) + 0.05, 1.35)) for a in [i * math.pi / 3 + 0.2 for i in range(6)]]
-    for i in range(6):
-        j = (i + 1) % 6
-        bm.faces.new((ring0[i], ring0[j], ring1[j], ring1[i]))
-    # canopy: three lumpy icospheres (20 triangles each) -> 60; trunk quads are 12 triangles
-    blobs = [((0.1, 0.0, 2.45), (1.55, 1.45, 1.05)), ((-0.55, 0.35, 1.8), (1.0, 1.0, 0.75))]
-    # a third, smaller lobe: an octahedron (8 triangles)
-    c3, r3 = (0.75, -0.45, 1.85), (0.9, 0.95, 0.7)
-    o = [bm.verts.new((c3[0] + dx * r3[0], c3[1] + dy * r3[1], c3[2] + dz * r3[2])) for dx, dy, dz in
-         ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))]
-    for a, b in ((0, 2), (2, 1), (1, 3), (3, 0)):
-        bm.faces.new((o[a], o[b], o[4]))
-        bm.faces.new((o[b], o[a], o[5]))
-    for bi, (c, r) in enumerate(blobs):
-        geom = bmesh.ops.create_icosphere(bm, subdivisions=1, radius=1.0)
-        vs = [v for v in geom["verts"]]
-        for k, v in enumerate(vs):
-            j = 1.0 + 0.16 * (float(K.tile_hash(k + 17 * bi, 5 + bi)) - 0.5) * 2
-            v.co = mathutils.Vector((c[0] + v.co.x * r[0] * j, c[1] + v.co.y * r[1] * j, c[2] + v.co.z * r[2] * j))
-    bmesh.ops.triangulate(bm, faces=bm.faces[:])
+    """The 62-triangle olive of `olive.py`: a forked trunk and an open crown of small clumps,
+    sized to the in-map olive (`decor/tree_0.glb`: 3.4 m tall, a crown about 3 m across)."""
+    verts, tris, tag = O.build()
     me = bpy.data.meshes.new("bd_olive")
-    bm.to_mesh(me)
-    bm.free()
-    zs = [v.co.z for v in me.vertices]
-    print("olive height %.2f, tris %d" % (max(zs), len(me.polygons)))
+    me.from_pydata(verts.tolist(), [], tris.tolist())
+    me.update()
+    zs = verts[:, 2]
+    print("olive height %.2f, tris %d" % (zs.max(), len(tris)))
     ox, oy, ow, oh = atlas_chart
     layer = me.uv_layers.new(name="UVMap")
-    for poly in me.polygons:
-        for li in poly.loop_indices:
-            v = me.vertices[me.loops[li].vertex_index].co
-            if v.z < 1.4 and (v.x * v.x + v.y * v.y) < 0.2:
+    uv = np.empty((len(tris), 3, 2))
+    for k, tri in enumerate(tris):
+        for c, vi in enumerate(tri):
+            z = verts[vi, 2]
+            if tag[k] == O.TRUNK:
                 px, py = ox + 36, oy + 24
             else:
-                px, py = ox + 10, oy + 4 + 40 * min(1.0, max(0.0, (v.z - 0.9) / 2.5))
-            layer.data[li].uv = (px / K.ATLAS_PX, 1.0 - py / K.ATLAS_PX)
-    me.polygons.foreach_set("use_smooth", [True] * len(me.polygons))
-    return me, {"tris": len(me.polygons), "source_tris": {"foliage": 2634, "trunk": 364}, "height_m": max(zs)}
+                px, py = ox + 10, oy + 4 + 40 * min(1.0, max(0.0, (z - 1.6) / 1.9))
+            uv[k, c] = (px / K.ATLAS_PX, 1.0 - py / K.ATLAS_PX)
+    layer.data.foreach_set("uv", uv.reshape(-1, 2).ravel())
+    # the trunk is smooth, the crown is faceted: each clump reads as a clump of leaves
+    me.polygons.foreach_set("use_smooth", [bool(g == O.TRUNK) for g in tag])
+    me.update()
+    return me, {"tris": len(tris), "source_tris": {"foliage": 2634, "trunk": 364}, "height_m": float(zs.max()),
+                "width_m": [float(np.ptp(verts[:, 0])), float(np.ptp(verts[:, 1]))]}
 
 
 def main():
@@ -173,24 +149,15 @@ def main():
     for p in pcs:
         col = bpy.data.collections.new("piece:" + p.name)
         root.children.link(col)
-        me0 = mesh_from_grid(bpy, p.name, p.gm.pos, p.gm.tris, p.uv)
+        me0 = mesh_from_grid(bpy, p.name, p.gm.pos, p.gm.tris, K.corner_uv(p.gm, p.charts))
         me0.materials.append(mat)
         ob0 = bpy.data.objects.new(p.name, me0)
         ob0["rl_piece"] = p.name
         ob0["rl_textured"] = True
         col.objects.link(ob0)
-        # LOD1: ~35% of LOD0
-        anchors_s = (-24.0, 24.0) if p.name.startswith(("bd_wall_far", "bd_taper", "bd_crest", "bd_slope_near")) else ()
-        sv1, tv1 = K.lod_axes(p.M, p.f["H"], p.gm, 0.59, anchors_s)
-        gm1 = K.GameMesh(p.M, p.f["H"], sv1, tv1)
-        cs, ct = p.chart_axes
-        u1 = np.interp(sv1, p.gm.sv, cs)
-        v1 = np.interp(tv1, p.gm.tv, ct)
-        UU, VV = np.meshgrid(u1, v1)
-        x0, y0, w, h, rot = p.chart
-        ax, ay = (VV, UU) if rot else (UU, VV)
-        uv1 = np.stack([(x0 + ax.ravel()) / K.ATLAS_PX, 1.0 - (y0 + ay.ravel()) / K.ATLAS_PX], axis=1)
-        me1 = mesh_from_grid(bpy, p.name + "_lod1", gm1.pos, gm1.tris, uv1)
+        # LOD1: ~35% of LOD0 over the same parameter plane, chart breaks and seams kept as vertices
+        gm1 = p.lod1()
+        me1 = mesh_from_grid(bpy, p.name + "_lod1", gm1.pos, gm1.tris, K.corner_uv(gm1, p.charts))
         me1.materials.append(mat)
         ob1 = bpy.data.objects.new(p.name + "_lod1", me1)
         ob1["rl_piece"] = p.name
@@ -206,13 +173,17 @@ def main():
         out_anchors = []
         for (an, s, t) in anchors:
             z = surface_z(p.M, p.f["H"], s, t)
+            ws, wt = (s, t)
+            if p.world is not None:
+                a_, b_ = p.world(np.array([[s]]), np.array([[t]]))
+                ws, wt = float(a_[0, 0]), float(b_[0, 0])
             e = bpy.data.objects.new(an, None)
             e.empty_display_type = "ARROWS"
             e.empty_display_size = 1.5
-            e.location = (-t, s, z)
+            e.location = (-wt, ws, z)
             e.parent = ob0
             col.objects.link(e)
-            out_anchors.append({"name": an, "s": s, "t": t, "local": [-t, s, z]})
+            out_anchors.append({"name": an, "s": s, "t": t, "local": [-wt, ws, z]})
         pos = p.gm.pos
         rec = {
             "side": p.side, "desc": p.desc,
@@ -220,8 +191,10 @@ def main():
             "master_tris": int(p.M.tri_count), "master_cell_m": p.M.h,
             "bbox_local_m": [pos.min(axis=0).round(2).tolist(), pos.max(axis=0).round(2).tolist()],
             "footprint_nominal": None,
-            "texels_per_m": round(p.texels_per_m, 2), "chart_px": [int(p.chart[2]), int(p.chart[3])], "chart_rotated": bool(p.chart[4]),
-            "texels_per_tile": round(p.texels_per_m * 3.0, 1),
+            "charts": [{"name": c.name, "s": [round(float(c.s0), 2), round(float(c.s1), 2)], "v": [round(float(c.v0), 2), round(float(c.v1), 2)],
+                        "px": [int(c.w), int(c.h)], "rotated": bool(c.rot), "texels_per_tile": round(c.k * 3.0, 1)} for c in p.charts],
+            "texels_per_tile": [round(min(c.k for c in p.charts) * 3.0, 1), round(max(c.k for c in p.charts) * 3.0, 1)],
+            "texels_per_tile_main": round(max(p.charts, key=lambda c: (c.cs[-1] * c.ct[-1] * c.dens * c.dens)).k * 3.0, 1),
             "anchors": out_anchors,
             "height_max_m": round(float(p.f["H"].max()), 2),
         }
@@ -232,8 +205,9 @@ def main():
         if p.name.startswith("bd_terrace"):
             rec["olives"] = P.olive_positions(p, 45, 3.6, 1.25)
         stats["pieces"][p.name] = rec
-        print("%-18s LOD0 %5d / cap %5d   LOD1 %5d   master %.2f M tris   %.1f tex/tile"
-              % (p.name, p.gm.tri_count, p.cap, gm1.tri_count, p.M.tri_count / 1e6, p.texels_per_m * 3.0))
+        print("%-18s LOD0 %5d / cap %5d   LOD1 %5d (%2.0f%%)  master %.2f M tris   %s tex/tile"
+              % (p.name, p.gm.tri_count, p.cap, gm1.tri_count, 100.0 * gm1.tri_count / p.gm.tri_count, p.M.tri_count / 1e6,
+                 "/".join("%.0f" % (c.k * 3.0) for c in p.charts)))
 
     # --- the olive
     if not args.only or "bd_olive" in args.only:
@@ -245,7 +219,7 @@ def main():
         col = bpy.data.collections.new("piece:bd_olive")
         root.children.link(col)
         col.objects.link(ob)
-        stats["pieces"]["bd_olive"] = {"tris_lod0": oinfo["tris"], "cap": 64, "height_m": 3.4, "source_tris": oinfo["source_tris"]}
+        stats["pieces"]["bd_olive"] = {"tris_lod0": oinfo["tris"], "cap": 64, "height_m": round(oinfo["height_m"], 2), "width_m": oinfo["width_m"], "source_tris": oinfo["source_tris"]}
         print("bd_olive           tris %d / cap 64  (source %s)" % (oinfo["tris"], oinfo["source_tris"]))
 
     pr = P.PROFILE

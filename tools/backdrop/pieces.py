@@ -54,10 +54,21 @@ def skirt_dip(s, half=HALF):
 # --------------------------------------------------------------------------
 # profile W
 # --------------------------------------------------------------------------
+#: where the second band of wall variant c and of the head wall's cirque step up: shared
+#: rows, so every wall-family piece has a vertex on each riser (the profile between them is
+#: a straight line, so a neighbour without that detail still meets this one without a crack)
+BAND_C_STEPS = [(45.0, 46.4), (46.6, 47.8), (48.0, 49.2)]
+BAND_HEAD_STEPS = [(48.0, 49.5), (50.0, 51.0)]
+#: texel-density breaks along the distance out (metres): the foot that fills the screen at
+#: zoom 2.5, the face and the slope above it, and the far slope that only shows at zoom 0.35
+DENS_BREAKS = (24.0, 36.0, 60.0)
+
+
 class Profile:
     """The wall cross-section as 1D tables over the distance `d` out (metres)."""
 
     STEP = 0.02
+    SIGMA = 0.10           # corner rounding: small enough that a ledge reads as a ledge
 
     def __init__(self):
         d = np.arange(0.0, D_MAX + 1e-9, self.STEP)
@@ -69,29 +80,34 @@ class Profile:
         face_w = face_h / 3.2
         x, y = 27.0, 6.0
         bench_mask = []
+        face_span = []
         cliff_span = [x]
+        corners = [21.0, 27.0]
         for k in range(5):
+            face_span.append((x, x + face_w[k]))
             x += face_w[k]
             y += face_h[k]
             anchors.append((x, y))
+            corners.append(x)
             if bench_w[k] > 0:
                 bench_mask.append((x, x + bench_w[k]))
                 x += bench_w[k]
                 y += 0.07 * bench_w[k]
                 anchors.append((x, y))
+                corners.append(x)
         cliff_top_d, cliff_top_y = x, y
         cliff_span.append(x)
         up_a, up_b = 66.0, 69.5
         y_up_a = cliff_top_y + 0.45 * (up_a - cliff_top_d)
         anchors += [(up_a, y_up_a), (up_b, y_up_a + 4.5), (84.0, CREST_M), (D_MAX, CREST_M + 0.04 * (D_MAX - 84.0))]
+        corners += [up_a, up_b]
         ad = np.array([a[0] for a in anchors])
         ay = np.array([a[1] for a in anchors])
         # y is piecewise linear between anchors; the crest must land on CREST_M, so the
         # slope above the cliff absorbs any difference
         y = np.interp(d, ad, ay)
-        # round the corners (sigma 0.35 m), keeping y(0) = 0
-        k = int(round(0.35 / self.STEP * 3))
-        ker = np.exp(-0.5 * (np.arange(-k, k + 1) * self.STEP / 0.35) ** 2)
+        k = int(round(self.SIGMA / self.STEP * 3))
+        ker = np.exp(-0.5 * (np.arange(-k, k + 1) * self.STEP / self.SIGMA) ** 2)
         ker /= ker.sum()
         yp = np.pad(y, k, mode="edge")
         self.y = np.convolve(yp, ker, mode="valid")
@@ -110,6 +126,13 @@ class Profile:
         self.cliff_top_d = cliff_top_d
         self.cliff_top_y = cliff_top_y
         self.face_w = face_w
+        self.face_span = face_span
+        #: every profile kink, then the extra risers, then the density breaks: all are row anchors
+        extra = [a for st in BAND_C_STEPS + BAND_HEAD_STEPS for a in st]
+        self.anchor_d = sorted(set(round(c, 6) for c in corners + extra + list(DENS_BREAKS)))
+        self.lod_anchor_d = sorted(set([21.0, 27.0, round(cliff_top_d, 6), up_a, up_b] + list(DENS_BREAKS)))
+        # the stratum step tables: 0 below a face, 1 above it (ledges vary in height along the wall)
+        self.strata = [smooth(a, b, d) for a, b in face_span]
 
     def at(self, dw):
         """Evaluate every table at (an array of) distances."""
@@ -124,18 +147,27 @@ class Profile:
             "talus": np.interp(dw, self.d, self.talus),
         }
 
+    def strata_steps(self, dw):
+        dw = np.clip(dw, 0.0, D_MAX)
+        return [np.interp(dw, self.d, t) for t in self.strata]
+
     def row_importance(self, d):
-        slope = np.interp(d, self.d, self.slope)
-        cliff = np.interp(d, self.d, self.cliff)
-        up = np.interp(d, self.d, self.upper_band)
-        return np.sqrt(1.0 + slope * slope) * (1.0 + 2.4 * cliff + 0.6 * up)
+        """Where spare rows go once every kink has a vertex: the profile is a polyline, so its
+        straight runs need none (a face or a bench is exactly one row-interval wide), and the
+        rest buys the ribs, rubble and gullies that ride on it."""
+        d = np.asarray(d, dtype=np.float64)
+        imp = np.full_like(d, 0.6)
+        imp = np.where(d >= self.cliff_top_d, 1.0, imp)
+        imp = np.where(d >= 66.0, 0.7, imp)
+        in_cliff = (d >= self.cliff_base_d) & (d <= self.cliff_top_d)
+        return np.where(in_cliff, 0.0, imp)
 
 
 PROFILE = Profile()
 
 # the rows every wall-family piece shares along t, so neighbours' seam vertices agree
 _ROW_D = np.arange(0.0, 84.0 + 1e-9, 0.05)
-ROWS_W = K.warped_axis(PROFILE.row_importance(_ROW_D), _ROW_D, 70, 0.0, 84.0, anchors=(21.0, 27.0))
+ROWS_W = K.warped_axis(PROFILE.row_importance(_ROW_D), _ROW_D, 70, 0.0, 84.0, anchors=tuple(PROFILE.anchor_d))
 
 
 def rows_with_skirt(rows, lo=-SKIRT):
@@ -145,17 +177,46 @@ def rows_with_skirt(rows, lo=-SKIRT):
 # --------------------------------------------------------------------------
 # helpers shared by the wall family
 # --------------------------------------------------------------------------
-def wall_surface(M, seed, e, warp_amp=1.5, rib_amp=0.5, tvar=None):
-    """Profile W with variant detail scaled by `e` (0 at the nominal ends).
+def _warp_amp(D, warp_amp):
+    return smooth(5.0, 26.0, D) * warp_amp * (0.55 + 0.45 * smooth(26.0, 40.0, D)) + 0.25 * smooth(2.0, 12.0, D)
 
-    Returns (H, fields). `e` is the envelope; `tvar` the distance coordinate
-    (default M.T).
+
+WARP = 3.6          # metres of rim meander at full strength (the first pass's lookup warp was 1.5, and read as +-0.3)
+
+
+def rim_shift(S, D, seed, e, warp_amp=WARP):
+    """How far (metres, towards the map) the rim of the parameter row `D` sits from where
+    a straight wall would put it. The rows of the game mesh follow this, so every ledge is
+    exactly one row-interval wide at every column: the meander lives in the vertex positions,
+    not in the height field, and so survives the triangle cap."""
+    wander = 0.65 * fbm(S, D * 1.0, 24.0, 3, seed + 1) + 0.35 * fbm(S, D * 0.7, 9.0, 2, seed + 2)
+    return e * _warp_amp(D, warp_amp) * wander
+
+
+def strata_offset(S, D, seed, amp):
+    """Each stratum's face is taller or shorter from place to place, so the ledges of a
+    wall step in and out along it instead of running level. The offsets fade out over the
+    scrub slope above, so the crest line stays where profile W puts it."""
+    st = PROFILE.strata_steps(D)
+    out = np.zeros_like(D)
+    for k, step in enumerate(st):
+        out += amp * (0.8 * vnoise(S, 40.0 * (k + 1), 7.0 + 2.0 * k, seed + 30 + k) + 0.5 * vnoise(S, 17.0 * (k + 1), 2.9, seed + 50 + k)) * step
+    return out * (1.0 - smooth(38.0, 84.0, D))
+
+
+def wall_surface(M, seed, e_fn, warp_amp=WARP, rib_amp=0.5, strata_amp=0.42):
+    """Profile W with variant detail scaled by `e_fn(s)` (0 at the nominal ends).
+
+    Returns (H, fields) over the PARAMETER plane (s, d): d is the profile distance, and the
+    rim meander is `f["shift"]` / `f["world"]` (vertex positions), not a lookup warp.
     """
-    S, T = M.S, (M.T if tvar is None else tvar)
-    amp = smooth(5.0, 26.0, T) * warp_amp * (0.55 + 0.45 * smooth(26.0, 40.0, T)) + 0.25 * smooth(2.0, 12.0, T)
-    wander = 0.65 * fbm(S, T * 1.9, 26.0, 3, seed + 1) + 0.35 * fbm(S, T * 2.6, 9.0, 2, seed + 2)
-    dw = T + e * amp * wander
-    f = PROFILE.at(dw)
+    return wall_field(M.S, M.T, seed, e_fn, warp_amp, rib_amp, strata_amp)
+
+
+def wall_field(S, T, seed, e_fn, warp_amp=WARP, rib_amp=0.5, strata_amp=0.42):
+    e = e_fn(S)
+    shift = rim_shift(S, T, seed, e, warp_amp)
+    f = PROFILE.at(T)
     H = f["y"].copy()
     # ribs and swales that run down the fall line, strongest on the scrub slope
     slopezone = smooth(30.0, 38.0, T) * (1.0 - 0.6 * f["upper_band"])
@@ -169,8 +230,12 @@ def wall_surface(M, seed, e, warp_amp=1.5, rib_amp=0.5, tvar=None):
     jn = vnoise(S * 1.0, T * 4.0, 2.1, seed + 7)
     joint = e * smooth(0.80, 0.97, 1.0 - np.abs(jn)) * f["cliff"] * (1.0 - f["bench"])
     H -= 0.16 * joint
+    H += e * strata_offset(S, T, seed, strata_amp)
     f["joint"] = joint
-    f["dw"] = dw
+    f["dw"] = T
+    f["shift"] = shift
+    f["world"] = lambda SS, VV: (SS, VV - rim_shift(SS, VV, seed, e_fn(SS), warp_amp))
+    f["e"] = e
     return H, f
 
 
@@ -344,6 +409,14 @@ def shade_land(M, f, seed, style="wall", rock_bias=0.0):
     face = K.mix(face, DUST.at(np.clip(0.8 + 1.0 * n_mid + 2.0 * dark, 0, 6)), 0.45 * ironw * (1 - 0.6 * stain))
     col = K.mix(col, face, rock * (1.0 - 0.45 * sc_w))
 
+    # ---- a slot cut into the wall (wall b): the deeper, the darker, down to the shadow ramp
+    sdark = z("slot_dark")
+    if np.any(sdark > 0):
+        sdep = z("slot_depth")
+        idx_s = 0.3 + 2.5 * smooth(0.4, 6.0, sdep) + 0.55 * n_fine + 0.4 * n_mid + 0.9 * dark
+        slot_c = K.SLOT.at(np.clip(idx_s, 0, 4))
+        col = K.mix(col, slot_c, np.clip(sdark * 1.2, 0, 1) * 0.97)
+
     # ---- scrub tufts on the ledges of the sheer band
     tuft = smooth(0.2, 0.7, bench * (0.5 + 0.5 * n_fine + 0.3 * shrub))
     col = K.mix(col, SCRUB.at(np.clip(0.6 + 1.0 * n_fine + 2.0 * dark, 0, 4)), tuft * 0.8)
@@ -458,18 +531,45 @@ def shade_scree(M, f, seed):
 # --------------------------------------------------------------------------
 # the pieces
 # --------------------------------------------------------------------------
-class Piece:
-    """One kit piece, built. See `build`."""
+def wall_dens(s0, s1, v0, v1):
+    """Texel density multiple by distance out. The ramp (0-24 m) is mostly under the terrace
+    pieces; the sheer band and the shelf at its foot (24-36 m) are what zoom 1 and 2.5 look
+    at; the scrub slope above is seen at 0.35 and 1 only, the far slope at 0.35 alone."""
+    if v1 <= DENS_BREAKS[0] + 1e-6:
+        return 1.0
+    if v1 <= DENS_BREAKS[1] + 1e-6:
+        return 1.6
+    if v1 <= DENS_BREAKS[2] + 1e-6:
+        return 0.7
+    return 0.45
 
-    def __init__(self, name, side, cap, ppm, builder, seed, s_range, t_range, cell, axes, desc, anchors=None):
+
+WALL_BLUR = (0.45, 0.14)     # along the wall (columns are 0.75 m apart) and across it (a ledge is 0.5 m)
+
+
+class Piece:
+    """One kit piece, built. See `build`.
+
+    `axes(M, f)` gives the parameter axes (s, v) of the game mesh; `f["world"]` (if the
+    builder sets one) maps a parameter point to where it stands in the piece's plan, so
+    the rows of a wall can follow its meandering rim. `v_breaks` / `s_breaks` cut the
+    parameter plane into atlas charts, each at its own density (`dens`).
+    """
+
+    def __init__(self, name, side, cap, ppm, builder, seed, s_range, t_range, cell, axes, desc, anchors=None,
+                 blur=(0.45, 0.45), s_breaks=(), v_breaks=(), dens=None, lod_s=(), lod_v=()):
         self.name, self.side, self.cap, self.ppm = name, side, cap, ppm
         self.builder, self.seed = builder, seed
         self.s_range, self.t_range, self.cell = s_range, t_range, cell
         self.axes = axes
         self.desc = desc
         self.anchors = anchors or []
+        self.blur = blur
+        self.s_breaks, self.v_breaks = tuple(s_breaks), tuple(v_breaks)
+        self.dens = dens or (lambda s0, s1, v0, v1: 1.0)
+        self.lod_s, self.lod_v = tuple(lod_s), tuple(lod_v)
         self.M = self.f = self.gm = self.rgb = None
-        self.chart = None
+        self.charts = None
         self.extra = {}
 
     def build(self):
@@ -478,11 +578,19 @@ class Piece:
         out = self.builder(M, self.seed)
         H, f = out[0], out[1]
         self.f = derive(M, H, f, self.seed)
-        sv, tv = self.axes(M, self.f)
-        self.gm = K.GameMesh(M, H, sv, tv)
+        sv, vv = self.axes(M, self.f)
+        self.world = self.f.get("world")
+        self.gm = K.GameMesh(M, H, sv, vv, self.blur, self.world)
         if self.gm.tri_count > self.cap:
             raise RuntimeError("%s: %d tris over its cap %d" % (self.name, self.gm.tri_count, self.cap))
+        self.charts = K.make_charts(self.name, self.gm, self.s_breaks, self.v_breaks, self.dens)
         return self
+
+    def lod1(self, ratio=0.59):
+        """The LOD1 mesh over the same parameter plane (chart breaks and seams are vertices)."""
+        sv1, vv1 = K.lod_axes(self.M, self.f["H"], self.gm, ratio,
+                              s_anchors=tuple(self.lod_s) + tuple(self.s_breaks), v_anchors=tuple(self.lod_v) + tuple(self.v_breaks))
+        return K.GameMesh(self.M, self.f["H"], sv1, vv1, self.blur, self.world)
 
 
 def axis(*parts):
@@ -495,65 +603,95 @@ def axis(*parts):
 
 
 # ---- walls ---------------------------------------------------------------
-def _wall_axes(M, f):
-    return axis((-SKIRT - HALF, SKIRT + HALF, 1.0)), ROWS_W.copy()
+def wall_cols(dense=None):
+    """The columns of a wall-family piece: coarse near the two ends (where the surface is the
+    shared profile and carries no variant detail), 0.75 m inside, and, where a variant has
+    a feature narrower than that (wall b's gully), 0.5 m across it. Same count either way."""
+    end = np.linspace(HALF, 15.0, 7)                    # 1.5 m steps over the envelope's ramp
+    if dense is None:
+        mid = np.linspace(-15.0, 15.0, 41)
+    else:
+        lo, hi = dense
+        mid = np.concatenate([np.arange(-15.0, lo, 1.0), np.arange(lo, hi, 0.5), np.arange(hi, 15.0 + 1e-9, 1.0)])
+        mid = np.unique(np.round(mid, 6))
+    left = -end
+    cols = np.concatenate([[-HALF - SKIRT], left, mid, end[::-1], [HALF + SKIRT]])
+    return np.unique(np.round(cols, 6))
+
+
+def _wall_axes(variant):
+    def fn(M, f):
+        return wall_cols((-7.0, 3.0) if variant == "b" else None), ROWS_W.copy()
+    return fn
+
+
+def gully_centre(T, amp=2.2):
+    return -2.0 + amp * np.sin(T / 15.0 + 0.6)
 
 
 def build_wall(variant):
     def builder(M, seed):
         S, T = M.S, M.T
-        e = env(S)
-        H, f = wall_surface(M, seed, e)
+        H, f = wall_surface(M, seed, env)
+        e = f["e"]
         gully = np.zeros_like(H)
         scree = np.zeros_like(H)
         boulder = np.zeros_like(H)
+        slot = np.zeros_like(H)
+        slot_floor = np.zeros_like(H)
         if variant == "b":
-            # a gully cut back into the wall, a scree cone at its mouth
-            s0 = -2.0 + 3.2 * np.sin(T / 15.0 + 0.6)
+            # a slot cut back into the wall: narrow, steep-sided, floor climbing slower than the
+            # wall so it deepens up the slope; a scree cone at its mouth
+            s0 = gully_centre(T)
             x = S - s0
-            w = 3.2 + 0.09 * np.clip(T - 22.0, 0, 60)
-            floor = PROFILE.at(np.full_like(T, 22.0))["y"] + 0.34 * np.clip(T - 22.0, 0, None)
-            floor = floor + 0.25 * vnoise(S, T, 3.0, seed + 61)
-            x = x + 0.8 * vnoise(S, T, 5.0, seed + 62) * smooth(24, 40, T)
-            bank = 1.35 * np.maximum(np.abs(x) - w / 2, 0.0) ** 1.0 * (1.0 + 0.5 * smooth(0.0, 6.0, np.maximum(np.abs(x) - w / 2, 0.0)))
-            Hg = smin(H, floor + bank, 0.45)
+            x = x + 0.5 * vnoise(S, T, 5.0, seed + 62) * smooth(24, 40, T)
+            w = 1.6 + 0.032 * np.clip(T - 22.0, 0, 60)
+            floor = PROFILE.at(np.full_like(T, 22.0))["y"] + 0.30 * np.clip(T - 22.0, 0, None)
+            floor = floor + 0.14 * vnoise(S, T, 3.0, seed + 61)
+            out = np.maximum(np.abs(x) - w / 2, 0.0)
+            bank = 2.7 * out * (1.0 + 0.45 * smooth(0.0, 4.0, out))
+            Hg = smin(H, floor + bank, 0.30)
             cut = e * smooth(24.0, 30.0, T)
             H = H * (1 - cut) + Hg * cut
-            gully = np.clip((smooth(0.3, 1.6, f["y"] - H) * cut), 0, 1) * smooth(w / 2 + 3.5, w / 2 - 0.5, np.abs(x))
-            apex = PROFILE.at(np.array([26.0]))["y"][0]
-            fa = fan(M, -2.0 + 3.2 * math.sin(26.0 / 15.0 + 0.6), 27.0, 19.0, 3.4, spread=0.9)
+            depth = f["y"] - H
+            slot = np.clip(smooth(0.4, 2.0, depth) * cut, 0, 1) * smooth(w / 2 + 3.4, w / 2 + 0.8, np.abs(x))
+            slot_floor = np.clip(cut * smooth(w / 2 + 0.7, w / 2 - 0.1, np.abs(x)), 0, 1)
+            f["slot_depth"] = np.clip(depth * cut, 0.0, None)
+            fa = fan(M, float(gully_centre(26.0)), 27.0, 17.0, 3.0, spread=0.7)
             fa *= e
             # the cone rides the foot slope
             H = H + fa
             scree = np.clip(smooth(0.35, 1.6, fa), 0, 1)
-            f["anchor_gully"] = (-2.0 + 3.2 * math.sin(26.0 / 15.0 + 0.6), 26.0)
+            f["anchor_gully"] = (float(gully_centre(26.0)), 26.0)
         if variant == "c":
-            # a second band with a rockfall below it
-            shift = 1.6 * fbm(S, T, 17.0, 2, seed + 63)
-            sh = 5.6 * (smooth(45.0, 46.4, T + shift) * 0.55 + smooth(46.6, 47.8, T + shift) * 0.25 + smooth(48.0, 49.2, T + shift) * 0.20)
+            # a second band with a rockfall below it: three risers, each its own height along the wall
+            hts = [0.55, 0.25, 0.20]
+            sh = np.zeros_like(H)
+            for k, ((a0, a1), h0) in enumerate(zip(BAND_C_STEPS, hts)):
+                sh += 5.6 * h0 * (0.72 + 0.36 * (0.5 + 0.5 * vnoise(S, 9.0 * k + 3.0, 8.0, seed + 66 + k))) * smooth(a0, a1, T)
             sh *= (1.0 - smooth(52.0, 66.0, T)) * e
             H = H + sh
-            f["bench"] = np.maximum(f["bench"], 0.0)
-            f["cliff"] = np.maximum(f["cliff"], smooth(44.8, 45.6, T + shift) * smooth(49.8, 49.0, T + shift) * e)
-            f["bench"] = np.maximum(f["bench"], smooth(46.1, 46.6, T + shift) * smooth(46.9, 46.6, T + shift) * e * 0.7)
+            f["cliff"] = np.maximum(f["cliff"], smooth(44.8, 45.6, T) * smooth(49.8, 49.0, T) * e)
+            f["bench"] = np.maximum(f["bench"], smooth(46.1, 46.6, T) * smooth(46.9, 46.6, T) * e * 0.7)
             H, bo1 = add_boulders(M, H, None, seed + 64, 34, 0.5, 1.7, 36.0, 45.0, 16.0)
             H, bo2 = add_boulders(M, H, None, seed + 65, 18, 0.45, 1.3, 20.0, 27.0, 14.0)
             boulder = np.maximum(bo1, bo2) * e
-            scree = np.clip(smooth(0.5, 2.5, H - f["y"] - sh) * 0.0 + smooth(36, 44, T) * smooth(48, 44.5, T) * 0.55 * e, 0, 1)
+            scree = np.clip(smooth(36, 44, T) * smooth(48, 44.5, T) * 0.55 * e, 0, 1)
             f["anchor_gully"] = None
         H = finish_wall(M, H, f, seed)
         f["gully"], f["scree"], f["boulder"] = gully, scree, boulder
+        f["slot_dark"], f["slot_floor"] = slot, slot_floor
         f["edge_w"], f["edge_d"], f["edge_family"] = smooth(24.0, 18.0, np.abs(S)), T, "wall"
         return H, f
     return builder
 
 
 def wall(variant, seed):
-    anchors = []
-    descr = {"a": "continuous cliff band", "b": "a gully cut back into the wall, a scree cone at its mouth",
+    descr = {"a": "continuous cliff band", "b": "a narrow slot cut back into the wall, a scree cone at its mouth",
              "c": "double band with a rockfall"}[variant]
     p = Piece("bd_wall_far_" + variant, "far", 8000, 8.0, build_wall(variant), seed,
-              (-SKIRT - HALF, SKIRT + HALF), (0.0, 84.0), 0.08, _wall_axes, descr)
+              (-SKIRT - HALF, SKIRT + HALF), (0.0, 84.0), 0.08, _wall_axes(variant), descr,
+              blur=WALL_BLUR, v_breaks=DENS_BREAKS, dens=wall_dens, lod_s=(-HALF, HALF), lod_v=tuple(PROFILE.lod_anchor_d))
     return p
 
 
@@ -563,27 +701,29 @@ def _corner_axes(M, f):
     return a, a
 
 
+def _corner_e(along, out):
+    """Variant detail for the corner: none on the two faces (s = 0, t = 0: profile W exactly)
+    and none on the mitre (a = b, where the two walls meet and the mesh has a vertex), so the
+    faces and the crease are exact and everything between them meanders."""
+    return smooth(0.0, 14.0, along) * smooth(0.0, 10.0, out - along)
+
+
+CORNER_SEED = 404
+
+
 def build_corner(M, seed):
     S, T = M.S, M.T          # s = b (out from the head edge), t = a (out from the west edge)
     A = np.maximum(T, 0.0)
     B = np.maximum(S, 0.0)
-    P = 3.0
-    dn = (A ** P + B ** P) ** (1.0 / P)
-    e = smooth(0.0, 14.0, S) * smooth(0.0, 14.0, T) * smooth(0.0, 1.0, np.minimum(S, T) + 1.5)
-    amp = smooth(5.0, 26.0, dn) * 1.5 * (0.55 + 0.45 * smooth(26.0, 40.0, dn)) + 0.25 * smooth(2.0, 12.0, dn)
-    wander = 0.65 * fbm(S, T, 24.0, 3, seed + 1) + 0.35 * fbm(S, T, 9.0, 2, seed + 2)
-    dw = dn + e * amp * wander
-    f = PROFILE.at(dw)
-    H = f["y"].copy()
-    slopezone = smooth(30.0, 38.0, dn) * (1.0 - 0.6 * f["upper_band"])
-    rib = vnoise(S + 2 * T, T - S, 4.5, seed + 3) * 0.7 + vnoise(S + 2 * T, T - S, 10.0, seed + 4) * 0.3
-    H += e * 0.55 * slopezone * rib * (1.0 + 0.8 * smooth(30, 60, dn))
-    H += e * 0.16 * fbm(S, T, 2.4, 3, seed + 5) * (0.3 + 0.7 * smooth(10, 35, dn))
-    H += 0.05 * (e * fbm(S, T, 0.9, 2, seed + 6) + (1.0 - e) * fbm(0.0 * S, T, 0.9, 2, 6))
-    jn = vnoise(S + T, T - S, 2.1, seed + 7)
-    joint = e * smooth(0.80, 0.97, 1.0 - np.abs(jn)) * f["cliff"] * (1.0 - f["bench"])
-    H -= 0.16 * joint
-    f["joint"] = joint
+    # a concave corner is the union of two walls: height = profile of the larger distance. The
+    # surface is one wall's field with (along, out) = (min, max), mirrored across the diagonal,
+    # so each half is a wall the mesh rows follow, and the diagonal is a clean mitre crease.
+    along = np.minimum(S, T)
+    out = np.maximum(S, T)
+
+    H, f = wall_field(along, out, seed, lambda al: _corner_e(al, out), WARP, 0.55)
+    e = f["e"]
+    dn = np.maximum(out, 0.0)
     # the couloir: a scree-filled gully down the diagonal, a fan at its mouth
     c = (T - S) / math.sqrt(2.0)
     c = c + 0.9 * vnoise(S, T, 8.0, seed + 9)
@@ -605,9 +745,25 @@ def build_corner(M, seed):
     dip = SKIRT_DIP * np.maximum(smooth(0.0, -1.2, S), smooth(0.0, -1.2, T))
     H = H - dip - 0.5 * smooth(2.5, 0.0, dn)
     f["gully"], f["scree"] = gully, scree
+    f["boulder"] = np.zeros_like(H)
     f["anchor_gully"] = (ap * 0.98, ap * 0.98)
     f["edge_w"], f["edge_d"], f["edge_family"] = smooth(0.0, 8.0, S) * smooth(0.0, 8.0, T), dn, "wall"
+
+    def world(SS, VV):
+        al, ou = np.minimum(SS, VV), np.maximum(SS, VV)
+        sh = rim_shift(al, ou, seed, _corner_e(al, ou), WARP)
+        return np.where(VV >= SS, SS, SS - sh), np.where(VV >= SS, VV - sh, VV)
+    f["world"] = world
     return H, f
+
+
+def corner_dens(s0, s1, v0, v1):
+    lo = max(s0, v0)
+    if lo < DENS_BREAKS[1] - 1e-6:
+        return 1.2
+    if lo < DENS_BREAKS[2] - 1e-6:
+        return 0.7
+    return 0.45
 
 
 # ---- head wall ------------------------------------------------------------
@@ -615,24 +771,33 @@ HEAD_HALF = 48.0
 HEAD_DEPTH = 72.0
 
 
-def _head_axes(M, f):
-    sv = axis((-HEAD_HALF - SKIRT, -HEAD_HALF, 1.5), (-HEAD_HALF, -20.0, 1.4), (-20.0, 20.0, 0.8), (20.0, HEAD_HALF, 1.4), (HEAD_HALF, HEAD_HALF + SKIRT, 1.5))
+def head_cols():
+    """Dense around the slot, sparse where the surface is the shared profile."""
+    return axis((-HEAD_HALF - SKIRT, -HEAD_HALF, 1.5), (-HEAD_HALF, -20.0, 1.4), (-20.0, 20.0, 0.8), (20.0, HEAD_HALF, 1.4), (HEAD_HALF, HEAD_HALF + SKIRT, 1.5))
+
+
+def head_rows():
     rows = ROWS_W[ROWS_W < HEAD_DEPTH - 0.8]
-    tv = np.concatenate([rows, [HEAD_DEPTH], [HEAD_DEPTH + SKIRT]])
-    return sv, tv
+    return np.concatenate([rows, [HEAD_DEPTH], [HEAD_DEPTH + SKIRT]])
+
+
+def _head_axes(M, f):
+    return head_cols(), head_rows()
 
 
 def build_head(M, seed):
     S, T = M.S, M.T
-    e = env(S, half=HEAD_HALF, ramp=14.0)
-    H, f = wall_surface(M, seed, e, warp_amp=1.7)
+    H, f = wall_surface(M, seed, lambda s: env(s, half=HEAD_HALF, ramp=14.0), warp_amp=WARP + 0.2)
+    e = f["e"]
     # the cirque: a bowl that rises to crest + 2 tiles at the back centre, with
-    # its own second band
+    # its own second band (two risers, rows anchored on them)
     bowl = 6.0 * smooth(30.0, 66.0, T) * smooth(44.0, 14.0, np.abs(S)) * e
-    shift = 1.7 * fbm(S, T, 15.0, 2, seed + 71)
-    band2 = 5.0 * (smooth(48.0, 49.5, T + shift) * 0.6 + smooth(50.0, 51.0, T + shift) * 0.4) * smooth(36.0, 12.0, np.abs(S)) * e
+    band2 = np.zeros_like(H)
+    for k, ((a0, a1), h0) in enumerate(zip(BAND_HEAD_STEPS, (0.6, 0.4))):
+        band2 += 5.0 * h0 * (0.75 + 0.3 * (0.5 + 0.5 * vnoise(S, 9.0 * k + 5.0, 9.0, seed + 75 + k))) * smooth(a0, a1, T)
+    band2 = band2 * smooth(36.0, 12.0, np.abs(S)) * e
     H = H + bowl + band2
-    f["cliff"] = np.maximum(f["cliff"], smooth(47.8, 48.8, T + shift) * smooth(51.6, 50.4, T + shift) * smooth(36, 12, np.abs(S)) * e)
+    f["cliff"] = np.maximum(f["cliff"], smooth(47.8, 48.8, T) * smooth(51.6, 50.4, T) * smooth(36, 12, np.abs(S)) * e)
     f["upper"] = np.maximum(f["upper"], smooth(44.0, 56.0, T) * smooth(40, 12, np.abs(S)) * e)
     # the dark slot, running back into the wall: the wadi carries on beyond sight
     x = S + 1.4 * vnoise(S, T, 11.0, seed + 72) * smooth(8.0, 40.0, T) + 1.8 * np.sin(T / 21.0 + 0.4)
@@ -652,6 +817,7 @@ def build_head(M, seed):
     # skirts: end dips, front dip, back dip
     H = H - skirt_dip(S, HEAD_HALF) - 0.5 * smooth(2.5, 0.0, T) - 3.0 * smooth(HEAD_DEPTH, HEAD_DEPTH + 1.5, T)
     f["gully"], f["scree"] = slot * 0.35, scree
+    f["boulder"] = np.zeros_like(H)
     f["slot"] = slot
     f["anchor_gully"] = (0.0, 17.0)
     f["edge_w"], f["edge_d"], f["edge_family"] = smooth(HEAD_HALF, HEAD_HALF - 7.0, np.abs(S)), T, "wall"
@@ -659,16 +825,24 @@ def build_head(M, seed):
 
 
 # ---- taper -----------------------------------------------------------------
+TAPER_SEED = 606 + 7
+
+
+def taper_e(S):
+    return smooth(-HALF, -HALF + 10.0, S)                 # 0 at the profile end, 1 inside
+
+
+def taper_g(S):
+    return 1.0 - 0.62 * smooth(-18.0, 22.0, S)            # 1 at the wall end, 0.38 at the free end
+
+
 def build_taper(M, seed):
     S, T = M.S, M.T
-    e = smooth(-HALF, -HALF + 10.0, S)                 # 0 at the profile end, 1 inside
-    H, f = wall_surface(M, seed + 7, e)
-    g = 1.0 - 0.62 * smooth(-18.0, 22.0, S)            # 1 at the wall end, 0.38 at the free end
-    keep = PROFILE.at(f["dw"])["y"]
+    H, f = wall_surface(M, TAPER_SEED, taper_e)
+    g = taper_g(S)
     H = H * g
     # the foot keeps its terraced ramp, the cliff softens as the wall falls
     f["cliff"] = f["cliff"] * g
-    f["upper"] = f["upper"]
     H = H - SKIRT_DIP * (smooth(-HALF, -HALF - 1.2, S) + smooth(HALF, HALF + 1.2, S)) - 0.5 * smooth(2.5, 0.0, T)
     f["gully"] = np.zeros_like(H)
     f["scree"] = np.zeros_like(H)
@@ -678,40 +852,130 @@ def build_taper(M, seed):
 
 
 def _taper_axes(M, f):
-    return axis((-SKIRT - HALF, HALF + SKIRT, 1.5)), ROWS_W.copy()
+    return axis((-SKIRT - HALF, -HALF, SKIRT), (-HALF, HALF, 4.0 / 3.0), (HALF, HALF + SKIRT, SKIRT)), ROWS_W.copy()
+
+
+# ---- outer corner (SW and NE) ----------------------------------------------------
+OC_LEN = 90.0                  # metres past the taper's free end
+OC_NEAR0 = 48.0                # the taper is 16 tiles long: the south edge is 48 m behind its free end
+
+
+def build_outer_corner(M, seed):
+    """Where a far wall turns the corner onto a near side. The taper's free end is a cross-section
+    of 0.38 x profile W; this piece CONTINUES the same noise field past it (its parameter `s` is
+    the taper's own, offset by 24 m, so colour and detail are continuous), lets the spur fall away
+    to the south, and carries the near slope's rolling foreground along its inner edge
+    (`t = 0`, which is where the south slopes' west end stands). Free height: from the camera
+    nothing here can stand between it and the map.
+    """
+    S, T = M.S, M.T                       # S = the taper's s: 24 at the seam, up to 24 + OC_LEN
+    H, f = wall_field(S, T, TAPER_SEED, taper_e, WARP, 0.5, 0.42)
+    u = S - HALF                          # metres past the seam
+    g = 0.38 * (1.0 - 0.72 * smooth(0.0, 80.0, u))
+    A = H * g
+    f["cliff"] = f["cliff"] * g
+    # the near slope's own field, evaluated for the outer corner's frame: `tm` is the distance
+    # south of the south edge, `-T` the distance along it (west is negative), and the hills
+    # start growing from the slope's own end at t = 0 where it meets the south slopes exactly
+    tm = OC_NEAR0 + np.maximum(u, 0.0)
+    e_n = smooth(0.0, 24.0, T)
+    B, ter, riser, track = _near_field(-T, tm, 4400 + 5, e_n, tm)
+    B = B * (1.0 - 0.8 * smooth(8.0, 50.0, T)) * smooth(0.0, 20.0, u)
+    H = np.maximum(A, B)
+    H = H - SKIRT_DIP * smooth(0.0, -1.2, u) - 0.5 * smooth(2.5, 0.0, T) * (1.0 - smooth(0.0, 8.0, u)) - 4.0 * smooth(OC_LEN - 3.0, OC_LEN, u)
+    f["gully"] = np.zeros_like(H)
+    f["scree"] = np.zeros_like(H)
+    f["boulder"] = np.zeros_like(H)
+    f["world"] = lambda SS, VV: (SS - HALF, VV - rim_shift(SS, VV, TAPER_SEED, taper_e(SS), WARP))
+    return H, f
+
+
+def _oc_axes(M, f):
+    return np.concatenate([[HALF - SKIRT], np.linspace(HALF, HALF + OC_LEN, 41)]), ROWS_W.copy()
+
+
+def oc_dens(s0, s1, v0, v1):
+    if v1 <= DENS_BREAKS[0] + 1e-6:
+        return 0.9
+    if v1 <= DENS_BREAKS[1] + 1e-6:
+        return 1.1
+    if v1 <= DENS_BREAKS[2] + 1e-6:
+        return 0.6
+    return 0.4
 
 
 # ---- crest -------------------------------------------------------------------
+CREST_RISERS = [(1.6, 2.2), (3.6, 4.2), (5.6, 6.2), (7.6, 8.2)]
+CREST_RISER_H = [0.20, 0.22, 0.24, 0.22]          # of the ridge height; the treads carry the other 12%
+CREST_V = 9.0                                     # where the crest line stands in the parameter plane
+
+
+def crest_peaks(variant):
+    """Summit positions (m along the ridge), heights (0..1) and half-widths (m): irregular on
+    purpose, so the skyline is a broken line of summits and notches and not a loaf."""
+    if variant == "a":
+        return [(-16.5, 0.58, 8.5), (-5.0, 0.80, 7.0), (4.0, 1.00, 9.5), (13.5, 0.62, 6.5), (21.0, 0.40, 6.0)]
+    return [(-17.0, 0.72, 7.5), (-9.0, 1.00, 8.0), (-1.0, 0.46, 5.5), (7.5, 0.88, 7.0), (16.0, 0.55, 8.0), (22.0, 0.34, 5.0)]
+
+
+def crest_ridge(S, variant, seed):
+    """The ridge line r(s) (metres above the piece's base), a union of summits with teeth."""
+    r = np.zeros_like(S)
+    for (sk, hk, wk) in crest_peaks(variant):
+        r = np.maximum(r, hk * np.clip(1.0 - np.abs(S - sk) / wk, 0.0, 1.0) ** 1.15)
+    teeth = (1.0 - np.abs(vnoise(S, 17.0, 2.6, seed + 11))) ** 3.0 * 0.12 + (1.0 - np.abs(vnoise(S, 5.0, 1.2, seed + 12))) ** 4.0 * 0.05
+    r = (0.10 + 0.90 * r) * (1.0 + teeth * smooth(0.15, 0.6, r)) * smooth(26.0, 18.0, np.abs(S))
+    return r
+
+
+def crest_vc(S, seed):
+    return CREST_V + 2.2 * vnoise(S, 3.0, 14.0, seed + 7)
+
+
+def _crest_shear(S, V, seed):
+    w = smooth(0.0, CREST_V, V) * (1.0 - smooth(CREST_V, 30.0, V))
+    return (crest_vc(S, seed) - CREST_V) * w
+
+
 def build_crest(variant):
+    amp = 18.0 if variant == "a" else 15.5
+
     def builder(M, seed):
-        S, T = M.S, M.T
-        e = smooth(26.0, 12.0, np.abs(S))
-        off = 0.0 if variant == "a" else 41.0
-        # a ridge line running along the edge: a steep scarp on the map side, a long
-        # gentle back slope, summits where the along-ridge noise peaks
-        wob = 3.5 * fbm(S + off, T * 0.6, 16.0, 2, seed + 1)
-        scarp = smooth(0.0, 8.5, T + wob)
-        back = 1.0 - 0.60 * smooth(13.0, 40.0, T)
-        along = np.clip(0.52 + 1.05 * fbm(S + off, 0.0 * T, 21.0, 3, seed + 2), 0.0, 1.0) ** 1.35
-        amp = 18.0 if variant == "a" else 15.5
-        H = amp * along * scarp * back * e
-        ridged = 1.0 - np.abs(fbm(S * 1.0, T * 1.3, 7.0, 3, seed + 6)) * 2.2
-        H += 2.4 * np.clip(ridged, -0.4, 1.0) * smooth(2.0, 10.0, H) * e
-        H += 1.1 * fbm(S, T, 6.0, 3, seed + 3) * smooth(1.5, 9.0, H) + 0.18 * fbm(S, T, 1.3, 2, seed + 4)
-        # a few cliffs on the scarp: ridged shelves
-        sh = np.abs(vnoise(S, T, 9.0, seed + 5))
-        H -= 1.2 * smooth(0.55, 0.0, sh) * smooth(3.0, 9.0, H) * 0.6
-        H = H - skirt_dip(S) - 0.5 * smooth(2.0, 0.0, T) - 2.5 * smooth(36.0, 37.5, T)
-        return H, {"cliff": np.zeros_like(H)}
+        S, V = M.S, M.T
+        r = crest_ridge(S, variant, seed) * amp
+        front = 0.12 * np.clip(V / CREST_V, 0.0, 1.0)
+        for (a0, a1), h0 in zip(CREST_RISERS, CREST_RISER_H):
+            front = front + h0 * smooth(a0, a1, V)
+        t = np.clip((V - CREST_V) / 27.0, 0.0, 1.0)
+        back = 1.0 - 0.78 * t
+        prof = np.where(V <= CREST_V, front, back)
+        H = r * prof
+        # chutes down the fall line, cut deepest under the summits
+        chute = smooth(0.80, 0.96, 1.0 - np.abs(vnoise(S, V * 0.22, 3.4, seed + 5)))
+        H = H * (1.0 - 0.34 * chute * smooth(0.12, 0.5, prof))
+        # shelves: the harder beds stand proud of the scarp
+        H += 0.30 * fbm(S, V, 2.4, 2, seed + 3) * smooth(1.0, 5.0, H) + 0.10 * fbm(S, V, 0.9, 2, seed + 4)
+        H = H - skirt_dip(S) - 0.5 * smooth(2.0, 0.0, V) - 2.5 * smooth(36.0, 37.5, V)
+        f = {"cliff": np.zeros_like(H)}
+        f["world"] = lambda SS, VV: (SS, VV + _crest_shear(SS, VV, seed))
+        return H, f
     return builder
 
 
+def crest_rows():
+    """A vertex at both ends of every riser, one between them, then the long back slope."""
+    rows = [0.0, 1.6, 2.2, 2.9, 3.6, 4.2, 4.9, 5.6, 6.2, 6.9, 7.6, 8.2, CREST_V]
+    back = np.linspace(CREST_V, 39.0, 12)[1:]
+    return np.concatenate([rows, back])
+
+
 def _crest_axes(M, f):
-    return axis((-SKIRT - HALF, SKIRT + HALF, 1.35)), axis((0.0, 39.0, 1.35))
+    return axis((-SKIRT - HALF, SKIRT + HALF, 1.0)), crest_rows()
 
 
 # ---- near slopes ---------------------------------------------------------
 NEAR_K = 0.38
+NEAR_BREAK = 46.0              # texel-density break on the near slopes: the first 46 m show at zoom 1 and 2.5
 NEAR_BASE = 0.55
 NEAR_SPAN = 0.35
 
@@ -753,7 +1017,7 @@ def build_slope_near(variant):
 
 
 def _slope_axes(M, f):
-    return axis((-SKIRT - HALF, SKIRT + HALF, 1.5)), axis((0.0, 123.0, 2.0))
+    return axis((-SKIRT - HALF, SKIRT + HALF, 1.5)), axis((0.0, NEAR_BREAK, 2.0), (NEAR_BREAK, 123.0, 77.0 / 38.0))
 
 
 def build_slope_corner(M, seed):
@@ -773,7 +1037,7 @@ def build_slope_corner(M, seed):
 
 
 def _slope_corner_axes(M, f):
-    a = axis((-SKIRT, 123.0, (123.0 + SKIRT) / 54.0))
+    a = axis((-SKIRT, NEAR_BREAK, (NEAR_BREAK + SKIRT) / 21.0), (NEAR_BREAK, 123.0, (123.0 - NEAR_BREAK) / 33.0))
     return a, a
 
 
@@ -883,24 +1147,46 @@ def _scree_axes(M, f):
 
 
 # --------------------------------------------------------------------------
+def near_dens(s0, s1, v0, v1):
+    return 1.3 if v1 <= NEAR_BREAK + 1e-6 else 0.6
+
+
+def near_corner_dens(s0, s1, v0, v1):
+    return 1.3 if max(s0, v0) < NEAR_BREAK - 1e-6 else 0.6
+
+
 def all_pieces():
     P = []
     for v, sd in (("a", 101), ("b", 202), ("c", 303)):
         P.append(wall(v, sd))
-    P.append(Piece("bd_wall_corner", "far", 10000, 8.0, build_corner, 404, (-SKIRT, 84.0), (-SKIRT, 84.0), 0.08, _corner_axes, "concave inner corner with a diagonal couloir"))
-    P.append(Piece("bd_head_wall", "far", 12000, 8.0, build_head, 505, (-HEAD_HALF - SKIRT, HEAD_HALF + SKIRT), (0.0, HEAD_DEPTH + SKIRT), 0.08, _head_axes, "cirque with a dark slot and its own scree cone"))
-    P.append(Piece("bd_taper", "far", 6000, 8.0, build_taper, 606, (-SKIRT - HALF, SKIRT + HALF), (0.0, 84.0), 0.08, _taper_axes, "profile W at one end, falling under the near envelope at the other"))
-    P.append(Piece("bd_crest_a", "far", 2500, 4.0, build_crest("a"), 707, (-SKIRT - HALF, SKIRT + HALF), (0.0, 39.0), 0.06, _crest_axes, "ridge with one main summit"))
-    P.append(Piece("bd_crest_b", "far", 2500, 4.0, build_crest("b"), 808, (-SKIRT - HALF, SKIRT + HALF), (0.0, 39.0), 0.06, _crest_axes, "ridge with twin summits"))
-    P.append(Piece("bd_slope_near_a", "near", 5000, 4.0, build_slope_near("a"), 909, (-SKIRT - HALF, SKIRT + HALF), (0.0, 123.0), 0.12, _slope_axes, "rolling scrub hills, terrace patches, a track"))
-    P.append(Piece("bd_slope_near_b", "near", 5000, 4.0, build_slope_near("b"), 1010, (-SKIRT - HALF, SKIRT + HALF), (0.0, 123.0), 0.12, _slope_axes, "rolling scrub hills, other seed"))
-    P.append(Piece("bd_slope_corner", "near", 6000, 4.0, build_slope_corner, 1111, (-SKIRT, 123.0), (-SKIRT, 123.0), 0.14, _slope_corner_axes, "the near-near corner, radial"))
-    P.append(Piece("bd_terrace_a", "any", 2500, 8.0, build_terrace("a"), 1212, (-15.0, 15.0), (-1.5, 26.0), 0.04, _terrace_axes("a"), "four treads"))
-    P.append(Piece("bd_terrace_b", "any", 2500, 8.0, build_terrace("b"), 1313, (-15.0, 15.0), (-1.5, 26.0), 0.04, _terrace_axes("b"), "three wide treads"))
-    P.append(Piece("bd_terrace_end", "any", 1500, 8.0, build_terrace("end"), 1414, (-15.0, 15.0), (-1.5, 26.0), 0.04, _terrace_axes("end"), "closes a run against a bank"))
-    P.append(Piece("bd_scree_a", "any", 1000, 8.0, build_scree("a"), 1515, (-13.0, 13.0), (-3.5, 25.0), 0.04, _scree_axes, "wide fan"))
-    P.append(Piece("bd_scree_b", "any", 1000, 8.0, build_scree("b"), 1616, (-13.0, 13.0), (-3.5, 25.0), 0.04, _scree_axes, "tight cone"))
-    P.append(Piece("bd_scree_c", "any", 1000, 8.0, build_scree("c"), 1717, (-13.0, 13.0), (-3.5, 25.0), 0.04, _scree_axes, "double tongue with boulders"))
+    P.append(Piece("bd_wall_corner", "far", 10000, 8.0, build_corner, CORNER_SEED, (-SKIRT, 84.0), (-SKIRT, 84.0), 0.08, _corner_axes,
+                   "concave inner corner: a true mitre with a diagonal couloir", blur=(0.14, 0.14),
+                   s_breaks=DENS_BREAKS[1:], v_breaks=DENS_BREAKS[1:], dens=corner_dens, lod_s=tuple(PROFILE.lod_anchor_d), lod_v=tuple(PROFILE.lod_anchor_d)))
+    P.append(Piece("bd_head_wall", "far", 12000, 8.0, build_head, 505, (-HEAD_HALF - SKIRT, HEAD_HALF + SKIRT), (0.0, HEAD_DEPTH + SKIRT), 0.08, _head_axes,
+                   "cirque with a dark slot and its own scree cone", blur=WALL_BLUR, v_breaks=DENS_BREAKS, dens=wall_dens,
+                   lod_s=(-HEAD_HALF, HEAD_HALF), lod_v=tuple(PROFILE.lod_anchor_d)))
+    P.append(Piece("bd_taper", "far", 6000, 8.0, build_taper, 606, (-SKIRT - HALF, SKIRT + HALF), (0.0, 84.0), 0.08, _taper_axes,
+                   "profile W at one end, falling under the near envelope at the other", blur=WALL_BLUR, v_breaks=DENS_BREAKS, dens=wall_dens,
+                   lod_s=(-HALF, HALF), lod_v=tuple(PROFILE.lod_anchor_d)))
+    P.append(Piece("bd_outer_corner", "far", 6000, 8.0, build_outer_corner, 4400, (HALF - SKIRT, HALF + OC_LEN), (0.0, 84.0), 0.08, _oc_axes,
+                   "the outer corner (SW, NE): the taper's spur continued, falling away into the near foreground", blur=WALL_BLUR,
+                   v_breaks=DENS_BREAKS, dens=oc_dens, lod_s=(HALF,), lod_v=tuple(PROFILE.lod_anchor_d)))
+    P.append(Piece("bd_crest_a", "far", 2500, 4.0, build_crest("a"), 707, (-SKIRT - HALF, SKIRT + HALF), (0.0, 39.0), 0.06, _crest_axes,
+                   "broken ridge, five summits and notches", blur=(0.4, 0.2), lod_s=(), lod_v=(CREST_V,)))
+    P.append(Piece("bd_crest_b", "far", 2500, 4.0, build_crest("b"), 808, (-SKIRT - HALF, SKIRT + HALF), (0.0, 39.0), 0.06, _crest_axes,
+                   "broken ridge, twin main summits and a minor notch", blur=(0.4, 0.2), lod_s=(), lod_v=(CREST_V,)))
+    P.append(Piece("bd_slope_near_a", "near", 5000, 4.0, build_slope_near("a"), 909, (-SKIRT - HALF, SKIRT + HALF), (0.0, 123.0), 0.12, _slope_axes,
+                   "rolling scrub hills, terrace patches, a track", v_breaks=(NEAR_BREAK,), dens=near_dens))
+    P.append(Piece("bd_slope_near_b", "near", 5000, 4.0, build_slope_near("b"), 1010, (-SKIRT - HALF, SKIRT + HALF), (0.0, 123.0), 0.12, _slope_axes,
+                   "rolling scrub hills, other seed", v_breaks=(NEAR_BREAK,), dens=near_dens))
+    P.append(Piece("bd_slope_corner", "near", 6000, 4.0, build_slope_corner, 1111, (-SKIRT, 123.0), (-SKIRT, 123.0), 0.14, _slope_corner_axes,
+                   "the near-near corner, radial", s_breaks=(NEAR_BREAK,), v_breaks=(NEAR_BREAK,), dens=near_corner_dens))
+    P.append(Piece("bd_terrace_a", "any", 2500, 8.0, build_terrace("a"), 1212, (-15.0, 15.0), (-1.5, 26.0), 0.04, _terrace_axes("a"), "four treads", dens=lambda *a: 2.3))
+    P.append(Piece("bd_terrace_b", "any", 2500, 8.0, build_terrace("b"), 1313, (-15.0, 15.0), (-1.5, 26.0), 0.04, _terrace_axes("b"), "three wide treads", dens=lambda *a: 2.3))
+    P.append(Piece("bd_terrace_end", "any", 1500, 8.0, build_terrace("end"), 1414, (-15.0, 15.0), (-1.5, 26.0), 0.04, _terrace_axes("end"), "closes a run against a bank", dens=lambda *a: 2.3))
+    P.append(Piece("bd_scree_a", "any", 1000, 8.0, build_scree("a"), 1515, (-13.0, 13.0), (-3.5, 25.0), 0.04, _scree_axes, "wide fan", dens=lambda *a: 1.5))
+    P.append(Piece("bd_scree_b", "any", 1000, 8.0, build_scree("b"), 1616, (-13.0, 13.0), (-3.5, 25.0), 0.04, _scree_axes, "tight cone", dens=lambda *a: 1.5))
+    P.append(Piece("bd_scree_c", "any", 1000, 8.0, build_scree("c"), 1717, (-13.0, 13.0), (-3.5, 25.0), 0.04, _scree_axes, "double tongue with boulders", dens=lambda *a: 1.5))
     return P
 
 
@@ -914,6 +1200,8 @@ SHADERS = {
 
 
 def shader_for(name):
+    if name == "bd_outer_corner":
+        return "wall"
     if name.startswith("bd_terrace"):
         return "terrace"
     if name.startswith("bd_scree"):
@@ -971,7 +1259,7 @@ def edge_table(family):
         return _EDGE[family]
     if family == "wall":
         M = Master(-4.0, 4.0, 0.0, 135.0, 0.08)
-        H, f = wall_surface(M, 77, np.zeros_like(M.S))
+        H, f = wall_surface(M, 77, lambda s: 0.0 * s)
         H = H - 0.5 * smooth(2.5, 0.0, M.T)
         f.update({"gully": np.zeros_like(H), "scree": np.zeros_like(H), "boulder": np.zeros_like(H)})
         shader = "wall"

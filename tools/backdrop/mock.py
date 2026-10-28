@@ -24,27 +24,7 @@ TILE = 3.0
 MARGIN_TILES = 48
 
 
-def load_map():
-    with open(os.path.join(K.REPO, "data", "maps", "wadi_halam_4.json")) as f:
-        m = json.load(f)
-    elev = np.array([[int(c) for c in row] for row in m["elevation"]], dtype=np.float64)
-    return m, elev
-
-
-def rim_field(elev):
-    """Tile-centre levels -> metres, smoothed; sampled at tile coordinates."""
-    z = elev * K.LEVEL_M
-    zb = K.box_blur(z, 1)
-
-    def at(x, y):
-        x = np.clip(np.asarray(x, dtype=np.float64) - 0.5, 0, elev.shape[1] - 1.001)
-        y = np.clip(np.asarray(y, dtype=np.float64) - 0.5, 0, elev.shape[0] - 1.001)
-        x0 = np.floor(x).astype(int)
-        y0 = np.floor(y).astype(int)
-        fx, fy = x - x0, y - y0
-        return (zb[y0, x0] * (1 - fx) * (1 - fy) + zb[y0, x0 + 1] * fx * (1 - fy)
-                + zb[y0 + 1, x0] * (1 - fx) * fy + zb[y0 + 1, x0 + 1] * fx * fy)
-    return at
+from rim import load_map, rim_field
 
 
 def floor_mesh(elev, seed=7):
@@ -167,6 +147,56 @@ def fade_wrap(mat, map_w_m, map_h_m, margin_m, bg_lin, tint_lin, dim_amount=0.4,
     nt.links.new(m2.outputs[0], outn.inputs["Surface"])
 
 
+DETAIL_TILE_M = 2.0       # one repeat of the detail texture, metres
+DETAIL_PX = 256
+DETAIL_AMOUNT = 0.30      # +- this fraction of the albedo at the extremes
+
+
+def add_detail(mat):
+    """A tiling detail layer on the kit material: a seamless 256 px grain, projected on the
+    dominant axis of the object-space normal (a triplanar), multiplied into the atlas colour
+    with a mean of 1. The A/B for the zoom-2.5 blur: the atlas stays 2048 px, the layer costs
+    one 256 px greyscale texture (64 KB) and one extra fetch."""
+    d = K.periodic_fbm(DETAIL_PX, 6, 4, 9001)
+    img = bpy.data.images.new("detail", DETAIL_PX, DETAIL_PX, alpha=False)
+    img.colorspace_settings.name = "Non-Color"
+    rgba = np.ones((DETAIL_PX, DETAIL_PX, 4), dtype=np.float32)
+    rgba[..., :3] = np.flipud(d)[..., None].astype(np.float32)
+    img.pixels.foreach_set(rgba.ravel())
+    img.update()
+    img.pack()
+    nt = mat.node_tree
+    bsdf = nt.nodes["Principled BSDF"]
+    atlas_out = bsdf.inputs["Base Color"].links[0].from_socket
+    tc = nt.nodes.new("ShaderNodeTexCoord")
+    mp = nt.nodes.new("ShaderNodeMapping")
+    mp.inputs["Scale"].default_value = (1.0 / DETAIL_TILE_M,) * 3
+    tex = nt.nodes.new("ShaderNodeTexImage")
+    tex.image = img
+    tex.projection = "BOX"
+    tex.projection_blend = 0.3
+    tex.interpolation = "Linear"
+    nt.links.new(tc.outputs["Object"], mp.inputs["Vector"])
+    nt.links.new(mp.outputs["Vector"], tex.inputs["Vector"])
+    ma = nt.nodes.new("ShaderNodeMath")
+    ma.operation = "MULTIPLY_ADD"
+    ma.inputs[1].default_value = 2.0 * DETAIL_AMOUNT
+    ma.inputs[2].default_value = 1.0 - DETAIL_AMOUNT
+    sep = nt.nodes.new("ShaderNodeSeparateColor")
+    nt.links.new(tex.outputs["Color"], sep.inputs[0])
+    nt.links.new(sep.outputs["Red"], ma.inputs[0])
+    cmb = nt.nodes.new("ShaderNodeCombineColor")
+    for ch in ("Red", "Green", "Blue"):
+        nt.links.new(ma.outputs[0], cmb.inputs[ch])
+    mx = nt.nodes.new("ShaderNodeMix")
+    mx.data_type = "RGBA"
+    mx.blend_type = "MULTIPLY"
+    mx.inputs[0].default_value = 1.0
+    nt.links.new(atlas_out, mx.inputs[6])
+    nt.links.new(cmb.outputs[0], mx.inputs[7])
+    nt.links.new(mx.outputs[2], bsdf.inputs["Base Color"])
+
+
 def flat_material(name, key, roughness=0.95):
     mat = bpy.data.materials.new(name)
     mat.use_nodes = True
@@ -195,12 +225,38 @@ def house_meshes():
     return me, mr
 
 
-def placement_matrix(pl, y0):
+def placement_matrix(pl):
     th = -math.radians(pl["rot"])
-    m = mathutils.Matrix.Translation((pl["at"][0] * TILE, -pl["at"][1] * TILE, y0)) @ mathutils.Matrix.Rotation(th, 4, "Z")
+    m = mathutils.Matrix.Translation((pl["at"][0] * TILE, -pl["at"][1] * TILE, 0.0)) @ mathutils.Matrix.Rotation(th, 4, "Z")
     if pl["mirror"]:
         m = m @ mathutils.Matrix.Scale(-1.0, 4, (0, 1, 0))
     return m
+
+
+def tilt_fn(pl):
+    """z offset (metres) of a point at local Y `ly`: the piece's base height at its two ends,
+    interpolated along the edge. Pieces with a single height have the same value at both."""
+    y0, y1 = pl["y"]
+    ext = L.s_extent(pl["id"])
+    if ext is None or abs(y1 - y0) < 1e-9:
+        return lambda ly: y0
+    lo, hi = ext
+    return lambda ly: y0 + (y1 - y0) * (ly - lo) / (hi - lo)
+
+
+def tilted_mesh(src, pl):
+    """A copy of a piece's mesh with the base height baked in (a z-shear along the edge)."""
+    me = src.copy()
+    n = len(me.vertices)
+    co = np.empty(n * 3, dtype=np.float64)
+    me.vertices.foreach_get("co", co)
+    co = co.reshape(n, 3)
+    f = tilt_fn(pl)
+    ys = co[:, 1]
+    co[:, 2] += np.array([f(v) for v in ys]) if abs(pl["y"][1] - pl["y"][0]) > 1e-9 else f(0.0)
+    me.vertices.foreach_set("co", co.ravel())
+    me.update()
+    return me
 
 
 def run(args, work, stats):
@@ -218,6 +274,9 @@ def run(args, work, stats):
     tint = R.lin("shadow.0")
     fade_wrap(floor.data.materials[0], W_m, H_m, M_m, bg_lin, tint)
     kit = bpy.data.materials["wadi_halam_kit"]
+    detail = bool(os.environ.get("MOCK_DETAIL"))
+    if detail:
+        add_detail(kit)
     fade_wrap(kit, W_m, H_m, M_m, bg_lin, tint)
     hw, hr = house_meshes()
     mat_w = flat_material("house_wall", "limestone.2")
@@ -227,36 +286,25 @@ def run(args, work, stats):
     hw.materials.append(mat_w)
     hr.materials.append(mat_r)
 
-    placements = L.layout_ns(w, h)
-    # one shared base height per side family, below the rim so a foot buries into the floor
-    far_edges = np.concatenate([rim(np.zeros(h + 1), np.arange(0, h + 1)), rim(np.arange(0, w + 1), np.zeros(w + 1))])
-    near_edges = np.concatenate([rim(np.full(h + 1, w), np.arange(0, h + 1)), rim(np.arange(0, w + 1), np.full(w + 1, h))])
-    y_far = float(np.percentile(far_edges, 15)) - 0.3
-    y_near = float(np.percentile(near_edges, 15)) - 0.2
     prof = stats.get("profile")
+    placements = L.layout_ns(w, h, rim=rim, profile=lambda d: float(np.interp(d, prof["d"], prof["y"])))
     objs = []
     for k, pl in enumerate(placements):
         pid = pl["id"]
-        near = pid.startswith("bd_slope") and pl["rot"] in (180, 270)
-        y0 = y_near if near else y_far
-        if pid.startswith("bd_crest"):
-            y0 = y_far + K.CREST_M - 0.4
-        if pid.startswith("bd_scree"):
-            d = abs(pl["at"][0]) * TILE if pl["rot"] in (0, 180) else abs(pl["at"][1]) * TILE
-            y0 = y_far + float(np.interp(d, prof["d"], prof["y"]))
-        me = bpy.data.objects[pid].data
-        ob = bpy.data.objects.new("%s#%d" % (pid, k), me)
+        src = bpy.data.objects[pid].data
+        ob = bpy.data.objects.new("%s#%d" % (pid, k), tilted_mesh(src, pl))
         scene.collection.objects.link(ob)
-        ob.matrix_world = placement_matrix(pl, y0)
+        ob.matrix_world = placement_matrix(pl)
         ob["rl_role"] = pid
-        objs.append((ob, pl, y0))
+        objs.append((ob, pl, tilt_fn(pl)))
     # hamlet: placeholder houses at the anchor_house empties
     n_houses = 0
-    for ob, pl, y0 in objs:
+    for ob, pl, tf in objs:
         for a in stats["pieces"][pl["id"]].get("anchors", []):
             if not a["name"].startswith("anchor_house"):
                 continue
-            loc = ob.matrix_world @ mathutils.Vector(a["local"])
+            lx, ly, lz = a["local"]
+            loc = ob.matrix_world @ mathutils.Vector((lx, ly, lz + tf(ly)))
             yaw = (float(K.tile_hash(n_houses, 3)) - 0.5) * 1.2 + math.radians(-pl["rot"])
             sc = 0.85 + 0.5 * float(K.tile_hash(n_houses, 9))
             for me_h in (hw, hr):
@@ -269,9 +317,9 @@ def run(args, work, stats):
     # real olives on the terrace treads
     olive_me = bpy.data.objects["bd_olive"].data
     n_olive = 0
-    for ob, pl, y0 in objs:
+    for ob, pl, tf in objs:
         for q in stats["pieces"][pl["id"]].get("olives", []):
-            loc = ob.matrix_world @ mathutils.Vector(q)
+            loc = ob.matrix_world @ mathutils.Vector((q[0], q[1], q[2] + tf(q[1])))
             oo = bpy.data.objects.new("olive", olive_me)
             scene.collection.objects.link(oo)
             oo.location = loc
@@ -295,12 +343,18 @@ def run(args, work, stats):
         ("z1-south-day", 1.0, (w / 2 * TILE, -(h - 2) * TILE, 1.0), "day", True),
         ("z2.5-west-day", 2.5, (2 * TILE, -h / 2 * TILE, 1.0), "day", True),
         ("z2.5-north-day", 2.5, (w / 2 * TILE, -2 * TILE, 3.0), "day", True),
+        # extras for the second pass: the three things the main set barely shows
+        ("x-crests-west-z0.5", 0.5, (-92.0, -h / 2 * TILE, 30.0), "day", True),
+        ("x-gully-z1", 1.0, (-48.0, -24.0 * TILE, 12.0), "day", True),
+        ("x-corner-sw-z0.35", 0.35, (-45.0, -(h + 28) * TILE, 6.0), "day", True),
     ]
+    if detail:
+        views = [(n + "-detail", z, t, l, k) for (n, z, t, l, k) in views if n in ("z1-west-day", "z2.5-west-day", "z2.5-north-day")]
     if os.environ.get("MOCK_TOPDOWN"):
         views = [("topdown", 0.0, (cx, cy, zc), "day", True)]
     for name, zoom, target, light, show_kit in views:
         R.set_lights(scene, light)
-        for ob, pl, y0 in objs:
+        for ob, pl, tf in objs:
             ob.hide_render = not show_kit
         for o in bpy.data.objects:
             if o.name.startswith(("olive", "house")):

@@ -100,6 +100,32 @@ def fbm(x, z, period, octaves, seed):
     return s / a
 
 
+def periodic_fbm(n, cells, octaves, seed):
+    """A seamlessly tiling fbm over an n x n square, values in 0..1 (mean about 0.5).
+
+    The lattice wraps (indices taken modulo the cell count), so the image repeats with no
+    seam: the detail-layer test texture. Hand-rolled like everything else here."""
+    xs = (np.arange(n) + 0.5) / n
+    X, Z = np.meshgrid(xs, xs)
+    out = np.zeros((n, n))
+    amp = 1.0
+    tot = 0.0
+    c = int(cells)
+    for o in range(octaves):
+        sx, sz = X * c, Z * c
+        ix, iz = np.floor(sx).astype(np.int64), np.floor(sz).astype(np.int64)
+        tx, tz = _fade(sx - ix), _fade(sz - iz)
+        i0, i1, j0, j1 = ix % c, (ix + 1) % c, iz % c, (iz + 1) % c
+        v00, v10 = lattice_value(i0, j0, seed + o), lattice_value(i1, j0, seed + o)
+        v01, v11 = lattice_value(i0, j1, seed + o), lattice_value(i1, j1, seed + o)
+        vx0, vx1 = v00 + (v10 - v00) * tx, v01 + (v11 - v01) * tx
+        out += amp * (vx0 + (vx1 - vx0) * tz)
+        tot += amp
+        amp *= 0.55
+        c *= 2
+    return np.clip(0.5 + 0.5 * out / tot * 1.8, 0.0, 1.0)
+
+
 def worley(x, z, cell, seed):
     """Cellular noise: (F1 distance in cell units, a hash in [0,1) per cell)."""
     sx = np.asarray(x, dtype=np.float64) / cell
@@ -222,6 +248,9 @@ GRASS = Ladder(["grass.2", "grass.3", "grass.4", "scrub.0", "scrub.1", "olive.2"
 DUST = Ladder(["dust.0", "dust.1", "dust.2", "dust.3", "dust.4", "dust.5", "dust.6"])
 OLIVE_CANOPY = Ladder(["grass.4", "scrub.0", "olive.1", "scrub.1"])
 TRUNK = Ladder(["limestone.5", "limestone.6", "limestone.7"])
+#: the inside of a slot cut into a wall: the shadowed rock, then the palette's own `shadow` ramp
+#: (its role is "cast shadow, occlusion, interiors"). Light to dark, like every ramp.
+SLOT = Ladder(["limestone.7", "limestone.8", "karst.4", "shadow.0", "shadow.1"])
 
 
 # --------------------------------------------------------------------------
@@ -252,6 +281,23 @@ def box_blur(a, r):
         return a.copy()
     out = a
     for axis in (0, 1):
+        pad = [(0, 0), (0, 0)]
+        pad[axis] = (r + 1, r)
+        p = np.pad(out, pad, mode="edge")
+        c = np.cumsum(p, axis=axis, dtype=np.float64)
+        n = out.shape[axis]
+        hi = np.take(c, np.arange(2 * r + 1, 2 * r + 1 + n), axis=axis)
+        lo = np.take(c, np.arange(0, n), axis=axis)
+        out = (hi - lo) / (2 * r + 1)
+    return out
+
+
+def box_blur_xy(a, rs, rv):
+    """Anisotropic box blur: radius `rs` cells along columns (s), `rv` along rows (v)."""
+    out = a
+    for axis, r in ((1, int(rs)), (0, int(rv))):
+        if r <= 0:
+            continue
         pad = [(0, 0), (0, 0)]
         pad[axis] = (r + 1, r)
         p = np.pad(out, pad, mode="edge")
@@ -322,6 +368,23 @@ def bilinear(F, rows, cols):
     return (A * (1 - wc) + B * wc) * (1 - wr) + (C * (1 - wc) + D * wc) * wr
 
 
+def bilinear_pts(F, rows, cols):
+    """Sample F[nt, ns(, c)] at float row/col arrays of one common (any) shape."""
+    nt, ns = F.shape[0], F.shape[1]
+    r = np.clip(rows, 0, nt - 1 - 1e-9)
+    c = np.clip(cols, 0, ns - 1 - 1e-9)
+    r0 = np.floor(r).astype(np.int64)
+    c0 = np.floor(c).astype(np.int64)
+    wr = r - r0
+    wc = c - c0
+    if F.ndim == 3:
+        wr = wr[..., None]
+        wc = wc[..., None]
+    A, B = F[r0, c0], F[r0, c0 + 1]
+    C, D = F[r0 + 1, c0], F[r0 + 1, c0 + 1]
+    return (A * (1 - wc) + B * wc) * (1 - wr) + (C * (1 - wc) + D * wc) * wr
+
+
 # --------------------------------------------------------------------------
 # the game mesh: a tensor grid cut from a master
 # --------------------------------------------------------------------------
@@ -364,17 +427,31 @@ def uniform_axis(lo, hi, step):
 
 
 class GameMesh:
-    """Vertices on a tensor grid over (s, t); heights from the (blurred) master."""
+    """Vertices on a tensor grid over the PARAMETER plane (s, v); heights from the (blurred) master.
 
-    def __init__(self, M, H, sv, tv, blur_m=0.45, diag="adaptive"):
+    `v` is the distance out for a wall (profile coordinate). `world(S, V) -> (S', T')`
+    maps a parameter point to where it stands in the piece's own plan (identity by
+    default): a wall's rim meanders, so its rows of equal profile distance are not
+    straight lines, and a mesh whose rows follow them keeps every ledge one row wide
+    at every column. The master is defined over the parameter plane, so the atlas
+    needs no inverse of the map.
+    """
+
+    def __init__(self, M, H, sv, vv, blur_m=(0.45, 0.45), world=None):
         self.sv = np.asarray(sv, dtype=np.float64)
-        self.tv = np.asarray(tv, dtype=np.float64)
-        Hb = box_blur(H, int(round(blur_m / M.h / 2)))
-        rows = (self.tv - M.t[0]) / M.h
+        self.vv = np.asarray(vv, dtype=np.float64)
+        self.tv = self.vv
+        if not isinstance(blur_m, (tuple, list)):
+            blur_m = (blur_m, blur_m)
+        rs = int(round(blur_m[0] / M.h / 2))
+        rv = int(round(blur_m[1] / M.h / 2))
+        Hb = box_blur_xy(H, rs, rv)
+        rows = (self.vv - M.t[0]) / M.h
         cols = (self.sv - M.s[0]) / M.h
-        self.z = bilinear(Hb, rows, cols)  # [nt_v, ns_v]
+        self.z = bilinear(Hb, rows, cols)  # [nt_v, ns_v], over the parameter plane
         self.M = M
-        nt, ns = len(self.tv), len(self.sv)
+        nt, ns = len(self.vv), len(self.sv)
+        self.nt, self.ns = nt, ns
         idx = np.arange(nt * ns).reshape(nt, ns)
         a = idx[:-1, :-1].ravel()
         b = idx[:-1, 1:].ravel()
@@ -386,31 +463,103 @@ class GameMesh:
         t1 = np.where(flip[:, None], np.stack([a, b, c], 1), np.stack([a, b, d], 1))
         t2 = np.where(flip[:, None], np.stack([b, d, c], 1), np.stack([a, d, c], 1))
         self.tris = np.concatenate([t1, t2]).astype(np.int64)
+        self.nq = len(a)
         # vertex positions in the piece's local frame: X = -t, Y = s, Z = height
-        SS, TT = np.meshgrid(self.sv, self.tv)
-        self.pos = np.stack([-TT.ravel(), SS.ravel(), self.z.ravel()], axis=1)
+        SS, VV = np.meshgrid(self.sv, self.vv)
+        if world is None:
+            WS, WT = SS, VV
+        else:
+            WS, WT = world(SS, VV)
+        self.pos = np.stack([-WT.ravel(), WS.ravel(), self.z.ravel()], axis=1)
 
     @property
     def tri_count(self):
         return len(self.tris)
 
 
-def chart_axes(M, H, gm, ppm):
-    """Surface-length coordinates (in texels) of the mesh's two axes.
+class Chart:
+    """One rectangle of the parameter plane that owns a patch of the atlas.
 
-    The texel density follows the SURFACE, not the plan, so a 70-degree cliff
-    gets the same texels per metre as a meadow. Each axis integrates
-    sqrt(1 + g^2) over the cross-axis mean of its own gradient; the grid
-    lines of the UV are therefore straight and the bake is separable.
+    A piece is cut into rectangles by `s_breaks` / `v_breaks`; each takes its own
+    texel density (a multiple of the piece's base `ppm`), so the foot of a wall
+    that fills the screen at zoom 2.5 gets more texels than the scrub slope that
+    only ever shows at zoom 0.35. The mesh and the atlas never see a seam: a
+    UV is per triangle corner, and a vertex on a break simply has one UV per side.
     """
-    gs, gt = gradient(box_blur(H, 3), M.h)
-    stretch_s = np.sqrt(1.0 + np.mean(gs * gs, axis=0))      # per column
-    stretch_t = np.sqrt(1.0 + np.mean(gt * gt, axis=1))      # per row
-    cum_s = np.concatenate([[0.0], np.cumsum(0.5 * (stretch_s[1:] + stretch_s[:-1]) * M.h)])
-    cum_t = np.concatenate([[0.0], np.cumsum(0.5 * (stretch_t[1:] + stretch_t[:-1]) * M.h)])
-    cs = np.interp(gm.sv, M.s, cum_s) * ppm
-    ct = np.interp(gm.tv, M.t, cum_t) * ppm
-    return cs - cs[0], ct - ct[0]
+
+    def __init__(self, name, j0, j1, i0, i1, dens, s_nodes, v_nodes, cs, ct):
+        self.name, self.j0, self.j1, self.i0, self.i1, self.dens = name, j0, j1, i0, i1, dens
+        self.s_nodes, self.v_nodes = s_nodes, v_nodes
+        self.s0, self.s1, self.v0, self.v1 = s_nodes[0], s_nodes[-1], v_nodes[0], v_nodes[-1]
+        self.cs, self.ct = cs, ct          # surface metres along s / v (chart-local, base density 1)
+        self.x0 = self.y0 = self.w = self.h = None
+        self.rot = False
+        self.k = 1.0                        # the density scale the atlas packer settled on
+
+
+def _index_of(axis, value):
+    j = int(np.argmin(np.abs(axis - value)))
+    if abs(axis[j] - value) > 1e-6:
+        raise ValueError("chart break %r is not a vertex (nearest %r)" % (value, axis[j]))
+    return j
+
+
+def make_charts(piece_name, gm, s_breaks, v_breaks, dens_fn):
+    """Cut the mesh's parameter grid into rectangles at the breaks.
+
+    `dens_fn(s0, s1, v0, v1) -> multiple` of the piece's base density. Each chart's
+    axes are surface-length coordinates measured on the finished mesh: the mean 3D
+    edge length down the columns (for `u`) and along the rows (for `v`) of that
+    rectangle, so a 70-degree cliff gets the same texels per metre as a meadow.
+    """
+    P = gm.pos.reshape(gm.nt, gm.ns, 3)
+    js = [0] + [_index_of(gm.sv, b) for b in s_breaks] + [gm.ns - 1]
+    iv = [0] + [_index_of(gm.vv, b) for b in v_breaks] + [gm.nt - 1]
+    out = []
+    for a in range(len(iv) - 1):
+        for b in range(len(js) - 1):
+            i0, i1, j0, j1 = iv[a], iv[a + 1], js[b], js[b + 1]
+            ds = np.linalg.norm(P[i0:i1 + 1, j0 + 1:j1 + 1] - P[i0:i1 + 1, j0:j1], axis=2).mean(axis=0)
+            dv = np.linalg.norm(P[i0 + 1:i1 + 1, j0:j1 + 1] - P[i0:i1, j0:j1 + 1], axis=2).mean(axis=1)
+            cs = np.concatenate([[0.0], np.cumsum(ds)])
+            ct = np.concatenate([[0.0], np.cumsum(dv)])
+            sn, vn = gm.sv[j0:j1 + 1], gm.vv[i0:i1 + 1]
+            d = float(dens_fn(sn[0], sn[-1], vn[0], vn[-1]))
+            out.append(Chart("%s:%d" % (piece_name, len(out)), j0, j1, i0, i1, d, sn.copy(), vn.copy(), cs, ct))
+    return out
+
+
+def corner_uv(gm, charts, atlas_px=ATLAS_PX):
+    """A UV for every corner of every triangle: [ntri * 3, 2], glTF/Blender v up.
+
+    Works for the LOD0 mesh and for any coarser mesh over the same parameter plane,
+    provided each quad lies inside one chart (the breaks must be vertices of both).
+    """
+    ns = gm.ns
+    qi, qj = np.divmod(np.arange(gm.nq), ns - 1)
+    s_lo, s_hi = gm.sv[qj], gm.sv[qj + 1]
+    v_lo, v_hi = gm.vv[qi], gm.vv[qi + 1]
+    cid = np.full(gm.nq, -1)
+    for k, c in enumerate(charts):
+        inside = (s_lo >= c.s0 - 1e-6) & (s_hi <= c.s1 + 1e-6) & (v_lo >= c.v0 - 1e-6) & (v_hi <= c.v1 + 1e-6)
+        cid[inside & (cid < 0)] = k
+    if np.any(cid < 0):
+        raise ValueError("%d quads straddle a chart break" % int(np.sum(cid < 0)))
+    tri_c = cid[np.arange(len(gm.tris)) % gm.nq]
+    vi, vj = np.divmod(gm.tris, ns)
+    sval, vval = gm.sv[vj], gm.vv[vi]
+    uv = np.empty((len(gm.tris), 3, 2))
+    for k, c in enumerate(charts):
+        m = tri_c == k
+        if not m.any():
+            continue
+        ax = np.interp(sval[m], c.s_nodes, c.cs) * c.k
+        ay = np.interp(vval[m], c.v_nodes, c.ct) * c.k
+        if c.rot:
+            ax, ay = ay, ax
+        uv[m, :, 0] = (c.x0 + ax) / atlas_px
+        uv[m, :, 1] = 1.0 - (c.y0 + ay) / atlas_px
+    return uv.reshape(-1, 2)
 
 
 def pack_charts(sizes, atlas=ATLAS_PX, pad=6):
@@ -468,19 +617,20 @@ def pack_charts(sizes, atlas=ATLAS_PX, pad=6):
     return pos, used
 
 
-def lod_axes(M, H, gm, ratio=0.59, s_anchors=()):
+def lod_axes(M, H, gm, ratio=0.59, s_anchors=(), v_anchors=(), v_importance=None):
     """The LOD1 grid: ~ratio^2 of LOD0's triangles, importance-warped.
 
     New vertices need not coincide with LOD0's; the chart (UV) is the
     piecewise-linear interpolation of LOD0's, so a LOD1 vertex lands on the
-    texel its LOD0 neighbours' surface does.
+    texel its LOD0 neighbours' surface does. Chart breaks go in as anchors so
+    no LOD1 quad straddles one.
     """
     Hb = box_blur(H, 4)
     gs, gt = gradient(Hb, M.h)
     imp_s = 1.0 + 6.0 * np.mean(np.abs(gs), axis=0)
-    imp_t = 1.0 + 6.0 * np.mean(np.abs(gt), axis=1)
+    imp_t = 1.0 + 6.0 * np.mean(np.abs(gt), axis=1) if v_importance is None else v_importance
     ns = max(3, int(round(1 + (len(gm.sv) - 1) * ratio)))
-    nt = max(3, int(round(1 + (len(gm.tv) - 1) * ratio)))
+    nt = max(3, int(round(1 + (len(gm.vv) - 1) * ratio)))
     sv = warped_axis(imp_s, M.s, ns, float(gm.sv[0]), float(gm.sv[-1]), anchors=s_anchors)
-    tv = warped_axis(imp_t, M.t, nt, float(gm.tv[0]), float(gm.tv[-1]))
+    tv = warped_axis(imp_t, M.t, nt, float(gm.vv[0]), float(gm.vv[-1]), anchors=v_anchors)
     return sv, tv

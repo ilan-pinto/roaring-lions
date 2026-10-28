@@ -283,8 +283,7 @@ def plates(args, names, work, stats):
         corners = bbox_corners(obj)
         frame_bbox(co, corners, 1.6)
         if n == "bd_olive":
-            co.data.ortho_scale = 6.0
-            aim(co, (0, 0, 1.7), 6.0)
+            aim(co, (0, 0, 1.9), 7.0)
         render_to_png(scene, os.path.join(pdir, n + ".png"), "karst.4", work)
         # wireframe twin
         orig = list(obj.data.materials)

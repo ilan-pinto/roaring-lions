@@ -48,7 +48,8 @@ def main():
     def cap(n):
         s = st[n]
         if "cap" in s and n != "bd_olive":
-            return n, "%d tris (cap %d)   LOD1 %d   %.0f tex/tile" % (s["tris_lod0"], s["cap"], s["tris_lod1"], s["texels_per_tile"])
+            tt = s["texels_per_tile"]
+            return n, "%d tris (cap %d)   LOD1 %d   %s tex/tile" % (s["tris_lod0"], s["cap"], s["tris_lod1"], ("%.0f-%.0f" % tuple(tt)) if tt[0] != tt[1] else "%.0f" % tt[0])
         return n, "%d tris (cap %d)" % (s["tris_lod0"], s["cap"])
 
     plates = [cell(Image.open(os.path.join(D, "plates", n + ".png")), 600, 375, *[cap(n)[0], ], sub=cap(n)[1], fnt=f) for n in order]
@@ -59,7 +60,7 @@ def main():
         mock.append(cell(Image.open(os.path.join(D, "mock", n + ".png")), 800, 514, t, f))
     bottom = grid(mock, 3, 800, 514)
     sheet = Image.new("RGB", (2400, top.size[1] + bottom.size[1] + 60), (24, 24, 22))
-    ImageDraw.Draw(sheet).text((8, 8), "Wadi Halam backdrop kit: first approval render (render-1)", fill=(235, 230, 215), font=font(30))
+    ImageDraw.Draw(sheet).text((8, 8), "Wadi Halam backdrop kit: second pass (render-2)", fill=(235, 230, 215), font=font(30))
     sheet.paste(top.resize((2400, int(top.size[1] * 2400 / top.size[0]))), (0, 50))
     sheet = sheet.crop((0, 0, 2400, 50 + top.size[1] + bottom.size[1]))
     sheet.paste(bottom, (0, 50 + top.size[1]))
