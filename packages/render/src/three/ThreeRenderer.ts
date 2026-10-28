@@ -532,6 +532,7 @@ import {
   type VehicleMeshEntity,
 } from './units/mesh-vehicle';
 import { kitLodIsFar, setKitDrawRange, setKitLod } from './units/vehicle-kit';
+import { INFANTRY_KIT_ENABLED } from './units/infantry-kit';
 import { SIDE_1_TEMPLATE_SUFFIX, templateKey, templateKitTiers } from './units/kit-template-key';
 import { collectWorksObservers } from './works-observers';
 import {
@@ -7111,7 +7112,8 @@ export class ThreeRenderer implements Renderer {
     // failure leaves the type with neither.
     const side1Key = templateKey(unitTypeId, 1, bySide);
     let side1Templates: MeshUnitTemplate[] | null = null;
-    if (side1Key !== unitTypeId && templates.some((t) => t.kitted === true)) {
+    // GH-826: with the kit off both seats draw the same figure, so no second set.
+    if (INFANTRY_KIT_ENABLED && side1Key !== unitTypeId && templates.some((t) => t.kitted === true)) {
       try {
         side1Templates = await buildSet(templateKitTiers(unitTypeId, 1, this.opts.unitKitTiers, bySide));
       } catch (err) {

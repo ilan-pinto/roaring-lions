@@ -46,6 +46,20 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { KIT_BASE_COUNT_KEY, KIT_NODE_PREFIX } from './vehicle-kit';
 
+/**
+ * THE switch for the infantry upgrade kit (GH-826). OFF since 28 Oct 2026:
+ * the lead rejected the look of PR 885's gear (oversized boxes that read as
+ * robots) and ruled it off in production until it is redesigned. While false,
+ * `buildMeshUnitTemplate` hands `applyInfantryKit` NO tiers, so every infantry
+ * team draws the tier-0 figure whatever the brigade has bought, in missions,
+ * the sandbox and versus rooms, and `ThreeRenderer.loadMeshUnit` builds no
+ * second per-seat template set. The pipeline, the GLB kit nodes and
+ * `applyInfantryKit` stay compiled and tested: the tests inject `true`
+ * through `buildMeshUnitTemplate`'s `kitEnabled` parameter. Vehicles' kit
+ * (`vehicle-kit.ts`) is a separate path and is not affected.
+ */
+export const INFANTRY_KIT_ENABLED: boolean = false;
+
 /** The per-vertex part id on a packed kit primitive (`_RL_KIT`, lower-cased by the loader). */
 export const INFANTRY_KIT_TAG_ATTR = '_rl_kit';
 

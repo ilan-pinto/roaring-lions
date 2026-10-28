@@ -3524,7 +3524,13 @@ for (const missionId of missionOrder) ladderCredits += missionCredits.get(missio
 // medic carries a wounded man out who would have bled). The medic is on loan, so ROSTER_MAX stays 29. Still
 // VICTORY, ROE 100, 2 stars, 30 of 30 seeds, slowest 5.0 min; the passive control still loses on 30 of 30;
 // every other mission pays what it paid.
-const LADDER_CREDITS = 5961;
+// 2026-10-28 (GH-865, lead): Sarim ATGM cells moved into cover 2 in three more missions. 5961 -> 5973, +12, read
+// off the printed per-mission credits: Deir Amun III 230 -> 245 (a pair on the spoil field's east knolls, ROE 85 -> 90),
+// Qarn Hadid III 225 -> 219 (one cell on the knoll's east shoulder, ROE 100 -> 94), Umm Zeitoun IV 256 -> 259 (one cell
+// on the ramp's west knoll, ROE 91 -> 94). Every plan still wins 30 of 30, no star or gate moved, ROSTER_MAX stays 30.
+// Umm Zeitoun III's two singles in cover were measured and left out: they cost one survivor at 424242, which carries into
+// Umm Zeitoun IV and drops ROSTER_MAX to 27.
+const LADDER_CREDITS = 5973;
 console.log(`credit ladder: ${ladderCredits} over ${missionOrder.length} missions`);
 if (ladderCredits !== LADDER_CREDITS) {
   console.error(`credit ladder: FAILED — expected ${LADDER_CREDITS}, got ${ladderCredits}`);

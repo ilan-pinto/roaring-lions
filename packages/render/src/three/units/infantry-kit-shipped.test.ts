@@ -19,6 +19,7 @@ import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { parseGlbHeadless } from './headless-gltf';
 import { buildMeshUnitTemplate } from './mesh-unit';
+import { INFANTRY_KIT_ENABLED } from './infantry-kit';
 import { KIT_BASE_COUNT_KEY } from './vehicle-kit';
 
 const GLB = readFileSync(new URL('../../../../../art/meshes/inf_squad.glb', import.meta.url));
@@ -40,9 +41,19 @@ const STATES: [string, Record<string, number>, Partial<typeof BASE>][] = [
   ['full kit', { armour: 3, sensors: 3, firepower: 3 }, { uniform: 8882, weapon: 2513 }],
 ];
 
-async function build(tiers?: Record<string, number>) {
+/**
+ * `kitEnabled` is forced ON here by default: the shipped switch is OFF
+ * (`INFANTRY_KIT_ENABLED`, GH-826, 28 Oct 2026), and these tests keep the
+ * pipeline honest for the redesign. Pass `SHIPPED` for the shipped switch.
+ */
+const SHIPPED = 'shipped' as const;
+
+async function build(tiers?: Record<string, number>, kitEnabled: boolean | typeof SHIPPED = true) {
   const gltf = await parseGlbHeadless(GLB);
-  const t = buildMeshUnitTemplate(gltf, 'kdf', 'inf_squad.glb', true, tiers);
+  const t =
+    kitEnabled === SHIPPED
+      ? buildMeshUnitTemplate(gltf, 'kdf', 'inf_squad.glb', true, tiers)
+      : buildMeshUnitTemplate(gltf, 'kdf', 'inf_squad.glb', true, tiers, kitEnabled);
   const meshes: Record<string, THREE.SkinnedMesh> = {};
   t.root.traverse((o) => {
     const m = o as THREE.SkinnedMesh;
@@ -129,5 +140,40 @@ describe('inf_squad through the real loader', () => {
       });
       expect(kit).toBe(0);
     }
+  });
+});
+
+describe('the shipped switch (INFANTRY_KIT_ENABLED, GH-826)', () => {
+  const FULL = { armour: 3, sensors: 3, firepower: 3 };
+
+  it('is off', () => {
+    expect(INFANTRY_KIT_ENABLED).toBe(false);
+  });
+
+  it('with the shipped switch, inf_squad at max tiers builds the SAME geometry as tier 0', async () => {
+    const tier0 = (await build(undefined, SHIPPED)).meshes;
+    const maxed = (await build(FULL, SHIPPED)).meshes;
+    expect(Object.keys(maxed).sort()).toEqual(Object.keys(tier0).sort());
+    for (const name of Object.keys(tier0)) {
+      const a = tier0[name].geometry;
+      const b = maxed[name].geometry;
+      // Literals: the shipped figure, not a recomputation of the part table.
+      expect(tris(maxed[name]), name).toBe(BASE[name as keyof typeof BASE]);
+      expect(b.index?.count, name).toBe(a.index?.count);
+      for (const attr of Object.keys(a.attributes)) {
+        expect(b.getAttribute(attr).count, `${name}.${attr}`).toBe(a.getAttribute(attr).count);
+        expect(Array.from(b.getAttribute(attr).array), `${name}.${attr}`).toEqual(Array.from(a.getAttribute(attr).array));
+      }
+      expect(b.userData[KIT_BASE_COUNT_KEY], name).toBeUndefined();
+    }
+  });
+
+  it('and no kit node is left in the scene', async () => {
+    const { t } = await build(FULL, SHIPPED);
+    let kit = 0;
+    t.root.traverse((o) => {
+      if (o.name.startsWith('kit_')) kit++;
+    });
+    expect(kit).toBe(0);
   });
 });
