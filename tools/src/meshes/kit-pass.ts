@@ -4,6 +4,7 @@
  *
  *     pnpm kit:meshes                  # every vehicle with a kit source
  *     pnpm kit:meshes -- --id=mbt_lavi # one (and it must have a source)
+ *     pnpm kit:meshes -- --teams       # the infantry kit instead (infantry-kit-pass.ts)
  *
  * Plan: `docs/superpowers/plans/2026-10-07-kitted-vehicles.md`, Task 2. The
  * contract the result keeps is `docs/superpowers/specs/2026-08-28-mesh-unit-
@@ -671,7 +672,13 @@ export async function runKitPass(
 }
 
 async function main(): Promise<number> {
-  await runKitPass(parseKitArgs(process.argv.slice(2)));
+  const argv = process.argv.slice(2);
+  // `--teams`: the infantry kit (GH-826), skinned parts on a team's own skeleton.
+  if (argv.includes('--teams')) {
+    const { main: teamsMain } = await import('./infantry-kit-pass');
+    return teamsMain(argv);
+  }
+  await runKitPass(parseKitArgs(argv));
   return 0;
 }
 

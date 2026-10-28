@@ -385,7 +385,8 @@ def build_part(name, f, side=None):
         return p
     if name == "side_plates":
         p = Piece(f.fig())
-        p.box((0.28, 0.09, 0.32), (cxm + 0.02, sgn * (cyh + 0.065), 1.10), T, bevel=0.02)
+        # clear of the thigh in kneel/pinned and of the belt pouches (clash census, 28 Oct): shorter, a hand higher, rearward and outboard of the upper arm, which hangs flush with the flank
+        p.box((0.24, 0.09, 0.28), (cxm - 0.045, sgn * (cyh + 0.105), 1.12), T, bevel=0.02)
         return p
     if name == "shoulder":
         p = Piece(f.fig())
@@ -476,13 +477,14 @@ def build_part(name, f, side=None):
         top, bot, wlo, whi = f.station(0.34)
         wc = (wlo + whi) / 2
         p = Piece(f.wpn())
-        p.box((0.17, 0.10, 0.11), (-0.34, wc, top + 0.05), "grey", bevel=0.02)
-        p.box((0.02, 0.08, 0.085), (-0.34 + 0.09, wc, top + 0.055), T, bevel=0.0)
+        # T1 bolder (lead, 28 Oct): housing 0.19 x 0.115 x 0.125, lens 0.09 x 0.10
+        p.box((0.19, 0.115, 0.125), (-0.34, wc, top + 0.057), "grey", bevel=0.02)
+        p.box((0.02, 0.09, 0.10), (-0.34 + 0.10, wc, top + 0.062), T, bevel=0.0)
         return p
     if name == "foregrip":
         top, bot, wlo, whi = f.station(0.17)
         p = Piece(f.wpn())
-        p.box((0.09, 0.09, 0.21), (-0.17, (wlo + whi) / 2, bot - 0.095), "tan", bevel=0.02)
+        p.box((0.105, 0.105, 0.24), (-0.17, (wlo + whi) / 2, bot - 0.11), "tan", bevel=0.02)
         return p
     if name == "optic_mag":
         top, bot, wlo, whi = f.station(0.30)

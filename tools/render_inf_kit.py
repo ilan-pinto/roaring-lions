@@ -70,7 +70,7 @@ def main():
         report.setdefault(part.name, {})[ob.name] = tris
     with open(os.path.join(out, "tris.json"), "w") as fh:
         json.dump(report, fh, indent=1, sort_keys=True)
-    scn.pose(arm, a.get("pose", "idle") if a.get("pose", "idle") != "rest" else None, 0)
+    scn.pose(arm, a.get("pose", "idle") if a.get("pose", "idle") != "rest" else None, int(a.get("frame", 0)))
     samples = int(a.get("samples", 96))
     if mode == "build":
         bpy.ops.wm.save_as_mainfile(filepath=os.path.join(out, "inf_squad_kit.blend"))

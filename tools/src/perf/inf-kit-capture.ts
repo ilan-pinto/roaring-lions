@@ -1,0 +1,475 @@
+/**
+ * The infantry kit in the running game (GH-826): `pnpm inf-kit:capture`.
+ *
+ *   pnpm inf-kit:capture -- --out=<dir> [--port=<n>] [--gpu=metal|swiftshader]
+ *
+ * `inf_squad` photographed by the game's own camera at zoom 1.0 and 2.5, at
+ * tier 0, each track alone at tier 3 (armour, sensors, firepower) and the full
+ * kit (all three at tier 3), from two facings (the flank and rear toward the
+ * camera, and the front three-quarter). One Metal browser, opened only after
+ * the last one closed; one fresh context per state, because a type's tiers are
+ * fixed at BOOT (brigade D3) and reach the renderer the way a player's do:
+ * the brigade account is seeded (`garage-seed.ts`'s shape), the sandbox booted
+ * WITHOUT `&kit`, and `upgradePrepass` -> `RendererOptions.unitKitTiers` ->
+ * `loadMeshUnit` -> `buildMeshUnitTemplate` does the rest. Every page is seeded
+ * music off (`ui-review/music-off.ts`). The tool boots its OWN dev server
+ * (default :5233) and refuses a port something else already holds.
+ *
+ * Before a cell is trusted the MERGE is read back from the renderer itself:
+ * the tiers it received (`opts.unitKitTiers`), the squad template's live
+ * triangle count and kit triangle count (`rlKitBaseCount`), held against the
+ * numbers `infantry-kit-shipped.test.ts` pins from the GLB. A silent no-op
+ * (the seed not arriving, a merge that kept nothing) would otherwise be a
+ * sheet of identical pictures. Draw calls are read per state by hand
+ * (`renderer.info`, `autoReset` off): the kit must cost +0.
+ *
+ * Outputs under `--out`: `cells/<state>_f<facing>_z<zoom>.png`, `zoom1.0.png`
+ * and `zoom2.5.png` (contact sheets, one row per facing, one column per
+ * state), and `readings.json`.
+ */
+import { chromium, type Browser, type Page } from 'playwright';
+import fs from 'node:fs';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { ensureDevServer, stopDevServer, readUnmaskedRenderer } from '../golden-diff/browser';
+import { CAPTURE_VIEWPORT, FREEZE_FRAME_LOOP_SCRIPT, hideHudExceptCanvas } from '../golden-diff/capture-protocol';
+import { musicOffInitScript, SILENT_AUDIO } from '../ui-review/music-off';
+import { garageSeedScript, GARAGE_SEED_LEDGER } from '../ui-review/garage-seed';
+import { claimPort } from '../ui-review/port';
+import { gpuLaunchArgs, resolveGpuBackend } from '../ui-review/gpu';
+import type { BrigadeAccount } from '../../../packages/app/src/brigade-account';
+import { ACCOUNT_VERSION } from '../../../packages/app/src/brigade-account';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(__dirname, '../../..');
+const TAG = 'inf-kit-capture';
+const PORT_ENV = 'INF_KIT_CAPTURE_PORT';
+const DEFAULT_PORT = 5233;
+const UNIT = 'inf_squad';
+const MAP_ID = 'beit_sahwan_outskirts';
+
+import { STATES, mergeFailures, type Reading, type State } from './inf-kit-capture-check';
+
+const FACINGS = [
+  { id: 'rear', label: 'flank and rear to the camera', offsetTurns: 0 },
+  { id: 'front', label: 'front three-quarter', offsetTurns: 0.5 },
+] as const;
+const ZOOMS = [1.0, 2.5] as const;
+const BOX: Readonly<Record<string, { w: number; h: number; lift: number }>> = {
+  '1.0': { w: 200, h: 160, lift: 12 },
+  '2.5': { w: 380, h: 320, lift: 30 },
+};
+const EDGE_TILES = 4;
+const SPAWN_TICK = 200;
+const SWEEP_TICK = 220;
+const CAPTURE_TICK = 240;
+const TARGET_SCREEN_DIR = { x: -Math.cos(Math.PI / 3), y: -Math.sin(Math.PI / 3) };
+const FACING_CANDIDATES = 64;
+const FIXED = 65536;
+
+interface LionsWindow {
+  __lions: {
+    step(n: number): number;
+    sim: {
+      width: number;
+      height: number;
+      tickCount: number;
+      blocked: Uint8Array;
+      entityCount: number;
+      state: { alive: Uint8Array };
+      unitTypes: { id: string }[];
+      spawn(typeIdx: number, side: number, x: number, y: number, facing?: number): number;
+      removeFromPlay(id: number): void;
+    };
+    renderer: {
+      camera: { x: number; y: number; zoom: number };
+      setDebugLayerVisible(name: string, visible: boolean): number;
+      frame(alpha: number, dtMs: number): void;
+      worldToScreen(wx: number, wy: number): { x: number; y: number };
+      // Private on `ThreeRenderer`; read here as a capture instrument, never written.
+      renderer: { info: { autoReset: boolean; reset(): void; render: { calls: number; triangles: number } } };
+      opts?: { unitKitTiers?: Record<string, Record<string, number>> };
+      meshUnitTemplates?: Map<string, { root: TemplateObject }[]>;
+    };
+  };
+}
+interface TemplateObject {
+  name: string;
+  isMesh?: boolean;
+  geometry?: { index: { count: number } | null; attributes: { position: { count: number } }; userData: Record<string, unknown> };
+  traverse(fn: (o: TemplateObject) => void): void;
+}
+
+function usage(msg: string): never {
+  console.error(`[${TAG}] ${msg}`);
+  console.error(`[${TAG}] usage: pnpm inf-kit:capture -- --out=<dir> [--port=<n>] [--gpu=metal|swiftshader]`);
+  process.exit(2);
+}
+
+function parseArgs(argv: readonly string[]): { out: string; gpu: ReturnType<typeof resolveGpuBackend> } {
+  let out = path.join(REPO_ROOT, '.superpowers/inf-kit/ingame');
+  for (const a of argv) {
+    if (a === '--') continue;
+    if (a.startsWith('--out=')) out = path.resolve(a.slice('--out='.length));
+    else if (a.startsWith('--port=') || a.startsWith('--gpu=')) {
+      // Parsed (and refused when malformed) by `claimPort` / `resolveGpuBackend`.
+    } else usage(`unknown argument "${a}"`);
+  }
+  let gpu: ReturnType<typeof resolveGpuBackend>;
+  try {
+    gpu = resolveGpuBackend(argv, process.platform);
+  } catch (err) {
+    usage(err instanceof Error ? err.message : String(err));
+  }
+  return { out, gpu };
+}
+
+function accountWith(tiers: Readonly<Record<string, number>>): BrigadeAccount {
+  return {
+    version: ACCOUNT_VERSION,
+    balance: 2400,
+    earned_total: 0,
+    paid: {},
+    campaign_paid: {},
+    unlocks: [],
+    upgrades: { [UNIT]: { ...tiers } },
+    grants: [{ source: 'granted', amount: 5000, at: 1 }],
+    coupons: [],
+  };
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function bootSandbox(page: Page, base: string): Promise<void> {
+  await page.goto(`${base}/free-play/${MAP_ID}`, { waitUntil: 'load', timeout: 60_000 });
+  await page.waitForFunction(() => !!(window as unknown as LionsWindow).__lions?.renderer, null, { timeout: 60_000 });
+  await page.evaluate(FREEZE_FRAME_LOOP_SCRIPT);
+  await page.evaluate(() => document.fonts.ready);
+  await page.evaluate(hideHudExceptCanvas);
+  await page.evaluate(() => {
+    const L = (window as unknown as LionsWindow).__lions;
+    for (const layer of ['fog', 'overlays', 'wind']) L.renderer.setDebugLayerVisible(layer, false);
+    for (let i = 0; i < L.sim.entityCount; i++) if (L.sim.state.alive[i] === 1) L.sim.removeFromPlay(i);
+  });
+}
+
+/** The first open tile, scanned row-major, with no non-open map tile within the
+ *  box on screen (kit-captures' parade rule, for one unit). */
+async function openTile(page: Page): Promise<[number, number]> {
+  const rows = (JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'data/maps', `${MAP_ID}.json`), 'utf8')) as { rows: string[] }).rows;
+  const obstacles: [number, number][] = [];
+  rows.forEach((row, y) => {
+    for (let x = 0; x < row.length; x++) if (row[x] !== '.') obstacles.push([x, y]);
+  });
+  const box = BOX['2.5'];
+  const tile = await page.evaluate(
+    ([obs, edge, bw, bh, lift]) => {
+      const L = (window as unknown as LionsWindow).__lions;
+      const r = L.renderer;
+      const w = L.sim.width;
+      const h = L.sim.height;
+      r.camera.x = w / 2;
+      r.camera.y = h / 2;
+      r.camera.zoom = 2.5;
+      const top = -lift - bh / 2;
+      const bottom = -lift + bh / 2;
+      for (let ty = edge; ty < h - edge; ty++) {
+        for (let tx = edge; tx < w - edge; tx++) {
+          if (L.sim.blocked[ty * w + tx] !== 0) continue;
+          const c = r.worldToScreen(tx + 0.5, ty + 0.5);
+          let ok = true;
+          for (const o of obs) {
+            const p = r.worldToScreen(o[0] + 0.5, o[1] + 0.5);
+            const ox = p.x - c.x;
+            const oy = p.y - c.y;
+            if (Math.abs(ox) < bw / 2 + 48 && oy > top - 48 && oy < bottom + 240) {
+              ok = false;
+              break;
+            }
+          }
+          if (ok) return [tx, ty] as [number, number];
+        }
+      }
+      return null;
+    },
+    [obstacles, EDGE_TILES, box.w, box.h, box.lift] as [[number, number][], number, number, number, number]
+  );
+  if (!tile) throw new Error(`no open tile found on ${MAP_ID}`);
+  return tile;
+}
+
+async function measureFacing(page: Page, at: [number, number]): Promise<number> {
+  return page.evaluate(
+    ([x, y, tdx, tdy, n]) => {
+      const r = (window as unknown as LionsWindow).__lions.renderer;
+      const o = r.worldToScreen(x, y);
+      let best = { turns: 0, score: -2 };
+      for (let i = 0; i < n; i++) {
+        const turns = i / n;
+        const p = r.worldToScreen(x + Math.cos(turns * 2 * Math.PI), y + Math.sin(turns * 2 * Math.PI));
+        const dx = p.x - o.x;
+        const dy = p.y - o.y;
+        const score = (dx * tdx + dy * tdy) / Math.hypot(dx, dy);
+        if (score > best.score) best = { turns, score };
+      }
+      return best.turns;
+    },
+    [at[0], at[1], TARGET_SCREEN_DIR.x, TARGET_SCREEN_DIR.y, FACING_CANDIDATES] as [number, number, number, number, number]
+  );
+}
+
+async function readMerge(page: Page): Promise<Reading> {
+  return page.evaluate((id) => {
+    const r = (window as unknown as LionsWindow).__lions.renderer;
+    const variants = r.meshUnitTemplates?.get(id);
+    let tris = 0;
+    let kitTris = 0;
+    let meshes = 0;
+    if (variants) {
+      const seen = new Set<unknown>();
+      for (const t of variants) {
+        t.root.traverse((o) => {
+          if (!o.isMesh || !o.geometry) return;
+          meshes++;
+          const g = o.geometry;
+          if (seen.has(g)) return;
+          seen.add(g);
+          const count = g.index ? g.index.count : g.attributes.position.count;
+          const base = typeof g.userData.rlKitBaseCount === 'number' ? (g.userData.rlKitBaseCount as number) : count;
+          tris += count / 3;
+          kitTris += (count - base) / 3;
+        });
+      }
+    }
+    const tiers = r.opts?.unitKitTiers?.[id] ?? null;
+    return { tiers: tiers ? { ...tiers } : null, loaded: !!variants, tris, kitTris, meshes, calls: 0 };
+  }, UNIT);
+}
+
+async function drawCalls(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const R = (window as unknown as LionsWindow).__lions.renderer;
+    const info = R.renderer.info;
+    info.autoReset = false;
+    info.reset();
+    R.frame(1, 0);
+    const c = info.render.calls;
+    info.autoReset = true;
+    return c;
+  });
+}
+
+async function composeSheet(
+  browser: Browser,
+  outFile: string,
+  title: string,
+  footer: string,
+  columns: readonly string[],
+  rows: readonly { label: string; cells: readonly string[] }[]
+): Promise<void> {
+  const img = (file: string): string =>
+    fs.existsSync(file) ? `<img src="data:image/png;base64,${fs.readFileSync(file).toString('base64')}">` : '<div class="missing">not captured</div>';
+  const head = columns.map((c) => `<th>${c}</th>`).join('');
+  const body = rows.map((r) => `<tr><th class="row">${r.label}</th>${r.cells.map((c) => `<td>${img(c)}</td>`).join('')}</tr>`).join('\n');
+  const html = `<!doctype html><html><head><meta charset="utf-8"><style>
+    body { margin: 0; background: #c6b79c; color: #1f1a14; font: 14px/1.3 -apple-system, Helvetica, Arial, sans-serif; }
+    #sheet { display: inline-block; padding: 14px 18px; }
+    h1 { font-size: 18px; margin: 0 0 8px; font-weight: 600; }
+    table { border-collapse: separate; border-spacing: 6px; }
+    th { font-weight: 600; text-align: center; }
+    th.row { text-align: left; padding-right: 8px; white-space: nowrap; }
+    td { padding: 0; }
+    img { display: block; }
+    .missing { padding: 20px; color: #6b1d1d; }
+    p { margin: 8px 0 0; font-size: 12px; max-width: 1400px; }
+  </style></head><body><div id="sheet"><h1>${title}</h1>
+  <table><tr><th></th>${head}</tr>${body}</table><p>${footer}</p></div></body></html>`;
+  // music-off: exempt -- a static HTML page with no game in it.
+  const page = await browser.newPage({ viewport: { width: 800, height: 600 }, deviceScaleFactor: 1 });
+  try {
+    await page.setContent(html, { waitUntil: 'load' });
+    await page.locator('#sheet').screenshot({ path: outFile });
+  } finally {
+    await page.close();
+  }
+}
+
+async function captureState(browser: Browser, base: string, state: State, cellDir: string): Promise<Reading & { facingTurns: number; tile: [number, number] }> {
+  const ctx = await browser.newContext({ viewport: { ...CAPTURE_VIEWPORT }, deviceScaleFactor: 1 });
+  try {
+    await ctx.addInitScript(musicOffInitScript(SILENT_AUDIO));
+    await ctx.addInitScript(garageSeedScript(GARAGE_SEED_LEDGER, accountWith(state.tiers)));
+    const page = await ctx.newPage();
+    page.setDefaultTimeout(120_000);
+    page.on('pageerror', (err) => console.log(`  [${state.id}] page error: ${err.message}`));
+    page.on('console', (msg) => {
+      if (msg.type() === 'error') console.log(`  [${state.id}] console.error: ${msg.text()}`);
+    });
+    await bootSandbox(page, base);
+    const tick0 = await page.evaluate(() => (window as unknown as LionsWindow).__lions.sim.tickCount);
+    if (tick0 > SPAWN_TICK) throw new Error(`${state.id}: the loop ran to tick ${tick0} before the freeze (> ${SPAWN_TICK})`);
+    await page.evaluate((t) => {
+      const L = (window as unknown as LionsWindow).__lions;
+      L.step(t - L.sim.tickCount);
+    }, SPAWN_TICK);
+    const tile = await openTile(page);
+    const cx = tile[0] + 0.5;
+    const cy = tile[1] + 0.5;
+    await page.evaluate(
+      ([x, y]) => {
+        const c = (window as unknown as LionsWindow).__lions.renderer.camera;
+        c.x = x;
+        c.y = y;
+        c.zoom = 1;
+      },
+      [cx, cy] as [number, number]
+    );
+    const turns = await measureFacing(page, [cx, cy]);
+    const facings = FACINGS.map((f) => (turns + f.offsetTurns) % 1);
+    await page.evaluate(
+      ([unit, x, y, fixed, ft]) => {
+        const L = (window as unknown as LionsWindow).__lions;
+        const typeIdx = L.sim.unitTypes.findIndex((t) => t.id === unit);
+        if (typeIdx < 0) throw new Error(`no unit type "${unit}" in this build`);
+        L.sim.spawn(typeIdx, 0, Math.round(x * fixed), Math.round(y * fixed), ft);
+      },
+      [UNIT, cx, cy, FIXED, Math.round(facings[0] * FIXED) & 0xffff] as [string, number, number, number, number]
+    );
+    // The mesh sweep runs on `tickCount % 20 === 0`: step to the next sweep, then wait on wall
+    // time for the template. Stepping while waiting would let the idle phase drift per state.
+    await page.evaluate((t) => {
+      const L = (window as unknown as LionsWindow).__lions;
+      L.step(t - L.sim.tickCount);
+    }, SWEEP_TICK);
+    const deadline = Date.now() + 90_000;
+    for (;;) {
+      const loaded = await page.evaluate((id) => !!(window as unknown as LionsWindow).__lions.renderer.meshUnitTemplates?.has(id), UNIT);
+      if (loaded) break;
+      if (Date.now() > deadline) throw new Error(`${state.id}: the ${UNIT} template never loaded`);
+      await sleep(500);
+    }
+    const tickAtCapture = await page.evaluate((t) => {
+      const L = (window as unknown as LionsWindow).__lions;
+      L.step(t - L.sim.tickCount);
+      L.renderer.frame(1, 0);
+      return L.sim.tickCount;
+    }, CAPTURE_TICK);
+    if (tickAtCapture !== CAPTURE_TICK) throw new Error(`${state.id}: captured at tick ${tickAtCapture}, not ${CAPTURE_TICK}`);
+    const reading = await readMerge(page);
+
+    // Camera at the squad, per zoom; the second facing is a re-spawn on the same tile after the first was struck.
+    for (let fi = 0; fi < FACINGS.length; fi++) {
+      if (fi > 0) {
+        await page.evaluate(
+          ([unit, x, y, fixed, ft]) => {
+            const L = (window as unknown as LionsWindow).__lions;
+            for (let i = 0; i < L.sim.entityCount; i++) if (L.sim.state.alive[i] === 1) L.sim.removeFromPlay(i);
+            const typeIdx = L.sim.unitTypes.findIndex((t) => t.id === unit);
+            L.sim.spawn(typeIdx, 0, Math.round(x * fixed), Math.round(y * fixed), ft);
+            L.step(40);
+          },
+          [UNIT, cx, cy, FIXED, Math.round(facings[fi] * FIXED) & 0xffff] as [string, number, number, number, number]
+        );
+      }
+      for (const zoom of ZOOMS) {
+        const zKey = zoom.toFixed(1);
+        const box = BOX[zKey];
+        const sp = await page.evaluate(
+          ([x, y, z]) => {
+            const r = (window as unknown as LionsWindow).__lions.renderer;
+            r.camera.x = x;
+            r.camera.y = y;
+            r.camera.zoom = z;
+            r.frame(1, 0);
+            return { ...r.worldToScreen(x, y), zoom: r.camera.zoom };
+          },
+          [cx, cy, zoom] as [number, number, number]
+        );
+        if (sp.zoom !== zoom) throw new Error(`camera.zoom read back ${sp.zoom}, set ${zoom}`);
+        const clip = { x: Math.round(sp.x - box.w / 2), y: Math.round(sp.y - box.lift - box.h / 2), width: box.w, height: box.h };
+        if (clip.x < 0 || clip.y < 0 || clip.x + clip.width > CAPTURE_VIEWPORT.width || clip.y + clip.height > CAPTURE_VIEWPORT.height) {
+          throw new Error(`${state.id} z${zKey}: clip ${JSON.stringify(clip)} leaves the viewport`);
+        }
+        await page.screenshot({ path: path.join(cellDir, `${state.id}_${FACINGS[fi].id}_z${zKey}.png`), clip });
+        if (fi === 0 && zoom === 2.5) reading.calls = await drawCalls(page);
+      }
+    }
+    return { ...reading, facingTurns: turns, tile };
+  } finally {
+    await ctx.close();
+  }
+}
+
+function shortCommit(): string {
+  try {
+    return execFileSync('/usr/bin/git', ['-C', REPO_ROOT, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim();
+  } catch {
+    return 'unknown';
+  }
+}
+
+const args = parseArgs(process.argv.slice(2));
+const port = await claimPort(TAG, PORT_ENV, DEFAULT_PORT);
+const cellDir = path.join(args.out, 'cells');
+fs.mkdirSync(cellDir, { recursive: true });
+const base = `http://localhost:${port}`;
+const dev = await ensureDevServer(port, REPO_ROOT, TAG);
+const results = new Map<string, Reading & { facingTurns: number; tile: [number, number] }>();
+const failures: string[] = [];
+let gpuName: string;
+try {
+  const browser = await chromium.launch({ headless: true, args: gpuLaunchArgs(args.gpu) });
+  try {
+    gpuName = await readUnmaskedRenderer(browser);
+    console.log(`[${TAG}] GPU (${args.gpu}): ${gpuName}`);
+    for (const state of STATES) {
+      const t0 = Date.now();
+      const res = await captureState(browser, base, state, cellDir);
+      results.set(state.id, res);
+      console.log(
+        `[${TAG}] ${state.id}: tiers ${JSON.stringify(res.tiers)}, ${res.tris} tris (kit ${res.kitTris}) in ${res.meshes} meshes, ` +
+          `${res.calls} draw calls, facing ${res.facingTurns.toFixed(4)} turns, tile ${res.tile.join(',')}, ${((Date.now() - t0) / 1000).toFixed(1)}s`
+      );
+    }
+  } finally {
+    await browser.close();
+  }
+
+  failures.push(...mergeFailures(results));
+
+  const browser2 = await chromium.launch({ headless: true });
+  try {
+    const commit = shortCommit();
+    for (const zoom of ZOOMS) {
+      const zKey = zoom.toFixed(1);
+      await composeSheet(
+        browser2,
+        path.join(args.out, `zoom${zKey}.png`),
+        `inf_squad in game, zoom ${zKey} -- tier 0, each track alone at tier 3, and the full kit`,
+        `pnpm inf-kit:capture at ${commit}; ${MAP_ID} sandbox without &amp;kit, account-seeded tiers through upgradePrepass; ` +
+          `rows: ${FACINGS.map((f) => f.label).join(' / ')}; tick ${CAPTURE_TICK}, frame loop frozen, zero-time repaint; ` +
+          `fog, overlays and wind hidden; ${BOX[zKey].w}x${BOX[zKey].h} CSS px at DPR 1; GPU ${gpuName.replace(/[<>&]/g, '')}.`,
+        STATES.map((s) => s.label),
+        FACINGS.map((f) => ({ label: f.id, cells: STATES.map((s) => path.join(cellDir, `${s.id}_${f.id}_z${zKey}.png`)) }))
+      );
+      console.log(`[${TAG}] wrote ${path.join(args.out, `zoom${zKey}.png`)}`);
+    }
+  } finally {
+    await browser2.close();
+  }
+  fs.writeFileSync(
+    path.join(args.out, 'readings.json'),
+    `${JSON.stringify({ gpu: gpuName, commit: shortCommit(), states: Object.fromEntries(results) }, null, 2)}\n`
+  );
+} finally {
+  stopDevServer(dev, TAG);
+}
+if (failures.length > 0) {
+  console.error(`[${TAG}] MERGE CHECK FAILED:\n  ${failures.join('\n  ')}`);
+  process.exitCode = 1;
+} else {
+  console.log(`[${TAG}] merge check: PASS (${STATES.length} states, +0 meshes and +0 draw calls against tier 0)`);
+}
