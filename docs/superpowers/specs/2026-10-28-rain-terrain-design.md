@@ -1,6 +1,6 @@
 # Rain: a wet terrain theme, `wetland` (GH-871). Design, numbers for approval
 
-**Date:** 2026-10-28, revision 2. **Status:** design only, for the lead. Nothing is rendered, built, exported or
+**Date:** 2026-10-28, revision 3. **Status:** design only, for the lead. Nothing is rendered, built, exported or
 sent to Meshy. **Lane:** B. **Written against:** `main` at `2080d550`. Every engine fact below was read from that
 tree.
 
@@ -12,6 +12,18 @@ tree.
    `overcast` ramps, the puddle stand-in, 6,000 / 3,500 / 1,500 drops, no lightning yet, a frame budget of
    +1.0 / +0.7 / +0.4 ms, rain on the sim clock, no rain in versus, and report-only visual scenarios.
 
+**Revision 3 folds in the five mood-board adjustments the lead approved on 28 Oct (the P1 gate).** Each is applied
+where its number lives, and section 2.8 lists them with the art-numbers summary:
+1. **Marsh.** About 25-35% water, in meanders and pools, under a continuous reed mat; `reed:foliage` -> `dust.5`
+   (4.3, 2.2).
+2. **Season.** The late-winter / early-spring flush: leaf-on oak and willow at their yellowest green, and the sward
+   at its greenest. The Meshy prompts say "early spring flush", not "winter" (2.2, 2.6).
+3. **Mud.** The yellower, less saturated `mud` ramp (`#8E6F55 #725944 #584535 #413327 #2D241B`), and a P2 A/B of the
+   puddle reflectance, 0.20-0.25 against 0.35 (4.1, 4.3).
+4. **Rock and haze.** One rock-only dark warm step, `basalt.0` `#4B453D`, for the Golan-dark boulders; and a bluer
+   haze key, `overcast.1` -> `#9FA9B5` (4.1, 2.3, 4.5).
+5. **`fen` is kept.** It is nudged to `#7BA350` only if the P2 capture reads cold (4.1).
+
 Presentation only stays the default. The one place the theme asks the map grid for something is the marsh symbol
 (section 5.2). It is built from two mechanics the sim already has, so no sim code changes.
 
@@ -20,8 +32,9 @@ rest on.
 
 **The short version:**
 
-- **The theme.** A fourth `terrain` value, `wetland`, is a Levantine winter valley: dark alluvial mud under
-  winter sward, wet basalt, reed marsh with standing water, Tabor oak on the slopes and willow at the water.
+- **The theme.** A fourth `terrain` value, `wetland`, is a Levantine valley in the late-winter / early-spring
+  flush: yellow-umber alluvial mud under spring sward, wet basalt, a reed mat with water in its meanders and pools,
+  Tabor oak on the slopes and willow at the water.
 - **Rain belongs to the theme.** It falls on every `wetland` map and on no other map.
 - **Two new Free Play maps, 48x48.** Ein Qasab is a marsh valley that vehicles cross only by two causeways. Jebel
   Matar is wet downs with two hiding crests and a basalt dyke. Neither has a mission.
@@ -82,7 +95,7 @@ no environment map to reflect. Wetness has to be AUTHORED:
 | Surface | arid | green | highland | wetland (proposed) |
 |---|---|---|---|---|
 | Tone bundle | limestone / dust | grass / scrub | dust over karst | **fen / mud / overcast** (4.1) |
-| Theme-only ramps | none | none | `karst` | **`fen`, `mud`, `overcast`** |
+| Theme-only ramps | none | none | `karst` | **`fen`, `mud`, `overcast`, `basalt`** (`basalt` is a tint key only, 4.1) |
 | Open-ground image | `desert_sand_tile` | `green_basin_tile` | `highland_v2_tile` | **`wetland_open_tile`** |
 | Rock / scrub / grove / knoll images | shared four | shared four | shared four | **its own four** (2.1) |
 | Grain (`scatter`) | `stone` | `sward` | `stone` | `sward` |
@@ -90,9 +103,9 @@ no environment map to reflect. Wetness has to be AUTHORED:
 | Open-ground pass (`openScatter`) | none | none | cedar, boulder, bush, chip | **oak, willow at the water, boulder, shrub, chip** |
 | Grass / bush families | shared | shared | shared, retinted | **`wet_grass` / `shrub`** (its own) |
 | Marsh (`~`) | none | none | none | **`reed`** |
-| Rocks | shared | shared | shared, `karst` tint | shared, `overcast` tint |
+| Rocks | shared | shared | shared, `karst` tint | shared: `overcast` tint on wet faces, `basalt.0` on boulders |
 | Props | the global mix | the global mix | the global mix | **its own mix**, with three new kinds |
-| Haze | `dust.0` | `limestone.1` | `karst.0` | `overcast.1` |
+| Haze | `dust.0` | `limestone.1` | `karst.0` | `overcast.1` (the bluer `#9FA9B5`, rev. 3) |
 | Light | the mission's or `&tod=` | same | same | **the same, passed through `rainLight`** (4.5) |
 | Weather | clear | clear | clear | **rain** |
 | Ambience bed | `open` / `town` | `open` / `town` | `ridge` | `open` (beds are off) |
@@ -119,9 +132,14 @@ The new optional `TerrainTones` fields, each absent on arid, green and highland:
 | `marsh?` | hex | `mud.3`: the `~` tile's ground tone, under the water stand-in | `tones.ts` `groundTone`, `paintMapTerrain` |
 | `propMix?` | `{ roadside: Record<PropKind, number>; yard: Record<PropKind, number> }` | section 3.4 | `prop-place.ts` |
 
-`GroveFamily` gains `oak | willow`. `DecorFamily` gains `wet_grass | shrub | reed`. `DENSITY.reed` is 1.0, for the
-reason `boulder` and `ditch` are 1.0: a `~` tile is a mechanic, a wall to vehicles, and a reed bed with a gap in it
-would show a way through that is not there.
+The marsh water and the reeds must agree on where the water is. One pure function, `marshWater(x, z)` in
+`terrain/shared.ts` (no `three` import), gives the meanders and pools. The control-C bake samples it for the water
+mask, and the reed placer rejects a clump centre where it reads water.
+
+`GroveFamily` gains `oak | willow`. The no-twin rule, `family !== 'cedar'` in `decor-place.ts` today, must include
+`oak` (the oak grove is 0.6 a tile, no twin). `DecorFamily` gains `wet_grass | shrub | reed`. `DENSITY.reed` is 1.0,
+for the reason `boulder` and `ditch` are 1.0: a `~` tile is a mechanic, a wall to vehicles, and a reed bed with a gap
+in it would show a way through that is not there.
 
 ### 1.4 Rain belongs to the theme
 
@@ -137,7 +155,7 @@ would show a way through that is not there.
 | 1 | Schema | `data/schemas/map.schema.json` | `terrain` enum + `wetland`; the `rows` description gains `~` | `validate:data`; author `"wetland"` before the enum has it and watch it go red |
 | 2 | Map types and legend | `packages/data/src/map.ts` | `TerrainTheme` + `TERRAIN_THEMES` set; `DECOR.marsh = 6`; `TERRAIN_LEGEND['~'] = { blocked: 0, boulder: 1, cover: 1, decor: DECOR.marsh }` | `tools/src/boulders.test.ts` gains `~` (vehicle-walled, open on foot, cover 1); drop `boulder: 1` and watch it go red |
 | 3 | Grid lint | `tools/validate_data.mjs` | `TERRAIN_SYMBOLS` + `~`; refuses `~` on a map whose `terrain` is not `wetland` | author one `~` on `tile_green` |
-| 4 | Palette | `data/palette.json` | `fen`, `mud`, `overcast`, all `theme_only` | `terrain/tones.test.ts` and `terrain-defaults.test.ts`; drop `theme_only` from `mud` |
+| 4 | Palette | `data/palette.json` | `fen`, `mud`, `overcast`, `basalt`, all `theme_only`; `total_colors` 76 -> 89 (ramp colours 41 -> 54, and the `notes` line with it) | `terrain/tones.test.ts` and `terrain-defaults.test.ts`; drop `theme_only` from `mud`. `validate:data` refuses a stale `total_colors`. |
 | 5 | Tone bundle | `packages/app/src/terrain-themes.ts` | `TERRAIN_THEMES.wetland`, `TERRAIN_GROUND_TEXTURE.wetland`, `TERRAIN_SLOT_TEXTURES`, `TERRAIN_WEATHER` | compile (total `Record`s); a new `wetland-readability.test.ts` with LITERAL oracles |
 | 6 | Renderer options | `packages/app/src/renderer-options.ts` | slot URLs and `weather` from the tables | `renderer-options.test.ts` gains the slot URLs of the three existing themes; point `highland`'s rock slot at the wet tile and watch it go red |
 | 7 | Render API | `packages/render/src/api.ts` | `GroveFamily`, the four optional fields, `RendererOptions.weather?` | compile |
@@ -178,10 +196,12 @@ Each tile is authored by `tools/textures/author_wetland_tiles.py`:
 - Gate: an edge-to-adjacent ratio of at least 0.9 (the sand measured 0.95), and the mean measured into
   `GROUND_ALBEDOS`.
 - The image carries hue variation only. The theme tone sets the average (the ratio form).
+- Figure-ground (new, rev. 3): at the zoom-1 mip, at most 5% of the open and scrub tiles' composed texels (ratio x
+  theme tone) may lie within ΔE2000 12 of KDF `olive.1`. The author tool prints the share and refuses above it.
 
 | Slot | File | Content | Repeat (tiles) | Gain | Why that repeat |
 |---|---|---|---|---|---|
-| open | `wetland_open_tile` | Winter sward in clumps over dark alluvial mud: 60% blades, 40% mud. Sparse basalt grit. Darker hollows where the mud shows. | 3 | 1.25 | The highland's 3. Clumps land at about one per half tile at zoom 1. |
+| open | `wetland_open_tile` | Spring-flush sward in clumps over yellow-umber alluvial mud: 60% blades, 40% mud. **Mud and sward are segregated at clump scale with hard edges, and the understorey inside a clump is dark green, not mud** (4.2's mixture note). About 15% straw thatch. Sparse basalt grit. | 3 | 1.25 | The highland's 3. Clumps land at about one per half tile at zoom 1. |
 | rock (`^` tops and faces) | `basalt_rock_tile` | Vesicular wet basalt, columnar cracks, a few lichen flecks | 2 | 1 | `rock_ground_tile`'s 2 |
 | scrub (cover 1-3) | `wet_scrub_tile` | Rush and bramble litter, dead stems over mud | 2 | 2 | `rough_scrub_tile`'s numbers |
 | grove (`o`) | `oak_litter_tile` | Oak leaf litter, acorn cups, moss patches | 2 | 1.5 | `orchard_floor_tile`'s numbers |
@@ -194,13 +214,18 @@ The marsh `~` gets no image. It is the scrub image under the water stand-in (4.3
 
 ### 2.2 Foliage (the wet-climate set)
 
+**Season (rev. 3): the late-winter / early-spring flush.** Both trees are deciduous (the Tabor oak tardily), so a
+January rain theme would have a bare willow and a half-bare oak. The theme is set at the flush instead: leaf-on, at
+the earliest and yellowest green. The Meshy prompts ask for "leaf-on, early spring flush", never "winter". A truly
+bare willow would be a separate asset, and it is not recommended.
+
 | Family | Species | Where | Heights (3 variants) | Roles | Source | Credits |
 |---|---|---|---|---|---|---|
 | `oak` | Tabor oak (*Quercus ithaburensis*): broad, rounded, open crown | grove `o` (0.6 a tile, no twin, the cedar rule); slopes through `openScatter` | 5.0 / 4.2 / 3.4 m | trunk + foliage | **Meshy, 2 bases** (text preview 20 + remesh 5 each). Variant 2 is a Blender crown cut of base 0, not a byte copy (the olive's `tree_1 == tree_2` defect). | 50 |
 | `willow` | White willow (*Salix alba*), upright with a loose crown | within one tile of `~`, at 0.12 | 4.6 / 3.8 / 3.0 m | trunk + foliage | **Meshy, 1 base**; variants 1 and 2 by Blender lean and crown cut | 25 |
 | `shrub` | Lentisk (*Pistacia lentiscus*), dense evergreen mound | cover 1-3 (the `bush` rule: 0.6 x (0.5 + 0.5 x cover)); open ground at 0.04 | 1.3 / 1.1 / 0.9 m | trunk + foliage | **Meshy, 1 base**; variants by Blender | 25 |
-| `reed` | Common reed (*Phragmites*) x2 and bulrush (*Typha*) x1: straw winter stalks with green bases | every `~` tile, 1.5 clumps a tile | **at most 1.5 m**, so a standing man's head and shoulders read | foliage | **Blender, procedural**: modelled blades and seed heads, hand-rolled noise | 0 |
-| `wet_grass` | Winter sward tuft, lusher and taller than `grass` | open ground (the clump pass, `SCATTER_DENSITY` 0.75 unchanged) | within `GRASS_SCALE_MAX` 0.9 (N-4: grass never hides a unit) | foliage | **Blender, procedural** | 0 |
+| `reed` | Common reed (*Phragmites*) x2 and bulrush (*Typha*) x1: last year's straw culms with new green shoots at the base, laid as a continuous MAT | every `~` tile, 1.5 clumps a tile, each about 0.8 tile across, never on a water fragment (1.3) | **at most 1.5 m DRAWN**, after the 0.8-1.2 scale roll (models 1.25 / 1.10 / 1.00 m), so a standing man's head and shoulders read | foliage | **Blender, procedural**: modelled blades and seed heads, hand-rolled noise | 0 |
+| `wet_grass` | Spring-flush sward tuft, lusher than `grass` (more and wider blades). It cannot be taller: the shipped grass already sits at N-4's 0.40 m model (2.8). | open ground (the clump pass, `SCATTER_DENSITY` 0.75 unchanged) | within `GRASS_SCALE_MAX` 0.9 (N-4: grass never hides a unit) | foliage | **Blender, procedural** | 0 |
 
 Foliage tints are instance tones (+0 draws). Each was measured against the KDF uniform's `olive.1` on the VR-05
 floor (CIE76 at least 15 and ΔE2000 at least 12, `foliage-figure-ground.test.ts`):
@@ -210,13 +235,15 @@ floor (CIE76 at least 15 and ΔE2000 at least 12, `foliage-figure-ground.test.ts
 | `oak:foliage`, `shrub:foliage` | `scrub.1` | 15.9 / 12.6 | passes (VR-05's own pick) |
 | `willow:foliage` | `fen.0` | 28.6 / 18.4 | passes; the silver-green of a willow against the oak |
 | `wet_grass:foliage` | `grass.3` | 35.4 / 21.3 | passes |
-| `reed:foliage` | `dust.3` | 25.9 / 19.3 | passes; winter reed beds are straw, and they read apart from both armies |
+| `reed:foliage` | **`dust.5`** (rev. 3; was `dust.3`) | 19.4 / 15.6 | passes. It is 7.3 ΔE2000 from the photographed winter reed, against 15.5 for `dust.3`. Against the enemy's darkest uniform step, `dust.4`, it reads 7.9 / 6.9 (`dust.3` read 6.3-7.1 against `dust.2`/`dust.4`); no floor covers the enemy. |
 | (refused) | `fen.1` | 17.0 / 9.3 | fails ΔE2000. It is why `fen.1` is a ground tone only. |
 
 ### 2.3 Rocks
 
-**Recommended: reuse.** `rock`, `slab` and `boulder` are tinted `overcast.4` / `overcast.3` / `overcast.3` through
-`decorColors`, the way highland tinted them `karst`, at 0 credits.
+**Recommended: reuse.** Through `decorColors`, the way highland tinted them `karst`, at 0 credits:
+- `slab` takes `overcast.4` and `rock` takes `overcast.3`: the wet faces, which ref 08 confirms (3 from `overcast.4`).
+- `boulder` takes **`basalt.0` `#4B453D`** (rev. 3). These are the warm, dark Golan boulders of the `b` fields
+  (ref 06, L51-54), which no `overcast` step reaches.
 
 The alternative is a Meshy basalt boulder base (25 credits, Blender variants), only if the P3 capture still reads
 as limestone. That is decision 8.
@@ -255,7 +282,10 @@ Roles come from the closed `PROP_ROLES` set: the bale is `cloth`, the pipe `conc
 How the calls are run:
 - **Prompts.** An Opus 5.5 agent at high effort writes every prompt, picks the preview and decides any re-roll (the
   lead's 21 Oct rule). It works from the approved mood board and the numbers above, and puts no personal data in
-  any prompt.
+  any prompt. Trees are asked for "leaf-on, early spring flush", never "winter"; the lentisk for "fine small leaves,
+  dense dome". No reference image is ever an input.
+- **Detail.** Previews are made at full detail, not in the low-poly mode, and the preview is kept as the master. The
+  remesh cuts to the section 3 cap.
 - **Before each call.** `pnpm meshy -- estimate` runs first, and each call is announced in the ledger with its
   credits.
 - **Texture.** No texture is requested. Decor and props carry zero materials, so `text-refine` is not bought.
@@ -265,11 +295,16 @@ How the calls are run:
 
 ### 2.7 Mood board (P1, reference study only)
 
+**Done 28 Oct.** There are 22 references (19 Wikimedia Commons, 3 RTS store screenshots, all study only), logged in
+`_coord/wet-theme/sources.md`. The sheet is `mood-board.png`, with the measurements in `notes.md`; it replaces the
+planned `board.html`. The five adjustments it argued for were approved (the revision 3 list above). Still wanted
+before P4: a Levantine rain photograph, and a game frame with falling rain to check the streak numbers in 4.4.
+
 - **Where.** About 20 references in `roaring-lions-ep/_coord/wet-theme/refs/`, outside the repo.
 - **Use.** They are never committed, never fed to Meshy, never traced and never shipped.
 - **Records.** Each reference is logged with its source URL and licence. No personal data goes into any search.
-- **The sheet.** One page, `_coord/wet-theme/board.html`, annotates each reference with the number in this spec it
-  argues for.
+- **The sheet.** As planned: one page annotating each reference with the number in this spec it argues for. It
+  shipped as `mood-board.png` with `notes.md`.
 
 | Category | Count | What to take from it |
 |---|---|---|
@@ -281,6 +316,39 @@ How the calls are run:
 | Alluvial mud under winter sward; churned farm tracks | 3 | the open tile, puddle coverage on tracks |
 | Overcast valley, low cloud on a ridge | 2 | haze depth, sky value, cloud-shade scale |
 | Rain in top-down and isometric strategy games, mechanics only | 3 | streak density and alpha, unit readability under rain |
+
+### 2.8 Art numbers, summary (for approval)
+
+The full sheet is `_coord/wet-theme/art-numbers.md`, outside the repo next to the board. It has one row per model,
+with the part lists, the checks and their falsifications, and the per-call Meshy plan. Heights are the model; the
+drawn height multiplies the placement pass's scale roll. Pixel figures are at zoom 1 (12.2 px/m). Decor and props
+add **+0 draw calls**.
+
+| Model | Real size | In game (model, then drawn at most) | Roles / tint | Cap | Source | Credits |
+|---|---|---|---|---|---|---|
+| Tabor oak, base A (`oak_0`, `oak_2`) and base B (`oak_1`) | 10-20 m | 5.0 / 4.2 / 3.4 m, crowns 1.5 / 1.3 / 1.1 tiles; at most 6.0 m (73 px) | trunk (`mud.2`, proposed) + foliage `scrub.1` | 2,500 | Meshy, 2 bases | 50 |
+| White willow | 10-25 m | 4.6 / 3.8 / 3.0 m, crown about 0.55 of height; at most 5.3 m | trunk + foliage `fen.0` | 2,500 | Meshy, 1 base | 25 |
+| Lentisk | 1-3 m | **1.0 / 0.9 / 0.8 m** (spec had 1.3 / 1.1 / 0.9); at most 1.4 m in the open pass | trunk + foliage `scrub.1` | 600 | Meshy, 1 base | 25 |
+| Reeds: common reed x2, bulrush x1 | 1.5-4 m | 1.25 / 1.10 / 1.00 m; **at most 1.5 m drawn** (18 px) | foliage `dust.5`; proposed trunk (new shoots) `scrub.1` | 400 a clump | Blender, procedural | 0 |
+| Winter grass | 0.15-0.5 m | at most 0.40 m (N-4: 0.36 m drawn) | foliage `grass.3` | 200 | Blender, procedural | 0 |
+| Round bale | 1.2-1.5 m | 1.1 m diameter x 1.0 m | `rubber` recommended (black wrap) over `cloth` | 160 | Blender | 0 |
+| Culvert mouth | 0.6-1.2 m bore | headwall 1.6 x 1.0 m, 0.8 m stub | `concrete` | 140 | Blender | 0 |
+| Tractor wreck | 3.0-3.4 m long | 2.8 x 1.5 m, at most 1.6 m tall | `rust` + `rubber` | 400 | Meshy, 1 preview | 20-25 |
+| Five ground tiles | 6-9 m per image | 1024², 114-171 texels/m | ratio images, `NoColorSpace` | — | numpy, procedural | 0 |
+| **Meshy** | | 10 calls, each announced in the ledger first | | | | **125 planned (about $2.50), 200 cap (about $4.00)** |
+
+**Where the sheet departs from sections 2-3** (each for the lead):
+- The lentisk drops to 1.0 m. The open-ground pass rolls a bush at 0.9-1.4, so 1.3 m would draw at 1.82 m, taller
+  than a standing figure on ground that grants no cover.
+- The reed's 1.5 m becomes a DRAWN limit.
+- Wet grass is lusher, not taller: the shipped grass already sits at N-4's limit.
+- The bale is black `rubber` rather than pale `cloth`.
+- Trunk tints are proposed.
+- Oak and willow crown widths are added.
+
+**One readability risk carried into P2/P3:** the continuous reed mat at 1.0-1.5 m covers a KNEELING figure (about
+1.2 m), and infantry kneel to fire. The `~` tile is real cover, so some concealment is honest. It is measured in the
+P3 plate and the P5 capture. If a kneeling squad vanishes, the reed variants drop to 1.1 / 1.0 / 0.9 m first.
 
 ## 3. Triangle caps and the foliage budget
 
@@ -312,14 +380,33 @@ over, the oak cap drops first (2,500 -> 2,000), then the reed clumps a tile (1.5
 
 ### 4.1 Palette
 
-All three ramps are `theme_only`. `mud` and `overcast` are as approved in revision 1. Luminance is Rec.709 on the
-sRGB bytes, as in revision 1.
+All four ramps are `theme_only`. Revision 3 applies the mood-board rulings: the yellower `mud`, the bluer
+`overcast.1`, and one `basalt` step. Luminance is Rec.709 on the sRGB bytes, as in revision 1. Every ramp descends in
+brightness (index 0 is the lightest); the L columns are the check.
 
 | Ramp | 0 | 1 | 2 | 3 | 4 | Role |
 |---|---|---|---|---|---|---|
-| `mud` (approved) | `#A06C48` L116 | `#85543A` L93 | `#6A402D` L72 | `#502F22` L53 | `#382019` L37 | wet earth, tracks, ruts, prints, the marsh floor |
-| `overcast` (approved) | `#C4C8C9` L199 | `#A3A9AC` L168 | `#83898D` L136 | `#656B70` L106 | `#4A4F54` L78 | sky, haze, the water's sky reflection, streaks, wet basalt |
-| **`fen` (new)** | `#75A659` L150 | `#4B7135` L101 | | | | winter sward, the open-ground average, and the cover-1 ground |
+| `mud` (rev. 3) | `#8E6F55` L116 | `#725944` L93 | `#584535` L72 | `#413327` L53 | `#2D241B` L37 | wet earth, tracks, ruts, prints, the marsh floor, proposed tree trunks |
+| `overcast` (rev. 3: `.1` bluer) | `#C4C8C9` L199 | **`#9FA9B5`** L168 | `#83898D` L136 | `#656B70` L106 | `#4A4F54` L78 | sky, haze, the water's sky reflection, streaks, wet basalt |
+| `fen` | `#75A659` L150 | `#4B7135` L101 | | | | spring sward, the open-ground average, and the cover-1 ground |
+| **`basalt` (new, rev. 3)** | `#4B453D` L70 | | | | | the decor boulder tint only |
+
+What changed, and why:
+- **`mud`.** The revision-1 ramp (`#A06C48 #85543A #6A402D #502F22 #382019`) had saturation 0.55-0.58 and hue
+  14-25, a brick red. Every soil and mud sample on the board measured saturation 0.22-0.37 and hue 29-39, a yellow
+  umber. The new ramp keeps the same lightness steps, at hue 27-30 and saturation 0.40. It is seen in the P2
+  capture, and the revision-1 ramp is the recorded fallback if it reads dead.
+- **`overcast.1`.** Far haze in the references reads blue (hue 206-215, saturation 0.18). The new `.1` keeps L168
+  and moves from hue 200 / saturation 0.05 to hue 213 / 0.12, 4.3 ΔE2000 from the old value. It also moves the sky
+  key and the splash, which share the key; the references support both.
+- **`basalt`.** Wet faces stay `overcast.3` / `.4` (ref 08 sits 3 from `overcast.4`). The Golan boulders (ref 06)
+  are darker and warm (L51-54, hue 30-42), and no ramp holds that tone. It is a separate one-step ramp because
+  appending it to `overcast` would put a warm step in the cool ramp. **It is a tint key only:** `wetland` does not
+  list it in `paletteRamps`, so the terrain quantiser never snaps ground to it. The darker candidate `#35322C` was
+  dropped, because it sits 12.7 RGB from `olive.3`, the KDF uniform's shadow step.
+- **`fen` is kept.** If the P2 capture reads cold, `fen.0` -> `#7BA350` (hue 89). It reads 17.5 against KDF
+  `olive.1`, which passes the 15.6 pin. Darkening `fen` toward the photographs fails that pin (`#689350` reads 13.1,
+  `#6D9648` 14.1), which is why it is not done.
 
 Why `fen` earns its place:
 - No shipped green is a deep, saturated winter sward. `grass` runs yellow-green from L214 down to L131, and
@@ -328,8 +415,12 @@ Why `fen` earns its place:
 - Steps darker than `fen.1` were drafted and dropped: they landed 8-11 RGB from `scrub.1` and `olive.3`, which
   already serve.
 
-One honest note on an approved ramp: `overcast.0` sits 5 RGB from the shared `gunmetal.0`. Inside the wet theme the
-quantiser can land on either, and the two look the same. It moves nothing else, because the ramp is `theme_only`.
+Two honest notes on near-duplicates. Both are harmless, because the ramps are `theme_only` and move nothing
+outside the theme:
+- `overcast.0` sits 5 RGB from the shared `gunmetal.0`.
+- The new `mud.0` / `.1` / `.2` sit 8.3 / 11.2 / 11.9 RGB from the shared `limestone.6` / `.7` / `.8`, and `mud.4`
+  sits 10.8 from `shadow.0`.
+Inside the wet theme the quantiser can land on either member of each pair, and the two look nearly the same.
 
 ### 4.2 The `wetland` tone bundle
 
@@ -347,10 +438,10 @@ quantiser can land on either, and the two look the same. It moves nothing else, 
 | `leafDark` / `leafMid` / `leafLit` | `olive.3` / `scrub.1` / `fen.0` | |
 | `bladeLit` / `bladeShade` | `grass.3` / `fen.1` | the `sward` grain |
 | `scatter` / `groveFamily` / `crownRatio` | `sward` / `oak` / 0.8 | |
-| `haze` | `overcast.1` | |
+| `haze` | `overcast.1` | the bluer `#9FA9B5` (rev. 3) |
 | `paletteRamps` | `['fen', 'mud', 'overcast']` | |
 | `macroHue` | `[fen.0, mud.2]` | |
-| `decorColors` | section 2.2, plus `boulder:rock` `overcast.3`, `rock:rock` `overcast.3`, `slab:rock` `overcast.4` | |
+| `decorColors` | section 2.2, plus `boulder:rock` **`basalt.0`**, `rock:rock` `overcast.3`, `slab:rock` `overcast.4`; proposed `oak:trunk`, `willow:trunk` and `shrub:trunk` `mud.2`, and `reed:trunk` `scrub.1` (2.8) | rev. 3 |
 | `openScatter` | tree `oak`, treePlain 0.006, treeFoothill 0.03, boulderPlain 0.01, boulderFoothill 0.03, bush 0.04, chipPlain 0.04, chipFoothill 0.08, chipCluster 0.3, sandKeep 0 | about three quarters of the highland's, because the wet maps carry groves and reeds as well |
 
 **Readability floor (decision 5).** ΔE2000 of the uniforms against the open-ground tone:
@@ -368,6 +459,25 @@ The pin is KDF `olive.1` on `open` at **at least 15.6** (the lowest shipped them
 oracles, not values imported from the bundle. The falsification is to set `open` to `scrub.0`, which reads 9.8,
 and watch the test go red.
 
+**The revision-3 colours against the floors.** Pairs are CIE76 / ΔE2000 against KDF `olive.1`. The calculator
+reproduces every figure above.
+
+| Colour | Use | vs `olive.1` | Verdict |
+|---|---|---|---|
+| `dust.5` | `reed:foliage` | 19.4 / 15.6 | passes VR-05 (15 / 12) |
+| `mud.1` / `.2` / `.3` (new) | road / earth / rut and the marsh floor | 19.7 / 19.1, 24.8 / 22.5, 31.4 / 26.5 | pass (the revision-1 road read 28.1 / 24.6) |
+| `basalt.0` | boulders | 27.0 / 21.0 | passes |
+| `overcast.1` (new) | haze, sky | 38.2 / 30.8 | passes |
+| `#7BA350` (the conditional `fen.0` nudge) | open ground; `willow:foliage` | 28.3 / 17.5 | passes the 15.6 pin and VR-05 |
+| water and puddles, an albedo proxy (`(1-R) x 0.55 x mud.3 + R x overcast.0`, linear) | the water surface | lowest **15.8 at R 0.26** (the revision-1 mud: 17.8) | passes by 0.2. KDF-on-water is read in the P2 A/B. |
+
+**A mixture note: green over brown is olive drab.** A texel that mixes `fen.0` with `mud.1` reads within 15.6 of
+`olive.1` at ANY mud share from 20% to 95%, and at 70% it is 1.5 ΔE2000 from the uniform (the revision-1 mud: 5.6
+at 60%). The mean tone passes, but a mixed patch is the KDF uniform. That is why:
+- the open tile keeps mud and sward apart at clump scale, with a green understorey (2.1);
+- the tile carries a figure-ground histogram (2.1);
+- road edges (the 0.5-tile fen-to-mud blend) are read in the P2 capture with a KDF vehicle on the verge.
+
 ### 4.3 Wet ground, the marsh and puddles
 
 These terms go into the ground shader under a `THEME_WET` define, so the other three themes compile today's program
@@ -375,12 +485,12 @@ byte for byte (9.1). The masks are baked into control C at boot, not computed pe
 
 | Term | Rule | Numbers (for approval) |
 |---|---|---|
-| Marsh `~` | the C.R weight, with a 0.5-tile soft edge like every surface. Standing water between the reed clumps. | 55% water by area inside a marsh tile; a `mud.3` floor x 0.55; overcast reflectance 0.35 |
+| Marsh `~` | the C.R weight, with a 0.5-tile soft edge like every surface. The water lies in meanders and pools from `marshWater(x, z)` (1.3), under a continuous reed mat; the reeds keep off it. | **25-35% water by area inside a marsh tile** (rev. 3; was 55%); a `mud.3` floor x 0.55; reflectance by the P2 A/B below |
 | Puddles, roads | in the ruts: B's road distance inside the rut band, times the rut noise | 25-35% of road area |
 | Puddles, open ground | the macro field thresholded on FLAT ground (normal y above 0.985) | 4-8% of open ground |
 | Puddles, low ground | boosted below the map's median open level (`hazeReferenceLevel`) | +6% at 2 levels below |
 | Never water | a terrace top, a `^` top, a building pad, a slope over 10 degrees, a crown | — |
-| Puddle surface | the wet tone mixed toward `overcast.0` scene-referred by an AUTHORED reflectance | albedo x 0.55, reflectance 0.35. Physical Fresnel here would be 0.05, which reads as nothing. |
+| Puddle surface | the wet tone mixed toward `overcast.0` scene-referred by an AUTHORED reflectance | albedo x 0.55; **reflectance A/B in P2: 0.20-0.25 against 0.35** (rev. 3), keeping whichever reads 1.5-2x the mud beside it (refs 16, 17). On the new `mud.1` the albedo proxy gives 1.47x / 1.70x / 2.16x at 0.20 / 0.25 / 0.35. Physical Fresnel here would be 0.05, which reads as nothing. |
 | Edge | a soft rim of darker mud | 0.06 tile, `mud.3` |
 | Ripples | rings on water fragments only, on the sim clock, each ring cell a `tileHash` stream | 0.12-tile rings, 0.9 s life, 2 a cell, 0.5-tile cells; ±15% on the reflection; at most an 8-degree normal tilt |
 | Roughness | open 0.62, road mud 0.45, water 0.08, basalt top 0.55 | Honest note: flat ground shows almost nothing (section 0). It is there for relief faces and ripples. |
@@ -422,10 +532,10 @@ Free Play. It keeps the preset's sun DIRECTION (rain at dawn is still dawn) and 
 | Sun intensity | 2.6 | 1.2 | x0.46 on any preset |
 | Sun colour | `limestone.0` | `overcast.0` | |
 | Fill (hemisphere) | 0.9 | 1.35 | as a `LightOverride.fill` |
-| Sky key | `water.0` | `overcast.1` | |
+| Sky key | `water.0` | `overcast.1` (`#9FA9B5`) | |
 | Shadow strength | 1 | 0.45 | as a `LightOverride.shadow` |
 | Shadow map | 4096 / 2048 / 1024 | 2048 / 1024 / 1024 | one step down; overcast shadows are soft (approved) |
-| `hazeFar` / `hazeKey` | 0.12 / theme | 0.26 / `overcast.1` | max(preset, 0.26); never above 0.26 |
+| `hazeFar` / `hazeKey` | 0.12 / theme | 0.26 / `overcast.1` (`#9FA9B5`, bluer, rev. 3) | max(preset, 0.26); never above 0.26 |
 | `HAZE_LOW` | 0.06 | 0.10 | valleys fill with murk |
 | Exposure | ACES 1.0 | **ACES 1.0, unchanged** | the colour-pipeline rule; the dimming comes from the lights |
 
@@ -664,7 +774,11 @@ The look must not imply concealment the sim does not grant. This is why haze is 
 | `~` is vehicle-walled, foot-open and cover 1 | `boulder: 0` in the legend entry |
 | `validate:data` refuses `~` off a wetland map | one `~` on `tile_green` |
 | `decorFamiliesFor` covers what is placed | drop `reed` from the mirror |
-| Reeds never stand above 1.5 m | scale one reed variant x1.3 |
+| Reeds never stand above 1.5 m DRAWN (model x 1.2) | scale one reed variant x1.3 |
+| No reed clump centre on a `marshWater` fragment; marsh water 25-35% by area | drop the reject in the placer |
+| The lentisk draws at most 1.4 m in the open pass | the spec's former 1.3 m model (1.82 m drawn) |
+| `basalt` is a tint key only, absent from `paletteRamps` | list it in `wetland`'s `paletteRamps` |
+| The open tile's figure-ground histogram: at most 5% of texels within ΔE2000 12 of `olive.1` | author the tile at a 60% mud share with soft edges |
 | Placed decor is at most 0.9 M a wet map | double the reed clumps a tile |
 | Rain runs on the sim clock | drive the batch from `performance.now()`: the frozen repaint must differ |
 | The `rain` layer contributes | hide the batch alone: the reading must be non-zero |
@@ -677,7 +791,7 @@ The look must not imply concealment the sim does not grant. This is why haze is 
 | Phase | What | Output | Gate before the next |
 |---|---|---|---|
 | P0 | this spec | the decisions in section 11 | the lead's answers |
-| **P1** | **mood board, reference study only**: no render, no Meshy, no browser | `_coord/wet-theme/board.html`; the numbers revised where the board argues | **the lead approves the art numbers (sections 2-4) and the species list** |
+| P1 | mood board, reference study only: no render, no Meshy, no browser. **Done 28 Oct**: the five adjustments approved and folded in (revision 3) | `_coord/wet-theme/mood-board.png`, `notes.md`; `art-numbers.md` (summary in 2.8) | **the lead approves the art-numbers sheet (2.8)** |
 | P2 | wiring with STAND-INS (no new art): the 9.1 pins first, then schema, legend `~`, ramps, the bundle, the per-theme tables, the remap and waterside passes, and an Ein Qasab greybox. The shipped GLBs and textures stand in, retinted. | first captures, own port, one Metal browser, music off, zoom 1 and 2.5 | the lead's look at tones and palette |
 | P3 | art: the Meshy batch inside the approved credits (Opus, high effort, each call announced), Blender fits and variants, procedural reeds, grass and props, the five ground tiles | `validate:meshes` green; fit reports with the cost of each cap; `perf:load` | the lead's look, zoomed in |
 | P4 | wet ground and air: control C, marsh water, puddles, ripples, roughness, `rainLight`, haze, decals, mud spray; then the rain batch, the ladder, reduced motion; **the cost run** (section 6) | the cost tables measured; the ladder stepped if over | inside budget, or the lead's call |
@@ -689,8 +803,8 @@ basalt village, real-player readability, and any GPU but the M3 Pro.
 
 ## 11. Decisions for the lead (recommendation first)
 
-1. **The theme's character and id.** Recommend `wetland`: a Levantine winter valley of alluvial mud and winter
-   sward, wet basalt, reed marsh, Tabor oak and willow. It is distinct from all three shipped themes and sits in the
+1. **The theme's character and id.** Recommend `wetland`: a Levantine winter valley of alluvial mud and sward, wet
+   basalt, reed marsh, Tabor oak and willow, set at the early-spring flush (rev. 3). It is distinct from all three shipped themes and sits in the
    game's world. Alternatives: the id `wet`, or a temperate European wet forest (a look the setting does not have).
 2. **Presentation only.** Recommend it. Rain is part of the theme: it falls on every wetland map and on no other,
    with no `&weather=` flag. A/B comparisons go through the debug layers.
@@ -700,6 +814,11 @@ basalt village, real-player readability, and any GPU but the M3 Pro.
    - decor only, open to vehicles: a marsh tanks drive through, which is a lie the player acts on.
 4. **Palette.** Recommend adding `fen` (`#75A659`, `#4B7135`, `theme_only`) to the approved `mud` and `overcast`.
    The rocks take `overcast.3` / `overcast.4`, with no basalt ramp unless the board argues for one.
+   **Ruled 28 Oct (revision 3):**
+   - `mud` becomes the yellower ramp;
+   - `overcast.1` becomes `#9FA9B5`;
+   - one tint-only step, `basalt.0` `#4B453D`, goes on the boulders;
+   - `fen` is kept, with `#7BA350` held for a cold P2 capture.
 5. **Readability.** Recommend the bundle in 4.2. Pin KDF `olive.1` on open ground at ΔE2000 15.6 or more (this
    bundle reads 18.4), and hold every foliage tint to the VR-05 floor.
 6. **Ground set.** Recommend five procedural tiles (2.1) at 0 credits, with a per-theme slot table so that each
@@ -727,3 +846,11 @@ basalt village, real-player readability, and any GPU but the M3 Pro.
 14. **The visual gate.** Recommend two report-only scenarios, `wet` and `wet-downs`, and the terrain pins extended
     to all 35 shipped maps before any wiring.
 15. **Go for P1.** Recommend approving the mood board as reference study only: no render, no Meshy, no browser.
+    **Done 28 Oct.**
+16. **The art-numbers sheet (2.8, `_coord/wet-theme/art-numbers.md`).** Recommend approving it as written. That
+    includes its four departures:
+    - the lentisk at 1.0 m;
+    - the reed's 1.5 m as a drawn limit, with the kneeling-figure check;
+    - the black bale;
+    - the trunk tints.
+    Then P2 (wiring with stand-ins) and the P3 Meshy batch go ahead, inside 125 credits planned and 200 at most.
