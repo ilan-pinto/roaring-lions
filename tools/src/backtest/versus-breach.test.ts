@@ -23,9 +23,10 @@ describe('the normal arm is the room', () => {
     // (beit helper / room) and 1524988923 (tel, both).
     // beit's helper pin re-pinned 24 Oct 2026 for its seat 1 at (40,23) (GH-561). Was 2485993817.
     // Re-pinned 25 Oct 2026 for GH-421 Stage 2 (vehicle avoidance): the columns sepWait and sepLast join the hash and nothing else moved (with their hashArray lines removed the old values read back). Was 1732930723 (beit helper), 4047666552 (beit room), 792859212 (tel, both).
-    expect(pinWindow('beit_sahwan_outskirts', 'helper').hash).toBe(695551139);
+    // Re-pinned 28 Oct 2026 for beit's seat 0 at (4,22) (GH-560 Task 7B): the spawn moved and nothing else. Was 695551139 (helper) and 823410040 (room).
+    expect(pinWindow('beit_sahwan_outskirts', 'helper').hash).toBe(4158212441);
     // beit's room pin re-pinned 24 Oct 2026 for its seat 1 at (40,23) (GH-561). Was 3227696674.
-    expect(pinWindow('beit_sahwan_outskirts', 'room').hash).toBe(823410040);
+    expect(pinWindow('beit_sahwan_outskirts', 'room').hash).toBe(1075203618);
     // tel_marum re-pinned 2026-10-22 for its versus seat 0 at (24,46). Was 1260439781.
     // Re-pinned 24 Oct 2026 for its seat 0 at (27,45) (GH-774). Was 280818962.
     // tel_marum re-pinned for its seat 1 at (29,17) (GH-421 Stage 2 rebalance): the spawn moved. Was 52130380.
