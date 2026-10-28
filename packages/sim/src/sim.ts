@@ -6835,6 +6835,16 @@ export class Sim {
       }
       const type = this.unitTypes[this.typeIdx[i]];
       if (type.weapons.length === 0) continue;
+      // GH-867: a loitering munition's warhead is delivered by stepKamikaze's terminal strike and by
+      // nothing else. Let it through here and it fires the warhead as an ordinary round inside its
+      // weapon range (or at a building, indefinitely), the strike destroys it, and the round lands
+      // from a dead shooter: two penetrations from one munition. stepKamikaze owns its target and
+      // its steering, so it never latches `engaging` or holds a structure target either.
+      if (type.isKamikaze) {
+        this.engaging[i] = 0;
+        this.curStructure[i] = -1;
+        continue;
+      }
 
       // Halt to fire (spec 2026-10-05-infantry-halt-to-fire): a unit that
       // fires only from a halt does not fire at all unless it is down. Targets
