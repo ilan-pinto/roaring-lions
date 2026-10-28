@@ -559,7 +559,7 @@ export const RELIEF_SCENARIO: Scenario = {
  *  flat -- so the gate has a witness that the ground can remember a battle.
  *
  *  WHY THIS MAP. `qarn_hadid` is "the terrain map" (CLAUDE.md): the only one
- *  carrying all ten terrain symbols, elevation range 0-7 (every other map
+ *  carrying every terrain symbol legal on arid (all ten; `~` is wetland-only), elevation range 0-7 (every other map
  *  tops out at 4), and a rock wall with two ways through. That gives the
  *  showcase's own site picker (`showcaseSites`, `decal-showcase.ts`) a real
  *  `relief` candidate -- a tile whose drawn-surface normal tips far enough

@@ -45,6 +45,9 @@ export const DECOR_RIDGE = 4;
  *  vehicle-only block. `boulder` alone says a vehicle is stopped; this says by
  *  what, which is the only thing separating a `d` tile from a `b` one. */
 export const DECOR_DITCH = 5;
+/** A marsh tile (`~`). Paired with a MECHANIC, like `DECOR_DITCH`: the tile
+ *  also sets `TerrainInput.boulder` (the vehicle-only block) and carries cover 1. */
+export const DECOR_MARSH = 6;
 
 /**
  * World units of height per elevation level.

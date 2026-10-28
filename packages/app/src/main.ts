@@ -2258,7 +2258,8 @@ async function bootBattlefield(stage: HTMLElement, req: BattlefieldRequest): Pro
     DECOR.grove !== TERRAIN_DECOR.grove ||
     DECOR.knoll !== TERRAIN_DECOR.knoll ||
     DECOR.ridge !== TERRAIN_DECOR.ridge ||
-    DECOR.ditch !== TERRAIN_DECOR.ditch
+    DECOR.ditch !== TERRAIN_DECOR.ditch ||
+    DECOR.marsh !== TERRAIN_DECOR.marsh
   ) {
     throw new Error('decor enums have diverged between @lions/data and @lions/render');
   }

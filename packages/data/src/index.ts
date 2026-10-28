@@ -239,6 +239,7 @@ export {
   DECOR,
   STRUCTURE_SYMBOLS,
   TERRAIN_LEGEND,
+  THEME_SYMBOLS,
   type MapJson,
   type ParsedMap,
   type DecorKind,

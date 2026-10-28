@@ -24,7 +24,7 @@
 // the flat control is what proves the low one is chosen for its height and
 // not for its position.
 import { describe, expect, it } from 'vitest';
-import { applyTerrain, maps, parseMap, TERRAIN_LEGEND, units, type MapJson } from '@lions/data';
+import { applyTerrain, maps, parseMap, TERRAIN_LEGEND, THEME_SYMBOLS, units, type MapJson } from '@lions/data';
 import { fx } from '../../packages/sim/src/fixed';
 import { DIR_DX, DIR_DY, DIR_NONE, FlowField } from '../../packages/sim/src/flowfield';
 import { Sim, TICKS_PER_SECOND, type UnitTypeJson } from '../../packages/sim/src/sim';
@@ -129,14 +129,22 @@ const SADDLE: Pt = [29, WALL_ROW];
 // ---------------------------------------------------------------------------
 
 describe('the terrain vocabulary', () => {
-  it('authors every terrain symbol the legend declares', () => {
+  it('authors every terrain symbol legal on its theme', () => {
     // Driven off TERRAIN_LEGEND rather than a list typed here, so a symbol
     // added to the game fails this map rather than quietly going unexercised
     // for another year — which is exactly what happened to `3` and `d`.
+    // A symbol keyed to ANOTHER theme (`~`, wetland only) is not legal here,
+    // so it is taken out of the demand; this map is arid.
     const present = new Set(MAP.rows.join(''));
-    const missing = Object.keys(TERRAIN_LEGEND).filter((s) => !present.has(s));
+    const legal = Object.keys(TERRAIN_LEGEND).filter(
+      (s) => THEME_SYMBOLS[s] === undefined || THEME_SYMBOLS[s] === (MAP.terrain ?? 'arid')
+    );
+    const missing = legal.filter((s) => !present.has(s));
     expect(missing).toEqual([]);
-    expect(Object.keys(TERRAIN_LEGEND)).toHaveLength(10);
+    expect(Object.keys(TERRAIN_LEGEND)).toHaveLength(11);
+    // Exactly one theme-restricted symbol, and this map carries none of it.
+    expect(Object.keys(THEME_SYMBOLS)).toEqual(['~']);
+    expect(present.has('~')).toBe(false);
   });
 
   it('parses into the four mechanical layers the symbols promise', () => {

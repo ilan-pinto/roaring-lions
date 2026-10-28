@@ -23,6 +23,8 @@ import {
   DECOR_GROVE,
   DECOR_KNOLL,
   DECOR_RIDGE,
+  DECOR_DITCH,
+  DECOR_MARSH,
   srgbToLinear,
   hexToLinear,
 } from './shared';
@@ -86,6 +88,11 @@ describe('DECOR_* values', () => {
     expect(DECOR_GROVE).toBe(2);
     expect(DECOR_KNOLL).toBe(3);
     expect(DECOR_RIDGE).toBe(4);
+  });
+
+  it('pins the ditch and marsh values, both paired with a mechanic', () => {
+    expect(DECOR_DITCH).toBe(5);
+    expect(DECOR_MARSH).toBe(6);
   });
 });
 

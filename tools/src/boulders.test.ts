@@ -46,12 +46,12 @@ const H = 9;
  * than a partition: a vehicle that cannot cross it still has a way round, and
  * "went round" is distinguishable from "got stuck".
  */
-function field(fill: 'b' | '.'): MapJson {
+function field(fill: 'b' | '~' | '.'): MapJson {
   const rows: string[] = [];
   for (let y = 0; y < H; y++) {
     rows.push(y >= 2 && y <= 6 ? `.......${fill}.......` : '...............');
   }
-  return { id: `field_${fill === 'b' ? 'boulder' : 'open'}`, name: 'Field', width: W, height: H, rows };
+  return { id: `field_${fill === 'b' ? 'boulder' : fill === '~' ? 'marsh' : 'open'}`, name: 'Field', width: W, height: H, rows };
 }
 
 interface Walk {
@@ -64,7 +64,7 @@ interface Walk {
 }
 
 /** Spawn one of each west of the wall, order both to the same tile east of it. */
-function walk(fill: 'b' | '.'): Walk {
+function walk(fill: 'b' | '~' | '.'): Walk {
   const map = parseMap(field(fill));
   const sim = new Sim({ seed: 11, width: map.width, height: map.height, capacity: 8 });
   applyTerrain(map, sim);
@@ -267,5 +267,46 @@ describe('what counts as a vehicle', () => {
     const heli = unitTypeFromJson(units.heli_peten as UnitTypeJson);
     expect(heli.isAir).toBe(true);
     expect(heli.moveDomain).toBe(0);
+  });
+});
+
+// The marsh band (GH-871 P2): `~` is `b`'s vehicle wall plus cover 1. The same
+// field, the same goal and the same control as the boulder case; the extra
+// assertions are that the wall is still a wall and that it is open on foot.
+describe('a marsh band authored as `~`', () => {
+  it('is waded by infantry and routed around by a vehicle, same map, same goal', () => {
+    const w = walk('~');
+    expect(WALL.some((t) => w.footTiles.has(t))).toBe(true);
+    expect(WALL.filter((t) => w.vehTiles.has(t))).toEqual([]);
+    // Both arrived east of the band: the vehicle went round rather than stalling.
+    expect(w.footEnd[0]).toBeGreaterThan(7);
+    expect(w.vehEnd[0]).toBeGreaterThan(7);
+  });
+
+  it('and the same ground without it routes both straight through — the control', () => {
+    const w = walk('.');
+    expect(WALL.some((t) => w.footTiles.has(t))).toBe(true);
+    expect(WALL.some((t) => w.vehTiles.has(t))).toBe(true);
+  });
+
+  it('leaves the marsh tiles open in the foot mask, walled in the vehicle mask', () => {
+    const map = parseMap(field('~'));
+    const sim = new Sim({ seed: 11, width: W, height: H, capacity: 4 });
+    applyTerrain(map, sim);
+    for (const t of WALL) {
+      expect(sim.blocked[t]).toBe(0);
+      expect(sim.blockedVehicle[t]).toBe(1);
+    }
+  });
+
+  it('reads cover 1 on the marsh tiles, and 0 on the open ground beside them', () => {
+    const map = parseMap(field('~'));
+    const sim = new Sim({ seed: 11, width: W, height: H, capacity: 4 });
+    applyTerrain(map, sim);
+    for (const t of WALL) expect(sim.cover[t]).toBe(1);
+    // The control: a tile off the band, so a cover write that painted the whole
+    // map would not pass.
+    expect(sim.cover[0]).toBe(0);
+    expect(sim.cover[2 * W + 6]).toBe(0);
   });
 });

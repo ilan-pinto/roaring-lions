@@ -4,6 +4,7 @@ import {
   PER_TILE_SYMBOLS,
   STRUCTURE_SYMBOLS,
   TERRAIN_LEGEND,
+  THEME_SYMBOLS,
   applyTerrain,
   parseMap,
   roadMaskOf,
@@ -75,14 +76,50 @@ describe('parseMap', () => {
     expect(() => parseMap({ ...TINY, terrain: 'lunar' })).toThrow(/unknown terrain theme/);
   });
 
-  it('still decodes exactly ten terrain symbols', () => {
+  it('still decodes exactly eleven terrain symbols', () => {
     // If this count moves, a symbol was added and validate_data.mjs's
     // TERRAIN_SYMBOLS must move with it. That used to be the whole guard --
     // a comment asking the next author to remember. tools/src/terrain_symbols.test.ts
     // now checks the validator's actual source, so forgetting fails a test.
     expect(Object.keys(TERRAIN_LEGEND).sort()).toEqual([
-      '.', '1', '2', '3', '^', 'b', 'd', 'n', 'o', 'r',
+      '.', '1', '2', '3', '^', 'b', 'd', 'n', 'o', 'r', '~',
     ]);
+  });
+});
+
+describe('the marsh symbol', () => {
+  const MARSH: MapJson = {
+    id: 'marsh',
+    name: 'Marsh',
+    width: 4,
+    height: 2,
+    rows: ['.~^2', '~b..'],
+  };
+
+  it('decodes to the vehicle wall, cover 1 and its own decor kind', () => {
+    // Literals, not DECOR.marsh: the oracle must not read the value under test.
+    expect(TERRAIN_LEGEND['~']).toEqual({ blocked: 0, boulder: 1, cover: 1, decor: 6 });
+    const m = parseMap(MARSH);
+    const [a, b] = [1, 4]; // the two `~` tiles
+    for (const t of [a, b]) {
+      expect(m.blocked[t]).toBe(0);
+      expect(m.boulder[t]).toBe(1);
+      expect(m.cover[t]).toBe(1);
+      expect(m.decor[t]).toBe(6);
+    }
+    // The controls: `b` beside it is boulder without cover, and the `2` keeps its own.
+    expect(m.cover[5]).toBe(0);
+    expect(m.cover[3]).toBe(2);
+  });
+
+  it('adds to boulderCount like `b` and `d` do', () => {
+    // Two `~` and one `b`: three, so a marsh that skipped the count reads 1.
+    expect(parseMap(MARSH).boulderCount).toBe(3);
+  });
+
+  it('is theme-agnostic in parseMap: the wetland-only rule is the data gate\'s', () => {
+    expect(parseMap({ ...MARSH, terrain: 'arid' }).boulder[1]).toBe(1);
+    expect(THEME_SYMBOLS).toEqual({ '~': 'wetland' });
   });
 });
 
