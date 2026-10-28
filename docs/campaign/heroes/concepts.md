@@ -51,7 +51,7 @@ how the player finds the commander without a mark over his head.
 | data | New unit JSON plus a `command` block (§5.1). | The same `command` block on a hull JSON. | A `commanders/*.json` file with no hull, plus a mission `commander_slots` that names a host. |
 | pathing | Foot domain. Nothing new. | Vehicle domain. Nothing new. | Moves with the host. Nothing new. |
 | RNG | Own entity, own stream (invariant 3). His rolls never perturb another unit's stream. | Same as A. | Draws from the **host's** stream. Attaching mid-mission shifts that stream, so attaching must be fixed at spawn. |
-| death | Team destroyed: roll wounded or killed on his own stream (§3.1). | Component table (GDD §5.4): crew shaken suspends command, a mobility or firepower kill wounds him, a catastrophic kill kills him. | The host dies: roll as for A. |
+| death | Team destroyed: roll wounded or killed on his own stream (§3.1). | Component table (GDD §5.4): crew shaken suspends command, a mobility or firepower kill wounds him, the hull destroyed (HP 0) kills him. | The host dies: roll as for A. |
 | found without a world mark | A portrait slot on the HUD strip (click to select, double-click to go to him). His radius draws only while he is selected, hovered or arming an order (FW treatment B, the dashed ring). Covered units get a card chip. Silhouette lever: a whip antenna and a map case. | Same HUD slot. The hull's silhouette lever is a tall mast. | HUD slot only. The host looks like any other Lavi. **This is the weakest to read.** |
 | art | One figure team, 40 cr. | Textured vehicle 35 cr, or a Blender variant of the parent hull at 0 cr with an IoU-≥0.88 risk against that parent. | 0 cr. |
 | sim cost | Low. Unit-sourced aura and charged orders (§5.2 N1, N2). | Low, plus the component-to-command mapping. | **Highest.** A host index, carried death, and a new "who is the commander" read in every consumer. |
@@ -118,12 +118,12 @@ shape that gates the Namer.
 | ability | mechanism | cost / cooldown | counterplay |
 |---|---|---|---|
 | **Fire distribution** (passive, radius 6 **P**, vehicles) | Vehicles in radius prefer an identified target that no other vehicle in radius is already engaging, before falling back to `selectTarget`'s existing order. That stops three tanks killing one technical. This is the realistic core of a company commander's job, and it adds no accuracy. | none | Scatter the targets and the effect is nothing. It touches `selectTarget` (`sim.ts:3155`), the hottest O(N²) path, so it carries the **highest §5.7 risk** (Lanchester). |
-| **Crew drill** (passive, vehicles) | `crew_shaken` suppression on hulls in radius decays at ×1.5 (**P**). | none | A catastrophic or mobility kill is untouched. |
+| **Crew drill** (passive, vehicles) | `crew_shaken` suppression on hulls in radius decays at ×1.5 (**P**). | none | A mobility or firepower kill is untouched. |
 | **Smoke and bound** (order) | One click fires the `smoke` of every smoke-capable hull within 6 tiles as a single screen line across the threat axis. It is **an app-side fan-out of existing `smoke` commands**, with no sim change. Each hull spends its own 45 s cooldown. | uses the hulls' cooldowns | Smoke buys exactly one ratio step (D1). This spends it faster; it does not add a second one. |
 
 **Wounded or killed** (shape B): crew shaken suspends command until the crew recovers; a
-mobility or firepower kill wounds him, and he is out for the next mission; a catastrophic
-kill kills him. **The player loses** fire distribution and crew drill. The fan-out smoke is
+mobility or firepower kill wounds him, and he is out for the next mission; the hull
+destroyed (HP 0) kills him. **The player loses** fire distribution and crew drill. The fan-out smoke is
 lost with him.
 
 ### 2.4 Engineer commander: "Dalia" (placeholder) · shape A

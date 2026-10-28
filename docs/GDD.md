@@ -178,7 +178,7 @@ Facing is derived from the angle between shot vector and hull forward: **front Â
 
 ### 5.4 Component damage
 
-**Hit points alone end a vehicle (GH-560, lead ruling 27 Oct).** A penetration costs a hard hull at least 34% of its maximum hit points, scaled by overmatch: `max(weapon damage, 0.34 x max HP x (1 + overmatch/60))`, the overmatch term being the 0-30 shift below. The overmatch term runs from x1 to x1.5, so a hull dies to the third penetration, or to the second only at the maximum shift of 30. Examples: a Lavi (3,000 HP) takes 1,496 HP (50%) from a 120 mm round at shift 28 and 1,156 HP (39%) from a Kornet through its front at shift 8; a Peten (640 HP) takes 218 HP (34%) from a ZU-23 at shift 0. There is no roll that ends a hull early: the bar is the truth, and it is what the player reads.
+**Hit points alone end a vehicle (GH-560, lead ruling 27 Oct).** A penetration costs a hard hull at least 34% of its maximum hit points, scaled by overmatch: `max(weapon damage, 0.34 x max HP x (1 + overmatch/60))`, the overmatch term being the 0-30 shift below. The overmatch term runs from x1 to x1.5, so a hull dies to the third penetration, or to the second at shift 29 or 30 (z of 3.9 or more). Examples: a Lavi (3,000 HP) takes 1,496 HP (50%) from a 120 mm round at shift 28 and 1,156 HP (39%) from a Kornet through its front at shift 8; a Peten (640 HP) takes 218 HP (34%) from a ZU-23 at shift 0. There is no roll that ends a hull early: the bar is the truth, and it is what the player reads.
 
 On penetration, also roll a weighted component table (weights shift with penetration overmatch). The table has four results, and none of them destroys the vehicle:
 
