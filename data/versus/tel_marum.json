@@ -2,7 +2,7 @@
   "id": "tel_marum",
   "map": "tel_marum",
   "ends": {
-    "friendly": { "camp": { "at": [23, 44], "size": [2, 2] } },
+    "friendly": { "camp": { "at": [21, 46], "size": [2, 2] } },
     "hostile": { "camp": { "at": [25, 14], "size": [2, 2] } }
   },
   "tunnels": {
