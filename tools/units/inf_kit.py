@@ -192,9 +192,10 @@ def finish_wrap(pc, wr, P, mask, row_tex, rim_depth, rim_tex, off, rim_filter=No
 
 
 ALLOW_DEFAULT = 0.0035      # the clash census's tolerance is 4 mm: stay inside it
-#: Scoped clash allowances (ruling Q9, 28 Oct): used ONLY where the trims fail. The carrier's plate
-#: rests on the stock (<= 22 mm) and against the flush upper arm (<= 6 mm); nothing else gets one.
-CARRIER_ALLOW = {"weapon": 0.022, "upperarm_L": 0.006, "upperarm_R": 0.006}
+#: Scoped clash allowances (ruling Q9, 28 Oct) would be {"weapon": 0.022, "upperarm_L": 0.006, "upperarm_R": 0.006}
+#: for the carrier, and only if the trims FAIL. They did not: the census is clean for the carrier against the
+#: stock and the flush upper arm with none, so the table is EMPTY and no allowance is in force.
+CARRIER_ALLOW = {}
 
 
 def clearance_trim(wr, blockers, allow=None, floor=0.0015, slack=0.002):
