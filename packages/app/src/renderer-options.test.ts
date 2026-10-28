@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { maps, paletteColor, paletteTeamColors, parseMap } from '@lions/data';
+import { maps, paletteColor, paletteTeamColors, parseMap, type MapJson } from '@lions/data';
 import { QUALITY_PRESETS } from '@lions/render';
 import { dracoDecoderPath } from './mesh-catalogue';
 import { rendererOptionsFor } from './renderer-options';
@@ -9,6 +9,17 @@ import { TERRAIN_THEMES } from './terrain-themes';
 const arid = parseMap(maps.beit_sahwan_outskirts);
 const green = parseMap(maps.wadi_halam_basin);
 const HIGH = { colorVision: 'default', quality: 'high' } as const;
+// A literal wetland map, until the Ein Qasab greybox (Task 7) exists.
+const WET_JSON: MapJson = {
+  id: 'wet_fixture',
+  name: 'Wet fixture',
+  width: 4,
+  height: 3,
+  terrain: 'wetland',
+  rows: ['....', '.1..', '....'],
+  markers: { entry: [0, 2] },
+  zones: { yard: [1, 0, 2, 2] },
+};
 
 describe('rendererOptionsFor', () => {
   // The two reads bootBattlefield made off `map.terrain` (main.ts:1583, :1623
@@ -49,6 +60,32 @@ describe('rendererOptionsFor', () => {
     }
   });
 
+  // GH-871 P2 T4: the wetland is the fourth theme, and the only one that rains.
+  it('resolves the wetland theme by identity, its ground image and the rain weather seam', () => {
+    const wet = parseMap(WET_JSON);
+    expect(wet.terrain).toBe('wetland');
+    const o = rendererOptionsFor(wet, HIGH, '/');
+    expect(o.terrainTones).toBe(TERRAIN_THEMES.wetland);
+    expect(o.groundTextureUrl).toBe('/textures/green_basin_tile.jpg');
+    expect(o.weather).toBe('rain');
+    // R-2: the four slot images are today's shared four, under the wetland row.
+    expect(o.rockTextureUrl).toBe('/textures/rock_ground_tile.jpg');
+    expect(o.scrubTextureUrl).toBe('/textures/rough_scrub_tile.jpg');
+    expect(o.groveTextureUrl).toBe('/textures/orchard_floor_tile.jpg');
+    expect(o.knollTextureUrl).toBe('/textures/knoll_scree_tile.jpg');
+    expect(o.terrainTones.familyRemap).toEqual({ grass: 'wet_grass', bush: 'shrub' });
+    expect(o.terrainTones.waterside).toEqual({ tree: 'willow', p: 0.12, reach: 1 });
+    expect(o.terrainTones.marsh).toBe(paletteColor('mud.3'));
+  });
+
+  it('gives a shipped theme no weather key at all (G-3: absent, not "clear")', () => {
+    const hill = parseMap(maps.tel_marum);
+    for (const [name, m] of [['arid', arid], ['green', green], ['highland', hill]] as const) {
+      const o = rendererOptionsFor(m, HIGH, '/');
+      expect('weather' in o, name).toBe(false);
+    }
+  });
+
   it('hands a map without a grove override its theme bundle by identity', () => {
     expect(arid.grove).toBeNull();
     expect(green.grove).toBeNull();
@@ -63,6 +100,12 @@ describe('rendererOptionsFor', () => {
       expect(t.paletteRamps).toBeUndefined();
       expect(t.openScatter).toBeUndefined();
       expect(t.macroHue).toBeUndefined();
+    }
+    // GH-871: nor the wetland-only fields, on any of the three shipped themes.
+    for (const t of [TERRAIN_THEMES.arid, TERRAIN_THEMES.green, TERRAIN_THEMES.highland]) {
+      expect(t.familyRemap).toBeUndefined();
+      expect(t.waterside).toBeUndefined();
+      expect(t.marsh).toBeUndefined();
     }
     expect(Object.keys(TERRAIN_THEMES.arid.decorColors ?? {}).sort()).toEqual(
       ['bush', 'cedar', 'desert_tree', 'grass', 'tree'].map((f) => `${f}:foliage`).sort()

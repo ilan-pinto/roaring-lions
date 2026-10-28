@@ -47,9 +47,9 @@ import structureCatalogue from '../../../data/structures.json';
  * tone bundle `main.ts` hands the renderer and the shape of the open-ground
  * scatter. Adding a theme is a renderer change; adding a MAP is not.
  */
-export type TerrainTheme = 'arid' | 'green' | 'highland';
+export type TerrainTheme = 'arid' | 'green' | 'highland' | 'wetland';
 
-const TERRAIN_THEMES: ReadonlySet<string> = new Set<TerrainTheme>(['arid', 'green', 'highland']);
+const TERRAIN_THEMES: ReadonlySet<string> = new Set<TerrainTheme>(['arid', 'green', 'highland', 'wetland']);
 
 /**
  * Which species a map's `o` grove tiles draw, overriding its theme's own

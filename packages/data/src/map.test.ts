@@ -40,6 +40,12 @@ describe('parseMap', () => {
     expect(Array.from(m.blocked.slice(8, 12))).toEqual([0, 0, 0, 0]);
   });
 
+  it('parses the wetland theme (GH-871)', () => {
+    const m = parseMap({ ...TINY, terrain: 'wetland' });
+    expect(m.terrain).toBe('wetland');
+    expect(() => parseMap({ ...TINY, terrain: 'swamp' as never })).toThrow(/unknown terrain theme/);
+  });
+
   it('passes markers and zones through', () => {
     const m = parseMap(TINY);
     expect(m.markers.entry).toEqual([0, 2]);

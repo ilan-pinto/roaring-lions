@@ -65,6 +65,28 @@ describe('the ambience bed a map plays (A11)', () => {
     expect(ambienceBedFor({ ...town, terrain: 'highland' })).toBe('ridge');
   });
 
+  // GH-871 P2 T4: the wetland is not highland, so it is a town or open by its
+  // built share. A literal wetland map with no buildings is `open`, not `ridge`.
+  it('a wetland map with under 5% built is open, not the ridge', () => {
+    const wet: MapJson = {
+      id: 'wet_fixture',
+      name: 'Wet fixture',
+      width: 10,
+      height: 10,
+      terrain: 'wetland',
+      rows: Array.from({ length: 10 }, () => '..........'),
+      markers: { entry: [0, 0] },
+      zones: { yard: [0, 0, 1, 1] },
+    };
+    const m = parseMap(wet);
+    expect(m.terrain).toBe('wetland');
+    expect(builtShare(m)).toBeLessThan(TOWN_BUILT_SHARE);
+    expect(ambienceBedFor(m)).toBe('open');
+    // Over 5% built it is a town, so the share (not the theme) is what decides.
+    const tiles = Array.from({ length: 8 }, (_, i) => i);
+    expect(ambienceBedFor({ ...m, structures: [{ type: 'house', tiles }] })).toBe('town');
+  });
+
   it('5% sits in a real gap: no non-highland map within a point of it', () => {
     const shares = Object.values(parsed)
       .filter((m) => m.terrain !== 'highland')

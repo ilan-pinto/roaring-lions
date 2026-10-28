@@ -41,7 +41,7 @@ import type * as ThreeTypes from '../../packages/render/node_modules/@types/thre
 // @ts-expect-error TS7016: the entry file carries no declarations; typed by the cast below.
 import * as ThreeRuntime from '../../packages/render/node_modules/three/build/three.module.js';
 import { Sim } from '@lions/sim';
-import { maps, parseMap, applyTerrain, type MapId } from '@lions/data';
+import { maps, parseMap, applyTerrain, type MapJson } from '@lions/data';
 import { ThreeRenderer } from '../../packages/render/src/three/ThreeRenderer';
 import { FogOfWarPass } from '../../packages/render/src/three/fog-pass';
 import { HAZE_LOW } from '../../packages/render/src/three/haze';
@@ -72,12 +72,49 @@ const FIXTURE = join(__dirname, 'theme-identity.fixture.json');
 const UPDATE = process.env.UPDATE_THEME_IDENTITY === '1';
 const HIGH = { colorVision: 'default', quality: 'high' } as const;
 
-/** One map per shipped theme, with the theme each is expected to be. */
-const CASES: ReadonlyArray<{ id: MapId; terrain: string }> = [
-  { id: 'beit_sahwan_outskirts', terrain: 'arid' },
-  { id: 'wadi_halam_basin', terrain: 'green' },
-  { id: 'tel_marum', terrain: 'highland' },
+/**
+ * A literal wetland map (GH-871 P2 T4): no wetland map ships until Task 7, so
+ * the fourth theme is booted from this fixture. A road, three cover levels and
+ * a ridge, so the terrain build has something to draw.
+ */
+const WETLAND_FIXTURE: MapJson = {
+  id: 'wetland_identity_fixture',
+  name: 'Wetland identity fixture',
+  width: 16,
+  height: 16,
+  terrain: 'wetland',
+  rows: [
+    '................',
+    '..11............',
+    '..11....rrrr....',
+    '........r.......',
+    '....222.r.......',
+    '....222.r..^^...',
+    '........r..^^...',
+    '..3.....rrrr....',
+    '................',
+    '................',
+    '.1..............',
+    '................',
+    '......2.........',
+    '................',
+    '................',
+    '................',
+  ],
+  markers: { entry: [0, 15] },
+  zones: { yard: [1, 0, 2, 2] },
+};
+
+/** One map per shipped theme, with the theme each is expected to be, then the
+ *  wetland fixture. `key` is the fixture file's key. */
+const CASES: ReadonlyArray<{ key: string; json: MapJson; terrain: string }> = [
+  { key: 'beit_sahwan_outskirts', json: maps.beit_sahwan_outskirts, terrain: 'arid' },
+  { key: 'wadi_halam_basin', json: maps.wadi_halam_basin, terrain: 'green' },
+  { key: 'tel_marum', json: maps.tel_marum, terrain: 'highland' },
+  { key: 'wetland', json: WETLAND_FIXTURE, terrain: 'wetland' },
 ];
+/** The three shipped entries, which the wetland case never edits. */
+const SHIPPED_KEYS = ['beit_sahwan_outskirts', 'wadi_halam_basin', 'tel_marum'];
 
 interface Private {
   groundMat: GroundMaterial;
@@ -100,8 +137,8 @@ const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
 /** Six decimals: a sun direction is derived from float positions. */
 const r6 = (xs: readonly number[]): number[] => xs.map((x) => Number(x.toFixed(6)));
 
-function identityOf(id: MapId, weather?: 'clear'): Identity {
-  const parsed = parseMap(maps[id]);
+function identityOf(json: MapJson, weather?: 'clear'): Identity {
+  const parsed = parseMap(json);
   const sim = new Sim({ seed: 20260727, width: parsed.width, height: parsed.height, capacity: 4 });
   applyTerrain(parsed, sim);
   // `weather: 'clear'` is a seam P4 reads (GH-871): naming it must change nothing.
@@ -147,8 +184,8 @@ describe('the ground program and the boot light, per shipped theme (GH-871)', ()
     it('regenerates the fixture', () => {
       const out: Record<string, { program: string; light: string }> = {};
       for (const c of CASES) {
-        const { program, light } = identityOf(c.id);
-        out[c.id] = { program, light };
+        const { program, light } = identityOf(c.json);
+        out[c.key] = { program, light };
       }
       writeFileSync(FIXTURE, `${JSON.stringify(out, null, 2)}\n`);
     }, 120_000);
@@ -156,17 +193,18 @@ describe('the ground program and the boot light, per shipped theme (GH-871)', ()
   }
   const recorded = JSON.parse(readFileSync(FIXTURE, 'utf8')) as Record<string, { program: string; light: string }>;
 
-  it('covers exactly the three themes', () => {
-    expect(Object.keys(recorded).sort()).toEqual(CASES.map((c) => c.id).sort());
+  it('covers exactly the three shipped themes and the wetland fixture', () => {
+    expect(Object.keys(recorded).sort()).toEqual(CASES.map((c) => c.key).sort());
+    expect(SHIPPED_KEYS.every((k) => k in recorded)).toBe(true);
   });
 
   for (const c of CASES) {
-    describe(c.id, () => {
-      const parsed = parseMap(maps[c.id]);
+    describe(c.key, () => {
+      const parsed = parseMap(c.json);
       it(`is a ${c.terrain} map`, () => {
         expect(parsed.terrain).toBe(c.terrain);
       });
-      const got = identityOf(c.id);
+      const got = identityOf(c.json);
 
       it('read a real program and a live light, not an empty one', () => {
         // The injected ground GLSL ran, and every light field is non-vacuous.
@@ -181,16 +219,29 @@ describe('the ground program and the boot light, per shipped theme (GH-871)', ()
         expect(f.exposure).toBe(1);
       });
       it('draws the recorded ground program', () => {
-        expect(got.program).toBe(recorded[c.id].program);
+        expect(got.program).toBe(recorded[c.key].program);
       });
       it('boots the recorded light', () => {
-        expect(got.light, JSON.stringify(got.lightFields)).toBe(recorded[c.id].light);
+        expect(got.light, JSON.stringify(got.lightFields)).toBe(recorded[c.key].light);
       });
       it("names weather: 'clear' and gets the identical program and light", () => {
-        const clear = identityOf(c.id, 'clear');
-        expect(clear.program).toBe(recorded[c.id].program);
-        expect(clear.light).toBe(recorded[c.id].light);
+        const clear = identityOf(c.json, 'clear');
+        expect(clear.program).toBe(recorded[c.key].program);
+        expect(clear.light).toBe(recorded[c.key].light);
       });
     });
   }
+
+  // GH-871 P2 adds no shader term: the wetland draws the SAME ground program
+  // as arid. P4 (rain) changes this assertion deliberately. Its LIGHT differs
+  // (the haze key is `overcast.1`), and is only recorded, not compared.
+  describe('the wetland fixture', () => {
+    it("draws arid's ground program, byte for byte", () => {
+      expect(recorded.wetland.program).toBe(recorded.beit_sahwan_outskirts.program);
+      expect(identityOf(WETLAND_FIXTURE).program).toBe(recorded.beit_sahwan_outskirts.program);
+    });
+    it('boots a light of its own (the haze differs by design)', () => {
+      expect(recorded.wetland.light).not.toBe(recorded.beit_sahwan_outskirts.light);
+    });
+  });
 });

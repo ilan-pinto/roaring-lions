@@ -205,6 +205,74 @@ export const TERRAIN_THEMES: Record<TerrainTheme, TerrainTones> = {
     },
     macroHue: [paletteColor('karst.0'), paletteColor('terracotta.2')],
   },
+  // GH-871 P2: the wetland -- a Levantine valley in the early-spring flush,
+  // rain and all (Free Play only). Spec 4.2 as revised by rev. 3: every value
+  // below is a palette key resolved here, and nothing is a raw hex. The ramps
+  // are the theme-only `fen`, `mud` and `overcast` (`basalt` is a TINT key
+  // only, so it is deliberately absent from `paletteRamps`: naming it would
+  // quantise the whole ground onto it). The wetland families (`oak`, `willow`,
+  // `shrub`, `reed`, `wet_grass`) draw STAND-IN GLBs in P2 (plan R-1: cedar for
+  // oak, the desert tree for willow, bush for shrub and reed, grass for
+  // wet_grass), and take their own tint by key from `decorColors` below. The
+  // silhouettes are wrong by design; P3 swaps the files, not these keys.
+  // `tools/src/wetland-readability.test.ts` and `foliage-figure-ground.test.ts`
+  // pin the tones against the KDF uniform.
+  wetland: {
+    open: paletteColor('fen.0'),
+    cover: [paletteColor('fen.1'), paletteColor('scrub.1'), paletteColor('olive.3')],
+    blocked: paletteColor('overcast.3'),
+    underBuilding: paletteColor('shadow.0'),
+    road: paletteColor('mud.1'),
+    rut: paletteColor('mud.3'),
+    rock: paletteColor('overcast.4'),
+    rockLit: paletteColor('overcast.3'),
+    earth: paletteColor('mud.2'),
+    spoil: paletteColor('mud.3'),
+    marsh: paletteColor('mud.3'),
+    low: paletteColor('fen.1'),
+    trunk: paletteColor('mud.3'),
+    trunkLit: paletteColor('mud.2'),
+    leafDark: paletteColor('olive.3'),
+    leafMid: paletteColor('scrub.1'),
+    leafLit: paletteColor('fen.0'),
+    bladeLit: paletteColor('grass.3'),
+    bladeShade: paletteColor('fen.1'),
+    scatter: 'sward',
+    groveFamily: 'oak',
+    // Below 1, as for every crown that is wider than it is tall.
+    crownRatio: 0.8,
+    haze: paletteColor('overcast.1'),
+    paletteRamps: ['fen', 'mud', 'overcast'],
+    macroHue: [paletteColor('fen.0'), paletteColor('mud.2')],
+    familyRemap: { grass: 'wet_grass', bush: 'shrub' },
+    waterside: { tree: 'willow', p: 0.12, reach: 1 },
+    decorColors: {
+      'oak:foliage': paletteColor('scrub.1'),
+      'shrub:foliage': paletteColor('scrub.1'),
+      'willow:foliage': paletteColor('fen.0'),
+      'wet_grass:foliage': paletteColor('grass.3'),
+      'reed:foliage': paletteColor('dust.5'),
+      'oak:trunk': paletteColor('mud.2'),
+      'willow:trunk': paletteColor('mud.2'),
+      'shrub:trunk': paletteColor('mud.2'),
+      'reed:trunk': paletteColor('scrub.1'),
+      'boulder:rock': paletteColor('basalt.0'),
+      'rock:rock': paletteColor('overcast.3'),
+      'slab:rock': paletteColor('overcast.4'),
+    },
+    openScatter: {
+      tree: 'oak',
+      treePlain: 0.006,
+      treeFoothill: 0.03,
+      boulderPlain: 0.01,
+      boulderFoothill: 0.03,
+      bush: 0.04,
+      chipPlain: 0.04,
+      chipFoothill: 0.08,
+      chipCluster: 0.3,
+      sandKeep: 0,
+    },
+  },
 };
 
 /**
@@ -258,4 +326,32 @@ export const TERRAIN_GROUND_TEXTURE: Record<TerrainTheme, string> = {
   green: 'green_basin_tile',
   // GH-322's "V2": terra rossa between grey limestone chips.
   highland: 'highland_v2_tile',
+  // GH-871 R-2: a sward image, recoloured to `fen.0` by the ratio form. P3
+  // replaces this name (and adds its `GROUND_ALBEDOS` mean) in the commit that
+  // ships a wet-ground image.
+  wetland: 'green_basin_tile',
+};
+
+/** The four SLOT images every map's tiles sample -- rock ridge, scrub cover,
+ *  grove floor, knoll scree -- as basenames in `assets/textures/`. Total, like
+ *  `TERRAIN_GROUND_TEXTURE`, so a theme cannot fall back to another's. All
+ *  four themes name the same four files today (GH-871 R-2); P3 gives the
+ *  wetland its own five in the commit that ships them. */
+export const TERRAIN_SLOT_TEXTURES: Record<
+  TerrainTheme,
+  { readonly rock: string; readonly scrub: string; readonly grove: string; readonly knoll: string }
+> = {
+  arid: { rock: 'rock_ground_tile', scrub: 'rough_scrub_tile', grove: 'orchard_floor_tile', knoll: 'knoll_scree_tile' },
+  green: { rock: 'rock_ground_tile', scrub: 'rough_scrub_tile', grove: 'orchard_floor_tile', knoll: 'knoll_scree_tile' },
+  highland: { rock: 'rock_ground_tile', scrub: 'rough_scrub_tile', grove: 'orchard_floor_tile', knoll: 'knoll_scree_tile' },
+  wetland: { rock: 'rock_ground_tile', scrub: 'rough_scrub_tile', grove: 'orchard_floor_tile', knoll: 'knoll_scree_tile' },
+};
+
+/** The weather a theme draws under (GH-871 R-3). A seam, not a feature: P4's
+ *  `rainLight` is its first reader. Total, `rain` for the wetland only. */
+export const TERRAIN_WEATHER: Record<TerrainTheme, 'clear' | 'rain'> = {
+  arid: 'clear',
+  green: 'clear',
+  highland: 'clear',
+  wetland: 'rain',
 };

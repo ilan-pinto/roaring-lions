@@ -18,7 +18,7 @@ import { paletteColor, paletteTeamColors, variantAwareResolver, type ParsedMap }
 import { QUALITY_PRESETS, type RendererOptions } from '@lions/render';
 import { dracoDecoderPath } from './mesh-catalogue';
 import type { ColorVision, Quality } from './settings';
-import { TERRAIN_GROUND_TEXTURE, terrainTonesFor } from './terrain-themes';
+import { TERRAIN_GROUND_TEXTURE, TERRAIN_SLOT_TEXTURES, TERRAIN_WEATHER, terrainTonesFor } from './terrain-themes';
 
 /** The slice of the player's settings a `RendererOptions` is built from.
  *  Named rather than passed as the whole `Settings` object so a caller with
@@ -102,10 +102,10 @@ export function rendererOptionsFor(map: ParsedMap, s: RendererSettings, base: st
     // no image of its own any more (GH-226): it is drawn procedurally from
     // control texture B's distance field, tone and grain both, and no
     // longer asks for `roadTextureUrl` at all.
-    rockTextureUrl: `${base}textures/rock_ground_tile.jpg`,
-    scrubTextureUrl: `${base}textures/rough_scrub_tile.jpg`,
-    groveTextureUrl: `${base}textures/orchard_floor_tile.jpg`,
-    knollTextureUrl: `${base}textures/knoll_scree_tile.jpg`,
+    rockTextureUrl: `${base}textures/${TERRAIN_SLOT_TEXTURES[map.terrain].rock}.jpg`,
+    scrubTextureUrl: `${base}textures/${TERRAIN_SLOT_TEXTURES[map.terrain].scrub}.jpg`,
+    groveTextureUrl: `${base}textures/${TERRAIN_SLOT_TEXTURES[map.terrain].grove}.jpg`,
+    knollTextureUrl: `${base}textures/${TERRAIN_SLOT_TEXTURES[map.terrain].knoll}.jpg`,
     // Defilade T4: the fire and smoke flipbook atlases (data, not colour --
     // the renderer loads them `NoColorSpace`).
     flipbookFireUrl: `${base}textures/vfx/flipbook_fire.png`,
@@ -121,5 +121,8 @@ export function rendererOptionsFor(map: ParsedMap, s: RendererSettings, base: st
     // Three-only (see `RendererOptions.quality`); Pixi ignores it like every
     // other field in this stretch.
     quality: QUALITY_PRESETS[s.quality],
+    // GH-871 R-3: the weather seam. Present only when the theme rains, so a
+    // shipped theme's options object gains no key (G-3). Nothing reads it in P2.
+    ...(TERRAIN_WEATHER[map.terrain] === 'rain' ? { weather: 'rain' as const } : {}),
   };
 }
