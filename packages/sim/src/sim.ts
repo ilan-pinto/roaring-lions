@@ -15,6 +15,7 @@ import { Rng } from './rng';
 import { HASH_SEED, hashArray, hashWord } from './hash';
 import { FlowField, DIR_NONE, DIR_VX, DIR_VY, COST_ORTH, COST_DIAG } from './flowfield';
 import { assignFormation, type FormationUnit } from './formation';
+import { FM_FACING_NONE, compileFormation, formationClassOf, type CompiledFormation, type FormationJson } from './formation-template';
 import { hullCapsule, capsuleOverlap } from './separation';
 import { overmatchShift, penetrationHpCost } from './vehicle-health';
 import {
@@ -182,6 +183,7 @@ import {
   MED_DELIVERING,
   WOUND_DEFAULT_BLEED_TICKS,
   TUNNEL_TILES_PER_S,
+  FORMATION_ROWS,
   type SupportKind,
 } from './tuning';
 import { bestCoverTile, figuresStanding, rescuePriority, scaleDown, scarredShare } from './wounds';
@@ -260,6 +262,11 @@ export interface UnitTypeJson {
   id: string;
   name?: string;
   role?: string;
+  /** Read only by `formationClassOf` (the civilian faction has no formation class). */
+  faction?: string;
+  /** GH-859 P1a: an authored override of the derived formation class (a string, checked by
+   *  `formationClassOf`, which throws naming the unit). */
+  formation_class?: string;
   abilities?: readonly string[];
   /** Seconds of held station to bring a building down. Absent = DEMO_SECONDS. */
   demolition_time_s?: number;
@@ -658,6 +665,9 @@ export interface UnitType {
    * because `gun_truck` declares it too.
    */
   wheeled: boolean;
+  /** GH-859 P1a: the combat-formation class, FM_CLASS_* (`formation-template.ts`), 255 = none.
+   *  `formationClassOf(json, wheeled)`, read once here and never again. */
+  fmClass: number;
   /**
    * Vehicle spacing (GH-421, V-R1): the hull as a capsule, Q16.16 tiles, all 0 when the type
    * declares no `mobility.footprint`. A unit separates if and only if `sepHalfWid > 0` and it is
@@ -1024,6 +1034,7 @@ export function unitTypeFromJson(json: UnitTypeJson): UnitType {
     isKamikaze,
     isAir,
     wheeled,
+    fmClass: formationClassOf(json, wheeled),
     sepHalfLen,
     sepHalfWid,
     sepCentre,
@@ -1118,7 +1129,9 @@ export type Command =
    *  ordinary order, because a patroller whose waypoint tile is held by an
    *  idle friend should stop beside it rather than displace it — spec
    *  `2026-09-15-group-formation-design.md` §4.3. */
-  | { kind: 'move'; ids: number[]; x: Fx; y: Fx; append?: boolean; exact?: boolean }
+  /** `formation` (GH-859 P1a): the id of a registered combat formation (`addFormationType`).
+   *  Absent, or an id the world does not hold, is today's order exactly. */
+  | { kind: 'move'; ids: number[]; x: Fx; y: Fx; append?: boolean; exact?: boolean; formation?: string }
   /** `sweep`: having arrived, go on to hunt what the side remembers
    *  (`stepSweep`). Without it an attack-move STOPS WHERE IT WAS SENT and
    *  fights whatever comes inside its own engagement range from there — the
@@ -1127,7 +1140,7 @@ export type Command =
    *  not park in a staring contest with a hidden defender, so those callers
    *  ask for it (`mission.ts`). It is data on the order, never a guess at
    *  who sent it: the sim does not know which side is "the player". */
-  | { kind: 'attackMove'; ids: number[]; x: Fx; y: Fx; append?: boolean; exact?: boolean; sweep?: boolean }
+  | { kind: 'attackMove'; ids: number[]; x: Fx; y: Fx; append?: boolean; exact?: boolean; sweep?: boolean; formation?: string }
   | { kind: 'halt'; ids: number[] }
   /** N2 (L3, D2). `hold`: halt's own writes on a free unit -- the walk ends, an
    *  ambush is dropped, the unit stands and fires on what comes; a garrisoned or
@@ -1804,6 +1817,32 @@ export class Sim {
   private sepLive = false;
   /** Set by sepBlockedBy: whether the blocker it returned was a stationary hull. */
   private sepHitStationary = false;
+  // GH-859 P1a (combat formations, state only until the order lands). Every column below folds
+  // into hash() only once `fmLive` is set -- the `airLive`/`woundLive` deferred fold -- so a world
+  // that never orders a formation keeps every pin. Per-unit columns are indexed by entity id.
+  /** Formation group row this unit belongs to, -1 when none. */
+  private readonly fmGroup: Int16Array;
+  /** The facing a unit settles to once stopped (a u16 angle), FM_FACING_NONE when none. */
+  private readonly restFacing: Uint16Array;
+  /** Arrival stance code: 0 none, FM_ARRIVE_HOLD, or FM_ARRIVE_AMBUSH + radius. */
+  private readonly fmArrive: Uint8Array;
+  // Per-row columns (FORMATION_ROWS rows; side s owns the rows from s * MAX_FORMATION_GROUPS_PER_SIDE).
+  /** 1 while the row holds a group. */
+  private readonly fgLive: Uint8Array;
+  private readonly fgSide: Uint8Array;
+  /** Index into `formationTypes`. */
+  private readonly fgType: Uint8Array;
+  /** FM_MARCH 1 or FM_SPRUNG 4; 2 (ARRIVED) and 3 (CONTACT) are reserved for P1b. */
+  private readonly fgState: Uint8Array;
+  /** A member was fired on or sprang: the group acts at the next stepFormations. */
+  private readonly fgPending: Uint8Array;
+  /** Members still in the group. */
+  private readonly fgMembers: Uint16Array;
+  /** True once a formation has been ordered (never by registering one). hash() folds the block
+   *  above only while set. */
+  private fmLive = false;
+  /** Registered formations, compiled (`addFormationType`). Config: rebuilt with the match. */
+  private readonly formationTypes: CompiledFormation[] = [];
   /** Diagnostics for tools (never hashed, off unless a tool turns it on): a ring of
    *  (tick, unit, kind, blocker) quads, kind 1 = the valve opened, 2 = a leg ended at contact. */
   get sepDiag(): SepDiag {
@@ -2357,6 +2396,15 @@ export class Sim {
     this.displaced = new Uint8Array(n);
     this.sepWait = new Uint8Array(n);
     this.sepLast = new Uint8Array(n);
+    this.fmGroup = new Int16Array(n).fill(-1);
+    this.restFacing = new Uint16Array(n).fill(FM_FACING_NONE);
+    this.fmArrive = new Uint8Array(n);
+    this.fgLive = new Uint8Array(FORMATION_ROWS);
+    this.fgSide = new Uint8Array(FORMATION_ROWS);
+    this.fgType = new Uint8Array(FORMATION_ROWS);
+    this.fgState = new Uint8Array(FORMATION_ROWS);
+    this.fgPending = new Uint8Array(FORMATION_ROWS);
+    this.fgMembers = new Uint16Array(FORMATION_ROWS);
     this.sepCols = (config.width + SEP_CELL_TILES - 1) >> SEP_CELL_SHIFT_TILES;
     this.sepHead = new Int32Array(this.sepCols * ((config.height + SEP_CELL_TILES - 1) >> SEP_CELL_SHIFT_TILES));
     this.sepNext = new Int32Array(n);
@@ -2571,6 +2619,27 @@ export class Sim {
     }
     this.unitTypes.push(type);
     return this.unitTypes.length - 1;
+  }
+
+  /** GH-859 P1a: register a combat formation (config, like a unit type). Compiles it
+   *  (`compileFormation` throws, naming the id, on a bad file), refuses a duplicate id, and returns
+   *  its index. Registering changes no behaviour and no hash until a formation is ordered. */
+  addFormationType(json: FormationJson): number {
+    for (const f of this.formationTypes) {
+      if (f.id === json.id) throw new Error(`formation ${json.id}: already registered`);
+    }
+    this.formationTypes.push(compileFormation(json));
+    return this.formationTypes.length - 1;
+  }
+
+  formationTypeCount(): number {
+    return this.formationTypes.length;
+  }
+
+  /** The id of formation type `type`, '' when there is none. */
+  formationIdOf(type: number): string {
+    const f = this.formationTypes[type];
+    return f === undefined ? '' : f.id;
   }
 
   setBlocked(x: number, y: number, b: boolean): void {
@@ -3674,6 +3743,9 @@ export class Sim {
     this.moving[id] = 0;
     this.sepWait[id] = 0;
     this.sepLast[id] = 0;
+    this.fmGroup[id] = -1;
+    this.restFacing[id] = FM_FACING_NONE;
+    this.fmArrive[id] = 0;
     this.attackMove[id] = 0;
     this.sweepOrder[id] = 0;
     this.fieldRef[id] = -1;
@@ -11621,6 +11693,21 @@ export class Sim {
     // GH-421: last, so the separation column is the only thing a pre-separation pin lacks.
     h = hashArray(h, this.sepWait);
     h = hashArray(h, this.sepLast);
+    // GH-859 P1a: the formation block, deferred like the air and wound blocks. `fmLive` is set by
+    // the first formation ORDER, never by registering one, so a world that only registers the
+    // shipped files hashes as before. Nothing (no marker, no length word) until then.
+    if (this.fmLive) {
+      h = hashWord(h, 0x464d0001); // 'FM' GH-859 P1a
+      h = hashArray(h, this.fmGroup);
+      h = hashArray(h, this.restFacing);
+      h = hashArray(h, this.fmArrive);
+      h = hashArray(h, this.fgLive);
+      h = hashArray(h, this.fgSide);
+      h = hashArray(h, this.fgType);
+      h = hashArray(h, this.fgState);
+      h = hashArray(h, this.fgPending);
+      h = hashArray(h, this.fgMembers);
+    }
     return h >>> 0;
   }
 }

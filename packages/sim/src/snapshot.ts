@@ -396,8 +396,8 @@ type KeysOf<T> = T extends unknown ? Exclude<keyof T, 'kind'> : never;
  * Whether a field is required is read from this table: `{ opt }` may be absent.
  */
 const COMMAND_FIELDS: { readonly [K in Command['kind']]: { readonly [F in KeysOf<Extract<Command, { kind: K }>>]: Field } } = {
-  move: { ids: 'ids', x: 'int', y: 'int', append: { opt: 'bool' }, exact: { opt: 'bool' } },
-  attackMove: { ids: 'ids', x: 'int', y: 'int', append: { opt: 'bool' }, exact: { opt: 'bool' }, sweep: { opt: 'bool' } },
+  move: { ids: 'ids', x: 'int', y: 'int', append: { opt: 'bool' }, exact: { opt: 'bool' }, formation: { opt: 'str' } },
+  attackMove: { ids: 'ids', x: 'int', y: 'int', append: { opt: 'bool' }, exact: { opt: 'bool' }, sweep: { opt: 'bool' }, formation: { opt: 'str' } },
   halt: { ids: 'ids' },
   setStance: { ids: 'ids', stance: ['hold', 'ambush', 'patrol'], radius: { opt: 'int' }, waypoints: { opt: 'waypoints' } },
   garrison: { ids: 'ids', structure: 'int' },

@@ -612,6 +612,9 @@ export const TUNNEL_TILES_PER_S = 32768; // 0.5
 /** Combat formations (GH-859 P1a). Live formation groups one side may hold; a 17th order still
  *  gets its shape, facing and arrival stance, just no group (the degraded path). */
 export const MAX_FORMATION_GROUPS_PER_SIDE = 16;
+/** Rows of the formation group table, both sides: side s owns rows s * MAX_FORMATION_GROUPS_PER_SIDE up
+ *  to the next side's first. `snapshot-schema.ts` sizes the per-row columns by it. */
+export const FORMATION_ROWS = 2 * MAX_FORMATION_GROUPS_PER_SIDE;
 /** The deepest a formation's reachability walk goes, in steps, whatever its shapes could ask
  *  for: 24 covers the whole 48 x 48 map at worst, and it is an order-time cost, never a per-tick
  *  one (`formation-template.ts`' `compileFormation` computes each file's own extent under it). */
