@@ -29,7 +29,7 @@
       "effective_range_tiles": 11,
       "accuracy": 0.7,
       "penetration": 60,
-      "damage": 300,
+      "damage": 420,
       "suppression": 15,
       "rof_per_min": 3,
       "min_range_tiles": 2,

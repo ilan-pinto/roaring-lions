@@ -1,5 +1,5 @@
 // How an armoured vehicle dies under the HP model (GH-560). REPORT-ONLY.
-// Run: pnpm vehicle-health:probe -- [--seeds=200] [--tier=max] [--only=s1,s2,s3,s4,s5]
+// Run: pnpm vehicle-health:probe -- [--seeds=200] [--tier=max] [--only=s1,s2,s3,s4,s5,s6]
 //   (or npx tsx tools/src/backtest/vehicle-health-probe.ts)
 //
 // What it measures, per scenario: how often a hard hull dies, what its health bar showed on the
@@ -25,9 +25,16 @@
 // so a 12.7 mm DShK killed a Peten in 3 hits; the floor now scales by damage / R below R = 85
 // (PEN_HP_REF_DAMAGE). `sf2` is the cold-target arrangement the measurement used.
 //
+// S6 (GH-868, the MANPAD half) states the metric a helicopter-v-MANPAD reading needs. A hit that rolls
+// `mobility_kill` or `combat_ineffective` lands the aircraft, a landed aircraft is a ground target and the
+// air-only MANPAD can no longer fire at it, so "destroyed 0/200" does not mean "harmless". Each row reports
+// destroyed, destroyed-or-grounded (`DD`) and, for a firing pass, survived and intact (alive, not grounded,
+// weapons not knocked out). The warhead was 300 (three hits on a Peten, 640 hp): a lone team read 0/200
+// destroyed against 43/200 before PR 866. At 420 it is a two-hit warhead (the lead's 28 Oct ruling).
+//
 // Nothing here asserts a level except the gates in `vehicle-health-probe.test.ts` (the Lavi
-// v Lavi duel has no luck deaths; the S5 rows hold a technical off a flat floor). Float maths is
-// fine: this file is a tool, never the sim.
+// v Lavi duel has no luck deaths; the S5 rows hold a technical off a flat floor; the S6 rows hold a
+// MANPAD at two hits on a Peten). Float maths is fine: this file is a tool, never the sim.
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { Sim, fx, TICKS_PER_SECOND, type SimEvent, type UnitTypeJson } from '@lions/sim';
@@ -187,6 +194,95 @@ export function sf2(U: Roster, target: string, shooter: string, n: number, where
 export function formatSf2(name: string, r: Sf2Result): string {
   const med = r.ttk.length ? r.ttk[r.ttk.length >> 1].toFixed(1) : '-';
   return `${name.padEnd(36)} killed ${r.killed}/${r.runs} | ttk med ${med}s | pens/run ${r.pensPerRun.toFixed(1)}`;
+}
+
+// --- S6 (GH-868): a helicopter against MANPAD teams ----------------------------------
+export interface ManpadHover {
+  runs: number;
+  /** A `destroyed` event for the helicopter within the cap. */
+  destroyed: number;
+  /** Destroyed, or knocked out of the air by a mobility kill (it lands, and the MANPAD cannot engage it). */
+  downOrDead: number;
+}
+
+/**
+ * One cold (weapons stripped) helicopter hovering, `n` MANPAD teams 6 tiles in front of it, identified,
+ * `seeds` seeds, `capS` seconds. The scenario family of `sf2`: seeds 90000 + 17 s, helicopter at (20.5, 12.5),
+ * teams at x = 14.5. The readings are in _coord/gh868/manpad-options.md (manpad.mts).
+ */
+export function manpadHover(U: Roster, heli: string, n: number, capS: number, seeds: number): ManpadHover {
+  let destroyed = 0;
+  let downOrDead = 0;
+  for (let s = 0; s < seeds; s++) {
+    const sim = new Sim({ seed: 90000 + s * 17, width: 40, height: 24, capacity: 16 });
+    const id = sim.spawn(sim.addUnitType({ ...U[heli], id: `${heli}_cold`, weapons: [] }), 0, fx.from(20.5), fx.from(12.5), WEST);
+    const st = sim.addUnitType(U.manpad_team);
+    for (let k = 0; k < n; k++) sim.spawn(st, 1, fx.from(14.5), fx.from(12.5 + k), EAST);
+    sim.identifyTo(1, id);
+    let down = false;
+    for (let t = 0; t < capS * TICKS_PER_SECOND; t++) {
+      const evs = sim.tick();
+      if (!down && sim.state.mobilityKilled[id] === 1) {
+        downOrDead++;
+        down = true;
+      }
+      if (evs.some((e) => e.kind === 'destroyed' && e.entity === id)) {
+        destroyed++;
+        if (!down) downOrDead++;
+        break;
+      }
+    }
+  }
+  return { runs: seeds, destroyed, downOrDead };
+}
+
+export interface ManpadPass {
+  runs: number;
+  /** Alive after 90 s. */
+  survives: number;
+  /** Alive, not grounded and not weapons-killed after 90 s. */
+  intact: number;
+  /** Every AA piece dead after 90 s. */
+  cleared: number;
+}
+
+/**
+ * A live helicopter attack-moves (sweep) from (4.5, 10.5) onto `n` MANPAD teams at x = 24.5 / 26.5, y = 8.5 + 2 k.
+ * The shape of the §5.7 "Air is contested by AA" target. Seeds 91000 + 1000 n + s, 90 s.
+ */
+export function manpadPass(U: Roster, heli: string, n: number, seeds: number): ManpadPass {
+  let survives = 0;
+  let intact = 0;
+  let cleared = 0;
+  for (let s = 0; s < seeds; s++) {
+    const sim = new Sim({ seed: 91000 + n * 1000 + s, width: 40, height: 20, capacity: 8 });
+    const h = sim.addUnitType(U[heli]);
+    const a = sim.addUnitType(U.manpad_team);
+    const id = sim.spawn(h, 0, fx.from(4.5), fx.from(10.5));
+    for (let k = 0; k < n; k++) sim.spawn(a, 1, fx.from(24.5 + (k % 2) * 2), fx.from(8.5 + k * 2), WEST);
+    sim.queueCommand({ kind: 'attackMove', ids: [id], x: fx.from(26), y: fx.from(10.5), sweep: true });
+    let dead = false;
+    for (let t = 0; t < 90 * TICKS_PER_SECOND; t++) {
+      const evs = sim.tick();
+      if (evs.some((e) => e.kind === 'destroyed' && e.entity === id)) {
+        dead = true;
+        break;
+      }
+    }
+    if (!dead) {
+      survives++;
+      if (sim.state.mobilityKilled[id] === 0 && sim.state.firepowerKilled[id] === 0) intact++;
+    }
+    if (aliveCount(sim, 1) === 0) cleared++;
+  }
+  return { runs: seeds, survives, intact, cleared };
+}
+
+export function formatManpad(name: string, h: ManpadHover, p: ManpadPass): string {
+  return (
+    `${name.padEnd(30)} hover 30 s: destroyed ${h.destroyed}/${h.runs}, destroyed-or-grounded ${h.downOrDead}/${h.runs}` +
+    ` | pass: survives ${p.survives}/${p.runs}, intact ${p.intact}/${p.runs}, AA cleared ${p.cleared}/${p.runs}`
+  );
 }
 
 // --- S2: repeated contact (regeneration's question) -----------------------------
@@ -381,6 +477,7 @@ export function runAll(argv: string[], log: (line: string) => void): void {
   const U = (tier === 'max' ? unitsAtMaxTier : baseUnits) as unknown as Roster;
   const row = (name: string, t: Tally): void => log(formatRow(name, t));
   const row5 = (name: string, r: Sf2Result): void => log(formatSf2(name, r));
+  const row6 = (name: string, h: ManpadHover, p: ManpadPass): void => log(formatManpad(name, h, p));
 
   log(`vehicle-health-probe tier=${tier} seeds=${seeds}`);
   if (want('s1')) {
@@ -421,6 +518,13 @@ export function runAll(argv: string[], log: (line: string) => void): void {
     row5('peten v gun_truck, front, 30s', sf2(U, 'heli_peten', 'gun_truck', 1, 'front', 30, seeds));
     row5('remetz v technical, side, 60s', sf2(U, 'aa_remetz', 'technical', 1, 'side', 60, seeds));
     row5('remetz v gun_truck, side, 60s', sf2(U, 'aa_remetz', 'gun_truck', 1, 'side', 60, seeds));
+  }
+  if (want('s6')) {
+    // GH-868 (MANPAD half): at 300 a lone team read 0/200 destroyed in the Peten hover (49/200 at 420).
+    // Readings at 420 and 200 seeds: _coord/gh868/manpad-options.md and the PR body for the MANPAD ruling.
+    for (const heli of ['heli_peten', 'heli_yanshuf'])
+      for (const n of [1, 2, 3])
+        row6(`${heli.slice(5)} v ${n} manpad`, manpadHover(U, heli, n, 30, seeds), manpadPass(U, heli, n, seeds));
   }
   if (want('s3')) {
     // Standoff (Sarim), GDD 5.7 extended: ATGM cells at 8.5 tiles, three missiles each.
