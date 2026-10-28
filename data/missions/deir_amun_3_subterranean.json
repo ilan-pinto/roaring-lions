@@ -61,7 +61,8 @@
       { "unit": "militia_cell", "count": 2, "at": [40, 21], "in_tunnel": "da_tn_east" },
       { "unit": "charge_squad", "count": 1, "at": [25, 24], "stance": { "kind": "ambush", "tiles": 2 } },
       { "unit": "mortar_crew", "count": 1, "at": [20, 38] },
-      { "unit": "atgm_cell", "count": 1, "at": [43, 26], "stance": { "kind": "ambush", "tiles": 6 } }
+      { "unit": "atgm_cell", "count": 1, "at": [40, 34], "stance": { "kind": "ambush", "tiles": 6 } },
+      { "unit": "atgm_cell", "count": 1, "at": [41, 35], "stance": { "kind": "ambush", "tiles": 6 } }
     ],
     "waves": [
       { "at_seconds": 120, "to": "hamlet_north", "units": [{ "unit": "militia_cell", "count": 2, "from": "flank_east" }] },
