@@ -84,8 +84,75 @@ def turn(d, name, scale, out):
     print(out, sheet.size)
 
 
+STATE_ORDER = ["none", "a1", "a2", "a3", "s1", "s2", "s3", "f1", "f2", "f3", "full"]
+STATE_NAME = {"none": "T0 (none)", "a1": "armour T1", "a2": "armour T2", "a3": "armour T3", "s1": "sensors T1",
+              "s2": "sensors T2", "s3": "sensors T3", "f1": "firepower T1", "f2": "firepower T2",
+              "f3": "firepower T3", "full": "full kit"}
+
+
+def garage_sheet(d, heading, out, cols=3, scale=0.5):
+    """The eleven states of one heading, at the garage framing, as a labelled contact sheet."""
+    ims = [Image.open(os.path.join(d, f"garage_{s}_{heading:03d}.png")).convert("RGB") for s in STATE_ORDER]
+    w, h = ims[0].size
+    w2, h2 = int(w * scale), int(h * scale)
+    rows = (len(ims) + cols - 1) // cols
+    sheet = Image.new("RGB", (cols * w2, rows * h2), (20, 20, 20))
+    dr = ImageDraw.Draw(sheet)
+    f = font(16)
+    for i, im in enumerate(ims):
+        r, c = divmod(i, cols)
+        sheet.paste(im.resize((w2, h2), Image.LANCZOS), (c * w2, r * h2))
+        dr.text((c * w2 + 8, r * h2 + 6), f"{STATE_NAME[STATE_ORDER[i]]}   heading {heading}", fill=(255, 255, 255), font=f)
+    sheet.save(out)
+    print(out, sheet.size)
+
+
+def compare(old, new, out, label_old, label_new, scale_old=2):
+    """Old kit beside the new kit at the same framing: the old capture is upscaled to the new's size."""
+    o = Image.open(old).convert("RGB")
+    n = Image.open(new).convert("RGB")
+    o = o.resize((n.width, n.height), Image.LANCZOS)
+    head = 34
+    sheet = Image.new("RGB", (n.width * 2 + 8, n.height + head), (20, 20, 20))
+    dr = ImageDraw.Draw(sheet)
+    f = font(18)
+    sheet.paste(o, (0, head))
+    sheet.paste(n, (n.width + 8, head))
+    dr.text((8, 6), label_old, fill=(255, 255, 255), font=f)
+    dr.text((n.width + 16, 6), label_new, fill=(255, 255, 255), font=f)
+    sheet.save(out)
+    return sheet
+
+
+def zones_sheet(d, fig, out):
+    """Track close-ups: rows = tracks (armour torso, sensors head, firepower weapon), columns T1-T3."""
+    tracks = ("armour", "sensors", "firepower")
+    probe = Image.open(os.path.join(d, f"zone_{fig}_armour_T1.png")).convert("RGB")
+    w, h = probe.size
+    sheet = Image.new("RGB", (w * 3, (h + 24) * 3), (20, 20, 20))
+    dr = ImageDraw.Draw(sheet)
+    f = font(15)
+    for r, tr in enumerate(tracks):
+        for c, t in enumerate((1, 2, 3)):
+            im = Image.open(os.path.join(d, f"zone_{fig}_{tr}_T{t}.png")).convert("RGB")
+            sheet.paste(im, (c * w, r * (h + 24) + 24))
+            dr.text((c * w + 8, r * (h + 24) + 4), f"{fig}  {tr} T{t}", fill=(255, 255, 255), font=f)
+    sheet.save(out)
+    print(out, sheet.size)
+
+
 if __name__ == "__main__":
     mode = sys.argv[1]
+    if mode == "garage":
+        garage_sheet(sys.argv[2], int(sys.argv[3]), sys.argv[4])
+        sys.exit(0)
+    if mode == "zones":
+        zones_sheet(sys.argv[2], sys.argv[3], sys.argv[4])
+        sys.exit(0)
+    if mode == "compare":
+        # compare <old png> <new png> <out png>
+        compare(sys.argv[2], sys.argv[3], sys.argv[4], "OLD full kit (PR 885, garage-1)", "NEW full kit (redesign R1, same framing)")
+        sys.exit(0)
     if mode == "grid":
         d, zoom, scale, out = sys.argv[2], sys.argv[3], int(sys.argv[4]), sys.argv[5]
         grid(d, zoom, scale, out)
