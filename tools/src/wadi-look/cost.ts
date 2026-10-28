@@ -29,7 +29,6 @@ const VIEWS: [string, number, number, number][] = [
   ['west rim z1', 2, 24, 1],
   ['west rim z2.5', 1.5, 24, 2.5],
 ];
-const BUDGET_MS = 16.7;
 const ROUNDS = Number(arg('rounds', '40'));
 /** The approved frame-cost budget (kit-spec section 4): the paired median delta, at every preset and view. */
 const DELTA_BUDGET_MS = 0.6;
