@@ -264,6 +264,10 @@ export function ringTiles(r: number): readonly (readonly [number, number])[] {
   const first = out[0];
   const last = out[out.length - 1];
   if (out.length > 1 && last[0] === first[0] && last[1] === first[1]) out.pop();
+  // Frozen, tile pairs included: the cache is shared by every order and exported to the app, so a
+  // cast there must not be able to move the ring the sim places from.
+  for (const pair of out) Object.freeze(pair);
+  Object.freeze(out);
   ringCache.set(r, out);
   return out;
 }
@@ -495,7 +499,10 @@ interface FillMember {
 
 /** Where a template is fitted: the world's tiles, or open ground in frame coordinates. */
 interface Ground {
-  usable(m: FillMember, track: number, f: number, l: number): boolean;
+  /** `deep`: the spill of a `files` element past its walk (S3), judged on the deeper reach. */
+  usable(m: FillMember, track: number, f: number, l: number, deep?: boolean): boolean;
+  /** How many rows behind the click any ground can hold: the spill's bound. */
+  readonly deepest: number;
   take(m: FillMember, track: number, f: number, l: number): void;
   coverAt(track: number, f: number, l: number): number;
   /** Tile index, the cover tie-break between a position's inward and outward candidates. */
@@ -538,9 +545,9 @@ function fill(tpl: CompiledFormation, members: readonly FillMember[], g: Ground)
     let usedAny = false;
     let usedRear = 0;
     let next = i;
-    const put = (f: number, l: number): boolean => {
+    const put = (f: number, l: number, deep?: boolean): boolean => {
       const m = members[next];
-      if (!g.usable(m, track, f, l)) return false;
+      if (!g.usable(m, track, f, l, deep)) return false;
       g.take(m, track, f, l);
       placed[next] = { f, l, track };
       if (el.kind !== FM_SHAPE_POINT && (!usedAny || f < usedRear)) usedRear = f;
@@ -557,8 +564,11 @@ function fill(tpl: CompiledFormation, members: readonly FillMember[], g: Ground)
         const row = idiv(k, el.files);
         const file = k - row * el.files;
         const f = frontRow - (row * el.depth + file * el.stagger);
-        if (f < -ext) break;
-        put(f, file * el.fileGap);
+        // Past the walk's cap the pattern RUNS ON, deeper and with its own depth, stagger and file gap (so
+        // the spacing holds): a column longer than the cap is a longer column, not a knot at the click
+        // (S3). Those slots are judged on the full-map reach; the bound is the map's own depth.
+        if (f < -g.deepest) break;
+        put(f, file * el.fileGap, f < -ext);
       }
     } else if (el.kind === FM_SHAPE_RANK) {
       const laterals = [0];
@@ -718,17 +728,25 @@ export function assignTemplate(input: TemplateInput, tpl: CompiledFormation): { 
   const latX = -fwdY;
   const latY = fwdX;
 
-  const reach: Reach[] = [];
-  for (let d = 0; d < input.masks.length; d++) {
-    const mask = input.masks[d];
-    const [ox, oy] = input.origins[d];
-    let same = -1;
-    for (let e = 0; e < d && same < 0; e++) {
-      const [ex, ey] = input.origins[e];
-      if (input.masks[e] === mask && ex === ox && ey === oy) same = e;
+  // One walk per distinct (mask, origin) pair, to `depth` steps.
+  const reachAt = (depth: number): Reach[] => {
+    const out: Reach[] = [];
+    for (let d = 0; d < input.masks.length; d++) {
+      const mask = input.masks[d];
+      const [ox, oy] = input.origins[d];
+      let same = -1;
+      for (let e = 0; e < d && same < 0; e++) {
+        const [ex, ey] = input.origins[e];
+        if (input.masks[e] === mask && ex === ox && ey === oy) same = e;
+      }
+      out.push(same < 0 ? walk(mask, w, h, input.origins[d], depth) : out[same]);
     }
-    reach.push(same < 0 ? walk(mask, w, h, input.origins[d], tpl.extent) : reach[same]);
-  }
+    return out;
+  };
+  const reach = reachAt(tpl.extent);
+  // The spill of a `files` element past the cap (S3) walks as far as the map goes. Built only if a
+  // fill asks: an order-time cost paid by the orders too long for the cap, and no others.
+  let deepReach: Reach[] | null = null;
 
   const members = sortMembers(tpl, input.units);
   const taken = new Uint8Array(w * h);
@@ -743,9 +761,15 @@ export function assignTemplate(input: TemplateInput, tpl: CompiledFormation): { 
     return x < 0 || y < 0 || x >= w || y >= h ? -1 : y * w + x;
   };
   const ground: Ground = {
-    usable: (m, track, f, l) => {
+    deepest: w + h,
+    usable: (m, track, f, l, deep) => {
       const t = tileOf(track, f, l);
-      return t >= 0 && reach[m.domain].hit[t] === 1 && input.reserved[t] === 0 && taken[t] === 0;
+      if (t < 0 || input.reserved[t] !== 0 || taken[t] !== 0) return false;
+      if (deep === true) {
+        if (deepReach === null) deepReach = reachAt(w + h);
+        return deepReach[m.domain].hit[t] === 1;
+      }
+      return reach[m.domain].hit[t] === 1;
     },
     take: (_m, track, f, l) => {
       taken[tileOf(track, f, l)] = 1;
@@ -767,6 +791,9 @@ export function assignTemplate(input: TemplateInput, tpl: CompiledFormation): { 
   const { placed, ringRadius } = fill(tpl, members, ground);
 
   const pos = new Map<number, [number, number]>();
+  // The track each placed member stands on: "inward" and "outward" are measured from that track's
+  // own anchor (a vehicle ring snapped off the click closes on its own centre, not the foot click).
+  const trackOfId = new Map<number, number>();
   const rest: FillMember[] = [];
   for (let i = 0; i < members.length; i++) {
     const p = placed[i];
@@ -776,6 +803,7 @@ export function assignTemplate(input: TemplateInput, tpl: CompiledFormation): { 
     }
     const t = tileOf(p.track, p.f, p.l);
     pos.set(members[i].id, [t % w, (t - (t % w)) / w]);
+    trackOfId.set(members[i].id, p.track);
   }
   overflowPlace(
     rest,
@@ -798,9 +826,10 @@ export function assignTemplate(input: TemplateInput, tpl: CompiledFormation): { 
     if (airOf.get(m.id) !== true) {
       if (tpl.face === FM_FACE_FRONT || tpl.face === FM_FACE_TRAVEL) face = eighthToward(fwdX, fwdY);
       else if (tpl.face === FM_FACE_INWARD || tpl.face === FM_FACE_OUTWARD) {
-        const vx = tpl.face === FM_FACE_INWARD ? input.clickX - x : x - input.clickX;
-        const vy = tpl.face === FM_FACE_INWARD ? input.clickY - y : y - input.clickY;
-        // A slot on the click itself takes forward.
+        const [cx, cy] = anchorOf(trackOfId.get(m.id) ?? 0);
+        const vx = tpl.face === FM_FACE_INWARD ? cx - x : x - cx;
+        const vy = tpl.face === FM_FACE_INWARD ? cy - y : y - cy;
+        // A slot on its anchor itself takes forward.
         face = vx === 0 && vy === 0 ? eighthToward(fwdX, fwdY) : eighthToward(vx, vy);
       }
     }
@@ -826,6 +855,7 @@ export function templateOffsets(tpl: CompiledFormation, classes: readonly number
   const taken = new Set<number>();
   const keyOf = (f: number, l: number): number => (f + 1024) * 4096 + (l + 1024);
   const ground: Ground = {
+    deepest: 512,
     usable: (_m, _t, f, l) => !taken.has(keyOf(f, l)),
     take: (_m, _t, f, l) => {
       taken.add(keyOf(f, l));

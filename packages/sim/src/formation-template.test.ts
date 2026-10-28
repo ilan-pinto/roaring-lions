@@ -125,6 +125,20 @@ describe('the ring', () => {
   });
 });
 
+describe('ringTiles is shared and frozen (N2)', () => {
+  it('the list and every tile in it refuse a write, and a second call returns the same list', () => {
+    const t = ringTiles(3);
+    expect(Object.isFrozen(t)).toBe(true);
+    expect(Object.isFrozen(t[0])).toBe(true);
+    expect(() => (t as unknown as number[][]).push([9, 9])).toThrow(TypeError);
+    expect(() => {
+      (t[0] as unknown as number[])[0] = 9;
+    }).toThrow(TypeError);
+    expect(ringTiles(3)[0]).toEqual([3, 0]);
+    expect(ringTiles(3)).toBe(t);
+  });
+});
+
 describe('eighthToward', () => {
   it('names the eight unit vectors', () => {
     const cases: [number, number, number][] = [
@@ -184,6 +198,26 @@ describe('Column on open ground', () => {
     expect(lit(framed(slots))).toEqual({ 1: [0, 0], 2: [-1, 2], 3: [-3, 0], 4: [-5, 0], 5: [-5, 2], 6: [-6, 0], 7: [-6, 2] });
     // arrival.face "travel": the way it marches, 49152 for a march to the north (-y)
     for (const s of slots) expect(s.face, `id ${s.id}`).toBe(49152);
+  });
+  it('24 armour: the hulls past the walk spill BEHIND the column in its own pattern, spacing kept (S3)', () => {
+    // click (24, 10), approach from the south: slot k of the armour element is file k % 2, row k / 2, at
+    // forward -(3 row + file), lateral 2 file: tile (24 + 2 file, 10 + 3 row + file). The walk's cap of 24
+    // holds hulls 1..17 (rows 0..8 in file 0, 0..7 in file 1); hulls 18..24 are the spill.
+    const { slots, overflow } = assignTemplate(input(mix(...Array<number>(24).fill(ARMOUR)), { origins: [[24, 10], [24, 10]], clickY: 10 }), tpl);
+    expect(overflow).toEqual([]);
+    const tile = (id: number): [number, number] => {
+      const s = slots.find((q) => q.id === id);
+      return s === undefined ? [-1, -1] : [s.x, s.y];
+    };
+    expect(tile(1)).toEqual([24, 10]);
+    expect(tile(2)).toEqual([26, 11]);
+    expect(tile(17)).toEqual([24, 34]); // row 8, file 0: still inside the walk (24 deep)
+    expect([18, 19, 20, 21, 22, 23, 24].map(tile)).toEqual([[26, 35], [24, 37], [26, 38], [24, 40], [26, 41], [24, 43], [26, 44]]);
+    // every hull is 3 rows from the one before it in its file: no knot, no hull at the head
+    for (const file of [24, 26]) {
+      const ys = slots.filter((q) => q.x === file).map((q) => q.y).sort((a, b) => a - b);
+      for (let i = 1; i < ys.length; i++) expect(ys[i] - ys[i - 1], `file x=${file}`).toBe(3);
+    }
   });
   it('a recon unit takes the point slot 3 ahead and does not move the stack', () => {
     const { slots } = assignTemplate(input(mix(RECON, INFANTRY, INFANTRY)), tpl);
@@ -296,6 +330,17 @@ describe('Ambush on open ground', () => {
     expect(face(6)).toBe(49152); // slot (-3,0) = tile (24,27): straight north
     expect(face(4)).toBe(24576); // slot (2,2) = tile (26,22): south-west
     expect(face(7)).toBe(49152); // the medic at (-6,0), tile (24,30)
+  });
+  it('a ring of hulls snapped off the click closes on ITS OWN centre, not on the foot click (N7)', () => {
+    const foot = openMask();
+    const veh = openMask();
+    veh[24 * W + 24] = 1;
+    veh[23 * W + 24] = 1; // boulders: vehicles snap to (24, 22)
+    const { slots } = assignTemplate(input(mix(ARMOUR, ARMOUR, ARMOUR, ARMOUR), { masks: [foot, veh], origins: [[24, 24], [24, 22]] }), tpl);
+    // four hulls take ring positions 0, 8, 4, 12: frame (3,0), (-3,0), (0,3), (0,-3) about (24, 22)
+    expect(slots.map((s) => [s.id, s.x, s.y])).toEqual([[1, 24, 19], [2, 24, 25], [3, 27, 22], [4, 21, 22]]);
+    // id 3 at (27,22) looks west at the ring's centre (24,22); toward the foot click (24,24) it would be south-west
+    expect(slots.map((s) => s.face)).toEqual([16384, 49152, 32768, 0]);
   });
   it('the radius is the smallest that seats the ring: 2 -> 3, 16 -> 3, 17 -> 4, 32 -> 6, 33 -> 6 with one over', () => {
     const radius = (n: number): number => assignTemplate(input(mix(...Array<number>(n).fill(INFANTRY))), tpl).ringRadius;

@@ -63,19 +63,29 @@ describe('every shipped formation places N = 2..24 on open ground', () => {
           // every member gets a slot, and no tile is used twice
           expect(slots, where).toHaveLength(n);
           expect(new Set(slots.map((s) => `${s.x},${s.y}`)).size, where).toBe(n);
-          // No overflow: every member is on a template slot. The one literal exception, measured: a
-          // column of armour is 3 rows a hull, so the walk's cap of 24 holds 17 of them (rows 0..8 in
-          // file 0, 0..7 in file 1), and hull 18 onward spills to the nearest free ground.
+          // No overflow: every member is on a template slot. A column of armour is 3 rows a hull, so the
+          // walk's cap of 24 holds 17 of them (rows 0..8 in file 0, 0..7 in file 1); hull 18 onward is the
+          // SPILL (S3), which runs on behind the column in the same pattern rather than packing at the click.
+          expect(overflow, where).toHaveLength(0);
+          // every slot is inside the walk, except a files element's spill, which only a column of hulls reaches
+          const spilled = slots.filter((s) => Math.abs(s.x - CLICK) + Math.abs(s.y - CLICK_Y) > tpl.extent);
           const hullsInColumn = tpl.id === 'column' && mixName === 'all armour';
-          expect(overflow, where).toHaveLength(hullsInColumn ? Math.max(0, n - 17) : 0);
-          // every slot is inside the walk
-          for (const s of slots) expect(Math.abs(s.x - CLICK) + Math.abs(s.y - CLICK_Y), `${where} id ${s.id}`).toBeLessThanOrEqual(tpl.extent);
-          // vehicle spacing, in the file formations: two ground vehicles in one lateral are never
-          // closer than VEHICLE_RANK_DEPTH (3) apart, and none sits one lateral from another. (The
-          // ring is exempt: a full ring of hulls is adjacent by design, which the P2 fallback
-          // addresses once measured.)
+          expect(spilled.map((s) => s.id), where).toEqual(hullsInColumn ? Array.from({ length: Math.max(0, n - 17) }, (_, k) => 18 + k) : []);
+          // where the spill lands: strictly behind (larger y; forward is -y) every slot inside the walk, in
+          // the column's own two files (x = 24 and 26), 3 rows from the hull before it in its file
+          for (const sp of spilled) {
+            expect(sp.x === CLICK || sp.x === CLICK + 2, `${where} id ${sp.id} file`).toBe(true);
+            for (const s of slots) if (!spilled.includes(s)) expect(sp.y, `${where} id ${sp.id} behind id ${s.id}`).toBeGreaterThan(s.y);
+          }
+          if (hullsInColumn && n === 24) {
+            expect(spilled.map((s) => [s.x, s.y])).toEqual([[26, 35], [24, 37], [26, 38], [24, 40], [26, 41], [24, 43], [26, 44]]);
+          }
+          // vehicle spacing, in the file formations (the spill included): two ground vehicles in one
+          // lateral are never closer than VEHICLE_RANK_DEPTH (3) apart, and none sits one lateral from
+          // another. (The ring is exempt: a full ring of hulls is adjacent by design, which the P2
+          // fallback addresses once measured.)
           if (tpl.id !== 'ambush') {
-            const veh = slots.filter((s) => units[s.id - 1].vehicle && !units[s.id - 1].air && !overflow.includes(s.id));
+            const veh = slots.filter((s) => units[s.id - 1].vehicle && !units[s.id - 1].air);
             for (const a of veh) {
               for (const b of veh) {
                 if (a.id >= b.id) continue;
