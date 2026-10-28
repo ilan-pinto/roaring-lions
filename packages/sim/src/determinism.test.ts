@@ -1282,7 +1282,13 @@ function formationWorld(seed: number): { hash: number; seen: Record<string, numb
 // FORMATION_WORLD_PIN: born 2026-10-28 (GH-859 P1a), read from the first run. It moves when a
 // formation rule, column or fold changes, and with the three files' JSON; say why in the commit
 // that moves it. P1b re-pins it (march, calls and its columns join the world).
-const FORMATION_WORLD_PIN = 3331466982;
+// Re-pinned 2026-10-28, same day, before the branch left the worktree (sim-guard review S1): the
+// ring-spring pass moved to BEFORE stepCombat, so a ring found by fire opens fire one tick after the
+// hit and not two, and the fight the side-1 riflemen start in this replay runs a tick earlier from the
+// spring on. Scouting ticks re-read on the new code: first ring member set at 196, last at 344, group
+// found at 404 (snapshot-witness.test.ts reads the same three numbers, unchanged: the spring happens
+// at the top of the tick after, which is what moved). Was 3331466982.
+const FORMATION_WORLD_PIN = 2129900778;
 
 describe('determinism of a formation world (600-tick replay, GH-859 P1a)', () => {
   it('two runs agree, and the run forms three groups, loses one member by order, rings up and springs once', () => {
