@@ -205,7 +205,7 @@
       {
         "unit": "atgm_cell",
         "count": 1,
-        "at": [29.5, 11.5],
+        "at": [31.5, 13.5],
         "tag": "uz_atgm_north",
         "stance": { "kind": "ambush", "tiles": 10 }
       },
