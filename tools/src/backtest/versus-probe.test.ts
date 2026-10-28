@@ -298,10 +298,14 @@ describe('the seat table (N3 Task 7: a room\'s, by default)', () => {
     // three differ -- 17, 29, 39 -- and the pin moves to the first, seedOf(17) = 135623: winner 1 by
     // annihilation at 5420 ticks under the room's table and at 5280 under the single-player one.
     // Was seedOf(0) = 1000 (2500 / 2480 ticks).
+    // Re-read for GH-560 (HP alone ends a vehicle, 28 Oct 2026): seedOf(17) is still the first of 40 where the
+    // tables differ (seeds 0-16 play the same game under both), and it differs more: the room's table is
+    // still won by side 1 by annihilation, at 4440 ticks (was 5420), and the single-player one is now won by
+    // side 0 at 3480 (was side 1 at 5280). The seed stays.
     const seed = seedOf(17);
     expect(seed).toBe(135623);
-    expect(play('wadi_tarfan', ['sarim', 'kdf'], seed)).toEqual({ winner: 1, by: 'annihilation', ticks: 5420 });
-    expect(play('wadi_tarfan', ['sarim', 'kdf'], seed, { rules: 'default' })).toEqual({ winner: 1, by: 'annihilation', ticks: 5280 });
+    expect(play('wadi_tarfan', ['sarim', 'kdf'], seed)).toEqual({ winner: 1, by: 'annihilation', ticks: 4440 });
+    expect(play('wadi_tarfan', ['sarim', 'kdf'], seed, { rules: 'default' })).toEqual({ winner: 0, by: 'annihilation', ticks: 3480 });
   }, FULL_GAMES_TIMEOUT_MS);
 });
 

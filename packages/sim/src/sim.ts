@@ -16,6 +16,7 @@ import { HASH_SEED, hashArray, hashWord } from './hash';
 import { FlowField, DIR_NONE, DIR_VX, DIR_VY, COST_ORTH, COST_DIAG } from './flowfield';
 import { assignFormation, type FormationUnit } from './formation';
 import { hullCapsule, capsuleOverlap } from './separation';
+import { overmatchShift, penetrationHpCost } from './vehicle-health';
 import {
   structureTypeFromJson,
   STRUCT_DAMAGE,
@@ -89,12 +90,9 @@ import {
   COMP_MOBILITY,
   COMP_FIREPOWER,
   COMP_BOTH,
-  COMP_CATASTROPHIC,
   MOB_DAMAGED_PCT,
   FIELD_FIX_TICKS,
   FIELD_FIX_ASSIST_RADIUS,
-  OVERMATCH_SHIFT_PER_Z,
-  OVERMATCH_SHIFT_MAX,
   SUPP_DECAY,
   PIN_AT,
   UNPIN_AT,
@@ -1261,8 +1259,7 @@ export type ComponentResult =
    *  SLOWED (`mobilityDamaged`), not stuck, and keeps driving. */
   | 'mobility_damaged'
   | 'firepower_kill'
-  | 'combat_ineffective'
-  | 'catastrophic';
+  | 'combat_ineffective';
 
 /** Every roll the model makes is on an event, in full, for the debug overlay.
  *  All numeric payloads are raw Q16.16 — the render side converts. */
@@ -7330,8 +7327,15 @@ export class Sim {
     const armor = this.presentedArmor(target, ox, oy, w.cls);
     const z = penZ(w.penetration, armor);
     const roll = this.rng.nextU32(shooter) >>> 16;
-    if (roll >= fx.normCdf(z)) return;
-    this.applyDamage(target, w.damage, shooter);
+    if (roll >= fx.normCdf(z)) {
+      // GH-560 (S-1): a bounce that could have come through restarts the regen delay, as on the gun path.
+      if (w.splash > 0 || w.penetration >= this.unitTypes[this.typeIdx[target]].armorSide) {
+        this.lastDamagedTick[target] = this.tickCount;
+      }
+      return;
+    }
+    // GH-560 (S-1): a beam penetration costs what a gun penetration costs (penetrationHpCost).
+    this.applyDamage(target, penetrationHpCost(this.unitTypes[this.typeIdx[target]].hp, w.damage, overmatchShift(z)), shooter);
     if (this.alive[target] === 1) this.rollComponent(target, shooter, z);
   }
 
@@ -7634,6 +7638,11 @@ export class Sim {
       // same test: blast, or penetration up to the side armour (lead ruling,
       // 2026-10-13). Otherwise a rifle squad pins a tank by ringing its hull.
       const threatens = this.prSplash[pr] > 0 || pen >= tType.armorSide;
+      // GH-560 (lead ruling 3, 27 Oct): a bounce that could have come through restarts the regen
+      // delay, as a penetration does. A rifle on an MBT (not `threatens`) leaves it running.
+      // Two other readers of lastDamagedTick see the restart: stepFieldFix (a stuck hull's crew
+      // fix) and the workshop's component repair in stepUpkeep.
+      if (threatens) this.lastDamagedTick[target] = this.tickCount;
       // No cover_ignore here, deliberately: a bounce is armour shock, not a hit
       // on a man in cover.
       const bounce = fx.mul(this.prSupp[pr], BOUNCE_SUPP_MULT);
@@ -7648,25 +7657,25 @@ export class Sim {
       return;
     }
 
-    this.applyDamage(target, this.prDamage[pr], shooter);
+    // GH-560 (lead ruling 1, 27 Oct): HP alone ends a vehicle, so a penetration of a hard hull costs
+    // at least a third of its bar (penetrationHpCost). The weapon's own damage still counts when it is more.
+    this.applyDamage(target, penetrationHpCost(tType.hp, this.prDamage[pr], overmatchShift(z)), shooter);
     if (this.alive[target] === 1) this.rollComponent(target, shooter, z);
   }
 
   private rollComponent(target: number, shooter: number, z: Fx): void {
-    // Weights shift with overmatch: crew_shaken → catastrophic (GDD 5.4).
-    let shift = fx.toInt(fx.mul(fx.max(fx.sub(z, ONE), 0), fx.fromInt(OVERMATCH_SHIFT_PER_Z)));
-    if (shift > OVERMATCH_SHIFT_MAX) shift = OVERMATCH_SHIFT_MAX;
+    // Weights shift with overmatch: points move off crew_shaken and the rest of the table shares them
+    // (GDD 5.4; GH-560 removed the catastrophic row: only HP destroys a hull). One draw, as ever.
+    const shift = overmatchShift(z);
     const wCrew = COMP_CREW_SHAKEN - shift;
-    const wCat = COMP_CATASTROPHIC + shift;
-    const total = wCrew + COMP_MOBILITY + COMP_FIREPOWER + COMP_BOTH + wCat;
+    const total = wCrew + COMP_MOBILITY + COMP_FIREPOWER + COMP_BOTH;
     const draw = ((this.rng.nextU32(shooter) >>> 16) * total) >>> 16;
 
     let result: ComponentResult;
     if (draw < wCrew) result = 'crew_shaken';
     else if (draw < wCrew + COMP_MOBILITY) result = 'mobility_kill';
     else if (draw < wCrew + COMP_MOBILITY + COMP_FIREPOWER) result = 'firepower_kill';
-    else if (draw < wCrew + COMP_MOBILITY + COMP_FIREPOWER + COMP_BOTH) result = 'combat_ineffective';
-    else result = 'catastrophic';
+    else result = 'combat_ineffective';
 
     // #706 §3.3: a sound GROUND hull on wheels only loses a wheel to its first
     // mobility hit -- slowed, still driving. A second one (or tracks, or a
@@ -7714,9 +7723,6 @@ export class Sim {
         this.fieldRef[target] = -1;
         this.firepowerKilled[target] = 1;
         this.applySuppression(target, CREW_SHAKEN_SUPP, false);
-        break;
-      case 'catastrophic':
-        this.destroy(target, shooter);
         break;
     }
   }
@@ -9607,9 +9613,12 @@ export class Sim {
           penetrated,
         });
         if (penetrated) {
-          this.applyDamage(target, w.damage, i);
+          // GH-560 (S-1): a loitering munition's penetration costs what a gun penetration costs.
+          this.applyDamage(target, penetrationHpCost(tType.hp, w.damage, overmatchShift(z)), i);
           if (this.alive[target] === 1) this.rollComponent(target, i, z);
         } else {
+          // GH-560 (S-1): a bounce that could have come through restarts the regen delay (gun-path test).
+          if (w.splash > 0 || w.penetration >= tType.armorSide) this.lastDamagedTick[target] = this.tickCount;
           this.applySuppression(
             target,
             fx.mul(w.suppPerMiss, BOUNCE_SUPP_MULT),

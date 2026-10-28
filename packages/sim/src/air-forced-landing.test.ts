@@ -15,10 +15,10 @@ import { fx, ONE, type Fx } from './fixed';
 import { Sim, type SimEvent, type UnitTypeJson } from './sim';
 import { AIR_AIRBORNE, AIR_LANDED, AIR_LANDING, AIR_LAND_TICKS, AIR_LIFTING, AIR_LIFT_TICKS, FIELD_FIX_TICKS } from './tuning';
 
-/** hi = 32768: (32768 * 100) >>> 16 = 50, inside [45, 65): mobility_kill. */
+/** hi = 32768: (32768 * 92) >>> 16 = 46, inside [45, 65): mobility_kill. (GH-560: the table totals 92 at z = 1.) */
 const U_MOBILITY = 0x80000000;
-/** hi = 55706: (55706 * 100) >>> 16 = 84, inside [80, 92): combat_ineffective. */
-const U_COMBAT_INEFFECTIVE = 0xd99a0000;
+/** hi = 61440: (61440 * 92) >>> 16 = 86, inside [80, 92): combat_ineffective. */
+const U_COMBAT_INEFFECTIVE = 0xf0000000;
 
 const SENSORS = { optics: 1, sight_tiles: 10, signature: 1 };
 /** A hard, armed, seatless aircraft: not a carrier (isAirCarrier false). */

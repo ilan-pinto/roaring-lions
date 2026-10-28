@@ -276,3 +276,18 @@ reasoning and superseded statements behind them, unedited. Nothing here has been
   narrow 5.2 / narrow-with-the-spotter-dead 5.1" reading is retired: those runs held the
   flank at a waypoint until t=130 s, some 90 s later than a direct order puts it in the
   corridor, so they measured the halt and not the route.
+
+<!-- GH-560, 28 Oct 2026: written after the vehicle-health implementation -->
+
+## `wadi_halam_5_depot` (gate open), seed 22, under the HP model (GH-560)
+
+Seed 22 of the gate-open run became a defeat (withdrawn at 840 s: `hold_depot` never started its clock) once HP alone ended a vehicle. Traced tick by tick:
+
+- 21.4 s: a motorcycle RPG penetrates the Eitan's front and rolls `combat_ineffective`, so its rws_50 is firepower-killed for good. On main the same hit was catastrophic: the Eitan died, and that left the Namer to fight.
+- 62.3 s: the interior RPG team penetrates the Namer's front and rolls `firepower_kill`: its cannon is gone too (on main this hit was a mobility kill).
+- Two ZU-23 trucks stand in the yard and nothing left can hurt them: the Spike team and both rifle squads were run down by technicals at 100-172 s, and the Kipod's remote MG (pen 16) never kills a truck. The Kipod fell to motorcycle RPGs at 243-278 s. A truck alive in the zone keeps `hold_depot` contested to the limit.
+
+The root cause underneath is a plan bug: with the `apc_kipod` gate open the `jeep_shoded` placement resolves to the Kipod, so `ids('jeep_shoded')` was empty and the Kipod got no t=0 order (idle on the start line until the 85 s re-anchor), while the plain run staged its jeep at (32,27). The gate-open run is meant to be the same plan body. Fix (class (a), the plan, `tools/src/backtest/plans/wadi_halam.ts`; no mission data moved): `const jeep = [...ids('jeep_shoded'), ...ids('apc_kipod')]`. Sweeps over 30 seeds (424242, 1..29): before, gate open 29/30 and plain 30/30 (slowest 5.5 min); after, gate open 30/30 (slowest 5.4) and plain 30/30 (byte-identical, it has no Kipod). Seeds 30-89, gate open: 59/60 before (seed 76: `raze_depot` failed, Namer firepower-killed), 60/60 after. `pnpm playtest` 37 of 37, `LADDER_CREDITS` 5961, `ROSTER_MAX` 30. Falsified: restoring `const jeep = ids('jeep_shoded');` turns seed 22 red again.
+
+**Residual fragility, for the mission-author.** Under the HP model the mission is still fragile to a firepower kill on BOTH armoured guns: a firepower kill is permanent without a workshop, and then nothing in the depot force can answer a ZU-23 truck. The plan now keeps the Kipod in the fight, which is why 90 seeds win; a real player who loses both guns to RPGs early has no such answer. Not tuned here.
+

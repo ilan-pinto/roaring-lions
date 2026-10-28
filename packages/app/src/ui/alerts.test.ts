@@ -521,7 +521,7 @@ describe('alertsForTick — our units broken or damaged (pass C2/C4, A1)', () =>
       expect(alerts[0].tier).toBe('important');
       expect(catalogue).toHaveProperty(key);
     }
-    // Crew shaken is suppression, which the card shows; catastrophic is a loss.
+    // Crew shaken is suppression, which the card shows; a destroyed hull is a loss.
     expect(alertsForTick(initAlertState(), [component(7, 'crew_shaken')], [], world, 40).alerts).toEqual([]);
   });
 

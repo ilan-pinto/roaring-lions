@@ -120,7 +120,6 @@ export const COMP_CREW_SHAKEN = 45;
 export const COMP_MOBILITY = 20;
 export const COMP_FIREPOWER = 15;
 export const COMP_BOTH = 12;
-export const COMP_CATASTROPHIC = 8;
 /** Mobility kills (#706, spec 2026-10-22-mobility-kills-design §3.3): a SLOWED
  *  hull (`mobilityDamaged`: the first mobility hit on `gear: wheels`, or a crew
  *  field fix) moves at this integer percent of its `stepPerTick`. 50 is the
@@ -135,10 +134,24 @@ export const FIELD_FIX_TICKS = 90 * 20;
  *  tiles of a stuck hull doubles its field-fix rate (45 s). 2 tiles is the
  *  spec's number (§3.4 item 3): close enough to read as "working on it". */
 export const FIELD_FIX_ASSIST_RADIUS = 2;
-/** Overmatch shift: bonus = clamp((z - 1) * 10, 0, 30) percentage points moved
- *  from crew_shaken to catastrophic as penetration overmatch grows. */
+/** Overmatch shift: shift = clamp((z - 1) * 10, 0, 30) percentage points moved
+ *  off crew_shaken as penetration overmatch grows; the rest of the table shares them
+ *  (GH-560 removed the catastrophic row, so the weights total 92 - shift). The same shift
+ *  scales a penetration's hp cost (PEN_HP_OVERMATCH_DIV). */
 export const OVERMATCH_SHIFT_PER_Z = 10;
 export const OVERMATCH_SHIFT_MAX = 30;
+/** GH-560 (lead ruling 1, 27 Oct): a penetration of a hard hull costs at least this fraction of its MAX hp,
+ *  scaled by overmatch (PEN_HP_OVERMATCH_DIV). HP, not a roll, ends a vehicle: 2 hits at heavy overmatch,
+ *  3 otherwise (spec 2026-10-27-vehicle-health-design 5.2). */
+export const PEN_HP_FLOOR = 22282; // 0.34
+/** The floor is multiplied by (DIV + shift) / DIV, shift being the 0-30 overmatch shift: x1.5 at most. */
+export const PEN_HP_OVERMATCH_DIV = 60;
+/** GH-868: the reference round for the floor. A penetration by a round of at least this damage pays the whole
+ *  floor; a lighter round pays it in proportion to its damage (never less than its own damage). 85 is the
+ *  ZU-23 / 30 mm chain gun / 30 mm cannon class, so the 12.7 / 14.5 mm rounds (DShK 40, pintle 34, coax 35,
+ *  PKM 30) stop costing a third of a light hull's bar. R = 85 is the largest value that leaves every row the
+ *  design table pins untouched (measured: _coord/gh868/options.md). */
+export const PEN_HP_REF_DAMAGE = 5570560; // 85.0
 
 // --- suppression (5.5) -----------------------------------------------------
 /** Per-tick decay: e^(-lambda * dt), lambda = 0.15/s. */

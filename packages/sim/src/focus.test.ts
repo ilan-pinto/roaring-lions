@@ -436,12 +436,15 @@ function tiles(sim: Sim, a: number, b: number): number {
   return Math.sqrt(dx * dx + dy * dy);
 }
 
-/** Armoured, unarmed-looking APC plate (apc_eitan's 220/140/90), armed so it
- *  is not "soft" by any rule, and too tough to die in a test. */
+/** Armoured, unarmed-looking APC, armed so it is not "soft" by any rule, and too tough to die in a
+ *  test. GH-560: a penetration costs a third of the bar whatever the hp, so "too tough" is now the
+ *  plate: 1500 mm against the tank gun's 1300 is P(pen) about 0.10 (sigma 156), enough to be a
+ *  firing solution (PEN_HURTS_MIN 0.05) and not enough to kill it in 5 s. The side and rear stay
+ *  apc_eitan's 140 and 90, so the tank's 22 mm machine gun still cannot touch it. */
 const APC: UnitTypeJson = {
   id: 'f_apc',
   role: 'apc',
-  hull: { hp: 30000, armor: { front: 220, side: 140, rear: 90 } },
+  hull: { hp: 30000, armor: { front: 1500, side: 140, rear: 90 } },
   mobility: { speed_tiles_s: 1.0 },
   sensors: { optics: 1, sight_tiles: 1, signature: 1 },
   weapons: [{ id: 'apc_mg', ...GUN, can_target: ['air'] }],

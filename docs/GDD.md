@@ -178,7 +178,9 @@ Facing is derived from the angle between shot vector and hull forward: **front �
 
 ### 5.4 Component damage
 
-On penetration, roll a weighted component table (weights shift with penetration overmatch):
+**Hit points alone end a vehicle (GH-560, lead ruling 27 Oct).** A penetration costs a hard hull at least 34% of its maximum hit points, scaled by overmatch and, for a light round, by damage: `max(weapon damage, 0.34 x max HP x (1 + overmatch/60) x min(damage, 85) / 85)`, the overmatch term being the 0-30 shift below (GH-868: the damage factor is 1 for a round of 85 damage or more, the ZU-23 / 30 mm class, and `damage / 85` below it, so a 12.7 mm machine gun pays 40/85 of the floor, not all of it). The overmatch term runs from x1 to x1.5, so a hull hit by a round of 85 damage or more dies to the third penetration, or to the second at shift 29 or 30 (z of 3.9 or more); a lighter round takes proportionally more. A technical's DShK needs about 7 penetrations to down a Peten or a Remetz. Examples: a Lavi (3,000 HP) takes 1,496 HP (50%) from a 120 mm round at shift 28 and 1,156 HP (39%) from a Kornet through its front at shift 8; a Peten (640 HP) takes 218 HP (34%) from a ZU-23 at shift 0. There is no roll that ends a hull early: the bar is the truth, and it is what the player reads.
+
+On penetration, also roll a weighted component table (weights shift with penetration overmatch). The table has four results, and none of them destroys the vehicle:
 
 | Result | Base weight | Effect |
 |---|---|---|
@@ -186,11 +188,14 @@ On penetration, roll a weighted component table (weights shift with penetration 
 | Mobility kill | 20% | immobilised, weapons live |
 | Firepower kill | 15% | mobile, cannot engage |
 | Mobility + firepower | 12% | combat-ineffective, crew alive |
-| Catastrophic | 8% | destroyed, crew lost |
 
 A mobility kill depends on the running gear (`mobility.gear`, GH-706): a **wheeled** hull is first *slowed* (half speed, weapons live) and only stuck on a second mobility hit; a **tracked** hull is stuck at once, and still pivots. A stuck ground hull's crew field-fixes it to *slowed* after 90 s without taking a hit (45 s with an engineer or D9 within 2 tiles, standing still); a field-works workshop clears every state. An **aircraft** mobility-killed in the air makes a forced landing, is a ground target while down, and gets no field fix.
 
-Note that most penetrations do **not** destroy the vehicle. Recoverable losses make the battlefield legible and make casualty-averse play meaningful.
+A hull whose HP reaches 0 is destroyed and its crew lost (the brew-up); that row has no weight, because it is not a roll. The table's one draw per penetration is kept, over weights that total 92 minus the shift (overmatch moves up to 30 points off crew shaken, and the other three results share them).
+
+**Field recovery.** A damaged hull recovers 0.49% of its maximum HP per second, up to 70%, once 10 s have passed since the last damaging or threatening hit. A bounce that could have come through (blast splash, or penetration up to the side armour) is a threatening hit and restarts the 10 s: it also postpones a stuck hull's crew field fix and a field-works workshop's repair. A round that could never hurt the hull (a rifle bullet on an MBT) does not. The cannot-penetrate fallback is unchanged.
+
+Note that most penetrations do **not** destroy the vehicle. That is now true by construction: it takes two or three of them, and recoverable losses make the battlefield legible and make casualty-averse play meaningful.
 
 ### 5.5 Suppression — the highest-value mechanic in the game
 
@@ -232,7 +237,7 @@ The model is wrong unless the backtest harness reproduces these:
 All four pass as of M0 (`pnpm balance`). Extended targets, landing as the mechanics arrive (M1–M2), so the harness validates the enemy doctrines and not only the player's toolkit:
 
 - **Ambush (Ashwar):** an unspotted RPG team in `ambush(3)` gets its first volley off before being identified in ≥80% of engagements against a non-reconnoitred column.
-- **Standoff (Sarim):** an ATGM cell firing from ≥8 tiles wins the cost exchange against an APS-equipped MBT over a 3-missile engagement.
+- **Standoff (Sarim):** an ATGM cell firing from ≥8 tiles wins the cost exchange against an APS-equipped MBT over a 3-missile engagement. **Report-only** (GH-560 ruling 4, 27 Oct): it could not be met under any vehicle-health option, so it is not a gate. The doctrine and data follow-up is GH-865.
 - **Raid (Rif):** technicals that engage and disengage against a slower force escape with ≥60% survival; technicals that get caught die fast. Mobility must actually be their armour.
 
 ### 5.8 Legibility — the model is shown, not hidden

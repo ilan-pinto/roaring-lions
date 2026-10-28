@@ -27,7 +27,7 @@ sim change is needed** (invariant 4; no Stage 4 item).
 | `pinned` | `state.pinned` and events `pinned`/`unpinned` | Set above 0.70 (`PIN_AT`) and cleared below 0.45 (`UNPIN_AT`). While pinned, a unit holds fire and moves at ÷64 |
 | `routed` | `state.routed` and events `routed`/`rallied` | A soft unit that is not immobilised breaks after 200 ticks (10 s) of continuous pin. It rallies when the pin lifts |
 | `hp` | `state.hp` against `type.hp` | Field recovery stops at 70% (`REGEN_CAP`) |
-| `mobilityKilled`, `firepowerKilled` | `state.*` and event `component` (`mobility_kill`, `firepower_kill`, `combat_ineffective`, `crew_shaken`, `catastrophic`) | Set by the hit component roll on a penetrated vehicle |
+| `mobilityKilled`, `firepowerKilled` | `state.*` and event `component` (`mobility_kill`, `firepower_kill`, `combat_ineffective`, `crew_shaken`) | Set by the hit component roll on a penetrated vehicle. There is no `catastrophic` result since GH-560: only `hp` reaching 0 destroys a hull |
 | `brace` | `state.brace` (#402) | Standing, dropping, kneeling or rising |
 | `nearMiss` | event | A round lands within 1.2 tiles of a unit. Carries x/y and no target |
 

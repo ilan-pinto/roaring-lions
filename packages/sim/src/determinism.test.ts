@@ -602,13 +602,19 @@ describe('determinism over relief (900-tick replay round a hill)', () => {
     // 2026-10-25: Vehicle avoidance (GH-421 Stage 2): two per-unit columns, sepWait and sepLast, join
     // the hash. No behaviour moved (no unit in this replay declares a footprint): with their hashArray
     // lines removed, the replay reads the old value exactly. Was 2842924511.
-    expect(relief(RELIEF_SEED, RELIEF_TICKS, true).sim.hash()).toBe(1070599391);
+    //
+    // 2026-10-28: Vehicle health (GH-560, lead ruling 27 Oct): HP alone ends a vehicle. A penetration of a hard
+    // hull costs at least 34% of its max hp x (1 + overmatch/60), the catastrophic roll is gone (the table
+    // totals 92 - shift), and a bounce that could have come through restarts the regen delay. This replay puts
+    // guns on armour, which the flat replay never does (as GH-570 found), so only it moves; flat 1258746094 and
+    // orders 2559269335 are unchanged. Was 1070599391.
+    expect(relief(RELIEF_SEED, RELIEF_TICKS, true).sim.hash()).toBe(1483138559);
   });
 
   it("N2: the explicit single-player table is today's rule on all three golden replays", () => {
     // LITERALS, as the pins above: an oracle that imports its expectation cannot fail.
     expect(run(RUN_SEED, 1000, false, undefined, undefined, [true, false]).hash()).toBe(1258746094);
-    expect(relief(RELIEF_SEED, RELIEF_TICKS, true, [true, false]).sim.hash()).toBe(1070599391);
+    expect(relief(RELIEF_SEED, RELIEF_TICKS, true, [true, false]).sim.hash()).toBe(1483138559);
     expect(orders(ORDERS_SEED, [true, false]).sim.hash()).toBe(2559269335);
   });
 

@@ -452,7 +452,14 @@ export const wadiHalam5Plan: Plan = (sim, _rt, ids, at) => {
   const screen = [...ids('apc_eitan'), ...ids('ifv_namer'), ...ids('inf_squad'), ...ids('at_team')];
   const dozer = ids('dozer_d9');
   const engineers = ids('demo_squad');
-  const jeep = ids('jeep_shoded');
+  // The jeep, or the Kipod it becomes. With the `apc_kipod` gate open the jeep placement resolves to the
+  // Kipod (`playtest.ts`' "(gate open)" run, F1 ruling R2(b)), so `ids('jeep_shoded')` was empty and nobody gave
+  // this hull its t=0 order: it sat on the start line until the 85 s re-anchor while the plain run staged
+  // its jeep at (32,27). The two runs give the same orders now. Under the HP model (GH-560) the old
+  // gate-open run lost seed 22: both armoured guns were firepower-killed (the Eitan's rws_50 at 21 s by a
+  // motorcycle RPG, the Namer's cannon at 62 s by the interior RPG team), nothing left could kill the two
+  // ZU-23 trucks in the yard, and `hold_depot` stayed contested until the clock ran out (withdrawn, 14 min).
+  const jeep = [...ids('jeep_shoded'), ...ids('apc_kipod')];
   // The seven structures inside the wire, by one tile each inside their
   // footprint -- see the map's depot zone. One shared pool rather than a
   // fixed split: the combat engineers (HP 380, no armour worth the name)

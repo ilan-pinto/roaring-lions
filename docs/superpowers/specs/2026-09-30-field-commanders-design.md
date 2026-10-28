@@ -271,8 +271,8 @@ V)), and any extra `losRay`. **Counterplay:** spread targets make it inert, and 
 changes is still decided by the unchanged hit and penetration model.
 
 **Crew drill:** the same `area` carries `supp_recovery_mult` 1.5 for vehicles through
-`auraSuppDecay`, so crew-shaken suppression from `rollComponent` clears ×1.5 faster. Mobility,
-firepower and catastrophic kills are untouched.
+`auraSuppDecay`, so crew-shaken suppression from `rollComponent` clears ×1.5 faster. Mobility
+and firepower kills are untouched. (GH-560 removed the catastrophic result: a hull now dies when its HP reaches 0.)
 
 **Smoke and bound** (**app only, no sim change**). It arms two clicks: the screen line's centre,
 then the bound point. The app takes every own smoke-capable hull within 6 tiles of Ronen with

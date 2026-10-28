@@ -13,7 +13,8 @@ const seats = (id: MapId) => {
 
 describe('versusAnchors: the measured versus seats', () => {
   it('stands each measured map on its table entry (literals)', () => {
-    expect(seats('beit_sahwan_outskirts')).toEqual([[4, 23], [40, 23]]);
+    // Beit seat 0 moved (4,23) -> (4,22) under vehicle health (GH-560, 28 Oct). Was [[4, 23], [40, 23]].
+    expect(seats('beit_sahwan_outskirts')).toEqual([[4, 22], [40, 23]]);
     expect(seats('tel_marum')).toEqual([[27, 45], [29, 17]]);
     expect(seats('wadi_tarfan')).toEqual([[11, 11], [36, 36]]);
   });

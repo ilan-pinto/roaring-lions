@@ -49,13 +49,17 @@ describe('air-assault probe: a hostile case, the kill attribution', () => {
   }, RUN_TIMEOUT_MS);
 
   // The airborne case alone cannot see a mutant that hardcodes AIRBORNE (it is 0): this one can.
-  it('Tel Marum arm D (MANPAD at standoff), seed 0: killed while LANDING with six aboard, who bail out and arrive', () => {
-    const r = run('tel_marum', 'D', SEED);
+  // GH-560 (HP alone ends a vehicle, 2026-10-28): this witness was arm D (MANPAD at standoff), seed 0, with
+  // squadsLost 0. Under the HP model a MANPAD alone no longer downs the 760 hp Yanshuf on seeds 0-15, so the
+  // LANDING kill is witnessed by arm E (ZU-23) seed 0: the same state, six aboard who bail out and arrive,
+  // though the squads are then lost on the ground (squadsLost 6, not 0).
+  it('Tel Marum arm E (ZU-23 at standoff), seed 0: killed while LANDING with six aboard, who bail out and arrive', () => {
+    const r = run('tel_marum', 'E', SEED);
     expect(r.yanshufLost).toBe(true);
     expect(r.yanshufKillState).toBe(1); // AIR_LANDING, as a literal
     expect(r.yanshufKillAboard).toBe(6);
     expect(r.squadsLostAboard).toBe(0);
-    expect(r.squadsLost).toBe(0);
+    expect(r.squadsLost).toBe(6);
     expect(r.arrivedS).not.toBeNull();
   }, RUN_TIMEOUT_MS);
 });

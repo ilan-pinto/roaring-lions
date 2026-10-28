@@ -14,10 +14,10 @@ import { Sim, TICKS_PER_SECOND, type SimEvent, type UnitTypeJson } from './sim';
 import type { StructureTypeJson } from './structures';
 import { FIELD_FIX_TICKS, FIELD_FIX_ASSIST_RADIUS, MOB_DAMAGED_PCT } from './tuning';
 
-/** hi = 32768: (32768 * 100) >>> 16 = 50, inside [45, 65): mobility_kill. */
+/** hi = 32768: (32768 * 92) >>> 16 = 46, inside [45, 65): mobility_kill. (GH-560: the table totals 92 at z = 1.) */
 const U_MOBILITY = 0x80000000;
-/** hi = 55706: (55706 * 100) >>> 16 = 84, inside [80, 92): combat_ineffective. */
-const U_COMBAT_INEFFECTIVE = 0xd99a0000;
+/** hi = 61440: (61440 * 92) >>> 16 = 86, inside [80, 92): combat_ineffective. */
+const U_COMBAT_INEFFECTIVE = 0xf0000000;
 
 const HULL = { hp: 3000, armor: { front: 300, side: 200, rear: 100 } };
 const SENSORS = { optics: 1, sight_tiles: 2, signature: 1 };
