@@ -1,5 +1,5 @@
 // How an armoured vehicle dies under the HP model (GH-560). REPORT-ONLY.
-// Run: pnpm vehicle-health:probe -- [--seeds=200] [--tier=max] [--only=s1,s2,s3,s4]
+// Run: pnpm vehicle-health:probe -- [--seeds=200] [--tier=max] [--only=s1,s2,s3,s4,s5]
 //   (or npx tsx tools/src/backtest/vehicle-health-probe.ts)
 //
 // What it measures, per scenario: how often a hard hull dies, what its health bar showed on the
@@ -20,8 +20,14 @@
 // design, run C9) and docs/superpowers/plans/2026-10-28-vehicle-health.md. The 200-seed reading
 // of every row is in the design runs, minus the `cat` column the HP model deleted.
 //
-// Nothing here asserts a level except the one gate in `vehicle-health-probe.test.ts` (the Lavi
-// v Lavi duel has no luck deaths). Float maths is fine: this file is a tool, never the sim.
+// S5 (GH-868) is a different question: how long a small round takes to kill a light hard hull
+// (a technical under a Peten's or a Remetz's guns). The per-hit HP floor was flat at 34% of the bar,
+// so a 12.7 mm DShK killed a Peten in 3 hits; the floor now scales by damage / R below R = 85
+// (PEN_HP_REF_DAMAGE). `sf2` is the cold-target arrangement the measurement used.
+//
+// Nothing here asserts a level except the gates in `vehicle-health-probe.test.ts` (the Lavi
+// v Lavi duel has no luck deaths; the S5 rows hold a technical off a flat floor). Float maths is
+// fine: this file is a tool, never the sim.
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { Sim, fx, TICKS_PER_SECOND, type SimEvent, type UnitTypeJson } from '@lions/sim';
@@ -134,6 +140,53 @@ export function engagement(
     t.atkLost += row - aliveCount(sim, 1);
   }
   return t;
+}
+
+// --- S5 (GH-868): a cold hard hull under small arms, one arc --------------------
+export interface Sf2Result {
+  runs: number;
+  killed: number;
+  /** Seconds to the kill, sorted ascending, killed runs only. */
+  ttk: number[];
+  pensPerRun: number;
+}
+
+/**
+ * One cold target (weapons stripped) of `target`, `n` shooters of `shooter` placed rear / side / front
+ * of it, `seeds` seeds, `capS` seconds. The target sits at (20.5, 12.5) facing west; the shooters are
+ * 6 tiles off in the named arc. Seeds 90000 + 17 s, the readings in _coord/gh868/options.md.
+ */
+export function sf2(U: Roster, target: string, shooter: string, n: number, where: 'rear' | 'side' | 'front', capS: number, seeds: number): Sf2Result {
+  let killed = 0;
+  let pens = 0;
+  const ttk: number[] = [];
+  for (let s = 0; s < seeds; s++) {
+    const sim = new Sim({ seed: 90000 + s * 17, width: 40, height: 24, capacity: 16 });
+    const id = sim.spawn(sim.addUnitType({ ...U[target], id: `${target}_cold`, weapons: [] }), 0, fx.from(20.5), fx.from(12.5), WEST);
+    const st = sim.addUnitType(U[shooter]);
+    for (let k = 0; k < n; k++) {
+      if (where === 'rear') sim.spawn(st, 1, fx.from(26.5), fx.from(12.5 + k), WEST);
+      else if (where === 'front') sim.spawn(st, 1, fx.from(14.5), fx.from(12.5 + k), EAST);
+      else sim.spawn(st, 1, fx.from(20.5 + k), fx.from(6.5), 16384);
+    }
+    sim.identifyTo(1, id);
+    for (let t = 0; t < capS * TICKS_PER_SECOND; t++) {
+      const evs = sim.tick();
+      for (const e of evs) if (e.kind === 'impact' && e.target === id && e.penetrated) pens++;
+      if (evs.some((e) => e.kind === 'destroyed' && e.entity === id)) {
+        killed++;
+        ttk.push(t / TICKS_PER_SECOND);
+        break;
+      }
+    }
+  }
+  ttk.sort((a, b) => a - b);
+  return { runs: seeds, killed, ttk, pensPerRun: pens / seeds };
+}
+
+export function formatSf2(name: string, r: Sf2Result): string {
+  const med = r.ttk.length ? r.ttk[r.ttk.length >> 1].toFixed(1) : '-';
+  return `${name.padEnd(36)} killed ${r.killed}/${r.runs} | ttk med ${med}s | pens/run ${r.pensPerRun.toFixed(1)}`;
 }
 
 // --- S2: repeated contact (regeneration's question) -----------------------------
@@ -327,6 +380,7 @@ export function runAll(argv: string[], log: (line: string) => void): void {
   const want = (k: string): boolean => !only || only.split(',').includes(k);
   const U = (tier === 'max' ? unitsAtMaxTier : baseUnits) as unknown as Roster;
   const row = (name: string, t: Tally): void => log(formatRow(name, t));
+  const row5 = (name: string, r: Sf2Result): void => log(formatSf2(name, r));
 
   log(`vehicle-health-probe tier=${tier} seeds=${seeds}`);
   if (want('s1')) {
@@ -359,6 +413,14 @@ export function runAll(argv: string[], log: (line: string) => void): void {
         seeds,
       ),
     );
+  }
+  if (want('s5')) {
+    // GH-868: a small round against a light hard hull. Main read 110/200 in 13.7 s (technical v Peten),
+    // the flat 34% floor 199/200 in 8.3 s, R = 85 173/200 in 18.9 s; Remetz v technical 9.6 / 2.7 / 6.5 s.
+    row5('peten v technical, side, 30s', sf2(U, 'heli_peten', 'technical', 1, 'side', 30, seeds));
+    row5('peten v gun_truck, front, 30s', sf2(U, 'heli_peten', 'gun_truck', 1, 'front', 30, seeds));
+    row5('remetz v technical, side, 60s', sf2(U, 'aa_remetz', 'technical', 1, 'side', 60, seeds));
+    row5('remetz v gun_truck, side, 60s', sf2(U, 'aa_remetz', 'gun_truck', 1, 'side', 60, seeds));
   }
   if (want('s3')) {
     // Standoff (Sarim), GDD 5.7 extended: ATGM cells at 8.5 tiles, three missiles each.
