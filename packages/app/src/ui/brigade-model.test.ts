@@ -289,6 +289,24 @@ describe('the garage bay and its model', () => {
     s.dispose();
   });
 
+  it('keeps the previous figure and warns, naming the unit, when a kit rebuild throws', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const s = setup();
+    await s.settle();
+    s.views[0].setKit = () => {
+      throw new Error('kit contract');
+    };
+    s.log.length = 0;
+    // The click must not throw out of the Buy handler, and the purchase lands.
+    expect(() => s.host.querySelector<HTMLButtonElement>('.rl-garage__buy-tier')?.click()).not.toThrow();
+    expect(s.log).toEqual(['cue:upgrade']);
+    expect(warn.mock.calls.some((c) => String(c[0]).includes('inf_squad'))).toBe(true);
+    expect(s.views[0].disposed).toBe(0);
+    expect(s.plate()?.dataset.model).toBe('live');
+    s.dispose();
+    warn.mockRestore();
+  });
+
   it('disposes the live view when the garage is left', async () => {
     const s = setup();
     await s.settle();

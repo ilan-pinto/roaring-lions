@@ -1167,7 +1167,14 @@ export function showBrigade(host: HTMLElement, opts: BrigadeOptions): Disposer {
     if (bayModel === null) return;
     const id = bayModel.unitId;
     const u = rows.find((r) => r.u.id === id)?.u;
-    if (u !== undefined) bayModel.setKit(ownedTiers(u, state.owned));
+    if (u === undefined) return;
+    // A rebuild that throws (a kit contract error on a GLB) must not cut the
+    // purchase short: the door keeps the figure it was showing.
+    try {
+      bayModel.setKit(ownedTiers(u, state.owned));
+    } catch (err) {
+      console.warn(`garage model: ${id}'s kit could not be re-merged -- keeping the figure on show`, err);
+    }
   };
 
   function renderBay(): void {
