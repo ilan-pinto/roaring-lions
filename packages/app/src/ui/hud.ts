@@ -53,7 +53,7 @@ import type { CursorName } from '../input/cursor';
 import { ORDER_SIGHT } from './order-sight';
 import { roleBadgeSvg, roleBucket } from './role';
 import { HALF_INK_CLASS, slowedSymbolSvg, symbolLabel, symbolSvg, type SymbolId } from './symbol';
-import { aimPenaltyPct, breakSeconds, combatBand, hpWord, recoverySeconds, repairTicksLeft, suppressionMeter, SHAKEN_FROM, vehicleDamage } from './combat-state';
+import { aimPenaltyPct, breakSeconds, combatBand, hpWord, recoverySeconds, repairResetByFire, repairTicksLeft, suppressionMeter, SHAKEN_FROM, vehicleDamage } from './combat-state';
 import { bindDelegatedTip, bindTip } from './tooltip';
 import { VoiceCaption } from './voice-caption';
 import { weaponName } from './weapon-name';
@@ -2264,9 +2264,19 @@ export class Hud {
     if (holdingFire > 0) tail.push(t('hud.fire.holdingFire', { n: holdingFire }));
     if (unidentified > 0) tail.push(t('hud.fire.unidentified', { n: unidentified }));
     const foot = tail.length > 0 ? `<div class="rl-dim">${tail.join(' · ')}</div>` : '';
+    // GH-560 follow-up: roughly how many penetrating hits end a hard hull, from the weapon each row
+    // priced. The sim answers (`penetrationsToKill`, null for soft targets and weapons that cannot hurt
+    // that face); the fewest across the selection is the line. Read-only, card/DOM only.
+    let fewest = 0;
+    projections.forEach((p, k) => {
+      if (p.kind !== 'shot' || !p.hurts) return;
+      const n = sim.penetrationsToKill(sel[k], hoverId, p.weaponId);
+      if (n !== null && (fewest === 0 || n < fewest)) fewest = n;
+    });
+    const kill = fewest > 0 ? `<div class="rl-dim rl-fire__kill">${t('hud.fire.hitsToKill', { n: fewest })}</div>` : '';
     const advice =
       state === 'cover' ? remedy('hud.fire.why.cover') : state === 'moving' ? remedy('hud.fire.why.moving') : '';
-    return head + rows.join('') + foot + advice;
+    return head + rows.join('') + foot + kill + advice;
   }
 
   /**
@@ -2803,7 +2813,12 @@ export class Hud {
     // the sim's hashed clock at the sim's own rate (2 while an engineer
     // assists). `fieldFixRate` is 0 for an aircraft, so it never shows there.
     const repairLeft = own && st.mobilityKilled[id] === 1 ? repairTicksLeft(st.fieldFixTicks[id], sim.fieldFixRate(id), FIELD_FIX_TICKS) : null;
-    if (repairLeft !== null) flags.push(`<span class="rl-info">${t('hud.state.repairing', { left: clockText(repairLeft) })}</span>`);
+    if (repairLeft !== null) {
+      flags.push(`<span class="rl-info">${t('hud.state.repairing', { left: clockText(repairLeft) })}</span>`);
+      // GH-560 N-4: a hit, or a bounce that could have come through, zeroes the clock (the sim's
+      // stepFieldFix). Say why the countdown is not moving, only while fire is what holds it.
+      if (repairResetByFire(sim.ticksSinceDamaged(id))) flags.push(`<span class="rl-warn">${t('hud.state.repairReset')}</span>`);
+    }
     if (st.garrisonedIn[id] >= 0) {
       flags.push(`<span class="rl-live">${t('hud.card.inBuilding')}</span>`);
       // How full it is (lead ruling 2026-10-14): the count the retired
@@ -2967,10 +2982,14 @@ export class Hud {
     if (tgt < 0 || tgt >= st.alive.length || st.alive[tgt] === 0) return '';
     const ttype = this.deps.sim.unitTypes[st.typeIdx[tgt]];
     this.engagingShownFor = tgt;
+    const hits = this.deps.sim.penetrationsToKill(id, tgt);
     return (
       `<div class="rl-card__engaging">` +
       this.artHtml(ttype.id, roleBucket(ttype), 'rl-card__engaging-art', 14, 'chip') +
       `<span>${t(ordered ? 'hud.card.ordered' : 'hud.card.engaging', { target: escapeHtml(ttype.name) })}</span>` +
+      // GH-560 follow-up: how many penetrating hits from this unit's gun end that hull (null, so
+      // nothing, for a soft target or a gun that cannot hurt the face it shows).
+      (hits !== null ? `<span class="rl-dim">· ${t('hud.fire.hitsToKill', { n: hits })}</span>` : '') +
       `</div>`
     );
   }

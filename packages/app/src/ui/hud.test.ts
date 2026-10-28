@@ -1951,6 +1951,122 @@ describe('a dead target leaves the HUD at once (PA-19)', () => {
   });
 });
 
+// GH-560 follow-up: the hits-to-kill line and the repair-reset cue, against a real Sim and the shipped
+// units. Spike (pen 900, damage 400) on a Lavi (3000 hp) is the design table's own pair: 3 penetrations
+// on the front plate (shift 8), 2 on the rear or side (shift 30). No mock: the number is the sim's.
+describe('the card\'s hits-to-kill line (GH-560 follow-up)', () => {
+  const FACING_WEST = 32768; // the Lavi shows its front plate to a shooter at the west
+  const FACING_EAST = 0; // ...and its rear
+
+  function duel(targetId: 'mbt_lavi' | 'inf_squad' = 'mbt_lavi', facing = FACING_WEST) {
+    const world = makeForce();
+    const lavi = world.sim.addUnitType(units[targetId] as unknown as UnitTypeJson);
+    const enemy = world.sim.spawn(lavi, 1, fx.from(8), fx.from(1), facing);
+    world.sim.identifyTo(0, enemy);
+    return { world, enemy };
+  }
+  const fireText = (r: ClusterRig): string => r.host.querySelector('.rl-fire')!.textContent!.replace(/\s+/g, ' ');
+
+  it('says ~3 penetrating hits on the front plate and ~2 on the rear, from the sim, and follows the hull as it turns', () => {
+    const { world, enemy } = duel();
+    const r = clusterRig(() => [world.at], { hoverEntity: () => enemy }, world);
+    expect(fireText(r)).toContain('~3 penetrating hits to kill');
+    world.sim.state.facing[enemy] = FACING_EAST;
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(fireText(r)).toContain('~2 penetrating hits to kill');
+    expect(fireText(r)).not.toContain('~3 penetrating');
+  });
+
+  it('counts down with the hull: one hit left reads singular', () => {
+    const { world, enemy } = duel('mbt_lavi', FACING_EAST);
+    world.sim.state.hp[enemy] = 1000 * 65536; // below one cost (1530 at shift 30)
+    const r = clusterRig(() => [world.at], { hoverEntity: () => enemy }, world);
+    expect(fireText(r)).toContain('~1 penetrating hit to kill');
+    expect(fireText(r)).not.toContain('hits to kill');
+  });
+
+  it('says nothing when the selection cannot penetrate, or when the target is soft', () => {
+    const rifles = duel();
+    const r1 = clusterRig(() => [rifles.world.squads[0]], { hoverEntity: () => rifles.enemy }, rifles.world);
+    expect(fireText(r1)).toContain('cannot penetrate');
+    expect(fireText(r1)).not.toContain('to kill');
+    const soft = duel('inf_squad');
+    const r2 = clusterRig(() => [soft.world.at], { hoverEntity: () => soft.enemy }, soft.world);
+    expect(r2.host.querySelector('.rl-fire')!.textContent).toContain('Projected fire');
+    expect(fireText(r2)).not.toContain('to kill');
+  });
+
+  it('takes the fewest across a mixed selection: the rifles add nothing, the Spike team sets the line', () => {
+    const { world, enemy } = duel();
+    const r = clusterRig(() => [...world.squads, world.at], { hoverEntity: () => enemy }, world);
+    expect(fireText(r)).toContain('~3 penetrating hits to kill');
+  });
+
+  it('takes the fewest across shooters who see different plates: one team on the front says 3, one on the flank says 2', () => {
+    const { world, enemy } = duel(); // the Lavi at (8, 1) faces west
+    const flank = world.sim.spawn(world.sim.state.typeIdx[world.at], 0, fx.from(8), fx.from(5)); // due south: its side plate
+    const r = clusterRig(() => [world.at, flank], { hoverEntity: () => enemy }, world);
+    expect(fireText(r)).toContain('~2 penetrating hits to kill');
+    expect(fireText(r)).not.toContain('~3 penetrating');
+  });
+
+  it('the unit card\'s Engaging line carries the same number for the unit that is firing', () => {
+    const { world, enemy } = duel();
+    world.sim.state.curTarget[world.at] = enemy;
+    const r = clusterRig(() => [world.at], {}, world);
+    expect(r.host.querySelector('.rl-card__engaging')!.textContent).toContain('Engaging');
+    expect(r.host.querySelector('.rl-card__engaging')!.textContent).toContain('~3 penetrating hits to kill');
+    // A rifle squad engaging the same hull gets none: it cannot penetrate.
+    world.sim.state.curTarget[world.squads[0]] = enemy;
+    const r2 = clusterRig(() => [world.squads[0]], {}, world);
+    expect(r2.host.querySelector('.rl-card__engaging')!.textContent).not.toContain('to kill');
+  });
+});
+
+describe('the repair countdown\'s reset cue (GH-560 final review N-4)', () => {
+  function stuck() {
+    const world = makeForce();
+    const r = clusterRig(() => [world.namer], {}, world);
+    world.sim.state.mobilityKilled[world.namer] = 1;
+    world.sim.state.fieldFixTicks[world.namer] = 860;
+    const settle = (): void => {
+      for (let i = 0; i < 5; i++) r.tick();
+    };
+    settle();
+    return { world, r, settle };
+  }
+  const hit = (sim: Sim, id: number): void => (sim as unknown as { applyDamage(t: number, d: number, by: number): void }).applyDamage(id, 65536, -1);
+
+  it('is silent while the crew counts down undisturbed, and shows "repair reset" only while fire holds the clock', () => {
+    const { world, r, settle } = stuck();
+    expect(r.host.querySelector('.rl-card')!.textContent).toContain('Repairing 0:47');
+    expect(r.host.querySelector('.rl-card')!.textContent).not.toContain('repair reset');
+    // A hit: the sim zeroes the clock this tick; the card says why it is back at 1:30.
+    hit(world.sim, world.namer);
+    world.sim.tick();
+    settle();
+    const text = r.host.querySelector('.rl-card__cond')!.textContent!;
+    expect(text).toContain('Repairing 1:30');
+    expect(text).toContain('repair reset — under fire');
+    // Two seconds with no further hit: the clock runs again and the cue is gone.
+    for (let k = 0; k < 45; k++) world.sim.tick();
+    settle();
+    const later = r.host.querySelector('.rl-card__cond')!.textContent!;
+    expect(later).toContain('Repairing');
+    expect(later).not.toContain('Repairing 1:30');
+    expect(later).not.toContain('repair reset');
+  });
+
+  it('never shows beside no countdown (a hull that is not stuck)', () => {
+    const world = makeForce();
+    const r = clusterRig(() => [world.namer], {}, world);
+    hit(world.sim, world.namer);
+    world.sim.tick();
+    for (let i = 0; i < 5; i++) r.tick();
+    expect(r.host.querySelector('.rl-card')!.textContent).not.toContain('repair reset');
+  });
+});
+
 describe('the card\'s service record — whose place this is', () => {
   it('names the predecessor when this unit took a vacant slot', () => {
     const world = makeForce();
