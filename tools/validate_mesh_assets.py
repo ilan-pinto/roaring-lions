@@ -162,6 +162,14 @@ the roadside is not a unit and has no faction to collide with), and
 -- zero materials/images/textures, every mesh node's `rl_role` inside the
 closed `PROP_ROLES` set from `packages/render/src/three/terrain/prop-role.ts`,
 every triangle count under that kind's own `PROP_TRI_CAPS` entry.
+
+`art/meshes/backdrop/*.glb` (the Wadi Halam valley kit, GH-161) is checked a
+SIXTH way, raw bytes again: `render_mesh_gate.py` returns early for
+`mesh_kind() == 'backdrop'` (a landform is not a unit, and its subject is
+colour at a constant normal), and `check_backdrop_meshes` below checks the
+kit's own contract -- the atlas, the closed piece list, the caps -- against
+the GLB. It is the only directory whose files ship a texture AND are not
+palette-checked by a render; the passing path says so.
 """
 import argparse
 from collections import Counter
@@ -1114,6 +1122,246 @@ def check_campaign_meshes(campaign_root, world_path):
                 f"{name}: marker node(s) for {sorted(extra_towns)}, which "
                 f"{os.path.relpath(world_path, REPO)} does not declare"
             )
+    return failures, textured_names
+
+
+# The backdrop kits allowed to ship their own baked atlas -- the backdrop
+# counterpart of TEXTURED_MESH_EXEMPT, TEXTURED_DECOR_EXEMPT and
+# TEXTURED_CAMPAIGN_EXEMPT above, kept in step with TEXTURED_BACKDROP_KITS in
+# packages/render/src/three/terrain/textured-backdrop.ts (pinned by
+# textured-backdrop.test.ts, which parses this set).
+#
+# ONE kit, for the reason the ditch and the Sahar Basin have: the palette path
+# indexes one flat albedo by ROLE and SLOPE, and a valley wall's subject is
+# colour that varies at a constant normal -- pale scree streaks down one
+# scrub-green face, strata banding a cliff, olive rows on a flat tread. The
+# atlas is baked from `data/palette.json` keys only (base colour and ambient
+# occlusion, no directional light), so the palette stays the source of every
+# authored colour; what this gate cannot do is check the rendered texels
+# against it, and it says so on the passing path.
+#
+# Everything else that lands in art/meshes/backdrop/ still fails on a material,
+# image or texture it is not listed for.
+TEXTURED_BACKDROP_EXEMPT = {"wadi_halam_kit"}
+
+# The closed piece list a backdrop kit's mesh nodes may name in
+# `extras.rl_piece`, with each piece's triangle cap: `PIECE_CAPS` in
+# tools/backdrop/export_kit.py (from pieces.py) and `KIT_PIECES` in
+# packages/render/src/three/terrain/textured-backdrop.ts, pinned against both
+# by textured-backdrop.test.ts, which parses this dict.
+BACKDROP_PIECES = {
+    "bd_wall_far_a": 8000,
+    "bd_wall_far_b": 8000,
+    "bd_wall_far_c": 8000,
+    "bd_wall_corner": 10000,
+    "bd_head_wall": 12000,
+    "bd_taper": 6000,
+    "bd_outer_corner": 6000,
+    "bd_crest_a": 2500,
+    "bd_crest_b": 2500,
+    "bd_slope_near_a": 5000,
+    "bd_slope_near_b": 5000,
+    "bd_slope_corner": 6000,
+    "bd_terrace_a": 2500,
+    "bd_terrace_b": 2500,
+    "bd_terrace_end": 1500,
+    "bd_scree_a": 1000,
+    "bd_scree_b": 1000,
+    "bd_scree_c": 1000,
+    "bd_olive": 64,
+}
+
+# The atlas edge, in pixels: 2048 (kit-spec section 1b, the lead's ruling of 26 Oct 2026).
+BACKDROP_ATLAS_PX = 2048
+
+# An LOD1 twin may carry at most this share of its LOD0's triangles (kit-spec section 3).
+BACKDROP_LOD1_MAX = 0.40
+
+
+def _read_glb_chunks(path):
+    """(JSON, BIN bytes) of a .glb, stdlib only."""
+    with open(path, "rb") as fh:
+        data = fh.read()
+    _magic, _version, length = struct.unpack("<III", data[0:12])
+    offset = 12
+    js, bin_ = None, b""
+    while offset < length:
+        chunk_len, chunk_type = struct.unpack("<II", data[offset:offset + 8])
+        chunk = data[offset + 8:offset + 8 + chunk_len]
+        if chunk_type == 0x4E4F534A:
+            js = json.loads(chunk)
+        elif chunk_type == 0x004E4942:
+            bin_ = chunk
+        offset += 8 + chunk_len
+    if js is None:
+        raise ValueError(f"{path}: no JSON chunk found -- not a valid glb")
+    return js, bin_
+
+
+def _jpeg_size(data):
+    """(width, height) of a baseline/progressive JPEG, or None -- the SOF marker, stdlib only."""
+    if data[:2] != b"\xff\xd8":
+        return None
+    i = 2
+    while i + 9 < len(data):
+        if data[i] != 0xFF:
+            i += 1
+            continue
+        marker = data[i + 1]
+        if marker in (0xC0, 0xC1, 0xC2):
+            h, w = struct.unpack(">HH", data[i + 5:i + 9])
+            return w, h
+        if marker in (0xD8, 0x01) or 0xD0 <= marker <= 0xD7:
+            i += 2
+            continue
+        i += 2 + struct.unpack(">H", data[i + 2:i + 4])[0]
+    return None
+
+
+def check_backdrop_meshes(backdrop_root):
+    """Every `art/meshes/backdrop/*.glb` against the backdrop-kit contract, read
+    straight out of the raw GLB bytes -- never rendered (see
+    `render_mesh_gate.py`'s docstring, "Backdrop kits").
+
+    Checked, and each one has a silent failure on the other side of it:
+
+      1. A kit in TEXTURED_BACKDROP_EXEMPT ships EXACTLY one
+         material/image/texture, and the image is a 2048 x 2048 JPEG. None means
+         the atlas was lost and the valley draws untextured white; two means a
+         roughness or normal map survived an export that must drop them; any
+         other size changes the texel density every piece was packed for.
+         A kit NOT in the list that ships any material, image or texture fails:
+         the exemption is a list, not a free pass.
+      2. Every mesh node declares `rl_textured` and an `rl_piece` inside
+         BACKDROP_PIECES, once each, and the file carries every piece: the
+         renderer places pieces BY NAME from a map's list, so a missing piece
+         is a map that cannot be drawn, and an unlisted one is dead weight.
+      3. Every piece is at or under its own triangle cap, and has a position,
+         a normal and a UV set (the atlas is addressed by the UVs).
+         Every piece but the olive ships ONE LOD1 twin (`extras.rl_lod` 1,
+         the minimum-zoom mesh) at no more than BACKDROP_LOD1_MAX of its
+         LOD0's triangles: an LOD1 that is not smaller is a swap that costs
+         the minimum-zoom frame what it was added to save.
+      4. The `rl_anchors` / `rl_olives` extras parse as JSON of the shape the
+         loader reads.
+
+    Returns (failures, textured_names) so the caller can name the exempt files
+    on the PASSING path, the same shape `check_campaign_meshes` returns.
+    """
+    failures = []
+    textured_names = []
+    for path in sorted(glob.glob(os.path.join(backdrop_root, "*.glb"))):
+        name = os.path.basename(path)
+        kit_id = os.path.splitext(name)[0]
+        exempt = kit_id in TEXTURED_BACKDROP_EXEMPT
+        glb_json, binary = _read_glb_chunks(path)
+        n_mat = len(glb_json.get("materials", []))
+        n_img = len(glb_json.get("images", []))
+        n_tex = len(glb_json.get("textures", []))
+        if exempt:
+            if (n_mat, n_img, n_tex) != (1, 1, 1):
+                failures.append(
+                    f"{name}: {kit_id!r} is in TEXTURED_BACKDROP_EXEMPT and must ship exactly one "
+                    f"material/image/texture, but carries {n_mat}/{n_img}/{n_tex} -- none means the "
+                    f"atlas was lost and the valley draws untextured; more than one means a roughness "
+                    f"or normal map survived an export that should have dropped them"
+                )
+            else:
+                textured_names.append(name)
+                img = glb_json["images"][0]
+                view = glb_json["bufferViews"][img["bufferView"]] if "bufferView" in img else None
+                size = None
+                if view is not None and img.get("mimeType") == "image/jpeg":
+                    off = view.get("byteOffset", 0)
+                    size = _jpeg_size(binary[off:off + view["byteLength"]])
+                if size != (BACKDROP_ATLAS_PX, BACKDROP_ATLAS_PX):
+                    failures.append(
+                        f"{name}: the atlas is {size or 'not an embedded JPEG'}, expected a "
+                        f"{BACKDROP_ATLAS_PX}x{BACKDROP_ATLAS_PX} JPEG"
+                    )
+        elif n_mat or n_img or n_tex:
+            failures.append(
+                f"{name}: carries {n_mat} material(s), {n_img} image(s), {n_tex} texture(s) but "
+                f"{kit_id!r} is not in TEXTURED_BACKDROP_EXEMPT {sorted(TEXTURED_BACKDROP_EXEMPT)}. "
+                f"If this is deliberate, add it there (and to TEXTURED_BACKDROP_KITS in "
+                f"packages/render/src/three/terrain/textured-backdrop.ts)"
+            )
+
+        accessors = glb_json.get("accessors", [])
+        gltf_meshes = glb_json.get("meshes", [])
+        seen = {}
+        seen_lod1 = {}
+        tris_of = {}
+        for node in glb_json.get("nodes", []):
+            if "mesh" not in node:
+                continue
+            node_name = node.get("name") or gltf_meshes[node["mesh"]].get("name", "?")
+            extras = node.get("extras") or {}
+            if extras.get("rl_textured") is not True:
+                failures.append(
+                    f"{name}: mesh node {node_name!r} does not declare rl_textured -- the runtime "
+                    f"reads that flag to take the baked-atlas path"
+                )
+            elif not exempt:
+                failures.append(
+                    f"{name}: mesh node {node_name!r} declares rl_textured but {kit_id!r} is not in "
+                    f"TEXTURED_BACKDROP_EXEMPT {sorted(TEXTURED_BACKDROP_EXEMPT)}"
+                )
+            piece = extras.get("rl_piece")
+            if piece not in BACKDROP_PIECES:
+                failures.append(
+                    f"{name}: mesh node {node_name!r} has rl_piece {piece!r}, outside the closed "
+                    f"piece list {sorted(BACKDROP_PIECES)}"
+                )
+                continue
+            lod = extras.get("rl_lod")
+            if lod not in (None, 1):
+                failures.append(f"{name}: mesh node {node_name!r} has rl_lod {lod!r}; only LOD1 exists beside the main mesh")
+                continue
+            book = seen_lod1 if lod == 1 else seen
+            book[piece] = book.get(piece, 0) + 1
+            tris = 0
+            for prim in gltf_meshes[node["mesh"]].get("primitives", []):
+                attrs = prim.get("attributes", {})
+                for a in ("POSITION", "NORMAL", "TEXCOORD_0"):
+                    if a not in attrs:
+                        failures.append(f"{name}: piece {piece!r} has no {a} -- the atlas is addressed by the UVs and lit by the normals")
+                idx = prim.get("indices")
+                count = accessors[idx]["count"] if idx is not None else accessors[attrs["POSITION"]]["count"]
+                tris += count // 3
+            tris_of[(piece, lod)] = tris
+            if lod is None and tris > BACKDROP_PIECES[piece]:
+                failures.append(f"{name}: piece {piece!r} has {tris} triangles, over its cap of {BACKDROP_PIECES[piece]}")
+            for key in ("rl_anchors", "rl_olives"):
+                if key in extras:
+                    try:
+                        val = json.loads(extras[key])
+                        ok = isinstance(val, list) and all(
+                            (isinstance(v, dict) and isinstance(v.get("name"), str) and len(v.get("p", [])) == 3) if key == "rl_anchors"
+                            else (isinstance(v, list) and len(v) == 3)
+                            for v in val)
+                    except (TypeError, ValueError):
+                        ok = False
+                    if not ok:
+                        failures.append(f"{name}: piece {piece!r} has a malformed {key}")
+        for piece in sorted(set(BACKDROP_PIECES) - set(seen)):
+            failures.append(f"{name}: no mesh node for piece {piece!r} -- a map's piece list can name it")
+        for piece, n in sorted(seen.items()):
+            if n > 1:
+                failures.append(f"{name}: piece {piece!r} appears {n} times")
+        for piece in sorted(p for p in BACKDROP_PIECES if p != "bd_olive" and p in seen and p not in seen_lod1):
+            failures.append(f"{name}: piece {piece!r} has no LOD1 twin (rl_lod 1) -- the minimum-zoom mesh the renderer swaps in")
+        for piece, n in sorted(seen_lod1.items()):
+            if n > 1:
+                failures.append(f"{name}: piece {piece!r} has {n} LOD1 twins")
+            if piece == "bd_olive":
+                failures.append(f"{name}: the olive has no LOD1 ({BACKDROP_PIECES['bd_olive']} triangles)")
+            elif piece not in seen:
+                failures.append(f"{name}: an LOD1 twin of {piece!r} with no main mesh")
+            elif tris_of.get((piece, 1), 0) > BACKDROP_LOD1_MAX * tris_of.get((piece, None), 0):
+                failures.append(
+                    f"{name}: piece {piece!r}: LOD1 has {tris_of[(piece, 1)]} triangles, over "
+                    f"{round(BACKDROP_LOD1_MAX * 100)}% of its main mesh's {tris_of[(piece, None)]}")
     return failures, textured_names
 
 
@@ -2236,6 +2484,10 @@ def main():
         # PNG is one locked pose and says nothing about which of a building's
         # four elevations the fixed dimetric camera can see. See
         # tools/building_facing.py's own docstring for what it measures.
+        backdrop_root = os.path.join(REPO, "art", "meshes", "backdrop")
+        backdrop_failures, textured_backdrop = check_backdrop_meshes(backdrop_root)
+        failures.extend(backdrop_failures)
+
         buildings_root = os.path.join(REPO, "art", "meshes", "buildings")
         facing_failures, facing_notes = bf.check_building_facing(buildings_root)
         failures.extend(facing_failures)
@@ -2285,9 +2537,10 @@ def main():
         n_decor = len(glob.glob(os.path.join(decor_root, "*.glb")))
         n_props = len(glob.glob(os.path.join(props_root, "*.glb")))
         n_campaign = len(glob.glob(os.path.join(campaign_root, "*.glb")))
+        n_backdrop = len(glob.glob(os.path.join(backdrop_root, "*.glb")))
         print(f"mesh gate passed: {len(mesh_masks)} mesh unit(s) rendered and checked "
               f"against each other; {n_decor} decor mesh(es), "
-              f"{n_props} prop mesh(es) and {n_campaign} campaign world(s) checked "
+              f"{n_props} prop mesh(es), {n_campaign} campaign world(s) and {n_backdrop} backdrop kit(s) checked "
               f"against the mesh contract directly")
         # The drawn ground's palette exemption, said on the passing path of a
         # palette gate -- `validate_assets.py` printed it until its sprite gate
@@ -2338,6 +2591,17 @@ def main():
                   "rendered by this gate, so no silhouette IoU applies either; its region "
                   "and town nodes ARE checked against data/campaign/world.json. See "
                   "TEXTURED_CAMPAIGN_EXEMPT)")
+        if textured_backdrop:
+            # Fourth of the same kind of line, on the PASSING path for the same
+            # reason: a green tick must not read as "the valley's colours were
+            # checked". The atlas is baked from palette keys by tools/backdrop/,
+            # and nothing here looks at its texels.
+            print(f"  NOT palette-checked -- {len(textured_backdrop)} backdrop kit(s) ship their own "
+                  f"baked atlas: {', '.join(sorted(textured_backdrop))}")
+            print("  (a landform's subject is colour at a constant normal -- scree streaks down one "
+                  "scrub face -- which the normal-indexed palette ramp cannot say. It is never "
+                  "rendered by this gate, so no silhouette IoU applies; its atlas size, piece list "
+                  "and triangle caps ARE checked from the GLB bytes. See TEXTURED_BACKDROP_EXEMPT)")
         if any(n for _, n in wreck_counts):
             # On the PASSING path, and the last clause is the point: a green
             # tick here must not read as "the wreck looks right". The SHAPE
