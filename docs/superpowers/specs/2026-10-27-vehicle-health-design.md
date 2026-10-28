@@ -1,6 +1,6 @@
 # Vehicle health: design (GH-560)
 
-Status: **proposal, for the lead. No tuning lands with this document.**
+Status: **ruled 27 Oct (GH-858 comments); implemented by `docs/superpowers/plans/2026-10-28-vehicle-health.md`.** (Originally: proposal, for the lead.)
 Lane C (sim). Written 2026-10-27 against `origin/main` at `0c86c10c` (v0.129.1).
 GH-560 was deferred to Stage 4 on 2026-10-13; Stage 4 is now. Every number below
 was measured on a scratch copy of the sim (switches in `tuning.ts`/`sim.ts`,
