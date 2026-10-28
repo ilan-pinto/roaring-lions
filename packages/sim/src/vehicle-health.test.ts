@@ -5,9 +5,9 @@ import type { StructureTypeJson } from './structures';
 import { overmatchShift, penetrationHpCost } from './vehicle-health';
 
 // GH-560. Every expectation below is a literal, worked by hand from
-//   cost = max(damage, floor(maxHp * 22282 / 65536) * (60 + shift) / 60)
-// on raw Q16.16 values (hp 3000 = 196608000, damage 520 = 34078720). None is
-// imported from the code under test.
+//   cost = max(damage, floor(maxHp * 22282 / 65536) * (60 + shift) / 60 * min(damage, R) / R)
+// with R = 85 (GH-868; 5570560 raw) on raw Q16.16 values (hp 3000 = 196608000,
+// damage 520 = 34078720). None is imported from the code under test.
 
 const Q = 65536;
 
@@ -23,6 +23,11 @@ describe('penetrationHpCost (GH-560, design 5.2)', () => {
     ['RPG-7 v Eitan front', 1600, 30, 300, 53476800, 2],
     ['ZU-23 v Peten front', 640, 0, 85, 14260480, 3],
     ['the weapon dominates (cost is the damage)', 640, 0, 300, 19660800, 3],
+    // GH-868: below R = 85 the floor scales by damage / 85, so a heavy machine gun no longer costs a third of the bar.
+    ['DShK 40 v Peten front (floor x 40/85)', 640, 0, 40, 6710814, 7],
+    ['pintle 34 v Peten front (floor x 34/85)', 640, 0, 34, 5704192, 8],
+    ['PKM 30 v Peten front (floor x 30/85)', 640, 0, 30, 5033110, 9],
+    ['Remetz beam 80 v Peten front (floor x 80/85)', 640, 0, 80, 13421628, 4],
   ];
 
   for (const [name, hp, shift, damage, cost, hits] of rows) {
@@ -41,7 +46,28 @@ describe('penetrationHpCost (GH-560, design 5.2)', () => {
   it('the product stays an int32 for the largest Fx hull (32767 hp) at shift 30', () => {
     // 32767 hp = 2147418112 raw. floor = 730114294; x 90 / 60 = 1095171441, below 2^31.
     // Moving the `| 0` before the division wraps the 6.5e10 product and reads a different number.
-    expect(penetrationHpCost(2147418112, 0, 30)).toBe(1095171441);
+    // Damage R (85, 5570560 raw) is the lightest round that pays the whole floor (GH-868).
+    expect(penetrationHpCost(2147418112, 5570560, 30)).toBe(1095171441);
+  });
+
+  it('the damage scale is exact in a double for the largest hull: one raw unit under R pays 1095171244', () => {
+    // 1095171441 * 5570559 = 6.1e15 < 2^53, so the division sees an exact product.
+    // floor(1095171441 * 5570559 / 5570560) = 1095171244. A float-lossy multiply would read another number.
+    expect(penetrationHpCost(2147418112, 5570559, 30)).toBe(1095171244);
+  });
+
+  it('a round pays at least its own damage, and a penetrating round of damage 0 costs 0 (GH-868)', () => {
+    // 3000 hp, shift 30: the full floor is 100269000. Damage 1 raw scales it to 100269000 / 5570560 = 17,
+    // and the weapon's own damage (1 raw) is below that, so 17.
+    expect(penetrationHpCost(196608000, 1, 30)).toBe(17);
+    // No shipped weapon is damage 0 and penetrates (spg_cluster's carrier bursts before the penetration path).
+    expect(penetrationHpCost(196608000, 0, 30)).toBe(0);
+  });
+
+  it('damage R is the knee: R - 1 raw pays 18 raw less than R, and 2R still pays the same floor', () => {
+    expect(penetrationHpCost(196608000, 5570560, 30)).toBe(100269000);
+    expect(penetrationHpCost(196608000, 5570559, 30)).toBe(100268982);
+    expect(penetrationHpCost(196608000, 11141120, 30)).toBe(100269000); // the floor is above 2R's own damage
   });
 });
 
@@ -86,10 +112,11 @@ const WHEELED: UnitTypeJson = { ...HULL, id: 'vh_wheeled', role: 'apc', mobility
 const THICK_FRONT: UnitTypeJson = {
   ...HULL, id: 'vh_thick', hull: { hp: 3000, armor: { front: 2000, side: 300, rear: 300 } },
 };
-/** 1000 mm at 300 mm plate: z = 5.8, P(pen) = 1, shift 30. Damage 1: the floor dominates. */
+/** 1000 mm at 300 mm plate: z = 5.8, P(pen) = 1, shift 30. Damage 85 (GH-868's R, the lightest round that
+ *  pays the whole floor): the floor dominates. */
 const HEAVY_GUN: UnitTypeJson = {
   id: 'vh_heavy_gun', hull: { hp: 400, armor: { front: 10, side: 10, rear: 10 } },
-  mobility: { speed_tiles_s: 0 }, sensors: SENSORS, weapons: gun('heavy', 1000, 1, 600),
+  mobility: { speed_tiles_s: 0 }, sensors: SENSORS, weapons: gun('heavy', 1000, 85, 600),
 };
 /** Pen 300 against 300 side armour: it `threatens` (pen >= armorSide) but cannot beat 2000 on the front. */
 const THREAT_GUN: UnitTypeJson = { ...HEAVY_GUN, id: 'vh_threat_gun', weapons: gun('threat', 300, 1, 600) };
@@ -417,9 +444,15 @@ describe('a loitering munition and a beam pay the penetration cost (GH-560, S-1)
   }
 
   it('a penetrating beam strike costs the floor: pen 9000 on 2000 mm (shift 30) -> 96339000 left', () => {
-    // damage 80 would leave 196608000 - 5242880 = 191365120 (2.7%); the floor at shift 30 is 100269000.
-    const { sim, id } = beamed(beamCarrier(9000, 80), AIRFRAME(300), false);
+    // damage 85 (R) would leave 196608000 - 5570560 = 191037440 (2.8%); the floor at shift 30 is 100269000.
+    const { sim, id } = beamed(beamCarrier(9000, 85), AIRFRAME(300), false);
     expect(sim.state.hp[id]).toBe(96339000);
+  });
+
+  it('the Remetz beam (damage 80) pays 80/85 of the floor, not all of it (GH-868): 102237177 left', () => {
+    // 100269000 * 5242880 / 5570560 = 94370823; 196608000 - 94370823 = 102237177. Damage 80 alone is 5242880.
+    const { sim, id } = beamed(beamCarrier(9000, 80), AIRFRAME(300), false);
+    expect(sim.state.hp[id]).toBe(102237177);
   });
 
   it('a beam bounce that could have come through restarts the regen (pen 300 >= side 300, front 2000 holds)', () => {

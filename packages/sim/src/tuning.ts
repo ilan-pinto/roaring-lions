@@ -146,6 +146,12 @@ export const OVERMATCH_SHIFT_MAX = 30;
 export const PEN_HP_FLOOR = 22282; // 0.34
 /** The floor is multiplied by (DIV + shift) / DIV, shift being the 0-30 overmatch shift: x1.5 at most. */
 export const PEN_HP_OVERMATCH_DIV = 60;
+/** GH-868: the reference round for the floor. A penetration by a round of at least this damage pays the whole
+ *  floor; a lighter round pays it in proportion to its damage (never less than its own damage). 85 is the
+ *  ZU-23 / 30 mm chain gun / 30 mm cannon class, so the 12.7 / 14.5 mm rounds (DShK 40, pintle 34, coax 35,
+ *  PKM 30) stop costing a third of a light hull's bar. R = 85 is the largest value that leaves every row the
+ *  design table pins untouched (measured: _coord/gh868/options.md). */
+export const PEN_HP_REF_DAMAGE = 5570560; // 85.0
 
 // --- suppression (5.5) -----------------------------------------------------
 /** Per-tick decay: e^(-lambda * dt), lambda = 0.15/s. */
