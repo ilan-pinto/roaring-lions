@@ -19,14 +19,16 @@
  * Harness copied from `ThreeRenderer.ground-control.test.ts`: a faked
  * `WebGLRenderer`, a real `Sim`, `frame()` driving the rebuild.
  */
+import { readFileSync } from 'node:fs';
 import { describe, it, expect, vi } from 'vitest';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as THREE from 'three';
 import { Sim } from '@lions/sim';
 import type { RendererOptions, TerrainTones } from '../api';
 import { ThreeRenderer } from './ThreeRenderer';
 import type { BackdropSpec, LoadedBackdropKit } from './terrain/backdrop';
 import { BACKDROP_OFFMAP_SEEN } from './terrain/backdrop';
-import { readKitFixture } from './terrain/backdrop-kit-fixture';
+import { KIT_GLB, readKitFixture, repoPath } from './terrain/backdrop-kit-fixture';
 
 vi.mock('three', async (importOriginal) => {
   const actual = await importOriginal<typeof import('three')>();
@@ -236,6 +238,69 @@ describe('with a kit loaded', () => {
     expect(p.backdrop).not.toBeNull();
     expect(rebuilds).toBe(0);
     r.dispose();
+  });
+
+  it('keeps the skirt, and keeps building the terrain, when the placement list names a piece the kit lacks', () => {
+    const { r, p } = make({ ...SPEC, pieces: [...SPEC.pieces, { id: 'bd_typo', at: [0, 0], rot: 0 }] });
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    p.backdropKit = loadedKit();
+    p.backdropDirty = true;
+    expect(() => r.frame(1, 0)).not.toThrow();
+    expect(err).toHaveBeenCalledTimes(1);
+    expect(String(err.mock.calls[0][0])).toContain('wadi_halam_kit');
+    err.mockRestore();
+    expect(p.backdrop).toBeNull();
+    expect(p.skirtMesh.visible).toBe(true);
+    // and the terrain still rebuilds afterwards
+    p.terrainDirty = true;
+    expect(() => r.frame(1, 0)).not.toThrow();
+    expect(p.terrainDirty).toBe(false);
+    r.dispose();
+  });
+
+  it('rebuilds when the rim changes (an edge pad collapsing into hillside), and only then', () => {
+    const { r, p } = withKit();
+    const sim = (r as unknown as { sim: Sim }).sim;
+    const group = (p.backdrop as { group: THREE.Group }).group;
+    p.terrainDirty = true;
+    r.frame(1, 0);
+    expect((p.backdrop as { group: THREE.Group }).group).toBe(group);
+    // raise an edge tile's elevation the way a rim change reaches the renderer
+    const levels = new Uint8Array(MAP * MAP);
+    levels[3] = 3; // row 0, column 3: on the north edge
+    r.setElevation(levels);
+    r.frame(1, 0);
+    expect((p.backdrop as { group: THREE.Group }).group).not.toBe(group);
+    expect(sim.width).toBe(MAP);
+    r.dispose();
+  });
+
+  it('frees a kit that lands after the renderer was disposed, and a live one is kept', async () => {
+    const buf = readFileSync(repoPath(KIT_GLB));
+    const parse = async (): Promise<THREE.Group> => {
+      const loader = new GLTFLoader();
+      loader.register(() => ({ name: 'rl_test_atlas', loadTexture: () => Promise.resolve(new THREE.Texture()) }));
+      const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+      return (await loader.parseAsync(ab, '')).scene;
+    };
+    for (const disposeFirst of [true, false]) {
+      const scene = await parse();
+      let atlas: THREE.Texture | null = null;
+      scene.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (m.isMesh) atlas = (m.material as THREE.MeshStandardMaterial).map;
+      });
+      let freed = false;
+      (atlas as unknown as THREE.Texture).addEventListener('dispose', () => (freed = true));
+      const spy = vi.spyOn(GLTFLoader.prototype, 'loadAsync').mockResolvedValue({ scene } as never);
+      const { r, p } = make(SPEC);
+      if (disposeFirst) r.dispose();
+      await r.loadBackdropKit('meshes/backdrop/wadi_halam_kit.glb');
+      spy.mockRestore();
+      expect(freed, disposeFirst ? 'landed after dispose: freed' : 'landed on a live renderer: kept').toBe(disposeFirst);
+      expect(p.backdropKit !== null).toBe(!disposeFirst);
+      if (!disposeFirst) r.dispose();
+    }
   });
 
   it('swaps the kit to its LOD1 twin with the camera zoom, every frame', () => {

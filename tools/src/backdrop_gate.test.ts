@@ -105,6 +105,27 @@ describe('check_backdrop_meshes', () => {
     expect(r.textured).toEqual(['wadi_halam_kit.glb']);
   });
 
+  it('fails when a listed kit has no file at all (an empty directory is not a pass)', () => {
+    const dir = path.join(scratch, 'empty');
+    mkdirSync(dir, { recursive: true });
+    const out = execFileSync(
+      'python3',
+      ['-c', 'import sys, json; sys.path.insert(0, sys.argv[1]); import validate_mesh_assets as v; print(json.dumps(v.check_backdrop_meshes(sys.argv[2])))', path.join(REPO, 'tools'), dir],
+      { encoding: 'utf8' }
+    );
+    const [failures] = JSON.parse(out) as [string[], string[]];
+    expect(failures.some((f) => /'wadi_halam_kit' is in TEXTURED_BACKDROP_EXEMPT but art\/meshes\/backdrop\/ has no such file/.test(f))).toBe(true);
+  });
+
+  it('fails a mesh with two primitives (the loader reads one mesh per node)', () => {
+    const r = gate('two-primitives', (g) => {
+      const n = meshNodes(g)[0];
+      const prims = g.json.meshes[n.mesh].primitives;
+      prims.push({ ...prims[0] });
+    });
+    expect(mention(r, /has 2 primitives/)).toBe(true);
+  });
+
   it('fails a kit whose atlas was lost', () => {
     const r = gate('no-texture', (g) => {
       delete g.json.images;

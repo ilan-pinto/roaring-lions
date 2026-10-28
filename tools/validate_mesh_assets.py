@@ -1250,6 +1250,10 @@ def check_backdrop_meshes(backdrop_root):
     """
     failures = []
     textured_names = []
+    on_disk = {os.path.splitext(os.path.basename(p))[0] for p in glob.glob(os.path.join(backdrop_root, "*.glb"))}
+    # A listed kit with no file is a map whose backdrop silently falls back to the skirt: not a pass.
+    for kit_id in sorted(TEXTURED_BACKDROP_EXEMPT - on_disk):
+        failures.append(f"{kit_id}.glb: {kit_id!r} is in TEXTURED_BACKDROP_EXEMPT but art/meshes/backdrop/ has no such file")
     for path in sorted(glob.glob(os.path.join(backdrop_root, "*.glb"))):
         name = os.path.basename(path)
         kit_id = os.path.splitext(name)[0]
@@ -1321,6 +1325,8 @@ def check_backdrop_meshes(backdrop_root):
             book = seen_lod1 if lod == 1 else seen
             book[piece] = book.get(piece, 0) + 1
             tris = 0
+            if len(gltf_meshes[node["mesh"]].get("primitives", [])) != 1:
+                failures.append(f"{name}: piece {piece!r} has {len(gltf_meshes[node['mesh']].get('primitives', []))} primitives; the loader reads exactly one mesh per node")
             for prim in gltf_meshes[node["mesh"]].get("primitives", []):
                 attrs = prim.get("attributes", {})
                 for a in ("POSITION", "NORMAL", "TEXCOORD_0"):

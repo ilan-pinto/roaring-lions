@@ -330,6 +330,7 @@ function parseBackdrop(json: MapJson): MapBackdrop | null {
     if (!Array.isArray(p.at) || p.at.length !== 2 || !p.at.every(Number.isFinite)) bad(`pieces[${i}] (${p.id}) needs at: [x, z] in tiles`);
     if (p.rot !== 0 && p.rot !== 90 && p.rot !== 180 && p.rot !== 270) bad(`pieces[${i}] (${p.id}) rot must be 0, 90, 180 or 270, got ${p.rot}`);
     if (p.ys !== undefined && !(p.ys >= 0.75 && p.ys <= 1.35)) bad(`pieces[${i}] (${p.id}) ys must be 0.75-1.35, got ${p.ys}`);
+    if (p.lift !== undefined && !(Number.isFinite(p.lift) && p.lift >= 0 && p.lift <= 30)) bad(`pieces[${i}] (${p.id}) lift must be 0-30 tiles, got ${p.lift}`);
     const out: MapBackdropPiece = { id: p.id, at: [p.at[0], p.at[1]], rot: p.rot as 0 | 90 | 180 | 270 };
     if (p.mirror) out.mirror = true;
     if (p.ys !== undefined) out.ys = p.ys;

@@ -52,6 +52,29 @@ const scale3 = (p: readonly number[]): [number, number, number] => [p[0] * MESH_
  * @param kitId the map's `backdrop.kit`
  */
 export function readBackdropKit(root: THREE.Object3D, kitId: string): LoadedBackdropKit {
+  try {
+    return readBackdropKitUnguarded(root, kitId);
+  } catch (err) {
+    freeLoaderOwned(root);
+    throw err;
+  }
+}
+
+/** The loader's own geometries and materials (the atlas lives on only in a kit that was read whole). */
+function freeLoaderOwned(root: THREE.Object3D): void {
+  root.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    mesh.geometry.dispose();
+    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const m of mats) {
+      (m as THREE.MeshStandardMaterial).map?.dispose();
+      m.dispose();
+    }
+  });
+}
+
+function readBackdropKitUnguarded(root: THREE.Object3D, kitId: string): LoadedBackdropKit {
   if (!isTexturedBackdropKit(kitId)) {
     throw new Error(
       `backdrop kit "${kitId}" is not in TEXTURED_BACKDROP_KITS -- add it there (and to TEXTURED_BACKDROP_EXEMPT in tools/validate_mesh_assets.py) or drop the kit`

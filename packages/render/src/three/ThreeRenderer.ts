@@ -2704,7 +2704,8 @@ export class ThreeRenderer implements Renderer {
   private backdropKit: LoadedBackdropKit | null = null;
   /** The kit landed after the first terrain build: `frame()` builds the backdrop on its own, without a terrain rebuild. */
   private backdropDirty = false;
-  private backdropLevels: Uint8Array | null | undefined = undefined;
+  /** The rim signature the standing backdrop was built for (undefined forces a rebuild). */
+  private backdropLevels: number | undefined = undefined;
   private backdropShown = true;
   /** Read by the prototype's capture tool. */
   backdropStats: Backdrop['stats'] | null = null;
@@ -12441,19 +12442,45 @@ export class ThreeRenderer implements Renderer {
     const spec = this.opts.backdrop;
     this.backdropDirty = false;
     if (!spec || !this.backdropKit) return;
-    if (this.backdrop && this.backdropLevels === this.retained.elevationLevels) return;
-    if (this.backdrop) {
-      this.scene.remove(this.backdrop.group);
-      disposeBackdrop(this.backdrop);
-      this.backdrop = null;
-    }
     const surf = this.retained.elevation;
     const w = this.sim.width;
     const h = this.sim.height;
     const rim = (x: number, z: number): number =>
       groundWorldY(surf, w, h, Math.min(w - 0.01, Math.max(0.01, x)), Math.min(h - 0.01, Math.max(0.01, z)));
-    this.backdrop = buildBackdrop(spec, this.backdropKit, rim, w, h, this.opts.background);
-    this.backdropLevels = this.retained.elevationLevels;
+    // What the backdrop meets is the rim: the drawn ground along the map's boundary (the floor reads nothing else,
+    // and a near-side cap's entry points lie on it). A collapse that turns an edge pad into hillside changes it;
+    // one that does not leaves the backdrop alone.
+    let key = 0;
+    const mixIn = (v: number): void => {
+      key = (Math.imul(key, 31) + Math.round(v * 4096)) | 0;
+    };
+    for (let i = 0; i <= w; i++) {
+      mixIn(rim(i, 0));
+      mixIn(rim(i, h));
+    }
+    for (let j = 0; j <= h; j++) {
+      mixIn(rim(0, j));
+      mixIn(rim(w, j));
+    }
+    if (this.backdrop && this.backdropLevels === key) return;
+    if (this.backdrop) {
+      this.scene.remove(this.backdrop.group);
+      disposeBackdrop(this.backdrop);
+      this.backdrop = null;
+    }
+    try {
+      this.backdrop = buildBackdrop(spec, this.backdropKit, rim, w, h, this.opts.background);
+    } catch (err) {
+      // A bad placement list (an id the kit does not have, a Y scale out of range) is data, and data must not stop
+      // the terrain from building: say so, and keep today's skirt.
+      console.error(`syncBackdrop: the backdrop block of this map (kit "${spec.kit}") could not be placed -- drawing the plain skirt`, err);
+      this.backdrop = null;
+      this.backdropKit = null;
+      this.skirtMesh.visible = true;
+      this.applyBackdropFog();
+      return;
+    }
+    this.backdropLevels = key;
     this.backdropStats = this.backdrop.stats;
     this.backdrop.group.visible = this.backdropShown;
     this.scene.add(this.backdrop.group);
@@ -12479,6 +12506,11 @@ export class ThreeRenderer implements Renderer {
     try {
       const gltf = await gltfLoader().loadAsync(url);
       const kit = readBackdropKit(gltf.scene, spec.kit);
+      // Landed after the mission was left: nobody will ever use it, and nobody else will free it.
+      if (this.disposed) {
+        disposeBackdropKit(kit);
+        return;
+      }
       if (this.backdropKit) disposeBackdropKit(this.backdropKit);
       this.backdropKit = kit;
     } catch (err) {

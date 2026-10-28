@@ -152,6 +152,24 @@ describe('the placed kit is wound the right way up', () => {
         if (ny > 0) up++;
       }
       expect(total, `${pl.id} has triangles`).toBeGreaterThan(500);
+      // The stored normals must agree with the winding: a sign or transposition error in the rotation, the mirror or
+      // the Y scale of the NORMALS would leave the geometry right and the lighting wrong.
+      let agree = 0;
+      let counted = 0;
+      for (let t = 0; t < placed.indices.length; t += 3) {
+        const [a, b, c] = [placed.indices[t], placed.indices[t + 1], placed.indices[t + 2]];
+        const p = placed.positions;
+        const ux = p[b * 3] - p[a * 3], uy = p[b * 3 + 1] - p[a * 3 + 1], uz = p[b * 3 + 2] - p[a * 3 + 2];
+        const vx = p[c * 3] - p[a * 3], vy = p[c * 3 + 1] - p[a * 3 + 1], vz = p[c * 3 + 2] - p[a * 3 + 2];
+        const fx = uy * vz - uz * vy, fy = uz * vx - ux * vz, fz = ux * vy - uy * vx;
+        const len = Math.hypot(fx, fy, fz);
+        if (len < 1e-9) continue;
+        const n = placed.normals;
+        const mx = n[a * 3] + n[b * 3] + n[c * 3], my = n[a * 3 + 1] + n[b * 3 + 1] + n[c * 3 + 1], mz = n[a * 3 + 2] + n[b * 3 + 2] + n[c * 3 + 2];
+        counted++;
+        if ((fx * mx + fy * my + fz * mz) / len > 0.3) agree++;
+      }
+      expect(agree / counted, `${pl.id} rot ${pl.rot} mirror ${pl.mirror}: share of triangles whose normals agree with their winding`).toBeGreaterThan(0.99);
       expect(up / total, `${pl.id} rot ${pl.rot} mirror ${pl.mirror}: share of front faces facing up`).toBeGreaterThan(0.995);
     }
   });
