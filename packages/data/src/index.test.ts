@@ -3,6 +3,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  formations,
   maps,
   missions,
   paletteColor,
@@ -102,6 +103,29 @@ describe('an unknown colour-vision variant', () => {
     for (const key of ['team.kedem', 'team.hostile', 'team.neutral', 'team.hostile_text']) {
       expect(resolve(key)).toBe(paletteColor(key));
     }
+  });
+});
+
+describe('formations is pinned to the directory it comes from', () => {
+  // GH-859 P1a: the same shape as the vfx pin below. data/formations/*.json is read by nobody but
+  // this hand-kept array, so a file that ships without an import line is a formation the sim never
+  // compiles: the button would offer it and the order would silently be a plain move.
+  const formationsDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../data/formations');
+
+  it('carries every formation file on disk, by id', () => {
+    const onDisk = readdirSync(formationsDir)
+      .filter((f) => f.endsWith('.json'))
+      .map((f) => JSON.parse(readFileSync(path.join(formationsDir, f), 'utf8')).id as string)
+      .sort();
+    expect(onDisk.length).toBeGreaterThan(0);
+    expect(formations.map((f) => f.id).sort()).toEqual(onDisk);
+  });
+
+  it('registers each of them exactly once, in sorted order', () => {
+    const ids = formations.map((f) => f.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).toEqual([...ids].sort());
+    expect(ids).toEqual(['ambush', 'attack', 'column']);
   });
 });
 

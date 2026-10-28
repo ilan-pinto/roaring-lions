@@ -14,6 +14,8 @@
 //                    menu and budget rules in tools/validate_doctrine.mjs
 //   data/versus/**   against data/schemas/versus_rules.schema.json, plus the camp,
 //                    zone and one-per-matchup-map rules in tools/validate_versus_rules.mjs
+//   data/formations/** against data/schemas/formation.schema.json, plus the
+//                    cross-file rules in tools/validate_formations.mjs (GH-859)
 //   tools/fixtures/units/** against the unit schema (synthetic, but must parse)
 //   data/structures.json against data/schemas/structure.schema.json, and its
 //                    `color`/`wall_tone` keys against the palette
@@ -35,6 +37,7 @@ import { incomeFailures } from './validate_income.mjs';
 import { productionFailures } from './validate_production.mjs';
 import { doctrineFailures } from './validate_doctrine.mjs';
 import { versusRulesFailures } from './validate_versus_rules.mjs';
+import { formationFailures } from './validate_formations.mjs';
 import { garrisonStanceFailures, garrisonWeaponFailures } from './validate_garrison.mjs';
 import {
   buildableOwnerFailures,
@@ -191,6 +194,7 @@ const schemas = {
   structure: loadJson(join(ROOT, 'data/schemas/structure.schema.json')),
   doctrine: loadJson(join(ROOT, 'data/schemas/doctrine.schema.json')),
   versus: loadJson(join(ROOT, 'data/schemas/versus_rules.schema.json')),
+  formation: loadJson(join(ROOT, 'data/schemas/formation.schema.json')),
   coupons: loadJson(join(ROOT, 'data/schemas/coupons.schema.json')),
 };
 
@@ -198,7 +202,7 @@ let checked = 0;
 if (
   schemas.unit && schemas.mission && schemas.vfx && schemas.map && schemas.tutorial &&
   schemas.world && schemas.countries && schemas.commander && schemas.names && schemas.diorama && schemas.hints &&
-  schemas.structure && schemas.doctrine && schemas.versus && schemas.coupons
+  schemas.structure && schemas.doctrine && schemas.versus && schemas.formation && schemas.coupons
 ) {
   const validators = {
     unit: ajv.compile(schemas.unit),
@@ -215,6 +219,7 @@ if (
     structure: ajv.compile(schemas.structure),
     doctrine: ajv.compile(schemas.doctrine),
     versus: ajv.compile(schemas.versus),
+    formation: ajv.compile(schemas.formation),
     coupons: ajv.compile(schemas.coupons),
   };
   checked += validateDir(join(ROOT, 'data/units'), validators.unit, 'unit.schema');
@@ -224,6 +229,7 @@ if (
   checked += validateDir(join(ROOT, 'data/tutorial'), validators.tutorial, 'tutorial.schema');
   checked += validateDir(join(ROOT, 'data/doctrines'), validators.doctrine, 'doctrine.schema');
   checked += validateDir(join(ROOT, 'data/versus'), validators.versus, 'versus_rules.schema');
+  checked += validateDir(join(ROOT, 'data/formations'), validators.formation, 'formation.schema');
   checked += validateDir(join(ROOT, 'tools/fixtures/units'), validators.unit, 'unit.schema');
   // data/campaign is a mixed directory: world.json is hand-authored, countries.json
   // is generated geometry, commander.json is hand-authored. Each gets its own schema.
@@ -1349,6 +1355,13 @@ const garrisonableSymbols = new Set(
   }
   const rulesFiles = jsonFilesIn(join(ROOT, 'data/versus')).map((file) => ({ file: rel(file), doc: loadJson(file) }));
   failures.push(...versusRulesFailures(rulesFiles, mapsById));
+}
+
+// --- formations (GH-859): the rules formation.schema.json cannot see ---------
+{
+  const en = loadJson(join(ROOT, 'packages/app/src/i18n/en.json')) ?? {};
+  const formationFiles = jsonFilesIn(join(ROOT, 'data/formations')).map((file) => ({ file: rel(file), doc: loadJson(file) }));
+  failures.push(...formationFailures(formationFiles, en));
 }
 
 // --- map grid + bounds checks (beyond what JSON Schema can express) ---------

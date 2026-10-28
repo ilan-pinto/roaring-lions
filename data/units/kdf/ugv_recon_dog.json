@@ -4,6 +4,7 @@
   "blurb": "Walks boulders and alleys no wheel can, and finds tunnel routes. Unarmed, and cheap to lose.",
   "faction": "kdf",
   "role": "drone",
+  "formation_class": "recon",
   "cost": {
     "logistics": 190,
     "build_time_s": 10,

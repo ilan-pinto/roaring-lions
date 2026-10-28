@@ -4,6 +4,7 @@
   "blurb": "Kills what your side has spotted, without a sight line and at low collateral. Useless up close.",
   "faction": "kdf",
   "role": "at_team",
+  "formation_class": "support_weapon",
   "cost": {
     "logistics": 265,
     "build_time_s": 24,
