@@ -1,4 +1,8 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { fx } from './fixed';
+import type { FormationJson } from './formation-template';
 import { MissionRuntime, type MissionJson } from './mission';
 import { Sim, type UnitTypeJson } from './sim';
 
@@ -982,4 +986,47 @@ export function reliefEconomySetup(seed: number, popCap: number = RELIEF_ECO_POP
   });
   rt.start();
   return { sim, rt };
+}
+
+// --- the formation world (GH-859 P1a Task 4) ----------------------------------------------------
+// A 600-tick fight with the three SHIPPED formation files: side 0 orders a Column, then an Attack
+// attack-move, then an Ambush ring; a side-1 Column walks into the ring. Side 0 re-orders one
+// Column member mid-march. Used by FORMATION_WORLD_PIN in determinism.test.ts and by the fork
+// witness in snapshot-witness.test.ts.
+export const FM_SEED = 0x859_0001;
+export const FM_MBT: UnitTypeJson = { ...TANK, id: 'fm_mbt', role: 'mbt' };
+export const FM_MORTAR: UnitTypeJson = { ...RIFLES, id: 'fm_mortar', role: 'artillery' };
+export interface FormationWorldIds {
+  col: number[];
+  atk: number[];
+  amb: number[];
+  foe: number[];
+}
+/** The shipped formation files, read off the data directory (this helper is test support: node is fine). */
+export function shippedFormations(): FormationJson[] {
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'data', 'formations');
+  return ['column', 'attack', 'ambush'].map((id) => JSON.parse(readFileSync(join(root, `${id}.json`), 'utf8')) as FormationJson);
+}
+export function formationSetup(seed: number): { sim: Sim; ids: FormationWorldIds } {
+  const sim = new Sim({ seed, width: 48, height: 48, capacity: 96 });
+  const mbt = sim.addUnitType(FM_MBT);
+  const rifles = sim.addUnitType(RIFLES);
+  const mortar = sim.addUnitType(FM_MORTAR);
+  for (const f of shippedFormations()) sim.addFormationType(f);
+  // Good cover one step outside the ring tile of the fifth ring member (see the pin test's literal).
+  sim.setCover(36, 22, 3);
+  const put = (type: number, side: number, x: number, y: number): number => sim.spawn(type, side, fx.from(x + 0.5), fx.from(y + 0.5));
+  const col = [mbt, rifles, rifles, rifles, rifles].map((t) => put(t, 0, 8, 44));
+  const atk = [mbt, mbt, rifles, rifles, rifles].map((t) => put(t, 0, 24, 44));
+  const amb = [mbt, mbt, mortar, rifles, rifles, rifles].map((t) => put(t, 0, 40, 32));
+  const foe = [rifles, rifles, rifles].map((t) => put(t, 1, 40, 4));
+  return { sim, ids: { col, atk, amb, foe } };
+}
+export function formationDrive(sim: Sim, t: number, ids: FormationWorldIds): void {
+  const at = (n: number): number => fx.from(n + 0.5);
+  if (t === 0) sim.queueCommand({ kind: 'move', ids: ids.col, x: at(8), y: at(30), formation: 'column' });
+  if (t === 40) sim.queueCommand({ kind: 'attackMove', ids: ids.atk, x: at(24), y: at(26), formation: 'attack' });
+  if (t === 60) sim.queueCommand({ kind: 'move', ids: [ids.col[4]], x: at(12), y: at(34) });
+  if (t === 80) sim.queueCommand({ kind: 'move', ids: ids.amb, x: at(40), y: at(24), formation: 'ambush' });
+  if (t === 150) sim.queueCommand({ kind: 'move', ids: ids.foe, x: at(40), y: at(16), formation: 'column' });
 }

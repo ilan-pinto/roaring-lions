@@ -15,7 +15,25 @@ import { Rng } from './rng';
 import { HASH_SEED, hashArray, hashWord } from './hash';
 import { FlowField, DIR_NONE, DIR_VX, DIR_VY, COST_ORTH, COST_DIAG } from './flowfield';
 import { assignFormation, type FormationUnit } from './formation';
-import { FM_FACING_NONE, compileFormation, formationClassOf, type CompiledFormation, type FormationJson } from './formation-template';
+import {
+  FM_ARRIVE_AMBUSH,
+  FM_CLASS_NONE,
+  FM_DRILL_SPRING,
+  FM_FACING_NONE,
+  FM_MARCH,
+  FM_SHAPE_RING,
+  FM_SPRUNG,
+  FM_VERB_ATTACK,
+  FM_VERB_EITHER,
+  FM_VERB_MOVE,
+  assignTemplate,
+  compileFormation,
+  formationClassOf,
+  type CompiledFormation,
+  type FormationJson,
+  type TemplateSlot,
+  type TemplateUnit,
+} from './formation-template';
 import { hullCapsule, capsuleOverlap } from './separation';
 import { overmatchShift, penetrationHpCost } from './vehicle-health';
 import {
@@ -184,6 +202,7 @@ import {
   WOUND_DEFAULT_BLEED_TICKS,
   TUNNEL_TILES_PER_S,
   FORMATION_ROWS,
+  MAX_FORMATION_GROUPS_PER_SIDE,
   type SupportKind,
 } from './tuning';
 import { bestCoverTile, figuresStanding, rescuePriority, scaleDown, scarredShare } from './wounds';
@@ -1335,6 +1354,11 @@ export type SimEvent =
    *  them. A submunition round raises no `nearMiss` and no `impact` of its own. */
   | { kind: 'submunition'; tick: number; by: number; weaponId: string; x: Fx; y: Fx; index: number; count: number }
   | { kind: 'ambushSprung'; tick: number; entity: number }
+  /** GH-859 P1a: an ambush formation's ring was discovered (a member sprang, or was fired on) and the
+   *  whole group springs: `entity` is the first member to be fired on or to spring, `group` its row.
+   *  Pushed once per group, when the springing is set in motion; the rest of the ring fires from the
+   *  next tick (`stepFormations`). */
+  | { kind: 'formationSprung'; tick: number; side: number; group: number; entity: number }
   | { kind: 'strike'; tick: number; by: number; x: Fx; y: Fx; profile: number }
   | { kind: 'smokeLaid'; tick: number; by: number; x: Fx; y: Fx }
   | { kind: 'revealed'; tick: number; side: number; count: number }
@@ -1433,7 +1457,7 @@ export type SimEvent =
  *  without adding it here fails typecheck.
  */
 export const SIM_EVENT_KINDS = [
-  'spawn', 'contact', 'fire', 'aps', 'impact', 'component', 'nearMiss', 'submunition', 'ambushSprung',
+  'spawn', 'contact', 'fire', 'aps', 'impact', 'component', 'nearMiss', 'submunition', 'ambushSprung', 'formationSprung',
   'strike', 'smokeLaid', 'revealed', 'structureHit', 'structureDestroyed', 'garrison',
   'transport', 'ventOpened', 'tunnelContact', 'surfaced', 'submerged', 'tunnelCollapsed', 'chargeSet', 'chargeDetonated', 'routed', 'rallied', 'pinned', 'unpinned', 'destroyed',
   'fieldFixed', 'beam',
@@ -3502,6 +3526,7 @@ export class Sim {
     // guard keyed on tunnelIn skips them while stepTransport pins them to a
     // buried hull.
     if (this.passengers[unitId] > 0) this.unloadAll(unitId);
+    if (this.fmLive) this.fmForget(unitId); // GH-859 P1a exit: going below ground
     this.tunnelIn[unitId] = routeIdx;
     this.braceClear(unitId);
     this.tnOccupants[routeIdx]++;
@@ -3824,6 +3849,7 @@ export class Sim {
     if (this.alive[id] !== 1) return;
     const side = this.side[id];
     if (this.woundLive) this.forgetWounded(id);
+    if (this.fmLive) this.fmForget(id); // GH-859 P1a exit: taken out of play
     // A rider taken alone gives up its seat: left set, the carrier would count a ghost aboard and
     // a later `unload` would put the missing man down on the ground.
     this.releaseSeat(id);
@@ -4045,6 +4071,8 @@ export class Sim {
     this.stepDetection();
     this.stepSurfacing();
     this.stepCombat();
+    // GH-859 P1a: right after combat, before anything else this tick reads a stance or a facing.
+    if (this.fmLive) this.stepFormations();
     this.stepBrace();
     this.stepProjectiles();
     this.stepStrikes();
@@ -4532,9 +4560,16 @@ export class Sim {
     // else, with `front` set so it leads the ranks rather than queueing up
     // behind the infantry. (The exemption survives on the exact path
     // above, which is not placing anything.)
+    // GH-859 P1a: -1 is today's order, exactly (absent, unknown, exact, verb mismatch). Nothing below
+    // reads `formation` except through this index.
+    const tplIdx = this.templateFor(cmd);
     const members: FormationUnit[] = [];
     let sumX = 0;
     let sumY = 0;
+    // The same centroid over the members a template places (class not none), for the template branch.
+    let tSumX = 0;
+    let tSumY = 0;
+    let tCount = 0;
     for (const id of exact ? [] : cmd.ids) {
       // A passenger is inside a vehicle and does not walk anywhere: the
       // carrier decides where it goes, and `unload` is how it gets out.
@@ -4570,11 +4605,58 @@ export class Sim {
           ? this.wpY[id * MAX_WAYPOINTS + n - 1]
           : this.goalY[id]
         : this.posY[id];
-      sumX += fx.toInt(fromX);
-      sumY += fx.toInt(fromY);
+      const ix = fx.toInt(fromX);
+      const iy = fx.toInt(fromY);
+      sumX += ix;
+      sumY += iy;
+      // Side 2 (civilians, neutrals) is never placed; class none ignores the order.
+      if (tplIdx >= 0 && utype.fmClass !== FM_CLASS_NONE && this.side[id] <= 1) {
+        tSumX += ix;
+        tSumY += iy;
+        tCount++;
+      }
     }
     const slots = new Map<number, [number, number]>();
-    if (members.length > 0) {
+    // The template branch (GH-859 P1a): fewer placeable members than the formation's minimum falls
+    // through to the plain order below, and nothing here has been written yet.
+    let placed: Map<number, TemplateSlot> | null = null;
+    let ringRadius = 0;
+    if (tplIdx >= 0 && tCount >= this.formationTypes[tplIdx].minMembers) {
+      this.fmLive = true;
+      const tpl = this.formationTypes[tplIdx];
+      const units: TemplateUnit[] = [];
+      for (const m of members) {
+        const ut = this.unitTypes[this.typeIdx[m.id]];
+        if (ut.fmClass === FM_CLASS_NONE || this.side[m.id] > 1) continue;
+        units.push({ id: m.id, domain: m.domain, cls: ut.fmClass, vehicle: !ut.isAir && ut.moveDomain === DOMAIN_VEHICLE, air: ut.isAir });
+      }
+      const res = assignTemplate(
+        {
+          width: this.width,
+          height: this.height,
+          masks: [this.blocked, this.blockedVehicleMask],
+          origins: [
+            [fgx, fgy],
+            [vgx, vgy],
+          ],
+          clickX: fgx,
+          clickY: fgy,
+          fromX: (tSumX - (tSumX % tCount)) / tCount,
+          fromY: (tSumY - (tSumY % tCount)) / tCount,
+          units,
+          reserved: this.reservedTilesFor(this.side[units[0].id], cmd.ids),
+          cover: this.cover,
+        },
+        tpl,
+      );
+      placed = new Map<number, TemplateSlot>();
+      for (const sl of res.slots) {
+        slots.set(sl.id, [sl.x, sl.y]);
+        placed.set(sl.id, sl);
+      }
+      ringRadius = res.ringRadius;
+    }
+    if (placed === null && members.length > 0) {
       const n = members.length;
       const assigned = assignFormation({
         width: this.width,
@@ -4605,6 +4687,8 @@ export class Sim {
     }
     const attack = cmd.kind === 'attackMove' ? 1 : 0;
     const sweep = cmd.kind === 'attackMove' && cmd.sweep === true ? 1 : 0;
+    // Ids the template order actually wrote (an order-time list, template branch only).
+    const written: number[] = [];
     for (const id of cmd.ids) {
       if (this.alive[id] === 0 || this.routed[id] === 1) continue; // broken troops aren't listening
       const utype = this.unitTypes[this.typeIdx[id]];
@@ -4694,6 +4778,7 @@ export class Sim {
         // never reached the stance reset below, so a hold or ambush, which never
         // has `moving` 1, could not notice; a patroller nearly always does.)
         this.dropPatrol(id);
+        if (placed !== null) written.push(id);
         continue;
       }
       // (A passenger never reached here: the guard above turned it away —
@@ -4730,7 +4815,144 @@ export class Sim {
       // Any order overrides a held stance -- a patrol included. A leg the patrol
       // issues itself (`stepPatrolStance`, `patrolLeg`) is the one move that keeps it.
       if (!patrolLeg) this.stance[id] = 0;
+      if (placed !== null) written.push(id);
     }
+    if (placed !== null && written.length > 0) this.fmJoin(tplIdx, written, placed, ringRadius);
+  }
+
+  /** The formation id named by `cmd` as an index into `formationTypes`, or -1 when the order is today's
+   *  plain one: no `formation`, an id this world does not hold, an `exact` order, or a verb the
+   *  formation is not for (an `attackMove` naming a `move` formation, or the reverse). */
+  private templateFor(cmd: Extract<Command, { kind: 'move' | 'attackMove' }>): number {
+    const id = cmd.formation;
+    if (id === undefined || cmd.exact === true) return -1;
+    for (let k = 0; k < this.formationTypes.length; k++) {
+      const f = this.formationTypes[k];
+      if (f.id !== id) continue;
+      const verb = cmd.kind === 'move' ? FM_VERB_MOVE : FM_VERB_ATTACK;
+      return f.verb === FM_VERB_EITHER || f.verb === verb ? k : -1;
+    }
+    return -1;
+  }
+
+  /** After a template order has written its goals: each written member takes its rest facing and
+   *  arrival stance, and the group takes the lowest free row of the side (none free: a degraded order,
+   *  with shape, facing and stance but no group, so no shared spring). Order-time only. */
+  private fmJoin(tplIdx: number, written: readonly number[], placed: ReadonlyMap<number, TemplateSlot>, ringRadius: number): void {
+    const tpl = this.formationTypes[tplIdx];
+    const side = this.side[written[0]];
+    const base = side * MAX_FORMATION_GROUPS_PER_SIDE;
+    let g = -1;
+    for (let k = 0; k < MAX_FORMATION_GROUPS_PER_SIDE; k++) {
+      if (this.fgLive[base + k] === 0) {
+        g = base + k;
+        break;
+      }
+    }
+    for (const id of written) {
+      const sl = placed.get(id);
+      const ut = this.unitTypes[this.typeIdx[id]];
+      this.restFacing[id] = sl === undefined ? FM_FACING_NONE : sl.face;
+      // The stance belongs to the ring (an ambush) or to ground members (a hold); an aircraft takes none.
+      let arrive = 0;
+      if (!ut.isAir) {
+        if (tpl.arriveStance === FM_ARRIVE_AMBUSH) {
+          if (tpl.elements[tpl.elementOfClass[ut.fmClass]].kind === FM_SHAPE_RING) arrive = FM_ARRIVE_AMBUSH + ringRadius;
+        } else arrive = tpl.arriveStance;
+      }
+      this.fmArrive[id] = arrive;
+      if (g >= 0) this.fmGroup[id] = g;
+    }
+    if (g >= 0) {
+      this.fgLive[g] = 1;
+      this.fgSide[g] = side;
+      this.fgType[g] = tplIdx;
+      this.fgState[g] = FM_MARCH;
+      this.fgPending[g] = 0;
+      this.fgMembers[g] = written.length;
+    }
+  }
+
+  /** The one exit from a formation (GH-859 P1a): membership, rest facing and arrival stance go, and a
+   *  row whose last member leaves is freed (every column back to zero). Callers guard on `fmLive`. */
+  private fmForget(id: number): void {
+    this.restFacing[id] = FM_FACING_NONE;
+    this.fmArrive[id] = 0;
+    const g = this.fmGroup[id];
+    if (g < 0) return;
+    this.fmGroup[id] = -1;
+    if (this.fgMembers[g] > 0) this.fgMembers[g]--;
+    if (this.fgMembers[g] === 0) {
+      this.fgLive[g] = 0;
+      this.fgSide[g] = 0;
+      this.fgType[g] = 0;
+      this.fgState[g] = 0;
+      this.fgPending[g] = 0;
+    }
+  }
+
+  /** `id` has stopped on its final goal (`finishLeg`): the formation's arrival stance, once. An ambush
+   *  arrives only while its group has not sprung: a trap found out is not set again. */
+  private fmArrived(id: number): void {
+    const code = this.fmArrive[id];
+    this.fmArrive[id] = 0;
+    if (code >= FM_ARRIVE_AMBUSH) {
+      const g = this.fmGroup[id];
+      if (g >= 0 && this.fgState[g] === FM_SPRUNG) return;
+      this.setAmbush(id, fx.fromInt(code - FM_ARRIVE_AMBUSH));
+    } else if (code !== 0) {
+      this.haltUnit(id);
+    }
+  }
+
+  /** A member of a `spring` group sprang, or was fired on by the enemy: mark the group to spring
+   *  together. Only a group still marching is marked, once; the event names the first. */
+  private fmPend(id: number): void {
+    const g = this.fmGroup[id];
+    if (g < 0 || this.fgState[g] !== FM_MARCH || this.fgPending[g] !== 0) return;
+    if (this.formationTypes[this.fgType[g]].drill !== FM_DRILL_SPRING) return;
+    this.fgPending[g] = 1;
+    this.pendingEvents.push({ kind: 'formationSprung', tick: this.tickCount, side: this.fgSide[g], group: g, entity: id });
+  }
+
+  /** Right after `stepCombat` (behind `fmLive`): a marked group springs as one, and a unit standing at
+   *  rest in a formation turns to the facing its slot gave it. O(rows) plus one compare per unit; the
+   *  spring's one O(count) scan runs once in a group's life. */
+  private stepFormations(): void {
+    for (let g = 0; g < FORMATION_ROWS; g++) {
+      if (this.fgLive[g] === 0 || this.fgPending[g] === 0) continue;
+      this.fgPending[g] = 0;
+      this.fgState[g] = FM_SPRUNG;
+      for (let i = 0; i < this.count; i++) {
+        if (this.fmGroup[i] === g && this.stance[i] === 1) this.stance[i] = 0;
+      }
+    }
+    for (let i = 0; i < this.count; i++) {
+      const want = this.restFacing[i];
+      if (want === FM_FACING_NONE) continue;
+      // Stopped, alone with its orders: a target always wins, and so does anything that holds the hull.
+      if (this.alive[i] === 0 || this.moving[i] === 1 || this.aimTurned[i] === 1) continue;
+      if (this.curTarget[i] >= 0 || this.curStructure[i] >= 0 || this.mobilityKilled[i] === 1) continue;
+      if (this.garrisonedIn[i] >= 0 || this.carriedBy[i] >= 0 || this.tunnelIn[i] >= 0) continue;
+      if (this.facing[i] !== want) this.turnToward(i, want);
+    }
+  }
+
+  /** Formation group read APIs for the HUD. Scalar, allocation-free. */
+  formationGroupOf(id: number): number {
+    return this.fmGroup[id];
+  }
+  /** The formation type index of group row `g`, -1 when the row is free. */
+  formationTypeOfGroup(g: number): number {
+    return g >= 0 && g < FORMATION_ROWS && this.fgLive[g] === 1 ? this.fgType[g] : -1;
+  }
+  /** FM_MARCH or FM_SPRUNG for a live row, 0 for a free one. */
+  formationStateOfGroup(g: number): number {
+    return g >= 0 && g < FORMATION_ROWS && this.fgLive[g] === 1 ? this.fgState[g] : 0;
+  }
+  /** Members still in group row `g`, 0 for a free row. */
+  formationMembersOfGroup(g: number): number {
+    return g >= 0 && g < FORMATION_ROWS && this.fgLive[g] === 1 ? this.fgMembers[g] : 0;
   }
 
   private applyCommands(): void {
@@ -4821,6 +5043,12 @@ export class Sim {
             this.tunnelGoal[id] = -1;
             if (this.homeTunnel[id] >= 0 && this.isHumanHeld(this.side[id])) this.endRaid(id);
           }
+        }
+        // GH-859 P1a: any later order takes a unit out of its formation, through the one exit. Not
+        // `attack` and `rescue`: a refused order changes nothing (GH-420), so their branches call it
+        // for the ids they accept. Behind `fmLive`, so a world with no formation order reads nothing.
+        if (this.fmLive && cmd.kind !== 'attack' && cmd.kind !== 'rescue') {
+          for (const id of cmd.ids) this.fmForget(id);
         }
         if (cmd.kind !== 'attack' && cmd.kind !== 'rescue') {
           for (const id of cmd.ids) {
@@ -5079,6 +5307,7 @@ export class Sim {
           this.focusLost[id] = 0;
           this.sepWait[id] = 0; // GH-421: a fresh order starts with a closed valve
           this.sepLast[id] = 0;
+          if (this.fmLive) this.fmForget(id); // GH-859 P1a: an accepted order leaves its formation
           // GH-707: an accepted fire order takes a medic off his automatic job (the generic
           // reset above skips `attack`, so a refused id keeps his).
           if (this.woundLive && this.unitTypes[this.typeIdx[id]].rescue !== null) {
@@ -5112,6 +5341,7 @@ export class Sim {
         // nothing (the generic focus release above skips this kind).
         for (const id of cmd.ids) {
           if (!this.rescueGate(id, cmd.target)) continue;
+          if (this.fmLive) this.fmForget(id); // GH-859 P1a: an accepted order leaves its formation
           if (this.garrisonedIn[id] >= 0) this.leaveStructure(id);
           this.focusTarget[id] = -1;
           this.focusLost[id] = 0;
@@ -6904,6 +7134,7 @@ export class Sim {
         }
         this.stance[i] = 0;
         this.pendingEvents.push({ kind: 'ambushSprung', tick: this.tickCount, entity: i });
+        if (this.fmLive) this.fmPend(i); // GH-859 P1a: the rest of its ring springs with it
       }
       const type = this.unitTypes[this.typeIdx[i]];
       if (type.weapons.length === 0) continue;
@@ -8104,6 +8335,7 @@ export class Sim {
     if (w === null) return false;
     const side = this.side[id];
     if (!this.rng.chance(id, w.chance) || this.woundedAlive[side] >= MAX_WOUNDED_PER_SIDE) return false;
+    if (this.fmLive) this.fmForget(id); // GH-859 P1a exit: downed in place (behind woundLive, via the type)
     this.hp[id] = ONE;
     this.figuresUp[id] = 0;
     this.moving[id] = 0;
@@ -8153,6 +8385,7 @@ export class Sim {
     for (let i = 0; i < this.count; i++) {
       if (this.carriedBy[i] !== car || this.alive[i] === 0 || !this.horsDeCombat(i)) continue;
       this.forgetWounded(i);
+      if (this.fmLive) this.fmForget(i); // GH-859 P1a exit: evacuated or admitted off the board
       this.carriedBy[i] = -1;
       if (this.passengers[car] > 0) this.passengers[car]--;
       this.alive[i] = 0;
@@ -8297,6 +8530,7 @@ export class Sim {
         if (t < 1) t = 1;
       }
       this.forgetWounded(i);
+      if (this.fmLive) this.fmForget(i); // GH-859 P1a exit: evacuated or admitted off the board
       this.carriedBy[i] = -1;
       if (this.passengers[car] > 0) this.passengers[car]--;
       this.alive[i] = 0;
@@ -8847,6 +9081,9 @@ export class Sim {
       this.suppFromX[target] = srcX;
       this.suppFromY[target] = srcY;
       this.suppFromSet[target] = 1;
+      // GH-859 P1a: a ring that is fired on springs, found out. Hostile fire only: a friendly splash
+      // is not the enemy.
+      if (this.fmLive) this.fmPend(target);
     }
     let a = fx.mul(amount, type.suppResFactor);
     const vet = this.veterancy[target];
@@ -9016,6 +9253,7 @@ export class Sim {
   }
 
   private enterStructure(id: number, s: number): void {
+    if (this.fmLive) this.fmForget(id); // GH-859 P1a exit: garrisoning
     this.garrisonedIn[id] = s;
     this.braceClear(id);
     this.garrisonGoal[id] = -1;
@@ -9260,6 +9498,7 @@ export class Sim {
 
   /** Put `id` in a seat. Extracted so boarding and authored-aboard share it. */
   private seat(car: number, id: number): void {
+    if (this.fmLive) this.fmForget(id); // GH-859 P1a exit: boarding
     this.carriedBy[id] = car;
     this.braceClear(id);
     this.boardGoal[id] = -1;
@@ -10197,6 +10436,7 @@ export class Sim {
       }
     }
     if (this.woundLive) this.forgetWounded(target);
+    if (this.fmLive) this.fmForget(target); // GH-859 P1a exit: death
     this.alive[target] = 0;
     this.releaseSlot(target);
     this.releaseTunnel(target);
@@ -11131,6 +11371,8 @@ export class Sim {
     } else {
       this.moving[i] = 0;
       this.fieldRef[i] = -1;
+      // GH-859 P1a: the formation's arrival stance, once, on the final goal only.
+      if (this.fmLive && this.fmArrive[i] !== 0) this.fmArrived(i);
     }
   }
 
@@ -11372,6 +11614,7 @@ export class Sim {
           this.mobilityKilled[i] === 0
         ) {
           this.routed[i] = 1;
+          if (this.fmLive) this.fmForget(i); // GH-859 P1a exit: rout
           this.startRout(i);
           this.pendingEvents.push({ kind: 'routed', tick: this.tickCount, entity: i });
         }

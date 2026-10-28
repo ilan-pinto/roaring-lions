@@ -32,6 +32,11 @@ export const FM_CLASS_REST = 7;
 export const FM_CLASS_NONE = 255;
 /** `restFacing` when a unit has none. */
 export const FM_FACING_NONE = 0xffff;
+/** `fgState` of a group row: marching to its slots (also while it stands in them, in P1a). 2 (ARRIVED) and
+ *  3 (CONTACT) are reserved: P1b defines them, when the march gives them a meaning. */
+export const FM_MARCH = 1;
+/** `fgState`: the ring has sprung (every member's ambush stance is cleared). */
+export const FM_SPRUNG = 4;
 /** `fmArrive`: 0 none, 1 hold, 16 + R ambush with radius R. */
 export const FM_ARRIVE_HOLD = 1;
 export const FM_ARRIVE_AMBUSH = 16;
