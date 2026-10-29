@@ -3,7 +3,7 @@
 // Exit code 1 when any target is missed: the combat model is the product,
 // and these numbers are its acceptance test.
 
-import { atgmPk, apsIntercept, urbanRatio, urbanSmokeStep, urbanAttackFormation, lanchester, airContested, airDefence } from '../backtest/targets';
+import { atgmPk, apsIntercept, standoff, urbanRatio, urbanSmokeStep, urbanAttackFormation, lanchester, airContested, airDefence } from '../backtest/targets';
 import { report, unitsAtMaxTier, withRoster } from '../backtest/harness';
 
 function runTargets() {
@@ -11,7 +11,7 @@ function runTargets() {
   // smoke -- but it runs in both tables so a tier cannot buy smoke a second step.
   // `urbanAttackFormation` is not a §5.7 target either: it holds the Attack formation to the urban band, so
   // an order that names a formation cannot buy a ratio step the way a screen does (GH-859 P1a, D10).
-  return [atgmPk(), apsIntercept(), urbanRatio(), urbanSmokeStep(), urbanAttackFormation(), lanchester(), airContested(), ...airDefence()];
+  return [atgmPk(), apsIntercept(), standoff(), urbanRatio(), urbanSmokeStep(), urbanAttackFormation(), lanchester(), airContested(), ...airDefence()];
 }
 
 const t0 = Date.now();

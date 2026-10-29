@@ -496,6 +496,77 @@ Pipeline order for a vehicle: export -> `pnpm kit:meshes` ->
 
 ---
 
+# v8 (infantry) — kit parts (2026-10-28, GH-826)
+
+Spec: `docs/superpowers/specs/2026-10-26-infantry-kit-design.md`. A rifle
+squad's bought upgrade kit is on the figures: armour, sensors and firepower
+tiers each add parts to the three riflemen, and the renderer keeps what the
+type's bought tiers own (`@lions/data`'s `applyUpgrades` is where the SIM learns
+of the tiers; the kit is presentation only, +0 draw calls, no mark in the
+world). `inf_squad` only so far; `kit-contract.ts` `INFANTRY_KIT_TEAMS` is the
+list.
+
+## The nodes
+
+- **A kitted team carries one packed node per role primitive it can kit:
+  `kit_uniform` and/or `kit_weapon`** (`INFANTRY_KIT_HOSTS`), each a skinned
+  mesh on the team's ONE skin, with the host's parent, local TRS, material and
+  attribute set, plus `_RL_KIT`: one UNSIGNED_BYTE per vertex, the id of the
+  part the vertex belongs to (an index into the parts table). A role the team
+  has no primitive for is refused (that would be +1 draw call).
+- **`extras.rl_kit = { host, parts: [...] }`**, each part
+  `{ track, tier, host, part, figure, bone, slot?, side?, name, tris }`. A part
+  is rigid on ONE bone (`<figure>_<bone>`, weight 1, so it rides that bone in
+  every shipped clip: the kit adds no clips, keys or poses), and every vertex of
+  it carries its id. `slot` is a supersession group (`optic`, `nvg`, `shoulder`,
+  `antenna`): only the HIGHEST bought tier in each (track, figure, slot, side)
+  draws. A tier only ever adds; tier 0 is the shipped figure.
+- **Why packed, not a node per part** (the vehicle shape): 81 nodes took the
+  encoded file +138 KiB (the glTF JSON, about 1.2 KB a part, stays
+  uncompressed in the Draco file), against a +64 KiB budget. Packed it is +31 KiB.
+  The art is still one node per part, in the Blender source
+  (`art/parts/inf_kit/<team>.glb`, `kit_<track>_<tier>_<part>[_<L|R>]_<figure>`);
+  the graft packs it.
+
+## Who writes it, and in what order
+
+`tools/units/export_infantry_kit.py` (Blender: imports the shipped team GLB,
+fits each part per figure at its bind pose, binds it through `rig.rig_parts`,
+so a part with no `PART_BONE` entry raises) -> `pnpm kit:meshes -- --teams`
+(`tools/src/meshes/infantry-kit-pass.ts`). The infantry order is now
+export -> motion -> gait -> **kit (`--teams`)** -> encode: the kit goes in AFTER
+the gait pass because the graft keeps every live accessor byte-identical and the
+motion pass refuses a file it has already been through. The pass strips every
+`kit_*` node first (idempotent: a second run writes the same bytes), refuses a
+source whose bind matrices differ from the team's or whose `rl_kit_base` (a hash
+of the base primitives' POSITION, JOINTS_0 and WEIGHTS_0 bytes) is not the
+team's, a part over 1.10x its approved triangles (`INFANTRY_KIT_PART_TRIS`), a
+figure drawing over 1,200 at maximum kit, a file over 5,000, a part not rigid on
+the bone it names, an undeclared track, or a host the team has no primitive for.
+
+## What the runtime does
+
+`units/infantry-kit.ts` `applyInfantryKit`, from `buildMeshUnitTemplate`, once
+per template: keep the parts with `tier <= tiers[track]` and the highest tier per
+slot, cut their triangles out of the packed primitive (compacting vertices),
+merge them into their host's geometry HOST FIRST (`rlKitBaseCount`), delete every
+`kit_*` node. With no tiers, or every tier 0, every role mesh keeps its exact
+geometry object. A versus room whose seats bought different kit gets a second
+template set under `<id>#s1` (`templateKey`), only for a kitted team. A contract
+violation throws, naming the node.
+
+## What reads it
+
+`pnpm validate:meshes`: `check_infantry_kits` from the bytes (host, one
+primitive, material, attributes, skin, TRS, table, budgets, and a part for EVERY
+(track, tier) the unit JSON declares), and the renders of
+`render_mesh_gate.render_infantry_kit` (the painted maximum and each track alone
+at tier 3, each framed to its own bounds) held under IoU 0.88 against every other
+unit, `inf_grenadier` included. `tools/mesh_gait.test.ts` census-es the kit like
+any skinned node (nothing below the ground in any clip, at maximum kit).
+
+---
+
 # v6 — the pinned huddle (2026-10-07, pass C2/C4)
 
 Written by `pnpm motion:meshes -- --step=pinned` (`tools/src/meshes/motion/pinned.ts`),

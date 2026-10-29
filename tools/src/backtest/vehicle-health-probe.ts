@@ -313,6 +313,9 @@ export function waves(U: Roster, gapS: number, seeds: number): Tally {
 }
 
 // --- S3: Standoff (Sarim), GDD 5.7 extended: ATGM cell(s) at 8.5 tiles vs an APS MBT, 3 missiles each
+// REPORT-ONLY context, open ground. The gated target is the SECTION form (three cells in cover 2) and lives in
+// `targets.ts` (`standoff`, GH-865); the single-cell form is not a target (the HP model needs three penetrations
+// and the Trophy stops each). `standoff-gate.test.ts` pins this function against the gate's cover-0 arm.
 export function standoff(U: Roster, cells: number, seeds: number, range = 8.5): Tally {
   const t = tally();
   let mbtKilled = 0;
@@ -527,7 +530,8 @@ export function runAll(argv: string[], log: (line: string) => void): void {
         row6(`${heli.slice(5)} v ${n} manpad`, manpadHover(U, heli, n, 30, seeds), manpadPass(U, heli, n, seeds));
   }
   if (want('s3')) {
-    // Standoff (Sarim), GDD 5.7 extended: ATGM cells at 8.5 tiles, three missiles each.
+    // Standoff (Sarim), GDD 5.7 extended: ATGM cells at 8.5 tiles, three missiles each. Open-ground context only:
+    // the gate is three cells in cover 2 (`pnpm balance`, targets.ts `standoff`), GH-865.
     row('standoff 1 cell(s) @8.5', standoff(U, 1, seeds));
     row('standoff 2 cell(s) @8.5', standoff(U, 2, seeds));
     row('standoff 3 cell(s) @8.5', standoff(U, 3, seeds));
