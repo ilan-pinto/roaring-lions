@@ -178,7 +178,8 @@ describe('groundTone', () => {
 const FEN = ['#7F9F57', '#4F6732'];
 const MUD = ['#8E6F55', '#725944', '#584535', '#413327', '#2D241B'];
 const OVERCAST = ['#C4C8C9', '#9FA9B5', '#83898D', '#656B70', '#4A4F54'];
-const BASALT = ['#4B453D'];
+// basalt was ['#4B453D'] until the GH-871 P2 S-6 tone round.
+const BASALT = ['#625A4D'];
 const WETLAND_HEXES = [...FEN, ...MUD, ...OVERCAST, ...BASALT];
 const luma709 = (hex: string): number => {
   const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));

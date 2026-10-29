@@ -65,7 +65,22 @@ describe('the wetland open ground reads against the KDF uniform (GH-871 P2 T4)',
     expect(w.paletteRamps).not.toContain('basalt');
   });
 
-  it('draws the boulder in basalt, #4B453D', () => {
-    expect(w.decorColors?.['boulder:rock']).toBe('#4B453D');
+  it('lifts the boulder one step (luma 90.8, was 69.7) yet keeps it off the overcast stone and warm', () => {
+    const hex = w.decorColors?.['boulder:rock'] ?? '';
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+    const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    expect(luma).toBeGreaterThan(88);
+    expect(luma).toBeLessThan(93);
+    expect(r).toBeGreaterThan(g);
+    expect(g).toBeGreaterThan(b); // warm: hue 30-42
+    // overcast.3 / overcast.4 as LITERALS: wet faces stay a different stone (was 15.7 / 9.4)
+    expect(de(hex, '#656B70')).toBeCloseTo(12.5, 1);
+    expect(de(hex, '#4A4F54')).toBeCloseTo(11.9, 1);
+    expect(de(hex, '#656B70')).toBeGreaterThan(10);
+    expect(de(hex, '#4A4F54')).toBeGreaterThan(10);
+  });
+
+  it('draws the boulder in basalt, #625A4D (was #4B453D, lifted one step at S-6)', () => {
+    expect(w.decorColors?.['boulder:rock']).toBe('#625A4D');
   });
 });

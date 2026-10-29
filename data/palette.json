@@ -148,9 +148,9 @@
       "theme_only": true,
       "role": "the wetland's dark volcanic boulder. A tint key only -- never in any theme's paletteRamps (GH-871).",
       "colors": [
-        "#4B453D"
+        "#625A4D"
       ],
-      "note": "Added for the wetland biome (GH-871 P2). One entry, so the descending-brightness rule is vacuous. TINT KEY ONLY: a boulder's rock tint resolves it through paletteColor, but no theme names it in TerrainTones.paletteRamps, so the terrain quantiser never snaps anything onto it and the composed terrain gains no near-black warm entry."
+      "note": "Added for the wetland biome (GH-871 P2), lifted one step at S-6 (was #4B453D, luma 69.7; now luma 90.8, hue 37, the warm Golan boulder reading #3C3628..#59564D of the mood board, lit) so a shadowed boulder is not a black blob. Still distinct from overcast.3/4 (CIEDE2000 12.5 / 11.9, was 15.7 / 9.4) and from the pale karst greys. One entry, so the descending-brightness rule is vacuous. TINT KEY ONLY: a boulder's rock tint resolves it through paletteColor, but no theme names it in TerrainTones.paletteRamps, so the terrain quantiser never snaps anything onto it and the composed terrain gains no near-black warm entry."
     }
   },
   "reserved": {
