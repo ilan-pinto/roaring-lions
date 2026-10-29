@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { Sim, fx } from '@lions/sim';
 import { units } from '@lions/data';
 import { DamageMeter, TOGETHER_TICKS, playAmbush, read, reference, seedOf } from './formation-probes';
-import { urbanAttackFormation, urbanBandPass } from './targets';
+import { urbanAssault, urbanAttackFormation, urbanBandPass } from './targets';
 
 describe('DamageMeter: friendly splash is read', () => {
   /** An own mortar shelling an unarmed enemy that stands beside an unarmed own spotter. Nothing else is
@@ -109,5 +109,26 @@ describe('the urban band applied to the Attack formation', () => {
     expect(r.detail).toContain('15.0 grouped attackers/run');
     // A run that formed nobody is a vacuous arm and fails whatever the rates read.
     expect(r.pass).toBe(true);
+  }, 60_000);
+});
+
+describe('the urban Attack arm counts its grouped attackers per ratio', () => {
+  // Three assault groups of 2, 4, 6 and 8 squads at 1..4:1 against 6 defenders; the formation's minimum
+  // is 2 members, so every attacker is grouped. One fixed seed each (the arm's own 60000 + ratio * 1000).
+  // The mean of 6, 12, 18 and 24 is the 15.0 the test above pins; a counter forced to 15 matches that
+  // mean and no single ratio here.
+  const defenders = 6;
+  const seedFor = (ratio: number) => 60000 + ratio * 1000;
+
+  it('formed is 6, 12, 18 and 24 at 1:1 to 4:1', () => {
+    const formed = [1, 2, 3, 4].map((ratio) => urbanAssault(defenders * ratio, seedFor(ratio), false, 'attack').formed);
+    expect(formed).toEqual([6, 12, 18, 24]);
+    expect(formed.reduce((a, b) => a + b, 0) / formed.length).toBe(15);
+  }, 60_000);
+
+  it('the plain arm names no formation and reports 0 formed', () => {
+    for (const ratio of [1, 2, 3, 4]) {
+      expect(urbanAssault(defenders * ratio, seedFor(ratio)).formed).toBe(0);
+    }
   }, 60_000);
 });

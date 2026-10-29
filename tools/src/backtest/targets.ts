@@ -104,7 +104,7 @@ const URBAN_FRONTS: [number, number][] = [
  *  float test here on the right side of the sim's fixed-point one. */
 const SMOKE_REACH_SQ = 79.5;
 
-function urbanAssault(attackers: number, seed: number, smoke = false, formation?: string): UrbanOutcome {
+export function urbanAssault(attackers: number, seed: number, smoke = false, formation?: string): UrbanOutcome {
   const W = 40;
   const H = 28;
   const sim = new Sim({ seed, width: W, height: H, capacity: 64 });
