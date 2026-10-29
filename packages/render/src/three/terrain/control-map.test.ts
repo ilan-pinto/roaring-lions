@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DECOR_GROVE, DECOR_KNOLL, DECOR_RIDGE, DECOR_ROAD } from './shared';
+import { DECOR_GROVE, DECOR_KNOLL, DECOR_MARSH, DECOR_RIDGE, DECOR_ROAD } from './shared';
 import type { TerrainInput } from './types';
 import {
   buildControlMap, buildMacroField, CONTROL_TEXELS_PER_TILE as N, heightBiased, macroBlurTexels,
@@ -8,7 +8,7 @@ import {
 import { boxBlur, fbm2 } from './noise';
 import { roadDistanceAt, buildRoadGraph } from './road-graph';
 
-/** '.' open, 'r' road, 'o' grove, 'n' knoll, '1'-'3' cover, '#' pad, '^' ridge. */
+/** '.' open, 'r' road, 'o' grove, 'n' knoll, '1'-'3' cover, '#' pad, '^' ridge, '~' marsh (decor 6, cover 1). */
 function map(rows: readonly string[]): TerrainInput {
   const height = rows.length;
   const width = rows[0].length;
@@ -22,6 +22,7 @@ function map(rows: readonly string[]): TerrainInput {
       if (c === 'o') { decor[i] = DECOR_GROVE; cover[i] = 1; }
       if (c === 'n') { decor[i] = DECOR_KNOLL; cover[i] = 2; }
       if (c >= '1' && c <= '3') cover[i] = Number(c);
+      if (c === '~') { decor[i] = DECOR_MARSH; cover[i] = 1; }
       if (c === '#') blocked[i] = 1;
       if (c === '^') { blocked[i] = 1; decor[i] = DECOR_RIDGE; }
     })
@@ -48,6 +49,26 @@ describe('tileSurface -- albedoFor\'s order, one decision', () => {
     [5, 'scrub', 0.4], [6, 'scrub', 0.65], [7, 'scrub', 1], [8, 'open', 1],
   ])('tile %i is %s at %f', (x, kind, strength) => {
     expect(tileSurface(m, x, 0)).toEqual({ kind, strength });
+  });
+});
+
+describe('tileSurface -- the marsh (GH-871 P2, R-11)', () => {
+  it('calls a ~ tile scrub at the cover-1 strength, a literal 0.4', () => {
+    const m = map(['.~1']);
+    expect(tileSurface(m, 1, 0)).toEqual({ kind: 'scrub', strength: 0.4 });
+    // the control: a plain cover-1 tile is the same answer by the other road,
+    // and an open tile beside it is not
+    expect(tileSurface(m, 2, 0)).toEqual({ kind: 'scrub', strength: 0.4 });
+    expect(tileSurface(m, 0, 0)).toEqual({ kind: 'open', strength: 1 });
+  });
+
+  it('would be open without the branch: decor 6 with cover 1 is not a tier tile', () => {
+    // `tileSurface` only reads a tier when decor is 0, so decor 6 + cover 1
+    // reaches `open` unless the marsh branch is there.
+    const m = map(['~']);
+    expect(m.decor?.[0]).toBe(6);
+    expect(m.cover[0]).toBe(1);
+    expect(tileSurface(m, 0, 0).kind).not.toBe('open');
   });
 });
 

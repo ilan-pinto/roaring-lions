@@ -99,6 +99,22 @@ describe('PALETTE_HEXES', () => {
 });
 
 describe('groundTone', () => {
+  it('gives a ~ tile the theme\'s marsh tone, and the open wash without the field (GH-871 R-11)', () => {
+    // mud.3 as a LITERAL; the shared palette holds it, so quantising is a no-op.
+    const MUD_3 = '#413327';
+    const input = flatInput(4, 4);
+    input.decor = new Uint8Array(16);
+    input.decor[5] = 6; // a marsh tile at (1, 1)
+    const withField: TerrainTones = { ...TONES, marsh: MUD_3 };
+    expect(groundTone(input, withField, 5, PALETTE_HEXES, BACKGROUND).toUpperCase()).toBe(MUD_3);
+    // a neighbour that is not marsh keeps the open wash
+    const open = groundTone(input, withField, 6, PALETTE_HEXES, BACKGROUND).toUpperCase();
+    expect(open).not.toBe(MUD_3);
+    // no field: the marsh tile reads exactly as open ground
+    expect(groundTone(input, TONES, 5, PALETTE_HEXES, BACKGROUND).toUpperCase()).toBe(open);
+    expect(groundTone(input, TONES, 5, PALETTE_HEXES, BACKGROUND)).toBe(groundTone(input, TONES, 6, PALETTE_HEXES, BACKGROUND));
+  });
+
   it('returns a single tone for open ground, not a per-tile jitter (stone)', () => {
     // Swept over a wide, varied grid of tile positions -- covering many
     // distinct tileHash outputs -- rather than asserting the formula by

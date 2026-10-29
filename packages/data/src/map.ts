@@ -13,9 +13,10 @@
 // `b`, `d` and `~` are the symbols whose passability depends on WHO is asking, which
 // is why `blocked` alone cannot carry them: the sim keeps a second mask, and
 // this file supplies the extra tiles that go into it. They are ONLY that -- no
-// cover, no sight-blocking, no HP, not destructible.
+// sight-blocking, no HP, not destructible -- and `b` and `d` carry no cover
+// either (`~` carries cover 1).
 //
-// The two are mechanically IDENTICAL and differ only in what is drawn. That is
+// `b` and `d` are mechanically IDENTICAL and differ only in what is drawn. That is
 // deliberate: `d` reuses `b`'s mask rather than inventing a second one, so it
 // costs the sim nothing at all -- no new field, no new code path, no
 // determinism exposure. What separates them is the decor layer, which is
