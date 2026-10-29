@@ -25,6 +25,15 @@ import { markConfirm } from './confirm-cue';
 import { paintMapTerrain } from './map-preview';
 import { terrainTonesFor } from '../terrain-themes';
 
+/** Shipped maps the Free Play picker does not list (GH-871 P2, the lead's
+ *  ruling): Ein Qasab is a greybox terrain study until P3's real art lands, so
+ *  it is held out of `/free-play`. DELETE the entry when P3 ships. This hides
+ *  the CARD only: `/free-play/ein_qasab` and `?sandbox=ein_qasab` still boot it
+ *  for dev work, and the map stays in `@lions/data` and the Worker's
+ *  `SHIPPED_MAP_IDS`. `sandbox-menu.test.ts` pins this set to exactly this
+ *  list and fails if an entry names no shipped map. */
+export const UNLISTED_MAP_IDS: ReadonlySet<string> = new Set(['ein_qasab']);
+
 export interface MenuOptions {
   /** Deploy base ('/' locally, '/<repo>/' on Pages). */
   base: string;
@@ -463,6 +472,7 @@ export function showSandbox(stage: HTMLElement): Disposer {
   const catalogue = maps as Record<string, MapJson>;
   const links: { id: string; a: HTMLAnchorElement }[] = [];
   for (const id of Object.keys(catalogue)) {
+    if (UNLISTED_MAP_IDS.has(id)) continue;
     const a = document.createElement('a');
     a.className = 'rl-btn rl-menu__item rl-mapcard';
     a.dataset.kind = 'sandbox';
