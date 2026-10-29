@@ -106,10 +106,10 @@ async function makeTeam(): Promise<Document> {
 
 const DEFAULT_PARTS: PartSpec[] = [
   { track: 'armour', tier: 1, part: 'helmet_cover', figure: 'f0', bone: 'head', tris: 20 },
-  { track: 'armour', tier: 2, part: 'shoulder', figure: 'f0', bone: 'spine', side: 'L', slot: 'shoulder', tris: 12 },
-  { track: 'armour', tier: 3, part: 'upperarm_guard', figure: 'f0', bone: 'spine', side: 'L', slot: 'shoulder', tris: 15 },
-  { track: 'firepower', tier: 1, part: 'optic_dot', figure: 'f0', bone: 'weapon', host: 'weapon', slot: 'optic', tris: 7 },
-  { track: 'firepower', tier: 1, part: 'optic_dot', figure: 'f1', bone: 'weapon', host: 'weapon', slot: 'optic', tris: 7 },
+  { track: 'armour', tier: 2, part: 'deltoid', figure: 'f0', bone: 'spine', side: 'L', slot: 'shoulder', tris: 12 },
+  { track: 'armour', tier: 3, part: 'sleeve', figure: 'f0', bone: 'spine', side: 'L', slot: 'shoulder', tris: 15 },
+  { track: 'firepower', tier: 1, part: 'red_dot', figure: 'f0', bone: 'weapon', host: 'weapon', slot: 'optic', tris: 7 },
+  { track: 'firepower', tier: 1, part: 'red_dot', figure: 'f1', bone: 'weapon', host: 'weapon', slot: 'optic', tris: 7 },
   { track: 'sensors', tier: 1, part: 'nvg_mount', figure: 'f1', bone: 'head', tris: 9 },
 ];
 
@@ -264,7 +264,7 @@ describe('applyInfantryKitGraft', () => {
       refuses((t) => makeSource(t, [{ track: 'armour', tier: 1, part: 'helmet_cover', figure: 'f0', bone: 'head', weight: 0.5 }]), /not bound to one bone at weight 1/));
 
     it('a part over 1.10x its approved triangles', () =>
-      refuses((t) => makeSource(t, [{ track: 'armour', tier: 2, part: 'collar', figure: 'f0', bone: 'spine', tris: Math.floor(INFANTRY_KIT_PART_TRIS.collar * 1.1) + 1 }]), /over 1.1x the approved 48/));
+      refuses((t) => makeSource(t, [{ track: 'armour', tier: 2, part: 'yoke', figure: 'f0', bone: 'spine', tris: Math.floor(INFANTRY_KIT_PART_TRIS.yoke * 1.1) + 1 }]), /over 1.1x the approved 32/));
 
     it('a part with no approved size', () =>
       refuses((t) => makeSource(t, [{ track: 'armour', tier: 2, part: 'cape', figure: 'f0', bone: 'spine' }]), /no approved triangle count/));
@@ -272,19 +272,19 @@ describe('applyInfantryKitGraft', () => {
     it('a figure that draws more than 1,200 triangles at maximum kit', () => {
       const many: PartSpec[] = [];
       for (const track of ['armour', 'sensors', 'firepower']) for (const tier of [1, 2, 3]) for (const side of ['L', 'R'] as const) {
-        many.push({ track, tier, part: 'helmet_cover', figure: 'f0', bone: 'head', side, tris: 102 });
+        many.push({ track, tier, part: 'helmet_cover', figure: 'f0', bone: 'head', side, tris: 70 });
       }
-      return refuses((t) => makeSource(t, many), /figure f0 draws 1836 kit triangles/);
+      return refuses((t) => makeSource(t, many), /figure f0 draws 1260 kit triangles/);
     });
 
     it('a file that carries more than 5,000 kit triangles', () => {
       const many: PartSpec[] = [];
       for (const figure of ['f0', 'f1']) for (const track of ['armour', 'sensors', 'firepower']) for (const tier of [1, 2, 3]) for (const side of ['L', 'R'] as const) {
-        many.push({ track, tier, part: 'helmet_cover', figure, bone: 'head', side, tris: 102 });
+        many.push({ track, tier, part: 'carrier', figure, bone: 'spine', side, tris: 200 });
       }
-      // 36 x 102 = 3672 (under the file cap): add a third figure's worth
+      // 36 x 200 = 7200 (over the file cap already, each node inside its own 1.10 x 190); a third figure's worth on top
       for (const track of ['armour', 'sensors', 'firepower']) for (const tier of [1, 2, 3]) for (const side of ['L', 'R'] as const) {
-        many.push({ track, tier, part: 'helmet_cover', figure: 'f2', bone: 'head', side, tris: 102 });
+        many.push({ track, tier, part: 'carrier', figure: 'f2', bone: 'spine', side, tris: 200 });
       }
       return refuses((t) => makeSource(t, many), /over the 5,000 a team file may carry/);
     });

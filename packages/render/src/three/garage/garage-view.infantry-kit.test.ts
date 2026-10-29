@@ -9,7 +9,7 @@
  * nodes, the `_rl_kit` attribute and the team's skin are the ones a mission
  * loads.
  *
- * Triangle counts are LITERALS measured from the shipped file on 28 Oct 2026
+ * Triangle counts are LITERALS measured from the shipped file on 29 Oct 2026 (the redesign)
  * (the same numbers `units/infantry-kit-shipped.test.ts` pins for the mission
  * path): the oracle never recomputes them from the part table it checks.
  */
@@ -68,6 +68,13 @@ vi.mock('../units/gltf-loader', () => ({
       return loader.make?.() ?? Promise.resolve(undefined);
     },
   }),
+}));
+
+// The shipped switch is OFF (`INFANTRY_KIT_ENABLED`, GH-826, 28 Oct 2026, PR 891); these tests keep the garage
+// path honest for the redesign, so the module's own constant is forced on for THIS file only.
+vi.mock('../units/infantry-kit', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../units/infantry-kit')>()),
+  INFANTRY_KIT_ENABLED: true,
 }));
 
 const { mountGarageView } = await import('./garage-view');
@@ -152,7 +159,7 @@ describe('mountGarageView: the bought kit on a team on the turntable (GH-826)', 
     bare.view.dispose();
 
     const full = await mount(SQUAD, 'inf_squad', FULL);
-    expect(full.drawn()).toEqual({ ...BASE, uniform: 8882, weapon: 2513 });
+    expect(full.drawn()).toEqual({ ...BASE, uniform: 8982, weapon: 2353 });
     full.view.dispose();
 
     // Mounted with a track at tier 0 is the plain figure too.
@@ -167,10 +174,10 @@ describe('mountGarageView: the bought kit on a team on the turntable (GH-826)', 
     const frames = m.view.stats().frames;
 
     m.view.setKit(FULL);
-    expect(m.drawn()).toEqual({ ...BASE, uniform: 8882, weapon: 2513 });
+    expect(m.drawn()).toEqual({ ...BASE, uniform: 8982, weapon: 2353 });
     expect(m.view.stats().frames).toBe(frames + 1);
     m.view.setKit({ armour: 1 });
-    expect(m.drawn()).toEqual({ ...BASE, uniform: 7602 });
+    expect(m.drawn()).toEqual({ ...BASE, uniform: 7818 });
     m.view.setKit({ sensors: 1 });
     expect(m.drawn()).toEqual({ ...BASE, weapon: 1317 });
     m.view.setKit({});

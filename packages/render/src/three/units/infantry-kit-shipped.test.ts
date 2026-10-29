@@ -11,7 +11,7 @@
  *    geometry untouched, exactly what main drew before the kit;
  *  - the kit adds NO mesh (+0 draw calls) at any tier;
  *  - the triangle counts of every state, as LITERALS measured from the file on
- *    28 Oct 2026 -- the oracle never recomputes them from the part table it is
+ *    29 Oct 2026 (the redesign, GH-826) -- the oracle never recomputes them from the part table it is
  *    checking (the tier selection logic itself is `infantry-kit.test.ts`).
  */
 import { readFileSync } from 'node:fs';
@@ -29,16 +29,16 @@ const BASE = { boot: 546, face: 81, uniform: 7032, weapon: 945 };
 
 /** [label, tiers, triangles per role mesh] */
 const STATES: [string, Record<string, number>, Partial<typeof BASE>][] = [
-  ['armour 1', { armour: 1 }, { uniform: 7602 }],
-  ['armour 2', { armour: 2 }, { uniform: 8190 }],
-  ['armour 3', { armour: 3 }, { uniform: 8322 }],
+  ['armour 1', { armour: 1 }, { uniform: 7818 }],
+  ['armour 2', { armour: 2 }, { uniform: 8106 }],
+  ['armour 3', { armour: 3 }, { uniform: 8274 }],
   ['sensors 1', { sensors: 1 }, { weapon: 1317 }],
-  ['sensors 2', { sensors: 2 }, { uniform: 7220, weapon: 1415 }],
-  ['sensors 3', { sensors: 3 }, { uniform: 7220, weapon: 1817 }],
-  ['firepower 1', { firepower: 1 }, { weapon: 1245 }],
-  ['firepower 2', { firepower: 2 }, { uniform: 7140, weapon: 1431 }],
-  ['firepower 3', { firepower: 3 }, { uniform: 7404, weapon: 1641 }],
-  ['full kit', { armour: 3, sensors: 3, firepower: 3 }, { uniform: 8882, weapon: 2513 }],
+  ['sensors 2', { sensors: 2 }, { uniform: 7228, weapon: 1477 }],
+  ['sensors 3', { sensors: 3 }, { uniform: 7260, weapon: 1675 }],
+  ['firepower 1', { firepower: 1 }, { uniform: 7392, weapon: 1155 }],
+  ['firepower 2', { firepower: 2 }, { uniform: 7392, weapon: 1491 }],
+  ['firepower 3', { firepower: 3 }, { uniform: 7512, weapon: 1623 }],
+  ['full kit', { armour: 3, sensors: 3, firepower: 3 }, { uniform: 8982, weapon: 2353 }],
 ];
 
 /**
@@ -91,10 +91,10 @@ describe('inf_squad through the real loader', () => {
     }
   });
 
-  it('full kit draws 3,418 kit triangles: 1,110 + 1,198 + 1,110 per figure, superseded parts dropped', async () => {
+  it('full kit draws 3,358 kit triangles: 1,094 + 1,170 + 1,094 per figure, superseded parts dropped', async () => {
     const { meshes } = await build({ armour: 3, sensors: 3, firepower: 3 });
     const all = Object.values(meshes).reduce((n, m) => n + tris(m), 0);
-    expect(all - 8604).toBe(1110 + 1198 + 1110);
+    expect(all - 8604).toBe(1094 + 1170 + 1094);
   });
 
   it('the kit rides the team\'s bones: kit vertices are skinned at weight 1 to bones of the shared skeleton', async () => {

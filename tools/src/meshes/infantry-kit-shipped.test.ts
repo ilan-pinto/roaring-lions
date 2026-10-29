@@ -98,7 +98,7 @@ describe('inf_squad: the kit in art/meshes', () => {
 
   it('puts the radio whip and the pack on the leader only', async () => {
     const all = [...kitParts(await doc).values()].flat();
-    for (const part of ['antenna_short', 'antenna_long', 'assault_pack']) {
+    for (const part of ['whip_short', 'whip_long', 'radio_panel', 'radio_pack']) {
       expect(all.filter((p) => p.part === part).map((p) => p.figure)).toEqual(['f1']);
     }
   });

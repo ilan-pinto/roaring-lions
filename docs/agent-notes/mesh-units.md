@@ -661,16 +661,33 @@ for vehicles.
   `upgradePrepass`, resolved as `applyUpgrades` resolves it) -> `loadMeshUnit` ->
   `buildMeshUnitTemplate(..., kitTiers)`. No world mark (the lead's ruling);
   kit reads on the figure, on the unit icons (the steel star) and in the HUD.
-- **Sensors parts ride the `weapon` role primitive** (dark texels), so they take
-  the weapon's surface roughness/metalness; the armour and belt gear ride
-  `uniform`. Tones are pinned texels of the team's own atlas: armour pale tan,
-  khaki and olive pouches and pack, dark and black devices, a cream IR cover and
-  an orange helmet band. Zero new textures, zero new materials.
-- **Clash census** (`tools/inf_kit_clash.py`, Blender): a part rides one bone, so
-  it can only clip geometry on another bone. Side plates were moved outboard,
-  rearward and a hand up (the upper arm hangs flush with the flank, so some
-  contact with it is the figure's own); the idle/kneel/pinned numbers are in
-  the PR.
+- **Sensors devices ride the `weapon` role primitive** (dark texels), so they take
+  the weapon's surface roughness/metalness; soft goods, pouches and the radio
+  pack ride `uniform`. **REDESIGNED 29 Oct 2026, "real gear, fitted"** (the
+  26-28 Oct kit was three times real size, flat-shaded and pale tan; the lead
+  called it robots). Real-world sizes at 1.00x (helmet devices 1.08x, the Meshy
+  helmet being 1.08x a real one); the soft goods are shrink-wraps of the
+  figure's OWN surface (`tools/units/inf_kit_geo.py` `Wrap`: a regular grid
+  projected onto a body zone, offset by the real fabric and plate thickness,
+  poke-through checked); every face is smooth with sharp edges only at a 40 deg
+  fold; tones are texels of the team's own atlas that match palette keys within
+  dE76 2.4: coyote `dust.5`/`dust.6`, olive `olive.2`/`olive.3`, glass
+  `shadow.0`. Zero new textures, zero new materials. The per-part refusal
+  (`INFANTRY_KIT_PART_TRIS`) is the redesign spec's column.
+- **A wrap is trimmed against the clips' own keys** (`inf_kit_fit.py`
+  `PoseBank`): every other bone's vertices, carried into the part's bone frame
+  over idle, move, fire, moveFire, kneel and pinned, cap the part's thickness
+  so it never ends up deeper than 3.5 mm in anything that moves. No clash
+  allowance is in force (the carrier's table is empty): the census reads 0 pairs
+  over 4 mm in every living clip including kneelIn and kneelOut
+  (`tools/inf_kit_clash.py`, every keyframe plus a stride, an open shell closed
+  by its own per-vertex thickness). `down` is informational (corpses keep base
+  gear). The NVG mount stands 3 cm below the helmet top and the LPVO sits 6 cm
+  forward of the spec because the bowed head's bridge struck the eyepiece.
+- **The switch is OFF (`INFANTRY_KIT_ENABLED = false`, PR 891).** A capture
+  forces it on in its own browser only (`inf-kit-capture.ts` `forceKitOn`
+  rewrites the served module in flight and refuses a run that rewrote nothing);
+  the unit tests force it with a `vi.mock` or the `kitEnabled` parameter.
 
 - **The garage turntable wears it too (GH-826).** `garage-view.ts` builds a team
   whose GLB declares kit extras the way it builds a kitted vehicle: the loaded
