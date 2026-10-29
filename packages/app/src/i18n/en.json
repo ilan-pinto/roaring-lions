@@ -937,6 +937,7 @@
   "formation.attack.blurb": "Armour on the click, infantry close behind. Medics and aircraft hold back.",
   "formation.ambush.name": "Ambush",
   "formation.ambush.blurb": "Ring the clicked ground and hold. Every unit opens fire together.",
+  "hud.formation.inert.versus": "Formations are not in versus rooms yet",
   "hud.formation.face.travel": "Faces the way you march.",
   "hud.formation.face.front": "Faces the approach.",
   "hud.formation.face.inward": "Faces inward.",

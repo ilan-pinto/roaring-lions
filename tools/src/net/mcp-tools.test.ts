@@ -129,45 +129,44 @@ describe('order in command scope (case 2)', () => {
 const BOTS = { host: 'bot', guest: 'bot' } as const;
 // GH-859 P1a: the agent harness orders a combat formation through the same door a human's click will use.
 describe('order: the formation field (GH-859 P1a)', () => {
-  it('a Column move reaches the room, is framed for both seats, and forms the same group in both sims', async () => {
+  // Task 6V (the lead's ruling, 29 Oct): formations are OFF in versus rooms until P1b, and `twoSeats` is a versus room. The agent
+  // harness checks an order with the same `validateCommand` the receiver runs, so a formation order is refused before it is sent.
+  // The open-gate plumbing (stamped, framed, the same group on both sims) is witnessed in `two-client.test.ts` ("GATE OPEN").
+  it('a Column move in a versus room is refused as invalid and nothing is sent; the plain move goes through and forms no group', async () => {
     const { loop, a, c } = await twoSeats(BOTS);
     const ctx = createContext(a.client, 'command');
     const wa = a.client.world() as MatchWorld;
     const wc = c.client.world() as MatchWorld;
     const own = sideIds(wa, 0).slice(0, 4);
     expect(own).toHaveLength(4);
+    // Both machines still REGISTER the formations: the sim is untouched, the door is what is shut.
+    for (const w of [wa, wc]) expect(w.sim.formationTypeCount()).toBe(3);
     const r = await call(ctx, 'order', { verb: 'move', ids: own, x: 20, y: 20, formation: 'column' });
-    expect(r.ok, r.text).toBe(true);
+    expect(r.ok).toBe(false);
+    expect(body(r)).toEqual({ error: 'invalid' });
+    await loop.flush();
+    expect(sentBy(loop, a).filter((m) => m.t === 'cmd')).toEqual([]);
+    // The same order without the field is an ordinary order: sent, framed for both seats, no group.
+    const plain = await call(ctx, 'order', { verb: 'move', ids: own, x: 20, y: 20 });
+    expect(plain.ok, plain.text).toBe(true);
     await drive(loop, [a.client, c.client], call(ctx, 'wait', { ticks: 40 }));
     const sent = sentBy(loop, a).filter((m) => m.t === 'cmd');
     expect(sent).toHaveLength(1);
-    expect(sent[0]).toMatchObject({ cmd: { kind: 'move', ids: own, formation: 'column' } });
-    for (const j of [a, c]) {
-      const framed = heardBy(loop, j).flatMap((m) => (m.t === 'frame' ? m.cmds : [])).map((s) => s.cmd);
-      expect(framed).toEqual([{ kind: 'move', ids: own, x: fx.from(20.5), y: fx.from(20.5), formation: 'column' }]);
-    }
-    // Both machines registered the same formations (a literal order: ambush, attack, column) and formed the
-    // group: column is index 2, in row 0 of side 0, with all four members.
-    for (const w of [wa, wc]) {
-      expect(w.sim.formationTypeCount()).toBe(3);
-      expect(own.map((id) => w.sim.formationGroupOf(id))).toEqual([0, 0, 0, 0]);
-      expect(w.sim.formationTypeOfGroup(0)).toBe(2);
-      expect(w.sim.formationMembersOfGroup(0)).toBe(4);
-    }
+    expect('formation' in (sent[0] as { cmd: object }).cmd).toBe(false);
+    for (const w of [wa, wc]) expect(own.map((id) => w.sim.formationGroupOf(id))).toEqual([-1, -1, -1, -1]);
     expect(wa.sim.hash()).toBe(wc.sim.hash());
   });
-  it('an attack formation rides an attackMove, and the same order without the field forms no group', async () => {
+  it('an attack formation on an attackMove is refused the same way, and the plain attackMove forms no group', async () => {
     const { loop, a, c } = await twoSeats(BOTS);
     const ctx = createContext(a.client, 'command');
     const wa = a.client.world() as MatchWorld;
     const own = sideIds(wa, 0).slice(0, 3);
-    expect((await call(ctx, 'order', { verb: 'attackMove', ids: own, x: 20, y: 20, formation: 'attack' })).ok).toBe(true);
+    const r = await call(ctx, 'order', { verb: 'attackMove', ids: own, x: 20, y: 20, formation: 'attack' });
+    expect(r.ok).toBe(false);
+    expect(body(r)).toEqual({ error: 'invalid' });
+    expect((await call(ctx, 'order', { verb: 'attackMove', ids: own, x: 20, y: 20 })).ok).toBe(true);
     await drive(loop, [a.client, c.client], call(ctx, 'wait', { ticks: 40 }));
-    expect(wa.sim.formationTypeOfGroup(0)).toBe(1);
-    const plain = sideIds(wa, 0).slice(3, 6);
-    expect((await call(ctx, 'order', { verb: 'move', ids: plain, x: 22, y: 20 })).ok).toBe(true);
-    await drive(loop, [a.client, c.client], call(ctx, 'wait', { ticks: 40 }));
-    expect(plain.map((id) => wa.sim.formationGroupOf(id))).toEqual([-1, -1, -1]);
+    expect(own.map((id) => wa.sim.formationGroupOf(id))).toEqual([-1, -1, -1]);
   });
   it('an id nobody ships, a formation on the wrong verb or on another verb, is refused and nothing is sent', async () => {
     const { loop, a } = await twoSeats(BOTS);
