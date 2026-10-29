@@ -115,10 +115,10 @@
       "theme_only": true,
       "role": "the wetland's living green -- open ground, cover verge, low ground and the willow crown. Procedural terrain and decor tint only (GH-871).",
       "colors": [
-        "#75A659",
-        "#4B7135"
+        "#7F9F57",
+        "#4F6732"
       ],
-      "note": "Added for the wetland biome (GH-871 P2). Descending brightness like every ramp: index 0 is the lightest. A cool, wet green that no existing ramp holds: grass and scrub are drier and yellower, olive is a dusty grey-green, so a wet meadow snapped to one of them read as a field in August. `theme_only` keeps it OUT of the shared quantiser set: a theme opts in by naming it in TerrainTones.paletteRamps (only the wetland does), so no existing map's composed terrain can move."
+      "note": "Added for the wetland biome (GH-871 P2), revision 4: moved olive-ward, less saturated and a little darker (was #75A659 / #4B7135, hue 98) after the S-6 look, toward the mood board's Levantine sward (hue 55-83). Descending brightness like every ramp: index 0 is the lightest. The floor stops it: fen.0 must stay at CIEDE2000 15.6 or more from the KDF uniform olive.1 (#6E7449), and hue 54 clears it only as a mustard (#9D9545) that is more saturated in HSL, so hue 87 at luma 147 is as far olive-ward as it goes while staying darker and less saturated (tools/src/wetland-readability.test.ts). A cool, wet green that no existing ramp holds: grass and scrub are drier and yellower, olive is a dusty grey-green, so a wet meadow snapped to one of them read as a field in August. `theme_only` keeps it OUT of the shared quantiser set: a theme opts in by naming it in TerrainTones.paletteRamps (only the wetland does), so no existing map's composed terrain can move."
     },
     "mud": {
       "theme_only": true,

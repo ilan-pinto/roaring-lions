@@ -130,9 +130,10 @@ describe('VR-05: foliage is scrub.1, off the KDF olive (arid and highland)', () 
     it(`${theme}: every foliage tone is at least ΔE2000 ${MIN_FIGURE_GROUND_DE2000} from the KDF uniform`, () => {
       const uniform = linear(KDF_UNIFORM_KEY);
       const tones: Array<[string, string]> = FAMILIES[theme].map((f) => [`${f}:foliage`, foliageHex(theme, f)]);
-      // The wetland's tussock (`low`, `fen.1`, spec 4.2) reads ΔE2000 9.34 from
-      // the uniform, under this floor; it is the scatter tussock, not a
-      // foliage family, and is reported rather than gated (GH-871 P2 T4).
+      // The wetland's tussock (`low`, `fen.1`, spec 4.2) reads ΔE2000 8.44 from
+      // the uniform (9.34 before the S-6 tone round), under this floor; it is
+      // the scatter tussock, not a foliage family, and is PINNED rather than
+      // gated: see 'the wetland tussock (low) ...' below (GH-871 P2 T4, S-6).
       if (theme !== 'wetland') tones.push(['low', TERRAIN_THEMES[theme].low]);
       // Not vacuous: the wetland path checked its five families, each tinted.
       if (theme === 'wetland') expect(tones).toHaveLength(5);
@@ -171,9 +172,24 @@ describe('GH-871 P2 T4: the wetland keeps its own foliage off the KDF uniform', 
     const d = (hex: string) => deltaE2000(linear(KDF_UNIFORM_KEY), linearHex(hex));
     // oak and shrub #3E5C2E: 12.60 -- the floor's own margin, 0.6 over 12.
     expect(d('#3E5C2E')).toBeCloseTo(12.6, 1);
-    // fen.1 as oak foliage would be 9.34, under the floor: the falsification.
-    expect(d(paletteColor('fen.1'))).toBeCloseTo(9.34, 1);
+    // fen.1 as oak foliage would be 8.44 (9.34 for the first cut #4B7135), under the floor: the falsification.
+    expect(d(paletteColor('fen.1'))).toBeCloseTo(8.44, 1);
     expect(d(paletteColor('fen.1'))).toBeLessThan(MIN_FIGURE_GROUND_DE2000);
+    // the willow crown (fen.0 #7F9F57; 18.37 for the first cut #75A659): the margin over the floor
+    expect(d(foliageHex('wetland', 'willow'))).toBeCloseTo(15.82, 1);
+    // the five families' lowest, as a literal: oak and shrub at 12.60 (reed 15.65, wet_grass 21.30)
+    expect(d(foliageHex('wetland', 'reed'))).toBeCloseTo(15.65, 1);
+    expect(d(foliageHex('wetland', 'wet_grass'))).toBeCloseTo(21.3, 1);
+  });
+
+  it('pins the wetland tussock (low = fen.1) against the uniform, known debt below the 12 foliage floor', () => {
+    // known debt: below the 12 foliage floor; delete when retinted. It was 9.34 at
+    // #4B7135 and is 8.44 at #4F6732 (S-6 moved fen.1 olive-ward and less saturated).
+    // Pinned so a later ramp edit cannot move it unnoticed.
+    const d = deltaE2000(linear(KDF_UNIFORM_KEY), linearHex(TERRAIN_THEMES.wetland.low));
+    expect(TERRAIN_THEMES.wetland.low).toBe(paletteColor('fen.1'));
+    expect(d, `wetland low (${TERRAIN_THEMES.wetland.low}): ΔE2000 ${d.toFixed(2)}`).toBeCloseTo(8.44, 2);
+    expect(d).toBeLessThan(MIN_FIGURE_GROUND_DE2000);
   });
 
   it('lists exactly the foliage-carrying families the Ein Qasab greybox plans to place (Task 7)', () => {

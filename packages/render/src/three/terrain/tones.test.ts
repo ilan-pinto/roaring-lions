@@ -173,7 +173,8 @@ describe('groundTone', () => {
 
 // GH-871 P2: the wetland's four theme-only ramps, as LITERALS (an oracle never
 // imports its arguments from the code under test).
-const FEN = ['#75A659', '#4B7135'];
+// fen was ['#75A659', '#4B7135'] (hue 98) until the GH-871 P2 S-6 tone round.
+const FEN = ['#7F9F57', '#4F6732'];
 const MUD = ['#8E6F55', '#725944', '#584535', '#413327', '#2D241B'];
 const OVERCAST = ['#C4C8C9', '#9FA9B5', '#83898D', '#656B70', '#4A4F54'];
 const BASALT = ['#4B453D'];
