@@ -84,7 +84,7 @@
       { "unit": "sarim_rifles", "count": 1, "at": [9, 15], "tag": "qh_hvt_relay", "group": "relay", "stance": { "kind": "ambush", "tiles": 2 } },
       { "unit": "sarim_rifles", "count": 1, "at": [10, 16], "tag": "qh_hvt_relay", "group": "relay", "stance": { "kind": "ambush", "tiles": 2 } },
       { "unit": "sarim_rifles", "count": 1, "at": [15, 14] },
-      { "unit": "atgm_cell", "count": 1, "at": [16, 20], "tag": "qh_atgm_ditch", "stance": { "kind": "ambush", "tiles": 6 } },
+      { "unit": "atgm_cell", "count": 1, "at": [14, 19], "tag": "qh_atgm_ditch", "stance": { "kind": "ambush", "tiles": 6 } },
       { "unit": "sarim_rifles", "count": 1, "at": [21, 12], "group": "village", "stance": { "kind": "garrison", "building": [21, 12] } },
       { "unit": "sarim_rifles", "count": 1, "at": [27, 6], "group": "village", "stance": { "kind": "garrison", "building": [27, 6] } },
       { "unit": "recoilless_team", "count": 1, "at": [36, 8], "group": "village", "stance": { "kind": "ambush", "tiles": 5 } },
